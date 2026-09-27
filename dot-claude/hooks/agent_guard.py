@@ -26,7 +26,9 @@ Reads the hook JSON on stdin.
   UserPromptSubmit                  prune router markers of earlier prompts
   SessionStart (startup|resume)     clear locks and router markers, prune old session dirs
 
-Concurrency model (the user's spec): depth 3 below the main thread; any agent whose row allows
+Concurrency model (the user's spec): depth 4 below the main thread (router -> L1 -> L2 -> L3 ->
+L4; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4, and the fallback here stays at
+Claude Code's own default of 3); any agent whose row allows
 it may launch several children in ONE message (they run concurrently in the background); agents
 in SELF_SPAWN may launch copies of themselves (one generation: a copy cannot copy itself again);
 at most STACK_MAX_FANOUT running children per parent, STACK_MAX_SELF_FANOUT of them copies.
@@ -103,7 +105,7 @@ AGENTS = [
     "devops-engineer", "data-engineer", "frontend-engineer", "code-reviewer", "verifier",
     "security-auditor", "mcp-broker", "claude-code-guide",
     "ml-engineer", "dl-engineer", "llm-engineer", "data-scientist", "browser-operator",
-    "claude-code-engineer",
+    "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist",
 ]
 BUILTINS = ["explore"]
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
@@ -123,11 +125,11 @@ POLICY = {
     "researcher": ["researcher", "scout", "doc-specialist", "mathematician", "data-engineer",
                    "data-scientist", "browser-operator", "mcp-broker"],
     "writer": ["writer", "scout", "researcher", "mathematician"],
-    "mathematician": ["mathematician", "scout", "mcp-broker"],
+    "mathematician": ["mathematician", "scout", "mcp-broker", "quantum-engineer"],
     "image-director": ["scout"],
     "doc-specialist": ["doc-specialist", "scout", "mcp-broker"],
-    "designer": ["image-director", "scout", "mcp-broker"],
-    "motion-designer": ["image-director", "designer", "scout", "mcp-broker"],
+    "designer": ["image-director", "scout", "mcp-broker", "cg-artist"],
+    "motion-designer": ["image-director", "designer", "scout", "mcp-broker", "cg-artist"],
     "coder": ["coder", "explore", "scout"],
     "main-coder": ["main-coder", "coder", "explore", "scout", "verifier", "code-reviewer",
                    "security-auditor", "plan-reviewer", "mlx-engineer", "cuda-engineer",
@@ -136,7 +138,7 @@ POLICY = {
     "ninja-coder": ["ninja-coder", "main-coder", "coder", "mathematician", "explore", "scout",
                     "verifier", "code-reviewer", "security-auditor", "researcher", "mlx-engineer",
                     "cuda-engineer", "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker",
-                    "god-coder"],
+                    "god-coder", "quantum-engineer"],
     "god-coder": ["coder", "main-coder", "ninja-coder", "mlx-engineer", "cuda-engineer",
                   "ml-engineer", "dl-engineer", "llm-engineer", "explore", "scout", "verifier",
                   "code-reviewer", "security-auditor", "mathematician", "researcher"],
@@ -144,7 +146,7 @@ POLICY = {
     "cuda-engineer": list(_ACCEL_ROW),
     "devops-engineer": ["coder", "explore", "scout", "verifier", "security-auditor", "mcp-broker"],
     "data-engineer": ["data-engineer", "coder", "explore", "scout", "verifier", "mathematician",
-                      "data-scientist", "doc-specialist"],
+                      "data-scientist", "doc-specialist", "mcp-broker"],
     "frontend-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "designer",
                           "image-director", "mcp-broker"],
     "ml-engineer": ["ml-engineer", "data-scientist", "data-engineer", "coder", "explore", "scout",
@@ -160,6 +162,16 @@ POLICY = {
                        "explore", "scout", "verifier", "doc-specialist", "writer", "mcp-broker"],
     "claude-code-engineer": ["claude-code-guide", "scout", "explore", "verifier", "code-reviewer",
                              "mcp-broker"],
+    # quantum computing and quantum-physics numerics; derivations stay with mathematician
+    "quantum-engineer": ["quantum-engineer", "mathematician", "coder", "explore", "scout",
+                         "researcher", "verifier", "code-reviewer", "cuda-engineer", "mlx-engineer",
+                         "mcp-broker", "ninja-coder"],
+    "robotics-engineer": ["robotics-engineer", "coder", "explore", "scout", "researcher",
+                          "verifier", "code-reviewer", "mathematician", "dl-engineer",
+                          "cuda-engineer", "mlx-engineer", "cg-artist", "mcp-broker",
+                          "ninja-coder"],
+    # a GUI agent (ZBrush, Substance, Houdini through computer use): no copies, one screen
+    "cg-artist": ["image-director", "coder", "scout", "verifier", "mcp-broker"],
     "oracle": [], "scout": [], "code-reviewer": [], "verifier": [], "security-auditor": [],
     "mcp-broker": [], "claude-code-guide": [], "browser-operator": [],
 }
@@ -942,6 +954,9 @@ LOCAL_READ_TOOLS = [
     (re.compile(r"mcp__markitdown__"), (), ()),
     (re.compile(r"mcp__magg__docling_"), ("source", "sources", "path", "file_path"), ("http://", "https://")),
     (re.compile(r"mcp__(?:playwright__|magg__pw_)"), ("paths",), ()),   # browser_file_upload
+    # chrome-devtools-mcp mounted by mcp-broker: upload_file, traces, heap snapshots, screenshots
+    (re.compile(r"mcp__magg__cdt_"), ("filePaths", "filePath", "baseFilePath", "currentFilePath",
+                                     "requestFilePath", "responseFilePath"), ()),
 ]
 DIRS_REFUSED = re.compile(r"mcp__context-mode__ctx_index\Z")   # walks a directory it is given
 # Bounds that keep the check well inside the hook's 15 s timeout (a timed-out hook doesn't block):
@@ -1326,6 +1341,7 @@ IMAGE_MIME = {".png": "image/png", ".jpg": "image/jpeg", ".jpeg": "image/jpeg", 
 UPLOAD_TOOLS = [
     (re.compile(r"mcp__(?:playwright__|magg__pw_)browser_(?:file_upload|drop)\Z"), ("paths",)),
     (re.compile(r"mcp__claude-in-chrome__file_upload\Z"), ("paths",)),
+    (re.compile(r"mcp__magg__cdt_upload_file\Z"), ("filePaths",)),
 ]   # image-studio scales its own input images in memory (STACK_IMAGE_MAX_PX)
 # argument names checked in tools added with STACK_IMAGE_UPLOAD_TOOLS (a regex of full tool names)
 UPLOAD_KEYS = re.compile(

@@ -1,9 +1,9 @@
 ---
 name: writer
 description: "Writes and edits prose: articles, blog posts in Markdown with LaTeX and Mermaid, technical explanations, emails, copy, summaries and translations (European Portuguese / English), matching voice and audience."
-model: claude-opus-5-5
+model: opus
 effort: medium
-maxTurns: 150
+maxTurns: 400
 tools: Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, Artifact, mcp__jina
 color: green
 ---

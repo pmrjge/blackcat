@@ -1,12 +1,12 @@
 ---
 name: god-coder
 description: "Last-resort engineer for exceptional programming or AI problems others could not solve: novel algorithms, deep systems/compiler/concurrency/numerical failures, research-grade ML. Expensive — only after ninja-coder failed or on explicit request. Only one may run at a time."
-model: claude-fable-5-1
+model: fable
 # Effort: `ultracode` is not an agent effort. In this file it would be ignored and the agent would
 # run at the calling session's level (low for the router); ultracode (xhigh + dynamic workflows)
 # exists only on a main thread: claude-god. Dispatched as a subagent, max is the deepest level.
 effort: max
-maxTurns: 1500
+maxTurns: 2000
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, Workflow, mcp__libdocs, mcp__exa, mcp__jina, mcp__wolfram, mcp__neural-memory
 mcpServers:
   - libdocs:

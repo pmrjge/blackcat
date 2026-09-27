@@ -1,9 +1,9 @@
 ---
 name: llm-engineer
 description: "Large language model engineering: local inference and serving (mlx-lm, oMLX, llama.cpp/GGUF, vLLM/SGLang), quantization (mixed precision, rotations, GPTQ/AWQ/QTIP, MoE), fine-tuning (LoRA/QLoRA/DPO), evaluation (perplexity, benchmark harnesses, LLM-as-judge), RAG, embeddings and rerankers, agents and tool use (Claude API, Agent SDK, MCP), prompting, tokenizers and chat templates."
-model: claude-opus-5-5
+model: opus
 effort: high
-maxTurns: 600
+maxTurns: 900
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina, mcp__huggingface, mcp__wandb, mcp__neural-memory
 mcpServers:
   - libdocs:

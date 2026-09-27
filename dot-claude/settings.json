@@ -3,9 +3,9 @@
   "agent": "router",
   "autoCompactEnabled": true,
   "autoCompactWindow": 800000,
-  "skillListingBudgetFraction": 0.02,
+  "skillListingBudgetFraction": 0.025,
   "env": {
-    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "3",
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4",
     "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "32",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-sonnet-5",
     "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION": "400",
@@ -40,6 +40,7 @@
       "mcp__illustrator",
       "mcp__after-effects",
       "mcp__premiere",
+      "mcp__blender",
       "mcp__magg__magg_list_servers",
       "mcp__magg__magg_list_kits",
       "mcp__magg__magg_kit_info",
@@ -57,6 +58,9 @@
       "mcp__magg__arxiv_*",
       "mcp__magg__jupyter_*",
       "mcp__magg__mlflow_*",
+      "mcp__magg__mongodb_*",
+      "mcp__magg__postgres_*",
+      "mcp__magg__cdt_*",
       "mcp__playwright",
       "mcp__neural-memory",
       "mcp__context-mode__ctx_fetch_and_index",
@@ -153,7 +157,7 @@
         ]
       },
       {
-        "matcher": "mcp__context-mode__ctx_index|mcp__markitdown__.*|mcp__magg__docling_.*|mcp__playwright__.*|mcp__magg__pw_.*",
+        "matcher": "mcp__context-mode__ctx_index|mcp__markitdown__.*|mcp__magg__docling_.*|mcp__playwright__.*|mcp__magg__pw_.*|mcp__magg__cdt_.*",
         "hooks": [
           {
             "type": "command",

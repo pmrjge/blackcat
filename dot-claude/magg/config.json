@@ -100,6 +100,67 @@
       ],
       "notes": "MLflow trace search and management for LLM/agent evaluation. Needs MLFLOW_TRACKING_URI in stack.env (e.g. http://127.0.0.1:5000 or a file:// store). --no-project keeps uv from creating a .venv/uv.lock in your project.",
       "enabled": false
+    },
+    "mongodb": {
+      "source": "https://github.com/mongodb-js/mongodb-mcp-server",
+      "prefix": "mongodb",
+      "command": "__NPX__",
+      "args": [
+        "-y",
+        "mongodb-mcp-server@3.0.4",
+        "--readOnly",
+        "--telemetry",
+        "disabled"
+      ],
+      "notes": "Official MongoDB server: find, aggregate, explain, list collections and indexes, schema sampling. Read-only (--readOnly registers no create/update/delete tools); telemetry off. Needs MDB_MCP_CONNECTION_STRING in stack.env (a local or dev database; never production without the user's word), or the connect tool with a string the user gave.",
+      "enabled": false
+    },
+    "postgres": {
+      "source": "https://github.com/crystaldba/postgres-mcp",
+      "prefix": "postgres",
+      "command": "__UVX__",
+      "args": [
+        "postgres-mcp@0.3.0",
+        "--access-mode=restricted"
+      ],
+      "notes": "Postgres MCP Pro: schema listing, read-only SQL, EXPLAIN plans, index tuning advice, database health checks. --access-mode=restricted runs read-only transactions with execution-time limits. Needs DATABASE_URI (postgresql://user:pass@host:5432/db) in stack.env. psql through Bash does the same for anything scripted.",
+      "enabled": false
+    },
+    "ros": {
+      "source": "https://github.com/robotmcp/ros-mcp-server",
+      "prefix": "ros",
+      "command": "__UVX__",
+      "args": [
+        "ros-mcp@3.1.2",
+        "--transport=stdio"
+      ],
+      "notes": "ROS 1/ROS 2 over rosbridge (WebSocket, default port 9090): discover topics, services, actions and their types; subscribe, publish, call services, set parameters. The robot side runs rosbridge_server (ros2 launch rosbridge_server rosbridge_websocket_launch.xml). Its tools can MOVE a real robot: they are not pre-approved, so each call asks the user; use a simulator unless the user says otherwise.",
+      "enabled": false
+    },
+    "chrome-devtools": {
+      "source": "https://github.com/ChromeDevTools/chrome-devtools-mcp",
+      "prefix": "cdt",
+      "command": "__NPX__",
+      "args": [
+        "-y",
+        "chrome-devtools-mcp@1.10.1",
+        "--headless",
+        "--isolated",
+        "--no-usage-statistics",
+        "--no-performance-crux"
+      ],
+      "notes": "Chrome DevTools from Google: performance traces and insights, Lighthouse audits, network requests, console messages, CSS, heap snapshots, emulation. Headless, throwaway profile, no usage statistics, no CrUX lookups (page URLs stay local). Needs Google Chrome.",
+      "enabled": false
+    },
+    "qiskit-runtime": {
+      "source": "https://github.com/Qiskit/mcp-servers",
+      "prefix": "qiskit",
+      "command": "__UVX__",
+      "args": [
+        "qiskit-ibm-runtime-mcp-server@0.6.1"
+      ],
+      "notes": "IBM Quantum Platform through Qiskit Runtime: list backends and their calibration, submit and monitor jobs on real hardware, fetch results. Needs QISKIT_IBM_TOKEN in stack.env. Hardware jobs spend the account's quota: its tools are not pre-approved, so each call asks the user. Simulate locally first (qiskit-aer).",
+      "enabled": false
     }
   }
 }
