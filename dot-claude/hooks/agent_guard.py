@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """Behavior enforcement for the Claude Code multi-agent stack (stdlib only, Python 3.8+, POSIX).
 
-Wired in settings.json (every event below) and, in `router-guard` mode, in agents/router.md. The
+Wired in settings.json (every event below) and, in `blackcat-guard` mode, in agents/blackcat.md. The
 installer renders every hook command with an absolute interpreter path (never a pyenv/asdf shim):
 a hook that cannot start is a non-blocking error in Claude Code, i.e. every gate silently open.
 Reads the hook JSON on stdin.
 
   PreToolUse  Agent                 spawn policy, depth limit, self-copy rule, fan-out caps,
-                                    router dispatch window (atomic markers), god-coder singleton
+                                    blackcat dispatch window (atomic markers), god-coder singleton
                                     (pending lease), strip `model`
   PreToolUse  SendMessage           resuming a finished agent follows the spawn policy (the caller's
                                     row, or its own child/parent) and its parent's fan-out caps;
@@ -21,12 +21,12 @@ Reads the hook JSON on stdin.
   SubagentStart / SubagentStop      registry bookkeeping; confirm / release locks
   PostToolUse TaskStop, StopFailure mark the agent stopped and release its locks (a stopped or
                                     failed subagent is not promised a SubagentStop)
-  PostToolUseFailure / PermissionDenied (Agent)   roll back god-coder lease, router marker and
+  PostToolUseFailure / PermissionDenied (Agent)   roll back god-coder lease, blackcat marker and
                                     fan-out lease
-  UserPromptSubmit                  prune router markers of earlier prompts
-  SessionStart (startup|resume)     clear locks and router markers, prune old session dirs
+  UserPromptSubmit                  prune blackcat markers of earlier prompts
+  SessionStart (startup|resume)     clear locks and blackcat markers, prune old session dirs
 
-Concurrency model (the user's spec): depth 4 below the main thread (router -> L1 -> L2 -> L3 ->
+Concurrency model (the user's spec): depth 4 below the main thread (blackcat -> L1 -> L2 -> L3 ->
 L4; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4, and the fallback here stays at
 Claude Code's own default of 3); any agent whose row allows
 it may launch several children in ONE message (they run concurrently in the background); agents
@@ -38,10 +38,10 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
                           stopped, transcript}
   names/<name>.json       {type, id} for agents spawned with a `name`
   fanout/<caller>/<tool_use_id>.json   pending spawn leases (until PostToolUse)
-  router/dispatch.<prompt>.<k>, router/step.<prompt>.<k>   O_EXCL markers
+  blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
   god-coder.lock, screen.lock  JSON, replaced atomically; transitions under flock(*.mutex)
 
-Failure policy: an exception in a PreToolUse handler (or in router-guard mode) denies the call
+Failure policy: an exception in a PreToolUse handler (or in blackcat-guard mode) denies the call
 (fail closed); lifecycle events log to stderr and exit 0. The escape hatch (STACK_POLICY=off) is
 shown to the user in `systemMessage`, never to the model in the deny reason.
 
@@ -50,15 +50,15 @@ waits for background children its own transcript is quiet, so idle rules look at
 subtree (the agent's transcript and every live descendant's).
 
 CLI: `agent_guard.py --print-policy` (JSON consumed by doctor.sh and tests/lint_agents.py),
-`--self-test`, `router-guard` (PreToolUse hook of the router main thread), `image-limit`
+`--self-test`, `blackcat-guard` (PreToolUse hook of the blackcat main thread), `image-limit`
 (PreToolUse/PostToolUse hook that keeps images under STACK_IMAGE_MAX_PX), no argument = event.
 
 Knobs (env):
   STACK_POLICY=off        disable every deny and lock (bookkeeping and model strip continue)
-  ROUTER_MAX_DISPATCH=3   router Agent calls per user prompt (parallel fan-out of independent asks)
-  ROUTER_DISPATCH_WINDOW_S=30  all router dispatches for one prompt must start within this many
+  BLACKCAT_MAX_DISPATCH=3   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
+  BLACKCAT_DISPATCH_WINDOW_S=30  all blackcat dispatches for one prompt must start within this many
                           seconds of the first one (one parallel burst, not ad-hoc orchestration)
-  ROUTER_MAX_STEPS=8      router non-Agent tool calls per user prompt (router-guard mode)
+  BLACKCAT_MAX_STEPS=8      blackcat non-Agent tool calls per user prompt (blackcat-guard mode)
   STACK_MAX_FANOUT=8      running + pending children per parent agent (0 = no cap)
   STACK_MAX_SELF_FANOUT=4 of those, copies of the parent's own type (0 = no cap)
   STACK_FANOUT_IDLE_S=1800  a child whose live subtree shows no activity for this long no longer
@@ -98,7 +98,7 @@ from urllib.parse import quote, unquote, urlparse
 
 # ---------------------------------------------------------------- policy (single source of truth)
 AGENTS = [
-    "router", "orchestrator", "planner", "plan-reviewer", "oracle", "scout", "researcher",
+    "blackcat", "orchestrator", "planner", "plan-reviewer", "oracle", "scout", "researcher",
     "mathematician", "image-director", "designer", "motion-designer", "writer",
     "doc-specialist", "coder", "main-coder", "ninja-coder", "god-coder", "mlx-engineer",
     "cuda-engineer",
@@ -111,15 +111,15 @@ BUILTINS = ["explore"]
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
           "claude-code-guide", "browser-operator"]
 
-_ROUTER_ROW = [a for a in AGENTS if a != "router"]
+_BLACKCAT_ROW = [a for a in AGENTS if a != "blackcat"]
 _ACCEL_ROW = ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
               "mcp-broker", "ninja-coder", "god-coder"]
 
 # parent agent_type -> child agent types it may spawn. Parents not listed are unrestricted.
 # A row that contains the parent itself allows copies of that agent (see SELF_SPAWN).
 POLICY = {
-    "router": list(_ROUTER_ROW),
-    "orchestrator": [a for a in _ROUTER_ROW if a != "orchestrator"] + ["explore"],
+    "blackcat": list(_BLACKCAT_ROW),
+    "orchestrator": [a for a in _BLACKCAT_ROW if a != "orchestrator"] + ["explore"],
     "planner": ["scout", "explore", "claude-code-guide"],
     "plan-reviewer": ["scout", "explore", "claude-code-guide"],
     "researcher": ["researcher", "scout", "doc-specialist", "mathematician", "data-engineer",
@@ -178,11 +178,11 @@ POLICY = {
 # Agents allowed to spawn copies of themselves (derived: the row lists the parent itself).
 SELF_SPAWN = sorted(p for p, row in POLICY.items() if p in row)
 
-# Main-thread router: delegation tools plus the main-thread-only features subagents never get
+# Main-thread blackcat: delegation tools plus the main-thread-only features subagents never get
 # (dynamic workflows, scheduled tasks, routines, push notifications, file hand-off, skills).
 # ExitPlanMode: the main thread leaves plan mode with it (Desktop/Conductor/CLI plan mode).
 # mcp__conductor__AskUserQuestion: Conductor disables AskUserQuestion and serves its own.
-ROUTER_TOOLS = {"Agent", "SendMessage", "AskUserQuestion", "mcp__conductor__AskUserQuestion",
+BLACKCAT_TOOLS = {"Agent", "SendMessage", "AskUserQuestion", "mcp__conductor__AskUserQuestion",
                 "ExitPlanMode", "TaskStop", "ListAgents", "ToolSearch", "Skill", "Workflow",
                 "CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",
                 "PushNotification", "SendUserFile"}
@@ -411,9 +411,9 @@ def resolve_target(d, to):
     return None, None, None
 
 
-# ---------------------------------------------------------------- router markers
+# ---------------------------------------------------------------- blackcat markers
 def marker(d, kind, pid, k):
-    return os.path.join(d, "router", "%s.%s.%d" % (kind, pid, k))
+    return os.path.join(d, "blackcat", "%s.%s.%d" % (kind, pid, k))
 
 
 def markers_full(d, kind, pid, limit):
@@ -421,7 +421,7 @@ def markers_full(d, kind, pid, limit):
 
 
 def claim_marker(d, kind, pid, limit):
-    os.makedirs(os.path.join(d, "router"), exist_ok=True)
+    os.makedirs(os.path.join(d, "blackcat"), exist_ok=True)
     for k in range(limit):
         path = marker(d, kind, pid, k)
         if create_excl(path):
@@ -455,9 +455,9 @@ def first_marker_ts(d, kind, pid, limit, now):
 
 
 def dispatch_window_closed(d, pid, limit, now):
-    """True once the router's first dispatch for this prompt is older than the window: every
+    """True once blackcat's first dispatch for this prompt is older than the window: every
     dispatch for one prompt must go out as one parallel burst."""
-    window = knob_int("ROUTER_DISPATCH_WINDOW_S", 30)
+    window = knob_int("BLACKCAT_DISPATCH_WINDOW_S", 30)
     first = first_marker_ts(d, "dispatch", pid, limit, now)
     return window > 0 and first is not None and now - first > window
 
@@ -755,10 +755,10 @@ def on_agent(ev, d):
         parent = norm((reg_get(d, aid) or {}).get("type"))
     pid = prompt_key(ev)
     tid = ev.get("tool_use_id")
-    max_dispatch = knob_int("ROUTER_MAX_DISPATCH", 3)
+    max_dispatch = knob_int("BLACKCAT_MAX_DISPATCH", 3)
 
     if policy_on():
-        is_router = not aid and parent == "router"
+        is_blackcat = not aid and parent == "blackcat"
         # 1. pure checks
         if str(ti.get("isolation") or "").strip().lower() == "remote":
             deny("Remote isolation runs the agent in a cloud session that does not load this "
@@ -776,13 +776,13 @@ def on_agent(ev, d):
         why = copy_rule_violation(d, ev, parent, child)
         if why:
             deny(why)
-        if is_router:
+        if is_blackcat:
             if markers_full(d, "dispatch", pid, max_dispatch):
-                deny("Router dispatch limit (%d per prompt) reached. Use SendMessage to resume an "
+                deny("BlackCat dispatch limit (%d per prompt) reached. Use SendMessage to resume an "
                      "agent, or tell the user what is missing; work that needs coordination goes "
                      "to ONE orchestrator call." % max_dispatch)
             if dispatch_window_closed(d, pid, max_dispatch, time.time()):
-                deny("Router already dispatched for this prompt: parallel dispatches must go out "
+                deny("BlackCat already dispatched for this prompt: parallel dispatches must go out "
                      "together in one message. Relay the results as they arrive; follow-ups go "
                      "through SendMessage, and multi-step work goes to the orchestrator.")
         # 2. side effects, each rolled back if a later step denies or fails
@@ -807,11 +807,11 @@ def on_agent(ev, d):
                     rollback()
                     deny(god_busy_reason(blocking))
                 took_god = True
-            if is_router:
+            if is_blackcat:
                 claimed = claim_marker(d, "dispatch", pid, max_dispatch)
                 if not claimed:
                     rollback()
-                    deny("Router dispatch limit (%d per prompt) reached. Use SendMessage to "
+                    deny("BlackCat dispatch limit (%d per prompt) reached. Use SendMessage to "
                          "resume that agent." % max_dispatch)
             record_name(d, ti, child, caller)
         except SystemExit:
@@ -844,7 +844,7 @@ def send_policy_violation(d, ev, target_id, ttype):
     """Resuming a FINISHED agent starts new work in it, like a spawn: allowed when the caller's
     POLICY row lists the target's type, or the target is the caller's own child (follow-ups) or
     its own parent. A message to a running agent is coordination, not a spawn, and passes; so do
-    the main thread (the router's row lists every agent) and targets the registry doesn't know."""
+    the main thread (blackcat's row lists every agent) and targets the registry doesn't know."""
     aid = ev.get("agent_id")
     if not aid or not target_id or not ttype:
         return None
@@ -1245,12 +1245,12 @@ def on_agent_failed(ev, d):
     fanout_release(d, aid or "main", ev.get("tool_use_id"))
     if norm(ti.get("subagent_type")) == GOD:
         god_release_pending(d, aid or "main", ev.get("tool_use_id"))
-    if not aid and norm(ev.get("agent_type")) == "router":
-        drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("ROUTER_MAX_DISPATCH", 3))
+    if not aid and norm(ev.get("agent_type")) == "blackcat":
+        drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_DISPATCH", 3))
 
 
 def on_prompt(ev, d):
-    folder = os.path.join(d, "router")
+    folder = os.path.join(d, "blackcat")
     pid = safe(ev.get("prompt_id"), "") or None
     try:
         entries = os.listdir(folder)
@@ -1279,7 +1279,7 @@ def on_session_start(ev, d):
         unlink(god_path(d))
     with mutex(d, "screen"):
         unlink(os.path.join(d, SCREEN_LOCK))
-    shutil.rmtree(os.path.join(d, "router"), ignore_errors=True)
+    shutil.rmtree(os.path.join(d, "blackcat"), ignore_errors=True)
     shutil.rmtree(os.path.join(d, "fanout"), ignore_errors=True)
     # Subagents never outlive the process that ran them: after a restart or --resume nothing from
     # the registry is running any more (a SendMessage resume fires SubagentStart, which clears
@@ -1853,8 +1853,8 @@ def image_limit_main(raw):
     return 0
 
 
-# ---------------------------------------------------------------- router-guard mode
-def router_guard(raw):
+# ---------------------------------------------------------------- blackcat-guard mode
+def blackcat_guard(raw):
     if not policy_on():
         sys.exit(0)
     try:
@@ -1868,14 +1868,14 @@ def router_guard(raw):
     tool = ev.get("tool_name") or ""
     if tool == "Agent":
         sys.exit(0)  # dispatch-once is enforced by the main hook
-    if tool not in ROUTER_TOOLS:
-        deny("Router only delegates. Make one Agent call to the right specialist (or "
+    if tool not in BLACKCAT_TOOLS:
+        deny("BlackCat only delegates. Make one Agent call to the right specialist (or "
              "orchestrator), or SendMessage to resume the previous agent.")
     d = sdir(ev.get("session_id"))
     log(d, ev)
-    steps = knob_int("ROUTER_MAX_STEPS", 8)
+    steps = knob_int("BLACKCAT_MAX_STEPS", 8)
     if not claim_marker(d, "step", prompt_key(ev), steps):
-        deny("Router step limit (%d per prompt) reached. Call no more tools: answer the user "
+        deny("BlackCat step limit (%d per prompt) reached. Call no more tools: answer the user "
              "now with what you have, or say what is still pending." % steps)
     sys.exit(0)
 
@@ -1884,7 +1884,7 @@ def router_guard(raw):
 def print_policy():
     sys.stdout.write(json.dumps({"policy": POLICY, "leaves": LEAVES, "agents": AGENTS,
                                  "builtins": BUILTINS, "self_spawn": SELF_SPAWN,
-                                 "router_tools": sorted(ROUTER_TOOLS)}) + "\n")
+                                 "blackcat_tools": sorted(BLACKCAT_TOOLS)}) + "\n")
     return 0
 
 
@@ -1897,16 +1897,16 @@ def self_test():
         problems.append("POLICY rows != AGENTS: %s" % sorted(set(POLICY) ^ set(AGENTS)))
     for parent, row in POLICY.items():
         for child in row:
-            if child not in known or child == "router":
+            if child not in known or child == "blackcat":
                 problems.append("%s -> unknown or forbidden child %s" % (parent, child))
         if len(set(row)) != len(row):
             problems.append("%s row has duplicates" % parent)
     empty = sorted(p for p, row in POLICY.items() if not row)
     if empty != sorted(LEAVES):
         problems.append("LEAVES %s != empty rows %s" % (sorted(LEAVES), empty))
-    if set(POLICY.get("router", [])) != set(AGENTS) - {"router"}:
-        problems.append("router row must list every specialist")
-    for never in ("router", "orchestrator", GOD, "mlx-engineer", "cuda-engineer"):
+    if set(POLICY.get("blackcat", [])) != set(AGENTS) - {"blackcat"}:
+        problems.append("blackcat row must list every specialist")
+    for never in ("blackcat", "orchestrator", GOD, "mlx-engineer", "cuda-engineer"):
         if never in SELF_SPAWN:
             problems.append("%s must not spawn copies of itself" % never)
     # Installed layout: <config>/hooks/agent_guard.py next to <config>/agents/*.md
@@ -1978,16 +1978,16 @@ def main(argv):
             return self_test()
         if argv[1] == "image-limit":
             return image_limit_main(sys.stdin.read())
-        if argv[1] == "router-guard":
+        if argv[1] == "blackcat-guard":
             raw = sys.stdin.read()
             try:
-                router_guard(raw)
+                blackcat_guard(raw)
             except SystemExit:
                 raise
             except Exception as exc:
                 guard_error("%s: %s" % (type(exc).__name__, exc))
             return 0
-        sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | router-guard | image-limit]\n")
+        sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | blackcat-guard | image-limit]\n")
         return 2
     raw = sys.stdin.read()
     try:

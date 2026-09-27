@@ -7,7 +7,7 @@ Usage:
 By default the policy is obtained by running:
     python3 dot-claude/hooks/agent_guard.py --print-policy
 which must print JSON: {"policy": {...}, "leaves": [...], "agents": [...], "builtins": ["explore"],
-"self_spawn": [...], "router_tools": [...]}.
+"self_spawn": [...], "blackcat_tools": [...]}.
 
 If that invocation fails (e.g. agent_guard.py isn't rewritten yet in a parallel
 branch of work), pass --policy-json pointing at a JSON file with the same shape
@@ -228,7 +228,7 @@ def referenced_skills(body):
     return names
 
 
-def check_agent_file(path, policy_row, leaves, builtins, router_tools=None):
+def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
     name_from_file = path.stem
     text = path.read_text()
     try:
@@ -290,22 +290,22 @@ def check_agent_file(path, policy_row, leaves, builtins, router_tools=None):
         fail(f"{path.name}: has Agent in tools but no SendMessage")
 
     row = policy_row.get(name_from_file, [])
-    if (name_from_file in leaves) != (not row and name_from_file != "router"):
+    if (name_from_file in leaves) != (not row and name_from_file != "blackcat"):
         fail(f"{path.name}: LEAVES and the policy row disagree (a leaf has an empty row)")
-    if name_from_file == "router":
+    if name_from_file == "blackcat":
         if agent_children is None:
-            fail(f"{path.name}: router tools: must list Agent(<row>)")
+            fail(f"{path.name}: blackcat tools: must list Agent(<row>)")
         else:
             got = {c.lower() for c in agent_children}
             want = {r.lower() for r in row}
             if got != want:
                 fail(
-                    f"{path.name}: router Agent(...) {sorted(got)} != router policy row "
+                    f"{path.name}: blackcat Agent(...) {sorted(got)} != blackcat policy row "
                     f"{sorted(want)}"
                 )
-        if router_tools is not None and set(flat_tools) != set(router_tools):
-            fail(f"{path.name}: router tools {sorted(flat_tools)} != agent_guard ROUTER_TOOLS "
-                 f"{sorted(router_tools)} (the router-guard hook would deny the difference)")
+        if blackcat_tools is not None and set(flat_tools) != set(blackcat_tools):
+            fail(f"{path.name}: blackcat tools {sorted(flat_tools)} != agent_guard BLACKCAT_TOOLS "
+                 f"{sorted(blackcat_tools)} (the blackcat-guard hook would deny the difference)")
     else:
         if row:
             if not has_agent:
@@ -392,9 +392,9 @@ def main():
                 f"agent file set {sorted(got_names)} != policy agents {sorted(want_names)}"
             )
 
-    router_tools = policy_data.get("router_tools")
+    blackcat_tools = policy_data.get("blackcat_tools")
     for f in files:
-        check_agent_file(f, policy_row, leaves, builtins, router_tools)
+        check_agent_file(f, policy_row, leaves, builtins, blackcat_tools)
 
     # every model-invocable skill is pre-approved, or background agents hit permission prompts
     try:

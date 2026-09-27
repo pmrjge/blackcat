@@ -88,9 +88,9 @@ grep -qF "$HERE" "$T1/agents/claude-code-engineer.md" && grep -qF "\"repo\": \"$
 
 grep -qF "$T1/hooks/agent_guard.py" "$T1/settings.json" 2>/dev/null && pass "settings.json hook commands point at \$T/hooks" \
   || failed "settings.json hook commands do not reference $T1/hooks"
-grep -qF "$T1/hooks/agent_guard.py\\\" router-guard" "$T1/agents/router.md" 2>/dev/null && pass "router.md hook runs \$T/hooks/agent_guard.py router-guard" \
-  || failed "router.md hook command does not run $T1/hooks/agent_guard.py router-guard"
-python3 - "$T1/settings.json" "$T1/agents/router.md" <<'PY' && pass "hooks and status line use an absolute interpreter (no bare python3)" || failed "a hook command uses a bare interpreter"
+grep -qF "$T1/hooks/agent_guard.py\\\" blackcat-guard" "$T1/agents/blackcat.md" 2>/dev/null && pass "blackcat.md hook runs \$T/hooks/agent_guard.py blackcat-guard" \
+  || failed "blackcat.md hook command does not run $T1/hooks/agent_guard.py blackcat-guard"
+python3 - "$T1/settings.json" "$T1/agents/blackcat.md" <<'PY' && pass "hooks and status line use an absolute interpreter (no bare python3)" || failed "a hook command uses a bare interpreter"
 import json, re, sys
 s = json.load(open(sys.argv[1]))
 cmds = [h["command"] for gs in s["hooks"].values() for g in gs for h in g["hooks"]]
@@ -156,19 +156,19 @@ out=$(XDG_STATE_HOME="$T1/state" "$T1/bin/magg-private" /bin/echo --env-pass --c
 priv=$(printf '%s\n' "$out" | sed -n 's/^--env-pass --config \(.*\) serve$/\1/p')
 [ -n "$priv" ] && [ "$priv" != "$T1/magg/config.json" ] && cmp -s "$priv" "$T1/magg/config.json" \
   && pass "magg-private runs magg on a private copy of the catalog" || failed "magg-private: [$out]"
-python3 - "$T1/settings.json" <<'PY' && pass "settings: autocompact on at 800K, depth 4, default tool search, lazy MCP, router, skill listing 2.5%" || failed "settings.json values (see above)"
+python3 - "$T1/settings.json" <<'PY' && pass "settings: autocompact on at 800K, depth 4, default tool search, lazy MCP, blackcat, skill listing 2.5%" || failed "settings.json values (see above)"
 import json, sys
 s = json.load(open(sys.argv[1]))
 env = s["env"]
 checks = {
-    "agent": s.get("agent") == "router",
+    "agent": s.get("agent") == "blackcat",
     "autoCompactEnabled": s.get("autoCompactEnabled") is True,
     "autoCompactWindow": s.get("autoCompactWindow") == 800000,
     "depth": env.get("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH") == "4",
     "tool search left at its default": "ENABLE_TOOL_SEARCH" not in env,
     ".env.example writable": "Read(**/.env.*)" not in s["permissions"]["deny"] and "Read(**/.env.local)" in s["permissions"]["deny"],
     "discovery cache": env.get("MCP_DISCOVERY_CACHE") == "1",
-    "router dispatch": env.get("ROUTER_MAX_DISPATCH") == "3",
+    "blackcat dispatch": env.get("BLACKCAT_MAX_DISPATCH") == "3",
     "skill listing budget": s.get("skillListingBudgetFraction") == 0.025,
     "no Haiku": env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5",
     "image limit hooks": any("image-limit" in json.dumps(g) for g in s["hooks"]["PostToolUse"])
@@ -465,7 +465,7 @@ grep -q '^EXA_API_KEY=exa-only-in-config-1234$' "$T4/.claude/stack.env" && pass 
 [ "$(CLAUDE_CONFIG_DIR="$T4/.claude" "$T4/.claude/bin/mcp-headers" exa)" = '{"x-api-key": "exa-only-in-config-1234"}' ] \
   && pass "migrated exa still authenticates through the helper" || failed "helper lost the exa key"
 grep -q 'exa-only-in-config-1234' "$FAKE_CLAUDE_JSON" && failed "key still in the MCP config" || pass "key no longer in the MCP config"
-# user edits settings: own hook inside the stack's Agent group, tuned knob, old ROUTER_MAX_DISPATCH default; symlinked file
+# user edits settings: own hook inside the stack's Agent group, tuned knob, old BLACKCAT_MAX_DISPATCH default; symlinked file
 mkdir -p "$T4/dotfiles"
 python3 - "$T4/.claude/settings.json" <<'PY'
 import json, sys
@@ -473,8 +473,8 @@ p = sys.argv[1]; s = json.load(open(p))
 for g in s["hooks"]["PreToolUse"]:
     if g.get("matcher") == "Agent":
         g["hooks"].append({"type": "command", "command": "my-audit.sh"})
-s["env"]["ROUTER_MAX_STEPS"] = "20"
-s["env"]["ROUTER_MAX_DISPATCH"] = "3"
+s["env"]["BLACKCAT_MAX_STEPS"] = "20"
+s["env"]["BLACKCAT_MAX_DISPATCH"] = "3"
 s["env"]["ENABLE_TOOL_SEARCH"] = "auto:5"
 s["agent"] = "claude"
 s["skillListingBudgetFraction"] = 0.05
@@ -489,7 +489,7 @@ import json, sys
 s = json.load(open(sys.argv[1]))
 shipped = sum("agent_guard.py" in json.dumps(g) for g in json.load(open(sys.argv[2]))["hooks"]["PreToolUse"])
 cmds = [h.get("command") for g in s["hooks"]["PreToolUse"] for h in g.get("hooks", [])]
-ok = ("my-audit.sh" in cmds and sum("agent_guard.py" in (c or "") for c in cmds) == shipped and s["env"]["ROUTER_MAX_STEPS"] == "20"
+ok = ("my-audit.sh" in cmds and sum("agent_guard.py" in (c or "") for c in cmds) == shipped and s["env"]["BLACKCAT_MAX_STEPS"] == "20"
       and s["env"].get("ENABLE_TOOL_SEARCH") == "auto:5" and s.get("agent") == "claude"
       and s.get("skillListingBudgetFraction") == 0.05)
 sys.exit(0 if ok else 1)
@@ -675,8 +675,43 @@ CLAUDE_CONFIG_DIR="$T12" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile
 "$T12/bin/doctor.sh" >"$T12/.doctor" 2>&1
 grep -q "senior-coder.md is the stack's old name for main-coder" "$T12/.doctor" \
   && pass "doctor flags the kept senior-coder.md" || failed "doctor does not flag senior-coder.md"
+# the main-thread router became blackcat: an unedited tracked router.md is retired, and the settings
+# follow the rename ("agent": "router", a tuned ROUTER_* knob, the Agent(router) deny rule)
+T14="$(cd "$(mktemp -d)" && pwd -P)"
+CLAUDE_CONFIG_DIR="$T14" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1
+python3 - "$T14" <<'PY'
+import hashlib, json, os, sys
+t = sys.argv[1]
+old = open(os.path.join(t, "agents", "blackcat.md")).read().replace("name: blackcat", "name: router")
+open(os.path.join(t, "agents", "router.md"), "w").write(old)
+ren = lambda k: k.replace("BLACKCAT_", "ROUTER_")
+deny = lambda xs: [x.replace("Agent(blackcat)", "Agent(router)") for x in xs]
+mp = os.path.join(t, ".stack-manifest.json"); m = json.load(open(mp))
+m["files"]["agents/router.md"] = hashlib.sha256(old.encode()).hexdigest()
+m["settings_env"] = {ren(k): v for k, v in m["settings_env"].items()}
+m["settings_set_if_absent"]["agent"] = "router"
+m["settings_permissions"]["deny"] = deny(m["settings_permissions"]["deny"])
+json.dump(m, open(mp, "w"))
+sp = os.path.join(t, "settings.json"); s = json.load(open(sp))
+s["agent"] = "router"
+s["env"] = {ren(k): v for k, v in s["env"].items()}
+s["env"]["ROUTER_MAX_STEPS"] = "20"
+s["permissions"]["deny"] = deny(s["permissions"]["deny"])
+json.dump(s, open(sp, "w"), indent=2)
+PY
+CLAUDE_CONFIG_DIR="$T14" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T14/.log" 2>&1
+[ ! -e "$T14/agents/router.md" ] && ls "$T14"/backup-*/retired/agents/router.md >/dev/null 2>&1 \
+  && grep -q 'router.md *retired — it is now agents/blackcat.md' "$T14/.log" \
+  && pass "an unedited router.md is retired: it is now blackcat" || failed "old router.md not retired"
+python3 - "$T14/settings.json" <<'PY' && pass "settings follow router -> blackcat: agent, tuned knob moved, defaults and deny rule" || failed "router settings not migrated"
+import json, sys
+s = json.load(open(sys.argv[1])); e = s["env"]; deny = s["permissions"]["deny"]
+ok = (s.get("agent") == "blackcat" and e.get("BLACKCAT_MAX_STEPS") == "20" and e.get("BLACKCAT_MAX_DISPATCH") == "3"
+      and not any(k.startswith("ROUTER_") for k in e) and "Agent(blackcat)" in deny and "Agent(router)" not in deny)
+sys.exit(0 if ok else 1)
+PY
 assert_unchanged_real_home
-rm -rf "$T4" "$T5" "$T6" "$T7" "$T9" "$T10" "$T11" "$T12" "$T13"
+rm -rf "$T4" "$T5" "$T6" "$T7" "$T9" "$T10" "$T11" "$T12" "$T13" "$T14"
 
 echo "== 9. macOS render (simulated): the After Effects server only once it is built"
 T8="$(cd "$(mktemp -d)" && pwd -P)"

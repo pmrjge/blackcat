@@ -16,7 +16,7 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 GUARD = os.environ.get("GUARD", os.path.join(os.path.dirname(HERE), "dot-claude", "hooks",
                                              "agent_guard.py"))
-KNOB_PREFIXES = ("STACK_", "ROUTER_", "GOD_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
+KNOB_PREFIXES = ("STACK_", "BLACKCAT_", "GOD_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 
 
 class Env:

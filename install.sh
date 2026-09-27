@@ -783,9 +783,10 @@ for rel, src_path in targets:
     print("  %-34s %s" % (rel, action))
 
 # Agent files an earlier stack version installed and this one doesn't ship (senior-coder is now
-# main-coder): an unedited copy moves into the backup (retired/agents/), as does a leftover .new of
-# it; an edited one stays — Claude Code keeps loading it as an agent of its own — with a note.
-RENAMED = {"agents/senior-coder.md": "agents/main-coder.md"}
+# main-coder, the main-thread router is now blackcat): an unedited copy moves into the backup
+# (retired/agents/), as does a leftover .new of it; an edited one stays — Claude Code keeps loading
+# it as an agent of its own — with a note.
+RENAMED = {"agents/senior-coder.md": "agents/main-coder.md", "agents/router.md": "agents/blackcat.md"}
 shipped = {rel for rel, _ in targets}
 for rel in sorted((set(RENAMED) | {r for r in list(files_entry) + list(offered) if r.startswith("agents/")}) - shipped):
     dest = os.path.join(C, rel)
@@ -916,8 +917,9 @@ print("  " + ", ".join("%s=%s" % (k.strip("_").lower(), v) for k, v in SUBS.item
 PY
 
 # Files earlier stack versions installed and this one doesn't: moved into the backup, never deleted.
-# (router-guard.sh: router.md now runs agent_guard.py directly with an absolute interpreter.)
-if [ -f "$C/hooks/router-guard.sh" ] && ! grep -q 'router-guard.sh' "$C/agents/router.md" 2>/dev/null; then
+# (router-guard.sh: blackcat.md, formerly router.md, now runs agent_guard.py directly with an
+# absolute interpreter; an edited router.md the rename kept may still call it.)
+if [ -f "$C/hooks/router-guard.sh" ] && ! grep -qs 'router-guard.sh' "$C/agents/router.md" "$C/agents/blackcat.md"; then
   mkdir -p "$B/retired/hooks" && mv "$C/hooks/router-guard.sh" "$B/retired/hooks/" \
     && note "retired hooks/router-guard.sh (moved to $B/retired/hooks/)"
 fi
@@ -1006,7 +1008,7 @@ if "settings_permissions" in manifest:
 if "settings_env" in manifest:
     RETIRED_ENV = {}
 # top-level keys the stack sets only when you have none (or still have the stack's own value).
-# "agent": set "agent": "claude" to keep the plain main thread (then: claude --agent router).
+# "agent": set "agent": "claude" to keep the plain main thread (then: claude --agent blackcat).
 # "skillListingBudgetFraction": share of the context window for the skill listing (Claude Code's
 # default 0.01 is 30K characters on a 1M-context model, most of which the stack's own skills take;
 # over budget, the least-used skills are listed by name only). tests/lint_agents.py checks the size.
@@ -1017,6 +1019,23 @@ OWNED_ENV = {"STACK_ENV_FILE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
              "MCP_DISCOVERY_CACHE", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"}
 # values shipped by stack versions whose manifest predates "settings_env"
 OLD_DEFAULTS = {"ROUTER_MAX_DISPATCH": {"1"}}
+# The main-thread agent "router" is now "blackcat": its "agent" value and its knobs follow the
+# rename. A knob you tuned moves to the new name; one still at a stack default is dropped (the
+# merge below sets the new default).
+OLD_SET_IF_ABSENT = {"agent": {"router"}}
+RENAMED_ENV = {"ROUTER_MAX_STEPS": "BLACKCAT_MAX_STEPS", "ROUTER_MAX_DISPATCH": "BLACKCAT_MAX_DISPATCH",
+               "ROUTER_DISPATCH_WINDOW_S": "BLACKCAT_DISPATCH_WINDOW_S"}
+cur_env = dict(cur.get("env") or {})
+for old, now in RENAMED_ENV.items():
+    if old not in cur_env:
+        continue
+    val = cur_env.pop(old)
+    if (now not in cur_env and str(val) != str(prev_env.get(old))
+            and str(val) not in OLD_DEFAULTS.get(old, ()) and str(val) != str((new.get("env") or {}).get(now))):
+        cur_env[now] = val
+        print("  moved your env %s=%s to %s (the router is now blackcat)" % (old, val, now))
+if cur_env != (cur.get("env") or {}):
+    cur = dict(cur, env=cur_env)
 
 merged = dict(cur)
 for k, v in new.items():
@@ -1051,7 +1070,8 @@ for k, v in new.items():
             p[pk] = uniq([x for x in have if x not in retired] + pv)
         merged["permissions"] = p
     elif k in SET_IF_ABSENT:
-        if k not in cur or cur.get(k) == prev_owned.get(k) or cur.get(k) == v:
+        if (k not in cur or cur.get(k) == prev_owned.get(k) or cur.get(k) == v
+                or cur.get(k) in OLD_SET_IF_ABSENT.get(k, ())):
             merged[k] = v
         else:
             print("  kept your %s (the stack's: %s)" % (k, json.dumps(v)))
@@ -1102,7 +1122,7 @@ for warn_only, why in (("CLAUDE_CODE_DISABLE_1M_CONTEXT", "caps every model at 2
         print("  note: env %s=%s %s (kept — remove it if unintended)" % (warn_only, env[warn_only], why))
 merged["env"] = env
 if "model" in cur:
-    print("  note: kept your 'model' setting (%s); the router agent sets the main-thread model" % cur["model"])
+    print("  note: kept your 'model' setting (%s); the blackcat agent sets the main-thread model" % cur["model"])
 order = ["$schema", "agent", "autoCompactEnabled", "autoCompactWindow"]
 merged = {**{k: merged[k] for k in order if k in merged}, **{k: v for k, v in merged.items() if k not in order}}
 with open(dst + ".tmp", "w", encoding="utf-8") as f:
@@ -1441,14 +1461,14 @@ cat <<EOF
      _EDIT_MODEL; /stack-doctor checks them).
      MCP servers read that file at connect time — no reinstall needed (except the first time you add
      WANDB_API_KEY: rerun ./install.sh $ORIG_ARGS). Open a new terminal so CLI tools see them too.
-  2. Start: claude        (main thread = router; the status line shows context vs the 800K window —
+  2. Start: claude        (main thread = BlackCat; the status line shows context vs the 800K window —
      auto-compact fires at ≈767K). Claude Desktop's Code tab, Conductor, VS Code and Zed load the same
-     setup (README → Apps). A plain session without the router: claude --agent claude.
+     setup (README → Apps). A plain session without BlackCat: claude --agent claude.
      Inside: /stack-doctor   (health check)   /mcp   (server status; no sign-in needed with keys)
-     Once, in that first session: /effort low — the router runs at the session's level (saved for
+     Once, in that first session: /effort low — BlackCat runs at the session's level (saved for
      Sonnet 5); an agent file's effort applies only to subagents.
      Hardest problems at ultracode, as a session of their own: claude-ninja, or claude-god
-     (dispatched by the router they run at max: ultracode exists only on a main thread).
+     (dispatched by BlackCat they run at max: ultracode exists only on a main thread).
 EOF
 cat <<EOF
   3. macOS computer use (designer, motion-designer, doc-specialist, verifier):

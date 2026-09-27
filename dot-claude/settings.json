@@ -1,6 +1,6 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
-  "agent": "router",
+  "agent": "blackcat",
   "autoCompactEnabled": true,
   "autoCompactWindow": 800000,
   "skillListingBudgetFraction": 0.025,
@@ -14,9 +14,9 @@
     "MCP_DISCOVERY_CACHE_MAX_STALE_S": "604800",
     "MCP_TIMEOUT": "60000",
     "MAX_MCP_OUTPUT_TOKENS": "25000",
-    "ROUTER_MAX_STEPS": "8",
-    "ROUTER_MAX_DISPATCH": "3",
-    "ROUTER_DISPATCH_WINDOW_S": "30",
+    "BLACKCAT_MAX_STEPS": "8",
+    "BLACKCAT_MAX_DISPATCH": "3",
+    "BLACKCAT_DISPATCH_WINDOW_S": "30",
     "STACK_MAX_FANOUT": "8",
     "STACK_MAX_SELF_FANOUT": "4",
     "STACK_ENV_FILE": "__CLAUDE_DIR__/stack.env",
@@ -70,7 +70,7 @@
       "Skill"
     ],
     "deny": [
-      "Agent(router)",
+      "Agent(blackcat)",
       "Read(/__CLAUDE_DIR__/stack.env)",
       "Read(/__CLAUDE_DIR__/.credentials.json)",
       "Read(~/.claude.json)",

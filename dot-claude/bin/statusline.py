@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Status line for the claude-agent-stack (Claude Code `statusLine`; session JSON arrives on stdin).
 
-    router · Sonnet 5 · low · ctx 312K/800K ▓▓▓▓░░░░ · 5h 23% · 7d 41% · cache 91%
+    blackcat · Sonnet 5 · low · ctx 312K/800K ▓▓▓▓░░░░ · 5h 23% · 7d 41% · cache 91%
 
 "ctx" counts the tokens in the main conversation's context against the auto-compact window
 (autoCompactWindow in settings.json, 800K in this stack, capped at the model's window), so the bar

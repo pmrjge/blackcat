@@ -3,7 +3,7 @@ name: ninja-coder
 description: "Engineer-mathematician for the hardest code problems: novel algorithms and data structures, correctness proofs and invariants, complexity bounds, numerical analysis and stability, concurrency protocols, performance-critical kernels. Derives before it codes and proves what it ships. Above main-coder, below god-coder: use when the core of a problem is algorithmic or mathematical, or after main-coder failed."
 model: opus
 # Effort: `ultracode` is not an agent effort. In this file it would be ignored and the agent would
-# run at the calling session's level (low for the router); ultracode (xhigh + dynamic workflows)
+# run at the calling session's level (low for BlackCat); ultracode (xhigh + dynamic workflows)
 # exists only on a main thread: claude-ninja. Dispatched as a subagent, max is the deepest level.
 effort: max
 maxTurns: 1500

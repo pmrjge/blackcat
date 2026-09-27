@@ -13,7 +13,7 @@ GOD = "god-coder"
 
 
 def spawn_god(e, cid="G1", caller=None, ctype=None, prompt="q1", **ti):
-    pre = e.pre_agent(GOD, agent_id=caller, agent_type=ctype or ("router" if not caller else "main-coder"),
+    pre = e.pre_agent(GOD, agent_id=caller, agent_type=ctype or ("blackcat" if not caller else "main-coder"),
                       prompt=prompt, **ti)
     r = e.run(pre)
     if r.decision.startswith("allow"):
@@ -74,7 +74,7 @@ def test_f3_refused_resume_expires_like_pending():
 
 def test_f3_name_holder_expires():
     e = Env()
-    pre = e.pre_agent(GOD, agent_type="router", name="deep fix")
+    pre = e.pre_agent(GOD, agent_type="blackcat", name="deep fix")
     e.run(pre)
     e.run(e.fail_agent(pre))
     e.run(e.send("deep fix"))
@@ -115,19 +115,19 @@ def test_f6_all_spellings_of_god_coder_take_the_lock(spelling):
 
 def test_f7_remote_isolation_denied():
     e = Env()
-    assert e.run(e.pre_agent("coder", agent_type="router", isolation="remote")).decision == "deny"
-    assert e.run(e.pre_agent("coder", agent_type="router", isolation="worktree", prompt="q2")).decision.startswith("allow")
+    assert e.run(e.pre_agent("coder", agent_type="blackcat", isolation="remote")).decision == "deny"
+    assert e.run(e.pre_agent("coder", agent_type="blackcat", isolation="worktree", prompt="q2")).decision.startswith("allow")
 
 
 def test_f8_internal_subagentstop_creates_no_registry_entry():
     e = Env()
-    e.run(e.stop("int-1", "router"))
+    e.run(e.stop("int-1", "blackcat"))
     assert not os.path.isdir(os.path.join(e.sdir(), "agents")) or not os.listdir(os.path.join(e.sdir(), "agents"))
 
 
 def test_f9_prefixed_hook_ids_join_with_tool_response_ids():
     e = Env()
-    pre = e.pre_agent("coder", agent_type="router")
+    pre = e.pre_agent("coder", agent_type="blackcat")
     e.run(pre)
     e.run(e.post_agent(pre, "a4d2c8f1"))
     e.run(e.start("agent-a4d2c8f1", "coder"))
@@ -138,7 +138,7 @@ def test_f9_prefixed_hook_ids_join_with_tool_response_ids():
 # ---------------------------------------------------------------- L7: SendMessage resumes
 def spawned(e, child, cid, caller=None, ctype=None, name=None):
     ti = {"name": name} if name else {}
-    pre = e.pre_agent(child, agent_id=caller, agent_type=ctype or ("router" if not caller else None), **ti)
+    pre = e.pre_agent(child, agent_id=caller, agent_type=ctype or ("blackcat" if not caller else None), **ti)
     r = e.run(pre)
     assert r.decision.startswith("allow"), r
     e.run(e.start(cid, child))

@@ -19,10 +19,10 @@ GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
 REPEATS = 20
 FANOUT = 20
 
-KNOBS = ("STACK_POLICY", "ROUTER_MAX_DISPATCH", "ROUTER_MAX_STEPS", "GOD_PENDING_TTL_S",
+KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "GOD_PENDING_TTL_S",
          "GOD_IDLE_S", "GOD_LOCK_TTL_S", "SCREEN_LOCK_TTL_S", "STRIP_AGENT_MODEL",
          "STACK_MAX_DEPTH", "STACK_GUARD_LOG", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
-         "ROUTER_DISPATCH_WINDOW_S", "STACK_MAX_FANOUT", "STACK_MAX_SELF_FANOUT",
+         "BLACKCAT_DISPATCH_WINDOW_S", "STACK_MAX_FANOUT", "STACK_MAX_SELF_FANOUT",
          "STACK_FANOUT_IDLE_S", "STACK_FANOUT_PENDING_TTL_S")
 
 
@@ -151,13 +151,13 @@ def test_print_policy_format(env):
     p = run("", env, args=["--print-policy"])
     assert p.returncode == 0
     d = json.loads(p.stdout)
-    assert list(d) == ["policy", "leaves", "agents", "builtins", "self_spawn", "router_tools"]
+    assert list(d) == ["policy", "leaves", "agents", "builtins", "self_spawn", "blackcat_tools"]
     assert len(d["agents"]) == 36 and len(set(d["agents"])) == 36
     assert d["builtins"] == ["explore"]
     assert set(d["policy"]) == set(d["agents"])
     assert sorted(d["leaves"]) == sorted(k for k, v in d["policy"].items() if not v)
-    assert set(d["policy"]["router"]) == set(d["agents"]) - {"router"}
-    assert set(d["policy"]["orchestrator"]) == set(d["policy"]["router"]) - {"orchestrator"} | {
+    assert set(d["policy"]["blackcat"]) == set(d["agents"]) - {"blackcat"}
+    assert set(d["policy"]["orchestrator"]) == set(d["policy"]["blackcat"]) - {"orchestrator"} | {
         "explore"}
     assert d["policy"]["main-coder"][0] == "main-coder"
     assert {"ml-engineer", "dl-engineer", "llm-engineer", "ninja-coder", "god-coder"} <= set(
@@ -179,14 +179,14 @@ def test_print_policy_format(env):
     assert "senior-coder" not in d["agents"]
     # copies: exactly the agents whose row lists themselves; never these
     assert d["self_spawn"] == sorted(k for k, v in d["policy"].items() if k in v)
-    for never in ("router", "orchestrator", "god-coder", "mlx-engineer", "cuda-engineer",
+    for never in ("blackcat", "orchestrator", "god-coder", "mlx-engineer", "cuda-engineer",
                   "designer", "motion-designer", "devops-engineer", "planner"):
         assert never not in d["self_spawn"]
     for want in ("coder", "main-coder", "ninja-coder", "researcher", "mathematician",
                  "ml-engineer", "dl-engineer", "llm-engineer", "data-scientist"):
         assert want in d["self_spawn"]
-    assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill"} <= set(d["router_tools"])
-    assert not {"Bash", "Read", "Write", "Edit", "WebSearch"} & set(d["router_tools"])
+    assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill"} <= set(d["blackcat_tools"])
+    assert not {"Bash", "Read", "Write", "Edit", "WebSearch"} & set(d["blackcat_tools"])
 
 
 def test_self_test(env):
@@ -207,15 +207,15 @@ def test_every_allowed_pair_allowed(env):
     pol = policy(env)["policy"]
     for parent, row in pol.items():
         for child in row:
-            ev = (pre_agent(sid(), child, parent="router") if parent == "router" else
+            ev = (pre_agent(sid(), child, parent="blackcat") if parent == "blackcat" else
                   pre_agent(sid(), child, parent=parent, agent_id="id-" + parent))
             assert decision(run(ev, env)) == "allow", (parent, child)
 
 
 @pytest.mark.parametrize("parent,child", [
-    ("router", "general-purpose"), ("router", "fork"), ("router", "explore"),
-    ("router", "statusline-setup"), ("router", "claude"), ("router", "plan"),
-    ("router", "router"), ("orchestrator", "general-purpose"), ("orchestrator", "orchestrator"),
+    ("blackcat", "general-purpose"), ("blackcat", "fork"), ("blackcat", "explore"),
+    ("blackcat", "statusline-setup"), ("blackcat", "claude"), ("blackcat", "plan"),
+    ("blackcat", "blackcat"), ("orchestrator", "general-purpose"), ("orchestrator", "orchestrator"),
     ("main-coder", "general-purpose"), ("main-coder", "fork"),
     ("mlx-engineer", "mlx-engineer"), ("cuda-engineer", "cuda-engineer"),
     ("devops-engineer", "devops-engineer"), ("designer", "designer"),
@@ -229,7 +229,7 @@ def test_every_allowed_pair_allowed(env):
     ("god-coder", "god-coder"), ("claude-code-guide", "scout"), ("verifier", "coder"),
 ])
 def test_denied_pairs(env, parent, child):
-    ev = (pre_agent(sid(), child, parent="router") if parent == "router" else
+    ev = (pre_agent(sid(), child, parent="blackcat") if parent == "blackcat" else
           pre_agent(sid(), child, parent=parent, agent_id="id-" + parent))
     p = run(ev, env)
     assert decision(p) == "deny"
@@ -237,7 +237,7 @@ def test_denied_pairs(env, parent, child):
 
 
 def test_missing_subagent_type_is_general_purpose(env):
-    ev = pre_agent(sid(), "", parent="router")
+    ev = pre_agent(sid(), "", parent="blackcat")
     del ev["tool_input"]["subagent_type"]
     assert decision(run(ev, env)) == "deny"
 
@@ -255,7 +255,7 @@ def test_unlisted_parent_unrestricted(env, parent):
 # ---------------------------------------------------------------- depth
 def test_depth_chain(env):
     s = sid()
-    assert decision(run(pre_agent(s, "orchestrator", parent="router"), env)) == "allow"
+    assert decision(run(pre_agent(s, "orchestrator", parent="blackcat"), env)) == "allow"
     run(post_agent(s, "orchestrator", "A1"), env)
     run(post_agent(s, "main-coder", "A2", agent_id="A1", parent="orchestrator"), env)
     run(post_agent(s, "coder", "A3", agent_id="A2", parent="main-coder", as_string=True), env)
@@ -300,59 +300,59 @@ def test_subagent_start_does_not_clobber_depth(env):
     assert reg["depth"] == 1 and reg["type"] == "coder" and "started" in reg
 
 
-# ---------------------------------------------------------------- router dispatch (M4)
-def test_router_dispatch_default_is_three_concurrent(env):
+# ---------------------------------------------------------------- blackcat dispatch (M4)
+def test_blackcat_dispatch_default_is_three_concurrent(env):
     for _ in range(REPEATS):
         s = sid()
-        res = run_many([pre_agent(s, "coder", parent="router") for _ in range(FANOUT)], env)
+        res = run_many([pre_agent(s, "coder", parent="blackcat") for _ in range(FANOUT)], env)
         assert res.count("allow") == 3, res
         # losers left no fan-out leases or dispatch markers behind
         assert len(list((state(env, s) / "fanout" / "main").iterdir())) == 3
-        assert len(list((state(env, s) / "router").iterdir())) == 3
+        assert len(list((state(env, s) / "blackcat").iterdir())) == 3
 
 
-def test_router_dispatch_once_concurrent(env):
+def test_blackcat_dispatch_once_concurrent(env):
     for _ in range(REPEATS):
         s = sid()
-        res = run_many([pre_agent(s, "coder", parent="router") for _ in range(FANOUT)], env,
-                       extra={"ROUTER_MAX_DISPATCH": "1"})
+        res = run_many([pre_agent(s, "coder", parent="blackcat") for _ in range(FANOUT)], env,
+                       extra={"BLACKCAT_MAX_DISPATCH": "1"})
         assert res.count("allow") == 1, res
 
 
-def test_router_dispatch_knob_concurrent(env):
+def test_blackcat_dispatch_knob_concurrent(env):
     s = sid()
-    res = run_many([pre_agent(s, "coder", parent="router") for _ in range(FANOUT)], env,
-                   extra={"ROUTER_MAX_DISPATCH": "3"})
+    res = run_many([pre_agent(s, "coder", parent="blackcat") for _ in range(FANOUT)], env,
+                   extra={"BLACKCAT_MAX_DISPATCH": "3"})
     assert res.count("allow") == 3
 
 
-def test_router_new_prompt_and_rollback(env):
-    env["ROUTER_MAX_DISPATCH"] = "1"
+def test_blackcat_new_prompt_and_rollback(env):
+    env["BLACKCAT_MAX_DISPATCH"] = "1"
     s = sid()
-    assert decision(run(pre_agent(s, "coder", parent="router", prompt="p1"), env)) == "allow"
-    assert decision(run(pre_agent(s, "coder", parent="router", prompt="p1"), env)) == "deny"
-    assert decision(run(pre_agent(s, "coder", parent="router", prompt="p2"), env)) == "allow"
-    # PermissionDenied for the router's p1 call frees the slot
-    fail = pre_agent(s, "coder", parent="router", prompt="p1")
+    assert decision(run(pre_agent(s, "coder", parent="blackcat", prompt="p1"), env)) == "allow"
+    assert decision(run(pre_agent(s, "coder", parent="blackcat", prompt="p1"), env)) == "deny"
+    assert decision(run(pre_agent(s, "coder", parent="blackcat", prompt="p2"), env)) == "allow"
+    # PermissionDenied for blackcat's p1 call frees the slot
+    fail = pre_agent(s, "coder", parent="blackcat", prompt="p1")
     fail["hook_event_name"] = "PermissionDenied"
     assert run(fail, env).stdout == ""
-    assert decision(run(pre_agent(s, "coder", parent="router", prompt="p1"), env)) == "allow"
-    # a subagent's failure does not touch router markers
+    assert decision(run(pre_agent(s, "coder", parent="blackcat", prompt="p1"), env)) == "allow"
+    # a subagent's failure does not touch blackcat markers
     sub = pre_agent(s, "coder", parent="coder", agent_id="C9", prompt="p1")
     sub["hook_event_name"] = "PostToolUseFailure"
     run(sub, env)
-    assert (state(env, s) / "router" / "dispatch.p1.0").exists()
+    assert (state(env, s) / "blackcat" / "dispatch.p1.0").exists()
 
 
 def test_user_prompt_prunes_other_prompts(env):
-    env["ROUTER_MAX_DISPATCH"] = "1"
+    env["BLACKCAT_MAX_DISPATCH"] = "1"
     s = sid()
-    run(pre_agent(s, "coder", parent="router", prompt="p1"), env)
+    run(pre_agent(s, "coder", parent="blackcat", prompt="p1"), env)
     run({"session_id": s, "hook_event_name": "UserPromptSubmit", "prompt_id": "p2"}, env)
-    assert not (state(env, s) / "router" / "dispatch.p1.0").exists()
-    assert decision(run(pre_agent(s, "coder", parent="router", prompt="p1"), env)) == "allow"
+    assert not (state(env, s) / "blackcat" / "dispatch.p1.0").exists()
+    assert decision(run(pre_agent(s, "coder", parent="blackcat", prompt="p1"), env)) == "allow"
     # prompt_id absent -> "noprompt" markers, cleared by the next UserPromptSubmit
-    ev = pre_agent(s, "coder", parent="router")
+    ev = pre_agent(s, "coder", parent="blackcat")
     del ev["prompt_id"]
     assert decision(run(ev, env)) == "allow"
     assert decision(run(ev, env)) == "deny"
@@ -360,11 +360,11 @@ def test_user_prompt_prunes_other_prompts(env):
     assert decision(run(ev, env)) == "allow"
 
 
-def test_router_god_rollback_when_dispatch_taken(env):
-    env["ROUTER_MAX_DISPATCH"] = "1"
+def test_blackcat_god_rollback_when_dispatch_taken(env):
+    env["BLACKCAT_MAX_DISPATCH"] = "1"
     s = sid()
-    assert decision(run(pre_agent(s, "coder", parent="router"), env)) == "allow"
-    assert decision(run(pre_agent(s, "god-coder", parent="router"), env)) == "deny"
+    assert decision(run(pre_agent(s, "coder", parent="blackcat"), env)) == "allow"
+    assert decision(run(pre_agent(s, "god-coder", parent="blackcat"), env)) == "deny"
     assert god_lock(env, s) is None
 
 
@@ -472,7 +472,7 @@ def test_god_hard_ttl(env):
 def test_god_resume_via_sendmessage(env):
     """M2: resuming a finished god-coder takes the lock."""
     s = sid()
-    run(pre_agent(s, "god-coder", parent="router"), env)
+    run(pre_agent(s, "god-coder", parent="blackcat"), env)
     run(post_agent(s, "god-coder", "GA"), env)
     run(lifecycle(s, "SubagentStop", "GA", "god-coder"), env)
     assert god_lock(env, s) is None
@@ -499,7 +499,7 @@ def test_god_resume_via_sendmessage(env):
 
 def test_god_resume_by_name(env):
     s = sid()
-    run(pre_agent(s, "god-coder", parent="router", name="Deep Fix"), env)
+    run(pre_agent(s, "god-coder", parent="blackcat", name="Deep Fix"), env)
     run(post_agent(s, "god-coder", "GN", name="Deep Fix", status="completed"), env)
     assert god_lock(env, s) is None
     assert decision(run(send(s, "deep-fix"), env)) == "allow"
@@ -550,13 +550,13 @@ def test_screen_holder_release_and_stale(env):
                                             ("startup", True), ("resume", True)])
 def test_session_start_sources(env, source, cleared):
     s = sid()
-    run(pre_agent(s, "god-coder", parent="router"), env)
+    run(pre_agent(s, "god-coder", parent="blackcat"), env)
     run(post_agent(s, "god-coder", "G1"), env)
     run(screen(s, agent_id="D1"), env)
     p = run({"session_id": s, "hook_event_name": "SessionStart", "source": source}, env)
     assert p.returncode == 0 and p.stdout == ""
     d = state(env, s)
-    for f in ("god-coder.lock", "screen.lock", "router"):
+    for f in ("god-coder.lock", "screen.lock", "blackcat"):
         assert (d / f).exists() != cleared, (source, f)
     assert (d / "agents" / "G1.json").exists()  # registry kept
 
@@ -576,7 +576,7 @@ def test_session_start_prunes_old_dirs(env):
 
 # ---------------------------------------------------------------- fail-closed (L7)
 def test_bad_tool_input_denied(env):
-    ev = pre_agent(sid(), "coder", parent="router")
+    ev = pre_agent(sid(), "coder", parent="blackcat")
     ev["tool_input"] = "not an object"
     p = run(ev, env)
     assert decision(p) == "deny" and "stack guard error" in reason(p)
@@ -590,8 +590,8 @@ def test_bad_tool_input_denied(env):
 def test_policy_off_no_output(env):
     extra = {"STACK_POLICY": "off"}
     s = sid()
-    for ev in (pre_agent(s, "general-purpose", parent="router"),
-               pre_agent(s, "coder", parent="router"), pre_agent(s, "coder", parent="router"),
+    for ev in (pre_agent(s, "general-purpose", parent="blackcat"),
+               pre_agent(s, "coder", parent="blackcat"), pre_agent(s, "coder", parent="blackcat"),
                pre_agent(s, "god-coder", parent="scout", agent_id="x"),
                screen(s, agent_id="a"), screen(s, agent_id="b")):
         p = run(ev, env, extra=extra)
@@ -615,72 +615,72 @@ def test_exception_paths(env, tmp_path):
     p = run({"session_id": "s", "hook_event_name": "SessionStart", "source": "startup"}, env,
             extra=extra)
     assert p.returncode == 0 and p.stdout == ""
-    p = run(pre_agent("s", "coder", parent="router"), env, extra=extra)
+    p = run(pre_agent("s", "coder", parent="blackcat"), env, extra=extra)
     assert decision(p) == "deny" and "stack guard error" in reason(p)
 
 
 def test_unparseable_stdin(env):
     p = run("{not json", env)
     assert p.returncode == 0 and p.stdout == ""
-    p = run("{not json", env, args=["router-guard"])
+    p = run("{not json", env, args=["blackcat-guard"])
     assert decision(p) == "deny"
-    p = run("{not json", env, args=["router-guard"], extra={"STACK_POLICY": "off"})
+    p = run("{not json", env, args=["blackcat-guard"], extra={"STACK_POLICY": "off"})
     assert p.returncode == 0 and p.stdout == ""
 
 
-# ---------------------------------------------------------------- router-guard mode
+# ---------------------------------------------------------------- blackcat-guard mode
 def rg(s, tool, prompt="p1", **extra):
     return dict({"session_id": s, "hook_event_name": "PreToolUse", "tool_name": tool,
                  "prompt_id": prompt, "tool_input": {}}, **extra)
 
 
-def test_router_guard_allowlist(env):
+def test_blackcat_guard_allowlist(env):
     s = sid()
     for tool in ("Read", "Bash", "Write", "Edit", "WebSearch", "WebFetch", "mcp__exa__search",
                  "TaskOutput", "NotebookEdit", "Monitor"):
-        p = run(rg(s, tool), env, args=["router-guard"])
-        assert decision(p) == "deny" and "Router only delegates" in reason(p)
+        p = run(rg(s, tool), env, args=["blackcat-guard"])
+        assert decision(p) == "deny" and "BlackCat only delegates" in reason(p)
     for tool in ("SendMessage", "AskUserQuestion", "mcp__conductor__AskUserQuestion", "ExitPlanMode",
                  "TaskStop", "ListAgents", "ToolSearch",
                  "Skill", "Workflow", "CronCreate", "CronList", "CronDelete", "ScheduleWakeup",
                  "RemoteTrigger", "PushNotification", "SendUserFile"):
-        assert decision(run(rg(s, tool, prompt="p-" + tool), env, args=["router-guard"])) \
+        assert decision(run(rg(s, tool, prompt="p-" + tool), env, args=["blackcat-guard"])) \
             == "allow", tool
 
 
-def test_router_guard_subagent_passes_and_no_substring_bypass(env):
+def test_blackcat_guard_subagent_passes_and_no_substring_bypass(env):
     s = sid()
     assert decision(run(rg(s, "Bash", agent_id="A1", agent_type="coder"), env,
-                        args=["router-guard"])) == "allow"
+                        args=["blackcat-guard"])) == "allow"
     ev = rg(s, "Bash")
     ev["tool_input"] = {"command": "echo", "agent_id": "fake", "note": '"agent_id"'}
-    assert decision(run(ev, env, args=["router-guard"])) == "deny"
+    assert decision(run(ev, env, args=["blackcat-guard"])) == "deny"
 
 
-def test_router_guard_steps_and_agent_never_denied(env):
+def test_blackcat_guard_steps_and_agent_never_denied(env):
     s = sid()
-    res = [decision(run(rg(s, "ToolSearch"), env, args=["router-guard"])) for _ in range(9)]
+    res = [decision(run(rg(s, "ToolSearch"), env, args=["blackcat-guard"])) for _ in range(9)]
     assert res == ["allow"] * 8 + ["deny"]
-    assert decision(run(rg(s, "Agent"), env, args=["router-guard"])) == "allow"
-    assert decision(run(rg(s, "ToolSearch", prompt="p2"), env, args=["router-guard"])) == "allow"
-    assert decision(run(rg(s, "ToolSearch"), env, args=["router-guard"],
-                        extra={"ROUTER_MAX_STEPS": "20"})) == "allow"
+    assert decision(run(rg(s, "Agent"), env, args=["blackcat-guard"])) == "allow"
+    assert decision(run(rg(s, "ToolSearch", prompt="p2"), env, args=["blackcat-guard"])) == "allow"
+    assert decision(run(rg(s, "ToolSearch"), env, args=["blackcat-guard"],
+                        extra={"BLACKCAT_MAX_STEPS": "20"})) == "allow"
 
 
-def test_router_guard_steps_concurrent(env):
+def test_blackcat_guard_steps_concurrent(env):
     s = sid()
-    res = run_many([rg(s, "ToolSearch") for _ in range(FANOUT)], env, args=["router-guard"])
+    res = run_many([rg(s, "ToolSearch") for _ in range(FANOUT)], env, args=["blackcat-guard"])
     assert res.count("allow") == 8
 
 
-def test_router_hook_command_as_rendered(env, tmp_path):
-    """router.md's frontmatter hook runs the interpreter directly (no sh wrapper, no bare
+def test_blackcat_hook_command_as_rendered(env, tmp_path):
+    """blackcat.md's frontmatter hook runs the interpreter directly (no sh wrapper, no bare
     python3 on PATH): render its command the way install.sh does and run it through a shell."""
-    text = (ROOT / "dot-claude" / "agents" / "router.md").read_text()
+    text = (ROOT / "dot-claude" / "agents" / "blackcat.md").read_text()
     m = re.search(r'(?m)^\s+command:\s*"(.*)"\s*$', text)
-    assert m, "router.md has no hook command"
+    assert m, "blackcat.md has no hook command"
     cmd = json.loads('"%s"' % m.group(1))
-    assert "__PYTHON3__" in cmd and cmd.rstrip().endswith("router-guard")
+    assert "__PYTHON3__" in cmd and cmd.rstrip().endswith("blackcat-guard")
     cmd = cmd.replace("__PYTHON3__", sys.executable).replace(
         "__CLAUDE_DIR__", str(ROOT / "dot-claude"))
     s = sid()
@@ -692,12 +692,12 @@ def test_router_hook_command_as_rendered(env, tmp_path):
 
 # ---------------------------------------------------------------- model strip, logging
 def test_model_strip(env):
-    p = run(pre_agent(sid(), "coder", parent="router", model="opus"), env)
+    p = run(pre_agent(sid(), "coder", parent="blackcat", model="opus"), env)
     out = json.loads(p.stdout)["hookSpecificOutput"]
     assert out["permissionDecision"] == "allow"
     assert "model" not in out["updatedInput"]
     assert out["updatedInput"]["subagent_type"] == "coder"
-    p = run(pre_agent(sid(), "coder", parent="router", model="opus"), env,
+    p = run(pre_agent(sid(), "coder", parent="blackcat", model="opus"), env,
             extra={"STRIP_AGENT_MODEL": "0"})
     assert p.stdout == ""
 
@@ -720,30 +720,30 @@ def test_lifecycle_never_outputs_decision(env):
         assert p.returncode == 0 and p.stdout == ""
 
 
-# ---------------------------------------------------------------- router dispatch window
-def test_router_dispatch_window(env):
+# ---------------------------------------------------------------- blackcat dispatch window
+def test_blackcat_dispatch_window(env):
     s = sid()
-    assert decision(run(pre_agent(s, "scout", parent="router", prompt="w1"), env)) == "allow"
-    assert decision(run(pre_agent(s, "oracle", parent="router", prompt="w1"), env)) == "allow"
+    assert decision(run(pre_agent(s, "scout", parent="blackcat", prompt="w1"), env)) == "allow"
+    assert decision(run(pre_agent(s, "oracle", parent="blackcat", prompt="w1"), env)) == "allow"
     # the burst is over once the first dispatch is older than the window
-    m = state(env, s) / "router" / "dispatch.w1.0"
+    m = state(env, s) / "blackcat" / "dispatch.w1.0"
     m.write_text(str(time.time() - 120))
-    p = run(pre_agent(s, "coder", parent="router", prompt="w1"), env)
+    p = run(pre_agent(s, "coder", parent="blackcat", prompt="w1"), env)
     assert decision(p) == "deny" and "together in one message" in reason(p)
     # a longer window lets it through; a new prompt starts a new burst
-    assert decision(run(pre_agent(s, "coder", parent="router", prompt="w1"), env,
-                        extra={"ROUTER_DISPATCH_WINDOW_S": "600"})) == "allow"
-    assert decision(run(pre_agent(s, "coder", parent="router", prompt="w2"), env)) == "allow"
+    assert decision(run(pre_agent(s, "coder", parent="blackcat", prompt="w1"), env,
+                        extra={"BLACKCAT_DISPATCH_WINDOW_S": "600"})) == "allow"
+    assert decision(run(pre_agent(s, "coder", parent="blackcat", prompt="w2"), env)) == "allow"
     # a marker caught between O_EXCL create and its timestamp write counts as brand new
     m.write_text("")
-    assert decision(run(pre_agent(s, "writer", parent="router", prompt="w1"), env,
-                        extra={"ROUTER_MAX_DISPATCH": "5"})) == "allow"
+    assert decision(run(pre_agent(s, "writer", parent="blackcat", prompt="w1"), env,
+                        extra={"BLACKCAT_MAX_DISPATCH": "5"})) == "allow"
 
 
 # ---------------------------------------------------------------- copies (self-spawn)
 def test_self_spawn_one_generation(env):
     s = sid()
-    # router -> coder C1 (a normal agent): C1 may copy itself
+    # blackcat -> coder C1 (a normal agent): C1 may copy itself
     run(post_agent(s, "coder", "C1"), env, extra={})
     ev = pre_agent(s, "coder", parent="coder", agent_id="C1")
     assert decision(run(ev, env)) == "allow"
@@ -835,11 +835,11 @@ def test_session_start_marks_children_stopped(env):
     for i in range(3):
         run(post_agent(s, "coder", "K%d" % i), env)
     extra = {"STACK_MAX_FANOUT": "3"}
-    assert decision(run(pre_agent(s, "coder", parent="router", prompt="q1"), env,
+    assert decision(run(pre_agent(s, "coder", parent="blackcat", prompt="q1"), env,
                         extra=extra)) == "deny"
     run({"session_id": s, "hook_event_name": "SessionStart", "source": "resume"}, env)
     assert not (state(env, s) / "fanout").exists()
-    assert decision(run(pre_agent(s, "coder", parent="router", prompt="q1"), env,
+    assert decision(run(pre_agent(s, "coder", parent="blackcat", prompt="q1"), env,
                         extra=extra)) == "allow"
     # a resumed child (SubagentStart) counts again
     run(lifecycle(s, "SubagentStart", "K0", "coder"), env)

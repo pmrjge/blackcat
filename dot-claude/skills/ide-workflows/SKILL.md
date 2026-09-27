@@ -19,7 +19,7 @@ description: Load before setting up or changing editor and browser developer too
 - Language servers: Python (Pylance or basedpyright), rust-analyzer, clangd (reads `compile_commands.json`; disable the Microsoft C++ IntelliSense engine to avoid two servers), Julia (LanguageServer.jl), Haskell (HLS via the Haskell extension and GHCup), Metals (Scala), Java (Red Hat extension on JDT.LS).
 - Dev containers: `.devcontainer/devcontainer.json` (image or Dockerfile, `features`, `postCreateCommand`, `customizations.vscode.extensions`); CLI `devcontainer up --workspace-folder .` / `devcontainer exec`. Remote-SSH for remote Linux hosts (the NVIDIA box).
 - Profiles separate extension sets (a "Data" profile vs "Rust"); Settings Sync is per user, not per project.
-- The Claude Code extension and the integrated terminal share the workspace; the stack's router runs there like in the CLI.
+- The Claude Code extension and the integrated terminal share the workspace; the stack's BlackCat runs there like in the CLI.
 
 ## JetBrains (Toolbox)
 - Toolbox App installs, updates and rolls back IDEs; enable Settings → Tools → "Generate shell scripts" to get launchers (`idea`, `pycharm`, `clion`, `rustrover`, `goland`, `webstorm`, `datagrip`) in the configured scripts folder (add it to PATH).

@@ -24,7 +24,7 @@ For coding, keep Claude Code with your stack in the terminal and add Conductor f
 
 ## Coding apps that run Claude Code on your plan
 
-Every row works with your Claude login, no API key; rows marked Yes run Claude Code with your user settings, so your whole stack loads (router, 33 agents, 61 skills, hooks, MCP servers). In those, pick Sonnet 5 and low effort for router chats.
+Every row works with your Claude login, no API key; rows marked Yes run Claude Code with your user settings, so your whole stack loads (BlackCat, 33 agents, 61 skills, hooks, MCP servers). In those, pick Sonnet 5 and low effort for BlackCat chats.
 
 | App | What it is | Your stack |
 | --- | --- | --- |
@@ -182,7 +182,7 @@ A new connector takes one command, but your stack's agents see it only once it i
 
 1. Add it for every project: `claude mcp add --transport http --scope user recraft https://mcp.recraft.ai/mcp`; for a local server, `claude mcp add --scope user <name> -- npx -y <package>`. Then run `/mcp` once to sign in.
 2. Give it to an agent: add `mcp__recraft` to the `tools:` line of that agent in the repo (`dot-claude/agents/image-director.md` for image tools, `designer.md` for design tools, `motion-designer.md` for motion tools) and rerun `./install.sh`. Only agents that name a server can use it.
-3. For a one-off, ask the router to have mcp-broker use it, or start `claude --agent claude`, a plain session that sees every tool.
+3. For a one-off, ask BlackCat to have mcp-broker use it, or start `claude --agent claude`, a plain session that sees every tool.
 4. In the Claude app and Desktop chat, add connectors under Customize, then Connectors.
 
 Tool schemas load only when a tool is used, so extra connectors cost almost no context.

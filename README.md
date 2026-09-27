@@ -1,6 +1,6 @@
 y# Claude Code multi-agent stack
 
-A router on the main thread (RichCat), 35 specialists (36 agent files), 78 on-demand skills, short global
+BlackCat, the dispatcher on the main thread, 35 specialists (36 agent files), 78 on-demand skills, short global
 rules, a policy hook and MCP servers that start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later** and checked against the 2.1.283 docs (26 Sep 2026). macOS only
 (Apple Silicon first). It runs in the terminal and in the apps that run Claude Code with your
@@ -16,7 +16,7 @@ cd claude-agent-stack
 ./install.sh --with-adobe         # macOS: build the After Effects MCP, install the Premiere connector
 ./install.sh --with-extra-plugins # + Anthropic skill plugins: skill-creator, mcp-server-dev, math-olympiad
 $EDITOR ~/.claude/stack.env       # keys; read at connect time, no reinstall needed
-claude                            # starts as the router, RichCat
+claude                            # starts as BlackCat (the blackcat agent)
 ```
 
 Flags combine. Other flags: `--no-mcp`, `--no-plugins`, `--replace-mcp`, `--force` (overwrite files
@@ -36,8 +36,10 @@ duplicate backup.
   stack version shipped (the repo's `legacy/` holds those versions). The installer's final summary
   lists every pending `.new`, and `/stack-doctor` warns about them.
 - Agent files the stack no longer ships move into the backup's `retired/agents/` while unedited:
-  `senior-coder.md` is now `main-coder.md`. An edited one stays (Claude Code would still load it),
-  and the installer and `/stack-doctor` say so.
+  `senior-coder.md` is now `main-coder.md`, and the main thread's `router.md` is now `blackcat.md`.
+  An edited one stays (Claude Code would still load it), and the installer and `/stack-doctor` say
+  so. The rename also moves `"agent": "router"` to `"blackcat"` and any `ROUTER_*` knob you tuned
+  to its `BLACKCAT_*` name.
 - **Your `~/.claude/CLAUDE.md` is yours.** The stack's global rules live in
   `~/.claude/rules/claude-agent-stack.md`, which Claude Code loads in every session and subagent.
   Upgrading from a version that installed them as `CLAUDE.md` (the one on the Mac did): a copy that
@@ -47,7 +49,7 @@ duplicate backup.
 - `settings.json` is merged, never replaced:
   - The stack owns `autoCompactEnabled`, `autoCompactWindow`, the guard hooks, the spawn depth, the
     concurrency cap and the MCP discovery cache.
-  - `"agent": "router"`, `statusLine` and `skillListingBudgetFraction` are set while you have none
+  - `"agent": "blackcat"`, `statusLine` and `skillListingBudgetFraction` are set while you have none
     of your own (see [Apps](#apps) and [Skills](#skills-dynamic)).
   - Other env knobs you changed are kept. Your own hooks, permission rules and keys stay.
   - Rules and env values the stack stopped shipping are retracted once, while they still hold the
@@ -88,10 +90,10 @@ exported.
 | Path | What |
 |---|---|
 | `~/.claude/rules/claude-agent-stack.md` | Global rules every agent loads (short on purpose). `~/.claude/CLAUDE.md` stays yours |
-| `~/.claude/settings.json` | `"agent": "router"`, auto-compact on with an **800K** window, depth 4, caps, permissions, hooks, status line (merged) |
+| `~/.claude/settings.json` | `"agent": "blackcat"`, auto-compact on with an **800K** window, depth 4, caps, permissions, hooks, status line (merged) |
 | `~/.claude/agents/*.md` | 36 agent definitions |
 | `~/.claude/skills/*/SKILL.md` | 78 skills (descriptions in context; bodies load on demand) |
-| `~/.claude/hooks/agent_guard.py` | The policy hook (spawn policy, depth, fan-out caps, copies, god-coder lock, screen lock, router limits, secrets guard for local-file MCP tools) |
+| `~/.claude/hooks/agent_guard.py` | The policy hook (spawn policy, depth, fan-out caps, copies, god-coder lock, screen lock, BlackCat limits, secrets guard for local-file MCP tools) |
 | `~/.claude/bin/mcp-headers` | `headersHelper`: gives exa/jina/huggingface/wandb their keys from `stack.env` at connect time |
 | `~/.claude/bin/with-stack-env` | Starts spider/magg with just their own keys (`--only`; Claude Desktop passes only `PATH`); `--print-env sh` for the profile |
 | `~/.claude/bin/claude-ultracode`, `~/.local/bin/claude-ninja`, `~/.local/bin/claude-god` | ninja-coder or god-coder as the main thread at ultracode (the two names link to the one script; written by the profile step) |
@@ -111,20 +113,20 @@ exported.
 
 | Requirement | Mechanism |
 |---|---|
-| Subagent depth 4 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`: router → L1 → L2 → L3 → L4. L4 cannot spawn. The hook also tracks depth (it reads the same variable), so an L4 agent can't slip through. The rules add *when* to spawn: only for a missing capability, substantial parallel parts or independent verification — never pass-through or "just in case", and deeper than L2 only for a missing capability or a check. |
+| Subagent depth 4 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`: BlackCat → L1 → L2 → L3 → L4. L4 cannot spawn. The hook also tracks depth (it reads the same variable), so an L4 agent can't slip through. The rules add *when* to spawn: only for a missing capability, substantial parallel parts or independent verification — never pass-through or "just in case", and deeper than L2 only for a missing capability or a check. |
 | One agent → several subagents concurrently | Interactive sessions run subagents in the background. An agent sends independent `Agent` calls in **one message** and they run in parallel. The results come back as task notifications. Caps: 8 running children per agent (`STACK_MAX_FANOUT`), 32 per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`). |
 | subagent1 → subagent1 where it makes sense | 14 agents may launch copies of themselves for independent parts: researcher, coder, main-coder, ninja-coder (two competing approaches in worktrees), mathematician, writer, doc-specialist, data-engineer, data-scientist, ml-engineer, dl-engineer, llm-engineer, quantum-engineer, robotics-engineer. At most 4 copies each (`STACK_MAX_SELF_FANOUT`). One generation only: a copy can't copy itself, which stops the tree growing 4×4. Excluded: orchestrator (no nested orchestration), god-coder (a singleton), mlx/cuda-engineer (one accelerator job per machine), GUI agents such as designer and cg-artist (one screen). |
 | Auto-compact on, window 800K | `"autoCompactEnabled": true`, `"autoCompactWindow": 800000`. Compaction fires a little before the window is full: at ≈767K (the window minus an output reserve and a safety buffer). Subagents compact with the same logic. The installer strips env overrides that would defeat it, `/stack-doctor` warns about settings or shell exports that do (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE`, …), and the status line shows how close the next compaction is. |
-| More agents for every Claude feature | ml-engineer, dl-engineer, llm-engineer, data-scientist, browser-operator (Claude in Chrome + Playwright), claude-code-engineer (skills, agents, hooks, plugins, settings, workflows) and ninja-coder (engineer-mathematician between main-coder and god-coder), on top of the existing 26 (senior-coder is now main-coder). The router also runs the main-thread-only features: dynamic workflows, scheduled tasks and routines, push notifications, file hand-off. |
-| The same setup in Claude Desktop and Conductor | Both run Claude Code with your user settings, so a Code-tab session or a Conductor chat starts as the router with every agent, skill, hook, rule and MCP server, and auto-compacts at 800K. Checked against Conductor 0.87.5 on your Mac and by replaying its options through the Agent SDK. Pick Sonnet 5 and low effort there for router chats; see [Apps](#apps) for the differences. |
+| More agents for every Claude feature | ml-engineer, dl-engineer, llm-engineer, data-scientist, browser-operator (Claude in Chrome + Playwright), claude-code-engineer (skills, agents, hooks, plugins, settings, workflows) and ninja-coder (engineer-mathematician between main-coder and god-coder), on top of the existing 26 (senior-coder is now main-coder). BlackCat also runs the main-thread-only features: dynamic workflows, scheduled tasks and routines, push notifications, file hand-off. |
+| The same setup in Claude Desktop and Conductor | Both run Claude Code with your user settings, so a Code-tab session or a Conductor chat starts as BlackCat with every agent, skill, hook, rule and MCP server, and auto-compacts at 800K. Checked against Conductor 0.87.5 on your Mac and by replaying its options through the Agent SDK. Pick Sonnet 5 and low effort there for BlackCat chats; see [Apps](#apps) for the differences. |
 | Skills on demand, not tied to agents | Every agent has the Skill tool and sees every skill's description; it loads the ones whose description matches its task, and only then does a skill's body enter its context. No agent preloads a skill and no skill names an agent: a description says when to load it, never who. One `Skill` allow rule pre-approves them all, including skills you or a plugin add later, so background agents never stop at a prompt. 78 skills cover the work the agents do: engineering practice (Python, Rust, TypeScript, JVM, Julia, Haskell, CMake/Ninja, IDEs), performance, apps, systems, databases, mathematics and physics, ML/LLM and data, image-model engineering, robotics, LLM applications, research and writing, design, image and print, 3D, video. `tests/lint_agents.py` keeps it that way. |
 | MCP servers on demand, auto on/off | See [MCP servers](#mcp-servers): agent-scoped servers start and stop with their agent, remote ones connect on first use, every schema stays deferred until needed, and rare ones are mounted and unmounted by mcp-broker. |
-| Deep reasoning where it counts | The coordinating, planning and reviewing agents run at `xhigh` (orchestrator, planner, plan-reviewer, main-coder, code-reviewer, mathematician, quantum-engineer, security-auditor), ninja-coder and god-coder at `max`, most specialists at `high`; cheap lookups (router, scout, oracle) stay `low` so they answer fast. Opus 5.5's own default is `medium`. |
+| Deep reasoning where it counts | The coordinating, planning and reviewing agents run at `xhigh` (orchestrator, planner, plan-reviewer, main-coder, code-reviewer, mathematician, quantum-engineer, security-auditor), ninja-coder and god-coder at `max`, most specialists at `high`; cheap lookups (BlackCat, scout, oracle) stay `low` so they answer fast. Opus 5.5's own default is `medium`. |
 | Context that doesn't bloat | Measured with Claude Code 2.1.283: a session starts at about 42K tokens (plain Claude Code: about 34K) — the skill list about 9K, the agent list about 3.6K, the rules about 2K — and each subagent at about 40K, which prompt caching reuses after its first request. Auto-compaction fires at 767K. Skill bodies, MCP tool schemas and memories load only when used. |
 | Images: SVG for graphics, raster for photos, edits for the rest | `image-studio` (image-director, designer): one tool per job, the model of each set in `stack.env` — `IMAGE_STUDIO_SVG_MODEL`, `IMAGE_STUDIO_IMAGE_MODEL`, `IMAGE_STUDIO_EDIT_MODEL` — and looked up in its provider's model catalog before every paid call, so an option or input the model lacks is refused for free. `generate_svg` — through OpenRouter (`OPENROUTER_API_KEY`), default Recraft V4.1 Pro Vector (`recraft/recraft-v4.1-pro-vector`, $0.30 an image, palette through Recraft's controls, one reference image); a model without SVG output is refused, and anything that isn't SVG is never saved. `generate_image` — through Opper (`OPPER_API_KEY`), default GPT Image 2.5 Sunburst (`openai/gpt-image-2.5-sunburst`): 1-4 images, quality low to max (about $0.006 to $0.21 at 1024x1024), 1K/2K/4K, transparency, up to 8 references; `collect_image` fetches one still rendering. `edit_image` — through OpenRouter, default Riverflow V2.5 Pro (`sourceful/riverflow-v2.5-pro`, $0.13 at 1K to $0.17 at 4K) with 1-10 input images. A missing key disables only the tools that need it; `/stack-doctor` shows the models in use and checks them. The rules keep logos, icons, illustrations and graphic design in SVG and allow no other image API. |
 | Uploaded images under 1920 px | The image-limit hook (see [Enforced behaviours](#enforced-behaviours-hooks)): what agents read and what they upload through the browser tools; the image tools scale their own inputs in memory; the rules cover curl and scripts. |
 | Squeeze context further | context-mode (researcher, doc-specialist): pages and long documents go into a local search index and only the passages asked for enter the context. neural-memory (10 agents): what earlier sessions settled is recalled on demand instead of re-derived, with nothing preloaded. See [Context economy](#context-economy-context-mode-and-neural-memory). |
-| ninja-coder and god-coder at "ultra-code" effort | `claude-ninja` and `claude-god` start them as the main thread at ultracode: `xhigh` plus dynamic workflows, workflow launches pre-approved in those sessions only. That is the only place ultracode runs. Subagents can't run workflows, and `effort: ultracode` in an agent file is ignored: checked with the CLI, such a subagent ran at the calling session's `low`. Dispatched by the router or another agent, both run at `max`, the deepest per-message level. |
+| ninja-coder and god-coder at "ultra-code" effort | `claude-ninja` and `claude-god` start them as the main thread at ultracode: `xhigh` plus dynamic workflows, workflow launches pre-approved in those sessions only. That is the only place ultracode runs. Subagents can't run workflows, and `effort: ultracode` in an agent file is ignored: checked with the CLI, such a subagent ran at the calling session's `low`. Dispatched by BlackCat or another agent, both run at `max`, the deepest per-message level. |
 
 ## Agents
 
@@ -139,7 +141,7 @@ can be resumed with SendMessage.
 
 | Agent | Model · effort | For | Agent-scoped MCP | Shared MCP | Extras |
 |---|---|---|---|---|---|
-| **router** — RichCat (main thread) | Sonnet 5 · session level (choose low) | Classifies and dispatches (up to 3 agents in one burst); relays results | — | — | Workflows, cron/loop, routines, push, file hand-off |
+| **blackcat** — BlackCat (main thread) | Sonnet 5 · session level (choose low) | Classifies and dispatches (up to 3 agents in one burst); relays results | — | — | Workflows, cron/loop, routines, push, file hand-off |
 | orchestrator | Opus 5.5 · xhigh | Multi-step / multi-domain work; ≤ 7 tasks in flight | neural-memory | — | cache 1h |
 | planner | Opus 5.5 · xhigh | How to solve it: options, plan, owners, verification | libdocs | exa, jina | |
 | plan-reviewer | Opus 5.5 · xhigh | Critique of a plan before execution | libdocs | exa, jina | |
@@ -187,8 +189,8 @@ can be resumed with SendMessage.
   it lists the Workflow tool, so it can launch dynamic workflows (where your account has them). As a
   subagent it runs at `max`, without them.
 - An agent file's `effort` counts only when the agent runs as a subagent. The main thread (the
-  router, or any `claude --agent <name>`) runs at the session's level: pick it with `/effort` (saved
-  per model) or `--effort`. For the router, `/effort low` once in a router session.
+  BlackCat, or any `claude --agent <name>`) runs at the session's level: pick it with `/effort` (saved
+  per model) or `--effort`. For BlackCat, `/effort low` once in a BlackCat session.
 - **Shared MCP**: remote servers, visible only to agents that list them.
 
 ### Spawn policy (enforced by the hook)
@@ -199,12 +201,12 @@ matches it. `general-purpose`, `fork` and every type not in the caller's row are
 finished agent with SendMessage follows the same rows (an agent may always resume its own children
 and its parent); messages to agents that are still running pass.
 
-Agents of your own (other files in `~/.claude/agents/`) are in no row, so neither the router nor the
+Agents of your own (other files in `~/.claude/agents/`) are in no row, so neither BlackCat nor the
 stack's agents can spawn them. Run one directly with `claude --agent <name>`, or add it to
-`router.md`'s `tools:` line and a `POLICY` row in the repo's `agent_guard.py`, then re-run the
+`blackcat.md`'s `tools:` line and a `POLICY` row in the repo's `agent_guard.py`, then re-run the
 installer.
 
-- **router**: any specialist (at most 3 dispatches, all in one burst); follow-ups go through SendMessage.
+- **blackcat**: any specialist (at most 3 dispatches, all in one burst); follow-ups go through SendMessage.
 - **orchestrator**: every specialist plus Explore.
 - **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker,
   claude-code-guide, browser-operator.
@@ -480,7 +482,7 @@ sections, anything queried twice) and doc-specialist (a long PDF converted to ma
 searched). Its tools start with those agents and stop with them.
 - **The MCP server, not the plugin.** The plugin's hooks run on nearly every tool call, rewrite
   every subagent's prompt with routing rules, block `curl`/`wget` and steer Bash output away from
-  the context. That fights the router, the spawn policy and the agents' own instructions, and costs
+  the context. That fights BlackCat, the spawn policy and the agents' own instructions, and costs
   a Node process per tool call. Without the hooks it saves less than the headline figure: it is a
   tool agents choose to use.
 - **Allowed**: `ctx_fetch_and_index`, `ctx_index`, `ctx_search`, `ctx_stats`. **Denied**:
@@ -515,16 +517,16 @@ To start the memory afresh, delete `~/.claude/neural-memory/`. Claude Code's own
 
 | Event | What the hook does |
 |---|---|
-| PreToolUse `Agent` | Checks, in order: spawn policy, depth, the copy rule, fan-out caps (atomic leases) and the router dispatch window. Takes the god-coder lock and strips a per-call `model`. Denies `isolation: "remote"`, because cloud agents load no hooks. |
+| PreToolUse `Agent` | Checks, in order: spawn policy, depth, the copy rule, fan-out caps (atomic leases) and the BlackCat dispatch window. Takes the god-coder lock and strips a per-call `model`. Denies `isolation: "remote"`, because cloud agents load no hooks. |
 | PreToolUse `SendMessage` | Resuming a finished agent follows the spawn policy (the caller's row, or its own child or parent) and counts against its parent's fan-out caps; resuming a finished god-coder takes the god-coder lock |
 | PreToolUse `mcp__computer-use__*` | One agent on the screen at a time |
 | PreToolUse local-file MCP tools: context-mode `ctx_index`, markitdown, docling, playwright, chrome-devtools (catalog) | A path or `file:` URI argument is checked against every `Read(...)` deny rule, yours and the project's, with Claude Code's `//abs`, `~/`, `/x` and relative forms. Each argument is read every way the tool might read it: `x:/../..` and `file:/../..` are relative paths to a tool that doesn't parse URIs; `~`, percent-encoding, symlinks and both the session's and the project's directory are tried. A directory that holds a protected path is denied, and `ctx_index` gets no directories at all (it would walk them). Oversized arguments are refused rather than checked, so the hook always answers within its timeout. Claude Code applies those rules to its own tools, not to MCP arguments. |
 | PostToolUse `Agent\|TaskStop`, SubagentStart/Stop, StopFailure | Registry of who spawned whom at which depth. Liveness: a stopped, failed or TaskStop-ed agent releases its locks. A parent that waits on its children still counts as alive while any child is. |
-| PostToolUseFailure / PermissionDenied | Roll back leases and the router marker |
-| UserPromptSubmit, SessionStart (startup/resume) | Reset per-prompt router markers; clear stale locks; prune old state |
+| PostToolUseFailure / PermissionDenied | Roll back leases and the BlackCat marker |
+| UserPromptSubmit, SessionStart (startup/resume) | Reset per-prompt BlackCat markers; clear stale locks; prune old state |
 | PostToolUse `Read\|mcp__*`, PreToolUse `mcp__*` (image limit) | Every image an agent reads (Read, screenshots and other MCP image results) is re-encoded to at most 1919 px per side before the model sees it, and kept under the API's 5 MB image cap (JPEG at lower quality if needed; else left as it was). Local images that the browser upload tools (Playwright, Claude in Chrome) send off the machine are swapped for downscaled copies in a `.downscaled/` folder next to the original, which git ignores, under the same name — so the tools' own folder checks still pass. A copy is reused while it carries its original's modification time; nothing is ever deleted (remove `.downscaled/` folders whenever you like). JPEG stays JPEG, PNG stays PNG. The one refusal: an oversized image the hook can't copy (a symlink, an animated image, a folder it can't write) is refused with the `sips` command to make a copy. Otherwise it never blocks a call. Uses macOS `sips`. |
 
-The router's own frontmatter hook allows only its delegation tools, plus at most 8 other tool calls
+BlackCat's own frontmatter hook allows only its delegation tools, plus at most 8 other tool calls
 per prompt. Every hook command uses an **absolute interpreter** chosen at install time. A bare
 `python3` broken by a pyenv/asdf shim would make every hook fail to start, which Claude Code treats
 as "allow". `/stack-doctor` runs the real hook commands on calls that must be denied, to prove the
@@ -537,8 +539,8 @@ the escape hatch (`STACK_POLICY=off`) is shown only to you.
 
 | Knob | Default | Meaning |
 |---|---|---|
-| `ROUTER_MAX_DISPATCH` / `ROUTER_DISPATCH_WINDOW_S` | 3 / 30 | Router Agent calls per prompt, all within this many seconds of the first (0 = no window) |
-| `ROUTER_MAX_STEPS` | 8 | Router non-Agent tool calls per prompt |
+| `BLACKCAT_MAX_DISPATCH` / `BLACKCAT_DISPATCH_WINDOW_S` | 3 / 30 | BlackCat Agent calls per prompt, all within this many seconds of the first (0 = no window) |
+| `BLACKCAT_MAX_STEPS` | 8 | BlackCat non-Agent tool calls per prompt |
 | `STACK_MAX_FANOUT` / `STACK_MAX_SELF_FANOUT` | 8 / 4 | Running + starting children per agent / of them copies (0 = no cap) |
 | `STACK_FANOUT_IDLE_S` | 600 | A child whose whole subtree is silent this long stops counting |
 | `GOD_IDLE_S` / `GOD_PENDING_TTL_S` / `GOD_LOCK_TTL_S` | 1800 / 120 / 21600 | god-coder lock: idle holder, unconfirmed lease, hard ceiling |
@@ -556,7 +558,7 @@ the escape hatch (`STACK_POLICY=off`) is shown only to you.
 ## Status line
 
 `bin/statusline.py` renders a line like
-`router · Sonnet 5 · low · ctx 312K/800K ▓▓▓░░░░░ · 5h 23% · 7d 41% · cache 91%`.
+`blackcat · Sonnet 5 · low · ctx 312K/800K ▓▓▓░░░░░ · 5h 23% · 7d 41% · cache 91%`.
 - The **ctx** bar counts the main conversation's tokens against the 800K auto-compact window, so you
   see the next compaction coming (it fires at ≈767K).
 - 5h/7d are your plan's rate-limit windows (Pro/Max).
@@ -575,7 +577,7 @@ endpoint). CUDA work runs only on an NVIDIA host you name.
 
 ## Apps
 
-Every app below runs Claude Code with your user settings, so it starts as the router with the whole
+Every app below runs Claude Code with your user settings, so it starts as BlackCat with the whole
 stack: the 36 agents, the 78 skills, the hooks, the rules, your MCP servers and auto-compaction at
 800K. Checked on 27 Sep 2026 against each app's documentation or code; for Conductor also against
 the version on your Mac (0.87.5) and by running the stack through the Agent SDK with Conductor's own
@@ -584,8 +586,8 @@ options (see [How the apps were checked](#how-the-apps-were-checked)).
 | App | Runs | What to set | Limits |
 |---|---|---|---|
 | Terminal (Ghostty, Terminal) | your `claude` | once: `/effort low` | none: the reference, and the only place for `claude-ninja` / `claude-god` |
-| **Claude Desktop, Code tab** (Local) | Claude Code 2.1.281, built into Desktop 2.9939.2 | model **Sonnet 5**, effort **low** for router sessions | no agent teams; panel commands such as `/permissions` don't open; Desktop reads only `PATH` from your shell profile (the stack needs nothing else) |
-| **Conductor** 0.87.5 | Claude Code 2.1.280, bundled | model **Sonnet 5**, thinking **low**, Ultracode **off** for router chats | always bypass-permissions (your deny rules and the guard still apply); Conductor's own tools (diff comments, terminal reading) aren't in the agents' tool lists |
+| **Claude Desktop, Code tab** (Local) | Claude Code 2.1.281, built into Desktop 2.9939.2 | model **Sonnet 5**, effort **low** for BlackCat sessions | no agent teams; panel commands such as `/permissions` don't open; Desktop reads only `PATH` from your shell profile (the stack needs nothing else) |
+| **Conductor** 0.87.5 | Claude Code 2.1.280, bundled | model **Sonnet 5**, thinking **low**, Ultracode **off** for BlackCat chats | always bypass-permissions (your deny rules and the guard still apply); Conductor's own tools (diff comments, terminal reading) aren't in the agents' tool lists |
 | VS Code / Cursor extension | its own copy of Claude Code, same version as the extension | nothing | a subset of slash commands |
 | JetBrains plugin | your `claude`, in the IDE terminal | nothing | none |
 | Zed (Claude Agent) | Claude Code 2.1.280 through the ACP adapter | nothing | a few slash commands hidden; Zed's Terminal Threads run your own `claude` |
@@ -594,16 +596,16 @@ options (see [How the apps were checked](#how-the-apps-were-checked)).
 
 What differs from the terminal in these apps (Desktop, Conductor, Nimbalyst, VS Code and Zed all run
 Claude Code through the Agent SDK):
-- **Model and effort** come from the app's pickers and set the main thread: the router takes the model
+- **Model and effort** come from the app's pickers and set the main thread: BlackCat takes the model
   you pick, not the Sonnet 5 in its file. Subagents keep their own model and effort.
 - **Subagents return their results directly.** In the SDK a subagent doesn't wait for background
   children, so the rules have every agent pass `run_in_background: false` where the Agent tool offers
   it; calls sent together still run in parallel.
-- **Plan mode**: the router sends the planning to planner and leaves plan mode with ExitPlanMode.
-- **Questions**: Conductor replaces AskUserQuestion with its own tool; the router has both.
-- **A plain Claude Code session** instead of the router: `"agent": "claude"` in a project's
+- **Plan mode**: BlackCat sends the planning to planner and leaves plan mode with ExitPlanMode.
+- **Questions**: Conductor replaces AskUserQuestion with its own tool; BlackCat has both.
+- **A plain Claude Code session** instead of BlackCat: `"agent": "claude"` in a project's
   `.claude/settings.json` (that repository only) or in `~/.claude/settings.json` (everywhere; the
-  installer keeps it, and `claude --agent router` starts the stack). In your own SDK code:
+  installer keeps it, and `claude --agent blackcat` starts the stack). In your own SDK code:
   `settings: { agent: "claude" }`, or `settingSources: ["project", "local"]` to leave the stack out.
   In scripts: `claude -p --agent claude "…"`.
 - **`claude -p`** runs in the default permission mode: commands that aren't pre-approved are refused.
@@ -625,7 +627,7 @@ Claude Code through the Agent SDK):
 5. **Computer use**: Settings → General → turn it on, then grant Accessibility and Screen Recording.
 6. **Check**: send `@oracle what is a monad?`; the subagent pane shows oracle.
 7. Use **Customize → Connectors** where the terminal would use `/mcp`. Desktop's Chat tab (not Code)
-   has no subagents, hooks or router.
+   has no subagents, hooks or BlackCat.
 
 ### Conductor, step by step
 
@@ -633,7 +635,7 @@ Claude Code through the Agent SDK):
    `~/.claude.json` (MCP servers). Its bundled Claude Code (2.1.280) is recent enough; if you switch
    it to your own `claude` (Settings → Storage), keep that at 2.1.271 or later.
 2. For each chat: model **Sonnet 5**, thinking **low**, Ultracode **off** (with Ultracode on, the
-   router itself would start dynamic workflows).
+   BlackCat itself would start dynamic workflows).
 3. Work runs in the workspace's git worktree under `~/conductor/workspaces/`. The agents' scratch
    folder `.claude-work/` is excluded from git there too.
 4. For ninja-coder or god-coder at ultracode, use `claude-ninja` / `claude-god` in a terminal (Conductor
@@ -647,14 +649,14 @@ Claude Code through the Agent SDK):
   own tool, its own MCP server and a `conductor` skill.
 - Those options were replayed with Agent SDK 0.3.283 and Claude Code 2.1.283 against a fresh install
   of the stack:
-  - the main thread was the router, with its tool list; 33 agents and 61 skills of that revision (plus the built-in
+  - the main thread was BlackCat, with its tool list; 33 agents and 61 skills of that revision (plus the built-in
     ones) loaded;
   - hooks fired (SessionStart, UserPromptSubmit, PreToolUse, SubagentStart/Stop, PostToolUse);
   - auto-compaction: 800,000-token window from settings, threshold 767,000 (Opus 5.5);
   - a coder subagent ran at its own effort (medium) under a session at low;
-  - router → coder → two coder copies in parallel returned the right SHA-256 digests, and skills
+  - BlackCat → coder → two coder copies in parallel returned the right SHA-256 digests, and skills
     loaded without a prompt;
-  - in plan mode the router handed planning to planner.
+  - in plan mode BlackCat handed planning to planner.
 - Found on the way, and fixed: an agent whose command was refused (`claude -p`, default mode) reported
   a guessed value; the rules now require reporting the refusal instead.
 - Desktop, VS Code, Zed, Nimbalyst and AionUI: their documentation, and the code that starts Claude
@@ -663,14 +665,14 @@ Claude Code through the Agent SDK):
 ## Using it
 
 - Just talk to it. To force an agent, start with `@designer …` or `god-coder: …`.
-- Long single-domain sessions can skip the router: `claude --agent main-coder --effort high`. The
+- Long single-domain sessions can skip BlackCat: `claude --agent main-coder --effort high`. The
   spawn policy of that agent still applies. Pass `--effort`: a main-thread agent takes the session's
   level, not its file's (Opus 5.5 defaults to `medium`).
 - The hardest problems in a session of their own, at ultracode: `claude-ninja` or `claude-god`
   (any `claude` flags pass through, e.g. `claude-ninja -c`). They run
   `claude --agent <ninja|god>-coder --effort ultracode` with workflow launches pre-approved for that
   session. `claude --agent ninja-coder --effort max` is the other option: the deepest per-message
-  reasoning, no workflows. Dispatched by the router, both agents run at `max`.
+  reasoning, no workflows. Dispatched by BlackCat, both agents run at `max`.
 - Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort. `/effort` only sets
   the session level, which each subagent's own `effort` overrides.
 - Optional: `/advisor opus` gives the Sonnet and Opus agents an Opus advisor at decision points

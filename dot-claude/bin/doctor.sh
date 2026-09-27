@@ -229,13 +229,17 @@ extra = sorted(f[:-3] for f in os.listdir(d) if f.endswith(".md") and f[:-3] not
 if missing:
     print("  FAIL  missing agent files: " + " ".join(missing))
 else:
-    print("  ok    %d/%d agent files present (router + %d specialists)" % (len(agents), len(agents), len(agents) - 1))
+    print("  ok    %d/%d agent files present (BlackCat + %d specialists)" % (len(agents), len(agents), len(agents) - 1))
 if "senior-coder" in extra:
     extra.remove("senior-coder")
     print("  WARN  agents/senior-coder.md is the stack's old name for main-coder, kept because you edited it:"
           " move your changes into main-coder.md and delete it")
+if "router" in extra:
+    extra.remove("router")
+    print("  WARN  agents/router.md is the stack's old name for blackcat, kept because you edited it:"
+          " move your changes into blackcat.md and delete it")
 if extra:
-    print("  WARN  your own agents, unreachable from the router and the stack's agents (the spawn policy"
+    print("  WARN  your own agents, unreachable from BlackCat and the stack's agents (the spawn policy"
           " lists only the stack's): %s — run one with `claude --agent <name>`" % " ".join(extra))
 print("  ok    copies allowed for: " + ", ".join(p.get("self_spawn", [])))
 PY
@@ -260,12 +264,12 @@ if [ -f "$C/hooks/agent_guard.py" ]; then
     fail "agent_guard.py --self-test failed: $out"
   fi
 fi
-# Run the hook commands exactly as Claude Code will (from settings.json and router.md), on events that
+# Run the hook commands exactly as Claude Code will (from settings.json and blackcat.md), on events that
 # must be denied. A hook that cannot start is a non-blocking error in Claude Code: every gate open.
 if [ -f "$C/settings.json" ] && [ -f "$C/hooks/agent_guard.py" ]; then
-  python3 - "$C/settings.json" "$C/agents/router.md" <<'PY'
+  python3 - "$C/settings.json" "$C/agents/blackcat.md" <<'PY'
 import json, os, re, subprocess, sys, tempfile
-settings, router = sys.argv[1], sys.argv[2]
+settings, blackcat_md = sys.argv[1], sys.argv[2]
 try:
     hooks = json.load(open(settings)).get("hooks", {})
 except (OSError, ValueError):
@@ -277,7 +281,7 @@ icmds = sorted({h.get("command") for g in hooks.get("PostToolUse", []) if isinst
                 for h in g.get("hooks", []) if "image-limit" in str(h.get("command"))})
 rcmd = None
 try:
-    m = re.search(r'(?m)^\s+command:\s*"(.*agent_guard\.py.*)"\s*$', open(router).read())
+    m = re.search(r'(?m)^\s+command:\s*"(.*agent_guard\.py.*)"\s*$', open(blackcat_md).read())
     rcmd = json.loads('"%s"' % m.group(1)) if m else None
 except (OSError, ValueError):
     pass
@@ -287,9 +291,9 @@ probes = [("settings.json PreToolUse(Agent)", cmds,
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Agent",
             "agent_id": "doctor-scout", "agent_type": "scout", "tool_use_id": "toolu_doctor",
             "tool_input": {"subagent_type": "god-coder", "prompt": "x", "description": "x"}}),
-          ("router.md router-guard", [rcmd] if rcmd else [],
+          ("blackcat.md blackcat-guard", [rcmd] if rcmd else [],
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Bash",
-            "agent_type": "router", "prompt_id": "doctor", "tool_input": {"command": "true"}})]
+            "agent_type": "blackcat", "prompt_id": "doctor", "tool_input": {"command": "true"}})]
 for label, commands, ev in probes:
     if not commands:
         print("  FAIL  %s: no agent_guard.py hook command found — rerun install.sh" % label)
@@ -351,20 +355,20 @@ def ok(m): print("  ok    " + m)
 def warn(m): print("  WARN  " + m)
 def fail(m): print("  FAIL  " + m)
 agent = s.get("agent")
-if agent == "router":
-    ok("main thread agent: router")
-    # an agent file's effort applies only to subagents: the router runs at the session's level
+if agent == "blackcat":
+    ok("main thread agent: BlackCat")
+    # an agent file's effort applies only to subagents: BlackCat runs at the session's level
     lvl = ((s.get("modelSettings") or {}).get("claude-sonnet-5") or {}).get("effortLevel")
     if lvl in ("low", "medium"):
-        ok("router effort: %s (saved for Sonnet 5)" % lvl)
+        ok("BlackCat effort: %s (saved for Sonnet 5)" % lvl)
     else:
-        warn("router effort: %s — the router's file says low, but a main-thread agent runs at the session's "
-             "level: run /effort low once in a router session (saved for Sonnet 5)"
+        warn("BlackCat effort: %s — BlackCat's file says low, but a main-thread agent runs at the session's "
+             "level: run /effort low once in a BlackCat session (saved for Sonnet 5)"
              % (lvl or "Sonnet 5's default, high"))
 elif agent:
-    ok("main thread agent: %s (your choice; the stack's router: claude --agent router)" % agent)
+    ok("main thread agent: %s (your choice; the stack's BlackCat: claude --agent blackcat)" % agent)
 else:
-    warn("no main thread agent — rerun install.sh for the stack's router, or set \"agent\": \"claude\" to opt out")
+    warn("no main thread agent — rerun install.sh for the stack's BlackCat, or set \"agent\": \"claude\" to opt out")
 (ok if s.get("autoCompactEnabled", True) is True else fail)("autoCompactEnabled=%s" % s.get("autoCompactEnabled", "default(true)"))
 (ok if s.get("autoCompactWindow") == 800000 else warn)("autoCompactWindow=%s (stack: 800000)" % s.get("autoCompactWindow"))
 env = s.get("env", {})

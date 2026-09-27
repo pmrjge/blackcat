@@ -4,7 +4,7 @@
 #   claude-ninja [claude args…]     claude-god [claude args…]     claude-ultracode <agent> [claude args…]
 # Ultracode exists only on a main thread. An agent file's `effort` applies to subagents only, and
 # `effort: ultracode` there is ignored (the agent would run at the calling session's level), so
-# dispatched by the router these agents run at max; started from here they run at ultracode.
+# dispatched by BlackCat these agents run at max; started from here they run at ultracode.
 case "$(basename "$0")" in
   claude-ninja) agent=ninja-coder ;;
   claude-god) agent=god-coder ;;
