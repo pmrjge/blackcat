@@ -26,6 +26,16 @@ MCP servers and change nothing). `CLAUDE_CONFIG_DIR` changes the target (default
 
 Inside Claude Code: `/stack-doctor` (health check), `/mcp` (server status), `/context`.
 
+**Installs only from `main`.** The installer runs from the `main` branch of this repository's git
+checkout, always (no flag turns this off). Started from another branch or worktree, it first
+fast-forwards local `main` to that checkout's commit (`git merge --ff-only`, in the worktree where
+`main` is checked out; with none, the checkout switches to `main`) and re-runs itself from the `main`
+checkout. It stops before installing anything, with the fix, when the fast-forward is blocked:
+uncommitted or untracked files on the branch, uncommitted changes in the `main` checkout, or
+diverged history (rebase the branch onto `main`, or merge `main` into it, then re-run). It never
+pushes, and runs these git calls with hooks off so no hook can push either. `--mcp-plan` changes
+nothing, so off `main` it refuses instead of merging.
+
 **Safe to re-run.** Everything the installer would overwrite is copied to
 `~/.claude/backup-<time>-<random>/` first, rc files included. A run that changes nothing keeps no
 duplicate backup.
@@ -48,7 +58,9 @@ duplicate backup.
   This happens once; afterwards the installer never looks at `CLAUDE.md`.
 - `settings.json` is merged, never replaced:
   - The stack owns `autoCompactEnabled`, `autoCompactWindow`, the guard hooks, the spawn depth, the
-    concurrency cap and the MCP discovery cache.
+    concurrency cap, the MCP discovery cache, the `Bash(git push *)` deny rule and
+    `worktree.baseRef: "head"` (agents never push, so `origin/main` goes stale: new worktrees start
+    from local work so they can fast-forward back into `main`); your other `worktree` keys stay.
   - `"agent": "blackcat"`, `statusLine` and `skillListingBudgetFraction` are set while you have none
     of your own (see [Apps](#apps) and [Skills](#skills-dynamic)).
   - Other env knobs you changed are kept. Your own hooks, permission rules and keys stay.
@@ -521,6 +533,7 @@ To start the memory afresh, delete `~/.claude/neural-memory/`. Claude Code's own
 | PreToolUse `SendMessage` | Resuming a finished agent follows the spawn policy (the caller's row, or its own child or parent) and counts against its parent's fan-out caps; resuming a finished god-coder takes the god-coder lock |
 | PreToolUse `mcp__computer-use__*` | One agent on the screen at a time |
 | PreToolUse local-file MCP tools: context-mode `ctx_index`, markitdown, docling, playwright, chrome-devtools (catalog) | A path or `file:` URI argument is checked against every `Read(...)` deny rule, yours and the project's, with Claude Code's `//abs`, `~/`, `/x` and relative forms. Each argument is read every way the tool might read it: `x:/../..` and `file:/../..` are relative paths to a tool that doesn't parse URIs; `~`, percent-encoding, symlinks and both the session's and the project's directory are tried. A directory that holds a protected path is denied, and `ctx_index` gets no directories at all (it would walk them). Oversized arguments are refused rather than checked, so the hook always answers within its timeout. Claude Code applies those rules to its own tools, not to MCP arguments. |
+| PreToolUse `Bash` (only commands with a git subcommand, via `if: "Bash(git *)"`) | The Git rule's **never push**: denies `git push`, `send-pack`, `lfs push` and `subtree push` in the forms the `Bash(git push *)` deny rule misses (`git -C dir push`, `git -c k=v push`, `git 'push'`, a push inside `$(...)`). Words are compared after shell unquoting and heredoc bodies are skipped, so a commit message that mentions a push passes. Not switched off by `STACK_POLICY=off`. Best effort: a git alias or a script that pushes is out of its sight. |
 | PostToolUse `Agent\|TaskStop`, SubagentStart/Stop, StopFailure | Registry of who spawned whom at which depth. Liveness: a stopped, failed or TaskStop-ed agent releases its locks. A parent that waits on its children still counts as alive while any child is. |
 | PostToolUseFailure / PermissionDenied | Roll back leases and the BlackCat marker |
 | UserPromptSubmit, SessionStart (startup/resume) | Reset per-prompt BlackCat markers; clear stale locks; prune old state |

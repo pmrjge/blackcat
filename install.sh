@@ -51,6 +51,99 @@ if [ "$(uname)" != "Darwin" ] && [ "${STACK_ALLOW_NON_MACOS:-0}" != 1 ]; then
 fi
 
 HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+
+# ---- Main-branch rule (hard-coded; no flag or variable turns it off) ----------------------------
+# The stack installs only from its repo's `main` branch, the same Git rule the agents follow
+# (rules/claude-agent-stack.md → Git). Run from any other branch or worktree, the installer first
+# fast-forwards local `main` to this checkout's commit (`git merge --ff-only`, in the worktree where
+# `main` is checked out; if none, this checkout switches to `main`), then re-runs itself from the
+# `main` checkout. Whatever blocks a fast-forward (uncommitted or untracked files here, uncommitted
+# changes in the main checkout, diverged history) stops it before anything is installed, with the
+# fix. It NEVER pushes: repo_git refuses push-like subcommands, and git hooks are off for these
+# calls, so a post-merge or post-checkout hook cannot push either. Nothing else here pushes.
+MAIN_BRANCH=main
+guard_fail(){ printf '\ninstall.sh: main-branch rule — %s\n' "$1" >&2; shift; for l in "$@"; do printf '  %s\n' "$l" >&2; done; exit 1; }
+repo_git(){
+  local a sub="" skip=0
+  for a in "$@"; do
+    if [ "$skip" = 1 ]; then skip=0; continue; fi
+    case "$a" in -C|-c) skip=1 ;; -*) ;; *) sub="$a"; break ;; esac
+  done
+  case "$sub" in push|send-pack) echo "install.sh: refusing 'git $sub' — the installer never pushes" >&2; return 97 ;; esac
+  GIT_TERMINAL_PROMPT=0 git -c core.hooksPath=/dev/null "$@" </dev/null
+}
+main_branch_rule(){
+  local here_p top cur head main_sha label dirty main_wt target out ahead behind
+  git --version >/dev/null 2>&1 || { echo "git is required (macOS: xcode-select --install)"; exit 1; }
+  here_p="$(cd "$HERE" && pwd -P)"
+  top="$(repo_git -C "$HERE" rev-parse --show-toplevel 2>/dev/null || true)"
+  [ -n "$top" ] && top="$(cd "$top" && pwd -P)"
+  [ "$top" = "$here_p" ] || guard_fail "$HERE is not a git checkout of claude-agent-stack." \
+    "The installer runs only from the $MAIN_BRANCH branch of a git clone:" \
+    "git clone <repository-url> claude-agent-stack && cd claude-agent-stack && ./install.sh"
+  repo_git -C "$HERE" show-ref --verify -q "refs/heads/$MAIN_BRANCH" \
+    || guard_fail "this clone has no local '$MAIN_BRANCH' branch." \
+         "Create it from the commit you want installed (e.g. git -C '$HERE' branch $MAIN_BRANCH origin/$MAIN_BRANCH), then re-run."
+  cur="$(repo_git -C "$HERE" symbolic-ref -q --short HEAD 2>/dev/null || true)"
+  if [ "$cur" = "$MAIN_BRANCH" ]; then
+    unset STACK_MAIN_REEXEC
+    printf 'stack repo: %s (branch %s)\n' "$HERE" "$MAIN_BRANCH"
+    return 0
+  fi
+  head="$(repo_git -C "$HERE" rev-parse --verify HEAD)"
+  label="${cur:-detached HEAD $(repo_git -C "$HERE" rev-parse --short HEAD)}"
+  [ "${STACK_MAIN_REEXEC:-}" != 1 ] || guard_fail "the re-run from the $MAIN_BRANCH checkout found $HERE on '$label' — stopping."
+  [ "$MCP_PLAN" != 1 ] || guard_fail "$HERE is on '$label', not $MAIN_BRANCH, and --mcp-plan changes nothing (so it does not merge)." \
+    "Run it from the checkout on $MAIN_BRANCH, or run ./install.sh here without --mcp-plan to fast-forward $MAIN_BRANCH first."
+
+  # 1. this checkout is clean: uncommitted or untracked files would not reach main
+  dirty="$(repo_git -C "$HERE" status --porcelain --untracked-files=normal)"
+  [ -z "$dirty" ] || guard_fail "$HERE ('$label') has uncommitted or untracked files, which would not reach $MAIN_BRANCH:" \
+    "$(printf '%s\n' "$dirty" | head -n 20)" \
+    "Commit them on '$label' (or remove them), then re-run ./install.sh."
+  # 2. the history allows a fast-forward
+  main_sha="$(repo_git -C "$HERE" rev-parse --verify "refs/heads/$MAIN_BRANCH")"
+  if repo_git -C "$HERE" merge-base --is-ancestor "$head" "$main_sha"; then
+    printf 'stack repo: %s is on %s; %s already contains it — installing from %s\n' "$HERE" "$label" "$MAIN_BRANCH" "$MAIN_BRANCH"
+  elif ! repo_git -C "$HERE" merge-base --is-ancestor "$main_sha" "$head"; then
+    ahead="$(repo_git -C "$HERE" rev-list --count "$main_sha..$head")"
+    behind="$(repo_git -C "$HERE" rev-list --count "$head..$main_sha")"
+    guard_fail "'$label' and $MAIN_BRANCH have diverged ($ahead commit(s) only on '$label', $behind only on $MAIN_BRANCH), so $MAIN_BRANCH cannot fast-forward." \
+      "Commits on $MAIN_BRANCH that '$label' lacks:" \
+      "$(repo_git -C "$HERE" log --oneline -n 10 "$head..$main_sha" | sed 's/^/  /')" \
+      "Fix (no push involved): git -C '$HERE' rebase $MAIN_BRANCH   (or: git -C '$HERE' merge $MAIN_BRANCH)," \
+      "resolve any conflicts, run the tests, then re-run ./install.sh here. In Claude Code, main-coder does this (Git rule)."
+  fi
+  # 3. where main is checked out; else this checkout switches to it
+  main_wt="$(repo_git -C "$HERE" worktree list --porcelain \
+    | awk -v ref="branch refs/heads/$MAIN_BRANCH" '/^worktree /{wt=substr($0, 10)} $0 == ref {print wt; exit}')"
+  if [ -n "$main_wt" ]; then
+    [ -d "$main_wt" ] || guard_fail "$MAIN_BRANCH is checked out at $main_wt, which no longer exists." \
+      "Run git -C '$HERE' worktree prune, then re-run ./install.sh."
+    target="$(cd "$main_wt" && pwd -P)"
+    dirty="$(repo_git -C "$target" status --porcelain --untracked-files=no)"
+    [ -z "$dirty" ] || guard_fail "the $MAIN_BRANCH checkout at $target has uncommitted changes, so it cannot fast-forward safely:" \
+      "$(printf '%s\n' "$dirty" | head -n 20)" \
+      "They are someone's work: commit them on $MAIN_BRANCH there (then '$label' must include them), or finish them first; then re-run."
+  else
+    target="$here_p"
+    out="$(repo_git -C "$target" switch -q "$MAIN_BRANCH" 2>&1)" \
+      || guard_fail "could not switch $target to $MAIN_BRANCH:" "$out"
+  fi
+  # 4. fast-forward main, then re-run from the main checkout
+  if [ "$(repo_git -C "$target" rev-parse HEAD)" != "$head" ] && ! repo_git -C "$target" merge-base --is-ancestor "$head" HEAD; then
+    if ! out="$(repo_git -C "$target" merge --ff-only -q "$head" 2>&1)"; then
+      [ "$target" = "$here_p" ] && { if [ -n "$cur" ]; then repo_git -C "$target" switch -q "$cur"; else repo_git -C "$target" switch -q --detach "$head"; fi; } >/dev/null 2>&1
+      guard_fail "git merge --ff-only $label failed in $target:" "$out" "Fix what git names above, then re-run ./install.sh."
+    fi
+    printf 'stack repo: fast-forwarded %s to %s (%s) in %s\n' "$MAIN_BRANCH" "$label" "$(repo_git -C "$target" rev-parse --short HEAD)" "$target"
+  fi
+  [ -x "$target/install.sh" ] || guard_fail "$target/install.sh is missing or not executable."
+  printf 'stack repo: re-running the installer from the %s checkout %s\n' "$MAIN_BRANCH" "$target"
+  STACK_MAIN_REEXEC=1 exec "$target/install.sh" ${1+"$@"}
+}
+main_branch_rule ${1+"$@"}
+
 SRC="$HERE/dot-claude"
 C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
 mkdir -p "$C"
@@ -1069,6 +1162,15 @@ for k, v in new.items():
                 print("  retracted stack permission rule(s) from %s: %s" % (pk, ", ".join(dropped)))
             p[pk] = uniq([x for x in have if x not in retired] + pv)
         merged["permissions"] = p
+    elif k == "worktree":
+        # the stack owns worktree.baseRef ("head": agents never push, so origin/main goes stale and
+        # a worktree must start from local work to merge back); other worktree keys stay yours
+        w = dict(cur.get(k) or {}) if isinstance(cur.get(k), dict) else {}
+        for wk, wv in v.items():
+            if wk in w and w[wk] != wv:
+                print("  set worktree.%s=%s (was %s): the stack's git rule needs it" % (wk, json.dumps(wv), json.dumps(w[wk])))
+            w[wk] = wv
+        merged[k] = w
     elif k in SET_IF_ABSENT:
         if (k not in cur or cur.get(k) == prev_owned.get(k) or cur.get(k) == v
                 or cur.get(k) in OLD_SET_IF_ABSENT.get(k, ())):

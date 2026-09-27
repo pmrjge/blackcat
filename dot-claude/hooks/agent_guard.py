@@ -13,6 +13,8 @@ Reads the hook JSON on stdin.
                                     row, or its own child/parent) and its parent's fan-out caps;
                                     resuming a finished god-coder takes the god-coder lock
   PreToolUse  mcp__computer-use__*  one agent on the screen at a time
+  PreToolUse  Bash (git commands)   `no-push` mode: agents never push, in any form (absolute; not
+                                    switched off by STACK_POLICY=off)
   PreToolUse  local-file MCP tools  context-mode ctx_index, markitdown, docling, playwright: a path
                                     or file: URI argument is held to the Read deny rules (Claude Code
                                     cannot see inside MCP arguments)
@@ -51,7 +53,8 @@ subtree (the agent's transcript and every live descendant's).
 
 CLI: `agent_guard.py --print-policy` (JSON consumed by doctor.sh and tests/lint_agents.py),
 `--self-test`, `blackcat-guard` (PreToolUse hook of the blackcat main thread), `image-limit`
-(PreToolUse/PostToolUse hook that keeps images under STACK_IMAGE_MAX_PX), no argument = event.
+(PreToolUse/PostToolUse hook that keeps images under STACK_IMAGE_MAX_PX), `no-push` (PreToolUse
+Bash hook that denies any git push), no argument = event.
 
 Knobs (env):
   STACK_POLICY=off        disable every deny and lock (bookkeeping and model strip continue)
@@ -87,6 +90,7 @@ import fcntl
 import json
 import os
 import re
+import shlex
 import shutil
 import stat
 import struct
@@ -1880,6 +1884,78 @@ def blackcat_guard(raw):
     sys.exit(0)
 
 
+# ---------------------------------------------------------------- no-push mode
+# The stack's git rule: agents never push. settings.json denies `Bash(git push *)`, which misses
+# `git -C dir push`, `git -c k=v push`, `git 'push'` or a push inside `$(...)`; this PreToolUse Bash
+# hook (spawned only for commands with a git subcommand, via `if: "Bash(git *)"`) catches those.
+# Words are compared after shell unquoting, so a commit message that mentions "git push" passes.
+# Deliberately not switched off by STACK_POLICY=off: the rule is absolute. Best effort: a git alias
+# or a script that pushes is out of its sight.
+GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env",
+                       "--super-prefix", "--exec-path"}
+PUSH_SUBCOMMANDS = {"push", "send-pack"}
+PUSH_UNDER = {"lfs", "subtree"}             # git lfs push, git subtree push
+PUSH_RE = re.compile(r"(?:^|[\s;&|(`'\"])(?:\S*/)?git(?:\s+-{1,2}[^\s]+(?:\s+[^\s-][^\s]*)?)*?"
+                     r"\s+['\"]?(?:push|send-pack|(?:lfs|subtree)\s+['\"]?push)\b")
+HEREDOC_RE = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][\w-]*)\1[^\n]*\n.*?\n[ \t]*\2[ \t]*(?=\n|\)|$)", re.S)
+SUBST_RE = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+NO_PUSH_REASON = ("Blocked by the stack's git rule: agents never push to a remote, in any form "
+                  "(git push, send-pack, lfs/subtree push). Keep the work in the local repository: "
+                  "commit, merge it back into local main (git merge --ff-only), and report the "
+                  "commits; pushing is the user's own step.")
+
+
+def _shell_words(command):
+    lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
+    lex.whitespace_split = True
+    lex.commenters = ""
+    return list(lex)
+
+
+def git_push_in(command, _depth=0):
+    """True when a shell command runs `git [global options] push` (or send-pack, lfs/subtree push)."""
+    if not isinstance(command, str) or "git" not in command:
+        return False
+    text = HEREDOC_RE.sub("\n", command)    # heredoc bodies are data (commit messages), not commands
+    if _depth < 3:                            # $(...) and `...` run even inside double quotes
+        for m in SUBST_RE.finditer(text):
+            if git_push_in(m.group(1) if m.group(1) is not None else m.group(2), _depth + 1):
+                return True
+    try:
+        words = _shell_words(text)
+    except ValueError:                        # unbalanced quotes: fall back to the raw text
+        return bool(PUSH_RE.search(text))
+    for i, w in enumerate(words):
+        if w != "git" and not w.endswith("/git"):
+            continue
+        j = i + 1
+        while j < len(words) and words[j].startswith("-"):
+            j += 2 if words[j] in GIT_OPTS_WITH_VALUE else 1
+        if j >= len(words):
+            continue
+        sub = words[j]
+        if sub in PUSH_SUBCOMMANDS:
+            return True
+        if sub in PUSH_UNDER and j + 1 < len(words) and words[j + 1] == "push":
+            return True
+    return False
+
+
+def no_push_main(raw):
+    try:
+        ev = json.loads(raw)
+        command = (ev.get("tool_input") or {}).get("command") if isinstance(ev, dict) else None
+    except (ValueError, AttributeError, RecursionError):
+        command = raw                        # unreadable event: judge the raw text
+    try:
+        pushes = git_push_in(command)
+    except Exception:                        # never block every git command on a parser bug
+        pushes = bool(PUSH_RE.search(str(command or "")))
+    if pushes:
+        deny(NO_PUSH_REASON)
+    return 0
+
+
 # ---------------------------------------------------------------- CLI
 def print_policy():
     sys.stdout.write(json.dumps({"policy": POLICY, "leaves": LEAVES, "agents": AGENTS,
@@ -1978,6 +2054,8 @@ def main(argv):
             return self_test()
         if argv[1] == "image-limit":
             return image_limit_main(sys.stdin.read())
+        if argv[1] == "no-push":
+            return no_push_main(sys.stdin.read())
         if argv[1] == "blackcat-guard":
             raw = sys.stdin.read()
             try:
@@ -1987,7 +2065,7 @@ def main(argv):
             except Exception as exc:
                 guard_error("%s: %s" % (type(exc).__name__, exc))
             return 0
-        sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | blackcat-guard | image-limit]\n")
+        sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | blackcat-guard | image-limit | no-push]\n")
         return 2
     raw = sys.stdin.read()
     try:

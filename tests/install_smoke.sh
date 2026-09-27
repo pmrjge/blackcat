@@ -5,7 +5,34 @@
 # $HOME/.claude, ~/.claude.json and ~/.zshrc are fingerprinted before and after.
 set -uo pipefail
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+SRC_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+# install.sh runs only from the main branch of a git checkout and fast-forwards main when started
+# anywhere else, so the test never runs it from this checkout: it snapshots the working tree
+# (tracked and untracked files, not ignored ones) into a scratch repository on main and installs
+# from there. No git command in this test talks to a remote other than scratch ones.
+tgit(){ GIT_TERMINAL_PROMPT=0 git -c core.hooksPath=/dev/null -c commit.gpgsign=false -c init.defaultBranch=main \
+  -c user.name=smoke -c user.email=smoke@example.invalid "$@" </dev/null; }
+# a fresh scratch directory, physical path; aborts instead of falling back to the current directory
+scratch_dir(){ local d; d="$(mktemp -d)" && [ -d "$d" ] && (cd "$d" && pwd -P) || { echo "mktemp -d failed" >&2; exit 1; }; }
+# remove a directory only if it is one of this test's scratch directories
+drop_scratch(){ case "$1" in */tmp.*) [ -d "$1" ] && rm -rf -- "$1" ;; esac; }
+SCRATCH_ROOT="$(scratch_dir)" || exit 1
+HERE="$SCRATCH_ROOT/claude-agent-stack"
+python3 - "$SRC_REPO" "$HERE" <<'PY'
+import os, shutil, subprocess, sys
+src, dst = sys.argv[1:3]
+out = subprocess.run(["git", "-C", src, "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                     stdout=subprocess.PIPE, check=True).stdout.decode()
+for rel in filter(None, out.split("\0")):
+    s = os.path.join(src, rel)
+    if not os.path.lexists(s):          # deleted in the working tree
+        continue
+    d = os.path.join(dst, rel)
+    os.makedirs(os.path.dirname(d), exist_ok=True)
+    shutil.copy2(s, d, follow_symlinks=False)
+PY
+tgit -C "$HERE" init -q && tgit -C "$HERE" add -A && tgit -C "$HERE" commit -q -m "smoke snapshot" \
+  || { echo "could not build the scratch stack repository"; exit 1; }
 INSTALL="$HERE/install.sh"
 export PATH="$HERE/tests/fake-claude:$PATH"
 # install.sh is macOS-only; this test also runs on Linux (CI, containers) through its escape hatch.
@@ -729,7 +756,112 @@ grep -q 'after-effects-mcp/build/index.js' "$T8/c/agents/motion-designer.md" && 
 assert_unchanged_real_home
 rm -rf "$T8"
 
+echo "== 10. Main-branch rule: fast-forward into main from a branch or worktree, never push"
+R0="$(scratch_dir)" || exit 1
+REAL_GIT="$(command -v git)"
+mkdir -p "$R0/shim"
+printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/git-calls.log"\nexec "%s" "$@"\n' "$R0" "$REAL_GIT" > "$R0/shim/git"
+chmod +x "$R0/shim/git"
+tgit clone -q --bare "$HERE" "$R0/remote.git" && tgit clone -q "$R0/remote.git" "$R0/repo" || failed "scratch clone"
+remote_refs(){ git -C "$R0/remote.git" for-each-ref --format='%(refname) %(objectname)' | sha | awk '{print $1}'; }
+REMOTE_BEFORE="$(remote_refs)"
+run_from(){ # run_from <checkout> <config dir> [flags...]
+  local dir="$1" cfg="$2"; shift 2
+  PATH="$R0/shim:$PATH" CLAUDE_CONFIG_DIR="$cfg" FAKE_CLAUDE_JSON="$R0/f.json" STACK_CLAUDE_JSON="$R0/f.json" \
+    "$dir/install.sh" --no-mcp --no-plugins --no-deps --no-profile "$@"
+}
+main_sha(){ git -C "$R0/repo" rev-parse main; }
+# a) a linked worktree on a feature branch with one new commit; main checked out in the primary
+tgit -C "$R0/repo" worktree add -q -b feat "$R0/wt-feat"
+echo feat > "$R0/wt-feat/SMOKE_FEAT.txt"; tgit -C "$R0/wt-feat" add SMOKE_FEAT.txt; tgit -C "$R0/wt-feat" commit -q -m feat
+FEAT="$(git -C "$R0/wt-feat" rev-parse HEAD)"
+run_from "$R0/wt-feat" "$R0/ca" >"$R0/a.log" 2>&1; rc=$?
+if [ "$rc" = 0 ] && [ "$(main_sha)" = "$FEAT" ] && [ -f "$R0/repo/SMOKE_FEAT.txt" ] \
+   && grep -q 'fast-forwarded main to feat' "$R0/a.log" && grep -qF "\"repo\": \"$R0/repo\"" "$R0/ca/.stack-manifest.json"; then
+  pass "from a feature worktree: main fast-forwarded (ff-only), install ran from the main checkout"
+else
+  failed "feature worktree run: rc=$rc main=$(main_sha) feat=$FEAT"; tail -n 15 "$R0/a.log" | sed 's/^/    /'
+fi
+# b) diverged history: refused before anything is installed
+tgit -C "$R0/repo" worktree add -q -b div "$R0/wt-div" "$FEAT~1"
+echo div > "$R0/wt-div/SMOKE_DIV.txt"; tgit -C "$R0/wt-div" add SMOKE_DIV.txt; tgit -C "$R0/wt-div" commit -q -m div
+run_from "$R0/wt-div" "$R0/cb" >"$R0/b.log" 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(main_sha)" = "$FEAT" ] && [ ! -e "$R0/cb" ] && grep -q 'have diverged' "$R0/b.log" && grep -q 'rebase main' "$R0/b.log" \
+  && pass "diverged branch: refused with the rebase fix, main and the config dir untouched" \
+  || { failed "diverged branch: rc=$rc"; tail -n 12 "$R0/b.log" | sed 's/^/    /'; }
+# c) untracked work in the feature worktree: refused
+tgit -C "$R0/repo" worktree add -q -b dirty "$R0/wt-dirty"
+echo x > "$R0/wt-dirty/SMOKE_UNTRACKED.txt"
+run_from "$R0/wt-dirty" "$R0/cc" >"$R0/c.log" 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(main_sha)" = "$FEAT" ] && [ ! -e "$R0/cc" ] && grep -q 'uncommitted or untracked files' "$R0/c.log" \
+  && pass "untracked files in the branch checkout: refused, nothing merged or installed" \
+  || { failed "dirty branch: rc=$rc"; tail -n 8 "$R0/c.log" | sed 's/^/    /'; }
+# d) uncommitted changes in the main checkout block the fast-forward, and are kept
+mv "$R0/wt-dirty/SMOKE_UNTRACKED.txt" "$R0/wt-dirty/SMOKE_D.txt"
+tgit -C "$R0/wt-dirty" add SMOKE_D.txt; tgit -C "$R0/wt-dirty" commit -q -m d
+echo edited >> "$R0/repo/SMOKE_FEAT.txt"
+run_from "$R0/wt-dirty" "$R0/cd" >"$R0/d.log" 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(main_sha)" = "$FEAT" ] && [ ! -e "$R0/cd" ] && grep -q 'main checkout at .* has uncommitted changes' "$R0/d.log" \
+  && grep -q edited "$R0/repo/SMOKE_FEAT.txt" && pass "uncommitted changes in the main checkout: refused, and left as they were" \
+  || { failed "dirty main: rc=$rc"; tail -n 8 "$R0/d.log" | sed 's/^/    /'; }
+tgit -C "$R0/repo" checkout -q -- SMOKE_FEAT.txt
+# e) --mcp-plan changes nothing, so off main it refuses instead of merging
+run_from "$R0/wt-dirty" "$R0/ce" --mcp-plan >"$R0/e.log" 2>&1; rc=$?
+[ "$rc" = 1 ] && [ "$(main_sha)" = "$FEAT" ] && grep -q -- '--mcp-plan changes nothing' "$R0/e.log" \
+  && pass "--mcp-plan off main: refused, main not moved" || { failed "--mcp-plan off main: rc=$rc"; tail -n 5 "$R0/e.log" | sed 's/^/    /'; }
+# f) a clone whose only checkout is on a feature branch: it switches to main and fast-forwards
+tgit clone -q "$R0/remote.git" "$R0/solo" && tgit -C "$R0/solo" switch -q -c feat3
+echo f > "$R0/solo/SMOKE_F.txt"; tgit -C "$R0/solo" add SMOKE_F.txt; tgit -C "$R0/solo" commit -q -m f3
+F3="$(git -C "$R0/solo" rev-parse HEAD)"
+run_from "$R0/solo" "$R0/cf" >"$R0/f.log" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(git -C "$R0/solo" symbolic-ref --short HEAD)" = main ] && [ "$(git -C "$R0/solo" rev-parse main)" = "$F3" ] \
+  && [ -f "$R0/cf/.stack-manifest.json" ] && pass "single checkout on a feature branch: switched to main, fast-forwarded, installed" \
+  || { failed "single checkout: rc=$rc"; tail -n 10 "$R0/f.log" | sed 's/^/    /'; }
+# g) never a push: the remote is untouched, git was never asked to push, install.sh has no push
+[ "$(remote_refs)" = "$REMOTE_BEFORE" ] && pass "the remote's refs are unchanged" || failed "the remote's refs CHANGED"
+python3 - "$R0/git-calls.log" <<'PY' && pass "no push or send-pack among the installer's git calls" || failed "the installer ran a push-like git command"
+import sys
+bad = []
+for line in open(sys.argv[1]):
+    w, i = line.split(), 0
+    while i < len(w) and w[i].startswith("-"):
+        i += 2 if w[i] in ("-C", "-c") else 1
+    if i < len(w) and w[i] in ("push", "send-pack"):
+        bad.append(line.strip())
+if bad:
+    print("\n".join("    " + b for b in bad))
+sys.exit(1 if bad else 0)
+PY
+python3 - "$HERE/install.sh" "$HERE/dot-claude/hooks" <<'PY' && pass "install.sh contains no git push" || failed "install.sh contains a git push"
+import sys
+sys.path.insert(0, sys.argv[2])
+import agent_guard as G
+bad = [l for l in open(sys.argv[1]) if not l.lstrip().startswith("#") and G.git_push_in(l)]
+print("".join("    " + b for b in bad), end="")
+sys.exit(1 if bad else 0)
+PY
+out=$(cd "$R0/repo" && bash -c 'eval "$(sed -n "/^repo_git()/,/^}/p" install.sh)"; repo_git -C . push origin main' 2>&1); rc=$?
+[ "$rc" = 97 ] && printf '%s' "$out" | grep -q 'never pushes' && pass "repo_git refuses push" || failed "repo_git push guard: rc=$rc $out"
+[ "$(remote_refs)" = "$REMOTE_BEFORE" ] && pass "the remote's refs are still unchanged" || failed "the remote's refs CHANGED"
+# settings: worktree.baseRef is the stack's ("head"); the user's other worktree keys stay
+python3 - "$R0/ca/settings.json" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+s["worktree"] = {"baseRef": "fresh", "symlinkDirectories": ["node_modules"]}
+json.dump(s, open(sys.argv[1], "w"), indent=2)
+PY
+run_from "$R0/repo" "$R0/ca" >"$R0/g.log" 2>&1
+python3 - "$R0/ca/settings.json" <<'PY' && grep -q 'set worktree.baseRef="head"' "$R0/g.log" \
+  && pass "worktree.baseRef reset to head, the user's symlinkDirectories kept" || failed "worktree settings merge"
+import json, sys
+w = json.load(open(sys.argv[1])).get("worktree")
+sys.exit(0 if w == {"baseRef": "head", "symlinkDirectories": ["node_modules"]} else 1)
+PY
+assert_unchanged_real_home
+drop_scratch "$R0"
+
 echo
 echo "== Summary: $PASS passed, $FAIL failed"
 rm -rf "$T1" "$T2" "$T3"
+drop_scratch "$SCRATCH_ROOT"
 [ "$FAIL" -eq 0 ]

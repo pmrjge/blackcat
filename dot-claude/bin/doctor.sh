@@ -276,7 +276,9 @@ except (OSError, ValueError):
     hooks = {}
 cmds = sorted({h.get("command") for g in hooks.get("PreToolUse", []) if isinstance(g, dict)
                for h in g.get("hooks", []) if "agent_guard.py" in str(h.get("command"))
-               and "image-limit" not in str(h.get("command"))})
+               and "image-limit" not in str(h.get("command")) and "no-push" not in str(h.get("command"))})
+pcmds = sorted({h.get("command") for g in hooks.get("PreToolUse", []) if isinstance(g, dict)
+                for h in g.get("hooks", []) if "no-push" in str(h.get("command"))})
 icmds = sorted({h.get("command") for g in hooks.get("PostToolUse", []) if isinstance(g, dict)
                 for h in g.get("hooks", []) if "image-limit" in str(h.get("command"))})
 rcmd = None
@@ -293,7 +295,10 @@ probes = [("settings.json PreToolUse(Agent)", cmds,
             "tool_input": {"subagent_type": "god-coder", "prompt": "x", "description": "x"}}),
           ("blackcat.md blackcat-guard", [rcmd] if rcmd else [],
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Bash",
-            "agent_type": "blackcat", "prompt_id": "doctor", "tool_input": {"command": "true"}})]
+            "agent_type": "blackcat", "prompt_id": "doctor", "tool_input": {"command": "true"}}),
+          ("settings.json PreToolUse(Bash) no-push", pcmds,
+           {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": {"command": "git -C . push origin main"}})]
 for label, commands, ev in probes:
     if not commands:
         print("  FAIL  %s: no agent_guard.py hook command found — rerun install.sh" % label)

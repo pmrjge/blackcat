@@ -12,8 +12,8 @@ Commands marked (tested) were run on Git 2.43; newer-only features name their mi
 - Not here: running a forge (the `self-hosting-ops` skill has Forgejo), model downloads (the `hf-hub` skill).
 
 ## Safety rules (always)
-1. Never force-push a shared branch (`main`, `release/*`, anything someone else has pulled). On your own topic
-   branch use `git push --force-with-lease --force-if-includes`, never bare `--force`.
+1. Never push (the stack's global Git rule, hook-enforced): no `git push` in any form, no `send-pack`, `lfs push`
+   or `subtree push`, no forge command that writes to a remote. Work lands in local `main`; the user publishes.
 2. Never rewrite published history (amend/rebase/filter-repo of pushed commits) unless the user asked for it.
 3. Never commit secrets. If one lands: rotate it first, then clean (below).
 4. Before anything destructive, leave a rescue ref: `git branch rescue/$(date +%s)` (or note `git rev-parse HEAD`).
@@ -33,8 +33,7 @@ git log --oneline ..@{u}                                    # commits you are be
 One task = one worktree = one branch, created from an explicit base. Git refuses to check out a branch
 that another worktree has (tested), which is the point.
 ```bash
-git fetch origin
-git worktree add -b agent/<task> ../<repo>-<task> origin/main
+git worktree add -b agent/<task> ../<repo>-<task> main   # from local main: origin/main is stale (no pushes)
 git worktree list --porcelain                       # machine-readable
 git worktree lock --reason "agent running" ../<repo>-<task>
 git worktree remove ../<repo>-<task>                # refuses if dirty; --force discards changes
@@ -47,23 +46,26 @@ git branch -d agent/<task>                          # after merge (-D only when 
 - Each worktree needs its own environment (`uv sync`, `npm ci`); gitignored files such as `.env` are absent.
 - Claude Code (`isolation: worktree`, `--worktree <name>`): worktrees live under `.claude/worktrees/` (branch
   `worktree-<name>` for named ones), based on the remote default branch, not the parent's HEAD (unpushed commits
-  are invisible) unless the `worktree.baseRef` setting is `"head"`. Clean worktrees are removed when the agent ends; changed ones stay
+  are invisible) unless the `worktree.baseRef` setting is `"head"` (the stack sets it). Clean worktrees are removed when the agent ends; changed ones stay
   (locked while running) until the periodic sweep. `.worktreeinclude` (gitignore syntax) copies ignored files
   like `.env` into new worktrees. Keep `.claude/worktrees/` out of `git status` (`.git/info/exclude`).
-- Integrate one branch at a time into the target, running tests after each; remove worktree and branch after.
+- Integrate one branch at a time into local `main`, fast-forward first (`git -C <main checkout> merge --ff-only
+  <branch>`), running tests after each; remove worktree and branch after. A fast-forward that fails (diverged,
+  conflicts, a dirty main checkout) goes to main-coder: rebase the branch onto `main` (or merge `main` into it),
+  resolve (see Conflicts), test, then fast-forward.
 - Avoid multiple checkouts of a superproject with submodules (support is incomplete). `git worktree add --orphan`
   exists for an unborn branch; `--relative-paths` (2.48+) keeps links valid if the tree moves.
 
 ## Integration strategy
 | Situation | Do |
 |---|---|
-| Private topic branch behind `main` | `git rebase origin/main` |
-| Branch others build on | `git merge origin/main` into it; never rebase it |
-| Topic with WIP/fixup noise | autosquash before review, or squash-merge (`gh pr merge --squash`) |
+| Private topic branch behind `main` | `git rebase main` |
+| Branch others build on | `git merge main` into it; never rebase it |
+| Topic with WIP/fixup noise | autosquash before merging, or squash-merge (`git merge --squash <branch>` on `main`, then commit) |
 | Topic with meaningful atomic commits | rebase-merge, or `git merge --no-ff` to keep the topic boundary |
 | Fix needed on a release branch | `git cherry-pick -x <sha>` (records the source) |
-| Stack of dependent branches | `git rebase --update-refs origin/main` (moves every branch in the stack) |
-- Preview conflicts without touching the tree: `git merge-tree --write-tree --name-only origin/main HEAD`
+| Stack of dependent branches | `git rebase --update-refs main` (moves every branch in the stack) |
+- Preview conflicts without touching the tree: `git merge-tree --write-tree --name-only main HEAD`
   (exit 1 = conflicts, prints the files; tested).
 - Useful repo config: `rerere.enabled true`, `rerere.autoUpdate true`, `merge.conflictStyle zdiff3`,
   `rebase.autoStash true`, `diff.algorithm histogram`, `push.autoSetupRemote true`, `fetch.prune true`.
@@ -140,8 +142,9 @@ Performance regressions: `git bisect start --term-old=fast --term-new=slow`. Bis
    `regex:<pattern>==>...`). Large blobs: `git filter-repo --analyze` (reports in `.git/filter-repo/analysis/`),
    then `--strip-blobs-bigger-than 10M`. `--sensitive-data-removal` fetches every ref from origin first.
 4. Verify the value is gone from all refs: `git log --all -p -S '<old value>' --oneline` prints nothing.
-5. Push only when told: `git push --force --mirror origin`; then forge-side cleanup (GitHub support for PR refs
-   and caches, per the "First Changed Commit(s)" filter-repo prints) and have collaborators reclone.
+5. Publishing the rewrite (`git push --force --mirror origin`) is the user's step: give them the command; then
+   forge-side cleanup (GitHub support for PR refs and caches, per the "First Changed Commit(s)" filter-repo
+   prints) and have collaborators reclone.
 6. Prevent recurrence: `.gitignore`, gitleaks hook (below), secrets in env files outside the repo.
 
 ## Large files and model weights
@@ -151,7 +154,7 @@ Performance regressions: `git bisect start --term-old=fast --term-new=slow`. Bis
 | Binary assets that must version with code (design sources, fixtures) | Git LFS: `git lfs install`, `git lfs track "*.psd"`, commit `.gitattributes` |
 | Build outputs, caches | not versioned; `.gitignore` |
 - Existing binaries: `git lfs migrate info --everything --top=20`, then `git lfs migrate import --include="*.psd"
-  --everything` (rewrites history: consent and force push). Guard with `check-added-large-files`.
+  --everything` (rewrites history: needs consent; publishing it is the user's step). Guard with `check-added-large-files`.
 - Hub repos: prefer `hf download`/`hf upload`; plain git + git-lfs still works through the Hub's LFS bridge, and
   git-xet (`git xet install`) adds Xet-native transfers.
 
@@ -192,6 +195,8 @@ repos:
 - Git 2.54 can also define hooks in config (`hook.<name>.event`, `hook.<name>.command`, `git hook list <event>`).
 
 ## Forge CLIs
+Agents use these read-only (`gh pr view|checks`, `gh run view|watch`, `tea pulls list`); creating or merging a
+PR/MR writes to the remote, so it is the user's step, like a push.
 - GitHub (`gh`): `gh pr create --fill --base main --head <branch> [--draft]`; `gh pr checks --watch --fail-fast`;
   `gh pr view --json state,mergeable,reviewDecision`; `gh pr merge --squash --delete-branch [--auto]
   [--match-head-commit <sha>]`; `gh run view <id> --log-failed`; `gh run watch <id> --exit-status`; `gh api ...`.
@@ -238,14 +243,14 @@ docs/** linguist-documentation
 - After adding eol rules to an existing repo: `git add --renormalize .` and commit. Inspect: `git check-attr -a <file>`.
 
 ## Verify
-- `git status` clean; `git log --oneline --graph origin/main..HEAD` shows exactly the intended commits.
+- `git status` clean; before merging, `git log --oneline --graph main..<branch>` shows exactly the intended commits.
 - After any rewrite: `git range-diff`, tests at the tip (or `git rebase -x` per commit), `gitleaks git --log-opts=...`.
 - After recovery: `git fsck --no-dangling` passes and the rescued branch has the expected tip.
 - Worktrees: `git worktree list` has no stale or prunable entries you created; merged agent branches deleted.
 
 ## Report
-- Branches and commits (sha, subject), what was pushed where, PR/MR URL, merge method.
+- Branches and commits (sha, subject), the commit local `main` now points at, merge method; nothing pushed.
 - Conflicts: files, how each was resolved, the test command and result afterwards.
-- Destructive steps (force-push, rewrite, branch deletion): the exact command and the user instruction behind it;
+- Destructive steps (rewrite, branch deletion): the exact command and the user instruction behind it;
   rescue refs left in place.
 - Anything left undone: stale worktrees, secrets that still need rotation, forge-side cleanup pending.
