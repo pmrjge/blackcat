@@ -1,0 +1,151 @@
+---
+name: apparel-merch-print
+description: Load before preparing artwork for garments or merchandise. Choosing screen printing, DTG, DTF, sublimation, heat-transfer vinyl or embroidery by run size, colors, fabric and budget; separations, halftones, underbase, digitizing limits, placements and print-area sizes, per-size scaling, mockups, delivery files per method, slogan legibility, trademark and font licensing.
+---
+# Apparel and merchandise print
+
+## Scope
+- Covers method choice, screen-print separations, DTG, DTF, sublimation, heat-transfer vinyl (HTV), embroidery, placements and sizes, sizing across a size run, legibility, mockups, delivery files and legal guardrails.
+- Not here: paper/offset prepress and PDF/X (`print-production`), vector construction and tracing (`svg-vector-craft`), generated concept art and mockups (`image-prompting`).
+- Numbers are common shop and print-on-demand (POD) guidance; the chosen vendor's template and minimums win. Get them before final art.
+
+## 1. Brief
+Blank (brand, style code, fabric content, weight, colors) · quantities per size and color · placements · method, or let §2 decide · ink or effect (plastisol, water-based, discharge, puff, metallic, glow) · budget per piece and deadline · fulfilment (local shop, POD, contract printer) · who owns every logo, character, photo and font used (§12).
+
+## 2. Choose the method
+
+| Method | Best for | Fabric / substrate | Art limits | Run size and cost | Hand / feel |
+|---|---|---|---|---|---|
+| Screen printing | 1–6 flat spot colors, bold graphics, volume | almost any, with the right ink | each color is a screen; photos need sim process | shop minimums commonly 12–72 pieces; setup per screen per color per location; cheapest per piece at volume | plastisol sits on top; water-based soft |
+| DTG (direct to garment) | full color, photos, 1 to a few dozen pieces | 100% cotton best; blends with ≥ 60% cotton (Printful) | no semi-transparency; neon and exact Pantone out of gamut | no setup; higher per-piece cost | soft, ink in the fibers |
+| DTF (direct to film) | full color on mixed fabrics, small to mid runs, dark or light | cotton, polyester, blends | no semi-transparency; tiny isolated bits peel | no screens; gang sheets | thin film, heavier than DTG on big solids |
+| Sublimation | all-over prints, sportswear, photographic | polyester only (100% ideal, ≥ 65% for acceptable color), white or light | no white ink: white = fabric | per piece; cut-and-sew for all-over | none, dye inside the fiber |
+| HTV (heat-transfer vinyl) | names and numbers, 1–3 colors, personalization | most fabrics per vinyl type | vector cut; no gradients; weeding limits | small runs, per piece | film on top; layers add thickness |
+| Embroidery | polos, caps, jackets, premium look | stable woven or knit; caps | no gradients or photos; minimum text and line sizes | priced per 1,000 stitches; digitizing fee | raised, durable |
+
+Rules of thumb: many colors plus a small run → DTG (cotton) or DTF (anything); 1–2 colors plus volume → screen (one vendor comparison puts the DTF/screen crossover around 150 pieces at 1–2 colors; get quotes); synthetic performance wear → sublimation or DTF; premium corporate → embroidery; per-person names → HTV or DTF.
+
+Screen-print cost ≈ Σ(locations × screens × setup) + quantity × per-piece rate, where screens = inks + underbase + highlight white, and the per-piece rate rises with color count. Reducing one color often beats every other saving.
+
+## 3. Screen printing
+Separation types:
+
+| Type | Use | Screens |
+|---|---|---|
+| Spot | logos, flat art; one screen per ink, halftones for tints | 1–6 |
+| Simulated process | photoreal art on dark garments: opaque spot inks + halftones + underbase | often 7–10 |
+| Index | square or stochastic dots from a limited palette; forgiving registration | 4–10 |
+| CMYK process | photos on white or light garments only (transparent inks) | 4 |
+
+- Underbase: white printed first under colors on dark garments, flashed, choked slightly so it never shows at edges; highlight white printed last. Count both as screens.
+- Halftones: garment work runs about 35–65 LPI (45 LPI is a common default); mesh ≈ 4–5 × LPI (e.g., 45 LPI on ~200–230 mesh); angle 22.5° to avoid moiré with the mesh; elliptical or round dots; holding an 8% dot is high quality, so remap tints below that. Supply grayscale separations at 1:1 and let the shop's RIP screen them unless they ask for pre-screened bitmaps.
+- Mesh reference: 60 athletic; 86 heavy ink, puff, dark garments; 110 underbase for block letters; 156 general on light garments; 196 multicolor; 230 sim-process underbase; 305 process and fine halftones.
+- Minimum features: lines ≥ 1 pt (0.35 mm), 1.5 pt safer on tees; text ≥ 8 pt; reversed (knocked-out) text and fine negative space larger; ink spreads on ribbed, fleece and textured fabric.
+- Files: vector (AI, PDF, EPS, SVG), fonts outlined, one spot swatch per ink named with its Pantone reference (Pantone Solid Coated is the usual ink-matching book), each ink on its own layer; sim process as layered PSD/TIFF with named spot channels at 1:1, 300 ppi; print size, placement and garment color on a spec page.
+
+## 4. DTG
+- PNG with transparency, sRGB IEC61966-2.1, at print size, ≥ 150 ppi minimum (300 ppi preferred).
+- Semi-transparent pixels fail: DTG inks are concentrated and spread, leaving gaps with the white base showing. No soft shadows, feathered edges or opacity < 100% on dark garments; convert fades to halftones; threshold anti-aliased edges.
+- Dark garments are pretreated and printed on a white underbase the RIP builds from your alpha channel. Knock black out of designs on black shirts (let the fabric be the black) instead of printing a black-on-white patch; thicken very thin light details so they keep underbase.
+- Neon and many Pantone brand colors are out of the CMYK-plus-white gamut: flag them.
+
+Check and fix transparency (sci venv has numpy and Pillow; ImageMagick 7 `magick`, IM6 `convert`):
+```sh
+__CLAUDE_DIR__/venvs/sci/bin/python -c "
+import sys, numpy as np; from PIL import Image
+a = np.asarray(Image.open(sys.argv[1]).convert('RGBA'))[..., 3]
+print('semi-transparent px:', int(((a > 0) & (a < 255)).sum()), 'of', a.size)" art.png
+magick art.png -channel A -threshold 50% +channel art_hard.png          # hard edges
+magick art.png -channel A -ordered-dither h8x8a +channel art_ht.png     # fades -> halftone alpha
+```
+The halftone cell is in pixels: at 300 ppi an orthogonal 8 px cell (`h8x8o`) is 37.5 LPI; angled maps (`h8x8a`) differ. Match the vendor's recommended LPI.
+
+## 5. DTF
+- PNG, transparent background, RGB, 300 ppi at print size.
+- Any pixel with alpha receives adhesive powder: semi-transparency prints as haze or speckle, so use the §4 check and fixes. Every isolated fragment becomes a separate film piece; tiny dots and hairlines peel. Lines ≥ ~2 pt (Sticker Mule's DTF and hat guidance).
+- Large solid areas feel like a patch: break them with negative space or distressing.
+
+## 6. Sublimation
+- Polyester only (or poly-coated hard goods), white or light: sublimation dye is transparent and there is no white ink. Blends below ~65% polyester look faded and wash out.
+- Finished garments: seams, collars and underarm folds the transfer cannot touch stay white. All-over prints are cut-and-sew: print per-size panel templates (front, back, sleeves for every size), extend art to the template's bleed, keep faces and text away from seams, and align patterns across seams only if promised.
+- Files: RGB (or the vendor's profile) at 1:1 per panel, 150–300 ppi per the vendor, patterns as vectors or seamless tiles.
+
+## 7. Heat-transfer vinyl
+- Vector cut paths, one layer per vinyl color; supply unmirrored and say so (the cutter mirrors).
+- Weeding limits (Printify specialty vinyl): glitter/metallic lines ≥ 1.8 mm, text ≥ 6.5 mm, gaps ≥ 1.5 mm; puff lines 3–5 mm, text ≥ 31 mm, gaps ≥ 3 mm. Keep layered vinyl to 2–3 layers.
+
+## 8. Embroidery
+- A digitizer converts art to stitches (satin, fill/tatami, run) with underlay and pull compensation. Deliver clean vector art or 300 ppi raster at the finished size; get back the native file (e.g., Wilcom EMB, editable) and the machine file (DST for Tajima-compatible machines: stitches and commands only, no colors; PES Brother; EXP Melco). Resizing a machine file changes stitch length and density (limits commonly cited at 10–20%): resize from the native file or re-digitize.
+- Guidance (confirm with the digitizer): text ≥ 0.25 in (6.35 mm) lowercase and ≥ 0.3 in uppercase (some accept 5 mm); lines ≥ 0.05 in (1.3 mm); gaps ≥ 0.05 in; satin columns within ~10 mm (Wilcom), wider areas become fill; no gradients, photos, fine negative space or thin script.
+- Sizes: left chest 3.5–4 in wide (up to ~4.5 in); cap front typically ≤ ~2.1 in tall × ~4.5 in wide (varies with cap profile and frame); POD large front up to 10 × 6 in.
+- Stitch counts: left-chest logos commonly 6,000–12,000; fills ~1,250–1,500 stitches per square inch, satin borders ~150–200 per linear inch; 3D puff 1.5–2 ×. Big fills are expensive and stiff; use satin outlines, open fills or appliqué.
+- Colors by thread chart code (Madeira, Isacord, Robison-Anton); Pantone is only a reference. Approve a sew-out before production.
+
+## 9. Placements and print areas (adult tees)
+
+| Placement | Typical size | Position |
+|---|---|---|
+| Left chest | 2.5–5 in wide (3.5–4 typical); embroidery ≤ 4 × 4 in | ~3 in below the collar, over the wearer's left chest |
+| Center chest | 6 × 6 to 10 × 8 in (8 × 8 common) | 3–3.5 in below the collar |
+| Full front | 12 × 16 in (some blanks 15 × 18) | 3–4 in below the collar |
+| Full back | 10 × 12 to 12 × 16 in | per vendor, usually a few inches below the collar |
+| Sleeve | ~4 × 3.5 in | centered on the sleeve |
+| Inside neck label | ≤ 3 × 3 in, text ≥ 10 pt | inner back neck |
+
+Measure vertical positions from the collar seam (tech packs often use HPS, the high point shoulder). Sizes are Printful-style POD values; check the blank's print area, especially on women's cuts, youth sizes, hoodies (pocket, drawcords) and ringer or raglan seams.
+
+## 10. Sizing across a size run
+- One art size must fit the smallest garment it prints on; check it against the XS/S blank's printable width (chest width minus side-seam clearance).
+- Or supply 2–3 art sizes (e.g., youth/XS–S, M–XL, 2XL+) and specify which size prints on which garment in the order. Left-chest and sleeve art stay one size.
+- All-over and sublimation work uses per-size templates (§6).
+
+## 11. Slogans and legibility
+- Sign-industry legibility index: about 30 ft of viewing distance per inch of capital height (≈ 3.6 m per cm) for signs read head-on; for glance reading (parallel signs) the index drops to about 10. Garments move, curve and wrinkle, so size caps at roughly distance / 120: about 4 cm to read at 5 m.
+- Bold, open letterforms; no hairline serifs or thin scripts under ~1 pt stroke; strong value contrast with the garment color (check a desaturated preview or with the huetension MCP); keep key words off underarms and belly folds; kern display sizes; outline fonts in production files.
+- Test: print at 100% on paper, tape it to a shirt, view it at the target distance.
+
+## 12. Legal guardrails
+- Trademarks: team, league, university, event and race-series names and logos, brands and slogans need a license from the rights holder to appear on merchandise, including small runs and fan items; shops and POD platforms refuse or take down. For client-supplied marks, get written confirmation that the client owns or licenses them.
+- Characters and copyrighted art (cartoons, anime, film stills, photos, other artists' designs): license required; "inspired by" still infringes if substantially similar. Parody is a legal defense, not a production plan.
+- Fonts: the license must cover merchandise ("products for sale", sometimes a POD or commercial-product license). Adobe Fonts allows designing merchandise for sale but not font vending (customers typing their own text in the font) or sending font files to the printer; many "free" fonts are personal-use only; SIL OFL fonts allow commercial use (the font itself may not be sold alone). Outline fonts in delivered files.
+- Stock images and mockup templates: check "items for resale" rights (often an extended license) and that the mockup license allows client presentation.
+- People: photos of identifiable people on merch need their consent (model release).
+
+## 13. Mockups
+- Smart-object mockups with displacement maps, or the vendor's generator; show the true garment color and the art at its real size relative to the garment; label "mockup, colors approximate".
+- Generated lifestyle images (`image-prompting`) are for concept presentation only, never production art unless rights are clear.
+
+## 14. Delivery files per method
+
+| Method | Format | Color | Resolution / size | Also include |
+|---|---|---|---|---|
+| Screen | vector AI/PDF/EPS/SVG, or layered PSD/TIFF with spot channels | spot per ink, Pantone references | 1:1; raster 300 ppi | separations (underbase and highlight as separate), outlined fonts, placement spec |
+| DTG | PNG with alpha | sRGB | 1:1, 150–300 ppi | garment colors; no semi-transparency |
+| DTF | PNG with alpha | RGB | 1:1, 300 ppi | minimum feature check |
+| Sublimation | per vendor template (PNG/TIFF/PDF) | RGB or vendor profile | panels at 1:1 | bleed per template, per-size files |
+| HTV | SVG/PDF/AI vector | vinyl color names | 1:1 | one layer per vinyl color, unmirrored |
+| Embroidery | vector PDF/SVG/AI or 300 ppi PNG to the digitizer | thread chart codes | exact finished size | stitch estimate, sew-out approval; keep EMB + DST |
+
+Name files `<design>_<placement>_<method>_<size-range>_v<NN>.<ext>`.
+
+## Pitfalls
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| White or colored box around DTG/DTF art | background not removed, near-white pixels | transparent background; run the alpha check |
+| Speckled halo on dark shirts | anti-aliased or semi-transparent edge pixels over underbase | threshold alpha, choke underbase, halftone fades |
+| Fine lines or small type missing | below the method's minimum, or dots below what the mesh holds | thicken, enlarge, remap tints ≥ 8% |
+| Moiré in sim process | halftone angle or LPI fights the mesh | 22.5°, LPI ≈ mesh / 4–5 |
+| Dull colors on dark garments | no underbase or wrong print order | add underbase, highlight white last |
+| Faded sublimation | low polyester content | 100% polyester blank |
+| Puckered embroidery | dense fills on light fabric | smaller fills, satin or appliqué; the digitizer adjusts density and stabilizer |
+| Art too wide on size S | sized on an XL | per-size art (§10) |
+| Order refused | third-party trademark or character | license or redesign (§12) |
+
+## Verify
+- Each file at 100%: physical size matches the placement spec; ppi at size; color mode per method; alpha check passes (0 semi-transparent pixels for DTG/DTF unless the vendor says otherwise); separation count equals the quoted colors; fonts outlined; no feature below the method minimum (overlay a 1 pt line and 8 pt text sample, or the method's values).
+- Render and Read every deliverable and the mockups; print a 1:1 paper test for the key placement.
+
+## Deliverables
+- Production files per §14, mockups per colorway, and a spec sheet: blank, garment colors, quantities by size, method and ink/thread colors, placements with measurements from the collar, art size per garment size, finishing notes.
+- Report: method recommendation with the reasoning and quote-driving factors (colors, screens, stitch count), risks (out-of-gamut colors, fabric limits), and a rights note for every logo, character, photo and font used.

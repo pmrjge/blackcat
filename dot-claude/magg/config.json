@@ -1,0 +1,105 @@
+{
+  "servers": {
+    "docling": {
+      "source": "https://github.com/docling-project/docling-mcp",
+      "prefix": "docling",
+      "command": "__UVX__",
+      "args": [
+        "--from",
+        "docling-mcp[local]==3.2.1",
+        "docling-mcp-server",
+        "--transport",
+        "stdio"
+      ],
+      "notes": "High-fidelity PDF/Office conversion (tables, layout, OCR), converted locally (docling-mcp 3.x defaults to a remote service; the [local] extra plus DOCLING_MCP_CONVERSION_MODE=local keeps files on this machine). First run downloads packages and models (~1-2 GB).",
+      "enabled": false,
+      "env": {
+        "DOCLING_MCP_CONVERSION_MODE": "local"
+      }
+    },
+    "playwright": {
+      "source": "https://github.com/microsoft/playwright-mcp",
+      "prefix": "pw",
+      "command": "__NPX__",
+      "args": [
+        "-y",
+        "@playwright/mcp@0.0.82",
+        "--headless",
+        "--isolated"
+      ],
+      "notes": "Scripted browser automation (forms, logins, JS-heavy pages) when WebFetch/Jina/Spider are not enough. Headless, in-memory profile (parallel instances don't fight over a profile lock); uses Google Chrome \u2014 without it: npx @playwright/mcp@0.0.82 install-browser chrome.",
+      "enabled": false
+    },
+    "lean": {
+      "source": "https://github.com/oOo0oOo/lean-lsp-mcp",
+      "prefix": "lean",
+      "command": "__UVX__",
+      "args": [
+        "lean-lsp-mcp@0.30.0"
+      ],
+      "notes": "Lean 4 proof assistant via LSP. Needs a Lean toolchain (elan) and a built Lake project (lake build); LEAN_PROJECT_PATH is recommended (optional over stdio).",
+      "enabled": false
+    },
+    "docspace": {
+      "source": "https://github.com/ONLYOFFICE/docspace-mcp",
+      "prefix": "docspace",
+      "uri": "https://mcp.onlyoffice.com/mcp",
+      "notes": "ONLYOFFICE DocSpace (cloud rooms/files). Requires a DocSpace account and OAuth. magg cannot expand ${VAR} in headers, so never put an API key here: for regular use add it to Claude Code instead \u2014 claude mcp add --transport http docspace https://mcp.onlyoffice.com/mcp \u2014 and sign in with /mcp.",
+      "enabled": false
+    },
+    "duckdb": {
+      "source": "https://github.com/motherduckdb/mcp-server-motherduck",
+      "prefix": "duckdb",
+      "command": "__UVX__",
+      "args": [
+        "mcp-server-motherduck@1.0.8",
+        "--db-path",
+        ":memory:",
+        "--read-write",
+        "--allow-switch-databases"
+      ],
+      "notes": "SQL over local files (CSV/Parquet/JSON) and DuckDB databases through an in-memory DuckDB; ATTACH or switch to a .duckdb file by absolute path. MotherDuck cloud needs motherduck_token and --db-path md:.",
+      "enabled": false
+    },
+    "arxiv": {
+      "source": "https://github.com/blazickjp/arxiv-mcp-server",
+      "prefix": "arxiv",
+      "command": "__UVX__",
+      "args": [
+        "--from",
+        "arxiv-mcp-server[pdf]==0.7.2",
+        "arxiv-mcp-server"
+      ],
+      "notes": "arXiv search, download and full-text reading of papers (stored under ~/.arxiv-mcp-server/papers; the [pdf] extra reads older papers that have no arXiv HTML). Jina's search_arxiv covers quick lookups; mount this for deep paper work.",
+      "enabled": false
+    },
+    "jupyter": {
+      "source": "https://github.com/datalayer/jupyter-mcp-server",
+      "prefix": "jupyter",
+      "command": "__UVX__",
+      "args": [
+        "jupyter-mcp-server@2.2.3"
+      ],
+      "notes": "Drive a running JupyterLab/Jupyter Server kernel (execute cells, read outputs). Needs JUPYTER_URL and JUPYTER_TOKEN in stack.env and a server the user started with jupyterlab, jupyter-collaboration, jupyter-mcp-tools and ipykernel installed; NotebookEdit alone does not execute cells.",
+      "enabled": false
+    },
+    "mlflow": {
+      "source": "https://mlflow.org/docs/latest/genai/mcp/",
+      "prefix": "mlflow",
+      "command": "__UV__",
+      "args": [
+        "run",
+        "--no-project",
+        "--python",
+        "3.12",
+        "--with",
+        "mlflow[mcp]>=3.5.1,<4",
+        "mlflow",
+        "mcp",
+        "run"
+      ],
+      "notes": "MLflow trace search and management for LLM/agent evaluation. Needs MLFLOW_TRACKING_URI in stack.env (e.g. http://127.0.0.1:5000 or a file:// store). --no-project keeps uv from creating a .venv/uv.lock in your project.",
+      "enabled": false
+    }
+  }
+}

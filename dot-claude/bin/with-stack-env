@@ -1,0 +1,80 @@
+#!/bin/sh
+# Loads the stack's keys from stack.env for one process, or prints them for the shell profile.
+#
+#   with-stack-env [--only K1,K2,...] CMD [ARGS...]
+#       exec CMD with the stack.env keys added (values already in the environment win). Each MCP
+#       server gets only its own keys: spider `--only SPIDER_API_KEY`, magg the catalog's keys.
+#       Needed for Claude Desktop: launched from the Dock it takes PATH from your shell profile but
+#       not other exported variables.
+#   with-stack-env --print-env sh
+#       print export statements for the shell profile line: the NON-EMPTY keys named by STACK_EXPORT
+#       (a line in stack.env, or the environment, which wins; default: the keys CLI tools read —
+#       HF_TOKEN WANDB_API_KEY GITHUB_TOKEN MLFLOW_TRACKING_URI JUPYTER_URL JUPYTER_TOKEN; "all" =
+#       every key). The MCP servers read stack.env themselves, so API keys such as OPENROUTER/OPPER/
+#       EXA/JINA/SPIDER never need to sit in every process's environment. An empty KEY=
+#       never clobbers a token you export elsewhere. Also appends ~/.local/bin (uv, magg, huetension,
+#       npm --prefix installs) to PATH when missing.
+#
+# The file is read the way a shell reads it: leading blanks, "export<blank>", "quoted" or
+# 'quoted' values and an unquoted " # comment" are handled; invalid names and values that still
+# contain "$" are skipped. stack.env is ../stack.env next to this script's install dir (works
+# under any CLAUDE_CONFIG_DIR); STACK_ENV_FILE overrides it.
+# shellcheck disable=SC1007  # CDPATH= (empty) on purpose, so cd ignores the user's CDPATH
+f="${STACK_ENV_FILE:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/stack.env}"
+DEFAULT_EXPORT="HF_TOKEN WANDB_API_KEY GITHUB_TOKEN MLFLOW_TRACKING_URI JUPYTER_URL JUPYTER_TOKEN"
+mode="exec"
+only=""
+if [ "${1:-}" = "--print-env" ]; then
+  mode=print
+elif [ "${1:-}" = "--only" ]; then
+  [ $# -ge 3 ] || { echo "usage: with-stack-env [--only K1,K2] CMD [ARGS...]" >&2; exit 2; }
+  only=",$2,"; shift 2
+fi
+q_sh() { printf "'%s'" "$(printf '%s' "$1" | sed "s/'/'\\\\''/g")"; }
+# Normalizes $v like a shell: "value" / 'value' (anything after the closing quote dropped), or a
+# bare value without its unquoted " # comment" and trailing blanks.
+clean_value() {
+  case "$v" in
+    \"*\"*) v=${v#\"}; v=${v%%\"*} ;;
+    \'*\'*) v=${v#\'}; v=${v%%\'*} ;;
+    *) v=${v%%[[:space:]]#*}; v=${v%"${v##*[![:space:]]}"} ;;
+  esac
+}
+if [ "$mode" = print ] && [ -f "$f" ]; then
+  v="${STACK_EXPORT:-}"
+  if [ -z "$v" ]; then
+    v=$(grep -E '^[[:space:]]*(export[[:space:]]+)?STACK_EXPORT=' "$f" 2>/dev/null | tail -n 1)
+    v=${v#*=}; v=${v%"$(printf '\r')"}; clean_value
+  fi
+  [ -n "$v" ] || v="$DEFAULT_EXPORT"
+  if [ "$v" = all ]; then only=""; else only=",$(printf '%s' "$v" | tr ' \t' ',,' | tr -s ','),"; fi
+fi
+if [ -f "$f" ]; then
+  while IFS= read -r line || [ -n "$line" ]; do
+    line=${line%"$(printf '\r')"}
+    line=${line#"${line%%[![:space:]]*}"}             # leading blanks
+    case "$line" in ''|\#*) continue ;; esac
+    case "$line" in export[[:space:]]*) line=${line#export}; line=${line#"${line%%[![:space:]]*}"} ;; esac
+    case "$line" in *=*) ;; *) continue ;; esac
+    k=${line%%=*}
+    v=${line#*=}
+    case "$k" in ''|[0-9]*|*[!A-Za-z0-9_]*|STACK_EXPORT) continue ;; esac
+    if [ -n "$only" ]; then case "$only" in *",$k,"*) ;; *) continue ;; esac; fi
+    clean_value
+    case "$v" in ''|*'$'*) continue ;; esac
+    if [ "$mode" = print ]; then
+      printf 'export %s=%s\n' "$k" "$(q_sh "$v")"
+    else
+      eval "cur=\${$k:-}"
+      [ -n "$cur" ] || export "$k=$v"
+    fi
+  done < "$f"
+fi
+if [ "$mode" = print ]; then
+  case ":$PATH:" in
+    *":$HOME/.local/bin:"*) ;;
+    *) printf 'export PATH="$PATH":%s\n' "$(q_sh "$HOME/.local/bin")" ;;
+  esac
+  exit 0
+fi
+exec "$@"

@@ -1,0 +1,103 @@
+#!/usr/bin/env python3
+"""Status line for the claude-agent-stack (Claude Code `statusLine`; session JSON arrives on stdin).
+
+    router · Sonnet 5 · low · ctx 312K/800K ▓▓▓▓░░░░ · 5h 23% · 7d 41% · cache 91%
+
+"ctx" counts the tokens in the main conversation's context against the auto-compact window
+(autoCompactWindow in settings.json, 800K in this stack, capped at the model's window), so the bar
+shows how close the next automatic compaction is. Rate limits appear only for claude.ai Pro/Max
+sessions. Stdlib only; any error prints a minimal line instead of failing. Installed by install.sh
+and set as `statusLine` only when you have none; remove the key from settings.json to turn it off.
+"""
+import json
+import os
+import sys
+from pathlib import Path
+
+
+def settings_window():
+    """autoCompactWindow the session uses: CLAUDE_CODE_AUTO_COMPACT_WINDOW wins, then the
+    settings.json next to this script's config dir."""
+    env = os.environ.get("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "").strip()
+    if env.isdigit():
+        return int(env)
+    try:
+        s = json.loads((Path(__file__).resolve().parent.parent / "settings.json").read_text())
+        v = s.get("autoCompactWindow")
+        return int(v) if isinstance(v, (int, float)) else None
+    except (OSError, ValueError, TypeError):
+        return None
+
+
+def kilo(n):
+    if n >= 1_000_000:
+        return "%.1fM" % (n / 1e6)
+    if n >= 1000:
+        return "%dK" % round(n / 1000.0)
+    return str(n)
+
+
+def color(text, frac, on):
+    if not on:
+        return text
+    code = "31" if frac >= 0.9 else "33" if frac >= 0.75 else "32"
+    return "\033[%sm%s\033[0m" % (code, text)
+
+
+def main():
+    try:
+        data = json.load(sys.stdin)
+    except ValueError:
+        data = {}
+    if not isinstance(data, dict):
+        data = {}
+    parts = []
+    agent = (data.get("agent") or {}).get("name")
+    if agent:
+        parts.append(str(agent))
+    model = (data.get("model") or {}).get("display_name") or (data.get("model") or {}).get("id")
+    if model:
+        parts.append(str(model))
+    effort = (data.get("effort") or {}).get("level")
+    if effort:
+        parts.append(str(effort))
+
+    cw = data.get("context_window") or {}
+    used = cw.get("total_input_tokens")
+    if not isinstance(used, (int, float)):
+        cu = cw.get("current_usage")
+        # null before the first API call and right after /compact: show nothing rather than 0
+        used = sum(int(cu.get(k) or 0) for k in
+                   ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")) \
+            if isinstance(cu, dict) else None
+    size = cw.get("context_window_size") if isinstance(cw.get("context_window_size"), int) else None
+    window = settings_window()
+    limit = min(x for x in (window, size) if x) if (window or size) else None
+    tty = os.environ.get("NO_COLOR") is None
+    if limit and used is not None:
+        frac = max(0.0, min(1.0, float(used) / float(limit)))
+        cells = 8
+        bar = "▓" * int(round(frac * cells)) + "░" * (cells - int(round(frac * cells)))
+        parts.append(color("ctx %s/%s %s" % (kilo(int(used)), kilo(limit), bar), frac, tty))
+
+    rl = data.get("rate_limits") or {}
+    for key, label in (("five_hour", "5h"), ("seven_day", "7d")):
+        pct = (rl.get(key) or {}).get("used_percentage")
+        if isinstance(pct, (int, float)):
+            parts.append(color("%s %d%%" % (label, round(pct)), pct / 100.0, tty))
+    hit = (data.get("prompt_cache") or {}).get("hit_ratio")
+    if isinstance(hit, (int, float)):
+        parts.append("cache %d%%" % round(hit * 100))
+
+    line = " · ".join(parts) if parts else "claude-agent-stack"
+    cols = os.environ.get("COLUMNS", "")
+    if cols.isdigit() and int(cols) > 20 and len(line) > int(cols) + 40:   # ANSI codes don't count
+        line = line[: int(cols) + 30]
+    sys.stdout.write(line + "\n")
+
+
+if __name__ == "__main__":
+    try:
+        main()
+    except Exception:  # a status line must never error out
+        sys.stdout.write("claude-agent-stack\n")

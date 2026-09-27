@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""headersHelper for the stack's remote MCP servers (exa, jina, huggingface, wandb).
+
+Claude Code runs this at every connection (session start, reconnect, and after a 401/403) with
+CLAUDE_CODE_MCP_SERVER_NAME set, and merges the JSON object it prints into the request headers.
+Keys therefore live only in stack.env: nothing is written to ~/.claude.json or passed on a
+command line, and editing stack.env takes effect at the next connection without re-running the
+installer.
+
+Lookup order per key: stack.env ($STACK_ENV_FILE, else ../stack.env next to this script), then
+the process environment; for huggingface also the token file written by `hf auth login`
+($HF_TOKEN_PATH, else $HF_HOME/token, else $XDG_CACHE_HOME/huggingface/token, else
+~/.cache/huggingface/token). No key -> prints {}: exa and huggingface then run anonymously
+(rate-limited / reduced tool set), jina's key-only tools refuse, wandb is not registered without a
+key. A stale or wrong key is worse than none (the server fails to connect with 401): remove it.
+Usage for testing: mcp-headers <server-name>.
+"""
+import json
+import os
+import re
+import sys
+from pathlib import Path
+from urllib.parse import parse_qsl, urlsplit
+
+# server name -> (header, variable, value format)
+HEADERS = {
+    "exa": ("x-api-key", "EXA_API_KEY", "{}"),
+    "jina": ("Authorization", "JINA_API_KEY", "Bearer {}"),
+    "huggingface": ("Authorization", "HF_TOKEN", "Bearer {}"),
+    "wandb": ("Authorization", "WANDB_API_KEY", "Bearer {}"),
+}
+KEY_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
+VALUE_RE = re.compile(r"[\x21-\x7e]+")  # printable ASCII, no spaces, quotes stripped below
+
+
+def env_file():
+    explicit = os.environ.get("STACK_ENV_FILE")
+    if explicit:
+        return Path(explicit).expanduser()
+    return Path(__file__).resolve().parent.parent / "stack.env"
+
+
+def read_env_file(path):
+    values = {}
+    try:
+        text = path.read_text(encoding="utf-8")
+    except (OSError, UnicodeDecodeError):
+        return values
+    for line in text.splitlines():
+        s = line.strip()
+        if not s or s.startswith("#"):
+            continue
+        if re.match(r"export\s", s):
+            s = s[len("export"):].lstrip()
+        key, sep, value = s.partition("=")
+        key = key.strip()
+        if not sep or not KEY_RE.fullmatch(key):
+            continue
+        value = value.strip()
+        if value[:1] in ("'", '"') and value[0] in value[1:]:
+            # "quoted" or 'quoted', optionally followed by a comment, as a shell reads it
+            value = value[1:value.index(value[0], 1)]
+        else:
+            # bare value: an unquoted " #" starts a comment, as in the shell that sources this file
+            value = re.split(r"\s+#", value, maxsplit=1)[0].strip()
+        values[key] = value
+    return values
+
+
+def key_from_entry(name, entry):
+    """The literal key an existing MCP config entry carries for this server (a static header such
+    as x-api-key / Authorization: Bearer, or a key in the URL query), else "". Used by install.sh
+    to copy a key into stack.env before an entry is migrated to headersHelper."""
+    spec = HEADERS.get(name)
+    if not spec or not isinstance(entry, dict):
+        return ""
+    header, _var, fmt = spec
+    prefix = fmt.split("{}")[0]
+    for k, v in (entry.get("headers") or {}).items():
+        if str(k).lower() == header.lower() and isinstance(v, str):
+            v = v.strip()
+            if prefix and v.lower().startswith(prefix.lower()):
+                v = v[len(prefix):].strip()
+            if v and "$" not in v:
+                return v
+    for k, v in parse_qsl(urlsplit(str(entry.get("url", ""))).query):
+        if k.lower() in ("exaapikey", "apikey", "api_key") and v:
+            return v
+    return ""
+
+
+def hf_token_file():
+    explicit = os.environ.get("HF_TOKEN_PATH")
+    home = os.environ.get("HF_HOME")
+    xdg = os.environ.get("XDG_CACHE_HOME")
+    if explicit:
+        path = Path(explicit).expanduser()
+    elif home:
+        path = Path(home).expanduser() / "token"
+    elif xdg:
+        path = Path(xdg).expanduser() / "huggingface" / "token"
+    else:
+        path = Path("~/.cache/huggingface/token").expanduser()
+    try:
+        return path.read_text(encoding="utf-8").strip()
+    except (OSError, UnicodeDecodeError):
+        return ""
+
+
+def lookup(var, name):
+    value = read_env_file(env_file()).get(var, "") or os.environ.get(var, "")
+    if not value and name == "huggingface":
+        value = hf_token_file()
+    value = value.strip()
+    # Unexpanded shell references and anything with whitespace or control characters are not keys.
+    if not value or "$" in value or not VALUE_RE.fullmatch(value):
+        return ""
+    return value
+
+
+def main(argv):
+    name = (argv[1] if len(argv) > 1 else os.environ.get("CLAUDE_CODE_MCP_SERVER_NAME", "")).strip()
+    headers = {}
+    spec = HEADERS.get(name)
+    if spec:
+        header, var, fmt = spec
+        value = lookup(var, name)
+        if value:
+            headers[header] = fmt.format(value)
+    sys.stdout.write(json.dumps(headers))
+    sys.stdout.write("\n")
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

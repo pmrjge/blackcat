@@ -1,0 +1,90 @@
+#!/usr/bin/env python3
+"""Hermetic stand-in for the `claude` CLI, used by tests/install_smoke.sh.
+
+Implements just what install.sh and doctor.sh call. MCP servers are stored in the JSON file named
+by FAKE_CLAUDE_JSON (same shape as ~/.claude.json: {"mcpServers": {...}}); without that variable
+nothing is persisted, so the real ~/.claude.json is never touched. Every call is appended to
+FAKE_CLAUDE_LOG when set.
+"""
+import json
+import os
+import sys
+
+args = sys.argv[1:]
+log = os.environ.get("FAKE_CLAUDE_LOG")
+if log:
+    with open(log, "a") as f:
+        f.write(json.dumps(args) + "\n")
+
+store_path = os.environ.get("FAKE_CLAUDE_JSON")
+
+
+def load():
+    if not store_path:
+        return {}
+    try:
+        with open(store_path) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+
+
+def save(cfg):
+    if store_path:
+        with open(store_path, "w") as f:
+            json.dump(cfg, f, indent=2)
+
+
+def strip_scope(rest):
+    out, skip = [], False
+    for a in rest:
+        if skip:
+            skip = False
+            continue
+        if a in ("-s", "--scope"):
+            skip = True
+            continue
+        if a.startswith("--scope="):
+            continue
+        out.append(a)
+    return out
+
+
+if args[:1] == ["--version"]:
+    print("2.1.283 (Claude Code)")
+    sys.exit(0)
+
+if args[:1] == ["mcp"]:
+    sub, rest = (args[1] if len(args) > 1 else ""), strip_scope(args[2:])
+    cfg = load()
+    servers = cfg.setdefault("mcpServers", {})
+    if sub == "get":
+        sys.exit(0 if rest and rest[0] in servers else 1)
+    if sub == "list":
+        for name, s in servers.items():
+            print("%s: %s (HTTP) - ✔ Connected" % (name, s.get("url") or s.get("command", "")))
+        sys.exit(0)
+    if sub == "add-json":
+        if len(rest) < 2:
+            sys.exit(2)
+        name, raw = rest[0], rest[1]
+        if name in servers:
+            print("MCP server %s already exists" % name, file=sys.stderr)
+            sys.exit(1)
+        try:
+            servers[name] = json.loads(raw)
+        except ValueError:
+            sys.exit(1)
+        save(cfg)
+        print("Added HTTP MCP server %s" % name)
+        sys.exit(0)
+    if sub == "remove":
+        if rest and rest[0] in servers:
+            del servers[rest[0]]
+            save(cfg)
+            sys.exit(0)
+        sys.exit(1)
+    sys.exit(0)
+
+# plugin install / marketplace add and anything else: succeed quietly
+sys.exit(0)

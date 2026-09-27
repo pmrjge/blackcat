@@ -1,0 +1,33 @@
+#!/bin/sh
+# Starts magg (mcp-broker's meta-server) on a private copy of the MCP catalog.
+#
+#   magg-private MAGG [ARGS...]      ARGS as for magg; "--config CATALOG" names the shared catalog
+#
+# magg writes every enable/disable/add into its config file, and every running magg reloads that
+# file within a second. On one shared catalog, brokers working in parallel would switch servers on
+# and off under each other, and a broker run that ended early would leave its servers mounted in
+# every later run. Here each run works on its own copy: what a broker enables or adds lasts for
+# that run only, and the shared catalog (kept all-disabled by install.sh) is only read.
+# Copies live in ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/magg/ and are pruned after
+# a day.
+set -eu
+[ $# -ge 1 ] || { echo "usage: magg-private MAGG [ARGS...]" >&2; exit 2; }
+magg="$1"; shift
+dir="${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack/magg"
+mkdir -p "$dir"
+find "$dir" -mindepth 1 -maxdepth 1 -type d -name 'run-*' -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+n=$#; i=0; private=""
+while [ "$i" -lt "$n" ]; do                 # rotate through the arguments, replacing --config's value
+  a="$1"; shift; i=$((i + 1))
+  if [ "$a" = "--config" ] && [ "$i" -lt "$n" ]; then
+    src="$1"; shift; i=$((i + 1))
+    run="$(mktemp -d "$dir/run-XXXXXX")"
+    private="$run/config.json"
+    if [ -f "$src" ]; then cp "$src" "$private"; else printf '{"servers": {}}\n' > "$private"; fi
+    set -- "$@" --config "$private"
+  else
+    set -- "$@" "$a"
+  fi
+done
+[ -n "$private" ] || echo "magg-private: no --config given; magg uses its default (shared) config" >&2
+exec "$magg" "$@"
