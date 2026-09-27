@@ -1,4 +1,4 @@
-# Claude Code multi-agent stack
+y# Claude Code multi-agent stack
 
 A router on the main thread, 32 specialists (33 agent files), 61 on-demand skills, short global
 rules, a policy hook and MCP servers that start and stop with the agents that use them. Built
