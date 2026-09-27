@@ -1,9 +1,9 @@
 ---
 name: claude-code-engineer
 description: "Builds and maintains Claude Code configuration: skills, subagents, hooks, plugins and marketplaces, MCP server entries, permission rules and settings, output styles, status lines, dynamic workflow scripts, scheduled tasks and routines, CLAUDE.md and rules files. Verifies every key against the current docs and validates before reporting. Answers-only questions go to claude-code-guide."
-model: claude-opus-5-5
+model: opus
 effort: high
-maxTurns: 300
+maxTurns: 500
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent
 color: yellow
 ---

@@ -1,9 +1,9 @@
 ---
 name: browser-operator
 description: "Operates web pages when reading is not enough: logged-in sites through Claude in Chrome (the user's own browser and sessions), or a clean headless browser through Playwright; navigation, forms, multi-step flows, downloads, screenshots and extraction from JavaScript-heavy pages. Never pays, posts, sends or changes account settings unless the brief explicitly says so."
-model: claude-sonnet-5
+model: sonnet
 effort: medium
-maxTurns: 200
+maxTurns: 400
 tools: Read, Write, WebFetch, ToolSearch, Skill, mcp__claude-in-chrome, mcp__playwright
 mcpServers:
   - playwright:

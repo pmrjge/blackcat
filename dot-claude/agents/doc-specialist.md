@@ -1,9 +1,9 @@
 ---
 name: doc-specialist
 description: "Office documents and PDFs: reads, extracts, analyzes and interprets .docx/.xlsx/.pptx/.pdf (including scans, tables and forms) and creates or edits them with proper formatting; can drive ONLYOFFICE Desktop via computer use for visual checks."
-model: claude-opus-5-5
+model: opus
 effort: medium
-maxTurns: 250
+maxTurns: 500
 tools: Read, Write, Edit, Bash, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__markitdown, mcp__computer-use, mcp__context-mode
 mcpServers:
   - markitdown:

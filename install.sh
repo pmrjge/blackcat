@@ -1132,9 +1132,11 @@ else
   # First starts of stdio servers otherwise race MCP_TIMEOUT while packages download.
   for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do uv run --quiet --script "$C/mcp/$f" --help >/dev/null 2>&1 </dev/null || true; done
   have uvx && { uvx --quiet markitdown-mcp@0.0.1a7 --help >/dev/null 2>&1 </dev/null || true; }
+  # cg-artist's Blender server: download only (it would wait on the Blender add-on's socket)
+  have uv && { uv tool run --quiet --from mcp-for-blender==2.1.1 python -c pass >/dev/null 2>&1 </dev/null || true; }
   have npx && { npx -y @playwright/mcp@0.0.82 --help >/dev/null 2>&1 </dev/null || true; }
   have npx && { npx -y context-mode@1.0.169 --help >/dev/null 2>&1 </dev/null || true; }
-  note "prefetched libdocs, image-studio, neural-memory, markitdown, playwright, context-mode"
+  note "prefetched libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, playwright, context-mode"
 fi
 
 say "9/11 MCP servers (user scope, remote HTTP — lazy connect, tools deferred, keys via headersHelper)"
@@ -1256,7 +1258,7 @@ if [ "$SKIP_PLUGINS" = 0 ] && [ "$MCP_PLAN" = 0 ]; then
   fi
   claude plugin marketplace add anthropics/claude-plugins-official >/dev/null 2>&1 </dev/null || true
   lsp_added=""; lsp_failed=""; lsp_missing=""
-  for pair in pyright-langserver:pyright-lsp typescript-language-server:typescript-lsp rust-analyzer:rust-analyzer-lsp sourcekit-lsp:swift-lsp clangd:clangd-lsp gopls:gopls-lsp; do
+  for pair in pyright-langserver:pyright-lsp typescript-language-server:typescript-lsp rust-analyzer:rust-analyzer-lsp sourcekit-lsp:swift-lsp clangd:clangd-lsp gopls:gopls-lsp jdtls:jdtls-lsp; do
     b="${pair%%:*}"; p="${pair##*:}"
     if lsp_works "$b"; then
       # `claude plugin install` exits 0 when the plugin is already installed, so a failure is real
@@ -1267,7 +1269,7 @@ if [ "$SKIP_PLUGINS" = 0 ] && [ "$MCP_PLAN" = 0 ]; then
   done
   [ -n "$lsp_added" ] && note "+ code intelligence:$lsp_added"
   [ -n "$lsp_failed" ] && note "! plugin install failed:$lsp_failed (inside claude: /plugin install <name>@claude-plugins-official)"
-  [ -n "$lsp_missing" ] && note "- no language server for:$lsp_missing (./install.sh --with-lsp installs pyright, typescript-language-server, rust-analyzer)"
+  [ -n "$lsp_missing" ] && note "- no language server for:$lsp_missing (./install.sh --with-lsp installs pyright, typescript-language-server, rust-analyzer; Java: brew install jdtls)"
   # Optional Anthropic skill plugins (skill-creator for claude-code-engineer, mcp-server-dev for
   # llm-engineer/mcp-broker, math-olympiad for the mathematician). Only their descriptions sit in
   # context; the skills load when a task matches.

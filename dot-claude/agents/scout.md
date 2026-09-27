@@ -1,9 +1,9 @@
 ---
 name: scout
 description: "Fast lookup of one up-to-date fact: price, version, release, date, who holds a role, status of something. A few sources, short cited answer. Not for synthesis-heavy research."
-model: claude-sonnet-5
+model: sonnet
 effort: low
-maxTurns: 40
+maxTurns: 100
 tools: WebSearch, WebFetch, Read, ToolSearch, Skill, mcp__exa, mcp__jina
 color: cyan
 ---

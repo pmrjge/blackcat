@@ -1,9 +1,9 @@
 ---
 name: planner
 description: "Works out how to tackle and solve a problem before anything is built: requirements, options with trade-offs, the chosen approach as exact steps with owners, risks and verification criteria. Read-only."
-model: claude-opus-5-5
+model: opus
 effort: xhigh
-maxTurns: 150
+maxTurns: 400
 tools: Read, Glob, Grep, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__exa, mcp__jina, mcp__libdocs
 mcpServers:
   - libdocs:

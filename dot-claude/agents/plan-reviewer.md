@@ -1,9 +1,9 @@
 ---
 name: plan-reviewer
 description: "Critiques a plan before execution: checks it against the goal, the real code and current docs; finds wrong assumptions, missing steps, ordering and ownership errors, unhandled risks and untestable done-criteria. Read-only; returns pass / pass-with-fixes / fail with concrete fixes."
-model: claude-opus-5-5
+model: opus
 effort: xhigh
-maxTurns: 120
+maxTurns: 300
 tools: Read, Bash, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__libdocs, mcp__exa, mcp__jina
 mcpServers:
   - libdocs:

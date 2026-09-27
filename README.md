@@ -1,6 +1,6 @@
 y# Claude Code multi-agent stack
 
-A router on the main thread, 32 specialists (33 agent files), 61 on-demand skills, short global
+A router on the main thread, 35 specialists (36 agent files), 78 on-demand skills, short global
 rules, a policy hook and MCP servers that start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later** and checked against the 2.1.283 docs (26 Sep 2026). macOS only
 (Apple Silicon first). It runs in the terminal and in the apps that run Claude Code with your
@@ -88,9 +88,9 @@ exported.
 | Path | What |
 |---|---|
 | `~/.claude/rules/claude-agent-stack.md` | Global rules every agent loads (short on purpose). `~/.claude/CLAUDE.md` stays yours |
-| `~/.claude/settings.json` | `"agent": "router"`, auto-compact on with an **800K** window, depth 3, caps, permissions, hooks, status line (merged) |
-| `~/.claude/agents/*.md` | 33 agent definitions |
-| `~/.claude/skills/*/SKILL.md` | 61 skills (descriptions in context; bodies load on demand) |
+| `~/.claude/settings.json` | `"agent": "router"`, auto-compact on with an **800K** window, depth 4, caps, permissions, hooks, status line (merged) |
+| `~/.claude/agents/*.md` | 36 agent definitions |
+| `~/.claude/skills/*/SKILL.md` | 78 skills (descriptions in context; bodies load on demand) |
 | `~/.claude/hooks/agent_guard.py` | The policy hook (spawn policy, depth, fan-out caps, copies, god-coder lock, screen lock, router limits, secrets guard for local-file MCP tools) |
 | `~/.claude/bin/mcp-headers` | `headersHelper`: gives exa/jina/huggingface/wandb their keys from `stack.env` at connect time |
 | `~/.claude/bin/with-stack-env` | Starts spider/magg with just their own keys (`--only`; Claude Desktop passes only `PATH`); `--print-env sh` for the profile |
@@ -111,15 +111,15 @@ exported.
 
 | Requirement | Mechanism |
 |---|---|
-| Subagent depth 3 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=3`: router → L1 → L2 → L3. L3 cannot spawn. The hook also tracks depth, so an L3 agent can't slip through. |
+| Subagent depth 4 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`: router → L1 → L2 → L3 → L4. L4 cannot spawn. The hook also tracks depth (it reads the same variable), so an L4 agent can't slip through. The rules add *when* to spawn: only for a missing capability, substantial parallel parts or independent verification — never pass-through or "just in case", and deeper than L2 only for a missing capability or a check. |
 | One agent → several subagents concurrently | Interactive sessions run subagents in the background. An agent sends independent `Agent` calls in **one message** and they run in parallel. The results come back as task notifications. Caps: 8 running children per agent (`STACK_MAX_FANOUT`), 32 per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`). |
-| subagent1 → subagent1 where it makes sense | 12 agents may launch copies of themselves for independent parts: researcher, coder, main-coder, ninja-coder (two competing approaches in worktrees), mathematician, writer, doc-specialist, data-engineer, data-scientist, ml-engineer, dl-engineer, llm-engineer. At most 4 copies each (`STACK_MAX_SELF_FANOUT`). One generation only: a copy can't copy itself, which stops the tree growing 4×4. Excluded: orchestrator (no nested orchestration), god-coder (a singleton), mlx/cuda-engineer (one accelerator job per machine), GUI agents (one screen). |
+| subagent1 → subagent1 where it makes sense | 14 agents may launch copies of themselves for independent parts: researcher, coder, main-coder, ninja-coder (two competing approaches in worktrees), mathematician, writer, doc-specialist, data-engineer, data-scientist, ml-engineer, dl-engineer, llm-engineer, quantum-engineer, robotics-engineer. At most 4 copies each (`STACK_MAX_SELF_FANOUT`). One generation only: a copy can't copy itself, which stops the tree growing 4×4. Excluded: orchestrator (no nested orchestration), god-coder (a singleton), mlx/cuda-engineer (one accelerator job per machine), GUI agents such as designer and cg-artist (one screen). |
 | Auto-compact on, window 800K | `"autoCompactEnabled": true`, `"autoCompactWindow": 800000`. Compaction fires a little before the window is full: at ≈767K (the window minus an output reserve and a safety buffer). Subagents compact with the same logic. The installer strips env overrides that would defeat it, `/stack-doctor` warns about settings or shell exports that do (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE`, …), and the status line shows how close the next compaction is. |
 | More agents for every Claude feature | ml-engineer, dl-engineer, llm-engineer, data-scientist, browser-operator (Claude in Chrome + Playwright), claude-code-engineer (skills, agents, hooks, plugins, settings, workflows) and ninja-coder (engineer-mathematician between main-coder and god-coder), on top of the existing 26 (senior-coder is now main-coder). The router also runs the main-thread-only features: dynamic workflows, scheduled tasks and routines, push notifications, file hand-off. |
 | The same setup in Claude Desktop and Conductor | Both run Claude Code with your user settings, so a Code-tab session or a Conductor chat starts as the router with every agent, skill, hook, rule and MCP server, and auto-compacts at 800K. Checked against Conductor 0.87.5 on your Mac and by replaying its options through the Agent SDK. Pick Sonnet 5 and low effort there for router chats; see [Apps](#apps) for the differences. |
-| Skills on demand, not tied to agents | Every agent has the Skill tool and sees every skill's description; it loads the ones whose description matches its task, and only then does a skill's body enter its context. No agent preloads a skill and no skill names an agent: a description says when to load it, never who. One `Skill` allow rule pre-approves them all, including skills you or a plugin add later, so background agents never stop at a prompt. 61 skills cover the work the agents do: engineering practice, performance, apps, systems, mathematics, ML/LLM and data, LLM applications, research and writing, design and print, video. `tests/lint_agents.py` keeps it that way. |
+| Skills on demand, not tied to agents | Every agent has the Skill tool and sees every skill's description; it loads the ones whose description matches its task, and only then does a skill's body enter its context. No agent preloads a skill and no skill names an agent: a description says when to load it, never who. One `Skill` allow rule pre-approves them all, including skills you or a plugin add later, so background agents never stop at a prompt. 78 skills cover the work the agents do: engineering practice (Python, Rust, TypeScript, JVM, Julia, Haskell, CMake/Ninja, IDEs), performance, apps, systems, databases, mathematics and physics, ML/LLM and data, image-model engineering, robotics, LLM applications, research and writing, design, image and print, 3D, video. `tests/lint_agents.py` keeps it that way. |
 | MCP servers on demand, auto on/off | See [MCP servers](#mcp-servers): agent-scoped servers start and stop with their agent, remote ones connect on first use, every schema stays deferred until needed, and rare ones are mounted and unmounted by mcp-broker. |
-| Deep reasoning where it counts | The coordinating, planning and reviewing agents run at `xhigh` (orchestrator, planner, plan-reviewer, main-coder, code-reviewer, mathematician, security-auditor), ninja-coder and god-coder at `max`, most specialists at `high`; cheap lookups (router, scout, oracle) stay `low` so they answer fast. Opus 5.5's own default is `medium`. |
+| Deep reasoning where it counts | The coordinating, planning and reviewing agents run at `xhigh` (orchestrator, planner, plan-reviewer, main-coder, code-reviewer, mathematician, quantum-engineer, security-auditor), ninja-coder and god-coder at `max`, most specialists at `high`; cheap lookups (router, scout, oracle) stay `low` so they answer fast. Opus 5.5's own default is `medium`. |
 | Context that doesn't bloat | Measured with Claude Code 2.1.283: a session starts at about 42K tokens (plain Claude Code: about 34K) — the skill list about 9K, the agent list about 3.6K, the rules about 2K — and each subagent at about 40K, which prompt caching reuses after its first request. Auto-compaction fires at 767K. Skill bodies, MCP tool schemas and memories load only when used. |
 | Images: SVG for graphics, raster for photos, edits for the rest | `image-studio` (image-director, designer): one tool per job, the model of each set in `stack.env` — `IMAGE_STUDIO_SVG_MODEL`, `IMAGE_STUDIO_IMAGE_MODEL`, `IMAGE_STUDIO_EDIT_MODEL` — and looked up in its provider's model catalog before every paid call, so an option or input the model lacks is refused for free. `generate_svg` — through OpenRouter (`OPENROUTER_API_KEY`), default Recraft V4.1 Pro Vector (`recraft/recraft-v4.1-pro-vector`, $0.30 an image, palette through Recraft's controls, one reference image); a model without SVG output is refused, and anything that isn't SVG is never saved. `generate_image` — through Opper (`OPPER_API_KEY`), default GPT Image 2.5 Sunburst (`openai/gpt-image-2.5-sunburst`): 1-4 images, quality low to max (about $0.006 to $0.21 at 1024x1024), 1K/2K/4K, transparency, up to 8 references; `collect_image` fetches one still rendering. `edit_image` — through OpenRouter, default Riverflow V2.5 Pro (`sourceful/riverflow-v2.5-pro`, $0.13 at 1K to $0.17 at 4K) with 1-10 input images. A missing key disables only the tools that need it; `/stack-doctor` shows the models in use and checks them. The rules keep logos, icons, illustrations and graphic design in SVG and allow no other image API. |
 | Uploaded images under 1920 px | The image-limit hook (see [Enforced behaviours](#enforced-behaviours-hooks)): what agents read and what they upload through the browser tools; the image tools scale their own inputs in memory; the rules cover curl and scripts. |
@@ -128,9 +128,14 @@ exported.
 
 ## Agents
 
-Models are exact IDs: `claude-opus-5-5`, `claude-sonnet-5`, `claude-fable-5-1`. All three run with a
-native 1M window, so no `[1m]` pins are needed. The model and effort come from each agent file:
-per-call `model` overrides are stripped by the hook.
+Models are the aliases `opus` (Opus 5.5), `sonnet` (Sonnet 5) and `fable` (Fable 5.1) — nothing
+else. On the Anthropic API those aliases resolve to exactly these models; on Bedrock, Google Cloud,
+Foundry or a Claude apps gateway they can resolve to older versions (see Claude Code's model-config
+page), and `ANTHROPIC_DEFAULT_OPUS_MODEL`/`_SONNET_MODEL`/`_FABLE_MODEL` pin them there. All three run
+with a native 1M window, so no `[1m]` pins are needed. The model, effort and `maxTurns` come from each
+agent file: per-call `model` overrides are stripped by the hook. `maxTurns` is generous everywhere
+(60 for oracle up to 2,000 for god-coder); an agent that still hits it returns a partial result that
+can be resumed with SendMessage.
 
 | Agent | Model · effort | For | Agent-scoped MCP | Shared MCP | Extras |
 |---|---|---|---|---|---|
@@ -142,11 +147,13 @@ per-call `model` overrides are stripped by the hook.
 | scout | Sonnet 5 · low | One current fact in ≤ 3 searches | — | exa, jina | |
 | researcher | Opus 5.5 · high | Cited multi-source research; can crawl | spider, context-mode, neural-memory | exa, jina, huggingface | copies, cache 1h |
 | mathematician | Opus 5.5 · xhigh | Proofs, derivations, symbolic/numeric computation | neural-memory | jina, wolfram | sympy/mpmath/scipy venv, copies |
+| **quantum-engineer** | Opus 5.5 · xhigh | Quantum computing and quantum-physics code: circuits, QuTiP, tensor networks, error correction, IBM Quantum runs | libdocs, neural-memory | exa, jina, wolfram | copies, cache 1h; qiskit-runtime via the catalog |
 | writer | Opus 5.5 · medium | Articles, blog (Markdown + LaTeX/Mermaid), emails, PT-PT/EN | — | jina | copies |
 | doc-specialist | Opus 5.5 · medium | docx/xlsx/pptx/pdf read, analyze, create | markitdown, context-mode | — | screen (ONLYOFFICE), copies |
 | image-director | Opus 5.5 · medium | Image generation and editing: SVG, photos and rasters, edits and composites (defaults: Recraft V4.1 Pro Vector and Riverflow V2.5 Pro through OpenRouter, GPT Image 2.5 Sunburst through Opper) | image-studio | jina | |
 | designer | Opus 5.5 · high | Vector, brand, print, UI visuals, color; generated SVG art, photos and edits | image-studio, illustrator¹, huetension | jina | screen |
 | motion-designer | Opus 5.5 · high | After Effects, Premiere, motion | after-effects¹, premiere¹ | — | screen |
+| **cg-artist** | Opus 5.5 · high | 3D: Blender, ZBrush, Substance 3D Painter, Houdini FX, 3D printing | blender (MCP for Blender), libdocs | jina | screen; Houdini via hython (no MCP server exists) |
 | coder | Sonnet 5 · medium | Small/medium code, offloaded sub-tasks | libdocs | exa | copies |
 | main-coder (was senior-coder) | Opus 5.5 · xhigh | Large codebases, architecture, hard bugs | libdocs, neural-memory | exa, jina | copies, cache 1h |
 | **ninja-coder** | **Opus 5.5 · max** | Hardest code where it meets mathematics: novel algorithms, proofs, complexity, numerics, kernels | libdocs, neural-memory | exa, jina, wolfram | copies, cache 1h, workflows |
@@ -160,6 +167,7 @@ per-call `model` overrides are stripped by the hook.
 | **llm-engineer** | Opus 5.5 · high | Local inference (mlx-lm, oMLX), quantization, fine-tuning, evals, RAG, agents/MCP | libdocs, neural-memory | exa, jina, huggingface, wandb | copies, memory, cache 1h |
 | mlx-engineer | Opus 5.5 · high | Apple Silicon performance, Metal kernels, ports to MLX | libdocs | exa, jina | memory |
 | cuda-engineer | Opus 5.5 · high | NVIDIA performance, CUDA/Triton, NCCL, vLLM | libdocs | exa, jina | memory |
+| **robotics-engineer** | Opus 5.5 · high | ROS 2, kinematics and control, SLAM, simulation, robot learning, hardware bring-up | libdocs, neural-memory | exa, jina, huggingface, wandb | copies, memory, cache 1h; ros via the catalog |
 | code-reviewer | Opus 5.5 · xhigh | Review of diffs/PRs (read-only) | libdocs | — | |
 | verifier | Sonnet 5 · high | Runs tests, reproduces, re-checks facts, tests web UIs and native apps | playwright | exa, jina | screen |
 | security-auditor | Opus 5.5 · xhigh | Threat model, exploitable issues (read-only) | — | exa | |
@@ -213,24 +221,27 @@ Everything else, row by row:
 | planner, plan-reviewer | scout, explore, claude-code-guide |
 | researcher | researcher, scout, doc-specialist, mathematician, data-engineer, data-scientist, browser-operator, mcp-broker |
 | writer | writer, scout, researcher, mathematician |
-| mathematician | mathematician, scout, mcp-broker |
+| mathematician | mathematician, scout, mcp-broker, quantum-engineer |
 | doc-specialist | doc-specialist, scout, mcp-broker |
 | image-director | scout |
-| designer | image-director, scout, mcp-broker |
-| motion-designer | image-director, designer, scout, mcp-broker |
+| designer | image-director, scout, mcp-broker, cg-artist |
+| motion-designer | image-director, designer, scout, mcp-broker, cg-artist |
 | coder | coder, explore, scout |
 | main-coder | main-coder, coder, explore, scout, verifier, code-reviewer, security-auditor, plan-reviewer, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, claude-code-guide, ninja-coder, god-coder |
-| ninja-coder | ninja-coder, main-coder, coder, mathematician, explore, scout, verifier, code-reviewer, security-auditor, researcher, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, god-coder |
+| ninja-coder | ninja-coder, main-coder, coder, mathematician, explore, scout, verifier, code-reviewer, security-auditor, researcher, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, god-coder, quantum-engineer |
 | god-coder | coder, main-coder, ninja-coder, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, explore, scout, verifier, code-reviewer, security-auditor, mathematician, researcher |
 | mlx-engineer, cuda-engineer | coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder, god-coder |
 | devops-engineer | coder, explore, scout, verifier, security-auditor, mcp-broker |
-| data-engineer | data-engineer, coder, explore, scout, verifier, mathematician, data-scientist, doc-specialist |
+| data-engineer | data-engineer, coder, explore, scout, verifier, mathematician, data-scientist, doc-specialist, mcp-broker |
 | frontend-engineer | coder, explore, scout, verifier, code-reviewer, designer, image-director, mcp-broker |
 | data-scientist | data-scientist, data-engineer, ml-engineer, mathematician, coder, explore, scout, verifier, doc-specialist, writer, mcp-broker |
 | ml-engineer | ml-engineer, data-scientist, data-engineer, coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker |
 | dl-engineer | dl-engineer, mlx-engineer, cuda-engineer, data-engineer, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder, god-coder |
 | llm-engineer | llm-engineer, mlx-engineer, cuda-engineer, dl-engineer, data-scientist, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, claude-code-guide, ninja-coder, god-coder |
 | claude-code-engineer | claude-code-guide, scout, explore, verifier, code-reviewer, mcp-broker |
+| quantum-engineer | quantum-engineer, mathematician, coder, explore, scout, researcher, verifier, code-reviewer, cuda-engineer, mlx-engineer, mcp-broker, ninja-coder |
+| robotics-engineer | robotics-engineer, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, dl-engineer, cuda-engineer, mlx-engineer, cg-artist, mcp-broker, ninja-coder |
+| cg-artist | image-director, coder, scout, verifier, mcp-broker |
 
 ## Skills (dynamic)
 
@@ -241,11 +252,11 @@ preloaded, no agent file names a skill, and no description names an agent. A ski
 rule pre-approves them all. If you open repositories you don't trust, replace it with
 `Skill(<name>)` rules, since it also approves a repository's own `.claude/skills`.
 
-Every agent sees one line per skill. The 61 descriptions take about 23K characters (about 7.5K
+Every agent sees one line per skill. The 78 descriptions take about 29K characters (about 9.7K
 tokens) of each agent's context. Claude Code caps that listing at
 `skillListingBudgetFraction` of the context window, 1% by default: 30K characters on the 1M-context
 models every agent here uses. Over the cap, the least-used skills lose their description and show by
-name only. The stack sets 2%, so plugin and claude.ai skills fit alongside; `/stack-doctor` reports
+name only. The stack sets 2.5% (75K characters), so plugin and claude.ai skills fit alongside; `/stack-doctor` reports
 the size, and `tests/lint_agents.py` fails if the stack's own skills pass half the budget.
 
 **Engineering practice**
@@ -259,6 +270,11 @@ the size, and `tests/lint_agents.py` fails if the stack's own skills pass half t
 | python-engineering | a Python project or script: uv, pyproject, typing, ruff, pytest, packaging |
 | rust-engineering | writing, testing or releasing Rust |
 | typescript-engineering | TypeScript or JavaScript tools, sites and servers (TS 7 vs 6, Node, pnpm, Vite, ESLint, Vitest) |
+| jvm-engineering | Java 21+, Scala 3 and Kotlin interop: JDKs, Gradle/Maven/sbt/Mill, tests, JFR/JMH, GC |
+| julia-engineering | Julia: juliaup, Pkg environments, type stability, BenchmarkTools, SciML, GPUs |
+| haskell-engineering | Haskell: GHCup, cabal/stack, warnings, laziness and space leaks, profiling, STM |
+| cmake-ninja-builds | C/C++/CUDA builds: modern CMake, presets, Ninja, vcpkg/Conan, sanitizers |
+| ide-workflows | VS Code, JetBrains IDEs via Toolbox, EditorConfig, Chrome DevTools |
 | algorithm-design | a problem needs a non-trivial algorithm or data structure |
 | formal-methods | code or a protocol needs machine-checked assurance: z3, TLA+, Kani/Miri, property tests, fuzzing |
 
@@ -285,6 +301,8 @@ the size, and `tests/lint_agents.py` fails if the stack's own skills pass half t
 | linux-workstation | the CachyOS/Ubuntu laptop: NVIDIA Blackwell drivers, CUDA/PyTorch matching, fish, Wayland |
 | self-hosting-ops | a personal service reached over Tailscale: Forgejo, containers, systemd, backups, runbooks |
 | mcp-server-craft | building, testing or registering an MCP server |
+| postgresql | PostgreSQL design, indexes, EXPLAIN, vacuum, lock-safe migrations, backups, pgvector |
+| mongodb | MongoDB modeling, ESR indexes and explain, aggregation, transactions, sharding, security |
 | claude-code-extensions | writing or changing Claude Code configuration |
 | browser-automation | any multi-step browser task |
 | computer-use-apps | any computer-use step (macOS) |
@@ -299,6 +317,7 @@ the size, and `tests/lint_agents.py` fails if the stack's own skills pass half t
 | category-theory | a categorical construction, proof or diagram |
 | numerical-methods | writing or trusting any numerical computation: floating point, low precision, solvers |
 | quantum-computing | a quantum derivation, simulation, circuit or hardware run |
+| quantum-physics-numerics | simulating a quantum system outside the circuit model: ED, Lindblad, tensor networks |
 
 **ML, LLMs and data**
 
@@ -307,6 +326,9 @@ the size, and `tests/lint_agents.py` fails if the stack's own skills pass half t
 | ml-experiment | running or comparing a model, training run or evaluation |
 | training-debug | a run misbehaves: NaNs, divergence, plateaus, overfitting, slow input pipelines |
 | diffusion-flow-models | building, training, sampling or evaluating a diffusion or flow-matching model |
+| image-model-pipelines | running, fine-tuning (LoRA/DreamBooth), serving or evaluating open-weight image generators |
+| robotics-engineering | ROS 2, frames, ros2_control, Nav2, MoveIt, kinematics, control, estimation, bring-up |
+| robot-learning | simulators, RL, imitation learning and VLAs, LeRobot, sim-to-real, success-rate evaluation |
 | llm-finetuning | preparing data for or launching a fine-tune (mlx-lm on the Mac, PEFT/TRL on CUDA) |
 | llm-quantization | any quantization or precision recipe, 0.5–1T-parameter MoE models on the 512 GB Mac included |
 | llm-evals | before reporting any LLM quality number |
@@ -351,6 +373,17 @@ the size, and `tests/lint_agents.py` fails if the stack's own skills pass half t
 | print-production | any file meant for print: bleed, profiles, ink limits, PDF/X, preflight |
 | apparel-merch-print | artwork for garments or merchandise: screen, DTG, DTF, sublimation, vinyl, embroidery |
 | tattoo-design | drawing or revising a tattoo design a studio can execute |
+| raster-imaging | resizing, converting, compositing, compressing or rasterizing images with code |
+| adobe-creative-cloud | Photoshop, InDesign, Lightroom, Acrobat, Bridge: scripting, actions, output |
+
+**3D**
+
+| Skill | Load it when |
+|---|---|
+| blender-3d | Blender modeling, scripting, materials, rendering, export, the MCP for Blender server |
+| sculpting-texturing | sculpting (ZBrush, Blender), retopology, UVs, baking, Substance 3D Painter, PBR |
+| houdini-fx | Houdini: VEX, Pyro, FLIP, Vellum, RBD, Solaris/Karma, hython and PDG |
+| 3d-printing | design rules, mesh repair, parametric CAD, slicing, materials for FDM and resin |
 
 **Video and motion**
 
@@ -401,8 +434,9 @@ on your machine unannounced). To upgrade one, bump the version in the repo — a
 | context-mode (`context-mode@1.0.169`, the MCP server only) | stdio, agent-scoped | researcher, doc-specialist | — (Node ≥ 22.5) |
 | neural-memory (`neural-memory==4.62.0` through `mcp/neural_memory_mcp.py`) | stdio, agent-scoped | orchestrator, researcher, mathematician, main-/ninja-/god-coder, ml/dl/llm-engineer, data-scientist | — |
 | illustrator (`illustrator-mcp-server@1.10.3`), huetension | stdio, agent-scoped | designer | — (grant macOS Automation) |
+| blender (`mcp-for-blender@2.1.1`, telemetry off) | stdio, agent-scoped | cg-artist | — (Blender running with the add-on: `uvx mcp-for-blender@2.1.1 install-addon`, then Connect) |
 | after-effects (Dakkshin), premiere (`premiere-pro-mcp@1.18.2`) | stdio, agent-scoped | motion-designer | — (`--with-adobe`; after-effects is declared once built) |
-| magg | stdio, agent-scoped | mcp-broker | only `JUPYTER_URL`, `JUPYTER_TOKEN`, `MLFLOW_TRACKING_URI`, `MOTHERDUCK_TOKEN`, `LEAN_PROJECT_PATH` from `stack.env` |
+| magg | stdio, agent-scoped | mcp-broker | only `JUPYTER_URL`, `JUPYTER_TOKEN`, `MLFLOW_TRACKING_URI`, `MOTHERDUCK_TOKEN`, `LEAN_PROJECT_PATH`, `MDB_MCP_CONNECTION_STRING`, `DATABASE_URI`, `QISKIT_IBM_TOKEN` from `stack.env` |
 | exa `https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa` | remote | scout, researcher, planner, coders, verifier, security, ML agents | `EXA_API_KEY` optional (keyless is rate-limited) |
 | jina `https://mcp.jina.ai/v1` | remote | scout, researcher, planner, math, writer, … | `JINA_API_KEY`, effectively required (reader, arXiv and PDF tools refuse without it) |
 | wolfram `https://agenttools.wolfram.com/mcp` | remote | mathematician | none (free, stateless calls) |
@@ -420,6 +454,17 @@ on your machine unannounced). To upgrade one, bump the version in the repo — a
 - mlflow.
 - docspace (ONLYOFFICE): OAuth. For regular use add it to Claude Code with `/mcp`, since magg
   can't keep keys out of its config.
+- mongodb (`mongodb-mcp-server@3.0.4 --readOnly`, telemetry off): `MDB_MCP_CONNECTION_STRING`. Tools pre-approved (read-only).
+- postgres (Postgres MCP Pro `postgres-mcp@0.3.0 --access-mode=restricted`): `DATABASE_URI`; EXPLAIN, index advice, health checks. Tools pre-approved (read-only).
+- chrome-devtools (`chrome-devtools-mcp@1.10.1`, headless, isolated, no usage statistics or CrUX lookups): traces, Lighthouse, network, heap snapshots. Tools pre-approved; the hook holds its file arguments to the Read deny rules.
+- ros (`ros-mcp@3.1.2`, over rosbridge): topics, services, actions. **Not** pre-approved — it can move a robot, so every call asks you.
+- qiskit-runtime (`qiskit-ibm-runtime-mcp-server@0.6.1`): IBM Quantum hardware jobs, `QISKIT_IBM_TOKEN`. **Not** pre-approved — it spends your quota.
+
+No maintained MCP server exists for Houdini, ZBrush, Substance 3D Painter, 3D-printer slicers,
+InDesign or Photoshop (a community Photoshop/InDesign bridge, adb-mcp, needs a UXP plugin and a
+proxy; not installed). cg-artist and designer use scripts (hython, husk, slicer CLIs, ExtendScript/UXP
+via osascript) and computer use there. JetBrains IDEs ship an MCP server (2025.2+), but its
+auto-configure writes an always-on user entry, so the stack leaves it out (see `ide-workflows`).
 
 Entries you already have under the same names are kept. Services registered under other names don't
 match the agents' allowlists, and the installer tells you which ones to rename.
@@ -473,7 +518,7 @@ To start the memory afresh, delete `~/.claude/neural-memory/`. Claude Code's own
 | PreToolUse `Agent` | Checks, in order: spawn policy, depth, the copy rule, fan-out caps (atomic leases) and the router dispatch window. Takes the god-coder lock and strips a per-call `model`. Denies `isolation: "remote"`, because cloud agents load no hooks. |
 | PreToolUse `SendMessage` | Resuming a finished agent follows the spawn policy (the caller's row, or its own child or parent) and counts against its parent's fan-out caps; resuming a finished god-coder takes the god-coder lock |
 | PreToolUse `mcp__computer-use__*` | One agent on the screen at a time |
-| PreToolUse local-file MCP tools: context-mode `ctx_index`, markitdown, docling, playwright | A path or `file:` URI argument is checked against every `Read(...)` deny rule, yours and the project's, with Claude Code's `//abs`, `~/`, `/x` and relative forms. Each argument is read every way the tool might read it: `x:/../..` and `file:/../..` are relative paths to a tool that doesn't parse URIs; `~`, percent-encoding, symlinks and both the session's and the project's directory are tried. A directory that holds a protected path is denied, and `ctx_index` gets no directories at all (it would walk them). Oversized arguments are refused rather than checked, so the hook always answers within its timeout. Claude Code applies those rules to its own tools, not to MCP arguments. |
+| PreToolUse local-file MCP tools: context-mode `ctx_index`, markitdown, docling, playwright, chrome-devtools (catalog) | A path or `file:` URI argument is checked against every `Read(...)` deny rule, yours and the project's, with Claude Code's `//abs`, `~/`, `/x` and relative forms. Each argument is read every way the tool might read it: `x:/../..` and `file:/../..` are relative paths to a tool that doesn't parse URIs; `~`, percent-encoding, symlinks and both the session's and the project's directory are tried. A directory that holds a protected path is denied, and `ctx_index` gets no directories at all (it would walk them). Oversized arguments are refused rather than checked, so the hook always answers within its timeout. Claude Code applies those rules to its own tools, not to MCP arguments. |
 | PostToolUse `Agent\|TaskStop`, SubagentStart/Stop, StopFailure | Registry of who spawned whom at which depth. Liveness: a stopped, failed or TaskStop-ed agent releases its locks. A parent that waits on its children still counts as alive while any child is. |
 | PostToolUseFailure / PermissionDenied | Roll back leases and the router marker |
 | UserPromptSubmit, SessionStart (startup/resume) | Reset per-prompt router markers; clear stale locks; prune old state |
@@ -531,7 +576,7 @@ endpoint). CUDA work runs only on an NVIDIA host you name.
 ## Apps
 
 Every app below runs Claude Code with your user settings, so it starts as the router with the whole
-stack: the 33 agents, the 61 skills, the hooks, the rules, your MCP servers and auto-compaction at
+stack: the 36 agents, the 78 skills, the hooks, the rules, your MCP servers and auto-compaction at
 800K. Checked on 27 Sep 2026 against each app's documentation or code; for Conductor also against
 the version on your Mac (0.87.5) and by running the stack through the Agent SDK with Conductor's own
 options (see [How the apps were checked](#how-the-apps-were-checked)).
@@ -602,7 +647,7 @@ Claude Code through the Agent SDK):
   own tool, its own MCP server and a `conductor` skill.
 - Those options were replayed with Agent SDK 0.3.283 and Claude Code 2.1.283 against a fresh install
   of the stack:
-  - the main thread was the router, with its tool list; 33 agents and 61 skills (plus the built-in
+  - the main thread was the router, with its tool list; 33 agents and 61 skills of that revision (plus the built-in
     ones) loaded;
   - hooks fired (SessionStart, UserPromptSubmit, PreToolUse, SubagentStart/Stop, PostToolUse);
   - auto-compaction: 800,000-token window from settings, threshold 767,000 (Opus 5.5);

@@ -1,9 +1,9 @@
 ---
 name: devops-engineer
 description: "Infrastructure and delivery: CI/CD pipelines, Docker/containers, Kubernetes, Terraform/IaC, cloud services, shell and system administration, deployments, observability. Plans and dry-runs before any change to shared or production systems."
-model: claude-sonnet-5
+model: sonnet
 effort: high
-maxTurns: 300
+maxTurns: 500
 tools: Read, Write, Edit, Bash, LSP, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs, mcp__exa
 mcpServers:
   - libdocs:

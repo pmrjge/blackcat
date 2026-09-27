@@ -156,7 +156,7 @@ out=$(XDG_STATE_HOME="$T1/state" "$T1/bin/magg-private" /bin/echo --env-pass --c
 priv=$(printf '%s\n' "$out" | sed -n 's/^--env-pass --config \(.*\) serve$/\1/p')
 [ -n "$priv" ] && [ "$priv" != "$T1/magg/config.json" ] && cmp -s "$priv" "$T1/magg/config.json" \
   && pass "magg-private runs magg on a private copy of the catalog" || failed "magg-private: [$out]"
-python3 - "$T1/settings.json" <<'PY' && pass "settings: autocompact on at 800K, depth 3, default tool search, lazy MCP, router, skill listing 2%" || failed "settings.json values (see above)"
+python3 - "$T1/settings.json" <<'PY' && pass "settings: autocompact on at 800K, depth 4, default tool search, lazy MCP, router, skill listing 2.5%" || failed "settings.json values (see above)"
 import json, sys
 s = json.load(open(sys.argv[1]))
 env = s["env"]
@@ -164,12 +164,12 @@ checks = {
     "agent": s.get("agent") == "router",
     "autoCompactEnabled": s.get("autoCompactEnabled") is True,
     "autoCompactWindow": s.get("autoCompactWindow") == 800000,
-    "depth": env.get("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH") == "3",
+    "depth": env.get("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH") == "4",
     "tool search left at its default": "ENABLE_TOOL_SEARCH" not in env,
     ".env.example writable": "Read(**/.env.*)" not in s["permissions"]["deny"] and "Read(**/.env.local)" in s["permissions"]["deny"],
     "discovery cache": env.get("MCP_DISCOVERY_CACHE") == "1",
     "router dispatch": env.get("ROUTER_MAX_DISPATCH") == "3",
-    "skill listing budget": s.get("skillListingBudgetFraction") == 0.02,
+    "skill listing budget": s.get("skillListingBudgetFraction") == 0.025,
     "no Haiku": env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5",
     "image limit hooks": any("image-limit" in json.dumps(g) for g in s["hooks"]["PostToolUse"])
                          and any("image-limit" in json.dumps(g) for g in s["hooks"]["PreToolUse"]),
@@ -408,7 +408,7 @@ else
 fi
 printf '%s\n' "$out" | grep -q "agent files present" && pass "doctor.sh: agent files check ran" || failed "doctor.sh: agent files check missing"
 nsk=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
-printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1)) skills, ~[0-9]+ of 60000 characters" \
+printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1)) skills, ~[0-9]+ of 75000 characters" \
   && pass "doctor.sh: skill listing within its budget" || failed "doctor.sh: skill listing line: $(printf '%s\n' "$out" | grep 'skill listing')"
 printf '%s\n' "$out" | grep -q "exa-from-stack-env" && failed "doctor.sh printed a key value" || pass "doctor.sh never prints key values"
 assert_unchanged_real_home

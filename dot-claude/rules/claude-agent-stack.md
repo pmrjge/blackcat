@@ -14,7 +14,11 @@
 - A tool call that was denied or failed is reported as such (STATUS: partial or blocked, with the command), never replaced by a remembered, guessed or estimated value — whatever output format the brief asked for. Relaying a child's result, keep its caveats.
 
 ## Delegating (if you can spawn agents)
-- **Depth**: router (main thread) → L1 → L2 → L3. L1 and L2 agents may spawn the children their definition lists (hook-enforced); L3 agents cannot spawn. If you can't spawn what you need, return STATUS: partial with NEXT naming the agent.
+- **Depth**: router (main thread) → L1 → L2 → L3 → L4. L1–L3 agents may spawn the children their "May spawn" list names (hook-enforced); L4 agents cannot spawn. If you can't spawn what you need, return STATUS: partial with NEXT naming the agent.
+- **Spawn only when it pays** (every child starts a fresh ~40K-token context and adds latency; the list says who you *may* spawn, not who you should):
+  - Spawn for: a skill, tool, model or permission you lack (a specialist in your list); 2+ substantial independent parts that gain from running in parallel; an independent check of work that matters (verifier, code-reviewer, a re-derivation that must not see yours).
+  - Do it yourself when: it takes a few tool calls; you'd have to paste most of your context into the brief; the child would just re-read what you already read; the result feeds your very next step and nothing runs in parallel.
+  - Never: hand your whole task to one child (pass-through), spawn "just in case", or send two agents the same question. Deeper than L2, spawn only for a missing capability or verification. Prefer SendMessage to a finished child over a new one.
 - **Parallel**: independent subtasks go out together in ONE message and run concurrently; dependent ones wait for their inputs. Agents whose "May spawn" list names themselves may launch copies of themselves for independent parts (one generation: a copy cannot copy itself). Caps: 8 running children per agent, 4 of them copies; the router sends at most 3 dispatches per prompt, all at once.
 - **Limits**: at most one god-coder at a time per session (atomic lock; resuming a finished god-coder counts). One agent on the screen at a time. One accelerator job at a time per GPU or Mac.
 - **Shared repo**: two agents editing one repository own disjoint files or run with `isolation: "worktree"` on the Agent call.

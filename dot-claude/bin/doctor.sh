@@ -145,7 +145,7 @@ if [ -f "$C/stack.env" ]; then
     case "$k" in
       PATH|STACK_EXPORT|OPPER_*|OPENROUTER_*|IMAGE_STUDIO_*|LIBDOCS_*|EXA_API_KEY|JINA_API_KEY|SPIDER_API_KEY|GITHUB_TOKEN|HF_TOKEN|WANDB_API_KEY) ;;
       LUMENFALL_*) ;;  # image-studio's check below flags it
-      JUPYTER_URL|JUPYTER_TOKEN|MLFLOW_TRACKING_URI|MOTHERDUCK_TOKEN|LEAN_PROJECT_PATH) ;;
+      JUPYTER_URL|JUPYTER_TOKEN|MLFLOW_TRACKING_URI|MOTHERDUCK_TOKEN|LEAN_PROJECT_PATH|MDB_MCP_CONNECTION_STRING|DATABASE_URI|QISKIT_IBM_TOKEN) ;;
       *) printf '%s\n' "$exported" | grep -q "^export $k=" || own="$own $k" ;;
     esac
   done
@@ -155,7 +155,7 @@ if [ -f "$C/stack.env" ]; then
       | sed -E 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/'); do
     case "$k" in
       LUMENFALL_*|OPPER_*|OPENROUTER_*|IMAGE_STUDIO_*|LIBDOCS_*|GITHUB_TOKEN|EXA_API_KEY|JINA_API_KEY|SPIDER_API_KEY|HF_TOKEN|WANDB_API_KEY) ;;  # expanded by the stack's Python servers, or checked above
-      JUPYTER_URL|JUPYTER_TOKEN|MLFLOW_TRACKING_URI|MOTHERDUCK_TOKEN|LEAN_PROJECT_PATH)
+      JUPYTER_URL|JUPYTER_TOKEN|MLFLOW_TRACKING_URI|MOTHERDUCK_TOKEN|LEAN_PROJECT_PATH|MDB_MCP_CONNECTION_STRING|DATABASE_URI|QISKIT_IBM_TOKEN)
         warn "$k uses \$VAR, which with-stack-env doesn't expand, so magg never gets it: write the value out in $C/stack.env" ;;
       *) expanding="$expanding $k" ;;
     esac
@@ -368,7 +368,7 @@ else:
 (ok if s.get("autoCompactEnabled", True) is True else fail)("autoCompactEnabled=%s" % s.get("autoCompactEnabled", "default(true)"))
 (ok if s.get("autoCompactWindow") == 800000 else warn)("autoCompactWindow=%s (stack: 800000)" % s.get("autoCompactWindow"))
 env = s.get("env", {})
-want = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "3", "MCP_DISCOVERY_CACHE": "1"}
+want = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4", "MCP_DISCOVERY_CACHE": "1"}
 for k, v in want.items():
     (ok if env.get(k) == v else warn)("%s=%s (stack: %s)" % (k, env.get(k), v))
 # Tool search (MCP schemas deferred until needed) is on by default on the Anthropic API and off

@@ -1,9 +1,9 @@
 ---
 name: oracle
 description: "Answers timeless knowledge questions from expertise alone: concepts, definitions, history, how things work, explanations, comparisons of stable ideas. No web access."
-model: claude-opus-5-5
+model: opus
 effort: low
-maxTurns: 15
+maxTurns: 60
 tools: Read, Skill
 color: cyan
 ---

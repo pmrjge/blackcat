@@ -152,7 +152,7 @@ def test_print_policy_format(env):
     assert p.returncode == 0
     d = json.loads(p.stdout)
     assert list(d) == ["policy", "leaves", "agents", "builtins", "self_spawn", "router_tools"]
-    assert len(d["agents"]) == 33 and len(set(d["agents"])) == 33
+    assert len(d["agents"]) == 36 and len(set(d["agents"])) == 36
     assert d["builtins"] == ["explore"]
     assert set(d["policy"]) == set(d["agents"])
     assert sorted(d["leaves"]) == sorted(k for k, v in d["policy"].items() if not v)
@@ -281,6 +281,15 @@ def test_depth_chain(env):
     p = run(pre_agent(s, "coder", parent="main-coder", agent_id="A2"), env,
             extra={"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2"})
     assert decision(p) == "deny"
+    # the stack's depth 4 (settings.json): L3 may spawn an L4, and the L4 may not spawn
+    four = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4"}
+    assert decision(run(pre_agent(s, "coder", parent="coder", agent_id="A3"), env, extra=four)) \
+        == "allow"
+    run(post_agent(s, "scout", "A5", agent_id="A3", parent="coder"), env, extra=four)
+    assert reg("A5")["depth"] == 4
+    run(post_agent(s, "coder", "A6", agent_id="A3", parent="coder"), env, extra=four)
+    p = run(pre_agent(s, "scout", parent="coder", agent_id="A6"), env, extra=four)
+    assert decision(p) == "deny" and "Depth limit" in reason(p)
 
 
 def test_subagent_start_does_not_clobber_depth(env):
