@@ -1,6 +1,6 @@
 y# Claude Code multi-agent stack
 
-A router on the main thread, 35 specialists (36 agent files), 78 on-demand skills, short global
+A router on the main thread (RichCat), 35 specialists (36 agent files), 78 on-demand skills, short global
 rules, a policy hook and MCP servers that start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later** and checked against the 2.1.283 docs (26 Sep 2026). macOS only
 (Apple Silicon first). It runs in the terminal and in the apps that run Claude Code with your
@@ -16,7 +16,7 @@ cd claude-agent-stack
 ./install.sh --with-adobe         # macOS: build the After Effects MCP, install the Premiere connector
 ./install.sh --with-extra-plugins # + Anthropic skill plugins: skill-creator, mcp-server-dev, math-olympiad
 $EDITOR ~/.claude/stack.env       # keys; read at connect time, no reinstall needed
-claude                            # starts as the router
+claude                            # starts as the router, RichCat
 ```
 
 Flags combine. Other flags: `--no-mcp`, `--no-plugins`, `--replace-mcp`, `--force` (overwrite files
@@ -139,7 +139,7 @@ can be resumed with SendMessage.
 
 | Agent | Model · effort | For | Agent-scoped MCP | Shared MCP | Extras |
 |---|---|---|---|---|---|
-| **router** (main thread) | Sonnet 5 · session level (choose low) | Classifies and dispatches (up to 3 agents in one burst); relays results | — | — | Workflows, cron/loop, routines, push, file hand-off |
+| **router** — RichCat (main thread) | Sonnet 5 · session level (choose low) | Classifies and dispatches (up to 3 agents in one burst); relays results | — | — | Workflows, cron/loop, routines, push, file hand-off |
 | orchestrator | Opus 5.5 · xhigh | Multi-step / multi-domain work; ≤ 7 tasks in flight | neural-memory | — | cache 1h |
 | planner | Opus 5.5 · xhigh | How to solve it: options, plan, owners, verification | libdocs | exa, jina | |
 | plan-reviewer | Opus 5.5 · xhigh | Critique of a plan before execution | libdocs | exa, jina | |

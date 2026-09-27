@@ -14,7 +14,7 @@
 - A tool call that was denied or failed is reported as such (STATUS: partial or blocked, with the command), never replaced by a remembered, guessed or estimated value — whatever output format the brief asked for. Relaying a child's result, keep its caveats.
 
 ## Delegating (if you can spawn agents)
-- **Depth**: router (main thread) → L1 → L2 → L3 → L4. L1–L3 agents may spawn the children their "May spawn" list names (hook-enforced); L4 agents cannot spawn. If you can't spawn what you need, return STATUS: partial with NEXT naming the agent.
+- **Depth**: router (RichCat, the main thread) → L1 → L2 → L3 → L4. L1–L3 agents may spawn the children their "May spawn" list names (hook-enforced); L4 agents cannot spawn. If you can't spawn what you need, return STATUS: partial with NEXT naming the agent.
 - **Spawn only when it pays** (every child starts a fresh ~40K-token context and adds latency; the list says who you *may* spawn, not who you should):
   - Spawn for: a skill, tool, model or permission you lack (a specialist in your list); 2+ substantial independent parts that gain from running in parallel; an independent check of work that matters (verifier, code-reviewer, a re-derivation that must not see yours).
   - Do it yourself when: it takes a few tool calls; you'd have to paste most of your context into the brief; the child would just re-read what you already read; the result feeds your very next step and nothing runs in parallel.
