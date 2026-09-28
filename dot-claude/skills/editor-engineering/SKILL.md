@@ -1,6 +1,6 @@
 ---
 name: editor-engineering
-description: Load before building text or code editor internals or IDE features — rope and piece-table storage, UTF-8/UTF-16/grapheme column conversion, selections, multi-cursor, undo and transactions, tree-sitter incremental parsing and queries, LSP and DAP clients, integrated terminal (PTY, VT parsing), GPU text rendering, file watching, project search, keymaps, Markdown/LaTeX preview, WASM plugins and latency budgets.
+description: Load before building text or code editor internals or IDE features — ropes, cursors and undo, tree-sitter, LSP/DAP clients, terminal (PTY/VT), GPU text rendering, latency budgets.
 ---
 # Editor engineering
 
@@ -115,7 +115,7 @@ fn parse(parser: &mut Parser, rope: &Rope, old: Option<&Tree>) -> Option<Tree> {
 - Session: `initialize` → `launch` or `attach` → wait for the `initialized` event → `setBreakpoints` (per source, full list each time), `setFunctionBreakpoints`, `setExceptionBreakpoints` → `configurationDone`. Don't block on the `launch` response before configuring; some adapters reply only after `configurationDone`.
 - Stopped: `stopped` event → `threads` → `stackTrace` → `scopes` → `variables` (lazy via `variablesReference`) → `continue`/`next`/`stepIn`/`stepOut` → `terminated`/`exited` → `disconnect`.
 - Reverse requests: `runInTerminal` (run the debuggee in your terminal panel), `startDebugging` (child sessions).
-- Adapters: CodeLLDB (`codelldb`, TCP port argument), lldb-dap (LLVM, stdio), debugpy (`python -m debugpy.adapter`, stdio), Delve (`dlv dap` listening on a TCP address). Launch-config fields are adapter-specific — read each adapter's docs.
+- Adapters: CodeLLDB (`codelldb`, TCP port argument), lldb-dap (LLVM, stdio), debugpy (`uv run python -m debugpy.adapter`, stdio), Delve (`dlv dap` listening on a TCP address). Launch-config fields are adapter-specific — read each adapter's docs.
 
 ## Integrated terminal
 ```rust

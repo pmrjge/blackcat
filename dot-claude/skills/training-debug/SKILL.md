@@ -1,6 +1,6 @@
 ---
 name: training-debug
-description: Load the moment a run misbehaves. Playbook for broken or disappointing neural-network training and numerics — loss NaN/inf, divergence, no learning, plateaus, overfitting, mixed-precision and quantization overflows, data-pipeline bugs, slow input pipelines.
+description: Load the moment a training run misbehaves — loss NaN/inf, divergence, no learning, plateaus, overfitting, mixed-precision and quantization overflows, input-pipeline bugs.
 ---
 # Training and numerics debugging
 

@@ -95,6 +95,8 @@ assert_unchanged_real_home() {
 }
 
 EXPECTED_AGENTS=$(ls "$HERE"/dot-claude/agents/*.md | wc -l | tr -d ' ')
+# plus the copy types install.sh renders from their base agents (COPY_TYPES)
+EXPECTED_AGENTS=$((EXPECTED_AGENTS + $(sed -n 's/^COPY_TYPES = (\(.*\))$/\1/p' "$HERE/install.sh" | grep -o '"[a-z0-9-]*"' | wc -l | tr -d ' ')))
 EXPECTED_SKILLS=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
 
 echo "== 1. Fresh install into a scratch CLAUDE_CONFIG_DIR"
@@ -199,20 +201,26 @@ out=$(XDG_STATE_HOME="$T1/state" "$T1/bin/magg-private" /bin/echo --env-pass --c
 priv=$(printf '%s\n' "$out" | sed -n 's/^--env-pass --config \(.*\) serve$/\1/p')
 [ -n "$priv" ] && [ "$priv" != "$T1/magg/config.json" ] && cmp -s "$priv" "$T1/magg/config.json" \
   && pass "magg-private runs magg on a private copy of the catalog" || failed "magg-private: [$out]"
-python3 - "$T1/settings.json" <<'PY' && pass "settings: autocompact on at 800K, depth 4, default tool search, lazy MCP, blackcat, skill listing 2.5%" || failed "settings.json values (see above)"
+python3 - "$T1/settings.json" <<'PY' && pass "settings: autocompact on at 300K, depth 4, default tool search, lazy MCP, blackcat, skill listing 1%, 500-char cut, 6 user-only skills" || failed "settings.json values (see above)"
 import json, sys
 s = json.load(open(sys.argv[1]))
 env = s["env"]
 checks = {
     "agent": s.get("agent") == "blackcat",
     "autoCompactEnabled": s.get("autoCompactEnabled") is True,
-    "autoCompactWindow": s.get("autoCompactWindow") == 800000,
+    "autoCompactWindow": s.get("autoCompactWindow") == 300000,
     "depth": env.get("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH") == "4",
     "tool search left at its default": "ENABLE_TOOL_SEARCH" not in env,
     ".env.example writable": "Read(**/.env.*)" not in s["permissions"]["deny"] and "Read(**/.env.local)" in s["permissions"]["deny"],
     "discovery cache": env.get("MCP_DISCOVERY_CACHE") == "1",
-    "blackcat dispatch": env.get("BLACKCAT_MAX_DISPATCH") == "3",
-    "skill listing budget": s.get("skillListingBudgetFraction") == 0.025,
+    "blackcat dispatch": env.get("BLACKCAT_MAX_DISPATCH") == "4" and env.get("BLACKCAT_MAX_STEPS") == "8",
+    "caps and budgets": (env.get("STACK_MAX_FANOUT"), env.get("STACK_MAX_FANOUT_BY_TYPE"), env.get("STACK_MAX_SELF_FANOUT"),
+                         env.get("STACK_PROMPT_CTX_BUDGET"), env.get("STACK_SESSION_CTX_BUDGET"),
+                         env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"))
+                        == ("3", "orchestrator=6,planner=4", "2", "100000000", "120000000", "20"),
+    "skill listing budget": s.get("skillListingBudgetFraction") == 0.01
+                            and s.get("skillListingMaxDescChars") == 500
+                            and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only",
     "no Haiku": env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5",
     "image limit hooks": any("image-limit" in json.dumps(g) for g in s["hooks"]["PostToolUse"])
                          and any("image-limit" in json.dumps(g) for g in s["hooks"]["PreToolUse"]),
@@ -342,8 +350,8 @@ check(env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS") == shipped["CLAUDE_CODE_MA
       "concurrency not reset (%r)" % env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"))
 check("DISABLE_AUTO_COMPACT" not in env and "CLAUDE_CODE_AUTO_COMPACT_WINDOW" not in env,
       "auto-compaction overrides removed", "auto-compaction overrides kept")
-check(s.get("autoCompactWindow") == 800000 and s.get("autoCompactEnabled") is True,
-      "autoCompactWindow back to 800000", "autoCompactWindow=%r" % s.get("autoCompactWindow"))
+check(s.get("autoCompactWindow") == 300000 and s.get("autoCompactEnabled") is True,
+      "autoCompactWindow back to 300000", "autoCompactWindow=%r" % s.get("autoCompactWindow"))
 check("Bash(ls *)" in s["permissions"]["allow"], "user's own allow rule kept", "user's allow rule lost")
 m = json.load(open(magg))["servers"]
 check(m["docling"]["command"] == "my-docling" and m["docling"]["enabled"] is True and "mine" in m,
@@ -458,7 +466,7 @@ printf '%s\n' "$out" | grep -q "agent files present" && pass "doctor.sh: agent f
   && pass "doctor.sh: no-push probes (plain, bash -c, Monitor forge write, no if filter)" \
   || failed "doctor.sh: no-push probe lines: $(printf '%s\n' "$out" | grep -i 'no-push\|forge')"
 nsk=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
-printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1)) skills, ~[0-9]+ of 75000 characters" \
+printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1)) skills, ~[0-9]+ of 30000 characters" \
   && pass "doctor.sh: skill listing within its budget" || failed "doctor.sh: skill listing line: $(printf '%s\n' "$out" | grep 'skill listing')"
 printf '%s\n' "$out" | grep -q "exa-from-stack-env" && failed "doctor.sh printed a key value" || pass "doctor.sh never prints key values"
 assert_unchanged_real_home
@@ -517,7 +525,7 @@ migout=$(CLAUDE_CONFIG_DIR="$T4/.claude" "$T4/.claude/bin/mcp-headers" exa --rev
 [ "$migout" = '{"x-api-key": "exa-only-in-config-1234"}' ] \
   && pass "migrated exa still authenticates through the helper" || failed "helper lost the exa key: $(redacted "$migout")"
 grep -q 'exa-only-in-config-1234' "$FAKE_CLAUDE_JSON" && failed "key still in the MCP config" || pass "key no longer in the MCP config"
-# user edits settings: own hook inside the stack's Agent group, tuned knob, old BLACKCAT_MAX_DISPATCH default; symlinked file
+# user edits settings: own hook inside the stack's Agent group, a tuned knob, an owned knob changed; symlinked file
 mkdir -p "$T4/dotfiles"
 python3 - "$T4/.claude/settings.json" <<'PY'
 import json, sys
@@ -525,8 +533,8 @@ p = sys.argv[1]; s = json.load(open(p))
 for g in s["hooks"]["PreToolUse"]:
     if g.get("matcher") == "Agent":
         g["hooks"].append({"type": "command", "command": "my-audit.sh"})
-s["env"]["BLACKCAT_MAX_STEPS"] = "20"
-s["env"]["BLACKCAT_MAX_DISPATCH"] = "3"
+s["env"]["BLACKCAT_MAX_STEPS"] = "20"         # owned: reset to the stack's value
+s["env"]["STACK_FANOUT_IDLE_S"] = "900"        # a tunable knob: kept
 s["env"]["ENABLE_TOOL_SEARCH"] = "auto:5"
 s["agent"] = "claude"
 s["skillListingBudgetFraction"] = 0.05
@@ -541,7 +549,8 @@ import json, sys
 s = json.load(open(sys.argv[1]))
 shipped = sum("agent_guard.py" in json.dumps(g) for g in json.load(open(sys.argv[2]))["hooks"]["PreToolUse"])
 cmds = [h.get("command") for g in s["hooks"]["PreToolUse"] for h in g.get("hooks", [])]
-ok = ("my-audit.sh" in cmds and sum("agent_guard.py" in (c or "") for c in cmds) == shipped and s["env"]["BLACKCAT_MAX_STEPS"] == "20"
+ok = ("my-audit.sh" in cmds and sum("agent_guard.py" in (c or "") for c in cmds) == shipped and s["env"]["BLACKCAT_MAX_STEPS"] == "8"
+      and s["env"]["STACK_FANOUT_IDLE_S"] == "900"
       and s["env"].get("ENABLE_TOOL_SEARCH") == "auto:5" and s.get("agent") == "claude"
       and s.get("skillListingBudgetFraction") == 0.05)
 sys.exit(0 if ok else 1)
@@ -748,6 +757,7 @@ sp = os.path.join(t, "settings.json"); s = json.load(open(sp))
 s["agent"] = "router"
 s["env"] = {ren(k): v for k, v in s["env"].items()}
 s["env"]["ROUTER_MAX_STEPS"] = "20"
+s["env"]["ROUTER_DISPATCH_WINDOW_S"] = "45"
 s["permissions"]["deny"] = deny(s["permissions"]["deny"])
 json.dump(s, open(sp, "w"), indent=2)
 PY
@@ -758,7 +768,8 @@ CLAUDE_CONFIG_DIR="$T14" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile
 python3 - "$T14/settings.json" <<'PY' && pass "settings follow router -> blackcat: agent, tuned knob moved, defaults and deny rule" || failed "router settings not migrated"
 import json, sys
 s = json.load(open(sys.argv[1])); e = s["env"]; deny = s["permissions"]["deny"]
-ok = (s.get("agent") == "blackcat" and e.get("BLACKCAT_MAX_STEPS") == "20" and e.get("BLACKCAT_MAX_DISPATCH") == "3"
+ok = (s.get("agent") == "blackcat" and e.get("BLACKCAT_MAX_STEPS") == "8" and e.get("BLACKCAT_DISPATCH_WINDOW_S") == "45"
+      and e.get("BLACKCAT_MAX_DISPATCH") == "4"
       and not any(k.startswith("ROUTER_") for k in e) and "Agent(blackcat)" in deny and "Agent(router)" not in deny)
 sys.exit(0 if ok else 1)
 PY
@@ -966,6 +977,97 @@ else
 fi
 assert_unchanged_real_home
 drop_scratch "$TD"
+
+echo "== 13. Rollback: settings the stack stops shipping are retracted through the manifest"
+TR="$(scratch_dir)" || exit 1
+CLAUDE_CONFIG_DIR="$TR/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1
+python3 - "$TR/c/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+s["skillOverrides"]["my-skill"] = "off"        # the user's own override
+s["skillOverrides"]["simplify"] = "on"         # the user changed a stack override
+json.dump(s, open(p, "w"), indent=2)
+PY
+# the rollback: a stack repository whose settings.json is the older one (no listing cut, no
+# overrides, no budget knobs, the old caps), committed on main as install.sh requires
+cp -R "$HERE" "$TR/repo"
+python3 - "$TR/repo/dot-claude/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+for k in ("skillListingMaxDescChars", "skillOverrides"):
+    s.pop(k)
+s["skillListingBudgetFraction"] = 0.025
+s["autoCompactWindow"] = 800000
+for k in ("STACK_MAX_FANOUT_BY_TYPE", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET"):
+    s["env"].pop(k)
+s["env"].update({"STACK_MAX_FANOUT": "8", "STACK_MAX_SELF_FANOUT": "4", "BLACKCAT_MAX_DISPATCH": "3",
+                 "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "32"})
+json.dump(s, open(p, "w"), indent=2)
+PY
+tgit -C "$TR/repo" commit -qam "rollback" || failed "could not commit the rollback repository"
+CLAUDE_CONFIG_DIR="$TR/c" "$TR/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile >"$TR/r.log" 2>&1
+python3 - "$TR/c/settings.json" <<'PY' && pass "rollback: stack-only keys and knobs retracted or restored, the user's own overrides kept" || { failed "rollback retraction"; grep -i 'retract\|kept' "$TR/r.log" | sed 's/^/    /'; }
+import json, sys
+s = json.load(open(sys.argv[1])); e = s["env"]
+ok = ("skillListingMaxDescChars" not in s and s.get("skillOverrides") == {"my-skill": "off", "simplify": "on"}
+      and s.get("skillListingBudgetFraction") == 0.025 and s.get("autoCompactWindow") == 800000
+      and not any(k in e for k in ("STACK_MAX_FANOUT_BY_TYPE", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET"))
+      and e.get("STACK_MAX_FANOUT") == "8" and e.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS") == "32")
+if not ok:
+    print("   ", json.dumps({k: s.get(k) for k in ("skillListingMaxDescChars", "skillOverrides",
+                                                   "skillListingBudgetFraction", "autoCompactWindow")}))
+sys.exit(0 if ok else 1)
+PY
+grep -q 'retracted stack skillOverrides for code-review, fewer-permission-prompts, init, keybindings-help, security-review' "$TR/r.log" \
+  && grep -q 'retracted stack setting skillListingMaxDescChars=500' "$TR/r.log" \
+  && pass "rollback: each retraction is reported" || failed "rollback retraction messages: $(grep -i retract "$TR/r.log")"
+assert_unchanged_real_home
+drop_scratch "$TR"
+
+echo "== 14. Copy types: researcher-copy and coder-copy rendered from their base agents"
+TC="$(scratch_dir)" || exit 1
+CLAUDE_CONFIG_DIR="$TC/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$TC/i.log" 2>&1
+python3 - "$TC/c/agents" <<'PY' && pass "copies: own name and short description, same tools/model/maxTurns/mcpServers, May spawn = base minus base and copies" || failed "copy-type rendering"
+import os, re, sys
+d = sys.argv[1]
+def fm(text):
+    head = text.split("\n---\n", 1)[0]
+    return {m.group(1): m.group(2) for m in re.finditer(r"(?m)^([A-Za-z]+): ?(.*)$", head)}, head
+def may(text):
+    m = re.search(r"May spawn:\s*([^.]*)\.", text)
+    if not m:
+        return []
+    parts, cur, depth = [], "", 0
+    for ch in m.group(1):
+        depth += (ch in "([") - (ch in ")]")
+        if ch == "," and depth == 0:
+            parts.append(cur.strip()); cur = ""
+        else:
+            cur += ch
+    parts.append(cur.strip())
+    return [re.match(r"[A-Za-z0-9_-]+", p).group(0).lower() for p in parts if p]
+ok = True
+for base in ("researcher", "coder"):
+    b, c = (open(os.path.join(d, n + ".md")).read() for n in (base, base + "-copy"))
+    (bf, bh), (cf, ch) = fm(b), fm(c)
+    checks = {
+        "name": cf.get("name") == base + "-copy",
+        "description": cf.get("description") == '"Copy of %s for one independent part; spawned only by %s."' % (base, base),
+        "same frontmatter": all(cf.get(k) == bf.get(k) for k in ("tools", "model", "effort", "maxTurns", "color")),
+        "same mcpServers": bh.partition("mcpServers:")[2] == ch.partition("mcpServers:")[2],
+        "base lists its copy": base + "-copy" in may(b) and base not in may(b),
+        "copy May spawn": may(c) == [x for x in may(b) if x != base and not x.endswith("-copy")],
+        "copy note": "You are a copy of %s" % base in c,
+    }
+    for k, v in checks.items():
+        if not v:
+            print("    %s-copy: %s wrong" % (base, k)); ok = False
+sys.exit(0 if ok else 1)
+PY
+grep -q 'agents/researcher-copy.md *installed' "$TC/i.log" && grep -q 'agents/coder-copy.md *installed' "$TC/i.log" \
+  && pass "copies are installed and tracked like the other agents" || failed "copies not installed: $(grep -- '-copy' "$TC/i.log")"
+assert_unchanged_real_home
+drop_scratch "$TC"
 
 echo
 echo "== Summary: $PASS passed, $FAIL failed"

@@ -1,6 +1,6 @@
 ---
 name: diffusion-flow-models
-description: Load before building, training, sampling or evaluating a diffusion, score-based or flow-matching model. Covers VP/VE SDEs, score matching, the probability-flow ODE, DDPM/DDIM, flow matching, rectified flow, OT-CFM, interpolants, parameterizations and loss weighting, schedules, guidance, samplers, latent diffusion, training, evaluation caveats, MLX/PyTorch notes and debugging.
+description: Load before building, training, sampling or evaluating a diffusion, score-based or flow-matching model — SDEs, DDPM/DDIM, rectified flow, guidance, samplers, debugging.
 ---
 # Diffusion and flow-matching models
 

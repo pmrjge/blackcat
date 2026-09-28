@@ -1,6 +1,6 @@
 ---
 name: color-management
-description: Load before choosing, converting or checking colors for any deliverable. Color that survives screens and print — ICC profiles (sRGB, Display P3, FOGRA39/51/52, GRACoL/SWOP 2013), rendering intents, RGB-to-CMYK with rich black and ink limits, Pantone/spot matching, ΔE2000, OKLCH ramps, WCAG 2.2 contrast (APCA as a note), dark mode, display calibration, soft-proofing, embedded profiles, per-deliverable checklists.
+description: Load before choosing, converting or checking colors for any deliverable — sRGB/Display P3, ICC profiles, RGB-to-CMYK, rich black, Pantone/spot, ΔE2000, OKLCH, WCAG contrast.
 ---
 # Color management
 

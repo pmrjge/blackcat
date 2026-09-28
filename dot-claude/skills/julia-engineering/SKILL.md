@@ -1,6 +1,6 @@
 ---
 name: julia-engineering
-description: Load before writing, reviewing, testing or speeding up Julia — juliaup and versions, Pkg environments and Manifest pinning, package layout, Test/Aqua/JET, type stability and allocations, BenchmarkTools, threads and GPUs (CUDA.jl, Metal.jl), SciML, Makie, PythonCall, precompilation and PackageCompiler, pitfalls.
+description: Load before writing, reviewing, testing or speeding up Julia — juliaup, Pkg environments, Test/Aqua/JET, type stability, BenchmarkTools, CUDA.jl/Metal.jl, SciML, PythonCall.
 ---
 # Julia engineering
 

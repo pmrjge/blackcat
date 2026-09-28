@@ -1,6 +1,6 @@
 ---
 name: image-prompting
-description: Load before generating or editing any image. The stack's image tools (image-studio) — SVG for logos, icons, illustrations and graphic design; photographs and raster images; edits and composites — with the model of each set in stack.env (defaults Recraft V4.1 Pro Vector and Riverflow V2.5 Pro through OpenRouter, GPT Image 2.5 Sunburst through Opper) — tool choice, specs, prompts, references, consistent series, text in images, previews and QA, SVG clean-up, raster post-processing, costs, legal guardrails.
+description: Load before generating or editing any image through image-studio — SVG logos, icons, illustrations, photos, raster images, edits and composites; prompts, references, QA, costs.
 ---
 # Image generation and editing (mcp__image-studio)
 

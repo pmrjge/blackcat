@@ -1,6 +1,6 @@
 ---
 name: haskell-engineering
-description: Load before writing, reviewing, building or profiling Haskell — GHCup and GHC/cabal/stack/HLS versions, cabal projects and freeze files, language editions and extensions, warnings, hspec/tasty/QuickCheck/hedgehog, laziness and space leaks, profiling, concurrency and STM, effects, text and bytestring, common libraries, pitfalls.
+description: Load before writing, reviewing, building or profiling Haskell — GHCup, cabal/stack, extensions, hspec/QuickCheck, laziness and space leaks, profiling, STM, common libraries.
 ---
 # Haskell engineering
 

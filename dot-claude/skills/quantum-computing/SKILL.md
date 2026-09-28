@@ -1,6 +1,6 @@
 ---
 name: quantum-computing
-description: Load before any quantum-computing derivation, simulation, circuit or hardware run. Covers states, unitaries, measurement, density matrices and entanglement, circuit identities, simulator choice (Qiskit Aer, PennyLane, Cirq, stim), algorithms with honest caveats, noise and error mitigation, stabilizer codes and decoders, verification against numpy, current Qiskit APIs and resource estimation.
+description: Load before any quantum-computing derivation, simulation, circuit or hardware run — circuit identities, Qiskit/PennyLane/Cirq/stim, noise and mitigation, QEC, resource estimates.
 ---
 # Quantum computing
 

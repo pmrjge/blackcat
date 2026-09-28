@@ -1,6 +1,6 @@
 ---
 name: houdini-fx
-description: Load before building, scripting or rendering in Houdini — contexts (SOP, DOP, LOP, COP, TOP), attributes and VEX wrangles, procedural modeling and HDAs, simulations (Pyro, FLIP, Vellum, RBD, MPM, POPs), caching discipline, Solaris/USD with Karma and husk, hython and PDG batch work, licensing limits, exports.
+description: Load before building, scripting or rendering in Houdini — SOP/DOP/LOP contexts, VEX, HDAs, Pyro/FLIP/Vellum/RBD sims, caching, Solaris/USD with Karma, hython and PDG.
 ---
 # Houdini FX
 

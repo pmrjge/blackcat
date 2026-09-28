@@ -1,6 +1,6 @@
 ---
 name: latex-typesetting
-description: Load before writing, fixing or building LaTeX — papers, theses, lecture notes, beamer slides, arXiv submissions — or when choosing Typst instead. Covers pdfLaTeX vs XeLaTeX vs LuaLaTeX, latexmk and Tectonic, classes, amsmath/mathtools/thmtools/cleveref, siunitx, biblatex vs BibTeX, fonts and unicode-math, floats, booktabs, algorithms, listings vs minted, log errors, reproducible builds, Pandoc limits.
+description: Load before writing, fixing or building LaTeX (papers, theses, beamer, arXiv) or choosing Typst — engines, latexmk, math packages, biblatex, fonts, floats, log errors.
 ---
 # LaTeX typesetting (and when Typst fits)
 

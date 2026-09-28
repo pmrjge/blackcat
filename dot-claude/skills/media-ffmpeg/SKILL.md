@@ -1,6 +1,6 @@
 ---
 name: media-ffmpeg
-description: Load before running ffmpeg or ffprobe. Tested recipes for probing streams, H.264/HEVC/AV1/ProRes and VideoToolbox/NVENC encodes, keyframe vs frame-accurate trims, concat, scale/pad/crop, frame rates, stills and GIFs, audio swap and two-pass loudnorm, subtitles, color tags, speed, stabilization, overlays, faststart MP4, batch loops and troubleshooting.
+description: Load before running ffmpeg or ffprobe — probing, H.264/HEVC/AV1/ProRes encodes, trims, concat, scaling, GIFs, audio and loudnorm, subtitles, color tags, batch loops.
 ---
 # ffmpeg and ffprobe recipes
 
@@ -157,7 +157,7 @@ Two-pass loudness normalization (defaults are I −24, LRA 7, TP −2; always se
 ```sh
 T="I=-14:TP=-1:LRA=11"
 J=$(ffmpeg -hide_banner -nostdin -i in.mp4 -af "loudnorm=${T}:print_format=json" -f null - 2>&1 | sed -n '/^{/,/^}/p')
-read -r MI MTP MLRA MTH OFF < <(printf '%s' "$J" | python3 -c 'import json,sys; d=json.load(sys.stdin); print(d["input_i"], d["input_tp"], d["input_lra"], d["input_thresh"], d["target_offset"])')
+read -r MI MTP MLRA MTH OFF < <(printf '%s' "$J" | jq -r '"\(.input_i) \(.input_tp) \(.input_lra) \(.input_thresh) \(.target_offset)"')
 ffmpeg -i in.mp4 -af "loudnorm=${T}:measured_I=${MI}:measured_TP=${MTP}:measured_LRA=${MLRA}:measured_thresh=${MTH}:offset=${OFF}:linear=true" -ar 48000 -c:v copy -c:a aac -b:a 192k normalized.mp4
 ```
 (bash/zsh.) Brace every variable: zsh reads `$OFF:linear` as `$OFF` plus the `:l` modifier and emits

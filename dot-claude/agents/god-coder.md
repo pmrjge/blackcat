@@ -6,7 +6,7 @@ model: fable
 # run at the calling session's level (low for BlackCat); ultracode (xhigh + dynamic workflows)
 # exists only on a main thread: claude-god. Dispatched as a subagent, max is the deepest level.
 effort: max
-maxTurns: 2000
+maxTurns: 250
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, Workflow, mcp__libdocs, mcp__exa, mcp__jina, mcp__wolfram, mcp__neural-memory
 mcpServers:
   - libdocs:

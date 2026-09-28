@@ -1,6 +1,6 @@
 ---
 name: rust-engineering
-description: Load before writing, reviewing, testing or releasing Rust code — workspaces, edition 2024 and MSRV, features, errors (thiserror/anyhow), ownership patterns, tokio async and cancellation, performance basics, unsafe policy, nextest/proptest/insta/criterion, clippy, tracing, clap, serde, release profiles, cross-compiling for macOS and Linux, crate choices, compiler-error fixes.
+description: Load before writing, reviewing, testing or releasing Rust — workspaces, edition 2024, errors, ownership, tokio, unsafe policy, nextest/proptest, clippy, serde, cross-compiling.
 ---
 # Rust engineering
 

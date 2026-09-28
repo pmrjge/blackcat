@@ -826,13 +826,57 @@ if magg_ok:
              ("kept your edited " + ", ".join(kept)) if kept else ""]
     print("  magg catalog: %s" % ("; ".join(x for x in parts if x) or "up to date"))
 
+# --- copy types: the only agents that may run copies of themselves get a rendered <type>-copy.md
+# (own name, short description, same tools/model/maxTurns/mcpServers and body; "May spawn" = the
+# base list minus the base type and every copy). The hook's POLICY lists <type>-copy in the base
+# row and never lets a copy spawn its base or a copy, so one generation is a static check.
+COPY_TYPES = ("researcher", "coder")
+
+
+def split_top_level(s):
+    parts, cur, depth = [], "", 0
+    for ch in s:
+        depth += (ch in "([") - (ch in ")]")
+        if ch == "," and depth == 0:
+            parts.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    return parts + ([cur.strip()] if cur.strip() else [])
+
+
+def make_copy(text, base):
+    """<base>.md -> <base>-copy.md (see COPY_TYPES)."""
+    name = base + "-copy"
+    out, n = re.subn(r"(?m)^name: %s$" % re.escape(base), "name: " + name, text, count=1)
+    if n != 1:
+        raise SystemExit("install.sh: agents/%s.md has no 'name: %s' line to copy" % (base, base))
+    out = re.sub(r"(?m)^description: .*$", lambda m: 'description: "Copy of %s for one independent part; '
+                 'spawned only by %s."' % (base, base), out, count=1)
+
+    def may_spawn(m):
+        keep = [t for t in split_top_level(m.group(1))
+                if not re.match(r"(%s|[A-Za-z0-9_-]+-copy)\b(?!-)" % re.escape(base), t)]
+        return "May spawn: %s." % ", ".join(keep) if keep else "Spawn nothing."
+    out, n = re.subn(r"May spawn:\s*([^.]*)\.", may_spawn, out, count=1)
+    if n != 1:
+        raise SystemExit("install.sh: agents/%s.md has no 'May spawn:' sentence to copy" % base)
+    head, sep, body = out.partition("\n---\n")
+    note = ("You are a copy of %s, spawned by a %s for one independent part of its job. Do that part "
+            "yourself: a copy never spawns %s or another copy. Skip any Memory lines below: the %s that "
+            "spawned you passes its memory hits in your brief and remembers what you report.\n\n"
+            % (base, base, base, base))
+    return head + sep + note + body
+
+
 # --- agents/*.md + rules/claude-agent-stack.md: manifest-guarded, non-destructive install ---
-targets = [("agents/" + os.path.basename(p), p) for p in sorted(glob.glob(os.path.join(SRC, "agents", "*.md")))]
-targets.append(("rules/claude-agent-stack.md", os.path.join(SRC, "rules", "claude-agent-stack.md")))
+targets = [("agents/" + os.path.basename(p), p, None) for p in sorted(glob.glob(os.path.join(SRC, "agents", "*.md")))]
+targets += [("agents/%s-copy.md" % b, os.path.join(SRC, "agents", b + ".md"), b) for b in COPY_TYPES]
+targets.append(("rules/claude-agent-stack.md", os.path.join(SRC, "rules", "claude-agent-stack.md"), None))
 AE_BUILT = os.path.isfile(os.path.join(C, "mcp", "vendor", "after-effects-mcp", "build", "index.js"))
 
 installed_count = 0
-total_agents = sum(1 for rel, _ in targets if rel.startswith("agents/"))
+total_agents = sum(1 for rel, _, _ in targets if rel.startswith("agents/"))
 IN_SYNC = {"installed", "unchanged", "overwritten", "overwritten (legacy)", "overwritten (--force)"}
 
 # Adobe servers exist only on macOS: elsewhere they are left out of the renders, so designer and
@@ -847,14 +891,16 @@ def drop_servers(rendered, names):
     return re.sub(r"(?m)^mcpServers:\n(?=[A-Za-z])", "", rendered)   # a block left empty
 
 
-for rel, src_path in targets:
+for rel, src_path, copy_of in targets:
     text = open(src_path, encoding="utf-8").read()
+    if copy_of:
+        text = make_copy(text, copy_of)
     rendered = render(text)
     if sys.platform != "darwin" and rel.startswith("agents/"):
         rendered = drop_servers(rendered, MACOS_ONLY_SERVERS)
     elif rel == "agents/motion-designer.md" and not AE_BUILT:
         rendered = drop_servers(rendered, ("after-effects",))    # added once --with-adobe built it
-    if rel == "agents/researcher.md" and SPIDER_REWRITE:
+    if rel in ("agents/researcher.md", "agents/researcher-copy.md") and SPIDER_REWRITE:
         rendered = re.sub(r"mcpServers:\n  - spider:\n(?:      .*\n)+", "mcpServers:\n  - spider\n", rendered)
     dest = os.path.join(C, rel)
     entry = files_entry.get(rel)
@@ -907,7 +953,7 @@ for rel, src_path in targets:
 # (retired/agents/), as does a leftover .new of it; an edited one stays — Claude Code keeps loading
 # it as an agent of its own — with a note.
 RENAMED = {"agents/senior-coder.md": "agents/main-coder.md", "agents/router.md": "agents/blackcat.md"}
-shipped = {rel for rel, _ in targets}
+shipped = {rel for rel, _, _ in targets}
 for rel in sorted((set(RENAMED) | {r for r in list(files_entry) + list(offered) if r.startswith("agents/")}) - shipped):
     dest = os.path.join(C, rel)
     entry = files_entry.get(rel)
@@ -1139,14 +1185,21 @@ if "settings_env" in manifest:
     RETIRED_ENV = {}
 # top-level keys the stack sets only when you have none (or still have the stack's own value).
 # "agent": set "agent": "claude" to keep the plain main thread (then: claude --agent blackcat).
-# "skillListingBudgetFraction": share of the context window for the skill listing (Claude Code's
-# default 0.01 is 30K characters on a 1M-context model, most of which the stack's own skills take;
-# over budget, the least-used skills are listed by name only). tests/lint_agents.py checks the size.
-SET_IF_ABSENT = {"statusLine", "agent", "skillListingBudgetFraction"}
+# "skillListingBudgetFraction" (Claude Code's default 0.01: about 30K characters on a 1M-context
+# model; over it, the least-used skills are listed by name only), "skillListingMaxDescChars" (per-skill
+# cut) and "skillOverrides" (per skill: a stack entry is set while you have none for that skill, or
+# still the stack's own) keep every description inside it. tests/lint_agents.py checks the size.
+SET_IF_ABSENT = {"statusLine", "agent", "skillListingBudgetFraction", "skillListingMaxDescChars",
+                 "skillOverrides"}
 # env keys the stack re-asserts on every run; every other shipped env key is a default the user
 # may tune (README "knobs"): it follows stack upgrades only while the user has not changed it.
+# The spawn and token-budget knobs are owned too: they are the stack's guarantees (BlackCat's step
+# cap, fan-out and copy caps, the per-prompt and per-session context budgets), not preferences.
 OWNED_ENV = {"STACK_ENV_FILE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
-             "MCP_DISCOVERY_CACHE", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"}
+             "MCP_DISCOVERY_CACHE", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+             "BLACKCAT_MAX_STEPS", "BLACKCAT_MAX_DISPATCH", "STACK_MAX_FANOUT",
+             "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_SELF_FANOUT", "STACK_PROMPT_CTX_BUDGET",
+             "STACK_SESSION_CTX_BUDGET"}
 # values shipped by stack versions whose manifest predates "settings_env"
 OLD_DEFAULTS = {"ROUTER_MAX_DISPATCH": {"1"}}
 # The main-thread agent "router" is now "blackcat": its "agent" value and its knobs follow the
@@ -1208,6 +1261,13 @@ for k, v in new.items():
                 print("  set worktree.%s=%s (was %s): the stack's git rule needs it" % (wk, json.dumps(wv), json.dumps(w[wk])))
             w[wk] = wv
         merged[k] = w
+    elif k == "skillOverrides":
+        so = dict(cur.get(k)) if isinstance(cur.get(k), dict) else {}
+        prev_so = prev_owned.get(k) if isinstance(prev_owned.get(k), dict) else {}
+        for sk, sv in v.items():
+            if sk not in so or so[sk] == prev_so.get(sk):
+                so[sk] = sv
+        merged[k] = so
     elif k in SET_IF_ABSENT:
         if (k not in cur or cur.get(k) == prev_owned.get(k) or cur.get(k) == v
                 or cur.get(k) in OLD_SET_IF_ABSENT.get(k, ())):
@@ -1220,6 +1280,9 @@ for k, v in new.items():
             mine = e.get(ek)
             if (mine is None or ek in OWNED_ENV or str(mine) == str(sv) or str(mine) == str(prev_env.get(ek))
                     or str(mine) in OLD_DEFAULTS.get(ek, ())):
+                if (mine is not None and ek in OWNED_ENV and str(mine) != str(sv)
+                        and str(mine) != str(prev_env.get(ek)) and str(mine) not in OLD_DEFAULTS.get(ek, ())):
+                    print("  set env %s=%s (was %s): the stack owns this knob" % (ek, sv, mine))
                 e[ek] = sv
             elif ek == "ANTHROPIC_DEFAULT_HAIKU_MODEL" and "haiku" in str(mine).lower():
                 # the stack runs no Haiku: the haiku alias and background tasks use Sonnet 5
@@ -1266,15 +1329,15 @@ for bad in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "C
     if bad in env:
         print("  WARNING: env %s overrides per-agent model/effort — removed" % bad)
         env.pop(bad)
-# Auto-compaction is part of the spec (on, 800K window): drop settings that silently defeat it.
+# Auto-compaction is part of the spec (on, 300K window): drop settings that silently defeat it.
 for bad, why in (("DISABLE_AUTO_COMPACT", "turns auto-compaction off"),
                  ("DISABLE_COMPACT", "turns every compaction off"),
                  ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "overrides autoCompactWindow")):
     if bad in env:
         print("  WARNING: env %s=%s %s — removed (autoCompactWindow=%s is the stack's setting)"
               % (bad, env.pop(bad), why, new.get("autoCompactWindow")))
-for warn_only, why in (("CLAUDE_CODE_DISABLE_1M_CONTEXT", "caps every model at 200K, so compaction happens at 200K, not 800K"),
-                       ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "makes compaction trigger earlier than the 800K window")):
+for warn_only, why in (("CLAUDE_CODE_DISABLE_1M_CONTEXT", "caps every model at 200K, so compaction happens at 200K, not 300K"),
+                       ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "makes compaction trigger earlier than the 300K window")):
     if warn_only in env:
         print("  note: env %s=%s %s (kept — remove it if unintended)" % (warn_only, env[warn_only], why))
 merged["env"] = env
@@ -1715,8 +1778,8 @@ cat <<EOF
      _EDIT_MODEL; /stack-doctor checks them).
      MCP servers read that file at connect time — no reinstall needed (except the first time you add
      WANDB_API_KEY: rerun ./install.sh $ORIG_ARGS). Open a new terminal so CLI tools see them too.
-  2. Start: claude        (main thread = BlackCat; the status line shows context vs the 800K window —
-     auto-compact fires at ≈767K). Claude Desktop's Code tab, Conductor, VS Code and Zed load the same
+  2. Start: claude        (main thread = BlackCat; the status line shows context vs the 300K window —
+     auto-compact fires a little before it). Claude Desktop's Code tab, Conductor, VS Code and Zed load the same
      setup (README → Apps). A plain session without BlackCat: claude --agent claude.
      Inside: /stack-doctor   (health check)   /mcp   (server status; no sign-in needed with keys)
      Once, in that first session: /effort low — BlackCat runs at the session's level (saved for

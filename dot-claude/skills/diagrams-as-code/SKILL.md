@@ -1,6 +1,6 @@
 ---
 name: diagrams-as-code
-description: Load before drawing a diagram as text. Choosing Mermaid, Graphviz/DOT, D2, PlantUML, TikZ/tikz-cd (commutative and string diagrams, quiver, TikZiT) or Excalidraw; tested syntax; rendering to SVG/PDF/PNG with mmdc, dot, d2, latexmk, dvisvgm, pdftocairo; embedding in GitHub, GitLab and static sites; readability, accessibility and a QA checklist.
+description: Load before drawing a diagram as text — Mermaid, Graphviz, D2, PlantUML, TikZ/tikz-cd or Excalidraw; tested syntax, rendering to SVG/PDF/PNG, embedding, QA checklist.
 ---
 # Diagrams as code
 

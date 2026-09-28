@@ -1,6 +1,6 @@
 ---
 name: motion-graphics
-description: Load before designing, animating or delivering motion for video or UI — animation principles and easing, timing and reading time, kinetic type, logo animation, transitions, After Effects and Premiere Pro practice with a verified expression library, Lottie, CSS/SVG and Remotion, platform delivery specs and safe zones, loudness targets, captions and QA.
+description: Load before designing, animating or delivering motion for video or UI — easing, timing, kinetic type, After Effects and Premiere, expressions, Lottie, Remotion, delivery specs.
 ---
 # Motion graphics for video and UI
 

@@ -1,6 +1,6 @@
 ---
 name: book-production
-description: Load before turning a manuscript (Markdown or LaTeX) into a print-ready PDF, DOCX or EPUB, or before uploading to print-on-demand (Amazon KDP, IngramSpark) — trim size, page count and paper, margins and gutter, running heads, bleed, front/back matter, Pandoc to LaTeX/Typst/HTML toolchains, fonts and PDF/X, images, full-wrap cover and spine, ISBN and legal deposit, EPUB validation, proofs.
+description: Load before turning a manuscript into a print-ready PDF, DOCX or EPUB, or uploading to KDP/IngramSpark — trim, margins, bleed, Pandoc/LaTeX/Typst, cover and spine, ISBN.
 ---
 # Book production: manuscript → print PDF, DOCX, EPUB
 

@@ -1,6 +1,6 @@
 ---
 name: git-workflows
-description: Load before git work beyond a plain commit, solo or with parallel agents — worktrees per task, rebase vs merge vs squash, commit hygiene, non-interactive history edits (fixup/autosquash, --onto), conflicts and rerere, bisect, reflog recovery, filter-repo for secrets and big files, LFS vs Hub storage, SSH signing, hooks, gh/tea, sparse and partial clones, .gitattributes.
+description: Load before git work beyond a plain commit — worktrees per task, rebase/merge/squash, history edits, conflicts, bisect, reflog recovery, filter-repo, LFS, signing, gh/tea.
 ---
 # Git workflows (solo and multi-agent)
 

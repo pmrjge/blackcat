@@ -1,6 +1,6 @@
 ---
 name: mongodb
-description: Load before modeling, querying, indexing, tuning, migrating or operating MongoDB — mongosh, document modeling (embed vs reference, patterns, anti-patterns), schema validation, ESR index rule and explain plans, aggregation pipelines, transactions, read and write concerns, replica sets, sharding, change streams, backups, drivers, security.
+description: Load before modeling, querying, indexing, tuning, migrating or operating MongoDB — document design, validation, ESR indexes, aggregation, transactions, replication, sharding.
 ---
 # MongoDB
 

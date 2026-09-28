@@ -1,6 +1,6 @@
 ---
 name: brand-identity
-description: Load before creating or revising a logo or identity. Brand identity and logo design end to end — discovery brief and positioning, three concept directions, logo construction with optical corrections, wordmarks, scalability to 16 px, lockups, color and type systems, imagery and icons, brand guidelines, export matrix (SVG/PDF/EPS/PNG, favicon, app icons), client presentation, trademark and AI legal checks.
+description: Load before creating or revising a logo or brand identity — concept directions, logo construction, wordmarks, lockups, color and type systems, guidelines, exports, trademark checks.
 ---
 # Brand identity and logo design
 

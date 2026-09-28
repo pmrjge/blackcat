@@ -1,6 +1,6 @@
 ---
 name: postgresql
-description: Load before designing, querying, tuning, migrating, backing up or upgrading a PostgreSQL database — psql, schema and types, indexes (B-tree, GIN, GiST, BRIN, partial, covering), EXPLAIN ANALYZE reading, statistics, MVCC and vacuum, locks and zero-downtime migrations, isolation and retries, partitioning, pgvector and PostGIS, pooling, replication, security.
+description: Load before designing, querying, tuning, migrating or upgrading PostgreSQL — psql, indexes, EXPLAIN ANALYZE, vacuum, locks, safe migrations, pgvector, PostGIS, replication.
 ---
 # PostgreSQL
 

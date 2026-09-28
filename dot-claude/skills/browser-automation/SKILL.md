@@ -1,6 +1,6 @@
 ---
 name: browser-automation
-description: Load before any multi-step browser task. Driving web pages safely and efficiently with Claude in Chrome (the user's logged-in browser) or Playwright (a separate headless browser) — choosing the browser, element targeting, waiting, forms, downloads, screenshots, extraction and the hard stops.
+description: Load before any multi-step browser task — Claude in Chrome (logged-in) or Playwright (headless); choosing the browser, targeting, waiting, forms, downloads, extraction, hard stops.
 ---
 # Browser automation
 

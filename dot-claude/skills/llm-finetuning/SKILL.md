@@ -1,6 +1,6 @@
 ---
 name: llm-finetuning
-description: Load before preparing data or launching a fine-tune. Fine-tuning pretrained language models — when to fine-tune vs prompt/RAG, LoRA/QLoRA/full, preference tuning (DPO/ORPO), data formatting with the model's chat template, hyperparameters, overfitting checks and before/after evaluation; MLX (mlx-lm) on the Mac, PEFT/TRL on CUDA.
+description: Load before preparing data or launching a language-model fine-tune — when to fine-tune, LoRA/QLoRA/full, DPO/ORPO, chat templates, hyperparameters, evaluation; mlx-lm or PEFT/TRL.
 ---
 # LLM fine-tuning protocol
 

@@ -1,6 +1,6 @@
 ---
 name: apparel-merch-print
-description: Load before preparing artwork for garments or merchandise. Choosing screen printing, DTG, DTF, sublimation, heat-transfer vinyl or embroidery by run size, colors, fabric and budget; separations, halftones, underbase, digitizing limits, placements and print-area sizes, per-size scaling, mockups, delivery files per method, slogan legibility, trademark and font licensing.
+description: Load before preparing artwork for garments or merchandise — screen print, DTG, DTF, sublimation, vinyl or embroidery; separations, underbase, placements, mockups, delivery files.
 ---
 # Apparel and merchandise print
 

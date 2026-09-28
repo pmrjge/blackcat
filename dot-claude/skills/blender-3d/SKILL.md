@@ -1,6 +1,6 @@
 ---
 name: blender-3d
-description: Load before modeling, scripting, rendering or exporting in Blender — headless command-line runs, the bpy data/ops/context model, bmesh and fast array access, geometry nodes, modifiers, Principled BSDF materials, color management (AgX), Cycles on Metal and EEVEE, glTF/FBX/USD/OBJ/STL export, the MCP for Blender server, batch pipelines and QA renders.
+description: Load before modeling, scripting, rendering or exporting in Blender — headless bpy, bmesh, geometry nodes, materials, Cycles/EEVEE, glTF/FBX/USD/STL export, the Blender MCP server.
 ---
 # Blender
 

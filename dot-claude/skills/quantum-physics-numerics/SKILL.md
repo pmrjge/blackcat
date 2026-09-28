@@ -1,6 +1,6 @@
 ---
 name: quantum-physics-numerics
-description: Load before simulating a quantum system numerically outside the circuit model — Hamiltonians in truncated bases, exact diagonalization with symmetries, sparse eigensolvers, time evolution (Krylov, Trotter, split-operator), open systems (Lindblad, Bloch–Redfield, trajectories, HEOM), tensor networks (DMRG, TEBD, TDVP), QuTiP 5, QuSpin, quimb, TeNPy, ITensors.jl, units and verification.
+description: Load before simulating a quantum system numerically outside the circuit model — Hamiltonians, exact diagonalization, time evolution, Lindblad, DMRG/TEBD, QuTiP, quimb.
 ---
 # Quantum physics numerics
 

@@ -1,6 +1,6 @@
 ---
 name: gpu-kernel-dev
-description: Use when writing or optimizing a custom GPU kernel — Metal via MLX custom kernels on Apple Silicon, CUDA C++ or Triton on NVIDIA including Blackwell RTX 50-series (sm_120) — covering when a kernel is justified, roofline, occupancy and memory-hierarchy reasoning, low-precision numerics, correctness against a reference, profiling tools, PyTorch/MLX integration and common kernel bugs.
+description: Use when writing or optimizing a custom GPU kernel — Metal via MLX, CUDA C++ or Triton (incl. Blackwell sm_120); roofline, occupancy, low precision, correctness, profiling.
 ---
 # GPU kernel development
 
@@ -172,7 +172,7 @@ def softmax(x: torch.Tensor) -> torch.Tensor:
 ## 8. Profiling and benchmarking
 - Methodology and report: `accelerator-perf` (environment block, warm-up, synchronization, ≥ 10 iterations, median/p90, parity, one variable at a time).
 - Order: framework profiler → timeline → per-kernel. `torch.profiler.profile(activities=[ProfilerActivity.CPU, ProfilerActivity.CUDA])` then `prof.key_averages().table(sort_by="cuda_time_total", row_limit=20)`; `nsys profile -t cuda,nvtx,osrt --stats=true -o timeline python bench.py`; `ncu --set full -k regex:softmax -c 3 -o softmax python bench.py` (`--set roofline`; sections SpeedOfLight, MemoryWorkloadAnalysis, Occupancy, SourceCounters — build with `-lineinfo` for source views). Nsight Compute replays kernels with caches flushed and clocks locked by default, so its durations are not wall-clock timings.
-- Apple: `MTL_CAPTURE_ENABLED=1` + `mx.metal.start_capture("k.gputrace")` … `mx.metal.stop_capture()` → open in Xcode (Metal debugger: per-dispatch GPU time, shader cost per line, counters); timelines with `xcrun xctrace record --template 'Metal System Trace' --launch -- python bench.py`.
+- Apple: `MTL_CAPTURE_ENABLED=1` + `mx.metal.start_capture("k.gputrace")` … `mx.metal.stop_capture()` → open in Xcode (Metal debugger: per-dispatch GPU time, shader cost per line, counters); timelines with `xcrun xctrace record --template 'Metal System Trace' --launch -- .venv/bin/python bench.py`.
 - Report achieved GB/s (bytes moved ÷ time) and TFLOP/s next to the measured roofline, not only speedups.
 
 ## 9. Integration

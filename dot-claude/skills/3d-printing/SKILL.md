@@ -1,6 +1,6 @@
 ---
 name: 3d-printing
-description: Load before designing, repairing, slicing or checking anything to be 3D printed (FDM or resin) — design rules (walls, overhangs, tolerances, holes, inserts, orientation), mesh repair and watertightness, STL vs 3MF vs STEP, parametric CAD (OpenSCAD, build123d), sculpture prep (hollowing, splitting, keys), slicer CLIs and settings, materials, calibration, safety.
+description: Load before designing, repairing, slicing or checking anything to be 3D printed (FDM or resin) — design rules, mesh repair, STL/3MF/STEP, OpenSCAD/build123d, slicers, materials.
 ---
 # 3D printing
 

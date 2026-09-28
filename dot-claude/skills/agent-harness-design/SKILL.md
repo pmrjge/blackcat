@@ -1,6 +1,6 @@
 ---
 name: agent-harness-design
-description: Load before designing or building an agent runtime or agentic application (coding, research or tool-using agents) — the agent loop and stop conditions, tool schemas, permissions and sandboxes, context compaction, memory stores and write policies, multi-agent orchestration, MCP clients, streaming, cost control, evals on recorded runs, tracing, failure modes, and an architecture doc template.
+description: Load before designing or building an agent runtime or agentic app — agent loop, stop conditions, tool schemas, sandboxes, compaction, memory, multi-agent orchestration, evals.
 ---
 # Agent harness design
 

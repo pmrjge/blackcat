@@ -3,7 +3,7 @@ name: mlx-engineer
 description: "Apple Silicon ML and GPU systems: MLX and mlx-lm (inference, LoRA fine-tuning, quantization), custom Metal kernels, Core ML/ANE conversion, unified-memory and bandwidth tuning, PyTorch MPS, porting CUDA/PyTorch models to MLX. Benchmarks before and after on the local Mac."
 model: opus
 effort: high
-maxTurns: 900
+maxTurns: 190
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina
 mcpServers:
   - libdocs:

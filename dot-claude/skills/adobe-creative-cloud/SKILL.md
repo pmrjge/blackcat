@@ -1,6 +1,6 @@
 ---
 name: adobe-creative-cloud
-description: Load before automating or working in Adobe Creative Cloud apps beyond Illustrator — Photoshop (UXP scripts and batchPlay, ExtendScript, actions, droplets), InDesign (ExtendScript and UXP, styles, data merge, preflight, PDF export), Lightroom Classic, Acrobat, Bridge, CC Libraries and Adobe Fonts, file interchange, running scripts from the command line on macOS.
+description: Load before automating or working in Adobe apps beyond Illustrator — Photoshop and InDesign scripting (UXP, ExtendScript, batchPlay), actions, data merge, preflight, Acrobat.
 ---
 # Adobe Creative Cloud
 

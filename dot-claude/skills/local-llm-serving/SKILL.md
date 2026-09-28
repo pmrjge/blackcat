@@ -1,6 +1,6 @@
 ---
 name: local-llm-serving
-description: Load before running, serving, sizing or benchmarking an LLM locally — mlx-lm, oMLX and LM Studio on Apple Silicon; llama.cpp, vLLM, SGLang and ExLlamaV3 on a 12 GB NVIDIA GPU; memory math, KV-cache quantization, prompt caching, speculative decoding, batching; OpenAI/Anthropic-compatible endpoints and clients (Claude Code, LibreChat); benchmarks and fixes.
+description: Load before running, serving, sizing or benchmarking an LLM locally — mlx-lm, oMLX, LM Studio, llama.cpp, vLLM, SGLang; memory math, KV cache, speculative decoding, endpoints.
 ---
 # Local LLM serving
 
@@ -22,7 +22,7 @@ Running and serving open-weight LLMs on the Mac Studio (M3 Ultra, 512 GB unified
 - KV cache bytes = 2 × layers × kv_heads × head_dim × bytes/elem × tokens × sequences. Llama-3.1-8B (32 × 8 × 128) at f16 = 128 KiB/token → 32K tokens = 4 GiB; q8_0 ≈ half. MLA models cache (kv_lora_rank + rope_dim) per layer when the runtime keeps the latent. Sliding-window layers stop growing at the window; recurrent/SSM layers hold a fixed state; only global-attention layers scale with context.
 - Compute buffers scale with the prefill chunk (`-ub` in llama.cpp, `--prefill-step-size` in MLX) and, without fused attention, with chunk × context. Add runtime overhead and, on the laptop, whatever the desktop already uses (`nvidia-smi`).
 - Decode ceiling ≈ bandwidth / bytes read per token (active weights + KV read). An MoE reads only its active experts, so a 37B-active model at 4.5 bpw (~21 GB/token) tops out near 39 tok/s on 819 GB/s. Use it to sanity-check measurements, not as a promise.
-- Mac GPU memory is wired memory. `python -c "import mlx.core as mx; print(mx.device_info())"` shows `max_recommended_working_set_size`; mlx-lm raises the wired limit to it and warns when the model exceeds ~90% of it. To go further: `sudo sysctl iogpu.wired_limit_mb=N` (N above the model's MB, below RAM; lasts until reboot). Leave tens of GB for macOS and other apps.
+- Mac GPU memory is wired memory. `uv run --with mlx python -c "import mlx.core as mx; print(mx.device_info())"` shows `max_recommended_working_set_size`; mlx-lm raises the wired limit to it and warns when the model exceeds ~90% of it. To go further: `sudo sysctl iogpu.wired_limit_mb=N` (N above the model's MB, below RAM; lasts until reboot). Leave tens of GB for macOS and other apps.
 - Laptop budget: 12 GB minus display use minus ~1 GiB margin. Dense 8B at Q4_K_M/Q6_K with 16–32K context fits; 12–14B at Q4_K_M fits with 8–16K context and q8_0 KV; anything larger is MoE-with-offload territory.
 
 ## 3. Mac: MLX first
@@ -70,9 +70,9 @@ vllm serve <repo-or-dir> --host 127.0.0.1 --port 8000 --max-model-len 16384 \
 ```
 Default `--gpu-memory-utilization` is 0.92 of the whole GPU — lower it when the desktop uses VRAM. Prefix caching is on by default; `--enforce-eager` saves CUDA-graph memory; `--cpu-offload-gb` (weights over UVA) and `--kv-offloading-size` (GiB of CPU KV) trade speed for capacity; `--speculative-config '{"method":"draft_model","model":"<draft>","num_speculative_tokens":5}'`; tools need `--enable-auto-tool-choice --tool-call-parser <parser>`; `--reasoning-parser` splits thinking. Serves OpenAI routes and Anthropic `/v1/messages`. vLLM warns that `--api-key` does not cover every route: keep it on loopback.
 
-**SGLang**: `uv pip install --prerelease=allow sglang` (CUDA 13 wheels only since the cu129 line was retired); `python -m sglang.launch_server --model-path <m> --port 30000 --context-length 16384 --mem-fraction-static 0.8 --kv-cache-dtype fp8_e4m3`. RadixAttention prefix sharing is its strength (many requests with shared prefixes, structured generation). Confirm `sm_120` works with a small model before planning around it.
+**SGLang**: `uv pip install --prerelease=allow sglang` (CUDA 13 wheels only since the cu129 line was retired); `.venv/bin/python -m sglang.launch_server --model-path <m> --port 30000 --context-length 16384 --mem-fraction-static 0.8 --kv-cache-dtype fp8_e4m3`. RadixAttention prefix sharing is its strength (many requests with shared prefixes, structured generation). Confirm `sm_120` works with a small model before planning around it.
 
-**ExLlamaV3 / TabbyAPI**: EXL3 is a streamlined QTIP (trellis) variant, 2–8 bpw including fractional rates, best quality per bit for dense models that fit entirely in VRAM; convert with `python convert.py -i <in> -o <out> -w <work> -b <bpw>`, serve through TabbyAPI (OpenAI-compatible). EXL2 (ExLlamaV2) is the older format. Plan for the whole model plus cache in VRAM.
+**ExLlamaV3 / TabbyAPI**: EXL3 is a streamlined QTIP (trellis) variant, 2–8 bpw including fractional rates, best quality per bit for dense models that fit entirely in VRAM; convert with `uv run python convert.py -i <in> -o <out> -w <work> -b <bpw>`, serve through TabbyAPI (OpenAI-compatible). EXL2 (ExLlamaV2) is the older format. Plan for the whole model plus cache in VRAM.
 
 ## 5. Caching, batching, speculation
 

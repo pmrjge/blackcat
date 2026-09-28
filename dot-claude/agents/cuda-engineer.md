@@ -3,7 +3,7 @@ name: cuda-engineer
 description: "NVIDIA GPU systems: CUDA C++ and Triton kernels, PyTorch CUDA performance (torch.compile, mixed precision, memory), cuBLAS/cuDNN/NCCL, multi-GPU and distributed training, inference serving (vLLM, TensorRT-LLM), Nsight profiling, drivers and containers on local or remote Linux hosts. Benchmarks before and after."
 model: opus
 effort: high
-maxTurns: 900
+maxTurns: 190
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina
 mcpServers:
   - libdocs:

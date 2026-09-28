@@ -1,6 +1,6 @@
 ---
 name: macos-app-distribution
-description: Load before packaging, signing, notarizing or publishing a macOS app, especially one built in Rust — .app bundle and Info.plist, icons, universal binaries with lipo, Developer ID signing with hardened runtime and entitlements, notarytool and stapling, DMG, Sparkle EdDSA updates, Homebrew casks, file types and URL schemes, sandbox and App Store, Gatekeeper troubleshooting, CI secrets.
+description: Load before packaging, signing, notarizing or publishing a macOS app — .app bundle, universal binaries, Developer ID and entitlements, notarytool, DMG, Sparkle, Homebrew casks.
 ---
 # macOS app distribution
 

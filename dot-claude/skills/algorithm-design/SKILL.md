@@ -1,6 +1,6 @@
 ---
 name: algorithm-design
-description: Use when a problem needs a non-trivial algorithm or data structure — formal modeling and a complexity budget from input sizes, a technique catalog with recognition cues (greedy, DP and its optimizations, graphs and flows, range structures, strings, geometry, randomized, approximation, ILP/CP/SAT solvers), correctness proofs, overflow and precision hygiene, differential and worst-case testing.
+description: Use when a problem needs a non-trivial algorithm or data structure — complexity budget, techniques (greedy, DP, graphs, flows, strings, geometry, ILP/SAT), proofs, stress tests.
 ---
 # Algorithm design
 

@@ -1,13 +1,13 @@
 ---
 name: cmake-ninja-builds
-description: Load before writing, fixing or speeding up a CMake or Ninja build for C, C++ or CUDA — target-based modern CMake, presets, Ninja and multi-config generators, dependencies (find_package, FetchContent, vcpkg, Conan), compile_commands, ccache, install and export, CTest, sanitizers, macOS and CUDA specifics, debugging configure failures.
+description: Load before writing, fixing or speeding up a CMake or Ninja build for C, C++ or CUDA — targets, presets, dependencies (FetchContent, vcpkg, Conan), ccache, CTest, sanitizers.
 ---
 # CMake and Ninja builds
 
 ## Scope and baseline
 - Covers configuring and building C/C++/CUDA with CMake + Ninja. Kernel code in `gpu-kernel-dev`; profiling in `cpu-performance`; Rust in `rust-engineering`; Python extensions built with scikit-build-core also land here.
 - Versions (GitHub releases, Sep 2026): CMake 4.4.3, Ninja 1.13.2. CMake 4.0 removed compatibility with `cmake_minimum_required` below 3.5 — old projects fail to configure until the minimum is raised (or `-DCMAKE_POLICY_VERSION_MINIMUM=3.5` as a stopgap). Check `cmake --version` and `ninja --version` first.
-- Install: `brew install cmake ninja ccache` (macOS), or `uv tool install cmake` / `pip install ninja` for pinned versions per project.
+- Install: `brew install cmake ninja ccache` (macOS), or `uv tool install cmake` / `uv add --dev ninja` for pinned versions per project.
 
 ## Modern CMake in one page
 ```cmake

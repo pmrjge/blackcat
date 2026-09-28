@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Status line for the claude-agent-stack (Claude Code `statusLine`; session JSON arrives on stdin).
 
-    blackcat · Sonnet 5 · low · ctx 312K/800K ▓▓▓▓░░░░ · 5h 23% · 7d 41% · cache 91%
+    blackcat · Sonnet 5 · low · ctx 312K/300K ▓▓▓▓░░░░ · 5h 23% · 7d 41% · cache 91%
 
 "ctx" counts the tokens in the main conversation's context against the auto-compact window
-(autoCompactWindow in settings.json, 800K in this stack, capped at the model's window), so the bar
+(autoCompactWindow in settings.json, 300K in this stack, capped at the model's window), so the bar
 shows how close the next automatic compaction is. Rate limits appear only for claude.ai Pro/Max
 sessions. Stdlib only; any error prints a minimal line instead of failing. Installed by install.sh
 and set as `statusLine` only when you have none; remove the key from settings.json to turn it off.

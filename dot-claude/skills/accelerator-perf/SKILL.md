@@ -1,6 +1,6 @@
 ---
 name: accelerator-perf
-description: Load before any benchmark, kernel or port, and before any speed or memory claim. Benchmarking discipline for GPU/accelerator performance and porting work — environment capture, methodology, parity checks, profiler order and report format.
+description: Load before any GPU/accelerator benchmark, kernel or port, and before any speed or memory claim — environment capture, methodology, parity checks, profiler order, report format.
 ---
 # Accelerator performance protocol
 

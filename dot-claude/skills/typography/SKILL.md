@@ -1,6 +1,6 @@
 ---
 name: typography
-description: Load before choosing, setting or specifying type. Typography for print and screen — choosing and pairing typefaces, modular scales, measure, leading, kerning vs tracking, rag and widows, OpenType features and table figures, Portuguese conventions (« », travessão, 1.º), variable and web fonts (subsetting, font-display, preload), math fonts, font licensing, accessibility and a typographic QA checklist.
+description: Load before choosing, setting or specifying type for print or screen — pairing, scales, measure, leading, kerning, OpenType, Portuguese conventions, web fonts, licensing, QA.
 ---
 # Typography
 
@@ -39,7 +39,7 @@ a mono at most. Test with real copy at real sizes, including Portuguese accents 
 - Modular scale: sizeₙ = base × rⁿ. Ratios: 1.125 (major second), 1.2 (minor third), 1.25 (major third),
   1.333 (perfect fourth), 1.414 (augmented fourth), 1.5 (perfect fifth), 1.618 (golden). Dense UI
   1.125–1.2; editorial 1.25–1.333; posters ≥ 1.5.
-- `python3 -c "print([round(16*1.25**n, 1) for n in range(-2, 6)])"` → 10.2, 12.8, 16, 20, 25, 31.2, 39.1,
+- `uv run python -c "print([round(16*1.25**n, 1) for n in range(-2, 6)])"` → 10.2, 12.8, 16, 20, 25, 31.2, 39.1,
   48.8. Round to whole px or half points and correct by eye (x-heights differ between families).
 - Fluid web type: `font-size: clamp(1rem, 0.9rem + 0.5vw, 1.25rem)`; keep a rem term so zoom still works.
 - Hierarchy through size, weight, case, color and space: change one or two variables per level, three or

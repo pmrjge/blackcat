@@ -1,6 +1,6 @@
 ---
 name: graph-rag
-description: Use when retrieval or agent memory needs relations, multi-hop answers, facts that change over time or corpus-wide summaries — LLM entity/relation extraction with provenance and entity resolution, temporal graphs (Graphiti), FalkorDB/Neo4j with parameterized Cypher, LightRAG and Microsoft GraphRAG, hybrid vector+keyword+graph retrieval, updates, evaluation, cost and local setups.
+description: Use when retrieval or agent memory needs relations, multi-hop answers or time-varying facts — entity extraction, Graphiti, Neo4j/FalkorDB, LightRAG, GraphRAG, hybrid retrieval.
 ---
 # Graph RAG and knowledge-graph memory
 
