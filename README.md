@@ -1,4 +1,4 @@
-y# Claude Code multi-agent stack
+# Claude Code multi-agent stack
 
 BlackCat, the dispatcher on the main thread, 35 specialists (36 agent files), 78 on-demand skills, short global
 rules, a policy hook and MCP servers that start and stop with the agents that use them. Built
@@ -620,7 +620,7 @@ To start the memory afresh, delete `~/.claude/neural-memory/`. Claude Code's own
 | PreToolUse `Bash\|Monitor\|PowerShell` (every call: no `if` filter) | The Git rule's **never push**: denies `git push`, `send-pack`, `lfs push`, `subtree push` and `svn dcommit`, and every forge write through `gh`, `tea` or `fj` (create, merge, review, comment, close, release, fork, `gh api`/`tea api` with a write method; read-only `view`, `list`, `checks`, `diff`, `checkout` pass), in the forms the deny rules miss: `git -C dir push`, `/usr/bin/git push`, `git 'push'`, `bash -c 'git push'`, `sh -c`, `zsh -c`, `eval`, `$(...)` and backticks, `$'\x67it'`, line continuations, heredocs, here-strings and pipes into a shell, `ssh host '...'`, `python -c`/`node -e` code that starts a process, and the places git itself runs a command (`-c alias.x=...`, `git config alias.x`, `core.editor`, `GIT_EDITOR=`, `submodule foreach`, `rebase --exec`, `bisect run`). A command decided only at run time (`git $X`, `g${X}it`, `$G push`, `xargs git`, `echo ... \| base64 -d \| sh`, `pwsh -EncodedCommand`) is refused, and so is a command the guard cannot finish checking (a parser error, nesting deeper than 8 levels, more than 64 heredocs on one line, more than 8 s of work). The command is parsed as bash/zsh would (quotes, comments, newlines, arithmetic); a heredoc body is code only when the command that owns it is a shell, `eval`, `ssh` or `source /dev/stdin`, so a commit message that mentions a push passes. PowerShell syntax is modelled only as far as `pwsh -Command`, `iex`, `Start-Process` and backtick escapes. It has no `if` filter because Claude Code's `if: "Bash(git *)"` does not fire for `bash -c`, `eval` or `/usr/bin/git` (tested on 2.1.283); commands that name no git/gh/tea/fj return at once (~40 ms a call, mostly Python start-up). Not switched off by `STACK_POLICY=off`. Best effort: an alias or function defined in an earlier command, a script file or download, a variable holding the whole command, or text assembled by string operations is out of its sight. |
 | PostToolUse `Agent\|TaskStop`, SubagentStart/Stop, StopFailure | Registry of who spawned whom at which depth. Liveness: a stopped, failed or TaskStop-ed agent releases its locks. A parent that waits on its children still counts as alive while any child is. |
 | PostToolUseFailure / PermissionDenied | Roll back leases and the BlackCat marker |
-| UserPromptSubmit, SessionStart (startup/resume) | Reset per-prompt BlackCat markers; clear stale locks; prune old state |
+| UserPromptSubmit, SessionStart (startup/resume/fork) | Reset per-prompt BlackCat markers; clear stale locks; prune old state |
 | PostToolUse `Read\|mcp__*`, PreToolUse `mcp__*` (image limit) | Every image an agent reads (Read, screenshots and other MCP image results) is re-encoded to at most 1919 px per side before the model sees it, and kept under the API's 5 MB image cap (JPEG at lower quality if needed; else left as it was). Local images that the browser upload tools (Playwright, Claude in Chrome) send off the machine are swapped for downscaled copies in a `.downscaled/` folder next to the original, which git ignores, under the same name — so the tools' own folder checks still pass. A copy is reused while it carries its original's modification time; nothing is ever deleted (remove `.downscaled/` folders whenever you like). JPEG stays JPEG, PNG stays PNG. The one refusal: an oversized image the hook can't copy (a symlink, an animated image, a folder it can't write) is refused with the `sips` command to make a copy. Otherwise it never blocks a call. Uses macOS `sips`. |
 
 BlackCat's own frontmatter hook allows only its delegation tools plus Read, Grep and Glob (quick
@@ -649,11 +649,12 @@ guarantees rather than preferences. To change an owned knob, change it in the re
 | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 20 | Claude Code's own cap on subagents running in one session |
 | `STACK_FANOUT_IDLE_S` | 600 | A background child whose whole subtree is silent this long stops counting |
 | `STACK_LEASE_TTL_S` | 21600 | Ceiling on a spawn lease whose Agent call never reported back |
+| `STACK_RESUME_TTL_S` | 120 | A resume reservation (SendMessage to a finished agent) whose agent never started stops counting after this many seconds |
 | `GOD_IDLE_S` / `GOD_PENDING_TTL_S` / `GOD_LOCK_TTL_S` | 1800 / 120 / 21600 | god-coder lock: idle holder, unconfirmed lease, hard ceiling |
 | `SCREEN_LOCK_TTL_S` | 900 | Screen lock expiry |
 | `STRIP_AGENT_MODEL` | 1 | Remove per-call `model` |
 | `STACK_POLICY` | on | `off` disables every deny and lock (bookkeeping continues) |
-| `STACK_GUARD_LOG` | 0 | 1 = log raw hook events to the state dir (debugging) |
+| `STACK_GUARD_LOG` | 0 | 1 = log raw hook events to the state dir (debugging); budget mode, which sees every tool call, logs only the tool name and ids, never the tool input |
 | `STACK_IMAGE_MAX_PX` | 1919 | Longest side of any image an agent reads or uploads (0 = off) |
 | `STACK_IMAGE_UPLOAD_TOOLS` | — | Regex of more MCP tool names whose image-file arguments get downscaled copies before upload |
 | `STACK_IMAGE_MAX_B64` | 4500000 | Most base64 characters of one image sent to the model (the API refuses a 5 MB image) |
