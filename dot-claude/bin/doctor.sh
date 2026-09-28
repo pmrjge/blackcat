@@ -224,12 +224,16 @@ import json, os, sys
 p = json.loads(sys.argv[1])
 d = sys.argv[2]
 agents = p.get("agents", [])
-missing = [a for a in agents if not os.path.isfile(os.path.join(d, a + ".md"))]
-extra = sorted(f[:-3] for f in os.listdir(d) if f.endswith(".md") and f[:-3] not in agents) if os.path.isdir(d) else []
+# copy types (researcher-copy, coder-copy): POLICY rows of the hook, files rendered by install.sh
+copy_of = p.get("copy_types") or {}
+copies = sorted(copy_of.values()) if isinstance(copy_of, dict) else sorted(b + "-copy" for b in copy_of)
+missing = [a for a in agents + copies if not os.path.isfile(os.path.join(d, a + ".md"))]
+extra = sorted(f[:-3] for f in os.listdir(d) if f.endswith(".md") and f[:-3] not in agents + copies) if os.path.isdir(d) else []
 if missing:
     print("  FAIL  missing agent files: " + " ".join(missing))
 else:
-    print("  ok    %d/%d agent files present (BlackCat + %d specialists)" % (len(agents), len(agents), len(agents) - 1))
+    print("  ok    %d/%d agent files present (BlackCat + %d specialists + %d copy types)"
+          % (len(agents) + len(copies), len(agents) + len(copies), len(agents) - 1, len(copies)))
 if "senior-coder" in extra:
     extra.remove("senior-coder")
     print("  WARN  agents/senior-coder.md is the stack's old name for main-coder, kept because you edited it:"
@@ -238,14 +242,14 @@ if "router" in extra:
     extra.remove("router")
     print("  WARN  agents/router.md is the stack's old name for blackcat, kept because you edited it:"
           " move your changes into blackcat.md and delete it")
-# copy types (researcher-copy, coder-copy) are rendered by install.sh; the hook knows them once updated
+# a copy file the installed hook's policy doesn't know yet (hook older than the agents)
 for a in [x for x in extra if x.endswith("-copy") and x[:-5] in agents]:
     extra.remove(a)
     print("  WARN  agents/%s.md is a copy type this hook's policy doesn't list yet: rerun install.sh" % a)
 if extra:
     print("  WARN  your own agents, unreachable from BlackCat and the stack's agents (the spawn policy"
           " lists only the stack's): %s — run one with `claude --agent <name>`" % " ".join(extra))
-print("  ok    copy types: " + (", ".join(p.get("copy_types") or [a for a in agents if a.endswith("-copy")]) or "none"))
+print("  ok    copy types: " + (", ".join(copies) or "none"))
 PY
 fi
 [ -f "$C/rules/claude-agent-stack.md" ] && ok "global rules: rules/claude-agent-stack.md" \
@@ -267,6 +271,12 @@ if [ -f "$C/hooks/agent_guard.py" ]; then
   else
     fail "agent_guard.py --self-test failed: $out"
   fi
+  # the token budgets read the session transcripts: FAIL when the newest one yields no usage
+  if out=$(CLAUDE_CONFIG_DIR="$C" python3 "$C/hooks/agent_guard.py" --check-budget 2>&1); then
+    ok "token budgets: $out"
+  else
+    fail "token budgets count nothing — the transcript format changed: $out"
+  fi
 fi
 # Run the hook commands exactly as Claude Code will (from settings.json and blackcat.md), on events that
 # must be denied. A hook that cannot start is a non-blocking error in Claude Code: every gate open.
@@ -278,9 +288,18 @@ try:
     hooks = json.load(open(settings)).get("hooks", {})
 except (OSError, ValueError):
     hooks = {}
+# policy probe: the default-mode commands only (budget mode leaves Agent calls to the main hook)
+mode = lambda h: str(h.get("command")).rsplit("agent_guard.py", 1)[-1].strip().strip('"').split()
 cmds = sorted({h.get("command") for g in hooks.get("PreToolUse", []) if isinstance(g, dict)
                for h in g.get("hooks", []) if "agent_guard.py" in str(h.get("command"))
-               and "image-limit" not in str(h.get("command")) and "no-push" not in str(h.get("command"))})
+               and not set(mode(h)) & {"image-limit", "no-push", "budget"}})
+# the token budgets gate every tool call: a PreToolUse group matching "*" runs `agent_guard.py budget`
+if any(isinstance(g, dict) and g.get("matcher") == "*" and "budget" in mode(h)
+       for g in hooks.get("PreToolUse", []) for h in (g.get("hooks", []) if isinstance(g, dict) else [])
+       if "agent_guard.py" in str(h.get("command"))):
+    print("  ok    token budgets wired: PreToolUse \"*\" runs agent_guard.py budget")
+else:
+    print("  FAIL  no PreToolUse \"*\" group runs agent_guard.py budget: the token budgets are off — rerun install.sh")
 pcmds = sorted({h.get("command") for g in hooks.get("PreToolUse", []) if isinstance(g, dict)
                 for h in g.get("hooks", []) if "no-push" in str(h.get("command"))})
 icmds = sorted({h.get("command") for g in hooks.get("PostToolUse", []) if isinstance(g, dict)

@@ -246,6 +246,27 @@ PY
 fi
 python3 "$T1/hooks/agent_guard.py" --self-test >/dev/null 2>&1 && pass "installed agent_guard --self-test ok (agent files match POLICY)" \
   || failed "installed agent_guard --self-test failed: $(python3 "$T1/hooks/agent_guard.py" --self-test 2>&1)"
+# every installed agent's "May spawn" sentence (the rendered copy types included) is its POLICY row
+python3 "$T1/hooks/agent_guard.py" --print-policy | python3 -c '
+import json, os, re, sys
+p, d = json.load(sys.stdin), sys.argv[1]
+bad = []
+for copy in p["copy_types"].values():
+    text = open(os.path.join(d, copy + ".md")).read()
+    if not re.search(r"(?m)^name: %s$" % re.escape(copy), text):
+        bad.append("%s.md: name is not %s" % (copy, copy))
+for a, row in p["policy"].items():
+    if a == "blackcat":
+        continue
+    m = re.search(r"May spawn:\s*([^.]*)\.", open(os.path.join(d, a + ".md")).read())
+    s = re.sub(r"\([^()]*\)", "", m.group(1)) if m else ""        # drop parenthetical notes
+    got = {re.match(r"\s*([A-Za-z0-9_-]*)", x).group(1).lower() for x in s.split(",")} - {""}
+    if got != set(row):
+        bad.append("%s: May spawn %s != POLICY %s" % (a, sorted(got), sorted(row)))
+print("\n".join("    " + b for b in bad))
+sys.exit(1 if bad else 0)
+' "$T1/agents" && pass "copy types rendered; every May spawn sentence matches POLICY (copies included)" \
+  || failed "a May spawn sentence differs from POLICY (see above)"
 assert_unchanged_real_home
 
 if [ "$(uname)" != "Darwin" ]; then
@@ -462,6 +483,11 @@ else
   pass "doctor.sh: only expected FAILs (--no-deps skipped venv/magg)"
 fi
 printf '%s\n' "$out" | grep -q "agent files present" && pass "doctor.sh: agent files check ran" || failed "doctor.sh: agent files check missing"
+{ printf '%s\n' "$out" | grep -q 'ok    settings.json PreToolUse(Agent) enforces the policy' \
+  && printf '%s\n' "$out" | grep -q 'ok    token budgets wired: PreToolUse "\*" runs agent_guard.py budget' \
+  && printf '%s\n' "$out" | grep -q 'ok    token budgets: agent_guard budget check: '; } \
+  && pass "doctor.sh: policy probe skips the budget hook; budget wiring and --check-budget checks ran" \
+  || failed "doctor.sh: policy/budget lines: $(printf '%s\n' "$out" | grep -i 'PreToolUse(Agent)\|budget')"
 [ "$(printf '%s\n' "$out" | grep -cE 'ok    settings.json PreToolUse\((Bash|Monitor)\) no[- ](push|forge)|ok    no-push hook sees every')" = 4 ] \
   && pass "doctor.sh: no-push probes (plain, bash -c, Monitor forge write, no if filter)" \
   || failed "doctor.sh: no-push probe lines: $(printf '%s\n' "$out" | grep -i 'no-push\|forge')"

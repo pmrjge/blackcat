@@ -611,6 +611,7 @@ To start the memory afresh, delete `~/.claude/neural-memory/`. Claude Code's own
 
 | Event | What the hook does |
 |---|---|
+| PreToolUse `*` (`agent_guard.py budget`) | The context-token budgets (`STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET`), counted from the session's transcripts, subagents included. Over budget every call is refused except SubagentHandback, TaskStop, AskUserQuestion, ToolSearch loading one of them, and Write/Edit under a `.claude-work/` folder or the session scratchpad; the message says to finish with what the agent has (STATUS: partial). Fails open: a transcript it can't read warns and allows. |
 | PreToolUse `Agent` | Checks, in order: spawn policy, depth, the copy rule, fan-out caps (atomic leases) and the BlackCat dispatch window. Takes the god-coder lock and strips a per-call `model`. Denies `isolation: "remote"`, because cloud agents load no hooks. |
 | PreToolUse `SendMessage` | Resuming a finished agent follows the spawn policy (the caller's row, or its own child or parent) and counts against its parent's fan-out caps; resuming a finished god-coder takes the god-coder lock |
 | PreToolUse `mcp__computer-use__*` | One agent on the screen at a time |
@@ -625,7 +626,8 @@ BlackCat's own frontmatter hook allows only its delegation tools, and at most 8 
 prompt, Agent dispatches included. Every hook command uses an **absolute interpreter** chosen at install time. A bare
 `python3` broken by a pyenv/asdf shim would make every hook fail to start, which Claude Code treats
 as "allow". `/stack-doctor` runs the real hook commands on calls that must be denied, to prove the
-gate is closed.
+gate is closed, and checks that the budget hook is wired and still reads usage from real
+transcripts (`agent_guard.py --check-budget`).
 
 If the hook itself errors it denies the call (fail closed). The model gets a neutral reason, while
 the escape hatch (`STACK_POLICY=off`) is shown only to you.
@@ -644,7 +646,8 @@ guarantees rather than preferences. To change an owned knob, change it in the re
 | `STACK_MAX_SELF_FANOUT` ● | 2 | Copy agents (`researcher-copy`, `coder-copy`) of one type running at once, session-wide |
 | `STACK_PROMPT_CTX_BUDGET` ● / `STACK_SESSION_CTX_BUDGET` ● | 100000000 / 120000000 | Context tokens (input + cache writes + cache reads, all agents) per human prompt / per session; past it the hook denies work tools and tells the agent to finish with what it has |
 | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 20 | Claude Code's own cap on subagents running in one session |
-| `STACK_FANOUT_IDLE_S` | 600 | A child whose whole subtree is silent this long stops counting |
+| `STACK_FANOUT_IDLE_S` | 600 | A background child whose whole subtree is silent this long stops counting |
+| `STACK_LEASE_TTL_S` | 21600 | Ceiling on a spawn lease whose Agent call never reported back |
 | `GOD_IDLE_S` / `GOD_PENDING_TTL_S` / `GOD_LOCK_TTL_S` | 1800 / 120 / 21600 | god-coder lock: idle holder, unconfirmed lease, hard ceiling |
 | `SCREEN_LOCK_TTL_S` | 900 | Screen lock expiry |
 | `STRIP_AGENT_MODEL` | 1 | Remove per-call `model` |
