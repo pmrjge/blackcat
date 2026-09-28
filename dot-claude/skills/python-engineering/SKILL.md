@@ -1,6 +1,6 @@
 ---
 name: python-engineering
-description: Load before creating, changing, reviewing or packaging a Python project or script — uv (projects, lockfiles, tools, PEP 723 scripts, Python versions), pyproject and src layout, entry points, typing (basedpyright/pyright/mypy), ruff, pytest with hypothesis and snapshots, asyncio/anyio, profiling and speed-ups (numpy/polars, numba, PyO3), CLIs, logging, config, MLX/MPS/CUDA wheels, pitfalls.
+description: Load before creating, changing, reviewing or packaging Python — uv (projects, lockfiles, tools, PEP 723 scripts), pyproject, typing, ruff, pytest, asyncio, profiling, wheels.
 ---
 # Python engineering
 
@@ -112,12 +112,12 @@ Validate at boundaries, then pass typed objects inward; don't re-validate intern
 - `asyncio.run(main())`; structure with `asyncio.TaskGroup` (first failure cancels siblings; errors surface as `ExceptionGroup` → handle with `except*`), bound waits with `asyncio.timeout(s)`, limit concurrency with `asyncio.Semaphore`, pipelines with `asyncio.Queue` (`shutdown()` in 3.13).
 - Never swallow `CancelledError` — clean up and re-raise. Keep a reference to every `create_task` result (the loop holds tasks weakly). Blocking calls go through `asyncio.to_thread`.
 - anyio for backend-agnostic libraries: `create_task_group()`, cancel scopes (`move_on_after`, `fail_after`), `anyio.to_thread.run_sync`.
-- 3.14 introspection of a live process: `python -m asyncio ps PID`, `python -m asyncio pstree PID`.
+- 3.14 introspection of a live process: `uv run python -m asyncio ps PID`, `uv run python -m asyncio pstree PID`.
 - Free-threaded 3.14t is officially supported (PEP 779) but every C extension must declare support — check wheels before depending on it.
 
 ## Performance
 Ladder: better algorithm/data structure → vectorize (numpy; polars lazy `scan_*`…`collect()`; duckdb SQL) → profile → compile hot loops (numba `@njit(cache=True)`: first call compiles, supports a numpy subset) → Rust extension (PyO3 + maturin) → processes for CPU-bound pure-Python work.
-- Profilers: `py-spy record -o profile.svg -- python app.py` or `py-spy top --pid PID` (sampling, attach to live processes); scalene (line-level CPU/memory/GPU); memray (`memray run`, `memray flamegraph`) for allocations; `python -X importtime` for startup.
+- Profilers: `py-spy record -o profile.svg -- .venv/bin/python app.py` or `py-spy top --pid PID` (sampling, attach to live processes); scalene (line-level CPU/memory/GPU); memray (`memray run`, `memray flamegraph`) for allocations; `uv run python -X importtime` for startup.
 - PyO3/maturin: `uv init --build-backend maturin`; add `[tool.uv] cache-keys = [{ file = "pyproject.toml" }, { file = "Cargo.toml" }, { file = "**/*.rs" }]` so `uv sync`/`uv run` rebuild after Rust edits; build abi3 wheels (pyo3 feature `abi3-py312`) for one wheel per platform; release the GIL around long Rust work (the PyO3 method for this was renamed across versions — check the docs of the pinned PyO3).
 - Measure before/after with the same inputs; report median of repeated runs.
 
@@ -127,7 +127,7 @@ Ladder: better algorithm/data structure → vectorize (numpy; polars lazy `scan_
 - Config: TOML via stdlib `tomllib`; typed env settings with `pydantic-settings`; `.env` only for local development; secrets from the environment or a secret manager, never committed.
 
 ## Platform notes
-- Apple Silicon: uv-managed Pythons are native arm64 — check with `python -c "import platform; print(platform.processor())"` (`arm`; `i386` means Rosetta). A missing arm64 wheel falls back to building the sdist (needs Xcode command-line tools, may fail) — prefer a version that ships wheels.
+- Apple Silicon: uv-managed Pythons are native arm64 — check with `uv run python -c "import platform; print(platform.processor())"` (`arm`; `i386` means Rosetta). A missing arm64 wheel falls back to building the sdist (needs Xcode command-line tools, may fail) — prefer a version that ships wheels.
 - MLX: `uv add mlx mlx-lm` on macOS ≥ 14 with Apple silicon. On Linux: `mlx[cuda12]` (driver ≥ 550.54.14, GPU ≥ SM 7.5, glibc ≥ 2.35), `mlx[cuda13]` (driver ≥ 580) or `mlx[cpu]`. Gate platform-specific deps with markers: `"mlx>=0.30; sys_platform == 'darwin'"`.
 - PyTorch: PyPI's macOS arm64 wheels have no CUDA but include the MPS backend (`torch.backends.mps.is_available()`); PyPI's Linux wheels target CUDA 13.0 (since PyTorch 2.11) and need a driver that supports it. RTX 50-series (Blackwell, sm_120) needs CUDA ≥ 12.8 builds; CUDA 13.0 builds need driver ≥ 580 — the cu128 index stops at torch 2.11, so upgrade an older driver rather than pinning cu128; confirm `sm_120` in `torch.cuda.get_arch_list()`. Index only Linux, fall back to PyPI on macOS:
 ```toml

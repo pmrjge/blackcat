@@ -1,6 +1,6 @@
 ---
 name: robotics-engineering
-description: Load before building, debugging or reviewing robot software — ROS 2 distros, workspaces and colcon, nodes, executors, QoS, launch, tf2 frames, URDF/xacro, ros2_control, Nav2, MoveIt 2, Gazebo, bags; kinematics, dynamics and control (PID, LQR, MPC); estimation and calibration; perception; embedded and real-time; safety before anything moves.
+description: Load before building, debugging or reviewing robot software — ROS 2, colcon, QoS, tf2, URDF, ros2_control, Nav2, MoveIt 2, Gazebo; kinematics, control, estimation, safety.
 ---
 # Robotics engineering (ROS 2, control, hardware)
 

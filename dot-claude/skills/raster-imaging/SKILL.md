@@ -1,6 +1,6 @@
 ---
 name: raster-imaging
-description: Load before resizing, converting, compositing, compressing, dithering or rasterizing images with code — ImageMagick 7, libvips, Pillow, sips; gamma-correct resampling and sharpening, alpha and premultiplication, rasterizing SVG (resvg, rsvg-convert, Inkscape), ICC profiles, format choice (PNG, JPEG, WebP, AVIF, JPEG XL, TIFF), quality metrics, batch pipelines, metadata.
+description: Load before resizing, converting, compositing, compressing or rasterizing images with code — ImageMagick, libvips, Pillow, sips; resampling, alpha, SVG rasterizing, ICC, formats.
 ---
 # Raster imaging
 

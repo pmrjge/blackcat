@@ -1,6 +1,6 @@
 ---
 name: secure-coding
-description: Load before writing or reviewing code that handles untrusted input, secrets, authentication, cryptography, dependencies, local servers or LLM/agent tool use — threat modeling, safe patterns for injection, path, SSRF, XSS and deserialization flaws, secrets hygiene, supply-chain checks, prompt-injection and exfiltration defenses, MCP server trust, review checklist and severity report.
+description: Load before writing or reviewing code that handles untrusted input, secrets, auth, crypto, dependencies, local servers or LLM tool use — injection, XSS, SSRF, prompt injection, supply chain.
 ---
 # Secure coding
 

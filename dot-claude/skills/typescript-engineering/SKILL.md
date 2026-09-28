@@ -1,6 +1,6 @@
 ---
 name: typescript-engineering
-description: Load before writing, reviewing, building or testing TypeScript or JavaScript for tools, sites and servers — TypeScript 7 native vs 6 tooling, strict tsconfig, ESM/CJS pitfalls, Node versions, pnpm/npm lockfiles, Vite/tsdown builds, ESLint flat config, Biome or oxlint, Vitest and Playwright, zod validation at boundaries, type patterns, async errors, CLIs and MCP servers.
+description: Load before writing, reviewing, building or testing TypeScript or JavaScript — TS 7 vs 6 tooling, strict tsconfig, ESM/CJS, Node, pnpm, Vite/tsdown, ESLint/Biome, Vitest, zod.
 ---
 # TypeScript engineering
 

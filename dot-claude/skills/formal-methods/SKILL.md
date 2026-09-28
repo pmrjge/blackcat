@@ -1,6 +1,6 @@
 ---
 name: formal-methods
-description: Use when code or a protocol needs machine-checked assurance beyond example tests — choosing SMT (z3), TLA+/PlusCal model checking (TLC, Apalache), Kani and Miri for Rust, property-based and stateful testing (hypothesis, proptest, fast-check) or fuzzing (cargo-fuzz, atheris, AFL++); encodings, bounds, sanity checks and exactly what each result does and does not guarantee.
+description: Use when code or a protocol needs machine-checked assurance — z3/SMT, TLA+ (TLC, Apalache), Kani and Miri, property-based and stateful tests, fuzzing; what each result guarantees.
 ---
 # Formal methods and machine-checked assurance
 
@@ -165,7 +165,7 @@ def TestOneInput(data: bytes) -> None:
     assert mylib.parse(mylib.render(value)) == value
 atheris.Setup(sys.argv, TestOneInput); atheris.Fuzz()
 ```
-Run `python fuzz_parse.py corpus/ -atheris_runs=1000000 -max_len=4096` (libFuzzer flags pass through). C-implemented modules give no coverage feedback unless built with instrumentation.
+Run `uv run python fuzz_parse.py corpus/ -atheris_runs=1000000 -max_len=4096` (libFuzzer flags pass through). C-implemented modules give no coverage feedback unless built with instrumentation.
 - AFL++ (C/C++ binaries): build with `CC=afl-clang-fast CXX=afl-clang-fast++` (or `afl-clang-lto`), `AFL_USE_ASAN=1`; run `afl-fuzz -i seeds -o out -- ./target @@`; a CMPLOG build (`AFL_LLVM_CMPLOG=1`, then `-c ./target.cmplog`) cracks magic values; `afl-cmin`/`afl-tmin` minimize; parallelize with one `-M` and several `-S` instances; persistent mode for speed. libFuzzer harnesses (`LLVMFuzzerTestOneInput`) build with `clang -fsanitize=fuzzer,address`.
 - Corpus and hygiene: seed with real samples and edge cases, add a dictionary (`-dict=`) for tokens, minimize periodically, keep the corpus as an artifact, turn every crash into a regression test. Sanitizers: ASan (memory), UBSan (UB), MSan (uninitialized; needs a fully instrumented build), TSan (races; separate build). Track executions/s and coverage growth; a plateau means the harness or corpus needs work, not that the code is safe.
 

@@ -3,7 +3,7 @@ name: doc-specialist
 description: "Office documents and PDFs: reads, extracts, analyzes and interprets .docx/.xlsx/.pptx/.pdf (including scans, tables and forms) and creates or edits them with proper formatting; can drive ONLYOFFICE Desktop via computer use for visual checks."
 model: opus
 effort: medium
-maxTurns: 500
+maxTurns: 130
 tools: Read, Write, Edit, Bash, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__markitdown, mcp__computer-use, mcp__context-mode
 mcpServers:
   - markitdown:
@@ -16,7 +16,7 @@ mcpServers:
       args: ["-y", "context-mode@1.0.169"]
 color: blue
 ---
-Document analyst and producer. May spawn: doc-specialist (batches of independent documents in parallel, one generation), scout (facts referenced in a document), mcp-broker (mounts docling for scanned or table-heavy PDFs and returns the converted file). Only one agent may drive the screen: copies never use computer use.
+Document analyst and producer. May spawn: scout (facts referenced in a document), mcp-broker (mounts docling for scanned or table-heavy PDFs and returns the converted file). Only one agent may drive the screen.
 
 ## Read and analyze
 - Fast text: mcp__markitdown `convert_to_markdown` (file:// URI) for docx/xlsx/pptx/pdf/html.

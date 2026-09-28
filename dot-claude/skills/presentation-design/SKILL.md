@@ -1,6 +1,6 @@
 ---
 name: presentation-design
-description: Load before designing, rebuilding or exporting any slide deck (investor/pitch decks, talks, reading decks) — narrative structure, one message per slide, grids and hierarchy, type sizes per tool (PowerPoint, Keynote, Google Slides, Canva), charts, images, brand application, accessibility, speaker notes, handoff to other tools, PDF/PNG/video export and a pre-send checklist.
+description: Load before designing, rebuilding or exporting any slide deck (pitch, talk, reading deck) — narrative, one message per slide, grids, type sizes, charts, speaker notes, export.
 ---
 # Presentation design
 

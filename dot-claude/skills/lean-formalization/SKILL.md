@@ -1,6 +1,6 @@
 ---
 name: lean-formalization
-description: Load before writing, repairing or checking Lean 4 and Mathlib code. Covers elan and lake projects, the Mathlib cache and safe updates, the goal-state loop through the Lean LSP MCP server, lemma search (exact?, Loogle, LeanSearch), a tactic playbook by goal shape, proof structure, definitions, error fixes, category theory in Mathlib, blueprints, CI and soundness checks.
+description: Load before writing, repairing or checking Lean 4 and Mathlib code — lake projects, Mathlib cache, the Lean LSP MCP goal loop, lemma search, tactic playbook, soundness checks.
 ---
 # Lean 4 formalization with Mathlib
 
@@ -228,7 +228,7 @@ induction n, hn using Nat.le_induction with                   -- hn : m ≤ n
 
 ## 9. Larger projects
 - Blueprint:
-  - Install with `pip install leanblueprint`; needs graphviz and libgraphviz-dev for pygraphviz.
+  - Install with `uv tool install leanblueprint`; needs graphviz and libgraphviz-dev for pygraphviz.
   - Commands: `leanblueprint new`, then `pdf` | `web` | `checkdecls` | `all` | `serve`.
   - In the LaTeX, tag each node with `\lean{Decl.name}`, `\leanok`, `\uses{label}`, `\notready`,
     `\mathlibok`. The dependency graph tracks progress.

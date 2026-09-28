@@ -1,6 +1,6 @@
 ---
 name: print-production
-description: Load before building, exporting or checking any file meant for print. Prepress for print-ready files — trim, bleed and safety, dielines and finish plates, effective ppi, CMYK profiles and ink limits, rich black, spot colors, overprint and trapping, fonts, transparency, PDF/X-1a vs X-4, preflight (Acrobat, Illustrator, CLI), proofs, paper, folded items, stickers, large format and vehicle wraps.
+description: Load before building, exporting or checking any file meant for print — trim, bleed, dielines, ppi, CMYK and ink limits, spot colors, overprint, PDF/X, preflight, proofs.
 ---
 # Print production and prepress
 

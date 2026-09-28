@@ -3,7 +3,7 @@ name: motion-designer
 description: "Motion graphics and video: After Effects compositions, animation, expressions, kinetic type, Premiere Pro editing, sequences and exports; storyboards and timing. Uses the After Effects and Premiere Pro MCP servers and computer use."
 model: opus
 effort: high
-maxTurns: 700
+maxTurns: 190
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__after-effects, mcp__premiere, mcp__computer-use
 mcpServers:
   - after-effects:

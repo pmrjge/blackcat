@@ -3,7 +3,7 @@ name: security-auditor
 description: "Security review and hardening advice: threat modeling, vulnerable code patterns, authN/authZ, injection, secrets, dependency CVEs, supply chain, container/cloud/config review. Read-only; reports exploitable issues with fixes."
 model: opus
 effort: xhigh
-maxTurns: 400
+maxTurns: 150
 tools: Read, Bash, LSP, WebSearch, WebFetch, ToolSearch, Skill, mcp__exa
 color: red
 ---

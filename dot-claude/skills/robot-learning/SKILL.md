@@ -1,6 +1,6 @@
 ---
 name: robot-learning
-description: Load before training or evaluating a robot policy or setting up a physics simulator for learning — MuJoCo/MJX, Isaac Sim and Lab, ManiSkill, Gymnasium conventions, RL (PPO, SAC, massively parallel training), imitation learning (ACT, diffusion policy, VLAs), LeRobot datasets and hardware, teleoperation data, domain randomization and sim-to-real, success-rate evaluation.
+description: Load before training or evaluating a robot policy or setting up a simulator for learning — MuJoCo/MJX, Isaac Lab, ManiSkill, Gymnasium, RL, imitation learning, VLAs, LeRobot, sim-to-real.
 ---
 # Robot learning
 
@@ -12,7 +12,7 @@ description: Load before training or evaluating a robot policy or setting up a p
 ## Simulators
 | Simulator | Use | Notes |
 |---|---|---|
-| MuJoCo (`pip install mujoco`) | contact-rich manipulation and locomotion, fast CPU sim, `mujoco.viewer` | MJCF models; MuJoCo Menagerie has curated robot models; MJX/MuJoCo Playground for GPU-parallel RL in JAX |
+| MuJoCo (`uv add mujoco`) | contact-rich manipulation and locomotion, fast CPU sim, `mujoco.viewer` | MJCF models; MuJoCo Menagerie has curated robot models; MJX/MuJoCo Playground for GPU-parallel RL in JAX |
 | Isaac Sim + Isaac Lab | GPU-parallel RL at thousands of envs, photoreal rendering, sensors | NVIDIA only; USD assets; rsl_rl/skrl/RL-Games trainers integrated |
 | ManiSkill (SAPIEN) | GPU-parallel manipulation benchmarks | good baselines and demos |
 | Gazebo | ROS 2-integrated system tests | not a fast RL simulator |
@@ -37,7 +37,7 @@ description: Load before training or evaluating a robot policy or setting up a p
 
 ## LeRobot
 - Datasets in the LeRobotDataset format on the Hugging Face Hub (parquet + videos + metadata; episodes, fps, features); visualize before training.
-- Recording, training and evaluation go through LeRobot's command-line entry points and config system — their names and flags changed across 0.x releases, so read `--help` and the README of the installed version (`pip show lerobot`).
+- Recording, training and evaluation go through LeRobot's command-line entry points and config system — their names and flags changed across 0.x releases, so read `--help` and the README of the installed version (`uv pip show lerobot`).
 - Supported low-cost hardware (SO-100/SO-101 arms, Koch, LeKiwi and others): calibrate motors first, check joint ranges, keep the leader–follower teleop latency low. Real-robot evaluation follows the safety rules in `robotics-engineering`.
 
 ## Sim-to-real

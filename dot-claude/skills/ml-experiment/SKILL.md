@@ -1,6 +1,6 @@
 ---
 name: ml-experiment
-description: Load before running or comparing any model, training run or evaluation. Experiment protocol for ML, deep learning and LLM work — framing, leakage-safe splits, baselines, seeds, tracking, ablations, comparing runs with uncertainty, and the results table.
+description: Load before running or comparing any model, training run or evaluation — framing, leakage-safe splits, baselines, seeds, tracking, ablations, comparisons with uncertainty.
 ---
 # ML experiment protocol
 
@@ -22,7 +22,7 @@ Write these into `./.claude-work/<job>/experiment.md` first:
 Always report: a trivial baseline (majority class, last value, mean), a simple strong baseline (logistic/linear, gradient boosting with defaults, the unmodified pretrained model), and the published or previous best when one exists.
 
 ## 4. Reproducibility
-- Seed everything (Python, NumPy, framework, data loader workers); record library versions (`pip freeze`/`uv pip freeze` into the run folder) and git commit.
+- Seed everything (Python, NumPy, framework, data loader workers); record library versions (`uv.lock` or `uv pip freeze` into the run folder) and git commit.
 - One run = one folder: config, command line, logs, metrics JSON, artifacts. Never overwrite a run folder.
 - Deterministic data order for comparisons; note any non-determinism you could not remove (atomics on GPU, MPS kernels).
 
@@ -43,6 +43,6 @@ Use what the project already uses (W&B via `mcp__wandb` or the `wandb` library, 
 Close with: conclusion (does it meet the success criterion?), threats to validity, next experiment.
 
 ## 8. Parallel experiments
-Independent configurations may run as parallel copies of your agent only when they do not compete for the same accelerator (two jobs on one GPU or one Mac's unified memory corrupt timings and can OOM). CPU-only sweeps can run in parallel; accelerator runs go one at a time or to separate hosts.
+Independent configurations may run in parallel (background jobs, or separate agents) only when they do not compete for the same accelerator (two jobs on one GPU or one Mac's unified memory corrupt timings and can OOM). CPU-only sweeps can run in parallel; accelerator runs go one at a time or to separate hosts.
 
 Related skills: `training-debug` (a run misbehaves), `data-visualization` (curves and comparisons), `dataset-curation` (data quality and splits), `numerical-methods` (precision and reproducibility).

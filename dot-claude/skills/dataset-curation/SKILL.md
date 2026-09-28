@@ -1,6 +1,6 @@
 ---
 name: dataset-curation
-description: Load before building, cleaning or auditing a training, fine-tuning or evaluation dataset — sources and licenses, personal data and PII scrubbing, exact and MinHash/LSH near-dedup, n-gram decontamination against eval sets, quality filters, LLM-generated synthetic data, chat/JSONL/multimodal formats, leakage-safe splits, labeling guidelines and agreement, versioning and data cards.
+description: Load before building, cleaning or auditing a training, fine-tuning or eval dataset — licenses, PII scrubbing, dedup (MinHash), decontamination, synthetic data, splits, data cards.
 ---
 # Dataset curation
 

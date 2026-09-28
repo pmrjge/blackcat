@@ -1,6 +1,6 @@
 ---
 name: tattoo-design
-description: Load before drawing or revising a tattoo design. Artwork a studio can execute — consultation brief, placement on curved anatomy and distortion, size versus detail as lines spread with age, line weight, negative space and contrast, style conventions, lettering, 1:1 line art and stencil-ready files, value and color references, consented placement mockups, revisions, rights and cultural guardrails.
+description: Load before drawing or revising a tattoo design — placement on curved anatomy, size vs detail over time, line weight, lettering, stencil-ready line art, mockups, rights and culture.
 ---
 # Tattoo design artwork
 

@@ -1,6 +1,6 @@
 ---
 name: rust-native-gui
-description: Load before building or changing a native desktop GUI in Rust — Iced 0.14 first (Elm architecture, Task and Subscription, background workers for PTY/LSP, custom, canvas and shader widgets, theming, fonts, large-content performance, shortcuts, multi-window, headless tests), macOS specifics, and when egui, Slint, Tauri or gpui fit better.
+description: Load before building or changing a native desktop GUI in Rust — Iced 0.14 first (Task, Subscription, custom widgets, theming, headless tests), and when egui, Slint or Tauri fit.
 ---
 # Native desktop GUI in Rust (Iced first)
 

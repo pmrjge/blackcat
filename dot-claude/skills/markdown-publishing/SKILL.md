@@ -1,6 +1,6 @@
 ---
 name: markdown-publishing
-description: Load before building or fixing a Markdown writing and publishing pipeline — CommonMark/GFM and extensions, KaTeX vs MathJax, Mermaid, Shiki, MDX, Astro 7 sites (content collections with Zod, images, RSS, sitemap, Open Graph, static deploy), frontmatter, footnotes and cross-references, Pandoc to PDF/DOCX/EPUB/HTML, markdownlint and lychee, and a publishing checklist.
+description: Load before building or fixing a Markdown publishing pipeline — GFM, KaTeX/MathJax, Mermaid, MDX, Astro sites, Pandoc to PDF/DOCX/EPUB/HTML, markdownlint and lychee.
 ---
 # Markdown publishing
 

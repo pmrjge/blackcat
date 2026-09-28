@@ -1,6 +1,6 @@
 ---
 name: svg-vector-craft
-description: Load before creating, converting or delivering vector files. Production-grade vector work — path construction, booleans and compound paths, SVG as code in real units, parametric drawings from Python or JavaScript, safe svgo settings, Illustrator practice and scripting, tracing (Image Trace, potrace, vtracer), cutter/laser/plotter output, SVG/PDF/EPS/DXF export and QA.
+description: Load before creating, converting or delivering vector files — paths, SVG as code, parametric drawings, svgo, Illustrator scripting, tracing, plotter/cutter output, SVG/PDF/EPS/DXF.
 ---
 # Vector and SVG craft
 

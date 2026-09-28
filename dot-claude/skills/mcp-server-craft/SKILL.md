@@ -1,6 +1,6 @@
 ---
 name: mcp-server-craft
-description: Load before building, changing, testing or registering an MCP server — MCP vs CLI vs skill, tool and schema design, Python SDK (FastMCP 1.x / MCPServer 2.x) as a uv PEP 723 script, TypeScript SDK, stdio hygiene, streamable HTTP, secrets and headersHelper, path/SSRF guards, pinning, unit/in-process/stdio tests, Inspector, Claude Code registration, release checklist.
+description: Load before building, changing, testing or registering an MCP server — MCP vs CLI vs skill, tool design, Python (uv PEP 723) or TypeScript SDK, stdio/HTTP, secrets, guards, tests.
 ---
 # Building MCP servers the way this stack runs them
 
@@ -265,7 +265,7 @@ claude mcp add-json -s user notes '{"type":"http","url":"https://notes.<tailnet>
   `MCP_PROTOCOL_NEGOTIATION=auto`; SDK 2.x servers handle both handshakes.
 - Output: warning above 10,000 tokens; `MAX_MCP_OUTPUT_TOKENS` (25000 here) caps it; a larger non-image result
   is saved to a file and replaced by its path. Aim for 2-5k tokens per call.
-- Check: `/mcp` in a session, `claude mcp list`, `claude mcp get <name>`; `python3 tests/lint_agents.py` in the repo.
+- Check: `/mcp` in a session, `claude mcp list`, `claude mcp get <name>`; `uv run tests/lint_agents.py` in the repo.
 
 ## Release checklist
 1. Tool set small; names, descriptions and schemas reviewed; errors actionable; pagination and truncation present.

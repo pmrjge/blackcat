@@ -1,6 +1,6 @@
 ---
 name: llm-evals
-description: Load before reporting any LLM quality number. Evaluating language models and LLM systems — perplexity protocol, benchmark harnesses, task-specific test sets, LLM-as-judge with bias controls, RAG and agent evals, contamination checks and statistical comparison of scores.
+description: Load before reporting any LLM quality number — perplexity protocol, benchmark harnesses, task test sets, LLM-as-judge with bias controls, RAG and agent evals, contamination.
 ---
 # LLM evaluation protocol
 

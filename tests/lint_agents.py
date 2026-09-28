@@ -39,6 +39,24 @@ KNOWN_PLACEHOLDERS = {
 }
 TASK_TOOL_RE = re.compile(r"^Task(Create|Get|Update|List|Output)$")
 PLACEHOLDER_RE = re.compile(r"__[A-Z_]+__")
+INSTALL_SH = REPO_ROOT / "install.sh"
+
+# maxTurns tiers (a runaway bound, not a budget): every agent at most MAX_TURNS_CAP; the agents whose
+# work is iterative by nature (coordination, the implementer escalation chain) may go higher than
+# the bounded set, which stays below BOUNDED_TURNS_LIMIT. blackcat has none: as the main thread its
+# hard cap is the hook's BLACKCAT_MAX_STEPS, and frontmatter maxTurns does not bind a main thread.
+MAX_TURNS_CAP = 350
+BOUNDED_TURNS_LIMIT = 200
+ITERATIVE_AGENTS = {"orchestrator", "main-coder", "ninja-coder", "god-coder"}
+
+# Python runs through uv in agent and skill text: a bare `python`, `python3`, `pip` or `pip3` used as
+# a command (at the start of a line or command, after a backtick, `$`, `(`, `;`, `|`, `&` or `--`).
+# `uv run python`, `uvx`, path-qualified interpreters (the hooks' /usr/bin/python3, the stack's
+# uv-built venvs) and ```python fences don't match.
+BARE_PY_RE = re.compile(r"(?:^|[`(;|&$]|--(?=[ \t]))[ \t]*(python3?|pip3?)[ \t]+(?=\S)", re.M)
+# (path relative to dot-claude/, substring of the line) pairs a bare interpreter is right for
+BARE_PY_ALLOW = [
+]
 
 errors = []
 
@@ -259,6 +277,19 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
     if effort is not None and effort not in VALID_EFFORTS:
         fail(f"{path.name}: invalid effort {effort!r} (expected one of {sorted(VALID_EFFORTS)})")
 
+    # maxTurns tiers
+    turns = get_inline(data, "maxTurns")
+    if name_from_file == "blackcat":
+        if turns is not None:
+            fail(f"{path.name}: blackcat must not set maxTurns (the hook's BLACKCAT_MAX_STEPS caps it)")
+    elif turns is None or not turns.isdigit():
+        fail(f"{path.name}: maxTurns missing or not a whole number ({turns!r})")
+    else:
+        limit = MAX_TURNS_CAP if name_from_file in ITERATIVE_AGENTS else BOUNDED_TURNS_LIMIT - 1
+        if int(turns) > limit:
+            tier = "iterative" if name_from_file in ITERATIVE_AGENTS else "bounded"
+            fail(f"{path.name}: maxTurns {turns} over the {tier} tier's {limit}")
+
     # the stack runs no Haiku: Sonnet 5 wherever a small model would do
     if model and "haiku" in model.lower():
         fail(f"{path.name}: model {model!r} — this stack uses claude-sonnet-5 instead of Haiku")
@@ -359,6 +390,57 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
         fail(f"{path.name}: body tells the agent to load skills but tools: has no Skill")
 
 
+def installer_copy_types():
+    """COPY_TYPES as install.sh declares it (the tuple of base agent types that get a -copy)."""
+    m = re.search(r"(?m)^COPY_TYPES = \(([^)]*)\)", INSTALL_SH.read_text())
+    if not m:
+        fail("install.sh: no COPY_TYPES = (...) line")
+        return []
+    return re.findall(r'"([a-z0-9-]+)"', m.group(1))
+
+
+def check_copy_policy(policy_row, copy_bases, expected_agents):
+    """One generation of copies as a static policy: <base> lists <base>-copy and not itself; a copy's
+    row is the base row minus the base and every copy; nobody else lists a copy; no other agent
+    lists its own type."""
+    copies = {b + "-copy" for b in copy_bases}
+    for b in copy_bases:
+        c = b + "-copy"
+        if expected_agents is not None and c not in expected_agents:
+            fail(f"copy type {c}: missing from agent_guard AGENTS (the hook would not know it)")
+        base_row, copy_row = policy_row.get(b), policy_row.get(c)
+        if base_row is None or copy_row is None:
+            fail(f"copy type {c}: agent_guard POLICY needs rows for {b} and {c}")
+            continue
+        if c not in base_row or b in base_row:
+            fail(f"POLICY[{b}] must list {c} and not {b} (copies are their own type)")
+        want = sorted(x for x in base_row if x != b and x not in copies)
+        if sorted(copy_row) != want:
+            fail(f"POLICY[{c}] {sorted(copy_row)} != POLICY[{b}] minus {b} and copies {want}")
+    for parent, row in policy_row.items():
+        if parent in row:
+            fail(f"POLICY[{parent}] lists {parent} itself: only copy types may run copies")
+        base = parent[:-len("-copy")] if parent in copies else parent
+        for c in copies & set(row):
+            if c != base + "-copy" or parent in copies:
+                fail(f"POLICY[{parent}] lists {c}: only {c[:-len('-copy')]} may spawn it")
+
+
+def check_bare_python():
+    """Agent and skill text runs Python through uv (rules: Tools); see BARE_PY_RE / BARE_PY_ALLOW."""
+    root = REPO_ROOT / "dot-claude"
+    paths = sorted(AGENTS_DIR.glob("*.md")) + sorted(SKILLS_DIR.rglob("*.md"))
+    for p in paths:
+        rel = p.relative_to(root).as_posix()
+        for n, line in enumerate(p.read_text().splitlines(), 1):
+            if not BARE_PY_RE.search(line):
+                continue
+            if any(rel == a and s in line for a, s in BARE_PY_ALLOW):
+                continue
+            fail(f"{rel}:{n}: bare python/pip command — use uv (`uv run`, `uv run --with`, `uvx`, "
+                 f"`uv add`, `uv pip` in a uv venv) or add a reasoned BARE_PY_ALLOW entry: {line.strip()[:120]}")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--policy-json", default=None, help="fallback policy fixture path")
@@ -379,22 +461,32 @@ def main():
     builtins = set(policy_data.get("builtins", ["explore"]))
     expected_agents = policy_data.get("agents")
 
-    files = sorted(AGENTS_DIR.glob("*.md"))
-    if expected_agents is not None and len(files) != len(expected_agents):
-        fail(f"expected {len(expected_agents)} agent files (policy AGENTS), found {len(files)}: "
-             f"{[f.name for f in files]}")
+    # Copy types: install.sh renders <base>-copy.md from <base>.md, so the repo has no file for them.
+    copy_bases = installer_copy_types()
+    hook_copies = set(policy_data.get("copy_types") or []) or {
+        a[:-len("-copy")] for a in (expected_agents or []) if a.endswith("-copy")}
+    if hook_copies and hook_copies != set(copy_bases):
+        fail(f"copy types: agent_guard {sorted(hook_copies)} != install.sh COPY_TYPES {sorted(copy_bases)}")
+    copy_names = {b + "-copy" for b in copy_bases}
+    check_copy_policy(policy_row, copy_bases, expected_agents)
 
+    files = sorted(AGENTS_DIR.glob("*.md"))
+    for f in files:
+        if f.stem in copy_names:
+            fail(f"{f.name}: a copy type is rendered by install.sh from its base agent; don't ship the file")
     if expected_agents is not None:
         got_names = {f.stem for f in files}
-        want_names = set(expected_agents)
+        want_names = set(expected_agents) - copy_names
         if got_names != want_names:
             fail(
-                f"agent file set {sorted(got_names)} != policy agents {sorted(want_names)}"
+                f"agent file set {sorted(got_names)} != policy agents without copies {sorted(want_names)}"
             )
 
     blackcat_tools = policy_data.get("blackcat_tools")
     for f in files:
         check_agent_file(f, policy_row, leaves, builtins, blackcat_tools)
+
+    check_bare_python()
 
     # every model-invocable skill is pre-approved, or background agents hit permission prompts
     try:
@@ -403,6 +495,10 @@ def main():
         fail(f"settings.json unreadable: {exc}")
         allow = set()
     agents = set(expected_agents or [])
+    try:
+        desc_cap = int(json.loads(SETTINGS.read_text()).get("skillListingMaxDescChars", 1536))
+    except (OSError, ValueError, TypeError):
+        desc_cap = 1536
     listing = []
     for s in sorted(skill_names()):
         text = (SKILLS_DIR / s / "SKILL.md").read_text()
@@ -425,7 +521,7 @@ def main():
             fail(f"skills/{s}/SKILL.md: description names agents {named} — say when to load it, not who")
         if re.search(r"(?m)^disable-model-invocation:\s*(true|yes|on|1)\s*$", head):
             continue
-        listing.append(len(s) + 4 + min(len(d.group(1).strip()) if d else 0, 1536))
+        listing.append(len(s) + 4 + min(len(d.group(1).strip()) if d else 0, desc_cap))
         if "Skill" not in allow and f"Skill({s})" not in allow:
             fail(f"settings.json permissions.allow lacks Skill (or Skill({s})) — agents loading it on "
                  "demand would stop at a permission prompt")

@@ -1,6 +1,6 @@
 ---
 name: data-visualization
-description: Load before making a chart, figure or dashboard meant to communicate data — choosing the chart by question, perception rules, colorblind-safe palettes, annotation and direct labels, small multiples, showing uncertainty, tables vs charts, matplotlib/seaborn publication defaults with vector export and embedded fonts, plotly/Altair interactivity, accessibility, misleading patterns and a pre-publication checklist.
+description: Load before making a chart, figure or dashboard meant to communicate data — chart choice, perception, colorblind-safe palettes, labels, uncertainty, matplotlib/seaborn/plotly.
 ---
 # Data visualization
 

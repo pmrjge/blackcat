@@ -1,6 +1,6 @@
 ---
 name: literature-review
-description: Load before searching for papers, building a bibliography, or writing a literature review or related-work section — scoping, search via arXiv, Semantic Scholar, OpenAlex, Crossref, DBLP, zbMATH Open, MathSciNet, PubMed and Google Scholar, snowballing, screening, verifying every reference (zero fabricated citations), efficient reading, synthesis, BibTeX hygiene and a final citation audit.
+description: Load before searching for papers, building a bibliography or writing a literature review or related-work section — arXiv, Semantic Scholar, OpenAlex, zbMATH, citations, BibTeX.
 ---
 # Literature search and review — zero fabricated citations
 

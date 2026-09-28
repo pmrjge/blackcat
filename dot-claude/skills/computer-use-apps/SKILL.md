@@ -1,6 +1,6 @@
 ---
 name: computer-use-apps
-description: Load before any computer-use step. Rules for driving desktop apps (Adobe Illustrator, Photoshop, InDesign, After Effects, Premiere Pro, ONLYOFFICE, native apps under test) through computer use on macOS — when to use it, an efficient screenshot/click loop, safety.
+description: Load before any computer-use step — driving desktop apps (Adobe, ONLYOFFICE, native apps under test) on macOS; when to use it, an efficient screenshot/click loop, safety.
 ---
 # Computer use for desktop apps
 

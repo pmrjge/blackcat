@@ -1,6 +1,6 @@
 ---
 name: prompt-and-brief-design
-description: Load before writing or revising a system prompt, an agent definition, a CLAUDE.md or project brief for a coding agent, a research-task prompt, a structured-output schema or few-shot examples — structure and ordering, tool guidance, stop and escalation rules, injection-resistant patterns, prompt test sets with A/B and regression runs, and porting prompts across Claude, OpenAI-compatible and local models.
+description: Load before writing or revising a system prompt, agent definition, CLAUDE.md, research prompt, output schema or few-shot examples — structure, tool guidance, stop rules, tests.
 ---
 # Prompt and brief design
 

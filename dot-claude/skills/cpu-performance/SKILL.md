@@ -1,6 +1,6 @@
 ---
 name: cpu-performance
-description: Load before measuring or optimizing CPU-side speed or memory use on macOS (Apple Silicon) or Linux x86-64 — benchmarking discipline (criterion, hyperfine, pytest-benchmark, pyperf), profilers (Instruments/xctrace, samply, perf, py-spy, scalene, heaptrack, valgrind), the usual wins in order, compiler flags (target-cpu, LTO, PGO/BOLT) and before/after reporting. GPU work excluded.
+description: Load before measuring or optimizing CPU-side speed or memory on macOS or Linux — benchmarking (criterion, hyperfine, pyperf), profilers (Instruments, samply, perf, py-spy), flags.
 ---
 # CPU performance (Apple Silicon macOS, Linux x86-64)
 
@@ -22,7 +22,7 @@ description: Load before measuring or optimizing CPU-side speed or memory use on
 - **Dead-code elimination:** feed inputs and consume outputs through an optimization barrier — Rust `std::hint::black_box`, C++ `benchmark::DoNotOptimize`/`ClobberMemory` (Google Benchmark); a loop that "takes 0.3 ns per element" is measuring nothing.
 - **Inputs:** fixed seeds and files; sweep sizes across cache levels (L1/L2/last level/DRAM) instead of one size; state whether caches are warm or cold (cold file cache: Linux `sync; echo 3 | sudo tee /proc/sys/vm/drop_caches`, macOS `sudo purge`).
 - **Power and thermals, macOS:** mains power, Low Power Mode off where the machine has it (`pmset -g`), idle system (Spotlight indexing, backups and builds skew results), thermal state via `pmset -g therm`, frequency/power via `sudo powermetrics --samplers cpu_power -i 1000 -n 5`.
-- **Power and thermals, Linux laptop:** AC power, `powerprofilesctl set performance`, governor `sudo cpupower frequency-set -g performance`; for low-noise A/B comparisons disable turbo/boost (driver-dependent — `cpupower frequency-info`) or add repetitions; pin with `taskset -c <cpus>`; `python -m pyperf system tune` applies most of this (`... system reset` to undo). Record `uname -r` and, on CachyOS, whether a sched_ext scheduler is active (`cat /sys/kernel/sched_ext/state`, `/sys/kernel/sched_ext/root/ops`).
+- **Power and thermals, Linux laptop:** AC power, `powerprofilesctl set performance`, governor `sudo cpupower frequency-set -g performance`; for low-noise A/B comparisons disable turbo/boost (driver-dependent — `cpupower frequency-info`) or add repetitions; pin with `taskset -c <cpus>`; `uvx pyperf system tune` applies most of this (`... system reset` to undo). Record `uname -r` and, on CachyOS, whether a sched_ext scheduler is active (`cat /sys/kernel/sched_ext/state`, `/sys/kernel/sched_ext/root/ops`).
 
 Tools:
 - Rust — criterion (≥ 0.6 uses `std::hint::black_box`; `criterion::black_box` is deprecated):
@@ -49,7 +49,7 @@ criterion_main!(benches);
 ```
   `cargo bench --bench hot -- --save-baseline before`, change code, `cargo bench --bench hot -- --baseline before` (reports change with confidence intervals; `--warm-up-time`, `--measurement-time`, `--noise-threshold` tune it; without `--bench`, a lib target's libtest harness rejects these flags unless `[lib] bench = false`). `divan` is a lighter alternative.
 - CLIs — hyperfine: `hyperfine -N --warmup 3 --runs 30 --export-markdown bench.md --export-json bench.json 'old/app in.dat' 'new/app in.dat'` (`-N` = no intermediate shell; `--prepare 'cmd'` runs before each timing, e.g. to drop caches; `-P threads 1 16 'app -j {threads}'` scans a parameter; `-L compiler gcc,clang '{compiler} ...'` lists values).
-- Python — pytest-benchmark: the `benchmark(fn, *args)` fixture, `pytest --benchmark-only --benchmark-autosave`, then `--benchmark-compare --benchmark-compare-fail=median:5%` in CI. pyperf: `python -m pyperf timeit -s 'setup' 'stmt' -o new.json` (spawns worker processes, calibrates loops), `python -m pyperf compare_to old.json new.json --table`.
+- Python — pytest-benchmark: the `benchmark(fn, *args)` fixture, `pytest --benchmark-only --benchmark-autosave`, then `--benchmark-compare --benchmark-compare-fail=median:5%` in CI. pyperf: `uv run --with pyperf python -m pyperf timeit -s 'setup' 'stmt' -o new.json` (spawns worker processes, calibrates loops), `uvx pyperf compare_to old.json new.json --table`.
 - C/C++ — Google Benchmark (`--benchmark_repetitions=10 --benchmark_format=json`).
 
 ## 3. Profilers — cheap and broad first
@@ -60,12 +60,12 @@ criterion_main!(benches);
 | Flame graph | samply / Instruments UI | `perf script \| inferno-collapse-perf \| inferno-flamegraph > flame.svg`; `cargo flamegraph` |
 | Heap: who allocates, peak, leaks | `--template 'Allocations'` or `'Leaks'`; `leaks --atExit -- ./app`; `/usr/bin/time -l ./app` (max RSS in bytes) | `heaptrack ./app` then `heaptrack --analyze <file>` or `heaptrack_gui`; `valgrind --tool=massif ./app` + `ms_print massif.out.<pid>`; `valgrind --tool=dhat ./app` (open in `dh_view.html`); `/usr/bin/time -v ./app` |
 | Waiting: locks, I/O, syscalls | samply off-CPU samples; `--template 'System Trace'`; `sudo fs_usage -w <pid>` | `strace -c ./app`; `perf sched`, `perf lock` (kernel support permitting); bcc `offcputime` |
-| Python | `sudo py-spy record -o prof.svg -- python app.py` (root is required on macOS; system Python under SIP cannot be profiled) | `py-spy record -o prof.svg -- python app.py`; `perf record -g python -X perf app.py` (3.12+, Linux only) |
+| Python | `sudo py-spy record -o prof.svg -- .venv/bin/python app.py` (root is required on macOS; system Python under SIP cannot be profiled) | `py-spy record -o prof.svg -- .venv/bin/python app.py`; `perf record -g .venv/bin/python -X perf app.py` (3.12+, Linux only) |
 
 - List xctrace templates with `xcrun xctrace list templates`; open a trace with `open run.trace`. samply cannot profile Apple-signed system binaries; run `samply setup` once to allow attaching to running processes.
 - py-spy: `--native` (include C/C++/Rust extension frames), `--gil`, `--idle`, `--subprocesses`, `--rate`, `--format speedscope`; `py-spy top --pid N`, `py-spy dump --pid N` for live processes.
 - scalene (line-level CPU split into Python vs native time, plus memory): `scalene run app.py --- --app-args`, then `scalene view --cli` (or `scalene view` in a browser); `scalene run --cpu-only` is faster.
-- Deterministic Python tracing (`python -m cProfile -o prof.out app.py`, `pstats`) gives call counts but inflates cheap functions. `python -X importtime` for startup. Memory: `tracemalloc` snapshots, or `memray run -o out.bin app.py` + `memray flamegraph out.bin`.
+- Deterministic Python tracing (`uv run python -m cProfile -o prof.out app.py`, `pstats`) gives call counts but inflates cheap functions. `uv run python -X importtime` for startup. Memory: `tracemalloc` snapshots, or `memray run -o out.bin app.py` + `memray flamegraph out.bin`.
 - Rust symbols: keep line tables in optimized builds (`[profile.release] debug = "line-tables-only"`, or a `[profile.profiling]` with `inherits = "release"`); Linux frame-pointer unwinding needs `RUSTFLAGS="-C force-frame-pointers=yes"` (C/C++: `-fno-omit-frame-pointer`); Apple arm64 always keeps frame pointers. Linux perf access: `kernel.perf_event_paranoid` ≤ 1 for user profiling.
 
 ## 4. The usual wins, in order

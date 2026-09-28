@@ -2,14 +2,23 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "agent": "blackcat",
   "autoCompactEnabled": true,
-  "autoCompactWindow": 800000,
-  "skillListingBudgetFraction": 0.025,
+  "autoCompactWindow": 300000,
+  "skillListingBudgetFraction": 0.01,
+  "skillListingMaxDescChars": 500,
+  "skillOverrides": {
+    "code-review": "user-invocable-only",
+    "security-review": "user-invocable-only",
+    "simplify": "user-invocable-only",
+    "fewer-permission-prompts": "user-invocable-only",
+    "keybindings-help": "user-invocable-only",
+    "init": "user-invocable-only"
+  },
   "worktree": {
     "baseRef": "head"
   },
   "env": {
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4",
-    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "32",
+    "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "20",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-sonnet-5",
     "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION": "400",
     "MCP_DISCOVERY_CACHE": "1",
@@ -18,10 +27,13 @@
     "MCP_TIMEOUT": "60000",
     "MAX_MCP_OUTPUT_TOKENS": "25000",
     "BLACKCAT_MAX_STEPS": "8",
-    "BLACKCAT_MAX_DISPATCH": "3",
+    "BLACKCAT_MAX_DISPATCH": "4",
     "BLACKCAT_DISPATCH_WINDOW_S": "30",
-    "STACK_MAX_FANOUT": "8",
-    "STACK_MAX_SELF_FANOUT": "4",
+    "STACK_MAX_FANOUT": "3",
+    "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=6,planner=4",
+    "STACK_MAX_SELF_FANOUT": "2",
+    "STACK_PROMPT_CTX_BUDGET": "100000000",
+    "STACK_SESSION_CTX_BUDGET": "120000000",
     "STACK_ENV_FILE": "__CLAUDE_DIR__/stack.env",
     "STACK_FANOUT_IDLE_S": "600",
     "GOD_IDLE_S": "1800"

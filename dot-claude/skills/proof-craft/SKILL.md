@@ -1,6 +1,6 @@
 ---
 name: proof-craft
-description: Load before proving, disproving, repairing or refereeing a mathematical claim. Covers statement dissection, experiments and counterexample search (sympy, mpmath, hypothesis, z3), a strategy catalog with recognition cues, domain tactics for analysis, algebra, combinatorics, probability and linear algebra, per-step self-checks, write-up and the proof report.
+description: Load before proving, disproving, repairing or refereeing a mathematical claim — statement dissection, counterexample search (sympy, z3), strategy catalog, per-step checks.
 ---
 # Proof craft
 

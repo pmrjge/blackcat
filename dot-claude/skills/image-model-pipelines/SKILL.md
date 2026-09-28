@@ -1,6 +1,6 @@
 ---
 name: image-model-pipelines
-description: Load before running, fine-tuning, serving or evaluating an open-weight image-generation model as engineering work — diffusers, mflux on Apple Silicon, ComfyUI API workflows, model licenses, LoRA and DreamBooth training data and captions, hyperparameters, memory (quantization, offload, tiling), samplers and guidance, reproducibility, FID/CLIP/preference evaluation caveats, safety.
+description: Load before running, fine-tuning, serving or evaluating an open-weight image-generation model — diffusers, mflux, ComfyUI API, LoRA/DreamBooth, memory, samplers, FID/CLIP caveats.
 ---
 # Image-generation model pipelines
 

@@ -1,6 +1,6 @@
 ---
 name: data-analysis
-description: Load for any analysis of a dataset. Rigorous data analysis — profiling, exploratory plots, choosing statistical tests, effect sizes and intervals, multiple comparisons, A/B testing and power, causal-inference guardrails, forecasting checks, reproducible notebooks and the analysis report.
+description: Load for any analysis of a dataset — profiling, exploratory plots, statistical tests, effect sizes, multiple comparisons, A/B tests and power, causal guardrails, reports.
 ---
 # Data analysis protocol
 

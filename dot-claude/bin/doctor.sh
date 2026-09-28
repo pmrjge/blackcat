@@ -238,10 +238,14 @@ if "router" in extra:
     extra.remove("router")
     print("  WARN  agents/router.md is the stack's old name for blackcat, kept because you edited it:"
           " move your changes into blackcat.md and delete it")
+# copy types (researcher-copy, coder-copy) are rendered by install.sh; the hook knows them once updated
+for a in [x for x in extra if x.endswith("-copy") and x[:-5] in agents]:
+    extra.remove(a)
+    print("  WARN  agents/%s.md is a copy type this hook's policy doesn't list yet: rerun install.sh" % a)
 if extra:
     print("  WARN  your own agents, unreachable from BlackCat and the stack's agents (the spawn policy"
           " lists only the stack's): %s — run one with `claude --agent <name>`" % " ".join(extra))
-print("  ok    copies allowed for: " + ", ".join(p.get("self_spawn", [])))
+print("  ok    copy types: " + (", ".join(p.get("copy_types") or [a for a in agents if a.endswith("-copy")]) or "none"))
 PY
 fi
 [ -f "$C/rules/claude-agent-stack.md" ] && ok "global rules: rules/claude-agent-stack.md" \
@@ -392,7 +396,7 @@ elif agent:
 else:
     warn("no main thread agent — rerun install.sh for the stack's BlackCat, or set \"agent\": \"claude\" to opt out")
 (ok if s.get("autoCompactEnabled", True) is True else fail)("autoCompactEnabled=%s" % s.get("autoCompactEnabled", "default(true)"))
-(ok if s.get("autoCompactWindow") == 800000 else warn)("autoCompactWindow=%s (stack: 800000)" % s.get("autoCompactWindow"))
+(ok if s.get("autoCompactWindow") == 300000 else warn)("autoCompactWindow=%s (stack: 300000)" % s.get("autoCompactWindow"))
 env = s.get("env", {})
 want = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4", "MCP_DISCOVERY_CACHE": "1"}
 for k, v in want.items():
@@ -496,6 +500,10 @@ try:
     frac = float(s.get("skillListingBudgetFraction", 0.01))
 except (TypeError, ValueError):
     frac = 0.01
+try:
+    cap = int(s.get("skillListingMaxDescChars", 1536))   # each description is cut at this length
+except (TypeError, ValueError):
+    cap = 1536
 budget = int(1000000 * 3 * frac)
 n_sk, chars = 0, 0
 for root, _dirs, files in os.walk(skills_dir):
@@ -506,7 +514,7 @@ for root, _dirs, files in os.walk(skills_dir):
         continue
     m = re.search(r"(?m)^description:\s*(.*)$", head[1])
     n_sk += 1
-    chars += len(os.path.basename(root)) + 5 + min(len(m.group(1).strip()) if m else 0, 1536)
+    chars += len(os.path.basename(root)) + 5 + min(len(m.group(1).strip()) if m else 0, cap)
 (ok if chars <= budget else warn)(
     "skill listing: %d skills, ~%d of %d characters (skillListingBudgetFraction=%s, 1M-context models; plugin skills add to it)"
     % (n_sk, chars, budget, frac) if chars <= budget else

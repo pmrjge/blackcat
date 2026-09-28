@@ -1,6 +1,6 @@
 ---
 name: jvm-engineering
-description: Load before writing, reviewing, building or tuning JVM code — Java 21+ (records, sealed types, pattern matching, virtual threads), Scala 3, Kotlin interop, JDK management, Gradle and Maven, sbt, Mill and scala-cli, JUnit/AssertJ/Testcontainers, Error Prone and formatters, JMH, JFR and GC tuning, GraalVM native images, pitfalls.
+description: Load before writing, reviewing, building or tuning JVM code — Java 21+, Scala 3, Kotlin interop, Gradle/Maven/sbt/Mill, JUnit, JMH, JFR and GC tuning, GraalVM native images.
 ---
 # JVM engineering (Java 21+, Scala 3)
 

@@ -1,6 +1,6 @@
 ---
 name: numerical-methods
-description: Load before writing or trusting any numerical computation. Covers IEEE 754 pitfalls, low-precision formats (bf16, fp16, fp8, fp4, MX/NVFP4 scaling), conditioning and backward error, choosing factorizations and iterative solvers, nonlinear solvers and optimizers, stiff ODEs and SDE schemes, quadrature, autodiff vs finite differences, mpmath verification and reproducibility.
+description: Load before writing or trusting any numerical computation — IEEE 754 and low-precision formats, conditioning, solvers, ODE/SDE schemes, quadrature, autodiff, mpmath checks.
 ---
 # Numerical methods
 

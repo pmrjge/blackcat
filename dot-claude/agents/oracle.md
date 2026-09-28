@@ -3,7 +3,7 @@ name: oracle
 description: "Answers timeless knowledge questions from expertise alone: concepts, definitions, history, how things work, explanations, comparisons of stable ideas. No web access."
 model: opus
 effort: low
-maxTurns: 60
+maxTurns: 20
 tools: Read, Skill
 color: cyan
 ---

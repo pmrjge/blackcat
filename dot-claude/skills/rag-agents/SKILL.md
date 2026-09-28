@@ -1,6 +1,6 @@
 ---
 name: rag-agents
-description: Use when designing or debugging a RAG pipeline or an LLM application — retrieval-augmented generation (chunking, embeddings, hybrid search, reranking, vector stores), agents and tool use with the Claude API and Agent SDK, prompt design, structured outputs, caching and cost control, with evals for each part.
+description: Use when designing or debugging a RAG pipeline or LLM application — chunking, embeddings, hybrid search, reranking, Claude API and Agent SDK tool use, structured outputs, evals.
 ---
 # RAG and agent engineering
 
