@@ -97,13 +97,14 @@ install.sh/doctor.sh), no argument = event.
 
 Knobs (env):
   STACK_POLICY=off        disable every deny and lock (bookkeeping and model strip continue)
-  BLACKCAT_MAX_DISPATCH=4   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
+  BLACKCAT_MAX_DISPATCH=6   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
   BLACKCAT_DISPATCH_WINDOW_S=30  all blackcat dispatches for one prompt must start within this many
                           seconds of the first one (one parallel burst, not ad-hoc orchestration)
   BLACKCAT_MAX_STEPS=8      blackcat tool calls per user prompt, Agent dispatches included
   STACK_MAX_FANOUT=3      running + starting children per parent agent (0 = no cap); the main
                           thread has none (BLACKCAT_MAX_DISPATCH bounds BlackCat per prompt)
-  STACK_MAX_FANOUT_BY_TYPE="orchestrator=6,planner=4"  per-type overrides of STACK_MAX_FANOUT
+  STACK_MAX_FANOUT_BY_TYPE="orchestrator=8,planner=8,plan-reviewer=8"
+                          per-type overrides of STACK_MAX_FANOUT
                           (type=N, separated by , ; or newlines; a copy type falls back to its base)
   STACK_MAX_SELF_FANOUT=2 live `<type>-copy` agents per copy type in the whole session (0 = no cap)
   STACK_LEASE_TTL_S=21600 ceiling on a spawn lease whose Agent call never reported back
@@ -560,7 +561,7 @@ def dispatch_window_closed(d, pid, limit, now):
 #                background (hooks.md:2343, sub-agents.md:1102). Gone at SubagentStop, TaskStop,
 #                StopFailure or SessionStart, or once its live subtree is idle STACK_FANOUT_IDLE_S.
 # Lock order: the 'fanout' mutex, then 'registry' (reg_put); nothing takes them the other way.
-DEFAULT_FANOUT_BY_TYPE = "orchestrator=6,planner=4"
+DEFAULT_FANOUT_BY_TYPE = "orchestrator=8,planner=8,plan-reviewer=8"
 RESUME_PREFIX = "resume-"
 
 
@@ -696,7 +697,7 @@ def copies_running(d, ctype, now, ev, reg):
 
 
 def parse_fanout_by_type(raw):
-    """{type: cap} from "orchestrator=6,planner=4" (separators , ; or newline; spaces, quotes and
+    """{type: cap} from "orchestrator=8,planner=8" (separators , ; or newline; spaces, quotes and
     any spelling of a type are fine). Malformed items are skipped with a warning."""
     out = {}
     for item in re.split(r"[,;\n]+", str(raw or "").strip().strip("'\"")):
@@ -995,7 +996,7 @@ def on_agent(ev, d):
         parent = norm((reg_get(d, aid) or {}).get("type"))
     pid = prompt_key(ev)
     tid = ev.get("tool_use_id")
-    max_dispatch = knob_int("BLACKCAT_MAX_DISPATCH", 4)
+    max_dispatch = knob_int("BLACKCAT_MAX_DISPATCH", 6)
     max_steps = knob_int("BLACKCAT_MAX_STEPS", 8)
 
     if policy_on():
@@ -1618,7 +1619,7 @@ def on_agent_failed(ev, d):
     if norm(ti.get("subagent_type")) == GOD:
         god_release_pending(d, aid or "main", ev.get("tool_use_id"))
     if not aid and norm(ev.get("agent_type")) == "blackcat":
-        drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_DISPATCH", 4))
+        drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_DISPATCH", 6))
 
 
 def on_prompt(ev, d):
@@ -4082,7 +4083,7 @@ def self_test():
     for never in ("blackcat", "orchestrator", GOD, "mlx-engineer", "cuda-engineer"):
         if never in SELF_SPAWN:
             problems.append("%s must not spawn copies of itself" % never)
-    if parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE) != {"orchestrator": 6, "planner": 4}:
+    if parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE) != {"orchestrator": 8, "planner": 8, "plan-reviewer": 8}:
         problems.append("STACK_MAX_FANOUT_BY_TYPE default does not parse")
     # Installed layout: <config>/hooks/agent_guard.py next to <config>/agents/*.md; install.sh
     # renders the copy types' files (the repo's dot-claude/ still holds __CLAUDE_DIR__).

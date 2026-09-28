@@ -328,17 +328,17 @@ def test_subagent_start_does_not_clobber_depth(env):
 
 
 # ---------------------------------------------------------------- blackcat dispatch (M4)
-def test_blackcat_dispatch_default_is_four_concurrent(env):
+def test_blackcat_dispatch_default_is_six_concurrent(env):
     for _ in range(REPEATS):
         s = sid()
         res = run_many([pre_agent(s, "coder", parent="blackcat") for _ in range(FANOUT)], env)
-        assert res.count("allow") == 4, res
+        assert res.count("allow") == 6, res
         # losers left no fan-out leases, dispatch or step markers behind
-        assert len(list((state(env, s) / "fanout" / "main").iterdir())) == 4
+        assert len(list((state(env, s) / "fanout" / "main").iterdir())) == 6
         names = sorted(p.name.split(".")[0] for p in (state(env, s) / "blackcat").iterdir())
-        assert names == ["dispatch"] * 4 + ["step"] * 4
+        assert names == ["dispatch"] * 6 + ["step"] * 6
     p = run(pre_agent(s, "coder", parent="blackcat"), env)
-    assert decision(p) == "deny" and "dispatch limit (4 per prompt)" in reason(p)
+    assert decision(p) == "deny" and "dispatch limit (6 per prompt)" in reason(p)
 
 
 def test_blackcat_dispatch_once_concurrent(env):
@@ -1225,7 +1225,7 @@ def test_stale_leases_voided_when_the_caller_stops(env):
 
 
 @pytest.mark.parametrize("parent,child,cap", [
-    ("main-coder", "coder", 3), ("orchestrator", "coder", 6), ("planner", "scout", 4),
+    ("main-coder", "coder", 3), ("orchestrator", "coder", 8), ("planner", "scout", 8),
     ("coder-copy", "scout", 3), ("researcher", "scout", 3)])
 def test_fanout_cap_per_type(env, parent, child, cap):
     s = sid()
@@ -1263,13 +1263,13 @@ def test_fanout_by_type_parsing(env):
 
 def test_resume_cap_uses_per_type_caps(env):
     s = sid()
-    for i in range(6):                              # orchestrator O1 at its cap of 6 ...
+    for i in range(8):                              # orchestrator O1 at its cap of 8 ...
         run(post_agent(s, "coder", "K%d" % i, agent_id="O1", parent="orchestrator"), env)
     run(post_agent(s, "writer", "W", agent_id="O1", parent="orchestrator", status="completed"),
         env)
-    run(lifecycle(s, "SubagentStop", "W", "writer"), env)     # ... and a finished 7th child
+    run(lifecycle(s, "SubagentStop", "W", "writer"), env)     # ... and a finished 9th child
     p = run(send(s, "W", agent_id="O1"), env)
-    assert decision(p) == "deny" and "orchestrator=6" in reason(p)
+    assert decision(p) == "deny" and "orchestrator=8" in reason(p)
     run(lifecycle(s, "SubagentStop", "K0", "coder"), env)
     assert decision(run(send(s, "W", agent_id="O1"), env)) == "allow"
 
@@ -1318,7 +1318,7 @@ def test_depth_from_spawn_meta_for_a_running_foreground_caller(env, tmp_path):
     assert decision(p) == "allow"                     # no meta file: depth unknown, native limit
 
 
-# ---------------------------------------------------------------- BlackCat: 8 steps, 4 dispatches
+# ---------------------------------------------------------------- BlackCat: 8 steps, 6 dispatches
 def test_blackcat_steps_count_dispatches(env):
     s = sid()
     for _ in range(4):        # 4 dispatches (counted by the main hook) + 4 other tools = 8

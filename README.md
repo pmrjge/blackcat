@@ -146,7 +146,7 @@ exported.
 | Requirement | Mechanism |
 |---|---|
 | Subagent depth 4 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`: BlackCat → L1 → L2 → L3 → L4. L4 cannot spawn. The hook also tracks depth (it reads the same variable), so an L4 agent can't slip through. The rules add *when* to spawn: only for a missing capability, substantial parallel parts or independent verification — never pass-through or "just in case", and deeper than L2 only for a missing capability or a check. |
-| One agent → several subagents concurrently | Interactive sessions run subagents in the background. An agent sends independent `Agent` calls in **one message** and they run in parallel. The results come back as task notifications. Caps: 3 running children per agent (`STACK_MAX_FANOUT`; orchestrator 6 and planner 4 through `STACK_MAX_FANOUT_BY_TYPE`), 20 per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`), and a context-token budget per prompt and per session (`STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET`) past which the hook tells agents to finish with what they have, and at most 88 MCP tool calls per subagent per session (`STACK_MAX_MCP_CALLS`; an agent whose `maxTurns` is lower gets that instead). |
+| One agent → several subagents concurrently | Interactive sessions run subagents in the background. An agent sends independent `Agent` calls in **one message** and they run in parallel. The results come back as task notifications. Caps: 3 running children per agent (`STACK_MAX_FANOUT`; orchestrator, planner and plan-reviewer 8 through `STACK_MAX_FANOUT_BY_TYPE`), 6 BlackCat dispatches per prompt (`BLACKCAT_MAX_DISPATCH`), 20 per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`), and a context-token budget per prompt and per session (`STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET`) past which the hook tells agents to finish with what they have, and at most 88 MCP tool calls per subagent per session (`STACK_MAX_MCP_CALLS`; an agent whose `maxTurns` is lower gets that instead). |
 | subagent1 → subagent1 where it makes sense | researcher and coder, whose parts are most often independent, launch copies of themselves as their own agent types, `researcher-copy` and `coder-copy`: the installer renders them from the base file (same tools, model and `maxTurns`), and their policy rows list neither the base nor any copy, so a copy of a copy is a plain policy denial. At most 2 copies of a type run at once (`STACK_MAX_SELF_FANOUT`). Every other agent does parallel parts itself or hands them to another specialist: in the transcripts, copy-of-copy chains were about 10% of all tokens. |
 | Auto-compact on, window 400K | `"autoCompactEnabled": true`, `"autoCompactWindow": 400000`. Compaction fires a little before the window is full: a little before 400K (the window minus an output reserve and a safety buffer). Subagents compact with the same logic. The installer strips env overrides that would defeat it, `/stack-doctor` warns about settings or shell exports that do (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE`, …), and the status line shows how close the next compaction is. |
 | More agents for every Claude feature | ml-engineer, dl-engineer, llm-engineer, data-scientist, browser-operator (Claude in Chrome + Playwright), claude-code-engineer (skills, agents, hooks, plugins, settings, workflows) and ninja-coder (engineer-mathematician between main-coder and god-coder), on top of the existing 26 (senior-coder is now main-coder). BlackCat also runs the main-thread-only features: dynamic workflows, scheduled tasks and routines, push notifications, file hand-off. |
@@ -178,7 +178,7 @@ calls count once). An agent that hits it stops without a report of its own; Clau
 
 | Agent | Model · effort | For | Agent-scoped MCP | Shared MCP | Extras |
 |---|---|---|---|---|---|
-| **blackcat** — BlackCat (main thread) | Sonnet 5 · session level (choose low) | Classifies and dispatches (up to 4 agents in one burst, 8 tool calls per prompt); relays results; Read, Grep and Glob only for quick checks (a file exists, a child's claimed diff) | — | — | Workflows, cron/loop, routines, push, file hand-off |
+| **blackcat** — BlackCat (main thread) | Sonnet 5 · session level (choose low) | Classifies and dispatches (up to 6 agents in one burst, 8 tool calls per prompt); relays results; Read, Grep and Glob only for quick checks (a file exists, a child's claimed diff) | — | — | Workflows, cron/loop, routines, push, file hand-off |
 | orchestrator | Opus 5.5 · xhigh | Multi-step / multi-domain work; ≤ 7 tasks in flight | neural-memory | — | cache 1h |
 | planner | Opus 5.5 · xhigh | How to solve it: options, plan, owners, verification | libdocs | exa, jina | |
 | plan-reviewer | Opus 5.5 · xhigh | Critique of a plan before execution | libdocs | exa, jina | |
@@ -247,7 +247,7 @@ stack's agents can spawn them. Run one directly with `claude --agent <name>`, or
 `blackcat.md`'s `tools:` line and a `POLICY` row in the repo's `agent_guard.py`, then re-run the
 installer.
 
-- **blackcat**: any specialist (at most 4 dispatches, all in one burst, within 8 tool calls per prompt); follow-ups go through SendMessage.
+- **blackcat**: any specialist (at most 6 dispatches, all in one burst, within 8 tool calls per prompt); follow-ups go through SendMessage.
 - **orchestrator**: every specialist plus Explore (copy types excluded).
 - **Copies**: only researcher and coder, through `researcher-copy` and `coder-copy`; no other row
   lists its own type.
@@ -640,10 +640,10 @@ guarantees rather than preferences. To change an owned knob, change it in the re
 
 | Knob | Default | Meaning |
 |---|---|---|
-| `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` | 4 / 30 | BlackCat Agent calls per prompt, all within this many seconds of the first (0 = no window) |
+| `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` | 6 / 30 | BlackCat Agent calls per prompt, all within this many seconds of the first (0 = no window) |
 | `BLACKCAT_MAX_STEPS` ● | 8 | BlackCat tool calls per prompt, Agent dispatches included |
 | `STACK_MAX_FANOUT` ● | 3 | Running + starting children per agent, any type (0 = no cap) |
-| `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=6,planner=4` | Per-type overrides of `STACK_MAX_FANOUT` |
+| `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=8,planner=8,plan-reviewer=8` | Per-type overrides of `STACK_MAX_FANOUT` |
 | `STACK_MAX_SELF_FANOUT` ● | 2 | Copy agents (`researcher-copy`, `coder-copy`) of one type running at once, session-wide |
 | `STACK_PROMPT_CTX_BUDGET` ● / `STACK_SESSION_CTX_BUDGET` ● | 100000000 / 120000000 | Context tokens (input + cache writes + cache reads, all agents) per human prompt / per session; past it the hook denies work tools and tells the agent to finish with what it has |
 | `STACK_MAX_MCP_CALLS` ● | 88 | MCP tool calls (`mcp__*`) per subagent per session, capped lower by the agent's own `maxTurns` (scout 40, oracle 20, mcp-broker 80); past it the hook denies MCP calls only (0 = off) |
