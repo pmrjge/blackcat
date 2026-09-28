@@ -193,6 +193,7 @@ def test_print_policy_format(env):
             assert copies.get(parent) == copy, (parent, copy)
     assert not set(copies.values()) & (set(d["policy"]["blackcat"]) | set(d["policy"]["orchestrator"]))
     assert d["policy"]["planner"]                           # planner keeps Agent
+    assert {"plan-reviewer", "image-director"} <= set(d["leaves"])
     assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill"} <= set(d["blackcat_tools"])
     assert not {"Bash", "Read", "Write", "Edit", "WebSearch"} & set(d["blackcat_tools"])
 
@@ -241,6 +242,7 @@ def test_every_allowed_pair_allowed(env):
     ("data-scientist", "data-scientist"), ("blackcat", "coder-copy"),
     ("orchestrator", "researcher-copy"), ("main-coder", "coder-copy"),
     ("writer", "researcher-copy"), ("researcher", "coder-copy"),
+    ("plan-reviewer", "scout"), ("image-director", "scout"),        # leaves
 ])
 def test_denied_pairs(env, parent, child):
     ev = (pre_agent(sid(), child, parent="blackcat") if parent == "blackcat" else

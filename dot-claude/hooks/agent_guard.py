@@ -143,7 +143,7 @@ AGENTS = [
 ]
 BUILTINS = ["explore"]
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
-          "claude-code-guide", "browser-operator"]
+          "claude-code-guide", "browser-operator", "plan-reviewer", "image-director"]
 
 _BLACKCAT_ROW = [a for a in AGENTS if a != "blackcat"]
 _ACCEL_ROW = ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
@@ -163,12 +163,10 @@ POLICY = {
     "blackcat": list(_BLACKCAT_ROW),
     "orchestrator": [a for a in _BLACKCAT_ROW if a != "orchestrator"] + ["explore"],
     "planner": ["scout", "explore", "claude-code-guide"],
-    "plan-reviewer": ["scout", "explore", "claude-code-guide"],
     "researcher": ["researcher-copy", "scout", "doc-specialist", "mathematician", "data-engineer",
                    "data-scientist", "browser-operator", "mcp-broker"],
     "writer": ["scout", "researcher", "mathematician"],
     "mathematician": ["scout", "mcp-broker", "quantum-engineer"],
-    "image-director": ["scout"],
     "doc-specialist": ["scout", "mcp-broker"],
     "designer": ["image-director", "scout", "mcp-broker", "cg-artist"],
     "motion-designer": ["image-director", "designer", "scout", "mcp-broker", "cg-artist"],
@@ -216,6 +214,8 @@ POLICY = {
     "cg-artist": ["image-director", "coder", "scout", "verifier", "mcp-broker"],
     "oracle": [], "scout": [], "code-reviewer": [], "verifier": [], "security-auditor": [],
     "mcp-broker": [], "claude-code-guide": [], "browser-operator": [],
+    # a review or an image job is one bounded task: no delegation (planner keeps Agent)
+    "plan-reviewer": [], "image-director": [],
 }
 # A copy's row: its base's row without the base type and without any copy type.
 for _base, _copy in COPY_OF.items():
