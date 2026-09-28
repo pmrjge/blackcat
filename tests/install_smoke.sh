@@ -37,6 +37,9 @@ INSTALL="$HERE/install.sh"
 export PATH="$HERE/tests/fake-claude:$PATH"
 # install.sh is macOS-only; this test also runs on Linux (CI, containers) through its escape hatch.
 export STACK_ALLOW_NON_MACOS=1
+# Run from a Claude Code session with the stack installed, STACK_ENV_FILE points at the real
+# stack.env: the scratch installs' mcp-headers would serve (and a failure would print) a real key.
+unset STACK_ENV_FILE
 PASS=0
 FAIL=0
 pass(){ printf '  PASS  %s\n' "$*"; PASS=$((PASS + 1)); }
@@ -128,7 +131,7 @@ if bad:
     print("  bare:", bad)
 sys.exit(1 if bad else 0)
 PY
-python3 - "$T1/settings.json" <<'PY' && pass "settings: StopFailure + TaskStop wiring, narrowed magg allow, Exa-safe denies" || failed "settings wiring/permissions (see above)"
+python3 - "$T1/settings.json" <<'PY' && pass "settings: StopFailure + TaskStop wiring, narrowed magg allow, Exa-safe denies, no-push wiring" || failed "settings wiring/permissions (see above)"
 import json, sys
 s = json.load(open(sys.argv[1]))
 h, allow, deny = s["hooks"], s["permissions"]["allow"], s["permissions"]["deny"]
@@ -142,6 +145,11 @@ checks = {
                                 for g in h["PreToolUse"]),
     "context-mode exec denied": {"mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_batch_execute"} <= set(deny),
     "neural-memory allowed": "mcp__neural-memory" in allow and "mcp__context-mode__ctx_search" in allow,
+    "no-push hook unfiltered on Bash|Monitor": any(
+        "no-push" in json.dumps(g) and {"Bash", "Monitor"} <= set((g.get("matcher") or "").split("|"))
+        and not any(x.get("if") for x in g["hooks"]) for g in h["PreToolUse"]),
+    "push and forge-write denies": {"Bash(git push *)", "Bash(gh pr create *)", "Bash(gh pr merge *)",
+                                    "Bash(tea pulls merge *)", "Bash(fj pr merge *)"} <= set(deny),
 }
 bad = [k for k, v in checks.items() if not v]
 if bad:
@@ -434,6 +442,9 @@ else
   pass "doctor.sh: only expected FAILs (--no-deps skipped venv/magg)"
 fi
 printf '%s\n' "$out" | grep -q "agent files present" && pass "doctor.sh: agent files check ran" || failed "doctor.sh: agent files check missing"
+[ "$(printf '%s\n' "$out" | grep -cE 'ok    settings.json PreToolUse\((Bash|Monitor)\) no[- ](push|forge)|ok    no-push hook sees every')" = 4 ] \
+  && pass "doctor.sh: no-push probes (plain, bash -c, Monitor forge write, no if filter)" \
+  || failed "doctor.sh: no-push probe lines: $(printf '%s\n' "$out" | grep -i 'no-push\|forge')"
 nsk=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
 printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1)) skills, ~[0-9]+ of 75000 characters" \
   && pass "doctor.sh: skill listing within its budget" || failed "doctor.sh: skill listing line: $(printf '%s\n' "$out" | grep 'skill listing')"

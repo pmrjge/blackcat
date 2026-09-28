@@ -75,6 +75,31 @@
     "deny": [
       "Agent(blackcat)",
       "Bash(git push *)",
+      "Bash(git send-pack *)",
+      "Bash(git lfs push *)",
+      "Bash(git subtree push *)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr new *)",
+      "Bash(gh pr merge *)",
+      "Bash(gh pr review *)",
+      "Bash(gh pr comment *)",
+      "Bash(gh release create *)",
+      "Bash(gh release new *)",
+      "Bash(gh release upload *)",
+      "Bash(gh repo create *)",
+      "Bash(gh repo fork *)",
+      "Bash(gh repo sync *)",
+      "Bash(gh workflow run *)",
+      "Bash(tea pulls create *)",
+      "Bash(tea pulls merge *)",
+      "Bash(tea pr create *)",
+      "Bash(tea pr merge *)",
+      "Bash(tea releases create *)",
+      "Bash(tea release create *)",
+      "Bash(fj pr create *)",
+      "Bash(fj pr merge *)",
+      "Bash(fj release create *)",
+      "Bash(fj repo create *)",
       "Read(/__CLAUDE_DIR__/stack.env)",
       "Read(/__CLAUDE_DIR__/.credentials.json)",
       "Read(~/.claude.json)",
@@ -151,11 +176,10 @@
         ]
       },
       {
-        "matcher": "Bash",
+        "matcher": "Bash|Monitor|PowerShell",
         "hooks": [
           {
             "type": "command",
-            "if": "Bash(git *)",
             "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" no-push",
             "timeout": 15
           }

@@ -298,7 +298,24 @@ probes = [("settings.json PreToolUse(Agent)", cmds,
             "agent_type": "blackcat", "prompt_id": "doctor", "tool_input": {"command": "true"}}),
           ("settings.json PreToolUse(Bash) no-push", pcmds,
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Bash",
-            "tool_input": {"command": "git -C . push origin main"}})]
+            "tool_input": {"command": "git -C . push origin main"}}),
+          ("settings.json PreToolUse(Bash) no-push inside bash -c", pcmds,
+           {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "tool_input": {"command": "bash -c 'git push origin main'"}}),
+          ("settings.json PreToolUse(Monitor) no forge write", pcmds,
+           {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Monitor",
+            "tool_input": {"command": "eval 'gh pr merge 1 --squash'"}})]
+# The no-push hook must see every shell command: `if: "Bash(git *)"` skips `bash -c 'git push'`,
+# `eval` and `/usr/bin/git` (tested on Claude Code 2.1.283), and Monitor runs commands too.
+for g in hooks.get("PreToolUse", []):
+    if isinstance(g, dict) and any("no-push" in str(h.get("command")) for h in g.get("hooks", [])):
+        tools = set(str(g.get("matcher") or "").split("|"))
+        filtered = [h.get("if") for h in g.get("hooks", []) if "no-push" in str(h.get("command")) and h.get("if")]
+        if filtered or not {"Bash", "Monitor"} <= tools:
+            print("  FAIL  no-push hook is filtered (matcher %r, if %r): nested pushes pass — rerun install.sh"
+                  % (g.get("matcher"), filtered))
+        else:
+            print("  ok    no-push hook sees every Bash and Monitor command (no `if` filter)")
 for label, commands, ev in probes:
     if not commands:
         print("  FAIL  %s: no agent_guard.py hook command found — rerun install.sh" % label)

@@ -12,8 +12,9 @@ Commands marked (tested) were run on Git 2.43; newer-only features name their mi
 - Not here: running a forge (the `self-hosting-ops` skill has Forgejo), model downloads (the `hf-hub` skill).
 
 ## Safety rules (always)
-1. Never push (the stack's global Git rule, hook-enforced): no `git push` in any form, no `send-pack`, `lfs push`
-   or `subtree push`, no forge command that writes to a remote. Work lands in local `main`; the user publishes.
+1. Never push (the stack's global Git rule, hook-enforced, also inside `bash -c`/`eval`/`$(...)`): no `git push` in
+   any form, no `send-pack`, `lfs push` or `subtree push`, no `gh`/`tea`/`fj` command that writes to a forge.
+   Work lands in local `main`; the user publishes.
 2. Never rewrite published history (amend/rebase/filter-repo of pushed commits) unless the user asked for it.
 3. Never commit secrets. If one lands: rotate it first, then clean (below).
 4. Before anything destructive, leave a rescue ref: `git branch rescue/$(date +%s)` (or note `git rev-parse HEAD`).
@@ -195,8 +196,9 @@ repos:
 - Git 2.54 can also define hooks in config (`hook.<name>.event`, `hook.<name>.command`, `git hook list <event>`).
 
 ## Forge CLIs
-Agents use these read-only (`gh pr view|checks`, `gh run view|watch`, `tea pulls list`); creating or merging a
-PR/MR writes to the remote, so it is the user's step, like a push.
+Agents use these read-only (`gh pr view|checks`, `gh run view|watch`, `tea pulls list`); creating, merging,
+reviewing or commenting on a PR/MR, releases and `gh api` writes go to the remote, so they are the user's step,
+like a push (the no-push hook refuses them); the write commands below are for the user's reference.
 - GitHub (`gh`): `gh pr create --fill --base main --head <branch> [--draft]`; `gh pr checks --watch --fail-fast`;
   `gh pr view --json state,mergeable,reviewDecision`; `gh pr merge --squash --delete-branch [--auto]
   [--match-head-commit <sha>]`; `gh run view <id> --log-failed`; `gh run watch <id> --exit-status`; `gh api ...`.

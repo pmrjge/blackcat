@@ -13,8 +13,9 @@ Reads the hook JSON on stdin.
                                     row, or its own child/parent) and its parent's fan-out caps;
                                     resuming a finished god-coder takes the god-coder lock
   PreToolUse  mcp__computer-use__*  one agent on the screen at a time
-  PreToolUse  Bash (git commands)   `no-push` mode: agents never push, in any form (absolute; not
-                                    switched off by STACK_POLICY=off)
+  PreToolUse  Bash|Monitor|PowerShell  `no-push` mode: agents never push and never write to a
+                                    forge (gh/tea/fj), in any form, also inside bash -c, eval, $(...)
+                                    (absolute; not switched off by STACK_POLICY=off)
   PreToolUse  local-file MCP tools  context-mode ctx_index, markitdown, docling, playwright: a path
                                     or file: URI argument is held to the Read deny rules (Claude Code
                                     cannot see inside MCP arguments)
@@ -54,7 +55,7 @@ subtree (the agent's transcript and every live descendant's).
 CLI: `agent_guard.py --print-policy` (JSON consumed by doctor.sh and tests/lint_agents.py),
 `--self-test`, `blackcat-guard` (PreToolUse hook of the blackcat main thread), `image-limit`
 (PreToolUse/PostToolUse hook that keeps images under STACK_IMAGE_MAX_PX), `no-push` (PreToolUse
-Bash hook that denies any git push), no argument = event.
+Bash/Monitor/PowerShell hook that denies any git push or forge write), no argument = event.
 
 Knobs (env):
   STACK_POLICY=off        disable every deny and lock (bookkeeping and model strip continue)
@@ -1885,74 +1886,1167 @@ def blackcat_guard(raw):
 
 
 # ---------------------------------------------------------------- no-push mode
-# The stack's git rule: agents never push. settings.json denies `Bash(git push *)`, which misses
-# `git -C dir push`, `git -c k=v push`, `git 'push'` or a push inside `$(...)`; this PreToolUse Bash
-# hook (spawned only for commands with a git subcommand, via `if: "Bash(git *)"`) catches those.
-# Words are compared after shell unquoting, so a commit message that mentions "git push" passes.
-# Deliberately not switched off by STACK_POLICY=off: the rule is absolute. Best effort: a git alias
-# or a script that pushes is out of its sight.
+# The stack's Git rule: agents never push and never write to a forge. settings.json denies
+# `Bash(git push *)` and the common forge writes (`gh pr create`, `tea pulls merge`, ...), but a
+# permission rule sees only the plain spelling: not `git -C dir push`, `/usr/bin/git push`,
+# `bash -c 'git push'` or `eval 'gh pr merge 1'`. Neither does a hook's `if` filter (tested on
+# Claude Code 2.1.283: `if: "Bash(git *)"` skips `bash -c`, `sh -c`, `zsh -c`, `eval` and
+# `/usr/bin/git`), so this PreToolUse hook has no `if` and runs on every Bash, Monitor and
+# PowerShell call (~40 ms, mostly interpreter start-up; commands that name no git/gh/tea/fj
+# return at once).
+# It parses the command as bash/zsh would: quotes, `$'...'`, backslash-newline, comments,
+# newlines, `$(...)`, backticks and `<(...)`, arithmetic, heredocs (a body is code only when the
+# command that owns it, or its compound command, is a shell, eval, source or ssh), and the
+# strings that other programs run as shell code: `sh|bash|zsh|dash|ksh|fish -c` (with `$1`/`$@`
+# arguments when the code runs them), `pwsh -Command`, `eval`, `env -S`, `ssh`, `watch`, `su -c`,
+# `tmux`, here-strings and pipes into a shell, `python -c`/`node -e` code that starts a process,
+# `$(printf 'git %s' push)` output, and git's own command hooks (`-c alias.x=...` expanded with
+# its arguments, `core.editor`, `GIT_EDITOR=`, `submodule foreach`, `rebase --exec`,
+# `bisect run`). Words are compared after unquoting, so data — a commit message, a grep
+# pattern, a heredoc into `git commit -F -` — passes. What the shell decides only at run time
+# (`git $X`, `g${X}it`, `$G push`, `xargs git`, `echo ... | base64 -d | sh`, `pwsh
+# -EncodedCommand`) is refused, and so is a command the guard cannot finish checking (a parser
+# error, nesting deeper than MAX_NEST, more than 64 heredocs on a line, DEADLINE_S of work).
+# PowerShell syntax is modelled only as far as `-Command`, `iex`, `Start-Process` and backtick
+# escapes. Deliberately not switched off by STACK_POLICY=off: the rule is absolute. Best effort:
+# an alias or function defined in an earlier command, a script file or download, a variable
+# holding the whole command, or text assembled by string operations stays out of sight.
 GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env",
-                       "--super-prefix", "--exec-path"}
+                       "--super-prefix", "--exec-path", "--attr-source"}
 PUSH_SUBCOMMANDS = {"push", "send-pack"}
-PUSH_UNDER = {"lfs", "subtree"}             # git lfs push, git subtree push
+PUSH_UNDER = {"lfs": {"push"}, "subtree": {"push"}, "svn": {"dcommit", "set-tree"},
+              "p4": {"submit"}}                      # git lfs push, git svn dcommit, ...
+PUSH_PROGRAMS = {"git-push", "git-send-pack"}         # "$(git --exec-path)/git-push"
+PROGRAMS = {"git", "gh", "tea", "fj"} | PUSH_PROGRAMS
 PUSH_RE = re.compile(r"(?:^|[\s;&|(`'\"])(?:\S*/)?git(?:\s+-{1,2}[^\s]+(?:\s+[^\s-][^\s]*)?)*?"
                      r"\s+['\"]?(?:push|send-pack|(?:lfs|subtree)\s+['\"]?push)\b")
-HEREDOC_RE = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_][\w-]*)\1[^\n]*\n.*?\n[ \t]*\2[ \t]*(?=\n|\)|$)", re.S)
-SUBST_RE = re.compile(r"\$\(([^()]*)\)|`([^`]*)`")
+# config keys whose value git runs as a command (git -c KEY=VALUE, git config KEY VALUE)
+GIT_EXEC_KEY_RE = re.compile(
+    r"(?:alias\..+|core\.(?:editor|pager|sshcommand|fsmonitor|askpass)|sequence\.editor|pager\..+|"
+    r"diff\.external|diff\..+\.(?:command|textconv)|difftool\..+\.cmd|mergetool\..+\.cmd|"
+    r"merge\..+\.driver|filter\..+\.(?:clean|smudge|process)|interactive\.difffilter|"
+    r"gpg\.program|gpg\..+\.program|credential\.helper|credential\..+\.helper|"
+    r"uploadpack\.packobjectshook|sendemail\..+)\Z", re.I)
+ENV_EXEC_RE = re.compile(r"(?:GIT_[A-Z0-9_]+|EDITOR|VISUAL|PAGER|SSH_ASKPASS)=(.*)\Z", re.S)
+ASSIGN_RE = re.compile(r"[A-Za-z_]\w*\+?=")
+OPAQUE_SUB_RE = re.compile(r"[$`{}*?\[\]\x00]")      # expansions and globs: decided at run time
+EXPANSION_RE = re.compile(r"\$(?:\{[^}]*\}|[A-Za-z_]\w*|[@*#?$!0-9-])")
+PWSH = {"pwsh", "powershell", "pwsh.exe", "powershell.exe"}
+SHELLS = {"sh", "bash", "rbash", "zsh", "dash", "ksh", "ksh93", "mksh", "pdksh", "ash", "yash",
+          "posh", "fish", "csh", "tcsh"} | PWSH
+# programs that run their (joined) arguments as shell code
+STRING_RUNNERS = {"eval", "ssh", "watch", "su", "runuser", "script", "flock", "tmux", "screen",
+                  "parallel", "expect", "iex", "invoke-expression"}
+HEREDOC_RUNNERS = SHELLS | {"eval", "ssh"}           # read a heredoc on stdin as commands
+INTERPRETER_RE = re.compile(r"(?:python|pypy|perl|ruby|node|nodejs|deno|bun|php|lua|luajit|"
+                            r"osascript|Rscript|julia)[\d.]*(?:\.exe)?\Z")
+CODE_FLAG_RE = re.compile(r"-[A-Za-z]*[ceErp]\Z|--(?:eval|command|print)\Z")
+CODE_PUNCT_RE = re.compile(r"[\[\](){},;:+'\"`]")     # os.system("git push"), ['gh','pr','create']
+# inline code is checked only when it can start a process (print('git push') is text)
+EXEC_HINT_RE = re.compile(r"\b(?:system|exec\w*|popen\w*|spawn\w*|run|call|check_\w+|proc_open|"
+                          r"passthru|shell_exec|start)\s*[(\"'\[{]|\bsystem\s+\S|subprocess|"
+                          r"Deno\.(?:Command|run)|"
+                          r"child_process|\bos\.|Runtime|ProcessBuilder|do shell script|`|%x[({\[]|"
+                          r"\bqx\s*[({\[/]", re.I)
+CODE_ARGS_KEY_RE = re.compile(r"\b(?:args|argv|arguments|cmd)\b")   # Deno.Command('git', {args: [..]})
+# `sh -c CODE a b`: a and b are data unless CODE runs a positional parameter as a command
+POSITIONAL_CMD_RE = re.compile(r"(?:^|[;&|({\n`]|\b(?:eval|exec|then|do|else|command|sudo|env|"
+                               r"xargs|nohup|time)\b)\s*[\"']?\$(?:[@*0-9]|\{[@*0-9])")
+HELP_BOOL_OPTS = {"--fill", "--fill-first", "--fill-verbose", "--draft", "--web", "--squash",
+                  "--merge", "--rebase", "--delete-branch", "--auto", "--admin", "--approve",
+                  "--dry-run", "--yes", "--no-maintainer-edit", "--disable-auto",
+                  "-s", "-m", "-r", "-d", "-f", "-w", "-y", "-a", "-c"}
+# words after which the next word is still a command name (`exec git-push`, `env X=1 cmd`)
+PREFIX_WORDS = {"exec", "command", "builtin", "nohup", "time", "env", "sudo", "doas", "xargs",
+                "timeout", "nice", "stdbuf", "noglob", "then", "do", "else", "elif", "if",
+                "while", "until", "!", "{"}
+SEP_RE = re.compile(r"[;&|()\n]+\Z")                  # shlex tokens that end a simple command
+REDIR_OP_RE = re.compile(r"[<>]+&?\Z|&>+\Z")
+# fast path: a command that names none of these (after dropping quotes, backslashes and
+# expansions: g''it, g${X}it) and holds no escape that could spell one ($'\x67it', printf
+# '\147it') is not checked further
+TRIGGER_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:git|gh|tea|fj)")
+ESCAPE_RE = re.compile(r"\$'|\\(?:x[0-9A-Fa-f]|u[0-9A-Fa-f]|[0-7])")
+# ... nor a command the shell only knows at run time: `$G push`, pwsh -EncodedCommand, a
+# decoded pipeline into a shell (base64 -d | sh)
+OPAQUE_HINT_RE = re.compile(r"\$[\w{(@*!#?-]\S*\s+(?:push|send-pack)\b|\b(?:pwsh|powershell)\b|"
+                            r"\|\s*(?:\S*/)?(?:sh|bash|zsh|dash|ksh|fish|source|\.)(?:\s|$)|"
+                            r"\benv\s[^;&|\n]*-S", re.I)
+# a pipeline into a shell whose text starts as a literal (echo, printf, <<<) and is transformed
+# on the way (base64 -d, rev, tr, sed ...) runs commands nobody can read here: refused.
+# Downloads and files (curl | bash, gunzip -c x.gz | sh) are scripts, out of sight like any file.
+LITERAL_SOURCES = {"echo", "printf", "print"}
+PASS_THROUGH = {"cat", "tee", "echo", "printf", "print"}
+LENIENT_RE = re.compile(r"\n|[;&|()<>]+|[^\s;&|()<>'\"]+")
+HEREDOC_OP_RE = re.compile(r"<<(-?)[ \t]*(?:(['\"])([^'\"\n]+)\2|(\\?)([A-Za-z0-9_][\w.-]*))")
+ANSI_C_RE = re.compile(r"\$'((?:[^'\\]|\\.)*)'", re.S)
+ANSI_ESC_RE = re.compile(r"\\(x[0-9A-Fa-f]{1,2}|u[0-9A-Fa-f]{1,4}|U[0-9A-Fa-f]{1,8}|[0-7]{1,3}"
+                         r"|c.|.)", re.S)
+ANSI_ESC = {"a": "\a", "b": "\b", "e": "\x1b", "E": "\x1b", "f": "\f", "n": "\n", "r": "\r",
+            "t": "\t", "v": "\v", "\\": "\\", "'": "'", '"': '"', "?": "?"}
+SUBST_MARK = "\x00S%d\x00"                            # NULs never survive into a shell command
+SUBST_MARK_RE = re.compile("\x00S(\\d+)\x00")
+MAX_NEST, MAX_SCANS, MAX_FORGE_WORDS, DEADLINE_S = 8, 2000, 12, 8.0
+MAX_COMMAND, MAX_HEREDOCS_PER_LINE = 1000000, 64   # characters of code (heredoc bodies apart)
+# closer -> (opener, closer) keywords, to find the compound command a heredoc on `done` feeds
+COMPOUND_OPENERS = {"done": (r"(?:while|until|for|select)", "done"), "fi": ("if", "fi"),
+                    "esac": ("case", "esac"), "}": (r"\{", r"\}"), ")": (r"\(", r"\)")}
+# options of prefix commands that take a value (sudo -u deploy bash, timeout -s KILL 60 sh)
+PREFIX_VALUE_OPTS = {"-u", "-g", "-C", "-h", "-p", "-U", "-D", "-R", "-T", "-s", "-k", "-i",
+                     "-o", "-e", "-n", "-I", "-P", "-L", "-d", "-E", "-a", "--user", "--group",
+                     "--signal", "--kill-after", "--chdir", "--unset", "--adjustment"}
+EXEC_OPTS = {"-exec", "-execdir", "-ok", "-okdir"}     # find -exec CMD ...
+DOC_COMMANDS = {"man", "info", "help", "whatis", "apropos", "tldr", "which", "whereis", "type",
+                "whence", "command -v"}               # man git push: a manual page, not a push
+# pwsh command-line switches in the order pwsh matches them: (name, shortest prefix, kind);
+# pwsh takes any prefix at least that long (CommandLineParameterParser.cs, MatchSwitch)
+PWSH_SWITCHES = [
+    ("version", "v", "flag"), ("help", "h", "flag"), ("?", "?", "flag"), ("login", "l", "flag"),
+    ("noexit", "noe", "flag"), ("noprofile", "nop", "flag"), ("nologo", "nol", "flag"),
+    ("noninteractive", "noni", "flag"), ("socketservermode", "so", "flag"),
+    ("v2socketservermode", "v2so", "flag"), ("servermode", "s", "flag"),
+    ("namedpipeservermode", "nam", "flag"), ("sshservermode", "sshs", "flag"),
+    ("noprofileloadtime", "noprofileloadtime", "flag"), ("interactive", "i", "flag"),
+    ("configurationfile", "configurationfile", "value"), ("configurationname", "config", "value"),
+    ("custompipename", "cus", "value"), ("commandwithargs", "commandwithargs", "code"),
+    ("cwa", "cwa", "code"), ("command", "c", "code"), ("windowstyle", "w", "value"),
+    ("file", "f", "file"), ("isswait", "isswait", "flag"), ("outputformat", "o", "value"),
+    ("of", "o", "value"), ("inputformat", "inp", "value"), ("if", "if", "value"),
+    ("executionpolicy", "ex", "value"), ("ep", "ep", "value"), ("encodedcommand", "e", "encoded"),
+    ("ec", "e", "encoded"), ("encodedarguments", "encodeda", "encoded"), ("ea", "ea", "encoded"),
+    ("settingsfile", "settings", "value"), ("sta", "sta", "flag"), ("mta", "mta", "flag"),
+    ("workingdirectory", "wo", "value"), ("wd", "wd", "value"),
+    ("removeworkingdirectorytrailingcharacter", "removeworkingdirectorytrailingcharacter", "flag"),
+    ("token", "to", "value"), ("utctimestamp", "utc", "value"),
+]
+
+
+class _TooComplex(Exception):
+    """The command cannot be checked within the guard's limits: it is refused as opaque."""
+
+# Forge CLIs: command tree -> WRITE (refused), READ (stop: fine), a subtree, or a special check.
+# Checked against the gh manual (cli.github.com/manual, Sep 2026), tea's docs/CLI.md (main) and
+# forgejo-cli's clap definitions (codeberg.org/forgejo-contrib/forgejo-cli, main). "a|b" spells
+# aliases; "*" is what a group means when only unknown words follow it.
+WRITE, READ = "write", "read"
+GH_API = ("api", {"-X", "--method"}, {"-f", "-F", "--field", "--raw-field", "--input"},
+          {"-H", "--header", "-q", "--jq", "-t", "--template", "-p", "--preview", "--hostname",
+           "--cache"})
+TEA_API = ("api", {"-X", "--method"}, {"-f", "-F", "--field", "--Field", "-d", "--data"},
+           {"-H", "--header", "-l", "--login", "-o", "--output", "-R", "--remote", "-r", "--repo"})
+
+
+def _forge_tree(spec):
+    if not isinstance(spec, dict):
+        return spec
+    return {k: _forge_tree(sub) for keys, sub in spec.items() for k in keys.split("|")}
+
+
+FORGE_TREES = {
+    "gh": _forge_tree({
+        "pr": {"create|new|merge|close|reopen|edit|comment|review|ready|lock|unlock|"
+               "update-branch|revert": WRITE,
+               "view|list|ls|status|checks|diff|checkout|co": READ},
+        "issue": {"create|new|close|reopen|edit|comment|delete|transfer|lock|unlock|pin|unpin":
+                  WRITE, "develop": ("unless-flag", ("-l", "--list")),
+                  "view|list|ls|status": READ},
+        "release": {"create|new|delete|delete-asset|edit|upload": WRITE,
+                    "view|list|ls|download|verify|verify-asset": READ},
+        "repo": {"create|new|delete|edit|fork|rename|archive|unarchive|sync": WRITE,
+                 "deploy-key": {"add|delete": WRITE, "list|ls": READ},
+                 "autolink": {"create|new|delete": WRITE, "list|ls|view": READ},
+                 "view|list|ls|clone|set-default|read-dir|read-file|gitignore|license": READ},
+        "discussion": {"create|comment|edit": WRITE, "view|list|ls": READ},
+        "gist": {"create|new|delete|edit|rename": WRITE, "view|list|ls|clone": READ},
+        "label": {"create|delete|edit|clone": WRITE, "list|ls": READ},
+        "workflow": {"run|enable|disable": WRITE, "view|list|ls": READ},
+        "run": {"rerun|cancel|delete": WRITE, "view|list|ls|download|watch": READ},
+        "secret": {"set|delete|remove": WRITE, "list|ls": READ},
+        "variable": {"set|delete|remove": WRITE, "get|list|ls": READ},
+        "cache": {"delete": WRITE, "list|ls": READ},
+        "ssh-key|gpg-key": {"add|delete": WRITE, "list|ls": READ},
+        "project": {"close|copy|create|delete|edit|field-create|field-delete|item-add|"
+                    "item-archive|item-create|item-delete|item-edit|link|mark-template|unlink":
+                    WRITE, "view|list|ls|field-list|item-list": READ},
+        "codespace|cs": {"create|delete|edit|rebuild|stop": WRITE,
+                         "ports": {"visibility": WRITE, "forward": READ},
+                         "view|list|ls|logs|code|jupyter|ssh|cp": READ},
+        "agent-task|agent-tasks|agent|agents": {"create": WRITE, "view|list": READ},
+        "skill|skills": {"publish": WRITE,
+                         "install|add|list|ls|preview|show|search|update": READ},
+        "api": GH_API,
+        "alias": {"set": ("gh-alias",), "import|list|ls|delete": READ},
+        "auth|config|extension|extensions|ext|completion|help|browse|status|search|attestation|"
+        "at|ruleset|rs|org|licenses|preview|copilot|version": READ,
+    }),
+    "tea": _forge_tree({
+        "issues|issue|i": {"create|c|edit|e|reopen|open|close": WRITE, "list|ls": READ},
+        "pulls|pull|pr": {"create|c|close|reopen|open|edit|e|review|approve|lgtm|a|reject|merge|m|"
+                          "reply|resolve|unresolve|clean": WRITE,
+                          "list|ls|checkout|co|review-comments|rc": READ},
+        "labels|label": {"create|c|update|delete|rm": WRITE, "list|ls": READ},
+        "milestones|milestone|ms": {"create|c|close|delete|rm|reopen|open": WRITE,
+                                    "issues|i": {"add|a|remove|r": WRITE}, "list|ls": READ},
+        "releases|release|r": {"create|c|delete|rm|edit|e": WRITE,
+                               "assets|asset|a": {"create|c|delete|rm": WRITE, "list|ls": READ},
+                               "list|ls": READ},
+        "times|time|t": {"add|a|delete|rm|reset": WRITE, "list|ls": READ},
+        "organizations|organization|org": {"create|c|delete|rm": WRITE, "list|ls": READ},
+        "repos|repo": {"create|c|create-from-template|ct|fork|f|migrate|m|delete|rm|edit|e": WRITE,
+                       "list|ls|search|s": READ},
+        "branches|branch|b": {"protect|P|unprotect|U|rename|rn": WRITE, "list|ls": READ},
+        "actions|action": {
+            "secrets|secret": {"create|add|set|delete|remove|rm": WRITE, "list|ls": READ},
+            "variables|variable|vars|var": {"set|create|update|delete|remove|rm": WRITE,
+                                            "list|ls": READ},
+            "runs|run": {"delete|remove|rm|cancel": WRITE,
+                         "list|ls|view|show|get|logs|log": READ},
+            "workflows|workflow": {"dispatch|trigger|run|enable|disable": WRITE,
+                                   "list|ls|view|show|get": READ}},
+        "wiki": {"create|c|edit|e|delete|rm": WRITE, "list|ls|view|revisions|history": READ},
+        "webhooks|webhook|hooks|hook": {"create|c|delete|rm|update|edit|u": WRITE, "list|ls": READ},
+        # tea < 0.12 had `tea comment <index> <body>` ("*": two or more words the tree lacks)
+        "comments|comment|c": {"add|a|edit|e|delete|rm": WRITE, "list|ls": READ, "*": WRITE},
+        "notifications|notification|n": {"read|r|unread|u|pin|p|unpin": WRITE, "ls|list": READ},
+        "ssh-keys|ssh-key": {"add|delete|rm": WRITE, "list|ls": READ},
+        "admin|a": {"users|u": {"create|add|new|edit|update|e|u|delete|rm|remove": WRITE,
+                                "list|ls": READ}},
+        "api": TEA_API,
+        "logins|login|logout|whoami|open|o|clone|C|help|h": READ,
+    }),
+    "fj": _forge_tree({
+        "repo": {"create|fork|migrate|star|unstar|watch|unwatch|delete|edit|units|unit": WRITE,
+                 "labels|label": {"create|delete|edit": WRITE, "view": READ},
+                 "view|readme|clone|star-status|watch-status|browse": READ},
+        "issue": {"create|edit|comment|assign|unassign|close": WRITE,
+                  "depend|block": {"add|remove": WRITE, "list": READ},
+                  "search|view|templates|browse": READ},
+        "pr": {"create|comment|assign|unassign|edit|close|merge": WRITE,
+               "depend|block": {"add|remove": WRITE, "list": READ},
+               "search|view|status|checkout|browse|review": READ},
+        "milestone": {"create|edit|delete": WRITE, "search|view": READ},
+        "actions": {"dispatch": WRITE, "variables|secrets": {"create|delete": WRITE, "list": READ},
+                    "tasks": READ},
+        "release": {"create|edit|delete": WRITE, "asset": {"create|delete": WRITE, "download": READ},
+                    "list|view|browse": READ},
+        "tag": {"create|delete": WRITE, "list|view": READ},
+        "user": {"follow|unfollow|block|unblock|edit": WRITE,
+                 "key|gpg": {"upload|delete": WRITE, "list|view|verify": READ},
+                 "search|view|browse|following|followers|repos|orgs|activity": READ},
+        "org": {"create|edit": WRITE, "visibility": ("if-flag", ("-s", "--set")),
+                "team": {"create|edit|delete": WRITE,
+                         "repo|member": {"add|rm": WRITE, "list": READ}, "list|view": READ},
+                "label": {"add|edit|rm": WRITE, "list": READ},
+                "repo": {"create": WRITE, "list": READ},
+                "list|view|activity|members": READ},
+        "wiki|auth|whoami|version|completion|help": READ,
+    }),
+}
 NO_PUSH_REASON = ("Blocked by the stack's git rule: agents never push to a remote, in any form "
-                  "(git push, send-pack, lfs/subtree push). Keep the work in the local repository: "
-                  "commit, merge it back into local main (git merge --ff-only), and report the "
-                  "commits; pushing is the user's own step.")
+                  "(git push, send-pack, lfs/subtree push; also inside bash -c, eval or $(...)). "
+                  "Keep the work in the local repository: commit, merge it back into local main "
+                  "(git merge --ff-only), and report the commits; pushing is the user's own step.")
+FORGE_REASON = ("Blocked by the stack's git rule: agents never write to a forge, and `%s` "
+                "creates, merges, comments on or changes something on GitHub/Gitea/Forgejo "
+                "(gh, tea and fj, also `gh api`/`tea api` with a write method, inside bash -c or "
+                "eval too). Read-only forge commands (view, list, status, checks, diff, checkout) "
+                "are fine. Publishing is the user's own step: report the branch, the commits and "
+                "the command for the user to run.")
+OPAQUE_REASON = ("Blocked by the stack's git rule (agents never push): `%s` cannot be checked, "
+                 "because the shell decides it only when the command runs. Write the git or forge "
+                 "subcommand literally, without variables, globs or nesting this deep; pushing is "
+                 "the user's own step.")
+GUARD_FAIL_REASON = ("Blocked: the stack's no-push guard could not check this command (%s). Split "
+                     "it into simpler commands; pushing and forge writes stay the user's own step.")
 
 
 def _shell_words(command):
-    lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>")
+    """shlex words, with each unquoted newline kept as a "\\n" separator token."""
+    lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>\n")
+    lex.whitespace = " \t\r"
     lex.whitespace_split = True
     lex.commenters = ""
-    return list(lex)
+    out = []
+    for w in lex:
+        if "\n" in w and w.strip("\n") and SEP_RE.match(w.replace("<", "").replace(">", "") or "x"):
+            w = w.replace("\n", "")            # "|\n" continues the pipeline: plain "|"
+        out.append(w)
+    return out
 
 
-def git_push_in(command, _depth=0):
-    """True when a shell command runs `git [global options] push` (or send-pack, lfs/subtree push)."""
-    if not isinstance(command, str) or "git" not in command:
+def _c_unescape(s):
+    """C-style escapes as bash's $'...', printf and echo -e read them."""
+    def esc(m):
+        e = m.group(1)
+        try:
+            if e[0] in "xuU":
+                return chr(int(e[1:], 16))
+            if e[0] in "01234567":
+                return chr(int(e, 8) & 0xFF)
+        except (ValueError, OverflowError):
+            return ""
+        if e[0] == "c" and len(e) == 2:
+            return chr(ord(e[1]) & 0x1F)
+        return ANSI_ESC.get(e, "\\" + e)
+    return ANSI_ESC_RE.sub(esc, s)
+
+
+def _command_position(prefix):
+    """True when a substitution that starts after `prefix` (the text of its simple command so
+    far) is the command name, so its output runs; False for an argument or a word part
+    (`VAR=$(...)`, `--x=$(...)`)."""
+    s = prefix.rstrip('"')                     # the opening quote of "$(...)"
+    if s and not s[-1].isspace() and s[-1] not in ";&|(!{`\n":
         return False
-    text = HEREDOC_RE.sub("\n", command)    # heredoc bodies are data (commit messages), not commands
-    if _depth < 3:                            # $(...) and `...` run even inside double quotes
-        for m in SUBST_RE.finditer(text):
-            if git_push_in(m.group(1) if m.group(1) is not None else m.group(2), _depth + 1):
+    s = s.rstrip()
+    if not s or s[-1] in ";&|(!{`\n":
+        return True
+    last = re.split(r"[\s;&|(]", s)[-1]
+    return last in PREFIX_WORDS or bool(re.match(r"[A-Za-z_]\w*=\S*\Z", last))
+
+
+def _script_position(prefix):
+    """"script" when `<(...)` after `prefix` is the script a shell or `source` reads."""
+    words = re.findall(r"[^\s;&|(]+", prefix.rsplit("\n", 1)[-1])
+    while words and (ASSIGN_RE.match(words[0]) or words[0] in PREFIX_WORDS):
+        words = words[1:]
+    if words and (_base(words[0]) in SHELLS | {"source", "."}) and not any(
+            w[:1] == "-" and "c" in w[1:] and not w.startswith("--") for w in words[1:]):
+        return "script"
+    return False
+
+
+def _heredoc_owner(text, seg, i):
+    """The command a heredoc feeds: its simple command, or the whole compound command when `<<`
+    follows `done`, `fi`, `esac`, `}` or `)` (while read l; do eval "$l"; done <<EOF)."""
+    own = text[max(seg, i - 512):i]
+    words = own.split()
+    if words and words[0] in COMPOUND_OPENERS:
+        opener, closer = COMPOUND_OPENERS[words[0]]
+        lo = max(0, seg - 4096)
+        window = text[lo:seg]
+        kw = r"(?<![\w-])(?:(%s)|(%s))(?![\w-])" if words[0][0].isalpha() else r"(%s)|(%s)"
+        depth, start = 1, 0
+        for m in reversed(list(re.finditer(kw % (opener, closer), window))):
+            depth += 1 if m.group(2) else -1
+            if not depth:
+                start = m.start()
+                break
+        own = text[lo + start:i]
+    return own
+
+
+def _at_command_start(text, i):
+    j = i - 1
+    while j >= 0 and text[j] in " \t":
+        j -= 1
+    return j < 0 or text[j] in ";&|(\n{"
+
+
+def _lex(text, deadline=None):
+    """One quote-aware pass over a command, linear in its length. Returns (the text with comments,
+    line continuations and heredoc bodies removed, `$'...'` decoded, and every outermost $(...)
+    or `...` replaced by a SUBST_MARK placeholder; [(the command owning a heredoc, body, delimiter
+    quoted?)]; [(substitution text, in command position?)]). `<<` inside quotes or arithmetic is
+    no heredoc; a heredoc or substitution inside "$(...)" still counts; `$(` in single quotes is
+    literal."""
+    out, heredocs, substs, pending, stack, seg_stack = [], [], [], [], [], []
+    i, n, nsub, seg = 0, len(text), 0, 0     # nsub: open $( and `; seg: start of the command
+    sub_start = sub_pos = sub_kind = None
+    glued, steps = -1, 0                     # glued: just after a $(...) or $((...)) ended
+    while i < n:
+        steps += 1
+        if not steps & 0x3FFF and deadline is not None and time.monotonic() > deadline:
+            raise _TooComplex("a command too large to check in time")
+        c = text[i]
+        ctx = stack[-1] if stack else None
+        in_sub = nsub > 0
+        opener = None
+        if ctx == "'":
+            if c == "'":
+                stack.pop()
+        elif ctx in ("A", "a"):                # arithmetic: only $(...) and parentheses count
+            if text.startswith("$(", i) and not text.startswith("$((", i):
+                opener = "$("
+            elif c == "(":
+                stack.append("a")
+            elif c == ")" and ctx == "a":
+                stack.pop()
+            elif ctx == "A" and text.startswith("))", i):
+                stack.pop()
+                if not in_sub:
+                    out.append("))")
+                i += 2
+                glued = i
+                continue
+        elif ctx == '"':
+            if c == "\\" and i + 1 < n:
+                if text[i + 1] != "\n" and not in_sub:    # backslash-newline: a continuation
+                    out.append(text[i:i + 2])
+                i += 2
+                continue
+            if c == '"':
+                stack.pop()
+            elif text.startswith("$((", i):
+                stack.append("A")
+                if not in_sub:
+                    out.append("$((")
+                i += 3
+                continue
+            elif text.startswith("$(", i):
+                opener = "$("
+            elif c == "`":
+                opener = "`"
+        else:                                  # the shell reads code here (None, "$", "(", "`")
+            if c == "\\" and i + 1 < n:
+                if text[i + 1] != "\n" and not in_sub:
+                    out.append(text[i:i + 2])
+                i += 2
+                continue
+            if c == "#" and (i == 0 or text[i - 1] in " \t\n;&|(<>"
+                             or (text[i - 1] == ")" and glued != i)):   # a comment
+                j = text.find("\n", i)
+                i = n if j < 0 else j
+                continue
+            if c == "$" and text.startswith("$'", i):    # $'...': decoded into plain quotes
+                m = ANSI_C_RE.match(text, i)
+                if m:
+                    if not in_sub:
+                        out.append("'%s'" % _c_unescape(m.group(1)).replace("'", "'\"'\"'"))
+                    i = m.end()
+                    continue
+            if c in "'\"":
+                stack.append(c)
+            elif text.startswith("$((", i) or (text.startswith("((", i)
+                                               and _at_command_start(text, i)):
+                stack.append("A")
+                w = "$((" if c == "$" else "(("
+                if not in_sub:
+                    out.append(w)
+                i += len(w)
+                continue
+            elif text.startswith("$(", i):
+                opener = "$("
+            elif c in "<>" and text[i + 1:i + 2] == "(" and text[i - 1:i] != c:
+                opener = c + "("                   # process substitution <(...) >(...)
+            elif c == "(" and ctx in ("$", "("):   # a subshell inside a substitution
+                stack.append("(")
+            elif c == ")" and ctx == "(":
+                stack.pop()
+            elif (c == ")" and ctx == "$") or (c == "`" and ctx == "`"):
+                stack.pop()
+                nsub -= 1
+                seg = seg_stack.pop() if seg_stack else 0
+                if not nsub:                   # an outermost substitution closed
+                    inner = text[sub_start:i]
+                    if sub_kind == "`":        # \` \$ \\ are one level of escaping
+                        inner = re.sub(r"\\([\\`$])", r"\1", inner)
+                    substs.append((inner, sub_pos))
+                    out.append(SUBST_MARK % (len(substs) - 1))
+                i += 1
+                glued = i
+                continue
+            elif c == "`":
+                opener = "`"
+            elif c == "<" and text.startswith("<<", i) and not text.startswith("<<<", i) \
+                    and (i == 0 or text[i - 1] != "<"):
+                m = HEREDOC_OP_RE.match(text, i)
+                if m:
+                    if len(pending) >= MAX_HEREDOCS_PER_LINE:
+                        raise _TooComplex("more than %d heredocs on one line"
+                                          % MAX_HEREDOCS_PER_LINE)
+                    pending.append((m.group(3) or m.group(5), bool(m.group(2) or m.group(4)),
+                                    _heredoc_owner(text, seg, i), m.end()))
+                    if not in_sub:
+                        out.append(" ")
+                    i = m.end()
+                    continue
+            elif c == "\n" and pending:        # the bodies start on the next line
+                eol = i
+                i += 1
+                for delim, quoted, before, op_end in pending:
+                    after = re.split(r";|&&|\|\||(?<![<>])&(?![>&])",
+                                     text[op_end:min(eol, op_end + 512)])[0]
+                    body, end_re = [], re.compile(r"[ \t]*%s[ \t]*(?=\)|\Z)" % re.escape(delim))
+                    while i < n:
+                        j = text.find("\n", i)
+                        j = n if j < 0 else j
+                        m = end_re.match(text, i, j)
+                        if m:
+                            i = m.end() if m.end() < j else j + 1
+                            break
+                        body.append(text[i:j])
+                        i = j + 1
+                    heredocs.append((before + " " + after, "\n".join(body), quoted))
+                pending, seg = [], i
+                if not in_sub:
+                    out.append("\n")
+                continue
+            if c in ";|()\n" or (c == "&" and text[i - 1:i] not in ("<", ">")
+                                   and text[i + 1:i + 2] != ">"):     # not 2>&1, &>
+                seg = i + 1
+        if opener:
+            if not in_sub:
+                sub_start, sub_kind = i + len(opener), opener
+                before = text[max(seg, i - 256):i]
+                sub_pos = _script_position(before) if opener == "<(" else \
+                    False if opener == ">(" else _command_position(before)
+            seg_stack.append(seg)
+            seg = i + len(opener)
+            stack.append("`" if opener == "`" else "$")
+            nsub += 1
+            i += len(opener)
+            continue
+        if not in_sub:
+            out.append(c)
+        i += 1
+    if nsub and sub_start is not None:         # unterminated: the rest is the substitution
+        substs.append((text[sub_start:], sub_pos))
+        out.append(SUBST_MARK % (len(substs) - 1))
+    return "".join(out), heredocs, substs
+
+
+def _restorer(substs):
+    """Put the substitutions of one _lex call back into words taken from its text."""
+    def restore(s):
+        if "\x00" not in s:
+            return s
+        return SUBST_MARK_RE.sub(lambda m: "$(%s)" % substs[int(m.group(1))][0]
+                                 if int(m.group(1)) < len(substs) else "", s)
+    return restore
+
+
+def _printf(args):
+    """What `printf FORMAT ARGS...` prints (%s-style directives; the format repeats for extra
+    arguments), for reading the output of $(printf 'git %s' push) as a command."""
+    while args and args[0].startswith("-") and args[0] != "--":
+        args = args[2:] if args[0] == "-v" else args[1:]
+    if args[:1] == ["--"]:
+        args = args[1:]
+    if not args:
+        return ""
+    fmt, vals, out = _c_unescape(args[0]), list(args[1:]), []
+    directive = re.compile(r"%[-+ #0]*\d*(?:\.\d+)?([a-zA-Z%])")
+    for _ in range(64):
+        used = [False]
+
+        def sub(m):
+            if m.group(1) == "%":
+                return "%"
+            used[0] = True
+            return vals.pop(0) if vals else ""
+        out.append(directive.sub(sub, fmt))
+        if not vals or not used[0]:
+            break
+    return "".join(out)
+
+
+def _raw_substs(s):
+    """$(...) and `...` in an unquoted heredoc body (quotes are text there; \\$ and \\` are not
+    substitutions)."""
+    found, i, n = [], 0, len(s)
+    while i < n:
+        if s[i] == "\\":
+            i += 2
+        elif s.startswith("$(", i):
+            depth, j = 1, i + 2
+            while j < n and depth:
+                depth += {"(": 1, ")": -1}.get(s[j], 0)
+                j += 1
+            found.append(s[i + 2:j - 1] if depth == 0 else s[i + 2:])
+            i = j
+        elif s[i] == "`":
+            j = s.find("`", i + 1)
+            j = n if j < 0 else j
+            found.append(s[i + 1:j])
+            i = j + 1
+        else:
+            i += 1
+    return found
+
+
+def _heredoc_runs_code(owner):
+    """Whether the command that owns a heredoc (or a later stage of its pipeline) reads the body
+    as commands: a shell, eval or ssh, or `source /dev/stdin`."""
+    if re.match(r"\s*(?:while|until|for|select|if|case)\b|\s*[{(]", owner):
+        # a compound command: its stdin reaches every command in it; look at command words only
+        for part in re.split(r";|&&|\|\||\||\n|[{}()]|(?<![\w-])(?:do|then|else|elif)(?![\w-])",
+                             owner):
+            words = [w for w in part.split() if not ASSIGN_RE.match(w)]
+            if not words or words[0] in ("for", "select", "case", "done", "fi", "esac"):
+                continue
+            while words and words[0] in PREFIX_WORDS | {"while", "until", "if", "!"}:
+                words = words[1:]
+            if words and (_base(words[0]) in HEREDOC_RUNNERS or (
+                    words[0] in ("source", ".") and words[1:2] and words[1] in
+                    ("/dev/stdin", "/dev/fd/0", "-"))):
                 return True
-    try:
-        words = _shell_words(text)
-    except ValueError:                        # unbalanced quotes: fall back to the raw text
-        return bool(PUSH_RE.search(text))
-    for i, w in enumerate(words):
-        if w != "git" and not w.endswith("/git"):
-            continue
-        j = i + 1
-        while j < len(words) and words[j].startswith("-"):
-            j += 2 if words[j] in GIT_OPTS_WITH_VALUE else 1
-        if j >= len(words):
-            continue
-        sub = words[j]
-        if sub in PUSH_SUBCOMMANDS:
+        return False
+    for stage in owner.split("|"):
+        words = re.findall(r"[^\s;&()<>'\"`]+", stage)[:8]
+        if any(_base(w) in HEREDOC_RUNNERS for w in words):
             return True
-        if sub in PUSH_UNDER and j + 1 < len(words) and words[j + 1] == "push":
+        if words[:1] in (["source"], ["."]) and set(words[1:2]) & {"/dev/stdin", "/dev/fd/0", "-"}:
             return True
     return False
+
+
+def _rest(words, j, limit=256):
+    """words[j:] up to the next command separator (at most `limit` words)."""
+    k, end = j, min(len(words), j + limit)
+    while k < end and not SEP_RE.match(words[k]):
+        k += 1
+    return words[j:k]
+
+
+def _after_pipe(words, i):
+    """words[i] is the command of a pipeline stage after `|` (past env, sudo, options, X=1)."""
+    j = i - 1
+    while j >= 0 and not SEP_RE.match(words[j]) and (
+            words[j] in PREFIX_WORDS or words[j][:1] == "-" or _duration(words[j])
+            or ASSIGN_RE.match(words[j]) or (j > 0 and words[j - 1] in PREFIX_VALUE_OPTS)):
+        j -= 1
+    return j >= 0 and words[j] in ("|", "|&")
+
+
+def _duration(word):
+    return bool(re.match(r"\d+(?:\.\d+)?[smhd]?\Z", word))
+
+
+def _stage_head(stage):
+    """The program a pipeline stage runs (past X=1, env/sudo/timeout and their options)."""
+    k, n = 0, len(stage)
+    while k < n:
+        w = stage[k]
+        if ASSIGN_RE.match(w) or w in PREFIX_WORDS or _duration(w):
+            k += 1
+        elif w[:1] == "-" and k > 0:
+            k += 2 if w in PREFIX_VALUE_OPTS else 1
+        else:
+            return _base(w)
+    return ""
+
+
+def _skip_redirections(words, k, end):
+    """Index of the first word at or after k that is not a redirection (`2>/dev/null`, `>log`)."""
+    while k < end:
+        if words[k].isdigit() and k + 1 < end and REDIR_OP_RE.match(words[k + 1]):
+            k += 1
+        elif REDIR_OP_RE.match(words[k]):
+            k += 2
+        else:
+            break
+    return k
+
+
+def _base(word):
+    return word.rsplit("/", 1)[-1]
+
+
+def _pwsh_switch(arg):
+    """(name, kind) of a pwsh switch spelled any way pwsh accepts (-c, -Comm, --command, /c)."""
+    key = arg.strip()
+    if key[:1] not in ("-", "/", "\u2013", "\u2014"):
+        return None, None
+    key = key[1:]
+    if key[:1] == arg.strip()[:1] and key[:1] in ("-", "\u2013", "\u2014"):
+        key = key[1:]
+    key = key.split(":", 1)[0].lower()
+    for name, shortest, kind in PWSH_SWITCHES:
+        if len(key) >= len(shortest) and name.startswith(key):
+            return name, kind
+    return key, "flag"
+
+
+def _pwsh_args(base, rest):
+    """How pwsh/powershell reads its arguments: ("code", text), ("encoded", None),
+    ("file", None) or (None, None) when it reads commands from stdin."""
+    k = 0
+    while k < len(rest):
+        name, kind = _pwsh_switch(rest[k])
+        if name is None:                       # a bare argument
+            if base.startswith("pwsh"):
+                return "file", None            # pwsh: a script file
+            return "code", " ".join(rest[k:])  # Windows PowerShell: a command
+        if kind in ("code", "encoded", "file"):
+            colon = rest[k].partition(":")[2]
+            code = " ".join(([colon] if colon else []) + rest[k + 1:])
+            return kind, code
+        k += 2 if kind == "value" and ":" not in rest[k] else 1
+    return None, None
+
+
+def _expansion(word):
+    return "$" in word or "\x00" in word or "`" in word
+
+
+class _Scan(object):
+    """One detection run: which kinds to report ("push", "forge", "opaque"), a work budget and a
+    deadline (a hook that times out does not block, so a slow check must deny instead)."""
+
+    def __init__(self, want):
+        self.want, self.budget = set(want), MAX_SCANS
+        self.deadline = time.monotonic() + DEADLINE_S
+
+    def hit(self, kind, what):
+        if len(what) > 200:
+            what = what[:197] + "..."
+        return (kind, what) if kind in self.want else None
+
+    def scan(self, command, depth=0):
+        """First remote write in a shell command: (kind, what), or None."""
+        if not isinstance(command, str):
+            return None
+        command = command.replace("\x00", "")
+        bare = re.sub(r"['\"\\]", "", command)
+        if not (TRIGGER_RE.search(EXPANSION_RE.sub("", bare)) or ESCAPE_RE.search(command)
+                or OPAQUE_HINT_RE.search(bare)):
+            return None                        # names no git/gh/tea/fj, even obfuscated
+        self.budget -= 1
+        if depth > MAX_NEST or self.budget < 0:
+            return self.hit("opaque", "a command nested too deeply to check")
+        if time.monotonic() > self.deadline:
+            return self.hit("opaque", "a command too large to check in time")
+        try:
+            text, heredocs, substs = _lex(command, self.deadline)
+        except _TooComplex as exc:
+            return self.hit("opaque", str(exc))
+        if len(text) > MAX_COMMAND:            # shlex below is not interruptible (~3 s a MB)
+            return self.hit("opaque", "a command too large to check in time")
+        for inner, cmd_pos in substs:
+            found = self.scan(inner, depth + 1)
+            if not found and cmd_pos:          # its output is run: `$(echo 'git push')`
+                found = self.run_output(inner, depth + 1)
+            if found:
+                return found
+        for owner, body, quoted in heredocs:
+            if time.monotonic() > self.deadline:
+                return self.hit("opaque", "a command too large to check in time")
+            found = self.scan(body, depth + 1) if _heredoc_runs_code(owner) else None
+            for inner in ([] if quoted or found else _raw_substs(body)):
+                found = found or self.scan(inner, depth + 1)
+            if found:
+                return found
+        return self.scan_words(self.words(text), depth, _restorer(substs))
+
+    def run_output(self, inner, depth):
+        """What a substitution prints, read as commands: its multi-word words (echo 'git push')
+        and heredoc bodies (cat <<EOF)."""
+        try:
+            text, heredocs, substs = _lex(inner, self.deadline)
+        except _TooComplex as exc:
+            return self.hit("opaque", str(exc))
+        restore = _restorer(substs)
+        words = [restore(w) for w in self.words(text)]
+        found = self.each_phrase(words, depth)
+        if not found and words and _base(words[0]) == "printf":   # printf 'git %s' push
+            found = self.each_phrase([_printf(words[1:])], depth)
+        for _, body, _ in heredocs:
+            found = found or self.scan(body, depth)
+        return found
+
+    @staticmethod
+    def words(text):
+        try:
+            return _shell_words(text)
+        except ValueError:                     # unbalanced quotes: the shell would refuse it too
+            return LENIENT_RE.findall(text)
+
+    def each_phrase(self, words, depth):
+        """Scan every multi-word word as a command (text that a shell will read as code)."""
+        for w in words:
+            for phrase in dict.fromkeys((w, _c_unescape(w))):     # printf 'git push\n' | sh
+                found = self.scan(phrase, depth) if re.search(r"\s", phrase) else None
+                if found:
+                    return found
+        return None
+
+    def scan_words(self, words, depth, restore=lambda s: s):
+        n = len(words)
+        ends = [n] * (n + 1)                   # ends[k]: the first separator at or after k
+        for k in range(n - 1, -1, -1):
+            ends[k] = k if SEP_RE.match(words[k]) else ends[k + 1]
+        covered = stdin_done = stmt_start = 0  # covered, stdin_done: words already re-scanned
+        cmd_pos, xargs_seen, head = True, False, None   # head: this simple command's program
+        for i, w in enumerate(words):
+            if not i % 512 and time.monotonic() > self.deadline:
+                return self.hit("opaque", "a command too large to check in time")
+            if SEP_RE.match(w):
+                if w not in ("|", "|&", "(", ")"):
+                    stmt_start, xargs_seen = i + 1, False
+                cmd_pos, head = True, None
+                continue
+            base, found, end = _base(w), None, ends[i + 1]
+            if "\x00" in w:                    # $(which python3) -c ...: the program it names
+                m = re.match(r"\$\((?:which|command -v|type -p|whence -p)\s+(\S+)\)\Z", restore(w))
+                base = _base(m.group(1)) if m else base
+            here_cmd = cmd_pos
+            if here_cmd and head is None and not (ASSIGN_RE.match(w) or w in PREFIX_WORDS):
+                head = base
+            cmd_pos = (cmd_pos and (bool(ASSIGN_RE.match(w)) or w in PREFIX_WORDS
+                                    or (w[:1] == "-" and i > 0 and words[i - 1] in PREFIX_WORDS))
+                       ) or w in EXEC_OPTS
+            if head in DOC_COMMANDS:           # man git push, which gh, help push
+                continue
+            if base in ("xargs", "parallel"):
+                xargs_seen = True
+            if ASSIGN_RE.match(w):             # GIT_EDITOR='git push' git commit, export PAGER=...
+                m = ENV_EXEC_RE.match(w)
+                found = self.scan(restore(m.group(1)), depth + 1) if m else None
+            elif base in PUSH_PROGRAMS and here_cmd:
+                found = self.hit("push", base)       # not `ls .../git-push`
+            elif base == "git":
+                found = self.git(words, i, end, xargs_seen, depth, restore)
+            elif w in PUSH_SUBCOMMANDS and i > 0 and _expansion(words[i - 1]) \
+                    and self.was_command(words, i - 1):
+                found = self.hit("opaque", "%s %s" % (restore(words[i - 1]), w))
+            elif _expansion(base) and _base(EXPANSION_RE.sub("", SUBST_MARK_RE.sub("", w))) \
+                    in PROGRAMS:
+                found = self.hit("opaque", restore(w))     # g${X}it: spelled at run time
+            if not found and base in FORGE_TREES:
+                found = self.forge(base, words, i + 1, end, depth, xargs_seen)
+            if not found and w == "<<<" and i + 1 < n:     # a here-string that becomes code
+                stage = words[stmt_start:end]
+                if any(_base(x) in SHELLS | STRING_RUNNERS | {"xargs", "source", "."}
+                       for x in stage):
+                    found = self.scan(restore(words[i + 1]), depth + 1)
+            lbase = base.lower()
+            if not found and base == "env":    # env -S 'git push': one string, split into words
+                for k in range(i + 1, end):
+                    x = words[k]
+                    if x in ("-S", "--split-string") or x.startswith("--split-string="):
+                        val = x.split("=", 1)[1] if "=" in x else " ".join(words[k + 1:end])
+                        found = self.scan(restore(val), depth + 1)
+                        break
+                    if x.startswith("-S") and len(x) > 2:
+                        found = self.scan(restore(x[2:] + " " + " ".join(words[k + 1:end])),
+                                          depth + 1)
+                        break
+            if not found and lbase in ("start-process", "saps"):    # PowerShell
+                args = [restore(x) for x in words[i + 1:end]
+                        if not x.lower().startswith(("-argumentlist", "-filepath", "-wait",
+                                                     "-nonewwindow"))]
+                found = self.scan(" ".join(a.replace(",", " ") for a in args), depth + 1)
+            runner = base in SHELLS or lbase in STRING_RUNNERS or base == "alias" \
+                or INTERPRETER_RE.match(base)
+            if not found and runner and i >= covered:
+                # (a runner's arguments are this runner's business: later runners among them
+                # are arguments too, or were re-scanned with them)
+                covered, rest = end, [restore(x) for x in words[i + 1:end]]
+                if base in SHELLS:
+                    found = self.shell(base, rest, depth)
+                elif lbase in STRING_RUNNERS:
+                    found = self.scan(" ".join(rest), depth + 1) if rest else None
+                elif base == "alias":
+                    for x in rest:
+                        found = found or self.scan(x.partition("=")[2], depth + 1)
+                else:                          # python -c, node -e, deno eval, osascript -e
+                    for k in range(1, len(rest)):
+                        code_flag = CODE_FLAG_RE.match(rest[k - 1]) or (k == 1 and rest[0] == "eval")
+                        if code_flag and EXEC_HINT_RE.search(rest[k]):
+                            code = CODE_ARGS_KEY_RE.sub(" ", CODE_PUNCT_RE.sub(" ", rest[k]))
+                            found = found or self.scan(code, depth + 1)
+            if not found and i >= stdin_done and base in SHELLS | {"source", "."} \
+                    and self.reads_stdin(words, i):
+                stdin_done = i
+                while stdin_done < n and not (SEP_RE.match(words[stdin_done])
+                                              and words[stdin_done] not in ("|", "|&", "(", ")")):
+                    stdin_done += 1
+                found = self.each_phrase([restore(x) for x in words[stmt_start:stdin_done]],
+                                         depth + 1)
+                if not found and self.transformed_literal(words, stmt_start, i):
+                    found = self.hit("opaque", "commands decoded into %s (%s)" % (
+                        base, " ".join(restore(x) for x in words[stmt_start:i + 1])[:120]))
+            if found:
+                return found
+        return None
+
+    @staticmethod
+    def transformed_literal(words, a, i):
+        """A pipeline words[a:i] that starts from literal text (echo, printf, a here-string) and
+        transforms it (base64 -d, rev, tr, sed ...) before a shell reads it."""
+        stages, cur = [], []
+        for x in words[a:i]:
+            if x in ("|", "|&"):
+                stages.append(cur)
+                cur = []
+            else:
+                cur.append(x)
+        stages.append(cur)
+        heads = [_stage_head(st) for st in stages if st]
+        literal = bool(heads) and (heads[0] in LITERAL_SOURCES or "<<<" in words[a:i])
+        return literal and any(h not in PASS_THROUGH for h in heads if h)
+
+    @staticmethod
+    def was_command(words, j):
+        """words[j] is the command name of its simple command (after separators, X=1, env ...)."""
+        k = j - 1
+        while k >= 0 and (ASSIGN_RE.match(words[k]) or words[k] in PREFIX_WORDS):
+            k -= 1
+        return k < 0 or bool(SEP_RE.match(words[k]))
+
+    def shell(self, base, rest, depth):
+        """sh/bash/zsh/pwsh ...: the -c (-Command) string, the positional arguments it expands
+        ($1, $@), and a here-string it reads as commands."""
+        if base in PWSH:
+            return self.pwsh(base, rest, depth)
+        code, k = self.shell_code(rest)
+        if code is None:
+            for j in range(len(rest) - 1):
+                if rest[j] == "<<<":           # sh <<< 'git push'
+                    return self.scan(rest[j + 1], depth + 1)
+            return None
+        found = self.scan(code, depth + 1)
+        if not found and POSITIONAL_CMD_RE.search(code):      # sh -c '"$1"' _ 'git push'
+            found = self.scan(" ".join(rest[k + 1:]), depth + 1)
+        return found
+
+    def pwsh(self, base, rest, depth):
+        """pwsh/powershell: the -Command text (everything after it) or commands on stdin."""
+        kind, code = _pwsh_args(base, rest)
+        if kind == "encoded":
+            return self.hit("opaque", "%s -EncodedCommand" % base)
+        return self.scan(code, depth + 1) if kind == "code" and code != "-" else None
+
+    @staticmethod
+    def shell_code(rest):
+        """(the command string of `sh -c STRING`, its index), or (None, index); option clusters
+        like -lc, -ec, -xc count, and fish --command, pwsh -Command."""
+        seen_c, k = False, 0
+        while k < len(rest):
+            x = rest[k]
+            xl = x.lower()
+            if xl.startswith("--command=") or xl.startswith("-command="):
+                return x.split("=", 1)[1], k
+            if x in ("-o", "+o", "-O", "+O", "--rcfile", "--init-file"):
+                k += 2
+                continue
+            if xl in ("-command", "-c", "-commandwithargs", "-cwa"):
+                seen_c, k = True, k + 1
+                continue
+            if x[:1] in "-+" and len(x) > 1:
+                seen_c = seen_c or x == "--command" or (not x.startswith("--") and "c" in x[1:])
+                k += 1
+                continue
+            return (x, k) if seen_c else (None, k)
+        return None, k
+
+    @staticmethod
+    def reads_stdin(words, i):
+        """sh/bash/source reading commands from a pipe, a redirect or a process substitution."""
+        rest = _rest(words, i + 1)
+        if _base(words[i]) in PWSH:            # pwsh -Command -, or no command or file at all
+            kind, code = _pwsh_args(_base(words[i]), rest)
+            if kind not in (None, "stdin") and code != "-":
+                return False
+        elif _base(words[i]) in SHELLS and _Scan.shell_code(rest)[0] is not None:
+            return False
+        first = next((x for x in rest if not x.startswith("-")), "")
+        return _after_pipe(words, i) or first.startswith("<") or \
+            first in ("/dev/stdin", "/dev/fd/0", "-")
+
+    def git(self, words, i, end, xargs_seen, depth, restore):
+        k, aliases = i + 1, {}
+        while True:                            # global options (and redirections among them)
+            k = _skip_redirections(words, k, end)
+            if k >= end or not words[k].startswith("-"):
+                break
+            opt = words[k]
+            if opt in GIT_OPTS_WITH_VALUE:
+                val, k = (words[k + 1] if k + 1 < end else ""), k + 2
+            else:
+                opt, _, val = opt.partition("=")
+                k += 1
+            key, _, value = restore(val).partition("=")
+            if opt == "--config-env" and GIT_EXEC_KEY_RE.match(key):
+                return self.hit("opaque", "git --config-env " + restore(val))
+            if opt == "-c":                    # git -c alias.p=push p, -c core.editor=...
+                found = self.git_config_value(key, value, depth)
+                if found:
+                    return found
+                if key.lower().startswith("alias."):
+                    aliases[key[6:]] = value
+        if k >= end:
+            return self.hit("opaque", "xargs git (the subcommand comes from stdin)") \
+                if xargs_seen else None
+        sub = words[k]
+        if sub in aliases:                     # -c alias.p='!sh' p -c 'git push': with its args
+            body = aliases[sub]
+            tail = " ".join(shlex.quote(restore(x)) for x in words[k + 1:min(end, k + 257)])
+            found = self.scan((body[1:] if body.startswith("!") else "git " + body) + " " + tail,
+                              depth + 1)
+            if found:
+                return found
+        if sub in PUSH_SUBCOMMANDS:
+            return self.hit("push", "git " + sub)
+        if sub in PUSH_UNDER and PUSH_UNDER[sub] & set(words[k + 1:min(end, k + 6)]):
+            return self.hit("push", "git %s %s" % (sub, "/".join(sorted(PUSH_UNDER[sub]))))
+        args = [restore(x) for x in words[k + 1:min(end, k + 257)]]
+        found = None
+        if sub == "config":                    # defining an alias or editor that pushes
+            for j in range(len(args) - 1):
+                if GIT_EXEC_KEY_RE.match(args[j]) and not args[j + 1].startswith("-"):
+                    found = found or self.git_config_value(args[j], args[j + 1], depth)
+        elif sub == "submodule" and "foreach" in args[:3]:
+            cmd = args[args.index("foreach") + 1:]
+            while cmd and cmd[0] in ("--recursive", "--quiet", "-q", "--"):
+                cmd = cmd[1:]
+            found = self.scan(" ".join(cmd), depth + 1)
+        elif sub == "rebase":
+            for j, a in enumerate(args):
+                code = args[j + 1] if a in ("-x", "--exec") and j + 1 < len(args) else \
+                    a[7:] if a.startswith("--exec=") else a[2:] if a.startswith("-x") else None
+                found = found or (self.scan(code, depth + 1) if code else None)
+        elif sub == "bisect" and args[:1] == ["run"]:
+            found = self.scan(" ".join(args[1:]), depth + 1)
+        if found:
+            return found
+        if OPAQUE_SUB_RE.search(sub):
+            return self.hit("opaque", "git " + restore(sub))
+        return None
+
+    def git_config_value(self, key, value, depth):
+        """A config value that git runs as a command: alias bodies (`!cmd` or git arguments),
+        editors, pagers, ssh commands, filters, credential helpers."""
+        if not GIT_EXEC_KEY_RE.match(key):
+            return None
+        if key.lower().startswith("alias.") and not value.startswith("!"):
+            return self.scan("git " + value, depth + 1)
+        return self.scan(value.lstrip("!"), depth + 1)
+
+    def forge(self, tool, words, start, end, depth, xargs_seen=False):
+        """Walk the forge's command tree over words[start:end] (options skipped; unknown words,
+        such as option values, numbers and branch names, are passed over)."""
+        if "forge" not in self.want:
+            return None
+        for k in range(start, min(end, start + 64)):
+            prev = words[k - 1] if k > start else ""
+            if words[k] in ("--help", "-h") and not (prev[:1] == "-" and "=" not in prev
+                                                     and prev not in HELP_BOOL_OPTS):
+                return None                    # help, not `--body -h`
+        root = node = FORGE_TREES[tool]
+        path, extra, seen, prev = [tool], 0, 0, ""
+        for k in range(start, end):
+            a = words[k]
+            if a.startswith("-"):
+                prev = a
+                continue
+            seen += 1
+            if seen > MAX_FORGE_WORDS:
+                break
+            nxt = node.get(a)
+            if nxt is None:
+                if node is root and _expansion(a) and not (prev[:1] == "-" and "=" not in prev):
+                    return self.hit("opaque", "%s %s" % (tool, a))    # gh $CMD merge 3
+                extra, prev = extra + 1, a
+                continue
+            path.append(a)
+            if nxt == WRITE:
+                return self.hit("forge", " ".join(path))
+            if nxt == READ:
+                return None
+            if isinstance(nxt, tuple):
+                return self.forge_special(nxt, words[k + 1:end], path, depth)
+            node, extra, prev = nxt, 0, a
+        if len(path) > 1 and extra >= 2 and node.get("*") == WRITE:
+            return self.hit("forge", " ".join(path))
+        if len(path) == 1 and xargs_seen:
+            return self.hit("opaque", "xargs %s (the subcommand comes from stdin)" % tool)
+        return None
+
+    def forge_special(self, spec, rest, path, depth):
+        what = " ".join(path)
+        if spec[0] == "api":
+            return self.hit("forge", what + " (write method)") if _api_writes(rest, *spec[1:]) \
+                else None
+        if spec[0] in ("if-flag", "unless-flag"):
+            flagged = any(a in spec[1] or a.split("=", 1)[0] in spec[1] for a in rest)
+            return self.hit("forge", what) if flagged == (spec[0] == "if-flag") else None
+        if spec[0] == "gh-alias":              # gh alias set NAME EXPANSION [--shell]
+            pos = [a for a in rest if not a.startswith("-")]
+            if len(pos) < 2:
+                return None
+            exp = pos[1]
+            if exp.startswith("!") or "--shell" in rest or "-s" in rest:
+                return self.scan(exp.lstrip("!"), depth + 1)
+            words = self.words(exp)
+            return self.forge("gh", words, 0, len(words), depth + 1)
+        return None
+
+
+def _api_writes(args, method_opts, body_opts, value_opts):
+    """gh api / tea api: a write unless the method is GET/HEAD (default GET; gh sends POST once a
+    field or --input is given). GraphQL: a write when it carries a mutation."""
+    method, body, positional, k = None, False, [], 0
+    while k < len(args):
+        a = args[k]
+        name, eq, val = a.partition("=")
+        if a == "--":
+            positional.extend(args[k + 1:])
+            break
+        if a.startswith("--") and eq:
+            method = val if name in method_opts else method
+            body = body or name in body_opts
+        elif a in method_opts:
+            method, k = (args[k + 1] if k + 1 < len(args) else ""), k + 1
+        elif a in body_opts:
+            body, k = True, k + 1
+        elif a in value_opts:
+            k += 1
+        elif a[:1] == "-" and a[:2] != "--" and len(a) > 2 and a[:2] in method_opts:
+            method = a[2:].lstrip("=")           # -XPOST
+        elif a[:1] == "-" and a[:2] != "--" and len(a) > 2 and a[:2] in body_opts:
+            body = True                          # -fkey=value
+        elif not a.startswith("-"):
+            positional.append(a)
+        k += 1
+    if positional and positional[0].strip("/").lower() == "graphql":
+        return any(re.search(r"\bmutation\b", a, re.I) for a in args)
+    if method is not None:
+        return method.strip().upper() not in ("GET", "HEAD", "OPTIONS")
+    return body
+
+
+def remote_write_in(command):
+    """(kind, what) for the first remote write in a shell command — kind "push" (git push and
+    friends), "forge" (gh/tea/fj writes) or "opaque" (a git or forge command decided only at run
+    time) — else None."""
+    return _Scan(("push", "forge", "opaque")).scan(command)
+
+
+def git_push_in(command):
+    """True when a shell command runs `git [global options] push` (or send-pack, lfs/subtree push)."""
+    return bool(_Scan(("push",)).scan(command))
+
+
+def forge_write_in(command):
+    """True when a shell command writes to a forge through gh, tea or fj."""
+    return bool(_Scan(("forge",)).scan(command))
 
 
 def no_push_main(raw):
     try:
         ev = json.loads(raw)
         command = (ev.get("tool_input") or {}).get("command") if isinstance(ev, dict) else None
+        tool = ev.get("tool_name") if isinstance(ev, dict) else None
     except (ValueError, AttributeError, RecursionError):
-        command = raw                        # unreadable event: judge the raw text
+        command, tool = raw, None            # unreadable event: judge the raw text
+    if tool == "PowerShell" and isinstance(command, str):
+        command = re.sub(r"`(.)", r"\1", command)          # PowerShell's escape: g`it
     try:
-        pushes = git_push_in(command)
-    except Exception:                        # never block every git command on a parser bug
-        pushes = bool(PUSH_RE.search(str(command or "")))
-    if pushes:
-        deny(NO_PUSH_REASON)
+        found = remote_write_in(command)
+    except Exception as exc:                 # a parser bug: fail closed on git/gh/tea/fj commands
+        text = str(command or "")
+        if PUSH_RE.search(text):
+            found = ("push", "git push")
+        elif TRIGGER_RE.search(EXPANSION_RE.sub("", re.sub(r"['\"\\]", "", text))):
+            deny(GUARD_FAIL_REASON % ("%s: %s" % (type(exc).__name__, exc))[:200])
+        else:
+            found = None
+    if found:
+        kind, what = found
+        deny(FORGE_REASON % what if kind == "forge" else
+             OPAQUE_REASON % what if kind == "opaque" else NO_PUSH_REASON)
     return 0
 
 
