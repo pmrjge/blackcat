@@ -495,6 +495,27 @@ nsk=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
 printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1)) skills, ~[0-9]+ of 30000 characters" \
   && pass "doctor.sh: skill listing within its budget" || failed "doctor.sh: skill listing line: $(printf '%s\n' "$out" | grep 'skill listing')"
 printf '%s\n' "$out" | grep -q "exa-from-stack-env" && failed "doctor.sh printed a key value" || pass "doctor.sh never prints key values"
+# SessionStart must reach the guard for fork too (a fork's token count starts at the end of the
+# history it copied): the shipped matcher passes, one without fork fails
+printf '%s\n' "$out" | grep -q 'ok    SessionStart guard matcher covers startup, resume and fork' \
+  && pass "doctor.sh: SessionStart guard matcher covers fork" \
+  || failed "doctor.sh: SessionStart matcher line: $(printf '%s\n' "$out" | grep 'SessionStart')"
+T3F="$(scratch_dir)" || exit 1
+cp -R "$T3/." "$T3F/"
+python3 - "$T3F/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]
+s = json.load(open(p))
+for g in s["hooks"]["SessionStart"]:
+    if "agent_guard.py" in json.dumps(g):
+        g["matcher"] = "startup|resume"
+json.dump(s, open(p, "w"), indent=2)
+PY
+outf=$(CLAUDE_CONFIG_DIR="$T3F" bash "$T3F/bin/doctor.sh" 2>&1)
+printf '%s\n' "$outf" | grep -q 'FAIL  SessionStart guard matcher startup|resume misses fork — rerun install.sh' \
+  && pass "doctor.sh fails a SessionStart guard matcher without fork" \
+  || failed "doctor.sh: no FAIL for a SessionStart matcher without fork: $(printf '%s\n' "$outf" | grep 'SessionStart')"
+drop_scratch "$T3F"
 assert_unchanged_real_home
 
 echo "== 8. Regressions: rc lines, empty keys, key-preserving migration, settings merge, CLAUDE_CONFIG_DIR"

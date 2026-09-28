@@ -687,11 +687,14 @@ def test_blackcat_reads_count_as_steps(env):
         p = (run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env, extra=extra)
              if tool == "Agent" else run(rg(s, tool, prompt="q1"), env, args=["blackcat-guard"]))
         assert decision(p) == "allow", tool
-    for tool in ("Read", "Grep", "Glob", "ToolSearch", "SendMessage"):
+    for tool in ("Read", "Grep", "Glob", "ToolSearch"):
         p = run(rg(s, tool, prompt="q1"), env, args=["blackcat-guard"])
         assert decision(p) == "deny" and "step limit (8 tool calls" in reason(p), tool
     p = run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env, extra=extra)
     assert decision(p) == "deny" and "step limit" in reason(p)
+    # SendMessage, like Agent, is counted by the main hook (with its resume reservation)
+    p = run(dict(send(s, "X1"), agent_type="blackcat", prompt_id="q1"), env)
+    assert decision(p) == "deny" and "step limit (8 tool calls" in reason(p)
     # eight reads alone use the whole allowance too; writes never pass, whatever is left
     s2 = sid()
     res = [decision(run(rg(s2, "Read", prompt="q1"), env, args=["blackcat-guard"]))
@@ -1788,3 +1791,87 @@ def test_agent_done_drops_the_lease_even_when_the_lock_times_out(env):
     finally:
         os.close(fd)
     assert leases(env, s, "SC") == []
+
+
+# ---------------------------------------------------------------- review 2026-09-28, round 2
+def test_blackcat_step_limit_refuses_a_resume_and_holds_no_slot(env):
+    """At BLACKCAT_MAX_STEPS a BlackCat SendMessage that would resume a finished agent is refused
+    and reserves nothing: blackcat-guard and the main hook run in parallel for the same call, so
+    the step and the resume reservation are one decision in the main hook (as for Agent)."""
+    s = sid()
+    run(post_agent(s, "main-coder", "L1", status="async_launched"), env)
+    run(lifecycle(s, "SubagentStart", "L1", "main-coder"), env)
+    finished_children(env, s, "L1", "main-coder", "coder", ["W1"])
+    for _ in range(8):
+        assert decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
+    ev = dict(send(s, "W1"), agent_type="blackcat", prompt_id="q1")
+    res = [decision(run(ev, env, args=a)) for a in (["blackcat-guard"], [])]
+    assert "deny" in res, res
+    assert leases(env, s, "L1") == []                 # L1 keeps all 3 of its slots
+    for _ in range(3):
+        assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="L1"), env)) \
+            == "allow"
+
+
+def test_blackcat_resume_is_one_step_and_a_refused_one_spends_none(env):
+    s = sid()
+    run(post_agent(s, "main-coder", "L1", status="async_launched"), env)
+    run(lifecycle(s, "SubagentStart", "L1", "main-coder"), env)
+    finished_children(env, s, "L1", "main-coder", "coder", ["W1"])
+    finished_children(env, s, "L1", "main-coder", "god-coder", ["G1"])
+    folder = state(env, s) / "blackcat"
+    steps = lambda: len([p for p in folder.iterdir() if p.name.startswith("step.")]) \
+        if folder.exists() else 0
+    for _ in range(7):
+        assert decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
+    # a refused resume (another god-coder is starting) spends no step and reserves nothing
+    assert decision(run(pre_agent(s, "god-coder", parent="ninja-coder", agent_id="N1"), env)) \
+        == "allow"
+    ev = dict(send(s, "G1"), agent_type="blackcat", prompt_id="q1")
+    assert [decision(run(ev, env, args=a)) for a in (["blackcat-guard"], [])] == ["allow", "deny"]
+    assert steps() == 7 and leases(env, s, "L1") == []
+    # the 8th step: both hooks run for the one call, one step is claimed, the resume reserved
+    ev = dict(send(s, "W1"), agent_type="blackcat", prompt_id="q1")
+    assert [decision(run(ev, env, args=a)) for a in (["blackcat-guard"], [])] == ["allow", "allow"]
+    assert steps() == 8 and leases(env, s, "L1") == ["resume-W1"]
+    p = run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"])
+    assert decision(p) == "deny" and "step limit" in reason(p)
+
+
+def test_a_resume_starts_even_when_the_fanout_lock_times_out(env):
+    """SubagentStart of a resumed agent while the fan-out lock is stuck (> 5 s): the start is
+    still recorded (a live background child again, the god-coder lock confirmed) and its
+    reservation dropped, outside the lock."""
+    import fcntl
+    s = sid()
+    finished_children(env, s, "M1", "main-coder", "god-coder", ["G1"])
+    assert decision(run(dict(send(s, "G1", agent_id="M1"), agent_type="main-coder"), env)) \
+        == "allow"
+    assert leases(env, s, "M1") == ["resume-G1"] and god_lock(env, s)["state"] == "resumed"
+    fd = os.open(str(state(env, s) / "fanout.mutex"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)              # someone holds the fan-out lock for > 5 s
+        p = run(lifecycle(s, "SubagentStart", "G1", "god-coder"), env)
+        assert p.returncode == 0 and p.stdout == ""
+    finally:
+        os.close(fd)
+    rec = reg_of(env, s, "G1")
+    assert not rec.get("stopped") and rec.get("bg") is True and rec.get("resumed")
+    assert leases(env, s, "M1") == []
+    assert god_lock(env, s)["state"] == "running" and god_lock(env, s)["holder"] == "G1"
+
+
+def test_god_resume_failure_drops_the_reservation(env):
+    """An error in the god-coder lock step after the resume was reserved (here: the god mutex is
+    stuck > 5 s) fails the call closed and leaves no reservation behind."""
+    import fcntl
+    s = sid()
+    finished_children(env, s, "M1", "main-coder", "god-coder", ["G1"])
+    fd = os.open(str(state(env, s) / "god.mutex"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        p = run(dict(send(s, "G1", agent_id="M1"), agent_type="main-coder"), env)
+    finally:
+        os.close(fd)
+    assert decision(p) == "deny" and "stack guard error" in reason(p)
+    assert leases(env, s, "M1") == []

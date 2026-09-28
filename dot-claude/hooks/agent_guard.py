@@ -15,7 +15,9 @@ Reads the hook JSON on stdin.
   PreToolUse  SendMessage           resuming a finished agent follows the spawn policy (the caller's
                                     row, or its own child/parent), its parent's fan-out cap and the
                                     copy cap, and holds a resume reservation until it starts;
-                                    resuming a finished god-coder takes the god-coder lock
+                                    resuming a finished god-coder takes the god-coder lock;
+                                    blackcat's call is one of its steps (claimed with the
+                                    reservation, both rolled back on a refusal)
   PreToolUse  mcp__computer-use__*  one agent on the screen at a time
   PreToolUse  Bash|Monitor|PowerShell  `no-push` mode: agents never push and never write to a
                                     forge (gh/tea/fj), in any form, also inside bash -c, eval, $(...)
@@ -1162,27 +1164,45 @@ def on_send(ev, d):
         if isinstance(ti.get(key), str) and ti[key].strip():
             to = ti[key].strip()
             break
-    if not to:
-        return
-    target_id, ttype, tname = resolve_target(d, to)
+    # BlackCat's SendMessage is one of its BLACKCAT_MAX_STEPS. It is counted here, not in
+    # blackcat-guard (which runs in parallel for the same call and leaves SendMessage to this hook,
+    # as it does Agent), so the step and the resume reservation are one decision: a call refused
+    # at the step limit holds no slot, and a refused resume spends no step.
+    is_blackcat = not ev.get("agent_id") and norm(ev.get("agent_type")) == "blackcat"
+    pid, max_steps = prompt_key(ev), knob_int("BLACKCAT_MAX_STEPS", 8)
+    if is_blackcat and markers_full(d, "step", pid, max_steps):
+        deny(STEP_LIMIT_REASON % max_steps)
+    target_id, ttype, tname = resolve_target(d, to) if to else (None, None, None)
     why = send_policy_violation(d, ev, target_id, ttype)
     if why:
         deny(why)
     why, reserved = resume_reserve(d, ev, target_id, ttype)
     if why:
         deny(why)
-    if ttype != GOD:
-        return
-    try:
-        blocking = god_resume(d, ev, to, target_id, tname)
-    except Exception:
-        if reserved:
-            unlink(reserved)
-        raise
-    if blocking:
+    stepped = None
+
+    def rollback():
+        if stepped:
+            unlink(stepped)
         if reserved:            # a refused resume holds no slot
             unlink(reserved)
-        deny(god_busy_reason(blocking))
+
+    try:
+        if is_blackcat:
+            stepped = claim_marker(d, "step", pid, max_steps)
+            if not stepped:
+                rollback()
+                deny(STEP_LIMIT_REASON % max_steps)
+        if ttype == GOD:
+            blocking = god_resume(d, ev, to, target_id, tname)
+            if blocking:
+                rollback()
+                deny(god_busy_reason(blocking))
+    except SystemExit:
+        raise
+    except Exception:
+        rollback()
+        raise
 
 
 def god_resume(d, ev, to, target_id, tname):
@@ -1516,11 +1536,26 @@ def on_subagent_start(ev, d):
         reg_put(d, aid, {"type": atype or None, "started": now}, clear=("stopped",),
                 resumed={"bg": True, "resumed": now})
 
+    def drop():
+        for path in resume_reservations(d, aid) + own_lease_files(d, aid):
+            unlink(path)
+
     if resume_reservations(d, aid) or own_lease_files(d, aid):   # look before the lock
-        with mutex(d, "fanout"):
+        locked = False
+        try:
+            with mutex(d, "fanout"):
+                locked = True
+                start()
+                drop()
+        except MutexTimeout:
+            if locked:
+                raise           # the registry lock inside timed out: nothing to redo here
+            # A stuck fan-out lock must not leave a resumed agent 'stopped' (no background child,
+            # no god-coder confirmation) with its reservation counting for STACK_RESUME_TTL_S:
+            # record the start and drop the reservation without the lock (as on_agent_done drops
+            # its lease); a count running meanwhile may miss this resume once.
             start()
-            for path in resume_reservations(d, aid) + own_lease_files(d, aid):
-                unlink(path)
+            drop()
     else:
         start()
     if atype == GOD and policy_on():
@@ -2552,9 +2587,11 @@ def blackcat_guard(raw):
     if ev.get("agent_id"):
         sys.exit(0)  # a subagent's tool call
     tool = ev.get("tool_name") or ""
-    if tool == "Agent":
+    if tool in ("Agent", "SendMessage"):
         # the main hook counts a dispatch against BLACKCAT_MAX_DISPATCH and BLACKCAT_MAX_STEPS
-        # together with its fan-out lease (on_agent), so one call is one decision
+        # together with its fan-out lease (on_agent), and a SendMessage against
+        # BLACKCAT_MAX_STEPS together with its resume reservation (on_send): one call, one
+        # decision (this hook runs in parallel with that one and cannot roll it back)
         sys.exit(0)
     if tool not in BLACKCAT_TOOLS:
         deny("BlackCat only delegates (it may look with Read, Grep and Glob, but writes and runs "
