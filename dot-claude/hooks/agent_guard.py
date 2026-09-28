@@ -92,22 +92,17 @@ Knobs (env):
   STACK_IMAGE_MAX_B64=4500000  image-limit mode: most base64 characters of one image sent to the
                           model (the API refuses more than 5 MB)
 """
-import base64
 import contextlib
 import errno
 import fcntl
 import json
 import os
 import re
-import shlex
-import shutil
 import stat
-import struct
-import subprocess
 import sys
-import tempfile
 import time
-from urllib.parse import quote, unquote, urlparse
+# base64, shlex, shutil, struct, subprocess, tempfile and urllib.parse are imported where they are
+# used: every tool call starts this script at least once, and they cost ~9 ms of start-up.
 
 # ---------------------------------------------------------------- policy (single source of truth)
 AGENTS = [
@@ -335,7 +330,8 @@ def create_excl(path):
 def write_json_atomic(path, obj):
     folder = os.path.dirname(path)
     os.makedirs(folder, exist_ok=True)
-    fd, tmp = tempfile.mkstemp(prefix=".tmp-", dir=folder)
+    tmp = os.path.join(folder, ".tmp-%d-%s" % (os.getpid(), os.urandom(6).hex()))
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
     try:
         with os.fdopen(fd, "w") as f:
             json.dump(obj, f)
@@ -1104,6 +1100,7 @@ def local_paths(ev, keys, urls=()):
     `http://../..` are relative paths to a tool that doesn't parse URIs — with `~` expanded or not,
     percent-decoded or not, trimmed or not, against each base directory; lexical and
     symlink-resolved. Returns (paths, problem)."""
+    from urllib.parse import unquote, urlparse
     raw, found = [], []
 
     def visit(key, v, depth):
@@ -1306,6 +1303,7 @@ def last_activity(path):
 def on_session_start(ev, d):
     if ev.get("source") not in ("startup", "resume"):
         return
+    import shutil
     with mutex(d, "god"):
         unlink(god_path(d))
     with mutex(d, "screen"):
@@ -1407,6 +1405,7 @@ def image_max_b64():
 
 def image_size(b):
     """(width, height) from a PNG, GIF, BMP, WebP or JPEG header; None if unknown."""
+    import struct
     if b[:8] == b"\x89PNG\r\n\x1a\n" and len(b) >= 24:
         return struct.unpack(">II", b[16:24])
     if b[:6] in (b"GIF87a", b"GIF89a") and len(b) >= 10:
@@ -1478,6 +1477,7 @@ def image_traits(b, mime):
             return bool((int.from_bytes(b[21:25], "little") >> 28) & 1), False
         return False, False
     if mime == "image/bmp":
+        import struct
         return len(b) >= 30 and struct.unpack("<H", b[28:30])[0] == 32, False
     if mime == "image/tiff":
         return True, False
@@ -1494,6 +1494,7 @@ def out_format(mime, alpha):
 
 
 def file_image_size(path, deadline=None):
+    import subprocess
     try:
         with open(path, "rb") as f:
             head = f.read(1 << 20)   # JPEG metadata can push the size header far in
@@ -1515,10 +1516,12 @@ def file_image_size(path, deadline=None):
 
 
 def sips_path():
+    import shutil
     return shutil.which("sips") or ("/usr/bin/sips" if os.path.exists("/usr/bin/sips") else None)
 
 
 def run_quiet(cmd, deadline):
+    import subprocess
     left = deadline - time.time()
     if left < 1:
         return False
@@ -1551,6 +1554,8 @@ def resize_image(data, limit, fmt, quality=85, deadline=None, alpha=False):
     """`data` scaled to fit limit x limit (aspect ratio kept), encoded as fmt ("jpeg" or "png");
     (bytes, (w, h)) or None when no resizer managed it in time. Transparency becomes white in a JPEG
     (sips would make it black, so it isn't used for that)."""
+    import shutil
+    import tempfile
     deadline = deadline or time.time() + 25
     jpeg = fmt == "jpeg"
     in_ext = {"image/png": "png", "image/jpeg": "jpg", "image/gif": "gif", "image/webp": "webp",
@@ -1585,6 +1590,7 @@ def resize_image(data, limit, fmt, quality=85, deadline=None, alpha=False):
 
 def encode_for_model(data, limit, deadline):
     """(base64, mime, (w, h)) for an image above the limit, within the API's size cap; else None."""
+    import base64
     size = image_size(data)
     if not size or max(size) <= limit:
         return None
@@ -1607,6 +1613,7 @@ def encode_for_model(data, limit, deadline):
 
 
 def limit_b64(b64, limit, deadline):
+    import base64
     if not isinstance(b64, str) or len(b64) > 96 * 1024 * 1024:
         return None
     try:
@@ -1688,6 +1695,7 @@ def upload_arg_keys(tool):
 def local_image_path(value, ev):
     """(path, given as a file:// URI) when `value` names one existing local file; (None, _)
     otherwise, also when a relative path would mean different files from the bases a tool uses."""
+    from urllib.parse import unquote, urlparse
     s = value.strip()
     uri = s[:7].lower() == "file://"
     p = unquote(urlparse(s).path) if uri else os.path.expanduser(s)
@@ -1808,6 +1816,7 @@ def limit_upload_input(ev, limit, deadline):
         changed[0] += 1
         if not uri:
             return copy
+        from urllib.parse import quote
         return "file://" + (quote(copy) if "%" in value else copy)   # escaped the way it was given
 
     def walk(obj, depth=0):
@@ -2212,6 +2221,7 @@ PROTECT_REASON = ("Blocked by the stack's protected-path rule: `%s` writes to a 
 
 def _shell_words(command):
     """shlex words, with each unquoted newline kept as a "\\n" separator token."""
+    import shlex
     lex = shlex.shlex(command, posix=True, punctuation_chars=";&|()<>\n")
     lex.whitespace = " \t\r"
     lex.whitespace_split = True
@@ -2942,6 +2952,7 @@ class _Scan(object):
         sub = words[k]
         if sub in aliases:                     # -c alias.p='!sh' p -c 'git push': with its args
             body = aliases[sub]
+            import shlex
             tail = " ".join(shlex.quote(restore(x)) for x in words[k + 1:min(end, k + 257)])
             found = self.scan((body[1:] if body.startswith("!") else "git " + body) + " " + tail,
                               depth + 1)
@@ -3262,6 +3273,8 @@ def print_policy():
 
 
 def self_test():
+    import shutil
+    import tempfile
     problems = []
     known = set(AGENTS) | set(BUILTINS)
     if len(set(AGENTS)) != len(AGENTS):
