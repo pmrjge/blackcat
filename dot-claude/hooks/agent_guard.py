@@ -71,7 +71,8 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
                           ts}, counted like spawn leases
   budget.json             token counts {files: {path: {off, ino, keys}}, total, prompt_base,
                           prompt_id}
-  mcp-calls/<agent_id>.json  MCP tool calls of one subagent {calls, type, cap, ts}
+  mcp-calls/<agent_id>.json  MCP tool calls of one subagent's current run {calls, run (its
+                          registry `started` stamp), type, cap, ts}
   blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
   god-coder.lock, screen.lock  JSON, replaced atomically; transitions under flock(*.mutex)
 
@@ -114,8 +115,9 @@ Knobs (env):
                           no longer counts as running (settings.json ships 600)
   STACK_PROMPT_CTX_BUDGET=100000000   context tokens per human prompt, whole session tree (0 = off)
   STACK_SESSION_CTX_BUDGET=120000000  context tokens per session, whole session tree (0 = off)
-  STACK_MAX_MCP_CALLS=88  MCP tool calls (mcp__*) per subagent per session; an agent whose
-                          frontmatter maxTurns is lower gets that instead (0 = off)
+  STACK_MAX_MCP_CALLS=64  MCP tool calls (mcp__*) per subagent per prompt (a spawn or a resume
+                          starts a new count); an agent whose frontmatter maxTurns is lower
+                          gets that instead (0 = off)
   GOD_PENDING_TTL_S=120   an unconfirmed god-coder lease (spawn or resume) is reclaimable after this
   GOD_IDLE_S=900          a holder whose live subtree is idle this long is presumed gone
                           (settings.json ships 1800)
@@ -1953,11 +1955,17 @@ def budget_reason(kind, span, used, knob, cap, ev):
 
 # ---------------------------------------------------------------- MCP call cap
 # Every subagent may make at most min(STACK_MAX_MCP_CALLS, its frontmatter maxTurns) calls to MCP
-# tools (`mcp__<server>__<tool>`) in a session: MCP round trips (remote APIs, browsers, large
-# payloads) cost more than local tools, and maxTurns alone lets an agent spend all its turns on
-# them. Counted per agent_id at PreToolUse (a resumed agent keeps its count); a call this gate
-# allows counts even if another hook or the permission system then refuses it. The main thread is
-# not counted: BlackCat's BLACKCAT_MAX_STEPS already bounds every one of its calls per prompt.
+# tools (`mcp__<server>__<tool>`) per prompt it is given: MCP round trips (remote APIs, browsers,
+# large payloads) cost more than local tools, and maxTurns alone lets an agent spend all its turns
+# on them. A subagent's prompt is one run of it: the Agent call that spawns it (a fresh agent_id)
+# or a SendMessage that resumes it (same agent_id). Each run starts with SubagentStart
+# (hooks.md:2343, also on a resume), which rewrites the registry's `started` stamp; the counter
+# stores the stamp it counts for, and a different stamp starts it again from 0. No stamp (the
+# SubagentStart hook never ran) keeps one count for the agent: stricter, never looser. A message to
+# a still-running agent is part of its current run and gets no new allowance. Counted at
+# PreToolUse; a call this gate allows counts even if another hook or the permission system then
+# refuses it. The main thread is not counted: BlackCat's BLACKCAT_MAX_STEPS already bounds every
+# one of its calls per prompt.
 # maxTurns comes from <config>/agents/<type>.md (a copy type falls back to its base file); a type
 # with no file or no maxTurns (explore, general-purpose, plugin agents) gets STACK_MAX_MCP_CALLS.
 # Past the cap only MCP calls are refused (REPORT_TOOLS never), other tools keep working. Fails
@@ -1967,7 +1975,7 @@ MAX_TURNS_RE = re.compile(r"^maxTurns:\s*(\d+)\s*$", re.M)
 
 
 def mcp_calls_knob():
-    return knob_int("STACK_MAX_MCP_CALLS", 88)
+    return knob_int("STACK_MAX_MCP_CALLS", 64)
 
 
 def agent_max_turns(agent_type, agents_dir=None):
@@ -2011,10 +2019,12 @@ def mcp_gate(ev, d):
         folder = os.path.join(d, MCP_CALLS_DIR)
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, safe(aid) + ".json")
+        run = (reg_get(d, aid) or {}).get("started")       # this run's SubagentStart
         with mutex(folder, safe(aid), timeout=2.0):
-            n = int((read_json(path) or {}).get("calls") or 0)
+            cur = read_json(path) or {}
+            n = int(cur.get("calls") or 0) if cur.get("run") == run else 0
             if n < cap:
-                write_json_atomic(path, {"calls": n + 1, "type": atype, "cap": cap,
+                write_json_atomic(path, {"calls": n + 1, "run": run, "type": atype, "cap": cap,
                                          "ts": time.time()})
                 return
     except MutexTimeout:
@@ -2026,11 +2036,11 @@ def mcp_gate(ev, d):
     # The knob is OWNED_ENV in install.sh: a raised value is reset by the next install.
     limit = ("STACK_MAX_MCP_CALLS=%d" % knob if cap == knob
              else "its maxTurns %d, below STACK_MAX_MCP_CALLS=%d" % (cap, knob))
-    deny("MCP call limit reached: this %s has made %d MCP tool calls in this session (%s). Make "
-         "no more MCP tool calls; other tools still work. Finish with what you have, or return "
-         "STATUS: partial naming what the remaining MCP calls were for." % (atype, n, limit),
-         "claude-agent-stack: a %s reached its MCP call limit (%d per agent per session). To "
-         "allow more, raise STACK_MAX_MCP_CALLS in the env block of ~/.claude/settings.json (it "
+    deny("MCP call limit reached: this %s has made %d MCP tool calls for its current prompt (%s). "
+         "Make no more MCP tool calls; other tools still work. Finish with what you have, or "
+         "return STATUS: partial naming what the remaining MCP calls were for." % (atype, n, limit),
+         "claude-agent-stack: a %s reached its MCP call limit (%d per agent per prompt; a resume "
+         "starts a new count). To allow more, raise STACK_MAX_MCP_CALLS in the env block of ~/.claude/settings.json (it "
          "holds until the next install.sh run, which resets the stack's budget knobs); the "
          "agent's maxTurns still caps it." % (atype, cap))
 

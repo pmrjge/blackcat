@@ -1926,24 +1926,25 @@ def test_mcp_cap_counts_per_agent_and_denies_only_mcp(env, sess):
 
 
 def test_mcp_cap_is_min_of_knob_and_max_turns(env, sess):
-    """Default 88, lowered by a smaller frontmatter maxTurns (scout 40, mcp-broker 80); a larger
-    one (orchestrator 300, coder-copy via coder 190) and a type without a file get 88."""
+    """Default 64, lowered by a smaller frontmatter maxTurns (scout 40, oracle 20); a larger one
+    (orchestrator 300, mcp-broker 80, coder-copy via coder 190) and a type without a file get 64."""
     s, main, _ = sess
-    for aid, atype, cap in (("S1", "scout", 40), ("B1", "mcp-broker", 80), ("O1", "orchestrator", 88),
-                            ("C1", "coder-copy", 88), ("E1", "explore", 88)):
+    for aid, atype, cap in (("S1", "scout", 40), ("R1", "oracle", 20), ("B1", "mcp-broker", 64),
+                            ("O1", "orchestrator", 64), ("C1", "coder-copy", 64),
+                            ("E1", "explore", 64)):
         seed_mcp(env, s, aid, cap - 1)
         assert decision(budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)) == "allow"
         p = budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)
         assert decision(p) == "deny", atype
         assert ("%d MCP tool calls" % cap) in reason(p), reason(p)
-        assert (("its maxTurns %d" % cap) in reason(p)) == (cap < 88), reason(p)
+        assert (("its maxTurns %d" % cap) in reason(p)) == (cap < 64), reason(p)
 
 
 def test_mcp_cap_on_the_main_hooks_mcp_tools(env, sess):
     """computer-use and local-file MCP tools go through the main hook, which checks the cap
     before taking the screen lock."""
     s, main, _ = sess
-    seed_mcp(env, s, "D1", 100)                              # designer: maxTurns 100 -> cap 88
+    seed_mcp(env, s, "D1", 100)                              # designer: maxTurns 100 -> cap 64
     p = run(mcp_ev(s, main, "mcp__computer-use__screenshot", agent_id="D1", agent_type="designer"),
             env)
     assert decision(p) == "deny" and "MCP call limit" in reason(p)
@@ -1959,3 +1960,26 @@ def test_mcp_cap_parallel_calls_count_exactly(env, sess):
                    extra={"STACK_MAX_MCP_CALLS": "5"})
     assert res.count("allow") == 5, res
     assert mcp_count(env, s, "A1") == 5
+
+
+def test_mcp_cap_is_per_prompt_a_resume_starts_a_new_count(env, sess):
+    """A subagent's prompt is one run: SubagentStart (spawn or resume) starts a new count. A
+    message to the agent while it still runs is part of the same run."""
+    s, main, _ = sess
+    cap = {"STACK_MAX_MCP_CALLS": "3"}
+    run(lifecycle(s, "SubagentStart", "A1", "coder"), env, extra=cap)          # first prompt
+    for _ in range(3):
+        assert decision(budget_run(mcp_ev(s, main), env, extra=cap)) == "allow"
+    assert decision(budget_run(mcp_ev(s, main), env, extra=cap)) == "deny"
+    # the parent messages it while it runs: no SubagentStart, no new allowance
+    run(dict(send(s, "A1", agent_id="P1"), agent_type="main-coder"), env, extra=cap)
+    assert decision(budget_run(mcp_ev(s, main), env, extra=cap)) == "deny"
+    # it finishes and is resumed with a new prompt: a fresh count of 3
+    run(lifecycle(s, "SubagentStop", "A1", "coder"), env, extra=cap)
+    run(lifecycle(s, "SubagentStart", "A1", "coder"), env, extra=cap)
+    for _ in range(3):
+        assert decision(budget_run(mcp_ev(s, main), env, extra=cap)) == "allow"
+    assert mcp_count(env, s, "A1") == 3
+    p = budget_run(mcp_ev(s, main), env, extra=cap)
+    assert decision(p) == "deny" and "for its current prompt" in reason(p)
+    assert "per agent per prompt" in json.loads(p.stdout)["systemMessage"]
