@@ -114,7 +114,7 @@ Knobs (env):
   STACK_FANOUT_IDLE_S=1800  a background child whose live subtree shows no activity for this long
                           no longer counts as running (settings.json ships 600)
   STACK_PROMPT_CTX_BUDGET=100000000   context tokens per human prompt, whole session tree (0 = off)
-  STACK_SESSION_CTX_BUDGET=120000000  context tokens per session, whole session tree (0 = off)
+  STACK_SESSION_CTX_BUDGET=666000000  context tokens per session, whole session tree (0 = off)
   STACK_MAX_MCP_CALLS=64  MCP tool calls (mcp__*) per subagent per prompt (a spawn or a resume
                           starts a new count); an agent whose frontmatter maxTurns is lower
                           gets that instead (0 = off)
@@ -1723,7 +1723,7 @@ BUDGET_CHECK_MIN_LINES = 50  # --check-budget: this many lines and no assistant 
 
 def budget_caps():
     return (knob_int("STACK_PROMPT_CTX_BUDGET", 100000000),
-            knob_int("STACK_SESSION_CTX_BUDGET", 120000000))
+            knob_int("STACK_SESSION_CTX_BUDGET", 666000000))
 
 
 def transcript_files(ev):
