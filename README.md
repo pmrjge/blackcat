@@ -252,7 +252,7 @@ installer.
 - **Copies**: only researcher and coder, through `researcher-copy` and `coder-copy`; no other row
   lists its own type.
 - **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker,
-  claude-code-guide, browser-operator.
+  claude-code-guide, browser-operator, plan-reviewer, image-director.
 - **Escalation**: coder → main-coder → ninja-coder → god-coder. ninja-coder takes a problem whose
   core is algorithmic or mathematical, or one main-coder failed twice; god-coder only what
   ninja-coder could not solve. Model work goes to ml-/dl-/llm-engineer, and platform performance to
@@ -263,13 +263,12 @@ Everything else, row by row:
 
 | Agent | May spawn |
 |---|---|
-| planner, plan-reviewer | scout, explore, claude-code-guide |
+| planner | scout, explore, claude-code-guide |
 | researcher | researcher-copy, scout, doc-specialist, mathematician, data-engineer, data-scientist, browser-operator, mcp-broker |
 | researcher-copy | scout, doc-specialist, mathematician, data-engineer, data-scientist, browser-operator, mcp-broker |
 | writer | scout, researcher, mathematician |
 | mathematician | scout, mcp-broker, quantum-engineer |
 | doc-specialist | scout, mcp-broker |
-| image-director | scout |
 | designer | image-director, scout, mcp-broker, cg-artist |
 | motion-designer | image-director, designer, scout, mcp-broker, cg-artist |
 | coder | coder-copy, explore, scout |
