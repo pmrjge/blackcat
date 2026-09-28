@@ -11,6 +11,8 @@
 #                                 math-olympiad plugins (their skills load on demand)
 #   ./install.sh --no-mcp        skip registering user-scope MCP servers
 #   ./install.sh --no-plugins    skip plugins (document skills, code-intelligence/LSP plugins)
+#   ./install.sh --dedupe-plugins  disable the document-skills and skill-creator plugins where claude.ai
+#                                 syncs the same skills (prints the command that re-enables them)
 #   ./install.sh --replace-mcp   re-register exa/jina/wolfram/huggingface/wandb even if you configured them
 #   ./install.sh --force         overwrite agent, rules and skill files you edited since the last install
 #   ./install.sh --no-deps       skip brew/uv/node/magg/huetension/venv installs and MCP dep prefetch
@@ -26,7 +28,7 @@
 set -euo pipefail
 
 WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; WITH_EXTRA_PLUGINS=0; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; NO_DEPS=0
-NO_PROFILE=0; MCP_PLAN=0; ORIG_ARGS="$*"
+NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=0; ORIG_ARGS="$*"
 for a in "$@"; do
   case "$a" in
     --with-adobe) WITH_ADOBE=1 ;;
@@ -35,12 +37,13 @@ for a in "$@"; do
     --with-extra-plugins) WITH_EXTRA_PLUGINS=1 ;;
     --no-mcp) SKIP_MCP=1 ;;
     --no-plugins) SKIP_PLUGINS=1 ;;
+    --dedupe-plugins) DEDUPE_PLUGINS=1 ;;
     --replace-mcp) REPLACE_MCP=1 ;;
     --force) FORCE=1 ;;
     --no-deps) NO_DEPS=1 ;;
     --no-profile) NO_PROFILE=1 ;;
     --mcp-plan) MCP_PLAN=1 ;;
-    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
     *) echo "unknown option: $a"; exit 2 ;;
   esac
 done
@@ -1234,6 +1237,24 @@ for k, v in new.items():
         merged["env"] = e
     else:
         merged[k] = v
+# Set-if-absent keys an earlier stack version shipped and this one doesn't (a rollback, or a key the
+# stack stopped setting): removed while they still hold the stack's value; a value of yours stays.
+# skillOverrides is retracted per skill.
+for k in sorted(set(prev_owned) - set(new)):
+    pv = prev_owned[k]
+    if k == "skillOverrides" and isinstance(pv, dict) and isinstance(merged.get(k), dict):
+        so = dict(merged[k])
+        gone = sorted(sk for sk, sv in pv.items() if sk in so and so[sk] == sv)
+        for sk in gone:
+            so.pop(sk)
+        if gone:
+            print("  retracted stack skillOverrides for %s (no longer shipped)" % ", ".join(gone))
+        if so:
+            merged[k] = so
+        else:
+            merged.pop(k, None)
+    elif k in merged and merged[k] == pv:
+        print("  retracted stack setting %s=%s (no longer shipped)" % (k, json.dumps(merged.pop(k))))
 env = merged.get("env", {})
 for k in ("ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
           "ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
@@ -1383,8 +1404,62 @@ fi
 
 say "10/11 Plugins and code intelligence"
 if [ "$SKIP_PLUGINS" = 0 ] && [ "$MCP_PLAN" = 0 ]; then
-  if [ -d "$C/skills/synced/docx" ]; then
+  # claude.ai sync puts Anthropic's skills in $C/skills/synced/<id>/<name> (older builds:
+  # $C/skills/synced/<name>); a plugin copy of a synced skill only doubles its skill-listing entry.
+  synced_skill(){ for d in "$C/skills/synced/$1" "$C"/skills/synced/*/"$1"; do [ -f "$d/SKILL.md" ] && return 0; done; return 1; }
+  plugin_on(){ python3 -c 'import json,sys; sys.exit(0 if (json.load(open(sys.argv[1])).get("enabledPlugins") or {}).get(sys.argv[2]) is True else 1)' "$C/settings.json" "$1" 2>/dev/null; }
+  # The manifest's "plugins_deduped" lists the plugins --dedupe-plugins disabled ($1 add|drop|has).
+  deduped(){ python3 - "$C/.stack-manifest.json" "$1" "$2" <<'PY'
+import json, os, sys
+p, op, pid = sys.argv[1:4]
+try:
+    m = json.load(open(p))
+except (OSError, ValueError):
+    m = {}
+xs = [x for x in m.get("plugins_deduped") or [] if isinstance(x, str)]
+if op == "has":
+    sys.exit(0 if pid in xs else 1)
+xs = sorted(set(xs) | {pid}) if op == "add" else [x for x in xs if x != pid]
+m["plugins_deduped"] = xs
+with open(p + ".tmp", "w") as f:
+    json.dump(m, f, indent=2, sort_keys=True)
+os.replace(p + ".tmp", p)
+PY
+  }
+  # Synced skills load only in sessions signed in to claude.ai (/login); an API key, a gateway,
+  # Bedrock/Vertex or --bare sees none of them. So a plugin copy is disabled only on request.
+  dup_plugin(){  # $1 plugin id, $2 synced skill name(s) that duplicate it
+    if ! plugin_on "$1"; then
+      return 0
+    elif [ "$DEDUPE_PLUGINS" = 1 ]; then
+      if claude plugin disable "$1" --scope user >/dev/null 2>&1 </dev/null; then
+        deduped add "$1"
+        note "- disabled plugin $1: the synced anthropic-skills:$2 already provides it (only in claude.ai-login sessions)."
+        note "  To undo: claude plugin enable $1 --scope user"
+      else
+        note "! inside claude: /plugin disable $1 (duplicates the synced anthropic-skills:$2)"
+      fi
+    else
+      note "plugin $1 duplicates the synced anthropic-skills:$2 in the skill listing;"
+      note "  ./install.sh --dedupe-plugins disables it (keep it if you also use API-key or gateway sessions)"
+    fi
+  }
+  # A plugin --dedupe-plugins disabled comes back once claude.ai no longer syncs its skills.
+  undedupe(){  # $1 plugin id, $2 synced skill it stood in for
+    deduped has "$1" || return 0
+    synced_skill "$2" && return 0
+    if claude plugin enable "$1" --scope user >/dev/null 2>&1 </dev/null; then
+      deduped drop "$1"; note "+ re-enabled plugin $1: the synced $2 skill is gone"
+    else
+      note "! the synced $2 skill is gone: claude plugin enable $1 --scope user"
+    fi
+  }
+  undedupe skill-creator@claude-plugins-official skill-creator
+  undedupe document-skills@anthropic-agent-skills docx
+  synced_skill skill-creator && dup_plugin skill-creator@claude-plugins-official skill-creator
+  if synced_skill docx; then
     note "docx/xlsx/pptx/pdf skills already synced from claude.ai — skipping document-skills plugin"
+    dup_plugin document-skills@anthropic-agent-skills "docx/xlsx/pptx/pdf"
   else
     claude plugin marketplace add anthropics/skills >/dev/null 2>&1 </dev/null || true
     claude plugin install document-skills@anthropic-agent-skills --scope user >/dev/null 2>&1 </dev/null \
@@ -1472,6 +1547,7 @@ if [ "$SKIP_PLUGINS" = 0 ] && [ "$MCP_PLAN" = 0 ]; then
   if [ "$WITH_EXTRA_PLUGINS" = 1 ]; then
     extra_added=""; extra_failed=""
     for p in skill-creator mcp-server-dev math-olympiad; do
+      [ "$p" = skill-creator ] && [ "$DEDUPE_PLUGINS" = 1 ] && synced_skill skill-creator && continue
       if claude plugin install "$p@claude-plugins-official" --scope user >/dev/null 2>&1 </dev/null; then extra_added="$extra_added $p"; else extra_failed="$extra_failed $p"; fi
     done
     [ -n "$extra_added" ] && note "+ extra skill plugins:$extra_added"
