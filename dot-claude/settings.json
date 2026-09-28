@@ -27,6 +27,7 @@
     "GOD_IDLE_S": "1800"
   },
   "permissions": {
+    "defaultMode": "bypassPermissions",
     "allow": [
       "WebSearch",
       "WebFetch",

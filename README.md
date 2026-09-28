@@ -62,6 +62,9 @@ duplicate backup.
     common forge writes: `gh pr create|merge`, `tea pulls merge`, `fj pr merge`, ...) and
     `worktree.baseRef: "head"` (agents never push, so `origin/main` goes stale: new worktrees start
     from local work so they can fast-forward back into `main`); your other `worktree` keys stay.
+  - `permissions.defaultMode: "bypassPermissions"`: sessions start without permission prompts
+    (re-set on every install). Deny rules and the guard hooks still apply; the protections that
+    were only a permission prompt (see [Security notes](#security-notes)) do not.
   - `"agent": "blackcat"`, `statusLine` and `skillListingBudgetFraction` are set while you have none
     of your own (see [Apps](#apps) and [Skills](#skills-dynamic)).
   - Other env knobs you changed are kept. Your own hooks, permission rules and keys stay.
@@ -622,8 +625,10 @@ Claude Code through the Agent SDK):
   installer keeps it, and `claude --agent blackcat` starts the stack). In your own SDK code:
   `settings: { agent: "claude" }`, or `settingSources: ["project", "local"]` to leave the stack out.
   In scripts: `claude -p --agent claude "…"`.
-- **`claude -p`** runs in the default permission mode: commands that aren't pre-approved are refused.
-  Pass `--permission-mode acceptEdits` (or a narrower `--allowedTools`) for scripted work.
+- **`claude -p`** starts in the stack's `defaultMode` (`bypassPermissions`): nothing is refused
+  except deny rules, the guard hooks and the calls no mode auto-approves. Pass
+  `--permission-mode default` (or `acceptEdits`, or a narrower `--allowedTools`) for scripted work
+  that should refuse commands that aren't pre-approved.
 
 ### Claude Desktop, step by step
 
@@ -736,8 +741,11 @@ Smoke tests:
   image goes out only if it is a real PNG/JPEG/WebP outside credential folders (scaled under 1920 px
   in memory), saved SVGs lose scripts, event handlers and `javascript:` links, and no file overwrites
   another.
-- mcp-broker can't add servers or use `proxy` without asking. Page, document and tool text is
-  treated as data, never as instructions.
+- mcp-broker can't add servers or use `proxy` without asking, except in `bypassPermissions`: that
+  guarantee is a permission prompt (those magg tools are not pre-approved), and the stack's
+  `defaultMode: "bypassPermissions"` skips it, with every other prompt for a tool or Bash command
+  that no deny rule or guard hook blocks. Page, document and tool text is treated as data, never
+  as instructions.
 
 ## For maintainers
 
