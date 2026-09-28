@@ -198,10 +198,10 @@ def test_r11_resuming_a_finished_child_counts_against_the_fanout_cap():
     assert r.decision == "deny" and "Fan-out limit" in r.reason, r
     e.run(e.stop("V1", "verifier"))                                   # one slot free again
     assert e.run(e.send("C1", agent_id="SC", agent_type="main-coder")).decision.startswith("allow")
-    # copies: a main-coder resuming a finished copy of itself while another copy runs
-    spawned(e, "main-coder", "S2", caller="SC", ctype="main-coder")
-    e.run(e.stop("S2", "main-coder"))
-    e.run(e.stop("C2", "coder"))
-    spawned(e, "main-coder", "S3", caller="SC", ctype="main-coder")
-    r = e.run(e.send("S2", agent_id="SC", agent_type="main-coder"))
+    # copies: a coder resuming a finished coder-copy while another copy runs (session-wide cap 1)
+    spawned(e, "coder", "CC", caller="SC", ctype="main-coder")
+    spawned(e, "coder-copy", "S2", caller="CC", ctype="coder")
+    e.run(e.stop("S2", "coder-copy"))
+    spawned(e, "coder-copy", "S3", caller="CC", ctype="coder")
+    r = e.run(e.send("S2", agent_id="CC", agent_type="coder"))
     assert r.decision == "deny" and "Copy limit" in r.reason, r
