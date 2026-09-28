@@ -216,8 +216,8 @@ checks = {
     "blackcat dispatch": env.get("BLACKCAT_MAX_DISPATCH") == "4" and env.get("BLACKCAT_MAX_STEPS") == "8",
     "caps and budgets": (env.get("STACK_MAX_FANOUT"), env.get("STACK_MAX_FANOUT_BY_TYPE"), env.get("STACK_MAX_SELF_FANOUT"),
                          env.get("STACK_PROMPT_CTX_BUDGET"), env.get("STACK_SESSION_CTX_BUDGET"),
-                         env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"))
-                        == ("3", "orchestrator=6,planner=4", "2", "100000000", "120000000", "20"),
+                         env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"), env.get("STACK_MAX_MCP_CALLS"))
+                        == ("3", "orchestrator=6,planner=4", "2", "100000000", "120000000", "20", "88"),
     "skill listing budget": s.get("skillListingBudgetFraction") == 0.01
                             and s.get("skillListingMaxDescChars") == 500
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only",

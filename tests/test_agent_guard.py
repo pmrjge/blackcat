@@ -24,7 +24,8 @@ KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "GOD_PEN
          "STACK_MAX_DEPTH", "STACK_GUARD_LOG", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
          "BLACKCAT_DISPATCH_WINDOW_S", "STACK_MAX_FANOUT", "STACK_MAX_SELF_FANOUT",
          "STACK_FANOUT_IDLE_S", "STACK_MAX_FANOUT_BY_TYPE", "STACK_LEASE_TTL_S",
-         "STACK_RESUME_TTL_S", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET")
+         "STACK_RESUME_TTL_S", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET",
+         "STACK_MAX_MCP_CALLS")
 COPY_DENIED = ("Copies cannot spawn copies: %s may not spawn %s. Do this part yourself or return "
                "STATUS: partial listing what is left.")
 
@@ -1875,3 +1876,86 @@ def test_god_resume_failure_drops_the_reservation(env):
         os.close(fd)
     assert decision(p) == "deny" and "stack guard error" in reason(p)
     assert leases(env, s, "M1") == []
+
+
+# ---------------------------------------------------------------- MCP call cap
+def mcp_ev(s, main, tool="mcp__exa__web_search_exa", agent_id="A1", agent_type="coder", **ti):
+    ev = tool_ev(s, main, tool, agent_id=agent_id, **ti)
+    if agent_id:
+        ev["agent_type"] = agent_type
+    return ev
+
+
+def mcp_count(env, s, aid):
+    f = state(env, s) / "mcp-calls" / (aid + ".json")
+    return json.loads(f.read_text())["calls"] if f.exists() else 0
+
+
+def seed_mcp(env, s, aid, n):
+    folder = state(env, s) / "mcp-calls"
+    folder.mkdir(parents=True, exist_ok=True)
+    (folder / (aid + ".json")).write_text(json.dumps({"calls": n}))
+
+
+def test_mcp_cap_counts_per_agent_and_denies_only_mcp(env, sess):
+    s, main, _ = sess
+    cap = {"STACK_MAX_MCP_CALLS": "3"}
+    for _ in range(3):
+        assert decision(budget_run(mcp_ev(s, main), env, extra=cap)) == "allow"
+    assert mcp_count(env, s, "A1") == 3
+    p = budget_run(mcp_ev(s, main), env, extra=cap)
+    assert decision(p) == "deny" and reason(p).startswith("MCP call limit reached")
+    assert "STACK_MAX_MCP_CALLS=3" in reason(p) and "STATUS: partial" in reason(p)
+    msg = json.loads(p.stdout)["systemMessage"]
+    assert "STACK_MAX_MCP_CALLS" in msg and "until the next install.sh run" in msg
+    assert mcp_count(env, s, "A1") == 3                     # a refused call is not counted
+    # other tools, and reporting, still work
+    assert decision(budget_run(tool_ev(s, main, "Read", file_path="x"), env, extra=cap)) == "allow"
+    assert decision(budget_run(tool_ev(s, main, "SubagentHandback", message="x"), env,
+                               extra=cap)) == "allow"
+    # another agent of the same type has its own count; the main thread is never counted
+    assert decision(budget_run(mcp_ev(s, main, agent_id="A2"), env, extra=cap)) == "allow"
+    for _ in range(5):
+        assert decision(budget_run(mcp_ev(s, main, agent_id=None), env, extra=cap)) == "allow"
+    assert not (state(env, s) / "mcp-calls" / "none.json").exists()
+    # 0 = off; STACK_POLICY=off too
+    assert decision(budget_run(mcp_ev(s, main), env,
+                               extra={"STACK_MAX_MCP_CALLS": "0"})) == "allow"
+    assert decision(budget_run(mcp_ev(s, main), env,
+                               extra=dict(cap, STACK_POLICY="off"))) == "allow"
+
+
+def test_mcp_cap_is_min_of_knob_and_max_turns(env, sess):
+    """Default 88, lowered by a smaller frontmatter maxTurns (scout 40, mcp-broker 80); a larger
+    one (orchestrator 300, coder-copy via coder 190) and a type without a file get 88."""
+    s, main, _ = sess
+    for aid, atype, cap in (("S1", "scout", 40), ("B1", "mcp-broker", 80), ("O1", "orchestrator", 88),
+                            ("C1", "coder-copy", 88), ("E1", "explore", 88)):
+        seed_mcp(env, s, aid, cap - 1)
+        assert decision(budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)) == "allow"
+        p = budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)
+        assert decision(p) == "deny", atype
+        assert ("%d MCP tool calls" % cap) in reason(p), reason(p)
+        assert (("its maxTurns %d" % cap) in reason(p)) == (cap < 88), reason(p)
+
+
+def test_mcp_cap_on_the_main_hooks_mcp_tools(env, sess):
+    """computer-use and local-file MCP tools go through the main hook, which checks the cap
+    before taking the screen lock."""
+    s, main, _ = sess
+    seed_mcp(env, s, "D1", 100)                              # designer: maxTurns 100 -> cap 88
+    p = run(mcp_ev(s, main, "mcp__computer-use__screenshot", agent_id="D1", agent_type="designer"),
+            env)
+    assert decision(p) == "deny" and "MCP call limit" in reason(p)
+    assert not (state(env, s) / "screen.lock").exists()
+    assert decision(run(mcp_ev(s, main, "mcp__computer-use__screenshot", agent_id="D2",
+                               agent_type="designer"), env)) == "allow"
+    assert mcp_count(env, s, "D2") == 1
+
+
+def test_mcp_cap_parallel_calls_count_exactly(env, sess):
+    s, main, _ = sess
+    res = run_many([mcp_ev(s, main) for _ in range(FANOUT)], env, args=["budget"],
+                   extra={"STACK_MAX_MCP_CALLS": "5"})
+    assert res.count("allow") == 5, res
+    assert mcp_count(env, s, "A1") == 5

@@ -6,8 +6,9 @@ installer renders every hook command with an absolute interpreter path (never a 
 a hook that cannot start is a non-blocking error in Claude Code, i.e. every gate silently open.
 Reads the hook JSON on stdin.
 
-  PreToolUse  every tool            `budget` mode: the prompt and session context-token budgets
-                                    (the tools below check them in this mode's place, first)
+  PreToolUse  every tool            `budget` mode: the prompt and session context-token budgets,
+                                    and each subagent's MCP call cap (the tools below check both
+                                    in this mode's place, first)
   PreToolUse  Agent                 spawn policy, copy rule, depth limit, fan-out caps (spawn
                                     lease), session copy cap, blackcat dispatch and step limits
                                     (atomic markers), god-coder singleton (pending lease), strip
@@ -70,6 +71,7 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
                           ts}, counted like spawn leases
   budget.json             token counts {files: {path: {off, ino, keys}}, total, prompt_base,
                           prompt_id}
+  mcp-calls/<agent_id>.json  MCP tool calls of one subagent {calls, type, cap, ts}
   blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
   god-coder.lock, screen.lock  JSON, replaced atomically; transitions under flock(*.mutex)
 
@@ -88,7 +90,7 @@ subtree (the agent's transcript and every live descendant's).
 CLI: `agent_guard.py --print-policy` (JSON consumed by doctor.sh and tests/lint_agents.py),
 `--self-test`, `--check-budget [transcript]` (doctor: the budgets still read real transcripts),
 `blackcat-guard` (PreToolUse hook of the blackcat main thread), `budget` (PreToolUse hook on every
-tool: token budgets), `image-limit` (PreToolUse/PostToolUse hook that keeps images under
+tool: token budgets and the MCP call cap), `image-limit` (PreToolUse/PostToolUse hook that keeps images under
 STACK_IMAGE_MAX_PX), `no-push` (PreToolUse Bash/Monitor/PowerShell hook that denies any git push or
 forge write, a plaintext mcp-headers/with-stack-env key print, or `-x` tracing of
 install.sh/doctor.sh), no argument = event.
@@ -111,6 +113,8 @@ Knobs (env):
                           no longer counts as running (settings.json ships 600)
   STACK_PROMPT_CTX_BUDGET=100000000   context tokens per human prompt, whole session tree (0 = off)
   STACK_SESSION_CTX_BUDGET=120000000  context tokens per session, whole session tree (0 = off)
+  STACK_MAX_MCP_CALLS=88  MCP tool calls (mcp__*) per subagent per session; an agent whose
+                          frontmatter maxTurns is lower gets that instead (0 = off)
   GOD_PENDING_TTL_S=120   an unconfirmed god-coder lease (spawn or resume) is reclaimable after this
   GOD_IDLE_S=900          a holder whose live subtree is idle this long is presumed gone
                           (settings.json ships 1800)
@@ -1946,9 +1950,93 @@ def budget_reason(kind, span, used, knob, cap, ev):
                    "and return STATUS: partial listing what is left.")
 
 
+# ---------------------------------------------------------------- MCP call cap
+# Every subagent may make at most min(STACK_MAX_MCP_CALLS, its frontmatter maxTurns) calls to MCP
+# tools (`mcp__<server>__<tool>`) in a session: MCP round trips (remote APIs, browsers, large
+# payloads) cost more than local tools, and maxTurns alone lets an agent spend all its turns on
+# them. Counted per agent_id at PreToolUse (a resumed agent keeps its count); a call this gate
+# allows counts even if another hook or the permission system then refuses it. The main thread is
+# not counted: BlackCat's BLACKCAT_MAX_STEPS already bounds every one of its calls per prompt.
+# maxTurns comes from <config>/agents/<type>.md (a copy type falls back to its base file); a type
+# with no file or no maxTurns (explore, general-purpose, plugin agents) gets STACK_MAX_MCP_CALLS.
+# Past the cap only MCP calls are refused (REPORT_TOOLS never), other tools keep working. Fails
+# open like the token budgets: state it cannot read or lock warns and allows the call.
+MCP_CALLS_DIR = "mcp-calls"
+MAX_TURNS_RE = re.compile(r"^maxTurns:\s*(\d+)\s*$", re.M)
+
+
+def mcp_calls_knob():
+    return knob_int("STACK_MAX_MCP_CALLS", 88)
+
+
+def agent_max_turns(agent_type, agents_dir=None):
+    """The frontmatter maxTurns of an installed agent type (a copy type: its base's file when its
+    own is missing); None when there is none."""
+    if agents_dir is None:
+        agents_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  "agents")
+    t = norm(agent_type)
+    for name in (t, COPY_BASE.get(t)):
+        if not name or safe(name) != name:
+            continue
+        try:
+            with open(os.path.join(agents_dir, name + ".md")) as f:
+                head = f.read(8192)
+        except OSError:
+            continue
+        parts = head.split("\n---", 1) if head.startswith("---") else None
+        m = MAX_TURNS_RE.search(parts[0]) if parts and len(parts) == 2 else None
+        return int(m.group(1)) if m else None
+    return None
+
+
+def mcp_cap(agent_type, knob=None):
+    knob = mcp_calls_knob() if knob is None else knob
+    turns = agent_max_turns(agent_type)
+    return min(knob, turns) if turns and turns > 0 else knob
+
+
+def mcp_gate(ev, d):
+    """PreToolUse: count a subagent's MCP call; refuse it once the agent's cap is reached."""
+    tool = str(ev.get("tool_name") or "")
+    aid = ev.get("agent_id")
+    knob = mcp_calls_knob()
+    if not policy_on() or knob <= 0 or not aid or not tool.startswith("mcp__") \
+            or tool in REPORT_TOOLS:
+        return
+    atype = norm(ev.get("agent_type")) or "unknown"
+    try:
+        cap = mcp_cap(atype, knob)
+        folder = os.path.join(d, MCP_CALLS_DIR)
+        os.makedirs(folder, exist_ok=True)
+        path = os.path.join(folder, safe(aid) + ".json")
+        with mutex(folder, safe(aid), timeout=2.0):
+            n = int((read_json(path) or {}).get("calls") or 0)
+            if n < cap:
+                write_json_atomic(path, {"calls": n + 1, "type": atype, "cap": cap,
+                                         "ts": time.time()})
+                return
+    except MutexTimeout:
+        warn("MCP call cap: %s's counter is busy; the call is allowed" % atype)
+        return
+    except Exception as exc:  # noqa: BLE001 - a count we cannot keep never blocks work
+        warn("MCP call cap not checked (%s: %s); the call is allowed" % (type(exc).__name__, exc))
+        return
+    # The knob is OWNED_ENV in install.sh: a raised value is reset by the next install.
+    limit = ("STACK_MAX_MCP_CALLS=%d" % knob if cap == knob
+             else "its maxTurns %d, below STACK_MAX_MCP_CALLS=%d" % (cap, knob))
+    deny("MCP call limit reached: this %s has made %d MCP tool calls in this session (%s). Make "
+         "no more MCP tool calls; other tools still work. Finish with what you have, or return "
+         "STATUS: partial naming what the remaining MCP calls were for." % (atype, n, limit),
+         "claude-agent-stack: a %s reached its MCP call limit (%d per agent per session). To "
+         "allow more, raise STACK_MAX_MCP_CALLS in the env block of ~/.claude/settings.json (it "
+         "holds until the next install.sh run, which resets the stack's budget knobs); the "
+         "agent's maxTurns still caps it." % (atype, cap))
+
+
 def budget_main(raw):
-    """`budget` mode, a PreToolUse hook on every tool: the token budgets for the calls the main
-    hook doesn't see (it checks its own before taking any lease). Fails open."""
+    """`budget` mode, a PreToolUse hook on every tool: the token budgets and the MCP call cap for
+    the calls the main hook doesn't see (it checks its own before taking any lease). Fails open."""
     if not policy_on():
         return 0
     try:
@@ -1967,6 +2055,7 @@ def budget_main(raw):
         # file bodies, pasted secrets)
         log(d, {k: ev[k] for k in BUDGET_LOG_KEYS if ev.get(k) is not None})
         budget_gate(ev, d)
+        mcp_gate(ev, d)
     except SystemExit:
         raise
     except Exception as exc:  # noqa: BLE001 - fail open by design
@@ -4009,6 +4098,11 @@ def self_test():
         missing = [a for a in want if not os.path.isfile(os.path.join(agents_dir, a + ".md"))]
         if missing:
             problems.append("agent files missing in %s: %s" % (agents_dir, " ".join(missing)))
+        # the MCP call cap reads maxTurns from these files: every subagent type must yield one
+        unread = [a for a in want if a != "blackcat" and a not in missing
+                  and agent_max_turns(a, agents_dir) is None]
+        if unread:
+            problems.append("MCP call cap: no maxTurns read from %s" % " ".join(unread))
     problems += budget_self_test()
     try:
         root = state_root()
@@ -4113,9 +4207,11 @@ def dispatch(ev):
     d = sdir(ev.get("session_id"))
     log(d, ev)
     if event == "PreToolUse":
-        # the token budgets first, before any lease or lock is taken; they fail open
+        # the token budgets and the MCP call cap first, before any lease or lock is taken; they
+        # fail open
         try:
             budget_gate(ev, d)
+            mcp_gate(ev, d)
         except SystemExit:
             raise
         except Exception as exc:  # noqa: BLE001

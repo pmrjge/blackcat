@@ -1209,12 +1209,13 @@ SET_IF_ABSENT = {"statusLine", "agent", "skillListingBudgetFraction", "skillList
 # env keys the stack re-asserts on every run; every other shipped env key is a default the user
 # may tune (README "knobs"): it follows stack upgrades only while the user has not changed it.
 # The spawn and token-budget knobs are owned too: they are the stack's guarantees (BlackCat's step
-# cap, fan-out and copy caps, the per-prompt and per-session context budgets), not preferences.
+# cap, fan-out and copy caps, the per-prompt and per-session context budgets, the per-agent MCP
+# call cap), not preferences.
 OWNED_ENV = {"STACK_ENV_FILE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
              "MCP_DISCOVERY_CACHE", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
              "BLACKCAT_MAX_STEPS", "BLACKCAT_MAX_DISPATCH", "STACK_MAX_FANOUT",
              "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_SELF_FANOUT", "STACK_PROMPT_CTX_BUDGET",
-             "STACK_SESSION_CTX_BUDGET"}
+             "STACK_SESSION_CTX_BUDGET", "STACK_MAX_MCP_CALLS"}
 # values shipped by stack versions whose manifest predates "settings_env"
 OLD_DEFAULTS = {"ROUTER_MAX_DISPATCH": {"1"}}
 # The main-thread agent "router" is now "blackcat": its "agent" value and its knobs follow the
