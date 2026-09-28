@@ -201,14 +201,14 @@ out=$(XDG_STATE_HOME="$T1/state" "$T1/bin/magg-private" /bin/echo --env-pass --c
 priv=$(printf '%s\n' "$out" | sed -n 's/^--env-pass --config \(.*\) serve$/\1/p')
 [ -n "$priv" ] && [ "$priv" != "$T1/magg/config.json" ] && cmp -s "$priv" "$T1/magg/config.json" \
   && pass "magg-private runs magg on a private copy of the catalog" || failed "magg-private: [$out]"
-python3 - "$T1/settings.json" <<'PY' && pass "settings: autocompact on at 300K, depth 4, default tool search, lazy MCP, blackcat, skill listing 1%, 500-char cut, 6 user-only skills" || failed "settings.json values (see above)"
+python3 - "$T1/settings.json" <<'PY' && pass "settings: autocompact on at 400K, depth 4, default tool search, lazy MCP, blackcat, skill listing 1%, 500-char cut, 6 user-only skills" || failed "settings.json values (see above)"
 import json, sys
 s = json.load(open(sys.argv[1]))
 env = s["env"]
 checks = {
     "agent": s.get("agent") == "blackcat",
     "autoCompactEnabled": s.get("autoCompactEnabled") is True,
-    "autoCompactWindow": s.get("autoCompactWindow") == 300000,
+    "autoCompactWindow": s.get("autoCompactWindow") == 400000,
     "depth": env.get("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH") == "4",
     "tool search left at its default": "ENABLE_TOOL_SEARCH" not in env,
     ".env.example writable": "Read(**/.env.*)" not in s["permissions"]["deny"] and "Read(**/.env.local)" in s["permissions"]["deny"],
@@ -336,7 +336,7 @@ env["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] = "12"
 env["CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION"] = "5"
 env["DISABLE_AUTO_COMPACT"] = "1"
 env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "200000"
-s["autoCompactWindow"] = 300000
+s["autoCompactWindow"] = 300000                   # the earlier stack value
 s["permissions"]["allow"].append("Bash(ls *)")
 s["permissions"]["allow"].append("mcp__magg")      # what earlier stack versions shipped
 s["permissions"]["deny"].append("Read(**/.env.*)")
@@ -371,8 +371,8 @@ check(env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS") == shipped["CLAUDE_CODE_MA
       "concurrency not reset (%r)" % env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"))
 check("DISABLE_AUTO_COMPACT" not in env and "CLAUDE_CODE_AUTO_COMPACT_WINDOW" not in env,
       "auto-compaction overrides removed", "auto-compaction overrides kept")
-check(s.get("autoCompactWindow") == 300000 and s.get("autoCompactEnabled") is True,
-      "autoCompactWindow back to 300000", "autoCompactWindow=%r" % s.get("autoCompactWindow"))
+check(s.get("autoCompactWindow") == 400000 and s.get("autoCompactEnabled") is True,
+      "autoCompactWindow back to 400000", "autoCompactWindow=%r" % s.get("autoCompactWindow"))
 check("Bash(ls *)" in s["permissions"]["allow"], "user's own allow rule kept", "user's allow rule lost")
 m = json.load(open(magg))["servers"]
 check(m["docling"]["command"] == "my-docling" and m["docling"]["enabled"] is True and "mine" in m,

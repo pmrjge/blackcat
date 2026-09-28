@@ -1345,15 +1345,15 @@ for bad in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "C
     if bad in env:
         print("  WARNING: env %s overrides per-agent model/effort — removed" % bad)
         env.pop(bad)
-# Auto-compaction is part of the spec (on, 300K window): drop settings that silently defeat it.
+# Auto-compaction is part of the spec (on, 400K window): drop settings that silently defeat it.
 for bad, why in (("DISABLE_AUTO_COMPACT", "turns auto-compaction off"),
                  ("DISABLE_COMPACT", "turns every compaction off"),
                  ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "overrides autoCompactWindow")):
     if bad in env:
         print("  WARNING: env %s=%s %s — removed (autoCompactWindow=%s is the stack's setting)"
               % (bad, env.pop(bad), why, new.get("autoCompactWindow")))
-for warn_only, why in (("CLAUDE_CODE_DISABLE_1M_CONTEXT", "caps every model at 200K, so compaction happens at 200K, not 300K"),
-                       ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "makes compaction trigger earlier than the 300K window")):
+for warn_only, why in (("CLAUDE_CODE_DISABLE_1M_CONTEXT", "caps every model at 200K, so compaction happens at 200K, not 400K"),
+                       ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "makes compaction trigger earlier than the 400K window")):
     if warn_only in env:
         print("  note: env %s=%s %s (kept — remove it if unintended)" % (warn_only, env[warn_only], why))
 merged["env"] = env
@@ -1794,7 +1794,7 @@ cat <<EOF
      _EDIT_MODEL; /stack-doctor checks them).
      MCP servers read that file at connect time — no reinstall needed (except the first time you add
      WANDB_API_KEY: rerun ./install.sh $ORIG_ARGS). Open a new terminal so CLI tools see them too.
-  2. Start: claude        (main thread = BlackCat; the status line shows context vs the 300K window —
+  2. Start: claude        (main thread = BlackCat; the status line shows context vs the 400K window —
      auto-compact fires a little before it). Claude Desktop's Code tab, Conductor, VS Code and Zed load the same
      setup (README → Apps). A plain session without BlackCat: claude --agent claude.
      Inside: /stack-doctor   (health check)   /mcp   (server status; no sign-in needed with keys)

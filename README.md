@@ -93,7 +93,7 @@ duplicate backup.
     routes models itself sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`, and Claude Code then ignores this
     key in settings files (it logs "Ignoring ANTHROPIC_DEFAULT_HAIKU_MODEL from userSettings"). Claude
     Desktop can be such an app: see step 3 of [Claude Desktop, step by step](#claude-desktop-step-by-step).
-  - Env vars that would silently defeat the 300K auto-compaction are removed:
+  - Env vars that would silently defeat the 400K auto-compaction are removed:
     `DISABLE_AUTO_COMPACT`, `DISABLE_COMPACT`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`. It also removes
     `CLAUDE_CODE_SUBAGENT_MODEL[_FORCE]`, `CLAUDE_CODE_EFFORT_LEVEL` and stale `[1m]` model pins.
 - The magg catalog gets new servers. An entry is updated only while it is still exactly what an
@@ -122,7 +122,7 @@ exported.
 | Path | What |
 |---|---|
 | `~/.claude/rules/claude-agent-stack.md` | Global rules every agent loads (short on purpose). `~/.claude/CLAUDE.md` stays yours |
-| `~/.claude/settings.json` | `"agent": "blackcat"`, auto-compact on with a **300K** window, depth 4, caps, permissions, hooks, status line (merged) |
+| `~/.claude/settings.json` | `"agent": "blackcat"`, auto-compact on with a **400K** window, depth 4, caps, permissions, hooks, status line (merged) |
 | `~/.claude/agents/*.md` | 36 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
 | `~/.claude/skills/*/SKILL.md` | 78 skills (descriptions in context; bodies load on demand) |
 | `~/.claude/hooks/agent_guard.py` | The policy hook (spawn policy, depth, fan-out caps, copies, god-coder lock, screen lock, BlackCat limits, secrets guard for local-file MCP tools) |
@@ -130,7 +130,7 @@ exported.
 | `~/.claude/bin/with-stack-env` | Starts spider/magg with just their own keys (`--only`; Claude Desktop passes only `PATH`); `--print-env sh` for the profile |
 | `~/.claude/bin/claude-ultracode`, `~/.local/bin/claude-ninja`, `~/.local/bin/claude-god` | ninja-coder or god-coder as the main thread at ultracode (the two names link to the one script; written by the profile step) |
 | `~/.claude/bin/magg-private` | Runs mcp-broker's magg on a private copy of the catalog (copies under the hook state dir, pruned after a day) |
-| `~/.claude/bin/statusline.py` | Status line: agent · model · effort · context vs the 300K window · 5h/7d limits · cache hit |
+| `~/.claude/bin/statusline.py` | Status line: agent · model · effort · context vs the 400K window · 5h/7d limits · cache hit |
 | `~/.claude/bin/doctor.sh` | Health check behind `/stack-doctor` |
 | `~/.claude/mcp/{libdocs,image_studio,neural_memory}_mcp.py` | MCP servers run with `uv run --script`: library docs; image-studio (SVG and edits through OpenRouter, photos and rasters through Opper; the models set in `stack.env`); neural-memory with the stack's settings |
 | `~/.claude/neural-memory/` | The agents' shared long-term memory (SQLite brain `claude-agent-stack`, `config.toml`) |
@@ -148,13 +148,13 @@ exported.
 | Subagent depth 4 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`: BlackCat → L1 → L2 → L3 → L4. L4 cannot spawn. The hook also tracks depth (it reads the same variable), so an L4 agent can't slip through. The rules add *when* to spawn: only for a missing capability, substantial parallel parts or independent verification — never pass-through or "just in case", and deeper than L2 only for a missing capability or a check. |
 | One agent → several subagents concurrently | Interactive sessions run subagents in the background. An agent sends independent `Agent` calls in **one message** and they run in parallel. The results come back as task notifications. Caps: 3 running children per agent (`STACK_MAX_FANOUT`; orchestrator 6 and planner 4 through `STACK_MAX_FANOUT_BY_TYPE`), 20 per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`), and a context-token budget per prompt and per session (`STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET`) past which the hook tells agents to finish with what they have, and at most 88 MCP tool calls per subagent per session (`STACK_MAX_MCP_CALLS`; an agent whose `maxTurns` is lower gets that instead). |
 | subagent1 → subagent1 where it makes sense | researcher and coder, whose parts are most often independent, launch copies of themselves as their own agent types, `researcher-copy` and `coder-copy`: the installer renders them from the base file (same tools, model and `maxTurns`), and their policy rows list neither the base nor any copy, so a copy of a copy is a plain policy denial. At most 2 copies of a type run at once (`STACK_MAX_SELF_FANOUT`). Every other agent does parallel parts itself or hands them to another specialist: in the transcripts, copy-of-copy chains were about 10% of all tokens. |
-| Auto-compact on, window 300K | `"autoCompactEnabled": true`, `"autoCompactWindow": 300000`. Compaction fires a little before the window is full: a little before 300K (the window minus an output reserve and a safety buffer). Subagents compact with the same logic. The installer strips env overrides that would defeat it, `/stack-doctor` warns about settings or shell exports that do (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE`, …), and the status line shows how close the next compaction is. |
+| Auto-compact on, window 400K | `"autoCompactEnabled": true`, `"autoCompactWindow": 400000`. Compaction fires a little before the window is full: a little before 400K (the window minus an output reserve and a safety buffer). Subagents compact with the same logic. The installer strips env overrides that would defeat it, `/stack-doctor` warns about settings or shell exports that do (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE`, …), and the status line shows how close the next compaction is. |
 | More agents for every Claude feature | ml-engineer, dl-engineer, llm-engineer, data-scientist, browser-operator (Claude in Chrome + Playwright), claude-code-engineer (skills, agents, hooks, plugins, settings, workflows) and ninja-coder (engineer-mathematician between main-coder and god-coder), on top of the existing 26 (senior-coder is now main-coder). BlackCat also runs the main-thread-only features: dynamic workflows, scheduled tasks and routines, push notifications, file hand-off. |
-| The same setup in Claude Desktop and Conductor | Both run Claude Code with your user settings, so a Code-tab session or a Conductor chat starts as BlackCat with every agent, skill, hook, rule and MCP server, and auto-compacts at 300K. Checked against Conductor 0.87.5 on your Mac and by replaying its options through the Agent SDK. Pick Sonnet 5 and low effort there for BlackCat chats; see [Apps](#apps) for the differences. |
+| The same setup in Claude Desktop and Conductor | Both run Claude Code with your user settings, so a Code-tab session or a Conductor chat starts as BlackCat with every agent, skill, hook, rule and MCP server, and auto-compacts at 400K. Checked against Conductor 0.87.5 on your Mac and by replaying its options through the Agent SDK. Pick Sonnet 5 and low effort there for BlackCat chats; see [Apps](#apps) for the differences. |
 | Skills on demand, not tied to agents | Every agent has the Skill tool and sees every skill's description; it loads the ones whose description matches its task, and only then does a skill's body enter its context. No agent preloads a skill and no skill names an agent: a description says when to load it, never who. One `Skill` allow rule pre-approves them all, including skills you or a plugin add later, so background agents never stop at a prompt. 78 skills cover the work the agents do: engineering practice (Python, Rust, TypeScript, JVM, Julia, Haskell, CMake/Ninja, IDEs), performance, apps, systems, databases, mathematics and physics, ML/LLM and data, image-model engineering, robotics, LLM applications, research and writing, design, image and print, 3D, video. `tests/lint_agents.py` keeps it that way. |
 | MCP servers on demand, auto on/off | See [MCP servers](#mcp-servers): agent-scoped servers start and stop with their agent, remote ones connect on first use, every schema stays deferred until needed, and rare ones are mounted and unmounted by mcp-broker. |
 | Deep reasoning where it counts | The coordinating, planning and reviewing agents run at `xhigh` (orchestrator, planner, plan-reviewer, main-coder, code-reviewer, mathematician, quantum-engineer, security-auditor), ninja-coder and god-coder at `max`, most specialists at `high`; cheap lookups (BlackCat, scout, oracle) stay `low` so they answer fast. Opus 5.5's own default is `medium`. |
-| Context that doesn't bloat | Measured with Claude Code 2.1.283 before this revision: a session started at about 42K tokens (plain Claude Code: about 34K) — the skill list about 9K, the agent list about 3.6K, the rules about 2K — and each subagent at about 40K, which prompt caching reuses after its first request. The skill descriptions are now half as long (about 15K characters) and the rules about 6% shorter; re-measure with `/context`. Auto-compaction fires a little before 300K. Skill bodies, MCP tool schemas and memories load only when used. |
+| Context that doesn't bloat | Measured with Claude Code 2.1.283 before this revision: a session started at about 42K tokens (plain Claude Code: about 34K) — the skill list about 9K, the agent list about 3.6K, the rules about 2K — and each subagent at about 40K, which prompt caching reuses after its first request. The skill descriptions are now half as long (about 15K characters) and the rules about 6% shorter; re-measure with `/context`. Auto-compaction fires a little before 400K. Skill bodies, MCP tool schemas and memories load only when used. |
 | Images: SVG for graphics, raster for photos, edits for the rest | `image-studio` (image-director, designer): one tool per job, the model of each set in `stack.env` — `IMAGE_STUDIO_SVG_MODEL`, `IMAGE_STUDIO_IMAGE_MODEL`, `IMAGE_STUDIO_EDIT_MODEL` — and looked up in its provider's model catalog before every paid call, so an option or input the model lacks is refused for free. `generate_svg` — through OpenRouter (`OPENROUTER_API_KEY`), default Recraft V4.1 Pro Vector (`recraft/recraft-v4.1-pro-vector`, $0.30 an image, palette through Recraft's controls, one reference image); a model without SVG output is refused, and anything that isn't SVG is never saved. `generate_image` — through Opper (`OPPER_API_KEY`), default GPT Image 2.5 Sunburst (`openai/gpt-image-2.5-sunburst`): 1-4 images, quality low to max (about $0.006 to $0.21 at 1024x1024), 1K/2K/4K, transparency, up to 8 references; `collect_image` fetches one still rendering. `edit_image` — through OpenRouter, default Riverflow V2.5 Pro (`sourceful/riverflow-v2.5-pro`, $0.13 at 1K to $0.17 at 4K) with 1-10 input images. A missing key disables only the tools that need it; `/stack-doctor` shows the models in use and checks them. The rules keep logos, icons, illustrations and graphic design in SVG and allow no other image API. |
 | Uploaded images under 1920 px | The image-limit hook (see [Enforced behaviours](#enforced-behaviours-hooks)): what agents read and what they upload through the browser tools; the image tools scale their own inputs in memory; the rules cover curl and scripts. |
 | Squeeze context further | context-mode (researcher, doc-specialist): pages and long documents go into a local search index and only the passages asked for enter the context. neural-memory (12 agents): what earlier sessions settled is recalled on demand instead of re-derived, with nothing preloaded. See [Context economy](#context-economy-context-mode-and-neural-memory). |
@@ -568,7 +568,7 @@ match the agents' allowlists, and the installer tells you which ones to rename.
 
 ### Context economy: context-mode and neural-memory
 
-Neither shrinks the live window; auto-compaction at 300K does that. They keep things out of it.
+Neither shrinks the live window; auto-compaction at 400K does that. They keep things out of it.
 
 **context-mode** indexes a page (`ctx_fetch_and_index`) or a local file (`ctx_index`) into a local
 SQLite FTS5 store and returns a short preview; `ctx_search` then returns only the matching
@@ -666,8 +666,8 @@ guarantees rather than preferences. To change an owned knob, change it in the re
 ## Status line
 
 `bin/statusline.py` renders a line like
-`blackcat · Sonnet 5 · low · ctx 312K/300K ▓▓▓░░░░░ · 5h 23% · 7d 41% · cache 91%`.
-- The **ctx** bar counts the main conversation's tokens against the 300K auto-compact window, so you
+`blackcat · Sonnet 5 · low · ctx 156K/400K ▓▓▓░░░░░ · 5h 23% · 7d 41% · cache 91%`.
+- The **ctx** bar counts the main conversation's tokens against the 400K auto-compact window, so you
   see the next compaction coming (it fires a little before).
 - 5h/7d are your plan's rate-limit windows (Pro/Max).
 - It is set only if you had no status line. Remove `statusLine` from `settings.json` to turn it off.
@@ -687,7 +687,7 @@ endpoint). CUDA work runs only on an NVIDIA host you name.
 
 Every app below runs Claude Code with your user settings, so it starts as BlackCat with the whole
 stack: the 36 agents, the 78 skills, the hooks, the rules, your MCP servers and auto-compaction at
-300K. Checked on 27 Sep 2026 against each app's documentation or code; for Conductor also against
+400K. Checked on 27 Sep 2026 against each app's documentation or code; for Conductor also against
 the version on your Mac (0.87.5) and by running the stack through the Agent SDK with Conductor's own
 options (see [How the apps were checked](#how-the-apps-were-checked)).
 
