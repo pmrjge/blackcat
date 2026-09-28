@@ -1,0 +1,21 @@
+{
+  "name": "haskell-lsp",
+  "description": "Haskell code intelligence through haskell-language-server. Binary: haskell-language-server-wrapper (ghcup install hls); HLS must be built for the project's GHC.",
+  "version": "1.0.0",
+  "author": {
+    "name": "claude-agent-stack"
+  },
+  "lspServers": {
+    "haskell-language-server": {
+      "command": "haskell-language-server-wrapper",
+      "args": [
+        "--lsp"
+      ],
+      "extensionToLanguage": {
+        ".hs": "haskell",
+        ".lhs": "literate haskell"
+      },
+      "startupTimeout": 120000
+    }
+  }
+}

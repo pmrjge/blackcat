@@ -62,13 +62,13 @@ fi
 
 hash_tree() {
   # Fingerprint only what install.sh could ever write (CLAUDE.md, settings.json, agents/, rules/,
-  # skills/, hooks/, bin/, mcp/, magg/, stack.env, .stack-manifest.json, venvs/, backup-*), not
+  # skills/, hooks/, bin/, mcp/, magg/, stack.env, .stack-manifest.json, venvs/, stack-plugins/, backup-*), not
   # Claude Code's own live state under the real ~/.claude, which changes constantly.
   local p="$1"
   if [ -d "$p" ]; then
     (
       cd "$p" 2>/dev/null || exit 0
-      for entry in CLAUDE.md settings.json stack.env .stack-manifest.json agents rules skills hooks bin mcp magg venvs; do
+      for entry in CLAUDE.md settings.json stack.env .stack-manifest.json agents rules skills hooks bin mcp magg venvs stack-plugins; do
         [ -e "$entry" ] || continue
         find "$entry" -maxdepth 2 2>/dev/null | while IFS= read -r f; do fstat "$f"; done
       done
@@ -884,6 +884,52 @@ sys.exit(0 if w == {"baseRef": "head", "symlinkDirectories": ["node_modules"]} e
 PY
 assert_unchanged_real_home
 drop_scratch "$R0"
+
+echo "== 11. Code intelligence: the stack's local LSP marketplace (plugins step, fake claude)"
+TL="$(scratch_dir)" || exit 1
+mkdir -p "$TL/bin"
+# stand-ins for the language servers (julia exits 0: LanguageServer.jl "found")
+for b in haskell-language-server-wrapper lake metals julia; do printf '#!/bin/sh\nexit 0\n' > "$TL/bin/$b"; chmod +x "$TL/bin/$b"; done
+lsp_run(){ PATH="$TL/bin:$PATH" FAKE_CLAUDE_LOG="$TL/calls.log" CLAUDE_CONFIG_DIR="$TL/c" \
+  "$INSTALL" --no-mcp --no-deps --no-profile >"$TL/$1" 2>&1; }
+lsp_run a.log
+if diff -rq "$HERE/dot-claude/stack-plugins" "$TL/c/stack-plugins" >/dev/null 2>&1 \
+   && grep -qF "[\"plugin\", \"marketplace\", \"add\", \"$TL/c/stack-plugins\"]" "$TL/calls.log"; then
+  pass "stack-plugins copied to the config dir and registered as a directory marketplace"
+else
+  failed "stack marketplace not installed/registered"; tail -n 12 "$TL/a.log" | sed 's/^/    /'
+fi
+n=0; for p in haskell-lsp julia-lsp lean-lsp metals-lsp; do
+  grep -qF "[\"plugin\", \"install\", \"$p@agent-stack\", \"--scope\", \"user\"]" "$TL/calls.log" && n=$((n + 1))
+done
+[ "$n" = 4 ] && pass "haskell/julia/lean/metals LSP plugins installed from agent-stack when their servers exist" \
+  || failed "only $n of 4 agent-stack LSP plugins installed"
+# a local edit of the installed marketplace is backed up and replaced by the next run
+echo '{}' > "$TL/c/stack-plugins/plugins/lean-lsp/.claude-plugin/plugin.json"
+lsp_run b.log
+if diff -rq "$HERE/dot-claude/stack-plugins" "$TL/c/stack-plugins" >/dev/null 2>&1 \
+   && grep -qx '{}' "$TL"/c/backup-*/stack-plugins/plugins/lean-lsp/.claude-plugin/plugin.json 2>/dev/null; then
+  pass "re-run restores stack-plugins and keeps the edited copy in the backup"
+else
+  failed "stack-plugins not restored or not backed up"
+fi
+python3 - "$HERE/dot-claude/stack-plugins" <<'PY' && pass "every marketplace entry has a plugin.json with a strict-valid lspServers config" \
+  || failed "stack-plugins manifests"
+import json, os, sys
+root = sys.argv[1]
+m = json.load(open(os.path.join(root, ".claude-plugin", "marketplace.json")))
+ALLOWED = {"command", "extensionToLanguage", "args", "transport", "env", "initializationOptions", "settings",
+           "workspaceFolder", "startupTimeout", "shutdownTimeout", "restartOnCrash", "maxRestarts", "diagnostics"}
+for e in m["plugins"]:
+    pj = json.load(open(os.path.join(root, e["source"], ".claude-plugin", "plugin.json")))
+    assert pj["name"] == e["name"], e["name"]
+    for name, cfg in pj["lspServers"].items():
+        assert set(cfg) <= ALLOWED, (name, set(cfg) - ALLOWED)
+        assert cfg["command"] and " " not in cfg["command"], name
+        assert cfg["extensionToLanguage"] and all(k.startswith(".") for k in cfg["extensionToLanguage"]), name
+PY
+assert_unchanged_real_home
+drop_scratch "$TL"
 
 echo
 echo "== Summary: $PASS passed, $FAIL failed"

@@ -1,0 +1,29 @@
+{
+  "name": "agent-stack",
+  "description": "claude-agent-stack code-intelligence plugins for languages Anthropic's official marketplace has no LSP plugin for (installed by install.sh)",
+  "owner": {
+    "name": "claude-agent-stack"
+  },
+  "plugins": [
+    {
+      "name": "haskell-lsp",
+      "source": "./plugins/haskell-lsp",
+      "description": "Haskell code intelligence through haskell-language-server (GHCup)"
+    },
+    {
+      "name": "julia-lsp",
+      "source": "./plugins/julia-lsp",
+      "description": "Julia code intelligence through LanguageServer.jl (shared environment @claude-lsp)"
+    },
+    {
+      "name": "lean-lsp",
+      "source": "./plugins/lean-lsp",
+      "description": "Lean 4 code intelligence through the Lean server (lake serve, elan)"
+    },
+    {
+      "name": "metals-lsp",
+      "source": "./plugins/metals-lsp",
+      "description": "Scala code intelligence through Metals (Coursier)"
+    }
+  ]
+}

@@ -415,6 +415,36 @@ signed in to claude.ai they are already synced as `anthropic-skills:*` and the p
 `--with-extra-plugins` adds three more Anthropic skill plugins: `skill-creator`, `mcp-server-dev`
 and `math-olympiad`, available to every agent like the rest.
 
+### Code intelligence (LSP)
+
+The `LSP` tool in the coding agents' `tools:` lines stays inactive until a code-intelligence plugin
+for the file's language is installed and its language server binary is on your `PATH`
+([docs](https://code.claude.com/docs/en/plugins/code-intelligence)). Then Claude gets the server's
+diagnostics after every edit, and go-to-definition, references and symbol search through `LSP`.
+A server starts the first time Claude edits a file of its language, in the terminal and in Claude
+Desktop's local sessions (the app reads `PATH` from your shell profile; cloud sessions start none).
+Step 10 of the installer installs the plugin of every language whose server it finds:
+
+| Language | Plugin | Server | `--with-lsp` installs it with |
+|---|---|---|---|
+| Python | `pyright-lsp@claude-plugins-official` | `pyright-langserver` | npm |
+| TypeScript / JavaScript | `typescript-lsp@claude-plugins-official` | `typescript-language-server` | npm |
+| Rust | `rust-analyzer-lsp@claude-plugins-official` | `rust-analyzer` | rustup |
+| C / C++ | `clangd-lsp@claude-plugins-official` | `clangd` | — (Xcode Command Line Tools) |
+| Go, Swift, Java | `gopls-lsp`, `swift-lsp`, `jdtls-lsp` (official) | `gopls`, `sourcekit-lsp`, `jdtls` | — (brew, Xcode) |
+| Kotlin | `kotlin-lsp@claude-plugins-official` | `kotlin-lsp` | brew, when `kotlin`/`kotlinc` is present |
+| Haskell | `haskell-lsp@agent-stack` | `haskell-language-server-wrapper` | ghcup, when present |
+| Julia | `julia-lsp@agent-stack` | LanguageServer.jl in the environment `@claude-lsp` | julia, when present |
+| Lean 4 | `lean-lsp@agent-stack` | `lake serve` | nothing (comes with elan) |
+| Scala | `metals-lsp@agent-stack` | `metals` | cs (Coursier), when present |
+
+`agent-stack` is the stack's own local marketplace (`dot-claude/stack-plugins/`, installed to
+`~/.claude/stack-plugins/` and loaded in place) for the languages the official one has no plugin
+for. CUDA `.cu` files get no server (clangd needs a CUDA toolkit, absent on macOS). Check with
+`claude plugin list`, the **Errors** tab of `/plugin` (`Executable not found in $PATH` names a
+missing binary), or ask Claude to introduce and fix a type error: a `Found N new diagnostic issues`
+line under the edit means the server runs.
+
 ## MCP servers
 
 **How servers turn on and off by themselves.**
@@ -730,8 +760,9 @@ Smoke tests:
   secrets (`.env`, `.env.local`, `.env.*.local`, `.env.dev[elopment]`, `.env.prod[uction]`,
   `.env.stag[e|ing]`). `.env.example`, `.env.test` and the like stay editable: a Read deny also
   blocks Edit and Write.
-- Deny rules stop the agents' Edit/Write tools from changing the hooks, `bin/`, `settings.json`
-  or the hook state (Bash is not covered).
+- Deny rules stop the agents' Edit/Write tools from changing the hooks, `bin/`, `settings.json`,
+  `stack-plugins/` (its language-server commands run on their own) or the hook state (Bash is not
+  covered).
 - MCP tools that read local files (context-mode's `ctx_index`, markitdown, docling, Playwright's
   `file:` URLs and uploads) are held to the same Read deny rules by the hook, so a prompt injected
   into a web page can't pull `stack.env` in through them. context-mode's code-execution tools are

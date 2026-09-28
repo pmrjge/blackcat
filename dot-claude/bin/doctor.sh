@@ -573,8 +573,13 @@ if [ "$(uname)" = "Darwin" ]; then
 else
   ok "computer use in the CLI is macOS-only; GUI agents fall back to MCP/scripts here"
 fi
-lsp=""; for b in pyright-langserver typescript-language-server rust-analyzer sourcekit-lsp clangd gopls; do
-  case "$b" in rust-analyzer) rust-analyzer --version >/dev/null 2>&1 && lsp="$lsp $b" ;; *) have "$b" && lsp="$lsp $b" ;; esac
+lsp=""; for b in pyright-langserver typescript-language-server rust-analyzer sourcekit-lsp clangd gopls jdtls kotlin-lsp haskell-language-server-wrapper lake metals julia; do
+  case "$b" in
+    rust-analyzer) rust-analyzer --version >/dev/null 2>&1 && lsp="$lsp $b" ;;
+    julia) have julia && julia --startup-file=no --history-file=no --project=@claude-lsp \
+      -e 'exit(Base.find_package("LanguageServer") === nothing ? 1 : 0)' >/dev/null 2>&1 && lsp="$lsp LanguageServer.jl" ;;
+    *) have "$b" && lsp="$lsp $b" ;;
+  esac
 done
 [ -n "$lsp" ] && ok "language servers on PATH:$lsp (code-intelligence plugins start them on demand)" || warn "no language servers on PATH — ./install.sh --with-lsp"
 # The Playwright MCP (browser-operator, frontend-engineer, verifier) drives Google Chrome by default.

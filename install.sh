@@ -4,7 +4,8 @@
 #   ./install.sh --with-ml       also create the ML venv ($C/venvs/ml: PyTorch, Transformers, PEFT,
 #                                 scikit-learn/XGBoost/LightGBM, MLX + mlx-lm on Apple Silicon; several GB)
 #   ./install.sh --with-lsp      also install missing language servers (pyright, typescript-language-server,
-#                                 rust-analyzer) before enabling the code-intelligence plugins
+#                                 rust-analyzer; HLS, LanguageServer.jl, Metals, kotlin-lsp when ghcup,
+#                                 julia, cs, kotlin are present) before enabling the code-intelligence plugins
 #   ./install.sh --with-adobe    also build the After Effects MCP + install the Premiere connector (macOS)
 #   ./install.sh --with-extra-plugins  also install Anthropic's skill-creator, mcp-server-dev and
 #                                 math-olympiad plugins (their skills load on demand)
@@ -39,7 +40,7 @@ for a in "$@"; do
     --no-deps) NO_DEPS=1 ;;
     --no-profile) NO_PROFILE=1 ;;
     --mcp-plan) MCP_PLAN=1 ;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0 ;;
+    -h|--help) sed -n '2,25p' "$0"; exit 0 ;;
     *) echo "unknown option: $a"; exit 2 ;;
   esac
 done
@@ -153,7 +154,13 @@ say(){ printf '\n\033[1m%s\033[0m\n' "$*"; }
 note(){ printf '  %s\n' "$*"; }
 have(){ command -v "$1" >/dev/null 2>&1; }
 # rustup installs a rust-analyzer proxy even without the component: run it, don't just find it
-lsp_works(){ case "$1" in rust-analyzer) rust-analyzer --version >/dev/null 2>&1 ;; *) have "$1" ;; esac; }
+lsp_works(){ case "$1" in
+  rust-analyzer) rust-analyzer --version >/dev/null 2>&1 ;;
+  # LanguageServer.jl is a package, not a binary: loadable from the @claude-lsp environment (or the
+  # default one, also on that load path)
+  julia-languageserver) have julia && julia --startup-file=no --history-file=no --project=@claude-lsp \
+    -e 'exit(Base.find_package("LanguageServer") === nothing ? 1 : 0)' >/dev/null 2>&1 ;;
+  *) have "$1" ;; esac; }
 # ~/.local/bin (uv, magg, huetension, npm --prefix installs) is APPENDED, so tools already on your
 # PATH win — including a test double of `claude` — and the uv installer still sees the original PATH.
 ORIG_PATH="$PATH"
@@ -1404,10 +1411,28 @@ if [ "$SKIP_PLUGINS" = 0 ] && [ "$MCP_PLAN" = 0 ]; then
     have typescript-language-server || { have npm && npm_g "$TSLS" typescript >/dev/null 2>&1; } \
       || note "! typescript-language-server install failed — npm install -g --prefix ~/.local $TSLS typescript"
     lsp_works rust-analyzer || { have rustup && rustup component add rust-analyzer >/dev/null 2>&1; } || note "! rust-analyzer: rustup component add rust-analyzer"
+    # Servers for the stack's other languages come from each language's own toolchain manager, and
+    # only when that manager is already here: the installer never installs GHCup, juliaup, elan,
+    # Coursier or Kotlin for you. Lean needs nothing extra (elan's `lake serve` is the server).
+    if ! lsp_works haskell-language-server-wrapper && have ghcup; then
+      ghcup install hls recommended >/dev/null 2>&1 || true
+      lsp_works haskell-language-server-wrapper || note "! haskell-language-server: ghcup install hls recommended (then ghcup set hls recommended)"
+    fi
+    if ! lsp_works julia-languageserver && have julia; then
+      note "  installing LanguageServer.jl into the Julia environment @claude-lsp (a few minutes the first time)"
+      julia --startup-file=no --history-file=no --project=@claude-lsp -e 'using Pkg; Pkg.add("LanguageServer")' >/dev/null 2>&1 \
+        || note "! LanguageServer.jl: julia --project=@claude-lsp -e 'using Pkg; Pkg.add(\"LanguageServer\")'"
+    fi
+    if ! lsp_works metals && have cs; then
+      cs install metals >/dev/null 2>&1 || note "! metals: cs install metals"
+    fi
+    if ! lsp_works kotlin-lsp && { have kotlin || have kotlinc; } && have brew; then
+      brew install JetBrains/utils/kotlin-lsp >/dev/null 2>&1 || note "! kotlin-lsp: brew install JetBrains/utils/kotlin-lsp"
+    fi
   fi
   claude plugin marketplace add anthropics/claude-plugins-official >/dev/null 2>&1 </dev/null || true
   lsp_added=""; lsp_failed=""; lsp_missing=""
-  for pair in pyright-langserver:pyright-lsp typescript-language-server:typescript-lsp rust-analyzer:rust-analyzer-lsp sourcekit-lsp:swift-lsp clangd:clangd-lsp gopls:gopls-lsp jdtls:jdtls-lsp; do
+  for pair in pyright-langserver:pyright-lsp typescript-language-server:typescript-lsp rust-analyzer:rust-analyzer-lsp sourcekit-lsp:swift-lsp clangd:clangd-lsp gopls:gopls-lsp jdtls:jdtls-lsp kotlin-lsp:kotlin-lsp; do
     b="${pair%%:*}"; p="${pair##*:}"
     if lsp_works "$b"; then
       # `claude plugin install` exits 0 when the plugin is already installed, so a failure is real
@@ -1416,9 +1441,31 @@ if [ "$SKIP_PLUGINS" = 0 ] && [ "$MCP_PLAN" = 0 ]; then
       lsp_missing="$lsp_missing $b"
     fi
   done
+  # Languages the official marketplace has no code-intelligence plugin for (Haskell, Julia, Lean 4,
+  # Scala) come from the stack's own local marketplace, installed at $C/stack-plugins. A directory
+  # marketplace loads its plugins in place, so a re-run's copy takes effect at the next session.
+  if [ -d "$SRC/stack-plugins" ]; then
+    if [ -d "$C/stack-plugins" ] && ! diff -rq "$SRC/stack-plugins" "$C/stack-plugins" >/dev/null 2>&1; then
+      cp -R "$C/stack-plugins" "$B/stack-plugins"
+    fi
+    rm -rf "$C/.stack-plugins.new" && cp -R "$SRC/stack-plugins" "$C/.stack-plugins.new" \
+      && rm -rf "$C/stack-plugins" && mv "$C/.stack-plugins.new" "$C/stack-plugins"
+    if claude plugin marketplace add "$C/stack-plugins" >/dev/null 2>&1 </dev/null; then
+      for pair in haskell-language-server-wrapper:haskell-lsp julia-languageserver:julia-lsp lake:lean-lsp metals:metals-lsp; do
+        b="${pair%%:*}"; p="${pair##*:}"
+        if lsp_works "$b"; then
+          if claude plugin install "$p@agent-stack" --scope user >/dev/null 2>&1 </dev/null; then lsp_added="$lsp_added $p"; else lsp_failed="$lsp_failed $p@agent-stack"; fi
+        else
+          lsp_missing="$lsp_missing $b"
+        fi
+      done
+    else
+      note "! could not add the stack's plugin marketplace — inside claude: /plugin marketplace add $C/stack-plugins"
+    fi
+  fi
   [ -n "$lsp_added" ] && note "+ code intelligence:$lsp_added"
-  [ -n "$lsp_failed" ] && note "! plugin install failed:$lsp_failed (inside claude: /plugin install <name>@claude-plugins-official)"
-  [ -n "$lsp_missing" ] && note "- no language server for:$lsp_missing (./install.sh --with-lsp installs pyright, typescript-language-server, rust-analyzer; Java: brew install jdtls)"
+  [ -n "$lsp_failed" ] && note "! plugin install failed:$lsp_failed (inside claude: /plugin install <name>@claude-plugins-official, or <name>@agent-stack)"
+  [ -n "$lsp_missing" ] && note "- no language server for:$lsp_missing (./install.sh --with-lsp installs pyright, typescript-language-server, rust-analyzer, and HLS, LanguageServer.jl, Metals, kotlin-lsp through ghcup, julia, cs, brew when those are present; Java: brew install jdtls; Lean: elan)"
   # Optional Anthropic skill plugins (skill-creator for claude-code-engineer, mcp-server-dev for
   # llm-engineer/mcp-broker, math-olympiad for the mathematician). Only their descriptions sit in
   # context; the skills load when a task matches.

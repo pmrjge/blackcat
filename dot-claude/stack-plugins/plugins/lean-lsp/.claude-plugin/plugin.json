@@ -1,0 +1,20 @@
+{
+  "name": "lean-lsp",
+  "description": "Lean 4 code intelligence through the Lean server started by lake serve (elan picks the project's lean-toolchain). Build the project first (lake build, or lake exe cache get for Mathlib).",
+  "version": "1.0.0",
+  "author": {
+    "name": "claude-agent-stack"
+  },
+  "lspServers": {
+    "lean": {
+      "command": "lake",
+      "args": [
+        "serve"
+      ],
+      "extensionToLanguage": {
+        ".lean": "lean4"
+      },
+      "startupTimeout": 120000
+    }
+  }
+}

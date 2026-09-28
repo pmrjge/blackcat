@@ -125,6 +125,7 @@
       "Edit(/__CLAUDE_DIR__/hooks/**)",
       "Edit(/__CLAUDE_DIR__/settings.json)",
       "Edit(/__CLAUDE_DIR__/bin/**)",
+      "Edit(/__CLAUDE_DIR__/stack-plugins/**)",
       "Edit(.git/**)",
       "Edit(.claude/settings.json)",
       "Edit(.claude/settings.local.json)",

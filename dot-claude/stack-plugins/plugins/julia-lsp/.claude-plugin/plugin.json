@@ -1,0 +1,25 @@
+{
+  "name": "julia-lsp",
+  "description": "Julia code intelligence through LanguageServer.jl, installed in the shared environment @claude-lsp (julia --project=@claude-lsp -e 'using Pkg; Pkg.add(\"LanguageServer\")'). Analyses the Julia project that contains the session's directory, else the default environment.",
+  "version": "1.0.0",
+  "author": {
+    "name": "claude-agent-stack"
+  },
+  "lspServers": {
+    "julia": {
+      "command": "julia",
+      "args": [
+        "--startup-file=no",
+        "--history-file=no",
+        "--project=@claude-lsp",
+        "-e",
+        "using LanguageServer; p = Base.current_project(ARGS[1]); runserver(stdin, stdout, p === nothing ? dirname(Base.load_path_expand(\"@v#.#\")) : dirname(p))",
+        "${CLAUDE_PROJECT_DIR}"
+      ],
+      "extensionToLanguage": {
+        ".jl": "julia"
+      },
+      "startupTimeout": 180000
+    }
+  }
+}

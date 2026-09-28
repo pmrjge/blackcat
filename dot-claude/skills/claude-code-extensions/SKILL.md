@@ -28,6 +28,9 @@ The image limit (`agent_guard.py image-limit`: PostToolUse `Read|mcp__.*` re-enc
 ## Settings keys and env used by the stack
 `agent`, `autoCompactEnabled`, `autoCompactWindow` (100000–1000000, capped at the model window; `CLAUDE_CODE_AUTO_COMPACT_WINDOW` overrides), env: `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` (layers below the main thread; default 3, this stack sets 4), `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (default 20), `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` (default 200), `MCP_DISCOVERY_CACHE`, `MCP_TIMEOUT`, `MAX_MCP_OUTPUT_TOKENS`. Permission paths: `//abs/path`, `~/path`, `/path` = relative to the settings file; Read denies also block Edit/Write on the path.
 
+## Code intelligence (LSP)
+The `LSP` tool is inactive until a plugin declares a language server (`lspServers` inline in `plugin.json`, or `.lsp.json`; strict keys: `command`, `extensionToLanguage`, `args`, `transport`, `env`, `initializationOptions`, `settings`, `workspaceFolder`, `startupTimeout`, `shutdownTimeout`, `restartOnCrash`, `maxRestarts`, `diagnostics`) and its binary is on `PATH`; one server per extension, started on the first edit of a matching file; none in cloud sessions. `claude plugin validate` does not read `.lsp.json`. This stack installs the official `*-lsp@claude-plugins-official` plugins plus its own directory marketplace `agent-stack` (`dot-claude/stack-plugins/` → `~/.claude/stack-plugins/`: haskell, julia, lean, metals); `claude plugin details <name>` lists a plugin's LSP servers, `claude --debug-file` logs `Starting LSP server instance`.
+
 ## Main-thread-only features
 Workflow (dynamic workflows), CronCreate/CronList/CronDelete/ScheduleWakeup (in-session scheduling, `/loop`), RemoteTrigger (routines), PushNotification, AskUserQuestion, EnterPlanMode are removed from subagents — only BlackCat can use them.
 

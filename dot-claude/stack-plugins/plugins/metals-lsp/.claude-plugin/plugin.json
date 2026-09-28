@@ -1,0 +1,28 @@
+{
+  "name": "metals-lsp",
+  "description": "Scala code intelligence through Metals (cs install metals). Builds (sbt, Mill, Gradle, Maven, scala-cli) are imported automatically.",
+  "version": "1.0.0",
+  "author": {
+    "name": "claude-agent-stack"
+  },
+  "lspServers": {
+    "metals": {
+      "command": "metals",
+      "extensionToLanguage": {
+        ".scala": "scala",
+        ".sc": "scala",
+        ".sbt": "scala",
+        ".mill": "scala"
+      },
+      "initializationOptions": {
+        "statusBarProvider": "log-message"
+      },
+      "settings": {
+        "metals": {
+          "autoImportBuilds": "all"
+        }
+      },
+      "startupTimeout": 180000
+    }
+  }
+}
