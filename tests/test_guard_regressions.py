@@ -198,6 +198,13 @@ def test_r11_resuming_a_finished_child_counts_against_the_fanout_cap():
     assert r.decision == "deny" and "Fan-out limit" in r.reason, r
     e.run(e.stop("V1", "verifier"))                                   # one slot free again
     assert e.run(e.send("C1", agent_id="SC", agent_type="main-coder")).decision.startswith("allow")
+    # the resume holds that slot from the SendMessage on, before C1 has even started
+    r = e.run(e.pre_agent("scout", agent_id="SC", agent_type="main-coder"))
+    assert r.decision == "deny" and "Fan-out limit" in r.reason, r
+    e.run(e.start("C1", "coder"))                                     # reservation -> live child
+    r = e.run(e.pre_agent("scout", agent_id="SC", agent_type="main-coder"))
+    assert r.decision == "deny" and "Fan-out limit" in r.reason, r
+    e.run(e.stop("C1", "coder"))
     # copies: a coder resuming a finished coder-copy while another copy runs (session-wide cap 1)
     spawned(e, "coder", "CC", caller="SC", ctype="main-coder")
     spawned(e, "coder-copy", "S2", caller="CC", ctype="coder")
@@ -205,3 +212,32 @@ def test_r11_resuming_a_finished_child_counts_against_the_fanout_cap():
     spawned(e, "coder-copy", "S3", caller="CC", ctype="coder")
     r = e.run(e.send("S2", agent_id="CC", agent_type="coder"))
     assert r.decision == "deny" and "Copy limit" in r.reason, r
+
+
+# ---------------------------------------------------------------- review 2026-09-28
+def test_r12_parallel_resumes_reserve_their_slots():
+    """Resumes sent in one message are counted one by one: each takes a reservation under the
+    fan-out lock, so the cap holds across the burst (the check used to reserve nothing)."""
+    e = Env(STACK_MAX_FANOUT=2)
+    spawned(e, "main-coder", "SC")
+    for c in ("C1", "C2", "C3", "C4"):
+        spawned(e, "coder", c, caller="SC", ctype="main-coder")
+        e.run(e.stop(c, "coder"))
+    rs = e.run_many([e.send(c, agent_id="SC", agent_type="main-coder")
+                     for c in ("C1", "C2", "C3", "C4")])
+    assert sum(r.decision.startswith("allow") for r in rs) == 2, rs
+    folder = os.path.join(e.sdir(), "fanout", "SC")
+    held = os.listdir(folder) if os.path.isdir(folder) else []
+    assert len([f for f in held if f.startswith("resume-")]) == 2, held
+
+
+def test_r13_a_resume_that_never_starts_expires():
+    e = Env(STACK_MAX_FANOUT=1, STACK_RESUME_TTL_S=1)
+    spawned(e, "main-coder", "SC")
+    spawned(e, "coder", "C1", caller="SC", ctype="main-coder")
+    e.run(e.stop("C1", "coder"))
+    assert e.run(e.send("C1", agent_id="SC", agent_type="main-coder")).decision.startswith("allow")
+    assert e.run(e.pre_agent("scout", agent_id="SC", agent_type="main-coder")).decision == "deny"
+    time.sleep(1.1)                     # the SendMessage was refused elsewhere: C1 never started
+    assert e.run(e.pre_agent("scout", agent_id="SC", agent_type="main-coder")).decision.startswith(
+        "allow")

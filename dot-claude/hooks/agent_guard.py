@@ -14,7 +14,8 @@ Reads the hook JSON on stdin.
                                     `model`
   PreToolUse  SendMessage           resuming a finished agent follows the spawn policy (the caller's
                                     row, or its own child/parent), its parent's fan-out cap and the
-                                    copy cap; resuming a finished god-coder takes the god-coder lock
+                                    copy cap, and holds a resume reservation until it starts;
+                                    resuming a finished god-coder takes the god-coder lock
   PreToolUse  mcp__computer-use__*  one agent on the screen at a time
   PreToolUse  Bash|Monitor|PowerShell  `no-push` mode: agents never push and never write to a
                                     forge (gh/tea/fj), in any form, also inside bash -c, eval, $(...)
@@ -34,8 +35,9 @@ Reads the hook JSON on stdin.
                                     child as a live background child; confirm or release the
                                     god-coder lock
   SubagentStart / SubagentStop      registry bookkeeping (a start of a stopped agent is a resume:
-                                    a live background child again); confirm / release locks; a
-                                    stopped agent's own spawn leases are voided
+                                    a live background child again, its resume reservation gone);
+                                    confirm / release locks; a starting or stopped agent's own
+                                    spawn leases are voided, and a stopped child's spawn lease too
   PostToolUse TaskStop, StopFailure mark the agent stopped and release its locks and leases (a
                                     stopped or failed subagent is not promised a SubagentStop)
   PostToolUseFailure / PermissionDenied (Agent)   roll back god-coder lease, blackcat marker and
@@ -44,6 +46,7 @@ Reads the hook JSON on stdin.
                                     earlier prompts
   SessionStart                      startup|resume: clear locks, leases and blackcat markers, prune
                                     old session dirs; resume|fork: bring the token count up to date
+                                    (settings.json's matcher must list all three)
 
 Concurrency model (the user's spec): depth 4 below the main thread (blackcat -> L1 -> L2 -> L3 ->
 L4; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4, and the fallback here stays at
@@ -53,14 +56,16 @@ message (they run concurrently); at most STACK_MAX_FANOUT running children per p
 only the COPY_TYPES spawn copies of themselves, as the separate agent type `<type>-copy`, whose row
 lists neither its base nor any copy (one generation, decided on agent_type alone); at most
 STACK_MAX_SELF_FANOUT live `<type>-copy` agents per type in the whole session. Running children =
-live spawn leases + live background children (see the fan-out section); nothing is linked by
-guessing. Token budgets: see the token-budget section.
+live spawn leases + resume reservations + live background children (see the fan-out section);
+nothing is linked by guessing. Token budgets: see the token-budget section.
 
 State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
   agents/<agent_id>.json  registry {type, depth, parent, parent_type, name, spawned, started,
                           stopped, transcript, bg, tool_use_id, resumed}
   names/<name>.json       {type, id} for agents spawned with a `name`
   fanout/<caller>/<tool_use_id>.json   spawn leases {type, caller, caller_type, ts}
+  fanout/<parent>/resume-<agent>.json  resume reservations {type, caller, caller_type, resume, by,
+                          ts}, counted like spawn leases
   budget.json             token counts {files: {path: {off, ino, keys}}, total, prompt_base,
                           prompt_id}
   blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
@@ -98,6 +103,8 @@ Knobs (env):
                           (type=N, separated by , ; or newlines; a copy type falls back to its base)
   STACK_MAX_SELF_FANOUT=2 live `<type>-copy` agents per copy type in the whole session (0 = no cap)
   STACK_LEASE_TTL_S=21600 ceiling on a spawn lease whose Agent call never reported back
+  STACK_RESUME_TTL_S=120  a resume reservation whose agent never started (the SendMessage was
+                          refused after this hook allowed it) stops counting after this
   STACK_FANOUT_IDLE_S=1800  a background child whose live subtree shows no activity for this long
                           no longer counts as running (settings.json ships 600)
   STACK_PROMPT_CTX_BUDGET=100000000   context tokens per human prompt, whole session tree (0 = off)
@@ -110,7 +117,8 @@ Knobs (env):
   STRIP_AGENT_MODEL=1     remove per-call `model` from Agent input
   STACK_MAX_DEPTH         deny Agent from callers at this depth (default
                           CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, else 3)
-  STACK_GUARD_LOG=0       1 = append every raw event to <session>/guard.log
+  STACK_GUARD_LOG=0       1 = append every raw event to <session>/guard.log (`budget` mode, which
+                          sees every tool call: the tool name and ids only, never the input)
   STACK_IMAGE_MAX_PX=1919 image-limit mode: longest side of any image an agent sees or uploads
                           (0 = off)
   STACK_IMAGE_UPLOAD_TOOLS  image-limit mode: regex of more MCP tool names whose image-file
@@ -183,21 +191,25 @@ POLICY = {
                   "ml-engineer", "dl-engineer", "llm-engineer", "explore", "scout", "verifier",
                   "code-reviewer", "security-auditor", "mathematician", "researcher"],
     "mlx-engineer": list(_ACCEL_ROW),
-    "cuda-engineer": list(_ACCEL_ROW),
+    # cuda-, ml-, dl- and llm-engineer also reach browser-only ML environments (Kaggle notebooks,
+    # cloud GPU consoles) through browser-operator; mlx-engineer works on the local Mac
+    "cuda-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
+                      "mcp-broker", "browser-operator", "ninja-coder", "god-coder"],
     "devops-engineer": ["coder", "explore", "scout", "verifier", "security-auditor", "mcp-broker"],
     "data-engineer": ["coder", "explore", "scout", "verifier", "mathematician",
                       "data-scientist", "doc-specialist", "mcp-broker"],
     "frontend-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "designer",
                           "image-director", "mcp-broker"],
     "ml-engineer": ["data-scientist", "data-engineer", "coder", "explore", "scout",
-                    "verifier", "code-reviewer", "mathematician", "mcp-broker"],
+                    "verifier", "code-reviewer", "mathematician", "mcp-broker",
+                    "browser-operator"],
     "dl-engineer": ["mlx-engineer", "cuda-engineer", "data-engineer", "coder",
                     "explore", "scout", "researcher", "verifier", "code-reviewer",
-                    "mathematician", "mcp-broker", "ninja-coder", "god-coder"],
+                    "mathematician", "mcp-broker", "browser-operator", "ninja-coder", "god-coder"],
     "llm-engineer": ["mlx-engineer", "cuda-engineer", "dl-engineer",
                      "data-scientist", "coder", "explore", "scout", "researcher", "verifier",
-                     "code-reviewer", "mathematician", "mcp-broker", "claude-code-guide",
-                     "ninja-coder", "god-coder"],
+                     "code-reviewer", "mathematician", "mcp-broker", "browser-operator",
+                     "claude-code-guide", "ninja-coder", "god-coder"],
     "data-scientist": ["data-engineer", "ml-engineer", "mathematician", "coder",
                        "explore", "scout", "verifier", "doc-specialist", "writer", "mcp-broker"],
     "claude-code-engineer": ["claude-code-guide", "scout", "explore", "verifier", "code-reviewer",
@@ -227,10 +239,12 @@ SELF_SPAWN = sorted(b for b, c in COPY_OF.items() if c in POLICY.get(b, []))
 # (dynamic workflows, scheduled tasks, routines, push notifications, file hand-off, skills).
 # ExitPlanMode: the main thread leaves plan mode with it (Desktop/Conductor/CLI plan mode).
 # mcp__conductor__AskUserQuestion: Conductor disables AskUserQuestion and serves its own.
+# Read, Grep, Glob: read-only looks (a file the user names, where a result landed) to route and
+# relay well; every call counts against BLACKCAT_MAX_STEPS. Nothing that writes or runs.
 BLACKCAT_TOOLS = {"Agent", "SendMessage", "AskUserQuestion", "mcp__conductor__AskUserQuestion",
-                "ExitPlanMode", "TaskStop", "ListAgents", "ToolSearch", "Skill", "Workflow",
-                "CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",
-                "PushNotification", "SendUserFile"}
+                  "ExitPlanMode", "TaskStop", "ListAgents", "ToolSearch", "Skill", "Workflow",
+                  "CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",
+                  "PushNotification", "SendUserFile", "Read", "Grep", "Glob"}
 STEP_LIMIT_REASON = ("BlackCat step limit (%d tool calls per prompt, dispatches included) reached. "
                      "Call no more tools: answer the user now with what you have, or say what is "
                      "still pending.")
@@ -523,14 +537,25 @@ def dispatch_window_closed(d, pid, limit, now):
 #   lease        fanout/<caller>/<tool_use_id>.json, taken by PreToolUse(Agent), dropped by the same
 #                tool_use_id's PostToolUse, PostToolUseFailure or PermissionDenied (hooks.md:1585,
 #                2004, 2207). For a foreground call that spans the child's whole run: PostToolUse
-#                comes with status "completed" when the child is done (hooks.md:1751). Voided when
-#                the caller stops, at SessionStart, and after STACK_LEASE_TTL_S.
+#                comes with status "completed" when the child is done (hooks.md:1751). Also
+#                dropped when the child it spawned stops (its meta.json names the call: see
+#                spawn_meta), voided when the caller starts (a resume: nothing of its old run is in
+#                flight) or stops, at SessionStart, and after STACK_LEASE_TTL_S. Paths that fire
+#                none of these (a deny rule, another hook's deny) keep it until then.
+#   resume       fanout/<parent>/resume-<agent>.json, taken by PreToolUse(SendMessage) when it
+#   reservation  resumes a finished agent (under the same mutex as the counts, so resumes sent in
+#                one message are counted one by one), turned into the background child below by
+#                that agent's SubagentStart, and void after STACK_RESUME_TTL_S if it never starts.
+#                It belongs to the resumed agent, not to <parent>: voiding <parent>'s leases
+#                leaves it alone.
 #   background   registry entry with bg=true, written by PostToolUse status "async_launched" (a
 #   child        background launch, or a foreground run moved to the background; hooks.md:1751,
 #                1763), or by the SubagentStart of a stopped agent: a resume, which runs in the
 #                background (hooks.md:2343, sub-agents.md:1102). Gone at SubagentStop, TaskStop,
 #                StopFailure or SessionStart, or once its live subtree is idle STACK_FANOUT_IDLE_S.
+# Lock order: the 'fanout' mutex, then 'registry' (reg_put); nothing takes them the other way.
 DEFAULT_FANOUT_BY_TYPE = "orchestrator=6,planner=4"
+RESUME_PREFIX = "resume-"
 
 
 def fanout_dir(d, caller):
@@ -599,14 +624,15 @@ def subtree_activity(d, root, ev, reg=None, root_times=True):
 
 
 def live_leases(d, now, caller=None):
-    """[(caller folder, lease id, lease)] of the unexpired spawn leases of `caller` (of every
-    caller when None). Leases older than STACK_LEASE_TTL_S, or unreadable, are removed."""
+    """[(caller folder, lease id, lease)] of the unexpired spawn leases and resume reservations
+    of `caller` (of every caller when None). Leases older than STACK_LEASE_TTL_S, reservations
+    older than STACK_RESUME_TTL_S, and unreadable files are removed."""
     root = os.path.join(d, "fanout")
     try:
         callers = [safe(caller)] if caller else os.listdir(root)
-    except FileNotFoundError:
+    except (FileNotFoundError, NotADirectoryError):
         return []
-    ttl, out = knob_int("STACK_LEASE_TTL_S", 21600), []
+    ttl, rttl, out = knob_int("STACK_LEASE_TTL_S", 21600), knob_int("STACK_RESUME_TTL_S", 120), []
     for c in callers:
         try:
             entries = os.listdir(os.path.join(root, c))
@@ -621,7 +647,8 @@ def live_leases(d, now, caller=None):
                 ts = float((rec or {}).get("ts") or 0)
             except (TypeError, ValueError):
                 ts = 0.0
-            if not rec or (ttl > 0 and now - ts > ttl):
+            limit = rttl if f.startswith(RESUME_PREFIX) else ttl
+            if not rec or (limit > 0 and now - ts > limit):
                 unlink(path)
                 continue
             out.append((c, f[:-len(".json")], rec))
@@ -738,18 +765,37 @@ def fanout_release(d, caller, tool_use_id):
         unlink(os.path.join(fanout_dir(d, caller), safe(tool_use_id) + ".json"))
 
 
-def void_leases(d, caller):
-    """Drop every spawn lease of `caller`: it stopped, and its pending Agent calls with it."""
+def own_lease_files(d, caller):
+    """Paths of `caller`'s own spawn leases. The resume reservations in its folder are other
+    resumes of its children, not calls of its own, and are left out."""
     folder = fanout_dir(d, caller)
-    if not os.path.isdir(folder):      # look before taking the lock (review #15)
+    try:
+        entries = os.listdir(folder)
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    return [os.path.join(folder, f) for f in entries
+            if f.endswith(".json") and not f.startswith((".", RESUME_PREFIX))]
+
+
+def void_leases(d, caller):
+    """Drop every spawn lease of `caller`: it stopped (or starts again), and its pending Agent
+    calls with it."""
+    if not own_lease_files(d, caller):      # look before taking the lock (review #15)
         return
     with mutex(d, "fanout"):
-        try:
-            entries = os.listdir(folder)
-        except FileNotFoundError:
-            return
-        for f in entries:
-            unlink(os.path.join(folder, f))
+        for path in own_lease_files(d, caller):
+            unlink(path)
+
+
+def resume_reservations(d, aid):
+    """Paths of every resume reservation for agent `aid`, whichever parent folder holds it."""
+    root = os.path.join(d, "fanout")
+    try:
+        callers = os.listdir(root)
+    except (FileNotFoundError, NotADirectoryError):
+        return []
+    name = RESUME_PREFIX + safe(aid) + ".json"
+    return [p for p in (os.path.join(root, c, name) for c in callers) if os.path.isfile(p)]
 
 
 def copy_rule_violation(parent_type, child):
@@ -762,20 +808,46 @@ def copy_rule_violation(parent_type, child):
     return None
 
 
-def meta_depth(d, ev, aid):
-    """The caller's depth from Claude Code's own subagents/agent-<id>.meta.json `spawnDepth`, when
-    the registry has none (a foreground child's PostToolUse comes only when it is done). Not a
-    documented interface: read only at the agent's own PreToolUse(Agent), when the file exists,
-    and used only for the depth check (review #1 iii)."""
+def spawn_meta(ev, aid):
+    """Claude Code's own record of a subagent's spawn, <session>/subagents/agent-<id>.meta.json:
+    {agentType, spawnDepth, toolUseId (the Agent call), parentAgentId (absent at depth 1), ...}
+    as observed on 2.1.283. Not a documented interface: {} when absent or unreadable, and used
+    only where a missing file costs nothing (a depth the registry lacks, an early lease drop)."""
+    folders = []
+    atp = ev.get("agent_transcript_path")
+    if isinstance(atp, str) and atp.strip():
+        folders.append(os.path.dirname(os.path.expanduser(atp.strip())))
     files = transcript_files(ev)
-    if not files:
-        return None
-    dep = (read_json(os.path.join(files[1], "agent-%s.meta.json" % safe(aid))) or {}).get(
-        "spawnDepth")
+    if files and files[1] not in folders:
+        folders.append(files[1])
+    for folder in folders:
+        meta = read_json(os.path.join(folder, "agent-%s.meta.json" % safe(aid)))
+        if meta is not None:
+            return meta
+    return {}
+
+
+def meta_depth(d, ev, aid):
+    """The caller's depth from its meta.json `spawnDepth` (spawn_meta), when the registry has
+    none (a foreground child's PostToolUse comes only when it is done). Read only at the agent's
+    own PreToolUse(Agent), and used only for the depth check (review #1 iii)."""
+    dep = spawn_meta(ev, aid).get("spawnDepth")
     if not isinstance(dep, int) or isinstance(dep, bool) or not 0 < dep < 64:
         return None
     reg_put(d, aid, {"depth": dep})
     return dep
+
+
+def drop_spawn_lease(d, ev, aid):
+    """A child that stopped no longer runs under the Agent call that spawned it: drop that call's
+    lease, whose PostToolUse may never come (a cancelled call). The call is known only from the
+    child's meta.json (toolUseId, parentAgentId; no parent = the main thread); without it nothing
+    is guessed."""
+    meta = spawn_meta(ev, aid)
+    tid, parent = meta.get("toolUseId"), meta.get("parentAgentId")
+    if isinstance(tid, str) and tid.strip():
+        fanout_release(d, ident(parent.strip()) if isinstance(parent, str) and parent.strip()
+                       else "main", tid.strip())
 
 
 # ---------------------------------------------------------------- god-coder lock
@@ -1037,35 +1109,48 @@ def send_policy_violation(d, ev, target_id, ttype):
             % (caller_type, target_id, ttype, ", ".join(row) or "none"))
 
 
-def resume_cap_violation(d, ev, target_id, ttype):
+def resume_reserve(d, ev, target_id, ttype):
     """Resuming a finished agent starts a background run of it under its registry parent
     (sub-agents.md:1102), so it counts against that parent's fan-out cap and, for a copy, against
-    the session's copy cap, like a new spawn. It takes no lease: its SubagentStart makes it a live
-    background child (on_subagent_start)."""
+    the session's copy cap, like a new spawn. The check and a reservation
+    fanout/<parent>/resume-<target>.json are one step under the 'fanout' mutex, so resumes sent in
+    one message are counted one by one. The target's SubagentStart turns the reservation into a
+    live background child (on_subagent_start); one that never starts (the call was refused after
+    this hook) stops counting after STACK_RESUME_TTL_S. Returns (denial reason or None, the
+    reservation this call wrote or None)."""
     rec = reg_get(d, target_id) if target_id else None
     if not rec or not rec.get("stopped"):      # the registry decides before any lock (review #15)
-        return None
+        return None, None
     owner = rec.get("parent") or ev.get("agent_id") or "main"
     owner_type = norm(rec.get("parent_type")) or None
     limit, knob = fanout_limit(owner, owner_type)
     max_copies = knob_int("STACK_MAX_SELF_FANOUT", 2)
     copy = ttype in COPY_BASE and max_copies > 0
     if limit <= 0 and not copy:
-        return None
+        return None, None
+    rid = RESUME_PREFIX + safe(target_id)
     with mutex(d, "fanout"):
         now = time.time()
+        if not (reg_get(d, target_id) or {}).get("stopped"):
+            return None, None       # it started meanwhile: now a message to a running agent
+        if rid in {lid for _, lid, _ in live_leases(d, now, owner)}:
+            return None, None       # already resumed in this burst: one run, one reservation
         reg = load_registry(d)
-        running = running_children(d, owner, now, ev, reg) if limit > 0 else 0
-        copies = copies_running(d, ttype, now, ev, reg) if copy else 0
-    if limit > 0 and running >= limit:
-        return ("Fan-out limit: resuming '%s' would give '%s' more than %d running children "
-                "(%s). Wait for a task notification, then resume it."
-                % (target_id, owner_type or owner, limit, knob))
-    if copy and copies >= max_copies:
-        return ("Copy limit: resuming '%s' would make more than %d %s agents run in this session "
-                "(STACK_MAX_SELF_FANOUT=%d). Wait for one to finish."
-                % (target_id, max_copies, ttype, max_copies))
-    return None
+        if limit > 0:
+            n = running_children(d, owner, now, ev, reg)
+            if n >= limit:
+                return ("Fan-out limit: resuming '%s' would give '%s' more than %d running "
+                        "children (%s). Wait for a task notification, then resume it."
+                        % (target_id, owner_type or owner, limit, knob)), None
+        if copy and copies_running(d, ttype, now, ev, reg) >= max_copies:
+            return ("Copy limit: resuming '%s' would make more than %d %s agents run in this "
+                    "session (STACK_MAX_SELF_FANOUT=%d). Wait for one to finish."
+                    % (target_id, max_copies, ttype, max_copies)), None
+        path = os.path.join(fanout_dir(d, owner), rid + ".json")
+        write_json_atomic(path, {"type": ttype, "caller": owner, "caller_type": owner_type,
+                                 "resume": target_id, "by": ev.get("agent_id") or "main",
+                                 "ts": now})
+    return None, path
 
 
 def on_send(ev, d):
@@ -1080,12 +1165,29 @@ def on_send(ev, d):
     if not to:
         return
     target_id, ttype, tname = resolve_target(d, to)
-    why = (send_policy_violation(d, ev, target_id, ttype)
-           or resume_cap_violation(d, ev, target_id, ttype))
+    why = send_policy_violation(d, ev, target_id, ttype)
+    if why:
+        deny(why)
+    why, reserved = resume_reserve(d, ev, target_id, ttype)
     if why:
         deny(why)
     if ttype != GOD:
         return
+    try:
+        blocking = god_resume(d, ev, to, target_id, tname)
+    except Exception:
+        if reserved:
+            unlink(reserved)
+        raise
+    if blocking:
+        if reserved:            # a refused resume holds no slot
+            unlink(reserved)
+        deny(god_busy_reason(blocking))
+
+
+def god_resume(d, ev, to, target_id, tname):
+    """Resuming a finished god-coder takes the god-coder lock ('resumed'). Returns the blocking
+    lock, or None when the call may go ahead."""
     holder = target_id or "name:" + norm(to)
     caller = ev.get("agent_id") or "main"
     with mutex(d, "god"):
@@ -1093,15 +1195,12 @@ def on_send(ev, d):
         lock = read_json(god_path(d))
         if lock and (lock.get("holder") == holder
                      or holder_matches(d, lock.get("holder"), target_id, tname)):
-            return  # talking to the current holder
+            return None  # talking to the current holder
         if lock and not god_stale(d, lock, ev, now):
-            blocking = lock
-        else:
-            blocking = None
-            write_json_atomic(god_path(d), {"state": "resumed", "holder": holder, "by": caller,
-                                            "ts": now})
-    if blocking:
-        deny(god_busy_reason(blocking))
+            return lock
+        write_json_atomic(god_path(d), {"state": "resumed", "holder": holder, "by": caller,
+                                        "ts": now})
+    return None
 
 
 # ---------------------------------------------------------------- PreToolUse: computer use
@@ -1373,13 +1472,20 @@ def on_agent_done(ev, d):
     # this child twice or not at all (lock order fanout -> registry; nothing takes them in the
     # other order). The parent is this event's own agent_id (hooks.md:267): exact, and written
     # once, so no later event swaps it. An unknown caller depth leaves a known child depth alone.
-    with mutex(d, "fanout"):
-        reg_put(d, child_id, {"id": child_id, "type": child,
-                              "depth": None if pdepth is None else pdepth + 1,
-                              "parent": caller, "parent_type": norm(ev.get("agent_type")) or None,
-                              "spawned": time.time(), "name": norm(name) if name else None,
-                              "bg": bg, "tool_use_id": tid},
-                clear=("depth",) if pdepth is not None else (), keep=("parent", "parent_type"))
+    try:
+        with mutex(d, "fanout"):
+            reg_put(d, child_id, {"id": child_id, "type": child,
+                                  "depth": None if pdepth is None else pdepth + 1,
+                                  "parent": caller,
+                                  "parent_type": norm(ev.get("agent_type")) or None,
+                                  "spawned": time.time(), "name": norm(name) if name else None,
+                                  "bg": bg, "tool_use_id": tid},
+                    clear=("depth",) if pdepth is not None else (),
+                    keep=("parent", "parent_type"))
+            fanout_release(d, caller, tid)
+    finally:
+        # a lock timeout (or any failure above) must not leave the call's lease counting for
+        # STACK_LEASE_TTL_S: drop it outside the mutex (a no-op when it is already gone)
         fanout_release(d, caller, tid)
     if name:
         write_json_atomic(names_path(d, name), {"type": child, "id": child_id,
@@ -1401,21 +1507,36 @@ def on_subagent_start(ev, d):
     # SubagentStart also fires on a resume (hooks.md:2343). A stopped agent starting again runs in
     # the background (sub-agents.md:1102): a live background child of its own registry parent.
     # Nothing else is inferred: the event names no parent and no tool_use_id (hooks.md:2349).
+    # Its resume reservation goes in the same step, under the 'fanout' mutex (then 'registry', as
+    # in on_agent_done), so a count sees the resume exactly once. A starting agent has no Agent
+    # call in flight: leases left from an earlier run of it (calls that never reported back) go.
     now = time.time()
-    reg_put(d, aid, {"type": atype or None, "started": now}, clear=("stopped",),
-            resumed={"bg": True, "resumed": now})
+
+    def start():
+        reg_put(d, aid, {"type": atype or None, "started": now}, clear=("stopped",),
+                resumed={"bg": True, "resumed": now})
+
+    if resume_reservations(d, aid) or own_lease_files(d, aid):   # look before the lock
+        with mutex(d, "fanout"):
+            start()
+            for path in resume_reservations(d, aid) + own_lease_files(d, aid):
+                unlink(path)
+    else:
+        start()
     if atype == GOD and policy_on():
         god_confirm(d, ev, aid)
 
 
-def mark_stopped(d, aid, atype, transcript=None):
-    """Record that `aid` is no longer running and drop the locks and spawn leases it holds. Agents
-    the registry has never seen (Claude Code's internal agents: prompt suggestions, /btw) get no
-    new entry."""
+def mark_stopped(d, aid, atype, transcript=None, ev=None):
+    """Record that `aid` is no longer running and drop the locks and spawn leases it holds, and
+    the lease of the call that spawned it (drop_spawn_lease). Agents the registry has never seen
+    (Claude Code's internal agents: prompt suggestions, /btw) get no new entry."""
     if reg_get(d, aid):
         reg_put(d, aid, {"type": atype or None, "stopped": time.time(),
                          "transcript": transcript or None})
     void_leases(d, aid)
+    if ev is not None:
+        drop_spawn_lease(d, ev, aid)
     path = os.path.join(d, SCREEN_LOCK)
     with mutex(d, "screen"):
         cur = read_json(path)
@@ -1428,7 +1549,7 @@ def on_subagent_stop(ev, d):
     aid = ev.get("agent_id")
     if not aid:
         return
-    mark_stopped(d, aid, norm(ev.get("agent_type")), ev.get("agent_transcript_path"))
+    mark_stopped(d, aid, norm(ev.get("agent_type")), ev.get("agent_transcript_path"), ev)
 
 
 def on_task_stop(ev, d):
@@ -1440,7 +1561,7 @@ def on_task_stop(ev, d):
         return
     aid, atype, _ = resolve_target(d, str(target))
     if aid:
-        mark_stopped(d, aid, atype)
+        mark_stopped(d, aid, atype, ev=ev)
 
 
 def on_stop_failure(ev, d):
@@ -1448,7 +1569,7 @@ def on_stop_failure(ev, d):
     only end-of-run signal there may be."""
     aid = ev.get("agent_id")
     if aid:
-        mark_stopped(d, aid, norm(ev.get("agent_type")))
+        mark_stopped(d, aid, norm(ev.get("agent_type")), ev=ev)
 
 
 def on_agent_failed(ev, d):
@@ -1553,6 +1674,9 @@ BUDGET_SCAN_S = 2.0          # most seconds of reading in one PreToolUse; the re
 BUDGET_LONG_SCAN_S = 10.0    # UserPromptSubmit and SessionStart (hook timeout 15 s)
 USAGE_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 REPORT_TOOLS = ("SubagentHandback", "TaskStop", "AskUserQuestion", "mcp__conductor__AskUserQuestion")
+BUDGET_LOG_KEYS = ("hook_event_name", "session_id", "prompt_id", "tool_name", "tool_use_id",
+                   "agent_id", "agent_type")
+BUDGET_CHECK_MIN_LINES = 50  # --check-budget: this many lines and no assistant line = format drift
 
 
 def budget_caps():
@@ -1585,7 +1709,7 @@ def session_transcripts(files):
 
 
 def scan_stats():
-    return {"calls": 0, "assistant": 0, "no_usage": 0, "bad": 0, "partial": False}
+    return {"calls": 0, "assistant": 0, "no_usage": 0, "bad": 0, "lines": 0, "partial": False}
 
 
 def scan_transcript(path, fst, deadline, stats):
@@ -1613,6 +1737,7 @@ def scan_transcript(path, fst, deadline, stats):
                 stats["partial"] = True
                 break
             off += len(line)
+            stats["lines"] += 1
             if b'"assistant"' not in line:
                 continue
             try:
@@ -1753,18 +1878,22 @@ def budget_gate(ev, d):
     except Exception as exc:  # noqa: BLE001 - a budget we cannot count never blocks work
         warn("token budget not checked (%s: %s); the call is allowed" % (type(exc).__name__, exc))
         return
+    # The budget knobs are OWNED_ENV in install.sh: a raised value is reset by the next install.
     if session_cap > 0 and total >= session_cap:
         deny(budget_reason("Session", "in this session", total, "STACK_SESSION_CTX_BUDGET",
                            session_cap, ev),
              "claude-agent-stack: the session token budget is spent (%s of %s context tokens); "
              "agents are told to wrap up. Start a new session, or raise STACK_SESSION_CTX_BUDGET "
-             "in the env block of ~/.claude/settings.json." % (fmt_int(total), fmt_int(session_cap)))
+             "in the env block of ~/.claude/settings.json (it holds until the next install.sh "
+             "run, which resets the stack's budget knobs)."
+             % (fmt_int(total), fmt_int(session_cap)))
     if prompt_cap > 0 and used >= prompt_cap:
         deny(budget_reason("Prompt", "since the user's last prompt", used,
                            "STACK_PROMPT_CTX_BUDGET", prompt_cap, ev),
              "claude-agent-stack: this prompt's token budget is spent (%s of %s context tokens); "
              "agents are told to wrap up. Your next prompt starts a new budget; to allow more per "
-             "prompt, raise STACK_PROMPT_CTX_BUDGET in the env block of ~/.claude/settings.json."
+             "prompt, raise STACK_PROMPT_CTX_BUDGET in the env block of ~/.claude/settings.json "
+             "(it holds until the next install.sh run, which resets the stack's budget knobs)."
              % (fmt_int(used), fmt_int(prompt_cap)))
 
 
@@ -1799,7 +1928,9 @@ def budget_main(raw):
         ev["agent_id"] = ident(ev["agent_id"])
     try:
         d = sdir(ev.get("session_id"))
-        log(d, ev)
+        # every tool call of every agent passes here: log the call, never its input (commands,
+        # file bodies, pasted secrets)
+        log(d, {k: ev[k] for k in BUDGET_LOG_KEYS if ev.get(k) is not None})
         budget_gate(ev, d)
     except SystemExit:
         raise
@@ -1810,8 +1941,9 @@ def budget_main(raw):
 
 def check_budget(argv):
     """`--check-budget [transcript]` (doctor): count the newest session (or the given one) the way
-    the budgets do. FAIL when its assistant lines carry no usage this parser can read: the
-    transcript format changed, and the budgets would silently stop counting."""
+    the budgets do. FAIL when its assistant lines carry no usage this parser can read, or when
+    BUDGET_CHECK_MIN_LINES lines hold no assistant line at all: the transcript format changed, and
+    the budgets would silently stop counting. Fewer lines and no API call yet: skipped."""
     main = argv[2] if len(argv) > 2 else None
     if main is None:
         root = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
@@ -1836,6 +1968,15 @@ def check_budget(argv):
         sys.stdout.write("agent_guard budget check: FAIL %d assistant lines but no readable usage "
                          "in %s: the token budgets would count nothing\n" % (stats["assistant"], where))
         return 1
+    if not stats["assistant"]:
+        if stats["lines"] >= BUDGET_CHECK_MIN_LINES:
+            sys.stdout.write("agent_guard budget check: FAIL %d lines but no assistant lines in %s: "
+                             "the transcript format changed, and the token budgets would count "
+                             "nothing\n" % (stats["lines"], where))
+            return 1
+        sys.stdout.write("agent_guard budget check: skipped (%d lines and no API call yet in %s)\n"
+                         % (stats["lines"], where))
+        return 0
     sys.stdout.write("agent_guard budget check: ok (%d API calls, %s context tokens, %d unreadable "
                      "lines in %s)\n" % (stats["calls"], fmt_int(total), stats["bad"], where))
     return 0
@@ -2416,8 +2557,9 @@ def blackcat_guard(raw):
         # together with its fan-out lease (on_agent), so one call is one decision
         sys.exit(0)
     if tool not in BLACKCAT_TOOLS:
-        deny("BlackCat only delegates. Make one Agent call to the right specialist (or "
-             "orchestrator), or SendMessage to resume the previous agent.")
+        deny("BlackCat only delegates (it may look with Read, Grep and Glob, but writes and runs "
+             "nothing). Make one Agent call to the right specialist (or orchestrator), or "
+             "SendMessage to resume the previous agent.")
     d = sdir(ev.get("session_id"))
     log(d, ev)
     steps = knob_int("BLACKCAT_MAX_STEPS", 8)

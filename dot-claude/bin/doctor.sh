@@ -455,6 +455,21 @@ events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "Suba
           "PostToolUseFailure", "PermissionDenied", "StopFailure"]
 missing_ev = [ev for ev in events if not any("agent_guard.py" in json.dumps(g) for g in hooks.get(ev, []))]
 (fail if missing_ev else ok)("guard hooks wired for all %d events" % len(events) if not missing_ev else "guard hooks missing for: " + ", ".join(missing_ev))
+# SessionStart: startup and resume clear stale locks and leases; fork starts a forked session's
+# token count at the end of the history it copied (without it, the fork inherits its parent's usage)
+starts = [str(g.get("matcher") or "*") for g in hooks.get("SessionStart", [])
+          if isinstance(g, dict) and "agent_guard.py" in json.dumps(g)]
+def _matches(m, source):
+    if m == "*":
+        return True
+    try:
+        return re.fullmatch(m, source) is not None
+    except re.error:
+        return source in m.split("|")
+lost = [src for src in ("startup", "resume", "fork") if not any(_matches(m, src) for m in starts)]
+(fail if lost else ok)("SessionStart guard matcher covers startup, resume and fork" if not lost
+                       else "SessionStart guard matcher %s misses %s — rerun install.sh"
+                       % (" / ".join(starts) or "(none)", ", ".join(lost)))
 post = {g.get("matcher") for g in hooks.get("PostToolUse", []) if isinstance(g, dict) and "agent_guard.py" in json.dumps(g)}
 (ok if any("TaskStop" in (m or "") for m in post) else warn)(
     "PostToolUse also watches TaskStop (a stopped agent releases its locks)" if any("TaskStop" in (m or "") for m in post)

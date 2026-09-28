@@ -24,7 +24,7 @@ KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "GOD_PEN
          "STACK_MAX_DEPTH", "STACK_GUARD_LOG", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
          "BLACKCAT_DISPATCH_WINDOW_S", "STACK_MAX_FANOUT", "STACK_MAX_SELF_FANOUT",
          "STACK_FANOUT_IDLE_S", "STACK_MAX_FANOUT_BY_TYPE", "STACK_LEASE_TTL_S",
-         "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET")
+         "STACK_RESUME_TTL_S", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET")
 COPY_DENIED = ("Copies cannot spawn copies: %s may not spawn %s. Do this part yourself or return "
                "STATUS: partial listing what is left.")
 
@@ -172,7 +172,11 @@ def test_print_policy_format(env):
     for eng in ("mlx-engineer", "cuda-engineer", "dl-engineer", "llm-engineer"):
         assert d["policy"][eng].index("ninja-coder") < d["policy"][eng].index("god-coder")
     assert d["policy"]["researcher"][0] == "researcher-copy"
-    assert d["policy"]["mlx-engineer"] == d["policy"]["cuda-engineer"]
+    # browser-only ML environments (Kaggle notebooks, cloud GPU consoles) go to browser-operator
+    for eng in ("cuda-engineer", "dl-engineer", "ml-engineer", "llm-engineer"):
+        assert "browser-operator" in d["policy"][eng], eng
+    assert d["policy"]["mlx-engineer"] == [c for c in d["policy"]["cuda-engineer"]
+                                           if c != "browser-operator"]
     for new in ("plan-reviewer", "mlx-engineer", "cuda-engineer", "devops-engineer",
                 "data-engineer", "frontend-engineer", "ml-engineer", "dl-engineer",
                 "llm-engineer", "data-scientist", "browser-operator", "claude-code-engineer",
@@ -194,8 +198,9 @@ def test_print_policy_format(env):
     assert not set(copies.values()) & (set(d["policy"]["blackcat"]) | set(d["policy"]["orchestrator"]))
     assert d["policy"]["planner"]                           # planner keeps Agent
     assert {"plan-reviewer", "image-director"} <= set(d["leaves"])
-    assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill"} <= set(d["blackcat_tools"])
-    assert not {"Bash", "Read", "Write", "Edit", "WebSearch"} & set(d["blackcat_tools"])
+    assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill", "Read", "Grep", "Glob"} <= set(
+        d["blackcat_tools"])
+    assert not {"Bash", "Write", "Edit", "NotebookEdit", "WebSearch"} & set(d["blackcat_tools"])
 
 
 def test_self_test(env):
@@ -660,16 +665,41 @@ def rg(s, tool, prompt="p1", **extra):
 
 def test_blackcat_guard_allowlist(env):
     s = sid()
-    for tool in ("Read", "Bash", "Write", "Edit", "WebSearch", "WebFetch", "mcp__exa__search",
-                 "TaskOutput", "NotebookEdit", "Monitor"):
+    for tool in ("Bash", "Write", "Edit", "WebSearch", "WebFetch", "mcp__exa__search",
+                 "TaskOutput", "NotebookEdit", "Monitor", "PowerShell", "LSP"):
         p = run(rg(s, tool), env, args=["blackcat-guard"])
-        assert decision(p) == "deny" and "BlackCat only delegates" in reason(p)
+        assert decision(p) == "deny" and "BlackCat only delegates" in reason(p), tool
     for tool in ("SendMessage", "AskUserQuestion", "mcp__conductor__AskUserQuestion", "ExitPlanMode",
                  "TaskStop", "ListAgents", "ToolSearch",
                  "Skill", "Workflow", "CronCreate", "CronList", "CronDelete", "ScheduleWakeup",
-                 "RemoteTrigger", "PushNotification", "SendUserFile"):
+                 "RemoteTrigger", "PushNotification", "SendUserFile", "Read", "Grep", "Glob"):
         assert decision(run(rg(s, tool, prompt="p-" + tool), env, args=["blackcat-guard"])) \
             == "allow", tool
+
+
+def test_blackcat_reads_count_as_steps(env):
+    """Read, Grep and Glob are BlackCat's own read-only tools: each call is a step, and the 9th
+    call of any kind in one prompt is refused."""
+    s = sid()
+    extra = {"BLACKCAT_MAX_DISPATCH": "10"}
+    calls = ["Read", "Grep", "Glob", "Agent", "Read", "ToolSearch", "Agent", "Glob"]
+    for tool in calls:
+        p = (run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env, extra=extra)
+             if tool == "Agent" else run(rg(s, tool, prompt="q1"), env, args=["blackcat-guard"]))
+        assert decision(p) == "allow", tool
+    for tool in ("Read", "Grep", "Glob", "ToolSearch", "SendMessage"):
+        p = run(rg(s, tool, prompt="q1"), env, args=["blackcat-guard"])
+        assert decision(p) == "deny" and "step limit (8 tool calls" in reason(p), tool
+    p = run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env, extra=extra)
+    assert decision(p) == "deny" and "step limit" in reason(p)
+    # eight reads alone use the whole allowance too; writes never pass, whatever is left
+    s2 = sid()
+    res = [decision(run(rg(s2, "Read", prompt="q1"), env, args=["blackcat-guard"]))
+           for _ in range(9)]
+    assert res == ["allow"] * 8 + ["deny"]
+    for tool in ("Write", "Edit", "Bash"):
+        p = run(rg(sid(), tool, prompt="q1"), env, args=["blackcat-guard"])
+        assert decision(p) == "deny" and "BlackCat only delegates" in reason(p), tool
 
 
 def test_blackcat_guard_subagent_passes_and_no_substring_bypass(env):
@@ -708,7 +738,7 @@ def test_blackcat_hook_command_as_rendered(env, tmp_path):
     cmd = cmd.replace("__PYTHON3__", sys.executable).replace(
         "__CLAUDE_DIR__", str(ROOT / "dot-claude"))
     s = sid()
-    p = run(rg(s, "Read"), env, cmd=["sh", "-c", cmd])
+    p = run(rg(s, "Bash"), env, cmd=["sh", "-c", cmd])
     assert decision(p) == "deny"
     p = run(rg(s, "SendMessage"), env, cmd=["sh", "-c", cmd])
     assert decision(p) == "allow"
@@ -1067,7 +1097,7 @@ def age_leases(env, s, caller, seconds):
         f.write_text(json.dumps(obj))
 
 
-def test_resume_never_takes_a_lease(env):
+def test_resume_holds_a_reservation_until_it_starts(env):
     s = sid()
     extra = {"STACK_MAX_FANOUT_BY_TYPE": "orchestrator=2"}
     w = pre_agent(s, "writer", parent="orchestrator", agent_id="O1")          # O1's earlier child
@@ -1079,8 +1109,14 @@ def test_resume_never_takes_a_lease(env):
     fg = pre_agent(s, "coder", parent="orchestrator", agent_id="O1")         # foreground, in flight
     assert decision(run(fg, env, extra=extra)) == "allow"
     assert leases(env, s, "O1") == [fg["tool_use_id"]]
-    # resuming W1 checks O1's cap but takes no lease, and its SubagentStart takes none either
+    # resuming W1 checks O1's cap and reserves the slot until W1 starts ...
     assert decision(run(send(s, "W1", agent_id="O1"), env, extra=extra)) == "allow"
+    assert leases(env, s, "O1") == sorted([fg["tool_use_id"], "resume-W1"])
+    res = json.loads((state(env, s) / "fanout" / "O1" / "resume-W1.json").read_text())
+    assert res["type"] == "writer" and res["resume"] == "W1"
+    p = run(pre_agent(s, "scout", parent="orchestrator", agent_id="O1"), env, extra=extra)
+    assert decision(p) == "deny" and "orchestrator=2" in reason(p)
+    # ... where the reservation becomes a live background child: counted once, never twice
     run(lifecycle(s, "SubagentStart", "W1", "writer"), env)
     assert leases(env, s, "O1") == [fg["tool_use_id"]]
     rec = reg_of(env, s, "W1")
@@ -1386,7 +1422,9 @@ def test_budget_prompt_cap_denies_and_a_new_prompt_resets(env, sess):
     assert decision(p) == "deny"
     assert reason(p).startswith("Prompt token budget reached") and "1,100" in reason(p)
     assert "STACK_PROMPT_CTX_BUDGET=1000" in reason(p) and "STATUS: partial" in reason(p)
-    assert "STACK_PROMPT_CTX_BUDGET" in json.loads(p.stdout)["systemMessage"]
+    msg = json.loads(p.stdout)["systemMessage"]
+    # the installer owns the budget knobs (OWNED_ENV): a raised value lasts until its next run
+    assert "STACK_PROMPT_CTX_BUDGET" in msg and "until the next install.sh run" in msg
     p = budget_run(tool_ev(s, main, "Read", agent_id=None, file_path="x"), env)   # BlackCat
     assert decision(p) == "deny" and "answer the user now" in reason(p)
     # the main hook's own tools check it too, before any lease
@@ -1415,7 +1453,8 @@ def test_budget_session_cap_spans_prompts(env, sess):
     p = budget_run(tool_ev(s, main, "Read", prompt="p2", file_path="x"), env, extra=extra)
     assert decision(p) == "deny" and reason(p).startswith("Session token budget reached")
     assert "STACK_SESSION_CTX_BUDGET=1000" in reason(p)
-    assert "Start a new session" in json.loads(p.stdout)["systemMessage"]
+    msg = json.loads(p.stdout)["systemMessage"]
+    assert "Start a new session" in msg and "until the next install.sh run" in msg
 
 
 def test_budget_never_blocks_reporting(env, sess, tmp_path):
@@ -1501,6 +1540,22 @@ def test_budget_main_thread_starts_a_prompt_the_hook_missed(env, sess):
         == "allow"
 
 
+def session_start(ev, env, extra=None):
+    """SessionStart as Claude Code delivers it: to the settings.json groups whose matcher matches
+    the event's source (hooks.md:1120-1122), and to no other. Returns how many runs it made."""
+    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    n = 0
+    for g in s["hooks"]["SessionStart"]:
+        m = g.get("matcher") or "*"
+        if m != "*" and not re.fullmatch(m, ev["source"]):
+            continue
+        for h in g["hooks"]:
+            if h["command"].endswith('agent_guard.py"'):
+                assert run(ev, env, extra=extra).returncode == 0
+                n += 1
+    return n
+
+
 def test_budget_catches_up_on_resume_and_forks_start_at_the_end(env, sess):
     s, main, subs = sess
     append(main, call_line("m1", 700))
@@ -1508,14 +1563,17 @@ def test_budget_catches_up_on_resume_and_forks_start_at_the_end(env, sess):
     extra = {"STACK_PROMPT_CTX_BUDGET": "0", "STACK_SESSION_CTX_BUDGET": "1000"}
     start = {"session_id": s, "hook_event_name": "SessionStart", "transcript_path": str(main),
              "cwd": str(main.parent)}
-    run(dict(start, source="resume"), env, extra=extra)
+    assert session_start(dict(start, source="resume"), env, extra=extra) == 1
     assert json.loads((state(env, s) / "budget.json").read_text())["total"] == 1400
     assert decision(budget_run(tool_ev(s, main, "Read", file_path="x"), env, extra=extra)) \
         == "deny"
+    append(main, call_line("m4", 400))                # the main transcript alone: 1,100 > 1,000
     f = sid()                                         # a fork: the copied history is not its own
     fmain = main.parent / (f + ".jsonl")
     fmain.write_text(main.read_text())
-    run(dict(start, session_id=f, transcript_path=str(fmain), source="fork"), env, extra=extra)
+    # delivered only if settings.json's SessionStart matcher lists fork
+    session_start(dict(start, session_id=f, transcript_path=str(fmain), source="fork"), env,
+                  extra=extra)
     ev = dict(tool_ev(f, fmain, "Read", file_path="x"))
     assert decision(budget_run(ev, env, extra=extra)) == "allow"
     append(fmain, call_line("m3", 1000))
@@ -1528,6 +1586,12 @@ def test_budget_hook_wired_for_every_tool():
               if any(h["command"].endswith('agent_guard.py" budget') for h in g["hooks"])]
     assert len(groups) == 1 and groups[0]["matcher"] == "*"
     assert all("if" not in h for h in groups[0]["hooks"])
+    # SessionStart reaches the guard for startup and resume (locks, leases, registry) and for fork
+    # (a fork counts only what it adds; without the event it inherits its parent's history)
+    starts = [g.get("matcher") or "*" for g in s["hooks"]["SessionStart"]
+              if any(h["command"].endswith('agent_guard.py"') for h in g["hooks"])]
+    for source in ("startup", "resume", "fork"):
+        assert any(m == "*" or re.fullmatch(m, source) for m in starts), (source, starts)
 
 
 def test_check_budget_cli(env, sess, tmp_path):
@@ -1543,3 +1607,184 @@ def test_check_budget_cli(env, sess, tmp_path):
     assert p.returncode == 1 and "FAIL" in p.stdout
     p = run("", env, args=["--check-budget"], extra={"CLAUDE_CONFIG_DIR": str(tmp_path / "none")})
     assert p.returncode == 0 and "skipped" in p.stdout
+    # a long transcript without a single assistant line: the message type was renamed, and the
+    # budgets would count nothing (never "ok (0 API calls)")
+    renamed = tmp_path / "renamed.jsonl"
+    renamed.write_text("".join(
+        json.dumps({"type": "user" if i % 2 else "model_turn", "requestId": "r%d" % i,
+                    "message": {"id": "m%d" % i, "usage": {"input_tokens": 5}}}) + "\n"
+        for i in range(60)))
+    p = run("", env, args=["--check-budget", str(renamed)])
+    assert p.returncode == 1 and "FAIL" in p.stdout and "no assistant lines" in p.stdout
+    assert "ok (0 API calls" not in p.stdout
+    # a session that has only just started: too early to tell, never "ok (0 API calls)"
+    young = tmp_path / "young.jsonl"
+    young.write_text(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\n")
+    p = run("", env, args=["--check-budget", str(young)])
+    assert p.returncode == 0 and "skipped" in p.stdout and "ok (0 API calls" not in p.stdout
+
+
+def test_budget_log_keeps_no_tool_input(env, sess):
+    """STACK_GUARD_LOG=1 in `budget` mode (every tool call) logs the tool name and ids only: a
+    Bash command, a Write body or a pasted secret never lands in guard.log."""
+    s, main, subs = sess
+    ev = tool_ev(s, main, "Bash", command="curl -H 'Authorization: Bearer SECRET-123' x")
+    assert decision(budget_run(ev, env, extra={"STACK_GUARD_LOG": "1"})) == "allow"
+    ev2 = tool_ev(s, main, "Write", file_path="/tmp/x", content="SECRET-456")
+    assert decision(budget_run(ev2, env, extra={"STACK_GUARD_LOG": "1"})) == "allow"
+    text = (state(env, s) / "guard.log").read_text()
+    assert "SECRET" not in text and "curl" not in text and "tool_input" not in text
+    lines = [json.loads(x) for x in text.splitlines()]
+    assert [x["tool_name"] for x in lines] == ["Bash", "Write"]
+    assert lines[0]["tool_use_id"] == ev["tool_use_id"] and lines[0]["agent_id"] == "A1"
+
+
+# ---------------------------------------------------------------- review 2026-09-28: resumes, leases
+def finished_children(env, s, caller, ctype, child, ids):
+    """`caller` spawns each of `ids` in the foreground; each runs, stops and reports back."""
+    for x in ids:
+        ev = pre_agent(s, child, parent=ctype, agent_id=caller)
+        assert decision(run(ev, env)) == "allow", x
+        run(lifecycle(s, "SubagentStart", x, child), env)
+        run(lifecycle(s, "SubagentStop", x, child), env)
+        run(post_agent(s, child, x, agent_id=caller, parent=ctype, status="completed",
+                       tool_use_id=ev["tool_use_id"]), env)
+
+
+def test_parallel_resumes_respect_the_copy_cap(env):
+    s = sid()
+    finished_children(env, s, "R1", "researcher", "researcher-copy", ("X1", "X2", "X3"))
+    # R1 resumes all three in ONE message: parallel PreToolUse(SendMessage)
+    xs = ("X1", "X2", "X3")
+    res = run_many([dict(send(s, x, agent_id="R1"), agent_type="researcher") for x in xs], env)
+    assert sorted(res) == ["allow", "allow", "deny"], res          # STACK_MAX_SELF_FANOUT=2
+    assert len(leases(env, s, "R1")) == 2                          # one reservation per resume
+    p = run(pre_agent(s, "researcher-copy", parent="researcher", agent_id="R2"), env)
+    assert decision(p) == "deny" and "Copy limit" in reason(p)
+    for x, r in zip(xs, res):
+        if r == "allow":
+            run(lifecycle(s, "SubagentStart", x, "researcher-copy"), env)
+    live = [x for x in xs if reg_of(env, s, x).get("bg") and not reg_of(env, s, x).get("stopped")]
+    assert len(live) == 2 and leases(env, s, "R1") == []
+    denied = xs[res.index("deny")]
+    p = run(dict(send(s, denied, agent_id="R1"), agent_type="researcher"), env)
+    assert decision(p) == "deny" and "Copy limit" in reason(p)
+    run(lifecycle(s, "SubagentStop", live[0], "researcher-copy"), env)
+    assert decision(run(dict(send(s, denied, agent_id="R1"), agent_type="researcher"), env)) \
+        == "allow"
+
+
+def test_parallel_resumes_respect_the_fanout_cap(env):
+    s = sid()
+    kids = ["K%d" % i for i in range(6)]
+    finished_children(env, s, "M1", "main-coder", "scout", kids)
+    res = run_many([dict(send(s, k, agent_id="M1"), agent_type="main-coder") for k in kids], env)
+    assert res.count("allow") == 3, res                           # STACK_MAX_FANOUT=3
+    p = run(pre_agent(s, "coder", parent="main-coder", agent_id="M1"), env)
+    assert decision(p) == "deny" and "Fan-out limit" in reason(p)
+    # a resume that never starts stops counting after STACK_RESUME_TTL_S (120 s)
+    age_leases(env, s, "M1", 121)
+    assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="M1"), env)) == "allow"
+    assert len(leases(env, s, "M1")) == 1
+
+
+def test_two_messages_to_one_finished_agent_reserve_once(env):
+    s = sid()
+    env["STACK_MAX_FANOUT"] = "1"
+    finished_children(env, s, "M1", "main-coder", "scout", ["K0"])
+    res = run_many([dict(send(s, "K0", agent_id="M1"), agent_type="main-coder") for _ in range(2)],
+                   env)
+    assert res == ["allow", "allow"] and leases(env, s, "M1") == ["resume-K0"]
+
+
+def test_refused_god_resume_leaves_no_reservation(env):
+    s = sid()
+    finished_children(env, s, "M1", "main-coder", "god-coder", ["G1"])
+    assert decision(run(pre_agent(s, "god-coder", parent="ninja-coder", agent_id="N1"), env)) \
+        == "allow"                                              # another god-coder is starting
+    p = run(dict(send(s, "G1", agent_id="M1"), agent_type="main-coder"), env)
+    assert decision(p) == "deny" and "god-coder" in reason(p)
+    assert leases(env, s, "M1") == []
+
+
+def test_a_starting_agent_voids_its_own_leases(env):
+    s = sid()
+    run(post_agent(s, "main-coder", "L1", status="async_launched"), env)
+    run(lifecycle(s, "SubagentStart", "L1", "main-coder"), env)
+    finished_children(env, s, "L1", "main-coder", "coder", ["W1"])
+    # BlackCat resumes W1, L1's finished child: one of L1's 3 slots, reserved until W1 starts
+    assert decision(run(dict(send(s, "W1"), agent_type="blackcat"), env)) == "allow"
+    for _ in range(2):
+        assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="L1"), env)) \
+            == "allow"
+    p = run(pre_agent(s, "coder", parent="main-coder", agent_id="L1"), env)
+    assert decision(p) == "deny" and "Fan-out limit" in reason(p)
+    # L1's two calls end without PostToolUse (a deny rule, another hook, a cancel) and L1 without
+    # SubagentStop; later BlackCat resumes L1
+    run(dict(send(s, "L1"), agent_type="blackcat"), env)
+    run(lifecycle(s, "SubagentStart", "L1", "main-coder"), env)
+    # a starting agent has no Agent call in flight: its leaked leases go, W1's reservation stays
+    assert leases(env, s, "L1") == ["resume-W1"]
+    for _ in range(2):
+        assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="L1"), env)) \
+            == "allow"
+    assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="L1"), env)) == "deny"
+
+
+def test_a_stopped_child_drops_the_lease_that_spawned_it(env, tmp_path):
+    s = sid()
+    env["STACK_MAX_FANOUT"] = "8"
+    subs = tmp_path / "p" / s / "subagents"
+    subs.mkdir(parents=True)
+    main = tmp_path / "p" / (s + ".jsonl")
+    main.write_text("")
+
+    def spawn(cid, caller=None, meta=True):
+        ev = (pre_agent(s, "coder", parent="main-coder", agent_id=caller) if caller else
+              pre_agent(s, "coder", parent="blackcat"))
+        assert decision(run(dict(ev, transcript_path=str(main)), env)) == "allow"
+        if meta:     # Claude Code's own record of the spawn (subagents/agent-<id>.meta.json)
+            m = {"agentType": "coder", "spawnDepth": 2 if caller else 1,
+                 "toolUseId": ev["tool_use_id"], "requestShape": "foreground"}
+            if caller:
+                m["parentAgentId"] = caller
+            (subs / ("agent-%s.meta.json" % cid)).write_text(json.dumps(m))
+        run(dict(lifecycle(s, "SubagentStart", cid, "coder"), transcript_path=str(main)), env)
+        return ev["tool_use_id"]
+
+    for cid in ("K1", "K2", "K3"):
+        spawn(cid, "SC")
+    keep = spawn("K4", "SC", meta=False)
+    b1 = spawn("B1")
+    assert len(leases(env, s, "SC")) == 4 and leases(env, s, "main") == [b1]
+    # the foreground calls never report back (cancelled); each child's own stop drops its lease
+    run(dict(lifecycle(s, "SubagentStop", "K1", "coder"), transcript_path=str(main),
+             agent_transcript_path=str(subs / "agent-K1.jsonl")), env)
+    run(dict(lifecycle(s, "StopFailure", "K2", "coder", error="rate_limit"),
+             transcript_path=str(main)), env)
+    run({"session_id": s, "hook_event_name": "PostToolUse", "tool_name": "TaskStop",
+         "agent_id": "SC", "agent_type": "main-coder", "transcript_path": str(main),
+         "tool_input": {"task_id": "K3"}, "tool_response": {"task_id": "K3"}}, env)
+    run(dict(lifecycle(s, "SubagentStop", "K4", "coder"), transcript_path=str(main),
+             agent_transcript_path=str(subs / "agent-K4.jsonl")), env)
+    run(dict(lifecycle(s, "SubagentStop", "B1", "coder"), transcript_path=str(main),
+             agent_transcript_path=str(subs / "agent-B1.jsonl")), env)
+    assert leases(env, s, "SC") == [keep]                 # no meta.json: nothing is guessed
+    assert leases(env, s, "main") == []
+
+
+def test_agent_done_drops_the_lease_even_when_the_lock_times_out(env):
+    import fcntl
+    s = sid()
+    ev = pre_agent(s, "coder", parent="main-coder", agent_id="SC")
+    assert decision(run(ev, env)) == "allow"
+    assert leases(env, s, "SC") == [ev["tool_use_id"]]
+    fd = os.open(str(state(env, s) / "fanout.mutex"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)              # someone holds the fan-out lock for > 5 s
+        p = run(post_agent(s, "coder", "K1", agent_id="SC", parent="main-coder",
+                           status="completed", tool_use_id=ev["tool_use_id"]), env)
+        assert p.returncode == 0 and p.stdout == "" and "timed out" in p.stderr
+    finally:
+        os.close(fd)
+    assert leases(env, s, "SC") == []

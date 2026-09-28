@@ -862,6 +862,21 @@ def make_copy(text, base):
     if n != 1:
         raise SystemExit("install.sh: agents/%s.md has no 'May spawn:' sentence to copy" % base)
     head, sep, body = out.partition("\n---\n")
+    # The base body tells its agent when to spawn copies ("sub-tasks can go to coder-copy agents");
+    # a copy spawns none, so every sentence naming a <type>-copy agent goes, and a line (list item)
+    # left empty goes with it.
+    copy_name = re.compile(r"[A-Za-z0-9_]-copy\b")
+    lines = []
+    for line in body.split("\n"):
+        if not copy_name.search(line):
+            lines.append(line)
+            continue
+        m = re.match(r"(\s*(?:[-*+]|\d+[.)])\s+)?(.*)\Z", line, re.S)
+        sentences = re.split(r"(?<!\be\.g\.)(?<!\bi\.e\.)(?<=[.!?])\s+", m.group(2))
+        keep = [s for s in sentences if not copy_name.search(s)]
+        if keep:
+            lines.append((m.group(1) or "") + " ".join(keep))
+    body = "\n".join(lines)
     note = ("You are a copy of %s, spawned by a %s for one independent part of its job. Do that part "
             "yourself: a copy never spawns %s or another copy. Skip any Memory lines below: the %s that "
             "spawned you passes its memory hits in your brief and remembers what you report.\n\n"

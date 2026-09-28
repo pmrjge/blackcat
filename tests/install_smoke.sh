@@ -1053,7 +1053,7 @@ drop_scratch "$TR"
 echo "== 14. Copy types: researcher-copy and coder-copy rendered from their base agents"
 TC="$(scratch_dir)" || exit 1
 CLAUDE_CONFIG_DIR="$TC/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$TC/i.log" 2>&1
-python3 - "$TC/c/agents" <<'PY' && pass "copies: own name and short description, same tools/model/maxTurns/mcpServers, May spawn = base minus base and copies" || failed "copy-type rendering"
+python3 - "$TC/c/agents" <<'PY' && pass "copies: own name and short description, same tools/model/maxTurns/mcpServers, May spawn = base minus base and copies, body names no copy" || failed "copy-type rendering"
 import os, re, sys
 d = sys.argv[1]
 def fm(text):
@@ -1084,6 +1084,10 @@ for base in ("researcher", "coder"):
         "base lists its copy": base + "-copy" in may(b) and base not in may(b),
         "copy May spawn": may(c) == [x for x in may(b) if x != base and not x.endswith("-copy")],
         "copy note": "You are a copy of %s" % base in c,
+        # a copy spawns no copies: its body names no <type>-copy agent (the base body's
+        # "sub-tasks can go to coder-copy agents" lines are rewritten away)
+        "copy body names no -copy": not re.search(r"[A-Za-z0-9_]-copy\b", c.split("\n---\n", 1)[1]),
+        "base body still names its copy": base + "-copy" in b.split("\n---\n", 1)[1],
     }
     for k, v in checks.items():
         if not v:
