@@ -178,7 +178,7 @@ calls count once). An agent that hits it stops without a report of its own; Clau
 
 | Agent | Model · effort | For | Agent-scoped MCP | Shared MCP | Extras |
 |---|---|---|---|---|---|
-| **blackcat** — BlackCat (main thread) | Sonnet 5 · session level (choose low) | Classifies and dispatches (up to 4 agents in one burst, 8 tool calls per prompt); relays results | — | — | Workflows, cron/loop, routines, push, file hand-off |
+| **blackcat** — BlackCat (main thread) | Sonnet 5 · session level (choose low) | Classifies and dispatches (up to 4 agents in one burst, 8 tool calls per prompt); relays results; Read, Grep and Glob only for quick checks (a file exists, a child's claimed diff) | — | — | Workflows, cron/loop, routines, push, file hand-off |
 | orchestrator | Opus 5.5 · xhigh | Multi-step / multi-domain work; ≤ 7 tasks in flight | neural-memory | — | cache 1h |
 | planner | Opus 5.5 · xhigh | How to solve it: options, plan, owners, verification | libdocs | exa, jina | |
 | plan-reviewer | Opus 5.5 · xhigh | Critique of a plan before execution | libdocs | exa, jina | |
@@ -205,7 +205,7 @@ calls count once). An agent that hits it stops without a report of its own; Clau
 | **dl-engineer** | Opus 5.5 · high | Architectures, training loops (PyTorch/JAX/MLX), ablations, NaNs | libdocs, neural-memory | exa, jina, huggingface, wandb | memory, cache 1h |
 | **llm-engineer** | Opus 5.5 · high | Local inference (mlx-lm, oMLX), quantization, fine-tuning, evals, RAG, agents/MCP | libdocs, neural-memory | exa, jina, huggingface, wandb | memory, cache 1h |
 | mlx-engineer | Opus 5.5 · high | Apple Silicon performance, Metal kernels, ports to MLX | libdocs | exa, jina | memory |
-| cuda-engineer | Opus 5.5 · high | NVIDIA performance, CUDA/Triton, NCCL, vLLM | libdocs | exa, jina | memory |
+| cuda-engineer | Opus 5.5 · high | NVIDIA performance, CUDA/Triton, NCCL, vLLM; remote GPU hosts over SSH, remote Jupyter, Kaggle (CLI; web UIs via browser-operator) | libdocs | exa, jina | memory |
 | **robotics-engineer** | Opus 5.5 · high | ROS 2, kinematics and control, SLAM, simulation, robot learning, hardware bring-up | libdocs, neural-memory | exa, jina, huggingface, wandb | memory, cache 1h; ros via the catalog |
 | code-reviewer | Opus 5.5 · xhigh | Review of diffs/PRs (read-only) | libdocs | — | |
 | verifier | Sonnet 5 · high | Runs tests, reproduces, re-checks facts, tests web UIs and native apps | playwright | exa, jina | screen |
@@ -276,14 +276,15 @@ Everything else, row by row:
 | main-coder | coder, explore, scout, verifier, code-reviewer, security-auditor, plan-reviewer, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, claude-code-guide, ninja-coder, god-coder |
 | ninja-coder | main-coder, coder, mathematician, explore, scout, verifier, code-reviewer, security-auditor, researcher, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, god-coder, quantum-engineer |
 | god-coder | coder, main-coder, ninja-coder, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, explore, scout, verifier, code-reviewer, security-auditor, mathematician, researcher |
-| mlx-engineer, cuda-engineer | coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder, god-coder |
+| mlx-engineer | coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder, god-coder |
+| cuda-engineer | coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, browser-operator, ninja-coder, god-coder |
 | devops-engineer | coder, explore, scout, verifier, security-auditor, mcp-broker |
 | data-engineer | coder, explore, scout, verifier, mathematician, data-scientist, doc-specialist, mcp-broker |
 | frontend-engineer | coder, explore, scout, verifier, code-reviewer, designer, image-director, mcp-broker |
 | data-scientist | data-engineer, ml-engineer, mathematician, coder, explore, scout, verifier, doc-specialist, writer, mcp-broker |
-| ml-engineer | data-scientist, data-engineer, coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker |
-| dl-engineer | mlx-engineer, cuda-engineer, data-engineer, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder, god-coder |
-| llm-engineer | mlx-engineer, cuda-engineer, dl-engineer, data-scientist, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, claude-code-guide, ninja-coder, god-coder |
+| ml-engineer | data-scientist, data-engineer, coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, browser-operator |
+| dl-engineer | mlx-engineer, cuda-engineer, data-engineer, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, browser-operator, ninja-coder, god-coder |
+| llm-engineer | mlx-engineer, cuda-engineer, dl-engineer, data-scientist, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, claude-code-guide, browser-operator, ninja-coder, god-coder |
 | claude-code-engineer | claude-code-guide, scout, explore, verifier, code-reviewer, mcp-broker |
 | quantum-engineer | mathematician, coder, explore, scout, researcher, verifier, code-reviewer, cuda-engineer, mlx-engineer, mcp-broker, ninja-coder |
 | robotics-engineer | coder, explore, scout, researcher, verifier, code-reviewer, mathematician, dl-engineer, cuda-engineer, mlx-engineer, cg-artist, mcp-broker, ninja-coder |
@@ -622,8 +623,8 @@ To start the memory afresh, delete `~/.claude/neural-memory/`. Claude Code's own
 | UserPromptSubmit, SessionStart (startup/resume) | Reset per-prompt BlackCat markers; clear stale locks; prune old state |
 | PostToolUse `Read\|mcp__*`, PreToolUse `mcp__*` (image limit) | Every image an agent reads (Read, screenshots and other MCP image results) is re-encoded to at most 1919 px per side before the model sees it, and kept under the API's 5 MB image cap (JPEG at lower quality if needed; else left as it was). Local images that the browser upload tools (Playwright, Claude in Chrome) send off the machine are swapped for downscaled copies in a `.downscaled/` folder next to the original, which git ignores, under the same name — so the tools' own folder checks still pass. A copy is reused while it carries its original's modification time; nothing is ever deleted (remove `.downscaled/` folders whenever you like). JPEG stays JPEG, PNG stays PNG. The one refusal: an oversized image the hook can't copy (a symlink, an animated image, a folder it can't write) is refused with the `sips` command to make a copy. Otherwise it never blocks a call. Uses macOS `sips`. |
 
-BlackCat's own frontmatter hook allows only its delegation tools, and at most 8 tool calls per
-prompt, Agent dispatches included. Every hook command uses an **absolute interpreter** chosen at install time. A bare
+BlackCat's own frontmatter hook allows only its delegation tools plus Read, Grep and Glob (quick
+checks, never investigation), and at most 8 tool calls per prompt, Agent dispatches included. Every hook command uses an **absolute interpreter** chosen at install time. A bare
 `python3` broken by a pyenv/asdf shim would make every hook fail to start, which Claude Code treats
 as "allow". `/stack-doctor` runs the real hook commands on calls that must be denied, to prove the
 gate is closed, and checks that the budget hook is wired and still reads usage from real
