@@ -1,7 +1,7 @@
 ---
 name: coder
 description: "Mid-level implementer for small and medium tasks: scripts, bug fixes, features in a known area, refactors across a few files, configs, tests. Also executes well-specified sub-tasks offloaded by main-coder, ninja-coder or god-coder."
-model: sonnet
+model: claude-sonnet-5-5
 effort: medium
 maxTurns: 190
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs, mcp__exa

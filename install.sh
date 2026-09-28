@@ -1217,7 +1217,7 @@ OWNED_ENV = {"STACK_ENV_FILE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
              "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_SELF_FANOUT", "STACK_PROMPT_CTX_BUDGET",
              "STACK_SESSION_CTX_BUDGET", "STACK_MAX_MCP_CALLS"}
 # values shipped by stack versions whose manifest predates "settings_env"
-OLD_DEFAULTS = {"ROUTER_MAX_DISPATCH": {"1"}}
+OLD_DEFAULTS = {"ROUTER_MAX_DISPATCH": {"1"}, "ANTHROPIC_DEFAULT_HAIKU_MODEL": {"claude-sonnet-5"}}
 # The main-thread agent "router" is now "blackcat": its "agent" value and its knobs follow the
 # rename. A knob you tuned moves to the new name; one still at a stack default is dropped (the
 # merge below sets the new default).
@@ -1301,8 +1301,8 @@ for k, v in new.items():
                     print("  set env %s=%s (was %s): the stack owns this knob" % (ek, sv, mine))
                 e[ek] = sv
             elif ek == "ANTHROPIC_DEFAULT_HAIKU_MODEL" and "haiku" in str(mine).lower():
-                # the stack runs no Haiku: the haiku alias and background tasks use Sonnet 5
-                print("  replaced env %s=%s with %s (the stack uses Sonnet 5 wherever Haiku ran)" % (ek, mine, sv))
+                # the stack runs no Haiku: the haiku alias and background tasks use Sonnet 5.5
+                print("  replaced env %s=%s with %s (the stack uses Sonnet 5.5 wherever Haiku ran)" % (ek, mine, sv))
                 e[ek] = sv
             else:
                 print("  kept your env %s=%s (stack default: %s)" % (ek, mine, sv))
@@ -1799,7 +1799,7 @@ cat <<EOF
      setup (README → Apps). A plain session without BlackCat: claude --agent claude.
      Inside: /stack-doctor   (health check)   /mcp   (server status; no sign-in needed with keys)
      Once, in that first session: /effort low — BlackCat runs at the session's level (saved for
-     Sonnet 5); an agent file's effort applies only to subagents.
+     Sonnet 5.5); an agent file's effort applies only to subagents.
      Hardest problems at ultracode, as a session of their own: claude-ninja, or claude-god
      (dispatched by BlackCat they run at max: ultracode exists only on a main thread).
 EOF

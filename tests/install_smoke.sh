@@ -221,7 +221,7 @@ checks = {
     "skill listing budget": s.get("skillListingBudgetFraction") == 0.01
                             and s.get("skillListingMaxDescChars") == 500
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only",
-    "no Haiku": env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5",
+    "no Haiku": env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5-5",
     "image limit hooks": any("image-limit" in json.dumps(g) for g in s["hooks"]["PostToolUse"])
                          and any("image-limit" in json.dumps(g) for g in s["hooks"]["PreToolUse"]),
 }
@@ -362,7 +362,7 @@ def check(cond, good, bad):
     global ok
     print("  %s  %s" % ("PASS" if cond else "FAIL", good if cond else bad))
     ok = ok and cond
-check(env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5", "a Haiku pin is replaced by Sonnet 5 (the stack runs no Haiku)",
+check(env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5-5", "a Haiku pin is replaced by Sonnet 5.5 (the stack runs no Haiku)",
       "ANTHROPIC_DEFAULT_HAIKU_MODEL=%r" % env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL"))
 check("ANTHROPIC_DEFAULT_OPUS_MODEL" not in env, "[1m]-suffixed pin removed", "[1m] pin kept")
 check("CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION" not in env, "no-op CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION dropped", "no-op var kept")

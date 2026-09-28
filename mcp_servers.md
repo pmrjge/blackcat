@@ -24,7 +24,7 @@ For coding, keep Claude Code with your stack in the terminal and add Conductor f
 
 ## Coding apps that run Claude Code on your plan
 
-Every row works with your Claude login, no API key; rows marked Yes run Claude Code with your user settings, so your whole stack loads (BlackCat, 33 agents, 61 skills, hooks, MCP servers). In those, pick Sonnet 5 and low effort for BlackCat chats.
+Every row works with your Claude login, no API key; rows marked Yes run Claude Code with your user settings, so your whole stack loads (BlackCat, 33 agents, 61 skills, hooks, MCP servers). In those, pick Sonnet 5.5 and low effort for BlackCat chats.
 
 | App | What it is | Your stack |
 | --- | --- | --- |

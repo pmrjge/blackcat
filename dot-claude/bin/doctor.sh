@@ -403,13 +403,13 @@ agent = s.get("agent")
 if agent == "blackcat":
     ok("main thread agent: BlackCat")
     # an agent file's effort applies only to subagents: BlackCat runs at the session's level
-    lvl = ((s.get("modelSettings") or {}).get("claude-sonnet-5") or {}).get("effortLevel")
+    lvl = ((s.get("modelSettings") or {}).get("claude-sonnet-5-5") or {}).get("effortLevel")
     if lvl in ("low", "medium"):
-        ok("BlackCat effort: %s (saved for Sonnet 5)" % lvl)
+        ok("BlackCat effort: %s (saved for Sonnet 5.5)" % lvl)
     else:
         warn("BlackCat effort: %s — BlackCat's file says low, but a main-thread agent runs at the session's "
-             "level: run /effort low once in a BlackCat session (saved for Sonnet 5)"
-             % (lvl or "Sonnet 5's default, high"))
+             "level: run /effort low once in a BlackCat session (saved for Sonnet 5.5)"
+             % (lvl or "Sonnet 5.5's default, medium"))
 elif agent:
     ok("main thread agent: %s (your choice; the stack's BlackCat: claude --agent blackcat)" % agent)
 else:
@@ -497,7 +497,7 @@ else:
 hk = str(env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL", os.environ.get("ANTHROPIC_DEFAULT_HAIKU_MODEL", "")))
 (ok if hk and "haiku" not in hk.lower() else warn)(
     "haiku alias and background tasks: %s" % hk if hk and "haiku" not in hk.lower() else
-    "background tasks and the haiku alias run on Haiku (ANTHROPIC_DEFAULT_HAIKU_MODEL=%s) — the stack sets claude-sonnet-5" % (hk or "unset"))
+    "background tasks and the haiku alias run on Haiku (ANTHROPIC_DEFAULT_HAIKU_MODEL=%s) — the stack sets claude-sonnet-5-5" % (hk or "unset"))
 if "nmem-hook-" in json.dumps(hooks):
     warn("settings.json runs neural-memory hooks (nmem-hook-*) on every session and tool call — the stack's agents "
          "recall on demand and don't need them: remove them unless you set them up yourself")
@@ -591,7 +591,7 @@ for f in sorted(glob.glob(os.path.join(d, "*.md"))):
     tools = re.search(r"(?m)^tools:\s*(.*)$", body)
     memory = re.search(r"(?m)^memory:\s*(\S+)", body)
     if model and "haiku" in model.group(1).lower():
-        problems.append("%s: model %s — the stack uses claude-sonnet-5 instead of Haiku" % (name, model.group(1)))
+        problems.append("%s: model %s — the stack uses claude-sonnet-5-5 instead of Haiku" % (name, model.group(1)))
     if color and color.group(1) not in valid_colors:
         problems.append("%s: invalid color '%s'" % (name, color.group(1)))
     if tools and bad_tasks.search(tools.group(1)):

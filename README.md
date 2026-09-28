@@ -87,8 +87,8 @@ duplicate backup.
   - Rules and env values the stack stopped shipping are retracted once, while they still hold the
     stack's value: on the upgrade from the Mac's version that is the blanket `mcp__magg` allow,
     `Read(**/.env.*)` and `ENABLE_TOOL_SEARCH=true`. Add one back and it stays.
-  - Nothing runs on Haiku: `ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-sonnet-5` moves the `haiku` alias and
-    Claude Code's background tasks (session titles, WebFetch page summaries) to Sonnet 5, and a Haiku
+  - Nothing runs on Haiku: `ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-sonnet-5-5` moves the `haiku` alias and
+    Claude Code's background tasks (session titles, WebFetch page summaries) to Sonnet 5.5, and a Haiku
     value you had there is replaced. No agent names a Haiku model either. One exception: an app that
     routes models itself sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`, and Claude Code then ignores this
     key in settings files (it logs "Ignoring ANTHROPIC_DEFAULT_HAIKU_MODEL from userSettings"). Claude
@@ -150,7 +150,7 @@ exported.
 | subagent1 → subagent1 where it makes sense | researcher and coder, whose parts are most often independent, launch copies of themselves as their own agent types, `researcher-copy` and `coder-copy`: the installer renders them from the base file (same tools, model and `maxTurns`), and their policy rows list neither the base nor any copy, so a copy of a copy is a plain policy denial. At most 2 copies of a type run at once (`STACK_MAX_SELF_FANOUT`). Every other agent does parallel parts itself or hands them to another specialist: in the transcripts, copy-of-copy chains were about 10% of all tokens. |
 | Auto-compact on, window 400K | `"autoCompactEnabled": true`, `"autoCompactWindow": 400000`. Compaction fires a little before the window is full: a little before 400K (the window minus an output reserve and a safety buffer). Subagents compact with the same logic. The installer strips env overrides that would defeat it, `/stack-doctor` warns about settings or shell exports that do (`CLAUDE_AUTOCOMPACT_PCT_OVERRIDE`, `CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE`, …), and the status line shows how close the next compaction is. |
 | More agents for every Claude feature | ml-engineer, dl-engineer, llm-engineer, data-scientist, browser-operator (Claude in Chrome + Playwright), claude-code-engineer (skills, agents, hooks, plugins, settings, workflows) and ninja-coder (engineer-mathematician between main-coder and god-coder), on top of the existing 26 (senior-coder is now main-coder). BlackCat also runs the main-thread-only features: dynamic workflows, scheduled tasks and routines, push notifications, file hand-off. |
-| The same setup in Claude Desktop and Conductor | Both run Claude Code with your user settings, so a Code-tab session or a Conductor chat starts as BlackCat with every agent, skill, hook, rule and MCP server, and auto-compacts at 400K. Checked against Conductor 0.87.5 on your Mac and by replaying its options through the Agent SDK. Pick Sonnet 5 and low effort there for BlackCat chats; see [Apps](#apps) for the differences. |
+| The same setup in Claude Desktop and Conductor | Both run Claude Code with your user settings, so a Code-tab session or a Conductor chat starts as BlackCat with every agent, skill, hook, rule and MCP server, and auto-compacts at 400K. Checked against Conductor 0.87.5 on your Mac and by replaying its options through the Agent SDK. Pick Sonnet 5.5 and low effort there for BlackCat chats; see [Apps](#apps) for the differences. |
 | Skills on demand, not tied to agents | Every agent has the Skill tool and sees every skill's description; it loads the ones whose description matches its task, and only then does a skill's body enter its context. No agent preloads a skill and no skill names an agent: a description says when to load it, never who. One `Skill` allow rule pre-approves them all, including skills you or a plugin add later, so background agents never stop at a prompt. 78 skills cover the work the agents do: engineering practice (Python, Rust, TypeScript, JVM, Julia, Haskell, CMake/Ninja, IDEs), performance, apps, systems, databases, mathematics and physics, ML/LLM and data, image-model engineering, robotics, LLM applications, research and writing, design, image and print, 3D, video. `tests/lint_agents.py` keeps it that way. |
 | MCP servers on demand, auto on/off | See [MCP servers](#mcp-servers): agent-scoped servers start and stop with their agent, remote ones connect on first use, every schema stays deferred until needed, and rare ones are mounted and unmounted by mcp-broker. |
 | Deep reasoning where it counts | The coordinating, planning and reviewing agents run at `xhigh` (orchestrator, planner, plan-reviewer, main-coder, code-reviewer, mathematician, quantum-engineer, security-auditor), ninja-coder and god-coder at `max`, most specialists at `high`; cheap lookups (BlackCat, scout, oracle) stay `low` so they answer fast. Opus 5.5's own default is `medium`. |
@@ -162,10 +162,11 @@ exported.
 
 ## Agents
 
-Models are the aliases `opus` (Opus 5.5), `sonnet` (Sonnet 5) and `fable` (Fable 5.1) — nothing
-else. On the Anthropic API those aliases resolve to exactly these models; on Bedrock, Google Cloud,
-Foundry or a Claude apps gateway they can resolve to older versions (see Claude Code's model-config
-page), and `ANTHROPIC_DEFAULT_OPUS_MODEL`/`_SONNET_MODEL`/`_FABLE_MODEL` pin them there. All three run
+Models are the aliases `opus` (Opus 5.5) and `fable` (Fable 5.1) and the pinned ID
+`claude-sonnet-5-5` (Sonnet 5.5; needs Claude Code 2.1.284 or later) — nothing else. On the Anthropic
+API the aliases resolve to exactly these models; on Bedrock, Google Cloud, Foundry or a Claude apps
+gateway they can resolve to older versions (see Claude Code's model-config page), and
+`ANTHROPIC_DEFAULT_OPUS_MODEL`/`_FABLE_MODEL` pin them there. All three run
 with a native 1M window, so no `[1m]` pins are needed. The model, effort and `maxTurns` come from each
 agent file: per-call `model` overrides are stripped by the hook. `maxTurns` is a runaway bound, set
 from the transcripts (about twice the 90th percentile of calls per spawn): 20–40 for lookups, below
@@ -178,12 +179,12 @@ calls count once). An agent that hits it stops without a report of its own; Clau
 
 | Agent | Model · effort | For | Agent-scoped MCP | Shared MCP | Extras |
 |---|---|---|---|---|---|
-| **blackcat** — BlackCat (main thread) | Sonnet 5 · session level (choose low) | Classifies and dispatches (up to 6 agents in one burst, 8 tool calls per prompt); relays results; Read, Grep and Glob only for quick checks (a file exists, a child's claimed diff) | — | — | Workflows, cron/loop, routines, push, file hand-off |
+| **blackcat** — BlackCat (main thread) | Sonnet 5.5 · session level (choose low) | Classifies and dispatches (up to 6 agents in one burst, 8 tool calls per prompt); relays results; Read, Grep and Glob only for quick checks (a file exists, a child's claimed diff) | — | — | Workflows, cron/loop, routines, push, file hand-off |
 | orchestrator | Opus 5.5 · xhigh | Multi-step / multi-domain work; ≤ 7 tasks in flight | neural-memory | — | cache 1h |
 | planner | Opus 5.5 · xhigh | How to solve it: options, plan, owners, verification | libdocs | exa, jina | |
 | plan-reviewer | Opus 5.5 · xhigh | Critique of a plan before execution | libdocs | exa, jina | |
 | oracle | Opus 5.5 · low | Timeless knowledge, no web | — | — | |
-| scout | Sonnet 5 · low | One current fact in ≤ 3 searches | — | exa, jina | |
+| scout | Sonnet 5.5 · low | One current fact in ≤ 3 searches | — | exa, jina | |
 | researcher | Opus 5.5 · high | Cited multi-source research; can crawl | spider, context-mode, neural-memory | exa, jina, huggingface | copies, cache 1h |
 | mathematician | Opus 5.5 · xhigh | Proofs, derivations, symbolic/numeric computation | neural-memory | jina, wolfram | sympy/mpmath/scipy venv |
 | **quantum-engineer** | Opus 5.5 · xhigh | Quantum computing and quantum-physics code: circuits, QuTiP, tensor networks, error correction, IBM Quantum runs | libdocs, neural-memory | exa, jina, wolfram | cache 1h; qiskit-runtime via the catalog |
@@ -193,13 +194,13 @@ calls count once). An agent that hits it stops without a report of its own; Clau
 | designer | Opus 5.5 · high | Vector, brand, print, UI visuals, color; generated SVG art, photos and edits | image-studio, illustrator¹, huetension | jina | screen |
 | motion-designer | Opus 5.5 · high | After Effects, Premiere, motion | after-effects¹, premiere¹ | — | screen |
 | **cg-artist** | Opus 5.5 · high | 3D: Blender, ZBrush, Substance 3D Painter, Houdini FX, 3D printing | blender (MCP for Blender), libdocs | jina | screen; Houdini via hython (no MCP server exists) |
-| coder | Sonnet 5 · medium | Small/medium code, offloaded sub-tasks | libdocs | exa | copies |
+| coder | Sonnet 5.5 · medium | Small/medium code, offloaded sub-tasks | libdocs | exa | copies |
 | main-coder (was senior-coder) | Opus 5.5 · xhigh | Large codebases, architecture, hard bugs | libdocs, neural-memory | exa, jina | cache 1h |
 | **ninja-coder** | **Opus 5.5 · max** | Hardest code where it meets mathematics: novel algorithms, proofs, complexity, numerics, kernels | libdocs, neural-memory | exa, jina, wolfram | cache 1h, workflows |
 | god-coder | **Fable 5.1 · max** | Last resort after ninja-coder; one at a time per session | libdocs, neural-memory | exa, jina, wolfram | cache 1h, workflows |
 | frontend-engineer | Opus 5.5 · medium | Web front-end, a11y, verified in a headless browser | libdocs, playwright | exa | |
-| devops-engineer | Sonnet 5 · high | CI/CD, containers, k8s, IaC, deploys (dry-run first) | libdocs | exa | |
-| data-engineer | Sonnet 5 · high | SQL, schemas, pipelines, dataframes | libdocs | exa | |
+| devops-engineer | Sonnet 5.5 · high | CI/CD, containers, k8s, IaC, deploys (dry-run first) | libdocs | exa | |
+| data-engineer | Sonnet 5.5 · high | SQL, schemas, pipelines, dataframes | libdocs | exa | |
 | **data-scientist** | Opus 5.5 · high | EDA, tests, A/B + power, regression, causal, forecasting, reports | libdocs, neural-memory | exa, jina, huggingface | cache 1h |
 | **ml-engineer** | Opus 5.5 · high | Tabular/time-series/classic ML, validation, MLOps | libdocs, neural-memory | exa, jina, huggingface, wandb | cache 1h |
 | **dl-engineer** | Opus 5.5 · high | Architectures, training loops (PyTorch/JAX/MLX), ablations, NaNs | libdocs, neural-memory | exa, jina, huggingface, wandb | memory, cache 1h |
@@ -208,12 +209,12 @@ calls count once). An agent that hits it stops without a report of its own; Clau
 | cuda-engineer | Opus 5.5 · high | NVIDIA performance, CUDA/Triton, NCCL, vLLM; remote GPU hosts over SSH, remote Jupyter, Kaggle (CLI; web UIs via browser-operator) | libdocs | exa, jina | memory |
 | **robotics-engineer** | Opus 5.5 · high | ROS 2, kinematics and control, SLAM, simulation, robot learning, hardware bring-up | libdocs, neural-memory | exa, jina, huggingface, wandb | memory, cache 1h; ros via the catalog |
 | code-reviewer | Opus 5.5 · xhigh | Review of diffs/PRs (read-only) | libdocs | — | |
-| verifier | Sonnet 5 · high | Runs tests, reproduces, re-checks facts, tests web UIs and native apps | playwright | exa, jina | screen |
+| verifier | Sonnet 5.5 · high | Runs tests, reproduces, re-checks facts, tests web UIs and native apps | playwright | exa, jina | screen |
 | security-auditor | Opus 5.5 · xhigh | Threat model, exploitable issues (read-only) | — | exa | |
-| **browser-operator** | Sonnet 5 · medium | Acts on web pages: your logged-in Chrome, or headless Playwright | playwright | claude-in-chrome | |
-| mcp-broker | Sonnet 5 · medium | Finds, mounts, runs and unmounts MCP servers | magg | — | |
+| **browser-operator** | Sonnet 5.5 · medium | Acts on web pages: your logged-in Chrome, or headless Playwright | playwright | claude-in-chrome | |
+| mcp-broker | Sonnet 5.5 · medium | Finds, mounts, runs and unmounts MCP servers | magg | — | |
 | **claude-code-engineer** | Opus 5.5 · high | Builds Claude Code config: skills, agents, hooks, plugins, settings, workflows | — | — | |
-| claude-code-guide | Sonnet 5 · low | Questions about Claude Code / API / Agent SDK | — | — | |
+| claude-code-guide | Sonnet 5.5 · low | Questions about Claude Code / API / Agent SDK | — | — | |
 
 **Bold** = added in this revision. ¹ after-effects only once `--with-adobe` has built it.
 - **copies**: the agent may spawn its copy type (`researcher-copy`, `coder-copy`), at most 2 at a time;
@@ -659,14 +660,14 @@ guarantees rather than preferences. To change an owned knob, change it in the re
 | `STACK_IMAGE_MAX_PX` | 1919 | Longest side of any image an agent reads or uploads (0 = off) |
 | `STACK_IMAGE_UPLOAD_TOOLS` | — | Regex of more MCP tool names whose image-file arguments get downscaled copies before upload |
 | `STACK_IMAGE_MAX_B64` | 4500000 | Most base64 characters of one image sent to the model (the API refuses a 5 MB image) |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `claude-sonnet-5` | What the `haiku` alias and Claude Code's background tasks run on: Sonnet 5, so nothing runs on Haiku (Claude Desktop: [step 3](#claude-desktop-step-by-step)) |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `claude-sonnet-5-5` | What the `haiku` alias and Claude Code's background tasks run on: Sonnet 5.5, so nothing runs on Haiku (Claude Desktop: [step 3](#claude-desktop-step-by-step)) |
 | `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` | 400 | Web searches per session, all agents together (Claude Code default 200) |
 | `MCP_TIMEOUT`, `MAX_MCP_OUTPUT_TOKENS` | 60000, 25000 | MCP start-up timeout (first `npx`/`uvx` downloads), tool output cap |
 
 ## Status line
 
 `bin/statusline.py` renders a line like
-`blackcat · Sonnet 5 · low · ctx 156K/400K ▓▓▓░░░░░ · 5h 23% · 7d 41% · cache 91%`.
+`blackcat · Sonnet 5.5 · low · ctx 156K/400K ▓▓▓░░░░░ · 5h 23% · 7d 41% · cache 91%`.
 - The **ctx** bar counts the main conversation's tokens against the 400K auto-compact window, so you
   see the next compaction coming (it fires a little before).
 - 5h/7d are your plan's rate-limit windows (Pro/Max).
@@ -694,8 +695,8 @@ options (see [How the apps were checked](#how-the-apps-were-checked)).
 | App | Runs | What to set | Limits |
 |---|---|---|---|
 | Terminal (Ghostty, Terminal) | your `claude` | once: `/effort low` | none: the reference, and the only place for `claude-ninja` / `claude-god` |
-| **Claude Desktop, Code tab** (Local) | Claude Code 2.1.281, built into Desktop 2.9939.2 | model **Sonnet 5**, effort **low** for BlackCat sessions | no agent teams; panel commands such as `/permissions` don't open; Desktop reads only `PATH` from your shell profile (the stack needs nothing else) |
-| **Conductor** 0.87.5 | Claude Code 2.1.280, bundled | model **Sonnet 5**, thinking **low**, Ultracode **off** for BlackCat chats | always bypass-permissions (your deny rules and the guard still apply); Conductor's own tools (diff comments, terminal reading) aren't in the agents' tool lists |
+| **Claude Desktop, Code tab** (Local) | Claude Code 2.1.281, built into Desktop 2.9939.2 | model **Sonnet 5.5**, effort **low** for BlackCat sessions | no agent teams; panel commands such as `/permissions` don't open; Desktop reads only `PATH` from your shell profile (the stack needs nothing else) |
+| **Conductor** 0.87.5 | Claude Code 2.1.280, bundled | model **Sonnet 5.5**, thinking **low**, Ultracode **off** for BlackCat chats | always bypass-permissions (your deny rules and the guard still apply); Conductor's own tools (diff comments, terminal reading) aren't in the agents' tool lists |
 | VS Code / Cursor extension | its own copy of Claude Code, same version as the extension | nothing | a subset of slash commands |
 | JetBrains plugin | your `claude`, in the IDE terminal | nothing | none |
 | Zed (Claude Agent) | Claude Code 2.1.280 through the ACP adapter | nothing | a few slash commands hidden; Zed's Terminal Threads run your own `claude` |
@@ -705,7 +706,7 @@ options (see [How the apps were checked](#how-the-apps-were-checked)).
 What differs from the terminal in these apps (Desktop, Conductor, Nimbalyst, VS Code and Zed all run
 Claude Code through the Agent SDK):
 - **Model and effort** come from the app's pickers and set the main thread: BlackCat takes the model
-  you pick, not the Sonnet 5 in its file. Subagents keep their own model and effort.
+  you pick, not the Sonnet 5.5 in its file. Subagents keep their own model and effort.
 - **Subagents return their results directly.** In the SDK a subagent doesn't wait for background
   children, so the rules have every agent pass `run_in_background: false` where the Agent tool offers
   it; calls sent together still run in parallel.
@@ -725,10 +726,10 @@ Claude Code through the Agent SDK):
 
 1. Install once from Terminal (`./install.sh`), then **restart Claude Desktop**. Open **Code**, choose
    **Local** and your project folder.
-2. Set the model to **Sonnet 5** and effort to **low** (Cmd+Shift+E). Each subagent uses the effort in
+2. Set the model to **Sonnet 5.5** and effort to **low** (Cmd+Shift+E). Each subagent uses the effort in
    its own file.
 3. **Background model**: in the environment dropdown, hover over **Local**, click the gear and add
-   `ANTHROPIC_DEFAULT_HAIKU_MODEL` = `claude-sonnet-5`. Desktop can route models itself, and Claude Code
+   `ANTHROPIC_DEFAULT_HAIKU_MODEL` = `claude-sonnet-5-5`. Desktop can route models itself, and Claude Code
    then ignores that key in `settings.json`, so session titles and WebFetch summaries would stay on
    Haiku 4.5; variables set here reach the session directly. Your agents never run on Haiku either way.
 4. **Keys** need nothing extra: exa/jina/huggingface/wandb get them from `stack.env` through
@@ -744,7 +745,7 @@ Claude Code through the Agent SDK):
 1. Nothing to install in Conductor: it reads `~/.claude` (settings, agents, skills, hooks, rules) and
    `~/.claude.json` (MCP servers). Its bundled Claude Code (2.1.280) is recent enough; if you switch
    it to your own `claude` (Settings → Storage), keep that at 2.1.271 or later.
-2. For each chat: model **Sonnet 5**, thinking **low**, Ultracode **off** (with Ultracode on, the
+2. For each chat: model **Sonnet 5.5**, thinking **low**, Ultracode **off** (with Ultracode on, the
    BlackCat itself would start dynamic workflows).
 3. Work runs in the workspace's git worktree under `~/conductor/workspaces/`. The agents' scratch
    folder `.claude-work/` is excluded from git there too.

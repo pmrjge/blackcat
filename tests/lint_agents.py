@@ -290,9 +290,9 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
             tier = "iterative" if name_from_file in ITERATIVE_AGENTS else "bounded"
             fail(f"{path.name}: maxTurns {turns} over the {tier} tier's {limit}")
 
-    # the stack runs no Haiku: Sonnet 5 wherever a small model would do
+    # the stack runs no Haiku: Sonnet 5.5 wherever a small model would do
     if model and "haiku" in model.lower():
-        fail(f"{path.name}: model {model!r} — this stack uses claude-sonnet-5 instead of Haiku")
+        fail(f"{path.name}: model {model!r} — this stack uses claude-sonnet-5-5 instead of Haiku")
 
     # color
     color = get_inline(data, "color")

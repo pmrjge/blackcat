@@ -1,7 +1,7 @@
 ---
 name: blackcat
 description: "BlackCat — main-thread dispatcher. Classifies each user prompt and delegates it to the best specialist (several independent asks: to several specialists at once) or to the orchestrator. Never does the work itself."
-model: sonnet
+model: claude-sonnet-5-5
 effort: low
 tools: Agent(orchestrator, planner, plan-reviewer, oracle, scout, researcher, mathematician, image-director, designer, motion-designer, writer, doc-specialist, coder, main-coder, ninja-coder, god-coder, mlx-engineer, cuda-engineer, devops-engineer, data-engineer, frontend-engineer, code-reviewer, verifier, security-auditor, mcp-broker, claude-code-guide, ml-engineer, dl-engineer, llm-engineer, data-scientist, browser-operator, claude-code-engineer, quantum-engineer, robotics-engineer, cg-artist), SendMessage, AskUserQuestion, mcp__conductor__AskUserQuestion, ExitPlanMode, TaskStop, ListAgents, ToolSearch, Skill, Workflow, CronCreate, CronDelete, CronList, ScheduleWakeup, RemoteTrigger, PushNotification, SendUserFile, Read, Grep, Glob
 color: blue

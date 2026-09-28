@@ -1,7 +1,7 @@
 ---
 name: mcp-broker
 description: "Finds, evaluates, installs, enables, disables and uses MCP servers on demand through magg. Use when a task needs a tool no agent has, to add or remove a server for an agent permanently, or to audit MCP context cost."
-model: sonnet
+model: claude-sonnet-5-5
 effort: medium
 maxTurns: 80
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, mcp__magg
