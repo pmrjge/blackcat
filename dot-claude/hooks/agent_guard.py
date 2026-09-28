@@ -6,12 +6,15 @@ installer renders every hook command with an absolute interpreter path (never a 
 a hook that cannot start is a non-blocking error in Claude Code, i.e. every gate silently open.
 Reads the hook JSON on stdin.
 
-  PreToolUse  Agent                 spawn policy, depth limit, self-copy rule, fan-out caps,
-                                    blackcat dispatch window (atomic markers), god-coder singleton
-                                    (pending lease), strip `model`
+  PreToolUse  every tool            `budget` mode: the prompt and session context-token budgets
+                                    (the tools below check them in this mode's place, first)
+  PreToolUse  Agent                 spawn policy, copy rule, depth limit, fan-out caps (spawn
+                                    lease), session copy cap, blackcat dispatch and step limits
+                                    (atomic markers), god-coder singleton (pending lease), strip
+                                    `model`
   PreToolUse  SendMessage           resuming a finished agent follows the spawn policy (the caller's
-                                    row, or its own child/parent) and its parent's fan-out caps;
-                                    resuming a finished god-coder takes the god-coder lock
+                                    row, or its own child/parent), its parent's fan-out cap and the
+                                    copy cap; resuming a finished god-coder takes the god-coder lock
   PreToolUse  mcp__computer-use__*  one agent on the screen at a time
   PreToolUse  Bash|Monitor|PowerShell  `no-push` mode: agents never push and never write to a
                                     forge (gh/tea/fj), in any form, also inside bash -c, eval, $(...)
@@ -26,56 +29,79 @@ Reads the hook JSON on stdin.
   PreToolUse  local-file MCP tools  context-mode ctx_index, markitdown, docling, playwright: a path
                                     or file: URI argument is held to the Read deny rules (Claude Code
                                     cannot see inside MCP arguments)
-  PostToolUse Agent                 record child id/type/depth/parent; confirm or release the
-                                    god-coder lock; turn the fan-out lease into a registry entry
-  SubagentStart / SubagentStop      registry bookkeeping; confirm / release locks
-  PostToolUse TaskStop, StopFailure mark the agent stopped and release its locks (a stopped or
-                                    failed subagent is not promised a SubagentStop)
+  PostToolUse Agent                 drop the spawn lease; record child id/type/depth/parent (once,
+                                    from the caller's own event) and, for "async_launched", the
+                                    child as a live background child; confirm or release the
+                                    god-coder lock
+  SubagentStart / SubagentStop      registry bookkeeping (a start of a stopped agent is a resume:
+                                    a live background child again); confirm / release locks; a
+                                    stopped agent's own spawn leases are voided
+  PostToolUse TaskStop, StopFailure mark the agent stopped and release its locks and leases (a
+                                    stopped or failed subagent is not promised a SubagentStop)
   PostToolUseFailure / PermissionDenied (Agent)   roll back god-coder lease, blackcat marker and
-                                    fan-out lease
-  UserPromptSubmit                  prune blackcat markers of earlier prompts
-  SessionStart (startup|resume)     clear locks and blackcat markers, prune old session dirs
+                                    spawn lease
+  UserPromptSubmit                  start the prompt token budget; prune blackcat markers of
+                                    earlier prompts
+  SessionStart                      startup|resume: clear locks, leases and blackcat markers, prune
+                                    old session dirs; resume|fork: bring the token count up to date
 
 Concurrency model (the user's spec): depth 4 below the main thread (blackcat -> L1 -> L2 -> L3 ->
 L4; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4, and the fallback here stays at
-Claude Code's own default of 3); any agent whose row allows
-it may launch several children in ONE message (they run concurrently in the background); agents
-in SELF_SPAWN may launch copies of themselves (one generation: a copy cannot copy itself again);
-at most STACK_MAX_FANOUT running children per parent, STACK_MAX_SELF_FANOUT of them copies.
+Claude Code's own default of 3); any agent whose row allows it may launch several children in ONE
+message (they run concurrently); at most STACK_MAX_FANOUT running children per parent
+(STACK_MAX_FANOUT_BY_TYPE per type; BlackCat: BLACKCAT_MAX_DISPATCH per prompt instead). Copies:
+only the COPY_TYPES spawn copies of themselves, as the separate agent type `<type>-copy`, whose row
+lists neither its base nor any copy (one generation, decided on agent_type alone); at most
+STACK_MAX_SELF_FANOUT live `<type>-copy` agents per type in the whole session. Running children =
+live spawn leases + live background children (see the fan-out section); nothing is linked by
+guessing. Token budgets: see the token-budget section.
 
 State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
   agents/<agent_id>.json  registry {type, depth, parent, parent_type, name, spawned, started,
-                          stopped, transcript}
+                          stopped, transcript, bg, tool_use_id, resumed}
   names/<name>.json       {type, id} for agents spawned with a `name`
-  fanout/<caller>/<tool_use_id>.json   pending spawn leases (until PostToolUse)
+  fanout/<caller>/<tool_use_id>.json   spawn leases {type, caller, caller_type, ts}
+  budget.json             token counts {files: {path: {off, ino, keys}}, total, prompt_base,
+                          prompt_id}
   blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
   god-coder.lock, screen.lock  JSON, replaced atomically; transitions under flock(*.mutex)
 
 Failure policy: an exception in a PreToolUse handler (or in blackcat-guard mode) denies the call
-(fail closed); lifecycle events log to stderr and exit 0. The escape hatch (STACK_POLICY=off) is
-shown to the user in `systemMessage`, never to the model in the deny reason.
+(fail closed); lifecycle events log to stderr and exit 0. The token budgets fail open: a transcript
+or state that can't be read warns on stderr and allows the call. The escape hatch
+(STACK_POLICY=off) is shown to the user in `systemMessage`, never to the model in the deny reason.
+
+Citations `hooks.md:N` / `sub-agents.md:N` are line numbers in code.claude.com/docs/en/hooks.md and
+sub-agents.md as fetched on 2026-09-28 (Claude Code 2.1.283).
 
 Liveness: an agent counts as gone on SubagentStop, PostToolUse(TaskStop) or StopFailure; while it
 waits for background children its own transcript is quiet, so idle rules look at the whole live
 subtree (the agent's transcript and every live descendant's).
 
 CLI: `agent_guard.py --print-policy` (JSON consumed by doctor.sh and tests/lint_agents.py),
-`--self-test`, `blackcat-guard` (PreToolUse hook of the blackcat main thread), `image-limit`
-(PreToolUse/PostToolUse hook that keeps images under STACK_IMAGE_MAX_PX), `no-push` (PreToolUse
-Bash/Monitor/PowerShell hook that denies any git push or forge write, a plaintext mcp-headers/
-with-stack-env key print, or `-x` tracing of install.sh/doctor.sh), no argument = event.
+`--self-test`, `--check-budget [transcript]` (doctor: the budgets still read real transcripts),
+`blackcat-guard` (PreToolUse hook of the blackcat main thread), `budget` (PreToolUse hook on every
+tool: token budgets), `image-limit` (PreToolUse/PostToolUse hook that keeps images under
+STACK_IMAGE_MAX_PX), `no-push` (PreToolUse Bash/Monitor/PowerShell hook that denies any git push or
+forge write, a plaintext mcp-headers/with-stack-env key print, or `-x` tracing of
+install.sh/doctor.sh), no argument = event.
 
 Knobs (env):
   STACK_POLICY=off        disable every deny and lock (bookkeeping and model strip continue)
-  BLACKCAT_MAX_DISPATCH=3   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
+  BLACKCAT_MAX_DISPATCH=4   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
   BLACKCAT_DISPATCH_WINDOW_S=30  all blackcat dispatches for one prompt must start within this many
                           seconds of the first one (one parallel burst, not ad-hoc orchestration)
-  BLACKCAT_MAX_STEPS=8      blackcat non-Agent tool calls per user prompt (blackcat-guard mode)
-  STACK_MAX_FANOUT=8      running + pending children per parent agent (0 = no cap)
-  STACK_MAX_SELF_FANOUT=4 of those, copies of the parent's own type (0 = no cap)
-  STACK_FANOUT_IDLE_S=1800  a child whose live subtree shows no activity for this long no longer
-                          counts as running (settings.json ships 600)
-  STACK_FANOUT_PENDING_TTL_S=120  a spawn lease never confirmed by PostToolUse expires
+  BLACKCAT_MAX_STEPS=8      blackcat tool calls per user prompt, Agent dispatches included
+  STACK_MAX_FANOUT=3      running + starting children per parent agent (0 = no cap); the main
+                          thread has none (BLACKCAT_MAX_DISPATCH bounds BlackCat per prompt)
+  STACK_MAX_FANOUT_BY_TYPE="orchestrator=6,planner=4"  per-type overrides of STACK_MAX_FANOUT
+                          (type=N, separated by , ; or newlines; a copy type falls back to its base)
+  STACK_MAX_SELF_FANOUT=2 live `<type>-copy` agents per copy type in the whole session (0 = no cap)
+  STACK_LEASE_TTL_S=21600 ceiling on a spawn lease whose Agent call never reported back
+  STACK_FANOUT_IDLE_S=1800  a background child whose live subtree shows no activity for this long
+                          no longer counts as running (settings.json ships 600)
+  STACK_PROMPT_CTX_BUDGET=100000000   context tokens per human prompt, whole session tree (0 = off)
+  STACK_SESSION_CTX_BUDGET=120000000  context tokens per session, whole session tree (0 = off)
   GOD_PENDING_TTL_S=120   an unconfirmed god-coder lease (spawn or resume) is reclaimable after this
   GOD_IDLE_S=900          a holder whose live subtree is idle this long is presumed gone
                           (settings.json ships 1800)
@@ -123,27 +149,35 @@ _BLACKCAT_ROW = [a for a in AGENTS if a != "blackcat"]
 _ACCEL_ROW = ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
               "mcp-broker", "ninja-coder", "god-coder"]
 
+# Copies: a base type in COPY_TYPES spawns copies of itself only as its own `<type>-copy` agent
+# type (install.sh renders agents/<type>-copy.md from agents/<type>.md). One generation is then a
+# static rule on the caller's agent_type, which PreToolUse carries inside subagents
+# (hooks.md:745-750): a copy's row never lists its base type or any copy. No other agent may spawn
+# its own type.
+COPY_TYPES = ["researcher", "coder"]
+COPY_OF = {base: base + "-copy" for base in COPY_TYPES}          # base -> copy type
+COPY_BASE = {copy: base for base, copy in COPY_OF.items()}       # copy type -> base
+
 # parent agent_type -> child agent types it may spawn. Parents not listed are unrestricted.
-# A row that contains the parent itself allows copies of that agent (see SELF_SPAWN).
 POLICY = {
     "blackcat": list(_BLACKCAT_ROW),
     "orchestrator": [a for a in _BLACKCAT_ROW if a != "orchestrator"] + ["explore"],
     "planner": ["scout", "explore", "claude-code-guide"],
     "plan-reviewer": ["scout", "explore", "claude-code-guide"],
-    "researcher": ["researcher", "scout", "doc-specialist", "mathematician", "data-engineer",
+    "researcher": ["researcher-copy", "scout", "doc-specialist", "mathematician", "data-engineer",
                    "data-scientist", "browser-operator", "mcp-broker"],
-    "writer": ["writer", "scout", "researcher", "mathematician"],
-    "mathematician": ["mathematician", "scout", "mcp-broker", "quantum-engineer"],
+    "writer": ["scout", "researcher", "mathematician"],
+    "mathematician": ["scout", "mcp-broker", "quantum-engineer"],
     "image-director": ["scout"],
-    "doc-specialist": ["doc-specialist", "scout", "mcp-broker"],
+    "doc-specialist": ["scout", "mcp-broker"],
     "designer": ["image-director", "scout", "mcp-broker", "cg-artist"],
     "motion-designer": ["image-director", "designer", "scout", "mcp-broker", "cg-artist"],
-    "coder": ["coder", "explore", "scout"],
-    "main-coder": ["main-coder", "coder", "explore", "scout", "verifier", "code-reviewer",
+    "coder": ["coder-copy", "explore", "scout"],
+    "main-coder": ["coder", "explore", "scout", "verifier", "code-reviewer",
                    "security-auditor", "plan-reviewer", "mlx-engineer", "cuda-engineer",
                    "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker", "claude-code-guide",
                    "ninja-coder", "god-coder"],
-    "ninja-coder": ["ninja-coder", "main-coder", "coder", "mathematician", "explore", "scout",
+    "ninja-coder": ["main-coder", "coder", "mathematician", "explore", "scout",
                     "verifier", "code-reviewer", "security-auditor", "researcher", "mlx-engineer",
                     "cuda-engineer", "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker",
                     "god-coder", "quantum-engineer"],
@@ -153,28 +187,28 @@ POLICY = {
     "mlx-engineer": list(_ACCEL_ROW),
     "cuda-engineer": list(_ACCEL_ROW),
     "devops-engineer": ["coder", "explore", "scout", "verifier", "security-auditor", "mcp-broker"],
-    "data-engineer": ["data-engineer", "coder", "explore", "scout", "verifier", "mathematician",
+    "data-engineer": ["coder", "explore", "scout", "verifier", "mathematician",
                       "data-scientist", "doc-specialist", "mcp-broker"],
     "frontend-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "designer",
                           "image-director", "mcp-broker"],
-    "ml-engineer": ["ml-engineer", "data-scientist", "data-engineer", "coder", "explore", "scout",
+    "ml-engineer": ["data-scientist", "data-engineer", "coder", "explore", "scout",
                     "verifier", "code-reviewer", "mathematician", "mcp-broker"],
-    "dl-engineer": ["dl-engineer", "mlx-engineer", "cuda-engineer", "data-engineer", "coder",
+    "dl-engineer": ["mlx-engineer", "cuda-engineer", "data-engineer", "coder",
                     "explore", "scout", "researcher", "verifier", "code-reviewer",
                     "mathematician", "mcp-broker", "ninja-coder", "god-coder"],
-    "llm-engineer": ["llm-engineer", "mlx-engineer", "cuda-engineer", "dl-engineer",
+    "llm-engineer": ["mlx-engineer", "cuda-engineer", "dl-engineer",
                      "data-scientist", "coder", "explore", "scout", "researcher", "verifier",
                      "code-reviewer", "mathematician", "mcp-broker", "claude-code-guide",
                      "ninja-coder", "god-coder"],
-    "data-scientist": ["data-scientist", "data-engineer", "ml-engineer", "mathematician", "coder",
+    "data-scientist": ["data-engineer", "ml-engineer", "mathematician", "coder",
                        "explore", "scout", "verifier", "doc-specialist", "writer", "mcp-broker"],
     "claude-code-engineer": ["claude-code-guide", "scout", "explore", "verifier", "code-reviewer",
                              "mcp-broker"],
     # quantum computing and quantum-physics numerics; derivations stay with mathematician
-    "quantum-engineer": ["quantum-engineer", "mathematician", "coder", "explore", "scout",
+    "quantum-engineer": ["mathematician", "coder", "explore", "scout",
                          "researcher", "verifier", "code-reviewer", "cuda-engineer", "mlx-engineer",
                          "mcp-broker", "ninja-coder"],
-    "robotics-engineer": ["robotics-engineer", "coder", "explore", "scout", "researcher",
+    "robotics-engineer": ["coder", "explore", "scout", "researcher",
                           "verifier", "code-reviewer", "mathematician", "dl-engineer",
                           "cuda-engineer", "mlx-engineer", "cg-artist", "mcp-broker",
                           "ninja-coder"],
@@ -183,8 +217,11 @@ POLICY = {
     "oracle": [], "scout": [], "code-reviewer": [], "verifier": [], "security-auditor": [],
     "mcp-broker": [], "claude-code-guide": [], "browser-operator": [],
 }
-# Agents allowed to spawn copies of themselves (derived: the row lists the parent itself).
-SELF_SPAWN = sorted(p for p, row in POLICY.items() if p in row)
+# A copy's row: its base's row without the base type and without any copy type.
+for _base, _copy in COPY_OF.items():
+    POLICY[_copy] = [c for c in POLICY[_base] if c != _base and c not in COPY_BASE]
+# Agents that may spawn copies of themselves (derived: the row lists the agent's copy type).
+SELF_SPAWN = sorted(b for b, c in COPY_OF.items() if c in POLICY.get(b, []))
 
 # Main-thread blackcat: delegation tools plus the main-thread-only features subagents never get
 # (dynamic workflows, scheduled tasks, routines, push notifications, file hand-off, skills).
@@ -194,6 +231,9 @@ BLACKCAT_TOOLS = {"Agent", "SendMessage", "AskUserQuestion", "mcp__conductor__As
                 "ExitPlanMode", "TaskStop", "ListAgents", "ToolSearch", "Skill", "Workflow",
                 "CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",
                 "PushNotification", "SendUserFile"}
+STEP_LIMIT_REASON = ("BlackCat step limit (%d tool calls per prompt, dispatches included) reached. "
+                     "Call no more tools: answer the user now with what you have, or say what is "
+                     "still pending.")
 GOD = "god-coder"
 GOD_LOCK = "god-coder.lock"
 SCREEN_LOCK = "screen.lock"
@@ -220,8 +260,8 @@ def norm(name):
     global _KNOWN_TYPES
     if _KNOWN_TYPES is None:
         _KNOWN_TYPES = {re.sub(r"[^a-z0-9]", "", a): a
-                        for a in AGENTS + BUILTINS + ["general-purpose", "fork", "plan", "claude",
-                                                      "statusline-setup"]}
+                        for a in AGENTS + list(COPY_BASE) + BUILTINS
+                        + ["general-purpose", "fork", "plan", "claude", "statusline-setup"]}
     s = str(name or "").strip().lower()
     return _KNOWN_TYPES.get(re.sub(r"[^a-z0-9]", "", s)) or re.sub(r"[\s_]+", "-", s)
 
@@ -385,13 +425,19 @@ def reg_get(d, aid):
     return read_json(reg_path(d, aid)) if aid else None
 
 
-def reg_put(d, aid, fields, clear=()):
-    """Drop `clear` keys, then merge `fields`; None values only fill absent keys."""
+def reg_put(d, aid, fields, clear=(), keep=(), resumed=None):
+    """Drop `clear` keys, then merge `fields`; None values only fill absent keys, and `keep` keys
+    are never overwritten once set. `resumed`: fields merged too when the record says the agent
+    had stopped (read under the same lock)."""
     with mutex(d, "registry"):
         cur = reg_get(d, aid) or {}
+        if resumed and cur.get("stopped"):
+            fields = dict(fields, **resumed)
         for k in clear:
             cur.pop(k, None)
         for k, v in fields.items():
+            if k in keep and cur.get(k) is not None:
+                continue
             if v is not None or k not in cur:
                 cur[k] = v
         write_json_atomic(reg_path(d, aid), cur)
@@ -472,6 +518,21 @@ def dispatch_window_closed(d, pid, limit, now):
 
 
 # ---------------------------------------------------------------- fan-out caps and copies
+# Running children of a parent = its live spawn leases + its live background children. Nothing
+# links a child to a lease: SubagentStart names no parent (hooks.md:2349), so there is no guessing.
+#   lease        fanout/<caller>/<tool_use_id>.json, taken by PreToolUse(Agent), dropped by the same
+#                tool_use_id's PostToolUse, PostToolUseFailure or PermissionDenied (hooks.md:1585,
+#                2004, 2207). For a foreground call that spans the child's whole run: PostToolUse
+#                comes with status "completed" when the child is done (hooks.md:1751). Voided when
+#                the caller stops, at SessionStart, and after STACK_LEASE_TTL_S.
+#   background   registry entry with bg=true, written by PostToolUse status "async_launched" (a
+#   child        background launch, or a foreground run moved to the background; hooks.md:1751,
+#                1763), or by the SubagentStart of a stopped agent: a resume, which runs in the
+#                background (hooks.md:2343, sub-agents.md:1102). Gone at SubagentStop, TaskStop,
+#                StopFailure or SessionStart, or once its live subtree is idle STACK_FANOUT_IDLE_S.
+DEFAULT_FANOUT_BY_TYPE = "orchestrator=6,planner=4"
+
+
 def fanout_dir(d, caller):
     return os.path.join(d, "fanout", safe(caller))
 
@@ -537,73 +598,138 @@ def subtree_activity(d, root, ev, reg=None, root_times=True):
     return best, seen_tr
 
 
-def children_running(d, caller, now, ev):
-    """{type: count} of registry children of `caller` that have not stopped and whose subtree
-    still shows activity within STACK_FANOUT_IDLE_S."""
+def live_leases(d, now, caller=None):
+    """[(caller folder, lease id, lease)] of the unexpired spawn leases of `caller` (of every
+    caller when None). Leases older than STACK_LEASE_TTL_S, or unreadable, are removed."""
+    root = os.path.join(d, "fanout")
+    try:
+        callers = [safe(caller)] if caller else os.listdir(root)
+    except FileNotFoundError:
+        return []
+    ttl, out = knob_int("STACK_LEASE_TTL_S", 21600), []
+    for c in callers:
+        try:
+            entries = os.listdir(os.path.join(root, c))
+        except (FileNotFoundError, NotADirectoryError):
+            continue
+        for f in entries:
+            if f.startswith(".") or not f.endswith(".json"):
+                continue
+            path = os.path.join(root, c, f)
+            rec = read_json(path)
+            try:
+                ts = float((rec or {}).get("ts") or 0)
+            except (TypeError, ValueError):
+                ts = 0.0
+            if not rec or (ttl > 0 and now - ts > ttl):
+                unlink(path)
+                continue
+            out.append((c, f[:-len(".json")], rec))
+    return out
+
+
+def bg_running(d, now, ev, reg, skip, parent=None, ctype=None):
+    """Number of live background agents (bg, not stopped, subtree active within
+    STACK_FANOUT_IDLE_S): the children of `parent`, or the agents of type `ctype`. `skip`: lease
+    ids still live, never counted twice."""
     idle = knob_int("STACK_FANOUT_IDLE_S", 1800)
-    reg = load_registry(d)
-    out = {}
+    n = 0
     for aid, rec in reg.items():
-        if rec.get("parent") != caller or rec.get("stopped"):
+        if not rec.get("bg") or rec.get("stopped") or safe(rec.get("tool_use_id"), "") in skip:
+            continue
+        if parent is not None and rec.get("parent") != parent:
+            continue
+        if ctype is not None and norm(rec.get("type")) != ctype:
             continue
         last, _ = subtree_activity(d, aid, ev, reg)
         if idle > 0 and last and now - last > idle:
             continue
-        t = norm(rec.get("type")) or "?"
-        out[t] = out.get(t, 0) + 1
-    return out
+        n += 1
+    return n
 
 
-def fanout_pending(d, caller, now):
-    """{type: count} of unexpired spawn leases of `caller`; expired ones are removed."""
-    ttl = knob_int("STACK_FANOUT_PENDING_TTL_S", 120)
-    folder = fanout_dir(d, caller)
+def running_children(d, caller, now, ev, reg):
+    """Children of `caller` running or starting: its live leases plus its live background
+    children."""
+    leases = live_leases(d, now, caller)
+    return len(leases) + bg_running(d, now, ev, reg, {lid for _, lid, _ in leases}, parent=caller)
+
+
+def copies_running(d, ctype, now, ev, reg):
+    """Session-wide number of `ctype` agents running or starting: leases for that type (any
+    caller) plus live background agents of that type."""
+    leases = [x for x in live_leases(d, now) if norm(x[2].get("type")) == ctype]
+    return len(leases) + bg_running(d, now, ev, reg, {lid for _, lid, _ in leases}, ctype=ctype)
+
+
+def parse_fanout_by_type(raw):
+    """{type: cap} from "orchestrator=6,planner=4" (separators , ; or newline; spaces, quotes and
+    any spelling of a type are fine). Malformed items are skipped with a warning."""
     out = {}
-    try:
-        entries = os.listdir(folder)
-    except FileNotFoundError:
-        return out
-    for f in entries:
-        path = os.path.join(folder, f)
-        if f.startswith("."):
+    for item in re.split(r"[,;\n]+", str(raw or "").strip().strip("'\"")):
+        item = item.strip().strip("'\"")
+        if not item:
             continue
-        rec = read_json(path)
+        name, sep, value = item.rpartition("=")
         try:
-            ts = float((rec or {}).get("ts") or 0)
-        except (TypeError, ValueError):
-            ts = 0.0
-        if not rec or now - ts > ttl:
-            unlink(path)
+            cap = int(value.strip())
+        except ValueError:
+            cap = -1
+        if not sep or not name.strip() or cap < 0:
+            warn_once("STACK_MAX_FANOUT_BY_TYPE: ignoring %r (expected type=N with N >= 0)" % item)
             continue
-        t = norm(rec.get("type")) or "?"
-        out[t] = out.get(t, 0) + 1
+        out[norm(name)] = cap
     return out
 
 
-def fanout_acquire(d, ev, caller, parent_type, child):
-    """Check the fan-out caps and, if they allow it, take a lease for this spawn, atomically.
-    Returns a denial reason, or None when the spawn may proceed."""
-    max_all = knob_int("STACK_MAX_FANOUT", 8)
-    max_self = knob_int("STACK_MAX_SELF_FANOUT", 4)
+def fanout_limit(caller, caller_type):
+    """(cap on the running children of this caller, the knob that set it); 0 = no cap. A copy
+    type falls back to its base type's entry. The main thread has no per-parent cap unless
+    STACK_MAX_FANOUT_BY_TYPE names its agent: BlackCat is held to BLACKCAT_MAX_DISPATCH per
+    prompt, and a new prompt is the user's own call."""
+    raw = os.environ.get("STACK_MAX_FANOUT_BY_TYPE")
+    by = parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE if raw is None else raw)
+    for t in (caller_type, COPY_BASE.get(caller_type)):
+        if t and t in by:
+            return by[t], "STACK_MAX_FANOUT_BY_TYPE %s=%d" % (t, by[t])
+    if caller == "main":
+        return 0, None
+    cap = knob_int("STACK_MAX_FANOUT", 3)
+    return cap, "STACK_MAX_FANOUT=%d" % cap
+
+
+def fanout_acquire(d, ev, caller, caller_type, child):
+    """Check the caller's fan-out cap and the session's copy cap and, if they allow it, take a
+    lease for this spawn, atomically (one session-wide mutex). Returns a denial reason, or None
+    when the spawn may proceed."""
+    limit, knob = fanout_limit(caller, caller_type)
+    max_copies = knob_int("STACK_MAX_SELF_FANOUT", 2)
+    copy = child in COPY_BASE and max_copies > 0
     tid = ev.get("tool_use_id")
-    with mutex(d, "fanout"):
-        now = time.time()
-        live = children_running(d, caller, now, ev)
-        pend = fanout_pending(d, caller, now)
-        total = sum(live.values()) + sum(pend.values())
-        copies = live.get(child, 0) + pend.get(child, 0)
-        who = parent_type or caller
-        if max_all > 0 and total >= max_all:
-            return ("Fan-out limit: '%s' already has %d children running or starting "
-                    "(STACK_MAX_FANOUT=%d). Wait for a task notification before spawning more, "
-                    "or do this part yourself." % (who, total, max_all))
-        if parent_type and child == parent_type and max_self > 0 and copies >= max_self:
-            return ("Copy limit: '%s' already has %d copies of itself running or starting "
-                    "(STACK_MAX_SELF_FANOUT=%d). Wait for one to finish, or do this part "
-                    "yourself." % (who, copies, max_self))
+    lease = {"type": child, "caller": caller, "caller_type": caller_type or None}
+    if limit <= 0 and not copy:        # no cap to check: no lock, no registry scan (review #15)
         if tid:
             write_json_atomic(os.path.join(fanout_dir(d, caller), safe(tid) + ".json"),
-                              {"type": child, "ts": now})
+                              dict(lease, ts=time.time()))
+        return None
+    with mutex(d, "fanout"):
+        now = time.time()
+        reg = load_registry(d)
+        if limit > 0:
+            n = running_children(d, caller, now, ev, reg)
+            if n >= limit:
+                return ("Fan-out limit: '%s' already has %d children running or starting (%s). "
+                        "Wait for a task notification before spawning more, or do this part "
+                        "yourself." % (caller_type or caller, n, knob))
+        if copy:
+            n = copies_running(d, child, now, ev, reg)
+            if n >= max_copies:
+                return ("Copy limit: %d %s agents are already running or starting in this "
+                        "session (STACK_MAX_SELF_FANOUT=%d). Wait for one to finish, or do this "
+                        "part yourself." % (n, child, max_copies))
+        if tid:
+            write_json_atomic(os.path.join(fanout_dir(d, caller), safe(tid) + ".json"),
+                              dict(lease, ts=now))
     return None
 
 
@@ -612,17 +738,44 @@ def fanout_release(d, caller, tool_use_id):
         unlink(os.path.join(fanout_dir(d, caller), safe(tool_use_id) + ".json"))
 
 
-def copy_rule_violation(d, ev, parent_type, child):
-    """One generation of copies: a copy (an agent spawned by its own type) cannot copy itself."""
-    aid = ev.get("agent_id")
-    if not aid or not parent_type or child != parent_type:
-        return None
-    rec = reg_get(d, aid) or {}
-    if norm(rec.get("parent_type")) == parent_type:
-        return ("Self-copy rule: this '%s' is already a copy spawned by another '%s', and copies "
-                "cannot spawn further copies. Split the work across other agent types, do it "
-                "yourself, or return STATUS: partial." % (parent_type, parent_type))
+def void_leases(d, caller):
+    """Drop every spawn lease of `caller`: it stopped, and its pending Agent calls with it."""
+    folder = fanout_dir(d, caller)
+    if not os.path.isdir(folder):      # look before taking the lock (review #15)
+        return
+    with mutex(d, "fanout"):
+        try:
+            entries = os.listdir(folder)
+        except FileNotFoundError:
+            return
+        for f in entries:
+            unlink(os.path.join(folder, f))
+
+
+def copy_rule_violation(parent_type, child):
+    """One generation of copies, decided on the caller's own agent_type alone (no registry, so
+    no timing): a copy spawns neither its base type nor any copy."""
+    base = COPY_BASE.get(parent_type)
+    if base and (child == base or child in COPY_BASE):
+        return ("Copies cannot spawn copies: %s may not spawn %s. Do this part yourself or "
+                "return STATUS: partial listing what is left." % (parent_type, child))
     return None
+
+
+def meta_depth(d, ev, aid):
+    """The caller's depth from Claude Code's own subagents/agent-<id>.meta.json `spawnDepth`, when
+    the registry has none (a foreground child's PostToolUse comes only when it is done). Not a
+    documented interface: read only at the agent's own PreToolUse(Agent), when the file exists,
+    and used only for the depth check (review #1 iii)."""
+    files = transcript_files(ev)
+    if not files:
+        return None
+    dep = (read_json(os.path.join(files[1], "agent-%s.meta.json" % safe(aid))) or {}).get(
+        "spawnDepth")
+    if not isinstance(dep, int) or isinstance(dep, bool) or not 0 < dep < 64:
+        return None
+    reg_put(d, aid, {"depth": dep})
+    return dep
 
 
 # ---------------------------------------------------------------- god-coder lock
@@ -764,27 +917,30 @@ def on_agent(ev, d):
         parent = norm((reg_get(d, aid) or {}).get("type"))
     pid = prompt_key(ev)
     tid = ev.get("tool_use_id")
-    max_dispatch = knob_int("BLACKCAT_MAX_DISPATCH", 3)
+    max_dispatch = knob_int("BLACKCAT_MAX_DISPATCH", 4)
+    max_steps = knob_int("BLACKCAT_MAX_STEPS", 8)
 
     if policy_on():
         is_blackcat = not aid and parent == "blackcat"
-        # 1. pure checks
+        # 1. pure checks (the token budget ran before this handler: dispatch())
         if str(ti.get("isolation") or "").strip().lower() == "remote":
             deny("Remote isolation runs the agent in a cloud session that does not load this "
                  "stack's hooks (no spawn policy, depth, fan-out, god-coder or screen locks). Omit "
                  "isolation or use isolation: \"worktree\".")
+        why = copy_rule_violation(parent, child)
+        if why:
+            deny(why)
         if parent in POLICY and child not in POLICY[parent]:
             deny("Spawn policy: '%s' may not spawn '%s'. Allowed: %s. Return STATUS: partial "
                  "with NEXT naming the agent you need."
                  % (parent, child, ", ".join(POLICY[parent]) or "none"))
         depth, limit = caller_depth(d, ev), max_depth()
+        if depth is None and aid:
+            depth = meta_depth(d, ev, aid)
         if depth is not None and depth >= limit:
             deny("Depth limit: '%s' runs at depth %d and agents at depth >= %d cannot spawn. "
                  "Do the work yourself or return STATUS: partial with NEXT naming the agent."
                  % (parent or caller, depth, limit))
-        why = copy_rule_violation(d, ev, parent, child)
-        if why:
-            deny(why)
         if is_blackcat:
             if markers_full(d, "dispatch", pid, max_dispatch):
                 deny("BlackCat dispatch limit (%d per prompt) reached. Use SendMessage to resume an "
@@ -794,10 +950,14 @@ def on_agent(ev, d):
                 deny("BlackCat already dispatched for this prompt: parallel dispatches must go out "
                      "together in one message. Relay the results as they arrive; follow-ups go "
                      "through SendMessage, and multi-step work goes to the orchestrator.")
+            if markers_full(d, "step", pid, max_steps):
+                deny(STEP_LIMIT_REASON % max_steps)
         # 2. side effects, each rolled back if a later step denies or fails
-        leased, took_god, claimed = False, False, None
+        leased, took_god, claimed, stepped = False, False, None, None
 
         def rollback():
+            if stepped:
+                unlink(stepped)
             if claimed:
                 unlink(claimed)
             if took_god:
@@ -822,6 +982,13 @@ def on_agent(ev, d):
                     rollback()
                     deny("BlackCat dispatch limit (%d per prompt) reached. Use SendMessage to "
                          "resume that agent." % max_dispatch)
+                # BLACKCAT_MAX_STEPS counts every blackcat tool call, dispatches included; this
+                # one is counted here, with its lease and dispatch marker, as one decision
+                # (blackcat-guard counts the other tools).
+                stepped = claim_marker(d, "step", pid, max_steps)
+                if not stepped:
+                    rollback()
+                    deny(STEP_LIMIT_REASON % max_steps)
             record_name(d, ti, child, caller)
         except SystemExit:
             raise
@@ -871,29 +1038,33 @@ def send_policy_violation(d, ev, target_id, ttype):
 
 
 def resume_cap_violation(d, ev, target_id, ttype):
-    """A resumed agent runs again under its registry parent, so it counts against that parent's
-    fan-out caps like a new spawn. (No lease: the resume's SubagentStart makes it count as
-    running.)"""
+    """Resuming a finished agent starts a background run of it under its registry parent
+    (sub-agents.md:1102), so it counts against that parent's fan-out cap and, for a copy, against
+    the session's copy cap, like a new spawn. It takes no lease: its SubagentStart makes it a live
+    background child (on_subagent_start)."""
     rec = reg_get(d, target_id) if target_id else None
-    if not rec or not rec.get("stopped"):
+    if not rec or not rec.get("stopped"):      # the registry decides before any lock (review #15)
         return None
     owner = rec.get("parent") or ev.get("agent_id") or "main"
     owner_type = norm(rec.get("parent_type")) or None
-    max_all = knob_int("STACK_MAX_FANOUT", 8)
-    max_self = knob_int("STACK_MAX_SELF_FANOUT", 4)
+    limit, knob = fanout_limit(owner, owner_type)
+    max_copies = knob_int("STACK_MAX_SELF_FANOUT", 2)
+    copy = ttype in COPY_BASE and max_copies > 0
+    if limit <= 0 and not copy:
+        return None
     with mutex(d, "fanout"):
         now = time.time()
-        live = children_running(d, owner, now, ev)
-        pend = fanout_pending(d, owner, now)
-    who = owner_type or owner
-    if max_all > 0 and sum(live.values()) + sum(pend.values()) >= max_all:
+        reg = load_registry(d)
+        running = running_children(d, owner, now, ev, reg) if limit > 0 else 0
+        copies = copies_running(d, ttype, now, ev, reg) if copy else 0
+    if limit > 0 and running >= limit:
         return ("Fan-out limit: resuming '%s' would give '%s' more than %d running children "
-                "(STACK_MAX_FANOUT). Wait for a task notification, then resume it."
-                % (target_id, who, max_all))
-    if owner_type and ttype == owner_type and max_self > 0 \
-            and live.get(ttype, 0) + pend.get(ttype, 0) >= max_self:
-        return ("Copy limit: resuming '%s' would give '%s' more than %d running copies of itself "
-                "(STACK_MAX_SELF_FANOUT). Wait for one to finish." % (target_id, who, max_self))
+                "(%s). Wait for a task notification, then resume it."
+                % (target_id, owner_type or owner, limit, knob))
+    if copy and copies >= max_copies:
+        return ("Copy limit: resuming '%s' would make more than %d %s agents run in this session "
+                "(STACK_MAX_SELF_FANOUT=%d). Wait for one to finish."
+                % (target_id, max_copies, ttype, max_copies))
     return None
 
 
@@ -1186,24 +1357,30 @@ def agent_response(ev):
 def on_agent_done(ev, d):
     ti = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
     caller = ev.get("agent_id") or "main"
+    tid = ev.get("tool_use_id")
     child_id, status = agent_response(ev)
     if not child_id:
-        fanout_release(d, caller, ev.get("tool_use_id"))
+        fanout_release(d, caller, tid)
         return
     child_id = ident(child_id)
     child = norm(ti.get("subagent_type") or "general-purpose")
     pdepth = caller_depth(d, ev)
     name = ti.get("name") if isinstance(ti.get("name"), str) and ti["name"].strip() else None
-    # Unknown caller depth -> child depth null (clear any stale value first). Registry write and
-    # lease drop happen under the 'fanout' mutex, so fanout_acquire() never sees the child twice
-    # (lock order fanout -> registry; nothing takes them in the other order).
+    # "completed": a foreground child that is done; "async_launched": a child now running in the
+    # background (hooks.md:1751, 1763), counted as a live background child from here on.
+    bg = str(status or "").lower() == "async_launched"
+    # The registry write and the lease drop happen under the 'fanout' mutex, so a count never sees
+    # this child twice or not at all (lock order fanout -> registry; nothing takes them in the
+    # other order). The parent is this event's own agent_id (hooks.md:267): exact, and written
+    # once, so no later event swaps it. An unknown caller depth leaves a known child depth alone.
     with mutex(d, "fanout"):
         reg_put(d, child_id, {"id": child_id, "type": child,
                               "depth": None if pdepth is None else pdepth + 1,
                               "parent": caller, "parent_type": norm(ev.get("agent_type")) or None,
-                              "spawned": time.time(), "name": norm(name) if name else None},
-                clear=("depth",))
-        fanout_release(d, caller, ev.get("tool_use_id"))
+                              "spawned": time.time(), "name": norm(name) if name else None,
+                              "bg": bg, "tool_use_id": tid},
+                clear=("depth",) if pdepth is not None else (), keep=("parent", "parent_type"))
+        fanout_release(d, caller, tid)
     if name:
         write_json_atomic(names_path(d, name), {"type": child, "id": child_id,
                                                 "by": ev.get("agent_id") or "main",
@@ -1221,17 +1398,24 @@ def on_subagent_start(ev, d):
     if not aid:
         return
     atype = norm(ev.get("agent_type"))
-    reg_put(d, aid, {"type": atype or None, "started": time.time()}, clear=("stopped",))
+    # SubagentStart also fires on a resume (hooks.md:2343). A stopped agent starting again runs in
+    # the background (sub-agents.md:1102): a live background child of its own registry parent.
+    # Nothing else is inferred: the event names no parent and no tool_use_id (hooks.md:2349).
+    now = time.time()
+    reg_put(d, aid, {"type": atype or None, "started": now}, clear=("stopped",),
+            resumed={"bg": True, "resumed": now})
     if atype == GOD and policy_on():
         god_confirm(d, ev, aid)
 
 
 def mark_stopped(d, aid, atype, transcript=None):
-    """Record that `aid` is no longer running and drop the locks it holds. Agents the registry has
-    never seen (Claude Code's internal agents: prompt suggestions, /btw) get no new entry."""
+    """Record that `aid` is no longer running and drop the locks and spawn leases it holds. Agents
+    the registry has never seen (Claude Code's internal agents: prompt suggestions, /btw) get no
+    new entry."""
     if reg_get(d, aid):
         reg_put(d, aid, {"type": atype or None, "stopped": time.time(),
                          "transcript": transcript or None})
+    void_leases(d, aid)
     path = os.path.join(d, SCREEN_LOCK)
     with mutex(d, "screen"):
         cur = read_json(path)
@@ -1274,10 +1458,16 @@ def on_agent_failed(ev, d):
     if norm(ti.get("subagent_type")) == GOD:
         god_release_pending(d, aid or "main", ev.get("tool_use_id"))
     if not aid and norm(ev.get("agent_type")) == "blackcat":
-        drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_DISPATCH", 3))
+        drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_DISPATCH", 4))
 
 
 def on_prompt(ev, d):
+    """A human prompt: the prompt token budget starts again; blackcat markers of earlier prompts
+    go."""
+    try:
+        budget_prompt(d, ev)
+    except Exception as exc:  # noqa: BLE001 - bookkeeping must never block a prompt
+        warn("token budget: prompt boundary not recorded (%s: %s)" % (type(exc).__name__, exc))
     folder = os.path.join(d, "blackcat")
     pid = safe(ev.get("prompt_id"), "") or None
     try:
@@ -1301,6 +1491,10 @@ def last_activity(path):
 
 
 def on_session_start(ev, d):
+    try:
+        budget_session_start(d, ev)
+    except Exception as exc:  # noqa: BLE001 - bookkeeping must never block a session
+        warn("token budget: session start not recorded (%s: %s)" % (type(exc).__name__, exc))
     if ev.get("source") not in ("startup", "resume"):
         return
     import shutil
@@ -1312,7 +1506,8 @@ def on_session_start(ev, d):
     shutil.rmtree(os.path.join(d, "fanout"), ignore_errors=True)
     # Subagents never outlive the process that ran them: after a restart or --resume nothing from
     # the registry is running any more (a SendMessage resume fires SubagentStart, which clears
-    # this again). Without this, dead children would count against STACK_MAX_FANOUT.
+    # this again). Without this, dead children would count against the fan-out caps. The spawn
+    # leases (fanout/) died with that process too.
     now = time.time()
     folder = os.path.join(d, "agents")
     try:
@@ -1334,6 +1529,316 @@ def on_session_start(ev, d):
                 shutil.rmtree(p, ignore_errors=True)
         except OSError as exc:
             warn("prune %s: %s" % (p, exc))
+
+
+# ---------------------------------------------------------------- token budgets
+# Context tokens = input + cache_creation + cache_read tokens of every API call (the usage fields,
+# hooks.md:1759), summed over the whole session tree: the main transcript (transcript_path,
+# hooks.md:738) and each subagent's own <session>/subagents/agent-<id>.jsonl (hooks.md:2385, 2405).
+# STACK_PROMPT_CTX_BUDGET covers the calls since the last UserPromptSubmit, STACK_SESSION_CTX_BUDGET
+# the whole session; both are checked on every PreToolUse of every agent (`budget` mode, and the
+# main hook's own tools in dispatch()). Once spent, every call is refused except the ones an agent
+# needs to report or stop (REPORT_TOOLS, ToolSearch loading one of them, Write/Edit under a
+# .claude-work/ folder or the session scratchpad).
+# The transcript format is not documented. As observed (118 files, 12,231 assistant lines): one API
+# call is one line per content block, every line with the same message.id, requestId and usage,
+# always adjacent and never split across files; so each call counts once per (message.id,
+# requestId). Anything that doesn't parse is skipped with a warning (the call is allowed, never
+# refused), and `--check-budget` (doctor) tells when real transcripts stop yielding usage.
+# Incremental: budget.json in the session's state folder keeps each file's byte offset (complete
+# lines only), its last keys, the running total and the total at the prompt boundary.
+BUDGET_STATE = "budget.json"
+BUDGET_KEYS_KEPT = 8
+BUDGET_SCAN_S = 2.0          # most seconds of reading in one PreToolUse; the rest waits for the next
+BUDGET_LONG_SCAN_S = 10.0    # UserPromptSubmit and SessionStart (hook timeout 15 s)
+USAGE_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
+REPORT_TOOLS = ("SubagentHandback", "TaskStop", "AskUserQuestion", "mcp__conductor__AskUserQuestion")
+
+
+def budget_caps():
+    return (knob_int("STACK_PROMPT_CTX_BUDGET", 100000000),
+            knob_int("STACK_SESSION_CTX_BUDGET", 120000000))
+
+
+def transcript_files(ev):
+    """(main transcript, subagents folder) of the event's session; None without transcript_path.
+    transcript_path is the main session's (hooks.md:2385); a subagent's own path is mapped back."""
+    tp = ev.get("transcript_path")
+    if not isinstance(tp, str) or not tp.strip():
+        return None
+    tp = os.path.expanduser(tp.strip())
+    folder = os.path.dirname(tp)
+    if os.path.basename(folder) == "subagents":
+        return os.path.dirname(folder) + ".jsonl", folder
+    stem = os.path.basename(tp)
+    stem = stem[:-len(".jsonl")] if stem.endswith(".jsonl") else str(ev.get("session_id") or stem)
+    return tp, os.path.join(folder, stem, "subagents")
+
+
+def session_transcripts(files):
+    main, sub = files
+    try:
+        subs = sorted(os.path.join(sub, f) for f in os.listdir(sub) if f.endswith(".jsonl"))
+    except (FileNotFoundError, NotADirectoryError):
+        subs = []
+    return [main] + subs
+
+
+def scan_stats():
+    return {"calls": 0, "assistant": 0, "no_usage": 0, "bad": 0, "partial": False}
+
+
+def scan_transcript(path, fst, deadline, stats):
+    """Context tokens of the API calls appended to `path` since fst["off"] (fst is updated: offset,
+    inode, last keys). Stops at an incomplete last line or at `deadline` (time.monotonic)."""
+    try:
+        st = os.stat(path)
+    except OSError:
+        return 0
+    off = int(fst.get("off") or 0)
+    if fst.get("ino") not in (None, st.st_ino) or st.st_size < off:
+        warn("token budget: %s was replaced or truncated; counting resumes at its end" % path)
+        fst.update(off=st.st_size, ino=st.st_ino, keys=[])
+        return 0
+    fst["ino"] = st.st_ino
+    if st.st_size == off:
+        return 0
+    keys, added = list(fst.get("keys") or []), 0
+    with open(path, "rb") as f:
+        f.seek(off)
+        for line in f:
+            if not line.endswith(b"\n"):
+                break                            # still being written: read it next time
+            if time.monotonic() > deadline:
+                stats["partial"] = True
+                break
+            off += len(line)
+            if b'"assistant"' not in line:
+                continue
+            try:
+                e = json.loads(line)
+            except (ValueError, RecursionError):
+                stats["bad"] += 1
+                continue
+            if not isinstance(e, dict) or e.get("type") != "assistant":
+                continue
+            stats["assistant"] += 1
+            msg = e.get("message")
+            usage = msg.get("usage") if isinstance(msg, dict) else None
+            if not isinstance(usage, dict):
+                stats["no_usage"] += 1
+                continue
+            key = "%s|%s" % (msg.get("id"), e.get("requestId"))
+            if key == "None|None":
+                key = "uuid|%s" % e.get("uuid")
+            if key in keys:
+                continue
+            keys = (keys + [key])[-BUDGET_KEYS_KEPT:]
+            try:
+                tokens = sum(int(usage.get(k) or 0) for k in USAGE_KEYS)
+            except (TypeError, ValueError):
+                stats["bad"] += 1
+                continue
+            added += max(tokens, 0)
+            stats["calls"] += 1
+    fst["off"], fst["keys"] = off, keys
+    return added
+
+
+def budget_update(d, ev, scan_s=BUDGET_SCAN_S, mutate=None, start_at_end=False, lock_s=1.0):
+    """Bring budget.json up to date with the session's transcripts and return it. When another
+    hook holds the lock, the last saved state is returned as it is. None: no transcript_path.
+    start_at_end: files seen for the first time count only what is appended later (a fork)."""
+    files = transcript_files(ev)
+    if files is None:
+        warn_once("token budget: the hook input has no transcript_path; budgets not checked")
+        return None
+    path = os.path.join(d, BUDGET_STATE)
+    try:
+        with mutex(d, "budget", timeout=lock_s):
+            st = read_json(path) or {}
+            if not isinstance(st.get("files"), dict):
+                st = {"files": {}, "total": 0, "prompt_base": 0, "prompt_id": None}
+            deadline, stats = time.monotonic() + scan_s, scan_stats()
+            for p in session_transcripts(files):
+                fst = st["files"].get(p)
+                if fst is None:
+                    fst = st["files"][p] = {"off": 0}
+                    if start_at_end:
+                        with contextlib.suppress(OSError):
+                            s = os.stat(p)
+                            fst.update(off=s.st_size, ino=s.st_ino)
+                st["total"] = int(st.get("total") or 0) + scan_transcript(p, fst, deadline, stats)
+            if stats["bad"]:
+                warn("token budget: %d transcript lines could not be read and are not counted"
+                     % stats["bad"])
+            if mutate:
+                mutate(st)
+            st["ts"] = time.time()
+            write_json_atomic(path, st)
+            return st
+    except MutexTimeout:
+        return read_json(path)
+
+
+def budget_prompt(d, ev):
+    """UserPromptSubmit: the prompt budget restarts from the session total at this point."""
+    if not policy_on() or max(budget_caps()) <= 0:
+        return
+
+    def mark(st):
+        st["prompt_id"], st["prompt_base"] = ev.get("prompt_id"), st["total"]
+    budget_update(d, ev, scan_s=BUDGET_LONG_SCAN_S, mutate=mark, lock_s=5.0)
+
+
+def budget_session_start(d, ev):
+    """SessionStart: a resumed session catches up on its transcripts (the session budget spans
+    the whole session); a fork counts only what it adds itself (hooks.md:1138)."""
+    source = ev.get("source")
+    if not policy_on() or max(budget_caps()) <= 0 or source not in ("resume", "fork"):
+        return
+    budget_update(d, ev, scan_s=BUDGET_LONG_SCAN_S, start_at_end=source == "fork", lock_s=5.0)
+
+
+def own_output_file(ev, path):
+    """A path under a .claude-work/ folder (the stack's job folders) or the session scratchpad
+    (scratchpad_dir, hooks.md:740): where an agent writes the report or file it hands back."""
+    if not isinstance(path, str) or not path.strip():
+        return False
+    p = os.path.normpath(os.path.join(ev.get("cwd") or os.getcwd(),
+                                      os.path.expanduser(path.strip())))
+    if ".claude-work" in p.split(os.sep):
+        return True
+    sp = ev.get("scratchpad_dir")
+    if isinstance(sp, str) and sp.strip():
+        sp = os.path.normpath(sp.strip())
+        return p == sp or p.startswith(sp.rstrip(os.sep) + os.sep)
+    return False
+
+
+def budget_exempt(ev):
+    """Calls an agent needs to report or stop are never refused."""
+    tool = ev.get("tool_name") or ""
+    ti = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
+    if tool in REPORT_TOOLS:
+        return True
+    if tool == "ToolSearch":        # loading the schema of one of them
+        q = str(ti.get("query") or "").lower()
+        return any(t.lower() in q for t in REPORT_TOOLS)
+    if tool in ("Write", "Edit"):
+        return own_output_file(ev, ti.get("file_path"))
+    return False
+
+
+def budget_note_prompt(st, ev):
+    """Main-thread calls carry the prompt being processed (prompt_id, hooks.md:737): a new one the
+    UserPromptSubmit hook never recorded starts the prompt budget here."""
+    pid = ev.get("prompt_id")
+    if pid and not ev.get("agent_id") and st.get("prompt_id") != pid:
+        st["prompt_id"], st["prompt_base"] = pid, st["total"]
+
+
+def budget_gate(ev, d):
+    """PreToolUse: refuse the call once the prompt or session context-token budget is spent.
+    Fails open: any error only warns."""
+    if not policy_on():
+        return
+    prompt_cap, session_cap = budget_caps()
+    if (prompt_cap <= 0 and session_cap <= 0) or budget_exempt(ev):
+        return
+    try:
+        st = budget_update(d, ev, mutate=lambda s: budget_note_prompt(s, ev))
+        total = int((st or {}).get("total") or 0)
+        used = total - int((st or {}).get("prompt_base") or 0)
+    except Exception as exc:  # noqa: BLE001 - a budget we cannot count never blocks work
+        warn("token budget not checked (%s: %s); the call is allowed" % (type(exc).__name__, exc))
+        return
+    if session_cap > 0 and total >= session_cap:
+        deny(budget_reason("Session", "in this session", total, "STACK_SESSION_CTX_BUDGET",
+                           session_cap, ev),
+             "claude-agent-stack: the session token budget is spent (%s of %s context tokens); "
+             "agents are told to wrap up. Start a new session, or raise STACK_SESSION_CTX_BUDGET "
+             "in the env block of ~/.claude/settings.json." % (fmt_int(total), fmt_int(session_cap)))
+    if prompt_cap > 0 and used >= prompt_cap:
+        deny(budget_reason("Prompt", "since the user's last prompt", used,
+                           "STACK_PROMPT_CTX_BUDGET", prompt_cap, ev),
+             "claude-agent-stack: this prompt's token budget is spent (%s of %s context tokens); "
+             "agents are told to wrap up. Your next prompt starts a new budget; to allow more per "
+             "prompt, raise STACK_PROMPT_CTX_BUDGET in the env block of ~/.claude/settings.json."
+             % (fmt_int(used), fmt_int(prompt_cap)))
+
+
+def fmt_int(n):
+    return "{:,}".format(int(n))
+
+
+def budget_reason(kind, span, used, knob, cap, ev):
+    head = ("%s token budget reached: the agents of this session have used %s context tokens %s "
+            "(%s=%d). " % (kind, fmt_int(used), span, knob, cap))
+    if not ev.get("agent_id"):
+        return head + ("Call no more tools: answer the user now with what you have, and say what "
+                       "is left.")
+    return head + ("Finish with what you have: make no more tool calls except to report or stop, "
+                   "and return STATUS: partial listing what is left.")
+
+
+def budget_main(raw):
+    """`budget` mode, a PreToolUse hook on every tool: the token budgets for the calls the main
+    hook doesn't see (it checks its own before taking any lease). Fails open."""
+    if not policy_on():
+        return 0
+    try:
+        ev = json.loads(raw)
+    except (ValueError, RecursionError) as exc:
+        warn("token budget: unparseable hook input (%s); not checked" % type(exc).__name__)
+        return 0
+    if not isinstance(ev, dict) or ev.get("hook_event_name") != "PreToolUse" \
+            or pre_handler(str(ev.get("tool_name") or "")) is not None:
+        return 0
+    if ev.get("agent_id"):
+        ev["agent_id"] = ident(ev["agent_id"])
+    try:
+        d = sdir(ev.get("session_id"))
+        log(d, ev)
+        budget_gate(ev, d)
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001 - fail open by design
+        warn("token budget: %s: %s" % (type(exc).__name__, exc))
+    return 0
+
+
+def check_budget(argv):
+    """`--check-budget [transcript]` (doctor): count the newest session (or the given one) the way
+    the budgets do. FAIL when its assistant lines carry no usage this parser can read: the
+    transcript format changed, and the budgets would silently stop counting."""
+    main = argv[2] if len(argv) > 2 else None
+    if main is None:
+        root = os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"),
+                            "projects")
+        cands = []
+        with contextlib.suppress(OSError):
+            for proj in os.listdir(root):
+                with contextlib.suppress(OSError):
+                    cands += [os.path.join(root, proj, f) for f in os.listdir(os.path.join(root, proj))
+                              if f.endswith(".jsonl")]
+        main = max(cands, key=lambda p: os.path.getmtime(p)) if cands else None
+    if not main or not os.path.isfile(main):
+        sys.stdout.write("agent_guard budget check: skipped (no session transcript found)\n")
+        return 0
+    stats, total = scan_stats(), 0
+    deadline = time.monotonic() + 60
+    paths = session_transcripts(transcript_files({"transcript_path": main}))
+    for p in paths:
+        total += scan_transcript(p, {}, deadline, stats)
+    where = "%s (+%d subagent transcripts)" % (main, len(paths) - 1)
+    if stats["assistant"] and not stats["calls"]:
+        sys.stdout.write("agent_guard budget check: FAIL %d assistant lines but no readable usage "
+                         "in %s: the token budgets would count nothing\n" % (stats["assistant"], where))
+        return 1
+    sys.stdout.write("agent_guard budget check: ok (%d API calls, %s context tokens, %d unreadable "
+                     "lines in %s)\n" % (stats["calls"], fmt_int(total), stats["bad"], where))
+    return 0
 
 
 # ---------------------------------------------------------------- image-limit mode
@@ -1907,7 +2412,9 @@ def blackcat_guard(raw):
         sys.exit(0)  # a subagent's tool call
     tool = ev.get("tool_name") or ""
     if tool == "Agent":
-        sys.exit(0)  # dispatch-once is enforced by the main hook
+        # the main hook counts a dispatch against BLACKCAT_MAX_DISPATCH and BLACKCAT_MAX_STEPS
+        # together with its fan-out lease (on_agent), so one call is one decision
+        sys.exit(0)
     if tool not in BLACKCAT_TOOLS:
         deny("BlackCat only delegates. Make one Agent call to the right specialist (or "
              "orchestrator), or SendMessage to resume the previous agent.")
@@ -1915,8 +2422,7 @@ def blackcat_guard(raw):
     log(d, ev)
     steps = knob_int("BLACKCAT_MAX_STEPS", 8)
     if not claim_marker(d, "step", prompt_key(ev), steps):
-        deny("BlackCat step limit (%d per prompt) reached. Call no more tools: answer the user "
-             "now with what you have, or say what is still pending." % steps)
+        deny(STEP_LIMIT_REASON % steps)
     sys.exit(0)
 
 
@@ -3268,6 +3774,7 @@ def no_push_main(raw):
 def print_policy():
     sys.stdout.write(json.dumps({"policy": POLICY, "leaves": LEAVES, "agents": AGENTS,
                                  "builtins": BUILTINS, "self_spawn": SELF_SPAWN,
+                                 "copy_types": COPY_OF,
                                  "blackcat_tools": sorted(BLACKCAT_TOOLS)}) + "\n")
     return 0
 
@@ -3276,17 +3783,29 @@ def self_test():
     import shutil
     import tempfile
     problems = []
-    known = set(AGENTS) | set(BUILTINS)
+    known = set(AGENTS) | set(BUILTINS) | set(COPY_BASE)
     if len(set(AGENTS)) != len(AGENTS):
         problems.append("AGENTS has duplicates")
-    if set(POLICY) != set(AGENTS):
-        problems.append("POLICY rows != AGENTS: %s" % sorted(set(POLICY) ^ set(AGENTS)))
+    if set(POLICY) != set(AGENTS) | set(COPY_BASE):
+        problems.append("POLICY rows != AGENTS + copy types: %s"
+                        % sorted(set(POLICY) ^ (set(AGENTS) | set(COPY_BASE))))
     for parent, row in POLICY.items():
         for child in row:
             if child not in known or child == "blackcat":
                 problems.append("%s -> unknown or forbidden child %s" % (parent, child))
         if len(set(row)) != len(row):
             problems.append("%s row has duplicates" % parent)
+        if parent in row:
+            problems.append("%s may spawn its own type (copies go through COPY_TYPES)" % parent)
+        for child in row:
+            if child in COPY_BASE and COPY_BASE[child] != parent:
+                problems.append("%s -> %s: only %s spawns its copies" % (parent, child,
+                                                                          COPY_BASE[child]))
+    for base, copy in COPY_OF.items():
+        if base not in AGENTS or copy not in POLICY.get(base, []):
+            problems.append("copy type %s: %s must list it" % (copy, base))
+        if copy_rule_violation(copy, base) is None:
+            problems.append("%s may spawn %s" % (copy, base))
     empty = sorted(p for p, row in POLICY.items() if not row)
     if empty != sorted(LEAVES):
         problems.append("LEAVES %s != empty rows %s" % (sorted(LEAVES), empty))
@@ -3295,13 +3814,23 @@ def self_test():
     for never in ("blackcat", "orchestrator", GOD, "mlx-engineer", "cuda-engineer"):
         if never in SELF_SPAWN:
             problems.append("%s must not spawn copies of itself" % never)
-    # Installed layout: <config>/hooks/agent_guard.py next to <config>/agents/*.md
-    agents_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                              "agents")
+    if parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE) != {"orchestrator": 6, "planner": 4}:
+        problems.append("STACK_MAX_FANOUT_BY_TYPE default does not parse")
+    # Installed layout: <config>/hooks/agent_guard.py next to <config>/agents/*.md; install.sh
+    # renders the copy types' files (the repo's dot-claude/ still holds __CLAUDE_DIR__).
+    conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    agents_dir = os.path.join(conf, "agents")
     if os.path.isdir(agents_dir):
-        missing = [a for a in AGENTS if not os.path.isfile(os.path.join(agents_dir, a + ".md"))]
+        try:
+            with open(os.path.join(conf, "settings.json")) as f:
+                installed = "__CLAUDE_DIR__" not in f.read()
+        except OSError:
+            installed = False
+        want = AGENTS + (list(COPY_BASE) if installed else [])
+        missing = [a for a in want if not os.path.isfile(os.path.join(agents_dir, a + ".md"))]
         if missing:
             problems.append("agent files missing in %s: %s" % (agents_dir, " ".join(missing)))
+    problems += budget_self_test()
     try:
         root = state_root()
         os.makedirs(root, exist_ok=True)
@@ -3323,6 +3852,47 @@ def self_test():
     return 0
 
 
+def budget_self_test():
+    """The transcript parser on a synthetic session: duplicate content-block lines counted once,
+    an unfinished last line left for later, subagent files included, reads incremental."""
+    import shutil
+    import tempfile
+    problems = []
+    tmp = tempfile.mkdtemp(prefix="agent-guard-budget-")
+    try:
+        main = os.path.join(tmp, "s1.jsonl")
+        os.makedirs(os.path.join(tmp, "s1", "subagents"))
+
+        def call(mid, n, extra=""):
+            return (json.dumps({"type": "assistant", "requestId": "r" + mid, "message": {
+                "id": mid, "role": "assistant", "content": [],
+                "usage": {"input_tokens": n, "cache_creation_input_tokens": n,
+                          "cache_read_input_tokens": n, "output_tokens": 7}}}) + extra)
+        with open(main, "w") as f:
+            f.write(call("m1", 1, "\n") + call("m1", 1, "\n") + '{"type":"user"}\n'
+                    + call("m2", 10, "\n") + call("m3", 100))            # m3 still being written
+        with open(os.path.join(tmp, "s1", "subagents", "agent-a1.jsonl"), "w") as f:
+            f.write(call("m4", 1000, "\n"))
+        files = transcript_files({"transcript_path": main})
+        states, stats = {}, scan_stats()
+
+        def total():
+            return sum(scan_transcript(p, states.setdefault(p, {}), time.monotonic() + 5, stats)
+                       for p in session_transcripts(files))
+        first = total()
+        with open(main, "a") as f:
+            f.write("\n" + call("m3", 100, "\n"))    # m3 finished; its duplicate line follows
+        second = total()
+        if (first, second) != (3 + 30 + 3000, 300) or stats["calls"] != 4:
+            problems.append("token budget parser counted %s, %s (%d calls); expected 3033, 300 "
+                            "(4 calls)" % (first, second, stats["calls"]))
+    except Exception as exc:  # noqa: BLE001 - report, do not crash
+        problems.append("token budget parser: %s: %s" % (type(exc).__name__, exc))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return problems
+
+
 HANDLERS = {
     ("PreToolUse", "Agent"): on_agent,
     ("PreToolUse", "SendMessage"): on_send,
@@ -3340,19 +3910,37 @@ LIFECYCLE = {
 }
 
 
+def pre_handler(tool):
+    """This (default-mode) hook's PreToolUse handler for `tool`; None for the tools it leaves to
+    other modes (`budget` mode then checks the token budgets of those)."""
+    handler = HANDLERS.get(("PreToolUse", tool))
+    if handler is None and tool.startswith("mcp__computer-use__"):
+        handler = on_screen
+    if handler is None and local_read_keys(tool) is not None:
+        handler = on_local_read
+    return handler
+
+
 def dispatch(ev):
     if ev.get("agent_id"):
         ev["agent_id"] = ident(ev["agent_id"])
     event, tool = ev.get("hook_event_name"), ev.get("tool_name") or ""
-    handler = HANDLERS.get((event, tool)) or LIFECYCLE.get(event)
-    if handler is None and event == "PreToolUse" and tool.startswith("mcp__computer-use__"):
-        handler = on_screen
-    if handler is None and event == "PreToolUse" and local_read_keys(tool) is not None:
-        handler = on_local_read
+    if event == "PreToolUse":
+        handler = pre_handler(tool)
+    else:
+        handler = HANDLERS.get((event, tool)) or LIFECYCLE.get(event)
     if handler is None:
         return
     d = sdir(ev.get("session_id"))
     log(d, ev)
+    if event == "PreToolUse":
+        # the token budgets first, before any lease or lock is taken; they fail open
+        try:
+            budget_gate(ev, d)
+        except SystemExit:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            warn("token budget: %s: %s" % (type(exc).__name__, exc))
     handler(ev, d)
 
 
@@ -3366,6 +3954,10 @@ def main(argv):
             return image_limit_main(sys.stdin.read())
         if argv[1] == "no-push":
             return no_push_main(sys.stdin.read())
+        if argv[1] == "budget":
+            return budget_main(sys.stdin.read())
+        if argv[1] == "--check-budget":
+            return check_budget(argv)
         if argv[1] == "blackcat-guard":
             raw = sys.stdin.read()
             try:
@@ -3375,7 +3967,8 @@ def main(argv):
             except Exception as exc:
                 guard_error("%s: %s" % (type(exc).__name__, exc))
             return 0
-        sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | blackcat-guard | image-limit | no-push]\n")
+        sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | --check-budget [transcript] | "
+                         "blackcat-guard | budget | image-limit | no-push]\n")
         return 2
     raw = sys.stdin.read()
     try:
