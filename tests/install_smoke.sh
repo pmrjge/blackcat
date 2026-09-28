@@ -39,12 +39,20 @@ export PATH="$HERE/tests/fake-claude:$PATH"
 export STACK_ALLOW_NON_MACOS=1
 # Run from a Claude Code session with the stack installed, STACK_ENV_FILE points at the real
 # stack.env: the scratch installs' mcp-headers would serve (and a failure would print) a real key.
+# Unset it, and every real credential this session's own environment might carry, so a scratch
+# install's helpers only ever see the fake keys this test writes into its own scratch stack.env.
 unset STACK_ENV_FILE
+unset EXA_API_KEY JINA_API_KEY HF_TOKEN WANDB_API_KEY OPENROUTER_API_KEY OPPER_API_KEY \
+      SPIDER_API_KEY GITHUB_TOKEN GH_TOKEN
+unset HF_HOME HF_TOKEN_PATH XDG_CACHE_HOME
 PASS=0
 FAIL=0
 pass(){ printf '  PASS  %s\n' "$*"; PASS=$((PASS + 1)); }
 failed(){ printf '  FAIL  %s\n' "$*"; FAIL=$((FAIL + 1)); }
 sha(){ if command -v shasum >/dev/null 2>&1; then shasum -a 256 "$@"; else sha256sum "$@"; fi; }
+# A key-bearing helper's raw stdout must never land in this test's own output (even a fake,
+# scratch-only key): summarize it as a length + short hash instead.
+redacted(){ printf 'len=%d sha256=%s' "${#1}" "$(printf '%s' "$1" | sha | cut -d' ' -f1 | cut -c1-16)"; }
 # GNU stat reads -f as "file system status", so pick the dialect once.
 if stat -c '%n' / >/dev/null 2>&1; then
   fstat(){ stat -c '%n %s %Y' "$1" 2>/dev/null; }
@@ -423,8 +431,12 @@ check("plaintext-exa-key-123" not in raw and "exa-from-stack-env" not in raw and
 sys.exit(0 if ok else 1)
 PY
 [ $? -eq 0 ] && pass "MCP registration block" || failed "MCP registration block (see messages above)"
-out=$(CLAUDE_CONFIG_DIR="$T3" "$T3/bin/mcp-headers" exa)
-[ "$out" = '{"x-api-key": "exa-from-stack-env"}' ] && pass "installed mcp-headers serves the key from stack.env" || failed "mcp-headers output: $out"
+out=$(CLAUDE_CONFIG_DIR="$T3" "$T3/bin/mcp-headers" exa --reveal)
+[ "$out" = '{"x-api-key": "exa-from-stack-env"}' ] && pass "installed mcp-headers serves the key from stack.env" \
+  || failed "mcp-headers output: $(redacted "$out")"
+redout=$(CLAUDE_CONFIG_DIR="$T3" "$T3/bin/mcp-headers" exa)
+[ "$redout" != '{"x-api-key": "exa-from-stack-env"}' ] && printf '%s' "$redout" | grep -q '<redacted:' \
+  && pass "mcp-headers without --reveal redacts the key" || failed "mcp-headers without --reveal: $(redacted "$redout")"
 plan2="$(CLAUDE_CONFIG_DIR="$T3" "$INSTALL" --mcp-plan 2>/dev/null)"
 if printf '%s\n' "$plan2" | grep -E '^(add|migrate|replace)[[:space:]]' >/dev/null; then
   failed "re-plan after registration is not idempotent:"; printf '%s\n' "$plan2" | sed 's/^/    /'
@@ -465,7 +477,7 @@ chmod 600 "$T4/.claude/stack.env"
 HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" "$INSTALL" --no-plugins --no-deps >"$T4/.install.log" 2>&1 \
   && pass "install with profile step (scratch HOME) exits 0" || { failed "install with profile step failed"; tail -n 30 "$T4/.install.log"; }
 grep -q "alias cas=" "$T4/.zshrc" && pass "unrelated rc line mentioning claude-agent-stack kept" || failed "unrelated rc line deleted"
-[ "$(grep -c '# claude-agent-stack$' "$T4/.zshrc")" = 1 ] && grep -q 'with-stack-env" --print-env sh' "$T4/.zshrc" \
+[ "$(grep -c '# claude-agent-stack$' "$T4/.zshrc")" = 1 ] && grep -q 'with-stack-env" --print-env --reveal sh' "$T4/.zshrc" \
   && pass "old stack line replaced by exactly one new line" || failed "rc stack line not replaced exactly once"
 ls "$T4"/.claude/backup-*/rc/.zshrc >/dev/null 2>&1 && pass "rc file backed up before editing" || failed "no rc backup"
 [ "$(readlink "$T4/.local/bin/claude-ninja")" = "$T4/.claude/bin/claude-ultracode" ] \
@@ -497,11 +509,13 @@ sys.exit(0 if json.load(open(sys.argv[1]))["mcpServers"]["jina"].get("headersHel
 PY
 out=$(env -i HOME="$T4" PATH="$PATH" GITHUB_TOKEN=gh_x CLAUDE_CONFIG_DIR="$T4/.claude" "$T4/.claude/bin/with-stack-env" --only EXA_API_KEY \
   sh -c 'printf "%s|%s|%s" "${EXA_API_KEY:-}" "${OPENROUTER_API_KEY:-none}" "${GITHUB_TOKEN:-}"')
-[ "$out" = "exa-only-in-config-1234|none|gh_x" ] && pass "with-stack-env --only adds just the named key" || failed "with-stack-env --only: [$out]"
+[ "$out" = "exa-only-in-config-1234|none|gh_x" ] && pass "with-stack-env --only adds just the named key" \
+  || failed "with-stack-env --only: $(redacted "$out")"
 grep -q '^EXA_API_KEY=exa-only-in-config-1234$' "$T4/.claude/stack.env" && pass "plaintext exa key copied to stack.env before migration" \
   || failed "plaintext exa key lost on migration"
-[ "$(CLAUDE_CONFIG_DIR="$T4/.claude" "$T4/.claude/bin/mcp-headers" exa)" = '{"x-api-key": "exa-only-in-config-1234"}' ] \
-  && pass "migrated exa still authenticates through the helper" || failed "helper lost the exa key"
+migout=$(CLAUDE_CONFIG_DIR="$T4/.claude" "$T4/.claude/bin/mcp-headers" exa --reveal)
+[ "$migout" = '{"x-api-key": "exa-only-in-config-1234"}' ] \
+  && pass "migrated exa still authenticates through the helper" || failed "helper lost the exa key: $(redacted "$migout")"
 grep -q 'exa-only-in-config-1234' "$FAKE_CLAUDE_JSON" && failed "key still in the MCP config" || pass "key no longer in the MCP config"
 # user edits settings: own hook inside the stack's Agent group, tuned knob, old BLACKCAT_MAX_DISPATCH default; symlinked file
 mkdir -p "$T4/dotfiles"

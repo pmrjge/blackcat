@@ -390,6 +390,59 @@ def test_forge_deny_rules_are_all_caught_by_the_hook():
         assert G.remote_write_in("bash -c '%s x'" % cmd), cmd
 
 
+# ---------------------------------------------------------------- secrets: mcp-headers / with-
+# stack-env without --reveal, and bash -x / sh -x / zsh -x on install.sh or doctor.sh
+SECRETS_LEAKS = [
+    "mcp-headers exa", "mcp-headers jina", "/opt/config/bin/mcp-headers wandb",
+    '"mcp-headers" huggingface', "with-stack-env --print-env", "with-stack-env --print-env sh",
+    "STACK_EXPORT=all with-stack-env --print-env sh",
+    "bash -x install.sh", "bash -x ./install.sh", "sh -x doctor.sh", "zsh -x /repo/doctor.sh",
+    "bash -ex install.sh", "bash -xv doctor.sh",
+    # the same nesting the no-push checks already cover
+    "bash -c 'mcp-headers exa'", "eval \"with-stack-env --print-env\"",
+    "bash -c 'bash -x install.sh'",
+]
+SECRETS_SAFE = [
+    "mcp-headers exa --reveal", "mcp-headers jina --reveal", "with-stack-env --print-env --reveal sh",
+    "with-stack-env --print-env sh --reveal",
+    "mcp-headers", "with-stack-env --only EXA_API_KEY -- python3 foo.py",
+    "bash install.sh", "bash -e install.sh", "bash -x other-script.sh",
+]
+
+
+@pytest.mark.parametrize("command", SECRETS_LEAKS)
+def test_secrets_leak_detected(command):
+    assert G.secrets_leak_in(command)[0] == "secrets", command
+
+
+@pytest.mark.parametrize("command", SECRETS_SAFE)
+def test_secrets_leak_not_flagged(command):
+    assert G.secrets_leak_in(command) is None, command
+
+
+@pytest.mark.parametrize("command", SECRETS_LEAKS)
+def test_hook_denies_secrets_leak(command):
+    out = decision(run_hook(command, STACK_POLICY="off"))
+    assert out is not None and out["permissionDecision"] == "deny", command
+    assert "prints a real API key" in out["permissionDecisionReason"], command
+
+
+@pytest.mark.parametrize("command", SECRETS_SAFE)
+def test_hook_allows_secrets_safe(command):
+    assert decision(run_hook(command)) is None, command
+
+
+def test_settings_wire_secrets_deny_rules():
+    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    deny = set(s["permissions"]["deny"])
+    assert {"Bash(mcp-headers exa)", "Bash(with-stack-env --print-env)",
+            "Bash(bash -x install.sh)", "Bash(sh -x doctor.sh)"} <= deny
+    # none of these exact-match rules can also match the --reveal-carrying form (a deny rule can't
+    # be carved out by an allow rule in Claude Code, so the rule itself must not be that broad)
+    assert "Bash(mcp-headers *)" not in deny
+    assert "Bash(with-stack-env --print-env *)" not in deny
+
+
 def test_rules_file_claims_match_enforcement():
     """The Git section says gh/tea/fj writes are hook-enforced: its examples must be denied."""
     text = (ROOT / "dot-claude" / "rules" / "claude-agent-stack.md").read_text()

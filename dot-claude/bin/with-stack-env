@@ -14,6 +14,11 @@
 #       EXA/JINA/SPIDER never need to sit in every process's environment. An empty KEY=
 #       never clobbers a token you export elsewhere. Also appends ~/.local/bin (uv, magg, huetension,
 #       npm --prefix installs) to PATH when missing.
+#       Key VALUES are redacted by default (a terminal, its scrollback or a pasted log is not a
+#       safe place for a real key) — the variable NAMES and shapes still show, so `grep`-based
+#       presence checks (doctor.sh) keep working unchanged. Add --reveal (anywhere in the
+#       arguments) for the real values: the shell profile line this installer writes needs them to
+#       actually export something usable, so it always passes --reveal.
 #
 # The file is read the way a shell reads it: leading blanks, "export<blank>", "quoted" or
 # 'quoted' values and an unquoted " # comment" are handled; invalid names and values that still
@@ -24,8 +29,14 @@ f="${STACK_ENV_FILE:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/stack.env}"
 DEFAULT_EXPORT="HF_TOKEN WANDB_API_KEY GITHUB_TOKEN MLFLOW_TRACKING_URI JUPYTER_URL JUPYTER_TOKEN"
 mode="exec"
 only=""
+reveal=0
 if [ "${1:-}" = "--print-env" ]; then
   mode=print
+  # --reveal only matters in --print-env mode (in exec mode, "$@" is the user's own CMD/ARGS and
+  # is never touched); it may appear anywhere after --print-env.
+  for a in "$@"; do
+    [ "$a" = "--reveal" ] && reveal=1
+  done
 elif [ "${1:-}" = "--only" ]; then
   [ $# -ge 3 ] || { echo "usage: with-stack-env [--only K1,K2] CMD [ARGS...]" >&2; exit 2; }
   only=",$2,"; shift 2
@@ -63,7 +74,11 @@ if [ -f "$f" ]; then
     clean_value
     case "$v" in ''|*'$'*) continue ;; esac
     if [ "$mode" = print ]; then
-      printf 'export %s=%s\n' "$k" "$(q_sh "$v")"
+      if [ "$reveal" = 1 ]; then
+        printf 'export %s=%s\n' "$k" "$(q_sh "$v")"
+      else
+        printf 'export %s=%s\n' "$k" "$(q_sh "<redacted:${#v} chars>")"
+      fi
     else
       eval "cur=\${$k:-}"
       [ -n "$cur" ] || export "$k=$v"

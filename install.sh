@@ -253,6 +253,22 @@ def e(var):
     a value the helper rejects (unexpanded $VAR, spaces) counts as no key."""
     v = (fileenv.get(var) or os.environ.get(var) or "").strip()
     return v if v and "$" not in v and mh["VALUE_RE"].fullmatch(v) else ""
+def url_display(u):
+    """scheme://host/path only: a query string (a literal API key on an unmigrated entry, say
+    ?exaApiKey=...) or userinfo never reaches the plan's output."""
+    p = urlsplit(str(u or ""))
+    if not p.scheme:
+        return str(u or "")
+    netloc = p.hostname or ""
+    if p.port:
+        netloc += ":%d" % p.port
+    return "%s://%s%s" % (p.scheme, netloc, p.path)
+def endpoint_display(cur):
+    """scheme+host+path for a URL entry; a masked placeholder for a stdio command entry, whose
+    argv can itself carry a key (an env assignment, a `op run ... -- ...` wrapper, ...)."""
+    if cur.get("url"):
+        return url_display(cur["url"])
+    return "(your own command)" if cur.get("command") else "?"
 try:
     cfg = json.load(open(cfg_path))
 except (OSError, ValueError):
@@ -287,7 +303,7 @@ for name, host, desired in rows:
     if not isinstance(cur, dict):
         action, why = "add", "not configured"
     elif urlsplit(str(cur.get("url", ""))).hostname != host and not replace_all:
-        action, why = "keep", "points elsewhere (%s), left alone" % (cur.get("url") or cur.get("command", "?"))
+        action, why = "keep", "points elsewhere (%s), left alone" % endpoint_display(cur)
     else:
         literal = mh["key_from_entry"](name, cur)
         if replace_all:
@@ -297,13 +313,14 @@ for name, host, desired in rows:
         elif "headersHelper" in desired and not cur.get("headersHelper"):
             action, why = "migrate", "no headersHelper yet, keys will come from stack.env"
         elif "headersHelper" in desired and not STACK_HELPER.fullmatch(str(cur.get("headersHelper")).strip()):
-            action, why = "keep", "your own headersHelper (%s) kept" % cur.get("headersHelper")
+            action, why = "keep", "your own headersHelper (your own command) kept"
         elif "headersHelper" in desired and cur.get("headersHelper") != desired["headersHelper"]:
             action, why = "migrate", "the stack's headersHelper, now run by %s" % os.environ["PY"]
         elif cur.get("url") != desired["url"] and cur.get("url") in OLD_URLS.get(name, ()):
-            action, why = "migrate", "stack URL changed (%s)" % desired["url"]
+            action, why = "migrate", "stack URL changed (%s)" % url_display(desired["url"])
         elif cur.get("url") != desired["url"]:
-            action, why = "keep", "your URL (%s) kept; the stack's is %s" % (cur.get("url"), desired["url"])
+            action, why = "keep", "your URL (%s) kept; the stack's is %s" % (
+                url_display(cur.get("url")), url_display(desired["url"]))
         else:
             action, why = "keep", "up to date"
         if action != "keep" and literal and name in KEYVAR and not e(KEYVAR[name]):
@@ -1026,6 +1043,16 @@ src, manifest_path = sys.argv[1], sys.argv[3]
 dst = os.path.realpath(sys.argv[2])
 
 
+# A JSON string value under a key that looks like it holds a secret (key/token/secret/password/
+# auth*, case-insensitive) — masked before any excerpt of the user's settings.json is printed.
+SECRET_VALUE_RE = re.compile(
+    r'("(?:[^"\\]|\\.)*(?:key|token|secret|password|auth\w*)"\s*:\s*")((?:[^"\\]|\\.)+)(")', re.I)
+
+
+def mask_secrets(line):
+    return SECRET_VALUE_RE.sub(lambda m: m.group(1) + "<redacted>" + m.group(3), line)
+
+
 def load_lenient(p):
     """Strict JSON first; then repair // comments, trailing commas and missing end-of-line commas."""
     raw = open(p, encoding="utf-8").read()
@@ -1058,7 +1085,7 @@ def load_lenient(p):
     lines = raw.splitlines()
     print("\n  ERROR: %s is not valid JSON — line %d, column %d: %s" % (p, err.lineno, err.colno, err.msg))
     for i in range(max(1, err.lineno - 2), min(len(lines), err.lineno + 1) + 1):
-        print("  %5d | %s" % (i, lines[i - 1]))
+        print("  %5d | %s" % (i, mask_secrets(lines[i - 1])))
         if i == err.lineno:
             print("        | " + " " * (err.colno - 1) + "^")
     print("  Fix that spot (often a missing comma or an unescaped \" inside a string), then rerun ./install.sh")
@@ -1454,7 +1481,9 @@ PY
   fi
   # Exports only the NON-EMPTY keys (an empty KEY= must not blank a token exported earlier in the
   # rc file) and parses stack.env exactly like with-stack-env/mcp-headers.
-  LINE="[ -x \"$C/bin/with-stack-env\" ] && eval \"\$(\"$C/bin/with-stack-env\" --print-env sh)\"  # claude-agent-stack"
+  # --reveal: this line exports real values into the user's own shell (that is its job); the
+  # default redaction in with-stack-env --print-env is for a human running it by hand to inspect.
+  LINE="[ -x \"$C/bin/with-stack-env\" ] && eval \"\$(\"$C/bin/with-stack-env\" --print-env --reveal sh)\"  # claude-agent-stack"
   for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
     if [ -f "$rc" ] || { [ "$rc" = "$HOME/.zshrc" ] && [ "$OS" = "Darwin" ]; }; then
       [ -f "$rc" ] && cp -p "$rc" "$B/rc/$(basename "$rc")"

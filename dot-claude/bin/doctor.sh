@@ -589,6 +589,9 @@ if have claude; then
   [ "$("$C/bin/mcp-headers" wandb 2>/dev/null || echo '{}')" != "{}" ] && servers="$servers wandb"
   for s in $servers; do
     line=$(printf '%s\n' "$out" | grep -E "^$s:" | head -n1)
+    # strip any query string from the URL claude mcp list echoes back (e.g. exa's ?tools=...,
+    # or a plaintext key someone still has on a URL) before it reaches this terminal or a log
+    line=$(printf '%s' "$line" | sed -E 's/\?[^[:space:]]*//')
     case "$line" in
       "") warn "$s not registered — rerun install.sh (or claude mcp add …)" ;;
       *"Needs authentication"*|*"needs auth"*) warn "$line — sign in with /mcp" ;;

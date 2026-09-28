@@ -741,11 +741,11 @@ Smoke tests:
   image goes out only if it is a real PNG/JPEG/WebP outside credential folders (scaled under 1920 px
   in memory), saved SVGs lose scripts, event handlers and `javascript:` links, and no file overwrites
   another.
-- mcp-broker can't add servers or use `proxy` without asking, except in `bypassPermissions`: that
-  guarantee is a permission prompt (those magg tools are not pre-approved), and the stack's
-  `defaultMode: "bypassPermissions"` skips it, with every other prompt for a tool or Bash command
-  that no deny rule or guard hook blocks. Page, document and tool text is treated as data, never
-  as instructions.
+- mcp-broker can't add servers, load a kit, or use `proxy` without asking: `permissions.ask`
+  names `magg_add_server`, `magg_load_kit` and `proxy`, so they still prompt even in
+  `bypassPermissions` (explicit ask rules are one of the few things no mode auto-approves). Every
+  other prompt for a tool or Bash command that no deny rule or guard hook blocks is skipped in
+  that mode. Page, document and tool text is treated as data, never as instructions.
 
 ## For maintainers
 

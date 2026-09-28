@@ -19,13 +19,18 @@ KEYS = ("EXA_API_KEY", "JINA_API_KEY", "HF_TOKEN", "WANDB_API_KEY", "HF_HOME", "
 @pytest.fixture
 def env(tmp_path):
     e = {k: v for k, v in os.environ.items() if k not in KEYS}
+    e.pop("XDG_CACHE_HOME", None)  # never read the real machine's huggingface token cache
     e["HOME"] = str(tmp_path / "home")
     (tmp_path / "home").mkdir()
     return e
 
 
-def headers(env, name=None, extra=None):
+def headers(env, name=None, extra=None, reveal=True):
+    """Runs the helper with a CLI server name (--reveal by default, so these tests see the real
+    value); pass reveal=False to check the default-redacted behavior instead."""
     argv = [sys.executable, str(HELPER)] + ([name] if name else [])
+    if name and reveal:
+        argv.append("--reveal")
     p = subprocess.run(argv, capture_output=True, text=True, env=dict(env, **(extra or {})),
                        timeout=30)
     assert p.returncode == 0, p.stderr
@@ -82,8 +87,8 @@ def test_default_stack_env_is_next_to_the_script(env, tmp_path):
     helper = cfg / "bin" / "mcp-headers"
     helper.write_text(HELPER.read_text())
     (cfg / "stack.env").write_text("JINA_API_KEY=abc\n")
-    p = subprocess.run([sys.executable, str(helper), "jina"], capture_output=True, text=True,
-                       env=env, timeout=30)
+    p = subprocess.run([sys.executable, str(helper), "jina", "--reveal"], capture_output=True,
+                       text=True, env=env, timeout=30)
     assert json.loads(p.stdout) == {"Authorization": "Bearer abc"}
 
 
@@ -116,6 +121,40 @@ def test_inline_comments_and_export_whitespace_like_a_shell(env, tmp_path):
     assert headers(e, "exa") == {"x-api-key": "exa-123"}
     assert headers(e, "jina") == {"Authorization": "Bearer jina-456"}
     assert headers(e, "huggingface") == {"Authorization": "Bearer hf_789"}
+
+
+def test_cli_argument_redacts_by_default(env, tmp_path):
+    f = write_env(tmp_path, "EXA_API_KEY=exa-super-secret\nJINA_API_KEY=jina-super-secret\n")
+    e = dict(env, STACK_ENV_FILE=f)
+    got = headers(e, "exa", reveal=False)
+    assert got != {"x-api-key": "exa-super-secret"}
+    assert "exa-super-secret" not in json.dumps(got)
+    assert got == {"x-api-key": "<redacted:16 chars>"}
+    got = headers(e, "jina", reveal=False)
+    assert "jina-super-secret" not in json.dumps(got)
+    assert got == {"Authorization": "Bearer <redacted:17 chars>"}
+
+
+def test_cli_argument_with_reveal_prints_the_real_value(env, tmp_path):
+    f = write_env(tmp_path, "EXA_API_KEY=exa-super-secret\n")
+    e = dict(env, STACK_ENV_FILE=f)
+    assert headers(e, "exa", reveal=True) == {"x-api-key": "exa-super-secret"}
+
+
+def test_no_key_redacts_to_empty_object_either_way(env, tmp_path):
+    f = write_env(tmp_path, "EXA_API_KEY=\n")
+    e = dict(env, STACK_ENV_FILE=f)
+    assert headers(e, "exa", reveal=False) == {}
+    assert headers(e, "exa", reveal=True) == {}
+
+
+def test_claude_code_env_var_invocation_is_never_redacted(env, tmp_path):
+    """Claude Code's own headersHelper call carries no CLI argument (CLAUDE_CODE_MCP_SERVER_NAME
+    instead): that path must keep returning the real value, --reveal or not, or every remote MCP
+    server would authenticate with a literal redaction placeholder."""
+    f = write_env(tmp_path, "EXA_API_KEY=exa-super-secret\n")
+    got = headers(env, extra={"STACK_ENV_FILE": f, "CLAUDE_CODE_MCP_SERVER_NAME": "exa"})
+    assert got == {"x-api-key": "exa-super-secret"}
 
 
 def test_key_from_entry_reads_static_headers_and_url_keys():

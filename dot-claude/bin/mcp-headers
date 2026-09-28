@@ -13,7 +13,13 @@ the process environment; for huggingface also the token file written by `hf auth
 ~/.cache/huggingface/token). No key -> prints {}: exa and huggingface then run anonymously
 (rate-limited / reduced tool set), jina's key-only tools refuse, wandb is not registered without a
 key. A stale or wrong key is worse than none (the server fails to connect with 401): remove it.
-Usage for testing: mcp-headers <server-name>.
+
+Usage for testing: mcp-headers <server-name> [--reveal]. When a server name is given as a CLI
+argument, the header value is redacted by default (a shared shell, its scrollback, a screen
+recording or a pasted terminal log is not a safe place for a real key) — pass --reveal to see the
+actual value. Claude Code's own invocation, at every connection, sets CLAUDE_CODE_MCP_SERVER_NAME
+instead of passing an argument; that path is never redacted, or MCP servers would authenticate
+with a literal "<redacted>" string.
 """
 import json
 import os
@@ -118,8 +124,23 @@ def lookup(var, name):
     return value
 
 
+def redact(value):
+    """value with any scheme prefix (e.g. "Bearer ") kept visible and the secret itself masked,
+    so a redacted header still shows its shape without exposing the key."""
+    prefix, _, secret = value.rpartition(" ")
+    prefix = prefix + " " if prefix else ""
+    return "%s<redacted:%d chars>" % (prefix, len(secret))
+
+
 def main(argv):
-    name = (argv[1] if len(argv) > 1 else os.environ.get("CLAUDE_CODE_MCP_SERVER_NAME", "")).strip()
+    reveal = "--reveal" in argv[1:]
+    positional = [a for a in argv[1:] if a != "--reveal"]
+    # A CLI argument means someone is running this by hand (testing, debugging): redact by
+    # default. Claude Code's own invocation carries no argument (CLAUDE_CODE_MCP_SERVER_NAME
+    # instead) and is never redacted, or the servers would authenticate with garbage.
+    cli_name = positional[0].strip() if positional else None
+    name = cli_name if cli_name is not None else os.environ.get("CLAUDE_CODE_MCP_SERVER_NAME", "")
+    name = name.strip()
     headers = {}
     spec = HEADERS.get(name)
     if spec:
@@ -127,6 +148,8 @@ def main(argv):
         value = lookup(var, name)
         if value:
             headers[header] = fmt.format(value)
+    if cli_name is not None and not reveal:
+        headers = {k: redact(v) for k, v in headers.items()}
     sys.stdout.write(json.dumps(headers))
     sys.stdout.write("\n")
     return 0

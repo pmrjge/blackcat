@@ -15,7 +15,14 @@ Reads the hook JSON on stdin.
   PreToolUse  mcp__computer-use__*  one agent on the screen at a time
   PreToolUse  Bash|Monitor|PowerShell  `no-push` mode: agents never push and never write to a
                                     forge (gh/tea/fj), in any form, also inside bash -c, eval, $(...)
-                                    (absolute; not switched off by STACK_POLICY=off)
+                                    (absolute; not switched off by STACK_POLICY=off); the same hook
+                                    also denies a bare `mcp-headers <server>` or `with-stack-env
+                                    --print-env` (both leak real API keys without --reveal),
+                                    `bash -x`/`sh -x`/`zsh -x` on install.sh or doctor.sh, and a
+                                    Bash-level write (redirection, cp/mv/tee/sed -i/...) into a
+                                    path already denied to Read/Edit/Write — the replacement for
+                                    Claude Code's own protected-path check, which covers only
+                                    Edit/Write and is skipped entirely in bypassPermissions mode
   PreToolUse  local-file MCP tools  context-mode ctx_index, markitdown, docling, playwright: a path
                                     or file: URI argument is held to the Read deny rules (Claude Code
                                     cannot see inside MCP arguments)
@@ -55,7 +62,8 @@ subtree (the agent's transcript and every live descendant's).
 CLI: `agent_guard.py --print-policy` (JSON consumed by doctor.sh and tests/lint_agents.py),
 `--self-test`, `blackcat-guard` (PreToolUse hook of the blackcat main thread), `image-limit`
 (PreToolUse/PostToolUse hook that keeps images under STACK_IMAGE_MAX_PX), `no-push` (PreToolUse
-Bash/Monitor/PowerShell hook that denies any git push or forge write), no argument = event.
+Bash/Monitor/PowerShell hook that denies any git push or forge write, a plaintext mcp-headers/
+with-stack-env key print, or `-x` tracing of install.sh/doctor.sh), no argument = event.
 
 Knobs (env):
   STACK_POLICY=off        disable every deny and lock (bookkeeping and model strip continue)
@@ -987,31 +995,49 @@ def path_bases(ev):
     return out
 
 
-def read_deny_specs(bases):
-    """(spec, anchors for `/x`) for every Read(...) deny rule: the user settings next to this hook
-    (`/x` = <config dir>/x) and each project's .claude/settings{,.local}.json (`/x` = <project>/x;
-    <project>/.claude/x too, to be safe)."""
+def _deny_spec_files(bases):
+    """(path, anchors for `/x`) for every settings file whose deny rules apply here."""
     conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     files = [(os.path.join(conf, "settings.json"), (conf,))]
     for b in bases:
         for name in ("settings.json", "settings.local.json"):
             files.append((os.path.join(b, ".claude", name), (b, os.path.join(b, ".claude"))))
-    specs, seen = [], set()
+    seen = set()
     for path, anchors in files:
-        if path in seen:
-            continue
-        seen.add(path)
+        if path not in seen:
+            seen.add(path)
+            yield path, anchors
+
+
+def deny_specs_for(tools, bases):
+    """(spec, anchors for `/x`) for every deny rule of the given tool names (e.g. {"Read"} or
+    {"Edit", "Write"})."""
+    specs = []
+    for path, anchors in _deny_spec_files(bases):
         rules = ((read_json(path) or {}).get("permissions") or {}).get("deny")
         for rule in rules if isinstance(rules, list) else []:
             if not isinstance(rule, str):
                 continue
-            if rule.strip() == "Read":                       # Read denied outright: every path
+            s = rule.strip()
+            if s in tools:
                 specs.append(("//**", anchors))
                 continue
-            m = re.match(r"\s*Read\((.+)\)\s*\Z", rule)
-            if m and not m.group(1).strip().startswith("!"):   # carve-outs only narrow a deny: ignored
-                specs.append((m.group(1).strip(), anchors))
+            m = re.match(r"\s*(\w+)\((.+)\)\s*\Z", s)
+            if m and m.group(1) in tools and not m.group(2).strip().startswith("!"):
+                specs.append((m.group(2).strip(), anchors))
     return specs
+
+
+def read_deny_specs(bases):
+    """(spec, anchors for `/x`) for every Read(...) deny rule: the user settings next to this hook
+    (`/x` = <config dir>/x) and each project's .claude/settings{,.local}.json (`/x` = <project>/x;
+    <project>/.claude/x too, to be safe). Also blocks Edit/Write on the same path."""
+    return deny_specs_for({"Read"}, bases)
+
+
+def edit_deny_specs(bases):
+    """(spec, anchors for `/x`) for every Edit(...) or Write(...) deny rule."""
+    return deny_specs_for({"Edit", "Write"}, bases)
 
 
 def glob_regex(pat):
@@ -1967,6 +1993,16 @@ REDIR_OP_RE = re.compile(r"[<>]+&?\Z|&>+\Z")
 # '\147it') is not checked further
 TRIGGER_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:git|gh|tea|fj)")
 ESCAPE_RE = re.compile(r"\$'|\\(?:x[0-9A-Fa-f]|u[0-9A-Fa-f]|[0-7])")
+# fast path for the "secrets" scan kind (below): checked only when that kind is requested. Not
+# word-bounded (unlike TRIGGER_RE): over-matching only causes an extra full parse, never a miss.
+SECRETS_TRIGGER_RE = re.compile(r"mcp-headers|with-stack-env|install\.sh|doctor\.sh")
+SECRETS_PROGRAMS = {"mcp-headers", "with-stack-env"}
+INSTALLER_SCRIPTS = {"install.sh", "doctor.sh"}
+# fast path for the "protect" scan kind: a redirect character or one of the write-capable
+# commands it understands. Over-matches on purpose (e.g. "cp" inside an unrelated word via \b
+# still needs a word boundary, but ">" alone is enough) — a miss here would be the real bug.
+PROTECT_TRIGGER_RE = re.compile(r">|\b(?:cp|mv|tee|dd|sed|gsed|perl|install|rsync)\b")
+PROTECT_WRITE_CMDS = {"cp", "mv", "install", "rsync", "tee", "dd", "sed", "gsed", "perl"}
 # ... nor a command the shell only knows at run time: `$G push`, pwsh -EncodedCommand, a
 # decoded pipeline into a shell (base64 -d | sh)
 OPAQUE_HINT_RE = re.compile(r"\$[\w{(@*!#?-]\S*\s+(?:push|send-pack)\b|\b(?:pwsh|powershell)\b|"
@@ -2158,6 +2194,20 @@ OPAQUE_REASON = ("Blocked by the stack's git rule (agents never push): `%s` cann
                  "the user's own step.")
 GUARD_FAIL_REASON = ("Blocked: the stack's no-push guard could not check this command (%s). Split "
                      "it into simpler commands; pushing and forge writes stay the user's own step.")
+SECRETS_REASON = ("Blocked by the stack's secret-hardening rule: `%s` prints a real API key or "
+                  "token in plaintext (to the terminal, a log, or wherever this command's output "
+                  "goes), also inside bash -c, eval or $(...). Add --reveal only when you must see "
+                  "the actual value for a specific, deliberate reason (e.g. debugging one server's "
+                  "auth with the user watching); never pipe, redirect, log or paste that output "
+                  "anywhere else. Claude Code's own mcp-headers invocation (via "
+                  "CLAUDE_CODE_MCP_SERVER_NAME, no CLI argument) is unaffected.")
+PROTECT_REASON = ("Blocked by the stack's protected-path rule: `%s` writes to a path this project "
+                  "already denies to Edit/Write (hooks, bin, settings.json, .git, or a Read-denied "
+                  "path), also inside bash -c, eval or nested shells. Claude Code's own "
+                  "protected-path check covers the Edit/Write tools, not raw Bash, and "
+                  "bypassPermissions mode skips it there too — this is the replacement. Use the "
+                  "Edit or Write tool (still denied the same way) or ask the user to make this "
+                  "change themselves.")
 
 
 def _shell_words(command):
@@ -2581,12 +2631,21 @@ def _expansion(word):
 
 
 class _Scan(object):
-    """One detection run: which kinds to report ("push", "forge", "opaque"), a work budget and a
-    deadline (a hook that times out does not block, so a slow check must deny instead)."""
+    """One detection run: which kinds to report ("push", "forge", "opaque", "secrets", "protect"),
+    a work budget and a deadline (a hook that times out does not block, so a slow check must deny
+    instead). "secrets" flags a bare `mcp-headers <server>` or `with-stack-env --print-env` call
+    (both print real API keys unless run with --reveal) and `bash -x`/`sh -x`/`zsh -x` on
+    install.sh or doctor.sh (an xtrace of either script echoes every key it reads). "protect"
+    flags a Bash-level write (redirection, cp/mv/install/rsync, tee, dd, sed/perl -i) that targets
+    a path already denied to the Edit/Write/Read tools — Claude Code's own protected-path checks
+    apply to Edit/Write, not to Bash, and bypassPermissions mode skips even those; needs `ev` (the
+    hook event) to resolve relative paths and read the deny rules that apply here."""
 
-    def __init__(self, want):
+    def __init__(self, want, ev=None):
         self.want, self.budget = set(want), MAX_SCANS
         self.deadline = time.monotonic() + DEADLINE_S
+        self.ev = ev
+        self._protect_specs = None
 
     def hit(self, kind, what):
         if len(what) > 200:
@@ -2599,9 +2658,11 @@ class _Scan(object):
             return None
         command = command.replace("\x00", "")
         bare = re.sub(r"['\"\\]", "", command)
+        secrets_trigger = "secrets" in self.want and SECRETS_TRIGGER_RE.search(bare)
+        protect_trigger = "protect" in self.want and PROTECT_TRIGGER_RE.search(bare)
         if not (TRIGGER_RE.search(EXPANSION_RE.sub("", bare)) or ESCAPE_RE.search(command)
-                or OPAQUE_HINT_RE.search(bare)):
-            return None                        # names no git/gh/tea/fj, even obfuscated
+                or OPAQUE_HINT_RE.search(bare) or secrets_trigger or protect_trigger):
+            return None                        # names no git/gh/tea/fj/mcp-headers/..., even obfuscated
         self.budget -= 1
         if depth > MAX_NEST or self.budget < 0:
             return self.hit("opaque", "a command nested too deeply to check")
@@ -2703,6 +2764,15 @@ class _Scan(object):
             elif _expansion(base) and _base(EXPANSION_RE.sub("", SUBST_MARK_RE.sub("", w))) \
                     in PROGRAMS:
                 found = self.hit("opaque", restore(w))     # g${X}it: spelled at run time
+            if not found and "secrets" in self.want and base in SECRETS_PROGRAMS and here_cmd:
+                found = self.secrets_helper(base, words, i + 1, end, restore)
+            if not found and "secrets" in self.want and base in SHELLS and here_cmd:
+                found = self.secrets_bash_x(base, words, i + 1, end, restore)
+            if not found and "protect" in self.want:
+                if ">" in w and REDIR_OP_RE.match(w) and i + 1 < end:
+                    found = self.protect_hit(restore(words[i + 1]), "redirect (%s)" % w)
+                elif here_cmd and base in PROTECT_WRITE_CMDS:
+                    found = self.protect_command(base, [restore(x) for x in words[i + 1:end]])
             if not found and base in FORGE_TREES:
                 found = self.forge(base, words, i + 1, end, depth, xargs_seen)
             if not found and w == "<<<" and i + 1 < n:     # a here-string that becomes code
@@ -2973,6 +3043,104 @@ class _Scan(object):
             return self.forge("gh", words, 0, len(words), depth + 1)
         return None
 
+    def secrets_helper(self, base, words, start, end, restore):
+        """mcp-headers <server> (without --reveal): prints the server's real header value instead
+        of a redacted one. with-stack-env --print-env (without --reveal): prints real key values
+        instead of redacted ones. The env-var invocation Claude Code itself uses to authenticate
+        (mcp-headers with no CLI argument) is unaffected: there is no positional argument here."""
+        args = [restore(x) for x in words[start:end]]
+        if any(a == "--reveal" for a in args):
+            return None
+        if base == "with-stack-env":
+            if any(a == "--print-env" for a in args):
+                return self.hit("secrets", "with-stack-env --print-env")
+            return None
+        positional = [a for a in args if not a.startswith("-")]
+        return self.hit("secrets", "mcp-headers %s" % positional[0]) if positional else None
+
+    def secrets_bash_x(self, base, words, start, end, restore):
+        """bash -x / sh -x / zsh -x (or a combined short option: -xv, -ex) on install.sh or
+        doctor.sh: xtrace echoes every key the script reads or masks as it runs."""
+        args = [restore(x) for x in words[start:end]]
+        has_x = any(a == "-x" or a == "--xtrace"
+                    or (a[:1] == "-" and a[:2] != "--" and "x" in a[1:]) for a in args)
+        if not has_x:
+            return None
+        for a in args:
+            if not a.startswith("-") and _base(a) in INSTALLER_SCRIPTS:
+                return self.hit("secrets", "%s -x %s" % (base, _base(a)))
+        return None
+
+    def protect_specs(self):
+        """(compiled regex, bases) for every path a Bash write must not resolve to: the same
+        Read/Edit/Write deny rules that already protect hooks/, bin/, settings.json and .git/,
+        .claude/settings*.json (a Read deny also blocks Edit/Write on the same path)."""
+        if self._protect_specs is None:
+            bases = (path_bases(self.ev) if self.ev is not None else []) or [os.getcwd()]
+            specs = read_deny_specs(bases) + edit_deny_specs(bases)
+            compiled = [rx for spec, anchors in specs for rx, _lit in deny_patterns(spec, anchors)]
+            self._protect_specs = (compiled, bases)
+        return self._protect_specs
+
+    def protect_hit(self, raw_path, how):
+        """`raw_path` resolved the way a shell would (absolute as given, relative to each base,
+        `~` expanded), checked against every protected-path pattern."""
+        if not raw_path or raw_path.startswith("-") or raw_path in ("/dev/null", "/dev/stdout",
+                                                                     "/dev/stderr", "&1", "&2"):
+            return None
+        compiled, bases = self.protect_specs()
+        if not compiled:
+            return None
+        candidates = []
+        s = raw_path.strip()
+        if s.startswith("~"):
+            candidates.append(os.path.expanduser(s))
+        if os.path.isabs(s):
+            candidates.append(s)
+        else:
+            candidates.extend(os.path.join(b, s) for b in bases)
+        for cand in candidates:
+            cand = os.path.normpath(cand)
+            if any(rx.match(cand) for rx in compiled):
+                return self.hit("protect", "%s: %s" % (how, cand))
+        return None
+
+    def protect_command(self, base, args):
+        """The destination path(s) of a write-capable command: tee writes every non-option
+        argument; dd writes `of=`; sed/perl -i rewrites its last file argument in place; cp/mv/
+        install/rsync write their last positional argument, or -t/--target-directory's value."""
+        targets = []
+        if base == "tee":
+            targets = [a for a in args if not a.startswith("-")]
+        elif base == "dd":
+            targets = [a[3:] for a in args if a.startswith("of=")]
+        elif base in ("sed", "gsed", "perl"):
+            has_i = any(a in ("-i", "--in-place") or a.startswith("-i") or a.startswith("--in-place=")
+                       for a in args)
+            if has_i:
+                pos = [a for a in args if not a.startswith("-")]
+                targets = pos[-1:]
+        else:                                   # cp, mv, install, rsync
+            target_dir = None
+            for j, a in enumerate(args):
+                if a in ("-t", "--target-directory") and j + 1 < len(args):
+                    target_dir = args[j + 1]
+                elif a.startswith("--target-directory="):
+                    target_dir = a.split("=", 1)[1]
+            pos = [a for a in args if not a.startswith("-")]
+            if target_dir:
+                # the real destination is DIR/basename(SRC) for each source; DIR itself may also
+                # be an exact protected path (a bare directory, no trailing content)
+                targets = [target_dir] + [target_dir.rstrip("/") + "/" + os.path.basename(p)
+                                          for p in pos]
+            else:
+                targets = pos[-1:] if len(pos) >= 2 else []
+        for t in targets:
+            found = self.protect_hit(t, "%s writes" % base)
+            if found:
+                return found
+        return None
+
 
 def _api_writes(args, method_opts, body_opts, value_opts):
     """gh api / tea api: a write unless the method is GET/HEAD (default GET; gh sends POST once a
@@ -3019,34 +3187,69 @@ def git_push_in(command):
     return bool(_Scan(("push",)).scan(command))
 
 
+def secrets_leak_in(command):
+    """(kind, what) when a shell command runs mcp-headers/with-stack-env without --reveal, or
+    bash -x / sh -x / zsh -x on install.sh or doctor.sh — else None. Shares the same shell lexer
+    and shell/eval/here-doc unwrapping as remote_write_in, so `bash -c "mcp-headers exa"`,
+    `eval 'with-stack-env --print-env'` etc. are caught the same way `git push` is."""
+    return _Scan(("secrets",)).scan(command)
+
+
 def forge_write_in(command):
     """True when a shell command writes to a forge through gh, tea or fj."""
     return bool(_Scan(("forge",)).scan(command))
 
 
+def protected_write_in(command, ev):
+    """(kind, what) when a shell command writes (redirection, cp/mv/install/rsync, tee, dd,
+    sed/perl -i) to a path already denied to Read/Edit/Write — else None. Needs `ev` (the hook
+    event) to resolve relative paths the way the tool would and to read the deny rules that apply
+    in this project. Closes the gap Claude Code's own protected-path check doesn't cover: it
+    applies to Edit/Write, not to Bash, and bypassPermissions mode skips it even there."""
+    return _Scan(("protect",), ev=ev).scan(command)
+
+
 def no_push_main(raw):
     try:
         ev = json.loads(raw)
-        command = (ev.get("tool_input") or {}).get("command") if isinstance(ev, dict) else None
-        tool = ev.get("tool_name") if isinstance(ev, dict) else None
+        ev = ev if isinstance(ev, dict) else {}
+        command = (ev.get("tool_input") or {}).get("command")
+        tool = ev.get("tool_name")
     except (ValueError, AttributeError, RecursionError):
-        command, tool = raw, None            # unreadable event: judge the raw text
+        command, tool, ev = raw, None, {}    # unreadable event: judge the raw text
     if tool == "PowerShell" and isinstance(command, str):
         command = re.sub(r"`(.)", r"\1", command)          # PowerShell's escape: g`it
+    text = str(command or "")
+    bare = re.sub(r"['\"\\]", "", text)
     try:
         found = remote_write_in(command)
     except Exception as exc:                 # a parser bug: fail closed on git/gh/tea/fj commands
-        text = str(command or "")
         if PUSH_RE.search(text):
             found = ("push", "git push")
-        elif TRIGGER_RE.search(EXPANSION_RE.sub("", re.sub(r"['\"\\]", "", text))):
+        elif TRIGGER_RE.search(EXPANSION_RE.sub("", bare)):
             deny(GUARD_FAIL_REASON % ("%s: %s" % (type(exc).__name__, exc))[:200])
         else:
+            found = None
+    if not found:
+        try:
+            found = secrets_leak_in(command)
+        except Exception as exc:              # a parser bug: fail closed on the same triggers
+            if SECRETS_TRIGGER_RE.search(bare):
+                deny(GUARD_FAIL_REASON % ("%s: %s" % (type(exc).__name__, exc))[:200])
+            found = None
+    if not found:
+        try:
+            found = protected_write_in(command, ev)
+        except Exception as exc:              # a parser bug: fail closed on the same trigger
+            if PROTECT_TRIGGER_RE.search(bare):
+                deny(GUARD_FAIL_REASON % ("%s: %s" % (type(exc).__name__, exc))[:200])
             found = None
     if found:
         kind, what = found
         deny(FORGE_REASON % what if kind == "forge" else
-             OPAQUE_REASON % what if kind == "opaque" else NO_PUSH_REASON)
+             OPAQUE_REASON % what if kind == "opaque" else
+             SECRETS_REASON % what if kind == "secrets" else
+             PROTECT_REASON % what if kind == "protect" else NO_PUSH_REASON)
     return 0
 
 
