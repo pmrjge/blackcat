@@ -62,6 +62,8 @@ Reads the hook JSON on stdin.
   SessionStart                      startup|resume: clear locks, leases and blackcat markers, prune
                                     old session dirs; resume|fork: bring the token count up to date
                                     (settings.json's matcher must list all three)
+  SessionStart `session-env`        every source: the sandboxed Bash env (cache dirs, git
+                                    credential helpers off) into $CLAUDE_ENV_FILE
 
 Concurrency model (the user's spec): depth 4 below the main thread (blackcat -> L1 -> L2 -> L3 ->
 L4; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4, and the fallback here stays at
@@ -2018,6 +2020,71 @@ def on_session_start(ev, d):
                 shutil.rmtree(p, ignore_errors=True)
         except OSError as exc:
             warn("prune %s: %s" % (p, exc))
+
+
+# ---------------------------------------------------------------- SessionStart: sandboxed Bash env
+# Bash-only environment (R3-CACHES, R3-GITENV). settings.json `env` reaches every process Claude
+# Code starts: MCP servers, hooks and language servers too, which run outside the sandbox, so a
+# cache location there has them load code that sandboxed commands can write, and a git setting
+# there changes Claude Code's own git (plugin marketplaces). These go to $CLAUDE_ENV_FILE instead,
+# which Claude Code runs before each Bash command only (hooks.md, "Persist environment
+# variables"). In 2.1.284 that script is kept per session and prepended to every Bash command of
+# the session, subagents' included (read in the binary; the docs don't say). The sandbox may
+# write ~/.cache/claude-sandbox and no other cache (settings.json allowWrite): a command run
+# without this script fails to write its cache, it never writes the caches your terminal and
+# language servers read.
+SANDBOX_CACHE_DIR = os.path.join(".cache", "claude-sandbox")        # under $HOME
+SANDBOX_ENV = (
+    ("XDG_CACHE_HOME", "xdg"), ("UV_CACHE_DIR", "uv"), ("PIP_CACHE_DIR", "pip"),
+    ("npm_config_cache", "npm"), ("npm_config_devdir", "node-gyp"),
+    ("npm_config_store_dir", "pnpm-store"), ("YARN_CACHE_FOLDER", "yarn"),
+    ("BUN_INSTALL_CACHE_DIR", "bun"), ("DENO_DIR", "deno"), ("PRE_COMMIT_HOME", "pre-commit"),
+    ("HF_HOME", "huggingface"), ("MPLCONFIGDIR", "matplotlib"), ("CARGO_HOME", "cargo"),
+    ("GOMODCACHE", "go/mod"), ("GOCACHE", "go/build"), ("GRADLE_USER_HOME", "gradle"),
+    ("COURSIER_CACHE", "coursier"), ("CCACHE_DIR", "ccache"), ("SCCACHE_DIR", "sccache"),
+)
+SANDBOX_ENV_MARK = "# claude-agent-stack: sandboxed Bash caches and git credentials (v1)"
+_PLAIN_PATH = re.compile(r"[A-Za-z0-9@%+=:,./_-]+\Z")
+
+
+def sandbox_env_script(home):
+    """The export lines (POSIX sh). -c settings a command inherits are kept: the credential-helper
+    reset is appended to GIT_CONFIG_PARAMETERS, as Claude Code appends its own entries."""
+    import shlex
+    root = os.path.join(home, SANDBOX_CACHE_DIR)
+    lines = [SANDBOX_ENV_MARK]
+    lines += ["export %s=%s" % (k, shlex.quote(os.path.join(root, sub))) for k, sub in SANDBOX_ENV]
+    m2 = os.path.join(root, "m2")
+    if _PLAIN_PATH.match(m2):                   # MAVEN_OPTS is split on spaces, never unquoted
+        lines.append('export MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }-Dmaven.repo.local=%s"' % m2)
+    lines.append("export GIT_CONFIG_PARAMETERS=\"${GIT_CONFIG_PARAMETERS:+$GIT_CONFIG_PARAMETERS }"
+                 "'credential.helper='\"")
+    return "\n".join(lines) + "\n"
+
+
+def session_env():
+    """`session-env` (a SessionStart hook for every source): add the Bash-only environment to
+    $CLAUDE_ENV_FILE once per file, and make the cache root, so a sandboxed command never has to
+    create it in ~/.cache. Never blocks a session."""
+    try:
+        sys.stdin.read()
+    except (OSError, ValueError):
+        pass
+    path = os.environ.get("CLAUDE_ENV_FILE")
+    home = os.path.expanduser("~")
+    if not path or not home or home == "~":
+        warn("sandbox env not written: %s" % ("no CLAUDE_ENV_FILE" if not path else "no HOME"))
+        return 0
+    try:
+        os.makedirs(os.path.join(home, SANDBOX_CACHE_DIR), mode=0o700, exist_ok=True)
+        with open(path, "a+", encoding="utf-8") as f:
+            f.seek(0)
+            cur = f.read()
+            if SANDBOX_ENV_MARK not in cur:
+                f.write(("\n" if cur and not cur.endswith("\n") else "") + sandbox_env_script(home))
+    except OSError as exc:
+        warn("sandbox env not written (%s)" % type(exc).__name__)
+    return 0
 
 
 # ---------------------------------------------------------------- token budgets
@@ -7786,6 +7853,8 @@ def main(argv):
             return budget_main(sys.stdin.read())
         if argv[1] == "--check-budget":
             return check_budget(argv)
+        if argv[1] == "session-env":
+            return session_env()
         if argv[1] == "blackcat-guard":
             raw = sys.stdin.read()
             try:
@@ -7796,7 +7865,7 @@ def main(argv):
                 guard_error("%s: %s" % (type(exc).__name__, exc))
             return 0
         sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | --check-budget [transcript] | "
-                         "blackcat-guard [--settings] | budget | image-limit | no-push]\n")
+                         "blackcat-guard [--settings] | budget | image-limit | no-push | session-env]\n")
         return 2
     raw = sys.stdin.read()
     try:

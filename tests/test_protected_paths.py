@@ -266,7 +266,7 @@ def test_settings_sandbox_block():
     assert "__CLAUDE_DIR__" in fs["denyWrite"]
     assert "~/.local/state/claude-agent-stack" in fs["denyWrite"]
     assert {"__CLAUDE_DIR__/**/stack.env", "__CLAUDE_DIR__/backup-*"} <= set(fs["denyRead"])
-    assert "~/.cache" in fs["allowWrite"]                  # uv, pip, HF caches keep working
+    assert fs["allowWrite"] == ["~/.cache/claude-sandbox"]  # the sandbox's own caches only
     for lst in ("allowWrite", "denyWrite", "denyRead"):
         assert len(fs[lst]) == len(set(fs[lst])), lst
         for p in fs[lst]:
@@ -298,18 +298,24 @@ def test_settings_round2_hardening():
     perms = s["permissions"]
     # N2: no silent fallback to unsandboxed commands
     assert sb["failIfUnavailable"] is True
-    # N4: nothing an unsandboxed process loads code from is sandbox-writable
-    for gone in ("~/.local/share/uv", "~/.npm", "~/.rustup", "~/.julia", "~/.elan"):
+    # N4, R3-CACHES: nothing an unsandboxed process loads code from is sandbox-writable
+    for gone in ("~/.local/share/uv", "~/.npm", "~/.rustup", "~/.julia", "~/.elan", "~/.cache",
+                 "~/Library/Caches", "~/.cargo/registry", "~/.cargo/git", "~/go/pkg",
+                 "~/.gradle/caches", "~/.m2/repository", "~/.bun/install/cache", "~/.matplotlib"):
         assert gone not in fs["allowWrite"], gone
     assert {"__STACK_CACHE__", "~/.cache/uv", "~/.cache/pre-commit", "~/.cache/ms-playwright",
-            "~/Library/Caches/ms-playwright"} <= set(fs["denyWrite"])
-    # sandboxed commands get their own caches under ~/.cache (still writable)
-    assert env["UV_CACHE_DIR"] == "__HOME__/.cache/claude-sandbox/uv"
-    assert env["npm_config_cache"] == "__HOME__/.cache/claude-sandbox/npm"
-    assert env["PRE_COMMIT_HOME"] == "__HOME__/.cache/claude-sandbox/pre-commit"
-    # N1: git credential helpers are off for every agent command; gh's and git's stores unreadable
-    assert (env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]) == \
-        ("1", "credential.helper", "")
+            "~/Library/Caches/ms-playwright", "~/Library/Caches/Coursier"} <= set(fs["denyWrite"])
+    # R3-CACHES, R3-GITENV: cache locations and the git credential reset are Bash-only (the
+    # session-env SessionStart hook), never settings env, which reaches unsandboxed processes
+    for key in ("UV_CACHE_DIR", "npm_config_cache", "PRE_COMMIT_HOME", "XDG_CACHE_HOME",
+                "CARGO_HOME", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0",
+                "GIT_CONFIG_PARAMETERS", "HF_HOME", "MAVEN_OPTS"):
+        assert key not in env, key
+    groups = [g for g in s["hooks"]["SessionStart"]
+              if any(h.get("command", "").endswith('agent_guard.py\" session-env')
+                     for h in g["hooks"])]
+    assert len(groups) == 1 and "matcher" not in groups[0]      # every source: clear included
+    # N1: gh's and git's stores unreadable
     assert {"~/.config/gh/hosts.yml", "~/.git-credentials"} <= set(fs["denyRead"])
     assert {"Read(~/.config/gh/hosts.yml)", "Read(~/.git-credentials)"} <= set(perms["deny"])
     # N3: enabling a catalog server and the duckdb/jupyter tools ask (ask rules prompt even in

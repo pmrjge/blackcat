@@ -185,8 +185,12 @@ checks = {
                                        "mcp__magg__jupyter_*", "mcp__magg__ros_*",
                                        "mcp__magg__qiskit_*", "mcp__magg__docspace_*"} <= set(s["permissions"]["ask"]) and
                                       "mcp__magg__magg_enable_server" not in allow,
-    "sandbox caches rendered": s["env"]["UV_CACHE_DIR"].startswith("/") and
-                               s["env"]["UV_CACHE_DIR"].endswith("/.cache/claude-sandbox/uv"),
+    "sandbox caches Bash-only": not any(k in s["env"] for k in ("UV_CACHE_DIR", "npm_config_cache",
+                                        "PRE_COMMIT_HOME", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0")) and
+                                s["sandbox"]["filesystem"]["allowWrite"] == ["~/.cache/claude-sandbox"] and
+                                any(not g.get("matcher") and any(x.get("command", "").startswith('"/') and
+                                    x["command"].endswith('/hooks/agent_guard.py" session-env')
+                                    for x in g["hooks"]) for g in h["SessionStart"]),
     "MCP cache is denyWrite": any(p.endswith("/claude-agent-stack-cache") and p.startswith("/")
                                   for p in s["sandbox"]["filesystem"]["denyWrite"]),
     "failIfUnavailable": s["sandbox"].get("failIfUnavailable") is True,
@@ -613,7 +617,7 @@ import json, sys
 p = sys.argv[1]
 s = json.load(open(p))
 for g in s["hooks"]["SessionStart"]:
-    if "agent_guard.py" in json.dumps(g):
+    if "agent_guard.py" in json.dumps(g) and "session-env" not in json.dumps(g):
         g["matcher"] = "startup|resume"
 json.dump(s, open(p, "w"), indent=2)
 PY
@@ -1662,46 +1666,68 @@ grep -q 'guard, settings and installer changes since the last install' "$TX/s1.l
 assert_unchanged_real_home
 drop_scratch "$TX"
 
-echo "== 17. User MCP servers and hooks on the sandbox-writable package cache are flagged (never changed)"
+echo "== 17. Sandboxed Bash env: cache dirs and git credential reset leave settings env (upgrade retracts them)"
 TB="$(scratch_dir)" || exit 1
-SC="$TB/st/claude-agent-stack-cache"
-mkdir -p "$TB/c"
-python3 - "$TB/f.json" "$TB/c/settings.json" "$SC" <<'PY'
+cp -R "$HERE" "$TB/repo"
+python3 - "$TB/repo/dot-claude/settings.json" <<'PY'
 import json, sys
-cache = sys.argv[3]
-json.dump({"mcpServers": {
-    "leaky-npx": {"command": "npx", "args": ["-y", "some-pkg"], "env": {"SECRET_KEY": "sk-test-123"}},
-    "safe-npx": {"type": "stdio", "command": "/usr/local/bin/npx", "args": ["-y", "other-pkg"],
-                 "env": {"UV_CACHE_DIR": cache + "/uv", "npm_config_cache": cache + "/npm", "SECRET_KEY": "sk-test-456"}},
-    "plain-py": {"command": "python3", "args": ["srv.py"]}},
-  "projects": {"/work/proj": {"mcpServers": {"proj-uvx": {"type": "stdio", "command": "uvx", "args": ["tool", "--key", "sk-test-789"]}}}}},
-  open(sys.argv[1], "w"))
-json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "npx my-hook --token sk-test-hook"}]}]}},
-  open(sys.argv[2], "w"))
+p = sys.argv[1]; s = json.load(open(p))           # the settings an earlier version shipped
+s["env"].update({"UV_CACHE_DIR": "__HOME__/.cache/claude-sandbox/uv",
+                 "npm_config_cache": "__HOME__/.cache/claude-sandbox/npm",
+                 "PRE_COMMIT_HOME": "__HOME__/.cache/claude-sandbox/pre-commit",
+                 "GIT_CONFIG_COUNT": "1", "GIT_CONFIG_KEY_0": "credential.helper", "GIT_CONFIG_VALUE_0": ""})
+s["sandbox"]["filesystem"]["allowWrite"] = ["~/.cache", "~/Library/Caches", "~/.cargo/registry", "~/.cargo/git",
+                                            "~/go/pkg", "~/.gradle/caches", "~/.m2/repository",
+                                            "~/.bun/install/cache", "~/.matplotlib"]
+s["hooks"]["SessionStart"] = s["hooks"]["SessionStart"][:1]
+json.dump(s, open(p, "w"), indent=2)
 PY
-keep_entries(){ python3 -c 'import json, sys; a = json.load(open(sys.argv[1])); print(json.dumps([a["mcpServers"]["leaky-npx"], a["mcpServers"]["safe-npx"], a["projects"]], sort_keys=True))' "$TB/f.json"; }
-CJ_BEFORE="$(keep_entries)"
-XDG_STATE_HOME="$TB/st" FAKE_CLAUDE_JSON="$TB/f.json" STACK_CLAUDE_JSON="$TB/f.json" CLAUDE_CONFIG_DIR="$TB/c" \
-  "$INSTALL" --no-plugins --no-deps --no-profile >"$TB/i.log" 2>&1; rc=$?
-[ "$rc" = 0 ] && grep -q "MCP server 'leaky-npx' (scope: user) runs npx" "$TB/i.log" \
-  && grep -q "MCP server 'proj-uvx' (scope: project /work/proj) runs uvx" "$TB/i.log" \
-  && grep -q "hook PreToolUse (Bash) in settings.json runs npx" "$TB/i.log" \
-  && ! grep -q "safe-npx\|plain-py" "$TB/i.log" && ! grep -q 'sk-test-' "$TB/i.log" \
-  && grep -q "\"UV_CACHE_DIR\": \"$SC/uv\"" "$TB/i.log" \
-  && [ "$CJ_BEFORE" = "$(keep_entries)" ] \
-  && pass "install: names the leaky server, project server and user hook; not the safe or non-runner ones; no secret printed; the flagged entries untouched" \
-  || failed "install cache-runner warning (rc=$rc): $(grep -i 'sandbox-writable' "$TB/i.log" | head -3)"
-out=$(XDG_STATE_HOME="$TB/st" STACK_CLAUDE_JSON="$TB/f.json" CLAUDE_CONFIG_DIR="$TB/c" bash "$TB/c/bin/doctor.sh" 2>&1)
-printf '%s\n' "$out" | grep -q "WARN  MCP server 'leaky-npx' (scope: user) runs npx" \
-  && printf '%s\n' "$out" | grep -q "WARN  MCP server 'proj-uvx' (scope: project /work/proj) runs uvx" \
-  && printf '%s\n' "$out" | grep -q "WARN  hook PreToolUse (Bash) in settings.json runs npx" \
-  && ! printf '%s\n' "$out" | grep -q "safe-npx\|sk-test-" \
-  && pass "doctor.sh: one WARN per flagged entry, no args or env values" \
-  || failed "doctor.sh cache-runner WARN: $(printf '%s\n' "$out" | grep -i 'sandbox-writable' | head -3)"
-XDG_STATE_HOME="$TB/st" FAKE_CLAUDE_JSON="$TB/f.json" STACK_CLAUDE_JSON="$TB/f.json" CLAUDE_CONFIG_DIR="$TB/c" \
-  "$INSTALL" --dry-run --no-plugins --no-deps --no-profile >"$TB/d.log" 2>&1; rc=$?
-[ "$rc" = 0 ] && grep -q "MCP server 'leaky-npx'" "$TB/d.log" && ! grep -q 'sk-test-' "$TB/d.log" \
-  && pass "--dry-run flags them too" || failed "dry-run cache-runner warning (rc=$rc)"
+tgit -C "$TB/repo" commit -qam "older settings" || failed "could not commit the older repository"
+CLAUDE_CONFIG_DIR="$TB/c" "$TB/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile >"$TB/old.log" 2>&1
+python3 - "$TB/c/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+s["sandbox"]["filesystem"]["allowWrite"].append("~/my-cache")      # yours: kept
+json.dump(s, open(p, "w"), indent=2)
+PY
+CLAUDE_CONFIG_DIR="$TB/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$TB/new.log" 2>&1; rc=$?
+python3 - "$TB/c/settings.json" <<'PY' && [ "$rc" = 0 ] && grep -q 'retracted stack env UV_CACHE_DIR=' "$TB/new.log" \
+  && grep -q 'retracted stack env GIT_CONFIG_COUNT=1' "$TB/new.log" \
+  && grep -q 'retracted sandbox.filesystem.allowWrite entries the stack no longer ships: ~/.cache, ~/Library/Caches' "$TB/new.log" \
+  && pass "upgrade: cache and git env retracted from settings env, the old cache dirs from allowWrite (yours kept), session-env hook added" \
+  || failed "upgrade retraction (rc=$rc): $(grep -i 'retract' "$TB/new.log" | head -4)"
+import json, sys
+s = json.load(open(sys.argv[1]))
+e, fs = s["env"], s["sandbox"]["filesystem"]
+bad = [k for k in ("UV_CACHE_DIR", "npm_config_cache", "PRE_COMMIT_HOME", "GIT_CONFIG_COUNT",
+                   "GIT_CONFIG_KEY_0", "GIT_CONFIG_VALUE_0") if k in e]
+if fs["allowWrite"] != ["~/my-cache", "~/.cache/claude-sandbox"]:
+    bad.append("allowWrite %s" % fs["allowWrite"])
+if "~/Library/Caches/Coursier" not in fs["denyWrite"]:
+    bad.append("Coursier denyWrite")
+if not any(not g.get("matcher") and any(x.get("command", "").endswith('agent_guard.py" session-env')
+                                        for x in g["hooks"]) for g in s["hooks"]["SessionStart"]):
+    bad.append("session-env hook")
+if bad:
+    print("   ", bad)
+sys.exit(1 if bad else 0)
+PY
+out=$(CLAUDE_CONFIG_DIR="$TB/c" bash "$TB/c/bin/doctor.sh" 2>&1)
+printf '%s\n' "$out" | grep -q "ok    sandboxed Bash env: session-env SessionStart hook wired" \
+  && ! printf '%s\n' "$out" | grep -q "settings.json env sets\|sandbox-writable package cache" \
+  && pass "doctor.sh: the session-env hook is wired, no cache env in settings" \
+  || failed "doctor.sh session-env check: $(printf '%s\n' "$out" | grep -i 'session-env\|env sets' | head -3)"
+mkdir -p "$TB/home" && printf 'export KEEP=1' >"$TB/envfile"
+for _ in 1 2; do
+  echo '{"hook_event_name":"SessionStart","source":"clear"}' | HOME="$TB/home" CLAUDE_ENV_FILE="$TB/envfile" \
+    python3 "$TB/c/hooks/agent_guard.py" session-env
+done
+got=$(env -i HOME="$TB/home" PATH="$PATH" GIT_CONFIG_PARAMETERS="'user.name=smoke' 'credential.helper=osxkeychain'" MAVEN_OPTS="-Xmx1g" bash -c \
+  '. "$1"; printf "%s|%s|%s|%s|%s\n" "$KEEP" "$UV_CACHE_DIR" "$MAVEN_OPTS" "$(git config --get user.name)" "$(git config --get-all credential.helper | tail -n 1)"' _ "$TB/envfile")
+[ "$got" = "1|$TB/home/.cache/claude-sandbox/uv|-Xmx1g -Dmaven.repo.local=$TB/home/.cache/claude-sandbox/m2|smoke|" ] \
+  && [ "$(grep -c 'claude-agent-stack: sandboxed Bash caches' "$TB/envfile")" = 1 ] && [ -d "$TB/home/.cache/claude-sandbox" ] \
+  && pass "session-env: exports appended once to CLAUDE_ENV_FILE (other lines kept); -c settings and MAVEN_OPTS kept; credential helpers reset" \
+  || failed "session-env script: [$got] $(grep -c 'sandboxed Bash caches' "$TB/envfile")"
 assert_unchanged_real_home
 drop_scratch "$TB"
 

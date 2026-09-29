@@ -149,3 +149,67 @@ def test_web_source_fails_closed_past_the_node_cap(tmp_path, monkeypatch):
     assert G.web_source(str(d), "A0", {}) is None
     monkeypatch.setattr(G, "WEB_SOURCE_MAX_NODES", 2)
     assert "more than 2 linked agents" in G.web_source(str(d), "A0", {})
+
+
+# ---------------------------------------------------------------- R3-CACHES, R3-GITENV: session-env
+GUARD = str(ROOT / "dot-claude" / "hooks" / "agent_guard.py")
+
+
+def session_env(home, env_file, stdin='{"hook_event_name": "SessionStart", "source": "startup"}'):
+    import subprocess
+    env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_ENV_FILE",)}
+    env["HOME"] = str(home)
+    if env_file is not None:
+        env["CLAUDE_ENV_FILE"] = str(env_file)
+    return subprocess.run([sys.executable, GUARD, "session-env"], input=stdin, env=env,
+                          capture_output=True, text=True, timeout=30)
+
+
+def sourced(env_file, *names, **pre):
+    import subprocess
+    script = '. "$1"; for n in %s; do eval "printf \'%%s\\n\' \\"\\${$n-UNSET}\\""; done' % " ".join(names)
+    env = {"PATH": os.environ["PATH"], **pre}
+    out = subprocess.run(["bash", "-c", script, "_", str(env_file)], env=env, capture_output=True,
+                         text=True, timeout=30, check=True).stdout
+    return out.splitlines()
+
+
+def test_session_env_writes_every_cache_under_the_sandbox_root_once(tmp_path):
+    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    import agent_guard as G
+    home, env_file = tmp_path / "home", tmp_path / "sessionstart-hook-0.sh"
+    home.mkdir()
+    env_file.write_text("export OTHER=1")                 # another hook's line, no newline
+    for _ in range(3):
+        r = session_env(home, env_file)
+        assert r.returncode == 0 and not r.stdout, r
+    text = env_file.read_text()
+    assert text.startswith("export OTHER=1\n") and text.count(G.SANDBOX_ENV_MARK) == 1
+    root = str(home / ".cache" / "claude-sandbox")
+    assert os.path.isdir(root) and oct(os.stat(root).st_mode & 0o777) == "0o700"
+    names = [k for k, _ in G.SANDBOX_ENV]
+    values = sourced(env_file, "OTHER", *names)
+    assert values[0] == "1"
+    for (key, sub), value in zip(G.SANDBOX_ENV, values[1:]):
+        assert value == os.path.join(root, sub), key
+    assert {"UV_CACHE_DIR", "npm_config_cache", "PRE_COMMIT_HOME", "XDG_CACHE_HOME", "CARGO_HOME",
+            "GOMODCACHE", "GRADLE_USER_HOME", "COURSIER_CACHE", "HF_HOME"} <= set(names)
+    maven, git = sourced(env_file, "MAVEN_OPTS", "GIT_CONFIG_PARAMETERS", MAVEN_OPTS="-Xmx2g",
+                         GIT_CONFIG_PARAMETERS="'core.pager=cat'")
+    assert maven == "-Xmx2g -Dmaven.repo.local=%s/m2" % root
+    assert git == "'core.pager=cat' 'credential.helper='"
+    maven, git = sourced(env_file, "MAVEN_OPTS", "GIT_CONFIG_PARAMETERS")
+    assert maven == "-Dmaven.repo.local=%s/m2" % root and git == "'credential.helper='"
+
+
+def test_session_env_quotes_an_odd_home_and_never_blocks(tmp_path):
+    home, env_file = tmp_path / "my home $x", tmp_path / "env.sh"
+    home.mkdir()
+    assert session_env(home, env_file).returncode == 0
+    uv, maven = sourced(env_file, "UV_CACHE_DIR", "MAVEN_OPTS")
+    assert uv == str(home / ".cache" / "claude-sandbox" / "uv")
+    assert maven == "UNSET"                      # MAVEN_OPTS is split on spaces: not set at all
+    r = session_env(home, None)                  # no CLAUDE_ENV_FILE: a warning, rc 0
+    assert r.returncode == 0 and "sandbox env not written" in r.stderr
+    r = session_env(home, tmp_path / "missing-dir" / "env.sh", stdin="not json")
+    assert r.returncode == 0 and "sandbox env not written" in r.stderr

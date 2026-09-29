@@ -37,13 +37,7 @@
     "STACK_MAX_MCP_CALLS": "64",
     "STACK_ENV_FILE": "__CLAUDE_DIR__/stack.env",
     "STACK_FANOUT_IDLE_S": "600",
-    "GOD_IDLE_S": "1800",
-    "UV_CACHE_DIR": "__HOME__/.cache/claude-sandbox/uv",
-    "npm_config_cache": "__HOME__/.cache/claude-sandbox/npm",
-    "PRE_COMMIT_HOME": "__HOME__/.cache/claude-sandbox/pre-commit",
-    "GIT_CONFIG_COUNT": "1",
-    "GIT_CONFIG_KEY_0": "credential.helper",
-    "GIT_CONFIG_VALUE_0": ""
+    "GOD_IDLE_S": "1800"
   },
   "permissions": {
     "defaultMode": "bypassPermissions",
@@ -204,15 +198,7 @@
     "allowUnsandboxedCommands": false,
     "filesystem": {
       "allowWrite": [
-        "~/.cache",
-        "~/Library/Caches",
-        "~/.cargo/registry",
-        "~/.cargo/git",
-        "~/go/pkg",
-        "~/.gradle/caches",
-        "~/.m2/repository",
-        "~/.bun/install/cache",
-        "~/.matplotlib"
+        "~/.cache/claude-sandbox"
       ],
       "denyWrite": [
         "__CLAUDE_DIR__",
@@ -223,6 +209,7 @@
         "~/.cache/pre-commit",
         "~/.cache/ms-playwright",
         "~/Library/Caches/ms-playwright",
+        "~/Library/Caches/Coursier",
         "~/.cache/huggingface/token"
       ],
       "denyRead": [
@@ -346,6 +333,15 @@
             "type": "command",
             "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
             "timeout": 15
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" session-env",
+            "timeout": 10
           }
         ]
       }
