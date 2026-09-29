@@ -127,6 +127,55 @@ def test_send_to_an_unregistered_web_reader_taints_the_caller():
     assert r.decision == "deny" and "read web content" in r.reason
 
 
+def running_named(env, parent_id, parent_type, child, child_id, name):
+    """A foreground child spawned with a name, still running: its names/ record has no id yet;
+    Claude Code's meta.json ties its agent id to the Agent call."""
+    pre = env.pre_agent(child, agent_id=parent_id, agent_type=parent_type, name=name)
+    assert env.run(pre).decision != "deny"
+    env.run(env.start(child_id, child))
+    with open(os.path.join(env.proj, env.sid, "subagents", "agent-%s.meta.json" % child_id), "w") as f:
+        json.dump({"agentType": child, "spawnDepth": 2, "toolUseId": pre["tool_use_id"],
+                   "parentAgentId": parent_id}, f)
+    return pre
+
+
+def test_send_by_name_to_a_running_agent_links_both_ways():
+    """Review: a SendMessage to a name whose agent id isn't known yet (a foreground child) was not
+    linked. It is now, through the Agent call that spawned it, in both directions."""
+    env = Env()
+    running_named(env, "O1", "orchestrator", "coder", "H1", "helper")
+    web_fetch(env, "A1", "main-coder")
+    assert remember(env, "H1", "coder").decision == "allow(no-output)"
+    assert env.run(env.send("helper", agent_id="A1", agent_type="main-coder")).decision != "deny"
+    assert denied_from(remember(env, "H1", "coder"), "A1")
+    # the other way: a clean agent messages a running named agent that has read the web
+    running_named(env, "O1", "orchestrator", "coder", "D2", "digger")
+    web_fetch(env, "D2", "coder")
+    assert env.run(env.send("digger", agent_id="B1", agent_type="main-coder")).decision != "deny"
+    assert denied_from(remember(env, "B1", "main-coder"), "D2")
+    # once it has returned, the registry carries the same link (names/ now has its id)
+    pre = running_named(env, "O1", "orchestrator", "coder", "E3", "later")
+    assert env.run(env.send("later", agent_id="A1", agent_type="main-coder")).decision != "deny"
+    os.remove(os.path.join(env.proj, env.sid, "subagents", "agent-E3.meta.json"))
+    env.run(env.post_agent(pre, "E3", status="completed"))
+    assert denied_from(remember(env, "E3", "coder"), "A1")
+
+
+def test_a_spawn_whose_taint_cannot_be_recorded_is_refused():
+    """Review: a failed web-spawned marker let the child start unmarked; the spawn is refused
+    now, holding nothing (a retry once the state dir is writable goes through, and is marked)."""
+    env = Env()
+    web_fetch(env, "M1", "main-coder")
+    blocker = os.path.join(env.sdir(), "web-spawned")
+    open(blocker, "w").close()                          # a file where the marker dir goes
+    pre = env.pre_agent("coder", agent_id="M1", agent_type="main-coder")
+    r = env.run(pre)
+    assert r.decision == "deny" and "could not record whether web content reached" in r.reason
+    os.remove(blocker)
+    pre = spawn(env, "M1", "main-coder", "coder", "C1")
+    assert denied_from(remember(env, "C1", "coder"), "the prompt that spawned coder C1")
+
+
 def test_relay_needs_the_policy_and_leaves_clean_agents_alone():
     env = Env()
     spawn(env, "O1", "orchestrator", "coder", "C1", status="completed")
@@ -266,3 +315,18 @@ def test_a_project_under_a_temp_dir_is_the_projects_not_scratch(tmp_path):
                                 {"cwd": tempfile.gettempdir()}) is None
     # and a project elsewhere doesn't make a temp-dir checkout its own
     assert G.readonly_violation("echo x > %s" % (proj / "src" / "c.py"), {"cwd": str(ROOT)}) is None
+
+
+def test_the_project_is_claude_project_dir_when_set(tmp_path, monkeypatch):
+    """Review: with CLAUDE_PROJECT_DIR set (as for every hook), only that dir is the project: a
+    cwd that moved into another temp subdir stays scratch; the project's files stay protected."""
+    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    import agent_guard as G
+    proj, moved = tmp_path / "checkout", tmp_path / "moved"
+    (proj / "src").mkdir(parents=True)
+    moved.mkdir()
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(proj))
+    ev = {"cwd": str(moved)}
+    assert G.readonly_violation("echo x > %s" % (moved / "n.txt"), ev) is None
+    assert G.readonly_violation("echo x > %s" % (proj / "src" / "a.py"), ev)
+    assert G.readonly_violation("echo x > src/a.py", {"cwd": str(proj)})

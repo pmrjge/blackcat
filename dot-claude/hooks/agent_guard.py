@@ -881,6 +881,14 @@ def spawn_meta(ev, aid):
     {agentType, spawnDepth, toolUseId (the Agent call), parentAgentId (absent at depth 1), ...}
     as observed on 2.1.283. Not a documented interface: {} when absent or unreadable, and used
     only where a missing file costs nothing (a depth the registry lacks, an early lease drop)."""
+    for folder in meta_folders(ev):
+        meta = read_json(os.path.join(folder, "agent-%s.meta.json" % safe(aid)))
+        if meta is not None:
+            return meta
+    return {}
+
+
+def meta_folders(ev):
     folders = []
     atp = ev.get("agent_transcript_path")
     if isinstance(atp, str) and atp.strip():
@@ -888,11 +896,7 @@ def spawn_meta(ev, aid):
     files = transcript_files(ev)
     if files and files[1] not in folders:
         folders.append(files[1])
-    for folder in folders:
-        meta = read_json(os.path.join(folder, "agent-%s.meta.json" % safe(aid)))
-        if meta is not None:
-            return meta
-    return {}
+    return folders
 
 
 def meta_depth(d, ev, aid):
@@ -1205,15 +1209,18 @@ def on_agent(ev, d):
                 if not stepped:
                     rollback()
                     deny(STEP_LIMIT_REASON % max_steps)
-            record_name(d, ti, child, caller)
+            why = note_spawn_taint(ev, d)
+            if why:
+                rollback()
+                deny(why)
+            record_name(d, ti, child, caller, tid)
         except SystemExit:
             raise
         except Exception:
             rollback()
             raise
-        note_spawn_taint(ev, d)
     else:
-        record_name(d, ti, child, caller)
+        record_name(d, ti, child, caller, tid)
 
     # 3. input rewrites: models are fixed by agent definitions, and BlackCat never blocks on a child
     new_input, why = dict(ti), []
@@ -1249,11 +1256,12 @@ def blackcat_foreground(ev, ti):
     return flag is not True and str(flag).strip().lower() not in ("true", "1", "yes")
 
 
-def record_name(d, ti, child, caller):
+def record_name(d, ti, child, caller, tid=None):
     name = ti.get("name")
     if isinstance(name, str) and name.strip():
         write_json_atomic(names_path(d, name),
-                          {"type": child, "id": None, "by": caller, "ts": time.time()})
+                          {"type": child, "id": None, "by": caller, "ts": time.time(),
+                           "tid": tid if isinstance(tid, str) and tid.strip() else None})
 
 
 # ---------------------------------------------------------------- PreToolUse: SendMessage
@@ -1370,7 +1378,7 @@ def on_send(ev, d):
     except Exception:
         rollback()
         raise
-    note_relay(ev, d, target_id, ttype)
+    note_relay(ev, d, target_id, ttype, tname)
 
 
 def god_resume(d, ev, to, target_id, tname):
@@ -1702,10 +1710,15 @@ def note_web_taint(ev, d):
 # by an agent that web content had reached by then is marked web-spawned/<tool_use_id>; the child
 # is matched through its registry record, or its meta.json while a foreground call still runs).
 # on_memory_write walks that graph from the caller; the main thread is not a node (it is not
-# tracked, and would join every job). Files an agent reads are not followed: a residual.
+# tracked, and would join every job). A SendMessage to a name whose agent id isn't known yet (a
+# foreground child still running) links the caller to "tid-<the Agent call's tool_use_id>", which
+# leads to that agent through its registry record or meta.json. Files an agent reads are not
+# followed: a residual.
 WEB_RELAY_DIR = "web-relay"          # web-relay/<a>/<b>: a and b exchanged a SendMessage
 WEB_SPAWN_DIR = "web-spawned"        # web-spawned/<tool_use_id>: spawned by a tainted agent
+WEB_TID_NODE = "tid-"                # web-relay/tid-<tool_use_id>/<a>: a messaged that call's agent
 WEB_SOURCE_MAX_NODES = 4096
+WEB_META_SCAN_MAX = 4096
 
 
 def _web_key(value):
@@ -1716,13 +1729,15 @@ def web_source(d, aid, ev):
     """Where web content can have reached `aid` from, as text ("scout 1a2b", "the prompt that
     spawned coder 3c4d"), or None. Breadth-first from `aid` itself over registry children and
     SendMessage peers."""
-    reg, kids = {}, {}
+    reg, kids, owners = {}, {}, {}
     for key, rec in load_registry(d).items():
         reg[_web_key(key)] = rec
     for key, rec in reg.items():
         par = rec.get("parent")
         if isinstance(par, str) and par.strip() and par != "main":
             kids.setdefault(_web_key(par), []).append(key)
+        for t in _tids(rec.get("tool_use_id")):
+            owners.setdefault(t, []).append(key)
     relay = os.path.join(d, WEB_RELAY_DIR)
     seen, todo = set(), [_web_key(aid)]
     while todo and len(seen) < WEB_SOURCE_MAX_NODES:
@@ -1730,13 +1745,24 @@ def web_source(d, aid, ev):
         if node in seen:
             continue
         seen.add(node)
-        rec = reg.get(node) or {}
-        ntype = norm(rec.get("type"))
-        if ntype in WEB_INGESTING_TYPES or web_tainted(d, node):
-            return "%s %s" % (ntype or "agent", node)
-        if web_spawned(d, node, rec, ev):
-            return "the prompt that spawned %s %s" % (ntype or "agent", node)
-        todo.extend(kids.get(node, ()))
+        if node.startswith(WEB_TID_NODE):       # the agent of one Agent call, id maybe unknown
+            tid = node[len(WEB_TID_NODE):]
+            if os.path.exists(os.path.join(d, WEB_SPAWN_DIR, tid)):
+                return "the prompt that spawned the agent of call %s" % tid
+            todo.extend(owners.get(tid, ()))
+            if ev:
+                todo.extend(_web_key(a) for a in meta_agents_for_tid(ev, tid))
+        else:
+            rec = reg.get(node) or {}
+            ntype = norm(rec.get("type"))
+            if ntype in WEB_INGESTING_TYPES or web_tainted(d, node):
+                return "%s %s" % (ntype or "agent", node)
+            tids = _tids(rec.get("tool_use_id"),
+                         spawn_meta(ev, node).get("toolUseId") if ev else None)
+            if web_spawned(d, tids):
+                return "the prompt that spawned %s %s" % (ntype or "agent", node)
+            todo.extend(kids.get(node, ()))
+            todo.extend(WEB_TID_NODE + t for t in tids)
         try:
             todo.extend(os.listdir(os.path.join(relay, node)))
         except OSError:
@@ -1746,42 +1772,68 @@ def web_source(d, aid, ev):
     return None
 
 
-def web_spawned(d, node, rec, ev):
-    tids = {rec.get("tool_use_id"), spawn_meta(ev, node).get("toolUseId") if ev else None}
-    return any(isinstance(t, str) and t.strip()
-               and os.path.exists(os.path.join(d, WEB_SPAWN_DIR, _web_key(t.strip())))
-               for t in tids)
+def _tids(*values):
+    return sorted({_web_key(v.strip()) for v in values if isinstance(v, str) and v.strip()})
+
+
+def web_spawned(d, tids):
+    return any(os.path.exists(os.path.join(d, WEB_SPAWN_DIR, t)) for t in tids)
+
+
+def meta_agents_for_tid(ev, tid):
+    """Agent ids whose meta.json (spawn_meta) names the Agent call `tid` (a _web_key)."""
+    out = []
+    for folder in meta_folders(ev):
+        try:
+            names = sorted(os.listdir(folder))[:WEB_META_SCAN_MAX]
+        except OSError:
+            continue
+        for n in names:
+            if n.startswith("agent-") and n.endswith(".meta.json"):
+                meta = read_json(os.path.join(folder, n)) or {}
+                if isinstance(meta, dict) and _tids(meta.get("toolUseId")) == [tid]:
+                    out.append(n[len("agent-"):-len(".meta.json")])
+    return out
 
 
 def note_spawn_taint(ev, d):
-    """PreToolUse(Agent), after the spawn passed: a child of an agent that web content has reached
-    is born tainted (its prompt carries that agent's context). Never blocks a spawn."""
+    """PreToolUse(Agent), after the spawn passed its checks: a child of an agent that web content
+    has reached is born tainted (its prompt carries that agent's context). A reason to refuse the
+    spawn when that can't be recorded (the child would start unmarked), else None."""
     aid, tid = ev.get("agent_id"), ev.get("tool_use_id")
     if not aid or not isinstance(tid, str) or not tid.strip():
-        return
+        return None
     try:
         if web_source(d, aid, ev):
             folder = os.path.join(d, WEB_SPAWN_DIR)
             os.makedirs(folder, exist_ok=True)
             create_excl(os.path.join(folder, _web_key(tid.strip())))
-    except Exception as exc:  # noqa: BLE001 - bookkeeping must never block a spawn
-        warn("web taint not recorded for a spawn (%s)" % type(exc).__name__)
+    except Exception as exc:  # noqa: BLE001 - fail closed: refuse the spawn
+        return ("Spawn refused: the guard could not record whether web content reached this agent "
+                "(%s), and the child would start without that mark. Retry; if it keeps failing, "
+                "the guard's state dir needs a look." % type(exc).__name__)
+    return None
 
 
-def note_relay(ev, d, target_id, ttype):
+def note_relay(ev, d, target_id, ttype, tname=None):
     """PreToolUse(SendMessage), after the send passed: the caller and the target now share
-    content both ways. A target the registry doesn't know by id but names as a web-reading type
-    taints the caller at once. Never blocks a send."""
+    content both ways. A named target whose id isn't known yet is linked through the Agent call
+    that spawned it (names/<name>.json "tid"); one named as a web-reading type taints the caller
+    at once. Never blocks a send."""
     aid = ev.get("agent_id")
     if not aid:
         return
     try:
-        if target_id:
-            for a, b in ((aid, target_id), (target_id, aid)):
-                folder = os.path.join(d, WEB_RELAY_DIR, _web_key(a))
+        peer = _web_key(target_id) if target_id else None
+        if not peer and tname:
+            tids = _tids((read_json(names_path(d, tname)) or {}).get("tid"))
+            peer = WEB_TID_NODE + tids[0] if tids else None
+        if peer:
+            for a, b in ((_web_key(aid), peer), (peer, _web_key(aid))):
+                folder = os.path.join(d, WEB_RELAY_DIR, a)
                 os.makedirs(folder, exist_ok=True)
-                create_excl(os.path.join(folder, _web_key(b)))
-        elif ttype in WEB_INGESTING_TYPES:
+                create_excl(os.path.join(folder, b))
+        if not target_id and ttype in WEB_INGESTING_TYPES:
             folder = os.path.join(d, WEB_TAINT_DIR)
             os.makedirs(folder, exist_ok=True)
             create_excl(os.path.join(folder, _web_key(aid)))
@@ -2057,6 +2109,9 @@ def sandbox_env_script(home):
     m2 = os.path.join(root, "m2")
     if _PLAIN_PATH.match(m2):                   # MAVEN_OPTS is split on spaces, never unquoted
         lines.append('export MAVEN_OPTS="${MAVEN_OPTS:+$MAVEN_OPTS }-Dmaven.repo.local=%s"' % m2)
+    else:
+        warn("session-env: MAVEN_OPTS left alone (%s has characters Maven would split); Maven in "
+             "sandboxed Bash falls back to ~/.m2, which the sandbox refuses" % m2)
     lines.append("export GIT_CONFIG_PARAMETERS=\"${GIT_CONFIG_PARAMETERS:+$GIT_CONFIG_PARAMETERS }"
                  "'credential.helper='\"")
     return "\n".join(lines) + "\n"
@@ -6087,7 +6142,11 @@ class _ReadOnly(object):
         self.bases = first + [b for b in path_bases(ev) if b not in first] or [os.getcwd()]
         self.home = os.path.expanduser("~")
         self.roots = _ro_scratch_roots(self.bases)
-        self.projects = _ro_project_dirs(self.bases, self.roots)
+        # the project: CLAUDE_PROJECT_DIR, which Claude Code sets for hooks; the other bases only
+        # without it (a cwd that moved into a temp subdir doesn't make that dir a project)
+        pdir = os.environ.get("CLAUDE_PROJECT_DIR")
+        self.projects = _ro_project_dirs([pdir] if pdir and os.path.isabs(pdir) else self.bases,
+                                         self.roots)
         conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.confs = [os.path.realpath(c) for c in (conf, os.environ.get("CLAUDE_CONFIG_DIR"),
                                                      os.path.join(self.home, ".claude")) if c]
