@@ -821,3 +821,77 @@ def test_running_a_scratch_file_and_writing_its_output_is_one_segment(proj):
     put(proj, ".claude-work/t/ok.py", "print(1)\n")
     assert viol(proj, "python3 .claude-work/t/ok.py > .claude-work/t/out.txt") is None
     assert viol(proj, "python3 .claude-work/t/ok.py 2>/dev/null") is None
+
+
+# ---------------------------------------------------------------- scratch code via inline python (T2)
+# readonly_violation is the one check for every READONLY_TYPES agent (code-reviewer, verifier, ...)
+PY_EVIL = "import os\nos.system('id')\n"
+
+
+@pytest.mark.parametrize("command", [
+    "cp evil .claude-work/t/y.py && python3 -c \"import sys; sys.path.insert(0, '.claude-work/t'); "
+    "import y\"",
+    "python3 -c \"import sys; sys.path.insert(0, '.claude-work/t'); import y\"",
+    "cd .claude-work/t && python3 -c \"import y\"",
+    "cd .claude-work/t; python -c 'import y'",
+    "cd .claude-work/t && uv run python -c 'import y'",
+    "cd .claude-work/t && echo 'import y' | python3 -",
+    "cd /tmp && python3 -c 'import y'",
+    "python3 -c \"import runpy; runpy.run_path('.claude-work/t/y.py')\"",
+    "python3 -c \"import site; site.addsitedir('.claude-work/t'); import y\"",
+    "python3 -c \"from importlib.machinery import SourceFileLoader as S; "
+    "S('y', '.claude-work/t/y.py').load_module()\"",
+    "python3 -c \"import importlib.util as u; s = u.spec_from_file_location('y', "
+    "'.claude-work/t/y.py'); m = u.module_from_spec(s); s.loader.exec_module(m)\"",
+    "python3 -c \"__import__('y')\"",
+    "PYTHONPATH=.claude-work/t python3 -c 'import y'",
+    "env PYTHONPATH=.claude-work/t python3 -c 'import y'",
+    "PYTHONPATH=src:.claude-work/t python3 -c 'import y'",
+])
+def test_inline_python_can_not_run_unchecked_scratch_code(proj, command):
+    put(proj, ".claude-work/evil", PY_EVIL)
+    put(proj, ".claude-work/t/y.py", PY_EVIL)
+    assert viol(proj, command), command
+
+
+@pytest.mark.parametrize("command", [
+    "python3 -c \"import json; print(1)\"",
+    "python3 -c 'import json; print(json.dumps({}))'",
+    "uv run python -c 'print(1)'",
+    "cd src && python3 -c 'print(1)'",
+    "python3 -c 'import os.path; print(os.path.join(\"a\", \"b\"))'",
+    "PYTHONPATH=src python3 -c 'print(1)'",
+])
+def test_plain_inline_python_in_the_project_stays_allowed(proj, command):
+    assert viol(proj, command) is None, command
+
+
+# ---------------------------------------------------------------- JS runner after a scratch write (T2)
+@pytest.mark.parametrize("command", [
+    "git diff > .claude-work/d.patch; npx jest",
+    "git diff > .claude-work/d.patch && npx vitest run",
+    "git diff HEAD~1 > .claude-work/out.txt; npm test",
+    "git log --stat > .claude-work/log; jest",
+    "cp a .claude-work/notes.md; mocha",
+])
+def test_js_runner_after_a_data_write_stays_allowed(proj, command):
+    assert viol(proj, command) is None, command
+
+
+@pytest.mark.parametrize("command", [
+    "cp evil .claude-work/t/a.test.js; npx jest .claude-work/t",
+    "cp evil .claude-work/t/a.test.js; npx jest",
+    "cp evil .claude-work/t/a.spec.ts && npx vitest run",
+    "cp evil .claude-work/t/helper.js; npm test",
+    "cp evil .claude-work/t/setup.mjs; jest",
+    "cp evil .claude-work/jest.config.js; npx jest",
+    "cp evil .claude-work/vitest.config.ts; npx vitest run",
+    "cp evil .claude-work/package.json; npm test",
+    "cp evil .claude-work/conftest.py; jest",
+    "cat evil > .claude-work/t/x.tsx; jest",
+    "tar xf a.tar -C .claude-work/t; npx jest",
+    "cp -r evildir .claude-work/t/; npx jest",
+])
+def test_js_runner_after_a_code_write_is_refused(proj, command):
+    got = viol(proj, command)
+    assert got and SAME_CALL_MSG in got[1], (command, got)

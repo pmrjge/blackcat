@@ -5739,7 +5739,9 @@ RO_CODE_BAD_RE = re.compile(
     r"execfile|spawn\w*|fork|execute|execSync|execFile\w*|shell_exec|passthru|proc_open|"
     r"file_put_contents|fopen|fwrite|mkdir|makedirs|mkdtemp|rm|rmSync|cp|cpSync|"
     r"createWriteStream|writelines|urlopen|urlretrieve|download\w*|install\.packages|"
-    r"saveRDS|writeLines|sink)\s*\(|__builtins__|importlib|ctypes|\bpty\b|\bsocket\b|urllib|"
+    r"saveRDS|writeLines|sink|import_module|load_module|spec_from_file_location|exec_module|"
+    r"addsitedir)\s*\(|__builtins__|importlib|\brunpy\b|\bsys\.path\b|\bSourceFileLoader\b|"
+    r"\bsite\.addsitedir|ctypes|\bpty\b|\bsocket\b|urllib|"
     r"\brequests\b|httpx|http\.client|aiohttp|\bfetch\s*\(|XMLHttpRequest|\bdgram\b|"
     r"\bos\.(?:system|exec\w*|spawn\w*|fork|kill|putenv|environ|getenv)|process\.(?:env|binding|"
     r"kill)|\.write\s*\(|\.(?:to_csv|to_parquet|to_json|to_excel|to_feather|to_pickle|to_sql|"
@@ -5777,6 +5779,13 @@ RO_CONTENT_WRITERS = {"cp", "mv", "install", "tee", "ln", "dd", "touch", "rsync"
                       "truncate"}
 RO_VALUE_OPTS = {"-k", "-m", "-n", "-p", "-o", "--maxfail", "--tb", "--durations",
                  "--basetemp", "--numprocesses", "--timeout", "-W"}
+# a scratch write is only "code" for a later JS runner when the path looks like code or test config
+RO_CODE_SUFFIX = RO_JS_SUFFIX + (".py", ".pyi", ".sh", ".bash", ".zsh", ".rb", ".pl", ".php", ".lua",
+                                 ".jl", ".r", ".go", ".rs", ".vue", ".svelte", ".mdx", ".cjsx")
+RO_RUNNER_CONFIG_RE = re.compile(
+    r"(?:(?:jest|vitest|vite|mocha|ava|babel|playwright|cypress|karma)\.config\.\w+|"
+    r"tsconfig[\w.-]*\.json|\.(?:mocharc|babelrc|nycrc)[\w.]*|pytest\.ini|\.pytest\.ini|"
+    r"pyproject\.toml|setup\.cfg|tox\.ini|package\.json|conftest\.py)\Z", re.I)
 RO_SAME_CALL = ("runs or collects scratch code that an earlier part of the same command "
                 "writes: write and run in separate calls so the file can be read first")
 
@@ -5822,6 +5831,7 @@ class _ReadOnly(object):
         self.budget = MAX_SCANS
         self.wrote = False                      # an earlier segment wrote into scratch
         self.pending = False                    # the segment being checked writes into scratch
+        self.wrote_paths = []                   # (path, from a plain redirect) written into scratch
 
     # -- paths
     def expand(self, p):
@@ -6028,7 +6038,7 @@ class _ReadOnly(object):
     def collects(self, what):
         """A JS runner walks the project for *.test.* files, dot dirs included (pytest and go
         skip dot dirs, so ./.claude-work is safe for them)."""
-        if self.wrote:
+        if self.wrote and self.wrote_code():
             return (what, RO_SAME_CALL)
         hit = self.scratch_tests()
         if hit:
@@ -6257,8 +6267,36 @@ class _ReadOnly(object):
         found = self._simple(words, piped, depth)
         if not found and self.pending:
             self.wrote = True
+            self.note_writes(words)
         self.pending = False
         return found
+
+    def note_writes(self, words):
+        """Remember the scratch paths a writing segment names (its redirect targets apart)."""
+        for k, w in enumerate(words):
+            if not w or w.startswith("-") or w in RO_DEVICES or _expansion(self.expand(w)):
+                continue
+            redirect = k > 0 and (REDIR_OP_RE.match(words[k - 1]) is not None or
+                                  words[k - 1] in (">|", "<>")) and ">" in words[k - 1]
+            if redirect or "/" in w or "." in os.path.basename(w):
+                if self.scratch(w):
+                    self.wrote_paths.append((w, redirect))
+
+    def wrote_code(self):
+        """An earlier segment wrote something a JS runner could load: a code or test-config path,
+        or (unless it is a plain redirect target, e.g. a patch or log) a name that may be a
+        directory or an archive's contents."""
+        if not self.wrote_paths:
+            return True                         # a write whose target we could not name
+        for w, redirect in self.wrote_paths:
+            base = os.path.basename(w.rstrip("/")).lower()
+            if base.endswith(RO_CODE_SUFFIX) or RO_SCRATCH_TEST_RE.match(base) or \
+                    RO_RUNNER_CONFIG_RE.match(base) or "__tests__" in w.split("/"):
+                return True
+            if not redirect and (w.endswith("/") or "." not in base or any(
+                    c in w for c in "*?[")):
+                return True
+        return False
 
     def _simple(self, words, piped, depth):
         """One simple command: redirections, NAME=value prefixes, then the program."""
@@ -6712,7 +6750,7 @@ class _ReadOnly(object):
             name = a.split("=", 1)[0]
             if code_re.fullmatch(a) and k + 1 < len(rest):
                 inline = True
-                found = self.code(rest[k + 1], what, fam)
+                found = self.scratch_import_cwd(fam, what) or self.code(rest[k + 1], what, fam)
                 if found:
                     return found
                 k += 2
@@ -6747,7 +6785,16 @@ class _ReadOnly(object):
             return None
         if k < len(rest) and rest[k] != "-":
             return self.run_file(rest[k], what, fam, depth)
-        return self.stdin_program(ctx, depth, what, lambda s: self.code(s, what, fam), fam)
+        return self.scratch_import_cwd(fam, what) or self.stdin_program(
+            ctx, depth, what, lambda s: self.code(s, what, fam), fam)
+
+    def scratch_import_cwd(self, fam, what):
+        """python puts the cwd (or '') first on sys.path for -c and stdin programs: from a scratch
+        dir `import y` would run an unchecked scratch y.py."""
+        if fam == "python" and self.scratch_cwd():
+            return (what, "runs python from a scratch directory, whose modules it would import "
+                          "unchecked (run it from the project)")
+        return None
 
     @staticmethod
     def syntax_check(fam, base, rest):
