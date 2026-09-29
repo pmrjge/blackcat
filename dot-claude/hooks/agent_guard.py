@@ -37,7 +37,9 @@ Reads the hook JSON on stdin.
                                     verifier, plan-reviewer and claude-code-guide it also holds
                                     Bash to read-only commands (READONLY_TYPES, _ReadOnly)
   PreToolUse  nmem_remember         web-reading agents (researcher, scout, browser-operator) don't
-                                    write the shared memory
+                                    write the shared memory, nor do agents web content reached
+                                    (own web tools, a descendant's report, a SendMessage either
+                                    way, a spawn prompt from a tainted agent)
   PreToolUse  *                     `blackcat-guard --settings`: blackcat's own gate, also wired
                                     from settings.json (acts only when agent_type is blackcat)
   PreToolUse  local-file MCP tools  context-mode ctx_index, markitdown, docling, playwright: a path
@@ -1207,6 +1209,7 @@ def on_agent(ev, d):
         except Exception:
             rollback()
             raise
+        note_spawn_taint(ev, d)
     else:
         record_name(d, ti, child, caller)
 
@@ -1365,6 +1368,7 @@ def on_send(ev, d):
     except Exception:
         rollback()
         raise
+    note_relay(ev, d, target_id, ttype)
 
 
 def god_resume(d, ev, to, target_id, tname):
@@ -1633,6 +1637,12 @@ def on_memory_write(ev, d):
         deny("Refused: this agent read web content in this task, so it cannot write the shared "
              "memory (a page could plant a false decision there). Put the finding in your report "
              "with its source; an agent that verifies it against local evidence may remember it.")
+    src = web_source(d, ev["agent_id"], ev) if ev.get("agent_id") else None
+    if src:
+        deny("Refused: web content can have reached this agent through %s (reports, messages and "
+             "spawn prompts carry it), so it cannot write the shared memory (a page could plant a "
+             "false decision there). Put the finding in your report with its source; an agent "
+             "whose inputs are all local may remember it." % src)
 
 
 # T3: an agent that ingested web content (any type, not just WEB_INGESTING_TYPES) gets a marker
@@ -1682,6 +1692,99 @@ def note_web_taint(ev, d):
             create_excl(marker)
     except OSError as exc:
         warn("web taint not recorded (%s)" % type(exc).__name__)
+
+
+# T3 relay: web content also reaches an agent that never read a page, through what other agents
+# hand it: a child's report (every registry descendant counts, running or not), a SendMessage
+# (either way: the message goes out, the reply comes back) and the prompt that spawned it (a spawn
+# by an agent that web content had reached by then is marked web-spawned/<tool_use_id>; the child
+# is matched through its registry record, or its meta.json while a foreground call still runs).
+# on_memory_write walks that graph from the caller; the main thread is not a node (it is not
+# tracked, and would join every job). Files an agent reads are not followed: a residual.
+WEB_RELAY_DIR = "web-relay"          # web-relay/<a>/<b>: a and b exchanged a SendMessage
+WEB_SPAWN_DIR = "web-spawned"        # web-spawned/<tool_use_id>: spawned by a tainted agent
+WEB_SOURCE_MAX_NODES = 4096
+
+
+def _web_key(value):
+    return safe(ident(value))
+
+
+def web_source(d, aid, ev):
+    """Where web content can have reached `aid` from, as text ("scout 1a2b", "the prompt that
+    spawned coder 3c4d"), or None. Breadth-first from `aid` itself over registry children and
+    SendMessage peers."""
+    reg, kids = {}, {}
+    for key, rec in load_registry(d).items():
+        reg[_web_key(key)] = rec
+    for key, rec in reg.items():
+        par = rec.get("parent")
+        if isinstance(par, str) and par.strip() and par != "main":
+            kids.setdefault(_web_key(par), []).append(key)
+    relay = os.path.join(d, WEB_RELAY_DIR)
+    seen, todo = set(), [_web_key(aid)]
+    while todo and len(seen) < WEB_SOURCE_MAX_NODES:
+        node = todo.pop(0)
+        if node in seen:
+            continue
+        seen.add(node)
+        rec = reg.get(node) or {}
+        ntype = norm(rec.get("type"))
+        if ntype in WEB_INGESTING_TYPES or web_tainted(d, node):
+            return "%s %s" % (ntype or "agent", node)
+        if web_spawned(d, node, rec, ev):
+            return "the prompt that spawned %s %s" % (ntype or "agent", node)
+        todo.extend(kids.get(node, ()))
+        try:
+            todo.extend(os.listdir(os.path.join(relay, node)))
+        except OSError:
+            pass
+    if todo:                                    # a graph past the cap: fail closed
+        return "one of more than %d linked agents" % WEB_SOURCE_MAX_NODES
+    return None
+
+
+def web_spawned(d, node, rec, ev):
+    tids = {rec.get("tool_use_id"), spawn_meta(ev, node).get("toolUseId") if ev else None}
+    return any(isinstance(t, str) and t.strip()
+               and os.path.exists(os.path.join(d, WEB_SPAWN_DIR, _web_key(t.strip())))
+               for t in tids)
+
+
+def note_spawn_taint(ev, d):
+    """PreToolUse(Agent), after the spawn passed: a child of an agent that web content has reached
+    is born tainted (its prompt carries that agent's context). Never blocks a spawn."""
+    aid, tid = ev.get("agent_id"), ev.get("tool_use_id")
+    if not aid or not isinstance(tid, str) or not tid.strip():
+        return
+    try:
+        if web_source(d, aid, ev):
+            folder = os.path.join(d, WEB_SPAWN_DIR)
+            os.makedirs(folder, exist_ok=True)
+            create_excl(os.path.join(folder, _web_key(tid.strip())))
+    except Exception as exc:  # noqa: BLE001 - bookkeeping must never block a spawn
+        warn("web taint not recorded for a spawn (%s)" % type(exc).__name__)
+
+
+def note_relay(ev, d, target_id, ttype):
+    """PreToolUse(SendMessage), after the send passed: the caller and the target now share
+    content both ways. A target the registry doesn't know by id but names as a web-reading type
+    taints the caller at once. Never blocks a send."""
+    aid = ev.get("agent_id")
+    if not aid:
+        return
+    try:
+        if target_id:
+            for a, b in ((aid, target_id), (target_id, aid)):
+                folder = os.path.join(d, WEB_RELAY_DIR, _web_key(a))
+                os.makedirs(folder, exist_ok=True)
+                create_excl(os.path.join(folder, _web_key(b)))
+        elif ttype in WEB_INGESTING_TYPES:
+            folder = os.path.join(d, WEB_TAINT_DIR)
+            os.makedirs(folder, exist_ok=True)
+            create_excl(os.path.join(folder, _web_key(aid)))
+    except OSError as exc:
+        warn("web relay not recorded (%s)" % type(exc).__name__)
 
 
 # ---------------------------------------------------------------- lifecycle
