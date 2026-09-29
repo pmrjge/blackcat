@@ -266,8 +266,9 @@ def test_session_env_quotes_an_odd_home_and_never_blocks(tmp_path):
 
 # ---------------------------------------------------------------- R3-SUPPLY: what the diff covers
 def test_supply_diff_covers_everything_the_install_ships():
-    """The pre-apply diff covers every repo path install.sh reads to build the config dir, and the
-    question before applying is asked only on a terminal, never under --dry-run or --yes."""
+    """The pre-apply diff covers every repo path install.sh reads to build the config dir; the
+    question is never asked under --dry-run or --yes, goes to the controlling terminal when stdin
+    or stderr isn't one, and with no terminal at all the run stops (R4: never proceeds unasked)."""
     import re
     import subprocess
     text = (ROOT / "install.sh").read_text()
@@ -280,8 +281,11 @@ def test_supply_diff_covers_everything_the_install_ships():
     top = {p.split("/", 1)[0] for p in tracked}
     assert {p for p in shipped if p in top} <= set(paths), shipped - set(paths)
     ask = re.search(r'^if \[ "\$SUPPLY_CHANGED" = 1 \] (.+); then$', text, re.M).group(1)
-    for cond in ('[ "$DRY_RUN" = 0 ]', '[ "$ASSUME_YES" = 0 ]', "[ -t 0 ]", "[ -t 2 ]"):
+    for cond in ('[ "$DRY_RUN" = 0 ]', '[ "$ASSUME_YES" = 0 ]'):
         assert cond in ask, cond
+    block = text[text.index(ask):text.index('say "2/11')]
+    assert "[ -t 0 ] && [ -t 2 ]" in block and "read -r ans </dev/tty" in block
+    assert re.search(r"no terminal to ask: rerun with --yes.*\n\s+exit 1", block)
 
 
 # ---------------------------------------------------------------- R3-INFO: a project under /tmp

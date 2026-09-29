@@ -4,6 +4,19 @@
 # STACK_CLAUDE_JSON), plus --no-deps --no-profile. As a belt-and-braces check the real
 # $HOME/.claude, ~/.claude.json and ~/.zshrc are fingerprinted before and after.
 set -uo pipefail
+# No controlling terminal (install.sh asks on /dev/tty when it has one): the cases that need one make
+# their own pty; nothing waits on the terminal you run this from.
+if [ -z "${SMOKE_NO_CTTY:-}" ] && { : </dev/tty; } 2>/dev/null; then
+  exec env SMOKE_NO_CTTY=1 python3 - "$0" "$@" <<'PY'
+import os, signal, subprocess, sys
+p = subprocess.Popen(["bash"] + sys.argv[1:], stdin=subprocess.DEVNULL, start_new_session=True)
+try:
+    sys.exit(p.wait())
+except KeyboardInterrupt:
+    os.killpg(p.pid, signal.SIGTERM)
+    sys.exit(130)
+PY
+fi
 
 SRC_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # install.sh runs only from the main branch of a git checkout and fast-forwards main when started
@@ -1216,7 +1229,8 @@ s["env"].update({"STACK_MAX_FANOUT": "8", "STACK_MAX_SELF_FANOUT": "4", "BLACKCA
 json.dump(s, open(p, "w"), indent=2)
 PY
 tgit -C "$TR/repo" commit -qam "rollback" || failed "could not commit the rollback repository"
-CLAUDE_CONFIG_DIR="$TR/c" "$TR/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile >"$TR/r.log" 2>&1
+# (--yes: the config dir was installed from another repo, so the stack "changed" and there is no terminal)
+CLAUDE_CONFIG_DIR="$TR/c" "$TR/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile --yes >"$TR/r.log" 2>&1
 python3 - "$TR/c/settings.json" <<'PY' && pass "rollback: stack-only keys and knobs retracted or restored, the user's own overrides kept" || { failed "rollback retraction"; grep -i 'retract\|kept' "$TR/r.log" | sed 's/^/    /'; }
 import json, sys
 s = json.load(open(sys.argv[1])); e = s["env"]
@@ -1729,6 +1743,67 @@ FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="
   && [ "$same3" = 0 ] && [ "$rc4" = 0 ] && ! grep -q 'The stack changed since the last install' "$TX/s4.log" \
   && pass "on a terminal: changed stack files are confirmed before step 2 ('n' changes nothing; --yes skips the question)" \
   || failed "supply-chain confirmation (rc=$rc3/$rc4, unchanged after 'n': $same3): $(grep -ai 'stack changed since\|stopped before' "$TX/s3.log" "$TX/s4.log" | head -3)"
+# R4: no terminal at all (stdin /dev/null, no controlling terminal): the run stops unless --yes
+cat > "$TX/noctty_run.py" <<'PY'
+import subprocess, sys
+log, argv = sys.argv[1], sys.argv[2:]
+with open(log, "wb") as out:
+    sys.exit(subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                            start_new_session=True).returncode)
+PY
+# R4: stderr piped (`2>&1 | tee`) and stdin /dev/null, but a controlling terminal: asked there
+cat > "$TX/ctty_run.py" <<'PY'
+import fcntl, os, select, subprocess, sys, termios
+answer, log, argv = sys.argv[1].encode(), sys.argv[2], sys.argv[3:]
+m, s = os.openpty()
+
+
+def own_terminal():
+    os.setsid()
+    fcntl.ioctl(s, termios.TIOCSCTTY, 0)
+
+
+out = open(log + ".out", "wb")
+p = subprocess.Popen(argv, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.STDOUT,
+                     preexec_fn=own_terminal, pass_fds=(s,))
+buf, answered = b"", False
+while True:
+    r, _, _ = select.select([m], [], [], 0.5)
+    data = b""
+    if m in r:
+        try:
+            data = os.read(m, 65536)        # a terminal hung up when its session ends: EOF or EIO
+        except OSError:
+            pass
+        buf += data
+        if not answered and b"[y/N]" in buf:
+            os.write(m, answer + b"\n")
+            answered = True
+    if not data and p.poll() is not None:
+        break
+os.close(s)
+rc = p.wait()
+open(log, "wb").write(buf)
+sys.exit(rc)
+PY
+set_commit "$old_commit"; nb=$(count_backups "$TX/r"); fp "$TX/r" > "$TX/fp.s5"
+FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="$TX/r" \
+  python3 "$TX/noctty_run.py" "$TX/s5.log" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile; rc5=$?
+cmp -s "$TX/fp.s5" <(fp "$TX/r") && [ "$(count_backups "$TX/r")" = "$nb" ]; same5=$?
+FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="$TX/r" \
+  python3 "$TX/noctty_run.py" "$TX/s6.log" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --yes; rc6=$?
+[ "$rc5" != 0 ] && [ "$same5" = 0 ] && grep -q 'no terminal to ask: rerun with --yes' "$TX/s5.log" && ! grep -q '2/11' "$TX/s5.log" \
+  && [ "$rc6" = 0 ] && ! grep -q 'no terminal to ask' "$TX/s6.log" \
+  && pass "no terminal: changed stack files stop the run unless --yes (nothing changed; --yes installs)" \
+  || failed "no-terminal supply confirmation (rc=$rc5/$rc6, unchanged: $same5): $(grep -a 'terminal\|stopped' "$TX/s5.log" "$TX/s6.log" | head -3)"
+set_commit "$old_commit"; nb=$(count_backups "$TX/r"); fp "$TX/r" > "$TX/fp.s7"
+FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="$TX/r" \
+  python3 "$TX/ctty_run.py" n "$TX/s7.log" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile; rc7=$?
+cmp -s "$TX/fp.s7" <(fp "$TX/r") && [ "$(count_backups "$TX/r")" = "$nb" ]; same7=$?
+[ "$rc7" != 0 ] && [ "$same7" = 0 ] && grep -q 'The stack changed since the last install' "$TX/s7.log" \
+  && grep -q 'stopped before changing anything' "$TX/s7.log.out" \
+  && pass "stderr piped, stdin /dev/null: the question goes to the controlling terminal ('n' changes nothing)" \
+  || failed "controlling-terminal supply confirmation (rc=$rc7, unchanged: $same7): $(cat "$TX/s7.log" "$TX/s7.log.out" 2>/dev/null | grep -a 'stack changed\|stopped\|terminal' | head -3)"
 assert_unchanged_real_home
 drop_scratch "$TX"
 
@@ -1756,7 +1831,7 @@ p = sys.argv[1]; s = json.load(open(p))
 s["sandbox"]["filesystem"]["allowWrite"].append("~/my-cache")      # yours: kept
 json.dump(s, open(p, "w"), indent=2)
 PY
-CLAUDE_CONFIG_DIR="$TB/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$TB/new.log" 2>&1; rc=$?
+CLAUDE_CONFIG_DIR="$TB/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --yes >"$TB/new.log" 2>&1; rc=$?
 python3 - "$TB/c/settings.json" <<'PY' && [ "$rc" = 0 ] && grep -q 'retracted stack env UV_CACHE_DIR=' "$TB/new.log" \
   && grep -q 'retracted stack env GIT_CONFIG_COUNT=1' "$TB/new.log" \
   && grep -q 'retracted sandbox.filesystem.allowWrite entries the stack no longer ships: ~/.cache, ~/Library/Caches' "$TB/new.log" \

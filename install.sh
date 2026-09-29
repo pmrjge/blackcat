@@ -31,8 +31,9 @@
 #   ./install.sh --print-managed-settings  print an optional managed-settings.json that pins the
 #                                 stack's guards against edits (you install it; see CONFIG.md)
 #   ./install.sh --mcp-plan      print the MCP server add/migrate/replace/keep plan and make no changes
-#   ./install.sh --yes           apply without asking when the stack's files changed since the last
-#                                 install (asked only when stdin and stderr are a terminal)
+#   ./install.sh --yes           install without asking when the stack's files changed since the last
+#                                 install (asked on the terminal; with no terminal, e.g. in CI, the
+#                                 run stops unless --yes is given)
 # Default pruning: the installed agents/ and skills/ hold exactly the stack's files (your own and
 # edited ones are removed or replaced), and stack config the stack no longer ships (hooks, rules,
 # magg catalog entries, MCP entries it registered, duplicate hook wiring) goes. Everything changed
@@ -551,10 +552,20 @@ if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
   fi
 fi
 
-# the stack's files changed since the last install (above): on a terminal, ask before anything changes
-if [ "$SUPPLY_CHANGED" = 1 ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ] && [ -t 0 ] && [ -t 2 ]; then
-  printf 'The stack changed since the last install (listed above). Install it? (see the whole plan first: %s --dry-run) [y/N] ' "$0" >&2
-  ans=""; read -r ans || true
+# the stack's files changed since the last install (above): ask before anything changes, on stdin and
+# stderr when both are a terminal, else on the controlling terminal (`./install.sh 2>&1 | tee log`);
+# with no terminal at all the run stops unless --yes says to go on (R4: never proceed unasked)
+if [ "$SUPPLY_CHANGED" = 1 ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ]; then
+  q="The stack changed since the last install (listed above). Install it? (see the whole plan first: $0 --dry-run) [y/N] "
+  ans=""
+  if [ -t 0 ] && [ -t 2 ]; then
+    printf '%s' "$q" >&2; read -r ans || true
+  elif { : </dev/tty; } 2>/dev/null && { : >/dev/tty; } 2>/dev/null; then
+    printf '%s' "$q" >/dev/tty; read -r ans </dev/tty || true
+  else
+    echo "install.sh: the stack changed since the last install (listed above) and there is no terminal to ask: rerun with --yes to install it (--dry-run shows the whole plan). Nothing in $C was changed." >&2
+    exit 1
+  fi
   case "$ans" in
     y|Y|yes|YES|Yes) ;;
     *) echo "install.sh: stopped before changing anything. Nothing in $C was changed." >&2; exit 1 ;;
