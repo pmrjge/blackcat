@@ -1582,9 +1582,15 @@ xrun "$TX/y" "$TX/y1.log"; rc=$?
   && grep -q 'rerun with --write-through-links' "$TX/y1.log" \
   && pass "symlinked skills/: without --write-through-links the run stops; nothing changes on either side" || failed "symlinked skills/ without --write-through-links (rc=$rc)"
 xrun "$TX/y" "$TX/y2.log" --dry-run; rc=$?
-[ "$rc" = 0 ] && cmp -s "$TX/fp.o0" <(fp "$TX/outS") && grep -q "skills/ is a symlink to $(cd "$TX/outS" && pwd -P)" "$TX/y2.log" \
+[ "$rc" != 0 ] && cmp -s "$TX/fp.o0" <(fp "$TX/outS") && cmp -s "$TX/fp.y0" <(fp "$TX/y") \
+  && grep -q "skills/ is a symlink to $(cd "$TX/outS" && pwd -P)" "$TX/y2.log" \
   && grep -q 'skills/precious.txt: kept' "$TX/y2.log" && ! grep -q '^  - skills/' "$TX/y2.log" \
-  && pass "symlinked skills/: --dry-run lists nothing to remove there and names what it keeps" || failed "symlinked skills/ --dry-run (rc=$rc)"
+  && grep -q 'the real run would stop: symlinked dir(s) above: rerun with --write-through-links' "$TX/y2.log" \
+  && pass "symlinked skills/: --dry-run shows the plan (nothing removed there, what it keeps), then exits 1 like the real run" \
+  || failed "symlinked skills/ --dry-run (rc=$rc): $(grep -i 'would stop\|dry run done' "$TX/y2.log")"
+xrun "$TX/y" "$TX/y2b.log" --dry-run --write-through-links; rc=$?
+[ "$rc" = 0 ] && ! grep -q 'would stop' "$TX/y2b.log" && grep -q 'Dry run done' "$TX/y2b.log" \
+  && pass "symlinked skills/: --dry-run --write-through-links exits 0" || failed "--dry-run --write-through-links (rc=$rc)"
 xrun "$TX/y" "$TX/y3.log" --write-through-links; rc=$?
 BY="$(latest_backup "$TX/y")"
 [ "$rc" = 0 ] && [ -L "$TX/y/skills" ] && [ -f "$TX/outS/precious.txt" ] && [ -f "$TX/outS/user-owned/SKILL.md" ] \
@@ -1598,6 +1604,13 @@ rm -rf "$TX/y/agents"; ln -s "$TX/outA" "$TX/y/agents"
 xrun "$TX/y" "$TX/y5.log"; rc5=$?; xrun "$TX/y" "$TX/y6.log" --write-through-links; rc6=$?
 [ "$rc5" != 0 ] && [ "$rc6" = 0 ] && [ -f "$TX/outA/mine.md" ] && [ -L "$TX/y/agents" ] \
   && pass "symlinked agents/: stops without --write-through-links; with it, your agent there stays" || failed "symlinked agents/ (rc=$rc5/$rc6)"
+printf 'my coder\n' > "$TX/my-coder.md"; rm -f "$TX/outA/coder.md"; ln -s "$TX/my-coder.md" "$TX/outA/coder.md"
+xrun "$TX/y" "$TX/y6b.log" --write-through-links; rc=$?
+[ "$rc" = 0 ] && [ -L "$TX/outA/coder.md" ] && [ "$(readlink "$TX/outA/coder.md")" = "$TX/my-coder.md" ] \
+  && [ "$(cat "$TX/my-coder.md")" = "my coder" ] \
+  && grep -q 'agents/coder.md: kept (a link inside your symlinked agents/)' "$TX/y6b.log" \
+  && pass "a file link inside a symlinked agents/: stays your link, its target never written (named in the notes)" \
+  || failed "file link inside symlinked agents/ (rc=$rc): $(grep -i 'coder.md' "$TX/y6b.log" | head -3)"
 # --force alone no longer writes through a link; --no-prune --write-through-links keeps an edited stack file
 xrun "$TX/y" "$TX/y7.log" --force; rc=$?
 [ "$rc" != 0 ] && grep -q 'rerun with --write-through-links' "$TX/y7.log" \

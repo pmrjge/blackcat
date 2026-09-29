@@ -671,16 +671,20 @@ S="$WORK/stage"; REPORT="$WORK/report.json"; PLAN_JSON="$WORK/plan.json"; SNAP="
 # A top-level dir of the stack's part that is a symlink (a dotfiles checkout: agents/, skills/, ...)
 # holds your files: nothing there is ever removed, and the stack's files are written through the link
 # only with --write-through-links (otherwise the run stops here; --dry-run shows what it would do).
-LINKED="$(python3 "$STATE_PY" linked "$C")"
+LINKED="$(python3 "$STATE_PY" linked "$C")"; LINK_REFUSAL=""
 if [ -n "$LINKED" ]; then
   while IFS=$'\t' read -r d target; do
     note "! $C/$d is a symlink to $target: yours; nothing there is removed"
   done <<EOF_LINKED
 $LINKED
 EOF_LINKED
-  if [ "$WRITE_LINKS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
-    echo "install.sh: symlinked dir(s) above: rerun with --write-through-links to write the stack's files through the link(s) (nothing there is removed), or replace them with real directories. Nothing in $C was changed." >&2
-    exit 1
+  if [ "$WRITE_LINKS" = 0 ]; then
+    LINK_REFUSAL="symlinked dir(s) above: rerun with --write-through-links to write the stack's files through the link(s) (nothing there is removed), or replace them with real directories. Nothing in $C was changed."
+    if [ "$DRY_RUN" = 0 ]; then
+      echo "install.sh: $LINK_REFUSAL" >&2
+      exit 1
+    fi
+    note "! --dry-run: the real run stops here without --write-through-links; the plan below is what it would do with it"
   fi
 fi
 mkdir -p "$S"
@@ -2597,6 +2601,10 @@ case ":$ORIG_PATH:" in
 esac
 
 if [ "$DRY_RUN" = 1 ]; then
+  if [ -n "$LINK_REFUSAL" ]; then
+    echo "install.sh --dry-run: the real run would stop: $LINK_REFUSAL" >&2
+    exit 1
+  fi
   say "Dry run done: nothing was changed. Run without --dry-run to apply the plan above."
   exit 0
 fi
