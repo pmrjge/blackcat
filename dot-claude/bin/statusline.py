@@ -11,8 +11,14 @@ and set as `statusLine` only when you have none; remove the key from settings.js
 """
 import json
 import os
+import re
 import sys
+import time
 from pathlib import Path
+
+# agent_guard.py's session-env hook records what it did in the session's state dir: a failure, or a
+# hook still "running" after this long (it died midway), shows a warning in the line
+SESSION_ENV_STALE_S = 30
 
 
 def settings_window():
@@ -27,6 +33,26 @@ def settings_window():
         return int(v) if isinstance(v, (int, float)) else None
     except (OSError, ValueError, TypeError):
         return None
+
+
+def session_env_warning(sid, now=None):
+    """The session-env hook's failure for this session as a short warning, or None."""
+    if not isinstance(sid, str) or not sid.strip():
+        return None
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    safe = re.sub(r"[^A-Za-z0-9_-]", "_", sid)[:128]
+    try:
+        with open(os.path.join(base, "claude-agent-stack", safe, "session-env.json")) as f:
+            st = json.load(f)
+    except (OSError, ValueError):
+        return None                     # not run yet, or a stack without the hook: doctor.sh tells
+    if not isinstance(st, dict):
+        return None
+    now = time.time() if now is None else now
+    ts = st.get("ts") if isinstance(st.get("ts"), (int, float)) else 0
+    if st.get("state") == "failed" or (st.get("state") == "running" and now - ts > SESSION_ENV_STALE_S):
+        return "! Bash sandbox env missing: doctor.sh"
+    return None
 
 
 def kilo(n):
@@ -88,6 +114,10 @@ def main():
     hit = (data.get("prompt_cache") or {}).get("hit_ratio")
     if isinstance(hit, (int, float)):
         parts.append("cache %d%%" % round(hit * 100))
+
+    warning = session_env_warning(data.get("session_id"))
+    if warning:
+        parts.insert(0, "\033[31m%s\033[0m" % warning if tty else warning)   # first: never cut
 
     line = " · ".join(parts) if parts else "claude-agent-stack"
     cols = os.environ.get("COLUMNS", "")

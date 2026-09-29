@@ -2117,29 +2117,68 @@ def sandbox_env_script(home):
     return "\n".join(lines) + "\n"
 
 
+SESSION_ENV_STATUS = "session-env.json"   # in the session's state dir: what the hook did
+
+
+def session_env_status(sid, state, reason=""):
+    """Record the hook's progress for statusline.py and doctor.sh ("running" first, so a hook that
+    dies midway reads as not finished). Best effort: a state dir that can't be written loses only
+    this record, never the session."""
+    if not sid:
+        return
+    try:
+        write_json_atomic(os.path.join(sdir(sid), SESSION_ENV_STATUS),
+                          {"state": state, "reason": reason, "ts": time.time()})
+    except (OSError, ValueError):
+        pass
+
+
 def session_env():
     """`session-env` (a SessionStart hook for every source): add the Bash-only environment to
     $CLAUDE_ENV_FILE once per file, and make the cache root, so a sandboxed command never has to
-    create it in ~/.cache. Never blocks a session."""
+    create it in ~/.cache. Never blocks a session; a failure is shown to the user (exit 2: Claude
+    Code renders a SessionStart hook's exit-2 stderr as a hook error notice and the session goes
+    on) and recorded for the status line and doctor.sh."""
     try:
-        sys.stdin.read()
+        raw = sys.stdin.read()
     except (OSError, ValueError):
-        pass
+        raw = ""
+    try:
+        ev = json.loads(raw) if raw.strip() else {}
+    except ValueError:
+        ev = {}
+    sid = ev.get("session_id") if isinstance(ev, dict) else None
+    sid = sid if isinstance(sid, str) and sid.strip() else None
+    session_env_status(sid, "running")
     path = os.environ.get("CLAUDE_ENV_FILE")
     home = os.path.expanduser("~")
+    why = ""
     if not path or not home or home == "~":
-        warn("sandbox env not written: %s" % ("no CLAUDE_ENV_FILE" if not path else "no HOME"))
+        why = "no CLAUDE_ENV_FILE from Claude Code" if not path else "no HOME"
+    else:
+        try:
+            os.makedirs(os.path.join(home, SANDBOX_CACHE_DIR), mode=0o700, exist_ok=True)
+            with open(path, "a+", encoding="utf-8") as f:
+                f.seek(0)
+                cur = f.read()
+                if SANDBOX_ENV_MARK not in cur:
+                    f.write(("\n" if cur and not cur.endswith("\n") else "") + sandbox_env_script(home))
+            with open(path, encoding="utf-8") as f:
+                if SANDBOX_ENV_MARK not in f.read():
+                    why = "the exports are not in CLAUDE_ENV_FILE after writing them"
+        except (OSError, ValueError) as exc:
+            why = "%s writing CLAUDE_ENV_FILE or %s" % (type(exc).__name__,
+                                                        os.path.join("~", SANDBOX_CACHE_DIR))
+    if not why:
+        session_env_status(sid, "ok")
         return 0
-    try:
-        os.makedirs(os.path.join(home, SANDBOX_CACHE_DIR), mode=0o700, exist_ok=True)
-        with open(path, "a+", encoding="utf-8") as f:
-            f.seek(0)
-            cur = f.read()
-            if SANDBOX_ENV_MARK not in cur:
-                f.write(("\n" if cur and not cur.endswith("\n") else "") + sandbox_env_script(home))
-    except OSError as exc:
-        warn("sandbox env not written (%s)" % type(exc).__name__)
-    return 0
+    session_env_status(sid, "failed", why)
+    conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    sys.stderr.write(
+        "claude-agent-stack: the sandboxed Bash environment is NOT set for this session (%s): "
+        "Bash commands get no sandbox package caches and git's credential helpers stay on. "
+        "Check with %s/bin/doctor.sh, then start a new session (or /clear).\n" % (why, conf))
+    return 2
 
 
 # ---------------------------------------------------------------- token budgets

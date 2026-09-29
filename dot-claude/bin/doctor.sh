@@ -203,11 +203,12 @@ fi
 # hook ($CLAUDE_ENV_FILE, Bash only). In settings env they would reach MCP servers, hooks and
 # language servers, which run outside the sandbox (R3-CACHES, R3-GITENV).
 python3 - "$C/settings.json" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
-import json, sys
+import glob, json, os, shlex, shutil, subprocess, sys, tempfile, time
 try:
     s = json.load(open(sys.argv[1]))
 except (OSError, ValueError):
     s = {}
+MARK = "claude-agent-stack: sandboxed Bash caches"
 env = s.get("env") if isinstance(s.get("env"), dict) else {}
 moved = sorted(k for k in env if k in ("UV_CACHE_DIR", "npm_config_cache", "PRE_COMMIT_HOME",
                                        "XDG_CACHE_HOME", "CARGO_HOME", "GIT_CONFIG_COUNT",
@@ -222,6 +223,49 @@ wired = any(isinstance(g, dict) and not g.get("matcher") and any(
 allow = ((s.get("sandbox") or {}).get("filesystem") or {}).get("allowWrite") or []
 if wired:
     print("ok sandboxed Bash env: session-env SessionStart hook wired (every source)")
+    # run it as Claude Code would, against a throwaway CLAUDE_ENV_FILE, HOME and state dir
+    cmd = next(str(h.get("command")) for g in hooks.get("SessionStart") or [] if isinstance(g, dict)
+               and not g.get("matcher") for h in g.get("hooks") or [] if isinstance(h, dict)
+               and str(h.get("command", "")).endswith('agent_guard.py" session-env'))
+    tmp = tempfile.mkdtemp(prefix="stack-doctor-env-")
+    try:
+        envf = os.path.join(tmp, "env.sh")
+        env = dict(os.environ, HOME=tmp, CLAUDE_ENV_FILE=envf, XDG_STATE_HOME=os.path.join(tmp, "st"))
+        r = subprocess.run(shlex.split(cmd), input='{"session_id": "doctor-probe", "source": "startup"}',
+                           env=env, capture_output=True, text=True, timeout=20)
+        got = open(envf).read() if os.path.exists(envf) else ""
+        if r.returncode == 0 and MARK in got:
+            print("ok session-env hook writes the sandbox env (probe in a temp dir)")
+        else:
+            print("the session-env hook fails (probe in a temp dir, rc %d): %s"
+                  % (r.returncode, (r.stderr.strip().splitlines() or ["no output"])[-1][:200]))
+    except (OSError, ValueError, subprocess.SubprocessError, StopIteration) as exc:
+        print("couldn't probe the session-env hook (%s)" % type(exc).__name__)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    # what it did in the latest sessions (agent_guard.py records it in each session's state dir)
+    root = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+                        "claude-agent-stack")
+    seen = []
+    for f in glob.glob(os.path.join(root, "*", "session-env.json")):
+        try:
+            st = json.load(open(f))
+        except (OSError, ValueError):
+            continue
+        if isinstance(st, dict) and isinstance(st.get("ts"), (int, float)):
+            seen.append((st["ts"], os.path.basename(os.path.dirname(f)), st))
+    seen.sort(reverse=True)
+    bad = [(sid, st) for ts, sid, st in seen[:10] if st.get("state") == "failed"
+           or (st.get("state") == "running" and time.time() - ts > 30)]
+    if bad:
+        sid, st = bad[0]
+        print("session-env failed in %d of the last %d sessions (latest %s: %s): their Bash had no "
+              "sandbox caches and git credential helpers on" % (len(bad), min(len(seen), 10), sid[:8],
+                                                                st.get("reason") or "did not finish"))
+    elif seen:
+        print("ok session-env set the sandbox env in the last %d sessions" % min(len(seen), 10))
+    else:
+        print("ok session-env: no session has recorded it yet (sessions since this install do)")
 else:
     print("no session-env SessionStart hook for every source: sandboxed Bash has no writable caches "
           "and git credential helpers stay on (rerun ./install.sh)")

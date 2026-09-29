@@ -208,6 +208,7 @@ def session_env(home, env_file, stdin='{"hook_event_name": "SessionStart", "sour
     import subprocess
     env = {k: v for k, v in os.environ.items() if k not in ("CLAUDE_ENV_FILE",)}
     env["HOME"] = str(home)
+    env["XDG_STATE_HOME"] = str(Path(str(home)).parent / "state")
     if env_file is not None:
         env["CLAUDE_ENV_FILE"] = str(env_file)
     return subprocess.run([sys.executable, GUARD, "session-env"], input=stdin, env=env,
@@ -258,10 +259,44 @@ def test_session_env_quotes_an_odd_home_and_never_blocks(tmp_path):
     uv, maven = sourced(env_file, "UV_CACHE_DIR", "MAVEN_OPTS")
     assert uv == str(home / ".cache" / "claude-sandbox" / "uv")
     assert maven == "UNSET"                      # MAVEN_OPTS is split on spaces: not set at all
-    r = session_env(home, None)                  # no CLAUDE_ENV_FILE: a warning, rc 0
-    assert r.returncode == 0 and "sandbox env not written" in r.stderr
+    r = session_env(home, None)                  # no CLAUDE_ENV_FILE: shown to the user (rc 2)
+    assert r.returncode == 2 and "NOT set for this session (no CLAUDE_ENV_FILE" in r.stderr
     r = session_env(home, tmp_path / "missing-dir" / "env.sh", stdin="not json")
-    assert r.returncode == 0 and "sandbox env not written" in r.stderr
+    assert r.returncode == 2 and "NOT set for this session (FileNotFoundError" in r.stderr
+
+
+def statusline(sid, state_home, now_offset=0):
+    import subprocess
+    env = dict(os.environ, XDG_STATE_HOME=str(state_home), NO_COLOR="1")
+    data = json.dumps({"session_id": sid, "model": {"display_name": "M"}})
+    return subprocess.run([sys.executable, str(ROOT / "dot-claude" / "bin" / "statusline.py")],
+                          input=data, env=env, capture_output=True, text=True, timeout=30).stdout
+
+
+def test_a_failed_session_env_is_recorded_shown_and_on_the_status_line(tmp_path):
+    """R4: a session-env failure reaches the user: exit 2 (Claude Code shows a SessionStart
+    hook's exit-2 stderr as a hook error notice, the session goes on), a record in the session's
+    state dir, and a warning at the front of the status line until a new session succeeds."""
+    home, state = tmp_path / "home", tmp_path / "state"
+    home.mkdir()
+    ok = session_env(home, tmp_path / "env.sh", stdin='{"session_id": "s-ok", "source": "startup"}')
+    assert ok.returncode == 0
+    rec = json.loads((state / "claude-agent-stack" / "s-ok" / "session-env.json").read_text())
+    assert rec["state"] == "ok"
+    assert "Bash sandbox env missing" not in statusline("s-ok", state)
+    bad = session_env(home, None, stdin='{"session_id": "s-bad", "source": "resume"}')
+    assert bad.returncode == 2 and "doctor.sh" in bad.stderr
+    rec = json.loads((state / "claude-agent-stack" / "s-bad" / "session-env.json").read_text())
+    assert rec["state"] == "failed" and "CLAUDE_ENV_FILE" in rec["reason"]
+    assert statusline("s-bad", state).startswith("! Bash sandbox env missing: doctor.sh")
+    # a hook that died midway: "running" for longer than the status line waits
+    stale = state / "claude-agent-stack" / "s-dead"
+    stale.mkdir(parents=True)
+    (stale / "session-env.json").write_text(json.dumps({"state": "running", "ts": 1.0}))
+    assert "Bash sandbox env missing" in statusline("s-dead", state)
+    (stale / "session-env.json").write_text(json.dumps({"state": "running", "ts": __import__("time").time()}))
+    assert "Bash sandbox env missing" not in statusline("s-dead", state)
+    assert "Bash sandbox env missing" not in statusline("s-none", state)   # never ran: doctor's job
 
 
 # ---------------------------------------------------------------- R3-SUPPLY: what the diff covers

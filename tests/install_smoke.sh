@@ -1853,11 +1853,18 @@ if bad:
     print("   ", bad)
 sys.exit(1 if bad else 0)
 PY
+# R4: a session whose session-env failed is reported by doctor.sh (the guard records it per session)
+mkdir -p "$XDG_STATE_HOME/claude-agent-stack/smoke-failed"
+printf '{"state": "failed", "reason": "no CLAUDE_ENV_FILE from Claude Code", "ts": %s}\n' "$(date +%s)" \
+  > "$XDG_STATE_HOME/claude-agent-stack/smoke-failed/session-env.json"
 out=$(CLAUDE_CONFIG_DIR="$TB/c" bash "$TB/c/bin/doctor.sh" 2>&1)
+rm -rf "$XDG_STATE_HOME/claude-agent-stack/smoke-failed"
 printf '%s\n' "$out" | grep -q "ok    sandboxed Bash env: session-env SessionStart hook wired" \
+  && printf '%s\n' "$out" | grep -q "ok    session-env hook writes the sandbox env (probe in a temp dir)" \
+  && printf '%s\n' "$out" | grep -q "WARN  session-env failed in 1 of the last .* (latest smoke-fa: no CLAUDE_ENV_FILE" \
   && ! printf '%s\n' "$out" | grep -q "settings.json env sets\|sandbox-writable package cache" \
-  && pass "doctor.sh: the session-env hook is wired, no cache env in settings" \
-  || failed "doctor.sh session-env check: $(printf '%s\n' "$out" | grep -i 'session-env\|env sets' | head -3)"
+  && pass "doctor.sh: the session-env hook is wired and works (probe), a session where it failed is reported" \
+  || failed "doctor.sh session-env check: $(printf '%s\n' "$out" | grep -i 'session-env\|env sets' | head -4)"
 # a first install (no manifest yet) retracts nothing of yours: ~/.cache stays in your allowWrite
 mkdir -p "$TB/f" && printf '{"sandbox": {"filesystem": {"allowWrite": ["~/.cache"]}}}\n' > "$TB/f/settings.json"
 CLAUDE_CONFIG_DIR="$TB/f" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$TB/first.log" 2>&1; rc=$?
