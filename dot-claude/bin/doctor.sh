@@ -199,6 +199,85 @@ PY
 else
   warn "$CJ not found — MCP servers not yet registered (run ./install.sh)"
 fi
+# Your own stdio MCP servers and hooks that run uvx/npx/... without the stack's cache override run
+# unsandboxed on a cache that sandboxed code can write (settings.json env). Names only, never args or env.
+python3 - "$CJ" "$C/settings.json" "${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack-cache" "$C" <<'PY' | while IFS= read -r l; do warn "$l"; done
+import json, os, re, sys
+cfg, settings, cache, cdir = sys.argv[1:5]
+UV = ("uvx", "uv", "pipx")
+NPM = ("npx", "npm", "pnpm", "pnpx", "bunx", "bun", "yarn")
+FIX = '"env": {"UV_CACHE_DIR": "%s/uv", "npm_config_cache": "%s/npm"}' % (cache, cache)
+CACHE = os.path.normpath(cache)
+
+
+def load(p):
+    try:
+        with open(p) as f:
+            d = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return d if isinstance(d, dict) else {}
+
+
+def clean(x):  # names and paths only, printable ASCII, bounded
+    return re.sub(r"[^\x20-\x7e]", "?", str(x))[:120]
+
+
+def under(v, sub):
+    if not isinstance(v, str) or not v:
+        return False
+    p, base = os.path.normpath(os.path.expanduser(v)), os.path.join(CACHE, sub)
+    return p == base or p.startswith(base + os.sep)
+
+
+def check(name, scope, e):
+    if not isinstance(e, dict) or e.get("type") not in (None, "stdio"):
+        return
+    cmd = e.get("command")
+    if not isinstance(cmd, str) or not cmd.strip():
+        return
+    b = os.path.basename(cmd.strip())
+    if b in UV:
+        key, sub = "UV_CACHE_DIR", "uv"
+    elif b in NPM:
+        key, sub = "npm_config_cache", "npm"
+    else:
+        return
+    env = e.get("env") if isinstance(e.get("env"), dict) else {}
+    if not under(env.get(key), sub):
+        print("MCP server '%s' (scope: %s) runs %s on the sandbox-writable package cache; add %s to its entry"
+              % (clean(name), clean(scope), clean(b), FIX))
+
+
+j = load(cfg)
+users = j.get("mcpServers")
+for n, e in sorted(users.items()) if isinstance(users, dict) else []:
+    check(n, "user", e)
+projs = j.get("projects")
+for pp, pv in sorted(projs.items()) if isinstance(projs, dict) else []:
+    ms = pv.get("mcpServers") if isinstance(pv, dict) else None
+    for n, e in sorted(ms.items()) if isinstance(ms, dict) else []:
+        check(n, "project " + pp, e)
+
+STACK = re.compile(r"agent_guard\.py|router-guard\.sh")
+B = r"(?:^|[\s;&|(`\"'/])"
+RUN = re.compile(B + r"(uvx|npx|bunx|pnpx)(?=$|[\s;&|)`\"'])|" + B + r"(uv\s+run|npm\s+exec)(?=\s|$)")
+hooks = load(settings).get("hooks")
+for ev, groups in sorted(hooks.items()) if isinstance(hooks, dict) else []:
+    for g in groups if isinstance(groups, list) else []:
+        hs = g.get("hooks") if isinstance(g, dict) else None
+        for h in hs if isinstance(hs, list) else []:
+            c = h.get("command") if isinstance(h, dict) else None
+            if not isinstance(c, str) or STACK.search(c) or (cdir + "/bin/") in c:
+                continue
+            m = RUN.search(c)
+            if m:
+                r = re.sub(r"\s+", " ", m.group(1) or m.group(2))
+                mt = g.get("matcher")
+                print("hook %s%s in settings.json runs %s on the sandbox-writable package cache; prefix its "
+                      "command with UV_CACHE_DIR=%s/uv npm_config_cache=%s/npm"
+                      % (clean(ev), " (%s)" % clean(mt) if isinstance(mt, str) and mt else "", r, cache, cache))
+PY
 
 echo "== Image models (image-studio; set in $C/stack.env)"
 # The server's own check: each tool's model looked up in its provider's catalog (no paid call).

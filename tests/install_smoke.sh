@@ -1646,6 +1646,48 @@ grep -q 'guard, settings and installer changes since the last install' "$TX/s1.l
 assert_unchanged_real_home
 drop_scratch "$TX"
 
+echo "== 17. User MCP servers and hooks on the sandbox-writable package cache are flagged (never changed)"
+TB="$(scratch_dir)" || exit 1
+SC="$TB/st/claude-agent-stack-cache"
+mkdir -p "$TB/c"
+python3 - "$TB/f.json" "$TB/c/settings.json" "$SC" <<'PY'
+import json, sys
+cache = sys.argv[3]
+json.dump({"mcpServers": {
+    "leaky-npx": {"command": "npx", "args": ["-y", "some-pkg"], "env": {"SECRET_KEY": "sk-test-123"}},
+    "safe-npx": {"type": "stdio", "command": "/usr/local/bin/npx", "args": ["-y", "other-pkg"],
+                 "env": {"UV_CACHE_DIR": cache + "/uv", "npm_config_cache": cache + "/npm", "SECRET_KEY": "sk-test-456"}},
+    "plain-py": {"command": "python3", "args": ["srv.py"]}},
+  "projects": {"/work/proj": {"mcpServers": {"proj-uvx": {"type": "stdio", "command": "uvx", "args": ["tool", "--key", "sk-test-789"]}}}}},
+  open(sys.argv[1], "w"))
+json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "npx my-hook --token sk-test-hook"}]}]}},
+  open(sys.argv[2], "w"))
+PY
+CJ_BEFORE="$(sha "$TB/f.json" | awk '{print $1}')"
+XDG_STATE_HOME="$TB/st" FAKE_CLAUDE_JSON="$TB/f.json" STACK_CLAUDE_JSON="$TB/f.json" CLAUDE_CONFIG_DIR="$TB/c" \
+  "$INSTALL" --no-plugins --no-deps --no-profile >"$TB/i.log" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q "MCP server 'leaky-npx' (scope: user) runs npx" "$TB/i.log" \
+  && grep -q "MCP server 'proj-uvx' (scope: project /work/proj) runs uvx" "$TB/i.log" \
+  && grep -q "hook PreToolUse (Bash) in settings.json runs npx" "$TB/i.log" \
+  && ! grep -q "safe-npx\|plain-py" "$TB/i.log" && ! grep -q 'sk-test-' "$TB/i.log" \
+  && grep -q "\"UV_CACHE_DIR\": \"$SC/uv\"" "$TB/i.log" \
+  && [ "$CJ_BEFORE" = "$(sha "$TB/f.json" | awk '{print $1}')" ] \
+  && pass "install: names the leaky server, project server and user hook; not the safe or non-runner ones; no secret printed; config untouched" \
+  || failed "install cache-runner warning (rc=$rc): $(grep -i 'sandbox-writable' "$TB/i.log" | head -3)"
+out=$(XDG_STATE_HOME="$TB/st" STACK_CLAUDE_JSON="$TB/f.json" CLAUDE_CONFIG_DIR="$TB/c" bash "$TB/c/bin/doctor.sh" 2>&1)
+printf '%s\n' "$out" | grep -q "WARN  MCP server 'leaky-npx' (scope: user) runs npx" \
+  && printf '%s\n' "$out" | grep -q "WARN  MCP server 'proj-uvx' (scope: project /work/proj) runs uvx" \
+  && printf '%s\n' "$out" | grep -q "WARN  hook PreToolUse (Bash) in settings.json runs npx" \
+  && ! printf '%s\n' "$out" | grep -q "safe-npx\|sk-test-" \
+  && pass "doctor.sh: one WARN per flagged entry, no args or env values" \
+  || failed "doctor.sh cache-runner WARN: $(printf '%s\n' "$out" | grep -i 'sandbox-writable' | head -3)"
+XDG_STATE_HOME="$TB/st" FAKE_CLAUDE_JSON="$TB/f.json" STACK_CLAUDE_JSON="$TB/f.json" CLAUDE_CONFIG_DIR="$TB/c" \
+  "$INSTALL" --dry-run --no-plugins --no-deps --no-profile >"$TB/d.log" 2>&1; rc=$?
+[ "$rc" = 0 ] && grep -q "MCP server 'leaky-npx'" "$TB/d.log" && ! grep -q 'sk-test-' "$TB/d.log" \
+  && pass "--dry-run flags them too" || failed "dry-run cache-runner warning (rc=$rc)"
+assert_unchanged_real_home
+drop_scratch "$TB"
+
 echo
 echo "== Summary: $PASS passed, $FAIL failed"
 rm -rf "$T1" "$T2" "$T3"
