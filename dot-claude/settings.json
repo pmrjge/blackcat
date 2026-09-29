@@ -37,7 +37,13 @@
     "STACK_MAX_MCP_CALLS": "64",
     "STACK_ENV_FILE": "__CLAUDE_DIR__/stack.env",
     "STACK_FANOUT_IDLE_S": "600",
-    "GOD_IDLE_S": "1800"
+    "GOD_IDLE_S": "1800",
+    "UV_CACHE_DIR": "__HOME__/.cache/claude-sandbox/uv",
+    "npm_config_cache": "__HOME__/.cache/claude-sandbox/npm",
+    "PRE_COMMIT_HOME": "__HOME__/.cache/claude-sandbox/pre-commit",
+    "GIT_CONFIG_COUNT": "1",
+    "GIT_CONFIG_KEY_0": "credential.helper",
+    "GIT_CONFIG_VALUE_0": ""
   },
   "permissions": {
     "defaultMode": "bypassPermissions",
@@ -45,6 +51,9 @@
       "mcp__magg__magg_add_server",
       "mcp__magg__magg_load_kit",
       "mcp__magg__proxy",
+      "mcp__magg__magg_enable_server",
+      "mcp__magg__duckdb_*",
+      "mcp__magg__jupyter_*",
       "CronCreate",
       "RemoteTrigger"
     ],
@@ -71,16 +80,13 @@
       "mcp__magg__magg_search_servers",
       "mcp__magg__magg_status",
       "mcp__magg__magg_check",
-      "mcp__magg__magg_enable_server",
       "mcp__magg__magg_disable_server",
       "mcp__magg__magg_unload_kit",
       "mcp__magg__magg_reload_config",
       "mcp__magg__docling_*",
       "mcp__magg__pw_*",
       "mcp__magg__lean_*",
-      "mcp__magg__duckdb_*",
       "mcp__magg__arxiv_*",
-      "mcp__magg__jupyter_*",
       "mcp__magg__mlflow_*",
       "mcp__magg__mongodb_*",
       "mcp__magg__postgres_*",
@@ -191,19 +197,15 @@
   },
   "sandbox": {
     "enabled": true,
+    "failIfUnavailable": true,
     "allowUnsandboxedCommands": false,
     "filesystem": {
       "allowWrite": [
         "~/.cache",
         "~/Library/Caches",
-        "~/.local/share/uv",
-        "~/.npm",
         "~/.cargo/registry",
         "~/.cargo/git",
-        "~/.rustup",
         "~/go/pkg",
-        "~/.julia",
-        "~/.elan",
         "~/.gradle/caches",
         "~/.m2/repository",
         "~/.bun/install/cache",
@@ -213,14 +215,20 @@
         "__CLAUDE_DIR__",
         "~/.local/state/claude-agent-stack",
         "__STACK_BACKUPS__",
-        "~/.julia/config",
+        "__STACK_CACHE__",
+        "~/.cache/uv",
+        "~/.cache/pre-commit",
+        "~/.cache/ms-playwright",
+        "~/Library/Caches/ms-playwright",
         "~/.cache/huggingface/token"
       ],
       "denyRead": [
         "__CLAUDE_DIR__/**/stack.env",
         "__CLAUDE_DIR__/backup-*",
         "__STACK_BACKUPS__",
-        "__CLAUDE_DIR__/.credentials.json"
+        "__CLAUDE_DIR__/.credentials.json",
+        "~/.config/gh/hosts.yml",
+        "~/.git-credentials"
       ]
     },
     "network": {
@@ -305,6 +313,22 @@
         },
         {
           "name": "CODEBERG_TOKEN",
+          "mode": "deny"
+        },
+        {
+          "name": "HF_TOKEN",
+          "mode": "deny"
+        },
+        {
+          "name": "HUGGING_FACE_HUB_TOKEN",
+          "mode": "deny"
+        },
+        {
+          "name": "WANDB_API_KEY",
+          "mode": "deny"
+        },
+        {
+          "name": "JUPYTER_TOKEN",
           "mode": "deny"
         }
       ]

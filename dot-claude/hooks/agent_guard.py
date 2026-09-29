@@ -362,6 +362,12 @@ def backup_root():
     return state_root() + "-backups"
 
 
+def cache_root():
+    """The local MCP servers' own uv/npm caches (install.sh renders them into each server's env):
+    code those servers load outside the sandbox, so no agent writes there."""
+    return state_root() + "-cache"
+
+
 def sdir(session_id):
     d = os.path.join(state_root(), safe(session_id, "nosession"))
     os.makedirs(d, exist_ok=True)
@@ -4066,9 +4072,9 @@ def _heredoc_interpreter(owner):
 def builtin_protect_specs():
     """`//abs` deny specs for the stack's own files in an installed config dir (the hook lives in
     <config>/hooks/; the repo's dot-claude/ still holds __CLAUDE_DIR__ and is skipped), for the
-    hook state dir and for install.sh's backups. Backs up the settings.json deny rules the protect
-    scan reads."""
-    specs = [("/" + os.path.join(state_root(), "**"), ()), ("/" + os.path.join(backup_root(), "**"), ())]
+    hook state dir, install.sh's backups and the MCP servers' caches. Backs up the settings.json
+    deny rules the protect scan reads."""
+    specs = [("/" + os.path.join(r, "**"), ()) for r in (state_root(), backup_root(), cache_root())]
     conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         with open(os.path.join(conf, "settings.json"), encoding="utf-8") as f:
@@ -4100,6 +4106,7 @@ class _Scan(object):
         self.ev = ev
         self._protect_specs = None
         self.cd = []                          # directories a `cd`/`pushd` earlier in the command named
+        self.opaque_cd = None                 # a cd target the guard can't resolve, naming protected files
 
     def hit(self, kind, what):
         if len(what) > 200:
@@ -4735,6 +4742,9 @@ class _Scan(object):
         s = self.expand_path(s)
         if s.startswith(self.UNRES):
             return self.opaque_hit(s.lstrip(self.UNRES), how, raw_path.strip())
+        if self.opaque_cd and not os.path.isabs(s):
+            return self.hit("protect", "%s: %s after `cd %s` (a directory the guard cannot resolve "
+                            "that names protected files)" % (how, raw_path.strip(), self.opaque_cd))
         glob = None
         m = self.GLOB_RE.search(s)
         if m:                                  # rm ~/.claude/*, rm ~/.claude/agents/scout*
@@ -4765,16 +4775,19 @@ class _Scan(object):
 
     def note_cd(self, args):
         """`cd DIR` / `pushd DIR`: later relative paths are also resolved against DIR (in
-        addition to the working directories: a cd inside a subshell does not last). Returns a
-        hit when DIR starts with an expansion the guard cannot resolve and names a protected
-        entry after it (cd $D/.claude)."""
+        addition to the working directories: a cd inside a subshell does not last). A DIR that
+        starts with an expansion the guard cannot resolve and names a protected entry after it
+        (cd $D/.claude) is remembered: every later relative write counts as a hit (the cd itself
+        writes nothing, and `cd "$D/.claude" && ls` stays allowed)."""
         pos = [a for a in args if not a.startswith("-") or a == "-"]
         target = pos[0] if pos else "~"
         if target == "-":
             return None
         target = self.expand_path(target)
         if target.startswith(self.UNRES):
-            return self.opaque_hit(target.lstrip(self.UNRES), "cd", pos[0])
+            if not self.opaque_cd and self.opaque_hit(target.lstrip(self.UNRES), "cd", pos[0]):
+                self.opaque_cd = pos[0]
+            return None
         m = self.GLOB_RE.search(target)
         if m:                                  # cd $HOME/.claude/$X: the directory before it
             target = target[:target.rfind("/", 0, m.start()) + 1] or "."

@@ -55,10 +55,10 @@
         "mcp-server-motherduck@1.0.8",
         "--db-path",
         ":memory:",
-        "--read-write",
-        "--allow-switch-databases"
+        "--init-sql",
+        "SET autoinstall_known_extensions=false; SET autoload_known_extensions=false; SET lock_configuration=true;"
       ],
-      "notes": "SQL over local files (CSV/Parquet/JSON) and DuckDB databases through an in-memory DuckDB; ATTACH or switch to a .duckdb file by absolute path. MotherDuck cloud needs motherduck_token and --db-path md:.",
+      "notes": "SQL over local files (CSV/Parquet/JSON) and DuckDB databases through an in-memory DuckDB; ATTACH a .duckdb file by absolute path with (READ_ONLY). No database switching, extensions never autoload, the settings are locked; every duckdb_* call asks the user (settings.json ask rule). MotherDuck cloud needs motherduck_token and --db-path md:.",
       "enabled": false
     },
     "arxiv": {

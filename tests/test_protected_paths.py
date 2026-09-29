@@ -270,7 +270,7 @@ def test_settings_sandbox_block():
     for lst in ("allowWrite", "denyWrite", "denyRead"):
         assert len(fs[lst]) == len(set(fs[lst])), lst
         for p in fs[lst]:
-            assert p.startswith(("~/", "__CLAUDE_DIR__", "__STACK_BACKUPS__")), p
+            assert p.startswith(("~/", "__CLAUDE_DIR__", "__STACK_BACKUPS__", "__STACK_CACHE__")), p
     net = sb["network"]
     assert net["strictAllowlist"] is True
     doms = net["allowedDomains"]
@@ -289,6 +289,44 @@ def test_settings_sandbox_block():
     assert set(net) <= {"allowedDomains", "deniedDomains", "strictAllowlist", "allowLocalBinding",
                         "allowUnixSockets", "allowAllUnixSockets", "allowMachLookup",
                         "httpProxyPort", "socksProxyPort", "tlsTerminate"}
+
+
+def test_settings_round2_hardening():
+    """N1, N2, N3, N4, C2-residual (security-findings-round2.md)."""
+    s = json.loads(SRC_SETTINGS.read_text())
+    sb, fs, env = s["sandbox"], s["sandbox"]["filesystem"], s["env"]
+    perms = s["permissions"]
+    # N2: no silent fallback to unsandboxed commands
+    assert sb["failIfUnavailable"] is True
+    # N4: nothing an unsandboxed process loads code from is sandbox-writable
+    for gone in ("~/.local/share/uv", "~/.npm", "~/.rustup", "~/.julia", "~/.elan"):
+        assert gone not in fs["allowWrite"], gone
+    assert {"__STACK_CACHE__", "~/.cache/uv", "~/.cache/pre-commit", "~/.cache/ms-playwright",
+            "~/Library/Caches/ms-playwright"} <= set(fs["denyWrite"])
+    # sandboxed commands get their own caches under ~/.cache (still writable)
+    assert env["UV_CACHE_DIR"] == "__HOME__/.cache/claude-sandbox/uv"
+    assert env["npm_config_cache"] == "__HOME__/.cache/claude-sandbox/npm"
+    assert env["PRE_COMMIT_HOME"] == "__HOME__/.cache/claude-sandbox/pre-commit"
+    # N1: git credential helpers are off for every agent command; gh's and git's stores unreadable
+    assert (env["GIT_CONFIG_COUNT"], env["GIT_CONFIG_KEY_0"], env["GIT_CONFIG_VALUE_0"]) == \
+        ("1", "credential.helper", "")
+    assert {"~/.config/gh/hosts.yml", "~/.git-credentials"} <= set(fs["denyRead"])
+    assert {"Read(~/.config/gh/hosts.yml)", "Read(~/.git-credentials)"} <= set(perms["deny"])
+    # N3: enabling a catalog server and the duckdb/jupyter tools ask (ask rules prompt even in
+    # bypassPermissions: permission-modes#actions-no-mode-auto-approves)
+    for t in ("mcp__magg__magg_enable_server", "mcp__magg__duckdb_*", "mcp__magg__jupyter_*"):
+        assert t in perms["ask"] and t not in perms["allow"], t
+    # C2-residual: model and notebook tokens never reach a sandboxed command
+    env_deny = {e["name"] for e in sb["credentials"]["envVars"] if e["mode"] == "deny"}
+    assert {"HF_TOKEN", "WANDB_API_KEY", "JUPYTER_TOKEN"} <= env_deny
+
+
+def test_magg_duckdb_read_only():
+    m = json.loads((SRC_SETTINGS.parent / "magg" / "config.json").read_text())
+    args = m["servers"]["duckdb"]["args"]
+    assert "--read-write" not in args and "--allow-switch-databases" not in args
+    init = args[args.index("--init-sql") + 1]
+    assert "lock_configuration=true" in init and "autoload_known_extensions=false" in init
 
 
 def test_settings_wire_blackcat_guard_and_memory_hooks():
@@ -476,7 +514,8 @@ def test_f1_ordinary_globs_allowed(shell_env, cmd):
     "cd $HOME/.claude/agents && rm *.md",
     "cd $HOME && cd .claude && rm agents/x.md",
     "cd $HOME/.claude/$X && rm agents/x.md",
-    "cd $D/.claude && ls",
+    "cd $D/.claude && rm agents/x.md",
+    'cd "$D/.claude" && echo x > settings.json',
     "C=$HOME/.claude; cd $C && rm agents/x.md",
 ])
 def test_f1_cd_then_relative_write(shell_env, monkeypatch, cmd):
@@ -488,6 +527,7 @@ def test_f1_cd_then_relative_write(shell_env, monkeypatch, cmd):
 @pytest.mark.parametrize("cmd", [
     "cd $HOME && rm build/x", "cd $HOME/projects && rm agents/x.md", "cd $TMPDIR && rm agents/x",
     "cd $HOME/.claude && ls agents", "cd ~/.claude && cat settings.json",
+    'cd "$D/.claude" && ls', "cd $REPO/.claude && cat settings.json",
     "pushd $HOME/.claude && grep -r foo agents",
 ])
 def test_f1_cd_without_a_protected_write_allowed(shell_env, cmd):
@@ -553,3 +593,18 @@ def test_f1_f4_end_to_end_through_the_hook(installed, tmp_path):
     for cmd in ["rm -rf $TMPDIR/build", "rm -rf /tmp/x/*", "rm build/*"]:
         p = run_hook(hook_path, cmd, cwd=str(proj), HOME=str(home))
         assert p.returncode == 0 and p.stdout == "", (cmd, p.stdout, p.stderr)
+
+
+def test_rules_protected_list_names_manifest_and_backups():
+    """rules:58 names every protected entry the guard enforces (PROTECTED_CONFIG + state roots)."""
+    text = (ROOT / "dot-claude" / "rules" / "claude-agent-stack.md").read_text()
+    line = next(l for l in text.splitlines() if l.startswith("- Never edit the installed stack"))
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("agent_guard_rules", str(SRC_HOOK))
+    g = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(g)
+    for name in g.PROTECTED_CONFIG:
+        if name != ".credentials.json":           # Claude Code's login: covered by the secrets rules
+            assert "`%s" % name.rstrip("*") in line, name
+    for s in ("~/.local/state/claude-agent-stack", "-backups", "-cache", "install.sh"):
+        assert s in line, s
