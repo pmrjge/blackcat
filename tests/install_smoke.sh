@@ -163,7 +163,15 @@ checks = {
     "StopFailure hook": any("agent_guard.py" in json.dumps(g) for g in h.get("StopFailure", [])),
     "PostToolUse TaskStop": any("TaskStop" in (g.get("matcher") or "") for g in h["PostToolUse"]),
     "no blanket mcp__magg": "mcp__magg" not in allow,
-    "magg catalog tools allowed": "mcp__magg__magg_enable_server" in allow and "mcp__magg__docling_*" in allow,
+    "magg catalog tools allowed": "mcp__magg__docling_*" in allow and "mcp__magg__arxiv_*" in allow,
+    "magg enable/duckdb/jupyter ask": {"mcp__magg__magg_enable_server", "mcp__magg__duckdb_*",
+                                       "mcp__magg__jupyter_*"} <= set(s["permissions"]["ask"]) and
+                                      "mcp__magg__magg_enable_server" not in allow,
+    "sandbox caches rendered": s["env"]["UV_CACHE_DIR"].startswith("/") and
+                               s["env"]["UV_CACHE_DIR"].endswith("/.cache/claude-sandbox/uv"),
+    "MCP cache is denyWrite": any(p.endswith("/claude-agent-stack-cache") and p.startswith("/")
+                                  for p in s["sandbox"]["filesystem"]["denyWrite"]),
+    "failIfUnavailable": s["sandbox"].get("failIfUnavailable") is True,
     "config .claude.json read-deny": any(r.endswith("/.claude.json)") and r.startswith("Read(//") for r in deny),
     "local-file MCP guard": any("ctx_index" in (g.get("matcher") or "") and "agent_guard.py" in json.dumps(g)
                                 for g in h["PreToolUse"]),
@@ -211,6 +219,26 @@ grep -q "$T1/mcp/image_studio_mcp.py" "$T1/agents/image-director.md" && grep -q 
   || failed "image-studio not rendered, or an older image server still referenced"
 grep -q "$T1/mcp/neural_memory_mcp.py" "$T1/agents/ninja-coder.md" && grep -q 'context-mode@1.0.169' "$T1/agents/researcher.md" \
   && pass "neural-memory and context-mode rendered into the agents that use them" || failed "neural-memory/context-mode not rendered"
+# N4: every local stdio MCP server of every agent runs with the stack's own (denyWrite) caches
+python3 - "$T1/agents" "$BK_ROOT" <<'PY' && pass "every agent's stdio MCP server has UV_CACHE_DIR/npm_config_cache in the protected cache" || failed "MCP cache env missing (see above)"
+import glob, os, re, sys
+agents, bk = sys.argv[1], sys.argv[2]
+cache = bk[:-len("-backups")] + "-cache"
+bad, seen = [], 0
+for p in sorted(glob.glob(os.path.join(agents, "*.md"))):
+    front = open(p).read().split("\n---", 1)[0]
+    for m in re.finditer(r"(?m)^  - ([A-Za-z0-9_-]+):\n((?:      .*\n?)+)", front):
+        body = m.group(2)
+        if "command:" not in body:
+            continue
+        seen += 1
+        for k, sub in (("UV_CACHE_DIR", "uv"), ("npm_config_cache", "npm")):
+            if '        %s: "%s/%s"' % (k, cache, sub) not in body:
+                bad.append("%s:%s %s" % (os.path.basename(p), m.group(1), k))
+if bad or not seen:
+    print("   ", bad[:6], "servers seen:", seen)
+sys.exit(1 if bad or not seen else 0)
+PY
 out=$(XDG_STATE_HOME="$T1/state" "$T1/bin/magg-private" /bin/echo --env-pass --config "$T1/magg/config.json" serve)
 priv=$(printf '%s\n' "$out" | sed -n 's/^--env-pass --config \(.*\) serve$/\1/p')
 [ -n "$priv" ] && [ "$priv" != "$T1/magg/config.json" ] && cmp -s "$priv" "$T1/magg/config.json" \
@@ -1322,7 +1350,8 @@ removed: not part of the stack
   - skills/old-skill/  (not shipped by the stack: yours or another tool's)
   - skills/python-engineering/notes.md  (not part of the stack's python-engineering skill)
   - magg catalog: oldsrv  (no longer shipped by the stack)
-  - settings.json hooks.Notification  (the stack's guard no longer runs on it)
+  - settings.json hooks.PreToolUse[Bash]: "/usr/bin/python3" "/old/config/hooks/agent_guard.py" no-push  (an earlier copy of the stack's guard hook; the current one replaces it)
+  - settings.json hooks.Notification: "/usr/bin/python3" "/old/hooks/agent_guard.py"  (the stack's guard no longer runs on it)
   - settings.json hooks  (2 duplicate hook entries)
   - settings.json permissions.allow  (1 duplicate rule)
   ~ agents/coder.md  (edited since the last install)
@@ -1456,7 +1485,7 @@ grep -q 'no changes: the config dir already matches this stack version' "$TX/l2.
   && pass "symlinked config dir: --dry-run after a real run reports no changes" || failed "symlinked config dir: dry-run differs from the real run"
 # --print-managed-settings: JSON only on stdout, nothing installed, no claude needed
 out="$(CLAUDE_CONFIG_DIR="$TX/m" PATH="/usr/bin:/bin" "$INSTALL" --print-managed-settings 2>"$TX/m.err")"; rc=$?
-printf '%s' "$out" | python3 -c 'import json, sys; d = json.load(sys.stdin); sys.exit(0 if d["hooks"]["PreToolUse"] and d["permissions"]["deny"] and d["sandbox"]["enabled"] else 1)' \
+printf '%s' "$out" | python3 -c 'import json, sys; d = json.load(sys.stdin); sys.exit(0 if d["hooks"]["PreToolUse"] and d["permissions"]["deny"] and d["sandbox"]["enabled"] and d["sandbox"]["failIfUnavailable"] is True and "__" not in json.dumps(d) and any("gh/hosts.yml" in r for r in d["permissions"]["deny"]) else 1)' \
   && [ "$rc" = 0 ] && [ ! -e "$TX/m" ] && grep -q 'install it yourself' "$TX/m.err" \
   && pass "--print-managed-settings: valid JSON on stdout, instructions on stderr, nothing written" \
   || failed "--print-managed-settings (rc=$rc): $(printf '%s' "$out" | head -c 200)"
@@ -1466,6 +1495,95 @@ for f in --dry-run --no-prune --restore --print-managed-settings --keep-plugin-d
 done
 printf '%s\n' "$help" | grep -q 'removed: not part of the stack\|backed up' && pass "--help documents the new flags and the backup" \
   || failed "--help lacks the prune/backup paragraph"
+
+echo "== 16. Hardening: manifest paths, symlinked scope dirs, the backup root, restored links, the shipped commit"
+# N-MANIFEST: a manifest key that climbs out of the staging dir stops the install before anything changes
+xrun "$TX/v" "$TX/v0.log"
+python3 - "$TX/v/.stack-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+m["files"]["hooks/../../../../victim.txt"] = "0" * 64     # relative to the staging dir: $XDG_STATE_HOME
+json.dump(m, open(sys.argv[1], "w"))
+PY
+printf 'keep\n' > "$XDG_STATE_HOME/victim.txt"
+fp "$TX/v" > "$TX/fp.v"
+xrun "$TX/v" "$TX/v1.log"; rc=$?
+[ "$rc" != 0 ] && [ "$(cat "$XDG_STATE_HOME/victim.txt")" = keep ] && cmp -s "$TX/fp.v" <(fp "$TX/v") \
+  && grep -q 'names paths outside the stack' "$TX/v1.log" \
+  && pass "a manifest key with .. stops the install; the file it names and the config dir are untouched" \
+  || failed "manifest traversal (rc=$rc): $(grep -i 'manifest\|refus' "$TX/v1.log" | head -3)"
+rm -f "$XDG_STATE_HOME/victim.txt"
+# N-SYMLINK: a symlinked skills/ (a dotfiles checkout) is never pruned; without --force the run stops
+xrun "$TX/y" "$TX/y0.log"
+mkdir -p "$TX/outS"; cp -R "$TX/y/skills/." "$TX/outS/"
+printf 'precious\n' > "$TX/outS/precious.txt"; mkdir -p "$TX/outS/user-owned"; printf 'x\n' > "$TX/outS/user-owned/SKILL.md"
+printf '\n<!-- my edit -->\n' >> "$TX/outS/python-engineering/SKILL.md"
+rm -rf "$TX/y/skills"; ln -s "$TX/outS" "$TX/y/skills"
+fp "$TX/outS" > "$TX/fp.o0"; fp "$TX/y" > "$TX/fp.y0"; nby=$(count_backups "$TX/y")
+xrun "$TX/y" "$TX/y1.log"; rc=$?
+[ "$rc" != 0 ] && cmp -s "$TX/fp.o0" <(fp "$TX/outS") && cmp -s "$TX/fp.y0" <(fp "$TX/y") && [ "$(count_backups "$TX/y")" = "$nby" ] \
+  && grep -q 'rerun with --force' "$TX/y1.log" \
+  && pass "symlinked skills/: without --force the run stops; nothing changes on either side" || failed "symlinked skills/ without --force (rc=$rc)"
+xrun "$TX/y" "$TX/y2.log" --dry-run; rc=$?
+[ "$rc" = 0 ] && cmp -s "$TX/fp.o0" <(fp "$TX/outS") && grep -q "skills/ is a symlink to $(cd "$TX/outS" && pwd -P)" "$TX/y2.log" \
+  && grep -q 'skills/precious.txt: kept' "$TX/y2.log" && ! grep -q '^  - skills/' "$TX/y2.log" \
+  && pass "symlinked skills/: --dry-run lists nothing to remove there and names what it keeps" || failed "symlinked skills/ --dry-run (rc=$rc)"
+xrun "$TX/y" "$TX/y3.log" --force; rc=$?
+BY="$(latest_backup "$TX/y")"
+[ "$rc" = 0 ] && [ -L "$TX/y/skills" ] && [ -f "$TX/outS/precious.txt" ] && [ -f "$TX/outS/user-owned/SKILL.md" ] \
+  && ! grep -q 'my edit' "$TX/outS/python-engineering/SKILL.md" && grep -q 'my edit' "$BY/files/skills/python-engineering/SKILL.md" \
+  && pass "symlinked skills/ with --force: the stack's files written through the link (backed up), nothing of yours removed" \
+  || failed "symlinked skills/ --force (rc=$rc)"
+# the same for agents/
+xrun "$TX/y" "$TX/y4.log" --force
+mkdir -p "$TX/outA"; cp -R "$TX/y/agents/." "$TX/outA/"; printf -- '---\nname: mine\ndescription: x\n---\n' > "$TX/outA/mine.md"
+rm -rf "$TX/y/agents"; ln -s "$TX/outA" "$TX/y/agents"
+xrun "$TX/y" "$TX/y5.log"; rc5=$?; xrun "$TX/y" "$TX/y6.log" --force; rc6=$?
+[ "$rc5" != 0 ] && [ "$rc6" = 0 ] && [ -f "$TX/outA/mine.md" ] && [ -L "$TX/y/agents" ] \
+  && pass "symlinked agents/: stops without --force; with it, your agent there stays" || failed "symlinked agents/ (rc=$rc5/$rc6)"
+# L4 + L1: the backup root must be a real directory (a symlink there is refused); the working copy
+# (stack.env included) lives inside it, and a --dry-run that created the root removes it again
+mkdir -p "$SCRATCH_ROOT/st-l4" "$TX/elsewhere"; ln -s "$TX/elsewhere" "$SCRATCH_ROOT/st-l4/claude-agent-stack-backups"
+XDG_STATE_HOME="$SCRATCH_ROOT/st-l4" xrun "$TX/y" "$TX/l4.log" --dry-run --force; rc=$?
+[ "$rc" != 0 ] && grep -q 'is a symlink or not a directory' "$TX/l4.log" && [ -z "$(ls -A "$TX/elsewhere")" ] \
+  && pass "a symlinked backup root is refused, never followed" || failed "symlinked backup root (rc=$rc)"
+XDG_STATE_HOME="$SCRATCH_ROOT/st-fresh" xrun "$TX/w" "$TX/w.log" --dry-run; rc=$?
+[ "$rc" = 0 ] && grep -q "staged in $SCRATCH_ROOT/st-fresh/claude-agent-stack-backups/.work." "$TX/w.log" \
+  && [ ! -e "$SCRATCH_ROOT/st-fresh/claude-agent-stack-backups" ] \
+  && pass "the working copy lives in the private backup root; a --dry-run that created the root removes it" \
+  || failed "work dir location / dry-run leftovers (rc=$rc): $(grep 'staged in' "$TX/w.log")"
+# L2: a saved symlink whose target leaves the config dir comes back only with --force
+xrun "$TX/r" "$TX/r0.log"
+printf 'ext\n' > "$TX/ext-target.md"; ln -s "$TX/ext-target.md" "$TX/r/agents/ext.md"
+xrun "$TX/r" "$TX/r1.log"; BR="$(latest_backup "$TX/r")"
+xrun "$TX/r" "$TX/r2.log" --restore "$BR"; rc2=$?
+skipped=0; [ ! -e "$TX/r/agents/ext.md" ] && [ ! -L "$TX/r/agents/ext.md" ] && grep -q 'skipped agents/ext.md: it was a link to' "$TX/r2.log" && skipped=1
+xrun "$TX/r" "$TX/r3.log" --restore "$BR" --force; rc3=$?
+[ "$rc2" = 0 ] && [ "$skipped" = 1 ] && [ "$rc3" = 0 ] && [ "$(readlink "$TX/r/agents/ext.md")" = "$TX/ext-target.md" ] \
+  && pass "restore: a link pointing outside the config dir is skipped (named), restored with --force" \
+  || failed "restore of an outside link (rc=$rc2/$rc3, skipped=$skipped)"
+# N-SUPPLY: the manifest records the shipped commit; an older one shows the guard/settings changes since
+head_full="$(git -C "$HERE" rev-parse HEAD)"
+python3 -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1])).get("commit") == sys.argv[2] else 1)' \
+  "$TX/r/.stack-manifest.json" "$head_full" && pass "the manifest records the installed commit" || failed "manifest commit missing"
+set_commit(){ python3 - "$TX/r/.stack-manifest.json" "$1" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1])); m["commit"] = sys.argv[2]; json.dump(m, open(sys.argv[1], "w"))
+PY
+}
+# an "earlier install": a commit (off every branch) whose guard differs from HEAD's
+blob="$(printf '# an earlier guard\n' | tgit -C "$HERE" hash-object -w --stdin)"
+GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" read-tree HEAD
+GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" update-index --cacheinfo "100755,$blob,dot-claude/hooks/agent_guard.py"
+old_commit="$(tgit -C "$HERE" commit-tree "$(GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" write-tree)" -p HEAD -m earlier </dev/null)"
+set_commit "$old_commit"
+xrun "$TX/r" "$TX/s1.log" --dry-run
+set_commit "0123456789abcdef0123456789abcdef01234567"
+xrun "$TX/r" "$TX/s2.log" --dry-run
+grep -q 'guard, settings and installer changes since the last install' "$TX/s1.log" && grep -q 'dot-claude/hooks/agent_guard.py' "$TX/s1.log" \
+  && grep -q "which this repo doesn't have" "$TX/s2.log" \
+  && pass "an install shows the guard/settings diff since the recorded commit (and warns on an unknown one)" \
+  || failed "supply-chain diff: $(grep -i 'since the last install\|repo doesn' "$TX/s1.log" "$TX/s2.log" | head -3)"
 assert_unchanged_real_home
 drop_scratch "$TX"
 

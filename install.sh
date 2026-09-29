@@ -20,7 +20,10 @@
 #   ./install.sh --dry-run       print every change (files, removals, MCP, plugins, rc) and make none
 #   ./install.sh --no-prune      keep what isn't part of the stack and your edits to stack files
 #                                 (default: they are backed up, then removed or replaced)
-#   ./install.sh --force         with --no-prune: still replace stack files you edited
+#   ./install.sh --force         with --no-prune: still replace stack files you edited; with a
+#                                 symlinked agents/, skills/, ... dir: write the stack's files through
+#                                 the link (nothing there is removed either way); with --restore:
+#                                 also put back saved symlinks that point outside the config dir
 #   ./install.sh --restore [DIR] put the config dir back as it was before an install (DIR: a backup;
 #                                 default: the latest), then exit
 #   ./install.sh --print-managed-settings  print an optional managed-settings.json that pins the
@@ -195,10 +198,23 @@ OS="$(uname)"
 # (settings.json deny rules, sandbox denyRead/denyWrite, the guard's protected paths).
 STACK_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack"
 BACKUP_ROOT="${STACK_STATE}-backups"
+# The local MCP servers' own uv/npm caches (sandbox denyWrite: sandboxed commands can't plant code there)
+STACK_CACHE="${STACK_STATE}-cache"
 STATE_PY="$HERE/lib/install_state.py"
 STACK_COMMIT="$(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
-WORK="$(mktemp -d)"
-trap 'rm -rf "$WORK"' EXIT
+STACK_COMMIT_FULL="$(git -C "$HERE" rev-parse HEAD 2>/dev/null || echo unknown)"
+# The working dir (the staged copy of $C, stack.env with your keys included, MCP entries on their way
+# to `claude mcp`) lives inside the backup root: a real directory of yours, 0700 (a symlink there is
+# refused), which agents can neither read nor write. A run that changes nothing (--dry-run,
+# --mcp-plan, --print-managed-settings) and had to create the root removes it again.
+ROOT_STATE="$(python3 "$STATE_PY" private-root "$BACKUP_ROOT")" || exit 1
+find "$BACKUP_ROOT" -maxdepth 1 -name '.work.*' -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
+WORK="$(mktemp -d "$BACKUP_ROOT/.work.XXXXXX")"
+cleanup(){
+  rm -rf "$WORK"
+  if [ "$ROOT_STATE" = created ] && [ "$DRY_RUN$PRINT_MANAGED$MCP_PLAN" != 000 ]; then rmdir "$BACKUP_ROOT" 2>/dev/null || true; fi
+}
+trap cleanup EXIT
 # --dry-run: nothing outside $WORK is written; commands that would change something are printed.
 would(){ printf '  would: %s\n' "$*"; }
 say(){ printf '\n\033[1m%s\033[0m\n' "$*"; }
@@ -220,10 +236,11 @@ MIN_CLAUDE=2.1.271
 
 if [ -n "$RESTORE" ]; then
   say "Restore ($C)"
+  RFLAGS=""; [ "$FORCE" = 1 ] && RFLAGS="--force"
   if [ "$DRY_RUN" = 1 ]; then
-    python3 "$STATE_PY" restore "$C" "$RESTORE" "$BACKUP_ROOT" "$WORK" "$STACK_COMMIT" "$HOME" --dry-run || exit 1
+    python3 "$STATE_PY" restore "$C" "$RESTORE" "$BACKUP_ROOT" "$WORK" "$STACK_COMMIT" "$HOME" --dry-run $RFLAGS || exit 1
   else
-    python3 "$STATE_PY" restore "$C" "$RESTORE" "$BACKUP_ROOT" "$WORK" "$STACK_COMMIT" "$HOME" || exit 1
+    python3 "$STATE_PY" restore "$C" "$RESTORE" "$BACKUP_ROOT" "$WORK" "$STACK_COMMIT" "$HOME" $RFLAGS || exit 1
   fi
   # MCP entries (removed, or replaced by the stack's) come back from the backup, plugins it disabled
   # are enabled again. The entries go to `claude mcp add-json` through a 0600 file in $WORK, one per
@@ -326,21 +343,22 @@ note "hook interpreter: $STACK_PYTHON"
 # sandbox, so editing ~/.claude/settings.json can no longer switch them off. JSON on stdout,
 # instructions on stderr: ./install.sh --print-managed-settings > managed-settings.json
 if [ "$PRINT_MANAGED" = 1 ]; then
-  python3 - "$SRC/settings.json" "$C" "$STACK_PYTHON" "$BACKUP_ROOT" <<'PY' >&3
+  python3 - "$SRC/settings.json" "$C" "$STACK_PYTHON" "$BACKUP_ROOT" "$STACK_CACHE" "$HOME" <<'PY' >&3
 import json, sys
-src, c, py, backups = sys.argv[1:5]
+src, c, py, backups, cache, home = sys.argv[1:7]
 text = open(src, encoding="utf-8").read()
-for k, v in (("__CLAUDE_DIR__", c), ("__PYTHON3__", py), ("__STACK_BACKUPS__", backups)):
+for k, v in (("__CLAUDE_DIR__", c), ("__PYTHON3__", py), ("__STACK_BACKUPS__", backups),
+             ("__STACK_CACHE__", cache), ("__HOME__", home)):
     text = text.replace(k, json.dumps(v)[1:-1])
 s = json.loads(text)
 deny = [r for r in s["permissions"]["deny"]
-        if r.startswith(("Edit(//", "Read(//")) or r.startswith(("Edit(.git", "Edit(.claude", "Edit(~/"))]
+        if r.startswith(("Edit(//", "Read(//", "Read(~/")) or r.startswith(("Edit(.git", "Edit(.claude", "Edit(~/"))]
 guard = [g for g in s["hooks"]["PreToolUse"] if "no-push" in json.dumps(g)]
 sb = s["sandbox"]
 managed = {
     "permissions": {"deny": deny},
     "hooks": {"PreToolUse": guard},
-    "sandbox": {"enabled": True, "allowUnsandboxedCommands": False,
+    "sandbox": {"enabled": True, "failIfUnavailable": True, "allowUnsandboxedCommands": False,
                 "filesystem": {"denyWrite": sb["filesystem"]["denyWrite"], "denyRead": sb["filesystem"]["denyRead"]},
                 "network": {"strictAllowlist": True, "allowedDomains": sb["network"]["allowedDomains"]},
                 "credentials": sb.get("credentials", {})},
@@ -643,9 +661,24 @@ say "5/11 Stage (a working copy of the stack's part of $C)"
 # Nothing in $C changes until step 7 has validated the result: the stack's part of it (agents/,
 # skills/ but the synced ones, rules/, hooks/, bin/, mcp/ but vendor/, stack-plugins/, magg's
 # catalog, settings.json, stack.env, the manifest) is copied to $S, and steps 5-7 work there.
-S="$WORK/stage"; REPORT="$WORK/report.json"; PLAN_JSON="$WORK/plan.json"
+S="$WORK/stage"; REPORT="$WORK/report.json"; PLAN_JSON="$WORK/plan.json"; SNAP="$WORK/snapshot.json"
+# A top-level dir of the stack's part that is a symlink (a dotfiles checkout: agents/, skills/, ...)
+# holds your files: nothing there is ever removed, and the stack's files are written through the link
+# only with --force (otherwise the run stops here; --dry-run shows what it would do).
+LINKED="$(python3 "$STATE_PY" linked "$C")"
+if [ -n "$LINKED" ]; then
+  while IFS=$'\t' read -r d target; do
+    note "! $C/$d is a symlink to $target: yours; nothing there is removed"
+  done <<EOF_LINKED
+$LINKED
+EOF_LINKED
+  if [ "$FORCE" = 0 ] && [ "$DRY_RUN" = 0 ]; then
+    echo "install.sh: symlinked dir(s) above: rerun with --force to write the stack's files through the link(s) (nothing there is removed), or replace them with real directories. Nothing in $C was changed." >&2
+    exit 1
+  fi
+fi
 mkdir -p "$S"
-python3 "$STATE_PY" stage "$C" "$S"
+python3 "$STATE_PY" stage "$C" "$S" "$SNAP"
 note "staged in $S (prune: $([ "$PRUNE" = 1 ] && echo on || echo 'off (--no-prune)'))"
 # backups earlier versions kept inside $C (with copies of stack.env) move out on every run
 legacy_b="$(python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" list)"
@@ -817,7 +850,7 @@ if [ "$SKIP_MCP" = 0 ] && [ "$MCP_PLAN" = 0 ] && claude mcp get spider >/dev/nul
 RENDERED_SETTINGS="$WORK/settings.rendered.json"
 
 FORCE="$FORCE" SPIDER_REWRITE="$SPIDER_REWRITE" RENDERED_SETTINGS="$RENDERED_SETTINGS" DEST="$S" PRUNE="$PRUNE" \
-REPORT="$REPORT" STACK_BACKUPS="$BACKUP_ROOT" python3 - "$SRC" "$C" "$HERE" <<'PY'
+REPORT="$REPORT" STACK_BACKUPS="$BACKUP_ROOT" STACK_CACHE="$STACK_CACHE" STACK_COMMIT_FULL="$STACK_COMMIT_FULL" python3 - "$SRC" "$C" "$HERE" <<'PY'
 import difflib, glob, hashlib, json, os, re, shutil, subprocess, sys
 
 # C is where the files will live (every rendered path names it); DEST is the staged copy of C
@@ -834,9 +867,19 @@ def save_report():
         json.dump(report, rf, indent=2, sort_keys=True)
 
 
+sys.path.insert(0, os.path.join(REPO, "lib"))
+from install_state import in_scope, within  # noqa: E402  (the same scope rule as backups)
+
+DEST_REAL = os.path.realpath(DEST)
+
+
 def drop(rel, why):
-    """Remove DEST/rel (a file, link or directory) and say why in the listing."""
+    """Remove DEST/rel (a file, link or directory) and say why in the listing. Only a SCOPE path
+    whose parent resolves inside the staging dir: a name from the manifest can't reach elsewhere."""
     p = os.path.join(DEST, rel.rstrip("/"))
+    if not in_scope(rel.rstrip("/")) or not within(os.path.realpath(os.path.dirname(p)), DEST_REAL):
+        sys.exit("install.sh: refusing to remove %r: not a path inside the config dir's stack part "
+                 "— nothing in %s was changed" % (rel, C))
     if os.path.isdir(p) and not os.path.islink(p):
         shutil.rmtree(p)
         report["removed"][rel.rstrip("/") + "/"] = why
@@ -891,6 +934,7 @@ SUBS = {
     "__HUETENSION__": which("huetension", home + "/.local/bin/huetension"),
     "__STACK_REPO__": REPO,
     "__STACK_BACKUPS__": os.environ["STACK_BACKUPS"],
+    "__STACK_CACHE__": os.environ["STACK_CACHE"],
 }
 
 
@@ -993,9 +1037,27 @@ try:
     manifest = json.load(open(manifest_path))
 except (OSError, ValueError):
     manifest = {}
+# Every path the manifest names is checked before anything uses it (N-MANIFEST): a name with "..",
+# an absolute path or anything outside the stack's part of the config dir stops the install.
+if not isinstance(manifest, dict):
+    manifest = {}
+_bad = []
+for _key in ("files", "offered"):
+    _val = manifest.get(_key)
+    if _val is None:
+        continue
+    if not isinstance(_val, dict):
+        _bad.append("%s (not an object)" % _key)
+        continue
+    _bad += ["%s: %r" % (_key, _rel) for _rel in _val if not in_scope(_rel)]
+if _bad:
+    sys.exit("install.sh: %s names paths outside the stack's part of the config dir (%s) — stopping; "
+             "nothing in %s was changed. Remove those entries (or the file: the next run rebuilds it)."
+             % (os.path.join(C, ".stack-manifest.json"), ", ".join(_bad[:5]), C))
 files_entry = manifest.setdefault("files", {})
 offered = manifest.setdefault("offered", {})
 manifest["repo"] = REPO     # where the stack's source lives (claude-code-engineer, mcp-broker)
+manifest["commit"] = os.environ.get("STACK_COMMIT_FULL") or "unknown"   # what this install ships
 
 
 def save_manifest():
@@ -1166,6 +1228,46 @@ def drop_servers(rendered, names):
     return re.sub(r"(?m)^mcpServers:\n(?=[A-Za-z])", "", rendered)   # a block left empty
 
 
+# Local MCP servers run outside the sandbox, with keys: they get their own uv and npm caches under
+# __STACK_CACHE__ (sandbox denyWrite), so nothing a sandboxed command writes into a cache ends up in
+# the code they load. settings.json points sandboxed commands at ~/.cache/claude-sandbox instead;
+# these entries override it for each server (magg passes its environment on to the servers it runs).
+MCP_CACHE_ENV = (("UV_CACHE_DIR", os.path.join(SUBS["__STACK_CACHE__"], "uv")),
+                 ("npm_config_cache", os.path.join(SUBS["__STACK_CACHE__"], "npm")))
+
+
+def mcp_cache_env(rendered):
+    """Add MCP_CACHE_ENV to the env of every inline stdio server in the frontmatter."""
+    if not rendered.startswith("---\n"):
+        return rendered
+    end = rendered.find("\n---", 4)
+    if end < 0 or "\nmcpServers:\n" not in rendered[:end + 1]:
+        return rendered
+    lines = rendered[:end + 1].split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        line = lines[i]
+        out.append(line)
+        i += 1
+        if not re.match(r"  - [A-Za-z0-9_-]+:\s*$", line):
+            continue
+        body = []
+        while i < len(lines) and lines[i].startswith("      "):
+            body.append(lines[i])
+            i += 1
+        if any(re.match(r"      command:", b) for b in body):
+            have = {m.group(1) for m in (re.match(r"        ([A-Za-z_][A-Za-z0-9_]*):", b) for b in body) if m}
+            add = ["        %s: %s" % (k, json.dumps(v)) for k, v in MCP_CACHE_ENV if k not in have]
+            if add:
+                at = next((k for k, b in enumerate(body) if re.match(r"      env:\s*$", b)), None)
+                if at is None:
+                    body += ["      env:"] + add
+                else:
+                    body[at + 1:at + 1] = add
+        out.extend(body)
+    return "\n".join(out) + rendered[end + 1:]
+
+
 for rel, src_path, copy_of in targets:
     text = open(src_path, encoding="utf-8").read()
     if copy_of:
@@ -1177,6 +1279,8 @@ for rel, src_path, copy_of in targets:
         rendered = drop_servers(rendered, ("after-effects",))    # added once --with-adobe built it
     if rel in ("agents/researcher.md", "agents/researcher-copy.md") and SPIDER_REWRITE:
         rendered = re.sub(r"mcpServers:\n  - spider:\n(?:      .*\n)+", "mcpServers:\n  - spider\n", rendered)
+    if rel.startswith("agents/"):
+        rendered = mcp_cache_env(rendered)
     dest = os.path.join(DEST, rel)
     shown = os.path.join(C, rel)
     entry = files_entry.get(rel)
@@ -1655,6 +1759,12 @@ def merge_tree(mine, shipped, prev, path):
     return out
 
 
+def hook_label(x):
+    cmd = x.get("command") if isinstance(x, dict) else None
+    cmd = cmd if isinstance(cmd, str) else json.dumps(x, sort_keys=True)
+    return cmd if len(cmd) <= 110 else cmd[:107] + "..."
+
+
 merged = dict(cur)
 for k, v in new.items():
     if k == "hooks":
@@ -1662,12 +1772,33 @@ for k, v in new.items():
         dropped_dups = 0
         for ev, groups in v.items():
             kept, seen = [], set()
+            # the stack's hook entries of this event as the stack ships them now: a copy found in
+            # your settings is replaced by the same entry (not listed); any other copy of the stack's
+            # guard (an earlier path or interpreter, a duplicate) goes and is listed one by one
+            current = {}
+            for sg in groups:
+                for sx in (sg.get("hooks") or []) if isinstance(sg, dict) else []:
+                    key = (sg.get("matcher"), canon(sx))
+                    current[key] = current.get(key, 0) + 1
+
+            def stack_entry_gone(g, x, ev=ev, current=current):
+                key = (g.get("matcher") if isinstance(g, dict) else None, canon(x))
+                if current.get(key, 0) > 0:
+                    current[key] -= 1
+                    return
+                where = "settings.json hooks.%s%s" % (
+                    ev, "[%s]" % g.get("matcher") if isinstance(g, dict) and g.get("matcher") else "")
+                why = ("a second copy of the stack's hook" if any(c == canon(x) for _, c in current)
+                       else "an earlier copy of the stack's guard hook; the current one replaces it")
+                report["config_removed"].append(["%s: %s" % (where, hook_label(x)), why])
+
             for g in h.get(ev) or []:
                 if isinstance(g, dict) and isinstance(g.get("hooks"), list):
                     mine, own_seen, had_stack = [], set(), False
                     for x in g["hooks"]:
                         if STACK_HOOK_RE.search(json.dumps(x)):
                             had_stack = True
+                            stack_entry_gone(g, x)
                             continue
                         if canon(x) in own_seen:
                             dropped_dups += 1
@@ -1681,6 +1812,7 @@ for k, v in new.items():
                         if had_stack:
                             print("  kept %d hook(s) of yours from a %s group shared with the stack's guard" % (len(mine), ev))
                 elif STACK_HOOK_RE.search(json.dumps(g)):
+                    stack_entry_gone(g, g)
                     continue
                 if canon(g) in seen:                  # the same group twice: once is enough
                     dropped_dups += 1
@@ -1691,9 +1823,19 @@ for k, v in new.items():
         # events the stack no longer wires: its old hooks there go, yours stay
         for ev in [e for e in h if e not in v]:
             groups = h[ev] if isinstance(h[ev], list) else []
-            keep = [g for g in groups if not STACK_HOOK_RE.search(json.dumps(g))]
-            if len(keep) < len(groups):
-                report["config_removed"].append(["settings.json hooks." + ev, "the stack's guard no longer runs on it"])
+            keep = []
+            for g in groups:
+                if not STACK_HOOK_RE.search(json.dumps(g)):
+                    keep.append(g)
+                    continue
+                entries = g.get("hooks") if isinstance(g, dict) and isinstance(g.get("hooks"), list) else [g]
+                for x in entries:
+                    if STACK_HOOK_RE.search(json.dumps(x)):
+                        report["config_removed"].append(["settings.json hooks.%s: %s" % (ev, hook_label(x)),
+                                                         "the stack's guard no longer runs on it"])
+                mine = [x for x in entries if not STACK_HOOK_RE.search(json.dumps(x))]
+                if mine:
+                    keep.append(dict(g, hooks=mine))    # your own hooks of that group stay
             if keep:
                 h[ev] = keep
             else:
@@ -1856,8 +1998,38 @@ if have uv && [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
   else note "! tests/lint_agents.py reports problems in the stack repo (installing anyway):"; sed 's/^/      /' "$WORK/lint.log" | head -n 20; fi
 fi
 
+# What changed in the guard, the settings and the installer since the last install (the manifest
+# records the commit each install shipped), and edits not committed yet: read them before applying.
+SUPPLY_PATHS="dot-claude/hooks dot-claude/settings.json install.sh lib"
+prev_commit="$(python3 -c 'import json, re, sys
+try:
+    v = json.load(open(sys.argv[1])).get("commit") or ""
+except Exception:
+    v = ""
+print(v if re.fullmatch(r"[0-9a-f]{7,64}", str(v)) else "")' "$C/.stack-manifest.json" 2>/dev/null || true)"
+if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+  # shellcheck disable=SC2086
+  dirty="$(git -C "$HERE" status --porcelain -- $SUPPLY_PATHS 2>/dev/null || true)"
+  if [ -n "$dirty" ]; then
+    note "! uncommitted changes in the stack repo's guard, settings or installer — this run installs them:"
+    printf '%s\n' "$dirty" | sed 's/^/      /'
+  fi
+  if [ -n "$prev_commit" ] && [ "$prev_commit" != "$STACK_COMMIT_FULL" ]; then
+    # shellcheck disable=SC2086
+    if supply="$(git -C "$HERE" diff --stat "$prev_commit" HEAD -- $SUPPLY_PATHS 2>/dev/null)"; then
+      if [ -n "$supply" ]; then
+        note "guard, settings and installer changes since the last install (${prev_commit:0:12}..$STACK_COMMIT):"
+        printf '%s\n' "$supply" | sed 's/^/      /'
+        note "review: git -C $HERE diff ${prev_commit:0:12} HEAD -- $SUPPLY_PATHS"
+      fi
+    else
+      note "! the last install shipped commit ${prev_commit:0:12}, which this repo doesn't have: review the guard and settings before applying"
+    fi
+  fi
+fi
+
 echo
-python3 "$STATE_PY" plan "$C" "$S" "$REPORT" "$PLAN_JSON"
+python3 "$STATE_PY" plan "$C" "$S" "$REPORT" "$PLAN_JSON" "$SNAP"
 if [ -n "$legacy_b" ]; then
   echo "moved out of the config dir: backups of earlier installs (they may hold a copy of stack.env)"
   printf '%s\n' "$legacy_b" | sed "s|^|  > |; s|\$| -> $BACKUP_ROOT/legacy/|"
@@ -1866,7 +2038,7 @@ B=""
 if [ "$DRY_RUN" = 1 ]; then
   note "--dry-run: nothing above was applied"
 else
-  python3 "$STATE_PY" apply "$C" "$S" "$PLAN_JSON" "$BACKUP_ROOT" "$STACK_COMMIT" "$WORK/backup-dir"
+  python3 "$STATE_PY" apply "$C" "$S" "$PLAN_JSON" "$BACKUP_ROOT" "$STACK_COMMIT" "$WORK/backup-dir" "$SNAP"
   B="$(cat "$WORK/backup-dir")"
   [ -n "$legacy_b" ] && python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" move >/dev/null
   mkdir -p "$C"/{agents,skills,hooks,mcp/vendor,magg/kit.d,bin,venvs}
@@ -1909,23 +2081,31 @@ compute_mcp_plan
 # the names the manifest recorded (mcp_registered) that the stack stopped shipping. An entry that
 # points elsewhere than the stack's host is yours and stays.
 stale_mcp(){ python3 - "$CFG" "$C/.stack-manifest.json" "$PLAN" <<'PY'
-import json, sys
+import json, re, sys
 from urllib.parse import urlsplit
 cfg_path, manifest_path, plan = sys.argv[1:4]
 def load(p):
     try:
-        return json.load(open(p))
+        v = json.load(open(p))
+        return v if isinstance(v, dict) else {}
     except (OSError, ValueError):
         return {}
 servers = (load(cfg_path).get("mcpServers") or {})
 shipped = {line.split("\t")[1] for line in plan.splitlines() if line.count("\t") >= 1}
 known = {"context7": ("mcp.context7.com", "libdocs replaced Context7")}
-for name, host in (load(manifest_path).get("mcp_registered") or {}).items():
-    if name not in shipped:
+NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z")
+reg = load(manifest_path).get("mcp_registered")
+for name, host in (reg.items() if isinstance(reg, dict) else ()):
+    # a manifest entry names one of the stack's servers by its host: a name or host that isn't
+    # one (empty, a bare TLD, odd characters) matches nothing
+    if isinstance(name, str) and isinstance(host, str) and NAME.match(name) and HOST.match(host) \
+            and name not in shipped:
         known[name] = (host, "no longer shipped by the stack")
 for name, (host, why) in sorted(known.items()):
     cur = servers.get(name)
-    if isinstance(cur, dict) and (urlsplit(str(cur.get("url", ""))).hostname or "").endswith(host):
+    got = (urlsplit(str(cur.get("url", ""))).hostname or "") if isinstance(cur, dict) else ""
+    if got and (got == host or got.endswith("." + host)):
         print("%s\t%s\t%s" % (name, json.dumps(cur), why))
 PY
 }
@@ -2158,20 +2338,26 @@ PY
     # npm -g goes into Node's own prefix when that is writable and outlives Node upgrades (Homebrew);
     # a root-owned distro prefix (/usr: EACCES) or a version manager's per-version prefix under
     # $HOME (nvm, fnm, volta) gets ~/.local instead (bin/ there is on PATH via the profile line).
+    # Pinned versions, install scripts off (none of these packages needs one): what runs is what
+    # was reviewed (versions checked against the npm registry 2026-09-29).
     npm_g(){
       local pfx; pfx="$(npm prefix -g 2>/dev/null || true)"
       case "$pfx" in
-        ""|"$HOME"/*) npm install -g --prefix "$HOME/.local" --silent "$@" ;;
-        *) if [ -w "$pfx/lib" ]; then npm install -g --silent "$@"; else npm install -g --prefix "$HOME/.local" --silent "$@"; fi ;;
+        ""|"$HOME"/*) npm install -g --ignore-scripts --prefix "$HOME/.local" --silent "$@" ;;
+        *) if [ -w "$pfx/lib" ]; then npm install -g --ignore-scripts --silent "$@"; else npm install -g --ignore-scripts --prefix "$HOME/.local" --silent "$@"; fi ;;
       esac
     }
-    have pyright-langserver || { have npm && npm_g pyright >/dev/null 2>&1; } \
-      || note "! pyright install failed — npm install -g --prefix ~/.local pyright"
-    # typescript-language-server 6 needs Node >= 22; older Node gets the 5.x line.
-    TSLS=typescript-language-server
-    node -e 'process.exit(+process.versions.node.split(".")[0] >= 22 ? 0 : 1)' 2>/dev/null || TSLS="typescript-language-server@5"
-    have typescript-language-server || { have npm && npm_g "$TSLS" typescript >/dev/null 2>&1; } \
-      || note "! typescript-language-server install failed — npm install -g --prefix ~/.local $TSLS typescript"
+    PYRIGHT_PIN="pyright@1.1.414"
+    have pyright-langserver || { have npm && npm_g "$PYRIGHT_PIN" >/dev/null 2>&1; } \
+      || note "! pyright install failed — npm install -g --ignore-scripts --prefix ~/.local $PYRIGHT_PIN"
+    # typescript-language-server 6 needs Node >= 22.22.2; older Node gets the 5.x line. TypeScript 7
+    # (the native compiler) ships no tsserver, which the language server runs: 6.x it is.
+    TSLS="typescript-language-server@6.0.1"
+    node -e 'const [a,b,c]=process.versions.node.split(".").map(Number); process.exit(a>22||(a===22&&(b>22||(b===22&&c>=2)))?0:1)' 2>/dev/null \
+      || TSLS="typescript-language-server@5.3.0"
+    TS_PIN="typescript@6.0.3"
+    have typescript-language-server || { have npm && npm_g "$TSLS" "$TS_PIN" >/dev/null 2>&1; } \
+      || note "! typescript-language-server install failed — npm install -g --ignore-scripts --prefix ~/.local $TSLS $TS_PIN"
     lsp_works rust-analyzer || { have rustup && rustup component add rust-analyzer >/dev/null 2>&1; } || note "! rust-analyzer: rustup component add rust-analyzer"
     # Servers for the stack's other languages come from each language's own toolchain manager, and
     # only when that manager is already here: the installer never installs GHCup, juliaup, elan,

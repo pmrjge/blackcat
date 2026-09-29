@@ -9,10 +9,15 @@ a backup is the same operation in reverse, so a restore is itself backed up.
 
 Runs on the system python3 (3.8+), standard library only.
 
-  install_state.py stage    <C> <S>                          copy SCOPE of C into the empty dir S
-  install_state.py plan     <C> <S> <report.json> <plan.json>  compare, print, write the plan
-  install_state.py apply    <C> <S> <plan.json> <backup-root> <commit> <out-file>
-  install_state.py restore  <C> <backup-dir|latest> <backup-root> <work-dir> <commit> <home> [--dry-run]
+  install_state.py stage    <C> <S> [snapshot.json]          copy SCOPE of C into the empty dir S
+                            (snapshot: the state of C now, which plan/apply check again)
+  install_state.py plan     <C> <S> <report.json> <plan.json> [snapshot.json]
+                            compare, print, write the plan
+  install_state.py apply    <C> <S> <plan.json> <backup-root> <commit> <out-file> [snapshot.json]
+  install_state.py restore  <C> <backup-dir|latest> <backup-root> <work-dir> <commit> <home>
+                            [--dry-run] [--force]
+  install_state.py linked   <C>                              top-level scope dirs that are symlinks
+  install_state.py private-root <backup-root>                create/check the backup root (0700)
   install_state.py validate <S> <python>                     JSON, frontmatter, placeholders, self-test
   install_state.py legacy-backups <C> <backup-root> list|move
   install_state.py record   <backup-dir> <key> <name>        key: plugins_disabled, rc (a path),
@@ -128,12 +133,45 @@ def copy_entry(src, dst, rel):
         shutil.copy2(src, dst)
 
 
-def stage(c, s):
-    for rel in scan(c):
+def snapshot(c):
+    """The state of C's SCOPE as JSON-comparable data (what the plan was computed against)."""
+    return {rel: list(v) for rel, v in scan(c).items()}
+
+
+def drifted(c, snap, rels=None):
+    """Paths whose state in C differs from `snap` (all of SCOPE, or just `rels`): something else
+    changed them while the installer ran (Claude Code saving settings.json, an editor)."""
+    now = snapshot(c)
+    keys = (set(snap) | set(now)) if rels is None else set(rels)
+    return sorted(r for r in keys if snap.get(r) != now.get(r))
+
+
+def linked_dirs(c):
+    """{dir: resolved target} for the top-level scope dirs of C that are symlinks (a dotfiles
+    checkout). Their contents are the user's: the installer never removes anything through them,
+    and install.sh writes the stack's files through them only with --force."""
+    out = {}
+    for d in SCOPE_DIRS + ("magg",):
+        p = os.path.join(c, d)
+        if os.path.islink(p):
+            out[d] = os.path.realpath(p)
+    return out
+
+
+def within(path, root):
+    return path == root or path.startswith(root.rstrip(os.sep) + os.sep)
+
+
+def stage(c, s, snap_path=None):
+    snap = snapshot(c)
+    for rel in snap:
         copy_entry(os.path.join(c, rel), os.path.join(s, rel), rel)
     for d in SCOPE_DIRS:                    # empty scope dirs too, so renders see the same layout
         if os.path.isdir(os.path.join(c, d)):
             os.makedirs(os.path.join(s, d), exist_ok=True)
+    if snap_path:
+        write_json(snap_path, snap)
+    return snap
 
 
 # --------------------------------------------------------------------------------------- plan
@@ -160,11 +198,16 @@ def gone_dir(rel, dirs, removed, before, after):
     return None
 
 
-def make_plan(c, s, report_path, default_why="not part of the stack"):
+def make_plan(c, s, report_path, default_why="not part of the stack", keep_linked=True):
+    """keep_linked: nothing below a symlinked top-level scope dir is removed (an install); a
+    restore passes False, since the files it removes there are the ones the install added."""
     before, after = scan(c), scan(s)
     report = load_json(report_path, {})
+    linked = linked_dirs(c)
     added = sorted(r for r in after if r not in before)
     removed = sorted(r for r in before if r not in after)
+    kept_linked = [r for r in removed if keep_linked and r.split("/")[0] in linked]
+    removed = [r for r in removed if r not in kept_linked]
     changed = sorted(r for r in after if r in before and after[r] != before[r])
     reasons = report.get("removed") or {}
     replaced = report.get("replaced") or {}
@@ -181,12 +224,24 @@ def make_plan(c, s, report_path, default_why="not part of the stack"):
             default_why)
         listing.append((key, why))
     listing += [tuple(x) for x in report.get("config_removed") or []]
+    notes = list(report.get("notes") or [])
+    for d, target in sorted(linked.items()):
+        mine = [r for r in kept_linked if r.split("/")[0] == d]
+        writes = [r for r in added + changed if r.split("/")[0] == d]
+        notes.append("%s/ is a symlink to %s (yours): nothing there is removed%s" % (
+            d, target, "; %d stack file(s) written through it" % len(writes) if writes else ""))
+        for r in mine[:20]:
+            notes.append("%s: kept (%s/ is a symlink; the stack doesn't ship it)" % (r, d))
+        if len(mine) > 20:
+            notes.append("... and %d more kept under %s/" % (len(mine) - 20, d))
     return {
         "added": added, "changed": changed, "removed": removed,
         "replaced": sorted((r, replaced[r]) for r in changed if r in replaced)
                     + [tuple(x) for x in report.get("config_replaced") or []],
         "removed_listing": listing,
-        "notes": report.get("notes") or [],
+        "notes": notes,
+        "linked": linked,
+        "keep_linked": keep_linked,
     }
 
 
@@ -215,9 +270,42 @@ def print_plan(plan, removed_heading="removed: not part of the stack"):
 
 
 # ------------------------------------------------------------------------------ backup, apply
+def ensure_root(root):
+    """The backup root as a private directory of this user, 0700: created when missing; a symlink,
+    a file or another user's directory there is refused, never followed. True when created."""
+    root = os.path.abspath(root)
+    os.makedirs(os.path.dirname(root), exist_ok=True)
+    try:
+        os.mkdir(root, 0o700)
+        created = True
+    except FileExistsError:
+        created = False
+    try:
+        fd = os.open(root, os.O_RDONLY | getattr(os, "O_DIRECTORY", 0) | os.O_NOFOLLOW)
+    except OSError:
+        raise SystemExit("install.sh: the backup folder %s is a symlink or not a directory: "
+                         "refusing to use it (move it away)" % root)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
+            raise SystemExit("install.sh: the backup folder %s is not a directory of yours: "
+                             "refusing to use it" % root)
+        if stat.S_IMODE(st.st_mode) != 0o700:
+            os.fchmod(fd, 0o700)
+    finally:
+        os.close(fd)
+    return created
+
+
+def copy_private(src, dst):
+    """Copy src's bytes into a new 0600 file dst (never through a link planted at dst)."""
+    fd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as out, open(src, "rb") as inp:
+        shutil.copyfileobj(inp, out)
+
+
 def new_backup_dir(root):
-    os.makedirs(root, mode=0o700, exist_ok=True)
-    os.chmod(root, 0o700)
+    ensure_root(root)
     ts = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
     d = tempfile.mkdtemp(prefix=ts + "-", dir=root)       # 0700; unique even within one second
     os.chmod(d, 0o700)
@@ -233,8 +321,7 @@ def save_entry(c, rel, bdir):
         os.symlink(os.readlink(src), dst)
         return {"type": "l", "target": os.readlink(src)}
     through = os.path.islink(src)
-    shutil.copyfile(src, dst)
-    os.chmod(dst, 0o600)
+    copy_private(src, dst)
     return {"type": "f", "mode": stat.S_IMODE(os.stat(src).st_mode), "sha256": sha256_file(dst),
             "through": through}
 
@@ -249,7 +336,7 @@ def fix_dir_modes(bdir):
 
 def write_json(path, data, mode=0o600):
     tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, mode)
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
     with os.fdopen(fd, "w", encoding="utf-8") as f:
         json.dump(data, f, indent=2, sort_keys=True)
         f.write("\n")
@@ -320,11 +407,48 @@ def empty_backup(c, root, commit, reason="install", extra=None):
     return bdir
 
 
-def apply_plan(c, s, plan, root, commit, reason="install", extra=None):
-    """Back up, then apply. Returns the backup dir ("" when nothing changed)."""
+def unsafe_paths(c, plan):
+    """Plan paths that are not SCOPE paths, or that resolve (through a symlinked directory) out of
+    C — except the stack's files written through a symlinked top-level dir, which install.sh
+    allows only with --force — and removals below such a dir unless the plan says it may."""
+    real_c = os.path.realpath(c)
+    linked = linked_dirs(c)
+    bad = []
+    for kind in ("removed", "changed", "added"):
+        for rel in plan[kind]:
+            top = rel.split("/")[0]
+            if not in_scope(rel):
+                bad.append(rel)
+                continue
+            parent = os.path.realpath(os.path.dirname(os.path.join(c, rel)))
+            if within(parent, real_c):
+                continue
+            if top in linked and within(parent, linked[top]) and (
+                    kind != "removed" or not plan.get("keep_linked", True)):
+                continue
+            bad.append(rel)
+    return bad
+
+
+def apply_plan(c, s, plan, root, commit, reason="install", extra=None, snap=None):
+    """Back up, then apply. Returns the backup dir ("" when nothing changed). snap: the state of C
+    the plan was made against; C must still be in it (checked before the backup and again right
+    before the first change), or nothing is changed."""
     touched = plan["changed"] + plan["removed"]
     if not (touched or plan["added"]):
         return ""
+    bad = unsafe_paths(c, plan)
+    if bad:
+        raise SystemExit("install_state: refusing paths outside the config dir: %s — nothing was "
+                         "changed" % ", ".join(map(repr, bad[:5])))
+
+    def check_drift(where):
+        moved = drifted(c, snap, touched + plan["added"]) if snap is not None else []
+        if moved:
+            raise SystemExit("install.sh: %s changed while the installer ran (%s) — nothing was "
+                             "changed; run it again" % (", ".join(moved[:5]), where))
+
+    check_drift("before the backup")
     bdir = new_backup_dir(root)
     meta = backup_meta(c, reason, commit, plan["added"])
     meta.update(extra or {})
@@ -332,6 +456,11 @@ def apply_plan(c, s, plan, root, commit, reason="install", extra=None):
         meta["entries"][rel] = save_entry(c, rel, bdir)
     fix_dir_modes(bdir)
     write_json(os.path.join(bdir, "backup.json"), meta)      # complete before anything changes
+    try:
+        check_drift("during the backup")
+    except SystemExit:
+        shutil.rmtree(bdir, ignore_errors=True)
+        raise
     for rel in plan["removed"]:
         p = os.path.join(c, rel)
         if os.path.islink(p) or os.path.isfile(p):
@@ -374,8 +503,7 @@ def record(bdir, key, name, value=None):
             fname = "%d-%s" % (len(rcs), os.path.basename(src))
             dst = os.path.join(bdir, "rc", fname)
             os.makedirs(os.path.dirname(dst), mode=0o700, exist_ok=True)
-            shutil.copyfile(src, dst)
-            os.chmod(dst, 0o600)
+            copy_private(src, dst)
             rcs[src] = {"mode": stat.S_IMODE(os.stat(src).st_mode), "file": fname}
     else:
         raise SystemExit("install_state: unknown record key %s" % key)
@@ -399,10 +527,11 @@ def backups_of(c, root):
     return [d for _, _, d in sorted(out)]
 
 
-def restore(c, which, root, work, commit, home, dry=False):
+def restore(c, which, root, work, commit, home, dry=False, force=False):
     """Put C back as it was before the install that made the backup: its saved files return, the
     files it added go. Done as a staged plan, so the current state is backed up first. dry: print
-    the plan only. Only backups under root are read; every path in backup.json is checked."""
+    the plan only. Only backups under root are read; every path in backup.json is checked. A saved
+    symlink whose target leaves C comes back only with force (else it is named and skipped)."""
     if which == "latest":
         found = [d for d in backups_of(c, root)
                  if load_json(os.path.join(d, "backup.json"), {}).get("reason") == "install"]
@@ -436,14 +565,25 @@ def restore(c, which, root, work, commit, home, dry=False):
         rcs[rc] = (os.path.join(bdir, "rc", fname), info)
     s = os.path.join(work, "restore")
     os.makedirs(s)
-    stage(c, s)
+    snap = stage(c, s)
     for rel in added:
         p = os.path.join(s, rel)
         if os.path.islink(p) or os.path.isfile(p):
             os.unlink(p)
+    real_c = os.path.realpath(c)
     for rel, e in entries.items():
         src = os.path.join(bdir, "files", rel)
         dst = os.path.join(s, rel)
+        if e.get("type") == "l":
+            target = str(e.get("target") or "")
+            at = os.path.join(real_c, os.path.dirname(rel), target)
+            if not target or "\x00" in target or not (
+                    within(os.path.normpath(at), real_c) and within(os.path.realpath(at), real_c)):
+                if not force:
+                    print("  ! skipped %s: it was a link to %s, outside %s (restore it with "
+                          "--force, or: ln -s '%s' '%s')" % (rel, target, c, target,
+                                                             os.path.join(c, rel)))
+                    continue
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         if os.path.lexists(dst):
             if os.path.isdir(dst) and not os.path.islink(dst):
@@ -457,14 +597,16 @@ def restore(c, which, root, work, commit, home, dry=False):
                 raise SystemExit("install.sh --restore: %s changed inside the backup — stopping" % rel)
             shutil.copyfile(src, dst)
             os.chmod(dst, e.get("mode", 0o644) & 0o7777)
-    plan = make_plan(c, s, os.path.join(work, "no-report.json"), "added by that install")
+    plan = make_plan(c, s, os.path.join(work, "no-report.json"), "added by that install",
+                     keep_linked=False)
     print("  restoring %s" % bdir)
     print_plan(plan, "removed: added by the install being undone")
     if dry:
         for rc in sorted(rcs):
             print("  would restore %s" % rc)
         return bdir, "", meta
-    undo = apply_plan(c, s, plan, root, commit, reason="restore", extra={"restored_from": bdir})
+    undo = apply_plan(c, s, plan, root, commit, reason="restore", extra={"restored_from": bdir},
+                      snap=snap)
     for rc, (src, info) in sorted(rcs.items()):
         if os.path.isfile(src) and not os.path.islink(src):
             real = os.path.realpath(rc)             # a dotfiles symlink stays a symlink
@@ -612,9 +754,11 @@ def legacy_backups(c):
 
 
 def move_legacy(c, root):
+    ensure_root(root)
     dest_root = os.path.join(root, "legacy")
     os.makedirs(dest_root, mode=0o700, exist_ok=True)
-    os.chmod(root, 0o700)
+    if os.path.islink(dest_root):
+        raise SystemExit("install.sh: %s is a symlink: refusing to move backups into it" % dest_root)
     os.chmod(dest_root, 0o700)
     moved = []
     for d in legacy_backups(c):
@@ -641,20 +785,28 @@ def main(argv):
     cmd = argv[1] if len(argv) > 1 else ""
     a = argv[2:]
     if cmd == "stage":
-        stage(a[0], a[1])
+        stage(a[0], a[1], a[2] if len(a) > 2 else None)
     elif cmd == "plan":
-        plan = make_plan(a[0], a[1], a[2])
+        c, s = a[0], a[1]
+        if len(a) > 4:
+            moved = drifted(c, load_json(a[4], {}))
+            if moved:
+                sys.stderr.write("install.sh: %s changed while the installer ran — nothing was "
+                                 "changed; run it again\n" % ", ".join(moved[:5]))
+                return 1
+        plan = make_plan(c, s, a[2])
         write_json(a[3], plan)
         print_plan(plan)
     elif cmd == "apply":
-        c, s, plan_path, root, commit, out = a
-        bdir = apply_plan(c, s, load_json(plan_path, None), root, commit)
+        c, s, plan_path, root, commit, out = a[:6]
+        snap = load_json(a[6], None) if len(a) > 6 else None
+        bdir = apply_plan(c, s, load_json(plan_path, None), root, commit, snap=snap)
         with open(out, "w") as f:
             f.write(bdir)
     elif cmd == "restore":
         c, which, root, work, commit, home = a[:6]
-        dry = a[6:] == ["--dry-run"]
-        bdir, undo, meta = restore(c, which, root, work, commit, home, dry)
+        dry, force = "--dry-run" in a[6:], "--force" in a[6:]
+        bdir, undo, meta = restore(c, which, root, work, commit, home, dry, force)
         fd = os.open(os.path.join(work, "restore.json"), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w") as f:
             json.dump({"backup": bdir, "undo": undo, "dry": dry,
@@ -680,6 +832,11 @@ def main(argv):
         record(a[0], a[1], a[2], a[3] if len(a) > 3 else None)
     elif cmd == "new-backup":
         print(empty_backup(a[0], a[1], a[2]))
+    elif cmd == "linked":
+        for d, target in sorted(linked_dirs(a[0]).items()):
+            print("%s\t%s" % (d, target))
+    elif cmd == "private-root":
+        print("created" if ensure_root(a[0]) else "exists")
     elif cmd == "latest":
         found = backups_of(a[0], a[1])
         print(found[-1] if found else "")
