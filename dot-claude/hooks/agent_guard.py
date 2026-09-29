@@ -5524,6 +5524,14 @@ RO_JS_RUNNERS = {"jest", "vitest", "mocha", "ava"}
 RO_JS_SUFFIX = (".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts")
 RO_SCRATCH_TEST_RE = re.compile(r".+\.(?:test|spec)\.[^/]+\Z")
 RO_PY_CONFIGS = ("pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg", ".pytest.ini")
+# writers whose target holds new content; a scratch file they write is not yet on disk when the
+# hook reads files, so code run or collected later in the same command can not be checked
+RO_CONTENT_WRITERS = {"cp", "mv", "install", "tee", "ln", "dd", "touch", "rsync", "ditto",
+                      "truncate"}
+RO_VALUE_OPTS = {"-k", "-m", "-n", "-p", "-o", "--maxfail", "--tb", "--durations",
+                 "--basetemp", "--numprocesses", "--timeout", "-W"}
+RO_SAME_CALL = ("runs or collects scratch code that an earlier part of the same command "
+                "writes: write and run in separate calls so the file can be read first")
 
 
 def _ro_scratch_roots(bases):
@@ -5565,6 +5573,8 @@ class _ReadOnly(object):
         self.cwd = None                         # the last `cd DIR` seen
         self.deadline = time.monotonic() + DEADLINE_S
         self.budget = MAX_SCANS
+        self.wrote = False                      # an earlier segment wrote into scratch
+        self.pending = False                    # the segment being checked writes into scratch
 
     # -- paths
     def expand(self, p):
@@ -5639,6 +5649,8 @@ class _ReadOnly(object):
             return (what, "runs a script outside the scratch dirs and tests")
         if p in RO_DEVICES or not self.scratch(p):
             return None
+        if self.wrote:
+            return (what, RO_SAME_CALL)
         return self.scratch_file(p, what, fam, depth)
 
     def scratch_file(self, p, what, fam, depth=0, seen=None):
@@ -5769,6 +5781,8 @@ class _ReadOnly(object):
     def collects(self, what):
         """A JS runner walks the project for *.test.* files, dot dirs included (pytest and go
         skip dot dirs, so ./.claude-work is safe for them)."""
+        if self.wrote:
+            return (what, RO_SAME_CALL)
         hit = self.scratch_tests()
         if hit:
             return (what, "would collect test files under ./.claude-work (%s): move them out of "
@@ -5779,16 +5793,23 @@ class _ReadOnly(object):
         return None
 
     def test_operands(self, rest):
-        """Words of a test runner's command line that name existing scratch files or dirs (a
-        `path::test` or `path:line` suffix dropped); the cwd when it is scratch and none is named."""
-        out = []
+        """Words of a test runner's command line that name scratch files or dirs (a `path::test`
+        or `path:line` suffix dropped); the cwd when it is scratch and none is named. A path-like
+        scratch word that does not exist yet counts too: it can't be read, so it is refused."""
+        out, skip = [], False
         for w in rest:
+            if skip:                            # the value of an output or config option
+                skip = False
+                continue
             if w.startswith("-") or not w:
+                skip = "=" not in w and (w in RO_OUT_OPTS or w in RO_PY_LOAD_OPTS or
+                                         w in RO_JS_LOAD_OPTS or w in RO_VALUE_OPTS)
                 continue
             p = re.sub(r"::.*\Z|:\d+\Z", "", w)
             if not p or _expansion(self.expand(p)):
                 continue
-            if (any(c in p for c in "*?[") or os.path.exists(self.resolve(p))) and \
+            pathy = "/" in p or "." in os.path.basename(p)
+            if (any(c in p for c in "*?[") or os.path.exists(self.resolve(p)) or pathy) and \
                     p not in RO_DEVICES and self.scratch(p):
                 out.append(p)
         if not out and self.scratch_cwd():
@@ -5924,7 +5945,10 @@ class _ReadOnly(object):
                                 % v[:60])
         seen = set()
         if kind in ("py", "js", "native"):
-            for op in self.test_operands(rest):
+            ops = self.test_operands(rest)
+            if ops and self.wrote:
+                return (what, RO_SAME_CALL)
+            for op in ops:
                 found = self.test_files(kind, op, what, depth, seen)
                 if found:
                     return found
@@ -5982,6 +6006,14 @@ class _ReadOnly(object):
         return found
 
     def simple(self, words, piped, depth):
+        """One simple command; a write it makes into scratch counts for the segments after it."""
+        found = self._simple(words, piped, depth)
+        if not found and self.pending:
+            self.wrote = True
+        self.pending = False
+        return found
+
+    def _simple(self, words, piped, depth):
         """One simple command: redirections, NAME=value prefixes, then the program."""
         ctx = {"piped": piped, "herestr": [], "infile": None, "assigns": {}, "dynamic": False}
         args, k = [], 0
@@ -6001,6 +6033,8 @@ class _ReadOnly(object):
                     if not self.scratch(target):
                         return (" ".join(words)[:160], "redirects output to %s, outside the "
                                 "scratch dirs" % target)
+                    if target not in RO_DEVICES:
+                        self.pending = True
                 k += 2
                 continue
             args.append(w)
@@ -6138,6 +6172,8 @@ class _ReadOnly(object):
                     continue
             if val and not val.startswith("-") and not self.scratch(val):
                 return (what, "writes %s outside the scratch dirs" % val)
+            if val and val != "-":
+                self.pending = True
         return None
 
     def linter(self, base, rest, ctx, depth, what):
@@ -6226,6 +6262,8 @@ class _ReadOnly(object):
         for t in targets:
             if not self.scratch(t):
                 return (what, "writes, links, removes or changes %s, outside the scratch dirs" % t)
+        if base in RO_CONTENT_WRITERS and targets:
+            self.pending = True
         return self.outputs(rest, what, {"--log-file", "--backup-dir", "--temp-dir",
                                          "--partial-dir"}) if base == "rsync" else None
 
@@ -6252,6 +6290,8 @@ class _ReadOnly(object):
             scripts, vals = vals[:1], vals[1:]
         if inplace and (ctx["dynamic"] or not vals or not all(self.scratch(v) for v in vals)):
             return (what, "edits files in place outside the scratch dirs")
+        if inplace:
+            self.pending = True
         if base != "yq":
             for s in scripts:
                 if re.search(r"(?:\A|[;{}\n])\s*[0-9,$!~+]*\s*[weW](?:\s|\Z)|/[gpIiMm0-9]*[weW]"
@@ -6415,6 +6455,7 @@ class _ReadOnly(object):
                  and not code_re.fullmatch(rest[j - 1])]
             if ctx["dynamic"] or not files or not all(self.scratch(f) for f in files):
                 return (what, "edits files in place outside the scratch dirs")
+            self.pending = True
         k, inline = 0, False
         while k < len(rest):
             a = rest[k]
@@ -6664,10 +6705,14 @@ class _ReadOnly(object):
                 val = wget_o.group(1) or (rest[j + 1] if j + 1 < len(rest) else "")
                 if val and val != "-" and not self.scratch(val):
                     return (what, "writes %s outside the scratch dirs" % val)
+                if val and val != "-":
+                    self.pending = True
             elif name in outs or clustered_o:
                 val = a.split("=", 1)[1] if "=" in a else (rest[j + 1] if j + 1 < len(rest) else "")
                 if val and val != "-" and not self.scratch(val):
                     return (what, "writes %s outside the scratch dirs" % val)
+                if val and val != "-":
+                    self.pending = True
         if base == "wget" and not any(a.split("=", 1)[0] in ("-O", "--output-document", "-P",
                                                              "--directory-prefix", "--spider")
                                       or re.fullmatch(r"-[A-Za-z]*[OP].*", a) for a in rest):
@@ -6813,7 +6858,10 @@ class _ReadOnly(object):
                 return None
             d = next((rest[j + 1] for j, a in enumerate(rest) if a == "-d" and j + 1 < len(rest)),
                      None)
-            return None if d and self.scratch(d) else (what, "unpacks outside the scratch dirs")
+            if d and self.scratch(d):
+                self.pending = True
+                return None
+            return (what, "unpacks outside the scratch dirs")
         if base == "zip":
             return None if pos and self.scratch(pos[0]) and not any(
                 a in ("-T", "-TT", "--unzip-command") for a in rest) \
@@ -6895,7 +6943,10 @@ class _ReadOnly(object):
         if re.fullmatch(r"-?[A-Za-z]*x[A-Za-z]*", mode) or "--extract" in rest or "--get" in rest:
             d = next((rest[j + 1] for j, a in enumerate(rest) if a in ("-C", "--directory")
                       and j + 1 < len(rest)), None)
-            return None if d and self.scratch(d) else (what, "unpacks outside the scratch dirs")
+            if d and self.scratch(d):
+                self.pending = True
+                return None
+            return (what, "unpacks outside the scratch dirs")
         f = next((rest[j + 1] for j, a in enumerate(rest) if a in ("-f", "--file")
                   and j + 1 < len(rest)), None)
         if f is None and re.fullmatch(r"-?[A-Za-z]*f", mode):
