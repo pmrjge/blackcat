@@ -1,11 +1,11 @@
 ---
 name: data-visualization
-description: Load before making a chart, figure or dashboard meant to communicate data — chart choice, perception, colorblind-safe palettes, labels, uncertainty, matplotlib/seaborn/plotly.
+description: Load before making a data figure in code (matplotlib, seaborn, plotly, Altair) — chart choice, perception, palettes, labels, uncertainty; Artifact/HTML charts load dataviz.
 ---
 # Data visualization
 
 ## Scope
-Static and interactive figures whose job is to communicate a finding. The analysis behind the numbers → `data-analysis`; experiment result tables → `ml-experiment`; color spaces, print profiles and contrast math → `color-management`; charts inside slide decks → `presentation-design`; figures in LaTeX papers → `latex-typesetting`. Environment: the science venv `__CLAUDE_DIR__/venvs/sci/bin/python` has matplotlib, seaborn, pandas, polars; add plotly or Altair per project (`uv run --with plotly --with kaleido …`, `uv run --with altair --with vl-convert-python …`). APIs below were checked against matplotlib 3.11, seaborn 0.13, plotly with Kaleido ≥ 1 and Altair 5.
+Figures made in code and saved as files (PNG/SVG/PDF/HTML) for papers, reports, notebooks and slides. Charts built as Artifacts, React/HTML pages or chat-surface dashboards → the built-in `dataviz` skill. The analysis behind the numbers → `data-analysis`; experiment result tables → `ml-experiment`; color spaces, print profiles and contrast math → `color-management`; charts inside slide decks → `presentation-design`; figures in LaTeX papers → `latex-typesetting`. Environment: the science venv `__CLAUDE_DIR__/venvs/sci/bin/python` has matplotlib, seaborn, pandas, polars; add plotly or Altair per project (`uv run --with plotly --with kaleido …`, `uv run --with altair --with vl-convert-python …`). APIs below were checked against matplotlib 3.11, seaborn 0.13, plotly with Kaleido ≥ 1 and Altair 5.
 
 ## 1. Start from the question
 1. Write the one-sentence message and the audience (paper, slide, report, dashboard) before choosing anything.

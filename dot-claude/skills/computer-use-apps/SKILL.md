@@ -1,14 +1,17 @@
 ---
 name: computer-use-apps
-description: Load before any computer-use step — driving desktop apps (Adobe, ONLYOFFICE, native apps under test) on macOS; when to use it, an efficient screenshot/click loop, safety.
+description: Load before driving Adobe, ONLYOFFICE or a native app under test by screen — MCP/script-first routing, one-agent screen lock, app shortcuts, safety; mechanics in computer-use.
 ---
 # Computer use for desktop apps
+
+## Division of labour
+This skill is the stack's policy for work apps: when to use the screen at all, the one-agent screen lock, app shortcuts, and file checks. The mechanics — loading the `mcp__computer-use__*` tools, `request_access`, app tiers, link safety — live in `anthropic-skills:computer-use`; load it before the first computer-use call. Browsers are never driven by clicking pixels → `browser-automation`.
 
 ## When
 Only after the precise routes: the app's MCP server (illustrator, after-effects, premiere) → scripting (ExtendScript/UXP through those servers, `osascript`, app CLIs) → direct file manipulation. Use the screen for visual QA, features with no scripting API, and final checks.
 
 ## Facts
-- macOS only. The `computer-use` server must be enabled in `/mcp` for the project, with Accessibility and Screen Recording granted; each app is approved per session.
+- macOS only; setup, permissions and per-app approval as described in `anthropic-skills:computer-use`.
 - One session holds the screen, and in this system one agent at a time (hook-enforced). If you get "screen busy", return STATUS: blocked, NEXT: retry after the named agent.
 
 ## Efficient loop

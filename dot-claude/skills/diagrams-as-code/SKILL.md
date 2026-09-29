@@ -6,7 +6,7 @@ description: Load before drawing a diagram as text — Mermaid, Graphviz, D2, Pl
 
 ## Scope
 - Structural diagrams kept as text: flowcharts, sequence/state/class/ER, architecture, dependency graphs,
-  commutative and string diagrams. Data plots are out of scope (`data-visualization`). What a categorical
+  commutative and string diagrams. Data plots are out of scope (`data-visualization`); hand-drawn inline-SVG diagrams inside Artifacts → the built-in `artifact-diagramming` skill. What a categorical
   diagram asserts is `category-theory`; LaTeX documents and builds are `latex-typesetting`; SVG cleanup is
   `svg-vector-craft`; site/Pandoc pipelines are `markdown-publishing`.
 - Checked Sep 2026: Mermaid and mermaid-cli 12.0, Graphviz 16.1, D2 0.9.0, PlantUML 1.2026.8, TeX Live

@@ -1,6 +1,6 @@
 ---
 name: web-research
-description: Use before any web work beyond a single WebSearch. Web search, scraping and crawling procedure — tool ladder, budgets, source quality and citation format.
+description: Use before any web work beyond one WebSearch — tool ladder, crawling, budgets, source quality, citations; the procedure deep-research and literature-review build on.
 ---
 # Web research
 
@@ -29,4 +29,4 @@ Sources:
 ```
 Quote at most one sentence per source; paraphrase the rest.
 
-Related skills: `literature-review` for papers, preprints and checking every citation.
+Division of labour: this skill is the tool and sourcing procedure for any web lookup. `anthropic-skills:deep-research` plans and coordinates a multi-source narrative report (it spawns research subagents, which then follow this procedure). `literature-review` covers papers, preprints and checking every citation.

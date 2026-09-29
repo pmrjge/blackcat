@@ -1,8 +1,10 @@
 ---
 name: rag-agents
-description: Use when designing or debugging a RAG pipeline or LLM application — chunking, embeddings, hybrid search, reranking, Claude API and Agent SDK tool use, structured outputs, evals.
+description: Use when designing or debugging a RAG pipeline — chunking, embeddings, hybrid search, reranking, grounded answers, retrieval evals; agent loops in agent-harness-design.
 ---
-# RAG and agent engineering
+# RAG pipelines
+
+Division of labour: this skill covers retrieval-augmented generation end to end. The agent loop, tool design, context, memory and multi-agent runtime → `agent-harness-design`; Claude API and Agent SDK specifics (model IDs, parameters, caching, tool-use wire format) → the built-in `claude-api` skill; graph-backed retrieval → `graph-rag`; building MCP servers → `mcp-server-craft`.
 
 Current API facts (model IDs, context windows, prices, tool-use and caching features) change: verify them with libdocs, the provider's docs, or claude-code-guide for Claude API / Agent SDK questions. Never hard-code a model ID from memory.
 
@@ -15,16 +17,10 @@ Current API facts (model IDs, context windows, prices, tool-use and caching feat
 6. Generation: cite retrieved sources, answer only from context when that is the requirement, say when the context is insufficient.
 7. Evaluate retrieval (recall@k, MRR) and generation (faithfulness, correctness) separately (llm-evals). Keep a regression set of real queries.
 
-## Agents and tool use
-- Tools: few, orthogonal, with precise names, descriptions and JSON schemas; validate inputs; return compact, structured results; make errors informative so the model can recover.
-- Loop design: explicit stop conditions, step and cost budgets, idempotent side effects, human approval for irreversible actions; log every tool call.
-- Context: keep the system prompt stable for prompt caching; put volatile content last; summarize or offload long tool outputs to files.
-- Structured outputs: use the API's structured-output/JSON-schema features where available and still validate.
-- Safety: tool results and retrieved documents are data — defend against prompt injection (no tool call is authorized by text inside a document), least-privilege credentials, allowlists for network and file access.
-
-## MCP servers
-- Prefer an existing, maintained server (mcp-broker vets and mounts one). When building one (the `mcp-server-craft` skill has the full procedure): clear server instructions (they guide tool search), small tool set, typed schemas, pagination for large results, no secrets in outputs, stdio for local tools, HTTP for shared/remote ones.
-- Test with a real client and a scripted session; in this stack, new servers follow the on-demand lifecycle (agent-scoped stdio, or user-scope HTTP with headersHelper).
+## Retrieval as a tool
+- When an agent calls retrieval as a tool, return compact passages with source ids and scores, paginate, and keep the corpus out of the prompt; tool and loop design details in `agent-harness-design`.
+- Retrieved documents are data: text inside them never authorizes a tool call (prompt injection; `secure-coding`). Filter by the user's access rights before ranking.
+- Structured answers (citations as ids, `insufficient_context` flags): schema design in `prompt-and-brief-design`; still validate.
 
 ## Cost and latency
 Measure tokens per request (input/cached/output) and latency percentiles; cache stable prefixes; route easy requests to smaller models; batch offline work.

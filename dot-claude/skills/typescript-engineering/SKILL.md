@@ -161,8 +161,8 @@ const palette = { primary: "#0af" } satisfies Record<string, `#${string}`>; // c
 - MCP servers in TypeScript (`@modelcontextprotocol/sdk`): tool design, schemas, transports and testing are in `mcp-server-craft`; security of tool inputs in `secure-coding`.
 
 ## Web performance, accessibility, security pointers
-- Performance: measure Core Web Vitals (LCP, INP, CLS) with Lighthouse/DevTools on a throttled profile; split by route (`import()`), ship less JavaScript, size images (`width`/`height`, `loading="lazy"`), preload critical fonts, avoid layout thrash.
-- Accessibility: semantic HTML first, labelled controls, full keyboard operation with visible focus, WCAG AA contrast, ARIA only to fill gaps; automated axe scan plus a manual keyboard and VoiceOver pass.
+- Frameworks (React/Next.js/Svelte/Vue/Astro, Tailwind) and Core Web Vitals: `frontend-frameworks`.
+- Accessibility (WCAG 2.2 AA, keyboard, screen readers, axe): `web-accessibility`.
 - Security (`secure-coding`): no `innerHTML`/`dangerouslySetInnerHTML` with untrusted data, a Content Security Policy, dependency audit (`pnpm audit`/`npm audit`), no secrets in client bundles.
 
 ## Review checklist

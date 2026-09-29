@@ -1,6 +1,6 @@
 ---
 name: mcp-server-craft
-description: Load before building, changing, testing or registering an MCP server — MCP vs CLI vs skill, tool design, Python (uv PEP 723) or TypeScript SDK, stdio/HTTP, secrets, guards, tests.
+description: Load before building, testing, registering or packaging an MCP server — tool design, Python (uv) or TS SDK, stdio/HTTP, stack registration, MCPB bundles, MCP Apps UI.
 ---
 # Building MCP servers the way this stack runs them
 
@@ -266,6 +266,16 @@ claude mcp add-json -s user notes '{"type":"http","url":"https://notes.<tailnet>
 - Output: warning above 10,000 tokens; `MAX_MCP_OUTPUT_TOKENS` (25000 here) caps it; a larger non-image result
   is saved to a file and replaced by its path. Aim for 2-5k tokens per call.
 - Check: `/mcp` in a session, `claude mcp list`, `claude mcp get <name>`; `uv run tests/lint_agents.py` in the repo.
+
+## Distribution outside this stack (checked 2026-09-29)
+- **Remote first**: a server that only calls cloud APIs ships as a Streamable HTTP endpoint (see above) with OAuth or authless access; a static bearer token suits private deployments only; directory listing has its own requirements (claude.com/docs/connectors, unverified here).
+- **MCPB bundles** (`.mcpb`, formerly DXT; spec and CLI at github.com/modelcontextprotocol/mcpb, `@anthropic-ai/mcpb` 2.1.x): a zip with `manifest.json` + server code that Claude Desktop installs in one click. Use it only when the server must run on the user's machine (local files, desktop apps, localhost services).
+  - `mcpb init` drafts the manifest, `mcpb pack` validates and zips it. Required fields are `manifest_version`, `name`, `version`, `description`, `author` and `server`.
+  - `server.type` is `node`, `python`, `binary` or **`uv`** (manifest 0.4+). With `uv`, the host installs the dependencies from `pyproject.toml` with uv, which fits this stack's Python servers and keeps the bundle around 100 KB.
+  - `server.mcp_config` sets the command, args (`${__dirname}` for bundle paths) and `env` (`${user_config.<key>}`, with no auto-prefix).
+  - `user_config` entries can be `sensitive: true` (stored in the OS keychain) or `type: "directory"` (a folder picker).
+  - There is no sandbox: the path/URL guards above are the only protection, so prefer the client's `roots` over a hard-coded root.
+- **MCP Apps** (interactive UI, extension spec 2026-01-26 at github.com/modelcontextprotocol/ext-apps, npm `@modelcontextprotocol/ext-apps` 2.0.x): a tool declares `_meta.ui.resourceUri: "ui://…"`, a separately registered resource serves the HTML (`mimeType: "text/html;profile=mcp-app"`), and the host renders it in a sandboxed iframe and passes the tool result to it; the UI can call tools back through the host. CSP defaults to block-all (declare `connectDomains`/`resourceDomains`); `_meta.ui.visibility: ["app"]` hides widget-only helper tools from the model. Use a widget only for large pickers, visual previews, charts/maps or live progress; confirmations and flat forms use spec-native **elicitation** instead. Test in claude.ai as a custom connector (local dev through a tunnel).
 
 ## Release checklist
 1. Tool set small; names, descriptions and schemas reviewed; errors actionable; pagination and truncation present.

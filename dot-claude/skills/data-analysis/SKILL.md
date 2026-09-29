@@ -1,6 +1,6 @@
 ---
 name: data-analysis
-description: Load for any analysis of a dataset — profiling, exploratory plots, statistical tests, effect sizes, multiple comparisons, A/B tests and power, causal guardrails, reports.
+description: Load for any analysis of a dataset — profiling, exploratory plots, statistical tests, effect sizes, multiple comparisons, A/B tests and power, reports; causal designs in causal-inference.
 ---
 # Data analysis protocol
 
@@ -30,10 +30,10 @@ Count every test you ran. Control FWER (Holm) or FDR (Benjamini-Hochberg). Separ
 Before: primary metric, minimum detectable effect, power analysis → sample size, randomization unit, duration covering weekly cycles, guardrail metrics. After: sample-ratio-mismatch check, pre-period balance, the pre-stated test; no peeking-driven stopping unless a sequential method was planned. CUPED or regression adjustment for variance reduction when pre-period data exists.
 
 ## 6. Causal claims
-Only with a design: randomization; difference-in-differences with parallel-trends evidence; instrumental variables with a defended exclusion restriction; regression discontinuity; matching/weighting with overlap checks and a sensitivity analysis. Otherwise write "associated with". Draw the assumed causal graph when confounding is plausible.
+Only with a design: randomization (§5), or a quasi-experimental design (DiD, IV, RD, matching/weighting, synthetic control) done per `causal-inference`. Otherwise write "associated with".
 
 ## 7. Forecasting
-Time-based backtesting (rolling origin), naive and seasonal-naive baselines, error metrics that fit the use (MAE/MAPE/sMAPE/MASE, pinball loss for quantiles), prediction intervals with coverage checked.
+Forecasts follow `time-series-forecasting` (rolling-origin backtests, seasonal-naive baselines, interval coverage).
 
 ## 8. Reproducibility
 Notebook or script that runs top-to-bottom from the raw snapshot (`jupyter nbconvert --to notebook --execute` or nbclient), fixed seeds, pinned environment, data snapshot identified by path and hash. Every number in the report is recomputed a second way (another query, bootstrap, independent script).

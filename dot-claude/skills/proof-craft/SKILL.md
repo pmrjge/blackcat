@@ -7,7 +7,7 @@ description: Load before proving, disproving, repairing or refereeing a mathemat
 ## Scope
 - Covers: deciding whether a claim is true, proving it, disproving it with a counterexample, repairing a
   broken proof, refereeing someone else's proof, and writing the result up.
-- Not here: machine-checked proofs (`lean-formalization`), categorical arguments in depth
+- Not here: competition problems (IMO, Putnam, USAMO, AIME: the `math-olympiad` plugin skill runs its multi-agent solve-and-verify workflow), machine-checked proofs (`lean-formalization`), categorical arguments in depth
   (`category-theory`), floating-point error analysis (`numerical-methods`).
 - Default stance: a claim is unproven until every step is justified and the checks in §6 pass. Say
   "I could not prove it" rather than paper over a gap.

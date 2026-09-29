@@ -1,6 +1,6 @@
 ---
 name: claude-code-extensions
-description: Load before writing or changing any Claude Code configuration — subagents, skills, hooks, settings and env vars, permissions, MCP entries, plugins, workflows, validation.
+description: Load before writing or changing Claude Code configuration — subagents, skills, hooks, settings, permissions, MCP entries, plugins; this stack's conventions, lifecycle and lint.
 ---
 # Claude Code extensions (verified against code.claude.com docs, Claude Code 2.1.283)
 
@@ -37,4 +37,4 @@ Workflow (dynamic workflows), CronCreate/CronList/CronDelete/ScheduleWakeup (in-
 ## Validate
 `jq empty <file>` for JSON; `claude plugin validate <dir>` for plugins and agent directories; in the stack repo `uv run tests/lint_agents.py`, `uv run --python 3.12 --with pytest --with httpx --with "mcp>=1.10,<2" pytest -q tests/`, `bash tests/install_smoke.sh`; `/usr/bin/python3 <config>/hooks/agent_guard.py --self-test` (the hooks' own interpreter, as in settings.json); `/doctor` and `/stack-doctor` in a session.
 
-Related skills: `mcp-server-craft` (writing an MCP server), `prompt-and-brief-design` (CLAUDE.md, agent and skill prompts), `agent-harness-design` (agent loops outside Claude Code).
+Division of labour: this skill holds the stack's conventions and verified key facts; the built-in `update-config` skill covers the mechanics of editing a settings.json (in this stack, change `dot-claude/settings.json` in the repo, never the live file), `workflow-authoring` covers Workflow scripts, and `skill-creator` covers skill evals and description tuning. Related skills: `mcp-server-craft` (writing an MCP server), `prompt-and-brief-design` (CLAUDE.md, agent and skill prompts), `agent-harness-design` (agent loops outside Claude Code).

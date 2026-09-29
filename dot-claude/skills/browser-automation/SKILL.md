@@ -1,14 +1,18 @@
 ---
 name: browser-automation
-description: Load before any multi-step browser task — Claude in Chrome (logged-in) or Playwright (headless); choosing the browser, targeting, waiting, forms, downloads, extraction, hard stops.
+description: Load before a multi-step browser task — choosing Chrome, built-in browser or Playwright, the Playwright loop, forms, downloads, hard stops; Chrome tool mechanics in chrome-browser.
 ---
 # Browser automation
+
+## Division of labour
+This skill decides which browser to use and holds the stack's procedure: the Playwright loop, extraction, hard stops and injection rules. Tool mechanics for the user's browsers live in the plugin skills. Load `anthropic-skills:chrome-browser` before the first `mcp__claude-in-chrome__*` call (tool loading, tabs, site permissions). Load `anthropic-skills:built-in-browser` before the first Claude desktop browser-pane call (`mcp__Claude_Browser__*`). Desktop apps → `computer-use-apps`.
 
 ## Pick the browser
 | Need | Use |
 |---|---|
 | Read a public page | WebFetch / mcp__jina first — no browser |
-| The user's logins, cookies, extensions | Claude in Chrome (`mcp__claude-in-chrome__*`; session started with `claude --chrome` or Chrome enabled by default in `/chrome`; needs a claude.ai login, not an API key) |
+| The user's logins, cookies, extensions | Claude in Chrome (`mcp__claude-in-chrome__*`; mechanics in `anthropic-skills:chrome-browser`) |
+| Inside the Claude desktop app, a page the user watches alongside the chat | built-in browser pane (`anthropic-skills:built-in-browser`) |
 | Clean, repeatable, headless or test runs; public JS-heavy pages | Playwright (`mcp__playwright__*`): its own headless Chrome, in-memory profile (`--headless --isolated`), so parallel agents never share state |
 If the needed tools are absent, say which one and why; don't fall back to the user's browser silently.
 

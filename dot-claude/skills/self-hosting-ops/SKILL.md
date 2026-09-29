@@ -16,7 +16,9 @@ Quadlet man page, Docker Compose v5 (`docker compose config` on the file below),
 - One change at a time, each after a fresh backup and with a written rollback. Ask the user before opening ports,
   enabling Funnel, editing the tailnet policy, deleting volumes/snapshots/backups, or major-version upgrades.
 - Layout: `/srv/<svc>/{compose.yaml, .env (600), secrets/ (700; files 600), data/, runbook.md}`. Related skills:
-  `linux-workstation` (host setup, firewall, Tailscale client), `git-workflows` (forge CLIs).
+  `linux-workstation` (host setup, firewall, Tailscale client), `git-workflows` (forge CLIs), `container-images`
+  (building and scanning images — this skill runs them), `ci-cd-pipelines` (workflow files for the Forgejo
+  runner registered below), `terraform-opentofu` (infrastructure as code).
 
 ## Tailscale
 - Server nodes: disable key expiry in the admin console, or join with a tag (`tailscale up --advertise-tags=tag:server`,

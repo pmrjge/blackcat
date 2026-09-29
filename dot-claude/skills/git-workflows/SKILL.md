@@ -88,7 +88,7 @@ git branch -d agent/<task>                          # after merge (-D only when 
   `git commit --allow-empty -m "amend! <exact subject of target>" -m "<complete new message>"`, then autosquash.
   The new message replaces the old one (tested).
 - Drop or edit a commit: rewrite the todo with sed (tested). The todo uses the same abbreviation as
-  `S=$(git rev-parse --short <sha>)` (not always 7 chars): `GIT_SEQUENCE_EDITOR="sed -i 's/^pick $S /drop $S /'" git rebase -i <base>`;
+  `S=$(git rev-parse --short <sha>)` (not always 7 chars): `GIT_SEQUENCE_EDITOR="sed -i.bak 's/^pick $S /drop $S /'" git rebase -i <base>` (`-i.bak` works with BSD and GNU sed; macOS `sed -i 's/…/'` fails — tested on macOS 27);
   use `edit` to stop there, then `git reset HEAD~`, commit the pieces, `git rebase --continue` (splits a commit).
 - Transplant: `git rebase --onto <newbase> <oldbase> <branch>`. Branch cut from `feature-a` moved onto main:
   `git rebase --onto origin/main feature-a my-branch`. Remove F and G from E-F-G-H-I-J (J = `topic`): `git rebase --onto topic~5 topic~3 topic`.

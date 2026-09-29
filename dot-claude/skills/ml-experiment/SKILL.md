@@ -45,4 +45,4 @@ Close with: conclusion (does it meet the success criterion?), threats to validit
 ## 8. Parallel experiments
 Independent configurations may run in parallel (background jobs, or separate agents) only when they do not compete for the same accelerator (two jobs on one GPU or one Mac's unified memory corrupt timings and can OOM). CPU-only sweeps can run in parallel; accelerator runs go one at a time or to separate hosts.
 
-Related skills: `training-debug` (a run misbehaves), `data-visualization` (curves and comparisons), `dataset-curation` (data quality and splits), `numerical-methods` (precision and reproducibility).
+Related skills: `training-debug` (a run misbehaves), `data-visualization` (curves and comparisons), `dataset-curation` (data quality and splits), `numerical-methods` (precision and reproducibility), `tabular-ml` and `time-series-forecasting` (domain procedures), `distributed-training` (multi-GPU), `model-export` (deployment artifacts).

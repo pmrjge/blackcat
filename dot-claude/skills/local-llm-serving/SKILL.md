@@ -5,7 +5,7 @@ description: Load before running, serving, sizing or benchmarking an LLM locally
 # Local LLM serving
 
 ## Scope
-Running and serving open-weight LLMs on the Mac Studio (M3 Ultra, 512 GB unified memory, 819 GB/s) and the Linux laptop (RTX 5070 Ti Laptop GPU: Blackwell, compute capability 12.0 / `sm_120`, 12 GB GDDR7, 672 GB/s). Not here: making a quantized model (`llm-quantization`), downloading it (`hf-hub`), measuring its quality (`llm-evals`), profiling method (`accelerator-perf`), laptop driver/CUDA/PyTorch setup (`linux-workstation`), exposing a server beyond localhost or running LibreChat as a service (`self-hosting-ops`). Flags below were checked against mlx-lm, llama.cpp and vLLM sources of September 2026; these projects rename flags often, so confirm with `--help` before scripting.
+Running and serving open-weight LLMs on the Mac Studio (M3 Ultra, 512 GB unified memory, 819 GB/s) and the Linux laptop (RTX 5070 Ti Laptop GPU: Blackwell, compute capability 12.0 / `sm_120`, 12 GB GDDR7, 672 GB/s). Not here: making a quantized model (`llm-quantization`), exporting non-LLM models (ONNX, Core ML, ExecuTorch: `model-export`), downloading it (`hf-hub`), measuring its quality (`llm-evals`), profiling method (`accelerator-perf`), laptop driver/CUDA/PyTorch setup (`linux-workstation`), exposing a server beyond localhost or running LibreChat as a service (`self-hosting-ops`). Flags below were checked against mlx-lm, llama.cpp and vLLM sources of September 2026; these projects rename flags often, so confirm with `--help` before scripting.
 
 ## 1. Pick the runtime
 

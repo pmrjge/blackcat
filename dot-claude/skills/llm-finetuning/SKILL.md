@@ -32,4 +32,4 @@ Log train and validation loss; stop when validation loss turns up. Sample genera
 ## Report
 Data (size, source, split), method and hyperparameters, curves, before/after table with CIs, sample generations, artifacts and paths, known failure modes.
 
-Related skills: `dataset-curation` (building and cleaning the training set), `llm-evals` (before/after numbers), `local-llm-serving` (serving the result), `hf-hub` (downloads and publishing).
+Related skills: `dataset-curation` (building and cleaning the training set), `llm-evals` (before/after numbers), `local-llm-serving` (serving the result), `hf-hub` (downloads and publishing), `distributed-training` (multi-GPU or multi-node runs).

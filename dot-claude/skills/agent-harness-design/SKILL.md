@@ -5,7 +5,7 @@ description: Load before designing or building an agent runtime or agentic app â
 # Agent harness design
 
 ## Scope
-The runtime around a model: loop, tools, permissions, context, memory, multi-agent coordination, MCP client, streaming, cost, evaluation, observability. Neighbours: `rag-agents` (retrieval pipelines, building MCP servers), `graph-rag` (graph-backed memory), `prompt-and-brief-design` (system prompts, tool descriptions), `secure-coding` (prompt injection, sandbox escapes, secrets), `llm-evals` (statistics of eval results), `claude-code-extensions` (when the harness is Claude Code itself). Claude API names below come from platform.claude.com (September 2026). Tool versions and beta headers are dated identifiers: re-check them in the docs before shipping.
+The runtime around a model: loop, tools, permissions, context, memory, multi-agent coordination, MCP client, streaming, cost, evaluation, observability. Neighbours: `rag-agents` (retrieval pipelines), `mcp-server-craft` (building MCP servers), the built-in `claude-api` skill (API parameters and model facts), `graph-rag` (graph-backed memory), `prompt-and-brief-design` (system prompts, tool descriptions), `secure-coding` (prompt injection, sandbox escapes, secrets), `llm-evals` (statistics of eval results), `claude-code-extensions` (when the harness is Claude Code itself). Claude API names below come from platform.claude.com (September 2026). Tool versions and beta headers are dated identifiers: re-check them in the docs before shipping.
 
 ## 1. Build or reuse
 
