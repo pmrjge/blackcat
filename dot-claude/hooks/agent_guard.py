@@ -4209,6 +4209,8 @@ class _Scan(object):
             if base in ("xargs", "parallel"):
                 xargs_seen = True
             if ASSIGN_RE.match(w):             # GIT_EDITOR='git push' git commit, export PAGER=...
+                if "protect" in self.want:
+                    self.note_assign(restore(w))
                 m = ENV_EXEC_RE.match(w)
                 found = self.scan(restore(m.group(1)), depth + 1) if m else None
             elif base in PUSH_PROGRAMS and here_cmd:
@@ -4231,7 +4233,7 @@ class _Scan(object):
                 if ">" in w and REDIR_OP_RE.match(w) and i + 1 < end:
                     found = self.protect_hit(restore(words[i + 1]), "redirect (%s)" % w)
                 elif here_cmd and base in ("cd", "pushd"):
-                    self.note_cd([restore(x) for x in words[i + 1:end]])
+                    found = self.note_cd([restore(x) for x in words[i + 1:end]])
                 elif here_cmd and base in PROTECT_WRITE_CMDS:
                     found = self.protect_command(base, [restore(x) for x in words[i + 1:end]])
                     if not found and xargs_seen:   # ls ~/.claude/hooks | xargs rm: operands on stdin
@@ -4383,7 +4385,7 @@ class _Scan(object):
             first in ("/dev/stdin", "/dev/fd/0", "-")
 
     def git(self, words, i, end, xargs_seen, depth, restore):
-        k, aliases = i + 1, {}
+        k, aliases, gopts = i + 1, {}, []
         while True:                            # global options (and redirections among them)
             k = _skip_redirections(words, k, end)
             if k >= end or not words[k].startswith("-"):
@@ -4395,6 +4397,10 @@ class _Scan(object):
                 opt, _, val = opt.partition("=")
                 k += 1
             key, _, value = restore(val).partition("=")
+            if opt in ("-C", "--work-tree", "--git-dir"):
+                gopts.append((opt, restore(val)))
+            elif opt[:2] == "-C" and len(opt) > 2:
+                gopts.append(("-C", restore(opt[2:])))      # git -C~/dir
             if opt == "--config-env" and GIT_EXEC_KEY_RE.match(key):
                 return self.hit("opaque", "git --config-env " + restore(val))
             if opt == "-c":                    # git -c alias.p=push p, -c core.editor=...
@@ -4437,6 +4443,8 @@ class _Scan(object):
                 found = found or (self.scan(code, depth + 1) if code else None)
         elif sub == "bisect" and args[:1] == ["run"]:
             found = self.scan(" ".join(args[1:]), depth + 1)
+        if not found and "protect" in self.want:
+            found = self.git_protect(sub, args, gopts)
         if found:
             return found
         if OPAQUE_SUB_RE.search(sub):
@@ -4562,11 +4570,161 @@ class _Scan(object):
             self._protect_specs = (compiled, bases)
         return self._protect_specs
 
-    def protect_hit(self, raw_path, how, contains=False):
+    # Shell expansion in the protect scan. UNRES stands for an expansion the guard cannot
+    # resolve ($X, ${X%/}, $(...), backticks) in a string returned by expand_vars.
+    UNRES = "\x01"
+    GLOB_RE = re.compile("[*?\\[\x01]")
+    _vars = None                               # variables assigned earlier in this command
+    GIT_TREE_SUBS = frozenset((
+        "checkout", "switch", "restore", "reset", "clean", "stash", "rm", "mv", "apply", "am",
+        "merge", "rebase", "pull", "cherry-pick", "revert", "read-tree", "checkout-index",
+        "sparse-checkout", "filter-branch"))
+
+    def var_table(self):
+        if self._vars is None:
+            self._vars = {}
+        return self._vars
+
+    def var_lookup(self, name):
+        """(known, value) of a shell variable; value None: known but unset. The variables the
+        protected paths hang on: HOME, CLAUDE_CONFIG_DIR, XDG_STATE_HOME, PWD, plus those a
+        `NAME=value` earlier in the command assigned."""
+        table = self.var_table()
+        if name in table:
+            return True, table[name]
+        env = os.environ.get(name) or None
+        if name == "HOME":
+            return True, env or os.path.expanduser("~")
+        if name in ("CLAUDE_CONFIG_DIR", "XDG_STATE_HOME"):
+            return True, env
+        if name == "PWD":
+            _, bases = self.protect_specs()
+            return True, (self.cd[-1] if self.cd else bases[0])
+        return False, None
+
+    def expand_vars(self, s, depth=0):
+        """`s` with the variables it names expanded the way the shell would: $NAME and ${NAME}
+        (CLAUDE_CONFIG_DIR and XDG_STATE_HOME fall back to their defaults), ${NAME:-word},
+        ${NAME-word}, ${NAME:+word}. What cannot be resolved ($X, ${X%/}, $1, $(...), backticks)
+        becomes UNRES."""
+        if "$" not in s and "`" not in s and "\x00" not in s:
+            return s
+        out, i, n = [], 0, len(s)
+        while i < n:
+            c = s[i]
+            nx = s[i + 1] if i + 1 < n else ""
+            if c == "\x00":
+                m = SUBST_MARK_RE.match(s, i)
+                i = m.end() if m else i + 1
+                out.append(self.UNRES)
+            elif c == "`":
+                j = s.find("`", i + 1)
+                i = n if j < 0 else j + 1
+                out.append(self.UNRES)
+            elif c != "$" or not nx:
+                out.append(c)
+                i += 1
+            elif nx in "({":
+                open_c, close_c, d, j = nx, ")" if nx == "(" else "}", 0, i + 1
+                while j < n:
+                    d += (s[j] == open_c) - (s[j] == close_c)
+                    if d == 0:
+                        break
+                    j += 1
+                body, i = s[i + 2:j], j + 1
+                m = re.match(r"([A-Za-z_]\w*)(?:(:?)([-=+?])(.*))?\Z", body, re.S) \
+                    if open_c == "{" else None
+                known, val = self.var_lookup(m.group(1)) if m else (False, None)
+                if not known or depth > 3:
+                    out.append(self.UNRES)
+                    continue
+                colon, op, word = m.group(2), m.group(3), m.group(4)
+                if op is None:
+                    dflt = {"CLAUDE_CONFIG_DIR": lambda: os.path.join(os.path.expanduser("~"),
+                                                                     ".claude"),
+                            "XDG_STATE_HOME": lambda: os.path.expanduser("~/.local/state")}
+                    out.append(val if val is not None else dflt.get(m.group(1), lambda: "")())
+                    continue
+                isset = val is not None and (val != "" or not colon)
+                if op in "-=":
+                    out.append(val if isset else self.expand_word(word, depth))
+                elif op == "+":
+                    out.append(self.expand_word(word, depth) if isset else "")
+                else:
+                    out.append(val if isset else self.UNRES)
+            else:
+                m = re.compile(r"[A-Za-z_]\w*|[0-9@*#?$!-]").match(s, i + 1)
+                if not m:
+                    out.append(c)
+                    i += 1
+                    continue
+                i = m.end()
+                known, val = self.var_lookup(m.group(0))
+                if known and val is None:
+                    val = {"CLAUDE_CONFIG_DIR": os.path.join(os.path.expanduser("~"), ".claude"),
+                           "XDG_STATE_HOME": os.path.expanduser("~/.local/state")
+                           }.get(m.group(0), "")
+                out.append(val if known else self.UNRES)
+        return "".join(out)
+
+    def expand_word(self, word, depth):        # the word of ${V:-word}: `~` expands there too
+        return self.expand_vars(os.path.expanduser(word) if word.startswith("~") else word,
+                                depth + 1)
+
+    def expand_path(self, s):
+        return self.expand_vars(os.path.expanduser(s) if s.startswith("~") else s)
+
+    def note_assign(self, word):
+        """`NAME=value` (also after export/declare/env): later $NAME resolves to the value."""
+        m = ASSIGN_RE.match(word)
+        if not m:
+            return
+        name, table = word[:m.end() - 1].rstrip("+"), self.var_table()
+        val = self.expand_path(word[m.end():])
+        if word[m.end() - 2] == "+":
+            val = (table[name] if name in table else os.environ.get(name, "")) + val
+        if name in table or len(table) < 64:
+            table[name] = val
+
+    def opaque_hit(self, rest, how, raw):
+        """A path that starts with an expansion the guard cannot resolve: a hit when the literal
+        text after it names a protected entry (its first component is a PROTECTED_CONFIG name or
+        .claude, or it holds /.claude/ or .local/state/claude-agent-stack)."""
+        import fnmatch
+        r = rest.replace(self.UNRES, "")
+        first = r.lstrip("/").split("/", 1)[0]
+        if first == ".claude" or "/.claude/" in r + "/" or \
+                ".local/state/claude-agent-stack" in r or \
+                any(fnmatch.fnmatchcase(first, p) for p in PROTECTED_CONFIG):
+            return self.hit("protect", "%s: %s (starts with an expansion the guard cannot resolve, "
+                            "then names a protected entry)" % (how, raw))
+        return None
+
+    @staticmethod
+    def glob_reaches(child, glob, partial):
+        """May the shell glob component `glob` match the entry `child` (the first component of a
+        protected literal path below the glob's directory)? `*` does not match dot names."""
+        import fnmatch
+        if not child:
+            return True
+        if child.startswith(".") and not glob.startswith("."):
+            return False
+        if partial:                            # the literal stops inside the name (backup-)
+            lead = re.split(r"[*?\[]", glob, maxsplit=1)[0]
+            return fnmatch.fnmatchcase(child + "0", glob) or (
+                glob.endswith("*") and (child.startswith(lead) or lead.startswith(child)))
+        return fnmatch.fnmatchcase(child, glob)
+
+    def protect_hit(self, raw_path, how, contains=False, real_only=False):
         """`raw_path` resolved the way a shell would (absolute as given, relative to each base
-        and to a directory an earlier `cd` named, `~` expanded; lexical and symlink-resolved),
-        checked against every protected-path pattern. contains=True: a directory that holds a
-        protected path counts too (rm -rf, find -delete, mv, chmod -R)."""
+        and to a directory an earlier `cd` named; `~`, $HOME, ${HOME}, $CLAUDE_CONFIG_DIR,
+        $XDG_STATE_HOME, $PWD and variables assigned earlier expanded; lexical and
+        symlink-resolved), checked against every protected-path pattern. contains=True: a
+        directory that holds a protected path counts too (rm -rf, find -delete, mv, chmod -R).
+        A glob (or an unresolved expansion after the first component) is checked as the
+        directory before it with contains=True, when a protected name there can match the glob;
+        an unresolved expansion at the start is a hit when the text after it names a protected
+        entry (opaque_hit)."""
         s = (raw_path or "").strip()
         if not s or s.startswith("-") or s in ("/dev/null", "/dev/stdout", "/dev/stderr", "&1",
                                                "&2") or "\n" in s:
@@ -4574,7 +4732,16 @@ class _Scan(object):
         compiled, bases = self.protect_specs()
         if not compiled:
             return None
-        s = os.path.expanduser(s) if s.startswith("~") else s
+        s = self.expand_path(s)
+        if s.startswith(self.UNRES):
+            return self.opaque_hit(s.lstrip(self.UNRES), how, raw_path.strip())
+        glob = None
+        m = self.GLOB_RE.search(s)
+        if m:                                  # rm ~/.claude/*, rm ~/.claude/agents/scout*
+            start = s.rfind("/", 0, m.start()) + 1
+            stop = s.find("/", m.start())
+            glob = s[start:len(s) if stop < 0 else stop].replace(self.UNRES, "*")
+            s, contains = s[:start], True
         candidates = [s] if os.path.isabs(s) else [os.path.join(b, s) for b in bases + self.cd]
         fold = (lambda x: x.lower()) if sys.platform == "darwin" else (lambda x: x)
         for cand in candidates:
@@ -4582,6 +4749,15 @@ class _Scan(object):
                 under = fold(c).rstrip("/") + "/"
                 for rx, literal in compiled:
                     inside = contains and literal is not None and fold(literal).startswith(under)
+                    if inside and real_only and "/__" in literal:
+                        inside = False         # the repo's unrendered __CLAUDE_DIR__ template
+                    if inside and glob is not None:
+                        below = fold(literal)[len(under):]
+                        if below:
+                            inside = self.glob_reaches(below.split("/", 1)[0], fold(glob),
+                                                       "/" not in below and below.endswith("-"))
+                        else:                  # DIR/** (all below) or DIR/**/name (unknown depth)
+                            inside = bool(rx.match(c.rstrip("/") + "/\x02"))
                     if inside or rx.match(c):
                         return self.hit("protect", "%s: %s%s" % (
                             how, c, " (it holds protected files)" if inside else ""))
@@ -4589,17 +4765,61 @@ class _Scan(object):
 
     def note_cd(self, args):
         """`cd DIR` / `pushd DIR`: later relative paths are also resolved against DIR (in
-        addition to the working directories: a cd inside a subshell does not last)."""
+        addition to the working directories: a cd inside a subshell does not last). Returns a
+        hit when DIR starts with an expansion the guard cannot resolve and names a protected
+        entry after it (cd $D/.claude)."""
         pos = [a for a in args if not a.startswith("-") or a == "-"]
         target = pos[0] if pos else "~"
-        if _expansion(target) or target == "-":
-            return
-        target = os.path.expanduser(target) if target.startswith("~") else target
+        if target == "-":
+            return None
+        target = self.expand_path(target)
+        if target.startswith(self.UNRES):
+            return self.opaque_hit(target.lstrip(self.UNRES), "cd", pos[0])
+        m = self.GLOB_RE.search(target)
+        if m:                                  # cd $HOME/.claude/$X: the directory before it
+            target = target[:target.rfind("/", 0, m.start()) + 1] or "."
         _, bases = self.protect_specs()
         for b in ([None] if os.path.isabs(target) else bases + self.cd):
             p = os.path.normpath(target if b is None else os.path.join(b, target))
             if p not in self.cd and len(self.cd) < 16:
                 self.cd.append(p)
+        return None
+
+    def git_protect(self, sub, args, gopts):
+        """A git subcommand that rewrites the working tree (checkout, reset --hard, clean, ...)
+        whose effective work tree — -C, --work-tree, GIT_WORK_TREE, a --git-dir/GIT_DIR (and
+        its parent), else the working directories — is protected or holds protected paths."""
+        if sub not in self.GIT_TREE_SUBS:
+            return None
+        if (sub == "stash" and args[:1] in (["list"], ["show"])) or (
+                sub == "apply" and {"--check", "--stat", "--numstat", "--summary"} & set(args)):
+            return None
+        table = self.var_table()
+        _, bases = self.protect_specs()
+        cur, work, gdir = list(bases) + list(self.cd), table.get("GIT_WORK_TREE"), \
+            table.get("GIT_DIR")
+
+        def join(dirs, v):
+            e = self.expand_path(v)
+            if e.startswith(self.UNRES):
+                return [v]                     # protect_hit applies the opaque rule to it
+            return [os.path.normpath(e if os.path.isabs(e) else os.path.join(d, e)) for d in dirs]
+        for opt, val in gopts:
+            if opt == "-C":
+                cur = join(cur, val)
+            elif opt == "--work-tree":
+                work = val
+            elif opt == "--git-dir":
+                gdir = val
+        dirs = cur if not work else join(cur, work)
+        if gdir:                               # the repository (or its work tree) under a protected dir
+            dirs = dirs + join(cur, gdir) + join(cur, gdir.rstrip("/") + "/..")
+        for d in dict.fromkeys(dirs):
+            found = self.protect_hit(d, "git %s rewrites the work tree" % sub, contains=True,
+                                     real_only=True)
+            if found:
+                return found
+        return None
 
     def protect_code(self, code):
         """Inline interpreter code (python -c, node -e, perl -e, a heredoc into `python3 -`) that

@@ -299,3 +299,257 @@ def test_settings_wire_blackcat_guard_and_memory_hooks():
     assert any(m == "mcp__neural-memory__nmem_remember" and c.endswith('agent_guard.py"')
                for m, c in cmds)
     assert len(cmds) == len(set(cmds))
+
+
+# --- shell expansion, globs, cd and git work trees (F1 and F4 of the stack-tighten probe) -----
+
+ENTRIES = ["agents/x.md", "skills/x/SKILL.md", "rules/x.md", "mcp/x.py", "magg/config.json",
+           "hooks/agent_guard.py", "bin/mcp-headers", "settings.json", "CLAUDE.md",
+           "stack-plugins/x", "stack.env", ".stack-manifest.json", "backup-old/stack.env"]
+WRITES = ["rm {p}", "echo x > {p}", "echo x >> {p}", "mv /tmp/new {p}", "cp /tmp/a {p}",
+          "sed -i.bak s/a/b/ {p}", "echo x | tee {p}", "touch {p}"]
+# each form names the config dir; {e} is the entry below it
+CONFIG_FORMS = ["$HOME/.claude/{e}", "${{HOME}}/.claude/{e}", '"$HOME/.claude/{e}"',
+                '"$HOME"/.claude/{e}', "$CLAUDE_CONFIG_DIR/{e}", "${{CLAUDE_CONFIG_DIR}}/{e}",
+                '"$CLAUDE_CONFIG_DIR"/{e}', "${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}/{e}",
+                "${{HOME:-/nonexistent}}/.claude/{e}", "~/.claude/{e}",
+                "$X/{e}", '"$D"/.claude/{e}', "$(pwd)/.claude/{e}", "`pwd`/.claude/{e}"]
+
+
+@pytest.fixture
+def shell_env(installed, tmp_path, monkeypatch):
+    """HOME whose .claude is the installed config dir (a symlink, as with dotfiles); no
+    CLAUDE_CONFIG_DIR unless a test sets it. XDG_STATE_HOME comes from `installed`."""
+    g, cfg, proj = installed
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".claude").symlink_to(cfg)
+    monkeypatch.setenv("HOME", str(home))
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR", raising=False)
+    return g, cfg, proj, home
+
+
+def denied(g, proj, cmd):
+    got = g.protected_write_in(cmd, {"cwd": str(proj)})
+    return bool(got and got[0] == "protect")
+
+
+@pytest.mark.parametrize("form", CONFIG_FORMS)
+@pytest.mark.parametrize("entry", ENTRIES)
+def test_f1_expansions_of_the_config_dir_denied(shell_env, monkeypatch, entry, form):
+    g, cfg, proj, home = shell_env
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    path = form.format(e=entry)
+    for tmpl in WRITES:
+        cmd = tmpl.format(p=path)
+        assert denied(g, proj, cmd), cmd
+
+
+def test_f1_config_dir_default_when_env_unset(shell_env):
+    g, cfg, proj, home = shell_env                    # CLAUDE_CONFIG_DIR unset: ~/.claude
+    for cmd in ["rm $CLAUDE_CONFIG_DIR/agents/x.md", "rm ${CLAUDE_CONFIG_DIR}/rules/x.md",
+                "rm ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agents/x.md",
+                "rm ${CLAUDE_CONFIG_DIR:-~/.claude}/agents/x.md"]:
+        assert denied(g, proj, cmd), cmd
+
+
+def test_f1_default_word_only_when_the_variable_is_unset(shell_env, monkeypatch, tmp_path):
+    g, cfg, proj, home = shell_env
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(tmp_path / "elsewhere"))
+    assert not denied(g, proj, "rm ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agents/x.md")
+    monkeypatch.delenv("CLAUDE_CONFIG_DIR")
+    assert denied(g, proj, "rm ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agents/x.md")
+
+
+STATE_FORMS = ["$XDG_STATE_HOME/claude-agent-stack/{e}",
+               "${{XDG_STATE_HOME}}/claude-agent-stack/{e}",
+               '"$XDG_STATE_HOME"/claude-agent-stack/{e}',
+               "${{XDG_STATE_HOME:-$HOME/.local/state}}/claude-agent-stack/{e}",
+               "$XDG_STATE_HOME/claude-agent-stack-backups/{e}",
+               "$HOME/.local/state/claude-agent-stack/{e}", "$X/.local/state/claude-agent-stack/{e}"]
+
+
+@pytest.mark.parametrize("form", STATE_FORMS)
+def test_f1_state_and_backup_dirs_via_variables(shell_env, form):
+    g, cfg, proj, home = shell_env                    # XDG_STATE_HOME is set by `installed`
+    for tmpl in ["rm -rf {p}", "echo x > {p}", "mv {p} /tmp/y"]:
+        cmd = tmpl.format(p=form.format(e="s1/god-coder.lock"))
+        if "$HOME/.local/state" in form and "XDG_STATE_HOME" not in form:
+            continue                                  # HOME default: see the next test
+        assert denied(g, proj, cmd), cmd
+
+
+def test_f1_state_dir_default_under_home(shell_env, monkeypatch):
+    g, cfg, proj, home = shell_env
+    monkeypatch.delenv("XDG_STATE_HOME")
+    for cmd in ["rm -rf $HOME/.local/state/claude-agent-stack/s1",
+                "rm -rf $XDG_STATE_HOME/claude-agent-stack",
+                "rm -rf ${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack/s1",
+                "rm -rf ${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack-backups"]:
+        assert denied(g, proj, cmd), cmd
+
+
+def test_f1_pwd_is_the_base(shell_env):
+    g, cfg, proj, home = shell_env
+    assert not denied(g, proj, "rm $PWD/build/x")
+    assert denied(g, proj, "rm $PWD/.git/hooks/pre-commit")
+    assert denied(g, proj, "rm ${PWD}/.git/config")
+    assert denied(g, proj, "cd %s && rm $PWD/agents/x.md" % cfg)
+
+
+@pytest.mark.parametrize("cmd", [
+    "C=$HOME/.claude; rm $C/agents/x.md",
+    "export C=~/.claude && rm -rf \"$C\"/skills",
+    "C=${HOME}/.claude && rm ${C}/rules/x.md",
+    "declare -x C=$HOME/.claude; echo x > $C/settings.json",
+    "A=$HOME; B=$A/.claude; rm $B/agents/x.md",
+    "D=$HOME/.claude/agents; rm $D/x.md",
+    "C=$HOME/.claude env rm $C/agents/x.md",
+    "R=$(mktemp -d); rm $R/agents/x.md",
+    "bash -c 'C=~/.claude; rm $C/agents/x.md'",
+])
+def test_f1_variables_assigned_earlier_in_the_command(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "rm $X/agents/x.md", "rm -rf \"$D/.claude\"", "rm ${X}/skills", "echo x > $D/hooks/a.py",
+    "rm -rf $(git rev-parse --show-toplevel)/.claude", "rm `dirname $0`/rules/x.md",
+    "rm $A$B/stack.env", "rm -rf $ROOT/backup-2026", "mv $X/a/.claude/settings.json /tmp/s",
+    "rm -rf $STATE/.local/state/claude-agent-stack", "cp /tmp/a $X/mcp/a.py",
+    "rm ${X%/}/agents/x.md",
+])
+def test_f1_opaque_start_naming_a_protected_entry(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "rm -rf $TMPDIR/build", 'rm -rf "$out"', "rm $X/foo.txt", "rm -rf $OUT/dist/x",
+    "echo x > $LOG", "cp a.txt $DEST/", "mv $SRC/a $DST/b", 'rm -rf "$BUILD_DIR/cache"',
+    "rm -rf $(mktemp -d)/x", "rm $TMPDIR/agents-list.txt", "touch $X/claude/x",
+    "rm ${X}/mcp-notes.txt", "cd $TMPDIR && rm x", 'cd "$proj" && ls',
+    "R=$(mktemp -d); rm -rf $R/build",
+])
+def test_f1_ordinary_unresolved_variables_allowed(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert not denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "rm -rf ~/.claude/*", "rm -rf $HOME/.claude/*", 'rm -rf "$HOME/.claude"/*',
+    "rm ~/.claude/agents/*.md", "rm ~/.claude/agents/scout*", "rm ~/.claude/agents/?.md",
+    "rm ~/.claude/agents/[a-c]*", "rm -rf ~/.local/state/claude-agent-stack/*",
+    "rm ~/.local/state/claude-agent-stack/*/god-coder.spawned", "rm ~/.claude/ag*",
+    "rm -rf ~/.claude/backup-2*", "rm ~/.claude/*", "mv ~/.claude/agents/* /tmp/x",
+    "cp /tmp/a.md ~/.claude/agents/*", "rm ~/.claude/s*", "rm -rf ~/.claude/$X",
+    "echo x > ~/.claude/agents/*", "chmod 000 ~/.claude/skills/*/SKILL.md",
+    "rm -rf ~/.local/state/claude-agent-stack-backups/*", "rm -rf ~/.claude/hooks/*.py",
+])
+def test_f1_globs_over_protected_directories_denied(shell_env, monkeypatch, cmd):
+    g, cfg, proj, home = shell_env
+    monkeypatch.setenv("XDG_STATE_HOME", str(home / ".local" / "state"))
+    assert denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "rm -rf /tmp/x/*", "rm ~/.claude/projects/*/foo", "rm build/*", "rm -rf build/*", "rm *",
+    "rm ./*.pyc", "rm -rf dist/*.whl", "rm ~/.claude/*.log", "rm ~/.claude/projects/*",
+    "rm ~/.claude/.??*.tmp", "rm -f /tmp/x?.txt", "rm src/**/*.pyc", "mv build/* /tmp/old/",
+    "cp /tmp/a/* build/", "rm -rf ~/.cache/pip/*", "rm ~/Downloads/*.zip",
+])
+def test_f1_ordinary_globs_allowed(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert not denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "cd $HOME/.claude && rm agents/x.md",
+    'cd "${HOME}/.claude/hooks" && echo x > agent_guard.py',
+    "pushd $HOME/.claude && rm agents/x.md",
+    "pushd ~/.claude >/dev/null; rm rules/x.md",
+    "builtin cd $HOME/.claude && rm agents/x.md",
+    "command cd $HOME/.claude && rm agents/x.md",
+    "cd $CLAUDE_CONFIG_DIR && rm agents/x.md",
+    "cd ${CLAUDE_CONFIG_DIR:-$HOME/.claude}/agents && rm x.md",
+    "cd $HOME/.claude/agents && rm *.md",
+    "cd $HOME && cd .claude && rm agents/x.md",
+    "cd $HOME/.claude/$X && rm agents/x.md",
+    "cd $D/.claude && ls",
+    "C=$HOME/.claude; cd $C && rm agents/x.md",
+])
+def test_f1_cd_then_relative_write(shell_env, monkeypatch, cmd):
+    g, cfg, proj, home = shell_env
+    monkeypatch.setenv("CLAUDE_CONFIG_DIR", str(cfg))
+    assert denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "cd $HOME && rm build/x", "cd $HOME/projects && rm agents/x.md", "cd $TMPDIR && rm agents/x",
+    "cd $HOME/.claude && ls agents", "cd ~/.claude && cat settings.json",
+    "pushd $HOME/.claude && grep -r foo agents",
+])
+def test_f1_cd_without_a_protected_write_allowed(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert not denied(g, proj, cmd), cmd
+
+
+GIT_REWRITERS = ["checkout -- .", "checkout main", "switch main", "restore .", "reset --hard",
+                 "clean -fd", "stash", "stash pop", "rm -r agents", "mv a b", "apply x.patch",
+                 "am x.mbox", "merge other", "rebase main", "pull", "cherry-pick abc",
+                 "revert abc", "read-tree HEAD", "checkout-index -a -f", "sparse-checkout set x",
+                 "filter-branch -f HEAD"]
+GIT_FORMS = ["git -C ~/.claude {s}", "git -C $HOME/.claude {s}", "git -C {c} {s}",
+             'git -C "$HOME/.claude" {s}', "git -C ~ -C .claude {s}",
+             "cd ~/.claude && git {s}", "cd $HOME/.claude; git {s}",
+             "git --git-dir=$HOME/.claude/.git --work-tree=$HOME/.claude {s}",
+             "git --git-dir ~/.claude/.git --work-tree ~/.claude {s}",
+             "git --work-tree=~/.claude {s}", "git --git-dir=~/.claude/.git {s}",
+             "GIT_DIR=~/.claude/.git GIT_WORK_TREE=~/.claude git {s}",
+             "GIT_WORK_TREE=$HOME/.claude git {s}", "env GIT_DIR=$HOME/.claude/.git git {s}",
+             "export GIT_WORK_TREE=~/.claude; git {s}", "git -C ~/.claude/agents {s}",
+             "git -C $X/.claude {s}"]
+
+
+@pytest.mark.parametrize("sub", GIT_REWRITERS)
+def test_f4_git_in_the_config_dir_denied(shell_env, sub):
+    g, cfg, proj, home = shell_env
+    for form in GIT_FORMS:
+        cmd = form.format(s=sub, c=cfg)
+        assert denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "git -C ~/.claude status", "git -C ~/.claude diff", "git -C ~/.claude log --oneline",
+    "git -C ~/.claude stash list", "git -C ~/.claude stash show -p", "git -C ~/.claude show HEAD",
+    "cd ~/.claude && git status", "git --git-dir=$HOME/.claude/.git status",
+    "GIT_DIR=~/.claude/.git git diff", "git -C ~/.claude apply --check x.patch",
+    "git -C ~/.claude fetch", "git -C ~/.claude commit -m x", "git -C ~/.claude add -A",
+    # a work tree elsewhere, and the project itself
+    "git checkout main", "git reset --hard HEAD~1", "git clean -fd", "git stash", "git pull",
+    "git -C /tmp/other checkout .", "git -C $TMPDIR/x reset --hard", "git rebase main",
+    "git --git-dir=/tmp/o/.git --work-tree=/tmp/o checkout .", "GIT_DIR=/tmp/o/.git git status",
+    "cd /tmp && git checkout main", "cd $HOME/projects/x && git reset --hard",
+    "git -C ~/projects/repo clean -fdx", "git commit -am x", "git log",
+])
+def test_f4_read_only_git_and_other_work_trees_allowed(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert not denied(g, proj, cmd), cmd
+
+
+def test_f1_f4_end_to_end_through_the_hook(installed, tmp_path):
+    g, cfg, proj = installed
+    hook_path = cfg / "hooks" / "agent_guard.py"
+    home = tmp_path / "home"
+    home.mkdir()
+    (home / ".claude").symlink_to(cfg)
+    for cmd in ["rm $HOME/.claude/agents/x.md", "git -C ~/.claude reset --hard",
+                "rm -rf ~/.claude/*"]:
+        p = run_hook(hook_path, cmd, cwd=str(proj), HOME=str(home))
+        assert p.returncode == 0, p.stderr
+        out = json.loads(p.stdout)["hookSpecificOutput"]
+        assert out["permissionDecision"] == "deny", cmd
+    for cmd in ["rm -rf $TMPDIR/build", "rm -rf /tmp/x/*", "rm build/*"]:
+        p = run_hook(hook_path, cmd, cwd=str(proj), HOME=str(home))
+        assert p.returncode == 0 and p.stdout == "", (cmd, p.stdout, p.stderr)
