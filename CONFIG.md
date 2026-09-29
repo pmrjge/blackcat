@@ -139,17 +139,82 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
   - whether AskUserQuestion is offered to the main thread in Claude Desktop (it goes through the host's `canUseTool`); BlackCat falls back to plain-text questions;
   - Desktop behavior after the fix. It is inferred from transcripts and the hook tests, not from a live Desktop run.
 
-## 7. Validation (2026-09-29)
+## 7. Installer, backups and hardening
+
+### How an install runs
+1. The stack's part of the config dir (`agents/`, `skills/` without `synced/`, `rules/`, `hooks/`, `bin/`, `mcp/` without `vendor/`, `stack-plugins/`, `magg/config.json`, `settings.json`, `stack.env`, `.stack-manifest.json`, `CLAUDE.md`, temp leftovers) is copied to a staging dir.
+2. Render, settings merge and pruning run there. The staged result is validated before anything changes: JSON, agent and skill frontmatter, placeholders, and the staged `agent_guard.py --self-test`. Validation is fatal only for files the stack owns (their sha256 matches the manifest).
+3. The plan is printed: `changes: N added, N updated, N removed`, then `replaced:` (stack files that differed) and `removed: not part of the stack`, each with a reason.
+4. `--dry-run` stops here; MCP, plugin and rc changes are printed as `would: ...`. A real run saves every file it changes or removes into one backup, records the files it adds, then applies. A run that changes nothing makes no backup.
+
+`lib/install_state.py` does the staging, plan, backup, apply, restore and validation (system `python3`, stdlib only).
+
+### Pruning (default) and `--no-prune`
+| What | Default | `--no-prune` |
+|---|---|---|
+| `agents/`, `skills/` (stack-owned) | files of other origins, renamed agents (`senior-coder` → `main-coder`, `router` → `blackcat`), stale renders removed; edited stack files replaced | kept, listed as notes; an edited stack file keeps your version and gets `<file>.new` (`--force` replaces it) |
+| `hooks/`, `bin/`, `mcp/`, `rules/` | stack files it no longer ships (manifest or a legacy list) removed; your own files stay | kept |
+| magg catalog | edited stack entries replaced, entries it no longer ships removed; your servers stay | kept |
+| MCP (user scope) | entries it registered and no longer ships (and Context7) removed via `claude mcp remove`, recorded in the backup | kept |
+| `settings.json` | duplicate hooks and permission rules, old guard hooks (any path) and hooks on events it no longer wires removed; sandbox merged (stack scalars win, lists unioned) | the same |
+| temp leftovers, `.new` of files back in sync | removed | removed |
+
+The manifest (`.stack-manifest.json`) lists every stack file as relpath + sha256. On a first run without a manifest, a same-named file that differs from the stack's counts as stale: it is backed up and replaced. **A first install over an existing `~/.claude` therefore moves your own agents and skills into the backup: run `./install.sh --dry-run` first.**
+
+### Backups and `--restore`
+- Location: `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack-backups/<timestamp>-<random>/`. The folder is 0700, files are 0600, and `backup.json` holds the entries, added files, removed or replaced MCP entries, disabled plugins and rc copies.
+- The backups sit beside the guard's state dir, not inside it (the guard deletes state folders idle for three days).
+- Agents can't reach them: `Read`/`Edit` deny rules, sandbox `denyRead`/`denyWrite` and a guard protected path.
+- Backups that earlier versions kept inside the config dir (`backup-*`, with copies of `stack.env`) are moved to `<backups>/legacy/` on every run.
+- `./install.sh --restore [DIR]` (default: the latest install backup) puts back files, rc files, MCP entries and plugins. It works as a staged plan, backs up the current state first and prints `undo this restore: ...`. `--restore --dry-run` only prints the plan.
+- A `backup.json` naming paths outside the config scope is refused. rc restores are limited to `~/.zshrc` and `~/.bashrc`.
+- More than ten backups of one config dir: the run says so; it never deletes one.
+
+### Plugins
+One copy of each skill is the default. A plugin that duplicates a claude.ai-synced skill (document-skills, skill-creator) is disabled, and so is `mcp-server-dev@claude-plugins-official` (the stack's `mcp-server-craft` covers it). Each disable prints `To undo: claude plugin enable ...` and is recorded for `--restore`; `--keep-plugin-duplicates` keeps both. `math-olympiad` (with `--with-extra-plugins`) and the built-in `dataviz` skill stay.
+
+### Supply chain (C7)
+- uv 0.12.20: release tarball, checked by sha256.
+- magg 1.2.1: `uv tool install --exclude-newer 2026-09-22T00:00:00Z`.
+- huetension v0.3.0: tarball checked by sha256 (`go install ...@v0.3.0` as fallback).
+- sci/ml venvs: `requirements/*.txt` with `--require-hashes` (sci also `--only-binary :all:`), 7-day cooldown.
+- After Effects MCP: pinned commit `88d5fbf0`, `npm ci --ignore-scripts`, then an explicit `npm run build`.
+
+### Sandbox and managed settings
+- `settings.json` turns the sandbox on with `allowUnsandboxedCommands: false`:
+  - **filesystem:** `denyWrite` covers the config dir, the guard state dir and the backups; `denyRead` covers `stack.env`, `backup-*`, the backups and `.credentials.json`.
+  - **network:** a strict allowlist of package registries, forges, Hugging Face, W&B and arXiv.
+  - **credentials:** forge tokens (`GITHUB_TOKEN`, `GH_TOKEN`, GitLab/Gitea/Forgejo/Codeberg) are denied to sandboxed commands.
+- The installer merges this block into yours: the stack's scalars win and lists are unioned.
+- `./install.sh --print-managed-settings > managed-settings.json` prints an optional root-level file (instructions go to stderr). It repeats the guard hook, the protected-path deny rules and the sandbox, so editing `~/.claude/settings.json` can't switch them off.
+- Installing that file is your step: `/Library/Application Support/ClaudeCode/managed-settings.json` (macOS) or `/etc/claude-code/managed-settings.json`. The installer never writes anything root-owned. Re-print it after an install that changed the hook or deny rules.
+
+### Residual risks
+- **The shell parsing is a heuristic.** The read-only reviewer allowlist, the protected-path scan and no-push all parse shell text. The sandbox, and managed settings once you install them, are the real boundary; without the sandbox a determined interpreter one-liner can still slip past the parser.
+- **`gh` can still use a stored token.** Sandboxed commands get no forge token from the environment, but `gh` can read one from the macOS keychain or `~/.config/gh/hosts.yml`. The no-push hook (and the `Bash(gh pr create *)`-style deny rules) block forge writes, not the sandbox. To close this, deny-read `~/.config/gh`; read-only `gh` then stops working too.
+- **The guard state path is fixed in the sandbox.** `denyWrite` names `~/.local/state/claude-agent-stack`. With `XDG_STATE_HOME` set elsewhere, the guard state dir is protected only by the guard's own path check. The backups use the rendered `__STACK_BACKUPS__` path and are covered either way.
+- **Linux `.git/modules` (LOW).** On Linux/WSL2 the sandbox drops write-list entries with a mid-path wildcard, so the `.git/modules/**/hooks/**` and `.git/modules/**/config` denies protect submodule hooks and config only on macOS (the stack's platform). The plain `.git/hooks` and `.git/config` denies apply everywhere.
+- **Unverified:** whether Claude Code's sandbox honours the absolute `__STACK_BACKUPS__` path in `denyRead`/`denyWrite` exactly as written (it follows the `__CLAUDE_DIR__` pattern already shipped).
+
+## 8. Validation (2026-09-29)
 
 | Check | Result |
 |---|---|
 | `/usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test` | ok |
 | `uv run tests/lint_agents.py` | ok |
-| `uv run --python 3.12 --with pytest --with httpx --with pillow --with "mcp>=1.10,<2" pytest -q tests/` | 799 passed |
-| `bash tests/install_smoke.sh` | 171 passed, 0 failed |
+| `uv run --with pytest --with httpx --with pillow --with "mcp>=1.10,<2" pytest -q tests/` | 1164 passed |
+| `bash tests/install_smoke.sh` | 214 passed, 0 failed (scratch dirs only; includes a drifted config, dry-run, restore round trips, `--no-prune`) |
 | `jq empty dot-claude/settings.json` | ok |
 
-## 8. Changelog
+## 9. Changelog
+
+### 2026-09-29 (security and installer)
+
+- Security findings C1–C9, T1–T3 and P3 fixed (guard, settings, MCP servers, installer); section 7 lists the residual risks.
+- The installer stages, validates, backs up and then applies. It prunes by default (`--no-prune` opts out) and supports `--dry-run`, `--restore [DIR]` and `--print-managed-settings` (section 7).
+- Plugin duplicates of synced skills and `mcp-server-dev` are disabled by default (`--keep-plugin-duplicates`).
+- `skillListingBudgetFraction` 0.012; `tests/lint_agents.py`, `doctor.sh` and the smoke test read it from `settings.json`.
+- Read-only reviewers may also run `claude --version`, `claude mcp list/get`, `claude plugin list` and the audit scanners (`gitleaks`, `trufflehog`, `semgrep`, `osv-scanner`, `pip-audit`, `uv audit`, `npm audit`, `cargo audit`/`deny`, `trivy`).
 
 ### 2026-09-29
 

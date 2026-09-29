@@ -160,7 +160,7 @@ def gone_dir(rel, dirs, removed, before, after):
     return None
 
 
-def make_plan(c, s, report_path):
+def make_plan(c, s, report_path, default_why="not part of the stack"):
     before, after = scan(c), scan(s)
     report = load_json(report_path, {})
     added = sorted(r for r in after if r not in before)
@@ -178,7 +178,7 @@ def make_plan(c, s, report_path):
         seen.add(key)
         why = reasons.get(key) or reasons.get(rel) or next(
             (reasons[d] for d in sorted(dirs, key=len, reverse=True) if rel.startswith(d)),
-            "not part of the stack")
+            default_why)
         listing.append((key, why))
     listing += [tuple(x) for x in report.get("config_removed") or []]
     return {
@@ -190,7 +190,7 @@ def make_plan(c, s, report_path):
     }
 
 
-def print_plan(plan):
+def print_plan(plan, removed_heading="removed: not part of the stack"):
     a, ch, rm = plan["added"], plan["changed"], plan["removed"]
     if not (a or ch or rm):
         print("  no changes: the config dir already matches this stack version")
@@ -207,7 +207,7 @@ def print_plan(plan):
         for rel, why in plan["replaced"]:
             print("  ~ %s  (%s)" % (rel, why))
     if plan["removed_listing"]:
-        print("removed: not part of the stack")
+        print(removed_heading)
         for rel, why in plan["removed_listing"]:
             print("  - %s  (%s)" % (rel, why))
     for n in plan["notes"]:
@@ -457,9 +457,9 @@ def restore(c, which, root, work, commit, home, dry=False):
                 raise SystemExit("install.sh --restore: %s changed inside the backup — stopping" % rel)
             shutil.copyfile(src, dst)
             os.chmod(dst, e.get("mode", 0o644) & 0o7777)
-    plan = make_plan(c, s, os.path.join(work, "no-report.json"))
+    plan = make_plan(c, s, os.path.join(work, "no-report.json"), "added by that install")
     print("  restoring %s" % bdir)
-    print_plan(plan)
+    print_plan(plan, "removed: added by the install being undone")
     if dry:
         for rc in sorted(rcs):
             print("  would restore %s" % rc)
