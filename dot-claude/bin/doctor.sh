@@ -675,10 +675,12 @@ if grep -qsE '^[[:space:]]*oauth_token:[[:space:]]*[^[:space:]]' "$ghdir/hosts.y
   creds=1
   warn "gh keeps a token in plain text in $ghdir/hosts.yml: unsandboxed processes can read it (sandboxed Bash is denied only ~/.config/gh/hosts.yml); log gh in with a read-only fine-grained token"
 fi
-if grep -qs 'github\.com' "$HOME/.git-credentials"; then
-  creds=1
-  warn "$HOME/.git-credentials holds a github.com credential in plain text (credential-store): sandboxed Bash can't read it, git outside the sandbox uses it; prefer SSH for pushes"
-fi
+for f in "$HOME/.git-credentials" "${XDG_CONFIG_HOME:-$HOME/.config}/git/credentials"; do
+  if grep -qs 'github\.com' "$f"; then
+    creds=1
+    warn "$f holds a github.com credential in plain text (credential-store): sandboxed Bash is denied ~/.git-credentials and ~/.config/git/credentials, git outside the sandbox uses it; prefer SSH for pushes"
+  fi
+done
 if [ "$(uname)" = "Darwin" ] && have security; then
   # attribute searches only (no -g/-w): the secret is never read and no keychain prompt appears
   for q in "generic-password gh:github.com gh's github.com login (keychain service gh:github.com): an agent's gh can use it wherever the keychain is reachable; log gh in with a read-only fine-grained token" \
@@ -692,7 +694,7 @@ if [ "$(uname)" = "Darwin" ] && have security; then
     esac
   done
 fi
-[ "$creds" = 0 ] && ok "no GitHub token in the environment, gh's hosts.yml, ~/.git-credentials or the keychain"
+[ "$creds" = 0 ] && ok "no GitHub token in the environment, gh's hosts.yml, git's credential-store files or the keychain"
 
 echo "== Platform"
 if [ "$(uname)" = "Darwin" ]; then

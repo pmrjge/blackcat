@@ -253,7 +253,8 @@ def test_settings_wire_ask_rules_and_protected_paths():
     assert not [r for r in deny if ".local/state" in r], deny
     # C4/C8: secrets and backups are Read-denied (a Read deny also blocks Edit/Write)
     for r in ("Read(/__CLAUDE_DIR__/**/stack.env)", "Read(/__CLAUDE_DIR__/backup-*/**)",
-              "Read(~/.git-credentials)", "Read(~/.npmrc)", "Read(~/.pypirc)",
+              "Read(~/.git-credentials)", "Read(~/.config/git/credentials)", "Read(~/.npmrc)",
+              "Read(~/.pypirc)",
               "Read(~/.docker/config.json)", "Read(~/.kube/**)", "Read(~/.gnupg/**)",
               "Read(~/.config/gcloud/**)", "Read(~/.ssh/**)", "Read(~/.aws/**)",
               "Read(~/.netrc)", "Read(~/.config/gh/hosts.yml)"):

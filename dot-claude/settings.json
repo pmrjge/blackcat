@@ -167,6 +167,7 @@
       "Read(~/.cache/huggingface/token)",
       "Read(~/.netrc)",
       "Read(~/.git-credentials)",
+      "Read(~/.config/git/credentials)",
       "Read(~/.npmrc)",
       "Read(~/.pypirc)",
       "Read(~/.docker/config.json)",
@@ -218,7 +219,8 @@
         "__STACK_BACKUPS__",
         "__CLAUDE_DIR__/.credentials.json",
         "~/.config/gh/hosts.yml",
-        "~/.git-credentials"
+        "~/.git-credentials",
+        "~/.config/git/credentials"
       ]
     },
     "network": {
