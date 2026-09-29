@@ -357,14 +357,38 @@ async def _resolve(host: str) -> list:
     return [sa[0] for *_, sa in infos]
 
 
+def _pinned(url: str, host: str, addr: str) -> tuple:
+    """(url, headers, extensions) that send `url` to the vetted address `addr` while the Host header
+    and the TLS server name (SNI and certificate check) stay the original host name."""
+    u = urlparse(url)
+    bare = addr.split("%", 1)[0]
+    ip = ipaddress.ip_address(bare)
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        bare, ip = str(ip.ipv4_mapped), ip.ipv4_mapped
+    netloc = f"[{bare}]" if ip.version == 6 else bare
+    if u.port:
+        netloc += f":{u.port}"
+    pinned = u._replace(netloc=netloc).geturl()
+    hosthdr = (f"[{host}]" if ":" in host else host) + (f":{u.port}" if u.port else "")
+    return pinned, {"Host": hosthdr}, {"sni_hostname": host}
+
+
 async def _download(c: httpx.AsyncClient, provider: str, url: str) -> bytes:
     for _ in range(MAX_REDIRECTS + 1):
+        target, headers, ext = url, {}, {}
         if _origin(url) != _origin(PROVIDERS[provider]["base"]):
             host = _downloadable(url)
-            for addr in await _resolve(host):
-                if not ipaddress.ip_address(addr.split("%", 1)[0]).is_global:
+            addrs = await _resolve(host)        # resolved once per hop: the request goes to this address
+            if not addrs:
+                raise ValueError(f"refusing to download a result from {host}: it does not resolve")
+            for addr in addrs:
+                ip = ipaddress.ip_address(addr.split("%", 1)[0])
+                if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+                    ip = ip.ipv4_mapped
+                if not ip.is_global:
                     raise ValueError(f"refusing to download a result from {host}: it resolves to a non-public address")
-        async with c.stream("GET", url, timeout=DOWNLOAD_TIMEOUT) as r:   # no Authorization: none needed
+            target, headers, ext = _pinned(url, host, addrs[0])
+        async with c.stream("GET", target, headers=headers, extensions=ext, timeout=DOWNLOAD_TIMEOUT) as r:   # no Authorization: none needed
             if r.is_redirect:
                 url = urljoin(url, r.headers.get("location", ""))
                 continue

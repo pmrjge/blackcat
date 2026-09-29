@@ -25,10 +25,12 @@ stack.env in this script's config dir (<dir>/mcp/../stack.env), else ~/.claude/s
 from __future__ import annotations
 
 import asyncio
+import ipaddress
 import json
 import logging
 import os
 import re
+import socket
 import sqlite3
 import ssl
 import time
@@ -79,6 +81,9 @@ JINA_URL = os.environ.get("LIBDOCS_JINA_URL", "https://r.jina.ai").rstrip("/")
 JINA_SEARCH_URL = os.environ.get("LIBDOCS_JINA_SEARCH_URL", "https://s.jina.ai").rstrip("/")
 SPIDER_URL = os.environ.get("LIBDOCS_SPIDER_URL", "https://api.spider.cloud").rstrip("/")
 UA = "libdocs-mcp/1.0"
+MAX_TEXT = 8_000_000   # bytes kept from any fetched text
+MAX_HOPS = 5           # redirects followed by hand in the guarded fetch
+_TRANSPORT = None      # tests inject an httpx.MockTransport here
 STOP = set("a an and are as at be by for from how i in into is it of on or the this to use using with what when "
            "where which why do does can should example examples docs documentation".split())
 
@@ -256,10 +261,125 @@ def _have_pages(lib: str) -> set[str]:
 
 # ------------------------------------------------------------------ HTTP helpers
 def _client() -> httpx.AsyncClient:
+    """For the fixed API endpoints only. Never follows redirects (a 3xx counts as a failed call);
+    every other URL goes through _guarded_get."""
     ca = os.environ.get("SSL_CERT_FILE")  # honor corporate/proxy CA bundles
     verify = ssl.create_default_context(cafile=ca) if ca and os.path.isfile(ca) else True
-    return httpx.AsyncClient(timeout=httpx.Timeout(45, connect=10), follow_redirects=True,
-                             headers={"User-Agent": UA}, verify=verify)
+    return httpx.AsyncClient(timeout=httpx.Timeout(45, connect=10), follow_redirects=False,
+                             headers={"User-Agent": UA}, verify=verify, transport=_TRANSPORT)
+
+
+def _origin(url: str) -> tuple:
+    u = urlparse(url)
+    return (u.scheme.lower(), (u.hostname or "").lower().rstrip("."), u.port or (443 if u.scheme.lower() == "https" else 80))
+
+
+def _fixed_origins() -> set:
+    urls = ["https://pypi.org", "https://registry.npmjs.org", "https://api.npmjs.org", "https://pypistats.org",
+            "https://crates.io", "https://api.github.com", "https://raw.githubusercontent.com",
+            EXA_URL, JINA_URL, JINA_SEARCH_URL, SPIDER_URL]
+    return {_origin(u) for u in urls}
+
+
+def _ip_literal(host: str):
+    """The address a host names literally, including the legacy IPv4 forms (2130706433, 127.1,
+    0x7f.1, 0177.0.0.1) that the resolver accepts; None for a name."""
+    try:
+        return ipaddress.ip_address(host)
+    except ValueError:
+        pass
+    if re.fullmatch(r"[0-9a-fx.]+", host) and re.search(r"[0-9]", host):
+        try:
+            return ipaddress.ip_address(socket.inet_aton(host))
+        except OSError:
+            return None
+    return None
+
+
+def _public(ip) -> bool:
+    if isinstance(ip, ipaddress.IPv6Address) and ip.ipv4_mapped:
+        ip = ip.ipv4_mapped
+    return ip.is_global and not ip.is_multicast
+
+
+def _fetchable(url: str) -> str:
+    """The host of a URL that may be fetched at all: https only, never localhost or a non-public literal."""
+    u = urlparse(url)
+    host = (u.hostname or "").lower().rstrip(".")
+    if u.scheme.lower() != "https" or not host:
+        raise ValueError(f"refusing to fetch a non-https URL: {url[:160]}")
+    if host == "localhost" or host.endswith((".localhost", ".local", ".internal", ".home.arpa")):
+        raise ValueError(f"refusing to fetch a local host: {host}")
+    ip = _ip_literal(host)
+    if ip is not None and not _public(ip):
+        raise ValueError(f"refusing to fetch a non-public address: {host}")
+    return host
+
+
+async def _resolve_host(host: str) -> list:
+    """The addresses host resolves to here ([] when it doesn't); tests replace this."""
+    try:
+        infos = await asyncio.get_running_loop().getaddrinfo(host, 443, type=socket.SOCK_STREAM)
+    except OSError:
+        return []
+    return [sa[0] for *_, sa in infos]
+
+
+async def _vet(url: str) -> tuple:
+    """(host name for Host/SNI, checked addresses): every address must be global."""
+    host = _fetchable(url)
+    ip = _ip_literal(host)
+    if ip is not None:
+        return str(ip), [str(ip)]
+    addrs = await _resolve_host(host)
+    if not addrs:
+        raise ValueError(f"refusing to fetch {host}: it does not resolve")
+    for a in addrs:
+        if not _public(ipaddress.ip_address(a.split("%", 1)[0])):
+            raise ValueError(f"refusing to fetch {host}: it resolves to a non-public address")
+    return host, [a.split("%", 1)[0] for a in addrs]
+
+
+async def _hop(c: httpx.AsyncClient, url: str, max_bytes: int):
+    """One checked request: (next url, None) on a redirect, else (None, (status, content-type, text))."""
+    host, addrs = await _vet(url)
+    u = urlparse(url)
+    port = f":{u.port}" if u.port else ""
+    last: Exception | None = None
+    for addr in addrs:   # connect to the checked address, never to the name
+        pinned = u._replace(netloc=(f"[{addr}]" if ":" in addr else addr) + port, path=u.path or "/",
+                            fragment="").geturl()
+        try:
+            async with c.stream("GET", pinned, headers={"Host": (f"[{host}]" if ":" in host else host) + port},
+                                extensions={"sni_hostname": host}) as r:
+                if r.is_redirect:
+                    return urljoin(url, r.headers["location"]), None
+                body = bytearray()
+                async for chunk in r.aiter_bytes():
+                    body += chunk
+                    if len(body) >= max_bytes:
+                        break
+                text = bytes(body[:max_bytes]).decode(r.encoding or "utf-8", "replace")
+                return None, (r.status_code, r.headers.get("content-type", ""), text)
+        except (httpx.ConnectError, httpx.ConnectTimeout) as e:
+            last = e   # try the next checked address
+    raise last or httpx.ConnectError("no address")
+
+
+async def _guarded_get(url: str, max_bytes: int = MAX_TEXT) -> tuple:
+    """GET any URL that is not a fixed API endpoint -> (status, content-type, text). https only; the host is
+    resolved once per hop and every address checked; the connection goes to the checked IP (Host header and
+    TLS server name stay the real host); redirects are followed by hand (MAX_HOPS), each one fully re-checked.
+    Raises ValueError for a refused URL."""
+    ca = os.environ.get("SSL_CERT_FILE")
+    verify = ssl.create_default_context(cafile=ca) if ca and os.path.isfile(ca) else True
+    async with httpx.AsyncClient(timeout=httpx.Timeout(45, connect=10), follow_redirects=False, verify=verify,
+                                 headers={"User-Agent": UA}, transport=_TRANSPORT) as c:
+        for _ in range(MAX_HOPS + 1):
+            url, res = await _hop(c, url, max_bytes)
+            if res:
+                return res
+    raise ValueError(f"too many redirects (> {MAX_HOPS})")
 
 
 async def _get_json(c, url, **kw):
@@ -390,13 +510,16 @@ async def _resolve(c, library: str) -> dict | None:
 # ------------------------------------------------------------------ fetchers
 async def _fetch_raw(c, url: str) -> str | None:
     try:
-        r = await c.get(url)
-    except httpx.HTTPError:
+        if _origin(url) in _fixed_origins():
+            r = await c.get(url)
+            status, ct, text = r.status_code, r.headers.get("content-type", ""), r.text[:MAX_TEXT]
+        else:
+            status, ct, text = await _guarded_get(url)
+    except (httpx.HTTPError, ValueError):
         return None
-    ct = r.headers.get("content-type", "")
-    if r.status_code != 200 or "html" in ct or r.text.lstrip()[:15].lower().startswith(("<!doctype", "<html")):
+    if status != 200 or "html" in ct or text.lstrip()[:15].lower().startswith(("<!doctype", "<html")):
         return None
-    return r.text[:8_000_000]
+    return text
 
 
 async def _llms(c, docs: str | None) -> tuple[str, str] | None:
@@ -416,6 +539,10 @@ async def _jina(c, url: str) -> tuple[str, str] | None:
     h = {"Accept": "application/json", "X-Retain-Images": "none"}
     if os.environ.get("JINA_API_KEY"):
         h["Authorization"] = "Bearer " + os.environ["JINA_API_KEY"]
+    try:
+        _fetchable(url)   # a third-party fetcher gets only https URLs that pass the string checks
+    except ValueError:
+        return None
     d = await _get_json(c, f"{JINA_URL}/{url}", headers=h, timeout=90)
     d = (d or {}).get("data") or {}
     return (d.get("title") or url, d.get("content") or "") if d.get("content") else None
@@ -462,9 +589,11 @@ async def _jina_search(c, query: str, site: str | None) -> list:
             if x.get("url")]
 
 
-def _toc(llms_text: str) -> list[tuple[str, str]]:
+def _toc(llms_text: str, docs_url: str) -> list[tuple[str, str]]:
+    """The links of an llms.txt that stay on the docs origin (a third-party file must not pick our targets)."""
     return [(m.group(1) + " " + (m.group(3) or ""), m.group(2))
-            for m in re.finditer(r"\[([^\]]+)\]\((https?://[^)\s]+)\)(?::\s*([^\n]*))?", llms_text)]
+            for m in re.finditer(r"\[([^\]]+)\]\((https?://[^)\s]+)\)(?::\s*([^\n]*))?", llms_text)
+            if _origin(m.group(2)) == _origin(docs_url)]
 
 
 def _rank_toc(toc, topic, skip, k):
@@ -504,7 +633,7 @@ async def _seed(c, lib: dict, topic: str) -> list[str]:
         _index(lib["id"], url, lib["name"] + " docs", text, "llms")
         notes.append(url.rsplit("/", 1)[-1])
         if url.endswith("llms.txt"):
-            toc = _toc(text)
+            toc = _toc(text, url)
             _kv_put("toc:" + lib["id"], toc)
             vias = await _fetch_pages(c, lib["id"], _rank_toc(toc, topic, set(), 4), "toc")
             if vias:
@@ -523,7 +652,8 @@ async def _seed(c, lib: dict, topic: str) -> list[str]:
 
 async def _augment(c, lib: dict, topic: str, version: str) -> list[str]:
     notes, have = [], _have_pages(lib["id"])
-    toc = _kv_get("toc:" + lib["id"], TTL) or []
+    toc = [(lb, u) for lb, u in _kv_get("toc:" + lib["id"], TTL) or []
+           if lib.get("docs") and _origin(u) == _origin(lib["docs"])]
     if toc:
         vias = await _fetch_pages(c, lib["id"], _rank_toc(toc, topic, have, 4), "toc")
         if vias:
@@ -643,6 +773,10 @@ async def index_library_docs(library: str, start_url: str = "", path_prefix: str
         root = start_url or lib.get("docs")
         if not root:
             return "No docs site known for this library; pass start_url."
+        try:
+            await _vet(root)
+        except ValueError as e:
+            return f"Refused start_url/docs root: {e}"
         u = urlparse(root)
         prefix = f"{u.scheme}://{u.netloc}" + (path_prefix or (u.path if u.path not in ("", "/") else "/"))
         key = os.environ.get("SPIDER_API_KEY")
@@ -673,7 +807,7 @@ async def index_library_docs(library: str, start_url: str = "", path_prefix: str
                 chunks = _index(lib["id"], got[0], lib["name"] + " docs", got[1], "llms")
                 return f"No SPIDER_API_KEY; indexed {got[0]} ({chunks} sections) instead."
             return "No SPIDER_API_KEY and no llms.txt on this site; nothing to crawl."
-        toc = [(lb, x) for lb, x in _toc(got[1]) if x.startswith(prefix)][:limit]
+        toc = [(lb, x) for lb, x in _toc(got[1], got[0]) if x.startswith(prefix)][:limit]
         vias = await _fetch_pages(c, lib["id"], toc, "toc")
         return f"No SPIDER_API_KEY; indexed {len(vias)} pages listed in {got[0]}."
 

@@ -131,9 +131,15 @@ class Api:
         self.sticky = dict(sticky)
         self.requests = []
 
+    @staticmethod
+    def _url(request):
+        """The request URL with a pinned IP host turned back into the name it was pinned for."""
+        sni = request.extensions.get("sni_hostname")
+        return request.url.copy_with(host=sni) if sni else request.url
+
     def __call__(self, request):
         self.requests.append(request)
-        key = "%s %s" % (request.method, str(request.url).split("?")[0])
+        key = "%s %s" % (request.method, str(self._url(request)).split("?")[0])
         if self.routes.get(key):
             r = self.routes[key].pop(0)
         elif key in self.sticky:
@@ -144,7 +150,7 @@ class Api:
 
     def bodies(self, key):
         return [json.loads(r.content) for r in self.requests
-                if "%s %s" % (r.method, str(r.url).split("?")[0]) == key]
+                if "%s %s" % (r.method, str(self._url(r)).split("?")[0]) == key]
 
     @property
     def paid(self):
@@ -468,7 +474,7 @@ def test_gpt_image_job_is_polled_downloaded_and_saved(mod, tmp_path):
     assert len(on_opper) == 4 and "authorization" not in on_opper[0].headers     # the public catalog: no key
     assert str(on_opper[0].url).startswith(OP + "/v3/images/models?q=openai%2Fgpt-image-2.5-sunburst")
     assert all(r.headers["authorization"] == "Bearer " + KEYS["opper.test"] for r in on_opper[1:])
-    download = [r for r in api.requests if r.url.host == "files.opper.test"][0]
+    download = [r for r in api.requests if r.headers["host"] == "files.opper.test"][0]
     assert "authorization" not in download.headers
     img = out["images"][0]
     assert img["path"].endswith(".png") and (img["width"], img["height"]) == (1536, 1024)
@@ -869,6 +875,52 @@ def test_names_that_resolve_to_private_addresses_are_never_fetched(mod, monkeypa
     api = mount(mod, {GPT_POST: [job_202("p2")], status_route("p2"): [done(url="https://cdn.evil.test/a.png")]})
     out, _ = call(mod.generate_image("x"))
     assert "non-public" in out["pending"][0]["status"] and all(r.url.host == "opper.test" for r in api.requests)
+
+
+def test_download_is_pinned_to_the_vetted_ip_and_never_resolved_twice(mod, monkeypatch):
+    calls = []
+
+    async def rebinding(host):                       # public first, loopback on any later resolution
+        calls.append(host)
+        return ["93.184.216.34"] if len(calls) == 1 else ["127.0.0.1"]
+    monkeypatch.setattr(mod, "_resolve", rebinding)
+    seen = []
+
+    def handler(req):
+        seen.append(req)
+        return httpx.Response(200, content=b"pixels")
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            return await mod._download(c, "opper", "https://cdn.example.test:8443/a.png?x=1")
+    assert asyncio.run(go()) == b"pixels"
+    assert calls == ["cdn.example.test"]
+    r = seen[0]
+    assert (r.url.host, r.url.port, r.url.path, r.url.query) == ("93.184.216.34", 8443, "/a.png", b"x=1")
+    assert r.headers["host"] == "cdn.example.test:8443" and r.extensions["sni_hostname"] == "cdn.example.test"
+
+
+def test_every_redirect_hop_is_resolved_once_and_pinned(mod, monkeypatch):
+    calls, seen = [], []
+    ips = {"a.example.test": "93.184.216.34", "b.example.test": "93.184.216.35"}
+
+    async def res(host):
+        calls.append(host)
+        return [ips[host]]
+    monkeypatch.setattr(mod, "_resolve", res)
+
+    def handler(req):
+        seen.append(req)
+        if req.headers["host"] == "a.example.test":
+            return httpx.Response(302, headers={"location": "https://b.example.test/final.png"})
+        return httpx.Response(200, content=b"ok")
+
+    async def go():
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
+            return await mod._download(c, "opper", "https://a.example.test/x.png")
+    assert asyncio.run(go()) == b"ok" and calls == ["a.example.test", "b.example.test"]
+    assert [r.url.host for r in seen] == ["93.184.216.34", "93.184.216.35"]
+    assert [r.extensions["sni_hostname"] for r in seen] == ["a.example.test", "b.example.test"]
 
 
 def test_paid_jobs_survive_a_later_failure(mod, tmp_path):
