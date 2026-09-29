@@ -1,12 +1,848 @@
 # Claude Code multi-agent stack
 
+<!-- markdownlint-disable MD013 MD060 -->
+
+BlackCat, a dispatcher on the main thread, routes work to 35 specialist agents (36 agent files). 93
+skills load on demand. One policy hook, deny rules and the Claude Code sandbox hold the limits, and MCP
+servers start and stop with the agents that use them. Built for Claude Code **2.1.271 or later**,
+macOS only (Apple Silicon first). It runs in the terminal and in the apps that run Claude Code with
+your settings: Claude Desktop's Code tab, Conductor, VS Code, Zed, Nimbalyst (see [Apps](#apps)).
+Every applied parameter (model, effort, `maxTurns`, caps, knobs) and its reason is in
+[CONFIG.md](CONFIG.md).
+
+## Quick start
+
+> [!WARNING]
+> **First install over an existing `~/.claude`: run `./install.sh --dry-run` first.** The default
+> run prunes. Every agent and skill under `~/.claude/agents/` and `~/.claude/skills/` that is not
+> the stack's current version (your own, renamed, edited or unknown-named ones) is moved into a
+> backup and replaced by the stack's. The dry run prints every change and makes none. Keep your own
+> files with `--no-prune`, or restore them with `--restore` (see [Backups and restore](#backups-and-restore)).
+
+```bash
+git clone <repository-url> claude-agent-stack && cd claude-agent-stack
+./install.sh --dry-run            # the plan: added / replaced / removed, each with a reason
+./install.sh                      # core install; one backup of everything it changes or removes
+$EDITOR ~/.claude/stack.env       # keys; read at connect time, no reinstall needed
+claude                            # starts as BlackCat (the blackcat agent)
+```
+
+Optional parts: `--with-ml` (shared ML venv, several GB), `--with-lsp` (language servers for the
+code-intelligence plugins), `--with-adobe` (After Effects MCP, Premiere connector),
+`--with-extra-plugins` (Anthropic's skill-creator and math-olympiad plugins). Inside Claude Code:
+`/stack-doctor` (health check), `/mcp` (server status), `/context`.
+
+Run the installer while no Claude Code session is running (Desktop and Conductor included): a
+running session keeps the agent files it started with while the hook and settings change at once.
+Start new sessions afterwards.
+
+## The installer
+
+`install.sh` stages the stack's part of the config dir, validates it, backs up what it will change,
+then applies. `CLAUDE_CONFIG_DIR` changes the target (default `~/.claude`).
+
+### What a run does
+
+1. **Main-branch rule** (see [Installs only from `main`](#installs-only-from-main)).
+2. **Stage.** The stack's part of the config dir (`agents/`, `skills/` without the claude.ai-synced
+   ones, `rules/`, `hooks/`, `bin/`, `mcp/` without `vendor/`, `stack-plugins/`, `magg/config.json`,
+   `settings.json`, `stack.env`, `.stack-manifest.json`, `CLAUDE.md`, temp leftovers) is copied to a
+   staging dir. Nothing in the config dir changes until the staged result is validated.
+3. **Render, merge, prune** in the staging dir, then **validate**: JSON, agent and skill
+   frontmatter, leftover placeholders, and the staged `agent_guard.py --self-test`. Validation is
+   fatal only for files the stack owns.
+4. **Plan.** `changes: N added, N updated, N removed`, then `replaced:` (stack files that differed;
+   the backup keeps yours) and `removed: not part of the stack`, each line with its reason, then
+   `note:` lines.
+5. **Apply.** `--dry-run` stops before this and prints MCP, plugin and rc changes as `would: …`. A
+   real run saves every file it changes or removes into one backup, records the files it adds, then
+   applies. A run that changes nothing makes no backup.
+
+`lib/install_state.py` (system `python3`, stdlib only) does the staging, plan, backup, apply,
+restore and validation.
+
+### Pruning and the manifest
+
+Pruning is the default. The installed `agents/` and `skills/` hold exactly the stack's files, and
+stack config the stack no longer ships goes.
+
+| What | Default | `--no-prune` |
+|---|---|---|
+| `agents/`, `skills/` (stack-owned) | files of other origins, unknown names, renamed agents (`senior-coder` → `main-coder`, `router` → `blackcat`), stale renders and leftover `.new` files removed; edited stack files replaced | kept and named in `note:` lines; an edited stack file keeps your version and gets `<file>.new` (`--force` replaces it) |
+| `hooks/`, `bin/`, `mcp/`, `rules/` | stack files it no longer ships (manifest or a legacy list) removed; your own files stay | kept |
+| magg catalog | edited stack entries replaced, entries it no longer ships removed; your servers stay | kept |
+| MCP (user scope) | entries it registered and no longer ships, and Context7 (replaced by libdocs), removed through `claude mcp remove` and recorded in the backup | kept |
+| `settings.json` | duplicate hooks and permission rules, old guard hooks (any path) and hooks on events it no longer wires removed; sandbox merged | the same |
+| temp leftovers, `.new` files back in sync | removed | removed |
+
+The manifest (`~/.claude/.stack-manifest.json`) lists every stack file as relative path + sha256,
+and every setting and env key the stack wrote. It decides what is stale: a file whose hash differs
+from the manifest was edited; a file the manifest doesn't list isn't the stack's. On a first run
+with no manifest, a same-named file that differs from the stack's counts as stale: it is backed up
+and replaced.
+
+Never touched: credentials, `~/.claude.json` (MCP changes go through `claude mcp` only), the
+claude.ai-synced skills, plugins' own files, projects and sessions. `~/.claude/CLAUDE.md` is yours;
+the stack's rules live in `~/.claude/rules/claude-agent-stack.md`. (A `CLAUDE.md` that holds nothing
+but an old stack version's rules is retired once, into the backup.)
+
+### Backups and restore
+
+- **Location:** `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack-backups/<timestamp>-<random>/`,
+  outside the config dir. The folder is 0700, files 0600. `backup.json` records the entries, the
+  added files, removed or replaced MCP entries, disabled plugins and rc copies.
+- The backups sit beside the guard's state dir (`~/.local/state/claude-agent-stack/`), not in it:
+  the guard deletes state folders idle for three days.
+- Agents can't reach them: `Read`/`Edit` deny rules, sandbox `denyRead`/`denyWrite` and a
+  built-in protected path of the guard.
+- Backups earlier versions kept inside the config dir (`~/.claude/backup-*`, with copies of
+  `stack.env`) move to `<backups>/legacy/` on every run.
+- More than ten backups of one config dir: the run says so. It never deletes one.
+
+Restore:
+
+```bash
+./install.sh --restore --dry-run                 # print what a restore would do
+./install.sh --restore                           # undo the latest install
+./install.sh --restore <backup-dir>              # undo a given one (also --restore=<backup-dir>)
+```
+
+A restore runs as a staged plan too. It backs up the current state first and prints
+`undo this restore: ./install.sh --restore <dir>`. It puts back files, `~/.zshrc`/`~/.bashrc`, MCP
+entries (re-added with `claude mcp add-json`) and plugins the install disabled. A `backup.json` that
+names paths outside the config scope is refused, and `<backup-dir>` must sit in the backup root.
+
+### Flags
+
+As `./install.sh --help` prints them. Flags combine.
+
+| Flag | Effect |
+|---|---|
+| *(none)* | core install: prune, back up, apply |
+| `--dry-run` | print every change (files, removals, MCP, plugins, rc) and make none |
+| `--no-prune` | keep what isn't part of the stack and your edits to stack files (default: backed up, then removed or replaced) |
+| `--force` | with `--no-prune`: still replace stack files you edited |
+| `--restore [DIR]` | put the config dir back as it was before an install (`DIR`: a backup; default: the latest), then exit |
+| `--print-managed-settings` | print an optional `managed-settings.json` that pins the stack's guards against edits (you install it; see [Security model](#security-model)) |
+| `--mcp-plan` | print the MCP server add/migrate/replace/keep plan and make no changes |
+| `--with-ml` | also create the ML venv (`~/.claude/venvs/ml`; several GB) |
+| `--with-lsp` | also install missing language servers before enabling the code-intelligence plugins |
+| `--with-adobe` | also build the After Effects MCP and install the Premiere connector (macOS) |
+| `--with-extra-plugins` | also install Anthropic's skill-creator and math-olympiad plugins |
+| `--no-mcp` | skip registering user-scope MCP servers |
+| `--no-plugins` | skip plugins (document skills, code-intelligence/LSP plugins) |
+| `--keep-plugin-duplicates` | keep the document-skills and skill-creator plugins enabled where claude.ai syncs the same skills (default: disabled, one copy); also keeps mcp-server-dev |
+| `--replace-mcp` | re-register exa/jina/wolfram/huggingface/wandb even if you configured them |
+| `--no-deps` | skip brew/uv/node/magg/huetension/venv installs and MCP dependency prefetch (missing tools become warnings) |
+| `--no-profile` | leave your shell rc files alone |
+| `-h`, `--help` | print the usage header |
+
+`--dedupe-plugins` is still accepted (it is the default now). Environment: `CLAUDE_CONFIG_DIR`
+(install target), `STACK_CLAUDE_JSON` (which JSON file the MCP plan reads), `XDG_STATE_HOME` (where
+backups and guard state go), `STACK_PYTHON` (the absolute interpreter for hooks and the status line;
+chosen automatically, never a pyenv/asdf shim).
+
+### Settings, keys and shell profile
+
+`settings.json` is merged, never replaced.
+
+- The stack owns `autoCompactEnabled`, `autoCompactWindow` (400K), the guard hooks, the spawn depth,
+  the caps and budgets (marked ● in [Knobs](#knobs)), the MCP discovery cache, the no-push deny
+  rules, the protected-path deny rules, `worktree.baseRef: "head"` and the `sandbox` block (the
+  stack's scalars win, lists are unioned).
+- `permissions.defaultMode: "bypassPermissions"`: sessions start without permission prompts. Deny
+  rules, `ask` rules, the guard hooks and the sandbox still apply.
+- `"agent": "blackcat"`, `statusLine` and `skillListingBudgetFraction` are set while you have none
+  of your own. Your other hooks, permission rules and keys stay.
+- Two models only: every agent pins `claude-opus-5-5` or `claude-sonnet-5-5`, and
+  `ANTHROPIC_DEFAULT_HAIKU_MODEL` (Claude Code's small-model slot: session titles, WebFetch
+  summaries) is `claude-sonnet-5-5`. An app that routes models itself
+  (`CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST`) ignores that key: see step 3 of
+  [Claude Desktop, step by step](#claude-desktop-step-by-step).
+- Removed from `env`: `DISABLE_AUTO_COMPACT`, `DISABLE_COMPACT`, `CLAUDE_CODE_AUTO_COMPACT_WINDOW`
+  (they defeat auto-compaction), `CLAUDE_CODE_SUBAGENT_MODEL[_FORCE]`, `CLAUDE_CODE_EFFORT_LEVEL`,
+  stale `[1m]` model pins, `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` and `CLAUDE_CODE_FORK_SUBAGENT`.
+- Keys and values the stack stopped shipping are retracted while they still hold the stack's value.
+
+`stack.env` (0600) keeps every value you wrote; variables new in `stack.env.example` are appended
+commented out (the three image models set to their defaults). MCP registration never writes a key
+into `~/.claude.json`: a plaintext key in an old entry is copied into `stack.env` first, then the
+entry switches to the `bin/mcp-headers` header helper. An entry with a `headersHelper` of your own is
+left alone.
+
+The **shell profile line** (`~/.zshrc`, and `~/.bashrc` if present) exports only the non-empty keys
+named by `STACK_EXPORT` (default `HF_TOKEN WANDB_API_KEY MLFLOW_TRACKING_URI JUPYTER_URL
+JUPYTER_TOKEN`) and appends `~/.local/bin` to `PATH`. **`GITHUB_TOKEN` is no longer exported:** a
+forge token in every shell reaches every agent's subprocesses. libdocs reads it from `stack.env`
+itself; add it to `STACK_EXPORT` only if you want `gh` to use it.
+
+### Installs only from `main`
+
+The installer runs from the `main` branch of this repository's git checkout (no flag turns this
+off). Started from another branch or worktree, it fast-forwards local `main` to that commit
+(`git merge --ff-only`, in the worktree where `main` is checked out; with none, the checkout switches
+to `main`) and re-runs itself from there. It stops before installing anything, with the fix, when
+the fast-forward is blocked: uncommitted or untracked files, uncommitted changes in the `main`
+checkout, or diverged history. It never pushes, and runs these git calls with hooks off. `--dry-run`
+and `--mcp-plan` change nothing, so off `main` they refuse instead of merging.
+
+### Upgrading
+
+Re-running is idempotent: a second run over an installed stack prints `no changes` and makes no
+backup. To roll back a revision, use `./install.sh --restore` (the last install), or `git revert`
+its commits on `main` and re-run `./install.sh`: the manifest retracts the settings the newer
+version wrote.
+
+### Testing in a scratch HOME
+
+For maintainers. `tests/install_smoke.sh` does all of this hermetically (fake `claude`, scratch
+config dir, scratch MCP config, scratch `XDG_STATE_HOME`; it fingerprints the real `~/.claude`,
+`~/.claude.json`, `~/.zshrc` and backup root before and after). By hand:
+
+```bash
+T="$(mktemp -d)"
+export CLAUDE_CONFIG_DIR="$T/claude" XDG_STATE_HOME="$T/state" STACK_CLAUDE_JSON="$T/claude.json"
+export PATH="$PWD/tests/fake-claude:$PATH"          # a fake claude: no real MCP or plugin changes
+./install.sh --no-deps --no-profile --dry-run       # plan only
+./install.sh --no-deps --no-profile                 # first run: "N added", one backup in $T/state
+./install.sh --no-deps --no-profile                 # second run: "no changes", no backup
+./install.sh --restore --dry-run                    # the restore plan
+```
+
+Run it from the `main` checkout (the main-branch rule applies). Without the fake `claude`, add
+`--no-mcp --no-plugins`.
+
+## What goes where
+
+| Path | What |
+|---|---|
+| `~/.claude/rules/claude-agent-stack.md` | Global rules every agent loads. `~/.claude/CLAUDE.md` stays yours |
+| `~/.claude/settings.json` | `"agent": "blackcat"`, auto-compact at 400K, depth 4, caps, permissions, sandbox, hooks, status line (merged) |
+| `~/.claude/agents/*.md` | 36 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
+| `~/.claude/skills/*/SKILL.md` | 93 skills (descriptions in context; bodies load on demand) |
+| `~/.claude/hooks/agent_guard.py` | The policy hook (see [Enforced behaviours](#enforced-behaviours-hooks)) |
+| `~/.claude/bin/mcp-headers` | `headersHelper`: gives exa/jina/huggingface/wandb their keys from `stack.env` at connect time |
+| `~/.claude/bin/with-stack-env` | Starts spider/magg with only their own keys (`--only`); `--print-env sh` for the profile (values redacted unless `--reveal`, which agents can't pass) |
+| `~/.claude/bin/claude-ultracode`, `~/.local/bin/claude-ninja`, `~/.local/bin/claude-god` | ninja-coder or god-coder as the main thread at ultracode, launched with forge tokens unset |
+| `~/.claude/bin/magg-private` | Runs mcp-broker's magg on a private copy of the catalog |
+| `~/.claude/bin/statusline.py`, `~/.claude/bin/doctor.sh` | Status line; health check behind `/stack-doctor` |
+| `~/.claude/mcp/{libdocs,image_studio,neural_memory}_mcp.py` | The stack's own MCP servers (`uv run --script`) |
+| `~/.claude/neural-memory/` | The agents' shared long-term memory (brain `claude-agent-stack`) |
+| `~/.claude/magg/config.json` | On-demand MCP catalog (all disabled until mcp-broker mounts one) |
+| `~/.claude/stack.env` | Keys (0600) |
+| `~/.claude/venvs/sci`, `~/.claude/venvs/ml` | Science venv (always); ML venv (`--with-ml`); both hash-locked |
+| `~/.claude/.stack-manifest.json` | What the installer last wrote (path + sha256, settings keys, MCP entries, deduped plugins) |
+| `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`) | User-scope MCP servers, written only through `claude mcp` |
+| `~/.local/state/claude-agent-stack/<session>/` | Hook state: registry, leases, locks, markers. Pruned after 3 idle days |
+| `~/.local/state/claude-agent-stack-backups/` | Installer backups (0700; agents can't read them) |
+
+## No duplicates
+
+One source per skill, agent, hook registration, MCP entry and rule. Duplicates race: two skills with
+overlapping descriptions compete for the same trigger, and which one loads is up to the model on
+each call; two registrations of one hook both fire (twice the latency, and two guards can disagree);
+two MCP entries for one service split tool names and allowlists. So the stack's copy wins and the
+others go:
+
+- **Installer:** prunes stale and duplicate agents, skills, hooks, permission rules and MCP entries
+  (see [Pruning](#pruning-and-the-manifest)).
+- **Plugins disabled by default** (`--keep-plugin-duplicates` keeps them):
+  - `document-skills` (docx/xlsx/pptx/pdf) and `skill-creator`, where claude.ai already syncs the same
+    skills as `anthropic-skills:*` (those can't be removed). Synced skills load only in sessions
+    signed in to claude.ai: if you also use API-key, gateway or Bedrock/Vertex sessions, keep the
+    duplicates. A disabled plugin is re-enabled once its synced copy is gone.
+  - `mcp-server-dev@claude-plugins-official`: the stack's `mcp-server-craft` absorbed its three
+    skills (MCPB bundles, MCP Apps UI).
+  - Each disable prints `To undo: claude plugin enable <plugin> --scope user` and is recorded for
+    `--restore`.
+- **Kept by decision:** the `math-olympiad` plugin (a solve-and-adversarially-verify workflow that
+  `proof-craft` doesn't replicate; `proof-craft` sends competition problems to it) and the built-in
+  `dataviz` skill (no `skillOverrides`). The overlap is handled by descriptions:
+  `data-visualization` covers figures in code (matplotlib, seaborn, plotly, Altair), `dataviz`
+  Artifact and HTML charts. Residual: `dataviz`'s and `math-olympiad`'s own descriptions still claim
+  some of the same phrases.
+- **Other overlaps** with skills that can't be removed (claude.ai-synced or built-in) are split by
+  scope and written into both descriptions: `browser-automation` / `chrome-browser`,
+  `computer-use-apps` / `computer-use`, `web-research` / `deep-research`, `claude-code-extensions` /
+  `update-config`, `workflow-authoring`, `skill-creator`, `presentation-design` / `pptx`,
+  `diagrams-as-code` / `artifact-diagramming`.
+- **Enforced by** `tests/test_no_duplicates.py`: static checks that the repo never ships the same
+  skill, agent, hook registration, MCP entry, rule or plugin skill from two sources, and that no stack
+  skill shares a name with a plugin, synced or bundled skill.
+
+## Agents
+
+Two pinned models: `claude-opus-5-5` where judgment is the product, `claude-sonnet-5-5` for bounded
+execution, lookups and tool loops. `tests/lint_agents.py` rejects any other value, and the hook strips
+a per-call `model`. An agent file's `effort` counts only when the agent runs as a subagent; the main
+thread runs at the session's level (`/effort medium` for BlackCat). `maxTurns` is a runaway bound
+per task type (12 for oracle up to 350 for god-coder; [CONFIG.md](CONFIG.md) §3).
+
+| Agent | Model · effort | Does | Hands off to |
+|---|---|---|---|
+| **blackcat** (main thread) | Sonnet 5.5 · session (medium) | Routes each prompt to one or several specialists (one parallel burst) or to the orchestrator; relays results; asks the user | orchestrator for dependent multi-specialist work; never god-coder |
+| orchestrator | Opus 5.5 · high | Decomposes multi-specialist or dependent work (≤ 10 tasks), dispatches, verifies, integrates | the only spawner of god-coder, once per session |
+| planner | Opus 5.5 · xhigh | Options, the chosen approach as steps with owners, risks, checks; read-only | plan-reviewer critiques; orchestrator runs |
+| plan-reviewer | Opus 5.5 · high | Critiques a plan against goal, code and docs; read-only (hook) | planner writes plans |
+| oracle | Opus 5.5 · low | Timeless knowledge, no web | scout for anything that changes |
+| scout | Sonnet 5.5 · low | One current fact, cited | researcher for synthesis |
+| researcher | Opus 5.5 · high | Cited multi-source research; crawls; copies itself | scout (one fact); `NEXT: browser-operator` for pages to act on |
+| mathematician | Opus 5.5 · xhigh | Proofs, derivations, symbolic/numeric computation | data-scientist (real data), quantum-engineer (simulation code) |
+| quantum-engineer | Opus 5.5 · high | Circuits, quantum simulation, QEC, IBM Quantum runs | mathematician (derivations) |
+| writer | Opus 5.5 · medium | Articles, docs, emails, translations (PT-PT/EN) | researcher (research), doc-specialist (Office/PDF) |
+| doc-specialist | Sonnet 5.5 · medium | Reads and builds docx/xlsx/pptx/pdf | writer (the prose) |
+| image-director | Opus 5.5 · medium | Image generation and edits through image-studio | designer (brand, layout, print) |
+| designer | Opus 5.5 · high | Brand, layout, print, UI visuals; Illustrator; image-studio | image-director (series), frontend-engineer (UI code), cg-artist (3D) |
+| motion-designer | Opus 5.5 · medium | After Effects, Premiere, motion | designer / image-director (stills), cg-artist (3D) |
+| cg-artist | Opus 5.5 · medium | Blender, ZBrush, Substance, Houdini, 3D printing | designer / image-director (2D) |
+| coder | Sonnet 5.5 · medium | Small and medium code; offloaded sub-tasks; copies itself | main-coder |
+| main-coder | Opus 5.5 · xhigh | Large codebases, architecture, hard bugs, merges that won't fast-forward | coder (routine), ninja-coder (mathematical cores, or after two failures) |
+| ninja-coder | Opus 5.5 · max | Novel algorithms, proofs, numerics, kernels | `NEXT: god-coder` with a dossier, for the orchestrator |
+| god-coder | Opus 5.5 · max | Last resort | — (orchestrator only, once per session; or `claude-god`) |
+| frontend-engineer | Opus 5.5 · medium | Web front end, a11y, verified headless | designer (visuals), main-coder (backend) |
+| devops-engineer | Sonnet 5.5 · high | CI/CD, containers, IaC, deploys (dry-run first) | main-coder (architecture), security-auditor |
+| data-engineer | Sonnet 5.5 · high | SQL, MongoDB, pipelines, dataframes | data-scientist (inference) |
+| data-scientist | Opus 5.5 · high | Tests, A/B and power, regression, causal, forecasting, Bayesian | data-engineer (pipelines), ml-engineer (predictive models) |
+| ml-engineer | Opus 5.5 · high | Tabular, time-series, classic NLP; MLOps | dl-engineer (deep nets), llm-engineer (LLMs) |
+| dl-engineer | Opus 5.5 · high | Architectures, training loops, image-generation models | llm-engineer; mlx-/cuda-engineer (platform) |
+| llm-engineer | Opus 5.5 · high | Local inference, quantization, fine-tuning, evals, RAG, agents | mlx-/cuda-engineer (kernels, platform) |
+| mlx-engineer | Opus 5.5 · high | Apple Silicon performance, Metal kernels, MLX ports | dl-/llm-engineer (model decisions) |
+| cuda-engineer | Opus 5.5 · high | CUDA/Triton, NCCL, vLLM, remote Linux hosts, Kaggle | dl-/llm-engineer (model decisions) |
+| robotics-engineer | Opus 5.5 · high | ROS 2, control, SLAM, simulation, robot learning | dl-engineer (generic training) |
+| code-reviewer | Opus 5.5 · high | Reviews diffs and codebases; read-only (hook) | security-auditor, verifier |
+| verifier | Sonnet 5.5 · high | Runs tests, reproduces, re-checks; never fixes; read-only (hook) | code-reviewer, security-auditor |
+| security-auditor | Opus 5.5 · xhigh | Threat model, exploitable issues; read-only (hook) | code-reviewer (general quality) |
+| browser-operator | Sonnet 5.5 · medium | Acts on web pages: your Chrome or headless Playwright | spawned only by blackcat and orchestrator; never writes on a forge |
+| mcp-broker | Sonnet 5.5 · medium | Mounts, runs and unmounts MCP servers through magg | permanent changes only after `NEXT: ASK USER` |
+| claude-code-engineer | Opus 5.5 · high | Builds Claude Code config (in the repo, never installed copies) | claude-code-guide (questions only) |
+| claude-code-guide | Sonnet 5.5 · low | Answers Claude Code / SDK / API questions; read-only (hook) | claude-code-engineer (changes) |
+
+Descriptions name who takes the adjacent work, so the Agent tool listing every spawner sees states the
+boundaries. Details of each agent's MCP servers are in [MCP servers](#mcp-servers).
+
+### Routing and escalation
+
+- **BlackCat** classifies and dispatches; it never does the work. Read, Grep and Glob are for quick
+  checks only. It asks clarifying questions (AskUserQuestion) and ends every turn with a visible
+  message.
+- **Code:** coder → main-coder → ninja-coder → god-coder. ninja-coder takes a problem whose core is
+  algorithmic or mathematical, or one main-coder failed twice. god-coder takes only what ninja-coder
+  could not solve, and only through the orchestrator: any other agent returns `STATUS: partial` with
+  `NEXT: god-coder` and a dossier, and the orchestrator spends the session's one god-coder spawn
+  (follow-ups resume that god-coder with SendMessage).
+- **Models and platforms:** model work goes to ml-/dl-/llm-engineer, platform performance to
+  mlx-/cuda-engineer (the target hardware owns ports).
+- **Checks:** reviewers and the verifier never check their own work; an author never verifies itself.
+- **Missing permission or capability:** return `STATUS: partial` with `NEXT: <agent>`; a decision only
+  the user can make returns `STATUS: blocked`, `NEXT: ASK USER: …` (see [Security model](#security-model)).
+
+### Spawn policy
+
+Claude Code ignores `Agent(a, b)` lists inside subagents, so `POLICY` in `agent_guard.py` is the
+single source of truth, and `tests/lint_agents.py` checks that every agent's "May spawn:" sentence
+matches it. Depth: BlackCat → L1 → L2 → L3 → L4 (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`); L4 cannot
+spawn. `general-purpose`, `fork` and any type not in the caller's row are denied; SendMessage resumes
+of finished agents follow the same rows. Agents of your own are in no row: run one with
+`claude --agent <name>`.
+
+- **blackcat:** every specialist except god-coder, in one burst per prompt.
+- **orchestrator:** every specialist plus Explore; the only spawner of god-coder, once per session
+  (`GOD_SPAWNERS=orchestrator`, `GOD_ONCE_PER_SESSION=1`).
+- **browser-operator** (your logged-in Chrome sessions): only blackcat and orchestrator, neither of
+  which reads the web itself. Web-reading agents (researcher, ml-/dl-/llm-/cuda-engineer) return
+  `NEXT: browser-operator` with URLs and steps.
+- **Copies:** only researcher and coder, as `researcher-copy` and `coder-copy`; a copy spawns no copies.
+- **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker,
+  claude-code-guide, browser-operator, plan-reviewer, image-director.
+
+| Agent | May spawn |
+|---|---|
+| planner | scout, explore, claude-code-guide |
+| researcher | researcher-copy, scout, doc-specialist, mathematician, data-engineer, data-scientist, mcp-broker |
+| researcher-copy | scout, doc-specialist, mathematician, data-engineer, data-scientist, mcp-broker |
+| writer | scout, researcher, mathematician |
+| mathematician | scout, mcp-broker, quantum-engineer |
+| doc-specialist | scout, mcp-broker |
+| designer | image-director, scout, mcp-broker, cg-artist |
+| motion-designer | image-director, designer, scout, mcp-broker, cg-artist |
+| coder | coder-copy, explore, scout |
+| coder-copy | explore, scout |
+| main-coder | coder, explore, scout, verifier, code-reviewer, security-auditor, plan-reviewer, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, claude-code-guide, ninja-coder |
+| ninja-coder | main-coder, coder, mathematician, explore, scout, verifier, code-reviewer, security-auditor, researcher, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, quantum-engineer |
+| god-coder | coder, main-coder, ninja-coder, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, explore, scout, verifier, code-reviewer, security-auditor, mathematician, researcher |
+| mlx-engineer | coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder |
+| cuda-engineer | coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder |
+| devops-engineer | coder, explore, scout, verifier, security-auditor, mcp-broker |
+| data-engineer | coder, explore, scout, verifier, mathematician, data-scientist, doc-specialist, mcp-broker |
+| frontend-engineer | coder, explore, scout, verifier, code-reviewer, designer, image-director, mcp-broker |
+| data-scientist | data-engineer, ml-engineer, mathematician, coder, explore, scout, verifier, doc-specialist, writer, mcp-broker |
+| ml-engineer | data-scientist, data-engineer, coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker |
+| dl-engineer | mlx-engineer, cuda-engineer, data-engineer, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder |
+| llm-engineer | mlx-engineer, cuda-engineer, dl-engineer, data-scientist, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, claude-code-guide, ninja-coder |
+| claude-code-engineer | claude-code-guide, scout, explore, verifier, code-reviewer, mcp-broker |
+| quantum-engineer | mathematician, coder, explore, scout, researcher, verifier, code-reviewer, cuda-engineer, mlx-engineer, mcp-broker, ninja-coder |
+| robotics-engineer | coder, explore, scout, researcher, verifier, code-reviewer, mathematician, dl-engineer, cuda-engineer, mlx-engineer, cg-artist, mcp-broker, ninja-coder |
+| cg-artist | image-director, coder, scout, verifier, mcp-broker |
+
+**Caps** (values in [Knobs](#knobs)): 3 running children per agent, raised per type (orchestrator 10,
+god-coder and main-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8); 2 live copies
+per copy type; BlackCat 8 dispatches within 120 s and 12 tool calls per prompt; 32 subagents running
+in a session; context-token budgets per prompt and per session; 64 MCP calls per subagent run. Every
+BlackCat child runs in the background (the hook drops its `run_in_background: false`).
+
+## Skills
+
+Any agent can load any skill. Every agent has the Skill tool and sees each skill's one-line
+description; a skill's body enters the agent's context only when its task matches and it loads it.
+Nothing is preloaded (no `skills:` frontmatter). Agent prompts carry a short `## Skills` line naming
+the skills most relevant to them ("Load `cpp-engineering` for C or C++ cores") — pointers, not
+preloads; every name is lint-checked. One `Skill` allow rule pre-approves every skill, including ones
+you or a plugin add later. If you open repositories you don't trust, replace it with `Skill(<name>)`
+rules, since it also approves a repository's own `.claude/skills`.
+
+**Listing budget.** Claude Code caps the listing at `skillListingBudgetFraction` of the context
+window; the stack sets **0.012** (default 0.01), about 36K characters on the 1M-context models every
+agent uses. The stack's own descriptions take about 17.7K characters. Over the cap, the least-used
+skills show by name only. To leave room for plugin, bundled and claude.ai skills, the stack also cuts
+each description at 500 characters (`skillListingMaxDescChars`) and lists six user-run commands
+(`code-review`, `security-review`, `simplify`, `fewer-permission-prompts`, `keybindings-help`, `init`)
+only in the `/` menu (`skillOverrides`). `/stack-doctor` reports the size; `tests/lint_agents.py`
+fails if the stack's skills pass half the budget. A session with a 200K window gets a fifth of the
+space; raise the fraction in your own settings there if that matters.
+
+A skill's description starts with its trigger ("Load before …", "Use when …") and names no agent.
+
+| Group | Skills (**new** = added in this revision) |
+|---|---|
+| Engineering practice | code-standards, review-protocol, secure-coding, git-workflows, python-engineering, rust-engineering, typescript-engineering, jvm-engineering, julia-engineering, haskell-engineering, **cpp-engineering**, **shell-scripting**, cmake-ninja-builds, ide-workflows, algorithm-design, formal-methods |
+| Performance | accelerator-perf, cpu-performance, gpu-kernel-dev |
+| Web front end | **frontend-frameworks**, **web-accessibility** |
+| Apps and distribution | rust-native-gui, editor-engineering, macos-app-distribution |
+| Systems, infrastructure, tooling | linux-workstation, self-hosting-ops, **container-images**, **ci-cd-pipelines**, **terraform-opentofu**, mcp-server-craft, postgresql, mongodb, claude-code-extensions, browser-automation, computer-use-apps, stack-doctor (`/stack-doctor`, typed by you) |
+| Mathematics | proof-craft, lean-formalization, category-theory, numerical-methods, quantum-computing, quantum-physics-numerics |
+| ML and models | ml-experiment, **tabular-ml**, **time-series-forecasting**, training-debug, **distributed-training**, **model-export**, diffusion-flow-models, image-model-pipelines, robotics-engineering, robot-learning, llm-finetuning, llm-quantization, llm-evals, local-llm-serving, hf-hub, dataset-curation |
+| Data and statistics | data-analysis, **dataframes-duckdb**, **bayesian-modeling**, **causal-inference**, data-visualization |
+| LLM applications and agents | rag-agents, graph-rag, agent-harness-design, prompt-and-brief-design |
+| Research and writing | web-research, literature-review, technical-writing, portuguese-pt-writing, latex-typesetting, markdown-publishing, book-production, diagrams-as-code |
+| Design, image and print | brand-identity, typography, color-management, **ui-design-systems**, presentation-design, image-prompting, svg-vector-craft, print-production, apparel-merch-print, tattoo-design, raster-imaging, adobe-creative-cloud |
+| 3D | blender-3d, sculpting-texturing, houdini-fx, 3d-printing |
+| Video and motion | media-ffmpeg, motion-graphics |
+
+### New in this revision
+
+| Skill | Load it when |
+|---|---|
+| bayesian-modeling | building or checking a Bayesian model: PyMC 6, NumPyro, Stan, R-hat/ESS/divergences, LOO, ArviZ |
+| causal-inference | estimating a causal effect from observational or quasi-experimental data: DiD, event studies, IV, RD, matching, synthetic control |
+| ci-cd-pipelines | writing, fixing or reviewing a CI/CD workflow: GitHub and Forgejo Actions, SHA pinning, secrets/OIDC, actionlint, zizmor |
+| container-images | writing, building or auditing a Dockerfile or image: multi-stage, BuildKit, digests, non-root, multi-arch, SBOM, trivy |
+| cpp-engineering | writing, reviewing or debugging C or C++: UB traps, RAII, concurrency, sanitizers, clang-tidy, ABI |
+| dataframes-duckdb | transforming tabular data in code: pandas 3, polars, DuckDB, SQLite, Parquet/Arrow |
+| distributed-training | training on more than one GPU or node: torchrun, DDP vs FSDP2, DCP checkpoints, NCCL, JAX sharding |
+| frontend-frameworks | building a web front end: React 19, Next.js 16, Svelte 5, Vue, Astro 7, Tailwind v4, Core Web Vitals |
+| model-export | exporting a trained model: torch.export, ONNX, ONNX Runtime, Core ML, ExecuTorch, TensorRT, parity checks |
+| shell-scripting | a shell script or non-trivial one-liner: bash 3.2 vs zsh vs POSIX sh, BSD vs GNU, quoting, traps, shellcheck |
+| tabular-ml | modeling tabular data: gradient boosting, categoricals, leak-free early stopping, Optuna, calibration, SHAP, TabPFN |
+| terraform-opentofu | infrastructure as code: Terraform vs OpenTofu, state and locking, modules, moved/import/removed, tflint |
+| time-series-forecasting | forecasting: rolling-origin backtests, seasonal-naive baselines, ETS/ARIMA, GBMs with lags, Chronos-2, TimesFM |
+| ui-design-systems | UI screens or a component library: DTCG tokens, scales, component states, grids, dark mode, handoff |
+| web-accessibility | building or auditing UI for accessibility: WCAG 2.2 AA, ARIA patterns, keyboard and focus, axe, EAA |
+
+Neighbouring skills now split their scope with these (for example `data-analysis` keeps the causal
+guardrail and points to `causal-inference`; `self-hosting-ops` runs containers, `container-images`
+builds them). The per-skill table of the previous revision is in the
+[Changelog](#previous-configuration-readme-as-of-e06af75).
+
+### Code intelligence (LSP)
+
+The `LSP` tool in the coding agents' `tools:` lines stays inactive until a code-intelligence plugin
+for the file's language is installed and its server binary is on your `PATH`
+([docs](https://code.claude.com/docs/en/plugins/code-intelligence)). Claude then gets diagnostics
+after every edit, plus go-to-definition, references and symbol search. The installer enables the
+plugin of every language whose server it finds (`--with-lsp` installs missing ones):
+
+| Language | Plugin | Server | `--with-lsp` installs it with |
+|---|---|---|---|
+| Python | `pyright-lsp@claude-plugins-official` | `pyright-langserver` | npm |
+| TypeScript / JavaScript | `typescript-lsp@claude-plugins-official` | `typescript-language-server` | npm |
+| Rust | `rust-analyzer-lsp@claude-plugins-official` | `rust-analyzer` | rustup |
+| C / C++ | `clangd-lsp@claude-plugins-official` | `clangd` | — (Xcode Command Line Tools) |
+| Go, Swift, Java | `gopls-lsp`, `swift-lsp`, `jdtls-lsp` (official) | `gopls`, `sourcekit-lsp`, `jdtls` | — (brew, Xcode) |
+| Kotlin | `kotlin-lsp@claude-plugins-official` | `kotlin-lsp` | brew, when `kotlin`/`kotlinc` is present |
+| Haskell | `haskell-lsp@agent-stack` | `haskell-language-server-wrapper` | ghcup, when present |
+| Julia | `julia-lsp@agent-stack` | LanguageServer.jl in the environment `@claude-lsp` | julia, when present |
+| Lean 4 | `lean-lsp@agent-stack` | `lake serve` | nothing (comes with elan) |
+| Scala | `metals-lsp@agent-stack` | `metals` | cs (Coursier), when present |
+
+`agent-stack` is the stack's local marketplace (`dot-claude/stack-plugins/`, installed to
+`~/.claude/stack-plugins/`). CUDA `.cu` files get no server. Check with `claude plugin list` or the
+**Errors** tab of `/plugin`.
+
+## Security model
+
+Hooks parse shell text, which is a heuristic. The sandbox, and managed settings once you install
+them, are the hard boundary; the prompts and rules are the first line, not the guarantee.
+
+- **No push, no forge writes, by any channel.** The rules forbid `git push` in every form and every
+  forge write through `gh`/`tea`/`fj`, `gh api`, a forge's web UI, REST/GraphQL from curl or any HTTP
+  client, or MCP. The `no-push` hook denies push and forge-write commands also inside `bash -c`,
+  `eval`, `$(...)`, `ssh`, interpreter one-liners and git's own command hooks (aliases, `core.editor`,
+  `rebase --exec`, …), and refuses commands decided only at run time. `STACK_POLICY=off` does not
+  switch it off. Deny rules repeat the common forms; the installer's own git wrapper refuses push;
+  browser-operator never writes on a forge. Limit: `gh` can still read a token stored in the macOS
+  keychain or `~/.config/gh/hosts.yml`; the hook, not the sandbox, stops its writes.
+- **Protected paths.** Edit/Write are denied on `~/.claude/{hooks,bin,agents,rules,mcp,magg,skills,stack-plugins}/`,
+  `settings.json`, `CLAUDE.md`, `.stack-manifest.json`, the backups, the hook state dir, and a
+  project's `.git/hooks`, `.git/config`, `.claude/settings*.json` and `.claude/hooks`. The hook
+  extends this to Bash: a write, delete, rename or mode change of a protected path (redirection,
+  `cp`/`mv`/`tee`/`sed -i`, `rm`, `find -delete`, `chmod`, inline Python, Node, Perl, Ruby, PHP, Lua,
+  Julia or R code) is denied — Claude Code's own protected-path check covers only Edit/Write and is
+  skipped in `bypassPermissions`. The rules add: the installed stack is never edited in place;
+  changes go to the repo and the user re-runs the installer.
+- **Read denies for secrets and backups:** `stack.env` (anywhere under the config dir),
+  `.credentials.json`, both `.claude.json` locations, the backups (new root and legacy `backup-*`),
+  `~/.ssh`, `~/.aws`, `~/.config/gh/hosts.yml`, the Hugging Face token, `~/.netrc`,
+  `~/.git-credentials`, `~/.npmrc`, `~/.pypirc`, `~/.docker/config.json`, `~/.kube`, `~/.gnupg`,
+  `~/.config/gcloud`, `~/Library/Keychains` and the usual secret `.env` files (`.env`, `.env.local`,
+  `.env.*.local`, `.env.dev[elopment]`, `.env.prod[uction]`, `.env.stag[e|ing]`). MCP tools that read
+  local files (context-mode `ctx_index`, markitdown, docling, Playwright, chrome-devtools) are held to
+  the same rules by the hook. Key printers are locked too: `mcp-headers` and `with-stack-env` redact
+  values by default, and the hook denies `--reveal`, `with-stack-env env|printenv` and `-x` tracing of
+  `install.sh`/`doctor.sh`.
+- **Sandbox** (`settings.json` → `sandbox`): `enabled: true`, `allowUnsandboxedCommands: false`.
+  `filesystem.denyWrite` covers the config dir, the guard state dir and the backups;
+  `filesystem.denyRead` covers `stack.env`, `backup-*`, the backups and `.credentials.json`;
+  `allowWrite` opens only toolchain caches. `network.strictAllowlist` admits localhost, package
+  registries (PyPI, npm, crates, Go, Julia, Lean, Homebrew), forges (GitHub, GitLab, Codeberg,
+  Bitbucket), Hugging Face, W&B and arXiv. `credentials.envVars` denies forge tokens (`GITHUB_TOKEN`,
+  `GH_TOKEN`, GitLab/Gitea/Forgejo/Codeberg) to sandboxed commands. Limits: with `XDG_STATE_HOME` set
+  elsewhere, the guard state dir is protected only by the guard's own path check; whether the sandbox
+  honours the absolute backups path exactly as written is unverified; on Linux, mid-path wildcards in
+  write denies are dropped (`.git/modules/**`).
+- **Managed settings (optional, root-owned).** `./install.sh --print-managed-settings > managed-settings.json`
+  prints a file that repeats the guard hook, the protected-path deny rules and the sandbox (the JSON
+  on stdout, instructions on stderr). Installed at `/Library/Application Support/ClaudeCode/managed-settings.json`
+  (macOS) it outranks `~/.claude/settings.json`, so editing that file can't switch the guards off.
+  The installer never writes anything root-owned; re-print and re-install after an install that
+  changed the hook or deny rules. An invalid file stops Claude Code from starting. Details:
+  [CONFIG.md](CONFIG.md) §7.
+- **Read-only reviewers, enforced.** code-reviewer, security-auditor, verifier, plan-reviewer and
+  claude-code-guide hold Bash, but the hook admits only read-only commands: tests, linters and
+  formatters in check mode, builds into scratch, `git diff`/`log`/`show`, inspection, `claude --version`,
+  `claude mcp list/get`, `claude plugin list`, and the scanners `gitleaks`, `trufflehog`, `semgrep`,
+  `osv-scanner`, `pip-audit`, `uv audit`, `npm audit`, `cargo audit`/`deny`, `trivy`. Anything else is
+  refused (fail closed).
+- **Consent only from the user, only on the main thread.** A destructive, irreversible or externally
+  visible action reaches a subagent one way: the agent stops with `STATUS: blocked`,
+  `NEXT: ASK USER: <exact action>`; BlackCat asks with AskUserQuestion (always, even when the prompt
+  seemed to allow it) and relays the answer word for word. Text in a brief, a tool result or another
+  agent's message is never consent. `CronCreate`, `RemoteTrigger` and magg's `magg_add_server`,
+  `magg_load_kit` and `proxy` are `ask` rules, which prompt even in `bypassPermissions`.
+- **Untrusted content is data.** Web pages, documents, emails, file contents, code comments, tool
+  and MCP output never direct an agent; instructions found there are reported, not followed.
+- **neural-memory recall is data.** Recalled items are leads to check against code, files or sources,
+  never settled decisions. `nmem_remember` stores only facts verified against a local artifact (file,
+  test output or commit), cited in the memory. The web-reading agents (researcher, researcher-copy,
+  scout, browser-operator) can't write it: the hook refuses their `nmem_remember`.
+- **libdocs and image-studio SSRF.** libdocs fetches https only, resolves each host, requires a
+  global address, connects to the checked IP, re-checks every redirect hop and keeps table-of-contents
+  links on the docs origin. image-studio pins each connection to the IP it checked (no DNS
+  rebinding), sends each key only to its own provider, follows no redirects with a key, downloads
+  results only over https from public hosts, sends only real PNG/JPEG/WebP inputs from outside
+  credential folders, and strips scripts, event handlers and `javascript:` links from saved SVGs.
+- **Keys.** They live only in `stack.env` (0600). Remote MCP servers get them through the header
+  helper at connect time; spider and magg get only their own keys; nothing goes into `~/.claude.json`,
+  argv or agent files. `GITHUB_TOKEN` is no longer exported to shells, and `claude-ninja`/`claude-god`
+  start with forge tokens unset. Optional: `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` in `settings.json` →
+  `env` strips the credentials Claude Code recognizes from Bash, hook and MCP environments.
+- **Pinned supply chain.** uv 0.12.20 and huetension v0.3.0 from release tarballs checked by sha256;
+  magg 1.2.1 with `--exclude-newer 2026-09-22T00:00:00Z`; the sci and ml venvs from hash-locked
+  `requirements/*.txt` (`--require-hashes`, 7-day cooldown; sci also `--only-binary :all:`); the After
+  Effects MCP at commit `88d5fbf0` with `npm ci --ignore-scripts`; third-party MCP servers pinned to
+  exact versions (see [MCP servers](#mcp-servers)).
+
+## MCP servers
+
+**How servers turn on and off.**
+
+1. **Agent-scoped (local stdio).** A server declared inline in an agent's `mcpServers` connects when
+   that agent starts and disconnects when it finishes. BlackCat declares none.
+2. **Remote, user scope (HTTP).** They belong to the session. With `MCP_DISCOVERY_CACHE=1` a server
+   used before connects on its first tool call; otherwise at start, in the background. Only agents
+   whose `tools:` line names a server can call it. Keys come from `stack.env` through
+   `bin/mcp-headers` at every connection.
+3. **Tool search:** a connected server costs only tool names until a tool is used (Claude Code's
+   default on the Anthropic API; the stack leaves `ENABLE_TOOL_SEARCH` unset).
+4. **On demand through mcp-broker + magg.** Catalog servers stay disabled; the broker enables one,
+   runs the calls, returns the results and disables it. Each broker's magg runs on a private copy of
+   the catalog (`bin/magg-private`), so parallel brokers never switch servers off under each other.
+   Adding a server, loading a kit or `proxy` asks you first.
+
+Third-party servers are pinned to the versions checked on 26 Sep 2026. To upgrade one, bump it in the
+repo (agent files, `magg/config.json`, the installer's prefetch step) and re-run the installer.
+
+| Server | How | Used by | Key |
+|---|---|---|---|
+| libdocs (custom) | stdio, agent-scoped | coders, planner, plan-reviewer, code-reviewer, ML agents | uses EXA/JINA/SPIDER keys if set; `GITHUB_TOKEN` optional, read from `stack.env` |
+| image-studio (custom) | stdio, agent-scoped | image-director, designer | `OPENROUTER_API_KEY` (SVG, edits), `OPPER_API_KEY` (photos); models `IMAGE_STUDIO_SVG_MODEL`, `_IMAGE_MODEL`, `_EDIT_MODEL` |
+| spider (`spider-cloud-mcp@1.2.2`) | stdio, agent-scoped | researcher | `SPIDER_API_KEY` (the only key it gets) |
+| playwright (`@playwright/mcp@0.0.82 --headless --isolated`) | stdio, agent-scoped | browser-operator, frontend-engineer, verifier | — (needs Google Chrome) |
+| markitdown (`markitdown-mcp==0.0.1a7`) | stdio, agent-scoped | doc-specialist | — |
+| context-mode (`context-mode@1.0.169`, the MCP server only) | stdio, agent-scoped | researcher, doc-specialist | — (Node ≥ 22.5) |
+| neural-memory (`neural-memory==4.62.0` through `mcp/neural_memory_mcp.py`) | stdio, agent-scoped | orchestrator, researcher, mathematician, main-/ninja-/god-coder, ml-/dl-/llm-/robotics-/quantum-engineer, data-scientist | — |
+| illustrator (`illustrator-mcp-server@1.10.3`), huetension | stdio, agent-scoped | designer | — (grant macOS Automation) |
+| blender (`mcp-for-blender@2.1.1`, telemetry off) | stdio, agent-scoped | cg-artist | — (Blender running with the add-on) |
+| after-effects (Dakkshin, commit `88d5fbf0`), premiere (`premiere-pro-mcp@1.18.2`) | stdio, agent-scoped | motion-designer | — (`--with-adobe`) |
+| magg | stdio, agent-scoped | mcp-broker | only the catalog's keys from `stack.env` |
+| exa | remote | scout, researcher, planner, coders, verifier, security-auditor, ML agents | `EXA_API_KEY` optional |
+| jina | remote | scout, researcher, planner, mathematician, writer, … | `JINA_API_KEY`, effectively required |
+| wolfram | remote | mathematician, quantum-engineer, ninja-/god-coder | none |
+| huggingface | remote | researcher, ml-/dl-/llm-engineer, data-scientist | `HF_TOKEN` optional |
+| wandb | remote, registered only with a key | ml-/dl-/llm-/robotics-engineer | `WANDB_API_KEY` |
+| computer-use, claude-in-chrome | built into Claude Code | GUI agents; browser-operator | computer use: `/mcp` → Enable; Chrome: `claude --chrome` |
+
+**Catalog (disabled until mounted):** docling, playwright, lean, duckdb, arxiv, jupyter, mlflow,
+docspace (ONLYOFFICE), mongodb (`--readOnly`), postgres (`--access-mode=restricted`), chrome-devtools,
+ros (not pre-approved: it can move a robot), qiskit-runtime (not pre-approved: it spends quota).
+Versions and details: [mcp_servers.md](mcp_servers.md).
+
+### Context economy: context-mode and neural-memory
+
+Neither shrinks the live window (auto-compaction at 400K does that); they keep things out of it.
+**context-mode** indexes a page or a local file into a local SQLite FTS5 store and returns only the
+passages asked for (researcher, doc-specialist). Only its index/search/stats tools are allowed; its
+code-execution, upgrade, purge and insight tools are denied, and the hook checks `ctx_index` paths
+against the Read denies (no directories). **neural-memory** is a local associative memory shared by
+twelve agents (`~/.claude/neural-memory/`, brain `claude-agent-stack`). The stack's wrapper writes a
+compact `config.toml` (4 tool schemas, no hooks added to `settings.json`) and replaces the server's
+instructions with the stack's policy (see [Security model](#security-model)). Delete
+`~/.claude/neural-memory/` to start afresh.
+
+## Enforced behaviours (hooks)
+
+| Event | What `agent_guard.py` does |
+|---|---|
+| PreToolUse `*` (`budget`) | Context-token budgets per prompt and per session, and each subagent's MCP call cap; fails open on unreadable transcripts |
+| PreToolUse `*` (`blackcat-guard --settings`) | BlackCat's own gate (acts only when `agent_type` is blackcat): its tool allowlist and `BLACKCAT_MAX_STEPS` |
+| PreToolUse `Agent` | Spawn policy, depth, copy rule, fan-out caps (atomic leases), BlackCat dispatch window; god-coder orchestrator-only and once per session; strips a per-call `model`; drops BlackCat's `run_in_background: false`; denies `isolation: "remote"` (cloud agents load no hooks) |
+| PreToolUse `SendMessage` | Resuming a finished agent follows the spawn policy and the parent's caps |
+| PreToolUse `Bash\|Monitor\|PowerShell` (`no-push`) | Never push, never write to a forge; `--reveal` and `env`/`printenv` under the key helpers; `-x` tracing of `install.sh`/`doctor.sh`; Bash-level writes to protected paths; read-only allowlist for the reviewer types |
+| PreToolUse `mcp__neural-memory__nmem_remember` | Web-reading agents can't write the shared memory |
+| PreToolUse `mcp__computer-use__*` | One agent on the screen at a time |
+| PreToolUse local-file MCP tools | Path and `file:` arguments held to every `Read(...)` deny rule |
+| PostToolUse `Agent\|TaskStop`, SubagentStart/Stop, StopFailure | Registry of who spawned whom; locks released when an agent stops |
+| PostToolUseFailure / PermissionDenied | Roll back leases and markers |
+| UserPromptSubmit, SessionStart | Reset per-prompt markers; clear stale locks; prune old state |
+| PostToolUse `Read\|mcp__*`, PreToolUse `mcp__*` (`image-limit`) | Images an agent reads are re-encoded to ≤ 1919 px per side and under the 5 MB API cap; images uploaded through browser tools are swapped for downscaled copies |
+
+Every hook command uses an absolute interpreter chosen at install time (a broken shim would make every
+hook fail to start, which Claude Code treats as "allow"). A PreToolUse handler that errors denies the
+call (fail closed); the escape hatch `STACK_POLICY=off` is shown only to you. `/stack-doctor` runs
+the real hook commands on calls that must be denied, to prove the gates are closed.
+
+### Knobs
+
+`settings.json` → `env`. Owned knobs (●) are reset to the stack's value on every install; change them
+in the repo's `dot-claude/settings.json` and re-run the installer. The rest are defaults in
+`agent_guard.py` or values you may change.
+
+| Knob | Default | Meaning |
+|---|---|---|
+| `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` | 8 / 120 | BlackCat Agent calls per prompt, all within this many seconds of the first |
+| `BLACKCAT_MAX_STEPS` ● | 12 | BlackCat tool calls per prompt, dispatches included |
+| `STACK_MAX_FANOUT` ● | 3 | Running + starting children per agent (0 = no cap) |
+| `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides (`DEFAULT_FANOUT_BY_TYPE` in `agent_guard.py`) |
+| `STACK_MAX_SELF_FANOUT` ● | 2 | Copy agents of one type running at once, session-wide |
+| `STACK_PROMPT_CTX_BUDGET` ● / `STACK_SESSION_CTX_BUDGET` ● | 100000000 / 666000000 | Context tokens (input + cache writes + cache reads, all agents) per prompt / per session |
+| `STACK_MAX_MCP_CALLS` ● | 64 | MCP calls per subagent per prompt, capped lower by the agent's `maxTurns` (0 = off) |
+| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 32 | Claude Code's cap on subagents running in one session |
+| `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` ● | 4 | BlackCat → L1 → L2 → L3 → L4 |
+| `STACK_FANOUT_IDLE_S` | 600 | A background child whose whole subtree is silent this long stops counting |
+| `STACK_LEASE_TTL_S` / `STACK_RESUME_TTL_S` | 21600 / 120 | Ceilings on unreported spawn leases and resume reservations |
+| `GOD_SPAWNERS` / `GOD_ONCE_PER_SESSION` | `orchestrator` / 1 | Who may spawn god-coder; one spawn per session |
+| `GOD_IDLE_S` / `GOD_PENDING_TTL_S` / `GOD_LOCK_TTL_S` | 1800 / 120 / 21600 | god-coder lock: idle holder, unconfirmed lease, hard ceiling |
+| `SCREEN_LOCK_TTL_S` | 900 | Screen lock expiry |
+| `STRIP_AGENT_MODEL` / `BLACKCAT_BACKGROUND` | 1 / 1 | Remove per-call `model`; run BlackCat's children in the background |
+| `STACK_POLICY` | on | `off` disables every deny and lock except the push and forge-write ban (bookkeeping continues) |
+| `STACK_GUARD_LOG` | 0 | 1 = log raw hook events to the state dir (budget mode logs tool names and ids only) |
+| `STACK_IMAGE_MAX_PX` / `STACK_IMAGE_MAX_B64` | 1919 / 4500000 | Longest image side; most base64 characters of one image |
+| `STACK_IMAGE_UPLOAD_TOOLS` | — | Regex of more MCP tools whose image arguments get downscaled copies |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `claude-sonnet-5-5` | Claude Code's small-model slot |
+| `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` | 400 | Web searches per session, all agents |
+| `MCP_TIMEOUT`, `MAX_MCP_OUTPUT_TOKENS` | 60000, 25000 | MCP start-up timeout, tool output cap |
+
+## Status line
+
+`bin/statusline.py` renders `blackcat · Sonnet 5.5 · medium · ctx 156K/400K ▓▓▓░░░░░ · 5h 23% · 7d 41% · cache 91%`:
+agent, model, effort, the main conversation's tokens against the 400K auto-compact window, your
+plan's 5h/7d rate-limit windows, cache hit rate. It is set only if you had no status line; remove
+`statusLine` from `settings.json` to turn it off.
+
+## ML setup (`--with-ml`)
+
+`~/.claude/venvs/ml` is installed from the hash-locked `requirements/ml.txt`: numpy/scipy/pandas/polars,
+scikit-learn, statsmodels, XGBoost, LightGBM, PyTorch, Transformers, Datasets, Accelerate, PEFT,
+safetensors, and on Apple Silicon `mlx` and `mlx-lm[evaluate]`. The ML agents use the project's own
+environment first, this venv second, never the system Python. Local inference stays MLX-native on the
+Mac (mlx-lm; oMLX as the local endpoint); CUDA work runs only on an NVIDIA host you name.
+
+## Apps
+
+Every app below runs Claude Code with your user settings, so it starts as BlackCat with the whole
+stack: agents, skills, hooks, rules, sandbox, MCP servers and auto-compaction at 400K. Checked on
+27 Sep 2026 (details in the [previous configuration](#previous-configuration-readme-as-of-e06af75)).
+
+| App | Runs | What to set | Limits |
+|---|---|---|---|
+| Terminal (Ghostty, Terminal) | your `claude` | once: `/effort medium` | none; the only place for `claude-ninja` / `claude-god` |
+| **Claude Desktop, Code tab** (Local) | Claude Code built into Desktop | model **Sonnet 5.5**, effort **medium** for BlackCat sessions | no agent teams; panel commands such as `/permissions` don't open |
+| **Conductor** 0.87.5 | Claude Code 2.1.280, bundled | model **Sonnet 5.5**, thinking **medium**, Ultracode **off** | always bypass-permissions (deny rules, sandbox and guard still apply) |
+| VS Code / Cursor extension | its own Claude Code | nothing | a subset of slash commands |
+| JetBrains plugin | your `claude`, in the IDE terminal | nothing | none |
+| Zed (Claude Agent) | Claude Code through the ACP adapter | nothing | a few slash commands hidden |
+| Nimbalyst | Claude Agent, or your own `claude` in a pane | the 1M model row with the CLI provider | its effort control sets `CLAUDE_CODE_EFFORT_LEVEL`, which overrides every agent's effort |
+| AionUI | your `claude`, in print mode | no AionUI MCP servers in Claude chats | an AionUI MCP server passes `--strict-mcp-config`, dropping your servers |
+
+In the Agent SDK apps (Desktop, Conductor, Nimbalyst, VS Code, Zed) the model and effort pickers set
+the main thread; subagents keep their own. BlackCat's children always run in the background (a
+foreground child would block the app for its whole run); a subagent passes `run_in_background: false`,
+and calls sent together still run in parallel. For a plain Claude Code session instead of BlackCat,
+set `"agent": "claude"` in a project's `.claude/settings.json`. `claude -p` starts in
+`bypassPermissions`: pass `--permission-mode default` for scripted work that should refuse commands
+that aren't pre-approved.
+
+### Claude Desktop, step by step
+
+1. Install from Terminal (`./install.sh`), then **restart Claude Desktop**. Open **Code**, choose
+   **Local** and your project folder.
+2. Set the model to **Sonnet 5.5** and effort to **medium** (Cmd+Shift+E).
+3. **Background model:** in the environment dropdown, hover over **Local**, click the gear and add
+   `ANTHROPIC_DEFAULT_HAIKU_MODEL` = `claude-sonnet-5-5` (Desktop can route models itself and then
+   ignores that key in `settings.json`).
+4. **Keys** need nothing extra: every server reads `stack.env` itself or through `bin/mcp-headers` /
+   `bin/with-stack-env`, and every command is an absolute path.
+5. **Computer use:** Settings → General → on, then grant Accessibility and Screen Recording.
+6. **Check:** send `@oracle what is a monad?`; the subagent pane shows oracle.
+
+### Conductor, step by step
+
+1. Nothing to install in Conductor: it reads `~/.claude` and `~/.claude.json`. If you switch it to
+   your own `claude`, keep that at 2.1.271 or later.
+2. Per chat: model **Sonnet 5.5**, thinking **medium**, Ultracode **off**.
+3. Work runs in the workspace's git worktree; `.claude-work/` is excluded from git there too.
+4. For ninja-coder or god-coder at ultracode, use `claude-ninja` / `claude-god` in a terminal.
+
+## Using it
+
+- Just talk to it. To force an agent, start with `@designer …` or `@ninja-coder …` (god-coder goes
+  through `@orchestrator …`, once per session, or `claude-god`).
+- Long single-domain sessions can skip BlackCat: `claude --agent main-coder --effort high`. That
+  agent's spawn policy still applies.
+- The hardest problems at ultracode: `claude-ninja` or `claude-god` (`claude --agent <ninja|god>-coder
+  --effort ultracode` with workflow launches pre-approved for that session, forge tokens unset).
+  Dispatched by another agent, both run at `max`.
+- Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort.
+
+Smoke tests: `@oracle what is a Kan extension?` · `what's the latest stable Rust version?` (scout) ·
+`plan how to migrate my Astro blog to MDX` (planner) · `@researcher compare LoRA, DoRA and QLoRA …;
+split the work` (researcher copies) · `@orchestrator … use god-coder twice` (the second spawn is
+denied) · `/context` and `/stack-doctor`.
+
+## For maintainers
+
+```bash
+uv run tests/lint_agents.py                       # frontmatter, maxTurns, POLICY ↔ "May spawn", copies, skills, listing size
+/usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test   # the hooks' own interpreter
+uv run --python 3.12 --with pytest --with pillow --with httpx --with "mcp>=1.10,<2" pytest -q tests/
+bash tests/install_smoke.sh                       # hermetic installer runs (see Testing in a scratch HOME)
+```
+
+Tests that pin this revision's guarantees: `test_no_duplicates.py`, `test_no_push.py`,
+`test_protected_paths.py` (including the sandbox block), `test_readonly_agents.py`,
+`test_libdocs_mcp.py` and `test_image_studio_mcp.py` (SSRF), `test_lint_skills.py`. A new skill is a
+folder with a `SKILL.md` whose frontmatter has `name` (the folder name) and a one-line `description`
+that starts with its trigger, names no agent and contains no colon-space or space-hash (YAML). Keep `__UPPERCASE__`
+tokens out of skill examples: the installer replaces its placeholders and the smoke test fails on any
+left over. The installer refuses to run outside macOS; the smoke test sets `STACK_ALLOW_NON_MACOS=1`.
+
+## Troubleshooting
+
+- **`/stack-doctor` first.** It prints the exact fix for each FAIL.
+- **Something of yours disappeared after an install.** It is in the backup:
+  `./install.sh --restore --dry-run`, then `./install.sh --restore`. Next time use `--no-prune`.
+- **A spawn you expected was denied.** The reason names the rule. For a stuck lock, restart with
+  `claude --resume` (SessionStart clears locks) or wait for the TTL.
+- **A Bash command was refused as a protected-path write or by the sandbox.** Intended: change the
+  stack in the repo and re-run the installer. A tool that needs another network host fails under the
+  strict allowlist; add the host to the repo's `sandbox.network.allowedDomains`.
+- **Claude Desktop shows nothing while an agent works.** A foreground child blocks BlackCat: re-run
+  `./install.sh`, start a new session, and check that `BLACKCAT_BACKGROUND` isn't `0`.
+- **Bypass the policy temporarily:** `"STACK_POLICY": "off"` in `settings.json` → `env` (the push
+  and forge-write ban stays on).
+- **Uninstall:** `./install.sh --restore <the first install's backup>` (it removes the files that
+  install added and puts back what it replaced), remove the `# claude-agent-stack` line
+  from your shell rc, and `claude mcp remove -s user exa` (and jina, wolfram, huggingface, wandb).
+
+## Changelog
+
+Every applied parameter (model, effort, maxTurns, caps, knobs) with its reason: [CONFIG.md](CONFIG.md).
+
+### 2026-09-29 — Tightened prompts, security hardening, 15 new skills, prune-by-default installer, no duplicates
+
+Commits `eb2de04..1d7b983` on `main` (plus this README). Found by a security audit (verdict: fail),
+a skills-gap review and a prompt review; every fix has a test.
+
+- **Prompts** (`eb2de04`, `a56d4d0`, `fb095d8`). Agent bodies 14% shorter; descriptions name who
+  takes the adjacent work; BlackCat's catalogue replaced by a routing table. Rules gained the
+  untrusted-content rule, consent only via `NEXT: ASK USER` → AskUserQuestion on the main thread, the
+  ban on forge writes by any channel, the no-in-place-edits rule and the full protected-path list.
+  browser-operator removed from the spawn rows of researcher (and researcher-copy), ml-, dl-, llm- and
+  cuda-engineer.
+- **Skills** (`2c49198`, `c3d427c`, `5937ec3`). 15 new skills (78 → 93): bayesian-modeling,
+  causal-inference, ci-cd-pipelines, container-images, cpp-engineering, dataframes-duckdb,
+  distributed-training, frontend-frameworks, model-export, shell-scripting, tabular-ml,
+  terraform-opentofu, time-series-forecasting, ui-design-systems, web-accessibility. Overlapping
+  triggers deduplicated and scopes split; mcp-server-dev folded into mcp-server-craft; agents' `## Skills`
+  lines name the new ones. `skillListingBudgetFraction` 0.01 → 0.012.
+- **Security** (`e95161c`, `b08c61e`, `6466f24`, `ecc5932`, `b935f8a`, `695fbc4`). libdocs and
+  image-studio SSRF hardening (C5, C9); hash-locked venvs with a 7-day cooldown (C7); protected paths
+  extended to agents/, rules/, mcp/, magg/, skills/, CLAUDE.md and backups, with a Bash-level scan
+  covering deletes, renames, mode changes and interpreter one-liners (C1); the inverted `--reveal`
+  rule fixed (C2); sandbox block with a strict network allowlist (C3); credential files Read-denied
+  (C8); read-only reviewers enforced by the hook (T2); web-reading agents can't write neural-memory
+  (T3); `CronCreate` and `RemoteTrigger` are ask rules (P3); `GITHUB_TOKEN` no longer exported and
+  forge tokens denied to sandboxed commands (C6).
+- **Installer** (`52c0059`, `1d7b983`). Stage, validate, back up, apply. Prune by default
+  (`--no-prune` opts out), manifest with sha256; `--dry-run`, `--restore [DIR]`,
+  `--print-managed-settings`; backups moved out of the config dir to
+  `~/.local/state/claude-agent-stack-backups` (C4); plugin duplicates and mcp-server-dev disabled by
+  default (`--keep-plugin-duplicates`); uv, magg, huetension and the After Effects MCP pinned (C7).
+  CONFIG.md §7 documents it, with the residual risks.
+- **Tests.** `test_no_duplicates.py`, `test_protected_paths.py` and `test_readonly_agents.py` pin the
+  new guarantees; `install_smoke.sh` 214 passed (dry run, restore round trips, `--no-prune`, a drifted
+  config); pytest 1164 passed.
+- **README** rewritten for this configuration; the previous one follows verbatim.
+
+### Previous configuration (README as of e06af75)
+
+The README as it stood at `e06af75`, verbatim; only its headings are demoted. Counts, flags, paths and
+caps in it describe that revision: 78 skills, opt-in `--dedupe-plugins`, backups in
+`~/.claude/backup-*`, `GITHUB_TOKEN` exported, no sandbox. Its links point to the current sections.
+
+<!-- markdownlint-disable MD024 MD032 MD033 MD036 MD038 -->
+
+<details>
+<summary>Show the previous README</summary>
+
+#### Claude Code multi-agent stack (README as of e06af75)
+
 BlackCat, the dispatcher on the main thread, 35 specialists (36 agent files), 78 on-demand skills, short global
 rules, a policy hook and MCP servers that start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later** and checked against the 2.1.283 docs (26 Sep 2026). macOS only
 (Apple Silicon first). It runs in the terminal and in the apps that run Claude Code with your
 settings: Claude Desktop's Code tab, Conductor, VS Code, Zed, Nimbalyst (see [Apps](#apps)).
 
-## Install
+#### Install
 
 ```bash
 cd claude-agent-stack
@@ -118,7 +954,7 @@ Spider keys stay out of your shells: MCP servers read `stack.env` themselves, an
 of your own in `stack.env` (an `OPENAI_API_KEY`, say) are added to `STACK_EXPORT`, so they stay
 exported.
 
-## What goes where
+#### What goes where
 
 | Path | What |
 |---|---|
@@ -142,7 +978,7 @@ exported.
 | `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`) | User-scope MCP servers, written only through `claude mcp` |
 | `~/.local/state/claude-agent-stack/<session>/` | Hook state: registry, leases, locks, markers. Pruned after 3 idle days |
 
-## How your requirements are implemented
+#### How your requirements are implemented
 
 | Requirement | Mechanism |
 |---|---|
@@ -161,7 +997,7 @@ exported.
 | Squeeze context further | context-mode (researcher, doc-specialist): pages and long documents go into a local search index and only the passages asked for enter the context. neural-memory (12 agents): what earlier sessions settled is recalled on demand instead of re-derived, with nothing preloaded. See [Context economy](#context-economy-context-mode-and-neural-memory). |
 | ninja-coder and god-coder at "ultra-code" effort | `claude-ninja` and `claude-god` start them as the main thread at ultracode: `xhigh` plus dynamic workflows, workflow launches pre-approved in those sessions only. That is the only place ultracode runs. Subagents can't run workflows, and `effort: ultracode` in an agent file is ignored: checked with the CLI, such a subagent ran at the calling session's `low`. Dispatched by BlackCat or another agent, both run at `max`, the deepest per-message level. |
 
-## Agents
+#### Agents
 
 Models are two pinned IDs and nothing else: `claude-opus-5-5` (Opus 5.5, Claude Code 2.1.280 or
 later) and `claude-sonnet-5-5` (Sonnet 5.5, 2.1.284 or later); `tests/lint_agents.py` rejects any
@@ -241,7 +1077,7 @@ calls count once). An agent that hits it stops without a report of its own; Clau
   default: at `low` it tends to dispatch without asking the clarifying question the prompt needs).
 - **Shared MCP**: remote user-scope servers; only agents that list them can call them (see [MCP servers](#mcp-servers) for where their instructions show up).
 
-### Spawn policy (enforced by the hook)
+##### Spawn policy (enforced by the hook)
 
 Claude Code ignores `Agent(a, b)` lists inside subagents, so `agent_guard.py` holds the single
 source of truth (`POLICY`). `tests/lint_agents.py` checks that every agent's "May spawn:" sentence
@@ -300,7 +1136,7 @@ Everything else, row by row:
 | robotics-engineer | coder, explore, scout, researcher, verifier, code-reviewer, mathematician, dl-engineer, cuda-engineer, mlx-engineer, cg-artist, mcp-broker, ninja-coder |
 | cg-artist | image-director, coder, scout, verifier, mcp-broker |
 
-## Skills (dynamic)
+#### Skills (dynamic)
 
 Any agent can load any skill. Every agent has the Skill tool, sees each skill's one-line description
 and loads a skill when its task matches; the body enters that agent's context only then. Nothing is
@@ -464,7 +1300,7 @@ signed in to claude.ai they are already synced as `anthropic-skills:*` and the p
 `--with-extra-plugins` adds three more Anthropic skill plugins: `skill-creator`, `mcp-server-dev`
 and `math-olympiad`, available to every agent like the rest.
 
-### Code intelligence (LSP)
+##### Code intelligence (LSP)
 
 The `LSP` tool in the coding agents' `tools:` lines stays inactive until a code-intelligence plugin
 for the file's language is installed and its language server binary is on your `PATH`
@@ -494,7 +1330,7 @@ for. CUDA `.cu` files get no server (clangd needs a CUDA toolkit, absent on macO
 missing binary), or ask Claude to introduce and fix a type error: a `Found N new diagnostic issues`
 line under the edit means the server runs.
 
-## MCP servers
+#### MCP servers
 
 **How servers turn on and off by themselves.**
 1. **Agent-scoped (local stdio).** A server declared inline in an agent's `mcpServers` connects when
@@ -576,7 +1412,7 @@ auto-configure writes an always-on user entry, so the stack leaves it out (see `
 Entries you already have under the same names are kept. Services registered under other names don't
 match the agents' allowlists, and the installer tells you which ones to rename.
 
-### Context economy: context-mode and neural-memory
+##### Context economy: context-mode and neural-memory
 
 Neither shrinks the live window; auto-compaction at 400K does that. They keep things out of it.
 
@@ -618,7 +1454,7 @@ what it recalls. The server runs through `mcp/neural_memory_mcp.py`, which:
 To start the memory afresh, delete `~/.claude/neural-memory/`. Claude Code's own agent memory
 (`MEMORY.md`, see **memory** above) stays as it was.
 
-## Enforced behaviours (hooks)
+#### Enforced behaviours (hooks)
 
 | Event | What the hook does |
 |---|---|
@@ -643,7 +1479,7 @@ transcripts (`agent_guard.py --check-budget`).
 If the hook itself errors it denies the call (fail closed). The model gets a neutral reason, while
 the escape hatch (`STACK_POLICY=off`) is shown only to you.
 
-### Knobs
+##### Knobs
 
 `settings.json` → `env`. Values you change are kept on re-install, except the owned
 ones (marked ●): the installer resets those to the stack's value, since the caps and budgets are
@@ -678,7 +1514,7 @@ guarantees rather than preferences. To change an owned knob, change it in the re
 | `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` | 400 | Web searches per session, all agents together (Claude Code default 200) |
 | `MCP_TIMEOUT`, `MAX_MCP_OUTPUT_TOKENS` | 60000, 25000 | MCP start-up timeout (first `npx`/`uvx` downloads), tool output cap |
 
-## Status line
+#### Status line
 
 `bin/statusline.py` renders a line like
 `blackcat · Sonnet 5.5 · low · ctx 156K/400K ▓▓▓░░░░░ · 5h 23% · 7d 41% · cache 91%`.
@@ -687,7 +1523,7 @@ guarantees rather than preferences. To change an owned knob, change it in the re
 - 5h/7d are your plan's rate-limit windows (Pro/Max).
 - It is set only if you had no status line. Remove `statusLine` from `settings.json` to turn it off.
 
-## ML setup (`--with-ml`)
+#### ML setup (`--with-ml`)
 
 `~/.claude/venvs/ml` holds numpy/scipy/pandas/polars, scikit-learn, statsmodels, XGBoost, LightGBM,
 PyTorch, Transformers, Datasets, Accelerate, PEFT and safetensors.
@@ -698,7 +1534,7 @@ The ML agents use the project's own environment first, this venv second, and nev
 Local inference stays MLX-native on the Mac (mlx-lm; oMLX as the local OpenAI/Anthropic-compatible
 endpoint). CUDA work runs only on an NVIDIA host you name.
 
-## Apps
+#### Apps
 
 Every app below runs Claude Code with your user settings, so it starts as BlackCat with the whole
 stack: the 36 agents, the 78 skills, the hooks, the rules, your MCP servers and auto-compaction at
@@ -741,7 +1577,7 @@ Claude Code through the Agent SDK):
   `--permission-mode default` (or `acceptEdits`, or a narrower `--allowedTools`) for scripted work
   that should refuse commands that aren't pre-approved.
 
-### Claude Desktop, step by step
+##### Claude Desktop, step by step
 
 1. Install once from Terminal (`./install.sh`), then **restart Claude Desktop**. Open **Code**, choose
    **Local** and your project folder.
@@ -760,7 +1596,7 @@ Claude Code through the Agent SDK):
 7. Use **Customize → Connectors** where the terminal would use `/mcp`. Desktop's Chat tab (not Code)
    has no subagents, hooks or BlackCat.
 
-### Conductor, step by step
+##### Conductor, step by step
 
 1. Nothing to install in Conductor: it reads `~/.claude` (settings, agents, skills, hooks, rules) and
    `~/.claude.json` (MCP servers). Its bundled Claude Code (2.1.280) is recent enough; if you switch
@@ -772,7 +1608,7 @@ Claude Code through the Agent SDK):
 4. For ninja-coder or god-coder at ultracode, use `claude-ninja` / `claude-god` in a terminal (Conductor
    has no way to pick the main-thread agent); dispatched from a Conductor chat they run at `max`.
 
-### How the apps were checked
+##### How the apps were checked
 
 - Conductor 0.87.5, read on your Mac: it starts Claude Code 2.1.280 through the Agent SDK with
   `settingSources: ["user", "project", "local"]`, the `claude_code` system prompt,
@@ -800,7 +1636,7 @@ Claude Code through the Agent SDK):
   the background and ran siblings in parallel. The guard state showed no denial and no stuck lock:
   the blocking came from the foreground request alone.
 
-## Using it
+#### Using it
 
 - Just talk to it. To force an agent, start with `@designer …` or `@ninja-coder …` (god-coder goes through `@orchestrator …`, once per session, or `claude-god`).
 - Long single-domain sessions can skip BlackCat: `claude --agent main-coder --effort high`. The
@@ -829,7 +1665,7 @@ Smoke tests:
   force` (derivation, z3/sympy checks, hypothesis tests, verifier)
 - `/context` and `/stack-doctor`
 
-## Security notes
+#### Security notes
 
 - One `Skill` allow rule pre-approves every skill, a repository's own `.claude/skills` included (see
   [Skills](#skills-dynamic)).
@@ -867,7 +1703,7 @@ Smoke tests:
   other prompt for a tool or Bash command that no deny rule or guard hook blocks is skipped in
   that mode. Page, document and tool text is treated as data, never as instructions.
 
-## For maintainers
+#### For maintainers
 
 ```bash
 uv run tests/lint_agents.py                       # frontmatter, maxTurns tiers, POLICY ↔ "May spawn", copy types, bare python/pip, skills, listing size
@@ -895,7 +1731,7 @@ to confirm undocumented runtime details:
 - `prompt_id` on scheduled turns;
 - agent-id formats.
 
-## Troubleshooting and restore
+#### Troubleshooting and restore
 
 - **`/stack-doctor` first.** It prints the exact fix for each FAIL.
 - **A spawn you expected was denied.** The reason names the rule. For a stuck lock, `/clear` doesn't
@@ -912,9 +1748,9 @@ to confirm undocumented runtime details:
   3. `claude mcp remove -s user exa` (and jina, wolfram, huggingface, wandb) if you no longer want
      them.
 
-## Changelog
+</details>
 
-Every applied parameter (model, effort, maxTurns, caps, knobs) with its reason: [CONFIG.md](CONFIG.md).
+<!-- markdownlint-enable MD024 MD032 MD033 MD036 MD038 -->
 
 ### 2026-09-29 — Desktop parallelism, two models, effort and turn calibration, spawn caps
 
