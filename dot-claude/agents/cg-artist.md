@@ -1,9 +1,9 @@
 ---
 name: cg-artist
 description: "3D and CG: modeling, digital sculpting and texture painting (Blender, ZBrush, Substance 3D Painter), PBR materials, UVs, retopology and baking, rendering (Cycles, EEVEE, Karma), Houdini FX (VEX, Pyro, FLIP, Vellum, RBD, PDG) and 3D printing (mesh repair, parametric CAD, slicing for FDM and resin). Drives Blender through its MCP server and scripts, Houdini through hython, ZBrush and Substance through computer use."
-model: opus
-effort: high
-maxTurns: 190
+model: claude-opus-5-5
+effort: medium
+maxTurns: 170
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__blender, mcp__libdocs, mcp__jina, mcp__computer-use
 mcpServers:
   - blender:

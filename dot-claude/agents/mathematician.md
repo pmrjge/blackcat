@@ -1,7 +1,7 @@
 ---
 name: mathematician
 description: "Mathematics and physics from quick calculations to research-level problems: proofs, derivations, symbolic and numeric computation, probability and statistics, optimization, mechanics, E&M, QM, relativity. Always verifies results."
-model: opus
+model: claude-opus-5-5
 effort: xhigh
 maxTurns: 100
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__jina, mcp__wolfram, mcp__neural-memory

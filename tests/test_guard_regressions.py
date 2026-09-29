@@ -13,7 +13,7 @@ GOD = "god-coder"
 
 
 def spawn_god(e, cid="G1", caller=None, ctype=None, prompt="q1", **ti):
-    pre = e.pre_agent(GOD, agent_id=caller, agent_type=ctype or ("blackcat" if not caller else "main-coder"),
+    pre = e.pre_agent(GOD, agent_id=caller, agent_type=ctype or ("" if not caller else "orchestrator"),
                       prompt=prompt, **ti)
     r = e.run(pre)
     if r.decision.startswith("allow"):
@@ -32,7 +32,7 @@ def test_f1_god_lock_kept_while_holder_waits_for_its_children():
     e.sub_transcript("G1", age=960)
     e.sub_transcript("SC1", age=5)
     e.age_lock(960)
-    assert e.run(e.pre_agent(GOD, agent_id="SC1", agent_type="main-coder")).decision == "deny"
+    assert e.run(e.pre_agent(GOD, agent_id="SC1", agent_type="orchestrator")).decision == "deny"
     assert e.lock()["holder"] == "G1"
 
 
@@ -41,7 +41,7 @@ def test_f1_subagentstop_of_old_holder_does_not_free_other_callers_lease():
     spawn_god(e)
     e.sub_transcript("G1", age=901)
     e.age_lock(901)
-    assert e.run(e.pre_agent(GOD, agent_id="SC", agent_type="main-coder")).decision.startswith("allow")
+    assert e.run(e.pre_agent(GOD, agent_id="SC", agent_type="orchestrator")).decision.startswith("allow")
     e.run(e.stop("G1", GOD))
     assert e.lock() and e.lock()["by"] == "SC"
 
@@ -69,18 +69,18 @@ def test_f3_refused_resume_expires_like_pending():
     e.age_reg("GA", 700, keys=("spawned", "started", "stopped"))
     e.sub_transcript("GA", age=700)
     e.age_lock(121)
-    assert e.run(e.pre_agent(GOD, agent_id="SC", agent_type="main-coder")).decision.startswith("allow")
+    assert e.run(e.pre_agent(GOD, agent_id="SC", agent_type="orchestrator")).decision.startswith("allow")
 
 
 def test_f3_name_holder_expires():
     e = Env()
-    pre = e.pre_agent(GOD, agent_type="blackcat", name="deep fix")
+    pre = e.pre_agent(GOD, agent_type="", name="deep fix")
     e.run(pre)
     e.run(e.fail_agent(pre))
     e.run(e.send("deep fix"))
     assert e.lock()["holder"] == "name:deep-fix"
     e.age_lock(121)
-    assert e.run(e.pre_agent(GOD, agent_id="SC", agent_type="main-coder")).decision.startswith("allow")
+    assert e.run(e.pre_agent(GOD, agent_id="SC", agent_type="orchestrator")).decision.startswith("allow")
 
 
 def test_f4_no_double_count_while_post_tool_use_runs():
@@ -96,7 +96,7 @@ def test_f4_no_double_count_while_post_tool_use_runs():
 
 def test_f5_no_running_lock_for_an_already_stopped_god_coder():
     e = Env()
-    pre = e.pre_agent(GOD, agent_id="SC", agent_type="main-coder")
+    pre = e.pre_agent(GOD, agent_id="SC", agent_type="orchestrator")
     e.run(pre)
     e.run(e.start("G1", GOD))
     p = e.spawn(e.post_agent(pre, "G1"), patch={"god_confirm": {"before": 1.0}})

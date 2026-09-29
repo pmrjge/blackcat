@@ -3,7 +3,7 @@ name: claude-code-guide
 description: "Answers questions about Claude Code, the Claude Agent SDK, and the Claude API (formerly Anthropic API). Installation, configuration, hooks, skills, MCP servers, tool use, agents, managed agents, and APIs."
 model: claude-sonnet-5-5
 effort: low
-maxTurns: 40
+maxTurns: 30
 tools: Read, Bash, WebFetch, WebSearch, ToolSearch, Skill
 color: purple
 ---

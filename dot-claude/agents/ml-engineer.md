@@ -1,7 +1,7 @@
 ---
 name: ml-engineer
 description: "Applied machine learning: tabular, time-series and classic NLP modeling with scikit-learn, XGBoost/LightGBM/CatBoost and statsmodels; feature engineering, validation design, hyperparameter search, calibration, error analysis, model packaging and MLOps (experiment tracking, registries, batch/online inference). Reports every metric with its uncertainty."
-model: opus
+model: claude-opus-5-5
 effort: high
 maxTurns: 190
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina, mcp__huggingface, mcp__wandb, mcp__neural-memory

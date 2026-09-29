@@ -31,6 +31,8 @@ SETTINGS = REPO_ROOT / "dot-claude" / "settings.json"
 
 VALID_COLORS = {"red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"}
 VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
+# Two models only, pinned (aliases move with releases and providers): Opus 5.5 and Sonnet 5.5
+STACK_MODELS = {"claude-opus-5-5", "claude-sonnet-5-5"}
 VALID_MEMORY = {"user", "project", "local"}
 ANTHROPIC_DOC_SKILLS = {"docx", "xlsx", "pptx", "pdf"}
 KNOWN_PLACEHOLDERS = {
@@ -267,10 +269,9 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
     model = get_inline(data, "model")
     if not model:
         fail(f"{path.name}: missing model")
-    else:
-        known_model_words = ("sonnet", "opus", "haiku", "fable", "inherit")
-        if not any(w in model.lower() for w in known_model_words):
-            fail(f"{path.name}: model {model!r} doesn't look like a known model id/alias")
+    elif model not in STACK_MODELS:
+        fail(f"{path.name}: model {model!r} — the stack pins every agent to one of "
+             f"{sorted(STACK_MODELS)}")
 
     # effort
     effort = get_inline(data, "effort")
@@ -289,10 +290,6 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
         if int(turns) > limit:
             tier = "iterative" if name_from_file in ITERATIVE_AGENTS else "bounded"
             fail(f"{path.name}: maxTurns {turns} over the {tier} tier's {limit}")
-
-    # the stack runs no Haiku: Sonnet 5.5 wherever a small model would do
-    if model and "haiku" in model.lower():
-        fail(f"{path.name}: model {model!r} — this stack uses claude-sonnet-5-5 instead of Haiku")
 
     # color
     color = get_inline(data, "color")

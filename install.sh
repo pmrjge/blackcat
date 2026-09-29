@@ -1352,6 +1352,15 @@ for bad, why in (("DISABLE_AUTO_COMPACT", "turns auto-compaction off"),
     if bad in env:
         print("  WARNING: env %s=%s %s — removed (autoCompactWindow=%s is the stack's setting)"
               % (bad, env.pop(bad), why, new.get("autoCompactWindow")))
+# Subagent scheduling is part of the spec: BlackCat's children run in the background, a subagent's
+# own children in the Agent SDK apps in the foreground (their results reach it). Either key breaks
+# that: 1 forces every subagent into the foreground (the main thread blocks on each child, as the
+# Desktop "hang" did), or turns fork mode on in the SDK apps, where a subagent then stops waiting
+# for its children (their results skip it).
+for bad, why in (("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "runs every subagent in the foreground, so BlackCat blocks on each child"),
+                 ("CLAUDE_CODE_FORK_SUBAGENT", "changes how the Agent SDK apps schedule subagents")):
+    if bad in env:
+        print("  WARNING: env %s=%s %s — removed" % (bad, env.pop(bad), why))
 for warn_only, why in (("CLAUDE_CODE_DISABLE_1M_CONTEXT", "caps every model at 200K, so compaction happens at 200K, not 400K"),
                        ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "makes compaction trigger earlier than the 400K window")):
     if warn_only in env:
@@ -1798,8 +1807,8 @@ cat <<EOF
      auto-compact fires a little before it). Claude Desktop's Code tab, Conductor, VS Code and Zed load the same
      setup (README → Apps). A plain session without BlackCat: claude --agent claude.
      Inside: /stack-doctor   (health check)   /mcp   (server status; no sign-in needed with keys)
-     Once, in that first session: /effort low — BlackCat runs at the session's level (saved for
-     Sonnet 5.5); an agent file's effort applies only to subagents.
+     Once, in that first session: /effort medium — BlackCat runs at the session's level (saved
+     for Sonnet 5.5); an agent file's effort applies only to subagents.
      Hardest problems at ultracode, as a session of their own: claude-ninja, or claude-god
      (dispatched by BlackCat they run at max: ultracode exists only on a main thread).
 EOF

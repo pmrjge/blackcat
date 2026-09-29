@@ -213,11 +213,11 @@ checks = {
     "tool search left at its default": "ENABLE_TOOL_SEARCH" not in env,
     ".env.example writable": "Read(**/.env.*)" not in s["permissions"]["deny"] and "Read(**/.env.local)" in s["permissions"]["deny"],
     "discovery cache": env.get("MCP_DISCOVERY_CACHE") == "1",
-    "blackcat dispatch": env.get("BLACKCAT_MAX_DISPATCH") == "6" and env.get("BLACKCAT_MAX_STEPS") == "8",
+    "blackcat dispatch": env.get("BLACKCAT_MAX_DISPATCH") == "8" and env.get("BLACKCAT_MAX_STEPS") == "12",
     "caps and budgets": (env.get("STACK_MAX_FANOUT"), env.get("STACK_MAX_FANOUT_BY_TYPE"), env.get("STACK_MAX_SELF_FANOUT"),
                          env.get("STACK_PROMPT_CTX_BUDGET"), env.get("STACK_SESSION_CTX_BUDGET"),
                          env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"), env.get("STACK_MAX_MCP_CALLS"))
-                        == ("3", "orchestrator=8,planner=8,plan-reviewer=8", "2", "100000000", "666000000", "20", "64"),
+                        == ("3", "orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", "100000000", "666000000", "32", "64"),
     "skill listing budget": s.get("skillListingBudgetFraction") == 0.01
                             and s.get("skillListingMaxDescChars") == 500
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only",
@@ -596,7 +596,7 @@ import json, sys
 s = json.load(open(sys.argv[1]))
 shipped = sum("agent_guard.py" in json.dumps(g) for g in json.load(open(sys.argv[2]))["hooks"]["PreToolUse"])
 cmds = [h.get("command") for g in s["hooks"]["PreToolUse"] for h in g.get("hooks", [])]
-ok = ("my-audit.sh" in cmds and sum("agent_guard.py" in (c or "") for c in cmds) == shipped and s["env"]["BLACKCAT_MAX_STEPS"] == "8"
+ok = ("my-audit.sh" in cmds and sum("agent_guard.py" in (c or "") for c in cmds) == shipped and s["env"]["BLACKCAT_MAX_STEPS"] == "12"
       and s["env"]["STACK_FANOUT_IDLE_S"] == "900"
       and s["env"].get("ENABLE_TOOL_SEARCH") == "auto:5" and s.get("agent") == "claude"
       and s.get("skillListingBudgetFraction") == 0.05)
@@ -815,8 +815,8 @@ CLAUDE_CONFIG_DIR="$T14" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile
 python3 - "$T14/settings.json" <<'PY' && pass "settings follow router -> blackcat: agent, tuned knob moved, defaults and deny rule" || failed "router settings not migrated"
 import json, sys
 s = json.load(open(sys.argv[1])); e = s["env"]; deny = s["permissions"]["deny"]
-ok = (s.get("agent") == "blackcat" and e.get("BLACKCAT_MAX_STEPS") == "8" and e.get("BLACKCAT_DISPATCH_WINDOW_S") == "45"
-      and e.get("BLACKCAT_MAX_DISPATCH") == "6"
+ok = (s.get("agent") == "blackcat" and e.get("BLACKCAT_MAX_STEPS") == "12" and e.get("BLACKCAT_DISPATCH_WINDOW_S") == "45"
+      and e.get("BLACKCAT_MAX_DISPATCH") == "8"
       and not any(k.startswith("ROUTER_") for k in e) and "Agent(blackcat)" in deny and "Agent(router)" not in deny)
 sys.exit(0 if ok else 1)
 PY

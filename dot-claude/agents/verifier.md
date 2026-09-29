@@ -3,7 +3,7 @@ name: verifier
 description: "Independent verification of any deliverable: runs tests and builds, reproduces bugs and fixes, re-checks facts and numbers against sources, validates files and outputs, tests web apps in a headless browser, and GUI-tests native desktop apps via computer use."
 model: claude-sonnet-5-5
 effort: high
-maxTurns: 160
+maxTurns: 150
 tools: Read, Bash, LSP, WebSearch, WebFetch, ToolSearch, Skill, mcp__exa, mcp__jina, mcp__playwright, mcp__computer-use
 mcpServers:
   - playwright:

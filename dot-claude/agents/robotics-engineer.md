@@ -1,7 +1,7 @@
 ---
 name: robotics-engineer
 description: "Robotics: ROS 2 (nodes, launch, tf2, Nav2, MoveIt 2, ros2_control), kinematics, dynamics and control (PID, LQR, MPC), state estimation and SLAM, perception, simulation (Gazebo, MuJoCo, Isaac Sim), robot learning (imitation learning, RL, LeRobot) and sim-to-real, URDF/MJCF models, embedded and hardware bring-up. Simulates before any real robot moves."
-model: opus
+model: claude-opus-5-5
 effort: high
 maxTurns: 190
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina, mcp__huggingface, mcp__wandb, mcp__neural-memory

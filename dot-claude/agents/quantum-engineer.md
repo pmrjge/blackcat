@@ -1,9 +1,9 @@
 ---
 name: quantum-engineer
 description: "Quantum computing and quantum physics in code: circuits and algorithms (Qiskit, PennyLane, Cirq, stim), simulation of quantum systems (QuTiP, tensor networks, exact diagonalization, open systems), noise, error mitigation and error correction, resource estimates, IBM Quantum hardware runs. Checks every result against an independent computation. Pure derivations and proofs go to mathematician."
-model: opus
-effort: xhigh
-maxTurns: 190
+model: claude-opus-5-5
+effort: high
+maxTurns: 180
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs, mcp__exa, mcp__jina, mcp__wolfram, mcp__neural-memory
 mcpServers:
   - libdocs:

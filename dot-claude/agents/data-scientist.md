@@ -1,9 +1,9 @@
 ---
 name: data-scientist
 description: "Statistical analysis for decisions: exploratory analysis, hypothesis tests and effect sizes, A/B and experiment design with power analysis, regression/GLMs, causal inference (DiD, IV, matching, synthetic control), forecasting, Bayesian models, visualization, notebooks and analytical reports or dashboards. Separates evidence from inference and states uncertainty."
-model: opus
+model: claude-opus-5-5
 effort: high
-maxTurns: 190
+maxTurns: 150
 tools: Read, Write, Edit, Bash, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, Artifact, mcp__libdocs, mcp__exa, mcp__jina, mcp__huggingface, mcp__neural-memory
 mcpServers:
   - libdocs:

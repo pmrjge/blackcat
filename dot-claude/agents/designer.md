@@ -1,9 +1,9 @@
 ---
 name: designer
 description: "Visual design: vector illustration, logos, brand identity, layouts, posters, print and packaging, UI visual design, typography and color systems. Generates vector art (SVG), photos and raster images, and edits and composites through image-studio (models set in stack.env; by default Recraft V4.1 Pro Vector, GPT Image 2.5 Sunburst and Riverflow V2.5 Pro); drives Adobe Illustrator via MCP and other Adobe/desktop apps via computer use."
-model: opus
+model: claude-opus-5-5
 effort: high
-maxTurns: 100
+maxTurns: 150
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__image-studio, mcp__illustrator, mcp__huetension, mcp__jina, mcp__computer-use
 mcpServers:
   - image-studio:

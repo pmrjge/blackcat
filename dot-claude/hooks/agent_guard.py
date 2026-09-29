@@ -12,7 +12,8 @@ Reads the hook JSON on stdin.
   PreToolUse  Agent                 spawn policy, copy rule, depth limit, fan-out caps (spawn
                                     lease), session copy cap, blackcat dispatch and step limits
                                     (atomic markers), god-coder singleton (pending lease), strip
-                                    `model`
+                                    `model`, and drop a BlackCat `run_in_background: false` (its
+                                    children run in the background: BLACKCAT_BACKGROUND)
   PreToolUse  SendMessage           resuming a finished agent follows the spawn policy (the caller's
                                     row, or its own child/parent), its parent's fan-out cap and the
                                     copy cap, and holds a resume reservation until it starts;
@@ -98,13 +99,14 @@ install.sh/doctor.sh), no argument = event.
 
 Knobs (env):
   STACK_POLICY=off        disable every deny and lock (bookkeeping and model strip continue)
-  BLACKCAT_MAX_DISPATCH=6   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
-  BLACKCAT_DISPATCH_WINDOW_S=30  all blackcat dispatches for one prompt must start within this many
+  BLACKCAT_MAX_DISPATCH=8   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
+  BLACKCAT_DISPATCH_WINDOW_S=120  all blackcat dispatches for one prompt must start within this many
                           seconds of the first one (one parallel burst, not ad-hoc orchestration)
-  BLACKCAT_MAX_STEPS=8      blackcat tool calls per user prompt, Agent dispatches included
+  BLACKCAT_MAX_STEPS=12     blackcat tool calls per user prompt, Agent dispatches included
   STACK_MAX_FANOUT=3      running + starting children per parent agent (0 = no cap); the main
                           thread has none (BLACKCAT_MAX_DISPATCH bounds BlackCat per prompt)
-  STACK_MAX_FANOUT_BY_TYPE="orchestrator=8,planner=8,plan-reviewer=8"
+  STACK_MAX_FANOUT_BY_TYPE="orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,
+                          planner=8,plan-reviewer=8" (DEFAULT_FANOUT_BY_TYPE)
                           per-type overrides of STACK_MAX_FANOUT
                           (type=N, separated by , ; or newlines; a copy type falls back to its base)
   STACK_MAX_SELF_FANOUT=2 live `<type>-copy` agents per copy type in the whole session (0 = no cap)
@@ -118,12 +120,18 @@ Knobs (env):
   STACK_MAX_MCP_CALLS=64  MCP tool calls (mcp__*) per subagent per prompt (a spawn or a resume
                           starts a new count); an agent whose frontmatter maxTurns is lower
                           gets that instead (0 = off)
+  GOD_SPAWNERS=orchestrator  parent types that may spawn god-coder ("main" = a main thread without
+                          an agent type); the POLICY rows list it for the orchestrator only
+  GOD_ONCE_PER_SESSION=1  at most one god-coder spawn per session (a SendMessage resume of it is the
+                          same instance); 0 = only the one-at-a-time lock
   GOD_PENDING_TTL_S=120   an unconfirmed god-coder lease (spawn or resume) is reclaimable after this
   GOD_IDLE_S=900          a holder whose live subtree is idle this long is presumed gone
                           (settings.json ships 1800)
   GOD_LOCK_TTL_S=21600    hard ceiling on any god-coder lock
   SCREEN_LOCK_TTL_S=900   screen lock expiry
   STRIP_AGENT_MODEL=1     remove per-call `model` from Agent input
+  BLACKCAT_BACKGROUND=1   drop `run_in_background: false` from the BlackCat main thread's Agent
+                          calls, so its children never run in the foreground (0 = keep it)
   STACK_MAX_DEPTH         deny Agent from callers at this depth (default
                           CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, else 3)
   STACK_GUARD_LOG=0       1 = append every raw event to <session>/guard.log (`budget` mode, which
@@ -162,9 +170,11 @@ BUILTINS = ["explore"]
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
           "claude-code-guide", "browser-operator", "plan-reviewer", "image-director"]
 
-_BLACKCAT_ROW = [a for a in AGENTS if a != "blackcat"]
+# god-coder is spawned by the orchestrator only, once per session (GOD_SPAWNERS, GOD_ONCE_PER_SESSION):
+# the last resort after ninja-coder, decided where the whole job is visible. No other row lists it.
+_BLACKCAT_ROW = [a for a in AGENTS if a not in ("blackcat", "god-coder")]
 _ACCEL_ROW = ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
-              "mcp-broker", "ninja-coder", "god-coder"]
+              "mcp-broker", "ninja-coder"]
 
 # Copies: a base type in COPY_TYPES spawns copies of itself only as its own `<type>-copy` agent
 # type (install.sh renders agents/<type>-copy.md from agents/<type>.md). One generation is then a
@@ -178,7 +188,7 @@ COPY_BASE = {copy: base for base, copy in COPY_OF.items()}       # copy type -> 
 # parent agent_type -> child agent types it may spawn. Parents not listed are unrestricted.
 POLICY = {
     "blackcat": list(_BLACKCAT_ROW),
-    "orchestrator": [a for a in _BLACKCAT_ROW if a != "orchestrator"] + ["explore"],
+    "orchestrator": [a for a in AGENTS if a not in ("blackcat", "orchestrator")] + ["explore"],
     "planner": ["scout", "explore", "claude-code-guide"],
     "researcher": ["researcher-copy", "scout", "doc-specialist", "mathematician", "data-engineer",
                    "data-scientist", "browser-operator", "mcp-broker"],
@@ -191,11 +201,11 @@ POLICY = {
     "main-coder": ["coder", "explore", "scout", "verifier", "code-reviewer",
                    "security-auditor", "plan-reviewer", "mlx-engineer", "cuda-engineer",
                    "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker", "claude-code-guide",
-                   "ninja-coder", "god-coder"],
+                   "ninja-coder"],
     "ninja-coder": ["main-coder", "coder", "mathematician", "explore", "scout",
                     "verifier", "code-reviewer", "security-auditor", "researcher", "mlx-engineer",
                     "cuda-engineer", "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker",
-                    "god-coder", "quantum-engineer"],
+                    "quantum-engineer"],
     "god-coder": ["coder", "main-coder", "ninja-coder", "mlx-engineer", "cuda-engineer",
                   "ml-engineer", "dl-engineer", "llm-engineer", "explore", "scout", "verifier",
                   "code-reviewer", "security-auditor", "mathematician", "researcher"],
@@ -203,7 +213,7 @@ POLICY = {
     # cuda-, ml-, dl- and llm-engineer also reach browser-only ML environments (Kaggle notebooks,
     # cloud GPU consoles) through browser-operator; mlx-engineer works on the local Mac
     "cuda-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
-                      "mcp-broker", "browser-operator", "ninja-coder", "god-coder"],
+                      "mcp-broker", "browser-operator", "ninja-coder"],
     "devops-engineer": ["coder", "explore", "scout", "verifier", "security-auditor", "mcp-broker"],
     "data-engineer": ["coder", "explore", "scout", "verifier", "mathematician",
                       "data-scientist", "doc-specialist", "mcp-broker"],
@@ -214,11 +224,11 @@ POLICY = {
                     "browser-operator"],
     "dl-engineer": ["mlx-engineer", "cuda-engineer", "data-engineer", "coder",
                     "explore", "scout", "researcher", "verifier", "code-reviewer",
-                    "mathematician", "mcp-broker", "browser-operator", "ninja-coder", "god-coder"],
+                    "mathematician", "mcp-broker", "browser-operator", "ninja-coder"],
     "llm-engineer": ["mlx-engineer", "cuda-engineer", "dl-engineer",
                      "data-scientist", "coder", "explore", "scout", "researcher", "verifier",
                      "code-reviewer", "mathematician", "mcp-broker", "browser-operator",
-                     "claude-code-guide", "ninja-coder", "god-coder"],
+                     "claude-code-guide", "ninja-coder"],
     "data-scientist": ["data-engineer", "ml-engineer", "mathematician", "coder",
                        "explore", "scout", "verifier", "doc-specialist", "writer", "mcp-broker"],
     "claude-code-engineer": ["claude-code-guide", "scout", "explore", "verifier", "code-reviewer",
@@ -259,6 +269,7 @@ STEP_LIMIT_REASON = ("BlackCat step limit (%d tool calls per prompt, dispatches 
                      "still pending.")
 GOD = "god-coder"
 GOD_LOCK = "god-coder.lock"
+GOD_ONCE = "god-coder.spawned"        # the session's one god-coder spawn (its Agent tool_use_id)
 SCREEN_LOCK = "screen.lock"
 TERMINAL_STATUSES = {"completed", "failed", "error", "cancelled", "canceled", "killed"}
 # Shown to the USER (systemMessage) when the guard itself fails; the model only sees a neutral
@@ -535,7 +546,7 @@ def first_marker_ts(d, kind, pid, limit, now):
 def dispatch_window_closed(d, pid, limit, now):
     """True once blackcat's first dispatch for this prompt is older than the window: every
     dispatch for one prompt must go out as one parallel burst."""
-    window = knob_int("BLACKCAT_DISPATCH_WINDOW_S", 30)
+    window = knob_int("BLACKCAT_DISPATCH_WINDOW_S", 120)
     first = first_marker_ts(d, "dispatch", pid, limit, now)
     return window > 0 and first is not None and now - first > window
 
@@ -563,7 +574,15 @@ def dispatch_window_closed(d, pid, limit, now):
 #                background (hooks.md:2343, sub-agents.md:1102). Gone at SubagentStop, TaskStop,
 #                StopFailure or SessionStart, or once its live subtree is idle STACK_FANOUT_IDLE_S.
 # Lock order: the 'fanout' mutex, then 'registry' (reg_put); nothing takes them the other way.
-DEFAULT_FANOUT_BY_TYPE = "orchestrator=8,planner=8,plan-reviewer=8"
+# Running children per spawning agent, by task type (the one table; STACK_MAX_FANOUT_BY_TYPE in
+# settings.json overrides it as a whole). Coordinators and the implementer escalation chain fan out
+# widest: orchestrator 10 (a job of up to 10 independent tasks), god-coder and main-coder 6 (parallel
+# work on disjoint modules of a large codebase plus a reviewer and a verifier), ninja-coder 5 (a
+# mathematical core stays with it; racing approach, reviewer, verifier, mathematician, one coder);
+# researcher 4 (its 2 session-wide copies plus 2 lookups). planner keeps 8 and plan-reviewer's entry
+# is inert (it has no Agent tool). Every other agent: STACK_MAX_FANOUT.
+DEFAULT_FANOUT_BY_TYPE = ("orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,"
+                          "planner=8,plan-reviewer=8")
 RESUME_PREFIX = "resume-"
 
 
@@ -981,6 +1000,48 @@ def god_release_holder(d, agent_id, agent_type, by=None):
             unlink(god_path(d))
 
 
+GOD_ONCE_REASON = (
+    "One god-coder per session: this session already spawned one, and god-coder is the last "
+    "resort. SendMessage that god-coder to continue its work, or return STATUS: partial naming "
+    "what is left.")
+
+
+def god_spawners():
+    """Parent types allowed to spawn god-coder (GOD_SPAWNERS, default the orchestrator only;
+    "main" = a main thread without an agent type)."""
+    raw = os.environ.get("GOD_SPAWNERS", "orchestrator")
+    return {norm(x) for x in re.split(r"[,\s]+", raw) if x.strip()}
+
+
+def god_claim_session(d, ev):
+    """At most one god-coder spawn per session (GOD_ONCE_PER_SESSION=1, the default): the marker's
+    path when this spawn claimed the session's slot, False when another spawn holds it, None when
+    the rule is off. The marker holds the Agent call's tool_use_id, so a failed call frees it; a
+    SendMessage resume of that god-coder is the same instance and needs no slot."""
+    if os.environ.get("GOD_ONCE_PER_SESSION", "1").strip() == "0":
+        return None
+    path = os.path.join(d, GOD_ONCE)
+    try:
+        fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
+    except FileExistsError:
+        return False
+    os.write(fd, str(ev.get("tool_use_id") or "").encode())
+    os.close(fd)
+    return path
+
+
+def god_unclaim_session(d, ev):
+    """A god-coder Agent call that failed or was refused never ran: free the session's slot."""
+    path = os.path.join(d, GOD_ONCE)
+    try:
+        with open(path) as f:
+            holder = f.read().strip()
+    except OSError:
+        return
+    if holder and holder == str(ev.get("tool_use_id") or ""):
+        unlink(path)
+
+
 def god_busy_reason(lock):
     return ("A god-coder is already %s in this session (holder: %s). Only one at a time per "
             "session, and resuming a finished god-coder counts. SendMessage the holder, or wait "
@@ -998,8 +1059,8 @@ def on_agent(ev, d):
         parent = norm((reg_get(d, aid) or {}).get("type"))
     pid = prompt_key(ev)
     tid = ev.get("tool_use_id")
-    max_dispatch = knob_int("BLACKCAT_MAX_DISPATCH", 6)
-    max_steps = knob_int("BLACKCAT_MAX_STEPS", 8)
+    max_dispatch = knob_int("BLACKCAT_MAX_DISPATCH", 8)
+    max_steps = knob_int("BLACKCAT_MAX_STEPS", 12)
 
     if policy_on():
         is_blackcat = not aid and parent == "blackcat"
@@ -1011,6 +1072,10 @@ def on_agent(ev, d):
         why = copy_rule_violation(parent, child)
         if why:
             deny(why)
+        if child == GOD and (parent or "main") not in god_spawners():
+            deny("Spawn policy: only the orchestrator spawns god-coder (once per session, the last "
+                 "resort after ninja-coder). Return STATUS: partial with NEXT: god-coder and a "
+                 "dossier (goal, constraints, what failed and why, logs, minimal repro).")
         if parent in POLICY and child not in POLICY[parent]:
             deny("Spawn policy: '%s' may not spawn '%s'. Allowed: %s. Return STATUS: partial "
                  "with NEXT naming the agent you need."
@@ -1034,9 +1099,11 @@ def on_agent(ev, d):
             if markers_full(d, "step", pid, max_steps):
                 deny(STEP_LIMIT_REASON % max_steps)
         # 2. side effects, each rolled back if a later step denies or fails
-        leased, took_god, claimed, stepped = False, False, None, None
+        leased, took_god, claimed, stepped, god_mark = False, False, None, None, None
 
         def rollback():
+            if god_mark:
+                unlink(god_mark)
             if stepped:
                 unlink(stepped)
             if claimed:
@@ -1052,6 +1119,11 @@ def on_agent(ev, d):
                 deny(why)
             leased = True
             if child == GOD:
+                god_mark = god_claim_session(d, ev)
+                if god_mark is False:
+                    god_mark = None
+                    rollback()
+                    deny(GOD_ONCE_REASON)
                 blocking = god_acquire(d, ev, "pending", None, caller)
                 if blocking:
                     rollback()
@@ -1079,14 +1151,38 @@ def on_agent(ev, d):
     else:
         record_name(d, ti, child, caller)
 
-    # 3. models are fixed by agent definitions
+    # 3. input rewrites: models are fixed by agent definitions, and BlackCat never blocks on a child
+    new_input, why = dict(ti), []
     if os.environ.get("STRIP_AGENT_MODEL", "1") == "1" and "model" in ti:
-        new_input = {k: v for k, v in ti.items() if k != "model"}
+        new_input.pop("model")
+        why.append("model override removed; agent definition decides")
+    if blackcat_foreground(ev, ti):
+        new_input.pop("run_in_background")
+        why.append("BlackCat dispatches run in the background")
+    if why:
         emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                      "permissionDecision": "allow",
-                                     "permissionDecisionReason":
-                                         "model override removed; agent definition decides",
+                                     "permissionDecisionReason": "; ".join(why),
                                      "updatedInput": new_input}})
+
+
+def blackcat_foreground(ev, ti):
+    """True when the BlackCat main thread asks for a foreground child (`run_in_background` false,
+    which the Agent tool offers only where fork mode is off: Claude Desktop, Conductor and the other
+    Agent SDK apps, `claude -p`). A foreground child blocks the main thread for its whole run: the
+    app shows nothing, and the next dispatch waits for it. Dropping the key launches the child in
+    the background, the default when the parameter is omitted (sub-agents.md, "Run subagents in
+    foreground or background"); its result comes back as a notification. Subagents keep their
+    foreground calls: in those apps a subagent does not wait for its background children.
+    BLACKCAT_BACKGROUND=0 turns this off."""
+    if os.environ.get("BLACKCAT_BACKGROUND", "1").strip() == "0":
+        return False
+    if ev.get("agent_id") or norm(ev.get("agent_type")) != "blackcat":
+        return False
+    if "run_in_background" not in ti:
+        return False
+    flag = ti.get("run_in_background")
+    return flag is not True and str(flag).strip().lower() not in ("true", "1", "yes")
 
 
 def record_name(d, ti, child, caller):
@@ -1176,7 +1272,7 @@ def on_send(ev, d):
     # as it does Agent), so the step and the resume reservation are one decision: a call refused
     # at the step limit holds no slot, and a refused resume spends no step.
     is_blackcat = not ev.get("agent_id") and norm(ev.get("agent_type")) == "blackcat"
-    pid, max_steps = prompt_key(ev), knob_int("BLACKCAT_MAX_STEPS", 8)
+    pid, max_steps = prompt_key(ev), knob_int("BLACKCAT_MAX_STEPS", 12)
     if is_blackcat and markers_full(d, "step", pid, max_steps):
         deny(STEP_LIMIT_REASON % max_steps)
     target_id, ttype, tname = resolve_target(d, to) if to else (None, None, None)
@@ -1620,8 +1716,9 @@ def on_agent_failed(ev, d):
     fanout_release(d, aid or "main", ev.get("tool_use_id"))
     if norm(ti.get("subagent_type")) == GOD:
         god_release_pending(d, aid or "main", ev.get("tool_use_id"))
+        god_unclaim_session(d, ev)
     if not aid and norm(ev.get("agent_type")) == "blackcat":
-        drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_DISPATCH", 6))
+        drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_DISPATCH", 8))
 
 
 def on_prompt(ev, d):
@@ -2699,7 +2796,7 @@ def blackcat_guard(raw):
              "SendMessage to resume the previous agent.")
     d = sdir(ev.get("session_id"))
     log(d, ev)
-    steps = knob_int("BLACKCAT_MAX_STEPS", 8)
+    steps = knob_int("BLACKCAT_MAX_STEPS", 12)
     if not claim_marker(d, "step", prompt_key(ev), steps):
         deny(STEP_LIMIT_REASON % steps)
     sys.exit(0)
@@ -4088,12 +4185,17 @@ def self_test():
     empty = sorted(p for p, row in POLICY.items() if not row)
     if empty != sorted(LEAVES):
         problems.append("LEAVES %s != empty rows %s" % (sorted(LEAVES), empty))
-    if set(POLICY.get("blackcat", [])) != set(AGENTS) - {"blackcat"}:
-        problems.append("blackcat row must list every specialist")
+    if set(POLICY.get("blackcat", [])) != set(AGENTS) - {"blackcat", GOD}:
+        problems.append("blackcat row must list every specialist but god-coder")
+    spawners = sorted(p for p, row in POLICY.items() if GOD in row)
+    if spawners != ["orchestrator"]:
+        problems.append("only the orchestrator's row may list god-coder, not %s" % spawners)
     for never in ("blackcat", "orchestrator", GOD, "mlx-engineer", "cuda-engineer"):
         if never in SELF_SPAWN:
             problems.append("%s must not spawn copies of itself" % never)
-    if parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE) != {"orchestrator": 8, "planner": 8, "plan-reviewer": 8}:
+    if parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE) != {
+            "orchestrator": 10, "god-coder": 6, "main-coder": 6, "ninja-coder": 5, "researcher": 4,
+            "planner": 8, "plan-reviewer": 8}:
         problems.append("STACK_MAX_FANOUT_BY_TYPE default does not parse")
     # Installed layout: <config>/hooks/agent_guard.py next to <config>/agents/*.md; install.sh
     # renders the copy types' files (the repo's dot-claude/ still holds __CLAUDE_DIR__).

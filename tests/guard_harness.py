@@ -17,6 +17,11 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 GUARD = os.environ.get("GUARD", os.path.join(os.path.dirname(HERE), "dot-claude", "hooks",
                                              "agent_guard.py"))
 KNOB_PREFIXES = ("STACK_", "BLACKCAT_", "GOD_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
+# The mechanics these tests exercise were written against these caps; the shipped defaults are
+# checked separately (test_agent_guard.py::test_shipped_spawn_defaults).
+BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8", "GOD_ONCE_PER_SESSION": "0",
+            "GOD_SPAWNERS": "orchestrator,main",
+            "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=8,planner=8,plan-reviewer=8"}
 
 
 class Env:
@@ -24,6 +29,7 @@ class Env:
         self.tmp = tempfile.mkdtemp(prefix="hookrev-")
         self.env = {k: v for k, v in os.environ.items() if not k.startswith(KNOB_PREFIXES)}
         self.env["XDG_STATE_HOME"] = os.path.join(self.tmp, "state")
+        self.env.update(BASELINE)
         self.env.update({k: str(v) for k, v in knobs.items()})
         self.sid = "s-" + uuid.uuid4().hex[:10]
         self.proj = os.path.join(self.tmp, "projects", "proj")

@@ -25,17 +25,29 @@ KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "GOD_PEN
          "BLACKCAT_DISPATCH_WINDOW_S", "STACK_MAX_FANOUT", "STACK_MAX_SELF_FANOUT",
          "STACK_FANOUT_IDLE_S", "STACK_MAX_FANOUT_BY_TYPE", "STACK_LEASE_TTL_S",
          "STACK_RESUME_TTL_S", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET",
-         "STACK_MAX_MCP_CALLS")
+         "STACK_MAX_MCP_CALLS", "BLACKCAT_BACKGROUND", "GOD_ONCE_PER_SESSION", "GOD_SPAWNERS")
 COPY_DENIED = ("Copies cannot spawn copies: %s may not spawn %s. Do this part yourself or return "
                "STATUS: partial listing what is left.")
 
 
 # ---------------------------------------------------------------- harness
+# The mechanics below were written against these caps; the shipped defaults (BlackCat 8 dispatches
+# and 12 steps, the per-type fan-out table) are checked by test_shipped_spawn_defaults.
+BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8", "GOD_ONCE_PER_SESSION": "0",
+            "GOD_SPAWNERS": "orchestrator,main",
+            "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=8,planner=8,plan-reviewer=8"}
+
+
 @pytest.fixture
-def env(tmp_path):
+def bare_env(tmp_path):
     e = {k: v for k, v in os.environ.items() if k not in KNOBS}
     e["XDG_STATE_HOME"] = str(tmp_path / "state")
     return e
+
+
+@pytest.fixture
+def env(bare_env):
+    return dict(bare_env, **BASELINE)
 
 
 def state(env, sid):
@@ -161,17 +173,18 @@ def test_print_policy_format(env):
     assert d["builtins"] == ["explore"]
     assert set(d["policy"]) == set(d["agents"]) | {"researcher-copy", "coder-copy"}
     assert sorted(d["leaves"]) == sorted(k for k, v in d["policy"].items() if not v)
-    assert set(d["policy"]["blackcat"]) == set(d["agents"]) - {"blackcat"}
+    assert set(d["policy"]["blackcat"]) == set(d["agents"]) - {"blackcat", "god-coder"}
     assert set(d["policy"]["orchestrator"]) == set(d["policy"]["blackcat"]) - {"orchestrator"} | {
-        "explore"}
-    assert {"ml-engineer", "dl-engineer", "llm-engineer", "ninja-coder", "god-coder"} <= set(
+        "explore", "god-coder"}
+    assert [k for k, v in d["policy"].items() if "god-coder" in v] == ["orchestrator"]
+    assert {"ml-engineer", "dl-engineer", "llm-engineer", "ninja-coder"} <= set(
         d["policy"]["main-coder"])
     # escalation chain coder < main-coder < ninja-coder < god-coder
     assert "ninja-coder" not in d["policy"]["coder"] and "god-coder" not in d["policy"]["coder"]
-    assert {"main-coder", "mathematician", "god-coder"} <= set(d["policy"]["ninja-coder"])
+    assert {"main-coder", "mathematician"} <= set(d["policy"]["ninja-coder"])
     assert {"main-coder", "ninja-coder"} <= set(d["policy"]["god-coder"])
     for eng in ("mlx-engineer", "cuda-engineer", "dl-engineer", "llm-engineer"):
-        assert d["policy"][eng].index("ninja-coder") < d["policy"][eng].index("god-coder")
+        assert "ninja-coder" in d["policy"][eng]         # god-coder: NEXT back to the orchestrator
     assert d["policy"]["researcher"][0] == "researcher-copy"
     # browser-only ML environments (Kaggle notebooks, cloud GPU consoles) go to browser-operator
     for eng in ("cuda-engineer", "dl-engineer", "ml-engineer", "llm-engineer"):
@@ -402,7 +415,7 @@ def test_blackcat_god_rollback_when_dispatch_taken(env):
 def test_god_concurrent_spawns_single_winner(env):
     for _ in range(REPEATS):
         s = sid()
-        evs = [pre_agent(s, "god-coder", parent="main-coder", agent_id="sc%d" % i)
+        evs = [pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc%d" % i)
                for i in range(FANOUT)]
         res = run_many(evs, env)
         assert res.count("allow") == 1, res
@@ -411,44 +424,44 @@ def test_god_concurrent_spawns_single_winner(env):
 
 def test_god_confirm_and_release_by_subagent_stop(env):
     s = sid()
-    assert decision(run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc"),
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc"),
                         env)) == "allow"
     run(lifecycle(s, "SubagentStart", "G1", "god-coder"), env)
     lk = god_lock(env, s)
     assert lk["state"] == "running" and lk["holder"] == "G1" and lk["by"] == "sc"
-    assert decision(run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc2"),
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc2"),
                         env)) == "deny"
     p = run(lifecycle(s, "SubagentStop", "X9", "coder"), env)
     assert p.stdout == "" and god_lock(env, s)
     p = run(lifecycle(s, "SubagentStop", "G1", "god-coder"), env)
     assert p.stdout == "" and god_lock(env, s) is None
-    assert decision(run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc2"),
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc2"),
                         env)) == "allow"
 
 
 def test_god_post_tool_use_confirm_and_completed_release(env):
     s = sid()
-    run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc"), env)
-    run(post_agent(s, "god-coder", "G1", agent_id="sc", parent="main-coder"), env)
+    run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc"), env)
+    run(post_agent(s, "god-coder", "G1", agent_id="sc", parent="orchestrator"), env)
     assert god_lock(env, s)["holder"] == "G1"
-    run(post_agent(s, "god-coder", "G1", agent_id="sc", parent="main-coder",
+    run(post_agent(s, "god-coder", "G1", agent_id="sc", parent="orchestrator",
                    status="completed"), env)
     assert god_lock(env, s) is None
 
 
 def test_god_foreground_completed_does_not_recreate(env):
     s = sid()
-    run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc"), env)
+    run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc"), env)
     run(lifecycle(s, "SubagentStart", "G1", "god-coder"), env)
     run(lifecycle(s, "SubagentStop", "G1", "god-coder"), env)
-    run(post_agent(s, "god-coder", "G1", agent_id="sc", parent="main-coder",
+    run(post_agent(s, "god-coder", "G1", agent_id="sc", parent="orchestrator",
                    status="completed"), env)
     assert god_lock(env, s) is None
 
 
 def test_god_failure_rollback_only_by_owner(env):
     s = sid()
-    ev = pre_agent(s, "god-coder", parent="main-coder", agent_id="sc")
+    ev = pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc")
     run(ev, env)
     other = dict(ev, agent_id="sc-other", hook_event_name="PostToolUseFailure")
     run(other, env)
@@ -460,11 +473,11 @@ def test_god_failure_rollback_only_by_owner(env):
 def test_god_pending_lease_expires(env):
     """M3: a lease left by a call denied elsewhere blocks until GOD_PENDING_TTL_S."""
     s = sid()
-    run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc"), env)
-    assert decision(run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc2"),
+    run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc"), env)
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc2"),
                         env)) == "deny"
     age_lock(env, s, "god-coder.lock", 121)
-    assert decision(run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc2"),
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc2"),
                         env)) == "allow"
     assert god_lock(env, s)["by"] == "sc2"
 
@@ -475,10 +488,10 @@ def test_god_idle_reclaim(env, tmp_path):
     sub = tmp_path / "proj" / s / "subagents" / "agent-G1.jsonl"
     sub.parent.mkdir(parents=True)
     sub.write_text("{}\n")
-    run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc"), env)
+    run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc"), env)
     run(lifecycle(s, "SubagentStart", "G1", "god-coder"), env)
     age_lock(env, s, "god-coder.lock", 1000)
-    nxt = dict(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc2"),
+    nxt = dict(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc2"),
                transcript_path=str(tp))
     # transcript fresh -> still busy
     assert decision(run(nxt, env)) == "deny"
@@ -489,31 +502,31 @@ def test_god_idle_reclaim(env, tmp_path):
 
 def test_god_hard_ttl(env):
     s = sid()
-    run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc"), env)
+    run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc"), env)
     run(lifecycle(s, "SubagentStart", "G1", "god-coder"), env)
     age_lock(env, s, "god-coder.lock", 3600)
-    assert decision(run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc2"),
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc2"),
                         env)) == "deny"
     age_lock(env, s, "god-coder.lock", 21601)
-    assert decision(run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc2"),
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc2"),
                         env)) == "allow"
 
 
 def test_god_resume_via_sendmessage(env):
     """M2: resuming a finished god-coder takes the lock."""
     s = sid()
-    run(pre_agent(s, "god-coder", parent="blackcat"), env)
+    run(pre_agent(s, "god-coder"), env)
     run(post_agent(s, "god-coder", "GA"), env)
     run(lifecycle(s, "SubagentStop", "GA", "god-coder"), env)
     assert god_lock(env, s) is None
     assert run(send(s, "GA"), env).stdout == ""
     lk = god_lock(env, s)
     assert lk["state"] == "resumed" and lk["holder"] == "GA" and lk["by"] == "main"
-    p = run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc"), env)
+    p = run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc"), env)
     assert decision(p) == "deny" and "GA" in reason(p)
     assert decision(run(send(s, "GA"), env)) == "allow"
     # a second finished god-coder cannot be resumed meanwhile
-    run(post_agent(s, "god-coder", "GB", agent_id="sc", parent="main-coder",
+    run(post_agent(s, "god-coder", "GB", agent_id="sc", parent="orchestrator",
                    status="completed"), env)
     assert decision(run(send(s, "GB"), env)) == "deny"
     # non-god targets untouched
@@ -529,12 +542,12 @@ def test_god_resume_via_sendmessage(env):
 
 def test_god_resume_by_name(env):
     s = sid()
-    run(pre_agent(s, "god-coder", parent="blackcat", name="Deep Fix"), env)
+    run(pre_agent(s, "god-coder", name="Deep Fix"), env)
     run(post_agent(s, "god-coder", "GN", name="Deep Fix", status="completed"), env)
     assert god_lock(env, s) is None
     assert decision(run(send(s, "deep-fix"), env)) == "allow"
     assert god_lock(env, s)["holder"] == "GN"
-    assert decision(run(pre_agent(s, "god-coder", parent="main-coder", agent_id="x"),
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="x"),
                         env)) == "deny"
 
 
@@ -580,7 +593,8 @@ def test_screen_holder_release_and_stale(env):
                                             ("startup", True), ("resume", True)])
 def test_session_start_sources(env, source, cleared):
     s = sid()
-    run(pre_agent(s, "god-coder", parent="blackcat"), env)
+    run(pre_agent(s, "coder", parent="blackcat"), env)        # a BlackCat dispatch marker
+    run(pre_agent(s, "god-coder"), env)
     run(post_agent(s, "god-coder", "G1"), env)
     run(screen(s, agent_id="D1"), env)
     p = run({"session_id": s, "hook_event_name": "SessionStart", "source": source}, env)
@@ -758,6 +772,77 @@ def test_model_strip(env):
     p = run(pre_agent(sid(), "coder", parent="blackcat", model="opus"), env,
             extra={"STRIP_AGENT_MODEL": "0"})
     assert p.stdout == ""
+
+
+def test_shipped_spawn_defaults(bare_env):
+    """No knobs set: BlackCat 8 dispatches and 12 steps per prompt; the per-type fan-out table."""
+    env = bare_env
+    s = sid()
+    res = [decision(run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env))
+           for _ in range(9)]
+    assert res == ["allow"] * 8 + ["deny"]
+    assert "dispatch limit (8 per prompt)" in reason(run(pre_agent(s, "scout", parent="blackcat",
+                                                                   prompt="q1"), env))
+    s = sid()
+    res = [decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"]))
+           for _ in range(13)]
+    assert res == ["allow"] * 12 + ["deny"]
+    for parent, cap in (("orchestrator", 10), ("god-coder", 6), ("main-coder", 6),
+                        ("ninja-coder", 5), ("researcher", 4), ("coder", 3), ("designer", 3)):
+        s, child = sid(), ("scout" if parent in ("researcher", "coder", "designer") else "coder")
+        res = [decision(run(pre_agent(s, child, parent=parent, agent_id="P1"), env))
+               for _ in range(cap + 1)]
+        assert res == ["allow"] * cap + ["deny"], (parent, res)
+
+
+def test_god_coder_orchestrator_only_once_per_session(bare_env):
+    """Shipped defaults: only the orchestrator spawns god-coder, once per session; a failed or
+    refused spawn frees the slot; a SendMessage resume of it is the same instance."""
+    env, s = bare_env, sid()
+    for parent, aid in (("blackcat", None), ("main-coder", "M1"), ("ninja-coder", "N1"),
+                        ("dl-engineer", "D1"), ("general-purpose", "GP"), ("", None)):
+        p = run(pre_agent(s, "god-coder", parent=parent, agent_id=aid), env)
+        assert decision(p) == "deny" and "god-coder" in reason(p), parent
+    assert god_lock(env, s) is None
+    first = pre_agent(s, "god-coder", parent="orchestrator", agent_id="O1")
+    assert decision(run(first, env)) == "allow"
+    run(post_agent(s, "god-coder", "G1", agent_id="O1", parent="orchestrator", status="completed",
+                   tool_use_id=first["tool_use_id"]), env)
+    run(lifecycle(s, "SubagentStop", "G1", "god-coder"), env)              # done: the lock is free
+    p = run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="O2", prompt="p2"), env)
+    assert decision(p) == "deny" and "One god-coder per session" in reason(p)
+    # the orchestrator may resume the one it has
+    assert decision(run(dict(send(s, "G1", agent_id="O1"), agent_type="orchestrator"), env)) \
+        == "allow"
+    # a failed call frees the slot
+    s2 = sid()
+    ev = pre_agent(s2, "god-coder", parent="orchestrator", agent_id="O1")
+    assert decision(run(ev, env)) == "allow"
+    run(dict(ev, hook_event_name="PostToolUseFailure"), env)
+    assert decision(run(pre_agent(s2, "god-coder", parent="orchestrator", agent_id="O1"), env)) \
+        == "allow"
+
+
+def test_blackcat_foreground_dropped(env):
+    # Claude Desktop / Agent SDK: a foreground child blocks the BlackCat main thread for its whole
+    # run, so the hook drops `run_in_background: false` (the child starts in the background)
+    p = run(pre_agent(sid(), "coder", parent="blackcat", run_in_background=False), env)
+    out = json.loads(p.stdout)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "allow"
+    assert "run_in_background" not in out["updatedInput"]
+    assert out["updatedInput"]["subagent_type"] == "coder"
+    # both rewrites in one decision
+    p = run(pre_agent(sid(), "coder", parent="blackcat", run_in_background=False, model="opus"), env)
+    ui = json.loads(p.stdout)["hookSpecificOutput"]["updatedInput"]
+    assert "run_in_background" not in ui and "model" not in ui
+    # an explicit background request, a subagent's foreground call, a plain main thread and the
+    # knob set to 0 are left alone
+    assert run(pre_agent(sid(), "coder", parent="blackcat", run_in_background=True), env).stdout == ""
+    assert run(pre_agent(sid(), "coder", parent="orchestrator", agent_id="O1",
+                         run_in_background=False), env).stdout == ""
+    assert run(pre_agent(sid(), "coder", run_in_background=False), env).stdout == ""
+    assert run(pre_agent(sid(), "coder", parent="blackcat", run_in_background=False), env,
+               extra={"BLACKCAT_BACKGROUND": "0"}).stdout == ""
 
 
 def test_guard_log(env):
@@ -1354,7 +1439,7 @@ def test_blackcat_steps_concurrent_dispatches(env):
 
 def test_blackcat_refused_dispatch_spends_no_step(env):
     s = sid()
-    assert decision(run(pre_agent(s, "god-coder", parent="main-coder", agent_id="sc"), env)) \
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="sc"), env)) \
         == "allow"
     p = run(pre_agent(s, "god-coder", parent="blackcat", prompt="q1"), env)
     assert decision(p) == "deny" and "god-coder" in reason(p)
@@ -1703,8 +1788,8 @@ def test_two_messages_to_one_finished_agent_reserve_once(env):
 
 def test_refused_god_resume_leaves_no_reservation(env):
     s = sid()
-    finished_children(env, s, "M1", "main-coder", "god-coder", ["G1"])
-    assert decision(run(pre_agent(s, "god-coder", parent="ninja-coder", agent_id="N1"), env)) \
+    finished_children(env, s, "M1", "orchestrator", "god-coder", ["G1"])
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="O9"), env)) \
         == "allow"                                              # another god-coder is starting
     p = run(dict(send(s, "G1", agent_id="M1"), agent_type="main-coder"), env)
     assert decision(p) == "deny" and "god-coder" in reason(p)
@@ -1819,14 +1904,14 @@ def test_blackcat_resume_is_one_step_and_a_refused_one_spends_none(env):
     run(post_agent(s, "main-coder", "L1", status="async_launched"), env)
     run(lifecycle(s, "SubagentStart", "L1", "main-coder"), env)
     finished_children(env, s, "L1", "main-coder", "coder", ["W1"])
-    finished_children(env, s, "L1", "main-coder", "god-coder", ["G1"])
+    finished_children(env, s, "L1", "orchestrator", "god-coder", ["G1"])
     folder = state(env, s) / "blackcat"
     steps = lambda: len([p for p in folder.iterdir() if p.name.startswith("step.")]) \
         if folder.exists() else 0
     for _ in range(7):
         assert decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
     # a refused resume (another god-coder is starting) spends no step and reserves nothing
-    assert decision(run(pre_agent(s, "god-coder", parent="ninja-coder", agent_id="N1"), env)) \
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="O9"), env)) \
         == "allow"
     ev = dict(send(s, "G1"), agent_type="blackcat", prompt_id="q1")
     assert [decision(run(ev, env, args=a)) for a in (["blackcat-guard"], [])] == ["allow", "deny"]
@@ -1845,7 +1930,7 @@ def test_a_resume_starts_even_when_the_fanout_lock_times_out(env):
     reservation dropped, outside the lock."""
     import fcntl
     s = sid()
-    finished_children(env, s, "M1", "main-coder", "god-coder", ["G1"])
+    finished_children(env, s, "M1", "orchestrator", "god-coder", ["G1"])
     assert decision(run(dict(send(s, "G1", agent_id="M1"), agent_type="main-coder"), env)) \
         == "allow"
     assert leases(env, s, "M1") == ["resume-G1"] and god_lock(env, s)["state"] == "resumed"
@@ -1867,7 +1952,7 @@ def test_god_resume_failure_drops_the_reservation(env):
     stuck > 5 s) fails the call closed and leaves no reservation behind."""
     import fcntl
     s = sid()
-    finished_children(env, s, "M1", "main-coder", "god-coder", ["G1"])
+    finished_children(env, s, "M1", "orchestrator", "god-coder", ["G1"])
     fd = os.open(str(state(env, s) / "god.mutex"), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)
@@ -1926,10 +2011,10 @@ def test_mcp_cap_counts_per_agent_and_denies_only_mcp(env, sess):
 
 
 def test_mcp_cap_is_min_of_knob_and_max_turns(env, sess):
-    """Default 64, lowered by a smaller frontmatter maxTurns (scout 40, oracle 20); a larger one
-    (orchestrator 300, mcp-broker 80, coder-copy via coder 190) and a type without a file get 64."""
+    """Default 64, lowered by a smaller frontmatter maxTurns (scout 30, oracle 12); a larger one
+    (orchestrator 200, mcp-broker 80, coder-copy via coder 190) and a type without a file get 64."""
     s, main, _ = sess
-    for aid, atype, cap in (("S1", "scout", 40), ("R1", "oracle", 20), ("B1", "mcp-broker", 64),
+    for aid, atype, cap in (("S1", "scout", 30), ("R1", "oracle", 12), ("B1", "mcp-broker", 64),
                             ("O1", "orchestrator", 64), ("C1", "coder-copy", 64),
                             ("E1", "explore", 64)):
         seed_mcp(env, s, aid, cap - 1)

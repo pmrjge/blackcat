@@ -1,9 +1,9 @@
 ---
 name: image-director
 description: "Generates and edits images through image-studio: SVG vector art for logos, icons, illustrations, stickers, patterns, posters and graphics (Recraft V4.1 Pro Vector by default, through OpenRouter); photographs and other raster images (GPT Image 2.5 Sunburst by default, through Opper); edits, retouching and composites of existing images (Riverflow V2.5 Pro by default, through OpenRouter) — each model set in stack.env. Writes specs and prompts, analyzes references, builds consistent series, previews, refines and delivers files."
-model: opus
+model: claude-opus-5-5
 effort: medium
-maxTurns: 100
+maxTurns: 80
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, mcp__image-studio, mcp__jina
 mcpServers:
   - image-studio:

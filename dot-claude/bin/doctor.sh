@@ -404,12 +404,12 @@ if agent == "blackcat":
     ok("main thread agent: BlackCat")
     # an agent file's effort applies only to subagents: BlackCat runs at the session's level
     lvl = ((s.get("modelSettings") or {}).get("claude-sonnet-5-5") or {}).get("effortLevel")
-    if lvl in ("low", "medium"):
-        ok("BlackCat effort: %s (saved for Sonnet 5.5)" % lvl)
+    if lvl in (None, "medium"):
+        ok("BlackCat effort: %s" % (lvl and "medium (saved for Sonnet 5.5)" or "Sonnet 5.5's default, medium"))
     else:
-        warn("BlackCat effort: %s — BlackCat's file says low, but a main-thread agent runs at the session's "
-             "level: run /effort low once in a BlackCat session (saved for Sonnet 5.5)"
-             % (lvl or "Sonnet 5.5's default, medium"))
+        warn("BlackCat effort: %s — BlackCat's file says medium (at low it skips clarifying questions, above "
+             "medium it spends on routing), but a main-thread agent runs at the session's level: run "
+             "/effort medium once in a BlackCat session (saved for Sonnet 5.5)" % lvl)
 elif agent:
     ok("main thread agent: %s (your choice; the stack's BlackCat: claude --agent blackcat)" % agent)
 else:
@@ -442,7 +442,15 @@ try:
     conc = int(env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "20"))
 except ValueError:
     conc = None
-(ok if conc and conc >= 20 else warn)("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=%s" % env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "20 (default)"))
+(ok if conc and conc >= 32 else warn)("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=%s%s" % (
+    env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "20 (default)"),
+    "" if conc and conc >= 32 else " — the stack ships 32 (BlackCat 8 + orchestrator 10 + their children)"))
+for key in ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "CLAUDE_CODE_FORK_SUBAGENT"):
+    val = env.get(key, os.environ.get(key))
+    if val not in (None, ""):
+        warn("%s=%s — it changes subagent scheduling (foreground/background); the stack expects it unset" % (key, val))
+if str(env.get("BLACKCAT_BACKGROUND", "1")).strip() == "0":
+    warn("BLACKCAT_BACKGROUND=0 — BlackCat may run children in the foreground and block the app (Claude Desktop)")
 for bad in ("DISABLE_AUTO_COMPACT", "DISABLE_COMPACT", "CLAUDE_CODE_AUTO_COMPACT_WINDOW", "CLAUDE_CODE_DISABLE_1M_CONTEXT",
             "CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "CLAUDE_CODE_BLOCKING_LIMIT_OVERRIDE",
             "CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "CLAUDE_CODE_EFFORT_LEVEL"):

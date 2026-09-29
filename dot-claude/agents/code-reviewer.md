@@ -1,9 +1,9 @@
 ---
 name: code-reviewer
 description: "Reviews diffs, PRs, modules or whole codebases for correctness, design, maintainability, tests and performance. Read-only; reports verified findings with severity and fixes."
-model: opus
-effort: xhigh
-maxTurns: 150
+model: claude-opus-5-5
+effort: high
+maxTurns: 120
 tools: Read, Bash, LSP, WebSearch, WebFetch, ToolSearch, Skill, mcp__libdocs
 mcpServers:
   - libdocs:
