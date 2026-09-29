@@ -16,4 +16,9 @@ case "$(basename "$0")" in
     agent=$1
     shift ;;
 esac
-exec claude --agent "$agent" --effort ultracode --settings '{"permissions":{"allow":["Workflow"]}}' "$@"
+# Forge tokens stay out of the session (C6): agents never push or write to a forge, and a token in
+# the environment would reach every subprocess an agent starts. gh's own login (gh auth) still
+# answers reads.
+exec env -u GITHUB_TOKEN -u GH_TOKEN -u GH_ENTERPRISE_TOKEN -u GITHUB_ENTERPRISE_TOKEN \
+  -u GITLAB_TOKEN -u GITEA_TOKEN -u FORGEJO_TOKEN -u CODEBERG_TOKEN \
+  claude --agent "$agent" --effort ultracode --settings '{"permissions":{"allow":["Workflow"]}}' "$@"

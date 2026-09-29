@@ -9,8 +9,10 @@
 #   with-stack-env --print-env sh
 #       print export statements for the shell profile line: the NON-EMPTY keys named by STACK_EXPORT
 #       (a line in stack.env, or the environment, which wins; default: the keys CLI tools read —
-#       HF_TOKEN WANDB_API_KEY GITHUB_TOKEN MLFLOW_TRACKING_URI JUPYTER_URL JUPYTER_TOKEN; "all" =
-#       every key). The MCP servers read stack.env themselves, so API keys such as OPENROUTER/OPPER/
+#       HF_TOKEN WANDB_API_KEY MLFLOW_TRACKING_URI JUPYTER_URL JUPYTER_TOKEN; "all" = every key).
+#       GITHUB_TOKEN is not exported by default: a forge token in every shell would reach every
+#       agent's subprocesses (libdocs reads it from stack.env itself; add it to STACK_EXPORT only
+#       if you want gh to use it). The MCP servers read stack.env themselves, so API keys such as OPENROUTER/OPPER/
 #       EXA/JINA/SPIDER never need to sit in every process's environment. An empty KEY=
 #       never clobbers a token you export elsewhere. Also appends ~/.local/bin (uv, magg, huetension,
 #       npm --prefix installs) to PATH when missing.
@@ -26,7 +28,7 @@
 # under any CLAUDE_CONFIG_DIR); STACK_ENV_FILE overrides it.
 # shellcheck disable=SC1007  # CDPATH= (empty) on purpose, so cd ignores the user's CDPATH
 f="${STACK_ENV_FILE:-$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)/stack.env}"
-DEFAULT_EXPORT="HF_TOKEN WANDB_API_KEY GITHUB_TOKEN MLFLOW_TRACKING_URI JUPYTER_URL JUPYTER_TOKEN"
+DEFAULT_EXPORT="HF_TOKEN WANDB_API_KEY MLFLOW_TRACKING_URI JUPYTER_URL JUPYTER_TOKEN"
 mode="exec"
 only=""
 reveal=0
