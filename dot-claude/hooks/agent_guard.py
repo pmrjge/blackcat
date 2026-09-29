@@ -135,6 +135,9 @@ Knobs (env):
                           an agent type); the POLICY rows list it for the orchestrator only
   GOD_ONCE_PER_SESSION=1  at most one god-coder spawn per session (a SendMessage resume of it is the
                           same instance); 0 = only the one-at-a-time lock
+  GOD_AFTER_NINJA=1       a god-coder spawn needs a ninja-coder of this session that has finished
+                          (SubagentStop, or its Agent call reported a terminal status): ninja-coder
+                          comes first; 0 = off
   GOD_PENDING_TTL_S=120   an unconfirmed god-coder lease (spawn or resume) is reclaimable after this
   GOD_IDLE_S=900          a holder whose live subtree is idle this long is presumed gone
                           (settings.json ships 1800)
@@ -1039,6 +1042,26 @@ GOD_ONCE_REASON = (
     "what is left.")
 
 
+GOD_NINJA_REASON = (
+    "god-coder comes after ninja-coder: no ninja-coder has finished in this session. Run "
+    "ninja-coder on the problem first, and spawn god-coder only if it fails or returns partial, "
+    "with a dossier built from its report (goal, constraints, what failed and why, logs, minimal "
+    "repro). If ninja-coder succeeds, drop the god-coder step.")
+
+
+def ninja_finished(d):
+    """A ninja-coder of this session has finished (GOD_AFTER_NINJA): its registry record is
+    stopped (SubagentStop), or its Agent call reported a terminal status ("completed", ...;
+    on_agent_done). Any other response (async_launched, a bare string, an unknown status) and a
+    resume (SubagentStart clears both) leave it running. Whether it failed is in its report,
+    which the hook doesn't read: the order is what this checks."""
+    for rec in load_registry(d).values():
+        if norm(rec.get("type")) == "ninja-coder" and (
+                rec.get("stopped") or rec.get("status") in TERMINAL_STATUSES):
+            return True
+    return False
+
+
 def god_spawners():
     """Parent types allowed to spawn god-coder (GOD_SPAWNERS, default the orchestrator only;
     "main" = a main thread without an agent type)."""
@@ -1109,6 +1132,9 @@ def on_agent(ev, d):
             deny("Spawn policy: only the orchestrator spawns god-coder (once per session, the last "
                  "resort after ninja-coder). Return STATUS: partial with NEXT: god-coder and a "
                  "dossier (goal, constraints, what failed and why, logs, minimal repro).")
+        if child == GOD and os.environ.get("GOD_AFTER_NINJA", "1").strip() != "0" \
+                and not ninja_finished(d):
+            deny(GOD_NINJA_REASON)
         if parent in POLICY and child not in POLICY[parent]:
             deny("Spawn policy: '%s' may not spawn '%s'. Allowed: %s. Return STATUS: partial "
                  "with NEXT naming the agent you need."
@@ -1701,7 +1727,8 @@ def on_agent_done(ev, d):
                                   "parent": caller,
                                   "parent_type": norm(ev.get("agent_type")) or None,
                                   "spawned": time.time(), "name": norm(name) if name else None,
-                                  "bg": bg, "tool_use_id": tid},
+                                  "bg": bg, "tool_use_id": tid,
+                                  "status": str(status or "").strip().lower() or None},
                     clear=("depth",) if pdepth is not None else (),
                     keep=("parent", "parent_type"))
             fanout_release(d, caller, tid)
@@ -1735,7 +1762,7 @@ def on_subagent_start(ev, d):
     now = time.time()
 
     def start():
-        reg_put(d, aid, {"type": atype or None, "started": now}, clear=("stopped",),
+        reg_put(d, aid, {"type": atype or None, "started": now}, clear=("stopped", "status"),
                 resumed={"bg": True, "resumed": now})
 
     def drop():

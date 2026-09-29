@@ -25,7 +25,8 @@ KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "GOD_PEN
          "BLACKCAT_DISPATCH_WINDOW_S", "STACK_MAX_FANOUT", "STACK_MAX_SELF_FANOUT",
          "STACK_FANOUT_IDLE_S", "STACK_MAX_FANOUT_BY_TYPE", "STACK_LEASE_TTL_S",
          "STACK_RESUME_TTL_S", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET",
-         "STACK_MAX_MCP_CALLS", "BLACKCAT_BACKGROUND", "GOD_ONCE_PER_SESSION", "GOD_SPAWNERS")
+         "STACK_MAX_MCP_CALLS", "BLACKCAT_BACKGROUND", "GOD_ONCE_PER_SESSION", "GOD_SPAWNERS",
+         "GOD_AFTER_NINJA")
 COPY_DENIED = ("Copies cannot spawn copies: %s may not spawn %s. Do this part yourself or return "
                "STATUS: partial listing what is left.")
 
@@ -34,7 +35,7 @@ COPY_DENIED = ("Copies cannot spawn copies: %s may not spawn %s. Do this part yo
 # The mechanics below were written against these caps; the shipped defaults (BlackCat 8 dispatches
 # and 12 steps, the per-type fan-out table) are checked by test_shipped_spawn_defaults.
 BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8", "GOD_ONCE_PER_SESSION": "0",
-            "GOD_SPAWNERS": "orchestrator,main",
+            "GOD_SPAWNERS": "orchestrator,main", "GOD_AFTER_NINJA": "0",
             "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=8,planner=8,plan-reviewer=8"}
 
 
@@ -795,6 +796,20 @@ def test_shipped_spawn_defaults(bare_env):
         assert res == ["allow"] * cap + ["deny"], (parent, res)
 
 
+def ninja_done(env, s, caller="O1", nid=None, foreground=True):
+    """The orchestrator ran a ninja-coder in session s that finished (foreground call returned,
+    or a background one stopped). Returns its agent id."""
+    nid = nid or "N-" + uuid.uuid4().hex[:6]
+    ev = pre_agent(s, "ninja-coder", parent="orchestrator", agent_id=caller)
+    assert decision(run(ev, env)) == "allow"
+    run(post_agent(s, "ninja-coder", nid, agent_id=caller, parent="orchestrator",
+                   status="completed" if foreground else "async_launched",
+                   tool_use_id=ev["tool_use_id"]), env)
+    if not foreground:
+        run(lifecycle(s, "SubagentStop", nid, "ninja-coder"), env)
+    return nid
+
+
 def test_god_coder_orchestrator_only_once_per_session(bare_env):
     """Shipped defaults: only the orchestrator spawns god-coder, once per session; a failed or
     refused spawn frees the slot; a SendMessage resume of it is the same instance."""
@@ -804,6 +819,7 @@ def test_god_coder_orchestrator_only_once_per_session(bare_env):
         p = run(pre_agent(s, "god-coder", parent=parent, agent_id=aid), env)
         assert decision(p) == "deny" and "god-coder" in reason(p), parent
     assert god_lock(env, s) is None
+    ninja_done(env, s)                                         # ninja-coder first (GOD_AFTER_NINJA)
     first = pre_agent(s, "god-coder", parent="orchestrator", agent_id="O1")
     assert decision(run(first, env)) == "allow"
     run(post_agent(s, "god-coder", "G1", agent_id="O1", parent="orchestrator", status="completed",
@@ -816,11 +832,182 @@ def test_god_coder_orchestrator_only_once_per_session(bare_env):
         == "allow"
     # a failed call frees the slot
     s2 = sid()
+    ninja_done(env, s2)
     ev = pre_agent(s2, "god-coder", parent="orchestrator", agent_id="O1")
     assert decision(run(ev, env)) == "allow"
     run(dict(ev, hook_event_name="PostToolUseFailure"), env)
     assert decision(run(pre_agent(s2, "god-coder", parent="orchestrator", agent_id="O1"), env)) \
         == "allow"
+
+
+def _guard_types():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "agent_guard_types", str(ROOT / "dot-claude" / "hooks" / "agent_guard.py"))
+    g = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(g)
+    return g
+
+
+GOD_SPELLINGS = ["god-coder", "God-Coder", "GodCoder", " god coder ", "god_coder", "GOD.CODER"]
+
+
+def test_god_coder_denied_to_every_non_orchestrator_type(bare_env):
+    """(a) Shipped defaults: every agent type but the orchestrator, copies and built-ins included,
+    is refused a god-coder spawn, in every spelling the guard normalises; nothing is claimed."""
+    g, s = _guard_types(), sid()
+    parents = sorted((set(g.AGENTS) | set(g.COPY_BASE) | set(g.BUILTINS)
+                      | {"general-purpose", "fork", "plan"}) - {"orchestrator"})
+    assert {"blackcat", "planner", "plan-reviewer", "ninja-coder", "main-coder", "researcher-copy",
+            "coder-copy"} <= set(parents)
+    ninja_done(bare_env, s)                     # so no denial here comes from the ninja-first rule
+    for i, parent in enumerate(parents):
+        child = GOD_SPELLINGS[i % len(GOD_SPELLINGS)]
+        aid = None if parent == "blackcat" else "A%d" % i
+        p = run(pre_agent(s, child, parent=parent, agent_id=aid), bare_env)
+        assert decision(p) == "deny" and "only the orchestrator spawns god-coder" in reason(p), \
+            (parent, child)
+    for parent in ("blackcat", "Planner", "plan reviewer", "NinjaCoder", "main_coder",
+                   "Researcher-Copy", "coder copy"):
+        for child in GOD_SPELLINGS:
+            aid = None if parent == "blackcat" else "B-" + parent
+            p = run(pre_agent(s, child, parent=parent, agent_id=aid), bare_env)
+            assert decision(p) == "deny" and "only the orchestrator spawns god-coder" in reason(p), \
+                (parent, child)
+    p = run(pre_agent(s, "god-coder"), bare_env)                   # a main thread with no type
+    assert decision(p) == "deny"
+    assert god_lock(bare_env, s) is None
+    assert not (state(bare_env, s) / "god-coder.spawned").exists()
+
+
+@pytest.mark.parametrize("spelling", GOD_SPELLINGS)
+def test_god_coder_orchestrator_first_allowed_second_denied(bare_env, spelling):
+    """(b) The orchestrator's first god-coder spawn (after a finished ninja-coder) is allowed, a
+    second one in the same session is refused, whatever the spelling of either."""
+    s = sid()
+    ninja_done(bare_env, s)
+    first = pre_agent(s, spelling, parent="Orchestrator", agent_id="O1")
+    assert decision(run(first, bare_env)) == "allow"
+    run(post_agent(s, "god-coder", "G1", agent_id="O1", parent="orchestrator",
+                   status="completed", tool_use_id=first["tool_use_id"]), bare_env)
+    run(lifecycle(s, "SubagentStop", "G1", "god-coder"), bare_env)
+    for other in ("god-coder", "GodCoder"):
+        p = run(pre_agent(s, other, parent="orchestrator", agent_id="O2", prompt="p2"), bare_env)
+        assert decision(p) == "deny" and "One god-coder per session" in reason(p), other
+
+
+def test_god_coder_needs_a_finished_ninja_coder_first(bare_env):
+    """GOD_AFTER_NINJA (default on): the orchestrator's god-coder spawn is refused until a
+    ninja-coder of this session has finished; the refusal claims no slot and takes no lock."""
+    s = sid()
+    p = run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="O1"), bare_env)
+    assert decision(p) == "deny" and "run ninja-coder on the problem first" in reason(p).lower()
+    assert god_lock(bare_env, s) is None
+    assert not (state(bare_env, s) / "god-coder.spawned").exists()
+    # a ninja-coder still running in the background doesn't count yet
+    ev = pre_agent(s, "ninja-coder", parent="orchestrator", agent_id="O1")
+    assert decision(run(ev, bare_env)) == "allow"
+    run(post_agent(s, "ninja-coder", "N1", agent_id="O1", parent="orchestrator",
+                   tool_use_id=ev["tool_use_id"]), bare_env)
+    run(lifecycle(s, "SubagentStart", "N1", "ninja-coder"), bare_env)
+    p = run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="O1"), bare_env)
+    assert decision(p) == "deny" and "ninja-coder" in reason(p)
+    # once it stopped (it reported failure or partial), the one god-coder spawn is allowed
+    run(lifecycle(s, "SubagentStop", "N1", "ninja-coder"), bare_env)
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="O1"),
+                        bare_env)) == "allow"
+    # a ninja-coder spawned by another agent of the session (main-coder escalating) counts too
+    s2 = sid()
+    ev = pre_agent(s2, "ninja-coder", parent="main-coder", agent_id="M1")
+    assert decision(run(ev, bare_env)) == "allow"
+    run(post_agent(s2, "ninja-coder", "N2", agent_id="M1", parent="main-coder",
+                   status="completed", tool_use_id=ev["tool_use_id"]), bare_env)
+    assert decision(run(pre_agent(s2, "god-coder", parent="orchestrator", agent_id="O1"),
+                        bare_env)) == "allow"
+    # the knob turns the order check off; the spawner and once-per-session checks stay
+    s3, off = sid(), dict(bare_env, GOD_AFTER_NINJA="0")
+    assert decision(run(pre_agent(s3, "god-coder", parent="orchestrator", agent_id="O1"),
+                        off)) == "allow"
+    assert decision(run(pre_agent(s3, "god-coder", parent="main-coder", agent_id="M1"),
+                        off)) == "deny"
+
+
+def _god_denied_then_allowed_after_stop(env, s, nid):
+    p = run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="O1"), env)
+    assert decision(p) == "deny" and "ninja-coder" in reason(p)
+    run(lifecycle(s, "SubagentStop", nid, "ninja-coder"), env)
+    assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="O1"),
+                        env)) == "allow"
+
+
+def test_god_coder_ninja_still_running_is_not_finished(bare_env):
+    """Only SubagentStop or a terminal status of the ninja-coder's Agent call counts as finished."""
+    # foreground ninja-coder: started, its Agent call not yet returned (no PostToolUse)
+    s = sid()
+    ev = pre_agent(s, "ninja-coder", parent="orchestrator", agent_id="O1")
+    assert decision(run(ev, bare_env)) == "allow"
+    run(lifecycle(s, "SubagentStart", "N1", "ninja-coder"), bare_env)
+    _god_denied_then_allowed_after_stop(bare_env, s, "N1")
+    # a finished ninja-coder resumed through SendMessage runs again
+    s = sid()
+    nid = ninja_done(bare_env, s)
+    assert decision(run(send(s, nid, agent_id="O1"), bare_env)) == "allow"
+    run(lifecycle(s, "SubagentStart", nid, "ninja-coder"), bare_env)
+    _god_denied_then_allowed_after_stop(bare_env, s, nid)
+    # background launches whose response is a bare string, has no status or an unknown one
+    for resp in ("Async agent launched successfully. agentId: N3",
+                 {"agentId": "N3"}, {"agentId": "N3", "status": "teammate_spawned"}):
+        s = sid()
+        ev = pre_agent(s, "ninja-coder", parent="orchestrator", agent_id="O1")
+        assert decision(run(ev, bare_env)) == "allow"
+        done = post_agent(s, "ninja-coder", "N3", agent_id="O1", parent="orchestrator",
+                          tool_use_id=ev["tool_use_id"])
+        done["tool_response"] = resp
+        run(done, bare_env)
+        run(lifecycle(s, "SubagentStart", "N3", "ninja-coder"), bare_env)
+        _god_denied_then_allowed_after_stop(bare_env, s, "N3")
+
+
+def test_god_coder_markers_live_in_the_protected_state_dir(bare_env):
+    """The once-per-session marker and the lock sit in the per-session state dir, which the
+    guard protects (builtin protect spec) and settings.json keeps out of the sandbox's reach."""
+    g = _guard_types()
+    assert g.GOD_ONCE == "god-coder.spawned" and g.GOD_LOCK == "god-coder.lock"
+    specs = [spec for spec, _ in g.builtin_protect_specs()]
+    assert any(g.state_root() in spec for spec in specs), specs
+    settings = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    assert "~/.local/state/claude-agent-stack" in settings["sandbox"]["filesystem"]["denyWrite"]
+
+
+GOD_FLOW_PHRASES = {
+    "planner.md": ["if ninja-coder fails or returns partial, then god-coder with the dossier",
+                   "requires orchestrator; once per session; only after ninja-coder failed"],
+    "plan-reviewer.md": ["BLOCKING if it has no preceding ninja-coder step on the same problem, is "
+                         "unconditional, or appears more than once"],
+    "blackcat.md": ["a plan or task with a god-coder step goes to the orchestrator with the plan "
+                    "attached by path"],
+    "orchestrator.md": ["run its ninja-coder step first; spawn god-coder only when ninja-coder "
+                        "reports failure or partial on that problem",
+                        "Never skip ninja-coder because the plan names god-coder",
+                        "if ninja-coder succeeds, drop the god-coder step and report it as not "
+                        "needed"],
+    "god-coder.md": ["a plan's god-coder step completed with ninja-coder's failure report"],
+}
+
+
+@pytest.mark.parametrize("fname", sorted(GOD_FLOW_PHRASES))
+def test_god_coder_plan_flow_in_prompts(fname):
+    """(c) The god-coder plan step (ninja-coder first, orchestrator only, once per session) is
+    stated in the prompts that plan, review, route and run it (ea80f87)."""
+    text = re.sub(r"\s+", " ", (ROOT / "dot-claude" / "agents" / fname).read_text())
+    for phrase in GOD_FLOW_PHRASES[fname]:
+        assert phrase in text, (fname, phrase)
+
+
+def test_rules_limit_names_the_plan_step_order():
+    text = (ROOT / "dot-claude" / "rules" / "claude-agent-stack.md").read_text()
+    assert ("(others return NEXT: god-coder with a dossier; a plan's god-coder step runs only "
+            "after its ninja-coder step failed)") in text
 
 
 def test_blackcat_foreground_dropped(env):

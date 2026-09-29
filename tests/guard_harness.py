@@ -20,6 +20,7 @@ KNOB_PREFIXES = ("STACK_", "BLACKCAT_", "GOD_", "SCREEN_", "STRIP_", "CLAUDE_COD
 # The mechanics these tests exercise were written against these caps; the shipped defaults are
 # checked separately (test_agent_guard.py::test_shipped_spawn_defaults).
 BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8", "GOD_ONCE_PER_SESSION": "0",
+            "GOD_AFTER_NINJA": "0",
             "GOD_SPAWNERS": "orchestrator,main",
             "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=8,planner=8,plan-reviewer=8"}
 
