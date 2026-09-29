@@ -44,19 +44,33 @@ then applies. `CLAUDE_CONFIG_DIR` changes the target (default `~/.claude`).
 ### What a run does
 
 1. **Main-branch rule** (see [Installs only from `main`](#installs-only-from-main)).
-2. **Stage.** The stack's part of the config dir (`agents/`, `skills/` without the claude.ai-synced
+2. **What changed since the last install.** The manifest records the commit each install shipped.
+   The run prints the diffstat of everything it ships since then (all of `dot-claude/`: agents with
+   their MCP servers and hooks, skills, rules, hooks, settings, `bin/`, `mcp/`, magg's catalog, the
+   LSP marketplace; plus `install.sh`, `lib/`, `requirements/`, `stack.env.example`) and any
+   uncommitted edits there, capped at 40 lines with the `git diff` command to read it all. An unknown
+   recorded commit gets a warning. When that list isn't empty and stdin and stderr are a terminal,
+   the run asks before anything changes (the venvs sync from `requirements/` in the next step):
+   `The stack changed since the last install (listed above). Install it? (see the whole plan first:
+   ./install.sh --dry-run) [y/N]`. Anything but `y`/`yes` stops with exit 1 and nothing changed.
+   `--yes` skips the question; non-interactive runs (CI, pipes) never ask.
+3. **Stage.** The stack's part of the config dir (`agents/`, `skills/` without the claude.ai-synced
    ones, `rules/`, `hooks/`, `bin/`, `mcp/` without `vendor/`, `stack-plugins/`, `magg/config.json`,
    `settings.json`, `stack.env`, `.stack-manifest.json`, `CLAUDE.md`, temp leftovers) is copied to a
-   staging dir. Nothing in the config dir changes until the staged result is validated.
-3. **Render, merge, prune** in the staging dir, then **validate**: JSON, agent and skill
+   staging dir inside the private backup root (so the staged `stack.env` is as private as the
+   backups; a symlinked backup root is refused). Nothing in the config dir changes until the staged
+   result is validated. A manifest key that isn't a file path in the stack's scope (`..`, an absolute
+   path, a whole dir such as `bin`) stops the install here.
+4. **Render, merge, prune** in the staging dir, then **validate**: JSON, agent and skill
    frontmatter, leftover placeholders, and the staged `agent_guard.py --self-test`. Validation is
    fatal only for files the stack owns.
-4. **Plan.** `changes: N added, N updated, N removed`, then `replaced:` (stack files that differed;
-   the backup keeps yours) and `removed: not part of the stack`, each line with its reason, then
-   `note:` lines.
-5. **Apply.** `--dry-run` stops before this and prints MCP, plugin and rc changes as `would: …`. A
+5. **Plan.** `changes: N added, N updated, N removed`, then `replaced:` (stack files that differed;
+   the backup keeps yours) and `removed: not part of the stack` (every removed hook entry named),
+   each line with its reason, then `note:` lines.
+6. **Apply.** `--dry-run` stops before this and prints MCP, plugin and rc changes as `would: …`. A
    real run saves every file it changes or removes into one backup, records the files it adds, then
-   applies. A run that changes nothing makes no backup.
+   applies. Nothing is applied if the config dir changed during the run (Claude Code saving
+   `settings.json`, an editor). A run that changes nothing makes no backup.
 
 `lib/install_state.py` (system `python3`, stdlib only) does the staging, plan, backup, apply,
 restore and validation.
@@ -110,7 +124,10 @@ Restore:
 A restore runs as a staged plan too. It backs up the current state first and prints
 `undo this restore: ./install.sh --restore <dir>`. It puts back files, `~/.zshrc`/`~/.bashrc`, MCP
 entries (re-added with `claude mcp add-json`) and plugins the install disabled. A `backup.json` that
-names paths outside the config scope is refused, and `<backup-dir>` must sit in the backup root.
+names paths outside the config scope is refused, and `<backup-dir>` must sit in the backup root. A
+saved symlink that points outside the config dir is put back only with `--force`. Without it, what is
+at that path now stays (the stack's version and the files the install added below it included), so
+a skill never goes missing; the message names the link and the `ln -s` that recreates it.
 
 ### Flags
 
@@ -119,11 +136,13 @@ As `./install.sh --help` prints them. Flags combine.
 | Flag | Effect |
 |---|---|
 | *(none)* | core install: prune, back up, apply |
-| `--dry-run` | print every change (files, removals, MCP, plugins, rc) and make none |
+| `--dry-run` | print every change (files, removals, MCP, plugins, rc) and make none; exits 1 where the real run would stop (a symlinked dir without `--write-through-links`) |
 | `--no-prune` | keep what isn't part of the stack and your edits to stack files (default: backed up, then removed or replaced) |
-| `--force` | with `--no-prune`: still replace stack files you edited |
+| `--force` | with `--no-prune`: still replace stack files you edited; with `--restore`: also put back saved symlinks that point outside the config dir. It does not write through symlinked dirs |
+| `--write-through-links` | the only way past a symlinked `agents/`, `skills/`, … dir (a dotfiles checkout): writes the stack's files through the link; nothing there is ever removed (see [Symlinked config dirs](#symlinked-config-dirs)) |
 | `--restore [DIR]` | put the config dir back as it was before an install (`DIR`: a backup; default: the latest), then exit |
-| `--print-managed-settings` | print an optional `managed-settings.json` that pins the stack's guards against edits (you install it; see [Security model](#security-model)) |
+| `--yes`, `-y` | apply without asking when the stack's files changed since the last install (asked only when stdin and stderr are a terminal) |
+| `--print-managed-settings` | print an optional `managed-settings.json` that pins the stack's hook entries and deny rules against edits (the entries, not the guard's code: pinning the code needs the optional root-owned copy; see [Security model](#security-model)) |
 | `--mcp-plan` | print the MCP server add/migrate/replace/keep plan and make no changes |
 | `--with-ml` | also create the ML venv (`~/.claude/venvs/ml`; several GB) |
 | `--with-lsp` | also install missing language servers before enabling the code-intelligence plugins |
@@ -138,9 +157,30 @@ As `./install.sh --help` prints them. Flags combine.
 | `-h`, `--help` | print the usage header |
 
 `--dedupe-plugins` is still accepted (it is the default now). Environment: `CLAUDE_CONFIG_DIR`
-(install target), `STACK_CLAUDE_JSON` (which JSON file the MCP plan reads), `XDG_STATE_HOME` (where
-backups and guard state go), `STACK_PYTHON` (the absolute interpreter for hooks and the status line;
-chosen automatically, never a pyenv/asdf shim).
+(install target), `STACK_CLAUDE_JSON` (which JSON file the MCP plan reads), `XDG_STATE_HOME`
+(default `~/.local/state`; the guard state `claude-agent-stack/`, the backups
+`claude-agent-stack-backups/` and the MCP servers' caches `claude-agent-stack-cache/` all sit under
+it, and the sandbox deny rules are rendered from it at install time, so changing it later needs a
+reinstall), `STACK_PYTHON` (the absolute interpreter for hooks and the status line; chosen
+automatically, never a pyenv/asdf shim).
+
+### Symlinked config dirs
+
+A top-level scope dir that is a symlink (`agents/`, `skills/`, `hooks/`, … pointing into a dotfiles
+checkout) is yours:
+
+- Nothing under it is ever removed.
+- The run stops unless you pass `--write-through-links`, which writes the stack's files through the
+  link. `--force` doesn't lift the stop. `--no-prune --write-through-links` keeps your edits to stack
+  files there (a `.new` render goes next to each).
+- A link inside it stays, whether a dir link (`skills/<name>` → elsewhere: the stack's files for that
+  name are skipped) or a file link (`agents/coder.md` → elsewhere). Each is named in the notes
+  ("kept (a link inside your symlinked agents/)"); the link's target is never written.
+- `--dry-run` without `--write-through-links` shows the whole plan, then prints the real run's
+  refusal ("the real run would stop: …") and exits 1, as the real run does; with the flag it exits 0.
+
+A per-skill symlink in a real `skills/` dir is different: it is replaced by the stack's skill, the
+backup keeps the link, and its target is never written.
 
 ### Settings, keys and shell profile
 
@@ -210,7 +250,9 @@ export PATH="$PWD/tests/fake-claude:$PATH"          # a fake claude: no real MCP
 ```
 
 Run it from the `main` checkout (the main-branch rule applies). Without the fake `claude`, add
-`--no-mcp --no-plugins`.
+`--no-mcp --no-plugins`. On a terminal a run may ask before applying (the supply-diff question);
+answer `y` or add `--yes`. From an agent's Bash the guard allows a scratch install only when `HOME`
+and `CLAUDE_CONFIG_DIR` both point into a temp dir, so an agent also sets `HOME="$T/home"`.
 
 ## What goes where
 
@@ -234,7 +276,9 @@ Run it from the `main` checkout (the main-branch rule applies). Without the fake
 | `~/.claude/.stack-manifest.json` | What the installer last wrote (path + sha256, settings keys, MCP entries, deduped plugins) |
 | `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`) | User-scope MCP servers, written only through `claude mcp` |
 | `~/.local/state/claude-agent-stack/<session>/` | Hook state: registry, leases, locks, markers. Pruned after 3 idle days |
-| `~/.local/state/claude-agent-stack-backups/` | Installer backups (0700; agents can't read them) |
+| `~/.local/state/claude-agent-stack-backups/` | Installer backups (0700; agents can't read them); the run's work dir lives inside |
+| `~/.local/state/claude-agent-stack-cache/` | `STACK_CACHE`: the stack's MCP servers' uv/npm caches (sandbox can't write) |
+| `~/.cache/claude-sandbox/` | Sandboxed Bash's own caches (see [Sandbox and caches](#sandbox-and-caches)); safe to delete |
 
 ## No duplicates
 
@@ -298,7 +342,7 @@ per task type (12 for oracle up to 350 for god-coder; [CONFIG.md](CONFIG.md) §3
 | coder | Sonnet 5.5 · medium | Small and medium code; offloaded sub-tasks; copies itself | main-coder |
 | main-coder | Opus 5.5 · xhigh | Large codebases, architecture, hard bugs, merges that won't fast-forward | coder (routine), ninja-coder (mathematical cores, or after two failures) |
 | ninja-coder | Opus 5.5 · max | Novel algorithms, proofs, numerics, kernels | `NEXT: god-coder` with a dossier, for the orchestrator |
-| god-coder | Opus 5.5 · max | Last resort | — (orchestrator only, once per session; or `claude-god`) |
+| god-coder | Opus 5.5 · max | Last resort | — (orchestrator only, once per session, after ninja-coder; or `claude-god`) |
 | frontend-engineer | Opus 5.5 · medium | Web front end, a11y, verified headless | designer (visuals), main-coder (backend) |
 | devops-engineer | Sonnet 5.5 · high | CI/CD, containers, IaC, deploys (dry-run first) | main-coder (architecture), security-auditor |
 | data-engineer | Sonnet 5.5 · high | SQL, MongoDB, pipelines, dataframes | data-scientist (inference) |
@@ -330,6 +374,24 @@ boundaries. Details of each agent's MCP servers are in [MCP servers](#mcp-server
   could not solve, and only through the orchestrator: any other agent returns `STATUS: partial` with
   `NEXT: god-coder` and a dossier, and the orchestrator spends the session's one god-coder spawn
   (follow-ups resume that god-coder with SendMessage).
+- **god-coder in a plan, ninja-coder first:**
+  1. planner may add at most one god-coder step, and only as the conditional fallback of a
+     preceding ninja-coder step on the same problem ("if ninja-coder fails or returns partial, then
+     god-coder with the dossier"), with a dossier template.
+  2. plan-reviewer blocks a god-coder step that has no preceding ninja-coder step on the same
+     problem, is unconditional, appears more than once, or has an incomplete dossier.
+  3. BlackCat never dispatches god-coder: a plan or task with a god-coder step goes to the
+     orchestrator, with the plan attached by path.
+  4. The orchestrator runs the ninja-coder step first. It spawns god-coder only when ninja-coder
+     reports failure or partial, with the dossier completed from ninja-coder's report; if ninja-coder
+     succeeds, it drops the god-coder step and reports it as not needed. With the session's spawn
+     already used, it returns `STATUS: partial`, `NEXT: god-coder for step <id>`.
+  5. The hook allows god-coder only from the orchestrator, once per session, and (`GOD_AFTER_NINJA`,
+     default 1) only after a ninja-coder of this session has finished. The hook checks that
+     ninja-coder ran and stopped (spawned by any agent: a main-coder escalation counts); that it
+     failed is enforced by the prompts, not the hook.
+- **Ultracode:** `claude-god` (or `claude-ninja`) starts the agent as your main thread at ultracode;
+  dispatched by another agent, both run at `max`.
 - **Models and platforms:** model work goes to ml-/dl-/llm-engineer, platform performance to
   mlx-/cuda-engineer (the target hardware owns ports).
 - **Checks:** reviewers and the verifier never check their own work; an author never verifies itself.
@@ -347,7 +409,8 @@ of finished agents follow the same rows. Agents of your own are in no row: run o
 
 - **blackcat:** every specialist except god-coder, in one burst per prompt.
 - **orchestrator:** every specialist plus Explore; the only spawner of god-coder, once per session
-  (`GOD_SPAWNERS=orchestrator`, `GOD_ONCE_PER_SESSION=1`).
+  and after a finished ninja-coder (`GOD_SPAWNERS=orchestrator`, `GOD_ONCE_PER_SESSION=1`,
+  `GOD_AFTER_NINJA=1`).
 - **browser-operator** (your logged-in Chrome sessions): only blackcat and orchestrator, neither of
   which reads the web itself. Web-reading agents (researcher, ml-/dl-/llm-/cuda-engineer) return
   `NEXT: browser-operator` with URLs and steps.
@@ -480,8 +543,16 @@ plugin of every language whose server it finds (`--with-lsp` installs missing on
 
 ## Security model
 
-Hooks parse shell text, which is a heuristic. The sandbox, and managed settings once you install
-them, are the hard boundary; the prompts and rules are the first line, not the guarantee.
+The Bash sandbox is the intended boundary: `sandbox.failIfUnavailable: true` makes Claude Code
+refuse to start when the sandbox can't, instead of running commands unsandboxed. The guard hook's
+shell parsing is defence in depth, a heuristic, not a boundary. Managed settings (optional, your
+step) pin the hook entries and deny rules. The prompts and rules are the first line, not the
+guarantee.
+
+> [!IMPORTANT]
+> **The sandbox is configured, not live-verified.** The settings, the hook and 2400 tests are
+> checked; that Claude Code's sandbox enforces them as configured on your machine is not. Until you
+> have run the [live checks](#live-checks), count only the guard and the deny rules as tested.
 
 - **No push, no forge writes, by any channel.** The rules forbid `git push` in every form and every
   forge write through `gh`/`tea`/`fj`, `gh api`, a forge's web UI, REST/GraphQL from curl or any HTTP
@@ -489,16 +560,33 @@ them, are the hard boundary; the prompts and rules are the first line, not the g
   `eval`, `$(...)`, `ssh`, interpreter one-liners and git's own command hooks (aliases, `core.editor`,
   `rebase --exec`, …), and refuses commands decided only at run time. `STACK_POLICY=off` does not
   switch it off. Deny rules repeat the common forms; the installer's own git wrapper refuses push;
-  browser-operator never writes on a forge. Limit: `gh` can still read a token stored in the macOS
-  keychain or `~/.config/gh/hosts.yml`; the hook, not the sandbox, stops its writes.
+  browser-operator never writes on a forge; curl/wget/httpie writes to forge hosts are refused. Limit:
+  unsandboxed `gh` or git can still reach a keychain token (see
+  [Credentials and least-privilege GitHub](#credentials-and-least-privilege-github)).
 - **Protected paths.** Edit/Write are denied on `~/.claude/{hooks,bin,agents,rules,mcp,magg,skills,stack-plugins}/`,
   `settings.json`, `CLAUDE.md`, `.stack-manifest.json`, the backups, the hook state dir, and a
   project's `.git/hooks`, `.git/config`, `.claude/settings*.json` and `.claude/hooks`. The hook
   extends this to Bash: a write, delete, rename or mode change of a protected path (redirection,
   `cp`/`mv`/`tee`/`sed -i`, `rm`, `find -delete`, `chmod`, inline Python, Node, Perl, Ruby, PHP, Lua,
   Julia or R code) is denied — Claude Code's own protected-path check covers only Edit/Write and is
-  skipped in `bypassPermissions`. The rules add: the installed stack is never edited in place;
-  changes go to the repo and the user re-runs the installer.
+  skipped in `bypassPermissions`. Paths are resolved after expanding `~`, `$HOME`,
+  `$CLAUDE_CONFIG_DIR`, `$XDG_STATE_HOME`, `$PWD`, variables assigned earlier in the command, braces,
+  globs, `cd` (also through `CDPATH`) and output options (`curl -o`, `wget -O`, `sort -o`, `patch`,
+  `sponge`, awk redirects, `git clone`/`init`); `git -C <config dir>` subcommands that rewrite the
+  tree are refused. A path behind something the guard can't resolve (a command substitution other
+  than `mktemp`, `pwd`, `dirname`, `basename`, `git rev-parse --show-toplevel`; a variable set by
+  `read`/`mapfile`/`printf -v`; a loop over one) counts when it could be steered into the config dir.
+  A brace expansion past 1,024 words collapses numeric ranges first; a word that still overflows is
+  refused whatever it names. The rules add: the installed stack is never edited in place; changes go
+  to the repo and the user re-runs the installer.
+- **Installing is your step.** The guard refuses `install.sh` for every agent and the main thread,
+  except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs (`HOME` and
+  `CLAUDE_CONFIG_DIR` both under a temp dir after resolving symlinks, with no link or move in the same
+  command). It follows `cd <repo> && ./install.sh`, `lib/install_state.py apply|restore|stage|record|move-legacy`
+  on the real config dir, and `install.sh` copied, piped or `git show`n into a shell.
+- **Credential printers** are refused for every agent: `gh auth token`, `gh auth status -t`,
+  `git credential fill|approve|reject`, `git credential-*`, keychain dumps with `security`, and
+  `mcp-headers` in headersHelper mode.
 - **Read denies for secrets and backups:** `stack.env` (anywhere under the config dir),
   `.credentials.json`, both `.claude.json` locations, the backups (new root and legacy `backup-*`),
   `~/.ssh`, `~/.aws`, `~/.config/gh/hosts.yml`, the Hugging Face token, `~/.netrc`,
@@ -509,41 +597,54 @@ them, are the hard boundary; the prompts and rules are the first line, not the g
   the same rules by the hook. Key printers are locked too: `mcp-headers` and `with-stack-env` redact
   values by default, and the hook denies `--reveal`, `with-stack-env env|printenv` and `-x` tracing of
   `install.sh`/`doctor.sh`.
-- **Sandbox** (`settings.json` → `sandbox`): `enabled: true`, `allowUnsandboxedCommands: false`.
-  `filesystem.denyWrite` covers the config dir, the guard state dir and the backups;
-  `filesystem.denyRead` covers `stack.env`, `backup-*`, the backups and `.credentials.json`;
-  `allowWrite` opens only toolchain caches. `network.strictAllowlist` admits localhost, package
-  registries (PyPI, npm, crates, Go, Julia, Lean, Homebrew), forges (GitHub, GitLab, Codeberg,
-  Bitbucket), Hugging Face, W&B and arXiv. `credentials.envVars` denies forge tokens (`GITHUB_TOKEN`,
-  `GH_TOKEN`, GitLab/Gitea/Forgejo/Codeberg) to sandboxed commands. Limits: with `XDG_STATE_HOME` set
-  elsewhere, the guard state dir is protected only by the guard's own path check; whether the sandbox
-  honours the absolute backups path exactly as written is unverified; on Linux, mid-path wildcards in
-  write denies are dropped (`.git/modules/**`).
+- **Sandbox:** see [Sandbox and caches](#sandbox-and-caches).
 - **Managed settings (optional, root-owned).** `./install.sh --print-managed-settings > managed-settings.json`
-  prints a file that repeats the guard hook, the protected-path deny rules and the sandbox (the JSON
-  on stdout, instructions on stderr). Installed at `/Library/Application Support/ClaudeCode/managed-settings.json`
-  (macOS) it outranks `~/.claude/settings.json`, so editing that file can't switch the guards off.
-  The installer never writes anything root-owned; re-print and re-install after an install that
-  changed the hook or deny rules. An invalid file stops Claude Code from starting. Details:
-  [CONFIG.md](CONFIG.md) §7.
+  prints a file that repeats the stack's hook entries, the protected-path and `~/` Read deny rules and
+  the sandbox (with `failIfUnavailable`); the JSON goes to stdout, instructions to stderr. Installed
+  at `/Library/Application Support/ClaudeCode/managed-settings.json` (macOS) it outranks
+  `~/.claude/settings.json`, so editing that file can't remove the entries. **It pins the hook
+  entries, not the hook's code:** they still run `~/.claude/hooks/agent_guard.py`, which you (and
+  anything running as you outside the sandbox) can edit. Pinning the code needs the optional
+  root-owned copy: `agent_guard.py` copied to a root-owned place, every stack hook in the managed file
+  pointed at it, and `"allowManagedHooksOnly": true` (which also stops agent-frontmatter hooks, so the
+  settings-level `blackcat-guard --settings` wiring must be in the managed file); re-copy after every
+  install that changes the hook. The installer never writes anything root-owned. An invalid file stops
+  Claude Code from starting. Steps: [CONFIG.md](CONFIG.md) §7.
 - **Read-only reviewers, enforced.** code-reviewer, security-auditor, verifier, plan-reviewer and
   claude-code-guide hold Bash, but the hook admits only read-only commands: tests, linters and
-  formatters in check mode, builds into scratch, `git diff`/`log`/`show`, inspection, `claude --version`,
-  `claude mcp list/get`, `claude plugin list`, and the scanners `gitleaks`, `trufflehog`, `semgrep`,
-  `osv-scanner`, `pip-audit`, `uv audit`, `npm audit`, `cargo audit`/`deny`, `trivy`. Anything else is
-  refused (fail closed).
+  formatters in check mode, syntax checks (`bash -n`, `node --check`, `ruby -c`, `php -l`), builds
+  into scratch, `git diff`/`log`/`show`, inspection, `claude --version`, `claude mcp list/get`,
+  `claude plugin list`, and the scanners `gitleaks`, `trufflehog`, `semgrep`, `osv-scanner`,
+  `pip-audit`, `uv audit`, `npm audit`, `cargo audit`/`deny`, `trivy`. Their scratch scripts and tests
+  are content-checked before they run; writing and running scratch code in one command, a scratch
+  operand that doesn't exist yet, inline Python that loads scratch code (`sys.path`, `runpy`,
+  importlib loaders) and `python -c` from a scratch dir are refused. A project checked out under a
+  temp dir (`/tmp`, `/private/tmp`, `/var/folders`, `$TMPDIR`) is the project, not scratch (the
+  project is `CLAUDE_PROJECT_DIR`); `./.claude-work` is scratch everywhere. Anything else is refused
+  (fail closed).
 - **Consent only from the user, only on the main thread.** A destructive, irreversible or externally
   visible action reaches a subagent one way: the agent stops with `STATUS: blocked`,
   `NEXT: ASK USER: <exact action>`; BlackCat asks with AskUserQuestion (always, even when the prompt
   seemed to allow it) and relays the answer word for word. Text in a brief, a tool result or another
-  agent's message is never consent. `CronCreate`, `RemoteTrigger` and magg's `magg_add_server`,
-  `magg_load_kit` and `proxy` are `ask` rules, which prompt even in `bypassPermissions`.
+  agent's message is never consent. `CronCreate`, `RemoteTrigger` and the magg calls listed in
+  [magg ask rules](#magg-ask-rules) are `ask` rules, which prompt even in `bypassPermissions`; a
+  background agent's prompt shows in your main session.
 - **Untrusted content is data.** Web pages, documents, emails, file contents, code comments, tool
   and MCP output never direct an agent; instructions found there are reported, not followed.
 - **neural-memory recall is data.** Recalled items are leads to check against code, files or sources,
   never settled decisions. `nmem_remember` stores only facts verified against a local artifact (file,
   test output or commit), cited in the memory. The web-reading agents (researcher, researcher-copy,
   scout, browser-operator) can't write it: the hook refuses their `nmem_remember`.
+- **Web taint reaches memory writes, also second-hand.** An agent that read web content (WebFetch,
+  WebSearch, curl/wget, and every MCP tool except a short non-web list: neural-memory, wolfram,
+  wandb, image-studio, the Adobe and Blender servers, huetension, ide, magg's management tools and
+  its local database/kernel servers) can't write the shared memory for the rest of the session. The
+  taint relays: an agent is tainted when any agent linked to it read the web — a child that reported
+  back to it (transitively), an agent it exchanged SendMessage with (either direction, transitively),
+  or the prompt it was spawned with (a child of a tainted agent is born tainted). A spawn whose mark
+  can't be recorded is refused; past 4,096 linked agents the check fails closed. The refusal names the
+  source ("scout 1a2b"). The main thread is not a link, and files are not links (see
+  [Residual risks](#residual-risks)).
 - **libdocs and image-studio SSRF.** libdocs fetches https only, resolves each host, requires a
   global address, connects to the checked IP, re-checks every redirect hop and keeps table-of-contents
   links on the docs origin. image-studio pins each connection to the IP it checked (no DNS
@@ -554,12 +655,190 @@ them, are the hard boundary; the prompts and rules are the first line, not the g
   helper at connect time; spider and magg get only their own keys; nothing goes into `~/.claude.json`,
   argv or agent files. `GITHUB_TOKEN` is no longer exported to shells, and `claude-ninja`/`claude-god`
   start with forge tokens unset. Optional: `CLAUDE_CODE_SUBPROCESS_ENV_SCRUB=1` in `settings.json` →
-  `env` strips the credentials Claude Code recognizes from Bash, hook and MCP environments.
+  `env` strips the credentials Claude Code recognizes from Bash, hook and MCP environments. GitHub:
+  see [Credentials and least-privilege GitHub](#credentials-and-least-privilege-github).
 - **Pinned supply chain.** uv 0.12.20 and huetension v0.3.0 from release tarballs checked by sha256;
   magg 1.2.1 with `--exclude-newer 2026-09-22T00:00:00Z`; the sci and ml venvs from hash-locked
   `requirements/*.txt` (`--require-hashes`, 7-day cooldown; sci also `--only-binary :all:`); the After
-  Effects MCP at commit `88d5fbf0` with `npm ci --ignore-scripts`; third-party MCP servers pinned to
-  exact versions (see [MCP servers](#mcp-servers)).
+  Effects MCP at commit `88d5fbf0` with `npm ci --ignore-scripts`; `--with-lsp` installs pyright
+  1.1.414, typescript-language-server 6.0.1 (5.3.0 on Node < 22.22.2) and typescript 6.0.3 with
+  `--ignore-scripts`; third-party MCP servers pinned to exact versions (see [MCP servers](#mcp-servers)).
+  Every install shows what changed in the shipped tree since the last one and, on a terminal, asks
+  before applying it (see [What a run does](#what-a-run-does)).
+
+### Sandbox and caches
+
+`settings.json` → `sandbox`: `enabled: true`, `failIfUnavailable: true`,
+`allowUnsandboxedCommands: false`.
+
+- **Can't write** (`filesystem.denyWrite`): the config dir (`~/.claude` or `$CLAUDE_CONFIG_DIR`);
+  `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack`, `-backups` and `-cache` (guard state,
+  installer backups, the MCP servers' caches; rendered from `XDG_STATE_HOME` at install time); your
+  own `~/.cache/uv` and `~/.cache/pre-commit`; `~/Library/Caches/Coursier`; the Playwright browser
+  caches; the Hugging Face token file.
+- **Can write** (`filesystem.allowWrite`) outside the project only `~/.cache/claude-sandbox`. Shared
+  caches (`~/.cache`, `~/Library/Caches`, cargo, Go, Gradle, Maven, bun, matplotlib) and toolchain
+  homes (`~/.local/share/uv`, `~/.npm`, rustup, elan, Julia depots) are no longer writable: installed
+  toolchains work, installing new ones from a session fails. Julia can put a writable depot first:
+  `JULIA_DEPOT_PATH=$HOME/.cache/claude-sandbox/julia: julia …`.
+- **Can't read** (`filesystem.denyRead`): `stack.env`, `backup-*`, the backups, `.credentials.json`,
+  `~/.config/gh/hosts.yml`, `~/.git-credentials`, `~/.config/git/credentials`.
+- **Network** (`strictAllowlist`): localhost, package registries (PyPI, npm, crates, Go, Julia, Lean,
+  Homebrew), forges (GitHub, GitLab, Codeberg, Bitbucket), Hugging Face, W&B, arXiv.
+- **Environment** (`credentials.envVars`, mode deny): the forge tokens (`GITHUB_TOKEN`, `GH_TOKEN`,
+  GitHub Enterprise, GitLab, Gitea, Forgejo, Codeberg), `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`,
+  `WANDB_API_KEY`, `JUPYTER_TOKEN`.
+
+**How sandboxed Bash gets its caches (`STACK_CACHE` and `CLAUDE_ENV_FILE`).** A SessionStart hook
+without a matcher (`agent_guard.py session-env`, every session source) appends exports to
+`$CLAUDE_ENV_FILE`, which Claude Code runs before each Bash command, the agents' included. They point
+every tool at `~/.cache/claude-sandbox/<tool>`: `XDG_CACHE_HOME`, `UV_CACHE_DIR`, `PIP_CACHE_DIR`,
+`npm_config_cache`, `npm_config_devdir`, `npm_config_store_dir`, `YARN_CACHE_FOLDER`,
+`BUN_INSTALL_CACHE_DIR`, `DENO_DIR`, `PRE_COMMIT_HOME`, `HF_HOME`, `MPLCONFIGDIR`, `CARGO_HOME`,
+`GOMODCACHE`, `GOCACHE`, `GRADLE_USER_HOME`, `COURSIER_CACHE`, `CCACHE_DIR`, `SCCACHE_DIR`, and
+`-Dmaven.repo.local=<dir>/m2` appended to `MAVEN_OPTS`. Nothing else sees them: MCP servers, hooks,
+language servers and your terminal keep their normal caches, which sandboxed code can no longer write.
+`~/.cache/claude-sandbox` is safe to delete. The stack's own local MCP servers keep a private cache,
+`STACK_CACHE` = `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack-cache/{uv,npm}`, set in each
+server's `env`, warmed by the install's prefetch and denied to the sandbox.
+
+The hooks reference promises `CLAUDE_ENV_FILE` to "subsequent Bash commands" and says nothing about
+subagents. The installed CLI (2.1.284) keeps the file per session, not per agent, and prepends it to
+every Bash command of the session, subagents' included, so subagents get it; that the docs don't
+promise it is why it is a live check.
+
+Trade-offs, sandboxed Bash only:
+
+- `CARGO_HOME` moves, so `~/.cargo/config.toml` and cargo's credentials aren't read, and
+  `cargo install` binaries land in the sandbox's cargo dir.
+- `GRADLE_USER_HOME` moves, so `~/.gradle/gradle.properties` isn't read.
+- `HF_HOME` moves, so models download again into the sandbox cache and no Hugging Face token is found.
+- When `$HOME` holds a character Maven would split on (a space, a quote), `MAVEN_OPTS` is left alone
+  with a warning, and Maven falls back to `~/.m2`, which the sandbox refuses.
+- A tool that writes `~/Library/Caches` (or another cache) with no variable to redirect it fails.
+- A Bash command that runs before the SessionStart hook has written the file gets the default paths,
+  which the sandbox refuses (fails closed).
+
+An upgrade retracts from your `settings.json` the `env` keys and `allowWrite` entries earlier
+installs shipped (`UV_CACHE_DIR`, `npm_config_cache`, `PRE_COMMIT_HOME`,
+`GIT_CONFIG_COUNT`/`KEY_0`/`VALUE_0`; `~/.cache`, `~/Library/Caches` and the toolchain dirs), prints
+each (`retracted sandbox.filesystem.allowWrite entries the stack no longer ships: …`,
+`retracted stack env KEY=value (no longer shipped)`) and keeps entries of your own. A first install
+(no manifest yet) retracts nothing. `doctor.sh` warns when the old keys or a broad cache dir are still
+there and confirms the session-env hook is wired.
+
+### Credentials and least-privilege GitHub
+
+- **Git credential helpers are off in sandboxed Bash only.** The same session-env hook appends
+  `'credential.helper='` (an empty helper list) to `GIT_CONFIG_PARAMETERS`, after any value already
+  there, and touches no `GIT_CONFIG_COUNT`/`GIT_CONFIG_KEY_*` of yours. Unsandboxed git (plugin
+  marketplace updates, MCP servers, your terminal) keeps your helpers, so private marketplace
+  updates work. A private HTTPS fetch from an agent's Bash needs SSH or your terminal.
+- Sandboxed commands can't read `~/.config/gh/hosts.yml`, `~/.git-credentials` or
+  `~/.config/git/credentials`, and don't get the token variables listed above.
+- **What remains:** `gh` and git's osxkeychain helper, run outside the sandbox, can still reach a
+  keychain token. **Least-privilege setup:** give the agents no write-capable GitHub credential.
+  Either none at all, or a read-only fine-grained token (Contents: read, Metadata: read) that `gh`
+  uses from a config dir of its own:
+
+  ```bash
+  GH_CONFIG_DIR=~/.config/gh-agents gh auth login --with-token < token-file
+  export GH_CONFIG_DIR=~/.config/gh-agents     # in the shell you start claude from
+  ```
+
+  Push over SSH from your own terminal (agents never push: hook-enforced), and keep write-capable
+  HTTPS credentials out of the `github.com` keychain entry git's osxkeychain helper reads, since
+  unsandboxed git still uses it.
+- **`doctor.sh` checks it.** Its section "GitHub credentials agents could use" reports by presence
+  only (no value is printed; keychain lookups are attribute searches without `-g`/`-w`, so no secret
+  is read and no prompt appears): `GH_TOKEN`, `GITHUB_TOKEN`, `GH_ENTERPRISE_TOKEN`,
+  `GITHUB_ENTERPRISE_TOKEN` in the environment; a plain-text `oauth_token` in gh's `hosts.yml`
+  (`$GH_CONFIG_DIR` or `~/.config/gh`); a github.com line in `~/.git-credentials` or
+  `${XDG_CONFIG_HOME:-~/.config}/git/credentials`; on macOS a keychain item for service
+  `gh:github.com` and a github.com internet password. Each is a WARN naming who can use it and the
+  least-privilege step; none found is `ok`. Run `bash ~/.claude/bin/doctor.sh` to see what an agent
+  could find.
+
+### magg ask rules
+
+These magg calls are `ask` rules, which prompt even in `bypassPermissions`: `magg_add_server`,
+`magg_load_kit`, `proxy`, `magg_enable_server`, and every `duckdb_*`, `jupyter_*`, `ros_*`
+(publishes, calls services, sets parameters on a robot), `qiskit_*` (submits IBM Quantum hardware
+jobs, spends quota) and `docspace_*` (writes to ONLYOFFICE DocSpace rooms and files) call.
+**Invariant:** every magg catalog prefix has exactly one allow or ask rule (a test enforces it), so
+no catalog server runs without a decision. The allowed `mongodb_*` and `postgres_*` rely on their
+read-only flags (`--readOnly`, `--access-mode=restricted`), which a test pins. duckdb runs on an
+in-memory database with extension autoload off and its settings locked; an explicit `INSTALL` in an
+approved query still works.
+
+### Residual risks
+
+- **Language servers on writable build files.** rust-analyzer (build scripts, proc macros),
+  Metals/Gradle, HLS, `lake serve` and LanguageServer.jl run outside the sandbox on build files the
+  sandbox can write (`build.rs`, `build.sbt`, `lakefile`, …): a sandboxed edit gets its code run
+  unsandboxed at the next server start. Accepted: the project is writable by design, and the shared
+  caches are gone, so this is the project's own files only. Disable the LSP plugins for untrusted work.
+- **Heuristic guard gaps.** The T2 content checks (reviewers' scratch code), the T3 taint and the
+  forge-host detection are parser-based; code that hides from the patterns gets past them. Known
+  gaps: a background job swapping a scratch file between calls; `python -m` of a module shadowed in a
+  scratch cwd and a `PYTHONPATH` exported in an earlier call; `/usr/bin/env python3 …` and
+  `env -C DIR ./install.sh`; a copy of `install.sh` run directly (no shell word); links made by
+  `git clone`/`checkout`; `patch` reading its target from the diff; output flags glued to others
+  (`wget -qO-FILE`); a variable exported by your own shell profile that points into the config dir.
+- **Approved duckdb and jupyter calls.** An approved duckdb query can read or write files you can;
+  an approved jupyter call runs arbitrary code in your kernel. Read the call before approving.
+- **Read-only database servers.** `mongodb` and `postgres` run without a prompt because of their
+  read-only flags; a server-side bug in those modes would go unprompted.
+- **Web taint gaps.** Taint follows reports, messages and spawn prompts, not files: an agent that
+  saved web text to a file and another that reads it later are not linked. The main thread is a gap
+  too: its web reads are not tracked as taint.
+- **`GOD_AFTER_NINJA` checks order only.** Any finished ninja-coder run of the session, even a
+  trivial one, unlocks the god-coder spawn; that ninja-coder actually failed rests on the prompts.
+- **A session started directly in a temp dir** (`/tmp`, say) has no project dir, so checks that
+  key on the project dir have nothing to anchor to.
+- **Live checks still open** ([Live checks](#live-checks)).
+- **No per-agent URL policy (T1).** WebFetch domain allow rules do nothing in `bypassPermissions`,
+  and ask rules can't be scoped per agent type; which agents fetch at all is set by their `tools:`
+  lines. A guard URL policy keyed on agent type was weighed and not built: a docs-domain allowlist for
+  the coder types would refuse legitimate research (issue trackers, blogs, mailing lists, vendor docs
+  on their own domains), and a "long high-entropy query string" check both refuses normal URLs
+  (commit SHAs, signed download URLs, search queries) and misses exfiltration through path segments
+  or many short requests. The boundary stays the tool lists, the web taint on memory writes, and the
+  no-push/forge-write hooks.
+- **Keychain tokens.** See [Credentials and least-privilege GitHub](#credentials-and-least-privilege-github).
+  The keychain service name `gh:github.com` that `doctor.sh` looks for comes from gh's source and is
+  unverified against a live gh.
+- **Linux `.git/modules`.** On Linux/WSL2 the sandbox drops write-list entries with a mid-path
+  wildcard, so the `.git/modules/**` denies protect submodule hooks and config only on macOS.
+- **Unverified live:** that the sandbox honours the absolute rendered state, backup and cache paths;
+  that a `denyWrite` entry wins inside `allowWrite` (the docs' `/sandbox` Config tab lists such paths
+  as "Denied within allowed"); that settings `env` reaches MCP servers and hooks; that the
+  `$CLAUDE_ENV_FILE` exports reach subagents' Bash.
+
+### Live checks
+
+Only you can run these. They are still open: until they pass, the sandbox is configured, not
+verified.
+
+1. **Install:** `./install.sh --dry-run`, read the plan, then `./install.sh` from a terminal. After a
+   `git pull`, the supply-diff question appears; `n` leaves everything as it was.
+2. **Sandbox denyWrite:** `/sandbox`, Config tab: `allowWrite` shows only `~/.cache/claude-sandbox`;
+   the state dir (`$XDG_STATE_HOME/claude-agent-stack` or `~/.local/state/…`), the backup root and the
+   cache root show under deny ("Denied within allowed" where nested). From sandboxed Bash, a write
+   into `~/.claude`, the backup root, `~/.cache/uv`, the `STACK_CACHE` root and `~/Library/Caches/x`
+   is refused; `uv pip download` or `npm cache ls` works (their sandbox caches).
+3. **Env reach:** `echo "$UV_CACHE_DIR"` in the main thread's Bash and in a subagent's Bash (ask a
+   coder to run it) prints `~/.cache/claude-sandbox/uv`, expanded, in both, and
+   `git config --get-all credential.helper` prints an empty last line. Check also whether settings
+   `env` reaches MCP servers and hooks as described.
+4. **Keychain from the sandbox:** whether the osxkeychain helper answers inside the sandbox; count
+   the bytes of its answer, never print it. A private plugin marketplace update
+   (`/plugin marketplace update <name>`) still works over HTTPS with your keychain helper.
+5. **Routing:** a live BlackCat probe: a task with a god-coder plan step goes to the orchestrator.
+6. **Ask rules:** an ask rule prompts under `bypassPermissions` (for example, a magg `duckdb_*` call
+   through mcp-broker).
+7. **Credentials:** `bash ~/.claude/bin/doctor.sh`: the GitHub credentials section lists what an
+   agent could use; nothing printed is a secret.
 
 ## MCP servers
 
@@ -576,7 +855,8 @@ them, are the hard boundary; the prompts and rules are the first line, not the g
 4. **On demand through mcp-broker + magg.** Catalog servers stay disabled; the broker enables one,
    runs the calls, returns the results and disables it. Each broker's magg runs on a private copy of
    the catalog (`bin/magg-private`), so parallel brokers never switch servers off under each other.
-   Adding a server, loading a kit or `proxy` asks you first.
+   Enabling or adding a server, loading a kit, `proxy` and the risky catalog tools ask you first
+   ([magg ask rules](#magg-ask-rules)).
 
 Third-party servers are pinned to the versions checked on 26 Sep 2026. To upgrade one, bump it in the
 repo (agent files, `magg/config.json`, the installer's prefetch step) and re-run the installer.
@@ -603,7 +883,8 @@ repo (agent files, `magg/config.json`, the installer's prefetch step) and re-run
 
 **Catalog (disabled until mounted):** docling, playwright, lean, duckdb, arxiv, jupyter, mlflow,
 docspace (ONLYOFFICE), mongodb (`--readOnly`), postgres (`--access-mode=restricted`), chrome-devtools,
-ros (not pre-approved: it can move a robot), qiskit-runtime (not pre-approved: it spends quota).
+ros, qiskit-runtime. duckdb, jupyter, ros, qiskit and docspace calls ask at every call; the local
+servers run on the stack's private `STACK_CACHE`.
 Versions and details: [mcp_servers.md](mcp_servers.md).
 
 ### Context economy: context-mode and neural-memory
@@ -626,8 +907,9 @@ instructions with the stack's policy (see [Security model](#security-model)). De
 | PreToolUse `*` (`blackcat-guard --settings`) | BlackCat's own gate (acts only when `agent_type` is blackcat): its tool allowlist and `BLACKCAT_MAX_STEPS` |
 | PreToolUse `Agent` | Spawn policy, depth, copy rule, fan-out caps (atomic leases), BlackCat dispatch window; god-coder orchestrator-only and once per session; strips a per-call `model`; drops BlackCat's `run_in_background: false`; denies `isolation: "remote"` (cloud agents load no hooks) |
 | PreToolUse `SendMessage` | Resuming a finished agent follows the spawn policy and the parent's caps |
-| PreToolUse `Bash\|Monitor\|PowerShell` (`no-push`) | Never push, never write to a forge; `--reveal` and `env`/`printenv` under the key helpers; `-x` tracing of `install.sh`/`doctor.sh`; Bash-level writes to protected paths; read-only allowlist for the reviewer types |
-| PreToolUse `mcp__neural-memory__nmem_remember` | Web-reading agents can't write the shared memory |
+| PreToolUse `Bash\|Monitor\|PowerShell` (`no-push`) | Never push, never write to a forge (also curl/wget/httpie to forge hosts); credential printers; `--reveal` and `env`/`printenv` under the key helpers; `-x` tracing of `install.sh`/`doctor.sh`; running `install.sh` outside the allowed forms; Bash-level writes to protected paths; read-only allowlist and scratch-code checks for the reviewer types |
+| PreToolUse `mcp__neural-memory__nmem_remember` | An agent tainted by web content, directly or through a linked agent, can't write the shared memory |
+| SessionStart, no matcher (`session-env`) | Appends the sandbox cache exports and the empty git credential helper to `$CLAUDE_ENV_FILE` for Bash |
 | PreToolUse `mcp__computer-use__*` | One agent on the screen at a time |
 | PreToolUse local-file MCP tools | Path and `file:` arguments held to every `Read(...)` deny rule |
 | PostToolUse `Agent\|TaskStop`, SubagentStart/Stop, StopFailure | Registry of who spawned whom; locks released when an agent stops |
@@ -660,6 +942,7 @@ in the repo's `dot-claude/settings.json` and re-run the installer. The rest are 
 | `STACK_FANOUT_IDLE_S` | 600 | A background child whose whole subtree is silent this long stops counting |
 | `STACK_LEASE_TTL_S` / `STACK_RESUME_TTL_S` | 21600 / 120 | Ceilings on unreported spawn leases and resume reservations |
 | `GOD_SPAWNERS` / `GOD_ONCE_PER_SESSION` | `orchestrator` / 1 | Who may spawn god-coder; one spawn per session |
+| `GOD_AFTER_NINJA` | 1 | A god-coder spawn needs a ninja-coder of this session that has finished; checks order, not failure (0 = off) |
 | `GOD_IDLE_S` / `GOD_PENDING_TTL_S` / `GOD_LOCK_TTL_S` | 1800 / 120 / 21600 | god-coder lock: idle holder, unconfirmed lease, hard ceiling |
 | `SCREEN_LOCK_TTL_S` | 900 | Screen lock expiry |
 | `STRIP_AGENT_MODEL` / `BLACKCAT_BACKGROUND` | 1 / 1 | Remove per-call `model`; run BlackCat's children in the background |
@@ -775,6 +1058,14 @@ left over. The installer refuses to run outside macOS; the smoke test sets `STAC
 - **A Bash command was refused as a protected-path write or by the sandbox.** Intended: change the
   stack in the repo and re-run the installer. A tool that needs another network host fails under the
   strict allowlist; add the host to the repo's `sandbox.network.allowedDomains`.
+- **A build tool fails writing a cache in a session.** Sandboxed Bash writes only
+  `~/.cache/claude-sandbox`; check that the tool honours one of the session-env variables
+  ([Sandbox and caches](#sandbox-and-caches)). Installing a new toolchain (rustup, elan, Julia
+  packages) from a session fails by design: do it in your terminal.
+- **Claude Code won't start after the install.** `failIfUnavailable` stops it when the sandbox
+  can't start (by design: no silent unsandboxed fallback). The error names the cause; see Claude
+  Code's sandboxing docs.
+- **The installer stopped on a symlinked dir.** See [Symlinked config dirs](#symlinked-config-dirs).
 - **Claude Desktop shows nothing while an agent works.** A foreground child blocks BlackCat: re-run
   `./install.sh`, start a new session, and check that `BLACKCAT_BACKGROUND` isn't `0`.
 - **Bypass the policy temporarily:** `"STACK_POLICY": "off"` in `settings.json` → `env` (the push
@@ -786,6 +1077,46 @@ left over. The installer refuses to run outside macOS; the smoke test sets `STAC
 ## Changelog
 
 Every applied parameter (model, effort, maxTurns, caps, knobs) with its reason: [CONFIG.md](CONFIG.md).
+
+### 2026-09-29 — Security rounds 2 and 3, sandbox caches, god-coder plan flow
+
+Commits `e46fa83..e0b5544` on `main` (plus this documentation commit). Round 3 audit verdict: pass
+with residuals, no HIGH open; it depends on the live sandbox, which is unverified
+([Live checks](#live-checks)).
+
+- **Prompts** (`e46fa83`, `13c5e17`, `ea80f87`). BlackCat routing tie-breaks; consent wording routed
+  through `NEXT: ASK USER`; mcp-broker's approval wording matches the ask rules; god-coder as a plan
+  step after ninja-coder only (planner, plan-reviewer, BlackCat, orchestrator, rules).
+- **Round 2, guard** (`e94ff4a`, `74e593c`, `b3080c5`, `3047725`, `00ec1d2`, `8a60576`, `9654f9e`,
+  `66629f5`, `2a42e08`, `3d2527c`). Reviewers' scratch scripts read before they run; credential
+  printers, headersHelper mode, forge writes over curl/wget/httpie and `install.sh` runs refused; the
+  protect scan expands variables, braces, globs, `cd`/`CDPATH` and output options, treats unresolvable
+  expansions as suspect, and never fails open past the brace cap; every MCP tool outside a non-web
+  list taints memory writes.
+- **Round 2, settings and installer** (`24aeb01`, `c06fb33`, `e262e16`, `4d3c6a8`, `01a0c16`,
+  `393b780`, `2c5284f`, `8b39815`, `6bb2ce5`). `failIfUnavailable`; MCP caches out of the sandbox's
+  reach (`STACK_CACHE`); duckdb/jupyter/`magg_enable_server` ask; manifest paths checked; symlinked
+  scope dirs never pruned, written through only with `--write-through-links`; private work dir; drift
+  check; shipped commit shown; pinned LSP installs.
+- **magg** (`bb77d58`, `17fdd46`). `ros_*`, `qiskit_*` and `docspace_*` ask at every call; every
+  catalog prefix has exactly one allow or ask rule (test).
+- **god-coder** (`7292272`). `GOD_AFTER_NINJA` (default 1): a god-coder spawn needs a finished
+  ninja-coder of the session; god-coder flow tests.
+- **Round 3** (`b93b557`, `c9ef24b`, `693296f`, `275eead`, `b7a075b`, `7e8386b`, `47acb92`,
+  `1e1cd82`, `80bc1dd`, `9aeec09`, `e0b5544`). Web taint follows reports, messages and spawn
+  prompts; sandbox caches and the git credential reset moved to a SessionStart `CLAUDE_ENV_FILE` for
+  sandboxed Bash only, `allowWrite` reduced to `~/.cache/claude-sandbox` (upgrades retract the old
+  settings); the supply diff covers everything shipped and asks on a terminal (`--yes`); the guard
+  state dir renders from `XDG_STATE_HOME`; `--restore` keeps the current entry where it skips a link;
+  `--dry-run` refuses like the real run; file links inside a symlinked dir are kept; `doctor.sh`
+  reports GitHub credentials by presence; read-only reviewers treat a project under `/tmp` as the
+  project (118 tests had failed from a `/private/tmp` checkout; 0 now); `~/.config/git/credentials`
+  denied.
+- **Docs** (`bbe6027`, `a0d9b4c`, `c27ff51`, `c1de9f2`, and this commit): CONFIG.md §7 and this
+  README describe the sandbox as configured but not live-verified, the least-privilege GitHub setup,
+  the residual risks and the live checks.
+- **Tests** at `e0b5544`: pytest 2400 passed (also from a `/private/tmp` checkout); `install_smoke.sh`
+  242 passed, 0 failed; `agent_guard.py --self-test` ok; `lint_agents.py` ok.
 
 ### 2026-09-29 — Tightened prompts, security hardening, 15 new skills, prune-by-default installer, no duplicates
 
