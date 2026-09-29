@@ -233,6 +233,12 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 
 ## 9. Changelog
 
+### 2026-09-29 (security round 2)
+
+- Installer: manifest paths are checked against the stack's scope, symlinked `agents/`, `skills/` (and the other scope dirs) are never pruned and need `--force` to be written through, the backup root must be a private real directory, the work dir lives inside it, a config change during the run aborts before anything is written, restored links that leave the config dir need `--force`, the removal list names every hook entry, and the LSP installs are pinned with `--ignore-scripts` (section 7).
+- Settings: `sandbox.failIfUnavailable`, tool caches moved out of the sandbox's writable set, git credential helpers off, token env vars denied to sandboxed commands, `magg_enable_server`/duckdb/jupyter tools ask; duckdb runs in memory with extension autoload and config changes locked.
+- Guard: protected-path checks expand `$HOME`, `$CLAUDE_CONFIG_DIR`, assigned variables, globs and `cd` forms; `git -C <config dir> checkout|clean|reset --hard` is denied; credential reads, forge writes over curl/wget/httpie and `install.sh` runs are denied; read-only reviewers may run syntax-only checks.
+
 ### 2026-09-29 (security and installer)
 
 - Security findings C1–C9, T1–T3 and P3 fixed (guard, settings, MCP servers, installer); section 7 lists the residual risks.
