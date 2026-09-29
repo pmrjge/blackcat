@@ -54,6 +54,8 @@
       "mcp__magg__magg_enable_server",
       "mcp__magg__duckdb_*",
       "mcp__magg__jupyter_*",
+      "mcp__magg__ros_*",
+      "mcp__magg__qiskit_*",
       "CronCreate",
       "RemoteTrigger"
     ],

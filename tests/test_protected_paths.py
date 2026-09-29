@@ -314,7 +314,9 @@ def test_settings_round2_hardening():
     assert {"Read(~/.config/gh/hosts.yml)", "Read(~/.git-credentials)"} <= set(perms["deny"])
     # N3: enabling a catalog server and the duckdb/jupyter tools ask (ask rules prompt even in
     # bypassPermissions: permission-modes#actions-no-mode-auto-approves)
-    for t in ("mcp__magg__magg_enable_server", "mcp__magg__duckdb_*", "mcp__magg__jupyter_*"):
+    # ros (publishes to a robot) and qiskit (submits hardware jobs) ask at every call too
+    for t in ("mcp__magg__magg_enable_server", "mcp__magg__duckdb_*", "mcp__magg__jupyter_*",
+              "mcp__magg__ros_*", "mcp__magg__qiskit_*"):
         assert t in perms["ask"] and t not in perms["allow"], t
     # C2-residual: model and notebook tokens never reach a sandboxed command
     env_deny = {e["name"] for e in sb["credentials"]["envVars"] if e["mode"] == "deny"}

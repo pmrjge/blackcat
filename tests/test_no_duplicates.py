@@ -247,6 +247,28 @@ def test_settings_allow_and_deny_disjoint():
     assert not both, "settings.json rule in both permissions.allow and permissions.deny: %s" % sorted(both)
 
 
+def test_settings_allow_and_ask_disjoint():
+    perms = settings().get("permissions", {})
+    both = set(perms.get("allow", [])) & set(perms.get("ask", []))
+    assert not both, "settings.json rule in both permissions.allow and permissions.ask: %s" % sorted(both)
+
+
+def test_magg_prefix_rules_name_catalog_prefixes():
+    """Every mcp__magg__<prefix>_* rule names a prefix of the magg catalog (a typo such as
+    qiskit-runtime_* would match nothing and leave the tools unprompted), and the servers that act
+    outside the machine or run code ask at every call: ask rules prompt even in bypassPermissions."""
+    prefixes = {v.get("prefix") or k for k, v in load_json_strict(MAGG)["servers"].items()}
+    perms = settings().get("permissions", {})
+    for kind in ("allow", "ask"):
+        for rule in perms.get(kind, []):
+            m = re.match(r"mcp__magg__(.+)_\*\Z", rule)
+            if m:
+                assert m.group(1) in prefixes, "%s rule %s names no magg catalog prefix" % (kind, rule)
+    for p in ("duckdb", "jupyter", "ros", "qiskit"):
+        assert p in prefixes, p
+        assert "mcp__magg__%s_*" % p in perms.get("ask", []), p
+
+
 def test_settings_credential_envvars_unique_by_name():
     names = [e["name"] for e in _dig(settings(), "sandbox.credentials.envVars")]
     d = [k for k, n in Counter(names).items() if n > 1]
