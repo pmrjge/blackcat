@@ -4461,7 +4461,13 @@ RO_EXEC_VAR_RE = re.compile(
     r"PERLLIB|RUBYOPT|RUBYLIB|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|JDK_JAVA_OPTIONS|GIT_\w+|EDITOR|"
     r"VISUAL|PAGER|MANPAGER|LESSOPEN|LESSCLOSE|SSH_ASKPASS|SUDO_ASKPASS|BROWSER|HISTFILE|ZDOTDIR|"
     r"XDG_CONFIG_HOME|HOME|SHELL|CARGO_HOME|RUSTC_WRAPPER|RUSTC|CC|CXX|MAKEFLAGS|NPM_CONFIG_\w+|"
-    r"npm_config_\w+|UV_\w+|PIP_\w+)\Z")
+    r"npm_config_\w+|UV_\w+|PIP_\w+|"
+    # library and config search paths: they load code the agent may have written into scratch
+    r"PYTHONPATH|PYTHONUSERBASE|PYTHONPYCACHEPREFIX|PYTEST_ADDOPTS|PYTEST_PLUGINS|JULIA_LOAD_PATH|"
+    r"JULIA_DEPOT_PATH|JULIA_PROJECT|R_LIBS|R_LIBS_USER|R_LIBS_SITE|R_PROFILE|R_PROFILE_USER|"
+    r"R_ENVIRON|R_ENVIRON_USER|LUA_PATH\w*|LUA_CPATH\w*|LUA_INIT\w*)\Z")
+# of those, the ones that may name project directories (a reviewer can't write there)
+RO_PATH_VARS = {"PYTHONPATH"}
 RO_SAFE_VARS = {"GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS", "GIT_LITERAL_PATHSPECS",
                 "GIT_NO_REPLACE_OBJECTS", "UV_NO_SYNC", "UV_FROZEN", "UV_OFFLINE", "UV_PYTHON",
                 "UV_NO_PROGRESS", "UV_LOCKED", "PIP_DISABLE_PIP_VERSION_CHECK"}
@@ -4484,6 +4490,31 @@ RO_CODE_BAD_RE = re.compile(
     r"savefig|save|savez\w*|tofile|dump)\s*\(|Pkg\.|Deno\.|Bun\.|IO\.(?:popen|write)|%x|\bqx\b|"
     r"\bENV\b|\bgetenv\b|\bsignal\.|\bshutil\b|\.(?:unlink|rmdir|rename|replace|mkdir|touch|"
     r"symlink_to|hardlink_to|chmod)\s*\(", re.I)
+
+# a scratch file the agent runs is read and checked like inline code; over this size, or not text,
+# it is refused
+RO_FILE_MAX = 256 * 1024
+RO_FILE_SEEN = 64                                  # files (imports, conftests) checked per command
+RO_SHELL_NAMES = {"sh", "bash", "zsh", "dash", "ksh", "ksh93", "mksh", "ash", "rbash"}
+# compiled languages (go, rust): a thinner heuristic than for interpreters
+RO_COMPILED_BAD_RE = re.compile(
+    r"\bos/exec\b|\bnet/http\b|\bnet\.(?:Dial|Listen)|\bos\.(?:WriteFile|Create|OpenFile|Remove\w*|"
+    r"Mkdir\w*|Rename|Chmod|Symlink|Setenv|Getenv|Environ|StartProcess)|\bsyscall\b|\bunsafe\b|"
+    r"\bcgo\b|import\s+\"C\"|std::(?:fs|process|net|env)\b|\bCommand::new|\bextern\s+\"|"
+    r"\binclude_(?:str|bytes)!|\bfs::|\bTcp\w+::|#\[link|\bbuild\.rs\b|\bproc_macro\b|"
+    r"go:generate|go:linkname|go:embed")
+# test runners: options that load code or config (value = a path or a module)
+RO_PY_LOAD_OPTS = {"-c", "--config-file", "--rootdir", "--confcutdir"}
+RO_JS_LOAD_OPTS = {"--config", "--setupFiles", "--setupFilesAfterEnv", "--setupFilesAfterEach",
+                   "--globalSetup", "--globalTeardown", "--preset", "--testRunner", "--transform",
+                   "--reporters", "--reporter", "--resolver", "--rootDir", "--roots", "--root",
+                   "--require", "--import", "--loader", "--experimental-loader", "--file",
+                   "--testEnvironment", "--snapshotResolver", "--watchPlugins", "--dir",
+                   "--setupFile", "--environment", "--workspace", "--project", "--projects"}
+RO_JS_RUNNERS = {"jest", "vitest", "mocha", "ava"}
+RO_JS_SUFFIX = (".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts")
+RO_SCRATCH_TEST_RE = re.compile(r".+\.(?:test|spec)\.[^/]+\Z")
+RO_PY_CONFIGS = ("pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg", ".pytest.ini")
 
 
 def _ro_scratch_roots(bases):
@@ -4564,6 +4595,331 @@ class _ReadOnly(object):
         return bool(re.search(r"/(?:tests?|spec|specs|__tests__|testing)/", a) or
                     re.match(r"(?:tests?|test_.*|.*_tests?|.*\.(?:test|spec)|conftest)"
                              r"(?:\.[A-Za-z]+)?\Z", os.path.basename(a)))
+
+    def project_path(self, p):
+        """p names a place inside the project that is not scratch: somewhere a reviewer can't
+        write, so code loaded from there is the project's own."""
+        if not p or _expansion(self.expand(p)):
+            return False
+        a = self.resolve(p)
+        for c in (a, os.path.realpath(a)):
+            if self.in_scratch(c) or not any(_within(c, b) or _within(c, os.path.realpath(b))
+                                             for b in self.bases):
+                return False
+        return True
+
+    def scratch_cwd(self):
+        return self.in_scratch(os.path.realpath(self.cwd or self.bases[0]))
+
+    def root_of(self, a):
+        """The scratch root that holds the resolved path a (the longest), else None."""
+        best = None
+        for r in self.roots:
+            if _within(a, r) and (best is None or len(r) > len(best)):
+                best = r
+        if best is None and ".claude-work" in a.split("/"):
+            parts = a.split("/")
+            best = "/".join(parts[:parts.index(".claude-work") + 1]) or "/"
+        return best
+
+    # -- files the agent runs: a scratch file is read and held to the rules for inline code; a
+    # test file of the project (which a reviewer can't write) passes
+    def run_file(self, p, what, fam, depth=0):
+        """fam: "shell", an interpreter family, "compiled", or None (decided by the shebang)."""
+        if not self.runnable(p):
+            return (what, "runs a script outside the scratch dirs and tests")
+        if p in RO_DEVICES or not self.scratch(p):
+            return None
+        return self.scratch_file(p, what, fam, depth)
+
+    def scratch_file(self, p, what, fam, depth=0, seen=None):
+        a = self.resolve(p)
+        paths = [a]
+        if any(c in p for c in "*?["):
+            import glob
+            paths = sorted(glob.glob(a))[:256]
+        if not paths:
+            return (what, "runs a scratch file that does not exist or can't be read")
+        seen = set() if seen is None else seen
+        for q in paths:
+            found = self.file_content(os.path.realpath(q), what, fam, depth, seen)
+            if found:
+                return found
+        return None
+
+    def file_content(self, real, what, fam, depth, seen):
+        if real in seen:
+            return None
+        seen.add(real)
+        if len(seen) > RO_FILE_SEEN:
+            return (what, "runs a scratch file that pulls in too many other files to check")
+        try:
+            if not os.path.isfile(real):
+                raise OSError("not a file")
+            if os.path.getsize(real) > RO_FILE_MAX:
+                return (what, "runs a scratch file over %d KiB, too big to check"
+                        % (RO_FILE_MAX // 1024))
+            with open(real, "rb") as fh:
+                data = fh.read(RO_FILE_MAX + 1)
+        except OSError:
+            return (what, "runs a scratch file that can't be read")
+        if len(data) > RO_FILE_MAX:
+            return (what, "runs a scratch file over %d KiB, too big to check" % (RO_FILE_MAX // 1024))
+        try:
+            if b"\0" in data:
+                raise UnicodeDecodeError("utf-8", b"", 0, 1, "NUL")
+            text = data.decode("utf-8")
+        except UnicodeDecodeError:
+            return (what, "runs a program built in the scratch dirs (a binary, not a script)")
+        if fam is None:
+            fam = self.shebang_family(text)
+            if fam is None:
+                return (what, "runs a scratch file whose interpreter can't be checked")
+        name = os.path.basename(real)
+        saved = self.cwd                        # a `cd` inside the file must not leak out
+        try:
+            if fam == "shell":
+                found = self.check(text, depth + 1)
+            elif fam == "compiled":
+                found = (name, "loads compiled-language code that writes, starts processes or uses "
+                               "the network") if RO_COMPILED_BAD_RE.search(text) else None
+            else:
+                body = text.split("\n", 1)[1] if text.startswith("#!") and "\n" in text else \
+                    ("" if text.startswith("#!") else text)       # `#!/usr/bin/env` is no ENV
+                found = self.code(body, what, fam, src="a scratch script")
+        finally:
+            self.cwd = saved
+        if found:
+            return (what, "runs the scratch file %s, which %s" % (name, found[1]))
+        return self.file_imports(real, text, fam, what, depth, seen)
+
+    def file_imports(self, real, text, fam, what, depth, seen):
+        """Modules a scratch script imports from its own directory run with it."""
+        d = os.path.dirname(real)
+        cands = []
+        if fam == "python":
+            for m in re.finditer(r"^[ \t]*(?:from|import)[ \t]+([A-Za-z_]\w*)", text, re.M):
+                cands += [os.path.join(d, m.group(1) + ".py"),
+                          os.path.join(d, m.group(1), "__init__.py")]
+        elif fam == "node":
+            for m in re.finditer(r"(?:from|import|require\()\s*['\"](\.{1,2}/[^'\"]+)['\"]", text):
+                base = os.path.normpath(os.path.join(d, m.group(1)))
+                cands += [base] + [base + x for x in RO_JS_SUFFIX] + \
+                    [os.path.join(base, "index" + x) for x in RO_JS_SUFFIX]
+        for c in cands:
+            c = os.path.realpath(c)
+            if os.path.isfile(c) and self.in_scratch(c):
+                found = self.file_content(c, what, fam, depth, seen)
+                if found:
+                    return found
+        return None
+
+    def shebang_family(self, text):
+        first = text.split("\n", 1)[0]
+        if not first.startswith("#!"):
+            return "shell"                      # the kernel refuses it and the shell runs it
+        words = first[2:].split()
+        if not words:
+            return None
+        prog = os.path.basename(words[0])
+        if prog == "env":
+            words = [w for w in words[1:] if not w.startswith("-") and "=" not in w]
+            prog = os.path.basename(words[0]) if words else ""
+        if prog in RO_SHELL_NAMES:
+            return "shell"
+        fam = self.family(prog)
+        return fam if fam in self.INTERP else None
+
+    # -- test runners
+    def scratch_tests(self):
+        """A test file (*.test.*, *.spec.*, __tests__/) somewhere under <project>/.claude-work
+        that a JS runner would collect, else None."""
+        if hasattr(self, "_scratch_tests"):
+            return self._scratch_tests
+        found, seen = None, 0
+        dirs = [os.path.join(b, ".claude-work") for b in self.bases]
+        if self.cwd:
+            dirs.append(os.path.join(self.cwd, ".claude-work"))
+        for top in dirs:
+            for cur, subdirs, files in os.walk(top):
+                subdirs[:] = [x for x in subdirs if x not in ("node_modules", ".git")]
+                seen += len(files) + len(subdirs)
+                hit = ("__tests__" if "__tests__" in subdirs else None) or next(
+                    (f for f in files if RO_SCRATCH_TEST_RE.match(f)), None)
+                if hit:
+                    found = os.path.join(cur, hit)
+                    break
+                if seen > 20000 or time.monotonic() > self.deadline:
+                    found = os.path.join(top, "(too many files to list)")
+                    break
+            if found:
+                break
+        self._scratch_tests = found
+        return found
+
+    def collects(self, what):
+        """A JS runner walks the project for *.test.* files, dot dirs included (pytest and go
+        skip dot dirs, so ./.claude-work is safe for them)."""
+        hit = self.scratch_tests()
+        if hit:
+            return (what, "would collect test files under ./.claude-work (%s): move them out of "
+                          "the project (for example to $TMPDIR/<job>/) and name them there" % hit)
+        if self.scratch_cwd():
+            return (what, "runs from a scratch directory, whose config and tests it would load "
+                          "(run it from the project)")
+        return None
+
+    def test_operands(self, rest):
+        """Words of a test runner's command line that name existing scratch files or dirs (a
+        `path::test` or `path:line` suffix dropped); the cwd when it is scratch and none is named."""
+        out = []
+        for w in rest:
+            if w.startswith("-") or not w:
+                continue
+            p = re.sub(r"::.*\Z|:\d+\Z", "", w)
+            if not p or _expansion(self.expand(p)):
+                continue
+            if (any(c in p for c in "*?[") or os.path.exists(self.resolve(p))) and \
+                    p not in RO_DEVICES and self.scratch(p):
+                out.append(p)
+        if not out and self.scratch_cwd():
+            out.append(self.cwd or self.bases[0])
+        return out
+
+    def load_opt(self, rest, names):
+        """(option, value) of the first option in names whose value is a scratch path or lies
+        outside the project; a module name (no slash, no dot lead) counts as inside."""
+        for j, a in enumerate(rest):
+            name, eq, val = a.partition("=")
+            if name not in names:
+                continue
+            if not eq:
+                val = rest[j + 1] if j + 1 < len(rest) else ""
+            for v in val.split(","):
+                if v and (("/" in v or v[:1] in ".~") and not self.project_path(v)):
+                    return (name, v)
+        return None
+
+    def test_files(self, kind, operand, what, depth, seen):
+        """Check one scratch operand of a test runner: a file, or the files a directory holds."""
+        fam = {"py": "python", "js": "node", "native": "compiled"}[kind]
+        suffixes = {"py": (".py",), "js": RO_JS_SUFFIX, "native": (".go", ".rs")}[kind]
+        a = os.path.realpath(self.resolve(operand))
+        if any(c in operand for c in "*?["):
+            import glob
+            targets = [os.path.realpath(g) for g in sorted(glob.glob(self.resolve(operand)))[:256]]
+        else:
+            targets = [a]
+        for t in targets:
+            if os.path.isdir(t):
+                files, n = [], 0
+                for cur, subdirs, names in os.walk(t):
+                    subdirs[:] = sorted(x for x in subdirs if x not in (
+                        "node_modules", "__pycache__", ".git", ".venv", "venv"))
+                    files += [os.path.join(cur, x) for x in sorted(names) if x.endswith(suffixes)]
+                    n += len(names)
+                    if n > 4000 or len(files) > RO_FILE_SEEN:
+                        return (what, "runs a scratch directory with too many files to check")
+            else:
+                files = [t]
+            for f in files:
+                found = self.file_content(f, what, fam, depth, seen)
+                if found:
+                    return found
+            if kind == "py":
+                found = self.py_chain(files or [t], what, depth, seen)
+                if found:
+                    return found
+        return None
+
+    def py_chain(self, files, what, depth, seen):
+        """pytest imports conftest.py and __init__.py of every directory from a test file up to the
+        scratch root, and reads a config file found on the way."""
+        for f in files:
+            d = os.path.dirname(f)
+            root = self.root_of(d) or d
+            while _within(d, root):
+                for cfg in RO_PY_CONFIGS:
+                    if os.path.isfile(os.path.join(d, cfg)):
+                        return (what, "would read %s from the scratch dirs (a pytest config there "
+                                      "can load plugins and code)" % os.path.join(d, cfg))
+                for name in ("conftest.py", "__init__.py"):
+                    c = os.path.join(d, name)
+                    if os.path.isfile(c):
+                        found = self.file_content(os.path.realpath(c), what, "python", depth, seen)
+                        if found:
+                            return found
+                if d == root or d == os.path.dirname(d):
+                    break
+                d = os.path.dirname(d)
+        return None
+
+    def test_gate(self, kind, base, rest, what, depth):
+        """A test runner: options that load code or config, scratch files it would run, and (JS
+        runners) test files under ./.claude-work it would collect."""
+        if kind == "py":
+            scratch_ops = bool(self.test_operands(rest))
+            for j, a in enumerate(rest):
+                name, eq, val = a.partition("=")
+                nxt = rest[j + 1] if j + 1 < len(rest) else ""
+                if a == "-p" or (a.startswith("-p") and not a.startswith("--")):
+                    plugin = nxt if a == "-p" else a[2:].lstrip("=")
+                    # NAME is imported from sys.path, which holds the scratch test dir (and the
+                    # cwd): only -p no:NAME and plain module names beside project tests pass
+                    if not plugin.startswith("no:") and (
+                            scratch_ops or not re.fullmatch(r"[A-Za-z_][\w.]*", plugin)):
+                        return (what, "loads the plugin module %s, which may come from scratch "
+                                      "(only -p no:NAME is allowed with scratch tests)"
+                                % (plugin or "?"))
+                if name == "--import-mode" and scratch_ops:
+                    return (what, "changes how pytest puts the scratch test dir on sys.path "
+                                  "(--import-mode with a scratch path)")
+                if name == "-o" or name == "--override-ini":
+                    kv = val if eq else nxt
+                    key, _, v = kv.partition("=")
+                    if key in ("pythonpath", "confcutdir", "rootdir", "required_plugins") or \
+                            (key == "addopts" and v.strip()) or \
+                            (key == "cache_dir" and not self.scratch(v)):
+                        return (what, "overrides pytest ini option %s (it loads code or "
+                                      "writes outside scratch)" % key)
+            bad = self.load_opt(rest, RO_PY_LOAD_OPTS)
+            if bad:
+                return (what, "reads pytest config or root from %s, which is scratch or outside "
+                              "the project (%s)" % (bad[1], bad[0]))
+        elif kind == "js":
+            names = RO_JS_LOAD_OPTS | ({"-c"} if base in ("jest", "vitest") else set()) | (
+                {"-r"} if base == "mocha" else set())
+            bad = self.load_opt(rest, names)
+            if bad:
+                return (what, "loads config or code from %s, which is scratch or outside the "
+                              "project (%s)" % (bad[1], bad[0]))
+            if base in RO_JS_RUNNERS or base in ("npm", "pnpm", "yarn", "bun"):
+                found = self.collects(what)
+                if found:
+                    return found
+        elif kind == "native":
+            for j, a in enumerate(rest):
+                name, eq, val = a.partition("=")
+                nxt = rest[j + 1] if j + 1 < len(rest) else ""
+                v = val if eq else nxt
+                if base == "go" and name in ("-exec", "-toolexec", "-overlay", "-modfile",
+                                             "-vettool"):
+                    return (what, "runs or loads a program or file chosen by %s" % name)
+                if base == "cargo" and name == "--manifest-path" and not self.project_path(v):
+                    return (what, "builds a manifest outside the project (%s)" % v)
+                if base == "cargo" and name == "--config":
+                    key = v.partition("=")[0]
+                    if "=" not in v and not self.project_path(v) or re.search(
+                            r"runner|linker|rustc|wrapper|rustdoc|credential|alias|env", key):
+                        return (what, "loads cargo config that can run programs (--config %s)"
+                                % v[:60])
+        seen = set()
+        if kind in ("py", "js", "native"):
+            for op in self.test_operands(rest):
+                found = self.test_files(kind, op, what, depth, seen)
+                if found:
+                    return found
+        return None
 
     # -- commands
     def check(self, command, depth=0):
@@ -4657,6 +5013,8 @@ class _ReadOnly(object):
         name = name.rstrip("+")
         if name in RO_SAFE_VARS or (name in RO_PAGER_VARS and value in ("", "cat", "less")):
             return None
+        if name in RO_PATH_VARS and value and all(self.project_path(v) for v in value.split(":")):
+            return None
         if RO_EXEC_VAR_RE.match(name):
             return (word[:160], "sets %s, which can run commands or move programs, config or "
                                 "temp files" % name)
@@ -4715,8 +5073,8 @@ class _ReadOnly(object):
         if d in RO_SYSTEM_BIN or d in user_bins or RO_VENV_BIN_RE.search(d) or \
                 re.search(r"(?:\A|/)(?:gradlew|mvnw)\Z", head):
             return self.command([_base(head)] + args[1:], ctx, depth)
-        if self.runnable(head):
-            return None                         # built or written into scratch, or a test script
+        if self.runnable(head):                 # a scratch script is read; a binary is refused
+            return self.run_file(head, what, None, depth)
         return (what, "runs a program outside the scratch dirs and tests (run the project's "
                       "tests or linters by name)")
 
@@ -4779,6 +5137,11 @@ class _ReadOnly(object):
             return (what, "changes files or posts results (%s)" % bad[0])
         if base == "coverage":
             return self.coverage(rest, ctx, depth, what)
+        gate = "py" if base in ("pytest", "py.test") else "js" if base in RO_JS_RUNNERS else None
+        if gate:
+            found = self.test_gate(gate, base, rest, what, depth)
+            if found:
+                return found
         if base in ("grype", "syft"):                      # -o FORMAT=FILE
             for j, a in enumerate(rest):
                 if a.split("=")[0] in ("-o", "--output"):
@@ -4940,7 +5303,7 @@ class _ReadOnly(object):
                                   "--max-procs") else 1
         return self.command(rest[k:], inner_ctx, depth + 1) if rest[k:] else None
 
-    def stdin_program(self, ctx, depth, what, as_code=None):
+    def stdin_program(self, ctx, depth, what, as_code=None, fam=None):
         """A shell or interpreter reading its program on stdin: a heredoc (checked already), a
         here-string or a scratch/test file; never a pipe."""
         if ctx["piped"] or ctx["dynamic"]:
@@ -4949,20 +5312,39 @@ class _ReadOnly(object):
             found = as_code(s) if as_code else self.check(s, depth + 1)
             if found:
                 return found
-        if ctx["infile"] and not self.runnable(ctx["infile"]):
-            return (what, "runs a script outside the scratch dirs and tests")
+        if ctx["infile"]:
+            return self.run_file(ctx["infile"], what, fam or "shell", depth)
         return None
+
+    @staticmethod
+    def syntax_only(rest):
+        """A shell run with -n (or -o noexec) alone, on a file: it parses and runs nothing."""
+        k = 0
+        while k < len(rest) and rest[k][:1] == "-" and rest[k] not in ("-", "--"):
+            if rest[k] == "-n":
+                k += 1
+            elif rest[k] == "-o" and rest[k + 1:k + 2] == ["noexec"]:
+                k += 2
+            else:
+                return False
+        if rest[k:k + 1] == ["--"]:
+            k += 1
+        return k > 0 and k < len(rest) and rest[k] != "-" and rest[k][:1] != "-"
 
     def shell(self, base, rest, ctx, depth, what):
         if base == "eval":
             return self.check(" ".join(rest), depth + 1)
         if base in ("source", "."):
-            if rest and (self.runnable(rest[0]) or re.search(
-                    r"/(?:\.?venv|venvs/[^/]+)/bin/activate(?:\.\w+)?\Z", self.resolve(rest[0]))):
+            if rest and re.search(r"/(?:\.?venv|venvs/[^/]+)/bin/activate(?:\.\w+)?\Z",
+                                  self.resolve(rest[0])):
                 return None
+            if rest and self.runnable(rest[0]):
+                return self.run_file(rest[0], what, "shell", depth)
             return (what, "runs a script file outside the scratch dirs and tests in this shell")
         if base in PWSH:
             return (what, "runs PowerShell, which this check can't read")
+        if base in RO_SHELL_NAMES and self.syntax_only(rest) and not ctx["piped"]:
+            return None                         # bash -n FILE: parse only, on any file
         code, _k = _Scan.shell_code(rest)
         if code is not None:
             return self.check(code, depth + 1)
@@ -4973,8 +5355,7 @@ class _ReadOnly(object):
         if rest[k:k + 1] == ["--"]:
             k += 1
         if k < len(rest) and not stdin:
-            return None if self.runnable(rest[k]) else \
-                (what, "runs a script outside the scratch dirs and tests")
+            return self.run_file(rest[k], what, "shell", depth)
         return self.stdin_program(ctx, depth, what)
 
     # interpreters: (code flags, module flag, options that take a value, preload options)
@@ -5015,6 +5396,8 @@ class _ReadOnly(object):
         if fam not in self.INTERP:
             return (what, "is not on the read-only list")
         code_re, mod_re, value_opts, preload = self.INTERP[fam]
+        if self.syntax_check(fam, base, rest):
+            return None
         if fam in ("perl", "ruby") and any(re.match(r"-(?![MmIxCdDVrEK-])[A-Za-z0-9]*i", a)
                                            for a in rest):
             files = [a for a in rest if not a.startswith("-")][1:] if not any(
@@ -5043,15 +5426,20 @@ class _ReadOnly(object):
                                    len(a) > 2):
                 val = a.split("=", 1)[1] if "=" in a else a[2:] if a[:2] in ("-M", "-r") and \
                     len(a) > 2 else (rest[k + 1] if k + 1 < len(rest) else "")
-                if val.startswith((".", "/", "~")) and not self.runnable(val):
-                    return (what, "preloads code from outside the scratch dirs and tests")
-            if fam == "node" and a == "--test":
-                return None                     # node's test runner on the files that follow
+                if val.startswith((".", "/", "~")):
+                    found = self.run_file(val, what, fam, depth)
+                    if found:
+                        return found
+            if fam == "node" and a == "--test":     # node's test runner on the files that follow
+                return self.test_gate("js", "node", rest[k + 1:], what, depth) or (
+                    None if [x for x in rest[k + 1:] if x[:1] != "-"] else self.collects(what))
             if fam == "php" and a == "-S":
                 return (what, "starts a server")
             if fam == "php" and a == "-f" and k + 1 < len(rest):
-                return None if self.runnable(rest[k + 1]) else \
-                    (what, "runs a script outside the scratch dirs and tests")
+                return self.run_file(rest[k + 1], what, fam, depth)
+            if fam == "R" and name in ("-f", "--file"):
+                val = a.split("=", 1)[1] if "=" in a else (rest[k + 1] if k + 1 < len(rest) else "")
+                return self.run_file(val, what, fam, depth)
             if a in value_opts and "=" not in a:
                 k += 2
                 continue
@@ -5061,30 +5449,39 @@ class _ReadOnly(object):
         if inline:
             return None
         if k < len(rest) and rest[k] != "-":
-            return None if self.runnable(rest[k]) else \
-                (what, "runs a script outside the scratch dirs and tests")
-        return self.stdin_program(ctx, depth, what, lambda s: self.code(s, what, fam))
+            return self.run_file(rest[k], what, fam, depth)
+        return self.stdin_program(ctx, depth, what, lambda s: self.code(s, what, fam), fam)
+
+    @staticmethod
+    def syntax_check(fam, base, rest):
+        """node --check FILE, ruby -c FILE, php -l FILE: parse only (perl -c runs BEGIN blocks)."""
+        flag = {"node": ("--check", "-c"), "ruby": ("-c",), "php": ("-l",)}.get(fam)
+        return bool(flag) and (fam != "node" or base.startswith("node")) and \
+            len(rest) >= 2 and rest[0] in flag and all(a[:1] != "-" for a in rest[1:])
 
     def js_runtime(self, base, rest, ctx, depth, what):
         """deno and bun subcommands; "fallthrough" for bun running code like node."""
         pos = [a for a in rest if not a.startswith("-")]
         sub = pos[0] if pos else ""
         if base.startswith("deno"):
-            if sub in ("test", "lint", "check", "info", "doc", "bench") or \
+            if sub == "test":
+                after = rest[rest.index("test") + 1:]
+                return self.test_gate("js", "deno", after, what, depth) or (
+                    None if [x for x in after if x[:1] != "-"] else self.collects(what))
+            if sub in ("lint", "check", "info", "doc", "bench") or \
                     (sub == "fmt" and "--check" in rest):
                 return None
             if sub == "eval" and len(pos) > 1:
                 return self.code(pos[1], what, "node")
             if sub == "run" and len(pos) > 1:
-                return None if self.runnable(pos[1]) else \
-                    (what, "runs a script outside the scratch dirs and tests")
+                return self.run_file(pos[1], what, "node", depth)
             if sub == "task" and len(pos) > 1 and self.test_script(pos[1]):
-                return None
+                return self.collects(what)
             return (what, "is not a read-only deno command")
         if sub == "test":
-            return None
+            return self.test_gate("js", "bun", rest[rest.index("test") + 1:], what, depth)
         if sub == "run" and len(pos) > 1 and self.test_script(pos[1]):
-            return None
+            return self.collects(what)
         if sub == "x" and len(pos) > 1:
             return self.command(rest[rest.index("x") + 1:], ctx, depth + 1)
         if sub in ("install", "i", "add", "remove", "rm", "update", "link", "unlink", "upgrade",
@@ -5097,8 +5494,11 @@ class _ReadOnly(object):
         return bool(re.match(r"(?:test|tests|lint|check|typecheck|type-check|types|format:check|"
                              r"fmt:check|(?:test|lint|check):[\w:.-]+)\Z", name))
 
-    def code(self, code, what, fam="python"):
+    def code(self, code, what, fam="python", src="inline code"):
         s = re.sub(r"\b(?:sys|process)\.(?:stdout|stderr)\.write\s*\(", "print(", code or "")
+        if src != "inline code" and fam == "node":      # a test file requires its own modules
+            s = re.sub(r"\brequire\s*\(\s*['\"](?:\.{1,2}/[^'\"]*|(?:node:)?(?:assert|path|util|"
+                       r"test)(?:/strict)?|@jest/globals|vitest|mocha|chai)['\"]\s*\)", "0", s)
         bad = RO_CODE_BAD_RE.search(s) or \
             (fam in ("perl", "ruby", "php") and re.search(r"`|\bsystem\b|\bexec\b|\bopen\b", s)) or \
             (fam in ("julia", "Rscript", "R") and re.search(r"\brun\s*\(|\bsystem2?\s*\(|"
@@ -5107,9 +5507,10 @@ class _ReadOnly(object):
                                                          s)) or \
             (fam == "node" and re.search(r"\brequire\s*\(|\bimport\s*\(|\bfs\b", s))
         if bad:
-            return (what, "runs inline code that writes files, starts processes, loads modules "
-                          "or uses the network (put it in a script under ./.claude-work/<job>/ "
-                          "if it must run)")
+            return (what, "runs %s that writes files, starts processes, loads modules or uses the "
+                          "network (a script under ./.claude-work/<job>/ is read and held to "
+                          "the same rules: keep it to reading and printing, or run the "
+                          "project's own tests)" % src)
         return None
 
     def py_module(self, mod, rest, ctx, depth, what):
@@ -5120,6 +5521,10 @@ class _ReadOnly(object):
                                                     "index", "--version", "-V") \
                 else (what, "changes installed packages")
         name = {"pip_audit": "pip-audit", "detect_secrets": "detect-secrets"}.get(mod, mod)
+        if mod.split(".")[0] == "unittest":
+            found = self.test_gate("py", "unittest", rest, what, depth)
+            if found:
+                return found
         if name in RO_CHECK_ONLY or name in RO_TOOLS or name == "ruff":
             return self.command([name] + rest, ctx, depth + 1)
         return self.outputs(rest, what)
@@ -5134,7 +5539,7 @@ class _ReadOnly(object):
                     return self.py_module(rest[k + 1], rest[k + 2:], ctx, depth, what)
                 k += 2 if rest[k] in ("--rcfile", "--source", "--omit", "--include",
                                       "--data-file", "--context", "--concurrency") else 1
-            return None if k < len(rest) and self.runnable(rest[k]) else \
+            return self.run_file(rest[k], what, "python", depth) if k < len(rest) else \
                 (what, "runs a script outside the scratch dirs and tests")
         if sub in ("html", "xml", "json", "lcov", "annotate"):
             if not any(a.split("=")[0] in ("-o", "-d", "--directory") for a in rest):
@@ -5282,10 +5687,9 @@ class _ReadOnly(object):
             return None
         if base in ("npm", "pnpm", "yarn"):
             if sub in ("test", "t", "tst") or (sub in ("run", "run-script") and len(pos) > 1
-                                                and self.test_script(pos[1])):
-                return None
-            if base == "yarn" and self.test_script(sub):
-                return None
+                                                and self.test_script(pos[1])) or \
+                    (base == "yarn" and self.test_script(sub)):
+                return self.test_gate("js", base, rest, what, depth)
             if base in ("pnpm", "yarn") and sub in ("exec", "dlx"):
                 return self.command(rest[rest.index(sub) + 1:], ctx, depth + 1)
             if sub in ("ls", "list", "view", "info", "outdated", "explain", "why", "audit",
@@ -5306,6 +5710,10 @@ class _ReadOnly(object):
                 bad = sorted({"--fix", "--allow-dirty", "--allow-staged", "--bless"} & set(rest))
                 if sub in ("audit", "deny") and ("fix" in pos or "init" in pos):
                     bad = ["fix/init"]
+                if sub in ("test", "nextest") and not bad:
+                    found = self.test_gate("native", "cargo", rest, what, depth)
+                    if found:
+                        return found
                 return (what, "changes files (%s)" % bad[0]) if bad else self.outputs(rest, what)
             if sub == "fmt":
                 return None if "--check" in rest else (what, "rewrites files (use --check)")
@@ -5324,6 +5732,10 @@ class _ReadOnly(object):
                     (sub == "mod" and len(pos) > 1 and pos[1] in ("graph", "why", "verify")):
                 if sub == "env" and any(a in ("-w", "-u") for a in rest):
                     return (what, "changes go's environment file")
+                if sub == "test":               # go skips dirs that start with . or _
+                    found = self.test_gate("native", "go", rest, what, depth)
+                    if found:
+                        return found
                 return self.outputs(rest, what, {"-o", "-coverprofile", "-cpuprofile",
                                                  "-memprofile", "-blockprofile", "-trace",
                                                  "-outputdir"})
@@ -5333,7 +5745,7 @@ class _ReadOnly(object):
                 return None if o and self.scratch(o) else \
                     (what, "builds into the project (use -o ./.claude-work/<job>/bin)")
             if sub == "run":
-                return None if len(pos) > 1 and self.runnable(pos[1]) else \
+                return self.run_file(pos[1], what, "compiled", depth) if len(pos) > 1 else \
                     (what, "runs a program outside the scratch dirs and tests")
             return (what, "changes the module or installs (go %s)" % sub)
         if base in ("make", "gmake"):
@@ -5499,8 +5911,7 @@ class _ReadOnly(object):
                     return self.py_module(rest[k + 1], rest[k + 2:], ctx, depth, what)
                 k += 2 if rest[k] in opts_with_value else 1
             if k < len(rest) and re.search(r"\.pyw?\Z", rest[k]):
-                return None if self.runnable(rest[k]) else \
-                    (what, "runs a script outside the scratch dirs and tests")
+                return self.run_file(rest[k], what, "python", depth)
             return self.command(rest[k:], ctx, depth + 1) if rest[k:] else \
                 (what, "opens a REPL")
         if sub in ("tree", "audit", "help") or rest[:1] in (["--version"], ["-V"]):

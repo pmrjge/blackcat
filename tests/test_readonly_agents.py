@@ -104,8 +104,8 @@ notes
 EOF
 cat file | python3 -m json.tool
 /usr/bin/python3 -m json.tool x.json
-python3 .claude-work/j/check.py
-bash .claude-work/j/run.sh
+bash -n bin/tool.sh
+node --check src/index.js
 gh pr view 12 --json title
 gh -R o/r pr view 1
 gh api repos/o/r/pulls
@@ -323,6 +323,311 @@ def test_readonly_commands_pass(command):
 def test_mutating_commands_refused(command):
     got = G.readonly_violation(command, EV)
     assert got and got[1], command
+
+
+# ---------------------------------------------------------------- scratch files that run (T2)
+@pytest.fixture
+def proj():
+    """A project dir outside the temp dirs (which are all scratch) with a few project files."""
+    import shutil
+    d = ROOT / (".ro-fixture-" + uuid.uuid4().hex[:8])
+    (d / "src").mkdir(parents=True)
+    (d / "tests").mkdir()
+    (d / "src" / "x.sh").write_text("echo hi\n")
+    (d / "src" / "x.pl").write_text("print 1;\n")
+    (d / "tests" / "test_p.py").write_text("def test_p():\n    assert 1\n")
+    yield d
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def put(proj, rel, data):
+    p = proj / rel
+    p.parent.mkdir(parents=True, exist_ok=True)
+    if isinstance(data, bytes):
+        p.write_bytes(data)
+    else:
+        p.write_text(data)
+    return rel
+
+
+def viol(proj, command):
+    return G.readonly_violation(command, {"cwd": str(proj)})
+
+
+PY_WRITER = "open('src/a.py', 'w').write('x')\n"
+PY_READER = "import json\nprint(json.dumps({'a': 1}))\nprint(open('src/x.sh').read())\n"
+SH_WRITER = "echo x > src/a.py\n"
+SH_READER = "ls src | head -3\ncat src/x.sh\n"
+PY_TEST_OK = "def test_a():\n    assert 1 + 1 == 2\n"
+
+
+@pytest.mark.parametrize("command,name,body", [
+    ("python3 {f}", "w.py", PY_WRITER),
+    ("python {f}", "w.py", PY_WRITER),
+    ("uv run {f}", "w.py", PY_WRITER),
+    ("uv run python {f}", "w.py", PY_WRITER),
+    ("python3 < {f}", "w.py", PY_WRITER),
+    ("coverage run {f}", "w.py", PY_WRITER),
+    ("bash {f}", "w.sh", SH_WRITER),
+    ("sh {f}", "w.sh", SH_WRITER),
+    ("zsh {f}", "w.sh", SH_WRITER),
+    ("bash < {f}", "w.sh", SH_WRITER),
+    ("source {f}", "w.sh", SH_WRITER),
+    (". {f}", "w.sh", SH_WRITER),
+    ("./{f}", "w.sh", "#!/bin/sh\necho x > src/a.py\n"),
+    ("./{f}", "w.py", "#!/usr/bin/env python3\n" + PY_WRITER),
+    ("node {f}", "w.js", "require('fs').writeFileSync('src/a', 'x')\n"),
+    ("ruby {f}", "w.rb", "File.open('src/a', 'w') { |f| f.puts 1 }\n"),
+    ("php -f {f}", "w.php", "<?php file_put_contents('src/a', 'x');\n"),
+    ("perl {f}", "w.pl", "open(F, '>src/a'); print F 1;\n"),
+    ("Rscript {f}", "w.R", "writeLines('x', 'src/a')\n"),
+    ("julia {f}", "w.jl", "write(\"src/a\", \"x\")\n"),
+    ("lua {f}", "w.lua", "os.remove('src/a')\n"),
+    ("pytest {f}", "test_w.py", "def test_w():\n    open('src/a', 'w').write('x')\n"),
+    ("python -m pytest -q {f}", "test_w.py", "import os\ndef test_w():\n    os.remove('a')\n"),
+    ("uv run pytest {f}", "test_w.py", "def test_w():\n    open('a', 'w').write('x')\n"),
+    ("python -m unittest {f}", "test_w.py", "import os\nos.remove('a')\n"),
+    ("bash {f}", "w.sh", "python3 -c \"open('src/a','w').write('x')\"\n"),
+    ("bash {f}", "w.sh", "cd src\nrm -rf .\n"),
+])
+def test_scratch_file_that_writes_is_refused(proj, command, name, body):
+    f = put(proj, ".claude-work/j/" + name, body)
+    got = viol(proj, command.format(f=f))
+    assert got and got[1], command
+
+
+def test_scratch_script_that_runs_a_script_is_read_too(proj):
+    put(proj, ".claude-work/j/inner.sh", SH_WRITER)
+    put(proj, ".claude-work/j/outer.sh", "bash .claude-work/j/inner.sh\n")
+    assert viol(proj, "bash .claude-work/j/outer.sh")
+    put(proj, ".claude-work/j/helper.py", PY_WRITER)
+    put(proj, ".claude-work/j/main.py", "import helper\nprint(1)\n")
+    got = viol(proj, "python3 .claude-work/j/main.py")
+    assert got and "helper.py" in got[1]
+
+
+@pytest.mark.parametrize("command,name,body", [
+    ("python3 {f}", "r.py", PY_READER),
+    ("uv run {f}", "r.py", PY_READER),
+    ("python3 < {f}", "r.py", PY_READER),
+    ("coverage run {f}", "r.py", PY_READER),
+    ("bash {f}", "r.sh", SH_READER),
+    ("source {f}", "r.sh", SH_READER),
+    ("bash < {f}", "r.sh", SH_READER),
+    ("./{f}", "r.sh", "#!/bin/bash\n" + SH_READER),
+    ("./{f}", "r.py", "#!/usr/bin/env python3\n" + PY_READER),
+    ("node {f}", "r.js", "console.log(JSON.stringify({a: 1}))\n"),
+    ("pytest -q {f}", "test_r.py", PY_TEST_OK),
+    ("python -m pytest -q -p no:cacheprovider {f}", "test_r.py", PY_TEST_OK),
+    ("python -m unittest {f}", "test_r.py", "import unittest\nprint(1)\n"),
+])
+def test_scratch_file_that_only_reads_is_allowed(proj, command, name, body):
+    f = put(proj, ".claude-work/j/" + name, body)
+    assert viol(proj, command.format(f=f)) is None, command
+
+
+def test_scratch_binary_is_refused(proj):
+    put(proj, ".claude-work/j/prog", b"\x7fELF\x02\x01\x01\x00" + b"\x00" * 64)
+    for cmd in ("./.claude-work/j/prog", "bash .claude-work/j/prog",
+                "python3 .claude-work/j/prog"):
+        got = viol(proj, cmd)
+        assert got and "built in the scratch dirs" in got[1], cmd
+    put(proj, ".claude-work/j/latin.py", b"print('caf\xe9')\n")           # not UTF-8
+    got = viol(proj, "python3 .claude-work/j/latin.py")
+    assert got and "built in the scratch dirs" in got[1]
+
+
+def test_scratch_file_too_big_or_missing_is_refused(proj):
+    put(proj, ".claude-work/j/big.py", "print(1)\n" + "#" * (G.RO_FILE_MAX + 1))
+    got = viol(proj, "python3 .claude-work/j/big.py")
+    assert got and "too big" in got[1]
+    put(proj, ".claude-work/j/ok.py", "print(1)\n" + "#" * 1000)
+    assert viol(proj, "python3 .claude-work/j/ok.py") is None
+    assert viol(proj, "python3 .claude-work/j/missing.py")
+    assert viol(proj, "bash .claude-work/j/*.nothing")
+    (proj / ".claude-work" / "j" / "dir.py").mkdir()
+    assert viol(proj, "python3 .claude-work/j/dir.py")
+
+
+def test_project_test_files_still_run(proj):
+    assert viol(proj, "python3 tests/test_p.py") is None
+    assert viol(proj, "pytest -q tests/test_p.py") is None
+    assert viol(proj, "uv run pytest -q tests/") is None
+    assert viol(proj, "python3 src/x.py")                    # not a test file: refused
+
+
+def test_the_advice_no_longer_promises_scratch_scripts_may_write(proj):
+    got = viol(proj, "python3 -c \"open('a','w').write('x')\"")
+    assert got and "same rules" in got[1] and "if it must run" not in got[1]
+
+
+@pytest.mark.parametrize("extra", ["-p evil", "-pevil", "-p=evil", "-c .claude-work/j/p.ini",
+                                   "--config-file=.claude-work/j/p.ini", "--rootdir .claude-work/j",
+                                   "--rootdir=/tmp/x", "--confcutdir=.claude-work/j",
+                                   "-o pythonpath=.claude-work/j", "--override-ini=addopts=-pevil",
+                                   "--import-mode=importlib"])
+def test_pytest_options_that_load_code_are_refused(proj, extra):
+    f = put(proj, ".claude-work/j/test_ok.py", PY_TEST_OK)
+    assert viol(proj, "pytest %s %s" % (extra, f)), extra
+    assert viol(proj, "python -m pytest %s %s" % (extra, f)), extra
+
+
+def test_pytest_options_that_stay_allowed(proj):
+    f = put(proj, ".claude-work/j/test_ok.py", PY_TEST_OK)
+    for cmd in ("pytest -p no:cacheprovider %s", "pytest -o addopts='' %s",
+                "pytest -q -x -k a %s::test_a", "pytest -p no:randomly -q %s"):
+        assert viol(proj, cmd % f) is None, cmd
+    assert viol(proj, "pytest -p xdist -n 2 tests/") is None      # plain module, project tests
+    assert viol(proj, "pytest -c pyproject.toml tests/") is None
+
+
+def test_pytest_conftest_config_and_init_beside_scratch_tests(proj):
+    f = put(proj, ".claude-work/j/sub/test_ok.py", PY_TEST_OK)
+    assert viol(proj, "pytest -q " + f) is None
+    put(proj, ".claude-work/j/conftest.py", "import os\nos.remove('x')\n")
+    got = viol(proj, "pytest -q " + f)
+    assert got and "conftest.py" in got[1]
+    (proj / ".claude-work/j/conftest.py").unlink()
+    put(proj, ".claude-work/j/pytest.ini", "[pytest]\naddopts = -p evil\n")
+    got = viol(proj, "pytest -q " + f)
+    assert got and "pytest.ini" in got[1]
+    (proj / ".claude-work/j/pytest.ini").unlink()
+    put(proj, ".claude-work/j/sub/__init__.py", "import os\nos.remove('x')\n")
+    assert viol(proj, "pytest -q " + f)
+    # a whole scratch directory: every test file in it is read
+    (proj / ".claude-work/j/sub/__init__.py").unlink()
+    put(proj, ".claude-work/j/sub/test_bad.py", "import os\ndef test_b():\n    os.remove('x')\n")
+    assert viol(proj, "pytest -q .claude-work/j/")
+    assert viol(proj, "pytest -q .claude-work/j/sub/test_ok.py .claude-work/j/sub/test_bad.py")
+
+
+def test_scratch_cwd_is_treated_as_the_operand(proj):
+    put(proj, ".claude-work/j/test_bad.py", "import os\ndef test_b():\n    os.remove('x')\n")
+    assert viol(proj, "cd .claude-work/j && pytest -q")
+    assert viol(proj, "cd .claude-work/j && pytest -q -p evil")
+    assert viol(proj, "cd .claude-work/j && npm test")
+
+
+@pytest.mark.parametrize("command", [
+    "jest", "npx jest", "vitest run", "mocha", "ava", "npm test", "npm run test:unit",
+    "pnpm test", "yarn test", "bun test", "node --test", "npm run test -- --coverage",
+])
+def test_js_runners_refuse_scratch_test_files_in_the_project(proj, command):
+    assert viol(proj, command) is None                       # nothing to collect yet
+    put(proj, ".claude-work/j/probe.test.js", "test('x', () => {})\n")
+    got = viol(proj, command)
+    assert got and "move them out of the project" in got[1], command
+
+
+@pytest.mark.parametrize("rel", ["j/a.spec.ts", "j/__tests__/a.js", "deep/er/b.test.mjs"])
+def test_js_collect_patterns(proj, rel):
+    assert viol(proj, "npm test") is None
+    put(proj, ".claude-work/" + rel, "x\n")
+    assert viol(proj, "npm test")
+
+
+def test_other_runners_skip_dot_dirs_and_stay_allowed(proj):
+    # pytest (norecursedirs has .*) and go (ignores dirs starting with . or _) never collect
+    # ./.claude-work, so test files there don't block them
+    put(proj, ".claude-work/j/probe.test.js", "test('x', () => {})\n")
+    put(proj, ".claude-work/j/test_ok.py", PY_TEST_OK)
+    for cmd in ("pytest -q", "uv run pytest -q tests/", "go test ./...", "cargo test",
+                "python -m pytest -q tests/", "make test"):
+        assert viol(proj, cmd) is None, cmd
+
+
+@pytest.mark.parametrize("extra", [
+    "--config .claude-work/j/jest.config.js", "--config=/tmp/j/jest.config.js",
+    "--setupFiles .claude-work/j/s.js", "--setupFilesAfterEach=/tmp/s.js",
+    "--globalSetup=.claude-work/j/g.js", "-c /tmp/x/vitest.config.js",
+])
+@pytest.mark.parametrize("runner", ["jest", "vitest run"])
+def test_js_runner_options_that_load_scratch_code_are_refused(proj, runner, extra):
+    got = viol(proj, "%s %s" % (runner, extra))
+    assert got and "scratch or outside the project" in got[1]
+
+
+def test_js_runner_options_inside_the_project_pass(proj):
+    assert viol(proj, "jest --config jest.config.js") is None
+    assert viol(proj, "vitest run -c vite.config.ts --reporter verbose") is None
+    assert viol(proj, "jest --preset ts-jest") is None
+
+
+def test_native_runners_and_scratch_sources(proj):
+    put(proj, ".claude-work/j/main.go", "package main\nimport \"os/exec\"\nfunc main() { exec.Command(\"rm\") }\n")
+    assert viol(proj, "go run .claude-work/j/main.go")
+    assert viol(proj, "go test .claude-work/j/")
+    assert viol(proj, "go test -exec ./evil ./...")
+    assert viol(proj, "cargo test --manifest-path .claude-work/j/Cargo.toml")
+    assert viol(proj, "cargo test --config 'target.x.runner=\"sh\"'")
+    put(proj, ".claude-work/k/ok_test.go", "package k\nfunc TestOk() {}\n")
+    assert viol(proj, "go test .claude-work/k/") is None
+    assert viol(proj, "cargo test --lib") is None
+
+
+@pytest.mark.parametrize("assign", [
+    "PYTHONPATH=.claude-work/j", "PYTHONPATH=src:.claude-work/j", "PYTHONPATH=/tmp/evil",
+    "PYTHONPATH=$X", "PYTHONUSERBASE=/tmp/u", "NODE_OPTIONS=--require=x", "RUBYLIB=/tmp/r",
+    "JULIA_LOAD_PATH=/tmp/j", "JULIA_DEPOT_PATH=/tmp/j", "R_LIBS=/tmp/r", "R_LIBS_USER=/tmp/r",
+    "R_PROFILE_USER=/tmp/r", "LUA_PATH=/tmp/?.lua", "LUA_CPATH=/tmp/?.so", "PERL5LIB=/tmp/p",
+    "PYTEST_ADDOPTS=-pevil", "PYTEST_PLUGINS=evil",
+])
+def test_search_path_variables_are_refused(proj, assign):
+    assert viol(proj, "%s pytest -q tests/" % assign)
+    assert viol(proj, "env %s pytest -q tests/" % assign)
+
+
+def test_pythonpath_naming_project_dirs_passes(proj):
+    assert viol(proj, "PYTHONPATH=src pytest -q tests/") is None
+    assert viol(proj, "PYTHONPATH=src:tests env pytest -q") is None
+
+
+# ---------------------------------------------------------------- syntax-only checks (F5)
+@pytest.mark.parametrize("command", [
+    "bash -n src/x.sh", "sh -n src/x.sh", "zsh -n src/x.sh", "dash -n src/x.sh",
+    "ksh -n src/x.sh", "bash -o noexec src/x.sh", "bash -n -o noexec src/x.sh",
+    "bash -n -- src/x.sh", "/bin/bash -n src/x.sh", "bash -n .claude-work/j/z.sh",
+    "node --check src/index.js", "node -c src/index.js", "node --check a.js b.js",
+    "ruby -c src/x.rb", "php -l src/x.php", "bash -n bin/a.sh bin/b.sh",
+])
+def test_syntax_only_checks_are_allowed(proj, command):
+    assert viol(proj, command) is None, command
+
+
+@pytest.mark.parametrize("command", [
+    "bash -n -c 'rm x'", "bash -n -c 'echo hi > src/a'", "bash -c 'rm x'",
+    "bash -x src/x.sh", "bash -n -x src/x.sh", "bash -nx src/x.sh", "bash -v src/x.sh",
+    "bash src/x.sh", "bash -n - < src/x.sh", "bash -o pipefail src/x.sh",
+    "perl -c src/x.pl", "perl -c -e 'BEGIN { unlink q(x) }'", "perl -wc src/x.pl",
+    "node src/index.js", "node --check -r ./evil.js src/index.js", "node -e 'require(\"fs\")'",
+    "ruby src/x.rb", "ruby -c -r ./evil src/x.rb", "php src/x.php", "php -l -d x=1 src/x.php",
+    "bash -n src/x.sh; rm x",
+])
+def test_syntax_check_lookalikes_stay_refused(proj, command):
+    got = viol(proj, command)
+    assert got and got[1], command
+
+
+def test_linters_and_compilers_stay_allowed(proj):
+    for cmd in ("python -m py_compile src/x.py", "shellcheck src/x.sh", "python3 -m json.tool a.json",
+                "uv run pytest -q tests/", "npm test", "cargo test", "ruff check ."):
+        assert viol(proj, cmd) is None, cmd
+
+
+def test_hook_denies_scratch_writer_for_reviewers():
+    """End to end: the hook refuses a reviewer's run of a scratch script that writes."""
+    import shutil
+    d = ROOT / (".ro-fixture-" + uuid.uuid4().hex[:8])
+    try:
+        put(d, ".claude-work/j/w.py", PY_WRITER)
+        env = Env()
+        ev = env.base("PreToolUse", tool_name="Bash", tool_use_id="toolu_" + uuid.uuid4().hex[:12],
+                      agent_id="a" + uuid.uuid4().hex[:8], agent_type="code-reviewer",
+                      tool_input={"command": "python3 .claude-work/j/w.py"}, cwd=str(d))
+        r = env.run(ev, args=("no-push",))
+        assert r.decision == "deny" and "read-only rule" in r.reason, r
+    finally:
+        shutil.rmtree(d, ignore_errors=True)
 
 
 def test_types_are_the_reviewers():
