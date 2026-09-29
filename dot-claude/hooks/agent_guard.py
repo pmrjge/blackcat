@@ -3649,8 +3649,37 @@ def _r2_installer(scan, path):
 
 
 def _r2_scratch_env(scan):
-    env = scan.__dict__.get("_r2_env") or {}
-    return bool(env.get("HOME") and env.get("CLAUDE_CONFIG_DIR"))
+    """HOME and CLAUDE_CONFIG_DIR are both certainly under a temp root, and nothing earlier in the
+    command creates links or moves directories (a link made in the same command is invisible to
+    the realpath check: `ln -s /Users /tmp/q && HOME=/tmp/q/me ... ./install.sh`)."""
+    st = scan.__dict__
+    env = st.get("_r2_env") or {}
+    return bool(env.get("HOME") and env.get("CLAUDE_CONFIG_DIR")) and not st.get("_r2_links")
+
+
+R2_LINK_CMDS = {"ln", "mv", "tar", "unzip", "ditto", "cpio", "pax", "gtar", "bsdtar", "link",
+                "symlink"}
+
+
+def _r2_makes_links(base, args):
+    """A command that can put a link (or a moved directory) in place: ln, mv, cp/rsync that keep
+    or make links, archive extractors, or an interpreter one-liner that names symlink/link."""
+    if base in R2_LINK_CMDS:
+        return True
+    if base in ("cp", "gcp", "rsync"):
+        return any(a[:1] == "-" and (a[:2] == "--" or re.search(r"[slLRrapPHK]", a)) for a in args)
+    return any(re.search(r"symlink|\blink\s*\(|os\.link|\bln\b|File\.link|rename", a)
+               for a in args if re.search(r"\s", a))
+
+
+def _r2_repo_has_installer(scan):
+    """Some directory the command may run in holds the stack's install.sh and lib/install_state.py
+    (or the directory is unknown)."""
+    if scan.__dict__.get("_r2_cd_opaque"):
+        return True
+    return any(os.path.isfile(os.path.join(b, "install.sh")) and
+               os.path.isfile(os.path.join(b, "lib", "install_state.py"))
+               for b in _r2_bases(scan))
 
 
 def _r2_install(scan, target, rest):
@@ -3679,8 +3708,9 @@ def _r2_state(scan, path, rest):
     if sub == "" or sub in R2_STATE_READ or (sub == "legacy-backups" and a[2:3] == ["list"]):
         return None
     if sub == "plan":
-        return None if len(a) < 4 or _r2_tmp_ok(a[3], env) else ("install", "install_state.py plan")
-    if a and _r2_tmp_ok(a[0], env):
+        return None if len(a) < 4 or (_r2_tmp_ok(a[3], env) and not scan.__dict__.get("_r2_links")) \
+            else ("install", "install_state.py plan")
+    if a and _r2_tmp_ok(a[0], env) and not scan.__dict__.get("_r2_links"):
         return None
     return ("install", "install_state.py %s" % sub)
 
@@ -3767,14 +3797,21 @@ def _r2_scan(scan, w, base, words, i, end, restore, here_cmd):
                 if a[:1] != "-" and not re.search(r"\s", a) and _base(a) == "install_state.py":
                     found = _r2_state(scan, a, args[k + 1:])
                     break
-        if not found and (base in R2_DATA_CMDS or base in SHELLS or base in ("eval", "source", ".")):
-            args = _plain_args([restore(x) for x in words[i + 1:end]])
+        if not found:
+            raw = [restore(x) for x in words[i + 1:end]]
+            args = _plain_args(raw)
             st = scan.__dict__
-            if base in R2_DATA_CMDS and any(
-                    a[:1] != "-" and _base(a) == "install.sh" and _r2_installer(scan, a)
-                    for a in args):
+            is_shell = base in SHELLS or base in ("eval", "source", ".")
+            if _r2_makes_links(base, raw):
+                st["_r2_links"] = True
+            # any other program with an argument naming install.sh (git show HEAD:install.sh, a URL,
+            # open('install.sh') in python -c ...) reads or fetches it as data
+            if not is_shell and base != "install.sh" and (
+                    any(a[:1] != "-" and _base(a) == "install.sh" and _r2_installer(scan, a)
+                        for a in args) or
+                    (any("install.sh" in a for a in raw) and _r2_repo_has_installer(scan))):
                 st["_r2_data"] = True
-            if base in SHELLS or base in ("eval", "source", "."):
+            if is_shell:
                 st["_r2_run"] = st.get("_r2_run") or _r2_shell_runs(scan, base, args)
             found = _r2_data_and_run(scan, "install.sh used as data and run by a shell")
     return scan.hit(*found) if found else None
