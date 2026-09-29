@@ -138,6 +138,16 @@ def c1_deletes(cfg):
         "node -e \"require('fs').rmSync('{c}/agents',{{recursive:true}})\"",
         "python3 - <<'EOF'\nimport os\nos.remove('{c}/settings.json')\nEOF",
         "bash -c 'rm -rf {c}/skills'",
+        # review of Part A: interpreters outside the first trigger list, and their write idioms
+        "julia -e 'rm(\"{c}/settings.json\")'",
+        "julia -e 'write(\"{c}/hooks/agent_guard.py\", \"x\")'",
+        "lua -e 'os.remove(\"{c}/settings.json\")'",
+        "luajit -e 'io.output(\"{c}/settings.json\")'",
+        "Rscript -e 'file.remove(\"{c}/settings.json\")'",
+        "Rscript -e 'cat(1, file=\"{c}/settings.json\")'",
+        "Rscript -e 'write.csv(x, \"{c}/agents/a.md\")'",
+        "Rscript -e 'writeLines(\"x\", \"{c}/rules/r.md\")'",
+        "php -r 'file_put_contents(\"{c}/settings.json\", \"x\");'",
     ]
 
 
@@ -157,6 +167,22 @@ def test_c1_hook_state_dir_protected(installed, tmp_path):
                 "mv %s/s1 /tmp/y" % st, "find %s -delete" % st.parent]:
         got = g.protected_write_in(cmd, {"cwd": str(proj)})
         assert got and got[0] == "protect", cmd
+
+
+def test_installer_backups_protected(installed, tmp_path):
+    """install.sh keeps its backups beside the state dir (the guard prunes idle state folders);
+    agents can neither change them through Bash nor read them through the tools or the sandbox."""
+    g, cfg, proj = installed
+    bk = tmp_path / "state" / "claude-agent-stack-backups"
+    assert g.backup_root() == str(bk)
+    for cmd in ["rm -rf %s" % bk, "echo x > %s/20260101-000000-abc/files/settings.json" % bk,
+                "mv %s/20260101-000000-abc /tmp/y" % bk, "chmod -R 777 %s" % bk]:
+        got = g.protected_write_in(cmd, {"cwd": str(proj)})
+        assert got and got[0] == "protect", cmd
+    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    assert {"Read(/__STACK_BACKUPS__/**)", "Edit(/__STACK_BACKUPS__/**)"} <= set(s["permissions"]["deny"])
+    fs = s["sandbox"]["filesystem"]
+    assert "__STACK_BACKUPS__" in fs["denyRead"] and "__STACK_BACKUPS__" in fs["denyWrite"]
 
 
 def run_hook(installed_hook_path, command, **env):
@@ -226,7 +252,7 @@ def test_settings_sandbox_block():
     for lst in ("allowWrite", "denyWrite", "denyRead"):
         assert len(fs[lst]) == len(set(fs[lst])), lst
         for p in fs[lst]:
-            assert p.startswith(("~/", "__CLAUDE_DIR__")), p
+            assert p.startswith(("~/", "__CLAUDE_DIR__", "__STACK_BACKUPS__")), p
     net = sb["network"]
     assert net["strictAllowlist"] is True
     doms = net["allowedDomains"]

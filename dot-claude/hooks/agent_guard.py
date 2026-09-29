@@ -357,6 +357,11 @@ def state_root():
     return os.path.join(base, "claude-agent-stack")
 
 
+def backup_root():
+    """install.sh's backups: beside the state dir (whose idle folders SessionStart deletes)."""
+    return state_root() + "-backups"
+
+
 def sdir(session_id):
     d = os.path.join(state_root(), safe(session_id, "nosession"))
     os.makedirs(d, exist_ok=True)
@@ -2943,7 +2948,7 @@ INSTALLER_SCRIPTS = {"install.sh", "doctor.sh"}
 PROTECT_TRIGGER_RE = re.compile(
     r">|\b(?:cp|mv|tee|dd|sed|gsed|perl|install|rsync|ditto|rm|unlink|rmdir|shred|truncate|ln|"
     r"chmod|chown|chflags|touch|find|xargs|parallel|tar|unzip|cd|pushd|python[\d.]*|pypy[\d.]*|"
-    r"node|nodejs|ruby|php|deno|bun|osascript)\b")
+    r"node|nodejs|ruby|php|deno|bun|osascript|lua|luajit|julia|Rscript)[\d.]*\b")
 PROTECT_WRITE_CMDS = {"cp", "mv", "install", "rsync", "ditto", "tee", "dd", "sed", "gsed", "perl",
                       "rm", "unlink", "rmdir", "shred", "truncate", "ln", "chmod", "chown",
                       "chflags", "touch", "find", "tar", "unzip"}
@@ -2964,7 +2969,13 @@ MUTATE_CODE_RE = re.compile(
     r"copyFileSync|move|touch|utime|system|popen)\s*\(|\bos\.replace\s*\(|"
     r"\bopen\s*\([^)]*,\s*['\"][^'\"]*[wax+]|\bopen\s*\(?\s*\w+\s*,\s*['\"]\s*(?:>|\+<|\|)|"
     r"\bunlink\b|\brename\b|subprocess|child_process|File\.(?:delete|write|rename|unlink)|"
-    r"FileUtils", re.I)
+    r"FileUtils|"
+    # R: cat(..., file=), write.csv/write.table/..., writeLines, saveRDS, sink, file.copy/create/
+    # append; Julia: rm, cp, mv, mkpath, write; Lua: io.output; PHP: fopen, fwrite,
+    # file_put_contents
+    r"\bcat\s*\([^)]*\bfile\s*=|\bwrite\.\w+\s*\(|\bfile\.(?:copy|create|append|remove)\s*\(|"
+    r"\b(?:rm|cp|mv|mkpath|write|writeLines|saveRDS|sink|fopen|fwrite|file_put_contents)\s*\(|"
+    r"\bio\.output\s*\(", re.I)
 CODE_LITERAL_RE = re.compile(r"'''(.*?)'''|\"\"\"(.*?)\"\"\"|'([^'\n]*)'|\"([^\"\n]*)\"", re.S)
 # ... nor a command the shell only knows at run time: `$G push`, pwsh -EncodedCommand, a
 # decoded pipeline into a shell (base64 -d | sh)
@@ -3625,9 +3636,10 @@ def _heredoc_interpreter(owner):
 
 def builtin_protect_specs():
     """`//abs` deny specs for the stack's own files in an installed config dir (the hook lives in
-    <config>/hooks/; the repo's dot-claude/ still holds __CLAUDE_DIR__ and is skipped) and for the
-    hook state dir. Backs up the settings.json deny rules the protect scan reads."""
-    specs = [("/" + os.path.join(state_root(), "**"), ())]
+    <config>/hooks/; the repo's dot-claude/ still holds __CLAUDE_DIR__ and is skipped), for the
+    hook state dir and for install.sh's backups. Backs up the settings.json deny rules the protect
+    scan reads."""
+    specs = [("/" + os.path.join(state_root(), "**"), ()), ("/" + os.path.join(backup_root(), "**"), ())]
     conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         with open(os.path.join(conf, "settings.json"), encoding="utf-8") as f:
@@ -5487,8 +5499,8 @@ class _ReadOnly(object):
                     (what, "runs a script outside the scratch dirs and tests")
             return self.command(rest[k:], ctx, depth + 1) if rest[k:] else \
                 (what, "opens a REPL")
-        if sub in ("tree", "help") or rest[:1] in (["--version"], ["-V"]):
-            return None
+        if sub in ("tree", "audit", "help") or rest[:1] in (["--version"], ["-V"]):
+            return None                      # tree/audit read uv.lock (as `uv lock` may refresh it)
         if sub == "version":
             return (what, "changes the project version") if any(
                 a.split("=")[0] in ("--bump", "--set") for a in rest) or len(pos) > 1 else None

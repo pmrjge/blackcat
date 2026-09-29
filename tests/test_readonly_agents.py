@@ -130,6 +130,10 @@ unzip -l a.zip
 sqlite3 -readonly -safe db.sqlite 'select 1'
 uv lock --check
 uv tree
+uv audit
+trufflehog filesystem .
+cargo deny check
+claude mcp get exa
 '''
 
 WRITES = r'''
@@ -277,6 +281,12 @@ rg --pre 'sh -c' foo
 sort --compress-program=sh x
 bun install
 deno run -A scripts/x.ts
+Rscript -e 'cat(1, file="src/x.R")'
+Rscript -e 'write.table(x, "out.tsv")'
+julia -e 'rm("src/x.jl")'
+julia -e 'cp("a", "b")'
+lua -e 'os.remove("x")'
+php -r 'file_put_contents("x", "y");'
 '''
 
 
