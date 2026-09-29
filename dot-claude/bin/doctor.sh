@@ -658,6 +658,42 @@ else:
     print("  ok    frontmatter lint clean (no Haiku models, color, memory, deprecated Task tools)")
 PY
 
+echo "== GitHub credentials agents could use (presence only: no value is printed)"
+# R3-N1-P2. Sandboxed Bash turns git's credential helpers off (session-env: credential.helper=), but a
+# token in the environment, gh's own login and a plain-text credential file are what an agent's gh, or
+# git over HTTPS, would still authenticate with. Least privilege: none, or a read-only fine-grained
+# token in a GH_CONFIG_DIR of its own; push over SSH from your own terminal.
+creds=0
+for v in GH_TOKEN GITHUB_TOKEN GH_ENTERPRISE_TOKEN GITHUB_ENTERPRISE_TOKEN; do
+  if [ -n "${!v:+x}" ]; then
+    creds=1
+    warn "$v is set in this environment: sandboxed Bash doesn't get it (sandbox.credentials), but hooks, MCP servers and other unsandboxed processes Claude Code starts do; use a read-only fine-grained token, or unset it before starting claude"
+  fi
+done
+ghdir="${GH_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/gh}"
+if grep -qsE '^[[:space:]]*oauth_token:[[:space:]]*[^[:space:]]' "$ghdir/hosts.yml"; then
+  creds=1
+  warn "gh keeps a token in plain text in $ghdir/hosts.yml: unsandboxed processes can read it (sandboxed Bash is denied only ~/.config/gh/hosts.yml); log gh in with a read-only fine-grained token"
+fi
+if grep -qs 'github\.com' "$HOME/.git-credentials"; then
+  creds=1
+  warn "$HOME/.git-credentials holds a github.com credential in plain text (credential-store): sandboxed Bash can't read it, git outside the sandbox uses it; prefer SSH for pushes"
+fi
+if [ "$(uname)" = "Darwin" ] && have security; then
+  # attribute searches only (no -g/-w): the secret is never read and no keychain prompt appears
+  for q in "generic-password gh:github.com gh's github.com login (keychain service gh:github.com): an agent's gh can use it wherever the keychain is reachable; log gh in with a read-only fine-grained token" \
+           "internet-password github.com a github.com password in the keychain (git's osxkeychain helper): off in sandboxed Bash, used by git outside it; keep write-capable HTTPS credentials out of it"; do
+    kind="${q%% *}"; rest="${q#* }"; svc="${rest%% *}"; what="${rest#* }"
+    security "find-$kind" -s "$svc" >/dev/null 2>&1; rc=$?
+    case "$rc" in
+      0) creds=1; warn "$what" ;;
+      44) ;;                                              # errSecItemNotFound
+      *) warn "couldn't check the keychain for $svc (security exit $rc)" ;;
+    esac
+  done
+fi
+[ "$creds" = 0 ] && ok "no GitHub token in the environment, gh's hosts.yml, ~/.git-credentials or the keychain"
+
 echo "== Platform"
 if [ "$(uname)" = "Darwin" ]; then
   if [ -f "$C/mcp/vendor/after-effects-mcp/build/index.js" ]; then ok "After Effects MCP built"

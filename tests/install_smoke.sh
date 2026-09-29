@@ -610,6 +610,18 @@ budget=$(python3 -c 'import json, sys; print(int(1000000 * 3 * json.load(open(sy
 printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1)) skills, ~[0-9]+ of $budget characters" \
   && pass "doctor.sh: skill listing within its budget" || failed "doctor.sh: skill listing line: $(printf '%s\n' "$out" | grep 'skill listing')"
 printf '%s\n' "$out" | grep -q "exa-from-stack-env" && failed "doctor.sh printed a key value" || pass "doctor.sh never prints key values"
+# GitHub credentials agents could use: reported by presence, never by value (its own HOME: no real file)
+T3C="$(scratch_dir)" || exit 1
+mkdir -p "$T3C/gh"; printf 'github.com:\n    oauth_token: gho_SMOKESECRET2\n    user: x\n' > "$T3C/gh/hosts.yml"
+printf 'https://x:SMOKESECRET3@github.com\n' > "$T3C/.git-credentials"
+outc=$(HOME="$T3C" GH_CONFIG_DIR="$T3C/gh" GH_TOKEN=SMOKESECRET1 CLAUDE_CONFIG_DIR="$T3" bash "$T3/bin/doctor.sh" 2>&1)
+printf '%s\n' "$outc" | grep -q 'WARN  GH_TOKEN is set in this environment' \
+  && printf '%s\n' "$outc" | grep -q "plain text in $T3C/gh/hosts.yml" \
+  && printf '%s\n' "$outc" | grep -q "$T3C/.git-credentials holds a github.com credential" \
+  && ! printf '%s\n' "$outc" | grep -q 'SMOKESECRET' \
+  && pass "doctor.sh: GitHub credentials by presence only (env token, gh hosts.yml, ~/.git-credentials), no value printed" \
+  || failed "doctor.sh credential presence: $(printf '%s\n' "$outc" | grep -i 'token\|credential' | sed 's/SMOKESECRET[0-9]*/<value>/g' | head -4)"
+drop_scratch "$T3C"
 # SessionStart must reach the guard for fork too (a fork's token count starts at the end of the
 # history it copied): the shipped matcher passes, one without fork fails
 printf '%s\n' "$out" | grep -q 'ok    SessionStart guard matcher covers startup, resume and fork' \
