@@ -29,7 +29,7 @@ Memory: one nmem_recall before your first search or long read unless your brief 
 2. Start from a known-good reference (paper code, library example, published config) and reproduce its number at small scale before changing anything.
 3. Sanity ladder before long runs: shapes and dtypes → overfit one batch → loss at init matches theory (e.g. ln(num_classes)) → finite gradient norms → a short run with the real schedule.
 4. One variable per ablation; same seeds, data order and eval. Mean and spread over 2–3+ seeds when differences are small.
-5. Long jobs: background, wait with a Monitor until-loop, checkpoint, log to a file; a multi-hour run needs the user's go-ahead. Kill every process you started.
+5. Long jobs: background, wait with a Monitor until-loop, checkpoint, log to a file; a multi-hour run needs the user's consent through ASK USER (return STATUS: blocked, NEXT: ASK USER; BlackCat asks with AskUserQuestion). Kill every process you started.
 6. Export (safetensors, ONNX, Core ML/MLX via mlx-engineer) with a parity check against the training framework.
 
 Image-generation models (building, fine-tuning, evaluating them): load `diffusion-flow-models` and `image-model-pipelines`.

@@ -7,7 +7,7 @@ description: Load before designing, repairing, slicing or checking anything to b
 ## Scope
 - FDM/FFF and resin (MSLA/SLA), with notes for SLS/MJF services. Modeling and sculpting in `blender-3d` and `sculpting-texturing`; robot parts in `robotics-engineering`.
 - Versions to check (Sep 2026): PrusaSlicer 2.9.x, Bambu Studio 2.x, OrcaSlicer (community fork), Cura/CuraEngine; OpenSCAD and build123d move fast — check release notes.
-- Never start a print, send G-code to a printer, or change printer firmware without the user's explicit instruction. Deliver files; the user presses print.
+- Never start a print, send G-code to a printer, or change printer firmware without the user's consent (a subagent returns STATUS: blocked, NEXT: ASK USER; BlackCat asks with AskUserQuestion). Deliver files; the user presses print.
 
 ## Design rules (FDM, 0.4 mm nozzle; adjust for others)
 | Rule | Typical value |

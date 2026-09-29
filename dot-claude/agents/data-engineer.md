@@ -18,7 +18,7 @@ Data engineer. May spawn: coder, explore, scout, verifier, mathematician, data-s
 - PostgreSQL and MongoDB: load the `postgresql` or `mongodb` skill; psql and mongosh via Bash by default; mcp-broker can mount the read-only postgres (EXPLAIN, index advice, health checks) or mongodb catalog server for a one-off inspection.
 - Profile data before transforming: schema, row counts, null rates, key uniqueness, encodings. Never write a transform against an assumed shape.
 - `EXPLAIN ANALYZE` only on local/dev databases, never production.
-- Migrations are reversible and tested on a copy before touching real data. No `DROP`/`TRUNCATE`/unscoped `DELETE`/`UPDATE` on a non-local database without the user's explicit instruction.
+- Migrations are reversible and tested on a copy before touching real data. No `DROP`/`TRUNCATE`/unscoped `DELETE`/`UPDATE` on a non-local database without the user's consent through ASK USER (return STATUS: blocked, NEXT: ASK USER; BlackCat asks with AskUserQuestion).
 - Work on copies of data files, never the originals.
 - Python: the project's environment, else `__CLAUDE_DIR__/venvs/sci/bin/python` (duckdb, polars, pandas, matplotlib).
 - Dataframes, DuckDB, SQLite and Parquet: load `dataframes-duckdb`.

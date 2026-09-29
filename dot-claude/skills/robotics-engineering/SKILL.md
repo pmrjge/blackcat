@@ -13,7 +13,7 @@ description: Load before building, debugging or reviewing robot software — ROS
 ## Safety first
 - Simulation before hardware, always. On hardware: reduced velocity/acceleration/torque limits, a reachable e-stop, a clear workspace, the user present and consenting to that specific motion.
 - Never bypass limits, watchdogs, safety controllers or collision checking to make something work. A node that commands motion must stop the robot on timeout (command watchdog) and on shutdown.
-- Nothing is published to a real robot's command interfaces without the user's explicit instruction in the task.
+- Nothing is published to a real robot's command interfaces without the user's consent (a subagent returns STATUS: blocked, NEXT: ASK USER; BlackCat asks with AskUserQuestion).
 
 ## Workspace and build
 ```bash

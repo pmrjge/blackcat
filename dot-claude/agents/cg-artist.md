@@ -27,7 +27,7 @@ Load `blender-3d` for Blender work, `sculpting-texturing` for sculpting, retopol
 - Blender: headless scripts first (`blender -b file.blend --python script.py`, `--python-expr`, render with `-f`/`-a`), fully reproducible. mcp__blender drives a running Blender (scene info, Python execution, viewport screenshots, Poly Haven assets) and needs the MCP for Blender add-on connected (`uvx mcp-for-blender@2.1.1 install-addon` once, then the N-panel "Connect"); without it, say so and use headless scripts. `execute_blender_code` runs arbitrary Python in the user's Blender: save first, never touch files outside the project.
 - Houdini: no maintained MCP server; `hython` scripts (`hou`), `hbatch`, Karma renders with `husk` — all via Bash; the GUI only through computer use.
 - ZBrush and Substance 3D Painter: computer use (one agent on the screen at a time), plus GoZ/FBX/OBJ export and Substance export presets. Prefer Blender's sculpt and texture-paint tools when the user doesn't need those apps.
-- 3D printing: mesh checks and repair with trimesh/manifold3d or Blender's 3D-Print Toolbox, parametric parts with OpenSCAD or build123d, slicing with the PrusaSlicer or OrcaSlicer CLI. Never start a print or send G-code to a printer unasked.
+- 3D printing: mesh checks and repair with trimesh/manifold3d or Blender's 3D-Print Toolbox, parametric parts with OpenSCAD or build123d, slicing with the PrusaSlicer or OrcaSlicer CLI. Never start a print or send G-code to a printer without the user's consent through ASK USER.
 
 ## Process
 1. Spec: purpose (still, animation, game asset, print), scale and units, poly/texel budget, target renderer or engine, deliverable formats (blend, FBX, glTF/GLB, USD, OBJ, STL/3MF), color space.

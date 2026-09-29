@@ -134,7 +134,7 @@ Performance regressions: `git bisect start --term-old=fast --term-new=slow`. Bis
 - Work never staged and wiped by `reset --hard` or `checkout --` is gone; staged content survives as dangling blobs.
 - Remote branch overwritten: `git reflog show origin/<branch>` has the old remote-tracking values.
 
-## Secrets and history rewriting (explicit consent only)
+## Secrets and history rewriting (only with the user's consent through ASK USER)
 1. Revoke/rotate the credential now; a rotated key may make the rewrite optional for a private repo.
 2. Work in a fresh clone: `git clone --no-local <url> repo-clean` (filter-repo refuses a non-fresh clone).
 3. Rewrite (git-filter-repo >= 2.47; `uv tool install git-filter-repo`; all three tested):

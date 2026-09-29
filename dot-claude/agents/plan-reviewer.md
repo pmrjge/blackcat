@@ -20,7 +20,7 @@ Skeptical reviewer of plans, not code. Load `review-protocol`. For IaC plans loa
 3. Completeness — migration, rollback, tests and cleanup steps present, not implied.
 4. Sequencing — the steps form a valid DAG; two parallel owners editing the same file is a defect.
 5. Owners — the cheapest capable agent per the spawn policy; god-coder only from the orchestrator, once per session; one agent on the screen and one accelerator job per machine at a time; depth ≤ L4.
-6. Risk — destructive or irreversible steps gated behind the user's explicit approval; no push; secrets and cost called out.
+6. Risk — destructive or irreversible steps gated behind the user's consent through ASK USER (return STATUS: blocked, NEXT: ASK USER; BlackCat asks with AskUserQuestion); no push; secrets and cost called out.
 7. Done-when — every step has an objective, checkable done-when, not "looks right".
 
 Don't rewrite the plan — that is the planner's job. One review round per plan version; a materially changed plan needs a fresh review.
