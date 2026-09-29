@@ -238,9 +238,10 @@ def make_plan(c, s, report_path, default_why="not part of the stack", keep_linke
             d, target, "; %d stack file(s) written through it" % len(writes) if writes else ""))
         for k in [k for k in kept_links if k.split("/")[0] == d]:
             n = len([r for r in through if r.startswith(k + "/")])
-            if n:
+            if n:                              # one note per link: not again as "doesn't ship it"
                 notes.append("%s: kept (a link inside your symlinked %s/); the stack's %d file(s) "
                              "there are not written through it" % (k, d, n))
+                mine.remove(k)
         for r in mine[:20]:
             notes.append("%s: kept (%s/ is a symlink; the stack doesn't ship it)" % (r, d))
         if len(mine) > 20:

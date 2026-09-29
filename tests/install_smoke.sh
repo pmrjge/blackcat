@@ -1612,6 +1612,7 @@ xrun "$TX/y" "$TX/y11.log" --restore "$BY2"; rcr=$?
 [ "$rc" = 0 ] && [ "$rcr" = 0 ] && cmp -s "$TX/fp.pl" <(fp "$TX/outS2/pe-local") \
   && [ "$(readlink "$TX/outS2/python-engineering")" = pe-local ] \
   && grep -q 'skills/python-engineering: kept (a link inside your symlinked skills/)' "$TX/y10.log" \
+  && [ "$(grep -c 'skills/python-engineering: kept' "$TX/y10.log")" = 1 ] \
   && pass "a link inside a symlinked skills/: its target is never written, and a restore leaves it alone" \
   || failed "link inside symlinked skills/ (rc=$rc/$rcr): $(grep -i 'python-engineering\|refus' "$TX/y10.log" "$TX/y11.log" | head -4)"
 # L4 + L1: the backup root must be a real directory (a symlink there is refused); the working copy

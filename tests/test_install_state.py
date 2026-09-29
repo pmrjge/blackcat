@@ -141,8 +141,9 @@ def test_link_inside_a_symlinked_skills_dir_is_never_written_through(conf, tmp_p
     plan = st.make_plan(conf, s, str(tmp_path / "none.json"))
     assert plan["removed"] == [] and "skills/pe/SKILL.md" not in plan["added"]
     assert "skills/other/SKILL.md" in plan["added"]
-    assert any(n.startswith("skills/pe: kept (a link inside your symlinked skills/)")
-               for n in plan["notes"])
+    pe_notes = [n for n in plan["notes"] if n.startswith("skills/pe:")]
+    assert len(pe_notes) == 1 and pe_notes[0].startswith(
+        "skills/pe: kept (a link inside your symlinked skills/)"), pe_notes
     assert st.unsafe_paths(conf, plan) == []
     st.apply_plan(conf, s, plan, str(tmp_path / "bk"), "c0", snap=snap)
     assert (dot / "pe-local" / "SKILL.md").read_text() == "mine\n"
