@@ -4259,10 +4259,15 @@ def _operands(args, value_opts=()):
     return out
 
 
-def _brace_split(w, trunc=None):
+BRACE_DIGITS = "[-0-9]*"                  # a collapsed numeric range: a glob its words all match
+
+
+def _brace_split(w, trunc=None, collapse=False):
     """`w` with its first brace group expanded (`a{b,c}d` -> abd, acd; `{1..3}`, `{a..c}`, nested
     groups one level at a time), or None when it holds none. `${...}`, `{}` and `{x}` (no comma,
-    no range) stay literal. At most BRACE_WORD_CAP words; a cut range appends True to `trunc`."""
+    no range) stay literal. At most BRACE_WORD_CAP words; a cut range appends True to `trunc`.
+    collapse: a numeric range becomes the one glob BRACE_DIGITS (its words hold only digits and
+    `-`, so the glob covers every one of them)."""
     i, n = 0, len(w)
     while i < n:
         if w[i] != "{" or (i and w[i - 1] in "$\\"):
@@ -4291,6 +4296,8 @@ def _brace_split(w, trunc=None):
             if not m:
                 i += 1
                 continue
+            if m.group(1) is not None and collapse:
+                return [pre + BRACE_DIGITS + post]
             if m.group(1) is not None:
                 a, b, step, fmt = int(m.group(1)), int(m.group(2)), m.group(3), str
             else:
@@ -4308,15 +4315,16 @@ def _brace_split(w, trunc=None):
     return None
 
 
-def brace_expand(s):
+def brace_expand(s, collapse=False):
     """(words, truncated): shell brace expansion of one word, capped at BRACE_WORD_CAP words;
-    truncated is True when the cap dropped words. Over-expands a quoted brace on purpose."""
+    truncated is True when the cap dropped words. Over-expands a quoted brace on purpose.
+    collapse: numeric ranges become one glob each (see _brace_split)."""
     if "{" not in s:
         return [s], False
     out, todo, trunc = [], [s], []
     while todo and len(out) < BRACE_WORD_CAP:
         w = todo.pop(0)
-        parts = _brace_split(w, trunc)
+        parts = _brace_split(w, trunc, collapse)
         if parts is None:
             out.append(w)
         else:
@@ -4329,10 +4337,15 @@ def brace_words(s):
     return brace_expand(s)[0]
 
 
-def brace_overflow_names_root(s):
-    """A brace expansion the cap truncated must not fail open: its text, braces and commas
-    removed, naming `claude` (the config dir, the state dirs) counts as a protected hit."""
-    return "claude" in re.sub(r"[{},]", "", s).lower()
+def brace_expand_checked(s):
+    """(words, overflow) for the protect scan: the exact expansion when it fits the cap; past it,
+    numeric ranges collapse to a digit glob (`~/.cla{x{1..5000},u}de` -> ~/.clax[-0-9]*de,
+    ~/.claude) and letter ranges and lists expand in full. overflow: still past the cap — the
+    caller denies the word whatever its text (it can't be checked, and must not fail open)."""
+    words, cut = brace_expand(s)
+    if not cut:
+        return words, False
+    return brace_expand(s, collapse=True)
 
 
 def _heredoc_interpreter(owner):
@@ -5162,14 +5175,14 @@ class _Scan(object):
 
     def protect_hit(self, raw_path, how, contains=False, real_only=False):
         """protect_hit_word for every word `raw_path` brace-expands to (`~/.claude/{hooks,x}`)."""
-        words, truncated = brace_expand(raw_path or "")
+        words, overflow = brace_expand_checked(raw_path or "")
+        if overflow:
+            return self.hit("protect", "%s: %s (a brace expansion too large to check, even with "
+                            "its numeric ranges collapsed)" % (how, (raw_path or "").strip()))
         for word in words:
             found = self.protect_hit_word(word, how, contains, real_only)
             if found:
                 return found
-        if truncated and brace_overflow_names_root(raw_path):
-            return self.hit("protect", "%s: %s (a brace expansion too large to check that "
-                            "names a protected root)" % (how, (raw_path or "").strip()))
         return None
 
     def protect_hit_word(self, raw_path, how, contains=False, real_only=False):
@@ -5231,11 +5244,13 @@ class _Scan(object):
         writes nothing, and `cd "$D/.claude" && ls` stays allowed)."""
         pos = [a for a in args if not a.startswith("-") or a == "-"]
         target = pos[0] if pos else "~"
-        words, truncated = brace_expand(target)
+        words, overflow = brace_expand_checked(target)
+        if overflow:                           # can't be resolved: later relative writes are hits
+            if not self.opaque_cd:
+                self.opaque_cd = target
+            return None
         for word in words:
             self.note_cd_word(word)
-        if truncated and brace_overflow_names_root(target) and not self.opaque_cd:
-            self.opaque_cd = target
         return None
 
     def cdpath_entries(self):

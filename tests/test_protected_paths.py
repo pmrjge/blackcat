@@ -836,8 +836,40 @@ def test_r3_brace_expand_reports_truncation(installed):
     words, cut = g.brace_expand("{1..100000}{a,b}")
     assert cut and len(words) == g.BRACE_WORD_CAP
     assert g.brace_expand("f{1..5000}.txt")[1] is True
-    assert g.brace_overflow_names_root("~/{x{1..64},.claude}/hooks")
-    assert not g.brace_overflow_names_root("f{1..5000}.txt")
+    # past the cap: numeric ranges collapse to one digit glob, letters and lists expand in full
+    assert g.brace_expand_checked("a{b,c}") == (["ab", "ac"], False)
+    assert g.brace_expand_checked("f{1..5000}.txt") == (["f" + g.BRACE_DIGITS + ".txt"], False)
+    words, over = g.brace_expand_checked("~/.cla{x{1..1100},u}de/hooks")
+    assert not over and "~/.claude/hooks" in words
+    words, over = g.brace_expand_checked("~/.c{x{1..1100},laude}/hooks")
+    assert not over and "~/.claude/hooks" in words
+    assert g.brace_expand_checked("{a..z}{a..z}{a..z}")[1] is True       # 17576 words: overflow
+
+
+# the brace cap never fails open (round-3 LOW): a numeric range past the cap collapses to a
+# digit glob, so the protected alternative next to it is still checked; what still overflows
+# is denied whatever it names
+@pytest.mark.parametrize("cmd", [
+    "rm -rf ~/.cla{x{1..1100},u}de/hooks",
+    "rm -rf ~/.c{x{1..1100},laude}/hooks",
+    "rm -rf ~/.cl{a{1..3000},a}ude/settings.json",
+    "cp evil ~/.claude/hooks/agent_guard.p{y,{1..5000}}",
+    "touch x/{a..z}{a..z}{a..z}",
+])
+def test_r4_brace_overflow_denied(shell_env, monkeypatch, cmd):
+    g, cfg, proj, home = shell_env
+    monkeypatch.setenv("XDG_STATE_HOME", str(home / ".local" / "state"))
+    assert denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "touch out/f{1..5000}.txt", "mkdir -p build/d{1..3000}/{a,b}", "rm -f log{0001..2500}.txt",
+    "cp tpl.txt dist/page{1..1500}.html", "touch {a..e}{1..900}.dat",
+])
+def test_r4_large_benign_brace_words_allowed(shell_env, monkeypatch, cmd):
+    g, cfg, proj, home = shell_env
+    monkeypatch.setenv("XDG_STATE_HOME", str(home / ".local" / "state"))
+    assert not denied(g, proj, cmd), cmd
 
 
 def test_r3_root_text_regex(installed):
