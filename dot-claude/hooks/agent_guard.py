@@ -2909,7 +2909,7 @@ STRING_RUNNERS = {"eval", "ssh", "watch", "su", "runuser", "script", "flock", "t
                   "parallel", "expect", "iex", "invoke-expression"}
 HEREDOC_RUNNERS = SHELLS | {"eval", "ssh"}           # read a heredoc on stdin as commands
 INTERPRETER_RE = re.compile(r"(?:python|pypy|perl|ruby|node|nodejs|deno|bun|php|lua|luajit|"
-                            r"osascript|Rscript|julia)[\d.]*(?:\.exe)?\Z")
+                            r"osascript|Rscript|R|julia)[\d.]*(?:\.exe)?\Z")
 CODE_FLAG_RE = re.compile(r"-[A-Za-z]*[ceErp]\Z|--(?:eval|command|print)\Z")
 CODE_PUNCT_RE = re.compile(r"[\[\](){},;:+'\"`]")     # os.system("git push"), ['gh','pr','create']
 # inline code is checked only when it can start a process (print('git push') is text)
@@ -2948,7 +2948,7 @@ INSTALLER_SCRIPTS = {"install.sh", "doctor.sh"}
 PROTECT_TRIGGER_RE = re.compile(
     r">|\b(?:cp|mv|tee|dd|sed|gsed|perl|install|rsync|ditto|rm|unlink|rmdir|shred|truncate|ln|"
     r"chmod|chown|chflags|touch|find|xargs|parallel|tar|unzip|cd|pushd|python[\d.]*|pypy[\d.]*|"
-    r"node|nodejs|ruby|php|deno|bun|osascript|lua|luajit|julia|Rscript)[\d.]*\b")
+    r"node|nodejs|ruby|php|deno|bun|osascript|lua|luajit|julia|Rscript|R)[\d.]*\b")
 PROTECT_WRITE_CMDS = {"cp", "mv", "install", "rsync", "ditto", "tee", "dd", "sed", "gsed", "perl",
                       "rm", "unlink", "rmdir", "shred", "truncate", "ln", "chmod", "chown",
                       "chflags", "touch", "find", "tar", "unzip"}
@@ -2971,10 +2971,12 @@ MUTATE_CODE_RE = re.compile(
     r"\bunlink\b|\brename\b|subprocess|child_process|File\.(?:delete|write|rename|unlink)|"
     r"FileUtils|"
     # R: cat(..., file=), write.csv/write.table/..., writeLines, saveRDS, sink, file.copy/create/
-    # append; Julia: rm, cp, mv, mkpath, write; Lua: io.output; PHP: fopen, fwrite,
-    # file_put_contents
+    # append; Julia: rm, cp, mv, mkpath, write (not to stdout/stderr); Lua: io.output; PHP: fopen
+    # in a write mode, fwrite, file_put_contents. Free functions only: a method call
+    # (sys.stdout.write, process.stdout.write) is not one of them.
     r"\bcat\s*\([^)]*\bfile\s*=|\bwrite\.\w+\s*\(|\bfile\.(?:copy|create|append|remove)\s*\(|"
-    r"\b(?:rm|cp|mv|mkpath|write|writeLines|saveRDS|sink|fopen|fwrite|file_put_contents)\s*\(|"
+    r"(?<![.\w])(?:rm|cp|mv|mkpath|writeLines|saveRDS|sink|fwrite|file_put_contents)\s*\(|"
+    r"(?<![.\w])write\s*\((?!\s*std(?:out|err)\b)|(?<![.\w])fopen\s*\([^)]*,\s*['\"][^'\"]*[wax+]|"
     r"\bio\.output\s*\(", re.I)
 CODE_LITERAL_RE = re.compile(r"'''(.*?)'''|\"\"\"(.*?)\"\"\"|'([^'\n]*)'|\"([^\"\n]*)\"", re.S)
 # ... nor a command the shell only knows at run time: `$G push`, pwsh -EncodedCommand, a
@@ -4994,6 +4996,7 @@ class _ReadOnly(object):
                   {"-t", "--threads", "-p", "--procs", "-L", "--load", "-J", "--sysimage",
                    "-C", "--cpu-target", "-O", "--machine-file"}, {"-L", "--load"}),
         "Rscript": (re.compile(r"-e"), None, set(), set()),
+        "R": (re.compile(r"-e"), None, {"-f", "--file"}, set()),
     }
 
     @staticmethod
@@ -5098,9 +5101,10 @@ class _ReadOnly(object):
         s = re.sub(r"\b(?:sys|process)\.(?:stdout|stderr)\.write\s*\(", "print(", code or "")
         bad = RO_CODE_BAD_RE.search(s) or \
             (fam in ("perl", "ruby", "php") and re.search(r"`|\bsystem\b|\bexec\b|\bopen\b", s)) or \
-            (fam in ("julia", "Rscript") and re.search(r"\brun\s*\(|\bsystem2?\s*\(|"
+            (fam in ("julia", "Rscript", "R") and re.search(r"\brun\s*\(|\bsystem2?\s*\(|"
                                                          r"file\.(?:remove|create|rename|copy)|"
-                                                         r"\bwrite\s*\(", s)) or \
+                                                         r"(?<![.\w])write\s*\((?!\s*std(?:out|err)\b)",
+                                                         s)) or \
             (fam == "node" and re.search(r"\brequire\s*\(|\bimport\s*\(|\bfs\b", s))
         if bad:
             return (what, "runs inline code that writes files, starts processes, loads modules "

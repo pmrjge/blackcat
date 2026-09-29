@@ -148,6 +148,10 @@ def c1_deletes(cfg):
         "Rscript -e 'write.csv(x, \"{c}/agents/a.md\")'",
         "Rscript -e 'writeLines(\"x\", \"{c}/rules/r.md\")'",
         "php -r 'file_put_contents(\"{c}/settings.json\", \"x\");'",
+        "php -r '$f = fopen(\"{c}/settings.json\", \"w\");'",
+        # review of Part B: the plain R interpreter
+        "R -e 'file.remove(\"{c}/settings.json\")'",
+        "R --slave -e 'file.copy(\"x\", \"{c}/settings.json\", overwrite=TRUE)'",
     ]
 
 
@@ -157,6 +161,20 @@ def test_c1_deletes_renames_and_mode_changes_denied(installed):
         cmd = tmpl.format(c=cfg)
         got = g.protected_write_in(cmd, {"cwd": str(proj)})
         assert got and got[0] == "protect", cmd
+
+
+def test_c1_reading_config_in_code_is_not_a_write(installed):
+    """Method calls named write (sys.stdout.write, process.stdout.write), fopen in read mode and
+    Julia's write to stdout read the config dir: not protected writes."""
+    g, cfg, proj = installed
+    for tmpl in [
+        "python3 -c 'import sys; sys.stdout.write(open(\"{c}/settings.json\").read())'",
+        "node -e 'process.stdout.write(require(\"fs\").readFileSync(\"{c}/settings.json\", \"utf8\"))'",
+        "php -r '$f = fopen(\"{c}/settings.json\", \"r\"); echo fread($f, 100);'",
+        "julia -e 'write(stdout, read(\"{c}/settings.json\"))'",
+    ]:
+        cmd = tmpl.format(c=cfg)
+        assert g.protected_write_in(cmd, {"cwd": str(proj)}) is None, cmd
 
 
 def test_c1_hook_state_dir_protected(installed, tmp_path):

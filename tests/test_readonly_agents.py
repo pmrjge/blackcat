@@ -134,6 +134,8 @@ uv audit
 trufflehog filesystem .
 cargo deny check
 claude mcp get exa
+julia -e 'write(stdout, "hi")'
+R -e 'print(1)'
 '''
 
 WRITES = r'''
@@ -283,6 +285,9 @@ bun install
 deno run -A scripts/x.ts
 Rscript -e 'cat(1, file="src/x.R")'
 Rscript -e 'write.table(x, "out.tsv")'
+R -e 'system("ls")'
+R --slave -e 'writeLines("x", "out.txt")'
+julia -e 'write("x.txt", "hi")'
 julia -e 'rm("src/x.jl")'
 julia -e 'cp("a", "b")'
 lua -e 'os.remove("x")'
