@@ -173,7 +173,7 @@ if bad:
 sys.exit(1 if bad else 0)
 PY
 python3 - "$T1/settings.json" <<'PY' && pass "settings: StopFailure + TaskStop wiring, narrowed magg allow, Exa-safe denies, no-push wiring" || failed "settings wiring/permissions (see above)"
-import json, sys
+import json, os, sys
 s = json.load(open(sys.argv[1]))
 h, allow, deny = s["hooks"], s["permissions"]["allow"], s["permissions"]["deny"]
 checks = {
@@ -193,6 +193,11 @@ checks = {
                                     for x in g["hooks"]) for g in h["SessionStart"]),
     "MCP cache is denyWrite": any(p.endswith("/claude-agent-stack-cache") and p.startswith("/")
                                   for p in s["sandbox"]["filesystem"]["denyWrite"]),
+    # R3-STATE: the guard's state dir where the guard keeps it ($XDG_STATE_HOME), not ~/.local/state
+    "guard state dir protected at $XDG_STATE_HOME": (
+        os.environ["XDG_STATE_HOME"] + "/claude-agent-stack" in s["sandbox"]["filesystem"]["denyWrite"]
+        and "Edit(/" + os.environ["XDG_STATE_HOME"] + "/claude-agent-stack/**)" in deny
+        and ".local/state" not in json.dumps([s["sandbox"], deny])),
     "failIfUnavailable": s["sandbox"].get("failIfUnavailable") is True,
     "config .claude.json read-deny": any(r.endswith("/.claude.json)") and r.startswith("Read(//") for r in deny),
     "local-file MCP guard": any("ctx_index" in (g.get("matcher") or "") and "agent_guard.py" in json.dumps(g)

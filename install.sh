@@ -349,12 +349,12 @@ note "hook interpreter: $STACK_PYTHON"
 # sandbox, so editing ~/.claude/settings.json can no longer switch them off. JSON on stdout,
 # instructions on stderr: ./install.sh --print-managed-settings > managed-settings.json
 if [ "$PRINT_MANAGED" = 1 ]; then
-  python3 - "$SRC/settings.json" "$C" "$STACK_PYTHON" "$BACKUP_ROOT" "$STACK_CACHE" "$HOME" <<'PY' >&3
+  python3 - "$SRC/settings.json" "$C" "$STACK_PYTHON" "$BACKUP_ROOT" "$STACK_CACHE" "$HOME" "$STACK_STATE" <<'PY' >&3
 import json, sys
-src, c, py, backups, cache, home = sys.argv[1:7]
+src, c, py, backups, cache, home, state = sys.argv[1:8]
 text = open(src, encoding="utf-8").read()
 for k, v in (("__CLAUDE_DIR__", c), ("__PYTHON3__", py), ("__STACK_BACKUPS__", backups),
-             ("__STACK_CACHE__", cache), ("__HOME__", home)):
+             ("__STACK_CACHE__", cache), ("__HOME__", home), ("__STACK_STATE__", state)):
     text = text.replace(k, json.dumps(v)[1:-1])
 s = json.loads(text)
 deny = [r for r in s["permissions"]["deny"]
@@ -856,7 +856,7 @@ if [ "$SKIP_MCP" = 0 ] && [ "$MCP_PLAN" = 0 ] && claude mcp get spider >/dev/nul
 RENDERED_SETTINGS="$WORK/settings.rendered.json"
 
 FORCE="$FORCE" SPIDER_REWRITE="$SPIDER_REWRITE" RENDERED_SETTINGS="$RENDERED_SETTINGS" DEST="$S" PRUNE="$PRUNE" \
-REPORT="$REPORT" STACK_BACKUPS="$BACKUP_ROOT" STACK_CACHE="$STACK_CACHE" STACK_COMMIT_FULL="$STACK_COMMIT_FULL" python3 - "$SRC" "$C" "$HERE" <<'PY'
+REPORT="$REPORT" STACK_BACKUPS="$BACKUP_ROOT" STACK_CACHE="$STACK_CACHE" STACK_STATE="$STACK_STATE" STACK_COMMIT_FULL="$STACK_COMMIT_FULL" python3 - "$SRC" "$C" "$HERE" <<'PY'
 import difflib, glob, hashlib, json, os, re, shutil, subprocess, sys
 
 # C is where the files will live (every rendered path names it); DEST is the staged copy of C
@@ -945,6 +945,7 @@ SUBS = {
     "__STACK_REPO__": REPO,
     "__STACK_BACKUPS__": os.environ["STACK_BACKUPS"],
     "__STACK_CACHE__": os.environ["STACK_CACHE"],
+    "__STACK_STATE__": os.environ["STACK_STATE"],
 }
 
 

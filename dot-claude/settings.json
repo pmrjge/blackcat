@@ -183,7 +183,7 @@
       "Read(**/.env.production)",
       "Read(**/.env.stage)",
       "Read(**/.env.staging)",
-      "Edit(~/.local/state/claude-agent-stack/**)",
+      "Edit(/__STACK_STATE__/**)",
       "mcp__context-mode__ctx_execute",
       "mcp__context-mode__ctx_execute_file",
       "mcp__context-mode__ctx_batch_execute",
@@ -202,7 +202,7 @@
       ],
       "denyWrite": [
         "__CLAUDE_DIR__",
-        "~/.local/state/claude-agent-stack",
+        "__STACK_STATE__",
         "__STACK_BACKUPS__",
         "__STACK_CACHE__",
         "~/.cache/uv",

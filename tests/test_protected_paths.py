@@ -247,7 +247,10 @@ def test_settings_wire_ask_rules_and_protected_paths():
     for rel in ("hooks/**", "bin/**", "settings.json", "agents/**", "rules/**", "mcp/**",
                 "magg/**", "skills/**", "CLAUDE.md", "backup-*/**", "stack-plugins/**"):
         assert "Edit(/__CLAUDE_DIR__/%s)" % rel in deny, rel
-    assert "Edit(~/.local/state/claude-agent-stack/**)" in deny
+    # R3-STATE: the guard's state dir as the installer renders it ($XDG_STATE_HOME/...), like the
+    # backups and the cache; never a fixed ~/.local/state the guard may not be using
+    assert "Edit(/__STACK_STATE__/**)" in deny
+    assert not [r for r in deny if ".local/state" in r], deny
     # C4/C8: secrets and backups are Read-denied (a Read deny also blocks Edit/Write)
     for r in ("Read(/__CLAUDE_DIR__/**/stack.env)", "Read(/__CLAUDE_DIR__/backup-*/**)",
               "Read(~/.git-credentials)", "Read(~/.npmrc)", "Read(~/.pypirc)",
@@ -264,13 +267,16 @@ def test_settings_sandbox_block():
     fs = sb["filesystem"]
     # sandbox paths: `/` absolute (the installer renders __CLAUDE_DIR__ absolute), `~/` home
     assert "__CLAUDE_DIR__" in fs["denyWrite"]
-    assert "~/.local/state/claude-agent-stack" in fs["denyWrite"]
+    assert "__STACK_STATE__" in fs["denyWrite"]
+    assert not [p for lst in fs.values() if isinstance(lst, list) for p in lst
+                if ".local/state" in p]
     assert {"__CLAUDE_DIR__/**/stack.env", "__CLAUDE_DIR__/backup-*"} <= set(fs["denyRead"])
     assert fs["allowWrite"] == ["~/.cache/claude-sandbox"]  # the sandbox's own caches only
     for lst in ("allowWrite", "denyWrite", "denyRead"):
         assert len(fs[lst]) == len(set(fs[lst])), lst
         for p in fs[lst]:
-            assert p.startswith(("~/", "__CLAUDE_DIR__", "__STACK_BACKUPS__", "__STACK_CACHE__")), p
+            assert p.startswith(("~/", "__CLAUDE_DIR__", "__STACK_BACKUPS__", "__STACK_CACHE__",
+                                 "__STACK_STATE__")), p
     net = sb["network"]
     assert net["strictAllowlist"] is True
     doms = net["allowedDomains"]

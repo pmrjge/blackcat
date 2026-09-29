@@ -976,7 +976,8 @@ def test_god_coder_markers_live_in_the_protected_state_dir(bare_env):
     specs = [spec for spec, _ in g.builtin_protect_specs()]
     assert any(g.state_root() in spec for spec in specs), specs
     settings = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
-    assert "~/.local/state/claude-agent-stack" in settings["sandbox"]["filesystem"]["denyWrite"]
+    assert "__STACK_STATE__" in settings["sandbox"]["filesystem"]["denyWrite"]
+    assert "Edit(/__STACK_STATE__/**)" in settings["permissions"]["deny"]
 
 
 GOD_FLOW_PHRASES = {
