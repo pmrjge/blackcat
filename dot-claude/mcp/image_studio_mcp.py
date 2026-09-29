@@ -415,8 +415,11 @@ def _now() -> float:
 def _deny_roots() -> list:
     home = Path.home()
     config = Path(os.environ.get("CLAUDE_CONFIG_DIR") or home / ".claude").expanduser()
+    # the same secrets settings.json Read-denies (C4/C8): credential dirs and files, the config dir
     roots = [home / ".ssh", home / ".aws", home / ".gnupg", home / ".kube", home / ".docker",
-             home / ".config" / "gcloud", home / "Library" / "Keychains", config]
+             home / ".config" / "gcloud", home / "Library" / "Keychains", config,
+             home / ".git-credentials", home / ".npmrc", home / ".pypirc", home / ".netrc",
+             home / ".config" / "gh", home / ".cache" / "huggingface" / "token"]
     out = []
     for r in roots:
         out.append(r)

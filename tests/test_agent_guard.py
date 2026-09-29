@@ -186,11 +186,11 @@ def test_print_policy_format(env):
     for eng in ("mlx-engineer", "cuda-engineer", "dl-engineer", "llm-engineer"):
         assert "ninja-coder" in d["policy"][eng]         # god-coder: NEXT back to the orchestrator
     assert d["policy"]["researcher"][0] == "researcher-copy"
-    # browser-only ML environments (Kaggle notebooks, cloud GPU consoles) go to browser-operator
-    for eng in ("cuda-engineer", "dl-engineer", "ml-engineer", "llm-engineer"):
-        assert "browser-operator" in d["policy"][eng], eng
-    assert d["policy"]["mlx-engineer"] == [c for c in d["policy"]["cuda-engineer"]
-                                           if c != "browser-operator"]
+    # T1: browser-operator (logged-in browser) is spawned only by blackcat and the orchestrator,
+    # never by an agent that reads web pages (an injected page must not reach the user's sessions)
+    assert {k for k, v in d["policy"].items() if "browser-operator" in v} == {
+        "blackcat", "orchestrator"}
+    assert d["policy"]["mlx-engineer"] == d["policy"]["cuda-engineer"]
     for new in ("plan-reviewer", "mlx-engineer", "cuda-engineer", "devops-engineer",
                 "data-engineer", "frontend-engineer", "ml-engineer", "dl-engineer",
                 "llm-engineer", "data-scientist", "browser-operator", "claude-code-engineer",

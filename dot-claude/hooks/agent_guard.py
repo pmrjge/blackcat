@@ -24,13 +24,22 @@ Reads the hook JSON on stdin.
   PreToolUse  Bash|Monitor|PowerShell  `no-push` mode: agents never push and never write to a
                                     forge (gh/tea/fj), in any form, also inside bash -c, eval, $(...)
                                     (absolute; not switched off by STACK_POLICY=off); the same hook
-                                    also denies a bare `mcp-headers <server>` or `with-stack-env
-                                    --print-env` (both leak real API keys without --reveal),
-                                    `bash -x`/`sh -x`/`zsh -x` on install.sh or doctor.sh, and a
-                                    Bash-level write (redirection, cp/mv/tee/sed -i/...) into a
-                                    path already denied to Read/Edit/Write — the replacement for
-                                    Claude Code's own protected-path check, which covers only
-                                    Edit/Write and is skipped entirely in bypassPermissions mode
+                                    also denies `--reveal` on mcp-headers/with-stack-env and
+                                    `with-stack-env env|printenv` (real API keys in the transcript;
+                                    the default output is redacted), `bash -x`/`sh -x`/`zsh -x` on
+                                    install.sh or doctor.sh, and a Bash-level write, delete,
+                                    rename or mode change (redirection, cp/mv/tee/sed -i, rm,
+                                    find -delete, chmod, inline python/node code, ...) of a path
+                                    already denied to Read/Edit/Write or of the hook state dir —
+                                    the replacement for Claude Code's own protected-path check,
+                                    which covers only Edit/Write and is skipped entirely in
+                                    bypassPermissions mode; for code-reviewer, security-auditor,
+                                    verifier, plan-reviewer and claude-code-guide it also holds
+                                    Bash to read-only commands (READONLY_TYPES, _ReadOnly)
+  PreToolUse  nmem_remember         web-reading agents (researcher, scout, browser-operator) don't
+                                    write the shared memory
+  PreToolUse  *                     `blackcat-guard --settings`: blackcat's own gate, also wired
+                                    from settings.json (acts only when agent_type is blackcat)
   PreToolUse  local-file MCP tools  context-mode ctx_index, markitdown, docling, playwright: a path
                                     or file: URI argument is held to the Read deny rules (Claude Code
                                     cannot see inside MCP arguments)
@@ -91,11 +100,13 @@ subtree (the agent's transcript and every live descendant's).
 
 CLI: `agent_guard.py --print-policy` (JSON consumed by doctor.sh and tests/lint_agents.py),
 `--self-test`, `--check-budget [transcript]` (doctor: the budgets still read real transcripts),
-`blackcat-guard` (PreToolUse hook of the blackcat main thread), `budget` (PreToolUse hook on every
+`blackcat-guard [--settings]` (PreToolUse hook of the blackcat main thread; --settings: the
+settings.json wiring, which checks agent_type), `budget` (PreToolUse hook on every
 tool: token budgets and the MCP call cap), `image-limit` (PreToolUse/PostToolUse hook that keeps images under
 STACK_IMAGE_MAX_PX), `no-push` (PreToolUse Bash/Monitor/PowerShell hook that denies any git push or
-forge write, a plaintext mcp-headers/with-stack-env key print, or `-x` tracing of
-install.sh/doctor.sh), no argument = event.
+forge write, a --reveal key print, `-x` tracing of install.sh/doctor.sh, a write to a protected
+path, and for the read-only agent types any command outside the read-only allowlist), no argument
+= event.
 
 Knobs (env):
   STACK_POLICY=off        disable every deny and lock (bookkeeping and model strip continue)
@@ -190,8 +201,11 @@ POLICY = {
     "blackcat": list(_BLACKCAT_ROW),
     "orchestrator": [a for a in AGENTS if a not in ("blackcat", "orchestrator")] + ["explore"],
     "planner": ["scout", "explore", "claude-code-guide"],
+    # Web-reading agents never reach browser-operator (the user's logged-in Chrome sessions): a
+    # page they read could steer it. Only blackcat and orchestrator keep it (T1; the prompts' "May
+    # spawn" lines match: .claude-work/stack-tighten/spawn-browser-operator.txt).
     "researcher": ["researcher-copy", "scout", "doc-specialist", "mathematician", "data-engineer",
-                   "data-scientist", "browser-operator", "mcp-broker"],
+                   "data-scientist", "mcp-broker"],
     "writer": ["scout", "researcher", "mathematician"],
     "mathematician": ["scout", "mcp-broker", "quantum-engineer"],
     "doc-specialist": ["scout", "mcp-broker"],
@@ -210,24 +224,23 @@ POLICY = {
                   "ml-engineer", "dl-engineer", "llm-engineer", "explore", "scout", "verifier",
                   "code-reviewer", "security-auditor", "mathematician", "researcher"],
     "mlx-engineer": list(_ACCEL_ROW),
-    # cuda-, ml-, dl- and llm-engineer also reach browser-only ML environments (Kaggle notebooks,
-    # cloud GPU consoles) through browser-operator; mlx-engineer works on the local Mac
+    # browser-only ML environments (Kaggle notebooks, cloud GPU consoles) go through BlackCat or the
+    # orchestrator, which keep browser-operator; these engineers read the web themselves (T1)
     "cuda-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
-                      "mcp-broker", "browser-operator", "ninja-coder"],
+                      "mcp-broker", "ninja-coder"],
     "devops-engineer": ["coder", "explore", "scout", "verifier", "security-auditor", "mcp-broker"],
     "data-engineer": ["coder", "explore", "scout", "verifier", "mathematician",
                       "data-scientist", "doc-specialist", "mcp-broker"],
     "frontend-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "designer",
                           "image-director", "mcp-broker"],
     "ml-engineer": ["data-scientist", "data-engineer", "coder", "explore", "scout",
-                    "verifier", "code-reviewer", "mathematician", "mcp-broker",
-                    "browser-operator"],
+                    "verifier", "code-reviewer", "mathematician", "mcp-broker"],
     "dl-engineer": ["mlx-engineer", "cuda-engineer", "data-engineer", "coder",
                     "explore", "scout", "researcher", "verifier", "code-reviewer",
-                    "mathematician", "mcp-broker", "browser-operator", "ninja-coder"],
+                    "mathematician", "mcp-broker", "ninja-coder"],
     "llm-engineer": ["mlx-engineer", "cuda-engineer", "dl-engineer",
                      "data-scientist", "coder", "explore", "scout", "researcher", "verifier",
-                     "code-reviewer", "mathematician", "mcp-broker", "browser-operator",
+                     "code-reviewer", "mathematician", "mcp-broker",
                      "claude-code-guide", "ninja-coder"],
     "data-scientist": ["data-engineer", "ml-engineer", "mathematician", "coder",
                        "explore", "scout", "verifier", "doc-specialist", "writer", "mcp-broker"],
@@ -264,6 +277,15 @@ BLACKCAT_TOOLS = {"Agent", "SendMessage", "AskUserQuestion", "mcp__conductor__As
                   "ExitPlanMode", "TaskStop", "ListAgents", "ToolSearch", "Skill", "Workflow",
                   "CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",
                   "PushNotification", "SendUserFile", "Read", "Grep", "Glob"}
+# Reviewers and guides are read-only by role but hold Bash: their Bash runs read-only commands only
+# (READONLY_REASON, _ReadOnly). STACK_POLICY=off lifts it with the other policy gates.
+READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewer", "claude-code-guide"}
+# Agents that ingest web pages never write the shared memory (a page could plant "decisions" other
+# agents recall later): their nmem_remember calls are refused (on_memory_write).
+WEB_INGESTING_TYPES = {"researcher", "researcher-copy", "scout", "browser-operator"}
+MEMORY_WRITE_TOOLS = re.compile(r"mcp__neural-memory__nmem_remember\Z")
+# The only rows that may list browser-operator (self-test; T1)
+BROWSER_SPAWNERS = {"blackcat", "orchestrator"}
 STEP_LIMIT_REASON = ("BlackCat step limit (%d tool calls per prompt, dispatches included) reached. "
                      "Call no more tools: answer the user now with what you have, or say what is "
                      "still pending.")
@@ -1559,6 +1581,19 @@ def on_local_read(ev, d):
                      % (p, "it holds files protected by" if inside else "it matches", spec))
 
 
+def on_memory_write(ev, d):
+    """neural-memory is shared by every agent of every session: an agent that reads web pages
+    (researcher, its copies, scout, browser-operator) never writes it, so a page cannot plant a
+    "decision" that other agents recall later (T3)."""
+    if not policy_on():
+        return
+    atype = norm(ev.get("agent_type"))
+    if ev.get("agent_id") and atype in WEB_INGESTING_TYPES:
+        deny("Refused: %s reads web pages, so it does not write the shared memory (a page could "
+             "plant a false decision there). Put the finding in your report with its source; the "
+             "agent that verifies it against local evidence may remember it." % atype)
+
+
 # ---------------------------------------------------------------- lifecycle
 def agent_response(ev):
     tr = ev.get("tool_response")
@@ -2772,7 +2807,12 @@ def image_limit_main(raw):
 
 
 # ---------------------------------------------------------------- blackcat-guard mode
-def blackcat_guard(raw):
+def blackcat_guard(raw, from_settings=False):
+    """BlackCat's own gate. Wired twice: in agents/blackcat.md's frontmatter (runs only when
+    blackcat is the main thread) and in settings.json (`blackcat-guard --settings`, every main
+    thread: it acts only when the event names agent_type "blackcat", which hooks.md documents for
+    sessions run with an agent; with no agent_type it leaves the call to the frontmatter wiring).
+    Both wirings count one step per call: the first to claim the call's tool_use_id decides."""
     if not policy_on():
         sys.exit(0)
     try:
@@ -2783,6 +2823,8 @@ def blackcat_guard(raw):
         guard_error("unparseable hook input (%s)" % type(exc).__name__)
     if ev.get("agent_id"):
         sys.exit(0)  # a subagent's tool call
+    if from_settings and norm(ev.get("agent_type")) != "blackcat":
+        sys.exit(0)  # another main thread (claude, ninja-coder, ...) or no agent_type to go by
     tool = ev.get("tool_name") or ""
     if tool in ("Agent", "SendMessage"):
         # the main hook counts a dispatch against BLACKCAT_MAX_DISPATCH and BLACKCAT_MAX_STEPS
@@ -2796,6 +2838,12 @@ def blackcat_guard(raw):
              "SendMessage to resume the previous agent.")
     d = sdir(ev.get("session_id"))
     log(d, ev)
+    tuid = safe(ev.get("tool_use_id"), "")
+    if tuid:
+        os.makedirs(os.path.join(d, "blackcat"), exist_ok=True)
+        # named like the step markers (kind.prompt.n) so on_prompt prunes it with them
+        if not create_excl(os.path.join(d, "blackcat", "call.%s.%s" % (prompt_key(ev), tuid))):
+            sys.exit(0)  # the other wiring already counted (and judged) this call
     steps = knob_int("BLACKCAT_MAX_STEPS", 12)
     if not claim_marker(d, "step", prompt_key(ev), steps):
         deny(STEP_LIMIT_REASON % steps)
@@ -2892,8 +2940,32 @@ INSTALLER_SCRIPTS = {"install.sh", "doctor.sh"}
 # fast path for the "protect" scan kind: a redirect character or one of the write-capable
 # commands it understands. Over-matches on purpose (e.g. "cp" inside an unrelated word via \b
 # still needs a word boundary, but ">" alone is enough) — a miss here would be the real bug.
-PROTECT_TRIGGER_RE = re.compile(r">|\b(?:cp|mv|tee|dd|sed|gsed|perl|install|rsync)\b")
-PROTECT_WRITE_CMDS = {"cp", "mv", "install", "rsync", "tee", "dd", "sed", "gsed", "perl"}
+PROTECT_TRIGGER_RE = re.compile(
+    r">|\b(?:cp|mv|tee|dd|sed|gsed|perl|install|rsync|ditto|rm|unlink|rmdir|shred|truncate|ln|"
+    r"chmod|chown|chflags|touch|find|xargs|parallel|tar|unzip|cd|pushd|python[\d.]*|pypy[\d.]*|"
+    r"node|nodejs|ruby|php|deno|bun|osascript)\b")
+PROTECT_WRITE_CMDS = {"cp", "mv", "install", "rsync", "ditto", "tee", "dd", "sed", "gsed", "perl",
+                      "rm", "unlink", "rmdir", "shred", "truncate", "ln", "chmod", "chown",
+                      "chflags", "touch", "find", "tar", "unzip"}
+# removals, renames and mode changes: every operand is a target, and a directory operand that
+# holds a protected path counts (rm -rf ~/.claude, chmod -R 000 ~/.claude/hooks/..)
+PROTECT_ALL_ARGS = {"rm", "unlink", "rmdir", "shred", "truncate", "ln", "chmod", "chown",
+                    "chflags", "touch"}
+# the stack's own files under the config dir (<config>/<entry>) and its hook state: protected even
+# if settings.json lost its deny rules (installed copies only; see protect_specs)
+PROTECTED_CONFIG = ("hooks", "bin", "settings.json", "agents", "rules", "mcp", "magg", "skills",
+                    "stack-plugins", "CLAUDE.md", "backup-*", "stack.env", ".stack-manifest.json",
+                    ".credentials.json")
+# inline interpreter code (python -c, node -e, a heredoc into python -) that changes a file
+MUTATE_CODE_RE = re.compile(
+    r"\b(?:remove|removedirs|unlink|unlinkSync|rmtree|rmdir|rmdirSync|rmSync|rename|renames|"
+    r"renameSync|truncate|chmod|lchmod|chown|symlink|symlinkSync|link|write_text|write_bytes|"
+    r"writeFile|writeFileSync|appendFile|appendFileSync|copyfile|copy2|copytree|copyFile|"
+    r"copyFileSync|move|touch|utime|system|popen)\s*\(|\bos\.replace\s*\(|"
+    r"\bopen\s*\([^)]*,\s*['\"][^'\"]*[wax+]|\bopen\s*\(?\s*\w+\s*,\s*['\"]\s*(?:>|\+<|\|)|"
+    r"\bunlink\b|\brename\b|subprocess|child_process|File\.(?:delete|write|rename|unlink)|"
+    r"FileUtils", re.I)
+CODE_LITERAL_RE = re.compile(r"'''(.*?)'''|\"\"\"(.*?)\"\"\"|'([^'\n]*)'|\"([^\"\n]*)\"", re.S)
 # ... nor a command the shell only knows at run time: `$G push`, pwsh -EncodedCommand, a
 # decoded pipeline into a shell (base64 -d | sh)
 OPAQUE_HINT_RE = re.compile(r"\$[\w{(@*!#?-]\S*\s+(?:push|send-pack)\b|\b(?:pwsh|powershell)\b|"
@@ -3085,20 +3157,20 @@ OPAQUE_REASON = ("Blocked by the stack's git rule (agents never push): `%s` cann
                  "the user's own step.")
 GUARD_FAIL_REASON = ("Blocked: the stack's no-push guard could not check this command (%s). Split "
                      "it into simpler commands; pushing and forge writes stay the user's own step.")
-SECRETS_REASON = ("Blocked by the stack's secret-hardening rule: `%s` prints a real API key or "
-                  "token in plaintext (to the terminal, a log, or wherever this command's output "
-                  "goes), also inside bash -c, eval or $(...). Add --reveal only when you must see "
-                  "the actual value for a specific, deliberate reason (e.g. debugging one server's "
-                  "auth with the user watching); never pipe, redirect, log or paste that output "
-                  "anywhere else. Claude Code's own mcp-headers invocation (via "
-                  "CLAUDE_CODE_MCP_SERVER_NAME, no CLI argument) is unaffected.")
-PROTECT_REASON = ("Blocked by the stack's protected-path rule: `%s` writes to a path this project "
-                  "already denies to Edit/Write (hooks, bin, settings.json, .git, or a Read-denied "
-                  "path), also inside bash -c, eval or nested shells. Claude Code's own "
-                  "protected-path check covers the Edit/Write tools, not raw Bash, and "
-                  "bypassPermissions mode skips it there too — this is the replacement. Use the "
-                  "Edit or Write tool (still denied the same way) or ask the user to make this "
-                  "change themselves.")
+SECRETS_REASON = ("Blocked by the stack's secret-hardening rule: `%s` would put a real API key or "
+                  "token into this transcript (also inside bash -c, eval or $(...)). Agents never "
+                  "print key values. The default output is redacted and is enough to check a "
+                  "key: `mcp-headers <server>` shows the header name and the key's length, "
+                  "`with-stack-env --print-env` shows which variables are set. If a real value "
+                  "must be checked, stop and ask the user to check it themselves.")
+PROTECT_REASON = ("Blocked by the stack's protected-path rule: `%s` writes to, removes, renames or "
+                  "changes the mode of a path denied to Edit/Write (the stack's config: hooks, "
+                  "bin, settings.json, agents, rules, mcp, magg, skills, stack-plugins, "
+                  "CLAUDE.md, backups; the hook state dir; a project's .git and .claude settings; "
+                  "or a Read-denied path), also inside bash -c, eval, find -exec, xargs or inline "
+                  "interpreter code. The stack is changed only by editing the repository and "
+                  "re-running its installer: report the change you need, or ask the user to make "
+                  "it themselves.")
 
 
 def _shell_words(command):
@@ -3522,14 +3594,62 @@ def _expansion(word):
     return "$" in word or "\x00" in word or "`" in word
 
 
+TRUNCATE_VALUE_OPTS = {"-s", "--size", "-r", "--reference"}
+
+
+def _operands(args, value_opts=()):
+    """The non-option arguments of a command (everything after `--` counts; an option in
+    value_opts also takes the next word)."""
+    out, k = [], 0
+    while k < len(args):
+        a = args[k]
+        if a == "--":
+            out.extend(args[k + 1:])
+            break
+        if a in value_opts:
+            k += 2
+            continue
+        if not a.startswith("-") or a == "-":
+            out.append(a)
+        k += 1
+    return out
+
+
+def _heredoc_interpreter(owner):
+    """The command that owns a heredoc is an interpreter reading its program from stdin
+    (`python3 - <<EOF`, `node <<EOF`, `perl <<EOF`)."""
+    words = [w for w in re.findall(r"[^\s;&|()<>'\"`]+", owner.rsplit("\n", 1)[-1])
+             if not ASSIGN_RE.match(w) and w not in PREFIX_WORDS]
+    return bool(words) and bool(INTERPRETER_RE.match(_base(words[0])))
+
+
+def builtin_protect_specs():
+    """`//abs` deny specs for the stack's own files in an installed config dir (the hook lives in
+    <config>/hooks/; the repo's dot-claude/ still holds __CLAUDE_DIR__ and is skipped) and for the
+    hook state dir. Backs up the settings.json deny rules the protect scan reads."""
+    specs = [("/" + os.path.join(state_root(), "**"), ())]
+    conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    try:
+        with open(os.path.join(conf, "settings.json"), encoding="utf-8") as f:
+            installed = "__CLAUDE_DIR__" not in f.read()
+    except OSError:
+        installed = False
+    if installed:
+        for rel in PROTECTED_CONFIG:
+            specs.append(("/" + os.path.join(conf, rel), ()))
+    return specs
+
+
 class _Scan(object):
     """One detection run: which kinds to report ("push", "forge", "opaque", "secrets", "protect"),
     a work budget and a deadline (a hook that times out does not block, so a slow check must deny
-    instead). "secrets" flags a bare `mcp-headers <server>` or `with-stack-env --print-env` call
-    (both print real API keys unless run with --reveal) and `bash -x`/`sh -x`/`zsh -x` on
-    install.sh or doctor.sh (an xtrace of either script echoes every key it reads). "protect"
-    flags a Bash-level write (redirection, cp/mv/install/rsync, tee, dd, sed/perl -i) that targets
-    a path already denied to the Edit/Write/Read tools — Claude Code's own protected-path checks
+    instead). "secrets" flags `--reveal` on mcp-headers or with-stack-env, env/printenv under
+    with-stack-env (each prints real API keys) and `bash -x`/`sh -x`/`zsh -x` on install.sh or
+    doctor.sh (an xtrace of either script echoes every key it reads). "protect" flags a
+    Bash-level write, delete, rename or mode change (redirection, cp/mv/install/rsync, tee, dd,
+    sed/perl -i, rm, find -delete, chmod, tar -x, inline code, ...; `cd DIR` is followed) that
+    targets a path already denied to the Edit/Write/Read tools, the stack's own config files or
+    the hook state dir — Claude Code's own protected-path checks
     apply to Edit/Write, not to Bash, and bypassPermissions mode skips even those; needs `ev` (the
     hook event) to resolve relative paths and read the deny rules that apply here."""
 
@@ -3538,6 +3658,7 @@ class _Scan(object):
         self.deadline = time.monotonic() + DEADLINE_S
         self.ev = ev
         self._protect_specs = None
+        self.cd = []                          # directories a `cd`/`pushd` earlier in the command named
 
     def hit(self, kind, what):
         if len(what) > 200:
@@ -3576,6 +3697,8 @@ class _Scan(object):
             if time.monotonic() > self.deadline:
                 return self.hit("opaque", "a command too large to check in time")
             found = self.scan(body, depth + 1) if _heredoc_runs_code(owner) else None
+            if not found and "protect" in self.want and _heredoc_interpreter(owner):
+                found = self.protect_code(body)      # python3 - <<'EOF' ... os.remove(...)
             for inner in ([] if quoted or found else _raw_substs(body)):
                 found = found or self.scan(inner, depth + 1)
             if found:
@@ -3663,8 +3786,14 @@ class _Scan(object):
             if not found and "protect" in self.want:
                 if ">" in w and REDIR_OP_RE.match(w) and i + 1 < end:
                     found = self.protect_hit(restore(words[i + 1]), "redirect (%s)" % w)
+                elif here_cmd and base in ("cd", "pushd"):
+                    self.note_cd([restore(x) for x in words[i + 1:end]])
                 elif here_cmd and base in PROTECT_WRITE_CMDS:
                     found = self.protect_command(base, [restore(x) for x in words[i + 1:end]])
+                    if not found and xargs_seen:   # ls ~/.claude/hooks | xargs rm: operands on stdin
+                        for x in words[stmt_start:end]:
+                            found = found or self.protect_hit(restore(x), "xargs %s" % base,
+                                                              contains=True)
             if not found and base in FORGE_TREES:
                 found = self.forge(base, words, i + 1, end, depth, xargs_seen)
             if not found and w == "<<<" and i + 1 < n:     # a here-string that becomes code
@@ -3708,6 +3837,8 @@ class _Scan(object):
                         if code_flag and EXEC_HINT_RE.search(rest[k]):
                             code = CODE_ARGS_KEY_RE.sub(" ", CODE_PUNCT_RE.sub(" ", rest[k]))
                             found = found or self.scan(code, depth + 1)
+                        if code_flag and not found and "protect" in self.want:
+                            found = self.protect_code(rest[k])
             if not found and i >= stdin_done and base in SHELLS | {"source", "."} \
                     and self.reads_stdin(words, i):
                 stdin_done = i
@@ -3937,19 +4068,25 @@ class _Scan(object):
         return None
 
     def secrets_helper(self, base, words, start, end, restore):
-        """mcp-headers <server> (without --reveal): prints the server's real header value instead
-        of a redacted one. with-stack-env --print-env (without --reveal): prints real key values
-        instead of redacted ones. The env-var invocation Claude Code itself uses to authenticate
-        (mcp-headers with no CLI argument) is unaffected: there is no positional argument here."""
+        """mcp-headers and with-stack-env redact key values by default; `--reveal` prints them in
+        plaintext, so any agent call carrying it is refused (`--reveal=...` and a `--` before it
+        too: the helpers look for the bare word anywhere). with-stack-env in exec mode hands the
+        keys to its command, so a command that only dumps the environment (env, printenv, set,
+        export, declare) is refused as well. The redacted forms pass. Claude Code's own
+        mcp-headers invocation (CLAUDE_CODE_MCP_SERVER_NAME, no argument) never reaches a Bash
+        hook."""
         args = [restore(x) for x in words[start:end]]
-        if any(a == "--reveal" for a in args):
-            return None
-        if base == "with-stack-env":
-            if any(a == "--print-env" for a in args):
-                return self.hit("secrets", "with-stack-env --print-env")
-            return None
-        positional = [a for a in args if not a.startswith("-")]
-        return self.hit("secrets", "mcp-headers %s" % positional[0]) if positional else None
+        if any(a == "--reveal" or a.startswith("--reveal=") for a in args):
+            return self.hit("secrets", "%s --reveal" % base)
+        if base == "with-stack-env" and args[:1] != ["--print-env"]:
+            rest = args[2:] if args[:1] == ["--only"] else args
+            k = 0
+            while k < len(rest) - 1 and (ASSIGN_RE.match(rest[k]) or rest[k] in ("env", "-i", "--")):
+                k += 1                         # with-stack-env env X=1 printenv
+            cmd = _base(rest[k]) if rest else ""
+            if cmd in ("env", "printenv", "set", "export", "declare", "typeset", "compgen"):
+                return self.hit("secrets", "with-stack-env ... %s" % cmd)
+        return None
 
     def secrets_bash_x(self, base, words, start, end, restore):
         """bash -x / sh -x / zsh -x (or a combined short option: -xv, -ex) on install.sh or
@@ -3965,74 +4102,167 @@ class _Scan(object):
         return None
 
     def protect_specs(self):
-        """(compiled regex, bases) for every path a Bash write must not resolve to: the same
-        Read/Edit/Write deny rules that already protect hooks/, bin/, settings.json and .git/,
-        .claude/settings*.json (a Read deny also blocks Edit/Write on the same path)."""
+        """([(compiled regex, literal prefix)], bases) for every path a Bash write must not
+        resolve to: the Read/Edit/Write deny rules that apply here (a Read deny also blocks
+        Edit/Write on the same path), plus, in an installed config dir, the stack's own files
+        (PROTECTED_CONFIG) and the hook state dir — the god-coder lock and the step markers."""
         if self._protect_specs is None:
             bases = (path_bases(self.ev) if self.ev is not None else []) or [os.getcwd()]
-            specs = read_deny_specs(bases) + edit_deny_specs(bases)
-            compiled = [rx for spec, anchors in specs for rx, _lit in deny_patterns(spec, anchors)]
+            specs = read_deny_specs(bases) + edit_deny_specs(bases) + builtin_protect_specs()
+            compiled = [(rx, lit) for spec, anchors in specs
+                        for rx, lit in deny_patterns(spec, anchors)]
             self._protect_specs = (compiled, bases)
         return self._protect_specs
 
-    def protect_hit(self, raw_path, how):
-        """`raw_path` resolved the way a shell would (absolute as given, relative to each base,
-        `~` expanded), checked against every protected-path pattern."""
-        if not raw_path or raw_path.startswith("-") or raw_path in ("/dev/null", "/dev/stdout",
-                                                                     "/dev/stderr", "&1", "&2"):
+    def protect_hit(self, raw_path, how, contains=False):
+        """`raw_path` resolved the way a shell would (absolute as given, relative to each base
+        and to a directory an earlier `cd` named, `~` expanded; lexical and symlink-resolved),
+        checked against every protected-path pattern. contains=True: a directory that holds a
+        protected path counts too (rm -rf, find -delete, mv, chmod -R)."""
+        s = (raw_path or "").strip()
+        if not s or s.startswith("-") or s in ("/dev/null", "/dev/stdout", "/dev/stderr", "&1",
+                                               "&2") or "\n" in s:
             return None
         compiled, bases = self.protect_specs()
         if not compiled:
             return None
-        candidates = []
-        s = raw_path.strip()
-        if s.startswith("~"):
-            candidates.append(os.path.expanduser(s))
-        if os.path.isabs(s):
-            candidates.append(s)
-        else:
-            candidates.extend(os.path.join(b, s) for b in bases)
+        s = os.path.expanduser(s) if s.startswith("~") else s
+        candidates = [s] if os.path.isabs(s) else [os.path.join(b, s) for b in bases + self.cd]
+        fold = (lambda x: x.lower()) if sys.platform == "darwin" else (lambda x: x)
         for cand in candidates:
-            cand = os.path.normpath(cand)
-            if any(rx.match(cand) for rx in compiled):
-                return self.hit("protect", "%s: %s" % (how, cand))
+            for c in dict.fromkeys((os.path.normpath(cand), os.path.realpath(cand))):
+                under = fold(c).rstrip("/") + "/"
+                for rx, literal in compiled:
+                    inside = contains and literal is not None and fold(literal).startswith(under)
+                    if inside or rx.match(c):
+                        return self.hit("protect", "%s: %s%s" % (
+                            how, c, " (it holds protected files)" if inside else ""))
+        return None
+
+    def note_cd(self, args):
+        """`cd DIR` / `pushd DIR`: later relative paths are also resolved against DIR (in
+        addition to the working directories: a cd inside a subshell does not last)."""
+        pos = [a for a in args if not a.startswith("-") or a == "-"]
+        target = pos[0] if pos else "~"
+        if _expansion(target) or target == "-":
+            return
+        target = os.path.expanduser(target) if target.startswith("~") else target
+        _, bases = self.protect_specs()
+        for b in ([None] if os.path.isabs(target) else bases + self.cd):
+            p = os.path.normpath(target if b is None else os.path.join(b, target))
+            if p not in self.cd and len(self.cd) < 16:
+                self.cd.append(p)
+
+    def protect_code(self, code):
+        """Inline interpreter code (python -c, node -e, perl -e, a heredoc into `python3 -`) that
+        names a protected path in a string literal and calls something that changes files."""
+        if not isinstance(code, str) or not MUTATE_CODE_RE.search(code):
+            return None
+        for m in CODE_LITERAL_RE.finditer(code[:200000]):
+            lit = next(g for g in m.groups() if g is not None).strip()
+            if lit.startswith(("/", "~", ".")) or "/" in lit:
+                found = self.protect_hit(lit, "inline code changes", contains=True)
+                if found:
+                    return found
         return None
 
     def protect_command(self, base, args):
-        """The destination path(s) of a write-capable command: tee writes every non-option
-        argument; dd writes `of=`; sed/perl -i rewrites its last file argument in place; cp/mv/
-        install/rsync write their last positional argument, or -t/--target-directory's value."""
-        targets = []
+        """The path(s) a write-capable command changes: tee writes every non-option argument; dd
+        writes `of=`; sed/perl -i rewrites its last file argument in place; cp/mv/install/rsync/
+        ditto write their last positional argument, or -t/--target-directory's value (and
+        DIR/basename(SRC) when that is a directory); mv also removes its sources; rm, unlink,
+        rmdir, shred, truncate, ln, chmod, chown, chflags and touch change every operand; find
+        with -delete or -exec/-ok of a writer changes its start paths; tar -x and unzip write into
+        -C / -d (or the working directory)."""
+        targets, whole = [], []                # whole: directories whose protected contents count
+        pos = _operands(args, TRUNCATE_VALUE_OPTS if base == "truncate" else ())
         if base == "tee":
-            targets = [a for a in args if not a.startswith("-")]
+            targets = pos
         elif base == "dd":
             targets = [a[3:] for a in args if a.startswith("of=")]
         elif base in ("sed", "gsed", "perl"):
             has_i = any(a in ("-i", "--in-place") or a.startswith("-i") or a.startswith("--in-place=")
-                       for a in args)
+                        or (a[:1] == "-" and a[:2] != "--" and "i" in a[1:] and base == "perl")
+                        for a in args)
             if has_i:
-                pos = [a for a in args if not a.startswith("-")]
                 targets = pos[-1:]
-        else:                                   # cp, mv, install, rsync
+        elif base in PROTECT_ALL_ARGS:
+            whole = pos
+        elif base == "find":
+            whole = self.find_targets(args)
+        elif base in ("tar", "unzip"):
+            whole = self.extract_targets(base, args)
+        else:                                   # cp, mv, install, rsync, ditto
             target_dir = None
             for j, a in enumerate(args):
                 if a in ("-t", "--target-directory") and j + 1 < len(args):
                     target_dir = args[j + 1]
                 elif a.startswith("--target-directory="):
                     target_dir = a.split("=", 1)[1]
-            pos = [a for a in args if not a.startswith("-")]
             if target_dir:
-                # the real destination is DIR/basename(SRC) for each source; DIR itself may also
-                # be an exact protected path (a bare directory, no trailing content)
-                targets = [target_dir] + [target_dir.rstrip("/") + "/" + os.path.basename(p)
-                                          for p in pos]
+                srcs, dest = pos, target_dir
             else:
-                targets = pos[-1:] if len(pos) >= 2 else []
+                srcs, dest = (pos[:-1], pos[-1]) if len(pos) >= 2 else ([], None)
+            if dest is not None:
+                # DIR/basename(SRC) for each source; DIR itself may be an exact protected path;
+                # `cp -R src/ DIR` and `rsync src/ DIR` copy src's contents into DIR itself
+                targets = [dest] + [dest.rstrip("/") + "/" + os.path.basename(p.rstrip("/"))
+                                    for p in srcs]
+                if any(p.endswith(("/", "/.")) for p in srcs):
+                    whole.append(dest)
+            if base == "mv":
+                whole += srcs                  # a rename removes the source
         for t in targets:
             found = self.protect_hit(t, "%s writes" % base)
             if found:
                 return found
+        for t in whole:
+            found = self.protect_hit(t, "%s changes" % base, contains=True)
+            if found:
+                return found
         return None
+
+    @staticmethod
+    def find_targets(args):
+        """find's start paths when its expression deletes or runs a writer on what it finds."""
+        k = 0
+        while k < len(args) and args[k] in ("-H", "-L", "-P", "-E", "-X", "-s", "-x", "-d"):
+            k += 1
+        starts = []
+        while k < len(args) and not args[k].startswith(("-", "(", "!", ")", "\\(")):
+            starts.append(args[k])
+            k += 1
+        expr = args[k:]
+        writes = "-delete" in expr
+        for j, a in enumerate(expr):
+            if a in EXEC_OPTS and j + 1 < len(expr):
+                cmd = _base(expr[j + 1])
+                writes = writes or cmd in PROTECT_WRITE_CMDS or cmd in SHELLS or \
+                    bool(INTERPRETER_RE.match(cmd)) or cmd in ("xargs", "env", "sudo")
+            if a in ("-fprint", "-fprint0", "-fprintf", "-fls") and j + 1 < len(expr):
+                starts.append(expr[j + 1])
+                writes = True
+        return (starts or ["."]) if writes else []
+
+    @staticmethod
+    def extract_targets(base, args):
+        """tar -x / unzip: the directory the archive is unpacked into."""
+        if base == "tar":
+            mode = next((a for a in args if not a.startswith("--")), "")
+            extracting = any(a in ("-x", "--extract", "--get") for a in args) or (
+                re.fullmatch(r"-?[A-Za-z]*x[A-Za-z]*", mode) is not None)
+            if not extracting:
+                return []
+            for j, a in enumerate(args):
+                if a in ("-C", "--directory") and j + 1 < len(args):
+                    return [args[j + 1]]
+                if a.startswith("--directory="):
+                    return [a.split("=", 1)[1]]
+            return ["."]
+        for j, a in enumerate(args):             # unzip [-o] archive -d DIR
+            if a == "-d" and j + 1 < len(args):
+                return [args[j + 1]]
+        return ["."] if not any(a in ("-l", "-t", "-v", "-p", "-Z") for a in args) else []
 
 
 def _api_writes(args, method_opts, body_opts, value_opts):
@@ -4068,6 +4298,1232 @@ def _api_writes(args, method_opts, body_opts, value_opts):
     return body
 
 
+# ---------------------------------------------------------------- read-only mode (T2)
+# code-reviewer, security-auditor, verifier, plan-reviewer and claude-code-guide are read-only by
+# role but hold Bash. For them (READONLY_TYPES) the no-push hook also runs this allowlist: tests,
+# linters, type checkers and scanners; builds whose output goes to a scratch dir (./.claude-work/,
+# $TMPDIR, /tmp); git and gh reads; inspection commands; `--version`/`--help`. Files are written
+# in scratch dirs only (redirections, cp/mv/rm/mkdir/tee/..., archives, -o/--output values);
+# git mutations, package installs, formatter write modes, network writes, sudo, pipes into a
+# shell or interpreter, and commands the guard can't read are refused. Inline code (python -c,
+# node -e, a heredoc into python -) passes only without file, process, module or network calls.
+# What a test suite, a build or a script in scratch does once it runs is out of sight: this stops
+# casual and injected mutations through the shell; the sandbox (settings.json) is the boundary.
+READONLY_REASON = ("Blocked by the stack's read-only rule: %s runs read-only Bash only, and `%s` %s. "
+                   "Allowed: tests, linters, type checkers and scanners; builds into scratch "
+                   "(./.claude-work/<job>/ or $TMPDIR); git diff/log/show/status/blame and other "
+                   "git reads; gh views; inspection (ls, cat, rg, jq, find without -delete/-exec "
+                   "of a writer, --version, --help). Files are written in scratch dirs only. "
+                   "Report the change you would make as a finding instead of making it.")
+# inspection commands: they write nothing but their redirections (and the -o values below)
+RO_PLAIN = {
+    "ls", "cat", "head", "tail", "wc", "file", "stat", "du", "df", "pwd", "echo", "printf", "true",
+    "false", "test", "[", "[[", "which", "whereis", "type", "date", "cal", "uname", "sw_vers", "id",
+    "whoami", "groups", "hostname", "basename", "dirname", "realpath", "readlink", "sort", "uniq",
+    "cut", "tr", "grep", "egrep", "fgrep", "zgrep", "rg", "ag", "ack", "tree", "jq", "xxd",
+    "hexdump", "od", "strings", "diff", "cmp", "comm", "column", "nl", "fold", "fmt", "tac", "rev",
+    "paste", "join", "shasum", "sha1sum", "sha256sum", "sha512sum", "md5", "md5sum", "b2sum",
+    "cksum", "base64", "sleep", "seq", "expr", "bc", "locale", "getconf", "nproc", "ps", "uptime",
+    "vm_stat", "iostat", "lsof", "otool", "nm", "objdump", "size", "zcat", "bzcat", "xzcat",
+    "gzcat", "cd", "pushd", "popd", ":", "wait", "read", "unset", "local", "shopt", "hash",
+    "exit", "return", "break", "continue", "dig", "nslookup", "host", "mdls", "mdfind",
+    "system_profiler", "ioreg", "nvidia-smi", "tput", "clear", "iconv", "look", "tsort", "numfmt",
+    "factor", "shuf", "apropos", "whatis", "ping", "traceroute", "netstat", "ifconfig", "sysctl",
+    "pathchk", "mktemp", "cloc", "tokei", "scc", "gron", "xsv", "qsv", "bat", "difft", "delta",
+    "wdiff", "colordiff", "z3", "cvc5", "set", "trap",
+}
+RO_OUT_OPTS_PLAIN = {"sort", "iconv", "shuf", "base64", "tree", "cloc", "scc", "xsv", "qsv"}
+# wrappers: the command they run is checked; options that take a value, per wrapper
+RO_WRAPPERS = {"time": {"-f", "--format", "-o", "--output"}, "nice": {"-n", "--adjustment"},
+               "nohup": set(), "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+               "timeout": {"-s", "--signal", "-k", "--kill-after"},
+               "gtimeout": {"-s", "--signal", "-k", "--kill-after"}, "command": set(),
+               "builtin": set(), "noglob": set(), "caffeinate": {"-t", "-w"}, "chronic": set(),
+               "env": {"-u", "--unset"}, "exec": {"-a"}}
+RO_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "}", "fi", "done"}
+RO_VERSION_FLAGS = {"--version", "-V", "--help", "-h", "-help", "--usage"}
+RO_WRITERS = {"mkdir", "touch", "rm", "rmdir", "unlink", "tee", "truncate", "chmod", "ln", "cp",
+              "mv", "install", "rsync", "ditto", "dd", "shred"}
+RO_WRITER_VALUE_OPTS = {
+    "touch": {"-t", "-d", "-r", "--date", "--reference"}, "mkdir": {"-m", "--mode"},
+    "install": {"-m", "--mode", "-o", "--owner", "-g", "--group", "-t", "--target-directory",
+                "-S", "--suffix"},
+    "cp": {"-t", "--target-directory", "-S", "--suffix"},
+    "mv": {"-t", "--target-directory", "-S", "--suffix"},
+    "ln": {"-t", "--target-directory", "-S", "--suffix"}, "truncate": TRUNCATE_VALUE_OPTS,
+    "rsync": {"-e", "--rsh", "--exclude", "--include", "--filter", "-f", "--files-from",
+              "--exclude-from", "--include-from", "--log-file", "--partial-dir", "--temp-dir",
+              "-T", "--backup-dir", "--chmod", "--chown", "--rsync-path", "-B", "--block-size",
+              "--compare-dest", "--copy-dest", "--link-dest", "--suffix"},
+}
+RO_CHMOD_FLAGS = {"-R", "-f", "-v", "-h", "-H", "-L", "-P", "-c", "--recursive", "--verbose",
+                  "--changes", "--silent", "--quiet", "--no-preserve-root", "--preserve-root"}
+# option names whose value is an output file or dir: must be scratch
+RO_OUT_OPTS = {"-o", "--output", "--output-file", "--out", "--outdir", "--out-dir", "--outfile",
+               "--report-path", "--report", "--sarif-output", "--json-output", "--junitxml",
+               "--junit-xml", "--html", "--cov-report", "--basetemp", "--target-dir",
+               "--build-dir", "--output-dir", "--log-file", "--result-log",
+               "--test-reporter-destination", "--text-output", "--junit-xml-output",
+               "--gitlab-sast-output", "--gitlab-secrets-output", "--vim-output",
+               "--emacs-output"}
+RO_TOOL_OUTS = {"pytest": RO_OUT_OPTS - {"-o"}, "py.test": RO_OUT_OPTS - {"-o"},
+                "grype": {"--file"}, "syft": {"--file"}, "gitleaks": RO_OUT_OPTS | {"-r"}}
+# `python -m X`: modules that only check, test or print
+RO_PY_MODULES = {"pytest", "unittest", "doctest", "mypy", "pyright", "basedpyright", "pylint",
+                 "flake8", "pyflakes", "pycodestyle", "pydocstyle", "bandit", "pip_audit",
+                 "json.tool", "tabnanny", "py_compile", "compileall", "site", "sysconfig",
+                 "platform", "tokenize", "ast", "dis", "ruff", "black", "isort", "semgrep",
+                 "detect_secrets", "vulture", "radon", "xenon", "pipdeptree", "pip", "mccabe",
+                 "codespell", "ty", "pyrefly", "coverage"}
+# formatters: allowed only with a flag that makes them report instead of rewrite
+RO_CHECK_ONLY = {
+    "black": ({"--check", "--diff"}, set()),
+    "isort": ({"--check", "--check-only", "-c", "--diff"}, set()),
+    "prettier": ({"--check", "-c", "--list-different", "-l"}, {"--write", "-w"}),
+    "rustfmt": ({"--check"}, set()), "gofmt": ({"-l", "-d"}, {"-w"}),
+    "shfmt": ({"-d", "-l"}, {"-w", "--write"}), "clang-format": ({"--dry-run", "-n"}, {"-i"}),
+    "autopep8": ({"--diff"}, {"-i", "--in-place"}), "yapf": ({"--diff", "-d"}, {"-i", "--in-place"}),
+    "mdformat": ({"--check"}, set()), "stylua": ({"--check"}, set()),
+    "taplo": ({"check", "--check"}, set()), "dprint": ({"check"}, {"fmt"}),
+    "nixfmt": ({"--check", "-c"}, set()),
+}
+# linters, scanners and test runners: allowed; these arguments would change files or post results
+RO_TOOLS = {
+    "mypy": set(), "pyright": set(), "basedpyright": set(), "pylint": set(), "flake8": set(),
+    "pyflakes": set(), "pycodestyle": set(), "pydocstyle": set(), "bandit": set(),
+    "vulture": set(), "shellcheck": set(), "hadolint": set(), "actionlint": set(),
+    "yamllint": set(), "vale": {"sync"}, "markdownlint": {"--fix", "-f"},
+    "markdownlint-cli2": {"--fix"}, "eslint": {"--fix"}, "stylelint": {"--fix"},
+    "golangci-lint": {"--fix"}, "staticcheck": set(), "govulncheck": set(),
+    "codespell": {"-w", "--write-changes", "-i", "--interactive"},
+    "typos": {"-w", "--write-changes"}, "lychee": set(), "gitleaks": set(), "trufflehog": set(),
+    "osv-scanner": {"fix"}, "pip-audit": {"--fix"},
+    "trivy": {"plugin", "clean", "server", "module", "registry"}, "grype": set(), "syft": set(),
+    "checkov": set(), "tfsec": set(), "kube-linter": set(),
+    "semgrep": {"--autofix", "ci", "publish", "login", "logout", "install-semgrep-pro"},
+    "detect-secrets": {"audit"},
+    "pytest": {"--snapshot-update", "--inline-snapshot", "--force-regen", "--regen-all"},
+    "py.test": {"--snapshot-update", "--inline-snapshot"},
+    "jest": {"-u", "--updateSnapshot"}, "vitest": {"-u", "--update"}, "mocha": set(),
+    "ava": {"-u", "--update-snapshots"},
+    "playwright": {"install", "install-deps", "codegen", "--update-snapshots", "-u", "open"},
+    "cypress": {"open", "install"}, "ctest": set(), "ty": set(), "pyrefly": {"init"},
+    "sqlfluff": {"fix", "format"}, "svelte-check": set(), "vue-tsc": set(),
+    "cargo-deny": {"fix", "init"}, "radon": set(), "xenon": set(), "pipdeptree": set(),
+    "lean": set(), "coverage": {"erase", "combine"},
+}
+RO_GIT_READ = {"diff", "log", "show", "status", "blame", "annotate", "grep", "ls-files", "ls-tree",
+               "rev-parse", "rev-list", "describe", "cat-file", "merge-base", "shortlog",
+               "for-each-ref", "name-rev", "count-objects", "whatchanged", "range-diff", "cherry",
+               "check-ignore", "check-attr", "check-ref-format", "var", "help", "version",
+               "show-ref", "show-branch", "diff-tree", "diff-files", "diff-index", "verify-commit",
+               "verify-tag", "ls-remote"}
+# git subcommands that only read when used with one of these words or flags
+RO_GIT_LIST = {"branch": {"-a", "-r", "-v", "-vv", "--list", "-l", "--contains", "--merged",
+                          "--no-merged", "--show-current", "--format", "--sort", "--points-at",
+                          "--all", "--remotes", "--verbose", "--color", "--no-color", "--column",
+                          "--no-column", "--abbrev", "--no-abbrev", "--ignore-case"},
+               "tag": {"-l", "--list", "-n", "--contains", "--merged", "--no-merged", "--sort",
+                       "--format", "--points-at", "--column", "--color", "--ignore-case"},
+               "remote": {"-v", "--verbose", "show", "get-url"}, "stash": {"list", "show"},
+               "worktree": {"list"}, "notes": {"list", "show"}, "submodule": {"status", "summary"},
+               "lfs": {"ls-files", "status", "env"}, "sparse-checkout": {"list"},
+               "bisect": {"log", "visualize", "view"}}
+RO_GIT_BARE_OK = {"remote", "notes", "submodule"}       # the bare subcommand lists
+RO_GIT_CONFIG_READ = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--list", "-l",
+                      "get", "list"}
+RO_GIT_CONFIG_WRITE = {"--add", "--unset", "--unset-all", "--replace-all", "--rename-section",
+                       "--remove-section", "-e", "--edit", "set", "unset", "rename-section",
+                       "remove-section", "edit"}
+RO_GH_VERBS = {"view", "list", "ls", "status", "checks", "diff", "verify", "logs"}
+RO_NET_WRITE_FLAGS = {"-X", "--request", "-d", "--data", "--data-raw", "--data-binary",
+                      "--data-urlencode", "--data-ascii", "-F", "--form", "--form-string", "-T",
+                      "--upload-file", "--json", "--post-data", "--post-file", "--method",
+                      "--body-data", "--body-file", "-K", "--config"}
+# variables whose value runs code or moves programs, config or temp files
+RO_EXEC_VAR_RE = re.compile(
+    r"(?:PATH|LD_\w+|DYLD_\w+|BASH_ENV|ENV|PROMPT_COMMAND|PS[0-4]|IFS|SHELLOPTS|BASHOPTS|CDPATH|"
+    r"TMPDIR|PYTHONSTARTUP|PYTHONHOME|PYTHONINSPECT|NODE_OPTIONS|NODE_PATH|PERL5OPT|PERL5LIB|"
+    r"PERLLIB|RUBYOPT|RUBYLIB|JAVA_TOOL_OPTIONS|_JAVA_OPTIONS|JDK_JAVA_OPTIONS|GIT_\w+|EDITOR|"
+    r"VISUAL|PAGER|MANPAGER|LESSOPEN|LESSCLOSE|SSH_ASKPASS|SUDO_ASKPASS|BROWSER|HISTFILE|ZDOTDIR|"
+    r"XDG_CONFIG_HOME|HOME|SHELL|CARGO_HOME|RUSTC_WRAPPER|RUSTC|CC|CXX|MAKEFLAGS|NPM_CONFIG_\w+|"
+    r"npm_config_\w+|UV_\w+|PIP_\w+)\Z")
+RO_SAFE_VARS = {"GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS", "GIT_LITERAL_PATHSPECS",
+                "GIT_NO_REPLACE_OBJECTS", "UV_NO_SYNC", "UV_FROZEN", "UV_OFFLINE", "UV_PYTHON",
+                "UV_NO_PROGRESS", "UV_LOCKED", "PIP_DISABLE_PIP_VERSION_CHECK"}
+RO_PAGER_VARS = {"PAGER", "GIT_PAGER", "MANPAGER"}
+RO_SYSTEM_BIN = {"/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/opt/homebrew/bin",
+                 "/opt/local/bin", "/Library/Developer/CommandLineTools/usr/bin"}
+RO_VENV_BIN_RE = re.compile(r"/(?:\.?venv|venvs/[^/]+|\.tox/[^/]+)/bin\Z|/node_modules/\.bin\Z")
+RO_DEVICES = {"/dev/null", "/dev/stdout", "/dev/stderr", "/dev/tty", "-"}
+# inline code that writes, removes, runs, loads or talks to the network (heuristic: a determined
+# payload can hide from any pattern; that is what the sandbox is for)
+RO_CODE_BAD_RE = re.compile(
+    MUTATE_CODE_RE.pattern + r"|\b(?:exec|eval|compile|__import__|getattr|setattr|globals|"
+    r"execfile|spawn\w*|fork|execute|execSync|execFile\w*|shell_exec|passthru|proc_open|"
+    r"file_put_contents|fopen|fwrite|mkdir|makedirs|mkdtemp|rm|rmSync|cp|cpSync|"
+    r"createWriteStream|writelines|urlopen|urlretrieve|download\w*|install\.packages|"
+    r"saveRDS|writeLines|sink)\s*\(|__builtins__|importlib|ctypes|\bpty\b|\bsocket\b|urllib|"
+    r"\brequests\b|httpx|http\.client|aiohttp|\bfetch\s*\(|XMLHttpRequest|\bdgram\b|"
+    r"\bos\.(?:system|exec\w*|spawn\w*|fork|kill|putenv|environ|getenv)|process\.(?:env|binding|"
+    r"kill)|\.write\s*\(|\.(?:to_csv|to_parquet|to_json|to_excel|to_feather|to_pickle|to_sql|"
+    r"savefig|save|savez\w*|tofile|dump)\s*\(|Pkg\.|Deno\.|Bun\.|IO\.(?:popen|write)|%x|\bqx\b|"
+    r"\bENV\b|\bgetenv\b|\bsignal\.|\bshutil\b|\.(?:unlink|rmdir|rename|replace|mkdir|touch|"
+    r"symlink_to|hardlink_to|chmod)\s*\(", re.I)
+
+
+def _ro_scratch_roots(bases):
+    """Scratch dirs: ./.claude-work of each base, $TMPDIR, the temp dirs (as given and resolved)."""
+    import tempfile
+    roots = [os.path.join(b, ".claude-work") for b in bases]
+    for r in (os.environ.get("TMPDIR"), os.environ.get("CLAUDE_CODE_TMPDIR"),
+              tempfile.gettempdir(), "/tmp", "/private/tmp", "/var/folders",
+              "/private/var/folders"):
+        if r and os.path.isabs(r):
+            roots.append(r)
+    out = []
+    for r in roots:
+        for v in (os.path.normpath(r), os.path.realpath(r)):
+            if v not in out and v != "/":
+                out.append(v)
+    return out
+
+
+def _within(path, root):
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+class _ReadOnly(object):
+    """The read-only check of one Bash command for a READONLY_TYPES agent: the first violation as
+    (what, why), else None. ctx (per simple command): piped (stdin comes from a pipe), herestr
+    (<<< words), infile (< file), assigns (NAME=value prefixes), dynamic (run by xargs or find
+    -exec, whose operands are chosen at run time)."""
+
+    def __init__(self, ev):
+        cwd = ev.get("cwd")
+        first = [cwd] if isinstance(cwd, str) and os.path.isabs(cwd) else []
+        self.bases = first + [b for b in path_bases(ev) if b not in first] or [os.getcwd()]
+        self.home = os.path.expanduser("~")
+        self.roots = _ro_scratch_roots(self.bases)
+        conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        self.confs = [os.path.realpath(c) for c in (conf, os.environ.get("CLAUDE_CONFIG_DIR"),
+                                                     os.path.join(self.home, ".claude")) if c]
+        self.cwd = None                         # the last `cd DIR` seen
+        self.deadline = time.monotonic() + DEADLINE_S
+        self.budget = MAX_SCANS
+
+    # -- paths
+    def expand(self, p):
+        if p[:1] == "$":
+            p = re.sub(r"\A\$(?:HOME\b|\{HOME\})", lambda m: self.home, p)
+        return os.path.expanduser(p) if p[:1] == "~" else p
+
+    def resolve(self, p):
+        return os.path.normpath(os.path.join(self.cwd or self.bases[0], self.expand(p)))
+
+    def in_scratch(self, a):
+        if any(_within(a, r) for r in self.roots):
+            return True
+        return ".claude-work" in a.split("/") and not any(_within(a, c) for c in self.confs)
+
+    def scratch(self, p):
+        """p names only scratch locations (lexically and after resolving symlinks; a glob by
+        what it matches now)."""
+        if p in RO_DEVICES:
+            return True
+        if not p or _expansion(self.expand(p)):
+            return False
+        a = self.resolve(p)
+        cands = [a]
+        if any(c in p for c in "*?["):
+            import glob
+            cands += glob.glob(a)[:256]
+        return all(self.in_scratch(c) and self.in_scratch(os.path.realpath(c)) for c in cands)
+
+    def runnable(self, p):
+        """A script the agent may run: in scratch, or a test file of the project."""
+        if not p or _expansion(self.expand(p)):
+            return False
+        if self.scratch(p):
+            return True
+        a = self.resolve(p)
+        return bool(re.search(r"/(?:tests?|spec|specs|__tests__|testing)/", a) or
+                    re.match(r"(?:tests?|test_.*|.*_tests?|.*\.(?:test|spec)|conftest)"
+                             r"(?:\.[A-Za-z]+)?\Z", os.path.basename(a)))
+
+    # -- commands
+    def check(self, command, depth=0):
+        if not isinstance(command, str) or not command.strip():
+            return None
+        self.budget -= 1
+        if depth > MAX_NEST or self.budget < 0 or time.monotonic() > self.deadline:
+            return (command[:120], "is nested too deeply or too long to check")
+        try:
+            text, heredocs, substs = _lex(command.replace("\x00", ""), self.deadline)
+        except _TooComplex as exc:
+            return (command[:120], "can't be checked (%s)" % exc)
+        if len(text) > MAX_COMMAND:
+            return (command[:120], "is too long to check")
+        for inner, _pos in substs:              # $(...), `...`, <(...): all of them run
+            found = self.check(inner, depth + 1)
+            if found:
+                return found
+        for owner, body, quoted in heredocs:
+            found = self.heredoc(owner, body, quoted, depth)
+            if found:
+                return found
+        try:
+            words = _shell_words(text)
+        except ValueError:
+            return (command[:120], "has unbalanced quotes")
+        restore = _restorer(substs)
+        seg, piped = [], False
+        for w in words + [";"]:
+            if SEP_RE.match(w):
+                found = self.simple([restore(x) for x in seg], piped, depth) if seg else None
+                if found:
+                    return found
+                seg, piped = [], w in ("|", "|&")
+            else:
+                seg.append(w)
+        return None
+
+    def heredoc(self, owner, body, quoted, depth):
+        """A heredoc body is shell code when a shell or eval on its line reads it, program text
+        when an interpreter does, data otherwise ($(...) in an unquoted body still runs)."""
+        words = [_base(w) for w in re.findall(r"[^\s;&|()<>'\"`]+", owner)]
+        found = None
+        if _heredoc_runs_code(owner) or any(w in HEREDOC_RUNNERS for w in words):
+            found = self.check(body, depth + 1)
+        interp = next((w for w in words if INTERPRETER_RE.match(w)), None)
+        if not found and interp:
+            found = self.code(body, owner.strip()[:80], self.family(interp))
+        for inner in ([] if quoted or found else _raw_substs(body)):
+            found = found or self.check(inner, depth + 1)
+        return found
+
+    def simple(self, words, piped, depth):
+        """One simple command: redirections, NAME=value prefixes, then the program."""
+        ctx = {"piped": piped, "herestr": [], "infile": None, "assigns": {}, "dynamic": False}
+        args, k = [], 0
+        while k < len(words):
+            w = words[k]
+            if w.isdigit() and k + 1 < len(words) and (REDIR_OP_RE.match(words[k + 1])
+                                                        or words[k + 1] in (">|", "<>")):
+                k += 1
+                continue
+            if REDIR_OP_RE.match(w) or w in (">|", "<>"):
+                target = words[k + 1] if k + 1 < len(words) else ""
+                if w == "<<<":
+                    ctx["herestr"].append(target)
+                elif w == "<":
+                    ctx["infile"] = target
+                elif ">" in w and not (w in (">&", "<&") and (target.isdigit() or target == "-")):
+                    if not self.scratch(target):
+                        return (" ".join(words)[:160], "redirects output to %s, outside the "
+                                "scratch dirs" % target)
+                k += 2
+                continue
+            args.append(w)
+            k += 1
+        while args and (ASSIGN_RE.match(args[0]) or args[0] in RO_KEYWORDS):
+            if ASSIGN_RE.match(args[0]):
+                bad = self.assign(args[0])
+                if bad:
+                    return bad
+                name, _, value = args[0].partition("=")
+                ctx["assigns"][name.rstrip("+")] = value
+            args = args[1:]
+        if not args or args[0] in ("for", "select", "in", "esac", "]]", "]", "fi", "done"):
+            return None                         # an assignment, a loop header, a lone keyword
+        return self.command(args, ctx, depth)
+
+    def assign(self, word):
+        name, _, value = word.partition("=")
+        name = name.rstrip("+")
+        if name in RO_SAFE_VARS or (name in RO_PAGER_VARS and value in ("", "cat", "less")):
+            return None
+        if RO_EXEC_VAR_RE.match(name):
+            return (word[:160], "sets %s, which can run commands or move programs, config or "
+                                "temp files" % name)
+        return None
+
+    def command(self, args, ctx, depth):
+        what = " ".join(args)[:160]
+        head = args[0]
+        if head in ("case", "function") or head.endswith("()"):
+            return (what, "is a case statement or a function definition, too complex to check")
+        if _expansion(self.expand(head)):
+            return (what, "names its program in a variable or substitution")
+        if "/" in head:
+            return self.by_path(head, args, ctx, depth, what)
+        base, rest = head, args[1:]
+        if base in RO_WRAPPERS:
+            return self.wrapper(base, rest, ctx, depth, what)
+        if base in ("sudo", "doas", "su", "runuser", "pkexec"):
+            return (what, "runs as another user")
+        if len(rest) == 1 and rest[0] in RO_VERSION_FLAGS and base not in SHELLS \
+                and not INTERPRETER_RE.match(base):
+            return None
+        if base in RO_PLAIN:
+            return self.plain(base, rest, ctx, depth, what)
+        if base in RO_WRITERS:
+            return self.writes(base, rest, ctx, what)
+        if base in ("sed", "gsed", "yq"):
+            return self.sed(base, rest, ctx, what)
+        if base in ("awk", "gawk", "mawk", "nawk"):
+            return self.awk(rest, what)
+        if base in ("find", "xargs", "fd"):
+            return self.runner(base, rest, ctx, depth, what)
+        if base in SHELLS or base in ("eval", "source", "."):
+            return self.shell(base, rest, ctx, depth, what)
+        if INTERPRETER_RE.match(base):
+            return self.interpreter(base, rest, ctx, depth, what)
+        if base == "git":
+            return self.git(rest, what)
+        if base == "gh":
+            return self.gh(rest, what)
+        if base in ("curl", "wget", "http", "https", "xh"):
+            return self.net(base, rest, what)
+        if base in RO_CHECK_ONLY:
+            need, bad = RO_CHECK_ONLY[base]
+            if any(a in bad for a in rest) or not any(a in need for a in rest):
+                return (what, "rewrites files (allowed only with %s)" % " or ".join(sorted(need)))
+            return self.outputs(rest, what)
+        if base in RO_TOOLS:
+            return self.linter(base, rest, ctx, depth, what)
+        return self.tool(base, rest, ctx, depth, what)
+
+    def by_path(self, head, args, ctx, depth, what):
+        a = self.resolve(head)
+        d = os.path.dirname(a)
+        user_bins = [os.path.join(self.home, x) for x in (".local/bin", ".cargo/bin", "go/bin")]
+        if d in RO_SYSTEM_BIN or d in user_bins or RO_VENV_BIN_RE.search(d) or \
+                re.search(r"(?:\A|/)(?:gradlew|mvnw)\Z", head):
+            return self.command([_base(head)] + args[1:], ctx, depth)
+        if self.runnable(head):
+            return None                         # built or written into scratch, or a test script
+        return (what, "runs a program outside the scratch dirs and tests (run the project's "
+                      "tests or linters by name)")
+
+    def wrapper(self, base, rest, ctx, depth, what):
+        if base == "command" and rest[:1] and rest[0] in ("-v", "-V"):
+            return None
+        if base == "env" and all(ASSIGN_RE.match(a) or a.startswith("-") for a in rest):
+            return (what, "prints the environment (it can hold keys)")
+        value_opts, k = RO_WRAPPERS[base], 0
+        while k < len(rest):
+            a = rest[k]
+            if ASSIGN_RE.match(a) and base == "env":
+                bad = self.assign(a)
+                if bad:
+                    return bad
+                k += 1
+            elif base == "env" and a.split("=")[0] in ("-S", "--split-string"):
+                return self.check(" ".join(rest[k + 1:]), depth + 1)
+            elif base == "env" and a.split("=")[0] in ("-C", "--chdir"):
+                return (what, "changes directory inside env (cd first)")
+            elif base == "time" and a.split("=")[0] in ("-o", "--output"):
+                val = a.split("=", 1)[1] if "=" in a else (rest[k + 1] if k + 1 < len(rest) else "")
+                if not self.scratch(val):
+                    return (what, "writes %s outside the scratch dirs" % val)
+                k += 1 if "=" in a else 2
+            elif a == "--":
+                k += 1
+                break
+            elif a.startswith("-"):
+                k += 2 if a in value_opts else 1
+            elif base in ("timeout", "gtimeout") and _duration(a):
+                k += 1
+                break
+            else:
+                break
+        return self.command(rest[k:], ctx, depth) if rest[k:] else None
+
+    # -- families
+    def outputs(self, rest, what, names=RO_OUT_OPTS):
+        """Values of output options (-o, --output, --report-path, ...) must be scratch."""
+        for j, a in enumerate(rest):
+            name, eq, val = a.partition("=")
+            if name not in names:
+                continue
+            val = val if eq else (rest[j + 1] if j + 1 < len(rest) else "")
+            if name == "--cov-report":
+                kind, colon, val = val.partition(":")
+                if not colon:
+                    if kind.split("-")[0] in ("html", "xml", "json", "lcov", "markdown"):
+                        return (what, "writes a coverage report into the project (use "
+                                      "--cov-report=%s:./.claude-work/<job>/cov)" % kind)
+                    continue
+            if val and not val.startswith("-") and not self.scratch(val):
+                return (what, "writes %s outside the scratch dirs" % val)
+        return None
+
+    def linter(self, base, rest, ctx, depth, what):
+        bad = [a for a in rest if a in RO_TOOLS[base] or a.split("=", 1)[0] in RO_TOOLS[base]]
+        if bad:
+            return (what, "changes files or posts results (%s)" % bad[0])
+        if base == "coverage":
+            return self.coverage(rest, ctx, depth, what)
+        if base in ("grype", "syft"):                      # -o FORMAT=FILE
+            for j, a in enumerate(rest):
+                if a.split("=")[0] in ("-o", "--output"):
+                    val = a.split("=", 1)[1] if a.startswith("--output=") else \
+                        (rest[j + 1] if j + 1 < len(rest) else "")
+                    if "=" in val and not self.scratch(val.split("=", 1)[1]):
+                        return (what, "writes %s outside the scratch dirs" % val.split("=", 1)[1])
+        return self.outputs(rest, what, RO_TOOL_OUTS.get(base, RO_OUT_OPTS))
+
+    def plain(self, base, rest, ctx, depth, what):
+        pos = [a for a in rest if not a.startswith("-")]
+        if base in ("cd", "pushd"):
+            if pos and not _expansion(self.expand(pos[0])):
+                self.cwd = self.resolve(pos[0])
+            return None
+        if base == "trap":
+            code = rest[0] if rest and rest[0] not in ("-", "--", "-l", "-p") else ""
+            return self.check(code, depth + 1) if code.strip() else None
+        if base == "set":
+            return None if rest and rest[0][:1] in "-+" else \
+                (what, "prints every shell variable (they can hold keys)")
+        if base == "sysctl" and any(a == "-w" or "=" in a for a in rest):
+            return (what, "changes a kernel setting")
+        if base == "sort" and any(a.startswith("--compress-program") for a in rest):
+            return (what, "runs a compression program")
+        if base == "rg" and any(a.split("=")[0] == "--pre" for a in rest):
+            return (what, "runs a preprocessor command (rg --pre)")
+        if base == "mktemp":
+            tdir = next((rest[j + 1] for j, a in enumerate(rest)
+                         if a in ("-p", "--tmpdir") and j + 1 < len(rest)), None)
+            if any(not self.scratch(p) for p in pos if "/" in p) or \
+                    (tdir and not self.scratch(tdir)):
+                return (what, "creates a file outside the scratch dirs")
+            return None
+        if base in ("uniq", "xxd") and len(pos) >= 2 and not self.scratch(pos[1]):
+            return (what, "writes %s outside the scratch dirs" % pos[1])
+        if base in RO_OUT_OPTS_PLAIN:
+            return self.outputs(rest, what, {"-o", "--output", "--out"})
+        return None
+
+    def writes(self, base, rest, ctx, what):
+        if ctx["dynamic"]:
+            return (what, "writes or removes paths chosen at run time (xargs, find -exec)")
+        if base == "chmod":
+            k = 0
+            while k < len(rest) and rest[k] in RO_CHMOD_FLAGS:
+                k += 1
+            reference = any(a.startswith("--reference") for a in rest)
+            pos = [a for a in rest[k:] if not a.startswith("--reference")]
+            targets = pos if reference else pos[1:]
+        elif base == "dd":
+            targets = [a[3:] for a in rest if a.startswith("of=")]
+        else:
+            pos = _operands(rest, RO_WRITER_VALUE_OPTS.get(base, ()))
+            tdir = next((a.split("=", 1)[1] if "=" in a else
+                         (rest[j + 1] if j + 1 < len(rest) else "")
+                         for j, a in enumerate(rest)
+                         if a.split("=")[0] in ("-t", "--target-directory")), None)
+            if base in ("cp", "install", "rsync", "ditto", "ln", "mv") and not (
+                    base == "install" and any(a in ("-d", "-D", "--directory") for a in rest)):
+                links = base == "ln" or any(
+                    a in ("-l", "--link", "-s", "--symbolic-link", "-H", "--hard-links")
+                    or a.startswith("--link-dest")
+                    or (base == "cp" and re.fullmatch(r"-[A-Za-z]*[ls][A-Za-z]*", a)) for a in rest)
+                if base == "ln" and len(pos) == 1 and not tdir:
+                    pos = pos + [os.path.basename(pos[0].rstrip("/")) or "."]
+                dest = [tdir] if tdir else pos[-1:]
+                srcs = pos if tdir else pos[:-1]
+                removes = base == "mv" or "--remove-source-files" in rest
+                targets = dest + (srcs if removes or links else [])
+            else:
+                targets = pos
+        for t in targets:
+            if not self.scratch(t):
+                return (what, "writes, links, removes or changes %s, outside the scratch dirs" % t)
+        return self.outputs(rest, what, {"--log-file", "--backup-dir", "--temp-dir",
+                                         "--partial-dir"}) if base == "rsync" else None
+
+    def sed(self, base, rest, ctx, what):
+        if base == "yq":
+            inplace = any(a in ("-i", "--inplace") for a in rest)
+        else:
+            inplace = any(a == "--in-place" or a.startswith("--in-place=") or
+                          (not a.startswith("--") and re.match(r"-[nEersuzl0-9]*i", a))
+                          for a in rest)
+        vals, scripts, k = [], [], 0
+        while k < len(rest):
+            a = rest[k]
+            if a in ("-e", "--expression") and k + 1 < len(rest):
+                scripts.append(rest[k + 1])
+                k += 2
+                continue
+            if base != "yq" and (a in ("-f", "--file") or a.startswith("--file=")):
+                return (what, "runs a sed script file")
+            if not a.startswith("-") or a == "-":
+                vals.append(a)
+            k += 1
+        if not scripts and vals:
+            scripts, vals = vals[:1], vals[1:]
+        if inplace and (ctx["dynamic"] or not vals or not all(self.scratch(v) for v in vals)):
+            return (what, "edits files in place outside the scratch dirs")
+        if base != "yq":
+            for s in scripts:
+                if re.search(r"(?:\A|[;{}\n])\s*[0-9,$!~+]*\s*[weW](?:\s|\Z)|/[gpIiMm0-9]*[weW]"
+                             r"(?:\s|\Z|;|\})", s):
+                    return (what, "writes files or runs commands from a sed script (w, W, e)")
+        return None
+
+    def awk(self, rest, what):
+        progs, k = [], 0
+        while k < len(rest):
+            a = rest[k]
+            if a in ("-F", "-v") and k + 1 < len(rest):
+                k += 2
+                continue
+            if a in ("-e", "--source") and k + 1 < len(rest):
+                progs.append(rest[k + 1])
+                k += 2
+                continue
+            if a in ("-f", "--file") or (a.startswith("-f") and len(a) > 2) or a in (
+                    "-i", "--include", "-l", "--load", "-E", "--exec"):
+                return (what, "runs awk program files or extensions")
+            if a == "--":
+                k += 1
+                break
+            if not a.startswith("-"):
+                break
+            k += 1
+        if not progs and k < len(rest):
+            progs.append(rest[k])
+        for p in progs:
+            if re.search(r"system\s*\(|\|\s*getline|getline\s*<|\bprintf?\b[^;{}]*[>|]|\|&|"
+                         r"fflush|close\s*\(|@load|@include", p):
+                return (what, "runs commands or writes files from awk")
+        return None
+
+    def runner(self, base, rest, ctx, depth, what):
+        inner_ctx = dict(ctx, dynamic=True, piped=False, herestr=[], infile=None)
+        if base in ("find", "fd"):
+            execs = EXEC_OPTS if base == "find" else {"-x", "--exec", "-X", "--exec-batch"}
+            for j, a in enumerate(rest):
+                if a == "-delete":
+                    return (what, "deletes files")
+                if a in ("-fprint", "-fprint0", "-fprintf", "-fls") and j + 1 < len(rest) \
+                        and not self.scratch(rest[j + 1]):
+                    return (what, "writes %s outside the scratch dirs" % rest[j + 1])
+                if a in execs:
+                    end = next((m for m in range(j + 1, len(rest))
+                                if rest[m] in (";", "+", "\\;")), len(rest))
+                    inner = [x for x in rest[j + 1:end] if x not in ("{}", "{/}", "{.}", "{//}")]
+                    found = self.command(inner, inner_ctx, depth + 1) if inner else None
+                    if found:
+                        return found
+            return None
+        k = 0                                   # xargs [options] command args
+        while k < len(rest) and rest[k].startswith("-"):
+            k += 2 if rest[k] in ("-I", "-n", "-P", "-L", "-s", "-d", "-E", "-a", "-R", "-S",
+                                  "--delimiter", "--arg-file", "--max-args",
+                                  "--max-procs") else 1
+        return self.command(rest[k:], inner_ctx, depth + 1) if rest[k:] else None
+
+    def stdin_program(self, ctx, depth, what, as_code=None):
+        """A shell or interpreter reading its program on stdin: a heredoc (checked already), a
+        here-string or a scratch/test file; never a pipe."""
+        if ctx["piped"] or ctx["dynamic"]:
+            return (what, "runs commands piped in from another command")
+        for s in ctx["herestr"]:
+            found = as_code(s) if as_code else self.check(s, depth + 1)
+            if found:
+                return found
+        if ctx["infile"] and not self.runnable(ctx["infile"]):
+            return (what, "runs a script outside the scratch dirs and tests")
+        return None
+
+    def shell(self, base, rest, ctx, depth, what):
+        if base == "eval":
+            return self.check(" ".join(rest), depth + 1)
+        if base in ("source", "."):
+            if rest and (self.runnable(rest[0]) or re.search(
+                    r"/(?:\.?venv|venvs/[^/]+)/bin/activate(?:\.\w+)?\Z", self.resolve(rest[0]))):
+                return None
+            return (what, "runs a script file outside the scratch dirs and tests in this shell")
+        if base in PWSH:
+            return (what, "runs PowerShell, which this check can't read")
+        code, _k = _Scan.shell_code(rest)
+        if code is not None:
+            return self.check(code, depth + 1)
+        k = 0
+        while k < len(rest) and rest[k][:1] in "-+" and rest[k] != "--":
+            k += 2 if rest[k] in ("-o", "+o", "-O", "+O", "--rcfile", "--init-file") else 1
+        stdin = any(re.fullmatch(r"-[A-Za-z]*s[A-Za-z]*", a) for a in rest[:k])
+        if rest[k:k + 1] == ["--"]:
+            k += 1
+        if k < len(rest) and not stdin:
+            return None if self.runnable(rest[k]) else \
+                (what, "runs a script outside the scratch dirs and tests")
+        return self.stdin_program(ctx, depth, what)
+
+    # interpreters: (code flags, module flag, options that take a value, preload options)
+    INTERP = {
+        "python": (re.compile(r"-[A-Za-z]*c"), re.compile(r"-[A-Za-z]*m"),
+                   {"-W", "-X", "--check-hash-based-pycs"}, set()),
+        "node": (re.compile(r"-e|--eval|-p|--print|-pe|-ep"), None,
+                 {"--input-type", "--env-file", "-C", "--conditions", "--test-reporter",
+                  "--test-name-pattern", "--test-concurrency", "--title", "--stack-size",
+                  "--test-reporter-destination", "-r", "--require", "--import", "--loader",
+                  "--experimental-loader"},
+                 {"-r", "--require", "--import", "--loader", "--experimental-loader"}),
+        "perl": (re.compile(r"-(?![MmIxCdDV])[A-Za-z0-9]*[eE]"), None, {"-x"}, set()),
+        "ruby": (re.compile(r"-(?![rIECKx])[A-Za-z]*e"), None, {"-r", "-I", "-C", "-E", "-K"},
+                 {"-r"}),
+        "php": (re.compile(r"-r"), None, {"-d", "-c", "-z"}, set()),
+        "lua": (re.compile(r"-e"), None, {"-l"}, {"-l"}),
+        "julia": (re.compile(r"-e|-E|--eval|--print"), None,
+                  {"-t", "--threads", "-p", "--procs", "-L", "--load", "-J", "--sysimage",
+                   "-C", "--cpu-target", "-O", "--machine-file"}, {"-L", "--load"}),
+        "Rscript": (re.compile(r"-e"), None, set(), set()),
+    }
+
+    @staticmethod
+    def family(base):
+        fam = re.sub(r"[\d.]*(?:\.exe)?\Z", "", base)
+        return {"pypy": "python", "nodejs": "node", "luajit": "lua", "bun": "node"}.get(fam, fam)
+
+    def interpreter(self, base, rest, ctx, depth, what):
+        fam = self.family(base)
+        if fam == "osascript":
+            return (what, "runs AppleScript, which can run any command")
+        if base.startswith(("deno", "bun")):
+            found = self.js_runtime(base, rest, ctx, depth, what)
+            if found != "fallthrough":
+                return found
+        if fam not in self.INTERP:
+            return (what, "is not on the read-only list")
+        code_re, mod_re, value_opts, preload = self.INTERP[fam]
+        if fam in ("perl", "ruby") and any(re.match(r"-(?![MmIxCdDVrEK-])[A-Za-z0-9]*i", a)
+                                           for a in rest):
+            files = [a for a in rest if not a.startswith("-")][1:] if not any(
+                code_re.fullmatch(a) for a in rest) else \
+                [a for j, a in enumerate(rest) if not a.startswith("-") and j > 0
+                 and not code_re.fullmatch(rest[j - 1])]
+            if ctx["dynamic"] or not files or not all(self.scratch(f) for f in files):
+                return (what, "edits files in place outside the scratch dirs")
+        k, inline = 0, False
+        while k < len(rest):
+            a = rest[k]
+            if a == "--":
+                k += 1
+                break
+            name = a.split("=", 1)[0]
+            if code_re.fullmatch(a) and k + 1 < len(rest):
+                inline = True
+                found = self.code(rest[k + 1], what, fam)
+                if found:
+                    return found
+                k += 2
+                continue
+            if mod_re is not None and mod_re.fullmatch(a) and k + 1 < len(rest):
+                return self.py_module(rest[k + 1], rest[k + 2:], ctx, depth, what)
+            if name in preload or (fam in ("perl", "ruby") and a[:2] in ("-M", "-r") and
+                                   len(a) > 2):
+                val = a.split("=", 1)[1] if "=" in a else a[2:] if a[:2] in ("-M", "-r") and \
+                    len(a) > 2 else (rest[k + 1] if k + 1 < len(rest) else "")
+                if val.startswith((".", "/", "~")) and not self.runnable(val):
+                    return (what, "preloads code from outside the scratch dirs and tests")
+            if fam == "node" and a == "--test":
+                return None                     # node's test runner on the files that follow
+            if fam == "php" and a == "-S":
+                return (what, "starts a server")
+            if fam == "php" and a == "-f" and k + 1 < len(rest):
+                return None if self.runnable(rest[k + 1]) else \
+                    (what, "runs a script outside the scratch dirs and tests")
+            if a in value_opts and "=" not in a:
+                k += 2
+                continue
+            if a == "-" or not a.startswith("-"):
+                break
+            k += 1
+        if inline:
+            return None
+        if k < len(rest) and rest[k] != "-":
+            return None if self.runnable(rest[k]) else \
+                (what, "runs a script outside the scratch dirs and tests")
+        return self.stdin_program(ctx, depth, what, lambda s: self.code(s, what, fam))
+
+    def js_runtime(self, base, rest, ctx, depth, what):
+        """deno and bun subcommands; "fallthrough" for bun running code like node."""
+        pos = [a for a in rest if not a.startswith("-")]
+        sub = pos[0] if pos else ""
+        if base.startswith("deno"):
+            if sub in ("test", "lint", "check", "info", "doc", "bench") or \
+                    (sub == "fmt" and "--check" in rest):
+                return None
+            if sub == "eval" and len(pos) > 1:
+                return self.code(pos[1], what, "node")
+            if sub == "run" and len(pos) > 1:
+                return None if self.runnable(pos[1]) else \
+                    (what, "runs a script outside the scratch dirs and tests")
+            if sub == "task" and len(pos) > 1 and self.test_script(pos[1]):
+                return None
+            return (what, "is not a read-only deno command")
+        if sub == "test":
+            return None
+        if sub == "run" and len(pos) > 1 and self.test_script(pos[1]):
+            return None
+        if sub == "x" and len(pos) > 1:
+            return self.command(rest[rest.index("x") + 1:], ctx, depth + 1)
+        if sub in ("install", "i", "add", "remove", "rm", "update", "link", "unlink", "upgrade",
+                   "create", "init", "publish", "pm", "build", "run", "patch"):
+            return (what, "installs packages, builds or runs project scripts (bun %s)" % sub)
+        return "fallthrough"
+
+    @staticmethod
+    def test_script(name):
+        return bool(re.match(r"(?:test|tests|lint|check|typecheck|type-check|types|format:check|"
+                             r"fmt:check|(?:test|lint|check):[\w:.-]+)\Z", name))
+
+    def code(self, code, what, fam="python"):
+        s = re.sub(r"\b(?:sys|process)\.(?:stdout|stderr)\.write\s*\(", "print(", code or "")
+        bad = RO_CODE_BAD_RE.search(s) or \
+            (fam in ("perl", "ruby", "php") and re.search(r"`|\bsystem\b|\bexec\b|\bopen\b", s)) or \
+            (fam in ("julia", "Rscript") and re.search(r"\brun\s*\(|\bsystem2?\s*\(|"
+                                                         r"file\.(?:remove|create|rename|copy)|"
+                                                         r"\bwrite\s*\(", s)) or \
+            (fam == "node" and re.search(r"\brequire\s*\(|\bimport\s*\(|\bfs\b", s))
+        if bad:
+            return (what, "runs inline code that writes files, starts processes, loads modules "
+                          "or uses the network (put it in a script under ./.claude-work/<job>/ "
+                          "if it must run)")
+        return None
+
+    def py_module(self, mod, rest, ctx, depth, what):
+        if mod not in RO_PY_MODULES and mod.split(".")[0] not in ("pytest", "unittest", "mypy"):
+            return (what, "runs a module that is not on the read-only list")
+        if mod == "pip":
+            return None if rest[:1] and rest[0] in ("list", "show", "freeze", "check", "debug",
+                                                    "index", "--version", "-V") \
+                else (what, "changes installed packages")
+        name = {"pip_audit": "pip-audit", "detect_secrets": "detect-secrets"}.get(mod, mod)
+        if name in RO_CHECK_ONLY or name in RO_TOOLS or name == "ruff":
+            return self.command([name] + rest, ctx, depth + 1)
+        return self.outputs(rest, what)
+
+    def coverage(self, rest, ctx, depth, what):
+        pos = [a for a in rest if not a.startswith("-")]
+        sub = pos[0] if pos else ""
+        if sub == "run":
+            k = rest.index("run") + 1
+            while k < len(rest) and rest[k].startswith("-"):
+                if rest[k] == "-m" and k + 1 < len(rest):
+                    return self.py_module(rest[k + 1], rest[k + 2:], ctx, depth, what)
+                k += 2 if rest[k] in ("--rcfile", "--source", "--omit", "--include",
+                                      "--data-file", "--context", "--concurrency") else 1
+            return None if k < len(rest) and self.runnable(rest[k]) else \
+                (what, "runs a script outside the scratch dirs and tests")
+        if sub in ("html", "xml", "json", "lcov", "annotate"):
+            if not any(a.split("=")[0] in ("-o", "-d", "--directory") for a in rest):
+                return (what, "writes a report into the project (add -o or -d under "
+                              "./.claude-work/<job>/)")
+            return self.outputs(rest, what, {"-o", "-d", "--directory"})
+        return None
+
+    def git(self, rest, what):
+        k = 0
+        while k < len(rest) and rest[k].startswith("-"):
+            opt = rest[k].split("=", 1)[0]
+            if opt in ("-c", "--config-env"):
+                attached = opt == "--config-env" and "=" in rest[k]
+                val = rest[k].split("=", 1)[1] if attached else \
+                    (rest[k + 1] if k + 1 < len(rest) else "")
+                if GIT_EXEC_KEY_RE.match(val.split("=", 1)[0]):
+                    return (what, "sets a git config key that runs a command")
+                k += 1 if attached else 2
+            elif opt == "--exec-path" and "=" in rest[k]:
+                return (what, "runs git commands from another directory")
+            elif opt in GIT_OPTS_WITH_VALUE and "=" not in rest[k]:
+                k += 2
+            else:
+                k += 1
+        if k >= len(rest):
+            return None
+        sub, args = rest[k], rest[k + 1:]
+        if sub in ("diff", "log", "show", "whatchanged", "range-diff", "diff-tree"):
+            found = self.outputs(args, what, {"--output"})
+            if found:
+                return found
+            if any(a.startswith("--ext-diff") or a == "--textconv" for a in args):
+                return (what, "runs the repository's configured diff programs")
+        if sub in RO_GIT_READ:
+            if sub == "grep" and any(a in ("-O", "--open-files-in-pager") or
+                                     a.startswith(("--open-files-in-pager=", "-O")) for a in args):
+                return (what, "opens files in a program")
+            return None
+        words = [a.split("=", 1)[0] for a in args]
+        if sub == "config":
+            if any(w in RO_GIT_CONFIG_READ for w in words) and \
+                    not any(w in RO_GIT_CONFIG_WRITE for w in words):
+                return None
+        elif sub == "reflog":
+            if not any(w in ("expire", "delete", "drop") for w in words):
+                return None
+        elif sub in ("branch", "tag"):
+            pos = [a for a in args if not a.startswith("-")]
+            flags = [w for w in words if w.startswith("-")]
+            listing = any(f in ("--list", "-l", "--contains", "--merged", "--no-merged",
+                                "--points-at") for f in flags) or (sub == "tag" and "-n" in flags)
+            if all(f in RO_GIT_LIST[sub] for f in flags) and (not pos or listing):
+                return None
+        elif sub in RO_GIT_LIST:
+            if (words[:1] and words[0] in RO_GIT_LIST[sub]) or (not words and sub in RO_GIT_BARE_OK):
+                return None
+        return (what, "changes the repository, its refs or its config (git %s)" % sub)
+
+    def gh(self, rest, what):
+        args, k = [], 0
+        while k < len(rest):                    # global options that take a value
+            if rest[k] in ("-R", "--repo", "--hostname"):
+                k += 2
+                continue
+            args.append(rest[k])
+            k += 1
+        pos = [a for a in args if not a.startswith("-")]
+        if not pos:
+            return None
+        if pos[0] == "auth":
+            return None if pos[1:2] == ["status"] and not any(
+                a.split("=")[0] in ("--show-token", "-t") for a in args) else \
+                (what, "manages or prints GitHub credentials")
+        if pos[0] == "api":
+            return (what, "writes through the GitHub API") if _api_writes(args[1:], *GH_API[1:]) \
+                else None
+        if pos[0] in ("search", "status") or (len(pos) >= 2 and pos[1] in RO_GH_VERBS):
+            return None
+        return (what, "is not a read-only gh command (view, list, status, checks, diff, "
+                      "search, api GET)")
+
+    def net(self, base, rest, what):
+        if base in ("http", "https", "xh"):
+            pos = [a for a in rest if not a.startswith("-")]
+            if not pos or pos[0].upper() not in ("GET", "HEAD"):
+                return (what, "may send data (HTTPie: name the method GET or HEAD first)")
+            if any(re.search(r"(?<![=:])(?::=|=|@)(?!=)", p) for p in pos[2:]):
+                return (what, "sends data over the network")
+            return self.outputs(rest, what, {"-o", "--output"})
+        for j, a in enumerate(rest):
+            name = a.split("=", 1)[0]
+            if name in RO_NET_WRITE_FLAGS or (base == "curl" and re.fullmatch(
+                    r"-[A-Za-z0-9#:]*[dFTXK][A-Za-z0-9#:]*", a)):
+                if name in ("-X", "--request", "--method"):
+                    m = a.split("=", 1)[1] if "=" in a else (rest[j + 1] if j + 1 < len(rest) else "")
+                    if m.upper() in ("GET", "HEAD", "OPTIONS"):
+                        continue
+                return (what, "sends data over the network")
+            if base == "curl" and (a in ("-O", "--remote-name", "--remote-name-all", "-J",
+                                         "--remote-header-name") or
+                                   re.fullmatch(r"-[A-Za-z0-9#:]*O[A-Za-z0-9#:]*", a)):
+                return (what, "saves a download next to your files (use -o ./.claude-work/...)")
+            outs = ("-o", "--output", "-D", "--dump-header", "-c", "--cookie-jar", "--trace",
+                    "--trace-ascii", "--stderr", "--output-dir", "--etag-save", "--hsts",
+                    "--alt-svc") if base == "curl" else \
+                ("-O", "--output-document", "-P", "--directory-prefix", "-o", "--output-file",
+                 "-a", "--append-output", "--save-cookies", "--warc-file")
+            clustered_o = base == "curl" and a != "-o" and re.fullmatch(r"-[A-Za-z0-9#:]*o", a)
+            wget_o = None if base != "wget" or a.startswith("--") or a in outs else \
+                re.fullmatch(r"-[A-Za-z]*[OPoa](.*)", a)
+            if wget_o:                            # -qO- / -qO FILE / -P DIR clustered
+                val = wget_o.group(1) or (rest[j + 1] if j + 1 < len(rest) else "")
+                if val and val != "-" and not self.scratch(val):
+                    return (what, "writes %s outside the scratch dirs" % val)
+            elif name in outs or clustered_o:
+                val = a.split("=", 1)[1] if "=" in a else (rest[j + 1] if j + 1 < len(rest) else "")
+                if val and val != "-" and not self.scratch(val):
+                    return (what, "writes %s outside the scratch dirs" % val)
+        if base == "wget" and not any(a.split("=", 1)[0] in ("-O", "--output-document", "-P",
+                                                             "--directory-prefix", "--spider")
+                                      or re.fullmatch(r"-[A-Za-z]*[OP].*", a) for a in rest):
+            return (what, "saves a download in the working directory (use -O ./.claude-work/...)")
+        return None
+
+    def tool(self, base, rest, ctx, depth, what):
+        pos = [a for a in rest if not a.startswith("-")]
+        sub = pos[0] if pos else ""
+        if base == "uv":
+            return self.uv(rest, pos, sub, ctx, depth, what)
+        if base in ("uvx", "npx", "pnpx", "bunx", "pipx"):
+            k = 0
+            if base == "pipx":
+                if sub != "run":
+                    return (what, "installs tools (pipx %s)" % sub)
+                k = rest.index("run") + 1
+            while k < len(rest) and rest[k].startswith("-"):
+                k += 2 if rest[k] in ("--from", "--with", "-p", "--package", "--python",
+                                      "--spec", "--index", "--with-requirements",
+                                      "--with-editable", "--index-url") else 1
+            if k < len(rest):
+                name = rest[k].rsplit("/", 1)[-1].split("@")[0]
+                name = {"typescript": "tsc", "pip_audit": "pip-audit"}.get(name, name)
+                return self.command([name] + rest[k + 1:], ctx, depth + 1)
+            return None
+        if base in ("npm", "pnpm", "yarn"):
+            if sub in ("test", "t", "tst") or (sub in ("run", "run-script") and len(pos) > 1
+                                                and self.test_script(pos[1])):
+                return None
+            if base == "yarn" and self.test_script(sub):
+                return None
+            if base in ("pnpm", "yarn") and sub in ("exec", "dlx"):
+                return self.command(rest[rest.index(sub) + 1:], ctx, depth + 1)
+            if sub in ("ls", "list", "view", "info", "outdated", "explain", "why", "audit",
+                       "config", "root", "bin", "prefix", "help", "doctor", "search", "query",
+                       "licenses"):
+                if sub == "audit" and "fix" in pos:
+                    return (what, "changes dependencies (audit fix)")
+                if sub == "config" and len(pos) > 1 and pos[1] not in ("get", "list", "ls"):
+                    return (what, "changes the package manager's config")
+                return self.outputs(rest, what)
+            return (what, "installs packages, runs project scripts or builds into the project "
+                          "(%s %s)" % (base, sub))
+        if base == "cargo":
+            if sub in ("test", "check", "clippy", "bench", "doc", "tree", "metadata", "search",
+                       "audit", "deny", "outdated", "vet", "geiger", "nextest", "miri", "kani",
+                       "llvm-cov", "udeps", "machete", "verify-project", "locate-project",
+                       "pkgid", "read-manifest", "version", "help"):
+                bad = sorted({"--fix", "--allow-dirty", "--allow-staged", "--bless"} & set(rest))
+                if sub in ("audit", "deny") and ("fix" in pos or "init" in pos):
+                    bad = ["fix/init"]
+                return (what, "changes files (%s)" % bad[0]) if bad else self.outputs(rest, what)
+            if sub == "fmt":
+                return None if "--check" in rest else (what, "rewrites files (use --check)")
+            if sub in ("build", "run"):
+                tdir = next((a.split("=", 1)[1] if "=" in a else
+                             (rest[j + 1] if j + 1 < len(rest) else "")
+                             for j, a in enumerate(rest) if a.split("=")[0] == "--target-dir"),
+                            None) or ctx["assigns"].get("CARGO_TARGET_DIR")
+                if tdir and self.scratch(tdir):
+                    return None
+                return (what, "builds into the project (use --target-dir ./.claude-work/<job>/"
+                              "target)")
+            return (what, "changes the project or installs (cargo %s)" % sub)
+        if base == "go":
+            if sub in ("test", "vet", "list", "env", "version", "doc", "help") or \
+                    (sub == "mod" and len(pos) > 1 and pos[1] in ("graph", "why", "verify")):
+                if sub == "env" and any(a in ("-w", "-u") for a in rest):
+                    return (what, "changes go's environment file")
+                return self.outputs(rest, what, {"-o", "-coverprofile", "-cpuprofile",
+                                                 "-memprofile", "-blockprofile", "-trace",
+                                                 "-outputdir"})
+            if sub == "build":
+                o = next((rest[j + 1] for j, a in enumerate(rest) if a == "-o" and j + 1 < len(rest)),
+                         None)
+                return None if o and self.scratch(o) else \
+                    (what, "builds into the project (use -o ./.claude-work/<job>/bin)")
+            if sub == "run":
+                return None if len(pos) > 1 and self.runnable(pos[1]) else \
+                    (what, "runs a program outside the scratch dirs and tests")
+            return (what, "changes the module or installs (go %s)" % sub)
+        if base in ("make", "gmake"):
+            targets = [a for a in rest if not a.startswith("-") and "=" not in a]
+            if any(a.split("=")[0] in ("-f", "--file", "--makefile", "-C", "--directory",
+                                       "--eval", "-E") for a in rest) or \
+                    any("=" in a and not a.startswith("-") for a in rest):
+                return (what, "runs another makefile or overrides make variables")
+            if "-n" in rest or "--dry-run" in rest or "--just-print" in rest or \
+                    (targets and all(re.match(r"(?:test|tests|check|lint|typecheck|vet|"
+                                              r"fmt-check|format-check|test-[\w-]+|"
+                                              r"check-[\w-]+|lint-[\w-]+)\Z", t) for t in targets)):
+                return None
+            return (what, "runs make targets beyond test/check/lint")
+        if base in ("gradlew", "mvnw", "gradle", "mvn", "swift", "dotnet", "bazel", "mix", "sbt"):
+            return None if sub in ("test", "check", "verify") else \
+                (what, "builds, installs or changes the project")
+        if base in ("cabal", "stack", "lake"):
+            return None if sub in ("test", "check", "build", "env", "print-paths", "list", "path",
+                                   "info", "lint") else \
+                (what, "installs or changes the project")
+        if base == "cmake":
+            if "-E" in rest and "capabilities" in rest:
+                return None
+            b = next((rest[j + 1] if a in ("-B", "--build") and j + 1 < len(rest) else a[2:]
+                      for j, a in enumerate(rest) if a in ("-B", "--build") or
+                      (a.startswith("-B") and len(a) > 2)), None)
+            if b and self.scratch(b) and not any(a in ("--install", "-P", "install") for a in rest):
+                return None
+            return (what, "configures or builds outside a scratch build dir (cmake -B "
+                          "./.claude-work/<job>/build)")
+        if base in ("ninja", "meson"):
+            d = next((rest[j + 1] for j, a in enumerate(rest) if a == "-C" and j + 1 < len(rest)),
+                     None) or (pos[1] if base == "meson" and sub in ("setup", "test", "compile")
+                               and len(pos) > 1 else None)
+            if "install" in pos:
+                return (what, "installs")
+            return None if d and self.scratch(d) else (what, "builds outside a scratch dir")
+        if base == "tsc":
+            if "--noEmit" in rest:
+                return None
+            if any(a.split("=")[0] == "--outDir" for a in rest):
+                return self.outputs(rest, what, {"--outDir"})
+            return (what, "emits JavaScript into the project (use --noEmit)")
+        if base == "claude":
+            if rest[:2] in (["mcp", "list"], ["mcp", "get"], ["plugin", "list"],
+                            ["plugins", "list"], ["plugin", "details"]) \
+                    or rest[:1] in (["--version"], ["-v"], ["--help"], ["-h"]):
+                return None
+            return (what, "is not a read-only claude command (--version, mcp list, mcp get, "
+                          "plugin list)")
+        if base == "tar":
+            return self.tar(rest, what)
+        if base == "unzip":
+            if any(a in ("-l", "-t", "-v", "-p", "-Z", "-z") for a in rest):
+                return None
+            d = next((rest[j + 1] for j, a in enumerate(rest) if a == "-d" and j + 1 < len(rest)),
+                     None)
+            return None if d and self.scratch(d) else (what, "unpacks outside the scratch dirs")
+        if base == "zip":
+            return None if pos and self.scratch(pos[0]) and not any(
+                a in ("-T", "-TT", "--unzip-command") for a in rest) \
+                else (what, "writes an archive outside the scratch dirs")
+        if base in ("gzip", "gunzip", "bzip2", "bunzip2", "xz", "unxz", "zstd"):
+            if any(a in ("-c", "--stdout", "-l", "--list", "-t", "--test") or
+                   re.fullmatch(r"-[A-Za-z0-9]*[ct][A-Za-z0-9]*", a) for a in rest):
+                return None
+            return None if pos and all(self.scratch(p) for p in pos) else \
+                (what, "compresses or unpacks files in place")
+        if base in ("pip", "pip3"):
+            return None if sub in ("list", "show", "freeze", "check", "debug", "index") else \
+                (what, "changes installed packages")
+        if base == "brew":
+            return None if sub in ("list", "ls", "info", "search", "config", "doctor", "deps",
+                                   "uses", "outdated", "leaves", "desc", "--prefix",
+                                   "--cellar", "--repository") or rest[:1] == ["--prefix"] \
+                else (what, "changes installed software")
+        if base == "docker":
+            return None if sub in ("ps", "images", "inspect", "logs", "version", "info", "top",
+                                   "stats", "history", "diff") else \
+                (what, "runs or changes containers")
+        if base == "kubectl":
+            return None if sub in ("get", "describe", "logs", "explain", "version", "top",
+                                   "api-resources", "api-versions", "cluster-info") else \
+                (what, "changes the cluster")
+        if base == "terraform":
+            return None if sub in ("validate", "show", "version", "providers") or \
+                (sub == "fmt" and "-check" in rest) else (what, "changes infrastructure or state")
+        if base == "ruff":
+            if sub == "format":
+                return None if any(a in ("--check", "--diff") for a in rest) else \
+                    (what, "rewrites files (use --check or --diff)")
+            if sub == "clean":
+                return (what, "removes caches in the project")
+            if any(a in ("--fix", "--unsafe-fixes", "--add-noqa", "--fix-only") for a in rest) \
+                    and "--no-fix" not in rest:
+                return (what, "rewrites files (--fix)")
+            return self.outputs(rest, what)
+        if base == "biome":
+            return (what, "rewrites files (--write)") if any(a.split("=")[0] in (
+                "--write", "--apply", "--apply-unsafe", "--fix", "--unsafe") for a in rest) \
+                else None
+        if base == "codesign":
+            return None if any(re.fullmatch(r"-d[v]*|--display|-v+|--verify|-dv+", a)
+                               for a in rest) and not any(a in ("-s", "--sign", "-f", "--force",
+                                                                "--remove-signature")
+                                                          for a in rest) \
+                else (what, "signs files")
+        if base == "defaults":
+            return None if sub in ("read", "read-type", "domains", "find") else \
+                (what, "changes preferences")
+        if base in ("sqlite3", "duckdb"):
+            return None if any(a in ("-readonly", "--readonly") for a in rest) and \
+                any(a in ("-safe", "--safe") for a in rest) else \
+                (what, "can write the database or files (add -readonly -safe)")
+        if base == "openssl":
+            if sub in ("x509", "s_client", "version", "dgst", "verify", "asn1parse", "req",
+                       "crl", "ciphers", "list", "rand", "base64", "sha256", "sha1", "md5"):
+                return self.outputs(rest, what, {"-out", "-keyout"})
+            return (what, "writes keys or files")
+        if base in ("xcrun", "xcode-select", "pkgutil"):
+            return None if any(a in ("--show-sdk-path", "--show-sdk-version", "-p",
+                                     "--print-path", "--pkgs", "--files", "--pkg-info",
+                                     "--find", "-f") for a in rest) else \
+                (what, "is not a read-only form")
+        return (what, "is not on the read-only list")
+
+    def tar(self, rest, what):
+        bad = [a for a in rest if a.split("=")[0] in ("-I", "--use-compress-program",
+                                                      "--to-command", "--checkpoint-action",
+                                                      "--info-script", "--new-volume-script",
+                                                      "-F", "--rsh-command")]
+        if bad:
+            return (what, "runs a program from tar (%s)" % bad[0])
+        mode = next((a for a in rest if not a.startswith("--")), "")
+        if re.fullmatch(r"-?[A-Za-z]*t[A-Za-z]*", mode) or "--list" in rest:
+            return None
+        if re.fullmatch(r"-?[A-Za-z]*x[A-Za-z]*", mode) or "--extract" in rest or "--get" in rest:
+            d = next((rest[j + 1] for j, a in enumerate(rest) if a in ("-C", "--directory")
+                      and j + 1 < len(rest)), None)
+            return None if d and self.scratch(d) else (what, "unpacks outside the scratch dirs")
+        f = next((rest[j + 1] for j, a in enumerate(rest) if a in ("-f", "--file")
+                  and j + 1 < len(rest)), None)
+        if f is None and re.fullmatch(r"-?[A-Za-z]*f", mode):
+            idx = rest.index(mode) + 1
+            f = rest[idx] if idx < len(rest) else None
+        return None if f and self.scratch(f) else \
+            (what, "writes an archive outside the scratch dirs")
+
+    def uv(self, rest, pos, sub, ctx, depth, what):
+        if sub == "run":
+            k = rest.index("run") + 1
+            opts_with_value = {"--with", "--with-requirements", "--with-editable", "--python",
+                               "-p", "--project", "--directory", "--index", "--extra",
+                               "--group", "--only-group", "--env-file", "--package",
+                               "--default-index", "--index-url", "--extra-index-url",
+                               "--exclude-newer", "--cache-dir", "--config-file", "--no-group",
+                               "--refresh-package", "--reinstall-package", "--upgrade-package"}
+            while k < len(rest) and rest[k].startswith("-"):
+                if rest[k].split("=")[0] == "--directory":
+                    return (what, "changes directory inside uv (cd first)")
+                if rest[k] == "-m" and k + 1 < len(rest):
+                    return self.py_module(rest[k + 1], rest[k + 2:], ctx, depth, what)
+                k += 2 if rest[k] in opts_with_value else 1
+            if k < len(rest) and re.search(r"\.pyw?\Z", rest[k]):
+                return None if self.runnable(rest[k]) else \
+                    (what, "runs a script outside the scratch dirs and tests")
+            return self.command(rest[k:], ctx, depth + 1) if rest[k:] else \
+                (what, "opens a REPL")
+        if sub in ("tree", "help") or rest[:1] in (["--version"], ["-V"]):
+            return None
+        if sub == "version":
+            return (what, "changes the project version") if any(
+                a.split("=")[0] in ("--bump", "--set") for a in rest) or len(pos) > 1 else None
+        if sub == "pip" and len(pos) > 1 and pos[1] in ("list", "show", "freeze", "tree", "check"):
+            return None
+        if sub == "lock" and any(a in ("--check", "--dry-run", "--locked", "--check-exists")
+                                 for a in rest):
+            return None
+        if sub == "sync" and any(a in ("--dry-run", "--check") for a in rest):
+            return None
+        if sub == "python" and len(pos) > 1 and pos[1] in ("list", "find", "dir"):
+            return None
+        if sub == "tool" and len(pos) > 1 and pos[1] in ("list", "dir"):
+            return None
+        if sub == "tool" and len(pos) > 1 and pos[1] == "run":
+            return self.command(["uvx"] + rest[rest.index("run") + 1:], ctx, depth + 1)
+        if sub == "cache" and len(pos) > 1 and pos[1] in ("dir", "size"):
+            return None
+        if sub == "export":
+            return self.outputs(rest, what)
+        if sub == "build":
+            return self.outputs(rest, what, {"-o", "--out-dir"}) if any(
+                a.split("=")[0] in ("-o", "--out-dir") for a in rest) else \
+                (what, "builds into dist/ (use --out-dir ./.claude-work/<job>/dist)")
+        if sub == "venv":
+            return None if len(pos) > 1 and self.scratch(pos[1]) else \
+                (what, "creates a venv outside the scratch dirs")
+        return (what, "changes the environment or the project (uv %s)" % sub)
+
+
+def readonly_violation(command, ev):
+    """(what, why) when a READONLY_TYPES agent's Bash command is not read-only, else None."""
+    return _ReadOnly(ev).check(command)
+
+
 def remote_write_in(command):
     """(kind, what) for the first remote write in a shell command — kind "push" (git push and
     friends), "forge" (gh/tea/fj writes) or "opaque" (a git or forge command decided only at run
@@ -4081,10 +5537,12 @@ def git_push_in(command):
 
 
 def secrets_leak_in(command):
-    """(kind, what) when a shell command runs mcp-headers/with-stack-env without --reveal, or
-    bash -x / sh -x / zsh -x on install.sh or doctor.sh — else None. Shares the same shell lexer
-    and shell/eval/here-doc unwrapping as remote_write_in, so `bash -c "mcp-headers exa"`,
-    `eval 'with-stack-env --print-env'` etc. are caught the same way `git push` is."""
+    """(kind, what) when a shell command runs mcp-headers/with-stack-env with --reveal, runs
+    env/printenv/set/export under with-stack-env, or bash -x / sh -x / zsh -x on install.sh or
+    doctor.sh — else None. Shares the same shell lexer and shell/eval/here-doc unwrapping as
+    remote_write_in, so `bash -c "mcp-headers exa --reveal"` etc. are caught the same way
+    `git push` is. The redacted default forms (`mcp-headers exa`, `with-stack-env --print-env`)
+    pass."""
     return _Scan(("secrets",)).scan(command)
 
 
@@ -4094,8 +5552,10 @@ def forge_write_in(command):
 
 
 def protected_write_in(command, ev):
-    """(kind, what) when a shell command writes (redirection, cp/mv/install/rsync, tee, dd,
-    sed/perl -i) to a path already denied to Read/Edit/Write — else None. Needs `ev` (the hook
+    """(kind, what) when a shell command writes, deletes, renames or re-modes (redirection,
+    cp/mv/install/rsync, tee, dd, sed/perl -i, rm/unlink/rmdir, find -delete/-exec, chmod/ln/touch/
+    truncate, tar -x/unzip, inline interpreter code) a path already denied to Read/Edit/Write, one
+    of the stack's own files in the config dir, or the hook state dir — else None. Needs `ev` (the hook
     event) to resolve relative paths the way the tool would and to read the deny rules that apply
     in this project. Closes the gap Claude Code's own protected-path check doesn't cover: it
     applies to Edit/Write, not to Bash, and bypassPermissions mode skips it even there."""
@@ -4143,6 +5603,15 @@ def no_push_main(raw):
              OPAQUE_REASON % what if kind == "opaque" else
              SECRETS_REASON % what if kind == "secrets" else
              PROTECT_REASON % what if kind == "protect" else NO_PUSH_REASON)
+    agent_type = norm(ev.get("agent_type"))
+    if agent_type in READONLY_TYPES and policy_on() and command is not None:
+        try:
+            bad = (("PowerShell", "runs PowerShell, which the read-only check can't read")
+                   if tool == "PowerShell" else readonly_violation(command, ev))
+        except Exception as exc:              # a parser bug: fail closed
+            bad = (text[:120], "could not be checked (%s: %s)" % (type(exc).__name__, exc))
+        if bad:
+            deny(READONLY_REASON % (agent_type, bad[0][:160], bad[1][:300]))
     return 0
 
 
@@ -4190,6 +5659,10 @@ def self_test():
     spawners = sorted(p for p, row in POLICY.items() if GOD in row)
     if spawners != ["orchestrator"]:
         problems.append("only the orchestrator's row may list god-coder, not %s" % spawners)
+    browsers = {p for p, row in POLICY.items() if "browser-operator" in row}
+    if browsers != BROWSER_SPAWNERS:
+        problems.append("only %s may list browser-operator, not %s"
+                        % (sorted(BROWSER_SPAWNERS), sorted(browsers)))
     for never in ("blackcat", "orchestrator", GOD, "mlx-engineer", "cuda-engineer"):
         if never in SELF_SPAWN:
             problems.append("%s must not spawn copies of itself" % never)
@@ -4304,6 +5777,8 @@ def pre_handler(tool):
         handler = on_screen
     if handler is None and local_read_keys(tool) is not None:
         handler = on_local_read
+    if handler is None and MEMORY_WRITE_TOOLS.match(tool):
+        handler = on_memory_write
     return handler
 
 
@@ -4349,14 +5824,14 @@ def main(argv):
         if argv[1] == "blackcat-guard":
             raw = sys.stdin.read()
             try:
-                blackcat_guard(raw)
+                blackcat_guard(raw, from_settings="--settings" in argv[2:])
             except SystemExit:
                 raise
             except Exception as exc:
                 guard_error("%s: %s" % (type(exc).__name__, exc))
             return 0
         sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | --check-budget [transcript] | "
-                         "blackcat-guard | budget | image-limit | no-push]\n")
+                         "blackcat-guard [--settings] | budget | image-limit | no-push]\n")
         return 2
     raw = sys.stdin.read()
     try:

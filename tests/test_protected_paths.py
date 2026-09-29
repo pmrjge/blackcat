@@ -1,9 +1,11 @@
-"""Tests for agent_guard.py's "protect" scan kind: a Bash-level write (redirection, cp/mv/
-install/rsync, tee, dd, sed/perl -i) is denied when it targets a path already denied to the
-Read/Edit/Write tools (hooks/, bin/, settings.json, .git/, .claude/settings*.json). Claude Code's
-own protected-path check applies to the Edit/Write tools, not to raw Bash, and bypassPermissions
-mode (the stack's default) skips even that — this hook is the replacement, and it must not block
-ordinary Bash writes elsewhere.
+"""Tests for agent_guard.py's "protect" scan kind: a Bash-level write, delete, rename or mode
+change (redirection, cp/mv/install/rsync, tee, dd, sed/perl -i, rm/unlink/rmdir, find -delete,
+chmod/ln/touch/truncate, tar -x/unzip, inline python/node/perl code) is denied when it targets a
+path already denied to the Read/Edit/Write tools (the stack's config dir: hooks/, bin/, agents/,
+rules/, mcp/, magg/, skills/, CLAUDE.md, backup-*/, settings.json; the hook state dir; the
+project's .git hooks/config and .claude settings). Claude Code's own protected-path check applies
+to the Edit/Write tools, not to raw Bash, and bypassPermissions mode (the stack's default) skips
+even that — this hook is the replacement, and it must not block ordinary Bash writes elsewhere.
 
 Run: uv run --with pytest pytest -q tests/test_protected_paths.py
 """
@@ -23,10 +25,12 @@ SRC_SETTINGS = ROOT / "dot-claude" / "settings.json"
 
 
 @pytest.fixture
-def installed(tmp_path):
+def installed(tmp_path, monkeypatch):
     """A rendered, installed-looking config dir (__CLAUDE_DIR__ substituted for real) plus a
     project directory with its own .claude/, so the deny rules the hook reads actually resolve to
-    real paths instead of the literal template placeholder."""
+    real paths instead of the literal template placeholder. The process runs in the project (as
+    the hook does) and the hook state lives under tmp_path/state."""
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     cfg = tmp_path / "claude"
     (cfg / "hooks").mkdir(parents=True)
     shutil.copy(SRC_HOOK, cfg / "hooks" / "agent_guard.py")
@@ -35,6 +39,7 @@ def installed(tmp_path):
     proj = tmp_path / "proj"
     (proj / ".claude" / "agents").mkdir(parents=True)
     (proj / ".git").mkdir()
+    monkeypatch.chdir(proj)
     sys.path.insert(0, str(cfg / "hooks"))
     sys.modules.pop("agent_guard", None)
     import agent_guard as g
@@ -95,9 +100,63 @@ def test_ordinary_writes_allowed(installed):
     ev = {"cwd": str(proj)}
     for cmd in ["echo x > /tmp/whatever.txt", "cp foo.txt bar.txt", "echo hi",
                "echo x > .claude/agents/coder.md", "sed -i s/x/y/ README.md",
-               "cp a.py b.py", "tee out.log <<< x", "git commit -am 'x'"]:
+               "cp a.py b.py", "tee out.log <<< x", "git commit -am 'x'",
+               # C1 widened the scan to deletes, renames and inline code: ordinary ones still pass
+               "rm -rf build/", "mv a b", "find . -name '*.pyc' -delete",
+               "python3 -c \"import os; os.remove('x.tmp')\"", "touch .claude/agents/x.md",
+               "rm .claude-work/x", "echo .claude-work/ >> .git/info/exclude",
+               "cp %s/agents/coder.md /tmp/coder.md" % cfg, "cat %s/settings.json" % cfg,
+               "python3 -c \"print(open('%s/settings.json').read())\"" % cfg]:
         got = g.protected_write_in(cmd, ev)
         assert got is None, (cmd, got)
+
+
+C1_TARGETS = ["agents/coder.md", "rules/claude-agent-stack.md", "mcp/libdocs_mcp.py",
+              "magg/config.json", "skills/x/SKILL.md", "CLAUDE.md",
+              "backup-20260101-000000-abc/settings.json", "stack.env", ".stack-manifest.json"]
+
+
+@pytest.mark.parametrize("rel", C1_TARGETS)
+def test_c1_config_dirs_protected(installed, rel):
+    g, cfg, proj = installed
+    got = g.protected_write_in("echo x > %s/%s" % (cfg, rel), {"cwd": str(proj)})
+    assert got and got[0] == "protect", rel
+
+
+def c1_deletes(cfg):
+    return [
+        "rm -rf {c}/agents", "rm {c}/CLAUDE.md", "unlink {c}/settings.json", "rmdir {c}/rules",
+        "mv {c}/agents /tmp/x", "mv {c}/skills/a {c}/skills/b", "find {c}/skills -delete",
+        "find {c} -name '*.md' -exec rm {{}} \\;", "chmod 000 {c}/hooks/agent_guard.py",
+        "ln -sf /dev/null {c}/hooks/agent_guard.py", "truncate -s0 {c}/settings.json",
+        "touch {c}/agents/new.md", "cd {c} && rm -rf agents", "cd {c}/agents; rm coder.md",
+        "echo {c}/agents/a.md | xargs rm -f", "tar -xf a.tar -C {c}",
+        "unzip -o a.zip -d {c}/skills",
+        "python3 -c \"import os; os.remove('{c}/settings.json')\"",
+        "python3 -c \"import shutil; shutil.rmtree('{c}/hooks')\"",
+        "perl -e 'unlink \"{c}/CLAUDE.md\"'",
+        "node -e \"require('fs').rmSync('{c}/agents',{{recursive:true}})\"",
+        "python3 - <<'EOF'\nimport os\nos.remove('{c}/settings.json')\nEOF",
+        "bash -c 'rm -rf {c}/skills'",
+    ]
+
+
+def test_c1_deletes_renames_and_mode_changes_denied(installed):
+    g, cfg, proj = installed
+    for tmpl in c1_deletes(cfg):
+        cmd = tmpl.format(c=cfg)
+        got = g.protected_write_in(cmd, {"cwd": str(proj)})
+        assert got and got[0] == "protect", cmd
+
+
+def test_c1_hook_state_dir_protected(installed, tmp_path):
+    g, cfg, proj = installed
+    st = tmp_path / "state" / "claude-agent-stack"
+    assert g.state_root() == str(st)
+    for cmd in ["rm -rf %s/s1/blackcat" % st, "echo x > %s/s1/god.lock" % st, "rm -rf %s" % st,
+                "mv %s/s1 /tmp/y" % st, "find %s -delete" % st.parent]:
+        got = g.protected_write_in(cmd, {"cwd": str(proj)})
+        assert got and got[0] == "protect", cmd
 
 
 def run_hook(installed_hook_path, command, **env):
@@ -129,11 +188,70 @@ def test_hook_allows_ordinary_write_end_to_end(installed):
 def test_settings_wire_ask_rules_and_protected_paths():
     s = json.loads(SRC_SETTINGS.read_text())
     ask = set(s["permissions"].get("ask") or [])
+    # P3: scheduling and routines prompt even in bypassPermissions (explicit ask rules do)
     assert {"mcp__magg__magg_add_server", "mcp__magg__magg_load_kit",
-            "mcp__magg__proxy"} <= ask
+            "mcp__magg__proxy", "CronCreate", "RemoteTrigger"} <= ask
     deny = set(s["permissions"]["deny"])
-    assert {"Edit(.git/**)", "Edit(.claude/settings.json)",
+    assert {"Edit(.git/hooks/**)", "Edit(.git/config)", "Edit(.claude/settings.json)",
             "Edit(.claude/settings.local.json)", "Edit(.claude/hooks/**)"} <= deny
+    # a whole-.git deny would become a sandbox denyWrite on the project's .git and break commits
+    assert "Edit(.git/**)" not in deny
     # agents/, skills/ etc. in a project's .claude/ stay editable: only the settings/hooks are
     # locked down, matching the global config's own scope
     assert "Edit(.claude/**)" not in deny
+    # C1: the stack's own config is denied to Edit/Write
+    for rel in ("hooks/**", "bin/**", "settings.json", "agents/**", "rules/**", "mcp/**",
+                "magg/**", "skills/**", "CLAUDE.md", "backup-*/**", "stack-plugins/**"):
+        assert "Edit(/__CLAUDE_DIR__/%s)" % rel in deny, rel
+    assert "Edit(~/.local/state/claude-agent-stack/**)" in deny
+    # C4/C8: secrets and backups are Read-denied (a Read deny also blocks Edit/Write)
+    for r in ("Read(/__CLAUDE_DIR__/**/stack.env)", "Read(/__CLAUDE_DIR__/backup-*/**)",
+              "Read(~/.git-credentials)", "Read(~/.npmrc)", "Read(~/.pypirc)",
+              "Read(~/.docker/config.json)", "Read(~/.kube/**)", "Read(~/.gnupg/**)",
+              "Read(~/.config/gcloud/**)", "Read(~/.ssh/**)", "Read(~/.aws/**)",
+              "Read(~/.netrc)", "Read(~/.config/gh/hosts.yml)"):
+        assert r in deny, r
+
+
+def test_settings_sandbox_block():
+    s = json.loads(SRC_SETTINGS.read_text())
+    sb = s["sandbox"]
+    assert sb["enabled"] is True and sb["allowUnsandboxedCommands"] is False
+    fs = sb["filesystem"]
+    # sandbox paths: `/` absolute (the installer renders __CLAUDE_DIR__ absolute), `~/` home
+    assert "__CLAUDE_DIR__" in fs["denyWrite"]
+    assert "~/.local/state/claude-agent-stack" in fs["denyWrite"]
+    assert {"__CLAUDE_DIR__/**/stack.env", "__CLAUDE_DIR__/backup-*"} <= set(fs["denyRead"])
+    assert "~/.cache" in fs["allowWrite"]                  # uv, pip, HF caches keep working
+    for lst in ("allowWrite", "denyWrite", "denyRead"):
+        assert len(fs[lst]) == len(set(fs[lst])), lst
+        for p in fs[lst]:
+            assert p.startswith(("~/", "__CLAUDE_DIR__")), p
+    net = sb["network"]
+    assert net["strictAllowlist"] is True
+    doms = net["allowedDomains"]
+    assert len(doms) == len(set(doms))
+    assert {"pypi.org", "files.pythonhosted.org", "registry.npmjs.org", "github.com",
+            "huggingface.co", "crates.io", "proxy.golang.org"} <= set(doms)
+    known = {"enabled", "failIfUnavailable", "autoAllowBashIfSandboxed", "excludedCommands",
+             "allowUnsandboxedCommands", "enableWeakerNestedSandbox",
+             "enableWeakerNetworkIsolation", "allowAppleEvents", "ignoreViolations", "ripgrep",
+             "filesystem", "network", "credentials"}
+    assert set(sb) <= known
+    assert set(fs) <= {"allowWrite", "denyWrite", "denyRead", "allowRead", "disabled"}
+    # C6: forge tokens never reach a sandboxed command
+    env_deny = {e["name"] for e in sb["credentials"]["envVars"] if e["mode"] == "deny"}
+    assert {"GITHUB_TOKEN", "GH_TOKEN", "GITLAB_TOKEN"} <= env_deny
+    assert set(net) <= {"allowedDomains", "deniedDomains", "strictAllowlist", "allowLocalBinding",
+                        "allowUnixSockets", "allowAllUnixSockets", "allowMachLookup",
+                        "httpProxyPort", "socksProxyPort", "tlsTerminate"}
+
+
+def test_settings_wire_blackcat_guard_and_memory_hooks():
+    s = json.loads(SRC_SETTINGS.read_text())
+    pre = s["hooks"]["PreToolUse"]
+    cmds = [(g["matcher"], h["command"]) for g in pre for h in g["hooks"]]
+    assert [m for m, c in cmds if c.endswith("blackcat-guard --settings")] == ["*"]
+    assert any(m == "mcp__neural-memory__nmem_remember" and c.endswith('agent_guard.py"')
+               for m, c in cmds)
+    assert len(cmds) == len(set(cmds))

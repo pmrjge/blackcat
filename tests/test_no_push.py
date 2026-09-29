@@ -390,22 +390,29 @@ def test_forge_deny_rules_are_all_caught_by_the_hook():
         assert G.remote_write_in("bash -c '%s x'" % cmd), cmd
 
 
-# ---------------------------------------------------------------- secrets: mcp-headers / with-
-# stack-env without --reveal, and bash -x / sh -x / zsh -x on install.sh or doctor.sh
+# ---------------------------------------------------------------- secrets: --reveal on mcp-headers /
+# with-stack-env, with-stack-env running env/printenv, and bash -x / sh -x / zsh -x on install.sh
+# or doctor.sh. The default forms are redacted (C2): an agent may check a key's presence and
+# length, never print it.
 SECRETS_LEAKS = [
-    "mcp-headers exa", "mcp-headers jina", "/opt/config/bin/mcp-headers wandb",
-    '"mcp-headers" huggingface', "with-stack-env --print-env", "with-stack-env --print-env sh",
-    "STACK_EXPORT=all with-stack-env --print-env sh",
+    "mcp-headers exa --reveal", "mcp-headers jina --reveal", "/opt/config/bin/mcp-headers wandb --reveal",
+    '"mcp-headers" huggingface --reveal', "mcp-headers --reveal=1 exa",
+    "with-stack-env --print-env --reveal", "with-stack-env --print-env --reveal sh",
+    "with-stack-env --print-env sh --reveal", "STACK_EXPORT=all with-stack-env --print-env --reveal",
+    "with-stack-env env", "with-stack-env printenv HF_TOKEN", "with-stack-env -- env",
+    "with-stack-env --only EXA_API_KEY printenv", "with-stack-env FOO=1 env",
     "bash -x install.sh", "bash -x ./install.sh", "sh -x doctor.sh", "zsh -x /repo/doctor.sh",
     "bash -ex install.sh", "bash -xv doctor.sh",
     # the same nesting the no-push checks already cover
-    "bash -c 'mcp-headers exa'", "eval \"with-stack-env --print-env\"",
+    "bash -c 'mcp-headers exa --reveal'", "eval \"with-stack-env --print-env --reveal\"",
     "bash -c 'bash -x install.sh'",
 ]
 SECRETS_SAFE = [
-    "mcp-headers exa --reveal", "mcp-headers jina --reveal", "with-stack-env --print-env --reveal sh",
-    "with-stack-env --print-env sh --reveal",
+    "mcp-headers exa", "mcp-headers jina", '"mcp-headers" huggingface',
+    "with-stack-env --print-env", "with-stack-env --print-env sh",
+    "STACK_EXPORT=all with-stack-env --print-env sh",
     "mcp-headers", "with-stack-env --only EXA_API_KEY -- python3 foo.py",
+    "with-stack-env python3 train.py", "grep -- --reveal notes.md",
     "bash install.sh", "bash -e install.sh", "bash -x other-script.sh",
 ]
 
@@ -424,7 +431,9 @@ def test_secrets_leak_not_flagged(command):
 def test_hook_denies_secrets_leak(command):
     out = decision(run_hook(command, STACK_POLICY="off"))
     assert out is not None and out["permissionDecision"] == "deny", command
-    assert "prints a real API key" in out["permissionDecisionReason"], command
+    reason = out["permissionDecisionReason"]
+    assert "real API key" in reason, command
+    assert "`mcp-headers <server>`" in reason        # points at the redacted form instead
 
 
 @pytest.mark.parametrize("command", SECRETS_SAFE)
@@ -432,15 +441,21 @@ def test_hook_allows_secrets_safe(command):
     assert decision(run_hook(command)) is None, command
 
 
+def test_secrets_reason_never_suggests_reveal():
+    tail = G.SECRETS_REASON.split("%s", 1)[1]
+    assert "--reveal" not in tail
+
+
 def test_settings_wire_secrets_deny_rules():
     s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
     deny = set(s["permissions"]["deny"])
-    assert {"Bash(mcp-headers exa)", "Bash(with-stack-env --print-env)",
+    assert {"Bash(mcp-headers *--reveal*)", "Bash(with-stack-env *--reveal*)",
             "Bash(bash -x install.sh)", "Bash(sh -x doctor.sh)"} <= deny
-    # none of these exact-match rules can also match the --reveal-carrying form (a deny rule can't
-    # be carved out by an allow rule in Claude Code, so the rule itself must not be that broad)
-    assert "Bash(mcp-headers *)" not in deny
-    assert "Bash(with-stack-env --print-env *)" not in deny
+    # the redacted default forms stay usable: no deny rule may match them
+    for old in ("Bash(mcp-headers exa)", "Bash(mcp-headers exa|jina|huggingface|wandb)",
+                "Bash(with-stack-env --print-env)", "Bash(with-stack-env --print-env sh)",
+                "Bash(mcp-headers *)", "Bash(with-stack-env --print-env *)"):
+        assert old not in deny, old
 
 
 def test_rules_file_claims_match_enforcement():
