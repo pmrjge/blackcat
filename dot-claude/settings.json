@@ -56,6 +56,7 @@
       "mcp__magg__jupyter_*",
       "mcp__magg__ros_*",
       "mcp__magg__qiskit_*",
+      "mcp__magg__docspace_*",
       "CronCreate",
       "RemoteTrigger"
     ],

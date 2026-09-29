@@ -264,9 +264,37 @@ def test_magg_prefix_rules_name_catalog_prefixes():
             m = re.match(r"mcp__magg__(.+)_\*\Z", rule)
             if m:
                 assert m.group(1) in prefixes, "%s rule %s names no magg catalog prefix" % (kind, rule)
-    for p in ("duckdb", "jupyter", "ros", "qiskit"):
+    for p in ("duckdb", "jupyter", "ros", "qiskit", "docspace"):
         assert p in prefixes, p
         assert "mcp__magg__%s_*" % p in perms.get("ask", []), p
+
+
+def test_every_magg_prefix_has_exactly_one_allow_or_ask_rule():
+    """No catalog server runs unprompted without a decision: in bypassPermissions a tool with no
+    rule runs silently, so each prefix is either allowed (read-only or local) or asks — never both,
+    never neither. A new catalog entry fails here until someone picks one."""
+    perms = settings().get("permissions", {})
+    allow, ask = set(perms.get("allow", [])), set(perms.get("ask", []))
+    bad = []
+    for name, entry in sorted(load_json_strict(MAGG)["servers"].items()):
+        rule = "mcp__magg__%s_*" % (entry.get("prefix") or name)
+        n = (rule in allow) + (rule in ask)
+        if n != 1:
+            bad.append("%s (%s): %s" % (name, rule, "in both allow and ask" if n else "no rule"))
+    assert not bad, "magg catalog servers without exactly one allow/ask rule: %s" % bad
+
+
+def test_allowed_magg_database_servers_stay_read_only():
+    """mongodb_* and postgres_* are allowed unprompted only because their catalog flags keep them
+    read-only: --readOnly registers no write tools, --access-mode=restricted runs read-only
+    transactions. Dropping a flag must come with moving the rule to ask."""
+    servers = load_json_strict(MAGG)["servers"]
+    allow = set(settings().get("permissions", {}).get("allow", []))
+    assert "--readOnly" in servers["mongodb"]["args"]
+    assert "--access-mode=restricted" in servers["postgres"]["args"]
+    assert not any(a.startswith("--access-mode=") and a != "--access-mode=restricted"
+                   for a in servers["postgres"]["args"])
+    assert {"mcp__magg__mongodb_*", "mcp__magg__postgres_*"} <= allow
 
 
 def test_settings_credential_envvars_unique_by_name():

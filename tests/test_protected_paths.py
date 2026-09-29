@@ -316,7 +316,7 @@ def test_settings_round2_hardening():
     # bypassPermissions: permission-modes#actions-no-mode-auto-approves)
     # ros (publishes to a robot) and qiskit (submits hardware jobs) ask at every call too
     for t in ("mcp__magg__magg_enable_server", "mcp__magg__duckdb_*", "mcp__magg__jupyter_*",
-              "mcp__magg__ros_*", "mcp__magg__qiskit_*"):
+              "mcp__magg__ros_*", "mcp__magg__qiskit_*", "mcp__magg__docspace_*"):
         assert t in perms["ask"] and t not in perms["allow"], t
     # C2-residual: model and notebook tokens never reach a sandboxed command
     env_deny = {e["name"] for e in sb["credentials"]["envVars"] if e["mode"] == "deny"}

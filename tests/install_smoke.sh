@@ -183,7 +183,7 @@ checks = {
     "magg catalog tools allowed": "mcp__magg__docling_*" in allow and "mcp__magg__arxiv_*" in allow,
     "magg enable/duckdb/jupyter/ros/qiskit ask": {"mcp__magg__magg_enable_server", "mcp__magg__duckdb_*",
                                        "mcp__magg__jupyter_*", "mcp__magg__ros_*",
-                                       "mcp__magg__qiskit_*"} <= set(s["permissions"]["ask"]) and
+                                       "mcp__magg__qiskit_*", "mcp__magg__docspace_*"} <= set(s["permissions"]["ask"]) and
                                       "mcp__magg__magg_enable_server" not in allow,
     "sandbox caches rendered": s["env"]["UV_CACHE_DIR"].startswith("/") and
                                s["env"]["UV_CACHE_DIR"].endswith("/.cache/claude-sandbox/uv"),
