@@ -1724,10 +1724,11 @@ FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="
 cmp -s "$TX/fp.s0" <(fp "$TX/r") && [ "$(count_backups "$TX/r")" = "$nb" ]; same3=$?
 FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="$TX/r" \
   python3 "$TX/tty_run.py" n "$TX/s4.log" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --yes; rc4=$?
-[ "$rc3" != 0 ] && grep -q 'Apply the plan above' "$TX/s3.log" && grep -q 'not applied. Nothing in' "$TX/s3.log" \
-  && [ "$same3" = 0 ] && [ "$rc4" = 0 ] && ! grep -q 'Apply the plan above' "$TX/s4.log" \
-  && pass "on a terminal: changed stack files are confirmed before applying ('n' changes nothing; --yes skips the question)" \
-  || failed "supply-chain confirmation (rc=$rc3/$rc4, unchanged after 'n': $same3): $(grep -ai 'apply the plan\|not applied' "$TX/s3.log" "$TX/s4.log" | head -3)"
+[ "$rc3" != 0 ] && grep -q 'The stack changed since the last install' "$TX/s3.log" \
+  && grep -q 'stopped before changing anything. Nothing in' "$TX/s3.log" && ! grep -q '2/11' "$TX/s3.log" \
+  && [ "$same3" = 0 ] && [ "$rc4" = 0 ] && ! grep -q 'The stack changed since the last install' "$TX/s4.log" \
+  && pass "on a terminal: changed stack files are confirmed before step 2 ('n' changes nothing; --yes skips the question)" \
+  || failed "supply-chain confirmation (rc=$rc3/$rc4, unchanged after 'n': $same3): $(grep -ai 'stack changed since\|stopped before' "$TX/s3.log" "$TX/s4.log" | head -3)"
 assert_unchanged_real_home
 drop_scratch "$TX"
 
@@ -1782,6 +1783,13 @@ printf '%s\n' "$out" | grep -q "ok    sandboxed Bash env: session-env SessionSta
   && ! printf '%s\n' "$out" | grep -q "settings.json env sets\|sandbox-writable package cache" \
   && pass "doctor.sh: the session-env hook is wired, no cache env in settings" \
   || failed "doctor.sh session-env check: $(printf '%s\n' "$out" | grep -i 'session-env\|env sets' | head -3)"
+# a first install (no manifest yet) retracts nothing of yours: ~/.cache stays in your allowWrite
+mkdir -p "$TB/f" && printf '{"sandbox": {"filesystem": {"allowWrite": ["~/.cache"]}}}\n' > "$TB/f/settings.json"
+CLAUDE_CONFIG_DIR="$TB/f" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$TB/first.log" 2>&1; rc=$?
+[ "$rc" = 0 ] && ! grep -q 'retracted sandbox' "$TB/first.log" \
+  && python3 -c 'import json, sys; fs = json.load(open(sys.argv[1]))["sandbox"]["filesystem"]; sys.exit("~/.cache" not in fs["allowWrite"])' "$TB/f/settings.json" \
+  && pass "a first install keeps your own allowWrite entries (no manifest: nothing to retract)" \
+  || failed "first install over your allowWrite (rc=$rc): $(grep -i 'retract' "$TB/first.log" | head -2)"
 mkdir -p "$TB/home" && printf 'export KEEP=1' >"$TB/envfile"
 for _ in 1 2; do
   echo '{"hook_event_name":"SessionStart","source":"clear"}' | HOME="$TB/home" CLAUDE_ENV_FILE="$TB/envfile" \

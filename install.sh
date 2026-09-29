@@ -507,6 +507,60 @@ if [ "$MCP_PLAN" = 1 ]; then
   exit 0
 fi
 
+# What changed in what this run installs since the last install (the manifest records the commit each
+# install shipped), and edits not committed yet: the whole shipped tree (agents and their MCP servers
+# and hooks, skills, rules, hooks, settings, bin, mcp, magg's catalog, the LSP marketplace), the
+# installer and its library, the pinned requirements. Read them before applying. On a terminal the
+# run asks here, before step 2 changes anything (the venvs sync from requirements/) (--yes: don't).
+SUPPLY_PATHS="dot-claude install.sh lib requirements stack.env.example"
+SUPPLY_CHANGED=0
+prev_commit="$(python3 -c 'import json, re, sys
+try:
+    v = json.load(open(sys.argv[1])).get("commit") or ""
+except Exception:
+    v = ""
+print(v if re.fullmatch(r"[0-9a-f]{7,64}", str(v)) else "")' "$C/.stack-manifest.json" 2>/dev/null || true)"
+if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
+  # shellcheck disable=SC2086
+  dirty="$(git -C "$HERE" status --porcelain -- $SUPPLY_PATHS 2>/dev/null || true)"
+  if [ -n "$dirty" ]; then
+    SUPPLY_CHANGED=1
+    note "! uncommitted changes in the stack repo's shipped files or installer — this run installs them:"
+    printf '%s\n' "$dirty" | head -n 40 | sed 's/^/      /'
+    [ "$(printf '%s\n' "$dirty" | wc -l)" -gt 40 ] && note "  ... and more: git -C $HERE status -- $SUPPLY_PATHS"
+  fi
+  if [ -n "$prev_commit" ] && [ "$prev_commit" != "$STACK_COMMIT_FULL" ]; then
+    # shellcheck disable=SC2086
+    if supply="$(git -C "$HERE" diff --stat "$prev_commit" HEAD -- $SUPPLY_PATHS 2>/dev/null)"; then
+      if [ -n "$supply" ]; then
+        SUPPLY_CHANGED=1
+        note "changes to the stack's shipped files and installer since the last install (${prev_commit:0:12}..$STACK_COMMIT):"
+        n_supply="$(printf '%s\n' "$supply" | wc -l | tr -d ' ')"
+        if [ "$n_supply" -gt 41 ]; then
+          printf '%s\n' "$supply" | head -n 40 | sed 's/^/      /'
+          note "  ... $((n_supply - 41)) more file(s);$(printf '%s\n' "$supply" | tail -n 1)"
+        else
+          printf '%s\n' "$supply" | sed 's/^/      /'
+        fi
+        note "review: git -C $HERE diff ${prev_commit:0:12} HEAD -- $SUPPLY_PATHS"
+      fi
+    else
+      SUPPLY_CHANGED=1
+      note "! the last install shipped commit ${prev_commit:0:12}, which this repo doesn't have: review the stack's files before applying"
+    fi
+  fi
+fi
+
+# the stack's files changed since the last install (above): on a terminal, ask before anything changes
+if [ "$SUPPLY_CHANGED" = 1 ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ] && [ -t 0 ] && [ -t 2 ]; then
+  printf 'The stack changed since the last install (listed above). Install it? (see the whole plan first: %s --dry-run) [y/N] ' "$0" >&2
+  ans=""; read -r ans || true
+  case "$ans" in
+    y|Y|yes|YES|Yes) ;;
+    *) echo "install.sh: stopped before changing anything. Nothing in $C was changed." >&2; exit 1 ;;
+  esac
+fi
+
 say "2/11 Tools: magg, huetension, science venv"
 # Supply chain (C7): every download is pinned to a version and, where the project publishes one, a
 # checksum; the Python venvs install from hash-locked lockfiles (requirements/, 7-day cooldown).
@@ -1686,15 +1740,17 @@ RETIRED_PERMISSIONS = {"allow": {"mcp__magg"}, "deny": {"Read(**/.env.*)"}}
 RETIRED_ENV = {"ENABLE_TOOL_SEARCH": {"true"}}
 # Both apply once, to an install whose manifest predates "settings_permissions"/"settings_env";
 # later retractions come from the manifest itself. A value you add back afterwards stays.
-# sandbox list entries go the same way through "settings_sandbox"; a manifest older than that key
-# retires the cache dirs earlier versions let the sandbox write (R3-CACHES: unsandboxed tools load
-# code from them)
+# sandbox list entries go the same way through "settings_sandbox"; a manifest of an earlier install
+# older than that key retires the cache dirs earlier versions let the sandbox write (R3-CACHES:
+# unsandboxed tools load code from them). A first install (no manifest in $C: the staged one is
+# already this run's) retracts nothing of yours.
 prev_sandbox = manifest.get("settings_sandbox")
 if not isinstance(prev_sandbox, dict):
     prev_sandbox = {"filesystem": {"allowWrite": [
         "~/.cache", "~/Library/Caches", "~/.cargo/registry", "~/.cargo/git", "~/go/pkg",
         "~/.gradle/caches", "~/.m2/repository", "~/.bun/install/cache", "~/.matplotlib",
-        "~/.local/share/uv", "~/.npm", "~/.rustup", "~/.julia", "~/.elan"]}}
+        "~/.local/share/uv", "~/.npm", "~/.rustup", "~/.julia", "~/.elan"]}} \
+        if os.path.exists(os.path.join(os.path.dirname(shown), ".stack-manifest.json")) else {}
 if "settings_permissions" in manifest:
     RETIRED_PERMISSIONS = {}
 if "settings_env" in manifest:
@@ -2034,50 +2090,6 @@ if have uv && [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
   else note "! tests/lint_agents.py reports problems in the stack repo (installing anyway):"; sed 's/^/      /' "$WORK/lint.log" | head -n 20; fi
 fi
 
-# What changed in what this run installs since the last install (the manifest records the commit each
-# install shipped), and edits not committed yet: the whole shipped tree (agents and their MCP servers
-# and hooks, skills, rules, hooks, settings, bin, mcp, magg's catalog, the LSP marketplace), the
-# installer and its library, the pinned requirements. Read them before applying; on a terminal the
-# run asks before it applies them (--yes: don't ask).
-SUPPLY_PATHS="dot-claude install.sh lib requirements stack.env.example"
-SUPPLY_CHANGED=0
-prev_commit="$(python3 -c 'import json, re, sys
-try:
-    v = json.load(open(sys.argv[1])).get("commit") or ""
-except Exception:
-    v = ""
-print(v if re.fullmatch(r"[0-9a-f]{7,64}", str(v)) else "")' "$C/.stack-manifest.json" 2>/dev/null || true)"
-if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
-  # shellcheck disable=SC2086
-  dirty="$(git -C "$HERE" status --porcelain -- $SUPPLY_PATHS 2>/dev/null || true)"
-  if [ -n "$dirty" ]; then
-    SUPPLY_CHANGED=1
-    note "! uncommitted changes in the stack repo's shipped files or installer — this run installs them:"
-    printf '%s\n' "$dirty" | head -n 40 | sed 's/^/      /'
-    [ "$(printf '%s\n' "$dirty" | wc -l)" -gt 40 ] && note "  ... and more: git -C $HERE status -- $SUPPLY_PATHS"
-  fi
-  if [ -n "$prev_commit" ] && [ "$prev_commit" != "$STACK_COMMIT_FULL" ]; then
-    # shellcheck disable=SC2086
-    if supply="$(git -C "$HERE" diff --stat "$prev_commit" HEAD -- $SUPPLY_PATHS 2>/dev/null)"; then
-      if [ -n "$supply" ]; then
-        SUPPLY_CHANGED=1
-        note "changes to the stack's shipped files and installer since the last install (${prev_commit:0:12}..$STACK_COMMIT):"
-        n_supply="$(printf '%s\n' "$supply" | wc -l | tr -d ' ')"
-        if [ "$n_supply" -gt 41 ]; then
-          printf '%s\n' "$supply" | head -n 40 | sed 's/^/      /'
-          note "  ... $((n_supply - 41)) more file(s);$(printf '%s\n' "$supply" | tail -n 1)"
-        else
-          printf '%s\n' "$supply" | sed 's/^/      /'
-        fi
-        note "review: git -C $HERE diff ${prev_commit:0:12} HEAD -- $SUPPLY_PATHS"
-      fi
-    else
-      SUPPLY_CHANGED=1
-      note "! the last install shipped commit ${prev_commit:0:12}, which this repo doesn't have: review the stack's files before applying"
-    fi
-  fi
-fi
-
 echo
 python3 "$STATE_PY" plan "$C" "$S" "$REPORT" "$PLAN_JSON" "$SNAP"
 if [ -n "$legacy_b" ]; then
@@ -2085,15 +2097,6 @@ if [ -n "$legacy_b" ]; then
   printf '%s\n' "$legacy_b" | sed "s|^|  > |; s|\$| -> $BACKUP_ROOT/legacy/|"
 fi
 B=""
-# the stack's files changed since the last install (above): on a terminal, ask before applying
-if [ "$SUPPLY_CHANGED" = 1 ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ] && [ -t 0 ] && [ -t 2 ]; then
-  printf 'Apply the plan above, with the changes to the stack listed before it? [y/N] ' >&2
-  ans=""; read -r ans || true
-  case "$ans" in
-    y|Y|yes|YES|Yes) ;;
-    *) echo "install.sh: not applied. Nothing in $C was changed." >&2; exit 1 ;;
-  esac
-fi
 if [ "$DRY_RUN" = 1 ]; then
   note "--dry-run: nothing above was applied"
 else
