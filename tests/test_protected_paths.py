@@ -768,3 +768,86 @@ def test_r2_merge_file_operand_denied(shell_env):
 def test_r2_ordinary_commands_allowed(shell_env, cmd):
     g, cfg, proj, home = shell_env
     assert not denied(g, proj, cmd), cmd
+
+
+# --- round 3: suspect expansions, the brace cap, ROOT_TEXT_RE false positives ---------------
+
+R3_SUSPECT = [
+    'rm -rf "$(cat /tmp/p)/hooks"', 'd=$(cat /tmp/p); rm -rf "$d/hooks"',
+    'read -r d < /tmp/p; rm -rf "$d/hooks"',
+    'for d in $(cat /tmp/p); do rm -rf "$d/hooks"; done',
+    'd=$(printf "%s/.%s" ~ claude); rm -rf "$d/hooks"',
+    'while read -r d; do rm -rf "$d/hooks"; done < /tmp/p',
+    'mapfile -t a < /tmp/p; rm -rf "${a[0]}/hooks"', 'printf -v d "%s" "$(cat /tmp/p)"; rm -rf "$d/hooks"',
+    'declare d=$(cat /tmp/p); rm -rf "$d/hooks"', 'export d=`cat /tmp/p`; rm -rf "$d/hooks"',
+    'd=$(cat /tmp/p); E=$d; rm -rf "$E/hooks"', 'for d in `cat /tmp/p`; do rm -rf $d/hooks; done',
+    "for d in ~/.claude x; do rm -rf $d/hooks; done", 'rm -rf "$(mktemp -d $(cat /tmp/p))/hooks"',
+]
+
+
+@pytest.mark.parametrize("cmd", R3_SUSPECT)
+def test_r3_suspect_expansions_denied(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    'rm -rf "$VENV/bin"', 'install -m755 tool "$DESTDIR/bin/tool"', 'cp out "$PREFIX/bin/"',
+    "rm -rf $(mktemp -d)/hooks", "rm -rf $(mktemp)/hooks", "rm -rf `pwd`/hooks",
+    "rm -rf $(pwd)/bin", "rm -rf $(git rev-parse --show-toplevel)/hooks",
+    'mkdir -p src/{a,b}', 'cp x{,.bak} /tmp/', 'for d in build dist; do rm -rf "$d/bin"; done',
+    'for d in $VENVS; do rm -rf "$d/bin"; done',        # inherited variable: never suspect
+    "cd /Users/pmrj/PProjects/claude-agent-stack && for d in build dist; do rm -rf \"$d/bin\"; done",
+    'D=$(mktemp -d /Users/pmrj/PProjects/claude-agent-stack/.claude-work/t.XXXX) && '
+    'install -m755 tool "$D/bin/tool"',
+    'ls ~/.claude/agents | head; rm -rf "$VENV/bin"',
+    'ls ~/.claude.json; for d in $DIRS; do rm -rf "$d/hooks"; done',
+    'echo .claude-work; rm -rf "$VENV/hooks"', 'touch f{1..5000}.txt', 'rm -rf $HOME/.cache/x{1..2000}',
+])
+def test_r3_ordinary_expansions_allowed(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert not denied(g, proj, cmd), cmd
+
+
+def test_r3_positional_parameters_still_follow_the_command_text(shell_env):
+    g, cfg, proj, home = shell_env
+    assert denied(g, proj, "bash -c 'rm -rf $1/hooks' _ ~/.claude")
+    assert not denied(g, proj, "bash -c 'rm -rf $1/hooks' _ /tmp/x; echo .claude-work")
+    assert not denied(g, proj, "bash -c 'rm -rf $1/hooks' _ /Users/pmrj/PProjects/claude-agent-stack")
+
+
+@pytest.mark.parametrize("cmd", [
+    "rm -rf ~/{x{1..64},.claude}/hooks", "rm -rf ~/.{a{1..70},claude}/hooks",
+    "cp evil ~/{x{1..64},.claude/hooks}/agent_guard.py",
+    "rm -rf ~/{x{1..5000},.claude}/hooks", "rm -rf ~/{x{1..40}{a,b,c},.claude}/hooks",
+    "rm -rf ~/.local/state/{x{1..2000},claude-agent-stack}",
+    "cd ~/.{a{1..2000},claude} && rm settings.json",
+])
+def test_r3_truncated_brace_expansion_fails_closed(shell_env, monkeypatch, cmd):
+    g, cfg, proj, home = shell_env
+    monkeypatch.setenv("XDG_STATE_HOME", str(home / ".local" / "state"))
+    assert denied(g, proj, cmd), cmd
+
+
+def test_r3_brace_expand_reports_truncation(installed):
+    g, cfg, proj = installed
+    assert g.BRACE_WORD_CAP >= 1024
+    assert g.brace_expand("a{b,c}") == (["ab", "ac"], False)
+    words, cut = g.brace_expand("{1..100000}{a,b}")
+    assert cut and len(words) == g.BRACE_WORD_CAP
+    assert g.brace_expand("f{1..5000}.txt")[1] is True
+    assert g.brace_overflow_names_root("~/{x{1..64},.claude}/hooks")
+    assert not g.brace_overflow_names_root("f{1..5000}.txt")
+
+
+def test_r3_root_text_regex(installed):
+    g, cfg, proj = installed
+    hit = ["~/.claude/x", "$CLAUDE_CONFIG_DIR/x", "${CLAUDE_CONFIG_DIR}", ".claude",
+           "~/.local/state/claude-agent-stack-backups", "${XDG_STATE_HOME}/claude-agent-stack",
+           "$XDG_STATE_HOME/claude-agent-stack"]
+    miss = ["/Users/pmrj/PProjects/claude-agent-stack", ".claude-work/t", "~/.claude.json",
+            "/x/claude-agent-stack/.claude-work", "my.claude"]
+    for t in hit:
+        assert g.ROOT_TEXT_RE.search(t), t
+    for t in miss:
+        assert not g.ROOT_TEXT_RE.search(t), t

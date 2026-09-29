@@ -3028,8 +3028,11 @@ GENERIC_OUTPUT_OPTS = ("--output", "--output-file", "--outfile", "--out", "--out
 # an awk program's `print > "file"` / `>> "file"` redirect
 AWK_REDIRECT_RE = re.compile(r">{1,2}\s*\"((?:[^\"\\]|\\.)*)\"")
 # text that names a protected root: the config dir, $CLAUDE_CONFIG_DIR or the hook state dirs
-ROOT_TEXT_RE = re.compile(r"(?<![\w-])\.claude(?![\w.-])|\$\{?CLAUDE_CONFIG_DIR|claude-agent-stack")
-BRACE_WORD_CAP = 64
+# `.claude` only as a whole path component (not .claude-work, .claude.json); the state dirs only as
+# .local/state/claude-agent-stack or XDG_STATE_HOME/claude-agent-stack (not the repo's own path)
+ROOT_TEXT_RE = re.compile(r"(?<![\w-])\.claude(?![\w.-])|\$\{?CLAUDE_CONFIG_DIR"
+                          r"|\.local/state/claude-agent-stack|XDG_STATE_HOME\}?/claude-agent-stack")
+BRACE_WORD_CAP = 1024
 BRACE_SEQ_RE = re.compile(r"(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?\Z|([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?\Z")
 # removals, renames and mode changes: every operand is a target, and a directory operand that
 # holds a protected path counts (rm -rf ~/.claude, chmod -R 000 ~/.claude/hooks/..)
@@ -4219,10 +4222,10 @@ def _operands(args, value_opts=()):
     return out
 
 
-def _brace_split(w):
+def _brace_split(w, trunc=None):
     """`w` with its first brace group expanded (`a{b,c}d` -> abd, acd; `{1..3}`, `{a..c}`, nested
     groups one level at a time), or None when it holds none. `${...}`, `{}` and `{x}` (no comma,
-    no range) stay literal. At most BRACE_WORD_CAP words."""
+    no range) stay literal. At most BRACE_WORD_CAP words; a cut range appends True to `trunc`."""
     i, n = 0, len(w)
     while i < n:
         if w[i] != "{" or (i and w[i - 1] in "$\\"):
@@ -4261,25 +4264,38 @@ def _brace_split(w):
             for v in range(a, b + (1 if step > 0 else -1), step):
                 alts.append(str(fmt(v)))
                 if len(alts) >= BRACE_WORD_CAP:
+                    if trunc is not None:
+                        trunc.append(True)
                     break
         return [pre + alt + post for alt in alts[:BRACE_WORD_CAP]]
     return None
 
 
-def brace_words(s):
-    """Shell brace expansion of one word, capped at BRACE_WORD_CAP words (the rest are dropped);
-    over-expands a quoted brace on purpose."""
+def brace_expand(s):
+    """(words, truncated): shell brace expansion of one word, capped at BRACE_WORD_CAP words;
+    truncated is True when the cap dropped words. Over-expands a quoted brace on purpose."""
     if "{" not in s:
-        return [s]
-    out, todo = [], [s]
+        return [s], False
+    out, todo, trunc = [], [s], []
     while todo and len(out) < BRACE_WORD_CAP:
         w = todo.pop(0)
-        parts = _brace_split(w)
+        parts = _brace_split(w, trunc)
         if parts is None:
             out.append(w)
         else:
             todo = parts + todo
-    return out or [s]
+    return out or [s], bool(todo or trunc)
+
+
+def brace_words(s):
+    """The words of brace_expand (see there), without the truncation flag."""
+    return brace_expand(s)[0]
+
+
+def brace_overflow_names_root(s):
+    """A brace expansion the cap truncated must not fail open: its text, braces and commas
+    removed, naming `claude` (the config dir, the state dirs) counts as a protected hit."""
+    return "claude" in re.sub(r"[{},]", "", s).lower()
 
 
 def _heredoc_interpreter(owner):
@@ -4325,7 +4341,7 @@ class _Scan(object):
         self.want, self.budget = set(want), MAX_SCANS
         self.deadline = time.monotonic() + DEADLINE_S
         self.ev = ev
-        self.cmd_root = False                 # the whole command names a protected root literally
+        self.cmd_root = False                 # the whole command names a protected root (positional $1..)
         self._assigned = {}                   # NAME -> the (unexpanded) text a NAME=value assigned
         self._protect_specs = None
         self.cd = []                          # directories a `cd`/`pushd` earlier in the command named
@@ -4461,6 +4477,8 @@ class _Scan(object):
                 found = self.secrets_bash_x(base, words, i + 1, end, restore)
             if not found and self.want & R2_KINDS:
                 found = _r2_scan(self, w, base, words, i, end, restore, here_cmd)
+            if "protect" in self.want and here_cmd:
+                self.note_binders(base, words, i, end, restore)
             if not found and "protect" in self.want:
                 if ">" in w and REDIR_OP_RE.match(w) and i + 1 < end:
                     found = self.protect_hit(restore(words[i + 1]), "redirect (%s)" % w)
@@ -4936,21 +4954,67 @@ class _Scan(object):
         real = os.path.realpath(os.path.join(os.path.expanduser("~"), ".claude"))
         return any(len(c) > 1 and c.rstrip("/") in text for c in (cfg, real))
 
+    POSITIONAL_RE = re.compile(r"[0-9@*#?!$-]\Z")
+    # a substitution whose output only the words it names decide (file content cannot steer it)
+    SAFE_SUBST_RE = re.compile(
+        r"\s*(?:mktemp|pwd|dirname|basename|git\s+rev-parse\s+--show-toplevel)"
+        r"(?:\s+(?:[^;&|<>`()$\n]|\$\{?\w+\}?)*)?\s*\Z")
+    # what a variable bound by read/mapfile/printf -v holds: file or user input
+    TAINT = "$(read)"
+
     def var_suspect(self, name, depth):
-        """May $NAME carry a protected root? An assigned variable: when the text it was assigned
-        does. Any other (a loop or positional variable, or inherited from the environment): when
-        the command names a protected root literally, which such a variable could then be fed."""
+        """May $NAME carry a protected root? An assigned variable (NAME=value, declare/local/
+        typeset/export, a for/select loop variable, read/mapfile/printf -v): when the text it was
+        assigned is suspect (text_suspect; a `read` is always). A positional parameter: when the
+        command names a protected root literally (`bash -c '... $1/hooks' _ ~/.claude`). Any
+        other (inherited from the environment, never assigned here): no."""
         if name in ("HOME", "PWD", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR"):
             return False
         if name in self._assigned:
             return depth < 4 and self.text_suspect(self._assigned[name], depth + 1)
-        return self.cmd_root
+        return bool(self.POSITIONAL_RE.match(name)) and self.cmd_root
+
+    @staticmethod
+    def subst_bodies(text):
+        """The bodies of the `$(...)` and backtick substitutions in `text` (outermost only)."""
+        out, i, n = [], 0, len(text)
+        while i < n:
+            if text[i] == "`":
+                j = text.find("`", i + 1)
+                j = n if j < 0 else j
+                out.append(text[i + 1:j])
+                i = j + 1
+            elif text.startswith("$(", i):
+                d, j = 0, i + 1
+                while j < n:
+                    d += (text[j] == "(") - (text[j] == ")")
+                    if d == 0:
+                        break
+                    j += 1
+                out.append(text[i + 2:j])
+                i = j + 1
+            else:
+                i += 1
+        return out
+
+    def subst_suspect(self, body, depth=0):
+        """Is `$(body)` suspect? Every command substitution is, except a short allowlist whose
+        output cannot be steered by file content: mktemp, pwd, dirname, basename, git rev-parse
+        --show-toplevel (their arguments still must not name a root or hold a suspect variable)."""
+        if not self.SAFE_SUBST_RE.match(body):
+            return True
+        return self.names_root(body) or self.vars_suspect(body, depth)
+
+    def vars_suspect(self, text, depth):
+        return any(self.var_suspect(m.group(1), depth)
+                   for m in re.finditer(r"\$\{?([A-Za-z_]\w*|[0-9@*#?!])", text))
 
     def text_suspect(self, text, depth=0):
         if self.names_root(text):
             return True
-        return any(self.var_suspect(m.group(1), depth)
-                   for m in re.finditer(r"\$\{?([A-Za-z_]\w*|[0-9@*#?!])", text))
+        if any(self.subst_suspect(b, depth) for b in self.subst_bodies(text)):
+            return True
+        return self.vars_suspect(text, depth)
 
     def suspect(self, raw, depth=0):
         """Is the expansion a path starts with suspect (see opaque_hit)? Checks each leading
@@ -4961,7 +5025,7 @@ class _Scan(object):
                 j = raw.find("`", i + 1)
                 j = n if j < 0 else j
                 body, i = raw[i + 1:j], j + 1
-                if self.text_suspect(body, depth):
+                if self.subst_suspect(body, depth):
                     return True
                 continue
             nx = raw[i + 1:i + 2]
@@ -4973,11 +5037,11 @@ class _Scan(object):
                         break
                     j += 1
                 body, i = raw[i + 2:j], j + 1
-                if nx == "(" and self.text_suspect(body, depth):
+                if nx == "(" and self.subst_suspect(body, depth):
                     return True
                 if nx == "{":
                     m = re.match(r"[A-Za-z_]\w*|[0-9@*#?!$-]", body)
-                    if (m and self.var_suspect(m.group(0), depth)) or self.names_root(body):
+                    if (m and self.var_suspect(m.group(0), depth)) or self.text_suspect(body, depth):
                         return True
                 continue
             m = re.compile(r"[A-Za-z_]\w*|[0-9@*#?$!-]").match(raw, i + 1)
@@ -4988,13 +5052,48 @@ class _Scan(object):
                 return True
         return False
 
+    def bind_var(self, name, text):
+        """A variable the command binds by other means than NAME=value: later $NAME resolves to
+        nothing the guard knows (UNRES) and is suspect when `text` is."""
+        if not re.match(r"[A-Za-z_]\w*\Z", name):
+            return
+        self.var_table().pop(name, None)
+        if name in self._assigned or len(self._assigned) < 64:
+            self._assigned[name] = text[:4096]
+
+    def note_binders(self, base, words, i, end, restore):
+        """`for/select V in LIST`: V is suspect when its own word list is (a `$(...)`, a backtick,
+        a protected-root literal, a suspect variable). `read`, `mapfile`/`readarray` and
+        `printf -v` bind their variables from input: always suspect."""
+        args = [restore(x) for x in words[i + 1:end]]
+        cut = next((k for k, a in enumerate(args) if re.match(r"\d*[<>]", a)), len(args))
+        if base != "for" and base != "select":
+            args = args[:cut]                  # redirections are not variable names
+        if base in ("for", "select"):
+            if len(args) >= 2 and args[1] == "in":
+                lst = args[2:]
+                if lst and lst[-1] == "do":
+                    lst = lst[:-1]
+                self.bind_var(args[0], " ".join(lst))
+        elif base == "read":
+            names = [a for a in args if not a.startswith("-")]     # option values too: harmless
+            for a in names or ["REPLY"]:
+                self.bind_var(a, self.TAINT)
+        elif base in ("mapfile", "readarray"):
+            names = [a for a in args if not a.startswith("-")]     # option values too: harmless
+            for a in names or ["MAPFILE"]:
+                self.bind_var(a, self.TAINT)
+        elif base == "printf" and "-v" in args and args.index("-v") + 1 < len(args):
+            self.bind_var(args[args.index("-v") + 1].split("[", 1)[0], self.TAINT)
+
     def opaque_hit(self, rest, how, raw):
         """A path that starts with an expansion the guard cannot resolve. A hit when the text
         after it names a protected root itself (.claude first or in the middle, or
         .local/state/claude-agent-stack); or, when its first component is a bare PROTECTED_CONFIG
-        name (bin, hooks, settings.json, ...), only if the expansion is suspect: an earlier
-        assignment whose text names a protected root, a `$(...)` or backtick that does, or a loop
-        or positional variable in a command that names a protected root. `$VENV/bin` and
+        name (bin, hooks, settings.json, ...), only if the expansion is suspect (see
+        var_suspect, subst_suspect): a variable assigned from suspect text or bound by read/
+        mapfile/printf -v, any `$(...)` or backtick outside the small allowlist, a positional
+        parameter in a command that names a protected root. `$VENV/bin` (inherited) and
         `$(mktemp -d)/hooks` are ordinary project paths."""
         import fnmatch
         r = rest.replace(self.UNRES, "")
@@ -5026,10 +5125,14 @@ class _Scan(object):
 
     def protect_hit(self, raw_path, how, contains=False, real_only=False):
         """protect_hit_word for every word `raw_path` brace-expands to (`~/.claude/{hooks,x}`)."""
-        for word in brace_words((raw_path or "")):
+        words, truncated = brace_expand(raw_path or "")
+        for word in words:
             found = self.protect_hit_word(word, how, contains, real_only)
             if found:
                 return found
+        if truncated and brace_overflow_names_root(raw_path):
+            return self.hit("protect", "%s: %s (a brace expansion too large to check that "
+                            "names a protected root)" % (how, (raw_path or "").strip()))
         return None
 
     def protect_hit_word(self, raw_path, how, contains=False, real_only=False):
@@ -5090,8 +5193,12 @@ class _Scan(object):
         (cd $D/.claude) is remembered: every later relative write counts as a hit (the cd itself
         writes nothing, and `cd "$D/.claude" && ls` stays allowed)."""
         pos = [a for a in args if not a.startswith("-") or a == "-"]
-        for word in brace_words(pos[0] if pos else "~"):
+        target = pos[0] if pos else "~"
+        words, truncated = brace_expand(target)
+        for word in words:
             self.note_cd_word(word)
+        if truncated and brace_overflow_names_root(target) and not self.opaque_cd:
+            self.opaque_cd = target
         return None
 
     def cdpath_entries(self):
