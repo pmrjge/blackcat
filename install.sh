@@ -2074,14 +2074,20 @@ elif [ "$DRY_RUN" = 1 ]; then
 elif ! have uv; then
   note "! uv missing — skipping MCP dependency prefetch"
 else
-  # First starts of stdio servers otherwise race MCP_TIMEOUT while packages download.
-  for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do uv run --quiet --script "$C/mcp/$f" --help >/dev/null 2>&1 </dev/null || true; done
-  have uvx && { uvx --quiet markitdown-mcp@0.0.1a7 --help >/dev/null 2>&1 </dev/null || true; }
-  # cg-artist's Blender server: download only (it would wait on the Blender add-on's socket)
-  have uv && { uv tool run --quiet --from mcp-for-blender==2.1.1 python -c pass >/dev/null 2>&1 </dev/null || true; }
-  have npx && { npx -y @playwright/mcp@0.0.82 --help >/dev/null 2>&1 </dev/null || true; }
-  have npx && { npx -y context-mode@1.0.169 --help >/dev/null 2>&1 </dev/null || true; }
-  note "prefetched libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, playwright, context-mode"
+  # First starts of stdio servers otherwise race MCP_TIMEOUT while packages download. The servers
+  # run with their caches in $STACK_CACHE (the env step 6 rendered into each agent's servers), so
+  # that is the cache warmed here, not your own ~/.cache/uv and ~/.npm.
+  mkdir -p "$STACK_CACHE" && chmod 700 "$STACK_CACHE"
+  (
+    export UV_CACHE_DIR="$STACK_CACHE/uv" npm_config_cache="$STACK_CACHE/npm"
+    for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do uv run --quiet --script "$C/mcp/$f" --help >/dev/null 2>&1 </dev/null || true; done
+    ! have uvx || uvx --quiet markitdown-mcp@0.0.1a7 --help >/dev/null 2>&1 </dev/null || true
+    # cg-artist's Blender server: download only (it would wait on the Blender add-on's socket)
+    uv tool run --quiet --from mcp-for-blender==2.1.1 python -c pass >/dev/null 2>&1 </dev/null || true
+    ! have npx || npx -y @playwright/mcp@0.0.82 --help >/dev/null 2>&1 </dev/null || true
+    ! have npx || npx -y context-mode@1.0.169 --help >/dev/null 2>&1 </dev/null || true
+  )
+  note "prefetched libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, playwright, context-mode (cache: $STACK_CACHE)"
 fi
 
 say "9/11 MCP servers (user scope, remote HTTP — lazy connect, tools deferred, keys via headersHelper)"

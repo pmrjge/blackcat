@@ -214,6 +214,17 @@ def test_restore_keeps_links_inside_the_config_dir(conf, tmp_path):
     assert os.readlink(os.path.join(conf, "agents", "ext.md")) == "coder.md"
 
 
+def test_prefetch_warms_the_servers_cache():
+    """The MCP prefetch fills the cache the servers use ($STACK_CACHE, rendered into their env),
+    not ~/.cache/uv and ~/.npm (review round 2, LOW)."""
+    text = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
+    block = text[text.index('say "8/11 MCP dependency prefetch"'):text.index('say "9/11')]
+    body = block[block.index("\n  (\n"):block.index("\n  )\n")]
+    assert 'export UV_CACHE_DIR="$STACK_CACHE/uv" npm_config_cache="$STACK_CACHE/npm"' in body
+    for cmd in ("uv run --quiet --script", "uvx --quiet markitdown-mcp", "uv tool run", "npx -y"):
+        assert cmd in body, cmd
+
+
 def test_lsp_npm_installs_pinned_without_scripts():
     """C7-residual: --with-lsp installs pinned versions with install scripts off."""
     text = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
