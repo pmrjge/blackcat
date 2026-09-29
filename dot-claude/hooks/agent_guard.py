@@ -2998,10 +2998,28 @@ INSTALLER_SCRIPTS = {"install.sh", "doctor.sh"}
 PROTECT_TRIGGER_RE = re.compile(
     r">|\b(?:cp|mv|tee|dd|sed|gsed|perl|install|rsync|ditto|rm|unlink|rmdir|shred|truncate|ln|"
     r"chmod|chown|chflags|touch|find|xargs|parallel|tar|unzip|cd|pushd|python[\d.]*|pypy[\d.]*|"
-    r"node|nodejs|ruby|php|deno|bun|osascript|lua|luajit|julia|Rscript|R)[\d.]*\b")
+    r"node|nodejs|ruby|php|deno|bun|osascript|lua|luajit|julia|Rscript|R|curl|wget|sort|patch|"
+    r"sponge|awk|gawk|mawk)[\d.]*\b|\s-o|--out")
 PROTECT_WRITE_CMDS = {"cp", "mv", "install", "rsync", "ditto", "tee", "dd", "sed", "gsed", "perl",
                       "rm", "unlink", "rmdir", "shred", "truncate", "ln", "chmod", "chown",
                       "chflags", "touch", "find", "tar", "unzip"}
+# programs outside PROTECT_WRITE_CMDS whose own options or program text name a file they write
+# (protect_output_targets); kept apart so `find -exec sort` is not counted as a writer
+PROTECT_OUTPUT_CMDS = {"curl", "wget", "sort", "patch", "sponge", "awk", "gawk", "mawk"}
+# programs whose `-o` is not an output file: a match flag, an ssh option, a listing column, ...
+NO_OUTPUT_OPT_CMDS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "ssh", "scp", "sftp", "ps",
+                      "ls", "mount", "rsync", "tar", "git", "xargs", "find", "man", "diff",
+                      "stat", "sed", "gsed", "cp", "mv", "install", "nm", "lsof", "column",
+                      "cut", "head", "tail", "wc", "od", "hexdump", "objdump", "sudo", "env",
+                      "time", "nice", "nohup", "command", "builtin", "exec"}
+# `--output`-style options that name an output file (or directory) for any program
+GENERIC_OUTPUT_OPTS = ("--output", "--output-file", "--outfile", "--out", "--output-dir")
+# an awk program's `print > "file"` / `>> "file"` redirect
+AWK_REDIRECT_RE = re.compile(r">{1,2}\s*\"((?:[^\"\\]|\\.)*)\"")
+# text that names a protected root: the config dir, $CLAUDE_CONFIG_DIR or the hook state dirs
+ROOT_TEXT_RE = re.compile(r"(?<![\w-])\.claude(?![\w.-])|\$\{?CLAUDE_CONFIG_DIR|claude-agent-stack")
+BRACE_WORD_CAP = 64
+BRACE_SEQ_RE = re.compile(r"(-?\d+)\.\.(-?\d+)(?:\.\.(-?\d+))?\Z|([A-Za-z])\.\.([A-Za-z])(?:\.\.(-?\d+))?\Z")
 # removals, renames and mode changes: every operand is a target, and a directory operand that
 # holds a protected path counts (rm -rf ~/.claude, chmod -R 000 ~/.claude/hooks/..)
 PROTECT_ALL_ARGS = {"rm", "unlink", "rmdir", "shred", "truncate", "ln", "chmod", "chown",
@@ -4061,6 +4079,69 @@ def _operands(args, value_opts=()):
     return out
 
 
+def _brace_split(w):
+    """`w` with its first brace group expanded (`a{b,c}d` -> abd, acd; `{1..3}`, `{a..c}`, nested
+    groups one level at a time), or None when it holds none. `${...}`, `{}` and `{x}` (no comma,
+    no range) stay literal. At most BRACE_WORD_CAP words."""
+    i, n = 0, len(w)
+    while i < n:
+        if w[i] != "{" or (i and w[i - 1] in "$\\"):
+            i += 1
+            continue
+        depth, j, commas = 0, i, []
+        while j < n:
+            if w[j] == "{":
+                depth += 1
+            elif w[j] == "}":
+                depth -= 1
+                if depth == 0:
+                    break
+            elif w[j] == "," and depth == 1:
+                commas.append(j)
+            j += 1
+        if j >= n:                             # unbalanced: literal
+            i += 1
+            continue
+        pre, body, post = w[:i], w[i + 1:j], w[j + 1:]
+        if commas:
+            cuts = [i] + commas + [j]
+            alts = [w[cuts[k] + 1:cuts[k + 1]] for k in range(len(cuts) - 1)]
+        else:
+            m = BRACE_SEQ_RE.match(body)
+            if not m:
+                i += 1
+                continue
+            if m.group(1) is not None:
+                a, b, step, fmt = int(m.group(1)), int(m.group(2)), m.group(3), str
+            else:
+                a, b, step, fmt = ord(m.group(4)), ord(m.group(5)), m.group(6), chr
+            step = abs(int(step)) if step and int(step) else 1
+            step = step if b >= a else -step
+            alts = []
+            for v in range(a, b + (1 if step > 0 else -1), step):
+                alts.append(str(fmt(v)))
+                if len(alts) >= BRACE_WORD_CAP:
+                    break
+        return [pre + alt + post for alt in alts[:BRACE_WORD_CAP]]
+    return None
+
+
+def brace_words(s):
+    """Shell brace expansion of one word, capped at BRACE_WORD_CAP words (the rest are dropped);
+    over-expands a quoted brace on purpose."""
+    if "{" not in s:
+        return [s]
+    out, todo = [], [s]
+    while todo and len(out) < BRACE_WORD_CAP:
+        w = todo.pop(0)
+        parts = _brace_split(w)
+        if parts is None:
+            out.append(w)
+        else:
+            todo = parts + todo
+    return out or [s]
+
+
 def _heredoc_interpreter(owner):
     """The command that owns a heredoc is an interpreter reading its program from stdin
     (`python3 - <<EOF`, `node <<EOF`, `perl <<EOF`)."""
@@ -4104,6 +4185,8 @@ class _Scan(object):
         self.want, self.budget = set(want), MAX_SCANS
         self.deadline = time.monotonic() + DEADLINE_S
         self.ev = ev
+        self.cmd_root = False                 # the whole command names a protected root literally
+        self._assigned = {}                   # NAME -> the (unexpanded) text a NAME=value assigned
         self._protect_specs = None
         self.cd = []                          # directories a `cd`/`pushd` earlier in the command named
         self.opaque_cd = None                 # a cd target the guard can't resolve, naming protected files
@@ -4118,6 +4201,8 @@ class _Scan(object):
         if not isinstance(command, str):
             return None
         command = command.replace("\x00", "")
+        if depth == 0 and "protect" in self.want:
+            self.cmd_root = self.names_root(command)
         bare = re.sub(r"['\"\\]", "", command)
         secrets_trigger = ("secrets" in self.want and SECRETS_TRIGGER_RE.search(bare)) or (
             "forge" in self.want and FORGE_NET_TRIGGER_RE.search(bare))
@@ -4247,6 +4332,8 @@ class _Scan(object):
                         for x in words[stmt_start:end]:
                             found = found or self.protect_hit(restore(x), "xargs %s" % base,
                                                               contains=True)
+                elif here_cmd and base != "git":
+                    found = self.protect_output_targets(base, [restore(x) for x in words[i + 1:end]])
             if not found and base in FORGE_TREES:
                 found = self.forge(base, words, i + 1, end, depth, xargs_seen)
             if not found and w == "<<<" and i + 1 < n:     # a here-string that becomes code
@@ -4687,25 +4774,100 @@ class _Scan(object):
         if not m:
             return
         name, table = word[:m.end() - 1].rstrip("+"), self.var_table()
+        raw = word[m.end():]
+        raw = os.path.expanduser(raw) if raw.startswith("~") else raw
         val = self.expand_path(word[m.end():])
         if word[m.end() - 2] == "+":
             val = (table[name] if name in table else os.environ.get(name, "")) + val
+            raw = self._assigned.get(name, "") + raw
         if name in table or len(table) < 64:
             table[name] = val
+            self._assigned[name] = raw[:4096]
+
+    @staticmethod
+    def names_root(text):
+        """Does `text` name a protected root: the config dir (.claude, $CLAUDE_CONFIG_DIR or its
+        resolved path, after ~ and $HOME expansion) or the hook state dirs?"""
+        if not text:
+            return False
+        if ROOT_TEXT_RE.search(text):
+            return True
+        cfg = os.environ.get("CLAUDE_CONFIG_DIR") or ""
+        real = os.path.realpath(os.path.join(os.path.expanduser("~"), ".claude"))
+        return any(len(c) > 1 and c.rstrip("/") in text for c in (cfg, real))
+
+    def var_suspect(self, name, depth):
+        """May $NAME carry a protected root? An assigned variable: when the text it was assigned
+        does. Any other (a loop or positional variable, or inherited from the environment): when
+        the command names a protected root literally, which such a variable could then be fed."""
+        if name in ("HOME", "PWD", "XDG_STATE_HOME", "CLAUDE_CONFIG_DIR"):
+            return False
+        if name in self._assigned:
+            return depth < 4 and self.text_suspect(self._assigned[name], depth + 1)
+        return self.cmd_root
+
+    def text_suspect(self, text, depth=0):
+        if self.names_root(text):
+            return True
+        return any(self.var_suspect(m.group(1), depth)
+                   for m in re.finditer(r"\$\{?([A-Za-z_]\w*|[0-9@*#?!])", text))
+
+    def suspect(self, raw, depth=0):
+        """Is the expansion a path starts with suspect (see opaque_hit)? Checks each leading
+        `$NAME`, `${...}`, `$(...)` or backtick of `raw`."""
+        i, n = 0, len(raw)
+        while i < n and raw[i] in "$`":
+            if raw[i] == "`":
+                j = raw.find("`", i + 1)
+                j = n if j < 0 else j
+                body, i = raw[i + 1:j], j + 1
+                if self.text_suspect(body, depth):
+                    return True
+                continue
+            nx = raw[i + 1:i + 2]
+            if nx in ("(", "{"):
+                close_c, d, j = ")" if nx == "(" else "}", 0, i + 1
+                while j < n:
+                    d += (raw[j] == nx) - (raw[j] == close_c)
+                    if d == 0:
+                        break
+                    j += 1
+                body, i = raw[i + 2:j], j + 1
+                if nx == "(" and self.text_suspect(body, depth):
+                    return True
+                if nx == "{":
+                    m = re.match(r"[A-Za-z_]\w*|[0-9@*#?!$-]", body)
+                    if (m and self.var_suspect(m.group(0), depth)) or self.names_root(body):
+                        return True
+                continue
+            m = re.compile(r"[A-Za-z_]\w*|[0-9@*#?$!-]").match(raw, i + 1)
+            if not m:
+                break
+            i = m.end()
+            if self.var_suspect(m.group(0), depth):
+                return True
+        return False
 
     def opaque_hit(self, rest, how, raw):
-        """A path that starts with an expansion the guard cannot resolve: a hit when the literal
-        text after it names a protected entry (its first component is a PROTECTED_CONFIG name or
-        .claude, or it holds /.claude/ or .local/state/claude-agent-stack)."""
+        """A path that starts with an expansion the guard cannot resolve. A hit when the text
+        after it names a protected root itself (.claude first or in the middle, or
+        .local/state/claude-agent-stack); or, when its first component is a bare PROTECTED_CONFIG
+        name (bin, hooks, settings.json, ...), only if the expansion is suspect: an earlier
+        assignment whose text names a protected root, a `$(...)` or backtick that does, or a loop
+        or positional variable in a command that names a protected root. `$VENV/bin` and
+        `$(mktemp -d)/hooks` are ordinary project paths."""
         import fnmatch
         r = rest.replace(self.UNRES, "")
         first = r.lstrip("/").split("/", 1)[0]
         if first == ".claude" or "/.claude/" in r + "/" or \
-                ".local/state/claude-agent-stack" in r or \
-                any(fnmatch.fnmatchcase(first, p) for p in PROTECTED_CONFIG):
-            return self.hit("protect", "%s: %s (starts with an expansion the guard cannot resolve, "
-                            "then names a protected entry)" % (how, raw))
-        return None
+                ".local/state/claude-agent-stack" in r:
+            why = "then names a protected root"
+        elif any(fnmatch.fnmatchcase(first, p) for p in PROTECTED_CONFIG) and self.suspect(raw):
+            why = "which may hold a protected root, then names a protected entry"
+        else:
+            return None
+        return self.hit("protect", "%s: %s (starts with an expansion the guard cannot resolve, "
+                        "%s)" % (how, raw, why))
 
     @staticmethod
     def glob_reaches(child, glob, partial):
@@ -4723,6 +4885,14 @@ class _Scan(object):
         return fnmatch.fnmatchcase(child, glob)
 
     def protect_hit(self, raw_path, how, contains=False, real_only=False):
+        """protect_hit_word for every word `raw_path` brace-expands to (`~/.claude/{hooks,x}`)."""
+        for word in brace_words((raw_path or "")):
+            found = self.protect_hit_word(word, how, contains, real_only)
+            if found:
+                return found
+        return None
+
+    def protect_hit_word(self, raw_path, how, contains=False, real_only=False):
         """`raw_path` resolved the way a shell would (absolute as given, relative to each base
         and to a directory an earlier `cd` named; `~`, $HOME, ${HOME}, $CLAUDE_CONFIG_DIR,
         $XDG_STATE_HOME, $PWD and variables assigned earlier expanded; lexical and
@@ -4780,33 +4950,126 @@ class _Scan(object):
         (cd $D/.claude) is remembered: every later relative write counts as a hit (the cd itself
         writes nothing, and `cd "$D/.claude" && ls` stays allowed)."""
         pos = [a for a in args if not a.startswith("-") or a == "-"]
-        target = pos[0] if pos else "~"
+        for word in brace_words(pos[0] if pos else "~"):
+            self.note_cd_word(word)
+        return None
+
+    def cdpath_entries(self):
+        """The directories a relative `cd` also searches: CDPATH as assigned earlier in the
+        command, or inherited."""
+        table = self.var_table()
+        raw = table["CDPATH"] if "CDPATH" in table else os.environ.get("CDPATH", "")
+        out = []
+        for e in (raw or "").split(":")[:16]:
+            e = self.expand_path(e) if e else "."
+            if e and not e.startswith(self.UNRES) and self.UNRES not in e:
+                out.append(e)
+        return out
+
+    def note_cd_word(self, target):
         if target == "-":
-            return None
+            return
+        raw = target
         target = self.expand_path(target)
         if target.startswith(self.UNRES):
-            if not self.opaque_cd and self.opaque_hit(target.lstrip(self.UNRES), "cd", pos[0]):
-                self.opaque_cd = pos[0]
-            return None
+            if not self.opaque_cd and self.opaque_hit(target.lstrip(self.UNRES), "cd", raw):
+                self.opaque_cd = raw
+            return
         m = self.GLOB_RE.search(target)
         if m:                                  # cd $HOME/.claude/$X: the directory before it
             target = target[:target.rfind("/", 0, m.start()) + 1] or "."
         _, bases = self.protect_specs()
-        for b in ([None] if os.path.isabs(target) else bases + self.cd):
-            p = os.path.normpath(target if b is None else os.path.join(b, target))
-            if p not in self.cd and len(self.cd) < 16:
+        if os.path.isabs(target):
+            cands = [os.path.normpath(target)]
+        else:
+            cands = [os.path.normpath(os.path.join(b, target)) for b in bases + self.cd]
+            if not target.startswith(("./", "../")) and target not in (".", ".."):
+                # CDPATH: a plain relative target is also tried below every CDPATH entry
+                for entry in self.cdpath_entries():
+                    roots = [entry] if os.path.isabs(entry) else \
+                        [os.path.join(b, entry) for b in bases + self.cd]
+                    cands += [os.path.normpath(os.path.join(r_, target)) for r_ in roots]
+        for p in cands:
+            if p not in self.cd and len(self.cd) < 48:
                 self.cd.append(p)
+
+    @classmethod
+    def git_rewrites_tree(cls, sub, args):
+        """Does this git subcommand (with these arguments) rewrite the work tree?"""
+        if sub in cls.GIT_TREE_SUBS:
+            return not ((sub == "stash" and args[:1] in (["list"], ["show"])) or (
+                sub == "apply" and {"--check", "--stat", "--numstat", "--summary"} & set(args)))
+        if sub == "bisect":                    # start/good/bad/reset/run/skip move HEAD
+            return args[:1] not in ([], ["log"], ["visualize"], ["view"], ["help"])
+        if sub == "submodule":
+            first = next((a for a in args if not a.startswith("-")), "")
+            return first in ("update", "add", "deinit", "foreach")
+        if sub == "merge-file":                # writes its first operand unless -p/--stdout
+            return not ({"-p", "--stdout"} & set(args))
+        return False
+
+    def git_output_targets(self, sub, args, resolve):
+        """Paths a git subcommand writes that are not the work tree: `clone URL DIR`, `init DIR`,
+        `worktree add PATH`, `submodule add URL PATH`, `archive -o FILE`, `format-patch -o DIR`,
+        `merge-file FILE ...`. `resolve` maps a path to its candidates under -C."""
+        def check(path, contains):
+            for cand in resolve(path):
+                found = self.protect_hit(cand, "git %s writes" % sub, contains=contains,
+                                         real_only=True)
+                if found:
+                    return found
+            return None
+        value_opts = {
+            "clone": ("-b", "--branch", "--depth", "-o", "--origin", "--reference", "-c",
+                      "--config", "--template", "-j", "--jobs", "--filter", "-u", "--upload-pack",
+                      "--server-option", "--shallow-since", "--shallow-exclude", "--bundle-uri",
+                      "--ref-format", "--reference-if-able", "--recurse-submodules"),
+            "init": ("--template", "-b", "--initial-branch", "--object-format", "--ref-format"),
+            "worktree": ("-b", "-B", "--reason"),
+            "submodule": ("-b", "--branch", "--name", "--depth", "--reference", "--jobs", "-j"),
+        }.get(sub, ())
+        if sub == "clone" or sub == "init":
+            for j, a in enumerate(args):       # --separate-git-dir DIR writes DIR too
+                sep = args[j + 1] if a == "--separate-git-dir" and j + 1 < len(args) else \
+                    a.split("=", 1)[1] if a.startswith("--separate-git-dir=") else None
+                found = check(sep, True) if sep else None
+                if found:
+                    return found
+            pos = _operands(args, value_opts + ("--separate-git-dir",))
+            if sub == "init":
+                return check(pos[0], True) if pos else None
+            if len(pos) >= 2:
+                return check(pos[1], True)
+            if pos:                            # git clone URL: into ./<repo name>
+                name = re.split(r"[/:]", pos[0].rstrip("/"))[-1]
+                name = name[:-4] if name.endswith(".git") else name
+                return check(name, True) if name else None
+        elif sub == "worktree" and args[:1] == ["add"]:
+            pos = _operands(args[1:], value_opts)
+            return check(pos[0], True) if pos else None
+        elif sub == "submodule" and next((a for a in args if not a.startswith("-")), "") == "add":
+            pos = _operands(args[args.index("add") + 1:], value_opts)
+            return check(pos[1], True) if len(pos) >= 2 else None
+        elif sub in ("archive", "format-patch"):
+            long_opt = "--output" if sub == "archive" else "--output-directory"
+            for j, a in enumerate(args):
+                val = args[j + 1] if a in ("-o", long_opt) and j + 1 < len(args) else \
+                    a.split("=", 1)[1] if a.startswith(long_opt + "=") else \
+                    a[2:] if a.startswith("-o") and not a.startswith("--") and len(a) > 2 \
+                    else None
+                found = check(val, sub == "format-patch") if val else None
+                if found:
+                    return found
+        elif sub == "merge-file":
+            pos = _operands(args, ("-L", "--marker-size", "--diff-algorithm"))
+            if pos and not ({"-p", "--stdout"} & set(args)):
+                return check(pos[0], False)
         return None
 
     def git_protect(self, sub, args, gopts):
         """A git subcommand that rewrites the working tree (checkout, reset --hard, clean, ...)
         whose effective work tree — -C, --work-tree, GIT_WORK_TREE, a --git-dir/GIT_DIR (and
         its parent), else the working directories — is protected or holds protected paths."""
-        if sub not in self.GIT_TREE_SUBS:
-            return None
-        if (sub == "stash" and args[:1] in (["list"], ["show"])) or (
-                sub == "apply" and {"--check", "--stat", "--numstat", "--summary"} & set(args)):
-            return None
         table = self.var_table()
         _, bases = self.protect_specs()
         cur, work, gdir = list(bases) + list(self.cd), table.get("GIT_WORK_TREE"), \
@@ -4824,6 +5087,11 @@ class _Scan(object):
                 work = val
             elif opt == "--git-dir":
                 gdir = val
+        found = self.git_output_targets(sub, args, lambda v: join(cur, v))
+        if found:
+            return found
+        if not self.git_rewrites_tree(sub, args):
+            return None
         dirs = cur if not work else join(cur, work)
         if gdir:                               # the repository (or its work tree) under a protected dir
             dirs = dirs + join(cur, gdir) + join(cur, gdir.rstrip("/") + "/..")
@@ -4899,6 +5167,80 @@ class _Scan(object):
                 return found
         for t in whole:
             found = self.protect_hit(t, "%s changes" % base, contains=True)
+            if found:
+                return found
+        return None
+
+    @staticmethod
+    def opt_values(args, shorts="", longs=()):
+        """The values of options in `args`: `-o FILE`, `-oFILE`, a cluster ending in the option
+        (`-sSo FILE`), `--long FILE` and `--long=FILE`. Stops at `--`."""
+        out, k = [], 0
+        while k < len(args):
+            a = args[k]
+            k += 1
+            if a == "--":
+                break
+            if a in longs or (len(a) == 2 and a[0] == "-" and a[1] in shorts and a[1] != "-"):
+                if k < len(args):
+                    out.append(args[k])
+                    k += 1
+            elif a.startswith("--"):
+                name, eq, val = a.partition("=")
+                if eq and name in longs:
+                    out.append(val)
+            elif a[:1] == "-" and len(a) > 2 and shorts:
+                if a[1] in shorts:             # -oFILE
+                    out.append(a[2:])
+                elif re.fullmatch(r"-[A-Za-z]+", a) and a[-1] in shorts and k < len(args):
+                    out.append(args[k])        # -sSo FILE
+                    k += 1
+        return out
+
+    def protect_output_targets(self, base, args):
+        """Files a program outside PROTECT_WRITE_CMDS writes, named by its own options or
+        program text: curl -o/--output/--output-dir, wget -O/--output-document/-P/
+        --directory-prefix, sort -o, patch (file operand, -o, -r, -d), sponge FILE, awk
+        `print > "file"` (and gawk -i inplace), and, for any program not in NO_OUTPUT_OPT_CMDS,
+        the value of -o, --output, --output-file, --outfile, --out or --output-dir."""
+        targets, dirs = [], []                 # dirs: a directory whose protected contents count
+        if base == "curl":
+            targets += self.opt_values(args, "o", ("--output",))
+            dirs += self.opt_values(args, "", ("--output-dir",))
+        elif base == "wget":
+            targets += self.opt_values(args, "O", ("--output-document",))
+            dirs += self.opt_values(args, "P", ("--directory-prefix",))
+        elif base == "sort":
+            targets += self.opt_values(args, "o", ("--output",))
+        elif base == "patch":
+            targets += self.opt_values(args, "or", ("--output", "--reject-file"))
+            dirs += self.opt_values(args, "d", ("--directory",))
+            pos = _operands(args, ("-p", "-d", "-i", "-o", "-r", "-F", "-B", "-V", "-Y", "-z",
+                                   "-D", "--strip", "--directory", "--input", "--output",
+                                   "--reject-file", "--fuzz", "--prefix", "--suffix"))
+            if pos:                            # under -d DIR when there is one
+                base_dirs = self.opt_values(args, "d", ("--directory",)) or [None]
+                targets += [pos[0] if d is None else d.rstrip("/") + "/" + pos[0]
+                            for d in base_dirs]
+        elif base == "sponge":
+            targets += _operands(args)
+        elif base in ("awk", "gawk", "mawk"):
+            for a in args:
+                if ">" in a:
+                    targets += [m.group(1) for m in AWK_REDIRECT_RE.finditer(a[:100000])]
+            inplace = any(a in ("inplace", "--include=inplace") or a.startswith("-iinplace")
+                          for a in args)
+            if inplace:                        # gawk -i inplace 'prog' FILE...
+                pos = _operands(args, ("-i", "-f", "-v", "-F", "--include", "--file", "--assign"))
+                targets += pos[1:] if "-f" not in args else pos
+        if base not in NO_OUTPUT_OPT_CMDS and base not in PROTECT_WRITE_CMDS:
+            targets += self.opt_values(args, "o", GENERIC_OUTPUT_OPTS)
+        for t in targets:
+            found = self.protect_hit(t, "%s writes" % base)
+            if found:
+                return found
+        for d in dirs:
+            found = self.protect_hit(d, "%s writes into" % base)
             if found:
                 return found
         return None

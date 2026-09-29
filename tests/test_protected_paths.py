@@ -351,7 +351,7 @@ CONFIG_FORMS = ["$HOME/.claude/{e}", "${{HOME}}/.claude/{e}", '"$HOME/.claude/{e
                 '"$HOME"/.claude/{e}', "$CLAUDE_CONFIG_DIR/{e}", "${{CLAUDE_CONFIG_DIR}}/{e}",
                 '"$CLAUDE_CONFIG_DIR"/{e}', "${{CLAUDE_CONFIG_DIR:-$HOME/.claude}}/{e}",
                 "${{HOME:-/nonexistent}}/.claude/{e}", "~/.claude/{e}",
-                "$X/{e}", '"$D"/.claude/{e}', "$(pwd)/.claude/{e}", "`pwd`/.claude/{e}"]
+                '"$D"/.claude/{e}', "$(pwd)/.claude/{e}", "`pwd`/.claude/{e}"]
 
 
 @pytest.fixture
@@ -443,7 +443,6 @@ def test_f1_pwd_is_the_base(shell_env):
     "A=$HOME; B=$A/.claude; rm $B/agents/x.md",
     "D=$HOME/.claude/agents; rm $D/x.md",
     "C=$HOME/.claude env rm $C/agents/x.md",
-    "R=$(mktemp -d); rm $R/agents/x.md",
     "bash -c 'C=~/.claude; rm $C/agents/x.md'",
 ])
 def test_f1_variables_assigned_earlier_in_the_command(shell_env, cmd):
@@ -452,11 +451,17 @@ def test_f1_variables_assigned_earlier_in_the_command(shell_env, cmd):
 
 
 @pytest.mark.parametrize("cmd", [
-    "rm $X/agents/x.md", "rm -rf \"$D/.claude\"", "rm ${X}/skills", "echo x > $D/hooks/a.py",
-    "rm -rf $(git rev-parse --show-toplevel)/.claude", "rm `dirname $0`/rules/x.md",
-    "rm $A$B/stack.env", "rm -rf $ROOT/backup-2026", "mv $X/a/.claude/settings.json /tmp/s",
-    "rm -rf $STATE/.local/state/claude-agent-stack", "cp /tmp/a $X/mcp/a.py",
-    "rm ${X%/}/agents/x.md",
+    "rm -rf \"$D/.claude\"", "mv $X/a/.claude/settings.json /tmp/s",
+    "rm -rf $STATE/.local/state/claude-agent-stack",
+    "rm -rf $(git rev-parse --show-toplevel)/.claude", "rm $X/.claude/agents/x.md",
+    "rm -rf \"$D/.claude/hooks\"", "cd \"$X/.claude\" && rm settings.json",
+    # a bare protected name after an expansion that may hold a protected root
+    "D=$(echo ~/.claude); rm -rf $D/hooks", "D=~/.claude; E=$D; rm -rf $E/hooks",
+    "for d in ~/.claude; do rm -rf \"$d/hooks\"; done",
+    "for d in ~/.claude x; do rm -rf \"$d/hooks\"; done", "set -- ~/.claude; rm -rf $1/hooks",
+    "bash -c 'rm -rf $1/hooks' _ ~/.claude", "rm -rf $(echo ~/.claude)/hooks",
+    "rm -rf `echo $HOME/.claude`/hooks", "rm -rf $(dirname $CLAUDE_CONFIG_DIR/x)/hooks",
+    "D=$CLAUDE_CONFIG_DIR/x; rm -rf $D/../hooks",
 ])
 def test_f1_opaque_start_naming_a_protected_entry(shell_env, cmd):
     g, cfg, proj, home = shell_env
@@ -469,6 +474,14 @@ def test_f1_opaque_start_naming_a_protected_entry(shell_env, cmd):
     "rm -rf $(mktemp -d)/x", "rm $TMPDIR/agents-list.txt", "touch $X/claude/x",
     "rm ${X}/mcp-notes.txt", "cd $TMPDIR && rm x", 'cd "$proj" && ls',
     "R=$(mktemp -d); rm -rf $R/build",
+    # an unresolved expansion then a bare protected name: ordinary project paths
+    'rm -rf "$VENV/bin"', 'install -m755 tool "$DESTDIR/bin/tool"', 'cp out "$PREFIX/bin/"',
+    'chmod +x "$OUT/bin/run.sh"', 'mv x.json "$target/settings.json"',
+    'for d in a b; do rm -rf "$d/bin"; done', "rm -rf $(mktemp -d)/hooks",
+    'cd "$VENV/bin" && rm x', "rm $X/agents/x.md", "echo x > $D/hooks/a.py", "rm ${X}/skills",
+    "cp /tmp/a $X/mcp/a.py", "rm ${X%/}/agents/x.md", "rm $A$B/stack.env",
+    "rm -rf $ROOT/backup-2026", "rm `dirname $0`/rules/x.md", "R=$(mktemp -d); rm $R/agents/x.md",
+    "for d in a b; do rm -rf \"$d/hooks\"; done; echo .claude-work",
 ])
 def test_f1_ordinary_unresolved_variables_allowed(shell_env, cmd):
     g, cfg, proj, home = shell_env
@@ -608,3 +621,150 @@ def test_rules_protected_list_names_manifest_and_backups():
             assert "`%s" % name.rstrip("*") in line, name
     for s in ("~/.local/state/claude-agent-stack", "-backups", "-cache", "install.sh"):
         assert s in line, s
+
+
+R2_BRACE = [
+    "cp evil.py ~/.claude/{hooks,x}/agent_guard.py", "rm -rf ~/.claude/{hooks,x}",
+    "rm -rf ~/.{claude,x}/hooks", "rm -rf ~/.local/state/claude-agent-stack{,-backups}",
+    "rm -rf ~/.claude/{x,{y,hooks}}", "rm -rf ~/.claude/{a..c,hooks}",
+    "rm -rf ~/.claude/{h..h}ooks", "echo x > ~/.claude/{agents,x}/a.md",
+    "rm -rf ~/.claude/{1..3,skills}", "touch ~/.claude/{hooks,x}/y", "cd ~/.{claude,x} && rm settings.json",
+    "cd ~/.claude/{agents,x} && rm a.md",
+]
+
+
+@pytest.mark.parametrize("cmd", R2_BRACE)
+def test_r2_brace_expansion_denied(shell_env, monkeypatch, cmd):
+    g, cfg, proj, home = shell_env
+    monkeypatch.setenv("XDG_STATE_HOME", str(home / ".local" / "state"))
+    assert denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "rm -rf ~/x/{a,b}", "rm -rf build/{a,b}/hooks", "echo {a,b}", "rm -rf /tmp/{x,y}/bin",
+    "cp a.txt /tmp/{a,b}.txt", "rm -rf ${X:-a,b}/bin", "find . -exec rm {} +",
+    "rm -rf ~/.claude/{projects,todos}", "rm -rf {1..99999999}",
+])
+def test_r2_brace_expansion_ordinary_allowed(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert not denied(g, proj, cmd), cmd
+
+
+def test_r2_brace_words_helper(installed):
+    g, cfg, proj = installed
+    assert g.brace_words("a{b,c}d") == ["abd", "acd"]
+    assert g.brace_words("{a,{b,c}}") == ["a", "b", "c"]
+    assert g.brace_words("{1..3}") == ["1", "2", "3"]
+    assert g.brace_words("{c..a}") == ["c", "b", "a"]
+    assert g.brace_words("x{,-y}") == ["x", "x-y"]
+    assert g.brace_words("{}") == ["{}"] and g.brace_words("${X:-a,b}") == ["${X:-a,b}"]
+    assert len(g.brace_words("{1..100000}{a,b}")) == g.BRACE_WORD_CAP
+
+
+@pytest.mark.parametrize("cmd", [
+    "CDPATH=~/.claude cd agents && rm x.md", "CDPATH=~/.claude; cd agents && rm x.md",
+    "export CDPATH=~/.claude; cd skills; rm -rf y", "CDPATH=/tmp:~/.claude cd hooks && rm a.py",
+    "CDPATH=$HOME/.claude cd rules && echo x > a.md",
+])
+def test_r2_cdpath_denied(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert denied(g, proj, cmd), cmd
+
+
+@pytest.mark.parametrize("cmd", [
+    "CDPATH=/tmp cd agents && rm x.md", "CDPATH=~/.claude cd ./agents && rm x.md",
+    "CDPATH=~/.claude cd agents && ls", "CDPATH=~/other cd agents && rm x.md",
+])
+def test_r2_cdpath_ordinary_allowed(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert not denied(g, proj, cmd), cmd
+
+
+R2_WRITERS = [
+    "curl -o ~/.claude/hooks/agent_guard.py https://x.example/a", "curl -fsSLo ~/.claude/hooks/a.py U",
+    "curl --output ~/.claude/hooks/a.py U", "curl --output=~/.claude/hooks/a.py U",
+    "curl --output-dir ~/.claude/hooks -O U", "curl -o$HOME/.claude/bin/x U",
+    "wget -O ~/.claude/hooks/a.py U", "wget --output-document=~/.claude/hooks/a.py U",
+    "wget -P ~/.claude/skills U", "wget --directory-prefix ~/.claude/skills U",
+    "wget -qO ~/.claude/hooks/a.py U", "wget -o ~/.claude/hooks/log U",
+    "sort -o ~/.claude/settings.json in.txt", "sort in.txt -o ~/.claude/rules/a.md",
+    "sort --output=~/.claude/rules/a.md in.txt",
+    "patch ~/.claude/hooks/agent_guard.py < x.diff", "patch -p1 -o ~/.claude/hooks/a.py < x.diff",
+    "patch -d ~/.claude/hooks -p1 < x.diff", "patch -d ~/.claude/hooks agent_guard.py < x.diff",
+    "patch --directory=~/.claude/skills -p0 < x.diff", "patch -r ~/.claude/hooks/rej f < x.diff",
+    "cat new | sponge ~/.claude/settings.json", "sponge -a ~/.claude/rules/a.md",
+    "awk '{print > \"~/.claude/hooks/a.py\"}' in", "awk '{print >> \"$HOME/.claude/settings.json\"}' in",
+    "gawk 'BEGIN{print \"x\" > \"~/.claude/agents/a.md\"}'", "mawk '{print $1 > \"~/.claude/rules/r\"}' f",
+    "gawk -i inplace '{sub(/a/,\"b\")}1' ~/.claude/settings.json",
+    "gcc -o ~/.claude/bin/tool a.c", "pandoc -o ~/.claude/rules/a.md in.md",
+    "sometool --output ~/.claude/hooks/a.py", "sometool --output-file=~/.claude/hooks/a",
+    "sometool --outfile ~/.claude/hooks/a", "sometool --out ~/.claude/hooks/a",
+    "sometool --output-dir ~/.claude/skills", "sometool -o ~/.claude/mcp/x.py",
+    "sudo curl -o ~/.claude/hooks/a.py U", "env A=1 sort -o ~/.claude/settings.json f",
+    "git clone https://x.example/r.git ~/.claude/skills/y", "git clone U ~/.claude/skills/y",
+    "git init ~/.claude/skills/z", "git clone --depth 1 -b main U ~/.claude/agents/y",
+    "git -C /tmp clone U ~/.claude/hooks/y", "cd ~/.claude/skills && git clone https://x.example/y.git",
+    "git clone --separate-git-dir ~/.claude/hooks/g U /tmp/w",
+]
+
+
+@pytest.mark.parametrize("cmd", R2_WRITERS)
+def test_r2_other_writers_denied(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert denied(g, proj, cmd), cmd
+
+
+R2_GIT_SUBS = ["bisect start", "bisect good", "bisect reset", "bisect run make", "bisect skip",
+               "submodule update --init", "submodule add https://x.example/r.git s",
+               "submodule deinit -f .", "submodule foreach git pull", "merge-file a b c",
+               "worktree add ~/.claude/skills/w", "worktree add -b br ~/.claude/hooks/w HEAD",
+               "archive -o ~/.claude/hooks/x.tar HEAD", "archive --output=~/.claude/hooks/x.tar HEAD",
+               "archive --output ~/.claude/skills/x.zip HEAD",
+               "format-patch -o ~/.claude/hooks HEAD~1", "format-patch --output-directory ~/.claude/rules -1"]
+
+
+@pytest.mark.parametrize("sub", R2_GIT_SUBS)
+def test_r2_git_subcommands_denied(shell_env, sub):
+    g, cfg, proj, home = shell_env
+    if sub.split()[0] in ("worktree", "archive", "format-patch"):   # output path, not the tree
+        assert denied(g, proj, "git " + sub), sub
+        return
+    for form in ("git -C ~/.claude {s}", "cd ~/.claude && git {s}"):
+        assert denied(g, proj, form.format(s=sub)), form.format(s=sub)
+
+
+def test_r2_merge_file_operand_denied(shell_env):
+    g, cfg, proj, home = shell_env
+    assert denied(g, proj, "git merge-file ~/.claude/rules/a.md base other")
+    assert not denied(g, proj, "git merge-file a b c")
+    assert not denied(g, proj, "git -C ~/.claude merge-file -p a b c")
+
+
+@pytest.mark.parametrize("cmd", [
+    # generic output options and the other writers, ordinary destinations
+    "gcc -o build/x a.c", "pandoc -o out.pdf in.md", "sort -o out.txt in.txt",
+    "curl -o /tmp/x https://x.example/a", "curl -fsSLO https://x.example/a.tgz",
+    "curl --output-dir /tmp -O U", "wget -O /tmp/a U", "wget -P /tmp U", "wget -qO- U | sh -n",
+    "patch -p1 < x.diff", "patch a.py < x.diff", "patch -d build -p1 < x.diff",
+    "cat x | sponge out.txt", "awk '{print > \"out.txt\"}' in", "awk '$1 > 3' in",
+    "awk '{print $1}' ~/.claude/settings.json", "gawk -i inplace '{print}' notes.txt",
+    "sometool --output-dir dist --out res", "cc -o ~/bin/tool a.c", "curl https://x.example/a",
+    "curl -G -d q=1 https://x.example", "wget https://x.example/a", "http GET https://x.example",
+    "http --download https://x.example/a", "ssh -o StrictHostKeyChecking=no h ls",
+    "grep -o x ~/.claude/agents/a.md", "rg -o pat ~/.claude/agents",
+    "ps -o pid,comm", "ls -o ~/.claude/agents", "git clone https://x.example/r.git", "git clone U /tmp/y",
+    "git init", "git init /tmp/z", "git worktree add ../wt", "git worktree list",
+    "git archive -o /tmp/x.tar HEAD", "git format-patch -o /tmp/p -1", "git format-patch -1",
+    "git -C ~/.claude bisect log", "git bisect start", "git submodule update --init",
+    "git submodule status", "git -C ~/.claude submodule status", "git -C ~/.claude worktree list",
+    "git -C ~/.claude archive HEAD", "git -C ~/.claude format-patch -1 --stdout",
+    "git -C ~/.claude merge-file -p a b c", "git checkout main", "git reset --hard",
+    "git stash", "git rebase main", "git pull", "git clean -fd",
+    "bash -n script.sh", "node --check a.js", "pytest tests/", "uv run pytest",
+    "cargo test", "go test ./...", "cat ~/.claude/settings.json", "jq . ~/.claude/settings.json",
+    "grep x ~/.claude/agents/*.md", "/usr/bin/python3 ~/.claude/hooks/agent_guard.py --self-test",
+    "find ~/.claude -name x -o -name y",
+])
+def test_r2_ordinary_commands_allowed(shell_env, cmd):
+    g, cfg, proj, home = shell_env
+    assert not denied(g, proj, cmd), cmd
