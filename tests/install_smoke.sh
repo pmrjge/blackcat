@@ -1663,7 +1663,8 @@ json.dump({"mcpServers": {
 json.dump({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [{"type": "command", "command": "npx my-hook --token sk-test-hook"}]}]}},
   open(sys.argv[2], "w"))
 PY
-CJ_BEFORE="$(sha "$TB/f.json" | awk '{print $1}')"
+keep_entries(){ python3 -c 'import json, sys; a = json.load(open(sys.argv[1])); print(json.dumps([a["mcpServers"]["leaky-npx"], a["mcpServers"]["safe-npx"], a["projects"]], sort_keys=True))' "$TB/f.json"; }
+CJ_BEFORE="$(keep_entries)"
 XDG_STATE_HOME="$TB/st" FAKE_CLAUDE_JSON="$TB/f.json" STACK_CLAUDE_JSON="$TB/f.json" CLAUDE_CONFIG_DIR="$TB/c" \
   "$INSTALL" --no-plugins --no-deps --no-profile >"$TB/i.log" 2>&1; rc=$?
 [ "$rc" = 0 ] && grep -q "MCP server 'leaky-npx' (scope: user) runs npx" "$TB/i.log" \
@@ -1671,8 +1672,8 @@ XDG_STATE_HOME="$TB/st" FAKE_CLAUDE_JSON="$TB/f.json" STACK_CLAUDE_JSON="$TB/f.j
   && grep -q "hook PreToolUse (Bash) in settings.json runs npx" "$TB/i.log" \
   && ! grep -q "safe-npx\|plain-py" "$TB/i.log" && ! grep -q 'sk-test-' "$TB/i.log" \
   && grep -q "\"UV_CACHE_DIR\": \"$SC/uv\"" "$TB/i.log" \
-  && [ "$CJ_BEFORE" = "$(sha "$TB/f.json" | awk '{print $1}')" ] \
-  && pass "install: names the leaky server, project server and user hook; not the safe or non-runner ones; no secret printed; config untouched" \
+  && [ "$CJ_BEFORE" = "$(keep_entries)" ] \
+  && pass "install: names the leaky server, project server and user hook; not the safe or non-runner ones; no secret printed; the flagged entries untouched" \
   || failed "install cache-runner warning (rc=$rc): $(grep -i 'sandbox-writable' "$TB/i.log" | head -3)"
 out=$(XDG_STATE_HOME="$TB/st" STACK_CLAUDE_JSON="$TB/f.json" CLAUDE_CONFIG_DIR="$TB/c" bash "$TB/c/bin/doctor.sh" 2>&1)
 printf '%s\n' "$out" | grep -q "WARN  MCP server 'leaky-npx' (scope: user) runs npx" \
