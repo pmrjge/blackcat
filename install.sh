@@ -20,10 +20,12 @@
 #   ./install.sh --dry-run       print every change (files, removals, MCP, plugins, rc) and make none
 #   ./install.sh --no-prune      keep what isn't part of the stack and your edits to stack files
 #                                 (default: they are backed up, then removed or replaced)
-#   ./install.sh --force         with --no-prune: still replace stack files you edited; with a
-#                                 symlinked agents/, skills/, ... dir: write the stack's files through
-#                                 the link (nothing there is removed either way); with --restore:
-#                                 also put back saved symlinks that point outside the config dir
+#   ./install.sh --force         with --no-prune: still replace stack files you edited; with
+#                                 --restore: also put back saved symlinks that point outside the
+#                                 config dir (it does not write through symlinked dirs)
+#   ./install.sh --write-through-links  a symlinked agents/, skills/, ... dir (a dotfiles checkout)
+#                                 stops the run unless you give this: it then writes the stack's
+#                                 files through the link(s); nothing there is ever removed
 #   ./install.sh --restore [DIR] put the config dir back as it was before an install (DIR: a backup;
 #                                 default: the latest), then exit
 #   ./install.sh --print-managed-settings  print an optional managed-settings.json that pins the
@@ -43,7 +45,7 @@
 # installer never writes that file itself: every MCP change goes through `claude mcp`.
 set -euo pipefail
 
-WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; WITH_EXTRA_PLUGINS=0; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; NO_DEPS=0
+WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; WITH_EXTRA_PLUGINS=0; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
 NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; PRUNE=1; RESTORE=""; PRINT_MANAGED=0; ORIG_ARGS="$*"
 i=0; argv=("$@")
 while [ "$i" -lt "${#argv[@]}" ]; do
@@ -59,6 +61,7 @@ while [ "$i" -lt "${#argv[@]}" ]; do
     --keep-plugin-duplicates) DEDUPE_PLUGINS=0 ;;
     --replace-mcp) REPLACE_MCP=1 ;;
     --force) FORCE=1 ;;
+    --write-through-links) WRITE_LINKS=1 ;;
     --no-deps) NO_DEPS=1 ;;
     --no-profile) NO_PROFILE=1 ;;
     --mcp-plan) MCP_PLAN=1 ;;
@@ -664,7 +667,7 @@ say "5/11 Stage (a working copy of the stack's part of $C)"
 S="$WORK/stage"; REPORT="$WORK/report.json"; PLAN_JSON="$WORK/plan.json"; SNAP="$WORK/snapshot.json"
 # A top-level dir of the stack's part that is a symlink (a dotfiles checkout: agents/, skills/, ...)
 # holds your files: nothing there is ever removed, and the stack's files are written through the link
-# only with --force (otherwise the run stops here; --dry-run shows what it would do).
+# only with --write-through-links (otherwise the run stops here; --dry-run shows what it would do).
 LINKED="$(python3 "$STATE_PY" linked "$C")"
 if [ -n "$LINKED" ]; then
   while IFS=$'\t' read -r d target; do
@@ -672,8 +675,8 @@ if [ -n "$LINKED" ]; then
   done <<EOF_LINKED
 $LINKED
 EOF_LINKED
-  if [ "$FORCE" = 0 ] && [ "$DRY_RUN" = 0 ]; then
-    echo "install.sh: symlinked dir(s) above: rerun with --force to write the stack's files through the link(s) (nothing there is removed), or replace them with real directories. Nothing in $C was changed." >&2
+  if [ "$WRITE_LINKS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
+    echo "install.sh: symlinked dir(s) above: rerun with --write-through-links to write the stack's files through the link(s) (nothing there is removed), or replace them with real directories. Nothing in $C was changed." >&2
     exit 1
   fi
 fi

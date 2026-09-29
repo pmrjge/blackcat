@@ -1560,7 +1560,7 @@ BK="$(latest_backup "$TX/k")"
   && [ -f "$TX/k/skills/python-engineering/SKILL.md" ] && [ -L "$BK/files/skills/python-engineering" ] \
   && pass "a per-skill symlink: the stack's skill replaces the link (default, --no-prune, --dry-run agree); its target is untouched" \
   || failed "per-skill symlink (rc=$rc, dry=$rcd, no-prune=$rcn): $(grep -i 'refus' "$TX/k1.log" "$TX/k2.log" "$TX/k3.log" | head -3)"
-# N-SYMLINK: a symlinked skills/ (a dotfiles checkout) is never pruned; without --force the run stops
+# N-SYMLINK: a symlinked skills/ (a dotfiles checkout) is never pruned; without --write-through-links the run stops
 xrun "$TX/y" "$TX/y0.log"
 mkdir -p "$TX/outS"; cp -R "$TX/y/skills/." "$TX/outS/"
 printf 'precious\n' > "$TX/outS/precious.txt"; mkdir -p "$TX/outS/user-owned"; printf 'x\n' > "$TX/outS/user-owned/SKILL.md"
@@ -1569,29 +1569,41 @@ rm -rf "$TX/y/skills"; ln -s "$TX/outS" "$TX/y/skills"
 fp "$TX/outS" > "$TX/fp.o0"; fp "$TX/y" > "$TX/fp.y0"; nby=$(count_backups "$TX/y")
 xrun "$TX/y" "$TX/y1.log"; rc=$?
 [ "$rc" != 0 ] && cmp -s "$TX/fp.o0" <(fp "$TX/outS") && cmp -s "$TX/fp.y0" <(fp "$TX/y") && [ "$(count_backups "$TX/y")" = "$nby" ] \
-  && grep -q 'rerun with --force' "$TX/y1.log" \
-  && pass "symlinked skills/: without --force the run stops; nothing changes on either side" || failed "symlinked skills/ without --force (rc=$rc)"
+  && grep -q 'rerun with --write-through-links' "$TX/y1.log" \
+  && pass "symlinked skills/: without --write-through-links the run stops; nothing changes on either side" || failed "symlinked skills/ without --write-through-links (rc=$rc)"
 xrun "$TX/y" "$TX/y2.log" --dry-run; rc=$?
 [ "$rc" = 0 ] && cmp -s "$TX/fp.o0" <(fp "$TX/outS") && grep -q "skills/ is a symlink to $(cd "$TX/outS" && pwd -P)" "$TX/y2.log" \
   && grep -q 'skills/precious.txt: kept' "$TX/y2.log" && ! grep -q '^  - skills/' "$TX/y2.log" \
   && pass "symlinked skills/: --dry-run lists nothing to remove there and names what it keeps" || failed "symlinked skills/ --dry-run (rc=$rc)"
-xrun "$TX/y" "$TX/y3.log" --force; rc=$?
+xrun "$TX/y" "$TX/y3.log" --write-through-links; rc=$?
 BY="$(latest_backup "$TX/y")"
 [ "$rc" = 0 ] && [ -L "$TX/y/skills" ] && [ -f "$TX/outS/precious.txt" ] && [ -f "$TX/outS/user-owned/SKILL.md" ] \
   && ! grep -q 'my edit' "$TX/outS/python-engineering/SKILL.md" && grep -q 'my edit' "$BY/files/skills/python-engineering/SKILL.md" \
-  && pass "symlinked skills/ with --force: the stack's files written through the link (backed up), nothing of yours removed" \
-  || failed "symlinked skills/ --force (rc=$rc)"
+  && pass "symlinked skills/ with --write-through-links: the stack's files written through the link (backed up), nothing of yours removed" \
+  || failed "symlinked skills/ --write-through-links (rc=$rc)"
 # the same for agents/
-xrun "$TX/y" "$TX/y4.log" --force
+xrun "$TX/y" "$TX/y4.log" --write-through-links
 mkdir -p "$TX/outA"; cp -R "$TX/y/agents/." "$TX/outA/"; printf -- '---\nname: mine\ndescription: x\n---\n' > "$TX/outA/mine.md"
 rm -rf "$TX/y/agents"; ln -s "$TX/outA" "$TX/y/agents"
-xrun "$TX/y" "$TX/y5.log"; rc5=$?; xrun "$TX/y" "$TX/y6.log" --force; rc6=$?
+xrun "$TX/y" "$TX/y5.log"; rc5=$?; xrun "$TX/y" "$TX/y6.log" --write-through-links; rc6=$?
 [ "$rc5" != 0 ] && [ "$rc6" = 0 ] && [ -f "$TX/outA/mine.md" ] && [ -L "$TX/y/agents" ] \
-  && pass "symlinked agents/: stops without --force; with it, your agent there stays" || failed "symlinked agents/ (rc=$rc5/$rc6)"
+  && pass "symlinked agents/: stops without --write-through-links; with it, your agent there stays" || failed "symlinked agents/ (rc=$rc5/$rc6)"
+# --force alone no longer writes through a link; --no-prune --write-through-links keeps an edited stack file
+xrun "$TX/y" "$TX/y7.log" --force; rc=$?
+[ "$rc" != 0 ] && grep -q 'rerun with --write-through-links' "$TX/y7.log" \
+  && pass "a symlinked dir with --force alone still stops" || failed "symlinked dir with --force alone (rc=$rc)"
+xrun "$TX/y" "$TX/y8.log" --write-through-links
+mkdir -p "$TX/outS2"; cp -R "$TX/y/skills/." "$TX/outS2/" 2>/dev/null
+rm -rf "$TX/y/skills"; ln -s "$TX/outS2" "$TX/y/skills"
+printf '\n<!-- kept edit -->\n' >> "$TX/outS2/python-engineering/SKILL.md"
+xrun "$TX/y" "$TX/y9.log" --no-prune --write-through-links; rc=$?
+[ "$rc" = 0 ] && grep -q 'kept edit' "$TX/outS2/python-engineering/SKILL.md" && [ -f "$TX/outS2/python-engineering/SKILL.md.new" ] \
+  && pass "--no-prune --write-through-links keeps the edited stack SKILL.md and drops a .new render next to it" \
+  || failed "--no-prune --write-through-links (rc=$rc): $(tail -3 "$TX/y9.log")"
 # L4 + L1: the backup root must be a real directory (a symlink there is refused); the working copy
 # (stack.env included) lives inside it, and a --dry-run that created the root removes it again
 mkdir -p "$SCRATCH_ROOT/st-l4" "$TX/elsewhere"; ln -s "$TX/elsewhere" "$SCRATCH_ROOT/st-l4/claude-agent-stack-backups"
-XDG_STATE_HOME="$SCRATCH_ROOT/st-l4" xrun "$TX/y" "$TX/l4.log" --dry-run --force; rc=$?
+XDG_STATE_HOME="$SCRATCH_ROOT/st-l4" xrun "$TX/y" "$TX/l4.log" --dry-run --write-through-links; rc=$?
 [ "$rc" != 0 ] && grep -q 'is a symlink or not a directory' "$TX/l4.log" && [ -z "$(ls -A "$TX/elsewhere")" ] \
   && pass "a symlinked backup root is refused, never followed" || failed "symlinked backup root (rc=$rc)"
 XDG_STATE_HOME="$SCRATCH_ROOT/st-fresh" xrun "$TX/w" "$TX/w.log" --dry-run; rc=$?
