@@ -6060,6 +6060,21 @@ def _within(path, root):
     return path == root or path.startswith(root.rstrip("/") + "/")
 
 
+def _ro_project_dirs(bases, roots):
+    """The project dirs among the bases: their files are the project's own even when the project
+    lives under a temp dir (a checkout in /tmp: R3-INFO), except ./.claude-work. A base that is a
+    temp dir itself or holds one (cwd /tmp, /private), or that lies in a .claude-work, is none."""
+    out = []
+    for b in bases:
+        for v in (os.path.normpath(b), os.path.realpath(b)):
+            if v == "/" or ".claude-work" in v.split("/") or v in out:
+                continue
+            if any(_within(r, v) for r in roots if os.path.basename(r) != ".claude-work"):
+                continue
+            out.append(v)
+    return out
+
+
 class _ReadOnly(object):
     """The read-only check of one Bash command for a READONLY_TYPES agent: the first violation as
     (what, why), else None. ctx (per simple command): piped (stdin comes from a pipe), herestr
@@ -6072,6 +6087,7 @@ class _ReadOnly(object):
         self.bases = first + [b for b in path_bases(ev) if b not in first] or [os.getcwd()]
         self.home = os.path.expanduser("~")
         self.roots = _ro_scratch_roots(self.bases)
+        self.projects = _ro_project_dirs(self.bases, self.roots)
         conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
         self.confs = [os.path.realpath(c) for c in (conf, os.environ.get("CLAUDE_CONFIG_DIR"),
                                                      os.path.join(self.home, ".claude")) if c]
@@ -6092,9 +6108,11 @@ class _ReadOnly(object):
         return os.path.normpath(os.path.join(self.cwd or self.bases[0], self.expand(p)))
 
     def in_scratch(self, a):
-        if any(_within(a, r) for r in self.roots):
+        if ".claude-work" in a.split("/") and not any(_within(a, c) for c in self.confs):
             return True
-        return ".claude-work" in a.split("/") and not any(_within(a, c) for c in self.confs)
+        if any(_within(a, pd) for pd in self.projects):
+            return False                        # the project's own files, wherever it lives
+        return any(_within(a, r) for r in self.roots)
 
     def scratch(self, p):
         """p names only scratch locations (lexically and after resolving symlinks; a glob by

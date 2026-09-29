@@ -234,3 +234,35 @@ def test_supply_diff_covers_everything_the_install_ships():
     for cond in ('[ "$DRY_RUN" = 0 ]', '[ "$ASSUME_YES" = 0 ]', "[ -t 0 ]", "[ -t 2 ]"):
         assert cond in ask, cond
 
+
+# ---------------------------------------------------------------- R3-INFO: a project under /tmp
+def test_a_project_under_a_temp_dir_is_the_projects_not_scratch(tmp_path):
+    """Read-only agents: the temp dirs are scratch, but a project checked out there is still the
+    project: its tests run like any project's (no scratch content check), its files can't be
+    written, and its .claude-work and the rest of the temp dirs stay scratch."""
+    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    import agent_guard as G
+    proj = tmp_path / "checkout"
+    (proj / "tests").mkdir(parents=True)
+    (proj / "src").mkdir()
+    (proj / "tests" / "harness.py").write_text("open('out.txt', 'w').write('x')\n")
+    (proj / "tests" / "test_a.py").write_text("import harness\n")
+    ev = {"cwd": str(proj)}
+    assert G.readonly_violation("uv run --with pytest pytest -q tests/", ev) is None
+    assert G.readonly_violation("python3 tests/harness.py", ev) is None
+    for cmd in ("echo x > src/a.py", "cp tests/harness.py src/b.py", "rm tests/test_a.py",
+                "sed -i '' s/x/y/ tests/harness.py"):
+        assert G.readonly_violation(cmd, ev), cmd
+    other = tmp_path / "elsewhere.txt"
+    assert G.readonly_violation("echo x > .claude-work/j/n.txt", ev) is None
+    assert G.readonly_violation("echo x > %s" % other, ev) is None
+    # a scratch script in the project's .claude-work is still read before it runs
+    (proj / ".claude-work").mkdir()
+    (proj / ".claude-work" / "w.py").write_text("open('src/a.py', 'w').write('x')\n")
+    assert G.readonly_violation("python3 .claude-work/w.py", ev)
+    # a cwd that is a temp dir itself (not a project in one) keeps all of it scratch
+    import tempfile
+    assert G.readonly_violation("echo x > %s" % (proj / "src" / "c.py"),
+                                {"cwd": tempfile.gettempdir()}) is None
+    # and a project elsewhere doesn't make a temp-dir checkout its own
+    assert G.readonly_violation("echo x > %s" % (proj / "src" / "c.py"), {"cwd": str(ROOT)}) is None
