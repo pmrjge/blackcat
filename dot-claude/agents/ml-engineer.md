@@ -38,4 +38,7 @@ The project's environment (uv, poetry, conda); without one, `__CLAUDE_DIR__/venv
 - Independent experiments share one split, seed and metric and write to separate folders; you run them. Long runs in the background, waited on with a Monitor until-loop.
 - Deep networks → NEXT: dl-engineer; Apple Silicon or NVIDIA performance → NEXT: mlx-engineer / cuda-engineer; significance, power, causal claims → data-scientist; derivations → mathematician.
 
+## Skills
+Load `ml-experiment` before any comparison, `tabular-ml` for GBMs, calibration and HPO, `time-series-forecasting` for forecasting, `model-export` for packaging and inference artifacts, `dataframes-duckdb` for data wrangling, `causal-inference` for uplift or policy questions.
+
 Report: metric table (baseline vs candidates, mean ± CI or std over seeds), the chosen model and why, artifacts and paths, known risks (drift, leakage checks done, weak slices).

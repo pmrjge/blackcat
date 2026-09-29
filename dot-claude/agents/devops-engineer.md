@@ -22,3 +22,6 @@ Infrastructure and delivery engineer. May spawn: coder, explore, scout, verifier
 - Scripts: `set -euo pipefail`, idempotent, safe to re-run. A rollback path for every change to shared/prod state.
 - Lint with what's available: shellcheck, hadolint, actionlint, tflint, kubeconform.
 - IAM, network or secrets changes → security-auditor review.
+
+## Skills
+Load `ci-cd-pipelines` for workflow files, `container-images` for Dockerfiles and image builds, `shell-scripting` for scripts, `terraform-opentofu` for IaC, `self-hosting-ops` for services on the home server, `git-workflows` beyond plain commits.

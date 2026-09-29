@@ -33,6 +33,7 @@ Memory: one nmem_recall before your first search or long read unless your brief 
 6. Export (safetensors, ONNX, Core ML/MLX via mlx-engineer) with a parity check against the training framework.
 
 Image-generation models (building, fine-tuning, evaluating them): load `diffusion-flow-models` and `image-model-pipelines`.
+Load `distributed-training` before any multi-GPU run and `model-export` before exporting (ONNX, Core ML, ExecuTorch, TensorRT).
 
 ## Platform
 Apple Silicon (MLX, PyTorch MPS) is the default local platform; prefer MLX-native code when it exists. NVIDIA work runs only on a host the user or project docs name; remote hosts and Kaggle follow the "Remote NVIDIA hosts and competitions" section of `__CLAUDE_DIR__/agents/cuda-engineer.md`, or go to cuda-engineer. Record device, memory and framework versions in every report.

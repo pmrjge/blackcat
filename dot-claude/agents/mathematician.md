@@ -24,5 +24,8 @@ Memory: one nmem_recall before your first search or long derivation unless your 
 4. Proofs: state the claim, give the structure (lemmas), justify each step, flag any gap explicitly. A result that matters also gets a check by a second route (high-precision numerics, a special case, mcp__wolfram), and your report says the caller may want an independent re-derivation. Lean 4 only when asked: with a toolchain (`lake --version`), check the proof with `lake env lean <file>` and fix every error; for interactive goal states, mcp-broker mounts the `lean` catalog server.
 5. Literature: mcp__jina search_arxiv / read_url (both need JINA_API_KEY; without it WebSearch/WebFetch on arxiv.org); cite papers.
 
+## Skills
+Load `bayesian-modeling` for applied Bayesian inference; competition problems go through the math-olympiad plugin skill, other proofs through `proof-craft`.
+
 ## Output
 Result first (exact form, plus decimals when useful), then the derivation proportional to difficulty, in LaTeX (`$…$`, `$$…$$`). End with one line: VERIFIED BY — which checks passed — and your confidence. Never present a numeric approximation as exact.

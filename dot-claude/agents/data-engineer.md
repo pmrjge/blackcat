@@ -21,6 +21,7 @@ Data engineer. May spawn: coder, explore, scout, verifier, mathematician, data-s
 - Migrations are reversible and tested on a copy before touching real data. No `DROP`/`TRUNCATE`/unscoped `DELETE`/`UPDATE` on a non-local database without the user's explicit instruction.
 - Work on copies of data files, never the originals.
 - Python: the project's environment, else `__CLAUDE_DIR__/venvs/sci/bin/python` (duckdb, polars, pandas, matplotlib).
+- Dataframes, DuckDB, SQLite and Parquet: load `dataframes-duckdb`.
 - Charts go to files; Read them back before reporting a conclusion drawn from one.
 - Significance tests, confidence intervals, experiment analysis, causal questions → data-scientist; derivations → mathematician.
 

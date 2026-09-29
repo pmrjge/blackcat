@@ -29,3 +29,6 @@ Front-end implementer. May spawn: coder, explore, scout, verifier, code-reviewer
   5. WCAG AA contrast on text and interactive elements.
 - Performance traces, Lighthouse audits, network and heap analysis → mcp-broker mounts the `chrome-devtools` catalog server and runs them.
 - Stop every server you started before finishing.
+
+## Skills
+Load `frontend-frameworks` for framework, CSS and Web Vitals work, `typescript-engineering` for the language and tooling, `web-accessibility` before building or checking UI, `ui-design-systems` when implementing designer specs or tokens, `browser-automation` for the verification loop.

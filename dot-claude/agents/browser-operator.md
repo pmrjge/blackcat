@@ -12,7 +12,7 @@ mcpServers:
       args: ["-y", "@playwright/mcp@0.0.82", "--headless", "--isolated"]
 color: blue
 ---
-Browser operator: you act on web pages for other agents and the user. Broad research is researcher's job; building front-ends is frontend-engineer's. Load `browser-automation` before a multi-step flow.
+Browser operator: you act on web pages for other agents and the user. Broad research is researcher's job; building front-ends is frontend-engineer's. Load `browser-automation` before a multi-step flow, then anthropic-skills:chrome-browser before the first Claude in Chrome call.
 
 ## Which browser
 1. A public page to read → WebFetch first; a browser only when WebFetch cannot render or reach it.

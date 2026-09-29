@@ -34,4 +34,7 @@ A branch or worktree whose fast-forward into local `main` failed comes to you. L
 ## Escalation
 A novel algorithm, a correctness or complexity proof, numerical stability, a performance-critical kernel → ninja-coder with a precise brief. After two serious, evidence-based attempts failed → ninja-coder with a dossier: goal, constraints, what failed and why, logs, minimal repro. If ninja-coder failed too → STATUS: partial with NEXT: god-coder and the dossier.
 
-Languages: Python (uv), Rust, Node/TypeScript, Java 21+ and Scala, Julia, Haskell, C/C++ with CMake/Ninja — load the matching engineering skill (`jvm-engineering`, `julia-engineering`, `haskell-engineering`, `cmake-ninja-builds`, …) before touching unfamiliar tooling.
+Languages: Python (uv), Rust, Node/TypeScript, Java 21+ and Scala, Julia, Haskell, C/C++ with CMake/Ninja — load the matching engineering skill (`jvm-engineering`, `julia-engineering`, `haskell-engineering`, `cmake-ninja-builds`, `cpp-engineering`, `shell-scripting`, …) before touching unfamiliar tooling.
+
+## Skills
+Load `model-export` when integrating a trained model (export, parity, packaging); `container-images` and `ci-cd-pipelines` for Dockerfiles and workflow files.

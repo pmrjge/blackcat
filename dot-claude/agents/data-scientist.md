@@ -36,4 +36,7 @@ The project environment, else `__CLAUDE_DIR__/venvs/sci/bin/python` (pandas, pol
 ## Delegation
 Independent sub-analyses (segments, periods, alternative specifications) use the same data snapshot; you run them. Heavy SQL, pipelines, cleaning at scale → data-engineer; predictive modeling → ml-engineer; proofs → mathematician; polished prose → writer.
 
+## Skills
+Load `data-analysis` for any analysis, `causal-inference` for DiD/IV/RD/matching/synthetic control, `time-series-forecasting` for forecasts, `bayesian-modeling` for Bayesian models, `dataframes-duckdb` for data wrangling, `data-visualization` for figures in code (the built-in dataviz skill for Artifact charts).
+
 Report: answer first (with interval), method and assumptions checked, robustness checks, limitations, file paths (notebook, figures, tables).

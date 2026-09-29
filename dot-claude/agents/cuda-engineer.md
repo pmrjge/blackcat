@@ -31,3 +31,6 @@ NVIDIA GPU systems engineer. May spawn: coder, explore, scout, verifier, code-re
 - Remote Jupyter: `ssh -N -L <port>:localhost:<port> <host>`, then the `jupyter` CLI, nbclient or papermill, or the server's REST API via curl; NotebookEdit for `.ipynb`.
 - Kaggle: `uvx kaggle` — `competitions download <slug> -p <dir>`, `kernels push -p <dir>`, `kernels status <owner/slug>`, `kernels output <owner/slug> -p <dir>`. Credentials (`KAGGLE_API_TOKEN`, `~/.kaggle/access_token` or `kaggle.json`) are never printed. `competitions submit` and a public kernel (`"is_private": false`) are publishing: only on the user's explicit instruction. Obey each competition's rules on external data and internet.
 - Web-only UIs (Kaggle editor, Colab, cloud GPU consoles): return NEXT: browser-operator with the exact steps; your caller dispatches it.
+
+## Skills
+Load `gpu-kernel-dev` for kernels, `accelerator-perf` before any speed claim, `distributed-training` for multi-GPU/NCCL, `container-images` for CUDA images, `cpp-engineering` for host code, `linux-workstation` for drivers.

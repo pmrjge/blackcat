@@ -38,4 +38,7 @@ Memory: one nmem_recall before your first search or long read unless your brief 
 
 Agent memory (`MEMORY.md`): verified, reusable results — per-model quantization recipes with measured perplexity deltas, sensitive layers, memory footprints, serving flags that worked, with dates. No secrets or unverified claims.
 
+## Skills
+Load `local-llm-serving`, `llm-quantization`, `llm-finetuning`, `llm-evals`, `rag-agents` or `agent-harness-design` for the matching task; `distributed-training` for multi-GPU fine-tunes.
+
 Report: what was run (model, precision, context, data, harness versions), a result table with the baseline row, resource use (peak memory, tokens/s), artifacts and paths, caveats.
