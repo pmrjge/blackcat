@@ -407,12 +407,26 @@ def empty_backup(c, root, commit, reason="install", extra=None):
     return bdir
 
 
+def placed_parent(c, rel, gone=()):
+    """The directory C/rel lands in, resolved as it will be when the plan is applied: through the
+    symlinks that stay, lexically below one the plan removes first (`gone`: rels of C)."""
+    parts = rel.split("/")[:-1]
+    for i in range(1, len(parts) + 1):
+        if "/".join(parts[:i]) in gone:
+            above = os.path.realpath(os.path.join(c, *parts[:i - 1]))
+            return os.path.normpath(os.path.join(above, *parts[i - 1:]))
+    return os.path.realpath(os.path.join(c, *parts))
+
+
 def unsafe_paths(c, plan):
     """Plan paths that are not SCOPE paths, or that resolve (through a symlinked directory) out of
     C — except the stack's files written through a symlinked top-level dir, which install.sh
     allows only with --force — and removals below such a dir unless the plan says it may."""
     real_c = os.path.realpath(c)
     linked = linked_dirs(c)
+    # a symlink the plan removes (skills/x -> ~/dotfiles/x, replaced by the stack's skills/x/) is
+    # gone before anything is placed: the path below it is then created, not followed
+    gone = {r for r in plan["removed"] if os.path.islink(os.path.join(c, r))}
     bad = []
     for kind in ("removed", "changed", "added"):
         for rel in plan[kind]:
@@ -420,7 +434,7 @@ def unsafe_paths(c, plan):
             if not in_scope(rel):
                 bad.append(rel)
                 continue
-            parent = os.path.realpath(os.path.dirname(os.path.join(c, rel)))
+            parent = placed_parent(c, rel, gone)
             if within(parent, real_c):
                 continue
             if top in linked and within(parent, linked[top]) and (
@@ -797,6 +811,11 @@ def main(argv):
         plan = make_plan(c, s, a[2])
         write_json(a[3], plan)
         print_plan(plan)
+        bad = unsafe_paths(c, plan)             # the check apply makes: --dry-run says it too
+        if bad:
+            sys.stderr.write("install.sh: refusing paths outside the config dir: %s — nothing was "
+                             "changed\n" % ", ".join(map(repr, bad[:5])))
+            return 1
     elif cmd == "apply":
         c, s, plan_path, root, commit, out = a[:6]
         snap = load_json(a[6], None) if len(a) > 6 else None

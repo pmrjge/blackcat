@@ -86,8 +86,25 @@ hash_tree() {
   fi
 }
 
+# ~/.claude.json: only the MCP entries (user scope and per project), what `claude mcp` from an install
+# could change. Every running Claude Code session rewrites the rest of the file (counters, caches),
+# so a whole-file hash fails whenever another session is active during the run.
+cj_digest(){ [ -f "$1" ] || { echo absent; return; }
+  python3 -c 'import hashlib, json, sys, time
+for _ in range(5):
+    try:
+        d = json.load(open(sys.argv[1]))
+        break
+    except ValueError:
+        time.sleep(0.2)                      # caught mid-write by a live session
+else:
+    print("unreadable"); sys.exit(0)
+keep = {"mcpServers": d.get("mcpServers"),
+        "projects": {k: v.get("mcpServers") for k, v in sorted((d.get("projects") or {}).items())
+                     if isinstance(v, dict) and v.get("mcpServers")}}
+print(hashlib.sha256(json.dumps(keep, sort_keys=True).encode()).hexdigest())' "$1"; }
 REAL_CLAUDE_HASH_BEFORE="$(hash_tree "$HOME/.claude")"
-REAL_CJ_HASH_BEFORE="$(hash_tree "$HOME/.claude.json")"
+REAL_CJ_HASH_BEFORE="$(cj_digest "$HOME/.claude.json")"
 REAL_ZSHRC_HASH_BEFORE="$(hash_tree "$HOME/.zshrc")"
 real_backups(){ ls -1A "$REAL_BK_ROOT" 2>/dev/null | sha | awk '{print $1}'; }
 REAL_BK_BEFORE="$(real_backups)"
@@ -95,8 +112,8 @@ REAL_BK_BEFORE="$(real_backups)"
 assert_unchanged_real_home() {
   [ "$(hash_tree "$HOME/.claude")" = "$REAL_CLAUDE_HASH_BEFORE" ] && pass "real \$HOME/.claude unchanged" \
     || failed "real \$HOME/.claude CHANGED"
-  [ "$(hash_tree "$HOME/.claude.json")" = "$REAL_CJ_HASH_BEFORE" ] && pass "real ~/.claude.json unchanged" \
-    || failed "real ~/.claude.json CHANGED"
+  [ "$(cj_digest "$HOME/.claude.json")" = "$REAL_CJ_HASH_BEFORE" ] && pass "real ~/.claude.json MCP entries unchanged" \
+    || failed "real ~/.claude.json MCP entries CHANGED"
   [ "$(hash_tree "$HOME/.zshrc")" = "$REAL_ZSHRC_HASH_BEFORE" ] && pass "real ~/.zshrc unchanged" \
     || failed "real ~/.zshrc CHANGED"
   [ "$(real_backups)" = "$REAL_BK_BEFORE" ] && pass "real installer backups ($REAL_BK_ROOT) unchanged" \
@@ -1513,6 +1530,36 @@ xrun "$TX/v" "$TX/v1.log"; rc=$?
   && pass "a manifest key with .. stops the install; the file it names and the config dir are untouched" \
   || failed "manifest traversal (rc=$rc): $(grep -i 'manifest\|refus' "$TX/v1.log" | head -3)"
 rm -f "$XDG_STATE_HOME/victim.txt"
+# a manifest key that names a whole scope dir ("bin", "mcp") stops the install too: nothing is wiped
+python3 - "$TX/v/.stack-manifest.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+m["files"] = {k: v for k, v in m["files"].items() if ".." not in k}
+m["files"]["bin"] = m["files"]["mcp"] = "0" * 64
+json.dump(m, open(sys.argv[1], "w"))
+PY
+fp "$TX/v" > "$TX/fp.v2"
+xrun "$TX/v" "$TX/v2.log"; rc=$?; xrun "$TX/v" "$TX/v3.log" --dry-run; rc3=$?
+[ "$rc" != 0 ] && [ "$rc3" != 0 ] && cmp -s "$TX/fp.v2" <(fp "$TX/v") && grep -q "names paths outside the stack.*'bin'" "$TX/v2.log" \
+  && [ -f "$TX/v/bin/doctor.sh" ] && [ -f "$TX/v/mcp/libdocs_mcp.py" ] \
+  && pass "a manifest key naming a whole scope dir (bin, mcp) stops the install (and --dry-run); nothing is wiped" \
+  || failed "bare scope-dir manifest keys (rc=$rc/$rc3): $(grep -i 'manifest\|refus' "$TX/v2.log" | head -3)"
+# a per-skill symlink (skills/ itself a real dir) is replaced by the stack's skill: default, --no-prune
+# and --dry-run agree; the link's target is never written (the backup keeps the link)
+xrun "$TX/k" "$TX/k0.log"
+mkdir -p "$TX/outK"; cp -R "$TX/k/skills/python-engineering/." "$TX/outK/"; printf '\nmine\n' >> "$TX/outK/SKILL.md"
+rm -rf "$TX/k/skills/python-engineering"; ln -s "$TX/outK" "$TX/k/skills/python-engineering"
+fp "$TX/outK" > "$TX/fp.k0"
+xrun "$TX/k" "$TX/k1.log" --dry-run; rcd=$?
+cp -R "$TX/k" "$TX/k2"; rm -rf "$TX/k2/skills/python-engineering"; ln -s "$TX/outK" "$TX/k2/skills/python-engineering"
+xrun "$TX/k2" "$TX/k3.log" --no-prune; rcn=$?
+xrun "$TX/k" "$TX/k2.log"; rc=$?
+BK="$(latest_backup "$TX/k")"
+[ "$rcd" = 0 ] && [ "$rc" = 0 ] && [ "$rcn" = 0 ] && cmp -s "$TX/fp.k0" <(fp "$TX/outK") \
+  && [ -d "$TX/k/skills/python-engineering" ] && [ ! -L "$TX/k/skills/python-engineering" ] \
+  && [ -f "$TX/k/skills/python-engineering/SKILL.md" ] && [ -L "$BK/files/skills/python-engineering" ] \
+  && pass "a per-skill symlink: the stack's skill replaces the link (default, --no-prune, --dry-run agree); its target is untouched" \
+  || failed "per-skill symlink (rc=$rc, dry=$rcd, no-prune=$rcn): $(grep -i 'refus' "$TX/k1.log" "$TX/k2.log" "$TX/k3.log" | head -3)"
 # N-SYMLINK: a symlinked skills/ (a dotfiles checkout) is never pruned; without --force the run stops
 xrun "$TX/y" "$TX/y0.log"
 mkdir -p "$TX/outS"; cp -R "$TX/y/skills/." "$TX/outS/"

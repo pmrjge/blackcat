@@ -868,7 +868,10 @@ def save_report():
 
 
 sys.path.insert(0, os.path.join(REPO, "lib"))
-from install_state import in_scope, within  # noqa: E402  (the same scope rule as backups)
+from install_state import SCOPE_DIRS, in_scope, within  # noqa: E402  (the backups' scope rule)
+
+# a whole scope dir (bin/, mcp/, ...) is never removed by name; .stack-plugins.new is a leftover
+WHOLE_DIRS = tuple(d for d in SCOPE_DIRS if d != ".stack-plugins.new")
 
 DEST_REAL = os.path.realpath(DEST)
 
@@ -877,7 +880,8 @@ def drop(rel, why):
     """Remove DEST/rel (a file, link or directory) and say why in the listing. Only a SCOPE path
     whose parent resolves inside the staging dir: a name from the manifest can't reach elsewhere."""
     p = os.path.join(DEST, rel.rstrip("/"))
-    if not in_scope(rel.rstrip("/")) or not within(os.path.realpath(os.path.dirname(p)), DEST_REAL):
+    if rel.rstrip("/") in WHOLE_DIRS or not in_scope(rel.rstrip("/")) or \
+            not within(os.path.realpath(os.path.dirname(p)), DEST_REAL):
         sys.exit("install.sh: refusing to remove %r: not a path inside the config dir's stack part "
                  "— nothing in %s was changed" % (rel, C))
     if os.path.isdir(p) and not os.path.islink(p):
@@ -1049,7 +1053,9 @@ for _key in ("files", "offered"):
     if not isinstance(_val, dict):
         _bad.append("%s (not an object)" % _key)
         continue
-    _bad += ["%s: %r" % (_key, _rel) for _rel in _val if not in_scope(_rel)]
+    # a file below a scope dir (agents/x.md, bin/doctor.sh) or a scope file: never a whole dir ("bin")
+    _bad += ["%s: %r" % (_key, _rel) for _rel in _val
+             if not in_scope(_rel) or _rel in SCOPE_DIRS or _rel.endswith("/")]
 if _bad:
     sys.exit("install.sh: %s names paths outside the stack's part of the config dir (%s) — stopping; "
              "nothing in %s was changed. Remove those entries (or the file: the next run rebuilds it)."
@@ -1548,14 +1554,19 @@ STACK_SCRIPTS = ["hooks/agent_guard.py", "bin/statusline.py", "bin/doctor.sh", "
 LEGACY_SCRIPTS = {"hooks/router-guard.sh": "blackcat.md runs agent_guard.py directly now",
                   "mcp/opper_image_mcp.py": "images come from image-studio now",
                   "mcp/openrouter_image_mcp.py": "images come from image-studio now"}
+_missing = [rel for rel in STACK_SCRIPTS if not os.path.isfile(os.path.join(DEST, rel))]
+if _missing:
+    sys.exit("install.sh: the staged copy lacks the stack's scripts (%s) — stopping; nothing in %s "
+             "was changed" % (", ".join(_missing), C))
 for rel in STACK_SCRIPTS:
     files_entry[rel] = sha256(os.path.join(DEST, rel))
 stale_scripts = {r: "no longer shipped by the stack" for r in files_entry
                  if r.split("/")[0] in ("hooks", "bin", "mcp") and r not in STACK_SCRIPTS}
 stale_scripts.update(LEGACY_SCRIPTS)
 for rel, why in sorted(stale_scripts.items()):
-    if not os.path.lexists(os.path.join(DEST, rel)):
-        files_entry.pop(rel, None)
+    _p = os.path.join(DEST, rel)
+    if not os.path.lexists(_p) or (os.path.isdir(_p) and not os.path.islink(_p)):
+        files_entry.pop(rel, None)          # a script is a file: a directory there is yours
         continue
     if PRUNE:
         drop(rel, why)

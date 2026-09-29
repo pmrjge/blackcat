@@ -97,6 +97,58 @@ def test_symlinked_scope_dir_is_never_pruned(conf, tmp_path):
     assert (out / "precious.txt").exists()
 
 
+def test_per_skill_symlink_replaced_by_the_stacks_skill(conf, tmp_path):
+    """skills/ is a real dir, skills/pe a link out of C: the plan removes the link and adds the
+    stack's files below the same name; that is not a write through the link (review round 2)."""
+    out = tmp_path / "dotfiles-pe"
+    write(str(out / "SKILL.md"), "mine\n")
+    os.makedirs(os.path.join(conf, "skills"))
+    os.symlink(str(out), os.path.join(conf, "skills", "pe"))
+    s = str(tmp_path / "s")
+    os.makedirs(s)
+    snap = st.stage(conf, s)
+    os.unlink(os.path.join(s, "skills", "pe"))                     # the render: the stack's skill
+    write(os.path.join(s, "skills", "pe", "SKILL.md"), "stack\n")
+    plan = st.make_plan(conf, s, str(tmp_path / "none.json"))
+    assert plan["removed"] == ["skills/pe"] and plan["added"] == ["skills/pe/SKILL.md"]
+    assert st.unsafe_paths(conf, plan) == []
+    assert st.main(["x", "plan", conf, s, str(tmp_path / "r.json"), str(tmp_path / "p.json")]) == 0
+    bdir = st.apply_plan(conf, s, plan, str(tmp_path / "bk"), "c0", snap=snap)
+    pe = os.path.join(conf, "skills", "pe")
+    assert not os.path.islink(pe) and open(os.path.join(pe, "SKILL.md")).read() == "stack\n"
+    assert (out / "SKILL.md").read_text() == "mine\n"
+    assert os.readlink(os.path.join(bdir, "files", "skills", "pe")) == str(out)
+
+
+def test_writes_below_a_kept_symlink_still_refused(conf, tmp_path):
+    """The same layout, but a plan that keeps the link and adds below it would write out of C."""
+    out = tmp_path / "dotfiles-pe"
+    out.mkdir()
+    os.makedirs(os.path.join(conf, "skills"))
+    os.symlink(str(out), os.path.join(conf, "skills", "pe"))
+    plan = {"added": ["skills/pe/SKILL.md"], "changed": [], "removed": [], "keep_linked": True}
+    assert st.unsafe_paths(conf, plan) == ["skills/pe/SKILL.md"]
+    # a link the plan removes lower down doesn't clear a kept link above it
+    os.makedirs(str(out / "sub"))
+    os.symlink(str(tmp_path), str(out / "sub" / "x"))
+    deep = {"added": ["skills/pe/sub/x/y.md"], "changed": [], "removed": ["skills/pe/sub/x"],
+            "keep_linked": True}
+    assert "skills/pe/sub/x/y.md" in st.unsafe_paths(conf, deep)
+    with pytest.raises(SystemExit):
+        st.apply_plan(conf, str(tmp_path / "s"), plan, str(tmp_path / "bk"), "c0")
+    assert list(out.iterdir()) == [out / "sub"]
+
+
+def test_plan_cli_refuses_what_apply_refuses(conf, tmp_path, capsys, monkeypatch):
+    """--dry-run runs the CLI's plan step: it reports the refusal the real run would hit."""
+    monkeypatch.setattr(st, "unsafe_paths", lambda c, plan: ["skills/pe/SKILL.md"])
+    s = str(tmp_path / "s")
+    os.makedirs(s)
+    st.stage(conf, s)
+    assert st.main(["x", "plan", conf, s, str(tmp_path / "r.json"), str(tmp_path / "p.json")]) == 1
+    assert "refusing paths outside the config dir" in capsys.readouterr().err
+
+
 def test_backup_root_symlink_refused(tmp_path):
     real = tmp_path / "elsewhere"
     real.mkdir()
