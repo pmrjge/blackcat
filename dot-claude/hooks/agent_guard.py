@@ -1597,6 +1597,48 @@ def on_memory_write(ev, d):
         deny("Refused: %s reads web pages, so it does not write the shared memory (a page could "
              "plant a false decision there). Put the finding in your report with its source; the "
              "agent that verifies it against local evidence may remember it." % atype)
+    if ev.get("agent_id") and web_tainted(d, ev["agent_id"]):
+        deny("Refused: this agent read web content in this task, so it cannot write the shared "
+             "memory (a page could plant a false decision there). Put the finding in your report "
+             "with its source; an agent that verifies it against local evidence may remember it.")
+
+
+# T3: an agent that ingested web content (any type, not just WEB_INGESTING_TYPES) gets a marker
+# <state dir>/web-taint/<agent id>, made by note_web_taint on every PreToolUse; on_memory_write
+# refuses its nmem_remember. A marker per agent, no transcript scan: one stat per call.
+WEB_TAINT_TOOLS = re.compile(r"(?:WebFetch|WebSearch)\Z|mcp__(?:exa|jina|spider|playwright|"
+                             r"claude-in-chrome|context-mode|huggingface|markitdown)__.*\Z|"
+                             r"mcp__magg__(?:pw|cdt|docling)_.*\Z")
+WEB_TAINT_CMD_RE = re.compile(r"(?:^|[;&|(`'\"\n]|\$\()\s*(?:\w+=\S*\s+)*"
+                              r"(?:(?:sudo|env|xargs|time|nohup|exec|command)\s+)*(?:\S*/)?"
+                              r"(?:curl|wget|https?|xhs?|lynx|w3m|links)(?=\s|$)")
+WEB_TAINT_DIR = "web-taint"
+
+
+def web_tainted(d, agent_id):
+    return os.path.exists(os.path.join(d, WEB_TAINT_DIR, safe(ident(agent_id))))
+
+
+def note_web_taint(ev, d):
+    """Mark the calling agent as having read web content (idempotent; never blocks a call)."""
+    aid = ev.get("agent_id")
+    if not aid:
+        return
+    tool = str(ev.get("tool_name") or "")
+    tainting = bool(WEB_TAINT_TOOLS.match(tool))
+    if not tainting and tool in ("Bash", "Monitor", "PowerShell"):
+        cmd = (ev.get("tool_input") or {}).get("command")
+        tainting = isinstance(cmd, str) and bool(WEB_TAINT_CMD_RE.search(cmd[:20000]))
+    if not tainting:
+        return
+    try:
+        folder = os.path.join(d, WEB_TAINT_DIR)
+        marker = os.path.join(folder, safe(ident(aid)))
+        if not os.path.exists(marker):
+            os.makedirs(folder, exist_ok=True)
+            create_excl(marker)
+    except OSError as exc:
+        warn("web taint not recorded (%s)" % type(exc).__name__)
 
 
 # ---------------------------------------------------------------- lifecycle
@@ -2199,6 +2241,7 @@ def budget_main(raw):
         ev["agent_id"] = ident(ev["agent_id"])
     try:
         d = sdir(ev.get("session_id"))
+        note_web_taint(ev, d)
         # every tool call of every agent passes here: log the call, never its input (commands,
         # file bodies, pasted secrets)
         log(d, {k: ev[k] for k in BUDGET_LOG_KEYS if ev.get(k) is not None})
@@ -2939,7 +2982,8 @@ TRIGGER_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:git|gh|tea|fj)")
 ESCAPE_RE = re.compile(r"\$'|\\(?:x[0-9A-Fa-f]|u[0-9A-Fa-f]|[0-7])")
 # fast path for the "secrets" scan kind (below): checked only when that kind is requested. Not
 # word-bounded (unlike TRIGGER_RE): over-matching only causes an extra full parse, never a miss.
-SECRETS_TRIGGER_RE = re.compile(r"mcp-headers|with-stack-env|install\.sh|doctor\.sh")
+SECRETS_TRIGGER_RE = re.compile(r"mcp-headers|with-stack-env|install\.sh|doctor\.sh|credential|"
+                                r"security|CLAUDE_CODE_MCP_SERVER_NAME")
 SECRETS_PROGRAMS = {"mcp-headers", "with-stack-env"}
 INSTALLER_SCRIPTS = {"install.sh", "doctor.sh"}
 # fast path for the "protect" scan kind: a redirect character or one of the write-capable
@@ -3184,6 +3228,389 @@ PROTECT_REASON = ("Blocked by the stack's protected-path rule: `%s` writes to, r
                   "interpreter code. The stack is changed only by editing the repository and "
                   "re-running its installer: report the change you need, or ask the user to make "
                   "it themselves.")
+
+
+# ---------------------------------------------------------------- round-2 hardening (scan helpers)
+# Credential reads (N1), headersHelper mode (C2), forge writes through plain HTTP clients (P2), the
+# stack's installer (N-SUPPLY). _r2_scan runs for every word of _Scan.scan_words and returns a hit
+# or None; it must stay cheap for words that are none of these programs.
+R2_KINDS = {"secrets", "forge", "install"}
+# fast path for the forge-over-HTTP check: a command that names no forge host cannot hit it
+FORGE_NET_TRIGGER_RE = re.compile(r"github|gitlab|gitea|codeberg|bitbucket", re.I)
+INSTALL_REASON = ("Blocked by the stack's supply-chain rule (`%s`): install.sh is the user's step "
+                  "(it rewrites ~/.claude): ask the user to run it. `--help`, `--dry-run`, "
+                  "`--print-managed-settings` and a scratch install (HOME and CLAUDE_CONFIG_DIR "
+                  "both under a temp dir) are fine.")
+MCP_NAME_VAR = "CLAUDE_CODE_MCP_SERVER_NAME"
+FORGE_HOSTS = ("github.com", "api.github.com", "uploads.github.com", "gitlab.com", "codeberg.org",
+               "bitbucket.org", "api.bitbucket.org", "gitea.com")
+NET_CLIENTS = {"curl", "wget", "http", "https", "xh", "xhs"}
+TMP_ROOTS = ("/tmp", "/private/tmp", "/var/folders", "/private/var/folders")
+INSTALL_FLAGS_OK = {"--help", "-h", "--dry-run", "--print-managed-settings"}
+GH_VALUE_OPTS = {"-h", "--hostname", "-R", "--repo", "-s", "--scopes", "-p", "--git-protocol",
+                 "-u", "--user"}
+GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix",
+                  "--config-env", "--attr-source"}
+SECURITY_VALUE_CHARS = "aCcDGjlsty"
+CURL_VALUE_SHORT = "HAeoubcwxKmrEYCDdFTXzUPQty"
+CURL_VALUE_LONG = {"header", "user-agent", "referer", "output", "user", "cookie", "cookie-jar",
+                   "write-out", "proxy", "proxy-user", "config", "max-time", "connect-timeout",
+                   "range", "cacert", "cert", "key", "limit-rate", "retry", "continue-at",
+                   "dump-header", "resolve", "connect-to", "oauth2-bearer", "aws-sigv4",
+                   "unix-socket"}
+CURL_WRITE_LONG = ("request", "data", "data-raw", "data-binary", "data-urlencode", "data-ascii",
+                   "form", "form-string", "upload-file", "json")
+WGET_VALUE_SHORT = "OoPUeiBtTwQaIXlADR"
+WGET_VALUE_LONG = {"header", "user-agent", "output-document", "output-file", "referer",
+                   "directory-prefix", "input-file", "load-cookies", "save-cookies", "http-user",
+                   "http-password", "user", "password", "proxy-user", "proxy-password", "tries",
+                   "timeout", "wait", "append-output", "base"}
+WGET_WRITE_LONG = ("method", "post-data", "post-file", "body-data", "body-file")
+HTTPIE_VALUE_OPTS = {"-a", "--auth", "-A", "--auth-type", "--session", "--session-read-only",
+                     "--proxy", "--timeout", "--verify", "--cert", "--cert-key", "-o", "--output",
+                     "--pretty", "-s", "--style", "-p", "--print", "-P", "--history-print",
+                     "--max-redirects", "--max-headers", "--default-scheme", "--ssl",
+                     "--unix-socket", "--response-charset", "--response-mime", "--format-options",
+                     "--chunked-size", "--curl-file", "--cert-key-pass", "--http-version"}
+HTTPIE_ITEM_SEPS = (":=@", "=@", ":=", "==", "=", "@", ":")
+HTTPIE_WRITE_SEPS = {":=@", "=@", ":=", "=", "@"}
+SAFE_METHODS = {"GET", "HEAD", "OPTIONS"}
+
+
+def _forge_host_of(url):
+    """True when the URL's host (not its path or query) is a forge host or one of its subdomains."""
+    import urllib.parse
+    url = url.strip().strip("\"'")
+    if not url or url[:1] == "-":
+        return False
+    if "://" not in url:
+        url = "http://" + url.lstrip("/")
+    try:
+        host = urllib.parse.urlsplit(url).netloc.rpartition("@")[2]
+    except ValueError:
+        return False
+    host = re.sub(r":\d*\Z", "", host.lower())
+    for piece in re.split(r"[{},\[\]]", host):        # curl globs: https://{a.com,github.com}/
+        piece = piece.strip(".")
+        if piece and any(piece == h or piece.endswith("." + h) for h in FORGE_HOSTS):
+            return True
+    return False
+
+
+def _abbrev(name, options, minimum):
+    """The option `name` spells, as an exact name or an unambiguous-enough prefix (curl and wget
+    accept `--dat` for `--data`); None if it spells none of them."""
+    if name in options:
+        return name
+    if len(name) >= minimum:
+        return next((o for o in options if o.startswith(name)), None)
+    return None
+
+
+def _curl_write(args):
+    """(urls, is_write) of a curl command line."""
+    urls, data, other, get, method, k = [], False, False, False, "", 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a == "--":
+            urls += args[k:]
+            break
+        if a.startswith("--"):
+            name, eq, val = a[2:].partition("=")
+            opt = _abbrev(name, CURL_WRITE_LONG, 3)
+            if name == "url" or (opt is None and name in CURL_VALUE_LONG) or opt is not None:
+                if not eq and k < len(args):
+                    val, k = args[k], k + 1
+            if name == "url":
+                urls.append(val)
+            elif opt is None and _abbrev(name, ("get",), 3):
+                get = True
+            elif opt == "request":
+                method = val
+            elif opt is not None and opt.startswith("data"):
+                data = True
+            elif opt is not None:
+                other = True
+            continue
+        if a[:1] == "-" and len(a) > 1:
+            for pos, c in enumerate(a[1:], 1):
+                if c == "G":
+                    get = True
+                elif c in CURL_VALUE_SHORT:
+                    val = a[pos + 1:]
+                    if not val and k < len(args):
+                        val, k = args[k], k + 1
+                    if c == "X":
+                        method = val
+                    elif c == "d":
+                        data = True
+                    elif c in "FT":
+                        other = True
+                    break
+            continue
+        urls.append(a)
+    bad_method = bool(method) and method.upper() not in SAFE_METHODS
+    return urls, other or (data and not get) or bad_method
+
+
+def _wget_write(args):
+    urls, write, k = [], False, 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a == "--":
+            urls += args[k:]
+            break
+        if a.startswith("--"):
+            name, eq, val = a[2:].partition("=")
+            opt = _abbrev(name, WGET_WRITE_LONG, 4)
+            if opt is not None or (name in WGET_VALUE_LONG and not eq):
+                if not eq and k < len(args):
+                    val, k = args[k], k + 1
+            if opt == "method":
+                write = write or val.upper() not in SAFE_METHODS
+            elif opt is not None:
+                write = True
+            continue
+        if a[:1] == "-" and len(a) > 1:
+            for pos, c in enumerate(a[1:], 1):
+                if c in WGET_VALUE_SHORT:
+                    if not a[pos + 1:] and k < len(args):
+                        k += 1
+                    break
+            continue
+        urls.append(a)
+    return urls, write
+
+
+def _httpie_item_sep(item):
+    """The separator httpie reads in a request item: the earliest one, the longest on a tie."""
+    best = None
+    for sep in HTTPIE_ITEM_SEPS:
+        p = item.find(sep)
+        if p >= 0 and (best is None or p < best[0] or (p == best[0] and len(sep) > len(best[1]))):
+            best = (p, sep)
+    return best[1] if best else None
+
+
+def _httpie_write(args):
+    pos, write, k = [], False, 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a == "--":
+            pos += args[k:]
+        elif a == "--raw" or a.startswith("--raw="):
+            write, k = True, k + (a == "--raw")
+        elif a in HTTPIE_VALUE_OPTS:
+            k += 1
+        elif a[:1] != "-" or len(a) == 1:
+            pos.append(a)
+        if a == "--":
+            break
+    method = None
+    if len(pos) >= 2 and re.match(r"[A-Za-z]+\Z", pos[0]):
+        method = pos.pop(0).upper()
+    if method and method not in SAFE_METHODS:
+        write = True
+    write = write or any(_httpie_item_sep(x) in HTTPIE_WRITE_SEPS for x in pos[1:])
+    return pos[:1], write
+
+
+def _r2_net(prog, args):
+    """("forge", what) for curl, wget or httpie/xh sending a write to a forge host."""
+    if prog == "curl":
+        urls, write = _curl_write(args)
+    elif prog == "wget":
+        urls, write = _wget_write(args)
+    else:
+        urls, write = _httpie_write(args)
+    if write:
+        for u in urls:
+            if _forge_host_of(u):
+                return ("forge", "%s (a write request to %s)" % (prog, u[:80]))
+    return None
+
+
+def _cluster_has(arg, want, value_chars):
+    """A short-option cluster (`-sw`, `-ht`) holds one of `want` before any option that takes a
+    value (the rest of the word is that value)."""
+    if arg[:1] != "-" or arg[:2] == "--":
+        return False
+    for c in arg[1:]:
+        if c in want:
+            return True
+        if c in value_chars:
+            return False
+    return False
+
+
+def _first_positional(args, value_opts):
+    k = 0
+    while k < len(args):
+        if args[k] in value_opts:
+            k += 2
+        elif args[k][:1] == "-":
+            k += 1
+        else:
+            return k
+    return None
+
+
+def _plain_args(args):
+    """args without redirections (`2>&1`, `> f`, `< f`): the words the program itself gets."""
+    out, k = [], 0
+    while k < len(args):
+        a = args[k]
+        if REDIR_OP_RE.match(a) or re.match(r"\d*[<>]", a):
+            k += 1 if re.search(r"&\d+\Z", a) else 2
+        elif a.isdigit() and k + 1 < len(args) and REDIR_OP_RE.match(args[k + 1]):
+            k += 1
+        else:
+            out.append(a)
+            k += 1
+    return out
+
+
+def _r2_gh(args):
+    """`gh auth ...` prints or stores the token: everything except `gh auth status` without -t."""
+    k = _first_positional(args, GH_VALUE_OPTS)
+    if k is None or args[k] != "auth":
+        return None
+    rest = args[k + 1:]
+    j = _first_positional(rest, GH_VALUE_OPTS)
+    if j is None:
+        return None                            # `gh auth` alone prints its help
+    if rest[j] == "status":
+        tail = rest[:j] + rest[j + 1:]
+        if not any(a == "--show-token" or _cluster_has(a, "t", "hRspu") for a in tail):
+            return None
+    return ("secrets", "gh auth %s" % rest[j])
+
+
+def _r2_git(args):
+    """`git credential fill|approve|reject` and `git credential-<helper>` print stored secrets."""
+    k = 0
+    while k < len(args) and args[k][:1] == "-":
+        k += 2 if args[k] in GIT_VALUE_OPTS else 1
+    if k >= len(args):
+        return None
+    sub = args[k]
+    if sub == "credential" and args[k + 1:k + 2] and args[k + 1] in ("fill", "approve", "reject"):
+        return ("secrets", "git credential %s" % args[k + 1])
+    if sub.startswith("credential-"):
+        return ("secrets", "git %s" % sub)
+    return None
+
+
+def _r2_security(args):
+    """macOS keychain dumps: find-*-password with -w/-g, dump-keychain, export."""
+    k = 0
+    while k < len(args) and args[k][:1] == "-":
+        k += 1
+    if k >= len(args):
+        return None
+    sub, rest = args[k], args[k + 1:]
+    if sub in ("dump-keychain", "export"):
+        return ("secrets", "security %s" % sub)
+    if sub in ("find-generic-password", "find-internet-password") and any(
+            _cluster_has(a, "wg", SECURITY_VALUE_CHARS) for a in rest):
+        return ("secrets", "security %s -w/-g" % sub)
+    return None
+
+
+def _r2_tmp_literal(val):
+    if re.search(r"[$`~*?\[\]{}]", val) or not val.startswith("/"):
+        return False
+    p = os.path.normpath(val)
+    roots = list(TMP_ROOTS)
+    tmpdir = os.path.normpath(os.environ.get("TMPDIR") or "/tmp")
+    if tmpdir.startswith("/") and len(tmpdir) > 1 and tmpdir != os.path.normpath(
+            os.environ.get("HOME") or "/"):
+        roots.append(tmpdir)
+    return any(p.startswith(r.rstrip("/") + "/") for r in roots)
+
+
+def _r2_tail_ok(tail):
+    return (tail == "" or tail[:1] == "/") and ".." not in tail.split("/") \
+        and not re.search(r"[$`~]", tail)
+
+
+def _r2_tmp_ok(val, env):
+    """A path value that is certainly under a temp dir: literal, $TMPDIR, $(mktemp -d ...) or a
+    variable set earlier in the command to one of those."""
+    val = val.strip()
+    m = re.match(r"\$\(mktemp((?: [^()$`;&|]*)?)\)(.*)\Z", val, re.S)
+    if m:
+        toks = [t for t in m.group(1).split() if t not in ("-d", "-t", "-u")]
+        return all("/" not in t or _r2_tmp_literal(t) for t in toks) and _r2_tail_ok(m.group(2))
+    m = re.match(r"\$(?:\{(\w+)\}|(\w+))(.*)\Z", val, re.S)
+    if m:
+        name = m.group(1) or m.group(2)
+        return (name == "TMPDIR" or bool(env.get(name))) and _r2_tail_ok(m.group(3))
+    return _r2_tmp_literal(val)
+
+
+def _r2_installer(scan, path):
+    """`path` (as typed) names the stack's own install.sh: a sibling lib/install_state.py, or a
+    path that cannot be resolved (any install.sh then)."""
+    if re.search(r"[$`*?\[{]", path):
+        return True
+    path = os.path.expanduser(path)
+    dirname = os.path.dirname(path)
+    cands = [dirname] if os.path.isabs(path) else [os.path.join(b, dirname)
+                                                   for b in path_bases(scan.ev or {})]
+    found = [d for d in cands if os.path.isfile(os.path.join(d, "install.sh"))]
+    if not found:
+        return True
+    return any(os.path.isfile(os.path.join(d, "lib", "install_state.py")) for d in found)
+
+
+def _r2_install(scan, target, rest):
+    if any(a in INSTALL_FLAGS_OK for a in rest):
+        return None
+    env = getattr(scan, "_r2_env", None) or {}
+    if env.get("HOME") and env.get("CLAUDE_CONFIG_DIR"):
+        return None                            # a scratch install: both under a temp dir
+    return ("install", target) if _r2_installer(scan, target) else None
+
+
+def _r2_scan(scan, w, base, words, i, end, restore, here_cmd):
+    """Round-2 checks for words[i]: (kind, what) through scan.hit, or None."""
+    want = scan.want
+    if ASSIGN_RE.match(w):
+        name, _, val = restore(w).partition("=")
+        name = name.rstrip("+")
+        if "secrets" in want and name == MCP_NAME_VAR:
+            return scan.hit("secrets", "%s=... (headersHelper mode prints the real header)"
+                            % MCP_NAME_VAR)
+        if "install" in want:                  # in order, so `T=$(mktemp -d) HOME=$T ./install.sh`
+            env = scan.__dict__.setdefault("_r2_env", {})
+            env[name] = _r2_tmp_ok(val, env)
+        return None
+    if not here_cmd:
+        return None
+    found = None
+    if "secrets" in want:
+        if base in ("gh", "git", "security"):
+            args = [restore(x) for x in words[i + 1:end]]
+            found = (_r2_gh if base == "gh" else _r2_git if base == "git" else _r2_security)(args)
+        elif base.startswith("git-credential"):
+            found = ("secrets", base)
+    if not found and "forge" in want and base in NET_CLIENTS:
+        found = _r2_net(base, [restore(x) for x in words[i + 1:end]])
+    if not found and "install" in want:
+        if base == "install.sh":
+            found = _r2_install(scan, restore(w), [restore(x) for x in words[i + 1:end]])
+        elif base in SHELLS or base in ("source", "."):
+            args = [restore(x) for x in words[i + 1:end]]
+            for k, a in enumerate(args):
+                if a[:1] != "-" and not re.search(r"\s", a) and _base(a) == "install.sh":
+                    if not any(_cluster_has(x, "n", "co") for x in args[:k]):   # bash -n: syntax only
+                        found = _r2_install(scan, a, args[k + 1:])
+                    break
+    return scan.hit(*found) if found else None
 
 
 def _shell_words(command):
@@ -3685,7 +4112,8 @@ class _Scan(object):
             return None
         command = command.replace("\x00", "")
         bare = re.sub(r"['\"\\]", "", command)
-        secrets_trigger = "secrets" in self.want and SECRETS_TRIGGER_RE.search(bare)
+        secrets_trigger = ("secrets" in self.want and SECRETS_TRIGGER_RE.search(bare)) or (
+            "forge" in self.want and FORGE_NET_TRIGGER_RE.search(bare))
         protect_trigger = "protect" in self.want and PROTECT_TRIGGER_RE.search(bare)
         if not (TRIGGER_RE.search(EXPANSION_RE.sub("", bare)) or ESCAPE_RE.search(command)
                 or OPAQUE_HINT_RE.search(bare) or secrets_trigger or protect_trigger):
@@ -3797,6 +4225,8 @@ class _Scan(object):
                 found = self.secrets_helper(base, words, i + 1, end, restore)
             if not found and "secrets" in self.want and base in SHELLS and here_cmd:
                 found = self.secrets_bash_x(base, words, i + 1, end, restore)
+            if not found and self.want & R2_KINDS:
+                found = _r2_scan(self, w, base, words, i, end, restore, here_cmd)
             if not found and "protect" in self.want:
                 if ">" in w and REDIR_OP_RE.match(w) and i + 1 < end:
                     found = self.protect_hit(restore(words[i + 1]), "redirect (%s)" % w)
@@ -4092,6 +4522,10 @@ class _Scan(object):
         args = [restore(x) for x in words[start:end]]
         if any(a == "--reveal" or a.startswith("--reveal=") for a in args):
             return self.hit("secrets", "%s --reveal" % base)
+        if base == "mcp-headers" and not [a for a in _plain_args(args) if a != "--reveal"]:
+            # no server name: headersHelper mode (the name comes from the environment) prints
+            # the real header
+            return self.hit("secrets", "mcp-headers with no server name (prints the real header)")
         if base == "with-stack-env" and args[:1] != ["--print-env"]:
             rest = args[2:] if args[:1] == ["--only"] else args
             k = 0
@@ -5963,14 +6397,14 @@ def git_push_in(command):
     return bool(_Scan(("push",)).scan(command))
 
 
-def secrets_leak_in(command):
+def secrets_leak_in(command, ev=None):
     """(kind, what) when a shell command runs mcp-headers/with-stack-env with --reveal, runs
     env/printenv/set/export under with-stack-env, or bash -x / sh -x / zsh -x on install.sh or
     doctor.sh — else None. Shares the same shell lexer and shell/eval/here-doc unwrapping as
     remote_write_in, so `bash -c "mcp-headers exa --reveal"` etc. are caught the same way
     `git push` is. The redacted default forms (`mcp-headers exa`, `with-stack-env --print-env`)
     pass."""
-    return _Scan(("secrets",)).scan(command)
+    return _Scan(("secrets", "install"), ev=ev).scan(command)
 
 
 def forge_write_in(command):
@@ -6012,7 +6446,7 @@ def no_push_main(raw):
             found = None
     if not found:
         try:
-            found = secrets_leak_in(command)
+            found = secrets_leak_in(command, ev)
         except Exception as exc:              # a parser bug: fail closed on the same triggers
             if SECRETS_TRIGGER_RE.search(bare):
                 deny(GUARD_FAIL_REASON % ("%s: %s" % (type(exc).__name__, exc))[:200])
@@ -6029,6 +6463,7 @@ def no_push_main(raw):
         deny(FORGE_REASON % what if kind == "forge" else
              OPAQUE_REASON % what if kind == "opaque" else
              SECRETS_REASON % what if kind == "secrets" else
+             INSTALL_REASON % what if kind == "install" else
              PROTECT_REASON % what if kind == "protect" else NO_PUSH_REASON)
     agent_type = norm(ev.get("agent_type"))
     if agent_type in READONLY_TYPES and policy_on() and command is not None:
@@ -6222,6 +6657,7 @@ def dispatch(ev):
     d = sdir(ev.get("session_id"))
     log(d, ev)
     if event == "PreToolUse":
+        note_web_taint(ev, d)
         # the token budgets and the MCP call cap first, before any lease or lock is taken; they
         # fail open
         try:

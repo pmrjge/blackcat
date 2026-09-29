@@ -411,9 +411,9 @@ SECRETS_SAFE = [
     "mcp-headers exa", "mcp-headers jina", '"mcp-headers" huggingface',
     "with-stack-env --print-env", "with-stack-env --print-env sh",
     "STACK_EXPORT=all with-stack-env --print-env sh",
-    "mcp-headers", "with-stack-env --only EXA_API_KEY -- python3 foo.py",
+    "with-stack-env --only EXA_API_KEY -- python3 foo.py",
     "with-stack-env python3 train.py", "grep -- --reveal notes.md",
-    "bash install.sh", "bash -e install.sh", "bash -x other-script.sh",
+    "bash -x other-script.sh",   # bare mcp-headers and install.sh: see tests/test_guard_round2.py
 ]
 
 
