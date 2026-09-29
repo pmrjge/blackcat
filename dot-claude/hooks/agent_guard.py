@@ -1612,9 +1612,20 @@ def on_memory_write(ev, d):
 # T3: an agent that ingested web content (any type, not just WEB_INGESTING_TYPES) gets a marker
 # <state dir>/web-taint/<agent id>, made by note_web_taint on every PreToolUse; on_memory_write
 # refuses its nmem_remember. A marker per agent, no transcript scan: one stat per call.
-WEB_TAINT_TOOLS = re.compile(r"(?:WebFetch|WebSearch)\Z|mcp__(?:exa|jina|spider|playwright|"
-                             r"claude-in-chrome|context-mode|huggingface|markitdown)__.*\Z|"
-                             r"mcp__magg__(?:pw|cdt|docling)_.*\Z")
+# Inverted: every mcp__ tool taints unless it is on this list of servers and tools known to carry
+# no web content. A new or unknown server (libdocs pages come through exa/jina/spider/raw GitHub,
+# magg's proxy and search reach any mounted server, computer-use shows pages) fails closed.
+# Listed: neural-memory (the store itself), the stack's local/creative servers (image-studio,
+# illustrator, after-effects, premiere, blender, huetension), wolfram and wandb (computation and
+# the user's own runs), the IDE bridge, and the magg tools that only manage or run local servers
+# (management calls, duckdb, jupyter, lean, mlflow, mongodb, postgres, qiskit, ros). Not listed on
+# purpose: magg arxiv/docling/pw/cdt/docspace, magg_search_servers and magg proxy.
+WEB_TAINT_TOOLS = re.compile(
+    r"(?:WebFetch|WebSearch)\Z|"
+    r"mcp__(?!(?:neural-memory|wolfram|wandb|image-studio|illustrator|after-effects|premiere|"
+    r"blender|huetension|ide)__|magg__(?:magg_(?:add_server|check|disable_server|enable_server|"
+    r"kit_info|list_kits|list_servers|load_kit|reload_config|status|unload_kit)\Z|"
+    r"(?:duckdb|jupyter|lean|mlflow|mongodb|postgres|qiskit|ros)_)).*\Z")
 WEB_TAINT_CMD_RE = re.compile(r"(?:^|[;&|(`'\"\n]|\$\()\s*(?:\w+=\S*\s+)*"
                               r"(?:(?:sudo|env|xargs|time|nohup|exec|command)\s+)*(?:\S*/)?"
                               r"(?:curl|wget|https?|xhs?|lynx|w3m|links)(?=\s|$)")
@@ -2988,7 +2999,7 @@ TRIGGER_RE = re.compile(r"(?<![A-Za-z0-9_-])(?:git|gh|tea|fj)")
 ESCAPE_RE = re.compile(r"\$'|\\(?:x[0-9A-Fa-f]|u[0-9A-Fa-f]|[0-7])")
 # fast path for the "secrets" scan kind (below): checked only when that kind is requested. Not
 # word-bounded (unlike TRIGGER_RE): over-matching only causes an extra full parse, never a miss.
-SECRETS_TRIGGER_RE = re.compile(r"mcp-headers|with-stack-env|install\.sh|doctor\.sh|credential|"
+SECRETS_TRIGGER_RE = re.compile(r"mcp-headers|with-stack-env|install\.sh|install_state|doctor\.sh|credential|"
                                 r"security|CLAUDE_CODE_MCP_SERVER_NAME")
 SECRETS_PROGRAMS = {"mcp-headers", "with-stack-env"}
 INSTALLER_SCRIPTS = {"install.sh", "doctor.sh"}
@@ -3544,16 +3555,27 @@ def _r2_security(args):
     return None
 
 
+def _r2_real(path):
+    """realpath of `path`; a path that does not exist (yet) resolves its longest existing prefix."""
+    head, tail = path, []
+    while head not in ("", "/") and not os.path.lexists(head):
+        head, name = os.path.split(head)
+        tail.insert(0, name)
+    return os.path.normpath(os.path.join(os.path.realpath(head or "/"), *tail))
+
+
 def _r2_tmp_literal(val):
+    """A literal absolute path that, with symlinks resolved, lies strictly under a temp root."""
     if re.search(r"[$`~*?\[\]{}]", val) or not val.startswith("/"):
         return False
-    p = os.path.normpath(val)
+    p = _r2_real(val)
     roots = list(TMP_ROOTS)
     tmpdir = os.path.normpath(os.environ.get("TMPDIR") or "/tmp")
-    if tmpdir.startswith("/") and len(tmpdir) > 1 and tmpdir != os.path.normpath(
+    if tmpdir.startswith("/") and len(tmpdir) > 1 and _r2_real(tmpdir) != _r2_real(
             os.environ.get("HOME") or "/"):
         roots.append(tmpdir)
-    return any(p.startswith(r.rstrip("/") + "/") for r in roots)
+    real = {_r2_real(r) for r in roots if r.startswith("/")}
+    return any(p.startswith(r.rstrip("/") + "/") for r in real)
 
 
 def _r2_tail_ok(tail):
@@ -3576,28 +3598,121 @@ def _r2_tmp_ok(val, env):
     return _r2_tmp_literal(val)
 
 
-def _r2_installer(scan, path):
-    """`path` (as typed) names the stack's own install.sh: a sibling lib/install_state.py, or a
-    path that cannot be resolved (any install.sh then)."""
-    if re.search(r"[$`*?\[{]", path):
+def _r2_bases(scan):
+    """Directories a relative path may resolve against: the tool's own (path_bases) and every
+    directory an earlier `cd`/`pushd` of the command named."""
+    out = list(path_bases(scan.ev or {}))
+    for b in list(scan.cd) + scan.__dict__.get("_r2_cd", []):
+        if b not in out:
+            out.append(b)
+    return out
+
+
+def _r2_note_cd(scan, args):
+    pos = [a for a in args if a[:1] != "-" or a == "-"]
+    target = os.path.expanduser(pos[0]) if pos else os.path.expanduser("~")
+    if target == "-" or re.search(r"[$`*?\[{]", target):
+        scan.__dict__["_r2_cd_opaque"] = True      # unknown directory: any install.sh may be the stack's
+        return
+    cds = scan.__dict__.setdefault("_r2_cd", [])
+    for b in ([None] if os.path.isabs(target) else _r2_bases(scan)):
+        p = os.path.normpath(target if b is None else os.path.join(b, target))
+        if p not in cds and len(cds) < 16:
+            cds.append(p)
+
+
+def _r2_stack_file(scan, path, name, up):
+    """`path` (as typed) names the stack's own `name` (install.sh, or lib/install_state.py with
+    up=True: the stack root is one directory above): the stack root holds install.sh and
+    lib/install_state.py, or the path cannot be resolved (then any such file counts)."""
+    if re.search(r"[$`*?\[{]", path) or scan.__dict__.get("_r2_cd_opaque"):
         return True
     path = os.path.expanduser(path)
     dirname = os.path.dirname(path)
     cands = [dirname] if os.path.isabs(path) else [os.path.join(b, dirname)
-                                                   for b in path_bases(scan.ev or {})]
-    found = [d for d in cands if os.path.isfile(os.path.join(d, "install.sh"))]
+                                                   for b in _r2_bases(scan)]
+    found = [d for d in cands if os.path.isfile(os.path.join(d, os.path.basename(path)))]
     if not found:
         return True
-    return any(os.path.isfile(os.path.join(d, "lib", "install_state.py")) for d in found)
+    roots = [os.path.dirname(os.path.abspath(d)) if up else d for d in found]
+    return any(os.path.isfile(os.path.join(r, "install.sh")) and
+               os.path.isfile(os.path.join(r, "lib", "install_state.py")) for r in roots)
+
+
+def _r2_installer(scan, path):
+    """`path` (as typed) names the stack's own install.sh: a sibling lib/install_state.py, or a
+    path that cannot be resolved (any install.sh then)."""
+    return _r2_stack_file(scan, path, "install.sh", False)
+
+
+def _r2_scratch_env(scan):
+    env = scan.__dict__.get("_r2_env") or {}
+    return bool(env.get("HOME") and env.get("CLAUDE_CONFIG_DIR"))
 
 
 def _r2_install(scan, target, rest):
     if any(a in INSTALL_FLAGS_OK for a in rest):
         return None
-    env = getattr(scan, "_r2_env", None) or {}
-    if env.get("HOME") and env.get("CLAUDE_CONFIG_DIR"):
+    if _r2_scratch_env(scan):
         return None                            # a scratch install: both under a temp dir
     return ("install", target) if _r2_installer(scan, target) else None
+
+
+R2_PY_RE = re.compile(r"(?:python[\d.]*|pypy[\d.]*|uv|uvx|pipx)\Z")
+R2_STATE_READ = {"latest", "validate", "linked"}
+# programs that copy, link or print a file: the stack's install.sh used as data
+R2_DATA_CMDS = {"cp", "mv", "ln", "install", "rsync", "cat", "tac", "head", "tail", "sed", "awk",
+                "gawk", "cut", "nl", "tee", "dd", "grep", "egrep", "fgrep", "rg", "tr", "base64"}
+
+
+def _r2_state(scan, path, rest):
+    """lib/install_state.py run as a program: apply, restore, stage, record, move-legacy ... write
+    the config dir, so its first argument must be a scratch temp path; latest/validate/linked
+    only read, `plan` writes only its plan file (4th argument)."""
+    if not _r2_stack_file(scan, path, "install_state.py", True):
+        return None
+    sub, a = (rest[0] if rest else ""), rest[1:]
+    env = scan.__dict__.get("_r2_env") or {}
+    if sub == "" or sub in R2_STATE_READ or (sub == "legacy-backups" and a[2:3] == ["list"]):
+        return None
+    if sub == "plan":
+        return None if len(a) < 4 or _r2_tmp_ok(a[3], env) else ("install", "install_state.py plan")
+    if a and _r2_tmp_ok(a[0], env):
+        return None
+    return ("install", "install_state.py %s" % sub)
+
+
+def _r2_smoke(scan, script):
+    """The stack's own tests/install_smoke.sh (an existing file next to the stack's install.sh)."""
+    if _base(script) != "install_smoke.sh" or re.search(r"[$`*?\[{]", script):
+        return False
+    script = os.path.expanduser(script)
+    cands = [script] if os.path.isabs(script) else [os.path.join(b, script) for b in _r2_bases(scan)]
+    return any(os.path.isfile(c) and os.path.isfile(os.path.join(os.path.dirname(
+        os.path.dirname(os.path.abspath(c))), "install.sh")) for c in cands)
+
+
+def _r2_shell_runs(scan, base, args):
+    """A shell (or eval/source/.) that runs code: not `bash -n`, not the stack's smoke test, not
+    `bash install.sh` (its own rule decides that)."""
+    if base in ("eval", "source", "."):
+        return not (base != "eval" and args and _base(args[0]) == "install.sh")
+    k = 0
+    while k < len(args) and args[k][:1] in "-+" and args[k] != "--" and len(args[k]) > 1:
+        k += 2 if args[k] in ("-o", "+o", "-O", "+O", "--rcfile", "--init-file") else 1
+    if any(_cluster_has(x, "n", "co") for x in args[:k]):
+        return False
+    script = args[k + 1] if args[k:k + 1] == ["--"] and k + 1 < len(args) else \
+        (args[k] if k < len(args) else None)
+    return not (script and (_base(script) == "install.sh" or _r2_smoke(scan, script)))
+
+
+def _r2_data_and_run(scan, what):
+    """The stack's install.sh read or copied (data) and a shell run, both in this command."""
+    st = scan.__dict__
+    if st.get("_r2_data") and st.get("_r2_run") and not _r2_scratch_env(scan):
+        return ("install", what)
+    return None
 
 
 def _r2_scan(scan, w, base, words, i, end, restore, here_cmd):
@@ -3613,6 +3728,11 @@ def _r2_scan(scan, w, base, words, i, end, restore, here_cmd):
             env = scan.__dict__.setdefault("_r2_env", {})
             env[name] = _r2_tmp_ok(val, env)
         return None
+    if "install" in want and w == "<" and i + 1 < len(words) and _base(restore(words[i + 1])) \
+            == "install.sh" and _r2_installer(scan, restore(words[i + 1])):
+        scan.__dict__["_r2_data"] = True       # `bash < install.sh`: the script is read as data
+        found = _r2_data_and_run(scan, "install.sh read into a shell")
+        return scan.hit(*found) if found else None
     if not here_cmd:
         return None
     found = None
@@ -3634,6 +3754,26 @@ def _r2_scan(scan, w, base, words, i, end, restore, here_cmd):
                     if not any(_cluster_has(x, "n", "co") for x in args[:k]):   # bash -n: syntax only
                         found = _r2_install(scan, a, args[k + 1:])
                     break
+        elif base in ("cd", "pushd"):
+            _r2_note_cd(scan, [restore(x) for x in words[i + 1:end]])
+        elif base == "install_state.py":
+            found = _r2_state(scan, restore(w), [restore(x) for x in words[i + 1:end]])
+        elif R2_PY_RE.match(base):
+            args = [restore(x) for x in words[i + 1:end]]
+            for k, a in enumerate(args):
+                if a[:1] != "-" and not re.search(r"\s", a) and _base(a) == "install_state.py":
+                    found = _r2_state(scan, a, args[k + 1:])
+                    break
+        if not found and (base in R2_DATA_CMDS or base in SHELLS or base in ("eval", "source", ".")):
+            args = _plain_args([restore(x) for x in words[i + 1:end]])
+            st = scan.__dict__
+            if base in R2_DATA_CMDS and any(
+                    a[:1] != "-" and _base(a) == "install.sh" and _r2_installer(scan, a)
+                    for a in args):
+                st["_r2_data"] = True
+            if base in SHELLS or base in ("eval", "source", "."):
+                st["_r2_run"] = st.get("_r2_run") or _r2_shell_runs(scan, base, args)
+            found = _r2_data_and_run(scan, "install.sh used as data and run by a shell")
     return scan.hit(*found) if found else None
 
 

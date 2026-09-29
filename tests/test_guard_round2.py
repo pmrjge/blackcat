@@ -219,6 +219,28 @@ INSTALL_DENY = [
     "HOME=/tmpx/a CLAUDE_CONFIG_DIR=/tmpx/a/c ./install.sh",
     "HOME=$HOME CLAUDE_CONFIG_DIR=$HOME/.claude ./install.sh",
     "HOME=/tmp CLAUDE_CONFIG_DIR=/tmp ./install.sh",
+    # install_state.py: the installer's engine writes the config dir
+    "python3 lib/install_state.py apply /Users/me/.claude s plan r c out",
+    "python3 lib/install_state.py restore /Users/me/.claude latest r w c /Users/me",
+    "python3 -B lib/install_state.py stage /Users/me/.claude a b",
+    "python3 lib/install_state.py record /Users/me/.claude a b",
+    "python3 lib/install_state.py legacy-backups /Users/me/.claude root move",
+    "python3 lib/install_state.py move-legacy /Users/me/.claude root",
+    "uv run lib/install_state.py apply ~/.claude s plan r c out",
+    "uv run python lib/install_state.py restore ~/.claude latest r w c h",
+    "/usr/bin/python3 lib/install_state.py apply $HOME/.claude s p r c o",
+    f"python3 {ROOT}/lib/install_state.py apply /Users/me/.claude s p r c o",
+    f"{ROOT}/lib/install_state.py apply /Users/me/.claude s p r c o",
+    "cd lib && python3 install_state.py apply /Users/me/.claude s p r c o",
+    "env python3 lib/install_state.py stage /x/.claude a",
+    "python3 lib/install_state.py plan /tmp/c /tmp/s x ~/plan.json",
+    # the installer used as data, run by a shell in the same command
+    "cp install.sh /tmp/i.sh && bash /tmp/i.sh", "cat install.sh | bash", "cat install.sh | sh -s",
+    "bash < install.sh", "sed 's/x/y/' install.sh | bash", "ln -s $PWD/install.sh /tmp/i && sh /tmp/i",
+    "cp install.sh /tmp/i.sh; chmod +x /tmp/i.sh; bash -x /tmp/i.sh", "eval \"$(cat install.sh)\"",
+    "source <(cat install.sh)", "bash /tmp/i.sh; cp install.sh /tmp/i.sh",
+    "bash -c 'cat install.sh | bash'", f"cat {ROOT}/install.sh | zsh",
+    "grep -v '^#' install.sh | bash",
 ]
 INSTALL_ALLOW = [
     "./install.sh --help", "./install.sh -h", "bash install.sh --dry-run",
@@ -236,6 +258,24 @@ INSTALL_ALLOW = [
     "export HOME=/tmp/s CLAUDE_CONFIG_DIR=/tmp/s/c; ./install.sh",
     "HOME=/tmp/s CLAUDE_CONFIG_DIR=/tmp/s/c bash -c './install.sh'",
     "bash -c 'HOME=/tmp/s CLAUDE_CONFIG_DIR=/tmp/s/c ./install.sh'",
+    "HOME=$(mktemp -d) CLAUDE_CONFIG_DIR=$(mktemp -d) bash install.sh --no-mcp",
+    "cat install.sh | head -20", "grep x install.sh; ls", "cp install.sh /tmp/i.sh",
+    "cat install.sh && bash tests/install_smoke.sh", "bash tests/install_smoke.sh; grep x install.sh",
+    "bash -n install.sh; cat install.sh", "./install.sh --dry-run | head; cat install.sh",
+    "cat install.sh | bash -n", "sed -n 1,5p install.sh",
+    "python3 lib/install_state.py latest /Users/me/.claude /Users/me/.claude/x",
+    "python3 -B lib/install_state.py latest /tmp/c /tmp/b",
+    "python3 lib/install_state.py plan /tmp/c /tmp/s x /tmp/w/plan.json",
+    "python3 lib/install_state.py validate /Users/me/.claude s", "python3 lib/install_state.py",
+    "python3 lib/install_state.py linked /Users/me/.claude",
+    "python3 lib/install_state.py legacy-backups /Users/me/.claude root list",
+    "python3 lib/install_state.py apply /tmp/c s plan r c out",
+    "python3 lib/install_state.py restore /private/tmp/c latest r w c h",
+    "uv run lib/install_state.py stage /var/folders/ab/T/c a b",
+    "T=$(mktemp -d); python3 lib/install_state.py record $T/c a b",
+    "python3 lib/install_state.py stage $TMPDIR/c a b",
+    "cat lib/install_state.py", "grep -n apply lib/install_state.py",
+    "python3 -m pytest tests/test_install_state.py",
 ]
 
 
@@ -285,6 +325,97 @@ def test_installer_denied_with_policy_off():
     assert env.run(ev, args=("no-push",)).decision == "deny"
 
 
+@pytest.fixture
+def other_project(tmp_path):
+    """An event cwd holding an unrelated install.sh (no lib/install_state.py)."""
+    d = tmp_path / "other"
+    d.mkdir()
+    (d / "install.sh").write_text("#!/bin/sh\n")
+    return {"cwd": str(d)}
+
+
+def test_cd_to_the_stack_repo_then_installer_is_denied(other_project, monkeypatch):
+    monkeypatch.chdir(other_project["cwd"])
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    assert G.secrets_leak_in("./install.sh", other_project) is None      # the other project's script
+    for cmd in (f"cd {ROOT} && ./install.sh", f"pushd {ROOT}; bash install.sh --no-prune",
+                f"(cd {ROOT} && sh ./install.sh)", f"cd {ROOT}\n./install.sh",
+                f"cd {ROOT}/lib && ../install.sh", f"cd {ROOT} && source install.sh",
+                "cd $STACK && ./install.sh"):
+        assert G.secrets_leak_in(cmd, other_project)[0] == "install", cmd
+    ev = {"cwd": str(ROOT.parent)}                                       # a relative cd
+    monkeypatch.chdir(ROOT.parent)
+    assert G.secrets_leak_in(f"cd {ROOT.name} && ./install.sh", ev)[0] == "install"
+    monkeypatch.chdir(other_project["cwd"])
+    for cmd in (f"cd {ROOT} && ./install.sh --dry-run", f"cd {ROOT} && ./install.sh --help",
+                f"cd {ROOT} && ./install.sh --print-managed-settings",
+                f"cd {ROOT} && HOME=/tmp/s CLAUDE_CONFIG_DIR=/tmp/s/c ./install.sh"):
+        assert G.secrets_leak_in(cmd, other_project) is None, cmd
+
+
+def test_cd_to_an_unrelated_dir_keeps_unrelated_installer_allowed(other_project, tmp_path,
+                                                                  monkeypatch):
+    monkeypatch.chdir(other_project["cwd"])
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+    (tmp_path / "third").mkdir()
+    (tmp_path / "third" / "install.sh").write_text("#!/bin/sh\n")
+    assert G.secrets_leak_in(f"cd {tmp_path}/third && ./install.sh", other_project) is None
+
+
+def test_install_state_unrelated_file_passes(tmp_path):
+    (tmp_path / "lib").mkdir()
+    (tmp_path / "lib" / "install_state.py").write_text("")
+    assert scan("python3 %s/lib/install_state.py apply /Users/me/.claude" % tmp_path) is None
+    (tmp_path / "install.sh").write_text("#!/bin/sh\n")
+    assert kind("python3 %s/lib/install_state.py apply /Users/me/.claude" % tmp_path) == "install"
+
+
+@pytest.mark.parametrize("atype,aid", AGENTS)
+def test_install_state_and_data_copy_denied_through_the_hook(atype, aid):
+    for cmd in ("python3 lib/install_state.py apply ~/.claude s p r c o",
+                "cp install.sh /tmp/i.sh && bash /tmp/i.sh", "cat install.sh | bash"):
+        r = hook(cmd, atype, aid)
+        assert r.decision == "deny" and "supply-chain rule" in r.reason, (cmd, r)
+    for cmd in ("python3 lib/install_state.py latest /tmp/c /tmp/b", "cat install.sh",
+                "python3 lib/install_state.py plan /tmp/c /tmp/s x /tmp/p.json"):
+        assert hook(cmd, atype, aid).decision == "allow(no-output)", cmd
+
+
+def test_scratch_home_behind_a_symlink_to_the_real_home_is_denied(tmp_path, monkeypatch):
+    (tmp_path / "scratch").mkdir()
+    scratch = (tmp_path / "scratch").resolve()
+    real_home = tmp_path.resolve() / "realhome"
+    (real_home / ".claude").mkdir(parents=True)
+    (scratch / "h").symlink_to(real_home)                       # scratch/h -> the real home
+    (scratch / "ok").mkdir()
+    monkeypatch.setattr(G, "TMP_ROOTS", (str(scratch),))
+    monkeypatch.setenv("TMPDIR", str(scratch))
+    monkeypatch.setenv("HOME", str(real_home))
+    link, ok = scratch / "h", scratch / "ok"
+    assert kind(f"HOME={link} CLAUDE_CONFIG_DIR={link}/.claude ./install.sh") == "install"
+    assert kind(f"HOME={ok} CLAUDE_CONFIG_DIR={link}/.claude ./install.sh") == "install"
+    assert kind(f"HOME={link}/new CLAUDE_CONFIG_DIR={ok}/c ./install.sh") == "install"   # missing tail
+    assert kind(f"HOME={link}/../x CLAUDE_CONFIG_DIR={ok}/c ./install.sh") == "install"  # physical ..
+    assert scan(f"HOME={ok} CLAUDE_CONFIG_DIR={ok}/.claude ./install.sh") is None
+    assert scan(f"HOME={ok}/x/y CLAUDE_CONFIG_DIR={ok}/x/c ./install.sh") is None        # not yet there
+    assert kind(f"python3 lib/install_state.py apply {link}/.claude s p r c o") == "install"
+    assert scan(f"python3 lib/install_state.py apply {ok}/.claude s p r c o") is None
+
+
+def test_tmp_literal_resolves_symlinks_and_missing_tails(tmp_path, monkeypatch):
+    (tmp_path / "t").mkdir()
+    (tmp_path / "away").mkdir()
+    root = (tmp_path / "t").resolve()
+    (root / "l").symlink_to(tmp_path.resolve() / "away")
+    monkeypatch.setattr(G, "TMP_ROOTS", (str(root),))
+    monkeypatch.setenv("TMPDIR", "/nonexistent-tmp-root")
+    assert G._r2_tmp_literal(str(root / "d" / "e"))
+    assert not G._r2_tmp_literal(str(root / "l"))
+    assert not G._r2_tmp_literal(str(root / "l" / "new" / "x"))
+    assert not G._r2_tmp_literal(str(root / "nope" / ".." / ".." / "away"))
+    assert not G._r2_tmp_literal("relative/x") and not G._r2_tmp_literal(str(root))
+
+
 def test_bash_x_installer_keeps_secrets_kind():
     assert kind("bash -x install.sh") == "secrets"
 
@@ -317,6 +448,10 @@ WEB_TOOLS = [
     ("mcp__huggingface__hub_repo_search", {}), ("mcp__markitdown__convert_to_markdown", {}),
     ("mcp__magg__pw_navigate", {}), ("mcp__magg__cdt_navigate_page", {}),
     ("mcp__magg__docling_convert", {}),
+    ("mcp__libdocs__get_library_docs", {}), ("mcp__libdocs__resolve_library", {}),
+    ("mcp__magg__arxiv_search_papers", {}), ("mcp__magg__arxiv_download_paper", {}),
+    ("mcp__magg__proxy", {"action": "call"}), ("mcp__magg__magg_search_servers", {}),
+    ("mcp__computer-use__screenshot", {}), ("mcp__some-new-server__fetch", {}),
     ("Bash", {"command": "curl -s https://example.com | head"}),
     ("Bash", {"command": "cd x && wget https://example.com/f"}),
     ("Bash", {"command": "http GET example.com"}), ("Bash", {"command": "https example.com"}),
@@ -330,8 +465,11 @@ NOT_WEB = [
     ("Read", {"file_path": "/x"}), ("Bash", {"command": "ls -l"}),
     ("Bash", {"command": "git remote add o https://example.com/r.git"}),
     ("Bash", {"command": "echo curl"}), ("Bash", {"command": "grep -rn wget ."}),
-    ("mcp__neural-memory__nmem_recall", {"query": "q"}), ("mcp__libdocs__get_library_docs", {}),
-    ("mcp__magg__list_servers", {}), ("Edit", {}),
+    ("mcp__neural-memory__nmem_recall", {"query": "q"}),
+    ("mcp__neural-memory__nmem_remember", {"content": "x", "tags": ["p"]}),
+    ("mcp__magg__magg_list_servers", {}), ("mcp__magg__magg_status", {}),
+    ("mcp__magg__duckdb_query", {}), ("mcp__wolfram__wolfram_alpha", {}),
+    ("mcp__image-studio__generate_svg", {}), ("mcp__ide__getDiagnostics", {}), ("Edit", {}),
 ]
 
 
