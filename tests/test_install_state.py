@@ -269,3 +269,60 @@ def test_lsp_npm_installs_pinned_without_scripts():
         assert re.search(r'(?m)^\s*%s="[a-z-]+@\d+\.\d+\.\d+"$' % var, text), var
     assert re.search(r'TSLS="typescript-language-server@\d+\.\d+\.\d+"', text)
     assert 'npm_g pyright ' not in text and 'npm_g "$TSLS" typescript ' not in text
+
+
+def test_restore_keeps_the_current_entry_where_it_skips_a_link(conf, tmp_path, capsys):
+    """R3-RESTORE-LINK: skills/pe was a link out of C before the install, which put the stack's
+    skill there. --restore without --force skips the link and keeps the stack's skill (it used to
+    remove it too, leaving the skill missing); --force puts the link back."""
+    out = tmp_path / "dotfiles-pe"
+    write(str(out / "SKILL.md"), "mine\n")
+    write(os.path.join(conf, "skills", "pe", "SKILL.md"), "stack\n")
+    write(os.path.join(conf, "skills", "pe", "ref", "a.md"), "ref\n")
+    write(os.path.join(conf, "agents", "new.md"), "added\n")
+    root = str(tmp_path / "bk")
+    bdir = st.empty_backup(conf, root, "c0")
+    meta = json.load(open(os.path.join(bdir, "backup.json")))
+    meta["entries"]["skills/pe"] = {"type": "l", "target": str(out)}
+    meta["added"] = ["skills/pe/SKILL.md", "skills/pe/ref/a.md", "agents/new.md"]
+    st.write_json(os.path.join(bdir, "backup.json"), meta)
+    work = str(tmp_path / "w1")
+    os.makedirs(work)
+    st.restore(conf, bdir, root, work, "c1", str(tmp_path))
+    assert "skipped skills/pe" in capsys.readouterr().out
+    pe = os.path.join(conf, "skills", "pe")
+    assert not os.path.islink(pe) and open(os.path.join(pe, "SKILL.md")).read() == "stack\n"
+    assert os.path.exists(os.path.join(pe, "ref", "a.md"))
+    assert not os.path.exists(os.path.join(conf, "agents", "new.md"))   # other added files go
+    work = str(tmp_path / "w2")
+    os.makedirs(work)
+    st.restore(conf, bdir, root, work, "c1", str(tmp_path), force=True)
+    assert os.readlink(pe) == str(out) and (out / "SKILL.md").read_text() == "mine\n"
+
+
+def test_file_link_inside_a_symlinked_agents_dir_is_never_replaced(conf, tmp_path):
+    """R3-WTL-INNER: agents -> dot/agents and dot/agents/coder.md -> coder-local.md (yours): with
+    --write-through-links the stack's coder.md is skipped with a note, never written over the link
+    in your checkout; the other agents are written through."""
+    dot = tmp_path / "dot" / "agents"
+    write(str(dot / "coder-local.md"), "mine\n")
+    os.symlink("coder-local.md", str(dot / "coder.md"))
+    import shutil
+    shutil.rmtree(os.path.join(conf, "agents"))
+    os.symlink(str(dot), os.path.join(conf, "agents"))
+    s = str(tmp_path / "s")
+    os.makedirs(s)
+    snap = st.stage(conf, s)
+    staged = os.path.join(s, "agents", "coder.md")
+    os.unlink(staged)                                   # the render writes the stack's file
+    write(staged, "stack coder\n")
+    write(os.path.join(s, "agents", "writer.md"), "stack writer\n")
+    plan = st.make_plan(conf, s, str(tmp_path / "none.json"))
+    assert "agents/coder.md" not in plan["changed"] + plan["added"] + plan["removed"]
+    assert plan["added"] == ["agents/writer.md"]
+    notes = [n for n in plan["notes"] if n.startswith("agents/coder.md:")]
+    assert len(notes) == 1 and "a link inside your symlinked agents/" in notes[0], plan["notes"]
+    st.apply_plan(conf, s, plan, str(tmp_path / "bk"), "c0", snap=snap)
+    assert os.readlink(str(dot / "coder.md")) == "coder-local.md"
+    assert (dot / "coder-local.md").read_text() == "mine\n"
+    assert (dot / "writer.md").read_text() == "stack writer\n"

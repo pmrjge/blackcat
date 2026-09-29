@@ -215,6 +215,11 @@ def make_plan(c, s, report_path, default_why="not part of the stack", keep_linke
     through = [r for r in added + changed if any(r.startswith(k + "/") for k in kept_links)]
     added = [r for r in added if r not in through]
     changed = [r for r in changed if r not in through]
+    # a file link there (agents -> ~/dot/agents, ~/dot/agents/coder.md -> elsewhere) stays too:
+    # the stack's version would replace your link in the checkout with a regular file
+    inner_links = [r for r in changed
+                   if keep_linked and r.split("/")[0] in linked and before[r][0] == "l"]
+    changed = [r for r in changed if r not in inner_links]
     reasons = report.get("removed") or {}
     replaced = report.get("replaced") or {}
     dirs = [k for k in reasons if k.endswith("/")]
@@ -242,6 +247,9 @@ def make_plan(c, s, report_path, default_why="not part of the stack", keep_linke
                 notes.append("%s: kept (a link inside your symlinked %s/); the stack's %d file(s) "
                              "there are not written through it" % (k, d, n))
                 mine.remove(k)
+        for r in [r for r in inner_links if r.split("/")[0] == d]:
+            notes.append("%s: kept (a link inside your symlinked %s/); the stack's version is not "
+                         "written over it" % (r, d))
         for r in mine[:20]:
             notes.append("%s: kept (%s/ is a symlink; the stack doesn't ship it)" % (r, d))
         if len(mine) > 20:
@@ -596,24 +604,34 @@ def restore(c, which, root, work, commit, home, dry=False, force=False):
     s = os.path.join(work, "restore")
     os.makedirs(s)
     snap = stage(c, s)
+    real_c = os.path.realpath(c)
+    # a saved link whose target leaves C comes back only with force; without it, what is at that
+    # path now stays (the files the install added below it too), so nothing goes missing
+    skipped = []
+    for rel, e in entries.items():
+        if e.get("type") != "l" or force:
+            continue
+        target = str(e.get("target") or "")
+        at = os.path.join(real_c, os.path.dirname(rel), target)
+        if not target or "\x00" in target or not (
+                within(os.path.normpath(at), real_c) and within(os.path.realpath(at), real_c)):
+            print("  ! skipped %s: it was a link to %s, outside %s; what is there now stays "
+                  "(restore it with --force, or: ln -s '%s' '%s')"
+                  % (rel, target, c, target, os.path.join(c, rel)))
+            skipped.append(rel)
+
+    def kept(rel):
+        return any(rel == k or rel.startswith(k + "/") for k in skipped)
+
     for rel in added:
         p = os.path.join(s, rel)
-        if os.path.islink(p) or os.path.isfile(p):
+        if not kept(rel) and (os.path.islink(p) or os.path.isfile(p)):
             os.unlink(p)
-    real_c = os.path.realpath(c)
     for rel, e in entries.items():
+        if kept(rel):
+            continue
         src = os.path.join(bdir, "files", rel)
         dst = os.path.join(s, rel)
-        if e.get("type") == "l":
-            target = str(e.get("target") or "")
-            at = os.path.join(real_c, os.path.dirname(rel), target)
-            if not target or "\x00" in target or not (
-                    within(os.path.normpath(at), real_c) and within(os.path.realpath(at), real_c)):
-                if not force:
-                    print("  ! skipped %s: it was a link to %s, outside %s (restore it with "
-                          "--force, or: ln -s '%s' '%s')" % (rel, target, c, target,
-                                                             os.path.join(c, rel)))
-                    continue
         os.makedirs(os.path.dirname(dst), exist_ok=True)
         if os.path.lexists(dst):
             if os.path.isdir(dst) and not os.path.islink(dst):
