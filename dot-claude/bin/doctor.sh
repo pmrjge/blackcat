@@ -236,12 +236,12 @@ else:
           % (len(agents) + len(copies), len(agents) + len(copies), len(agents) - 1, len(copies)))
 if "senior-coder" in extra:
     extra.remove("senior-coder")
-    print("  WARN  agents/senior-coder.md is the stack's old name for main-coder, kept because you edited it:"
-          " move your changes into main-coder.md and delete it")
+    print("  WARN  agents/senior-coder.md is the stack's old name for main-coder (install.sh --no-prune kept it):"
+          " move your changes into main-coder.md and delete it, or rerun install.sh (the backup keeps it)")
 if "router" in extra:
     extra.remove("router")
-    print("  WARN  agents/router.md is the stack's old name for blackcat, kept because you edited it:"
-          " move your changes into blackcat.md and delete it")
+    print("  WARN  agents/router.md is the stack's old name for blackcat (install.sh --no-prune kept it):"
+          " move your changes into blackcat.md and delete it, or rerun install.sh (the backup keeps it)")
 # a copy file the installed hook's policy doesn't know yet (hook older than the agents)
 for a in [x for x in extra if x.endswith("-copy") and x[:-5] in agents]:
     extra.remove(a)
@@ -292,7 +292,11 @@ except (OSError, ValueError):
 mode = lambda h: str(h.get("command")).rsplit("agent_guard.py", 1)[-1].strip().strip('"').split()
 cmds = sorted({h.get("command") for g in hooks.get("PreToolUse", []) if isinstance(g, dict)
                for h in g.get("hooks", []) if "agent_guard.py" in str(h.get("command"))
-               and not set(mode(h)) & {"image-limit", "no-push", "budget"}})
+               and not set(mode(h)) & {"image-limit", "no-push", "budget", "blackcat-guard"}})
+# blackcat's gate, also wired in settings.json (acts only on events naming agent_type "blackcat")
+bcmds = sorted({h.get("command") for g in hooks.get("PreToolUse", []) if isinstance(g, dict)
+                for h in g.get("hooks", []) if "agent_guard.py" in str(h.get("command"))
+                and "blackcat-guard" in mode(h)})
 # the token budgets gate every tool call: a PreToolUse group matching "*" runs `agent_guard.py budget`
 if any(isinstance(g, dict) and g.get("matcher") == "*" and "budget" in mode(h)
        for g in hooks.get("PreToolUse", []) for h in (g.get("hooks", []) if isinstance(g, dict) else [])
@@ -319,6 +323,13 @@ probes = [("settings.json PreToolUse(Agent)", cmds,
           ("blackcat.md blackcat-guard", [rcmd] if rcmd else [],
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Bash",
             "agent_type": "blackcat", "prompt_id": "doctor", "tool_input": {"command": "true"}}),
+          ("settings.json PreToolUse blackcat-guard --settings", bcmds,
+           {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "agent_type": "blackcat", "prompt_id": "doctor", "tool_input": {"command": "true"}}),
+          ("settings.json PreToolUse(Bash) read-only reviewers", pcmds,
+           {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Bash",
+            "agent_id": "doctor-reviewer", "agent_type": "code-reviewer",
+            "tool_input": {"command": "git commit -qm doctor-probe"}}),
           ("settings.json PreToolUse(Bash) no-push", pcmds,
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Bash",
             "tool_input": {"command": "git -C . push origin main"}}),

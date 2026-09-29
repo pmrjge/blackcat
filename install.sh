@@ -7,20 +7,33 @@
 #                                 rust-analyzer; HLS, LanguageServer.jl, Metals, kotlin-lsp when ghcup,
 #                                 julia, cs, kotlin are present) before enabling the code-intelligence plugins
 #   ./install.sh --with-adobe    also build the After Effects MCP + install the Premiere connector (macOS)
-#   ./install.sh --with-extra-plugins  also install Anthropic's skill-creator, mcp-server-dev and
-#                                 math-olympiad plugins (their skills load on demand)
+#   ./install.sh --with-extra-plugins  also install Anthropic's skill-creator and math-olympiad
+#                                 plugins (their skills load on demand)
 #   ./install.sh --no-mcp        skip registering user-scope MCP servers
 #   ./install.sh --no-plugins    skip plugins (document skills, code-intelligence/LSP plugins)
-#   ./install.sh --dedupe-plugins  disable the document-skills and skill-creator plugins where claude.ai
-#                                 syncs the same skills (prints the command that re-enables them)
+#   ./install.sh --keep-plugin-duplicates  keep the document-skills and skill-creator plugins enabled
+#                                 where claude.ai syncs the same skills (default: disabled, one copy)
 #   ./install.sh --replace-mcp   re-register exa/jina/wolfram/huggingface/wandb even if you configured them
-#   ./install.sh --force         overwrite agent, rules and skill files you edited since the last install
 #   ./install.sh --no-deps       skip brew/uv/node/magg/huetension/venv installs and MCP dep prefetch
 #                                 (missing tools become warnings instead of installs)
 #   ./install.sh --no-profile    leave your shell rc file alone (don't add the stack.env source line)
+#   ./install.sh --dry-run       print every change (files, removals, MCP, plugins, rc) and make none
+#   ./install.sh --no-prune      keep what isn't part of the stack and your edits to stack files
+#                                 (default: they are backed up, then removed or replaced)
+#   ./install.sh --force         with --no-prune: still replace stack files you edited
+#   ./install.sh --restore [DIR] put the config dir back as it was before an install (DIR: a backup;
+#                                 default: the latest), then exit
+#   ./install.sh --print-managed-settings  print an optional managed-settings.json that pins the
+#                                 stack's guards against edits (you install it; see CONFIG.md)
 #   ./install.sh --mcp-plan      print the MCP server add/migrate/replace/keep plan and make no changes
-# Re-runnable: the files it replaces are backed up to $C/backup-<timestamp>-*/ first (a run that
-# changes nothing keeps no duplicate backup).
+# Default pruning: the installed agents/ and skills/ hold exactly the stack's files (your own and
+# edited ones are removed or replaced), and stack config the stack no longer ships (hooks, rules,
+# magg catalog entries, MCP entries it registered, duplicate hook wiring) goes. Everything changed
+# or removed is saved first into one backup outside the config dir,
+# ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack-backups/<timestamp>-*/ (0700; agents can't
+# read it), and the run prints the list and the restore command. A run that changes nothing makes
+# no backup. Never touched: credentials, ~/.claude.json (MCP changes go through `claude mcp`),
+# the claude.ai-synced skills, plugins' own files, projects and sessions.
 # CLAUDE_CONFIG_DIR overrides the install target (default ~/.claude).
 # STACK_CLAUDE_JSON overrides which JSON file the MCP plan reads (default: $C/.claude.json when
 # CLAUDE_CONFIG_DIR is set — Claude Code then uses only that file —, else ~/.claude.json). The
@@ -28,8 +41,10 @@
 set -euo pipefail
 
 WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; WITH_EXTRA_PLUGINS=0; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; NO_DEPS=0
-NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=0; ORIG_ARGS="$*"
-for a in "$@"; do
+NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; PRUNE=1; RESTORE=""; PRINT_MANAGED=0; ORIG_ARGS="$*"
+i=0; argv=("$@")
+while [ "$i" -lt "${#argv[@]}" ]; do
+  a="${argv[$i]}"
   case "$a" in
     --with-adobe) WITH_ADOBE=1 ;;
     --with-ml) WITH_ML=1 ;;
@@ -37,16 +52,30 @@ for a in "$@"; do
     --with-extra-plugins) WITH_EXTRA_PLUGINS=1 ;;
     --no-mcp) SKIP_MCP=1 ;;
     --no-plugins) SKIP_PLUGINS=1 ;;
-    --dedupe-plugins) DEDUPE_PLUGINS=1 ;;
+    --dedupe-plugins) DEDUPE_PLUGINS=1 ;;          # the default now; accepted for old scripts
+    --keep-plugin-duplicates) DEDUPE_PLUGINS=0 ;;
     --replace-mcp) REPLACE_MCP=1 ;;
     --force) FORCE=1 ;;
     --no-deps) NO_DEPS=1 ;;
     --no-profile) NO_PROFILE=1 ;;
     --mcp-plan) MCP_PLAN=1 ;;
-    -h|--help) sed -n '2,27p' "$0"; exit 0 ;;
+    --dry-run) DRY_RUN=1 ;;
+    --no-prune) PRUNE=0 ;;
+    --print-managed-settings) PRINT_MANAGED=1 ;;
+    --restore)
+      nxt="${argv[$((i + 1))]:-}"
+      case "$nxt" in ""|-*) RESTORE=latest ;; *) RESTORE="$nxt"; i=$((i + 1)) ;; esac ;;
+    --restore=*) RESTORE="${a#--restore=}" ;;
+    -h|--help) sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown option: $a"; exit 2 ;;
   esac
+  i=$((i + 1))
 done
+# --print-managed-settings: the JSON is the only thing on stdout (fd 3); progress goes to stderr
+if [ "$PRINT_MANAGED" = 1 ]; then exec 3>&1 1>&2; fi
+# the plugin lists the installer manages (tests/test_no_duplicates.py reads these two lines)
+EXTRA_PLUGINS="skill-creator math-olympiad"
+RETIRED_PLUGINS="mcp-server-dev@claude-plugins-official"
 # macOS only. Linux support was dropped; the repo's own tests run the installer on Linux with
 # STACK_ALLOW_NON_MACOS=1 (nothing else is supported there).
 if [ "$(uname)" != "Darwin" ] && [ "${STACK_ALLOW_NON_MACOS:-0}" != 1 ]; then
@@ -99,6 +128,8 @@ main_branch_rule(){
   [ "${STACK_MAIN_REEXEC:-}" != 1 ] || guard_fail "the re-run from the $MAIN_BRANCH checkout found $HERE on '$label' — stopping."
   [ "$MCP_PLAN" != 1 ] || guard_fail "$HERE is on '$label', not $MAIN_BRANCH, and --mcp-plan changes nothing (so it does not merge)." \
     "Run it from the checkout on $MAIN_BRANCH, or run ./install.sh here without --mcp-plan to fast-forward $MAIN_BRANCH first."
+  [ "$DRY_RUN" != 1 ] || guard_fail "$HERE is on '$label', not $MAIN_BRANCH, and --dry-run changes nothing (so it does not merge)." \
+    "Run it from the checkout on $MAIN_BRANCH, or run ./install.sh here without --dry-run to fast-forward $MAIN_BRANCH first."
 
   # 1. this checkout is clean: uncommitted or untracked files would not reach main
   dirty="$(repo_git -C "$HERE" status --porcelain --untracked-files=normal)"
@@ -150,9 +181,26 @@ main_branch_rule ${1+"$@"}
 
 SRC="$HERE/dot-claude"
 C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
-mkdir -p "$C"
-C="$(cd "$C" && pwd)"
+# The same (logical) path in every mode, so a dry run renders exactly what a real run would.
+if [ "$DRY_RUN" = 1 ] || [ "$PRINT_MANAGED" = 1 ] || [ -n "$RESTORE" ]; then
+  [ -d "$C" ] || [ "$DRY_RUN" = 1 ] || [ "$PRINT_MANAGED" = 1 ] || { echo "no config dir at $C"; exit 1; }
+else
+  mkdir -p "$C"
+fi
+if [ -d "$C" ]; then C="$(cd "$C" && pwd)"
+else C="$(python3 -c 'import os, sys; print(os.path.abspath(sys.argv[1]))' "$C")"; fi
 OS="$(uname)"
+# Hook state (agent_guard.py) and the installer's backups. Backups live beside the state dir, not in
+# it: the guard deletes state-dir folders idle for three days. Agents can't read or write either
+# (settings.json deny rules, sandbox denyRead/denyWrite, the guard's protected paths).
+STACK_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack"
+BACKUP_ROOT="${STACK_STATE}-backups"
+STATE_PY="$HERE/lib/install_state.py"
+STACK_COMMIT="$(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
+WORK="$(mktemp -d)"
+trap 'rm -rf "$WORK"' EXIT
+# --dry-run: nothing outside $WORK is written; commands that would change something are printed.
+would(){ printf '  would: %s\n' "$*"; }
 say(){ printf '\n\033[1m%s\033[0m\n' "$*"; }
 note(){ printf '  %s\n' "$*"; }
 have(){ command -v "$1" >/dev/null 2>&1; }
@@ -170,14 +218,60 @@ ORIG_PATH="$PATH"
 case ":$PATH:" in *":$HOME/.local/bin:"*) ;; *) export PATH="$PATH:$HOME/.local/bin" ;; esac
 MIN_CLAUDE=2.1.271
 
+if [ -n "$RESTORE" ]; then
+  say "Restore ($C)"
+  if [ "$DRY_RUN" = 1 ]; then
+    python3 "$STATE_PY" restore "$C" "$RESTORE" "$BACKUP_ROOT" "$WORK" "$STACK_COMMIT" "$HOME" --dry-run || exit 1
+  else
+    python3 "$STATE_PY" restore "$C" "$RESTORE" "$BACKUP_ROOT" "$WORK" "$STACK_COMMIT" "$HOME" || exit 1
+  fi
+  # MCP entries (removed, or replaced by the stack's) come back from the backup, plugins it disabled
+  # are enabled again. The entries go to `claude mcp add-json` through a 0600 file in $WORK, one per
+  # line of the list, never through this shell's variables or a log.
+  python3 - "$WORK/restore.json" "$WORK" >"$WORK/restore.tsv" <<'PY'
+import json, os, sys
+r, work = json.load(open(sys.argv[1])), sys.argv[2]
+for kind in ("mcp_removed", "mcp_replaced"):
+    for i, (name, entry) in enumerate(sorted(r[kind].items())):
+        p = os.path.join(work, "mcp-%s-%d.json" % (kind, i))
+        fd = os.open(p, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        with os.fdopen(fd, "w") as f:
+            json.dump(entry, f)
+        print("%s\t%s\t%s" % (kind, name, p))
+for pid in r["plugins_disabled"]:
+    print("plugin\t%s\t-" % pid)
+if r["undo"]:
+    print("undo\t%s\t-" % r["undo"])
+PY
+  while IFS=$'\t' read -r kind name val; do
+    case "$kind" in
+      mcp_removed|mcp_replaced)
+        if [ "$DRY_RUN" = 1 ]; then would "claude mcp add-json -s user $name <its entry in the backup>  (${kind#mcp_} by the install)"
+        elif [ "$kind" = mcp_removed ] && claude mcp get "$name" >/dev/null 2>&1 </dev/null; then note "= MCP server $name exists — kept as is"
+        else
+          [ "$kind" = mcp_replaced ] && claude mcp remove -s user "$name" >/dev/null 2>&1 </dev/null
+          if claude mcp add-json -s user "$name" "$(cat "$val")" >/dev/null 2>&1 </dev/null; then note "+ put back MCP server $name"
+          else note "! put back MCP server $name yourself: claude mcp add-json -s user $name '<its entry in the backup.json>'"; fi
+        fi ;;
+      plugin)
+        if [ "$DRY_RUN" = 1 ]; then would "claude plugin enable $name --scope user"
+        elif claude plugin enable "$name" --scope user >/dev/null 2>&1 </dev/null; then note "+ re-enabled plugin $name"
+        else note "! claude plugin enable $name --scope user"; fi ;;
+      undo) [ -n "$name" ] && note "undo this restore: $0 --restore $name" ;;
+    esac
+  done <"$WORK/restore.tsv"
+  [ "$DRY_RUN" = 1 ] && say "Dry run done: nothing was restored."
+  exit 0
+fi
+
 say "1/11 Prerequisites"
 # Run them, don't just look them up: on a Mac without the Command Line Tools /usr/bin/python3 and
 # /usr/bin/git exist as stubs that only open the CLT installer.
 python3 -c 'import sys; sys.exit(sys.version_info < (3, 8))' >/dev/null 2>&1 \
   || { echo "python3 (3.8+) is required and must run (macOS: xcode-select --install)"; exit 1; }
 git --version >/dev/null 2>&1 || { echo "git is required (macOS: xcode-select --install)"; exit 1; }
-have claude || { echo "Claude Code is required: curl -fsSL https://claude.ai/install.sh | bash"; exit 1; }
-CLAUDE_V="$(claude --version 2>/dev/null </dev/null | awk '{print $1}' || true)"
+have claude || [ "$PRINT_MANAGED" = 1 ] || { echo "Claude Code is required: curl -fsSL https://claude.ai/install.sh | bash"; exit 1; }
+CLAUDE_V="$( { have claude && claude --version 2>/dev/null </dev/null; } | awk '{print $1}' || true)"
 note "claude ${CLAUDE_V:-unknown}"
 if [ -n "$CLAUDE_V" ] && [ "$(printf '%s\n%s\n' "$MIN_CLAUDE" "$CLAUDE_V" | sort -t. -k1,1n -k2,2n -k3,3n | head -n1)" != "$MIN_CLAUDE" ]; then
   note "! claude $CLAUDE_V is older than $MIN_CLAUDE, which this stack is built for — run: claude update"
@@ -226,6 +320,43 @@ PY
 fi
 export STACK_PYTHON
 note "hook interpreter: $STACK_PYTHON"
+
+# Optional hardening the installer never installs itself (it would be root-owned): a
+# managed-settings.json that repeats the stack's guard hook, its protected-path deny rules and its
+# sandbox, so editing ~/.claude/settings.json can no longer switch them off. JSON on stdout,
+# instructions on stderr: ./install.sh --print-managed-settings > managed-settings.json
+if [ "$PRINT_MANAGED" = 1 ]; then
+  python3 - "$SRC/settings.json" "$C" "$STACK_PYTHON" "$BACKUP_ROOT" <<'PY' >&3
+import json, sys
+src, c, py, backups = sys.argv[1:5]
+text = open(src, encoding="utf-8").read()
+for k, v in (("__CLAUDE_DIR__", c), ("__PYTHON3__", py), ("__STACK_BACKUPS__", backups)):
+    text = text.replace(k, json.dumps(v)[1:-1])
+s = json.loads(text)
+deny = [r for r in s["permissions"]["deny"]
+        if r.startswith(("Edit(//", "Read(//")) or r.startswith(("Edit(.git", "Edit(.claude", "Edit(~/"))]
+guard = [g for g in s["hooks"]["PreToolUse"] if "no-push" in json.dumps(g)]
+sb = s["sandbox"]
+managed = {
+    "permissions": {"deny": deny},
+    "hooks": {"PreToolUse": guard},
+    "sandbox": {"enabled": True, "allowUnsandboxedCommands": False,
+                "filesystem": {"denyWrite": sb["filesystem"]["denyWrite"], "denyRead": sb["filesystem"]["denyRead"]},
+                "network": {"strictAllowlist": True, "allowedDomains": sb["network"]["allowedDomains"]},
+                "credentials": sb.get("credentials", {})},
+}
+json.dump(managed, sys.stdout, indent=2)
+sys.stdout.write("\n")
+sys.stderr.write(
+    "\nOptional hardening (CONFIG.md, 'Managed settings'). Review the JSON above, then install it yourself:\n"
+    "  macOS: sudo mkdir -p '/Library/Application Support/ClaudeCode' && sudo cp managed-settings.json "
+    "'/Library/Application Support/ClaudeCode/managed-settings.json'\n"
+    "  Linux: sudo mkdir -p /etc/claude-code && sudo cp managed-settings.json /etc/claude-code/managed-settings.json\n"
+    "Managed settings outrank ~/.claude/settings.json; an invalid file stops Claude Code from starting.\n"
+    "Re-print and re-install it after an install that changed the stack's hook or deny rules.\n")
+PY
+  exit 0
+fi
 
 # MCP plan: which user-scope remote servers to add, migrate (plaintext key -> headersHelper),
 # replace (--replace-mcp) or keep. Read-only: sets PLAN (action, name, desired JSON, previous
@@ -353,26 +484,64 @@ if [ "$MCP_PLAN" = 1 ]; then
 fi
 
 say "2/11 Tools: magg, huetension, science venv"
-SCI_PKGS="sympy numpy scipy mpmath pandas polars duckdb pyarrow matplotlib seaborn networkx pint statsmodels scikit-learn pdfplumber pypdf openpyxl python-docx python-pptx nbformat nbclient ipykernel z3-solver hypothesis"
-if [ "$NO_DEPS" = 1 ]; then
-  note "--no-deps: skipping brew/uv/node/magg/huetension/venv installs"
-  have uv || note "! uv missing — install manually: curl -LsSf https://astral.sh/uv/install.sh | sh"
-  have node || note "! node missing — install manually (Node.js 22.5+)"
-  have magg || note "! magg missing — uv tool install magg"
-  have huetension || note "! huetension missing — designer works without color MCP; see README"
-  [ -x "$C/venvs/sci/bin/python" ] || note "! science venv missing at $C/venvs/sci"
+# Supply chain (C7): every download is pinned to a version and, where the project publishes one, a
+# checksum; the Python venvs install from hash-locked lockfiles (requirements/, 7-day cooldown).
+UV_VERSION=0.12.20
+MAGG_VERSION=1.2.1                         # 1.3.0 (2026-09-26) is inside the 7-day cooldown
+MAGG_EXCLUDE_NEWER=2026-09-22T00:00:00Z    # dependency cooldown for magg's own requirements
+HUETENSION_VERSION=0.3.0
+uv_target(){ case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) echo "aarch64-apple-darwin 848fdeb602ff1a1baacd4f6c8b7bdc6cf1ad026a6d9cf59475fda17c179743ca" ;;
+  Darwin-x86_64) echo "x86_64-apple-darwin ac54283d211fd77cdc152b67606dbaf6406ff4ab03f3af4ae99468fa8e887141" ;;
+  Linux-x86_64) echo "x86_64-unknown-linux-gnu 6590717592ace991ff83a63fef799e3ad9d33ecc8f96c5d6bdd732496e79337f" ;;
+  Linux-aarch64|Linux-arm64) echo "aarch64-unknown-linux-gnu 8a7aad7bc76a2fae5151566ff3e43eacce0b2a113d5e4de3e4afe3e58fa2441e" ;;
+esac; }
+huetension_target(){ case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) echo "darwin_arm64 06515cb8a60275314d0d5a8a7c8bc455f34e644979f7c213c5200b9fefedc5b8" ;;
+  Darwin-x86_64) echo "darwin_amd64 820915b40b75ddfb8a0e50f8e2c3b862066595d401f54722b67043aaefb8c9c6" ;;
+  Linux-x86_64) echo "linux_amd64 af433e75fa0db503a9d71fc6930cd6cbaddff9d0077c4b71e22ed8e1972389c2" ;;
+  Linux-aarch64|Linux-arm64) echo "linux_arm64 9179f76692822b59fe7ea7ddf03c42c49530474710e48562468835dee653bfac" ;;
+esac; }
+sha256_ok(){ printf '%s  %s\n' "$1" "$2" | shasum -a 256 -c - >/dev/null 2>&1; }
+# fetch URL, check its sha256, extract MEMBER(s) of the tarball into DIR: fetch_verified URL SUM DIR MEMBER...
+fetch_verified(){
+  local url="$1" sum="$2" dir="$3"; shift 3
+  local t; t="$(mktemp -d)"
+  if curl -fsSL -o "$t/a.tgz" "$url" && sha256_ok "$sum" "$t/a.tgz" && tar -xzf "$t/a.tgz" -C "$dir" "$@"; then
+    rm -rf "$t"; return 0
+  fi
+  rm -rf "$t"; return 1
+}
+venv_sync(){  # venv_sync NAME REQS [uv pip flags]: hash-locked install into $C/venvs/NAME (Python 3.12)
+  local name="$1" reqs="$2"; shift 2
+  [ -x "$C/venvs/$name/bin/python" ] || uv venv --quiet --python 3.12 "$C/venvs/$name"
+  uv pip install --quiet --python "$C/venvs/$name/bin/python" --require-hashes "$@" -r "$reqs"
+}
+if [ "$NO_DEPS" = 1 ] || [ "$DRY_RUN" = 1 ]; then
+  if [ "$NO_DEPS" = 1 ]; then note "--no-deps: skipping brew/uv/node/magg/huetension/venv installs"
+  else note "--dry-run: listing the tool installs a real run would do"; fi
+  miss(){ if [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ]; then would "$2"; else note "! $1 missing — $2"; fi; }
+  have uv || miss uv "install uv $UV_VERSION (brew, else the checksummed release tarball into ~/.local/bin)"
+  have node || miss node "install Node.js 22.5+ (brew install node)"
+  have magg || miss magg "uv tool install --exclude-newer $MAGG_EXCLUDE_NEWER magg==$MAGG_VERSION"
+  have huetension || miss huetension "install huetension v$HUETENSION_VERSION (checksummed release tarball; designer works without it)"
+  if [ -x "$C/venvs/sci/bin/python" ]; then [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ] && would "sync $C/venvs/sci to requirements/sci.txt (--require-hashes)"
+  else miss "science venv at $C/venvs/sci" "uv venv $C/venvs/sci && uv pip install --require-hashes --only-binary :all: -r requirements/sci.txt"; fi
 else
   if ! have uv; then
     if have brew; then brew install uv
     else
-      # The uv installer adds ~/.local/bin to your shell profile only when that directory is not on
-      # PATH: give it the PATH you started with (this script appended ~/.local/bin to its own), and
-      # keep it away from your profile under --no-profile.
-      if [ "$NO_PROFILE" = 1 ]; then
-        curl -LsSf https://astral.sh/uv/install.sh | env PATH="$ORIG_PATH" UV_NO_MODIFY_PATH=1 sh
+      # The pinned release tarball, checked against its published sha256, into ~/.local/bin (the
+      # PATH line the profile step writes covers it; nothing touches your shell profile here).
+      set -- $(uv_target)
+      if [ -n "${1:-}" ] && mkdir -p "$HOME/.local/bin" && d="$(mktemp -d)" \
+         && fetch_verified "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$1.tar.gz" "$2" "$d" \
+         && install -m 0755 "$d/uv-$1/uv" "$d/uv-$1/uvx" "$HOME/.local/bin/"; then
+        note "+ uv $UV_VERSION (checksum verified) in ~/.local/bin"
       else
-        curl -LsSf https://astral.sh/uv/install.sh | env PATH="$ORIG_PATH" sh
+        echo "uv install failed (download or checksum): install uv yourself (https://docs.astral.sh/uv/), then rerun"; exit 1
       fi
+      rm -rf "${d:-/nonexistent}"
     fi
   fi
   if ! have node; then
@@ -389,48 +558,42 @@ else
   else
     for b in ffmpeg magick rsvg-convert pdftoppm; do have "$b" || note "optional tool missing: $b (with Homebrew: brew install ffmpeg imagemagick librsvg poppler)"; done
   fi
-  # `uv tool install` exits 0 when magg is already installed, so upgrade first, install if absent.
-  uv tool upgrade --quiet magg 2>/dev/null || uv tool install --quiet magg || true
+  # magg pinned; its dependencies resolved as of the cooldown date. --force replaces another version.
+  if [ "$(magg --version 2>/dev/null | awk '{print $2}')" != "$MAGG_VERSION" ]; then
+    uv tool install --quiet --force --exclude-newer "$MAGG_EXCLUDE_NEWER" "magg==$MAGG_VERSION" \
+      || note "! magg $MAGG_VERSION install failed — uv tool install --exclude-newer $MAGG_EXCLUDE_NEWER magg==$MAGG_VERSION"
+  fi
   have magg && note "magg $(magg --version 2>/dev/null | awk '{print $2}')"
   if ! have huetension; then
     mkdir -p "$HOME/.local/bin"
-    os="$(echo "$OS" | tr '[:upper:]' '[:lower:]')"; arch="$(uname -m)"
-    case "$arch" in x86_64|amd64) arch=amd64 ;; arm64|aarch64) arch=arm64 ;; esac
-    url="$(curl -fsSL https://api.github.com/repos/leporel/huetension/releases/latest 2>/dev/null \
-      | python3 -c "import sys,json;a=[x['browser_download_url'] for x in json.load(sys.stdin).get('assets',[]) if x['name'].endswith('_${os}_${arch}.tar.gz')];print(a[0] if a else '')" 2>/dev/null || true)"
-    if [ -n "$url" ]; then
-      tmp="$(mktemp -d)"
-      if curl -fsSL "$url" | tar -xz -C "$tmp"; then
-        bin="$(find "$tmp" -type f -name huetension | head -n1)"
-        [ -n "$bin" ] && install -m 755 "$bin" "$HOME/.local/bin/huetension"
-      fi
-      rm -rf "$tmp"
-    fi
-    if ! have huetension && have go; then
+    set -- $(huetension_target)
+    d="$(mktemp -d)"
+    if [ -n "${1:-}" ] && fetch_verified "https://github.com/leporel/huetension/releases/download/v$HUETENSION_VERSION/huetension_${HUETENSION_VERSION}_$1.tar.gz" "$2" "$d" huetension; then
+      install -m 755 "$d/huetension" "$HOME/.local/bin/huetension"
+    elif have go; then
+      # module checksums come from sum.golang.org (default GOSUMDB); never GONOSUMDB/GOFLAGS=-insecure
       gobin="$(go env GOBIN 2>/dev/null)"; [ -n "$gobin" ] || gobin="$(go env GOPATH | cut -d: -f1)/bin"
-      go install github.com/leporel/huetension/cmd/huetension@latest \
+      go install "github.com/leporel/huetension/cmd/huetension@v$HUETENSION_VERSION" \
         && ln -sf "$gobin/huetension" "$HOME/.local/bin/huetension" \
         || note "huetension: go install failed (needs Go >= 1.26; Go >= 1.21 fetches it automatically)"
     fi
+    rm -rf "$d"
   fi
   have huetension && note "huetension ok" || note "! huetension missing — designer works without color MCP; see README"
-  if [ ! -x "$C/venvs/sci/bin/python" ]; then uv venv --quiet --python 3.12 "$C/venvs/sci"; fi
-  # shellcheck disable=SC2086  # word splitting of the package list is intended
-  uv pip install --quiet --python "$C/venvs/sci/bin/python" $SCI_PKGS
-  note "science venv: $C/venvs/sci"
+  if venv_sync sci "$HERE/requirements/sci.txt" --only-binary :all:; then note "science venv: $C/venvs/sci (hash-locked)"
+  else note "! science venv install failed — uv pip install --python $C/venvs/sci/bin/python --require-hashes --only-binary :all: -r $HERE/requirements/sci.txt"; fi
 fi
 
 say "3/11 ML venv (--with-ml)"
 if [ "$WITH_ML" = 0 ]; then
   if [ -x "$C/venvs/ml/bin/python" ]; then note "ML venv present: $C/venvs/ml (rerun with --with-ml to update)"; else note "skipped — ML agents use the project's environment or the science venv; add --with-ml for a shared ML venv"; fi
+elif [ "$DRY_RUN" = 1 ]; then
+  would "sync $C/venvs/ml to requirements/ml.txt (--require-hashes)"
 elif [ "$NO_DEPS" = 1 ] || ! have uv; then
   note "! --with-ml needs uv and is skipped under --no-deps"
 else
-  ML_PKGS="numpy scipy pandas polars pyarrow scikit-learn statsmodels xgboost lightgbm matplotlib seaborn torch transformers datasets accelerate peft safetensors huggingface_hub evaluate sentencepiece ipykernel nbclient"
-  if [ "$OS" = "Darwin" ] && [ "$(uname -m)" = "arm64" ]; then ML_PKGS="$ML_PKGS mlx mlx-lm[evaluate]"; fi
-  [ -x "$C/venvs/ml/bin/python" ] || uv venv --quiet --python 3.12 "$C/venvs/ml"
-  # shellcheck disable=SC2086
-  if uv pip install --quiet --python "$C/venvs/ml/bin/python" $ML_PKGS; then
+  # ml.txt holds one sdist-only package (rouge-score, hashed), so no --only-binary here
+  if venv_sync ml "$HERE/requirements/ml.txt"; then
     note "ML venv: $C/venvs/ml ($("$C/venvs/ml/bin/python" -c 'import torch,transformers;print("torch",torch.__version__,"· transformers",transformers.__version__)' 2>/dev/null || echo 'installed'))"
   else
     note "! ML venv install failed — rerun ./install.sh --with-ml, or use project environments"
@@ -440,60 +603,67 @@ fi
 say "4/11 Adobe (--with-adobe)"
 # Runs before rendering: motion-designer gets the After Effects server only once its build exists.
 AE="$C/mcp/vendor/after-effects-mcp"
+AE_SHA=88d5fbf08b7ae9f015ee98e5f8c4904095cf8202    # pinned commit (has package-lock.json)
 if [ "$WITH_ADOBE" = 0 ]; then
   if [ -f "$AE/build/index.js" ]; then note "After Effects MCP present (rerun with --with-adobe to update)"
   elif [ "$OS" = "Darwin" ]; then note "skipped — motion-designer gets the After Effects server once you run --with-adobe"
   else note "skipped (macOS only)"; fi
 elif [ "$OS" != "Darwin" ]; then
   note "Adobe apps are macOS/Windows only — skipped"
+elif [ "$DRY_RUN" = 1 ]; then
+  would "check out after-effects-mcp at $AE_SHA in $AE, npm ci --ignore-scripts, npm run build, npm run install-bridge"
+  would "npx -y premiere-pro-mcp@1.18.2 --install-cep"
 else
   mkdir -p "$C/mcp/vendor"
-  # Optional step: a failed pull/clone must not abort the installer (set -e) before the profile
-  # step, and must never sit at a git credential prompt.
+  # Optional step: a failed fetch must not abort the installer (set -e) before the profile step, and
+  # must never sit at a git credential prompt. The checkout is the pinned commit, verified; npm ci
+  # installs exactly package-lock.json with install scripts off (the build runs explicitly).
+  [ -d "$AE/.git" ] || GIT_TERMINAL_PROMPT=0 git clone -q https://github.com/Dakkshin/after-effects-mcp "$AE" </dev/null \
+    || note "! After Effects MCP: git clone failed"
   if [ -d "$AE/.git" ]; then
-    GIT_TERMINAL_PROMPT=0 git -C "$AE" pull --ff-only -q </dev/null || note "! After Effects MCP: git pull failed — keeping the current checkout"
-  else
-    GIT_TERMINAL_PROMPT=0 git clone -q --depth 1 https://github.com/Dakkshin/after-effects-mcp "$AE" </dev/null || note "! After Effects MCP: git clone failed"
+    { GIT_TERMINAL_PROMPT=0 git -C "$AE" cat-file -e "$AE_SHA^{commit}" 2>/dev/null \
+        || GIT_TERMINAL_PROMPT=0 git -C "$AE" fetch -q origin </dev/null; } \
+      && git -C "$AE" -c advice.detachedHead=false checkout -q --detach "$AE_SHA" 2>/dev/null \
+      || note "! After Effects MCP: could not check out $AE_SHA"
   fi
-  if [ -f "$AE/package.json" ]; then
-    if (cd "$AE" && npm install --no-audit --no-fund --silent && npm run -s build); then note "+ After Effects MCP built"
-    else note "! After Effects MCP build failed — cd \"$AE\" && npm install && npm run build"; fi
+  if [ -d "$AE/.git" ] && [ "$(git -C "$AE" rev-parse HEAD 2>/dev/null)" = "$AE_SHA" ] && [ -f "$AE/package-lock.json" ]; then
+    if (cd "$AE" && npm ci --ignore-scripts --no-audit --no-fund --silent && npm run -s build && test -f build/index.js); then note "+ After Effects MCP built ($AE_SHA)"
+    else note "! After Effects MCP build failed — cd \"$AE\" && npm ci --ignore-scripts && npm run build"; fi
     if (cd "$AE" && npm run -s install-bridge); then note "+ After Effects bridge panel installed"
     else note "! AE bridge: close After Effects and run: cd \"$AE\" && npm run install-bridge  (may need sudo)"; fi
+  else
+    note "! After Effects MCP: not at the pinned commit $AE_SHA — not built"
   fi
   if npx -y premiere-pro-mcp@1.18.2 --install-cep; then note "+ Premiere Pro CEP connector installed (restart Premiere; Window > Extensions > MCP for Adobe Premiere Pro)"
   else note "! Premiere connector: npx -y premiere-pro-mcp@1.18.2 --install-cep"; fi
   note "Illustrator: first tool call asks for Automation permission (System Settings > Privacy & Security > Automation)"
 fi
 
-say "5/11 Backup"
-# mktemp: two runs in the same second must not share (and overwrite) one backup folder.
-TS="$(date +%Y%m%d-%H%M%S)"; B="$(mktemp -d "$C/backup-$TS-XXXXXX")"
-# (CLAUDE.md is yours now: the installer only ever moves the stack's old unedited copy into $B/retired/)
-for f in settings.json magg/config.json; do
-  if [ -f "$C/$f" ]; then mkdir -p "$B/$(dirname "$f")"; cp "$C/$f" "$B/$f"; fi
-done
-for d in agents rules skills hooks bin mcp; do
-  [ -d "$SRC/$d" ] || continue
-  for x in "$SRC/$d"/*; do
-    n="$(basename "$x")"
-    [ "$n" = "__pycache__" ] && continue
-    if [ -e "$C/$d/$n" ]; then mkdir -p "$B/$d"; cp -R "$C/$d/$n" "$B/$d/"; fi
-  done
-done
-note "backup: $B"
+say "5/11 Stage (a working copy of the stack's part of $C)"
+# Nothing in $C changes until step 7 has validated the result: the stack's part of it (agents/,
+# skills/ but the synced ones, rules/, hooks/, bin/, mcp/ but vendor/, stack-plugins/, magg's
+# catalog, settings.json, stack.env, the manifest) is copied to $S, and steps 5-7 work there.
+S="$WORK/stage"; REPORT="$WORK/report.json"; PLAN_JSON="$WORK/plan.json"
+mkdir -p "$S"
+python3 "$STATE_PY" stage "$C" "$S"
+note "staged in $S (prune: $([ "$PRUNE" = 1 ] && echo on || echo 'off (--no-prune)'))"
+# backups earlier versions kept inside $C (with copies of stack.env) move out on every run
+legacy_b="$(python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" list)"
 
-say "6/11 Render & install (agents, rules, skills, scripts, settings.json)"
-mkdir -p "$C"/{agents,skills,hooks,mcp/vendor,magg/kit.d,bin,venvs}
-cp "$SRC/hooks/agent_guard.py" "$C/hooks/"
-chmod +x "$C/hooks/agent_guard.py"
-cp "$SRC/bin/statusline.py" "$C/bin/"
-chmod +x "$C/bin/statusline.py"
-cp "$SRC/mcp/image_studio_mcp.py" "$SRC/mcp/libdocs_mcp.py" "$SRC/mcp/neural_memory_mcp.py" "$C/mcp/"
-cp "$SRC/bin/doctor.sh" "$SRC/bin/with-stack-env" "$SRC/bin/mcp-headers" "$SRC/bin/magg-private" "$SRC/bin/claude-ultracode" "$C/bin/"
-chmod +x "$C/bin/doctor.sh" "$C/bin/with-stack-env" "$C/bin/mcp-headers" "$C/bin/magg-private" "$C/bin/claude-ultracode"
-[ -f "$C/stack.env" ] || cp "$HERE/stack.env.example" "$C/stack.env"
-chmod 600 "$C/stack.env"
+say "6/11 Render (agents, rules, skills, scripts, settings.json)"
+mkdir -p "$S"/{agents,skills,hooks,mcp,magg,bin,rules}
+# The stack's scripts replace whatever is staged there — a symlink too (removed first: a copy onto
+# it would write through the link, out of the staging dir; the backup keeps the link).
+stage_script(){ rm -rf "$S/$2" && cp "$SRC/$2" "$S/$2" && chmod "$1" "$S/$2"; }
+stage_script 755 hooks/agent_guard.py
+for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode; do stage_script 755 "bin/$f"; done
+for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
+# The stack's local LSP marketplace (step 10 registers it): replaced as a whole.
+if [ "$SKIP_PLUGINS" = 0 ] && [ -d "$SRC/stack-plugins" ]; then
+  rm -rf "$S/stack-plugins" && cp -R "$SRC/stack-plugins" "$S/stack-plugins"
+fi
+[ -f "$S/stack.env" ] || cp "$HERE/stack.env.example" "$S/stack.env"
+chmod 600 "$S/stack.env"
 # Variables stack.env.example gained since your stack.env was created: appended with their comment
 # lines, commented out — except the image models, appended set to image-studio's own defaults (the
 # same models either way, now named where you change them). A value you wrote is never changed. The
@@ -501,9 +671,9 @@ chmod 600 "$C/stack.env"
 # comments get today's wording, and settings nothing reads any more go while they still hold the
 # stack's own default (Lumenfall's empty key, the old Opper model and folder); the previous file is
 # kept in the backup folder.
-python3 - "$HERE/stack.env.example" "$C/stack.env" "$B" <<'PY'
-import os, re, shutil, sys, time
-example, target, backup = sys.argv[1], os.path.realpath(sys.argv[2]), sys.argv[3]
+python3 - "$HERE/stack.env.example" "$S/stack.env" <<'PY'
+import os, re, sys, time
+example, target = sys.argv[1], sys.argv[2]
 VAR = re.compile(r"^\s*(?:#\s?)?(?:export\s+)?([A-Z][A-Z0-9_]*)=")
 LIVE = {"IMAGE_STUDIO_SVG_MODEL", "IMAGE_STUDIO_IMAGE_MODEL", "IMAGE_STUDIO_EDIT_MODEL"}
 OPENROUTER_LINES = ("# OpenRouter — generate_svg (vector art) and edit_image (edits, retouching, composites).\n"
@@ -575,9 +745,6 @@ if out or reworded:
         new_text += ("" if new_text.endswith("\n") or not new_text else "\n") + (
             "\n# --- added by install.sh %s: new in stack.env.example (lines starting with # are off: "
             "uncomment to use) ---\n%s\n" % (time.strftime("%Y-%m-%d"), "\n".join(out)))
-    if reworded:
-        shutil.copy2(target, os.path.join(backup, "stack.env"))
-        os.chmod(os.path.join(backup, "stack.env"), 0o600)
     fd = os.open(target + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
     with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape") as f:
         f.write(new_text)
@@ -587,8 +754,7 @@ if out or reworded:
     if names:
         print("  stack.env: appended new variables (commented out): " + ", ".join(names))
     if reworded:
-        print("  stack.env: brought the image lines of an earlier version up to date (previous copy: %s/stack.env)"
-              % backup)
+        print("  stack.env: brought the image lines of an earlier version up to date (the backup keeps the previous copy)")
 
 
 def value(raw):
@@ -607,21 +773,91 @@ for old, now in (("LUMENFALL_API_KEY", "generate_svg runs on OpenRouter now, wit
         print("  note: stack.env sets %s, which image-studio doesn't read (%s): delete that line" % (old, now))
 PY
 
+# The previous profile line ({ set -a; . stack.env; set +a; }) exported EVERY variable of stack.env;
+# the new one (step 11) exports only STACK_EXPORT: variables of your own stay exported through it.
+# Done on the staged stack.env, so the plan lists it and the backup keeps the previous file.
+if [ "$NO_PROFILE" = 0 ] && grep -qE 'set -a.*stack\.env.*# claude-agent-stack[[:space:]]*$' "$HOME/.zshrc" "$HOME/.bashrc" 2>/dev/null; then
+  python3 - "$HERE/stack.env.example" "$S/stack.env" "$SRC/bin/mcp-headers" "$SRC/bin/with-stack-env" <<'PY' || true
+import os, re, runpy, sys
+from pathlib import Path
+example, target, parser, wse = sys.argv[1:5]
+mh = runpy.run_path(parser, run_name="mcp_headers")
+VAR = re.compile(r"^\s*(?:#\s?)?(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=")
+stack_keys = {m.group(1) for m in map(VAR.match, open(example, encoding="utf-8").read().splitlines()) if m}
+text = open(target, encoding="utf-8", errors="surrogateescape").read()
+vals = mh["read_env_file"](Path(target))
+own = {k: v for k, v in vals.items() if v and k not in stack_keys and not k.startswith(("LUMENFALL_", "OPPER_", "OPENROUTER_", "IMAGE_STUDIO_", "LIBDOCS_"))}
+mine = sorted(k for k, v in own.items() if "$" not in v)
+expanding = sorted(k for k, v in own.items() if "$" in v)
+if expanding:
+    print("  note: %s use $VAR expansion, which the profile line doesn't do: set them in your shell rc file"
+          % ", ".join(expanding))
+if mine and not re.search(r"(?m)^\s*(?:export\s+)?STACK_EXPORT=", text):
+    default = re.search(r'(?m)^DEFAULT_EXPORT="([^"]*)"', open(wse, encoding="utf-8").read()).group(1)
+    block = ("\n# added by install.sh: your previous profile line exported every variable in this file;\n"
+             "# these of your own stay exported (the stack's API keys no longer are)\n"
+             'STACK_EXPORT="%s %s"\n' % (default, " ".join(mine)))
+    fd = os.open(target + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape") as f:
+        f.write(text + ("" if text.endswith("\n") or not text else "\n") + block)
+    os.replace(target + ".tmp", target)
+    print("  stack.env: STACK_EXPORT keeps exporting your own variables: " + ", ".join(mine))
+gone = [k for k in ("OPPER_API_KEY", "OPENROUTER_API_KEY", "EXA_API_KEY", "JINA_API_KEY", "SPIDER_API_KEY")
+        if vals.get(k)]
+if gone:
+    print("  note: no longer exported to your shells: %s (the MCP servers read stack.env themselves)" % ", ".join(gone))
+PY
+fi
+
 # Researcher's spider mcpServers block is only rewritten (to reuse an already-configured
 # 'spider' server) when MCP registration is active and the user already has one.
 SPIDER_REWRITE=0
 if [ "$SKIP_MCP" = 0 ] && [ "$MCP_PLAN" = 0 ] && claude mcp get spider >/dev/null 2>&1 </dev/null; then SPIDER_REWRITE=1; fi
 
-RENDERED_SETTINGS="$(mktemp)"
-trap 'rm -f "$RENDERED_SETTINGS"' EXIT
+RENDERED_SETTINGS="$WORK/settings.rendered.json"
 
-FORCE="$FORCE" SPIDER_REWRITE="$SPIDER_REWRITE" RENDERED_SETTINGS="$RENDERED_SETTINGS" BACKUP="$B" \
-python3 - "$SRC" "$C" "$HERE" <<'PY'
+FORCE="$FORCE" SPIDER_REWRITE="$SPIDER_REWRITE" RENDERED_SETTINGS="$RENDERED_SETTINGS" DEST="$S" PRUNE="$PRUNE" \
+REPORT="$REPORT" STACK_BACKUPS="$BACKUP_ROOT" python3 - "$SRC" "$C" "$HERE" <<'PY'
 import difflib, glob, hashlib, json, os, re, shutil, subprocess, sys
 
+# C is where the files will live (every rendered path names it); DEST is the staged copy of C
+# they are written to (install_state.py compares it with C afterwards and applies the difference).
 SRC, C, REPO = sys.argv[1], sys.argv[2], sys.argv[3]
-BACKUP = os.environ["BACKUP"]
+DEST = os.environ["DEST"]
+PRUNE = os.environ.get("PRUNE") == "1"
 FORCE = os.environ.get("FORCE") == "1"
+report = {"removed": {}, "replaced": {}, "config_removed": [], "config_replaced": [], "notes": []}
+
+
+def save_report():
+    with open(os.environ["REPORT"], "w") as rf:
+        json.dump(report, rf, indent=2, sort_keys=True)
+
+
+def drop(rel, why):
+    """Remove DEST/rel (a file, link or directory) and say why in the listing."""
+    p = os.path.join(DEST, rel.rstrip("/"))
+    if os.path.isdir(p) and not os.path.islink(p):
+        shutil.rmtree(p)
+        report["removed"][rel.rstrip("/") + "/"] = why
+    elif os.path.lexists(p):
+        os.unlink(p)
+        report["removed"][rel] = why
+
+
+def wopen(path):
+    """open(path, "w") for a file in DEST that never writes through a staged symlink."""
+    if os.path.islink(path):
+        os.unlink(path)
+    return open(path, "w", encoding="utf-8")
+
+
+# Leftovers of an interrupted install (temp files of earlier versions) go first, before anything
+# here writes a temp file of the same name: always removed.
+for _rel in (".stack-plugins.new", "settings.json.tmp", "stack.env.tmp", ".stack-manifest.json.tmp",
+             "magg/config.json.tmp"):
+    if os.path.lexists(os.path.join(DEST, _rel)):
+        drop(_rel, "leftover of an interrupted install")
 SPIDER_REWRITE = os.environ.get("SPIDER_REWRITE") == "1"
 home = os.path.expanduser("~")
 
@@ -654,6 +890,7 @@ SUBS = {
     "__MAGG__": which("magg", home + "/.local/bin/magg"),
     "__HUETENSION__": which("huetension", home + "/.local/bin/huetension"),
     "__STACK_REPO__": REPO,
+    "__STACK_BACKUPS__": os.environ["STACK_BACKUPS"],
 }
 
 
@@ -751,7 +988,7 @@ def pure_stack_copy(installed_text, renders):
         {ln.strip() for ln in r.splitlines() if ln.strip()} <= have for r in renders)
 
 
-manifest_path = os.path.join(C, ".stack-manifest.json")
+manifest_path = os.path.join(DEST, ".stack-manifest.json")
 try:
     manifest = json.load(open(manifest_path))
 except (OSError, ValueError):
@@ -767,8 +1004,10 @@ def save_manifest():
     os.replace(manifest_path + ".tmp", manifest_path)
 
 
-# --- magg catalog: add the servers the shipped catalog has and yours doesn't; update an entry only
-# while it is still exactly what an earlier stack version shipped (your edits are never touched).
+# --- magg catalog: add the servers the shipped catalog has and yours doesn't; an entry of a server
+# the stack ships that differs from the stack's is replaced (--no-prune: kept while you edited it; an
+# unedited earlier version is updated either way); a server an earlier stack version shipped and this
+# one doesn't goes (--no-prune: stays). Servers of your own (mcp-broker adds them) are never touched.
 # Catalog servers are reset to disabled: mcp-broker enables one for a task and disables it after. ---
 def fingerprint(entry):
     """Entry minus the state magg itself changes (enabled, kits)."""
@@ -781,7 +1020,7 @@ LEGACY_MAGG = {"docling": {"84d001fc6386deb0"}, "playwright": {"604f97c45597d8e6
                "lean": {"ef061039770a7579"}, "docspace": {"d93d837abbebe4ed"},
                "duckdb": {"529df3589fc6a3f6"}, "arxiv": {"484fdabd5d7ac75e"},
                "jupyter": {"4df0d303a3d2f0d2"}, "mlflow": {"4ca92ebdcfb8dd81"}}
-magg_dst = os.path.realpath(os.path.join(C, "magg", "config.json"))
+magg_dst = os.path.join(DEST, "magg", "config.json")
 shipped_magg = json.loads(render(open(os.path.join(SRC, "magg", "config.json")).read(), json_escape=True))
 prev_magg = manifest.get("magg_shipped") or {}
 try:
@@ -790,11 +1029,16 @@ try:
 except FileNotFoundError:
     cur_magg, magg_ok = {"servers": {}}, True
 except ValueError as exc:
-    print("  ! %s is not valid JSON (%s) — left unchanged; the catalog update was skipped" % (magg_dst, exc))
-    magg_ok = False
+    if PRUNE:
+        print("  ! magg/config.json is not valid JSON (%s) — replaced by the stack's catalog" % exc)
+        report["replaced"]["magg/config.json"] = "not valid JSON"
+        cur_magg, magg_ok = {"servers": {}}, True
+    else:
+        print("  ! %s is not valid JSON (%s) — left unchanged; the catalog update was skipped" % (magg_dst, exc))
+        magg_ok = False
 if magg_ok:
     servers = cur_magg.setdefault("servers", {})
-    added, updated, kept, disabled = [], [], [], []
+    added, updated, kept, disabled, replaced, gone = [], [], [], [], [], []
     for k, entry in shipped_magg.get("servers", {}).items():
         mine = servers.get(k)
         if mine is None:
@@ -808,13 +1052,25 @@ if magg_ok:
         elif fingerprint(mine) in LEGACY_MAGG.get(k, set()) | ({prev_magg[k]} if k in prev_magg else set()):
             servers[k] = dict(entry, enabled=mine.get("enabled", True))
             updated.append(k)
+        elif PRUNE:
+            servers[k] = dict(entry)
+            replaced.append(k)
+            report["config_replaced"].append(["magg catalog: " + k, "differed from the stack's entry"])
         else:
             kept.append(k)
             continue
         if servers[k].get("enabled", True):          # magg leaves "enabled" out when true
             servers[k]["enabled"] = False
             disabled.append(k)
-    if added or updated or disabled or not os.path.exists(magg_dst):
+    for k in sorted(set(prev_magg) - set(shipped_magg.get("servers", {}))):
+        if k in servers:
+            if PRUNE:
+                servers.pop(k)
+                gone.append(k)
+                report["config_removed"].append(["magg catalog: " + k, "no longer shipped by the stack"])
+            else:
+                report["notes"].append("magg catalog: %s is no longer shipped (kept: --no-prune)" % k)
+    if added or updated or disabled or replaced or gone or not os.path.exists(magg_dst):
         os.makedirs(os.path.dirname(magg_dst), exist_ok=True)
         with open(magg_dst + ".tmp", "w") as f:
             json.dump(cur_magg, f, indent=2)
@@ -823,6 +1079,7 @@ if magg_ok:
     manifest["magg_shipped"] = {k: fingerprint(e) for k, e in shipped_magg.get("servers", {}).items()}
     parts = [("added " + ", ".join(added)) if added else "", ("updated " + ", ".join(updated)) if updated else "",
              ("disabled again " + ", ".join(disabled)) if disabled else "",
+             ("replaced " + ", ".join(replaced)) if replaced else "", ("removed " + ", ".join(gone)) if gone else "",
              ("kept your edited " + ", ".join(kept)) if kept else ""]
     print("  magg catalog: %s" % ("; ".join(x for x in parts if x) or "up to date"))
 
@@ -878,13 +1135,16 @@ def make_copy(text, base):
             lines.append((m.group(1) or "") + " ".join(keep))
     body = "\n".join(lines)
     note = ("You are a copy of %s, spawned by a %s for one independent part of its job. Do that part "
-            "yourself: a copy never spawns %s or another copy. Skip any Memory lines below: the %s that "
-            "spawned you passes its memory hits in your brief and remembers what you report.\n\n"
-            % (base, base, base, base))
+            "yourself: a copy never spawns %s or another copy. Skip any Memory lines below: what memory "
+            "holds for your part is already in your brief, and you write nothing to memory yourself.\n\n"
+            % (base, base, base))
     return head + sep + note + body
 
 
-# --- agents/*.md + rules/claude-agent-stack.md: manifest-guarded, non-destructive install ---
+# --- agents/*.md + rules/claude-agent-stack.md. Pruning (the default): a file that differs from
+# the render is replaced, whatever made it differ (the backup keeps it). --no-prune: manifest-guarded
+# as before — a file you edited since the last install is kept and the render goes next to it as
+# <name>.new (--force replaces it anyway). ---
 targets = [("agents/" + os.path.basename(p), p, None) for p in sorted(glob.glob(os.path.join(SRC, "agents", "*.md")))]
 targets += [("agents/%s-copy.md" % b, os.path.join(SRC, "agents", b + ".md"), b) for b in COPY_TYPES]
 targets.append(("rules/claude-agent-stack.md", os.path.join(SRC, "rules", "claude-agent-stack.md"), None))
@@ -892,7 +1152,7 @@ AE_BUILT = os.path.isfile(os.path.join(C, "mcp", "vendor", "after-effects-mcp", 
 
 installed_count = 0
 total_agents = sum(1 for rel, _, _ in targets if rel.startswith("agents/"))
-IN_SYNC = {"installed", "unchanged", "overwritten", "overwritten (legacy)", "overwritten (--force)"}
+IN_SYNC = {"installed", "unchanged", "overwritten", "overwritten (legacy)", "overwritten (--force)", "replaced"}
 
 # Adobe servers exist only on macOS: elsewhere they are left out of the renders, so designer and
 # motion-designer don't start servers that can only fail (their prompts fall back to SVG/ffmpeg).
@@ -917,8 +1177,12 @@ for rel, src_path, copy_of in targets:
         rendered = drop_servers(rendered, ("after-effects",))    # added once --with-adobe built it
     if rel in ("agents/researcher.md", "agents/researcher-copy.md") and SPIDER_REWRITE:
         rendered = re.sub(r"mcpServers:\n  - spider:\n(?:      .*\n)+", "mcpServers:\n  - spider\n", rendered)
-    dest = os.path.join(C, rel)
+    dest = os.path.join(DEST, rel)
+    shown = os.path.join(C, rel)
     entry = files_entry.get(rel)
+    if os.path.islink(dest) or os.path.isdir(dest):
+        (shutil.rmtree if os.path.isdir(dest) and not os.path.islink(dest) else os.unlink)(dest)
+        report["replaced"][rel] = "not a regular file"
     installed_hash = sha256(dest)
     rendered_hash = sha256_text(rendered)
 
@@ -928,9 +1192,8 @@ for rel, src_path, copy_of in targets:
             f.write(rendered)
         files_entry[rel] = rendered_hash
         offered.pop(rel, None)
-        stale = dest + ".new"
-        if os.path.exists(stale):
-            os.remove(stale)
+        if os.path.lexists(dest + ".new"):
+            drop(rel + ".new", "leftover render of a stack file")
 
     if installed_hash is None:
         write()
@@ -941,73 +1204,87 @@ for rel, src_path, copy_of in targets:
     elif entry is not None and installed_hash == entry:
         write()
         action = "overwritten"
-    elif FORCE:
-        write()
-        action = "overwritten (--force)"
     elif entry is None and is_legacy_safe_overwrite(open(dest, encoding="utf-8", errors="replace").read(), rendered):
         write()
         action = "overwritten (legacy)"
+    elif PRUNE:
+        report["replaced"][rel] = ("edited since the last install" if entry is not None
+                                   else "a same-named file that isn't the stack's")
+        write()
+        action = "replaced"
+    elif FORCE:
+        write()
+        action = "overwritten (--force)"
     else:
-        # dest was hand-edited since the last install (or a legacy file with extra
+        # --no-prune: dest was hand-edited since the last install (or a legacy file with extra
         # tools/mcpServers) — keep it, and drop the new render next to it as <name>.new.
         nd = dest + ".new"
         if offered.get(rel) == rendered_hash and not os.path.exists(nd):
             # this exact render was already offered and its .new removed after review: don't nag
             action = "kept (modified) -- this render was already offered; --force to take it"
         else:
-            with open(nd, "w", encoding="utf-8") as f:
+            with wopen(nd) as f:
                 f.write(rendered)
             offered[rel] = rendered_hash
-            action = "kept (modified) -- new render at %s (diff -u %s %s)" % (nd, dest, nd)
+            action = "kept (modified) -- new render at %s.new (diff -u %s %s.new)" % (shown, shown, shown)
     if action in IN_SYNC and rel.startswith("agents/"):
         installed_count += 1
     print("  %-34s %s" % (rel, action))
 
-# Agent files an earlier stack version installed and this one doesn't ship (senior-coder is now
-# main-coder, the main-thread router is now blackcat): an unedited copy moves into the backup
-# (retired/agents/), as does a leftover .new of it; an edited one stays — Claude Code keeps loading
-# it as an agent of its own — with a note.
+# Everything else in agents/: the stack owns that directory. Pruning removes it — agents an earlier
+# stack version shipped (senior-coder is now main-coder, the main-thread router is now blackcat),
+# leftover .new renders, and agents of your own or of other tools (the backup keeps them all; run
+# with --no-prune to keep them). --no-prune lists them instead.
 RENAMED = {"agents/senior-coder.md": "agents/main-coder.md", "agents/router.md": "agents/blackcat.md"}
 shipped = {rel for rel, _, _ in targets}
-for rel in sorted((set(RENAMED) | {r for r in list(files_entry) + list(offered) if r.startswith("agents/")}) - shipped):
-    dest = os.path.join(C, rel)
-    entry = files_entry.get(rel)
-    now = (" — it is now %s" % RENAMED[rel]) if rel in RENAMED else ""
-    retired_agents = os.path.join(BACKUP, "retired", "agents")
-    if os.path.isfile(dest):
-        text = open(dest, encoding="utf-8", errors="replace").read()
-        if sha256(dest) == entry if entry is not None else (
-                template_copy(text, rel) or pure_stack_copy(text, legacy_renders(rel))):
-            os.makedirs(retired_agents, exist_ok=True)
-            shutil.move(dest, os.path.join(retired_agents, os.path.basename(rel)))
-            print("  %-34s retired%s (old copy: %s/)" % (rel, now, retired_agents))
-        elif entry is not None or any(similar(text, r) for r in legacy_renders(rel)):
-            print("  %-34s kept (it differs from the stack's version): the stack no longer ships it%s."
-                  " Move your changes over and delete it" % (rel, now))
-    if os.path.isfile(dest + ".new"):
-        os.makedirs(retired_agents, exist_ok=True)
-        shutil.move(dest + ".new", os.path.join(retired_agents, os.path.basename(rel) + ".new"))
-        print("  %-34s retired: a render of an agent the stack no longer ships" % (rel + ".new"))
-    files_entry.pop(rel, None)
-    offered.pop(rel, None)
+stale_kept = []
 
-# The global rules used to be installed as CLAUDE.md. That file is now yours: on the first run of this
-# version the stack's old copy is retired into the backup while still unedited; an edited one, or
-# your own, is left alone. The decision is made once — CLAUDE.md is never looked at again.
-old_md = os.path.join(C, "CLAUDE.md")
-if not manifest.get("claude_md_migrated"):
+
+def agent_reason(rel):
+    if rel.endswith(".new") and rel[:-4] in shipped:
+        return "leftover render of a stack file"
+    if rel in RENAMED:
+        return "renamed: now %s" % RENAMED[rel]
+    if rel in files_entry or rel in offered:
+        return "no longer shipped by the stack"
+    p = os.path.join(DEST, rel)
+    if rel.endswith(".md") and os.path.isfile(p):
+        text = open(p, encoding="utf-8", errors="replace").read()
+        if template_copy(text, rel) or pure_stack_copy(text, legacy_renders(rel)):
+            return "an earlier stack version's agent"
+    return "not shipped by the stack: yours or another tool's"
+
+
+agents_dir = os.path.join(DEST, "agents")
+for fn in sorted(os.listdir(agents_dir)):
+    rel = "agents/" + fn
+    if rel in shipped:
+        continue
+    why = agent_reason(rel)
+    if PRUNE:
+        drop(rel, why)
+    elif why == "leftover render of a stack file":
+        continue                                   # the pending .new of a kept, edited agent
+    else:
+        stale_kept.append((rel, why))
+for rel in [r for r in list(files_entry) + list(offered) if r.startswith("agents/") and r not in shipped]:
+    if PRUNE or not os.path.lexists(os.path.join(DEST, rel)):
+        files_entry.pop(rel, None)
+        offered.pop(rel, None)
+
+# The global rules used to be installed as CLAUDE.md. That file is yours now: the stack's old copy
+# goes while still unedited (tracked: the hash decides; untracked: only an exact old version), an
+# edited one, or your own, stays. Decided once — CLAUDE.md is never looked at again. (Not under
+# --no-prune: a later run decides.)
+old_md = os.path.join(DEST, "CLAUDE.md")
+if PRUNE and not manifest.get("claude_md_migrated"):
     rules_render = render(open(os.path.join(SRC, "rules", "claude-agent-stack.md"), encoding="utf-8").read())
     stack_versions = legacy_renders("CLAUDE.md") + [rules_render]
-    retired_dir = os.path.join(BACKUP, "retired")
     if os.path.isfile(old_md):
         old_entry = files_entry.get("CLAUDE.md")
         old_text = open(old_md, encoding="utf-8", errors="replace").read()
-        # tracked: the hash decides (an edited copy is kept); untracked: only an exact old version goes
         if sha256(old_md) == old_entry if old_entry is not None else pure_stack_copy(old_text, stack_versions):
-            os.makedirs(retired_dir, exist_ok=True)
-            shutil.move(old_md, os.path.join(retired_dir, "CLAUDE.md"))
-            print("  %-34s retired: the stack's rules now live in rules/claude-agent-stack.md (old copy: %s/)"
-                  % ("CLAUDE.md", retired_dir))
+            drop("CLAUDE.md", "the stack's old rules file: they live in rules/claude-agent-stack.md now")
         elif old_entry is not None or any(similar(old_text, r) for r in stack_versions):
             print("  %-34s kept (it has lines of your own): the stack's rules moved to rules/claude-agent-stack.md —"
                   " delete the stack's old sections from CLAUDE.md so the two versions don't conflict" % "CLAUDE.md")
@@ -1016,12 +1293,25 @@ if not manifest.get("claude_md_migrated"):
     if os.path.isfile(old_new):
         new_text = open(old_new, encoding="utf-8", errors="replace").read()
         if "CLAUDE.md" in offered or only_stack_lines(new_text, stack_versions):
-            os.makedirs(retired_dir, exist_ok=True)
-            shutil.move(old_new, os.path.join(retired_dir, "CLAUDE.md.new"))
-            print("  %-34s retired: an old render of the stack's rules (moved to %s/)" % ("CLAUDE.md.new", retired_dir))
+            drop("CLAUDE.md.new", "an old render of the stack's rules")
     files_entry.pop("CLAUDE.md", None)
     offered.pop("CLAUDE.md", None)
     manifest["claude_md_migrated"] = True
+
+# rules/: files of your own stay; rules the stack installed and no longer ships go, as do .new renders
+for fn in sorted(os.listdir(os.path.join(DEST, "rules"))):
+    rel = "rules/" + fn
+    if rel in shipped:
+        continue
+    why = ("leftover render of a stack file" if rel.endswith(".new") and rel[:-4] in shipped
+           else "no longer shipped by the stack" if rel in files_entry else None)
+    if why is None or (not PRUNE and why.startswith("leftover")):
+        continue
+    if PRUNE:
+        drop(rel, why)
+        files_entry.pop(rel, None)
+    else:
+        stale_kept.append((rel, why))
 
 save_manifest()
 print("  %d/%d agents installed" % (installed_count, total_agents))
@@ -1029,66 +1319,150 @@ if installed_count < total_agents:
     print("  ! %d agent file(s) kept with local edits: merge the .new renders (or rerun with --force)"
           % (total_agents - installed_count))
 
-# --- shipped skill files: manifest-guarded like the agents. A file you edited since the last
-# install — or a same-named skill of your own — is kept, and the new render goes next to it as
-# <file>.new; an untracked file that is an older copy of the stack's is refreshed. ---
+# --- skills/: the stack owns this directory (claude.ai's synced/ aside, never staged). Pruning: every
+# shipped file matches its render (an edited one is replaced), and files and skills the stack doesn't
+# ship go (yours included: the backup keeps them). --no-prune: manifest-guarded — a file you edited
+# since the last install, or a same-named file of your own, is kept with the render next to it as
+# <file>.new; an untracked file that is an older copy of the stack's is refreshed; nothing goes. ---
 def install_tracked(rel, dest, rendered):
     """None when the file is (now) in sync; "refreshed" when an untracked copy made only of lines
-    some stack version shipped was replaced (the backup keeps it); "kept" when it is yours."""
+    some stack version shipped was replaced; "replaced" when pruning replaced a file that differed;
+    "kept" when --no-prune kept yours."""
     rendered_hash = sha256_text(rendered)
+    if os.path.islink(dest) or os.path.isdir(dest):
+        (shutil.rmtree if os.path.isdir(dest) and not os.path.islink(dest) else os.unlink)(dest)
     installed_hash = sha256(dest)
     entry = files_entry.get(rel)
     nd = dest + ".new"
     legacy_ours = entry is None and installed_hash not in (None, rendered_hash) and pure_stack_copy(
         open(dest, encoding="utf-8", errors="replace").read(), [rendered] + legacy_renders(rel))
-    if installed_hash is None or installed_hash == rendered_hash or FORCE or installed_hash == entry \
-            or legacy_ours:
+    in_sync = installed_hash is None or installed_hash == rendered_hash or installed_hash == entry or legacy_ours
+    if in_sync or PRUNE or FORCE:
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with open(dest, "w", encoding="utf-8") as f:
             f.write(rendered)
         files_entry[rel] = rendered_hash
         offered.pop(rel, None)
-        if os.path.exists(nd):
-            os.remove(nd)
-        return "refreshed" if legacy_ours else None
+        if os.path.lexists(nd):
+            drop(rel + ".new", "leftover render of a stack file")
+        if in_sync:
+            return "refreshed" if legacy_ours else None
+        if PRUNE:
+            report["replaced"][rel] = ("edited since the last install" if entry is not None
+                                       else "a same-named file that isn't the stack's")
+            return "replaced"
+        return None
     if not (offered.get(rel) == rendered_hash and not os.path.exists(nd)):
-        with open(nd, "w", encoding="utf-8") as f:
+        with wopen(nd) as f:
             f.write(rendered)
         offered[rel] = rendered_hash
     return "kept"
 
 
-skill_names = [os.path.basename(d) for d in glob.glob(os.path.join(SRC, "skills", "*")) if os.path.isdir(d)]
-skills_kept, skills_refreshed = [], []
+skill_names = sorted(os.path.basename(d) for d in glob.glob(os.path.join(SRC, "skills", "*")) if os.path.isdir(d))
+skills_kept, skills_refreshed, skills_replaced = [], [], []
+skill_files = set()
 for name in skill_names:
     sdir = os.path.join(SRC, "skills", name)
-    ddir = os.path.join(C, "skills", name)
-    for root, _dirs, files in os.walk(sdir):
+    ddir = os.path.join(DEST, "skills", name)
+    if os.path.islink(ddir) or os.path.isfile(ddir):
+        os.unlink(ddir)
+        report["replaced"]["skills/%s" % name] = "not a directory"
+    for root, dirs, files in os.walk(sdir):
+        dirs[:] = [d for d in dirs if d != "__pycache__"]
         rel_root = os.path.relpath(root, sdir)
         out_root = ddir if rel_root == "." else os.path.join(ddir, rel_root)
+        if os.path.islink(out_root) or os.path.isfile(out_root):   # never write through a link
+            os.unlink(out_root)
         os.makedirs(out_root, exist_ok=True)
         for fn in files:
             if fn.endswith((".pyc", ".new")) or fn == ".DS_Store":
                 continue
             sp = os.path.join(root, fn)
             op = os.path.join(out_root, fn)
+            rel = os.path.relpath(op, DEST)
+            skill_files.add(rel)
             try:
                 text = open(sp, encoding="utf-8").read()
             except (UnicodeDecodeError, ValueError):
+                if os.path.islink(op) or os.path.isdir(op):
+                    (shutil.rmtree if os.path.isdir(op) and not os.path.islink(op) else os.unlink)(op)
                 shutil.copy2(sp, op)
                 continue
-            rel = os.path.relpath(op, C)
             state = install_tracked(rel, op, render(text))
             if state == "kept":
                 skills_kept.append(rel)
             elif state == "refreshed":
                 skills_refreshed.append(rel)
-save_manifest()
-print("  skills rendered (%d): %s" % (len(skill_names), ", ".join(sorted(skill_names))))
+            elif state == "replaced":
+                skills_replaced.append(rel)
+# what the stack doesn't ship: whole skills, and files inside shipped skills
+skills_root = os.path.join(DEST, "skills")
+for name in sorted(os.listdir(skills_root)):
+    rel_dir = "skills/%s" % name
+    if name not in skill_names:
+        tracked = any(r.startswith(rel_dir + "/") for r in list(files_entry) + list(offered))
+        why = "no longer shipped by the stack" if tracked else "not shipped by the stack: yours or another tool's"
+        if PRUNE:
+            drop(rel_dir + "/" if os.path.isdir(os.path.join(skills_root, name)) else rel_dir, why)
+        else:
+            stale_kept.append((rel_dir + "/", why))
+        continue
+    for root, dirs, files in os.walk(os.path.join(skills_root, name)):
+        for fn in sorted(files) + sorted(d for d in dirs if os.path.islink(os.path.join(root, d))):
+            rel = os.path.relpath(os.path.join(root, fn), DEST)
+            if rel in skill_files:
+                continue
+            why = ("leftover render of a stack file" if rel.endswith(".new") and rel[:-4] in skill_files
+                   else "not part of the stack's %s skill" % name)
+            if PRUNE:
+                drop(rel, why)
+            elif not why.startswith("leftover"):
+                stale_kept.append((rel, why))
+    if PRUNE:                                   # directories the removals left empty
+        for root, dirs, files in os.walk(os.path.join(skills_root, name), topdown=False):
+            if root != os.path.join(skills_root, name) and not os.listdir(root):
+                os.rmdir(root)
+for rel in [r for r in list(files_entry) + list(offered) if r.startswith("skills/")]:
+    if rel not in skill_files and (PRUNE or not os.path.lexists(os.path.join(DEST, rel))):
+        files_entry.pop(rel, None)
+        offered.pop(rel, None)
+print("  skills rendered (%d): %s" % (len(skill_names), ", ".join(skill_names)))
 for rel in skills_refreshed:
-    print("  %-34s refreshed (an older copy of the stack's; kept in %s)" % (rel, BACKUP))
+    print("  %-34s refreshed (an older copy of the stack's; the backup keeps it)" % rel)
+for rel in skills_replaced:
+    print("  %-34s replaced (it differed from the stack's; the backup keeps it)" % rel)
 for rel in skills_kept:
     print("  %-34s kept (yours or edited) -- new render at %s.new" % (rel, os.path.join(C, rel)))
+
+# --- scripts the stack copies into hooks/, bin/ and mcp/ (step 6 put them in DEST): tracked in the
+# manifest, so a later version that stops shipping one removes it. Files of your own there stay. ---
+STACK_SCRIPTS = ["hooks/agent_guard.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
+                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "mcp/image_studio_mcp.py",
+                 "mcp/libdocs_mcp.py", "mcp/neural_memory_mcp.py"]
+# files earlier stack versions installed before the manifest tracked scripts
+LEGACY_SCRIPTS = {"hooks/router-guard.sh": "blackcat.md runs agent_guard.py directly now",
+                  "mcp/opper_image_mcp.py": "images come from image-studio now",
+                  "mcp/openrouter_image_mcp.py": "images come from image-studio now"}
+for rel in STACK_SCRIPTS:
+    files_entry[rel] = sha256(os.path.join(DEST, rel))
+stale_scripts = {r: "no longer shipped by the stack" for r in files_entry
+                 if r.split("/")[0] in ("hooks", "bin", "mcp") and r not in STACK_SCRIPTS}
+stale_scripts.update(LEGACY_SCRIPTS)
+for rel, why in sorted(stale_scripts.items()):
+    if not os.path.lexists(os.path.join(DEST, rel)):
+        files_entry.pop(rel, None)
+        continue
+    if PRUNE:
+        drop(rel, why)
+        files_entry.pop(rel, None)
+    else:
+        stale_kept.append((rel, why))
+
+for rel, why in stale_kept:
+    report["notes"].append("%s: %s — kept (--no-prune)" % (rel, why))
+save_manifest()
+save_report()
 
 # --- settings.json: JSON-escaped render, written to a temp file for the merge step ---
 settings_text = open(os.path.join(SRC, "settings.json")).read()
@@ -1097,21 +1471,13 @@ open(os.environ["RENDERED_SETTINGS"], "w").write(render(settings_text, json_esca
 print("  " + ", ".join("%s=%s" % (k.strip("_").lower(), v) for k, v in SUBS.items()))
 PY
 
-# Files earlier stack versions installed and this one doesn't: moved into the backup, never deleted.
-# (router-guard.sh: blackcat.md, formerly router.md, now runs agent_guard.py directly with an
-# absolute interpreter; an edited router.md the rename kept may still call it.)
-if [ -f "$C/hooks/router-guard.sh" ] && ! grep -qs 'router-guard.sh' "$C/agents/router.md" "$C/agents/blackcat.md"; then
-  mkdir -p "$B/retired/hooks" && mv "$C/hooks/router-guard.sh" "$B/retired/hooks/" \
-    && note "retired hooks/router-guard.sh (moved to $B/retired/hooks/)"
-fi
-
-say "7/11 Merge settings.json"
-[ -f "$C/settings.json" ] || echo '{}' > "$C/settings.json"
-python3 - "$RENDERED_SETTINGS" "$C/settings.json" "$C/.stack-manifest.json" <<'PY'
+say "7/11 Merge settings.json, validate, apply"
+[ -f "$S/settings.json" ] || echo '{}' > "$S/settings.json"
+PRUNE="$PRUNE" python3 - "$RENDERED_SETTINGS" "$S/settings.json" "$S/.stack-manifest.json" "$REPORT" "$C/settings.json" <<'PY'
 import json, os, re, sys
-src, manifest_path = sys.argv[1], sys.argv[3]
-# Write through a symlinked settings.json (dotfiles repo) instead of replacing the link.
-dst = os.path.realpath(sys.argv[2])
+src, manifest_path, report_path, shown = sys.argv[1], sys.argv[3], sys.argv[4], sys.argv[5]
+PRUNE = os.environ.get("PRUNE") == "1"
+dst = sys.argv[2]            # the staged copy (install_state.py writes through a symlinked original)
 
 
 # A JSON string value under a key that looks like it holds a secret (key/token/secret/password/
@@ -1154,7 +1520,7 @@ def load_lenient(p):
             text = text[:j + 1] + "," + text[j + 1:]
             fixes.append("added missing comma on line %d" % (text.count("\n", 0, j) + 1))
     lines = raw.splitlines()
-    print("\n  ERROR: %s is not valid JSON — line %d, column %d: %s" % (p, err.lineno, err.colno, err.msg))
+    print("\n  ERROR: %s is not valid JSON — line %d, column %d: %s" % (shown, err.lineno, err.colno, err.msg))
     for i in range(max(1, err.lineno - 2), min(len(lines), err.lineno + 1) + 1):
         print("  %5d | %s" % (i, mask_secrets(lines[i - 1])))
         if i == err.lineno:
@@ -1236,25 +1602,108 @@ for old, now in RENAMED_ENV.items():
 if cur_env != (cur.get("env") or {}):
     cur = dict(cur, env=cur_env)
 
+try:
+    report = json.load(open(report_path))
+except (OSError, ValueError):
+    report = {}
+for key in ("removed", "replaced"):
+    report.setdefault(key, {})
+for key in ("config_removed", "config_replaced", "notes"):
+    report.setdefault(key, [])
+# hook commands of the stack, any version: its guard (whatever config dir or interpreter an earlier
+# install rendered) and the retired router-guard.sh
+STACK_HOOK_RE = re.compile(r"agent_guard\.py|router-guard\.sh")
+
+
+def canon(x):
+    return json.dumps(x, sort_keys=True)
+
+
+def merge_list(mine, shipped, retired=()):
+    """Your list plus the stack's, each item once, in order; items the stack stopped shipping go.
+    Lists of objects with a "name" (sandbox.credentials.envVars) merge by name: the stack's wins."""
+    if all(isinstance(x, dict) and "name" in x for x in list(mine) + list(shipped)):
+        names = {x["name"] for x in shipped}
+        gone = {canon(x) for x in retired}
+        out = [x for x in mine if x["name"] not in names and canon(x) not in gone] + list(shipped)
+    else:
+        out = [x for x in mine if x not in retired] + list(shipped)
+    seen, res = set(), []
+    for x in out:
+        if canon(x) not in seen:
+            seen.add(canon(x))
+            res.append(x)
+    return res
+
+
+def merge_tree(mine, shipped, prev, path):
+    """sandbox: the stack's scalars win (its security baseline: set in ~/.claude/settings.json they
+    also apply in bypassPermissions mode); lists keep your own entries; a value you set differently
+    is reported."""
+    out = dict(mine) if isinstance(mine, dict) else {}
+    for k, v in shipped.items():
+        p = prev.get(k) if isinstance(prev, dict) else None
+        if isinstance(v, dict):
+            out[k] = merge_tree(out.get(k), v, p or {}, path + [k])
+        elif isinstance(v, list):
+            retired = [x for x in (p or []) if x not in v] if isinstance(p, list) else []
+            out[k] = merge_list(out.get(k) if isinstance(out.get(k), list) else [], v, retired)
+        else:
+            if k in out and out[k] != v and out[k] != p:
+                print("  set %s=%s (was %s): the stack's sandbox baseline" % (".".join(path + [k]), json.dumps(v), json.dumps(out[k])))
+            out[k] = v
+    return out
+
+
 merged = dict(cur)
 for k, v in new.items():
     if k == "hooks":
         h = dict(cur.get("hooks") or {})
+        dropped_dups = 0
         for ev, groups in v.items():
-            kept = []
+            kept, seen = [], set()
             for g in h.get(ev) or []:
                 if isinstance(g, dict) and isinstance(g.get("hooks"), list):
-                    mine = [x for x in g["hooks"] if "agent_guard.py" not in json.dumps(x)]
-                    if len(mine) < len(g["hooks"]):   # the stack's guard shares this group
+                    mine, own_seen, had_stack = [], set(), False
+                    for x in g["hooks"]:
+                        if STACK_HOOK_RE.search(json.dumps(x)):
+                            had_stack = True
+                            continue
+                        if canon(x) in own_seen:
+                            dropped_dups += 1
+                            continue
+                        own_seen.add(canon(x))
+                        mine.append(x)
+                    if len(mine) < len(g["hooks"]):   # the stack's guard shared this group, or duplicates
                         if not mine:
                             continue
                         g = dict(g, hooks=mine)       # keep the user's own hooks of that group
-                        print("  kept %d hook(s) of yours from a %s group shared with the stack's guard" % (len(mine), ev))
-                elif "agent_guard.py" in json.dumps(g):
+                        if had_stack:
+                            print("  kept %d hook(s) of yours from a %s group shared with the stack's guard" % (len(mine), ev))
+                elif STACK_HOOK_RE.search(json.dumps(g)):
                     continue
+                if canon(g) in seen:                  # the same group twice: once is enough
+                    dropped_dups += 1
+                    continue
+                seen.add(canon(g))
                 kept.append(g)
             h[ev] = kept + groups
+        # events the stack no longer wires: its old hooks there go, yours stay
+        for ev in [e for e in h if e not in v]:
+            groups = h[ev] if isinstance(h[ev], list) else []
+            keep = [g for g in groups if not STACK_HOOK_RE.search(json.dumps(g))]
+            if len(keep) < len(groups):
+                report["config_removed"].append(["settings.json hooks." + ev, "the stack's guard no longer runs on it"])
+            if keep:
+                h[ev] = keep
+            else:
+                h.pop(ev)
+        if dropped_dups:
+            report["config_removed"].append(["settings.json hooks", "%d duplicate hook entr%s" % (
+                dropped_dups, "y" if dropped_dups == 1 else "ies")])
         merged["hooks"] = h
+    elif k == "sandbox":
+        merged[k] = merge_tree(cur.get(k), v, manifest.get("settings_sandbox") or {}, [k])
     elif k == "permissions":
         p = dict(cur.get("permissions") or {})
         for pk, pv in v.items():
@@ -1266,6 +1715,10 @@ for k, v in new.items():
             dropped = [x for x in have if x in retired]
             if dropped:
                 print("  retracted stack permission rule(s) from %s: %s" % (pk, ", ".join(dropped)))
+            dups = len(have) - len(uniq(have))
+            if dups:
+                report["config_removed"].append(["settings.json permissions.%s" % pk, "%d duplicate rule%s" % (
+                    dups, "" if dups == 1 else "s")])
             p[pk] = uniq([x for x in have if x not in retired] + pv)
         merged["permissions"] = p
     elif k == "worktree":
@@ -1382,15 +1835,59 @@ manifest["settings_env"] = new.get("env", {})
 manifest["settings_permissions"] = {pk: pv for pk, pv in (new.get("permissions") or {}).items()
                                     if isinstance(pv, list)}
 manifest["settings_set_if_absent"] = {k: new[k] for k in SET_IF_ABSENT if k in new}
+manifest["settings_sandbox"] = new.get("sandbox") or {}
 with open(manifest_path + ".tmp", "w") as f:
     json.dump(manifest, f, indent=2, sort_keys=True)
 os.replace(manifest_path + ".tmp", manifest_path)
-print("  merged into", dst)
+with open(report_path, "w") as f:
+    json.dump(report, f, indent=2, sort_keys=True)
+print("  merged into", shown)
 PY
+
+# Validate the staged result before anything in $C changes: JSON files parse, every agent and skill
+# has sound frontmatter, no placeholder is left, and the staged guard passes its --self-test.
+if ! python3 "$STATE_PY" validate "$S" "$STACK_PYTHON"; then
+  echo "install.sh: the staged install failed validation (above) — nothing in $C was changed." >&2
+  exit 1
+fi
+note "validated: JSON, agent and skill frontmatter, placeholders, agent_guard.py --self-test"
+if have uv && [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
+  if (cd "$HERE" && uv run --quiet tests/lint_agents.py >"$WORK/lint.log" 2>&1); then note "lint: tests/lint_agents.py ok"
+  else note "! tests/lint_agents.py reports problems in the stack repo (installing anyway):"; sed 's/^/      /' "$WORK/lint.log" | head -n 20; fi
+fi
+
+echo
+python3 "$STATE_PY" plan "$C" "$S" "$REPORT" "$PLAN_JSON"
+if [ -n "$legacy_b" ]; then
+  echo "moved out of the config dir: backups of earlier installs (they may hold a copy of stack.env)"
+  printf '%s\n' "$legacy_b" | sed "s|^|  > |; s|\$| -> $BACKUP_ROOT/legacy/|"
+fi
+B=""
+if [ "$DRY_RUN" = 1 ]; then
+  note "--dry-run: nothing above was applied"
+else
+  python3 "$STATE_PY" apply "$C" "$S" "$PLAN_JSON" "$BACKUP_ROOT" "$STACK_COMMIT" "$WORK/backup-dir"
+  B="$(cat "$WORK/backup-dir")"
+  [ -n "$legacy_b" ] && python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" move >/dev/null
+  mkdir -p "$C"/{agents,skills,hooks,mcp/vendor,magg/kit.d,bin,venvs}
+  if [ -n "$B" ]; then
+    note "backup: $B"
+    note "restore: $HERE/install.sh --restore $B"
+  fi
+fi
+# a backup for what the later steps change outside the files (MCP entries, plugins, rc files)
+ensure_backup(){
+  [ -n "$B" ] && return 0
+  B="$(python3 "$STATE_PY" new-backup "$C" "$BACKUP_ROOT" "$STACK_COMMIT")"
+  note "backup: $B"
+  note "restore: $HERE/install.sh --restore $B"
+}
 
 say "8/11 MCP dependency prefetch"
 if [ "$NO_DEPS" = 1 ]; then
   note "--no-deps: skipping MCP dependency prefetch"
+elif [ "$DRY_RUN" = 1 ]; then
+  would "prefetch the MCP servers' packages (libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, playwright, context-mode)"
 elif ! have uv; then
   note "! uv missing — skipping MCP dependency prefetch"
 else
@@ -1407,10 +1904,59 @@ fi
 say "9/11 MCP servers (user scope, remote HTTP — lazy connect, tools deferred, keys via headersHelper)"
 compute_mcp_plan
 
+# User-scope servers the stack registered once and no longer uses: removed through `claude mcp`
+# (the backup keeps each entry; --restore re-adds it). Context7 came before libdocs; later ones are
+# the names the manifest recorded (mcp_registered) that the stack stopped shipping. An entry that
+# points elsewhere than the stack's host is yours and stays.
+stale_mcp(){ python3 - "$CFG" "$C/.stack-manifest.json" "$PLAN" <<'PY'
+import json, sys
+from urllib.parse import urlsplit
+cfg_path, manifest_path, plan = sys.argv[1:4]
+def load(p):
+    try:
+        return json.load(open(p))
+    except (OSError, ValueError):
+        return {}
+servers = (load(cfg_path).get("mcpServers") or {})
+shipped = {line.split("\t")[1] for line in plan.splitlines() if line.count("\t") >= 1}
+known = {"context7": ("mcp.context7.com", "libdocs replaced Context7")}
+for name, host in (load(manifest_path).get("mcp_registered") or {}).items():
+    if name not in shipped:
+        known[name] = (host, "no longer shipped by the stack")
+for name, (host, why) in sorted(known.items()):
+    cur = servers.get(name)
+    if isinstance(cur, dict) and (urlsplit(str(cur.get("url", ""))).hostname or "").endswith(host):
+        print("%s\t%s\t%s" % (name, json.dumps(cur), why))
+PY
+}
 if [ "$SKIP_MCP" = 1 ]; then
   note "--no-mcp: skipped registering user-scope MCP servers"
+elif [ "$DRY_RUN" = 1 ]; then
+  stale_mcp | while IFS=$'\t' read -r name _prev why; do
+    if [ "$PRUNE" = 1 ]; then would "claude mcp remove -s user $name  (removed: $why)"
+    else note "= $name: $why — kept (--no-prune)"; fi
+  done
+  printf '%s\n' "$PLAN" | while IFS=$'\t' read -r action name _cfg _prev _save why; do
+    [ -n "$name" ] || continue
+    case "$action" in keep) note "= $name ($why)" ;; *) would "claude mcp add-json -s user $name ...  ($action: $why)" ;; esac
+  done
 else
-  printf '%s\n' "$PLAN" | while IFS=$'\t' read -r action name cfg prev save why; do
+  stale="$(stale_mcp)"
+  if [ -n "$stale" ] && [ "$PRUNE" = 1 ]; then
+    ensure_backup
+    while IFS=$'\t' read -r name prev why; do
+      [ -n "$name" ] || continue
+      STACK_MCP_ENTRY="$prev" python3 "$STATE_PY" record "$B" mcp_removed "$name"
+      if claude mcp remove -s user "$name" >/dev/null 2>&1 </dev/null; then note "- removed MCP server $name ($why; the backup keeps its entry)"
+      else note "! could not remove MCP server $name — claude mcp remove -s user $name"; fi
+    done <<EOF_STALE
+$stale
+EOF_STALE
+  elif [ -n "$stale" ]; then
+    printf '%s\n' "$stale" | while IFS=$'\t' read -r name _prev why; do note "= $name: $why — kept (--no-prune)"; done
+  fi
+  # (a here-document, not a pipe: the loop runs in this shell, so the backup it may create is the run's)
+  while IFS=$'\t' read -r action name cfg prev save why; do
     [ -n "$name" ] || continue
     case "$action" in
       keep) note "= $name ($why)"; continue ;;
@@ -1419,7 +1965,11 @@ else
           note "= $name already configured where claude looks — kept yours (--replace-mcp to overwrite)"; continue
         fi ;;
     esac
+    ensure_backup
+    # the entry this replaces goes into the backup (--restore puts it back)
+    [ "$prev" != "null" ] && STACK_MCP_ENTRY="$prev" python3 "$STATE_PY" record "$B" mcp_replaced "$name"
     if [ "$save" != "-" ]; then
+      python3 "$STATE_PY" record "$B" file stack.env
       # The entry carries a literal key and stack.env has none: copy it there first, or the
       # migration would silently discard the user's key. (Passed via env, not argv.)
       if ! PREV="$prev" python3 - "$C/stack.env" "$name" "$save" "$SRC/bin/mcp-headers" <<'PY'
@@ -1470,6 +2020,33 @@ PY
         note "  restored your previous $name entry"
       fi
     fi
+  done <<EOF_PLAN
+$PLAN
+EOF_PLAN
+  # the servers the stack registered (a later version that stops shipping one removes it, above)
+  for mode in check write; do
+  python3 - "$C/.stack-manifest.json" "$PLAN" "$mode" <<'PY' || break
+import json, os, sys
+from urllib.parse import urlsplit
+path, plan, mode = sys.argv[1:4]
+try:
+    m = json.load(open(path))
+except (OSError, ValueError):
+    m = {}
+reg = {}
+for line in plan.splitlines():
+    f = line.split("\t")
+    if len(f) >= 6 and (f[0] != "keep" or f[5] == "up to date"):
+        reg[f[1]] = urlsplit(json.loads(f[2]).get("url", "")).hostname or ""
+if m.get("mcp_registered") == reg:
+    sys.exit(3)
+if mode == "write":
+    m["mcp_registered"] = reg
+    with open(path + ".tmp", "w") as out:
+        json.dump(m, out, indent=2, sort_keys=True)
+    os.replace(path + ".tmp", path)
+PY
+  if [ "$mode" = check ]; then ensure_backup; python3 "$STATE_PY" record "$B" file .stack-manifest.json; fi
   done
   if [ -f "$CFG" ]; then
     chmod 600 "$CFG" 2>/dev/null || true
@@ -1492,12 +2069,14 @@ fi
 
 say "10/11 Plugins and code intelligence"
 if [ "$SKIP_PLUGINS" = 0 ] && [ "$MCP_PLAN" = 0 ]; then
+  # `claude plugin ...`, or under --dry-run the line it would run
+  pcmd(){ if [ "$DRY_RUN" = 1 ]; then would "claude $*"; else claude "$@" >/dev/null 2>&1 </dev/null; fi; }
   # claude.ai sync puts Anthropic's skills in $C/skills/synced/<id>/<name> (older builds:
   # $C/skills/synced/<name>); a plugin copy of a synced skill only doubles its skill-listing entry.
   synced_skill(){ for d in "$C/skills/synced/$1" "$C"/skills/synced/*/"$1"; do [ -f "$d/SKILL.md" ] && return 0; done; return 1; }
   plugin_on(){ python3 -c 'import json,sys; sys.exit(0 if (json.load(open(sys.argv[1])).get("enabledPlugins") or {}).get(sys.argv[2]) is True else 1)' "$C/settings.json" "$1" 2>/dev/null; }
-  # The manifest's "plugins_deduped" lists the plugins --dedupe-plugins disabled ($1 add|drop|has).
-  deduped(){ python3 - "$C/.stack-manifest.json" "$1" "$2" <<'PY'
+  # The manifest's "plugins_deduped" lists the plugins the installer disabled ($1 add|drop|has).
+  deduped(){ [ "$DRY_RUN" = 1 ] && [ "$1" != has ] && return 0; python3 - "$C/.stack-manifest.json" "$1" "$2" <<'PY'
 import json, os, sys
 p, op, pid = sys.argv[1:4]
 try:
@@ -1514,29 +2093,38 @@ with open(p + ".tmp", "w") as f:
 os.replace(p + ".tmp", p)
 PY
   }
-  # Synced skills load only in sessions signed in to claude.ai (/login); an API key, a gateway,
-  # Bedrock/Vertex or --bare sees none of them. So a plugin copy is disabled only on request.
-  dup_plugin(){  # $1 plugin id, $2 synced skill name(s) that duplicate it
-    if ! plugin_on "$1"; then
-      return 0
-    elif [ "$DEDUPE_PLUGINS" = 1 ]; then
-      if claude plugin disable "$1" --scope user >/dev/null 2>&1 </dev/null; then
-        deduped add "$1"
-        note "- disabled plugin $1: the synced anthropic-skills:$2 already provides it (only in claude.ai-login sessions)."
-        note "  To undo: claude plugin enable $1 --scope user"
-      else
-        note "! inside claude: /plugin disable $1 (duplicates the synced anthropic-skills:$2)"
-      fi
+  plugin_off(){  # $1 plugin id, $2 why: disabled, recorded in the backup (--restore re-enables it)
+    if [ "$DRY_RUN" = 1 ]; then would "claude plugin disable $1 --scope user  ($2)"; return 0; fi
+    ensure_backup
+    python3 "$STATE_PY" record "$B" file .stack-manifest.json
+    if claude plugin disable "$1" --scope user >/dev/null 2>&1 </dev/null; then
+      python3 "$STATE_PY" record "$B" plugins_disabled "$1"
+      deduped add "$1"
+      note "- disabled plugin $1: $2"
+      note "  To undo: claude plugin enable $1 --scope user"
     else
-      note "plugin $1 duplicates the synced anthropic-skills:$2 in the skill listing;"
-      note "  ./install.sh --dedupe-plugins disables it (keep it if you also use API-key or gateway sessions)"
+      note "! inside claude: /plugin disable $1 ($2)"
     fi
   }
-  # A plugin --dedupe-plugins disabled comes back once claude.ai no longer syncs its skills.
+  # One copy of each skill (the default): a plugin copy of a claude.ai-synced skill is disabled, the
+  # synced copy (which can't be removed) stays. Synced skills load only in sessions signed in to
+  # claude.ai (/login); API-key, gateway, Bedrock/Vertex and --bare sessions see none of them, so
+  # --keep-plugin-duplicates keeps both.
+  dup_plugin(){  # $1 plugin id, $2 synced skill name(s) that duplicate it
+    plugin_on "$1" || return 0
+    if [ "$DEDUPE_PLUGINS" = 1 ]; then
+      plugin_off "$1" "the synced anthropic-skills:$2 already provides it (claude.ai-login sessions; --keep-plugin-duplicates keeps both)"
+    else
+      note "plugin $1 duplicates the synced anthropic-skills:$2 in the skill listing (kept: --keep-plugin-duplicates)"
+    fi
+  }
+  # A plugin the installer disabled comes back once claude.ai no longer syncs its skills.
   undedupe(){  # $1 plugin id, $2 synced skill it stood in for
     deduped has "$1" || return 0
     synced_skill "$2" && return 0
-    if claude plugin enable "$1" --scope user >/dev/null 2>&1 </dev/null; then
+    if [ "$DRY_RUN" = 1 ]; then would "claude plugin enable $1 --scope user  (the synced $2 skill is gone)"
+    elif ensure_backup && python3 "$STATE_PY" record "$B" file .stack-manifest.json \
+         && claude plugin enable "$1" --scope user >/dev/null 2>&1 </dev/null; then
       deduped drop "$1"; note "+ re-enabled plugin $1: the synced $2 skill is gone"
     else
       note "! the synced $2 skill is gone: claude plugin enable $1 --scope user"
@@ -1548,14 +2136,25 @@ PY
   if synced_skill docx; then
     note "docx/xlsx/pptx/pdf skills already synced from claude.ai — skipping document-skills plugin"
     dup_plugin document-skills@anthropic-agent-skills "docx/xlsx/pptx/pdf"
+  elif [ "$DRY_RUN" = 1 ]; then
+    plugin_on document-skills@anthropic-agent-skills || would "claude plugin install document-skills@anthropic-agent-skills --scope user"
   else
     claude plugin marketplace add anthropics/skills >/dev/null 2>&1 </dev/null || true
     claude plugin install document-skills@anthropic-agent-skills --scope user >/dev/null 2>&1 </dev/null \
       && note "+ document-skills (docx, xlsx, pptx, pdf)" \
       || note "! run inside claude: /plugin marketplace add anthropics/skills  then  /plugin install document-skills@anthropic-agent-skills"
   fi
+  # Plugins the stack's own skills replaced (mcp-server-craft absorbed mcp-server-dev's three
+  # skills): disabled with the duplicates.
+  for p in $RETIRED_PLUGINS; do
+    plugin_on "$p" || continue
+    if [ "$DEDUPE_PLUGINS" = 1 ]; then plugin_off "$p" "the stack's mcp-server-craft skill covers it (one copy of each skill)"
+    else note "plugin $p overlaps the stack's mcp-server-craft skill (kept: --keep-plugin-duplicates)"; fi
+  done
   # Code intelligence: a language server starts only when Claude edits a matching file (on demand).
-  if [ "$WITH_LSP" = 1 ] && [ "$NO_DEPS" = 0 ]; then
+  if [ "$WITH_LSP" = 1 ] && [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 1 ]; then
+    would "install the missing language servers (pyright, typescript-language-server, rust-analyzer, ...)"
+  elif [ "$WITH_LSP" = 1 ] && [ "$NO_DEPS" = 0 ]; then
     # npm -g goes into Node's own prefix when that is writable and outlives Node upgrades (Homebrew);
     # a root-owned distro prefix (/usr: EACCES) or a version manager's per-version prefix under
     # $HOME (nvm, fnm, volta) gets ~/.local instead (bin/ there is on PATH via the profile line).
@@ -1593,31 +2192,28 @@ PY
       brew install JetBrains/utils/kotlin-lsp >/dev/null 2>&1 || note "! kotlin-lsp: brew install JetBrains/utils/kotlin-lsp"
     fi
   fi
-  claude plugin marketplace add anthropics/claude-plugins-official >/dev/null 2>&1 </dev/null || true
+  [ "$DRY_RUN" = 1 ] || claude plugin marketplace add anthropics/claude-plugins-official >/dev/null 2>&1 </dev/null || true
   lsp_added=""; lsp_failed=""; lsp_missing=""
   for pair in pyright-langserver:pyright-lsp typescript-language-server:typescript-lsp rust-analyzer:rust-analyzer-lsp sourcekit-lsp:swift-lsp clangd:clangd-lsp gopls:gopls-lsp jdtls:jdtls-lsp kotlin-lsp:kotlin-lsp; do
     b="${pair%%:*}"; p="${pair##*:}"
     if lsp_works "$b"; then
       # `claude plugin install` exits 0 when the plugin is already installed, so a failure is real
-      if claude plugin install "$p@claude-plugins-official" --scope user >/dev/null 2>&1 </dev/null; then lsp_added="$lsp_added $p"; else lsp_failed="$lsp_failed $p"; fi
+      if plugin_on "$p@claude-plugins-official" && [ "$DRY_RUN" = 1 ]; then :
+      elif pcmd plugin install "$p@claude-plugins-official" --scope user; then lsp_added="$lsp_added $p"; else lsp_failed="$lsp_failed $p"; fi
     else
       lsp_missing="$lsp_missing $b"
     fi
   done
   # Languages the official marketplace has no code-intelligence plugin for (Haskell, Julia, Lean 4,
-  # Scala) come from the stack's own local marketplace, installed at $C/stack-plugins. A directory
-  # marketplace loads its plugins in place, so a re-run's copy takes effect at the next session.
+  # Scala) come from the stack's own local marketplace, installed at $C/stack-plugins (step 7). A
+  # directory marketplace loads its plugins in place, so a re-run's copy takes effect at the next session.
   if [ -d "$SRC/stack-plugins" ]; then
-    if [ -d "$C/stack-plugins" ] && ! diff -rq "$SRC/stack-plugins" "$C/stack-plugins" >/dev/null 2>&1; then
-      cp -R "$C/stack-plugins" "$B/stack-plugins"
-    fi
-    rm -rf "$C/.stack-plugins.new" && cp -R "$SRC/stack-plugins" "$C/.stack-plugins.new" \
-      && rm -rf "$C/stack-plugins" && mv "$C/.stack-plugins.new" "$C/stack-plugins"
-    if claude plugin marketplace add "$C/stack-plugins" >/dev/null 2>&1 </dev/null; then
+    if pcmd plugin marketplace add "$C/stack-plugins"; then
       for pair in haskell-language-server-wrapper:haskell-lsp julia-languageserver:julia-lsp lake:lean-lsp metals:metals-lsp; do
         b="${pair%%:*}"; p="${pair##*:}"
         if lsp_works "$b"; then
-          if claude plugin install "$p@agent-stack" --scope user >/dev/null 2>&1 </dev/null; then lsp_added="$lsp_added $p"; else lsp_failed="$lsp_failed $p@agent-stack"; fi
+          if plugin_on "$p@agent-stack" && [ "$DRY_RUN" = 1 ]; then :
+          elif pcmd plugin install "$p@agent-stack" --scope user; then lsp_added="$lsp_added $p"; else lsp_failed="$lsp_failed $p@agent-stack"; fi
         else
           lsp_missing="$lsp_missing $b"
         fi
@@ -1626,19 +2222,20 @@ PY
       note "! could not add the stack's plugin marketplace — inside claude: /plugin marketplace add $C/stack-plugins"
     fi
   fi
-  [ -n "$lsp_added" ] && note "+ code intelligence:$lsp_added"
+  [ -n "$lsp_added" ] && [ "$DRY_RUN" = 0 ] && note "+ code intelligence:$lsp_added"
   [ -n "$lsp_failed" ] && note "! plugin install failed:$lsp_failed (inside claude: /plugin install <name>@claude-plugins-official, or <name>@agent-stack)"
   [ -n "$lsp_missing" ] && note "- no language server for:$lsp_missing (./install.sh --with-lsp installs pyright, typescript-language-server, rust-analyzer, and HLS, LanguageServer.jl, Metals, kotlin-lsp through ghcup, julia, cs, brew when those are present; Java: brew install jdtls; Lean: elan)"
-  # Optional Anthropic skill plugins (skill-creator for claude-code-engineer, mcp-server-dev for
-  # llm-engineer/mcp-broker, math-olympiad for the mathematician). Only their descriptions sit in
-  # context; the skills load when a task matches.
+  # Optional Anthropic skill plugins (skill-creator for claude-code-engineer, math-olympiad for the
+  # mathematician). Only their descriptions sit in context; the skills load when a task matches. A
+  # plugin whose skills claude.ai already syncs is skipped (one copy of each skill).
   if [ "$WITH_EXTRA_PLUGINS" = 1 ]; then
     extra_added=""; extra_failed=""
-    for p in skill-creator mcp-server-dev math-olympiad; do
-      [ "$p" = skill-creator ] && [ "$DEDUPE_PLUGINS" = 1 ] && synced_skill skill-creator && continue
-      if claude plugin install "$p@claude-plugins-official" --scope user >/dev/null 2>&1 </dev/null; then extra_added="$extra_added $p"; else extra_failed="$extra_failed $p"; fi
+    for p in $EXTRA_PLUGINS; do
+      [ "$DEDUPE_PLUGINS" = 1 ] && synced_skill "$p" && continue
+      if plugin_on "$p@claude-plugins-official" && [ "$DRY_RUN" = 1 ]; then continue; fi
+      if pcmd plugin install "$p@claude-plugins-official" --scope user; then extra_added="$extra_added $p"; else extra_failed="$extra_failed $p"; fi
     done
-    [ -n "$extra_added" ] && note "+ extra skill plugins:$extra_added"
+    [ -n "$extra_added" ] && [ "$DRY_RUN" = 0 ] && note "+ extra skill plugins:$extra_added"
     [ -n "$extra_failed" ] && note "! plugin install failed:$extra_failed (inside claude: /plugin install <name>@claude-plugins-official)"
   fi
 else
@@ -1649,47 +2246,20 @@ say "11/11 Shell profile"
 PROFILE_NOTE=""
 if [ "$NO_PROFILE" = 1 ]; then
   note "--no-profile: leaving shell rc files alone"
-else
-  mkdir -p "$B/rc"
-  # The previous profile line ({ set -a; . stack.env; set +a; }) exported EVERY variable of stack.env;
-  # the new one exports only STACK_EXPORT. Variables of your own in stack.env stay exported.
-  legacy_rc=""
+elif [ "$DRY_RUN" = 1 ]; then
   for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
-    if grep -qE 'set -a.*stack\.env.*# claude-agent-stack[[:space:]]*$' "$rc" 2>/dev/null; then legacy_rc="$rc"; fi
+    if [ -f "$rc" ] || { [ "$rc" = "$HOME/.zshrc" ] && [ "$OS" = "Darwin" ]; }; then
+      if grep -qE '# claude-agent-stack[[:space:]]*$' "$rc" 2>/dev/null && grep -q 'with-stack-env\" --print-env --reveal sh' "$rc" 2>/dev/null; then
+        note "= $rc already sources stack.env"
+      else
+        would "add (or update) the stack.env line in $rc (backed up first)"
+      fi
+    fi
   done
-  if [ -n "$legacy_rc" ] && [ -f "$C/stack.env" ]; then
-    python3 - "$HERE/stack.env.example" "$C/stack.env" "$SRC/bin/mcp-headers" "$SRC/bin/with-stack-env" <<'PY' || true
-import os, re, runpy, sys
-from pathlib import Path
-example, target, parser, wse = sys.argv[1:5]
-mh = runpy.run_path(parser, run_name="mcp_headers")
-VAR = re.compile(r"^\s*(?:#\s?)?(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=")
-stack_keys = {m.group(1) for m in map(VAR.match, open(example, encoding="utf-8").read().splitlines()) if m}
-target = os.path.realpath(target)
-text = open(target, encoding="utf-8", errors="surrogateescape").read()
-vals = mh["read_env_file"](Path(target))
-own = {k: v for k, v in vals.items() if v and k not in stack_keys and not k.startswith(("LUMENFALL_", "OPPER_", "OPENROUTER_", "IMAGE_STUDIO_", "LIBDOCS_"))}
-mine = sorted(k for k, v in own.items() if "$" not in v)
-expanding = sorted(k for k, v in own.items() if "$" in v)
-if expanding:
-    print("  note: %s use $VAR expansion, which the profile line doesn't do: set them in your shell rc file"
-          % ", ".join(expanding))
-if mine and not re.search(r"(?m)^\s*(?:export\s+)?STACK_EXPORT=", text):
-    default = re.search(r'(?m)^DEFAULT_EXPORT="([^"]*)"', open(wse, encoding="utf-8").read()).group(1)
-    block = ("\n# added by install.sh: your previous profile line exported every variable in this file;\n"
-             "# these of your own stay exported (the stack's API keys no longer are)\n"
-             'STACK_EXPORT="%s %s"\n' % (default, " ".join(mine)))
-    fd = os.open(target + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape") as f:
-        f.write(text + ("" if text.endswith("\n") or not text else "\n") + block)
-    os.replace(target + ".tmp", target)
-    print("  stack.env: STACK_EXPORT keeps exporting your own variables: " + ", ".join(mine))
-gone = [k for k in ("OPPER_API_KEY", "OPENROUTER_API_KEY", "EXA_API_KEY", "JINA_API_KEY", "SPIDER_API_KEY")
-        if vals.get(k)]
-if gone:
-    print("  note: no longer exported to your shells: %s (the MCP servers read stack.env themselves)" % ", ".join(gone))
-PY
-  fi
+  for n in claude-ninja claude-god; do
+    [ -e "$HOME/.local/bin/$n" ] || [ -L "$HOME/.local/bin/$n" ] || would "ln -s $C/bin/claude-ultracode $HOME/.local/bin/$n"
+  done
+else
   # Exports only the NON-EMPTY keys (an empty KEY= must not blank a token exported earlier in the
   # rc file) and parses stack.env exactly like with-stack-env/mcp-headers.
   # --reveal: this line exports real values into the user's own shell (that is its job); the
@@ -1697,13 +2267,14 @@ PY
   LINE="[ -x \"$C/bin/with-stack-env\" ] && eval \"\$(\"$C/bin/with-stack-env\" --print-env --reveal sh)\"  # claude-agent-stack"
   for rc in "$HOME/.zshrc" "$HOME/.bashrc"; do
     if [ -f "$rc" ] || { [ "$rc" = "$HOME/.zshrc" ] && [ "$OS" = "Darwin" ]; }; then
-      [ -f "$rc" ] && cp -p "$rc" "$B/rc/$(basename "$rc")"
       # Only the line this installer wrote (it ENDS with the marker) is replaced — never other lines
-      # that merely mention claude-agent-stack (an alias or PATH entry for this repo, say).
+      # that merely mention claude-agent-stack (an alias or PATH entry for this repo, say). A check
+      # pass first, so the rc file is backed up only when it will change.
       set +e
-      python3 - "$rc" "$LINE" <<'PY'
+      for mode in check write; do
+      python3 - "$rc" "$LINE" "$mode" <<'PY'
 import os, sys
-rc, line = sys.argv[1], sys.argv[2]
+rc, line, mode = sys.argv[1], sys.argv[2], sys.argv[3]
 try:
     text = open(rc, encoding="utf-8", errors="surrogateescape").read()
 except FileNotFoundError:
@@ -1726,13 +2297,19 @@ if not placed:
 new = "".join(out)
 if new == text:
     sys.exit(3)
+if mode == "check":
+    sys.exit(0)
 with open(os.path.realpath(rc), "w", encoding="utf-8", errors="surrogateescape") as f:
     f.write(new)
 PY
       st=$?
+      [ "$mode" = check ] && [ "$st" = 0 ] || break
+      ensure_backup
+      [ -f "$rc" ] && python3 "$STATE_PY" record "$B" rc "$(python3 -c 'import os,sys;print(os.path.realpath(sys.argv[1]))' "$rc")"
+      done
       set -e
       case "$st" in
-        0) note "+ $rc sources stack.env (previous copy: $B/rc/)" ;;
+        0) note "+ $rc sources stack.env (the backup keeps the previous copy)" ;;
         3) note "= $rc already sources stack.env" ;;
         *) note "! could not update $rc — add this line yourself: $LINE" ;;
       esac
@@ -1757,42 +2334,37 @@ PY
   esac
 fi
 
-# Earlier image servers are retired: images now come from image-studio (SVG and edits through
-# OpenRouter, photos and rasters through Opper). An old server stays while an agent file you edited
-# (kept, the stack's version waiting as .new) still starts it.
-for old in opper_image_mcp.py openrouter_image_mcp.py; do
-  [ -f "$C/mcp/$old" ] || continue
-  if grep -lq "$old" "$C"/agents/*.md 2>/dev/null; then
-    note "! kept mcp/$old: $(grep -l "$old" "$C"/agents/*.md | xargs -n1 basename | tr '\n' ' ')still use it — merge their .new versions"
-  else
-    mkdir -p "$B/retired/mcp" && mv "$C/mcp/$old" "$B/retired/mcp/" \
-      && note "retired mcp/$old: images now come from image-studio (old copy: $B/retired/mcp/)"
-  fi
-done
-
-# A run that changed nothing leaves a backup identical to an earlier one: keep just that one.
-same_b=""; n_b=0
-for d in "$C"/backup-*; do
-  [ -d "$d" ] || continue
-  n_b=$((n_b + 1))
-  if [ -z "$same_b" ] && [ "$d" != "$B" ] && diff -r "$B" "$d" >/dev/null 2>&1; then same_b="$d"; fi
-done
-if [ -n "$same_b" ]; then
-  case "$B" in "$C"/backup-*) rm -rf "$B"; n_b=$((n_b - 1)); note "backup: identical to $same_b (nothing changed; no duplicate kept)"; B="$same_b" ;; esac
-fi
-if rmdir "$B" 2>/dev/null; then n_b=$((n_b - 1)); note "backup: nothing existed to back up (first install)"; fi
-[ "$n_b" -gt 10 ] && note "$n_b backup folders in $C (backup-*): delete the old ones you no longer need"
+# Backups of this config dir: say when they pile up (the installer never deletes one).
+n_b="$(python3 - "$STATE_PY" "$C" "$BACKUP_ROOT" <<'PY'
+import importlib.util, sys
+spec = importlib.util.spec_from_file_location("install_state", sys.argv[1])
+st = importlib.util.module_from_spec(spec)
+spec.loader.exec_module(st)
+print(len(st.backups_of(sys.argv[2], sys.argv[3])))
+PY
+)"
+[ "${n_b:-0}" -gt 10 ] && note "$n_b backups of $C in $BACKUP_ROOT: delete the old ones you no longer need"
 case ":$ORIG_PATH:" in
   *":$HOME/.local/bin:"*) ;;
   *) [ "$NO_PROFILE" = 1 ] && note "! ~/.local/bin is not on your PATH (uv, magg, huetension, language servers): add it to your shell profile" ;;
 esac
 
+if [ "$DRY_RUN" = 1 ]; then
+  say "Dry run done: nothing was changed. Run without --dry-run to apply the plan above."
+  exit 0
+fi
 say "Done. Next:"
 [ -n "$PROFILE_NOTE" ] && note "! $PROFILE_NOTE"
+if [ -n "$B" ]; then
+  note "backup of everything this run changed or removed: $B"
+  note "restore it: $HERE/install.sh --restore $B"
+else
+  note "nothing changed in $C (no backup needed)"
+fi
 pending="$( (cd "$C" && find agents rules skills -name '*.new' -type f 2>/dev/null) | sort || true)"
 if [ -n "$pending" ]; then
   note "! You edited these files, so they were kept; the stack's new versions wait next to them."
-  note "  Merge each (diff -u <file> <file>.new), then delete the .new — or rerun with --force:"
+  note "  Merge each (diff -u <file> <file>.new), then delete the .new — or rerun without --no-prune:"
   printf '%s\n' "$pending" | sed "s|^|      $C/|"
 fi
 cat <<EOF
@@ -1817,5 +2389,5 @@ cat <<EOF
      /mcp → computer-use → Enable  (once per project), then grant Accessibility + Screen Recording.
   4. Browser agent with your logins: start with  claude --chrome  (or /chrome → Enabled by default).
   5. Optional: ./install.sh --with-ml (shared ML venv) · --with-lsp (language servers) · --with-adobe
-     · --with-extra-plugins (skill-creator, mcp-server-dev, math-olympiad skills)
+     · --with-extra-plugins (skill-creator, math-olympiad skills)
 EOF

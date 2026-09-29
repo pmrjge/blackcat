@@ -17,6 +17,11 @@ scratch_dir(){ local d; d="$(mktemp -d)" && [ -d "$d" ] && (cd "$d" && pwd -P) |
 # remove a directory only if it is one of this test's scratch directories
 drop_scratch(){ case "$1" in */tmp.*) [ -d "$1" ] && rm -rf -- "$1" ;; esac; }
 SCRATCH_ROOT="$(scratch_dir)" || exit 1
+# install.sh keeps its backups in ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack-backups and the
+# guard its state next to it: every scratch install of this test writes both under the scratch root.
+REAL_BK_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack-backups"
+export XDG_STATE_HOME="$SCRATCH_ROOT/state"
+BK_ROOT="$XDG_STATE_HOME/claude-agent-stack-backups"
 HERE="$SCRATCH_ROOT/claude-agent-stack"
 python3 - "$SRC_REPO" "$HERE" <<'PY'
 import os, shutil, subprocess, sys
@@ -84,6 +89,8 @@ hash_tree() {
 REAL_CLAUDE_HASH_BEFORE="$(hash_tree "$HOME/.claude")"
 REAL_CJ_HASH_BEFORE="$(hash_tree "$HOME/.claude.json")"
 REAL_ZSHRC_HASH_BEFORE="$(hash_tree "$HOME/.zshrc")"
+real_backups(){ ls -1A "$REAL_BK_ROOT" 2>/dev/null | sha | awk '{print $1}'; }
+REAL_BK_BEFORE="$(real_backups)"
 
 assert_unchanged_real_home() {
   [ "$(hash_tree "$HOME/.claude")" = "$REAL_CLAUDE_HASH_BEFORE" ] && pass "real \$HOME/.claude unchanged" \
@@ -92,7 +99,14 @@ assert_unchanged_real_home() {
     || failed "real ~/.claude.json CHANGED"
   [ "$(hash_tree "$HOME/.zshrc")" = "$REAL_ZSHRC_HASH_BEFORE" ] && pass "real ~/.zshrc unchanged" \
     || failed "real ~/.zshrc CHANGED"
+  [ "$(real_backups)" = "$REAL_BK_BEFORE" ] && pass "real installer backups ($REAL_BK_ROOT) unchanged" \
+    || failed "real installer backups CHANGED: $REAL_BK_ROOT"
 }
+# the newest backup install.sh made of config dir $1 ("" when none), and how many it has
+latest_backup(){ python3 -B "$HERE/lib/install_state.py" latest "$1" "$BK_ROOT"; }
+count_backups(){ python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); import install_state as st
+print(len(st.backups_of(sys.argv[2], sys.argv[3])))' "$HERE/lib" "$1" "$BK_ROOT"; }
+fmode(){ python3 -c 'import os, sys; print(oct(os.lstat(sys.argv[1]).st_mode & 0o777))' "$1"; }
 
 EXPECTED_AGENTS=$(ls "$HERE"/dot-claude/agents/*.md | wc -l | tr -d ' ')
 # plus the copy types install.sh renders from their base agents (COPY_TYPES)
@@ -201,9 +215,10 @@ out=$(XDG_STATE_HOME="$T1/state" "$T1/bin/magg-private" /bin/echo --env-pass --c
 priv=$(printf '%s\n' "$out" | sed -n 's/^--env-pass --config \(.*\) serve$/\1/p')
 [ -n "$priv" ] && [ "$priv" != "$T1/magg/config.json" ] && cmp -s "$priv" "$T1/magg/config.json" \
   && pass "magg-private runs magg on a private copy of the catalog" || failed "magg-private: [$out]"
-python3 - "$T1/settings.json" <<'PY' && pass "settings: autocompact on at 400K, depth 4, default tool search, lazy MCP, blackcat, skill listing 1%, 500-char cut, 6 user-only skills" || failed "settings.json values (see above)"
+python3 - "$T1/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "settings: autocompact on at 400K, depth 4, default tool search, lazy MCP, blackcat, shipped skill-listing budget, 500-char cut, 6 user-only skills" || failed "settings.json values (see above)"
 import json, sys
 s = json.load(open(sys.argv[1]))
+frac = json.load(open(sys.argv[2]))["skillListingBudgetFraction"]
 env = s["env"]
 checks = {
     "agent": s.get("agent") == "blackcat",
@@ -218,7 +233,7 @@ checks = {
                          env.get("STACK_PROMPT_CTX_BUDGET"), env.get("STACK_SESSION_CTX_BUDGET"),
                          env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"), env.get("STACK_MAX_MCP_CALLS"))
                         == ("3", "orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", "100000000", "666000000", "32", "64"),
-    "skill listing budget": s.get("skillListingBudgetFraction") == 0.01
+    "skill listing budget": s.get("skillListingBudgetFraction") == frac and 0.01 <= frac <= 0.02
                             and s.get("skillListingMaxDescChars") == 500
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only",
     "no Haiku": env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5-5",
@@ -267,6 +282,28 @@ print("\n".join("    " + b for b in bad))
 sys.exit(1 if bad else 0)
 ' "$T1/agents" && pass "copy types rendered; every May spawn sentence matches POLICY (copies included)" \
   || failed "a May spawn sentence differs from POLICY (see above)"
+B1="$(latest_backup "$T1")"
+python3 - "$B1" "$T1" <<'PY' && pass "first install: one backup outside the config dir (0700, backup.json 0600) listing what it added" \
+  || failed "first install backup: [$B1]"
+import json, os, stat, sys
+b, t = sys.argv[1:3]
+meta = json.load(open(os.path.join(b, "backup.json")))
+mode = lambda p: stat.S_IMODE(os.lstat(p).st_mode)
+ok = (b and not b.startswith(t) and mode(b) == 0o700 and mode(os.path.join(b, "backup.json")) == 0o600
+      and meta["reason"] == "install" and meta["config_dir"] == t and not meta["entries"]
+      and "agents/blackcat.md" in meta["added"] and "settings.json" in meta["added"])
+sys.exit(0 if ok else 1)
+PY
+grep -qF "restore it: $INSTALL --restore $B1" "$T1/.install.log" && pass "the run prints the backup and its restore command" \
+  || failed "no restore command printed: $(grep -i restore "$T1/.install.log")"
+python3 - "$T1/settings.json" "$BK_ROOT" <<'PY' && pass "backups are denied to agents (Read/Edit deny rules, sandbox denyRead/denyWrite)" || failed "backup root not denied in settings.json"
+import json, sys
+s, bk = json.load(open(sys.argv[1])), sys.argv[2]
+fs = s["sandbox"]["filesystem"]
+deny = s["permissions"]["deny"]
+sys.exit(0 if ("Read(/%s/**)" % bk in deny and "Edit(/%s/**)" % bk in deny
+               and bk in fs["denyRead"] and bk in fs["denyWrite"]) else 1)
+PY
 assert_unchanged_real_home
 
 if [ "$(uname)" != "Darwin" ]; then
@@ -276,7 +313,8 @@ if [ "$(uname)" != "Darwin" ]; then
     && pass "refuses to install on $(uname) (macOS only), touching nothing" || failed "non-macOS guard: rc=$rc: $out"
 fi
 
-echo "== 2. Second run: agents reported unchanged"
+echo "== 2. Second run: agents reported unchanged, no changes, no backup"
+nb_before=$(count_backups "$T1")
 if CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T1/.install2.log" 2>&1; then
   if grep -qE '^  (agents/|rules/).* unchanged$' "$T1/.install2.log" \
      && ! grep -qE '^  (agents/|rules/).* (installed|overwritten)' "$T1/.install2.log"; then
@@ -287,27 +325,35 @@ if CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profi
 else
   failed "second install.sh run exited non-zero"
 fi
-nb_before=$(ls -d "$T1"/backup-* | wc -l | tr -d ' ')
-CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T1/.install2b.log" 2>&1
-nb_after=$(ls -d "$T1"/backup-* | wc -l | tr -d ' ')
-[ "$nb_before" = "$nb_after" ] && grep -q "no duplicate kept" "$T1/.install2b.log" \
-  && pass "a run that changes nothing keeps no duplicate backup" || failed "backup folders grew on a no-op run ($nb_before -> $nb_after)"
+nb_after=$(count_backups "$T1")
+[ "$nb_before" = "$nb_after" ] && grep -q "no changes: the config dir already matches this stack version" "$T1/.install2.log" \
+  && grep -qF "nothing changed in $T1 (no backup needed)" "$T1/.install2.log" \
+  && pass "a run that changes nothing says so and makes no backup" || failed "no-op run: backups $nb_before -> $nb_after, or no 'no changes' line"
 assert_unchanged_real_home
 
-echo "== 3. Manual edit is kept, with a .new copy, until --force"
+echo "== 3. An edited stack file: replaced by default (the backup keeps it); --no-prune keeps it with a .new"
+printf '\n<!-- local edit -->\n' >> "$T1/agents/coder.md"
+CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T1/.install3.log" 2>&1
+B3="$(latest_backup "$T1")"
+! grep -q '<!-- local edit -->' "$T1/agents/coder.md" && [ ! -e "$T1/agents/coder.md.new" ] \
+  && grep -q '<!-- local edit -->' "$B3/files/agents/coder.md" && [ "$(fmode "$B3/files/agents/coder.md")" = 0o600 ] \
+  && grep -qx '  ~ agents/coder.md  (edited since the last install)' "$T1/.install3.log" \
+  && grep -qF "restore it: $INSTALL --restore $B3" "$T1/.install3.log" \
+  && pass "edited coder.md replaced, listed under 'replaced', the edit kept in the backup (0600)" \
+  || failed "default run over an edited coder.md: $(grep -F 'coder.md' "$T1/.install3.log" | head -3)"
 printf '\n<!-- local edit -->\n' >> "$T1/agents/coder.md"
 edited_before="$(sha "$T1/agents/coder.md" | awk '{print $1}')"
-CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T1/.install3.log" 2>&1
+CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --no-prune >"$T1/.install3b.log" 2>&1
 edited_after="$(sha "$T1/agents/coder.md" | awk '{print $1}')"
-[ "$edited_before" = "$edited_after" ] && pass "edited coder.md kept as-is" || failed "edited coder.md was overwritten without --force"
-[ -f "$T1/agents/coder.md.new" ] && pass ".new copy of the rendered coder.md was written" || failed "no .new copy found for the modified coder.md"
-grep -qF "$T1/agents/coder.md.new" "$T1/.install3.log" && pass "the final summary lists the pending coder.md.new" || failed "pending .new not listed at the end"
-CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --force >"$T1/.install4.log" 2>&1
+[ "$edited_before" = "$edited_after" ] && pass "--no-prune: edited coder.md kept as-is" || failed "--no-prune overwrote the edited coder.md"
+[ -f "$T1/agents/coder.md.new" ] && pass "--no-prune: .new copy of the rendered coder.md was written" || failed "no .new copy found for the modified coder.md"
+grep -qF "$T1/agents/coder.md.new" "$T1/.install3b.log" && pass "the final summary lists the pending coder.md.new" || failed "pending .new not listed at the end"
+CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --no-prune --force >"$T1/.install4.log" 2>&1
 edited_forced="$(sha "$T1/agents/coder.md" | awk '{print $1}')"
 if [ "$edited_forced" != "$edited_before" ] && ! grep -q '<!-- local edit -->' "$T1/agents/coder.md"; then
-  pass "--force overwrote the modified coder.md"
+  pass "--no-prune --force overwrote the modified coder.md"
 else
-  failed "--force did not overwrite the modified coder.md"
+  failed "--no-prune --force did not overwrite the modified coder.md"
 fi
 [ ! -f "$T1/agents/coder.md.new" ] && pass "stale coder.md.new removed once the file is back in sync" || failed "stale coder.md.new left behind"
 assert_unchanged_real_home
@@ -316,8 +362,9 @@ echo "== 4. Settings merge: pins, concurrency, compaction overrides; magg catalo
 T2="$(cd "$(mktemp -d)" && pwd -P)"
 export FAKE_CLAUDE_JSON="$T2/fake-claude.json" STACK_CLAUDE_JSON="$T2/fake-claude.json"
 mkdir -p "$T2/magg"
-# docling edited by the user (kept), a server of their own (kept), and two entries exactly as an
-# earlier stack version shipped them (mlflow disabled, playwright left enabled by magg): updated.
+# docling edited by the user (replaced: the backup keeps it), a server of their own (kept), and two
+# entries exactly as an earlier stack version shipped them (mlflow disabled, playwright left enabled
+# by magg): updated.
 cat > "$T2/magg/config.json" <<'JSON'
 {"servers": {"docling": {"source": "x", "command": "my-docling", "enabled": true},
              "mine": {"source": "y", "command": "my-server", "enabled": true},
@@ -325,6 +372,11 @@ cat > "$T2/magg/config.json" <<'JSON'
              "playwright": {"source": "https://github.com/microsoft/playwright-mcp", "prefix": "pw", "command": "npx", "args": ["-y", "@playwright/mcp@latest"], "notes": "Scripted browser automation (forms, logins, JS-heavy pages) when WebFetch/Jina/Spider are not enough."}}}
 JSON
 CLAUDE_CONFIG_DIR="$T2" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T2/.install.log" 2>&1
+B4="$(latest_backup "$T2")"
+grep -q '"my-docling"' "$B4/files/magg/config.json" 2>/dev/null \
+  && grep -qx "  ~ magg catalog: docling  (differed from the stack's entry)" "$T2/.install.log" \
+  && pass "magg: an edited stack entry is replaced and listed; the backup keeps the old catalog" \
+  || failed "magg: edited docling entry not replaced/listed/backed up: $(grep -i magg "$T2/.install.log")"
 python3 - "$T2/settings.json" <<'PY'
 import json, sys
 p = sys.argv[1]
@@ -375,8 +427,10 @@ check(s.get("autoCompactWindow") == 400000 and s.get("autoCompactEnabled") is Tr
       "autoCompactWindow back to 400000", "autoCompactWindow=%r" % s.get("autoCompactWindow"))
 check("Bash(ls *)" in s["permissions"]["allow"], "user's own allow rule kept", "user's allow rule lost")
 m = json.load(open(magg))["servers"]
-check(m["docling"]["command"] == "my-docling" and m["docling"]["enabled"] is True and "mine" in m,
-      "magg: user's catalog entries untouched", "magg: user entries modified")
+check(m["docling"]["command"] != "my-docling" and m["docling"]["enabled"] is False
+      and m.get("mine") == {"source": "y", "command": "my-server", "enabled": True},
+      "magg: the stack's docling entry is the stack's (disabled); the user's own server untouched",
+      "magg: docling %r, mine %r" % (m["docling"], m.get("mine")))
 check(all(k in m for k in ("duckdb", "arxiv", "jupyter", "mlflow", "playwright", "lean")),
       "magg: new catalog entries added", "magg: catalog entries missing: %s" % sorted(m))
 check("--no-project" in m["mlflow"]["args"] and m["mlflow"]["enabled"] is False,
@@ -491,8 +545,14 @@ printf '%s\n' "$out" | grep -q "agent files present" && pass "doctor.sh: agent f
 [ "$(printf '%s\n' "$out" | grep -cE 'ok    settings.json PreToolUse\((Bash|Monitor)\) no[- ](push|forge)|ok    no-push hook sees every')" = 4 ] \
   && pass "doctor.sh: no-push probes (plain, bash -c, Monitor forge write, no if filter)" \
   || failed "doctor.sh: no-push probe lines: $(printf '%s\n' "$out" | grep -i 'no-push\|forge')"
+{ printf '%s\n' "$out" | grep -q 'ok    settings.json PreToolUse blackcat-guard --settings enforces the policy' \
+  && printf '%s\n' "$out" | grep -q 'ok    blackcat.md blackcat-guard enforces the policy' \
+  && printf '%s\n' "$out" | grep -q 'ok    settings.json PreToolUse(Bash) read-only reviewers enforces the policy'; } \
+  && pass "doctor.sh: blackcat-guard (frontmatter and settings wiring) and read-only reviewer probes deny" \
+  || failed "doctor.sh: blackcat-guard/read-only probe lines: $(printf '%s\n' "$out" | grep -i 'blackcat-guard\|read-only')"
 nsk=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
-printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1)) skills, ~[0-9]+ of 30000 characters" \
+budget=$(python3 -c 'import json, sys; print(int(1000000 * 3 * json.load(open(sys.argv[1]))["skillListingBudgetFraction"]))' "$HERE/dot-claude/settings.json")
+printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1)) skills, ~[0-9]+ of $budget characters" \
   && pass "doctor.sh: skill listing within its budget" || failed "doctor.sh: skill listing line: $(printf '%s\n' "$out" | grep 'skill listing')"
 printf '%s\n' "$out" | grep -q "exa-from-stack-env" && failed "doctor.sh printed a key value" || pass "doctor.sh never prints key values"
 # SessionStart must reach the guard for fork too (a fork's token count starts at the end of the
@@ -534,7 +594,10 @@ HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" "$INSTALL" --no-plugins --no-deps >"$
 grep -q "alias cas=" "$T4/.zshrc" && pass "unrelated rc line mentioning claude-agent-stack kept" || failed "unrelated rc line deleted"
 [ "$(grep -c '# claude-agent-stack$' "$T4/.zshrc")" = 1 ] && grep -q 'with-stack-env" --print-env --reveal sh' "$T4/.zshrc" \
   && pass "old stack line replaced by exactly one new line" || failed "rc stack line not replaced exactly once"
-ls "$T4"/.claude/backup-*/rc/.zshrc >/dev/null 2>&1 && pass "rc file backed up before editing" || failed "no rc backup"
+B8="$(latest_backup "$T4/.claude")"
+rcf="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["rc"][sys.argv[2]]["file"])' "$B8/backup.json" "$T4/.zshrc" 2>/dev/null)"
+[ -n "$rcf" ] && grep -q "alias cas=" "$B8/rc/$rcf" && ! grep -q 'with-stack-env' "$B8/rc/$rcf" && [ "$(fmode "$B8/rc/$rcf")" = 0o600 ] \
+  && pass "rc file backed up (0600, the version before the edit) into the run's backup" || failed "no rc backup in [$B8]"
 [ "$(readlink "$T4/.local/bin/claude-ninja")" = "$T4/.claude/bin/claude-ultracode" ] \
   && [ "$(readlink "$T4/.local/bin/claude-god")" = "$T4/.claude/bin/claude-ultracode" ] \
   && pass "claude-ninja and claude-god linked into ~/.local/bin" || failed "ultracode launchers not linked"
@@ -605,6 +668,20 @@ PY
 grep -q "Olá" "$T4/dotfiles/settings.json" && pass "non-ASCII kept as-is" || failed "non-ASCII re-escaped"
 HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" "$INSTALL" --no-mcp --no-plugins --no-deps >/dev/null 2>&1
 [ "$(grep -c '# claude-agent-stack$' "$T4/.zshrc")" = 1 ] && pass "third run: still one rc line" || failed "rc line duplicated"
+# the upgrade from the set -a profile line rewrites stack.env (STACK_EXPORT) and the rc file: a
+# restore puts both back exactly
+T4R="$(scratch_dir)" || exit 1
+printf 'export EDITOR=vi\n[ -f "/old/.claude/stack.env" ] && { set -a; . "/old/.claude/stack.env"; set +a; }  # claude-agent-stack\n' > "$T4R/.zshrc"
+mkdir -p "$T4R/.claude"; { cat "$HERE/stack.env.example"; echo 'OPENAI_API_KEY=sk-mine-123'; } > "$T4R/.claude/stack.env"; chmod 600 "$T4R/.claude/stack.env"
+cp -p "$T4R/.zshrc" "$T4R/zshrc.before"; cp -p "$T4R/.claude/stack.env" "$T4R/env.before"
+HOME="$T4R" FAKE_CLAUDE_JSON="$T4R/f.json" STACK_CLAUDE_JSON="$T4R/f.json" CLAUDE_CONFIG_DIR="$T4R/.claude" "$INSTALL" --no-mcp --no-plugins --no-deps >"$T4R/i.log" 2>&1
+grep -q '^STACK_EXPORT=' "$T4R/.claude/stack.env" && ! cmp -s "$T4R/.zshrc" "$T4R/zshrc.before" \
+  && HOME="$T4R" CLAUDE_CONFIG_DIR="$T4R/.claude" "$INSTALL" --restore latest >"$T4R/r.log" 2>&1 \
+  && cmp -s "$T4R/.zshrc" "$T4R/zshrc.before" && cmp -s "$T4R/.claude/stack.env" "$T4R/env.before" \
+  && [ -z "$(ls -A "$T4R/.claude/agents" 2>/dev/null)" ] \
+  && pass "--restore undoes the profile upgrade: rc file and stack.env byte-identical again, stack files gone" \
+  || { failed "restore after the profile upgrade"; tail -n 8 "$T4R/r.log" | sed 's/^/    /'; }
+drop_scratch "$T4R"
 # fresh CLAUDE_CONFIG_DIR without STACK_CLAUDE_JSON: the plan must read <dir>/.claude.json even before it exists
 T5="$(cd "$(mktemp -d)" && pwd -P)"
 plan=$(env -u STACK_CLAUDE_JSON CLAUDE_CONFIG_DIR="$T5" "$INSTALL" --mcp-plan 2>&1)
@@ -625,20 +702,23 @@ fi
 printf '# an old install\n' > "$T5/c/mcp/opper_image_mcp.py"
 printf '# an old install\n' > "$T5/c/mcp/openrouter_image_mcp.py"
 FAKE_CLAUDE_JSON="$T5/f.json" STACK_CLAUDE_JSON="$T5/f.json" CLAUDE_CONFIG_DIR="$T5/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T5/.log2" 2>&1
+B5="$(latest_backup "$T5/c")"
 if [ ! -e "$T5/c/mcp/opper_image_mcp.py" ] && [ ! -e "$T5/c/mcp/openrouter_image_mcp.py" ] \
-   && ls "$T5/c"/backup-*/retired/mcp/opper_image_mcp.py "$T5/c"/backup-*/retired/mcp/openrouter_image_mcp.py >/dev/null 2>&1 \
-   && grep -q 'retired mcp/opper_image_mcp.py' "$T5/.log2" && grep -q 'retired mcp/openrouter_image_mcp.py' "$T5/.log2"; then
-  pass "the retired Opper and OpenRouter image servers move into the backup"
+   && [ -f "$B5/files/mcp/opper_image_mcp.py" ] && [ -f "$B5/files/mcp/openrouter_image_mcp.py" ] \
+   && grep -qx '  - mcp/opper_image_mcp.py  (images come from image-studio now)' "$T5/.log2" \
+   && grep -qx '  - mcp/openrouter_image_mcp.py  (images come from image-studio now)' "$T5/.log2"; then
+  pass "the retired Opper and OpenRouter image servers are removed, listed and kept in the backup"
 else
-  failed "an old image server was not retired"; grep -i -E 'retired|kept' "$T5/.log2" | sed 's/^/    /'
+  failed "an old image server was not removed"; grep -E '^  [-~] |^removed' "$T5/.log2" | sed 's/^/    /'
 fi
 printf '# an old install\n' > "$T5/c/mcp/openrouter_image_mcp.py"
 printf '\n# my edit: args ["run", "--script", "%s/mcp/openrouter_image_mcp.py"]\n' "$T5/c" >> "$T5/c/agents/image-director.md"
-FAKE_CLAUDE_JSON="$T5/f.json" STACK_CLAUDE_JSON="$T5/f.json" CLAUDE_CONFIG_DIR="$T5/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T5/.log3" 2>&1
-if [ -f "$T5/c/mcp/openrouter_image_mcp.py" ] && grep -q 'kept mcp/openrouter_image_mcp.py: image-director.md' "$T5/.log3"; then
-  pass "an edited agent that still starts the older image server keeps it"
+FAKE_CLAUDE_JSON="$T5/f.json" STACK_CLAUDE_JSON="$T5/f.json" CLAUDE_CONFIG_DIR="$T5/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --no-prune >"$T5/.log3" 2>&1
+if [ -f "$T5/c/mcp/openrouter_image_mcp.py" ] && grep -q '# my edit' "$T5/c/agents/image-director.md" \
+   && grep -qF 'note: mcp/openrouter_image_mcp.py: images come from image-studio now — kept (--no-prune)' "$T5/.log3"; then
+  pass "--no-prune: an edited agent and the older image server it starts are kept, with a note"
 else
-  failed "older image server retired under an agent that still uses it"; grep -i -E 'openrouter|kept' "$T5/.log3" | sed 's/^/    /'
+  failed "--no-prune removed the older image server or the edited agent"; grep -i -E 'openrouter|note' "$T5/.log3" | sed 's/^/    /'
 fi
 # stack.env written by earlier versions (Opper → OpenRouter-only → Lumenfall): the image lines are
 # brought up to date, the models appended set to the defaults, nothing of the user's changed
@@ -672,6 +752,7 @@ ENV
 chmod 600 "$T5B/c/stack.env"; cp -p "$T5B/c/stack.env" "$T5B/before.env"
 FAKE_CLAUDE_JSON="$T5B/f.json" STACK_CLAUDE_JSON="$T5B/f.json" CLAUDE_CONFIG_DIR="$T5B/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T5B/.log" 2>&1
 E="$T5B/c/stack.env"
+B5B="$(latest_backup "$T5B/c")"
 mode(){ python3 -c 'import os, sys; print(oct(os.stat(sys.argv[1]).st_mode & 0o777))' "$1"; }
 if grep -q '^OPPER_API_KEY=op-mine-123$' "$E" && grep -q '^EXA_API_KEY=exa-mine$' "$E" && grep -q '^# my own header line$' "$E" \
    && ! grep -qiE 'lumenfall|seedream|OPPER_IMAGE_|only image model|Opper gateway|SVGs go' "$E" \
@@ -681,8 +762,8 @@ if grep -q '^OPPER_API_KEY=op-mine-123$' "$E" && grep -q '^EXA_API_KEY=exa-mine$
    && [ "$(grep -c '^IMAGE_STUDIO_IMAGE_MODEL=openai/gpt-image-2.5-sunburst$' "$E")" = 1 ] \
    && [ "$(grep -c '^IMAGE_STUDIO_EDIT_MODEL=sourceful/riverflow-v2.5-pro$' "$E")" = 1 ] \
    && grep -q '^#OPENROUTER_API_KEY=$' "$E" && grep -q '^#IMAGE_STUDIO_OUT_DIR=' "$E" && grep -q '^#JINA_API_KEY=$' "$E" \
-   && cmp -s "$T5B/before.env" "$T5B"/c/backup-*/stack.env && [ "$(mode "$E")" = 0o600 ] \
-   && [ "$(mode "$(ls "$T5B"/c/backup-*/stack.env)")" = 0o600 ] \
+   && cmp -s "$T5B/before.env" "$B5B/files/stack.env" && [ "$(mode "$E")" = 0o600 ] \
+   && [ "$(mode "$B5B/files/stack.env")" = 0o600 ] && [ "$(mode "$B5B")" = 0o700 ] \
    && grep -q 'appended the image models, set to the defaults' "$T5B/.log" && grep -q 'brought the image lines' "$T5B/.log" \
    && ! grep -q 'note: stack.env sets' "$T5B/.log"; then
   pass "stack.env from earlier versions: image lines brought up to date, models set, values kept, backup made"
@@ -703,30 +784,35 @@ if grep -q '^LUMENFALL_API_KEY=lf-mine-9$' "$E" && grep -q '^OPPER_IMAGE_MODEL=a
 else
   failed "stack.env: retired settings of the user"; grep -i 'stack.env' "$T5B/.log3" | sed 's/^/    /'
 fi
-# first install over the user's own CLAUDE.md and a same-named skill of their own: both kept
+# first install over the user's own CLAUDE.md (kept) and a same-named skill of their own (the
+# stack owns skills/: replaced, the backup keeps it)
 T6="$(cd "$(mktemp -d)" && pwd -P)"; printf '# my rules\n- my NAS is 192.168.1.20\n' > "$T6/CLAUDE.md"
 mkdir -p "$T6/skills/data-analysis"
 printf -- '---\nname: data-analysis\ndescription: my own steps\n---\nMy own analysis steps.\n' > "$T6/skills/data-analysis/SKILL.md"
 CLAUDE_CONFIG_DIR="$T6" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T6/.log" 2>&1
 grep -q 192.168.1.20 "$T6/CLAUDE.md" && [ ! -e "$T6/CLAUDE.md.new" ] && [ -f "$T6/rules/claude-agent-stack.md" ] \
   && pass "user's own CLAUDE.md untouched; the stack's rules load from rules/claude-agent-stack.md" || failed "user's own CLAUDE.md changed, or rules missing"
-grep -q 'My own analysis steps' "$T6/skills/data-analysis/SKILL.md" && [ -f "$T6/skills/data-analysis/SKILL.md.new" ] \
-  && grep -qF "$T6/skills/data-analysis/SKILL.md.new" "$T6/.log" \
-  && pass "same-named personal skill kept; the stack's version waits in SKILL.md.new (listed at the end)" || failed "personal skill overwritten or not reported"
-# the stack's own (unedited) CLAUDE.md from an earlier version is retired into the backup
+B6="$(latest_backup "$T6")"
+! grep -q 'My own analysis steps' "$T6/skills/data-analysis/SKILL.md" && [ ! -e "$T6/skills/data-analysis/SKILL.md.new" ] \
+  && grep -q 'My own analysis steps' "$B6/files/skills/data-analysis/SKILL.md" \
+  && grep -qx "  ~ skills/data-analysis/SKILL.md  (a same-named file that isn't the stack's)" "$T6/.log" \
+  && pass "same-named personal skill replaced by the stack's, listed, and kept in the backup" || failed "personal skill not replaced/listed/backed up"
+# the stack's own (unedited) CLAUDE.md from an earlier version goes (the backup keeps it)
 T7="$(cd "$(mktemp -d)" && pwd -P)"
 sed "s#__CLAUDE_DIR__#$T7#g; s#__HOME__#$HOME#g" "$HERE/legacy/be5b940/CLAUDE.md" > "$T7/CLAUDE.md"
 cp "$T7/CLAUDE.md" "$T7/CLAUDE.md.new"
 CLAUDE_CONFIG_DIR="$T7" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T7/.log" 2>&1
-[ ! -e "$T7/CLAUDE.md" ] && [ ! -e "$T7/CLAUDE.md.new" ] && ls "$T7"/backup-*/retired/CLAUDE.md >/dev/null 2>&1 \
+B7="$(latest_backup "$T7")"
+[ ! -e "$T7/CLAUDE.md" ] && [ ! -e "$T7/CLAUDE.md.new" ] && [ -f "$B7/files/CLAUDE.md" ] && [ -f "$B7/files/CLAUDE.md.new" ] \
   && [ -f "$T7/rules/claude-agent-stack.md" ] && ! grep -q 'Merge each' "$T7/.log" \
-  && pass "the stack's old CLAUDE.md (and its leftover .new) retired into the backup, rules installed" || failed "legacy stack CLAUDE.md not retired"
+  && grep -q '^  - CLAUDE.md  (the stack.s old rules file' "$T7/.log" \
+  && pass "the stack's old CLAUDE.md (and its leftover .new) removed into the backup, rules installed" || failed "legacy stack CLAUDE.md not removed"
 T9="$(cd "$(mktemp -d)" && pwd -P)"
 { sed "s#__CLAUDE_DIR__#$T9#g" "$HERE/legacy/be5b940/CLAUDE.md"; printf '\n## Mine\n- my NAS is 192.168.1.20\n'; } > "$T9/CLAUDE.md"
 CLAUDE_CONFIG_DIR="$T9" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T9/.log" 2>&1
 grep -q 192.168.1.20 "$T9/CLAUDE.md" && grep -q 'CLAUDE.md .*kept (it has lines of your own)' "$T9/.log" \
   && pass "an untracked CLAUDE.md with lines of your own is kept (with advice)" || failed "CLAUDE.md with the user's own lines was retired"
-cp "$(ls "$T7"/backup-*/retired/CLAUDE.md | head -n 1)" "$T7/CLAUDE.md"     # the user deliberately restores it
+cp "$B7/files/CLAUDE.md" "$T7/CLAUDE.md"     # the user deliberately puts it back
 CLAUDE_CONFIG_DIR="$T7" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T7/.log2" 2>&1
 [ -f "$T7/CLAUDE.md" ] && pass "CLAUDE.md migration runs once: a restored CLAUDE.md is left alone" || failed "a restored CLAUDE.md was moved again"
 assert_unchanged_real_home
@@ -744,8 +830,8 @@ CLAUDE_CONFIG_DIR="$T10" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile
 [ -f "$T10/CLAUDE.md" ] && grep -q 'CLAUDE.md .*kept' "$T10/.log" \
   && pass "a tracked CLAUDE.md you trimmed is kept (only a hash match is retired)" || failed "trimmed tracked CLAUDE.md was retired"
 assert_unchanged_real_home
-# senior-coder became main-coder: the old unedited file is retired (tracked by hash, or untracked
-# and identical to the version the Mac's installer rendered); an edited tracked one is kept.
+# senior-coder became main-coder: the old file goes whatever its state (the backup keeps it), listed
+# as renamed; --no-prune keeps an edited one with a note, and doctor flags it.
 T11="$(cd "$(mktemp -d)" && pwd -P)"; T12="$(cd "$(mktemp -d)" && pwd -P)"
 mkdir -p "$T11/agents" "$T12/agents"
 CLAUDE_CONFIG_DIR="$T11" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1   # learn the render
@@ -763,27 +849,30 @@ T13="$(cd "$(mktemp -d)" && pwd -P)"; mkdir -p "$T13/agents"
 sed 's#__UV__#/opt/somewhere-else/bin/uv#g; s#__CLAUDE_DIR__#/Users/someone/.claude#g' \
   "$HERE/legacy/be5b940/agents/senior-coder.md" > "$T13/agents/senior-coder.md"
 CLAUDE_CONFIG_DIR="$T13" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T13/.log" 2>&1
-[ ! -e "$T13/agents/senior-coder.md" ] && ls "$T13"/backup-*/retired/agents/senior-coder.md >/dev/null 2>&1 \
-  && pass "an untracked old senior-coder.md rendered with other paths is recognised and retired" \
-  || failed "old senior-coder.md with other rendered paths not retired: $(grep senior "$T13/.log")"
+[ ! -e "$T13/agents/senior-coder.md" ] && [ -f "$(latest_backup "$T13")/files/agents/senior-coder.md" ] \
+  && grep -qx '  - agents/senior-coder.md  (renamed: now agents/main-coder.md)' "$T13/.log" \
+  && pass "an untracked old senior-coder.md rendered with other paths is removed as renamed (backup keeps it)" \
+  || failed "old senior-coder.md with other rendered paths not removed: $(grep senior "$T13/.log")"
 CLAUDE_CONFIG_DIR="$T11" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T11/.log" 2>&1
+B11="$(latest_backup "$T11")"
 [ ! -e "$T11/agents/senior-coder.md" ] && [ ! -e "$T11/agents/senior-coder.md.new" ] \
-  && ls "$T11"/backup-*/retired/agents/senior-coder.md >/dev/null 2>&1 && grep -q 'senior-coder.md *retired — it is now agents/main-coder.md' "$T11/.log" \
-  && pass "untracked old senior-coder.md (and its .new) retired: it is now main-coder" || failed "old senior-coder.md not retired"
+  && [ -f "$B11/files/agents/senior-coder.md" ] && [ -f "$B11/files/agents/senior-coder.md.new" ] \
+  && grep -qx '  - agents/senior-coder.md  (renamed: now agents/main-coder.md)' "$T11/.log" \
+  && pass "old senior-coder.md (and its .new) removed: it is now main-coder" || failed "old senior-coder.md not removed"
 printf -- '---\nname: senior-coder\ndescription: "x"\nmodel: claude-opus-5-5\n---\nmine\n' > "$T12/agents/senior-coder.md"
 python3 - "$T12" <<'PY'
 import json, os, sys
 t = sys.argv[1]
 json.dump({"files": {"agents/senior-coder.md": "0" * 64}}, open(os.path.join(t, ".stack-manifest.json"), "w"))
 PY
-CLAUDE_CONFIG_DIR="$T12" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T12/.log" 2>&1
-[ -f "$T12/agents/senior-coder.md" ] && grep -q "senior-coder.md *kept (it differs from the stack's version)" "$T12/.log" \
-  && ! grep -q 'senior-coder' "$T12/.stack-manifest.json" \
-  && pass "an edited senior-coder.md is kept with a note and dropped from the manifest" || failed "edited senior-coder.md handling"
+CLAUDE_CONFIG_DIR="$T12" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --no-prune >"$T12/.log" 2>&1
+[ -f "$T12/agents/senior-coder.md" ] && grep -q 'mine' "$T12/agents/senior-coder.md" \
+  && grep -qF 'note: agents/senior-coder.md: renamed: now agents/main-coder.md — kept (--no-prune)' "$T12/.log" \
+  && pass "--no-prune: an edited senior-coder.md is kept with a note" || failed "edited senior-coder.md under --no-prune"
 "$T12/bin/doctor.sh" >"$T12/.doctor" 2>&1
 grep -q "senior-coder.md is the stack's old name for main-coder" "$T12/.doctor" \
   && pass "doctor flags the kept senior-coder.md" || failed "doctor does not flag senior-coder.md"
-# the main-thread router became blackcat: an unedited tracked router.md is retired, and the settings
+# the main-thread router became blackcat: an old router.md goes, and the settings
 # follow the rename ("agent": "router", a tuned ROUTER_* knob, the Agent(router) deny rule)
 T14="$(cd "$(mktemp -d)" && pwd -P)"
 CLAUDE_CONFIG_DIR="$T14" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1
@@ -809,9 +898,9 @@ s["permissions"]["deny"] = deny(s["permissions"]["deny"])
 json.dump(s, open(sp, "w"), indent=2)
 PY
 CLAUDE_CONFIG_DIR="$T14" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T14/.log" 2>&1
-[ ! -e "$T14/agents/router.md" ] && ls "$T14"/backup-*/retired/agents/router.md >/dev/null 2>&1 \
-  && grep -q 'router.md *retired — it is now agents/blackcat.md' "$T14/.log" \
-  && pass "an unedited router.md is retired: it is now blackcat" || failed "old router.md not retired"
+[ ! -e "$T14/agents/router.md" ] && [ -f "$(latest_backup "$T14")/files/agents/router.md" ] \
+  && grep -qx '  - agents/router.md  (renamed: now agents/blackcat.md)' "$T14/.log" \
+  && pass "an old router.md is removed as renamed: it is now blackcat" || failed "old router.md not removed"
 python3 - "$T14/settings.json" <<'PY' && pass "settings follow router -> blackcat: agent, tuned knob moved, defaults and deny rule" || failed "router settings not migrated"
 import json, sys
 s = json.load(open(sys.argv[1])); e = s["env"]; deny = s["permissions"]["deny"]
@@ -966,7 +1055,7 @@ done
 echo '{}' > "$TL/c/stack-plugins/plugins/lean-lsp/.claude-plugin/plugin.json"
 lsp_run b.log
 if diff -rq "$HERE/dot-claude/stack-plugins" "$TL/c/stack-plugins" >/dev/null 2>&1 \
-   && grep -qx '{}' "$TL"/c/backup-*/stack-plugins/plugins/lean-lsp/.claude-plugin/plugin.json 2>/dev/null; then
+   && grep -qx '{}' "$(latest_backup "$TL/c")/files/stack-plugins/plugins/lean-lsp/.claude-plugin/plugin.json" 2>/dev/null; then
   pass "re-run restores stack-plugins and keeps the edited copy in the backup"
 else
   failed "stack-plugins not restored or not backed up"
@@ -989,36 +1078,44 @@ PY
 assert_unchanged_real_home
 drop_scratch "$TL"
 
-echo "== 12. Plugin copies of claude.ai-synced skills: disabled only with --dedupe-plugins (fake claude)"
+echo "== 12. One copy of each skill: plugin duplicates of synced skills and retired plugins disabled by default (fake claude)"
 TD="$(scratch_dir)" || exit 1
 mkdir -p "$TD/c/skills/synced/0000-sync/docx" "$TD/c/skills/synced/0000-sync/skill-creator"
 printf -- '---\nname: docx\ndescription: x\n---\n' > "$TD/c/skills/synced/0000-sync/docx/SKILL.md"
 printf -- '---\nname: skill-creator\ndescription: x\n---\n' > "$TD/c/skills/synced/0000-sync/skill-creator/SKILL.md"
-printf '{"enabledPlugins": {"document-skills@anthropic-agent-skills": true, "skill-creator@claude-plugins-official": true}}\n' > "$TD/c/settings.json"
-FAKE_CLAUDE_LOG="$TD/calls0.log" CLAUDE_CONFIG_DIR="$TD/c" "$INSTALL" --no-mcp --no-deps --no-profile >"$TD/i0.log" 2>&1
+printf '{"enabledPlugins": {"document-skills@anthropic-agent-skills": true, "skill-creator@claude-plugins-official": true, "mcp-server-dev@claude-plugins-official": true}}\n' > "$TD/c/settings.json"
+FAKE_CLAUDE_LOG="$TD/calls0.log" CLAUDE_CONFIG_DIR="$TD/c" "$INSTALL" --no-mcp --no-deps --no-profile --keep-plugin-duplicates >"$TD/i0.log" 2>&1
 if ! grep -qF '"disable"' "$TD/calls0.log" && ! grep -qF '"install", "document-skills@' "$TD/calls0.log" \
-   && grep -qF 'install.sh --dedupe-plugins disables it' "$TD/i0.log"; then
-  pass "without --dedupe-plugins: duplicate plugins stay enabled and the flag is suggested"
+   && grep -qF 'plugin document-skills@anthropic-agent-skills duplicates the synced anthropic-skills:docx/xlsx/pptx/pdf in the skill listing (kept: --keep-plugin-duplicates)' "$TD/i0.log" \
+   && grep -qF 'plugin mcp-server-dev@claude-plugins-official overlaps the stack' "$TD/i0.log"; then
+  pass "--keep-plugin-duplicates: duplicate and retired plugins stay enabled, each named"
 else
-  failed "duplicate plugins touched without --dedupe-plugins"; grep -i plugin "$TD/i0.log" | sed 's/^/    /'
+  failed "plugins touched under --keep-plugin-duplicates"; grep -i plugin "$TD/i0.log" | sed 's/^/    /'
 fi
-FAKE_CLAUDE_LOG="$TD/calls.log" CLAUDE_CONFIG_DIR="$TD/c" "$INSTALL" --no-mcp --no-deps --no-profile --with-extra-plugins --dedupe-plugins >"$TD/i.log" 2>&1
+FAKE_CLAUDE_LOG="$TD/calls.log" CLAUDE_CONFIG_DIR="$TD/c" "$INSTALL" --no-mcp --no-deps --no-profile --with-extra-plugins >"$TD/i.log" 2>&1
 deduped_is(){ python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv[1])).get("plugins_deduped") == sys.argv[2:] else 1)' "$TD/c/.stack-manifest.json" "$@"; }
+BD="$(latest_backup "$TD/c")"
 if grep -qF '["plugin", "disable", "document-skills@anthropic-agent-skills", "--scope", "user"]' "$TD/calls.log" \
    && grep -qF '["plugin", "disable", "skill-creator@claude-plugins-official", "--scope", "user"]' "$TD/calls.log" \
+   && grep -qF '["plugin", "disable", "mcp-server-dev@claude-plugins-official", "--scope", "user"]' "$TD/calls.log" \
    && ! grep -qF '"install", "document-skills@' "$TD/calls.log" && ! grep -qF '"install", "skill-creator@' "$TD/calls.log" \
+   && grep -qF '["plugin", "install", "math-olympiad@claude-plugins-official", "--scope", "user"]' "$TD/calls.log" \
    && grep -qF 'To undo: claude plugin enable document-skills@anthropic-agent-skills --scope user' "$TD/i.log" \
    && grep -qF 'To undo: claude plugin enable skill-creator@claude-plugins-official --scope user' "$TD/i.log" \
-   && deduped_is document-skills@anthropic-agent-skills skill-creator@claude-plugins-official; then
-  pass "--dedupe-plugins: both disabled (not installed), re-enable commands printed, recorded in the manifest"
+   && grep -qF 'To undo: claude plugin enable mcp-server-dev@claude-plugins-official --scope user' "$TD/i.log" \
+   && deduped_is document-skills@anthropic-agent-skills mcp-server-dev@claude-plugins-official skill-creator@claude-plugins-official \
+   && python3 -c 'import json, sys; sys.exit(0 if sorted(json.load(open(sys.argv[1]))["plugins_disabled"]) == sys.argv[2:] else 1)' \
+        "$BD/backup.json" document-skills@anthropic-agent-skills mcp-server-dev@claude-plugins-official skill-creator@claude-plugins-official; then
+  pass "default: duplicates and mcp-server-dev disabled (not installed), math-olympiad installed, undo printed, recorded in manifest and backup"
 else
-  failed "--dedupe-plugins handling"; tail -n 12 "$TD/i.log" | sed 's/^/    /'
+  failed "default plugin dedupe"; tail -n 14 "$TD/i.log" | sed 's/^/    /'
 fi
 rm -rf "$TD/c/skills/synced/0000-sync/docx"
 FAKE_CLAUDE_LOG="$TD/calls2.log" CLAUDE_CONFIG_DIR="$TD/c" "$INSTALL" --no-mcp --no-deps --no-profile >"$TD/i2.log" 2>&1
 if grep -qF '["plugin", "enable", "document-skills@anthropic-agent-skills", "--scope", "user"]' "$TD/calls2.log" \
-   && ! grep -qF '"enable", "skill-creator@' "$TD/calls2.log" && deduped_is skill-creator@claude-plugins-official; then
-  pass "a deduped plugin is re-enabled once its synced skill is gone; the other stays disabled"
+   && ! grep -qF '"enable", "skill-creator@' "$TD/calls2.log" \
+   && deduped_is mcp-server-dev@claude-plugins-official skill-creator@claude-plugins-official; then
+  pass "a deduped plugin is re-enabled once its synced skill is gone; the others stay disabled"
 else
   failed "re-enable after the synced skill went away"; grep -i plugin "$TD/i2.log" | sed 's/^/    /'
 fi
@@ -1119,6 +1216,258 @@ grep -q 'agents/researcher-copy.md *installed' "$TC/i.log" && grep -q 'agents/co
   && pass "copies are installed and tracked like the other agents" || failed "copies not installed: $(grep -- '-copy' "$TC/i.log")"
 assert_unchanged_real_home
 drop_scratch "$TC"
+
+echo "== 15. A drifted config: --dry-run, default prune, one backup that restores exactly, idempotence, --no-prune"
+TX="$(scratch_dir)" || exit 1
+# one line per file or link under a config dir (relpath, kind, sha256, mode), Claude Code's own state
+# and the legacy in-config backups aside
+cat > "$TX/fingerprint.py" <<'PY'
+import hashlib, os, stat, sys
+root, out = sys.argv[1], []
+skip = {"projects", "sessions", "statsig", "todos", "shell-snapshots", "venvs", "plugins"}
+for d, dirs, files in os.walk(root):
+    rel_d = os.path.relpath(d, root)
+    top = rel_d.split(os.sep)[0]
+    if top in skip or top.startswith("backup-"):
+        dirs[:] = []
+        continue
+    for f in sorted(files) + sorted(x for x in dirs if os.path.islink(os.path.join(d, x))):
+        p, rel = os.path.join(d, f), os.path.normpath(os.path.join(rel_d, f))
+        if rel.startswith("backup-") or rel.startswith(".install"):
+            continue
+        if os.path.islink(p):
+            out.append("%s L %s" % (rel, os.readlink(p)))
+        else:
+            h = hashlib.sha256(open(p, "rb").read()).hexdigest()[:16]
+            out.append("%s F %s %o" % (rel, h, stat.S_IMODE(os.stat(p).st_mode)))
+print("\n".join(sorted(out)))
+PY
+fp(){ python3 "$TX/fingerprint.py" "$1"; }
+xrun(){ local c="$1" log="$2"; shift 2
+  FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="$c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile "$@" >"$log" 2>&1; }
+# the list a run prints: the lines under "replaced:" and "removed: not part of the stack"
+listing(){ awk '/^(removed: not part of the stack|replaced: )/{on=1; print; next} on && /^  [-~] /{print; next} {on=0}' "$1"; }
+make_dirty(){ # stale, renamed, modified and unknown files; duplicated hooks and rules; junk
+  local T="$1"
+  cp "$HERE/legacy/be5b940/agents/senior-coder.md" "$T/agents/senior-coder.md"
+  printf -- '---\nname: my-own\ndescription: mine\n---\nhello\n' > "$T/agents/my-own.md"
+  printf '\n<!-- local edit -->\n' >> "$T/agents/coder.md"
+  cp "$T/agents/coder.md" "$T/agents/coder.md.new"
+  mkdir -p "$T/agents/team"; printf -- '---\nname: team-a\ndescription: x\n---\n' > "$T/agents/team/a.md"
+  mkdir -p "$T/skills/old-skill"; printf -- '---\nname: old-skill\ndescription: old\n---\n' > "$T/skills/old-skill/SKILL.md"
+  printf 'my notes\n' > "$T/skills/python-engineering/notes.md"
+  printf '\nlocal tweak\n' >> "$T/skills/python-engineering/SKILL.md"
+  mkdir -p "$T/skills/synced/abc/docx"; printf -- '---\nname: docx\ndescription: synced\n---\n' > "$T/skills/synced/abc/docx/SKILL.md"
+  printf '#!/bin/sh\n' > "$T/hooks/router-guard.sh"
+  printf '# old\n' > "$T/mcp/opper_image_mcp.py"
+  printf '#!/bin/sh\necho mine\n' > "$T/hooks/my-hook.sh"; chmod +x "$T/hooks/my-hook.sh"
+  printf '# My rule\n- be nice\n' > "$T/rules/my-rule.md"
+  cp "$T/rules/claude-agent-stack.md" "$T/rules/claude-agent-stack.md.new"
+  printf '{}' > "$T/settings.json.tmp"
+  mkdir -p "$T/backup-20250101-000000-abc"; printf 'EXA_API_KEY=fake-legacy\n' > "$T/backup-20250101-000000-abc/stack.env"
+  chmod 644 "$T/backup-20250101-000000-abc/stack.env"
+  chmod 644 "$T/stack.env"                       # world-readable keys: the plan repairs the mode
+  python3 - "$T/settings.json" "$T/magg/config.json" "$T/.stack-manifest.json" <<'PY'
+import json, sys
+sp, mp, man = sys.argv[1:4]
+s = json.load(open(sp))
+g = {"matcher": "Write", "hooks": [{"type": "command", "command": "/bin/echo mine"}]}
+s["hooks"].setdefault("PostToolUse", []).extend([g, dict(g)])
+s["hooks"]["PreToolUse"].append({"matcher": "Bash", "hooks": [
+    {"type": "command", "command": "\"/usr/bin/python3\" \"/old/config/hooks/agent_guard.py\" no-push"},
+    {"type": "command", "command": "/bin/echo shared"}, {"type": "command", "command": "/bin/echo shared"}]})
+s["hooks"]["Notification"] = [{"hooks": [{"type": "command", "command": "\"/usr/bin/python3\" \"/old/hooks/agent_guard.py\""}]}]
+s["permissions"]["allow"] += ["Bash(ls *)", "Bash(ls *)"]
+s["sandbox"]["enabled"] = False
+s["sandbox"]["filesystem"]["allowWrite"].append("~/my-cache")
+json.dump(s, open(sp, "w"), indent=2)
+m = json.load(open(mp))
+m["servers"]["mine"] = {"source": "y", "command": "my-server"}
+m["servers"]["docling"]["command"] = "my-docling"
+m["servers"]["oldsrv"] = {"source": "z", "command": "old"}
+json.dump(m, open(mp, "w"), indent=2)
+mf = json.load(open(man))
+mf.setdefault("magg_shipped", {})["oldsrv"] = "0000000000000000"
+json.dump(mf, open(man, "w"), indent=2, sort_keys=True)
+PY
+}
+xrun "$TX/c" "$TX/0.log" && fp "$TX/c" > "$TX/fp.clean" || failed "15: clean install failed"
+make_dirty "$TX/c"
+fp "$TX/c" > "$TX/fp.dirty"; nb0=$(count_backups "$TX/c")
+xrun "$TX/c" "$TX/dry.log" --dry-run; rc=$?
+fp "$TX/c" > "$TX/fp.dry"
+[ "$rc" = 0 ] && cmp -s "$TX/fp.dirty" "$TX/fp.dry" && [ "$(count_backups "$TX/c")" = "$nb0" ] \
+  && [ -d "$TX/c/backup-20250101-000000-abc" ] && grep -q 'Dry run done: nothing was changed' "$TX/dry.log" \
+  && pass "--dry-run over a drifted config changes nothing and makes no backup" \
+  || failed "--dry-run changed something (rc=$rc): $(diff "$TX/fp.dirty" "$TX/fp.dry" | head -5)"
+xrun "$TX/c" "$TX/real.log"; rc=$?
+B15="$(latest_backup "$TX/c")"
+listing "$TX/dry.log" > "$TX/list.dry"; listing "$TX/real.log" > "$TX/list.real"
+[ "$rc" = 0 ] && [ -s "$TX/list.real" ] && cmp -s "$TX/list.dry" "$TX/list.real" \
+  && pass "the real run lists exactly what --dry-run listed" || failed "dry-run list != real list: $(diff "$TX/list.dry" "$TX/list.real" | head -6)"
+missing=""
+while IFS= read -r want; do
+  grep -qxF -- "$want" "$TX/real.log" || missing="$missing
+    $want"
+done <<'EOF_WANT'
+removed: not part of the stack
+  - agents/coder.md.new  (leftover render of a stack file)
+  - agents/my-own.md  (not shipped by the stack: yours or another tool's)
+  - agents/senior-coder.md  (renamed: now agents/main-coder.md)
+  - agents/team/  (not shipped by the stack: yours or another tool's)
+  - hooks/router-guard.sh  (blackcat.md runs agent_guard.py directly now)
+  - mcp/opper_image_mcp.py  (images come from image-studio now)
+  - rules/claude-agent-stack.md.new  (leftover render of a stack file)
+  - settings.json.tmp  (leftover of an interrupted install)
+  - skills/old-skill/  (not shipped by the stack: yours or another tool's)
+  - skills/python-engineering/notes.md  (not part of the stack's python-engineering skill)
+  - magg catalog: oldsrv  (no longer shipped by the stack)
+  - settings.json hooks.Notification  (the stack's guard no longer runs on it)
+  - settings.json hooks  (2 duplicate hook entries)
+  - settings.json permissions.allow  (1 duplicate rule)
+  ~ agents/coder.md  (edited since the last install)
+  ~ skills/python-engineering/SKILL.md  (edited since the last install)
+  ~ magg catalog: docling  (differed from the stack's entry)
+EOF_WANT
+[ -z "$missing" ] && pass "pruned and listed: stale, renamed, modified, unknown files, junk, magg entries, duplicate hooks and rules" \
+  || { failed "listing is missing:$missing"; sed 's/^/    /' "$TX/list.real"; }
+python3 - "$TX/c" "$HERE" "$B15" "$BK_ROOT" "$EXPECTED_AGENTS" <<'PY' && pass "after the prune: only the stack's agents and skills, user hook/rule/magg entry kept, no duplicates, sandbox on, stack.env 0600, backup 0700/0600, legacy backup moved out" || failed "post-prune state (see above)"
+import json, os, stat, sys
+c, here, b, bk, n_agents = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5])
+bad = []
+def check(ok, what):
+    if not ok:
+        bad.append(what)
+mode = lambda p: stat.S_IMODE(os.lstat(p).st_mode)
+agents = sorted(os.listdir(os.path.join(c, "agents")))
+check(len(agents) == n_agents and all(a.endswith(".md") for a in agents), "agents/: %s" % agents[:5])
+check("<!-- local edit -->" not in open(os.path.join(c, "agents", "coder.md")).read(), "coder.md edit kept")
+shipped = sorted(d for d in os.listdir(os.path.join(here, "dot-claude", "skills")) if os.path.isdir(os.path.join(here, "dot-claude", "skills", d)))
+check(sorted(os.listdir(os.path.join(c, "skills"))) == sorted(shipped + ["synced"]), "skills/ != shipped + synced")
+check(os.path.isfile(os.path.join(c, "skills", "synced", "abc", "docx", "SKILL.md")), "synced skill touched")
+check(not os.path.exists(os.path.join(c, "skills", "python-engineering", "notes.md")), "extra skill file kept")
+check("local tweak" not in open(os.path.join(c, "skills", "python-engineering", "SKILL.md")).read(), "skill edit kept")
+check(os.path.isfile(os.path.join(c, "hooks", "my-hook.sh")) and os.path.isfile(os.path.join(c, "rules", "my-rule.md")),
+      "the user's own hook or rule removed")
+s = json.load(open(os.path.join(c, "settings.json")))
+for ev, groups in s["hooks"].items():
+    canon = [json.dumps(g, sort_keys=True) for g in groups]
+    check(len(canon) == len(set(canon)), "duplicate hook groups in %s" % ev)
+    for g in groups:
+        cmds = [json.dumps(h, sort_keys=True) for h in g.get("hooks", [])]
+        check(len(cmds) == len(set(cmds)), "duplicate hooks in a %s group" % ev)
+check("/old/" not in json.dumps(s["hooks"]) and "Notification" not in s["hooks"], "stale guard hooks kept")
+check(any("/bin/echo mine" in json.dumps(g) for g in s["hooks"].get("PostToolUse", [])), "the user's own hook group lost")
+for k, v in s["permissions"].items():
+    if isinstance(v, list):
+        check(len(v) == len(set(v)), "duplicate permissions.%s" % k)
+check(s["sandbox"]["enabled"] is True and "~/my-cache" in s["sandbox"]["filesystem"]["allowWrite"], "sandbox merge")
+m = json.load(open(os.path.join(c, "magg", "config.json")))["servers"]
+check("mine" in m and "oldsrv" not in m and m["docling"]["command"] != "my-docling", "magg: %s" % sorted(m))
+check(mode(os.path.join(c, "stack.env")) == 0o600, "stack.env mode %o" % mode(os.path.join(c, "stack.env")))
+check(not os.path.exists(os.path.join(c, "backup-20250101-000000-abc")), "legacy backup left in the config dir")
+leg = os.path.join(bk, "legacy", "backup-20250101-000000-abc")
+check(os.path.isdir(leg) and mode(leg) == 0o700 and mode(os.path.join(leg, "stack.env")) == 0o600, "legacy backup not moved/locked down")
+check(mode(b) == 0o700, "backup dir mode")
+for root, dirs, files in os.walk(os.path.join(b, "files")):
+    for d in dirs:
+        check(mode(os.path.join(root, d)) == 0o700, "backup subdir mode")
+    for f in files:
+        p = os.path.join(root, f)
+        check(os.path.islink(p) or mode(p) == 0o600, "backup file %s mode %o" % (f, mode(p)))
+if bad:
+    print("   ", "\n    ".join(bad))
+sys.exit(1 if bad else 0)
+PY
+fp "$TX/c" > "$TX/fp.pruned"; nb1=$(count_backups "$TX/c")
+xrun "$TX/c" "$TX/again.log"
+cmp -s "$TX/fp.pruned" <(fp "$TX/c") && [ "$(count_backups "$TX/c")" = "$nb1" ] \
+  && grep -q 'no changes: the config dir already matches this stack version' "$TX/again.log" \
+  && pass "second run after the prune: no changes, no backup" || failed "second run after the prune changed something"
+xrun "$TX/c" "$TX/dry2.log" --dry-run
+grep -q 'no changes: the config dir already matches this stack version' "$TX/dry2.log" && cmp -s "$TX/fp.pruned" <(fp "$TX/c") \
+  && pass "--dry-run on an up-to-date config: no changes" || failed "--dry-run on an up-to-date config"
+xrun "$TX/c" "$TX/rdry.log" --restore latest --dry-run
+cmp -s "$TX/fp.pruned" <(fp "$TX/c") && [ "$(count_backups "$TX/c")" = "$nb1" ] && grep -q 'Dry run done: nothing was restored' "$TX/rdry.log" \
+  && pass "--restore --dry-run prints the plan and restores nothing" || failed "--restore --dry-run changed something"
+xrun "$TX/c" "$TX/restore.log" --restore latest; rc=$?
+fp "$TX/c" > "$TX/fp.restored"
+[ "$rc" = 0 ] && cmp -s "$TX/fp.dirty" "$TX/fp.restored" && grep -q "restoring $B15" "$TX/restore.log" \
+  && grep -q 'undo this restore:' "$TX/restore.log" \
+  && pass "--restore latest puts the drifted config back byte- and mode-exactly (the legacy backup aside)" \
+  || failed "restore not exact (rc=$rc): $(diff "$TX/fp.dirty" "$TX/fp.restored" | head -8)"
+xrun "$TX/c" "$TX/reprune.log"
+cmp -s "$TX/fp.pruned" <(fp "$TX/c") && pass "installing again after the restore gives the same pruned config" \
+  || failed "re-install after restore differs: $(diff "$TX/fp.pruned" <(fp "$TX/c") | head -5)"
+# a backup.json that names paths outside the config scope is refused before anything changes
+BEVIL="$(latest_backup "$TX/c")"
+python3 - "$BEVIL/backup.json" <<'PY'
+import json, sys
+m = json.load(open(sys.argv[1]))
+m["reason"] = "install"
+m["added"] = ["../outside.txt"]
+json.dump(m, open(sys.argv[1], "w"))
+PY
+touch "$TX/outside.txt"
+xrun "$TX/c" "$TX/evil.log" --restore "$BEVIL"; rc=$?
+[ "$rc" != 0 ] && [ -f "$TX/outside.txt" ] && grep -q 'outside the config scope' "$TX/evil.log" && cmp -s "$TX/fp.pruned" <(fp "$TX/c") \
+  && pass "--restore refuses a backup.json naming paths outside the config scope" || failed "path traversal through backup.json (rc=$rc)"
+# --no-prune over the same drift: nothing of the user's goes, edits kept with a .new beside them
+xrun "$TX/n" "$TX/n0.log" && make_dirty "$TX/n"
+xrun "$TX/n" "$TX/n.log" --no-prune; rc=$?
+python3 - "$TX/n" <<'PY' && [ "$rc" = 0 ] && pass "--no-prune keeps old, unknown and edited files (edits get a .new), still removes duplicates and temp junk" || failed "--no-prune (rc=$rc; see above)"
+import json, os, sys
+n = sys.argv[1]
+keep = ["agents/senior-coder.md", "agents/my-own.md", "agents/team/a.md", "skills/old-skill/SKILL.md",
+        "skills/python-engineering/notes.md", "hooks/router-guard.sh", "mcp/opper_image_mcp.py",
+        "agents/coder.md.new", "skills/python-engineering/SKILL.md.new"]
+bad = [k for k in keep if not os.path.exists(os.path.join(n, k))]
+if "<!-- local edit -->" not in open(os.path.join(n, "agents", "coder.md")).read():
+    bad.append("coder.md edit lost")
+if os.path.exists(os.path.join(n, "settings.json.tmp")):
+    bad.append("settings.json.tmp kept")
+m = json.load(open(os.path.join(n, "magg", "config.json")))["servers"]
+if "oldsrv" not in m or m["docling"]["command"] != "my-docling":
+    bad.append("magg entries changed")
+s = json.load(open(os.path.join(n, "settings.json")))
+if len(s["permissions"]["allow"]) != len(set(s["permissions"]["allow"])):
+    bad.append("duplicate permissions kept")
+if bad:
+    print("    " + ", ".join(bad))
+sys.exit(1 if bad else 0)
+PY
+grep -qF 'note: agents/my-own.md: not shipped by the stack: yours or another tool'"'"'s — kept (--no-prune)' "$TX/n.log" \
+  && grep -qF 'note: magg catalog: oldsrv is no longer shipped (kept: --no-prune)' "$TX/n.log" \
+  && pass "--no-prune names what it kept" || failed "--no-prune notes: $(grep 'note:' "$TX/n.log" | head -5)"
+# a stack script symlinked out of the config dir (a dev checkout): never written through — not by
+# --dry-run, not by the real run, which replaces the link with the stack's file (the backup keeps it)
+mkdir -p "$TX/outside"; printf 'mine\n' > "$TX/outside/doctor.sh"; chmod 644 "$TX/outside/doctor.sh"
+rm -f "$TX/c/bin/doctor.sh"; ln -s "$TX/outside/doctor.sh" "$TX/c/bin/doctor.sh"
+xrun "$TX/c" "$TX/ln-dry.log" --dry-run; xrun "$TX/c" "$TX/ln.log"
+BL="$(latest_backup "$TX/c")"
+[ "$(cat "$TX/outside/doctor.sh")" = mine ] && [ "$(fmode "$TX/outside/doctor.sh")" = 0o644 ] \
+  && [ ! -L "$TX/c/bin/doctor.sh" ] && [ -x "$TX/c/bin/doctor.sh" ] && [ "$(readlink "$BL/files/bin/doctor.sh")" = "$TX/outside/doctor.sh" ] \
+  && pass "a symlinked stack script: the link's target is never written; the link is replaced and kept in the backup" \
+  || failed "symlinked bin/doctor.sh written through or not replaced"
+# a symlinked config dir: --dry-run renders the same paths as the real run
+mkdir -p "$TX/lreal"; ln -s "$TX/lreal" "$TX/l"
+xrun "$TX/l" "$TX/l1.log"; xrun "$TX/l" "$TX/l2.log" --dry-run
+grep -q 'no changes: the config dir already matches this stack version' "$TX/l2.log" \
+  && pass "symlinked config dir: --dry-run after a real run reports no changes" || failed "symlinked config dir: dry-run differs from the real run"
+# --print-managed-settings: JSON only on stdout, nothing installed, no claude needed
+out="$(CLAUDE_CONFIG_DIR="$TX/m" PATH="/usr/bin:/bin" "$INSTALL" --print-managed-settings 2>"$TX/m.err")"; rc=$?
+printf '%s' "$out" | python3 -c 'import json, sys; d = json.load(sys.stdin); sys.exit(0 if d["hooks"]["PreToolUse"] and d["permissions"]["deny"] and d["sandbox"]["enabled"] else 1)' \
+  && [ "$rc" = 0 ] && [ ! -e "$TX/m" ] && grep -q 'install it yourself' "$TX/m.err" \
+  && pass "--print-managed-settings: valid JSON on stdout, instructions on stderr, nothing written" \
+  || failed "--print-managed-settings (rc=$rc): $(printf '%s' "$out" | head -c 200)"
+help="$("$INSTALL" --help)"
+for f in --dry-run --no-prune --restore --print-managed-settings --keep-plugin-duplicates --force; do
+  printf '%s\n' "$help" | grep -q -- "$f" || failed "--help does not mention $f"
+done
+printf '%s\n' "$help" | grep -q 'removed: not part of the stack\|backed up' && pass "--help documents the new flags and the backup" \
+  || failed "--help lacks the prune/backup paragraph"
+assert_unchanged_real_home
+drop_scratch "$TX"
 
 echo
 echo "== Summary: $PASS passed, $FAIL failed"
