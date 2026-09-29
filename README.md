@@ -49,11 +49,14 @@ then applies. `CLAUDE_CONFIG_DIR` changes the target (default `~/.claude`).
    their MCP servers and hooks, skills, rules, hooks, settings, `bin/`, `mcp/`, magg's catalog, the
    LSP marketplace; plus `install.sh`, `lib/`, `requirements/`, `stack.env.example`) and any
    uncommitted edits there, capped at 40 lines with the `git diff` command to read it all. An unknown
-   recorded commit gets a warning. When that list isn't empty and stdin and stderr are a terminal,
-   the run asks before anything changes (the venvs sync from `requirements/` in the next step):
+   recorded commit gets a warning. When that list isn't empty, the run asks before anything changes
+   (the venvs sync from `requirements/` in the next step):
    `The stack changed since the last install (listed above). Install it? (see the whole plan first:
-   ./install.sh --dry-run) [y/N]`. Anything but `y`/`yes` stops with exit 1 and nothing changed.
-   `--yes` skips the question; non-interactive runs (CI, pipes) never ask.
+   ./install.sh --dry-run) [y/N]`. Anything but `y`/`yes` stops with exit 1 and nothing changed. It
+   asks on stdin/stderr when both are a terminal, otherwise on the controlling terminal (`/dev/tty`),
+   so `./install.sh 2>&1 | tee install.log` still asks there. With no terminal at all (CI, cron,
+   `</dev/null` without a terminal), a changed stack stops with exit 1 and "rerun with --yes"; nothing
+   changed. `--yes` skips the question; `--dry-run` never asks.
 3. **Stage.** The stack's part of the config dir (`agents/`, `skills/` without the claude.ai-synced
    ones, `rules/`, `hooks/`, `bin/`, `mcp/` without `vendor/`, `stack-plugins/`, `magg/config.json`,
    `settings.json`, `stack.env`, `.stack-manifest.json`, `CLAUDE.md`, temp leftovers) is copied to a
@@ -141,7 +144,7 @@ As `./install.sh --help` prints them. Flags combine.
 | `--force` | with `--no-prune`: still replace stack files you edited; with `--restore`: also put back saved symlinks that point outside the config dir. It does not write through symlinked dirs |
 | `--write-through-links` | the only way past a symlinked `agents/`, `skills/`, … dir (a dotfiles checkout): writes the stack's files through the link; nothing there is ever removed (see [Symlinked config dirs](#symlinked-config-dirs)) |
 | `--restore [DIR]` | put the config dir back as it was before an install (`DIR`: a backup; default: the latest), then exit |
-| `--yes`, `-y` | apply without asking when the stack's files changed since the last install (asked only when stdin and stderr are a terminal) |
+| `--yes`, `-y` | install without asking when the stack's files changed since the last install; needed when there is no terminal (CI), where the run otherwise stops |
 | `--print-managed-settings` | print an optional `managed-settings.json` that pins the stack's hook entries and deny rules against edits (the entries, not the guard's code: pinning the code needs the optional root-owned copy; see [Security model](#security-model)) |
 | `--mcp-plan` | print the MCP server add/migrate/replace/keep plan and make no changes |
 | `--with-ml` | also create the ML venv (`~/.claude/venvs/ml`; several GB) |
@@ -550,7 +553,7 @@ step) pin the hook entries and deny rules. The prompts and rules are the first l
 guarantee.
 
 > [!IMPORTANT]
-> **The sandbox is configured, not live-verified.** The settings, the hook and 2400 tests are
+> **The sandbox is configured, not live-verified.** The settings, the hook and 2401 tests are
 > checked; that Claude Code's sandbox enforces them as configured on your machine is not. Until you
 > have run the [live checks](#live-checks), count only the guard and the deny rules as tested.
 
@@ -719,6 +722,15 @@ Trade-offs, sandboxed Bash only:
 - A Bash command that runs before the SessionStart hook has written the file gets the default paths,
   which the sandbox refuses (fails closed).
 
+**When the hook fails** (no `CLAUDE_ENV_FILE`, an unwritable file or `~/.cache/claude-sandbox`, or
+its marker missing after writing), it exits 2 and the session shows a SessionStart hook error: "the
+sandboxed Bash environment is NOT set for this session (reason) … Check with …/bin/doctor.sh, then
+start a new session (or /clear)." The session goes on without the sandbox caches and with git's
+credential helpers on. The guard records running/ok/failed in the session's `session-env.json`; the
+status line then starts with a red `! Bash sandbox env missing: doctor.sh` (also when the hook never
+finished, after 30 s). `doctor.sh` runs the hook against a temp dir and warns when it failed in any
+of the last 10 sessions.
+
 An upgrade retracts from your `settings.json` the `env` keys and `allowWrite` entries earlier
 installs shipped (`UV_CACHE_DIR`, `npm_config_cache`, `PRE_COMMIT_HOME`,
 `GIT_CONFIG_COUNT`/`KEY_0`/`VALUE_0`; `~/.cache`, `~/Library/Caches` and the toolchain dirs), prints
@@ -794,8 +806,8 @@ approved query still works.
   too: its web reads are not tracked as taint.
 - **`GOD_AFTER_NINJA` checks order only.** Any finished ninja-coder run of the session, even a
   trivial one, unlocks the god-coder spawn; that ninja-coder actually failed rests on the prompts.
-- **A session started directly in a temp dir** (`/tmp`, say) has no project dir, so checks that
-  key on the project dir have nothing to anchor to.
+- **A session started directly in a temp dir** (`/tmp`, say) has no project dir: all of `/tmp` is
+  scratch for the read-only agents there.
 - **Live checks still open** ([Live checks](#live-checks)).
 - **No per-agent URL policy (T1).** WebFetch domain allow rules do nothing in `bypassPermissions`,
   and ask rules can't be scoped per agent type; which agents fetch at all is set by their `tools:`
@@ -909,7 +921,7 @@ instructions with the stack's policy (see [Security model](#security-model)). De
 | PreToolUse `SendMessage` | Resuming a finished agent follows the spawn policy and the parent's caps |
 | PreToolUse `Bash\|Monitor\|PowerShell` (`no-push`) | Never push, never write to a forge (also curl/wget/httpie to forge hosts); credential printers; `--reveal` and `env`/`printenv` under the key helpers; `-x` tracing of `install.sh`/`doctor.sh`; running `install.sh` outside the allowed forms; Bash-level writes to protected paths; read-only allowlist and scratch-code checks for the reviewer types |
 | PreToolUse `mcp__neural-memory__nmem_remember` | An agent tainted by web content, directly or through a linked agent, can't write the shared memory |
-| SessionStart, no matcher (`session-env`) | Appends the sandbox cache exports and the empty git credential helper to `$CLAUDE_ENV_FILE` for Bash |
+| SessionStart, no matcher (`session-env`) | Appends the sandbox cache exports and the empty git credential helper to `$CLAUDE_ENV_FILE` for Bash; on failure exits 2 (hook error notice) and records it in `session-env.json` for the status line and `doctor.sh` |
 | PreToolUse `mcp__computer-use__*` | One agent on the screen at a time |
 | PreToolUse local-file MCP tools | Path and `file:` arguments held to every `Read(...)` deny rule |
 | PostToolUse `Agent\|TaskStop`, SubagentStart/Stop, StopFailure | Registry of who spawned whom; locks released when an agent stops |
@@ -958,7 +970,9 @@ in the repo's `dot-claude/settings.json` and re-run the installer. The rest are 
 
 `bin/statusline.py` renders `blackcat · Sonnet 5.5 · medium · ctx 156K/400K ▓▓▓░░░░░ · 5h 23% · 7d 41% · cache 91%`:
 agent, model, effort, the main conversation's tokens against the 400K auto-compact window, your
-plan's 5h/7d rate-limit windows, cache hit rate. It is set only if you had no status line; remove
+plan's 5h/7d rate-limit windows, cache hit rate. When the session-env hook failed or never finished,
+the line starts with a red `! Bash sandbox env missing: doctor.sh`
+([Sandbox and caches](#sandbox-and-caches)). It is set only if you had no status line; remove
 `statusLine` from `settings.json` to turn it off.
 
 ## ML setup (`--with-ml`)
@@ -1080,8 +1094,8 @@ Every applied parameter (model, effort, maxTurns, caps, knobs) with its reason: 
 
 ### 2026-09-29 — Security rounds 2 and 3, sandbox caches, god-coder plan flow
 
-Commits `e46fa83..e0b5544` on `main` (plus this documentation commit). Round 3 audit verdict: pass
-with residuals, no HIGH open; it depends on the live sandbox, which is unverified
+Commits `e46fa83..cfa9ee7` on `main` (plus the documentation commits). Round 3 and round 4 audit
+verdicts: pass with residuals, no HIGH open; both depend on the live sandbox, which is unverified
 ([Live checks](#live-checks)).
 
 - **Prompts** (`e46fa83`, `13c5e17`, `ea80f87`). BlackCat routing tie-breaks; consent wording routed
@@ -1112,11 +1126,16 @@ with residuals, no HIGH open; it depends on the live sandbox, which is unverifie
   reports GitHub credentials by presence; read-only reviewers treat a project under `/tmp` as the
   project (118 tests had failed from a `/private/tmp` checkout; 0 now); `~/.config/git/credentials`
   denied.
-- **Docs** (`bbe6027`, `a0d9b4c`, `c27ff51`, `c1de9f2`, and this commit): CONFIG.md §7 and this
-  README describe the sandbox as configured but not live-verified, the least-privilege GitHub setup,
-  the residual risks and the live checks.
-- **Tests** at `e0b5544`: pytest 2400 passed (also from a `/private/tmp` checkout); `install_smoke.sh`
-  242 passed, 0 failed; `agent_guard.py --self-test` ok; `lint_agents.py` ok.
+- **Round 4** (`df21992`, `cfa9ee7`). Without a terminal on stdin/stderr the supply question goes to
+  `/dev/tty`; with no terminal at all a changed stack stops with exit 1 unless `--yes` (R4-1). A
+  failed session-env hook exits 2 with a hook error, is recorded in `session-env.json`, and shows in
+  the status line and `doctor.sh` (R4-2). The smoke test re-runs itself without a controlling terminal.
+- **Docs** (`bbe6027`, `a0d9b4c`, `c27ff51`, `c1de9f2`, `f8124cc`, and this commit): CONFIG.md §7
+  and this README describe the sandbox as configured but not live-verified, the least-privilege
+  GitHub setup, the residual risks (round 4 included) and the live checks.
+- **Tests** at `cfa9ee7`: pytest 2401 passed; `install_smoke.sh` 244 passed, 0 failed (2400 and
+  242 at `e0b5544`, also from a `/private/tmp` checkout); `agent_guard.py --self-test` ok;
+  `lint_agents.py` ok.
 
 ### 2026-09-29 — Tightened prompts, security hardening, 15 new skills, prune-by-default installer, no duplicates
 
