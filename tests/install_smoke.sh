@@ -1600,6 +1600,20 @@ xrun "$TX/y" "$TX/y9.log" --no-prune --write-through-links; rc=$?
 [ "$rc" = 0 ] && grep -q 'kept edit' "$TX/outS2/python-engineering/SKILL.md" && [ -f "$TX/outS2/python-engineering/SKILL.md.new" ] \
   && pass "--no-prune --write-through-links keeps the edited stack SKILL.md and drops a .new render next to it" \
   || failed "--no-prune --write-through-links (rc=$rc): $(tail -3 "$TX/y9.log")"
+# a link inside the symlinked skills/ (skills/python-engineering -> pe-local, yours): never written
+# through (the file there would be unsaved), named in the notes; a restore of that run removes nothing of it
+rm -rf "$TX/outS2/pe-local"; mv "$TX/outS2/python-engineering" "$TX/outS2/pe-local"
+printf 'my own pe\n' > "$TX/outS2/pe-local/SKILL.md"; ln -s pe-local "$TX/outS2/python-engineering"
+fp "$TX/outS2/pe-local" > "$TX/fp.pl"
+printf '\nedited\n' >> "$TX/y/rules/claude-agent-stack.md"      # so this run makes a backup of its own
+xrun "$TX/y" "$TX/y10.log" --write-through-links; rc=$?
+BY2="$(latest_backup "$TX/y")"
+xrun "$TX/y" "$TX/y11.log" --restore "$BY2"; rcr=$?
+[ "$rc" = 0 ] && [ "$rcr" = 0 ] && cmp -s "$TX/fp.pl" <(fp "$TX/outS2/pe-local") \
+  && [ "$(readlink "$TX/outS2/python-engineering")" = pe-local ] \
+  && grep -q 'skills/python-engineering: kept (a link inside your symlinked skills/)' "$TX/y10.log" \
+  && pass "a link inside a symlinked skills/: its target is never written, and a restore leaves it alone" \
+  || failed "link inside symlinked skills/ (rc=$rc/$rcr): $(grep -i 'python-engineering\|refus' "$TX/y10.log" "$TX/y11.log" | head -4)"
 # L4 + L1: the backup root must be a real directory (a symlink there is refused); the working copy
 # (stack.env included) lives inside it, and a --dry-run that created the root removes it again
 mkdir -p "$SCRATCH_ROOT/st-l4" "$TX/elsewhere"; ln -s "$TX/elsewhere" "$SCRATCH_ROOT/st-l4/claude-agent-stack-backups"

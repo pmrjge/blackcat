@@ -209,6 +209,12 @@ def make_plan(c, s, report_path, default_why="not part of the stack", keep_linke
     kept_linked = [r for r in removed if keep_linked and r.split("/")[0] in linked]
     removed = [r for r in removed if r not in kept_linked]
     changed = sorted(r for r in after if r in before and after[r] != before[r])
+    # a link inside a symlinked top-level dir (skills -> ~/dot/skills, ~/dot/skills/x -> x-local)
+    # stays, so the stack's files below its name would land in the link's target, unsaved: skipped
+    kept_links = [r for r in kept_linked if before[r][0] == "l"]
+    through = [r for r in added + changed if any(r.startswith(k + "/") for k in kept_links)]
+    added = [r for r in added if r not in through]
+    changed = [r for r in changed if r not in through]
     reasons = report.get("removed") or {}
     replaced = report.get("replaced") or {}
     dirs = [k for k in reasons if k.endswith("/")]
@@ -230,6 +236,11 @@ def make_plan(c, s, report_path, default_why="not part of the stack", keep_linke
         writes = [r for r in added + changed if r.split("/")[0] == d]
         notes.append("%s/ is a symlink to %s (yours): nothing there is removed%s" % (
             d, target, "; %d stack file(s) written through it" % len(writes) if writes else ""))
+        for k in [k for k in kept_links if k.split("/")[0] == d]:
+            n = len([r for r in through if r.startswith(k + "/")])
+            if n:
+                notes.append("%s: kept (a link inside your symlinked %s/); the stack's %d file(s) "
+                             "there are not written through it" % (k, d, n))
         for r in mine[:20]:
             notes.append("%s: kept (%s/ is a symlink; the stack doesn't ship it)" % (r, d))
         if len(mine) > 20:
@@ -437,7 +448,11 @@ def unsafe_paths(c, plan):
             parent = placed_parent(c, rel, gone)
             if within(parent, real_c):
                 continue
-            if top in linked and within(parent, linked[top]) and (
+            # through a symlinked top-level dir: only straight below its target, never through a
+            # further link inside it (that file would be the link target's, never backed up)
+            parts = rel.split("/")
+            if top in linked and parent == os.path.normpath(
+                    os.path.join(linked[top], *parts[1:-1])) and (
                     kind != "removed" or not plan.get("keep_linked", True)):
                 continue
             bad.append(rel)

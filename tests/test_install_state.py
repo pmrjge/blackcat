@@ -120,6 +120,39 @@ def test_per_skill_symlink_replaced_by_the_stacks_skill(conf, tmp_path):
     assert os.readlink(os.path.join(bdir, "files", "skills", "pe")) == str(out)
 
 
+def test_link_inside_a_symlinked_skills_dir_is_never_written_through(conf, tmp_path):
+    """skills -> dot/skills and dot/skills/pe -> pe-local (yours): the stack's skills/pe files are
+    skipped with a note, never written into pe-local unsaved (review round 3, HIGH)."""
+    dot = tmp_path / "dot" / "skills"
+    write(str(dot / "pe-local" / "SKILL.md"), "mine\n")
+    os.symlink("pe-local", str(dot / "pe"))
+    os.symlink(str(dot), os.path.join(conf, "skills"))
+    s = str(tmp_path / "s")
+    os.makedirs(s)
+    snap = st.stage(conf, s)
+    staged = os.path.join(s, "skills", "pe")
+    if os.path.islink(staged):
+        os.unlink(staged)
+    else:
+        import shutil
+        shutil.rmtree(staged)
+    write(os.path.join(staged, "SKILL.md"), "stack\n")
+    write(os.path.join(s, "skills", "other", "SKILL.md"), "other\n")
+    plan = st.make_plan(conf, s, str(tmp_path / "none.json"))
+    assert plan["removed"] == [] and "skills/pe/SKILL.md" not in plan["added"]
+    assert "skills/other/SKILL.md" in plan["added"]
+    assert any(n.startswith("skills/pe: kept (a link inside your symlinked skills/)")
+               for n in plan["notes"])
+    assert st.unsafe_paths(conf, plan) == []
+    st.apply_plan(conf, s, plan, str(tmp_path / "bk"), "c0", snap=snap)
+    assert (dot / "pe-local" / "SKILL.md").read_text() == "mine\n"
+    assert os.readlink(str(dot / "pe")) == "pe-local"
+    assert (dot / "other" / "SKILL.md").read_text() == "other\n"
+    # a hand-made plan that writes through that inner link is refused
+    bad = {"added": ["skills/pe/SKILL.md"], "changed": [], "removed": [], "keep_linked": True}
+    assert st.unsafe_paths(conf, bad) == ["skills/pe/SKILL.md"]
+
+
 def test_writes_below_a_kept_symlink_still_refused(conf, tmp_path):
     """The same layout, but a plan that keeps the link and adds below it would write out of C."""
     out = tmp_path / "dotfiles-pe"
