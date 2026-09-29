@@ -31,6 +31,8 @@
 #   ./install.sh --print-managed-settings  print an optional managed-settings.json that pins the
 #                                 stack's guards against edits (you install it; see CONFIG.md)
 #   ./install.sh --mcp-plan      print the MCP server add/migrate/replace/keep plan and make no changes
+#   ./install.sh --yes           apply without asking when the stack's files changed since the last
+#                                 install (asked only when stdin and stderr are a terminal)
 # Default pruning: the installed agents/ and skills/ hold exactly the stack's files (your own and
 # edited ones are removed or replaced), and stack config the stack no longer ships (hooks, rules,
 # magg catalog entries, MCP entries it registered, duplicate hook wiring) goes. Everything changed
@@ -46,7 +48,7 @@
 set -euo pipefail
 
 WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; WITH_EXTRA_PLUGINS=0; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
-NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; PRUNE=1; RESTORE=""; PRINT_MANAGED=0; ORIG_ARGS="$*"
+NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; PRUNE=1; RESTORE=""; PRINT_MANAGED=0; ASSUME_YES=0; ORIG_ARGS="$*"
 i=0; argv=("$@")
 while [ "$i" -lt "${#argv[@]}" ]; do
   a="${argv[$i]}"
@@ -68,6 +70,7 @@ while [ "$i" -lt "${#argv[@]}" ]; do
     --dry-run) DRY_RUN=1 ;;
     --no-prune) PRUNE=0 ;;
     --print-managed-settings) PRINT_MANAGED=1 ;;
+    --yes|-y) ASSUME_YES=1 ;;
     --restore)
       nxt="${argv[$((i + 1))]:-}"
       case "$nxt" in ""|-*) RESTORE=latest ;; *) RESTORE="$nxt"; i=$((i + 1)) ;; esac ;;
@@ -2026,9 +2029,13 @@ if have uv && [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
   else note "! tests/lint_agents.py reports problems in the stack repo (installing anyway):"; sed 's/^/      /' "$WORK/lint.log" | head -n 20; fi
 fi
 
-# What changed in the guard, the settings and the installer since the last install (the manifest
-# records the commit each install shipped), and edits not committed yet: read them before applying.
-SUPPLY_PATHS="dot-claude/hooks dot-claude/settings.json install.sh lib"
+# What changed in what this run installs since the last install (the manifest records the commit each
+# install shipped), and edits not committed yet: the whole shipped tree (agents and their MCP servers
+# and hooks, skills, rules, hooks, settings, bin, mcp, magg's catalog, the LSP marketplace), the
+# installer and its library, the pinned requirements. Read them before applying; on a terminal the
+# run asks before it applies them (--yes: don't ask).
+SUPPLY_PATHS="dot-claude install.sh lib requirements stack.env.example"
+SUPPLY_CHANGED=0
 prev_commit="$(python3 -c 'import json, re, sys
 try:
     v = json.load(open(sys.argv[1])).get("commit") or ""
@@ -2039,19 +2046,29 @@ if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
   # shellcheck disable=SC2086
   dirty="$(git -C "$HERE" status --porcelain -- $SUPPLY_PATHS 2>/dev/null || true)"
   if [ -n "$dirty" ]; then
-    note "! uncommitted changes in the stack repo's guard, settings or installer — this run installs them:"
-    printf '%s\n' "$dirty" | sed 's/^/      /'
+    SUPPLY_CHANGED=1
+    note "! uncommitted changes in the stack repo's shipped files or installer — this run installs them:"
+    printf '%s\n' "$dirty" | head -n 40 | sed 's/^/      /'
+    [ "$(printf '%s\n' "$dirty" | wc -l)" -gt 40 ] && note "  ... and more: git -C $HERE status -- $SUPPLY_PATHS"
   fi
   if [ -n "$prev_commit" ] && [ "$prev_commit" != "$STACK_COMMIT_FULL" ]; then
     # shellcheck disable=SC2086
     if supply="$(git -C "$HERE" diff --stat "$prev_commit" HEAD -- $SUPPLY_PATHS 2>/dev/null)"; then
       if [ -n "$supply" ]; then
-        note "guard, settings and installer changes since the last install (${prev_commit:0:12}..$STACK_COMMIT):"
-        printf '%s\n' "$supply" | sed 's/^/      /'
+        SUPPLY_CHANGED=1
+        note "changes to the stack's shipped files and installer since the last install (${prev_commit:0:12}..$STACK_COMMIT):"
+        n_supply="$(printf '%s\n' "$supply" | wc -l | tr -d ' ')"
+        if [ "$n_supply" -gt 41 ]; then
+          printf '%s\n' "$supply" | head -n 40 | sed 's/^/      /'
+          note "  ... $((n_supply - 41)) more file(s);$(printf '%s\n' "$supply" | tail -n 1)"
+        else
+          printf '%s\n' "$supply" | sed 's/^/      /'
+        fi
         note "review: git -C $HERE diff ${prev_commit:0:12} HEAD -- $SUPPLY_PATHS"
       fi
     else
-      note "! the last install shipped commit ${prev_commit:0:12}, which this repo doesn't have: review the guard and settings before applying"
+      SUPPLY_CHANGED=1
+      note "! the last install shipped commit ${prev_commit:0:12}, which this repo doesn't have: review the stack's files before applying"
     fi
   fi
 fi
@@ -2063,6 +2080,15 @@ if [ -n "$legacy_b" ]; then
   printf '%s\n' "$legacy_b" | sed "s|^|  > |; s|\$| -> $BACKUP_ROOT/legacy/|"
 fi
 B=""
+# the stack's files changed since the last install (above): on a terminal, ask before applying
+if [ "$SUPPLY_CHANGED" = 1 ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ] && [ -t 0 ] && [ -t 2 ]; then
+  printf 'Apply the plan above, with the changes to the stack listed before it? [y/N] ' >&2
+  ans=""; read -r ans || true
+  case "$ans" in
+    y|Y|yes|YES|Yes) ;;
+    *) echo "install.sh: not applied. Nothing in $C was changed." >&2; exit 1 ;;
+  esac
+fi
 if [ "$DRY_RUN" = 1 ]; then
   note "--dry-run: nothing above was applied"
 else

@@ -1650,19 +1650,54 @@ import json, sys
 m = json.load(open(sys.argv[1])); m["commit"] = sys.argv[2]; json.dump(m, open(sys.argv[1], "w"))
 PY
 }
-# an "earlier install": a commit (off every branch) whose guard differs from HEAD's
-blob="$(printf '# an earlier guard\n' | tgit -C "$HERE" hash-object -w --stdin)"
+# an "earlier install": a commit (off every branch) whose guard, an agent and a requirements file
+# differ from HEAD's (R3-SUPPLY: the whole shipped tree counts, not only the guard and settings)
+blob="$(printf '# an earlier file\n' | tgit -C "$HERE" hash-object -w --stdin)"
 GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" read-tree HEAD
-GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" update-index --cacheinfo "100755,$blob,dot-claude/hooks/agent_guard.py"
+for f in dot-claude/hooks/agent_guard.py dot-claude/agents/coder.md requirements/sci.in; do
+  GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" update-index --cacheinfo "100755,$blob,$f"
+done
 old_commit="$(tgit -C "$HERE" commit-tree "$(GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" write-tree)" -p HEAD -m earlier </dev/null)"
 set_commit "$old_commit"
 xrun "$TX/r" "$TX/s1.log" --dry-run
 set_commit "0123456789abcdef0123456789abcdef01234567"
 xrun "$TX/r" "$TX/s2.log" --dry-run
-grep -q 'guard, settings and installer changes since the last install' "$TX/s1.log" && grep -q 'dot-claude/hooks/agent_guard.py' "$TX/s1.log" \
-  && grep -q "which this repo doesn't have" "$TX/s2.log" \
-  && pass "an install shows the guard/settings diff since the recorded commit (and warns on an unknown one)" \
+grep -q "changes to the stack's shipped files and installer since the last install" "$TX/s1.log" \
+  && grep -q 'dot-claude/hooks/agent_guard.py' "$TX/s1.log" && grep -q 'dot-claude/agents/coder.md' "$TX/s1.log" \
+  && grep -q 'requirements/sci.in' "$TX/s1.log" && grep -q "which this repo doesn't have" "$TX/s2.log" \
+  && pass "an install shows the diff of everything it ships since the recorded commit (and warns on an unknown one)" \
   || failed "supply-chain diff: $(grep -i 'since the last install\|repo doesn' "$TX/s1.log" "$TX/s2.log" | head -3)"
+# on a terminal the run asks before applying those changes: "n" applies nothing, --yes doesn't ask
+cat > "$TX/tty_run.py" <<'PY'
+import os, select, subprocess, sys
+answer, log, argv = sys.argv[1].encode(), sys.argv[2], sys.argv[3:]
+m, s = os.openpty()
+p = subprocess.Popen(argv, stdin=s, stdout=s, stderr=s, close_fds=True)
+buf, answered = b"", False
+while True:                  # the slave stays open here: no EIO while the child's output is read
+    r, _, _ = select.select([m], [], [], 0.5)
+    if m in r:
+        buf += os.read(m, 65536)
+        if not answered and b"[y/N]" in buf:
+            os.write(m, answer + b"\n")
+            answered = True
+    elif p.poll() is not None:
+        break
+os.close(s)
+rc = p.wait()
+open(log, "wb").write(buf)
+sys.exit(rc)
+PY
+set_commit "$old_commit"; nb=$(count_backups "$TX/r"); fp "$TX/r" > "$TX/fp.s0"
+FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="$TX/r" \
+  python3 "$TX/tty_run.py" n "$TX/s3.log" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile; rc3=$?
+cmp -s "$TX/fp.s0" <(fp "$TX/r") && [ "$(count_backups "$TX/r")" = "$nb" ]; same3=$?
+FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="$TX/r" \
+  python3 "$TX/tty_run.py" n "$TX/s4.log" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --yes; rc4=$?
+[ "$rc3" != 0 ] && grep -q 'Apply the plan above' "$TX/s3.log" && grep -q 'not applied. Nothing in' "$TX/s3.log" \
+  && [ "$same3" = 0 ] && [ "$rc4" = 0 ] && ! grep -q 'Apply the plan above' "$TX/s4.log" \
+  && pass "on a terminal: changed stack files are confirmed before applying ('n' changes nothing; --yes skips the question)" \
+  || failed "supply-chain confirmation (rc=$rc3/$rc4, unchanged after 'n': $same3): $(grep -ai 'apply the plan\|not applied' "$TX/s3.log" "$TX/s4.log" | head -3)"
 assert_unchanged_real_home
 drop_scratch "$TX"
 

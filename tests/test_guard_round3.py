@@ -213,3 +213,24 @@ def test_session_env_quotes_an_odd_home_and_never_blocks(tmp_path):
     assert r.returncode == 0 and "sandbox env not written" in r.stderr
     r = session_env(home, tmp_path / "missing-dir" / "env.sh", stdin="not json")
     assert r.returncode == 0 and "sandbox env not written" in r.stderr
+
+
+# ---------------------------------------------------------------- R3-SUPPLY: what the diff covers
+def test_supply_diff_covers_everything_the_install_ships():
+    """The pre-apply diff covers every repo path install.sh reads to build the config dir, and the
+    question before applying is asked only on a terminal, never under --dry-run or --yes."""
+    import re
+    import subprocess
+    text = (ROOT / "install.sh").read_text()
+    paths = re.search(r'^SUPPLY_PATHS="([^"]+)"$', text, re.M).group(1).split()
+    assert set(paths) == {"dot-claude", "install.sh", "lib", "requirements", "stack.env.example"}
+    shipped = set(re.findall(r'"\$HERE/([A-Za-z0-9_.-]+)', text)) | {"dot-claude"}
+    shipped -= {"tests", ".git", "legacy"}          # never installed: legacy is a migration source
+    tracked = set(subprocess.run(["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True,
+                                 check=True).stdout.split())
+    top = {p.split("/", 1)[0] for p in tracked}
+    assert {p for p in shipped if p in top} <= set(paths), shipped - set(paths)
+    ask = re.search(r'^if \[ "\$SUPPLY_CHANGED" = 1 \] (.+); then$', text, re.M).group(1)
+    for cond in ('[ "$DRY_RUN" = 0 ]', '[ "$ASSUME_YES" = 0 ]', "[ -t 0 ]", "[ -t 2 ]"):
+        assert cond in ask, cond
+
