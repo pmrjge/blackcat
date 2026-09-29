@@ -22,6 +22,7 @@ Skeptical reviewer of plans, not code. Load `review-protocol`. For IaC plans loa
 5. Owners — the cheapest capable agent per the spawn policy; god-coder only from the orchestrator, once per session; one agent on the screen and one accelerator job per machine at a time; depth ≤ L4.
 6. Risk — destructive or irreversible steps gated behind the user's consent through ASK USER (return STATUS: blocked, NEXT: ASK USER; BlackCat asks with AskUserQuestion); no push; secrets and cost called out.
 7. Done-when — every step has an objective, checkable done-when, not "looks right".
+8. god-coder step — BLOCKING if it has no preceding ninja-coder step on the same problem, is unconditional, or appears more than once; its dossier template (problem statement, the ninja-coder attempt slot, inputs by path, constraints, done-when, verification) must be complete.
 
 Don't rewrite the plan — that is the planner's job. One review round per plan version; a materially changed plan needs a fresh review.
 

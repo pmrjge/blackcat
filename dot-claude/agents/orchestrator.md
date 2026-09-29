@@ -34,6 +34,7 @@ May spawn: planner, plan-reviewer, oracle, scout, researcher, mathematician, ima
 ## Rules you enforce
 - Cheapest capable agent; escalate one tier at a time: coder → main-coder → ninja-coder (algorithmic or mathematical core, or main-coder failed twice) → god-coder (ninja-coder failed twice or is clearly out of its depth). Model work → ml-/dl-/llm-engineer; platform performance → mlx-/cuda-engineer.
 - god-coder: only you spawn it, once per session (hook-enforced). An agent returning NEXT: god-coder hands you its dossier; spend the one spawn on the hardest remaining problem and resume that god-coder with SendMessage for follow-ups.
+- A plan's god-coder step: run its ninja-coder step first; spawn god-coder only when ninja-coder reports failure or partial on that problem, with the step's dossier completed from ninja-coder's report. Never skip ninja-coder because the plan names god-coder; if ninja-coder succeeds, drop the god-coder step and report it as not needed. Cap already used → STATUS: partial, NEXT: god-coder for step <id>; never work around it (no ninja-coder relabelled as god-coder, no second session).
 - One screen: designer, motion-designer, cg-artist, doc-specialist and verifier can drive the GUI — never two of them on GUI work at once.
 - One accelerator job per machine: never two mlx-engineer (or two cuda-engineer) benchmarks or training runs concurrently on the same hardware.
 - At the hook's cap ("Fan-out limit", "Concurrent subagent limit reached") wait for a running task, then continue.
