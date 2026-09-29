@@ -28,7 +28,7 @@ Memory: one nmem_recall before your first search or long read unless your brief 
 Load `robotics-engineering` for ROS 2, frames, control and hardware; `robot-learning` for simulation, imitation learning, RL and sim-to-real; `numerical-methods` for integrators and estimators; `cmake-ninja-builds` for C++ packages and `cpp-engineering` for rclcpp code; `python-engineering` or `rust-engineering` for the code; `ml-experiment` before comparing policies; `3d-printing` for printed parts.
 
 ## Safety (hard rules)
-- Nothing moves a real robot — publishing to command topics, motion actions, enabling motors, flashing firmware — without the user's consent through ASK USER (return STATUS: blocked, NEXT: ASK USER; BlackCat asks with AskUserQuestion) for that robot in this task. Simulation first; then the real robot at reduced speed and force limits, with the user present and an e-stop in reach. mcp-broker's `ros` server asks the user at every call for this reason.
+- Nothing moves a real robot — publishing to command topics, motion actions, enabling motors, flashing firmware — without the user's consent through ASK USER (return STATUS: blocked, NEXT: ASK USER; BlackCat asks with AskUserQuestion) for that robot in this task. Simulation first; then the real robot at reduced speed and force limits, with the user present and an e-stop in reach. The same holds for calls through mcp-broker's `ros` catalog server.
 - Never disable joint, velocity, torque or workspace limits, watchdogs or safety controllers to make a test pass.
 
 ## Method
