@@ -721,7 +721,7 @@ python3 - "$T4/.claude/settings.json" <<'PY'
 import json, sys
 p = sys.argv[1]; s = json.load(open(p))
 for g in s["hooks"]["PreToolUse"]:
-    if g.get("matcher") == "Agent":
+    if "Agent" in (g.get("matcher") or "").split("|"):
         g["hooks"].append({"type": "command", "command": "my-audit.sh"})
 s["env"]["BLACKCAT_MAX_STEPS"] = "20"         # owned: reset to the stack's value
 s["env"]["STACK_FANOUT_IDLE_S"] = "900"        # a tunable knob: kept

@@ -577,8 +577,13 @@ bare = sorted(c for c in cmds if c.split()[0].strip('"') in ("python3", "python"
 (warn if bare else ok)("guard hooks call an absolute interpreter" if not bare
                        else "guard hooks call a bare python3 (a broken pyenv/asdf shim would disable them) — rerun install.sh")
 matchers = {g.get("matcher") for g in hooks.get("PreToolUse", []) if isinstance(g, dict)}
-exp = {"Agent", "SendMessage", "mcp__computer-use__.*"}
-(ok if exp <= matchers else fail)("PreToolUse matchers: " + ("all 3 present" if exp <= matchers else "missing " + ", ".join(sorted(exp - matchers))))
+# exact-name matchers are |-lists: the Agent tool's aliases (Task, SubAgent) and Workflow's
+# (RunWorkflow) must reach the spawn and workflow gates too
+names = {p.strip() for m in matchers if m and re.fullmatch(r"[\w|, -]+", m) for p in re.split(r"[|,]", m)}
+exp = {"Agent", "Task", "SubAgent", "Workflow", "RunWorkflow", "SendMessage"}
+got = names | ({"mcp__computer-use__.*"} & matchers)
+exp.add("mcp__computer-use__.*")
+(ok if exp <= got else fail)("PreToolUse matchers: " + ("Agent and its aliases, Workflow, SendMessage, computer use present" if exp <= got else "missing " + ", ".join(sorted(exp - got)) + " — rerun install.sh"))
 (ok if any("ctx_index" in (m or "") for m in matchers) else fail)(
     "local-file MCP tools (context-mode ctx_index, markitdown, docling, playwright) held to the Read deny rules"
     if any("ctx_index" in (m or "") for m in matchers) else

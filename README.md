@@ -2,7 +2,7 @@
 
 <!-- markdownlint-disable MD013 MD060 -->
 
-BlackCat, a dispatcher on the main thread, routes work to 35 specialist agents (36 agent files). 93
+BlackCat, a dispatcher on the main thread, routes work to 36 specialist agents (37 agent files). 93
 skills load on demand. One policy hook, deny rules and the Claude Code sandbox hold the limits, and MCP
 servers start and stop with the agents that use them. Built for Claude Code **2.1.271 or later**,
 macOS only (Apple Silicon first). It runs in the terminal and in the apps that run Claude Code with
@@ -263,7 +263,7 @@ and `CLAUDE_CONFIG_DIR` both point into a temp dir, so an agent also sets `HOME=
 |---|---|
 | `~/.claude/rules/claude-agent-stack.md` | Global rules every agent loads. `~/.claude/CLAUDE.md` stays yours |
 | `~/.claude/settings.json` | `"agent": "blackcat"`, auto-compact at 400K, depth 4, caps, permissions, sandbox, hooks, status line (merged) |
-| `~/.claude/agents/*.md` | 36 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
+| `~/.claude/agents/*.md` | 37 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
 | `~/.claude/skills/*/SKILL.md` | 93 skills (descriptions in context; bodies load on demand) |
 | `~/.claude/hooks/agent_guard.py` | The policy hook (see [Enforced behaviours](#enforced-behaviours-hooks)) |
 | `~/.claude/bin/mcp-headers` | `headersHelper`: gives exa/jina/huggingface/wandb their keys from `stack.env` at connect time |
@@ -333,6 +333,7 @@ per task type (12 for oracle up to 350 for god-coder; [CONFIG.md](CONFIG.md) §3
 | plan-reviewer | Opus 5.5 · high | Critiques a plan against goal, code and docs; read-only (hook) | planner writes plans |
 | oracle | Opus 5.5 · low | Timeless knowledge, no web | scout for anything that changes |
 | scout | Sonnet 5.5 · low | One current fact, cited | researcher for synthesis |
+| explore | Sonnet 5.5 · low | Read-only codebase search with `path:line` evidence; replaces Claude Code's built-in Explore (no Bash, 40 turns) | coder / main-coder to change code |
 | researcher | Opus 5.5 · high | Cited multi-source research; crawls; copies itself | scout (one fact); `NEXT: browser-operator` for pages to act on |
 | mathematician | Opus 5.5 · xhigh | Proofs, derivations, symbolic/numeric computation | data-scientist (real data), quantum-engineer (simulation code) |
 | quantum-engineer | Opus 5.5 · high | Circuits, quantum simulation, QEC, IBM Quantum runs | mathematician (derivations) |
@@ -406,12 +407,21 @@ boundaries. Details of each agent's MCP servers are in [MCP servers](#mcp-server
 Claude Code ignores `Agent(a, b)` lists inside subagents, so `POLICY` in `agent_guard.py` is the
 single source of truth, and `tests/lint_agents.py` checks that every agent's "May spawn:" sentence
 matches it. Depth: BlackCat → L1 → L2 → L3 → L4 (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`); L4 cannot
-spawn. `general-purpose`, `fork` and any type not in the caller's row are denied; SendMessage resumes
-of finished agents follow the same rows. Agents of your own are in no row: run one with
-`claude --agent <name>`.
+spawn. Spawning is an allowlist: a missing `subagent_type`, Claude Code's generic and built-in
+types (`general-purpose`, `claude`, `fork`, `Plan`, `statusline-setup`), host-defined types such as
+`SubAgent`, and any type not in the caller's row are denied, for every caller: one with no row of its
+own gets BlackCat's row on a main thread and nothing as a subagent. The tool's aliases (`Task`,
+`SubAgent`) are matched too. A generic agent that starts anyway, outside the Agent tool (a skill
+with `context: fork` and no `agent:`, a workflow stage without `agentType`), has every tool call
+refused. Workflow scripts must give every `agent()` call a stack `agentType`; bundled workflows
+such as `/deep-research` are refused. settings.json adds `Agent(general-purpose|claude|fork)` deny
+rules and switches off the built-in Explore and Plan (`CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS`; the
+stack's `explore` replaces Explore) and, in `claude -p` and Agent SDK apps, every built-in
+(`CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS`). SendMessage resumes of finished agents follow the same
+rows. Agents of your own are in no row: run one with `claude --agent <name>`.
 
 - **blackcat:** every specialist except god-coder, in one burst per prompt.
-- **orchestrator:** every specialist plus Explore; the only spawner of god-coder, once per session
+- **orchestrator:** every specialist; the only spawner of god-coder, once per session
   and after a finished ninja-coder (`GOD_SPAWNERS=orchestrator`, `GOD_ONCE_PER_SESSION=1`,
   `GOD_AFTER_NINJA=1`).
 - **browser-operator** (your logged-in Chrome sessions): only blackcat and orchestrator, neither of
@@ -419,7 +429,7 @@ of finished agents follow the same rows. Agents of your own are in no row: run o
   `NEXT: browser-operator` with URLs and steps.
 - **Copies:** only researcher and coder, as `researcher-copy` and `coder-copy`; a copy spawns no copies.
 - **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker,
-  claude-code-guide, browser-operator, plan-reviewer, image-director.
+  claude-code-guide, browser-operator, plan-reviewer, image-director, explore.
 
 | Agent | May spawn |
 |---|---|
@@ -1186,7 +1196,7 @@ caps in it describe that revision: 78 skills, opt-in `--dedupe-plugins`, backups
 
 #### Claude Code multi-agent stack (README as of e06af75)
 
-BlackCat, the dispatcher on the main thread, 35 specialists (36 agent files), 78 on-demand skills, short global
+BlackCat, the dispatcher on the main thread, 36 specialists (37 agent files), 78 on-demand skills, short global
 rules, a policy hook and MCP servers that start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later** and checked against the 2.1.283 docs (26 Sep 2026). macOS only
 (Apple Silicon first). It runs in the terminal and in the apps that run Claude Code with your
@@ -1310,7 +1320,7 @@ exported.
 |---|---|
 | `~/.claude/rules/claude-agent-stack.md` | Global rules every agent loads (short on purpose). `~/.claude/CLAUDE.md` stays yours |
 | `~/.claude/settings.json` | `"agent": "blackcat"`, auto-compact on with a **400K** window, depth 4, caps, permissions, hooks, status line (merged) |
-| `~/.claude/agents/*.md` | 36 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
+| `~/.claude/agents/*.md` | 37 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
 | `~/.claude/skills/*/SKILL.md` | 78 skills (descriptions in context; bodies load on demand) |
 | `~/.claude/hooks/agent_guard.py` | The policy hook (spawn policy, depth, fan-out caps, copies, god-coder lock, screen lock, BlackCat limits, secrets guard for local-file MCP tools) |
 | `~/.claude/bin/mcp-headers` | `headersHelper`: gives exa/jina/huggingface/wandb their keys from `stack.env` at connect time |
@@ -1376,6 +1386,7 @@ calls count once). An agent that hits it stops without a report of its own; Clau
 | plan-reviewer | Opus 5.5 · high | Critique of a plan before execution | libdocs | exa, jina | |
 | oracle | Opus 5.5 · low | Timeless knowledge, no web | — | — | |
 | scout | Sonnet 5.5 · low | One current fact in ≤ 3 searches | — | exa, jina | |
+| explore | Sonnet 5.5 · low | Read-only codebase search (Read, Grep, Glob, LSP); skips CLAUDE.md like the built-in it replaces | — | — | |
 | researcher | Opus 5.5 · high | Cited multi-source research; can crawl | spider, context-mode, neural-memory | exa, jina, huggingface | copies, cache 1h |
 | mathematician | Opus 5.5 · xhigh | Proofs, derivations, symbolic/numeric computation | neural-memory | jina, wolfram | sympy/mpmath/scipy venv |
 | **quantum-engineer** | Opus 5.5 · high | Quantum computing and quantum-physics code: circuits, QuTiP, tensor networks, error correction, IBM Quantum runs | libdocs, neural-memory | exa, jina, wolfram | cache 1h; qiskit-runtime via the catalog |
@@ -1431,7 +1442,9 @@ calls count once). An agent that hits it stops without a report of its own; Clau
 
 Claude Code ignores `Agent(a, b)` lists inside subagents, so `agent_guard.py` holds the single
 source of truth (`POLICY`). `tests/lint_agents.py` checks that every agent's "May spawn:" sentence
-matches it. `general-purpose`, `fork` and every type not in the caller's row are denied. Resuming a
+matches it. A missing `subagent_type`, generic, built-in and host-defined types (`general-purpose`,
+`claude`, `fork`, `SubAgent`, ...) and every type not in the caller's row are denied (see
+[Spawn policy](#spawn-policy) for workflows and forked skills). Resuming a
 finished agent with SendMessage follows the same rows (an agent may always resume its own children
 and its parent); messages to agents that are still running pass.
 
@@ -1441,12 +1454,12 @@ stack's agents can spawn them. Run one directly with `claude --agent <name>`, or
 installer.
 
 - **blackcat**: any specialist except god-coder (all dispatches in one burst, within `BLACKCAT_MAX_DISPATCH` and `BLACKCAT_MAX_STEPS`: [Knobs](#knobs)); follow-ups go through SendMessage.
-- **orchestrator**: every specialist plus Explore (copy types excluded); the only agent that may
+- **orchestrator**: every specialist (copy types excluded); the only agent that may
   spawn god-coder, once per session (`GOD_SPAWNERS`, `GOD_ONCE_PER_SESSION`).
 - **Copies**: only researcher and coder, through `researcher-copy` and `coder-copy`; no other row
   lists its own type.
 - **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker,
-  claude-code-guide, browser-operator, plan-reviewer, image-director.
+  claude-code-guide, browser-operator, plan-reviewer, image-director, explore.
 - **Escalation**: coder → main-coder → ninja-coder → god-coder. ninja-coder takes a problem whose
   core is algorithmic or mathematical, or one main-coder failed twice; god-coder only what
   ninja-coder could not solve, and only through the orchestrator: any other agent returns

@@ -6,9 +6,21 @@ installer renders every hook command with an absolute interpreter path (never a 
 a hook that cannot start is a non-blocking error in Claude Code, i.e. every gate silently open.
 Reads the hook JSON on stdin.
 
-  PreToolUse  every tool            `budget` mode: the prompt and session context-token budgets,
-                                    and each subagent's MCP call cap (the tools below check both
-                                    in this mode's place, first)
+  PreToolUse  every tool            `budget` mode: a subagent of a generic type (general-purpose,
+                                    claude, fork, SubAgent, workflow-subagent: a forked skill
+                                    without `agent:`, a workflow stage without agentType) runs no
+                                    tool (generic_agent_reason); the prompt and session
+                                    context-token budgets, and each subagent's MCP call cap (the
+                                    tools below check both in this mode's place, first)
+  PreToolUse  Agent (aliases Task, SubAgent)  an allowlist: subagent_type must name a stack agent
+                                    in the caller's row (spawn_row: a caller without a row gets
+                                    BlackCat's as a main thread, nothing as a subagent); missing,
+                                    generic, built-in and unknown types are refused
+  PreToolUse  Workflow (RunWorkflow)  every agent() call of the script names a stack agentType
+                                    the caller may spawn, as a string literal, no model and no
+                                    effort above the agent's own; every source (scriptPath,
+                                    script, name) is checked;
+                                    bundled/plugin workflows and nested workflow() are refused
   PreToolUse  Agent                 spawn policy, copy rule, depth limit, fan-out caps (spawn
                                     lease), session copy cap, blackcat dispatch and step limits
                                     (atomic markers), god-coder singleton (pending lease), strip
@@ -182,11 +194,30 @@ AGENTS = [
     "devops-engineer", "data-engineer", "frontend-engineer", "code-reviewer", "verifier",
     "security-auditor", "mcp-broker", "claude-code-guide",
     "ml-engineer", "dl-engineer", "llm-engineer", "data-scientist", "browser-operator",
-    "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist",
+    "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist", "explore",
 ]
-BUILTINS = ["explore"]
+# Claude Code's built-in types are not part of the stack: settings.json switches off Explore and
+# Plan (CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS; agents/explore.md replaces Explore, pinned to
+# Sonnet with a turn cap) and, in `claude -p` and the Agent SDK apps, every built-in
+# (CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS); it denies Agent(general-purpose|claude|fork); and
+# this hook spawns only STACK_TYPES. Nothing else is spawnable.
+BUILTINS = []
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
-          "claude-code-guide", "browser-operator", "plan-reviewer", "image-director"]
+          "claude-code-guide", "browser-operator", "plan-reviewer", "image-director", "explore"]
+# Generic agent types: Claude Code's catch-alls (general-purpose, claude, fork), the default
+# workflow stage ("workflow-subagent" in Claude Code 2.1.285), and the names a model or a host has
+# used for a generic spawn ("SubAgent": the label of an agent context without a type, e.g. a forked
+# skill). Spawning is an allowlist (SPAWNABLE), so this list only decides which RUNNING subagents
+# get every tool call refused (generic_agent_reason): a denylist there, because Claude Code's own
+# bundled features run namespaced agents of their own (the bundled /run skill forks into
+# "claude-test:runner"), which must keep working.
+GENERIC_TYPES = ("general-purpose", "claude", "fork", "subagent", "sub-agent", "workflow-subagent",
+                 "workflow", "agent", "task", "default")
+GENERIC_KEYS = frozenset(re.sub(r"[^a-z0-9]", "", t) for t in GENERIC_TYPES)
+# Tool names of the same tool (Claude Code 2.1.285: Agent's alias is "Task", Workflow's
+# "RunWorkflow"; "SubAgent" is no Claude Code tool, kept for hosts that relabel the tool). Every
+# mode maps an alias to its canonical name before deciding; settings.json's matchers list them all.
+TOOL_ALIASES = {"Task": "Agent", "SubAgent": "Agent", "RunWorkflow": "Workflow"}
 
 # god-coder is spawned by the orchestrator only, once per session (GOD_SPAWNERS, GOD_ONCE_PER_SESSION):
 # the last resort after ninja-coder, decided where the whole job is visible. No other row lists it.
@@ -203,10 +234,11 @@ COPY_TYPES = ["researcher", "coder"]
 COPY_OF = {base: base + "-copy" for base in COPY_TYPES}          # base -> copy type
 COPY_BASE = {copy: base for base, copy in COPY_OF.items()}       # copy type -> base
 
-# parent agent_type -> child agent types it may spawn. Parents not listed are unrestricted.
+# parent agent_type -> child agent types it may spawn. A caller with no row (no agent type, a
+# generic or a foreign one) gets spawn_row(): a main thread BlackCat's row, a subagent nothing.
 POLICY = {
     "blackcat": list(_BLACKCAT_ROW),
-    "orchestrator": [a for a in AGENTS if a not in ("blackcat", "orchestrator")] + ["explore"],
+    "orchestrator": [a for a in AGENTS if a not in ("blackcat", "orchestrator")],
     "planner": ["scout", "explore", "claude-code-guide"],
     # Web-reading agents never reach browser-operator (the user's logged-in Chrome sessions): a
     # page they read could steer it. Only blackcat and orchestrator keep it (T1; the prompts' "May
@@ -267,12 +299,82 @@ POLICY = {
     "mcp-broker": [], "claude-code-guide": [], "browser-operator": [],
     # a review or an image job is one bounded task: no delegation (planner keeps Agent)
     "plan-reviewer": [], "image-director": [],
+    # read-only codebase search (Sonnet, no Bash): one bounded look, no delegation
+    "explore": [],
 }
 # A copy's row: its base's row without the base type and without any copy type.
 for _base, _copy in COPY_OF.items():
     POLICY[_copy] = [c for c in POLICY[_base] if c != _base and c not in COPY_BASE]
 # Agents that may spawn copies of themselves (derived: the row lists the agent's copy type).
 SELF_SPAWN = sorted(b for b, c in COPY_OF.items() if c in POLICY.get(b, []))
+# The stack's agent types: the only ones that may be spawned (on_agent) or run a workflow stage
+# (on_workflow). blackcat is the main thread only.
+STACK_TYPES = frozenset(AGENTS) | frozenset(COPY_BASE)
+SPAWNABLE = STACK_TYPES - {"blackcat"}
+
+
+def spawn_row(parent, main):
+    """The agent types `parent` may spawn: its POLICY row; for a caller without one, a main thread
+    (plain `claude`, a host's own main agent, `--agent <foreign>`) gets BlackCat's row (plus
+    god-coder when GOD_SPAWNERS lists "main") and a subagent of a foreign or generic type nothing.
+    Before 2026-10 a caller without a row was unrestricted: a typeless main thread or a generic
+    agent could spawn general-purpose, fork or a host-defined "SubAgent"."""
+    row = POLICY.get(parent)
+    if row is not None:
+        return row
+    if main:
+        return list(_BLACKCAT_ROW) + ([GOD] if "main" in god_spawners() and not parent else [])
+    return []
+
+
+def caller_is_main(ev, parent):
+    """A main thread for spawn_row: no agent_id, or an agent context that names no type the
+    registry knows or is Claude Code's backgrounded main session ("main-session"). Either way the
+    child must still be a stack type: this only picks BlackCat's row over an empty one."""
+    return not ev.get("agent_id") or parent in ("", "main-session")
+
+
+def spawn_type_violation(parent, main, raw_type):
+    """Denial reason for an Agent call whose subagent_type is missing, generic, foreign or not in
+    the caller's row; None when allowed. Pure: the self-test runs it."""
+    row = spawn_row(parent, main)
+    valid = ", ".join(row) or "none (do this part yourself or return STATUS: partial with NEXT)"
+    who = parent or ("the main thread" if main else "this agent")
+    if not isinstance(raw_type, str) or not raw_type.strip():
+        return ("Spawn policy: subagent_type is required (without it Claude Code runs the generic "
+                "general-purpose agent: every tool, the session's model, no turn cap). %s may "
+                "spawn: %s." % (who, valid))
+    child = norm(raw_type)
+    if child not in SPAWNABLE:
+        return ("Spawn policy: '%s' is not an agent of this stack (generic, built-in and "
+                "host-defined types are refused: they run outside the stack's models, turn caps "
+                "and rules). %s may spawn: %s." % (raw_type.strip()[:80], who, valid))
+    if child not in row:
+        return ("Spawn policy: '%s' may not spawn '%s'. Allowed: %s. Return STATUS: partial "
+                "with NEXT naming the agent you need." % (who, child, ", ".join(row) or "none"))
+    return None
+
+
+def generic_agent_reason(ev):
+    """A generic subagent got started anyway, past the spawn gate: a forked skill without `agent:`
+    (Claude Code falls back to general-purpose), a workflow stage without agentType, a fork, a
+    host's own "SubAgent". Every tool call of it is refused, so it ends after one turn instead of
+    working on the session's model with every tool. Pure. Events without agent_type are left
+    alone (Claude Code's internal helpers), and so are namespaced and other non-generic types."""
+    if not ev.get("agent_id"):
+        return None
+    raw = ev.get("agent_type")
+    if not isinstance(raw, str) or re.sub(r"[^a-z0-9]", "", raw.lower()) not in GENERIC_KEYS:
+        return None
+    return ("Stack policy: '%s' is a generic agent, not one of this stack's, so it runs no tools "
+            "here. Stop now: "
+            "reply in one line that the task needs a stack agent (for example coder, explore, "
+            "scout or researcher) and end your turn." % raw.strip()[:80])
+
+
+def canonical_tool(name):
+    name = str(name or "")
+    return TOOL_ALIASES.get(name, name)
 
 # Main-thread blackcat: delegation tools plus the main-thread-only features subagents never get
 # (dynamic workflows, scheduled tasks, routines, push notifications, file hand-off, skills).
@@ -1136,6 +1238,13 @@ def on_agent(ev, d):
         why = copy_rule_violation(parent, child)
         if why:
             deny(why)
+        # an allowlist: a missing, generic, built-in or foreign subagent_type, or one outside the
+        # caller's row, is refused for every caller, with or without a POLICY row (spawn_row);
+        # god-coder gets its own messages first
+        type_why = spawn_type_violation(parent, caller_is_main(ev, parent),
+                                        ti.get("subagent_type"))
+        if type_why and child != GOD:
+            deny(type_why)
         if child == GOD and (parent or "main") not in god_spawners():
             deny("Spawn policy: only the orchestrator spawns god-coder (once per session, the last "
                  "resort after ninja-coder). Return STATUS: partial with NEXT: god-coder and a "
@@ -1143,10 +1252,8 @@ def on_agent(ev, d):
         if child == GOD and os.environ.get("GOD_AFTER_NINJA", "1").strip() != "0" \
                 and not ninja_finished(d):
             deny(GOD_NINJA_REASON)
-        if parent in POLICY and child not in POLICY[parent]:
-            deny("Spawn policy: '%s' may not spawn '%s'. Allowed: %s. Return STATUS: partial "
-                 "with NEXT naming the agent you need."
-                 % (parent, child, ", ".join(POLICY[parent]) or "none"))
+        if type_why:
+            deny(type_why)
         depth, limit = caller_depth(d, ev), max_depth()
         if depth is None and aid:
             depth = meta_depth(d, ev, aid)
@@ -1264,18 +1371,375 @@ def record_name(d, ti, child, caller, tid=None):
                            "tid": tid if isinstance(tid, str) and tid.strip() else None})
 
 
+# ---------------------------------------------------------------- PreToolUse: Workflow
+# A workflow script's agent() call without opts.agentType runs "the default workflow subagent"
+# (type workflow-subagent, every tool, the session's model), which the Agent hook never sees: the
+# runtime spawns it. Every agent() call must therefore pass, as its second argument, an object
+# literal whose agentType is a string literal naming a stack type the caller may spawn, with no
+# model and an effort no higher than the agent definition's (agent definitions decide). The
+# scanner is deliberately narrow and fails closed: whatever it cannot read is refused with a
+# message that says how to write it. Bundled (/deep-research) and plugin workflows, whose scripts
+# this hook cannot read, and nested workflow() calls are refused. A tool-less generic stage that
+# slipped through would still be refused every tool call (generic_agent_reason), but could finish
+# a tool-free answer: the scanner is the gate, the backstop is not a substitute.
+WORKFLOW_HELP = (" Write each stage as agent(prompt, {agentType: 'explore', label: ..., "
+                 "schema: ...}): the second argument an object literal, agentType a quoted name "
+                 "of an agent you may spawn (cheapest that fits: explore reads code, scout reads "
+                 "the web, coder edits, verifier checks), no model, no spread or computed keys, "
+                 "effort at most the agent's own. You may use: %s.")
+BUNDLED_WORKFLOWS = {"deep-research"}
+EFFORT_ORDER = ("low", "medium", "high", "xhigh", "max")
+EFFORT_RE = re.compile(r"(?m)^effort:\s*([A-Za-z]+)\s*(?:#.*)?$")
+# tokens that reach agent()/workflow() indirectly, or run code the scanner can't see
+WORKFLOW_FORBIDDEN = re.compile(r"(?<![\w$.])(globalThis|this|self|window|eval|Function|import|"
+                                r"require|Reflect|Proxy|with)(?![\w$])|\\u")
+REGEX_PREFIX_WORDS = {"return", "typeof", "case", "delete", "void", "in", "of", "new", "throw",
+                      "yield", "await", "instanceof", "else", "do"}
+
+
+def js_skeleton(src):
+    """`src` with comments removed, every string literal replaced by S<n>, every template literal
+    by T<n> with its ${...} expressions kept as code, and every regex literal by R; returns
+    (skeleton, values by n), a template's value None when it has expressions. A `/` in operand
+    position starts a regex literal (classes and escapes honoured), elsewhere it divides. Raises
+    ValueError on anything unterminated."""
+    out, vals, n = [], [], len(src)
+
+    def last_significant():
+        """The previous code token's last character, or the word it ends with."""
+        text = "".join(out[-16:]).rstrip()
+        if not text:
+            return "", ""
+        m = re.search(r"[\w$]+$", text)
+        return text[-1], (m.group(0) if m else "")
+
+    def string(i, quote):
+        buf = []
+        while i < n and src[i] != quote:
+            if src[i] == "\\":
+                i += 1
+                if i < n:
+                    buf.append(src[i])
+            elif src[i] == "\n":
+                raise ValueError("unterminated string")
+            else:
+                buf.append(src[i])
+            i += 1
+        if i >= n:
+            raise ValueError("unterminated string")
+        return "".join(buf), i + 1
+
+    def regex(i):
+        in_class = False
+        while i < n:
+            c = src[i]
+            if c == "\\":
+                i += 2
+                continue
+            if c == "\n":
+                break
+            if c == "[":
+                in_class = True
+            elif c == "]":
+                in_class = False
+            elif c == "/" and not in_class:
+                i += 1
+                while i < n and (src[i].isalnum() or src[i] in "_$"):
+                    i += 1
+                out.append(" R ")
+                return i
+            i += 1
+        raise ValueError("unterminated regex literal (or a division the scanner read as one)")
+
+    def template(i):
+        idx = len(vals)
+        vals.append(None)
+        out.append(" T%d " % idx)
+        buf, has_expr = [], False
+        while i < n:
+            if src[i] == "\\":
+                buf.append(src[i + 1] if i + 1 < n else "")
+                i += 2
+                continue
+            if src[i] == "`":
+                if not has_expr:
+                    vals[idx] = "".join(buf)
+                return i + 1
+            if src.startswith("${", i):
+                has_expr = True
+                out.append(" ( ")
+                i = code(i + 2, True)
+                out.append(" ) ")
+                continue
+            buf.append(src[i])
+            i += 1
+        raise ValueError("unterminated template literal")
+
+    def code(i, in_expr):
+        depth = 0
+        while i < n:
+            c = src[i]
+            if src.startswith("//", i):
+                j = src.find("\n", i)
+                i = n if j < 0 else j
+                continue
+            if src.startswith("/*", i):
+                j = src.find("*/", i + 2)
+                if j < 0:
+                    raise ValueError("unterminated comment")
+                i = j + 2
+                out.append(" ")
+                continue
+            if c == "/":
+                ch, word = last_significant()
+                if (not ch or ch in "(,=:[!&|?{};+-*%<>~^" or word in REGEX_PREFIX_WORDS):
+                    i = regex(i + 1)
+                    continue
+            if c in "'\"":
+                value, i = string(i + 1, c)
+                vals.append(value)
+                out.append(" S%d " % (len(vals) - 1))
+                continue
+            if c == "`":
+                i = template(i + 1)
+                continue
+            if c == "{":
+                depth += 1
+            elif c == "}":
+                if in_expr and depth == 0:
+                    return i + 1
+                depth -= 1
+            out.append(c)
+            i += 1
+        if in_expr:
+            raise ValueError("unterminated template expression")
+        return i
+
+    code(0, False)
+    return "".join(out), vals
+
+
+def split_top(text, sep=","):
+    """`text` split at `sep` outside (), [] and {}."""
+    parts, depth, cur = [], 0, []
+    for c in text:
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        if c == sep and depth == 0:
+            parts.append("".join(cur))
+            cur = []
+        else:
+            cur.append(c)
+    parts.append("".join(cur))
+    return parts
+
+
+def agent_effort(agent_type, agents_dir=None):
+    """The frontmatter effort of an installed agent type (a copy: its base's), or None."""
+    if agents_dir is None:
+        agents_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                  "agents")
+    t = norm(agent_type)
+    for name in (t, COPY_BASE.get(t)):
+        if not name or safe(name) != name:
+            continue
+        try:
+            with open(os.path.join(agents_dir, name + ".md")) as f:
+                head = f.read(8192)
+        except OSError:
+            continue
+        parts = head.split("\n---", 1) if head.startswith("---") else None
+        m = EFFORT_RE.search(parts[0]) if parts and len(parts) == 2 else None
+        return m.group(1).lower() if m else None
+    return None
+
+
+def stage_options_violation(opts, vals, row, k):
+    """Denial reason for one agent() call's options (skeleton text of its second argument)."""
+    body = opts.strip()
+    if not (body.startswith("{") and body.endswith("}")):
+        return "agent() call #%d: the options are not an object literal" % k
+    seen = {}
+    for entry in split_top(body[1:-1]):
+        entry = entry.strip()
+        if not entry:
+            continue
+        if entry.startswith("...") or entry.startswith("["):
+            return "agent() call #%d: spread or computed keys in the options" % k
+        key, colon, value = entry.partition(":")
+        key = key.strip()
+        if not colon:
+            key, value = entry, entry          # shorthand {agentType}: a variable
+        m = re.fullmatch(r"S(\d+)", key)
+        key = vals[int(m.group(1))] if m else key
+        if key in seen:
+            return "agent() call #%d: the option %s is given twice" % (k, key)
+        seen[key] = value.strip()
+    if "agentType" not in seen:
+        return ("agent() call #%d has no agentType, so it would run the generic default workflow "
+                "subagent" % k)
+    m = re.fullmatch(r"([ST])(\d+)", seen["agentType"])
+    value = vals[int(m.group(2))] if m else None
+    if value is None:
+        return "agent() call #%d: agentType is not a quoted name" % k
+    if norm(value) not in row:
+        return ("agent() call #%d asks for agentType '%s', which is not an agent you may spawn"
+                % (k, value[:80]))
+    if "model" in seen:
+        return "agent() call #%d sets model; agent definitions decide the model" % k
+    if "effort" in seen:
+        m = re.fullmatch(r"([ST])(\d+)", seen["effort"])
+        want = (vals[int(m.group(2))] or "").strip().lower() if m else ""
+        own = agent_effort(value)
+        if want not in EFFORT_ORDER or own not in EFFORT_ORDER \
+                or EFFORT_ORDER.index(want) > EFFORT_ORDER.index(own):
+            return ("agent() call #%d: effort %s is above %s's own (%s); lower it or drop it"
+                    % (k, seen["effort"][:20] if not want else repr(want), norm(value),
+                       own or "unknown"))
+    return None
+
+
+def workflow_violation(script, row):
+    """Denial reason for a workflow script, or None. Pure but for reading agent files (effort):
+    the self-test runs it."""
+    help_ = WORKFLOW_HELP % (", ".join(row) or "none")
+    try:
+        code, vals = js_skeleton(script)
+    except ValueError as exc:
+        return ("Workflow policy: the script cannot be checked (%s; a regex literal with a quote "
+                "in it: use new RegExp(...))." % exc) + help_
+    bad = WORKFLOW_FORBIDDEN.search(code)
+    if bad:
+        return ("Workflow policy: '%s' is not allowed in a workflow script (it can reach agent() "
+                "or run code indirectly)." % bad.group(0)) + help_
+    if re.search(r"(?<![\w$.])workflow(?![\w$])", code):
+        return ("Workflow policy: nested workflow() calls are refused (their agents cannot be "
+                "checked); inline the stages." + help_)
+    k = 0
+    for m in re.finditer(r"(?<![\w$])agent(?![\w$])", code):
+        before = code[:m.start()].rstrip()
+        after = code[m.end():].lstrip()
+        if before.endswith(".") and not after.startswith("("):
+            continue                     # a property read (r.agent)
+        if re.search(r"[{,]$", before) and after.startswith(":"):
+            # an object key ({agent: 1} in a schema): harmless, since agent() is reachable only
+            # through the bare name (globalThis, this and the rest are refused above), and any
+            # bare `agent` that is not a call is refused below
+            continue
+        if not after.startswith("("):
+            return ("Workflow policy: call agent() directly (no aliases, shorthand {agent}, "
+                    ".call/.apply or passing it around), so each call can be checked." + help_)
+        k += 1
+        start = m.end() + (len(code) - m.end() - len(after)) + 1
+        depth, j = 1, start
+        while j < len(code) and depth:
+            depth += {"(": 1, ")": -1}.get(code[j], 0)
+            j += 1
+        if depth:
+            return "Workflow policy: agent() call #%d is not closed." % k + help_
+        args = split_top(code[start:j - 1])
+        if len(args) != 2 or not args[1].strip():
+            return ("Workflow policy: agent() call #%d needs exactly two arguments (prompt, "
+                    "options), so it would run the generic default workflow subagent." % k) + help_
+        why = stage_options_violation(args[1], vals, row, k)
+        if why:
+            return "Workflow policy: %s." % why + help_
+    return None
+
+
+def workflow_sources(ti, ev):
+    """[(label, script text or None, why unreadable)] for every script source the Workflow call
+    names: Claude Code 2.1.285 runs scriptPath before script and name, so each one present is
+    checked. Saved workflows are found by file stem or by their `export const meta` name in the
+    project's .claude/workflows directories and the user's; bundled names are refused."""
+    cwd = ev.get("cwd") if isinstance(ev.get("cwd"), str) else os.getcwd()
+    found = []
+    if isinstance(ti.get("script"), str) and ti["script"].strip():
+        found.append(("script", ti["script"], None))
+    path = ti.get("scriptPath")
+    if isinstance(path, str) and path.strip():
+        full = os.path.join(cwd, os.path.expanduser(path.strip()))
+        try:
+            with open(full, encoding="utf-8") as f:
+                found.append(("scriptPath", f.read(), None))
+        except (OSError, UnicodeDecodeError) as exc:
+            found.append(("scriptPath", None, "scriptPath %s unreadable (%s)"
+                          % (path[:200], type(exc).__name__)))
+    name = ti.get("name")
+    if isinstance(name, str) and name.strip():
+        found.append(saved_workflow(name.strip(), cwd))
+    return found
+
+
+def saved_workflow(name, cwd):
+    name = name.lstrip("/")
+    refuse = ("'%s' is a bundled or plugin workflow, or not saved under .claude/workflows: its "
+              "script cannot be checked and its agents would run as generic subagents. Deep "
+              "research goes to the researcher agent" % name[:80])
+    if name in BUNDLED_WORKFLOWS or ":" in name or safe(name) != name:
+        return ("name", None, refuse)
+    dirs, cur = [], os.path.abspath(cwd)
+    while True:                                  # closest .claude/workflows first
+        dirs.append(os.path.join(cur, ".claude", "workflows"))
+        up = os.path.dirname(cur)
+        if up == cur:
+            break
+        cur = up
+    dirs.append(os.path.join(os.environ.get("CLAUDE_CONFIG_DIR")
+                             or os.path.expanduser("~/.claude"), "workflows"))
+    meta = re.compile(r"export\s+const\s+meta\s*=\s*\{[^}]*?\bname\s*:\s*(['\"])%s\1"
+                      % re.escape(name), re.S)
+    for folder in dirs:
+        try:
+            files = sorted(os.listdir(folder))
+        except OSError:
+            continue
+        for fn in files:
+            if not fn.endswith((".js", ".mjs")):
+                continue
+            try:
+                with open(os.path.join(folder, fn), encoding="utf-8") as f:
+                    text = f.read()
+            except (OSError, UnicodeDecodeError):
+                continue
+            if fn.rsplit(".", 1)[0] == name or meta.match(text.lstrip()):
+                return ("name", text, None)
+    return ("name", None, refuse)
+
+
+def on_workflow(ev, d):
+    if not policy_on():
+        return
+    ti = tool_input(ev)
+    parent = norm(ev.get("agent_type"))
+    row = spawn_row(parent, caller_is_main(ev, parent))
+    help_ = WORKFLOW_HELP % (", ".join(row) or "none")
+    sources = workflow_sources(ti, ev)
+    if not sources:
+        deny("Workflow policy: no script, scriptPath or name in the call." + help_)
+    for label, script, why in sources:
+        if script is None:
+            deny("Workflow policy: %s." % why + help_)
+        why = workflow_violation(script, row)
+        if why:
+            deny(why if len(sources) == 1 else "%s (in %s)" % (why, label))
+
+
 # ---------------------------------------------------------------- PreToolUse: SendMessage
 def send_policy_violation(d, ev, target_id, ttype):
     """Resuming a FINISHED agent starts new work in it, like a spawn: allowed when the caller's
     POLICY row lists the target's type, or the target is the caller's own child (follow-ups) or
     its own parent. A message to a running agent is coordination, not a spawn, and passes; so do
-    the main thread (blackcat's row lists every agent) and targets the registry doesn't know."""
+    the main thread (blackcat's row lists every agent) and targets the registry doesn't know. A
+    caller without a row (a generic or foreign type) may resume only its own child or parent."""
     aid = ev.get("agent_id")
     if not aid or not target_id or not ttype:
         return None
     caller_type = norm(ev.get("agent_type")) or norm((reg_get(d, aid) or {}).get("type"))
-    row = POLICY.get(caller_type)
-    if row is None or ttype in row:
+    row = spawn_row(caller_type, False)
+    if ttype in row:
         return None
     rec = reg_get(d, target_id) or {}
     if not rec.get("stopped") or rec.get("parent") == aid \
@@ -2542,8 +3006,15 @@ def budget_main(raw):
     except (ValueError, RecursionError) as exc:
         warn("token budget: unparseable hook input (%s); not checked" % type(exc).__name__)
         return 0
-    if not isinstance(ev, dict) or ev.get("hook_event_name") != "PreToolUse" \
-            or pre_handler(str(ev.get("tool_name") or "")) is not None:
+    if not isinstance(ev, dict) or ev.get("hook_event_name") != "PreToolUse":
+        return 0
+    # every tool call of every agent passes here: a subagent of a foreign or generic type (a forked
+    # skill without `agent:`, a workflow stage without agentType, a fork, a host's own agent) runs
+    # nothing. Pure and checked before the fail-open part below.
+    why = generic_agent_reason(ev)
+    if why:
+        deny(why)
+    if pre_handler(canonical_tool(ev.get("tool_name"))) is not None:
         return 0
     if ev.get("agent_id"):
         ev["agent_id"] = ident(ev["agent_id"])
@@ -3181,7 +3652,7 @@ def blackcat_guard(raw, from_settings=False):
         sys.exit(0)  # a subagent's tool call
     if from_settings and norm(ev.get("agent_type")) != "blackcat":
         sys.exit(0)  # another main thread (claude, ninja-coder, ...) or no agent_type to go by
-    tool = ev.get("tool_name") or ""
+    tool = canonical_tool(ev.get("tool_name"))
     if tool in ("Agent", "SendMessage"):
         # the main hook counts a dispatch against BLACKCAT_MAX_DISPATCH and BLACKCAT_MAX_STEPS
         # together with its fan-out lease (on_agent), and a SendMessage against
@@ -7836,6 +8307,7 @@ def self_test():
                   and agent_max_turns(a, agents_dir) is None]
         if unread:
             problems.append("MCP call cap: no maxTurns read from %s" % " ".join(unread))
+    problems += generic_agent_self_test(conf)
     problems += budget_self_test()
     try:
         root = state_root()
@@ -7856,6 +8328,107 @@ def self_test():
         return 1
     sys.stdout.write("agent_guard self-test: ok\n")
     return 0
+
+
+def generic_agent_self_test(conf):
+    """No generic agent: Agent calls with a missing, generic, built-in or unknown subagent_type are
+    refused for every caller (typed, typeless main thread, generic subagent); every alias of the
+    Agent and Workflow tools reaches its handler; generic subagents that start anyway run no tool;
+    workflow scripts name a stack agentType on every agent() call; settings.json wires it all."""
+    problems = []
+    refused = [None, "", "   ", "general-purpose", "General-Purpose", "GENERAL_PURPOSE",
+               "general purpose", "claude", "Claude", "fork", "Fork", "SubAgent", "subagent",
+               "Sub Agent", "sub_agent", "SUBAGENT", "Task", "task", "Agent", "Plan", "plan",
+               "statusline-setup", "workflow-subagent", "blackcat", "my-plugin:helper", 42]
+    for parent, main in (("blackcat", True), ("", True), ("my-host-agent", True),
+                         ("main-coder", False), ("orchestrator", False)):
+        for t in refused:
+            if spawn_type_violation(parent, main, t) is None:
+                problems.append("spawn gate: %s (main=%s) may spawn %r" % (parent or "typeless",
+                                                                          main, t))
+    allowed = [("blackcat", True, "coder"), ("blackcat", True, " Coder "),
+               ("blackcat", True, "CODE_REVIEWER"), ("blackcat", True, "Code Reviewer"),
+               ("blackcat", True, "explore"), ("blackcat", True, "Explore"),
+               ("", True, "researcher"), ("main-coder", False, "explore"),
+               ("coder", False, "coder-copy")]
+    for parent, main, t in allowed:
+        why = spawn_type_violation(parent, main, t)
+        if why:
+            problems.append("spawn gate: %s may not spawn %r: %s" % (parent or "typeless", t, why))
+    for parent in ("general-purpose", "SubAgent", "fork", "my-host-agent"):
+        if spawn_type_violation(parent, False, "coder") is None:
+            problems.append("spawn gate: a %s subagent may spawn coder" % parent)
+    why = spawn_type_violation("blackcat", True, "general-purpose") or ""
+    if "coder" not in why or "explore" not in why:
+        problems.append("spawn gate: the denial does not list the valid types: %s" % why[:120])
+    for alias, canon in (("Task", "Agent"), ("SubAgent", "Agent"), ("Agent", "Agent"),
+                         ("RunWorkflow", "Workflow"), ("Workflow", "Workflow")):
+        if canonical_tool(alias) != canon or pre_handler(canonical_tool(alias)) is None:
+            problems.append("tool alias %s does not reach the %s handler" % (alias, canon))
+    for t in ("general-purpose", "SubAgent", "subagent", "fork", "claude", "workflow-subagent",
+              "Task"):
+        if generic_agent_reason({"agent_id": "a1", "agent_type": t}) is None:
+            problems.append("a running %s subagent may still use tools" % t)
+    for ev in ({"agent_id": "a1", "agent_type": "coder"}, {"agent_id": "a1", "agent_type": "explore"},
+               {"agent_id": "a1", "agent_type": "claude-test:runner"}, {"agent_id": "a1"},
+               {"agent_type": "general-purpose"}):
+        if generic_agent_reason(ev):
+            problems.append("generic-agent gate refuses %s" % ev)
+    row = POLICY["blackcat"]
+    good = ("export const meta = {name: 'x', description: 'y'}\n"
+            "const re = /https?:\\/\\//g, q = /['\"]/, half = n / 2 / 1\n"
+            "const r = await agent(`look at ${f}`, {agentType: 'explore', label: f, schema: S})\n"
+            "await pipeline(fs, f => agent('fix ' + f, {\"agentType\": \"coder\", effort: 'low'}))\n"
+            "// agent('commented out')\nconst s = {properties: {model: {type: 'string'}}}\n"
+            "const sum = await agent(`merge ${await agent('list', {agentType: 'explore'})}`,\n"
+            "                        {agentType: 'coder', schema: {properties: {agent: 1}}})\n"
+            "return r.agent")
+    if workflow_violation(good, row):
+        problems.append("workflow gate refuses a typed script: %s" % workflow_violation(good, row))
+    for bad in ("await agent('do it')", "await agent('x', {label: 'a'})",
+                "await agent('x', {agentType: 'general-purpose'})",
+                "await agent('x', {agentType: 'SubAgent'})",
+                "await agent('x', {agentType: 'god-coder'})",
+                "await agent('x', {agentType: t})", "await agent('x', opts)",
+                "await agent('x', {agentType: 'coder', model: 'opus'})",
+                "await agent('x', {agentType: 'coder', model: M})",
+                "await agent('x', {agentType: 'coder', ...common})",
+                "await agent('x', {agentType: 'coder', ['agentType']: 'general-purpose'})",
+                "await agent('x', ({agentType: 'coder'}, undefined))",
+                "await agent('x', {agentType: 'explore', effort: 'max'})",
+                "const a = agent; await a('x')", "await workflow('other')",
+                "const w = workflow; await w('deep-research')",
+                "await agent(`a ${await agent('inner', {agentType: 'explore'})}`)",
+                "const re = /https?:\\/\\//; await agent('x')",
+                "await \\u0061gent('x')", "const {agent: run} = globalThis; run('x')",
+                "await globalThis.agent('x')", "await agent('x', {agentType: 'coder'}"):
+        if workflow_violation(bad, row) is None:
+            problems.append("workflow gate allows: %s" % bad)
+    try:
+        with open(os.path.join(conf, "settings.json")) as f:
+            settings = json.load(f)
+    except (OSError, ValueError):
+        return problems + ["settings.json unreadable next to the hook"]
+    deny_rules = set((settings.get("permissions") or {}).get("deny") or [])
+    for rule in ("Agent(general-purpose)", "Agent(claude)", "Agent(fork)", "Agent(blackcat)"):
+        if rule not in deny_rules:
+            problems.append("settings.json permissions.deny lacks %s" % rule)
+    env = settings.get("env") or {}
+    for key in ("CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS", "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS"):
+        if str(env.get(key)) != "1":
+            problems.append("settings.json env %s is not \"1\"" % key)
+    wired = {"PreToolUse": set(), "PostToolUse": set()}
+    for event in wired:
+        for entry in (settings.get("hooks") or {}).get(event) or []:
+            cmds = [h.get("command", "") for h in entry.get("hooks") or []]
+            if any(re.search(r"agent_guard\.py\"?\s*$", c) for c in cmds):
+                wired[event] |= set(re.split(r"\s*[|,]\s*", entry.get("matcher") or ""))
+    for event, need in (("PreToolUse", {"Agent", "Task", "SubAgent", "Workflow", "RunWorkflow"}),
+                        ("PostToolUse", {"Agent", "Task", "SubAgent"})):
+        if not need <= wired[event]:
+            problems.append("settings.json %s matcher of agent_guard.py lacks %s"
+                            % (event, sorted(need - wired[event])))
+    return problems
 
 
 def budget_self_test():
@@ -7901,6 +8474,7 @@ def budget_self_test():
 
 HANDLERS = {
     ("PreToolUse", "Agent"): on_agent,
+    ("PreToolUse", "Workflow"): on_workflow,
     ("PreToolUse", "SendMessage"): on_send,
     ("PostToolUse", "Agent"): on_agent_done,
     ("PostToolUse", "TaskStop"): on_task_stop,
@@ -7932,6 +8506,8 @@ def pre_handler(tool):
 def dispatch(ev):
     if ev.get("agent_id"):
         ev["agent_id"] = ident(ev["agent_id"])
+    if ev.get("tool_name"):
+        ev["tool_name"] = canonical_tool(ev["tool_name"])     # Task / SubAgent -> Agent, ...
     event, tool = ev.get("hook_event_name"), ev.get("tool_name") or ""
     if event == "PreToolUse":
         handler = pre_handler(tool)

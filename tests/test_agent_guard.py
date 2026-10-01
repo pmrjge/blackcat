@@ -170,8 +170,8 @@ def test_print_policy_format(env):
     d = json.loads(p.stdout)
     assert list(d) == ["policy", "leaves", "agents", "builtins", "self_spawn", "copy_types",
                        "blackcat_tools"]
-    assert len(d["agents"]) == 36 and len(set(d["agents"])) == 36
-    assert d["builtins"] == ["explore"]
+    assert len(d["agents"]) == 37 and len(set(d["agents"])) == 37
+    assert d["builtins"] == [] and "explore" in d["agents"] and "explore" in d["leaves"]
     assert set(d["policy"]) == set(d["agents"]) | {"researcher-copy", "coder-copy"}
     assert sorted(d["leaves"]) == sorted(k for k, v in d["policy"].items() if not v)
     assert set(d["policy"]["blackcat"]) == set(d["agents"]) - {"blackcat", "god-coder"}
@@ -242,7 +242,7 @@ def test_every_allowed_pair_allowed(env):
 
 
 @pytest.mark.parametrize("parent,child", [
-    ("blackcat", "general-purpose"), ("blackcat", "fork"), ("blackcat", "explore"),
+    ("blackcat", "general-purpose"), ("blackcat", "fork"), ("explore", "scout"),
     ("blackcat", "statusline-setup"), ("blackcat", "claude"), ("blackcat", "plan"),
     ("blackcat", "blackcat"), ("orchestrator", "general-purpose"), ("orchestrator", "orchestrator"),
     ("main-coder", "general-purpose"), ("main-coder", "fork"),
@@ -275,7 +275,9 @@ def test_denied_pairs(env, parent, child):
 def test_missing_subagent_type_is_general_purpose(env):
     ev = pre_agent(sid(), "", parent="blackcat")
     del ev["tool_input"]["subagent_type"]
-    assert decision(run(ev, env)) == "deny"
+    p = run(ev, env)
+    assert decision(p) == "deny"
+    assert "subagent_type is required" in reason(p) and "explore" in reason(p)
 
 
 def test_normalization(env):
@@ -283,9 +285,138 @@ def test_normalization(env):
                         env)) == "allow"
 
 
-@pytest.mark.parametrize("parent", ["", "my-custom-agent"])
-def test_unlisted_parent_unrestricted(env, parent):
-    assert decision(run(pre_agent(sid(), "general-purpose", parent=parent), env)) == "allow"
+GENERIC_SPELLINGS = [None, "", "  ", "general-purpose", "General-Purpose", "GENERAL_PURPOSE",
+                     "claude", "fork", "Fork", "SubAgent", "subagent", "Sub Agent", "Task", "Plan",
+                     "statusline-setup", "workflow-subagent", "Agent", "my-plugin:helper"]
+
+
+@pytest.mark.parametrize("parent,agent_id", [
+    ("blackcat", None), ("", None), ("my-custom-agent", None),           # main threads
+    ("main-coder", "M1"), ("orchestrator", "O1"),                         # stack subagents
+    ("general-purpose", "G1"), ("SubAgent", "S1"),                        # generic subagents
+])
+@pytest.mark.parametrize("tool", ["Agent", "Task", "SubAgent"])
+def test_generic_types_denied_for_every_caller(env, parent, agent_id, tool):
+    """The leak: a caller without a POLICY row (typeless main thread, a host's agent, a generic
+    subagent) used to spawn anything, general-purpose and fork included."""
+    for child in GENERIC_SPELLINGS:
+        ev = pre_agent(sid(), child, parent=parent, agent_id=agent_id)
+        ev["tool_name"] = tool
+        if child is None:
+            del ev["tool_input"]["subagent_type"]
+        p = run(ev, env)
+        assert decision(p) == "deny", (parent, tool, child)
+        assert "Spawn policy" in reason(p), reason(p)
+
+
+@pytest.mark.parametrize("parent,agent_id,child,want", [
+    ("", None, "coder", "allow"), ("my-custom-agent", None, " Code Reviewer ", "allow"),
+    ("", None, "god-coder", "allow"),             # BASELINE lists "main" in GOD_SPAWNERS
+    ("general-purpose", "G1", "coder", "deny"), ("SubAgent", "S1", "scout", "deny"),
+    ("my-plugin:helper", "P1", "coder", "deny"),
+])
+def test_rowless_callers(env, parent, agent_id, child, want):
+    """A caller without a row: BlackCat's row on a main thread, nothing as a subagent."""
+    assert decision(run(pre_agent(sid(), child, parent=parent, agent_id=agent_id), env)) == want
+
+
+def test_task_alias_reaches_the_spawn_gate(env):
+    ev = pre_agent(sid(), "coder", parent="blackcat")
+    ev["tool_name"] = "Task"
+    assert decision(run(ev, env)) == "allow"
+    ev = pre_agent(sid(), "scout", parent="coder", agent_id="C1")
+    ev["tool_name"] = "SubAgent"
+    assert decision(run(ev, env)) == "allow"
+
+
+@pytest.mark.parametrize("atype", ["general-purpose", "SubAgent", "subagent", "fork", "claude",
+                                   "workflow-subagent", "General Purpose"])
+@pytest.mark.parametrize("tool,ti", [("Read", {"file_path": "x"}), ("Bash", {"command": "ls"}),
+                                     ("mcp__exa__web_search_exa", {"query": "q"})])
+def test_generic_subagent_runs_no_tools(env, atype, tool, ti):
+    """A generic agent started outside the Agent tool (a forked skill without `agent:`, a workflow
+    stage without agentType) is refused every tool call by the every-tool `budget` hook."""
+    ev = {"session_id": sid(), "hook_event_name": "PreToolUse", "tool_name": tool,
+          "tool_input": ti, "agent_id": "X1", "agent_type": atype}
+    p = run(ev, env, args=["budget"])
+    assert decision(p) == "deny" and "generic agent" in reason(p)
+    assert decision(run(ev, env, args=["budget"], extra={"STACK_POLICY": "off"})) == "allow"
+
+
+@pytest.mark.parametrize("atype", ["coder", "explore", "researcher-copy", "claude-test:runner"])
+def test_stack_and_namespaced_subagents_keep_tools(env, atype):
+    ev = {"session_id": sid(), "hook_event_name": "PreToolUse", "tool_name": "Read",
+          "tool_input": {"file_path": "x"}, "agent_id": "X1", "agent_type": atype}
+    assert decision(run(ev, env, args=["budget"])) == "allow"
+    del ev["agent_id"]                                   # the main thread is never refused here
+    ev["agent_type"] = "general-purpose"
+    assert decision(run(ev, env, args=["budget"])) == "allow"
+
+
+def workflow_ev(s, parent="blackcat", agent_id=None, tool="Workflow", **ti):
+    ev = {"session_id": s, "hook_event_name": "PreToolUse", "tool_name": tool,
+          "tool_input": ti, "cwd": str(ROOT)}
+    if parent:
+        ev["agent_type"] = parent
+    if agent_id:
+        ev["agent_id"] = agent_id
+    return ev
+
+
+TYPED = ("export const meta = {name: 'audit', description: 'd'}\n"
+         "const files = await agent('list files', {agentType: 'explore', schema: S})\n"
+         "return await pipeline(files.files, f => agent(`fix ${f}`, {agentType: 'coder', label: f}))\n")
+
+
+@pytest.mark.parametrize("tool", ["Workflow", "RunWorkflow"])
+def test_workflow_needs_typed_stages(env, tool):
+    s = sid()
+    assert decision(run(workflow_ev(s, tool=tool, script=TYPED), env)) == "allow"
+    for bad, why in (("await agent('do it')", "generic default workflow subagent"),
+                     ("await agent('x', {label: 'a'})", "has no agentType"),
+                     ("await agent('x', {agentType: 'coder', ...o})", "spread or computed"),
+                     ("await agent('x', {agentType: 'explore', effort: 'max'})", "above explore"),
+                     ("await agent(`a ${await agent('i', {agentType: 'explore'})}`)",
+                      "exactly two arguments"),
+                     ("await agent('x', {agentType: 'general-purpose'})", "not an agent you may"),
+                     ("await agent('x', {agentType: 'god-coder'})", "not an agent you may"),
+                     ("await agent('x', {agentType: 'coder', model: 'opus'})", "sets model"),
+                     ("await workflow('other')", "nested workflow"),
+                     ("await agent('x', {agentType: 'coder'", "not closed")):
+        p = run(workflow_ev(s, tool=tool, script=bad), env)
+        assert decision(p) == "deny" and why in reason(p), (bad, reason(p))
+        assert "explore" in reason(p)                       # the valid types are named
+    assert decision(run(workflow_ev(s, tool=tool, script="await agent('x')"), env,
+                        extra={"STACK_POLICY": "off"})) == "allow"
+
+
+def test_workflow_by_name_and_path(env, tmp_path):
+    s = sid()
+    p = run(workflow_ev(s, name="deep-research"), env)
+    assert decision(p) == "deny" and "researcher" in reason(p)
+    script = tmp_path / "w.js"
+    script.write_text(TYPED)
+    assert decision(run(workflow_ev(s, scriptPath=str(script)), env)) == "allow"
+    script.write_text("await agent('x')")
+    assert decision(run(workflow_ev(s, scriptPath=str(script)), env)) == "deny"
+    assert decision(run(workflow_ev(s, scriptPath=str(tmp_path / "none.js")), env)) == "deny"
+    # Claude Code runs scriptPath before script: every source present is checked
+    p = run(workflow_ev(s, script=TYPED, scriptPath=str(script)), env)
+    assert decision(p) == "deny" and "(in scriptPath)" in reason(p)
+    # a saved workflow is found by its file stem under the project's .claude/workflows
+    saved = tmp_path / "proj" / ".claude" / "workflows"
+    saved.mkdir(parents=True)
+    (saved / "audit.js").write_text(TYPED)
+    ev = workflow_ev(s, name="audit")
+    ev["cwd"] = str(tmp_path / "proj")
+    assert decision(run(ev, env)) == "allow"
+    (saved / "deep-research.js").write_text(TYPED)       # a bundled name is refused all the same
+    ev = workflow_ev(s, name="deep-research")
+    ev["cwd"] = str(tmp_path / "proj")
+    assert decision(run(ev, env)) == "deny"
+    # a main thread with a row of its own (claude-ninja) is held to that row
+    ninja = "await agent('x', {agentType: 'designer'})"
+    assert decision(run(workflow_ev(s, parent="ninja-coder", script=ninja), env)) == "deny"
 
 
 # ---------------------------------------------------------------- depth
@@ -2204,7 +2335,7 @@ def test_mcp_cap_is_min_of_knob_and_max_turns(env, sess):
     s, main, _ = sess
     for aid, atype, cap in (("S1", "scout", 30), ("R1", "oracle", 12), ("B1", "mcp-broker", 64),
                             ("O1", "orchestrator", 64), ("C1", "coder-copy", 64),
-                            ("E1", "explore", 64)):
+                            ("E1", "explore", 40)):
         seed_mcp(env, s, aid, cap - 1)
         assert decision(budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)) == "allow"
         p = budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)

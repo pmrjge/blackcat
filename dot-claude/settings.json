@@ -20,6 +20,8 @@
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4",
     "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "32",
     "ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-sonnet-5-5",
+    "CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS": "1",
+    "CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS": "1",
     "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION": "400",
     "MCP_DISCOVERY_CACHE": "1",
     "MCP_DISCOVERY_CACHE_TTL_S": "21600",
@@ -98,6 +100,9 @@
     ],
     "deny": [
       "Agent(blackcat)",
+      "Agent(general-purpose)",
+      "Agent(claude)",
+      "Agent(fork)",
       "Bash(git push *)",
       "Bash(git send-pack *)",
       "Bash(git lfs push *)",
@@ -361,7 +366,7 @@
     ],
     "PreToolUse": [
       {
-        "matcher": "Agent",
+        "matcher": "Agent|Task|SubAgent|Workflow|RunWorkflow",
         "hooks": [
           {
             "type": "command",
@@ -453,7 +458,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Agent|TaskStop",
+        "matcher": "Agent|Task|SubAgent|TaskStop",
         "hooks": [
           {
             "type": "command",
@@ -497,7 +502,7 @@
     ],
     "PostToolUseFailure": [
       {
-        "matcher": "Agent",
+        "matcher": "Agent|Task|SubAgent",
         "hooks": [
           {
             "type": "command",
@@ -509,7 +514,7 @@
     ],
     "PermissionDenied": [
       {
-        "matcher": "Agent",
+        "matcher": "Agent|Task|SubAgent",
         "hooks": [
           {
             "type": "command",
