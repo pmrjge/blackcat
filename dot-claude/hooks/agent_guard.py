@@ -1328,6 +1328,7 @@ def on_agent(ev, d):
             raise
     else:
         record_name(d, ti, child, caller, tid)
+    ledger_safe(ledger_note, d, ev, ti, child, caller, tid)
 
     # 3. input rewrites: models are fixed by agent definitions, and BlackCat never blocks on a child
     new_input, why = dict(ti), []
@@ -1369,6 +1370,245 @@ def record_name(d, ti, child, caller, tid=None):
         write_json_atomic(names_path(d, name),
                           {"type": child, "id": None, "by": caller, "ts": time.time(),
                            "tid": tid if isinstance(tid, str) and tid.strip() else None})
+
+
+# ---------------------------------------------------------------- delegation ledger
+# Who delegated what to whom, for BlackCat (which has Read, not Bash) and the user. One record per
+# allowed Agent call, spawns/<tool_use_id>.json = {by, by_type, type, task (the call's
+# `description`), name, ts, child (agent id), status}; the registry (agents/<id>.json) says
+# whether the child stopped. Each event that changes either re-renders delegations.md, a tree
+# rooted at the main thread's dispatches, which BlackCat Reads in one step (its path reaches
+# BlackCat as additionalContext on the PostToolUse of each dispatch that can delegate). A
+# foreground child's own call reports only when it is done; its SubagentStart links it earlier
+# through meta.json's toolUseId (spawn_meta) when that file exists. Bookkeeping only: every
+# failure is a warning, never a decision.
+LEDGER_DIR = "spawns"
+LEDGER_FILE = "delegations.md"
+LEDGER_TASK_MAX = 80
+LEDGER_MAX_ROWS = 300
+
+
+def ledger_safe(fn, *args):
+    try:
+        return fn(*args)
+    except Exception as exc:  # noqa: BLE001 - the ledger never blocks or breaks a hook
+        warn("delegation ledger: %s: %s" % (type(exc).__name__, exc))
+        return None
+
+
+def ledger_text(value, limit=LEDGER_TASK_MAX):
+    """One line of plain text: control characters, backticks and runs of space collapse."""
+    if not isinstance(value, str):
+        return None
+    s = " ".join(re.sub(r"[\x00-\x1f\x7f`]", " ", value).split())
+    return (s[:limit - 1] + "…" if len(s) > limit else s) or None
+
+
+def ledger_rec_path(d, tid):
+    return os.path.join(d, LEDGER_DIR, safe(tid) + ".json")
+
+
+def ledger_put(d, tid, fields, create=True, fill=None):
+    """Merge `fields` into the call's record (None values only fill absent keys); `fill` values
+    are set only where the record has none."""
+    if not (isinstance(tid, str) and tid.strip()):
+        return
+    with mutex(d, "ledger", timeout=2.0):
+        cur = read_json(ledger_rec_path(d, tid))
+        if cur is None and not create:
+            return
+        cur = cur or {"tid": tid}
+        for k, v in fields.items():
+            if v is not None or k not in cur:
+                cur[k] = v
+        for k, v in (fill or {}).items():
+            if cur.get(k) is None:
+                cur[k] = v
+        write_json_atomic(ledger_rec_path(d, tid), cur)
+
+
+def ledger_call(ev, ti, child, caller):
+    return {"by": caller, "by_type": norm(ev.get("agent_type")) or None, "type": child,
+            "task": ledger_text(ti.get("description")), "name": ledger_text(ti.get("name"), 40),
+            "isolation": ledger_text(ti.get("isolation"), 20)}
+
+
+def ledger_note(d, ev, ti, child, caller, tid):
+    """PreToolUse Agent, after every gate allowed the call."""
+    ledger_put(d, tid, dict(ledger_call(ev, ti, child, caller), ts=time.time(),
+                            status="launching"))
+    ledger_render(d)
+
+
+def ledger_state(rec, reg):
+    st = str(rec.get("status") or "").lower()
+    agent = reg.get(rec.get("child")) if rec.get("child") else None
+    if st in ("failed", "error"):
+        return "failed"
+    if st in ("cancelled", "canceled", "killed"):
+        return "stopped"
+    if (agent or {}).get("stopped") or st == "completed":
+        return "finished"
+    if agent or st in ("async_launched", "running"):
+        return "running"
+    return "launching"
+
+
+def ledger_rows(d):
+    """[(depth, record, state)] depth-first from the main thread's calls, then the calls of
+    agents whose own spawn is not in the ledger (grouped under a depth-0 placeholder)."""
+    recs, reg = [], {}
+    folder = os.path.join(d, LEDGER_DIR)
+    try:
+        names = [f for f in os.listdir(folder) if f.endswith(".json")]
+    except FileNotFoundError:
+        names = []
+    for f in names:
+        r = read_json(os.path.join(folder, f))
+        if r is not None and r.get("tid"):
+            recs.append(r)
+    for r in recs:
+        cid = r.get("child")
+        if cid and cid not in reg:
+            reg[cid] = reg_get(d, cid) or {}
+    recs.sort(key=lambda r: (r.get("ts") or 0, r.get("tid")))
+    kids, spawned = {}, {}
+    for r in recs:
+        kids.setdefault(r.get("by") or "main", []).append(r)
+        if r.get("child"):
+            spawned[r["child"]] = r
+    rows, seen = [], set()
+
+    def walk(by, depth):
+        for r in kids.get(by, []):
+            if r["tid"] in seen:
+                continue
+            seen.add(r["tid"])
+            rows.append((depth, r, ledger_state(r, reg)))
+            if r.get("child"):
+                walk(r["child"], depth + 1)
+
+    walk("main", 0)
+    for by in sorted(k for k in kids if k != "main" and k not in spawned):
+        first = kids[by][0]
+        rows.append((0, {"type": first.get("by_type") or "unknown", "child": by,
+                         "task": None, "placeholder": True}, "spawn not recorded"))
+        walk(by, 1)
+    return rows
+
+
+def ledger_clock(ts):
+    return time.strftime("%H:%M:%S", time.localtime(ts)) if isinstance(ts, (int, float)) else "?"
+
+
+def ledger_render_text(d, rows=None):
+    rows = ledger_rows(d) if rows is None else rows
+    out = ["# Delegations, session %s" % os.path.basename(d),
+           "Updated %s. One line per Agent call: agent type, task (the call's description), "
+           "state, time, agent id. Indented lines are the delegations of the agent above; "
+           "main-thread dispatches are at the left margin." % ledger_clock(time.time()), ""]
+    if not rows:
+        out.append("(no Agent calls recorded yet)")
+    for depth, r, state in rows[:LEDGER_MAX_ROWS]:
+        task = '"%s"' % r["task"] if r.get("task") else "(no description)"
+        bits = [r.get("type") or "?", task if not r.get("placeholder") else state]
+        if r.get("name"):
+            bits[0] += " (name %s)" % r["name"]
+        if not r.get("placeholder"):
+            bits.append(state)
+            bits.append(ledger_clock(r.get("ts")))
+        if r.get("child"):
+            bits.append("id %s" % r["child"])
+        out.append("%s- %s" % ("  " * depth, " · ".join(bits)))
+    if len(rows) > LEDGER_MAX_ROWS:
+        out.append("… %d more: agent_guard.py delegations %s"
+                   % (len(rows) - LEDGER_MAX_ROWS, os.path.basename(d)))
+    return "\n".join(out) + "\n"
+
+
+def ledger_render(d):
+    """Re-render delegations.md. Renders are serialized and each runs after its own state write,
+    so the last one to run sees every write."""
+    with mutex(d, "ledger", timeout=2.0):
+        text = ledger_render_text(d)
+        tmp = os.path.join(d, ".tmp-%d-%s" % (os.getpid(), os.urandom(6).hex()))
+        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        try:
+            with os.fdopen(fd, "w") as f:
+                f.write(text)
+            os.replace(tmp, os.path.join(d, LEDGER_FILE))
+        except BaseException:
+            unlink(tmp)
+            raise
+
+
+def ledger_done(d, ev, ti, child, child_id, status):
+    """PostToolUse Agent: the call's agent id and status (created here if PreToolUse missed it)."""
+    caller = ev.get("agent_id") or "main"
+    ledger_put(d, ev.get("tool_use_id"),
+               dict(ledger_call(ev, ti, child, caller),
+                    child=ident(child_id) if child_id else None,
+                    status=str(status or "").strip().lower() or "reported"),
+               fill={"ts": time.time()})
+    ledger_render(d)
+
+
+def ledger_link_start(d, ev, aid):
+    """SubagentStart: link a running child to its call via meta.json (foreground children)."""
+    tid = spawn_meta(ev, aid).get("toolUseId")
+    if isinstance(tid, str) and tid.strip():
+        ledger_put(d, tid.strip(), {"child": aid}, create=False)
+    ledger_render(d)
+
+
+def ledger_failed(d, ev):
+    ledger_put(d, ev.get("tool_use_id"), {"status": "failed"}, create=False)
+    ledger_render(d)
+
+
+def ledger_hint(ev, d, child):
+    """additionalContext for BlackCat (the main thread, which has Read but not Bash) after it
+    dispatched an agent that can delegate. Other main threads and subagents get no output."""
+    if ev.get("agent_id") or norm(ev.get("agent_type")) != "blackcat" or child in LEAVES:
+        return
+    emit({"hookSpecificOutput": {
+        "hookEventName": "PostToolUse",
+        "additionalContext": "Delegation ledger (live, hook-written): %s — Read it when asked "
+                             "which agents %s delegated to and their tasks."
+                             % (os.path.join(d, LEDGER_FILE), child)}})
+
+
+def delegations_main(argv):
+    """`agent_guard.py delegations [SESSION_ID] [--json]`: print a session's ledger (default: the
+    session whose ledger changed last)."""
+    args = [a for a in argv if not a.startswith("--")]
+    root = state_root()
+    if args:
+        d = os.path.join(root, safe(args[0], "nosession"))
+    else:
+        cands = []
+        try:
+            for s in os.listdir(root):
+                p = os.path.join(root, s, LEDGER_DIR)
+                if os.path.isdir(p):
+                    cands.append((last_activity(p), os.path.join(root, s)))
+        except FileNotFoundError:
+            pass
+        if not cands:
+            sys.stderr.write("no delegation ledger under %s\n" % root)
+            return 1
+        d = max(cands)[1]
+    if not os.path.isdir(d):
+        sys.stderr.write("no state for session %s under %s\n" % (args[0], root))
+        return 1
+    rows = ledger_rows(d)
+    if "--json" in argv:
+        sys.stdout.write(json.dumps([dict(depth=dep, state=state, **{
+            k: r.get(k) for k in ("type", "task", "name", "child", "by", "by_type", "ts", "tid")})
+            for dep, r, state in rows], indent=1) + "\n")
+    else:
+        sys.stdout.write(ledger_render_text(d, rows))
+    return 0
 
 
 # ---------------------------------------------------------------- PreToolUse: Workflow
@@ -2329,6 +2569,8 @@ def on_agent_done(ev, d):
     child_id, status = agent_response(ev)
     if not child_id:
         fanout_release(d, caller, tid)
+        ledger_safe(ledger_done, d, ev, ti, norm(ti.get("subagent_type") or "general-purpose"),
+                    None, status)
         return
     child_id = ident(child_id)
     child = norm(ti.get("subagent_type") or "general-purpose")
@@ -2361,12 +2603,13 @@ def on_agent_done(ev, d):
         write_json_atomic(names_path(d, name), {"type": child, "id": child_id,
                                                 "by": ev.get("agent_id") or "main",
                                                 "ts": time.time()})
-    if child != GOD:
-        return
-    if str(status or "").lower() in TERMINAL_STATUSES:
-        god_release_holder(d, child_id, GOD, by=ev.get("agent_id") or "main")
-    elif policy_on() and not (reg_get(d, child_id) or {}).get("stopped"):
-        god_confirm(d, ev, child_id)
+    ledger_safe(ledger_done, d, ev, ti, child, child_id, status)
+    if child == GOD:
+        if str(status or "").lower() in TERMINAL_STATUSES:
+            god_release_holder(d, child_id, GOD, by=ev.get("agent_id") or "main")
+        elif policy_on() and not (reg_get(d, child_id) or {}).get("stopped"):
+            god_confirm(d, ev, child_id)
+    ledger_hint(ev, d, child)
 
 
 def on_subagent_start(ev, d):
@@ -2408,6 +2651,7 @@ def on_subagent_start(ev, d):
             drop()
     else:
         start()
+    ledger_safe(ledger_link_start, d, ev, aid)
     if atype == GOD and policy_on():
         god_confirm(d, ev, aid)
 
@@ -2428,6 +2672,8 @@ def mark_stopped(d, aid, atype, transcript=None, ev=None):
         if cur and cur.get("holder") == aid:
             unlink(path)
     god_release_holder(d, aid, atype)
+    if os.path.isdir(os.path.join(d, LEDGER_DIR)):
+        ledger_safe(ledger_render, d)
 
 
 def on_subagent_stop(ev, d):
@@ -2461,6 +2707,7 @@ def on_agent_failed(ev, d):
     ti = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
     aid = ev.get("agent_id")
     fanout_release(d, aid or "main", ev.get("tool_use_id"))
+    ledger_safe(ledger_failed, d, ev)
     if norm(ti.get("subagent_type")) == GOD:
         god_release_pending(d, aid or "main", ev.get("tool_use_id"))
         god_unclaim_session(d, ev)
@@ -2528,6 +2775,8 @@ def on_session_start(ev, d):
             if rec is not None and not rec.get("stopped"):
                 rec["stopped"] = now
                 write_json_atomic(path, rec)
+    if os.path.isdir(os.path.join(d, LEDGER_DIR)):
+        ledger_safe(ledger_render, d)
     root = state_root()
     for s in os.listdir(root):
         p = os.path.join(root, s)
@@ -8309,6 +8558,7 @@ def self_test():
             problems.append("MCP call cap: no maxTurns read from %s" % " ".join(unread))
     problems += generic_agent_self_test(conf)
     problems += budget_self_test()
+    problems += ledger_self_test()
     try:
         root = state_root()
         os.makedirs(root, exist_ok=True)
@@ -8431,6 +8681,40 @@ def generic_agent_self_test(conf):
     return problems
 
 
+def ledger_self_test():
+    """The delegation ledger on a synthetic session: main -> orchestrator -> coder (finished) and
+    planner (launching), rendered as a tree with tasks and states."""
+    import shutil
+    import tempfile
+    problems = []
+    tmp = tempfile.mkdtemp(prefix="agent-guard-ledger-")
+    try:
+        ev = {"session_id": "s1", "agent_type": "blackcat"}
+        ledger_note(tmp, ev, {"description": "Build\nthe `site`"}, "orchestrator", "main", "t1")
+        ledger_done(tmp, dict(ev, tool_use_id="t1"), {"description": "Build the site"},
+                    "orchestrator", "agent-o1", "async_launched")
+        sub = {"session_id": "s1", "agent_id": "o1", "agent_type": "orchestrator"}
+        ledger_note(tmp, sub, {"description": "T1 write parser"}, "coder", "o1", "t2")
+        ledger_done(tmp, dict(sub, tool_use_id="t2"), {"description": "T1 write parser"},
+                    "coder", "c1", "completed")
+        ledger_note(tmp, sub, {"description": "T2 plan tests"}, "planner", "o1", "t3")
+        got = [(dep, r.get("type"), r.get("task"), st) for dep, r, st in ledger_rows(tmp)]
+        want = [(0, "orchestrator", "Build the site", "running"),
+                (1, "coder", "T1 write parser", "finished"),
+                (1, "planner", "T2 plan tests", "launching")]
+        if got != want:
+            problems.append("delegation ledger rows %r, expected %r" % (got, want))
+        with open(os.path.join(tmp, LEDGER_FILE)) as f:
+            text = f.read()
+        if '  - coder · "T1 write parser" · finished' not in text:
+            problems.append("delegation ledger render: %r" % text[:300])
+    except Exception as exc:  # report, do not crash
+        problems.append("delegation ledger: %s: %s" % (type(exc).__name__, exc))
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return problems
+
+
 def budget_self_test():
     """The transcript parser on a synthetic session: duplicate content-block lines counted once,
     an unfinished last line left for later, subagent files included, reads incremental."""
@@ -8547,6 +8831,8 @@ def main(argv):
             return check_budget(argv)
         if argv[1] == "session-env":
             return session_env()
+        if argv[1] == "delegations":
+            return delegations_main(argv[2:])
         if argv[1] == "blackcat-guard":
             raw = sys.stdin.read()
             try:
@@ -8557,7 +8843,8 @@ def main(argv):
                 guard_error("%s: %s" % (type(exc).__name__, exc))
             return 0
         sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | --check-budget [transcript] | "
-                         "blackcat-guard [--settings] | budget | image-limit | no-push | session-env]\n")
+                         "blackcat-guard [--settings] | budget | image-limit | no-push | session-env | "
+                         "delegations [session_id] [--json]]\n")
         return 2
     raw = sys.stdin.read()
     try:

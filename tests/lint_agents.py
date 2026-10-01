@@ -37,7 +37,7 @@ VALID_MEMORY = {"user", "project", "local"}
 ANTHROPIC_DOC_SKILLS = {"docx", "xlsx", "pptx", "pdf"}
 KNOWN_PLACEHOLDERS = {
     "__CLAUDE_DIR__", "__HOME__", "__PYTHON3__", "__UV__", "__UVX__", "__NPX__",
-    "__NODE__", "__MAGG__", "__HUETENSION__", "__STACK_REPO__",
+    "__NODE__", "__MAGG__", "__HUETENSION__", "__STACK_REPO__", "__STACK_STATE__",
 }
 TASK_TOOL_RE = re.compile(r"^Task(Create|Get|Update|List|Output)$")
 PLACEHOLDER_RE = re.compile(r"__[A-Z_]+__")

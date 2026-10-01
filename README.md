@@ -278,7 +278,7 @@ and `CLAUDE_CONFIG_DIR` both point into a temp dir, so an agent also sets `HOME=
 | `~/.claude/venvs/sci`, `~/.claude/venvs/ml` | Science venv (always); ML venv (`--with-ml`); both hash-locked |
 | `~/.claude/.stack-manifest.json` | What the installer last wrote (path + sha256, settings keys, MCP entries, deduped plugins) |
 | `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`) | User-scope MCP servers, written only through `claude mcp` |
-| `~/.local/state/claude-agent-stack/<session>/` | Hook state: registry, leases, locks, markers. Pruned after 3 idle days |
+| `~/.local/state/claude-agent-stack/<session>/` | Hook state: registry, leases, locks, markers; `delegations.md`, the live delegation ledger (every Agent call as a tree: type, task description, state, agent id), which BlackCat Reads and `agent_guard.py delegations [session] [--json]` prints. Pruned after 3 idle days |
 | `~/.local/state/claude-agent-stack-backups/` | Installer backups (0700; agents can't read them); the run's work dir lives inside |
 | `~/.local/state/claude-agent-stack-cache/` | `STACK_CACHE`: the stack's MCP servers' uv/npm caches (sandbox can't write) |
 | `~/.cache/claude-sandbox/` | Sandboxed Bash's own caches (see [Sandbox and caches](#sandbox-and-caches)); safe to delete |
@@ -1336,7 +1336,7 @@ exported.
 | `~/.claude/venvs/sci`, `~/.claude/venvs/ml` | Science venv (always); ML venv (`--with-ml`) |
 | `~/.claude/.stack-manifest.json` | What the installer last wrote (edit detection, knob and catalog upgrades) |
 | `~/.claude.json` (or `$CLAUDE_CONFIG_DIR/.claude.json`) | User-scope MCP servers, written only through `claude mcp` |
-| `~/.local/state/claude-agent-stack/<session>/` | Hook state: registry, leases, locks, markers. Pruned after 3 idle days |
+| `~/.local/state/claude-agent-stack/<session>/` | Hook state: registry, leases, locks, markers; `delegations.md`, the live delegation ledger (every Agent call as a tree: type, task description, state, agent id), which BlackCat Reads and `agent_guard.py delegations [session] [--json]` prints. Pruned after 3 idle days |
 
 #### How your requirements are implemented
 
