@@ -537,6 +537,16 @@
         ]
       },
       {
+        "matcher": "^mcp__(exa|jina|spider)__",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/web_caps.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "*",
         "hooks": [
           {

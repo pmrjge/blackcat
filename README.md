@@ -488,7 +488,7 @@ alternatives: [mcp_servers.md](mcp_servers.md).
 | image-studio | stack's own (`mcp/image_studio_mcp.py`) | designer, image-director | `OPENROUTER_API_KEY`, `OPPER_API_KEY` |
 | playwright | `@playwright/mcp@0.0.82 --headless --isolated` | browser-operator, frontend-engineer, verifier | Google Chrome |
 | context-mode | `context-mode@1.0.169` | researcher, doc-specialist | Node ≥ 22.5 |
-| spider | `spider-cloud-mcp@1.2.2` | researcher | `SPIDER_API_KEY` |
+| spider | `spider-cloud-mcp@2.1.2` | researcher | `SPIDER_API_KEY` |
 | markitdown | `markitdown-mcp@0.0.1a7` | doc-specialist | — |
 | illustrator | `illustrator-mcp-server@1.10.3` | designer | macOS Automation grant |
 | huetension | `huetension` 0.3.0 | designer | — |
