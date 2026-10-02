@@ -1,6 +1,6 @@
 ---
 name: formal-methods
-description: Use when code or a protocol needs machine-checked assurance — picking SMT, TLA+, Kani/Miri, property tests or fuzzing; what each guarantees.
+description: Use when code or a protocol needs machine-checked assurance — choosing SMT, TLA+, Kani/Miri, property tests, fuzzing.
 ---
 # Formal methods and machine-checked assurance
 

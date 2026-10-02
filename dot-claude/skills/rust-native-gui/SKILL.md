@@ -1,6 +1,6 @@
 ---
 name: rust-native-gui
-description: Load before building a native desktop GUI in Rust — Iced 0.14 (Task, Subscription, custom widgets, theming, tests); egui, Slint, Tauri.
+description: Load before building a native desktop GUI in Rust — Iced 0.14, custom widgets, theming, tests; egui, Slint, Tauri.
 ---
 # Native desktop GUI in Rust (Iced first)
 

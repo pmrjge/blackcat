@@ -1,6 +1,6 @@
 ---
 name: postgresql
-description: Use for PostgreSQL work — schema, indexes, EXPLAIN ANALYZE, vacuum, locks, safe migrations, pgvector, PostGIS, replication, upgrades.
+description: Use for PostgreSQL — schema, indexes, EXPLAIN ANALYZE, vacuum, locks, safe migrations, pgvector, replication.
 ---
 # PostgreSQL
 

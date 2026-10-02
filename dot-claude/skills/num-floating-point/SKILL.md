@@ -1,6 +1,6 @@
 ---
 name: num-floating-point
-description: Use when floating-point accuracy matters — rounding error, cancellation, compensated summation, fp16/bf16/fp8/fp4 ranges, mpmath checks.
+description: Use when floating-point accuracy matters — rounding, cancellation, compensated sums, fp16/bf16/fp8/fp4.
 ---
 # Floating point and low-precision formats
 Hub: `numerical-methods` (conditioning §3, verification §9; reproducibility in `numerical-methods` `references/reproducibility.md`). Environments: `__CLAUDE_DIR__/venvs/sci/bin/python`, `__CLAUDE_DIR__/venvs/ml/bin/python`. Version-specific API notes were checked in Sept 2026 without recorded URLs (unverified as of 2026-10-02); latest releases are Verified in the hub.

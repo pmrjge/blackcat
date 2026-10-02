@@ -1,6 +1,6 @@
 ---
 name: numerical-methods
-description: Load before writing or trusting a numerical computation — conditioning, stability, reproducibility; floating point, solvers, ODEs in num-*.
+description: Load before writing or trusting a numerical computation — conditioning, stability, reproducibility, precision checks.
 ---
 # Numerical methods
 

@@ -1,6 +1,6 @@
 ---
 name: sec-threat-model
-description: Use at the start of a security design or review — assets, entry points, trust boundaries, STRIDE threats, ranked mitigations.
+description: Use at the start of a security design or review — assets, entry points, trust boundaries, STRIDE, mitigations.
 ---
 # Threat model in five steps
 Hub: `secure-coding` (ground rules, checklist, report format).
@@ -14,7 +14,7 @@ Hub: `secure-coding` (ground rules, checklist, report format).
 ## Writing it down
 - One page: a data-flow sketch (Mermaid or ASCII; `diagrams-as-code`), a table `| boundary | threat (STRIDE) | asset | mitigation | test |`, and the residual risks you accept with a reason.
 - Each mitigation names where it lives (file, config, hook) so a reviewer can check it; each top abuse case names the test that proves the mitigation (`test_<abuse>_rejected`).
-- Route each mitigation to its module: sinks → `sec-web-vulns`, identity → `sec-authn-authz`, secrets → `sec-secrets`, dependencies → `sec-supply-chain`, LLM paths → `sec-llm-apps`, ports and sockets → `sec-local-servers`, runtime limits → `sec-hardening`, logging and alerting → `sec-detection`.
+- Route each mitigation to its module: sinks → `sec-web-vulns`, identity → `sec-authn-authz`, secrets → `sec-secrets`, dependencies → `sec-supply-chain`, LLM paths → `sec-llm-apps`, ports, sockets and runtime limits → `sec-hardening`, logging and alerting → `sec-detection`.
 - Revisit when a new entry point, asset or trust boundary appears (new endpoint, new tool for an agent, new dependency with install scripts).
 
 ## Verify

@@ -1,13 +1,13 @@
 ---
 name: redis
-description: Use when using Redis or Valkey — data structures, TTLs and eviction, persistence modes, lock caveats, streams.
+description: Use for Redis or Valkey — data structures, TTLs, eviction, persistence, lock caveats, streams.
 ---
 # Redis and Valkey
 Hub: `db-design`. Redis holds data you can rebuild or afford to lose a second of, unless persistence and replication are configured and tested.
 
 ## Versions and licence
 - Redis 8.x is current (8.10.2, 2026-09-17; 8.8 and 8.6 branches maintained). Redis 8.0 and later are offered under RSALv2, SSPLv1 or AGPLv3 (pick one). Valkey (Linux Foundation fork of Redis 7.2.4, BSD) is at 9.1.2 (2026-08-31). Commands overlap heavily but newer features differ: check `INFO server` and the docs of the engine you run.
-- Managed services and Docker images (`redis:8`, `valkey/valkey:9`) are the usual deployment; bind loopback or a private network and require auth (`sec-local-servers`).
+- Managed services and Docker images (`redis:8`, `valkey/valkey:9`) are the usual deployment; bind loopback or a private network and require auth (`sec-hardening` § Local servers).
 
 ## Data structures by job
 | Job | Structure |

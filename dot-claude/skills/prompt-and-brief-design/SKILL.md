@@ -1,6 +1,6 @@
 ---
 name: prompt-and-brief-design
-description: Load before writing a system prompt, agent definition, CLAUDE.md, research prompt, output schema or few-shot set — structure, stop rules.
+description: Load before writing a system prompt, agent definition, CLAUDE.md, research prompt, output schema or few-shot set.
 ---
 # Prompt and brief design
 

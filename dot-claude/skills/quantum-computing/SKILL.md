@@ -1,6 +1,6 @@
 ---
 name: quantum-computing
-description: Load before a quantum-circuit derivation, simulation or hardware run — circuit identities, Qiskit/PennyLane/Cirq/stim, noise, QEC.
+description: Load before quantum-circuit derivations, simulations or hardware runs — Qiskit, PennyLane, Cirq, stim, noise, QEC.
 ---
 # Quantum computing
 

@@ -1,6 +1,6 @@
 ---
 name: data-visualization
-description: Load before making a data figure in code — chart choice, perception, palettes, labels, uncertainty; Artifact or HTML charts load dataviz.
+description: Load before making a data figure in code — chart choice, perception, palettes, labels, uncertainty, plotly/Altair.
 ---
 # Data visualization
 
@@ -55,10 +55,10 @@ Figures made in code and saved as files (PNG/SVG/PDF/HTML) for papers, reports, 
 | Module | Load when |
 |---|---|
 | `viz-matplotlib` | static publication figures with matplotlib or seaborn: styles, fonts, export |
-| `viz-interactive` | interactive/HTML charts with plotly or Altair: hover, static export, large data |
 | `viz-dashboards` | dashboards and data apps: Streamlit, Dash, Panel, BI tools; layout and freshness |
 
 ## References
+- `references/interactive.md` — read when making interactive or HTML charts with plotly or Altair (hover, static export, large data).
 - `references/design-rules.md` — read when writing titles, labels and annotations, building small multiples, choosing table vs chart, writing alt text, or checking for misleading patterns.
 
 ## 12. Pre-publication checklist

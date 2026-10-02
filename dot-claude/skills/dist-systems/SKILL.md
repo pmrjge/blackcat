@@ -1,6 +1,6 @@
 ---
 name: dist-systems
-description: Use when a design spans processes or services — timeouts, retries, idempotency, consistency, queues, partial failure; proofs in fm-tla.
+description: Use for designs spanning services — timeouts, retries, idempotency, consistency, queues, partial failure.
 ---
 # Distributed systems design
 

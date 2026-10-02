@@ -1,6 +1,6 @@
 ---
 name: linux-kernel-ebpf
-description: Use when tracing the Linux kernel or writing eBPF — bpftrace one-liners, bcc tools, libbpf CO-RE, perf and ftrace, probe overhead.
+description: Use for Linux kernel tracing and eBPF — bpftrace, bcc tools, libbpf CO-RE, perf, ftrace, probe overhead.
 ---
 # Linux kernel tracing and eBPF
 

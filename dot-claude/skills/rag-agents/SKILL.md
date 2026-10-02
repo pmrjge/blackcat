@@ -1,6 +1,6 @@
 ---
 name: rag-agents
-description: Use when designing or debugging a RAG pipeline — chunking, embeddings, hybrid search, reranking, grounded answers, retrieval evals.
+description: Use for RAG pipelines — chunking, embeddings, hybrid search, reranking, grounded answers, retrieval evals.
 ---
 # RAG pipelines
 

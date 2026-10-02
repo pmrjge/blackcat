@@ -1,6 +1,6 @@
 ---
 name: opt-modeling
-description: Use when formulating LP, MIP or convex models — HiGHS, CVXPY, Pyomo, PuLP; MIP hygiene, infeasibility (IIS), duals and optimality gaps.
+description: Use for LP, MIP and convex models — HiGHS, CVXPY, Pyomo, PuLP, infeasibility (IIS), duals, gaps.
 ---
 # Optimization modeling (LP, MIP, convex)
 

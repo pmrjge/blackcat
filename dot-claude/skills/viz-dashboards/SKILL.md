@@ -1,6 +1,6 @@
 ---
 name: viz-dashboards
-description: Use when building a data dashboard or data app — Streamlit, Dash, Panel or a BI tool; layout, caching, data freshness.
+description: Use for data dashboards and data apps — Streamlit, Dash, Panel or BI tools, layout, caching, freshness.
 ---
 # Dashboards and data apps
 Hub: `data-visualization` (chart choice, color, uncertainty). Charts as Claude Artifacts or chat-surface dashboards: the built-in `dataviz` skill. Front-end code: `frontend-frameworks`. Serving and exposing an app on the home server: `self-hosting-ops`.
@@ -21,7 +21,7 @@ Hub: `data-visualization` (chart choice, color, uncertainty). Charts as Claude A
 | HoloViz/Bokeh ecosystem, notebooks to apps | Panel |
 | SQL + Markdown reports as static sites | Evidence (unverified as of 2026-10-02) |
 | Operational metrics and time series | Grafana (`self-hosting-ops` for hosting) |
-| A one-off report with no interaction needed | static HTML/PDF from `viz-matplotlib` or `viz-interactive` |
+| A one-off report with no interaction needed | static HTML/PDF from `viz-matplotlib` or `data-visualization` `references/interactive.md` |
 
 ## Verify
 - [ ] Each view states the question it answers; the main message is visible without interaction.

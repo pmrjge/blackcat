@@ -1,6 +1,6 @@
 ---
 name: portuguese-pt-writing
-description: Load before writing, translating or proofreading European Portuguese (pt-PT, not BR) — AO1990, PT vs BR usage, clitics, formal letters.
+description: Load before writing, translating or proofreading European Portuguese (pt-PT) — AO1990, PT vs BR usage, clitics.
 ---
 # European Portuguese (pt-PT): writing, translation, proofreading
 

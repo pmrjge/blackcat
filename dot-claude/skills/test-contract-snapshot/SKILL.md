@@ -1,6 +1,6 @@
 ---
 name: test-contract-snapshot
-description: Use when testing API contracts between services or adding snapshot tests — Pact, Schemathesis and OpenAPI checks, reviewing snapshots.
+description: Use for API contract tests between services and snapshot tests — Pact, Schemathesis, OpenAPI checks.
 ---
 # Contract and snapshot tests
 Hub: `test-strategy`. Designing the contract itself (resources, errors, versioning): `api-design`. Language-specific snapshot tools: syrupy and inline-snapshot (`python-engineering`), insta (`rust-engineering`), Vitest/Jest snapshots (`typescript-engineering`).

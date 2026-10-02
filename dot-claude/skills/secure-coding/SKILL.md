@@ -1,6 +1,6 @@
 ---
 name: secure-coding
-description: Load before writing or reviewing code that handles untrusted input, secrets, auth, crypto, dependencies or LLM tools — rules, sec-* map.
+description: Load before writing or reviewing code that handles untrusted input, secrets, auth, crypto, dependencies or LLM tools.
 ---
 # Secure coding (hub)
 
@@ -25,8 +25,7 @@ description: Load before writing or reviewing code that handles untrusted input,
 | `sec-authn-authz` | sessions, JWTs, OAuth/OIDC, object-level authorization, password hashing, least privilege |
 | `sec-crypto` | encryption, signatures, hashing, key handling, TLS settings |
 | `sec-llm-apps` | LLM or agent apps, tool use, prompt injection, exfiltration channels, MCP servers |
-| `sec-local-servers` | a dev server, daemon or MCP server listening on a port or socket |
-| `sec-hardening` | locking down a service, container, host or CI runner after the code is right |
+| `sec-hardening` | locking down a service, container, host or CI runner after the code is right; dev servers, daemons and MCP servers listening locally |
 | `sec-detection` | writing detection: security logging, SAST rules, Sigma/host rules, canaries |
 | `sec-incident-response` | something may be compromised: triage, containment, evidence, rotation, postmortem |
 

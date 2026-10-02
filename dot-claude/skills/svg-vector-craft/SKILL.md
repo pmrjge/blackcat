@@ -1,6 +1,6 @@
 ---
 name: svg-vector-craft
-description: Load before creating, converting or delivering vector files — SVG as code, parametric drawings, svgo, tracing, plotter and cutter output.
+description: Load before creating or delivering vector files — SVG as code, parametric drawings, svgo, tracing, plotter/cutter output.
 ---
 # Vector and SVG craft
 

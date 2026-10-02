@@ -1,6 +1,6 @@
 ---
 name: sec-detection
-description: Use when writing security detection — audit logging, Semgrep/CodeQL rules, Sigma rules, canaries; alert handling is sec-incident-response.
+description: Use for security detection — audit logging, Semgrep/CodeQL rules, Sigma rules, canaries.
 ---
 # Detection
 Hub: `secure-coding`. Detection answers "would we notice?" for each top threat in the threat model (`sec-threat-model`).

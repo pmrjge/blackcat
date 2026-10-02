@@ -1,6 +1,6 @@
 ---
 name: test-property-based
-description: Use when writing property-based or stateful model tests — hypothesis, proptest, fast-check; choosing properties, generators, shrinking.
+description: Use for property-based and stateful model tests — hypothesis, proptest, fast-check, generators, shrinking.
 ---
 # Property-based and stateful testing
 Hub: `test-strategy`. What the evidence guarantees (evidence on executed inputs only, not proof): `formal-methods` §7.
@@ -27,7 +27,7 @@ class QueueVsModel(RuleBasedStateMachine):
 TestQueue = QueueVsModel.TestCase
 TestQueue.settings = settings(max_examples=300, stateful_step_count=50, deadline=None)
 ```
-- hypothesis: `@settings(max_examples=..., deadline=None)` for slow code; `@example(...)` pins regressions; `st.data()` for dependent draws; avoid heavy `assume`/`.filter` (health-check failures) — build valid values constructively so shrinking works; failing examples replay from `.hypothesis/`. A mutation check (break the implementation on purpose, or `test-mutation`) confirms the machine has teeth. Long runs as a fuzzer: HypoFuzz drives existing hypothesis tests (`test-fuzzing`).
+- hypothesis: `@settings(max_examples=..., deadline=None)` for slow code; `@example(...)` pins regressions; `st.data()` for dependent draws; avoid heavy `assume`/`.filter` (health-check failures) — build valid values constructively so shrinking works; failing examples replay from `.hypothesis/`. A mutation check (break the implementation on purpose, or a mutation tool, `test-strategy` `references/mutation.md`) confirms the machine has teeth. Long runs as a fuzzer: HypoFuzz drives existing hypothesis tests (`test-fuzzing`).
 - proptest (Rust): `proptest! { #[test] fn prop(xs in prop::collection::vec(any::<i64>(), 0..64)) { prop_assert_eq!(fast(&xs), reference(&xs)); } }`; commit `proptest-regressions/`; stateful testing with `proptest-state-machine`.
 - fast-check (JS/TS): `fc.assert(fc.property(fc.array(fc.integer()), (xs) => ...))`; model-based testing with `fc.commands([...])` + `fc.modelRun(setup, cmds)`.
 - Numerical properties (solve then multiply back, scaling invariances, matrices with a controlled condition number): `numerical-methods` §9.

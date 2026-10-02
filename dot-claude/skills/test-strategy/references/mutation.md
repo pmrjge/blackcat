@@ -1,9 +1,6 @@
----
-name: test-mutation
-description: Use when checking whether tests actually catch bugs — mutation testing with mutmut, cargo-mutants, StrykerJS, PIT; surviving mutants.
----
-# Mutation testing
-Hub: `test-strategy`. A mutant is the code with one small change (`<` → `<=`, `+` → `-`, a return replaced, a call removed). A mutant the tests still pass on ("survived", "missed") is either a missing test or an equivalent mutant.
+# test-strategy — mutation testing (reference)
+Read when checking that a suite catches bugs with mutmut, cargo-mutants, StrykerJS or PIT, or running a seeded-bug check. Parent: `test-strategy` SKILL.md.
+ A mutant is the code with one small change (`<` → `<=`, `+` → `-`, a return replaced, a call removed). A mutant the tests still pass on ("survived", "missed") is either a missing test or an equivalent mutant.
 
 ## When and how much
 - Run on the code you changed and on critical modules, not on the whole repository at every commit: diff-scoped runs in CI, full runs nightly or before a release.

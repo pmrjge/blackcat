@@ -1,6 +1,6 @@
 ---
 name: typography
-description: Load before choosing, setting or specifying type for print or screen — pairing, scale, measure, leading, kerning, OpenType, web fonts.
+description: Load before choosing or setting type for print or screen — pairing, scale, measure, leading, kerning, OpenType, web fonts.
 ---
 # Typography
 

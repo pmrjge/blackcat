@@ -1,6 +1,6 @@
 ---
 name: test-strategy
-description: Load before deciding what and how to test or repairing a weak suite — test levels, oracles, flakiness, seeded-bug checks; tools in test-*.
+description: Load before deciding what and how to test or fixing a weak suite — levels, oracles, flakiness, mutation testing.
 ---
 # Test strategy (hub)
 
@@ -24,9 +24,11 @@ description: Load before deciding what and how to test or repairing a weak suite
 |---|---|
 | `test-property-based` | invariants, round trips, model-based/stateful tests (hypothesis, proptest, fast-check) |
 | `test-fuzzing` | parsers, decoders or anything reading untrusted bytes (cargo-fuzz, atheris, AFL++, Go fuzzing) |
-| `test-mutation` | checking that a suite catches bugs (mutmut, cargo-mutants, StrykerJS, PIT) |
 | `test-e2e-playwright` | browser end-to-end flows, visual and accessibility checks with Playwright Test |
 | `test-contract-snapshot` | API contracts between services (Pact, Schemathesis) and snapshot/golden tests |
+
+## References
+- `references/mutation.md` — read when checking that a suite catches bugs: mutation testing (mutmut, cargo-mutants, StrykerJS, PIT) or a seeded-bug check.
 
 ## Verify
 - [ ] Each new test was seen failing (seeded bug, mutant or pre-fix run) and passing.

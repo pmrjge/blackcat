@@ -1,6 +1,6 @@
 ---
 name: api-design
-description: Use when designing or changing an HTTP, gRPC or event API — resources, errors, pagination, idempotency keys, versioning, breaking changes.
+description: Use for designing or changing HTTP, gRPC or event APIs — resources, errors, pagination, idempotency, versioning.
 ---
 # API design
 

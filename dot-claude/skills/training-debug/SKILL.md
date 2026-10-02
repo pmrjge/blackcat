@@ -1,6 +1,6 @@
 ---
 name: training-debug
-description: Load the moment a training run misbehaves — NaN/inf loss, divergence, no learning, plateaus, overfitting, overflow, input-pipeline bugs.
+description: Load when a training run misbehaves — NaN loss, divergence, no learning, plateaus, overfitting, data-pipeline bugs.
 ---
 # Training and numerics debugging
 
