@@ -26,7 +26,7 @@ KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "GOD_PEN
          "STACK_FANOUT_IDLE_S", "STACK_MAX_FANOUT_BY_TYPE", "STACK_LEASE_TTL_S",
          "STACK_RESUME_TTL_S", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET",
          "STACK_MAX_MCP_CALLS", "BLACKCAT_BACKGROUND", "GOD_ONCE_PER_SESSION", "GOD_SPAWNERS",
-         "GOD_AFTER_NINJA")
+         "GOD_AFTER_NINJA", "STACK_SOFT_LIMIT_SCALE")
 COPY_DENIED = ("Copies cannot spawn copies: %s may not spawn %s. Do this part yourself or return "
                "STATUS: partial listing what is left.")
 
@@ -2055,6 +2055,147 @@ def test_budget_log_keeps_no_tool_input(env, sess):
     lines = [json.loads(x) for x in text.splitlines()]
     assert [x["tool_name"] for x in lines] == ["Bash", "Write"]
     assert lines[0]["tool_use_id"] == ev["tool_use_id"] and lines[0]["agent_id"] == "A1"
+
+
+def test_budget_task_notification_turn_keeps_the_prompt_window(env, sess):
+    """Task notifications carry prompt ids of their own and fire no UserPromptSubmit: once a human
+    prompt is on record, BlackCat's call in a notification's turn stays in that prompt's budget."""
+    s, main, subs = sess
+    run(prompt_ev(s, main, "p1"), env, extra=BUDGET)
+    append(subs / "agent-a1.jsonl", call_line("m1", 1200))
+    p = budget_run(tool_ev(s, main, "Read", agent_id=None, prompt="notif-1", file_path="x"), env)
+    assert decision(p) == "deny" and "Prompt token budget" in reason(p)
+    # a notification delivered as a prompt event does not start a budget either
+    notif = dict(prompt_ev(s, main, "notif-2"), prompt="<task-notification>\n<task-id>x</task-id>")
+    run(notif, env, extra=BUDGET)
+    assert decision(budget_run(tool_ev(s, main, "Read", prompt="notif-2", file_path="x"), env)) \
+        == "deny"
+    run(prompt_ev(s, main, "p2"), env, extra=BUDGET)                  # the user's next prompt
+    assert decision(budget_run(tool_ev(s, main, "Read", prompt="p2", file_path="x"), env)) \
+        == "allow"
+
+
+# ---------------------------------------------------------------- soft token limits
+SHIPPED = {"STACK_PROMPT_CTX_BUDGET": "100000000", "STACK_SESSION_CTX_BUDGET": "666000000"}
+
+
+def soft_out(p):
+    """(permissionDecision, additionalContext) of a hook run; ("allow", None) for no output."""
+    assert p.returncode == 0, p.stderr
+    if not p.stdout.strip():
+        return "allow", None
+    h = json.loads(p.stdout)["hookSpecificOutput"]
+    return h.get("permissionDecision", "allow"), h.get("additionalContext")
+
+
+def subagent_ev(s, main, aid, atype, tool="Read", **ti):
+    return dict(tool_ev(s, main, tool, agent_id=aid, **(ti or {"file_path": "x"})),
+                agent_type=atype)
+
+
+def test_soft_agent_limit_warns_once_per_segment(env, sess):
+    """scout's soft limit (390,000 context tokens) at STACK_SOFT_LIMIT_SCALE=0.001: 390. A warning
+    rides on the first call past it, never a refusal; once per run; a resume starts over. With the
+    hard budgets off the soft limits still count."""
+    s, main, subs = sess
+    extra = {"STACK_SOFT_LIMIT_SCALE": "0.001", "STACK_PROMPT_CTX_BUDGET": "0",
+             "STACK_SESSION_CTX_BUDGET": "0"}
+    run(prompt_ev(s, main, "p1"), env, extra=extra)
+    run(lifecycle(s, "SubagentStart", "A1", "scout"), env)
+    tf = subs / "agent-A1.jsonl"
+    append(tf, call_line("m1", 300))
+    ev = subagent_ev(s, main, "A1", "scout")
+    assert soft_out(budget_run(ev, env, extra=extra)) == ("allow", None)        # 300: no hit
+    append(tf, call_line("m2", 100))
+    dec, ctx = soft_out(budget_run(ev, env, extra=extra))                        # 400: a hit
+    assert dec == "allow" and ctx.startswith("Soft token limit reached for this run")
+    assert "400 context tokens" in ctx and "soft limit for scout: 390" in ctx
+    assert "STATUS: partial" in ctx and "ask your caller before continuing" in ctx
+    append(tf, call_line("m3", 1000))
+    assert soft_out(budget_run(ev, env, extra=extra)) == ("allow", None)        # warned once
+    # another agent's tokens are not this one's
+    run(lifecycle(s, "SubagentStart", "A2", "scout"), env)
+    append(subs / "agent-A2.jsonl", call_line("m4", 100))
+    assert soft_out(budget_run(subagent_ev(s, main, "A2", "scout"), env, extra=extra))[1] is None
+    # a resume is a new segment: earlier calls (timestamped before it) do not count
+    time.sleep(0.01)
+    run(lifecycle(s, "SubagentStart", "A1", "scout"), env)
+    assert soft_out(budget_run(ev, env, extra=extra))[1] is None
+    stamp = time.strftime("%Y-%m-%dT%H:%M:%S.999Z", time.gmtime(time.time() + 2))
+    line = json.loads(call_line("m5", 395))
+    append(tf, json.dumps(dict(line, timestamp=stamp)) + "\n")
+    assert "395 context tokens" in soft_out(budget_run(ev, env, extra=extra))[1]
+
+
+def test_soft_agent_limit_scale_and_unlimited_types(env, sess):
+    s, main, subs = sess
+    run(prompt_ev(s, main, "p1"), env)
+    for aid, atype in (("S1", "scout"), ("S2", "scout"), ("O1", "orchestrator")):
+        run(lifecycle(s, "SubagentStart", aid, atype), env)
+        append(subs / ("agent-%s.jsonl" % aid), call_line("m-" + aid, 700000))
+    # scale 1: 700,000 > 390,000 warns; scale 2 (780,000) does not; scale 0 turns them off
+    assert soft_out(budget_run(subagent_ev(s, main, "S2", "scout"), env,
+                               extra=dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="2")))[1] is None
+    assert soft_out(budget_run(subagent_ev(s, main, "S2", "scout"), env,
+                               extra=dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0")))[1] is None
+    assert "soft limit for scout: 390,000" in soft_out(
+        budget_run(subagent_ev(s, main, "S1", "scout"), env, extra=SHIPPED))[1]
+    # the orchestrator has no per-agent limit (the prompt limit, 33 at this scale, still applies)
+    ctx = soft_out(budget_run(subagent_ev(s, main, "O1", "orchestrator"), env,
+                              extra=dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0.000001")))[1]
+    assert "for this prompt" in ctx and "for this run" not in ctx
+
+
+def test_soft_prompt_limit_once_per_human_prompt(env, sess):
+    """33,000,000 context tokens since the user's last prompt (here x 0.001 = 33,000): one warning
+    per prompt, to whichever agent calls a tool next; task notifications do not reset it."""
+    s, main, subs = sess
+    extra = dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0.001")
+    run(prompt_ev(s, main, "p1"), env, extra=extra)
+    append(main, call_line("m1", 32999))
+    main_ev = tool_ev(s, main, "Read", agent_id=None, file_path="x")
+    assert soft_out(budget_run(main_ev, env, extra=extra)) == ("allow", None)
+    append(main, call_line("m2", 1))
+    dec, ctx = soft_out(budget_run(dict(main_ev, prompt_id="notif-1"), env, extra=extra))
+    assert dec == "allow" and "Soft token limit reached for this prompt" in ctx
+    assert "33,000 context tokens since the user's last prompt" in ctx and "ask them" in ctx
+    assert soft_out(budget_run(main_ev, env, extra=extra))[1] is None              # once
+    run(prompt_ev(s, main, "p2"), env, extra=extra)
+    append(main, call_line("m3", 33000))
+    dec, ctx = soft_out(budget_run(tool_ev(s, main, "Bash", prompt="p2", command="ls"), env,
+                                   extra=extra))                  # a subagent (coder) this time
+    assert dec == "allow" and "ask your caller" in ctx
+
+
+def test_soft_limits_leave_the_hard_caps_alone(env, sess):
+    """Hard budgets keep their values and wording; a hard refusal carries no soft note; another
+    gate's output (the main hook's Agent label) carries a queued warning."""
+    s, main, subs = sess
+    run(prompt_ev(s, main, "p1"), env, extra=BUDGET)
+    run(lifecycle(s, "SubagentStart", "A1", "scout"), env)
+    append(subs / "agent-A1.jsonl", call_line("m1", 5000))
+    p = budget_run(subagent_ev(s, main, "A1", "scout"), env,
+                   extra={"STACK_SOFT_LIMIT_SCALE": "0.001"})
+    assert decision(p) == "deny" and reason(p).startswith("Prompt token budget reached")
+    assert "Soft token limit" not in p.stdout
+    shipped = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["env"]
+    assert shipped["STACK_PROMPT_CTX_BUDGET"] == "100000000"
+    assert shipped["STACK_SESSION_CTX_BUDGET"] == "666000000"
+    assert "STACK_SOFT_LIMIT_SCALE" not in shipped     # a process env value must reach the hooks
+    # the main hook's own tools: the warning joins the handler's output
+    s2 = sid()
+    main2 = main.parent / (s2 + ".jsonl")
+    main2.write_text("")
+    (main.parent / s2 / "subagents").mkdir(parents=True)
+    run(prompt_ev(s2, main2, "p1"), env)
+    run(pre_agent(s2, "coder", parent="main-coder", agent_id="M1"), env)
+    run(lifecycle(s2, "SubagentStart", "C1", "coder"), env)
+    run(post_agent(s2, "coder", "C1", agent_id="M1", parent="main-coder"), env)
+    append(main.parent / s2 / "subagents" / "agent-C1.jsonl", call_line("m1", 20000))
+    ev = dict(pre_agent(s2, "explore", parent="coder", agent_id="C1"),
+              transcript_path=str(main2), cwd=str(main.parent))
+    dec, ctx = soft_out(run(ev, env, extra={"STACK_SOFT_LIMIT_SCALE": "0.001"}))
+    assert dec == "allow" and "soft limit for coder: 19,000" in ctx
 
 
 # ---------------------------------------------------------------- review 2026-09-28: resumes, leases

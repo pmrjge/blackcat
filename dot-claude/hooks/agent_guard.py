@@ -10,8 +10,10 @@ Reads the hook JSON on stdin.
                                     claude, fork, SubAgent, workflow-subagent: a forked skill
                                     without `agent:`, a workflow stage without agentType) runs no
                                     tool (generic_agent_reason); the prompt and session
-                                    context-token budgets, and each subagent's MCP call cap (the
-                                    tools below check both in this mode's place, first)
+                                    context-token budgets, the soft token limits (a warning in
+                                    additionalContext, never a refusal), and each subagent's MCP
+                                    call cap (the tools below check them in this mode's place,
+                                    first)
   PreToolUse  Agent (aliases Task, SubAgent)  an allowlist: subagent_type must name a stack agent
                                     in the caller's row (spawn_row: a caller without a row gets
                                     BlackCat's as a main thread, nothing as a subagent); missing,
@@ -104,8 +106,8 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
   fanout/<caller>/<tool_use_id>.json   spawn leases {type, caller, caller_type, ts}
   fanout/<parent>/resume-<agent>.json  resume reservations {type, caller, caller_type, resume, by,
                           ts}, counted like spawn leases
-  budget.json             token counts {files: {path: {off, ino, keys}}, total, prompt_base,
-                          prompt_id}
+  budget.json             token counts {files: {path: {off, ino, keys, seg, seg_run}}, total,
+                          prompt_base, prompt_id, human, soft_prompt, soft_agents}
   mcp-calls/<agent_id>.json  MCP tool calls of one subagent's current run {calls, run (its
                           registry `started` stamp), type, cap, ts}
   blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
@@ -156,6 +158,10 @@ Knobs (env):
   STACK_MAX_MCP_CALLS=64  MCP tool calls (mcp__*) per subagent per prompt (a spawn or a resume
                           starts a new count); an agent whose frontmatter maxTurns is lower
                           gets that instead (0 = off)
+  STACK_SOFT_LIMIT_SCALE=1  multiplies the soft token limits (SOFT_LIMITS per subagent run,
+                          SOFT_PROMPT_CTX per human prompt): past one, the next tool call carries a
+                          wrap-up warning, nothing is refused (0 = off; unset in settings.json, so
+                          a process environment value reaches the hooks)
   GOD_SPAWNERS=orchestrator  parent types that may spawn god-coder ("main" = a main thread without
                           an agent type); the POLICY rows list it for the orchestrator only
   GOD_ONCE_PER_SESSION=1  at most one god-coder spawn per session (a SendMessage resume of it is the
@@ -561,6 +567,17 @@ def warn(msg):
 
 
 def emit(obj):
+    hso = obj.get("hookSpecificOutput") if isinstance(obj, dict) else None
+    if _SOFT_NOTE and isinstance(hso, dict) and hso.get("hookEventName") == "PreToolUse":
+        # a queued soft-limit warning rides on whatever this call outputs: the reason of a
+        # refusal, else the context added to the call
+        note = _SOFT_NOTE.pop()
+        if hso.get("permissionDecision") == "deny":
+            hso["permissionDecisionReason"] = "%s\n\n%s" % (hso.get("permissionDecisionReason")
+                                                           or "", note)
+        else:
+            ctx = hso.get("additionalContext")
+            hso["additionalContext"] = "%s\n\n%s" % (ctx, note) if ctx else note
     sys.stdout.write(json.dumps(obj))
     sys.stdout.flush()
     sys.exit(0)
@@ -3138,6 +3155,20 @@ def transcript_files(ev):
     return tp, os.path.join(folder, stem, "subagents")
 
 
+def subagent_file(files, aid):
+    """A subagent's own transcript, <session>/subagents/agent-<id>.jsonl."""
+    return os.path.join(files[1], "agent-%s.jsonl" % ident(aid))
+
+
+def subagent_of_file(files, path):
+    """The agent id of a subagent's own transcript; None for the main transcript."""
+    name = os.path.basename(path)
+    if os.path.dirname(path) != files[1] or not name.startswith("agent-") \
+            or not name.endswith(".jsonl"):
+        return None
+    return name[len("agent-"):-len(".jsonl")] or None
+
+
 def session_transcripts(files):
     main, sub = files
     try:
@@ -3151,9 +3182,20 @@ def scan_stats():
     return {"calls": 0, "assistant": 0, "no_usage": 0, "bad": 0, "lines": 0, "partial": False}
 
 
-def scan_transcript(path, fst, deadline, stats):
+def iso_stamp(t):
+    """A time.time() stamp in the transcripts' timestamp format (UTC, milliseconds, 'Z'), so the
+    two compare as strings."""
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(t)) + ".%03dZ" % int((t % 1) * 1000)
+
+
+def scan_transcript(path, fst, deadline, stats, run_of=None):
     """Context tokens of the API calls appended to `path` since fst["off"] (fst is updated: offset,
-    inode, last keys). Stops at an incomplete last line or at `deadline` (time.monotonic)."""
+    inode, last keys). Stops at an incomplete last line or at
+    `deadline` (time.monotonic).
+    run_of (a subagent's own file): returns the registry `started` stamp of the agent's current
+    run; fst["seg"] then holds the context tokens of that run alone (calls timestamped before the
+    stamp belong to an earlier run), fst["seg_run"] the stamp it counts for: the soft per-agent
+    limit's segment, reset on a spawn or a resume like the MCP call cap."""
     try:
         st = os.stat(path)
     except OSError:
@@ -3166,6 +3208,10 @@ def scan_transcript(path, fst, deadline, stats):
     fst["ino"] = st.st_ino
     if st.st_size == off:
         return 0
+    run = run_of() if run_of else None
+    since = iso_stamp(run) if isinstance(run, (int, float)) and not isinstance(run, bool) else None
+    if run_of and fst.get("seg_run") != run:
+        fst["seg_run"], fst["seg"] = run, 0
     keys, added = list(fst.get("keys") or []), 0
     with open(path, "rb") as f:
         f.seek(off)
@@ -3205,6 +3251,12 @@ def scan_transcript(path, fst, deadline, stats):
                 continue
             added += max(tokens, 0)
             stats["calls"] += 1
+            if run_of:
+                ts = e.get("timestamp")
+                # an unreadable timestamp counts toward the current run: stricter, never looser
+                if since is None or not isinstance(ts, str) or len(ts) != len(since) \
+                        or ts >= since:
+                    fst["seg"] = int(fst.get("seg") or 0) + max(tokens, 0)
     fst["off"], fst["keys"] = off, keys
     return added
 
@@ -3232,7 +3284,10 @@ def budget_update(d, ev, scan_s=BUDGET_SCAN_S, mutate=None, start_at_end=False, 
                         with contextlib.suppress(OSError):
                             s = os.stat(p)
                             fst.update(off=s.st_size, ino=s.st_ino)
-                st["total"] = int(st.get("total") or 0) + scan_transcript(p, fst, deadline, stats)
+                aid = subagent_of_file(files, p)
+                run_of = (lambda a=aid: (reg_get(d, a) or {}).get("started")) if aid else None
+                st["total"] = int(st.get("total") or 0) + scan_transcript(p, fst, deadline, stats,
+                                                                          run_of)
             if stats["bad"]:
                 warn("token budget: %d transcript lines could not be read and are not counted"
                      % stats["bad"])
@@ -3245,13 +3300,23 @@ def budget_update(d, ev, scan_s=BUDGET_SCAN_S, mutate=None, start_at_end=False, 
         return read_json(path)
 
 
+def budgets_off():
+    """No hard budget and no soft limit: nothing to count."""
+    return max(budget_caps()) <= 0 and soft_scale() <= 0
+
+
 def budget_prompt(d, ev):
-    """UserPromptSubmit: the prompt budget restarts from the session total at this point."""
-    if not policy_on() or max(budget_caps()) <= 0:
+    """UserPromptSubmit: the prompt budget (hard and soft) restarts from the session total at this
+    point. `human` records that this session's prompt boundaries come from this hook, so a
+    main-thread call under a prompt_id it never saw (a task notification's turn) no longer starts
+    one (budget_note_prompt). A notification delivered as a prompt event is not a human prompt."""
+    if not policy_on() or budgets_off():
+        return
+    if str(ev.get("prompt") or "").lstrip().startswith("<task-notification>"):
         return
 
     def mark(st):
-        st["prompt_id"], st["prompt_base"] = ev.get("prompt_id"), st["total"]
+        st["prompt_id"], st["prompt_base"], st["human"] = ev.get("prompt_id"), st["total"], True
     budget_update(d, ev, scan_s=BUDGET_LONG_SCAN_S, mutate=mark, lock_s=5.0)
 
 
@@ -3259,7 +3324,7 @@ def budget_session_start(d, ev):
     """SessionStart: a resumed session catches up on its transcripts (the session budget spans
     the whole session); a fork counts only what it adds itself (hooks.md:1138)."""
     source = ev.get("source")
-    if not policy_on() or max(budget_caps()) <= 0 or source not in ("resume", "fork"):
+    if not policy_on() or budgets_off() or source not in ("resume", "fork"):
         return
     budget_update(d, ev, scan_s=BUDGET_LONG_SCAN_S, start_at_end=source == "fork", lock_s=5.0)
 
@@ -3295,23 +3360,36 @@ def budget_exempt(ev):
 
 
 def budget_note_prompt(st, ev):
-    """Main-thread calls carry the prompt being processed (prompt_id, hooks.md:737): a new one the
-    UserPromptSubmit hook never recorded starts the prompt budget here."""
+    """Main-thread calls carry the prompt being processed (prompt_id, hooks.md:737): a new one starts
+    the prompt budget here only while the UserPromptSubmit hook has recorded no prompt in this
+    session (it is not wired, or failed). Task notifications get prompt ids of their own (seen in
+    transcripts: user lines with origin.kind "task-notification" and a fresh promptId) and fire no
+    UserPromptSubmit, so once a human prompt is on record a new id is a notification's turn,
+    which stays inside the human prompt's budget."""
     pid = ev.get("prompt_id")
-    if pid and not ev.get("agent_id") and st.get("prompt_id") != pid:
+    if pid and not ev.get("agent_id") and not st.get("human") and st.get("prompt_id") != pid:
         st["prompt_id"], st["prompt_base"] = pid, st["total"]
 
 
 def budget_gate(ev, d):
-    """PreToolUse: refuse the call once the prompt or session context-token budget is spent.
-    Fails open: any error only warns."""
+    """PreToolUse: refuse the call once the prompt or session context-token budget is spent; queue
+    the soft-limit warning (soft_check) for this call's output. Fails open: any error only
+    warns."""
     if not policy_on():
         return
     prompt_cap, session_cap = budget_caps()
-    if (prompt_cap <= 0 and session_cap <= 0) or budget_exempt(ev):
+    if budgets_off() or budget_exempt(ev):
         return
+    note = []
+
+    def mutate(s):
+        budget_note_prompt(s, ev)
+        try:
+            note.append(soft_check(s, ev, transcript_files(ev), d))
+        except Exception as exc:  # noqa: BLE001 - the soft limits never cost the hard ones
+            warn("soft token limit not checked (%s: %s)" % (type(exc).__name__, exc))
     try:
-        st = budget_update(d, ev, mutate=lambda s: budget_note_prompt(s, ev))
+        st = budget_update(d, ev, mutate=mutate)
         total = int((st or {}).get("total") or 0)
         used = total - int((st or {}).get("prompt_base") or 0)
     except Exception as exc:  # noqa: BLE001 - a budget we cannot count never blocks work
@@ -3334,6 +3412,8 @@ def budget_gate(ev, d):
              "prompt, raise STACK_PROMPT_CTX_BUDGET in the env block of ~/.claude/settings.json "
              "(it holds until the next install.sh run, which resets the stack's budget knobs)."
              % (fmt_int(used), fmt_int(prompt_cap)))
+    if note and note[0]:     # a hard refusal above supersedes the soft warning
+        _SOFT_NOTE[:] = [note[0]]
 
 
 def fmt_int(n):
@@ -3348,6 +3428,133 @@ def budget_reason(kind, span, used, knob, cap, ev):
                        "is left.")
     return head + ("Finish with what you have: make no more tool calls except to report or stop, "
                    "and return STATUS: partial listing what is left.")
+
+
+# ---------------------------------------------------------------- soft token limits
+# Warnings, never refusals: past a soft limit the next tool call carries one short note
+# (PreToolUse additionalContext; appended to the reason when another gate refuses that call) telling
+# the agent to wrap up, return STATUS: partial with what remains, and ask its caller (BlackCat: the
+# user) before going on. Same unit and transcripts as the hard budgets above, from the same
+# budget.json pass (no second parse):
+#   per agent segment  context tokens of one subagent run (a spawn or a SendMessage resume, i.e. one
+#                      registry `started` stamp, the MCP call cap's reset rule), from the agent's
+#                      own transcript (scan_transcript's fst["seg"]); once per segment.
+#   per human prompt   the hard prompt budget's window (total - prompt_base); once per prompt
+#                      (keyed by prompt_base).
+# Values (context tokens) derived on 2026-10-02 from 165 segments and 78 human prompts of two
+# sessions by tests/derive_thresholds.py: soft = p90 of healthy runs x 1.25-1.5, floor 2 x median,
+# two significant figures, per type when it has >= 5 healthy segments from >= 3 agents, else per pool
+# of comparable types. Every subagent type is listed (self-test: SOFT_LIMITS covers AGENTS); None =
+# no per-agent limit (orchestrator: short relays, too few runs to derive one; blackcat: the main
+# thread, covered by the prompt limit). Copy types use their base's value; unknown types get none.
+# STACK_SOFT_LIMIT_SCALE (float, default 1) multiplies every soft limit; 0 turns them off. The
+# hard budgets and the MCP call cap are independent of it.
+SOFT_PROMPT_CTX = 33000000
+_SOFT_BUILDER = 19000000     # builder pool: implementers and domain engineers
+_SOFT_ANALYST = 8700000      # analyst pool: planners, reviewers, research
+_SOFT_LOOKUP = 450000        # lookup pool: one-question agents
+_SOFT_ARTIFACT = 3100000     # artifact pool: prose, documents, images, browser
+SOFT_LIMITS = {
+    # derived from the type's own runs
+    "claude-code-engineer": 19000000, "scout": 390000, "claude-code-guide": 680000,
+    "code-reviewer": 8700000, "verifier": 26000000,
+    # builder pool
+    "coder": _SOFT_BUILDER, "main-coder": _SOFT_BUILDER, "ninja-coder": _SOFT_BUILDER,
+    "god-coder": _SOFT_BUILDER, "build-fixer": _SOFT_BUILDER, "test-engineer": _SOFT_BUILDER,
+    "data-scientist": _SOFT_BUILDER, "data-engineer": _SOFT_BUILDER, "db-engineer": _SOFT_BUILDER,
+    "devops-engineer": _SOFT_BUILDER, "frontend-engineer": _SOFT_BUILDER,
+    "python-engineer": _SOFT_BUILDER, "rust-engineer": _SOFT_BUILDER,
+    "go-engineer": _SOFT_BUILDER, "node-engineer": _SOFT_BUILDER, "jvm-engineer": _SOFT_BUILDER,
+    "julia-engineer": _SOFT_BUILDER, "haskell-engineer": _SOFT_BUILDER,
+    "mobile-engineer": _SOFT_BUILDER, "game-engineer": _SOFT_BUILDER,
+    "embedded-engineer": _SOFT_BUILDER, "hpc-engineer": _SOFT_BUILDER,
+    "cuda-engineer": _SOFT_BUILDER, "mlx-engineer": _SOFT_BUILDER, "dl-engineer": _SOFT_BUILDER,
+    "ml-engineer": _SOFT_BUILDER, "llm-engineer": _SOFT_BUILDER,
+    "robotics-engineer": _SOFT_BUILDER, "quantum-engineer": _SOFT_BUILDER,
+    "biochem-engineer": _SOFT_BUILDER, "security-engineer": _SOFT_BUILDER,
+    "vfx-td": _SOFT_BUILDER, "mathematician": _SOFT_BUILDER,
+    # analyst pool
+    "planner": _SOFT_ANALYST, "plan-reviewer": _SOFT_ANALYST, "researcher": _SOFT_ANALYST,
+    "security-auditor": _SOFT_ANALYST, "proof-checker": _SOFT_ANALYST,
+    # lookup pool
+    "explore": _SOFT_LOOKUP, "oracle": _SOFT_LOOKUP, "mcp-broker": _SOFT_LOOKUP,
+    # artifact pool
+    "writer": _SOFT_ARTIFACT, "browser-operator": _SOFT_ARTIFACT,
+    "doc-specialist": _SOFT_ARTIFACT, "designer": _SOFT_ARTIFACT,
+    "image-director": _SOFT_ARTIFACT, "localizer": _SOFT_ARTIFACT,
+    "motion-designer": _SOFT_ARTIFACT, "cg-artist": _SOFT_ARTIFACT,
+    # no per-agent limit
+    "orchestrator": None, "blackcat": None,
+}
+_SOFT_NOTE = []     # the warning queued for this process's PreToolUse output (emit, soft_flush)
+SOFT_WRAP_UP = ("Wrap up: finish the current step, return STATUS: partial with what is done and "
+                "what remains, and ask your caller before continuing. This limit blocks no tool.")
+SOFT_WRAP_UP_MAIN = ("Wrap up: finish the current step, tell the user what is done and what "
+                     "remains, and ask them before continuing. This limit blocks no tool.")
+
+
+def soft_scale():
+    """STACK_SOFT_LIMIT_SCALE: 1 when unset; 0 = soft limits off; anything unreadable or negative
+    warns and counts as 1."""
+    raw = os.environ.get("STACK_SOFT_LIMIT_SCALE", "").strip()
+    if not raw:
+        return 1.0
+    try:
+        v = float(raw)
+    except ValueError:
+        v = -1.0
+    if not 0 <= v < float("inf"):
+        warn_once("STACK_SOFT_LIMIT_SCALE=%r is not a number >= 0; using 1" % raw)
+        return 1.0
+    return v
+
+
+def soft_limit(atype, scale=None):
+    """The per-segment soft limit of an agent type in context tokens (scaled); None = none."""
+    scale = soft_scale() if scale is None else scale
+    t = norm(atype)
+    base = SOFT_LIMITS.get(t, SOFT_LIMITS.get(COPY_BASE.get(t)))
+    return int(base * scale) if base and scale > 0 else None
+
+
+def soft_check(st, ev, files, d):
+    """Inside budget_update's lock, after the scan: the warning this call carries, or None. Marks
+    what it warns about in `st`, so each limit warns once (soft_prompt: the prompt_base it warned
+    for; soft_agents: agent id -> the run stamp it warned for)."""
+    scale = soft_scale()
+    if scale <= 0:
+        return None
+    aid = ev.get("agent_id")
+    notes = []
+    base = int(st.get("prompt_base") or 0)
+    used = int(st.get("total") or 0) - base
+    limit = int(SOFT_PROMPT_CTX * scale)
+    if limit and used >= limit and st.get("soft_prompt") != base:
+        st["soft_prompt"] = base
+        notes.append("Soft token limit reached for this prompt: the agents of this session have "
+                     "used %s context tokens since the user's last prompt (soft limit %s)."
+                     % (fmt_int(used), fmt_int(limit)))
+    limit = soft_limit(ev.get("agent_type"), scale) if aid and files else None
+    if limit:
+        run = (reg_get(d, aid) or {}).get("started")
+        fst = st["files"].get(subagent_file(files, aid)) or {}
+        seg = int(fst.get("seg") or 0) if fst.get("seg_run") == run else 0
+        warned = st.setdefault("soft_agents", {})
+        if seg >= limit and not (aid in warned and warned[aid] == run):
+            warned[aid] = run
+            notes.append("Soft token limit reached for this run: you have used %s context tokens "
+                         "since you were started or resumed (soft limit for %s: %s)."
+                         % (fmt_int(seg), norm(ev.get("agent_type")), fmt_int(limit)))
+    if not notes:
+        return None
+    return " ".join(notes + [SOFT_WRAP_UP if aid else SOFT_WRAP_UP_MAIN])
+
+
+def soft_flush():
+    """Deliver a queued soft-limit warning when no other output carried it (emit exits)."""
+    if _SOFT_NOTE:
+        emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                     "additionalContext": _SOFT_NOTE[0]}})
 
 
 # ---------------------------------------------------------------- MCP call cap
@@ -3476,6 +3683,7 @@ def budget_main(raw):
         raise
     except Exception as exc:  # noqa: BLE001 - fail open by design
         warn("token budget: %s: %s" % (type(exc).__name__, exc))
+    soft_flush()
     return 0
 
 
@@ -9008,6 +9216,87 @@ def budget_self_test():
         problems.append("token budget parser: %s: %s" % (type(exc).__name__, exc))
     finally:
         shutil.rmtree(tmp, ignore_errors=True)
+    return problems + soft_self_test()
+
+
+def soft_self_test():
+    """Soft limits: every agent type has an entry; a run's segment counts only calls after its
+    start; soft_check warns at the limit, once per segment and once per prompt, never for the
+    orchestrator, scaled by STACK_SOFT_LIMIT_SCALE (0 = off)."""
+    import shutil
+    import tempfile
+    problems = []
+    if set(SOFT_LIMITS) != set(AGENTS):
+        problems.append("SOFT_LIMITS != AGENTS: %s" % sorted(set(SOFT_LIMITS) ^ set(AGENTS)))
+    unlimited = sorted(t for t, v in SOFT_LIMITS.items() if v is None)
+    if unlimited != ["blackcat", "orchestrator"] or any(
+            v is not None and (not isinstance(v, int) or v <= 0) for v in SOFT_LIMITS.values()):
+        problems.append("SOFT_LIMITS: only blackcat and orchestrator may be unlimited (%s)"
+                        % unlimited)
+    saved = os.environ.get("STACK_SOFT_LIMIT_SCALE")
+    tmp = tempfile.mkdtemp(prefix="agent-guard-soft-")
+    try:
+        files = (os.path.join(tmp, "s.jsonl"), os.path.join(tmp, "s", "subagents"))
+        os.makedirs(files[1])
+        path = subagent_file(files, "a1")
+        t0 = 1790000000.25
+
+        def call(mid, n, t):
+            return json.dumps({"type": "assistant", "requestId": "r" + mid, "timestamp":
+                               iso_stamp(t), "message": {"id": mid, "usage": {
+                                   "input_tokens": n, "cache_read_input_tokens": 0}}}) + "\n"
+        with open(path, "w") as f:
+            f.write(call("m1", 500, t0 - 5) + call("m2", 70, t0 + 1))
+        fst = {}
+        n = scan_transcript(path, fst, time.monotonic() + 5, scan_stats(), lambda: t0)
+        if (n, fst.get("seg"), fst.get("seg_run")) != (570, 70, t0):
+            problems.append("soft segment count %s/%s; expected 570 total, 70 in the run"
+                            % (n, fst.get("seg")))
+        if subagent_of_file(files, path) != "a1" or subagent_of_file(files, files[0]) is not None:
+            problems.append("soft: subagent_of_file does not map agent-<id>.jsonl")
+        reg_put(tmp, "a1", {"type": "scout", "started": t0})
+        reg_put(tmp, "o1", {"type": "orchestrator", "started": t0})
+        lim = SOFT_LIMITS["scout"]
+
+        def st(seg, used=0, run=t0):
+            return {"files": {path: {"seg": seg, "seg_run": run},
+                              subagent_file(files, "o1"): {"seg": 10 ** 12, "seg_run": t0}},
+                    "total": 1000 + used, "prompt_base": 1000}
+        scout = {"agent_id": "a1", "agent_type": "scout"}
+        cases = [("1", st(lim - 1), scout, False), ("1", st(lim), scout, True),
+                 ("1", st(lim * 2, run=t0 - 9), scout, False),          # an earlier run's count
+                 ("0", st(lim * 9), scout, False), ("2", st(lim * 2 - 1), scout, False),
+                 ("2", st(lim * 2), scout, True),
+                 ("1", st(lim), {"agent_id": "a1", "agent_type": "Scout"}, True),
+                 ("1", st(0), {"agent_id": "o1", "agent_type": "orchestrator"}, False),
+                 ("1", st(0, SOFT_PROMPT_CTX - 1), {}, False),
+                 ("1", st(0, SOFT_PROMPT_CTX), {}, True), ("0", st(0, SOFT_PROMPT_CTX * 9), {},
+                                                           False),
+                 ("bogus", st(lim), scout, True)]
+        for scale, state, ev, want in cases:
+            os.environ["STACK_SOFT_LIMIT_SCALE"] = scale
+            got = soft_check(state, ev, files, tmp)
+            if bool(got) != want:
+                problems.append("soft_check scale=%s %s: %r, expected %s"
+                                % (scale, ev.get("agent_type") or "main", got, want))
+        os.environ["STACK_SOFT_LIMIT_SCALE"] = "1"
+        once = st(lim, SOFT_PROMPT_CTX)
+        first = soft_check(once, scout, files, tmp) or ""
+        if "for this prompt" not in first or "for this run" not in first \
+                or "STATUS: partial" not in first or soft_check(once, scout, files, tmp):
+            problems.append("soft_check: not one warning per segment and prompt: %r" % first)
+        reg_put(tmp, "a1", {"started": t0 + 60})        # a resume: a new segment and allowance
+        once["files"][path] = {"seg": lim, "seg_run": t0 + 60}
+        if not soft_check(once, scout, files, tmp):
+            problems.append("soft_check: a resumed run was not warned again")
+    except Exception as exc:  # noqa: BLE001 - report, do not crash
+        problems.append("soft limits: %s: %s" % (type(exc).__name__, exc))
+    finally:
+        if saved is None:
+            os.environ.pop("STACK_SOFT_LIMIT_SCALE", None)
+        else:
+            os.environ["STACK_SOFT_LIMIT_SCALE"] = saved
+        shutil.rmtree(tmp, ignore_errors=True)
     return problems
 
 
@@ -9068,6 +9357,8 @@ def dispatch(ev):
         except Exception as exc:  # noqa: BLE001
             warn("token budget: %s: %s" % (type(exc).__name__, exc))
     handler(ev, d)
+    if event == "PreToolUse":
+        soft_flush()      # a soft-limit warning the handler's own output did not carry
 
 
 def main(argv):
