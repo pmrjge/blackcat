@@ -1,6 +1,6 @@
 ---
 name: py-uv-packaging
-description: Use for uv projects and Python packaging — uv workflow, lockfiles, PEP 723 scripts, pyproject layout, building wheels.
+description: Use for uv projects and Python packaging — lockfiles, PEP 723 scripts, pyproject layout, wheels.
 ---
 # uv projects and Python packaging
 

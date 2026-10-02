@@ -1,6 +1,6 @@
 ---
 name: git-workflows
-description: Load before git work beyond a plain commit — worktrees, rebase/squash, history edits, conflicts, bisect, reflog recovery, LFS, signing.
+description: Use for git beyond a plain commit — worktrees, rebase/squash, history edits, conflicts, bisect, reflog, LFS, signing.
 ---
 # Git workflows (solo and multi-agent)
 

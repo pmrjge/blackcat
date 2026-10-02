@@ -1,6 +1,6 @@
 ---
 name: git-history-edit
-description: Use to rewrite or repair unpushed git history — fixup/autosquash, rebase --onto, conflict resolution, removing secrets with filter-repo.
+description: Use to rewrite unpushed git history — fixup/autosquash, rebase --onto, conflicts, filter-repo.
 ---
 # Editing history, conflicts and secret removal
 

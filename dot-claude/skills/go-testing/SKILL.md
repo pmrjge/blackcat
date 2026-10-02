@@ -1,6 +1,6 @@
 ---
 name: go-testing
-description: Use for Go tests — table tests and subtests, synctest for time and concurrency, fuzzing, b.Loop benchmarks, coverage in CI.
+description: Use for Go tests — table tests, synctest, fuzzing, b.Loop benchmarks, coverage.
 ---
 # Go testing
 

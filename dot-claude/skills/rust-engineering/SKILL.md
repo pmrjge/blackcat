@@ -1,6 +1,6 @@
 ---
 name: rust-engineering
-description: Load before writing, reviewing or releasing Rust — workspaces, edition 2024, errors, ownership, tokio, unsafe, tests, clippy, serde.
+description: Use for any Rust work — workspaces, edition 2024, errors, ownership, tokio, unsafe, tests, clippy, serde, releases.
 ---
 # Rust engineering
 

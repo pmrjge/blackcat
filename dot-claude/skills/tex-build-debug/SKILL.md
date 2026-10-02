@@ -1,6 +1,6 @@
 ---
 name: tex-build-debug
-description: Use to build or debug LaTeX — latexmk, Tectonic, code listings, reading the log, reproducible builds, Pandoc conversion.
+description: Use to build or debug LaTeX — latexmk, Tectonic, listings, log errors, Pandoc conversion.
 ---
 # Building LaTeX, reading the log, reproducible builds, conversion
 

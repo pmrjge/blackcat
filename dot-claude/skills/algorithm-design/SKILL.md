@@ -1,6 +1,6 @@
 ---
 name: algorithm-design
-description: Use when a problem needs a non-trivial algorithm or data structure — complexity budget, technique catalog, solvers, proofs, stress tests.
+description: Use when a problem needs a non-trivial algorithm or data structure — techniques, solvers, proofs, stress tests.
 ---
 # Algorithm design
 

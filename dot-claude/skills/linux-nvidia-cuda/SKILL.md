@@ -1,6 +1,6 @@
 ---
 name: linux-nvidia-cuda
-description: Use for NVIDIA GPUs on Linux — open driver, CUDA toolkit, PyTorch wheels with uv, hybrid graphics, suspend, GPU containers.
+description: Use for NVIDIA on Linux — driver, CUDA, PyTorch wheels, hybrid graphics, suspend, GPU containers.
 ---
 # NVIDIA driver, CUDA and PyTorch on the Linux laptop
 

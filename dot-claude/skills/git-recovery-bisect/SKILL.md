@@ -1,6 +1,6 @@
 ---
 name: git-recovery-bisect
-description: Use to recover lost git work (reflog, ORIG_HEAD, fsck) or to find the commit that caused a regression with git bisect.
+description: Use to recover lost git work (reflog, fsck) or find a regression with git bisect.
 ---
 # Recovery and bisect
 

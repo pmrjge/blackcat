@@ -1,6 +1,6 @@
 ---
 name: ts-types-validation
-description: Use for TypeScript type design and runtime validation — zod 4 schemas at boundaries, unions, branded types, generics.
+description: Use for TS type design and runtime validation — zod 4, unions, brands, generics.
 ---
 # TypeScript types and runtime validation
 

@@ -1,6 +1,6 @@
 ---
 name: net-vpn-firewall
-description: Use for WireGuard tunnels or host firewalls — nftables, ufw, firewalld, macOS pf, changing a remote firewall without lockout.
+description: Use for WireGuard or host firewalls — nftables, ufw, firewalld, macOS pf, avoiding lockout.
 ---
 # VPN tunnels and host firewalls
 

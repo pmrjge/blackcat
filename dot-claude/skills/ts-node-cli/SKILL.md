@@ -1,6 +1,6 @@
 ---
 name: ts-node-cli
-description: Use for Node packages, CLIs and MCP servers in TS — ESM vs CJS, package exports maps, Node version managers, pnpm/npm.
+description: Use for Node packages and CLIs — ESM vs CJS, exports maps, Node version managers, pnpm/npm.
 ---
 # Node packages, package managers and CLIs
 

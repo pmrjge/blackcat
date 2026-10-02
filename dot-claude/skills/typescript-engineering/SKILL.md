@@ -1,6 +1,6 @@
 ---
 name: typescript-engineering
-description: Load before writing, building or testing TypeScript or JavaScript — TS 7 vs 6, tsconfig, ESM/CJS, Node, pnpm, Vite, linting, Vitest, zod.
+description: Use for TypeScript or JavaScript — TS 7 vs 6, tsconfig, ESM/CJS, Node, pnpm, Vite, linting, Vitest, zod.
 ---
 # TypeScript engineering
 

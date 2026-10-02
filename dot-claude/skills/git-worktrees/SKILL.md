@@ -1,6 +1,6 @@
 ---
 name: git-worktrees
-description: Use for parallel work in git worktrees — one branch per task, shared repo state, fast-forward merging back and cleanup.
+description: Use for parallel work in git worktrees — a branch per task, shared state, merging back, cleanup.
 ---
 # Worktrees for parallel agents
 

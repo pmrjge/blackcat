@@ -1,6 +1,6 @@
 ---
 name: macos-app-distribution
-description: Load before packaging, signing, notarizing or publishing a macOS app — app bundles, universal binaries, Developer ID, DMG, Sparkle, brew.
+description: Use to package, sign, notarize or publish a macOS app — bundles, universal binaries, DMG, Sparkle, Homebrew.
 ---
 # macOS app distribution
 

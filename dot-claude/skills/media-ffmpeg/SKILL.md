@@ -1,6 +1,6 @@
 ---
 name: media-ffmpeg
-description: Load before running ffmpeg or ffprobe — probing, H.264/HEVC/AV1/ProRes encodes, trims, concat, scaling, GIFs, loudnorm, subtitles, batch.
+description: Use before running ffmpeg or ffprobe — probing, encodes, trims, concat, scaling, GIFs, loudnorm, subtitles, batch.
 ---
 # ffmpeg and ffprobe recipes
 

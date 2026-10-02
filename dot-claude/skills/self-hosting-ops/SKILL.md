@@ -1,6 +1,6 @@
 ---
 name: self-hosting-ops
-description: Load before running a personal service on a Linux box — Tailscale, Forgejo, containers, systemd, Caddy, backups, k8s, cloud, networking.
+description: Use for personal services on a Linux box — Tailscale, Forgejo, containers, systemd, Caddy, backups, k8s, cloud, networks.
 ---
 # Self-hosting over Tailscale (and the infrastructure around it)
 
@@ -36,9 +36,9 @@ Forgejo Runner 13: unverified (code.forgejo.org unreachable from the sandbox).
 | `cloud-gcp` | gcloud and projects: ADC, service accounts, Workload Identity, Cloud Run, costs |
 | `obs-otel` | OpenTelemetry traces, metrics, logs, the Collector, SLO alerts |
 | `net-diagnostics` | layer-by-layer network debugging: DNS, routes, ports, TLS, MTU, packet captures |
-| `net-protocols` | DNS records, HTTP versions and caching, TLS and ACME, IP ranges and IPv6 |
 | `net-vpn-firewall` | WireGuard, nftables/ufw/firewalld, macOS pf, safe remote firewall changes |
 
+Read `references/net-protocols.md` for protocol facts (DNS records, HTTP, TLS and ACME, IP ranges, IPv6).
 Read `references/containers.md` when choosing Docker Compose or Podman Quadlet, pinning images, or running a container as a systemd unit.
 
 ## Secrets

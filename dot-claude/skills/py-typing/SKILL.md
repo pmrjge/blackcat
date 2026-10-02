@@ -1,6 +1,6 @@
 ---
 name: py-typing
-description: Use for Python type checking and linting — ruff and checker config, basedpyright/mypy/ty, typing features, dataclasses vs pydantic.
+description: Use for Python typing and linting — ruff, basedpyright/mypy/ty, typing features, data containers.
 ---
 # Python typing and linting
 

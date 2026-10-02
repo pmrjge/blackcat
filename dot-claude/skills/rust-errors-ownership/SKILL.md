@@ -1,6 +1,6 @@
 ---
 name: rust-errors-ownership
-description: Use for Rust error types (thiserror, anyhow), panics and borrow-checker fights — ownership patterns; async code is in rust-async.
+description: Use for Rust error types (thiserror, anyhow), panics and borrow-checker fights.
 ---
 # Rust errors and ownership
 

@@ -1,6 +1,6 @@
 ---
 name: docs-sites
-description: Use to build a documentation site — choosing Zensical/MkDocs, Sphinx, Docusaurus, Starlight or VitePress, setup, CI checks.
+description: Use to build a docs site — Zensical/MkDocs, Sphinx, Docusaurus, Starlight, VitePress.
 ---
 # Documentation sites
 

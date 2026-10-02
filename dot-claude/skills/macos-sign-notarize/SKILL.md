@@ -1,6 +1,6 @@
 ---
 name: macos-sign-notarize
-description: Use to sign and notarize a macOS app — Developer ID, entitlements, sandbox, notarytool and stapling, Gatekeeper errors, CI signing.
+description: Use to sign and notarize a macOS app — Developer ID, entitlements, notarytool, Gatekeeper, CI.
 ---
 # Signing and notarizing a macOS app
 

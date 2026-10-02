@@ -1,6 +1,6 @@
 ---
 name: technical-writing
-description: Load before drafting or editing technical or scientific prose — papers, blog posts, docs, READMEs, ADRs, reports; style, maths, citations.
+description: Use to draft or edit technical or scientific prose — papers, posts, docs, READMEs, ADRs, reports; style, maths, citations.
 ---
 # Technical and scientific writing
 
@@ -27,7 +27,6 @@ Then outline as a list of *assertions* (each heading is a claim, not a topic: "C
 | Module | Load for |
 |---|---|
 | `write-articles` | papers (IMRaD, maths), blog posts and articles: abstract formula, mathematical exposition, figures and tables, citations, blog outline |
-| `write-reports` | reports, memos, status, email, incidents (inverted pyramid); research summaries |
 | `write-docs-adr` | documentation (Diátaxis), code in prose, READMEs, ADRs, changelogs and release notes, Vale prose linting |
 | `docs-sites` | building a documentation site: Zensical or MkDocs Material, Sphinx, Docusaurus, Starlight, VitePress |
 
@@ -66,6 +65,7 @@ Then outline as a list of *assertions* (each heading is a claim, not a topic: "C
 Prose linting with Vale: `write-docs-adr`. LanguageTool (en-US, en-GB, pt-PT) for grammar; `chktex` for LaTeX sources. Linters flag candidates; you decide.
 
 ## Verify
+- Reports, memos, status, incidents (inverted pyramid) and research summaries: read `references/reports.md`.
 - Before delivery run `references/review-checklist.md` (read when reviewing a draft, yours or someone else's).
 - Cold read by someone with the target background (or a fresh session given only the document): can they state
   the main claim and perform the task? Note where they stalled.

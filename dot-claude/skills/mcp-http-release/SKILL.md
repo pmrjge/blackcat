@@ -1,10 +1,10 @@
 ---
 name: mcp-http-release
-description: Use to serve an MCP server over HTTP, register it in Claude Code, or ship it — MCPB bundles, MCP Apps, release checklist.
+description: Use to serve an MCP server over HTTP, register it in Claude Code, or ship it (MCPB, MCP Apps).
 ---
 # MCP over HTTP, registration and release
 
-Part of `mcp-server-craft` (tool design, security reference). Server code: `mcp-python-server`, `mcp-ts-server`.
+Part of `mcp-server-craft` (tool design, security reference). Server code: `mcp-python-server`; TypeScript in `references/typescript-server.md` of `mcp-server-craft`.
 
 ## Streamable HTTP (remote or shared servers)
 - 2.x: `mcp.run(transport="streamable-http", host="127.0.0.1", port=8765, stateless_http=True, json_response=True)`

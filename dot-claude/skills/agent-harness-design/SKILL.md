@@ -1,6 +1,6 @@
 ---
 name: agent-harness-design
-description: Load before designing or building an agent runtime or agentic app — loop, stop rules, tools, sandboxes, context, memory, multi-agent, evals.
+description: Use to design or build an agent runtime — loop, stop rules, tools, sandboxes, context, memory, multi-agent, evals.
 ---
 # Agent harness design
 

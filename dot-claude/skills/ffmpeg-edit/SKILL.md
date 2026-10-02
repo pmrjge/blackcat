@@ -1,6 +1,6 @@
 ---
 name: ffmpeg-edit
-description: Use to cut and reshape video with ffmpeg — trim, concat, scale/pad/crop, fps and speed, stills, GIFs, image sequences, overlays.
+description: Use to edit video with ffmpeg — trim, concat, scale/crop, fps and speed, stills, GIFs, overlays.
 ---
 # ffmpeg editing: cuts, geometry, time, stills, overlays
 

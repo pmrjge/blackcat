@@ -1,6 +1,6 @@
 ---
 name: cloud-gcp
-description: Use for Google Cloud work from gcloud — configurations, ADC, service accounts, Cloud Run, Cloud Storage, logs, costs.
+description: Use for Google Cloud from gcloud — configs, ADC, service accounts, Cloud Run, buckets, costs.
 ---
 # Google Cloud from the command line
 

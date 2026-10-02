@@ -1,6 +1,6 @@
 ---
 name: tex-math-bib
-description: Use for LaTeX content — amsmath and theorems, cross-references, cleveref, biblatex bibliographies, fonts, algorithms.
+description: Use for LaTeX maths and references — amsmath, theorems, cleveref, biblatex, fonts, algorithms.
 ---
 # LaTeX mathematics, references, bibliographies and fonts
 

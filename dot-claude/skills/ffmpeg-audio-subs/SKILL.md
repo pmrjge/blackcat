@@ -1,6 +1,6 @@
 ---
 name: ffmpeg-audio-subs
-description: Use for audio and subtitles with ffmpeg — extract or replace audio, ducking, loudness and loudnorm, burned or soft subtitles.
+description: Use for audio and subtitles in ffmpeg — extract, replace, ducking, loudnorm, burned or soft subs.
 ---
 # ffmpeg audio, loudness and subtitles
 

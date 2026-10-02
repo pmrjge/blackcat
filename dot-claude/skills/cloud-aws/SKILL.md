@@ -1,6 +1,6 @@
 ---
 name: cloud-aws
-description: Use for AWS work from the CLI — v2 with SSO profiles, IAM least privilege, S3, cost control, CloudTrail logs.
+description: Use for AWS from the CLI — SSO profiles, IAM least privilege, S3, costs, CloudTrail.
 ---
 # AWS from the command line
 

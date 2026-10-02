@@ -1,6 +1,6 @@
 ---
 name: ops-tailscale
-description: Use for Tailscale on a server — node names, serve and Funnel, tags and grants policy, Tailscale SSH, exit nodes, certificates.
+description: Use for Tailscale on servers — serve, Funnel, tags and grants, Tailscale SSH, exit nodes, certs.
 ---
 # Tailscale for self-hosted services
 

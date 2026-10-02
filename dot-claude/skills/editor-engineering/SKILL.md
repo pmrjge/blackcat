@@ -1,6 +1,6 @@
 ---
 name: editor-engineering
-description: Load before building text or code editor internals or IDE features — ropes, cursors, undo, tree-sitter, LSP/DAP, terminals, rendering.
+description: Use to build text-editor internals or IDE features — ropes, undo, tree-sitter, LSP/DAP, terminals, rendering.
 ---
 # Editor engineering
 

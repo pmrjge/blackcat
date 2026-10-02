@@ -1,6 +1,6 @@
 ---
 name: ts-tooling
-description: Use for TypeScript project tooling — TS 6 vs 7, strict tsconfig, Vite/tsdown builds, linting and formatting with ESLint, oxlint or Biome.
+description: Use for TS tooling — TS 6 vs 7, strict tsconfig, Vite/tsdown builds, ESLint, oxlint, Biome.
 ---
 # TypeScript tooling
 

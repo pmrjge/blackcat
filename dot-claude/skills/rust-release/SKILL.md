@@ -1,6 +1,6 @@
 ---
 name: rust-release
-description: Use when preparing a Rust crate or binary for release — feature flags, MSRV, public API checks, release profiles, cross-compiling.
+description: Use to release a Rust crate or binary — features, MSRV, public API, release profiles, cross-compiling.
 ---
 # Rust release builds and API policy
 

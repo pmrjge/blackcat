@@ -1,6 +1,6 @@
 ---
 name: py-testing
-description: Use for Python tests — pytest config and fixtures, hypothesis property tests, snapshots, coverage, parallel runs with xdist.
+description: Use for Python tests — pytest config and fixtures, hypothesis, snapshots, coverage, xdist.
 ---
 # Python testing
 

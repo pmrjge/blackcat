@@ -1,6 +1,6 @@
 ---
 name: diag-tikz
-description: Use for TikZ diagrams — tikz-cd commutative diagrams, quiver, string diagrams, TikZiT, converting PDF/DVI to SVG and PNG.
+description: Use for TikZ diagrams — tikz-cd, quiver, string diagrams, TikZiT, SVG/PNG conversion.
 ---
 # TikZ: tikz-cd, quiver, string diagrams
 

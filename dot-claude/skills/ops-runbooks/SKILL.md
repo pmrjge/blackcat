@@ -1,6 +1,6 @@
 ---
 name: ops-runbooks
-description: Use to monitor a self-hosted service, write its runbook, or work through an incident; OpenTelemetry metrics and traces are in obs-otel.
+description: Use to monitor a self-hosted service, write its runbook or handle an incident.
 ---
 # Monitoring, runbooks and incidents
 

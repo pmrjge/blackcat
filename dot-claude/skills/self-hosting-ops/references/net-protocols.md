@@ -1,8 +1,6 @@
----
-name: net-protocols
-description: Use for the protocol facts behind a network design or fix — DNS records, HTTP semantics, TLS and ACME, private ranges, IPv6.
----
 # Network protocols: the working facts
+
+Read when a network design or fix depends on DNS, HTTP, TLS/ACME or addressing facts (was the `net-protocols` skill).
 
 Part of `self-hosting-ops` (principles). Debugging commands: `net-diagnostics`; web security headers and CORS in depth: `secure-coding`.
 

@@ -1,8 +1,6 @@
----
-name: write-reports
-description: Use to write reports, memos, status updates, incident write-ups or research summaries — answer first, then evidence.
----
 # Reports, memos and research summaries
+
+Read when writing a report, memo, status update, incident write-up or research summary (was the `write-reports` skill).
 
 Part of `technical-writing` (reader/purpose/claim, sentences, editing passes, checklist). Statistical reporting: `data-analysis`; ML evidence: `ml-experiment`, `llm-evals`.
 

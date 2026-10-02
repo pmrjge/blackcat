@@ -1,6 +1,6 @@
 ---
 name: git-large-repos
-description: Use for big git repos and binary files — LFS and model weights, partial and sparse clones, submodules vs subtrees, .gitattributes.
+description: Use for big git repos and binaries — LFS, model weights, partial/sparse clones, submodules.
 ---
 # Large files, big repositories, submodules and attributes
 

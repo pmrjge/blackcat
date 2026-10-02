@@ -1,6 +1,6 @@
 ---
 name: obs-otel
-description: Use for observability with OpenTelemetry — traces, metrics and logs, the Collector, RED/USE dashboards, SLO burn-rate alerts.
+description: Use for observability — OpenTelemetry traces, metrics, logs, the Collector, SLO alerts.
 ---
 # Observability with OpenTelemetry
 

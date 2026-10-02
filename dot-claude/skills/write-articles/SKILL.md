@@ -1,6 +1,6 @@
 ---
 name: write-articles
-description: Use to write papers, articles or blog posts — structure by genre, mathematical exposition, figures and tables, citations.
+description: Use to write papers, articles or blog posts — structure, maths exposition, figures, citations.
 ---
 # Articles, papers and blog posts
 

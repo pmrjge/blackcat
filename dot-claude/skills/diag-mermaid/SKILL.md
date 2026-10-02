@@ -1,6 +1,6 @@
 ---
 name: diag-mermaid
-description: Use to write or render Mermaid diagrams (Mermaid 12, mmdc) and Excalidraw sketches — syntax, SVG caveats, pitfalls.
+description: Use for Mermaid diagrams and Excalidraw — Mermaid 12 syntax, mmdc rendering, pitfalls.
 ---
 # Mermaid (and Excalidraw)
 

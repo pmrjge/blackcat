@@ -1,6 +1,6 @@
 ---
 name: ops-backups
-description: Use to set up, check or restore backups — restic or borg, database dumps, 3-2-1 policy, append-only repos, restore drills.
+description: Use to set up, check or restore backups — restic, borg, database dumps, 3-2-1, restore drills.
 ---
 # Backups with restic or borg
 

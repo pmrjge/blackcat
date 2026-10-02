@@ -1,6 +1,6 @@
 ---
 name: mcp-server-craft
-description: Load before building, testing, registering or packaging an MCP server — tool design, Python or TS SDK, stdio/HTTP, stack registration, MCPB.
+description: Use to build, test, register or package an MCP server — tool design, Python or TS SDK, stdio/HTTP, security, MCPB.
 ---
 # Building MCP servers the way this stack runs them
 
@@ -13,7 +13,6 @@ Current releases (Verified 2026-10-02 https://registry.npmjs.org/<pkg>/latest, h
 | Module | Load for |
 |---|---|
 | `mcp-python-server` | Python SDK 1.x vs 2.x, the PEP 723 server template, stdio hygiene and startup, pinning, unit/in-process/stdio/Inspector tests |
-| `mcp-ts-server` | TypeScript SDK 2.x stdio server, error results, the 1.x API differences |
 | `mcp-http-release` | Streamable HTTP (Python and TS), registering in Claude Code, MCPB bundles, MCP Apps UI, the release checklist |
 
 ## MCP, CLI or skill?
@@ -43,6 +42,8 @@ Current releases (Verified 2026-10-02 https://registry.npmjs.org/<pkg>/latest, h
   They are hints, not enforcement. Writes are idempotent (upsert, idempotency key) or check state first.
 - Every outbound call has a timeout (`httpx.AsyncClient(timeout=30)`, `anyio.fail_after(s)`); long jobs return a job
   id plus a status tool (`get_job(id)`) instead of blocking.
+
+TypeScript servers (SDK 2.x stdio, error results, 1.x differences): read `references/typescript-server.md`.
 
 ## Configuration, secrets and security
 Read `references/security.md` before a tool takes a path, URL, key or shell argument: keys only from the environment, stack.env or

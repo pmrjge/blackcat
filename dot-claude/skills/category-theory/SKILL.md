@@ -1,6 +1,6 @@
 ---
 name: category-theory
-description: Load for any categorical construction, proof or diagram — limits, adjoints, Yoneda, monads, monoidal and 2-categories, string diagrams.
+description: Use for categorical constructions, proofs and diagrams — limits, adjoints, Yoneda, monads, monoidal categories.
 ---
 # Category theory in practice
 
