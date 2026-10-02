@@ -1,6 +1,6 @@
 ---
 name: planner
-description: "Plans before anything is built: requirements, options and trade-offs, steps with owners, risks, verification. Read-only."
+description: "Plans before building: requirements, options and trade-offs, steps with owners, risks, verification. Read-only."
 model: claude-opus-5-5
 effort: xhigh
 maxTurns: 60

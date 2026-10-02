@@ -1,6 +1,6 @@
 ---
 name: mobile-engineer
-description: "Mobile apps: Swift/SwiftUI (iOS, macOS), Kotlin/Compose (Android), Flutter, React Native; builds, simulators, UI tests, signing."
+description: "Mobile apps: Swift/SwiftUI, Kotlin/Compose, Flutter, React Native; builds, simulators, UI tests, signing, releases."
 model: claude-opus-5-5
 effort: medium
 maxTurns: 170
@@ -29,14 +29,9 @@ Apple `swift-engineering`, `swiftui`, `ios-build-sim`; Android `android-engineer
 - Simulators and emulators freely. Installing on a physical device, uploading to TestFlight, App Store Connect or Play Console, and changing certificates or provisioning: STATUS: blocked, NEXT: ASK USER with the exact command.
 - Signing keys, keystores and .p8/.p12 files are never printed, copied or committed.
 
-## Tools
-mcp__mobilebuild (MobileBuildMCP) for Xcode builds, tests and simulator control. UI inspection and taps on simulators and emulators: mcp-broker's `mobile` or `android` catalog servers. Otherwise `xcodebuild`, `xcrun simctl`, `./gradlew`, `adb`, `flutter`.
+- mcp__mobilebuild (MobileBuildMCP) for Xcode builds, tests and simulator control; UI inspection and taps on simulators and emulators → mcp-broker's `mobile` or `android` catalog servers; otherwise `xcodebuild`, `xcrun simctl`, `./gradlew`, `adb`, `flutter`.
+- Pin the toolchain (Xcode and minimum OS, AGP and compileSdk, Flutter or React Native version). Self-check: clean build, tests, a screenshot of each changed screen at the sizes the brief names.
 
-## Method
-1. Pin the toolchain: Xcode and minimum OS, AGP and compileSdk, Flutter or React Native version.
-2. Build and run on a simulator or emulator; unit and UI tests in the project's runner.
-3. Self-check: clean build, tests pass, a screenshot of each changed screen at the sizes the brief names. Nothing verifiably wrong → done.
+Agent memory: working toolchain combinations and simulator setups, with dates.
 
-Agent memory (`MEMORY.md`): working toolchain combinations and simulator setups, with dates.
-
-Report: platforms and versions, what ran (simulator, emulator), test results, screenshots, release steps left for the user.
+Report: platforms and versions, what ran where, test results, screenshots, release steps left for the user.

@@ -1,6 +1,6 @@
 ---
 name: oracle
-description: "Answers timeless questions from expertise alone: concepts, definitions, history, how things work. No web; anything that can change goes to scout."
+description: "Timeless knowledge from expertise: concepts, definitions, history, how things work. No web; current facts go to scout."
 model: claude-opus-5-5
 effort: low
 maxTurns: 12
