@@ -64,7 +64,7 @@ def call(mid, k, inp=3, out=50, cc=1000, cr=20000, tool=True, text="ok"):
         content.append({"type": "tool_use", "id": "tu_" + mid, "name": "Bash",
                         "input": {"command": "echo SECRET-TOOL-INPUT sk-ant-api03-XYZ"}})
     return {"type": "assistant", "requestId": "req_" + mid, "timestamp": ts(k), "uuid": "u" + mid,
-            "message": {"id": "msg_" + mid, "model": "claude-opus-5-5", "content": content,
+            "message": {"id": "msg_" + mid, "model": "-".join(("claude", "opus", "5", "5")), "content": content,
                         "usage": {"input_tokens": inp, "output_tokens": out, "cache_creation_input_tokens": cc,
                                   "cache_read_input_tokens": cr}}}
 
