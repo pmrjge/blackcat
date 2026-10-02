@@ -1,6 +1,6 @@
 ---
 name: sec-web-vulns
-description: Use when untrusted input reaches a sink — SQL, shell, paths, SSRF, XSS, deserialization, ReDoS.
+description: Use when untrusted input reaches a sink — SQL/shell injection, path traversal, SSRF, XSS, CSRF, deserialization; auth is sec-authn-authz.
 ---
 # Vulnerability classes and safe patterns
 Hub: `secure-coding` (input principles, checklist, report format). Version notes are marked Verified or unverified (see Sources).

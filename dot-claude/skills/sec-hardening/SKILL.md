@@ -1,6 +1,6 @@
 ---
 name: sec-hardening
-description: Use when locking down a service, container, host or CI runner — least privilege, sandboxing.
+description: Use when locking down a service, container, host or CI runner — least privilege, dropped capabilities, sandboxing, network limits.
 ---
 # Hardening
 Hub: `secure-coding`. Hardening limits the blast radius of a bug the code review missed; it never replaces fixing the bug. Mechanics live in the platform skills — this module is the order of work and the checks.

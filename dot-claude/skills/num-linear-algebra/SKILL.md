@@ -1,6 +1,6 @@
 ---
 name: num-linear-algebra
-description: Use when solving linear systems, least squares or eigenproblems — factorizations, iterative.
+description: Use when solving linear systems, least squares or eigenproblems — conditioning, picking a factorization, iterative solvers, preconditioners.
 ---
 # Numerical linear algebra
 Hub: `numerical-methods` (conditioning and backward error §3, verification §9; floating point and reproducibility in its `references/`). Environment: `__CLAUDE_DIR__/venvs/sci/bin/python` (NumPy/SciPy).

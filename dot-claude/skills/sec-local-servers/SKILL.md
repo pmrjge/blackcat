@@ -1,6 +1,6 @@
 ---
 name: sec-local-servers
-description: Use when a dev server, daemon or MCP server listens locally — loopback, auth, Origin, CORS.
+description: Use when a dev server, daemon or MCP server listens on the machine — loopback binding, auth tokens, Host and Origin checks, DNS rebinding.
 ---
 # Secure defaults for local servers
 Hub: `secure-coding`.

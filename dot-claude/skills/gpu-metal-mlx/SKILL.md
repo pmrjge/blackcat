@@ -1,6 +1,6 @@
 ---
 name: gpu-metal-mlx
-description: Use when writing a custom Metal kernel through MLX — metal_kernel API, SIMD reductions, capture.
+description: Use when writing a custom Metal kernel through MLX on Apple Silicon — metal_kernel API, SIMD-group reductions, GPU capture, MLX integration.
 ---
 # MLX custom Metal kernels (Apple Silicon)
 Hub: `gpu-kernel-dev` (is a kernel justified, performance model, device table; numerics and correctness in `gpu-kernel-dev` `references/numerics-correctness.md`). Benchmarks: `accelerator-perf`. Version facts here were checked earlier without recorded URLs (unverified as of 2026-10-02) unless a Sources line says otherwise.

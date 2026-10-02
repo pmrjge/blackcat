@@ -1,6 +1,6 @@
 ---
 name: quantum-physics-numerics
-description: Load before simulating a quantum system numerically outside the circuit model — Hamiltonians, exact diagonalization, time evolution, Lindblad, DMRG/TEBD, QuTiP, quimb.
+description: Load before simulating a quantum system outside the circuit model — exact diagonalization, time evolution, Lindblad, DMRG/TEBD, QuTiP.
 ---
 # Quantum physics numerics
 

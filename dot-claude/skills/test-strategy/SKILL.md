@@ -1,6 +1,6 @@
 ---
 name: test-strategy
-description: Load before deciding what and how to test or repairing a weak suite — test levels, oracles, flakiness, seeded-bug checks, mutation, fuzzing, e2e.
+description: Load before deciding what and how to test or repairing a weak suite — test levels, oracles, flakiness, seeded-bug checks; tools in test-*.
 ---
 # Test strategy (hub)
 

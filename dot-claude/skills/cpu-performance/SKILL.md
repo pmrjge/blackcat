@@ -1,6 +1,6 @@
 ---
 name: cpu-performance
-description: Load before measuring or optimizing CPU-side speed or memory on macOS or Linux — benchmarking (criterion, hyperfine, pyperf), profilers (Instruments, samply, perf, py-spy), flags.
+description: Load before measuring or speeding up CPU-bound code on macOS or Linux — benchmark method, criterion, hyperfine, flags; profilers in perf-*.
 ---
 # CPU performance (Apple Silicon macOS, Linux x86-64)
 

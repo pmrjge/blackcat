@@ -1,6 +1,6 @@
 ---
 name: fm-smt-z3
-description: Use when proving arithmetic or bit-level facts with z3 — encodings, invariants, unsat cores.
+description: Use when an arithmetic, bit-vector or invariant claim should be proved by an SMT solver — z3 encodings, counterexample models, unsat cores.
 ---
 # SMT with z3 (Python)
 Hub: `formal-methods` (tool choice, what each result guarantees — §7, report table). Tool versions and commands were checked earlier without recorded URLs: unverified as of 2026-10-02 unless a Sources line says otherwise.

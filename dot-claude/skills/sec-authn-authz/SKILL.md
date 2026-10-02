@@ -1,6 +1,6 @@
 ---
 name: sec-authn-authz
-description: Use when building login, sessions, JWTs, OAuth/OIDC, authorization checks or password storage.
+description: Use when building login, sessions, JWTs, OAuth/OIDC, password storage or authorization checks (IDOR); injection flaws are in sec-web-vulns.
 ---
 # Authentication and authorization
 Hub: `secure-coding`.

@@ -1,6 +1,6 @@
 ---
 name: data-visualization
-description: Load before making a data figure in code (matplotlib, seaborn, plotly, Altair) — chart choice, perception, palettes, labels, uncertainty; Artifact/HTML charts load dataviz.
+description: Load before making a data figure in code — chart choice, perception, palettes, labels, uncertainty; Artifact or HTML charts load dataviz.
 ---
 # Data visualization
 

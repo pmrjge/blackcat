@@ -1,6 +1,6 @@
 ---
 name: perf-profilers
-description: Use when profiling CPU time on macOS or Linux — samply, Instruments, perf, py-spy, counters.
+description: Use when profiling CPU time on macOS or Linux — samply, Instruments, perf, py-spy, hardware counters, reading flame graphs.
 ---
 # CPU profilers — cheap and broad first
 Hub: `cpu-performance` (workflow, benchmarking discipline, usual wins, report). Heap and leaks: `perf-memory`. Kernel-level tracing (eBPF, bpftrace): `linux-kernel-ebpf`. Native crashes and debuggers: `debug-native`. Tool details were checked earlier without recorded URLs: unverified as of 2026-10-02 unless a Sources line says otherwise.

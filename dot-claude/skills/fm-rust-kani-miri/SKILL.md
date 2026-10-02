@@ -1,6 +1,6 @@
 ---
 name: fm-rust-kani-miri
-description: Use when checking Rust for panics, overflow or UB — Kani proofs, Miri, loom, sanitizers.
+description: Use when Rust code must be shown free of panics, overflow or UB — Kani bounded proofs, Miri, loom for concurrency, sanitizers.
 ---
 # Rust: Kani, Miri, loom
 Hub: `formal-methods` (tool choice, what each result guarantees — §7, report table). Tool versions and commands were checked earlier without recorded URLs: unverified as of 2026-10-02 unless a Sources line says otherwise.

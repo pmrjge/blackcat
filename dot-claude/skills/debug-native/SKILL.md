@@ -1,6 +1,6 @@
 ---
 name: debug-native
-description: Use when native code crashes, hangs or corrupts memory — lldb/gdb, core dumps, sanitizers, rr.
+description: Use when C, C++, Rust or a native extension crashes, hangs or corrupts memory — sanitizers, lldb/gdb, core dumps, rr, debug symbols.
 ---
 # Debugging native code (C, C++, Rust, extensions)
 

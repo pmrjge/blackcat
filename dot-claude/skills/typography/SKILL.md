@@ -1,6 +1,6 @@
 ---
 name: typography
-description: Load before choosing, setting or specifying type for print or screen — pairing, scales, measure, leading, kerning, OpenType, Portuguese conventions, web fonts, licensing, QA.
+description: Load before choosing, setting or specifying type for print or screen — pairing, scale, measure, leading, kerning, OpenType, web fonts.
 ---
 # Typography
 

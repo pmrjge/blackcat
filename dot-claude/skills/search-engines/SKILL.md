@@ -1,6 +1,6 @@
 ---
 name: search-engines
-description: Use when building full-text or hybrid search — engine choice, analyzers, BM25, relevance evals.
+description: Use when building full-text or hybrid search — Elasticsearch, OpenSearch, Meilisearch, Typesense, Tantivy; analyzers, BM25, relevance.
 ---
 # Search engines (full-text and hybrid)
 

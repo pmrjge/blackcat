@@ -1,6 +1,6 @@
 ---
 name: sec-crypto
-description: Use when code encrypts, signs, hashes, derives keys or sets TLS — vetted APIs, AEAD nonces.
+description: Use when code encrypts, signs, hashes, derives keys or configures TLS — vetted libraries, AEAD and nonces; storing secrets is sec-secrets.
 ---
 # Cryptography
 Hub: `secure-coding`.

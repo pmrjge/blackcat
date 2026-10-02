@@ -1,6 +1,6 @@
 ---
 name: print-production
-description: Load before building, exporting or checking any file meant for print — trim, bleed, dielines, ppi, CMYK and ink limits, spot colors, overprint, PDF/X, preflight, proofs.
+description: Load before building or checking a file for print — trim, bleed, dielines, ppi, CMYK, ink limits, spot colors, overprint, PDF/X, preflight.
 ---
 # Print production and prepress
 

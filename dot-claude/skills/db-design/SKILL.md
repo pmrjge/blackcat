@@ -1,6 +1,6 @@
 ---
 name: db-design
-description: Load before choosing a database or designing a schema — engine choice, keys, constraints, indexes from queries, migrations, Postgres, MySQL, SQLite, MongoDB, Redis.
+description: Load before choosing a database or designing a schema — engine choice, keys, constraints, indexes from queries; engine detail in its skill.
 ---
 # Database design (hub)
 

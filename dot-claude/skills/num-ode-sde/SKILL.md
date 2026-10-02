@@ -1,6 +1,6 @@
 ---
 name: num-ode-sde
-description: Use when integrating ODEs or SDEs — tolerances, stiffness, symplectic, strong/weak order.
+description: Use when integrating ODEs or SDEs — tolerances, stiffness and implicit solvers, symplectic schemes, strong vs weak order.
 ---
 # ODE and SDE integration
 Hub: `numerical-methods` (verification §9 — convergence-order fits and manufactured solutions; floating point, reproducibility and the library table in its `references/`). Environment: `__CLAUDE_DIR__/venvs/sci/bin/python`.

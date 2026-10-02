@@ -1,6 +1,6 @@
 ---
 name: test-fuzzing
-description: Use when fuzzing parsers or untrusted-input code — cargo-fuzz, atheris, AFL++, Go fuzzing.
+description: Use when fuzzing parsers or code that takes untrusted input — cargo-fuzz, atheris, AFL++, Go fuzzing; corpora, crash minimization.
 ---
 # Fuzzing
 Hub: `test-strategy`. Fuzzing is evidence on executed inputs and paths only: report coverage and budget, not "safe" (`formal-methods` §7).

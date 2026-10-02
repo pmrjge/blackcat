@@ -1,6 +1,6 @@
 ---
 name: numerical-methods
-description: Load before writing or trusting any numerical computation — IEEE 754 and low-precision formats, conditioning, solvers, ODE/SDE schemes, quadrature, autodiff, mpmath checks.
+description: Load before writing or trusting a numerical computation — conditioning, stability, reproducibility; floating point, solvers, ODEs in num-*.
 ---
 # Numerical methods
 

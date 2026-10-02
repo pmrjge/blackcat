@@ -1,6 +1,6 @@
 ---
 name: num-optimization
-description: Use when finding roots or minimizing with scipy.optimize — brackets, Newton, BFGS, least squares.
+description: Use when finding roots or minimizing smooth functions with scipy.optimize — bracketing, Newton, BFGS, least squares; LP/MIP is opt-modeling.
 ---
 # Nonlinear equations and optimization
 Hub: `numerical-methods` (conditioning §3, verification §9; reproducibility in `numerical-methods` `references/reproducibility.md`). Environments: `__CLAUDE_DIR__/venvs/sci/bin/python`, `__CLAUDE_DIR__/venvs/ml/bin/python`. Version-specific API notes were checked in Sept 2026 without recorded URLs (unverified as of 2026-10-02); latest releases are Verified in the hub.

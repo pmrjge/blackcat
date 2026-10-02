@@ -1,6 +1,6 @@
 ---
 name: debug-bisect-minimize
-description: Use when finding the change or minimal input behind a bug — git bisect run, delta debugging, cvise.
+description: Use when a bug needs its first bad commit or smallest failing input — pass/fail check scripts, git bisect run, delta debugging, cvise.
 ---
 # Bisecting and minimizing
 

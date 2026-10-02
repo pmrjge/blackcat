@@ -1,6 +1,6 @@
 ---
 name: db-migrations
-description: Use when changing a live database schema — tools, expand/contract, backfills, locks, rollback.
+description: Use when changing a live database schema — migration tools, expand/contract, batched backfills, lock-safe DDL, rollback plans.
 ---
 # Schema migrations
 Hub: `db-design`. Engine-specific safe DDL: `postgresql` (Migrations without downtime), `mysql` (online DDL), `sqlite` (ALTER limits and the 12-step rebuild), `mongodb` (schema versioning, validators).

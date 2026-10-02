@@ -1,6 +1,6 @@
 ---
 name: sec-secrets
-description: Use when storing, passing, logging or scanning secrets, or after a leak — keychains, gitleaks.
+description: Use when storing, passing, logging or scanning secrets, or after a leak — keychains, env and files, gitleaks, rotation.
 ---
 # Secrets
 Hub: `secure-coding`. When a scanner finds a secret, report its location and type, never its value.

@@ -1,6 +1,6 @@
 ---
 name: dep-upgrades
-description: Use when upgrading dependencies or toolchains — batching, changelogs, semver checks, bots, rollbacks.
+description: Use when upgrading dependencies or toolchains — batching, changelogs, semver checks, update bots, rollback; vetting is sec-supply-chain.
 ---
 # Dependency and toolchain upgrades
 

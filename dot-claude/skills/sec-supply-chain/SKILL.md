@@ -1,6 +1,6 @@
 ---
 name: sec-supply-chain
-description: Use when adding, locking, auditing or publishing dependencies — cooldowns, install scripts.
+description: Use when adding, pinning, auditing or publishing dependencies — lockfiles, cooldowns, install scripts, provenance; upgrades in dep-upgrades.
 ---
 # Dependencies and supply chain
 Hub: `secure-coding`. Version notes carry Verified lines (see Sources) or are marked unverified.

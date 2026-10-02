@@ -1,6 +1,6 @@
 ---
 name: a11y-mobile
-description: Use when making a mobile app accessible — iOS, Android, Flutter, React Native APIs and audits.
+description: Use when making an iOS, Android, Flutter or React Native app accessible — platform APIs, Dynamic Type, audits; web UI is a11y-aria-patterns.
 ---
 # Mobile accessibility
 Hub: `web-accessibility` (target, legal frame, contrast); report format: `a11y-audit`. The same WCAG 2.2 AA success criteria apply to apps through W3C's WCAG2ICT guidance; the European Accessibility Act covers the apps of covered services (banking, e-commerce, transport, e-books) — scope details unverified here, see the hub's legal frame.

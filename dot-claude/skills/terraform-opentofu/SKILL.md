@@ -1,6 +1,6 @@
 ---
 name: terraform-opentofu
-description: Load before writing, planning or reviewing infrastructure as code — Terraform vs OpenTofu, state and locking, plan/apply, modules, moved/import/removed, pinning, tflint.
+description: Load before writing, planning or reviewing Terraform or OpenTofu — state and locking, plan/apply, modules, moved/import/removed, tflint.
 ---
 # Terraform and OpenTofu
 

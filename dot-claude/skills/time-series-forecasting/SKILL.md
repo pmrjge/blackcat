@@ -1,6 +1,6 @@
 ---
 name: time-series-forecasting
-description: Load before forecasting or validating a time-series model — rolling-origin backtests, seasonal-naive baselines, ETS/ARIMA, GBMs with lags, Chronos-2, TimesFM, intervals.
+description: Load before forecasting or validating a time-series model — rolling-origin backtests, seasonal-naive baselines, ETS/ARIMA, intervals.
 ---
 # Time-series forecasting
 

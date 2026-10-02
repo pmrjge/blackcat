@@ -1,6 +1,6 @@
 ---
 name: codemods
-description: Use when changing many call sites mechanically — ast-grep, LibCST, jscodeshift, OpenRewrite.
+description: Use when one mechanical change must hit many call sites — ast-grep, LibCST, jscodeshift, OpenRewrite; dry runs, reviewable batches.
 ---
 # Codemods (automated large-scale edits)
 

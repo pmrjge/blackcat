@@ -1,6 +1,6 @@
 ---
 name: formal-methods
-description: Use when code or a protocol needs machine-checked assurance — z3/SMT, TLA+ (TLC, Apalache), Kani and Miri, property-based and stateful tests, fuzzing; what each result guarantees.
+description: Use when code or a protocol needs machine-checked assurance — picking SMT, TLA+, Kani/Miri, property tests or fuzzing; what each guarantees.
 ---
 # Formal methods and machine-checked assurance
 

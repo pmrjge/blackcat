@@ -1,6 +1,6 @@
 ---
 name: a11y-docs-pdf
-description: Use when making documents accessible — tagged PDF, PDF/UA, LaTeX tagging, Word and EPUB, checkers.
+description: Use when a PDF, Word file, EPUB or LaTeX output must be accessible — tagged PDF and PDF/UA, LaTeX tagging, alt text, veraPDF checks.
 ---
 # Accessible documents (PDF, Office, EPUB)
 Hub: `web-accessibility` (WCAG 2.2 AA target, legal frame, contrast). File mechanics: the pdf/docx skills; LaTeX builds: `latex-typesetting`; Markdown → PDF/EPUB pipelines: `markdown-publishing`; book files: `book-production`.

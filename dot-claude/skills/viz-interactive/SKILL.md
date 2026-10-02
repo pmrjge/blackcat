@@ -1,6 +1,6 @@
 ---
 name: viz-interactive
-description: Use when making interactive or HTML charts in plotly or Altair — hover, export, large data.
+description: Use when a chart must be interactive or HTML — plotly or Altair, hover and selection, static export, large datasets.
 ---
 # Interactive charts: plotly and Altair
 Hub: `data-visualization` (chart choice, perception, color, uncertainty, checklist; design rules in `data-visualization` `references/design-rules.md`). APIs were checked earlier against matplotlib 3.11, seaborn 0.13, plotly with Kaleido ≥ 1 and Altair 5 without recorded URLs: unverified as of 2026-10-02.

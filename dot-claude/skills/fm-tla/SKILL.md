@@ -1,6 +1,6 @@
 ---
 name: fm-tla
-description: Use when model-checking a concurrent or distributed protocol — TLA+, PlusCal, TLC, Apalache.
+description: Use when a concurrent or distributed protocol needs model checking — TLA+ and PlusCal specs, safety and liveness properties, TLC, Apalache.
 ---
 # TLA+ and PlusCal (TLC, Apalache)
 Hub: `formal-methods` (tool choice, what each result guarantees — §7, report table). Tool versions and commands were checked earlier without recorded URLs: unverified as of 2026-10-02 unless a Sources line says otherwise.

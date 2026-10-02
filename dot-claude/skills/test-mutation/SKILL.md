@@ -1,6 +1,6 @@
 ---
 name: test-mutation
-description: Use when checking that tests catch bugs — mutmut, cargo-mutants, StrykerJS, PIT.
+description: Use when checking whether tests actually catch bugs — mutation testing with mutmut, cargo-mutants, StrykerJS, PIT; surviving mutants.
 ---
 # Mutation testing
 Hub: `test-strategy`. A mutant is the code with one small change (`<` → `<=`, `+` → `-`, a return replaced, a call removed). A mutant the tests still pass on ("survived", "missed") is either a missing test or an equivalent mutant.

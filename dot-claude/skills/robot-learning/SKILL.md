@@ -1,6 +1,6 @@
 ---
 name: robot-learning
-description: Load before training or evaluating a robot policy or setting up a simulator for learning — MuJoCo/MJX, Isaac Lab, ManiSkill, Gymnasium, RL, imitation learning, VLAs, LeRobot, sim-to-real.
+description: Load before training or evaluating a robot policy — MuJoCo/MJX, Isaac Lab, ManiSkill, RL, imitation learning, VLAs, LeRobot, sim-to-real.
 ---
 # Robot learning
 

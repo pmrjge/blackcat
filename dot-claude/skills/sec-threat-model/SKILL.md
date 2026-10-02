@@ -1,6 +1,6 @@
 ---
 name: sec-threat-model
-description: Use when starting a security design or review — assets, entry points, trust boundaries, STRIDE.
+description: Use at the start of a security design or review — assets, entry points, trust boundaries, STRIDE threats, ranked mitigations.
 ---
 # Threat model in five steps
 Hub: `secure-coding` (ground rules, checklist, report format).

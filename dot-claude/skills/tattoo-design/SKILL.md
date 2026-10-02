@@ -1,6 +1,6 @@
 ---
 name: tattoo-design
-description: Load before drawing or revising a tattoo design — placement on curved anatomy, size vs detail over time, line weight, lettering, stencil-ready line art, mockups, rights and culture.
+description: Load before drawing or revising a tattoo — placement on curved anatomy, detail vs ageing, line weight, lettering, stencils, mockups, rights.
 ---
 # Tattoo design artwork
 

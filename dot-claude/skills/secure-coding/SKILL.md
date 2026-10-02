@@ -1,6 +1,6 @@
 ---
 name: secure-coding
-description: Load before writing or reviewing code that handles untrusted input, secrets, auth, crypto, dependencies, local servers or LLM tool use — injection, XSS, SSRF, prompt injection, supply chain.
+description: Load before writing or reviewing code that handles untrusted input, secrets, auth, crypto, dependencies or LLM tools — rules, sec-* map.
 ---
 # Secure coding (hub)
 

@@ -1,6 +1,6 @@
 ---
 name: presentation-design
-description: Load before designing or rebuilding a slide deck (pitch, talk, reading deck) — narrative, one message per slide, grids, type sizes, charts, notes; .pptx file mechanics in pptx.
+description: Load before designing or rebuilding a slide deck — narrative, one message per slide, grids, type sizes, charts, notes; .pptx files in pptx.
 ---
 # Presentation design
 

@@ -1,6 +1,6 @@
 ---
 name: tabular-ml
-description: Load before modeling tabular data — XGBoost/LightGBM/CatBoost, categorical handling, leak-free early stopping, Optuna, calibration, SHAP, TabPFN, imbalance.
+description: Load before modeling tabular data — XGBoost/LightGBM/CatBoost, categoricals, leak-free early stopping, Optuna, calibration, SHAP, TabPFN.
 ---
 # Tabular ML
 
