@@ -209,6 +209,15 @@ def load_model(path: Any = None) -> Dict[str, Any]:
         for t, v in types.items():
             if isinstance(v, dict):
                 m["types"][t] = v
+    # S1e keys, each kept only when well-formed (else the model behaves as before it had them)
+    num = (lambda x: isinstance(x, (int, float)) and not isinstance(x, bool) and x >= 0)
+    rc, fx, ri = raw.get("resume_ctx"), raw.get("fixer"), raw.get("run_interval")
+    if isinstance(rc, dict) and num(rc.get("alpha")) and num(rc.get("gamma")):
+        m["resume_ctx"] = rc
+    if isinstance(fx, dict) and num(fx.get("reread")):
+        m["fixer"] = fx
+    if isinstance(ri, dict) and isinstance(ri.get("groups"), dict):
+        m["run_interval"] = ri
     return m
 
 
@@ -320,6 +329,11 @@ class Est:
     wall_hi: float = 0.0
     t_w_plan: float = 0.0
     wall_plan: float = 0.0
+    # hi of one run (sched_model.json run_interval, S1e): what a per-node cap meets; 0.0 when the model has none
+    turns_run_hi: float = 0.0
+    ctx_run_hi: float = 0.0
+    wall_run_hi: float = 0.0
+    resume: bool = False                # planned as a resume of an agent whose prior segment peaked at node "peak"
     status: str = "provisional"
     source: str = "heuristic"          # band source: own | pool | heuristic (unverified)
     w: Dict[str, float] = field(default_factory=dict)      # safety factors hi/med - 1: turns, sec_per_call, ctx
@@ -404,6 +418,9 @@ def load_graph(src: Any) -> Graph:
         bad = [t for t in rn.get("r", []) if t not in RISK_TAGS]
         if bad:
             raise GraphError("node %s: unknown risk tag %s (allowed: %s)" % (nid, bad, "|".join(sorted(RISK_TAGS))))
+        pk = rn.get("peak")
+        if pk is not None and (not isinstance(pk, (int, float)) or isinstance(pk, bool) or pk < 0):
+            raise GraphError("node %s: peak must be a non-negative number (the resumed agent's prior peak context)" % nid)
         alt = rn.get("alt")
         if alt is not None and not isinstance(alt, str):
             raise GraphError("node %s: alt must be a string or null" % nid)
@@ -644,16 +661,42 @@ def band_of(m: Dict[str, Any], t: str) -> Dict[str, Any]:
             "ctx": f("ctx") if (band or {}).get("ctx") or src == "own" or band is None else 1.0}
 
 
-def _est_for(m: Dict[str, Any], t: str, s: Optional[str], n: Optional[int]) -> Est:
+def _run_factor(m: Dict[str, Any], t: str, resume: bool, q: str) -> float:
+    """hi factor of one run (run_interval, S1e step 4) for quantity q, by group <tier>:fresh|resume, else the
+    pooled group; 0.0 when the model has no run interval."""
+    ri = m.get("run_interval")
+    if not isinstance(ri, dict) or not isinstance(ri.get("groups"), dict):
+        return 0.0
+    tier = tinfo(m, t).get("tier") or {"reviewer": "analyst"}.get(pool_of(t), pool_of(t))
+    for grp in ("%s:%s" % (tier, "resume" if resume else "fresh"), "pooled"):
+        try:
+            return max(1.0, float(ri["groups"][grp][q]["hi"]))
+        except (KeyError, TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _est_for(m: Dict[str, Any], t: str, s: Optional[str], n: Optional[int], peak: Optional[float] = None) -> Est:
     info = tinfo(m, t)
     tu = info["turns"]
     n50 = int(n) if n else max(1, int(round(float(tu[s or "M"]))))
     n90 = int(n) if n else max(n50, int(round(float(tu["L"]))))
     kw, kr = kappas(m, t)
+    rc = m.get("resume_ctx") if isinstance(m.get("resume_ctx"), dict) else None
+    resume = peak is not None and rc is not None
+
+    def cx(k: float) -> float:
+        # a resume re-reads its prior context on every call: n * (prior peak + alpha + gamma * n) (S1e step 3)
+        if resume:
+            return k * (float(peak) + float(rc["alpha"]) + float(rc["gamma"]) * k)
+        return _ctx(info, k)
 
     def tw(k: float) -> float:
-        total = _ctx(info, k)
-        last = info["ctx"]["a"] + 2 * info["ctx"]["b"] * k          # context size at the last call = cache written in total
+        total = cx(k)
+        if resume:
+            last = float(rc["alpha"]) + 2 * float(rc["gamma"]) * k     # growth written during a warm resume
+        else:
+            last = info["ctx"]["a"] + 2 * info["ctx"]["b"] * k          # context size at the last call = cache written in total
         last = min(last, total)
         return kw * last + kr * (total - last)
 
@@ -664,19 +707,27 @@ def _est_for(m: Dict[str, Any], t: str, s: Optional[str], n: Optional[int]) -> E
     wall_hi = n_hi * float(spc["p50"]) * b["sec_per_call"]
     tw_med, tw_hi = tw(n50), tw(n_hi) * b["ctx"]
     prov = b["status"] == "provisional"
-    return Est(turns=n50, ctx_p50=_ctx(info, n50), ctx_p90=_ctx(info, n90), t_w=tw_med,
+    rt, rx, rw = (_run_factor(m, t, peak is not None, q) for q in ("turns", "ctx", "wall"))
+    return Est(turns=n50, ctx_p50=cx(n50), ctx_p90=cx(n90), t_w=tw_med,
                wall_p50=wall_med, wall_p90=n90 * float(spc["p90"]),
-               turns_hi=n_hi, ctx_hi=_ctx(info, n_hi) * b["ctx"], t_w_hi=tw_hi, wall_hi=wall_hi,
+               turns_hi=n_hi, ctx_hi=cx(n_hi) * b["ctx"], t_w_hi=tw_hi, wall_hi=wall_hi,
                t_w_plan=tw_hi if prov else tw_med, wall_plan=wall_hi if prov else wall_med,
+               turns_run_hi=(float(n50) if n else n50 * rt) if rt else 0.0, ctx_run_hi=cx(n50) * rx if rx else 0.0,
+               wall_run_hi=wall_med * rw if rw else 0.0, resume=resume,
                status=b["status"], source=b["source"],
                w={"turns": b["turns"] - 1.0, "sec_per_call": b["sec_per_call"] - 1.0, "ctx": b["ctx"] - 1.0}, type=t)
+
+
+def _peak(nd: Node) -> Optional[float]:
+    v = nd.extra.get("peak")
+    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) else None
 
 
 def estimate(g: Graph, m: Dict[str, Any]) -> Dict[str, Est]:
     """{node id: Est} for the primary type: turns (p50), ctx (a*n + b*n^2) at p50 and p90 turns,
     T_w (kappa_w * context written + kappa_r * context re-read) and wall time at p50/p90 (the median fields),
     plus the band's hi values, the safety factors and the values the plan uses (*_plan)."""
-    return {n.id: _est_for(m, n.a, n.s, n.n) for n in g.nodes}
+    return {n.id: _est_for(m, n.a, n.s, n.n, _peak(n)) for n in g.nodes}
 
 
 # ---------------------------------------------------------------- scheduling core
@@ -976,8 +1027,8 @@ def schedule(g: Graph, m: Dict[str, Any], mode: str = "barrier", caps: Optional[
     cap = effective_cap(g, caps)
     conf = _conflicts(g, rules)
     rel = [float((release or {}).get(nd.id, 0.0)) for nd in nodes]
-    prim = [_est_for(m, nd.a, nd.s, nd.n) for nd in nodes]
-    alt = [(_est_for(m, nd.alt, nd.s, nd.n) if nd.alt and not durations else None) for nd in nodes]
+    prim = [_est_for(m, nd.a, nd.s, nd.n, _peak(nd)) for nd in nodes]
+    alt = [(_est_for(m, nd.alt, nd.s, nd.n, _peak(nd)) if nd.alt and not durations else None) for nd in nodes]
     pdur = [float((durations or {}).get(nd.id, prim[i].wall_plan)) for i, nd in enumerate(nodes)]
     ptok = [p.t_w_plan for p in prim]
     warnings: List[str] = []
@@ -1080,7 +1131,8 @@ def schedule(g: Graph, m: Dict[str, Any], mode: str = "barrier", caps: Optional[
     for iss in validate(g, m):
         if iss.level == "error":
             warnings.append("%s: %s" % (iss.node or "graph", iss.msg))
-    used = [(nodes[i], _est_for(m, nodes[i].alt if i in best_sel else nodes[i].a, nodes[i].s, nodes[i].n))
+    used = [(nodes[i], _est_for(m, nodes[i].alt if i in best_sel else nodes[i].a, nodes[i].s, nodes[i].n,
+                                       _peak(nodes[i])))
             for i in range(n)]
     checks = limit_checks(m, used, max(len(wv) for wv in waves) if waves else 0, cap, budget,
                           dispatcher=g.meta.get("dispatcher"), starts=list(s))
@@ -1544,6 +1596,7 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
         warm_prov = 0.0
         warm_n = 0
         cands: List[Tuple[float, float]] = []
+        cand_kw: List[float] = []
         cand_prov: List[bool] = []
         for c in cold:
             u = c["unit"]
@@ -1560,6 +1613,7 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
                 warm_prov += c["excess_tw"] if band_of(m, c["type"])["status"] == "provisional" else 0.0
             else:
                 cands.append((c["excess_tw"], kw * float(tinfo(m, c["type"])["static_cc"])))
+                cand_kw.append(kw)
                 cand_prov.append(band_of(m, c["type"])["status"] == "provisional")
 
         def avoid(f: float) -> float:
@@ -1574,6 +1628,17 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
         rows_out[name]["prov_share_tok"] = prov_av / av0 if av0 > 0 else 0.0
         rows_out[name]["prov_share_wall"] = sum(x for x, pv in wts if pv) / wtot if wtot > 0 else 0.0
         f_star = next((i / 100.0 for i in range(0, 101) if avoid(i / 100.0) / den < 0.03), None)
+        # measured fresh-fixer cost (sched_model.json fixer, S1e step 1): kappa_w x (static_cc + reread), reread = the
+        # context a fresh builder reads before its first repo write; lo/hi from the interval of its median
+        fx = m.get("fixer") if isinstance(m.get("fixer"), dict) else None
+
+        def avoid_r(rr: float) -> float:
+            return warm + sum(max(0.0, e - st - kw_c * rr) for (e, st), kw_c in zip(cands, cand_kw))
+        if fx and fx.get("reread") is not None:
+            rr = float(fx["reread"])
+            rows_out[name].update({"S_tok_measured": avoid_r(rr) / den, "fixer_reread": rr,
+                                   "S_tok_measured_lo": avoid_r(float(fx.get("hi") or rr)) / den,
+                                   "S_tok_measured_hi": avoid_r(float(fx.get("lo") or rr)) / den})
         rows_out[name].update({"warm_tw": warm, "warm": warm_n, "fresh": sum(1 for e, st in cands if e > st),
                                "S_tok_warm": warm / den, "S_tok_upper": avoid(0.0) / den, "S_tok_f50": avoid(0.5) / den,
                                "f_star": f_star if f_star is not None else 1.01, "avoidable_tw": avoid(0.0)})
@@ -1583,7 +1648,23 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
     wall_ok = all(s_wall[k] < 0.05 for k in oracle)
     tok_hi = all(rows_out[k]["S_tok_upper"] < 0.03 for k in oracle)
     tok_lo = any(rows_out[k]["S_tok_warm"] >= 0.03 for k in oracle)
-    if wall_ok and tok_hi:
+    measured = all("S_tok_measured" in rows_out[k] for k in oracle) and bool(oracle)
+    if measured:
+        m_lo = min(rows_out[k]["S_tok_measured_lo"] for k in oracle)
+        m_hi = max(rows_out[k]["S_tok_measured_hi"] for k in oracle)
+        m_txt = ", ".join("%s %.2f%% [%.2f-%.2f%%]" % (k, 100 * rows_out[k]["S_tok_measured"], 100 * rows_out[k]["S_tok_measured_lo"],
+                                                         100 * rows_out[k]["S_tok_measured_hi"]) for k in oracle)
+    if measured and wall_ok and m_hi < 0.03:
+        verdict = ("STOP: S_wall < 5%% and the measured S_tok < 3%% on the oracle rows (%s); the scheduler stays a report tool"
+                   % m_txt)
+    elif measured and wall_ok and all(rows_out[k]["S_tok_measured_lo"] >= 0.03 for k in oracle):
+        verdict = ("STOP on wall time (S_wall < 5%% on both oracle rows); token side: the measured S_tok is at or above 3%% (%s, "
+                   "fresh fixer re-reading the measured %.0f tokens instead of a cold resume). ASK USER before any behaviour change"
+                   % (m_txt, rows_out[oracle[0]]["fixer_reread"]))
+    elif measured and wall_ok:
+        verdict = ("STOP on wall time (S_wall < 5%% on both oracle rows); token side undecided: the measured S_tok interval straddles "
+                   "3%% (%s). ASK USER before any behaviour change" % m_txt)
+    elif wall_ok and tok_hi:
         verdict = "STOP: S_wall < 5% and S_tok < 3% on the oracle rows; the scheduler stays a report tool"
     elif wall_ok and not tok_lo:
         verdict = ("STOP on wall time (S_wall < 5%% on both oracle rows); token side undecided by the data: S_tok is %.2f%%-%.2f%% "
@@ -1609,8 +1690,13 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
                  "actually ran on during the session" % (m.get("file") or "built-in defaults"))
     notes.append("T_w counts subagent segments only: the main thread's cache mix is not in segments.csv, so S_tok's "
                  "denominator excludes it")
-    notes.append("fresh-fixer cost = kappa_w x static_cc (the model file's p10 first-call cache write) plus the re-read fraction f of "
-                 "the prior context; f cannot be measured from segments.csv, so S_tok is reported as a bracket")
+    if isinstance(m.get("fixer"), dict) and m["fixer"].get("reread") is not None:
+        notes.append("fresh-fixer cost = kappa_w x (static_cc + fixer.reread): the re-read is measured from the transcripts (the "
+                     "context a fresh builder reads before its first repo write, n = %s); the 0%%/50%% columns are kept as the "
+                     "bracket it replaces" % m["fixer"].get("n"))
+    else:
+        notes.append("fresh-fixer cost = kappa_w x static_cc (the model file's p10 first-call cache write) plus the re-read fraction f of "
+                     "the prior context; the model has no measured fixer re-read, so S_tok is reported as a bracket")
     notes.append("read-only types that wrote files cannot be detected from segments.csv (no tool names): misroutes use the "
                  "1.5 x p90 turns test only")
     return Report(session=session, windows=windows, units=units, cold=cold, misroutes=misroutes, rows=rows_out,
@@ -1739,8 +1825,10 @@ def render_md(x: Any, max_chars: Optional[int] = 1500) -> str:
     elif isinstance(x, Report):
         text = _render_report(x)
     elif isinstance(x, dict):
-        text = "\n".join("- %s: %d turns, ctx %.0f (hi %.0f), T_w %.0f (hi %.0f), wall %.0f-%.0f s, %s" % (
-            k, e.turns, e.ctx_p50, e.ctx_hi, e.t_w, e.t_w_hi, e.wall_p50, e.wall_hi, e.status)
+        text = "\n".join("- %s: %d turns, ctx %.0f (hi %.0f), T_w %.0f (hi %.0f), wall %.0f-%.0f s, %s%s%s" % (
+            k, e.turns, e.ctx_p50, e.ctx_hi, e.t_w, e.t_w_hi, e.wall_p50, e.wall_hi, e.status,
+            "; one run, 90%% hi: %.0f turns, ctx %.0f, wall %.0f s" % (e.turns_run_hi, e.ctx_run_hi, e.wall_run_hi)
+            if e.turns_run_hi else "", "; resume from peak" if e.resume else "")
                          for k, e in x.items())
     elif isinstance(x, list):
         text = "\n".join("- %s %s: %s" % (i.level, i.node or "graph", i.msg) for i in x) or "no issues"
@@ -1768,6 +1856,17 @@ def _render_report(r: Report) -> str:
             k, _fmt_min(v["advised"]), _fmt_min(v["actual"]), 100 * v["S_wall"], v["warm"], v["fresh"], 100 * v["S_tok_warm"],
             100 * v["S_tok_upper"], 100 * v["S_tok_f50"], "n/a" if v["f_star"] > 1 else "%.0f%%" % (100 * v["f_star"])))
     o.append("")
+    if any("S_tok_measured" in v for v in r.rows.values()):
+        o.append("Measured fresh-fixer cost (model `fixer`): kappa_w x (static_cc + %.0f tokens), the median context a fresh builder "
+                 "reads before its first repo write; the interval comes from the 95%% interval of that median.\n"
+                 % next(v["fixer_reread"] for v in r.rows.values() if "fixer_reread" in v))
+        o.append("| row | S_tok measured | 95% interval |")
+        o.append("|---|---|---|")
+        for k, v in r.rows.items():
+            if "S_tok_measured" in v:
+                o.append("| %s | %.2f%% | %.2f%%-%.2f%% |" % (k, 100 * v["S_tok_measured"], 100 * v["S_tok_measured_lo"],
+                                                             100 * v["S_tok_measured_hi"]))
+        o.append("")
     o.append("Share of the predicted saving that rests on provisional types (small-n bands): wall = share of the per-unit end-time "
              "gains (recorded end - advised end, gains only) of units of provisional type; tokens = share of the avoidable T_w (0% "
              "re-read) from cold resumes of provisional type.\n")
@@ -1780,7 +1879,7 @@ def _render_report(r: Report) -> str:
              "makespan, of the model rows the recorded dispatch pattern run with the model's durations. S_tok = avoidable T_w / session "
              "T_w (%.0f, subagent segments only). A warm resume is one whose advised gap is under 270 s; a cold one that cannot be "
              "made warm is replaced by a fresh fixer costed kappa_w x static_cc plus the re-read fraction of the prior context (not "
-             "measurable here, hence the three columns). `release/oracle+caps-only` drops the write-set conflict constraints. Only the "
+             "measured from segments.csv: the bracket columns; the measured row above uses the model's `fixer`). `release/oracle+caps-only` drops the write-set conflict constraints. Only the "
              "oracle rows enter the verdict. Rows excluding windows still open at the data cut (closed windows only):\n" % r.session_tw)
     o.append("| row | S_wall closed windows only |")
     o.append("|---|---|")

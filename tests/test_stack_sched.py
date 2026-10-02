@@ -854,3 +854,79 @@ def test_derive_fit_takes_generated_as_an_argument():
     J = TD.D.fit(seg, TD.FM, TD.SOFT, B=50, generated="2000-01-01T00:00:00Z")
     assert J["generated"] == "2000-01-01T00:00:00Z"
     assert TD.D.fit(seg, TD.FM, TD.SOFT, B=50, generated="2000-01-01T00:00:00Z") == J
+
+
+# ---------------------------------------------------------------- S1e: resume ctx, per-run intervals, measured fixer
+RC = {"alpha": 1000, "gamma": 500.0, "n": 79, "n_agents": 23}
+RI = {"level": 0.9, "groups": {"pooled": {"n": 100, "turns": {"lo": 0.2, "hi": 3.0}, "ctx": {"lo": 0.1, "hi": 4.0},
+                                          "wall": {"lo": 0.05, "hi": 30.0}},
+                               "builder:resume": {"n": 27, "turns": {"lo": 0.04, "hi": 3.2}, "ctx": {"lo": 0.02, "hi": 4.7},
+                                                  "wall": {"lo": 0.01, "hi": 4.4}}}}
+
+
+def test_a_peak_node_is_costed_as_a_resume_from_its_prior_peak():
+    m = bmodel()
+    plain = S.estimate(one(peak=200000), m)["A"]
+    assert not plain.resume and plain.ctx_p50 == pytest.approx(3.0e6)        # no resume_ctx in the model: peak ignored
+    m["resume_ctx"] = RC
+    e = S.estimate(one(peak=200000), m)["A"]
+    assert e.resume and e.ctx_p50 == pytest.approx(30 * (200000 + 1000 + 500 * 30))
+    assert e.ctx_hi == pytest.approx(45 * (200000 + 1000 + 500 * 45) * 1.4)
+    # T_w: the warm resume writes only its growth (alpha + 2 gamma n) and re-reads the rest
+    kw, kr = S.kappas(m, "coder")
+    last = 1000 + 2 * 500 * 30
+    assert e.t_w == pytest.approx(kw * last + kr * (e.ctx_p50 - last))
+    assert S.estimate(one(), m)["A"].resume is False
+    for bad in (-1, True, "big"):
+        with pytest.raises(S.GraphError):
+            S.load_graph({"nodes": [{"id": "A", "a": "coder", "peak": bad}]})
+
+
+def test_run_interval_factors_are_reported_and_caps_keep_the_band():
+    m = bmodel(max_turns=60)
+    e0 = S.estimate(one(), m)["A"]
+    assert e0.turns_run_hi == 0.0 and e0.ctx_run_hi == 0.0
+    m["run_interval"] = RI
+    m["resume_ctx"] = RC
+    e = S.estimate(one(), m)["A"]                       # builder:fresh absent -> pooled
+    assert e.turns_run_hi == pytest.approx(30 * 3.0) and e.ctx_run_hi == pytest.approx(e.ctx_p50 * 4.0)
+    assert e.wall_run_hi == pytest.approx(e.wall_p50 * 30.0)
+    r = S.estimate(one(peak=100000), m)["A"]            # builder:resume
+    assert r.turns_run_hi == pytest.approx(30 * 3.2) and r.ctx_run_hi == pytest.approx(r.ctx_p50 * 4.7)
+    assert S.estimate(one(n=12), m)["A"].turns_run_hi == 12.0         # a fixed turn count has no spread
+    # advisor only: the per-node maxTurns verdict still uses the band hi (45 < 60 fits), not the one-run hi (90)
+    sch = S.schedule(one(), m)
+    mt = [c for c in sch.checks if c.name == "maxTurns:A"]
+    assert mt and mt[0].verdict == "fits"
+    assert "one run, 90% hi: 90 turns" in S.render_md(S.estimate(one(), m), max_chars=None)
+
+
+def test_replay_uses_the_measured_fixer_when_the_model_has_one(model, tmp_path):
+    sid, graph = make_session(tmp_path)
+    args = (str(tmp_path / "led.md"), str(tmp_path / "seg.csv"), str(tmp_path / "prm.csv"), graph)
+    rep = S.replay(*args, model, session=sid)
+    assert all("S_tok_measured" not in v for v in rep.rows.values())
+    m = dict(model, fixer={"reread": 20000, "lo": 10000, "hi": 40000, "n": 14})
+    rep = S.replay(*args, m, session=sid)
+    v = rep.rows["release/oracle"]
+    assert v["S_tok_measured_lo"] <= v["S_tok_measured"] <= v["S_tok_measured_hi"] <= v["S_tok_upper"] + 1e-12
+    assert v["fixer_reread"] == 20000
+    md = S.render_md(rep, max_chars=None)
+    assert "S_tok measured" in md and "fixer.reread" in md
+
+
+def test_load_model_keeps_well_formed_s1e_keys(tmp_path):
+    f = tmp_path / "m.json"
+    f.write_text(json.dumps({"types": {}, "resume_ctx": RC, "fixer": {"reread": 1000, "lo": 500, "hi": 2000},
+                             "run_interval": RI}))
+    m = S.load_model(f)
+    assert m["resume_ctx"] == RC and m["fixer"]["reread"] == 1000 and m["run_interval"] == RI
+    f.write_text(json.dumps({"types": {}, "resume_ctx": {"alpha": "x", "gamma": 1}, "fixer": {"reread": -1},
+                             "run_interval": {"groups": []}}))
+    m = S.load_model(f)
+    assert not {"resume_ctx", "fixer", "run_interval"} & set(m)
+    real = ROOT / "dot-claude" / "hooks" / "sched_model.json"
+    raw = json.loads(real.read_text()) if real.is_file() else {}
+    for k in ("resume_ctx", "fixer", "run_interval"):
+        if raw.get(k):
+            assert k in S.load_model(real), k
