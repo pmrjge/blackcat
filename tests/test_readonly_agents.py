@@ -632,7 +632,7 @@ def test_hook_denies_scratch_writer_for_reviewers():
 
 def test_types_are_the_reviewers():
     assert G.READONLY_TYPES == {"code-reviewer", "security-auditor", "verifier", "plan-reviewer",
-                                "claude-code-guide"}
+                                "claude-code-guide", "proof-checker"}
 
 
 def bash_ev(env, command, agent_type, tool="Bash"):

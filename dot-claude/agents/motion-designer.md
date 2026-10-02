@@ -16,7 +16,7 @@ mcpServers:
       args: ["-y", "premiere-pro-mcp@1.18.2"]
 color: pink
 ---
-Motion designer and editor. May spawn: image-director, designer, scout, mcp-broker, cg-artist.
+Motion designer and editor. May spawn: image-director, designer, scout, mcp-broker, cg-artist, vfx-td.
 
 ## Process
 1. Spec: duration, fps, resolution, aspect, codec/container, audio, target platform, safe areas.

@@ -2,7 +2,7 @@
 
 <!-- markdownlint-disable MD013 MD060 -->
 
-BlackCat, a dispatcher on the main thread, routes work to 36 specialist agents (37 agent files). 93
+BlackCat, a dispatcher on the main thread, routes work to 38 specialist agents (39 agent files). 93
 skills load on demand. One policy hook, deny rules and the Claude Code sandbox hold the limits, and MCP
 servers start and stop with the agents that use them. Built for Claude Code **2.1.271 or later**,
 macOS only (Apple Silicon first). It runs in the terminal and in the apps that run Claude Code with
@@ -263,7 +263,7 @@ and `CLAUDE_CONFIG_DIR` both point into a temp dir, so an agent also sets `HOME=
 |---|---|
 | `~/.claude/rules/claude-agent-stack.md` | Global rules every agent loads. `~/.claude/CLAUDE.md` stays yours |
 | `~/.claude/settings.json` | `"agent": "blackcat"`, auto-compact at 400K, depth 4, caps, permissions, sandbox, hooks, status line (merged) |
-| `~/.claude/agents/*.md` | 37 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
+| `~/.claude/agents/*.md` | 39 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
 | `~/.claude/skills/*/SKILL.md` | 93 skills (descriptions in context; bodies load on demand) |
 | `~/.claude/hooks/agent_guard.py` | The policy hook (see [Enforced behaviours](#enforced-behaviours-hooks)) |
 | `~/.claude/bin/mcp-headers` | `headersHelper`: gives exa/jina/huggingface/wandb their keys from `stack.env` at connect time |
@@ -335,14 +335,16 @@ per task type (12 for oracle up to 350 for god-coder; [CONFIG.md](CONFIG.md) §3
 | scout | Sonnet 5.5 · low | One current fact, cited | researcher for synthesis |
 | explore | Sonnet 5.5 · low | Read-only codebase search with `path:line` evidence; replaces Claude Code's built-in Explore (no Bash, 40 turns) | coder / main-coder to change code |
 | researcher | Opus 5.5 · high | Cited multi-source research; crawls; copies itself | scout (one fact); `NEXT: browser-operator` for pages to act on |
-| mathematician | Opus 5.5 · xhigh | Proofs, derivations, symbolic/numeric computation | data-scientist (real data), quantum-engineer (simulation code) |
+| mathematician | Opus 5.5 · xhigh | Proofs, derivations, symbolic/numeric computation | data-scientist (real data), quantum-engineer (simulation code), proof-checker (refereeing) |
+| proof-checker | Opus 5.5 · xhigh | Referees proofs, derivations, complexity arguments; counterexample search, Lean 4 checks; read-only (hook) | mathematician (writes the proofs) |
 | quantum-engineer | Opus 5.5 · high | Circuits, quantum simulation, QEC, IBM Quantum runs | mathematician (derivations) |
 | writer | Opus 5.5 · medium | Articles, docs, emails, translations (PT-PT/EN) | researcher (research), doc-specialist (Office/PDF) |
 | doc-specialist | Sonnet 5.5 · medium | Reads and builds docx/xlsx/pptx/pdf | writer (the prose) |
 | image-director | Opus 5.5 · medium | Image generation and edits through image-studio | designer (brand, layout, print) |
 | designer | Opus 5.5 · high | Brand, layout, print, UI visuals; Illustrator; image-studio | image-director (series), frontend-engineer (UI code), cg-artist (3D) |
 | motion-designer | Opus 5.5 · medium | After Effects, Premiere, motion | designer / image-director (stills), cg-artist (3D) |
-| cg-artist | Opus 5.5 · medium | Blender, ZBrush, Substance, Houdini, 3D printing | designer / image-director (2D) |
+| cg-artist | Opus 5.5 · medium | Blender, ZBrush, Substance, 3D printing | designer / image-director (2D), vfx-td (Houdini) |
+| vfx-td | Opus 5.5 · high | Houdini FX: VEX, HDAs, Pyro/FLIP/Vellum/RBD sims, caching, Solaris/Karma, PDG (hython, husk) | cg-artist (modeling, Blender) |
 | coder | Sonnet 5.5 · medium | Small and medium code; offloaded sub-tasks; copies itself | main-coder |
 | main-coder | Opus 5.5 · xhigh | Large codebases, architecture, hard bugs, merges that won't fast-forward | coder (routine), ninja-coder (mathematical cores, or after two failures) |
 | ninja-coder | Opus 5.5 · max | Novel algorithms, proofs, numerics, kernels | `NEXT: god-coder` with a dossier, for the orchestrator |
@@ -398,7 +400,11 @@ boundaries. Details of each agent's MCP servers are in [MCP servers](#mcp-server
   dispatched by another agent, both run at `max`.
 - **Models and platforms:** model work goes to ml-/dl-/llm-engineer, platform performance to
   mlx-/cuda-engineer (the target hardware owns ports).
-- **Checks:** reviewers and the verifier never check their own work; an author never verifies itself.
+- **Checks:** builders check their own work once; an independent reviewer runs only when the brief
+  asks or a review trigger fires (rules: Self-check and review), and work goes back only with
+  concrete evidence (a failing check, a reproduced bug, a verified discrepancy). A clean finish is
+  one line (`<input> · <time> · <agent>`) plus the result; anything else uses the STATUS format.
+  proof-checker referees proofs and derivations; no reviewer checks its own work.
 - **Missing permission or capability:** return `STATUS: partial` with `NEXT: <agent>`; a decision only
   the user can make returns `STATUS: blocked`, `NEXT: ASK USER: …` (see [Security model](#security-model)).
 
@@ -429,7 +435,7 @@ rows. Agents of your own are in no row: run one with `claude --agent <name>`.
   `NEXT: browser-operator` with URLs and steps.
 - **Copies:** only researcher and coder, as `researcher-copy` and `coder-copy`; a copy spawns no copies.
 - **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker,
-  claude-code-guide, browser-operator, plan-reviewer, image-director, explore.
+  claude-code-guide, browser-operator, plan-reviewer, image-director, explore, proof-checker.
 
 | Agent | May spawn |
 |---|---|
@@ -437,15 +443,15 @@ rows. Agents of your own are in no row: run one with `claude --agent <name>`.
 | researcher | researcher-copy, scout, doc-specialist, mathematician, data-engineer, data-scientist, mcp-broker |
 | researcher-copy | scout, doc-specialist, mathematician, data-engineer, data-scientist, mcp-broker |
 | writer | scout, researcher, mathematician |
-| mathematician | scout, mcp-broker, quantum-engineer |
+| mathematician | scout, mcp-broker, quantum-engineer, proof-checker |
 | doc-specialist | scout, mcp-broker |
 | designer | image-director, scout, mcp-broker, cg-artist |
-| motion-designer | image-director, designer, scout, mcp-broker, cg-artist |
+| motion-designer | image-director, designer, scout, mcp-broker, cg-artist, vfx-td |
 | coder | coder-copy, explore, scout |
 | coder-copy | explore, scout |
 | main-coder | coder, explore, scout, verifier, code-reviewer, security-auditor, plan-reviewer, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, claude-code-guide, ninja-coder |
-| ninja-coder | main-coder, coder, mathematician, explore, scout, verifier, code-reviewer, security-auditor, researcher, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, quantum-engineer |
-| god-coder | coder, main-coder, ninja-coder, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, explore, scout, verifier, code-reviewer, security-auditor, mathematician, researcher |
+| ninja-coder | main-coder, coder, mathematician, explore, scout, verifier, code-reviewer, security-auditor, researcher, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, quantum-engineer, proof-checker |
+| god-coder | coder, main-coder, ninja-coder, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, explore, scout, verifier, code-reviewer, security-auditor, mathematician, researcher, proof-checker |
 | mlx-engineer | coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder |
 | cuda-engineer | coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder |
 | devops-engineer | coder, explore, scout, verifier, security-auditor, mcp-broker |
@@ -456,9 +462,10 @@ rows. Agents of your own are in no row: run one with `claude --agent <name>`.
 | dl-engineer | mlx-engineer, cuda-engineer, data-engineer, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder |
 | llm-engineer | mlx-engineer, cuda-engineer, dl-engineer, data-scientist, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, claude-code-guide, ninja-coder |
 | claude-code-engineer | claude-code-guide, scout, explore, verifier, code-reviewer, mcp-broker |
-| quantum-engineer | mathematician, coder, explore, scout, researcher, verifier, code-reviewer, cuda-engineer, mlx-engineer, mcp-broker, ninja-coder |
+| quantum-engineer | mathematician, coder, explore, scout, researcher, verifier, code-reviewer, cuda-engineer, mlx-engineer, mcp-broker, ninja-coder, proof-checker |
 | robotics-engineer | coder, explore, scout, researcher, verifier, code-reviewer, mathematician, dl-engineer, cuda-engineer, mlx-engineer, cg-artist, mcp-broker, ninja-coder |
-| cg-artist | image-director, coder, scout, verifier, mcp-broker |
+| cg-artist | image-director, coder, scout, verifier, mcp-broker, vfx-td |
+| vfx-td | coder, scout, verifier, mcp-broker |
 
 **Caps** (values in [Knobs](#knobs)): 3 running children per agent, raised per type (orchestrator 10,
 god-coder and main-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8); 2 live copies
@@ -623,9 +630,9 @@ guarantee.
   settings-level `blackcat-guard --settings` wiring must be in the managed file); re-copy after every
   install that changes the hook. The installer never writes anything root-owned. An invalid file stops
   Claude Code from starting. Steps: [CONFIG.md](CONFIG.md) §7.
-- **Read-only reviewers, enforced.** code-reviewer, security-auditor, verifier, plan-reviewer and
-  claude-code-guide hold Bash, but the hook admits only read-only commands: tests, linters and
-  formatters in check mode, syntax checks (`bash -n`, `node --check`, `ruby -c`, `php -l`), builds
+- **Read-only reviewers, enforced.** code-reviewer, security-auditor, verifier, plan-reviewer,
+  claude-code-guide and proof-checker hold Bash, but the hook admits only read-only commands: tests,
+  linters and formatters in check mode, syntax checks (`bash -n`, `node --check`, `ruby -c`, `php -l`), builds
   into scratch, `git diff`/`log`/`show`, inspection, `claude --version`, `claude mcp list/get`,
   `claude plugin list`, and the scanners `gitleaks`, `trufflehog`, `semgrep`, `osv-scanner`,
   `pip-audit`, `uv audit`, `npm audit`, `cargo audit`/`deny`, `trivy`. Their scratch scripts and tests
@@ -894,11 +901,12 @@ repo (agent files, `magg/config.json`, the installer's prefetch step) and re-run
 | neural-memory (`neural-memory==4.62.0` through `mcp/neural_memory_mcp.py`) | stdio, agent-scoped | orchestrator, researcher, mathematician, main-/ninja-/god-coder, ml-/dl-/llm-/robotics-/quantum-engineer, data-scientist | — |
 | illustrator (`illustrator-mcp-server@1.10.3`), huetension | stdio, agent-scoped | designer | — (grant macOS Automation) |
 | blender (`mcp-for-blender@2.1.1`, telemetry off) | stdio, agent-scoped | cg-artist | — (Blender running with the add-on) |
+| lean (`lean-lsp-mcp@0.30.0`) | stdio, agent-scoped | proof-checker | only `LEAN_PROJECT_PATH` from `stack.env` (you install elan and a built Mathlib Lake project) |
 | after-effects (Dakkshin, commit `88d5fbf0`), premiere (`premiere-pro-mcp@1.18.2`) | stdio, agent-scoped | motion-designer | — (`--with-adobe`) |
 | magg | stdio, agent-scoped | mcp-broker | only the catalog's keys from `stack.env` |
 | exa | remote | scout, researcher, planner, coders, verifier, security-auditor, ML agents | `EXA_API_KEY` optional |
 | jina | remote | scout, researcher, planner, mathematician, writer, … | `JINA_API_KEY`, effectively required |
-| wolfram | remote | mathematician, quantum-engineer, ninja-/god-coder | none |
+| wolfram | remote | mathematician, proof-checker, quantum-engineer, ninja-/god-coder | none |
 | huggingface | remote | researcher, ml-/dl-/llm-engineer, data-scientist | `HF_TOKEN` optional |
 | wandb | remote, registered only with a key | ml-/dl-/llm-/robotics-engineer | `WANDB_API_KEY` |
 | computer-use, claude-in-chrome | built into Claude Code | GUI agents; browser-operator | computer use: `/mcp` → Enable; Chrome: `claude --chrome` |
@@ -968,6 +976,8 @@ in the repo's `dot-claude/settings.json` and re-run the installer. The rest are 
 | `GOD_IDLE_S` / `GOD_PENDING_TTL_S` / `GOD_LOCK_TTL_S` | 1800 / 120 / 21600 | god-coder lock: idle holder, unconfirmed lease, hard ceiling |
 | `SCREEN_LOCK_TTL_S` | 900 | Screen lock expiry |
 | `STRIP_AGENT_MODEL` / `BLACKCAT_BACKGROUND` | 1 / 1 | Remove per-call `model`; run BlackCat's children in the background |
+| `STACK_AGENT_LABEL` | `description` | Label of an allowed Agent call's child: `description` prefixes `<type>: `, `name` names an unnamed child `<type>-<n>`, `off` = none |
+| `STACK_AGENT_STARTED` | 1 | SubagentStart tells a stack agent its local start time (0 = off) |
 | `STACK_POLICY` | on | `off` disables every deny and lock except the push and forge-write ban (bookkeeping continues) |
 | `STACK_GUARD_LOG` | 0 | 1 = log raw hook events to the state dir (budget mode logs tool names and ids only) |
 | `STACK_IMAGE_MAX_PX` / `STACK_IMAGE_MAX_B64` | 1919 / 4500000 | Longest image side; most base64 characters of one image |

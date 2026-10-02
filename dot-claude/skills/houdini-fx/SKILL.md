@@ -8,7 +8,7 @@ description: Load before building, scripting or rendering in Houdini — SOP/DOP
 - Covers Houdini for procedural modeling, effects simulation and USD rendering. Blender-side work in `blender-3d`; compositing and delivery in `motion-graphics` and `media-ffmpeg`.
 - Versions: Houdini 21 shipped Aug 2025 (sparse GPU Pyro solver, Copernicus texture baking, Solaris Shot Builder, Karma Gaussian splats); Houdini 22 is reported as released in Jul 2026 (unverified — check `hython --version` or Help → About and the SideFX "What's new" page). APIs and node versions (`::2.0` namespaced nodes) change between majors.
 - Licenses decide what runs: Apprentice (free, watermarked, `.hipnc`, restricted command-line and third-party renderer use), Indie (`.hiplc`, revenue cap), Core/FX. Check what the user's license allows before planning hython or husk batch jobs; files don't move up from Apprentice/Indie to commercial.
-- No maintained MCP server exists for Houdini: script it with `hython` via Bash, and use computer use only for GUI inspection (load `computer-use-apps` first).
+- No Houdini MCP server is enabled in this stack: script it with `hython` via Bash, and use computer use only for GUI inspection (load `computer-use-apps` first). A maintained community server exists (github.com/kleer001/houdini-mcp, MIT, v0.3.1 Sep 2026) but installs a plugin and `pythonrc.py` hook into the Houdini preferences: optional, only with the user's consent.
 
 ## Mental model
 - Contexts: OBJ (objects), **SOP** (geometry), **DOP** (dynamics), **LOP** (Solaris, USD stage), **COP** (Copernicus image ops), **TOP** (PDG task graphs), CHOP (channels), VOP (visual VEX), ROP/outputs.

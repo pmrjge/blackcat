@@ -48,36 +48,38 @@ Column key:
 | Agent | Model | Effort | maxTurns | Children | Was | Why |
 |---|---|---|---|---|---|---|
 | blackcat (main thread) | Sonnet 5.5 | medium (session) | none | 8 dispatches/prompt | effort low | Routes every request, trivial or complex, to specialists. At `medium` it asks questions and stays visible. |
-| orchestrator | Opus 5.5 | high | 250 | 10 | xhigh, 300 | Decomposes a job into up to 10 parallel tasks. On 5.5, `high` is enough for coordination. |
-| planner | Opus 5.5 | xhigh | 80 | 8 | 100 | Read-only design work that needs deep reasoning and few turns |
-| plan-reviewer | Opus 5.5 | high | 80 | leaf | xhigh, 100 | Critique against the code and docs. `high` suffices on 5.5. |
+| orchestrator | Opus 5.5 | high | 200 | 10 | xhigh, 300 | Decomposes a job into up to 10 parallel tasks. On 5.5, `high` is enough for coordination. |
+| planner | Opus 5.5 | xhigh | 60 | 8 | 100 | Read-only design work that needs deep reasoning and few turns |
+| plan-reviewer | Opus 5.5 | high | 60 | leaf | xhigh, 100 | Critique against the code and docs. `high` suffices on 5.5. |
 | oracle | Opus 5.5 | low | 12 | leaf | 20 | Answers from knowledge alone and uses almost no tools |
-| scout | Sonnet 5.5 | low | 30 | leaf | 40 | Looks up one fact from a few sources |
+| scout | Sonnet 5.5 | low | 20 | leaf | 40 | Looks up one fact from a few sources |
 | explore | Sonnet 5.5 | low | 40 | leaf | (built-in) | Read-only codebase search. Replaces Claude Code's built-in Explore, which inherits the main thread's model up to Opus and has no turn cap. |
-| researcher | Opus 5.5 | high | 150 | 4 | 170 | Measured p90 is 82 turns. 4 children = 2 researcher copies + 2 lookups. |
+| researcher | Opus 5.5 | high | 130 | 4 | 170 | Measured p90 is 82 turns. 4 children = 2 researcher copies + 2 lookups. |
 | mathematician | Opus 5.5 | xhigh | 100 | 3 | — | Proofs need depth, not many turns |
-| quantum-engineer | Opus 5.5 | high | 180 | 3 | xhigh, 190 | Code and simulation loops. `high` on 5.5. |
+| proof-checker | Opus 5.5 | xhigh | 80 | leaf | new | Referees one argument: depth over turns; Lean goal loop; read-only (hook) |
+| quantum-engineer | Opus 5.5 | high | 160 | 3 | xhigh, 190 | Code and simulation loops. `high` on 5.5. |
 | image-director | Opus 5.5 | medium | 80 | leaf | 100 | Prompt and spec work with short loops |
 | designer | Opus 5.5 | high | 150 | 3 | 100 | Iterative vector and raster work needs more turns |
 | motion-designer | Opus 5.5 | medium | 150 | 3 | high, 190 | GUI and tool loops, not deep reasoning |
-| cg-artist | Opus 5.5 | medium | 170 | 3 | high, 190 | Same reason: DCC tool loops |
-| writer | Opus 5.5 | medium | 120 | 3 | 130 | Prose; voice matters more than depth |
-| doc-specialist | Sonnet 5.5 | medium | 120 | 3 | Opus, 130 | Extraction and formatting work |
+| cg-artist | Opus 5.5 | medium | 150 | 3 | high, 190 | Same reason: DCC tool loops |
+| vfx-td | Opus 5.5 | high | 170 | 3 | new | Houdini cook, sim and render loops (hython, husk) |
+| writer | Opus 5.5 | medium | 80 | 3 | 130 | Prose; voice matters more than depth |
+| doc-specialist | Sonnet 5.5 | medium | 100 | 3 | Opus, 130 | Extraction and formatting work |
 | coder | Sonnet 5.5 | medium | 190 | 3 (+2 copies) | — | Small and medium implementation |
-| main-coder | Opus 5.5 | xhigh | 300 | 6 | 250 | Large codebases; measured p90 is 128 turns, and long refactors run past that. Offloads to coder and the ML engineers. |
+| main-coder | Opus 5.5 | xhigh | 240 | 6 | 250 | Large codebases; measured p90 is 128 turns, and long refactors run past that. Offloads to coder and the ML engineers. |
 | ninja-coder | Opus 5.5 | max | 300 | 5 | 250 | The hardest algorithmic and mathematical cores, worked through without the user |
 | god-coder | Opus 5.5 | max | 350 | 6 | Fable, 250 | Last resort. The orchestrator spawns it, at most once per session. |
-| frontend-engineer | Opus 5.5 | medium | 190 | 3 | — | Implementation plus browser checks |
-| devops-engineer | Sonnet 5.5 | high | 160 | 3 | 190 | Plans and dry runs; bounded scope |
-| data-engineer | Sonnet 5.5 | high | 190 | 3 | — | SQL and pipelines with recomputation checks |
+| frontend-engineer | Opus 5.5 | medium | 170 | 3 | 190 | Implementation plus browser checks |
+| devops-engineer | Sonnet 5.5 | high | 140 | 3 | 190 | Plans and dry runs; bounded scope |
+| data-engineer | Sonnet 5.5 | high | 150 | 3 | 190 | SQL and pipelines with recomputation checks |
 | data-scientist | Opus 5.5 | high | 150 | 3 | 190 | Analysis with stated uncertainty |
 | ml-, dl-, llm-, mlx-, cuda-, robotics-engineer | Opus 5.5 | high | 190 | 3 | — | Long experiment and benchmark loops |
-| code-reviewer | Opus 5.5 | high | 120 | leaf | xhigh, 150 | Read-only review. `high` on 5.5. |
-| verifier | Sonnet 5.5 | high | 150 | leaf | 160 | Measured p90 is 92 turns: runs tests, reproduces, checks |
-| security-auditor | Opus 5.5 | xhigh | 120 | leaf | 150 | Finding exploit paths needs depth |
+| code-reviewer | Opus 5.5 | high | 80 | leaf | xhigh, 150 | Read-only review. `high` on 5.5. |
+| verifier | Sonnet 5.5 | high | 140 | leaf | 160 | Measured p90 is 92 turns: runs tests, reproduces, checks |
+| security-auditor | Opus 5.5 | xhigh | 100 | leaf | 150 | Finding exploit paths needs depth |
 | browser-operator | Sonnet 5.5 | medium | 120 | leaf | 160 | Browser loops. It has come close to the 64-per-prompt MCP cap (62 calls in one run). |
-| mcp-broker | Sonnet 5.5 | medium | 80 | leaf | — | Mounts, calls and unmounts MCP servers |
-| claude-code-engineer | Opus 5.5 | high | 180 | 3 | 150 | Measured p90 is 123 turns: validation-heavy |
+| mcp-broker | Sonnet 5.5 | medium | 60 | leaf | 80 | Mounts, calls and unmounts MCP servers |
+| claude-code-engineer | Opus 5.5 | high | 190 | 3 | 150 | Measured p90 is 123 turns: validation-heavy |
 | claude-code-guide | Sonnet 5.5 | low | 30 | leaf | 40 | Documentation lookups |
 
 Effort scale:
@@ -88,6 +90,7 @@ Effort scale:
 maxTurns:
 
 - One turn is one model response.
+- Values as of the token-lean overhaul (2026-10-02): where a p90 was measured, at least 1.5 × that p90, within the lint caps.
 - When an agent reaches its limit, it is marked partial. A SendMessage resume gives it a fresh budget.
 - Lint enforces ≤ 350 for all agents, and < 200 for all agents except the orchestrator and main-, ninja- and god-coder.
 
@@ -102,7 +105,7 @@ maxTurns:
   - In a plan: planner may add one god-coder step, only as the conditional fallback of a preceding ninja-coder step on the same problem; plan-reviewer blocks a step without that ninja-coder step, an unconditional one, a second one or an incomplete dossier; BlackCat sends such plans to the orchestrator; the orchestrator runs ninja-coder first and spawns god-coder only when ninja-coder reports failure or partial, dropping the step if ninja-coder succeeds. That it failed is enforced by these prompts, not by the hook.
   - A failed or refused spawn releases the session slot. SendMessage resumes of that god-coder pass.
   - `claude-god` (god-coder as your own main thread) is unaffected.
-- **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker, claude-code-guide, browser-operator, plan-reviewer, image-director, explore.
+- **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker, claude-code-guide, browser-operator, plan-reviewer, image-director, explore, proof-checker.
 - **No generic agents:** `subagent_type` must name a stack agent in the caller's row: a missing type, `general-purpose`, `claude`, `fork`, `Plan`, `statusline-setup`, host-defined types such as `SubAgent` and plugin agents are refused for every caller (one without a row gets BlackCat's row on a main thread, nothing as a subagent), also through the tool's `Task`/`SubAgent` aliases. A generic agent started outside the Agent tool (a skill with `context: fork` and no `agent:`, a workflow stage without `agentType`) has every tool call refused. Each workflow `agent()` names a stack `agentType` the caller may spawn, with no `model`; bundled and plugin workflows (`/deep-research`) are refused. settings.json: `Agent(general-purpose)`, `Agent(claude)`, `Agent(fork)` deny rules, `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`, `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1` (`claude -p` and Agent SDK apps).
 - **Copies:** only researcher and coder may spawn copies (`researcher-copy`, `coder-copy`), at most 2 at once (`STACK_MAX_SELF_FANOUT=2`).
 
@@ -118,6 +121,8 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `BLACKCAT_MAX_STEPS` | 12 | 8 | Dispatches plus relays and questions within one prompt |
 | `BLACKCAT_DISPATCH_WINDOW_S` | 120 | 30 | Eight long briefs in one message take longer than 30 s to emit |
 | `BLACKCAT_BACKGROUND` | 1 (code) | new | Drops BlackCat's `run_in_background: false` (fixes bug 1) |
+| `STACK_AGENT_LABEL` | `description` (code) | new | `description\|name\|off`. `description` prefixes each allowed Agent call's description with `<type>: ` (Claude Code shows `agent-name(description)`); `name` names an unnamed child `<type>-<n>`; zero prompt tokens |
+| `STACK_AGENT_STARTED` | 1 (code) | new | SubagentStart gives a stack agent its local start time for the clean-finish line; 0 disables it |
 | `STACK_MAX_FANOUT` | 3 | — | Default number of running children per agent |
 | `STACK_MAX_FANOUT_BY_TYPE` | `orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | `orchestrator=8,planner=8,plan-reviewer=8` | The coordinators get room; everyone else keeps 3 |
 | `STACK_MAX_SELF_FANOUT` | 2 | — | Copies per base agent |

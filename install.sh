@@ -2132,7 +2132,7 @@ say "8/11 MCP dependency prefetch"
 if [ "$NO_DEPS" = 1 ]; then
   note "--no-deps: skipping MCP dependency prefetch"
 elif [ "$DRY_RUN" = 1 ]; then
-  would "prefetch the MCP servers' packages (libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, playwright, context-mode)"
+  would "prefetch the MCP servers' packages (libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, lean-lsp-mcp, playwright, context-mode)"
 elif ! have uv; then
   note "! uv missing — skipping MCP dependency prefetch"
 else
@@ -2146,10 +2146,12 @@ else
     ! have uvx || uvx --quiet markitdown-mcp@0.0.1a7 --help >/dev/null 2>&1 </dev/null || true
     # cg-artist's Blender server: download only (it would wait on the Blender add-on's socket)
     uv tool run --quiet --from mcp-for-blender==2.1.1 python -c pass >/dev/null 2>&1 </dev/null || true
+    # proof-checker's Lean server: download only (starting it would start the Lean toolchain)
+    uv tool run --quiet --from lean-lsp-mcp==0.30.0 python -c pass >/dev/null 2>&1 </dev/null || true
     ! have npx || npx -y @playwright/mcp@0.0.82 --help >/dev/null 2>&1 </dev/null || true
     ! have npx || npx -y context-mode@1.0.169 --help >/dev/null 2>&1 </dev/null || true
   )
-  note "prefetched libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, playwright, context-mode (cache: $STACK_CACHE)"
+  note "prefetched libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, lean-lsp-mcp, playwright, context-mode (cache: $STACK_CACHE)"
 fi
 
 say "9/11 MCP servers (user scope, remote HTTP — lazy connect, tools deferred, keys via headersHelper)"

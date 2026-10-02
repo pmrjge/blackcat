@@ -146,6 +146,7 @@ Blender through MCP for Blender is the most capable free route; Spline suits web
 | [Spline](https://docs.spline.design/generate/spline-mcp-server) | Builds and edits 3D scenes and Hana designs, generates 3D models and images | Built into the Spline desktop app (macOS, Windows) | Spline account |
 | Autodesk Fusion | Creates, modifies and inspects CAD geometry | Desktop extension in the connector directory | Fusion licence |
 | three.js | 3D on the web, written by Claude directly | Nothing to add | Free |
+| [houdini-mcp](https://github.com/kleer001/houdini-mcp) | Drives Houdini (nodes, sims, PDG, USD/Solaris, renders) through a Houdini-side plugin over local TCP; starts headless hython when no GUI runs | Optional, not enabled in your stack: its bootstrap installs a plugin and a `pythonrc.py` hook into your Houdini preferences; then `claude mcp add --scope user houdini -- uv --directory <repo> run python houdini_mcp_server.py` and `mcp__houdini` on vfx-td's tools line | Free (MIT) |
 
 ## Diagrams and whiteboards
 
@@ -164,13 +165,13 @@ For diagrams that live in a repository, Mermaid and draw.io files cost nothing; 
 
 ## Maths and research
 
-Your stack's mathematician agent (Opus 5.5 at xhigh) with the formal-methods, latex-typesetting and literature-review skills handles proofs and write-ups; Wolfram adds exact computation.
+Your stack's mathematician agent (Opus 5.5 at xhigh) with the formal-methods, latex-typesetting and literature-review skills handles proofs and write-ups, the proof-checker agent referees them and checks Lean proofs; Wolfram adds exact computation.
 
 | Tool | Use | Connect | Cost |
 | --- | --- | --- | --- |
 | Wolfram | Exact symbolic and numeric computation, curated data | Already in your stack for the mathematician: `https://agenttools.wolfram.com/mcp` | Free, no key |
 | math-olympiad skills | Anthropic's competition-maths skills | `./install.sh --with-extra-plugins` | Free |
-| Lean 4 and Mathlib | Machine-checked proofs | In your stack's catalog: mcp-broker mounts `lean-lsp-mcp` (set `LEAN_PROJECT_PATH`); LeanExplore searches Mathlib | Free |
+| Lean 4 and Mathlib | Machine-checked proofs | In your stack: proof-checker runs `lean-lsp-mcp` itself and mcp-broker can mount the catalog copy; you install elan and a built Mathlib Lake project and set `LEAN_PROJECT_PATH` in stack.env; LeanExplore searches Mathlib | Free |
 | [arxiv-mcp-server](https://github.com/blazickjp/arxiv-mcp-server) | Search, download and read arXiv papers | In your stack's catalog as `arxiv` | Free |
 | alphaXiv | Search and full text of arXiv papers | Remote: `https://api.alphaxiv.org/mcp/v1` | Free |
 | Elicit | Search and analyse scientific papers | Remote: `https://elicit.com/api/mcp` | Elicit plan |

@@ -48,8 +48,9 @@ Reads the hook JSON on stdin.
                                     the replacement for Claude Code's own protected-path check,
                                     which covers only Edit/Write and is skipped entirely in
                                     bypassPermissions mode; for code-reviewer, security-auditor,
-                                    verifier, plan-reviewer and claude-code-guide it also holds
-                                    Bash to read-only commands (READONLY_TYPES, _ReadOnly)
+                                    verifier, plan-reviewer, claude-code-guide and proof-checker
+                                    it also holds Bash to read-only commands (READONLY_TYPES,
+                                    _ReadOnly)
   PreToolUse  nmem_remember         web-reading agents (researcher, scout, browser-operator) don't
                                     write the shared memory, nor do agents web content reached
                                     (own web tools, a descendant's report, a SendMessage either
@@ -204,6 +205,7 @@ AGENTS = [
     "security-auditor", "mcp-broker", "claude-code-guide",
     "ml-engineer", "dl-engineer", "llm-engineer", "data-scientist", "browser-operator",
     "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist", "explore",
+    "proof-checker", "vfx-td",
 ]
 # Claude Code's built-in types are not part of the stack: settings.json switches off Explore and
 # Plan (CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS; agents/explore.md replaces Explore, pinned to
@@ -212,7 +214,8 @@ AGENTS = [
 # this hook spawns only STACK_TYPES. Nothing else is spawnable.
 BUILTINS = []
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
-          "claude-code-guide", "browser-operator", "plan-reviewer", "image-director", "explore"]
+          "claude-code-guide", "browser-operator", "plan-reviewer", "image-director", "explore",
+          "proof-checker"]
 # Generic agent types: Claude Code's catch-alls (general-purpose, claude, fork), the default
 # workflow stage ("workflow-subagent" in Claude Code 2.1.285), and the names a model or a host has
 # used for a generic spawn ("SubAgent": the label of an agent context without a type, e.g. a forked
@@ -255,10 +258,11 @@ POLICY = {
     "researcher": ["researcher-copy", "scout", "doc-specialist", "mathematician", "data-engineer",
                    "data-scientist", "mcp-broker"],
     "writer": ["scout", "researcher", "mathematician"],
-    "mathematician": ["scout", "mcp-broker", "quantum-engineer"],
+    "mathematician": ["scout", "mcp-broker", "quantum-engineer", "proof-checker"],
     "doc-specialist": ["scout", "mcp-broker"],
     "designer": ["image-director", "scout", "mcp-broker", "cg-artist"],
-    "motion-designer": ["image-director", "designer", "scout", "mcp-broker", "cg-artist"],
+    "motion-designer": ["image-director", "designer", "scout", "mcp-broker", "cg-artist",
+                        "vfx-td"],
     "coder": ["coder-copy", "explore", "scout"],
     "main-coder": ["coder", "explore", "scout", "verifier", "code-reviewer",
                    "security-auditor", "plan-reviewer", "mlx-engineer", "cuda-engineer",
@@ -267,10 +271,11 @@ POLICY = {
     "ninja-coder": ["main-coder", "coder", "mathematician", "explore", "scout",
                     "verifier", "code-reviewer", "security-auditor", "researcher", "mlx-engineer",
                     "cuda-engineer", "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker",
-                    "quantum-engineer"],
+                    "quantum-engineer", "proof-checker"],
     "god-coder": ["coder", "main-coder", "ninja-coder", "mlx-engineer", "cuda-engineer",
                   "ml-engineer", "dl-engineer", "llm-engineer", "explore", "scout", "verifier",
-                  "code-reviewer", "security-auditor", "mathematician", "researcher"],
+                  "code-reviewer", "security-auditor", "mathematician", "researcher",
+                  "proof-checker"],
     "mlx-engineer": list(_ACCEL_ROW),
     # browser-only ML environments (Kaggle notebooks, cloud GPU consoles) go through BlackCat or the
     # orchestrator, which keep browser-operator; these engineers read the web themselves (T1)
@@ -297,19 +302,22 @@ POLICY = {
     # quantum computing and quantum-physics numerics; derivations stay with mathematician
     "quantum-engineer": ["mathematician", "coder", "explore", "scout",
                          "researcher", "verifier", "code-reviewer", "cuda-engineer", "mlx-engineer",
-                         "mcp-broker", "ninja-coder"],
+                         "mcp-broker", "ninja-coder", "proof-checker"],
     "robotics-engineer": ["coder", "explore", "scout", "researcher",
                           "verifier", "code-reviewer", "mathematician", "dl-engineer",
                           "cuda-engineer", "mlx-engineer", "cg-artist", "mcp-broker",
                           "ninja-coder"],
-    # a GUI agent (ZBrush, Substance, Houdini through computer use): no copies, one screen
-    "cg-artist": ["image-director", "coder", "scout", "verifier", "mcp-broker"],
+    # GUI agents (ZBrush, Substance; Houdini through computer use): no copies, one screen
+    "cg-artist": ["image-director", "coder", "scout", "verifier", "mcp-broker", "vfx-td"],
+    "vfx-td": ["coder", "scout", "verifier", "mcp-broker"],
     "oracle": [], "scout": [], "code-reviewer": [], "verifier": [], "security-auditor": [],
     "mcp-broker": [], "claude-code-guide": [], "browser-operator": [],
     # a review or an image job is one bounded task: no delegation (planner keeps Agent)
     "plan-reviewer": [], "image-director": [],
     # read-only codebase search (Sonnet, no Bash): one bounded look, no delegation
     "explore": [],
+    # a referee (read-only Bash, Lean server inline): one bounded check, no delegation
+    "proof-checker": [],
 }
 # A copy's row: its base's row without the base type and without any copy type.
 for _base, _copy in COPY_OF.items():
@@ -395,9 +403,10 @@ BLACKCAT_TOOLS = {"Agent", "SendMessage", "AskUserQuestion", "mcp__conductor__As
                   "ExitPlanMode", "TaskStop", "ListAgents", "ToolSearch", "Skill", "Workflow",
                   "CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",
                   "PushNotification", "SendUserFile", "Read", "Grep", "Glob"}
-# Reviewers and guides are read-only by role but hold Bash: their Bash runs read-only commands only
-# (READONLY_REASON, _ReadOnly). STACK_POLICY=off lifts it with the other policy gates.
-READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewer", "claude-code-guide"}
+# Reviewers, guides and proof-checker are read-only by role but hold Bash: their Bash runs
+# read-only commands only (READONLY_REASON, _ReadOnly). STACK_POLICY=off lifts it with the other policy gates.
+READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewer", "claude-code-guide",
+                  "proof-checker"}
 # Agents that ingest web pages never write the shared memory (a page could plant "decisions" other
 # agents recall later): their nmem_remember calls are refused (on_memory_write).
 WEB_INGESTING_TYPES = {"researcher", "researcher-copy", "scout", "browser-operator"}
