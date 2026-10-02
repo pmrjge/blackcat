@@ -232,14 +232,27 @@ def get_may_spawn(body):
 # skillOverrides values (code.claude.com/docs/en/skills.md, "Override skill visibility from settings"):
 # "on" lists name and description, "name-only" the name, "user-invocable-only" and "off" nothing.
 OVERRIDE_STATES = {"on", "name-only", "user-invocable-only", "off"}
+# Skill-listing budget (see main()): what shares it besides the stack's own skills, 2026-10-02.
+# Plugins the installer enables (measured from their SKILL.md files, entries "- name: description" cut
+# at skillListingMaxDescChars 500): document-skills docx/xlsx/pptx/pdf 2,032, math-olympiad 531,
+# skill-creator 350; the LSP plugins have no skills. Bundled Claude Code skills (dataviz, artifact-*,
+# update-config, loop, schedule, claude-api, workflow-authoring, run, plugin-authoring): ~3,950,
+# estimated from a 2.1.287 session's listing. claude.ai-synced skills (anthropic-skills:*, only in
+# sessions signed in to claude.ai; the stack can't see them): ~7,300 margin, estimated likewise.
+NON_STACK = {"plugins": 2_913 + 6, "bundled (est.)": 3_950, "claude.ai synced (est. margin)": 7_300}
+NON_STACK_LISTING = sum(NON_STACK.values())
+LISTING_NOTE = ("0.0156 set 2026-10-02 from stack 31,028 + non-stack %d = %d chars plus 3.5%%; see "
+                "tests/prompt_budget.py SKILL_BUDGET" % (NON_STACK_LISTING, 31_028 + NON_STACK_LISTING))
 
 
 def skill_listing_entry(name, desc_len, override="on", desc_cap=1536, model_invocable=True):
-    """Characters one skill adds to the skill listing every agent sees (separators not counted)."""
+    """Characters one skill adds to the skill listing every agent sees (separators not counted).
+    As Claude Code 2.1.287 builds it: "- <name>: <description>" (name + 4 + description cut at
+    skillListingMaxDescChars) and "- <name>" (name + 2) for a "name-only" skill."""
     if not model_invocable or override in ("user-invocable-only", "off"):
         return 0
     if override == "name-only":
-        return len(name) + 4
+        return len(name) + 2
     return len(name) + 4 + min(desc_len, desc_cap)
 
 
@@ -558,19 +571,22 @@ def main():
         if "Skill" not in allow and f"Skill({s})" not in allow:
             fail(f"settings.json permissions.allow lacks Skill (or Skill({s})) — agents loading it on "
                  "demand would stop at a permission prompt")
-    # Claude Code lists every skill (name + description) to every agent within
-    # skillListingBudgetFraction (default 0.01) of the context window, at ~3 characters per token on
-    # current models; over it, the least-used skills show by name only. skillOverrides "name-only"
-    # entries count their name only, "user-invocable-only"/"off" nothing. The stack's own skills must
-    # leave half of that for plugin and claude.ai skills.
+    # Claude Code lists every skill (name + description) to every agent within a character budget of
+    # context window x chars per token x skillListingBudgetFraction (default 0.01). Claude Code 2.1.287
+    # counts 3 characters per token for the 5.5 models (4 for older ones); every agent here runs a
+    # 1M-context model. Over the budget it drops the descriptions of the least-used skills, silently.
+    # The same budget holds plugin, bundled and claude.ai skills (NON_STACK_LISTING, measured), so the
+    # stack's own listing must leave that much room.
     try:
         frac = float(json.loads(SETTINGS.read_text()).get("skillListingBudgetFraction", 0.01))
     except (OSError, ValueError, TypeError):
         frac = 0.01
     used, budget = sum(listing) + max(0, len(listing) - 1), int(1_000_000 * 3 * frac)
-    if used > budget // 2:
-        fail(f"skill listing is {used} characters, over half the {budget}-character budget "
-             f"(skillListingBudgetFraction={frac}): shorten descriptions or raise the fraction")
+    if used + NON_STACK_LISTING > budget:
+        fail(f"skill listing is {used} characters; with {NON_STACK_LISTING} for plugin, bundled and "
+             f"claude.ai skills that is over the {budget}-character budget (skillListingBudgetFraction="
+             f"{frac}; {LISTING_NOTE}): Claude Code would drop descriptions silently. Shorten or merge "
+             "skills, or raise the fraction by the overflow plus ~3%")
 
     if errors:
         print(f"lint_agents: {len(errors)} failure(s):", file=sys.stderr)

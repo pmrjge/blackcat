@@ -1250,6 +1250,38 @@ grep -q 'retracted stack skillOverrides for code-review, fewer-permission-prompt
 assert_unchanged_real_home
 drop_scratch "$TR"
 
+echo "== 13b. skillOverrides entries an earlier version shipped are retracted per skill (block still shipped)"
+TN="$(scratch_dir)" || exit 1
+# the earlier version: the current settings plus two "name-only" entries (as phase 2 once shipped)
+cp -R "$HERE" "$TN/repo"
+python3 - "$TN/repo/dot-claude/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+s["skillOverrides"].update({"postgresql": "name-only", "mongodb": "name-only"})
+json.dump(s, open(p, "w"), indent=2)
+PY
+tgit -C "$TN/repo" commit -qam "name-only era" || failed "could not commit the earlier repository"
+CLAUDE_CONFIG_DIR="$TN/c" "$TN/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1
+python3 - "$TN/c/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+s["skillOverrides"]["mongodb"] = "off"          # the user changed a stack entry: it stays theirs
+json.dump(s, open(p, "w"), indent=2)
+PY
+CLAUDE_CONFIG_DIR="$TN/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --yes >"$TN/r.log" 2>&1
+python3 - "$TN/c/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "name-only entries no longer shipped are retracted; a changed one and the shipped ones stay" || { failed "per-skill skillOverrides retraction"; grep -i 'retract\|kept' "$TN/r.log" | sed 's/^/    /'; }
+import json, sys
+so = json.load(open(sys.argv[1])).get("skillOverrides", {})
+want = dict(json.load(open(sys.argv[2])).get("skillOverrides", {}), mongodb="off")
+if so != want:
+    print("   ", json.dumps(so))
+sys.exit(0 if so == want else 1)
+PY
+grep -q 'retracted stack skillOverrides for postgresql (no longer shipped)' "$TN/r.log" \
+  && pass "per-skill retraction is reported" || failed "per-skill retraction message: $(grep -i retract "$TN/r.log")"
+assert_unchanged_real_home
+drop_scratch "$TN"
+
 echo "== 14. Copy types: researcher-copy and coder-copy rendered from their base agents"
 TC="$(scratch_dir)" || exit 1
 CLAUDE_CONFIG_DIR="$TC/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$TC/i.log" 2>&1

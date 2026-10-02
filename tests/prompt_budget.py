@@ -11,7 +11,7 @@ Usage:
 Per agent: description chars, body chars, maxTurns, whether it has the Agent tool, omitClaudeMd.
 Shared: the rules file, the skill listing and the agent listings. The skill listing sums, over the
 shipped skills, what lint_agents.skill_listing_entry counts: name + 4 + min(description,
-skillListingMaxDescChars) for a listed skill, name + 4 for a skillOverrides "name-only" one, 0 for
+skillListingMaxDescChars) for a listed skill, name + 2 for a skillOverrides "name-only" one, 0 for
 "user-invocable-only", "off" or disable-model-invocation. The agent listing a subagent with the Agent
 tool sees is the sum of name + description + tools line + 12 over every agent but blackcat; BlackCat's
 own listing (blackcat_listing) sums the same over the agents its `Agent(...)` allowlist names. Per
@@ -24,8 +24,8 @@ blackcat: blackcat_listing). Tokens ~ ceil(chars / 3).
              absent at base, description <= 160 / body <= 2,400 (with Agent) or <= 120 / <= 1,400
              (leaf); and against the base (--base, default DEFAULT_BASE): bodies of the agents present
              at base <= 1.05 x base, agent listing <= 1.34 x, blackcat listing <= 1.31 x, skill listing
-             <= 0.65 x, rules <= 1.02 x, mean per spawn of the base agents (blackcat excluded: it is the
-             main thread, never spawned) <= 0.92 x. Ratios are skipped when the base revision is missing.
+             <= 1.77 x, rules <= 1.02 x, mean per spawn of the base agents (blackcat excluded: it is the
+             main thread, never spawned) <= 1.42 x. Ratios are skipped when the base revision is missing.
 --turns      read Claude Code subagent transcripts (read-only; default
              ~/.claude/projects/**/subagents/agent-*.meta.json) and print p50/p90/max turns per agent
              type (one turn = one assistant message id).
@@ -58,8 +58,23 @@ NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
 # targets in May-spawn sentences, and nothing else), and the global rules file, which every agent
 # reads on every spawn, by at most 2% (wording fixes only; any new rule must displace an old one).
 # New agents are capped one by one through NEW_CAPS instead of a ratio, since they have no base.
-RATIO = {"bodies": 1.05, "agent_listing": 1.34, "blackcat_listing": 1.31, "skill_listing": 0.65,
-         "rules": 1.02, "per_spawn_mean": 0.92}
+# skill_listing and per_spawn_mean (2026-10-02, the user's decision: no "name-only" skills, every
+# description explanatory). Design E's 0.65 x and 0.92 x assumed 216 name-only skills (10,693 chars at
+# 24beb76). With every description listed (mean ~110 chars, modules <= 140) and 8 skills folded into
+# their hubs (248 left), the listing measures 30,782 (1.744 x base 17,647) and the base agents' mean
+# per spawn 54,874 (1.402 x 39,146); each gate is that + 2%, rounded down to 0.01. The user's
+# principle: loading skills on demand beats large agent prompts, so the listing is where that cost goes.
+RATIO = {"bodies": 1.05, "agent_listing": 1.34, "blackcat_listing": 1.31, "skill_listing": 1.77,
+         "rules": 1.02, "per_spawn_mean": 1.42}
+# SKILL_BUDGET: Claude Code's listing budget is context window x chars/token x
+# skillListingBudgetFraction = 1,000,000 x 3 x f for the 5.5 models (Claude Code 2.1.287), shared by the
+# stack's skills and every plugin, bundled and claude.ai skill; over it, the least-used skills lose
+# their description silently. Measured 2026-10-02: stack 31,028 chars (with separators; lint counts
+# it); plugins 2,919 (measured: document-skills, math-olympiad, skill-creator; LSP plugins list
+# nothing), bundled ~3,950 and claude.ai-synced ~7,300 (both estimated, lint NON_STACK) = 45,197 >
+# 36,000 at 0.012. The fraction goes to 0.0156: 46,800 chars, 1,603 (3.5%) above that total. It is a
+# cost-only knob (how many descriptions are kept; no permission, hook or sandbox changes).
+SKILL_BUDGET = {"fraction": 0.0156, "budget": 46_800, "stack": 31_028, "non_stack": 14_169}
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lint_agents import skill_listing_entry, split_top_level, leading_name  # noqa: E402

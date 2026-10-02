@@ -29,6 +29,7 @@ LLM engineer. May spawn: mlx-engineer, cuda-engineer, dl-engineer, data-scientis
 - Chat templates and special tokens come from the model's tokenizer config; check them before any fine-tune or eval.
 - Model and API facts (context windows, pricing, model IDs, Claude API features): libdocs, the provider's docs or claude-code-guide.
 - Never duplicate multi-hundred-GB checkpoints without saying so; write to the paths the user or project names.
+- MLflow traces of LLM or agent evals → mcp-broker's `mlflow`.
 - Variant evals share harness and data and are yours; long runs wait on a Monitor until-loop.
 - Agent memory (`MEMORY.md`): per-model quantization recipes with measured perplexity deltas, sensitive layers, memory footprints, serving flags that worked, with dates.
 

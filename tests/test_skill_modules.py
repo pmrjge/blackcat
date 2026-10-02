@@ -2,10 +2,10 @@
 
 A hub is a SKILL.md with a `## Modules` section; its modules are the backticked skill names in the
 first column of that section's table. Caps: every SKILL.md <= 500 lines, a hub <= 80, a module <= 150
-with a description <= 100 characters. Detail lives in references/<topic>.md, which must exist where a
+with a description <= 140 characters. Detail lives in references/<topic>.md, which must exist where a
 skill names it. Every skillOverrides key is a shipped skill or one of Claude Code's bundled skills the
-stack hides (EXTERNAL); every "name-only" skill is named by another skill or an agent body, since the
-listing no longer carries its description.
+stack hides (EXTERNAL). Every skill but a hub is named by a hub, another skill, an agent body or the
+rules (reachability: a module is found through its hub, not only through the listing).
 """
 import json
 import re
@@ -15,11 +15,15 @@ ROOT = Path(__file__).resolve().parent.parent
 SKILLS = ROOT / "dot-claude" / "skills"
 AGENTS = ROOT / "dot-claude" / "agents"
 SETTINGS = ROOT / "dot-claude" / "settings.json"
+RULES = ROOT / "dot-claude" / "rules"
 
 SKILL_MAX_LINES = 500
 HUB_MAX_LINES = 80
 MODULE_MAX_LINES = 150
-MODULE_DESC_MAX = 100
+# 140 holds "what it covers, when to load it, its hub or siblings" in one line; 100 forced cryptic
+# text. Every skill is listed with its description (no "name-only" overrides since the user's
+# decision of 2026-10-02), so the description is what an agent picks a module by.
+MODULE_DESC_MAX = 140
 # Claude Code's bundled skills the stack hides from the model (user-run commands); not shipped here.
 EXTERNAL = {"code-review", "security-review", "simplify", "fewer-permission-prompts", "keybindings-help",
             "init"}
@@ -131,17 +135,24 @@ def test_skill_overrides_keys_are_shipped_or_external():
     assert not shadow, "EXTERNAL names a shipped skill: %s" % shadow
 
 
-def test_name_only_skills_are_named_somewhere():
-    so, sk = overrides(), shipped()
+# General skills an agent reaches by their listed description alone (no hub, nothing to route from).
+STANDALONE = {"code-standards"}
+
+
+def test_skills_are_reachable():
+    sk = shipped()
+    hubs, _ = hubs_and_modules()
     texts = {"agents/" + p.name: p.read_text(encoding="utf-8") for p in sorted(AGENTS.glob("*.md"))}
+    texts.update({"rules/" + p.name: p.read_text(encoding="utf-8") for p in sorted(RULES.glob("*.md"))})
     texts.update({"skills/" + n: p.read_text(encoding="utf-8") for n, p in sk.items()})
     orphans = []
-    for name in sorted(k for k, v in so.items() if v == "name-only" and k in sk):
+    for name in sorted(set(sk) - set(hubs) - STANDALONE):
         rx = re.compile(r"(?<![\w-])%s(?![\w-])" % re.escape(name))
         if not any(rx.search(t) for where, t in texts.items() if where != "skills/" + name):
             orphans.append(name)
-    assert not orphans, ("name-only skills that no hub, other skill or agent body names (the listing "
-                         "shows no description, so nothing points an agent at them): %s" % orphans)
+    assert not orphans, ("skills no hub, other skill, agent body or rules file names (add them to a "
+                         "hub's Modules table or an agent's Skills line): %s" % orphans)
+    assert not STANDALONE - set(sk), "STANDALONE names a skill that is not shipped"
 
 
 def test_module_table_parser():

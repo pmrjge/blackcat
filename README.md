@@ -2,7 +2,7 @@
 
 <!-- markdownlint-disable MD013 MD060 -->
 
-BlackCat, a dispatcher on the main thread, routes work to 55 specialist agents (56 agent files). 256
+BlackCat, a dispatcher on the main thread, routes work to 55 specialist agents (56 agent files). 248
 skills load on demand. One policy hook, deny rules and the Claude Code sandbox hold the limits, and MCP
 servers start and stop with the agents that use them. Built for Claude Code **2.1.271 or later**,
 macOS only (Apple Silicon first). It runs in the terminal and in the apps that run Claude Code with
@@ -264,7 +264,7 @@ and `CLAUDE_CONFIG_DIR` both point into a temp dir, so an agent also sets `HOME=
 | `~/.claude/rules/claude-agent-stack.md` | Global rules every agent loads. `~/.claude/CLAUDE.md` stays yours |
 | `~/.claude/settings.json` | `"agent": "blackcat"`, auto-compact at 400K, depth 4, caps, permissions, sandbox, hooks, status line (merged) |
 | `~/.claude/agents/*.md` | 56 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
-| `~/.claude/skills/*/SKILL.md` | 256 skills (40 list name and description, 216 their name only via `skillOverrides`; bodies load on demand) |
+| `~/.claude/skills/*/SKILL.md` | 248 skills (every one listed with an explanatory description; bodies load on demand) |
 | `~/.claude/hooks/agent_guard.py` | The policy hook (see [Enforced behaviours](#enforced-behaviours-hooks)) |
 | `~/.claude/bin/mcp-headers` | `headersHelper`: gives exa/jina/huggingface/wandb their keys from `stack.env` at connect time |
 | `~/.claude/bin/with-stack-env` | Starts spider/magg with only their own keys (`--only`); `--print-env sh` for the profile (values redacted unless `--reveal`, which agents can't pass) |
@@ -521,15 +521,17 @@ preloads; every name is lint-checked. One `Skill` allow rule pre-approves every 
 you or a plugin add later. If you open repositories you don't trust, replace it with `Skill(<name>)`
 rules, since it also approves a repository's own `.claude/skills`.
 
-**Listing budget.** Claude Code caps the listing at `skillListingBudgetFraction` of the context
-window; the stack sets **0.012** (default 0.01), about 36K characters on the 1M-context models every
-agent uses. The stack's own descriptions take about 17.7K characters. Over the cap, the least-used
-skills show by name only. To leave room for plugin, bundled and claude.ai skills, the stack also cuts
-each description at 500 characters (`skillListingMaxDescChars`) and lists six user-run commands
+**Listing budget.** Claude Code caps the listing at context window × 3 characters per token (the 5.5
+models) × `skillListingBudgetFraction`, and that budget also holds plugin, bundled and claude.ai
+skills; over it, the least-used skills silently lose their description. No stack skill is listed by
+name only, so the stack sets **0.0156** (default 0.01): 46,800 characters on the 1M-context models
+every agent uses: the stack's ~31K plus ~14.2K for plugin (2.9K, measured), bundled (~4K) and
+claude.ai (~7.3K) skills (both estimated), with 3.5% to spare. It is a cost knob only: it decides how many descriptions are kept. The stack also
+cuts each description at 500 characters (`skillListingMaxDescChars`) and lists six user-run commands
 (`code-review`, `security-review`, `simplify`, `fewer-permission-prompts`, `keybindings-help`, `init`)
 only in the `/` menu (`skillOverrides`). `/stack-doctor` reports the size; `tests/lint_agents.py`
-fails if the stack's skills pass half the budget. A session with a 200K window gets a fifth of the
-space; raise the fraction in your own settings there if that matters.
+fails if the stack's listing plus that 14.2K passes the budget. A session with a 200K window
+gets a fifth of the space; raise the fraction in your own settings there if that matters.
 
 A skill's description starts with its trigger ("Load before …", "Use when …") and names no agent.
 
@@ -962,7 +964,11 @@ jupyter, ros, qiskit, docspace and every domain server ask at every call; the lo
 stack's private `STACK_CACHE`. Language servers are session-wide plugins, not agent-scoped: the
 installer adds the official rust-analyzer, gopls, pyright, typescript, jdtls and kotlin plugins and
 the stack's haskell, julia, lean and metals ones when their binaries exist; only agents with the
-`LSP` tool use them.
+`LSP` tool use them. Skill plugins (document-skills, and with `--with-extra-plugins` math-olympiad and
+skill-creator) stay enabled because an agent or skill names each of them; a plugin you want only in
+one project goes in that project's `.claude/settings.json` (`"enabledPlugins": {"<id>": true}`), and
+`/plugin enable <id>` / `/plugin disable <id>` switch one for your user. CONFIG.md §5 ("On demand and
+automatic") has the full matrix of MCP servers, plugins and skills with their idle costs.
 Versions and details: [mcp_servers.md](mcp_servers.md).
 
 ### Context economy: context-mode and neural-memory

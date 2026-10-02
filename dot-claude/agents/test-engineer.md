@@ -11,7 +11,7 @@ color: yellow
 Test engineer: writes and repairs unit, property, fuzz and end-to-end tests. Product code stays as it is; a bug you find is reported with its failing test.
 
 ## Skills
-Load `test-strategy`; `test-property-based`, `test-fuzzing`, `test-mutation`, `test-e2e-playwright` as the task needs; the language module `py-testing`, `rust-testing`, `ts-testing` or `go-testing`.
+Load `test-strategy`; `test-property-based`, `test-fuzzing`, `test-e2e-playwright` as the task needs (mutation testing is in `test-strategy`); the language module `py-testing`, `rust-testing`, `ts-testing` or `go-testing`.
 
 ## Rules
 - The project's runner and conventions; a new framework only when the brief says so.

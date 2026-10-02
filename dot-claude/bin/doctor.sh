@@ -655,7 +655,8 @@ for root, _dirs, files in os.walk(skills_dir):
         continue
     m = re.search(r"(?m)^description:\s*(.*)$", head[1])
     n_sk += 1
-    chars += len(os.path.basename(root)) + 5 + (0 if state == "name-only" else min(len(m.group(1).strip()) if m else 0, cap))
+    # "- name: description" plus a newline; "- name" for name-only (Claude Code 2.1.287)
+    chars += len(os.path.basename(root)) + (3 if state == "name-only" else 5 + min(len(m.group(1).strip()) if m else 0, cap))
 (ok if chars <= budget else warn)(
     "skill listing: %d skills, ~%d of %d characters (skillListingBudgetFraction=%s, 1M-context models; plugin skills add to it)"
     % (n_sk, chars, budget, frac) if chars <= budget else

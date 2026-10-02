@@ -57,13 +57,16 @@ def test_skill_listing_reads_skill_overrides():
     e = pb.skill_listing_entry
     assert e("abc", 50) == 3 + 4 + 50
     assert e("abc", 900, "on", 500) == 3 + 4 + 500
-    assert e("abc", 50, "name-only") == 3 + 4
+    assert e("abc", 50, "name-only") == 3 + 2
     assert e("abc", 50, "user-invocable-only") == 0 and e("abc", 50, "off") == 0
     assert e("abc", 50, "on", 500, model_invocable=False) == 0
 
 
 def _agent(desc, body, has_agent=False, per_spawn=1000):
     return {"description": desc, "body": body, "has_agent": has_agent, "per_spawn": per_spawn}
+
+
+LISTING_KEYS = ("agent_listing", "blackcat_listing", "skill_listing", "rules")
 
 
 def _totals(**kw):
@@ -73,9 +76,9 @@ def _totals(**kw):
 
 
 def test_check_flags_violations():
-    head = dict(agents={"blackcat": _agent(10, 6000, True), "a": _agent(201, 100, per_spawn=2000),
+    head = dict(agents={"blackcat": _agent(10, 6000, True), "a": _agent(201, 100, per_spawn=int(pb.RATIO["per_spawn_mean"] * 1000) + 50),
                         "newx": _agent(161, 2401, True), "newl": _agent(121, 1401)},
-                **_totals(agent_listing=135, blackcat_listing=132, skill_listing=66, rules=103))
+                **_totals(**{k: int(round(pb.RATIO[k] * 100)) + 1 for k in LISTING_KEYS}))
     base = dict(agents={"blackcat": _agent(10, 5000, True), "a": _agent(10, 50)}, **_totals())
     bad = pb.check(head, base)
     for prefix in ("a.md: description 201", "blackcat.md: body 6000",
@@ -87,9 +90,10 @@ def test_check_flags_violations():
 
 
 def test_check_passes_within_limits():
-    head = dict(agents={"blackcat": _agent(10, 5200, True), "a": _agent(200, 105, per_spawn=920),
+    head = dict(agents={"blackcat": _agent(10, 5200, True),
+                        "a": _agent(200, 105, per_spawn=int(pb.RATIO["per_spawn_mean"] * 1000)),
                         "newx": _agent(160, 2400, True), "newl": _agent(120, 1400)},
-                **_totals(agent_listing=134, blackcat_listing=131, skill_listing=65, rules=102))
+                **_totals(**{k: int(pb.RATIO[k] * 100) for k in LISTING_KEYS}))
     base = dict(agents={"blackcat": _agent(10, 5000, True), "a": _agent(10, 100)}, **_totals())
     assert pb.check(head, base) == []
 

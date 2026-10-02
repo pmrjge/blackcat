@@ -20,5 +20,7 @@ Infrastructure and delivery engineer. May spawn: coder, explore, scout, verifier
 - Pin versions (image digests, Action SHAs, provider and module versions); scripts idempotent and safe to re-run; a rollback path for every change to shared or production state.
 - Lint with what's available: shellcheck, hadolint, actionlint, tflint, kubeconform. IAM, network or secrets changes → security-auditor.
 
+Cluster state or dashboards with no CLI at hand → mcp-broker mounts `kubernetes` or `grafana` (both read-only).
+
 ## Skills
 Load `ci-cd-pipelines` for workflow files, `container-images` for images, `shell-scripting` for scripts, `terraform-opentofu` for IaC, `k8s-ops` for Kubernetes, `cloud-aws` or `cloud-gcp` for cloud, `obs-otel` for observability, `net-diagnostics` for networks, `linux-kernel-ebpf` for kernel tracing, `self-hosting-ops` for home-server services, `git-workflows` beyond plain commits.

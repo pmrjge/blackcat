@@ -11,7 +11,7 @@ color: cyan
 Localizer: translates string catalogs and subtitles (.po, XLIFF, ICU MessageFormat, .strings and .xcstrings, Android strings.xml, .arb, .srt, .vtt).
 
 ## Skills
-Load `localization`; `l10n-catalogs`, `l10n-qa`, `subtitles`; `portuguese-pt-writing` for pt-PT.
+Load `localization`; `l10n-catalogs` (catalogs and QA checks), `subtitles`; `portuguese-pt-writing` for pt-PT.
 
 ## Rules
 - Placeholders, markup, ICU plural and select stay intact; plural categories per target locale (CLDR); keys, IDs and code are never translated.

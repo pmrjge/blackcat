@@ -148,6 +148,20 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `agent` | `blackcat` | — | BlackCat is the main thread in the terminal and in SDK apps |
 | `autoCompactWindow` | 400000 | — | Unchanged |
 
+### On demand and automatic: MCP servers, plugins, skills (2026-10-02)
+
+| Kind | Automatic (the situation needs it) | On demand (asked for) | Idle cost, before → after |
+|---|---|---|---|
+| Skills (248) | The listed description, plus a one-line pointer "load X when Y" in the agent or hub that needs it (every module is in a hub's table; every hub is named by an agent of its family) | the Skill tool by name | Listing on every spawn: 17,647 chars at 1a38c77 → 10,693 at 24beb76 (216 name-only) → 30,782 now (all described, explanatory) |
+| MCP, agent-scoped | The agent's inline `mcpServers` plus its `tools:` line: the server starts and stops with that agent | spawn that agent | 0 in other agents (unchanged); tool schemas deferred until tool search loads them |
+| MCP, magg catalog (23 servers, all disabled) | A one-line pointer in the agent that has the gap: "X → mcp-broker mounts `<server>`" (devops → `kubernetes`/`grafana`, data-scientist → `sec-edgar`/`gis`/`jupyter`, doc-specialist → `docling`/`docspace`, llm-engineer → `mlflow`, researcher → `arxiv`, game → `godot`, biochem → `biomcp`/`pubchem`, mobile → `mobile`/`android`, embedded → `serial`, frontend → `chrome-devtools`, robotics → `ros`, quantum → `qiskit-runtime`) | ask mcp-broker | 0 until mounted (unchanged); the pointers add ~430 chars to four agent bodies |
+| MCP, user scope (exa, jina, wolfram, huggingface, wandb) | session-wide, tools deferred | — | unchanged; nothing new added to user scope |
+| Plugins, LSP (pyright, typescript, rust-analyzer, gopls, jdtls, kotlin, clangd, swift; haskell, julia, lean, metals from the stack's marketplace) | enabled; a language server starts when Claude touches a matching file | — | 0 listing (no skills); unchanged |
+| Plugins with skills (document-skills, math-olympiad, skill-creator) | enabled, each named by a pointer (doc-specialist, technical-writing, presentation-design → docx/xlsx/pptx/pdf; mathematician, proof-craft → math-olympiad; claude-code-engineer → skill-creator), so none is disabled | `/plugin enable <id>`, or `"enabledPlugins": {"<id>": true}` in a project's `.claude/settings.json` | 2,919 listing chars (measured); unchanged |
+| Bundled Claude Code skills | left as they are: several are named by stack skills (dataviz, update-config) and their use can't be read here | `/<name>` | ~3,950 (estimated); unchanged |
+
+Per-agent plugin enabling does not exist: plugins are session-wide (user, project or local scope), so an LSP plugin is not agent-scoped; the closest per-project control is `enabledPlugins` in that project's `.claude/settings.json`. No hook enables or installs anything. Our own skills stay listed (none `user-invocable-only`): the user's decision is explanatory descriptions for every skill. The listing budget (`skillListingBudgetFraction` 0.0156) covers the stack's 31,028 characters plus ~14,169 for plugin, bundled and claude.ai skills (`tests/lint_agents.py` NON_STACK).
+
 ## 6. Recommended session settings
 
 - **Claude Desktop, Conductor and other SDK apps:** set effort to **medium** for the main thread; the agent files set each subagent's effort. Start a new session after installing.
@@ -305,7 +319,7 @@ Commits `ea80f87`, `7292272`, `b93b557`, `c9ef24b`, `693296f`, `275eead`, `b7a07
 - Security findings C1–C9, T1–T3 and P3 fixed (guard, settings, MCP servers, installer); section 7 lists the residual risks.
 - The installer stages, validates, backs up and then applies. It prunes by default (`--no-prune` opts out) and supports `--dry-run`, `--restore [DIR]` and `--print-managed-settings` (section 7).
 - Plugin duplicates of synced skills and `mcp-server-dev` are disabled by default (`--keep-plugin-duplicates`).
-- `skillListingBudgetFraction` 0.012; `tests/lint_agents.py`, `doctor.sh` and the smoke test read it from `settings.json`.
+- `skillListingBudgetFraction` 0.0156 (was 0.012): every skill is listed with its description, and the budget also holds plugin, bundled and claude.ai skills (stack ~31K + ~14.2K measured, plus 3.5%; rationale in `tests/prompt_budget.py` SKILL_BUDGET). Cost-only knob. `tests/lint_agents.py`, `doctor.sh` and the smoke test read it from `settings.json`.
 - Read-only reviewers may also run `claude --version`, `claude mcp list/get`, `claude plugin list` and the audit scanners (`gitleaks`, `trufflehog`, `semgrep`, `osv-scanner`, `pip-audit`, `uv audit`, `npm audit`, `cargo audit`/`deny`, `trivy`).
 
 ### 2026-09-29

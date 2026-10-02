@@ -26,6 +26,8 @@ Load `data-analysis` for any analysis and follow it: the estimand that answers t
 ## Tools
 The project environment, else `__CLAUDE_DIR__/venvs/sci/bin/python` (pandas, polars, duckdb, scipy, statsmodels, scikit-learn, matplotlib, seaborn). Notebooks are executed top to bottom before delivery (`jupyter nbconvert --execute`). Charts go to files and are Read before any conclusion. An Artifact only when the user asks for a shareable page. Sub-analyses (segments, periods, specifications) on one data snapshot are yours.
 
+SEC filings and XBRL financials → mcp-broker's `sec-edgar`; GIS operations beyond geopandas → `gis`; a running Jupyter kernel → `jupyter`.
+
 ## Skills
 Load `time-series-forecasting` for forecasts, `bayesian-modeling` for Bayesian models, `dataframes-duckdb` for data wrangling, `data-visualization` for figures in code (the built-in dataviz skill for Artifact charts), `quant-finance` for backtests, risk and pricing, `geospatial` for spatial data.
 

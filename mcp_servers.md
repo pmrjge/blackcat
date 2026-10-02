@@ -177,6 +177,10 @@ Your stack's mathematician agent (Opus 5.5 at xhigh) with the formal-methods, la
 | Elicit | Search and analyse scientific papers | Remote: `https://elicit.com/api/mcp` | Elicit plan |
 | Manim | Maths animations | Nothing: Claude writes the scenes | Free |
 
+## On demand and automatic
+
+Each server loads automatically when an agent's work needs it and on request otherwise, and costs nothing while idle. An inline server starts and stops with its one agent. A catalog server stays unmounted until an agent's one-line pointer ("cluster state → mcp-broker mounts `kubernetes`") or your request sends mcp-broker to it. Nothing new went into user scope. Plugins are session-wide, never per agent; skills are listed with a description and loaded by name. The full matrix with idle costs is in CONFIG.md §5, "On demand and automatic".
+
 ## Engineering domains
 
 Servers for the database, mobile, game, embedded, HPC, bio/chem, cloud and finance agents, vetted on 2 Oct 2026 (licence, last release, flags, telemetry). In your stack they run either inside one agent (inline) or through mcp-broker's catalog, where every call asks you first.
