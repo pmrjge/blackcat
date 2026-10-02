@@ -1,6 +1,6 @@
 ---
 name: pcb-kicad
-description: Load for PCB design in KiCad — schematics, ERC/DRC, layout rules, kicad-cli exports, BOM, Gerbers and fab release sets.
+description: Use for KiCad PCB design — schematics, ERC/DRC, layout, kicad-cli, BOM and fab outputs.
 ---
 # PCB design with KiCad
 

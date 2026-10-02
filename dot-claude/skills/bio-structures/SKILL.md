@@ -1,6 +1,6 @@
 ---
 name: bio-structures
-description: Load for protein structures — mmCIF parsing, AlphaFold 3 and Boltz predictions, pLDDT/PAE, preparation, alignment, docking.
+description: Use for protein structures — mmCIF, AlphaFold 3, Boltz, confidence metrics, docking.
 ---
 # Protein structures
 

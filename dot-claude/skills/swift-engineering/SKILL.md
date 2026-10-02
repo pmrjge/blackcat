@@ -1,6 +1,6 @@
 ---
 name: swift-engineering
-description: Load before writing, reviewing or testing Swift for Apple platforms — Swift 6 concurrency, SwiftPM, Swift Testing, the iOS module map.
+description: Use for Swift on Apple platforms — Swift 6 concurrency, SwiftPM, Swift Testing; iOS module map.
 ---
 # Swift engineering (hub)
 

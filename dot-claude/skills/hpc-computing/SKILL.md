@@ -1,6 +1,6 @@
 ---
 name: hpc-computing
-description: Load before scientific or HPC code and cluster work — MPI/OpenMP, SLURM, Fortran, parallel I/O, PDE/FEM; cost rules and the module map.
+description: Use for scientific and HPC code — cluster cost rules, reproducibility; map of MPI, SLURM, Fortran, I/O, PDE modules.
 ---
 # Scientific computing and HPC (hub)
 

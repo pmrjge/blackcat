@@ -1,6 +1,6 @@
 ---
 name: houdini-fx
-description: Load for Houdini — SOP/DOP/LOP networks, VEX, HDAs, Pyro/FLIP/Vellum/RBD sims, caching, Solaris/USD with Karma, hython, PDG.
+description: Use for Houdini — VEX, HDAs, Pyro/FLIP/Vellum/RBD sims, caching, Solaris/Karma, hython, PDG.
 ---
 # Houdini FX
 

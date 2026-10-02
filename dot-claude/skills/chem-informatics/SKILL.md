@@ -1,6 +1,6 @@
 ---
 name: chem-informatics
-description: Load for small molecules in RDKit — parsing, standardization, fingerprints, similarity, descriptors, conformers, QSAR splits.
+description: Use for small molecules in RDKit — standardization, fingerprints, similarity, QSAR.
 ---
 # Cheminformatics with RDKit
 

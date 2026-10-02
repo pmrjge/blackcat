@@ -1,6 +1,6 @@
 ---
 name: swiftui
-description: Load for SwiftUI views — @Observable state, data flow, NavigationStack, lists, previews, UIKit interop; CLI builds are in ios-build-sim.
+description: Use for SwiftUI views — Observation state, navigation, lists, previews, UIKit interop.
 ---
 # SwiftUI
 

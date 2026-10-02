@@ -1,6 +1,6 @@
 ---
 name: geo-tiles-webmaps
-description: Load to publish web maps — vector tiles with tippecanoe, PMTiles, Martin, MapLibre styles, hosting, attribution, performance.
+description: Use to publish web maps — vector tiles, PMTiles, MapLibre, tile servers, styles.
 ---
 # Tiles and web maps
 

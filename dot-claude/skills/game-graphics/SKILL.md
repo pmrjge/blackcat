@@ -1,6 +1,6 @@
 ---
 name: game-graphics
-description: Load before game or real-time graphics work — engines, GPU APIs, shaders, netcode, frame budgets, profiling; the module map.
+description: Use for games and real-time graphics — frame budgets, profiling; map of engine, GPU API, shader, netcode modules.
 ---
 # Games and real-time graphics (hub)
 

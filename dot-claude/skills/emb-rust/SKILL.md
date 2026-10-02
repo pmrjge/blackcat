@@ -1,6 +1,6 @@
 ---
 name: emb-rust
-description: Load for no_std Rust firmware — embassy, RTIC, esp-hal, embedded-hal drivers, defmt logging, memory.x, panic handlers, host tests.
+description: Use for no_std Rust firmware — embassy, RTIC, esp-hal, embedded-hal, defmt, memory.x.
 ---
 # Embedded Rust
 

@@ -1,6 +1,6 @@
 ---
 name: geospatial
-description: Load before geospatial work — coordinate systems, GDAL/OGR, vector and raster analysis, PostGIS, tiles and web maps; the module map.
+description: Use for geospatial work — CRS rules, cloud-native formats, licensing; module map for analysis and web maps.
 ---
 # Geospatial (hub)
 
@@ -10,8 +10,7 @@ Spatial data processing, analysis and map publishing. Databases: `postgresql` (P
 ## Modules
 | module | load when |
 |---|---|
-| `geo-crs-gdal` | CRS, datums, reprojection, PROJ, GDAL/OGR command line, format conversion |
-| `geo-raster-vector` | GeoPandas/Shapely, rasterio/rioxarray, overlays, zonal stats, STAC, PostGIS/DuckDB queries |
+| `geo-raster-vector` | CRS, datums, reprojection, GDAL/OGR command line, formats; GeoPandas/Shapely, rasterio/rioxarray, overlays, zonal stats, STAC, PostGIS/DuckDB queries |
 | `geo-tiles-webmaps` | vector/raster tiles, PMTiles, MapLibre, tile servers, styles, web map performance |
 
 ## Versions

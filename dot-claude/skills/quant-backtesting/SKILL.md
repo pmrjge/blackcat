@@ -1,6 +1,6 @@
 ---
 name: quant-backtesting
-description: Load to backtest a trading strategy — signal timing, costs, walk-forward and holdout, overfitting checks, metrics with uncertainty.
+description: Use to backtest strategies — signal timing, costs, walk-forward, overfitting and bias checks.
 ---
 # Backtesting
 

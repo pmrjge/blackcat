@@ -1,6 +1,6 @@
 ---
 name: local-llm-serving
-description: Load to run, size or benchmark an LLM locally — mlx-lm, oMLX, LM Studio, llama.cpp, vLLM, SGLang; memory math, KV cache, endpoints.
+description: Use to run, size or benchmark local LLMs — mlx-lm, oMLX, LM Studio, llama.cpp, vLLM, SGLang.
 ---
 # Local LLM serving
 

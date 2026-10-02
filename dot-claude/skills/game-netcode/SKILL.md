@@ -1,6 +1,6 @@
 ---
 name: game-netcode
-description: Load for multiplayer game networking — server authority, prediction, rollback, interpolation, lag compensation, bad-network tests.
+description: Use for multiplayer netcode — server authority, prediction, rollback, interpolation, lag tests.
 ---
 # Game netcode
 

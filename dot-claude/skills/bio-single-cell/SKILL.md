@@ -1,6 +1,6 @@
 ---
 name: bio-single-cell
-description: Load for single-cell analysis — AnnData/scanpy, Seurat, QC, doublets, normalization, integration, clustering, annotation, pseudobulk DE.
+description: Use for single-cell analysis — scanpy/AnnData, Seurat, QC, integration, annotation, pseudobulk.
 ---
 # Single-cell analysis
 

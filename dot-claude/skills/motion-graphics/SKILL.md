@@ -1,6 +1,6 @@
 ---
 name: motion-graphics
-description: Load to design, animate or deliver motion — easing, timing, kinetic type, After Effects, Premiere, Lottie, Remotion, delivery specs.
+description: Use for motion design — easing, timing, kinetic type, After Effects, Premiere, Lottie, Remotion.
 ---
 # Motion graphics for video and UI
 

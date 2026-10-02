@@ -1,10 +1,10 @@
 ---
 name: geo-raster-vector
-description: Load for spatial analysis in code — GeoPandas/Shapely joins and overlays, rasterio/rioxarray, zonal stats, STAC, PostGIS, DuckDB.
+description: Use for geodata processing — CRS and reprojection, GDAL/OGR, GeoPandas, rasterio, STAC, PostGIS.
 ---
 # Vector and raster analysis
 
-Baseline: `geospatial`; CRS and GDAL: `geo-crs-gdal`; SQL engines: `postgresql`, `dataframes-duckdb`.
+Baseline: `geospatial`. CRS, reprojection and the GDAL/OGR command line: read `references/crs-gdal.md` when choosing a CRS or datum transformation, reprojecting, converting formats (COG, GeoParquet, GeoPackage) or running gdalinfo/gdalwarp/ogr2ogr. SQL engines: `postgresql`, `dataframes-duckdb`.
 
 ## Libraries
 - GeoPandas 1.2.0, Shapely 2.1.2 (vectorized GEOS) — Verified 2026-10-02 https://github.com/geopandas/geopandas/releases/latest https://github.com/shapely/shapely/releases/latest

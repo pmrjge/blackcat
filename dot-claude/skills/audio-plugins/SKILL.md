@@ -1,6 +1,6 @@
 ---
 name: audio-plugins
-description: Load for audio plugins — JUCE, nih-plug, VST3, AU, CLAP, Faust; parameters, state, pluginval validation, signing, licenses.
+description: Use for audio plugins — JUCE, nih-plug, VST3, AU, CLAP; state, validation, signing.
 ---
 # Audio plugins
 

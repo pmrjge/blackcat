@@ -1,6 +1,6 @@
 ---
 name: emb-c-rtos
-description: Load for C firmware on Zephyr, FreeRTOS, ESP-IDF or vendor SDKs — ISRs and priorities, linker scripts, stacks, eFuse gates, MISRA.
+description: Use for C firmware — Zephyr, FreeRTOS, ESP-IDF, ISRs, linker scripts, stack budgets.
 ---
 # C firmware and RTOS
 

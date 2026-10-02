@@ -1,6 +1,6 @@
 ---
 name: llm-quantization
-description: Load for LLM and MoE quantization recipes — MLX mixed precision, sensitivity, rotations, GPTQ/AWQ/QTIP, memory budgets, perplexity.
+description: Use for LLM quantization recipes — MLX mixed precision, GPTQ/AWQ, sensitivity, memory, perplexity.
 ---
 # LLM quantization protocol
 

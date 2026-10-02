@@ -1,10 +1,10 @@
 ---
 name: l10n-catalogs
-description: Use to edit translation catalogs — gettext .po, XLIFF, .xcstrings/.strings, Android strings.xml, ARB, ICU JSON, Fluent; validators.
+description: Use to edit and check translation catalogs — .po, XLIFF, .xcstrings, strings.xml, ARB, ICU; QA checks.
 ---
 # Translation catalog formats
 
-i18n and translation rules: `localization`. Checks: `l10n-qa`.
+i18n and translation rules: `localization`. Read `references/qa-checks.md` when checking or accepting translations (placeholders, plurals, ICU syntax, markup, length, terminology, locale typography, pseudo-localization, screenshot review, report table).
 
 ## Edit rules (all formats)
 - Edit translations only; never change source strings, keys, IDs, placeholders or markup unless the task is to change the source.

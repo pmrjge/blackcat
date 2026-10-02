@@ -1,6 +1,6 @@
 ---
 name: app-store-release
-description: Use to sign and ship Apple apps — certificates, profiles, archives, TestFlight, App Store Connect, privacy manifests, upload rules.
+description: Use to sign and ship Apple apps — certificates, profiles, TestFlight, App Store Connect, privacy.
 ---
 # Signing and App Store release
 

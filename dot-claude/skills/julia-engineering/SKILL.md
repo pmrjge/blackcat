@@ -1,6 +1,6 @@
 ---
 name: julia-engineering
-description: Load for Julia — juliaup, Pkg environments, Test/Aqua/JET, type stability, BenchmarkTools, CUDA.jl/Metal.jl, SciML, PythonCall.
+description: Use for Julia — juliaup, Pkg, Test/Aqua/JET, type stability, benchmarks, GPU packages, SciML.
 ---
 # Julia engineering
 

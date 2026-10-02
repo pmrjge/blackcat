@@ -1,6 +1,6 @@
 ---
 name: hpc-fortran
-description: Load for Fortran — modern style, kinds, modules, fpm, gfortran/flang/ifx, C and Python interop, modernizing FORTRAN 77 code.
+description: Use for Fortran — modern style, modules, fpm, compilers, C/Python interop, legacy modernization.
 ---
 # Modern Fortran
 

@@ -1,6 +1,6 @@
 ---
 name: lean-formalization
-description: Load for Lean 4 and Mathlib — lake projects, Mathlib cache, the Lean LSP goal loop, lemma search, tactics, statement faithfulness.
+description: Use for Lean 4 and Mathlib — lake projects, the LSP goal loop, lemma search, tactics, soundness.
 ---
 # Lean 4 formalization with Mathlib
 

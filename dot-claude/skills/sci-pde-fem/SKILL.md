@@ -1,6 +1,6 @@
 ---
 name: sci-pde-fem
-description: Load for numerical PDE solving — FEM/FVM/FD choice, PETSc solvers, FEniCSx, Firedrake, deal.II, MFEM, manufactured-solution checks.
+description: Use for numerical PDEs — FEM/FVM choice, PETSc, FEniCSx, Firedrake, deal.II, MMS verification.
 ---
 # PDE solvers (FEM, FVM, FD)
 

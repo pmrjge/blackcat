@@ -1,7 +1,3 @@
----
-name: geo-crs-gdal
-description: Load for coordinate systems and GDAL/OGR — CRS and datum choice, reprojection, gdalwarp/ogr2ogr, COG and GeoParquet conversion.
----
 # Coordinate systems and GDAL/OGR
 
 Baseline and versions: `geospatial`.

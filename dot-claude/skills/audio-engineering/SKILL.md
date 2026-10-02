@@ -1,6 +1,6 @@
 ---
 name: audio-engineering
-description: Load before audio software work — DSP, real-time audio, plugins (VST3/AU/CLAP), audio analysis and ML features; the module map.
+description: Use for audio software — ear safety, real-time rules; module map for DSP, plugins, analysis.
 ---
 # Audio engineering (hub)
 

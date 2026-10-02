@@ -1,6 +1,6 @@
 ---
 name: compiler-frontend
-description: Load for lexers and parsers — grammars, recursive descent and Pratt parsing, tree-sitter, ANTLR, error recovery, diagnostics.
+description: Use for lexers and parsers — grammars, Pratt parsing, tree-sitter, error recovery, diagnostics.
 ---
 # Compiler front ends
 

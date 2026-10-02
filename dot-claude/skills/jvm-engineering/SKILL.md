@@ -1,6 +1,6 @@
 ---
 name: jvm-engineering
-description: Load for JVM code — Java 21+, Scala 3, Kotlin interop, Gradle/Maven/sbt/Mill, JUnit, JMH, JFR and GC tuning, GraalVM native images.
+description: Use for JVM code — Java 21+, Scala 3, Gradle/Maven/sbt, JUnit, JMH, JFR/GC tuning, GraalVM.
 ---
 # JVM engineering (Java 21+, Scala 3)
 

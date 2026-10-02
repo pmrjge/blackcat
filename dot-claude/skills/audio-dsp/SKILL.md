@@ -1,6 +1,6 @@
 ---
 name: audio-dsp
-description: Load for audio DSP code — filters, FFT/STFT, convolution, resampling, anti-aliasing, dynamics, oscillators, real-time numeric choices.
+description: Use for audio DSP — filters, FFT/STFT, resampling, anti-aliasing, dynamics, oscillators.
 ---
 # Audio DSP
 

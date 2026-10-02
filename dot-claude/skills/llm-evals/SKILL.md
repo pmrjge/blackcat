@@ -1,6 +1,6 @@
 ---
 name: llm-evals
-description: Load before reporting an LLM quality number — perplexity protocol, harnesses, task sets, LLM-as-judge bias controls, RAG/agent evals.
+description: Use before reporting an LLM quality number — perplexity, harnesses, LLM-as-judge, RAG/agent evals.
 ---
 # LLM evaluation protocol
 

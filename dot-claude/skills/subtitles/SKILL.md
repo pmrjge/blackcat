@@ -1,6 +1,6 @@
 ---
 name: subtitles
-description: Load for subtitles and captions — SRT, WebVTT, TTML, ASS; timing, reading speed, line breaks, sync, translation, QA checks.
+description: Use for subtitles — SRT, WebVTT, TTML, ASS; timing, reading speed, line breaks, translation.
 ---
 # Subtitles and captions
 

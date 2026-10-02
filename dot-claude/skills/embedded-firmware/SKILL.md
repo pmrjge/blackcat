@@ -1,6 +1,6 @@
 ---
 name: embedded-firmware
-description: Load before firmware or hardware-near work — MCUs, RTOS, drivers, flashing, debug probes, FPGA/HDL, PCB; safety gates and the module map.
+description: Use for firmware and hardware-near work — MCUs, RTOS, drivers, flashing safety, FPGA, PCB; module map.
 ---
 # Embedded firmware (hub)
 

@@ -1,6 +1,6 @@
 ---
 name: fpga-hdl
-description: Load for HDL and FPGA work — SystemVerilog/VHDL, Verilator, cocotb, formal checks, Yosys/nextpnr, timing closure, CDC, programming.
+description: Use for HDL and FPGAs — SystemVerilog/VHDL, Verilator, cocotb, Yosys/nextpnr, timing, CDC.
 ---
 # FPGA and HDL
 

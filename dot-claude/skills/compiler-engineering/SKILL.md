@@ -1,6 +1,6 @@
 ---
 name: compiler-engineering
-description: Load before building a compiler, interpreter or language tool — parsing, type checking, IR, LLVM, codegen, JIT, WebAssembly; the module map.
+description: Use for compilers, interpreters and language tools — phases, testing; module map from parsing to Wasm.
 ---
 # Compiler engineering (hub)
 

@@ -1,6 +1,6 @@
 ---
 name: android-engineering
-description: Load for Android apps — Kotlin, Gradle/AGP, Jetpack Compose, tests, adb, targetSdk; module map for coroutines, release, Flutter, RN.
+description: Use for Android apps — Kotlin, Gradle/AGP, Compose, tests, adb; Android and cross-platform module map.
 ---
 # Android engineering (hub)
 

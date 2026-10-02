@@ -1,6 +1,6 @@
 ---
 name: wasm
-description: Load for WebAssembly targets — Wasm 3.0 features, WASI 0.2/0.3 components, wasmtime, wasm-bindgen, Emscripten, size, sandboxing.
+description: Use for WebAssembly — Wasm 3.0, WASI components, wasmtime, wasm-bindgen, Emscripten.
 ---
 # WebAssembly
 

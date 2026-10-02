@@ -1,7 +1,3 @@
----
-name: l10n-qa
-description: Use to check translations — placeholders, CLDR plurals, ICU syntax, markup, lengths, terminology, pseudo-localization, screenshot review.
----
 # Localization QA
 
 Rules: `localization`; formats and their validators: `l10n-catalogs`.

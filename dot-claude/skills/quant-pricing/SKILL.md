@@ -1,6 +1,6 @@
 ---
 name: quant-pricing
-description: Load to price derivatives or bonds — Black–Scholes, trees, Monte Carlo, PDEs, curves and conventions, QuantLib, Greeks, validation.
+description: Use to price derivatives and bonds — closed forms, trees, Monte Carlo, PDEs, curves, QuantLib.
 ---
 # Derivatives and fixed-income pricing
 

@@ -1,6 +1,6 @@
 ---
 name: bio-chem-computing
-description: Load for computational biology or chemistry — data-use and biosecurity rules, environments, provenance; module map from pipelines to QM.
+description: Use for computational biology and chemistry — data-use and biosecurity rules; module map from pipelines to QM.
 ---
 # Computational biology and chemistry (hub)
 

@@ -1,6 +1,6 @@
 ---
 name: hpc-mpi-openmp
-description: Load for MPI and OpenMP code — decomposition, halos, collectives, hybrid ranks×threads, binding, scaling studies; SLURM is in hpc-slurm.
+description: Use for MPI and OpenMP — decomposition, collectives, hybrid runs, binding, scaling studies.
 ---
 # MPI and OpenMP
 

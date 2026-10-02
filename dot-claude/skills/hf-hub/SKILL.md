@@ -1,6 +1,6 @@
 ---
 name: hf-hub
-description: Load before downloading or publishing on the Hugging Face Hub — finding models, licenses, gated repos, hf CLI, big downloads, cache.
+description: Use to find, download or publish Hugging Face Hub models and datasets — licenses, gated repos, hf CLI.
 ---
 # Hugging Face Hub
 

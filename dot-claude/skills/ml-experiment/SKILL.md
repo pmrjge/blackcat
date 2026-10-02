@@ -1,6 +1,6 @@
 ---
 name: ml-experiment
-description: Load before running or comparing any model, training run or evaluation — framing, leakage-safe splits, baselines, seeds, tracking, ablations, comparisons with uncertainty.
+description: Use before running or comparing models or evals — leakage-safe splits, baselines, seeds, ablations, uncertainty.
 ---
 # ML experiment protocol
 

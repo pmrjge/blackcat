@@ -1,6 +1,6 @@
 ---
 name: chem-md
-description: Load for molecular dynamics — OpenMM, GROMACS, force fields, solvation, equilibration, production runs, trajectory analysis, free energies.
+description: Use for molecular dynamics — OpenMM, GROMACS, force fields, equilibration, analysis.
 ---
 # Molecular dynamics
 

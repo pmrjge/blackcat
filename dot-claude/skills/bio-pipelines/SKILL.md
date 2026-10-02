@@ -1,6 +1,6 @@
 ---
 name: bio-pipelines
-description: Load for bioinformatics workflows — Nextflow/nf-core, Snakemake, nf-test, containers, pixi/bioconda environments, samplesheets.
+description: Use for bioinformatics workflows — Nextflow/nf-core, Snakemake, containers, pixi.
 ---
 # Bioinformatics workflows
 

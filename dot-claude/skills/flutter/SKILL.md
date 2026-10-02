@@ -1,6 +1,6 @@
 ---
 name: flutter
-description: Load for Flutter apps — Dart, state management, go_router, Pigeon platform channels, widget/golden/integration tests, release builds.
+description: Use for Flutter apps — Dart, state management, platform channels, widget and golden tests, builds.
 ---
 # Flutter
 

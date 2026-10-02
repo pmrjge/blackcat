@@ -1,6 +1,6 @@
 ---
 name: chem-qm
-description: Load for quantum chemistry — PySCF, Psi4, xtb, ORCA; method and basis choice, SCF convergence, optimizations, frequencies, thermochemistry.
+description: Use for quantum chemistry — PySCF, Psi4, xtb, ORCA; methods, basis sets, convergence.
 ---
 # Quantum chemistry
 

@@ -1,6 +1,6 @@
 ---
 name: bio-genomics
-description: Load for sequencing data — read QC, alignment, BAM/CRAM, variant calling and VCF hygiene, RNA-seq quantification, truth-set checks.
+description: Use for sequencing data — QC, alignment, BAM/CRAM, variant calling, VCF, RNA-seq.
 ---
 # Genomics: reads to variants and counts
 

@@ -1,6 +1,6 @@
 ---
 name: localization
-description: Load before internationalizing software or translating its strings or subtitles — i18n rules, plurals, locales, MT review; the module map.
+description: Use for i18n and translation — plurals, locales, machine-translation review; module map for catalogs and subtitles.
 ---
 # Localization and internationalization (hub)
 
@@ -10,8 +10,7 @@ Making software translatable (i18n), translating string catalogs and subtitles (
 ## Modules
 | module | load when |
 |---|---|
-| `l10n-catalogs` | gettext .po, XLIFF, Apple .xcstrings/.strings, Android strings.xml, ARB, ICU JSON, Fluent; extract/merge/compile |
-| `l10n-qa` | placeholder, plural, markup, length and terminology checks; pseudo-localization; screenshot review |
+| `l10n-catalogs` | gettext .po, XLIFF, Apple .xcstrings/.strings, Android strings.xml, ARB, ICU JSON, Fluent; extract/merge/compile; QA checks (placeholders, plurals, markup, lengths, terminology), pseudo-localization, screenshot review |
 | `subtitles` | SRT, WebVTT, TTML/IMSC, ASS; timing, reading speed, line breaks, subtitle translation |
 
 ## Reference data
@@ -34,4 +33,4 @@ Making software translatable (i18n), translating string catalogs and subtitles (
 - Register and audience per locale (formal vs informal address — e.g. "você"/"tu" in pt-PT, "Sie"/"du" in German) decided once and recorded in the style guide.
 
 ## Verify
-Catalogs compile/validate with the platform tool · `l10n-qa` checks clean (placeholders, plurals, markup, lengths) · pseudo-locale run shows no hard-coded strings or truncation · native-language screenshots reviewed for the changed screens · locales and CLDR/ICU versions reported.
+Catalogs compile/validate with the platform tool · `l10n-catalogs` QA checks clean (placeholders, plurals, markup, lengths) · pseudo-locale run shows no hard-coded strings or truncation · native-language screenshots reviewed for the changed screens · locales and CLDR/ICU versions reported.

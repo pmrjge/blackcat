@@ -1,6 +1,6 @@
 ---
 name: game-engines
-description: Load for Godot, Unity, Unreal or Bevy projects — choosing an engine, structure, scripting, scenes, engine tests, headless CLI builds.
+description: Use for Godot, Unity, Unreal or Bevy — project structure, scripting, engine tests, headless builds.
 ---
 # Game engines
 

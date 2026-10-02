@@ -1,6 +1,6 @@
 ---
 name: quant-finance
-description: Load for quantitative finance — no-real-orders rule, point-in-time data, return conventions; module map for backtests, risk and pricing.
+description: Use for quantitative finance — no real orders, point-in-time data; module map for backtests, risk, pricing.
 ---
 # Quantitative finance (hub)
 
