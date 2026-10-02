@@ -9273,6 +9273,7 @@ def soft_self_test():
                  ("1", st(0, SOFT_PROMPT_CTX), {}, True), ("0", st(0, SOFT_PROMPT_CTX * 9), {},
                                                            False),
                  ("bogus", st(lim), scout, True)]
+        _WARNED.add("STACK_SOFT_LIMIT_SCALE='bogus' is not a number >= 0; using 1")   # quiet
         for scale, state, ev, want in cases:
             os.environ["STACK_SOFT_LIMIT_SCALE"] = scale
             got = soft_check(state, ev, files, tmp)
