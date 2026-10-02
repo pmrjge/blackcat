@@ -28,6 +28,17 @@ excluded until its price ratio is read from the pricing page). kappa_w: 1.25 (5 
 sched_model.json beside this file (schema in the stack's agents-sched plan, section b); without the
 file the built-in defaults below apply.
 
+Small-n values are used, not just shown. Every type carries a status ("provisional" or "supported") and a
+90% band (lo/med/hi for turns, sec_per_call and a multiplicative ctx factor) in sched_model.json. An estimate
+has a median and a hi value; the safety factor of a quantity is w = hi/med - 1. The wave plan is built on
+med x (1 + w) = hi for provisional types and on med for supported ones, so a provisional value never makes a plan
+cheaper than its hi allows (an explicit `n` on a node is taken as given: only sec_per_call and ctx are widened).
+Every limit is checked at hi, with a three-way verdict: fits (hi fits), does not fit (even med does not), uncertain
+(med fits, hi does not), the types driving the uncertainty named. Checked: the type's maxTurns and soft token
+limit (ctx per segment), the per-prompt soft limit (33M ctx), the fan-out cap, and an optional user budget
+(`plan --budget N`, in the hook's ctx unit). A type without its own band takes its pool's band; without a pool band
+it is provisional with w = 1.0, a documented heuristic marked unverified.
+
 Environment: STACK_SCHED_MODEL (model file), STACK_SCHED_LAMBDA (tokens per second; unset =
 balanced, T_w(baseline)/W(baseline)), STACK_SCHED_TOKEN_SLACK (eps, default 0).
 """
@@ -62,6 +73,8 @@ DEFAULT_CAPS = {"fanout": 3, "fanout_by_type": {"orchestrator": 10, "god-coder":
 RISK_TAGS = {"hook", "security", "prod", "gui", "accel"}
 EXCLUSIVE_TAGS = ("gui", "accel")          # one agent on the screen; one accelerator job per device
 SPEEDS = {"frugal": 0.25, "balanced": 1.0, "fast": 4.0}
+SOFT_PROMPT_CTX = 33000000                 # per human prompt (agent_guard.py SOFT_PROMPT_CTX)
+UNVERIFIED_W = 1.0                         # safety factor when neither the type nor its pool has a band
 RESUME_WARM_S = 270.0                      # a resume is only warm when the gap is under this
 EXACT_MAX_NODES = 14
 SEARCH_BUDGET = 1_500_000                  # state expansions before exact search gives up
@@ -265,6 +278,27 @@ class Est:
     t_w: float
     wall_p50: float
     wall_p90: float
+    # median and hi (the band's upper bound) of every quantity; *_plan is what the wave plan uses
+    turns_hi: float = 0.0
+    ctx_hi: float = 0.0
+    t_w_hi: float = 0.0
+    wall_hi: float = 0.0
+    t_w_plan: float = 0.0
+    wall_plan: float = 0.0
+    status: str = "provisional"
+    source: str = "heuristic"          # band source: own | pool | heuristic (unverified)
+    w: Dict[str, float] = field(default_factory=dict)      # safety factors hi/med - 1: turns, sec_per_call, ctx
+    type: str = ""
+
+
+@dataclass
+class Check:
+    name: str
+    verdict: str                       # fits | uncertain | does not fit
+    med: float
+    hi: float
+    limit: float
+    drivers: List[str] = field(default_factory=list)
 
 
 @dataclass
@@ -284,6 +318,9 @@ class Schedule:
     exact: bool = True
     tokens_baseline: float = 0.0
     wall_baseline: float = 0.0
+    checks: List[Check] = field(default_factory=list)
+    verdict: str = "fits"
+    provisional: Dict[str, Dict[str, Any]] = field(default_factory=dict)
 
 
 _NODE_KEYS = {"id", "a", "s", "n", "dep", "w", "rd", "r", "alt", "spec"}
@@ -515,6 +552,36 @@ def _ctx(info: Dict[str, Any], n: float) -> float:
     return info["ctx"]["a"] * n + info["ctx"]["b"] * n * n
 
 
+def band_of(m: Dict[str, Any], t: str) -> Dict[str, Any]:
+    """Status and hi/med factors of type `t`: its own band, else its pool's, else the unverified heuristic
+    (provisional, w = UNVERIFIED_W). Factors are never below 1: a band cannot make a plan cheaper."""
+    info = tinfo(m, t)
+    status, band, src = info.get("status"), info.get("band"), "own"
+
+    def ok(b: Any) -> bool:
+        return isinstance(b, dict) and all(isinstance(b.get(k), dict) and b[k].get("med") for k in ("turns", "sec_per_call"))
+
+    if not ok(band):
+        pname = info.get("tier") or {"reviewer": "analyst"}.get(pool_of(t), pool_of(t))
+        prow = (m.get("pools") or {}).get(pname)
+        if isinstance(prow, dict) and ok(prow.get("band")):
+            band, src, status = prow["band"], "pool", "provisional"
+        else:
+            band, src, status = None, "heuristic", "provisional"
+    if status not in ("provisional", "supported"):
+        status = "provisional"
+
+    def f(q: str) -> float:
+        d = (band or {}).get(q)
+        try:
+            return max(1.0, float(d["hi"]) / float(d["med"])) if d else 1.0 + UNVERIFIED_W
+        except (KeyError, TypeError, ValueError, ZeroDivisionError):
+            return 1.0 + UNVERIFIED_W
+
+    return {"status": status, "source": src, "turns": f("turns"), "sec_per_call": f("sec_per_call"),
+            "ctx": f("ctx") if (band or {}).get("ctx") else (1.0 + UNVERIFIED_W if band is None else 1.0)}
+
+
 def _est_for(m: Dict[str, Any], t: str, s: Optional[str], n: Optional[int]) -> Est:
     info = tinfo(m, t)
     tu = info["turns"]
@@ -529,13 +596,24 @@ def _est_for(m: Dict[str, Any], t: str, s: Optional[str], n: Optional[int]) -> E
         return kw * last + kr * (total - last)
 
     spc = info["sec_per_call"]
-    return Est(turns=n50, ctx_p50=_ctx(info, n50), ctx_p90=_ctx(info, n90), t_w=tw(n50),
-               wall_p50=n50 * float(spc["p50"]), wall_p90=n90 * float(spc["p90"]))
+    b = band_of(m, t)
+    n_hi = float(n50) if n else n50 * b["turns"]
+    wall_med = n50 * float(spc["p50"])
+    wall_hi = n_hi * float(spc["p50"]) * b["sec_per_call"]
+    tw_med, tw_hi = tw(n50), tw(n_hi) * b["ctx"]
+    prov = b["status"] == "provisional"
+    return Est(turns=n50, ctx_p50=_ctx(info, n50), ctx_p90=_ctx(info, n90), t_w=tw_med,
+               wall_p50=wall_med, wall_p90=n90 * float(spc["p90"]),
+               turns_hi=n_hi, ctx_hi=_ctx(info, n_hi) * b["ctx"], t_w_hi=tw_hi, wall_hi=wall_hi,
+               t_w_plan=tw_hi if prov else tw_med, wall_plan=wall_hi if prov else wall_med,
+               status=b["status"], source=b["source"],
+               w={"turns": b["turns"] - 1.0, "sec_per_call": b["sec_per_call"] - 1.0, "ctx": b["ctx"] - 1.0}, type=t)
 
 
 def estimate(g: Graph, m: Dict[str, Any]) -> Dict[str, Est]:
     """{node id: Est} for the primary type: turns (p50), ctx (a*n + b*n^2) at p50 and p90 turns,
-    T_w (kappa_w * context written + kappa_r * context re-read) and wall time at p50/p90."""
+    T_w (kappa_w * context written + kappa_r * context re-read) and wall time at p50/p90 (the median fields),
+    plus the band's hi values, the safety factors and the values the plan uses (*_plan)."""
     return {n.id: _est_for(m, n.a, n.s, n.n) for n in g.nodes}
 
 
@@ -820,7 +898,7 @@ def schedule(g: Graph, m: Dict[str, Any], mode: str = "barrier", caps: Optional[
              lam: Optional[float] = None, slack: Optional[float] = 0.0, *,
              durations: Optional[Dict[str, float]] = None, release: Optional[Dict[str, float]] = None,
              lat: float = 0.0, rules: Optional[Dict[str, Any]] = None,
-             exact: bool = True) -> Schedule:
+             exact: bool = True, budget: Optional[float] = None) -> Schedule:
     """Schedule the graph. mode "barrier": waves; "release": per-node starts. Minimises
     J = T_w + lam * W over the variant of each node (primary type or its `alt`) and the order,
     subject to T_w <= (1 + eps) * T_w(baseline), the cap, write-set conflicts and gui/accel locks.
@@ -838,8 +916,8 @@ def schedule(g: Graph, m: Dict[str, Any], mode: str = "barrier", caps: Optional[
     rel = [float((release or {}).get(nd.id, 0.0)) for nd in nodes]
     prim = [_est_for(m, nd.a, nd.s, nd.n) for nd in nodes]
     alt = [(_est_for(m, nd.alt, nd.s, nd.n) if nd.alt and not durations else None) for nd in nodes]
-    pdur = [float((durations or {}).get(nd.id, prim[i].wall_p50)) for i, nd in enumerate(nodes)]
-    ptok = [p.t_w for p in prim]
+    pdur = [float((durations or {}).get(nd.id, prim[i].wall_plan)) for i, nd in enumerate(nodes)]
+    ptok = [p.t_w_plan for p in prim]
     warnings: List[str] = []
 
     # baseline: level barrier list schedule, primary variants
@@ -861,7 +939,7 @@ def schedule(g: Graph, m: Dict[str, Any], mode: str = "barrier", caps: Optional[
         d = list(pdur)
         tk = list(ptok)
         for i in sel:
-            d[i], tk[i] = alt[i].wall_p50, alt[i].t_w
+            d[i], tk[i] = alt[i].wall_plan, alt[i].t_w_plan
         return d, sum(tk)
 
     cap_t = (1.0 + eps) * t_base + 1e-9
@@ -940,12 +1018,67 @@ def schedule(g: Graph, m: Dict[str, Any], mode: str = "barrier", caps: Optional[
     for iss in validate(g, m):
         if iss.level == "error":
             warnings.append("%s: %s" % (iss.node or "graph", iss.msg))
+    used = [(nodes[i], _est_for(m, nodes[i].alt if i in best_sel else nodes[i].a, nodes[i].s, nodes[i].n))
+            for i in range(n)]
+    checks = limit_checks(m, used, max(len(wv) for wv in waves) if waves else 0, cap, budget)
+    verdict = _worst([c.verdict for c in checks])
+    prov = {}
+    for _un, ue in used:
+        if ue.status == "provisional":
+            prov[ue.type] = {"source": ue.source, "w": ue.w, "unverified": ue.source == "heuristic"}
     return Schedule(waves=waves, critical_path=cp, tokens=tk, wall=w, J=tk + lam_eff * w, J_baseline=j_base,
                     warnings=warnings, mode=mode, times={nodes[i].id: (s[i], e[i]) for i in range(n)},
                     variants={nodes[i].id: (nodes[i].alt if i in best_sel else nodes[i].a) for i in range(n)},
                     lam=lam_eff, caps={"fanout": cap, "depth": DEFAULT_CAPS["depth"],
                                        "blackcat": DEFAULT_CAPS["blackcat"], "workflow": DEFAULT_CAPS["workflow"]},
-                    exact=ex, tokens_baseline=t_base, wall_baseline=w_base)
+                    exact=ex, tokens_baseline=t_base, wall_baseline=w_base, checks=checks, verdict=verdict,
+                    provisional=prov)
+
+
+_RANK = {"fits": 0, "uncertain": 1, "does not fit": 2}
+
+
+def _worst(vs: Sequence[str]) -> str:
+    return max(vs, key=lambda v: _RANK[v], default="fits")
+
+
+def three_way(med: float, hi: float, limit: float) -> str:
+    """fits: hi fits; does not fit: med does not fit; uncertain: med fits, hi does not."""
+    if hi <= limit:
+        return "fits"
+    return "does not fit" if med > limit else "uncertain"
+
+
+def limit_checks(m: Dict[str, Any], used: Sequence[Tuple[Node, Est]], width: int, cap: int,
+                 budget: Optional[float] = None) -> List[Check]:
+    """Limit checks of a plan at hi: per node maxTurns and soft token limit of its type, the plan's total ctx against
+    the per-prompt soft limit and the optional user budget, the fan-out cap. Hard caps and the soft-limit table are
+    read, never changed."""
+    out: List[Check] = []
+    for nd, e in used:
+        info = tinfo(m, e.type)
+        mt = info.get("maxTurns")
+        if mt:
+            out.append(Check("maxTurns:%s" % nd.id, three_way(e.turns, e.turns_hi, float(mt)), e.turns, e.turns_hi, float(mt),
+                             [e.type] if three_way(e.turns, e.turns_hi, float(mt)) == "uncertain" else []))
+        sl = info.get("soft_limit")
+        if sl:
+            v = three_way(e.ctx_p50, e.ctx_hi, float(sl))
+            out.append(Check("soft:%s" % nd.id, v, e.ctx_p50, e.ctx_hi, float(sl), [e.type] if v == "uncertain" else []))
+    tot_med = sum(e.ctx_p50 for _, e in used)
+    tot_hi = sum(e.ctx_hi for _, e in used)
+    contrib: Dict[str, float] = {}
+    for _, e in used:
+        if e.ctx_hi > e.ctx_p50:
+            contrib[e.type] = contrib.get(e.type, 0.0) + e.ctx_hi - e.ctx_p50
+    drivers = [t for t, _ in sorted(contrib.items(), key=lambda kv: -kv[1])]
+    for name, lim in (("prompt", float(SOFT_PROMPT_CTX)), ("budget", budget)):
+        if lim is None:
+            continue
+        v = three_way(tot_med, tot_hi, float(lim))
+        out.append(Check(name, v, tot_med, tot_hi, float(lim), drivers if v == "uncertain" else []))
+    out.append(Check("fanout", three_way(width, width, cap), width, width, cap))
+    return out
 
 
 def next_ready(g: Graph, state: Dict[str, Any], sched: Schedule) -> List[str]:
@@ -1324,8 +1457,10 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
     # not measurable from segments.csv: reported at 0, 0.5 and the f where S_tok falls under 3%)
     for name, times in adv_times.items():
         warm = 0.0
+        warm_prov = 0.0
         warm_n = 0
         cands: List[Tuple[float, float]] = []
+        cand_prov: List[bool] = []
         for c in cold:
             u = c["unit"]
             if u is None or u.kind == "aux" or u.key not in times:
@@ -1338,13 +1473,22 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
             if times[u.key][0] - prev_end < RESUME_WARM_S:
                 warm += c["excess_tw"]
                 warm_n += 1
+                warm_prov += c["excess_tw"] if band_of(m, c["type"])["status"] == "provisional" else 0.0
             else:
                 cands.append((c["excess_tw"], kw * float(tinfo(m, c["type"])["static_cc"])))
+                cand_prov.append(band_of(m, c["type"])["status"] == "provisional")
 
         def avoid(f: float) -> float:
             return warm + sum(max(0.0, e * (1.0 - f) - st) for e, st in cands)
 
         den = session_tw or 1.0
+        av0 = avoid(0.0)
+        prov_av = warm_prov + sum(max(0.0, e - st) for (e, st), pv in zip(cands, cand_prov) if pv)
+        wts = [(max(0.0, u.end - times[u.key][1]), band_of(m, u.type)["status"] == "provisional")
+               for u in units.values() if u.key in times]
+        wtot = sum(x for x, _ in wts)
+        rows_out[name]["prov_share_tok"] = prov_av / av0 if av0 > 0 else 0.0
+        rows_out[name]["prov_share_wall"] = sum(x for x, pv in wts if pv) / wtot if wtot > 0 else 0.0
         f_star = next((i / 100.0 for i in range(0, 101) if avoid(i / 100.0) / den < 0.03), None)
         rows_out[name].update({"warm_tw": warm, "warm": warm_n, "fresh": sum(1 for e, st in cands if e > st),
                                "S_tok_warm": warm / den, "S_tok_upper": avoid(0.0) / den, "S_tok_f50": avoid(0.5) / den,
@@ -1397,7 +1541,7 @@ def _actual_model(g: Graph, m: Dict[str, Any], w: Window, units: Dict[str, Unit]
     end: Dict[str, float] = {}
     for u in sorted((units[k] for k in w.units), key=lambda u: u.start):
         nd = g.by_id()[u.node]
-        d = _est_for(m, nd.a, nd.s, nd.n).wall_p50 / max(1, len(nd.extra.get("ph") or [1]))
+        d = _est_for(m, nd.a, nd.s, nd.n).wall_plan / max(1, len(nd.extra.get("ph") or [1]))
         st = max([u.dispatch - w.t0] + [end[x] for x in u.deps if x in end])
         end[u.key] = st + d
     return max(list(end.values()) + [aux[k].end - w.t0 for k in w.aux] + [0.0])
@@ -1441,7 +1585,7 @@ def _advise_window(g: Graph, m: Dict[str, Any], w: Window, units: Dict[str, Unit
         if basis == "oracle":
             dur[u.key] = u.end - u.start
         else:
-            nd_est = _est_for(m, nd.a, nd.s, nd.n).wall_p50
+            nd_est = _est_for(m, nd.a, nd.s, nd.n).wall_plan
             nph = max(1, len(nd.extra.get("ph") or [1]))
             dur[u.key] = nd_est / nph
     sg = Graph(job="window", speed="balanced", nodes=nodes, meta={"dispatcher": "orchestrator"})
@@ -1498,12 +1642,21 @@ def render_md(x: Any, max_chars: Optional[int] = 1500) -> str:
         for i, w in enumerate(x.waves, 1):
             lines.append("- %d: %s" % (i, ", ".join("%s@%.0fs" % (n, x.times[n][0]) if x.mode == "release" else n for n in w)))
         lines.append("critical path: " + " > ".join(x.critical_path))
+        if x.provisional:
+            lines.append("planned at hi (med x (1 + w)) for provisional types: " + ", ".join(
+                "%s%s w=%.2f" % (t, " (unverified)" if v["unverified"] else "", max(v["w"].values())) for t, v in sorted(x.provisional.items())))
+        lines.append("verdict: **%s**" % x.verdict)
+        for c in x.checks:
+            if c.verdict != "fits":
+                lines.append("- %s %s: med %.0f, hi %.0f, limit %.0f%s" % (c.name, c.verdict, c.med, c.hi, c.limit,
+                             " (driven by %s)" % ", ".join(c.drivers) if c.drivers else ""))
         lines += ["warning: " + w for w in x.warnings]
         text = "\n".join(lines)
     elif isinstance(x, Report):
         text = _render_report(x)
     elif isinstance(x, dict):
-        text = "\n".join("- %s: %d turns, ctx p50 %.0f, T_w %.0f, wall %.0f-%.0f s" % (k, e.turns, e.ctx_p50, e.t_w, e.wall_p50, e.wall_p90)
+        text = "\n".join("- %s: %d turns, ctx %.0f (hi %.0f), T_w %.0f (hi %.0f), wall %.0f-%.0f s, %s" % (
+            k, e.turns, e.ctx_p50, e.ctx_hi, e.t_w, e.t_w_hi, e.wall_p50, e.wall_hi, e.status)
                          for k, e in x.items())
     elif isinstance(x, list):
         text = "\n".join("- %s %s: %s" % (i.level, i.node or "graph", i.msg) for i in x) or "no issues"
@@ -1530,6 +1683,14 @@ def _render_report(r: Report) -> str:
         o.append("| %s | %s | %s | %.1f%% | %d | %d | %.2f%% | %.2f%% | %.2f%% | %s |" % (
             k, _fmt_min(v["advised"]), _fmt_min(v["actual"]), 100 * v["S_wall"], v["warm"], v["fresh"], 100 * v["S_tok_warm"],
             100 * v["S_tok_upper"], 100 * v["S_tok_f50"], "n/a" if v["f_star"] > 1 else "%.0f%%" % (100 * v["f_star"])))
+    o.append("")
+    o.append("Share of the predicted saving that rests on provisional types (small-n bands): wall = share of the per-unit end-time "
+             "gains (recorded end - advised end, gains only) of units of provisional type; tokens = share of the avoidable T_w (0% "
+             "re-read) from cold resumes of provisional type.\n")
+    o.append("| row | wall saving on provisional types | token saving on provisional types |")
+    o.append("|---|---|---|")
+    for k, v in r.rows.items():
+        o.append("| %s | %.0f%% | %.0f%% |" % (k, 100 * v["prov_share_wall"], 100 * v["prov_share_tok"]))
     o.append("")
     o.append("S_wall = 1 - sum(advised makespan) / sum(baseline makespan) over all windows; the baseline of the oracle rows is the recorded "
              "makespan, of the model rows the recorded dispatch pattern run with the model's durations. S_tok = avoidable T_w / session "
@@ -1607,7 +1768,7 @@ def _plan_cmd(a: argparse.Namespace) -> int:
             for i in errs:
                 print("error: %s: %s" % (i.node or "graph", i.msg), file=sys.stderr)
             return 1
-        s = schedule(g, m, mode=a.mode)
+        s = schedule(g, m, mode=a.mode, budget=a.budget)
     except GraphError as exc:
         print("invalid graph: %s" % exc, file=sys.stderr)
         return 1
@@ -1617,7 +1778,8 @@ def _plan_cmd(a: argparse.Namespace) -> int:
     if a.json:
         print(json.dumps({"mode": s.mode, "waves": s.waves, "critical_path": s.critical_path, "tokens": s.tokens,
                           "wall": s.wall, "J": s.J, "J_baseline": s.J_baseline, "lambda": s.lam, "exact": s.exact,
-                          "times": s.times, "variants": s.variants, "warnings": s.warnings + [
+                          "times": s.times, "variants": s.variants, "verdict": s.verdict, "provisional": s.provisional,
+                          "checks": [dataclasses.asdict(c) for c in s.checks], "warnings": s.warnings + [
                               "%s %s: %s" % (i.level, i.node or "graph", i.msg) for i in issues if i.level == "warn"]},
                          indent=2))
     else:
@@ -1683,6 +1845,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p.add_argument("graph")
     p.add_argument("--mode", choices=["barrier", "release"], default="barrier")
     p.add_argument("--speed", choices=list(SPEEDS))
+    p.add_argument("--budget", type=float, help="user budget in ctx tokens (the hook's unit), checked at hi")
     p.add_argument("--json", action="store_true")
     p.set_defaults(fn=_plan_cmd)
     p = sub.add_parser("next", help="node ids to dispatch now")

@@ -87,13 +87,13 @@ def brute_force(g, m, cap, lam, eps):
         hit = bool(set(nodes[i].w) & set(nodes[j].w)) or any(t in nodes[i].r and t in nodes[j].r for t in ("gui", "accel"))
         conflict[i][j] = conflict[j][i] = hit
     prim = S.estimate(g, m)
-    pd = [prim[nd.id].wall_p50 for nd in nodes]
-    pt = [prim[nd.id].t_w for nd in nodes]
+    pd = [prim[nd.id].wall_plan for nd in nodes]
+    pt = [prim[nd.id].t_w_plan for nd in nodes]
     alt_i = [i for i, nd in enumerate(nodes) if nd.alt]
     ad, at = {}, {}
     for i in alt_i:
         e = S._est_for(m, nodes[i].alt, nodes[i].s, nodes[i].n)
-        ad[i], at[i] = e.wall_p50, e.t_w
+        ad[i], at[i] = e.wall_plan, e.t_w_plan
     t_base = sum(pt)
     best = float("inf")
     for r in range(len(alt_i) + 1):
@@ -200,7 +200,7 @@ def test_release_exact_matches_serial_schedule_enumeration_and_beats_barrier(mod
                 nd = nodes[i]
                 t0 = max([ends[idx[d]] for d in nd.dep] + [0.0])
                 cands = [t0] + sorted(e for e in ends.values() if e > t0)
-                dur = est[nd.id].wall_p50
+                dur = est[nd.id].wall_plan
                 for t in cands:
                     ok = True
                     for j in placed:
@@ -574,3 +574,126 @@ def test_replay_recorded_session(model, tmp_path):
     md = out.read_text()
     for needle in ("S_wall", "S_tok", "## Verdict", "STOP", "barrier/oracle", "release/oracle"):
         assert needle in md
+
+
+# ---------------------------------------------------------------- provisional bands: small-n values are used
+def bmodel(status="provisional", turns=(20, 30, 45), spc=(8, 10, 15), ctx=(0.9, 1.0, 1.4), soft=None, max_turns=None,
+           pool_band=None, own_band=True):
+    row = {"turns": {"S": 15, "M": 30, "L": 60}, "ctx": {"a": 100000, "b": 0}, "sec_per_call": {"p50": 10, "p90": 15},
+           "static_cc": 20000, "ttl": "5m", "model": "sonnet", "soft_limit": soft, "maxTurns": max_turns, "status": status}
+    if own_band:
+        row["band"] = {"level": 0.9, "method": "bootstrap",
+                       "turns": dict(zip(("lo", "med", "hi"), turns)), "sec_per_call": dict(zip(("lo", "med", "hi"), spc)),
+                       "ctx": dict(zip(("lo", "med", "hi"), ctx))}
+    m = S.load_model("/nonexistent")
+    m["types"]["coder"] = row
+    if pool_band:
+        m["pools"]["builder"] = {"status": "provisional", "band": pool_band}
+    return m
+
+
+def one(a="coder", **kw):
+    return S.load_graph({"nodes": [dict({"id": "A", "a": a, "s": "M"}, **kw)]})
+
+
+def test_interval_med_vs_hi_and_plan_values():
+    est = S.estimate(one(), bmodel())["A"]
+    assert est.turns == 30 and est.turns_hi == pytest.approx(45)
+    assert est.w["turns"] == pytest.approx(0.5) and est.w["sec_per_call"] == pytest.approx(0.5) and est.w["ctx"] == pytest.approx(0.4)
+    assert est.ctx_p50 == pytest.approx(3.0e6) and est.ctx_hi == pytest.approx(4.5e6 * 1.4)
+    assert est.wall_p50 == pytest.approx(300) and est.wall_hi == pytest.approx(45 * 10 * 1.5)
+    assert est.t_w_hi > est.t_w > 0
+    # provisional plans on med x (1 + w) = hi; supported plans on med
+    assert est.wall_plan == est.wall_hi and est.t_w_plan == est.t_w_hi and est.status == "provisional"
+    sup = S.estimate(one(), bmodel("supported"))["A"]
+    assert sup.wall_plan == sup.wall_p50 and sup.t_w_plan == sup.t_w and sup.t_w_hi == pytest.approx(est.t_w_hi)
+    # an explicit n is taken as given: only sec_per_call and ctx are widened
+    e2 = S.estimate(one(n=10, s=None), bmodel())["A"]
+    assert e2.turns_hi == 10 and e2.wall_hi == pytest.approx(10 * 10 * 1.5)
+
+
+@pytest.mark.parametrize("soft,want,drivers", [(7_000_000, "fits", []), (4_000_000, "uncertain", ["coder"]),
+                                              (2_000_000, "does not fit", [])])
+def test_three_way_verdict_on_the_soft_limit(soft, want, drivers):
+    m = bmodel(soft=soft)
+    s = S.schedule(one(), m)
+    chk = {c.name: c for c in s.checks}["soft:A"]
+    assert chk.verdict == want and chk.drivers == drivers
+    assert s.verdict == want                      # nothing else limits this plan
+    assert S.three_way(1, 2, 3) == "fits" and S.three_way(1, 4, 3) == "uncertain" and S.three_way(4, 5, 3) == "does not fit"
+
+
+def test_three_way_on_budget_prompt_and_max_turns():
+    m = bmodel()
+    assert S.schedule(one(), m, budget=10e6).verdict == "fits"
+    s = S.schedule(one(), m, budget=5e6)           # med 3.0M fits, hi 8.8M does not
+    assert s.verdict == "uncertain" and {c.name: c for c in s.checks}["budget"].drivers == ["coder"]
+    assert S.schedule(one(), m, budget=1e6).verdict == "does not fit"
+    big = S.load_graph({"nodes": [{"id": "A%d" % i, "a": "coder", "s": "M"} for i in range(8)]})      # 8 x 3.0M med = 24M, hi 70M
+    c = {c.name: c for c in S.schedule(big, m, caps={"fanout": 8}).checks}["prompt"]
+    assert c.verdict == "does not fit" or c.verdict == "uncertain"
+    assert c.hi > S.SOFT_PROMPT_CTX >= c.med or c.verdict == "does not fit"
+    mt = S.schedule(one(), bmodel(max_turns=40))
+    assert {c.name: c for c in mt.checks}["maxTurns:A"].verdict == "uncertain"       # med 30 <= 40 < hi 45
+    assert S.schedule(one(), bmodel(max_turns=20)).verdict == "does not fit"
+    assert S.schedule(one(), bmodel(max_turns=50)).verdict == "fits"
+
+
+def test_pool_band_fallback_and_unverified_heuristic():
+    pool = {"level": 0.9, "method": "pool-prior", "turns": {"lo": 10, "med": 30, "hi": 60},
+            "sec_per_call": {"lo": 5, "med": 10, "hi": 20}, "ctx": {"lo": 0.8, "med": 1.0, "hi": 1.2}}
+    m = bmodel(own_band=False, pool_band=pool)
+    e = S.estimate(one(), m)["A"]
+    assert e.source == "pool" and e.status == "provisional"
+    assert e.w == {"turns": pytest.approx(1.0), "sec_per_call": pytest.approx(1.0), "ctx": pytest.approx(0.2)}
+    # neither the type nor its pool has a band: provisional, w = 1.0, marked unverified
+    h = S.estimate(one(), bmodel(own_band=False))["A"]
+    assert h.source == "heuristic" and h.status == "provisional"
+    assert h.w == {"turns": 1.0, "sec_per_call": 1.0, "ctx": 1.0}
+    assert h.wall_hi == pytest.approx(2 * 30 * 2 * 10) and h.wall_plan == h.wall_hi
+    s = S.schedule(one(), bmodel(own_band=False))
+    assert s.provisional["coder"]["unverified"] is True and "unverified" in S.render_md(s)
+    # supported without a band cannot be trusted either: heuristic applies
+    assert S.estimate(one(), bmodel("supported", own_band=False))["A"].status == "provisional"
+    # a type the file does not know at all behaves the same
+    assert S.estimate(one("scout"), S.load_model("/nonexistent"))["A"].w["turns"] == 1.0
+
+
+def test_provisional_to_supported_changes_the_plan():
+    g = S.load_graph({"nodes": [{"id": "A", "a": "coder", "s": "M"}, {"id": "B", "a": "coder", "s": "M", "dep": ["A"]}]})
+    prov = S.schedule(g, bmodel("provisional"), lam=1.0)
+    sup = S.schedule(g, bmodel("supported"), lam=1.0)
+    assert sup.wall < prov.wall and sup.tokens < prov.tokens
+    assert prov.wall == pytest.approx(2 * 45 * 10 * 1.5) and sup.wall == pytest.approx(2 * 30 * 10)
+    # the check still looks at hi after the switch, so a tight budget stays uncertain
+    assert S.schedule(one(), bmodel("supported"), budget=5e6).verdict == "uncertain"
+    assert "planned at hi" in S.render_md(prov) and "planned at hi" not in S.render_md(sup)
+
+
+def test_provisional_plan_is_never_below_the_hi_estimate():
+    rng = random.Random(5)
+    for _ in range(60):
+        n = rng.randint(1, 7)
+        g = random_graph(rng, n, max_alt=0, conflicts=False)
+        t = (rng.randint(5, 20), rng.randint(21, 40), rng.randint(41, 90))
+        sp = (rng.randint(3, 6), rng.randint(7, 12), rng.randint(13, 30))
+        ctxb = (0.8, 1.0, 1.0 + rng.random())
+        m = bmodel("provisional", t, sp, ctxb)
+        m["types"] = {k: dict(m["types"]["coder"]) for k in TYPES}
+        ms = {**m, "types": {k: dict(v, status="supported") for k, v in m["types"].items()}}
+        for nd_id, e in S.estimate(g, m).items():
+            assert e.wall_plan >= e.wall_hi - 1e-9 and e.t_w_plan >= e.t_w_hi - 1e-9
+            assert e.wall_plan >= e.wall_p50 and e.t_w_plan >= e.t_w
+        p, q = S.schedule(g, m, lam=1.0, caps={"fanout": 3}), S.schedule(g, ms, lam=1.0, caps={"fanout": 3})
+        hi_tokens = sum(e.t_w_hi for e in S.estimate(g, m).values())
+        assert p.tokens >= hi_tokens - 1e-6 and p.tokens >= q.tokens - 1e-6 and p.wall >= q.wall - 1e-6
+
+
+@pytest.mark.skipif(not (USAGE / "segments.csv").is_file(), reason="agents-usage data not in this checkout")
+def test_replay_reports_the_provisional_share(model):
+    led = Path.home() / ".local/state/claude-agent-stack" / SESSION / "delegations.md"
+    rep = S.replay(str(led) if led.is_file() else None, str(USAGE / "segments.csv"), str(USAGE / "prompts.csv"), FIXTURE, model,
+                   session=SESSION)
+    for v in rep.rows.values():
+        assert 0.0 <= v["prov_share_wall"] <= 1.0 and 0.0 <= v["prov_share_tok"] <= 1.0
+    assert "provisional types" in S.render_md(rep, max_chars=None)
