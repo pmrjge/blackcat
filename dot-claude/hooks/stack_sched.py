@@ -25,8 +25,9 @@ Exit codes: 0 ok, 1 invalid graph, 2 usage error.
 Token unit (T_w): input + kappa_w * cache_write + kappa_r * cache_read per API call (output
 excluded until its price ratio is read from the pricing page). kappa_w: 1.25 (5 minute cache),
 2.0 (1 hour); kappa_r: 0.05 for Opus 5.5, 0.1 for the other models. The per-type numbers come from
-sched_model.json beside this file (schema in the stack's agents-sched plan, section b); without the
-file the built-in defaults below apply.
+the active model (state dir, refreshed by stack_usage.py; see active_model_path) or else
+sched_model.json beside this file (schema in the stack's agents-sched plan, section b); without
+either the built-in defaults below apply.
 
 Small-n values are used, not just shown. Every type carries a status ("provisional" or "supported") and a
 90% band (lo/med/hi for turns, sec_per_call and a multiplicative ctx factor) in sched_model.json. An estimate
@@ -158,9 +159,23 @@ class ModelError(ValueError):
 
 
 # ---------------------------------------------------------------- model
+def active_model_path() -> Optional[Path]:
+    """The model the usage collector refreshes (stack_usage.py, stack_sched_refresh.py),
+    ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/sched_model.json, when it is a JSON object
+    with a non-empty `types`; None otherwise."""
+    xdg = os.environ.get("XDG_STATE_HOME") or str(Path.home() / ".local/state")
+    p = Path(xdg) / "claude-agent-stack" / "sched_model.json"
+    try:
+        raw = json.loads(p.read_text())
+    except (OSError, ValueError):
+        return None
+    return p if isinstance(raw, dict) and isinstance(raw.get("types"), dict) and raw["types"] else None
+
+
 def default_model_path() -> Path:
+    """STACK_SCHED_MODEL, else the active (refreshed) model, else the shipped file beside this script."""
     env = os.environ.get("STACK_SCHED_MODEL")
-    return Path(env) if env else Path(__file__).resolve().with_name("sched_model.json")
+    return Path(env) if env else (active_model_path() or Path(__file__).resolve().with_name("sched_model.json"))
 
 
 def load_model(path: Any = None) -> Dict[str, Any]:
@@ -1865,7 +1880,7 @@ def _replay_cmd(a: argparse.Namespace) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="stack_sched.py", description="Scheduler advisor (report tool).")
-    ap.add_argument("--model", default=None, help="sched_model.json (default: beside this script, STACK_SCHED_MODEL)")
+    ap.add_argument("--model", default=None, help="sched_model.json (default: STACK_SCHED_MODEL, the active model, the one beside this script)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("plan", help="schedule a graph")
     p.add_argument("graph")

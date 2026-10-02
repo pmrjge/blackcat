@@ -788,6 +788,26 @@ def validate(s, python):
                 (p.stdout + p.stderr).strip().splitlines()[-5:]))
     except (OSError, subprocess.SubprocessError) as exc:
         problems.append("hooks/agent_guard.py --self-test could not run: %s" % exc)
+    # the usage collector runs under the hooks' interpreter (stdlib only): it must parse there; the
+    # shipped scheduler model must be a JSON object
+    usage = os.path.join(s, "hooks", "stack_usage.py")
+    if os.path.isfile(usage):
+        try:
+            p = subprocess.run([python, "-c", "import ast, sys; ast.parse(open(sys.argv[1]).read())", usage],
+                               stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=60)
+            if p.returncode != 0:
+                problems.append("hooks/stack_usage.py does not parse under %s: %s" % (
+                    python, (p.stderr.strip().splitlines() or ["?"])[-1]))
+        except (OSError, subprocess.SubprocessError) as exc:
+            problems.append("hooks/stack_usage.py could not be checked: %s" % exc)
+    model = os.path.join(s, "hooks", "sched_model.json")
+    if os.path.isfile(model):
+        try:
+            with open(model, encoding="utf-8") as fh:
+                if not isinstance(json.load(fh).get("types"), dict):
+                    raise ValueError("no types")
+        except (OSError, ValueError, AttributeError) as exc:
+            problems.append("hooks/sched_model.json: %s" % exc)
     return problems, warnings
 
 

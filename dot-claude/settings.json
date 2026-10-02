@@ -443,6 +443,15 @@
             "timeout": 10
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/stack_usage.py\" start",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "UserPromptSubmit": [
@@ -579,6 +588,15 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/stack_usage.py\" start",
+            "timeout": 5
+          }
+        ]
       }
     ],
     "SubagentStop": [
@@ -623,6 +641,16 @@
             "type": "command",
             "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
             "timeout": 15
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/stack_usage.py\" end"
           }
         ]
       }

@@ -357,6 +357,12 @@ if [ -f "$C/hooks/agent_guard.py" ]; then
     fail "token budgets count nothing — the transcript format changed: $out"
   fi
 fi
+# the usage collector and the scheduler model it refreshes (one line; it never blocks a session)
+if [ -f "$C/hooks/stack_usage.py" ]; then
+  if out=$(python3 "$C/hooks/stack_usage.py" status 2>&1); then ok "$out"; else warn "stack_usage.py status failed: $out"; fi
+else
+  warn "hooks/stack_usage.py missing (usage collector, scheduler model refresh) — rerun install.sh"
+fi
 # Run the hook commands exactly as Claude Code will (from settings.json and blackcat.md), on events that
 # must be denied. A hook that cannot start is a non-blocking error in Claude Code: every gate open.
 if [ -f "$C/settings.json" ] && [ -f "$C/hooks/agent_guard.py" ]; then

@@ -764,6 +764,13 @@ mkdir -p "$S"/{agents,skills,hooks,mcp,magg,bin,rules}
 # it would write through the link, out of the staging dir; the backup keeps the link).
 stage_script(){ rm -rf "$S/$2" && cp "$SRC/$2" "$S/$2" && chmod "$1" "$S/$2"; }
 stage_script 755 hooks/agent_guard.py
+# the usage collector (SessionStart/SubagentStart/SessionEnd hooks), the scheduler advisor, its shipped
+# cost model and the refit (stack_sched_refresh.py imports fit() from the two tests/ scripts beside it)
+for f in stack_usage.py stack_sched.py; do stage_script 755 "hooks/$f"; done
+for f in stack_sched_refresh.py sched_model.json; do stage_script 644 "hooks/$f"; done
+for f in derive_sched_model.py derive_thresholds.py; do
+  rm -rf "$S/hooks/$f" && cp "$HERE/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
+done
 for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py; do stage_script 755 "bin/$f"; done
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
 stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry reads it (--config)
@@ -1629,7 +1636,9 @@ for rel in skills_kept:
 
 # --- scripts the stack copies into hooks/, bin/ and mcp/ (step 6 put them in DEST): tracked in the
 # manifest, so a later version that stops shipping one removes it. Files of your own there stay. ---
-STACK_SCRIPTS = ["hooks/agent_guard.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
+STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
+                 "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
+                 "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
                  "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py",
                  "mcp/image_studio_mcp.py",
                  "mcp/libdocs_mcp.py", "mcp/neural_memory_mcp.py"]
@@ -1831,8 +1840,8 @@ for key in ("removed", "replaced"):
 for key in ("config_removed", "config_replaced", "notes"):
     report.setdefault(key, [])
 # hook commands of the stack, any version: its guard (whatever config dir or interpreter an earlier
-# install rendered) and the retired router-guard.sh
-STACK_HOOK_RE = re.compile(r"agent_guard\.py|router-guard\.sh")
+# install rendered), the usage collector and the retired router-guard.sh
+STACK_HOOK_RE = re.compile(r"agent_guard\.py|router-guard\.sh|stack_usage\.py")
 
 
 def canon(x):
@@ -2177,6 +2186,8 @@ else
   (
     export UV_CACHE_DIR="$STACK_CACHE/uv" npm_config_cache="$STACK_CACHE/npm"
     for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do uv run --quiet --script "$C/mcp/$f" --help >/dev/null 2>&1 </dev/null || true; done
+    # the usage collector's model refit (pandas, numpy) runs offline from this cache at session end
+    uv run --quiet --script "$C/hooks/stack_sched_refresh.py" --help >/dev/null 2>&1 </dev/null || true
     ! have uvx || uvx --quiet markitdown-mcp@0.0.1a7 --help >/dev/null 2>&1 </dev/null || true
     # cg-artist's Blender server: download only (it would wait on the Blender add-on's socket)
     uv tool run --quiet --from mcp-for-blender==2.1.1 python -c pass >/dev/null 2>&1 </dev/null || true

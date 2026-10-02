@@ -2996,6 +2996,8 @@ def session_start_bookkeeping(ev, d):
     root = state_root()
     for s in os.listdir(root):
         p = os.path.join(root, s)
+        if s == "usage":      # stack_usage.py's runs.csv and collectors: kept across sessions
+            continue
         try:
             if os.path.isdir(p) and p != d and now - last_activity(p) > 3 * 86400:
                 shutil.rmtree(p, ignore_errors=True)

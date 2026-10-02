@@ -202,6 +202,45 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 
 Per-agent plugin enabling does not exist: plugins are session-wide (user, project or local scope), so an LSP plugin is not agent-scoped; the closest per-project control is `enabledPlugins` in that project's `.claude/settings.json`. No hook enables or installs anything. Every listed skill keeps its explanatory description; the 83 hub modules are hidden (`user-invocable-only`, the user's choice of design B1x+C on 2026-10-02, not `name-only`) and read by path; `tests/test_skill_modules.py` keeps each reachable from its hub's table. The listing budget (`skillListingBudgetFraction` 0.012) covers the stack's 14,564 characters plus ~14,169 for plugin, bundled and claude.ai skills (`tests/lint_agents.py` NON_STACK) with 25% to spare.
 
+### Usage collector and scheduler model refresh (2026-10-02)
+
+- **What:** `hooks/stack_usage.py` (stdlib, the hooks' `/usr/bin/python3`) runs one background collector per session. It reads the session's subagent transcripts by byte offset and appends one row per agent segment (a spawn or a resume) to `runs.csv`. When the collector exits, `hooks/stack_sched_refresh.py` refits the scheduler's cost model from those rows (it uses `fit()` of `tests/derive_sched_model.py`, installed beside it). `hooks/stack_sched.py` reads the result.
+- **Lifecycle:**
+  - SessionStart (every source) and SubagentStart run `stack_usage.py start`. It starts the collector detached (`start_new_session`, stdio on `/dev/null`) unless one is already running. An `flock` on `collector.lock` keeps it to one per session.
+  - SessionEnd runs `stack_usage.py end`, which only writes an `end` marker. SessionEnd hooks share a 1.5 s budget (https://code.claude.com/docs/en/hooks, "Timeouts"), so the collector does the work: it scans one last time, refreshes and exits.
+  - It also exits when the Claude Code process that ran the hook is gone (pid plus start time), or after `STACK_USAGE_IDLE_S` without growth. The next start resumes from the saved offsets.
+  - The docs say command hooks "run in their own session without a controlling terminal". They do not say whether a detached child survives the hook. `tests/test_stack_usage.py` checks that it survives a kill of the hook's process group. If it is killed anyway, the next SessionStart or SubagentStart restarts it and nothing is lost.
+- **Files** under `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/`:
+  - `usage/runs.csv` (append-only, header, `runs.lock`)
+  - `usage/runs.1.csv` (the archive: past `STACK_USAGE_MAX_BYTES` the file is merged in, last row per key, and the newest sessions are kept up to 4 × the cap)
+  - `usage/sessions/<id>/` (`collector.json` with pid, owner, heartbeat and exit reason; `state.json` with offsets; `end`)
+  - `usage/refresh.json` (the last refresh)
+  - `sched_model.json` (the active model)
+  - The guard's three-day prune skips `usage/`; the collector prunes its own session folders after 14 days.
+- **Rows:** key (session, agent id, seg), last row wins. Columns: `schema_version`, `type`, `status` (partial while the segment's last event is a tool call or result and the transcript changed within 600 s), `api_calls`, `ctx` (input + cache_creation + cache_read), input, output, cache_creation, cache_read, `first_cc`, `first_cr`, peak, prev_peak, gap_s, `first_ts`/`last_ts` (epoch seconds), wall_s, `compacted` (count), `turn_limited`, `after_limit`. Segments are cut as in `tests/derive_thresholds.py`. On this machine's 188 segments the incremental parser matches `derive_sched_model.load` column for column.
+- **Privacy:** numbers and ids only. Session id, agent id, agent type and status are the only strings. No prompt, transcript text, tool input, description or secret is written; user messages are matched against the resume/compaction patterns in memory only (a test asserts this). No network, no paid calls.
+- **Refresh:**
+  - When it runs: at the collector's exit only (session end, owner gone, idle), never during a plan. It runs `uv run --offline --script` with the uv cache install.sh warms (`claude-agent-stack-cache/uv`). Without uv or that cache it is skipped silently, and `refresh.json` says so.
+  - Target: the shipped `hooks/sched_model.json` combined with `fit()` on every complete row of sessions the shipped model did not use, as an n-weighted mean per type and pool. Counts add, and new rows count once `fit()` gives the type a value. A type becomes `supported` at ≥ 5 healthy segments from ≥ 3 agents.
+  - Bands: each type's band is combined as for a weighted mean on the log scale, so it narrows as n grows.
+  - Bounded step: each value moves at most × `STACK_SCHED_REFRESH_STEP` (default 1.5) per refresh from the model in force. Each type keeps `evidence`, and the file keeps a `refresh` record.
+  - It never writes limits, thresholds, maxTurns, prompts or agent files.
+  - `stack_sched.py` prefers the active file when it is a JSON object with non-empty `types`; otherwise it uses the shipped one. `STACK_SCHED_MODEL` overrides both.
+- **CLI** (your terminal; agents' sandbox cannot read the state folder):
+  - `python3 ~/.claude/hooks/stack_usage.py status` (the `/stack-doctor` line)
+  - `runs [--session ID] [--json]` (the agent-run view: segments summed per agent)
+  - `refresh [--online] [--force]` (`--online` lets uv download pandas/numpy)
+  - `propose`: prints maxTurns and soft-limit drift against the model, nothing else
+- **Env:**
+  - `STACK_USAGE_COLLECT=0`: kill switch. Hooks do nothing; a running collector stops at the session's end.
+  - `STACK_USAGE_REFRESH=0`: collect but never refit automatically.
+  - `STACK_USAGE_IDLE_S` (default 7200)
+  - `STACK_USAGE_POLL_S` (default 5)
+  - `STACK_USAGE_MAX_BYTES` (default 8000000)
+  - `STACK_SCHED_REFRESH_STEP` (default 1.5)
+  - `STACK_SCHED_REFRESH_B` (bootstrap replicates, default 2000)
+- **Optional:** a periodic refit outside sessions (cron or a launchd agent running `stack_usage.py refresh`) is possible but not installed; the stack ships none.
+
 ## 6. Recommended session settings
 
 - **Claude Desktop, Conductor and other SDK apps:** set effort to **medium** for the main thread; the agent files set each subagent's effort. Start a new session after installing.
@@ -325,6 +364,14 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-02 (usage collector, scheduler model refresh)
+
+- `hooks/stack_usage.py`: per-session background collector (SessionStart and SubagentStart `start`, SessionEnd `end`) writing segment rows to `usage/runs.csv`; `hooks/stack_sched_refresh.py` refits the active `sched_model.json` at the collector's exit. See section 5, "Usage collector and scheduler model refresh".
+- `stack_sched.py`: prefers the active model.
+- `agent_guard.py`: the three-day prune skips `usage/`.
+- install.sh: installs `stack_usage.py`, `stack_sched.py`, `stack_sched_refresh.py`, `sched_model.json`, and `derive_sched_model.py` / `derive_thresholds.py` (from `tests/`) into `hooks/`. It treats `stack_usage.py` hook entries as the stack's when merging settings.json and warms the refit's uv cache.
+- `/stack-doctor` gets one usage line.
 
 ### 2026-10-02 (soft token limits, maxTurns from data)
 
