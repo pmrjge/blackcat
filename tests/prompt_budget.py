@@ -23,7 +23,7 @@ blackcat: blackcat_listing). Tokens ~ ceil(chars / 3).
 --check      exit 1 unless every description <= 200 chars, blackcat body <= 5,200 and, for agents
              absent at base, description <= 160 / body <= 2,400 (with Agent) or <= 120 / <= 1,400
              (leaf); and against the base (--base, default DEFAULT_BASE): bodies of the agents present
-             at base <= 0.84 x base, agent listing <= 0.97 x, blackcat listing <= 0.96 x, skill listing
+             at base <= 0.85 x base, agent listing <= 0.97 x, blackcat listing <= 0.96 x, skill listing
              <= 0.478 x, rules <= 0.95 x, mean per spawn of the base agents (blackcat excluded: it is the
              main thread, never spawned) <= 0.691 x. Ratios are skipped when the base revision is missing.
 --turns      read Claude Code subagent transcripts (read-only; default
@@ -84,9 +84,11 @@ NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
 #   skill_listing 30,782 -> 14,437 (0.469 x)   per_spawn_mean 55,240 -> 37,446 (0.678 x); leaf -> 26,298
 #   bodies -> 78,513 (0.837 x)   rules -> 11,534 (0.946 x)   agent and blackcat listings unchanged
 # skill_listing and per_spawn_mean go down to ratio x 1.02 rounded down to 0.001 (to 0.01 it would
-# leave 0.2% headroom on the listing). bodies (x 1.02 = 0.853) and rules (0.964) would go up, so they
-# keep 0.84 and 0.95: the pointers and the one rule line fit inside the existing headroom.
-RATIO = {"bodies": 0.84, "agent_listing": 0.97, "blackcat_listing": 0.96, "skill_listing": 0.478,
+# leave 0.2% headroom on the listing). rules (x 1.02 = 0.964) would go up, so it keeps 0.95. bodies goes
+# UP from 0.84 to 0.85: the verifier restored the one-line evidence gate (VERDICT pass when nothing is
+# verifiably wrong; never ask back without evidence) the user asked for in the five reviewer prompts,
+# which Q1 had dropped (~790 chars); measured 79,616 (0.848 x), so 0.85 leaves ~150 chars.
+RATIO = {"bodies": 0.85, "agent_listing": 0.97, "blackcat_listing": 0.96, "skill_listing": 0.478,
          "rules": 0.95, "per_spawn_mean": 0.691}
 # SKILL_BUDGET: Claude Code's listing budget is context window x chars/token x
 # skillListingBudgetFraction = 1,000,000 x 3 x f for the 5.5 models (Claude Code 2.1.287), shared by the

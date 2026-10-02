@@ -192,7 +192,7 @@ of every agent, the rules file, the skill listing and the agent listings (tokens
 - every description ≤ 200 characters and BlackCat's body ≤ 5,200;
 - agents new since the baseline: description ≤ 160 and body ≤ 2,400 with the Agent tool, ≤ 120 and
   ≤ 1,400 as a leaf;
-- against the baseline revision (`ad22962`, or `--base REV`): bodies of the agents present then ≤ 0.84×,
+- against the baseline revision (`ad22962`, or `--base REV`): bodies of the agents present then ≤ 0.85×,
   agent listing ≤ 0.97×, BlackCat's listing ≤ 0.96×, skill listing ≤ 0.478×, rules ≤ 0.95×, mean
   per-spawn cost of the baseline agents ≤ 0.691×.
 

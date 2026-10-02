@@ -264,7 +264,14 @@ FORCED_LOAD_RES = [
     re.compile(r"(?i)\b(?:always|must|first)\s+(?:load|invoke)\b[^.;\n]*"),
     re.compile(r"(?i)\b(?:load|invoke)\b[^.;\n]{0,80}`[a-z0-9-]+`\*?[^.;\n(]{0,40}\bfirst\b"),
     re.compile(r"(?i)\b(?:load|invoke)\s+(?:it\s+|them\s+)?(?:always|on every task|every time)\b"),
+    re.compile(r"(?i)\bevery\s+\w+:\s*load\b[^.;\n]*"),
 ]
+# The five reviewers load review-protocol on every review: each of their tasks is a review, and the
+# protocol holds the VERDICT format and the severity rubric their one-line evidence gate refers to (the
+# user asked for that gate in reviewer and verifier prompts). Their "Every review: load ..." trigger is
+# situational, so only these files may use it; no other forced-load wording is allowed anywhere.
+FORCED_LOAD_OK = {"code-reviewer.md": [3], "plan-reviewer.md": [3], "security-auditor.md": [3],
+                  "verifier.md": [3], "proof-checker.md": [3]}
 
 
 def hidden_skills():
@@ -431,7 +438,9 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
         fail(f"{path.name}: body tells the agent to load skills but tools: has no Skill")
     # skills are looked up when a step needs them (the user, 2026-10-02: "## Skills are not always on,
     # required, just looked up if needed"): no body forces a load on every task
-    for rx in FORCED_LOAD_RES:
+    for i, rx in enumerate(FORCED_LOAD_RES):
+        if i in FORCED_LOAD_OK.get(path.name, []):
+            continue
         for m in rx.finditer(body):
             fail(f"{path.name}: {m.group(0)!r} forces a skill load; name the situation instead "
                  "(\"`x` for <situation>\", \"If needed: …\")")

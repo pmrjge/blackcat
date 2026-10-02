@@ -247,7 +247,8 @@ def test_forced_load_lint_patterns():
     import sys
     sys.path.insert(0, str(ROOT / "tests"))
     from lint_agents import FORCED_LOAD_RES
-    forced = ["Load `go-engineering` first (x)", "always load `x`", "You must load the skill", "First load `a`"]
+    forced = ["Load `go-engineering` first (x)", "always load `x`", "You must load the skill", "First load `a`",
+              "Every task: load `x`"]
     fine = ["Load `browser-automation` before a multi-step flow", "check the load first.", "`x` for scripts",
             "load `image-prompting` before generating ("]
     assert all(any(r.search(s) for r in FORCED_LOAD_RES) for s in forced)
