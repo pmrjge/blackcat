@@ -1,0 +1,1495 @@
+{
+ "job": "agents-stack-token-optimization-4e2da3ce",
+ "speed": "balanced",
+ "session": "4e2da3ce-e2f4-4971-aac5-a67f2dcf252e",
+ "dispatcher": "orchestrator",
+ "note": "Recorded session 4e2da3ce, phases 1-3 and R1-R2. nodes[].dep are the phase-0 dependencies; ph[] maps recorded segments (agent id + seg number from segments.csv) to phases with their own dependencies as node:phase. Dependencies and write sets come from .claude-work/agents-opt|agents-p2|agents-p3/plan.md and the commits those plans name (git show --name-only); where a plan states none, the timing evidence (start within a minute of the dependency's end) decided and the node carries a note. 's' is the size label closest (log scale) to the recorded api_calls under the model defaults. Children (scouts, guides spawned by a node's agent) are listed, not scheduled. aux = main-thread dispatches that count as activity but are not part of the DAG. P9 is split P9a-P9d as in the ledger; R3-R6 are after the data cut.",
+ "aux": [
+  {
+   "id": "X1",
+   "a": "coder",
+   "agent": "a9069fd12de7e3c21",
+   "segs": [
+    0
+   ],
+   "note": "set uv default Python 3.14 (main-thread dispatch)"
+  },
+  {
+   "id": "X2",
+   "a": "verifier",
+   "agent": "aa1cdc5f97419bc71",
+   "segs": [
+    0,
+    1
+   ],
+   "note": "before/after benchmark harness (main-thread dispatch)"
+  },
+  {
+   "id": "X3",
+   "a": "coder",
+   "agent": "af67f2b4202f3fe90",
+   "segs": [
+    0
+   ],
+   "note": "token usage per agent report (main-thread dispatch)"
+  }
+ ],
+ "nodes": [
+  {
+   "id": "T1",
+   "a": "claude-code-guide",
+   "dep": [],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a9bca03300f4b9688"
+   ],
+   "ph": [
+    {
+     "agent": "a9bca03300f4b9688",
+     "segs": [
+      0
+     ],
+     "dep": []
+    }
+   ],
+   "children": [],
+   "s": "M"
+  },
+  {
+   "id": "T2",
+   "a": "planner",
+   "dep": [],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a62715d46b808a042"
+   ],
+   "ph": [
+    {
+     "agent": "a62715d46b808a042",
+     "segs": [
+      0
+     ],
+     "dep": []
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "T3",
+   "a": "claude-code-engineer",
+   "dep": [
+    "T2"
+   ],
+   "w": [
+    "dot-claude/hooks/agent_guard.py",
+    "tests/guard_harness.py",
+    "tests/test_agent_guard.py",
+    "tests/test_agent_label.py",
+    "tests/test_delegation_ledger.py"
+   ],
+   "rd": [],
+   "r": [
+    "hook"
+   ],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a1af9f3b83bd73e11"
+   ],
+   "ph": [
+    {
+     "agent": "a1af9f3b83bd73e11",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "T2:0"
+     ]
+    },
+    {
+     "agent": "a1af9f3b83bd73e11",
+     "segs": [
+      1
+     ],
+     "dep": [
+      "T7:0",
+      "T5:1"
+     ],
+     "kind": "fix"
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "T4",
+   "a": "claude-code-engineer",
+   "dep": [
+    "T2"
+   ],
+   "w": [
+    "dot-claude/agents/blackcat.md",
+    "dot-claude/agents/code-reviewer.md",
+    "dot-claude/agents/orchestrator.md",
+    "dot-claude/agents/plan-reviewer.md",
+    "dot-claude/agents/security-auditor.md",
+    "dot-claude/agents/verifier.md",
+    "dot-claude/rules/claude-agent-stack.md",
+    "dot-claude/skills/code-standards/**",
+    "dot-claude/skills/review-protocol/**"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "aa557ca5c0a1d0ac7"
+   ],
+   "ph": [
+    {
+     "agent": "aa557ca5c0a1d0ac7",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "T2:0"
+     ]
+    },
+    {
+     "agent": "aa557ca5c0a1d0ac7",
+     "segs": [
+      1
+     ],
+     "dep": [
+      "T8:0"
+     ],
+     "kind": "fix"
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "T5",
+   "a": "claude-code-engineer",
+   "dep": [
+    "T2"
+   ],
+   "w": [
+    "CONFIG.md",
+    "README.md",
+    "dot-claude/agents/blackcat.md",
+    "dot-claude/agents/cg-artist.md",
+    "dot-claude/agents/god-coder.md",
+    "dot-claude/agents/mathematician.md",
+    "dot-claude/agents/motion-designer.md",
+    "dot-claude/agents/ninja-coder.md",
+    "dot-claude/agents/orchestrator.md",
+    "dot-claude/agents/proof-checker.md",
+    "dot-claude/agents/quantum-engineer.md",
+    "dot-claude/agents/vfx-td.md",
+    "dot-claude/hooks/agent_guard.py",
+    "dot-claude/skills/houdini-fx/**",
+    "install.sh",
+    "mcp_servers.md",
+    "stack.env.example",
+    "tests/test_agent_guard.py",
+    "tests/test_readonly_agents.py"
+   ],
+   "rd": [],
+   "r": [
+    "hook"
+   ],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "ae6d4de5b111cd591"
+   ],
+   "ph": [
+    {
+     "agent": "ae6d4de5b111cd591",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "T2:0"
+     ],
+     "w": [
+      ".claude-work/agents-opt/new-agents/**"
+     ]
+    },
+    {
+     "agent": "ae6d4de5b111cd591",
+     "segs": [
+      1
+     ],
+     "dep": [
+      "T3:0",
+      "T4:0",
+      "T6:0"
+     ],
+     "w": [
+      "CONFIG.md",
+      "README.md",
+      "dot-claude/agents/blackcat.md",
+      "dot-claude/agents/cg-artist.md",
+      "dot-claude/agents/god-coder.md",
+      "dot-claude/agents/mathematician.md",
+      "dot-claude/agents/motion-designer.md",
+      "dot-claude/agents/ninja-coder.md",
+      "dot-claude/agents/orchestrator.md",
+      "dot-claude/agents/proof-checker.md",
+      "dot-claude/agents/quantum-engineer.md",
+      "dot-claude/agents/vfx-td.md",
+      "dot-claude/hooks/agent_guard.py",
+      "dot-claude/skills/houdini-fx/**",
+      "install.sh",
+      "mcp_servers.md",
+      "stack.env.example",
+      "tests/test_agent_guard.py",
+      "tests/test_readonly_agents.py"
+     ]
+    }
+   ],
+   "children": [
+    "affd3a872cf8a22d8"
+   ],
+   "s": "L"
+  },
+  {
+   "id": "T6",
+   "a": "claude-code-engineer",
+   "dep": [
+    "T2"
+   ],
+   "w": [
+    "dot-claude/agents/browser-operator.md",
+    "dot-claude/agents/cg-artist.md",
+    "dot-claude/agents/claude-code-engineer.md",
+    "dot-claude/agents/claude-code-guide.md",
+    "dot-claude/agents/coder.md",
+    "dot-claude/agents/cuda-engineer.md",
+    "dot-claude/agents/data-engineer.md",
+    "dot-claude/agents/data-scientist.md",
+    "dot-claude/agents/designer.md",
+    "dot-claude/agents/devops-engineer.md",
+    "dot-claude/agents/dl-engineer.md",
+    "dot-claude/agents/doc-specialist.md",
+    "dot-claude/agents/explore.md",
+    "dot-claude/agents/frontend-engineer.md",
+    "dot-claude/agents/god-coder.md",
+    "dot-claude/agents/image-director.md",
+    "dot-claude/agents/llm-engineer.md",
+    "dot-claude/agents/main-coder.md",
+    "dot-claude/agents/mathematician.md",
+    "dot-claude/agents/mcp-broker.md",
+    "dot-claude/agents/ml-engineer.md",
+    "dot-claude/agents/mlx-engineer.md",
+    "dot-claude/agents/motion-designer.md",
+    "dot-claude/agents/ninja-coder.md",
+    "dot-claude/agents/oracle.md",
+    "dot-claude/agents/planner.md",
+    "dot-claude/agents/quantum-engineer.md",
+    "dot-claude/agents/researcher.md",
+    "dot-claude/agents/robotics-engineer.md",
+    "dot-claude/agents/scout.md",
+    "dot-claude/agents/writer.md",
+    "tests/prompt_budget.py",
+    "tests/test_prompt_budget.py"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a8b5ace94c0276da1"
+   ],
+   "ph": [
+    {
+     "agent": "a8b5ace94c0276da1",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "T2:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "T7",
+   "a": "code-reviewer",
+   "dep": [
+    "T3"
+   ],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "aaecb17df15af8d05"
+   ],
+   "ph": [
+    {
+     "agent": "aaecb17df15af8d05",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "T3:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "M"
+  },
+  {
+   "id": "T8",
+   "a": "verifier",
+   "dep": [
+    "T5",
+    "T7",
+    "T3"
+   ],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "afd0a600d153e15fb"
+   ],
+   "ph": [
+    {
+     "agent": "afd0a600d153e15fb",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "T5:1",
+      "T7:0",
+      "T3:1"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "S"
+  },
+  {
+   "id": "P1",
+   "a": "claude-code-guide",
+   "dep": [],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a4268f246e7d0e24d"
+   ],
+   "ph": [
+    {
+     "agent": "a4268f246e7d0e24d",
+     "segs": [
+      0
+     ],
+     "dep": []
+    }
+   ],
+   "children": [],
+   "s": "S"
+  },
+  {
+   "id": "P2",
+   "a": "planner",
+   "dep": [
+    "P1"
+   ],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "aae3c212b84c9801a"
+   ],
+   "ph": [
+    {
+     "agent": "aae3c212b84c9801a",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P1:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "M"
+  },
+  {
+   "id": "P3",
+   "a": "researcher",
+   "dep": [
+    "P2"
+   ],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a0df3b5a447aa409e"
+   ],
+   "ph": [
+    {
+     "agent": "a0df3b5a447aa409e",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P2:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "P4",
+   "a": "claude-code-engineer",
+   "dep": [
+    "P2"
+   ],
+   "w": [
+    "dot-claude/settings.json",
+    "tests/lint_agents.py",
+    "tests/prompt_budget.py",
+    "tests/test_prompt_budget.py",
+    "tests/test_skill_modules.py"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "abf61455daf8bf39a"
+   ],
+   "ph": [
+    {
+     "agent": "abf61455daf8bf39a",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P2:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "P5",
+   "a": "claude-code-engineer",
+   "dep": [
+    "P2"
+   ],
+   "w": [
+    "dot-claude/skills/git-history-edit/**",
+    "dot-claude/skills/git-large-repos/**",
+    "dot-claude/skills/git-recovery-bisect/**",
+    "dot-claude/skills/git-workflows/**",
+    "dot-claude/skills/git-worktrees/**",
+    "dot-claude/skills/go-concurrency/**",
+    "dot-claude/skills/go-engineering/**",
+    "dot-claude/skills/go-modules-release/**",
+    "dot-claude/skills/go-testing/**",
+    "dot-claude/skills/py-async/**",
+    "dot-claude/skills/py-perf/**",
+    "dot-claude/skills/py-testing/**",
+    "dot-claude/skills/py-typing/**",
+    "dot-claude/skills/py-uv-packaging/**",
+    "dot-claude/skills/python-engineering/**",
+    "dot-claude/skills/rust-async/**",
+    "dot-claude/skills/rust-engineering/**",
+    "dot-claude/skills/rust-errors-ownership/**",
+    "dot-claude/skills/rust-release/**",
+    "dot-claude/skills/rust-testing/**",
+    "dot-claude/skills/rust-unsafe-ffi/**",
+    "dot-claude/skills/ts-node-cli/**",
+    "dot-claude/skills/ts-testing/**",
+    "dot-claude/skills/ts-tooling/**",
+    "dot-claude/skills/ts-types-validation/**",
+    "dot-claude/skills/typescript-engineering/**"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a739e537b64de1bce"
+   ],
+   "ph": [
+    {
+     "agent": "a739e537b64de1bce",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P2:0"
+     ]
+    },
+    {
+     "agent": "a739e537b64de1bce",
+     "segs": [
+      1
+     ],
+     "dep": []
+    },
+    {
+     "agent": "a739e537b64de1bce",
+     "segs": [
+      2
+     ],
+     "dep": [
+      "P8:1"
+     ]
+    },
+    {
+     "agent": "a739e537b64de1bce",
+     "segs": [
+      3
+     ],
+     "dep": []
+    }
+   ],
+   "children": [],
+   "note": "phase 1 (wave B) was dispatched only after P6's wave A ended (barrier); its real dependency is P5's own wave A",
+   "s": "L"
+  },
+  {
+   "id": "P6",
+   "a": "claude-code-engineer",
+   "dep": [
+    "P2"
+   ],
+   "w": [
+    "dot-claude/skills/android-engineering/**",
+    "dot-claude/skills/android-release/**",
+    "dot-claude/skills/app-store-release/**",
+    "dot-claude/skills/bio-chem-computing/**",
+    "dot-claude/skills/bio-genomics/**",
+    "dot-claude/skills/bio-pipelines/**",
+    "dot-claude/skills/bio-single-cell/**",
+    "dot-claude/skills/bio-structures/**",
+    "dot-claude/skills/chem-informatics/**",
+    "dot-claude/skills/chem-md/**",
+    "dot-claude/skills/chem-qm/**",
+    "dot-claude/skills/emb-c-rtos/**",
+    "dot-claude/skills/emb-debug-flash/**",
+    "dot-claude/skills/emb-rust/**",
+    "dot-claude/skills/embedded-firmware/**",
+    "dot-claude/skills/flutter/**",
+    "dot-claude/skills/fpga-hdl/**",
+    "dot-claude/skills/game-engines/**",
+    "dot-claude/skills/game-graphics/**",
+    "dot-claude/skills/game-netcode/**",
+    "dot-claude/skills/gfx-apis/**",
+    "dot-claude/skills/gfx-shaders/**",
+    "dot-claude/skills/hpc-computing/**",
+    "dot-claude/skills/hpc-fortran/**",
+    "dot-claude/skills/hpc-io/**",
+    "dot-claude/skills/hpc-mpi-openmp/**",
+    "dot-claude/skills/hpc-slurm/**",
+    "dot-claude/skills/ios-build-sim/**",
+    "dot-claude/skills/kotlin-coroutines/**",
+    "dot-claude/skills/l10n-catalogs/**",
+    "dot-claude/skills/l10n-qa/**",
+    "dot-claude/skills/localization/**",
+    "dot-claude/skills/pcb-kicad/**",
+    "dot-claude/skills/react-native/**",
+    "dot-claude/skills/sci-pde-fem/**",
+    "dot-claude/skills/subtitles/**",
+    "dot-claude/skills/swift-engineering/**",
+    "dot-claude/skills/swiftui/**"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "ac736ac036119caf0"
+   ],
+   "ph": [
+    {
+     "agent": "ac736ac036119caf0",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P2:0"
+     ]
+    },
+    {
+     "agent": "ac736ac036119caf0",
+     "segs": [
+      1
+     ],
+     "dep": []
+    },
+    {
+     "agent": "ac736ac036119caf0",
+     "segs": [
+      2
+     ],
+     "dep": [
+      "P8:1"
+     ]
+    },
+    {
+     "agent": "ac736ac036119caf0",
+     "segs": [
+      3
+     ],
+     "dep": []
+    }
+   ],
+   "children": [
+    "a0a1a5d145fe6b44e",
+    "a373939c99acf370d",
+    "a303d44a79faef2a0",
+    "ab8150aaf68d5cc2c"
+   ],
+   "s": "L"
+  },
+  {
+   "id": "P7",
+   "a": "claude-code-engineer",
+   "dep": [
+    "P2"
+   ],
+   "w": [
+    "dot-claude/skills/a11y-mobile/**",
+    "dot-claude/skills/db-design/**",
+    "dot-claude/skills/db-migrations/**",
+    "dot-claude/skills/formal-methods/**",
+    "dot-claude/skills/mongodb/**",
+    "dot-claude/skills/mysql/**",
+    "dot-claude/skills/num-linear-algebra/**",
+    "dot-claude/skills/num-ode-sde/**",
+    "dot-claude/skills/numerical-methods/**",
+    "dot-claude/skills/postgresql/**",
+    "dot-claude/skills/redis/**",
+    "dot-claude/skills/sec-authn-authz/**",
+    "dot-claude/skills/sec-crypto/**",
+    "dot-claude/skills/sec-detection/**",
+    "dot-claude/skills/sec-hardening/**",
+    "dot-claude/skills/sec-incident-response/**",
+    "dot-claude/skills/sec-llm-apps/**",
+    "dot-claude/skills/sec-local-servers/**",
+    "dot-claude/skills/sec-secrets/**",
+    "dot-claude/skills/sec-supply-chain/**",
+    "dot-claude/skills/sec-threat-model/**",
+    "dot-claude/skills/sec-web-vulns/**",
+    "dot-claude/skills/secure-coding/**",
+    "dot-claude/skills/sqlite/**",
+    "dot-claude/skills/test-contract-snapshot/**",
+    "dot-claude/skills/test-e2e-playwright/**",
+    "dot-claude/skills/test-fuzzing/**",
+    "dot-claude/skills/test-mutation/**",
+    "dot-claude/skills/test-property-based/**",
+    "dot-claude/skills/test-strategy/**",
+    "dot-claude/skills/web-accessibility/**"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "aa3cecbac36d6c0d6"
+   ],
+   "ph": [
+    {
+     "agent": "aa3cecbac36d6c0d6",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P2:0"
+     ]
+    },
+    {
+     "agent": "aa3cecbac36d6c0d6",
+     "segs": [
+      1
+     ],
+     "dep": []
+    },
+    {
+     "agent": "aa3cecbac36d6c0d6",
+     "segs": [
+      2
+     ],
+     "dep": [
+      "P8:1"
+     ]
+    },
+    {
+     "agent": "aa3cecbac36d6c0d6",
+     "segs": [
+      3
+     ],
+     "dep": []
+    }
+   ],
+   "children": [
+    "af7dbf0f1217cc824",
+    "abaf8d30e02984a5a",
+    "af5a45dd89f19c51e",
+    "a39c9889197e401ae",
+    "a1bcba3ef72ee7ced"
+   ],
+   "note": "phase 1 (wave B) was dispatched only after P6's wave A ended (barrier)",
+   "s": "L"
+  },
+  {
+   "id": "P8",
+   "a": "claude-code-engineer",
+   "dep": [
+    "P3",
+    "P4",
+    "P5",
+    "P6",
+    "P7"
+   ],
+   "w": [
+    "CONFIG.md",
+    "README.md",
+    "dot-claude/agents/biochem-engineer.md",
+    "dot-claude/agents/blackcat.md",
+    "dot-claude/agents/browser-operator.md",
+    "dot-claude/agents/build-fixer.md",
+    "dot-claude/agents/cg-artist.md",
+    "dot-claude/agents/code-reviewer.md",
+    "dot-claude/agents/coder.md",
+    "dot-claude/agents/cuda-engineer.md",
+    "dot-claude/agents/data-engineer.md",
+    "dot-claude/agents/data-scientist.md",
+    "dot-claude/agents/db-engineer.md",
+    "dot-claude/agents/devops-engineer.md",
+    "dot-claude/agents/dl-engineer.md",
+    "dot-claude/agents/doc-specialist.md",
+    "dot-claude/agents/embedded-engineer.md",
+    "dot-claude/agents/frontend-engineer.md",
+    "dot-claude/agents/game-engineer.md",
+    "dot-claude/agents/go-engineer.md",
+    "dot-claude/agents/god-coder.md",
+    "dot-claude/agents/haskell-engineer.md",
+    "dot-claude/agents/hpc-engineer.md",
+    "dot-claude/agents/julia-engineer.md",
+    "dot-claude/agents/jvm-engineer.md",
+    "dot-claude/agents/llm-engineer.md",
+    "dot-claude/agents/localizer.md",
+    "dot-claude/agents/main-coder.md",
+    "dot-claude/agents/mathematician.md",
+    "dot-claude/agents/mcp-broker.md",
+    "dot-claude/agents/mlx-engineer.md",
+    "dot-claude/agents/mobile-engineer.md",
+    "dot-claude/agents/ninja-coder.md",
+    "dot-claude/agents/node-engineer.md",
+    "dot-claude/agents/orchestrator.md",
+    "dot-claude/agents/plan-reviewer.md",
+    "dot-claude/agents/proof-checker.md",
+    "dot-claude/agents/python-engineer.md",
+    "dot-claude/agents/researcher.md",
+    "dot-claude/agents/robotics-engineer.md",
+    "dot-claude/agents/rust-engineer.md",
+    "dot-claude/agents/security-auditor.md",
+    "dot-claude/agents/security-engineer.md",
+    "dot-claude/agents/test-engineer.md",
+    "dot-claude/agents/verifier.md",
+    "dot-claude/agents/vfx-td.md",
+    "dot-claude/agents/writer.md",
+    "dot-claude/bin/doctor.sh",
+    "dot-claude/hooks/agent_guard.py",
+    "dot-claude/magg/config.json",
+    "dot-claude/magg/k8s-mcp.toml",
+    "dot-claude/settings.json",
+    "dot-claude/skills/claude-code-extensions/**",
+    "install.sh",
+    "lib/install_state.py",
+    "mcp_servers.md",
+    "stack.env.example",
+    "tests/install_smoke.sh",
+    "tests/prompt_budget.py",
+    "tests/test_agent_guard.py",
+    "tests/test_install_state.py",
+    "tests/test_prompt_budget.py"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "abf61455daf8bf39a"
+   ],
+   "ph": [
+    {
+     "agent": "abf61455daf8bf39a",
+     "segs": [
+      1
+     ],
+     "dep": [
+      "P3:0",
+      "P4:0",
+      "P5:0",
+      "P6:0",
+      "P7:0"
+     ]
+    },
+    {
+     "agent": "abf61455daf8bf39a",
+     "segs": [
+      2
+     ],
+     "dep": [
+      "P9a:0",
+      "P9b:0"
+     ],
+     "kind": "fix"
+    },
+    {
+     "agent": "abf61455daf8bf39a",
+     "segs": [
+      3
+     ],
+     "dep": [
+      "P8:1"
+     ]
+    }
+   ],
+   "children": [],
+   "note": "the integrator is the resumed agent of P4 (segments 1-3 of that agent id)",
+   "s": "L"
+  },
+  {
+   "id": "P9a",
+   "a": "code-reviewer",
+   "dep": [
+    "P8"
+   ],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a9d529fdb2383e6a8"
+   ],
+   "ph": [
+    {
+     "agent": "a9d529fdb2383e6a8",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P8:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "P9b",
+   "a": "verifier",
+   "dep": [
+    "P8"
+   ],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "ab11df1d20036d2cd"
+   ],
+   "ph": [
+    {
+     "agent": "ab11df1d20036d2cd",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P8:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "M"
+  },
+  {
+   "id": "P9c",
+   "a": "claude-code-guide",
+   "dep": [],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "afce6a0baa56bc739"
+   ],
+   "ph": [
+    {
+     "agent": "afce6a0baa56bc739",
+     "segs": [
+      0
+     ],
+     "dep": []
+    }
+   ],
+   "children": [],
+   "s": "M"
+  },
+  {
+   "id": "P9d",
+   "a": "claude-code-engineer",
+   "dep": [
+    "P9c",
+    "P8"
+   ],
+   "w": [
+    "README.md"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "abc12cd999d870919"
+   ],
+   "ph": [
+    {
+     "agent": "abc12cd999d870919",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P9c:0",
+      "P8:2"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "P10",
+   "a": "claude-code-engineer",
+   "dep": [
+    "P9d"
+   ],
+   "w": [
+    ".claude-work/agents-opt/FINAL-REPORT.md"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a9caca4564fd86d74"
+   ],
+   "ph": [
+    {
+     "agent": "a9caca4564fd86d74",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P9d:0"
+     ]
+    },
+    {
+     "agent": "a9caca4564fd86d74",
+     "segs": [
+      1
+     ],
+     "dep": [
+      "Q8:0"
+     ]
+    },
+    {
+     "agent": "a9caca4564fd86d74",
+     "segs": [
+      2
+     ],
+     "dep": [
+      "Q9:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "Q1",
+   "a": "claude-code-engineer",
+   "dep": [
+    "P10"
+   ],
+   "w": [
+    "dot-claude/agents/*.md"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "ab9ab9bed862783b0"
+   ],
+   "ph": [
+    {
+     "agent": "ab9ab9bed862783b0",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P10:0"
+     ]
+    }
+   ],
+   "children": [],
+   "note": "also creates dot-claude/skills/*/references/from-<agent>.md, names disjoint from Q2/Q3 by construction",
+   "s": "L"
+  },
+  {
+   "id": "Q2",
+   "a": "claude-code-engineer",
+   "dep": [
+    "P10"
+   ],
+   "w": [
+    "dot-claude/skills/[a-m]*/**"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a0b43414e418a0784"
+   ],
+   "ph": [
+    {
+     "agent": "a0b43414e418a0784",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P10:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "Q3",
+   "a": "claude-code-engineer",
+   "dep": [
+    "P10"
+   ],
+   "w": [
+    "dot-claude/skills/[n-z]*/**",
+    "dot-claude/rules/claude-agent-stack.md"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "aa28ddfef1cbe8a53"
+   ],
+   "ph": [
+    {
+     "agent": "aa28ddfef1cbe8a53",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "P10:0"
+     ],
+     "w": [
+      "dot-claude/skills/[n-z]*/**",
+      "dot-claude/rules/claude-agent-stack.md"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "Q4",
+   "a": "claude-code-engineer",
+   "dep": [
+    "Q1",
+    "Q2",
+    "Q3"
+   ],
+   "w": [
+    "tests/prompt_budget.py",
+    "tests/lint_agents.py",
+    "README.md"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "aa28ddfef1cbe8a53"
+   ],
+   "ph": [
+    {
+     "agent": "aa28ddfef1cbe8a53",
+     "segs": [
+      1
+     ],
+     "dep": [
+      "Q1:0",
+      "Q2:0",
+      "Q3:0"
+     ],
+     "w": [
+      "tests/prompt_budget.py",
+      "tests/lint_agents.py",
+      "README.md"
+     ]
+    }
+   ],
+   "children": [],
+   "note": "stale refs fix and gates re-set: segment 1 of the Q3 agent (resumed)",
+   "s": "S"
+  },
+  {
+   "id": "Q5",
+   "a": "verifier",
+   "dep": [
+    "Q6"
+   ],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "af77a05d79750523a"
+   ],
+   "ph": [
+    {
+     "agent": "af77a05d79750523a",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "Q6:1"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "M"
+  },
+  {
+   "id": "Q6",
+   "a": "claude-code-engineer",
+   "dep": [],
+   "w": [
+    ".claude-work/agents-p3/lookup/**",
+    "dot-claude/skills/**",
+    "tests/prompt_budget.py",
+    "tests/lint_agents.py"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a66abc25551ca1e2a"
+   ],
+   "ph": [
+    {
+     "agent": "a66abc25551ca1e2a",
+     "segs": [
+      0
+     ],
+     "dep": [],
+     "w": [
+      ".claude-work/agents-p3/lookup/**"
+     ]
+    },
+    {
+     "agent": "a66abc25551ca1e2a",
+     "segs": [
+      1
+     ],
+     "dep": [
+      "Q4:0"
+     ],
+     "w": [
+      "dot-claude/skills/**",
+      "tests/prompt_budget.py",
+      "tests/lint_agents.py"
+     ]
+    },
+    {
+     "agent": "a66abc25551ca1e2a",
+     "segs": [
+      2
+     ],
+     "dep": [
+      "Q5:0"
+     ],
+     "kind": "fix",
+     "w": [
+      "dot-claude/skills/**",
+      "tests/prompt_budget.py",
+      "tests/lint_agents.py"
+     ]
+    }
+   ],
+   "children": [
+    "a203d188763a2072f",
+    "a15e2a987cb5fa1ed"
+   ],
+   "note": "phase 0 is the lookup evaluation (reads only, writes under .claude-work); the implementation of the chosen design starts at phase 1",
+   "s": "L"
+  },
+  {
+   "id": "Q7",
+   "a": "claude-code-engineer",
+   "dep": [
+    "Q6"
+   ],
+   "w": [
+    "CONFIG.md",
+    "README.md",
+    "dot-claude/bin/stack_sdk.py",
+    "dot-claude/hooks/agent_guard.py",
+    "dot-claude/settings.json",
+    "dot-claude/skills/claude-code-extensions/**",
+    "install.sh",
+    "tests/install_smoke.sh",
+    "tests/sdk_smoke.py",
+    "tests/test_sdk_integration.py"
+   ],
+   "rd": [],
+   "r": [
+    "hook"
+   ],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "ac215a9dfa703d3a7"
+   ],
+   "ph": [
+    {
+     "agent": "ac215a9dfa703d3a7",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "Q6:1"
+     ]
+    },
+    {
+     "agent": "ac215a9dfa703d3a7",
+     "segs": [
+      1
+     ],
+     "dep": [
+      "Q8:0"
+     ],
+     "kind": "fix"
+    },
+    {
+     "agent": "ac215a9dfa703d3a7",
+     "segs": [
+      2
+     ],
+     "dep": [
+      "Q9:0"
+     ],
+     "kind": "fix"
+    }
+   ],
+   "children": [
+    "acdd7814286d93bf5"
+   ],
+   "s": "L"
+  },
+  {
+   "id": "Q8",
+   "a": "code-reviewer",
+   "dep": [
+    "Q7"
+   ],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a05fd5ceb1f5e63d7"
+   ],
+   "ph": [
+    {
+     "agent": "a05fd5ceb1f5e63d7",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "Q7:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "S"
+  },
+  {
+   "id": "Q9",
+   "a": "verifier",
+   "dep": [
+    "Q7"
+   ],
+   "w": [],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a58fc76628606a55c"
+   ],
+   "ph": [
+    {
+     "agent": "a58fc76628606a55c",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "Q7:1"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "S"
+  },
+  {
+   "id": "Q10",
+   "a": "claude-code-engineer",
+   "dep": [
+    "Q9"
+   ],
+   "w": [
+    ".claude-work/agents-p3/contingency/**"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a1950e4e0c6d060a5"
+   ],
+   "ph": [
+    {
+     "agent": "a1950e4e0c6d060a5",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "Q9:0"
+     ]
+    },
+    {
+     "agent": "a1950e4e0c6d060a5",
+     "segs": [
+      1
+     ],
+     "dep": []
+    }
+   ],
+   "children": [],
+   "s": "L"
+  },
+  {
+   "id": "R1",
+   "a": "claude-code-engineer",
+   "dep": [
+    "Q10"
+   ],
+   "w": [
+    "dot-claude/agents/*.md",
+    "dot-claude/settings.json",
+    "install.sh",
+    "tests/lint_agents.py"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "a7e3446f01877da33"
+   ],
+   "ph": [
+    {
+     "agent": "a7e3446f01877da33",
+     "segs": [
+      0
+     ],
+     "dep": [
+      "Q10:0"
+     ]
+    }
+   ],
+   "children": [],
+   "s": "S"
+  },
+  {
+   "id": "R2",
+   "a": "data-scientist",
+   "dep": [],
+   "w": [
+    ".claude-work/agents-usage/**"
+   ],
+   "rd": [],
+   "r": [],
+   "alt": null,
+   "spec": false,
+   "ids": [
+    "aea8579d73aed2027"
+   ],
+   "ph": [
+    {
+     "agent": "aea8579d73aed2027",
+     "segs": [
+      0
+     ],
+     "dep": []
+    }
+   ],
+   "children": [],
+   "s": "M"
+  }
+ ]
+}
