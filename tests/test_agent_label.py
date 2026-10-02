@@ -157,8 +157,9 @@ def test_prefixed_and_unprefixed_calls_give_the_same_ledger_row(env):
         hook(dict(pre, hook_event_name="PostToolUse", tool_input=ui,
                   tool_response={"agentId": "o1", "status": "async_launched"}), env)
         text = (state(env, s) / "delegations.md").read_text()
-        rows.append([ln for ln in text.splitlines() if ln.startswith("- ")])
-    assert rows[0] == rows[1] and '"ship it"' in rows[0][0]
+        # type · task · state (the clock and the id differ between the two sessions)
+        rows.append([ln.split(" · ")[:3] for ln in text.splitlines() if ln.startswith("- ")])
+    assert rows[0] == rows[1] == [["- orchestrator", '"ship it"', "running"]]
 
 
 def start(s, aid, atype):
@@ -185,3 +186,37 @@ def test_subagent_start_bookkeeping_still_runs(env):
     hook(start(s, "a1", "coder"), env)
     reg = json.loads((state(env, s) / "agents" / "a1.json").read_text())
     assert reg["type"] == "coder" and reg.get("started")
+
+
+def test_long_description_keeps_its_full_ledger_row(env):
+    """PostToolUse sees the label cut to 72 chars; the row keeps PreToolUse's task."""
+    s = sid()
+    task = "audit every hook event path in the stack for label truncation " * 2   # > 100 chars
+    pre = agent(s, "coder", description=task)
+    ui = hook(pre, env)["updatedInput"]
+    assert len(ui["description"]) <= 72
+    rows = []
+    for ev in (pre, dict(pre, hook_event_name="PostToolUse", tool_input=ui,
+                         tool_response={"agentId": "c1", "status": "async_launched"})):
+        if ev is not pre:
+            hook(ev, env)
+        text = (state(env, s) / "delegations.md").read_text()
+        rows.append(next(ln for ln in text.splitlines() if ln.startswith("- ")).split(" · ")[1])
+    assert rows[0] == rows[1] and len(rows[0]) > 75
+
+
+def test_a_callers_type_like_name_stays_in_the_ledger(env):
+    """Only names this hook gave out (name mode, with a marker) are hidden."""
+    s = sid()
+    pre = agent(s, "coder", description="fix", name="coder-2")
+    ui = hook(pre, env)["updatedInput"]
+    hook(dict(pre, hook_event_name="PostToolUse", tool_input=ui,
+              tool_response={"agentId": "c1", "status": "async_launched"}), env)
+    assert '- coder (name coder-2) · "fix"' in (state(env, s) / "delegations.md").read_text()
+
+
+def test_a_bare_type_label_is_not_labelled_twice(env):
+    s = sid()
+    ui = hook(agent(s, "coder"), env)["updatedInput"]
+    assert ui["description"] == "coder"
+    assert hook(agent(s, "coder", description=ui["description"]), env) is None

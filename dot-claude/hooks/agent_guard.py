@@ -1391,15 +1391,18 @@ def label_mode():
 
 
 def ledger_task(desc, child):
-    """Task part of a description without a leading '<child>:' label."""
+    """Task part of a description without a leading '<child>:' label (a bare '<child>' is the
+    label of a call without a description)."""
     desc = desc if isinstance(desc, str) else ""
-    m = re.match(r"\s*%s\s*:\s*" % re.escape(child), desc, re.I)
+    m = re.match(r"\s*%s\s*(?::\s*|\Z)" % re.escape(child), desc, re.I)
     return desc[m.end():] if m else desc
 
 
-def auto_name(name, child):
-    """True for a name this hook gives in `name` mode ("<type>-<n>")."""
-    return bool(re.match(r"^%s-\d+$" % re.escape(child), str(name or "").strip(), re.I))
+def auto_name(d, name, child):
+    """True for a name this hook gave out in `name` mode ("<type>-<n>" with its marker)."""
+    m = re.match(r"^%s-(\d+)$" % re.escape(child), str(name or "").strip(), re.I)
+    return bool(m) and os.path.exists(os.path.join(d, LABEL_DIR, "%s.%d"
+                                                   % (safe(child), int(m.group(1)))))
 
 
 def next_label(d, child):
@@ -1516,18 +1519,18 @@ def ledger_put(d, tid, fields, create=True, fill=None):
         write_json_atomic(ledger_rec_path(d, tid), cur)
 
 
-def ledger_call(ev, ti, child, caller):
+def ledger_call(d, ev, ti, child, caller):
     """The call's ledger fields; the same before and after the label rewrite (agent_label)."""
     name = ti.get("name")
     return {"by": caller, "by_type": norm(ev.get("agent_type")) or None, "type": child,
             "task": ledger_text(ledger_task(ti.get("description"), child)),
-            "name": None if auto_name(name, child) else ledger_text(name, 40),
+            "name": None if auto_name(d, name, child) else ledger_text(name, 40),
             "isolation": ledger_text(ti.get("isolation"), 20)}
 
 
 def ledger_note(d, ev, ti, child, caller, tid):
     """PreToolUse Agent, after every gate allowed the call."""
-    ledger_put(d, tid, dict(ledger_call(ev, ti, child, caller), ts=time.time(),
+    ledger_put(d, tid, dict(ledger_call(d, ev, ti, child, caller), ts=time.time(),
                             status="launching"))
     ledger_render(d)
 
@@ -1637,11 +1640,14 @@ def ledger_render(d):
 def ledger_done(d, ev, ti, child, child_id, status):
     """PostToolUse Agent: the call's agent id and status (created here if PreToolUse missed it)."""
     caller = ev.get("agent_id") or "main"
+    fields = ledger_call(d, ev, ti, child, caller)
+    # task and name only fill a record PreToolUse missed: this event sees the relabelled input,
+    # whose description may be cut to LABEL_MAX
+    fill = {"ts": time.time(), "task": fields.pop("task"), "name": fields.pop("name")}
     ledger_put(d, ev.get("tool_use_id"),
-               dict(ledger_call(ev, ti, child, caller),
-                    child=ident(child_id) if child_id else None,
+               dict(fields, child=ident(child_id) if child_id else None,
                     status=str(status or "").strip().lower() or "reported"),
-               fill={"ts": time.time()})
+               fill=fill)
     ledger_render(d)
 
 
@@ -8808,7 +8814,7 @@ def ledger_self_test():
         sub = {"session_id": "s1", "agent_id": "o1", "agent_type": "orchestrator"}
         ledger_note(tmp, sub, {"description": "T1 write parser"}, "coder", "o1", "t2")
         ledger_done(tmp, dict(sub, tool_use_id="t2"),
-                    {"description": "coder: T1 write parser", "name": "coder-1"},
+                    {"description": "coder: T1 write parser"},
                     "coder", "c1", "completed")
         ledger_note(tmp, sub, {"description": "T2 plan tests"}, "planner", "o1", "t3")
         got = [(dep, r.get("type"), r.get("task"), st) for dep, r, st in ledger_rows(tmp)]
@@ -8857,8 +8863,12 @@ def label_self_test():
         record_name(tmp, {"name": "coder-2"}, "coder", "main")    # a caller took coder-2
         if lab("name", {}) != {"name": "coder-3"}:
             problems.append("agent label: name mode reuses a taken name")
+        if lab("description", {"description": "coder"}) != {}:
+            problems.append("agent label: a bare '<type>' label is labelled again")
         if ledger_task("scout: x", "scout") != "x" or ledger_task("scouting: x", "scout") \
-                != "scouting: x" or not auto_name("coder-12", "coder") or auto_name("c-1", "coder"):
+                != "scouting: x" or ledger_task("Scout", "scout") != "" \
+                or not auto_name(tmp, "coder-1", "coder") or auto_name(tmp, "coder-2", "coder") \
+                or auto_name(tmp, "c-1", "coder"):
             problems.append("agent label: ledger_task/auto_name")
     except Exception as exc:  # report, do not crash
         problems.append("agent label: %s: %s" % (type(exc).__name__, exc))
