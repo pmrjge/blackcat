@@ -162,7 +162,7 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` | from `stack.env` (Opus, Sonnet, Sonnet) | moved | Copied from `stack.env` by the installer; the haiku slot holds the Sonnet ID (section 2) |
 | `MCP_DISCOVERY_CACHE` / `MCP_TIMEOUT` / `MAX_MCP_OUTPUT_TOKENS` | 1 / 60000 / 25000 | — | Unchanged |
 | `agent` | `blackcat` | — | BlackCat is the main thread in the terminal and in SDK apps |
-| `autoCompactWindow` | 400000 | — | Unchanged |
+| `autoCompactWindow` | 900000 | 400000 | Compaction at ~900K tokens. The pinned 5.5 models run a native 1M window on the Anthropic API (no `[1m]` suffix, nothing to set; `CLAUDE_CODE_DISABLE_1M_CONTEXT` would cap them at 200K). The one place the number is set: the installer re-asserts it, doctor and the smoke test check it |
 
 ### Soft token limits (2026-10-02)
 
@@ -364,6 +364,10 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-03 (auto-compact window 900K)
+
+- `autoCompactWindow` 400000 → 900000 in `dot-claude/settings.json` (the single source): sessions on the 5.5 models' native 1M window compact at ~900K instead of 400K (Claude Code's default would be ~967K). The status line's bar, `/stack-doctor` and the installer's notes follow it. Rerun install.sh.
 
 ### 2026-10-02 (usage collector, scheduler model refresh)
 

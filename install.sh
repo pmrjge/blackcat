@@ -2086,7 +2086,7 @@ for bad in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "C
     if bad in env:
         print("  WARNING: env %s overrides per-agent model/effort — removed" % bad)
         env.pop(bad)
-# Auto-compaction is part of the spec (on, 400K window): drop settings that silently defeat it.
+# Auto-compaction is part of the spec (on, autoCompactWindow 900K of the models' 1M window): drop settings that silently defeat it.
 for bad, why in (("DISABLE_AUTO_COMPACT", "turns auto-compaction off"),
                  ("DISABLE_COMPACT", "turns every compaction off"),
                  ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "overrides autoCompactWindow")):
@@ -2102,8 +2102,8 @@ for bad, why in (("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "runs every subagent i
                  ("CLAUDE_CODE_FORK_SUBAGENT", "changes how the Agent SDK apps schedule subagents")):
     if bad in env:
         print("  WARNING: env %s=%s %s — removed" % (bad, env.pop(bad), why))
-for warn_only, why in (("CLAUDE_CODE_DISABLE_1M_CONTEXT", "caps every model at 200K, so compaction happens at 200K, not 400K"),
-                       ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "makes compaction trigger earlier than the 400K window")):
+for warn_only, why in (("CLAUDE_CODE_DISABLE_1M_CONTEXT", "caps every model at 200K, so compaction happens at 200K, not at autoCompactWindow"),
+                       ("CLAUDE_AUTOCOMPACT_PCT_OVERRIDE", "makes compaction trigger earlier than autoCompactWindow")):
     if warn_only in env:
         print("  note: env %s=%s %s (kept — remove it if unintended)" % (warn_only, env[warn_only], why))
 merged["env"] = env
@@ -2697,8 +2697,8 @@ cat <<EOF
      _EDIT_MODEL; /stack-doctor checks them).
      MCP servers read that file at connect time — no reinstall needed (except the first time you add
      WANDB_API_KEY: rerun ./install.sh $ORIG_ARGS). Open a new terminal so CLI tools see them too.
-  2. Start: claude        (main thread = BlackCat; the status line shows context vs the 400K window —
-     auto-compact fires a little before it). Claude Desktop's Code tab, Conductor, VS Code and Zed load the same
+  2. Start: claude        (main thread = BlackCat; the status line shows context vs the auto-compact
+     window, 900K of the models' 1M). Claude Desktop's Code tab, Conductor, VS Code and Zed load the same
      setup (README → Apps). A plain session without BlackCat: claude --agent claude.
      Inside: /stack-doctor   (health check)   /mcp   (server status; no sign-in needed with keys)
      Once, in that first session: /effort medium — BlackCat runs at the session's level (saved
