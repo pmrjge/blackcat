@@ -1,0 +1,1849 @@
+{
+ "version": 1,
+ "generated": "2026-10-02T22:00:48Z",
+ "stack_hash": "sha256:58af06016eedac468acd2010709626f31c72a9f8ab2a86e611b3e5064fdbd03b",
+ "sessions": [
+  "4e2da3ce-e2f4-4971-aac5-a67f2dcf252e",
+  "cc39b6a0-94ef-4cd7-8df4-4ac9269bc6f9"
+ ],
+ "data_until": "2026-10-02T20:28:00Z",
+ "kappa": {
+  "cache_write_5m": 1.25,
+  "cache_write_1h": 2.0,
+  "cache_read": {
+   "default": 0.1,
+   "opus-5-5": 0.05
+  },
+  "cache_read_match": "the longest key that is a substring of the model ID, else default",
+  "output": null,
+  "prices": null,
+  "models_measured": {
+   "opus": "claude-opus-5-5",
+   "sonnet": "claude-sonnet-5-5"
+  },
+  "source": "https://platform.claude.com/docs/en/build-with-claude/prompt-caching"
+ },
+ "types": {
+  "biochem-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "browser-operator": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "artifact",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 120,
+   "n_seg": 4,
+   "n_agents": 3,
+   "n_first": 3,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact"
+  },
+  "build-fixer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 60,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "cg-artist": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "artifact",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact"
+  },
+  "claude-code-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 12.4,
+    "M": 38.0,
+    "L": 82.1
+   },
+   "ctx": {
+    "a": 70259,
+    "b": 1117.2
+   },
+   "static_cc": 21446,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 29.2
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 150,
+   "n_seg": 36,
+   "n_agents": 17,
+   "n_first": 17,
+   "source": "own",
+   "source_ctx": "own"
+  },
+  "claude-code-guide": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "lookup",
+   "turns": {
+    "S": 3.7,
+    "M": 5.0,
+    "L": 8.3
+   },
+   "ctx": {
+    "a": 16545,
+    "b": 3761.8
+   },
+   "static_cc": 20415,
+   "sec_per_call": {
+    "p50": 8.0,
+    "p90": 21.1
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 680000,
+   "maxTurns": 30,
+   "n_seg": 7,
+   "n_agents": 6,
+   "n_first": 6,
+   "source": "own",
+   "source_ctx": "own"
+  },
+  "code-reviewer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "analyst",
+   "turns": {
+    "S": 30.0,
+    "M": 39.0,
+    "L": 55.8
+   },
+   "ctx": {
+    "a": 64436,
+    "b": 644.0
+   },
+   "static_cc": 25288,
+   "sec_per_call": {
+    "p50": 13.7,
+    "p90": 29.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 80,
+   "n_seg": 5,
+   "n_agents": 5,
+   "n_first": 5,
+   "source": "own",
+   "source_ctx": "own"
+  },
+  "coder": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 7.7,
+    "M": 20.6,
+    "L": 106.0
+   },
+   "ctx": {
+    "a": 43868,
+    "b": 1247.8
+   },
+   "static_cc": 20880,
+   "sec_per_call": {
+    "p50": 9.7,
+    "p90": 24.5
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 7,
+   "n_agents": 5,
+   "n_first": 5,
+   "source": "own",
+   "source_ctx": "own"
+  },
+  "cuda-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "data-engineer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "data-scientist": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "db-engineer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 120,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "designer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "artifact",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact"
+  },
+  "devops-engineer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 140,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "dl-engineer": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "doc-specialist": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "artifact",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 100,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact"
+  },
+  "embedded-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "explore": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "lookup",
+   "turns": {
+    "S": 4.0,
+    "M": 5.0,
+    "L": 7.0
+   },
+   "ctx": {
+    "a": 13849,
+    "b": 4244.2
+   },
+   "static_cc": 17754,
+   "sec_per_call": {
+    "p50": 8.0,
+    "p90": 37.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 450000,
+   "maxTurns": 40,
+   "n_seg": 3,
+   "n_agents": 2,
+   "n_first": 2,
+   "source": "pool:lookup",
+   "source_ctx": "pool:lookup"
+  },
+  "frontend-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "game-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "go-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "god-coder": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 350,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "haskell-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "hpc-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "image-director": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "artifact",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 80,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact"
+  },
+  "julia-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "jvm-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "llm-engineer": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "localizer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "artifact",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 80,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact"
+  },
+  "main-coder": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 350,
+   "n_seg": 6,
+   "n_agents": 1,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "mathematician": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 100,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "mcp-broker": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "lookup",
+   "turns": {
+    "S": 4.0,
+    "M": 5.0,
+    "L": 7.0
+   },
+   "ctx": {
+    "a": 13849,
+    "b": 4244.2
+   },
+   "static_cc": 17754,
+   "sec_per_call": {
+    "p50": 8.0,
+    "p90": 37.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 450000,
+   "maxTurns": 60,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:lookup",
+   "source_ctx": "pool:lookup"
+  },
+  "ml-engineer": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "mlx-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "mobile-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "motion-designer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "artifact",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact"
+  },
+  "ninja-coder": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 300,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "node-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "oracle": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "lookup",
+   "turns": {
+    "S": 4.0,
+    "M": 5.0,
+    "L": 7.0
+   },
+   "ctx": {
+    "a": 13849,
+    "b": 4244.2
+   },
+   "static_cc": 17754,
+   "sec_per_call": {
+    "p50": 8.0,
+    "p90": 37.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 450000,
+   "maxTurns": 12,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:lookup",
+   "source_ctx": "pool:lookup"
+  },
+  "orchestrator": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "coordinator",
+   "turns": {
+    "S": 2.0,
+    "M": 2.0,
+    "L": 4.5
+   },
+   "ctx": {
+    "a": 29971,
+    "b": 3377.3
+   },
+   "static_cc": 19958,
+   "sec_per_call": {
+    "p50": 5.3,
+    "p90": 192.9
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": null,
+   "maxTurns": 200,
+   "n_seg": 46,
+   "n_agents": 2,
+   "n_first": 2,
+   "source": "pool:coordinator",
+   "source_ctx": "pool:coordinator"
+  },
+  "plan-reviewer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "analyst",
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 60,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:analyst",
+   "source_ctx": "pool:analyst"
+  },
+  "planner": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "analyst",
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 60,
+   "n_seg": 2,
+   "n_agents": 2,
+   "n_first": 2,
+   "source": "pool:analyst",
+   "source_ctx": "pool:analyst"
+  },
+  "proof-checker": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "analyst",
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 80,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:analyst",
+   "source_ctx": "pool:analyst"
+  },
+  "python-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "quantum-engineer": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 160,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "researcher": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "analyst",
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 130,
+   "n_seg": 4,
+   "n_agents": 4,
+   "n_first": 4,
+   "source": "pool:analyst",
+   "source_ctx": "pool:analyst"
+  },
+  "robotics-engineer": {
+   "model": "opus",
+   "ttl": "1h",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 3600,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 190,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "rust-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "scout": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "lookup",
+   "turns": {
+    "S": 4.0,
+    "M": 5.0,
+    "L": 6.8
+   },
+   "ctx": {
+    "a": 4512,
+    "b": 6216.9
+   },
+   "static_cc": 17731,
+   "sec_per_call": {
+    "p50": 8.4,
+    "p90": 37.8
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 390000,
+   "maxTurns": 11,
+   "n_seg": 24,
+   "n_agents": 21,
+   "n_first": 21,
+   "source": "own",
+   "source_ctx": "own"
+  },
+  "security-auditor": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "analyst",
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 8700000,
+   "maxTurns": 100,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:analyst",
+   "source_ctx": "pool:analyst"
+  },
+  "security-engineer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 150,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "test-engineer": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 100,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "verifier": {
+   "model": "sonnet",
+   "ttl": "5m",
+   "tier": "verifier",
+   "turns": {
+    "S": 22.2,
+    "M": 37.0,
+    "L": 90.5
+   },
+   "ctx": {
+    "a": 21096,
+    "b": 1027.9
+   },
+   "static_cc": 26695,
+   "sec_per_call": {
+    "p50": 12.4,
+    "p90": 26.5
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 26000000,
+   "maxTurns": 140,
+   "n_seg": 6,
+   "n_agents": 5,
+   "n_first": 5,
+   "source": "own",
+   "source_ctx": "own"
+  },
+  "vfx-td": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "builder",
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 19000000,
+   "maxTurns": 170,
+   "n_seg": 0,
+   "n_agents": 0,
+   "n_first": 0,
+   "source": "pool:builder",
+   "source_ctx": "pool:builder"
+  },
+  "writer": {
+   "model": "opus",
+   "ttl": "5m",
+   "tier": "artifact",
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "cold": {
+    "after_s": 300,
+    "rewrite": "min(cache_creation, prior_peak)",
+    "frac": 0.986
+   },
+   "soft_limit": 3100000,
+   "maxTurns": 80,
+   "n_seg": 2,
+   "n_agents": 1,
+   "n_first": 1,
+   "source": "pool:artifact",
+   "source_ctx": "pool:artifact"
+  }
+ },
+ "pools": {
+  "lookup": {
+   "turns": {
+    "S": 4.0,
+    "M": 5.0,
+    "L": 7.0
+   },
+   "ctx": {
+    "a": 13849,
+    "b": 4244.2
+   },
+   "static_cc": 17754,
+   "sec_per_call": {
+    "p50": 8.0,
+    "p90": 37.4
+   },
+   "n_seg": 34,
+   "n_agents": 29,
+   "n_first": 29
+  },
+  "analyst": {
+   "turns": {
+    "S": 23.0,
+    "M": 37.0,
+    "L": 52.0
+   },
+   "ctx": {
+    "a": 96729,
+    "b": 210.1
+   },
+   "static_cc": 25161,
+   "sec_per_call": {
+    "p50": 15.0,
+    "p90": 44.3
+   },
+   "n_seg": 11,
+   "n_agents": 11,
+   "n_first": 11
+  },
+  "verifier": {
+   "turns": {
+    "S": 22.2,
+    "M": 37.0,
+    "L": 90.5
+   },
+   "ctx": {
+    "a": 21096,
+    "b": 1027.9
+   },
+   "static_cc": 26695,
+   "sec_per_call": {
+    "p50": 12.4,
+    "p90": 26.5
+   },
+   "n_seg": 6,
+   "n_agents": 5,
+   "n_first": 5
+  },
+  "artifact": {
+   "turns": {
+    "S": 8.5,
+    "M": 10.0,
+    "L": 33.5
+   },
+   "ctx": {
+    "a": 70417,
+    "b": 0.0
+   },
+   "static_cc": 18376,
+   "sec_per_call": {
+    "p50": 16.3,
+    "p90": 44.0
+   },
+   "n_seg": 6,
+   "n_agents": 4,
+   "n_first": 4
+  },
+  "builder": {
+   "turns": {
+    "S": 10.0,
+    "M": 27.0,
+    "L": 83.2
+   },
+   "ctx": {
+    "a": 56936,
+    "b": 1234.3
+   },
+   "static_cc": 21249,
+   "sec_per_call": {
+    "p50": 13.1,
+    "p90": 28.4
+   },
+   "n_seg": 49,
+   "n_agents": 23,
+   "n_first": 22
+  },
+  "coordinator": {
+   "turns": {
+    "S": 2.0,
+    "M": 2.0,
+    "L": 4.5
+   },
+   "ctx": {
+    "a": 29971,
+    "b": 3377.3
+   },
+   "static_cc": 19958,
+   "sec_per_call": {
+    "p50": 5.3,
+    "p90": 192.9
+   },
+   "n_seg": 46,
+   "n_agents": 2,
+   "n_first": 2
+  }
+ }
+}
