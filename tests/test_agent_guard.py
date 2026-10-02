@@ -2075,6 +2075,36 @@ def test_budget_task_notification_turn_keeps_the_prompt_window(env, sess):
         == "allow"
 
 
+
+def test_budget_prompt_left_pending_starts_on_the_main_thread(env, sess):
+    """UserPromptSubmit cannot take the budget lock (here held by the test): it leaves the prompt
+    pending, and BlackCat's first call under that prompt_id starts the window; a notification's
+    prompt_id (never pending) does not."""
+    import fcntl
+    s, main, subs = sess
+    run(prompt_ev(s, main, "p1"), env, extra=BUDGET)
+    append(subs / "agent-a1.jsonl", call_line("m1", 1200))
+    st_dir = state(env, s)
+    fd = os.open(str(st_dir / "budget.mutex"), os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        run(prompt_ev(s, main, "p2"), env, extra=BUDGET)          # times out after 5 s
+    finally:
+        fcntl.flock(fd, fcntl.LOCK_UN)
+        os.close(fd)
+    assert json.loads((st_dir / "prompt-pending.json").read_text())["prompt_id"] == "p2"
+    p = budget_run(tool_ev(s, main, "Read", agent_id=None, prompt="notif-1", file_path="x"), env)
+    assert decision(p) == "deny"                                   # still p1's window: 1,200
+    assert decision(budget_run(tool_ev(s, main, "Read", agent_id=None, prompt="p2",
+                                       file_path="x"), env)) == "allow"
+    st = json.loads((st_dir / "budget.json").read_text())
+    assert st["prompt_id"] == "p2" and st["prompt_base"] == 1200
+    assert not (st_dir / "prompt-pending.json").exists()
+    # a recorded prompt clears its own marker
+    run(prompt_ev(s, main, "p3"), env, extra=BUDGET)
+    assert not (st_dir / "prompt-pending.json").exists()
+
+
 # ---------------------------------------------------------------- soft token limits
 SHIPPED = {"STACK_PROMPT_CTX_BUDGET": "100000000", "STACK_SESSION_CTX_BUDGET": "666000000"}
 

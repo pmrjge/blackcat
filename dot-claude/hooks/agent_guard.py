@@ -108,6 +108,8 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
                           ts}, counted like spawn leases
   budget.json             token counts {files: {path: {off, ino, keys, seg, seg_run}}, total,
                           prompt_base, prompt_id, human, soft_prompt, soft_agents}
+  prompt-pending.json     {prompt_id, ts} of a human prompt whose budget window the
+                          UserPromptSubmit hook has not recorded yet (budget_note_prompt)
   mcp-calls/<agent_id>.json  MCP tool calls of one subagent's current run {calls, run (its
                           registry `started` stamp), type, cap, ts}
   blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
@@ -3125,6 +3127,7 @@ def session_env():
 # Incremental: budget.json in the session's state folder keeps each file's byte offset (complete
 # lines only), its last keys, the running total and the total at the prompt boundary.
 BUDGET_STATE = "budget.json"
+PROMPT_PENDING = "prompt-pending.json"   # {prompt_id}: a human prompt whose window is not yet on record
 BUDGET_KEYS_KEPT = 8
 BUDGET_SCAN_S = 2.0          # most seconds of reading in one PreToolUse; the rest waits for the next
 BUDGET_LONG_SCAN_S = 10.0    # UserPromptSubmit and SessionStart (hook timeout 15 s)
@@ -3309,14 +3312,23 @@ def budget_prompt(d, ev):
     """UserPromptSubmit: the prompt budget (hard and soft) restarts from the session total at this
     point. `human` records that this session's prompt boundaries come from this hook, so a
     main-thread call under a prompt_id it never saw (a task notification's turn) no longer starts
-    one (budget_note_prompt). A notification delivered as a prompt event is not a human prompt."""
+    one (budget_note_prompt). A notification delivered as a prompt event is not a human prompt.
+    PROMPT_PENDING is written first, outside the lock: when the lock times out (budget_update then
+    skips `mark`) or the hook is killed (5 s of lock wait plus the 10 s scan can pass the 15 s hook
+    timeout), the next main-thread call under this prompt_id starts the window instead."""
     if not policy_on() or budgets_off():
         return
     if str(ev.get("prompt") or "").lstrip().startswith("<task-notification>"):
         return
+    pid = ev.get("prompt_id")
+    pending = os.path.join(d, PROMPT_PENDING)
+    if pid:
+        write_json_atomic(pending, {"prompt_id": pid, "ts": time.time()})
 
     def mark(st):
-        st["prompt_id"], st["prompt_base"], st["human"] = ev.get("prompt_id"), st["total"], True
+        st["prompt_id"], st["prompt_base"], st["human"] = pid, st["total"], True
+        if pid and (read_json(pending) or {}).get("prompt_id") == pid:
+            unlink(pending)
     budget_update(d, ev, scan_s=BUDGET_LONG_SCAN_S, mutate=mark, lock_s=5.0)
 
 
@@ -3359,16 +3371,23 @@ def budget_exempt(ev):
     return False
 
 
-def budget_note_prompt(st, ev):
+def budget_note_prompt(st, ev, d):
     """Main-thread calls carry the prompt being processed (prompt_id, hooks.md:737): a new one starts
-    the prompt budget here only while the UserPromptSubmit hook has recorded no prompt in this
-    session (it is not wired, or failed). Task notifications get prompt ids of their own (seen in
-    transcripts: user lines with origin.kind "task-notification" and a fresh promptId) and fire no
-    UserPromptSubmit, so once a human prompt is on record a new id is a notification's turn,
-    which stays inside the human prompt's budget."""
+    the prompt budget here while the UserPromptSubmit hook has recorded no prompt in this session
+    (it is not wired, or failed every time), or when it is the prompt that hook left pending
+    (PROMPT_PENDING: its lock timed out or it was killed). Task notifications get prompt ids of
+    their own (seen in transcripts: user lines with origin.kind "task-notification" and a fresh
+    promptId), fire no UserPromptSubmit and so leave no pending marker: once a human prompt is on
+    record, a notification's turn stays inside the human prompt's budget."""
     pid = ev.get("prompt_id")
-    if pid and not ev.get("agent_id") and not st.get("human") and st.get("prompt_id") != pid:
-        st["prompt_id"], st["prompt_base"] = pid, st["total"]
+    if not pid or ev.get("agent_id") or st.get("prompt_id") == pid:
+        return
+    if st.get("human"):
+        pending = os.path.join(d, PROMPT_PENDING)
+        if (read_json(pending) or {}).get("prompt_id") != pid:
+            return
+        unlink(pending)
+    st["prompt_id"], st["prompt_base"] = pid, st["total"]
 
 
 def budget_gate(ev, d):
@@ -3383,7 +3402,7 @@ def budget_gate(ev, d):
     note = []
 
     def mutate(s):
-        budget_note_prompt(s, ev)
+        budget_note_prompt(s, ev, d)
         try:
             note.append(soft_check(s, ev, transcript_files(ev), d))
         except Exception as exc:  # noqa: BLE001 - the soft limits never cost the hard ones
