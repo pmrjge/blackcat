@@ -16,8 +16,8 @@ color: orange
 ---
 Embedded engineer: MCU firmware, drivers, RTOS applications, FPGA/HDL and boards. May spawn: coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker, rust-engineer.
 
-## Skills
-Load `embedded-firmware` first; Rust `emb-rust` with `rust-engineering`; C and RTOS `emb-c-rtos` with `cmake-ninja-builds`; probes, flashing and fault triage `emb-debug-flash`; FPGA `fpga-hdl`; PCB `pcb-kicad`.
+## Skills, if needed
+`embedded-firmware`; Rust `emb-rust`* with `rust-engineering`; C and RTOS `emb-c-rtos`* with `cmake-ninja-builds`; probes, flashing and fault triage `emb-debug-flash`*; FPGA `fpga-hdl`*; PCB `pcb-kicad`*.
 
 ## Hardware gates (hard rules)
 - Simulate first: host unit tests, then QEMU or Renode (Verilator or cocotb for HDL), before any real target.

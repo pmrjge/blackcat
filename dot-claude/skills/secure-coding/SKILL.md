@@ -26,15 +26,17 @@ Write it down (one-page data-flow sketch, boundary table, mitigations with their
 ## Modules (load the one that matches the work)
 | Module | Load when |
 |---|---|
-| `sec-web-vulns` | code reaches a sink: SQL, shell, templates, paths, SSRF, XSS/CSRF, deserialization, XXE, ReDoS, overflow, TOCTOU |
-| `sec-secrets` | storing, passing, logging or scanning secrets; leak response; randomness and token comparison |
-| `sec-supply-chain` | adding, locking, auditing or publishing dependencies; cooldowns, install scripts, provenance |
-| `sec-authn-authz` | sessions, JWTs, OAuth/OIDC, object-level authorization, password hashing, least privilege |
-| `sec-crypto` | encryption, signatures, hashing, key handling, TLS settings |
-| `sec-llm-apps` | LLM or agent apps, tool use, prompt injection, exfiltration channels, MCP servers |
-| `sec-hardening` | locking down a service, container, host or CI runner after the code is right; dev servers, daemons and MCP servers listening locally |
-| `sec-detection` | writing detection: security logging, SAST rules, Sigma/host rules, canaries |
-| `sec-incident-response` | something may be compromised: triage, containment, evidence, rotation, postmortem |
+| `sec-web-vulns`* | code reaches a sink: SQL, shell, templates, paths, SSRF, XSS/CSRF, deserialization, XXE, ReDoS, overflow, TOCTOU |
+| `sec-secrets`* | storing, passing, logging or scanning secrets; leak response; randomness and token comparison |
+| `sec-supply-chain`* | adding, locking, auditing or publishing dependencies; cooldowns, install scripts, provenance |
+| `sec-authn-authz`* | sessions, JWTs, OAuth/OIDC, object-level authorization, password hashing, least privilege |
+| `sec-crypto`* | encryption, signatures, hashing, key handling, TLS settings |
+| `sec-llm-apps`* | LLM or agent apps, tool use, prompt injection, exfiltration channels, MCP servers |
+| `sec-hardening`* | locking down a service, container, host or CI runner after the code is right; dev servers, daemons and MCP servers listening locally |
+| `sec-detection`* | writing detection: security logging, SAST rules, Sigma/host rules, canaries |
+| `sec-incident-response`* | something may be compromised: triage, containment, evidence, rotation, postmortem |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Review checklist
 - [ ] Threat model written: assets, entry points, trust boundaries, top abuse cases.

@@ -14,11 +14,13 @@ description: Use for any Python work — uv, PEP 723 scripts, typing, ruff, pyte
 ## Modules (load the one the task touches)
 | Module | Load for |
 |---|---|
-| `py-uv-packaging` | uv projects, lockfiles, PEP 723 scripts, pyproject layout, builds, MLX/PyTorch wheels |
-| `py-typing` | type checkers, typing features, data containers, ruff lint/format config |
-| `py-testing` | pytest config and fixtures, hypothesis, snapshots, coverage, xdist, async tests |
-| `py-async` | asyncio TaskGroup, cancellation, timeouts, anyio, free-threaded 3.14t |
-| `py-perf` | the optimization ladder, profilers, numba, PyO3/maturin extensions |
+| `py-uv-packaging`* | uv projects, lockfiles, PEP 723 scripts, pyproject layout, builds, MLX/PyTorch wheels |
+| `py-typing`* | type checkers, typing features, data containers, ruff lint/format config |
+| `py-testing`* | pytest config and fixtures, hypothesis, snapshots, coverage, xdist, async tests |
+| `py-async`* | asyncio TaskGroup, cancellation, timeouts, anyio, free-threaded 3.14t |
+| `py-perf`* | the optimization ladder, profilers, numba, PyO3/maturin extensions |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## CLIs, logging, configuration
 - CLI: `argparse` (stdlib; 3.14 colors help by default and offers `suggest_on_error=True` for mistyped choices) for scripts and small tools; `typer` (type-hint driven) for larger apps. Entry points via `[project.scripts]`; data to stdout, diagnostics to stderr; `sys.exit(code)`.

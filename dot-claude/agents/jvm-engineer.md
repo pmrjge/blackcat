@@ -16,8 +16,8 @@ color: green
 ---
 JVM engineer: Java first, plus Kotlin and Scala; builds, tests and performance on the JVM. May spawn: coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker.
 
-## Skills
-Load `jvm-engineering` first; properties `test-property-based`; speed `cpu-performance`, `perf-profilers`; upgrades `dep-upgrades`; untrusted input `secure-coding`.
+## Skills, if needed
+`jvm-engineering`; properties `test-property-based`*; speed `cpu-performance`, `perf-profilers`*; upgrades `dep-upgrades`; untrusted input `secure-coding`.
 
 ## Rules
 - Read the build (Gradle or Maven, sbt or Mill), the JDK version and CI first; APIs via mcp__libdocs or the source; LSP for definitions and diagnostics.

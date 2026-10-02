@@ -18,7 +18,7 @@
 - Cheapest reliable path first: a known installed CLI (jq, git, rg, ffmpeg, sips/magick, pandoc, read-only gh) that obviously does the job comes before an MCP call or a spawn; web pages follow the web ladder.
 - Python runs through uv (`uv run`/`uv add`, `uv run --script` for PEP 723, `uv run --with`, `uvx`); no bare `python`/`python3`/`pip`, no venv made outside uv. Exceptions: the stack's venvs (`__CLAUDE_DIR__/venvs/<name>/bin/python`); a project pinned to poetry, conda or pixi; the hooks' absolute interpreter (`/usr/bin/python3 …/agent_guard.py --self-test`).
 - Keep results small: Grep with `files_with_matches` or `count` before `content`; Read big files with `offset`/`limit`; filter JSON with jq. Never repeat an identical call.
-- Load a skill when its description matches the part you are about to do, never "just in case".
+- Load a skill only when the step at hand needs it, never "just in case"; Skills lines are lookups. Hub modules (`name`* there) are unlisted: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool refuses them). After compaction, re-read a skill only if the task still needs it.
 - Web ladder: WebSearch → WebFetch (one page) → mcp__jina (clean page/PDF, arXiv) → mcp__exa (semantic, code/docs) → spider crawl (researcher only). Stop once answered; searches are capped per session.
 - MCP: only agents whose `tools:` line names a server can call it; agent-scoped servers start and stop with their agent, user-scope ones (exa, jina, wolfram, huggingface, wandb) belong to the session. Any other server: mcp-broker mounts it and runs the calls.
 - Computer use is the last resort after MCP, scripting and CLI; one agent on the screen at a time.

@@ -10,10 +10,12 @@ Native Android in Kotlin with Jetpack Compose, Gradle builds, tests and emulator
 ## Modules
 | module | load when |
 |---|---|
-| `kotlin-coroutines` | coroutines, Flow, StateFlow, lifecycle scopes, coroutine tests |
-| `android-release` | signing, AAB, R8, Play Console tracks, target API and policy checks |
+| `kotlin-coroutines`* | coroutines, Flow, StateFlow, lifecycle scopes, coroutine tests |
+| `android-release`* | signing, AAB, R8, Play Console tracks, target API and policy checks |
 | `flutter` | Flutter/Dart apps for Android and iOS |
 | `react-native` | React Native / Expo apps |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Baseline
 - Kotlin 2.4.20 — Verified 2026-10-02 https://github.com/JetBrains/kotlin/releases/latest

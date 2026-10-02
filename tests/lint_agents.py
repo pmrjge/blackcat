@@ -241,8 +241,8 @@ OVERRIDE_STATES = {"on", "name-only", "user-invocable-only", "off"}
 # sessions signed in to claude.ai; the stack can't see them): ~7,300 margin, estimated likewise.
 NON_STACK = {"plugins": 2_913 + 6, "bundled (est.)": 3_950, "claude.ai synced (est. margin)": 7_300}
 NON_STACK_LISTING = sum(NON_STACK.values())
-LISTING_NOTE = ("0.0156 set 2026-10-02 from stack 31,028 + non-stack %d = %d chars plus 3.5%%; see "
-                "tests/prompt_budget.py SKILL_BUDGET" % (NON_STACK_LISTING, 31_028 + NON_STACK_LISTING))
+LISTING_NOTE = ("0.012 set 2026-10-02 from stack 14,564 (83 hub modules hidden) + non-stack %d = %d chars "
+                "plus 25%%; see tests/prompt_budget.py SKILL_BUDGET" % (NON_STACK_LISTING, 14_564 + NON_STACK_LISTING))
 
 
 def skill_listing_entry(name, desc_len, override="on", desc_cap=1536, model_invocable=True):
@@ -258,6 +258,23 @@ def skill_listing_entry(name, desc_len, override="on", desc_cap=1536, model_invo
 
 def skill_names():
     return {d.name for d in SKILLS_DIR.iterdir() if (d / "SKILL.md").is_file()}
+
+
+FORCED_LOAD_RES = [
+    re.compile(r"(?i)\b(?:always|must|first)\s+(?:load|invoke)\b[^.;\n]*"),
+    re.compile(r"(?i)\b(?:load|invoke)\b[^.;\n]{0,80}`[a-z0-9-]+`\*?[^.;\n(]{0,40}\bfirst\b"),
+    re.compile(r"(?i)\b(?:load|invoke)\s+(?:it\s+|them\s+)?(?:always|on every task|every time)\b"),
+]
+
+
+def hidden_skills():
+    """Shipped skills skillOverrides keeps out of the listing ("user-invocable-only" or "off"): hub
+    modules an agent Reads at <config>/skills/<name>/SKILL.md (the Skill tool refuses them)."""
+    try:
+        so = json.loads(SETTINGS.read_text()).get("skillOverrides") or {}
+    except (OSError, ValueError):
+        return set()
+    return {k for k, v in so.items() if v in ("user-invocable-only", "off")} & skill_names()
 
 
 def referenced_skills(body):
@@ -412,6 +429,24 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
         fail(f"{path.name}: body refers to skill {s!r}, which does not exist under {SKILLS_DIR}")
     if wanted and "Skill" not in flat_tools:
         fail(f"{path.name}: body tells the agent to load skills but tools: has no Skill")
+    # skills are looked up when a step needs them (the user, 2026-10-02: "## Skills are not always on,
+    # required, just looked up if needed"): no body forces a load on every task
+    for rx in FORCED_LOAD_RES:
+        for m in rx.finditer(body):
+            fail(f"{path.name}: {m.group(0)!r} forces a skill load; name the situation instead "
+                 "(\"`x` for <situation>\", \"If needed: …\")")
+    for m in re.finditer(r"`([a-z0-9-]+)`\*?,? first\b", body):
+        if m.group(1) in skill_names():
+            fail(f"{path.name}: {m.group(0)!r} forces a skill load first; name the situation instead")
+    # a skill hidden from the listing (skillOverrides user-invocable-only/off) is Read by path, and the
+    # Skill tool refuses it: the body marks it `name`* (the rules explain the mark); a listed one is unmarked
+    hidden, shipped = hidden_skills(), skill_names()
+    for m in re.finditer(r"`([a-z0-9-]+)`(\*?)", body):
+        s, star = m.group(1), m.group(2)
+        if s in hidden and not star:
+            fail(f"{path.name}: `{s}` is hidden from the skill listing; write `{s}`* (read by path)")
+        elif star and s in shipped and s not in hidden:
+            fail(f"{path.name}: `{s}`* is marked hidden but the skill is listed; drop the *")
 
 
 def installer_copy_types():

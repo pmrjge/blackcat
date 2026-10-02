@@ -284,7 +284,7 @@ out=$(XDG_STATE_HOME="$T1/state" "$T1/bin/magg-private" /bin/echo --env-pass --c
 priv=$(printf '%s\n' "$out" | sed -n 's/^--env-pass --config \(.*\) serve$/\1/p')
 [ -n "$priv" ] && [ "$priv" != "$T1/magg/config.json" ] && cmp -s "$priv" "$T1/magg/config.json" \
   && pass "magg-private runs magg on a private copy of the catalog" || failed "magg-private: [$out]"
-python3 - "$T1/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "settings: autocompact on at 400K, depth 4, default tool search, lazy MCP, blackcat, shipped skill-listing budget, 500-char cut, 6 user-only skills" || failed "settings.json values (see above)"
+python3 - "$T1/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "settings: autocompact on at 400K, depth 4, default tool search, lazy MCP, blackcat, shipped skill-listing budget, 500-char cut, 6 user-only bundled skills, hidden hub modules" || failed "settings.json values (see above)"
 import json, sys
 s = json.load(open(sys.argv[1]))
 frac = json.load(open(sys.argv[2]))["skillListingBudgetFraction"]
@@ -304,7 +304,8 @@ checks = {
                         == ("3", "orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", "100000000", "666000000", "32", "64"),
     "skill listing budget": s.get("skillListingBudgetFraction") == frac and 0.01 <= frac <= 0.02
                             and s.get("skillListingMaxDescChars") == 500
-                            and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only",
+                            and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only"
+                            and s.get("skillOverrides", {}).get("rust-async") == "user-invocable-only",
     "no Haiku": env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5-5",
     "image limit hooks": any("image-limit" in json.dumps(g) for g in s["hooks"]["PostToolUse"])
                          and any("image-limit" in json.dumps(g) for g in s["hooks"]["PreToolUse"]),
@@ -620,8 +621,10 @@ printf '%s\n' "$out" | grep -q "agent files present" && pass "doctor.sh: agent f
   && pass "doctor.sh: blackcat-guard (frontmatter and settings wiring) and read-only reviewer probes deny" \
   || failed "doctor.sh: blackcat-guard/read-only probe lines: $(printf '%s\n' "$out" | grep -i 'blackcat-guard\|read-only')"
 nsk=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
+# hub modules hidden by skillOverrides (user-invocable-only or off) are not listed
+nhid=$(python3 -c 'import json, os, sys; so = json.load(open(sys.argv[1])).get("skillOverrides", {}); print(sum(1 for k, v in so.items() if v in ("user-invocable-only", "off") and os.path.isdir(os.path.join(sys.argv[2], k))))' "$HERE/dot-claude/settings.json" "$HERE/dot-claude/skills")
 budget=$(python3 -c 'import json, sys; print(int(1000000 * 3 * json.load(open(sys.argv[1]))["skillListingBudgetFraction"]))' "$HERE/dot-claude/settings.json")
-printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1)) skills, ~[0-9]+ of $budget characters" \
+printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1 - nhid)) skills, ~[0-9]+ of $budget characters" \
   && pass "doctor.sh: skill listing within its budget" || failed "doctor.sh: skill listing line: $(printf '%s\n' "$out" | grep 'skill listing')"
 printf '%s\n' "$out" | grep -q "exa-from-stack-env" && failed "doctor.sh printed a key value" || pass "doctor.sh never prints key values"
 # GitHub credentials agents could use: reported by presence, never by value (its own HOME: no real file)
@@ -1244,7 +1247,7 @@ if not ok:
                                                    "skillListingBudgetFraction", "autoCompactWindow")}))
 sys.exit(0 if ok else 1)
 PY
-grep -q 'retracted stack skillOverrides for code-review, fewer-permission-prompts, init, keybindings-help, security-review' "$TR/r.log" \
+python3 -c 'import re, sys; m = re.search(r"retracted stack skillOverrides for (.*) \(no longer shipped\)", open(sys.argv[1]).read()); got = set(m.group(1).split(", ")) if m else set(); sys.exit(0 if {"code-review", "fewer-permission-prompts", "init", "keybindings-help", "security-review", "rust-async"} <= got and "simplify" not in got else 1)' "$TR/r.log" \
   && grep -q 'retracted stack setting skillListingMaxDescChars=500' "$TR/r.log" \
   && pass "rollback: each retraction is reported" || failed "rollback retraction messages: $(grep -i retract "$TR/r.log")"
 assert_unchanged_real_home

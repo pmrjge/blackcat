@@ -12,11 +12,13 @@ description: Use for any Rust work — workspaces, edition 2024, errors, async, 
 ## Modules (load the one the task touches)
 | Module | Load for |
 |---|---|
-| `rust-errors-ownership` | thiserror/anyhow, panics, borrow-checker patterns, compiler-error fixes, crate choice |
-| `rust-async` | tokio runtimes, blocking, cancellation and cancel-safe `select!`, JoinSet, channels, `Send` errors |
-| `rust-unsafe-ffi` | unsafe policy, SAFETY comments, edition-2024 unsafe rules, Miri, sanitizers, FFI |
-| `rust-testing` | unit/integration/doc tests, nextest, proptest, insta, criterion/divan, coverage, fuzzing, loom |
-| `rust-release` | MSRV, feature and public-API policy, release profiles, debuginfo, cross-compiling |
+| `rust-errors-ownership`* | thiserror/anyhow, panics, borrow-checker patterns, compiler-error fixes, crate choice |
+| `rust-async`* | tokio runtimes, blocking, cancellation and cancel-safe `select!`, JoinSet, channels, `Send` errors |
+| `rust-unsafe-ffi`* | unsafe policy, SAFETY comments, edition-2024 unsafe rules, Miri, sanitizers, FFI |
+| `rust-testing`* | unit/integration/doc tests, nextest, proptest, insta, criterion/divan, coverage, fuzzing, loom |
+| `rust-release`* | MSRV, feature and public-API policy, release profiles, debuginfo, cross-compiling |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 - Read `references/performance.md` when optimizing allocation, hashing, parallelism or SIMD; `references/cli-serde-logging.md` when writing a CLI, tracing setup or serde formats.
 

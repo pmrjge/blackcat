@@ -10,8 +10,10 @@ Making software translatable (i18n), translating string catalogs and subtitles (
 ## Modules
 | module | load when |
 |---|---|
-| `l10n-catalogs` | gettext .po, XLIFF, Apple .xcstrings/.strings, Android strings.xml, ARB, ICU JSON, Fluent; extract/merge/compile; QA checks (placeholders, plurals, markup, lengths, terminology), pseudo-localization, screenshot review |
-| `subtitles` | SRT, WebVTT, TTML/IMSC, ASS; timing, reading speed, line breaks, subtitle translation |
+| `l10n-catalogs`* | gettext .po, XLIFF, Apple .xcstrings/.strings, Android strings.xml, ARB, ICU JSON, Fluent; extract/merge/compile; QA checks (placeholders, plurals, markup, lengths, terminology), pseudo-localization, screenshot review |
+| `subtitles`* | SRT, WebVTT, TTML/IMSC, ASS; timing, reading speed, line breaks, subtitle translation |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Reference data
 - Unicode CLDR 48.2 (plural rules, locale data) and ICU 78.3 — Verified 2026-10-02 https://github.com/unicode-org/cldr/releases/latest https://github.com/unicode-org/icu/releases/latest

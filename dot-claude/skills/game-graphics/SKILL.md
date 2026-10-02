@@ -10,10 +10,12 @@ Gameplay code, engine work and real-time rendering. 3D assets (modeling, texturi
 ## Modules
 | module | load when |
 |---|---|
-| `game-engines` | Godot, Unity, Unreal, Bevy: project structure, scripting, scenes, builds, editor automation |
-| `gfx-apis` | Vulkan, Metal, Direct3D 12, WebGPU/wgpu: resources, sync, pipelines, debugging layers, frame capture |
-| `gfx-shaders` | HLSL, GLSL, MSL, WGSL, Slang; PBR, shader compilation and cross-compilation, shader debugging |
-| `game-netcode` | multiplayer: authority, prediction, rollback, interpolation, transports, lag testing |
+| `game-engines`* | Godot, Unity, Unreal, Bevy: project structure, scripting, scenes, builds, editor automation |
+| `gfx-apis`* | Vulkan, Metal, Direct3D 12, WebGPU/wgpu: resources, sync, pipelines, debugging layers, frame capture |
+| `gfx-shaders`* | HLSL, GLSL, MSL, WGSL, Slang; PBR, shader compilation and cross-compilation, shader debugging |
+| `game-netcode`* | multiplayer: authority, prediction, rollback, interpolation, transports, lag testing |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Baseline rules
 - **Frame budget** is the requirement: 16.6 ms at 60 Hz, 8.3 ms at 120 Hz, 11.1 ms at 90 Hz for VR; state the target platform and budget before optimizing, split CPU (game, render thread) and GPU time.

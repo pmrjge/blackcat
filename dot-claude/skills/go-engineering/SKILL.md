@@ -13,9 +13,11 @@ description: Use for any Go work — modules, errors, context, generics, slog, l
 ## Modules (load the one the task touches)
 | Module | Load for |
 |---|---|
-| `go-concurrency` | goroutine lifecycles, cancellation, errgroup, channels, sync, timers, leaks |
-| `go-testing` | table tests, subtests, fuzzing, `b.Loop` benchmarks, synctest, golden files, coverage |
-| `go-modules-release` | go.mod (`go`, `toolchain`, `tool`, `ignore`), workspaces, major versions, govulncheck, builds, cross-compiling |
+| `go-concurrency`* | goroutine lifecycles, cancellation, errgroup, channels, sync, timers, leaks |
+| `go-testing`* | table tests, subtests, fuzzing, `b.Loop` benchmarks, synctest, golden files, coverage |
+| `go-modules-release`* | go.mod (`go`, `toolchain`, `tool`, `ignore`), workspaces, major versions, govulncheck, builds, cross-compiling |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Layout
 - `go.mod` at the repo root; `cmd/<name>/main.go` per binary; `internal/` for packages other modules must not import; one package per responsibility, named by what it provides (`store`, not `util`). Small modules stay flat — no `pkg/` by reflex.

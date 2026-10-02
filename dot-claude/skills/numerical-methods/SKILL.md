@@ -20,11 +20,13 @@ description: Load before writing or trusting numerical code — conditioning, st
 ## Modules
 | Module | Load when |
 |---|---|
-| `num-linear-algebra` | solving linear systems, least squares, eigenproblems, matrix functions, sparse/iterative solvers |
-| `num-ode-sde` | integrating ODEs or SDEs: tolerances, stiffness, symplectic/DAE, strong and weak order |
-| `num-floating-point` | IEEE 754 rounding, cancellation, summation, NaN/subnormals, fp16/bf16/fp8/fp4 and framework precision flags |
-| `opt-modeling` | roots, nonlinear systems, minimization and nonlinear least squares (scipy.optimize); LP, MIP and convex models |
-| `num-quadrature-autodiff` | numerical integration (quad, tanh-sinh, cubature, QMC, mpmath) and derivatives (autodiff, FD, complex step) |
+| `num-linear-algebra`* | solving linear systems, least squares, eigenproblems, matrix functions, sparse/iterative solvers |
+| `num-ode-sde`* | integrating ODEs or SDEs: tolerances, stiffness, symplectic/DAE, strong and weak order |
+| `num-floating-point`* | IEEE 754 rounding, cancellation, summation, NaN/subnormals, fp16/bf16/fp8/fp4 and framework precision flags |
+| `opt-modeling`* | roots, nonlinear systems, minimization and nonlinear least squares (scipy.optimize); LP, MIP and convex models |
+| `num-quadrature-autodiff`* | numerical integration (quad, tanh-sinh, cubature, QMC, mpmath) and derivatives (autodiff, FD, complex step) |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## References
 - `references/reproducibility.md` — read when seeding, chasing nondeterminism (GPU, TF32, BLAS threads) or choosing a library per device.

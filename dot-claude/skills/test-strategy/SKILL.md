@@ -22,10 +22,12 @@ description: Load before deciding what and how to test or fixing a weak suite â€
 ## Modules
 | Module | Load when |
 |---|---|
-| `test-property-based` | invariants, round trips, model-based/stateful tests (hypothesis, proptest, fast-check) |
-| `test-fuzzing` | parsers, decoders or anything reading untrusted bytes (cargo-fuzz, atheris, AFL++, Go fuzzing) |
-| `test-e2e-playwright` | browser end-to-end flows, visual and accessibility checks with Playwright Test |
-| `test-contract-snapshot` | API contracts between services (Pact, Schemathesis) and snapshot/golden tests |
+| `test-property-based`* | invariants, round trips, model-based/stateful tests (hypothesis, proptest, fast-check) |
+| `test-fuzzing`* | parsers, decoders or anything reading untrusted bytes (cargo-fuzz, atheris, AFL++, Go fuzzing) |
+| `test-e2e-playwright`* | browser end-to-end flows, visual and accessibility checks with Playwright Test |
+| `test-contract-snapshot`* | API contracts between services (Pact, Schemathesis) and snapshot/golden tests |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## References
 - `references/mutation.md` â€” read when checking that a suite catches bugs: mutation testing (mutmut, cargo-mutants, StrykerJS, PIT) or a seeded-bug check.

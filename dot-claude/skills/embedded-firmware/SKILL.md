@@ -10,11 +10,13 @@ MCU firmware in C or Rust, RTOS apps, peripheral drivers, bootloaders, probes an
 ## Modules
 | module | load when |
 |---|---|
-| `emb-rust` | no_std Rust, embassy, RTIC, esp-hal, defmt, HAL crates, memory.x |
-| `emb-c-rtos` | C firmware, Zephyr, FreeRTOS, ESP-IDF, vendor SDKs, ISRs, linker scripts |
-| `emb-debug-flash` | probes (probe-rs, OpenOCD, J-Link), flashing, RTT/SWO, GDB, QEMU/Renode simulation, fault triage |
-| `fpga-hdl` | Verilog/SystemVerilog/VHDL/Amaranth, Verilator, cocotb, Yosys/nextpnr, timing |
-| `pcb-kicad` | schematics, layout, DRC/ERC, kicad-cli, BOM and fab outputs |
+| `emb-rust`* | no_std Rust, embassy, RTIC, esp-hal, defmt, HAL crates, memory.x |
+| `emb-c-rtos`* | C firmware, Zephyr, FreeRTOS, ESP-IDF, vendor SDKs, ISRs, linker scripts |
+| `emb-debug-flash`* | probes (probe-rs, OpenOCD, J-Link), flashing, RTT/SWO, GDB, QEMU/Renode simulation, fault triage |
+| `fpga-hdl`* | Verilog/SystemVerilog/VHDL/Amaranth, Verilator, cocotb, Yosys/nextpnr, timing |
+| `pcb-kicad`* | schematics, layout, DRC/ERC, kicad-cli, BOM and fab outputs |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Safety gates (hardware is not undoable)
 - **Simulate first.** Unit-test logic on the host, then run in QEMU or Renode (or an HDL simulator) before any target. Real hardware comes last, and only when the user has a board connected and said to use it.

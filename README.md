@@ -192,20 +192,29 @@ of every agent, the rules file, the skill listing and the agent listings (tokens
 - every description ≤ 200 characters and BlackCat's body ≤ 5,200;
 - agents new since the baseline: description ≤ 160 and body ≤ 2,400 with the Agent tool, ≤ 120 and
   ≤ 1,400 as a leaf;
-- against the baseline revision (`1a38c77`, or `--base REV`): bodies of the agents present then ≤ 1.05×,
-  agent listing ≤ 1.34×, BlackCat's listing ≤ 1.31×, skill listing ≤ 1.77×, rules ≤ 1.02×, mean
-  per-spawn cost of the baseline agents ≤ 1.42×.
+- against the baseline revision (`ad22962`, or `--base REV`): bodies of the agents present then ≤ 0.84×,
+  agent listing ≤ 0.97×, BlackCat's listing ≤ 0.96×, skill listing ≤ 0.478×, rules ≤ 0.95×, mean
+  per-spawn cost of the baseline agents ≤ 0.691×.
 
 `--base REV` prints a delta table; `--turns` reads local transcripts for p50/p90/max turns per agent.
 
-**`skillListingBudgetFraction` 0.0156.** Claude Code caps the skill listing at context window × 3
+**Hub modules are read by path.** The 83 modules named in a hub's table (`py-typing`, `rust-async`,
+`sec-web-vulns`, …) are `user-invocable-only` in `skillOverrides`: they stay out of the skill listing
+every agent carries, and the Skill tool refuses them, so an agent Reads
+`~/.claude/skills/<name>/SKILL.md` when its `## Skills` line (where they are marked `name`*) or the
+hub's table names one. That line (`## Skills, if needed`) is a lookup, not a checklist: a task that
+needs no skill reads none. Hubs, standalone skills and 15 entry-grade modules (database engines, cloud,
+k8s, obs, flutter, react-native, docs-sites, wasm, linux-nvidia-cuda) stay listed with their
+descriptions. Measured in `.claude-work/agents-p3/lookup/lookup-eval.md`: −8.7K characters per spawn.
+
+**`skillListingBudgetFraction` 0.012.** Claude Code caps the skill listing at context window × 3
 chars per token × this fraction, and the cap is shared with plugin, bundled and claude.ai skills; over
-it, the least-used skills silently lose their description. On the 1M-context 5.5 models 0.0156 gives
-46,800 characters: the stack's 31,028 plus ~14,169 for the others (plugins 2,919 measured, bundled
-~3,950 and claude.ai ~7,300 estimated) with 3.5% to spare. The default (0.01) would leave stack skills
-name-only. `tests/lint_agents.py` fails when the listing plus that 14,169 passes the budget; a session
-with a 200K window gets a fifth of the space. `skillListingMaxDescChars` 500 cuts each description, and
-six user-run bundled commands are hidden from the model through `skillOverrides`.
+it, the least-used skills silently lose their description. On the 1M-context 5.5 models 0.012 gives
+36,000 characters: the stack's 14,564 plus ~14,169 for the others (plugins 2,919 measured, bundled
+~3,950 and claude.ai ~7,300 estimated) with 25% to spare. `tests/lint_agents.py` fails when the listing
+plus that 14,169 passes the budget; a session with a 200K window gets a fifth of the space.
+`skillListingMaxDescChars` 500 cuts each description, and six user-run bundled commands are hidden
+from the model through `skillOverrides`.
 
 ### Guard hooks
 

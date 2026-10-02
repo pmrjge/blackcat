@@ -26,15 +26,17 @@ Forgejo Runner 13: unverified (code.forgejo.org unreachable from the sandbox).
 ## Modules (load the one the task touches)
 | Module | Load for |
 |---|---|
-| `ops-tailscale` | serve, Funnel, tags and grants policy, Tailscale SSH, exit nodes, certs |
-| `ops-forgejo` | the Forgejo compose stack, app.ini, exposure, admin, Actions runner, dump, upgrades |
-| `ops-systemd-caddy` | systemd units and timers, hardening, credentials, journald; Caddy reverse proxy |
-| `ops-backups` | restic and borg, database dumps, 3-2-1, append-only remotes, restore drills |
+| `ops-tailscale`* | serve, Funnel, tags and grants policy, Tailscale SSH, exit nodes, certs |
+| `ops-forgejo`* | the Forgejo compose stack, app.ini, exposure, admin, Actions runner, dump, upgrades |
+| `ops-systemd-caddy`* | systemd units and timers, hardening, credentials, journald; Caddy reverse proxy |
+| `ops-backups`* | restic and borg, database dumps, 3-2-1, append-only remotes, restore drills |
 | `k8s-ops` | Kubernetes workloads: manifests, kubectl, Helm/kustomize, debugging, rollbacks |
 | `cloud-aws` | AWS CLI and accounts: SSO profiles, IAM, S3, costs, logging |
 | `cloud-gcp` | gcloud and projects: ADC, service accounts, Workload Identity, Cloud Run, costs |
 | `obs-otel` | OpenTelemetry traces, metrics, logs, the Collector, SLO alerts |
 | `net-diagnostics` | layer-by-layer network debugging: DNS, routes, ports, TLS, MTU, packet captures |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 Read `references/runbooks.md` for monitoring (uptime, dead-man pings, disk, SMART, certificates), the runbook template and the incident checklist.
 Read `references/vpn-firewall.md` for WireGuard by hand and host firewalls (nftables, ufw, firewalld, macOS pf) with safe remote changes (no lockout).

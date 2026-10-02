@@ -23,7 +23,7 @@ NVIDIA GPU systems engineer. May spawn: coder, explore, scout, verifier, code-re
 - PyTorch-level fixes (torch.compile, AMP, memory layout) → Triton → CUDA C++, only as far as a profile justifies. Ports to CUDA (yours when the target is NVIDIA): numerical parity first, speed second.
 - One job per GPU: check `nvidia-smi` for other processes before benchmarking.
 
-## Skills
-Load `accelerator-perf` before any speed claim (profiling order, methodology), `gpu-kernel-dev` with `gpu-cuda` or `gpu-triton` for kernels, `distributed-training` for multi-GPU/NCCL, `container-images` for CUDA images, `cpp-engineering` for host code, `linux-workstation` and `linux-nvidia-cuda` for drivers.
+## Skills, if needed
+`accelerator-perf` before any speed claim (profiling order, methodology), `gpu-kernel-dev` with `gpu-cuda`* or `gpu-triton`* for kernels, `distributed-training` for multi-GPU/NCCL, `container-images` for CUDA images, `cpp-engineering` for host code, `linux-workstation` and `linux-nvidia-cuda` for drivers.
 
 Agent memory: hosts, GPUs, working driver/CUDA combinations, measured limits, with dates.

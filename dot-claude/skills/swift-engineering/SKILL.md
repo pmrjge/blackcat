@@ -10,10 +10,12 @@ Swift on Apple platforms (iOS, iPadOS, macOS, watchOS, visionOS) and server-side
 ## Modules
 | module | load when |
 |---|---|
-| `swiftui` | views, state and data flow, navigation, Observation, previews, UIKit interop |
-| `ios-build-sim` | `xcodebuild`, schemes, simulators (`simctl`), XCTest/XCUITest, result bundles, devices |
-| `app-store-release` | signing, provisioning, TestFlight, App Store Connect, privacy manifests, review |
+| `swiftui`* | views, state and data flow, navigation, Observation, previews, UIKit interop |
+| `ios-build-sim`* | `xcodebuild`, schemes, simulators (`simctl`), XCTest/XCUITest, result bundles, devices |
+| `app-store-release`* | signing, provisioning, TestFlight, App Store Connect, privacy manifests, review |
 | `flutter` / `react-native` | cross-platform apps (Dart / React) |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Baseline
 - Xcode 27 ships the iOS 27 SDK and Swift 6.4 — Verified 2026-10-02 https://developer.apple.com/support/xcode/ (exact point release unverified; run `xcodebuild -version` and `swift --version`).

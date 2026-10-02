@@ -24,8 +24,8 @@ blackcat: blackcat_listing). Tokens ~ ceil(chars / 3).
              absent at base, description <= 160 / body <= 2,400 (with Agent) or <= 120 / <= 1,400
              (leaf); and against the base (--base, default DEFAULT_BASE): bodies of the agents present
              at base <= 0.84 x base, agent listing <= 0.97 x, blackcat listing <= 0.96 x, skill listing
-             <= 0.76 x, rules <= 0.95 x, mean per spawn of the base agents (blackcat excluded: it is the
-             main thread, never spawned) <= 0.85 x. Ratios are skipped when the base revision is missing.
+             <= 0.478 x, rules <= 0.95 x, mean per spawn of the base agents (blackcat excluded: it is the
+             main thread, never spawned) <= 0.691 x. Ratios are skipped when the base revision is missing.
 --turns      read Claude Code subagent transcripts (read-only; default
              ~/.claude/projects/**/subagents/agent-*.meta.json) and print p50/p90/max turns per agent
              type (one turn = one assistant message id).
@@ -78,17 +78,27 @@ NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
 # their hubs (248 left), the listing measures 30,782 (1.744 x base 17,647) and the base agents' mean
 # per spawn 54,874 (1.402 x 39,146); each gate is that + 2%, rounded down to 0.01. The user's
 # principle: loading skills on demand beats large agent prompts, so the listing is where that cost goes.
-RATIO = {"bodies": 0.84, "agent_listing": 0.97, "blackcat_listing": 0.96, "skill_listing": 0.76,
-         "rules": 0.95, "per_spawn_mean": 0.85}
+# Lookup design B1x+C (2026-10-02, .claude-work/agents-p3/lookup/lookup-eval.md): 83 hub modules are
+# user-invocable-only (Read by path, marked `name`* in Skills lines and hub tables), and the Skills lines
+# gained the cross-domain pointers the evaluation's misses showed. Measured against ad22962:
+#   skill_listing 30,782 -> 14,437 (0.469 x)   per_spawn_mean 55,240 -> 37,446 (0.678 x); leaf -> 26,298
+#   bodies -> 78,513 (0.837 x)   rules -> 11,534 (0.946 x)   agent and blackcat listings unchanged
+# skill_listing and per_spawn_mean go down to ratio x 1.02 rounded down to 0.001 (to 0.01 it would
+# leave 0.2% headroom on the listing). bodies (x 1.02 = 0.853) and rules (0.964) would go up, so they
+# keep 0.84 and 0.95: the pointers and the one rule line fit inside the existing headroom.
+RATIO = {"bodies": 0.84, "agent_listing": 0.97, "blackcat_listing": 0.96, "skill_listing": 0.478,
+         "rules": 0.95, "per_spawn_mean": 0.691}
 # SKILL_BUDGET: Claude Code's listing budget is context window x chars/token x
 # skillListingBudgetFraction = 1,000,000 x 3 x f for the 5.5 models (Claude Code 2.1.287), shared by the
 # stack's skills and every plugin, bundled and claude.ai skill; over it, the least-used skills lose
-# their description silently. Measured 2026-10-02: stack 31,028 chars (with separators; lint counts
-# it); plugins 2,919 (measured: document-skills, math-olympiad, skill-creator; LSP plugins list
-# nothing), bundled ~3,950 and claude.ai-synced ~7,300 (both estimated, lint NON_STACK) = 45,197 >
-# 36,000 at 0.012. The fraction goes to 0.0156: 46,800 chars, 1,603 (3.5%) above that total. It is a
-# cost-only knob (how many descriptions are kept; no permission, hook or sandbox changes).
-SKILL_BUDGET = {"fraction": 0.0156, "budget": 46_800, "stack": 31_028, "non_stack": 14_169}
+# their description silently. Measured 2026-10-02 after the 83 hub modules went user-invocable-only
+# (design B1x+C, .claude-work/agents-p3/lookup/lookup-eval.md; they are Read by path): stack 14,564
+# chars (128 listed skills, with separators; lint counts it); plugins 2,919 (measured: document-skills,
+# math-olympiad, skill-creator; LSP plugins list nothing), bundled ~3,950 and claude.ai-synced ~7,300
+# (both estimated, lint NON_STACK) = 28,733. The fraction goes back from 0.0156 to 0.012: 36,000
+# chars, 7,267 (25%) above that total (the default 0.01 would leave 4.4%). It is a cost-only knob (how
+# many descriptions are kept; no permission, hook or sandbox changes).
+SKILL_BUDGET = {"fraction": 0.012, "budget": 36_000, "stack": 14_564, "non_stack": 14_169}
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lint_agents import skill_listing_entry, split_top_level, leading_name  # noqa: E402

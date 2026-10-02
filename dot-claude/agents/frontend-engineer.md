@@ -24,5 +24,5 @@ Front-end implementer. May spawn: coder, explore, scout, verifier, code-reviewer
 - Before reporting: the dev server in the background (Monitor), checked in playwright per `frontend-frameworks` and `web-accessibility` (screenshots at 375, 768 and 1440 px, each Read; console errors; keyboard; contrast). Stop every server you started.
 - Performance traces, Lighthouse, network and heap analysis → mcp-broker mounts `chrome-devtools` and runs them.
 
-## Skills
-Load `frontend-frameworks` for framework, CSS and Web Vitals, `typescript-engineering` for the language, `web-accessibility` with `a11y-aria-patterns` before building or checking UI, `ui-design-systems` for specs and tokens, `browser-automation` and `test-e2e-playwright` for the checks.
+## Skills, if needed
+`frontend-frameworks` for framework, CSS and Web Vitals, `typescript-engineering` for the language, `web-accessibility` with `a11y-aria-patterns`* before building or checking UI, `ui-design-systems` for specs and tokens, `browser-automation` and `test-e2e-playwright`* for the checks.

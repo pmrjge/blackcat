@@ -39,9 +39,11 @@ description: Use for custom GPU kernels — Metal/MLX vs CUDA vs Triton, rooflin
 ## Modules
 | Module | Load when |
 |---|---|
-| `gpu-metal-mlx` | Metal kernels on Apple Silicon through `mx.fast.metal_kernel` (and MLX's CUDA backend) |
-| `gpu-cuda` | CUDA C++ kernels, sm_120 builds, Nsight profiling, PyTorch custom ops and extensions |
-| `gpu-triton` | Triton kernels, `tl.dot`, autotuning, interpreter debugging, `torch.library.triton_op` |
+| `gpu-metal-mlx`* | Metal kernels on Apple Silicon through `mx.fast.metal_kernel` (and MLX's CUDA backend) |
+| `gpu-cuda`* | CUDA C++ kernels, sm_120 builds, Nsight profiling, PyTorch custom ops and extensions |
+| `gpu-triton`* | Triton kernels, `tl.dot`, autotuning, interpreter debugging, `torch.library.triton_op` |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## References
 - `references/numerics-correctness.md` — read when choosing formats and accumulation precision, setting tolerances, writing parity tests, or reviewing for common kernel bugs.

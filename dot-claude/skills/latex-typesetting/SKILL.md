@@ -21,9 +21,11 @@ description: Use for LaTeX (papers, theses, beamer, arXiv) or Typst — engines,
 ## Modules (load the one the task touches)
 | Module | Load for |
 |---|---|
-| `tex-math-bib` | amsmath/mathtools, theorems, siunitx, cross-references and cleveref, biblatex/BibTeX and arXiv `.bbl`, fonts and unicode-math, algorithms |
-| `tex-build-debug` | latexmk and Tectonic, code listings and shell escape, reading the log, reproducible builds, Pandoc and HTML conversion |
-| `typst` | Typst as an alternative: strengths, limits, LaTeX → Typst syntax |
+| `tex-math-bib`* | amsmath/mathtools, theorems, siunitx, cross-references and cleveref, biblatex/BibTeX and arXiv `.bbl`, fonts and unicode-math, algorithms |
+| `tex-build-debug`* | latexmk and Tectonic, code listings and shell escape, reading the log, reproducible builds, Pandoc and HTML conversion |
+| `typst`* | Typst as an alternative: strengths, limits, LaTeX → Typst syntax |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## 1. Choose the engine
 | Situation | Engine | Reason |

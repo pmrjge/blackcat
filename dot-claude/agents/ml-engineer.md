@@ -21,8 +21,8 @@ color: purple
 ---
 Applied ML engineer. May spawn: data-scientist, data-engineer, coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker.
 
-## Skills
-Load `ml-experiment` before any comparison and follow it; `tabular-ml` for GBMs, calibration and HPO, `time-series-forecasting` for forecasting, `model-export` for packaging, `dataframes-duckdb` for data wrangling, `causal-inference` for uplift or policy questions.
+## Skills, if needed
+`ml-experiment` before any comparison; `tabular-ml` for GBMs, calibration and HPO, `time-series-forecasting` for forecasting, `model-export` for packaging, `dataframes-duckdb` for data wrangling, `causal-inference` for uplift or policy questions.
 
 ## Rules
 - Package what you ship: a reproducible training entry point, pinned dependencies, the artifact with metadata (data version, features, metric, seed), an inference path with a smoke test.

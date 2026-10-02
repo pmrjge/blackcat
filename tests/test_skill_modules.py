@@ -6,6 +6,9 @@ with a description <= 140 characters. Detail lives in references/<topic>.md, whi
 skill names it. Every skillOverrides key is a shipped skill or one of Claude Code's bundled skills the
 stack hides (EXTERNAL). Every skill but a hub is named by a hub, another skill, an agent body or the
 rules (reachability: a module is found through its hub, not only through the listing).
+Hidden modules (design B1x+C, 2026-10-02): a skill named in the first column of another skill's table
+is a module and is "user-invocable-only" (out of the listing, Read by path) unless KEEP_LISTED names
+it; its table row marks it `name`* next to one note line giving the path. No agent preloads skills.
 """
 import json
 import re
@@ -21,8 +24,8 @@ SKILL_MAX_LINES = 500
 HUB_MAX_LINES = 80
 MODULE_MAX_LINES = 150
 # 140 holds "what it covers, when to load it, its hub or siblings" in one line; 100 forced cryptic
-# text. Every skill is listed with its description (no "name-only" overrides since the user's
-# decision of 2026-10-02), so the description is what an agent picks a module by.
+# text. Listed skills carry their description (no "name-only" overrides since the user's decision
+# of 2026-10-02); a hidden module is picked from its hub's table row instead.
 MODULE_DESC_MAX = 140
 # Claude Code's bundled skills the stack hides from the model (user-run commands); not shipped here.
 EXTERNAL = {"code-review", "security-review", "simplify", "fewer-permission-prompts", "keybindings-help",
@@ -161,3 +164,91 @@ def test_module_table_parser():
     assert module_table(text) == ["a-b", "c"]
     assert REF_RE.findall("see `references/x-y.md` and ../rust-engineering/references/z.md.") == [
         "references/x-y.md", "../rust-engineering/references/z.md"]
+
+
+# Modules that stay in the listing with their description: entry points in their own right, reached
+# by agents outside the hub's family (main-coder, planner) who would otherwise need an unrelated hub
+# first (postgresql via db-design, obs-otel via self-hosting-ops). Measured in
+# .claude-work/agents-p3/lookup/lookup-eval.md: this set cuts the hub-hop rate from 4% to 3% for
+# 1.5K listing characters.
+KEEP_LISTED = {"postgresql", "mysql", "mongodb", "redis", "sqlite", "cloud-aws", "cloud-gcp", "k8s-ops",
+               "obs-otel", "net-diagnostics", "flutter", "react-native", "docs-sites", "wasm",
+               "linux-nvidia-cuda"}
+ROW_RE = re.compile(r"^\|\s*`([a-z0-9-]+)`(\*?)", re.M)
+HIDDEN_NOTE = "`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md`"
+
+
+def table_rows():
+    """{skill: [(table owner, marked)]} for skills named in the first column of another skill's table."""
+    rows = {}
+    for owner, p in shipped().items():
+        for m in ROW_RE.finditer(p.read_text(encoding="utf-8")):
+            if m.group(1) != owner:
+                rows.setdefault(m.group(1), []).append((owner, bool(m.group(2))))
+    return rows
+
+
+def hidden():
+    return {k for k, v in overrides().items() if v in ("user-invocable-only", "off")} & set(shipped())
+
+
+def test_hub_modules_hidden_except_keep_listed():
+    sk, rows = shipped(), table_rows()
+    modules = set(rows) & set(sk)   # a hub named in a table row would need KEEP_LISTED too
+    want = modules - KEEP_LISTED
+    assert hidden() == want, ("skillOverrides user-invocable-only != table modules - KEEP_LISTED: "
+                              "missing %s, extra %s" % (sorted(want - hidden()), sorted(hidden() - want)))
+    assert not KEEP_LISTED - modules, "KEEP_LISTED names a skill no table row names: %s" % sorted(
+        KEEP_LISTED - modules)
+    bad = sorted(k for k, v in overrides().items() if k in sk and v != "user-invocable-only")
+    assert not bad, "shipped skills use only user-invocable-only (no name-only, no off): %s" % bad
+
+
+def test_hidden_modules_reachable_by_path_from_a_marked_row():
+    sk, rows, hid = shipped(), table_rows(), hidden()
+    for name in sorted(hid):
+        marked = [o for o, star in rows.get(name, []) if star]
+        assert marked, "hidden %s has no `%s`* row in a hub table" % (name, name)
+        for o in marked:
+            assert HIDDEN_NOTE in sk[o].read_text(encoding="utf-8"), "%s marks %s but lacks the note" % (o, name)
+    wrong = sorted("%s in %s" % (n, o) for n, v in rows.items() for o, star in v
+                   if star and n not in hid)
+    assert not wrong, "rows marked * for skills that are listed: %s" % wrong
+    unmarked = sorted("%s in %s" % (n, o) for n, v in rows.items() for o, star in v
+                      if not star and n in hid)
+    assert not unmarked, "hidden modules in a table without the * mark: %s" % unmarked
+
+
+def test_listing_math_counts_hidden_as_zero():
+    import sys
+    sys.path.insert(0, str(ROOT / "tests"))
+    from lint_agents import skill_listing_entry
+    assert skill_listing_entry("rust-async", 90, "user-invocable-only") == 0
+    assert skill_listing_entry("rust-async", 90, "off") == 0
+    assert skill_listing_entry("rust-async", 90, "on") == len("rust-async") + 4 + 90
+
+
+def test_listing_settings_keys():
+    s = json.loads(SETTINGS.read_text())
+    assert 0.01 <= float(s["skillListingBudgetFraction"]) <= 0.02
+    assert isinstance(s["skillListingMaxDescChars"], int)
+    assert isinstance(s["skillOverrides"], dict) and set(s["skillOverrides"].values()) <= {
+        "on", "name-only", "user-invocable-only", "off"}
+
+
+def test_no_agent_preloads_skills():
+    pre = sorted(p.name for p in AGENTS.glob("*.md")
+                 if re.search(r"(?m)^skills\s*:", split(p.read_text(encoding="utf-8"))[0]))
+    assert not pre, "agents with a skills: preload (skills load on demand, lazily): %s" % pre
+
+
+def test_forced_load_lint_patterns():
+    """Skills lines are lookups (the user, 2026-10-02): lint rejects wording that forces a load."""
+    import sys
+    sys.path.insert(0, str(ROOT / "tests"))
+    from lint_agents import FORCED_LOAD_RES
+    forced = ["Load `go-engineering` first (x)", "always load `x`", "You must load the skill", "First load `a`"]
+    fine = ["Load `browser-automation` before a multi-step flow", "check the load first.", "`x` for scripts",
+            "load `image-prompting` before generating ("]
+    assert all(any(r.search(s) for r in FORCED_LOAD_RES) for s in forced)
+    assert not any(r.search(s) for r in FORCED_LOAD_RES for s in fine)

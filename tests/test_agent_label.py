@@ -176,6 +176,21 @@ def test_subagent_start_gets_its_start_time(env):
     assert hook(start(sid(), "a2", "researcher-copy"), env) is not None
 
 
+def test_subagent_start_context_is_small_and_never_a_skill_body(env):
+    """Skills stay lazy: SubagentStart injects at most START_CONTEXT_MAX characters into any stack
+    agent, and never text from a SKILL.md (hooks.md caps additionalContext at 10,000; a skill body
+    or a per-agent skill table would be paid on every spawn)."""
+    START_CONTEXT_MAX = 200
+    skill_lines = {ln.strip() for p in (ROOT / "dot-claude" / "skills").glob("*/SKILL.md")
+                   for ln in p.read_text(encoding="utf-8").splitlines() if len(ln.strip()) > 40}
+    for a in sorted(p.stem for p in (ROOT / "dot-claude" / "agents").glob("*.md")):
+        out = hook(start(sid(), "x-" + a, a), env)
+        ctx = (out or {}).get("additionalContext", "")
+        assert len(ctx) <= START_CONTEXT_MAX, (a, len(ctx))
+        assert not any(ln.strip() in skill_lines for ln in ctx.splitlines()), a
+        assert "SKILL.md" not in ctx and "## " not in ctx, a
+
+
 def test_subagent_start_context_only_for_stack_agents_and_switchable(env):
     assert hook(start(sid(), "a1", "claude-test:runner"), env) is None
     assert hook(start(sid(), "a1", "coder"), env, STACK_AGENT_STARTED="0") is None

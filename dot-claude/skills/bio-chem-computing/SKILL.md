@@ -10,13 +10,15 @@ Workflows and analyses on sequencing data, cells, proteins, small molecules and 
 ## Modules
 | module | load when |
 |---|---|
-| `bio-pipelines` | Nextflow/nf-core, Snakemake, containers, pixi/bioconda environments, workflow testing |
-| `bio-genomics` | reads to variants: QC, alignment, BAM/CRAM, variant calling, VCF, annotation, RNA-seq |
-| `bio-single-cell` | scRNA-seq and multiome: AnnData/scanpy, Seurat, QC, integration, annotation |
-| `bio-structures` | protein structures: PDB/mmCIF, AlphaFold 3, Boltz, docking, structure analysis |
-| `chem-informatics` | RDKit: SMILES, standardization, descriptors, fingerprints, similarity, QSAR |
-| `chem-md` | molecular dynamics: OpenMM, GROMACS, force fields, equilibration, analysis |
-| `chem-qm` | quantum chemistry: PySCF, Psi4, xtb, ORCA; methods, basis sets, convergence |
+| `bio-pipelines`* | Nextflow/nf-core, Snakemake, containers, pixi/bioconda environments, workflow testing |
+| `bio-genomics`* | reads to variants: QC, alignment, BAM/CRAM, variant calling, VCF, annotation, RNA-seq |
+| `bio-single-cell`* | scRNA-seq and multiome: AnnData/scanpy, Seurat, QC, integration, annotation |
+| `bio-structures`* | protein structures: PDB/mmCIF, AlphaFold 3, Boltz, docking, structure analysis |
+| `chem-informatics`* | RDKit: SMILES, standardization, descriptors, fingerprints, similarity, QSAR |
+| `chem-md`* | molecular dynamics: OpenMM, GROMACS, force fields, equilibration, analysis |
+| `chem-qm`* | quantum chemistry: PySCF, Psi4, xtb, ORCA; methods, basis sets, convergence |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Data and ethics rules
 - **Human data** (genomes, clinical metadata, anything under a data-use agreement — dbGaP, EGA, UK Biobank, hospital data) stays where the agreement allows: never upload it to web services, LLM APIs, external MCP servers or public repos; never include identifiers in queries to external APIs. Ask the user what the agreement permits when unsure.

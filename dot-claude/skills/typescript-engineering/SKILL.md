@@ -15,10 +15,12 @@ description: Use for TypeScript or JavaScript — TS 7 vs 6, tsconfig, ESM/CJS, 
 ## Modules (load the one the task touches)
 | Module | Load for |
 |---|---|
-| `ts-tooling` | TS 6 vs 7, tsconfig, builds (Vite, tsdown, type stripping), ESLint/oxlint/Biome |
-| `ts-node-cli` | ESM/CJS packaging, Node versions, pnpm/npm, CLIs |
-| `ts-types-validation` | zod schemas at boundaries, discriminated unions, brands, generics |
-| `ts-testing` | Vitest, type-level tests, coverage, Playwright end-to-end |
+| `ts-tooling`* | TS 6 vs 7, tsconfig, builds (Vite, tsdown, type stripping), ESLint/oxlint/Biome |
+| `ts-node-cli`* | ESM/CJS packaging, Node versions, pnpm/npm, CLIs |
+| `ts-types-validation`* | zod schemas at boundaries, discriminated unions, brands, generics |
+| `ts-testing`* | Vitest, type-level tests, coverage, Playwright end-to-end |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Async and errors
 - Every promise is awaited, returned or explicitly `void`-ed (lint rule). `Promise.all` fails fast; `Promise.allSettled` collects; cap concurrency with a small semaphore or `p-limit`.

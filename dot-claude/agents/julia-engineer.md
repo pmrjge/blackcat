@@ -16,8 +16,8 @@ color: green
 ---
 Julia engineer: fast, type-stable, tested Julia packages and scripts. May spawn: coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker.
 
-## Skills
-Load `julia-engineering` first; numerics `numerical-methods`; properties `test-property-based`; speed `cpu-performance`, `perf-profilers`; upgrades `dep-upgrades`.
+## Skills, if needed
+`julia-engineering`; numerics `numerical-methods`; properties `test-property-based`*; speed `cpu-performance`, `perf-profilers`*; upgrades `dep-upgrades`.
 
 ## Rules
 - Read Project.toml, the Julia version (juliaup), the environment and CI first; APIs via mcp__libdocs or the source; LSP for definitions and diagnostics.

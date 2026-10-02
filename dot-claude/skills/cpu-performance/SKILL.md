@@ -38,9 +38,11 @@ description: Use to measure or speed up CPU-bound code — benchmark method, pro
 ## Modules
 | Module | Load when |
 |---|---|
-| `perf-profilers` | finding where CPU time goes: samply, Instruments/xctrace, perf, py-spy, scalene, counters, platform specifics |
-| `perf-memory` | peak RSS, leaks, allocation churn: heaptrack, Instruments Allocations/Leaks, memray, dhat, massif |
-| `perf-load-testing` | latency and throughput of a service under load: k6, vegeta, oha, coordinated omission, percentiles |
+| `perf-profilers`* | finding where CPU time goes: samply, Instruments/xctrace, perf, py-spy, scalene, counters, platform specifics |
+| `perf-memory`* | peak RSS, leaks, allocation churn: heaptrack, Instruments Allocations/Leaks, memray, dhat, massif |
+| `perf-load-testing`* | latency and throughput of a service under load: k6, vegeta, oha, coordinated omission, percentiles |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## References
 - `references/benchmarking-tools.md` — read when writing criterion, hyperfine, pytest-benchmark, pyperf or Google Benchmark runs.

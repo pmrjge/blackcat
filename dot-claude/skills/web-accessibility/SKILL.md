@@ -10,10 +10,12 @@ Accessibility of web UIs and UI designs. Contrast math and color spaces → `col
 ## Modules
 | Module | Load when |
 |---|---|
-| `a11y-aria-patterns` | building UI: semantic HTML, landmarks, ARIA APG patterns, forms, keyboard and focus |
-| `a11y-audit` | auditing: axe in Playwright, Lighthouse, ARIA snapshots, manual keyboard/VoiceOver/zoom passes, report format |
-| `a11y-docs-pdf` | documents: tagged PDF and PDF/UA, LaTeX tagging, Word/Office and EPUB accessibility, checkers |
-| `a11y-mobile` | native or cross-platform mobile apps: iOS, Android, Flutter, React Native APIs, audits, VoiceOver/TalkBack passes |
+| `a11y-aria-patterns`* | building UI: semantic HTML, landmarks, ARIA APG patterns, forms, keyboard and focus |
+| `a11y-audit`* | auditing: axe in Playwright, Lighthouse, ARIA snapshots, manual keyboard/VoiceOver/zoom passes, report format |
+| `a11y-docs-pdf`* | documents: tagged PDF and PDF/UA, LaTeX tagging, Word/Office and EPUB accessibility, checkers |
+| `a11y-mobile`* | native or cross-platform mobile apps: iOS, Android, Flutter, React Native APIs, audits, VoiceOver/TalkBack passes |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Target and legal frame (checked 2026-09-29)
 - Target **WCAG 2.2 Level AA** (W3C Recommendation, 5 Oct 2023; 4.1.1 Parsing removed as obsolete).

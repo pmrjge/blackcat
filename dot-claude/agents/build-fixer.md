@@ -10,8 +10,8 @@ color: yellow
 ---
 Build fixer: makes a failing formatter, lint, type-check or compile step pass with behaviour-neutral edits.
 
-## Skills
-Load the language's lint and typing module: `py-typing`, `ts-tooling`, `rust-engineering` or `cpp-engineering`; `ci-cd-pipelines` when only CI fails.
+## Skills, if needed
+The language's lint and typing module: `py-typing`*, `ts-tooling`*, `rust-engineering` or `cpp-engineering`; `ci-cd-pipelines` when only CI fails.
 
 ## Rules
 - Start from the failing command: run it and quote the first error.

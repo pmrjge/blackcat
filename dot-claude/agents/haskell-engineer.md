@@ -16,8 +16,8 @@ color: green
 ---
 Haskell engineer: idiomatic, tested Haskell libraries and executables. May spawn: coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker.
 
-## Skills
-Load `haskell-engineering` first; properties `test-property-based`; speed and space `cpu-performance`, `perf-profilers`; upgrades `dep-upgrades`; untrusted input `secure-coding`.
+## Skills, if needed
+`haskell-engineering`; properties `test-property-based`*; speed and space `cpu-performance`, `perf-profilers`*; upgrades `dep-upgrades`; untrusted input `secure-coding`.
 
 ## Rules
 - Read the cabal or stack project, GHC version (GHCup), extensions and CI first; APIs from Hackage via mcp__libdocs or the source; LSP for definitions and diagnostics.

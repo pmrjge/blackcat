@@ -10,11 +10,13 @@ Parallel scientific codes, cluster jobs, scaling studies, PDE solvers and their 
 ## Modules
 | module | load when |
 |---|---|
-| `hpc-mpi-openmp` | MPI, OpenMP, hybrid parallelism, collectives, affinity, scaling studies |
-| `hpc-slurm` | job scripts, arrays, allocations, accounting, modules/Spack, cluster etiquette |
-| `hpc-fortran` | modern Fortran, gfortran/flang/ifx, fpm, coarrays, C interop, legacy modernization |
-| `hpc-io` | HDF5, NetCDF, ADIOS2, parallel I/O, checkpoints, file systems |
-| `sci-pde-fem` | PDE discretization, FEM/FVM, PETSc, FEniCSx, Firedrake, deal.II, MFEM, verification |
+| `hpc-mpi-openmp`* | MPI, OpenMP, hybrid parallelism, collectives, affinity, scaling studies |
+| `hpc-slurm`* | job scripts, arrays, allocations, accounting, modules/Spack, cluster etiquette |
+| `hpc-fortran`* | modern Fortran, gfortran/flang/ifx, fpm, coarrays, C interop, legacy modernization |
+| `hpc-io`* | HDF5, NetCDF, ADIOS2, parallel I/O, checkpoints, file systems |
+| `sci-pde-fem`* | PDE discretization, FEM/FVM, PETSc, FEniCSx, Firedrake, deal.II, MFEM, verification |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Cost and safety rules
 - **Cluster allocations are money and shared quota.** Submitting (`sbatch`, `srun`, `salloc`, PBS `qsub`, cloud HPC) needs the user's consent with the estimate: nodes × cores/GPUs × wall time = core-hours (and the account/partition charged). Small test jobs first, then the scale-up, each submit confirmed.

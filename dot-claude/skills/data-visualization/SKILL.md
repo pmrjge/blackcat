@@ -54,9 +54,10 @@ Figures made in code and saved as files (PNG/SVG/PDF/HTML) for papers, reports, 
 ## Modules
 | Module | Load when |
 |---|---|
-| `viz-matplotlib` | static publication figures with matplotlib or seaborn: styles, fonts, export |
-| `viz-dashboards` | dashboards and data apps: Streamlit, Dash, Panel, BI tools; layout and freshness |
+| `viz-matplotlib`* | static publication figures with matplotlib or seaborn: styles, fonts, export |
+| `viz-dashboards`* | dashboards and data apps: Streamlit, Dash, Panel, BI tools; layout and freshness |
 
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 ## References
 - `references/interactive.md` — read when making interactive or HTML charts with plotly or Altair (hover, static export, large data).
 - `references/design-rules.md` — read when writing titles, labels and annotations, building small multiples, choosing table vs chart, writing alt text, or checking for misleading patterns.
@@ -72,7 +73,6 @@ Figures made in code and saved as files (PNG/SVG/PDF/HTML) for papers, reports, 
 - [ ] Source, date and n in the caption; script and data snapshot reproduce the figure
 - [ ] Exported at final size; PDF/SVG with embedded fonts or PNG ≥ 300 dpi
 - [ ] Alt text written
-
 ## Verify
 Regenerate from the script and diff the outputs; check three plotted values against the data; view at final size, in grayscale and under CVD simulation; `pdffonts` shows only embedded non-Type-3 fonts; a cold reader can state the takeaway after five seconds.
 

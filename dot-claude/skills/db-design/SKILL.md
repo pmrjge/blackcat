@@ -33,12 +33,14 @@ Pick the engine the repository already uses unless a requirement it cannot meet 
 ## Modules
 | Module | Load when |
 |---|---|
-| `db-migrations` | changing a live schema: tools, expand/contract, backfills, locks, rollback, testing on a copy |
+| `db-migrations`* | changing a live schema: tools, expand/contract, backfills, locks, rollback, testing on a copy |
 | `postgresql` | anything PostgreSQL (refs: `references/operations.md`) |
 | `mysql` | MySQL or MariaDB: InnoDB, online DDL, replication, tuning |
 | `sqlite` | SQLite as an application database: concurrency, schema changes, backups |
 | `mongodb` | document modeling, indexes, aggregation, transactions (refs: `references/operations.md`) |
 | `redis` | Redis or Valkey: data structures, TTLs, eviction, persistence, locks, streams |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Verify
 - [ ] Access patterns written next to the schema; each frequent query has a supporting index confirmed by a plan (`EXPLAIN`, `explain()`).

@@ -12,7 +12,7 @@ mcpServers:
       args: ["run", "--quiet", "--script", "__CLAUDE_DIR__/mcp/libdocs_mcp.py"]
 color: yellow
 ---
-Skeptical reviewer of plans, not code. Load `review-protocol` (IaC plans: also `terraform-opentofu`). Read-only (hook-enforced Bash). Verify facts yourself against the code and current docs (libdocs, the web tools; Claude Code: code.claude.com).
+Skeptical reviewer of plans, not code. If needed: `review-protocol` (IaC plans: `terraform-opentofu`). Read-only (hook-enforced Bash). Verify facts yourself against the code and current docs (libdocs, the web tools; Claude Code: code.claude.com).
 
 ## Check order
 1. Goal fit: does the plan solve the stated problem; is "done" defined and testable?
