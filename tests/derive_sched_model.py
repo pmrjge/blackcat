@@ -38,12 +38,33 @@ Pooling: theta = (n*theta_own + 5*theta_pool)/(n + 5) when the type has >= 5 hea
 source = "pool:<tier>". Tiers are derive_thresholds.TIER; the coordinator pool (orchestrator only)
 is kept although it has 2 agents, because no other tier resembles a relay.
 
+Status and bands ("Use somehow the stack budget provisional values": small-n values are kept,
+with their uncertainty explicit):
+  status            "supported" when the type's own data has >= 5 healthy segments from >= 3
+                    agents, else "provisional"
+  band              {level 0.9, method, B, n_ref, turns {lo,med,hi}, sec_per_call {lo,med,hi},
+                    ctx {lo,med,hi}}. med is the model's point value (turns M, sec_per_call p50;
+                    ctx med = 1.0, lo/hi being factors on a*n + b*n^2 evaluated at n_ref = turns M).
+    bootstrap       (supported types and pools) 90% percentile interval of the median, B = 2000
+                    replicates, fixed seed, resampling agents (clusters) with all their segments;
+                    for a type each replicate is pooled like the point value,
+                    (n*own* + 5*pool*)/(n + 5), own* and pool* drawn from the type's and the pool's
+                    agents; floored by the normal-theory 90% interval of a median on the log scale
+                    (the percentile bootstrap of a median under-covers with few agents). It narrows
+                    as agents accumulate.
+    pool-prior      (provisional types) the same pooled replicates (own* only when the type has
+                    data, so the band leans toward it), then widened to at least the pool's band
+                    relative to med: a provisional band is never narrower than its pool's.
+                    Unobserved types get exactly the pool's band.
+  The model is also importable: fit(segments, frontmatter, soft_limits, seed=0) is pure (no
+  transcripts, no I/O); its docstring lists the segment columns it needs.
+
 stack_hash = sha256 over the canonical JSON {agent: {model, maxTurns, cacheTtl}} of every
 dot-claude/agents/*.md frontmatter (the fields this model reads; install-time placeholder
 substitution elsewhere in the frontmatter does not change it). A consumer recomputes it from the
 installed agents and treats a mismatch as a stale model.
 """
-import argparse, ast, datetime as dt, glob, hashlib, json, math, os, re, sys
+import argparse, ast, datetime as dt, glob, hashlib, json, math, os, re, sys, zlib
 
 import numpy as np
 import pandas as pd
@@ -124,7 +145,7 @@ def load(root, until):
     the previous segment and its peak. Segments whose last call is after `until` are dropped."""
     now = dt.datetime.now(dt.timezone.utc)
     lim = iso(until)
-    rows, models = [], {}
+    rows = []
     for main in sorted(glob.glob(os.path.join(root, "*", "*.jsonl"))):
         sid = os.path.basename(main)[:-6]
         sub = os.path.join(os.path.dirname(main), sid, "subagents")
@@ -152,17 +173,31 @@ def load(root, until):
                     row.update(first_cc=c0["cache_creation_input_tokens"], first_cr=c0["cache_read_input_tokens"],
                                gap_s=(iso(s["first_ts"]) - iso(prev["last_ts"])).total_seconds() if prev else np.nan,
                                prev_peak=prev["peak"] if prev else np.nan)
+                    cnt = {}
+                    for c in sg["calls"]:
+                        cnt[str(c["model"])] = cnt.get(str(c["model"]), 0) + 1
+                    row["model"] = sorted(cnt.items(), key=lambda kv: (-kv[1], kv[0]))[0][0]
                     if iso(s["last_ts"]) <= lim:
                         rows.append(row)
-                        for c in sg["calls"]:
-                            models[c["model"]] = models.get(c["model"], 0) + 1
                     prev = s
-    df = pd.DataFrame(rows)
-    df["problem"] = df.turn_limit | (df.compactions > 0)
-    df["healthy"] = ~df.open & ~df.problem & ~df.after_limit & (df.api_calls > 0)
-    df["wall_s"] = [(iso(b) - iso(a)).total_seconds() for a, b in zip(df.first_ts, df.last_ts)]
-    df["spc"] = df.wall_s / df.api_calls
-    return df, models
+    return prepare(pd.DataFrame(rows))
+
+
+def prepare(seg):
+    """Derived columns (problem, healthy, wall_s, spc) and copy types folded into their base."""
+    df = seg.copy()
+    df["type"] = df.type.astype(str).map(lambda t: t[:-5] if t.endswith("-copy") else t)
+    for c, v in (("compactions", 0), ("turn_limit", False), ("after_limit", False), ("open", False)):
+        if c not in df:
+            df[c] = v
+    df["problem"] = df.turn_limit.astype(bool) | (df.compactions > 0)
+    if "healthy" not in df:
+        df["healthy"] = ~df.open.astype(bool) & ~df.problem & ~df.after_limit.astype(bool)
+    df["healthy"] = df.healthy.astype(bool) & (df.api_calls > 0)
+    if "wall_s" not in df:
+        df["wall_s"] = [(iso(b) - iso(a)).total_seconds() for a, b in zip(df.first_ts, df.last_ts)]
+    df["spc"] = df.wall_s / df.api_calls.where(df.api_calls > 0)
+    return df
 
 
 # ------------------------------------------------------------------------------------- fits
@@ -218,8 +253,8 @@ def gate(d):
     return len(d) >= MIN_SEG and d.id.nunique() >= MIN_AGENTS
 
 
-def fit(seg, types):
-    """The model (pools + per type) from a segment table."""
+def fit_params(seg, types):
+    """Point estimates (pools + per type) from a prepared segment table."""
     H = seg[seg.healthy]
     Fs = H[H.seg == 0]
     pools = {}
@@ -284,42 +319,227 @@ def params_json(p):
                 sec_per_call=dict(p50=r1(p.get("spc50")), p90=r1(p.get("spc90"))))
 
 
-def build(seg, models, fm, soft, until):
+# ------------------------------------------------------------------------------------- bands
+LEVEL, B_DEFAULT = 0.9, 2000
+QLO, QHI = (1 - LEVEL) / 2, 1 - (1 - LEVEL) / 2
+
+
+def _rng(seed, name):
+    return np.random.default_rng([int(seed), zlib.crc32(name.encode())])
+
+
+def _boot(h, f, rng, B):
+    """Cluster bootstrap (agents resampled with replacement, all their segments kept): B replicates
+    of turns M, sec_per_call p50 (healthy segments h) and ctx (a, b) (healthy first segments f)."""
+    out = {}
+    if len(h):
+        ids = sorted(h.id.unique())
+        g_n = [h.api_calls.values[h.id.values == i].astype(float) for i in ids]
+        g_s = [h.spc.values[h.id.values == i].astype(float) for i in ids]
+        idx = rng.integers(0, len(ids), size=(B, len(ids)))
+        out["M"] = np.array([np.median(np.concatenate([g_n[j] for j in r])) for r in idx])
+        out["spc50"] = np.array([np.median(np.concatenate([g_s[j] for j in r])) for r in idx])
+    if len(f):
+        n, c = f.api_calls.values.astype(float), f.ctx.values.astype(float)
+        idx = rng.integers(0, len(f), size=(B, len(f)))   # one first segment per agent
+        ab = np.array([fit_ctx(n[r], c[r]) for r in idx])
+        out["a"], out["b"] = ab[:, 0], ab[:, 1]
+    return out
+
+
+def _band(theta, reps, floor=None):
+    """(lo, med, hi) of a quantity whose point estimate is theta from bootstrap replicates; with a
+    floor (lo_factor, hi_factor) the band is at least that wide relative to theta."""
+    lo, hi = float(np.quantile(reps, QLO)), float(np.quantile(reps, QHI))
+    lo, hi = min(lo, theta), max(hi, theta)
+    if floor is not None:
+        lo, hi = min(lo, theta * floor[0]), max(hi, theta * floor[1])
+    return lo, theta, hi
+
+
+Z90 = 1.6449            # standard normal 95th percentile (two-sided 90%)
+MEDIAN_SE = 1.2533      # sd of a sample median / sd of the mean, normal data (sqrt(pi/2))
+
+
+def _rsd(x):
+    """Robust sd (1.4826 x MAD) of log values; the plain sd when the MAD is 0 (more than half the
+    values equal, e.g. relays of exactly 2 API calls), so a lumpy sample still gets a width."""
+    x = np.asarray(x, float)
+    x = np.log(x[x > 0])
+    if len(x) < 2:
+        return 0.0
+    r = float(1.4826 * np.median(np.abs(x - np.median(x))))
+    return r if r > 0 else float(np.std(x, ddof=1))
+
+
+def _halfwidth(sig, n_eff):
+    """Normal-theory relative half-width (log scale) of a 90% interval of a median."""
+    return Z90 * MEDIAN_SE * sig / math.sqrt(n_eff) if n_eff else 0.0
+
+
+def bands(seg, model, pools, seed=0, B=B_DEFAULT):
+    """90% bands per pool and per type (see the module docstring, "Status and bands").
+
+    The percentile bootstrap of a median under-covers with few clusters (a median of 5 resampled
+    values takes at most 5 values), so every bootstrap band is also at least as wide as the
+    normal-theory interval of the median on the log scale, exp(+-1.645 x 1.2533 x sd / sqrt(agents))
+    with sd the robust sd of the log values (for ctx: of log(ctx / fitted curve)); for a pooled type
+    the own and pool half-widths combine as sqrt((w h_own)^2 + ((1 - w) h_pool)^2), w = n/(n + 5).
+    That floor shrinks as 1/sqrt(agents), so the band narrows as data accumulate."""
+    H = seg[seg.healthy]
+    Fs = H[H.seg == 0]
+    curve = lambda a, b, n: a * n + b * n * n
+
+    def hw(h, f, p):
+        """Normal-theory half-widths (turns, spc, ctx) of a data set with its fitted p."""
+        out = dict(M=_halfwidth(_rsd(h.api_calls), h.id.nunique()),
+                   spc50=_halfwidth(_rsd(h.spc), h.id.nunique()), ctx=0.0)
+        if len(f) and "a" in p:
+            ratio = f.ctx.values / curve(p["a"], p["b"], f.api_calls.values.astype(float))
+            out["ctx"] = _halfwidth(_rsd(ratio), len(f))
+        return out
+
+    preps, phw, pband = {}, {}, {}
+    for tier, pl in pools.items():
+        mem = DT.TIER[tier].split()
+        h, f = H[H.type.isin(mem)], Fs[Fs.type.isin(mem)]
+        preps[tier] = _boot(h, f, _rng(seed, "pool:" + tier), B)
+        phw[tier] = hw(h, f, pl["p"])
+
+    def pool_factors(tier, key, nref):
+        """The pool's band of `key` as factors (lo/med, hi/med); ctx evaluated at nref."""
+        p, r, e = pools[tier]["p"], preps[tier], math.exp(phw[tier][key])
+        if key == "ctx":
+            lo, _, hi = _band(1.0, curve(r["a"], r["b"], nref) / curve(p["a"], p["b"], nref), (1 / e, e))
+            return lo, hi
+        lo, th, hi = _band(p[key], r[key], (1 / e, e))
+        return lo / th, hi / th
+
+    for tier, pl in pools.items():
+        p = pl["p"]
+        f_t, f_s, f_c = (pool_factors(tier, k, p["M"]) for k in ("M", "spc50", "ctx"))
+        pband[tier] = dict(level=LEVEL, method="bootstrap", B=B, n_ref=p["M"],
+                           turns=(p["M"] * f_t[0], p["M"], p["M"] * f_t[1]),
+                           sec_per_call=(p["spc50"] * f_s[0], p["spc50"], p["spc50"] * f_s[1]),
+                           ctx=(f_c[0], 1.0, f_c[1]))
+    tband = {}
+    for t, m in model.items():
+        tier, p = m["tier"], m["p"]
+        if tier not in pools or "M" not in p:
+            tband[t] = None
+            continue
+        h, f = H[H.type == t], Fs[Fs.type == t]
+        own = _boot(h, f, _rng(seed, "type:" + t), B)
+        own_hw = hw(h, f, p) if len(h) else {}
+        pr = preps[tier]
+        sup = m["status"] == "supported"
+        n_h, n_f = len(h), len(f)
+        shrink = lambda k, n: (n * own[k] + K * pr[k]) / (n + K) if n and k in own else pr[k]
+        nref = p["M"]
+
+        def floor(key, n, own_fit):
+            if own_fit:          # bootstrap band, floored by the pooled normal-theory width
+                w = n / (n + K)
+                e = math.exp(math.hypot(w * own_hw[key], (1 - w) * phw[tier][key]))
+                return 1 / e, e
+            return pool_factors(tier, key, nref)       # pool-prior: never narrower than the pool
+        res = {}
+        for key, nm in (("M", "turns"), ("spc50", "sec_per_call")):
+            res[nm] = _band(p[key], shrink(key, n_h), floor(key, n_h, sup and m["source"] == "own"))
+        reps = curve(shrink("a", n_f), shrink("b", n_f), nref) / curve(p["a"], p["b"], nref)
+        res["ctx"] = _band(1.0, reps, floor("ctx", n_f, sup and m["source_ctx"] == "own"))
+        tband[t] = dict(level=LEVEL, method="bootstrap" if sup else "pool-prior", B=B, n_ref=nref, **res)
+    return tband, pband
+
+
+def band_json(b):
+    if b is None:
+        return None
+    tri = lambda x, f: dict(lo=f(x[0]), med=f(x[1]), hi=f(x[2]))
+    r3 = lambda v: round(float(v), 3)
+    return dict(level=b["level"], method=b["method"], B=b["B"], n_ref=r1(b["n_ref"]),
+                turns=tri(b["turns"], r1), sec_per_call=tri(b["sec_per_call"], r1), ctx=tri(b["ctx"], r3))
+
+
+# ------------------------------------------------------------------------------------- the model
+MODEL_RE = re.compile(r"claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2})(?!\d))?")
+
+
+def family_version(model_id):
+    """('opus', '5.5') from a model ID; None when it is not a Claude model ID."""
+    m = MODEL_RE.search(str(model_id))
+    return (m.group(1), m.group(2) + ("." + m.group(3) if m.group(3) else "")) if m else None
+
+
+def fit(segments, frontmatter, soft_limits, seed=0, *, until=None, B=B_DEFAULT):
+    """The sched_model.json dict from per-segment numbers; no transcript access, no I/O.
+
+    segments: one row per subagent segment (a spawn or a resume). Required columns:
+      session, id (agent id), type (agent type; "<base>-copy" counts as <base>), seg (0 = first
+      segment of the agent), api_calls, ctx (input + cache_creation + cache_read summed over the
+      segment), first_cc (cache_creation of its first call), and either wall_s or first_ts and
+      last_ts (ISO). Health: either a bool `healthy` or compactions, turn_limit, after_limit, open
+      (missing ones count as 0/False). Optional: model (the segment's model ID; for
+      kappa.models_measured), last_ts (data_until when `until` is None), and for the cold-resume
+      calibration first_cr, prev_peak, gap_s, cache_creation_input_tokens.
+    frontmatter: {agent type: {"model": alias, "maxTurns": int|None, "cacheTtl": "5m"|"1h"}} for
+      every agent (frontmatter() reads it from dot-claude/agents); types without a tier are refused,
+      except blackcat (the main thread), which is skipped.
+    soft_limits: {agent type: tokens or None} (agent_guard.py SOFT_LIMITS).
+    seed, B: the bootstrap's seed and replicate count; the result is a pure function of the inputs.
+    """
+    seg = prepare(segments)
+    fm = frontmatter
     types = sorted(t for t in fm if t in DT.TIER_OF)
     missing = sorted(t for t in fm if t not in DT.TIER_OF and t != "blackcat")
     if missing:
-        raise SystemExit(f"agents without a tier in derive_thresholds.TIER: {missing}")
-    model, pools = fit(seg, types)
-    cr = cold_resumes(seg, fm)
-    cold_obs = cr[cr.cold & cr.over_ttl & cr.frac.notna()]
-    frac = float(np.median(cold_obs.frac)) if len(cold_obs) >= MIN_SEG else None
+        raise ValueError(f"agent types without a tier in derive_thresholds.TIER: {missing}")
+    model, pools = fit_params(seg, types)
+    H = seg[seg.healthy]
+    for t, m in model.items():
+        m["status"] = "supported" if gate(H[H.type == t]) else "provisional"
+    tband, pband = bands(seg, model, pools, seed, B)
+    frac = None
+    if {"first_cr", "prev_peak", "gap_s", "cache_creation_input_tokens"} <= set(seg.columns):
+        cr = cold_resumes(seg, fm)
+        cold_obs = cr[cr.cold & cr.over_ttl & cr.frac.notna()]
+        frac = float(np.median(cold_obs.frac)) if len(cold_obs) >= MIN_SEG else None
     fam = {}
-    for k, n in sorted(models.items(), key=lambda kv: (-kv[1], str(kv[0]))):
-        for f in ("opus", "sonnet", "haiku"):
-            if k and f"-{f}-" in str(k) and f not in fam:
-                fam[f] = k
+    if "model" in seg:
+        calls = {}
+        for mid, n in seg.groupby("model").api_calls.sum().items():
+            fv = family_version(mid)
+            if fv:
+                calls[fv] = calls.get(fv, 0) + int(n)
+        for (f, v), n in sorted(calls.items(), key=lambda kv: (-kv[1], kv[0])):
+            fam.setdefault(f, v)
+    if until is None and "last_ts" in seg and seg.last_ts.notna().any():
+        until = str(seg.last_ts.dropna().max())
     J = dict(version=1, generated=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
-             stack_hash=stack_hash(fm), sessions=sorted(seg.session.unique().tolist()), data_until=until,
+             stack_hash=stack_hash(fm), sessions=sorted(map(str, seg.session.unique())), data_until=until,
              kappa=dict(cache_write_5m=1.25, cache_write_1h=2.0,
-                        cache_read={"default": 0.1, "opus-5-5": 0.05},
-                        cache_read_match="the longest key that is a substring of the model ID, else default",
+                        cache_read=dict(default=0.1, rules=[dict(family="opus", version="5.5", value=0.05)]),
+                        cache_read_match=("resolve the type's alias to a model ID with "
+                                          "ANTHROPIC_DEFAULT_<FAMILY>_MODEL; a rule applies when the ID's "
+                                          "family and major.minor version equal the rule's, else default"),
                         output=None, prices=None, models_measured=fam, source=DOCS),
              types={}, pools={})
     for t in types:
         m, f = model[t], fm[t]
         ttl = f["cacheTtl"]
-        J["types"][t] = dict(model=f["model"], ttl=ttl, tier=m["tier"], **params_json(m["p"]),
+        J["types"][t] = dict(model=f["model"], ttl=ttl, tier=m["tier"], status=m["status"],
+                             **params_json(m["p"]), band=band_json(tband.get(t)),
                              cold=dict(after_s=TTL_S.get(ttl, 300), rewrite="min(cache_creation, prior_peak)",
                                        frac=round(frac, 3) if frac is not None else None),
-                             soft_limit=soft.get(t), maxTurns=f["maxTurns"], n_seg=m["n_seg"],
+                             soft_limit=soft_limits.get(t), maxTurns=f["maxTurns"], n_seg=m["n_seg"],
                              n_agents=m["n_agents"], n_first=m["n_first"], source=m["source"],
                              source_ctx=m["source_ctx"])
     for tier in POOLS:
         if tier in pools:
             pl = pools[tier]
-            J["pools"][tier] = dict(**params_json(pl["p"]), n_seg=pl["n_seg"], n_agents=pl["n_agents"],
-                                    n_first=pl["n_first"])
-    return J, model, pools, cr
+            J["pools"][tier] = dict(**params_json(pl["p"]), band=band_json(pband[tier]), n_seg=pl["n_seg"],
+                                    n_agents=pl["n_agents"], n_first=pl["n_first"])
+    return J
 
 
 # ------------------------------------------------------------------------------------- validation
@@ -335,7 +555,7 @@ def loso(seg, types, by="session"):
         tr, te = seg[seg[by] != s], seg[(seg[by] == s) & seg.healthy]
         if tr.empty or te.empty:
             continue
-        m, pools = fit(tr, types)
+        m, pools = fit_params(tr, types)
         for r in te.itertuples():
             if r.type not in m:
                 continue
@@ -412,7 +632,7 @@ def disagreements(J):
     return out
 
 
-def report(J, model, pools, cr, ev, ev_agent, seg, check):
+def report(J, cr, ev, ev_agent, seg, check):
     o = []
     P = o.append
     H = seg[seg.healthy]
@@ -436,6 +656,34 @@ def report(J, model, pools, cr, ev, ev_agent, seg, check):
                      d["ttl"], d["maxTurns"], fmt(d["soft_limit"], "tok") if d["soft_limit"] else "none"])
     P(table(rows, ["type", "tier", "n_seg / n_agents", "n_first", "source", "source ctx", "turns S/M/L",
                    "ctx a", "ctx b", "static_cc", "s/call p50 / p90", "ttl", "maxTurns", "soft"]))
+    P("\n## Status and 90% bands\n")
+    P("`status`: supported = own data with >= 5 healthy segments from >= 3 agents; else provisional. Bands "
+      "(JSON `band`): `bootstrap` = 90% percentile interval of the median, B = 2000, seed 0, agents resampled "
+      "as clusters, each replicate pooled like the point value, (n*own* + 5*pool*)/(n + 5); `pool-prior` "
+      "(provisional) = the same replicates, then widened to at least the pool's band relative to med, so a "
+      "provisional band is never narrower than its pool's (unobserved types: exactly the pool's band). "
+      "Bootstrap bands narrow as agents accumulate. med = the model's point value; ctx lo/hi are factors on "
+      "a*n + b*n^2 at n = turns M. w = hi/med - 1 (upside a planner should budget for). Note: a median of "
+      "integer turn counts is discrete, so a band edge can coincide with med (w = 0) when most segments share "
+      "the median value.\n")
+    rows = []
+    for t, d in J["types"].items():
+        b = d["band"]
+        if b is None:
+            rows.append([t, d["status"], "-", "-", "-", "-", "-", "-", "-"])
+            continue
+        w = lambda x: f"{x['hi']/x['med'] - 1:.2f}" if x["med"] else "-"
+        rows.append([t, d["status"], b["method"], f"{fmt(b['turns']['lo'])} / {fmt(b['turns']['med'])}",
+                     fmt(b["turns"]["hi"]), w(b["turns"]), f"{b['ctx']['lo']:.2f}-{b['ctx']['hi']:.2f}",
+                     w(b["ctx"]), w(b["sec_per_call"])])
+    for k, v in J["pools"].items():
+        b = v["band"]
+        w = lambda x: f"{x['hi']/x['med'] - 1:.2f}" if x["med"] else "-"
+        rows.append([f"*pool {k}*", "-", b["method"], f"{fmt(b['turns']['lo'])} / {fmt(b['turns']['med'])}",
+                     fmt(b["turns"]["hi"]), w(b["turns"]), f"{b['ctx']['lo']:.2f}-{b['ctx']['hi']:.2f}",
+                     w(b["ctx"]), w(b["sec_per_call"])])
+    P(table(rows, ["type", "status", "method", "turns lo / med", "turns hi", "w turns", "ctx factor lo-hi",
+                   "w ctx", "w s/call"]))
     unobs = [t for t, d in J["types"].items() if d["n_seg"] == 0 and d["n_first"] == 0]
     P(f"\nUnobserved types ({len(unobs)}) use their pool: " +
       "; ".join(f"{tier}: {', '.join(t for t in unobs if J['types'][t]['tier'] == tier)}"
@@ -521,8 +769,9 @@ def main():
     until = (dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if a.until == "now" else a.until)
     fm = frontmatter(a.agents)
     soft = soft_limits(a.guard)
-    seg, models = load(a.root, until)
-    J, model, pools, cr = build(seg, models, fm, soft, until)
+    seg = load(a.root, until)
+    J = fit(seg, fm, soft, seed=0, until=until)
+    cr = cold_resumes(seg, fm)
     ev = loso(seg, list(J["types"]))
     ev_agent = loso(seg, list(J["types"]), by="id")
     with open(a.out, "w", encoding="utf-8") as fh:
@@ -530,7 +779,7 @@ def main():
         fh.write("\n")
     if a.report:
         os.makedirs(os.path.dirname(a.report), exist_ok=True)
-        txt = report(J, model, pools, cr, ev, ev_agent, seg, check_segments_csv(seg, a.segments_csv))
+        txt = report(J, cr, ev, ev_agent, seg, check_segments_csv(seg, a.segments_csv))
         with open(a.report, "w", encoding="utf-8") as fh:
             fh.write(txt)
     print(f"wrote {a.out}" + (f" and {a.report}" if a.report else ""))
