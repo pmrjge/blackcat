@@ -1,19 +1,19 @@
 ---
 name: compiler-engineering
-description: Use for compilers, interpreters and language tools — phases, testing; module map from parsing to Wasm.
+description: Use for compilers and interpreters — parsing, type checking, IR/LLVM, codegen, JITs, Wasm.
 ---
 # Compiler engineering (hub)
 
 ## Scope
 Languages, DSLs, interpreters, compilers and their tooling. Editor/LSP integration: `editor-engineering`; algorithms: `algorithm-design`; proofs about type systems: `proof-craft`, `lean-formalization`; fuzzing: `test-fuzzing`; host languages: `rust-engineering`, `cpp-engineering`, `haskell-engineering`.
 
-## Modules
-| module | load when |
+## Modules and references (load or read the one the task touches)
+| Module / reference | When |
 |---|---|
-| `compiler-frontend` | lexing, parsing (hand-written, combinators, generators, tree-sitter), ASTs, error recovery, diagnostics |
-| `compiler-types` | name resolution, type checking and inference, generics, traits, soundness tests |
-| `compiler-ir-llvm` | IR design, SSA, optimization passes, LLVM IR/MLIR, llvmlite/inkwell, debugging miscompiles |
-| `compiler-backend-jit` | instruction selection, register allocation, Cranelift, JITs, interpreters, GC and runtimes |
+| `references/frontend.md` | lexing, parsing (hand-written, combinators, generators, tree-sitter), ASTs, error recovery, diagnostics |
+| `references/types.md` | name resolution, type checking and inference, generics, traits, soundness tests |
+| `references/ir-llvm.md` | IR design, SSA, optimization passes, LLVM IR/MLIR, llvmlite/inkwell, debugging miscompiles |
+| `references/backend-jit.md` | instruction selection, register allocation, Cranelift, JITs, interpreters, GC and runtimes |
 | `wasm` | WebAssembly targets, WASI, component model, wasmtime, browser interop, wasm tooling |
 
 ## Baseline rules

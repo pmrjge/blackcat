@@ -1,6 +1,6 @@
 ---
 name: dep-upgrades
-description: Use for upgrading dependencies or toolchains — batching, changelogs, semver checks, update bots, rollback.
+description: Use to upgrade dependencies or toolchains — changelogs, batching, semver checks, bots, rollback.
 ---
 # Dependency and toolchain upgrades
 

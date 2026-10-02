@@ -1,18 +1,18 @@
 ---
 name: audio-engineering
-description: Use for audio software — ear safety, real-time rules; module map for DSP, plugins, analysis.
+description: Use for audio software — real-time DSP, plugins (JUCE, CLAP, VST3, AU), Python analysis, ear safety.
 ---
 # Audio engineering (hub)
 
 ## Scope
 Signal processing code, real-time audio engines and plugins, and offline analysis of audio. Encoding, transcoding, loudness normalization of media files: `media-ffmpeg`; numerics: `numerical-methods`; speech/music ML models: `ml-experiment`, `training-debug`.
 
-## Modules
-| module | load when |
+## References (read the one the task touches)
+| Reference | Read when the task needs |
 |---|---|
-| `audio-dsp` | filters, FFT/STFT, resampling, dynamics, oscillators, fixed vs float, real-time constraints |
-| `audio-plugins` | JUCE, nih-plug, VST3, AU, CLAP, Faust; plugin state, parameters, validation, signing |
-| `audio-analysis` | Python analysis: loading, spectral features, loudness, onset/pitch/tempo, datasets for ML |
+| `references/dsp.md` | filters, FFT/STFT, resampling, dynamics, oscillators, fixed vs float, real-time constraints |
+| `references/plugins.md` | JUCE, nih-plug, VST3, AU, CLAP, Faust; plugin state, parameters, validation, signing |
+| `references/analysis.md` | Python analysis: loading, spectral features, loudness, onset/pitch/tempo, datasets for ML |
 
 ## Baseline rules
 - **Protect ears and speakers**: never play generated or processed audio through the user's speakers or headphones without saying so first; test signals at −20 dBFS or lower, with a hard limiter/clip guard on any output path under development; NaN/Inf or DC can damage equipment — sanitize outputs.

@@ -1,6 +1,6 @@
 ---
 name: ml-experiment
-description: Use before running or comparing models or evals — leakage-safe splits, baselines, seeds, ablations, uncertainty.
+description: Use before running or comparing models — leakage-safe splits, baselines, seeds, ablations.
 ---
 # ML experiment protocol
 

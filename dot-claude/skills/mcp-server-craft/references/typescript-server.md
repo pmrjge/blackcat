@@ -2,7 +2,7 @@
 
 Read when writing a TypeScript MCP server (was the `mcp-ts-server` skill).
 
-Part of `mcp-server-craft` (tool design, security reference). stdio hygiene, startup and Inspector tests: `mcp-python-server` (same rules for Node: stdout is the protocol channel, logs on stderr). HTTP with `createMcpHandler`: `mcp-http-release`.
+Part of `mcp-server-craft` (tool design, security reference). stdio hygiene, startup and Inspector tests: `references/python-server.md` (same rules for Node: stdout is the protocol channel, logs on stderr). HTTP with `createMcpHandler`: `references/http-release.md`.
 `@modelcontextprotocol/server` 2.2.0 is current; the example pins the tested 2.1.0 (Verified 2026-10-02 https://registry.npmjs.org/@modelcontextprotocol/server/latest).
 
 ## TypeScript server (SDK 2.x, Node >= 20; tested on Node 22)

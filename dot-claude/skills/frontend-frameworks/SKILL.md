@@ -1,6 +1,6 @@
 ---
 name: frontend-frameworks
-description: Load before building or changing a web front end — React 19 + Compiler, Next.js 16, Svelte 5, Vue, Astro 7, Tailwind v4, modern CSS, Core Web Vitals.
+description: Use for web front ends — React 19, Next.js 16, Svelte 5, Vue, Astro, Tailwind v4, Web Vitals.
 ---
 # Front-end frameworks and web performance
 

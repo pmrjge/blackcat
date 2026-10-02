@@ -1,6 +1,6 @@
 ---
 name: diffusion-flow-models
-description: Use for diffusion or flow-matching models — SDEs, DDPM/DDIM, rectified flow, guidance, samplers, training.
+description: Use for diffusion or flow-matching models — DDPM/DDIM, rectified flow, guidance, samplers.
 ---
 # Diffusion and flow-matching models
 

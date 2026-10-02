@@ -1,6 +1,6 @@
 ---
 name: hf-hub
-description: Use to find, download or publish Hugging Face Hub models and datasets — licenses, gated repos, hf CLI.
+description: Use to find, download or publish Hugging Face models and datasets — licenses, gated repos, cache.
 ---
 # Hugging Face Hub
 

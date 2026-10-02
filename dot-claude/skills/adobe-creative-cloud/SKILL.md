@@ -1,6 +1,6 @@
 ---
 name: adobe-creative-cloud
-description: Load before automating or working in Adobe apps beyond Illustrator — Photoshop and InDesign scripting (UXP, ExtendScript, batchPlay), actions, data merge, preflight, Acrobat.
+description: Use to script or run Photoshop, InDesign or Acrobat — UXP, ExtendScript, batchPlay, data merge, preflight.
 ---
 # Adobe Creative Cloud
 

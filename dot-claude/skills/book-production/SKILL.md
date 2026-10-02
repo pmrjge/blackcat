@@ -1,6 +1,6 @@
 ---
 name: book-production
-description: Use to turn a manuscript into print PDF, DOCX or EPUB, or publish via KDP/IngramSpark — layout, cover, ISBN.
+description: Use to make a book from a manuscript — print PDF, EPUB, DOCX, KDP/IngramSpark, cover, ISBN.
 ---
 # Book production: manuscript → print PDF, DOCX, EPUB
 

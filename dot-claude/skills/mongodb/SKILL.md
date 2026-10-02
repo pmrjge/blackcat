@@ -1,6 +1,6 @@
 ---
 name: mongodb
-description: Use for MongoDB — document modeling, schema validation, ESR indexes, aggregation, transactions, sharding.
+description: Use for MongoDB — document modeling, validation, ESR indexes, aggregation, transactions.
 ---
 # MongoDB
 

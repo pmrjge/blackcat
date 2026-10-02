@@ -1,6 +1,6 @@
 ---
 name: embedded-firmware
-description: Use for firmware and hardware-near work — MCUs, RTOS, drivers, flashing safety, FPGA, PCB; module map.
+description: Use for firmware and hardware-near work — MCUs, RTOS, drivers, flashing safety, FPGA, PCB.
 ---
 # Embedded firmware (hub)
 

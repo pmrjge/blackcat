@@ -1,6 +1,6 @@
 ---
 name: agent-harness-design
-description: Use to design or build an agent runtime — loop, stop rules, tools, sandboxes, context, memory, multi-agent, evals.
+description: Use to build an agent runtime — loop, stop rules, tool schemas, sandboxes, memory, multi-agent, evals.
 ---
 # Agent harness design
 

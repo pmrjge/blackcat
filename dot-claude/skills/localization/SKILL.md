@@ -1,6 +1,6 @@
 ---
 name: localization
-description: Use for i18n and translation — plurals, locales, machine-translation review; module map for catalogs and subtitles.
+description: Use for i18n and translation — plurals, locales, machine-translation review, catalogs, subtitles.
 ---
 # Localization and internationalization (hub)
 

@@ -1,6 +1,6 @@
 ---
 name: llm-quantization
-description: Use for LLM quantization recipes — MLX mixed precision, GPTQ/AWQ, sensitivity, memory, perplexity.
+description: Use for LLM quantization — MLX mixed precision, GPTQ/AWQ, sensitivity, memory, perplexity.
 ---
 # LLM quantization protocol
 

@@ -1,6 +1,6 @@
 ---
 name: ide-workflows
-description: Use to set up dev tooling — VS Code settings, tasks, launch, dev containers, JetBrains, EditorConfig.
+description: Use to set up dev tooling — VS Code settings, tasks, launch, dev containers, JetBrains.
 ---
 # IDE and browser developer tooling
 

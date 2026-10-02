@@ -1,6 +1,6 @@
 ---
 name: diagrams-as-code
-description: Use for diagrams as text — Mermaid, Graphviz, D2, PlantUML, TikZ, Excalidraw; rendering, embedding, QA.
+description: Use for diagrams as text — Mermaid, Graphviz, D2, PlantUML, TikZ/tikz-cd; rendering, embedding.
 ---
 # Diagrams as code
 
@@ -15,12 +15,12 @@ description: Use for diagrams as text — Mermaid, Graphviz, D2, PlantUML, TikZ,
   Graphviz 16.1.0 (gitlab.com/graphviz/graphviz tags), D2 0.9.0 (github.com/terrastruct/d2 tags), PlantUML 1.2026.8
   (github.com/plantuml/plantuml tags). quiver.sty, dvisvgm and poppler versions: unverified since Sep 2026.
 
-## Modules (load the one the task touches)
-| Module | Load for |
+## References (read the one the task touches)
+| Reference | Read when the task needs |
 |---|---|
-| `diag-mermaid` | Mermaid 12 syntax, mmdc rendering, SVG caveats, Excalidraw |
-| `diag-graphviz-d2` | Graphviz DOT, D2, PlantUML: syntax, layouts, rendering |
-| `diag-tikz` | tikz-cd, quiver, string diagrams in TikZ, PDF/DVI → SVG/PNG conversion |
+| `references/mermaid.md` | Mermaid 12 syntax, mmdc rendering, SVG caveats, Excalidraw |
+| `references/graphviz-d2-plantuml.md` | Graphviz DOT, D2, PlantUML: syntax, layouts, rendering |
+| `references/tikz.md` | tikz-cd, quiver, string diagrams in TikZ, PDF/DVI → SVG/PNG conversion |
 
 ## 1. Choose the tool
 | Need | Tool | Strengths / limits |
@@ -65,7 +65,7 @@ Prefer build-time rendering (no client JS, no layout drift when a renderer updat
 | Symptom | Cause | Fix |
 |---|---|---|
 | Text overflows boxes in SVG | viewer substitutes the font | install the font; text as paths |
-Tool-specific pitfalls are in each module.
+Tool-specific pitfalls are in each reference.
 
 ## Verify
 - Renders cleanly in the target renderer and version: mmdc exit 0, no `dot` warnings, `d2 validate`, LaTeX log

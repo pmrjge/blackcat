@@ -10,7 +10,7 @@ Use a solver when the problem is NP-hard with modest size, carries many side con
 | Linear objective and constraints, continuous or mixed-integer | HiGHS: `scipy.optimize.milp` / `linprog(method="highs")` (sci venv), or `highspy` |
 | Scheduling, assignment, sequencing with logical/global constraints, integer data | OR-Tools CP-SAT |
 | Pure Boolean clauses and cardinalities | SAT via PySAT (`python-sat`: CaDiCaL, Glucose, …) |
-| Bit-vector/arithmetic/logic queries, invariant checks | z3 (`fm-smt-z3`) |
+| Bit-vector/arithmetic/logic queries, invariant checks | z3 (`formal-methods` `references/smt-z3.md`) |
 
 ```python
 from ortools.sat.python import cp_model          # recent OR-Tools: snake_case API

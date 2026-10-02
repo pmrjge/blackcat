@@ -1,6 +1,6 @@
 ---
 name: emb-debug-flash
-description: Use before flashing or debugging a board — probe-rs, OpenOCD, GDB, RTT, QEMU/Renode, faults.
+description: Use before flashing or debugging a board — probe-rs, OpenOCD, GDB, RTT, QEMU/Renode.
 ---
 # Flashing, probes, simulation and debugging
 

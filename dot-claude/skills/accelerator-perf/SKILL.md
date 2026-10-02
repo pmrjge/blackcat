@@ -1,6 +1,6 @@
 ---
 name: accelerator-perf
-description: Load before any GPU/accelerator benchmark, kernel or port, and before any speed or memory claim — environment capture, methodology, parity checks, profiler order, report format.
+description: Load before a GPU benchmark, kernel port or speed/memory claim — environment, method, parity, profilers.
 ---
 # Accelerator performance protocol
 

@@ -1,6 +1,6 @@
 ---
 name: literature-review
-description: Use for paper search, bibliographies and reviews — arXiv, Semantic Scholar, OpenAlex, verified BibTeX.
+description: Use for paper search, bibliographies and reviews — arXiv, Semantic Scholar, OpenAlex, BibTeX.
 ---
 # Literature search and review — zero fabricated citations
 

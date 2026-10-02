@@ -1,6 +1,6 @@
 ---
 name: a11y-audit
-description: Use for WCAG 2.2 AA audits of web UI — axe in Playwright, manual keyboard, zoom and VoiceOver passes, findings report.
+description: Use for WCAG 2.2 AA audits — axe in Playwright, keyboard, zoom and VoiceOver passes, findings report.
 ---
 # Accessibility audit: automated and manual
 Hub: `web-accessibility` (target WCAG 2.2 AA, legal frame, 2.2 additions, contrast, motion, report format). Sources (checked 2026-09-29, listed in the hub `web-accessibility`): W3C WCAG 2.2, WAI-ARIA APG, axe-core API, Playwright accessibility testing.

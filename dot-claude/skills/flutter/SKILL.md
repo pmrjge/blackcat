@@ -1,6 +1,6 @@
 ---
 name: flutter
-description: Use for Flutter apps — Dart, state management, platform channels, widget and golden tests, builds.
+description: Use for Flutter apps — Dart, state management, platform channels, widget and golden tests.
 ---
 # Flutter
 

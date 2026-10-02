@@ -1,6 +1,6 @@
 ---
 name: bayesian-modeling
-description: Load before building or checking a Bayesian model — PyMC 6, NumPyro, Stan; prior predictive checks, R-hat/ESS/divergences, reparameterization, LOO, ArviZ 1.0.
+description: Use for Bayesian models — PyMC, NumPyro, Stan; prior checks, R-hat/ESS, divergences, LOO.
 ---
 # Bayesian modeling
 

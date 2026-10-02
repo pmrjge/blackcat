@@ -1,6 +1,6 @@
 ---
 name: computer-use-apps
-description: Load before driving Adobe, ONLYOFFICE or a native app under test by screen — MCP/script-first routing, one-agent screen lock, app shortcuts, safety; mechanics in computer-use.
+description: Use before driving Adobe, ONLYOFFICE or a native app by screen — routing, screen lock, shortcuts.
 ---
 # Computer use for desktop apps
 

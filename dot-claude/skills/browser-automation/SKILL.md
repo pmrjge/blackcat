@@ -1,6 +1,6 @@
 ---
 name: browser-automation
-description: Load before a multi-step browser task — choosing Chrome, built-in browser or Playwright, the Playwright loop, forms, downloads, hard stops; Chrome tool mechanics in chrome-browser.
+description: Use before a multi-step browser task — Chrome vs built-in browser vs Playwright, forms, downloads.
 ---
 # Browser automation
 

@@ -1,6 +1,6 @@
 ---
 name: image-prompting
-description: Use before generating or editing images through image-studio — SVG and raster prompts, edits, QA, costs.
+description: Use before generating or editing images via image-studio — SVG and raster prompts, edits, QA, costs.
 ---
 # Image generation and editing (mcp__image-studio)
 

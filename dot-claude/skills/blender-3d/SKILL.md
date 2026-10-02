@@ -1,6 +1,6 @@
 ---
 name: blender-3d
-description: Load before modeling, scripting, rendering or exporting in Blender — headless bpy, bmesh, geometry nodes, materials, Cycles/EEVEE, glTF/FBX/USD/STL export, the Blender MCP server.
+description: Use for Blender — headless bpy, bmesh, geometry nodes, Cycles/EEVEE, exports, the Blender MCP server.
 ---
 # Blender
 

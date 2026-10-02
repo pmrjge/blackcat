@@ -1,6 +1,6 @@
 ---
 name: gpu-triton
-description: Use for Triton kernels — block tensors, masking, tl.dot, autotuning, interpreter debugging, torch op wrapping.
+description: Use for Triton kernels — masking, tl.dot, autotuning, interpreter debugging, torch ops.
 ---
 # Triton
 Hub: `gpu-kernel-dev` (is a kernel justified, performance model, device table; numerics and correctness in `gpu-kernel-dev` `references/numerics-correctness.md`). Benchmarks: `accelerator-perf`. Version facts here were checked earlier without recorded URLs (unverified as of 2026-10-02) unless a Sources line says otherwise.

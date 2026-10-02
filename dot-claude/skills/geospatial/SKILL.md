@@ -1,17 +1,17 @@
 ---
 name: geospatial
-description: Use for geospatial work — CRS rules, cloud-native formats, licensing; module map for analysis and web maps.
+description: Use for geospatial data — CRS, GDAL, GeoPandas, rasterio, PostGIS, PMTiles, MapLibre maps.
 ---
 # Geospatial (hub)
 
 ## Scope
 Spatial data processing, analysis and map publishing. Databases: `postgresql` (PostGIS) and `dataframes-duckdb` (DuckDB spatial); plots: `data-visualization`; front ends: `frontend-frameworks`.
 
-## Modules
-| module | load when |
+## References (read the one the task touches)
+| Reference | Read when the task needs |
 |---|---|
-| `geo-raster-vector` | CRS, datums, reprojection, GDAL/OGR command line, formats; GeoPandas/Shapely, rasterio/rioxarray, overlays, zonal stats, STAC, PostGIS/DuckDB queries |
-| `geo-tiles-webmaps` | vector/raster tiles, PMTiles, MapLibre, tile servers, styles, web map performance |
+| `references/raster-vector.md` | CRS, datums, reprojection, GDAL/OGR command line, formats; GeoPandas/Shapely, rasterio/rioxarray, overlays, zonal stats, STAC, PostGIS/DuckDB queries |
+| `references/tiles-webmaps.md` | vector/raster tiles, PMTiles, MapLibre, tile servers, styles, web map performance |
 
 ## Versions
 - GDAL 3.13.3 — Verified 2026-10-02 https://github.com/OSGeo/gdal/releases/latest

@@ -1,6 +1,6 @@
 ---
 name: distributed-training
-description: Load before training on more than one GPU or node — torchrun, DDP vs FSDP2 (fully_shard), mixed precision, activation checkpointing, DCP checkpoints, NCCL, JAX sharding.
+description: Use to train on several GPUs or nodes — torchrun, DDP vs FSDP2, mixed precision, NCCL, JAX.
 ---
 # Distributed training
 

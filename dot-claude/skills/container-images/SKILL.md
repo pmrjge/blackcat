@@ -1,6 +1,6 @@
 ---
 name: container-images
-description: Load before writing, building or auditing a Dockerfile or image — multi-stage, BuildKit mounts, digests, non-root, buildx multi-arch, SBOM, hadolint, trivy.
+description: Use for Dockerfiles and images — multi-stage, digests, non-root, multi-arch, SBOM, hadolint, trivy.
 ---
 # Container images
 

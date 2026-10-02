@@ -1,6 +1,6 @@
 ---
 name: julia-engineering
-description: Use for Julia — juliaup, Pkg, Test/Aqua/JET, type stability, benchmarks, GPU packages, SciML.
+description: Use for Julia — juliaup, Pkg, Test/Aqua/JET, type stability, benchmarks, GPU, SciML.
 ---
 # Julia engineering
 

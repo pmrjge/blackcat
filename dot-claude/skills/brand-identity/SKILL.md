@@ -1,6 +1,6 @@
 ---
 name: brand-identity
-description: Use for logos and brand identities — concepts, logo construction, wordmarks, color and type systems, guidelines.
+description: Use for logos and brand identities — concepts, wordmarks, color and type systems, guidelines.
 ---
 # Brand identity and logo design
 

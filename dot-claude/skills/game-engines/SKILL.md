@@ -1,6 +1,6 @@
 ---
 name: game-engines
-description: Use for Godot, Unity, Unreal or Bevy — project structure, scripting, engine tests, headless builds.
+description: Use for Godot, Unity, Unreal or Bevy — project structure, scripting, tests, headless builds.
 ---
 # Game engines
 

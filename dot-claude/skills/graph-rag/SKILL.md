@@ -1,6 +1,6 @@
 ---
 name: graph-rag
-description: Use when retrieval needs relations, multi-hop or temporal facts — Graphiti, Neo4j, LightRAG, GraphRAG.
+description: Use when retrieval needs relations or multi-hop facts — Graphiti, Neo4j, LightRAG, GraphRAG.
 ---
 # Graph RAG and knowledge-graph memory
 

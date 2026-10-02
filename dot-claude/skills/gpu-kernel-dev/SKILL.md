@@ -1,6 +1,6 @@
 ---
 name: gpu-kernel-dev
-description: Use for custom GPU kernels — choosing Metal/MLX, CUDA or Triton; roofline, low precision, correctness, profiling.
+description: Use for custom GPU kernels — Metal/MLX vs CUDA vs Triton, roofline, correctness, profiling.
 ---
 # GPU kernel development
 

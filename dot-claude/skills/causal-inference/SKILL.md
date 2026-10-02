@@ -1,6 +1,6 @@
 ---
 name: causal-inference
-description: Load before estimating a causal effect from observational or quasi-experimental data — DiD and staggered adoption, event studies, IV, RD, matching, synthetic control.
+description: Use to estimate causal effects from observational data — DiD, event studies, IV, RD, synthetic control.
 ---
 # Causal inference
 

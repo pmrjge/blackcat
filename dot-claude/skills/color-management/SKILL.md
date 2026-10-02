@@ -1,6 +1,6 @@
 ---
 name: color-management
-description: Use to choose, convert or check colors — ICC profiles, CMYK, Pantone/spot, ΔE2000, OKLCH, WCAG contrast.
+description: Use to choose, convert or check colors — ICC profiles, CMYK, spot colors, ΔE2000, OKLCH, contrast.
 ---
 # Color management
 

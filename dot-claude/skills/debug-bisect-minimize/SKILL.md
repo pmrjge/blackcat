@@ -1,6 +1,6 @@
 ---
 name: debug-bisect-minimize
-description: Use for finding a bug's first bad commit or smallest failing input — git bisect run, delta debugging, cvise.
+description: Use to find a bug's first bad commit or smallest failing input — git bisect run, delta debugging.
 ---
 # Bisecting and minimizing
 
@@ -8,7 +8,12 @@ description: Use for finding a bug's first bad commit or smallest failing input 
 Two searches that shrink a bug before anyone reads code: which change introduced it (bisect), and which smallest input still triggers it (minimize). Git mechanics beyond `bisect`: `git-workflows`. Crash analysis: `debug-native`. Property-test shrinking: `test-property-based`.
 
 ## 1. A reliable oracle first
-- Write a script that exits 0 when the behaviour is good, 1–124 or 126–127 when bad, and 125 when the revision cannot be tested (build failure) — the `git bisect run` convention.
+- Write a script that exits 0 when the behaviour is good, 1–124 or 126–127 when bad, 125 when the revision cannot be tested (build failure); ≥ 128 aborts the bisect — the `git bisect run` convention. Keep it outside the repo or untracked:
+```bash
+#!/usr/bin/env bash
+make -s build >/dev/null 2>&1 || exit 125
+./repro.sh && exit 0 || exit 1
+```
 - Make it deterministic (seeds, fixed inputs, timeouts). For flaky bugs, run the check N times and call "bad" if any run fails; state N.
 - Check the oracle on a known-good and a known-bad revision before bisecting.
 
@@ -19,7 +24,8 @@ git bisect run ./check.sh          # 0 good, 125 skip, other non-zero bad
 git bisect log > bisect.log        # keep it for the report
 git bisect reset
 ```
-- Narrow the search space: `git bisect start <bad> <good> -- path/` limits to commits touching a path; `--first-parent` follows merges only.
+- Narrow the search space: `git bisect start <bad> <good> -- path/` limits to commits touching a path; `--first-parent` follows merges only (merge-heavy histories).
+- Performance regressions: `git bisect start --term-old=fast --term-new=slow`. Bisect in a detached worktree (`git worktree add --detach ../bisect <bad>`) so work in progress is untouched.
 - Build failures in the middle: exit 125 (skip); too many skips → bisect on merge commits first.
 - Not only git history: the same binary search works over dependency versions (lockfile states), compiler versions (e.g. a Rust nightly bisector), configuration flags, or data partitions.
 

@@ -1,6 +1,6 @@
 ---
 name: 3d-printing
-description: Load before designing, repairing, slicing or checking anything to be 3D printed (FDM or resin) — design rules, mesh repair, STL/3MF/STEP, OpenSCAD/build123d, slicers, materials.
+description: Use for anything 3D printed (FDM, resin) — design rules, mesh repair, STL/3MF/STEP, OpenSCAD, slicers, materials.
 ---
 # 3D printing
 

@@ -1,6 +1,6 @@
 ---
 name: bio-chem-computing
-description: Use for computational biology and chemistry — data-use and biosecurity rules; module map from pipelines to QM.
+description: Use for computational biology or chemistry — biosecurity rules; genomics to quantum chemistry.
 ---
 # Computational biology and chemistry (hub)
 

@@ -1,6 +1,6 @@
 ---
 name: ci-cd-pipelines
-description: Load before writing, fixing or reviewing a CI/CD workflow — GitHub and Forgejo Actions, permissions, SHA pinning, secrets/OIDC, caching, actionlint, zizmor.
+description: Use for CI/CD workflows — GitHub/Forgejo Actions, permissions, SHA pinning, OIDC, caching, zizmor.
 ---
 # CI/CD pipelines
 

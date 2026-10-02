@@ -1,6 +1,6 @@
 ---
 name: data-visualization
-description: Load before making a data figure in code — chart choice, perception, palettes, labels, uncertainty, plotly/Altair.
+description: Use before making a data figure in code — chart choice, perception, palettes, labels, uncertainty.
 ---
 # Data visualization
 

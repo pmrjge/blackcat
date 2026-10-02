@@ -1,6 +1,6 @@
 ---
 name: algorithm-design
-description: Use when a problem needs a non-trivial algorithm or data structure — techniques, solvers, proofs, stress tests.
+description: Use for non-trivial algorithms and data structures — techniques, solvers, proofs, stress tests.
 ---
 # Algorithm design
 
@@ -94,7 +94,7 @@ Read `references/solvers.md` when a problem may go to an exact solver (SAT/SMT/M
 - Graphs: cut property (MST); Dijkstra's invariant (settled distances exact — breaks with negative edges); augmenting-path theorem (flow, matching); duality certificates (min cut, LP dual, König cover).
 - Amortization: aggregate, accounting, or potential Φ ≥ 0 with Φ₀ = 0 and amortized cost = actual + ΔΦ (dynamic arrays, union-find, monotone stacks, splay trees).
 - Randomized: linearity of expectation with indicators; Markov/Chebyshev/Chernoff for high-probability bounds.
-- Prefer certifying algorithms: output a witness (path, cut, dual, matching + cover) and verify it in O(output). Bounded invariant claims can be checked by SMT (`fm-smt-z3`).
+- Prefer certifying algorithms: output a witness (path, cut, dual, matching + cover) and verify it in O(output). Bounded invariant claims can be checked by SMT (`formal-methods` `references/smt-z3.md`).
 
 ## 4. Complexity beyond big-O, and when to stop
 - State time and memory in all parameters (n, m, q, alphabet σ, value range C) with realistic constants.

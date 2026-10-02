@@ -1,6 +1,6 @@
 ---
 name: cmake-ninja-builds
-description: Load before writing, fixing or speeding up a CMake or Ninja build for C, C++ or CUDA — targets, presets, dependencies (FetchContent, vcpkg, Conan), ccache, CTest, sanitizers.
+description: Use for CMake/Ninja builds of C, C++ or CUDA — targets, presets, vcpkg/Conan, ccache, CTest.
 ---
 # CMake and Ninja builds
 

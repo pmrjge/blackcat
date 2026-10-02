@@ -1,6 +1,6 @@
 ---
 name: debug-native
-description: Use for crashes, hangs and memory corruption in C, C++, Rust or native extensions — sanitizers, lldb/gdb, rr.
+description: Use for crashes, hangs or memory corruption in native code — sanitizers, lldb/gdb, rr.
 ---
 # Debugging native code (C, C++, Rust, extensions)
 
@@ -15,7 +15,7 @@ Crashes (SIGSEGV, SIGABRT, panics across FFI), hangs and deadlocks, memory corru
    - UndefinedBehaviorSanitizer (`-fsanitize=undefined`): overflow, misaligned access, invalid shifts and casts.
    - ThreadSanitizer (`-fsanitize=thread`, separate build): data races.
    - MemorySanitizer (clang, Linux, fully instrumented build): uninitialized reads.
-   - Rust: Miri for unsafe code paths and sanitizers on nightly (`fm-rust-kani-miri`).
+   - Rust: Miri for unsafe code paths and sanitizers on nightly (`formal-methods` `references/rust-kani-miri.md`).
 4. If it doesn't reproduce under sanitizers, look for timing (races), environment (locale, stack size, ulimits) and input differences.
 
 ## Debuggers

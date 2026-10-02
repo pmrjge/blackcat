@@ -1,6 +1,6 @@
 ---
 name: gpu-cuda
-description: Use for writing or profiling CUDA C++ kernels — sm_120 builds, warp reductions, Nsight, torch custom ops.
+description: Use for CUDA C++ kernels — sm_120 builds, warp reductions, Nsight, torch custom ops.
 ---
 # CUDA C++ (NVIDIA, including RTX 50-series)
 Hub: `gpu-kernel-dev` (is a kernel justified, performance model, device table; numerics and correctness in `gpu-kernel-dev` `references/numerics-correctness.md`). Benchmarks: `accelerator-perf`. Version facts here were checked earlier without recorded URLs (unverified as of 2026-10-02) unless a Sources line says otherwise.

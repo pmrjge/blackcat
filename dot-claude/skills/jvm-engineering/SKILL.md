@@ -1,6 +1,6 @@
 ---
 name: jvm-engineering
-description: Use for JVM code — Java 21+, Scala 3, Gradle/Maven/sbt, JUnit, JMH, JFR/GC tuning, GraalVM.
+description: Use for JVM code — Java 21+, Scala 3, Gradle/Maven/sbt, JUnit, JMH, GC tuning, GraalVM.
 ---
 # JVM engineering (Java 21+, Scala 3)
 

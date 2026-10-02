@@ -1,6 +1,6 @@
 ---
 name: cpp-engineering
-description: Load before writing, reviewing or debugging C or C++ — standard and compiler feature status, UB traps, RAII and lifetimes, concurrency, sanitizers, clang-tidy, tests, ABI.
+description: Use for C or C++ — UB traps, RAII and lifetimes, concurrency, sanitizers, clang-tidy, ABI.
 ---
 # C and C++ engineering
 

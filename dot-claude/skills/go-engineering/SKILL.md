@@ -1,6 +1,6 @@
 ---
 name: go-engineering
-description: Use for any Go work — modules, toolchains, errors, context, generics, slog, linters, goroutines, tests.
+description: Use for any Go work — modules, errors, context, generics, slog, linters, tests.
 ---
 # Go engineering
 

@@ -1,6 +1,6 @@
 ---
 name: emb-rust
-description: Use for no_std Rust firmware — embassy, RTIC, esp-hal, embedded-hal, defmt, memory.x.
+description: Use for no_std Rust firmware — embassy, RTIC, esp-hal, embedded-hal, defmt.
 ---
 # Embedded Rust
 

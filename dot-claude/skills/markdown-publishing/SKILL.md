@@ -1,6 +1,6 @@
 ---
 name: markdown-publishing
-description: Use for Markdown publishing — GFM, math, Mermaid, MDX, Astro sites, Pandoc, lint and link checks.
+description: Use for Markdown publishing — GFM, math, Mermaid, MDX, Astro, Pandoc, link checks.
 ---
 # Markdown publishing
 

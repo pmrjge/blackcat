@@ -1,6 +1,6 @@
 ---
 name: cpu-performance
-description: Load before measuring or speeding up CPU-bound code on macOS or Linux — benchmark method, criterion, hyperfine, flags.
+description: Use to measure or speed up CPU-bound code — benchmark method, profilers, flags (macOS, Linux).
 ---
 # CPU performance (Apple Silicon macOS, Linux x86-64)
 

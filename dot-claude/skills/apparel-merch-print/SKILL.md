@@ -1,6 +1,6 @@
 ---
 name: apparel-merch-print
-description: Use for garment and merch artwork — screen print, DTG, DTF, sublimation, vinyl, embroidery, placements.
+description: Use for garment and merch art — screen print, DTG, DTF, sublimation, vinyl, embroidery.
 ---
 # Apparel and merchandise print
 

@@ -1,6 +1,6 @@
 ---
 name: fpga-hdl
-description: Use for HDL and FPGAs — SystemVerilog/VHDL, Verilator, cocotb, Yosys/nextpnr, timing, CDC.
+description: Use for HDL and FPGAs — SystemVerilog/VHDL, Verilator, cocotb, Yosys/nextpnr, timing.
 ---
 # FPGA and HDL
 

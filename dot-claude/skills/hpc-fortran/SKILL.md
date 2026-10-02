@@ -1,6 +1,6 @@
 ---
 name: hpc-fortran
-description: Use for Fortran — modern style, modules, fpm, compilers, C/Python interop, legacy modernization.
+description: Use for Fortran — modern style, fpm, compilers, C/Python interop, legacy modernization.
 ---
 # Modern Fortran
 

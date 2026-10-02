@@ -1,6 +1,6 @@
 ---
 name: android-engineering
-description: Use for Android apps — Kotlin, Gradle/AGP, Compose, tests, adb; Android and cross-platform module map.
+description: Use for Android or cross-platform mobile apps — Kotlin, Gradle/AGP, Compose, tests, adb.
 ---
 # Android engineering (hub)
 

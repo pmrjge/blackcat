@@ -1,6 +1,6 @@
 ---
 name: hpc-mpi-openmp
-description: Use for MPI and OpenMP — decomposition, collectives, hybrid runs, binding, scaling studies.
+description: Use for MPI and OpenMP — decomposition, collectives, hybrid runs, binding, scaling.
 ---
 # MPI and OpenMP
 

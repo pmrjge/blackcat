@@ -1,6 +1,6 @@
 ---
 name: data-analysis
-description: Load for any analysis of a dataset — profiling, exploratory plots, statistical tests, effect sizes, multiple comparisons, A/B tests and power, reports; causal designs in causal-inference.
+description: Use for dataset analysis — profiling, exploratory plots, tests, effect sizes, A/B tests, power.
 ---
 # Data analysis protocol
 

@@ -1,6 +1,6 @@
 ---
 name: game-graphics
-description: Use for games and real-time graphics — frame budgets, profiling; map of engine, GPU API, shader, netcode modules.
+description: Use for games and real-time graphics — frame budgets, profiling, engines, GPU APIs, netcode.
 ---
 # Games and real-time graphics (hub)
 

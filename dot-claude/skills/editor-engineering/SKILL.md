@@ -1,6 +1,6 @@
 ---
 name: editor-engineering
-description: Use to build text-editor internals or IDE features — ropes, undo, tree-sitter, LSP/DAP, terminals, rendering.
+description: Use for editor internals or IDE features — ropes, undo, tree-sitter, LSP/DAP, terminals.
 ---
 # Editor engineering
 

@@ -1,6 +1,6 @@
 ---
 name: media-ffmpeg
-description: Use before running ffmpeg or ffprobe — probing, encodes, trims, concat, scaling, GIFs, loudnorm, subtitles, batch.
+description: Use before running ffmpeg or ffprobe — encodes, trims, concat, scaling, GIFs, loudnorm, subtitles.
 ---
 # ffmpeg and ffprobe recipes
 
@@ -12,12 +12,12 @@ description: Use before running ffmpeg or ffprobe — probing, encodes, trims, c
   options were checked against the FFmpeg source instead (no such hardware/model on the test box).
 - FFmpeg 9.0.2 is the latest release (Verified 2026-10-02 `git ls-remote --tags https://github.com/FFmpeg/FFmpeg`).
 
-## Modules
-| Module | Load for |
+## References (read the one the task touches)
+| Reference | Read when the task needs |
 |---|---|
-| `ffmpeg-encode` | codec choice (H.264/HEVC/AV1/ProRes/alpha/lossless), YouTube spec, VideoToolbox/NVENC, pixel formats and color tags, HDR, faststart/remux, batch loops |
-| `ffmpeg-edit` | trim, concat, scale/pad/crop, frame rate and speed, stills/contact sheets/GIF, image sequences, stabilization, overlays, burn-ins |
-| `ffmpeg-audio-subs` | audio extract/replace, ducking, loudness measurement and two-pass loudnorm, burned or soft subtitles, whisper drafts |
+| `references/encode.md` | codec choice (H.264/HEVC/AV1/ProRes/alpha/lossless), YouTube spec, VideoToolbox/NVENC, pixel formats and color tags, HDR, faststart/remux, batch loops |
+| `references/edit.md` | trim, concat, scale/pad/crop, frame rate and speed, stills/contact sheets/GIF, image sequences, stabilization, overlays, burn-ins |
+| `references/audio-subs.md` | audio extract/replace, ducking, loudness measurement and two-pass loudnorm, burned or soft subtitles, whisper drafts |
 
 ## 0. Check the build before relying on a feature
 ```sh
@@ -34,7 +34,7 @@ ffmpeg -hide_banner -h filter=loudnorm
 - Linux: distro builds differ (Ubuntu 24.04 ships 6.1 with libass, vid.stab, zimg, SVT-AV1, NVENC).
   NVENC needs a recent NVIDIA driver; see `linux-workstation`.
 - Version breaks: `-vsync` is gone in current builds, use `-fps_mode cfr|vfr|passthrough`. `scale2ref`
-  is deprecated since 7.1 (use `scale` with a reference input, §6 in `ffmpeg-edit`). FFmpeg 9.0 removed legacy NVENC
+  is deprecated since 7.1 (use `scale` with a reference input, §6 in `references/edit.md`). FFmpeg 9.0 removed legacy NVENC
   options: use presets `p1`–`p7` plus `-tune`.
 - Script hygiene: `-hide_banner -nostdin`, `-n` (never overwrite) unless you mean `-y`,
   `-loglevel error -stats` for quiet progress, `-progress pipe:1` for machine-readable progress.
@@ -58,7 +58,7 @@ audio codec/rate/channels, duration, and rotation side data (phone footage).
 | `Nothing was written into output file…received no packets` | encoder failed or mapping empty | read the first error above it; check `-map` and filter labels |
 | `Unrecognized option 'vsync'` | removed option | `-fps_mode` |
 | `Filter … has an unconnected output` (9.x: `Filter '…' has output N (…) unconnected`) | a split/asplit output was not consumed | label and use every output |
-Tool-specific rows are in each module.
+Tool-specific rows are in each reference.
 
 ## Verify
 - `ffprobe` the output against the spec (codec, profile, WxH, SAR 1:1, fps, pix_fmt, color tags, audio rate/layout, duration ±1 frame).

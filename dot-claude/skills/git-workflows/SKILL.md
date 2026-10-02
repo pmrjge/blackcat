@@ -1,6 +1,6 @@
 ---
 name: git-workflows
-description: Use for git beyond a plain commit — worktrees, rebase/squash, history edits, conflicts, bisect, reflog, LFS, signing.
+description: Use for git beyond a plain commit — worktrees, rebase, history edits, conflicts, recovery, LFS.
 ---
 # Git workflows (solo and multi-agent)
 
@@ -12,25 +12,25 @@ Commands marked (tested) were run on Git 2.43; newer-only features name their mi
 - Covers: local git practice, parallel work in worktrees, integration, repair, history cleanup, repo hygiene, forge CLIs.
 - Not here: running a forge (the `self-hosting-ops` skill has Forgejo), model downloads (the `hf-hub` skill).
 
-## Modules and references (load the one the task touches)
-| Module | Load for |
+## References (read the one the task touches)
+| Reference | Read when |
 |---|---|
-| `git-worktrees` | one worktree per task, shared vs per-worktree state, Claude Code worktrees, merging back |
-| `git-history-edit` | amend/fixup/autosquash without an editor, `--onto`, conflicts, filter-repo secret removal |
-| `git-recovery-bisect` | reflog, ORIG_HEAD, lost commits and stashes, `git bisect run` |
-| `git-large-repos` | LFS and model weights, blobless/sparse clones, submodules vs subtrees, `.gitattributes` |
-
-- Read `references/signing-hooks.md` when setting up SSH signing, pre-commit or gitleaks; `references/forge-clis.md` when using `gh`, `tea` or `fj`.
+| `references/worktrees.md` | one worktree per task, shared vs per-worktree state, Claude Code worktrees, merging back |
+| `references/history-edit.md` | amend/fixup/autosquash without an editor, `--onto`, conflicts, filter-repo secret removal |
+| `references/recovery.md` | reflog, ORIG_HEAD, lost commits and stashes (bisect: `debug-bisect-minimize`) |
+| `references/large-repos.md` | LFS and model weights, blobless/sparse clones, submodules vs subtrees, `.gitattributes` |
+| `references/signing-hooks.md` | SSH signing, pre-commit, gitleaks |
+| `references/forge-clis.md` | using `gh`, `tea` or `fj` |
 
 ## Safety rules (always)
 1. Never push (the stack's global Git rule, hook-enforced, also inside `bash -c`/`eval`/`$(...)`): no `git push` in
    any form, no `send-pack`, `lfs push` or `subtree push`, no `gh`/`tea`/`fj` command that writes to a forge.
    Work lands in local `main`; the user publishes.
 2. Never rewrite published history (amend/rebase/filter-repo of pushed commits) unless the user asked for it.
-3. Never commit secrets. If one lands: rotate it first, then clean (`git-history-edit`).
+3. Never commit secrets. If one lands: rotate it first, then clean (`references/history-edit.md`).
 4. Before anything destructive, leave a rescue ref: `git branch rescue/$(date +%s)` (or note `git rev-parse HEAD`).
 5. No TTY for agents: never `git add -p`, `git mergetool`, bare `git rebase -i`, or commands that open an editor.
-   Use `--no-edit`, `-m`, `GIT_EDITOR=true`, and `GIT_SEQUENCE_EDITOR` (`git-history-edit`).
+   Use `--no-edit`, `-m`, `GIT_EDITOR=true`, and `GIT_SEQUENCE_EDITOR` (`references/history-edit.md`).
 6. Don't change the user's global git config silently; propose settings or set them per repo.
 
 ## Orient first (read-only)
@@ -66,7 +66,7 @@ git log --oneline ..@{u}                                    # commits you are be
 
 ## Verify
 - `git status` clean; before merging, `git log --oneline --graph main..<branch>` shows exactly the intended commits.
-- Plus the Verify block of every module used (rewrites, recovery, worktrees, large files).
+- Plus the Verify block of every reference used (rewrites, recovery, worktrees, large files).
 
 ## Report
 - Branches and commits (sha, subject), the commit local `main` now points at, merge method; nothing pushed.

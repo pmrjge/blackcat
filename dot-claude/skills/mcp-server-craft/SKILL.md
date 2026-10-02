@@ -1,19 +1,19 @@
 ---
 name: mcp-server-craft
-description: Use to build, test, register or package an MCP server — tool design, Python or TS SDK, stdio/HTTP, security, MCPB.
+description: Use to build, test, register or package an MCP server — tool design, Python/TS SDK, HTTP, MCPB.
 ---
 # Building MCP servers the way this stack runs them
 
-Tested Sep 2026 by running the code in the modules: `mcp` 2.2.0 and 1.30.0 (Python), `@modelcontextprotocol/server` 2.1.0
+Tested Sep 2026 by running the code in the references: `mcp` 2.2.0 and 1.30.0 (Python), `@modelcontextprotocol/server` 2.1.0
 and `@modelcontextprotocol/sdk` 1.30.1 (Node 22), Inspector 2.8.0; MCP spec 2026-07-28. Working references: the
 stack's servers in `dot-claude/mcp/` (`libdocs_mcp.py`, `image_studio_mcp.py`, `neural_memory_mcp.py`).
-Current releases (Verified 2026-10-02 https://registry.npmjs.org/<pkg>/latest, https://pypi.org/pypi/mcp/json, `git ls-remote --tags https://github.com/modelcontextprotocol/modelcontextprotocol`): `mcp` 2.2.0 and 1.30.0, `@modelcontextprotocol/server` 2.2.0, `@modelcontextprotocol/sdk` 1.31.0, Inspector 2.9.0, `@modelcontextprotocol/node` 2.1.0, `@anthropic-ai/mcpb` 2.1.2, `@modelcontextprotocol/ext-apps` 2.0.3; latest spec revision 2026-07-28. The newer TS/Inspector releases were not re-tested: the pins in the modules are the tested ones.
+Current releases (Verified 2026-10-02 https://registry.npmjs.org/<pkg>/latest, https://pypi.org/pypi/mcp/json, `git ls-remote --tags https://github.com/modelcontextprotocol/modelcontextprotocol`): `mcp` 2.2.0 and 1.30.0, `@modelcontextprotocol/server` 2.2.0, `@modelcontextprotocol/sdk` 1.31.0, Inspector 2.9.0, `@modelcontextprotocol/node` 2.1.0, `@anthropic-ai/mcpb` 2.1.2, `@modelcontextprotocol/ext-apps` 2.0.3; latest spec revision 2026-07-28. The newer TS/Inspector releases were not re-tested: the pins in the references are the tested ones.
 
-## Modules
-| Module | Load for |
+## References (read the one the task touches)
+| Reference | Read when the task needs |
 |---|---|
-| `mcp-python-server` | Python SDK 1.x vs 2.x, the PEP 723 server template, stdio hygiene and startup, pinning, unit/in-process/stdio/Inspector tests |
-| `mcp-http-release` | Streamable HTTP (Python and TS), registering in Claude Code, MCPB bundles, MCP Apps UI, the release checklist |
+| `references/python-server.md` | Python SDK 1.x vs 2.x, the PEP 723 server template, stdio hygiene and startup, pinning, unit/in-process/stdio/Inspector tests |
+| `references/http-release.md` | Streamable HTTP (Python and TS), registering in Claude Code, MCPB bundles, MCP Apps UI, the release checklist |
 
 ## MCP, CLI or skill?
 | Need | Build |
@@ -51,7 +51,7 @@ Read `references/security.md` before a tool takes a path, URL, key or shell argu
 fetched content treated as data, no shell interpolation, least privilege.
 
 ## Verify
-Re-run release checklist items 2, 4, 6 (`mcp-http-release`); `/mcp` shows it connected; one real call from the target agent succeeds within budget.
+Re-run release checklist items 2, 4, 6 (`references/http-release.md`); `/mcp` shows it connected; one real call from the target agent succeeds within budget.
 
 ## Report
 Server name and path; SDK and version pins; tools (name: one line each); transport; where it is registered;

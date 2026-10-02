@@ -1,11 +1,11 @@
 ---
 name: dist-systems
-description: Use for designs spanning services — timeouts, retries, idempotency, consistency, queues, partial failure.
+description: Use for designs spanning services — timeouts, retries, idempotency, consistency, queues.
 ---
 # Distributed systems design
 
 ## Scope
-Correctness and failure handling when work spans processes, machines or services: RPC, queues, caches, replicated databases. Model-checking a protocol: `fm-tla`. API contracts: `api-design`. Database specifics: `db-design` and its modules.
+Correctness and failure handling when work spans processes, machines or services: RPC, queues, caches, replicated databases. Model-checking a protocol: `formal-methods` `references/tla.md`. API contracts: `api-design`. Database specifics: `db-design` and its modules.
 
 ## Assume these failures
 - Messages are lost, duplicated, delayed and reordered; a timeout does not tell you whether the request ran.
@@ -36,7 +36,7 @@ Correctness and failure handling when work spans processes, machines or services
 ## Verify
 - [ ] Each cross-process step lists what happens on timeout, duplicate, reorder and crash-after-commit.
 - [ ] Fault-injection tests: kill the consumer mid-message, duplicate deliveries, delay responses past the timeout — the end state is correct.
-- [ ] Protocols with subtle interleavings are model-checked (`fm-tla`) before implementation.
+- [ ] Protocols with subtle interleavings are model-checked (`formal-methods` `references/tla.md`) before implementation.
 - [ ] Dashboards show queue depth/age, retries and dead letters; alerts exist for each.
 
 Content is general engineering knowledge without version-specific claims; tool names (etcd, OpenTelemetry) are pointers, not version statements.

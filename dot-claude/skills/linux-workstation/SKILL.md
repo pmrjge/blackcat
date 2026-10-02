@@ -1,6 +1,6 @@
 ---
 name: linux-workstation
-description: Use for a Linux ML/dev workstation (CachyOS or Ubuntu, RTX 50 laptop) — NVIDIA driver, CUDA, PyTorch, desktop, btrfs.
+description: Use for a Linux ML/dev workstation (CachyOS, Ubuntu, RTX 50) — NVIDIA, CUDA, desktop, btrfs.
 ---
 # Linux ML workstation: CachyOS or Ubuntu, NVIDIA Blackwell laptop
 
@@ -16,11 +16,11 @@ Tags: **[CachyOS]** (also plain Arch unless noted), **[Ubuntu]** (24.04 LTS / 26
 - Ask before installing/removing packages, touching boot entries, kernel parameters, firewall or sshd.
   [CachyOS] take a snapshot first. Never partially upgrade Arch. Never pipe an unread script into a shell.
 
-## Modules (load the one the task touches)
-| Module | Load for |
+## Modules and references (load or read the one the task touches)
+| Module / reference | When |
 |---|---|
 | `linux-nvidia-cuda` | open NVIDIA driver, CUDA toolkit, PyTorch wheels, hybrid graphics and power, suspend, GPU containers, GPU troubleshooting |
-| `linux-desktop-btrfs` | fish shell, Wayland, fonts and input, btrfs snapshots and rollback |
+| `references/desktop-btrfs.md` | fish shell, Wayland, fonts and input, btrfs snapshots and rollback |
 
 ## Packages
 - **[CachyOS]** Full upgrades only: `sudo pacman -Syu` or `paru` (never `pacman -Sy <pkg>`). Read news first:
@@ -54,7 +54,7 @@ Tags: **[CachyOS]** (also plain Arch unless noted), **[Ubuntu]** (24.04 LTS / 26
 
 ## Verify
 - `systemctl --failed` is empty; `journalctl -b -p err` has nothing new; a snapshot exists from before the change;
-  the last backup succeeded. Plus the Verify block of every module used.
+  the last backup succeeded. Plus the Verify block of every module or reference used.
 
 ## Report
 Distro, kernel, driver version and flavour (open), CUDA toolkit (if any), torch version/CUDA/arch list; what

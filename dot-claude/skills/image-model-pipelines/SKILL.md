@@ -1,6 +1,6 @@
 ---
 name: image-model-pipelines
-description: Use to run, fine-tune or evaluate open image models — diffusers, mflux, ComfyUI, LoRA, metric caveats.
+description: Use to run, fine-tune or evaluate open image models — diffusers, mflux, ComfyUI, LoRA.
 ---
 # Image-generation model pipelines
 

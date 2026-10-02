@@ -1,6 +1,6 @@
 ---
 name: category-theory
-description: Use for categorical constructions, proofs and diagrams — limits, adjoints, Yoneda, monads, monoidal categories.
+description: Use for categorical constructions and proofs — limits, adjoints, Yoneda, monads, monoidal categories.
 ---
 # Category theory in practice
 

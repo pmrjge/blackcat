@@ -1,6 +1,6 @@
 ---
 name: hpc-computing
-description: Use for scientific and HPC code — cluster cost rules, reproducibility; map of MPI, SLURM, Fortran, I/O, PDE modules.
+description: Use for scientific and HPC code — cluster cost rules, reproducibility, MPI, SLURM, Fortran, I/O.
 ---
 # Scientific computing and HPC (hub)
 

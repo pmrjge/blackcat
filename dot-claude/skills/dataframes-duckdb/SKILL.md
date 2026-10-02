@@ -1,6 +1,6 @@
 ---
 name: dataframes-duckdb
-description: Load before transforming tabular data in code — pandas 3, polars, DuckDB, SQLite, Parquet/Arrow; dtypes, joins, lazy/streaming, row order, validation, big files.
+description: Use to transform tabular data — pandas, polars, DuckDB, Parquet/Arrow; dtypes, joins, big files.
 ---
 # Dataframes, DuckDB and SQLite
 

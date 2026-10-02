@@ -1,6 +1,6 @@
 ---
 name: lean-formalization
-description: Use for Lean 4 and Mathlib — lake projects, the LSP goal loop, lemma search, tactics, soundness.
+description: Use for Lean 4 and Mathlib — lake, the LSP goal loop, lemma search, tactics, soundness.
 ---
 # Lean 4 formalization with Mathlib
 

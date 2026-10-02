@@ -1,6 +1,6 @@
 ---
 name: formal-methods
-description: Use when code or a protocol needs machine-checked assurance — choosing SMT, TLA+, Kani/Miri, property tests, fuzzing.
+description: Use when code or a protocol needs machine-checked assurance — z3/SMT, TLA+, Kani, Miri.
 ---
 # Formal methods and machine-checked assurance
 
@@ -22,12 +22,12 @@ description: Use when code or a protocol needs machine-checked assurance — cho
 
 Order of attack: PBT and fuzzing on existing code first (cheap, and they find the shallow bugs fast); model-check a protocol before implementing it; SMT for localized arithmetic facts; deductive proofs only for small cores where the cost is justified. Verify the current status and install method of any tool not covered below before recommending it.
 
-## Modules
-| Module | Load when |
+## References (read the one the task touches)
+| Reference | Read when |
 |---|---|
-| `fm-smt-z3` | arithmetic, bit-vector or loop-invariant facts for all inputs of a fixed width (z3) |
-| `fm-tla` | concurrent or distributed protocols: TLA+/PlusCal with TLC or Apalache |
-| `fm-rust-kani-miri` | Rust panics, overflow, UB and memory-model bugs: Kani, Miri, loom, sanitizers |
+| `references/smt-z3.md` | arithmetic, bit-vector or loop-invariant facts for all inputs of a fixed width (z3) |
+| `references/tla.md` | concurrent or distributed protocols: TLA+/PlusCal with TLC or Apalache |
+| `references/rust-kani-miri.md` | Rust panics, overflow, UB and memory-model bugs: Kani, Miri, loom, sanitizers |
 
 Property-based/stateful tests and fuzzing are modules of `test-strategy`: `test-property-based`, `test-fuzzing`. Their results are evidence, not proof (§7).
 

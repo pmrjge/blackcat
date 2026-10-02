@@ -1,6 +1,6 @@
 ---
 name: a11y-aria-patterns
-description: Use for accessible web UI — semantic HTML, ARIA APG widget patterns, labelled forms, keyboard operation, focus order.
+description: Use for accessible web UI — semantic HTML, ARIA APG patterns, labelled forms, keyboard, focus order.
 ---
 # Semantics, ARIA patterns, keyboard and focus
 Hub: `web-accessibility` (target WCAG 2.2 AA, legal frame, 2.2 additions, contrast, motion, report format). Sources (checked 2026-09-29, listed in the hub `web-accessibility`): W3C WCAG 2.2, WAI-ARIA APG, axe-core API, Playwright accessibility testing.

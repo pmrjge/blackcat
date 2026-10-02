@@ -1,6 +1,6 @@
 ---
 name: mysql
-description: Use for MySQL or MariaDB — InnoDB schema, online DDL, EXPLAIN, locking and isolation, replication.
+description: Use for MySQL or MariaDB — InnoDB schema, online DDL, EXPLAIN, locking, replication.
 ---
 # MySQL and MariaDB
 Hub: `db-design` (modeling, engine choice); migrations workflow: `db-migrations`.

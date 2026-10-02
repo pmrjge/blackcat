@@ -1,6 +1,6 @@
 ---
 name: macos-app-distribution
-description: Use to package, sign, notarize or publish a macOS app — bundles, universal binaries, DMG, Sparkle, Homebrew.
+description: Use to ship a macOS app — bundles, signing, notarization, DMG, Sparkle, Homebrew casks.
 ---
 # macOS app distribution
 
@@ -13,11 +13,11 @@ description: Use to package, sign, notarize or publish a macOS app — bundles, 
 - Related: `rust-release` (release profiles, targets), `rust-native-gui` (menus, open-file events), `secure-coding` (secrets).
 - Versions: Sparkle 2.10.0 (`git ls-remote --tags https://github.com/sparkle-project/Sparkle`), cargo-bundle 0.12.0, cargo-packager 0.11.8, apple-codesign 0.29.0 (https://crates.io/api/v1/crates/<name>) — Verified 2026-10-02; Homebrew is at 7.0.x now (github.com/Homebrew/brew tags), the Homebrew 5 deprecation above dates from 5.0. macOS-release and Gatekeeper-policy claims: unverified since Sep 2026.
 
-## Modules (load the one the task touches)
-| Module | Load for |
+## References (read the one the task touches)
+| Reference | Read when the task needs |
 |---|---|
-| `macos-sign-notarize` | Developer ID signing, entitlements, notarytool and stapling, Gatekeeper troubleshooting, CI signing, sandbox and Mac App Store |
-| `macos-dmg-sparkle-brew` | DMG images, Sparkle 2 updates, Homebrew casks and taps, packaging tools (cargo-bundle, cargo-packager, rcodesign) |
+| `references/sign-notarize.md` | Developer ID signing, entitlements, notarytool and stapling, Gatekeeper troubleshooting, CI signing, sandbox and Mac App Store |
+| `references/dmg-sparkle-brew.md` | DMG images, Sparkle 2 updates, Homebrew casks and taps, packaging tools (cargo-bundle, cargo-packager, rcodesign) |
 
 Read `references/bundle-metadata.md` when filling Info.plist, making the app icon, or registering document types and URL schemes.
 

@@ -1,6 +1,6 @@
 ---
 name: l10n-catalogs
-description: Use to edit and check translation catalogs — .po, XLIFF, .xcstrings, strings.xml, ARB, ICU; QA checks.
+description: Use to edit or check translation catalogs — .po, XLIFF, .xcstrings, strings.xml, ARB, ICU.
 ---
 # Translation catalog formats
 

@@ -1,6 +1,6 @@
 ---
 name: model-export
-description: Use to export trained models — torch.export, ONNX, Core ML, ExecuTorch, TensorRT, parity checks.
+description: Use to export trained models — torch.export, ONNX, Core ML, ExecuTorch, TensorRT, parity.
 ---
 # Model export and packaging
 

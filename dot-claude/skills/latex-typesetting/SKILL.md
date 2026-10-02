@@ -1,6 +1,6 @@
 ---
 name: latex-typesetting
-description: Use for LaTeX papers, theses, beamer or arXiv, or choosing Typst — engines, math, biblatex, fonts, build errors.
+description: Use for LaTeX (papers, theses, beamer, arXiv) or Typst — engines, math, biblatex, errors.
 ---
 # LaTeX typesetting (and when Typst fits)
 

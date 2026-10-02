@@ -1,6 +1,6 @@
 ---
 name: houdini-fx
-description: Use for Houdini — VEX, HDAs, Pyro/FLIP/Vellum/RBD sims, caching, Solaris/Karma, hython, PDG.
+description: Use for Houdini — VEX, HDAs, Pyro/FLIP/Vellum/RBD, caching, Solaris/Karma, hython, PDG.
 ---
 # Houdini FX
 
