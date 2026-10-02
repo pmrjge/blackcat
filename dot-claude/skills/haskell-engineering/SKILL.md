@@ -5,7 +5,7 @@ description: Load before writing, reviewing, building or profiling Haskell — G
 # Haskell engineering
 
 ## Scope and baseline
-- Covers Haskell applications and libraries. Category-theoretic reasoning lives in `category-theory`; machine-checked proofs in `lean-formalization`; property testing philosophy in `formal-methods`.
+- Covers Haskell applications and libraries. Category-theoretic reasoning lives in `category-theory`; machine-checked proofs in `lean-formalization`; property-based testing method in `test-property-based`; fuzzing in `test-fuzzing`.
 - Versions (Sep 2026): GHC 9.14 (Dec 2025) is the first release GHC designates LTS; 9.12 and 9.10 are still common. cabal-install 3.18.1 (Jul 2026), stack 3.11.1 (Jun 2026). Stackage LTS snapshots pin a GHC. Re-check with `ghcup list` and https://www.stackage.org before choosing.
 - Toolchain via **GHCup**: `ghcup tui`, or `ghcup install ghc recommended --set`, `ghcup install cabal recommended`, `ghcup install hls recommended`, `ghcup install stack`. HLS must be built for the exact GHC the project uses — `ghcup list -t hls` shows which.
 

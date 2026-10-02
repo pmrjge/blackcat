@@ -118,43 +118,13 @@ Drafts: `generate_image` at quality low (n up to 4 for variations); SVG with n=1
   `tesseract image.png stdout -l por`). Body copy and legal lines are set as real type afterwards.
 
 ## 9. SVG QA and clean-up
-- Root viewBox, sensible width/height; `paths` from the result (hundreds for an icon means
-  over-detailed); stray specks, hidden shapes, needless clip paths and masks.
-- An embedded raster (`<image>` with a data: URI) defeats the point: regenerate or redraw.
-- `npx svgo --multipass in.svg -o out.svg`, then confirm the viewBox survived; `role="img"` and a
-  `<title>` for web use. Rasterize at 16, 32 and 48 px to check small sizes.
+Read `references/svg-raster-qa.md` when checking or cleaning a generated SVG (viewBox, path counts, svgo, exports).
 
 ## 10. Raster post-processing
-- Prefer native resolution (`generate_image` or `edit_image` at 4K) over upscaling. Upscaling invents
-  detail: up to 2× is usually safe for photos; inspect faces, hands, text and fabric at 100 %; never
-  upscale text or logos.
-- Background removal: `background="transparent"` first (either raster tool); otherwise rembg with
-  `-m birefnet-general` (MIT; its default model is non-commercial). Check edges over black, white and
-  mid-gray.
-- Compositing: match perspective and horizon, lens and depth of field, light direction and softness,
-  color temperature, black level, grain and sharpness; add contact shadows. `edit_image` can harmonize
-  ("match the product's light and color to the scene; keep its shape, label and colors unchanged").
-- Color: outputs are 8-bit sRGB. Web: keep sRGB. Print: convert once at the end with the printer's
-  profile (`color-management`).
-- Raster exports of an SVG, only when asked: `rsvg-convert -w 1024 logo.svg -o logo.png`; PDF with
-  `-f pdf`; favicon `magick -background none logo.svg -define icon:auto-resize=16,32,48 favicon.ico`.
+Read `references/svg-raster-qa.md` (second part) when resizing, converting, upscaling or exporting a raster result.
 
 ## 11. Costs, limits, errors
-- Prices above: OpenRouter's listings for Recraft and Riverflow, OpenAI's token rates for GPT Image
-  2.5 ($30 per million image-output tokens, charged through Opper), September 2026. Another model's
-  price comes from its catalog entry when listed. Each result reports `cost_usd` when the provider
-  sends it, plus an estimate.
-- `generate_svg`: as many a call as the model allows (Recraft 1-6). `generate_image`: 1-4 (one Opper
-  job each). `edit_image`: one image a call. Input images in one OpenRouter request: about 4.4 MB in
-  all.
-- Errors say why: an `IMAGE_STUDIO_…_MODEL=…` message = the model in use can't take that call (tell
-  the user which setting); 402 = add credits (Opper or OpenRouter, whichever the tool names); 403 or a
-  content-policy 400 = refused by moderation; OpenRouter 404 = the model isn't available to the
-  account: its provider settings must allow the model's provider (recraft and sourceful for the
-  defaults); 429 = wait; a missing key names the tools that need it (OPENROUTER_API_KEY:
-  generate_svg and edit_image; OPPER_API_KEY: generate_image).
-- Files go to `out_dir` (an absolute path inside the project for project work) or
-  `$IMAGE_STUDIO_OUT_DIR` (default ~/Pictures/image-studio).
+Read `references/costs-limits.md` when estimating cost, hitting a limit or an error, or choosing where outputs are written.
 
 ## 12. Legal and ethical guardrails
 - Real brands: no real logos, trademarks, packaging or trade dress; mockups use client-supplied assets
