@@ -25,7 +25,9 @@ Reads the hook JSON on stdin.
                                     lease), session copy cap, blackcat dispatch and step limits
                                     (atomic markers), god-coder singleton (pending lease), strip
                                     `model`, and drop a BlackCat `run_in_background: false` (its
-                                    children run in the background: BLACKCAT_BACKGROUND)
+                                    children run in the background: BLACKCAT_BACKGROUND); after
+                                    every gate, label the child (STACK_AGENT_LABEL: description
+                                    "<type>: <task>" or name "<type>-<n>"; silent updatedInput)
   PreToolUse  SendMessage           resuming a finished agent follows the spawn policy (the caller's
                                     row, or its own child/parent), its parent's fan-out cap and the
                                     copy cap, and holds a resume reservation until it starts;
@@ -64,7 +66,9 @@ Reads the hook JSON on stdin.
   SubagentStart / SubagentStop      registry bookkeeping (a start of a stopped agent is a resume:
                                     a live background child again, its resume reservation gone);
                                     confirm / release locks; a starting or stopped agent's own
-                                    spawn leases are voided, and a stopped child's spawn lease too
+                                    spawn leases are voided, and a stopped child's spawn lease too;
+                                    a starting stack agent gets "Started YYYY-MM-DD HH:MM (local)."
+                                    as additionalContext (STACK_AGENT_STARTED)
   PostToolUse TaskStop, StopFailure mark the agent stopped and release its locks and leases (a
                                     stopped or failed subagent is not promised a SubagentStop)
   PostToolUseFailure / PermissionDenied (Agent)   roll back god-coder lease, blackcat marker and
@@ -92,6 +96,7 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
   agents/<agent_id>.json  registry {type, depth, parent, parent_type, name, spawned, started,
                           stopped, transcript, bg, tool_use_id, resumed}
   names/<name>.json       {type, id} for agents spawned with a `name`
+  labels/<type>.<n>       O_EXCL markers of the names STACK_AGENT_LABEL=name gave out
   fanout/<caller>/<tool_use_id>.json   spawn leases {type, caller, caller_type, ts}
   fanout/<parent>/resume-<agent>.json  resume reservations {type, caller, caller_type, resume, by,
                           ts}, counted like spawn leases
@@ -160,6 +165,10 @@ Knobs (env):
   GOD_LOCK_TTL_S=21600    hard ceiling on any god-coder lock
   SCREEN_LOCK_TTL_S=900   screen lock expiry
   STRIP_AGENT_MODEL=1     remove per-call `model` from Agent input
+  STACK_AGENT_LABEL=description  label of an allowed Agent call's child: `description` prefixes
+                          the description with "<subagent_type>: " (once), `name` names an unnamed
+                          child "<type>-<n>" (unique per session), `off` = no label
+  STACK_AGENT_STARTED=1   SubagentStart tells a stack agent its local start time (0 = off)
   BLACKCAT_BACKGROUND=1   drop `run_in_background: false` from the BlackCat main thread's Agent
                           calls, so its children never run in the foreground (0 = keep it)
   STACK_MAX_DEPTH         deny Agent from callers at this depth (default
@@ -1330,7 +1339,8 @@ def on_agent(ev, d):
         record_name(d, ti, child, caller, tid)
     ledger_safe(ledger_note, d, ev, ti, child, caller, tid)
 
-    # 3. input rewrites: models are fixed by agent definitions, and BlackCat never blocks on a child
+    # 3. input rewrites: models are fixed by agent definitions, BlackCat never blocks on a child,
+    # and the child gets its label (STACK_AGENT_LABEL); reached only when every gate allowed it
     new_input, why = dict(ti), []
     if os.environ.get("STRIP_AGENT_MODEL", "1") == "1" and "model" in ti:
         new_input.pop("model")
@@ -1338,11 +1348,80 @@ def on_agent(ev, d):
     if blackcat_foreground(ev, ti):
         new_input.pop("run_in_background")
         why.append("BlackCat dispatches run in the background")
+    label = ledger_safe(agent_label, d, ti, child) or {}
+    new_input.update(label)
+    if label.get("name"):
+        ledger_safe(record_name, d, label, child, caller, tid)
     if why:
         emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                      "permissionDecision": "allow",
                                      "permissionDecisionReason": "; ".join(why),
                                      "updatedInput": new_input}})
+    if label:
+        # silent, and no permissionDecision: the relabelled input goes through the normal
+        # permission evaluation (hooks.md, PreToolUse updatedInput), so a label loosens nothing
+        emit({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": new_input}})
+
+
+# ---------------------------------------------------------------- subagent label
+# STACK_AGENT_LABEL (default `description`): an allowed Agent call's `description` becomes
+# "<subagent_type>: <task>" (Claude Code shows a subagent as `agent-name(description)`), so every
+# caller's children read alike at no prompt cost; `name` instead gives a child without a name the
+# name "<type>-<n>" (unique per session, an O_EXCL marker labels/<type>.<n>; SendMessage can use
+# it); `off` leaves the input alone. A caller's own label or name is kept. The ledger strips the
+# label again (ledger_task), so a row reads the same before and after the rewrite.
+LABEL_MODES = ("description", "name", "off")
+LABEL_DEFAULT = "description"
+LABEL_MAX = 72
+LABEL_DIR = "labels"
+
+
+def label_mode():
+    mode = os.environ.get("STACK_AGENT_LABEL", LABEL_DEFAULT).strip().lower()
+    return mode if mode in LABEL_MODES else LABEL_DEFAULT
+
+
+def ledger_task(desc, child):
+    """Task part of a description without a leading '<child>:' label."""
+    desc = desc if isinstance(desc, str) else ""
+    m = re.match(r"\s*%s\s*:\s*" % re.escape(child), desc, re.I)
+    return desc[m.end():] if m else desc
+
+
+def auto_name(name, child):
+    """True for a name this hook gives in `name` mode ("<type>-<n>")."""
+    return bool(re.match(r"^%s-\d+$" % re.escape(child), str(name or "").strip(), re.I))
+
+
+def next_label(d, child):
+    """"<child>-<n>" with the lowest n no earlier label or caller-given name of this session took."""
+    folder = os.path.join(d, LABEL_DIR)
+    os.makedirs(folder, exist_ok=True)
+    for n in range(1, 100000):
+        name = "%s-%d" % (child, n)
+        if os.path.exists(names_path(d, name)):
+            continue
+        try:
+            os.close(os.open(os.path.join(folder, "%s.%d" % (safe(child), n)),
+                             os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600))
+        except FileExistsError:
+            continue
+        return name
+    raise RuntimeError("no free label for %s" % child)
+
+
+def agent_label(d, ti, child):
+    """The input keys STACK_AGENT_LABEL sets on an allowed Agent call ({} = none)."""
+    mode = label_mode()
+    if mode == "description":
+        desc = " ".join(str(ti.get("description") or "").split())
+        task = ledger_task(desc, child)
+        if task == desc:                                   # not labelled yet
+            label = ("%s: %s" % (child, task)) if task else child
+            return {"description": label[:LABEL_MAX].rstrip()}
+    elif mode == "name" and not str(ti.get("name") or "").strip():
+        return {"name": next_label(d, child)}
+    return {}
 
 
 def blackcat_foreground(ev, ti):
@@ -1375,7 +1454,8 @@ def record_name(d, ti, child, caller, tid=None):
 # ---------------------------------------------------------------- delegation ledger
 # Who delegated what to whom, for BlackCat (which has Read, not Bash) and the user. One record per
 # allowed Agent call, spawns/<tool_use_id>.json = {by, by_type, type, task (the call's
-# `description`), name, ts, child (agent id), status}; the registry (agents/<id>.json) says
+# `description` without its "<type>:" label), name (none for a "<type>-<n>" label), ts, child
+# (agent id), status}; the registry (agents/<id>.json) says
 # whether the child stopped. Each event that changes either re-renders delegations.md, a tree
 # rooted at the main thread's dispatches, which BlackCat Reads in one step (its path reaches
 # BlackCat as additionalContext on the PostToolUse of each dispatch that can delegate). A
@@ -1428,8 +1508,11 @@ def ledger_put(d, tid, fields, create=True, fill=None):
 
 
 def ledger_call(ev, ti, child, caller):
+    """The call's ledger fields; the same before and after the label rewrite (agent_label)."""
+    name = ti.get("name")
     return {"by": caller, "by_type": norm(ev.get("agent_type")) or None, "type": child,
-            "task": ledger_text(ti.get("description")), "name": ledger_text(ti.get("name"), 40),
+            "task": ledger_text(ledger_task(ti.get("description"), child)),
+            "name": None if auto_name(name, child) else ledger_text(name, 40),
             "isolation": ledger_text(ti.get("isolation"), 20)}
 
 
@@ -2654,6 +2737,19 @@ def on_subagent_start(ev, d):
     ledger_safe(ledger_link_start, d, ev, aid)
     if atype == GOD and policy_on():
         god_confirm(d, ev, aid)
+    started_context(atype, now)
+
+
+def started_context(atype, now):
+    """SubagentStart additionalContext (hooks.md: added at the start of the subagent's
+    conversation): a stack agent knows when its run started without running `date`. A resume is a
+    new run with its own time. STACK_AGENT_STARTED=0 turns it off."""
+    if os.environ.get("STACK_AGENT_STARTED", "1").strip() == "0" or atype not in STACK_TYPES:
+        return
+    emit({"hookSpecificOutput": {
+        "hookEventName": "SubagentStart",
+        "additionalContext": time.strftime("Started %Y-%m-%d %H:%M (local).",
+                                           time.localtime(now))}})
 
 
 def mark_stopped(d, aid, atype, transcript=None, ev=None):
@@ -8196,6 +8292,11 @@ class _ReadOnly(object):
         if base in ("gradlew", "mvnw", "gradle", "mvn", "swift", "dotnet", "bazel", "mix", "sbt"):
             return None if sub in ("test", "check", "verify") else \
                 (what, "builds, installs or changes the project")
+        if base == "lake" and sub == "env":
+            # `lake env <cmd>` runs <cmd> in Lean's environment: <cmd> is checked like any command
+            # (`lake env lean <scratch>.lean` passes, `lake env rm ...` does not)
+            k = rest.index("env") + 1
+            return self.command(rest[k:], ctx, depth) if rest[k:] else None
         if base in ("cabal", "stack", "lake"):
             return None if sub in ("test", "check", "build", "env", "print-paths", "list", "path",
                                    "info", "lint") else \
@@ -8559,6 +8660,7 @@ def self_test():
     problems += generic_agent_self_test(conf)
     problems += budget_self_test()
     problems += ledger_self_test()
+    problems += label_self_test()
     try:
         root = state_root()
         os.makedirs(root, exist_ok=True)
@@ -8691,11 +8793,13 @@ def ledger_self_test():
     try:
         ev = {"session_id": "s1", "agent_type": "blackcat"}
         ledger_note(tmp, ev, {"description": "Build\nthe `site`"}, "orchestrator", "main", "t1")
-        ledger_done(tmp, dict(ev, tool_use_id="t1"), {"description": "Build the site"},
+        ledger_done(tmp, dict(ev, tool_use_id="t1"),     # PostToolUse sees the labelled input
+                    {"description": "orchestrator: Build the site"},
                     "orchestrator", "agent-o1", "async_launched")
         sub = {"session_id": "s1", "agent_id": "o1", "agent_type": "orchestrator"}
         ledger_note(tmp, sub, {"description": "T1 write parser"}, "coder", "o1", "t2")
-        ledger_done(tmp, dict(sub, tool_use_id="t2"), {"description": "T1 write parser"},
+        ledger_done(tmp, dict(sub, tool_use_id="t2"),
+                    {"description": "coder: T1 write parser", "name": "coder-1"},
                     "coder", "c1", "completed")
         ledger_note(tmp, sub, {"description": "T2 plan tests"}, "planner", "o1", "t3")
         got = [(dep, r.get("type"), r.get("task"), st) for dep, r, st in ledger_rows(tmp)]
@@ -8711,6 +8815,49 @@ def ledger_self_test():
     except Exception as exc:  # report, do not crash
         problems.append("delegation ledger: %s: %s" % (type(exc).__name__, exc))
     finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    return problems
+
+
+def label_self_test():
+    """STACK_AGENT_LABEL on synthetic calls: each mode, a caller's own label or name kept, names
+    unique per session and never a caller's."""
+    import shutil
+    import tempfile
+    problems = []
+    tmp = tempfile.mkdtemp(prefix="agent-guard-label-")
+    saved = os.environ.get("STACK_AGENT_LABEL")
+    try:
+        def lab(mode, ti, child="coder"):
+            os.environ["STACK_AGENT_LABEL"] = mode
+            return agent_label(tmp, ti, child)
+        cases = [
+            ("description", {"description": " fix  the\nparser "}, {"description": "coder: fix the parser"}),
+            ("description", {"description": "Coder : fix parser"}, {}),
+            ("description", {}, {"description": "coder"}),
+            ("description", {"description": "x" * 99}, {"description": "coder: " + "x" * 65}),
+            ("bogus", {"description": "fix"}, {"description": "coder: fix"}),
+            ("off", {"description": "fix"}, {}),
+            ("name", {"description": "fix"}, {"name": "coder-1"}),
+            ("name", {"description": "fix", "name": "mine"}, {}),
+        ]
+        for mode, ti, want in cases:
+            got = lab(mode, ti)
+            if got != want:
+                problems.append("agent label %s %r: %r, expected %r" % (mode, ti, got, want))
+        record_name(tmp, {"name": "coder-2"}, "coder", "main")    # a caller took coder-2
+        if lab("name", {}) != {"name": "coder-3"}:
+            problems.append("agent label: name mode reuses a taken name")
+        if ledger_task("scout: x", "scout") != "x" or ledger_task("scouting: x", "scout") \
+                != "scouting: x" or not auto_name("coder-12", "coder") or auto_name("c-1", "coder"):
+            problems.append("agent label: ledger_task/auto_name")
+    except Exception as exc:  # report, do not crash
+        problems.append("agent label: %s: %s" % (type(exc).__name__, exc))
+    finally:
+        if saved is None:
+            os.environ.pop("STACK_AGENT_LABEL", None)
+        else:
+            os.environ["STACK_AGENT_LABEL"] = saved
         shutil.rmtree(tmp, ignore_errors=True)
     return problems
 

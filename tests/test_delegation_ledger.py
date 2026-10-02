@@ -56,9 +56,17 @@ def post(sid, child, tid, task, child_id, status, **kw):
                 tool_response={"agentId": child_id, "status": status}, **kw)
 
 
+def labelled(out, child, task):
+    """An allowed call's only output: the silent label rewrite (STACK_AGENT_LABEL)."""
+    hso = out["hookSpecificOutput"]
+    return set(hso) == {"hookEventName", "updatedInput"} and \
+        hso["updatedInput"]["description"] == "%s: %s" % (child, task)
+
+
 def test_tree_states_and_hint(env):
     s = "s-" + uuid.uuid4().hex[:8]
-    assert hook(call(s, "PreToolUse", "orchestrator", "t1", "Ship landing page"), env) is None
+    assert labelled(hook(call(s, "PreToolUse", "orchestrator", "t1", "Ship landing page"), env),
+                    "orchestrator", "Ship landing page")
     out = hook(post(s, "orchestrator", "t1", "Ship landing page", "orc1", "async_launched"), env)
     ctx = out["hookSpecificOutput"]["additionalContext"]
     assert out["hookSpecificOutput"]["hookEventName"] == "PostToolUse"
@@ -67,7 +75,7 @@ def test_tree_states_and_hint(env):
     for tid, child, task in (("t2", "designer", "T1 hero visuals"),
                              ("t3", "frontend-engineer", "T2 build page"),
                              ("t4", "coder", "T3 copy edits")):
-        assert hook(call(s, "PreToolUse", child, tid, task, **sub), env) is None
+        assert labelled(hook(call(s, "PreToolUse", child, tid, task, **sub), env), child, task)
     # a subagent's PostToolUse gets no hint; a finished child, a failed call, one still launching
     assert hook(post(s, "designer", "t2", "T1 hero visuals", "des1", "completed", **sub),
                 env) is None
@@ -93,6 +101,19 @@ def test_no_hint_for_leaf_dispatch_or_other_main_threads(env):
     assert hook(post(s, "orchestrator", "t2", "Plan it", "o2", "async_launched",
                      by_type="ninja-coder"), env) is None
     assert '- orchestrator · "Plan it" · running' in ledger(env, s)
+
+
+def test_label_prefix_leaves_the_row_unchanged(env):
+    """PreToolUse records the caller's description, PostToolUse sees the labelled one; a caller
+    that labels its own call gets the same row."""
+    s = "s-" + uuid.uuid4().hex[:8]
+    hook(call(s, "PreToolUse", "scout", "t1", "Latest Rust version"), env)
+    hook(post(s, "scout", "t1", "scout: Latest Rust version", "sc1", "async_launched"), env)
+    assert hook(call(s, "PreToolUse", "coder", "t2", "coder: fix parser"), env) is None
+    hook(post(s, "coder", "t2", "coder: fix parser", "c1", "async_launched"), env)
+    text = ledger(env, s)
+    assert '- scout · "Latest Rust version" · running' in text
+    assert '- coder · "fix parser" · running' in text and "coder: fix" not in text
 
 
 def test_denied_call_is_not_recorded(env):

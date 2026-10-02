@@ -162,7 +162,9 @@ class Result:
     def decision(self):
         if not self.stdout.strip():
             return "allow(no-output)"
-        return json.loads(self.stdout)["hookSpecificOutput"]["permissionDecision"]
+        # a label-only rewrite (STACK_AGENT_LABEL) or a SubagentStart context carries no decision
+        return json.loads(self.stdout)["hookSpecificOutput"].get("permissionDecision",
+                                                                 "allow(updated-input)")
 
     @property
     def reason(self):

@@ -70,7 +70,8 @@ def decision(p):
     assert p.returncode == 0, p.stderr
     if not p.stdout.strip():
         return "allow"
-    return json.loads(p.stdout)["hookSpecificOutput"]["permissionDecision"]
+    # no permissionDecision: a label-only rewrite (STACK_AGENT_LABEL), which allows
+    return json.loads(p.stdout)["hookSpecificOutput"].get("permissionDecision", "allow")
 
 
 def reason(p):
@@ -95,7 +96,7 @@ def run_many(evs, env, args=(), extra=None):
         p.stderr.close()
         assert p.returncode == 0, stderr
         out.append("allow" if not stdout.strip() else
-                   json.loads(stdout)["hookSpecificOutput"]["permissionDecision"])
+                   json.loads(stdout)["hookSpecificOutput"].get("permissionDecision", "allow"))
     return out
 
 
@@ -764,7 +765,7 @@ def test_bad_tool_input_denied(env):
 
 
 def test_policy_off_no_output(env):
-    extra = {"STACK_POLICY": "off"}
+    extra = {"STACK_POLICY": "off", "STACK_AGENT_LABEL": "off"}
     s = sid()
     for ev in (pre_agent(s, "general-purpose", parent="blackcat"),
                pre_agent(s, "coder", parent="blackcat"), pre_agent(s, "coder", parent="blackcat"),
@@ -902,7 +903,7 @@ def test_model_strip(env):
     assert "model" not in out["updatedInput"]
     assert out["updatedInput"]["subagent_type"] == "coder"
     p = run(pre_agent(sid(), "coder", parent="blackcat", model="opus"), env,
-            extra={"STRIP_AGENT_MODEL": "0"})
+            extra={"STRIP_AGENT_MODEL": "0", "STACK_AGENT_LABEL": "off"})
     assert p.stdout == ""
 
 
@@ -1155,13 +1156,15 @@ def test_blackcat_foreground_dropped(env):
     ui = json.loads(p.stdout)["hookSpecificOutput"]["updatedInput"]
     assert "run_in_background" not in ui and "model" not in ui
     # an explicit background request, a subagent's foreground call, a plain main thread and the
-    # knob set to 0 are left alone
-    assert run(pre_agent(sid(), "coder", parent="blackcat", run_in_background=True), env).stdout == ""
+    # knob set to 0 are left alone (labels off: test_agent_label.py covers them)
+    off = {"STACK_AGENT_LABEL": "off"}
+    assert run(pre_agent(sid(), "coder", parent="blackcat", run_in_background=True), env,
+               extra=off).stdout == ""
     assert run(pre_agent(sid(), "coder", parent="orchestrator", agent_id="O1",
-                         run_in_background=False), env).stdout == ""
-    assert run(pre_agent(sid(), "coder", run_in_background=False), env).stdout == ""
+                         run_in_background=False), env, extra=off).stdout == ""
+    assert run(pre_agent(sid(), "coder", run_in_background=False), env, extra=off).stdout == ""
     assert run(pre_agent(sid(), "coder", parent="blackcat", run_in_background=False), env,
-               extra={"BLACKCAT_BACKGROUND": "0"}).stdout == ""
+               extra=dict(off, BLACKCAT_BACKGROUND="0")).stdout == ""
 
 
 def test_guard_log(env):
@@ -1179,7 +1182,12 @@ def test_lifecycle_never_outputs_decision(env):
                {"session_id": s, "hook_event_name": "UserPromptSubmit", "prompt_id": "p"},
                post_agent(s, "coder", "C")):
         p = run(ev, env)
-        assert p.returncode == 0 and p.stdout == ""
+        assert p.returncode == 0 and "permissionDecision" not in p.stdout and "decision" not in p.stdout
+        if ev["hook_event_name"] == "SubagentStart":    # its start time only (STACK_AGENT_STARTED)
+            assert set(json.loads(p.stdout)["hookSpecificOutput"]) == {"hookEventName",
+                                                                        "additionalContext"}
+        else:
+            assert p.stdout == ""
 
 
 # ---------------------------------------------------------------- blackcat dispatch window
@@ -2257,7 +2265,7 @@ def test_a_resume_starts_even_when_the_fanout_lock_times_out(env):
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)              # someone holds the fan-out lock for > 5 s
         p = run(lifecycle(s, "SubagentStart", "G1", "god-coder"), env)
-        assert p.returncode == 0 and p.stdout == ""
+        assert p.returncode == 0 and "Decision" not in p.stdout
     finally:
         os.close(fd)
     rec = reg_of(env, s, "G1")
@@ -2329,13 +2337,20 @@ def test_mcp_cap_counts_per_agent_and_denies_only_mcp(env, sess):
                                extra=dict(cap, STACK_POLICY="off"))) == "allow"
 
 
+def agent_turns(atype):
+    """maxTurns in the repo's agents/<type>.md (copies read their base's file)."""
+    base = atype[:-len("-copy")] if atype.endswith("-copy") else atype
+    text = (ROOT / "dot-claude" / "agents" / (base + ".md")).read_text()
+    return int(re.search(r"^maxTurns:\s*(\d+)\s*$", text, re.M).group(1))
+
+
 def test_mcp_cap_is_min_of_knob_and_max_turns(env, sess):
-    """Default 64, lowered by a smaller frontmatter maxTurns (scout 30, oracle 12); a larger one
-    (orchestrator 200, mcp-broker 80, coder-copy via coder 190) and a type without a file get 64."""
+    """Default 64, lowered by a smaller frontmatter maxTurns (scout, oracle, explore); a larger one
+    (orchestrator, mcp-broker, coder-copy via coder) gets 64. The caps follow the agent files."""
     s, main, _ = sess
-    for aid, atype, cap in (("S1", "scout", 30), ("R1", "oracle", 12), ("B1", "mcp-broker", 64),
-                            ("O1", "orchestrator", 64), ("C1", "coder-copy", 64),
-                            ("E1", "explore", 40)):
+    for aid, atype in (("S1", "scout"), ("R1", "oracle"), ("B1", "mcp-broker"),
+                       ("O1", "orchestrator"), ("C1", "coder-copy"), ("E1", "explore")):
+        cap = min(64, agent_turns(atype))
         seed_mcp(env, s, aid, cap - 1)
         assert decision(budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)) == "allow"
         p = budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)
@@ -2387,3 +2402,21 @@ def test_mcp_cap_is_per_prompt_a_resume_starts_a_new_count(env, sess):
     p = budget_run(mcp_ev(s, main), env, extra=cap)
     assert decision(p) == "deny" and "for its current prompt" in reason(p)
     assert "per agent per prompt" in json.loads(p.stdout)["systemMessage"]
+
+
+# ---------------------------------------------------------------- read-only: lake env
+@pytest.mark.parametrize("command,ok", [
+    ("lake env lean .claude-work/j/x.lean", True),
+    ("cd /tmp && lake env lean .claude-work/j/x.lean", True),
+    ("lake env", True),
+    ("lake build", True),
+    ("lake env rm -rf src", False),
+    ("lake env sh -c 'echo x > src/a'", False),
+    ("lake env python3 -c 'import os; os.remove(\"a\")'", False),
+    ("lake env lean src/x.lean > src/out.txt", False),
+])
+def test_readonly_lake_env_checks_the_wrapped_command(command, ok):
+    """`lake env <cmd>` runs <cmd>: a read-only agent's <cmd> is held to the same allowlist."""
+    g = _guard_types()
+    bad = g.readonly_violation(command, {"cwd": str(ROOT)})
+    assert (bad is None) == ok, bad
