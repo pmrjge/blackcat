@@ -46,8 +46,8 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | scout | Sonnet 5.5 · low | 11 | — | Fast lookup of one current fact |
 | explore | Sonnet 5.5 · low | 40 | — | Read-only codebase search: files, symbols, call sites |
 | researcher | Opus 5.5 · high | 130 | neural-memory, context-mode, spider | Deep research: multi-source investigations, comparisons |
-| coder | Sonnet 5.5 · medium | 150 | libdocs | Implementer for small and medium code tasks |
-| main-coder | Opus 5.5 · xhigh | 240 | libdocs, neural-memory | Main engineer for cross-cutting code: large codebases |
+| coder | Sonnet 5.5 · medium | 170 | libdocs | Implementer for small and medium code tasks |
+| main-coder | Opus 5.5 · xhigh | 350 | libdocs, neural-memory | Main engineer for cross-cutting code: large codebases |
 | ninja-coder | Opus 5.5 · max | 300 | libdocs, neural-memory | Engineer-mathematician for the hardest code |
 | god-coder | Opus 5.5 · max | 350 | libdocs, neural-memory | Last-resort engineer after ninja-coder failed |
 | code-reviewer | Opus 5.5 · high | 80 | libdocs | Reviews diffs, PRs or codebases; read-only |
@@ -56,7 +56,7 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | proof-checker | Opus 5.5 · xhigh | 80 | lean | Referees proofs, derivations, correctness and complexity arguments |
 | browser-operator | Sonnet 5.5 · medium | 120 | playwright | Acts on web pages: logged-in sites via Claude in Chrome |
 | mcp-broker | Sonnet 5.5 · medium | 60 | magg | Vets and mounts MCP servers on demand through magg |
-| claude-code-engineer | Opus 5.5 · high | 120 | — | Builds Claude Code configuration: skills, subagents, hooks |
+| claude-code-engineer | Opus 5.5 · high | 150 | — | Builds Claude Code configuration: skills, subagents, hooks |
 | claude-code-guide | Sonnet 5.5 · low | 30 | — | Answers Claude Code, Agent SDK and Claude API questions |
 
 #### Language engineers (7)
@@ -193,7 +193,7 @@ of every agent, the rules file, the skill listing and the agent listings (tokens
 - every description ≤ 200 characters and BlackCat's body ≤ 5,200;
 - agents new since the baseline: description ≤ 160 and body ≤ 2,400 with the Agent tool, ≤ 120 and
   ≤ 1,400 as a leaf;
-- against the baseline revision (`ad22962`, or `--base REV`): bodies of the agents present then ≤ 0.85×,
+- against the baseline revision (`ad22962`, or `--base REV`): bodies of the agents present then ≤ 0.867×,
   agent listing ≤ 0.97×, BlackCat's listing ≤ 0.96×, skill listing ≤ 0.478×, rules ≤ 0.95×, mean
   per-spawn cost of the baseline agents ≤ 0.691×.
 
@@ -230,7 +230,8 @@ the call (fail closed); every hook command runs on an absolute interpreter chose
 | Protected paths | Bash-level writes, deletes and renames of the installed stack, the backups and the hook state are refused, on top of the Edit/Write deny rules; so is running `install.sh` except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs |
 | Delegation ledger | Every Agent call is recorded as a tree (type, task, state, agent id) in `~/.local/state/claude-agent-stack/<session>/delegations.md`, which BlackCat reads; `agent_guard.py delegations [session] [--json]` prints it |
 | god-coder once | Only the orchestrator spawns god-coder, once per session, and only after a ninja-coder of the session has finished (`GOD_SPAWNERS`, `GOD_ONCE_PER_SESSION`, `GOD_AFTER_NINJA`; the hook checks order, the prompts check that ninja-coder failed) |
-| Also | Context-token budgets and the per-subagent MCP call cap; one agent on the screen; web-tainted agents can't write neural-memory; images re-encoded to ≤ 1919 px; BlackCat's children forced to the background; per-call `model` stripped |
+| Soft token limits | Past its soft limit (context tokens per subagent run, by type: scout 390K … verifier 26M; 33M per human prompt) an agent's next tool call carries one warning to wrap up, return `STATUS: partial` and ask before continuing; nothing is refused. Values, derivation and refresh (`tests/derive_thresholds.py`): [CONFIG.md](CONFIG.md) §5 |
+| Also | Context-token budgets (hard) and the per-subagent MCP call cap; one agent on the screen; web-tainted agents can't write neural-memory; images re-encoded to ≤ 1919 px; BlackCat's children forced to the background; per-call `model` stripped |
 
 The event-by-event table and the sandbox design are in [CONFIG.md](CONFIG.md) §5 and §7 and in
 `agent_guard.py`'s module docstring.
@@ -415,6 +416,7 @@ yourself.
 | `STACK_MAX_DEPTH` | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, else 3 | Deny Agent from callers at this depth | guard |
 | `STACK_PROMPT_CTX_BUDGET` ● / `STACK_SESSION_CTX_BUDGET` ● | 100000000 / 666000000 | Context tokens per prompt / per session, whole tree (0 = off) | guard |
 | `STACK_MAX_MCP_CALLS` ● | 64 | MCP calls per subagent per prompt, lower if `maxTurns` is | guard |
+| `STACK_SOFT_LIMIT_SCALE` | unset = 1 | Multiplies the soft token limits (per agent run, 33M per human prompt); `0` = off | guard |
 | `STACK_FANOUT_IDLE_S` ● | 600 (code: 1800) | A silent background subtree stops counting | guard |
 | `STACK_LEASE_TTL_S` / `STACK_RESUME_TTL_S` | 21600 / 120 | Ceilings on unreported leases and resume reservations | guard |
 | `GOD_SPAWNERS` / `GOD_ONCE_PER_SESSION` / `GOD_AFTER_NINJA` | `orchestrator` / 1 / 1 | Who spawns god-coder; once; after a finished ninja-coder | guard |

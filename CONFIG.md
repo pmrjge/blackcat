@@ -52,7 +52,7 @@ Column key:
 | planner | Opus 5.5 | xhigh | 60 | 8 | 100 | Read-only design work that needs deep reasoning and few turns |
 | plan-reviewer | Opus 5.5 | high | 60 | leaf | xhigh, 100 | Critique against the code and docs. `high` suffices on 5.5. |
 | oracle | Opus 5.5 | low | 12 | leaf | 20 | Answers from knowledge alone and uses almost no tools |
-| scout | Sonnet 5.5 | low | 20 | leaf | 40 | Looks up one fact from a few sources |
+| scout | Sonnet 5.5 | low | 11 | leaf | 40 | Looks up one fact from a few sources; measured max 7 turns (2026-10-02) |
 | explore | Sonnet 5.5 | low | 40 | leaf | (built-in) | Read-only codebase search. Replaces Claude Code's built-in Explore, which inherits the main thread's model up to Opus and has no turn cap. |
 | researcher | Opus 5.5 | high | 130 | 4 | 170 | Measured p90 is 82 turns. 4 children = 2 researcher copies + 2 lookups. |
 | mathematician | Opus 5.5 | xhigh | 100 | 3 | — | Proofs need depth, not many turns |
@@ -65,8 +65,8 @@ Column key:
 | vfx-td | Opus 5.5 | high | 170 | 3 | new | Houdini cook, sim and render loops (hython, husk) |
 | writer | Opus 5.5 | medium | 80 | 3 | 130 | Prose; voice matters more than depth |
 | doc-specialist | Sonnet 5.5 | medium | 100 | 3 | Opus, 130 | Extraction and formatting work |
-| coder | Sonnet 5.5 | medium | 190 | 3 (+2 copies) | — | Small and medium implementation |
-| main-coder | Opus 5.5 | xhigh | 240 | 6 | 250 | Large codebases; measured p90 is 128 turns, and long refactors run past that. Offloads to coder and the ML engineers. |
+| coder | Sonnet 5.5 | medium | 170 | 3 (+2 copies) | — | Small and medium implementation. 2026-10-02 data: p90 107 turns per segment (× 1.5 = 160), healthy max 169 |
+| main-coder | Opus 5.5 | xhigh | 350 | 6 | 250 | Large codebases; long refactors. 2026-10-02 data: p90 228 turns per segment (× 1.5 = 342; 9 segments of one agent, the longest turn-limited at 300), healthy max 57. Offloads to coder and the ML engineers. |
 | ninja-coder | Opus 5.5 | max | 300 | 5 | 250 | The hardest algorithmic and mathematical cores, worked through without the user |
 | god-coder | Opus 5.5 | max | 350 | 6 | Fable, 250 | Last resort. The orchestrator spawns it, at most once per session. |
 | frontend-engineer | Opus 5.5 | medium | 170 | 3 | 190 | Implementation plus browser checks |
@@ -87,7 +87,7 @@ Column key:
 | security-auditor | Opus 5.5 | xhigh | 100 | leaf | 150 | Finding exploit paths needs depth |
 | browser-operator | Sonnet 5.5 | medium | 120 | leaf | 160 | Browser loops. It has come close to the 64-per-prompt MCP cap (62 calls in one run). |
 | mcp-broker | Sonnet 5.5 | medium | 60 | leaf | 80 | Mounts, calls and unmounts MCP servers |
-| claude-code-engineer | Opus 5.5 | high | 190 | 3 | 150 | Measured p90 is 123 turns: validation-heavy |
+| claude-code-engineer | Opus 5.5 | high | 150 | 3 | 150 | Validation-heavy. 2026-10-02 data: p90 83 turns per segment (× 1.5 = 125), healthy max 147 |
 | claude-code-guide | Sonnet 5.5 | low | 30 | leaf | 40 | Documentation lookups |
 
 Effort scale:
@@ -99,6 +99,7 @@ maxTurns:
 
 - One turn is one model response.
 - Values as of the token-lean overhaul (2026-10-02): where a p90 was measured, at least 1.5 × that p90, within the lint caps.
+- Re-check of 2026-10-02 (`tests/derive_thresholds.py`, 163 finished segments of two sessions; one turn = one API call, i.e. one assistant message deduplicated by message id and request id, counted per segment — a spawn or a resume — as maxTurns counts them: the harness verifier stopped at exactly 150 calls under maxTurns 150). Raised to max(p90 × 1.5, healthy maximum), rounded up to 10: claude-code-engineer 120 → 150, coder 150 → 170, main-coder 240 → 350. verifier keeps 140 (verification jobs: p90 91, max 91; the 150-call segment was a harness build, now routed to a builder by its prompt). Every other observed type's maxTurns is above its healthy maximum (scout 11 vs 7, code-reviewer 80 vs 66, researcher 130 vs 52, planner 60 vs 35, browser-operator 120 vs 43, claude-code-guide 30 vs 11, explore 40 vs 8, writer 80 vs 10, orchestrator 200 vs 14); the other types have no runs yet.
 - When an agent reaches its limit, it is marked partial. A SendMessage resume gives it a fresh budget.
 - Lint enforces ≤ 350 for all agents, and < 200 for all agents except the orchestrator and main-, ninja- and god-coder.
 
@@ -141,13 +142,39 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `GOD_AFTER_NINJA` | 1 (code) | new | A god-coder spawn needs a ninja-coder of this session that has finished; checks order, not failure; 0 = off |
 | `GOD_IDLE_S` | 1800 | — | Time after which an idle god-coder releases the lock |
 | `STACK_MAX_MCP_CALLS` | 64 | — | MCP calls per agent per prompt, as set by you; unchanged (browser-operator comes near it) |
-| `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | 100,000,000 / 666,000,000 | — | As set by you; unchanged |
+| `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | 100,000,000 / 666,000,000 | — | As set by you; unchanged (hard: refuses every call but reporting). Since 2026-10-02 the prompt window restarts only on a human prompt, not on a task notification's turn |
+| Soft token limits (code: `SOFT_LIMITS`, `SOFT_PROMPT_CTX`) | per type, below; 33,000,000 per human prompt | new | A wrap-up warning, never a refusal; see "Soft token limits" below |
+| `STACK_SOFT_LIMIT_SCALE` | unset = 1 (code) | new | Multiplies every soft limit; `0` turns them off. Not in settings.json, so a process environment value reaches the hooks (the benchmark sets it per run) |
 | `STACK_FANOUT_IDLE_S` | 600 | — | A silent background subtree stops counting against the caps |
 | `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` | 400 | — | Unchanged |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `claude-sonnet-5-5` | — | Moves the small-model slot to Sonnet 5.5 (section 2) |
 | `MCP_DISCOVERY_CACHE` / `MCP_TIMEOUT` / `MAX_MCP_OUTPUT_TOKENS` | 1 / 60000 / 25000 | — | Unchanged |
 | `agent` | `blackcat` | — | BlackCat is the main thread in the terminal and in SDK apps |
 | `autoCompactWindow` | 400000 | — | Unchanged |
+
+### Soft token limits (2026-10-02)
+
+- **What:** past a limit, the next tool call carries one short warning (PreToolUse `additionalContext`): "Soft token limit reached …: wrap up, return STATUS: partial with what is done and what remains, and ask your caller (BlackCat: the user) before continuing." Nothing is refused; the hard budgets above, the MCP call cap and maxTurns are unchanged and independent.
+- **Unit:** context tokens, `input + cache_creation + cache_read` per API call (output excluded), the hard budgets' unit, counted in the same `budget.json` pass.
+- **Per agent segment:** one subagent run, a spawn or a SendMessage resume (the MCP call cap's reset rule: the registry's `started` stamp), from the agent's own transcript; warns once per segment. **Per human prompt:** 33,000,000 since the last UserPromptSubmit, whole session tree; warns once per prompt, to the agent whose tool call comes next. No per-session soft limit (two sessions are not a distribution).
+- **Values** (soft = p90 of healthy segments × 1.25–1.5, floor 2 × median, 2 significant figures; a type with fewer than 5 healthy segments from 3 agents takes its pool's value):
+
+| Limit | Types | Derived from |
+|---|---|---|
+| 19,000,000 | claude-code-engineer | own runs (36 segments) |
+| 26,000,000 | verifier | own runs (6) |
+| 8,700,000 | code-reviewer | own runs (5) |
+| 680,000 | claude-code-guide | own runs (7) |
+| 390,000 | scout | own runs (24) |
+| 19,000,000 | coder, main-coder, ninja-coder, god-coder, build-fixer, test-engineer, data-scientist, data-engineer, db-engineer, devops-engineer, frontend-engineer, the 7 language engineers, mobile-, game-, embedded-, hpc-, cuda-, mlx-, dl-, ml-, llm-, robotics-, quantum-, biochem-, security-engineer, vfx-td, mathematician | builder pool (49) |
+| 8,700,000 | planner, plan-reviewer, researcher, security-auditor, proof-checker | analyst pool (11) |
+| 450,000 | explore, oracle, mcp-broker | lookup pool (34) |
+| 3,100,000 | writer, browser-operator, doc-specialist, designer, image-director, localizer, motion-designer, cg-artist | artifact pool (6) |
+| none | orchestrator (short relays; two runs that differ ~2×), blackcat (the main thread: the prompt limit covers it) | — |
+
+- **Knob:** `STACK_SOFT_LIMIT_SCALE` (float; `2` doubles every soft limit, `0` turns them off). A copy type uses its base's value; a type the table does not name gets none (self-test: the table covers every type in `AGENTS`).
+- **Refresh:** `uv run --script tests/derive_thresholds.py` (pandas, read-only over `~/.claude/projects/`) rewrites `.claude-work/agents-usage/thresholds.md` and its CSVs (first run as `.claude-work/agents-usage/thresholds.py` in the phase-3 worktree); copy changed values into `SOFT_LIMITS` / `SOFT_PROMPT_CTX` by hand.
+- **Revisit** when the healthy segment count of a type, or the number of sessions, doubles, and after any major stack change (agent prompts, skill loading, models, maxTurns). Today's counts: orchestrator 46, claude-code-engineer 36, scout 24, claude-code-guide 7, coder 7, verifier 6, main-coder 6, code-reviewer 5, researcher 4, browser-operator 4, explore 3, planner 2, writer 2; sessions 2. All values except claude-code-engineer and scout are provisional.
 
 ### On demand and automatic: MCP servers, plugins, skills (2026-10-02)
 
@@ -286,6 +313,13 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-02 (soft token limits, maxTurns from data)
+
+- `agent_guard.py`: soft token limits per agent segment and per human prompt (section 5, "Soft token limits"); `STACK_SOFT_LIMIT_SCALE`. Fix: a BlackCat tool call in a task notification's turn (its own prompt id, no UserPromptSubmit) restarted the hard prompt budget's window; it no longer does once a human prompt is on record.
+- maxTurns: claude-code-engineer 150, coder 170, main-coder 350 (section 3); the verifier routes build work to a builder or to dispatches of about 90 tool calls or fewer.
+- `tests/derive_thresholds.py`: the derivation, recomputable.
+- Prompt budget: bodies gate 0.85 → 0.867 (the verifier line, measured × 1.02).
 
 ### 2026-10-02 (Q7: Agent SDK)
 
