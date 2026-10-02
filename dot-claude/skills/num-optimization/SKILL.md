@@ -1,7 +1,12 @@
-# Numerical methods — nonlinear equations and optimization (reference)
-Read when finding roots, solving nonlinear systems, minimizing (scipy.optimize: brentq, root, minimize, least_squares) or judging convergence of an optimizer. Parent: `numerical-methods` SKILL.md (environments and the Sept 2026 version note are there).
+---
+name: num-optimization
+description: Use when finding roots or minimizing with scipy.optimize — brackets, Newton, BFGS, least squares.
+---
+# Nonlinear equations and optimization
+Hub: `numerical-methods` (conditioning §3, verification §9; reproducibility in `numerical-methods` `references/reproducibility.md`). Environments: `__CLAUDE_DIR__/venvs/sci/bin/python`, `__CLAUDE_DIR__/venvs/ml/bin/python`. Version-specific API notes were checked in Sept 2026 without recorded URLs (unverified as of 2026-10-02); latest releases are Verified in the hub.
 
-## 5. Nonlinear equations and optimization
+
+## Nonlinear equations and optimization
 - Scalar roots: bracket, then `brentq` (or `root_scalar(method="brentq")`), which is guaranteed.
   Newton or secant only from a good start. Multiple roots make Newton linear.
 - Systems: `scipy.optimize.root` (`hybr` default, `lm`, `krylov` for large problems). Supply the
@@ -21,3 +26,11 @@ Read when finding roots, solving nonlinear systems, minimizing (scipy.optimize: 
     problems.
   - For nonconvex problems use several starts and report the spread. `differential_evolution`,
     `basinhopping`, `shgo` and `dual_annealing` are heuristics, not certificates.
+
+Linear, mixed-integer and convex models with modeling languages and solvers (HiGHS, CVXPY, Pyomo): `opt-modeling`; CP-SAT and exact combinatorial search: `algorithm-design` §2.10.
+
+## Verify
+- [ ] `res.success`, `res.status`, `res.message` read and reported; constrained problems checked against KKT conditions.
+- [ ] Gradients checked with `check_grad` (or autodiff) before the run.
+- [ ] Nonconvex problems: several starts with the spread of optima reported.
+- [ ] Root finds: the residual ‖F(x)‖ at the answer reported, and a bracket where one exists.

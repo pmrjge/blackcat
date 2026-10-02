@@ -3,7 +3,7 @@ name: test-contract-snapshot
 description: Use when testing API contracts between services or adding snapshot tests — Pact, Schemathesis.
 ---
 # Contract and snapshot tests
-Hub: `test-strategy`. Language-specific snapshot tools: syrupy and inline-snapshot (`python-engineering`), insta (`rust-engineering`), Vitest/Jest snapshots (`typescript-engineering`).
+Hub: `test-strategy`. Designing the contract itself (resources, errors, versioning): `api-design`. Language-specific snapshot tools: syrupy and inline-snapshot (`python-engineering`), insta (`rust-engineering`), Vitest/Jest snapshots (`typescript-engineering`).
 
 ## 1. Consumer-driven contracts (Pact)
 - Use when two services you own evolve separately: the consumer's tests record the requests it makes and the responses it relies on (the pact); the provider's CI replays the pact against the real provider.

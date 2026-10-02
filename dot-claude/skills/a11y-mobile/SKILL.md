@@ -3,7 +3,7 @@ name: a11y-mobile
 description: Use when making a mobile app accessible — iOS, Android, Flutter, React Native APIs and audits.
 ---
 # Mobile accessibility
-Hub: `web-accessibility` (target, legal frame, contrast, report format). The same WCAG 2.2 AA success criteria apply to apps through W3C's WCAG2ICT guidance; the European Accessibility Act covers the apps of covered services (banking, e-commerce, transport, e-books) — scope details unverified here, see the hub's legal frame.
+Hub: `web-accessibility` (target, legal frame, contrast); report format: `a11y-audit`. The same WCAG 2.2 AA success criteria apply to apps through W3C's WCAG2ICT guidance; the European Accessibility Act covers the apps of covered services (banking, e-commerce, transport, e-books) — scope details unverified here, see the hub's legal frame.
 
 ## Baseline for every platform
 - Every interactive element has an accessible name, a role/trait and its state (selected, expanded, disabled); decorative images are hidden from assistive tech.
@@ -42,7 +42,7 @@ API names in this table are from general knowledge (unverified as of 2026-10-02)
 ## Verify
 - [ ] Automated audit runs in CI for the key screens and passes (or each finding has an issue).
 - [ ] Manual screen-reader pass recorded per platform with device, OS and assistive-tech versions.
-- [ ] Report in the hub's format, with platform and OS versions tested.
+- [ ] Report in the `a11y-audit` format, with platform and OS versions tested.
 
 ## Sources
 - Verified 2026-10-02 https://developer.android.com/develop/ui/compose/accessibility/testing — `enableAccessibilityChecks()`, Compose 1.8, artifacts, API 34, experimental.

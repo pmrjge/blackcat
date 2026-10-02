@@ -1,7 +1,12 @@
-# Numerical methods — quadrature and derivatives (reference)
-Read when integrating (quad, tanhsinh, cubature, QMC, mpmath.quad) or computing/checking derivatives (autodiff, finite differences, complex step, gradcheck). Parent: `numerical-methods` SKILL.md (environments and the Sept 2026 version note are there).
+---
+name: num-quadrature-autodiff
+description: Use when integrating numerically or computing derivatives — quad, tanh-sinh, QMC, autodiff, FD.
+---
+# Quadrature and derivatives
+Hub: `numerical-methods` (conditioning §3, verification §9; reproducibility in `numerical-methods` `references/reproducibility.md`). Environments: `__CLAUDE_DIR__/venvs/sci/bin/python`, `__CLAUDE_DIR__/venvs/ml/bin/python`. Version-specific API notes were checked in Sept 2026 without recorded URLs (unverified as of 2026-10-02); latest releases are Verified in the hub.
 
-## 7. Quadrature
+
+## Quadrature
 - 1-D: `scipy.integrate.quad(f, a, b, epsabs=1.49e-8, epsrel=1.49e-8, limit=50)` returns (value,
   abserr).
   - Put kinks and singularities in `points=`; use `weight='alg'|'alg-loga'|'cauchy'|'sin'|'cos'` for
@@ -19,7 +24,7 @@ Read when integrating (quad, tanhsinh, cubature, QMC, mpmath.quad) or computing/
 - Never trust `abserr` alone: re-check with another method or a refined subdivision, and confirm
   integrability first.
 
-## 8. Derivatives: autodiff vs finite differences
+## Derivatives: autodiff vs finite differences
 - Prefer autodiff:
   - PyTorch: `torch.func.grad/jacrev/jacfwd/hessian/vmap`, `torch.autograd.grad`.
   - MLX: `mx.grad`, `mx.value_and_grad`, `mx.vjp`, `mx.jvp`, `mx.vmap`.
@@ -42,3 +47,9 @@ Read when integrating (quad, tanhsinh, cubature, QMC, mpmath.quad) or computing/
   - `where` with NaN or inf in the unselected branch still poisons the gradient: sanitize the input,
     not only the output.
   - In-place ops, and custom kernels without a backward.
+
+## Verify
+- [ ] Integrals re-checked with a second method or refined subdivision; integrability confirmed; `abserr` not trusted alone.
+- [ ] Gradients checked in float64 (`gradcheck`, `check_grad`, complex step or `mpmath.diff`).
+- [ ] Finite-difference step chosen by the rules above and made representable.
+- [ ] QMC error bars from independent scramblings with n a power of two.

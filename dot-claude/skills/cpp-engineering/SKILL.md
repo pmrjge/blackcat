@@ -5,7 +5,7 @@ description: Load before writing, reviewing or debugging C or C++ — standard a
 # C and C++ engineering
 
 ## Scope
-The languages and their tooling. Build systems (CMake presets, Ninja, vcpkg/Conan, ccache, CTest wiring, sanitizer build types) → `cmake-ninja-builds`; CUDA kernels → `gpu-kernel-dev`; performance measurement → `cpu-performance`; formal checks and fuzzing theory → `formal-methods`; untrusted input → `secure-coding`; ROS 2 C++ → `robotics-engineering`.
+The languages and their tooling. Build systems (CMake presets, Ninja, vcpkg/Conan, ccache, CTest wiring, sanitizer build types) → `cmake-ninja-builds`; CUDA kernels → `gpu-kernel-dev`; performance measurement → `cpu-performance`; formal checks → `formal-methods`; fuzzing → `test-fuzzing`; property tests → `test-property-based`; native crashes and debuggers → `debug-native`; untrusted input → `secure-coding`; ROS 2 C++ → `robotics-engineering`.
 
 ## Compilers and standards (checked 2026-09-29)
 - Toolchains: GCC 16 (default `-std=gnu++20` since 16; C++26 reflection with `-std=c++26 -freflection`, contracts P2900, `std::inplace_vector`, erroneous behaviour for uninitialized reads P2795), upstream LLVM/Clang 23.1, **Apple Clang 21** on this Mac (Xcode, macOS SDK 27) — Apple Clang lags upstream and has neither contracts nor reflection.

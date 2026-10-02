@@ -1,7 +1,12 @@
-# Numerical methods — floating point and low-precision formats (reference)
-Read when reasoning about rounding, cancellation, summation error, FMA, NaN/subnormals, or fp16/bf16/fp8/fp4 formats and framework precision flags (TF32, reduced-precision reductions, MPS/MLX float64). Parent: `numerical-methods` SKILL.md (environments and the Sept 2026 version note are there).
+---
+name: num-floating-point
+description: Use when floating-point accuracy matters — rounding, cancellation, summation, fp16/bf16/fp8/fp4.
+---
+# Floating point and low-precision formats
+Hub: `numerical-methods` (conditioning §3, verification §9; reproducibility in `numerical-methods` `references/reproducibility.md`). Environments: `__CLAUDE_DIR__/venvs/sci/bin/python`, `__CLAUDE_DIR__/venvs/ml/bin/python`. Version-specific API notes were checked in Sept 2026 without recorded URLs (unverified as of 2026-10-02); latest releases are Verified in the hub.
 
-## 1. IEEE 754 essentials
+
+## IEEE 754 essentials
 - Rounding model: fl(x∘y) = (x∘y)(1+δ), |δ| ≤ u.
   - binary64: u = 2⁻⁵³ ≈ 1.1e-16, and `np.finfo(float).eps` = 2u.
   - binary32: u = 2⁻²⁴ ≈ 6.0e-8.
@@ -31,7 +36,7 @@ Read when reasoning about rounding, cancellation, summation error, FMA, NaN/subn
 - Floating-point addition is not associative, so parallel and GPU reductions are not bitwise
   reproducible unless the reduction order is fixed.
 
-## 2. Low-precision formats
+## Low-precision formats
 Parameters from `ml_dtypes.finfo` (not in the sci venv; `uv pip install ml_dtypes` in a project env):
 
 | format | exp/mantissa bits | eps | max | min normal | min subnormal | inf / NaN |
@@ -73,3 +78,9 @@ Parameters from `ml_dtypes.finfo` (not in the sci venv; `uv pip install ml_dtype
   - Apple: PyTorch MPS has no float64. MLX float64 is CPU-only (GPU ops raise), and several `mx.linalg`
     factorizations run on the CPU stream (`stream=mx.cpu`). High-precision references on the Mac
     therefore run on the CPU.
+
+## Verify
+- [ ] Each cancellation-prone expression rewritten (log1p, expm1, hypot, two-pass variance) or shown harmless at the inputs used.
+- [ ] Result compared with an mpmath or wider-precision reference; relative error ≈ κ·u for the working precision.
+- [ ] Low-precision paths: accumulations, softmax, norms and losses in fp32; casts to fp8/fp4 scaled and clamped first; range checked against the table.
+- [ ] Framework precision flags (TF32, reduced-precision reductions) stated in the report.

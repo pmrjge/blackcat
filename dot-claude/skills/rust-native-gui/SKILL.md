@@ -81,40 +81,6 @@ fn shortcut(event: keyboard::Event) -> Option<Message> {
 - Tasks: `Task::perform(future, Message::X)`, `Task::future`, `Task::run(stream, f)`, `Task::batch`, `.chain`, `.then`, `.map`, `.discard()`, `.abortable()` (returns a handle to cancel), `iced::exit()`. Widget operations are tasks too: `iced::widget::operation::{focus, focus_next, snap_to_end}` with string ids (`.id("log")`).
 - Executor: the default is a thread pool. Enable the `tokio` feature when tasks/workers use tokio APIs (process, net, time) or `iced::time::every` (it needs `tokio` or `smol`); otherwise they panic with "there is no reactor running".
 
-## Long-running workers (PTY, LSP, file watcher)
-A worker is a `Subscription::run(fn)` stream that hands the app a command `Sender` first, then streams events:
-```rust
-use iced::futures::{SinkExt, StreamExt, channel::mpsc};
-
-#[derive(Debug, Clone)]
-enum WorkerEvent { Ready(mpsc::Sender<Command>), Line(String), Exited(Option<i32>) }
-#[derive(Debug, Clone)]
-enum Command { Run(String) }
-
-fn worker() -> impl iced::futures::Stream<Item = WorkerEvent> {
-    iced::stream::channel(100, async |mut output: mpsc::Sender<WorkerEvent>| {
-        use tokio::io::{AsyncBufReadExt, BufReader};
-        let (tx, mut rx) = mpsc::channel::<Command>(32);
-        let _ = output.send(WorkerEvent::Ready(tx)).await;       // app stores the Sender in its state
-        while let Some(Command::Run(cmd)) = rx.next().await {
-            let Ok(mut child) = tokio::process::Command::new("sh").arg("-c").arg(&cmd)
-                .stdout(std::process::Stdio::piped()).kill_on_drop(true).spawn() else { continue };
-            if let Some(out) = child.stdout.take() {
-                let mut lines = BufReader::new(out).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    let _ = output.send(WorkerEvent::Line(line)).await;
-                }
-            }
-            let code = child.wait().await.ok().and_then(|s| s.code());
-            let _ = output.send(WorkerEvent::Exited(code)).await;
-        }
-    })
-}
-```
-- `Subscription::run` takes a non-capturing fn; when the worker depends on data (project root, server command) use `Subscription::run_with(data, fn)` — `data: Hash` becomes part of the identity, so changing it restarts the worker and keeping it stable keeps the worker alive. `.with(value)` adds context without capturing.
-- Blocking readers (e.g. `portable-pty`'s reader is `std::io::Read`) live on a dedicated thread that forwards bytes over a channel. Coalesce output (per ~8–16 ms or per chunk) — one `Message` per byte will swamp `update`.
-- When a subscription is no longer returned, iced drops its stream mid-`.await`, so no cleanup code after the loop runs: rely on drop-based cleanup (`kill_on_drop(true)`, RAII guards) and send explicit shutdown commands (e.g. LSP `shutdown`/`exit`) before you stop returning the subscription.
-
 ## Views and large content
 - `view` runs after every update; keep it proportional to what is visible.
 - `scrollable(column(...))` with tens of thousands of children lays out all of them. Virtualize: track the viewport with `scrollable(..).on_scroll(|v: scrollable::Viewport| ..)` (`absolute_offset()`, `bounds()`, `content_bounds()`), render only visible rows (fixed row height) plus spacers that preserve total height — or draw rows yourself in a custom widget/canvas.
@@ -122,27 +88,6 @@ fn worker() -> impl iced::futures::Stream<Item = WorkerEvent> {
 - `sensor` (0.14) emits `on_show`/`on_resize`/`on_hide` as content scrolls into view — use for lazy loading; `responsive(|size| ..)` for size-dependent layouts.
 - The built-in `text_editor` stores text in cosmic-text buffers: fine for notes, config and commit messages; for a code editor with very large files keep your own rope and draw the visible lines in a custom widget (`editor-engineering`).
 - Feature `debug` adds the F12 metrics overlay — use it to check frame and update times.
-
-## Custom, canvas and shader widgets
-- **Canvas** (feature `canvas`): implement `canvas::Program<Message>`; cache static layers and clear a `Cache` only when its data changes.
-```rust
-impl<Message> canvas::Program<Message> for Minimap<'_> {
-    type State = ();
-    fn draw(&self, _s: &(), renderer: &Renderer, theme: &Theme, bounds: Rectangle, _c: mouse::Cursor)
-        -> Vec<canvas::Geometry> {
-        let color = theme.palette().text.scale_alpha(0.4);
-        vec![self.cache.draw(renderer, bounds.size(), |frame| {
-            for (i, len) in self.line_lengths.iter().enumerate() {
-                frame.fill_rectangle(Point::new(0.0, i as f32 * 2.0), Size::new(*len as f32, 1.5), color);
-            }
-        })]
-    }
-}
-// view: canvas(Minimap { line_lengths: &self.line_lengths, cache: &self.minimap }).width(80).height(Fill)
-```
-  Interaction: `fn update(&self, state, event: &canvas::Event, bounds, cursor) -> Option<canvas::Action<Message>>` returning `canvas::Action::publish(msg)`, `canvas::Action::request_redraw()`, optionally `.and_capture()`; plus `mouse_interaction` for cursors.
-- **Custom widget** (feature `advanced`): `impl<Message> advanced::Widget<Message, Theme, Renderer> for Gutter` with `size`, `layout(&mut self, tree, renderer, limits)`, `draw(..)`, optional `tag`/`state` (per-instance state in the widget tree), `children`/`diff`, `operate` (focus/scroll ids), `update(&mut self, tree, event, layout, cursor, renderer, clipboard, shell, viewport)` → `shell.publish(msg)`, `shell.capture_event()`, `shell.request_redraw()`, `shell.invalidate_layout()`; `mouse_interaction`; `overlay`. Provide `impl From<Gutter> for Element<'_, Message>` via `Element::new`. Draw quads with `renderer::Renderer::fill_quad(renderer, renderer::Quad { bounds, .. }, color)`.
-- **Shader** widget: `shader::Program` + custom primitives with raw wgpu (0.14 adds a `shader::Pipeline` trait for resource management) for GPU-heavy views (huge plots, image viewers); needs the wgpu renderer.
 
 ## Theming, styling, fonts
 - Built-in themes (`Theme::Light`, `Dark`, `TokyoNight`, `CatppuccinMocha`, ...) or `Theme::custom("Name", Palette { background, text, primary, success, warning, danger })`. Returning `None` from the theme function follows the system appearance and reacts to changes.
@@ -164,40 +109,6 @@ impl<Message> canvas::Program<Message> for Minimap<'_> {
 - Window chrome (macOS-only fields, so gate with `#[cfg(target_os = "macos")]`): `window::Settings { platform_specific: window::settings::PlatformSpecific { title_hidden: true, titlebar_transparent: true, fullsize_content_view: true }, .. }` for a unified title bar.
 - A bare binary has no icon, bundle id or proper app name, and may be treated differently by the system — test anything user-facing as a `.app`.
 
-## Testing
-- Keep logic in plain modules (no iced types) and unit-test `update` by feeding messages and asserting state.
-- `iced_test` 0.14 (dev-dependency) drives views headlessly (ran on Linux with tiny-skia):
-```rust
-use iced_test::simulator;
-#[test]
-fn save_button_saves() -> Result<(), iced_test::Error> {
-    let mut app = App::default();
-    let mut ui = simulator(app.view());
-    let _ = ui.click("Save")?;                         // selector: visible text; also find/tap_key/typewrite
-    for message in ui.into_messages() { let _ = app.update(message); }
-    let mut ui = simulator(app.view());
-    let snapshot = ui.snapshot(&Theme::TokyoNight)?;
-    assert!(snapshot.matches_hash("tests/snapshots/editor")?, "UI changed"); // or matches_image(...) for PNG
-    Ok(())
-}
-```
-- The first snapshot run writes the baseline and passes; files are suffixed per renderer (`editor-tiny-skia.sha256`). Commit baselines; hashes depend on fonts and platform, so embed fonts and run snapshot tests on one OS in CI.
-- 0.14 also has an `Emulator` and `.ice` test scripts (recorded with the `tester` feature) that run the real program — side effects happen for real, so sandbox them.
-
-## Project skeleton
-```
-app/
-  Cargo.toml        # iced = { version = "0.14", features = ["tokio", "advanced", "canvas", "lazy"] } — only what is used
-  src/main.rs       # iced::application(...) wiring only
-  src/app.rs        # State, Message, update, view, subscription
-  src/screen/*.rs   # per-screen State/Message; update returns an Action enum the parent interprets
-  src/widget/*.rs   # custom widgets (advanced feature)
-  src/worker/*.rs   # subscription workers: pty.rs, lsp.rs, watch.rs
-  src/model/*.rs    # pure logic, no iced imports -> fast unit tests
-  assets/fonts/  assets/icons/  tests/snapshots/
-```
-Compose screens by mapping: `self.editor.view().map(Message::Editor)` and `task.map(Message::Editor)`; the child returns an action (`None`, `Run(Task)`, `Navigate(..)`) instead of mutating the parent.
-
 ## Pitfalls
 | Symptom | Cause → fix |
 |---|---|
@@ -209,6 +120,12 @@ Compose screens by mapping: `self.editor.view().map(Message::Editor)` and `task.
 | Shortcut ignored while typing | A focused widget captured the key → `key_binding` on the editor |
 | Blurry on the other monitor | Physical-size textures not rebuilt on scale change |
 | Upgrade breaks everything | Expected pre-1.0 → port using the CHANGELOG and examples at the new tag |
+
+## References
+- `references/workers.md` — read when wiring long-running workers (PTY, LSP, file watcher) into the app.
+- `references/custom-widgets.md` — read when writing custom, canvas or shader widgets.
+- `references/testing.md` — read when testing the GUI.
+- `references/skeleton.md` — read when starting a new project layout.
 
 ## Verify
 - `cargo clippy --all-targets -- -D warnings`; `cargo test` (simulator + snapshot tests) in CI.

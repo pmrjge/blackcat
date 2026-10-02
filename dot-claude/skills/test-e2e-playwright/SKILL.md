@@ -3,7 +3,7 @@ name: test-e2e-playwright
 description: Use when writing or fixing browser end-to-end tests with Playwright Test — locators, traces.
 ---
 # End-to-end tests with Playwright Test
-Hub: `test-strategy`. Project setup and runner basics: `typescript-engineering` (Testing). Driving a browser for a task rather than a test suite: `browser-automation`. Accessibility rules: `web-accessibility`.
+Hub: `test-strategy`. Project setup and runner basics: `typescript-engineering` (Testing). Driving a browser for a task rather than a test suite: `browser-automation`. Accessibility rules: `web-accessibility` (audits: `a11y-audit`).
 
 ## What to cover
 - Only the critical user journeys end to end (sign up, log in, the main create/edit/pay flow, the main error path). Everything else belongs in unit, component or API tests — e2e tests are slow and the most flake-prone level.
@@ -25,7 +25,7 @@ Hub: `test-strategy`. Project setup and runner basics: `typescript-engineering` 
 
 ## Visual and accessibility checks
 - `await expect(page).toHaveScreenshot()` compares to a committed baseline; update intentionally with `npx playwright test --update-snapshots` and review the image diff. Baselines are per browser and OS: generate them in the same container as CI; mask dynamic regions (`mask: [locator]`).
-- Accessibility: `@axe-core/playwright` scans of each key state and ARIA snapshots (`toMatchAriaSnapshot`) — code in `web-accessibility` §6.
+- Accessibility: `@axe-core/playwright` scans of each key state and ARIA snapshots (`toMatchAriaSnapshot`) — code in `a11y-audit`.
 
 ## Verify
 - [ ] The suite passes three times in a row locally with CI's worker count (`--repeat-each=3`), and in CI.

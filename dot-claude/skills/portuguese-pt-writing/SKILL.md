@@ -46,45 +46,6 @@ use pre-AO spelling — ask, then apply one norm consistently (Lince converts pr
   "haviam"); *porque* in direct questions in PT ("Porque não vieste?", "Porque é que…?"), *porquê* at the end or
   as a noun ("Não sei porquê.", "o porquê"), *por que* = "por qual" ("a razão por que saiu"); BR writes "Por que…?".
 
-## 2. PT vs BR vocabulary
-| English | pt-PT | pt-BR |
-|---|---|---|
-| screen / touchscreen | ecrã / ecrã tátil | tela / tela sensível ao toque |
-| mobile phone | telemóvel | celular |
-| file / folder | ficheiro / pasta | arquivo / pasta |
-| user | utilizador | usuário |
-| mouse | rato | mouse |
-| download / upload | transferir / carregar | baixar, fazer download / enviar, fazer upload |
-| password | palavra-passe | senha |
-| sign in / sign out | iniciar sessão / terminar sessão | entrar, fazer login / sair |
-| settings | definições | configurações |
-| save / delete / share | guardar / eliminar / partilhar | salvar / excluir / compartilhar |
-| app | aplicação (app) | aplicativo (app) |
-| desktop (screen) | ambiente de trabalho | área de trabalho |
-| screenshot | captura de ecrã | captura de tela |
-| laptop / USB stick | portátil / pen (USB) | notebook / pen drive |
-| database | base de dados | banco de dados |
-| machine / deep / reinforcement learning | aprendizagem automática / profunda / por reforço | aprendizado de máquina / profundo / por reforço |
-| neural network | rede neuronal | rede neural |
-| training (a model) | treino | treinamento |
-| eigenvalue / eigenvector | valor próprio / vetor próprio | autovalor / autovetor |
-| sequence (analysis) | sucessão | sequência |
-| the integral | o integral (usual in PT university texts; Infopédia gives *a integral*, Priberam both) | a integral |
-| billion (10⁹) / trillion (10¹²) | mil milhões / bilião | bilhão / trilhão |
-| bus / train | autocarro / comboio | ônibus / trem |
-| breakfast | pequeno-almoço | café da manhã |
-| bathroom / fridge / juice | casa de banho / frigorífico / sumo | banheiro / geladeira / suco |
-| team | equipa | equipe (football: time) |
-| pedestrian crossing / toll | passadeira / portagem | faixa de pedestres / pedágio |
-| driving licence | carta de condução | carteira de motorista (CNH) |
-| suit (clothes) | fato | terno |
-| girl | rapariga (neutral in PT; offensive in parts of Brazil) | moça, garota |
-| queue | fila (*bicha* is dated and offensive in BR — avoid) | fila |
-Keep English where Portuguese practice keeps it: software, hardware, e-mail/email (formal: correio eletrónico),
-online, cookie, bit, byte, pixel, blog, streaming, startup; in developer contexts commit, branch, pull request.
-Do not translate code, commands, API names or product UI strings — use the product's official pt-PT strings.
-Units: 1,5 GB, 3 GHz (unit symbols are never pluralised or translated).
-
 ## 3. Grammar
 - **Clitic placement (the most visible PT/BR difference).** European Portuguese default is **enclisis** in
   affirmative main clauses: "Disse-me que vinha." "Enviei-lhe o ficheiro." A sentence never begins with an
@@ -141,81 +102,6 @@ Units: 1,5 GB, 3 GHz (unit symbols are never pluralised or translated).
 - No space before : ; ! ? (unlike French). Maths: open intervals are often written ]a, b[ in Portugal — follow
   the venue.
 
-## 5. Formal correspondence
-**E-mail or letter to a public service or institution**
-```text
-Assunto: Pedido de <o quê> — processo n.º <referência>
-
-Exmos. Senhores,                      (or: Exma. Senhora Diretora, / Exmo. Senhor Dr. <Apelido>,)
-
-<Who you are, only as needed, and the purpose in one sentence, with the reference number.>
-<Facts: dates, what was already done, what is missing.>
-<The request, precise and actionable: "Solicito que me seja enviado…", "Venho solicitar a V. Ex.ª…".>
-Junto em anexo: <list>.
-
-Com os melhores cumprimentos,
-<Nome completo>
-<Contacto>
-```
-Closings used in Portugal: "Com os melhores cumprimentos" (default), "Cumprimentos", "Atentamente",
-"Atenciosamente". Addressee block in a letter: "Exma. Senhora / Presidente do Conselho Diretivo do …" (no
-"Ao/À" before a person in PT usage; "À Direção-Geral de …" before an institution). "Prezado(a)" is more typical
-of Brazil; semi-formal PT e-mails usually open with "Caro/Cara".
-
-**Requerimento** — the Código do Procedimento Administrativo (Decreto-Lei n.º 4/2015, art. 102.º) requires a
-written initial request to contain: (a) the administrative body it is addressed to; (b) the applicant's name and
-domicile and, if possible, civil and tax identification numbers; (c) the facts and, where possible, the legal
-grounds; (d) the request, in clear and precise terms; (e) date and signature; (f) the address for notifications;
-(g) phone or e-mail for notifications.
-```text
-Exmo(a). Senhor(a) <cargo> do/da <órgão>
-
-<Nome>, titular do cartão de cidadão n.º <…>, contribuinte n.º <…>, residente em <morada>, vem requerer a
-V. Ex.ª <pedido claro e preciso>, ao abrigo do <artigo X.º do Decreto-Lei n.º …/…>, com os seguintes fundamentos:
-1.º <facto>
-2.º <facto>
-Junta: <documentos>.
-Pede deferimento.
-<Local>, <dia> de <mês> de <ano>
-<Assinatura>
-Contactos para notificações: <morada / e-mail / telefone>
-```
-Guardrails: include only the personal data the procedure needs; never cite a law, article or deadline you have not
-checked in the current consolidated text on diariodarepublica.pt (or the service's official page); flag deadlines
-and recommend confirming legal effects with the service or a lawyer — drafting is not legal advice.
-
-## 6. Translating from English
-Process: understand → translate the meaning → rewrite in natural Portuguese order → terminology pass (§2, IATE,
-Microsoft Terminology) → typography pass (§4) → read aloud.
-| English | Trap | Use |
-|---|---|---|
-| actually | *atualmente* = currently | na verdade, de facto |
-| eventually | *eventualmente* = possibly | acabar por, por fim, mais tarde |
-| pretend | *pretender* = intend | fingir |
-| realize | *realizar* = carry out | aperceber-se, perceber |
-| assume (that) | *assumir* = take on | supor, partir do princípio |
-| attend (a class, a meeting) | *atender* = serve, answer (the phone) | assistir a, frequentar, estar presente em |
-| assist | *assistir (a)* = watch, attend | ajudar, apoiar |
-| library | *livraria* = bookshop | biblioteca |
-| comprehensive | *compreensivo* = understanding | abrangente, exaustivo |
-| consistent | *consistente* = solid, firm | coerente, uniforme |
-| sensible | *sensível* = sensitive | sensato |
-| severe (disease) | *severo* = harsh | grave |
-| resume | *resumir* = summarize | retomar |
-| data | *data* = date | dados |
-| parents | *parentes* = relatives | pais |
-| college | *colégio* = (private) school | ensino superior, faculdade |
-| constipated | *constipado* = has a cold | com prisão de ventre |
-| argument (quarrel) | *argumento* = reasoning | discussão |
-| evidence | *evidência* = obviousness (but *medicina baseada na evidência* is established) | provas, dados, indícios |
-| introduce (a person) | *introduzir* = insert | apresentar |
-| apply for | calque *aplicar para* | candidatar-se a |
-| address (an issue) | calque *endereçar* | tratar, resolver, abordar |
-| billion / trillion | short vs long scale | mil milhões / bilião |
-Maths and science: demonstração (proof), lema, corolário, conjetura, hipótese, espaço vetorial, desvio-padrão,
-variável aleatória, valor esperado; decimal comma in prose and tables. Prefer established Portuguese terms
-(desempenho for performance, prazo for deadline) unless the field keeps the English one.
-
 ## 7. Tone and concision
 - Plain language (Livro de Estilo, justica.gov.pt): sentences ≤ 35 words, paragraphs ~6 lines, active voice,
   simple words ("fazer" not "efetuar", "dizer" not "verbalizar"), explain jargon, avoid Latin tags, address the
@@ -225,15 +111,20 @@ variável aleatória, valor esperado; decimal comma in prose and tables. Prefer 
 - Portuguese formal prose is less effusive than Brazilian; one courtesy formula at the end is enough.
 
 ## 8. Proofreading checklist
-- [ ] Variant pt-PT throughout; manual pass for BR vocabulary and BR spellings (table §2; acute vs circumflex).
+- [ ] Variant pt-PT throughout; manual pass for BR vocabulary and BR spellings (table §2 in `references/vocabulary.md`; acute vs circumflex).
 - [ ] One spelling norm (AO1990 unless told otherwise); doubtful words checked in VOP/Priberam.
 - [ ] Clitics: enclisis by default, proclisis after triggers, no sentence-initial clitic.
 - [ ] "estar a + infinitivo"; no *você* in writing; one consistent form of address.
 - [ ] « » quotes; spaced travessões; ordinals 1.º/2.ª with º/ª; months in lower case.
 - [ ] Numbers: decimal comma, space grouping, currency after the amount, *mil milhões*, dates and times.
-- [ ] False friends and calques (§6) checked.
+- [ ] False friends and calques (§6 in `references/translation.md`) checked.
 - [ ] Formal texts: addressee, request stated clearly, legal references verified, attachments listed, closing.
 - [ ] Read aloud: natural order, no calques, no repeated words.
+
+## References
+- `references/vocabulary.md` — read when choosing between PT and BR words or checking a Brazilianism.
+- `references/correspondence.md` — read when writing formal letters, emails or official correspondence.
+- `references/translation.md` — read when translating from English into European Portuguese.
 
 ## Verify
 - LanguageTool with `pt-PT` flags pre-AO spellings (e.g. *actualmente*) but in a test let BR vocabulary through

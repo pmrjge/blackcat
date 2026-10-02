@@ -105,30 +105,6 @@ Budget: ≤<N> searches and ≤<M> pages; stop earlier when the criteria are met
 ```
 Tool ladder and source-quality rules: `web-research`; paper searches and citation audits: `literature-review`. For long investigations ask for competing hypotheses and a notes file with confidence levels (Anthropic's structured-research pattern).
 
-## 5. Structured outputs
-- Claude: `output_config={"format": {"type": "json_schema", "schema": S}}`, or strict tools (`"strict": true`) with `tool_choice` `any`/`tool`. Schema subset: objects need `"additionalProperties": false`; no recursive schemas; no numeric bounds or string length limits (the Python/TypeScript SDKs strip unsupported keywords into descriptions and validate client-side); `enum` of primitives only; required properties are emitted first, in schema order. A `refusal` or `max_tokens` stop can still yield non-conforming output.
-- OpenAI-compatible: `response_format={"type": "json_schema", "json_schema": {"name": "...", "schema": S, "strict": True}}`; vLLM also accepts `extra_body={"structured_outputs": {"json" | "regex" | "choice" | "grammar": ...}}` (the `guided_*` fields were removed in v0.12); llama-server enforces `response_format` and takes `json_schema`/`grammar` on `/completion`. Some servers accept a schema without enforcing it — test with invalid-bait inputs.
-- Without constrained decoding: JSON mode or plain prompting with the schema in the prompt, then validate.
-- Schema design: descriptive field names and descriptions, enums for closed sets (include `unsure`/`other` when real), evidence or rationale fields placed before the answer when order matters (mark them required), flat over deeply nested, ids instead of free text for references.
-```python
-from typing import Literal
-from pydantic import BaseModel, ValidationError
-
-class Verdict(BaseModel):
-    evidence: list[str]
-    label: Literal["pass", "fail", "unsure"]
-
-def structured(call, prompt: str, retries: int = 2) -> Verdict:
-    msg = prompt
-    for _ in range(retries + 1):
-        raw = call(msg)                               # provider call, schema-enforced where supported
-        try:
-            return Verdict.model_validate_json(raw)
-        except ValidationError as err:
-            msg = f"{prompt}\n\nThe previous output failed validation:\n{err}\nReturn only JSON matching the schema."
-    raise ValueError("no valid structured output after retries")
-```
-
 ## 6. Few-shot examples
 - Cover the decision boundary and the hard cases, not the easy middle; vary length, topic and surface form so incidental features are not copied; balance labels and positions.
 - Match the exact target format; wrap in `<example>` (several in `<examples>`); keep them consistent with the prose rules — when they disagree the examples win.
@@ -155,24 +131,13 @@ Instructions can arrive inside tool results, web pages, documents, emails, MCP o
 ## 8. Testing prompts
 - Before editing, build a test set: 20–50 cases — typical, edge, ambiguous, out-of-scope and adversarial (injection) — each with expected properties (exact answer, schema-valid, must include, must not do).
 - Graders: deterministic first (schema, regex, contains, exact match, executing generated code); rubric-based LLM judge for open-ended outputs, calibrated on a few human-graded cases (`llm-evals`).
-- A/B: same cases and parameters, several samples per case for stochastic settings, paired comparison, position-swapped pairwise judging, CIs. Across models: the same suite per model; port prompts (§9) before comparing.
+- A/B: same cases and parameters, several samples per case for stochastic settings, paired comparison, position-swapped pairwise judging, CIs. Across models: the same suite per model; port prompts (§9 in `references/porting.md`) before comparing.
 - Regression: prompts live in git next to their suite; every edit reruns it and diffs outputs; each production failure becomes a new case; pin model ids and sampling in the test config.
 - Tooling: a small pytest harness, or promptfoo (`promptfooconfig.yaml` with `prompts`, `providers`, `tests` → `vars` + `assert` types such as `is-json`, `contains`, `regex`, `javascript`, `llm-rubric`; run `npx promptfoo@latest eval`).
 
-## 9. Porting across providers
-
-| Aspect | Claude (Messages API) | OpenAI-compatible server | Local open-weight model |
-|---|---|---|---|
-| System prompt | `system` parameter | `system` message | template-dependent: some chat templates lack a system role and merge it into the first user turn — render and check |
-| Structured output | `output_config.format`, strict tools | `response_format` (enforcement varies) | grammar/JSON-schema constrained decoding, else validate + retry |
-| Prefill | not supported from the Claude 4.6 generation on (400 error): use structured outputs or instructions | server-dependent (llama-server `--prefill-assistant`) | template-dependent |
-| Reasoning | adaptive thinking; `output_config.effort` | server-specific fields | template kwargs (`enable_thinking`), llama-server `--reasoning-budget` / `--reasoning-effort` |
-| Tools | native `tools` | `tools` + server-side parser | parser + template; fewer tools, flatter schemas |
-
-- Smaller models need shorter prompts, fewer simultaneous constraints, more examples and an explicit output format; check that rules stated early in a long prompt still hold in the outputs.
-- Verbosity and formatting defaults differ between models, even Claude generations: set length and format explicitly and re-test.
-- Set sampling explicitly (temperature, top_p) from the model card; server defaults differ.
-- Re-run the full suite after porting; do not carry prompt workarounds tuned for another model without evidence.
+## References
+- `references/structured-outputs.md` — read when asking a model for JSON or schema-bound output.
+- `references/porting.md` — read when porting a prompt to another provider or model.
 
 ## Verify
 The test suite passes at or above the previous version with the same model settings; no contradictions across system prompt, CLAUDE.md, rules and tool descriptions (read them together); planted injections fail; outputs validate against the schema; a fresh session following only the brief reaches the first milestone's acceptance criteria; CLAUDE.md stays under 200 lines.

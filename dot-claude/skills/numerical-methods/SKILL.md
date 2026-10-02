@@ -22,11 +22,11 @@ description: Load before writing or trusting any numerical computation — IEEE 
 |---|---|
 | `num-linear-algebra` | solving linear systems, least squares, eigenproblems, matrix functions, sparse/iterative solvers |
 | `num-ode-sde` | integrating ODEs or SDEs: tolerances, stiffness, symplectic/DAE, strong and weak order |
+| `num-floating-point` | IEEE 754 rounding, cancellation, summation, NaN/subnormals, fp16/bf16/fp8/fp4 and framework precision flags |
+| `num-optimization` | roots, nonlinear systems, minimization and nonlinear least squares with scipy.optimize |
+| `num-quadrature-autodiff` | numerical integration (quad, tanh-sinh, cubature, QMC, mpmath) and derivatives (autodiff, FD, complex step) |
 
-## References (read when the task needs them)
-- `references/floating-point.md` — read when reasoning about IEEE 754 rounding, cancellation, summation, NaN/subnormals, or fp16/bf16/fp8/fp4 and framework precision flags.
-- `references/optimization.md` — read when finding roots, solving nonlinear systems or minimizing with scipy.optimize.
-- `references/quadrature-autodiff.md` — read when integrating numerically or computing/checking derivatives.
+## References
 - `references/reproducibility.md` — read when seeding, chasing nondeterminism (GPU, TF32, BLAS threads) or choosing a library per device.
 
 ## 3. Conditioning, stability, backward error

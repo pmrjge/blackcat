@@ -26,40 +26,6 @@ description: Load before proving, disproving, repairing or refereeing a mathemat
    counterexample must meet.
 6. Decide the target: prove, disprove, or find the right statement (weakest hypotheses, sharp constant).
 
-## 2. Experiment before proving
-Small cases first, by hand and by machine, with `__CLAUDE_DIR__/venvs/sci/bin/python` (sympy, mpmath,
-numpy, networkx, hypothesis, z3-solver). Use `mcp__wolfram`, if available, as an independent CAS.
-```python
-import sympy as sp, mpmath as mp, z3
-from hypothesis import given, settings, strategies as st
-k, N = sp.symbols("k N", integer=True, positive=True)
-sp.factor(sp.summation(k**3, (k, 1, N)))                 # N**2*(N + 1)**2/4
-a = sp.Function("a"); n = sp.symbols("n", integer=True, nonnegative=True)
-sp.rsolve(a(n+2) - a(n+1) - a(n), a(n), {a(0): 0, a(1): 1})   # closed form of a recurrence
-mp.mp.dps = 50
-mp.identify(mp.zeta(2), ["pi"])                          # 'pi*((1/6)*pi)'; returns None without a basis
-mp.findpoly(mp.sqrt(2) + mp.sqrt(3), 4, maxcoeff=100)    # [1, 0, -10, 0, 1]
-mp.pslq([mp.pi**2, mp.zeta(2)], maxcoeff=100)            # [1, -6]: integer relation
-x, y = z3.Ints("x y"); s = z3.Solver(); s.add(x > 0, y > 0, x*x + y*y == 25, x < y)
-print(s.check(), s.model())                              # sat [y = 4, x = 3]
-u, v = z3.Reals("u v")
-z3.prove(z3.Implies(z3.And(u > 0, v > 0), (u + v)**2 >= 4*u*v))   # prints "proved"
-
-@settings(max_examples=2000, deadline=None)
-@given(st.integers(1, 10**6))
-def test_claim(m):
-    assert sp.isprime(m*m + m + 41)                      # fails; Hypothesis reports a shrunk example
-```
-- Hypothesis shrinking is heuristic: on the claim above it reported 170, while the least counterexample
-  is 40. When "smallest counterexample" matters, sweep exhaustively.
-- z3 decides quantifier-free linear arithmetic and bit-vector problems. It may answer `unknown` on
-  nonlinear integer problems, and its handling of quantifiers (`ForAll`) is incomplete. Treat `unknown` as no information. Bit-vectors
-  model machine integers (`(p + q) / 2` overflows).
-- Integer sequences: compute 10–20 terms and look them up on OEIS (`https://oeis.org/search?q=1,2,5,14&fmt=json`).
-- Inequalities: sample randomly and near the conjectured equality case, including extreme scales; a
-  minimizer from `scipy.optimize` suggests where equality holds.
-- A numeric agreement is evidence, not proof. Record what was checked, and on which range.
-
 ## 3. Strategy catalog
 | Strategy | Recognition cues | Watch for |
 |---|---|---|
@@ -85,71 +51,6 @@ Also: generalize (the inventor's paradox), specialize, exploit symmetry (state t
 justifies WLOG), change variables, pass to an equivalent problem (generating functions, Fourier
 transform, linear algebra, duality), or induct on a different parameter.
 
-## 4. Domain tactics
-**Analysis.**
-- Write the target estimate first, then budget ε (ε/2 + ε/2, or C·ε with C independent of ε). Track
-  what each N, δ, C depends on.
-- Justify every interchange, naming the theorem each time:
-  - lim∫ = ∫lim: dominated convergence (|fₙ| ≤ g ∈ L¹, fₙ → f a.e.); monotone convergence
-    (0 ≤ fₙ ↑ f); Vitali (uniform integrability on a finite measure space); uniform convergence on a
-    finite measure space.
-  - Fatou gives only ∫liminf fₙ ≤ liminf ∫fₙ, and needs fₙ ≥ 0 or bounded below by an integrable
-    function.
-  - ∑∫ = ∫∑: Tonelli for nonnegative terms; otherwise require ∑∫|fₙ| < ∞.
-  - Iterated integrals: Tonelli (measurable, ≥ 0, σ-finite); Fubini (f ∈ L¹ of the product). Keep the
-    counterexample ∫∫_{(0,1]²} (x²−y²)/(x²+y²)² in mind.
-  - d/dt∫f = ∫∂ₜf: f(·,t) ∈ L¹, ∂ₜf exists, and |∂ₜf(x,t)| ≤ g(x) ∈ L¹ for all t near t₀.
-  - Term-wise derivative of a series: derivatives converge uniformly and the series converges at one
-    point.
-  - Double limits: Moore–Osgood (one of the limits uniform).
-  - Rearrangement is safe only for absolutely convergent series (Riemann).
-- Toolkit: Cauchy–Schwarz, Hölder, Minkowski, Jensen (convex φ, probability measure), AM–GM, Young,
-  Grönwall, Taylor with explicit remainder, mean value theorem, summation by parts, dyadic
-  decomposition, Stirling with explicit bounds.
-- Asymptotics: state the variable, the range and the uniformity of every O/o/∼/Θ.
-
-**Algebra.**
-- Define maps by universal properties (free objects, quotients, tensor products, localizations). A map
-  out of a quotient needs a well-definedness check; the universal property packages it.
-- Pick the structure that makes the claim a known theorem: group action (orbit–stabilizer, Burnside,
-  class equation), modules over a PID, representations (Maschke needs char k ∤ |G|), Galois
-  correspondence (finite, separable, normal), Noetherian or Artinian hypotheses.
-- Reduce mod p, localize, complete, base-change to an algebraic closure. Know which properties
-  descend. Check characteristic 2/3, non-commutativity, zero divisors and infinite generation.
-
-**Combinatorics.**
-- Bijective proofs; double counting; generating functions (formal power series, so convergence only
-  matters when evaluating); inclusion–exclusion; transfer matrices.
-- Hall, Kőnig, Dilworth/Mirsky; Ramsey and Turán bounds; the linear-algebra (dimension) method;
-  entropy; the probabilistic method. Check small cases against brute force.
-
-**Probability.**
-- Fix the probability space and filtration. Use independence exactly as needed (pairwise vs mutual).
-- Concentration:
-  - Markov, Chebyshev, Chernoff (MGF).
-  - Hoeffding: P(S−ES ≥ t) ≤ exp(−2t²/∑(bᵢ−aᵢ)²).
-  - Bernstein, when the variance is small.
-  - McDiarmid (bounded differences cᵢ): exp(−2t²/∑cᵢ²).
-  - Azuma (martingale differences |Dᵢ| ≤ cᵢ): exp(−t²/(2∑cᵢ²)).
-  - For a supremum: a union bound plus an ε-net.
-- Coupling: d_TV(μ,ν) = min over couplings of P(X ≠ Y). Monotone couplings; coupling times for mixing.
-- Modes of convergence: a.s. ⇒ in probability ⇒ in distribution; uniform integrability upgrades
-  convergence in probability to L¹. Second Borel–Cantelli needs independence (or a substitute).
-- Optional stopping needs a bounded stopping time, uniform integrability, or bounded increments with
-  E[τ] < ∞. A supremum over an uncountable family can be non-measurable; use separability.
-
-**Linear algebra.**
-- Stay basis-free until a basis adapted to the problem is chosen (eigenbasis, Jordan, Schur, SVD).
-- Workhorses: rank–nullity, Cayley–Hamilton, minimal polynomial, spectral theorem (normal over ℂ,
-  symmetric over ℝ), Jordan form (algebraically closed field), Sylvester inertia, Schur complements,
-  Woodbury.
-- Perturbation:
-  - Courant–Fischer min–max.
-  - Weyl: |λᵢ(A+E) − λᵢ(A)| ≤ ‖E‖₂ for Hermitian A, E.
-  - Davis–Kahan: eigenvector angle ≲ ‖E‖/gap.
-  - Gershgorin; Perron–Frobenius (irreducible nonnegative matrices).
-- Infinite dimensions: injective ⇏ surjective, spectrum ≠ eigenvalues, closed range, domains of adjoints.
-
 ## 5. Repairing a broken proof
 1. Find the first unjustified step: test each intermediate claim numerically or symbolically on random
    instances.
@@ -169,7 +70,7 @@ transform, linear algebra, duality), or induct on a different parameter.
 - [ ] No division by zero; no log or root of a non-positive number; empty sums and products handled.
 - [ ] Measurability and integrability before integrating. No ∞ − ∞. No manipulation of conditionally
       convergent series.
-- [ ] Limits shown to exist before being used; interchanges justified (§4).
+- [ ] Limits shown to exist before being used; interchanges justified (§4 in `references/domain-tactics.md`).
 - [ ] Strict vs non-strict inequalities; the sign when multiplying inequalities; direction of
       inclusions.
 - [ ] WLOG backed by an explicit symmetry. No circularity (a lemma using the theorem).
@@ -211,6 +112,10 @@ Formalize a load-bearing lemma in Lean (`lean-formalization`) when the argument 
 - a computer-assisted step.
 
 At minimum, check finite parts exhaustively in Python or with z3, and say so.
+
+## References
+- `references/experiments.md` — read when testing a conjecture numerically or symbolically before proving it.
+- `references/domain-tactics.md` — read when the proof lives in a specific field and needs its standard tactics.
 
 ## Verify
 - Small cases and random instances agree with every intermediate claim, not only the final one.

@@ -16,6 +16,7 @@ description: Load before choosing a database or designing a schema — engine ch
 | Documents read and written whole, flexible per-record shape, horizontal scale by key | MongoDB (`mongodb`) |
 | Cache, rate limits, queues, locks, leaderboards; data you can rebuild | Redis or Valkey (`redis`) |
 | Columnar analytics over files | DuckDB (`dataframes-duckdb`) |
+| Full-text or hybrid search over documents | a search engine or Postgres full-text (`search-engines`) |
 
 Pick the engine the repository already uses unless a requirement it cannot meet is written down.
 

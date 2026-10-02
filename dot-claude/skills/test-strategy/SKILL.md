@@ -16,6 +16,7 @@ description: Load before deciding what and how to test or repairing a weak suite
 - Never weaken, skip or delete a test to get green; if a test is wrong, say why and fix it in its own change.
 - Determinism: seeded randomness, frozen clocks, no network to third parties, no order dependence; tests runnable alone and in parallel.
 - Flaky test: reproduce with repetition (`--count`, `--repeat-each`, loops), find the cause (time, order, shared state, async waits), fix or quarantine with an issue and an owner; never retry-until-green silently.
+- A regression with a known good version: bisect it and minimize the input first (`debug-bisect-minimize`); native crashes: `debug-native`.
 - Coverage is a map of what was never executed, not a quality score; mutation score is the closer measure of whether tests check anything.
 
 ## Modules

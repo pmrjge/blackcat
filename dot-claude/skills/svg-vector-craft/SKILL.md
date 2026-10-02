@@ -36,55 +36,6 @@ description: Load before creating, converting or delivering vector files — pat
 - Accessibility on the web: `<title>` as first child, `role="img"`, `aria-labelledby` pointing at the title id (or `aria-label`); decorative graphics get `aria-hidden="true"`.
 - SVG strokes are always centered: expand inside/outside-aligned Illustrator strokes before exporting.
 
-## 3. Parametric and generated drawings
-Pattern (tested; plain Python, no dependencies): parameters in mm, geometry as path strings with fixed precision, one layer per production step, arrowheads drawn as paths (markers are ignored by many cutters and CAD converters), notes on a non-production layer.
-```python
-"""Parametric panel in mm: outer cut, four holes, centre score, one dimension, 50 mm scale bar."""
-import math
-W, H, R, HOLE, INSET, M = 120.0, 80.0, 6.0, 5.0, 10.0, 15.0   # parameters; M = sheet margin for notes
-
-def f(v):                                          # fixed precision, never "-0"
-    s = f"{v:.3f}".rstrip("0").rstrip(".")
-    return "0" if s in ("", "-0") else s
-
-def rrect(x, y, w, h, r):
-    a = f"A{f(r)} {f(r)} 0 0 1"
-    return (f"M{f(x+r)} {f(y)}H{f(x+w-r)}{a} {f(x+w)} {f(y+r)}V{f(y+h-r)}{a} {f(x+w-r)} {f(y+h)}"
-            f"H{f(x+r)}{a} {f(x)} {f(y+h-r)}V{f(y+r)}{a} {f(x+r)} {f(y)}Z")
-
-def circle(cx, cy, r):                             # closed path of two arcs
-    return f"M{f(cx-r)} {f(cy)}A{f(r)} {f(r)} 0 1 0 {f(cx+r)} {f(cy)}A{f(r)} {f(r)} 0 1 0 {f(cx-r)} {f(cy)}Z"
-
-def arrow(x, y, ang, L=2.0, w=0.7):                # filled arrowhead path; <marker> is not portable
-    c, s = math.cos(ang), math.sin(ang)
-    return f"M{f(x)} {f(y)}L{f(x-L*c+w*s)} {f(y-L*s-w*c)}L{f(x-L*c-w*s)} {f(y-L*s+w*c)}Z"
-
-def layer(name, attrs, body):
-    return f'<g id="{name}" inkscape:groupmode="layer" inkscape:label="{name}" {attrs}>{body}</g>\n'
-
-SW, SH, yd = W + 2*M, H + 2*M, M + H + 7
-cut = 'fill="none" stroke="#ff0000" stroke-width="0.01"'
-holes = "".join(circle(M+cx, M+cy, HOLE/2) for cx in (INSET, W-INSET) for cy in (INSET, H-INSET))
-svg = (f'<svg xmlns="http://www.w3.org/2000/svg" xmlns:inkscape="http://www.inkscape.org/namespaces/inkscape" '
-       f'width="{f(SW)}mm" height="{f(SH)}mm" viewBox="0 0 {f(SW)} {f(SH)}">\n<title>Panel {f(W)} x {f(H)} mm</title>\n'
-       + layer("cut-inner", cut, f'<path d="{holes}"/>')           # inner cuts first
-       + layer("cut-outer", cut, f'<path d="{rrect(M, M, W, H, R)}"/>')
-       + layer("score", 'fill="none" stroke="#0000ff" stroke-width="0.01"', f'<path d="M{f(M+W/2)} {f(M)}V{f(M+H)}"/>')
-       + layer("notes", 'fill="#808080" font-family="sans-serif" font-size="3.5"',
-               f'<path fill="none" stroke="#808080" stroke-width="0.2" d="M{f(M)} {f(M+H+1)}V{f(yd+1.5)}'
-               f'M{f(M+W)} {f(M+H+1)}V{f(yd+1.5)}M{f(M)} {f(yd)}H{f(M+W)}M{f(M)} {f(SH-3)}h50"/>'
-               f'<path d="{arrow(M, yd, math.pi)}{arrow(M+W, yd, 0)}"/>'
-               f'<text x="{f(M+W/2)}" y="{f(yd-1)}" text-anchor="middle">{f(W)}</text>'
-               f'<text x="{f(M+52)}" y="{f(SH-2)}">50 mm</text>')
-       + "</svg>\n")
-open("panel.svg", "w").write(svg)
-```
-- Drawing conventions: extension lines with a small gap from the part, dimension line with arrowheads, value above the line, units stated once in a title block (name, scale, units, material and thickness, revision, date); a scale bar and "print at 100%" note; notes layer in a non-production color.
-- Kerf: offset part outlines outward and holes inward by kerf/2 when the machine software does not; measure kerf on a test cut.
-- Deterministic output (fixed precision, stable element order and IDs) keeps diffs reviewable; store parameters in `<metadata>` or `data-*` attributes. Property-test generators with hypothesis (sci venv) for invariants: cut paths closed, overall size equals the parameters, holes inside the part.
-- Libraries: drawsvg 2.x (`Drawing(w, h)`, `set_render_size('100mm', '50mm')` writes mm width/height with a matching viewBox); svgelements (parse with units and transforms); svgpathtools (lengths, intersections); skia-pathops (booleans, stroke outlines); shapely (offsets/buffers on polylines); ezdxf (DXF); JavaScript: `@svgdotjs/svg.js` 3.x (DOM; Node needs `svgdom`), paper.js (booleans), opentype.js (text to paths from a licensed font file).
-- Hairline strokes are invisible in previews: render a copy with a CSS override, `printf 'path{stroke-width:.4 !important}' > preview.css; rsvg-convert -s preview.css -d 100 -p 100 -o preview.png panel.svg`, then Read the PNG.
-
 ## 4. Optimization with svgo 4
 Keep an editable master; optimize copies. Verified svgo 4.1 defaults: removes Inkscape layer attributes and namespaces, deletes "unused" IDs (including a `<title id>` referenced by `aria-labelledby`, breaking the accessible name), strips `role`, collapses groups, merges same-style paths into one, converts shapes to paths and deletes hidden elements. `removeViewBox` and `removeTitle` are no longer in the default preset. svgo looks for `svgo.config.mjs` in the current directory and its parents, so a stray config applies silently: pass `--config`.
 ```js
@@ -135,47 +86,6 @@ vtracer --input in.png --output out.svg --colormode color --hierarchical cutout 
 `--colormode bw` for binary; `--hierarchical stacked` (default) layers shapes, `cutout` gives non-overlapping shapes (better for vinyl and cutting); `--preset bw|poster|photo`. Python package `vtracer`: `vtracer.convert_image_to_svg_py(inp, out, colormode="binary", hierarchical="cutout", mode="spline", filter_speckle=4, path_precision=3)`. The Python binding spells binary mode `"binary"` and silently falls back to color on unknown values (`"bw"` gives a color trace). Output has pixel width/height, no viewBox, and a `translate()` on every path: add a viewBox and physical size, bake transforms.
 - Cleanup: delete speckles, merge same-color neighbors, reduce anchors, replace near-circles and near-lines with true primitives, unify stroke weights, sharpen corners, align to a grid; overlay on the source at 400% and against the brand guide.
 
-## 7. Cutting, engraving and plotting output
-- Vinyl and print-and-cut: closed paths; the cut line as a spot swatch named for the RIP (Roland VersaWorks: `CutContour`, stroke 0.25 pt); extend printed art 1–3 pt past the cut line against white slivers; respect the material's minimum text and weeding sizes.
-- Laser: operation by stroke color, and the mapping is shop-specific (one Epilog lab uses blue #0000FF cut, red #FF0000 vector engrave, black raster; others use red for cut): get the shop's table. RGB document; hairline strokes as the driver defines them (e.g., 0.001 pt or 0.001 in; thicker strokes may be treated as raster engraving in print-driver workflows); fills only for raster engraving; closed cut paths; no duplicates or overlaps (double burns); inner cuts before outer; text outlined; delete hidden objects and release clipping masks (the clipped geometry is still cut).
-- Pen plotters: strokes only; `vpype read in.svg linemerge --tolerance 0.1mm linesort write out.svg` merges touching lines and orders them to cut pen-up travel (vpype converts curves to polylines).
-- CNC milling: closed contours, arcs preferred to splines, tool offsets left to CAM.
-- Check before sending (tested; needs mm or in units on the SVG): `uv run --no-project --with svgelements python check_fab.py part.svg '#ff0000' 600 400`
-```python
-"""usage: check_fab.py file.svg [cut_hex=#ff0000] [material_w_mm material_h_mm]"""
-import sys
-from collections import Counter
-import svgelements as se
-
-f, cut = sys.argv[1], (sys.argv[2] if len(sys.argv) > 2 else "#ff0000").lower()
-svg = se.SVG.parse(f, ppi=25.4)                       # 1 user px == 1 mm after parsing
-problems, sigs, colours = [], Counter(), Counter()
-lo, hi = [float("inf")] * 2, [float("-inf")] * 2
-r = lambda pt: (round(pt.x, 3), round(pt.y, 3))
-for el in svg.elements():
-    if not isinstance(el, se.Shape) or isinstance(el, se.Text):
-        continue
-    stroke = str(el.stroke).lower(); colours[stroke] += 1
-    p = se.Path(el); p.reify()                          # shape -> path, transforms applied
-    for sub in p.as_subpaths():
-        segs = [s for s in se.Path(sub).segments() if not isinstance(s, se.Move)]
-        if not segs:
-            continue
-        closed = isinstance(segs[-1], se.Close) or r(segs[0].start) == r(segs[-1].end)
-        if stroke == cut and not closed:
-            problems.append(f"open cut path starting at {r(segs[0].start)} mm")
-        sigs[frozenset((r(s.start), r(s.end)) for s in segs if s.start is not None)] += 1
-    if (b := p.bbox()):
-        lo = [min(lo[0], b[0]), min(lo[1], b[1])]; hi = [max(hi[0], b[2]), max(hi[1], b[3])]
-if (d := sum(n - 1 for n in sigs.values() if n > 1)):
-    problems.append(f"{d} duplicate subpath(s): double cuts/burns")
-if len(sys.argv) == 5 and (min(lo) < 0 or hi[0] > float(sys.argv[3]) or hi[1] > float(sys.argv[4])):
-    problems.append("geometry outside the material")
-print(f"stroke colours {dict(colours)}; bbox mm {lo[0]:.2f},{lo[1]:.2f} .. {hi[0]:.2f},{hi[1]:.2f}")
-print("\n".join(problems) or "OK"); sys.exit(1 if problems else 0)
-```
-The duplicate test compares segment endpoints, so treat a hit as "inspect", not proof.
-
 ## 8. Export formats
 
 | Target | Format | How | Watch |
@@ -207,6 +117,10 @@ doc.saveas("part.dxf")
 - [ ] Color: RGB hex for web and machines (exact operation colors), CMYK/spot via PDF for print; swatches named
 - [ ] Images embedded or linked as agreed, resolution adequate
 - [ ] Renders the same in two engines (Illustrator or Inkscape vs `rsvg-convert`)
+
+## References
+- `references/parametric.md` — read when generating SVG from code or parameters.
+- `references/cutting-plotting.md` — read when preparing SVG for laser cutting, engraving, vinyl cutting or pen plotting.
 
 ## Verify
 ```sh

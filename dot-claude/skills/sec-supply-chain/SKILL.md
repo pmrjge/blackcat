@@ -11,6 +11,7 @@ Hub: `secure-coding`. Version notes carry Verified lines (see Sources) or are ma
 - **Audit and triage:** `uvx pip-audit` (or `uv audit`, preview in recent uv), `cargo audit`, `cargo deny check` (advisories, bans, licenses, sources), `npm audit --omit=dev`, `osv-scanner scan source -r .`. For each advisory: is the vulnerable code reachable, what is the fixed version, is there a workaround. Prioritize with CISA KEV (known exploited) and EPSS scores before raw CVSS (unverified as of 2026-10-02).
 - **Provenance:** PyPI Trusted Publishing and attestations (PEP 740), `npm publish --provenance` and `npm audit signatures`, Sigstore/cosign for images, `gh attestation verify <artifact> --owner <org>`, `cargo vet`.
 - **Name attacks:** before adding a dependency check its exact name, owner, age, downloads and repository — above all for names an LLM suggested (hallucinated names get registered: slopsquatting). Dependency confusion: resolve private names from one explicit index; uv's default `first-index` strategy does not fall through to PyPI, pip's `--extra-index-url` does.
+- Planned upgrades (changelogs, batching, bots, rollback): `dep-upgrades`; licences of new dependencies: `oss-licensing`.
 - CI-side controls (pinned actions, OIDC, token permissions): `ci-cd-pipelines`; image SBOMs and scanning: `container-images`.
 
 ## Verify
