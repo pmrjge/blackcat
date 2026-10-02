@@ -343,8 +343,9 @@ def test_load_model_defaults_and_b_schema(tmp_path, monkeypatch):
     f = tmp_path / "m.json"
     f.write_text(json.dumps({"version": 1, "generated": "x", "stack_hash": "h", "sessions": ["a"],
                              "kappa": {"cache_write_5m": 1.25, "cache_write_1h": 2.0,
-                                       "cache_read": {"default": 0.1, "opus-5-5": 0.05},
-                                       "models_measured": {"opus": "claude-opus-5-5", "sonnet": "claude-sonnet-5-5"},
+                                       "cache_read": {"default": 0.1, "rules": [
+                                           {"family": "opus", "version": "5.5", "value": 0.05}]},
+                                       "models_measured": {"opus": "5.5", "sonnet": "5.5"},
                                        "output": None},
                              "types": {"claude-code-engineer": {"model": "opus", "ttl": "5m", "turns": {"S": 10, "M": 30, "L": 60},
                                                                  "ctx": {"a": 50000, "b": 1000}, "static_cc": 20000,
@@ -353,7 +354,7 @@ def test_load_model_defaults_and_b_schema(tmp_path, monkeypatch):
     m = S.load_model(f)
     assert S.tinfo(m, "claude-code-engineer")["turns"] == {"S": 10, "M": 30, "L": 60}
     assert S.tinfo(m, "claude-code-engineer")["soft_limit"] == 19000000       # not in the file: default kept
-    assert S.kappas(m, "claude-code-engineer") == (1.25, 0.05)                 # opus -> opus-5-5 key
+    assert S.kappas(m, "claude-code-engineer") == (1.25, 0.05)                 # opus 5.5 rule
     assert S.kappas(m, "coder") == (1.25, 0.1)                                 # sonnet -> default
     assert S.kappas(m, "researcher") == (2.0, 0.05)                            # 1h cache
     monkeypatch.setenv("STACK_SCHED_MODEL", str(f))
@@ -697,3 +698,39 @@ def test_replay_reports_the_provisional_share(model):
     for v in rep.rows.values():
         assert 0.0 <= v["prov_share_wall"] <= 1.0 and 0.0 <= v["prov_share_tok"] <= 1.0
     assert "provisional types" in S.render_md(rep, max_chars=None)
+
+
+def test_clamp_band_and_wrong_side_factors():
+    c = S.clamp_band({"turns": {"lo": 40, "med": 30, "hi": 20}, "sec_per_call": {"lo": 5, "med": 10, "hi": 9},
+                      "ctx": {"lo": 1.2, "med": 1.0, "hi": 0.8}, "junk": 1})
+    for q in ("turns", "sec_per_call", "ctx"):
+        assert c[q]["lo"] <= c[q]["med"] <= c[q]["hi"]
+    assert c["turns"] == {"lo": 30.0, "med": 30.0, "hi": 30.0}
+    # a hi below med gives a factor of 1 (not 0.67): the plan is never cheaper than med
+    m = bmodel(turns=(40, 30, 20), spc=(12, 10, 8), ctx=(1.2, 1.0, 0.8))
+    e = S.estimate(one(), m)["A"]
+    assert e.w == {"turns": 0.0, "sec_per_call": 0.0, "ctx": 0.0}
+    assert e.wall_plan >= e.wall_p50 and e.t_w_plan >= e.t_w and e.ctx_hi >= e.ctx_p50
+    assert S.clamp_band("x") is None and "turns" not in S.clamp_band({"turns": {"med": "n/a"}})
+
+
+def test_real_model_file_bands_and_kappa_rules():
+    f = ROOT / "dot-claude" / "hooks" / "sched_model.json"
+    if not f.is_file():
+        pytest.skip("no sched_model.json")
+    m = S.load_model(f)
+    raw = json.loads(f.read_text())
+    row = raw["types"]["claude-code-engineer"]
+    if "band" not in row:
+        pytest.skip("model file without bands")
+    b = S.band_of(m, "claude-code-engineer")
+    assert b["status"] == row["status"] and b["source"] == "own"
+    assert b["turns"] == pytest.approx(max(1.0, row["band"]["turns"]["hi"] / row["band"]["turns"]["med"]))
+    prov = [t for t, v in raw["types"].items() if v.get("status") == "provisional"]
+    sup = [t for t, v in raw["types"].items() if v.get("status") == "supported"]
+    assert prov and S.band_of(m, prov[0])["status"] == "provisional"
+    if sup:
+        e = S.estimate(one(sup[0]), m)["A"]
+        assert e.status == "supported" and e.wall_plan == e.wall_p50
+    kw, kr = S.kappas(m, "claude-code-engineer")
+    assert kr == 0.05 and S.kappas(m, "coder")[1] == 0.1

@@ -219,7 +219,15 @@ def kappas(m: Dict[str, Any], t: str) -> Tuple[float, float]:
     k = m.get("kappa", {})
     kw = k.get("cache_write_1h", 2.0) if info.get("ttl") == "1h" else k.get("cache_write_5m", 1.25)
     cr = k.get("cache_read")
-    if isinstance(cr, dict):
+    if isinstance(cr, dict) and isinstance(cr.get("rules"), list):
+        # rules: [{"family", "version", "value"}], default otherwise; the version measured per family
+        fam = info.get("model") or ""
+        ver = str((k.get("models_measured") or {}).get(fam, ""))
+        kr = cr.get("default", 0.1)
+        for rule in cr["rules"]:
+            if isinstance(rule, dict) and rule.get("family") == fam and str(rule.get("version")) == ver:
+                kr = rule.get("value", kr)
+    elif isinstance(cr, dict):
         fam = info.get("model") or ""
         mid = str((k.get("models_measured") or {}).get(fam, fam))
         keys = [x for x in cr if x not in ("default", "other") and x in mid]
@@ -552,11 +560,29 @@ def _ctx(info: Dict[str, Any], n: float) -> float:
     return info["ctx"]["a"] * n + info["ctx"]["b"] * n * n
 
 
+def clamp_band(band: Any) -> Optional[Dict[str, Any]]:
+    """The band with lo <= med <= hi for turns, sec_per_call and ctx: lo is lowered to med and hi raised to med when
+    they sit on the wrong side (so a hi factor below 1 becomes 1). Entries that are not numbers are dropped."""
+    if not isinstance(band, dict):
+        return None
+    out = dict(band)
+    for q in ("turns", "sec_per_call", "ctx"):
+        d = band.get(q)
+        try:
+            med = float(d["med"])
+            lo, hi = float(d.get("lo", med)), float(d.get("hi", med))
+        except (KeyError, TypeError, ValueError, AttributeError):
+            out.pop(q, None)
+            continue
+        out[q] = dict(d, lo=min(lo, med), med=med, hi=max(hi, med))
+    return out
+
+
 def band_of(m: Dict[str, Any], t: str) -> Dict[str, Any]:
     """Status and hi/med factors of type `t`: its own band, else its pool's, else the unverified heuristic
     (provisional, w = UNVERIFIED_W). Factors are never below 1: a band cannot make a plan cheaper."""
     info = tinfo(m, t)
-    status, band, src = info.get("status"), info.get("band"), "own"
+    status, band, src = info.get("status"), clamp_band(info.get("band")), "own"
 
     def ok(b: Any) -> bool:
         return isinstance(b, dict) and all(isinstance(b.get(k), dict) and b[k].get("med") for k in ("turns", "sec_per_call"))
@@ -564,8 +590,8 @@ def band_of(m: Dict[str, Any], t: str) -> Dict[str, Any]:
     if not ok(band):
         pname = info.get("tier") or {"reviewer": "analyst"}.get(pool_of(t), pool_of(t))
         prow = (m.get("pools") or {}).get(pname)
-        if isinstance(prow, dict) and ok(prow.get("band")):
-            band, src, status = prow["band"], "pool", "provisional"
+        if isinstance(prow, dict) and ok(clamp_band(prow.get("band"))):
+            band, src, status = clamp_band(prow["band"]), "pool", "provisional"
         else:
             band, src, status = None, "heuristic", "provisional"
     if status not in ("provisional", "supported"):
