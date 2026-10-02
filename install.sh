@@ -2024,9 +2024,11 @@ for k, v in new.items():
                     print("  set env %s=%s (was %s): the stack owns this knob" % (ek, sv, mine))
                 e[ek] = sv
             elif ek == "ANTHROPIC_DEFAULT_HAIKU_MODEL" and "haiku" in str(mine).lower():
-                # the stack runs no Haiku: the haiku alias and background tasks use Sonnet 5.5
-                print("  replaced env %s=%s with %s (the stack uses Sonnet 5.5 wherever Haiku ran)" % (ek, mine, sv))
+                # the stack runs no Haiku: the haiku alias and background tasks use stack.env's haiku slot
+                print("  replaced env %s=%s with %s (the stack runs no Haiku)" % (ek, mine, sv))
                 e[ek] = sv
+            elif ek in MODEL_ENV and str(mine).endswith("[1m]"):
+                pass                # the stale-pin loop below replaces it and says so
             elif ek in MODEL_ENV:
                 print("  kept your env %s=%s in settings.json (stack.env: %s; delete the settings.json entry "
                       "to use stack.env's)" % (ek, mine, sv))

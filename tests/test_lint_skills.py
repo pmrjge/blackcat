@@ -52,3 +52,22 @@ def test_no_shipped_text_names_a_retired_skill():
         for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
             bad += ["%s:%d %s" % (p.relative_to(root), n, s) for s in lint_agents.stale_skill_refs(line)]
     assert not bad, "text names retired skills: %s" % bad
+
+
+def test_model_id_regex_catches_new_and_old_style_ids_only():
+    ids = ["claude-opus-5-5", "claude-sonnet-5-5", "claude-haiku-4-5-20251001", "claude-fable-5-1",
+           "claude-3-5-sonnet-20241022", "claude-3-opus-20240229", "claude-3-7-sonnet-latest", "claude-3-haiku-20240307"]
+    for v in ids:
+        assert lint_agents.MODEL_ID_RE.search(v), v
+    for v in ["opus", "sonnet", "haiku", "claude-haiku-old", "claude-opus-old[1m]", "model-x",
+              "claude-code-guide", "claude-agent-stack", "ANTHROPIC_DEFAULT_<FAMILY>_MODEL"]:
+        assert not lint_agents.MODEL_ID_RE.search(v), v
+
+
+def test_model_ids_only_in_the_allowed_places(tmp_path):
+    (tmp_path / "stack.env.example").write_text("ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-5-5\n")
+    (tmp_path / "install.sh").write_text('OLD_DEFAULTS = {"X": {"claude-sonnet-5"}}\nY="claude-3-opus-20240229"\n')
+    (tmp_path / "legacy" / "v").mkdir(parents=True)
+    (tmp_path / "legacy" / "v" / "a.md").write_text("model: claude-opus-5-5\n")
+    (tmp_path / "README.md").write_text("pins claude-3-5-sonnet-20241022\nmodel: opus\n")
+    assert sorted(lint_agents.check_model_ids(tmp_path)) == ["README.md:1", "install.sh:2"]

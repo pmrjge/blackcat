@@ -39,8 +39,9 @@ STACK_MODELS = {"opus", "sonnet"}
 # (the OLD_DEFAULTS line), the record of the models the token limits were measured on (doctor.sh's
 # MEASURED_MODELS line), and legacy/ (byte-exact templates of released versions the installer
 # recognizes on upgrade). Untracked files (.claude-work/ benchmarks) are not scanned.
-MODEL_ID_RE = re.compile(r"claude-(?:opus|sonnet|haiku|fable)-\d")
-MODEL_ID_FILES = {"stack.env.example"}
+# new style (claude-<family>-<n>...) and old style (claude-<n>[-<n>]-<family>-<date or latest>)
+MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(?:opus|sonnet|haiku))")
+MODEL_ID_FILES = {"stack.env.example", "tests/test_lint_skills.py"}   # the second: this regex's test vectors
 MODEL_ID_DIRS = ("legacy/",)
 MODEL_ID_LINES = {"install.sh": re.compile(r"^OLD_DEFAULTS = "),
                   "dot-claude/bin/doctor.sh": re.compile(r'^MEASURED_MODELS="')}
