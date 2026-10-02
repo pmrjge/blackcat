@@ -206,6 +206,10 @@ AGENTS = [
     "ml-engineer", "dl-engineer", "llm-engineer", "data-scientist", "browser-operator",
     "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist", "explore",
     "proof-checker", "vfx-td",
+    "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
+    "biochem-engineer", "db-engineer", "test-engineer", "build-fixer", "localizer",
+    "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
+    "jvm-engineer", "node-engineer",
 ]
 # Claude Code's built-in types are not part of the stack: settings.json switches off Explore and
 # Plan (CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS; agents/explore.md replaces Explore, pinned to
@@ -215,7 +219,7 @@ AGENTS = [
 BUILTINS = []
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
           "claude-code-guide", "browser-operator", "plan-reviewer", "image-director", "explore",
-          "proof-checker"]
+          "proof-checker", "db-engineer", "test-engineer", "build-fixer", "localizer"]
 # Generic agent types: Claude Code's catch-alls (general-purpose, claude, fork), the default
 # workflow stage ("workflow-subagent" in Claude Code 2.1.285), and the names a model or a host has
 # used for a generic spawn ("SubAgent": the label of an agent context without a type, e.g. a forked
@@ -233,7 +237,28 @@ TOOL_ALIASES = {"Task": "Agent", "SubAgent": "Agent", "RunWorkflow": "Workflow"}
 
 # god-coder is spawned by the orchestrator only, once per session (GOD_SPAWNERS, GOD_ONCE_PER_SESSION):
 # the last resort after ninja-coder, decided where the whole job is visible. No other row lists it.
-_BLACKCAT_ROW = [a for a in AGENTS if a not in ("blackcat", "god-coder")]
+# BlackCat's row is explicit: db-engineer and localizer are reached through their family heads
+# (data-engineer, main-coder, devops-engineer; frontend-engineer, writer, doc-specialist, mobile-engineer).
+BLACKCAT_VIA_HEADS = ("db-engineer", "localizer")
+_BLACKCAT_ROW = [
+    "orchestrator", "planner", "plan-reviewer", "oracle", "scout", "researcher", "mathematician",
+    "image-director", "designer", "motion-designer", "writer", "doc-specialist", "coder",
+    "main-coder", "ninja-coder", "mlx-engineer", "cuda-engineer", "devops-engineer", "data-engineer",
+    "frontend-engineer", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
+    "claude-code-guide", "ml-engineer", "dl-engineer", "llm-engineer", "data-scientist",
+    "browser-operator", "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist",
+    "explore", "proof-checker", "vfx-td",
+    "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
+    "biochem-engineer", "test-engineer", "build-fixer",
+    "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
+    "jvm-engineer", "node-engineer",
+]
+# language experts (one per language family): spawned by blackcat, orchestrator, the coder escalation
+# chain and the domain experts whose code is mostly that language
+_LANG = ["rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
+         "jvm-engineer", "node-engineer"]
+_LANG_ROW = ["coder", "explore", "scout", "verifier", "code-reviewer", "test-engineer", "build-fixer",
+             "mcp-broker"]
 _ACCEL_ROW = ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
               "mcp-broker", "ninja-coder"]
 
@@ -257,35 +282,38 @@ POLICY = {
     # spawn" lines match: .claude-work/stack-tighten/spawn-browser-operator.txt).
     "researcher": ["researcher-copy", "scout", "doc-specialist", "mathematician", "data-engineer",
                    "data-scientist", "mcp-broker"],
-    "writer": ["scout", "researcher", "mathematician"],
+    "writer": ["scout", "researcher", "mathematician", "localizer"],
     "mathematician": ["scout", "mcp-broker", "quantum-engineer", "proof-checker"],
-    "doc-specialist": ["scout", "mcp-broker"],
+    "doc-specialist": ["scout", "mcp-broker", "localizer"],
     "designer": ["image-director", "scout", "mcp-broker", "cg-artist"],
     "motion-designer": ["image-director", "designer", "scout", "mcp-broker", "cg-artist",
                         "vfx-td"],
-    "coder": ["coder-copy", "explore", "scout"],
+    "coder": ["coder-copy", "explore", "scout", "test-engineer", "build-fixer"],
     "main-coder": ["coder", "explore", "scout", "verifier", "code-reviewer",
                    "security-auditor", "plan-reviewer", "mlx-engineer", "cuda-engineer",
                    "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker", "claude-code-guide",
-                   "ninja-coder"],
+                   "ninja-coder", "test-engineer", "build-fixer", "security-engineer", "db-engineer"]
+                  + _LANG,
     "ninja-coder": ["main-coder", "coder", "mathematician", "explore", "scout",
                     "verifier", "code-reviewer", "security-auditor", "researcher", "mlx-engineer",
                     "cuda-engineer", "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker",
-                    "quantum-engineer", "proof-checker"],
+                    "quantum-engineer", "proof-checker", "test-engineer", "build-fixer"] + _LANG,
     "god-coder": ["coder", "main-coder", "ninja-coder", "mlx-engineer", "cuda-engineer",
                   "ml-engineer", "dl-engineer", "llm-engineer", "explore", "scout", "verifier",
                   "code-reviewer", "security-auditor", "mathematician", "researcher",
-                  "proof-checker"],
+                  "proof-checker", "test-engineer", "build-fixer"] + _LANG,
     "mlx-engineer": list(_ACCEL_ROW),
     # browser-only ML environments (Kaggle notebooks, cloud GPU consoles) go through BlackCat or the
     # orchestrator, which keep browser-operator; these engineers read the web themselves (T1)
     "cuda-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
                       "mcp-broker", "ninja-coder"],
-    "devops-engineer": ["coder", "explore", "scout", "verifier", "security-auditor", "mcp-broker"],
+    "devops-engineer": ["coder", "explore", "scout", "verifier", "security-auditor", "mcp-broker",
+                        "security-engineer", "build-fixer", "db-engineer"],
     "data-engineer": ["coder", "explore", "scout", "verifier", "mathematician",
-                      "data-scientist", "doc-specialist", "mcp-broker"],
+                      "data-scientist", "doc-specialist", "mcp-broker", "db-engineer", "test-engineer"],
     "frontend-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "designer",
-                          "image-director", "mcp-broker"],
+                          "image-director", "mcp-broker", "test-engineer", "build-fixer", "localizer",
+                          "node-engineer"],
     "ml-engineer": ["data-scientist", "data-engineer", "coder", "explore", "scout",
                     "verifier", "code-reviewer", "mathematician", "mcp-broker"],
     "dl-engineer": ["mlx-engineer", "cuda-engineer", "data-engineer", "coder",
@@ -306,7 +334,25 @@ POLICY = {
     "robotics-engineer": ["coder", "explore", "scout", "researcher",
                           "verifier", "code-reviewer", "mathematician", "dl-engineer",
                           "cuda-engineer", "mlx-engineer", "cg-artist", "mcp-broker",
-                          "ninja-coder"],
+                          "ninja-coder", "embedded-engineer"],
+    # wave-2 domain experts (builders with Agent); hardware, cluster and store actions are ASK USER
+    # gates in their prompts
+    "security-engineer": ["coder", "explore", "scout", "verifier", "security-auditor",
+                          "test-engineer", "mcp-broker"],
+    "embedded-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "test-engineer",
+                          "build-fixer", "mcp-broker", "rust-engineer"],
+    "mobile-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "designer",
+                        "test-engineer", "build-fixer", "localizer", "mcp-broker"],
+    "game-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "cg-artist",
+                      "test-engineer", "build-fixer", "mcp-broker", "rust-engineer"],
+    "hpc-engineer": ["coder", "explore", "scout", "verifier", "mathematician", "ninja-coder",
+                     "cuda-engineer", "build-fixer", "mcp-broker", "julia-engineer"],
+    "biochem-engineer": ["coder", "explore", "scout", "researcher", "verifier", "data-scientist",
+                         "dl-engineer", "cuda-engineer", "mcp-broker", "python-engineer"],
+    "rust-engineer": list(_LANG_ROW), "haskell-engineer": list(_LANG_ROW),
+    "julia-engineer": list(_LANG_ROW), "go-engineer": list(_LANG_ROW),
+    "python-engineer": _LANG_ROW + ["data-engineer"], "jvm-engineer": list(_LANG_ROW),
+    "node-engineer": list(_LANG_ROW),
     # GUI agents (ZBrush, Substance; Houdini through computer use): no copies, one screen
     "cg-artist": ["image-director", "coder", "scout", "verifier", "mcp-broker", "vfx-td"],
     "vfx-td": ["coder", "scout", "verifier", "mcp-broker"],
@@ -318,6 +364,8 @@ POLICY = {
     "explore": [],
     # a referee (read-only Bash, Lean server inline): one bounded check, no delegation
     "proof-checker": [],
+    # bounded helpers (Sonnet): one database, one test suite, one red build, one catalog
+    "db-engineer": [], "test-engineer": [], "build-fixer": [], "localizer": [],
 }
 # A copy's row: its base's row without the base type and without any copy type.
 for _base, _copy in COPY_OF.items():
@@ -8637,8 +8685,11 @@ def self_test():
     empty = sorted(p for p, row in POLICY.items() if not row)
     if empty != sorted(LEAVES):
         problems.append("LEAVES %s != empty rows %s" % (sorted(LEAVES), empty))
-    if set(POLICY.get("blackcat", [])) != set(AGENTS) - {"blackcat", GOD}:
-        problems.append("blackcat row must list every specialist but god-coder")
+    if set(POLICY.get("blackcat", [])) != set(AGENTS) - {"blackcat", GOD} - set(BLACKCAT_VIA_HEADS):
+        problems.append("blackcat row must list every specialist but god-coder and BLACKCAT_VIA_HEADS")
+    for _a in BLACKCAT_VIA_HEADS:
+        if not any(_a in POLICY.get(h, []) for h in POLICY.get("blackcat", [])):
+            problems.append("%s: no agent in blackcat's row may spawn it" % _a)
     spawners = sorted(p for p, row in POLICY.items() if GOD in row)
     if spawners != ["orchestrator"]:
         problems.append("only the orchestrator's row may list god-coder, not %s" % spawners)

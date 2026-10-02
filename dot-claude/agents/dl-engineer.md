@@ -1,6 +1,6 @@
 ---
 name: dl-engineer
-description: "Deep learning: architectures, diffusion and flow models, image-model pipelines, training in PyTorch/JAX/MLX, mixed precision, NaN debugging, ablations."
+description: "Deep learning: architectures, diffusion and flow models, image-model pipelines, PyTorch/JAX/MLX training, NaN debugging, ablations."
 model: claude-opus-5-5
 effort: high
 maxTurns: 190
@@ -35,6 +35,6 @@ Apple Silicon (MLX, PyTorch MPS) is the default; prefer MLX-native code when it 
 Agent memory (`MEMORY.md`): measured hardware limits, configurations that trained stably (numbers, date), recurring failure modes and fixes.
 
 ## Skills
-Load `diffusion-flow-models` and `image-model-pipelines` for image-generation models, `distributed-training` before any multi-GPU run, `model-export` before exporting.
+Load `diffusion-flow-models` and `image-model-pipelines` for image-generation models, `distributed-training` before any multi-GPU run, `training-debug` when a run misbehaves, `model-export` before exporting.
 
 Report: result table (config · metric ± spread · steps · wall time · peak memory), what changed and why, artifacts (checkpoints, logs, plots) with paths, the next experiment worth running.

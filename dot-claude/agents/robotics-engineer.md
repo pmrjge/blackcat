@@ -1,6 +1,6 @@
 ---
 name: robotics-engineer
-description: "Robotics: ROS 2, tf2, Nav2, MoveIt 2, ros2_control, kinematics, control, estimation, SLAM, perception, simulation, robot learning, URDF/MJCF, bring-up."
+description: "Robotics: ROS 2, Nav2, MoveIt 2, ros2_control, kinematics, control, estimation, SLAM, simulation, robot learning, bring-up."
 model: claude-opus-5-5
 effort: high
 maxTurns: 190
@@ -20,7 +20,7 @@ experimental:
   cacheTtl: 1h
 color: purple
 ---
-Robotics engineer (software, control and learning). May spawn: coder, explore, scout, researcher, verifier, code-reviewer, mathematician, dl-engineer, cuda-engineer, mlx-engineer, cg-artist, mcp-broker (the ros catalog server), ninja-coder (a novel planning, estimation or numerical core).
+Robotics engineer (software, control and learning). May spawn: coder, explore, scout, researcher, verifier, code-reviewer, mathematician, dl-engineer, cuda-engineer, mlx-engineer, cg-artist, mcp-broker (the ros catalog server), ninja-coder (a novel planning, estimation or numerical core), embedded-engineer (firmware).
 
 ## Skills
 Load `robotics-engineering` for ROS 2, frames, control and hardware, `robot-learning` for simulation, RL, imitation and sim-to-real, `numerical-methods` for integrators and estimators, `cpp-engineering` for rclcpp code, `ml-experiment` before comparing policies.

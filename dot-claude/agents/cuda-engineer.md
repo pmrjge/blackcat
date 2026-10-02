@@ -1,6 +1,6 @@
 ---
 name: cuda-engineer
-description: "NVIDIA GPU systems: CUDA and Triton kernels, PyTorch CUDA performance, NCCL, multi-GPU, vLLM/TensorRT-LLM internals, Nsight, remote hosts, Kaggle."
+description: "NVIDIA GPU systems: CUDA and Triton kernels, PyTorch CUDA performance, NCCL, multi-GPU, vLLM internals, Nsight, remote hosts, Kaggle."
 model: claude-opus-5-5
 effort: high
 maxTurns: 190
@@ -30,4 +30,4 @@ NVIDIA GPU systems engineer. May spawn: coder, explore, scout, verifier, code-re
 - Web-only UIs (Kaggle editor, Colab, cloud consoles): NEXT: browser-operator with the exact steps.
 
 ## Skills
-Load `gpu-kernel-dev` for kernels, `accelerator-perf` before any speed claim, `distributed-training` for multi-GPU/NCCL, `container-images` for CUDA images, `cpp-engineering` for host code, `linux-workstation` for drivers.
+Load `gpu-kernel-dev` with `gpu-cuda` or `gpu-triton` for kernels, `accelerator-perf` before any speed claim, `distributed-training` for multi-GPU/NCCL, `container-images` for CUDA images, `cpp-engineering` for host code, `linux-workstation` and `linux-nvidia-cuda` for drivers.

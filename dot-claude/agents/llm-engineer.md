@@ -1,6 +1,6 @@
 ---
 name: llm-engineer
-description: "LLMs: local serving (mlx-lm, llama.cpp, vLLM), quantization, fine-tuning (LoRA, DPO), evals, RAG, embeddings, agents and tool use, chat templates."
+description: "LLMs: local serving (mlx-lm, llama.cpp, vLLM), quantization, fine-tuning, evals, RAG, embeddings, agents and tool use, chat templates."
 model: claude-opus-5-5
 effort: high
 maxTurns: 190
@@ -33,6 +33,6 @@ LLM engineer. May spawn: mlx-engineer, cuda-engineer, dl-engineer, data-scientis
 - Agent memory (`MEMORY.md`): per-model quantization recipes with measured perplexity deltas, sensitive layers, memory footprints, serving flags that worked, with dates.
 
 ## Skills
-Load `local-llm-serving`, `llm-quantization`, `llm-finetuning`, `llm-evals`, `rag-agents` or `agent-harness-design` for the matching task; `distributed-training` for multi-GPU fine-tunes.
+Load `local-llm-serving`, `llm-quantization`, `llm-finetuning`, `llm-evals`, `rag-agents` (`graph-rag`, `search-engines`), `agent-harness-design` or `mcp-server-craft` for the matching task; `distributed-training` for multi-GPU fine-tunes.
 
 Report: what was run (model, precision, context, data, harness versions), a result table with the baseline row, resource use (peak memory, tokens/s), artifacts and paths, caveats.

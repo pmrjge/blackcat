@@ -1,6 +1,6 @@
 ---
 name: cg-artist
-description: "3D and CG in Blender, ZBrush, Substance: modeling, sculpting, texturing, PBR, UVs, baking, rendering, 3D printing. 2D goes to designer, Houdini to vfx-td."
+description: "3D in Blender, ZBrush, Substance: modeling, sculpting, texturing, UVs, baking, rendering, 3D printing. Houdini goes to vfx-td."
 model: claude-opus-5-5
 effort: medium
 maxTurns: 150

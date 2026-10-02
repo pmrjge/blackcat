@@ -75,7 +75,7 @@ def _totals(**kw):
 def test_check_flags_violations():
     head = dict(agents={"blackcat": _agent(10, 6000, True), "a": _agent(201, 100, per_spawn=2000),
                         "newx": _agent(161, 2401, True), "newl": _agent(121, 1401)},
-                **_totals(agent_listing=121, blackcat_listing=126, skill_listing=66, rules=103))
+                **_totals(agent_listing=135, blackcat_listing=132, skill_listing=66, rules=103))
     base = dict(agents={"blackcat": _agent(10, 5000, True), "a": _agent(10, 50)}, **_totals())
     bad = pb.check(head, base)
     for prefix in ("a.md: description 201", "blackcat.md: body 6000",
@@ -89,7 +89,7 @@ def test_check_flags_violations():
 def test_check_passes_within_limits():
     head = dict(agents={"blackcat": _agent(10, 5200, True), "a": _agent(200, 105, per_spawn=920),
                         "newx": _agent(160, 2400, True), "newl": _agent(120, 1400)},
-                **_totals(agent_listing=120, blackcat_listing=125, skill_listing=65, rules=102))
+                **_totals(agent_listing=134, blackcat_listing=131, skill_listing=65, rules=102))
     base = dict(agents={"blackcat": _agent(10, 5000, True), "a": _agent(10, 100)}, **_totals())
     assert pb.check(head, base) == []
 

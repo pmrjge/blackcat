@@ -1,6 +1,6 @@
 ---
 name: proof-checker
-description: "Referees proofs, derivations and correctness or complexity arguments step by step: counterexample search (sympy, z3), Lean 4 checks; a verdict with corrected steps. Read-only."
+description: "Referees proofs, derivations and correctness or complexity arguments: counterexamples (sympy, z3), Lean 4 checks, corrected steps. Read-only."
 model: claude-opus-5-5
 effort: xhigh
 maxTurns: 80

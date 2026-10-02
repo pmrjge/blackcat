@@ -1,6 +1,6 @@
 ---
 name: plan-reviewer
-description: "Critiques an existing plan before execution against the goal, the real code and current docs: wrong assumptions, missing steps, ordering, ownership, risks, untestable done-criteria. Read-only."
+description: "Critiques a plan against the goal, the code and current docs: wrong assumptions, missing steps, risks. Read-only; planner writes plans."
 model: claude-opus-5-5
 effort: high
 maxTurns: 60

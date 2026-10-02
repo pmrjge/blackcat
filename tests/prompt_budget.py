@@ -23,7 +23,7 @@ blackcat: blackcat_listing). Tokens ~ ceil(chars / 3).
 --check      exit 1 unless every description <= 200 chars, blackcat body <= 5,200 and, for agents
              absent at base, description <= 160 / body <= 2,400 (with Agent) or <= 120 / <= 1,400
              (leaf); and against the base (--base, default DEFAULT_BASE): bodies of the agents present
-             at base <= 1.05 x base, agent listing <= 1.20 x, blackcat listing <= 1.25 x, skill listing
+             at base <= 1.05 x base, agent listing <= 1.34 x, blackcat listing <= 1.31 x, skill listing
              <= 0.65 x, rules <= 1.02 x, mean per spawn of the base agents (blackcat excluded: it is the
              main thread, never spawned) <= 0.92 x. Ratios are skipped when the base revision is missing.
 --turns      read Claude Code subagent transcripts (read-only; default
@@ -48,7 +48,12 @@ DESC_MAX = 200
 BLACKCAT_BODY_MAX = 5200
 # agents absent at base: (description cap, body cap) with the Agent tool / as a leaf
 NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
-RATIO = {"bodies": 1.05, "agent_listing": 1.20, "blackcat_listing": 1.25, "skill_listing": 0.65,
+# agent_listing and blackcat_listing: design E set 1.20 and 1.25 for 10 new agents. The user then
+# asked for one expert per language (+7 agents: rust, haskell, julia, go, python, jvm, node). After
+# trimming 27 existing descriptions to <= 150 (19 of them by a further 15-25 chars), the listings
+# measured 15,330 (1.314 x base) and 14,550 (1.292 x); each gate is that measurement + 2%, rounded
+# down to 0.01. The skill listing (0.63 x) and the mean per spawn (0.90 x) pay for it.
+RATIO = {"bodies": 1.05, "agent_listing": 1.34, "blackcat_listing": 1.31, "skill_listing": 0.65,
          "rules": 1.02, "per_spawn_mean": 0.92}
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))

@@ -9,7 +9,7 @@ mcpServers:
   - magg:
       type: stdio
       command: "__CLAUDE_DIR__/bin/with-stack-env"
-      args: ["--only", "JUPYTER_URL,JUPYTER_TOKEN,MLFLOW_TRACKING_URI,MOTHERDUCK_TOKEN,LEAN_PROJECT_PATH,MDB_MCP_CONNECTION_STRING,DATABASE_URI,QISKIT_IBM_TOKEN", "__CLAUDE_DIR__/bin/magg-private", "__MAGG__", "--env-pass", "--config", "__CLAUDE_DIR__/magg/config.json", "serve", "--no-banner"]
+      args: ["--only", "JUPYTER_URL,JUPYTER_TOKEN,MLFLOW_TRACKING_URI,MOTHERDUCK_TOKEN,LEAN_PROJECT_PATH,MDB_MCP_CONNECTION_STRING,DATABASE_URI,QISKIT_IBM_TOKEN,GODOT_PATH,SEC_EDGAR_USER_AGENT,GRAFANA_URL,GRAFANA_SERVICE_ACCOUNT_TOKEN,NCBI_API_KEY", "__CLAUDE_DIR__/bin/magg-private", "__MAGG__", "--env-pass", "--config", "__CLAUDE_DIR__/magg/config.json", "serve", "--no-banner"]
       env:
         MAGG_PATH: "__CLAUDE_DIR__/magg:__HOME__/.magg"
 color: orange

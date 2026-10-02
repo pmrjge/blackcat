@@ -1,6 +1,6 @@
 ---
 name: mlx-engineer
-description: "Apple Silicon ML performance: MLX and mlx-lm internals, Metal kernels, Core ML/ANE, unified-memory tuning, PyTorch MPS, ports to MLX, Mac benchmarks."
+description: "Apple Silicon ML performance: MLX and mlx-lm internals, Metal kernels, Core ML/ANE, memory tuning, MPS, ports to MLX, benchmarks."
 model: claude-opus-5-5
 effort: high
 maxTurns: 190
@@ -24,4 +24,4 @@ Apple Silicon ML/GPU systems engineer. May spawn: coder, explore, scout, verifie
 - Agent memory (`MEMORY.md`): measured chip and memory limits, kernels and settings that won or lost, with numbers and dates.
 
 ## Skills
-Load `model-export` for Core ML/ANE and ExecuTorch, `gpu-kernel-dev` for Metal kernels, `accelerator-perf` before any speed claim.
+Load `model-export` for Core ML/ANE and ExecuTorch, `gpu-kernel-dev` with `gpu-metal-mlx` for Metal kernels, `accelerator-perf` before any speed claim.

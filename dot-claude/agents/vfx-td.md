@@ -1,6 +1,6 @@
 ---
 name: vfx-td
-description: "Houdini FX: SOP/DOP/LOP, VEX, HDAs, Pyro/FLIP/Vellum/RBD sims, caching, Solaris/USD with Karma, PDG; hython, husk, GUI by computer use. Modeling and Blender go to cg-artist."
+description: "Houdini FX: SOP/DOP/LOP, VEX, HDAs, Pyro/FLIP/Vellum/RBD, caching, Solaris/Karma, PDG; hython, husk, computer use. Modeling goes to cg-artist."
 model: claude-opus-5-5
 effort: high
 maxTurns: 170

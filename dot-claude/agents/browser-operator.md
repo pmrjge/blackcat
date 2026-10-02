@@ -1,6 +1,6 @@
 ---
 name: browser-operator
-description: "Acts on web pages: logged-in sites via Claude in Chrome, clean runs in headless Playwright; forms, flows, downloads, screenshots, JS-heavy pages."
+description: "Acts on web pages: logged-in sites via Claude in Chrome, headless Playwright runs; forms, flows, downloads, screenshots, JS-heavy pages."
 model: claude-sonnet-5-5
 effort: medium
 maxTurns: 120

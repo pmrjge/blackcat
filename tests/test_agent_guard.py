@@ -171,13 +171,15 @@ def test_print_policy_format(env):
     d = json.loads(p.stdout)
     assert list(d) == ["policy", "leaves", "agents", "builtins", "self_spawn", "copy_types",
                        "blackcat_tools"]
-    assert len(d["agents"]) == 39 and len(set(d["agents"])) == 39
+    assert len(d["agents"]) == 56 and len(set(d["agents"])) == 56
     assert d["builtins"] == [] and "explore" in d["agents"] and "explore" in d["leaves"]
     assert set(d["policy"]) == set(d["agents"]) | {"researcher-copy", "coder-copy"}
     assert sorted(d["leaves"]) == sorted(k for k, v in d["policy"].items() if not v)
-    assert set(d["policy"]["blackcat"]) == set(d["agents"]) - {"blackcat", "god-coder"}
+    # db-engineer and localizer are reached through their family heads, not from BlackCat
+    assert set(d["policy"]["blackcat"]) == set(d["agents"]) - {"blackcat", "god-coder", "db-engineer",
+                                                               "localizer"}
     assert set(d["policy"]["orchestrator"]) == set(d["policy"]["blackcat"]) - {"orchestrator"} | {
-        "explore", "god-coder"}
+        "explore", "god-coder", "db-engineer", "localizer"}
     assert [k for k, v in d["policy"].items() if "god-coder" in v] == ["orchestrator"]
     assert {"ml-engineer", "dl-engineer", "llm-engineer", "ninja-coder"} <= set(
         d["policy"]["main-coder"])
