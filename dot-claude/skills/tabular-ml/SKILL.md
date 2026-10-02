@@ -1,6 +1,6 @@
 ---
 name: tabular-ml
-description: Load before modeling tabular data — gradient boosting, categoricals, leak-free early stopping, Optuna, calibration, SHAP.
+description: Load before modeling tabular data — gradient boosting, categoricals, early stopping, calibration.
 ---
 # Tabular ML
 

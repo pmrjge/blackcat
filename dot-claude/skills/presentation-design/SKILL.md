@@ -1,6 +1,6 @@
 ---
 name: presentation-design
-description: Load before designing a slide deck — narrative, one message per slide, grids, type sizes, charts, notes.
+description: Load before designing a slide deck — narrative, one message per slide, grids, type sizes, charts.
 ---
 # Presentation design
 

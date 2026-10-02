@@ -1,6 +1,6 @@
 ---
 name: typography
-description: Load before choosing or setting type for print or screen — pairing, scale, measure, leading, kerning, OpenType, web fonts.
+description: Load before choosing or setting type — pairing, scale, measure, leading, kerning, OpenType, web fonts.
 ---
 # Typography
 
@@ -84,14 +84,7 @@ a mono at most. Test with real copy at real sizes, including Portuguese accents 
 ## 7. Language, punctuation, Portuguese
 - Real characters: “ ” ‘ ’ (the apostrophe is ’), en dash –, em dash —, minus −, ellipsis …, ×, primes
   ′ ″. Straight quotes and double hyphens are typing artefacts: replace them.
-- European Portuguese (EU Interinstitutional Style Guide, PT edition): quotes nest « » → “ ” → ‘ ’, with no
-  inner spaces; the full stop goes inside the closing quote only when the whole sentence is quoted;
-  travessão (—) for dialogue, parenthetical pairs and emphasis; spans of whole years with a hyphen
-  (1993-1996), split years with a slash (1996/1997); ordinals 1.º and 1.ª with the ordinal indicators º ª
-  (U+00BA, U+00AA), never the degree sign ° (U+00B0); quantities grouped with a protected space (300 000),
-  years and page numbers ungrouped (1961, p. 2064); decimal comma (13,6); the ellipsis as one character.
-  House styles vary and Ciberdúvidas stresses consistency over any single choice: confirm one, apply it.
-  Spelling, grammar and wider pt-PT writing rules: `portuguese-pt-writing`.
+- European Portuguese (quote nesting « » → “ ” → ‘ ’, travessão, ordinals º ª, number grouping, decimal comma, year spans): `portuguese-pt-writing` §4, the one copy of these rules.
 - English house styles: en dash for ranges (10–12), em dash (or spaced en dash) for breaks.
 - Display type and logos: check Ã Õ Ç É Ê Í Ó Ô Ú at size; capital accents collide with the line above at
   tight leading and may need redrawn, flatter forms.

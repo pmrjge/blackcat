@@ -1,6 +1,6 @@
 ---
 name: web-research
-description: Use before any web work beyond one WebSearch — tool ladder, crawling, budgets, source quality, citations; the procedure deep-research and literature-review build on.
+description: Use before web work beyond one WebSearch — tool ladder, crawling, budgets, source quality, citations.
 ---
 # Web research
 

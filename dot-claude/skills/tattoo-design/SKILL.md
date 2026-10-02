@@ -1,6 +1,6 @@
 ---
 name: tattoo-design
-description: Load before drawing a tattoo — placement on anatomy, detail vs ageing, line weight, lettering, stencils, mockups.
+description: Load before drawing a tattoo — placement, ageing of detail, line weight, lettering, stencils, mockups.
 ---
 # Tattoo design artwork
 
@@ -23,24 +23,9 @@ description: Load before drawing a tattoo — placement on anatomy, detail vs ag
 ## 2. Anatomy and placement
 Measure at the placement: length along the axis, width of the visible face, circumference for anything that wraps; photograph with a tape in frame, camera perpendicular to the skin, in neutral posture and in the positions the area takes (arm raised, fist, seated).
 
-| Area | Surface | Movement and distortion | Design implications |
-|---|---|---|---|
-| Forearm | truncated cone | pronation twists the outer forearm; half the circumference is visible at once | long vertical compositions along the axis; inner forearm suits lettering |
-| Wrist | small, creased, thin skin | flexion creases soften fine lines | small, simple; no fine text across the crease |
-| Upper arm, shoulder | cylinder with the deltoid cap | flexing changes shape | follow the deltoid curve; cap designs wrap |
-| Ribs, side | curved over ribs | breathing, posture and weight change stretch skin | elongated vertical or diagonal flows; mock up standing and seated |
-| Chest, sternum | curved, often asymmetric | stretch with arm movement | symmetric designs on the sternum axis; check standing |
-| Back | large, fairly flat | shoulder blades and spine curvature | large compositions; symmetry about the spine |
-| Thigh, calf | large cylinders and cones | muscle | large pieces; cone development for wraps |
-| Ankle, foot | small circumference, malleoli, tendons | shoe and sock friction, swelling | bold and simple; wraps need a flattened pattern; fine detail blurs |
-| Hands, fingers | high friction, fast skin turnover | fading and blurring faster | bold minimal designs; expect touch-ups; many artists limit this work |
+Area-by-area surfaces, movement and design implications (forearm, wrist, ribs, back, hands …) and the cylinder/cone wrapping math with a worked example: `references/placement.md`.
 
 Flow: align the main axis with the limb or muscle direction (forearm axis, deltoid curve, rib lines, spine); avoid long straight horizontals across joints; symmetric designs need a body axis to sit on (sternum, spine, neck center).
-
-Wrapping math (build the design on the flat pattern, then mock it up):
-- Cylinder of circumference C: the flat band is a rectangle C × h; a motif spanning angle φ is φ/360 · C wide. Seen head-on, a point at angle θ from the view axis is compressed horizontally by cos θ (half width at 60°): circles on the sides read as ellipses.
-- Truncated cone (forearm, calf), circumferences C1 < C2, slant length s between them measured along the skin: the flat pattern is an annular sector with inner radius r1 = s·C1/(C2 − C1), outer radius r2 = s·C2/(C2 − C1), angle θ = (C2 − C1)/s radians. A straight band drawn as a rectangle spirals when wrapped; draw it inside the sector. Example: C1 = 16 cm, C2 = 26 cm, s = 20 cm gives r1 = 32 cm, r2 = 52 cm, θ = 0.5 rad (28.6°).
-- The artist fine-tunes placement live with the stencil; design for that tolerance (no alignments that fail if moved 5 mm).
 
 ## 3. Size versus detail
 - Pigment sits in the dermis, held by macrophages that capture and re-capture it for years (Baranska et al., J Exp Med 2018): lines soften and widen, small negative spaces close up, and high-friction or high-turnover areas (hands, fingers, feet) blur and fade faster; UV exposure fades everything.
@@ -59,18 +44,7 @@ magick art_600ppi.png -morphology Erode Disk:3 -blur 0x5 aged.png   # Erode grow
 - Darker skin tones reduce the contrast of mid-greys and light colors: lean on black, strong value steps, larger negative spaces; pastels and white read weakly. Ask the artist for healed examples on similar skin.
 
 ## 5. Style conventions
-
-| Style | Hallmarks | Implications for the artwork |
-|---|---|---|
-| Fine-line | thin single-weight lines, little shading, delicate script | larger than clients expect; generous spacing; few crossings; expect softening |
-| American traditional | bold black outlines, few strong colors (red, yellow, green), solid fills, black shading, iconic motifs | thick consistent outline; flat color map; minimal gradients |
-| Neo-traditional | varied line weights, richer palette, illustrative depth, ornament | line hierarchy critical; color reference with a clear value structure |
-| Blackwork | solid black fields, patterns, negative-space motifs | big clean shapes; mark intended skin breaks inside large fields |
-| Geometric, dotwork | precise geometry, symmetry, stippled gradients | construct in vector on the flattened body template; geometry distorts on curves, so mock up; give stipple density as a value map |
-| Script, lettering | typefaces or hand lettering | exact spelling proof; kerning; baseline following the body (§6) |
-| Realism (black-and-grey or color) | photographic values | large size; reference photos you have rights to; value map essential |
-| Japanese (irezumi) | traditional motifs and composition rules, large backgrounds (wind bars, waves, clouds) | study the conventions or work with a specialist; composition follows the whole body area |
-| Watercolor | soft washes, few or no outlines | soft edges without black structure age poorly; add a structure layer or discuss with the artist |
+Hallmarks and artwork implications per style (fine-line, American traditional, neo-traditional, blackwork, geometric/dotwork, script, realism, Japanese, watercolor): `references/styles.md`.
 
 ## 6. Lettering
 - Get the text in writing and paste it; never retype. Proofread letter by letter; confirm dates (DD.MM vs MM.DD), numerals and roman numerals; for other languages and scripts (Arabic, Hebrew, CJK, Devanagari, etc.) get a native speaker to verify meaning, grammar, direction and letterforms. Machine translation is not verification.
@@ -91,25 +65,7 @@ magick art_600ppi.png -morphology Erode Disk:3 -blur 0x5 aged.png   # Erode grow
 6. Package the deliverables (§9).
 
 ## 9. Deliverables for the artist
-
-| File | Spec |
-|---|---|
-| Line art master | vector PDF/SVG plus 600 ppi PNG, 1:1, black on white, strokes expanded, no hidden layers; a 50 mm scale bar and overall dimensions outside the art; labeled "NOT MIRRORED" |
-| Stencil version | pure black (#000000) 1-bit lines only; no greys, fills or anti-aliasing unless the artist asks; 1:1 PDF and 600 ppi PNG; optional dashed or dotted lines for shading or color boundaries if the artist uses that convention; do not mirror unless the artist asks |
-| Size variants | the stencil at about 90%, 100% and 110% so the artist can choose at the fitting |
-| Value reference | grayscale render in 3–5 values, skin as the lightest |
-| Color reference | flat color map with numbered areas plus a rendered preview; screen colors do not map to tattoo ink brands, so treat it as intent |
-| Placement mockups | on the client's photos (§10), at least two angles, with scale |
-| Notes | meaning, must-keep versus flexible elements, confirmed text, reference sources and licenses |
-
-Stencil from line art (ImageMagick 7; IM6 uses `convert`; verified):
-```sh
-magick lineart.png -colorspace Gray -threshold 50% -type Bilevel -units PixelsPerInch -density 600 stencil.png
-magick stencil.png -units PixelsPerInch -density 600 stencil.pdf    # page size = pixels / 600 in, i.e. 1:1
-pdfinfo stencil.pdf | grep -a "Page size"                           # pt / 72 = inches; -a: IM writes a NUL into Title
-magick identify -format "%[type]\n" stencil.png                     # Bilevel
-```
-Size variants: `magick stencil.png -resize 110% -threshold 50% -type Bilevel -units PixelsPerInch -density 600 stencil_110.png` (re-threshold after resampling), or scale the vector and re-export.
+Line art master, stencil (1-bit pure black, 1:1, never mirrored unless asked), 90/100/110% size variants, value and color references, mockups and notes; file specs and the verified ImageMagick stencil commands: `references/deliverables.md`.
 
 ## 10. Placement mockups
 - Consent: written consent to use the client's body photos for this project; keep them local in the project folder; never upload them to third-party services (image generation, online mockup tools) without explicit consent; don't publish mockups without consent; delete on request or when the project closes.

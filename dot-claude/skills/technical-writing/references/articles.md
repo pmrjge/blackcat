@@ -1,10 +1,6 @@
----
-name: write-articles
-description: Use to write papers, articles or blog posts — structure, maths exposition, figures, citations.
----
 # Articles, papers and blog posts
 
-Part of `technical-writing` (reader/purpose/claim, sentences, editing passes, checklist). LaTeX mechanics: `latex-typesetting`; sources: `literature-review`; proofs: `proof-craft`.
+Read from `technical-writing` (reader/purpose/claim, sentences, editing passes, checklist live in its SKILL.md). LaTeX mechanics: `latex-typesetting`; sources: `literature-review`; proofs: `proof-craft`.
 
 ## Structure
 | Genre | Structure | Notes |

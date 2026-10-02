@@ -1,6 +1,6 @@
 ---
 name: rust-unsafe-ffi
-description: Use for unsafe Rust and FFI to C — SAFETY comments, edition-2024 unsafe rules, raw pointers, Miri.
+description: Use for unsafe Rust and C FFI — SAFETY comments, edition-2024 unsafe rules, raw pointers, Miri.
 ---
 # Unsafe Rust and FFI
 

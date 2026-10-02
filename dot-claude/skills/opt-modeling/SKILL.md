@@ -1,11 +1,34 @@
 ---
 name: opt-modeling
-description: Use for LP, MIP and convex models — HiGHS, CVXPY, Pyomo, PuLP, infeasibility (IIS), duals, gaps.
+description: Use for optimization — roots, smooth minimization (scipy), LP/MIP/convex models (HiGHS, CVXPY), IIS.
 ---
-# Optimization modeling (LP, MIP, convex)
+# Optimization: roots, smooth minimization, LP, MIP, convex
+Hub: `numerical-methods` (conditioning §3, verification §9; reproducibility in `numerical-methods` `references/reproducibility.md`). Environments: `__CLAUDE_DIR__/venvs/sci/bin/python`, `__CLAUDE_DIR__/venvs/ml/bin/python`.
 
 ## Scope
-Turning a decision problem into a mathematical program and solving it with a modeling layer and a solver. CP-SAT, SAT and exact combinatorial search with a worked example: `algorithm-design` §2.10. Smooth nonlinear minimization and root finding with scipy: `num-optimization`. Bit-level/logic queries: `fm-smt-z3`.
+Turning a decision problem into a mathematical program and solving it with a modeling layer and a solver. CP-SAT, SAT and exact combinatorial search with a worked example: `algorithm-design` §2.10. Bit-level/logic queries: `formal-methods` `references/smt-z3.md`.
+
+## Roots and smooth minimization (scipy.optimize)
+Version-specific API notes were checked in Sept 2026 without recorded URLs (unverified as of 2026-10-02); latest releases are Verified in `numerical-methods`.
+- Scalar roots: bracket, then `brentq` (or `root_scalar(method="brentq")`), which is guaranteed.
+  Newton or secant only from a good start. Multiple roots make Newton linear.
+- Systems: `scipy.optimize.root` (`hybr` default, `lm`, `krylov` for large problems). Supply the
+  Jacobian and scale the variables.
+- Newton converges quadratically near a simple root. Globalize with a line search (Armijo, Wolfe) or a
+  trust region, and check that ‖F‖ decreases monotonically.
+- `minimize`:
+  - smooth: `BFGS`, `L-BFGS-B` (bounds), `Newton-CG`, `trust-ncg`, `trust-krylov`, `trust-exact`;
+  - constrained: `trust-constr`, `SLSQP`, `COBYQA`;
+  - derivative-free: `Nelder-Mead`, `Powell`, `COBYQA`.
+- Supply gradients (`jac=True` if fun returns (f, g)) and check them first with `check_grad`.
+- Nonlinear least squares: `least_squares(method="trf"|"dogbox"|"lm")`, `x_scale="jac"`, robust `loss=`
+  (`soft_l1`, `huber`, `cauchy`, `arctan`). `lm` needs m ≥ n and no bounds.
+- Stopping and diagnostics:
+  - Combine step, scaled-gradient and function-change tolerances.
+  - Always read `res.success`, `res.status` and `res.message`. Check KKT conditions for constrained
+    problems.
+  - For nonconvex problems use several starts and report the spread. `differential_evolution`,
+    `basinhopping`, `shgo` and `dual_annealing` are heuristics, not certificates.
 
 ## Formulate on paper first
 1. **Sets and indices** (products, periods, machines), **parameters** (data with units), **decision variables** (continuous, integer, binary; with bounds), **objective** (one, with units), **constraints** (each named and explained in a sentence).
@@ -44,6 +67,10 @@ Solver availability and default backends per layer: unverified as of 2026-10-02 
 - [ ] Solver status, objective, best bound/gap and time limit reported; solver and layer versions recorded.
 - [ ] Independent checker confirms feasibility and the objective value.
 - [ ] A small instance solved by brute force or by hand matches the model.
+- [ ] scipy runs: `res.success`, `res.status`, `res.message` read and reported; constrained problems checked against KKT conditions.
+- [ ] Gradients checked with `check_grad` (or autodiff) before the run.
+- [ ] Nonconvex problems: several starts with the spread of optima reported.
+- [ ] Root finds: the residual ‖F(x)‖ at the answer reported, and a bracket where one exists.
 
 ## Sources
 - Verified 2026-10-02 https://pypi.org/pypi/cvxpy/json — CVXPY 1.9.3; https://pypi.org/pypi/pyomo/json — Pyomo 6.10.1.

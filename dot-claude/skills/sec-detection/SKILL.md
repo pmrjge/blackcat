@@ -1,9 +1,9 @@
 ---
 name: sec-detection
-description: Use for security detection — audit logging, Semgrep/CodeQL rules, Sigma rules, canaries.
+description: Use for security detection — audit logs, Semgrep/CodeQL and Sigma rules, canaries.
 ---
 # Detection
-Hub: `secure-coding`. Detection answers "would we notice?" for each top threat in the threat model (`sec-threat-model`).
+Hub: `secure-coding`. Detection answers "would we notice?" for each top threat in the threat model (`secure-coding` `references/threat-model.md`).
 
 ## 1. Security logging (the source of every detection)
 - Log security events as structured records: authentication success and failure, MFA changes, password resets, privilege and role changes, authorization denials, admin actions, API-key creation and use, data exports, configuration changes, and every side-effecting agent tool call with its arguments.

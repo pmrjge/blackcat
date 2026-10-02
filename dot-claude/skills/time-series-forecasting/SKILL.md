@@ -1,6 +1,6 @@
 ---
 name: time-series-forecasting
-description: Load before forecasting or backtesting a time series — rolling-origin splits, seasonal-naive baselines, ETS/ARIMA.
+description: Load before forecasting a time series — rolling-origin backtests, naive baselines, ETS/ARIMA.
 ---
 # Time-series forecasting
 

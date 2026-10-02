@@ -1,6 +1,6 @@
 ---
 name: terraform-opentofu
-description: Load before writing or reviewing Terraform or OpenTofu — state and locking, plan/apply, modules, moved/import, tflint.
+description: Load before writing or reviewing Terraform/OpenTofu — state, locking, plan/apply, modules, moved/import.
 ---
 # Terraform and OpenTofu
 

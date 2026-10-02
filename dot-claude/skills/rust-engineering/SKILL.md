@@ -1,6 +1,6 @@
 ---
 name: rust-engineering
-description: Use for any Rust work — workspaces, edition 2024, errors, ownership, tokio, unsafe, tests, clippy, serde, releases.
+description: Use for any Rust work — workspaces, edition 2024, errors, async, unsafe, tests, clippy, releases.
 ---
 # Rust engineering
 

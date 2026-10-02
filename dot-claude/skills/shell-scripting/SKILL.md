@@ -1,6 +1,6 @@
 ---
 name: shell-scripting
-description: Load before writing or fixing a shell script or non-trivial one-liner — bash 3.2 vs zsh vs POSIX sh, BSD vs GNU tools, quoting, strict mode, traps, shellcheck.
+description: Load before writing a shell script or tricky one-liner — bash 3.2 vs zsh, BSD vs GNU, quoting.
 ---
 # Shell scripting
 

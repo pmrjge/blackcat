@@ -1,6 +1,6 @@
 ---
 name: rust-testing
-description: Use for Rust tests and benchmarks — nextest, doctests, proptest, insta, criterion, coverage, fuzzing.
+description: Use for Rust tests and benches — nextest, doctests, proptest, insta, criterion, coverage.
 ---
 # Rust testing
 

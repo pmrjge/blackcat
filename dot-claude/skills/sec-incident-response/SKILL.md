@@ -1,6 +1,6 @@
 ---
 name: sec-incident-response
-description: Use when something may be compromised — triage, containment, evidence, credential rotation, postmortem.
+description: Use when something may be compromised — triage, containment, evidence, rotation, postmortem.
 ---
 # Incident response
 Hub: `secure-coding`. For one leaked secret the short path is in `sec-secrets` (revoke and rotate first). This module covers anything wider.

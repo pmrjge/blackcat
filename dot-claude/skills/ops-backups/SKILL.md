@@ -33,7 +33,7 @@ restic restore latest --target /tmp/restore --include /srv/forge   # or latest:/
   remote append-only (`rest-server --append-only`, or `borg serve --append-only` forced in authorized_keys).
 - Keep the repo password/key outside the server too (password manager). Losing it loses every backup.
 - Restore drill each quarter: restore to a scratch dir or VM, start the service from it, compare, record duration
-  and result in the runbook (`ops-runbooks`). An untested backup counts as missing.
+  and result in the runbook (`self-hosting-ops` `references/runbooks.md`). An untested backup counts as missing.
 
 ## Verify
 - Newest snapshot < ~26 h old (`restic snapshots` / `borg list`); `restic check` or `borg check` passes.

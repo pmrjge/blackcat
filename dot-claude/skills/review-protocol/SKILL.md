@@ -1,6 +1,6 @@
 ---
 name: review-protocol
-description: Load before reviewing code, a plan or security, or verifying someone else's work — one-pass patch-ready findings, evidence-gated round trips, severity rubric, report format.
+description: Load before reviewing code, a plan or security, or verifying work — evidence-gated findings, severity.
 ---
 # Review protocol
 

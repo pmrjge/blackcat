@@ -1,6 +1,6 @@
 ---
 name: search-engines
-description: Use for full-text or hybrid search — Elasticsearch, OpenSearch, Meilisearch, Typesense, Tantivy, BM25, relevance.
+description: Use for full-text or hybrid search — Elasticsearch, OpenSearch, Meilisearch, Typesense, BM25, relevance.
 ---
 # Search engines (full-text and hybrid)
 

@@ -1,6 +1,6 @@
 ---
 name: portuguese-pt-writing
-description: Load before writing, translating or proofreading European Portuguese (pt-PT) — AO1990, PT vs BR usage, clitics.
+description: Load before writing, translating or proofreading European Portuguese (pt-PT) — AO1990, PT vs BR, clitics.
 ---
 # European Portuguese (pt-PT): writing, translation, proofreading
 
@@ -75,16 +75,18 @@ use pre-AO spelling — ask, then apply one norm consistently (Lince converts pr
   after a colon (except proper nouns and quoted sentences).
 
 ## 4. Punctuation and typography
-- **Quotation marks:** « » first level, “ ” second, ‘ ’ third: «Os homens devem “ser compreensivos, ‘bons’, e
+House styles vary (the rules below follow the EU Interinstitutional Style Guide, PT edition) and Ciberdúvidas stresses consistency over any single choice: confirm one, apply it.
+- **Quotation marks:** « » first level, “ ” second, ‘ ’ third, no inner spaces: «Os homens devem “ser compreensivos, ‘bons’, e
   respeitosos” dos seus iguais.» Final punctuation inside only if the whole sentence is quoted:
   O chefe disse: «O Albino está despedido!» — but: O artigo diz que «as aspas vêm antes do ponto».
 - **Travessão (—)** with spaces for parentheticals and dialogue: "As condições — ordenado e subvenções — eram boas."
   Dialogue: "— Porquê? — perguntou este." Comma after the closing dash if needed: "Sim — disse a Amélia —, vou."
   Hyphen (-) for compounds and attached pronouns, never spaced; numeric ranges with a hyphen or an en dash
-  (1980-1990 / 1980–1990) — one convention per document.
+  (1980-1990 / 1980–1990) — one convention per document; split years with a slash (1996/1997). Ellipsis as
+  one character (…).
 - **Numbers:** decimal comma; thousands grouped in threes by a (non-breaking) space, not a point:
   152 231,324567 (EU style guide); four-digit numbers are commonly left ungrouped (1234) — follow house style;
-  years never grouped. In lists or coordinates with decimals, separate by semicolons: (1,5; 2,0).
+  years and page numbers never grouped (1961, p. 2064). In lists or coordinates with decimals, separate by semicolons: (1,5; 2,0).
   Keep the decimal point inside code, data files and CLI examples.
 - **Percent and degrees:** EU style "15 %", "39 °C" with a non-breaking space; "15%" is common in the press —
   pick one per document.

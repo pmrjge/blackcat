@@ -1,6 +1,6 @@
 ---
 name: viz-dashboards
-description: Use for data dashboards and data apps — Streamlit, Dash, Panel or BI tools, layout, caching, freshness.
+description: Use for dashboards and data apps — Streamlit, Dash, Panel or BI tools, layout, caching, freshness.
 ---
 # Dashboards and data apps
 Hub: `data-visualization` (chart choice, color, uncertainty). Charts as Claude Artifacts or chat-surface dashboards: the built-in `dataviz` skill. Front-end code: `frontend-frameworks`. Serving and exposing an app on the home server: `self-hosting-ops`.

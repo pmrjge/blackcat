@@ -1,6 +1,6 @@
 ---
 name: prompt-and-brief-design
-description: Load before writing a system prompt, agent definition, CLAUDE.md, research prompt, output schema or few-shot set.
+description: Load before writing a system prompt, agent definition, CLAUDE.md, research prompt, schema or few-shots.
 ---
 # Prompt and brief design
 
@@ -42,67 +42,15 @@ Order: stable, cacheable material first (role, rules, tool guidance, examples), 
 
 ## 3. Project briefs for coding agents
 **CLAUDE.md** — loaded every session as a user message after the system prompt; target < 200 lines (Anthropic); facts needed in every session only. Multi-step procedures belong in skills, path-specific rules in `.claude/rules/`, must-happen actions in hooks; `@path` imports (max depth 4) still load at launch. `/init` drafts one; `/context` shows what loaded.
-```markdown
-# <Project> — <one-line purpose>
-<2–3 sentences: users, what the system does, current stage.>
+Templates — a CLAUDE.md skeleton (Commands, Architecture, Conventions, Non-goals, Workflow, Gotchas) and the one-milestone initial task prompt (goal, context, requirements, acceptance criteria, verification loop, report, stop rules): `references/project-briefs.md`.
 
-## Commands
-- Setup: `uv sync`
-- Test all / one: `uv run pytest -q` / `uv run pytest -q tests/test_x.py::test_y`
-- Lint, format, types: `uv run ruff check --fix . && uv run ruff format . && uv run mypy src`
-- Run: `uv run python -m <app>`
-
-## Architecture
-- `src/<app>/core/`: pure domain logic, no I/O. `src/<app>/io/`: adapters. Dependency direction: io → core.
-- Invariants: <what must always hold>.
-
-## Conventions
-- <specific, checkable rules: naming, error handling, logging, typing>
-
-## Non-goals
-- <what not to build or optimize>
-
-## Workflow
-- Read the module and its tests before editing; add or update tests with each change.
-- After each change run the package's tests; before reporting, the full suite and linters.
-- Do not add dependencies, change public APIs or touch `<paths>` without asking.
-
-## Gotchas
-- <things that already went wrong, with the fix>
-```
-**Initial task prompt** — one milestone per session:
-```
-Goal: <one-sentence outcome>.
-Context: <why; spec paths; relevant files and prior decisions>.
-This session: milestone <N> — <scope>. Out of scope: <…>.
-Requirements:
-1. <behavioral requirement>
-Acceptance criteria (all must hold):
-- `uv run pytest -q tests/test_<feature>.py` passes; new tests cover <cases, incl. edge cases>.
-- `<command>` prints <expected output>.
-Constraints: <no new deps / keep API / don't edit X>.
-Verification loop: after each change run <cmd>; fix failures before moving on; never weaken, skip or delete tests
-to get green — if a test is wrong, say so.
-Report: summary (≤10 lines); files changed; commands run with results; deviations and why; open questions.
-Stop and ask if requirements conflict, a destructive action is needed, or <3> attempts at the same failure fail.
-```
 - Milestones in the brief: M1…Mn, each with acceptance tests and a demo command; keep a `PROGRESS.md` (or structured test-status file) the agent updates, so a fresh session can resume from files and git history.
 - Write requirements as observable behavior plus the tests that prove it; include non-functional ones (performance budgets, platforms, accessibility) with a measurement method.
 - Ask for general solutions: "implement the logic for all valid inputs; do not special-case test inputs" (Anthropic's anti-hardcoding pattern).
 
 ## 4. Research-task prompts
-```
-Question: <precise question>. Decision it informs: <…>.
-Scope: time window, geography, include/exclude, depth.
-Sources: primary first (official docs, standards, papers, datasets, filings); record author, date, version;
-two independent sources for key claims; report conflicts instead of resolving them silently.
-Method: search broadly → read sources in full → extract claims with exact quotes → re-check numbers at the primary source.
-Citation fidelity: every factual claim cites a source you opened and that states it; quote numbers and definitions
-verbatim; mark anything unconfirmed as "unverified"; never cite from memory.
-Output: answer first (≤5 sentences, with confidence); evidence table (claim | source | date | quote);
-open questions; source list with URLs and access dates.
-Budget: ≤<N> searches and ≤<M> pages; stop earlier when the criteria are met.
-```
+Template (question and decision, scope, primary sources, method, citation fidelity, answer-first output, budget): `references/research-prompts.md`.
+
 Tool ladder and source-quality rules: `web-research`; paper searches and citation audits: `literature-review`. For long investigations ask for competing hypotheses and a notes file with confidence levels (Anthropic's structured-research pattern).
 
 ## 6. Few-shot examples

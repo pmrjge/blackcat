@@ -1,6 +1,6 @@
 ---
 name: test-strategy
-description: Load before deciding what and how to test or fixing a weak suite — levels, oracles, flakiness, mutation testing.
+description: Load before deciding what and how to test or fixing a weak suite — levels, oracles, flakiness, mutation.
 ---
 # Test strategy (hub)
 

@@ -1,6 +1,6 @@
 ---
 name: py-perf
-description: Use to make Python faster or leaner — profilers, vectorizing, numba, PyO3/maturin extensions.
+description: Use to make Python faster or leaner — profilers, vectorizing, numba, PyO3/maturin.
 ---
 # Python performance
 

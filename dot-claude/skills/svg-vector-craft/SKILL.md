@@ -1,6 +1,6 @@
 ---
 name: svg-vector-craft
-description: Load before creating or delivering vector files — SVG as code, parametric drawings, svgo, tracing, plotter/cutter output.
+description: Load before creating or delivering vector files — SVG as code, svgo, tracing, plotters, cutters.
 ---
 # Vector and SVG craft
 
@@ -58,54 +58,13 @@ export default {
 Run `npx svgo@4 --config svgo.config.mjs in.svg -o out.svg`. For fabrication also set `moveElemsAttrsToGroup: false` and `convertColors: false` so every path keeps the exact hex color the machine maps to an operation (default output rewrites `#ff0000` as `red`). For inline web icons, keep only the IDs you reference (`cleanupIds: { preserve: [...] }`) and use `prefixIds` when several SVGs share a page.
 
 ## 5. Illustrator practice
-- One artboard per deliverable or size, named; artboard = trim for print.
-- Swatches: Global process swatches for brand colors (edit once, update everywhere); Spot swatches for Pantone inks and technical plates (die, foil, varnish, white); delete unused swatches before delivery.
-- Graphic Styles for repeated appearances (a cut line: 0.25 pt stroke, spot `CutContour`, overprint); Character/Paragraph Styles for type; Symbols for repeated elements.
-- Effect › Document Raster Effects Settings at the output resolution; decide Scale Strokes & Effects before scaling.
-- Keep a master .ai with live text and appearances; derive delivery copies (outlined text, expanded appearances); File › Package collects links and fonts.
-- Scripting: ExtendScript (.jsx) via File › Scripts, or `osascript -e 'tell application "Adobe Illustrator" to do javascript "app.activeDocument.name"'`. As of mid-2026 Illustrator has no public UXP API for third-party code (CEP remains for panels); check before assuming. Script units are points (1 pt = 0.3528 mm); `PathItem.closed` finds open paths; the API cannot read the document bleed setting.
-- Illustrator MCP server, when mounted: list its tools first. Typical coverage: document, artboard and layer info; creating paths and text; importing SVG as editable objects; swatches; overprint, separation and preflight info; SVG/PNG/PDF export. Confirm the coordinate system it reports (print and web documents can differ), confirm each export on disk (`ls -la`), and Read a PNG render for visual QA. Use the screen only when no scripted route exists (`computer-use-apps`).
+Artboards, global and spot swatches, graphic styles, raster-effect settings, master vs delivery files, ExtendScript and the Illustrator MCP server: `references/illustrator.md`.
 
 ## 6. Raster to vector
-Choose: logos and wordmarks → rebuild by hand over a trace (true circles and straight lines, the identified and licensed typeface); line art and sketches → potrace; flat-color art → vtracer or Image Trace; photos → only for a deliberate posterized look.
-- Illustrator Image Trace: Mode (Black and White, Grayscale, Color), Palette/Colors, Threshold; Advanced: Paths (fidelity), Corners, Noise (minimum area in px), Method Abutting (no overlaps, good for cutting) or Overlapping (stacked), Create Fills/Strokes, Snap Curves To Lines, Ignore White; then Object › Image Trace › Expand. Upscale small sources 2–4× first.
-- potrace (PNM/BMP input only; verified):
-```sh
-magick in.png -colorspace Gray in.pgm                      # ImageMagick 6: convert
-mkbitmap -f 4 -s 2 -t 0.45 in.pgm -o in.pbm                # highpass radius, 2x upscale, threshold (the defaults)
-potrace -s --tight -t 4 -a 1 -O 0.2 in.pbm -o out.svg      # -t speckle area, -a corners (0 polygon .. 4/3 no corners), -O curve tolerance
-potrace -b dxf in.pbm -o out.dxf                           # also -b pdf, -b eps; -W/-H/-r set physical size
-```
-potrace SVG uses pt units and a `scale(0.1,-0.1)` group transform; bake transforms before editing numerically.
-- vtracer 0.6.x CLI (`cargo install vtracer`; the 1.0 alphas rename flags, check `vtracer --help`):
-```sh
-vtracer --input in.png --output out.svg --colormode color --hierarchical cutout --mode spline \
-  --filter_speckle 4 --color_precision 6 --gradient_step 16 --corner_threshold 60 \
-  --segment_length 4 --splice_threshold 45 --path_precision 3
-```
-`--colormode bw` for binary; `--hierarchical stacked` (default) layers shapes, `cutout` gives non-overlapping shapes (better for vinyl and cutting); `--preset bw|poster|photo`. Python package `vtracer`: `vtracer.convert_image_to_svg_py(inp, out, colormode="binary", hierarchical="cutout", mode="spline", filter_speckle=4, path_precision=3)`. The Python binding spells binary mode `"binary"` and silently falls back to color on unknown values (`"bw"` gives a color trace). Output has pixel width/height, no viewBox, and a `translate()` on every path: add a viewBox and physical size, bake transforms.
-- Cleanup: delete speckles, merge same-color neighbors, reduce anchors, replace near-circles and near-lines with true primitives, unify stroke weights, sharpen corners, align to a grid; overlay on the source at 400% and against the brand guide.
+Logos and wordmarks are rebuilt by hand over a trace; line art goes through potrace, colour art through vtracer or Image Trace, then cleanup. Verified commands and flags: `references/raster-to-vector.md`.
 
 ## 8. Export formats
-
-| Target | Format | How | Watch |
-|---|---|---|---|
-| Web and UI | SVG | Illustrator Export As SVG (Styling: Presentation Attributes or Internal CSS; Font: Convert to Outlines for logos; Images: Embed or Link; Object IDs: Layer Names; Decimal 2–3; Responsive off for fixed sizes), then svgo (§4) | a11y attributes, unique IDs per page |
-| Print | PDF, PDF/X | Illustrator Save As Adobe PDF with the printer's preset; CLI `rsvg-convert -f pdf -o out.pdf in.svg` or `inkscape in.svg --export-type=pdf --export-text-to-path --export-filename=out.pdf`; ReportLab when CMYK and spot colors must come from code | SVG is RGB-only and CLI PDFs are RGB: pure black becomes four-color black on conversion. Finish color in Illustrator or generate CMYK directly; see `print-production` |
-| Sign RIPs, stock libraries, legacy | EPS | Illustrator Save As EPS; `inkscape --export-type=eps`; `potrace -e` | no transparency (flattened), single page |
-| CAD / CAM | DXF | Illustrator File › Export › AutoCAD Interchange File (version, units, scale); Inkscape `--export-extension=org.ekips.output.dxf_outlines` (R14 dialog; tested: header AC1014, which ezdxf loads as AC1015, `$INSUNITS` 4 = mm, curves as SPLINE, Inkscape layers → DXF layers) or `org.inkscape.output.dxf_twelve`; `potrace -b dxf`; ezdxf | units and scale on import; flatten Béziers if the consumer cannot read SPLINE; layer names |
-
-ezdxf from code (tested; `uv run --no-project --with ezdxf python gen_dxf.py`):
-```python
-import ezdxf
-from ezdxf import units
-doc = ezdxf.new("R2010", setup=True); doc.units = units.MM
-doc.layers.add("CUT", color=1)                                # ACI 1 = red
-msp = doc.modelspace()
-msp.add_lwpolyline([(0, 0), (50, 0), (50, 30), (0, 30)], close=True, dxfattribs={"layer": "CUT"})
-msp.add_circle((25, 15), radius=5, dxfattribs={"layer": "CUT"})
-doc.saveas("part.dxf")
-```
+SVG for web/UI, PDF or PDF/X for print, EPS for sign RIPs and legacy, DXF for CAD/CAM (tested ezdxf example), with what to watch per format: `references/export-formats.md`.
 
 ## 9. QA checklist
 - [ ] Physical size right in the target application (no 75%/133% error); viewBox present; units as intended

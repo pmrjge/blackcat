@@ -1,6 +1,6 @@
 ---
 name: sec-authn-authz
-description: Use for login, sessions, JWTs, OAuth/OIDC, password storage and object-level authorization (IDOR).
+description: Use for login, sessions, JWTs, OAuth/OIDC, password storage and object-level authorization.
 ---
 # Authentication and authorization
 Hub: `secure-coding`.

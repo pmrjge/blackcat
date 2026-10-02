@@ -1,6 +1,6 @@
 ---
 name: web-accessibility
-description: Load before building, designing or auditing UI for accessibility — WCAG 2.2 AA, EAA, keyboard, focus, screen readers.
+description: Load before building or auditing UI for accessibility — WCAG 2.2 AA, keyboard, focus, screen readers.
 ---
 # Web accessibility
 

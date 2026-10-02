@@ -1,18 +1,16 @@
 ---
 name: quant-finance
-description: Use for quantitative finance — no real orders, point-in-time data; module map for backtests, risk, pricing.
+description: Use for quant finance research — backtests, risk, portfolios, derivative and bond pricing; no orders.
 ---
-# Quantitative finance (hub)
+# Quantitative finance
 
 ## Scope
 Research code for trading strategies, risk and portfolio analytics, and pricing models. Statistics and time series: `data-analysis`, `time-series-forecasting`, `causal-inference`; numerics: `numerical-methods`; dataframes: `dataframes-duckdb`.
 
-## Modules
-| module | load when |
-|---|---|
-| `quant-backtesting` | strategy research, event-driven or vectorized backtests, costs, walk-forward, overfitting checks |
-| `quant-risk` | returns, volatility, VaR/ES, factor models, portfolio optimization, stress tests |
-| `quant-pricing` | options and fixed income: Black–Scholes, trees, Monte Carlo, PDEs, curves, QuantLib, Greeks |
+## References (read the one the task touches)
+- `references/backtesting.md` — strategy research, event-driven or vectorized backtests, costs, walk-forward, overfitting checks.
+- `references/risk.md` — returns, volatility, VaR/ES, factor models, portfolio optimization, stress tests.
+- `references/pricing.md` — options and fixed income: Black–Scholes, trees, Monte Carlo, PDEs, curves, QuantLib, Greeks.
 
 ## Safety and scope rules
 - **No real orders.** Placing, modifying or cancelling orders, moving money or changing brokerage settings is never done by an agent; live connections are read-only or paper trading, and even paper accounts are used only when the user asked. Report what a strategy would do; the user executes.
@@ -29,4 +27,4 @@ Research code for trading strategies, risk and portfolio analytics, and pricing 
 - Reproducibility: data snapshot (hash, date range, vendor, download date), code commit, parameters and random seeds saved with every result.
 
 ## Verify
-Bias checklist (lookahead, survivorship, data snooping) answered in the report · results recomputed with a second implementation or simple sanity case (buy-and-hold, known option price) · transaction costs and sample period stated · no order or account action taken.
+Bias checklist (lookahead, survivorship, data snooping) answered in the report · results recomputed with a second implementation or simple sanity case (buy-and-hold, known option price) · transaction costs and sample period stated · no order or account action taken · the Verify list of each reference used.

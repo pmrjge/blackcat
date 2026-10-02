@@ -1,6 +1,6 @@
 ---
 name: test-property-based
-description: Use for property-based and stateful model tests — hypothesis, proptest, fast-check, generators, shrinking.
+description: Use for property-based and stateful tests — hypothesis, proptest, fast-check, generators, shrinking.
 ---
 # Property-based and stateful testing
 Hub: `test-strategy`. What the evidence guarantees (evidence on executed inputs only, not proof): `formal-methods` §7.

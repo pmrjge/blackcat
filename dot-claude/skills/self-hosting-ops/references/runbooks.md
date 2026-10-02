@@ -1,10 +1,6 @@
----
-name: ops-runbooks
-description: Use to monitor a self-hosted service, write its runbook or handle an incident.
----
 # Monitoring, runbooks and incidents
 
-Part of `self-hosting-ops` (principles, secrets). Metrics, traces and SLO alerts beyond simple checks: `obs-otel`.
+Read from `self-hosting-ops` (principles, secrets). Metrics, traces and SLO alerts beyond simple checks: `obs-otel`.
 
 ## Monitoring
 - Uptime: Uptime Kuma or Gatus on a different host; add an external check for anything public.

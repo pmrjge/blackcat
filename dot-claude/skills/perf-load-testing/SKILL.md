@@ -1,6 +1,6 @@
 ---
 name: perf-load-testing
-description: Use for latency and throughput under load — k6, vegeta, oha, open vs closed load models, percentiles.
+description: Use for latency and throughput under load — k6, vegeta, oha, open vs closed models, percentiles.
 ---
 # Load testing services
 Hub: `cpu-performance` (workflow, environment block, report). Profiling the server while it is under load: `perf-profilers`, `perf-memory`.

@@ -4,7 +4,7 @@ description: Use for observability — OpenTelemetry traces, metrics, logs, the 
 ---
 # Observability with OpenTelemetry
 
-Part of `self-hosting-ops` (principles). Simple uptime and dead-man checks: `ops-runbooks`. OpenTelemetry Collector releases v0.162.0 is current (Verified 2026-10-02 `git ls-remote --tags https://github.com/open-telemetry/opentelemetry-collector-releases`).
+Part of `self-hosting-ops` (principles). Simple uptime and dead-man checks: `self-hosting-ops` `references/runbooks.md`. OpenTelemetry Collector releases v0.162.0 is current (Verified 2026-10-02 `git ls-remote --tags https://github.com/open-telemetry/opentelemetry-collector-releases`).
 
 ## Instrumentation
 - Signals: traces (request paths and latency), metrics (rates, saturation, business counters), logs (events with context). Correlate them through the trace context (trace id in every log line).
@@ -37,7 +37,7 @@ service:
 
 ## Dashboards and alerts
 - Services: RED (rate, errors, duration as p50/p95/p99). Resources: USE (utilization, saturation, errors).
-- Alert on symptoms users feel (error rate, latency, availability) through SLOs with multi-window burn-rate alerts, not on every cause; each alert links to a runbook (`ops-runbooks`).
+- Alert on symptoms users feel (error rate, latency, availability) through SLOs with multi-window burn-rate alerts, not on every cause; each alert links to a runbook (`self-hosting-ops` `references/runbooks.md`).
 
 ## Verify
 - A test request appears as one trace across services with matching log lines (same trace id); metrics show up with bounded label sets.

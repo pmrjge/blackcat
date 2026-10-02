@@ -1,6 +1,6 @@
 ---
 name: sculpting-texturing
-description: Load before sculpting, retopology, UVs, baking or 3D texture painting — ZBrush, Blender sculpt, Substance 3D Painter.
+description: Load before sculpting, retopology, UVs, baking or texture painting — ZBrush, Blender, Substance.
 ---
 # Digital sculpting and 3D painting
 

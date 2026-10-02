@@ -1,6 +1,6 @@
 ---
 name: viz-matplotlib
-description: Use for publication figures in matplotlib or seaborn — styles, fonts, figure sizes, facets, export.
+description: Use for publication figures in matplotlib or seaborn — styles, fonts, sizes, facets, export.
 ---
 # matplotlib and seaborn for publication
 Hub: `data-visualization` (chart choice, perception, color, uncertainty, checklist; design rules in `data-visualization` `references/design-rules.md`). APIs were checked earlier against matplotlib 3.11, seaborn 0.13, plotly with Kaleido ≥ 1 and Altair 5 without recorded URLs: unverified as of 2026-10-02.

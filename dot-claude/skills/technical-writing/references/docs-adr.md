@@ -1,10 +1,6 @@
----
-name: write-docs-adr
-description: Use for docs pages, READMEs, ADRs and changelogs — Diátaxis, code in prose, templates, Vale.
----
 # Documentation, READMEs, ADRs and changelogs
 
-Part of `technical-writing` (reader/purpose/claim, sentences, editing passes, checklist). Building the site: `docs-sites`. Vale 3.24.0 is current (Verified 2026-10-02 `git ls-remote --tags https://github.com/errata-ai/vale`); Keep a Changelog 1.1.0 is the current spec (Verified 2026-10-02 https://keepachangelog.com/en/1.1.0/).
+Read from `technical-writing` (reader/purpose/claim, sentences, editing passes, checklist live in its SKILL.md). Building the site: `docs-sites`. Vale 3.24.0 is current (Verified 2026-10-02 `git ls-remote --tags https://github.com/errata-ai/vale`); Keep a Changelog 1.1.0 is the current spec (Verified 2026-10-02 https://keepachangelog.com/en/1.1.0/).
 
 ## Structure
 | Genre | Structure | Notes |
@@ -48,7 +44,7 @@ BasedOnStyles = Vale, Microsoft, write-good
 Project terms go one regex per line in `styles/config/vocabularies/Project/accept.txt` (Vale ≥ 3; older versions
 used `styles/Vocab/`); commit the vocabulary, ignore the synced packages (`styles/*` plus `!styles/config/` in
 `.gitignore`). House style for software docs: the Google developer documentation style guide or the Microsoft
-Writing Style Guide (both exist as Vale packages). Grammar and LaTeX linters: `technical-writing` §8.
+Writing Style Guide (both exist as Vale packages). Grammar and LaTeX linters: §8 of the `technical-writing` SKILL.md.
 
 ## 9. Templates
 **README**

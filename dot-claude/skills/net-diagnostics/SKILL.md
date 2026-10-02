@@ -4,7 +4,7 @@ description: Use to debug a network problem layer by layer — routes, DNS, port
 ---
 # Network diagnostics (macOS and Linux)
 
-Part of `self-hosting-ops` (principles). Protocol background: `references/net-protocols.md` in `self-hosting-ops`; tunnels and firewalls: `net-vpn-firewall`; Tailscale specifics: `ops-tailscale`.
+Part of `self-hosting-ops` (principles). Protocol background: `references/net-protocols.md` in `self-hosting-ops`; tunnels and firewalls: `self-hosting-ops` `references/vpn-firewall.md`; Tailscale specifics: `ops-tailscale`.
 
 Work bottom-up and stop at the first layer that fails; record each command and its result.
 

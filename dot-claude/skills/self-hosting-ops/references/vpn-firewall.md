@@ -1,10 +1,6 @@
----
-name: net-vpn-firewall
-description: Use for WireGuard or host firewalls — nftables, ufw, firewalld, macOS pf, avoiding lockout.
----
 # VPN tunnels and host firewalls
 
-Part of `self-hosting-ops` (principles: ask before opening ports or changing a remote firewall). Tailscale (WireGuard with key distribution and ACLs done for you) is the default for personal machines: `ops-tailscale`. Debugging: `net-diagnostics`.
+Read from `self-hosting-ops` (principles: ask before opening ports or changing a remote firewall). Tailscale (WireGuard with key distribution and ACLs done for you) is the default for personal machines: `ops-tailscale`. Debugging: `net-diagnostics`.
 
 ## WireGuard by hand (when Tailscale or headscale does not fit)
 ```ini

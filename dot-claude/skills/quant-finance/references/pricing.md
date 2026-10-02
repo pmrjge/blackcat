@@ -1,10 +1,6 @@
----
-name: quant-pricing
-description: Use to price derivatives and bonds — closed forms, trees, Monte Carlo, PDEs, curves, QuantLib.
----
 # Derivatives and fixed-income pricing
 
-Baseline: `quant-finance`. Numerical schemes and error analysis: `numerical-methods`, `num-ode-sde`, `sci-pde-fem`; derivations: `proof-craft`.
+Read from `quant-finance` (baseline in its SKILL.md). Numerical schemes and error analysis: `numerical-methods`, `num-ode-sde`, `sci-pde-fem`; derivations: `proof-craft`.
 
 ## Tools
 - QuantLib 1.43 (C++) and the `QuantLib` Python package 1.43 — Verified 2026-10-02 https://github.com/lballabio/QuantLib/releases/latest https://pypi.org/project/QuantLib/

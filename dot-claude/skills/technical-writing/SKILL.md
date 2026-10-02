@@ -1,6 +1,6 @@
 ---
 name: technical-writing
-description: Use to draft or edit technical or scientific prose — papers, posts, docs, READMEs, ADRs, reports; style, maths, citations.
+description: Use to draft or edit technical prose — papers, blog posts, docs, READMEs, ADRs, changelogs, reports.
 ---
 # Technical and scientific writing
 
@@ -23,11 +23,12 @@ Write these four lines at the top of the draft and delete them only at the end:
 Then outline as a list of *assertions* (each heading is a claim, not a topic: "Caching halves p95 latency", not
 "Caching").
 
-## Modules
+## Modules and genre references (read the reference before drafting)
+- Papers (IMRaD, maths), blog posts and articles — abstract formula, mathematical exposition, figures and tables, citations, blog outline: `references/articles.md`.
+- Documentation (Diátaxis), code in prose, READMEs, ADRs, changelogs and release notes, Vale prose linting: `references/docs-adr.md`.
+
 | Module | Load for |
 |---|---|
-| `write-articles` | papers (IMRaD, maths), blog posts and articles: abstract formula, mathematical exposition, figures and tables, citations, blog outline |
-| `write-docs-adr` | documentation (Diátaxis), code in prose, READMEs, ADRs, changelogs and release notes, Vale prose linting |
 | `docs-sites` | building a documentation site: Zensical or MkDocs Material, Sphinx, Docusaurus, Starlight, VitePress |
 
 ## 3. Paragraphs and sentences
@@ -62,7 +63,7 @@ Then outline as a list of *assertions* (each heading is a claim, not a topic: "C
 5. **Proofreading:** spelling in the chosen variant, typography (en dash for ranges 3–5, non-breaking spaces
    before units and in "Fig. 3", consistent heading capitalization), read aloud or via text-to-speech.
 
-Prose linting with Vale: `write-docs-adr`. LanguageTool (en-US, en-GB, pt-PT) for grammar; `chktex` for LaTeX sources. Linters flag candidates; you decide.
+Prose linting with Vale: `references/docs-adr.md`. LanguageTool (en-US, en-GB, pt-PT) for grammar; `chktex` for LaTeX sources. Linters flag candidates; you decide.
 
 ## Verify
 - Reports, memos, status, incidents (inverted pyramid) and research summaries: read `references/reports.md`.

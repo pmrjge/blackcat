@@ -1,10 +1,6 @@
----
-name: quant-backtesting
-description: Use to backtest strategies — signal timing, costs, walk-forward, overfitting and bias checks.
----
 # Backtesting
 
-Safety (no real orders), data and bias baseline: `quant-finance`.
+Read from `quant-finance` (safety: no real orders; data and bias baseline in its SKILL.md).
 
 ## Tools
 - vectorbt 1.1.1 (vectorized research, parameter sweeps) — Verified 2026-10-02 https://github.com/polakowo/vectorbt/releases/latest

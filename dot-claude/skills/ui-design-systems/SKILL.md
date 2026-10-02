@@ -1,6 +1,6 @@
 ---
 name: ui-design-systems
-description: Load before designing UI screens or a component library — DTCG tokens, spacing and type scales, states, dark mode.
+description: Load before designing UI screens or a component library — DTCG tokens, scales, states, dark mode.
 ---
 # UI design systems and design-to-code handoff
 

@@ -1,6 +1,6 @@
 ---
 name: py-typing
-description: Use for Python typing and linting — ruff, basedpyright/mypy/ty, typing features, data containers.
+description: Use for Python typing and linting — ruff, basedpyright/mypy/ty, typing features, dataclasses.
 ---
 # Python typing and linting
 

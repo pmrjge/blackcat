@@ -1,6 +1,6 @@
 ---
 name: secure-coding
-description: Load before writing or reviewing code that handles untrusted input, secrets, auth, crypto, dependencies or LLM tools.
+description: Load before writing or reviewing code with untrusted input, secrets, auth, crypto, deps or LLM tools.
 ---
 # Secure coding (hub)
 
@@ -15,10 +15,17 @@ description: Load before writing or reviewing code that handles untrusted input,
 - Encode for the sink at output time (HTML, SQL, shell, URL, JSON, logs). Fail closed; errors reveal nothing internal.
 - Deny by default; least privilege for every credential, process and tool; no secret in code, logs, argv, URLs or prompts.
 
+## Threat model in five steps (at the start of a design or review)
+1. **Assets:** credentials and keys, personal data, user files, money-moving or message-sending capabilities, code execution and deploy rights, model weights, availability.
+2. **Entry points:** HTTP endpoints, CLI args, environment, config files, uploads and archives, IPC/sockets, webhooks, queues, dependencies and the build pipeline, and for LLM systems every prompt, retrieved document, web page, tool result and image.
+3. **Trust boundaries:** where data moves from less to more trusted — network → server, user → admin, model output → tool execution, plugin/MCP server → host, container → host. Sketch the data flow.
+4. **STRIDE per boundary:** Spoofing (authn), Tampering (integrity, signatures), Repudiation (audit logs), Information disclosure (logs, errors, side channels), Denial of service (unbounded sizes, ReDoS, decompression bombs, token/cost exhaustion), Elevation of privilege (authz gaps, injection, deserialization).
+5. **Rank** by impact × likelihood, choose mitigations, and write the top abuse cases as tests.
+Write it down (one-page data-flow sketch, boundary table, mitigations with their location and test, routing to modules, when to revisit): `references/threat-model.md`.
+
 ## Modules (load the one that matches the work)
 | Module | Load when |
 |---|---|
-| `sec-threat-model` | starting a design or review: assets, entry points, trust boundaries, STRIDE, abuse cases |
 | `sec-web-vulns` | code reaches a sink: SQL, shell, templates, paths, SSRF, XSS/CSRF, deserialization, XXE, ReDoS, overflow, TOCTOU |
 | `sec-secrets` | storing, passing, logging or scanning secrets; leak response; randomness and token comparison |
 | `sec-supply-chain` | adding, locking, auditing or publishing dependencies; cooldowns, install scripts, provenance |

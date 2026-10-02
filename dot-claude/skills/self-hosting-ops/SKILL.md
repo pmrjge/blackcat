@@ -1,6 +1,6 @@
 ---
 name: self-hosting-ops
-description: Use for personal services on a Linux box — Tailscale, Forgejo, containers, systemd, Caddy, backups, k8s, cloud, networks.
+description: Use for personal services on a Linux box — Tailscale, Forgejo, systemd, Caddy, backups, firewalls.
 ---
 # Self-hosting over Tailscale (and the infrastructure around it)
 
@@ -30,14 +30,14 @@ Forgejo Runner 13: unverified (code.forgejo.org unreachable from the sandbox).
 | `ops-forgejo` | the Forgejo compose stack, app.ini, exposure, admin, Actions runner, dump, upgrades |
 | `ops-systemd-caddy` | systemd units and timers, hardening, credentials, journald; Caddy reverse proxy |
 | `ops-backups` | restic and borg, database dumps, 3-2-1, append-only remotes, restore drills |
-| `ops-runbooks` | monitoring, the runbook template, the incident checklist |
 | `k8s-ops` | Kubernetes workloads: manifests, kubectl, Helm/kustomize, debugging, rollbacks |
 | `cloud-aws` | AWS CLI and accounts: SSO profiles, IAM, S3, costs, logging |
 | `cloud-gcp` | gcloud and projects: ADC, service accounts, Workload Identity, Cloud Run, costs |
 | `obs-otel` | OpenTelemetry traces, metrics, logs, the Collector, SLO alerts |
 | `net-diagnostics` | layer-by-layer network debugging: DNS, routes, ports, TLS, MTU, packet captures |
-| `net-vpn-firewall` | WireGuard, nftables/ufw/firewalld, macOS pf, safe remote firewall changes |
 
+Read `references/runbooks.md` for monitoring (uptime, dead-man pings, disk, SMART, certificates), the runbook template and the incident checklist.
+Read `references/vpn-firewall.md` for WireGuard by hand and host firewalls (nftables, ufw, firewalld, macOS pf) with safe remote changes (no lockout).
 Read `references/net-protocols.md` for protocol facts (DNS records, HTTP, TLS and ACME, IP ranges, IPv6).
 Read `references/containers.md` when choosing Docker Compose or Podman Quadlet, pinning images, or running a container as a systemd unit.
 

@@ -1,6 +1,6 @@
 ---
 name: sec-llm-apps
-description: Use for LLM and agent apps, tool use and MCP servers — prompt injection, exfiltration, tool permissions.
+description: Use for LLM/agent apps, tool use and MCP servers — prompt injection, exfiltration, tool permissions.
 ---
 # LLM and agent applications
 Hub: `secure-coding`. Prompt-level patterns (spotlighting, Dual LLM, Plan-Then-Execute): `prompt-and-brief-design` §7.

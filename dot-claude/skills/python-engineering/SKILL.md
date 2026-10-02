@@ -1,6 +1,6 @@
 ---
 name: python-engineering
-description: Use for any Python work — uv projects and PEP 723 scripts, typing, ruff, pytest, asyncio, profiling, wheels.
+description: Use for any Python work — uv, PEP 723 scripts, typing, ruff, pytest, asyncio, profiling, wheels.
 ---
 # Python engineering
 

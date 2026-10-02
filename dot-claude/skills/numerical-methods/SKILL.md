@@ -1,6 +1,6 @@
 ---
 name: numerical-methods
-description: Load before writing or trusting a numerical computation — conditioning, stability, reproducibility, precision checks.
+description: Load before writing or trusting numerical code — conditioning, stability, verification, reproducibility.
 ---
 # Numerical methods
 
@@ -23,7 +23,7 @@ description: Load before writing or trusting a numerical computation — conditi
 | `num-linear-algebra` | solving linear systems, least squares, eigenproblems, matrix functions, sparse/iterative solvers |
 | `num-ode-sde` | integrating ODEs or SDEs: tolerances, stiffness, symplectic/DAE, strong and weak order |
 | `num-floating-point` | IEEE 754 rounding, cancellation, summation, NaN/subnormals, fp16/bf16/fp8/fp4 and framework precision flags |
-| `num-optimization` | roots, nonlinear systems, minimization and nonlinear least squares with scipy.optimize |
+| `opt-modeling` | roots, nonlinear systems, minimization and nonlinear least squares (scipy.optimize); LP, MIP and convex models |
 | `num-quadrature-autodiff` | numerical integration (quad, tanh-sinh, cubature, QMC, mpmath) and derivatives (autodiff, FD, complex step) |
 
 ## References

@@ -1,6 +1,6 @@
 ---
 name: swift-engineering
-description: Use for Swift on Apple platforms — Swift 6 concurrency, SwiftPM, Swift Testing; iOS module map.
+description: Use for Swift on Apple platforms — Swift 6 concurrency, SwiftPM, Swift Testing; iOS modules.
 ---
 # Swift engineering (hub)
 

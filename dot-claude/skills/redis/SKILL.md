@@ -1,6 +1,6 @@
 ---
 name: redis
-description: Use for Redis or Valkey — data structures, TTLs, eviction, persistence, lock caveats, streams.
+description: Use for Redis or Valkey — data structures, TTLs, eviction, persistence, locks, streams.
 ---
 # Redis and Valkey
 Hub: `db-design`. Redis holds data you can rebuild or afford to lose a second of, unless persistence and replication are configured and tested.

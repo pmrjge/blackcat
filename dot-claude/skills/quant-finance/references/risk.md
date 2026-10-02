@@ -1,10 +1,6 @@
----
-name: quant-risk
-description: Use for risk and portfolios — volatility, VaR/ES, factor models, optimization, stress tests.
----
 # Risk and portfolio analytics
 
-Baseline and data rules: `quant-finance`. Time-series models: `time-series-forecasting`; Bayesian approaches: `bayesian-modeling`.
+Read from `quant-finance` (baseline and data rules in its SKILL.md). Time-series models: `time-series-forecasting`; Bayesian approaches: `bayesian-modeling`.
 
 ## Tools
 - arch 8.0.0 (GARCH family, bootstrap) — Verified 2026-10-02 https://github.com/bashtage/arch/releases/latest

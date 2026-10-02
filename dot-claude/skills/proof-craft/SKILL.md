@@ -1,6 +1,6 @@
 ---
 name: proof-craft
-description: Load before proving, disproving, repairing or refereeing a mathematical claim — dissection, counterexamples, strategies.
+description: Load before proving, disproving or refereeing a math claim — counterexamples, strategy catalog.
 ---
 # Proof craft
 

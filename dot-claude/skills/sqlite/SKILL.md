@@ -1,6 +1,6 @@
 ---
 name: sqlite
-description: Use for SQLite as an application database — WAL, concurrency, busy timeouts, schema changes, backups.
+description: Use for SQLite as an app database — WAL, concurrency, busy timeouts, schema changes, backups.
 ---
 # SQLite as an application database
 Hub: `db-design`. Connection pragmas (`journal_mode=WAL`, `foreign_keys=ON`, `busy_timeout`), `STRICT` tables and Python `sqlite3` bulk loading: `dataframes-duckdb` § SQLite. This module covers running an app on it.

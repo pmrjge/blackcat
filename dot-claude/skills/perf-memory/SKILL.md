@@ -1,6 +1,6 @@
 ---
 name: perf-memory
-description: Use for memory growth, leaks and peak RSS — heaptrack, Instruments Allocations, memray, dhat, massif.
+description: Use for memory growth, leaks, peak RSS — heaptrack, Instruments, memray, dhat, massif.
 ---
 # Memory profiling (heap, leaks, peak RSS)
 Hub: `cpu-performance` (workflow, discipline; allocation as a speed cost is win #3 there). CPU profilers: `perf-profilers`. Tool details were checked earlier without recorded URLs: unverified as of 2026-10-02 unless a Sources line says otherwise.

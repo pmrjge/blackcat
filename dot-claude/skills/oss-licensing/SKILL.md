@@ -1,6 +1,6 @@
 ---
 name: oss-licensing
-description: Use for choosing, applying or auditing open-source licences — compatibility, SPDX, REUSE, notices.
+description: Use to choose, apply or audit open-source licences — compatibility, SPDX, REUSE, notices.
 ---
 # Open-source licensing (engineering practice, not legal advice)
 

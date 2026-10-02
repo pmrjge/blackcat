@@ -1,6 +1,6 @@
 ---
 name: test-e2e-playwright
-description: Use for browser end-to-end tests with Playwright Test — locators, web-first assertions, fixtures, traces.
+description: Use for Playwright Test end-to-end browser tests — locators, web-first assertions, fixtures, traces.
 ---
 # End-to-end tests with Playwright Test
 Hub: `test-strategy`. Project setup and runner basics: `typescript-engineering` (Testing). Driving a browser for a task rather than a test suite: `browser-automation`. Accessibility rules: `web-accessibility` (audits: `a11y-audit`).
