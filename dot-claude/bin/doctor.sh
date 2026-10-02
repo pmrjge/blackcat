@@ -7,6 +7,10 @@ fail(){ printf '  FAIL  %s\n' "$*"; }
 have(){ command -v "$1" >/dev/null 2>&1; }
 if have timeout; then T="timeout 90"; elif have gtimeout; then T="gtimeout 90"; else T=""; fi
 MIN=2.1.271
+# The models the soft token limits (hooks/agent_guard.py SOFT_LIMITS, SOFT_PROMPT_CTX) and the agents'
+# maxTurns were measured on, per alias: the transcripts of 2026-10-02 (tests/derive_thresholds.py in
+# the stack repo). "== Settings" warns when an alias resolves to another model: re-derive, then update.
+MEASURED_MODELS="opus=claude-opus-5-5 sonnet=claude-sonnet-5-5"
 # portable "a <= b" for dotted versions (BSD sort on older macOS has no -V)
 version_ge(){ [ "$(printf '%s\n%s\n' "$2" "$1" | sort -t. -k1,1n -k2,2n -k3,3n | head -n1)" = "$2" ]; }
 
@@ -474,7 +478,7 @@ fi
 
 echo "== Settings"
 if [ -f "$C/settings.json" ]; then
-  python3 - "$C/settings.json" "$C/skills" <<'PY'
+  MEASURED_MODELS="$MEASURED_MODELS" python3 - "$C/settings.json" "$C/skills" <<'PY'
 import json, os, re, sys
 p, skills_dir = sys.argv[1], sys.argv[2]
 try:
@@ -485,17 +489,48 @@ except (OSError, ValueError) as e:
 def ok(m): print("  ok    " + m)
 def warn(m): print("  WARN  " + m)
 def fail(m): print("  FAIL  " + m)
+# What each alias the agents name resolves to: ANTHROPIC_DEFAULT_<FAMILY>_MODEL. Claude Code writes a
+# settings file's env over the inherited environment (code.claude.com/docs/en/env-vars, "In settings
+# files"), so settings.json's env comes first, then the process environment; stack.env is the source
+# install.sh copies into settings.json. Unset: Claude Code's own target for the provider.
+def stack_env_models(path):
+    vals = {}
+    try:
+        lines = open(path, encoding="utf-8").read().splitlines()
+    except (OSError, UnicodeDecodeError):
+        return vals
+    for line in lines:
+        m = re.match(r"\s*(?:export\s+)?(ANTHROPIC_DEFAULT_[A-Z]+_MODEL)=(.*)$", line)
+        if m:
+            v = m.group(2).strip()
+            vals[m.group(1)] = (v[1:v.index(v[0], 1)] if v[:1] in ("'", '"') and v[0] in v[1:]
+                                else re.split(r"\s+#", v, maxsplit=1)[0].strip())
+    return vals
+_senv = s.get("env") if isinstance(s.get("env"), dict) else {}
+_stack_models = stack_env_models(os.path.join(os.path.dirname(p), "stack.env"))
+resolved = {}
+for fam in ("opus", "sonnet", "haiku"):
+    k = "ANTHROPIC_DEFAULT_%s_MODEL" % fam.upper()
+    if str(_senv.get(k) or ""):
+        resolved[fam] = (str(_senv[k]), "settings.json env")
+    elif os.environ.get(k):
+        resolved[fam] = (os.environ[k], "process environment")
+    else:
+        resolved[fam] = (None, None)
 agent = s.get("agent")
 if agent == "blackcat":
     ok("main thread agent: BlackCat")
     # an agent file's effort applies only to subagents: BlackCat runs at the session's level
-    lvl = ((s.get("modelSettings") or {}).get("claude-sonnet-5-5") or {}).get("effortLevel")
+    sonnet = resolved["sonnet"][0]
+    saved = {k: v for k, v in (s.get("modelSettings") or {}).items() if isinstance(v, dict)}
+    lvl = (saved.get(sonnet) or {}).get("effortLevel") if sonnet else next(
+        (v.get("effortLevel") for k, v in saved.items() if "sonnet" in k), None)
     if lvl in (None, "medium"):
-        ok("BlackCat effort: %s" % (lvl and "medium (saved for Sonnet 5.5)" or "Sonnet 5.5's default, medium"))
+        ok("BlackCat effort: %s" % (lvl and "medium (saved for %s)" % (sonnet or "Sonnet") or "Sonnet's default, medium"))
     else:
         warn("BlackCat effort: %s — BlackCat's file says medium (at low it skips clarifying questions, above "
              "medium it spends on routing), but a main-thread agent runs at the session's level: run "
-             "/effort medium once in a BlackCat session (saved for Sonnet 5.5)" % lvl)
+             "/effort medium once in a BlackCat session (saved for %s)" % (lvl, sonnet or "Sonnet"))
 elif agent:
     ok("main thread agent: %s (your choice; the stack's BlackCat: claude --agent blackcat)" % agent)
 else:
@@ -596,10 +631,34 @@ if lim_post and lim_pre:
                                 if mx != "0" else "image limit off (STACK_IMAGE_MAX_PX=0)")
 else:
     warn("image limit hooks missing (PostToolUse Read|mcp__.*, PreToolUse mcp__.*) — rerun install.sh")
-hk = str(env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL", os.environ.get("ANTHROPIC_DEFAULT_HAIKU_MODEL", "")))
-(ok if hk and "haiku" not in hk.lower() else warn)(
-    "haiku alias and background tasks: %s" % hk if hk and "haiku" not in hk.lower() else
-    "background tasks and the haiku alias run on Haiku (ANTHROPIC_DEFAULT_HAIKU_MODEL=%s) — the stack sets claude-sonnet-5-5" % (hk or "unset"))
+# one line per alias; a warning when it differs from stack.env (not re-installed) or from the model
+# the soft token limits and maxTurns were measured on (MEASURED_MODELS at the top of doctor.sh)
+measured = dict(x.split("=", 1) for x in os.environ.get("MEASURED_MODELS", "").split() if "=" in x)
+for fam in ("opus", "sonnet", "haiku"):
+    k = "ANTHROPIC_DEFAULT_%s_MODEL" % fam.upper()
+    val, src = resolved[fam]
+    want = _stack_models.get(k) or ""
+    what = "the haiku alias and background tasks" if fam == "haiku" else "alias %s" % fam
+    if not val:
+        warn("%s → Claude Code's own target for your provider (%s unset)%s" % (
+            what, k, " — stack.env sets %s: re-run install.sh" % want if want else
+            " — set it in stack.env and re-run install.sh"))
+        continue
+    msg = "%s → %s (%s)" % (what, val, src)
+    if src == "settings.json env" and os.environ.get(k) and os.environ[k] != val:
+        warn("%s exported as %s in this environment: settings.json's value applies in most sessions "
+             "(docs), the exceptions are unverified — unexport it" % (k, os.environ[k]))
+    if fam == "haiku" and "haiku" in val.lower():
+        warn(msg + " — the stack runs no Haiku: stack.env.example sets this slot to the Sonnet ID")
+    elif want and want != val:
+        warn(msg + " — stack.env sets %s: re-run install.sh%s" % (
+            want, "" if src == "process environment" else " (or delete your settings.json entry)"))
+    elif fam in measured and val.replace("[1m]", "") != measured[fam]:
+        warn(msg + " — the soft token limits and maxTurns were measured on %s: re-derive them "
+             "(uv run --script tests/derive_thresholds.py in the stack repo), then update MEASURED_MODELS "
+             "in bin/doctor.sh" % measured[fam])
+    else:
+        ok(msg)
 if "nmem-hook-" in json.dumps(hooks):
     warn("settings.json runs neural-memory hooks (nmem-hook-*) on every session and tool call — the stack's agents "
          "recall on demand and don't need them: remove them unless you set them up yourself")
@@ -699,7 +758,7 @@ for f in sorted(glob.glob(os.path.join(d, "*.md"))):
     tools = re.search(r"(?m)^tools:\s*(.*)$", body)
     memory = re.search(r"(?m)^memory:\s*(\S+)", body)
     if model and "haiku" in model.group(1).lower():
-        problems.append("%s: model %s — the stack uses claude-sonnet-5-5 instead of Haiku" % (name, model.group(1)))
+        problems.append("%s: model %s — the stack runs no Haiku: name opus or sonnet" % (name, model.group(1)))
     if color and color.group(1) not in valid_colors:
         problems.append("%s: invalid color '%s'" % (name, color.group(1)))
     if tools and bad_tasks.search(tools.group(1)):

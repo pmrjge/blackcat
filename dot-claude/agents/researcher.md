@@ -1,7 +1,7 @@
 ---
 name: researcher
 description: "Deep research: multi-source investigations, comparisons, literature, market and technical reviews; cited synthesis."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 130
 tools: WebSearch, WebFetch, Read, Write, Bash, ToolSearch, Skill, SendMessage, Agent, Artifact, mcp__exa, mcp__jina, mcp__spider, mcp__huggingface, mcp__neural-memory, mcp__context-mode

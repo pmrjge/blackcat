@@ -1,7 +1,7 @@
 ---
 name: haskell-engineer
 description: "Haskell: GHCup, cabal or stack, types and laziness, space leaks, hspec/QuickCheck, hlint, ormolu; self-checked."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs

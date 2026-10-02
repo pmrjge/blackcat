@@ -1,7 +1,7 @@
 ---
 name: jvm-engineer
 description: "JVM, Java first, plus Kotlin and Scala: Gradle or Maven, JUnit, JMH, JFR, GC tuning; self-checked."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs

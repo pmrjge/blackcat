@@ -285,10 +285,14 @@ priv=$(printf '%s\n' "$out" | sed -n 's/^--env-pass --config \(.*\) serve$/\1/p'
 [ -n "$priv" ] && [ "$priv" != "$T1/magg/config.json" ] && cmp -s "$priv" "$T1/magg/config.json" \
   && pass "magg-private runs magg on a private copy of the catalog" || failed "magg-private: [$out]"
 python3 - "$T1/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "settings: autocompact on at 400K, depth 4, default tool search, lazy MCP, blackcat, shipped skill-listing budget, 500-char cut, 6 user-only bundled skills, hidden hub modules" || failed "settings.json values (see above)"
-import json, sys
+import json, os, re, sys
+def stack_models(p):
+    """stack.env.example's Claude model IDs (the single source)."""
+    return {m.group(1): m.group(2) for m in (re.match(r"(ANTHROPIC_DEFAULT_[A-Z]+_MODEL)=(\S+)", l) for l in open(p)) if m}
 s = json.load(open(sys.argv[1]))
 frac = json.load(open(sys.argv[2]))["skillListingBudgetFraction"]
 env = s["env"]
+example_models = stack_models(os.path.join(os.path.dirname(os.path.dirname(sys.argv[2])), "stack.env.example"))
 checks = {
     "agent": s.get("agent") == "blackcat",
     "autoCompactEnabled": s.get("autoCompactEnabled") is True,
@@ -306,7 +310,9 @@ checks = {
                             and s.get("skillListingMaxDescChars") == 500
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only"
                             and s.get("skillOverrides", {}).get("rust-async") == "user-invocable-only",
-    "no Haiku": env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5-5",
+    "Claude models from stack.env (no Haiku)": all(env.get(k) == v for k, v in example_models.items())
+                                               and len(example_models) == 3
+                                               and "haiku" not in example_models["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
     "image limit hooks": any("image-limit" in json.dumps(g) for g in s["hooks"]["PostToolUse"])
                          and any("image-limit" in json.dumps(g) for g in s["hooks"]["PreToolUse"]),
 }
@@ -452,8 +458,8 @@ import json, sys
 p = sys.argv[1]
 s = json.load(open(p))
 env = s.setdefault("env", {})
-env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = "claude-haiku-4-5"
-env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = "claude-opus-4-1[1m]"
+env["ANTHROPIC_DEFAULT_HAIKU_MODEL"] = "claude-haiku-old"      # fictitious IDs: the lint keeps real ones
+env["ANTHROPIC_DEFAULT_OPUS_MODEL"] = "claude-opus-old[1m]"    # in stack.env.example
 env["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] = "12"
 env["CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION"] = "5"
 env["DISABLE_AUTO_COMPACT"] = "1"
@@ -474,7 +480,10 @@ json.dump(m, open(sys.argv[1], "w"), indent=2)
 PY
 CLAUDE_CONFIG_DIR="$T2" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T2/.install2.log" 2>&1
 python3 - "$T2/settings.json" "$HERE/dot-claude/settings.json" "$T2/magg/config.json" <<'PY'
-import json, sys
+import json, os, re, sys
+def example_models(p):
+    """stack.env.example's Claude model IDs (the single source)."""
+    return {m.group(1): m.group(2) for m in (re.match(r"(ANTHROPIC_DEFAULT_[A-Z]+_MODEL)=(\S+)", l) for l in open(p)) if m}
 dst, shipped_path, magg = sys.argv[1], sys.argv[2], sys.argv[3]
 s = json.load(open(dst))
 env = s.get("env", {})
@@ -484,9 +493,12 @@ def check(cond, good, bad):
     global ok
     print("  %s  %s" % ("PASS" if cond else "FAIL", good if cond else bad))
     ok = ok and cond
-check(env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == "claude-sonnet-5-5", "a Haiku pin is replaced by Sonnet 5.5 (the stack runs no Haiku)",
+models = example_models(os.path.join(os.path.dirname(os.path.dirname(shipped_path)), "stack.env.example"))
+check(env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == models["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+      "a Haiku pin is replaced by stack.env's haiku slot (the stack runs no Haiku)",
       "ANTHROPIC_DEFAULT_HAIKU_MODEL=%r" % env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL"))
-check("ANTHROPIC_DEFAULT_OPUS_MODEL" not in env, "[1m]-suffixed pin removed", "[1m] pin kept")
+check(env.get("ANTHROPIC_DEFAULT_OPUS_MODEL") == models["ANTHROPIC_DEFAULT_OPUS_MODEL"],
+      "[1m]-suffixed pin replaced by stack.env's ID", "ANTHROPIC_DEFAULT_OPUS_MODEL=%r" % env.get("ANTHROPIC_DEFAULT_OPUS_MODEL"))
 check("CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION" not in env, "no-op CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION dropped", "no-op var kept")
 check(env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS") == shipped["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"],
       "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS reset to shipped %s" % shipped["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"],
@@ -783,6 +795,55 @@ if [ "$(grep -c '^#MOTHERDUCK_TOKEN=' "$T5/c/stack.env")" = 1 ] && [ "$(grep -c 
 else
   failed "stack.env upgrade append"; tail -n 12 "$T5/c/stack.env" | sed 's/^/    /'
 fi
+# A stack.env from before the Claude model variables: the missing ones are appended set to
+# stack.env.example's IDs, a value you wrote stays as written, and step 7 copies them into
+# settings.json's env. Later runs append nothing; a stack.env change reaches settings.json, while a
+# value you set in settings.json yourself is kept.
+T16="$(scratch_dir)"; mkdir -p "$T16/c"
+grep -vE '^ANTHROPIC_DEFAULT_(OPUS|SONNET|HAIKU)_MODEL=' "$HERE/stack.env.example" > "$T16/c/stack.env"
+echo 'ANTHROPIC_DEFAULT_OPUS_MODEL=my-opus-pin  # mine' >> "$T16/c/stack.env"
+CLAUDE_CONFIG_DIR="$T16/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T16/.log1" 2>&1
+cp "$T16/c/stack.env" "$T16/env.after1"
+CLAUDE_CONFIG_DIR="$T16/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T16/.log2" 2>&1
+python3 - "$T16/c/settings.json" <<'PY'
+import json, sys
+s = json.load(open(sys.argv[1]))
+s["env"]["ANTHROPIC_DEFAULT_SONNET_MODEL"] = "my-settings-sonnet"
+json.dump(s, open(sys.argv[1], "w"), indent=2)
+PY
+sed -i.bak 's/^ANTHROPIC_DEFAULT_OPUS_MODEL=.*/ANTHROPIC_DEFAULT_OPUS_MODEL=my-opus-2/' "$T16/c/stack.env" && rm -f "$T16/c/stack.env.bak"
+CLAUDE_CONFIG_DIR="$T16/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T16/.log3" 2>&1
+python3 - "$T16" "$HERE/stack.env.example" <<'PY' && pass "stack.env upgrade: Claude model variables appended once with the stack's IDs, your value kept; settings.json env follows stack.env, a settings.json value of yours stays" || failed "Claude model variables in stack.env / settings.json (see above)"
+import json, os, re, sys
+t, example = sys.argv[1], sys.argv[2]
+ex = {m.group(1): m.group(2) for m in (re.match(r"(ANTHROPIC_DEFAULT_[A-Z]+_MODEL)=(\S+)", l) for l in open(example)) if m}
+after1 = open(os.path.join(t, "env.after1")).read()
+log1 = open(os.path.join(t, ".log1")).read()
+lines = after1.splitlines()
+checks = {
+    "three IDs in the example": len(ex) == 3,
+    "your opus line untouched, once": [l for l in lines if "ANTHROPIC_DEFAULT_OPUS_MODEL" in l]
+                                      == ["ANTHROPIC_DEFAULT_OPUS_MODEL=my-opus-pin  # mine"],
+    "sonnet and haiku appended live, once": all(
+        [l for l in lines if l.lstrip("#").startswith(k + "=")] == ["%s=%s" % (k, ex[k])]
+        for k in ("ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL")),
+    "the append is reported": "stack.env: appended the Claude model variables, set to the stack's IDs: "
+                              "ANTHROPIC_DEFAULT_SONNET_MODEL, ANTHROPIC_DEFAULT_HAIKU_MODEL" in log1,
+    "second run appends nothing": "appended the Claude model variables" not in open(os.path.join(t, ".log2")).read(),
+}
+env = json.load(open(os.path.join(t, "c", "settings.json")))["env"]
+checks.update({
+    "settings follow a stack.env change": env.get("ANTHROPIC_DEFAULT_OPUS_MODEL") == "my-opus-2",
+    "a settings.json value of yours is kept": env.get("ANTHROPIC_DEFAULT_SONNET_MODEL") == "my-settings-sonnet"
+        and "kept your env ANTHROPIC_DEFAULT_SONNET_MODEL=my-settings-sonnet" in open(os.path.join(t, ".log3")).read(),
+    "haiku slot from stack.env": env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == ex["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+})
+bad = [k for k, v in checks.items() if not v]
+if bad:
+    print("   ", bad)
+sys.exit(1 if bad else 0)
+PY
+drop_scratch "$T16"
 printf '# an old install\n' > "$T5/c/mcp/opper_image_mcp.py"
 printf '# an old install\n' > "$T5/c/mcp/openrouter_image_mcp.py"
 FAKE_CLAUDE_JSON="$T5/f.json" STACK_CLAUDE_JSON="$T5/f.json" CLAUDE_CONFIG_DIR="$T5/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T5/.log2" 2>&1
@@ -943,7 +1004,7 @@ B11="$(latest_backup "$T11")"
   && [ -f "$B11/files/agents/senior-coder.md" ] && [ -f "$B11/files/agents/senior-coder.md.new" ] \
   && grep -qx '  - agents/senior-coder.md  (renamed: now agents/main-coder.md)' "$T11/.log" \
   && pass "old senior-coder.md (and its .new) removed: it is now main-coder" || failed "old senior-coder.md not removed"
-printf -- '---\nname: senior-coder\ndescription: "x"\nmodel: claude-opus-5-5\n---\nmine\n' > "$T12/agents/senior-coder.md"
+printf -- '---\nname: senior-coder\ndescription: "x"\nmodel: opus\n---\nmine\n' > "$T12/agents/senior-coder.md"
 python3 - "$T12" <<'PY'
 import json, os, sys
 t = sys.argv[1]

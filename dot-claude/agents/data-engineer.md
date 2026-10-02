@@ -1,7 +1,7 @@
 ---
 name: data-engineer
 description: "Data and databases: SQL, DuckDB, MongoDB, schemas, migrations, ETL, pandas/polars, cleaning, profiling; recomputed numbers."
-model: claude-sonnet-5-5
+model: sonnet
 effort: high
 maxTurns: 150
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs, mcp__exa

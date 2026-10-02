@@ -1,7 +1,7 @@
 ---
 name: dl-engineer
 description: "Deep learning: architectures, diffusion and flow models, image-model pipelines, PyTorch/JAX/MLX training, NaN debugging."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 190
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina, mcp__huggingface, mcp__wandb, mcp__neural-memory

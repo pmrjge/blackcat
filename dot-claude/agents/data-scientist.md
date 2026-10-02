@@ -1,7 +1,7 @@
 ---
 name: data-scientist
 description: "Statistics for decisions: EDA, tests, effect sizes, A/B tests, regression, causal inference, forecasting, Bayesian models."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 150
 tools: Read, Write, Edit, Bash, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, Artifact, mcp__libdocs, mcp__exa, mcp__jina, mcp__huggingface, mcp__neural-memory

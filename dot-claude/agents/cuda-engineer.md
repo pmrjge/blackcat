@@ -1,7 +1,7 @@
 ---
 name: cuda-engineer
 description: "NVIDIA GPU systems: CUDA and Triton kernels, PyTorch CUDA performance, NCCL, multi-GPU, Nsight, remote hosts, Kaggle."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 190
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina

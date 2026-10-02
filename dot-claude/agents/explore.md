@@ -1,7 +1,7 @@
 ---
 name: explore
 description: "Read-only codebase search: files, symbols, call sites, configs, conventions, with path:line; quick to thorough."
-model: claude-sonnet-5-5
+model: sonnet
 # The stack's replacement for Claude Code's built-in Explore (switched off in settings.json by
 # CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS): pinned to Sonnet, where the built-in inherits the main
 # thread's model up to Opus, and capped in turns. No Bash: Grep and Glob resolve only without it,

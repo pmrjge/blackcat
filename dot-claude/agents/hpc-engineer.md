@@ -1,7 +1,7 @@
 ---
 name: hpc-engineer
 description: "HPC and scientific code: PDE/FEM/CFD solvers, MPI/OpenMP, Fortran, SLURM, HDF5, convergence and scaling studies."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs

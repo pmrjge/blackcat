@@ -25,17 +25,29 @@ Code 2.1.284. Turn counts were measured from this machine's transcripts.
 | 4 | BlackCat ran out of dispatches on large prompts | 6 dispatches, 8 steps and a 30 s dispatch window; eight long briefs in one message take longer than 30 s | 8 dispatches, 12 steps, 120 s window |
 | 5 | The session limit could throttle a full fan-out | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` was 20, below BlackCat 8 × orchestrator 10 | 32 |
 | 6 | god-coder's prompt said it could not spawn at depth L3 | Wrong depth in the text (only L4 cannot spawn) | Corrected to L4 |
-| 7 | Mixed model IDs (`opus` alias, Fable on god-coder) | Drift | Every agent pins `claude-opus-5-5` or `claude-sonnet-5-5`, enforced by lint |
+| 7 | Mixed models (Fable on god-coder) | Drift | Every agent names `opus` or `sonnet`; the IDs come from stack.env (section 2), enforced by lint |
 
 ## 2. Models
 
-- **Rule:** only two models are allowed, and lint rejects any other value.
-  - `claude-opus-5-5` for judgment-heavy work.
-  - `claude-sonnet-5-5` for extraction, lookups, loops and verification.
-- **BlackCat** (the main thread) runs on Sonnet 5.5.
-- **No Haiku anywhere.** `ANTHROPIC_DEFAULT_HAIKU_MODEL=claude-sonnet-5-5` moves Claude Code's small-model slot (background tasks, titles) to Sonnet 5.5.
-  - This key is kept deliberately: it is the only way to move that slot.
-  - A host that sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST` ignores it in settings files. There, set it in the app's launch environment instead.
+- **Rule:** the alias is the reference; it resolves to `ANTHROPIC_DEFAULT_<FAMILY>_MODEL`. Every agent's `model:` is one of two aliases, and lint rejects any other value.
+  - `opus` for judgment-heavy work.
+  - `sonnet` for extraction, lookups, loops and verification.
+- **Where the IDs live:** `stack.env` only, in three variables: `ANTHROPIC_DEFAULT_OPUS_MODEL`, `ANTHROPIC_DEFAULT_SONNET_MODEL` and `ANTHROPIC_DEFAULT_HAIKU_MODEL`. `stack.env.example` ships today's IDs, with their source and date.
+  - `install.sh` copies the non-empty ones into the `env` block of `~/.claude/settings.json`. Re-run it after a change.
+  - Upgrading appends the missing variables to your `stack.env`, set to the stack's IDs. A key already in the file, even commented out, is left as you wrote it.
+  - A value you set in `settings.json` yourself is kept, and the installer reports it.
+  - Lint fails on a specific ID (`claude-<family>-<version>`) anywhere else. The exceptions are the installer's `OLD_DEFAULTS` migration list, doctor's `MEASURED_MODELS` record and `legacy/` (byte-exact templates of a released version).
+- **Frontmatter can't name a variable.** The subagent docs list only aliases, full IDs and `inherit` for `model:`, and say nothing about expanding `$VAR`. So agents name the alias, and Claude Code resolves it.
+- **Where it resolves** (code.claude.com/docs/en/model-config and sub-agents, checked 2026-10-02):
+  - The variables set what `opus`, `sonnet` and `haiku` resolve to. The `haiku` one also sets Claude Code's background work.
+  - Claude Code writes a settings file's `env` over the inherited environment in most sessions, so `settings.json` wins over a shell export.
+  - Terminal and `claude -p`: verified in the docs.
+  - Agent SDK: verified in the docs. `query()` reads user settings unless `settingSources` excludes them; `bin/stack_sdk.py` passes user, project and local.
+  - Desktop Code tab: the docs say settings `env` reaches Claude sessions. A host that sets `CLAUDE_CODE_PROVIDER_MANAGED_BY_HOST` ignores these variables only in a *managed* `env` block. Unverified on a live Desktop session.
+- **Exception:** when the main conversation already runs a model of the same family, a family alias in frontmatter gets the main conversation's exact model. If you pick an older Opus as the main model, the `opus` agents run it too.
+- **BlackCat** (the main thread) runs on `sonnet`.
+- **No Haiku anywhere.** `ANTHROPIC_DEFAULT_HAIKU_MODEL` holds the Sonnet ID, which moves Claude Code's small-model slot (background tasks, titles) to Sonnet. The key is kept deliberately: it is the only way to move that slot.
+- **Model change:** `/stack-doctor` prints what each alias resolves to. It warns when Opus or Sonnet differs from `MEASURED_MODELS`, the models the soft token limits and maxTurns were measured on. Re-derive those values with `tests/derive_thresholds.py`, then update `MEASURED_MODELS` in `bin/doctor.sh`. The check makes no model call.
 
 ## 3. Per-agent parameters
 
@@ -147,7 +159,7 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `STACK_SOFT_LIMIT_SCALE` | unset = 1 (code) | new | Multiplies every soft limit; `0` turns them off. Not in settings.json, so a process environment value reaches the hooks (the benchmark sets it per run) |
 | `STACK_FANOUT_IDLE_S` | 600 | — | A silent background subtree stops counting against the caps |
 | `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` | 400 | — | Unchanged |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | `claude-sonnet-5-5` | — | Moves the small-model slot to Sonnet 5.5 (section 2) |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` | from `stack.env` (Opus, Sonnet, Sonnet) | moved | Copied from `stack.env` by the installer; the haiku slot holds the Sonnet ID (section 2) |
 | `MCP_DISCOVERY_CACHE` / `MCP_TIMEOUT` / `MAX_MCP_OUTPUT_TOKENS` | 1 / 60000 / 25000 | — | Unchanged |
 | `agent` | `blackcat` | — | BlackCat is the main thread in the terminal and in SDK apps |
 | `autoCompactWindow` | 400000 | — | Unchanged |
@@ -368,7 +380,7 @@ Commits `ea80f87`, `7292272`, `b93b557`, `c9ef24b`, `693296f`, `275eead`, `b7a07
 
 - Desktop hang fixed: BlackCat's children always run in the background, and the hook drops `run_in_background: false`.
 - BlackCat always gives a visible reply and asks clarifying questions. The recommended main-thread effort is `medium`.
-- Models: only `claude-opus-5-5` and `claude-sonnet-5-5` are used, with no Haiku.
+- Models: only Opus 5.5 and Sonnet 5.5 are used, with no Haiku.
   - god-coder moved from Fable to Opus 5.5.
   - doc-specialist moved to Sonnet 5.5.
 - Effort recalibrated for 5.5:

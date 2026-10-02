@@ -1,7 +1,7 @@
 ---
 name: oracle
 description: "Timeless knowledge from expertise: concepts, definitions, history, how things work. No web; current facts go to scout."
-model: claude-opus-5-5
+model: opus
 effort: low
 maxTurns: 12
 tools: Read, Skill

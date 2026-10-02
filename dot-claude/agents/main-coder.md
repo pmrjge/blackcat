@@ -1,7 +1,7 @@
 ---
 name: main-coder
 description: "Serious code: large or unfamiliar codebases, architecture, systems, performance, hard bugs, merges that won't fast-forward."
-model: claude-opus-5-5
+model: opus
 effort: xhigh
 maxTurns: 350
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina, mcp__neural-memory

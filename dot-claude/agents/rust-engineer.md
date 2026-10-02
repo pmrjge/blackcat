@@ -1,7 +1,7 @@
 ---
 name: rust-engineer
 description: "Rust: idiomatic crates and workspaces, async, unsafe/FFI, cargo, clippy, nextest, releases; self-checked."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs

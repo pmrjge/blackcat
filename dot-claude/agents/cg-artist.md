@@ -1,7 +1,7 @@
 ---
 name: cg-artist
 description: "3D: Blender, ZBrush and Substance modeling, sculpting, texturing, UVs, baking, rendering, 3D printing. Houdini goes to vfx-td."
-model: claude-opus-5-5
+model: opus
 effort: medium
 maxTurns: 150
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__blender, mcp__libdocs, mcp__jina, mcp__computer-use

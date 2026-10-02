@@ -1,7 +1,7 @@
 ---
 name: image-director
 description: "Image generation and editing via image-studio: SVG logos, icons, illustrations, photos, raster, composites, series."
-model: claude-opus-5-5
+model: opus
 effort: medium
 maxTurns: 80
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, mcp__image-studio, mcp__jina

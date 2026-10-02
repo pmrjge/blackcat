@@ -1,7 +1,7 @@
 ---
 name: proof-checker
 description: "Proof refereeing: proofs, derivations, correctness and complexity arguments; counterexamples, Lean 4 checks. Read-only."
-model: claude-opus-5-5
+model: opus
 effort: xhigh
 maxTurns: 80
 tools: Read, Bash, WebFetch, ToolSearch, Skill, mcp__wolfram, mcp__lean

@@ -1,7 +1,7 @@
 ---
 name: vfx-td
 description: "Houdini FX: SOP/DOP/LOP, VEX, HDAs, Pyro/FLIP/Vellum/RBD sims, caching, Solaris/Karma, PDG; hython and husk."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, Monitor, TaskStop, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__jina, mcp__computer-use

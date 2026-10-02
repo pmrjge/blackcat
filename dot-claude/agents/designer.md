@@ -1,7 +1,7 @@
 ---
 name: designer
 description: "Visual design: logos, brand identity, illustration, layout, print, packaging, UI visuals, type and color; Adobe apps."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 150
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__image-studio, mcp__illustrator, mcp__huetension, mcp__jina, mcp__computer-use

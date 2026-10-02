@@ -1,7 +1,7 @@
 ---
 name: orchestrator
 description: "Multi-specialist coordination: decomposes dependent work, dispatches in parallel, verifies, integrates; spawns god-coder."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 200
 tools: Agent, SendMessage, TaskStop, Read, Glob, Grep, Write, Edit, Skill, mcp__neural-memory

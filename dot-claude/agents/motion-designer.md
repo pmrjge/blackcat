@@ -1,7 +1,7 @@
 ---
 name: motion-designer
 description: "Motion graphics and video: After Effects, animation, expressions, kinetic type, Premiere edits and exports, timing."
-model: claude-opus-5-5
+model: opus
 effort: medium
 maxTurns: 150
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__after-effects, mcp__premiere, mcp__computer-use

@@ -26,9 +26,11 @@ entries) is `git show 96d3a52:README.md`.
 
 ### Roster
 
-Every agent pins one of two models: `claude-opus-5-5` where judgment is the product, `claude-sonnet-5-5`
-for bounded execution, lookups and tool loops (41 Opus, 15 Sonnet; `tests/lint_agents.py` rejects any
-other value and the hook strips a per-call `model`). An agent file's `effort` applies only when the
+Every agent names one of two model aliases: `opus` where judgment is the product, `sonnet` for bounded
+execution, lookups and tool loops (41 Opus, 15 Sonnet; `tests/lint_agents.py` rejects any other value
+and the hook strips a per-call `model`). The alias is the reference; it resolves to
+`ANTHROPIC_DEFAULT_<FAMILY>_MODEL`, which `stack.env` sets and the installer copies into
+`settings.json` (CONFIG.md section 2). An agent file's `effort` applies only when the
 agent runs as a subagent; the main thread uses the session's level (`/effort medium` for BlackCat).
 The tables are generated from `dot-claude/agents/*.md` frontmatter. "Does" is shortened from each
 agent's `description`. The installer also renders `researcher-copy` and `coder-copy` from their base
@@ -272,7 +274,7 @@ servers it finds.
 git clone <repository-url> claude-agent-stack && cd claude-agent-stack
 ./install.sh --dry-run            # the plan: added / replaced / removed, each with a reason
 ./install.sh                      # core install; one backup of everything it changes or removes
-$EDITOR ~/.claude/stack.env       # keys; read at connect time, no reinstall needed
+$EDITOR ~/.claude/stack.env       # keys: read at connect time; Claude model IDs: re-run ./install.sh
 ```
 
 Run it from a terminal with no Claude Code session open (Desktop and Conductor included), from the
@@ -364,10 +366,14 @@ Names only; values never go into the repo, prompts or output.
 ### Keys and paths: `~/.claude/stack.env`
 
 Every variable of `stack.env.example`. The file is 0600; servers read it at connect time, each gets only
-its own keys, and upgrades append new variables commented out without touching yours.
+its own keys, and upgrades append new variables commented out (the image and Claude models set to their
+defaults) without touching yours.
 
 | Variable | Purpose | Default | Used by |
 |---|---|---|---|
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | The ID the `opus` alias resolves to: 41 agents | today's Opus ID (source and date in the file) | `install.sh` → settings.json `env` → Claude Code; re-run the installer after a change; `/stack-doctor` |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | The ID the `sonnet` alias resolves to: 15 agents and BlackCat | today's Sonnet ID | as above |
+| `ANTHROPIC_DEFAULT_HAIKU_MODEL` | The `haiku` alias and Claude Code's background work | the Sonnet ID (the stack runs no Haiku) | as above |
 | `OPPER_API_KEY` | `generate_image`: photos and raster images | empty (tool off) | image-studio (designer, image-director) |
 | `OPENROUTER_API_KEY` | `generate_svg` and `edit_image` | empty (tools off) | image-studio |
 | `IMAGE_STUDIO_SVG_MODEL` | Model behind `generate_svg` (OpenRouter) | `recraft/recraft-v4.1-pro-vector` | image-studio; `/stack-doctor` shows it |
@@ -431,7 +437,7 @@ yourself.
 | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 32 | Subagents running in one session | Claude Code |
 | `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` ● | 1 | Built-in Explore and Plan off (the stack's `explore` replaces Explore) | Claude Code |
 | `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` ● | 1 | Every built-in type off in `claude -p` | Claude Code |
-| `ANTHROPIC_DEFAULT_HAIKU_MODEL` ● | `claude-sonnet-5-5` | The small-model slot (titles, background work) | Claude Code |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` | from `stack.env` | Not in `dot-claude/settings.json`: the installer copies them from `stack.env` (Keys and paths above) | Claude Code |
 | `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` ● | 400 | WebSearch calls per session | Claude Code |
 | `MCP_DISCOVERY_CACHE` ● / `_TTL_S` ● / `_MAX_STALE_S` ● | 1 / 21600 / 604800 | MCP discovery cache (unverified: not on the docs page checked for this README) | Claude Code |
 | `MCP_TIMEOUT` ● / `MAX_MCP_OUTPUT_TOKENS` ● | 60000 / 25000 | MCP start-up timeout; tool output cap | Claude Code |
@@ -616,7 +622,7 @@ stack. Checked on 27 Sep 2026.
 | App | What to set |
 |---|---|
 | Terminal | once: `/effort medium`; the only place for `claude-ninja` / `claude-god` |
-| Claude Desktop, Code tab (Local) | model Sonnet 5.5, effort medium; add `ANTHROPIC_DEFAULT_HAIKU_MODEL` = `claude-sonnet-5-5` under Local → gear (Desktop can route models itself); computer use: Settings → General |
+| Claude Desktop, Code tab (Local) | model Sonnet 5.5, effort medium; if `/stack-doctor` in a Desktop session shows an alias resolving elsewhere, add the three `ANTHROPIC_DEFAULT_*_MODEL` values from `stack.env` under Local → gear; computer use: Settings → General |
 | Conductor | model Sonnet 5.5, thinking medium, Ultracode off |
 | VS Code / Cursor extension, JetBrains plugin, Zed | nothing |
 | Nimbalyst | the 1M model row with the CLI provider; its effort control sets `CLAUDE_CODE_EFFORT_LEVEL`, which overrides every agent's effort |

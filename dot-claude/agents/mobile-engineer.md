@@ -1,7 +1,7 @@
 ---
 name: mobile-engineer
 description: "Mobile apps: Swift/SwiftUI, Kotlin/Compose, Flutter, React Native; builds, simulators, UI tests, signing, releases."
-model: claude-opus-5-5
+model: opus
 effort: medium
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs, mcp__mobilebuild

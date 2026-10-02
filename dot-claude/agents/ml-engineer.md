@@ -1,7 +1,7 @@
 ---
 name: ml-engineer
 description: "Classical ML: tabular, time-series and NLP models, gradient boosting, features, validation, tuning, calibration, MLOps."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 190
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina, mcp__huggingface, mcp__wandb, mcp__neural-memory

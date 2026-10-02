@@ -1,7 +1,7 @@
 ---
 name: localizer
 description: "String catalogs and subtitles (.po, XLIFF, ICU, .strings, .srt): translation with placeholder, plural and length checks."
-model: claude-sonnet-5-5
+model: sonnet
 effort: medium
 maxTurns: 80
 tools: Read, Write, Edit, Bash, ToolSearch, Skill

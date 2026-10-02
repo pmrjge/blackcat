@@ -1,7 +1,7 @@
 ---
 name: db-engineer
 description: "Database tuning and ops: query plans, indexes, safe migrations, replication; Postgres, MySQL, SQLite, MongoDB, Redis."
-model: claude-sonnet-5-5
+model: sonnet
 effort: high
 maxTurns: 120
 tools: Read, Write, Edit, Bash, ToolSearch, Skill, mcp__postgres, mcp__mongodb

@@ -1,7 +1,7 @@
 ---
 name: embedded-engineer
 description: "Firmware: MCUs in C/Rust (Zephyr, ESP-IDF, embassy), RTOS, drivers, probes, FPGA/HDL, KiCad; simulates before flashing."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs

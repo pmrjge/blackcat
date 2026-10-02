@@ -1,7 +1,7 @@
 ---
 name: biochem-engineer
 description: "Computational biology and chemistry: Nextflow/Snakemake, genomics, single-cell, protein structures, RDKit, MD, QM."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs

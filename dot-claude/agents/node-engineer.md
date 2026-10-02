@@ -1,7 +1,7 @@
 ---
 name: node-engineer
 description: "Node.js and TypeScript backends and CLIs: pnpm, tsc, ESLint or Biome, Vitest, ESM. Browser UI goes to frontend-engineer."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs

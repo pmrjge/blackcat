@@ -89,6 +89,12 @@ def is_tool_result(c):
     return isinstance(c, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c)
 
 
+# API calls per model over every transcript read (the models the thresholds are measured on)
+MODELS = {}
+# doctor.sh's record of those models: /stack-doctor warns when an alias resolves elsewhere
+DOCTOR = os.path.join(REPO, "dot-claude", "bin", "doctor.sh")
+
+
 def read_records(path):
     calls, ev = {}, []
     for line in open(path, encoding="utf-8", errors="replace"):
@@ -109,6 +115,7 @@ def read_records(path):
             if c is None:
                 c = calls[key] = {f: 0 for f in F}
                 c.update(ts=r.get("timestamp"), model=m.get("model"), tools=set())
+                MODELS[m.get("model")] = MODELS.get(m.get("model"), 0) + 1
                 ev.append(("call", c))
             for f in F:
                 c[f] = max(c[f], int(u.get(f) or 0))
@@ -662,6 +669,19 @@ def report(seg, run, sess, pw, mt):
       "- Hard caps are unchanged and never weakened: STACK_PROMPT_CTX_BUDGET 100M, STACK_SESSION_CTX_BUDGET 666M, "
       "STACK_MAX_MCP_CALLS 64, maxTurns. Every soft value in this file is below its hard counterpart.\n"
       "- Fail open like the existing budgets.\n")
+
+    # ---- models
+    P("## Models measured\n")
+    seen = sorted(((n, str(k)) for k, n in MODELS.items() if k and not str(k).startswith("<")), reverse=True)
+    P("API calls per model: " + (", ".join(f"{k} {n}" for n, k in seen) or "none") + ".\n")
+    rec = re.search(r'(?m)^MEASURED_MODELS="([^"]*)"', open(DOCTOR, encoding="utf-8").read())
+    rec = dict(x.split("=", 1) for x in (rec.group(1).split() if rec else []) if "=" in x)
+    top = {fam: next((k for _, k in seen if f"-{fam}-" in k), None) for fam in ("opus", "sonnet")}
+    stale = {fam: (rec.get(fam), top[fam]) for fam in top if top[fam] and rec.get(fam) != top[fam]}
+    P("`MEASURED_MODELS` in `dot-claude/bin/doctor.sh`: " + (" ".join(f"{k}={v}" for k, v in rec.items()) or "missing")
+      + (". Matches the most-used model of each family.\n" if not stale else
+         ". Update it with the values you adopt from this run: " + ", ".join(
+             f"{fam} recorded {a}, most used here {b}" for fam, (a, b) in stale.items()) + ".\n"))
 
     # ---- refresh
     P("## Refresh and revisit\n")

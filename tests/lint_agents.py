@@ -31,8 +31,19 @@ SETTINGS = REPO_ROOT / "dot-claude" / "settings.json"
 
 VALID_COLORS = {"red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"}
 VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
-# Two models only, pinned (aliases move with releases and providers): Opus 5.5 and Sonnet 5.5
-STACK_MODELS = {"claude-opus-5-5", "claude-sonnet-5-5"}
+# Agents name a family alias; Claude Code resolves it through ANTHROPIC_DEFAULT_<FAMILY>_MODEL, which
+# install.sh copies from stack.env into settings.json's env. Two families: no Haiku in the stack.
+STACK_MODELS = {"opus", "sonnet"}
+# A specific Claude model ID (claude-<family>-<version>[-<date>]). Allowed only in the
+# places below: stack.env.example (the single source), the installer's migration list of old IDs
+# (the OLD_DEFAULTS line), the record of the models the token limits were measured on (doctor.sh's
+# MEASURED_MODELS line), and legacy/ (byte-exact templates of released versions the installer
+# recognizes on upgrade). Untracked files (.claude-work/ benchmarks) are not scanned.
+MODEL_ID_RE = re.compile(r"claude-(?:opus|sonnet|haiku|fable)-\d")
+MODEL_ID_FILES = {"stack.env.example"}
+MODEL_ID_DIRS = ("legacy/",)
+MODEL_ID_LINES = {"install.sh": re.compile(r"^OLD_DEFAULTS = "),
+                  "dot-claude/bin/doctor.sh": re.compile(r'^MEASURED_MODELS="')}
 VALID_MEMORY = {"user", "project", "local"}
 ANTHROPIC_DOC_SKILLS = {"docx", "xlsx", "pptx", "pdf"}
 KNOWN_PLACEHOLDERS = {
@@ -321,8 +332,9 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
     if not model:
         fail(f"{path.name}: missing model")
     elif model not in STACK_MODELS:
-        fail(f"{path.name}: model {model!r} — the stack pins every agent to one of "
-             f"{sorted(STACK_MODELS)}")
+        fail(f"{path.name}: model {model!r} — every agent names a family alias, one of "
+             f"{sorted(STACK_MODELS)}: the specific ID comes from ANTHROPIC_DEFAULT_<FAMILY>_MODEL "
+             "(stack.env)")
 
     # effort
     effort = get_inline(data, "effort")
@@ -528,6 +540,29 @@ RETIRED_RE = re.compile(r"(?<![\w/-])(%s)(?![\w-]|\.md\b)" % "|".join(sorted(map
 PROVENANCE_RE = re.compile(r"was the `[a-z0-9-]+` skill")
 
 
+def check_model_ids(root=REPO_ROOT):
+    """No specific Claude model ID in a tracked file outside the allowed places (MODEL_ID_*)."""
+    try:
+        files = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True,
+                               check=True).stdout.decode().split("\0")
+    except (OSError, subprocess.CalledProcessError):     # an export without .git: walk the tree
+        files = [str(p.relative_to(root)) for p in root.rglob("*")
+                 if p.is_file() and not {".git", ".claude-work"} & set(p.relative_to(root).parts)]
+    found = []
+    for rel in filter(None, files):
+        if rel in MODEL_ID_FILES or rel.startswith(MODEL_ID_DIRS):
+            continue
+        try:
+            text = (root / rel).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        allowed = MODEL_ID_LINES.get(rel)
+        for n, line in enumerate(text.splitlines(), 1):
+            if MODEL_ID_RE.search(line) and not (allowed and allowed.search(line)):
+                found.append(f"{rel}:{n}")
+    return found
+
+
 def stale_skill_refs(text):
     """Retired skill names in `text`, outside "(was the `x` skill)" provenance notes."""
     return sorted(set(RETIRED_RE.findall(PROVENANCE_RE.sub("", text))))
@@ -672,6 +707,10 @@ def main():
              f"claude.ai skills that is over the {budget}-character budget (skillListingBudgetFraction="
              f"{frac}; {LISTING_NOTE}): Claude Code would drop descriptions silently. Shorten or merge "
              "skills, or raise the fraction by the overflow plus ~3%")
+
+    for where in check_model_ids():
+        fail(f"{where}: a specific Claude model ID — name the alias (opus, sonnet) or read "
+             "ANTHROPIC_DEFAULT_<FAMILY>_MODEL; the IDs live in stack.env.example only")
 
     if errors:
         print(f"lint_agents: {len(errors)} failure(s):", file=sys.stderr)

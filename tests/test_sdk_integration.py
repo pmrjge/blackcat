@@ -179,7 +179,7 @@ def test_run_collects_result_and_per_subagent_usage(monkeypatch):
                   status="completed", usage={"total_tokens": 1200, "tool_uses": 3, "duration_ms": 900})
         yield msg("ResultMessage", result="fix it · 2026-10-02 10:00 · blackcat\ndone", session_id="S1",
                   subtype="success", is_error=False, num_turns=2, duration_ms=1500, total_cost_usd=0.01,
-                  usage={"input_tokens": 5}, model_usage={"claude-sonnet-5-5": {"inputTokens": 9}})
+                  usage={"input_tokens": 5}, model_usage={"model-x": {"inputTokens": 9}})
 
     monkeypatch.setitem(sys.modules, "claude_agent_sdk", types.SimpleNamespace(query=query))
     monkeypatch.setenv("XDG_STATE_HOME", "/st")
@@ -189,7 +189,7 @@ def test_run_collects_result_and_per_subagent_usage(monkeypatch):
                               "usage": {"total_tokens": 1200, "tool_uses": 3, "duration_ms": 900},
                               "tool_use_id": "tu1", "agent": "coder"}]
     assert out["ledger"] == "/st/claude-agent-stack/S1/delegations.md"
-    assert out["model_usage"]["claude-sonnet-5-5"]["inputTokens"] == 9
+    assert out["model_usage"]["model-x"]["inputTokens"] == 9
 
 
 def test_run_names_agents_only_from_labels_and_takes_task_updated_status(monkeypatch):
@@ -217,12 +217,12 @@ def test_run_names_agents_only_from_labels_and_takes_task_updated_status(monkeyp
 def test_options_with_the_pinned_sdk():
     pytest.importorskip("claude_agent_sdk")
     o = sdk.options("coder", max_turns=5, budget_usd=0.5, allowed_tools=["Read"],
-                    permission_mode="dontAsk", json_reports=True, model="claude-sonnet-5-5")
+                    permission_mode="dontAsk", json_reports=True, model="sonnet")
     assert o.setting_sources == ["user", "project", "local"] and o.extra_args == {"agent": "coder"}
     assert o.system_prompt == {"type": "preset", "preset": "claude_code",
                                "exclude_dynamic_sections": True}
     assert (o.max_turns, o.max_budget_usd, o.allowed_tools, o.permission_mode, o.model) == (
-        5, 0.5, ["Read"], "dontAsk", "claude-sonnet-5-5")
+        5, 0.5, ["Read"], "dontAsk", "sonnet")
     assert o.env == {"STACK_REPORT_FORMAT": "json"} and o.agents is None   # no programmatic agents
     assert sdk.options(None, json_reports=False).extra_args == {}
     o = sdk.options("scout", json_reports=True, env={"A": "1"}, extra_args={"debug": None},

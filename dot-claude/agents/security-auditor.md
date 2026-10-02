@@ -1,7 +1,7 @@
 ---
 name: security-auditor
 description: "Security review: threat models, vulnerable code, authN/authZ, injection, secrets, CVEs, supply chain. Read-only."
-model: claude-opus-5-5
+model: opus
 effort: xhigh
 maxTurns: 100
 tools: Read, Bash, LSP, WebSearch, WebFetch, ToolSearch, Skill, mcp__exa

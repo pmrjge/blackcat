@@ -1,7 +1,7 @@
 ---
 name: claude-code-guide
 description: "Claude Code, Agent SDK and Claude API answers from the official docs: setup, hooks, skills, MCP, tools, agents. Read-only."
-model: claude-sonnet-5-5
+model: sonnet
 effort: low
 maxTurns: 30
 tools: Read, Bash, WebFetch, WebSearch, ToolSearch, Skill

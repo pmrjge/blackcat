@@ -1,7 +1,7 @@
 ---
 name: mcp-broker
 description: "MCP servers on demand through magg: finds, vets, mounts and runs a tool no agent has; permanent adds and audits on request."
-model: claude-sonnet-5-5
+model: sonnet
 effort: medium
 maxTurns: 60
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, mcp__magg

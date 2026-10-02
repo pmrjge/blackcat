@@ -1,7 +1,7 @@
 ---
 name: game-engineer
 description: "Games and real-time graphics: Godot, Unity, Unreal, Bevy; Vulkan/Metal/WebGPU, shaders, frame time, netcode."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs, mcp__computer-use

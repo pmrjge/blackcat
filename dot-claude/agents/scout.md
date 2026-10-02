@@ -1,7 +1,7 @@
 ---
 name: scout
 description: "Fast lookup of one current fact: price, version, release, date, role holder, status; short cited answer."
-model: claude-sonnet-5-5
+model: sonnet
 effort: low
 maxTurns: 11
 tools: WebSearch, WebFetch, Read, ToolSearch, Skill, mcp__exa, mcp__jina

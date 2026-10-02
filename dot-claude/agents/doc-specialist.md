@@ -1,7 +1,7 @@
 ---
 name: doc-specialist
 description: "Office documents and PDFs: reads, extracts, interprets, creates and edits .docx/.xlsx/.pptx/.pdf, scans, tables, forms."
-model: claude-sonnet-5-5
+model: sonnet
 effort: medium
 maxTurns: 100
 tools: Read, Write, Edit, Bash, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__markitdown, mcp__computer-use, mcp__context-mode

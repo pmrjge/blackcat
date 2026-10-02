@@ -1,7 +1,7 @@
 ---
 name: security-engineer
 description: "Security builds: audit fixes with proofs, hardening, fuzzing, detection rules, dependency fixes. Reviews go to security-auditor."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 150
 tools: Read, Write, Edit, Bash, LSP, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs

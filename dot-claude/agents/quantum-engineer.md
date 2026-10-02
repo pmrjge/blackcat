@@ -1,7 +1,7 @@
 ---
 name: quantum-engineer
 description: "Quantum computing and physics in code: Qiskit, PennyLane, Cirq, stim, QuTiP, tensor networks, noise, QEC, IBM Quantum."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 160
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs, mcp__exa, mcp__jina, mcp__wolfram, mcp__neural-memory

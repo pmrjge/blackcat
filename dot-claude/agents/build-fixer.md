@@ -1,7 +1,7 @@
 ---
 name: build-fixer
 description: "Red builds to green: format, lint, type and compile errors, behaviour-neutral edits proven by the failing command."
-model: claude-sonnet-5-5
+model: sonnet
 effort: low
 maxTurns: 60
 tools: Read, Edit, Bash, LSP, ToolSearch, Skill

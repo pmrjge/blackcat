@@ -1,7 +1,7 @@
 ---
 name: blackcat
 description: "BlackCat, main-thread dispatcher: routes each prompt to a specialist or the orchestrator and relays results; never does the work."
-model: claude-sonnet-5-5
+model: sonnet
 # effort binds only a subagent; as the main thread BlackCat runs at the session's level (/effort, or
 # the app's effort menu): medium, Sonnet 5.5's default, is the recommended level for routing
 effort: medium

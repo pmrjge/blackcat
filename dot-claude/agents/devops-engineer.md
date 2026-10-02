@@ -1,7 +1,7 @@
 ---
 name: devops-engineer
 description: "Infrastructure and delivery: CI/CD, containers, Kubernetes, Terraform, cloud, sysadmin, deploys, observability; dry-runs first."
-model: claude-sonnet-5-5
+model: sonnet
 effort: high
 maxTurns: 140
 tools: Read, Write, Edit, Bash, LSP, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs, mcp__exa

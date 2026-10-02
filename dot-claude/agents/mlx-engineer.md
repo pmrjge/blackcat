@@ -1,7 +1,7 @@
 ---
 name: mlx-engineer
 description: "Apple Silicon ML performance: MLX and mlx-lm internals, Metal kernels, Core ML/ANE, memory tuning, MPS, ports to MLX."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 190
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina

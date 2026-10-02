@@ -1,7 +1,7 @@
 ---
 name: verifier
 description: "Independent verification: runs tests and builds, reproduces bugs, re-checks facts, numbers and files. Never fixes."
-model: claude-sonnet-5-5
+model: sonnet
 effort: high
 maxTurns: 140
 tools: Read, Bash, LSP, WebSearch, WebFetch, ToolSearch, Skill, mcp__exa, mcp__jina, mcp__playwright, mcp__computer-use

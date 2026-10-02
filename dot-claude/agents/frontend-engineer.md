@@ -1,7 +1,7 @@
 ---
 name: frontend-engineer
 description: "Web front end: HTML/CSS, TypeScript, React/Vue/Svelte/Astro, design-to-code, responsive layout, accessibility, performance."
-model: claude-opus-5-5
+model: opus
 effort: medium
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, Artifact, mcp__libdocs, mcp__exa, mcp__playwright

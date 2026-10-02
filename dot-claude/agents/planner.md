@@ -1,7 +1,7 @@
 ---
 name: planner
 description: "Plans before building: requirements, options and trade-offs, steps with owners, risks, verification. Read-only."
-model: claude-opus-5-5
+model: opus
 effort: xhigh
 maxTurns: 60
 tools: Read, Glob, Grep, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__exa, mcp__jina, mcp__libdocs

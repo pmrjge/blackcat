@@ -1,7 +1,7 @@
 ---
 name: robotics-engineer
 description: "Robotics: ROS 2, Nav2, MoveIt 2, ros2_control, kinematics, control, estimation, SLAM, simulation, robot learning, bring-up."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 190
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, EnterWorktree, ExitWorktree, mcp__libdocs, mcp__exa, mcp__jina, mcp__huggingface, mcp__wandb, mcp__neural-memory

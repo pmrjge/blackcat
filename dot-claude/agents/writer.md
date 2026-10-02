@@ -1,7 +1,7 @@
 ---
 name: writer
 description: "Prose writing and editing: articles, Markdown with LaTeX and Mermaid, explanations, emails, copy, pt-PT/EN translation."
-model: claude-opus-5-5
+model: opus
 effort: medium
 maxTurns: 80
 tools: Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, Artifact, mcp__jina

@@ -11,7 +11,7 @@ Every spawn pays for the body, the rules and the skill listing, so a body holds 
 
 ## Subagents (`~/.claude/agents/*.md`, `.claude/agents/*.md`)
 Full field list and runtime facts: `references/subagents.md`. Must-knows:
-- Every agent pins `model` (`claude-opus-5-5` or `claude-sonnet-5-5`, lint-enforced); no `skills:` preloads (lint rejects them; every agent has the Skill tool); `maxTurns` ≤ 350 (< 200 outside orchestrator and main-/ninja-/god-coder, none on blackcat).
+- Every agent names a model alias (`opus` or `sonnet`, lint-enforced; the IDs come from `ANTHROPIC_DEFAULT_<FAMILY>_MODEL` in stack.env, which the installer copies into settings.json's env, and lint rejects a specific ID anywhere else); no `skills:` preloads (lint rejects them; every agent has the Skill tool); `maxTurns` ≤ 350 (< 200 outside orchestrator and main-/ninja-/god-coder, none on blackcat).
 - `tools` is an allowlist and must name `mcp__<server>` too, except the agent's own inline `mcpServers`, which are always visible.
 - `Agent(a, b)` lists bind only the main-thread agent; in subagents `hooks/agent_guard.py` (POLICY) enforces the spawn policy.
 - Workflow, scheduling, AskUserQuestion and plan-mode tools exist only on the main thread (BlackCat).

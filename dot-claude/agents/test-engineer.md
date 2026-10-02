@@ -1,7 +1,7 @@
 ---
 name: test-engineer
 description: "Tests: writes and repairs unit, property, fuzz and e2e tests, each proven on a seeded bug; never changes product code."
-model: claude-sonnet-5-5
+model: sonnet
 effort: medium
 maxTurns: 100
 tools: Read, Write, Edit, Bash, LSP, ToolSearch, Skill, Monitor, TaskStop

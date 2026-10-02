@@ -1,7 +1,7 @@
 ---
 name: ninja-coder
 description: "Hardest code: novel algorithms, correctness proofs, complexity, numerical stability, concurrency, kernels; after main-coder fails."
-model: claude-opus-5-5
+model: opus
 # Effort: `ultracode` is not an agent effort. In this file it would be ignored and the agent would
 # run at the calling session's level; ultracode (xhigh + dynamic workflows) exists only on a main
 # thread: claude-ninja. Dispatched as a subagent, max is the deepest level: the hardest problems,

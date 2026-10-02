@@ -1,7 +1,7 @@
 ---
 name: julia-engineer
 description: "Julia: juliaup, Pkg environments, type-stable code, Test, JET, Aqua, BenchmarkTools, GPU arrays; self-checked."
-model: claude-opus-5-5
+model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs

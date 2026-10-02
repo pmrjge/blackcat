@@ -1,7 +1,7 @@
 ---
 name: browser-operator
 description: "Web page actions: logged-in sites via Claude in Chrome, headless Playwright; forms, flows, downloads, screenshots, JS pages."
-model: claude-sonnet-5-5
+model: sonnet
 effort: medium
 maxTurns: 120
 tools: Read, Write, WebFetch, ToolSearch, Skill, mcp__claude-in-chrome, mcp__playwright

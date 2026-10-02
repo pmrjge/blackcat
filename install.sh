@@ -775,7 +775,9 @@ fi
 chmod 600 "$S/stack.env"
 # Variables stack.env.example gained since your stack.env was created: appended with their comment
 # lines, commented out — except the image models, appended set to image-studio's own defaults (the
-# same models either way, now named where you change them). A value you wrote is never changed. The
+# same models either way, now named where you change them), and the Claude model variables, appended
+# set to the stack's IDs (step 7 copies them into settings.json's env). A key already in your file,
+# even commented out, is never added again, and a value you wrote is never changed. The
 # image lines earlier versions of stack.env.example put in your file are brought up to date: stale
 # comments get today's wording, and settings nothing reads any more go while they still hold the
 # stack's own default (Lumenfall's empty key, the old Opper model and folder); the previous file is
@@ -785,6 +787,7 @@ import os, re, sys, time
 example, target = sys.argv[1], sys.argv[2]
 VAR = re.compile(r"^\s*(?:#\s?)?(?:export\s+)?([A-Z][A-Z0-9_]*)=")
 LIVE = {"IMAGE_STUDIO_SVG_MODEL", "IMAGE_STUDIO_IMAGE_MODEL", "IMAGE_STUDIO_EDIT_MODEL"}
+MODELS = {"ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"}
 OPENROUTER_LINES = ("# OpenRouter — generate_svg (vector art) and edit_image (edits, retouching, composites).\n"
                     "# https://openrouter.ai/settings/keys — an account limited to some providers must allow the ones your\n"
                     "# models run on: recraft and sourceful for the defaults (https://openrouter.ai/settings/preferences).")
@@ -832,14 +835,14 @@ for line in before:
         lines.append(line)
 reworded = lines != before
 have = {m.group(1) for m in map(VAR.match, lines) if m}
-out, names, live, comments = [], [], [], []
+out, names, live, models, comments = [], [], [], [], []
 for line in open(example, encoding="utf-8").read().splitlines():
     m = VAR.match(line)
     if m:
         if m.group(1) not in have:
-            if m.group(1) in LIVE:
+            if m.group(1) in LIVE | MODELS:
                 out += comments + [line]
-                live.append(m.group(1))
+                (models if m.group(1) in MODELS else live).append(m.group(1))
             else:
                 out += comments + [line if line.lstrip().startswith("#") else "#" + line.lstrip()]
                 names.append(m.group(1))
@@ -860,6 +863,8 @@ if out or reworded:
     os.replace(target + ".tmp", target)
     if live:
         print("  stack.env: appended the image models, set to the defaults: " + ", ".join(live))
+    if models:
+        print("  stack.env: appended the Claude model variables, set to the stack's IDs: " + ", ".join(models))
     if names:
         print("  stack.env: appended new variables (commented out): " + ", ".join(names))
     if reworded:
@@ -1666,8 +1671,10 @@ PY
 
 say "7/11 Merge settings.json, validate, apply"
 [ -f "$S/settings.json" ] || echo '{}' > "$S/settings.json"
-PRUNE="$PRUNE" python3 - "$RENDERED_SETTINGS" "$S/settings.json" "$S/.stack-manifest.json" "$REPORT" "$C/settings.json" <<'PY'
-import json, os, re, sys
+PRUNE="$PRUNE" python3 - "$RENDERED_SETTINGS" "$S/settings.json" "$S/.stack-manifest.json" "$REPORT" "$C/settings.json" \
+  "$S/stack.env" "$SRC/bin/mcp-headers" <<'PY'
+import json, os, re, runpy, sys
+from pathlib import Path
 src, manifest_path, report_path, shown = sys.argv[1], sys.argv[3], sys.argv[4], sys.argv[5]
 PRUNE = os.environ.get("PRUNE") == "1"
 dst = sys.argv[2]            # the staged copy (install_state.py writes through a symlinked original)
@@ -1723,6 +1730,15 @@ def load_lenient(p):
 
 
 new = json.load(open(src))
+# The Claude model IDs come from stack.env, their single source (stack.env.example ships the stack's):
+# each non-empty ANTHROPIC_DEFAULT_<FAMILY>_MODEL joins the shipped env block, so the aliases the
+# agents name (model: opus / sonnet) resolve to it wherever settings.json applies. They merge like any
+# other shipped default: a value you set in settings.json yourself is kept (and reported).
+MODEL_ENV = ("ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL")
+stack_env = runpy.run_path(sys.argv[7], run_name="mcp_headers")["read_env_file"](Path(sys.argv[6]))
+for k in MODEL_ENV:
+    if stack_env.get(k):
+        new.setdefault("env", {})[k] = stack_env[k]
 cur, fixes = load_lenient(dst)
 for f in fixes:
     print("  repaired your settings.json:", f, "(original kept in the backup folder)")
@@ -2011,6 +2027,9 @@ for k, v in new.items():
                 # the stack runs no Haiku: the haiku alias and background tasks use Sonnet 5.5
                 print("  replaced env %s=%s with %s (the stack uses Sonnet 5.5 wherever Haiku ran)" % (ek, mine, sv))
                 e[ek] = sv
+            elif ek in MODEL_ENV:
+                print("  kept your env %s=%s in settings.json (stack.env: %s; delete the settings.json entry "
+                      "to use stack.env's)" % (ek, mine, sv))
             else:
                 print("  kept your env %s=%s (stack default: %s)" % (ek, mine, sv))
         # keys an earlier stack version shipped and this one doesn't: removed while unchanged
@@ -2045,7 +2064,11 @@ env = merged.get("env", {})
 for k in ("ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL",
           "ANTHROPIC_DEFAULT_FABLE_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"):
     if str(env.get(k, "")).endswith("[1m]"):
-        print("  removed stale %s=%s (current models have 1M natively; the pin broke subagent models in Claude Desktop)" % (k, env.pop(k)))
+        stale, sv = env.pop(k), str((new.get("env") or {}).get(k, ""))
+        if sv and not sv.endswith("[1m]"):
+            env[k] = sv
+        print("  %s stale %s=%s%s (current models have 1M natively; the pin broke subagent models in Claude Desktop)"
+              % ("replaced" if k in env else "removed", k, stale, " with %s from stack.env" % sv if k in env else ""))
 if "CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION" in env:
     print("  removed no-op env CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION=%s (removed from Claude Code in v2.1.224; use CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS)" % env.pop("CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION"))
 for bad in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "CLAUDE_CODE_EFFORT_LEVEL"):
