@@ -1,6 +1,6 @@
 ---
 name: quantum-engineer
-description: "Quantum computing and physics in code: circuits (Qiskit, PennyLane, Cirq, stim), simulation (QuTiP, tensor networks, open systems), noise, QEC, IBM Quantum."
+description: "Quantum computing and physics in code: circuits (Qiskit, PennyLane, Cirq, stim), simulation (QuTiP, tensor networks), noise, QEC, IBM Quantum."
 model: claude-opus-5-5
 effort: high
 maxTurns: 160

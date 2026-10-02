@@ -1,6 +1,6 @@
 ---
 name: main-coder
-description: "Main engineer for serious code: large or unfamiliar codebases, architecture, systems, backend, performance, concurrency, hard bugs, merges that won't fast-forward."
+description: "Main engineer for serious code: large codebases, architecture, systems, backend, performance, concurrency, hard bugs, merges that won't fast-forward."
 model: claude-opus-5-5
 effort: xhigh
 maxTurns: 240

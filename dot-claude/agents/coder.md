@@ -1,6 +1,6 @@
 ---
 name: coder
-description: "Implementer for small and medium code tasks: scripts, bug fixes, features in a known area, small refactors, configs, tests. Architecture goes to main-coder."
+description: "Implementer for small and medium code tasks: scripts, bug fixes, features in a known area, small refactors, configs, tests."
 model: claude-sonnet-5-5
 effort: medium
 maxTurns: 190

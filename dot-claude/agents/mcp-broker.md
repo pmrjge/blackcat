@@ -1,6 +1,6 @@
 ---
 name: mcp-broker
-description: "Mounts MCP servers on demand through magg, vets them, runs a tool no agent has and returns its output; on request adds or removes servers, audits MCP cost."
+description: "Vets and mounts MCP servers on demand through magg and runs a tool no agent has; on request adds or removes servers, audits MCP cost."
 model: claude-sonnet-5-5
 effort: medium
 maxTurns: 60

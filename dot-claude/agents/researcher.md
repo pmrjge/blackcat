@@ -1,6 +1,6 @@
 ---
 name: researcher
-description: "Deep research: multi-source investigations, comparisons, literature, market and technical reviews, surveys; crawls sites; cited synthesis. One fact goes to scout."
+description: "Deep research: multi-source investigations, comparisons, literature, market and technical reviews, surveys; cited synthesis. One fact goes to scout."
 model: claude-opus-5-5
 effort: high
 maxTurns: 130

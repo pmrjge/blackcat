@@ -1,6 +1,6 @@
 ---
 name: frontend-engineer
-description: "Web front end: HTML/CSS, TypeScript, React/Vue/Svelte/Astro, design-to-code, responsive layout, accessibility, performance; checked in a headless browser."
+description: "Web front end: HTML/CSS, TypeScript, React/Vue/Svelte/Astro, design-to-code, responsive layout, accessibility, performance."
 model: claude-opus-5-5
 effort: medium
 maxTurns: 170

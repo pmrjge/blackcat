@@ -1,6 +1,6 @@
 ---
 name: ninja-coder
-description: "Engineer-mathematician for the hardest code: novel algorithms, correctness proofs, complexity bounds, numerical stability, concurrency, fast kernels; after main-coder failed."
+description: "Engineer-mathematician for the hardest code: novel algorithms, correctness proofs, complexity bounds, numerical stability, fast kernels."
 model: claude-opus-5-5
 # Effort: `ultracode` is not an agent effort. In this file it would be ignored and the agent would
 # run at the calling session's level; ultracode (xhigh + dynamic workflows) exists only on a main

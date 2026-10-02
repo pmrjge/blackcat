@@ -1,6 +1,6 @@
 ---
 name: claude-code-engineer
-description: "Builds Claude Code configuration: skills, subagents, hooks, plugins, MCP entries, permissions, settings, CLAUDE.md and rules; validates against the docs."
+description: "Builds Claude Code configuration: skills, subagents, hooks, plugins, MCP entries, permissions, settings, CLAUDE.md and rules."
 model: claude-opus-5-5
 effort: high
 maxTurns: 190

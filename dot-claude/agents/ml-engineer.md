@@ -1,6 +1,6 @@
 ---
 name: ml-engineer
-description: "Classical ML: tabular, time-series and classic NLP models, gradient boosting, features, validation design, tuning, calibration, MLOps. Deep nets go to dl-engineer."
+description: "Classical ML: tabular, time-series and classic NLP models, gradient boosting, features, validation, tuning, calibration, MLOps."
 model: claude-opus-5-5
 effort: high
 maxTurns: 190

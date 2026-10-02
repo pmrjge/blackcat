@@ -1,6 +1,6 @@
 ---
 name: doc-specialist
-description: "Office documents and PDFs: reads, extracts and interprets .docx/.xlsx/.pptx/.pdf (scans, tables, forms); creates and edits them. Prose goes to writer."
+description: "Office documents and PDFs: reads, extracts and interprets .docx/.xlsx/.pptx/.pdf (scans, tables, forms); creates and edits them."
 model: claude-sonnet-5-5
 effort: medium
 maxTurns: 100
