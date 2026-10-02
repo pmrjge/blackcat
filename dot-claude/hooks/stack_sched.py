@@ -74,6 +74,7 @@ DEFAULT_CAPS = {"fanout": 3, "fanout_by_type": {"orchestrator": 10, "god-coder":
 RISK_TAGS = {"hook", "security", "prod", "gui", "accel"}
 EXCLUSIVE_TAGS = ("gui", "accel")          # one agent on the screen; one accelerator job per device
 SPEEDS = {"frugal": 0.25, "balanced": 1.0, "fast": 4.0}
+BLACKCAT_WINDOW_S = 120.0                  # agent_guard.py BLACKCAT_DISPATCH_WINDOW_S: one prompt's dispatches start within it
 SOFT_PROMPT_CTX = 33000000                 # per human prompt (agent_guard.py SOFT_PROMPT_CTX)
 UNVERIFIED_W = 1.0                         # safety factor when neither the type nor its pool has a band
 RESUME_WARM_S = 270.0                      # a resume is only warm when the gap is under this
@@ -228,6 +229,17 @@ def tinfo(m: Dict[str, Any], t: str) -> Dict[str, Any]:
     return _merge(_builtin_type(t), m.get("types", {}).get(t, {}))
 
 
+_MODEL_RE = re.compile(r"claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2})(?!\d))?")
+
+
+def _resolved_version(fam: str) -> Optional[str]:
+    """major.minor of the model ID that ANTHROPIC_DEFAULT_<FAMILY>_MODEL gives the alias `fam`, else None."""
+    mt = _MODEL_RE.search(os.environ.get("ANTHROPIC_DEFAULT_%s_MODEL" % fam.upper(), ""))
+    if not mt or mt.group(1) != fam:
+        return None
+    return mt.group(2) + ("." + mt.group(3) if mt.group(3) else "")
+
+
 def kappas(m: Dict[str, Any], t: str) -> Tuple[float, float]:
     """(kappa_w, kappa_r) for agent type `t`."""
     info = tinfo(m, t)
@@ -237,7 +249,7 @@ def kappas(m: Dict[str, Any], t: str) -> Tuple[float, float]:
     if isinstance(cr, dict) and isinstance(cr.get("rules"), list):
         # rules: [{"family", "version", "value"}], default otherwise; the version measured per family
         fam = info.get("model") or ""
-        ver = str((k.get("models_measured") or {}).get(fam, ""))
+        ver = _resolved_version(fam) or str((k.get("models_measured") or {}).get(fam, ""))
         kr = cr.get("default", 0.1)
         for rule in cr["rules"]:
             if isinstance(rule, dict) and rule.get("family") == fam and str(rule.get("version")) == ver:
@@ -542,6 +554,9 @@ def validate(g: Graph, m: Dict[str, Any], policy: Optional[Dict[str, Any]] = Non
     width = _max_width(g)
     if width > cap:
         out.append(Issue("warn", None, "up to %d nodes are ready at once, the fan-out cap is %d: waves will be split" % (width, cap)))
+    if g.meta.get("dispatcher") == "blackcat" and len(g.nodes) > caps["blackcat"]:
+        out.append(Issue("warn", None, "%d nodes dispatched by BlackCat exceed %d Agent calls per prompt: the guard blocks the rest"
+                         % (len(g.nodes), caps["blackcat"])))
     if len(g.nodes) > caps["workflow"]:
         out.append(Issue("warn", None, "%d nodes exceed the Workflow cap of %d" % (len(g.nodes), caps["workflow"])))
     return out
@@ -602,8 +617,8 @@ def band_of(m: Dict[str, Any], t: str) -> Dict[str, Any]:
     def ok(b: Any) -> bool:
         return isinstance(b, dict) and all(isinstance(b.get(k), dict) and b[k].get("med") for k in ("turns", "sec_per_call"))
 
+    pname = info.get("tier") or {"reviewer": "analyst"}.get(pool_of(t), pool_of(t))
     if not ok(band):
-        pname = info.get("tier") or {"reviewer": "analyst"}.get(pool_of(t), pool_of(t))
         prow = (m.get("pools") or {}).get(pname)
         if isinstance(prow, dict) and ok(clamp_band(prow.get("band"))):
             band, src, status = clamp_band(prow["band"]), "pool", "provisional"
@@ -614,13 +629,19 @@ def band_of(m: Dict[str, Any], t: str) -> Dict[str, Any]:
 
     def f(q: str) -> float:
         d = (band or {}).get(q)
+        if not d and src == "own":
+            # own band without this quantity (e.g. no usable ctx): the pool's band, else the unverified heuristic
+            pb = clamp_band(((m.get("pools") or {}).get(pname) or {}).get("band"))
+            d = (pb or {}).get(q)
+            if not d:
+                return 1.0 + UNVERIFIED_W
         try:
             return max(1.0, float(d["hi"]) / float(d["med"])) if d else 1.0 + UNVERIFIED_W
         except (KeyError, TypeError, ValueError, ZeroDivisionError):
             return 1.0 + UNVERIFIED_W
 
     return {"status": status, "source": src, "turns": f("turns"), "sec_per_call": f("sec_per_call"),
-            "ctx": f("ctx") if (band or {}).get("ctx") else (1.0 + UNVERIFIED_W if band is None else 1.0)}
+            "ctx": f("ctx") if (band or {}).get("ctx") or src == "own" or band is None else 1.0}
 
 
 def _est_for(m: Dict[str, Any], t: str, s: Optional[str], n: Optional[int]) -> Est:
@@ -1061,7 +1082,8 @@ def schedule(g: Graph, m: Dict[str, Any], mode: str = "barrier", caps: Optional[
             warnings.append("%s: %s" % (iss.node or "graph", iss.msg))
     used = [(nodes[i], _est_for(m, nodes[i].alt if i in best_sel else nodes[i].a, nodes[i].s, nodes[i].n))
             for i in range(n)]
-    checks = limit_checks(m, used, max(len(wv) for wv in waves) if waves else 0, cap, budget)
+    checks = limit_checks(m, used, max(len(wv) for wv in waves) if waves else 0, cap, budget,
+                          dispatcher=g.meta.get("dispatcher"), starts=list(s))
     verdict = _worst([c.verdict for c in checks])
     prov = {}
     for _un, ue in used:
@@ -1091,7 +1113,8 @@ def three_way(med: float, hi: float, limit: float) -> str:
 
 
 def limit_checks(m: Dict[str, Any], used: Sequence[Tuple[Node, Est]], width: int, cap: int,
-                 budget: Optional[float] = None) -> List[Check]:
+                 budget: Optional[float] = None, dispatcher: Optional[str] = None,
+                 starts: Optional[Sequence[float]] = None) -> List[Check]:
     """Limit checks of a plan at hi: per node maxTurns and soft token limit of its type, the plan's total ctx against
     the per-prompt soft limit and the optional user budget, the fan-out cap. Hard caps and the soft-limit table are
     read, never changed."""
@@ -1119,6 +1142,13 @@ def limit_checks(m: Dict[str, Any], used: Sequence[Tuple[Node, Est]], width: int
         v = three_way(tot_med, tot_hi, float(lim))
         out.append(Check(name, v, tot_med, tot_hi, float(lim), drivers if v == "uncertain" else []))
     out.append(Check("fanout", three_way(width, width, cap), width, width, cap))
+    if dispatcher == "blackcat":
+        # the guard counts Agent calls per prompt (not concurrent agents) and closes the burst after the window
+        k = float(len(used))
+        lim = float(DEFAULT_CAPS["blackcat"])
+        out.append(Check("blackcat_dispatches", three_way(k, k, lim), k, k, lim))
+        last = float(max(starts)) if starts else 0.0
+        out.append(Check("blackcat_window_s", three_way(last, last, BLACKCAT_WINDOW_S), last, last, BLACKCAT_WINDOW_S))
     return out
 
 
@@ -1142,16 +1172,25 @@ def next_ready(g: Graph, state: Dict[str, Any], sched: Schedule) -> List[str]:
         return out
     waves = sched.waves
     allowed: Optional[set] = None
+    dead_memo: Dict[str, bool] = {}
+
+    def dead(i: str) -> bool:
+        # a pending node that can never run: a dependency failed or is blocked, or is itself dead
+        if i not in dead_memo:
+            dead_memo[i] = any(status(d) in ("failed", "blocked") or (status(d) == "pending" and dead(d))
+                               for d in byid[i].dep)
+        return dead_memo[i]
+
     if sched.mode == "barrier":
         for k, w in enumerate(waves):
-            if any(status(i) in ("pending", "running") for i in w):
+            if any(status(i) == "running" or (status(i) == "pending" and not dead(i)) for i in w):
                 if any(status(i) == "running" for ids in waves[:k] for i in ids):
                     return []
                 allowed = set(w)
                 break
     order = [i for w in waves for i in w]
     for i in order:
-        if status(i) != "pending" or (allowed is not None and i not in allowed):
+        if status(i) != "pending" or dead(i) or (allowed is not None and i not in allowed):
             continue
         if any(status(d) != "done" for d in byid[i].dep):
             continue
@@ -1266,15 +1305,16 @@ def _unit_tokens(m: Dict[str, Any], t: str, row: Dict[str, str]) -> float:
         kr * float(row["cache_read_input_tokens"])
 
 
-def simulate_waves(waves: Sequence[Sequence[Tuple[float, float, float]]]) -> float:
-    """Makespan of waves given as (dispatch offset, startup lag, duration) triples per unit,
-    offsets relative to the window start. Used to check that the actual waves and durations
-    reproduce the window's makespan."""
-    end = 0.0
-    for w in waves:
-        for off, lag, d in w:
-            end = max(end, off + lag + d)
-    return end
+def simulate_waves(waves: Sequence[Sequence[Tuple[float, float]]], lat: float = 0.0) -> float:
+    """Makespan under barrier semantics from recorded (startup lag, duration) pairs per unit: the first wave is
+    dispatched at 0, each next wave `lat` seconds after the previous wave's last unit ends, and a wave ends at
+    start + max(lag + duration). Nothing of the recorded start times enters, so comparing the result with the
+    recorded makespan is a real test of the barrier model."""
+    t = 0.0
+    for k, w in enumerate(waves):
+        st = 0.0 if k == 0 else t + lat
+        t = st + max([lag + d for lag, d in w] or [0.0])
+    return t
 
 
 def cluster_waves(items: Sequence[Tuple[float, str]], gap: float = 120.0) -> List[List[str]]:
@@ -1339,7 +1379,8 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
         tz = round(med / 900.0) * 900.0
     else:
         notes.append("no ledger rows matched segments: dispatch time = first API call, UTC offset unknown")
-    day0 = seg_rows[0]["_t0"] - (seg_rows[0]["_t0"] % 86400)
+    first_t = min(r["_t0"] for r in seg_rows)
+    day0 = first_t - (first_t % 86400)
     dispatch0: Dict[str, float] = {}
     ledger_task: Dict[str, Tuple[str, str]] = {}
     for row in led:
@@ -1400,12 +1441,21 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
             prev = "%s#%d" % (u.node, u.ph - 1)
             if prev in units and prev not in u.deps:
                 u.deps.append(prev)
+    # lat: median reaction time of the orchestrator when it dispatched on a completion (latencies above
+    # 60 s are barrier or human waits, not reaction time)
+    lats = sorted(u.dispatch - max(units[d].end for d in u.deps) for u in units.values()
+                  if u.deps and all(units[d].end <= u.dispatch + 1 for d in u.deps))
+    lats = [x for x in lats if 0 <= x <= 60]
+    lat = lats[len(lats) // 2] if lats else 0.0
     # windows (human prompts, HH:MM UTC)
     starts_w: List[float] = []
     labels: List[str] = []
-    for r in prm_rows:
+    for r in sorted(prm_rows, key=lambda r: int(r.get("i") or 0)):
         hh, mm = r["start"].split(":")
-        starts_w.append(day0 + int(hh) * 3600 + int(mm) * 60)
+        tw0 = day0 + int(hh) * 3600 + int(mm) * 60
+        while starts_w and tw0 < starts_w[-1]:
+            tw0 += 86400                      # the session ran past UTC midnight
+        starts_w.append(tw0)
         labels.append(r["prompt"][:50])
     allu = list(units.values()) + list(aux_units.values())
     for u in allu:
@@ -1424,22 +1474,15 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
             ready = max([units[d].end for d in u.deps] + [t0])
             bw += max(0.0, u.dispatch - ready)
         waves = cluster_waves([(u.dispatch, u.key) for u in wu])
-        sim = simulate_waves([[(units_or_aux(units, aux_units, k).dispatch - t0,
-                                units_or_aux(units, aux_units, k).start - units_or_aux(units, aux_units, k).dispatch,
+        sim = simulate_waves([[(units_or_aux(units, aux_units, k).start - units_or_aux(units, aux_units, k).dispatch,
                                 units_or_aux(units, aux_units, k).end - units_or_aux(units, aux_units, k).start)
-                               for k in w] for w in waves])
+                               for k in w] for w in waves], lat)
         mk = t1 - t0
         windows.append(Window(i=wi, prompt=labels[wi] if wi < len(labels) else "", t0=t0, t_end=t1,
                               units=[u.key for u in wu if u.kind != "aux"], aux=[u.key for u in wu if u.kind == "aux"],
                               makespan=mk, busy=busy, dead=mk - busy, barrier_wait=bw, waves=waves,
                               open=any(u.open for u in wu), sim_makespan=sim,
                               sim_err=(sim - mk) / mk if mk else 0.0))
-    # lat: median reaction time of the orchestrator when it dispatched on a completion (latencies above
-    # 60 s are barrier or human waits, not reaction time)
-    lats = sorted(u.dispatch - max(units[d].end for d in u.deps) for u in units.values()
-                  if u.deps and all(units[d].end <= u.dispatch + 1 for d in u.deps))
-    lats = [x for x in lats if 0 <= x <= 60]
-    lat = lats[len(lats) // 2] if lats else 0.0
     # cold resumes over every segment of the session
     cold: List[Dict[str, Any]] = []
     unit_of_seg: Dict[Tuple[str, int], Unit] = {}
@@ -1507,8 +1550,8 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
             if u is None or u.kind == "aux" or u.key not in times:
                 continue
             pu = unit_of_seg.get((c["agent"], c["seg"] - 1))
-            if pu is None:
-                continue
+            if pu is None or pu.key == u.key:
+                continue                      # no previous unit, or both segments sit in one multi-segment phase
             prev_end = times[pu.key][1] if pu.key in times else pu.end
             kw, _ = kappas(m, c["type"])
             if times[u.key][0] - prev_end < RESUME_WARM_S:
@@ -1755,9 +1798,11 @@ def _render_report(r: Report) -> str:
             " | ".join(_fmt_min(w.rows[k]["makespan"]) for k in r.rows)))
     worst = max((abs(w.sim_err) for w in r.windows), default=0.0)
     o.append("")
-    o.append("Replay of the actual waves (dispatch offsets, startup lags, recorded durations) reproduces every window's makespan "
-             "within %.2f%% (limit 2%%). Starts are inputs of that simulation, so it checks the join of ledger, segments and "
-             "durations, not a prediction.\n" % (100 * worst))
+    o.append("Barrier simulation from the recorded startup lags and durations (first wave at 0, each next wave one median "
+             "dispatch latency after the previous wave's last end; recorded start times are not inputs) differs from the recorded "
+             "makespan by at most %.2f%% per window (the done-when asked for 2%%: %s)." % (
+                 100 * worst, "met" if worst <= 0.02 else "NOT met, reported as measured"))
+    o.append("")
     o.append("## Hand estimates\n")
     cold_noorch = sum(c["excess"] for c in r.cold if c["type"] != "orchestrator")
     o.append("- Cold excess (resume gap above the TTL, min(cache writes, prior peak)): %.0f cache-write tokens over %d resumes, "
@@ -1845,6 +1890,11 @@ def _next_cmd(a: argparse.Namespace) -> int:
     except (OSError, ValueError) as exc:
         print("state: %s" % exc, file=sys.stderr)
         return 2
+    errs = [i for i in validate(g, m) if i.level == "error"]
+    if errs:
+        for i in errs:
+            print("error: %s: %s" % (i.node or "graph", i.msg), file=sys.stderr)
+        return 1
     s = schedule(g, m, mode=a.mode)
     print(json.dumps(next_ready(g, state, s)))
     return 0

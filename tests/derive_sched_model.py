@@ -471,7 +471,7 @@ def family_version(model_id):
     return (m.group(1), m.group(2) + ("." + m.group(3) if m.group(3) else "")) if m else None
 
 
-def fit(segments, frontmatter, soft_limits, seed=0, *, until=None, B=B_DEFAULT):
+def fit(segments, frontmatter, soft_limits, seed=0, *, until=None, B=B_DEFAULT, generated=None):
     """The sched_model.json dict from per-segment numbers; no transcript access, no I/O.
 
     segments: one row per subagent segment (a spawn or a resume). Required columns:
@@ -486,7 +486,8 @@ def fit(segments, frontmatter, soft_limits, seed=0, *, until=None, B=B_DEFAULT):
       every agent (frontmatter() reads it from dot-claude/agents); types without a tier are refused,
       except blackcat (the main thread), which is skipped.
     soft_limits: {agent type: tokens or None} (agent_guard.py SOFT_LIMITS).
-    seed, B: the bootstrap's seed and replicate count; the result is a pure function of the inputs.
+    seed, B: the bootstrap's seed and replicate count; generated: the `generated` stamp (UTC ISO string;
+      the wall clock only when None). With it given, the result is a pure function of the inputs.
     """
     seg = prepare(segments)
     fm = frontmatter
@@ -515,7 +516,7 @@ def fit(segments, frontmatter, soft_limits, seed=0, *, until=None, B=B_DEFAULT):
             fam.setdefault(f, v)
     if until is None and "last_ts" in seg and seg.last_ts.notna().any():
         until = str(seg.last_ts.dropna().max())
-    J = dict(version=1, generated=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+    J = dict(version=1, generated=generated or dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
              stack_hash=stack_hash(fm), sessions=sorted(map(str, seg.session.unique())), data_until=until,
              kappa=dict(cache_write_5m=1.25, cache_write_1h=2.0,
                         cache_read=dict(default=0.1, rules=[dict(family="opus", version="5.5", value=0.05)]),
@@ -770,7 +771,8 @@ def main():
     fm = frontmatter(a.agents)
     soft = soft_limits(a.guard)
     seg = load(a.root, until)
-    J = fit(seg, fm, soft, seed=0, until=until)
+    J = fit(seg, fm, soft, seed=0, until=until,
+            generated=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
     cr = cold_resumes(seg, fm)
     ev = loso(seg, list(J["types"]))
     ev_agent = loso(seg, list(J["types"]), by="id")

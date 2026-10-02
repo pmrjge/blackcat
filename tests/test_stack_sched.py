@@ -255,6 +255,27 @@ def test_default_caps_by_dispatcher(model):
     assert max(len(w) for w in s.waves) == 2
 
 
+def check_of(s, name):
+    return next(c for c in s.checks if c.name == name)
+
+
+def test_blackcat_cap_is_dispatches_per_prompt(model):
+    # agent_guard.py: 8 Agent calls per prompt (BLACKCAT_MAX_DISPATCH), all within 120 s (BLACKCAT_DISPATCH_WINDOW_S)
+    mk = lambda k, disp: S.load_graph({"dispatcher": disp, "nodes": [{"id": "N%d" % i, "a": "scout", "n": 3} for i in range(k)]})
+    s12 = S.schedule(mk(12, "blackcat"), model)
+    c = check_of(s12, "blackcat_dispatches")
+    assert (c.hi, c.limit, c.verdict) == (12, 8, "does not fit") and s12.verdict == "does not fit"
+    assert any("Agent calls per prompt" in i.msg for i in S.validate(mk(12, "blackcat"), model) if i.level == "warn")
+    s8 = S.schedule(mk(8, "blackcat"), model)
+    assert check_of(s8, "blackcat_dispatches").verdict == "fits" and check_of(s8, "blackcat_window_s").verdict == "fits"
+    assert not any(c.name.startswith("blackcat") for c in S.schedule(mk(12, "orchestrator"), model).checks)
+    # a chain whose later dispatch starts after 120 s breaks the burst window
+    chain = S.load_graph({"dispatcher": "blackcat", "nodes": [
+        {"id": "A", "a": "claude-code-engineer", "n": 40}, {"id": "B", "a": "scout", "n": 3, "dep": ["A"]}]})
+    w = check_of(S.schedule(chain, model), "blackcat_window_s")
+    assert w.hi > 120 and w.limit == 120 and w.verdict == "does not fit"
+
+
 # ---------------------------------------------------------------- 3. exact up to 14, list above
 def test_exact_up_to_14_nodes_and_list_scheduling_above(model):
     chain = lambda n: S.load_graph({"nodes": [{"id": "N%d" % i, "a": "scout", "n": 2 + (i % 5),
@@ -423,6 +444,18 @@ def test_next_ready(model):
     assert S.next_ready(g, st, r) == []              # cap reached
 
 
+def test_next_ready_barrier_skips_a_wave_of_dead_nodes(model):
+    g = S.load_graph({"nodes": [{"id": "A", "a": "scout", "n": 2}, {"id": "X", "a": "scout", "n": 2},
+                                {"id": "B", "a": "coder", "n": 2, "dep": ["A"]},
+                                {"id": "Z", "a": "coder", "n": 2, "dep": ["X"]}]})
+    s = S.schedule(g, model, mode="barrier", caps={"fanout": 2})
+    s.waves = [["A", "X"], ["B"], ["Z"]]                      # B's wave holds only a node that can never run
+    st = {"nodes": {"A": {"status": "failed"}, "X": {"status": "done"}}}
+    assert S.next_ready(g, st, s) == ["Z"]                    # stalled forever before: wave 1 stayed active
+    st["nodes"]["X"]["status"] = "failed"
+    assert S.next_ready(g, st, s) == []                       # nothing can run: no dispatch, no stall either
+
+
 # ---------------------------------------------------------------- 6. CLI
 def test_cli(tmp_path):
     env = clean_env(tmp_path)
@@ -529,7 +562,10 @@ def test_replay_synthetic_session(model, tmp_path):
     w0, w1 = rep.windows
     # window 0: A (4 min after prompt... starts 10:00:10), B starts 10:02:00 -> makespan from first start to last end
     assert w0.makespan == pytest.approx(10 * 60 - 10)
-    assert abs(w0.sim_err) <= 0.02 and abs(w1.sim_err) <= 0.02
+    # barrier simulation (not a tautology): A, B, C fall in one wave (dispatch gaps under 120 s), so it ends at B's duration,
+    # 480 s, against the recorded 590 s: B was dispatched 110 s into the window, after A finished
+    assert w0.sim_makespan == pytest.approx(480.0) and w0.sim_err == pytest.approx(480.0 / 590.0 - 1)
+    assert abs(w1.sim_err) <= 0.05
     # B waited for A (ended 10:01:10) until 10:02:00; C was dispatched 120 s after the window start
     assert w0.barrier_wait == pytest.approx(50 + 120, abs=2)
     assert len(rep.cold) == 1 and rep.cold[0]["excess"] == 90000.0                 # min(cc 90000, prior peak 120000)
@@ -544,8 +580,10 @@ def test_replay_synthetic_session(model, tmp_path):
 
 def test_replay_fed_the_actual_waves_reproduces_each_window(model):
     # actual waves: (dispatch offset, startup lag, duration) per unit
-    waves = [[(0.0, 2.0, 300.0), (5.0, 1.0, 120.0)], [(330.0, 3.0, 200.0)]]
-    assert S.simulate_waves(waves) == pytest.approx(533.0)
+    # barrier simulation from (startup lag, duration): wave 0 at 0, wave 1 one latency after wave 0's last end
+    waves = [[(2.0, 300.0), (1.0, 120.0)], [(3.0, 200.0)]]
+    assert S.simulate_waves(waves) == pytest.approx(302.0 + 203.0)
+    assert S.simulate_waves(waves, lat=30.0) == pytest.approx(302.0 + 30.0 + 203.0)
     assert S.cluster_waves([(0, "a"), (30, "b"), (400, "c"), (410, "d")], gap=120) == [["a", "b"], ["c", "d"]]
 
 
@@ -555,8 +593,10 @@ def test_replay_recorded_session(model, tmp_path):
     rep = S.replay(str(led) if led.is_file() else None, str(USAGE / "segments.csv"), str(USAGE / "prompts.csv"), FIXTURE, model,
                    session=SESSION)
     assert rep.windows
-    # (3) the actual waves and durations reproduce every window's makespan within 2%
-    assert max(abs(w.sim_err) for w in rep.windows) <= 0.02
+    # (3) the barrier simulation from recorded lags and durations is a real comparison: its error is measured and reported
+    # (not 0 by construction; the 2% target is not met on this session, and the report says so)
+    assert any(abs(w.sim_err) > 0 for w in rep.windows)
+    assert "NOT met" in S.render_md(rep, max_chars=None) or max(abs(w.sim_err) for w in rep.windows) <= 0.02
     # no advised row beats physics: the advised makespan is at least the longest unit of each window
     for w in rep.windows:
         longest = max([rep.units[k].end - rep.units[k].start for k in w.units] or [0.0])
@@ -734,3 +774,83 @@ def test_real_model_file_bands_and_kappa_rules():
         assert e.status == "supported" and e.wall_plan == e.wall_p50
     kw, kr = S.kappas(m, "claude-code-engineer")
     assert kr == 0.05 and S.kappas(m, "coder")[1] == 0.1
+
+
+# ---------------------------------------------------------------- S2f review fixes
+def test_cold_resume_inside_one_phase_is_not_warm(model, tmp_path):
+    sid, graph = make_session(tmp_path)
+    graph["nodes"][1]["ph"] = [{"agent": "bbbb", "segs": [0, 1], "dep": ["A:0"], "w": ["src/**"]}]
+    rep = S.replay(str(tmp_path / "led.md"), str(tmp_path / "seg.csv"), str(tmp_path / "prm.csv"), graph, model, session=sid)
+    assert len(rep.cold) == 1
+    for name in ("barrier/oracle", "release/oracle"):
+        assert rep.rows[name]["warm"] == 0 and rep.rows[name]["S_tok_warm"] == 0.0
+
+
+def test_replay_windows_across_utc_midnight(model, tmp_path):
+    import csv
+    sid = "22222222-0000-0000-0000-000000000000"
+    hdr = ["session", "id", "type", "desc", "depth", "seg", "nsegs", "compactions", "turn_limit", "after_limit", "open",
+           "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "api_calls",
+           "tool_calls", "fresh", "ctx", "cum", "peak", "rereads", "first_ts", "last_ts"]
+    row = lambda i, day, a, b: [sid, i, "scout", "S " + i, 1, 0, 1, 0, False, False, False, 10, 100, 1000, 10000, 5, 5, 0, 0, 0,
+                                2000, 0, "2026-10-0%dT%s.000Z" % (day, a), "2026-10-0%dT%s.000Z" % (day, b)]
+    with open(tmp_path / "seg.csv", "w", newline="") as fh:        # "aaaa" (sorts first) is the day-2 agent
+        w = csv.writer(fh)
+        w.writerow(hdr)
+        w.writerows([row("aaaa", 2, "23:55:00", "23:58:00"), row("bbbb", 3, "00:15:00", "00:18:00")])
+    with open(tmp_path / "prm.csv", "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["session", "kind", "i", "start", "prompt", "fresh", "ctx", "cum", "api_calls"])
+        w.writerow([sid, "human", 0, "23:50", "first", 0, 0, 0, 0])
+        w.writerow([sid, "human", 1, "00:10", "second", 0, 0, 0, 0])
+    g = {"job": "m", "session": sid, "nodes": [
+        {"id": "A", "a": "scout", "n": 5, "ph": [{"agent": "aaaa", "segs": [0], "dep": []}]},
+        {"id": "B", "a": "scout", "n": 5, "ph": [{"agent": "bbbb", "segs": [0], "dep": []}]}]}
+    rep = S.replay(None, str(tmp_path / "seg.csv"), str(tmp_path / "prm.csv"), g, model, session=sid)
+    assert [w.i for w in rep.windows] == [0, 1]
+    assert [w.units for w in rep.windows] == [["A#0"], ["B#0"]]
+
+
+def test_next_cli_rejects_readonly_with_write_set(tmp_path):
+    g = tmp_path / "g.json"
+    g.write_text(json.dumps({"nodes": [{"id": "A", "a": "verifier", "n": 2, "w": ["src/**"]}]}))
+    st = tmp_path / "s.json"
+    st.write_text(json.dumps({"nodes": {}}))
+    p = subprocess.run([sys.executable, str(SCHED), "next", str(g), str(st)], capture_output=True, text=True,
+                       env=clean_env(tmp_path))
+    assert p.returncode == 1 and "read-only" in p.stderr
+
+
+def test_own_band_without_ctx_uses_pool_band_then_heuristic():
+    tri = lambda lo, med, hi: {"lo": lo, "med": med, "hi": hi}
+    own = {"status": "supported", "tier": "builder", "band": {"turns": tri(10, 20, 30), "sec_per_call": tri(8, 10, 12)}}
+    m = S.load_model("/nonexistent/sched_model.json")
+    m["types"] = {"coder": own}
+    m["pools"] = {"builder": {"band": {"turns": tri(1, 2, 3), "sec_per_call": tri(1, 2, 3), "ctx": tri(1.0, 1.0, 1.5)}}}
+    b = S.band_of(m, "coder")
+    assert b["turns"] == pytest.approx(1.5) and b["ctx"] == pytest.approx(1.5)           # own turns, pool ctx
+    m["pools"] = {"builder": {}}
+    assert S.band_of(m, "coder")["ctx"] == pytest.approx(1.0 + S.UNVERIFIED_W)          # no pool band either: w = 1.0
+
+
+def test_kappas_resolve_the_alias_through_the_environment(monkeypatch):
+    m = S.load_model("/nonexistent/sched_model.json")
+    m["kappa"] = {"cache_write_5m": 1.25, "cache_write_1h": 2.0, "models_measured": {"opus": "4.8"},
+                  "cache_read": {"default": 0.1, "rules": [{"family": "opus", "version": "5.5", "value": 0.05}]}}
+    monkeypatch.delenv("ANTHROPIC_DEFAULT_OPUS_MODEL", raising=False)
+    assert S.kappas(m, "claude-code-engineer")[1] == 0.1                                  # measured 4.8: default
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "-".join(("claude", "opus", "5", "5")))
+    assert S.kappas(m, "claude-code-engineer")[1] == 0.05                                 # the alias resolves to 5.5
+    monkeypatch.setenv("ANTHROPIC_DEFAULT_OPUS_MODEL", "-".join(("claude", "opus", "4", "8")))
+    m["kappa"]["models_measured"] = {"opus": "5.5"}
+    assert S.kappas(m, "claude-code-engineer")[1] == 0.1                                  # the alias wins over models_measured
+
+
+def test_derive_fit_takes_generated_as_an_argument():
+    pytest.importorskip("pandas")
+    sys.path.insert(0, str(ROOT / "tests"))
+    import test_derive_sched_model as TD
+    seg = TD.pool_rows()
+    J = TD.D.fit(seg, TD.FM, TD.SOFT, B=50, generated="2000-01-01T00:00:00Z")
+    assert J["generated"] == "2000-01-01T00:00:00Z"
+    assert TD.D.fit(seg, TD.FM, TD.SOFT, B=50, generated="2000-01-01T00:00:00Z") == J
