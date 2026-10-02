@@ -335,3 +335,19 @@ def test_file_link_inside_a_symlinked_agents_dir_is_never_replaced(conf, tmp_pat
     assert os.readlink(str(dot / "coder.md")) == "coder-local.md"
     assert (dot / "coder-local.md").read_text() == "mine\n"
     assert (dot / "writer.md").read_text() == "stack writer\n"
+
+
+def test_every_shipped_hook_script_matches_stack_hook_re():
+    """install.sh tells the stack's hook entries from yours with STACK_HOOK_RE; a shipped hook script
+    it misses is kept as yours on each re-run and the shipped copy appended again (web_caps.py, 77f5638)."""
+    import re
+    src = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
+    m = re.search(r'^STACK_HOOK_RE = re\.compile\(r"([^"]+)"\)$', src, re.M)
+    assert m, "STACK_HOOK_RE not found in install.sh"
+    stack_re = re.compile(m.group(1))
+    settings = json.load(open(os.path.join(ROOT, "dot-claude", "settings.json"), encoding="utf-8"))
+    cmds = [x.get("command", "") for groups in settings.get("hooks", {}).values() for g in groups
+            for x in g.get("hooks", [])]
+    assert cmds
+    missed = sorted({c for c in cmds if not stack_re.search(c)})
+    assert not missed, "hook commands STACK_HOOK_RE misses: %s" % missed

@@ -97,9 +97,14 @@ for name, entry in sorted(catalog.items()):
     if isinstance(entry, dict) and isinstance(entry.get("command"), str):
         need(entry["command"], "magg catalog: " + name, True)
 for path, agents in sorted(bad.items()):
-    level = "WARN" if path.endswith("/huetension") else "FAIL"   # designer works without huetension
-    print("  %s  %s missing — MCP server of %s won't start (rerun ./install.sh to re-render)"
-          % (level, path, ", ".join(agents) if len(agents) <= 3 else "%d agents" % len(agents)))
+    # designer works without huetension; a path only magg catalog entries use is disabled until
+    # mcp-broker mounts it, and some (serial: cargo install) are installed by the user, not install.sh
+    catalog_only = all(a.startswith("magg catalog: ") for a in agents)
+    level = "WARN" if path.endswith("/huetension") or catalog_only else "FAIL"
+    hint = ("install it per its notes in magg/config.json, or rerun ./install.sh if the path is stale"
+            if catalog_only else "rerun ./install.sh to re-render")
+    print("  %s  %s missing — MCP server of %s won't start (%s)"
+          % (level, path, ", ".join(agents) if len(agents) <= 3 else "%d agents" % len(agents), hint))
 if not bad:
     print("  ok    agent MCP command paths and scripts exist")
 PY

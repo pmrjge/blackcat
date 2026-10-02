@@ -405,6 +405,14 @@ nb_after=$(count_backups "$T1")
 [ "$nb_before" = "$nb_after" ] && grep -q "no changes: the config dir already matches this stack version" "$T1/.install2.log" \
   && grep -qF "nothing changed in $T1 (no backup needed)" "$T1/.install2.log" \
   && pass "a run that changes nothing says so and makes no backup" || failed "no-op run: backups $nb_before -> $nb_after, or no 'no changes' line"
+# a hook script install.sh's STACK_HOOK_RE misses is kept as the user's and appended again on a re-run
+dup_hooks=$(python3 -c 'import json, sys
+for ev, gs in json.load(open(sys.argv[1])).get("hooks", {}).items():
+    for g in gs:
+        for x in g.get("hooks", []):
+            print("%s [%s] %s" % (ev, g.get("matcher", ""), x.get("command")))' "$T1/settings.json" | sort | uniq -d)
+[ -z "$dup_hooks" ] && pass "after a re-run each hook command appears once per event and matcher" \
+  || { failed "hook commands duplicated after a re-run:"; printf '%s\n' "$dup_hooks" | sed 's/^/    /'; }
 assert_unchanged_real_home
 
 echo "== 3. An edited stack file: replaced by default (the backup keeps it); --no-prune keeps it with a .new"
@@ -617,6 +625,13 @@ if [ -n "$unexpected" ]; then
   failed "doctor.sh reported unexpected FAILs:"; printf '%s\n' "$unexpected" | sed 's/^/    /'
 else
   pass "doctor.sh: only expected FAILs (--no-deps skipped venv/magg)"
+fi
+# a catalog-only server the user installs (serial: cargo install) is a WARN when missing, never a FAIL
+if [ -x "$HOME/.cargo/bin/serial-mcp" ] \
+   || printf '%s\n' "$out" | grep -q 'WARN  .*/serial-mcp missing — MCP server of magg catalog: serial'; then
+  pass "doctor.sh: a missing user-installed catalog server is a WARN"
+else
+  failed "doctor.sh serial-mcp line: $(printf '%s\n' "$out" | grep serial-mcp)"
 fi
 printf '%s\n' "$out" | grep -q "agent files present" && pass "doctor.sh: agent files check ran" || failed "doctor.sh: agent files check missing"
 { printf '%s\n' "$out" | grep -q 'ok    settings.json PreToolUse(Agent) enforces the policy' \
