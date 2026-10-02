@@ -67,7 +67,7 @@ Build engines on the deployment GPU (engines are not portable across GPU archite
 ## 7. MLX (non-LLM models)
 Port the module to `mlx.nn` and convert weights from safetensors; conv weights move from PyTorch NCHW/OIHW to MLX channels-last (`w.transpose(0, 2, 3, 1)` for Conv2d); check `mx.eval` placement and dtype. LLMs: `mlx_lm.convert` (`local-llm-serving`).
 
-## 8. Parity protocol (mandatory)
+## 8. Verify — parity protocol (mandatory)
 1. Fixed inputs: a seeded random batch plus ≥ 100 real samples covering edge cases (min/max shapes, empty/padding cases).
 2. Compare every output tensor: max abs error, max rel error, and a task metric (top-1 agreement, IoU, WER) between reference (eager fp32, `model.eval()`, `torch.no_grad()`) and exported model.
 3. Tolerances by dtype: fp32 ≈ 1e-5 rel; fp16/bf16 ≈ 1e-2–1e-3; int8 judged on the task metric (e.g. ≤ 0.5 pt drop), never on raw tensors alone.

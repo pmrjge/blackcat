@@ -43,5 +43,5 @@ Authentication on (SCRAM-SHA-256 or x.509), TLS, `bindIp` restricted, least-priv
 ## Agent access in this stack
 mongosh via Bash is the default. db-engineer runs the official `mongodb` server inline (`mongodb-mcp-server@3.0.5 --readOnly`, telemetry disabled) with `MDB_MCP_CONNECTION_STRING` from stack.env — find, aggregate, explain, schema sampling and index listing only; for other agents mcp-broker mounts the same server from the magg catalog on request. Verified 2026-10-02 .claude-work/agents-p2/mcp-vetting.md (https://pypi.org/project/postgres-mcp/, https://registry.npmjs.org/mongodb-mcp-server).
 
-## Checklist
+## Verify
 Access patterns written down · no unbounded arrays · types consistent · validator in place · every frequent query has an ESR index confirmed by explain · transactions short with retries · backup restore-tested · no user input used as a raw filter.

@@ -60,5 +60,5 @@ aeson (JSON; derive with `Generic` or `deriving via`), optparse-applicative (CLI
 - Show/Read are for debugging, not serialization.
 - Upper bounds: libraries need PVP bounds on dependencies; applications rely on freeze files.
 
-## Review checklist
+## Verify
 Builds warning-free with the repo's flags · tests and properties pass · no new partial functions · strictness at accumulators and data boundaries · Text/ByteString at I/O · resource safety (bracket) · freeze/index-state updated when deps changed · GHC version reported.

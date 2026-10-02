@@ -140,6 +140,11 @@ Read `references/costs-limits.md` when estimating cost, hitting a limit or an er
   of which parts were generated. Check the terms of the model makers (Recraft, OpenAI, Sourceful for
   the defaults) and of Opper and OpenRouter.
 
+## Verify
+- Each result looked at (preview or Read) before delivery; SVGs checked and cleaned per `references/svg-raster-qa.md`.
+- Spec met (aspect, size or resolution, palette); known flaws stated (§13).
+- Cost taken from the tool results; the §12 guardrails respected.
+
 ## 13. Deliver
 Paths, tool and model, final prompt(s), settings (aspect, resolution or size, quality, palette),
 references used, cost from the results, known flaws, clean-up and post-processing done, legal

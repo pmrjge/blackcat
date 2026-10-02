@@ -23,9 +23,7 @@ Commands marked (tested) were run on Git 2.43; newer-only features name their mi
 | `references/forge-clis.md` | using `gh`, `tea` or `fj` |
 
 ## Safety rules (always)
-1. Never push (the stack's global Git rule, hook-enforced, also inside `bash -c`/`eval`/`$(...)`): no `git push` in
-   any form, no `send-pack`, `lfs push` or `subtree push`, no `gh`/`tea`/`fj` command that writes to a forge.
-   Work lands in local `main`; the user publishes.
+1. Never push or write to a forge (the global Git rule, hook-enforced). Work lands in local `main`; the user publishes.
 2. Never rewrite published history (amend/rebase/filter-repo of pushed commits) unless the user asked for it.
 3. Never commit secrets. If one lands: rotate it first, then clean (`references/history-edit.md`).
 4. Before anything destructive, leave a rescue ref: `git branch rescue/$(date +%s)` (or note `git rev-parse HEAD`).

@@ -58,6 +58,12 @@ Cluster at the treatment-assignment level; with few clusters (< ~40, or few trea
 ## Sensitivity and robustness (report them)
 Placebo outcomes (should show no effect) and placebo timings; alternative control groups and specifications; E-values or Cinelli–Hazlett omitted-variable bounds for selection-on-observables designs; DoWhy refuters (placebo treatment, random common cause, data subset); a specification curve when many defensible choices exist.
 
+## Verify
+- Estimand, DAG and identification argument written; no mediators, colliders or post-treatment controls.
+- Staggered adoption: a heterogeneity-robust estimator, never plain TWFE; pre-trends plus sensitivity shown.
+- IV: first-stage F reported. RD: bandwidth sensitivity and density test. Weighting: overlap, SMD < 0.1 after weighting.
+- Clustered at the assignment level (wild bootstrap or randomization inference with few clusters); placebos and robustness reported.
+
 ## Report template
 Estimand and population → design and identifying assumption → data and sample construction → main estimate with CI and clustering level → event-study/first-stage/balance/RD plots → robustness table → what would invalidate the result → plain-language conclusion scoped to the estimand.
 

@@ -80,5 +80,5 @@ target_link_libraries(app PRIVATE demo::core)
 - ODR and ABI: mixing libstdc++/libc++, `_GLIBCXX_USE_CXX11_ABI`, or different `-std` across static libs.
 - Stale cache after changing compilers: `--fresh`; the compiler is fixed at first configure.
 
-## Review checklist
+## Verify
 Presets committed and CI uses them · only target_* commands for requirements · deps pinned · warnings-as-errors in CI · compile_commands exported · sanitizer preset passes · install/export tested from a consumer when the project is a library · versions of CMake, Ninja and compilers reported.

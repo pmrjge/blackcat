@@ -29,6 +29,11 @@ Log train and validation loss; stop when validation loss turns up. Sample genera
 - Merge or fuse adapters only after evaluation; re-run a quick eval on the merged/quantized artifact.
 - Save: adapter weights, the exact training config, data manifest, tokenizer/template, eval results, tool versions.
 
+## Verify
+- Base vs fine-tuned on the held-out test set and the general probe, identical settings.
+- Validation loss and fixed-prompt samples logged; no catastrophic forgetting on the probe.
+- Merged or quantized artifact re-evaluated; config, data manifest, template and versions saved.
+
 ## Report
 Data (size, source, split), method and hyperparameters, curves, before/after table with CIs, sample generations, artifacts and paths, known failure modes.
 

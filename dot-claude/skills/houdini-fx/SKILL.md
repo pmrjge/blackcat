@@ -72,5 +72,5 @@ Alembic/USD for DCC exchange, FBX (with care for scale and axes) or glTF (ROP GL
 ## Pitfalls
 Wrong attribute class; missing `@v`/`@id`; time-dependent nodes cooking every frame unnecessarily; non-deterministic seeds; caches written into the .hip directory tree without versioning; UI-only settings not captured in scripts; Apprentice files contaminating a commercial pipeline.
 
-## Checklist
+## Verify
 License confirmed for batch/CLI · scene at real scale · low-res iteration before final · caches versioned and reused · velocity for motion blur · render or flipbook frames Read · exports opened back in the target app · Houdini version reported.

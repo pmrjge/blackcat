@@ -58,7 +58,7 @@ Integer promotions and usual arithmetic conversions (`uint8_t + uint8_t` is `int
 ## ABI, linking, portability
 ODR violations (same inline function/class defined differently in two TUs — LTO and `-Wodr` help); symbol visibility (`-fvisibility=hidden` + explicit exports) for shared libraries; macOS uses libc++ only, Linux defaults to libstdc++ — don't pass `std::` types across a library boundary built with a different standard library; `-D_GLIBCXX_USE_CXX11_ABI` mismatches on old binaries; universal binaries on macOS via `CMAKE_OSX_ARCHITECTURES="arm64;x86_64"` (`macos-app-distribution`).
 
-## Review checklist
+## Verify
 Ownership explicit · no views outliving owners · no UB under ASan/UBSan/TSan on the tests · warnings clean at the project level · errors handled in one consistent style · features used exist on every target compiler (Apple Clang included) · clang-tidy clean on changed files · tests added.
 
 Sources (checked 2026-09-29): https://en.cppreference.com/w/cpp/compiler_support/26 · https://gcc.gnu.org/gcc-16/changes.html · https://clang.llvm.org/cxx_status.html · https://github.com/llvm/llvm-project/releases (llvmorg-23.1.2) · https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines · https://github.com/google/googletest/releases · https://github.com/catchorg/Catch2/releases · local checks: `clang --version` (Apple clang 21.0.0), feature macros, `-fsanitize` support on macOS 27

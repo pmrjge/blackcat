@@ -48,5 +48,5 @@ description: Use to run, fine-tune or evaluate open image models — diffusers, 
 - Batch by resolution and steps; cache text embeddings; compile on CUDA (torch.compile, TensorRT where supported); queue with timeouts; stream progress.
 - Safety: NSFW/safety checkers as the product requires, provenance (C2PA manifests, invisible watermarks) when publishing, likeness and trademark policies, logging of prompts per the user's privacy rules.
 
-## Checklist
+## Verify
 License and gating checked · deliverable images still go through image-studio · seeds and settings recorded · memory plan fits the device · training data rights and captions reviewed · fixed-seed sample grids per checkpoint · evaluation with enough samples and stated limits · versions of diffusers/mflux/trainers reported.

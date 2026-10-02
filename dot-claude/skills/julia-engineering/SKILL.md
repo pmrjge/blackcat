@@ -62,5 +62,5 @@ description: Use for Julia — juliaup, Pkg, Test/Aqua/JET, type stability, benc
 - Floating-point reductions under `@simd`/threads are not bit-reproducible; compare with `isapprox` and a tolerance you can justify.
 - `Pkg.update()` in a shared environment silently changes others' results — update in the project, commit the Manifest.
 
-## Review checklist
+## Verify
 Manifest committed (apps) or `[compat]` complete (packages) · tests run with `Pkg.test()` · JET/Aqua clean · hot paths type-stable and allocation-free as claimed (show `@btime` numbers) · no globals in hot code · threads safe · versions and Julia channel reported.

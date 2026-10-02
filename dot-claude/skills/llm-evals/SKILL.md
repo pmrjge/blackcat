@@ -36,6 +36,11 @@ Check whether test items (or near-duplicates) appear in training/fine-tuning dat
 ## Statistics
 Report n and a confidence interval (bootstrap over items; paired when both systems answer the same items). A difference inside the interval is "no detectable difference". Multiple comparisons across many tasks → say how many you ran.
 
+## Verify
+- The evaluation matches the claim (table above); identical settings for system and baseline.
+- n and a 95% CI (paired bootstrap over items) reported; the number of comparisons stated.
+- Contamination checked against training data and retrieval corpora.
+
 ## Report
 ```
 | system | settings | metric | value (95% CI) | n | Δ vs baseline | cost/latency |

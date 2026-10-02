@@ -59,6 +59,12 @@ Non-centered hierarchies (above) when groups have little data; centered when dat
 - **Stan via CmdStanPy**: reference implementation, excellent diagnostics; `CmdStanModel(stan_file="m.stan").sample(data=d, chains=4, parallel_chains=4, seed=1)`, `fit.summary()`, `fit.diagnose()`; `az.from_cmdstanpy(fit)`.
 - Variational inference (ADVI, Pathfinder) for initialization or very large data; validate against MCMC on a subset before trusting its uncertainty.
 
+## Verify
+- Prior predictive outcomes plausible; parameters recovered on simulated data.
+- 4+ chains: R-hat ≤ 1.01, bulk and tail ESS ≥ 400, 0 divergences, E-BFMI > 0.3; trace/rank plots inspected.
+- Posterior predictive check done; when comparing, LOO Pareto k ≤ 0.7 or handled.
+- The interval type is stated (e.g. 89% ETI); versions and seeds recorded.
+
 ## Reporting
 Model specification (math + priors with justification) · prior and posterior predictive plots · diagnostics table (R-hat, ESS, divergences) · posterior summaries with the interval type and probability stated (e.g. "89% ETI") · decision-relevant quantities computed from draws (P(effect > 0), expected loss) · prior sensitivity · LOO comparison if models were compared · versions and seeds.
 

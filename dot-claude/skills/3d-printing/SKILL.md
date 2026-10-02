@@ -7,7 +7,7 @@ description: Use for anything 3D printed (FDM, resin) — design rules, mesh rep
 ## Scope
 - FDM/FFF and resin (MSLA/SLA), with notes for SLS/MJF services. Modeling and sculpting in `blender-3d` and `sculpting-texturing`; robot parts in `robotics-engineering`.
 - Versions to check (Sep 2026): PrusaSlicer 2.9.x, Bambu Studio 2.x, OrcaSlicer (community fork), Cura/CuraEngine; OpenSCAD and build123d move fast — check release notes.
-- Never start a print, send G-code to a printer, or change printer firmware without the user's consent (a subagent returns STATUS: blocked, NEXT: ASK USER; BlackCat asks with AskUserQuestion). Deliver files; the user presses print.
+- Never start a print, send G-code to a printer, or change printer firmware without the user's consent (the rules' consent protocol). Deliver files; the user presses print.
 
 ## Design rules (FDM, 0.4 mm nozzle; adjust for others)
 | Rule | Typical value |
@@ -68,5 +68,5 @@ Mechanical checks → temperature tower → flow/extrusion multiplier → pressu
 ## Deliverable
 Source (CAD/.blend/.scad) + STEP (CAD parts) + 3MF with orientation and settings (+ STL if requested), a short print sheet: printer/nozzle, material, layer height, walls/infill, supports, orientation, estimated time and material, post-processing.
 
-## Checklist
+## Verify
 Watertight and correctly scaled · design rules met for the process · tolerance coupon for fits · orientation justified by loads · sliced preview checked · resin parts hollowed with drain holes · no print started without the user.

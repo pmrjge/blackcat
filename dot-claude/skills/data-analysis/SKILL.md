@@ -38,6 +38,12 @@ Forecasts follow `time-series-forecasting` (rolling-origin backtests, seasonal-n
 ## 8. Reproducibility
 Notebook or script that runs top-to-bottom from the raw snapshot (`jupyter nbconvert --to notebook --execute` or nbclient), fixed seeds, pinned environment, data snapshot identified by path and hash. Every number in the report is recomputed a second way (another query, bootstrap, independent script).
 
+## Verify
+- Profile written; source data untouched; every chart read back.
+- Effect sizes with 95% CIs; every test counted and corrected (Holm or BH); confirmatory vs exploratory labelled.
+- A/B: sample-ratio mismatch and balance checked. Causal wording only with a design (§6).
+- Notebook runs top to bottom from the snapshot; every reported number recomputed a second way.
+
 ## 9. Report
 Answer first (with interval) → data and method → checks performed (assumptions, robustness, sensitivity) → limitations → figures and tables (files) → next steps. Charts: labeled axes with units, zero baseline for bar charts, colorblind-safe palettes, no dual axes unless unavoidable.
 

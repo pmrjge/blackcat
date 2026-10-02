@@ -23,35 +23,8 @@ doi:10.1136/bmj.n71); inclusion/exclusion criteria (years, venues, languages, pr
 types); 2–5 seed papers (verify them first — they calibrate vocabulary and recall); a stop rule (saturation:
 new queries return only known items, or a time budget).
 
-## 2. Sources
-| Source | Best for | Access (verified Sept 2026) |
-|---|---|---|
-| arXiv | preprints in math, physics, CS, stats, q-bio, econ | API `https://export.arxiv.org/api/query` (Atom; `http://` now 301-redirects); listings; RSS; arxiv MCP server |
-| Semantic Scholar | cross-field search, citation graph with contexts | `https://api.semanticscholar.org/graph/v1` |
-| OpenAlex | open metadata, filters, citation links, retraction flag | `https://api.openalex.org` (budgeted, see below) |
-| Crossref | authoritative publisher metadata for DOIs, updates/retractions | `https://api.crossref.org` |
-| DBLP | CS venues and author pages | `https://dblp.org/search/publ/api` |
-| zbMATH Open | mathematics (free), MSC classification, reviews | `https://api.zbmath.org/v1` |
-| MathSciNet | mathematics reviews (subscription); free MR Lookup for citations | `https://mathscinet.ams.org/mrlookup` |
-| PubMed | biomedicine | E-utilities `https://eutils.ncbi.nlm.nih.gov/entrez/eutils/` |
-| Google Scholar | coverage check, "Cited by" | no API — WebSearch/browser only; do not scrape |
-| OpenReview | ML reviews and decisions | web |
-
-Read `references/source-apis.md` when querying a source directly — arXiv (query syntax, listings, RSS, IDs, the arxiv MCP server), Semantic Scholar, OpenAlex (budget), Crossref and DOI content negotiation, DBLP, zbMATH Open, MR Lookup, PubMed: endpoints, parameters, rate limits and keys.
-
-## 3. Search strategy
-1. **Vocabulary from seeds:** terms, synonyms, notation variants, older and field-specific names; classification
-   codes (arXiv categories, MSC 2020, ACM CCS).
-2. **One query log** (CSV): source, query string, filters, date run, hits, new relevant items. Needed for
-   reproducibility and for PRISMA counts.
-3. **Recent work:** sweep arXiv listings or RSS of 1–3 categories for the last months (titles first).
-4. **Snowballing** (Wohlin, EASE 2014, doi:10.1145/2601248.2601268): backward (references of every included paper)
-   and forward (papers citing it: S2 `/citations`, OpenAlex `cites:`, Google Scholar "Cited by"); iterate until
-   a round adds nothing. Citation `contexts`/`intents` show *how* a paper is used — support, contrast, method.
-5. **Authors and venues:** key authors' recent output (DBLP/zbMATH/S2 author pages); last 2–3 years of key venues.
-6. **Grey literature** when relevant (theses, technical reports, standards) — labelled as such.
-7. **Deduplicate:** lowercase DOIs, strip arXiv versions, casefold titles without punctuation; link preprint ↔
-   published version (S2 `externalIds`, the arXiv journal-ref/DOI fields, Crossref relations).
+## 2–3. Sources and search strategy
+Read `references/sources-search.md` when choosing where to search (arXiv, Semantic Scholar, OpenAlex, zbMATH and others; access notes) and running the search (vocabulary from seeds, one query log, snowballing).
 
 ## 4. Screening
 Title/abstract pass, then full-text pass, each decision with a reason code (off-topic, wrong setting, superseded
@@ -78,21 +51,7 @@ see. Re-screen a random 10 % later to check your own consistency.
 Batch check: read `references/verify-refs-script.md` when checking a whole `.bib` (tested `verify_refs.py`, run with uv; flags title/first-author/year mismatches, failed lookups and `updated-by` notices; how to read its `CHECK` and `LOOKUP FAILED` lines).
 
 ## 6. Read efficiently and extract claims
-Keshav's three passes (ACM SIGCOMM CCR 37(3), 2007, doi:10.1145/1273445.1273458): (1) 5–10 min — title,
-abstract, introduction, headings, conclusions, glance at references; answer the five Cs: Category, Context,
-Correctness, Contributions, Clarity; drop or continue. (2) Up to an hour — figures, tables, theorem statements,
-experimental set-up; mark references to snowball. (3) Several hours — re-derive or virtually re-implement;
-hunt hidden assumptions.
-- Mathematics: read definitions and hypotheses exactly and compare them with your setting; note the proof technique;
-  check whether the result was later strengthened, corrected, refuted or formalized (e.g. in Lean/mathlib).
-- Extraction row per claim: claim (verbatim or exact paraphrase) | pinpoint | type (theorem, empirical,
-  conjecture, survey statement) | evidence | strength | caveats.
-- **Evidence strength.** Mathematics: refereed journal proof > refereed conference with full proof > preprint with
-  full proof (weigh follow-ups and known errata) > sketch/announcement; a formal proof certifies exactly the
-  formalized statement. Empirical/ML: independent replication > several datasets, tuned strong baselines, ≥ 3 seeds
-  with variance, ablations, released code and data > single run or dataset without variance > anecdote; check
-  leakage, contamination and compute parity. Surveys orient; cite primary sources for specific claims. Citation
-  counts measure attention, not correctness.
+Read `references/reading.md` when reading papers (Keshav's three passes, the five Cs) and extracting claims.
 
 ## 7. Synthesis
 - **Matrix:** rows = papers (or claims), columns = the dimensions of your question (setting, assumptions, method,

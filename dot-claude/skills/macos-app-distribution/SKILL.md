@@ -51,7 +51,7 @@ otool -l target/x86_64-apple-darwin/release/myapp | grep -A4 LC_BUILD_VERSION   
 - Every bundled dylib/framework must contain the same architectures (`lipo -archs`); C dependencies built by `cc`/cmake must be built per target.
 - Keep symbols: `split-debuginfo = "packed"` with `debug = "line-tables-only"` or higher in the release profile yields a `.dSYM` per binary (no debuginfo, no dSYM); archive dSYMs per release to symbolicate crash reports (`atos`).
 
-## Release checklist
+## Verify (release checklist)
 1. Bump `CFBundleShortVersionString` and `CFBundleVersion`; changelog.
 2. Build per target with `MACOSX_DEPLOYMENT_TARGET` = `LSMinimumSystemVersion`; `lipo` if universal; confirm `lipo -archs` for every Mach-O.
 3. Assemble the `.app` (`plutil -lint`, icon, resources, frameworks via `ditto`, license notices).

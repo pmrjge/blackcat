@@ -85,4 +85,10 @@ torchtitan (reference FSDP2/TP/PP/CP recipes for LLM pre-training), HF Accelerat
 ## 10. Scaling check (report it)
 Tokens or samples/s per GPU at 1, 2, N GPUs; scaling efficiency = throughput_N / (N × throughput_1); MFU if the model's FLOPs are known; peak memory per rank (`torch.cuda.max_memory_allocated`). Losses at equal effective batch should match the single-GPU run within noise over the first few hundred steps — otherwise suspect sampler, LR scaling or reduction dtype.
 
+## Verify
+- Single-GPU run proven (loss falls, tiny overfit) before scaling.
+- Kill-and-resume test in the first hour; the loss curve continues.
+- Losses at equal effective batch match the single-GPU run within noise; scaling efficiency, MFU (if known) and peak memory per rank reported.
+- No rank-divergent control flow; the process-group timeout is set so hangs become errors.
+
 Sources (checked 2026-09-29): https://docs.pytorch.org/docs/2.14/distributed.fsdp.fully_shard.html · https://docs.pytorch.org/docs/2.14/distributed.checkpoint.html · https://docs.pytorch.org/docs/2.14/elastic/run.html · https://docs.pytorch.org/tutorials/intermediate/FSDP_tutorial.html · https://github.com/pytorch/torchtitan/blob/main/docs/fsdp.md · https://github.com/pytorch/pytorch/releases (v2.14.0, 2026-09-02) · https://github.com/huggingface/accelerate/releases · https://github.com/deepspeedai/DeepSpeed/releases · https://github.com/jax-ml/jax/releases

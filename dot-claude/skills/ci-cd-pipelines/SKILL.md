@@ -85,7 +85,7 @@ Treat zizmor High findings as blockers; justify any `# zizmor: ignore[rule]` inl
 ## Releases
 Build from a tag on the default branch, never from PR contexts; attach provenance (`actions/attest-build-provenance`) and checksums; publish with OIDC trusted publishing (PyPI, npm) instead of tokens. Creating the tag or release is the user's step in this stack.
 
-## Checklist
+## Verify
 Top-level read-only permissions · every `uses:` SHA-pinned · no `${{ }}` of user data in `run:` · no untrusted checkout in privileged triggers · `persist-credentials: false` · OIDC over stored keys · timeouts and concurrency · actionlint and zizmor clean.
 
 Sources (checked 2026-09-29): https://github.blog/changelog/2025-11-07-actions-pull_request_target-and-environment-branch-protections-changes · https://github.blog/changelog/2025-08-15-github-actions-policy-now-supports-blocking-and-sha-pinning-actions · https://docs.github.com/en/actions/reference/security/secure-use · https://www.cisa.gov/news-events/alerts/2025/03/18/supply-chain-compromise-third-party-tj-actionschanged-files-cve-2025-30066-and-reviewdogaction · https://forgejo.org/docs/latest/user/actions/ · https://docs.zizmor.sh/audits/ · https://github.com/rhysd/actionlint/releases · https://github.com/nektos/act/releases

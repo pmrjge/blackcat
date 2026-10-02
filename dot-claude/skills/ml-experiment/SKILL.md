@@ -35,6 +35,11 @@ Use what the project already uses (W&B via `mcp__wandb` or the `wandb` library, 
 - Report cost next to quality: parameters, train time, peak memory, inference latency/throughput.
 - Look at errors, not only aggregates: worst slices, confusion pairs, a sample of failures.
 
+## Verify
+- Splits mirror deployment; baselines run with the same data and eval code.
+- ≥ 3 seeds or a paired bootstrap CI for small differences; one variable per ablation.
+- Every run has its own folder with config, command, versions, git commit and metrics; errors inspected by slice.
+
 ## 7. Results table (results.md)
 ```
 | run | change vs baseline | metric (mean ± std or CI) | guard metric | seeds | time | peak mem | notes |

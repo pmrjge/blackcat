@@ -43,5 +43,5 @@ description: Use to script or run Photoshop, InDesign or Acrobat — UXP, Extend
 - Adobe Fonts: activation-based license; fonts can't be packaged or sent as files (InDesign packaging excludes them) and web use needs a web project — flag this in handoffs (`typography`).
 - Interchange: PSD → After Effects/Premiere (layers as compositions), AI/PDF → InDesign placed graphics, IDML, PDF/X for print, TIFF/PNG/JPEG exports with embedded profiles.
 
-## Checklist
+## Verify
 Work on copies · script over clicks · dialogs suppressed and restored · no Firefly/Generative features · styles instead of overrides · preflight clean · exports verified by opening or rendering them and Reading the result · app versions reported.

@@ -10,7 +10,7 @@ description: Use to find, download or publish Hugging Face models and datasets �
 
 ## Download selectively
 - CLI: `hf download <repo_id> --include "*.safetensors" --include "*.json" --include "tokenizer*" --local-dir <dir>` (one `--include` per pattern: extra patterns after a single `--include` are read as file names and the filter is dropped with only a warning); `--dry-run` first to see what would be fetched and how much; pin `--revision <commit>` for reproducibility (older installs name the CLI `huggingface-cli`; check `hf --help`, flags change between releases). `hf download hf://datasets/<repo>@<rev>/<path>` also works.
-- Know where bytes go: the cache is `$HF_HOME/hub` (default `~/.cache/huggingface/hub`); `--local-dir` writes elsewhere. Check free disk space first (`df -h`) and state the size before multi-GB downloads; never download hundreds of GB without the user's consent (a subagent returns STATUS: blocked, NEXT: ASK USER; BlackCat asks with AskUserQuestion).
+- Know where bytes go: the cache is `$HF_HOME/hub` (default `~/.cache/huggingface/hub`); `--local-dir` writes elsewhere. Check free disk space first (`df -h`) and state the size before multi-GB downloads; never download hundreds of GB without the user's consent (the rules' consent protocol).
 - Auth: gated/private repos need a token (`HF_TOKEN` in stack.env or `hf auth login`). Never print or write the token.
 - Faster transfers: `HF_XET_HIGH_PERFORMANCE=1` (the legacy `hf_transfer` path no longer applies); re-running an interrupted download skips completed files (details under Large downloads).
 
@@ -38,6 +38,11 @@ absent = {f: sorted(names - set(safe_open(d / f, framework="numpy").keys()))   #
 print(f"{len(by_file)} shards; missing files: {missing}; files with absent tensors: {[f for f, a in absent.items() if a]}")
 ```
 9. License and gating before the first byte: `HfApi().model_info(repo)` → `.gated` (`False`, `"auto"`, `"manual"`) and `.card_data.license` (for `other`, read `license_name`/`license_link` and the LICENSE file), or `hf models info <repo>`. Accept gated terms on the website with the account whose token you use (401/403 otherwise). Note acceptable-use policies, naming rules for derivatives and non-commercial clauses; quantized community conversions inherit the base model's license. Record license and revision next to the download.
+
+## Verify
+- License and gating checked before the first byte; size from `--dry-run` reported and disk space checked.
+- Downloads verified with `hf cache verify` (step 8 above); the token never printed or written.
+- Cleanup ran `--dry-run` first; nothing deleted before the user agreed.
 
 ## Inspect without loading
 - safetensors headers give tensor names, shapes and dtypes without reading weights (`safetensors` `safe_open(..., framework="numpy")` → `keys()`, `get_slice(name).get_shape()`), which is enough to plan memory and quantization maps.

@@ -57,5 +57,5 @@ blender -b scene.blend -s 1 -e 120 -a                                      # ani
 - Undo and memory: long scripts in the UI session accumulate undo steps; run heavy batch jobs headless.
 - Absolute texture paths break on other machines; missing textures render pink.
 
-## Checklist
+## Verify
 Script runs headless and exits non-zero on failure · units and scale applied · color spaces right · QA render Read · export opened back (or validated with the glTF validator) · versions of Blender and add-ons reported.

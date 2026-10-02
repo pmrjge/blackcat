@@ -58,5 +58,5 @@ description: Use for JVM code — Java 21+, Scala 3, Gradle/Maven/sbt, JUnit, JM
 - Dependency conflicts: two versions of a library on the classpath — `dependencyInsight`/`dependency:tree` and a BOM.
 - Scala: implicit conversions and given ambiguity; `==` on Java boxed types; Scala 2 cross-builds need `-Xsource:3`.
 
-## Review checklist
+## Verify
 Toolchain pinned (JDK and build tool wrapper) · builds with warnings as errors in CI · tests incl. Testcontainers where DB logic changed · nullness annotated · no new blocking in virtual-thread pinning spots · JMH/JFR evidence for any performance claim · versions reported.

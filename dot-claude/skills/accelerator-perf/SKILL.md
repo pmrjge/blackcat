@@ -26,6 +26,12 @@ framework-level profiler (torch.profiler / MLX's own instrumentation) → timeli
 ## Change discipline
 One variable at a time. If you change dtype and batch size together and it gets faster, you don't know why.
 
+## Verify
+- Environment block recorded; baseline measured before the change; one variable changed at a time.
+- Warm-up discarded, timing synchronized (`mx.eval`, `torch.cuda.synchronize()`), ≥ 10 iterations, median and p90 reported.
+- Parity against the reference within stated max absolute and relative tolerances, on real inputs.
+- Throughput plausible against the roofline; every process you started (local or remote) killed.
+
 ## Report format
 ```
 | Change | Before | After | Δ% | Parity | Notes |

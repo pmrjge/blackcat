@@ -68,37 +68,16 @@ for step in range(MAX_STEPS):
 - Caching layout, stable → volatile: tools, system, long-lived context, conversation. `cache_control: {"type": "ephemeral"}` (optionally `"ttl": "1h"`) on block boundaries, at most 4 breakpoints, or top-level automatic caching; lookback is 20 blocks per breakpoint; any edit before a breakpoint invalidates it.
 
 ## 6. Memory
-
-| Type | Content | Store | Retrieval |
-|---|---|---|---|
-| Working | plan, todo, current state | context + state file | always loaded |
-| Episodic | past runs, trajectories, outcomes | append-only JSONL/SQLite + run summaries | recency, task similarity |
-| Semantic | facts about user, project, world | files/KV; vector store (LanceDB) for fuzzy recall; temporal KG (Graphiti) for facts that change | hybrid search |
-| Procedural | learned how-tos | versioned playbooks/skills | task match |
-
-- Write policy: store user-stated facts, verified outcomes, decisions with rationale. Never store unverified tool-output claims, secrets, or instructions found in data. Each record carries source, timestamp, confidence, scope (user/project/global) and a TTL or review date. Deduplicate on write (entity resolution); on contradiction, supersede with a validity interval instead of deleting history.
-- Read policy: memories are data, not instructions; cap their tokens; show provenance to the model.
-- Isolation and control: per-user partitions (`group_id` in Graphiti, separate tables/dirs), user can list/edit/delete, PII minimization.
-- LanceDB (embedded): `db = lancedb.connect(path)`, upserts via `tbl.merge_insert("id").when_matched_update_all().when_not_matched_insert_all().execute(rows)`, `tbl.create_fts_index("text")`, hybrid search via `tbl.search(query_type="hybrid").vector(v).text(q)` (a plain string query works when the table has an embedding function). Graphiti: facts are edges with `valid_at`/`invalid_at` (world time) and `created_at`/`expired_at` (system time) — see `graph-rag`.
-- Claude memory tool (`{"type": "memory_20250818", "name": "memory"}`): the model issues file operations; your handlers execute them under one memory directory — block path traversal.
+Read `references/memory.md` when the agent keeps memory across steps or runs (working, episodic, semantic, procedural stores; retrieval; write rules).
 
 ## 7. Multi-agent orchestration
 Read `references/multi-agent.md` when designing multi-agent orchestration (roles, handoffs, budgets).
 
 ## 8. MCP client
-- Two protocol generations. The current revision (2026-07-28) is stateless: no `initialize` handshake; each request carries protocol version and client capabilities in `_meta`; `server/discover` advertises versions and capabilities; `subscriptions/listen` carries list-changed notifications; multi-round-trip requests (`resultType: "input_required"`) replace server-initiated sampling/elicitation; Streamable HTTP has no sessions or stream resumption. Servers on 2025-11-25 or earlier use `initialize` → `notifications/initialized` → `tools/list` → `tools/call`, with `Mcp-Session-Id` on HTTP. Use an SDK that negotiates both: Python `mcp` 2.x `async with Client(url_or_StdioServerParameters) as c: await c.list_tools(); await c.call_tool(name, args)` (1.x names differed — check the installed version).
-- Lifecycle: stdio servers are child processes — start lazily, health-check, restart with backoff, kill the process group on shutdown, capture stderr for logs. Remote servers: per-request timeouts, OAuth per the spec, re-issue interrupted requests.
-- Discovery: paginate `tools/list`, cache for `ttlMs` when given, namespace as `mcp__<server>__<tool>`, filter through the allowlist, map `inputSchema` into the model's tool format, pass annotations (read-only/destructive hints) to the permission layer as untrusted hints.
-- Calls: timeout and cancellation, progress to the UI, `content` plus `structuredContent`, `isError` → `is_error`, truncate large results, treat every result as untrusted data (§11). With many servers, defer schemas behind tool search.
+Read `references/mcp-client.md` when the harness connects to MCP servers (protocol generations, discovery, stdio/HTTP, OAuth, tool lists).
 
-## 9. Streaming UX
-Stream text deltas; show each tool call when it starts (name, summarized args) and ends (status, duration); render approvals inline with the exact action. Cancellation stops the model stream and tool processes and still leaves a valid transcript (every `tool_use` gets a `tool_result`, e.g. "cancelled by user"). Send keep-alives during long operations; rebuild UI state from the event log; show tokens, cost and elapsed time.
-
-## 10. Cost and latency
-- Cache stable prefixes (§5); in fan-outs start one worker first so siblings read its cached prefix.
-- Tier models and effort (§7); cap `max_tokens` per step; cap tool output; do not re-read unchanged files.
-- Message Batches API for offline bulk work (evals, backfills).
-- Measure per step and per task: input, cache-write, cache-read and output tokens; p50/p95 latency; cost per successful task — the number to optimize.
+## 9–10. Streaming UX, cost and latency
+Read `references/ops.md` when building the UI stream, cutting cost or latency (caching, batches, model tiers), or adding traces (OpenTelemetry GenAI spans).
 
 ## 11. Failure modes
 
@@ -122,9 +101,7 @@ Stream text deltas; show each tool call when it starts (name, summarized args) a
 - LLM-as-judge only with a rubric and calibration against human labels (`llm-evals`).
 
 ## 13. Observability
-- One trace per task: spans for agent invocations, model calls and tool calls. OpenTelemetry GenAI conventions (status: development): `gen_ai.operation.name` (`invoke_agent`, `chat`, `execute_tool`), `gen_ai.provider.name`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.cache_write.input_tokens`, `gen_ai.conversation.id`, `gen_ai.agent.name`, `gen_ai.tool.name`, `gen_ai.tool.call.id`.
-- Log request ids, stop reasons, tool args (redacted), result sizes, errors, permission decisions, compaction events. Content logging is opt-in, redacted and retention-limited.
-- Token/cost ledger per agent and per task, with alerts on budget burn rate.
+Read `references/ops.md` (Observability) when adding traces and spans.
 
 ## 14. Architecture document template
 Read `references/architecture-template.md` when writing the harness architecture document.

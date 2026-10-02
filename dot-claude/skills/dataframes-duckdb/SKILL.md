@@ -76,4 +76,9 @@ con.sql("ATTACH 'dbname=app host=localhost' AS pg (TYPE postgres, READ_ONLY)")
 ## Big files
 Parquet with zstd, 128 MB–1 GB row groups, sorted by the common filter column; hive partitioning on low-cardinality columns only; predicate pushdown via lazy scans or DuckDB; CSV only at the edges. For files larger than RAM, prefer DuckDB or polars streaming over pandas chunking.
 
+## Verify
+- Library versions printed; key uniqueness asserted before joins, row counts reconciled after.
+- Schemas validated at the boundary; null-key matching and row order stated where they matter.
+- Key totals recomputed by a second route; a profile saved before and after each stage.
+
 Sources (checked 2026-09-29): https://pandas.pydata.org/docs/whatsnew/v3.0.0.html · https://docs.pola.rs/releases/upgrade/2 · https://pola.rs/posts/announcing-polars-2 · https://pypi.org/project/polars/ (2.0.0rc2, 1.44.2) · https://duckdb.org/release_calendar.html · https://www.sqlite.org/stricttables.html · https://pypi.org/project/pandera/

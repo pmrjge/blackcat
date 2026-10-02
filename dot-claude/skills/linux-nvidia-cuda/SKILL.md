@@ -79,64 +79,14 @@ torch = [{ index = "pytorch-cu130", marker = "sys_platform == 'linux'" }]
   uv run python -c "import torch as t; print(t.__version__, t.version.cuda, t.cuda.is_available(), t.cuda.get_device_name(0), t.cuda.get_device_capability(0), t.cuda.get_arch_list())"
   ```
 
-## Hybrid graphics and power
-- Keep hybrid mode (PRIME render offload): the desktop runs on the iGPU, the dGPU sleeps (runtime D3). CUDA
-  needs no offload variables; it always uses the NVIDIA GPU.
-- Offload a graphics app: `prime-run <app>` (nvidia-prime; it sets `__NV_PRIME_RENDER_OFFLOAD=1`
-  `__VK_LAYER_NV_optimus=NVIDIA_only` `__GLX_VENDOR_LIBRARY_NAME=nvidia`), or the desktop's "Launch using
-  dedicated GPU" (switcheroo-control; CLI `switcherooctl list`, `switcherooctl launch -g <id> <cmd>`).
-- RTD3 is on by default for Ampere+ notebooks (`NVreg_DynamicPowerManagement=0x03`, fine-grained). Check idle
-  state: `cat /sys/bus/pci/devices/<addr>/power/runtime_status` (`suspended`; address from `lspci -D -d 10de::`)
-  or `/proc/driver/nvidia/gpus/<addr>/power`.
-- The dGPU stays awake while: something holds `/dev/nvidia*` (`sudo fuser -v /dev/nvidia*`), a monitor is on a
-  dGPU-wired port (often HDMI), nvidia-persistenced runs with persistence, or a status bar polls `nvidia-smi`
-  (it wakes the GPU; read sysfs instead).
-- `nvidia-powerd` (Dynamic Boost) is enabled by chwd on non-Turing laptops: `systemctl status nvidia-powerd`.
-- A dGPU-only/MUX mode comes from the firmware setup or the vendor's tool. EnvyControl was archived in May 2026.
-
-## Suspend and hibernate
-- **[CachyOS]** With 595+ open modules, nvidia-utils sets `NVreg_UseKernelSuspendNotifiers=1` and
-  `NVreg_TemporaryFilePath=/var/tmp` (`/usr/lib/modprobe.d/nvidia-utils.conf`); the nvidia-suspend/-resume/
-  -hibernate services are unnecessary and the package disables them on upgrade. Don't re-enable them.
-- **[Ubuntu]** See which mechanism is active: `grep -E 'UseKernelSuspendNotifiers|PreserveVideoMemoryAllocations|TemporaryFilePath' /proc/driver/nvidia/params`
-  and `systemctl is-enabled nvidia-suspend nvidia-resume nvidia-hibernate`.
-- **[both]** `cat /sys/power/mem_sleep`: NVIDIA documents resume failures with `s2idle` on some systems; the
-  workaround is the kernel parameter `mem_sleep_default=deep` where firmware offers `deep`. The temporary file
-  path must not be tmpfs (VRAM is saved there). Hibernation also needs swap that holds the memory image and a
-  `resume=` kernel parameter.
-- Evidence: `journalctl -b -1 -k | grep -iE 'nvrm|nvidia|PM:'` after a failed resume.
+## Hybrid graphics, power, suspend
+Read `references/power-suspend.md` when the laptop's graphics mode, power draw or suspend/hibernate misbehaves (PRIME offload, runtime D3, NVreg suspend options).
 
 ## GPUs in containers
-- Install the NVIDIA Container Toolkit. **[CachyOS]** `sudo pacman -S nvidia-container-toolkit`. **[Ubuntu]**:
-  ```bash
-  curl -fsSL https://nvidia.github.io/libnvidia-container/gpgkey | sudo gpg --dearmor -o /usr/share/keyrings/nvidia-container-toolkit-keyring.gpg
-  curl -s -L https://nvidia.github.io/libnvidia-container/stable/deb/nvidia-container-toolkit.list | sed 's#deb https://#deb [signed-by=/usr/share/keyrings/nvidia-container-toolkit-keyring.gpg] https://#g' | sudo tee /etc/apt/sources.list.d/nvidia-container-toolkit.list
-  sudo apt update && sudo apt install nvidia-container-toolkit
-  ```
-- Docker **[both]**: `sudo nvidia-ctk runtime configure --runtime=docker && sudo systemctl restart docker`;
-  test `docker run --rm --gpus all nvidia/cuda:13.0.0-base-ubuntu24.04 nvidia-smi`. Rootless Docker: configure
-  `--config=$HOME/.config/docker/daemon.json` and `no-cgroups` as the toolkit docs describe.
-- Podman uses CDI. **[Ubuntu]** toolkit >= 1.18 ships `nvidia-cdi-refresh` (path + service) that rewrites
-  `/var/run/cdi/nvidia.yaml` on driver changes. **[CachyOS]** the package has no such unit; its pacman hook
-  regenerates `/etc/cdi/nvidia.yaml` when nvidia-utils or the toolkit is installed or upgraded (by hand:
-  `sudo nvidia-ctk cdi generate --output=/etc/cdi/nvidia.yaml`). Test:
-  `podman run --rm --device nvidia.com/gpu=all --security-opt=label=disable ubuntu nvidia-smi -L`; `nvidia-ctk cdi list`.
-- The image's CUDA must be <= the host driver's CUDA version.
-
+Read `references/containers.md` when a container needs the GPU (NVIDIA Container Toolkit, CDI, Docker/Podman).
 
 ## Troubleshooting
-| Symptom | Check | Fix |
-|---|---|---|
-| `nvidia-smi`: couldn't communicate with the driver | `lsmod \| grep nvidia`, `dkms status`, `journalctl -b -k \| grep -i nvrm`, `mokutil --sb-state` | install the kernel's matching module package / rebuild DKMS; Secure Boot + unsigned DKMS: enroll the MOK or use Ubuntu's signed modules |
-| `Failed to initialize NVML: Driver/library version mismatch` | `/proc/driver/nvidia/version` vs `pacman -Q nvidia-utils` / `dpkg -l \| grep nvidia-utils` | reboot (old module still loaded) |
-| GPU unusable after install, license shows `NVIDIA` | `modinfo -F license nvidia` | proprietary module on Blackwell: switch to the open flavour |
-| Black screen after an update | TTY (Ctrl+Alt+F3), `journalctl -b -1 -p err`, boot the previous kernel or a snapshot; `systemd.unit=multi-user.target` for a console | reinstall matching modules, rebuild the initramfs (**[CachyOS]** `sudo mkinitcpio -P`, **[Ubuntu]** `sudo update-initramfs -u`), or roll back |
-| nouveau/nova bound instead | `lspci -nnk -d 10de::` | driver packages blacklist them; rebuild the initramfs |
-| Battery drain, dGPU never sleeps | `runtime_status`, `fuser -v /dev/nvidia*` | stop the holder, stop polling nvidia-smi |
-| Freeze or black screen on resume | `journalctl -b -1 -k`, `/sys/power/mem_sleep` | suspend section above |
-| PyTorch "no kernel image is available" / sm_120 unsupported | `torch.version.cuda`, `get_arch_list()` | cu130/cu132 wheels |
-| Container: "could not select device driver" | runtime configured? CDI spec current? | `nvidia-ctk runtime configure`, regenerate CDI |
-| Wayland session falls back or fails | `nvidia_drm` modeset, `egl-wayland` installed | fix KMS, reinstall egl-wayland |
+Read `references/troubleshooting.md` when `nvidia-smi` fails or the GPU misbehaves (symptom → check → fix table).
 
 ## Verify
 - The driver/CUDA checks, the torch smoke test and a container `nvidia-smi` all pass.

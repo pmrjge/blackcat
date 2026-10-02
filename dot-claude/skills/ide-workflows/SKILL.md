@@ -36,5 +36,5 @@ description: Use to set up dev tooling — VS Code settings, tasks, launch, dev 
 - Agent access in this stack: the `chrome-devtools` catalog server (mcp-broker mounts it: headless, throwaway profile, no usage statistics) for traces, Lighthouse, network and heap work; Playwright for scripted headless flows; Claude in Chrome only when the user's logged-in sessions are needed.
 - Profiles: separate Chrome profiles for development vs personal browsing; extensions skew performance measurements — measure in a clean profile or headless.
 
-## Checklist
+## Verify
 EditorConfig present · recommended extensions/shared run configs committed, personal state ignored · launchers and language servers match the project's toolchain versions · formatter the same in IDE, CLI and CI · no always-on IDE MCP entries at user scope.
