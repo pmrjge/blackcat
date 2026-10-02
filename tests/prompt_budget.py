@@ -9,16 +9,23 @@ Usage:
     uv run --script tests/prompt_budget.py [--base REV] [--head REV] [--json] [--check] [--turns [GLOB]]
 
 Per agent: description chars, body chars, maxTurns, whether it has the Agent tool, omitClaudeMd.
-Shared: the rules file, the skill listing (sum of name + 4 + min(description, skillListingMaxDescChars)
-over model-invocable skills) and the agent listing an agent with the Agent tool sees (sum of name +
-description + tools line + 12 over every agent but blackcat). Per spawn = body + rules (unless
-omitClaudeMd) + skill listing + agent listing (if the agent has Agent). Tokens ~ ceil(chars / 3).
+Shared: the rules file, the skill listing and the agent listings. The skill listing sums, over the
+shipped skills, what lint_agents.skill_listing_entry counts: name + 4 + min(description,
+skillListingMaxDescChars) for a listed skill, name + 4 for a skillOverrides "name-only" one, 0 for
+"user-invocable-only", "off" or disable-model-invocation. The agent listing a subagent with the Agent
+tool sees is the sum of name + description + tools line + 12 over every agent but blackcat; BlackCat's
+own listing (blackcat_listing) sums the same over the agents its `Agent(...)` allowlist names. Per
+spawn = body + rules (unless omitClaudeMd) + skill listing + agent listing (if the agent has Agent;
+blackcat: blackcat_listing). Tokens ~ ceil(chars / 3).
 
 --base REV   compare the working tree (head) with REV (read through `git show`); a table with deltas.
 --head REV   measure REV instead of the working tree (the baseline table: --head <base rev>).
---check      exit 1 unless every description <= 200 chars, blackcat body <= 5,200, and against
-             --base: sum of bodies of agents present at base <= 0.75 x base, agent listing <= 0.70 x
-             base, rules <= 1.05 x base (ratios skipped when the base revision is missing).
+--check      exit 1 unless every description <= 200 chars, blackcat body <= 5,200 and, for agents
+             absent at base, description <= 160 / body <= 2,400 (with Agent) or <= 120 / <= 1,400
+             (leaf); and against the base (--base, default DEFAULT_BASE): bodies of the agents present
+             at base <= 1.05 x base, agent listing <= 1.20 x, blackcat listing <= 1.25 x, skill listing
+             <= 0.65 x, rules <= 1.02 x, mean per spawn of the base agents (blackcat excluded: it is the
+             main thread, never spawned) <= 0.92 x. Ratios are skipped when the base revision is missing.
 --turns      read Claude Code subagent transcripts (read-only; default
              ~/.claude/projects/**/subagents/agent-*.meta.json) and print p50/p90/max turns per agent
              type (one turn = one assistant message id).
@@ -36,9 +43,16 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DOT = "dot-claude"
 RULES = DOT + "/rules/claude-agent-stack.md"
+DEFAULT_BASE = "1a38c77"   # phase-2 baseline (main before the wave-2 agents and the skill modules)
 DESC_MAX = 200
 BLACKCAT_BODY_MAX = 5200
-RATIO = {"bodies": 0.75, "agent_listing": 0.70, "rules": 1.05}
+# agents absent at base: (description cap, body cap) with the Agent tool / as a leaf
+NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
+RATIO = {"bodies": 1.05, "agent_listing": 1.20, "blackcat_listing": 1.25, "skill_listing": 0.65,
+         "rules": 1.02, "per_spawn_mean": 0.92}
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from lint_agents import skill_listing_entry, split_top_level, leading_name  # noqa: E402
 
 
 # ---------------------------------------------------------------- sources
@@ -96,6 +110,15 @@ def unquote(v):
     return v
 
 
+def agent_allowlist(tools):
+    """Agent types named in an `Agent(a, b, ...)` tools entry, else None."""
+    for t in split_top_level(tools, ","):
+        m = re.match(r"^Agent\((.*)\)$", t.strip())
+        if m:
+            return [leading_name(x) for x in split_top_level(m.group(1), ",") if leading_name(x)]
+    return None
+
+
 def agent_record(name, text):
     fm, body = split_frontmatter(text)
     tools = fm.get("tools", "")
@@ -108,6 +131,7 @@ def agent_record(name, text):
         "has_agent": bool(re.search(r"(^|,)\s*Agent\b", tools)),
         "omit_claude_md": fm.get("omitClaudeMd", "").lower() == "true",
         "tools": tools,
+        "allowlist": agent_allowlist(tools),
         "listing": len(name) + len(unquote(fm.get("description"))) + len(tools) + 12,
     }
 
@@ -125,6 +149,7 @@ def measure(tree):
     except ValueError:
         settings = {}
     cap = int(settings.get("skillListingMaxDescChars", 1536))
+    overrides = settings.get("skillOverrides") if isinstance(settings.get("skillOverrides"), dict) else {}
     skills = 0
     for rel in tree.list(DOT + "/skills"):
         parts = rel.split("/")
@@ -132,19 +157,40 @@ def measure(tree):
             continue
         text = tree.read(rel) or ""
         head = text.split("---", 2)[1] if text.startswith("---") else ""
-        if re.search(r"(?m)^disable-model-invocation:\s*(true|yes|on|1)\s*$", head):
-            continue
+        invocable = not re.search(r"(?m)^disable-model-invocation:\s*(true|yes|on|1)\s*$", head)
         d = re.search(r"(?m)^description:\s*(.*)$", head)
-        skills += len(parts[2]) + 4 + min(len(unquote(d.group(1))) if d else 0, cap)
+        skills += skill_listing_entry(parts[2], len(unquote(d.group(1))) if d else 0,
+                                      overrides.get(parts[2], "on"), cap, invocable)
     rules = len(tree.read(RULES) or "")
     listing = sum(a["listing"] for n, a in agents.items() if n != "blackcat")
-    for a in agents.values():
+    bc = agents.get("blackcat")
+    allow = set((bc or {}).get("allowlist") or [])
+    bc_listing = sum(a["listing"] for n, a in agents.items() if n in allow and n != "blackcat")
+    for n, a in agents.items():
+        shown = bc_listing if n == "blackcat" else listing
         a["per_spawn"] = (a["body"] + (0 if a["omit_claude_md"] else rules) + skills
-                          + (listing if a["has_agent"] else 0))
+                          + (shown if a["has_agent"] else 0))
+    spawned = [a for n, a in agents.items() if n != "blackcat"]
     return {"agents": agents, "rules": rules, "skill_listing": skills, "agent_listing": listing,
+            "blackcat_listing": bc_listing,
             "bodies": sum(a["body"] for a in agents.values()),
             "descriptions": sum(a["description"] for a in agents.values()),
-            "per_spawn": sum(a["per_spawn"] for a in agents.values())}
+            "per_spawn": sum(a["per_spawn"] for a in agents.values()),
+            "per_spawn_mean": mean(a["per_spawn"] for a in spawned),
+            "per_spawn_mean_agent": mean(a["per_spawn"] for a in spawned if a["has_agent"]),
+            "per_spawn_mean_leaf": mean(a["per_spawn"] for a in spawned if not a["has_agent"])}
+
+
+def mean(xs):
+    xs = list(xs)
+    return round(sum(xs) / len(xs)) if xs else 0
+
+
+def base_spawn_mean(head, base):
+    """Mean per spawn over the agents present at base and head (blackcat excluded): (base, head)."""
+    common = [n for n in base["agents"] if n in head["agents"] and n != "blackcat"]
+    return (mean(base["agents"][n]["per_spawn"] for n in common),
+            mean(head["agents"][n]["per_spawn"] for n in common))
 
 
 # ---------------------------------------------------------------- checks
@@ -158,23 +204,40 @@ def check(head, base):
         bad.append("blackcat.md: body %d chars > %d" % (bc["body"], BLACKCAT_BODY_MAX))
     if base is None:
         return bad
+    for n, a in sorted(head["agents"].items()):
+        if n in base["agents"]:
+            continue
+        dmax, bmax = NEW_CAPS[bool(a.get("has_agent"))]
+        kind = "with Agent" if a.get("has_agent") else "leaf"
+        if a["description"] > dmax:
+            bad.append("%s.md (new, %s): description %d chars > %d" % (n, kind, a["description"], dmax))
+        if a["body"] > bmax:
+            bad.append("%s.md (new, %s): body %d chars > %d" % (n, kind, a["body"], bmax))
     common = [n for n in base["agents"] if n in head["agents"]]
     b0 = sum(base["agents"][n]["body"] for n in common)
     b1 = sum(head["agents"][n]["body"] for n in common)
     if b1 > RATIO["bodies"] * b0:
-        over = sorted(((head["agents"][n]["body"] - RATIO["bodies"] * base["agents"][n]["body"], n)
-                       for n in common), reverse=True)
-        bad.append("bodies of base agents: %d chars > %.2f x %d = %d; most over 0.75 x base: %s"
+        over = sorted(((head["agents"][n]["body"] - base["agents"][n]["body"], n) for n in common),
+                      reverse=True)
+        bad.append("bodies of base agents: %d chars > %.2f x %d = %d; grown most: %s"
                    % (b1, RATIO["bodies"], b0, RATIO["bodies"] * b0,
                       ", ".join("%s.md (+%d)" % (n, d) for d, n in over[:8] if d > 0)))
-    for key in ("agent_listing", "rules"):
-        if head[key] > RATIO[key] * base[key]:
+    for key in ("agent_listing", "blackcat_listing", "skill_listing", "rules"):
+        if head.get(key, 0) > RATIO[key] * base.get(key, 0):
             bad.append("%s: %d chars > %.2f x %d = %d" % (key, head[key], RATIO[key], base[key],
                                                           RATIO[key] * base[key]))
+    m0, m1 = base_spawn_mean(head, base)
+    if m1 > RATIO["per_spawn_mean"] * m0:
+        bad.append("per_spawn_mean of base agents: %d chars > %.2f x %d = %d"
+                   % (m1, RATIO["per_spawn_mean"], m0, RATIO["per_spawn_mean"] * m0))
     return bad
 
 
 # ---------------------------------------------------------------- report
+TOTALS = ("descriptions", "bodies", "rules", "skill_listing", "agent_listing", "blackcat_listing",
+          "per_spawn", "per_spawn_mean", "per_spawn_mean_agent", "per_spawn_mean_leaf")
+
+
 def tok(chars):
     return math.ceil(chars / 3)
 
@@ -193,7 +256,7 @@ def table(head, base, rev):
                 n, a["description"], a["body"], a["maxTurns"] or "—", "y" if a["has_agent"] else "",
                 a["per_spawn"], tok(a["per_spawn"])))
         out.append("")
-        for k in ("descriptions", "bodies", "rules", "skill_listing", "agent_listing", "per_spawn"):
+        for k in TOTALS:
             out.append("- %s: %d chars (≈ %d tokens)" % (k, head[k], tok(head[k])))
         return "\n".join(out)
     out.append("Base `%s` → head (working tree). Chars; tokens ≈ chars / 3." % rev)
@@ -217,12 +280,14 @@ def table(head, base, rev):
     out.append("")
     out.append("| total | base chars | head chars | Δ | head ≈ tokens |")
     out.append("|---|---:|---:|---:|---:|")
-    for k in ("descriptions", "bodies", "rules", "skill_listing", "agent_listing", "per_spawn"):
+    for k in TOTALS:
         out.append("| %s | %d | %d | %s | %d |" % (k, base[k], head[k], pct(base[k], head[k]), tok(head[k])))
     common = [n for n in base["agents"] if n in head["agents"]]
     b0 = sum(base["agents"][n]["body"] for n in common)
     b1 = sum(head["agents"][n]["body"] for n in common)
     out.append("| bodies (agents at base) | %d | %d | %s | %d |" % (b0, b1, pct(b0, b1), tok(b1)))
+    m0, m1 = base_spawn_mean(head, base)
+    out.append("| per_spawn_mean (agents at base, no blackcat) | %d | %d | %s | %d |" % (m0, m1, pct(m0, m1), tok(m1)))
     return "\n".join(out)
 
 
@@ -299,6 +364,8 @@ def main(argv=None):
         return 2
     head = measure(Tree(args.head))
     base = None
+    if args.check and not args.base:
+        args.base = DEFAULT_BASE
     if args.base:
         if rev_exists(args.base):
             base = measure(Tree(args.base))

@@ -229,6 +229,20 @@ def get_may_spawn(body):
     return [leading_name(t).lower() for t in tokens if leading_name(t)]
 
 
+# skillOverrides values (code.claude.com/docs/en/skills.md, "Override skill visibility from settings"):
+# "on" lists name and description, "name-only" the name, "user-invocable-only" and "off" nothing.
+OVERRIDE_STATES = {"on", "name-only", "user-invocable-only", "off"}
+
+
+def skill_listing_entry(name, desc_len, override="on", desc_cap=1536, model_invocable=True):
+    """Characters one skill adds to the skill listing every agent sees (separators not counted)."""
+    if not model_invocable or override in ("user-invocable-only", "off"):
+        return 0
+    if override == "name-only":
+        return len(name) + 4
+    return len(name) + 4 + min(desc_len, desc_cap)
+
+
 def skill_names():
     return {d.name for d in SKILLS_DIR.iterdir() if (d / "SKILL.md").is_file()}
 
@@ -504,6 +518,16 @@ def main():
         desc_cap = int(json.loads(SETTINGS.read_text()).get("skillListingMaxDescChars", 1536))
     except (OSError, ValueError, TypeError):
         desc_cap = 1536
+    try:
+        overrides = json.loads(SETTINGS.read_text()).get("skillOverrides") or {}
+    except (OSError, ValueError):
+        overrides = {}
+    if not isinstance(overrides, dict):
+        fail("settings.json skillOverrides is not an object")
+        overrides = {}
+    for k, v in sorted(overrides.items()):
+        if v not in OVERRIDE_STATES:
+            fail(f"settings.json skillOverrides[{k!r}] = {v!r}: not one of {sorted(OVERRIDE_STATES)}")
     listing = []
     for s in sorted(skill_names()):
         text = (SKILLS_DIR / s / "SKILL.md").read_text()
@@ -526,13 +550,18 @@ def main():
             fail(f"skills/{s}/SKILL.md: description names agents {named} — say when to load it, not who")
         if re.search(r"(?m)^disable-model-invocation:\s*(true|yes|on|1)\s*$", head):
             continue
-        listing.append(len(s) + 4 + min(len(d.group(1).strip()) if d else 0, desc_cap))
+        entry = skill_listing_entry(s, len(d.group(1).strip()) if d else 0, overrides.get(s, "on"), desc_cap)
+        if entry:
+            listing.append(entry)
+        if overrides.get(s) in ("user-invocable-only", "off"):
+            continue
         if "Skill" not in allow and f"Skill({s})" not in allow:
             fail(f"settings.json permissions.allow lacks Skill (or Skill({s})) — agents loading it on "
                  "demand would stop at a permission prompt")
     # Claude Code lists every skill (name + description) to every agent within
     # skillListingBudgetFraction (default 0.01) of the context window, at ~3 characters per token on
-    # current models; over it, the least-used skills show by name only. The stack's own skills must
+    # current models; over it, the least-used skills show by name only. skillOverrides "name-only"
+    # entries count their name only, "user-invocable-only"/"off" nothing. The stack's own skills must
     # leave half of that for plugin and claude.ai skills.
     try:
         frac = float(json.loads(SETTINGS.read_text()).get("skillListingBudgetFraction", 0.01))
