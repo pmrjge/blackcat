@@ -5,8 +5,9 @@ description: Load before modeling, querying, indexing, tuning, migrating or oper
 # MongoDB
 
 ## Scope and baseline
-- Covers MongoDB as an application database (Community, Enterprise, Atlas). Relational design lives in `postgresql`; vector-retrieval design in `rag-agents`.
-- Versions (endoflife.date, Sep 2026): 8.3 (May 2026) and 8.2 (Sep 2025) are the newest; 8.0 is the widely deployed major. `db.version()` first. Minor "rapid releases" reach Atlas before self-managed builds.
+- Covers MongoDB as an application database (Community, Enterprise, Atlas). Engine choice and engine-neutral modeling in `db-design`; relational design in `postgresql`; migrations workflow in `db-migrations`; vector-retrieval design in `rag-agents`.
+- `references/operations.md` — read when choosing a shard key, using change streams, monitoring/profiling, backups and restores, `mongoimport`/`mongoexport`, or driver and pool settings.
+- Versions: endoflife.date lists 9.0 (2026-09-30, 9.0.2) as the newest cycle, then 8.3 (May 2026, 8.3.11); 8.2 reached EOL 2026-07-31; 8.0 (8.0.32, EOL 2029-10-31) is the widely deployed major. Verified 2026-10-02 https://endoflife.date/api/mongodb.json — check 9.0 release notes before relying on new features. `db.version()` first. Minor "rapid releases" reach Atlas before self-managed builds.
 - Local: `brew tap mongodb/brew && brew install mongodb-community`, Docker `mongodb/mongodb-community-server`, or `atlas deployments setup --type local` (Atlas CLI, includes Search). Transactions and change streams need a replica set — even locally run a single-node set (`mongod --replSet rs0` then `rs.initiate()`).
 
 ## mongosh essentials
@@ -35,17 +36,6 @@ description: Load before modeling, querying, indexing, tuning, migrating or oper
 - Write concern `w: "majority"` for durability (default in modern versions), `j: true` implied; read concern `majority`/`snapshot`; read preference `primary` unless stale reads are acceptable.
 - Multi-document transactions work on replica sets and sharded clusters; keep them short (default 60 s limit), retry on `TransientTransactionError` and commit on `UnknownTransactionCommitResult` (drivers' `withTransaction` does both). Prefer a document design that makes the update single-document atomic.
 - Causal consistency via sessions when reading your own writes from secondaries.
-
-## Scale and operations
-- Sharding: choose the shard key for high cardinality, low frequency and non-monotonic writes (hashed for monotonic IDs, compound for range queries); a bad key is expensive to fix (resharding exists but costs). Queries without the shard key scatter-gather.
-- Change streams for CDC (resume tokens; need replica sets).
-- Monitoring: profiler (`db.setProfilingLevel(1, { slowms: 100 })`, `system.profile`), `serverStatus`, WiredTiger cache usage, replication lag (`rs.printSecondaryReplicationInfo()`), Atlas Performance Advisor.
-- Backups: `mongodump --archive=app.gz --gzip` / `mongorestore` for logical copies (not consistent across shards without care); filesystem snapshots or Atlas/Ops Manager backups for production. Test restores.
-- `mongoimport`/`mongoexport` for JSON/CSV interchange (they don't preserve all BSON types — use `--jsonFormat=canonical`).
-
-## Drivers
-- Python: PyMongo 4.x (includes the async API `AsyncMongoClient`; Motor is deprecated in its favor); ODMs Beanie or ODMantic when the repo uses them. Node: the official driver or Mongoose (schemas, middleware). Java: sync/reactive-streams drivers, Spring Data MongoDB. Rust: `mongodb` crate.
-- One client per process (it pools connections); set `maxPoolSize`, timeouts (`serverSelectionTimeoutMS`, `timeoutMS` in newer drivers) and `retryWrites=true`.
 
 ## Security
 Authentication on (SCRAM-SHA-256 or x.509), TLS, `bindIp` restricted, least-privilege roles per app, field-level or queryable encryption for sensitive fields when required. **Query injection**: never pass user-supplied objects straight into filters — a JSON body `{"$ne": null}` becomes an operator; validate types and strip `$`-prefixed keys. Avoid `$where` and server-side JavaScript.

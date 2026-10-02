@@ -16,8 +16,8 @@ description: Use when code or a protocol needs machine-checked assurance — z3/
 | Can this Rust function panic, overflow or violate an assertion for any input? | Kani | all inputs allowed by the harness, loops within the unwind bound | minutes–hours |
 | Does (unsafe) Rust hit UB on the paths the tests execute? | Miri | per executed path and seed | tests run 10–100× slower |
 | Is a concurrent Rust structure correct under the C11 memory model? | loom (exhaustive for tiny tests), shuttle (randomized) | bounded interleavings | hours |
-| Does the implementation agree with a model over random operation sequences? | stateful PBT: hypothesis, proptest(-state-machine), fast-check | evidence, not proof | cheap |
-| Does a parser/decoder crash, hang or hit UB on hostile bytes? | fuzzing (cargo-fuzz, atheris, AFL++) + sanitizers | coverage-guided evidence | CPU-hours |
+| Does the implementation agree with a model over random operation sequences? | stateful PBT: hypothesis, proptest(-state-machine), fast-check (`test-property-based`) | evidence, not proof | cheap |
+| Does a parser/decoder crash, hang or hit UB on hostile bytes? | fuzzing (cargo-fuzz, atheris, AFL++) + sanitizers (`test-fuzzing`) | coverage-guided evidence | CPU-hours |
 | Full functional correctness of a small critical core | deductive verification: Dafny, Verus or Creusot (Rust), Frama-C WP / Why3 (C), SPARK (Ada); proof assistants | proof relative to the spec and trusted base | weeks |
 
 Order of attack: PBT and fuzzing on existing code first (cheap, and they find the shallow bugs fast); model-check a protocol before implementing it; SMT for localized arithmetic facts; deductive proofs only for small cores where the cost is justified. Verify the current status and install method of any tool not covered below before recommending it.
@@ -113,61 +113,8 @@ Miri (interpreter that detects UB): `rustup +nightly component add miri`, then `
 
 loom: write the test against `loom::sync`/`loom::thread` inside `loom::model(|| { ... })`, gate with `#[cfg(loom)]`, run `RUSTFLAGS="--cfg loom" cargo test --release`; keep tests to 2–3 threads and a few operations. shuttle randomizes schedules for larger tests. Sanitizers (nightly): `RUSTFLAGS="-Zsanitizer=address" cargo +nightly test -Zbuild-std --target x86_64-unknown-linux-gnu` (thread sanitizer likewise; `-Zbuild-std` needs the `rust-src` component and an instrumented std avoids TSan false positives).
 
-## 5. Property-based and stateful testing
-Properties that pay off: round trip (`decode(encode(x)) == x`), differential against a reference or older version, invariants after every operation, metamorphic relations, idempotence, algebraic laws, "only documented errors".
-```python
-from hypothesis import settings, strategies as st
-from hypothesis.stateful import RuleBasedStateMachine, rule, precondition, invariant
-
-class QueueVsModel(RuleBasedStateMachine):
-    def __init__(self):
-        super().__init__(); self.sut, self.model = MyQueue(), []      # system under test + model
-    @rule(x=st.integers())
-    def push(self, x):
-        self.sut.push(x); self.model.append(x)
-    @precondition(lambda self: self.model)
-    @rule()
-    def pop(self):
-        assert self.sut.pop() == self.model.pop(0)
-    @invariant()
-    def same_size(self):
-        assert len(self.sut) == len(self.model)
-
-TestQueue = QueueVsModel.TestCase
-TestQueue.settings = settings(max_examples=300, stateful_step_count=50, deadline=None)
-```
-- hypothesis: `@settings(max_examples=..., deadline=None)` for slow code; `@example(...)` pins regressions; `st.data()` for dependent draws; avoid heavy `assume`/`.filter` (health-check failures) — build valid values constructively so shrinking works; failing examples replay from `.hypothesis/`. A mutation check (break the implementation on purpose) confirms the machine has teeth.
-- proptest (Rust): `proptest! { #[test] fn prop(xs in prop::collection::vec(any::<i64>(), 0..64)) { prop_assert_eq!(fast(&xs), reference(&xs)); } }`; commit `proptest-regressions/`; stateful testing with `proptest-state-machine`.
-- fast-check (JS/TS): `fc.assert(fc.property(fc.array(fc.integer()), (xs) => ...))`; model-based testing with `fc.commands([...])` + `fc.modelRun(setup, cmds)`.
-
-## 6. Fuzzing
-Targets: parsers, decoders, deserializers, protocol state machines, anything reading untrusted bytes; differential fuzzing of two implementations.
-- cargo-fuzz (libFuzzer; nightly; x86-64/aarch64 Unix): `cargo install cargo-fuzz`, `cargo fuzz init`, `cargo fuzz add parse`, `cargo +nightly fuzz run parse -- -max_total_time=600 -max_len=4096`. Crashes land in `fuzz/artifacts/parse/`; reproduce with `cargo +nightly fuzz run parse <artifact>`; `cargo fuzz tmin`, `cmin`, `coverage`. AddressSanitizer is on by default. Structured inputs: `libfuzzer-sys = { version = "0.4", features = ["arbitrary-derive"] }` and `#[derive(Arbitrary, Debug)]` types as the closure argument.
-```rust
-#![no_main]
-use libfuzzer_sys::fuzz_target;
-fuzz_target!(|data: &[u8]| {
-    if let Ok(s) = std::str::from_utf8(data) { let _ = mycrate::parse(s); }   // must not panic, hang or UB
-});
-```
-- atheris (Python 3.11–3.14; Linux wheels; on macOS it needs a non-Apple LLVM with libFuzzer):
-```python
-import sys, atheris
-with atheris.instrument_imports():
-    import mylib                                   # pure-Python code gets coverage feedback
-def TestOneInput(data: bytes) -> None:
-    fdp = atheris.FuzzedDataProvider(data)
-    text = fdp.ConsumeUnicodeNoSurrogates(fdp.ConsumeIntInRange(0, 4096))
-    try:
-        value = mylib.parse(text)
-    except mylib.ParseError:
-        return                                     # the documented failure mode
-    assert mylib.parse(mylib.render(value)) == value
-atheris.Setup(sys.argv, TestOneInput); atheris.Fuzz()
-```
-Run `uv run python fuzz_parse.py corpus/ -atheris_runs=1000000 -max_len=4096` (libFuzzer flags pass through). C-implemented modules give no coverage feedback unless built with instrumentation.
-- AFL++ (C/C++ binaries): build with `CC=afl-clang-fast CXX=afl-clang-fast++` (or `afl-clang-lto`), `AFL_USE_ASAN=1`; run `afl-fuzz -i seeds -o out -- ./target @@`; a CMPLOG build (`AFL_LLVM_CMPLOG=1`, then `-c ./target.cmplog`) cracks magic values; `afl-cmin`/`afl-tmin` minimize; parallelize with one `-M` and several `-S` instances; persistent mode for speed. libFuzzer harnesses (`LLVMFuzzerTestOneInput`) build with `clang -fsanitize=fuzzer,address`.
-- Corpus and hygiene: seed with real samples and edge cases, add a dictionary (`-dict=`) for tokens, minimize periodically, keep the corpus as an artifact, turn every crash into a regression test. Sanitizers: ASan (memory), UBSan (UB), MSan (uninitialized; needs a fully instrumented build), TSan (races; separate build). Track executions/s and coverage growth; a plateau means the harness or corpus needs work, not that the code is safe.
+## 5–6. Property-based, stateful testing and fuzzing
+Moved to modules of `test-strategy`: `test-property-based` (hypothesis state machines, proptest, fast-check) and `test-fuzzing` (cargo-fuzz, atheris, AFL++, Go fuzzing, sanitizers, corpus hygiene). Their results are evidence, not proof (§7).
 
 ## 7. What a result does and does not guarantee
 - Everything is relative to a specification and a trusted base (compiler, solver, model checker, harness, stubs). A wrong or vacuous spec proves nothing — always demonstrate that the check can fail.

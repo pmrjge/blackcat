@@ -7,6 +7,11 @@ description: Load before building, designing or auditing UI for accessibility �
 ## Scope
 Accessibility of web UIs and UI designs. Contrast math and color spaces → `color-management`; framework code → `frontend-frameworks`; design tokens and component states → `ui-design-systems`; running the browser → `browser-automation`; accessible PDFs/Office files → the pdf/docx skills; slides → `presentation-design`.
 
+## Modules
+| Module | Load when |
+|---|---|
+| `a11y-mobile` | native or cross-platform mobile apps: iOS, Android, Flutter, React Native APIs, audits, VoiceOver/TalkBack passes |
+
 ## Target and legal frame (checked 2026-09-29)
 - Target **WCAG 2.2 Level AA** (W3C Recommendation, 5 Oct 2023; 4.1.1 Parsing removed as obsolete).
 - WCAG 3.0 is a **Working Draft** (latest 10 Sep 2026): never cite it as a requirement.

@@ -5,8 +5,9 @@ description: Load before designing, querying, tuning, migrating or upgrading Pos
 # PostgreSQL
 
 ## Scope and baseline
-- Covers PostgreSQL as an application database and analytics store. Generic SQL analysis in `data-analysis`; embeddings retrieval design in `rag-agents`; secrets handling in `secure-coding`.
-- Versions (endoflife.date, Sep 2026): **18 is current** (Sep 2025, 18.6), 17 and 16 supported; a major lasts five years. `SELECT version();` before advising anything version-specific.
+- Covers PostgreSQL as an application database and analytics store. Engine-neutral modeling and engine choice in `db-design`; migration workflow in `db-migrations`; generic SQL analysis in `data-analysis`; embeddings retrieval design in `rag-agents`; secrets handling in `secure-coding`.
+- `references/operations.md` — read when tuning vacuum/bloat, partitioning, pooling (PgBouncer), memory settings, backups, replication, major upgrades or picking extensions.
+- Versions: **18 is current** (Sep 2025, 18.6), 17 (17.11) and 16 (16.15) supported, no 19 yet; a major lasts five years. Verified 2026-10-02 https://endoflife.date/api/postgresql.json. `SELECT version();` before advising anything version-specific.
 - PostgreSQL 18 notes: asynchronous I/O (`io_method`), `uuidv7()`, virtual generated columns (the default kind), `OLD`/`NEW` in `RETURNING`, B-tree skip scan, `EXPLAIN ANALYZE` shows buffers by default, OAuth authentication, `pg_upgrade --swap`. Check the release notes for anything else.
 - Local: Postgres.app or `brew install postgresql@18`, or Docker `postgres:18` with a named volume. Never run experiments against production; `EXPLAIN ANALYZE` executes the statement.
 
@@ -42,31 +43,16 @@ description: Load before designing, querying, tuning, migrating or upgrading Pos
 - Workload view: `pg_stat_statements` (top by `total_exec_time`, `mean_exec_time`, calls); `auto_explain` with `log_min_duration` for slow production queries.
 - Rewrite before tuning: `EXISTS` over `IN (subquery)` with NULLs, keyset pagination (`WHERE (created_at, id) < ($1, $2) ORDER BY … LIMIT n`) over `OFFSET`, avoid functions on indexed columns, CTEs are inlined unless `MATERIALIZED`.
 
-## MVCC, vacuum, bloat
-- Updates write new row versions; autovacuum reclaims them. Long-running or idle-in-transaction sessions block cleanup: set `idle_in_transaction_session_timeout`, find them in `pg_stat_activity`.
-- Hot tables: per-table `autovacuum_vacuum_scale_factor` (e.g. 0.02) and `autovacuum_vacuum_cost_limit`; monitor `n_dead_tup`, `last_autovacuum`; transaction-ID age (`age(datfrozenxid)`) for wraparound.
-- `VACUUM FULL` rewrites and locks the table — use pg_repack for online compaction.
-
 ## Migrations without downtime
 - Always `SET lock_timeout = '5s'` (and `statement_timeout`) in migrations; retry rather than queue behind a long query while blocking everyone.
-- Safe patterns: `ADD COLUMN` with a constant default is metadata-only (11+); `NOT NULL` via `ADD CONSTRAINT … CHECK (x IS NOT NULL) NOT VALID` → `VALIDATE CONSTRAINT` → `SET NOT NULL`; foreign keys `NOT VALID` then `VALIDATE`; indexes `CONCURRENTLY`; renames via expand/contract (new column, dual write, backfill in batches, switch reads, drop old).
+- Safe patterns: `ADD COLUMN` with a constant default is metadata-only (11+); `NOT NULL` via `ADD CONSTRAINT … CHECK (x IS NOT NULL) NOT VALID` → `VALIDATE CONSTRAINT` → `SET NOT NULL`; foreign keys `NOT VALID` then `VALIDATE`; indexes `CONCURRENTLY`; renames and type changes via expand/contract (`db-migrations`).
 - Dangerous: changing a column type (rewrite), `ALTER TABLE … SET NOT NULL` on a big table without the CHECK trick, adding a volatile default, `CLUSTER`, `VACUUM FULL`.
-- Migration tools: follow the repo (Alembic, Flyway, Liquibase, sqlx, dbmate, Prisma). Every migration reversible and tested on a copy with production-like volume.
+- Tools, expand/contract, backfills, rollback and testing on a copy: `db-migrations`.
 
 ## Transactions and concurrency
 - Default READ COMMITTED; REPEATABLE READ or SERIALIZABLE need retry loops on SQLSTATE `40001` (and `40P01` deadlocks).
 - Queues: `SELECT … FOR UPDATE SKIP LOCKED LIMIT n`. Upserts: `INSERT … ON CONFLICT (key) DO UPDATE`; `MERGE` (15+, `RETURNING` since 17). Advisory locks for app-level mutexes.
 - Keep transactions short; never hold one open across network calls to other services.
-
-## Scale and operations
-- Partitioning (declarative RANGE/LIST/HASH) for very large tables with a natural pruning key (time); indexes are per partition; detach/drop old partitions instead of `DELETE`.
-- Connections are processes: keep `max_connections` modest and put PgBouncer (transaction pooling: no session state such as `SET`, advisory session locks or temp tables across statements) or the driver's pool in front.
-- Memory starting points: `shared_buffers` ≈ 25 % RAM, `effective_cache_size` ≈ 50–75 % RAM, `work_mem` small globally (per sort/hash node per connection) and raised per query/role, `maintenance_work_mem` 1–2 GB for index builds, `random_page_cost` 1.1 on SSD. Measure after each change.
-- Backups: `pg_dump -Fc` (or `-Fd -j 8`) + `pg_restore -j 8` for logical; `pg_basebackup` + WAL archiving (pgBackRest, Barman, WAL-G) for point-in-time recovery. A backup counts only after a test restore.
-- Replication: streaming (physical) for HA/read replicas; logical (publications/subscriptions) for selective replication and near-zero-downtime major upgrades. `pg_upgrade --link` (or `--swap` on 18) for in-place upgrades; run `vacuumdb --all --analyze-in-stages` afterwards (18 carries planner statistics over, still verify).
-
-## Extensions worth knowing
-pg_stat_statements, pg_trgm, pgvector (HNSW `m`, `ef_construction`; `SET hnsw.ef_search`; filter + vector queries may need iterative scans — check the pgvector version's docs), PostGIS, pgcrypto, citext, TimescaleDB, pg_partman, pg_cron, pg_repack, hypopg (hypothetical indexes).
 
 ## Security
 Roles with least privilege (app role owns nothing it doesn't need; separate migration role), `REVOKE CREATE ON SCHEMA public FROM PUBLIC` (default since 15), row-level security for multi-tenant tables, `scram-sha-256` auth, TLS for remote connections, parameterized queries only (psycopg 3 `%s` placeholders, asyncpg `$1`, JDBC `?`) — never string-built SQL.
