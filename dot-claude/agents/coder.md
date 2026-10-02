@@ -3,7 +3,7 @@ name: coder
 description: "Small/medium code tasks: scripts, fixes, features in known areas, configs, tests. Language-heavy work goes to <lang>-engineer."
 model: claude-sonnet-5-5
 effort: medium
-maxTurns: 150
+maxTurns: 170
 tools: Read, Write, Edit, Bash, LSP, NotebookEdit, WebSearch, WebFetch, ToolSearch, Skill, Monitor, TaskStop, SendMessage, Agent, mcp__libdocs, mcp__exa
 mcpServers:
   - libdocs:
