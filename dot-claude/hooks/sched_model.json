@@ -1,6 +1,6 @@
 {
  "version": 1,
- "generated": "2026-10-02T22:21:03Z",
+ "generated": "2026-10-02T23:48:55Z",
  "stack_hash": "sha256:58af06016eedac468acd2010709626f31c72a9f8ab2a86e611b3e5064fdbd03b",
  "sessions": [
   "4e2da3ce-e2f4-4971-aac5-a67f2dcf252e",
@@ -3186,6 +3186,137 @@
    "n_seg": 46,
    "n_agents": 2,
    "n_first": 2
+  }
+ },
+ "resume_ctx": {
+  "alpha": 783,
+  "gamma": 776.2,
+  "n": 79,
+  "n_agents": 23,
+  "formula": "ctx = n * (prior_peak + alpha + gamma * n)"
+ },
+ "fixer": {
+  "reread": 105276,
+  "lo": 86128,
+  "hi": 176085,
+  "level": 0.95,
+  "n": 14,
+  "n_agents": 14,
+  "rule": "fresh fixer cost = kappa_w x (static_cc + reread); lo/hi: order-statistic interval of the median"
+ },
+ "run_interval": {
+  "level": 0.9,
+  "method": "split conformal, leave-one-agent-out log residuals",
+  "applies_to": "one run: turns M, ctx at M (a resume from its prior peak), wall = sec_per_call p50 x M",
+  "groups": {
+   "pooled": {
+    "n": 146,
+    "turns": {
+     "lo": 0.2,
+     "hi": 3.0,
+     "n": 146
+    },
+    "ctx": {
+     "lo": 0.115,
+     "hi": 4.114,
+     "n": 146
+    },
+    "wall": {
+     "lo": 0.055,
+     "hi": 31.987,
+     "n": 141
+    }
+   },
+   "analyst:fresh": {
+    "n": 11,
+    "turns": {
+     "lo": 0.5,
+     "hi": 1.833,
+     "n": 11
+    },
+    "ctx": {
+     "lo": 0.273,
+     "hi": 1.743,
+     "n": 11
+    },
+    "wall": {
+     "lo": 0.417,
+     "hi": 2.116,
+     "n": 11
+    }
+   },
+   "builder:fresh": {
+    "n": 22,
+    "turns": {
+     "lo": 0.18,
+     "hi": 8.981,
+     "n": 22
+    },
+    "ctx": {
+     "lo": 0.077,
+     "hi": 28.186,
+     "n": 22
+    },
+    "wall": {
+     "lo": 0.032,
+     "hi": 25.906,
+     "n": 22
+    }
+   },
+   "builder:resume": {
+    "n": 27,
+    "turns": {
+     "lo": 0.035,
+     "hi": 3.193,
+     "n": 27
+    },
+    "ctx": {
+     "lo": 0.023,
+     "hi": 4.732,
+     "n": 27
+    },
+    "wall": {
+     "lo": 0.011,
+     "hi": 4.391,
+     "n": 27
+    }
+   },
+   "coordinator:resume": {
+    "n": 44,
+    "turns": {
+     "lo": 0.5,
+     "hi": 3.0,
+     "n": 44
+    },
+    "ctx": {
+     "lo": 0.496,
+     "hi": 3.083,
+     "n": 44
+    },
+    "wall": {
+     "lo": 0.152,
+     "hi": 214.881,
+     "n": 41
+    }
+   },
+   "lookup:fresh": {
+    "n": 29,
+    "turns": {
+     "lo": 0.6,
+     "hi": 2.327,
+     "n": 29
+    },
+    "ctx": {
+     "lo": 0.405,
+     "hi": 4.114,
+     "n": 29
+    },
+    "wall": {
+     "lo": 0.475,
+     "hi": 6.429,
+     "n": 29
+    }
+   }
   }
  }
 }

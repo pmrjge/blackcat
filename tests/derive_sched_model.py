@@ -140,9 +140,34 @@ def soft_limits(guard):
     return soft
 
 
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+NOTE_DIRS = ("/.claude-work/", "/tmp/", "/private/")      # notes and scratch, not work on the repo
+
+
+def repo_write_tools(path):
+    """Ids of the tool_use blocks of a transcript that write a repo file (Write/Edit/MultiEdit/
+    NotebookEdit outside NOTE_DIRS). Only the ids are kept; paths are matched and discarded."""
+    ids = set()
+    for line in open(path, encoding="utf-8", errors="replace"):
+        if '"tool_use"' not in line:
+            continue
+        try:
+            r = json.loads(line)
+        except ValueError:
+            continue
+        for b in ((r.get("message") or {}).get("content") or []) if r.get("type") == "assistant" else []:
+            if isinstance(b, dict) and b.get("type") == "tool_use" and b.get("name") in WRITE_TOOLS:
+                p = str((b.get("input") or {}).get("file_path") or (b.get("input") or {}).get("notebook_path") or "")
+                if p and not any(d in p for d in NOTE_DIRS):
+                    ids.add(b.get("id"))
+    return ids
+
+
 def load(root, until):
     """One row per subagent segment, as derive_thresholds.load, plus first-call fields, the gap to
-    the previous segment and its peak. Segments whose last call is after `until` are dropped."""
+    the previous segment and its peak, and the ramp-up before the first repo write (first_ctx,
+    ctx_at_first_write: the context of the first call and of the first call that writes a repo
+    file). Segments whose last call is after `until` are dropped."""
     now = dt.datetime.now(dt.timezone.utc)
     lim = iso(until)
     rows = []
@@ -158,6 +183,7 @@ def load(root, until):
             atype = meta.get("agentType") or "(unknown)"
             atype = atype[:-5] if atype.endswith("-copy") else atype
             segs = DT.segments_of(DT.read_records(f))
+            rw = repo_write_tools(f)
             live = (now - dt.datetime.fromtimestamp(os.path.getmtime(f), dt.timezone.utc)).total_seconds() < DT.LIVE_S
             prev, prev_tl = None, False
             for i, sg in enumerate(segs):
@@ -173,6 +199,10 @@ def load(root, until):
                     row.update(first_cc=c0["cache_creation_input_tokens"], first_cr=c0["cache_read_input_tokens"],
                                gap_s=(iso(s["first_ts"]) - iso(prev["last_ts"])).total_seconds() if prev else np.nan,
                                prev_peak=prev["peak"] if prev else np.nan)
+                    cx = [c["input_tokens"] + c["cache_creation_input_tokens"] + c["cache_read_input_tokens"]
+                          for c in sg["calls"]]
+                    k = next((j for j, c in enumerate(sg["calls"]) if c["tools"] & rw), None)
+                    row.update(first_ctx=cx[0], ctx_at_first_write=cx[k] if k is not None else np.nan)
                     cnt = {}
                     for c in sg["calls"]:
                         cnt[str(c["model"])] = cnt.get(str(c["model"]), 0) + 1
@@ -471,7 +501,128 @@ def family_version(model_id):
     return (m.group(1), m.group(2) + ("." + m.group(3) if m.group(3) else "")) if m else None
 
 
-def fit(segments, frontmatter, soft_limits, seed=0, *, until=None, B=B_DEFAULT, generated=None):
+# ------------------------------------------------------------------------------------- S1e additions
+RUN_LEVEL = 0.9
+RUN_MIN_GROUP = 10        # a calibration group with fewer residuals uses the pooled ones
+
+
+def fit_resume_ctx(seg):
+    """ctx of a resume = n * (prior peak + alpha + gamma * n): a resume re-reads its prior context on
+    every call. Huber fit of ctx/n - prior peak on n over healthy resumes; None below the support gate
+    (>= 5 resumes from >= 3 agents)."""
+    R = seg[seg.healthy & (seg.seg > 0)] if "prev_peak" in seg else seg.iloc[0:0]
+    R = R[R.prev_peak.notna() & (R.api_calls > 0)] if len(R) else R
+    if not gate(R):
+        return None
+    al, ga = huber_line(R.api_calls.values.astype(float), (R.ctx / R.api_calls - R.prev_peak).values.astype(float))
+    return dict(alpha=max(al, 0.0), gamma=max(ga, 0.0), n=int(len(R)), n_agents=int(R.id.nunique()))
+
+
+def median_ci(x, level=0.95):
+    """Median and the distribution-free order-statistic interval of the median with coverage >= level
+    (binomial; no resampling, so deterministic); (median, None, None) when n is too small."""
+    x = np.sort(np.asarray(x, float))
+    n = len(x)
+    lo = hi = None
+    for k in range(n // 2):
+        cov = 1.0 - 2.0 * sum(math.comb(n, j) for j in range(k + 1)) / 2.0 ** n
+        if cov >= level:
+            lo, hi = float(x[k]), float(x[n - 1 - k])
+    return float(np.median(x)), lo, hi
+
+
+def fit_fixer(seg):
+    """The measured cost of a fresh fixer: the context a fresh builder builds before its first repo write
+    (ctx_at_first_write - first_ctx, tokens), over builder-tier first segments that wrote; None below
+    the gate or without those columns. The replay costs a fresh fixer kappa_w x (static_cc + reread)."""
+    if not {"first_ctx", "ctx_at_first_write"} <= set(seg.columns):
+        return None
+    mem = DT.TIER["builder"].split()
+    f = seg[(seg.seg == 0) & seg.type.isin(mem) & ~seg.open.astype(bool) & seg.ctx_at_first_write.notna()]
+    if not gate(f):
+        return None
+    med, lo, hi = median_ci((f.ctx_at_first_write - f.first_ctx).values)
+    return dict(reread=int(round(med)), lo=None if lo is None else int(round(lo)), hi=None if hi is None else int(round(hi)),
+                level=0.95, n=int(len(f)), n_agents=int(f.id.nunique()),
+                rule="fresh fixer cost = kappa_w x (static_cc + reread); lo/hi: order-statistic interval of the median")
+
+
+def run_group(tier, seg_no):
+    """Calibration group of a run: its tier and whether it is a resume (S1e step 4: tier x resume is the
+    grouping whose held-out wall coverage is ~90% on every protocol; coordinator/fresh/resume gave 84-90%)."""
+    return "%s:%s" % (tier, "resume" if seg_no > 0 else "fresh")
+
+
+def run_residuals(seg, types):
+    """Leave-one-agent-out log residuals log(actual / predicted) of turns (M), ctx at M (resume: from
+    the prior peak) and wall (sec_per_call p50 x M) for every healthy segment; everything refitted
+    without the agent."""
+    H = seg[seg.healthy]
+    out = []
+    for a in sorted(H.id.unique()):
+        tr, te = seg[seg.id != a], H[H.id == a]
+        model, _ = fit_params(tr, types)
+        rc = fit_resume_ctx(tr)
+        for r in te.itertuples():
+            if r.type not in model or "M" not in model[r.type]["p"]:
+                continue
+            p = model[r.type]["p"]
+            M = p["M"]
+            row = dict(group=run_group(model[r.type]["tier"], r.seg), turns=math.log(r.api_calls / M))
+            if r.wall_s > 0 and p.get("spc50"):
+                row["wall"] = math.log(r.wall_s / (p["spc50"] * M))
+            prev = getattr(r, "prev_peak", np.nan)
+            if r.seg > 0 and rc and np.isfinite(prev):
+                c = M * (prev + rc["alpha"] + rc["gamma"] * M)
+            elif "a" in p:
+                c = p["a"] * M + p["b"] * M * M
+            else:
+                c = 0.0
+            if c > 0:
+                row["ctx"] = math.log(r.ctx / c)
+            out.append(row)
+    return pd.DataFrame(out)
+
+
+def conformal(x, level=RUN_LEVEL):
+    """(lo, hi) finite-sample split-conformal quantiles of signed residuals: the floor((n+1) a)-th and
+    ceil((n+1)(1-a))-th order statistics, a = (1 - level)/2, clamped to the sample."""
+    x = np.sort(np.asarray(x, float))
+    n = len(x)
+    a = (1 - level) / 2
+    k_lo, k_hi = round((n + 1) * a, 9), round((n + 1) * (1 - a), 9)    # (1 - 0.9) / 2 is 0.04999...: no float off-by-one
+    lo = max(int(math.floor(k_lo)) - 1, 0)
+    hi = min(int(math.ceil(k_hi)) - 1, n - 1)
+    return float(x[lo]), float(x[hi])
+
+
+def fit_run_interval(seg, types):
+    """Per-run 90% intervals as factors on the point prediction, by group <tier>:fresh|resume (a group with
+    fewer than RUN_MIN_GROUP residuals uses `pooled`), from leave-one-agent-out residuals (S1e step 4:
+    held-out coverage 89-97% for turns, ctx and wall on leave-one-session-, prompt- and agent-out). The
+    bands stay intervals of the median; these are intervals of one run."""
+    res = run_residuals(seg, types)
+    if len(res) < RUN_MIN_GROUP:
+        return None
+    out = dict(level=RUN_LEVEL, method="split conformal, leave-one-agent-out log residuals",
+               applies_to="one run: turns M, ctx at M (a resume from its prior peak), wall = sec_per_call p50 x M",
+               groups={})
+
+    def row(d):
+        r = dict(n=int(len(d)))
+        for q in ("turns", "ctx", "wall"):
+            x = d[q].dropna() if q in d else pd.Series(dtype=float)
+            lo, hi = conformal(x.values) if len(x) else (0.0, 0.0)
+            r[q] = dict(lo=round(math.exp(lo), 3), hi=round(math.exp(hi), 3), n=int(len(x)))
+        return r
+    out["groups"]["pooled"] = row(res)
+    for g, d in sorted(res.groupby("group"), key=lambda kv: kv[0]):
+        if len(d) >= RUN_MIN_GROUP:
+            out["groups"][g] = row(d)
+    return out
+
+
+def fit(segments, frontmatter, soft_limits, seed=0, *, until=None, B=B_DEFAULT, generated=None, run_interval=True):
     """The sched_model.json dict from per-segment numbers; no transcript access, no I/O.
 
     segments: one row per subagent segment (a spawn or a resume). Required columns:
@@ -481,13 +632,20 @@ def fit(segments, frontmatter, soft_limits, seed=0, *, until=None, B=B_DEFAULT, 
       last_ts (ISO). Health: either a bool `healthy` or compactions, turn_limit, after_limit, open
       (missing ones count as 0/False). Optional: model (the segment's model ID; for
       kappa.models_measured), last_ts (data_until when `until` is None), and for the cold-resume
-      calibration first_cr, prev_peak, gap_s, cache_creation_input_tokens.
+      calibration first_cr, prev_peak, gap_s, cache_creation_input_tokens; prev_peak also feeds
+      resume_ctx; first_ctx and ctx_at_first_write (load() derives them) feed fixer.
     frontmatter: {agent type: {"model": alias, "maxTurns": int|None, "cacheTtl": "5m"|"1h"}} for
       every agent (frontmatter() reads it from dot-claude/agents); types without a tier are refused,
       except blackcat (the main thread), which is skipped.
     soft_limits: {agent type: tokens or None} (agent_guard.py SOFT_LIMITS).
     seed, B: the bootstrap's seed and replicate count; generated: the `generated` stamp (UTC ISO string;
       the wall clock only when None). With it given, the result is a pure function of the inputs.
+    run_interval: compute the per-run intervals (one leave-one-agent-out refit per agent; off in quick
+      tests).
+    Top-level S1e keys (null below their gates): resume_ctx {alpha, gamma}: a resume's ctx =
+    n * (prior_peak + alpha + gamma * n); fixer {reread, lo, hi}: tokens a fresh builder reads before its
+    first repo write (the replay's fresh-fixer cost); run_interval {groups: pooled and <tier>:fresh|resume ->
+    turns|ctx|wall {lo, hi, n}}: 90% factors of one run around the point prediction.
     """
     seg = prepare(segments)
     fm = frontmatter
@@ -525,6 +683,14 @@ def fit(segments, frontmatter, soft_limits, seed=0, *, until=None, B=B_DEFAULT, 
                                           "family and major.minor version equal the rule's, else default"),
                         output=None, prices=None, models_measured=fam, source=DOCS),
              types={}, pools={})
+    # S1e: resume context from the prior peak, measured fresh-fixer re-read, per-run intervals
+    J["resume_ctx"] = fit_resume_ctx(seg)
+    if J["resume_ctx"]:
+        J["resume_ctx"] = dict(alpha=ri(J["resume_ctx"]["alpha"]), gamma=r1(J["resume_ctx"]["gamma"]),
+                               n=J["resume_ctx"]["n"], n_agents=J["resume_ctx"]["n_agents"],
+                               formula="ctx = n * (prior_peak + alpha + gamma * n)")
+    J["fixer"] = fit_fixer(seg)
+    J["run_interval"] = fit_run_interval(seg, types) if run_interval else None
     for t in types:
         m, f = model[t], fm[t]
         ttl = f["cacheTtl"]
