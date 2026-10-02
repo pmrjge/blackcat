@@ -231,7 +231,7 @@ sys.exit(1 if bad else 0)
 PY
 grep -q "Read(/$T1/stack.env)" "$T1/settings.json" 2>/dev/null && pass "deny rule contains Read(//\$T/stack.env)" \
   || failed "settings.json deny list missing Read(//$T1/stack.env)"
-for f in doctor.sh with-stack-env mcp-headers magg-private statusline.py claude-ultracode; do
+for f in doctor.sh with-stack-env mcp-headers magg-private statusline.py claude-ultracode stack_sdk.py; do
   [ -x "$T1/bin/$f" ] && pass "bin/$f installed and executable" || failed "bin/$f missing or not executable"
 done
 python3 - "$T1" <<'PY' && pass "skills are dynamic: no agent preloads one, every agent has Skill, one Skill allow rule" || failed "skills still tied to agents (see above)"

@@ -25,6 +25,9 @@ Details: `references/mcp-hooks-settings.md`. Must-knows:
 - Hook commands use the installer's absolute interpreter (`__PYTHON3__`): a hook that cannot start is a silent open gate. PreToolUse decides in `hookSpecificOutput.permissionDecision`; `updatedInput` replaces the whole input; `systemMessage` reaches the user, not the model.
 - Settings changes go to the repo's `dot-claude/settings.json`, never the live file; loosening a permission, hook or sandbox needs the user's consent.
 
+## Agent SDK
+Running the installed stack from an SDK app or `claude -p` (what `setting_sources` loads, what a call can override, hooks without a TTY, JSON reports, cache order, `bin/stack_sdk.py`): `references/agent-sdk.md`.
+
 ## Validate
 `jq empty <file>` for JSON; `claude plugin validate <dir>` for plugins and agent directories; in the stack repo `uv run tests/lint_agents.py`, `uv run --python 3.12 --with pytest --with httpx --with "mcp>=1.10,<2" pytest -q tests/`, `bash tests/install_smoke.sh`; `/usr/bin/python3 <config>/hooks/agent_guard.py --self-test` (the hooks' own interpreter, as in settings.json); `/doctor` and `/stack-doctor` in a session.
 

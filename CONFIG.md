@@ -132,6 +132,7 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `BLACKCAT_BACKGROUND` | 1 (code) | new | Drops BlackCat's `run_in_background: false` (fixes bug 1) |
 | `STACK_AGENT_LABEL` | `description` (code) | new | `description\|name\|off`. `description` prefixes each allowed Agent call's description with `<type>: ` (Claude Code shows `agent-name(description)`); `name` names an unnamed child `<type>-<n>`; zero prompt tokens |
 | `STACK_AGENT_STARTED` | 1 (code) | new | SubagentStart gives a stack agent its local start time for the clean-finish line; 0 disables it |
+| `STACK_REPORT_FORMAT` | unset (code) | new | `json`: SessionStart (main thread, every source) and SubagentStart (stack agents) add one line asking for the final report as one JSON line, which `bin/stack_sdk.py` `parse_report` reads; unset: no hook output, the prompt is unchanged. For Agent SDK apps (`env` option) |
 | `STACK_MAX_FANOUT` | 3 | — | Default number of running children per agent |
 | `STACK_MAX_FANOUT_BY_TYPE` | `orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | `orchestrator=8,planner=8,plan-reviewer=8` | The coordinators get room; everyone else keeps 3 |
 | `STACK_MAX_SELF_FANOUT` | 2 | — | Copies per base agent |
@@ -285,6 +286,13 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-02 (Q7: Agent SDK)
+
+- `bin/stack_sdk.py` (installed, loaded by nothing; PEP 723, `claude-agent-sdk==0.2.163`): `options()` builds a plain `ClaudeAgentOptions` from the installed files (`setting_sources` user/project/local, the `claude_code` preset with `exclude_dynamic_sections`, `--agent`), `run()` returns the parsed report, cost, per-model and per-subagent usage and the ledger path; `parse_report()` reads the clean-finish line, the STATUS block and the JSON form.
+- `STACK_REPORT_FORMAT=json` (above); the guard's SessionStart matcher is `startup|resume|clear|compact|fork` so the line survives `/clear` and compaction (no output when unset).
+- Hooks under the SDK and `claude -p`: no TTY dependence (hooks always run without a controlling terminal); `tests/test_sdk_integration.py` runs them with SDK-shaped events and environment. Cache order checked: no hook writes a system prompt or rewrites earlier context; the SubagentStart line sits in the first user message and is kept.
+- Reference: `skills/claude-code-extensions/references/agent-sdk.md`; cost probe for the user: `tests/sdk_smoke.py` (real API calls; not run in the build sandbox).
 
 ### 2026-09-29 (security rounds 3 and 4, god-coder plan flow)
 

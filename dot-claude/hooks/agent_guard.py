@@ -69,7 +69,8 @@ Reads the hook JSON on stdin.
                                     confirm / release locks; a starting or stopped agent's own
                                     spawn leases are voided, and a stopped child's spawn lease too;
                                     a starting stack agent gets "Started YYYY-MM-DD HH:MM (local)."
-                                    as additionalContext (STACK_AGENT_STARTED)
+                                    as additionalContext (STACK_AGENT_STARTED), plus the JSON
+                                    report line when STACK_REPORT_FORMAT=json
   PostToolUse TaskStop, StopFailure mark the agent stopped and release its locks and leases (a
                                     stopped or failed subagent is not promised a SubagentStop)
   PostToolUseFailure / PermissionDenied (Agent)   roll back god-coder lease, blackcat marker and
@@ -77,7 +78,9 @@ Reads the hook JSON on stdin.
   UserPromptSubmit                  start the prompt token budget; prune blackcat markers of
                                     earlier prompts
   SessionStart                      startup|resume: clear locks, leases and blackcat markers, prune
-                                    old session dirs; resume|fork: bring the token count up to date
+                                    old session dirs; resume|fork: bring the token count up to date;
+                                    every source: the JSON report line as additionalContext when
+                                    STACK_REPORT_FORMAT=json (nothing otherwise)
                                     (settings.json's matcher must list all three)
   SessionStart `session-env`        every source: the sandboxed Bash env (cache dirs, git
                                     credential helpers off) into $CLAUDE_ENV_FILE
@@ -170,6 +173,10 @@ Knobs (env):
                           the description with "<subagent_type>: " (once), `name` names an unnamed
                           child "<type>-<n>" (unique per session), `off` = no label
   STACK_AGENT_STARTED=1   SubagentStart tells a stack agent its local start time (0 = off)
+  STACK_REPORT_FORMAT     `json`: SessionStart (main thread) and SubagentStart (stack agents) add
+                          one line asking for the final report as one JSON line (REPORT_JSON_LINE;
+                          parsed by bin/stack_sdk.py); unset or anything else: no output, the
+                          default prompt is unchanged
   BLACKCAT_BACKGROUND=1   drop `run_in_background: false` from the BlackCat main thread's Agent
                           calls, so its children never run in the foreground (0 = keep it)
   STACK_MAX_DEPTH         deny Agent from callers at this depth (default
@@ -2803,16 +2810,35 @@ def on_subagent_start(ev, d):
     started_context(atype, now)
 
 
+REPORT_JSON_LINE = (
+    'Report format of this session (STACK_REPORT_FORMAT=json): the final reply is one line of JSON '
+    'and nothing else, in place of both the clean-finish line and the STATUS block: {"input": '
+    '"<task in <= 10 words>", "timestamp": "<YYYY-MM-DD HH:MM>", "agent": "<your agent type>", '
+    '"status": "done|partial|blocked", "result": "...", "evidence": "...", "files": ["<path>"], '
+    '"next": "..."}.')
+
+
+def report_format_line():
+    """The JSON report line when STACK_REPORT_FORMAT=json (an SDK app parses the final reply with
+    bin/stack_sdk.py parse_report), else None: the default prompt never changes."""
+    return REPORT_JSON_LINE if os.environ.get("STACK_REPORT_FORMAT", "").strip().lower() == "json" \
+        else None
+
+
 def started_context(atype, now):
-    """SubagentStart additionalContext (hooks.md: added at the start of the subagent's
-    conversation): a stack agent knows when its run started without running `date`. A resume is a
-    new run with its own time. STACK_AGENT_STARTED=0 turns it off."""
-    if os.environ.get("STACK_AGENT_STARTED", "1").strip() == "0" or atype not in STACK_TYPES:
+    """SubagentStart additionalContext (hooks.md: "at the start of the conversation, before the
+    first prompt", i.e. in the first user message, after the cached tools and system prompt; fixed
+    for the whole run, so it never invalidates the run's own cache): a stack agent knows when its
+    run started without running `date`. A resume is a new run with its own time.
+    STACK_AGENT_STARTED=0 turns the time off; STACK_REPORT_FORMAT=json adds the JSON report line."""
+    if atype not in STACK_TYPES:
         return
-    emit({"hookSpecificOutput": {
-        "hookEventName": "SubagentStart",
-        "additionalContext": time.strftime("Started %Y-%m-%d %H:%M (local).",
-                                           time.localtime(now))}})
+    parts = [] if os.environ.get("STACK_AGENT_STARTED", "1").strip() == "0" else \
+        [time.strftime("Started %Y-%m-%d %H:%M (local).", time.localtime(now))]
+    parts += [x for x in (report_format_line(),) if x]
+    if parts:
+        emit({"hookSpecificOutput": {"hookEventName": "SubagentStart",
+                                     "additionalContext": "\n".join(parts)}})
 
 
 def mark_stopped(d, aid, atype, transcript=None, ev=None):
@@ -2904,6 +2930,18 @@ def last_activity(path):
 
 
 def on_session_start(ev, d):
+    """Bookkeeping first (emit exits), then the JSON report line for every source: clear and
+    compact start a new context too (STACK_REPORT_FORMAT=json only)."""
+    try:
+        session_start_bookkeeping(ev, d)
+    except Exception as exc:  # noqa: BLE001 - as dispatch() would: warn, never block a session
+        warn("%s: %s" % (type(exc).__name__, exc))
+    line = report_format_line()
+    if line:
+        emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": line}})
+
+
+def session_start_bookkeeping(ev, d):
     try:
         budget_session_start(d, ev)
     except Exception as exc:  # noqa: BLE001 - bookkeeping must never block a session

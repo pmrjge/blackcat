@@ -764,7 +764,7 @@ mkdir -p "$S"/{agents,skills,hooks,mcp,magg,bin,rules}
 # it would write through the link, out of the staging dir; the backup keeps the link).
 stage_script(){ rm -rf "$S/$2" && cp "$SRC/$2" "$S/$2" && chmod "$1" "$S/$2"; }
 stage_script 755 hooks/agent_guard.py
-for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode; do stage_script 755 "bin/$f"; done
+for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py; do stage_script 755 "bin/$f"; done
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
 stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry reads it (--config)
 # The stack's local LSP marketplace (step 10 registers it): replaced as a whole.
@@ -1625,7 +1625,8 @@ for rel in skills_kept:
 # --- scripts the stack copies into hooks/, bin/ and mcp/ (step 6 put them in DEST): tracked in the
 # manifest, so a later version that stops shipping one removes it. Files of your own there stay. ---
 STACK_SCRIPTS = ["hooks/agent_guard.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
-                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "mcp/image_studio_mcp.py",
+                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py",
+                 "mcp/image_studio_mcp.py",
                  "mcp/libdocs_mcp.py", "mcp/neural_memory_mcp.py"]
 # files earlier stack versions installed before the manifest tracked scripts
 LEGACY_SCRIPTS = {"hooks/router-guard.sh": "blackcat.md runs agent_guard.py directly now",

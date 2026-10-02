@@ -403,6 +403,7 @@ yourself.
 | `STACK_POLICY` | `on` | `off` disables every deny and lock except the push and forge-write ban | guard |
 | `STACK_AGENT_LABEL` | `description` | Child label: `description` (`<type>: <task>`), `name` (`<type>-<n>`), `off` | guard |
 | `STACK_AGENT_STARTED` | `1` | SubagentStart gives a stack agent its start time (`0` = off) | guard |
+| `STACK_REPORT_FORMAT` | unset | `json`: every final report is one JSON line (SessionStart and SubagentStart add one line); for Agent SDK apps | guard |
 | `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` ● | 8 / 120 | BlackCat Agent calls per prompt, within this many seconds of the first | guard |
 | `BLACKCAT_MAX_STEPS` ● | 12 | BlackCat tool calls per prompt | guard |
 | `BLACKCAT_BACKGROUND` | 1 | Drop BlackCat's `run_in_background: false` | guard |
@@ -618,6 +619,25 @@ stack. Checked on 27 Sep 2026.
 
 In the Agent SDK apps the model and effort pickers set the main thread; subagents keep their own. For a
 plain session without BlackCat: `claude --agent claude`.
+
+### Your own Agent SDK app
+
+An SDK app gets the whole stack by loading its files: `setting_sources=["user", "project", "local"]`
+(the default when omitted) and the `claude_code` system-prompt preset (omitting `system_prompt` in
+Python sends an empty prompt). Hooks, permissions, agents, skills and rules then apply exactly as in the
+terminal; SDK options (`model`, `max_turns`, `max_budget_usd`, tools, `permission_mode`) adjust the main
+thread, and nothing they set loosens a hook or a deny rule. Don't pass `agents=`: the files are the
+source of truth.
+
+- `~/.claude/bin/stack_sdk.py` (optional, loaded by nothing): `options()` returns a plain
+  `ClaudeAgentOptions` you can print and change; `run()` returns the parsed final report, session id,
+  cost, per-model and per-subagent tokens and the delegation ledger path. CLI: `stack_sdk.py "task"
+  --agent scout --max-turns 5 --budget-usd 0.5`.
+- `STACK_REPORT_FORMAT=json` in the SDK's `env` makes every final report one JSON line
+  (`input, timestamp, agent, status, result, evidence, files, next`); unset, nothing changes.
+- Details, the TypeScript form and what is unverified:
+  `dot-claude/skills/claude-code-extensions/references/agent-sdk.md`. Cost and cold-start probe (real
+  API calls): `uv run --script tests/sdk_smoke.py`.
 
 ## Changelog
 
