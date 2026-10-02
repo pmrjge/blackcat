@@ -1,6 +1,6 @@
 ---
 name: emb-c-rtos
-description: Load before C firmware on an RTOS or SDK — Zephyr, FreeRTOS, ESP-IDF, ISRs, linker scripts, MISRA.
+description: Load for C firmware on Zephyr, FreeRTOS, ESP-IDF or vendor SDKs — ISRs and priorities, linker scripts, stacks, eFuse gates, MISRA.
 ---
 # C firmware and RTOS
 

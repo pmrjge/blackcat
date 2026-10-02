@@ -1,6 +1,6 @@
 ---
 name: react-native
-description: Load before building or testing a React Native or Expo app — New Architecture, native modules, EAS.
+description: Load for React Native and Expo apps — New Architecture, Expo SDK upgrades, native modules, Jest/Maestro tests, EAS builds and updates.
 ---
 # React Native and Expo
 

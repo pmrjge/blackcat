@@ -1,6 +1,6 @@
 ---
 name: compiler-backend-jit
-description: Load before codegen, JIT or runtime work — Cranelift, regalloc, interpreters, GC, ABIs.
+description: Load for codegen, JITs and runtimes — Cranelift, register allocation, bytecode VMs, W^X, deoptimization, calling conventions, GC.
 ---
 # Backends, JITs, interpreters and runtimes
 

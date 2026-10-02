@@ -1,6 +1,6 @@
 ---
 name: llm-finetuning
-description: Load before preparing data or launching a language-model fine-tune — when to fine-tune, LoRA/QLoRA/full, DPO/ORPO, chat templates, hyperparameters, evaluation; mlx-lm or PEFT/TRL.
+description: Load to prepare data for or run an LLM fine-tune — when to tune, LoRA/QLoRA/full, DPO/ORPO, chat templates, mlx-lm or PEFT/TRL.
 ---
 # LLM fine-tuning protocol
 

@@ -1,6 +1,6 @@
 ---
 name: gfx-shaders
-description: Load before writing or porting shaders — HLSL, GLSL, MSL, WGSL, Slang; PBR, compiling, debugging.
+description: Load for shader code — HLSL, GLSL, MSL, WGSL, Slang; cross-compilation, PBR, buffer layouts, shader debugging and cost.
 ---
 # Shaders
 

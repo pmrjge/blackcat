@@ -1,6 +1,6 @@
 ---
 name: hpc-mpi-openmp
-description: Load before MPI or OpenMP code — decomposition, collectives, hybrid runs, affinity, scaling.
+description: Load for MPI and OpenMP code — decomposition, halos, collectives, hybrid ranks×threads, binding, scaling studies; SLURM is in hpc-slurm.
 ---
 # MPI and OpenMP
 

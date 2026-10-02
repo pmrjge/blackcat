@@ -1,6 +1,6 @@
 ---
 name: l10n-qa
-description: Use before accepting translations — placeholder, plural, markup, length, pseudo-locale checks.
+description: Use to check translations — placeholders, CLDR plurals, ICU syntax, markup, lengths, terminology, pseudo-localization, screenshot review.
 ---
 # Localization QA
 

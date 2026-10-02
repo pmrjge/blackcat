@@ -1,6 +1,6 @@
 ---
 name: geo-crs-gdal
-description: Load before reprojecting or converting geodata — CRS, datums, PROJ, GDAL/OGR command line, formats.
+description: Load for coordinate systems and GDAL/OGR — CRS and datum choice, reprojection, gdalwarp/ogr2ogr, COG and GeoParquet conversion.
 ---
 # Coordinate systems and GDAL/OGR
 

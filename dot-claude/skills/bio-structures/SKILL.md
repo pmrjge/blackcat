@@ -1,6 +1,6 @@
 ---
 name: bio-structures
-description: Load before protein structure work — mmCIF, AlphaFold 3, Boltz, confidence, docking, RMSD.
+description: Load for protein structures — mmCIF parsing, AlphaFold 3 and Boltz predictions, pLDDT/PAE, preparation, alignment, docking.
 ---
 # Protein structures
 

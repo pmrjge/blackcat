@@ -1,6 +1,6 @@
 ---
 name: hpc-fortran
-description: Load before writing or modernizing Fortran — modules, kinds, arrays, fpm, compilers, interop.
+description: Load for Fortran — modern style, kinds, modules, fpm, gfortran/flang/ifx, C and Python interop, modernizing FORTRAN 77 code.
 ---
 # Modern Fortran
 

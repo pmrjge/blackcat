@@ -1,6 +1,6 @@
 ---
 name: lean-formalization
-description: Load before writing, repairing or checking Lean 4 and Mathlib code — lake projects, Mathlib cache, the Lean LSP MCP goal loop, lemma search, tactic playbook, soundness checks.
+description: Load for Lean 4 and Mathlib — lake projects, Mathlib cache, the Lean LSP goal loop, lemma search, tactics, statement faithfulness.
 ---
 # Lean 4 formalization with Mathlib
 

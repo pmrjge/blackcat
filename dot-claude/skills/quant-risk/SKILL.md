@@ -1,6 +1,6 @@
 ---
 name: quant-risk
-description: Load before risk or portfolio analytics — volatility, VaR/ES, factor models, optimization, stress.
+description: Load for risk and portfolio analytics — volatility, covariance shrinkage, VaR/ES and backtests, factor models, optimization, stress tests.
 ---
 # Risk and portfolio analytics
 

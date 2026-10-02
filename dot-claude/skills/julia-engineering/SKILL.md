@@ -1,6 +1,6 @@
 ---
 name: julia-engineering
-description: Load before writing, reviewing, testing or speeding up Julia — juliaup, Pkg environments, Test/Aqua/JET, type stability, BenchmarkTools, CUDA.jl/Metal.jl, SciML, PythonCall.
+description: Load for Julia — juliaup, Pkg environments, Test/Aqua/JET, type stability, BenchmarkTools, CUDA.jl/Metal.jl, SciML, PythonCall.
 ---
 # Julia engineering
 

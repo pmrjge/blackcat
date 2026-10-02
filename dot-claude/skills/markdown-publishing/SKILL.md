@@ -1,6 +1,6 @@
 ---
 name: markdown-publishing
-description: Load before building or fixing a Markdown publishing pipeline — GFM, KaTeX/MathJax, Mermaid, MDX, Astro sites, Pandoc to PDF/DOCX/EPUB/HTML, markdownlint and lychee.
+description: Load for Markdown publishing pipelines — GFM, KaTeX/MathJax, Mermaid, MDX, Astro sites, Pandoc outputs, markdownlint, lychee.
 ---
 # Markdown publishing
 

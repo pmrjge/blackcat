@@ -1,6 +1,6 @@
 ---
 name: compiler-ir-llvm
-description: Load before IR or LLVM work — SSA, optimization passes, LLVM IR, MLIR, llvmlite, miscompile hunting.
+description: Load for IR and LLVM work — SSA design, emitting LLVM IR, pass pipelines, writing passes, MLIR, llvmlite/inkwell, miscompile hunting.
 ---
 # IR design, optimization and LLVM
 

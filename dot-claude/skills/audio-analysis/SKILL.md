@@ -1,6 +1,6 @@
 ---
 name: audio-analysis
-description: Load before analyzing audio in Python — loading, spectral features, loudness, pitch, tempo, ML.
+description: Load to analyze audio in Python — loading and resampling, spectral features, loudness (LUFS), pitch, onsets, tempo, ML datasets.
 ---
 # Audio analysis
 

@@ -1,6 +1,6 @@
 ---
 name: kotlin-coroutines
-description: Load before Kotlin coroutine or Flow code — scopes, dispatchers, cancellation, StateFlow, runTest.
+description: Load for Kotlin coroutines and Flow — scopes, dispatchers, cancellation, StateFlow/SharedFlow, lifecycle collection, runTest.
 ---
 # Kotlin coroutines and Flow
 

@@ -1,6 +1,6 @@
 ---
 name: gfx-apis
-description: Load before Vulkan, Metal, D3D12 or WebGPU/wgpu code — resources, sync, validation, frame capture.
+description: Load for Vulkan, Metal, D3D12 or WebGPU/wgpu code — resources, barriers and sync, pipelines, validation layers, frame capture.
 ---
 # Graphics APIs
 

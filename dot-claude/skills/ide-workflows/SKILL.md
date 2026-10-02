@@ -1,6 +1,6 @@
 ---
 name: ide-workflows
-description: Load before setting up or changing developer tooling — VS Code (CLI, settings, tasks, launch, dev containers), JetBrains (Toolbox, run configs), EditorConfig, Chrome DevTools.
+description: Load to set up developer tooling — VS Code CLI, settings, tasks, launch configs, dev containers, JetBrains, EditorConfig, Chrome DevTools.
 ---
 # IDE and browser developer tooling
 

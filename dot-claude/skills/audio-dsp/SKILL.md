@@ -1,6 +1,6 @@
 ---
 name: audio-dsp
-description: Load before writing audio DSP — filters, FFT/STFT, resampling, dynamics, oscillators, real time.
+description: Load for audio DSP code — filters, FFT/STFT, convolution, resampling, anti-aliasing, dynamics, oscillators, real-time numeric choices.
 ---
 # Audio DSP
 

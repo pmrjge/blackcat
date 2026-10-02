@@ -1,6 +1,6 @@
 ---
 name: literature-review
-description: Load before searching for papers, building a bibliography or writing a literature review or related-work section — arXiv, Semantic Scholar, OpenAlex, zbMATH, citations, BibTeX.
+description: Load to search papers or build a bibliography or review — arXiv, Semantic Scholar, OpenAlex, zbMATH, reference verification, BibTeX.
 ---
 # Literature search and review — zero fabricated citations
 

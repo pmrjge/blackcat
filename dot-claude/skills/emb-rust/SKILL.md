@@ -1,6 +1,6 @@
 ---
 name: emb-rust
-description: Load before no_std Rust firmware — embassy, RTIC, esp-hal, embedded-hal, defmt, memory.x, panics.
+description: Load for no_std Rust firmware — embassy, RTIC, esp-hal, embedded-hal drivers, defmt logging, memory.x, panic handlers, host tests.
 ---
 # Embedded Rust
 

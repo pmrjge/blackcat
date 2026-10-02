@@ -1,6 +1,6 @@
 ---
 name: subtitles
-description: Load before making, timing, translating or converting subtitles — SRT, WebVTT, TTML, reading speed.
+description: Load for subtitles and captions — SRT, WebVTT, TTML, ASS; timing, reading speed, line breaks, sync, translation, QA checks.
 ---
 # Subtitles and captions
 

@@ -1,6 +1,6 @@
 ---
 name: chem-qm
-description: Load before quantum-chemistry runs — PySCF, Psi4, xtb, ORCA; methods, basis sets, convergence.
+description: Load for quantum chemistry — PySCF, Psi4, xtb, ORCA; method and basis choice, SCF convergence, optimizations, frequencies, thermochemistry.
 ---
 # Quantum chemistry
 

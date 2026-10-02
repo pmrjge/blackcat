@@ -1,6 +1,6 @@
 ---
 name: quant-finance
-description: Load before quantitative finance work — backtests, risk, portfolio construction, derivatives pricing, market data; safety rules and the module map.
+description: Load for quantitative finance — no-real-orders rule, point-in-time data, return conventions; module map for backtests, risk and pricing.
 ---
 # Quantitative finance (hub)
 

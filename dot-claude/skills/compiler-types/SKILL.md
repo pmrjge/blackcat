@@ -1,6 +1,6 @@
 ---
 name: compiler-types
-description: Load before name resolution or type checking — inference, unification, generics, traits, soundness.
+description: Load for name resolution and type checking — Hindley–Milner, bidirectional checking, traits, generics, exhaustiveness, soundness tests.
 ---
 # Name resolution and type systems
 

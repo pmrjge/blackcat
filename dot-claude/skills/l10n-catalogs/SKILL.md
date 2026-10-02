@@ -1,6 +1,6 @@
 ---
 name: l10n-catalogs
-description: Use before editing translation catalogs — .po, XLIFF, .xcstrings, strings.xml, ARB, ICU, Fluent.
+description: Use to edit translation catalogs — gettext .po, XLIFF, .xcstrings/.strings, Android strings.xml, ARB, ICU JSON, Fluent; validators.
 ---
 # Translation catalog formats
 

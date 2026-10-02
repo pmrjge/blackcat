@@ -1,6 +1,6 @@
 ---
 name: hpc-io
-description: Load before scientific data I/O — HDF5, NetCDF, ADIOS2, Zarr, parallel I/O, checkpoints.
+description: Load for scientific data I/O — HDF5, NetCDF, ADIOS2, Zarr, chunking, collective parallel writes, checkpoints, Lustre striping.
 ---
 # Scientific data and parallel I/O
 

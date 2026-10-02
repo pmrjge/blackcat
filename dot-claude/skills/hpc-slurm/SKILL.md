@@ -1,6 +1,6 @@
 ---
 name: hpc-slurm
-description: Use before writing or submitting cluster jobs — SLURM scripts, arrays, GPUs, accounting, Spack.
+description: Use for SLURM cluster jobs — sbatch scripts, arrays, GPUs, dependencies, accounting, Spack; submits need a cost estimate and consent.
 ---
 # SLURM and cluster work
 

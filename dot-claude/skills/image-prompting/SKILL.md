@@ -1,6 +1,6 @@
 ---
 name: image-prompting
-description: Load before generating or editing any image through image-studio — SVG logos, icons, illustrations, photos, raster images, edits and composites; prompts, references, QA, costs.
+description: Load before generating or editing images through image-studio — SVG and raster prompts, references, edits, series, QA, costs.
 ---
 # Image generation and editing (mcp__image-studio)
 

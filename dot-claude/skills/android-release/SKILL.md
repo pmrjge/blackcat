@@ -1,6 +1,6 @@
 ---
 name: android-release
-description: Use before signing or shipping an Android app — keystores, AAB, R8, Play tracks, target API.
+description: Use to sign and ship Android apps — keystores, AAB, R8 and mapping files, Play tracks and rollouts, targetSdk and 16 KB page rules.
 ---
 # Android release
 

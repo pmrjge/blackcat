@@ -1,6 +1,6 @@
 ---
 name: geo-raster-vector
-description: Load before spatial analysis in code — GeoPandas, Shapely, rasterio, rioxarray, STAC, PostGIS.
+description: Load for spatial analysis in code — GeoPandas/Shapely joins and overlays, rasterio/rioxarray, zonal stats, STAC, PostGIS, DuckDB.
 ---
 # Vector and raster analysis
 

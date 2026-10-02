@@ -1,6 +1,6 @@
 ---
 name: ios-build-sim
-description: Use before building or testing Apple apps from the CLI — xcodebuild, simctl, XCUITest, xcresult.
+description: Use to build and test Apple apps from the CLI — xcodebuild, schemes, simctl simulators, XCUITest, xcresult bundles, device installs.
 ---
 # Building and testing Apple apps from the command line
 

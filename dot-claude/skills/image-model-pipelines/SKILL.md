@@ -1,6 +1,6 @@
 ---
 name: image-model-pipelines
-description: Load before running, fine-tuning, serving or evaluating an open-weight image-generation model — diffusers, mflux, ComfyUI API, LoRA/DreamBooth, memory, samplers, FID/CLIP caveats.
+description: Load to run, fine-tune or evaluate open-weight image models — diffusers, mflux, ComfyUI API, LoRA/DreamBooth, memory, FID/CLIP caveats.
 ---
 # Image-generation model pipelines
 

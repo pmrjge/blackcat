@@ -1,6 +1,6 @@
 ---
 name: haskell-engineering
-description: Load before writing, reviewing, building or profiling Haskell — GHCup, cabal/stack, extensions, hspec/QuickCheck, laziness and space leaks, profiling, STM, common libraries.
+description: Load for Haskell — GHCup, cabal/stack, extensions, hspec/QuickCheck, laziness and space leaks, profiling, STM, common libraries.
 ---
 # Haskell engineering
 

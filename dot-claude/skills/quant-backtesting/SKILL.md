@@ -1,6 +1,6 @@
 ---
 name: quant-backtesting
-description: Load before backtesting a trading strategy — data, costs, walk-forward, overfitting and bias checks.
+description: Load to backtest a trading strategy — signal timing, costs, walk-forward and holdout, overfitting checks, metrics with uncertainty.
 ---
 # Backtesting
 

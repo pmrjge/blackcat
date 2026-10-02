@@ -1,6 +1,6 @@
 ---
 name: chem-md
-description: Load before molecular dynamics — OpenMM, GROMACS, force fields, equilibration, sampling, analysis.
+description: Load for molecular dynamics — OpenMM, GROMACS, force fields, solvation, equilibration, production runs, trajectory analysis, free energies.
 ---
 # Molecular dynamics
 

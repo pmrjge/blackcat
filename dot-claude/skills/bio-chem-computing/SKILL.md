@@ -1,6 +1,6 @@
 ---
 name: bio-chem-computing
-description: Load before computational biology or chemistry work — pipelines, genomics, single-cell, structures, cheminformatics, MD, QM; data rules and the module map.
+description: Load for computational biology or chemistry — data-use and biosecurity rules, environments, provenance; module map from pipelines to QM.
 ---
 # Computational biology and chemistry (hub)
 
