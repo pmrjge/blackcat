@@ -1,6 +1,6 @@
 ---
 name: diffusion-flow-models
-description: Load before building, training, sampling or evaluating a diffusion, score-based or flow-matching model — SDEs, DDPM/DDIM, rectified flow, guidance, samplers, debugging.
+description: Load before building, training, sampling or evaluating a diffusion or flow-matching model — SDEs, DDPM/DDIM, rectified flow, guidance.
 ---
 # Diffusion and flow-matching models
 

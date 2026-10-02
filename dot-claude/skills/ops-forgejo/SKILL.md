@@ -1,6 +1,6 @@
 ---
 name: ops-forgejo
-description: Load to deploy or run Forgejo — compose stack, app.ini, exposure, Actions runner, dumps, upgrades.
+description: Use to deploy or run Forgejo — compose stack, app.ini, exposure, Actions runner, dumps and upgrades.
 ---
 # Forgejo on a personal server
 

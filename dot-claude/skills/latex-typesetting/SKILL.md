@@ -1,6 +1,6 @@
 ---
 name: latex-typesetting
-description: Load before writing, fixing or building LaTeX (papers, theses, beamer, arXiv) or choosing Typst — engines, latexmk, math packages, biblatex, fonts, floats, log errors.
+description: Load before writing, fixing or building LaTeX (papers, theses, beamer, arXiv) or choosing Typst — engines, math, biblatex, fonts, errors.
 ---
 # LaTeX typesetting (and when Typst fits)
 

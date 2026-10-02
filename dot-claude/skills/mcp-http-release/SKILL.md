@@ -1,6 +1,6 @@
 ---
 name: mcp-http-release
-description: Load to serve an MCP server over HTTP, register it in Claude Code, or ship it — MCPB, MCP Apps.
+description: Use to serve an MCP server over HTTP, register it in Claude Code, or ship it — MCPB bundles, MCP Apps, release checklist.
 ---
 # MCP over HTTP, registration and release
 

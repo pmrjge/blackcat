@@ -1,6 +1,6 @@
 ---
 name: diag-graphviz-d2
-description: Load to write or render Graphviz DOT, D2 or PlantUML diagrams — syntax, layouts, output formats.
+description: Use to write or render Graphviz DOT, D2 or PlantUML diagrams — syntax, layout engines, output formats, pitfalls.
 ---
 # Graphviz, D2 and PlantUML
 

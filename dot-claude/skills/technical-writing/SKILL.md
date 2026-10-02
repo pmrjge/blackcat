@@ -1,6 +1,6 @@
 ---
 name: technical-writing
-description: Load before drafting, restructuring or editing technical or scientific prose — articles and blog posts on maths, physics, CS or AI, docs, READMEs, ADRs, reports; style, citations.
+description: Load before drafting or editing technical or scientific prose — papers, blog posts, docs, READMEs, ADRs, reports; style, maths, citations.
 ---
 # Technical and scientific writing
 

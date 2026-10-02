@@ -1,6 +1,6 @@
 ---
 name: python-engineering
-description: Load before creating, changing, reviewing or packaging Python — uv (projects, lockfiles, tools, PEP 723 scripts), pyproject, typing, ruff, pytest, asyncio, profiling, wheels.
+description: Load before creating, changing or packaging Python — uv projects and PEP 723 scripts, typing, ruff, pytest, asyncio, profiling, wheels.
 ---
 # Python engineering
 

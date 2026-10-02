@@ -1,6 +1,6 @@
 ---
 name: mcp-ts-server
-description: Load to write a TypeScript MCP server — SDK 2.x McpServer, zod schemas, stdio, 1.x differences.
+description: Use to write a TypeScript MCP server — SDK 2.x McpServer with zod schemas over stdio, error results, 1.x API differences.
 ---
 # TypeScript MCP servers
 

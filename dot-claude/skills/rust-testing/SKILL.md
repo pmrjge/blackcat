@@ -1,6 +1,6 @@
 ---
 name: rust-testing
-description: Load for Rust tests and benches — nextest, doctests, proptest, insta, criterion, coverage, fuzz.
+description: Use for Rust tests and benchmarks — cargo-nextest, doctests, proptest, insta snapshots, criterion, coverage and fuzzing.
 ---
 # Rust testing
 

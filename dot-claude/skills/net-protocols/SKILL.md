@@ -1,6 +1,6 @@
 ---
 name: net-protocols
-description: Use for protocol facts behind a design or fix — DNS records, HTTP, TLS/ACME, IP ranges, IPv6.
+description: Use for the protocol facts behind a network design or fix — DNS records, HTTP semantics, TLS and ACME, private ranges, IPv6.
 ---
 # Network protocols: the working facts
 

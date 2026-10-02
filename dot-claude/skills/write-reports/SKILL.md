@@ -1,6 +1,6 @@
 ---
 name: write-reports
-description: Use for reports, memos, status updates, incident write-ups and research summaries.
+description: Use to write reports, memos, status updates, incident write-ups or research summaries — answer first, then evidence.
 ---
 # Reports, memos and research summaries
 

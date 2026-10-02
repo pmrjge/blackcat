@@ -1,6 +1,6 @@
 ---
 name: ts-tooling
-description: Load for TS tooling — TS 6 vs 7, strict tsconfig, Vite/tsdown builds, ESLint, oxlint, Biome.
+description: Use for TypeScript project tooling — TS 6 vs 7, strict tsconfig, Vite/tsdown builds, linting and formatting with ESLint, oxlint or Biome.
 ---
 # TypeScript tooling
 

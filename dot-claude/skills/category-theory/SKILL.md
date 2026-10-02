@@ -1,6 +1,6 @@
 ---
 name: category-theory
-description: Load for any categorical construction, proof or diagram — functors, naturality, limits, adjoints, Yoneda, monads, monoidal and 2-categories, string diagrams, tikz-cd/quiver.
+description: Load for any categorical construction, proof or diagram — limits, adjoints, Yoneda, monads, monoidal and 2-categories, string diagrams.
 ---
 # Category theory in practice
 

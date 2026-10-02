@@ -1,6 +1,6 @@
 ---
 name: ops-systemd-caddy
-description: Load for systemd units, timers and hardening, or a Caddy reverse proxy with automatic HTTPS.
+description: Use for systemd services and timers with hardening, or a Caddy reverse proxy with automatic HTTPS for a public service.
 ---
 # systemd services and Caddy
 

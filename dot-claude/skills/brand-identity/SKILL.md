@@ -1,6 +1,6 @@
 ---
 name: brand-identity
-description: Load before creating or revising a logo or brand identity — concept directions, logo construction, wordmarks, lockups, color and type systems, guidelines, exports, trademark checks.
+description: Load before creating or revising a logo or brand identity — concepts, logo construction, wordmarks, color and type systems, guidelines.
 ---
 # Brand identity and logo design
 

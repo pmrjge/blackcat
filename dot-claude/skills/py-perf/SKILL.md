@@ -1,6 +1,6 @@
 ---
 name: py-perf
-description: Load for Python speed and memory work — profilers, vectorizing, numba, PyO3/maturin.
+description: Use to make Python faster or leaner — the optimization ladder, profilers, vectorizing, numba, Rust extensions with PyO3/maturin.
 ---
 # Python performance
 

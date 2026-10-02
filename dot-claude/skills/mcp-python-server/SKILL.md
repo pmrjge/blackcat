@@ -1,6 +1,6 @@
 ---
 name: mcp-python-server
-description: Load to write or test a Python MCP server — SDK 1.x/2.x, PEP 723 template, stdio, pinning, tests.
+description: Use to write or test a Python MCP server — SDK 1.x vs 2.x, PEP 723 template, stdio hygiene, pinning, unit to Inspector tests.
 ---
 # Python MCP servers (uv, PEP 723)
 

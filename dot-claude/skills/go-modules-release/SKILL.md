@@ -1,6 +1,6 @@
 ---
 name: go-modules-release
-description: Load for Go modules and releases — go.mod directives, toolchains, govulncheck, cross builds.
+description: Use for Go modules and releases — go.mod directives, toolchains, supply chain and govulncheck, cross builds.
 ---
 # Go modules, toolchains and releases
 

@@ -1,6 +1,6 @@
 ---
 name: typst
-description: Use to write or convert to Typst — when it beats LaTeX, limits, math syntax, packages, PDF/A.
+description: Use to write in or convert to Typst — when it beats LaTeX, its limits, math syntax, packages, PDF/A output.
 ---
 # Typst
 

@@ -1,6 +1,6 @@
 ---
 name: rust-unsafe-ffi
-description: Load before writing or reviewing unsafe Rust or FFI — SAFETY rules, edition-2024 unsafe, Miri.
+description: Load before writing or reviewing unsafe Rust or FFI to C — SAFETY comments, edition-2024 unsafe rules, raw pointers, bindings, Miri checks.
 ---
 # Unsafe Rust and FFI
 

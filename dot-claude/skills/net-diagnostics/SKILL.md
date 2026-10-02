@@ -1,6 +1,6 @@
 ---
 name: net-diagnostics
-description: Load to debug a network problem layer by layer — routes, DNS, ports, TLS, MTU, packet captures.
+description: Use to debug a network problem layer by layer on macOS or Linux — routes, DNS, ports, TLS, MTU, packet captures, throughput.
 ---
 # Network diagnostics (macOS and Linux)
 

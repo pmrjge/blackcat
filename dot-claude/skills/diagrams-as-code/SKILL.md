@@ -1,6 +1,6 @@
 ---
 name: diagrams-as-code
-description: Load before drawing a diagram as text — Mermaid, Graphviz, D2, PlantUML, TikZ/tikz-cd or Excalidraw; tested syntax, rendering to SVG/PDF/PNG, embedding, QA checklist.
+description: Load before drawing a diagram as text — Mermaid, Graphviz, D2, PlantUML, TikZ/tikz-cd, Excalidraw; rendering to SVG/PDF/PNG, embedding, QA.
 ---
 # Diagrams as code
 

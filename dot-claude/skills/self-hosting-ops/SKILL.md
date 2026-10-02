@@ -1,6 +1,6 @@
 ---
 name: self-hosting-ops
-description: Load before deploying, exposing, backing up, upgrading or debugging a personal service on a Linux box over Tailscale — Forgejo, Docker/Podman, systemd, Caddy, restic/borg.
+description: Load before running a personal service on a Linux box — Tailscale, Forgejo, containers, systemd, Caddy, backups, k8s, cloud, networking.
 ---
 # Self-hosting over Tailscale (and the infrastructure around it)
 

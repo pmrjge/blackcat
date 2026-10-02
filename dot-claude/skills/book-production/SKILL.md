@@ -1,6 +1,6 @@
 ---
 name: book-production
-description: Load before turning a manuscript into a print-ready PDF, DOCX or EPUB, or uploading to KDP/IngramSpark — trim, margins, bleed, Pandoc/LaTeX/Typst, cover and spine, ISBN.
+description: Load before turning a manuscript into a print PDF, DOCX or EPUB, or publishing via KDP/IngramSpark — layout, bleed, fonts, cover, ISBN.
 ---
 # Book production: manuscript → print PDF, DOCX, EPUB
 

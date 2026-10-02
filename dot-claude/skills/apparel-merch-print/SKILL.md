@@ -1,6 +1,6 @@
 ---
 name: apparel-merch-print
-description: Load before preparing artwork for garments or merchandise — screen print, DTG, DTF, sublimation, vinyl or embroidery; separations, underbase, placements, mockups, delivery files.
+description: Load before preparing artwork for garments or merch — screen print, DTG, DTF, sublimation, vinyl, embroidery; placements, delivery files.
 ---
 # Apparel and merchandise print
 

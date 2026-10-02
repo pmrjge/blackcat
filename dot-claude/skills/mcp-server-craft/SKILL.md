@@ -1,6 +1,6 @@
 ---
 name: mcp-server-craft
-description: Load before building, testing, registering or packaging an MCP server — tool design, Python (uv) or TS SDK, stdio/HTTP, stack registration, MCPB bundles, MCP Apps UI.
+description: Load before building, testing, registering or packaging an MCP server — tool design, Python or TS SDK, stdio/HTTP, stack registration, MCPB.
 ---
 # Building MCP servers the way this stack runs them
 

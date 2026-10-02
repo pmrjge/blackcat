@@ -1,6 +1,6 @@
 ---
 name: tex-math-bib
-description: Load for LaTeX maths and references — amsmath, theorems, siunitx, cleveref, biblatex, fonts.
+description: Use for LaTeX content — amsmath and theorems, cross-references, cleveref, biblatex bibliographies, fonts, algorithms.
 ---
 # LaTeX mathematics, references, bibliographies and fonts
 

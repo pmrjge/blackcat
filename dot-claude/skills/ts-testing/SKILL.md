@@ -1,6 +1,6 @@
 ---
 name: ts-testing
-description: Load for TypeScript/JavaScript tests — Vitest, mocks, type tests, coverage, Playwright e2e.
+description: Use for TypeScript/JavaScript tests — Vitest unit and integration tests, mocks, type tests, coverage, Playwright Test end to end.
 ---
 # TypeScript testing
 

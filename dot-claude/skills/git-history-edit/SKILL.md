@@ -1,6 +1,6 @@
 ---
 name: git-history-edit
-description: Load to rewrite or repair git history — fixup/autosquash, --onto, conflicts, filter-repo.
+description: Use to rewrite or repair unpushed git history — fixup/autosquash, rebase --onto, conflict resolution, removing secrets with filter-repo.
 ---
 # Editing history, conflicts and secret removal
 

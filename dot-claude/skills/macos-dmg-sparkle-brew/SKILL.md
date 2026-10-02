@@ -1,6 +1,6 @@
 ---
 name: macos-dmg-sparkle-brew
-description: Load to ship a macOS app — signed DMG, Sparkle 2 updates, Homebrew cask, packaging tools.
+description: Use to ship a signed macOS app — DMG builds, Sparkle 2 auto-updates, Homebrew casks, packaging tools.
 ---
 # DMG, Sparkle updates, Homebrew and packaging tools
 

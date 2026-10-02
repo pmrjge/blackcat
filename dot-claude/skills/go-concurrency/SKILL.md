@@ -1,6 +1,6 @@
 ---
 name: go-concurrency
-description: Load for concurrent Go — goroutine lifecycles, context, errgroup, channels, sync, timers, leaks.
+description: Use for concurrent Go — goroutine lifecycles, context cancellation, errgroup, channels, sync and shared state, timers, leak checks.
 ---
 # Go concurrency
 

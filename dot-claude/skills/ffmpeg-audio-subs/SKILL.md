@@ -1,6 +1,6 @@
 ---
 name: ffmpeg-audio-subs
-description: Load for ffmpeg audio and subtitles — extract, replace, ducking, loudnorm, burned or soft subs.
+description: Use for audio and subtitles with ffmpeg — extract or replace audio, ducking, loudness and loudnorm, burned or soft subtitles.
 ---
 # ffmpeg audio, loudness and subtitles
 

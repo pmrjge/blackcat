@@ -1,6 +1,6 @@
 ---
 name: linux-workstation
-description: Load before setting up, updating or debugging a Linux ML/dev workstation (CachyOS or Ubuntu, RTX 50 laptop) — NVIDIA driver/CUDA/PyTorch matching, hybrid graphics, containers.
+description: Load before setting up or fixing a Linux ML/dev workstation (CachyOS or Ubuntu, RTX 50 laptop) — NVIDIA driver, CUDA, PyTorch, btrfs.
 ---
 # Linux ML workstation: CachyOS or Ubuntu, NVIDIA Blackwell laptop
 

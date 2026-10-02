@@ -1,6 +1,6 @@
 ---
 name: go-engineering
-description: Load before writing, reviewing, testing or releasing Go — modules and toolchains, errors, context, generics, iterators, slog, gofmt/vet/golangci-lint, goroutines, go test.
+description: Load before writing, testing or releasing Go — modules, toolchains, errors, context, generics, iterators, slog, linters, goroutines, tests.
 ---
 # Go engineering
 

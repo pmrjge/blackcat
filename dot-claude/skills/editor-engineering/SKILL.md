@@ -1,6 +1,6 @@
 ---
 name: editor-engineering
-description: Load before building text or code editor internals or IDE features — ropes, cursors and undo, tree-sitter, LSP/DAP clients, terminal (PTY/VT), GPU text rendering, latency budgets.
+description: Load before building text or code editor internals or IDE features — ropes, cursors, undo, tree-sitter, LSP/DAP, terminals, rendering.
 ---
 # Editor engineering
 

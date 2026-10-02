@@ -1,6 +1,6 @@
 ---
 name: rust-async
-description: Load for async Rust on tokio — runtimes, blocking, cancellation, select!, JoinSet, channels.
+description: Use for async Rust on tokio — runtimes, blocking work, cancellation, select!, JoinSet, channels; error types are in rust-errors-ownership.
 ---
 # Async Rust with tokio
 

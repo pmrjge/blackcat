@@ -1,6 +1,6 @@
 ---
 name: k8s-ops
-description: Load for Kubernetes work — manifests, kubectl, Helm/kustomize, rollouts, debugging pods.
+description: Use for Kubernetes work — manifests, kubectl safety, Helm and kustomize, rollouts and rollbacks, debugging pods.
 ---
 # Kubernetes operations
 

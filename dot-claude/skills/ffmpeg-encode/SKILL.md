@@ -1,6 +1,6 @@
 ---
 name: ffmpeg-encode
-description: Load to pick an ffmpeg codec — x264/x265/AV1/ProRes, VideoToolbox/NVENC, color tags, HDR, batch.
+description: Use to choose and run an ffmpeg encode — x264/x265/AV1/ProRes, VideoToolbox/NVENC, pixel formats, color tags, HDR, faststart, batch.
 ---
 # ffmpeg encoding, color tags and batch jobs
 

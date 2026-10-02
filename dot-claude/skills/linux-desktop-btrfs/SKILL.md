@@ -1,6 +1,6 @@
 ---
 name: linux-desktop-btrfs
-description: Load for the Linux desktop side — fish shell, Wayland, fonts and input, btrfs snapshots.
+description: Use for the Linux desktop side — fish shell, Wayland, fonts and input, btrfs snapshots and rollback.
 ---
 # Linux desktop: fish, Wayland, fonts, snapshots
 

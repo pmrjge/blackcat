@@ -1,6 +1,6 @@
 ---
 name: write-docs-adr
-description: Use for docs pages, READMEs, ADRs, changelogs and release notes — Diátaxis, code in prose, Vale.
+description: Use to write docs pages, READMEs, ADRs, changelogs or release notes — Diátaxis, code in prose, templates, Vale linting.
 ---
 # Documentation, READMEs, ADRs and changelogs
 

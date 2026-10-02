@@ -1,6 +1,6 @@
 ---
 name: py-async
-description: Load for async Python — asyncio TaskGroup, cancellation, timeouts, anyio, free-threading.
+description: Use for async Python — asyncio TaskGroup, cancellation and timeouts, anyio, free-threaded CPython.
 ---
 # Async Python
 
