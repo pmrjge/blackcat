@@ -145,7 +145,7 @@ if [ -f "$C/stack.env" ]; then
     case "$k" in
       PATH|STACK_EXPORT|OPPER_*|OPENROUTER_*|IMAGE_STUDIO_*|LIBDOCS_*|EXA_API_KEY|JINA_API_KEY|SPIDER_API_KEY|GITHUB_TOKEN|HF_TOKEN|WANDB_API_KEY) ;;
       LUMENFALL_*) ;;  # image-studio's check below flags it
-      JUPYTER_URL|JUPYTER_TOKEN|MLFLOW_TRACKING_URI|MOTHERDUCK_TOKEN|LEAN_PROJECT_PATH|MDB_MCP_CONNECTION_STRING|DATABASE_URI|QISKIT_IBM_TOKEN) ;;
+      JUPYTER_URL|JUPYTER_TOKEN|MLFLOW_TRACKING_URI|MOTHERDUCK_TOKEN|LEAN_PROJECT_PATH|MDB_MCP_CONNECTION_STRING|DATABASE_URI|QISKIT_IBM_TOKEN|GODOT_PATH|SEC_EDGAR_USER_AGENT|GRAFANA_URL|GRAFANA_SERVICE_ACCOUNT_TOKEN|NCBI_API_KEY) ;;
       *) printf '%s\n' "$exported" | grep -q "^export $k=" || own="$own $k" ;;
     esac
   done
@@ -155,7 +155,7 @@ if [ -f "$C/stack.env" ]; then
       | sed -E 's/^[[:space:]]*(export[[:space:]]+)?([A-Za-z_][A-Za-z0-9_]*)=.*/\2/'); do
     case "$k" in
       LUMENFALL_*|OPPER_*|OPENROUTER_*|IMAGE_STUDIO_*|LIBDOCS_*|GITHUB_TOKEN|EXA_API_KEY|JINA_API_KEY|SPIDER_API_KEY|HF_TOKEN|WANDB_API_KEY) ;;  # expanded by the stack's Python servers, or checked above
-      JUPYTER_URL|JUPYTER_TOKEN|MLFLOW_TRACKING_URI|MOTHERDUCK_TOKEN|LEAN_PROJECT_PATH|MDB_MCP_CONNECTION_STRING|DATABASE_URI|QISKIT_IBM_TOKEN)
+      JUPYTER_URL|JUPYTER_TOKEN|MLFLOW_TRACKING_URI|MOTHERDUCK_TOKEN|LEAN_PROJECT_PATH|MDB_MCP_CONNECTION_STRING|DATABASE_URI|QISKIT_IBM_TOKEN|GODOT_PATH|SEC_EDGAR_USER_AGENT|GRAFANA_URL|GRAFANA_SERVICE_ACCOUNT_TOKEN|NCBI_API_KEY)
         warn "$k uses \$VAR, which with-stack-env doesn't expand, so magg never gets it: write the value out in $C/stack.env" ;;
       *) expanding="$expanding $k" ;;
     esac
@@ -641,6 +641,8 @@ try:
 except (TypeError, ValueError):
     cap = 1536
 budget = int(1000000 * 3 * frac)
+# skillOverrides: "name-only" lists the name alone, "user-invocable-only" and "off" nothing
+overrides = s.get("skillOverrides") if isinstance(s.get("skillOverrides"), dict) else {}
 n_sk, chars = 0, 0
 for root, _dirs, files in os.walk(skills_dir):
     if "SKILL.md" not in files:
@@ -648,9 +650,12 @@ for root, _dirs, files in os.walk(skills_dir):
     head = open(os.path.join(root, "SKILL.md"), encoding="utf-8", errors="replace").read().split("---", 2)
     if len(head) < 3 or re.search(r"(?m)^disable-model-invocation:\s*true", head[1]):
         continue
+    state = overrides.get(os.path.basename(root), "on")
+    if state in ("user-invocable-only", "off"):
+        continue
     m = re.search(r"(?m)^description:\s*(.*)$", head[1])
     n_sk += 1
-    chars += len(os.path.basename(root)) + 5 + min(len(m.group(1).strip()) if m else 0, cap)
+    chars += len(os.path.basename(root)) + 5 + (0 if state == "name-only" else min(len(m.group(1).strip()) if m else 0, cap))
 (ok if chars <= budget else warn)(
     "skill listing: %d skills, ~%d of %d characters (skillListingBudgetFraction=%s, 1M-context models; plugin skills add to it)"
     % (n_sk, chars, budget, frac) if chars <= budget else

@@ -1,0 +1,11 @@
+# kubernetes-mcp-server 0.0.67 (containers/kubernetes-mcp-server), the magg catalog's "kubernetes"
+# entry: read-only, core tools only, Secrets denied. Since 0.0.6x the server takes no runtime flags;
+# these keys follow its README example. Uses your kubeconfig's current context.
+read_only = true
+toolsets = ["core"]
+
+# Deny access to sensitive resources
+[[denied_resources]]
+group = ""
+version = "v1"
+kind = "Secret"

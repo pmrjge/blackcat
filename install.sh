@@ -766,6 +766,7 @@ stage_script(){ rm -rf "$S/$2" && cp "$SRC/$2" "$S/$2" && chmod "$1" "$S/$2"; }
 stage_script 755 hooks/agent_guard.py
 for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode; do stage_script 755 "bin/$f"; done
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
+stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry reads it (--config)
 # The stack's local LSP marketplace (step 10 registers it): replaced as a whole.
 if [ "$SKIP_PLUGINS" = 0 ] && [ -d "$SRC/stack-plugins" ]; then
   rm -rf "$S/stack-plugins" && cp -R "$SRC/stack-plugins" "$S/stack-plugins"
@@ -1300,7 +1301,7 @@ IN_SYNC = {"installed", "unchanged", "overwritten", "overwritten (legacy)", "ove
 
 # Adobe servers exist only on macOS: elsewhere they are left out of the renders, so designer and
 # motion-designer don't start servers that can only fail (their prompts fall back to SVG/ffmpeg).
-MACOS_ONLY_SERVERS = ("illustrator", "after-effects", "premiere")
+MACOS_ONLY_SERVERS = ("illustrator", "after-effects", "premiere", "mobilebuild")
 
 
 def drop_servers(rendered, names):
@@ -1981,6 +1982,13 @@ for k, v in new.items():
         for sk, sv in v.items():
             if sk not in so or so[sk] == prev_so.get(sk):
                 so[sk] = sv
+        # an entry an earlier version shipped and this one doesn't goes while it still holds the
+        # stack's value (the skill is listed again, or gone); one you changed stays
+        gone = sorted(sk for sk, sv in prev_so.items() if sk not in v and so.get(sk) == sv)
+        for sk in gone:
+            so.pop(sk)
+        if gone:
+            print("  retracted stack skillOverrides for %s (no longer shipped)" % ", ".join(gone))
         merged[k] = so
     elif k in SET_IF_ABSENT:
         if (k not in cur or cur.get(k) == prev_owned.get(k) or cur.get(k) == v
@@ -2132,7 +2140,7 @@ say "8/11 MCP dependency prefetch"
 if [ "$NO_DEPS" = 1 ]; then
   note "--no-deps: skipping MCP dependency prefetch"
 elif [ "$DRY_RUN" = 1 ]; then
-  would "prefetch the MCP servers' packages (libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, lean-lsp-mcp, playwright, context-mode)"
+  would "prefetch the MCP servers' packages (libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, lean-lsp-mcp, postgres-mcp, playwright, context-mode, mongodb-mcp-server, mobilebuildmcp)"
 elif ! have uv; then
   note "! uv missing — skipping MCP dependency prefetch"
 else
@@ -2148,10 +2156,15 @@ else
     uv tool run --quiet --from mcp-for-blender==2.1.1 python -c pass >/dev/null 2>&1 </dev/null || true
     # proof-checker's Lean server: download only (starting it would start the Lean toolchain)
     uv tool run --quiet --from lean-lsp-mcp==0.30.0 python -c pass >/dev/null 2>&1 </dev/null || true
+    # db-engineer's Postgres server: download only (starting it needs DATABASE_URI)
+    uv tool run --quiet --from postgres-mcp==0.3.0 python -c pass >/dev/null 2>&1 </dev/null || true
     ! have npx || npx -y @playwright/mcp@0.0.82 --help >/dev/null 2>&1 </dev/null || true
     ! have npx || npx -y context-mode@1.0.169 --help >/dev/null 2>&1 </dev/null || true
+    # db-engineer's MongoDB and mobile-engineer's MobileBuildMCP servers: download only (npm cache)
+    ! have npm || npm cache add mongodb-mcp-server@3.0.5 >/dev/null 2>&1 </dev/null || true
+    [ "$(uname -s)" != Darwin ] || ! have npm || npm cache add mobilebuildmcp@2.7.1 >/dev/null 2>&1 </dev/null || true
   )
-  note "prefetched libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, lean-lsp-mcp, playwright, context-mode (cache: $STACK_CACHE)"
+  note "prefetched libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, lean-lsp-mcp, postgres-mcp, playwright, context-mode, mongodb-mcp-server, mobilebuildmcp (cache: $STACK_CACHE)"
 fi
 
 say "9/11 MCP servers (user scope, remote HTTP — lazy connect, tools deferred, keys via headersHelper)"

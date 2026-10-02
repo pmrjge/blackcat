@@ -2,7 +2,7 @@
 
 <!-- markdownlint-disable MD013 MD060 -->
 
-BlackCat, a dispatcher on the main thread, routes work to 38 specialist agents (39 agent files). 93
+BlackCat, a dispatcher on the main thread, routes work to 55 specialist agents (56 agent files). 256
 skills load on demand. One policy hook, deny rules and the Claude Code sandbox hold the limits, and MCP
 servers start and stop with the agents that use them. Built for Claude Code **2.1.271 or later**,
 macOS only (Apple Silicon first). It runs in the terminal and in the apps that run Claude Code with
@@ -263,8 +263,8 @@ and `CLAUDE_CONFIG_DIR` both point into a temp dir, so an agent also sets `HOME=
 |---|---|
 | `~/.claude/rules/claude-agent-stack.md` | Global rules every agent loads. `~/.claude/CLAUDE.md` stays yours |
 | `~/.claude/settings.json` | `"agent": "blackcat"`, auto-compact at 400K, depth 4, caps, permissions, sandbox, hooks, status line (merged) |
-| `~/.claude/agents/*.md` | 39 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
-| `~/.claude/skills/*/SKILL.md` | 93 skills (descriptions in context; bodies load on demand) |
+| `~/.claude/agents/*.md` | 56 agent definitions, plus `researcher-copy.md` and `coder-copy.md` rendered from their base files |
+| `~/.claude/skills/*/SKILL.md` | 256 skills (40 list name and description, 216 their name only via `skillOverrides`; bodies load on demand) |
 | `~/.claude/hooks/agent_guard.py` | The policy hook (see [Enforced behaviours](#enforced-behaviours-hooks)) |
 | `~/.claude/bin/mcp-headers` | `headersHelper`: gives exa/jina/huggingface/wandb their keys from `stack.env` at connect time |
 | `~/.claude/bin/with-stack-env` | Starts spider/magg with only their own keys (`--only`); `--print-env sh` for the profile (values redacted unless `--reveal`, which agents can't pass) |
@@ -366,6 +366,23 @@ per task type (12 for oracle up to 350 for god-coder; [CONFIG.md](CONFIG.md) §3
 | mcp-broker | Sonnet 5.5 · medium | Mounts, runs and unmounts MCP servers through magg | permanent changes only after `NEXT: ASK USER` |
 | claude-code-engineer | Opus 5.5 · high | Builds Claude Code config (in the repo, never installed copies) | claude-code-guide (questions only) |
 | claude-code-guide | Sonnet 5.5 · low | Answers Claude Code / SDK / API questions; read-only (hook) | claude-code-engineer (changes) |
+| security-engineer | Opus 5.5 · high | Security builder: audit fixes with a PoC test, hardening, fuzzing, detection rules, dependency remediation; scans only localhost unless you approve | security-auditor (review only) |
+| embedded-engineer | Opus 5.5 · high | MCU firmware (C/Rust, Zephyr, ESP-IDF, embassy), RTOS, probes, FPGA/HDL, KiCad; simulates first, asks before flashing or fuses | rust-engineer, test-engineer |
+| mobile-engineer | Opus 5.5 · medium | iOS/macOS (Swift, SwiftUI), Android (Kotlin, Compose), Flutter, React Native; MobileBuildMCP inline; asks before device installs and store uploads | designer (visuals), localizer (catalogs) |
+| game-engineer | Opus 5.5 · high | Godot, Unity, Unreal, Bevy; Vulkan/Metal/WebGPU, shaders, frame time, netcode | cg-artist (3D assets) |
+| hpc-engineer | Opus 5.5 · high | PDE/FEM/CFD solvers, MPI/OpenMP, Fortran, SLURM, parallel I/O, scaling; asks before cluster submits | mathematician (derivations), julia-engineer |
+| biochem-engineer | Opus 5.5 · high | Bio/chem pipelines, genomics, single-cell, structures, RDKit, MD, QM | data-scientist (statistics), python-engineer |
+| db-engineer | Sonnet 5.5 · high | Query plans, indexes, safe migrations, replication; read-only Postgres and MongoDB servers inline | data-engineer (pipelines) |
+| test-engineer | Sonnet 5.5 · medium | Writes and repairs tests; each new test fails on a seeded mutant; never changes product code | the caller (product fixes) |
+| build-fixer | Sonnet 5.5 · low | Red build → green: format, lint, type, compile errors; behaviour-neutral edits only | the caller (behaviour changes) |
+| localizer | Sonnet 5.5 · medium | Translates .po, XLIFF, ICU, .strings, subtitles; placeholder, plural and length checks | writer (prose) |
+| rust-engineer | Opus 5.5 · high | Rust: cargo, clippy, nextest, async, unsafe/FFI, releases; self-checked | coder (generic), main-coder (cross-cutting) |
+| haskell-engineer | Opus 5.5 · high | Haskell: GHCup, cabal/stack, hlint, ormolu/fourmolu, QuickCheck | coder, main-coder |
+| julia-engineer | Opus 5.5 · high | Julia: juliaup, Pkg, JET, Aqua, type stability, BenchmarkTools | coder, main-coder |
+| go-engineer | Opus 5.5 · high | Go: modules, concurrency, golangci-lint, `-race` tests, govulncheck | coder, main-coder |
+| python-engineer | Opus 5.5 · high | Python on uv: packaging, typing (pyright/mypy), ruff, pytest, asyncio | data-engineer (data work), coder |
+| jvm-engineer | Opus 5.5 · high | Java first, Kotlin and Scala: Gradle/Maven, JUnit, JMH | coder, main-coder |
+| node-engineer | Opus 5.5 · high | Node.js and TypeScript backends and CLIs: pnpm, tsc, ESLint/Biome, Vitest | frontend-engineer (browser UI) |
 
 Descriptions name who takes the adjacent work, so the Agent tool listing every spawner sees states the
 boundaries. Details of each agent's MCP servers are in [MCP servers](#mcp-servers).
@@ -400,6 +417,11 @@ boundaries. Details of each agent's MCP servers are in [MCP servers](#mcp-server
   dispatched by another agent, both run at `max`.
 - **Models and platforms:** model work goes to ml-/dl-/llm-engineer, platform performance to
   mlx-/cuda-engineer (the target hardware owns ports).
+- **Languages and domains:** language-heavy work in one language goes to its expert (rust-, haskell-,
+  julia-, go-, python-, jvm-, node-engineer); domain builds to security-, embedded-, mobile-, game-,
+  hpc- or biochem-engineer. Tests only → test-engineer, a red build only → build-fixer, both reachable
+  from the coders and experts; database tuning → db-engineer and string catalogs → localizer through
+  their family heads.
 - **Checks:** builders check their own work once; an independent reviewer runs only when the brief
   asks or a review trigger fires (rules: Self-check and review), and work goes back only with
   concrete evidence (a failing check, a reproduced bug, a verified discrepancy). A clean finish is
@@ -426,7 +448,9 @@ stack's `explore` replaces Explore) and, in `claude -p` and Agent SDK apps, ever
 (`CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS`). SendMessage resumes of finished agents follow the same
 rows. Agents of your own are in no row: run one with `claude --agent <name>`.
 
-- **blackcat:** every specialist except god-coder, in one burst per prompt.
+- **blackcat:** every specialist except god-coder, db-engineer and localizer (reached through their
+  family heads: data-, devops-engineer and main-coder; frontend-, mobile-engineer, writer and
+  doc-specialist), in one burst per prompt.
 - **orchestrator:** every specialist; the only spawner of god-coder, once per session
   and after a finished ninja-coder (`GOD_SPAWNERS=orchestrator`, `GOD_ONCE_PER_SESSION=1`,
   `GOD_AFTER_NINJA=1`).
@@ -435,37 +459,51 @@ rows. Agents of your own are in no row: run one with `claude --agent <name>`.
   `NEXT: browser-operator` with URLs and steps.
 - **Copies:** only researcher and coder, as `researcher-copy` and `coder-copy`; a copy spawns no copies.
 - **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker,
-  claude-code-guide, browser-operator, plan-reviewer, image-director, explore, proof-checker.
+  claude-code-guide, browser-operator, plan-reviewer, image-director, explore, proof-checker,
+  db-engineer, test-engineer, build-fixer, localizer.
 
 | Agent | May spawn |
 |---|---|
 | planner | scout, explore, claude-code-guide |
 | researcher | researcher-copy, scout, doc-specialist, mathematician, data-engineer, data-scientist, mcp-broker |
 | researcher-copy | scout, doc-specialist, mathematician, data-engineer, data-scientist, mcp-broker |
-| writer | scout, researcher, mathematician |
+| writer | scout, researcher, mathematician, localizer |
 | mathematician | scout, mcp-broker, quantum-engineer, proof-checker |
-| doc-specialist | scout, mcp-broker |
+| doc-specialist | scout, mcp-broker, localizer |
 | designer | image-director, scout, mcp-broker, cg-artist |
 | motion-designer | image-director, designer, scout, mcp-broker, cg-artist, vfx-td |
-| coder | coder-copy, explore, scout |
-| coder-copy | explore, scout |
-| main-coder | coder, explore, scout, verifier, code-reviewer, security-auditor, plan-reviewer, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, claude-code-guide, ninja-coder |
-| ninja-coder | main-coder, coder, mathematician, explore, scout, verifier, code-reviewer, security-auditor, researcher, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, quantum-engineer, proof-checker |
-| god-coder | coder, main-coder, ninja-coder, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, explore, scout, verifier, code-reviewer, security-auditor, mathematician, researcher, proof-checker |
+| coder | coder-copy, explore, scout, test-engineer, build-fixer |
+| coder-copy | explore, scout, test-engineer, build-fixer |
+| main-coder | coder, explore, scout, verifier, code-reviewer, security-auditor, plan-reviewer, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, claude-code-guide, ninja-coder, test-engineer, build-fixer, security-engineer, db-engineer, rust-engineer, haskell-engineer, julia-engineer, go-engineer, python-engineer, jvm-engineer, node-engineer |
+| ninja-coder | main-coder, coder, mathematician, explore, scout, verifier, code-reviewer, security-auditor, researcher, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, quantum-engineer, proof-checker, test-engineer, build-fixer, rust-engineer, haskell-engineer, julia-engineer, go-engineer, python-engineer, jvm-engineer, node-engineer |
+| god-coder | coder, main-coder, ninja-coder, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, explore, scout, verifier, code-reviewer, security-auditor, mathematician, researcher, proof-checker, test-engineer, build-fixer, rust-engineer, haskell-engineer, julia-engineer, go-engineer, python-engineer, jvm-engineer, node-engineer |
 | mlx-engineer | coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder |
 | cuda-engineer | coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder |
-| devops-engineer | coder, explore, scout, verifier, security-auditor, mcp-broker |
-| data-engineer | coder, explore, scout, verifier, mathematician, data-scientist, doc-specialist, mcp-broker |
-| frontend-engineer | coder, explore, scout, verifier, code-reviewer, designer, image-director, mcp-broker |
+| devops-engineer | coder, explore, scout, verifier, security-auditor, mcp-broker, security-engineer, build-fixer, db-engineer |
+| data-engineer | coder, explore, scout, verifier, mathematician, data-scientist, doc-specialist, mcp-broker, db-engineer, test-engineer |
+| frontend-engineer | coder, explore, scout, verifier, code-reviewer, designer, image-director, mcp-broker, test-engineer, build-fixer, localizer, node-engineer |
 | data-scientist | data-engineer, ml-engineer, mathematician, coder, explore, scout, verifier, doc-specialist, writer, mcp-broker |
 | ml-engineer | data-scientist, data-engineer, coder, explore, scout, verifier, code-reviewer, mathematician, mcp-broker |
 | dl-engineer | mlx-engineer, cuda-engineer, data-engineer, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, ninja-coder |
 | llm-engineer | mlx-engineer, cuda-engineer, dl-engineer, data-scientist, coder, explore, scout, researcher, verifier, code-reviewer, mathematician, mcp-broker, claude-code-guide, ninja-coder |
 | claude-code-engineer | claude-code-guide, scout, explore, verifier, code-reviewer, mcp-broker |
 | quantum-engineer | mathematician, coder, explore, scout, researcher, verifier, code-reviewer, cuda-engineer, mlx-engineer, mcp-broker, ninja-coder, proof-checker |
-| robotics-engineer | coder, explore, scout, researcher, verifier, code-reviewer, mathematician, dl-engineer, cuda-engineer, mlx-engineer, cg-artist, mcp-broker, ninja-coder |
+| robotics-engineer | coder, explore, scout, researcher, verifier, code-reviewer, mathematician, dl-engineer, cuda-engineer, mlx-engineer, cg-artist, mcp-broker, ninja-coder, embedded-engineer |
 | cg-artist | image-director, coder, scout, verifier, mcp-broker, vfx-td |
 | vfx-td | coder, scout, verifier, mcp-broker |
+| security-engineer | coder, explore, scout, verifier, security-auditor, test-engineer, mcp-broker |
+| embedded-engineer | coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker, rust-engineer |
+| mobile-engineer | coder, explore, scout, verifier, code-reviewer, designer, test-engineer, build-fixer, localizer, mcp-broker |
+| game-engineer | coder, explore, scout, verifier, code-reviewer, cg-artist, test-engineer, build-fixer, mcp-broker, rust-engineer |
+| hpc-engineer | coder, explore, scout, verifier, mathematician, ninja-coder, cuda-engineer, build-fixer, mcp-broker, julia-engineer |
+| biochem-engineer | coder, explore, scout, researcher, verifier, data-scientist, dl-engineer, cuda-engineer, mcp-broker, python-engineer |
+| rust-engineer | coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker |
+| haskell-engineer | coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker |
+| julia-engineer | coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker |
+| go-engineer | coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker |
+| python-engineer | coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker, data-engineer |
+| jvm-engineer | coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker |
+| node-engineer | coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker |
 
 **Caps** (values in [Knobs](#knobs)): 3 running children per agent, raised per type (orchestrator 10,
 god-coder and main-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8); 2 live copies
@@ -793,7 +831,10 @@ there and confirms the session-env hook is wired.
 These magg calls are `ask` rules, which prompt even in `bypassPermissions`: `magg_add_server`,
 `magg_load_kit`, `proxy`, `magg_enable_server`, and every `duckdb_*`, `jupyter_*`, `ros_*`
 (publishes, calls services, sets parameters on a robot), `qiskit_*` (submits IBM Quantum hardware
-jobs, spends quota) and `docspace_*` (writes to ONLYOFFICE DocSpace rooms and files) call.
+jobs, spends quota), `docspace_*` (writes to ONLYOFFICE DocSpace rooms and files) and the domain
+servers' `mobile_*`, `android_*`, `godot_*`, `biomcp_*`, `pubchem_*`, `k8s_*`, `grafana_*`, `edgar_*`,
+`serial_*` and `gis_*` call (device installs, project writes, external queries, cluster and board
+access).
 **Invariant:** every magg catalog prefix has exactly one allow or ask rule (a test enforces it), so
 no catalog server runs without a decision. The allowed `mongodb_*` and `postgres_*` rely on their
 read-only flags (`--readOnly`, `--access-mode=restricted`), which a test pins. duckdb runs on an
@@ -903,6 +944,8 @@ repo (agent files, `magg/config.json`, the installer's prefetch step) and re-run
 | blender (`mcp-for-blender@2.1.1`, telemetry off) | stdio, agent-scoped | cg-artist | — (Blender running with the add-on) |
 | lean (`lean-lsp-mcp@0.30.0`) | stdio, agent-scoped | proof-checker | only `LEAN_PROJECT_PATH` from `stack.env` (you install elan and a built Mathlib Lake project) |
 | after-effects (Dakkshin, commit `88d5fbf0`), premiere (`premiere-pro-mcp@1.18.2`) | stdio, agent-scoped | motion-designer | — (`--with-adobe`) |
+| postgres (`postgres-mcp@0.3.0 --access-mode=restricted`), mongodb (`mongodb-mcp-server@3.0.5 --readOnly`, telemetry off) | stdio, agent-scoped | db-engineer | only `DATABASE_URI` / `MDB_MCP_CONNECTION_STRING` from `stack.env` |
+| mobilebuild (`mobilebuildmcp@2.7.1`, Sentry off) | stdio, agent-scoped (macOS) | mobile-engineer | — (Xcode) |
 | magg | stdio, agent-scoped | mcp-broker | only the catalog's keys from `stack.env` |
 | exa | remote | scout, researcher, planner, coders, verifier, security-auditor, ML agents | `EXA_API_KEY` optional |
 | jina | remote | scout, researcher, planner, mathematician, writer, … | `JINA_API_KEY`, effectively required |
@@ -913,8 +956,13 @@ repo (agent files, `magg/config.json`, the installer's prefetch step) and re-run
 
 **Catalog (disabled until mounted):** docling, playwright, lean, duckdb, arxiv, jupyter, mlflow,
 docspace (ONLYOFFICE), mongodb (`--readOnly`), postgres (`--access-mode=restricted`), chrome-devtools,
-ros, qiskit-runtime. duckdb, jupyter, ros, qiskit and docspace calls ask at every call; the local
-servers run on the stack's private `STACK_CACHE`.
+ros, qiskit-runtime, and for the domain agents mobile, android, godot, biomcp, pubchem, kubernetes
+(read-only, `magg/k8s-mcp.toml`), grafana (`--disable-write`), sec-edgar, serial and gis. duckdb,
+jupyter, ros, qiskit, docspace and every domain server ask at every call; the local servers run on the
+stack's private `STACK_CACHE`. Language servers are session-wide plugins, not agent-scoped: the
+installer adds the official rust-analyzer, gopls, pyright, typescript, jdtls and kotlin plugins and
+the stack's haskell, julia, lean and metals ones when their binaries exist; only agents with the
+`LSP` tool use them.
 Versions and details: [mcp_servers.md](mcp_servers.md).
 
 ### Context economy: context-mode and neural-memory

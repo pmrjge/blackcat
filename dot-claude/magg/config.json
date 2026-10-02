@@ -107,7 +107,7 @@
       "command": "__NPX__",
       "args": [
         "-y",
-        "mongodb-mcp-server@3.0.4",
+        "mongodb-mcp-server@3.0.5",
         "--readOnly",
         "--telemetry",
         "disabled"
@@ -160,6 +160,123 @@
         "qiskit-ibm-runtime-mcp-server@0.6.1"
       ],
       "notes": "IBM Quantum Platform through Qiskit Runtime: list backends and their calibration, submit and monitor jobs on real hardware, fetch results. Needs QISKIT_IBM_TOKEN in stack.env. Hardware jobs spend the account's quota: its tools are not pre-approved, so each call asks the user. Simulate locally first (qiskit-aer).",
+      "enabled": false
+    },
+    "mobile": {
+      "source": "https://github.com/mobile-next/mobile-mcp",
+      "prefix": "mobile",
+      "command": "__NPX__",
+      "args": [
+        "-y",
+        "@mobilenext/mobile-mcp@1.0.8"
+      ],
+      "env": {
+        "MOBILEMCP_DISABLE_TELEMETRY": "1"
+      },
+      "notes": "iOS simulators and Android emulators (also real devices): screenshots, UI tree, taps, typing, app install and launch. Needs Xcode or the Android SDK with a running simulator or emulator. No read-only mode; it can install apps and has a Mobile Next cloud-login tool (never use it without the user's word): every call asks. Telemetry off (MOBILEMCP_DISABLE_TELEMETRY).",
+      "enabled": false
+    },
+    "android": {
+      "source": "https://github.com/us-all/android-mcp-server",
+      "prefix": "android",
+      "command": "__NPX__",
+      "args": [
+        "-y",
+        "@us-all/android-mcp@1.14.4"
+      ],
+      "notes": "Android devices and emulators through adb: inspection by default; ANDROID_MCP_ALLOW_WRITE (installs, taps, pushes) and ANDROID_MCP_ALLOW_SHELL (adb shell) stay unset. Needs adb on PATH or ADB_PATH/ANDROID_HOME; ANDROID_SERIAL picks a device.",
+      "enabled": false
+    },
+    "godot": {
+      "source": "https://github.com/Coding-Solo/godot-mcp",
+      "prefix": "godot",
+      "command": "__NPX__",
+      "args": [
+        "-y",
+        "@coding-solo/godot-mcp@0.1.1"
+      ],
+      "notes": "Godot editor and projects: launch the editor, run a project and read its debug output, create scenes and nodes, save scenes. Writes project files and starts Godot. Needs GODOT_PATH (the Godot executable) in stack.env. Last commit 2026-04-16: check it still works before relying on it.",
+      "enabled": false
+    },
+    "biomcp": {
+      "source": "https://github.com/genomoncology/biomcp",
+      "prefix": "biomcp",
+      "command": "__UVX__",
+      "args": [
+        "--from",
+        "biomcp-cli==0.9.1",
+        "biomcp",
+        "serve"
+      ],
+      "notes": "Biomedical search against public APIs (PubMed and literature, ClinicalTrials.gov, variant, gene and drug databases, OpenFDA). Queries leave the machine: never patient data, identifiers or unpublished sequences. Optional API keys raise rate limits (NCBI_API_KEY in stack.env). No telemetry (README).",
+      "enabled": false
+    },
+    "pubchem": {
+      "source": "https://github.com/cyanheads/pubchem-mcp-server",
+      "prefix": "pubchem",
+      "command": "__NPX__",
+      "args": [
+        "-y",
+        "@cyanheads/pubchem-mcp-server@0.6.5"
+      ],
+      "notes": "PubChem compound lookups: identifiers, structures and properties. Read-only, no key; queries go to PubChem PUG REST. Low adoption (single maintainer): cross-check important values on pubchem.ncbi.nlm.nih.gov.",
+      "enabled": false
+    },
+    "kubernetes": {
+      "source": "https://github.com/containers/kubernetes-mcp-server",
+      "prefix": "k8s",
+      "command": "__NPX__",
+      "args": [
+        "-y",
+        "kubernetes-mcp-server@0.0.67",
+        "--config",
+        "__CLAUDE_DIR__/magg/k8s-mcp.toml"
+      ],
+      "notes": "Kubernetes and OpenShift through your kubeconfig's current context: pods, logs, events, resources. Read-only with Secrets denied by magg/k8s-mcp.toml (the server takes no runtime flags since 0.0.6x). Check the context before every call: it may point at a shared cluster.",
+      "enabled": false
+    },
+    "grafana": {
+      "source": "https://github.com/grafana/mcp-grafana",
+      "prefix": "grafana",
+      "command": "__UVX__",
+      "args": [
+        "mcp-grafana@2.0.0",
+        "-t",
+        "stdio",
+        "--disable-write",
+        "--usage-stats=disabled"
+      ],
+      "notes": "Grafana dashboards and datasources (Prometheus, Loki, Tempo through Grafana): search, query, alerts, incidents, read-only (--disable-write); usage statistics off. Needs GRAFANA_URL and GRAFANA_SERVICE_ACCOUNT_TOKEN (a Viewer service account) in stack.env.",
+      "enabled": false
+    },
+    "sec-edgar": {
+      "source": "https://github.com/stefanoamorelli/sec-edgar-mcp",
+      "prefix": "edgar",
+      "command": "__UVX__",
+      "args": [
+        "sec-edgar-mcp@1.1.0"
+      ],
+      "notes": "SEC EDGAR filings: company lookup, 10-K/10-Q/8-K text, XBRL financials, insider transactions. Read-only; needs SEC_EDGAR_USER_AGENT (\"Name email\", required by the SEC) in stack.env. AGPL-3.0: fine for unmodified local use.",
+      "enabled": false
+    },
+    "serial": {
+      "source": "https://github.com/qarnet/serial-mcp",
+      "prefix": "serial",
+      "command": "__HOME__/.cargo/bin/serial-mcp",
+      "args": [
+        "--allowlist=/dev/cu.usbmodem*,/dev/cu.usbserial*,/dev/ttyACM*,/dev/ttyUSB*"
+      ],
+      "notes": "Serial consoles of dev boards: list ports, open, read, write, DTR/RTS/BREAK (line control can reset a board). Ports limited by --allowlist. Install first: cargo install serial-mcp@0.9.3 --locked. Only a board the user said is connected and may be used.",
+      "enabled": false
+    },
+    "gis": {
+      "source": "https://github.com/mahdin75/gis-mcp",
+      "prefix": "gis",
+      "command": "__UVX__",
+      "args": [
+        "gis-mcp@0.15.0"
+      ],
+      "notes": "Geospatial operations in Python (geometry, CRS transforms, vector and raster processing). Writes outputs to its storage folder; some tools download boundary, satellite or climate data. GDAL and the geo-* skills through Bash do the same for scripted work.",
       "enabled": false
     }
   }

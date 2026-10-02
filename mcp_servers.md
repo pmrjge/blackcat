@@ -177,6 +177,30 @@ Your stack's mathematician agent (Opus 5.5 at xhigh) with the formal-methods, la
 | Elicit | Search and analyse scientific papers | Remote: `https://elicit.com/api/mcp` | Elicit plan |
 | Manim | Maths animations | Nothing: Claude writes the scenes | Free |
 
+## Engineering domains
+
+Servers for the database, mobile, game, embedded, HPC, bio/chem, cloud and finance agents, vetted on 2 Oct 2026 (licence, last release, flags, telemetry). In your stack they run either inside one agent (inline) or through mcp-broker's catalog, where every call asks you first.
+
+| Tool | Use | In your stack | Cost |
+| --- | --- | --- | --- |
+| [postgres-mcp](https://github.com/crystaldba/postgres-mcp) 0.3.0 | Schema, read-only SQL, EXPLAIN, index advice | Inline in db-engineer, `--access-mode=restricted`; `DATABASE_URI` in stack.env | Free |
+| [mongodb-mcp-server](https://github.com/mongodb-js/mongodb-mcp-server) 3.0.5 | find, aggregate, explain, indexes | Inline in db-engineer, `--readOnly`, telemetry off; `MDB_MCP_CONNECTION_STRING` | Free |
+| [MobileBuildMCP](https://github.com/getsentry/MobileBuildMCP) 2.7.1 (was XcodeBuildMCP) | Xcode builds, tests, simulators | Inline in mobile-engineer (macOS), Sentry telemetry off | Free |
+| [mobile-mcp](https://github.com/mobile-next/mobile-mcp) 1.0.8 | iOS simulator and Android emulator UI: screenshots, taps, installs | Catalog `mobile` (no read-only mode; telemetry off) | Free |
+| [android-mcp](https://github.com/us-all/android-mcp-server) 1.14.4 | Android over adb, read-only by default | Catalog `android` | Free |
+| [godot-mcp](https://github.com/Coding-Solo/godot-mcp) 0.1.1 | Run Godot projects, edit scenes, read debug output | Catalog `godot`; `GODOT_PATH` | Free |
+| [biomcp](https://github.com/genomoncology/biomcp) 0.9.1 | PubMed, trials, variants, genes, drugs (public APIs) | Catalog `biomcp`; optional `NCBI_API_KEY` | Free |
+| [pubchem-mcp-server](https://github.com/cyanheads/pubchem-mcp-server) 0.6.5 | PubChem compounds, read-only | Catalog `pubchem` | Free |
+| [kubernetes-mcp-server](https://github.com/containers/kubernetes-mcp-server) 0.0.67 | Pods, logs, events through your kubeconfig | Catalog `kubernetes`: read-only, Secrets denied (`magg/k8s-mcp.toml`) | Free |
+| [mcp-grafana](https://github.com/grafana/mcp-grafana) 2.0.0 | Dashboards, datasources, alerts | Catalog `grafana`, `--disable-write`, usage stats off; `GRAFANA_URL`, `GRAFANA_SERVICE_ACCOUNT_TOKEN` | Free |
+| [sec-edgar-mcp](https://github.com/stefanoamorelli/sec-edgar-mcp) 1.1.0 | SEC filings and XBRL financials (AGPL-3.0) | Catalog `sec-edgar`; `SEC_EDGAR_USER_AGENT` | Free |
+| [serial-mcp](https://github.com/qarnet/serial-mcp) 0.9.3 | Serial consoles of dev boards, port allowlist | Catalog `serial`; `cargo install serial-mcp@0.9.3 --locked` first | Free |
+| [gis-mcp](https://github.com/mahdin75/gis-mcp) 0.15.0 | Geometry, CRS, vector and raster operations | Catalog `gis` | Free |
+
+Documented, not installed (heavy, an app plugin, cloud credentials or hardware writes): [unity-mcp](https://github.com/CoplayDev/unity-mcp) (Unity Editor package; set `DISABLE_TELEMETRY`), [Unreal_mcp](https://github.com/ChiR24/Unreal_mcp) (C++ editor plugin), AWS [aws-api-mcp-server](https://github.com/awslabs/mcp) (`READ_OPERATIONS_ONLY=true`, telemetry off), Azure (`npx -y @azure/mcp@2.0.5 server start --read-only`, `AZURE_MCP_COLLECT_TELEMETRY=false`), [gcloud-mcp](https://github.com/googleapis/gcloud-mcp) 0.5.3 (no read-only flag), [Alpha Vantage](https://github.com/alphavantage/alpha_vantage_mcp) (API key passed on the command line), [KiCAD-MCP-Server](https://github.com/mixelpixx/KiCAD-MCP-Server) v2.8.2 (built from git), [embedded-debugger-mcp](https://github.com/Adancurusul/embedded-debugger-mcp) v0.3.0 (writes flash), [slurm-mcp-server](https://github.com/charlie-z-work/slurm-mcp-server) 2.0.1 (submits jobs over SSH), [lara-mcp](https://github.com/translated/lara-mcp) 2.0.0 (cloud translation memory), [houdini-mcp](https://github.com/kleer001/houdini-mcp) (see 3D), gopls's built-in `gopls mcp` (experimental; the gopls LSP plugin already gives go-engineer code intelligence).
+
+Rejected: lamaalrajih/kicad-mcp (unmaintained since 2025-10), qgis_mcp (no licence), the audio servers whisper-mcp, local-stt-mcp and mcp-music-analysis (unmaintained), runreal/unreal-mcp (unmaintained), tandemai mcp-rdkit (repository gone), Flux159 mcp-server-kubernetes (its non-destructive mode still writes), unlicensed SLURM servers.
+
 ## Connecting a tool, and the 1920 px image limit
 
 A new connector takes one command, but your stack's agents see it only once it is on their tool list.
