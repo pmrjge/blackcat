@@ -2160,9 +2160,10 @@ else
     uv tool run --quiet --from postgres-mcp==0.3.0 python -c pass >/dev/null 2>&1 </dev/null || true
     ! have npx || npx -y @playwright/mcp@0.0.82 --help >/dev/null 2>&1 </dev/null || true
     ! have npx || npx -y context-mode@1.0.169 --help >/dev/null 2>&1 </dev/null || true
-    # db-engineer's MongoDB and mobile-engineer's MobileBuildMCP servers: download only (npm cache)
-    ! have npm || npm cache add mongodb-mcp-server@3.0.5 >/dev/null 2>&1 </dev/null || true
-    [ "$(uname -s)" != Darwin ] || ! have npm || npm cache add mobilebuildmcp@2.7.1 >/dev/null 2>&1 </dev/null || true
+    # db-engineer's MongoDB and mobile-engineer's MobileBuildMCP servers: download only (fills npx's
+    # cache with the package and its dependencies; runs only `node -e 0`)
+    ! have npx || npm exec --yes --package=mongodb-mcp-server@3.0.5 -- node -e 0 >/dev/null 2>&1 </dev/null || true
+    [ "$(uname -s)" != Darwin ] || ! have npx || npm exec --yes --package=mobilebuildmcp@2.7.1 -- node -e 0 >/dev/null 2>&1 </dev/null || true
   )
   note "prefetched libdocs, image-studio, neural-memory, markitdown, mcp-for-blender, lean-lsp-mcp, postgres-mcp, playwright, context-mode, mongodb-mcp-server, mobilebuildmcp (cache: $STACK_CACHE)"
 fi

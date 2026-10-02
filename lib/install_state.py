@@ -44,8 +44,8 @@ import tempfile
 # backed up or touched.
 SCOPE_DIRS = ("agents", "skills", "rules", "hooks", "bin", "mcp", "stack-plugins", ".stack-plugins.new")
 SCOPE_FILES = ("settings.json", "stack.env", ".stack-manifest.json", "CLAUDE.md", "CLAUDE.md.new",
-               "magg/config.json", "settings.json.tmp", "stack.env.tmp", ".stack-manifest.json.tmp",
-               "magg/config.json.tmp")
+               "magg/config.json", "magg/k8s-mcp.toml", "settings.json.tmp", "stack.env.tmp",
+               ".stack-manifest.json.tmp", "magg/config.json.tmp", "magg/k8s-mcp.toml.tmp")
 EXCLUDED = ("skills/synced", "mcp/vendor")
 # Written through a symlink (a dotfiles repo) instead of replacing the link.
 WRITE_THROUGH = ("settings.json", "stack.env")

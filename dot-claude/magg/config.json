@@ -229,10 +229,13 @@
       "args": [
         "-y",
         "kubernetes-mcp-server@0.0.67",
+        "--read-only",
+        "--toolsets",
+        "core",
         "--config",
         "__CLAUDE_DIR__/magg/k8s-mcp.toml"
       ],
-      "notes": "Kubernetes and OpenShift through your kubeconfig's current context: pods, logs, events, resources. Read-only with Secrets denied by magg/k8s-mcp.toml (the server takes no runtime flags since 0.0.6x). Check the context before every call: it may point at a shared cluster.",
+      "notes": "Kubernetes and OpenShift through your kubeconfig's current context: pods, logs, events, resources. Read-only (--read-only), Secrets denied by magg/k8s-mcp.toml. Check the context before every call: it may point at a shared cluster.",
       "enabled": false
     },
     "grafana": {

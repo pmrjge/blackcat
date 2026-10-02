@@ -33,9 +33,18 @@ def test_in_scope_rejects(rel):
 
 
 @pytest.mark.parametrize("rel", ["agents/coder.md", "skills/a/SKILL.md", "hooks/agent_guard.py",
-                                 "settings.json", "stack.env", "rules/x.md", "magg/config.json"])
+                                 "settings.json", "stack.env", "rules/x.md", "magg/config.json",
+                                 "magg/k8s-mcp.toml"])
 def test_in_scope_accepts(rel):
     assert st.in_scope(rel)
+
+
+def test_staged_magg_side_file_is_planned(conf, tmp_path):
+    # install.sh stages magg/k8s-mcp.toml next to magg/config.json; the plan must install it
+    s = str(tmp_path / "s")
+    write(os.path.join(s, "magg", "k8s-mcp.toml"), "read_only = true\n")
+    plan = st.make_plan(conf, s, str(tmp_path / "r.json"))
+    assert "magg/k8s-mcp.toml" in plan["added"]
 
 
 def test_drift_between_stage_and_apply_aborts(conf, tmp_path):

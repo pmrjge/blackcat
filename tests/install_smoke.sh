@@ -165,6 +165,7 @@ if grep -rlE '__[A-Z_]+__' "$T1"/agents "$T1"/rules "$T1"/skills "$T1/settings.j
 else
   pass "no unresolved placeholders"
 fi
+[ -f "$T1/magg/k8s-mcp.toml" ] && pass "magg/k8s-mcp.toml installed" || failed "magg/k8s-mcp.toml not installed"
 [ -f "$T1/rules/claude-agent-stack.md" ] && [ ! -e "$T1/CLAUDE.md" ] && pass "global rules installed as rules/claude-agent-stack.md (CLAUDE.md left to you)" \
   || failed "rules/claude-agent-stack.md missing, or a CLAUDE.md was written"
 grep -qF "$HERE" "$T1/agents/claude-code-engineer.md" && grep -qF "\"repo\": \"$HERE\"" "$T1/.stack-manifest.json" \

@@ -53,6 +53,11 @@ NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
 # trimming 27 existing descriptions to <= 150 (19 of them by a further 15-25 chars), the listings
 # measured 15,330 (1.314 x base) and 14,550 (1.292 x); each gate is that measurement + 2%, rounded
 # down to 0.01. The skill listing (0.63 x) and the mean per spawn (0.90 x) pay for it.
+# bodies and rules (design E, rebased from 0abe3eb to 1a38c77): agents present at base may grow
+# their bodies by at most 5% in sum (the "## Skills" lines naming the modules, plus the new routing
+# targets in May-spawn sentences, and nothing else), and the global rules file, which every agent
+# reads on every spawn, by at most 2% (wording fixes only; any new rule must displace an old one).
+# New agents are capped one by one through NEW_CAPS instead of a ratio, since they have no base.
 RATIO = {"bodies": 1.05, "agent_listing": 1.34, "blackcat_listing": 1.31, "skill_listing": 0.65,
          "rules": 1.02, "per_spawn_mean": 0.92}
 
