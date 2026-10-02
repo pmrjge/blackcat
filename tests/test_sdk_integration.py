@@ -192,6 +192,28 @@ def test_run_collects_result_and_per_subagent_usage(monkeypatch):
     assert out["model_usage"]["claude-sonnet-5-5"]["inputTokens"] == 9
 
 
+def test_run_names_agents_only_from_labels_and_takes_task_updated_status(monkeypatch):
+    def msg(name, **kw):
+        return type(name, (), kw)()
+
+    async def query(prompt, options):
+        yield msg("TaskStartedMessage", task_id="t1", tool_use_id="tu1", description="fix it",
+                  task_type="local_agent")                      # STACK_AGENT_LABEL=off: no type
+        yield msg("TaskStartedMessage", task_id="t2", tool_use_id="tu2", description="scout",
+                  task_type="local_agent")                      # a bare type
+        yield msg("TaskStartedMessage", task_id="t3", tool_use_id="tu3", description="build",
+                  task_type="local_bash")
+        yield msg("TaskUpdatedMessage", task_id="t2", patch={"status": "killed"}, status=None)
+        yield msg("ResultMessage", result="x", session_id="S", subtype="success", is_error=False,
+                  num_turns=1, duration_ms=1, total_cost_usd=0, usage={}, model_usage={})
+
+    monkeypatch.setitem(sys.modules, "claude_agent_sdk", types.SimpleNamespace(query=query))
+    got = {a["tool_use_id"]: a for a in asyncio.run(sdk.run("x", None))["agents"]}
+    assert set(got) == {"tu1", "tu2", "tu3"}                      # the update joined its tool_use_id
+    assert (got["tu1"]["agent"], got["tu2"]["agent"], got["tu3"]["agent"]) == (None, "scout", None)
+    assert got["tu2"]["status"] == "killed" and "status" not in got["tu1"]
+
+
 def test_options_with_the_pinned_sdk():
     pytest.importorskip("claude_agent_sdk")
     o = sdk.options("coder", max_turns=5, budget_usd=0.5, allowed_tools=["Read"],
@@ -203,6 +225,10 @@ def test_options_with_the_pinned_sdk():
         5, 0.5, ["Read"], "dontAsk", "claude-sonnet-5-5")
     assert o.env == {"STACK_REPORT_FORMAT": "json"} and o.agents is None   # no programmatic agents
     assert sdk.options(None, json_reports=False).extra_args == {}
+    o = sdk.options("scout", json_reports=True, env={"A": "1"}, extra_args={"debug": None},
+                    system_prompt="custom")               # merged, and any field can be overridden
+    assert o.env == {"A": "1", "STACK_REPORT_FORMAT": "json"}
+    assert o.extra_args == {"debug": None, "agent": "scout"} and o.system_prompt == "custom"
 
 
 def test_helper_is_small_pinned_installed_and_never_loaded():
