@@ -58,37 +58,7 @@ fn char_to_lsp(rope: &Rope, idx: usize) -> (u32, u32) {
 - Collaboration only: CRDTs (`yrs`, `automerge`, `loro`); single-user editors don't need them.
 
 ## Syntax: tree-sitter
-- Grammar crates export `LANGUAGE: LanguageFn` and bundled queries (`HIGHLIGHTS_QUERY`, `INJECTIONS_QUERY`): `parser.set_language(&tree_sitter_rust::LANGUAGE.into())?`. `LanguageError` means the grammar's ABI is outside the runtime's range — align crate versions and load every grammar in a test.
-- Editor query sets (`folds.scm`, `indents.scm`, `textobjects.scm`, extra highlights) come from editor projects (nvim-treesitter, Helix `runtime/queries`, Zed); capture names and predicates differ between them — pick one convention, and respect their licenses.
-- Incremental re-parse (edit the tree with the old coordinates, then parse from rope chunks):
-```rust
-fn point_at(rope: &Rope, byte: usize) -> Point {
-    let row = rope.byte_to_line(byte);
-    Point { row, column: byte - rope.line_to_byte(row) }       // column is in bytes
-}
-fn apply_edit(rope: &mut Rope, tree: &mut Tree, start: usize, end: usize, text: &str) {
-    let (start_byte, old_end_byte) = (rope.char_to_byte(start), rope.char_to_byte(end));
-    let (start_position, old_end_position) = (point_at(rope, start_byte), point_at(rope, old_end_byte));
-    rope.remove(start..end);
-    rope.insert(start, text);
-    let new_end_byte = start_byte + text.len();
-    tree.edit(&InputEdit { start_byte, old_end_byte, new_end_byte, start_position, old_end_position,
-                           new_end_position: point_at(rope, new_end_byte) });
-}
-fn parse(parser: &mut Parser, rope: &Rope, old: Option<&Tree>) -> Option<Tree> {
-    parser.parse_with_options(&mut |byte: usize, _: Point| -> &[u8] {
-        if byte >= rope.len_bytes() { return &[]; }
-        let (chunk, chunk_start, _, _) = rope.chunk_at_byte(byte);
-        &chunk.as_bytes()[byte - chunk_start..]
-    }, old, None)
-}
-// after parsing: for r in old_tree.changed_ranges(&new_tree) { invalidate highlight cache in r }
-```
-- Parse off the UI thread on a rope snapshot. Cancel stale parses with `ParseOptions::new().progress_callback(&mut |_: &ParseState| if stale() { ControlFlow::Break(()) } else { ControlFlow::Continue(()) })` passed as the third argument. A cancelled parse returns `None`, and the next `parse` call resumes it — call `parser.reset()` first when the text has changed since.
-- Queries: `Query::new(&language, source)?`; `QueryCursor::captures`/`matches` return *streaming* iterators — bring `streaming_iterator::StreamingIterator` into scope and loop with `while let Some((m, idx)) = captures.next()`; in 0.27 `QueryMatch::captures()` is a method (older versions exposed a field). Limit work with `cursor.set_byte_range(visible_bytes)`. Built-in text predicates (`#eq?`, `#match?`, `#any-of?` and their `not-` forms) are evaluated by the cursor given a text provider; everything else is yours to apply: `#set!` directives via `query.property_settings(pattern)`, `#is?`/`#is-not?` via `property_predicates`, other predicates via `general_predicates`.
-- Highlighting: map capture names (`keyword.function`, `string.special`) to theme scopes with fallback by dropping trailing segments.
-- Injections (Markdown code fences, math, JS in HTML): `injections.scm` yields `@injection.content` plus `@injection.language` (or `#set! injection.language "..."`). Parse each injected language as a layer with `parser.set_included_ranges(&ranges)`; re-parse only layers whose ranges changed. Markdown in tree-sitter-md is two grammars: block `LANGUAGE` and `INLINE_LANGUAGE` (its `MarkdownParser` wraps both).
-- Trees contain `ERROR`/`MISSING` nodes while the user types — highlighters, folding and indentation must tolerate them.
+Read `references/tree-sitter.md` when implementing syntax highlighting, folding or structure with tree-sitter.
 
 ## LSP client
 - Transport: spawn the server with piped stdin/stdout (stderr → log); frames are `Content-Length: <bytes>\r\n\r\n<UTF-8 JSON>`; JSON-RPC 2.0 requests, responses, notifications.
@@ -118,20 +88,7 @@ fn parse(parser: &mut Parser, rope: &Rope, old: Option<&Tree>) -> Option<Tree> {
 - Adapters: CodeLLDB (`codelldb`, TCP port argument), lldb-dap (LLVM, stdio), debugpy (`uv run python -m debugpy.adapter`, stdio), Delve (`dlv dap` listening on a TCP address). Launch-config fields are adapter-specific — read each adapter's docs.
 
 ## Integrated terminal
-```rust
-let pair = native_pty_system().openpty(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 })?;
-let mut cmd = CommandBuilder::new_default_prog();     // user's login shell
-cmd.env("TERM", "xterm-256color");
-let mut child = pair.slave.spawn_command(cmd)?;
-drop(pair.slave);                                      // parent keeps only the master side
-let reader = pair.master.try_clone_reader()?;          // blocking Read: own thread -> channel
-let writer = pair.master.take_writer()?;               // keystrokes / pastes
-pair.master.resize(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 0 })?; // on view resize
-```
-- Terminal state: `alacritty_terminal` (grid + VT handling + tty/event loop; Zed's terminal builds on it) or the lower-level `vte` parser (implement `Perform`: `print`, `execute`, `csi_dispatch`, `esc_dispatch`, `osc_dispatch`) over your own grid.
-- Must handle: alternate screen, scrollback cap, bracketed paste, mouse reporting modes, wide/combining characters, true color, OSC 8 hyperlinks, OSC 133 prompt marks; treat OSC 52 clipboard writes as a permission.
-- Flood control: read continuously, but cap bytes parsed per frame and redraw at display rate (`yes`, `cat bigfile`); render damaged lines only.
-- Keys: map to escape sequences per mode (application cursor keys); Option-as-Meta setting on macOS.
+Read `references/terminal.md` when building the integrated terminal.
 
 ## Rendering
 - Pipeline: shape visible lines (cosmic-text / harfrust / rustybuzz) → cache shaped runs keyed by (line text hash, style spans, font size, wrap width) → rasterize glyphs into a GPU atlas (glyphon/cryoglyph for wgpu, swash) → instanced quads.
@@ -141,28 +98,7 @@ pair.master.resize(PtySize { rows: 40, cols: 120, pixel_width: 0, pixel_height: 
 - Text quality: advanced shaping for ligatures, font fallback chain for emoji/CJK, subpixel positioning; macOS has no subpixel (LCD) antialiasing — use grayscale AA.
 
 ## Files, watching and search
-- Watching: `notify::recommended_watcher` (FSEvents on macOS, inotify on Linux) + `notify-debouncer-full` (coalesces bursts, tracks renames). Editors save via rename or truncate, so treat every event as "maybe changed" and compare mtime/size/hash before reloading. Skip ignored dirs (`target/`, `node_modules/`, `.git/objects`); Linux inotify limits (`fs.inotify.max_user_watches`); `PollWatcher` for network filesystems.
-- External change: clean buffer → reload and keep cursors by diff-mapping (`imara-diff`, `similar`); dirty buffer → conflict prompt.
-- Project search (ripgrep's crates):
-```rust
-let matcher = RegexMatcher::new_line_matcher(r"fn\s+main")?;
-WalkBuilder::new(root).build_parallel().run(|| {             // honors .gitignore/.ignore, hidden files
-    let (tx, matcher, cancelled) = (tx.clone(), matcher.clone(), cancelled.clone()); // cancelled: Arc<AtomicBool>
-    let mut searcher = SearcherBuilder::new()
-        .binary_detection(BinaryDetection::quit(b'\x00')).line_number(true).build();
-    Box::new(move |entry| {
-        let Ok(entry) = entry else { return WalkState::Continue };
-        if !entry.file_type().is_some_and(|t| t.is_file()) { return WalkState::Continue; }
-        let path = entry.path().to_path_buf();
-        let _ = searcher.search_path(&matcher, &path, UTF8(|lnum, line| {
-            let _ = tx.send((path.clone(), lnum, line.to_string()));
-            Ok(true)
-        }));
-        if cancelled.load(Ordering::Relaxed) { WalkState::Quit } else { WalkState::Continue }
-    })
-});
-```
-  Stream hits to the UI in batches; cancel on a new query via the shared flag; cap results.
+Read `references/files-search.md` when implementing file loading, watching or search.
 
 ## Keybindings, commands, configuration
 - Command registry: `CommandId` → handler + title + context predicate + default keys. Keymaps are layered (defaults → mode → view → user); support chords with timeouts; letters bind to logical keys, positional bindings to physical keys; Cmd is primary on macOS. Report conflicts. The command palette fuzzy-matches registry titles.

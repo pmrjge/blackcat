@@ -98,21 +98,7 @@ contributors → illustration credits → index(es). Major divisions start on a 
 Keep one source of truth (Markdown + YAML metadata + bibliography + images); every output is generated.
 
 ## 6. Fonts and PDF for print
-- Embed every font (`pdffonts book.pdf`: `emb yes` everywhere, no Type 3). Acrobat's "Standard" preset does not
-  embed the base-14 fonts, and IngramSpark may reject such files. Commercial fonts: the licence must cover print/PDF
-  embedding (and ebook embedding for EPUB, often a separate licence).
-- **PDF/X:** IngramSpark requires PDF/X-1a:2001 or PDF/X-3:2002 (no crop marks, single pages, no spot colours,
-  no ICC-tagged objects — 100 % K text tagged with a profile can print as grey; total ink ≤ 240 %; rule lines
-  ≥ 0.125 pt at 100 % K). KDP accepts a normal PDF meeting its rules (§2).
-  Routes: `\usepackage[x-1a1]{pdfx}` (PDF/X-1a:2001; `x-302` = PDF/X-3:2002; load it first after
-  `\documentclass`, configure hyperref via `\hypersetup` instead of loading it; metadata in `\jobname.xmpdata`;
-  X-1a allows only CMYK/grey content); Ghostscript `-dPDFX=3` with an edited `PDFX_def.ps` naming the
-  output-intent profile plus `-sColorConversionStrategy=CMYK` or `Gray`; WeasyPrint `--pdf-variant` (labels X-1a/X-3 as the :2003
-  versions and does not convert RGB); Acrobat Pro
-  or callas pdfToolbox. `\DocumentMetadata{pdfstandard=X-4}` only writes XMP metadata — it neither converts
-  colours nor validates.
-- Preflight with a PDF/X-capable tool (Acrobat Pro Preflight, pdfToolbox); veraPDF validates PDF/A and PDF/UA,
-  not PDF/X. `pdfinfo -box` must show TrimBox (or ArtBox) on every page for PDF/X.
+Read `references/fonts-pdf.md` when embedding fonts or exporting the print PDF.
 
 ## 7. Images
 - Resolution at final printed size: ≥ 300 ppi for photos and greyscale (both printers); 600 ppi for 1-bit line
@@ -127,69 +113,13 @@ Keep one source of truth (Markdown + YAML metadata + bibliography + images); eve
 - Rights: every image licensed for print and ebook distribution; credit lines in captions or credits page.
 
 ## 8. Cover, spine, barcode, ISBN, legal deposit
-- **Full wrap (paperback):** width = bleed + back + spine + front + bleed; height = bleed + trim height + bleed;
-  bleed 0.125 in (3.2 mm KDP; 3 mm IngramSpark). **KDP spine** = pages × 0.002252 in (white paper; standard
-  colour), × 0.0025 in (cream), × 0.002347 in (premium colour). Example: 6 × 9 in, 300 pages, white →
-  spine 0.6756 in; cover 12.926 × 9.25 in. **IngramSpark:** always build on the template from its Cover Template
-  Generator (dashboard → My Tools); spine width depends on the chosen paper, page count must be even.
-- **Safe zones:** text ≥ 0.125 in (3 mm) inside trim and spine folds. KDP spine text only with more than 79 pages and
-  0.0625 in (1.6 mm) clearance each side; IngramSpark spine safety 0.0625 in (2 mm) for spines ≥ 0.35 in,
-  0.03125 in (1 mm) below, and no spine text under 48 pages (perfect bound).
-- **Barcode:** EAN-13 of the ISBN-13, 100 % black on a white box. KDP places one automatically if you leave the
-  area free; IngramSpark requires one (template barcode may be moved, never resized; otherwise leave
-  1.75 × 1 in for it). US retail often adds a 5-digit price add-on (90000 = no price).
-- **Files:** KDP cover = single PDF, ≥ 300 DPI images, ≤ 40 MB recommended (650 MB max); IngramSpark cover PDF on its template (remove the
-  template's pink/blue guide areas if exporting from the PDF template). Ebook cover image is separate (IngramSpark:
-  RGB JPEG, ≥ 1600 px on the short side and ≥ 1873 px on the long side).
-- **ISBN:** Portugal — APEL's Agência Nacional de ISBN (isbn.apel.pt), also for self-publishers (*edição de autor*);
-  print and ebook need distinct ISBNs; an unchanged reprint keeps its ISBN, a revised edition gets a new one;
-  APEL can supply the barcode (fees listed in its FAQ). USA — Bowker; UK/Ireland — Nielsen; Brazil — Câmara
-  Brasileira do Livro (since 2020); elsewhere — the International ISBN Agency directory. KDP's free ISBN only works
-  on KDP and shows "Independently published"; with your own ISBN the imprint name must match the ISBN
-  registration exactly; KDP ebooks need no ISBN.
-- **Legal deposit (Portugal, Decreto-Lei n.º 74/82):** the printer requests the free depósito-legal number about a
-  week before printing; for works printed abroad by a publisher domiciled in Portugal, the publisher deposits;
-  the Biblioteca Nacional's default is 11 copies with reductions (e.g. one copy for runs of up to 100) — check BNP's
-  current rules.
-- **Guardrails:** fonts licensed for the use; no third-party logos or trademarks on covers without permission;
-  public-domain texts need real added value on KDP; KDP requires disclosing AI-generated text, images or
-  translations (AI-assisted editing need not be disclosed).
+Read `references/cover-isbn.md` when making the cover, spine or barcode, or handling ISBN and legal deposit.
 
 ## 9. DOCX via a reference document
-```bash
-pandoc -o custom-reference.docx --print-default-data-file reference.docx   # then edit styles in Word/LibreOffice
-pandoc book.md --reference-doc=custom-reference.docx --toc --citeproc -o book.docx
-```
-Only restyle what Pandoc uses; page size, margins, headers and footers come from the reference document.
-Paragraph styles: Normal, Body Text, First Paragraph, Compact, Title, Subtitle, Author, Date, Abstract,
-AbstractTitle, Bibliography, Heading 1–9, Block Text, Footnote Block Text, Source Code, Footnote Text,
-Definition Term, Definition, Caption, Table Caption, Image Caption, Figure, Captioned Figure, TOC Heading.
-Character styles: Default Paragraph Font, Verbatim Char, Footnote Reference, Hyperlink, Section Number; table style
-Table. Anything else via `::: {custom-style="Epigraph"}` / `[text]{custom-style="Term"}`. Math becomes native Word
-equations; footnotes become Word footnotes. Fine Word edits: the `docx` skill.
+Read `references/docx.md` when producing DOCX through a reference document.
 
 ## 10. EPUB
-- **Standard:** EPUB 3.3 (W3C Recommendation; 3.4 in progress). Container rules: `mimetype` first in the ZIP,
-  stored uncompressed, content `application/epub+zip`; `META-INF/container.xml` points to the package document;
-  required metadata `dc:identifier`, `dc:title`, `dc:language` and `meta property="dcterms:modified"`; an EPUB
-  navigation document is mandatory (NCX only for legacy readers).
-- **Pandoc:**
-```bash
-pandoc book.md --metadata-file=epub.yaml --epub-cover-image=cover.jpg --css=epub.css \
-  --toc --split-level=1 --math-method=mathml -o book.epub
-# mathml is Pandoc's default math method (--mathml is deprecated); --epub-chapter-level = old name of --split-level
-```
-  `epub.yaml`: `title`, `creator` (role), `identifier` (scheme `ISBN-13`), `lang`, `publisher`, `rights`, and the
-  accessibility fields `accessModes`, `accessModeSufficient`, `accessibilityFeatures`, `accessibilityHazards`,
-  `accessibilitySummary`. Embed fonts only if licensed (`--epub-embed-font`).
-- **Accessibility:** alt text on every informative image, correct heading hierarchy, real tables, language set,
-  MathML or described images for maths (test on target readers — MathML support varies). E-books sold in the EU
-  fall under the European Accessibility Act (applying since 28 June 2025; microenterprises providing services are
-  exempt). Check with DAISY Ace: `npx @daisy/ace -o ace-report book.epub`.
-- **Validate:** `epubcheck book.epub` (Homebrew formula, 5.4.0) — zero errors before any upload. IngramSpark:
-  EPUB 3, no image over 3.2 megapixels. KDP ebooks: EPUB, DOCX or KPF (Kindle Create); MOBI is no longer
-  accepted for fixed-layout; preview in Kindle Previewer.
-- Reflowable, not fixed-layout, for text books; fixed layout only for picture books/comics.
+Read `references/epub.md` when producing or checking an EPUB.
 
 ## 11. Proofs and release checklist
 - [ ] Trim, page count, paper, ink, binding recorded; margins meet the printer table; spreads checked.

@@ -33,46 +33,10 @@ description: Load before building, training, sampling or evaluating a diffusion,
   carry the same information.
 
 ## 2. Parameterizations and loss weighting
-| predict | target | recover x̂₀ | loss in x₀ units |
-|---|---|---|---|
-| ε | ε | (x_t − σ_t ε̂)/α_t | ‖ε−ε̂‖² = SNR·‖x₀−x̂₀‖² |
-| x₀ | x₀ | direct | ‖x₀−x̂₀‖² |
-| v (VP, α²+σ²=1; Salimans & Ho 2202.00512) | α_t ε − σ_t x₀ | α_t x_t − σ_t v̂ (and ε̂ = σ_t x_t + α_t v̂) | (1+SNR)·‖x₀−x̂₀‖² |
-| EDM denoiser D = c_skip x + c_out F_θ(c_in x; c_noise) | x₀ | direct | λ(σ)c_out² = 1 on F_θ |
-
-- ε-prediction cannot represent zero terminal SNR (α_T = 0 makes x̂₀ undefined). Use v or x₀ there.
-- Only the product "sampling density of t × weight" affects the expected loss, but the gradient
-  variance differs between choices. Monotone weightings equal the ELBO under noise augmentation
-  (Kingma & Gao 2303.00848; Kingma et al., VDM 2107.00630).
-- Min-SNR-γ (Hang et al. 2303.09556): x₀-space weight min(SNR, γ), with γ = 5 by default. That is
-  min(SNR, γ)/SNR for ε-prediction and min(SNR, γ)/(SNR+1) for v-prediction.
-- EDM (Karras et al. 2206.00364):
-  - σ_data = 0.5; c_skip = σ_d²/(σ²+σ_d²); c_out = σσ_d/√(σ²+σ_d²); c_in = 1/√(σ²+σ_d²);
-    c_noise = ¼ln σ.
-  - Train with ln σ ~ N(−1.2, 1.2²) and λ(σ) = (σ²+σ_d²)/(σσ_d)².
-  - Sample with σ_i = (σ_max^{1/ρ} + i/(N−1)·(σ_min^{1/ρ} − σ_max^{1/ρ}))^ρ, ρ = 7, σ ∈ [0.002, 80], and
-    Heun steps.
-- Rectified-flow timestep sampling (SD3, Esser et al. 2403.03206): logit-normal t = sigmoid(u), u ~ N(0,1)
-  ranked best among the variants tested. At higher resolution shift toward noise with
-  t ↦ αt/(1+(α−1)t), α = √(m/n) for pixel counts m vs n (t = 1 is noise).
+Read `references/parameterizations-flows.md` when choosing a parameterization, loss weighting or flow-matching formulation.
 
 ## 3. Flow matching, rectified flow, interpolants
-This section uses Lipman's convention: noise z at t = 0, data x₁ at t = 1.
-- Conditional flow matching (Lipman et al. 2210.02747): pick a conditional path x_t | x₁ with a known
-  velocity u_t(x|x₁) and minimize E‖v_θ(x_t, t) − u_t(x_t|x₁)‖². The minimizer is the marginal
-  velocity; sample by integrating the ODE from noise to data.
-- Rectified flow (Liu et al. 2209.03003): x_t = (1−t)z + t x₁ with target x₁ − z. "Reflow" retrains on
-  the model's own (noise, sample) pairs to straighten paths for few-step sampling.
-- OT-CFM (Tong et al. 2302.00482): pair noise and data within a minibatch by exact or entropic OT
-  before building paths. This gives straighter paths and lower-variance targets.
-- Stochastic interpolants (Albergo & Vanden-Eijnden 2209.15571; Albergo, Boffi & Vanden-Eijnden
-  2303.08797): for x₀ ~ ρ₀ and x₁ ~ ρ₁ (any two distributions), x_t = α(t)x₀ + β(t)x₁ + γ(t)z with
-  γ(0) = γ(1) = 0. This unifies flows and diffusions.
-- One ODE, many parameterizations. For Gaussian paths x_t = α_t x_data + σ_t ε:
-  v(x,t) = (α̇/α)x + (σ̇ − σα̇/α)ε̂, with ε̂ = E[ε|x_t = x] = −σ∇log p_t.
-  - Rectified flow (α = t, σ = 1−t) gives v = (x − ε̂)/t.
-  - Convert between parameterizations instead of retraining.
-  - Reference code and conventions: Lipman et al., "Flow Matching Guide and Code" 2412.06264.
+Read `references/parameterizations-flows.md` when choosing a parameterization, loss weighting or flow-matching formulation.
 
 ## 4. Noise schedules
 - DDPM: linear β from 1e-4 to 0.02 with T = 1000.
@@ -89,31 +53,7 @@ This section uses Lipman's convention: noise z at t = 0, data x₁ at t = 1.
   plus `shift_factor` if the config has one.
 
 ## 5. Samplers
-- DDPM ancestral: stochastic, needs hundreds of steps.
-- DDIM (Song, Meng & Ermon 2010.02502):
-  x_{t−1} = √ᾱ_{t−1} x̂₀ + √(1−ᾱ_{t−1}−σ_t²) ε̂ + σ_t z,
-  σ_t = η√((1−ᾱ_{t−1})/(1−ᾱ_t))·√(1−ᾱ_t/ᾱ_{t−1}).
-  η = 0 is deterministic (a PF-ODE discretization); η = 1 is close to DDPM.
-- ODE solvers:
-  - Euler; Heun (2nd order, as in EDM);
-  - DPM-Solver and DPM-Solver++ (Lu et al. 2206.00927, 2211.01095): exponential integrators in λ. The
-    multistep "2M" is the usual default, and the data-prediction "++" variant is the one to use with
-    guidance, which the paper reports gives high-quality guided samples in 15–20 steps;
-  - UniPC (Zhao et al. 2302.04867).
-  - Measure quality against NFE for your model; do not copy step counts from elsewhere.
-- Stochastic samplers (EDM churn, SDE solvers) correct accumulated error but need more steps and
-  tuning.
-- Few-step sampling: progressive distillation (2202.00512), consistency models (Song et al.
-  2303.01469), reflow.
-- diffusers (0.40) schedulers:
-  - `DDPMScheduler`, `DDIMScheduler`, `EulerDiscreteScheduler`, `HeunDiscreteScheduler`,
-    `UniPCMultistepScheduler`, `FlowMatchEulerDiscreteScheduler`, `FlowMatchHeunDiscreteScheduler`,
-    `EDMEulerScheduler`, `EDMDPMSolverMultistepScheduler`, `LCMScheduler`.
-  - `DPMSolverMultistepScheduler` takes `algorithm_type="dpmsolver++"|"sde-dpmsolver++"`,
-    `use_karras_sigmas`, `timestep_spacing="linspace"|"leading"|"trailing"`, `rescale_betas_zero_snr`
-    and `prediction_type="epsilon"|"sample"|"v_prediction"|"flow_prediction"`.
-  - Swap schedulers with `NewScheduler.from_config(pipe.scheduler.config)`. `prediction_type` must match
-    how the model was trained.
+Read `references/samplers.md` when choosing or implementing a sampler.
 
 ## 6. Guidance and conditioning
 - Classifier guidance (Dhariwal & Nichol 2105.05233) adds s·∇log p_φ(y|x_t) and needs a
@@ -165,51 +105,10 @@ This section uses Lipman's convention: noise z at t = 0, data x₁ at t = 1.
   generators need content-safety filtering and should not reproduce identifiable people or trademarks.
 
 ## 9. Evaluation
-- FID (Heusel et al. 1706.08500): Fréchet distance of Inception-v3 2048-d pool features, usually
-  generated vs reference at 50k samples.
-  - Biased at small N: compare only at equal N, the same reference set and the same implementation.
-  - Sensitive to resizing and compression (clean-fid, Parmar et al. 2104.11222).
-  - Can be gamed by matching ImageNet classes (Kynkäänniemi et al. 2203.06026).
-- KID (Bińkowski et al. 1801.01401): unbiased, so usable at small N; report mean ± std over subsets.
-- Precision/recall (Kynkäänniemi et al. 1904.06991): fidelity and coverage separately (k-NN manifolds).
-- Alternative features: FD-DINOv2 (Stein et al. 2306.04675); CMMD with CLIP embeddings (Jayasumana et
-  al. 2401.09603).
-- Text-to-image: CLIPScore (Hessel et al. 2104.08718) measures alignment under one CLIP model. It
-  saturates and rewards rendered keywords; it is not an image-quality metric. Back claims with human
-  preference studies.
-- torchmetrics (needs `torch-fidelity` for FID/KID):
-  - `torchmetrics.image.fid.FrechetInceptionDistance(feature=2048, normalize=False)` expects uint8
-    images in [0, 255]; `normalize=True` takes floats in [0, 1].
-  - Also `torchmetrics.image.kid.KernelInceptionDistance` and
-    `torchmetrics.multimodal.clip_score.CLIPScore`.
-- Toy 2-D sanity suite, run before any large job:
-  - Data: 8 Gaussians, two moons, checkerboard.
-  - Model: MLP with a sinusoidal time embedding.
-  - Checks:
-    - every mode covered with the right mass;
-    - no bridges between modes;
-    - quality vs NFE curve;
-    - PF-ODE round trip x → z → x;
-    - the learned score vs the closed-form score of a Gaussian mixture;
-    - MMD or sliced Wasserstein to the ground truth.
+Read `references/evaluation.md` when evaluating a diffusion or flow model.
 
 ## 10. Implementation notes
-- Converters: write ε ↔ x₀ ↔ v ↔ score ↔ velocity as tested pure functions (round-trip to 1e-6 in fp32
-  on random tensors). Write samplers as pure functions of (model, schedule, x_T, seed).
-- PyTorch (CUDA, MPS):
-  - `torch.nn.functional.scaled_dot_product_attention`; `torch.compile` for the denoiser;
-    channels-last for convnets; bf16 on Ampere or newer.
-  - On the 12 GB RTX 5070 Ti laptop GPU, latent models at 512–1024 px need bf16, gradient
-    checkpointing, and small batches with accumulation. Measure with
-    `torch.cuda.max_memory_allocated()`.
-  - MPS has no float64.
-- MLX (Apple Silicon):
-  - Structure: `nn.value_and_grad(model, loss_fn)`, `mx.compile` the step, then
-    `mx.eval(model.parameters(), optimizer.state)` every step (lazy graphs otherwise grow).
-  - `mx.random.key`/`split` for reproducible noise. float64 is CPU-only.
-  - Unified memory allows large batches.
-  - Inference references: `ml-explore/mlx-examples` `stable_diffusion` (SDXL-Turbo, SD 2.1) and mflux
-    (MLX ports of recent image models).
+Read `references/implementation.md` when implementing a model or training loop.
 
 ## 11. Debugging
 | symptom | likely cause | check or fix |
@@ -221,7 +120,7 @@ This section uses Lipman's convention: noise z at t = 0, data x₁ at t = 1.
 | low diversity, mode collapse | high guidance; stale EMA; duplicated data; distillation artifacts | recall metric; many seeds on one prompt; dedupe |
 | good loss, bad samples | weighting mismatched to where the sampler spends steps; raw weights instead of EMA; too few NFE | per-λ loss; more steps; EMA weights |
 | grid or checkerboard artifacts | decoder or upsampler; wrong latent scale | reconstruct through the VAE alone |
-| run-to-run differences | nondeterministic kernels; per-sample seeds not fixed | `numerical-methods` §10 |
+| run-to-run differences | nondeterministic kernels; per-sample seeds not fixed | `numerical-methods` `references/reproducibility.md` |
 
 ## Verify
 - Converters and schedules unit-tested; toy-mixture score and modes correct; quality vs NFE saturates.

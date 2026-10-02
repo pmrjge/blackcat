@@ -83,22 +83,7 @@ for step in range(MAX_STEPS):
 - Claude memory tool (`{"type": "memory_20250818", "name": "memory"}`): the model issues file operations; your handlers execute them under one memory directory — block path traversal.
 
 ## 7. Multi-agent orchestration
-
-| Pattern | Fits | Main risk |
-|---|---|---|
-| Single agent + tools | most tasks — the default | context growth |
-| Router → specialists | heterogeneous requests; cheap classifier picks agent/model | misroutes: needs a fallback |
-| Orchestrator → workers (fan-out/fan-in) | parallel subtasks: search, per-file analysis | duplicated work, N× cost, inconsistent outputs |
-| Pipeline (plan → execute → verify) | staged work with checkable hand-offs | error propagation |
-| Evaluator–optimizer | measurable quality bar (tests, rubric) | endless loops without a cap |
-
-- Spawn only for parallelism or context isolation; strong models tend to over-delegate, so state when direct work is preferred.
-- Harness-enforced limits: max depth (1–2), max fan-out per node, global concurrency, per-agent step/token budgets, a task-level budget.
-- Task spec for a worker: objective, inputs as paths/ids (not pasted blobs), constraints, what siblings own (do not touch), done-criteria, output schema, budget.
-- Hand-back schema: `status` (done/partial/failed/blocked), 3–10 line summary, artifacts (paths/ids), verification performed with evidence, open issues, tokens/cost used. Large outputs go to files.
-- Avoid duplicated work: a task ledger (id, owner, state; claim before starting), dedup keys for identical requests, a shared cache of fetched documents and tool results, disjoint ownership (files, worktrees), a single agent reconciling conflicts.
-- Tiering: cheap, low-effort models for search/extraction workers; the strongest model for planning, synthesis and final verification. `output_config.effort` (`low`…`max`; availability and default vary by model) is the per-request lever on Claude.
-- Communicate through the coordinator or an append-only shared store, not free-form agent-to-agent chat.
+Read `references/multi-agent.md` when designing multi-agent orchestration (roles, handoffs, budgets).
 
 ## 8. MCP client
 - Two protocol generations. The current revision (2026-07-28) is stateless: no `initialize` handshake; each request carries protocol version and client capabilities in `_meta`; `server/discover` advertises versions and capabilities; `subscriptions/listen` carries list-changed notifications; multi-round-trip requests (`resultType: "input_required"`) replace server-initiated sampling/elicitation; Streamable HTTP has no sessions or stream resumption. Servers on 2025-11-25 or earlier use `initialize` → `notifications/initialized` → `tools/list` → `tools/call`, with `Mcp-Session-Id` on HTTP. Use an SDK that negotiates both: Python `mcp` 2.x `async with Client(url_or_StdioServerParameters) as c: await c.list_tools(); await c.call_tool(name, args)` (1.x names differed — check the installed version).
@@ -142,23 +127,7 @@ Stream text deltas; show each tool call when it starts (name, summarized args) a
 - Token/cost ledger per agent and per task, with alerts on budget burn rate.
 
 ## 14. Architecture document template
-```
-# <name> — agent architecture
-1. Purpose, users, tasks in/out of scope; success metrics (task success, cost/task, p95 latency)
-2. Models: role → model, effort, fallback
-3. Loop: stop conditions, budgets, retry policy
-4. Tools: name | side-effect class | schema | timeout | output cap | owner
-5. Permissions and sandbox: tiers, confirmations, isolation, secrets handling
-6. Context: cache layout, compaction/editing policy, tool-output handling
-7. Memory: types, stores, write/read policy, retention, user controls
-8. Multi-agent: topology, limits, task-spec and hand-back schemas, dedup
-9. Integrations: MCP servers (protocol revision, transport, auth), external APIs
-10. UX: streaming, approvals, cancellation
-11. Observability: traces, metrics, logs, alerts
-12. Evaluation: suites, gates, regression process
-13. Threat model: injection surfaces, exfiltration paths, mitigations (secure-coding)
-14. Risks, open questions, rollout plan
-```
+Read `references/architecture-template.md` when writing the harness architecture document.
 
 ## Verify
 Replay suite green; live suite success ≥ baseline with CIs; cost per task within budget; fault injection trips the loop detector, budget caps and kill switch; forbidden actions are blocked by the permission layer (not by the prompt); planted injections in tool outputs are ignored; cancellation leaves a valid transcript; traces show token accounting that sums to the provider's usage.

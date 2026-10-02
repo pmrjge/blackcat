@@ -6,7 +6,7 @@ description: Use when a problem needs a non-trivial algorithm or data structure 
 
 ## Scope
 - Covers: turning a problem into a formal model, choosing and proving an algorithm, bounding its cost, implementing it without numeric or structural bugs, and testing it against a reference.
-- Not here: tuning a fixed algorithm's constant factors (`cpu-performance`), GPU kernels (`gpu-kernel-dev`), machine-checked proofs, model checking and fuzzing (`formal-methods`).
+- Not here: tuning a fixed algorithm's constant factors (`cpu-performance`), GPU kernels (`gpu-kernel-dev`), machine-checked proofs and model checking (`formal-methods`), fuzzing (`test-fuzzing`), property-based test design (`test-property-based`), MIP/CP/LP models with solvers (`opt-modeling`).
 
 ## 1. Model before choosing
 1. **Formal statement.** Input types and ranges, output, objective. Decision, optimization, counting or enumeration? Exact or approximate? Offline (all queries known) or online? Static or with interleaved updates? Worst-case or expected-case guarantee?
@@ -85,33 +85,7 @@ Cue: independent halves with a combine cheaper than the naive solution; solve T(
 - Structural rescue: FPT algorithms in a small parameter, DP over tree decompositions for small treewidth, kernelization, meet-in-the-middle (n ≤ 40), branch and bound with a strong bound.
 
 ### 2.10 Exact search with solvers
-Use a solver when the problem is NP-hard with modest size, carries many side constraints, or optimality must be proven; a hand-written branch and bound is rarely better and is harder to trust.
-
-| Problem shape | Tool |
-|---|---|
-| Linear objective and constraints, continuous or mixed-integer | HiGHS: `scipy.optimize.milp` / `linprog(method="highs")` (sci venv), or `highspy` |
-| Scheduling, assignment, sequencing with logical/global constraints, integer data | OR-Tools CP-SAT |
-| Pure Boolean clauses and cardinalities | SAT via PySAT (`python-sat`: CaDiCaL, Glucose, …) |
-| Bit-vector/arithmetic/logic queries, invariant checks | z3 (`formal-methods`) |
-
-```python
-from ortools.sat.python import cp_model          # recent OR-Tools: snake_case API
-durations, m = [3, 7, 2, 5, 4, 6, 1], 3
-model = cp_model.CpModel()
-x = {(j, k): model.new_bool_var(f"x{j}_{k}") for j in range(len(durations)) for k in range(m)}
-for j in range(len(durations)):
-    model.add_exactly_one(x[j, k] for k in range(m))
-makespan = model.new_int_var(0, sum(durations), "makespan")
-for k in range(m):
-    model.add(sum(durations[j] * x[j, k] for j in range(len(durations))) <= makespan)
-model.minimize(makespan)
-solver = cp_model.CpSolver()
-solver.parameters.max_time_in_seconds = 30
-solver.parameters.num_workers = 8
-status = solver.solve(model)
-print(solver.status_name(status), solver.objective_value, solver.best_objective_bound)
-```
-Formulation hygiene: tight variable bounds; prefer enforcement literals (`.only_enforce_if(b)`) over big-M; break symmetries (identical machines → order their loads); add redundant constraints that tighten the relaxation; warm-start with `add_hint`; always set a time limit and report OPTIMAL vs FEASIBLE plus the bound (gap). Re-check the returned solution with an independent plain-code checker.
+Read `references/solvers.md` when a problem may go to an exact solver (SAT/SMT/MIP/CP).
 
 ## 3. Correctness arguments
 - Loop invariant: holds initially, is preserved by each iteration, and at exit implies the postcondition; termination by a variant (well-founded measure that strictly decreases).
@@ -120,7 +94,7 @@ Formulation hygiene: tight variable bounds; prefer enforcement literals (`.only_
 - Graphs: cut property (MST); Dijkstra's invariant (settled distances exact — breaks with negative edges); augmenting-path theorem (flow, matching); duality certificates (min cut, LP dual, König cover).
 - Amortization: aggregate, accounting, or potential Φ ≥ 0 with Φ₀ = 0 and amortized cost = actual + ΔΦ (dynamic arrays, union-find, monotone stacks, splay trees).
 - Randomized: linearity of expectation with indicators; Markov/Chebyshev/Chernoff for high-probability bounds.
-- Prefer certifying algorithms: output a witness (path, cut, dual, matching + cover) and verify it in O(output). Bounded invariant claims can be checked by SMT (`formal-methods`).
+- Prefer certifying algorithms: output a witness (path, cut, dual, matching + cover) and verify it in O(output). Bounded invariant claims can be checked by SMT (`fm-smt-z3`).
 
 ## 4. Complexity beyond big-O, and when to stop
 - State time and memory in all parameters (n, m, q, alphabet σ, value range C) with realistic constants.
@@ -138,32 +112,7 @@ Formulation hygiene: tight variable bounds; prefer enforcement literals (`.only_
 - **I/O.** For 1e6+ numbers use bulk reads (`sys.stdin.buffer.read().split()`, buffered readers).
 
 ## 6. Testing
-1. Reference: the most obviously correct implementation (exhaustive search, direct simulation, O(n^3) DP), sharing no code with the fast one.
-2. Differential property test on random small inputs; compare outputs or check a certificate.
-3. Generators: exhaustive tiny cases (all arrays over {−2..2} up to length 6), skewed distributions (all equal, many duplicates, sorted, reversed), extreme values (0, 1, min, max, negative, empty), structured graphs (path, star, complete, disconnected, self-loops, multi-edges, zero-weight cycles).
-4. Adversarial generators: inputs that trigger worst cases — sorted input for naive pivots, anti-hash keys, long chains for recursion depth, maximum n with maximum values for overflow, many equal keys.
-5. No reference available: metamorphic relations (permutation invariance, scaling, monotonicity, idempotence, round trips) and certificate checks.
-6. Complexity curve: time at n, 2n, 4n, …; the slope of log T vs log n should match the derived bound (≈1 linear, slightly above 1 for n log n, 2 quadratic); record peak memory. Benchmark protocol: `cpu-performance`.
-
-```python
-from hypothesis import given, settings, example, strategies as st
-
-def max_subarray(xs):                    # fast: Kadane, empty subarray allowed
-    best = cur = 0
-    for x in xs:
-        cur = max(cur + x, 0); best = max(best, cur)
-    return best
-
-def max_subarray_ref(xs):                # obviously correct: O(n^3)
-    return max([0] + [sum(xs[i:j]) for i in range(len(xs)) for j in range(i + 1, len(xs) + 1)])
-
-@settings(max_examples=2000, deadline=None)
-@given(st.lists(st.integers(-10**6, 10**6), max_size=40))
-@example([]).via("empty input")
-def test_matches_reference(xs):
-    assert max_subarray(xs) == max_subarray_ref(xs)
-```
-Rust: `proptest!` with `prop_assert_eq!`; JS/TS: fast-check. Keep every failing case as a named regression test.
+Read `references/testing.md` when writing tests for an algorithm (oracles, generators, stress tests).
 
 ## Verify
 - [ ] Formal statement and budget written down; chosen complexity fits the budget with margin.
