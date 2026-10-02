@@ -2,7 +2,7 @@
 
 <!-- markdownlint-disable MD013 MD060 -->
 
-BlackCat, a dispatcher on the main thread, routes work to 55 specialist agents (56 agent files). 248
+BlackCat, a dispatcher on the main thread, routes work to 55 specialist agents (56 agent files). 212
 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the Claude Code sandbox hold
 the limits, and MCP servers start and stop with the agents that use them. Built for Claude Code
 **2.1.271 or later**, macOS only (Apple Silicon first). It runs in the terminal and in the apps that run
@@ -43,10 +43,10 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | planner | Opus 5.5 · xhigh | 60 | libdocs | Plans before anything is built |
 | plan-reviewer | Opus 5.5 · high | 60 | libdocs | Critiques a plan against the goal, the code and current docs |
 | oracle | Opus 5.5 · low | 12 | — | Answers timeless questions from expertise alone |
-| scout | Sonnet 5.5 · low | 20 | — | Fast lookup of one current fact |
+| scout | Sonnet 5.5 · low | 11 | — | Fast lookup of one current fact |
 | explore | Sonnet 5.5 · low | 40 | — | Read-only codebase search: files, symbols, call sites |
 | researcher | Opus 5.5 · high | 130 | neural-memory, context-mode, spider | Deep research: multi-source investigations, comparisons |
-| coder | Sonnet 5.5 · medium | 190 | libdocs | Implementer for small and medium code tasks |
+| coder | Sonnet 5.5 · medium | 150 | libdocs | Implementer for small and medium code tasks |
 | main-coder | Opus 5.5 · xhigh | 240 | libdocs, neural-memory | Main engineer for cross-cutting code: large codebases |
 | ninja-coder | Opus 5.5 · max | 300 | libdocs, neural-memory | Engineer-mathematician for the hardest code |
 | god-coder | Opus 5.5 · max | 350 | libdocs, neural-memory | Last-resort engineer after ninja-coder failed |
@@ -56,7 +56,7 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | proof-checker | Opus 5.5 · xhigh | 80 | lean | Referees proofs, derivations, correctness and complexity arguments |
 | browser-operator | Sonnet 5.5 · medium | 120 | playwright | Acts on web pages: logged-in sites via Claude in Chrome |
 | mcp-broker | Sonnet 5.5 · medium | 60 | magg | Vets and mounts MCP servers on demand through magg |
-| claude-code-engineer | Opus 5.5 · high | 190 | — | Builds Claude Code configuration: skills, subagents, hooks |
+| claude-code-engineer | Opus 5.5 · high | 120 | — | Builds Claude Code configuration: skills, subagents, hooks |
 | claude-code-guide | Sonnet 5.5 · low | 30 | — | Answers Claude Code, Agent SDK and Claude API questions |
 
 #### Language engineers (7)
@@ -118,19 +118,20 @@ family heads, not BlackCat. Depth is BlackCat → L1 → L2 → L3 → L4, and L
 
 ### Skills: hubs, modules, references
 
-248 skills in `dot-claude/skills/`, in three shapes (counts from `tests/test_skill_modules.py`'s own
+212 skills in `dot-claude/skills/`, in three shapes (counts from `tests/test_skill_modules.py`'s own
 parser):
 
 | Shape | Count | What it is | Caps (`tests/test_skill_modules.py`) |
 |---|---:|---|---|
-| Hub | 33 | A `SKILL.md` with a `## Modules` table naming its modules | ≤ 80 lines |
-| Module | 133 | A skill named in a hub's table; loaded on its own | ≤ 150 lines, description ≤ 140 chars |
-| Standalone | 82 | Neither hub nor module | ≤ 500 lines |
-| `references/*.md` | 99 files | Detail a skill links to and reads only when needed | must exist where named |
+| Hub | 24 | A `SKILL.md` with a `## Modules` table naming its modules | ≤ 80 lines |
+| Module | 98 | A skill named in a hub's table; 83 are read by path, 15 listed | ≤ 150 lines, description ≤ 140 chars |
+| Standalone | 90 | Neither hub nor module | ≤ 500 lines |
+| `references/*.md` | 185 files | Detail a skill links to and reads only when needed | must exist where named |
 
-- **Listed, not preloaded.** Every skill (hub, module, standalone) is listed with an explanatory
-  description that starts with its trigger ("Load before …", "Use when …") and names no agent. No
-  `skills:` frontmatter preloads anything; a body enters context only when the Skill tool loads it.
+- **Listed, not preloaded.** 128 skills (hubs, standalone skills, 15 modules) are listed with an
+  explanatory description that starts with its trigger ("Load before …", "Use when …") and names no
+  agent; 83 hub modules are `user-invocable-only` (below) and `stack-doctor` is a user command. No
+  `skills:` frontmatter preloads anything; a body enters context only when it is loaded.
 - **Pointers.** Agent bodies carry a `## Skills` section of one-line "load X when Y" pointers
   (rust-engineer: "Load `rust-engineering` first; async `rust-async`, …"). Every module is reachable
   through its hub's table, and every hub is named by an agent of its family. Lint checks every name.
@@ -173,7 +174,7 @@ Summary of [CONFIG.md](CONFIG.md) §5 ("On demand and automatic"):
 
 | Kind | Automatic (the work needs it) | On demand | Idle cost |
 |---|---|---|---|
-| Skills (248) | Listed description, plus a "load X when Y" pointer in the agent or hub | Skill tool by name | The listing, on every spawn |
+| Skills (212; 128 listed) | Listed description, plus a "load X when Y" pointer in the agent or hub | Skill tool by name; hidden hub modules by Read | The listing, on every spawn |
 | MCP, agent-scoped (17 servers) | Start and stop with the agent that declares them inline | Spawn that agent | 0 elsewhere; schemas deferred |
 | MCP, magg catalog (23 servers) | A one-line pointer in the agent with the gap ("cluster state → mcp-broker mounts `kubernetes`") | Ask mcp-broker | 0 until mounted |
 | MCP, user scope (5 remote) | Session-wide, tools deferred until tool search loads them | — | Tool names only |
@@ -327,11 +328,12 @@ The counts in this README come from the files:
 
 ```bash
 ls dot-claude/agents/*.md | wc -l                             # 56 agents
-ls dot-claude/skills/*/SKILL.md | wc -l                       # 248 skills
-ls dot-claude/skills/*/references/*.md | wc -l                # 99 references
+ls dot-claude/skills/*/SKILL.md | wc -l                       # 212 skills
+ls dot-claude/skills/*/references/*.md | wc -l                # 185 references
+jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 89 hidden: 83 hub modules + 6 bundled
 jq '.servers | length' dot-claude/magg/config.json            # 23 catalog servers
 grep -h '^  - [a-z-]*:$' dot-claude/agents/*.md | sort -u | wc -l   # 17 inline servers
-uv run python -c "import sys; sys.path.insert(0, 'tests'); import test_skill_modules as t; h, m = t.hubs_and_modules(); print(len(h), len(m))"   # 33 hubs, 133 modules
+uv run python -c "import sys; sys.path.insert(0, 'tests'); import test_skill_modules as t; h, m = t.hubs_and_modules(); print(len(h), len(m))"   # 24 hubs, 98 modules
 ```
 
 ### Backup, restore and uninstall
