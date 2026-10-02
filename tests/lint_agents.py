@@ -466,6 +466,46 @@ def check_bare_python():
                  f"`uv add`, `uv pip` in a uv venv) or add a reasoned BARE_PY_ALLOW entry: {line.strip()[:120]}")
 
 
+# Skills folded into a hub, another skill or a references/ file (git log --diff-filter=D on
+# dot-claude/skills/*/SKILL.md, 2026-10-02). Text that still names one sends an agent to a skill that no
+# longer loads. The one allowed mention is a provenance note: "(was the `x` skill)". Add a name here
+# whenever a skill directory is removed.
+RETIRED_SKILLS = frozenset("""
+audio-analysis audio-dsp audio-plugins compiler-backend-jit compiler-frontend compiler-ir-llvm
+compiler-types diag-graphviz-d2 diag-mermaid diag-tikz ffmpeg-audio-subs ffmpeg-edit ffmpeg-encode
+fm-rust-kani-miri fm-smt-z3 fm-tla geo-crs-gdal geo-raster-vector geo-tiles-webmaps git-history-edit
+git-large-repos git-recovery-bisect git-worktrees l10n-qa linux-desktop-btrfs macos-dmg-sparkle-brew
+macos-sign-notarize mcp-http-release mcp-python-server mcp-ts-server net-protocols net-vpn-firewall
+num-optimization ops-runbooks quant-backtesting quant-pricing quant-risk sec-local-servers
+sec-threat-model test-mutation viz-interactive write-articles write-docs-adr write-reports
+""".split())
+# a references/<name>.md path is a file, not a skill: "/" before or ".md" after does not count
+RETIRED_RE = re.compile(r"(?<![\w/-])(%s)(?![\w-]|\.md\b)" % "|".join(sorted(map(re.escape, RETIRED_SKILLS))))
+PROVENANCE_RE = re.compile(r"was the `[a-z0-9-]+` skill")
+
+
+def stale_skill_refs(text):
+    """Retired skill names in `text`, outside "(was the `x` skill)" provenance notes."""
+    return sorted(set(RETIRED_RE.findall(PROVENANCE_RE.sub("", text))))
+
+
+def check_stale_skill_refs():
+    """No agent, skill, reference or rules file names a skill that was folded away."""
+    root = REPO_ROOT / "dot-claude"
+    shipped = skill_names()
+    for name in sorted(RETIRED_SKILLS & shipped):
+        fail(f"RETIRED_SKILLS lists {name!r}, which is shipped under {SKILLS_DIR}")
+    paths = (sorted(AGENTS_DIR.glob("*.md")) + sorted(SKILLS_DIR.rglob("*.md"))
+             + sorted((root / "rules").glob("*.md")))
+    for p in paths:
+        for n, line in enumerate(p.read_text().splitlines(), 1):
+            for old in stale_skill_refs(line):
+                if old in shipped:
+                    continue
+                fail(f"{p.relative_to(root).as_posix()}:{n}: names retired skill {old!r} — point to the "
+                     "skill or references/ file that absorbed it")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--policy-json", default=None, help="fallback policy fixture path")
@@ -519,6 +559,7 @@ def main():
         check_agent_file(f, policy_row, leaves, builtins, blackcat_tools)
 
     check_bare_python()
+    check_stale_skill_refs()
 
     # every model-invocable skill is pre-approved, or background agents hit permission prompts
     try:

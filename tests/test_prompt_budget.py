@@ -9,7 +9,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "tests" / "prompt_budget.py"
-BASE = "1a38c77"
+BASE = "ad22962"
 
 spec = importlib.util.spec_from_file_location("prompt_budget_under_test", SCRIPT)
 pb = importlib.util.module_from_spec(spec)
@@ -90,11 +90,13 @@ def test_check_flags_violations():
 
 
 def test_check_passes_within_limits():
+    # bodies at exactly RATIO["bodies"] x base (blackcat at its 5,200 cap), every other total at its gate
+    r = pb.RATIO["bodies"]
     head = dict(agents={"blackcat": _agent(10, 5200, True),
-                        "a": _agent(200, 105, per_spawn=int(pb.RATIO["per_spawn_mean"] * 1000)),
+                        "a": _agent(200, int(r * 100), per_spawn=int(pb.RATIO["per_spawn_mean"] * 1000)),
                         "newx": _agent(160, 2400, True), "newl": _agent(120, 1400)},
                 **_totals(**{k: int(pb.RATIO[k] * 100) for k in LISTING_KEYS}))
-    base = dict(agents={"blackcat": _agent(10, 5000, True), "a": _agent(10, 100)}, **_totals())
+    base = dict(agents={"blackcat": _agent(10, int(5200 / r) + 1, True), "a": _agent(10, 100)}, **_totals())
     assert pb.check(head, base) == []
 
 

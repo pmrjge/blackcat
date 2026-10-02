@@ -4,7 +4,7 @@ description: Use to build a docs site — Zensical/MkDocs, Sphinx, Docusaurus, S
 ---
 # Documentation sites
 
-Part of `technical-writing` (what goes on each page: `write-docs-adr`, Diátaxis). Markdown conventions: `markdown-publishing`; diagrams: `diagrams-as-code`.
+Part of `technical-writing` (what goes on each page: `technical-writing` `references/docs-adr.md`, Diátaxis). Markdown conventions: `markdown-publishing`; diagrams: `diagrams-as-code`.
 
 Versions (Verified 2026-10-02 from https://pypi.org/pypi/<name>/json and https://registry.npmjs.org/<name>/latest): zensical 0.0.67, mkdocs-material 9.7.7, mkdocs 1.6.1 (Aug 2024), mkdocstrings 1.0.6, sphinx 9.1.0, furo 2025.12.19, myst-parser 5.1.0, sphinx-autobuild 2025.8.25, @docusaurus/core 3.10.2, @astrojs/starlight 0.42.5 (astro 7.3.5), vitepress 1.6.4, typedoc 0.28.20.
 

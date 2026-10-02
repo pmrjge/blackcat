@@ -30,3 +30,25 @@ def test_every_shipped_skill_description_is_yaml_safe_and_trigger_first():
         assert lint_agents.yaml_plain_hazard(desc) is None, f
         if "disable-model-invocation: true" not in head:
             assert desc.startswith(("Load ", "Use ")), f
+
+
+def test_stale_skill_refs_flags_retired_names_only():
+    """A retired (folded) skill name is stale unless it is a provenance note or a references/ path."""
+    f = lint_agents.stale_skill_refs
+    assert f("Part of `technical-writing` (what goes on each page: `write-docs-adr`, Diátaxis).") == [
+        "write-docs-adr"]
+    assert f("Bit-level queries: `fm-smt-z3`.") == ["fm-smt-z3"]
+    assert f("Read when writing a TS MCP server (was the `mcp-ts-server` skill).") == []
+    assert f("Protocol facts: `references/net-protocols.md` in `self-hosting-ops`.") == []
+    assert f("`technical-writing` `references/docs-adr.md`; `git-workflows`, `formal-methods`") == []
+
+
+def test_no_shipped_text_names_a_retired_skill():
+    root = SKILLS.parent
+    shipped = {p.parent.name for p in SKILLS.glob("*/SKILL.md")}
+    assert not lint_agents.RETIRED_SKILLS & shipped, "RETIRED_SKILLS names a shipped skill"
+    bad = []
+    for p in sorted(root.glob("agents/*.md")) + sorted(SKILLS.rglob("*.md")) + sorted(root.glob("rules/*.md")):
+        for n, line in enumerate(p.read_text(encoding="utf-8").splitlines(), 1):
+            bad += ["%s:%d %s" % (p.relative_to(root), n, s) for s in lint_agents.stale_skill_refs(line)]
+    assert not bad, "text names retired skills: %s" % bad

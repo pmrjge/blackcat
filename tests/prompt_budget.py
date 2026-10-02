@@ -23,9 +23,9 @@ blackcat: blackcat_listing). Tokens ~ ceil(chars / 3).
 --check      exit 1 unless every description <= 200 chars, blackcat body <= 5,200 and, for agents
              absent at base, description <= 160 / body <= 2,400 (with Agent) or <= 120 / <= 1,400
              (leaf); and against the base (--base, default DEFAULT_BASE): bodies of the agents present
-             at base <= 1.05 x base, agent listing <= 1.34 x, blackcat listing <= 1.31 x, skill listing
-             <= 1.77 x, rules <= 1.02 x, mean per spawn of the base agents (blackcat excluded: it is the
-             main thread, never spawned) <= 1.42 x. Ratios are skipped when the base revision is missing.
+             at base <= 0.84 x base, agent listing <= 0.97 x, blackcat listing <= 0.96 x, skill listing
+             <= 0.76 x, rules <= 0.95 x, mean per spawn of the base agents (blackcat excluded: it is the
+             main thread, never spawned) <= 0.85 x. Ratios are skipped when the base revision is missing.
 --turns      read Claude Code subagent transcripts (read-only; default
              ~/.claude/projects/**/subagents/agent-*.meta.json) and print p50/p90/max turns per agent
              type (one turn = one assistant message id).
@@ -43,11 +43,25 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DOT = "dot-claude"
 RULES = DOT + "/rules/claude-agent-stack.md"
-DEFAULT_BASE = "1a38c77"   # phase-2 baseline (main before the wave-2 agents and the skill modules)
+DEFAULT_BASE = "ad22962"   # phase-3 baseline (main after phase 2: 56 agents, 248 skills)
 DESC_MAX = 200
 BLACKCAT_BODY_MAX = 5200
 # agents absent at base: (description cap, body cap) with the Agent tool / as a leaf
 NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
+# Phase 3 (2026-10-02, base ad22962): agent bodies tightened to role, constraints, routing, output
+# contract and one-line skill pointers (procedures moved to skills); the rules file got one canonical
+# "Briefs and hand-backs" section; 36 skill modules folded into hub references and every description cut
+# to <= 140. Measured against ad22962 (tests/prompt_budget.py --base ad22962, after ff4ed6e + Q4):
+#   bodies 93,839 -> 77,964 (0.831 x)        agent_listing 15,330 -> 14,593 (0.952 x)
+#   blackcat_listing 14,550 -> 13,828 (0.950 x)   skill_listing 30,782 -> 23,227 (0.755 x)
+#   rules 12,198 -> 11,370 (0.932 x)          per_spawn_mean 55,240 -> 46,067 (0.834 x); leaf 43,510 -> 34,932
+# Each gate is that ratio x 1.02, rounded down to 0.01 (the phase-2 convention), so the next change has
+# ~1-2% headroom and any regrowth fails the check. Every absolute limit went down: against the phase-2
+# gates (base 1a38c77) skill_listing 31,235 -> 23,394, agent_listing 15,631 -> 14,870, blackcat_listing
+# 14,749 -> 13,968, rules 12,441 -> 11,588, per_spawn_mean 55,587 -> 46,954. bodies now covers all 56
+# agents (78,825) where phase 2 gated the 39 base agents at 70,916 plus NEW_CAPS for the 17 newer ones
+# (17 x 1,400..2,400 more), so it is lower too. NEW_CAPS stays for agents added after ad22962.
+# Phase-2 history of these numbers (base 1a38c77):
 # agent_listing and blackcat_listing: design E set 1.20 and 1.25 for 10 new agents. The user then
 # asked for one expert per language (+7 agents: rust, haskell, julia, go, python, jvm, node). After
 # trimming 27 existing descriptions to <= 150 (19 of them by a further 15-25 chars), the listings
@@ -64,8 +78,8 @@ NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
 # their hubs (248 left), the listing measures 30,782 (1.744 x base 17,647) and the base agents' mean
 # per spawn 54,874 (1.402 x 39,146); each gate is that + 2%, rounded down to 0.01. The user's
 # principle: loading skills on demand beats large agent prompts, so the listing is where that cost goes.
-RATIO = {"bodies": 1.05, "agent_listing": 1.34, "blackcat_listing": 1.31, "skill_listing": 1.77,
-         "rules": 1.02, "per_spawn_mean": 1.42}
+RATIO = {"bodies": 0.84, "agent_listing": 0.97, "blackcat_listing": 0.96, "skill_listing": 0.76,
+         "rules": 0.95, "per_spawn_mean": 0.85}
 # SKILL_BUDGET: Claude Code's listing budget is context window x chars/token x
 # skillListingBudgetFraction = 1,000,000 x 3 x f for the 5.5 models (Claude Code 2.1.287), shared by the
 # stack's skills and every plugin, bundled and claude.ai skill; over it, the least-used skills lose
