@@ -659,7 +659,7 @@ places:
 | Requirement | Version | How to get it | Needed? | Source |
 |---|---|---|---|---|
 | macOS | not pinned by the stack; Claude Code needs 13.0+; `--with-ml` (torch, mlx wheels) needs 14+ | — | required | `install.sh`, [Claude Code setup](https://code.claude.com/docs/en/setup), `requirements/README.md` |
-| Apple Silicon (arm64) | the sci and tools venvs are locked for arm64 wheels only; on Intel those installs are expected to fail (unverified: nothing tests Intel) | — | required in practice | `requirements/README.md` |
+| Apple Silicon (arm64) | the sci and tools venvs are locked for arm64 wheels only; on Intel those installs are expected to fail. Intel Macs are untested: the installer picks the x86_64 builds of uv and huetension (`uname -m`) and looks for Homebrew tools under both `/opt/homebrew` and `/usr/local`, but nothing has run there | — | required in practice | `requirements/README.md`, `install.sh` |
 | Xcode Command Line Tools | `python3` ≥ 3.8 that really runs, `git` | `xcode-select --install` | required | `install.sh` step 1 |
 | Claude Code | ≥ 2.1.271 (older warns) | `curl -fsSL https://claude.ai/install.sh \| bash`, or the Homebrew cask `claude-code` | required | `install.sh` (`MIN_CLAUDE`), [setup docs](https://code.claude.com/docs/en/setup) |
 | A Claude account with Claude Code access | — | [setup docs](https://code.claude.com/docs/en/setup) | required | — |
@@ -828,14 +828,17 @@ git clone <repository-url> claude-agent-stack && cd claude-agent-stack
 $EDITOR ~/.claude/stack.env       # keys: read at connect time; Claude model IDs: re-run ./install.sh
 ```
 
-Run it from a terminal with no Claude Code session open (Desktop and Conductor included), from the
+The clone can live anywhere (a path with spaces, a symlinked directory, or a symlink to `install.sh`
+all work), under any user name, from zsh or bash; the installer itself runs on macOS's bash 3.2. Run
+it from a terminal with no Claude Code session open (Desktop and Conductor included), from the
 `main` branch. A real run started on another branch fast-forwards `main` and re-runs itself (it
 never pushes); `--dry-run` and `--mcp-plan` change nothing, so on another branch they stop and tell
 you to run them from the `main` checkout. A dirty tree or diverged history also stops it. The eleven
 steps, as the run prints them:
 
 1. **Prerequisites**: macOS, git, python3, Claude Code version, the absolute interpreter for hooks
-   (`STACK_PYTHON`). If the stack changed since the last install, its diff is listed and, on a terminal,
+   (`STACK_PYTHON`). Before it, the run prints the install target and asks about a non-default one
+   ([Choose the config folder](#choose-the-config-folder)). If the stack changed since the last install, its diff is listed and, on a terminal,
    you are asked before anything changes (`--yes` skips the question; without a terminal it stops).
 2. **Tools**: uv, node, magg, huetension, media tools, the hash-locked science venv
    (`~/.claude/venvs/sci`) and tools venv (`~/.claude/venvs/tools`: what the stack's scripts, MCP
@@ -858,10 +861,49 @@ steps, as the run prints them:
     `claude-ninja` / `claude-supreme` launcher links in `~/.local/bin` (an existing `claude-god` link
     is left as a deprecated alias of `claude-supreme`, with a note to remove it).
 
-Other flags: `--no-prune`, `--force`, `--write-through-links`, `--no-mcp`, `--no-plugins`,
-`--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`, `--print-managed-settings`.
-`./install.sh --help` prints them all; [CONFIG.md](CONFIG.md) §7 explains staging, pruning and the
-manifest.
+Other flags: `--config-dir PATH`, `--no-prompt`, `--no-prune`, `--force`, `--write-through-links`,
+`--no-mcp`, `--no-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
+`--print-managed-settings`. `./install.sh --help` prints them all; [CONFIG.md](CONFIG.md) §7 explains
+staging, pruning and the manifest.
+
+### Choose the config folder
+
+By default the stack goes into `~/.claude`. To install somewhere else:
+
+```bash
+./install.sh --config-dir ~/claude-work        # or --config-dir=~/claude-work
+export CLAUDE_CONFIG_DIR="$HOME/claude-work"   # then in ~/.zshrc (bash: ~/.bash_profile)
+```
+
+- **Precedence:** `--config-dir` > `CLAUDE_CONFIG_DIR` > `~/.claude`. The path may start with `~` or be
+  relative; it is made absolute, and a symlink is resolved and shown.
+- **Banner:** every run prints the target, how it was chosen (`--config-dir`, `CLAUDE_CONFIG_DIR` or
+  the default) and the `.claude.json` it implies: `<target>/.claude.json` when `CLAUDE_CONFIG_DIR` is
+  set or `--config-dir` names another folder, else `~/.claude.json` (`STACK_CLAUDE_JSON` overrides it).
+  The `claude mcp` and `claude plugin` commands the run starts get `CLAUDE_CONFIG_DIR` set to the
+  target.
+- **Question:** when stdin and stdout are both a terminal, a non-default or ambiguous target is
+  confirmed first (`Install into <target>? [y/N]`, default No). It is asked when `--config-dir` names
+  a folder other than `~/.claude`, when `CLAUDE_CONFIG_DIR` is set, or when `~/.claude` and the target
+  both hold differing stack installs. `--yes`, `--no-prompt`, `--dry-run`, `--mcp-plan` and runs
+  without a terminal never ask; they proceed with the banner, as before.
+- **Refused** with exit 2, before anything changes: `/`, your home folder or a folder containing it,
+  anything inside the repo checkout (also through a symlink), `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`,
+  `~/.docker`, `~/Library/Keychains`, system folders (`/System`, `/usr`, `/etc`, ...), the stack's state
+  and backup folders, a file, a folder you can't write or create, a `..` that follows a symlink, and
+  paths with a control character (newline, NUL, tab) or one of `"` `` ` `` `$` `\`.
+- **Foreign folders:** a non-default target that is a non-empty folder with no Claude Code files
+  (none of `.stack-manifest.json`, `settings.json`, `settings.local.json`, `.claude.json`,
+  `.credentials.json`, `CLAUDE.md`, `stack.env`, `agents/`, `skills/`, `rules/`, `hooks/`, `commands/`,
+  `output-styles/`, `projects/`, `plugins/`, `statsig/`, `todos/`, `shell-snapshots/`; a lone
+  `.DS_Store` counts as empty) is installed into only after a `y` on the terminal. Without a terminal,
+  or with `--yes` or `--no-prompt`, the run stops; `--dry-run` warns and goes on.
+- **After a non-default install:** Claude Code reads the folder only when `CLAUDE_CONFIG_DIR` is
+  exported, so the installer prints the `export` line and the file to put it in (zsh: `~/.zshrc`;
+  bash: `~/.bash_profile`). Apps opened from the Dock or Finder do not read shell startup files.
+  `settings.json`, the hooks and the MCP entries hold absolute paths to the folder: to move it, reinstall
+  with `--config-dir <new path>`. `/stack-doctor` warns when the folder it checks is not `~/.claude`
+  and `CLAUDE_CONFIG_DIR` is unset.
 
 ### Restart Claude Code
 
@@ -1078,8 +1120,8 @@ Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort.
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `CLAUDE_CONFIG_DIR` | `~/.claude` | Install target |
-| `STACK_CLAUDE_JSON` | `$CLAUDE_CONFIG_DIR/.claude.json` when that is set, else `~/.claude.json` | Which file the MCP plan reads |
+| `CLAUDE_CONFIG_DIR` | `~/.claude` | Install target when `install.sh --config-dir PATH` is not given (the flag wins); Claude Code reads a non-default folder only with it exported ([Choose the config folder](#choose-the-config-folder)) |
+| `STACK_CLAUDE_JSON` | `<target>/.claude.json` when `CLAUDE_CONFIG_DIR` is set or `--config-dir` names a folder other than `~/.claude`, else `~/.claude.json` | Which file the MCP plan reads (the banner prints it) |
 | `XDG_STATE_HOME` | `~/.local/state` | Root of the guard state, the backups and `STACK_CACHE`; rendered into the sandbox rules at install time |
 | `STACK_PYTHON` | chosen automatically | Absolute interpreter for hooks and the status line (never a pyenv/asdf shim) |
 | `STACK_ALLOW_NON_MACOS` | 0 | Tests only: let the installer run off macOS |
@@ -1301,6 +1343,11 @@ outside this repository).
 | Claude Desktop runs one subagent at a time and seems to hang | foreground children (CONFIG.md §1, bugs 1 and 3) | keep `BLACKCAT_BACKGROUND` unset or `1`; remove `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` and `CLAUDE_CODE_FORK_SUBAGENT` (the installer does; `/stack-doctor` warns) |
 | The status line starts with a red `! Bash sandbox env missing` | the session-env hook could not write `$CLAUDE_ENV_FILE` | run `bash ~/.claude/bin/doctor.sh`, then start a new session or `/clear` |
 | `claude-ninja` or `uv` "not found" although installed | `~/.local/bin` is not on `PATH` yet | open a new terminal (the installer's profile line adds it) |
+| After `./install.sh --config-dir PATH`, Claude Code starts without BlackCat or the stack's agents | `CLAUDE_CONFIG_DIR` is not exported, so Claude Code reads `~/.claude` | add `export CLAUDE_CONFIG_DIR='PATH'` to `~/.zshrc` (bash: `~/.bash_profile`) and open a new terminal; `/stack-doctor` warns about this |
+| Hooks or the status line stop working after the config folder was moved or renamed | `settings.json`, the hooks and the MCP entries hold the old absolute path | move it back, or reinstall: `./install.sh --config-dir <new path>` (and update `CLAUDE_CONFIG_DIR`) |
+| `install.sh: refusing <path>: ...` (exit 2) | the target is unsafe: `/`, your home, inside the repo, credentials or system folders, a file, not writable | pick another folder ([Choose the config folder](#choose-the-config-folder)); nothing was changed |
+| `install.sh: <path> is a non-empty folder with no Claude Code files` | a foreign folder as the target, without a terminal to confirm it | empty it or pick another folder, or run from a terminal and answer `y` |
+| bash: stack.env keys missing in new terminals | macOS Terminal starts login shells, and bash reads `~/.bash_profile` there, not `~/.bashrc` (where the installer puts its line) | add `[ -f ~/.bashrc ] && . ~/.bashrc` to `~/.bash_profile` (the installer prints this note) |
 | researcher or doc-specialist lose context-mode | Node older than 22.5 | `brew upgrade node` |
 | `uvx …` fails inside a session ("Could not create temporary file … ~/.local/share/uv/tools") | the sandbox keeps uv's tool dir read-only (runs P11, P54, P59) | `uv run --with <tool> …`, or run `uvx` in your own terminal |
 | Headless Chrome from Bash aborts ("Failed to create a ProcessSingleton … socket directory") | Chrome cannot start inside the Seatbelt sandbox (runs P43, P45) | use the playwright MCP (browser-operator, frontend-engineer, verifier), or run the browser tests in your terminal |

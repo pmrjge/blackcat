@@ -333,6 +333,25 @@ Per-agent plugin enabling does not exist: plugins are session-wide (user, projec
 
 `lib/install_state.py` does the staging, plan, backup, apply, restore and validation (system `python3`, stdlib only).
 
+### Install target (2026-10-03)
+
+| Knob | Default | Effect |
+|---|---|---|
+| `--config-dir PATH` / `--config-dir=PATH` | not given | install target; beats `CLAUDE_CONFIG_DIR`; `~` and relative paths expanded, symlinks resolved and shown |
+| `CLAUDE_CONFIG_DIR` | unset | install target when the flag is not given |
+| (neither) | `~/.claude` | the default target |
+| `--no-prompt` | off | never ask: the target question is skipped (a foreign target stops the run), a changed stack stops unless `--yes` |
+| `--yes` / `-y` | off | no target question and no changed-stack question (a foreign target still stops the run) |
+| `STACK_CLAUDE_JSON` | `<target>/.claude.json` when `CLAUDE_CONFIG_DIR` is effectively set, else `~/.claude.json` | the `.claude.json` the banner names and the MCP plan reads |
+
+`lib/install_state.py config-dir` resolves and checks the target before the main-branch rule can merge anything (`resolve_config_dir`, `check_config_dir`, `decide_prompt`; `tests/test_installer_config_dir.py`, `tests/install_smoke.sh` §19). Rules:
+
+- **Refused, exit 2, nothing changed:** `/`; `$HOME` or any folder containing it; the repo checkout and anything inside it (this checkout and the main worktree, logical and resolved paths, so a symlink into the repo is caught); inside `~/.ssh`, `~/.gnupg`, `~/.aws`, `~/.kube`, `~/.docker`, `~/Library/Keychains`, `/System`, `/usr`, `/bin`, `/sbin`, `/etc`, `/private/etc`, `/dev`, `/Library`, `/Applications`, or the stack's state, backup and cache folders; exactly `~/.config`, `~/.local`, `~/.local/bin`, `~/.cache`, `~/Library`, `~/Desktop`, `~/Documents`, `~/Downloads`, `~/Applications`, `/Users`, `/Volumes`, `/private`, `/var`, `/tmp`, `/private/tmp`, `/private/var`, `/opt`; an existing non-directory; a directory you can't write, or a missing one whose nearest existing parent you can't write; a `..` after a symlink (the shell and the file system would disagree on the folder); a control character (newline, NUL, tab) or `"` `` ` `` `$` `\`, which would break the double-quoted hook commands in `settings.json`.
+- **Foreign target:** a target other than `~/.claude` that is a non-empty directory (`.DS_Store` ignored) with none of `.stack-manifest.json`, `settings.json`, `settings.local.json`, `.claude.json`, `.credentials.json`, `CLAUDE.md`, `stack.env`, `agents/`, `skills/`, `rules/`, `hooks/`, `commands/`, `output-styles/`, `projects/`, `plugins/`, `statsig/`, `todos/`, `shell-snapshots/`. Installed into only after `y` on a terminal; without one, or with `--yes`/`--no-prompt`, exit 2; `--dry-run`, `--mcp-plan` and `--print-managed-settings` warn and go on. `~/.claude` itself is never foreign (a fresh Claude Code may have left anything there).
+- **Question** (`Install into <target>? [y/N]`, default No; y, Y or yes go on, anything else, EOF included, exits 1 before anything changes): only when stdin and stdout are both terminals and none of `--dry-run`, `--mcp-plan`, `--print-managed-settings`, `--yes`, `--no-prompt` is given, and the target is non-default or ambiguous: `--config-dir` other than `~/.claude`, `CLAUDE_CONFIG_DIR` set, `--config-dir` with a `CLAUDE_CONFIG_DIR` naming another folder, `~/.claude` and the target holding differing stack manifests (repo or commit), or a foreign target. It shows the target, its source, why it asks and what the run writes. Runs without a terminal proceed with the banner, as before.
+- **Banner** (every run, after the main-branch rule): the target, the source, the resolved path when a symlink is involved, the `.claude.json` it implies, whether this run sets or unsets `CLAUDE_CONFIG_DIR` for its `claude` commands, an overridden `CLAUDE_CONFIG_DIR`, another stack install in `~/.claude`. For a non-default target it adds, and repeats after the install: the `export CLAUDE_CONFIG_DIR='<target>'` line, the startup file for the login shell (zsh `~/.zshrc`, `~/.zprofile` for login shells only; bash `~/.bash_profile`), that apps opened from the Dock do not read it, and that the absolute paths in `settings.json`, the hooks and the MCP entries mean moving the folder takes a reinstall.
+- **Environment of the run:** `--config-dir` naming another folder exports `CLAUDE_CONFIG_DIR=<target>` for the run, so `claude mcp` and `claude plugin` act on the target's `.claude.json`; `--config-dir ~/.claude` unsets an inherited `CLAUDE_CONFIG_DIR`, unless it names the same folder.
+
 ### Pruning (default) and `--no-prune`
 
 | What | Default | `--no-prune` |
@@ -434,6 +453,13 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-03 (install target: --config-dir, any clone, any user)
+
+- `install.sh --config-dir PATH` (also `--config-dir=PATH`) and `--no-prompt`; precedence `--config-dir` > `CLAUDE_CONFIG_DIR` > `~/.claude`; a banner on every run; a `[y/N]` question on a terminal for a non-default or ambiguous target; unsafe and foreign targets refused (§7, "Install target"). Before, `CLAUDE_CONFIG_DIR` was used as given, unchecked (`CLAUDE_CONFIG_DIR=/` was accepted), and nothing said where the install went except one line in step 1. Runs without a terminal behave as before, apart from the new refusals. `--no-prompt` also makes a changed stack stop instead of asking on `/dev/tty`.
+- The script follows a symlink to itself to find the clone (before, a link to `install.sh` in `~/bin` took `~/bin` as the repo). A bash login shell whose `~/.bash_profile` does not source `~/.bashrc` gets a note at step 11. `doctor.sh` warns when the folder it checks is not `~/.claude` and `CLAUDE_CONFIG_DIR` is unset.
+- Author-specific paths removed from the tests and `tests/derive_thresholds.py` (the report's project column now strips any `-Users-<name>-` prefix). Intel Macs remain untested (README, Requirements).
+- Tests: `tests/test_installer_config_dir.py`; `tests/install_smoke.sh` §19 (precedence, banner, refusals, the question with an injected answer and on a pty when one can be opened, a target and a clone with spaces, a symlinked clone and a symlink to `install.sh`); the §16 pty driver answers the target question first. Nothing to rerun for an existing `~/.claude` install.
 
 ### 2026-10-03 (Playwright MCP output out of the working tree)
 
