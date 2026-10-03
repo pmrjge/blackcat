@@ -14,8 +14,8 @@
 #   ./install.sh --keep-plugin-duplicates  keep the document-skills and skill-creator plugins enabled
 #                                 where claude.ai syncs the same skills (default: disabled, one copy)
 #   ./install.sh --replace-mcp   re-register exa/jina/wolfram/huggingface/wandb even if you configured them
-#   ./install.sh --no-deps       skip brew/uv/node/magg/huetension/serial-mcp/venv installs and MCP dep prefetch
-#                                 (missing tools become warnings instead of installs)
+#   ./install.sh --no-deps       skip every tool install (prerequisites, dev tools, magg, huetension,
+#                                 serial-mcp, venvs) and the MCP dep prefetch (missing tools become warnings)
 #   ./install.sh --no-profile    leave your shell rc file alone (don't add the stack.env source line)
 #   ./install.sh --dry-run       print every change (files, removals, MCP, plugins, rc) and make none
 #   ./install.sh --no-prune      keep what isn't part of the stack and your edits to stack files
@@ -66,6 +66,10 @@
 # read it), and the run prints the list and the restore command. A run that changes nothing makes
 # no backup. Never touched: credentials, ~/.claude.json (MCP changes go through `claude mcp`),
 # the claude.ai-synced skills, plugins' own files, projects and sessions.
+# Step 2 installs what is missing (lib/devtools.sh, CONFIG.md §7 "Prerequisites and toolchains"):
+# Homebrew, one brew batch per type, the upstream version managers, the dev tools; one line per
+# tool, a present one never touched. Groups: STACK_INSTALL_<GROUP>=0 skips one (DEPS DEVTOOLS UV
+# NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO, all on), =1 adds POSTGRES or MONGODB (off).
 # CLAUDE_CONFIG_DIR overrides the install target (default ~/.claude); --config-dir overrides both.
 # STACK_CLAUDE_JSON overrides which JSON file the MCP plan reads (default: $C/.claude.json when
 # CLAUDE_CONFIG_DIR is set, or --config-dir names another folder — Claude Code then uses only that
@@ -613,7 +617,7 @@ fi
 # installer and its library, stack.env.example, the pinned requirements, the two tests/derive_*.py
 # scripts copied into hooks/ (not lib/assets/: README images, never installed). Read them before
 # applying. On a terminal the run asks here, before step 2 changes anything (the venvs sync from requirements/) (--yes: don't).
-SUPPLY_PATHS="dot-claude install.sh lib/install_state.py lib/stack.env.example requirements tests/derive_sched_model.py tests/derive_thresholds.py"
+SUPPLY_PATHS="dot-claude install.sh lib/install_state.py lib/devtools.sh lib/stack.env.example requirements tests/derive_sched_model.py tests/derive_thresholds.py"
 SUPPLY_CHANGED=0
 prev_commit="$(python3 -c 'import json, re, sys
 try:
@@ -675,19 +679,36 @@ if [ "$SUPPLY_CHANGED" = 1 ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ]; the
   esac
 fi
 
-say "2/11 Tools: magg, huetension, serial-mcp, science and tools venvs"
+say "2/11 Tools: prerequisites, dev tools, magg, huetension, serial-mcp, science and tools venvs"
 # Supply chain (C7): every download is pinned to a version and, where the project publishes one, a
 # checksum; the Python venvs install from hash-locked lockfiles (requirements/, 7-day cooldown).
-UV_VERSION=0.12.20
+# Prerequisites and toolchains are lib/devtools.sh's (pins, routes and groups there; CONFIG.md §7):
+# Homebrew, one brew batch for every missing formula and one for every missing cask, the upstream
+# managers (uv, nvm, rustup, ghcup, juliaup, coursier), then gitleaks, pre-commit, Gradle and
+# Playwright's Chromium. One line per tool, a present tool never touched, a failed optional install
+# only reported; a required one (uv, node) still missing stops the run here.
+#   --no-deps: no installs at all (missing tools are listed);
+#   STACK_INSTALL_<GROUP>=0 skips a group (DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX
+#   CXX GO), STACK_INSTALL_POSTGRES=1 / STACK_INSTALL_MONGODB=1 add those.
 MAGG_VERSION=1.2.1                         # 1.3.0 (2026-09-26) is inside the 7-day cooldown
 MAGG_EXCLUDE_NEWER=2026-09-22T00:00:00Z    # dependency cooldown for magg's own requirements
 HUETENSION_VERSION=0.3.0
-uv_target(){ case "$(uname -s)-$(uname -m)" in
-  Darwin-arm64) echo "aarch64-apple-darwin 848fdeb602ff1a1baacd4f6c8b7bdc6cf1ad026a6d9cf59475fda17c179743ca" ;;
-  Darwin-x86_64) echo "x86_64-apple-darwin ac54283d211fd77cdc152b67606dbaf6406ff4ab03f3af4ae99468fa8e887141" ;;
-  Linux-x86_64) echo "x86_64-unknown-linux-gnu 6590717592ace991ff83a63fef799e3ad9d33ecc8f96c5d6bdd732496e79337f" ;;
-  Linux-aarch64|Linux-arm64) echo "aarch64-unknown-linux-gnu 8a7aad7bc76a2fae5151566ff3e43eacce0b2a113d5e4de3e4afe3e58fa2441e" ;;
-esac; }
+if [ "$NO_DEPS" = 1 ]; then DT_MODE=report; elif [ "$DRY_RUN" = 1 ]; then DT_MODE=dry-run; else DT_MODE=install; fi
+note "prerequisites and toolchains (lib/devtools.sh):"
+dt_rc=0
+DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$HERE/lib/devtools.sh" all || dt_rc=$?
+# a required tool still missing: devtools.sh listed each with its command
+[ "$dt_rc" = 3 ] && exit 1
+[ "$dt_rc" = 0 ] || note "! lib/devtools.sh exited $dt_rc (see above); the install goes on"
+# what devtools.sh installed must be found below, also before your shell profile has its PATH line:
+# Homebrew's bin dir, nvm's node 24, rustup's and ghcup's bins; appended, so your own PATH order wins
+for b in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin"; do
+  { [ -x "$b/brew" ] || [ -x "$b/cargo" ] || [ -x "$b/ghcup" ]; } || continue
+  case ":$PATH:" in *":$b:"*) ;; *) PATH="$PATH:$b"; export PATH ;; esac
+done
+if ! have node; then
+  for b in "${NVM_DIR:-$HOME/.nvm}"/versions/node/v24.*/bin; do [ -x "$b/node" ] && PATH="$PATH:$b" && export PATH && break; done
+fi
 huetension_target(){ case "$(uname -s)-$(uname -m)" in
   Darwin-arm64) echo "darwin_arm64 06515cb8a60275314d0d5a8a7c8bc455f34e644979f7c213c5200b9fefedc5b8" ;;
   Darwin-x86_64) echo "darwin_amd64 820915b40b75ddfb8a0e50f8e2c3b862066595d401f54722b67043aaefb8c9c6" ;;
@@ -765,8 +786,6 @@ if [ "$NO_DEPS" = 1 ] || [ "$DRY_RUN" = 1 ]; then
   if [ "$NO_DEPS" = 1 ]; then note "--no-deps: skipping brew/uv/node/magg/huetension/serial-mcp/venv installs"
   else note "--dry-run: listing the tool installs a real run would do"; fi
   miss(){ if [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ]; then would "$2"; else note "! $1 missing — $2"; fi; }
-  have uv || miss uv "install uv $UV_VERSION (brew, else the checksummed release tarball into ~/.local/bin)"
-  have node || miss node "install Node.js 22.5+ (brew install node)"
   have magg || miss magg "uv tool install --exclude-newer $MAGG_EXCLUDE_NEWER magg==$MAGG_VERSION"
   have huetension || miss huetension "install huetension v$HUETENSION_VERSION (checksummed release tarball; designer works without it)"
   if [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ]; then serial_mcp_step plan; fi
@@ -775,36 +794,10 @@ if [ "$NO_DEPS" = 1 ] || [ "$DRY_RUN" = 1 ]; then
   if [ -x "$C/venvs/tools/bin/python" ]; then [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ] && would "sync $C/venvs/tools to $TOOLS_REQS (--require-hashes)"
   else miss "tools venv at $C/venvs/tools" "uv venv --python 3.13 $C/venvs/tools && uv pip install --require-hashes --only-binary :all: -r requirements/$(basename "$TOOLS_REQS")"; fi
 else
-  if ! have uv; then
-    if have brew; then brew install uv
-    else
-      # The pinned release tarball, checked against its published sha256, into ~/.local/bin (the
-      # PATH line the profile step writes covers it; nothing touches your shell profile here).
-      set -- $(uv_target)
-      if [ -n "${1:-}" ] && mkdir -p "$HOME/.local/bin" && d="$(mktemp -d)" \
-         && fetch_verified "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$1.tar.gz" "$2" "$d" \
-         && install -m 0755 "$d/uv-$1/uv" "$d/uv-$1/uvx" "$HOME/.local/bin/"; then
-        note "+ uv $UV_VERSION (checksum verified) in ~/.local/bin"
-      else
-        echo "uv install failed (download or checksum): install uv yourself (https://docs.astral.sh/uv/), then rerun"; exit 1
-      fi
-      rm -rf "${d:-/nonexistent}"
-    fi
-  fi
-  if ! have node; then
-    if have brew; then brew install node; else echo "Node.js 22.5+ is required: install Homebrew (https://brew.sh) and rerun, or install Node with nvm"; exit 1; fi
-  fi
   # context-mode (researcher, doc-specialist) needs Node >= 22.5, typescript-language-server 6
   # (--with-lsp) >= 22, premiere-pro-mcp >= 20.19.
   node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 5) ? 0 : 1)' 2>/dev/null \
     || note "! node $(node --version 2>/dev/null) is older than 22.5 — upgrade (brew upgrade node / nvm install 22); context-mode, some npx MCP servers and the TypeScript language server need it"
-  if have brew; then
-    for pair in ffmpeg:ffmpeg magick:imagemagick rsvg-convert:librsvg pdftoppm:poppler; do
-      have "${pair%%:*}" || brew install "${pair##*:}" || note "optional: brew install ${pair##*:}"
-    done
-  else
-    for b in ffmpeg magick rsvg-convert pdftoppm; do have "$b" || note "optional tool missing: $b (with Homebrew: brew install ffmpeg imagemagick librsvg poppler)"; done
-  fi
   # magg pinned; its dependencies resolved as of the cooldown date. --force replaces another version.
   if [ "$(magg --version 2>/dev/null | awk '{print $2}')" != "$MAGG_VERSION" ]; then
     uv tool install --quiet --force --exclude-newer "$MAGG_EXCLUDE_NEWER" "magg==$MAGG_VERSION" \
@@ -943,7 +936,7 @@ for f in stack_sched_refresh.py sched_model.json stack_limits_seed.json; do stag
 for f in derive_sched_model.py derive_thresholds.py; do
   rm -rf "$S/hooks/$f" && cp "$HERE/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
 done
-for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget stack-tree; do stage_script 755 "bin/$f"; done
+for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-update-tools stack-budget stack-tree; do stage_script 755 "bin/$f"; done
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
 stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry reads it (--config)
 # The stack's local LSP marketplace (step 10 registers it): replaced as a whole.
@@ -1814,7 +1807,7 @@ STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/agent_effort.json", "hooks/web_c
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
-                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
+                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-update-tools", "bin/stack-budget",
                  "bin/stack-tree",
                  "mcp/image_studio_mcp.py",
                  "mcp/libdocs_mcp.py", "mcp/neural_memory_mcp.py"]

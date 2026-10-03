@@ -237,6 +237,7 @@ the call. Wiring: `dot-claude/settings.json` → `hooks`.
 | `agent_guard.py delegations [session] [--json]`, `--print-policy`, `--self-test` | `/usr/bin/python3 ~/.claude/hooks/agent_guard.py` | The delegation ledger; the spawn table; the guard's own checks |
 | `claude-ninja`, `claude-supreme` (links in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder or supreme-coder as your main thread at ultracode, starting in Plan (`--permission-mode plan` unless you pass a mode) |
 | `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
+| `stack-update-tools [--dry-run]` | `~/.claude/bin/`, your terminal | Updates the installed toolchains together: `brew update && brew upgrade`, `rustup update`, `juliaup update`, `ghcup upgrade`, `uv self update` + `uv tool upgrade --all`, `cs update`; node is printed as a manual step ([CONFIG.md](CONFIG.md) §7, "Prerequisites and toolchains") |
 
 ### Safety and guardrails
 
@@ -666,23 +667,22 @@ places:
 | Xcode Command Line Tools | `python3` ≥ 3.8 that really runs, `git` | `xcode-select --install` | required | `install.sh` step 1 |
 | Claude Code | ≥ 2.1.271 (older warns) | `curl -fsSL https://claude.ai/install.sh \| bash`, or the Homebrew cask `claude-code` | required | `install.sh` (`MIN_CLAUDE`), [setup docs](https://code.claude.com/docs/en/setup) |
 | A Claude account with Claude Code access | — | [setup docs](https://code.claude.com/docs/en/setup) | required | — |
-| uv | no minimum is checked; the checksummed tarball fallback is 0.12.20, Homebrew installs its current version | `brew install uv`, else the checksummed release tarball into `~/.local/bin` | required (installed if missing) | `install.sh` (`UV_VERSION`) |
-| Node.js with `npx` | ≥ 22.5 | `brew install node` | required (installed with Homebrew if missing; without Homebrew the installer stops) | `install.sh`, `doctor.sh` |
+| uv | no minimum is checked; the checksummed tarball fallback is 0.12.20 | astral.sh's installer, else the checksummed release tarball into `~/.local/bin` | required (installed if missing) | `lib/devtools.sh` (`UV_VERSION`) |
+| Node.js with `npx` | ≥ 22.5 | nvm v0.40.8, then `nvm install 24` | required (installed if missing; still missing, the installer stops) | `lib/devtools.sh`, `doctor.sh` |
 | magg | 1.2.1 | installed by `install.sh` (`uv tool install`) | required (`doctor.sh` FAILs without) | `install.sh` (`MAGG_VERSION`) |
 | sci and tools venvs (Python 3.13, hash-locked) | `requirements/sci.txt`, `requirements/tools.txt` | installed by `install.sh` under `~/.claude/venvs/` | required (`doctor.sh` FAILs without) | `install.sh` step 2 |
-| Homebrew | — | [brew.sh](https://brew.sh) | optional if Node.js 22.5+ is already installed (nvm works); without Homebrew and without Node the installer stops. Installs uv, node and the media tools | `install.sh` |
+| Homebrew | — | installed by step 2 when missing (its official installer, on a terminal only: it asks for your password) | optional; installs the plain programs below in one batch | `lib/devtools.sh` |
 | huetension | 0.3.0 | installed by `install.sh` | optional (designer's colour server) | `install.sh` |
-| ffmpeg, ImageMagick, librsvg, poppler | — | `brew install ffmpeg imagemagick librsvg poppler` | optional (media, SVG and PDF work; `doctor.sh` warns) | `install.sh`, `doctor.sh` |
-| jq, ripgrep, pandoc, gh (read-only) | — | `brew install ripgrep pandoc gh`; jq ships in `/usr/bin` on recent macOS (`brew install jq` otherwise) | optional, not checked; agents prefer them when present | global rules, [CLI tools agents rely on](#cli-tools-agents-rely-on) |
+| ffmpeg, ImageMagick, librsvg, poppler | — | brew batch | optional (media, SVG and PDF work; `doctor.sh` warns) | `lib/devtools.sh`, `doctor.sh` |
+| jq, ripgrep, pandoc, gh (read-only) | — | brew batch (jq ships in `/usr/bin` on recent macOS) | optional; agents prefer them when present | global rules, [CLI tools agents rely on](#cli-tools-agents-rely-on) |
 | Google Chrome | — | — | optional (the playwright MCP drives it; `doctor.sh` warns) | `doctor.sh` |
-| pnpm | — | `brew install pnpm` (Homebrew's Node has no Corepack since Node 25; with nvm's Node 24 `corepack enable pnpm` works) | optional (node-engineer's projects) | [Prerequisites](#prerequisites) |
-| Python 3.14 as uv's default | — | `uv python install 3.14 && uv python pin --global 3.14` | optional, your step | [Prerequisites](#prerequisites) |
+| pnpm | — | `corepack enable pnpm` on nvm's node 24 | optional (node-engineer's projects) | `lib/devtools.sh` |
+| Python 3.14 as uv's default | — | `uv python install 3.14 && uv python pin --global 3.14` | optional (`STACK_INSTALL_UV`) | `lib/devtools.sh` |
+| Toolchains: rustup, ghcup (+ hlint, ormolu), juliaup, coursier, JDK, Gradle, MacTeX, cmake/ninja, go/gopls, gitleaks, pre-commit, Playwright's Chromium | see [CONFIG.md](CONFIG.md) §7 | installed by step 2 when missing, one group knob each ([Installer and session environment](#installer-and-session-environment)) | optional | `lib/devtools.sh` |
 
-One line for the Homebrew part, required and optional together:
-
-```bash
-brew install uv node ffmpeg imagemagick librsvg poppler jq ripgrep pandoc gh
-```
+`./install.sh` installs what is missing (step 2). To see what it would install first:
+`./install.sh --dry-run` (the brew batches, the upstream installers and the pinned downloads, one line
+each); `~/.claude/bin/stack-update-tools` updates them together later.
 
 ### Python: uv, never bare `python`
 
@@ -720,10 +720,12 @@ URI for postgres or mongodb.
 
 ### Optional per-domain toolchains
 
-None of these is installed by the stack, and installing one from inside a session fails by design (the
-sandbox keeps toolchain dirs read-only): install them from your own terminal. Without one, the agent that
-needs it reports the step as not run. In the baseline, 4 of 40 graded runs were "tool-absent" for exactly
-this reason (Miri, Gradle/kotlinc, Hackage, the Julia registry).
+`install.sh` step 2 installs Rust (rustup), Haskell (ghcup, hlint, ormolu), Julia (juliaup), a JDK,
+Gradle, Scala's coursier, MacTeX, cmake/ninja, Go and the dev tools when they are missing (one group
+knob each; [CONFIG.md](CONFIG.md) §7). The others below stay your step. Installing a toolchain from
+inside a session fails by design (the sandbox keeps toolchain dirs read-only): install from your own
+terminal. Without one, the agent that needs it reports the step as not run. In the baseline, 4 of 40
+graded runs were "tool-absent" for exactly this reason (Miri, Gradle/kotlinc, Hackage, the Julia registry).
 
 | Toolchain | Used by | What breaks without it |
 |---|---|---|
@@ -799,15 +801,16 @@ The full list, with sources and the optional toolchains, is in [Requirements (ma
 | macOS | The installer refuses other systems (`STACK_ALLOW_NON_MACOS=1` exists for the tests only) | required |
 | Claude Code ≥ 2.1.271 | The stack targets it | required; older warns (`claude update`) |
 | git, `python3` ≥ 3.8 (Xcode Command Line Tools: `xcode-select --install`) | Installer; hooks and status line run on an absolute system interpreter | required |
-| uv | Every Python tool, script and MCP server | installed if missing (Homebrew, else the checksummed 0.12.20 tarball into `~/.local/bin`) |
-| Python 3.14 as uv's default: `uv python install 3.14 && uv python pin --global 3.14` | Your projects' `uv run` without a pin | your step, not checked; the stack's own venvs pin 3.13 |
-| Node.js ≥ 22.5 with `npx` | context-mode, the npx MCP servers, the TypeScript language server | installed with Homebrew if missing; older warns |
-| pnpm (`brew install pnpm`; Homebrew's Node has no Corepack since Node 25, with nvm's Node 24 `corepack enable pnpm` works) | node-engineer's projects | your step, not checked |
-| jq | Cheap JSON filtering in agents' Bash (global rules) and in tests | your step, not checked |
+| uv | Every Python tool, script and MCP server | installed if missing (astral.sh's installer, else the checksummed 0.12.20 tarball into `~/.local/bin`) |
+| Python 3.14 as uv's default: `uv python install 3.14 && uv python pin --global 3.14` | Your projects' `uv run` without a pin | set by step 2 (`STACK_INSTALL_UV`); the stack's own venvs pin 3.13 |
+| Node.js ≥ 22.5 with `npx` | context-mode, the npx MCP servers, the TypeScript language server | installed if missing (nvm, node 24); older warns |
+| pnpm (`corepack enable pnpm` on nvm's node 24) | node-engineer's projects | installed by step 2 (`STACK_INSTALL_NODE`) |
+| jq | Cheap JSON filtering in agents' Bash (global rules) and in tests | brew batch when missing |
 | elan ([leanprover/elan](https://github.com/leanprover/elan)), then a built Mathlib project for `LEAN_PROJECT_PATH` | Lean: `lean-lsp@agent-stack` (`lake serve`) and proof-checker's lean server | your step; the plugin is enabled only when `lake` exists |
-| Homebrew | Installs uv, node and the optional media tools | optional |
+| Homebrew | One batch for every missing formula, one for every missing cask | installed when missing (on a terminal) |
 | magg 1.2.1, huetension 0.3.0 | mcp-broker's catalog; designer's colour server | installed (pinned, checksummed) |
-| ffmpeg, ImageMagick, librsvg, poppler | Media and PDF work | installed with Homebrew if present, else warned |
+| ffmpeg, ImageMagick, librsvg, poppler | Media and PDF work | brew batch, else warned |
+| The toolchain groups (Rust, Haskell, Julia, Scala, Java, LaTeX, C++ tools, Go, dev tools; PostgreSQL and MongoDB off) | The language and domain agents | installed when missing; `STACK_INSTALL_<GROUP>=0` skips one |
 | Google Chrome | playwright MCP | not checked |
 | Xcode | mobilebuild, `swift-lsp`, `sourcekit-lsp` | not checked |
 
@@ -843,7 +846,10 @@ steps, as the run prints them:
    (`STACK_PYTHON`). Before it, the run prints the install target and asks about a non-default one
    ([Choose the config folder](#choose-the-config-folder)). If the stack changed since the last install, its diff is listed and, on a terminal,
    you are asked before anything changes (`--yes` skips the question; without a terminal it stops).
-2. **Tools**: uv, node, magg, huetension, media tools, the hash-locked science venv
+2. **Tools**: prerequisites and toolchains (`lib/devtools.sh`: Homebrew, one brew batch for the
+   missing formulae and one for the missing casks, the upstream managers uv, nvm, rustup, ghcup,
+   juliaup and coursier, then gitleaks, pre-commit, Gradle and Playwright's Chromium; one line per
+   tool, a present one never touched, `STACK_INSTALL_<GROUP>=0` skips a group), magg, huetension, the hash-locked science venv
    (`~/.claude/venvs/sci`) and tools venv (`~/.claude/venvs/tools`: what the stack's scripts, MCP
    servers and tests import; `requirements/tools.in`); serial-mcp (`cargo install --locked` at the catalog's pin) when cargo
    is present, else one line saying it was skipped (Rust is never installed).
@@ -1187,6 +1193,9 @@ Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort.
 | `XDG_STATE_HOME` | `~/.local/state` | Root of the guard state, the backups and `STACK_CACHE`; rendered into the sandbox rules at install time |
 | `STACK_PYTHON` | chosen automatically | Absolute interpreter for hooks and the status line (never a pyenv/asdf shim) |
 | `STACK_ALLOW_NON_MACOS` | 0 | Tests only: let the installer run off macOS |
+| `STACK_INSTALL_DEPS`, `STACK_INSTALL_DEVTOOLS` | 1 | Step 2 groups: Homebrew + jq/rg/gh/media tools (and the no-Homebrew fallbacks); gitleaks, pre-commit, Gradle, Playwright's Chromium. `=0` skips the group; `--no-deps` skips every install |
+| `STACK_INSTALL_UV`, `STACK_INSTALL_NODE`, `STACK_INSTALL_RUST`, `STACK_INSTALL_HASKELL`, `STACK_INSTALL_JULIA`, `STACK_INSTALL_SCALA`, `STACK_INSTALL_JAVA`, `STACK_INSTALL_LATEX`, `STACK_INSTALL_CXX`, `STACK_INSTALL_GO` | 1 | One toolchain group each (uv + Python 3.14 pin; nvm + node 24 + pnpm; rustup; ghcup + hlint + ormolu; juliaup; coursier; JDK ≥ 27 + kotlin-lsp; MacTeX; cmake, ninja, typst, shellcheck, …; go + gopls). `=0` skips it ([CONFIG.md](CONFIG.md) §7) |
+| `STACK_INSTALL_POSTGRES`, `STACK_INSTALL_MONGODB` | 0 | `=1` adds postgresql@18 / mongodb-community (Homebrew) |
 | `UV_CACHE_DIR`, `npm_config_cache` | `$XDG_STATE_HOME/claude-agent-stack-cache/{uv,npm}` | Set by the installer in each local MCP server's `env` (the cache dir is an installer-internal `STACK_CACHE`, not a setting) |
 | `CLAUDE_ENV_FILE` | set by Claude Code | The SessionStart hook appends the sandbox cache exports (`UV_CACHE_DIR`, `npm_config_cache`, `CARGO_HOME`, …, all under `~/.cache/claude-sandbox`) and an empty git credential helper |
 

@@ -494,7 +494,7 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 
 ### Supply chain (C7)
 
-- uv 0.12.20: release tarball, checked by sha256.
+- uv: the astral.sh installer, else the 0.12.20 release tarball checked by sha256; the prerequisites and toolchains: "Prerequisites and toolchains" below (`lib/devtools.sh`).
 - magg 1.2.1: `uv tool install --exclude-newer 2026-09-22T00:00:00Z`.
 - huetension v0.3.0: tarball checked by sha256 (`go install ...@v0.3.0` as fallback).
 - serial-mcp 0.9.3 (magg catalog `serial`): `cargo install serial-mcp@0.9.3 --locked --root ~/.cargo` (the crate's own `Cargo.lock`; crates.io checks the crate's checksum), only when cargo is present: Rust is never installed, and without cargo the step prints one line and doctor.sh WARNs with the command. The pin lives in the catalog entry's notes; install.sh reads it from there and skips the build when `~/.cargo/.crates2.json` already records that version (or the binary exists without a cargo record).
@@ -502,6 +502,148 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 - After Effects MCP: pinned commit `88d5fbf0`, `npm ci --ignore-scripts`, then an explicit `npm run build`.
 - `--with-lsp` npm installs: `pyright@1.1.414`, `typescript-language-server@6.0.1` (`@5.3.0` on Node < 22.22.2) and `typescript@6.0.3` (TypeScript 7 ships no `tsserver`), all with `--ignore-scripts` (versions checked against the npm registry 2026-09-29).
 - Agents can't run `install.sh` (guard, every agent type and the main thread) except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs (`HOME` and `CLAUDE_CONFIG_DIR` both under a temp dir, checked after resolving symlinks); installing is your step. The rule follows `cd <repo> && ./install.sh`, covers `lib/install_state.py apply|restore|stage|record|move-legacy` on a non-scratch config dir, and a command that copies or pipes the stack's `install.sh` and runs a shell.
+
+### Prerequisites and toolchains (2026-10-03)
+
+`install.sh` step 2 runs `lib/devtools.sh all` (bash 3.2; you run it in a terminal, outside the
+sandbox). Order: (1) Homebrew, (2) one Homebrew batch per type, (3) the upstream version managers,
+(4) the required check, (5) the rest. Every item is checked first and a present one is never touched:
+`brew list --formula/--cask` membership plus `command -v` (a `go` or `cmake` from anywhere counts),
+a JDK of the wanted major or newer in `/Library/Java/JavaVirtualMachines` (its `release` file, so a
+`java_home` failure in the sandbox doesn't matter), `/Library/TeX/texbin/pdflatex` for MacTeX, and
+each manager's own state (`~/.nvm/nvm.sh` and `~/.nvm/versions/node/v24.*`, `~/.cargo/bin/rustup`,
+`~/.ghcup/bin/ghcup`, `~/.juliaup/bin/juliaup`, Coursier's `cs`, `uv python pin --global`). One
+line per tool: `ok`, `+` installed, `!` missing or failed (with its log and the command); the
+Homebrew batch prints the names it skipped as one `ok  already installed:` line.
+
+- **Homebrew batch.** The missing formulae of every enabled group go into ONE
+  `HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install …` and the missing casks into ONE
+  `brew install --cask …`. Each remaining name is checked once with `brew info --formula|--cask`; a
+  name brew can't resolve is reported (`! brew could not resolve: …`) and left out. A failed batch is
+  retried name by name and the failures are named; nothing aborts the other groups. The cask batch
+  (`oracle-jdk` and `mactex` are pkg installers that ask for your password) runs only when stdin is a
+  terminal, otherwise the exact command is printed. Formula versions are Homebrew's current ones
+  (not pinned; Homebrew checks each bottle's sha256 against its formula).
+- **Upstream managers** stay outside Homebrew on purpose: rustup, ghcup, nvm, juliaup, uv and
+  coursier each manage several toolchains and update themselves; under Homebrew, per-project
+  toolchain selection (`rust-toolchain.toml`, `cabal.project` GHC pins, `.nvmrc`, `juliaup`
+  channels, `.python-version`) would break. Each runs its official installer, user-approved: fetched
+  with `curl --proto '=https' --tlsv1.2` into a temp file (never piped, so a cut-off download never
+  runs half a script), its URL and sha256 written to the log, then run with its non-interactive flags;
+  never in a dry run. Everything that is a plain program comes from Homebrew.
+- **Required check.** uv and node + npx: still missing after steps 1-3 (and the uv tarball fallback),
+  the run stops with one message listing each and its command. `--no-deps` lists what is missing and
+  installs nothing (nothing then stops the run). `--dry-run` prints `would: …` lines, including the
+  two exact batch commands with their final lists, and runs nothing.
+- **`--no-profile`** reaches the installers that have a switch for it (rustup `--no-modify-path`,
+  juliaup `--add-to-path=no`, uv `UV_NO_MODIFY_PATH=1`, nvm `PROFILE=/dev/null`, ghcup without
+  `BOOTSTRAP_HASKELL_ADJUST_BASHRC`) and stops the Homebrew `shellenv` line. Without it, Homebrew
+  installed by this step gets `eval "$(/opt/homebrew/bin/brew shellenv)"` in `~/.zprofile`, once
+  (skipped when any profile already has a `brew shellenv` line).
+
+Groups (environment, read by `lib/devtools.sh`; `=0` skips one, `=1` adds an off-by-default one):
+
+| Knob | Default | What it covers |
+|---|---|---|
+| `STACK_INSTALL_DEPS` | 1 | Homebrew itself; jq, ripgrep, gh, ffmpeg, imagemagick, librsvg, poppler; the uv tarball and the jq/gitleaks binary fallbacks when there is no Homebrew |
+| `STACK_INSTALL_DEVTOOLS` | 1 | gitleaks (batch), pre-commit, Gradle 9.8.0, Playwright 1.63.0's Chromium and headless shell |
+| `STACK_INSTALL_UV` | 1 | uv (astral.sh installer) and Python 3.14 as uv's global pin |
+| `STACK_INSTALL_NODE` | 1 | nvm v0.40.8, node 24, pnpm through corepack |
+| `STACK_INSTALL_RUST` | 1 | rustup (default toolchain) |
+| `STACK_INSTALL_HASKELL` | 1 | ghcup (bootstrap with HLS and stack when missing), hlint 3.10 (GHC 9.12.4), ormolu 0.9.0.0 |
+| `STACK_INSTALL_JULIA` | 1 | juliaup |
+| `STACK_INSTALL_SCALA` | 1 | coursier (`cs setup -y`: JVM tools, scala, sbt) |
+| `STACK_INSTALL_JAVA` | 1 | `oracle-jdk` cask when no JDK ≥ 27 is installed, `kotlin-lsp` cask |
+| `STACK_INSTALL_LATEX` | 1 | `mactex` cask (about 5 GB; `brew install --cask mactex-no-gui` is the smaller one) |
+| `STACK_INSTALL_CXX` | 1 | cmake, cmake-docs, ninja, ffmpeg-full, pandoc, git-lfs, tesseract, typst, shellcheck, markdownlint-cli2; then `git lfs install` when its global filters are missing |
+| `STACK_INSTALL_GO` | 1 | go, gopls |
+| `STACK_INSTALL_POSTGRES` | 0 | postgresql@18 (keg-only: `$(brew --prefix postgresql@18)/bin`; `brew services start postgresql@18`) |
+| `STACK_INSTALL_MONGODB` | 0 | `brew tap mongodb/brew`, then mongodb/brew/mongodb-community |
+
+Dependency table (for review; status on this machine from read-only checks on 2026-10-03 inside the
+sandbox: "present" = skipped by the next install, "batch" = would join the brew batch, "manager" =
+upstream installer):
+
+| Tool | Required? | Route | Version / integrity | Status here |
+|---|---|---|---|---|
+| python3, git (Command Line Tools) | required | not installed: step 1 stops with `xcode-select --install` | — | present |
+| Claude Code | required | not installed: step 1 stops with the install command (it runs before the change-review question, R4) | ≥ 2.1.271 | present |
+| Homebrew | optional (needed for the batch) | `/bin/bash` running `https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh`, terminal only, interactive | latest (HEAD), not pinned | present |
+| uv | required | astral.sh installer `https://astral.sh/uv/install.sh`; else the 0.12.20 release tarball | installer latest; tarball sha256-pinned | present (0.12.22) |
+| Python 3.14 global pin | optional | `uv python install 3.14 && uv python pin --global 3.14` | uv's checksummed managed Pythons | 3.14 present, pin missing |
+| nvm, node 24 | required (node) | `https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh`, then `nvm install 24` | nvm pinned v0.40.8 (latest unverified); node from nodejs.org via nvm | present (v24.21.0) |
+| pnpm | optional | `corepack enable pnpm`, verified with `COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm -v` | corepack's signature check | present (12.8.1) |
+| rustup | optional | `https://sh.rustup.rs` with `-y` | latest | present |
+| ghcup | optional | `https://get-ghcup.haskell.org`, `BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_INSTALL_HLS=1 BOOTSTRAP_HASKELL_ADJUST_BASHRC=1` | latest | present |
+| hlint | optional | `ghcup install ghc 9.12.4` (no `--set`), `cabal update`, `cabal install --ignore-project -w ghc-9.12.4 hlint-3.10 --overwrite-policy=always` (`CABAL_DIR`, `XDG_CACHE_HOME` unset) | 3.10; ghcup checks GHC's sha256, cabal Hackage's signed index | missing (manager) |
+| ormolu | optional | `cabal install --ignore-project ormolu-0.9.0.0 --overwrite-policy=always`; then `ghcup rm ormolu 0.8.0.2` once the cabal one runs | 0.9.0.0 | ghcup's 0.8.0.2 crashes (manager) |
+| juliaup | optional | `https://install.julialang.org` with `--yes` | latest | present |
+| coursier | optional | `https://github.com/coursier/coursier/releases/latest/download/cs-aarch64-apple-darwin.gz`, gunzip, quarantine removed, `./cs setup -y`, temp copy deleted | latest, no checksum | present |
+| jq, ripgrep, gh, ffmpeg, imagemagick, librsvg, poppler | optional | brew batch (jq without Homebrew: 1.8.2 release binary, sha256) | Homebrew current | jq ffmpeg imagemagick librsvg poppler present; ripgrep, gh batch |
+| gitleaks | optional | brew batch (without Homebrew: 8.30.1 release tarball, sha256 from `gitleaks_8.30.1_checksums.txt`) | Homebrew 8.30.1 | batch |
+| cmake, cmake-docs, ninja, ffmpeg-full, pandoc, git-lfs, tesseract, typst, shellcheck, markdownlint-cli2 | optional | brew batch | Homebrew current (cmake 4.4.3, ffmpeg-full 9.0.2 keg-only, typst 0.15.1, …) | present |
+| go, gopls | optional | brew batch (`gopls` is a formula, not a cask) | Homebrew current (go 1.27.1, gopls 0.23.0) | present (go from `/usr/local/go`) |
+| Oracle JDK | optional | `oracle-jdk` cask, terminal only, when no JDK ≥ 27 | cask 27 | present (jdk-27.jdk) |
+| kotlin-lsp | optional | `kotlin-lsp` cask (homebrew/cask, not JetBrains' tap) | cask 263.4702.0 | present |
+| MacTeX | optional | `mactex` cask, terminal only | cask 2026.0324 | present |
+| postgresql@18, mongodb-community | optional, off | brew batch (mongodb after `brew tap mongodb/brew`) | Homebrew current | present (`pg_config`, `mongod` on PATH) |
+| pre-commit | optional | `uv tool install --python 3.14 --exclude-newer 2026-09-26T00:00:00Z pre-commit==4.6.2` | version + dependency cooldown | missing |
+| Gradle | optional | `gradle-9.8.0-all.zip` from `github.com/gradle/gradle-distributions` into `~/.local/opt/gradle-9.8.0`, linked from `~/.local/bin/gradle` (not Homebrew: its formula pulls a second JDK) | 9.8.0, sha256 `46ac66d4…47bc0cf` (equal to Homebrew's for the same zip) | missing |
+| Playwright Chromium + headless shell | optional | `npx -y playwright@1.63.0 install chromium chromium-headless-shell` into Playwright's default cache (or `$PLAYWRIGHT_BROWSERS_PATH`) | npm package 1.63.0 (registry integrity); browser revision 1243 over HTTPS, no published checksum | missing |
+| magg, huetension, serial-mcp, venvs | as in "Supply chain" | install.sh step 2 | as there | — |
+
+Corrections to the commands as first written (applied): Homebrew runs interactively, not with
+`NONINTERACTIVE=1` (that mode uses `sudo -n`, which fails without a cached sudo; checked in the
+installer script); ghcup has no `BOOTSTRAP_HASKELL_INSTALL_STACK` (stack is installed unless
+`BOOTSTRAP_HASKELL_INSTALL_NO_STACK` is set; the variable names come from `bootstrap-haskell` on
+GitHub, `get-ghcup.haskell.org` itself is not reachable from the sandbox); rustup and juliaup take
+`-y` / `--yes` instead of piped Enter keys (flags checked in `rustup-init.sh` and `juliaup-init.sh`
+on GitHub; `sh.rustup.rs` and `install.julialang.org` were not reachable); corepack's download
+question is answered by `COREPACK_ENABLE_DOWNLOAD_PROMPT=0`; nvm is sourced in a child bash; uv's
+global pin is `uv python pin --global 3.14` (`uv python pin --help`, uv 0.12.22); Coursier comes from
+`coursier/coursier` releases (the asset `cs-aarch64-apple-darwin.gz` answers 200), not the archived
+`VirtusLab/coursier-m1` (alternative: `brew install coursier`, in homebrew/core); `go-pls` is the
+`gopls` formula; `kotlin-lsp` is a homebrew/cask cask; `ffmpeg-full` and `postgresql@18` are keg-only
+(not linked into PATH: `ffmpeg` on PATH stays the `ffmpeg` formula's); the JDK is the `oracle-jdk`
+cask (27, matching the installed Oracle JDK) because a cask's pkg lands in
+`/Library/Java/JavaVirtualMachines`, where `java_home` picks the highest version, while Homebrew's
+keg-only `openjdk` needs a `sudo ln -sfn` that install.sh never runs.
+
+**Updating together: `~/.claude/bin/stack-update-tools [--dry-run]`.** One line per tool, a missing
+one skipped, a failure never stopping the rest: `brew update && brew upgrade` (every formula and
+cask), `rustup update`, `juliaup update`, `ghcup upgrade` (ghcup itself; GHC/cabal/HLS versions stay
+yours: `ghcup tui`), `uv self update` (only for uv not installed by Homebrew) and `uv tool upgrade
+--all` (pre-commit, magg: within the constraints they were installed with), `cs update`; node is
+manual (it prints the version and the `nvm install 24 --reinstall-packages-from=current` command).
+The pinned tools (Gradle, Playwright's browsers, hlint/ormolu, the venvs) move when a newer
+`install.sh` pins newer versions. From an agent's sandboxed Bash every step fails on the sandbox's
+write rules: run it in your terminal.
+
+ormolu 0.9.0.0 may format differently from 0.8.0.2 (unverified); fourmolu (installed through ghcup on
+this machine) is the fallback.
+
+Why the browsers stay in Playwright's default cache: `~/Library/Caches/ms-playwright` is readable by
+sandboxed commands and `denyWrite` to them, so a sandboxed `npx playwright test` on 1.63.0 finds the
+installed revision and nothing sandboxed can plant a browser your terminal or the playwright MCP
+starts later. A project on another Playwright version needs that version's browsers installed from
+your terminal (`npx playwright install chromium chromium-headless-shell` in the project). Google
+Chrome through `channel: 'chrome'` fails in the sandbox (Crashpad and the ProcessSingleton socket
+under `/var/folders`): use the bundled Chromium there. That a sandboxed run launches the headless
+shell from this path is unverified until the first run after an install.
+
+In the sandbox (P34-style builds; not the installer's job): `GRADLE_USER_HOME` already points at
+`~/.cache/claude-sandbox/gradle`; `JAVA_HOME` must be set explicitly (`/usr/libexec/java_home` fails
+in the sandbox; this machine: `/Library/Java/JavaVirtualMachines/jdk-27.jdk/Contents/Home`);
+`services.gradle.org`, `plugins.gradle.org` and `downloads.gradle.org` are not on the allowlist, so
+use `pluginManagement { repositories { mavenCentral() } }` and a GitHub `distributionUrl` for a
+wrapper; set `kotlin.compiler.execution.strategy=in-process`; the JVM ignores `HTTPS_PROXY`, so pass
+`-Dhttps.proxyHost/Port/User/Password` and `-Djdk.http.auth.tunneling.disabledSchemes=` through
+`JAVA_TOOL_OPTIONS` built at run time from `$HTTPS_PROXY` (never written to a file). pnpm 12.8.1
+ignores `npm_config_store_dir` (it reads `pnpm_config_store_dir` or `--store-dir`), and the Corepack
+shim fails behind the proxy unless `COREPACK_HOME` points at the Corepack home that already holds
+pnpm (`~/.cache/node/corepack`; the sandbox's `XDG_CACHE_HOME` moves Corepack's default away from
+it). Until the session-env hook exports them, pass `--store-dir ~/.cache/claude-sandbox/pnpm-store`
+and `COREPACK_HOME=~/.cache/node/corepack` on the command.
 
 ### Sandbox and managed settings
 
@@ -567,6 +709,9 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-03 (installer sets up prerequisites and toolchains)
+- `lib/devtools.sh all`, called from step 2: Homebrew, one brew batch per type (formulae, casks) for every missing item of the enabled groups, the upstream managers (uv + Python 3.14 pin, nvm + node 24 + pnpm, rustup, ghcup + hlint/ormolu, juliaup, coursier), the required check (uv, node), then pre-commit, Gradle 9.8.0, Playwright 1.63.0's Chromium and `git lfs install`. Group knobs `STACK_INSTALL_{DEPS,DEVTOOLS,UV,NODE,RUST,HASKELL,JULIA,SCALA,JAVA,LATEX,CXX,GO}` (on) and `STACK_INSTALL_{POSTGRES,MONGODB}` (off). New `bin/stack-update-tools`. Pins, routes and the dependency table: §7 "Prerequisites and toolchains". `lib/devtools.sh` joins the change-review diff (`SUPPLY_PATHS`); uv, node and the media tools moved there from install.sh. Tests: `tests/test_install_devtools.py`.
 
 ### 2026-10-03 (hand-back protocol, Phase 1: observe)
 

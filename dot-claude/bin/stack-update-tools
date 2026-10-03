@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+# Updates the tools install.sh's step 2 (lib/devtools.sh) set up, together, from your terminal
+# (outside the sandbox: from an agent's sandboxed Bash every step fails on the sandbox's write rules).
+#
+#   ~/.claude/bin/stack-update-tools [--dry-run]
+#
+# One line per tool: "ok" updated, "-" absent (skipped), "!" failed (the others still run),
+# "manual" (left to you, with the command). What it runs, each only when the tool is present:
+#   Homebrew   brew update && brew upgrade   (formulae and casks: everything Homebrew installed)
+#   rustup     rustup update
+#   juliaup    juliaup update
+#   ghcup      ghcup upgrade (ghcup itself; GHC, cabal, HLS versions stay your choice: ghcup tui)
+#   uv         uv self update (only for uv installed by astral.sh's installer, not Homebrew's),
+#              then uv tool upgrade --all (pre-commit, magg: each within its recorded constraints)
+#   coursier   cs update (the apps cs setup installed)
+#   nvm/node   manual: prints node's version and the update command
+# Pinned tools (Gradle, Playwright's browsers, hlint/ormolu, the stack's venvs) move when a new
+# install.sh pins a newer version: run ./install.sh from the stack repo.
+set -u
+DRY=0
+case "${1:-}" in
+  --dry-run) DRY=1 ;;
+  "") ;;
+  -h|--help) sed -n '2,/^set -u$/p' "$0" | sed '$d'; exit 0 ;;
+  *) echo "usage: stack-update-tools [--dry-run]" >&2; exit 2 ;;
+esac
+export HOMEBREW_NO_ANALYTICS=1
+have(){ command -v "$1" >/dev/null 2>&1; }
+line(){ printf '  %s\n' "$*"; }
+LOG="$(mktemp "${TMPDIR:-/tmp}/stack-update-tools.XXXXXX")" || exit 1
+FAILED=0
+# step LABEL CMD...: run (or print) one update; its output goes to the log
+step(){
+  local label="$1" shown; shift
+  shown="$*"; [ "$1" = brew_up ] && shown="brew update && brew upgrade"
+  if [ "$DRY" = 1 ]; then line "would: $label: $shown"; return 0; fi
+  printf '\n== %s: %s\n' "$label" "$shown" >>"$LOG"
+  if "$@" >>"$LOG" 2>&1 </dev/null; then line "ok  $label"; else line "! $label failed: $shown (log $LOG)"; FAILED=1; fi
+}
+brew_up(){ brew update && brew upgrade; }
+
+for d in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.juliaup/bin" \
+         "$HOME/.local/bin" "$HOME/Library/Application Support/Coursier/bin"; do
+  [ -d "$d" ] && case ":$PATH:" in *":$d:"*) ;; *) PATH="$PATH:$d" ;; esac
+done
+export PATH
+
+if have brew; then step homebrew brew_up; else line "- homebrew: absent"; fi
+if have rustup; then step rustup rustup update; else line "- rustup: absent"; fi
+if have juliaup; then step juliaup juliaup update; else line "- juliaup: absent"; fi
+if have ghcup; then step ghcup ghcup upgrade; else line "- ghcup: absent"; fi
+if have uv; then
+  uvp="$(command -v uv)"
+  case "$(cd "$(dirname "$uvp")" && pwd -P)/" in
+    /opt/homebrew/*|/usr/local/Cellar/*|/usr/local/opt/*) line "- uv self update: uv is Homebrew's (brew upgrade covers it)" ;;
+    *) step "uv self update" uv self update ;;
+  esac
+  step "uv tools" uv tool upgrade --all
+else
+  line "- uv: absent"
+fi
+if have cs; then step coursier cs update; else line "- coursier: absent"; fi
+if have node; then
+  line "manual  node $(node --version 2>/dev/null): . ~/.nvm/nvm.sh && nvm install 24 --reinstall-packages-from=current"
+else
+  line "- node: absent"
+fi
+if [ "$DRY" = 1 ] || [ "$FAILED" = 0 ]; then rm -f "$LOG"; fi    # a failure's log stays (named above)
+exit "$FAILED"

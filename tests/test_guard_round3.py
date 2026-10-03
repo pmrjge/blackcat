@@ -308,7 +308,7 @@ def test_supply_diff_covers_everything_the_install_ships():
     import subprocess
     text = (ROOT / "install.sh").read_text()
     paths = re.search(r'^SUPPLY_PATHS="([^"]+)"$', text, re.M).group(1).split()
-    assert set(paths) == {"dot-claude", "install.sh", "lib/install_state.py", "lib/stack.env.example",
+    assert set(paths) == {"dot-claude", "install.sh", "lib/install_state.py", "lib/devtools.sh", "lib/stack.env.example",
                           "requirements", "tests/derive_sched_model.py", "tests/derive_thresholds.py"}
     # every repo path install.sh reads ("$HERE/<path>") lies under a supply path; lib/assets/ (README
     # images) is never read, so it stays out of the diff

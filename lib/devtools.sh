@@ -1,0 +1,586 @@
+#!/usr/bin/env bash
+# install.sh's tool installer (step 2): the prerequisites the stack needs and the toolchains its
+# agents run. You run it (through ./install.sh) in a terminal, outside the sandbox; bash 3.2. It
+# never calls sudo itself (Homebrew's installer and the pkg casks ask for your password on their own).
+#
+#   devtools.sh all        every enabled group, in this order:
+#     1. Homebrew          bootstrap when missing, only on a terminal (it prompts) [STACK_INSTALL_DEPS]
+#     2. Homebrew batch    every MISSING formula of the enabled groups in ONE `brew install`, every
+#                          missing cask in ONE `brew install --cask` (on a terminal only: the pkg casks
+#                          ask for a password); each name checked with `brew info` first (an
+#                          unresolved one is reported and left out); a failed batch is retried name by name
+#     3. upstream managers uv (+ Python 3.14 global pin), nvm (+ node 24, pnpm via corepack), rustup,
+#                          ghcup (+ hlint, ormolu), juliaup, coursier: each through its official
+#                          installer (HTTPS only, into a temp file, URL and sha256 logged, then run)
+#     4. required check    uv, node + npx: still missing -> one message listing them, exit 3
+#     5. the rest          pre-commit, Gradle, Playwright's browsers, `git lfs install`
+#
+# Groups (environment; =0 skips one, =1 turns on an off-by-default one):
+#   STACK_INSTALL_DEPS      1  Homebrew itself; jq rg gh ffmpeg imagemagick librsvg poppler; the uv
+#                              tarball and jq/gitleaks binary fallbacks
+#   STACK_INSTALL_DEVTOOLS  1  gitleaks, pre-commit, Gradle, Playwright's Chromium
+#   STACK_INSTALL_UV NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO  1 each
+#   STACK_INSTALL_POSTGRES MONGODB                                     0 each
+# DEVTOOLS_MODE: install (default) | dry-run (print what a real run would do, run nothing) |
+# report (--no-deps: list what is missing, install nothing, never fail).
+# DEVTOOLS_NO_PROFILE=1 (install.sh --no-profile): installers are told not to edit shell profiles
+# where they have a switch for it. Every tool is checked first (command -v, its manager's own state,
+# brew list); a present one is never touched. One line per tool: "ok", "+" installed, "!" missing
+# or failed (with the log and the command).
+set -u
+
+MODE="${DEVTOOLS_MODE:-install}"
+case "$MODE" in install|dry-run|report) ;; *) echo "devtools.sh: DEVTOOLS_MODE must be install, dry-run or report" >&2; exit 2 ;; esac
+NO_PROFILE="${DEVTOOLS_NO_PROFILE:-0}"
+# stdin is a terminal (Homebrew's installer and the cask batch need one); the tests set it
+if [ -n "${DEVTOOLS_TTY:-}" ]; then TTY="$DEVTOOLS_TTY"; elif [ -t 0 ]; then TTY=1; else TTY=0; fi
+export HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1
+
+GROUPS_ALL="DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO POSTGRES MONGODB"
+on(){ # on GROUP: its switch; POSTGRES and MONGODB default off
+  local v d=1
+  case "$1" in POSTGRES|MONGODB) d=0 ;; esac
+  eval "v=\${STACK_INSTALL_$1:-$d}"
+  [ "$v" != 0 ]
+}
+
+# ---- pins (CONFIG.md §7 "Prerequisites and toolchains"): bump version and checksum together ------
+UV_VERSION=0.12.20                  # the tarball fallback when astral.sh's installer fails
+uv_target(){ case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) echo "aarch64-apple-darwin 848fdeb602ff1a1baacd4f6c8b7bdc6cf1ad026a6d9cf59475fda17c179743ca" ;;
+  Darwin-x86_64) echo "x86_64-apple-darwin ac54283d211fd77cdc152b67606dbaf6406ff4ab03f3af4ae99468fa8e887141" ;;
+  Linux-x86_64) echo "x86_64-unknown-linux-gnu 6590717592ace991ff83a63fef799e3ad9d33ecc8f96c5d6bdd732496e79337f" ;;
+  Linux-aarch64|Linux-arm64) echo "aarch64-unknown-linux-gnu 8a7aad7bc76a2fae5151566ff3e43eacce0b2a113d5e4de3e4afe3e58fa2441e" ;;
+esac; }
+JQ_VERSION=1.8.2                    # github.com/jqlang/jq releases, sha256sum.txt (no-Homebrew fallback)
+jq_target(){ case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) echo "macos-arm64 2d75340ba57a4b4b4c8708a21c2dc8e958a48aaa8bba13b27f77f6e4c0eca07e" ;;
+  Darwin-x86_64) echo "macos-amd64 e94b266e3c26690550006abe63152b782280f4e14374accdf04cbde844f00bc0" ;;
+  Linux-x86_64) echo "linux-amd64 b1c22172dd303f3be49e935aa56aa48a8b7a46e0bc838b4997d3bb451495870f" ;;
+  Linux-aarch64|Linux-arm64) echo "linux-arm64 8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309" ;;
+esac; }
+GITLEAKS_VERSION=8.30.1             # gitleaks_<v>_checksums.txt (no-Homebrew fallback)
+gitleaks_target(){ case "$(uname -s)-$(uname -m)" in
+  Darwin-arm64) echo "darwin_arm64 b40ab0ae55c505963e365f271a8d3846efbc170aa17f2607f13df610a9aeb6a5" ;;
+  Darwin-x86_64) echo "darwin_x64 dfe101a4db2255fc85120ac7f3d25e4342c3c20cf749f2c20a18081af1952709" ;;
+  Linux-x86_64) echo "linux_x64 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb" ;;
+  Linux-aarch64|Linux-arm64) echo "linux_arm64 e4a487ee7ccd7d3a7f7ec08657610aa3606637dab924210b3aee62570fb4b080" ;;
+esac; }
+PRE_COMMIT_VERSION=4.6.2
+PRE_COMMIT_PYTHON=3.14
+PRE_COMMIT_EXCLUDE_NEWER=2026-09-26T00:00:00Z   # dependency cooldown, as for magg
+# Gradle: the -all zip from GitHub (services.gradle.org is not on the sandbox allowlist, and
+# Homebrew's gradle pulls a second JDK); the sha256 equals Homebrew's for the same zip.
+GRADLE_VERSION=9.8.0
+GRADLE_SHA256=46ac66d47f30f3dacfdf306e0b714a91a34fb94a22ba0a744b280933f47bc0cf
+GRADLE_URL="https://github.com/gradle/gradle-distributions/releases/download/v$GRADLE_VERSION/gradle-$GRADLE_VERSION-all.zip"
+# Playwright: the npm package (npm checks its registry integrity) downloads the browsers its
+# version pins; the revision is that version's chromium / chromium-headless-shell build.
+PLAYWRIGHT_VERSION=1.63.0
+PLAYWRIGHT_CHROMIUM_REVISION=1243
+PYTHON_PIN=3.14                     # uv's global Python pin
+NODE_MAJOR=24
+JAVA_MAJOR=27                       # a JDK >= this one already installed: nothing is done
+HLINT_VERSION=3.10                  # builds only with GHC 9.12.*
+HLINT_GHC=9.12.4
+ORMOLU_VERSION=0.9.0.0              # builds with the GHC already set
+ORMOLU_BROKEN=0.8.0.2               # ghcup's: its zip's libraries are not copied, so it crashes
+# the upstream installers (user-approved; HTTPS only; "latest" unless a version is in the URL)
+URL_HOMEBREW="https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh"
+URL_UV="https://astral.sh/uv/install.sh"
+NVM_VERSION=v0.40.8
+URL_NVM="https://raw.githubusercontent.com/nvm-sh/nvm/$NVM_VERSION/install.sh"
+URL_RUSTUP="https://sh.rustup.rs"
+URL_GHCUP="https://get-ghcup.haskell.org"
+URL_JULIAUP="https://install.julialang.org"
+case "$(uname -m)" in arm64|aarch64) CS_ARCH=aarch64 ;; *) CS_ARCH=x86_64 ;; esac
+URL_COURSIER="https://github.com/coursier/coursier/releases/latest/download/cs-$CS_ARCH-apple-darwin.gz"
+
+LOCAL_BIN="$HOME/.local/bin"
+LOCAL_OPT="$HOME/.local/opt"
+NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
+JVM_DIR="${DEVTOOLS_JVM_DIR:-/Library/Java/JavaVirtualMachines}"
+TEX_BIN="${DEVTOOLS_TEX_BIN:-/Library/TeX/texbin}"
+
+have(){ command -v "$1" >/dev/null 2>&1; }
+line(){ printf '  %s\n' "$*"; }
+sha256_ok(){ printf '%s  %s\n' "$1" "$2" | shasum -a 256 -c - >/dev/null 2>&1; }
+path_add(){ [ -d "$1" ] || return 0; case ":$PATH:" in *":$1:"*) ;; *) PATH="$PATH:$1"; export PATH ;; esac; }
+runs(){ ("$@" >/dev/null 2>&1; exit $?) 2>/dev/null; }   # run it; the subshell keeps a crash report quiet
+# temp dirs under $TMPDIR (macOS mktemp -d without a template ignores it)
+tmpd(){ mktemp -d "${TMPDIR:-/tmp}/stack-devtools.XXXXXX"; }
+LOGDIR=""
+logfile(){ [ -n "$LOGDIR" ] || LOGDIR="$(tmpd)"; printf '%s/%s.log' "$LOGDIR" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' _)"; }
+KEEP_LOGS=0
+finish(){ if [ -n "$LOGDIR" ] && [ "$KEEP_LOGS" = 0 ]; then rm -rf "$LOGDIR"; fi; }
+trap finish EXIT
+fetch_sum(){ curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -o "$3" "$1" && sha256_ok "$2" "$3"; }
+
+# Homebrew, also when its bin dir is not on PATH yet (a fresh shell); DEVTOOLS_BREW_CANDIDATES lets
+# the tests keep a real Homebrew out.
+BREW=""
+BREW_ON_PATH_AT_START=0; have brew && BREW_ON_PATH_AT_START=1
+find_brew(){
+  if have brew; then BREW="$(command -v brew)"; return 0; fi
+  local b
+  for b in ${DEVTOOLS_BREW_CANDIDATES-/opt/homebrew/bin/brew /usr/local/bin/brew}; do
+    if [ -x "$b" ]; then BREW="$b"; path_add "$(dirname "$b")"; return 0; fi
+  done
+  return 1
+}
+find_brew
+
+# remote_installer URL INTERPRETER [ARGS...]: an upstream installer (user-approved), fetched over
+# HTTPS only into a temp file (never a pipe: a cut-off download never runs half a script), its URL
+# and sha256 printed into the log, then run. Environment for it: VAR=value remote_installer ...
+remote_installer(){
+  local url="$1" interp="$2" d rc; shift 2
+  d="$(tmpd)" || return 1
+  echo "installer: $url"
+  if ! curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -o "$d/installer.sh" "$url"; then rm -rf "$d"; echo "download failed"; return 1; fi
+  echo "sha256: $(shasum -a 256 "$d/installer.sh" | cut -d' ' -f1)"
+  "$interp" "$d/installer.sh" "$@"; rc=$?
+  rm -rf "$d"; return $rc
+}
+
+MISSING_REQ=""     # "label|command" lines of required tools still missing
+# ensure LABEL REQ(1|0) CHECK ROUTE INSTALL [interactive]: one line per tool. CHECK and INSTALL
+# are function names (INSTALL "" = no route here); ROUTE is what a real run does (printed by
+# dry-run, report and on failure). "interactive": output stays on the terminal, not in a log.
+ensure(){
+  local label="$1" req="$2" check="$3" route="$4" inst="$5" inter="${6:-}" log="" rc cr=""
+  if "$check"; then line "ok  $label"; return 0; fi
+  if [ -z "$inst" ]; then
+    line "! $label missing — $route"
+    [ "$req" = 1 ] && MISSING_REQ="$MISSING_REQ$label|$route
+"
+    return 0
+  fi
+  case "$MODE" in
+    report) line "! $label missing — $route"; return 0 ;;
+    dry-run) line "would: $label ← $route"; return 0 ;;
+  esac
+  if [ -n "$inter" ]; then
+    line "… $label: $route"
+    "$inst"; rc=$?
+  else
+    log="$(logfile "$label")"
+    # a terminal sees the tool being installed; the result overwrites that line (one line per tool)
+    if [ -t 1 ]; then printf '  … %s: %s' "$label" "$route"; cr="$(printf '\r\033[K')"; fi
+    "$inst" >"$log" 2>&1 </dev/null; rc=$?
+  fi
+  if [ "$rc" = 0 ] && "$check"; then
+    printf '%s  + %s (%s)\n' "$cr" "$label" "$route"
+  else
+    KEEP_LOGS=1
+    printf '%s  ! %s: install failed%s — %s\n' "$cr" "$label" "${log:+ (log $log)}" "$route"
+    [ "$req" = 1 ] && MISSING_REQ="$MISSING_REQ$label|$route
+"
+  fi
+  return 0
+}
+
+# ==== 1. Homebrew ================================================================================
+chk_brew(){ [ -n "$BREW" ]; }
+inst_brew(){
+  # interactive on purpose: NONINTERACTIVE=1 makes Homebrew's installer use `sudo -n`, which fails
+  # unless your sudo is cached; run on a terminal it asks for RETURN and your password itself
+  remote_installer "$URL_HOMEBREW" /bin/bash && find_brew
+}
+brew_profile(){
+  # Homebrew found off PATH (just installed): its shellenv line in ~/.zprofile, once
+  [ -n "$BREW" ] && [ "$BREW_ON_PATH_AT_START" = 0 ] && [ "$NO_PROFILE" != 1 ] || return 0
+  local f
+  for f in "$HOME/.zprofile" "$HOME/.zshrc" "$HOME/.bash_profile" "$HOME/.profile"; do
+    [ -f "$f" ] && grep -q 'brew shellenv' "$f" && return 0
+  done
+  if [ "$MODE" = install ]; then
+    printf '\neval "$(%s shellenv)"\n' "$BREW" >>"$HOME/.zprofile" && line "+ ~/.zprofile: eval \"\$($BREW shellenv)\""
+  else
+    line "would: add eval \"\$($BREW shellenv)\" to ~/.zprofile"
+  fi
+}
+homebrew_step(){
+  on DEPS || return 0
+  if [ "$TTY" = 1 ]; then
+    ensure homebrew 0 chk_brew "Homebrew's installer ($URL_HOMEBREW, latest; asks for your password)" inst_brew interactive
+  else
+    ensure homebrew 0 chk_brew "no terminal: run /bin/bash -c \"\$(curl -fsSL $URL_HOMEBREW)\" yourself, then rerun ./install.sh" ""
+  fi
+  brew_profile
+}
+
+# ==== 2. Homebrew batch ==========================================================================
+# GROUP TYPE NAME PROBES: a probe is cmd:<binary> (on PATH, from any source), path:<file>,
+# jdk:<major> (a JDK >= major in /Library/Java/JavaVirtualMachines) or - (brew list only).
+BREW_ITEMS="DEPS formula jq cmd:jq
+DEPS formula ripgrep cmd:rg
+DEPS formula gh cmd:gh
+DEPS formula ffmpeg cmd:ffmpeg
+DEPS formula imagemagick cmd:magick
+DEPS formula librsvg cmd:rsvg-convert
+DEPS formula poppler cmd:pdftoppm
+DEVTOOLS formula gitleaks cmd:gitleaks
+CXX formula cmake cmd:cmake
+CXX formula cmake-docs -
+CXX formula ninja cmd:ninja
+CXX formula ffmpeg-full -
+CXX formula pandoc cmd:pandoc
+CXX formula git-lfs cmd:git-lfs
+CXX formula tesseract cmd:tesseract
+CXX formula typst cmd:typst
+CXX formula shellcheck cmd:shellcheck
+CXX formula markdownlint-cli2 cmd:markdownlint-cli2
+GO formula go cmd:go
+GO formula gopls cmd:gopls
+JAVA cask oracle-jdk jdk:$JAVA_MAJOR
+JAVA cask kotlin-lsp cmd:kotlin-lsp
+LATEX cask mactex cmd:pdflatex,path:$TEX_BIN/pdflatex
+POSTGRES formula postgresql@18 cmd:postgres,cmd:psql
+MONGODB formula mongodb/brew/mongodb-community cmd:mongod"
+
+jdk_at_least(){ # a JDK of major >= $1 under $JVM_DIR (its release file; java_home fails in the sandbox)
+  local r v
+  for r in "$JVM_DIR"/*/Contents/Home/release; do
+    [ -f "$r" ] || continue
+    v="$(sed -n 's/^JAVA_VERSION="\([0-9]*\).*/\1/p' "$r" | head -n 1)"
+    [ -n "$v" ] && [ "$v" -ge "$1" ] && return 0
+  done
+  return 1
+}
+BREW_FORMULAE_LIST=""; BREW_CASKS_LIST=""
+brew_lists(){
+  [ -n "$BREW" ] || return 0
+  BREW_FORMULAE_LIST=" $("$BREW" list --formula -1 2>/dev/null </dev/null | tr '\n' ' ') "
+  BREW_CASKS_LIST=" $("$BREW" list --cask -1 2>/dev/null </dev/null | tr '\n' ' ') "
+}
+item_present(){ # TYPE NAME PROBES
+  local type="$1" name="$2" probes="$3" short p
+  short="${name##*/}"
+  case "$type" in
+    formula) case "$BREW_FORMULAE_LIST" in *" $short "*) return 0 ;; esac ;;
+    cask) case "$BREW_CASKS_LIST" in *" $short "*) return 0 ;; esac ;;
+  esac
+  local IFS=,
+  for p in $probes; do
+    case "$p" in
+      cmd:*) have "${p#cmd:}" && return 0 ;;
+      path:*) [ -e "${p#path:}" ] && return 0 ;;
+      jdk:*) jdk_at_least "${p#jdk:}" && return 0 ;;
+    esac
+  done
+  return 1
+}
+brew_resolves(){ # TYPE NAME: brew info knows it
+  if [ "$1" = cask ]; then "$BREW" info --cask "$2" >/dev/null 2>&1 </dev/null
+  else "$BREW" info --formula "$2" >/dev/null 2>&1 </dev/null; fi
+}
+# brew_batch TYPE NAMES...: one install for all of them; a failed batch is retried name by name.
+# Casks keep the terminal (the pkg installers ask for your password); formulae go to a log.
+brew_batch(){
+  local type="$1" log n; shift
+  [ $# -gt 0 ] || return 0
+  if [ "$type" = cask ]; then
+    line "… brew install --cask $*"
+    "$BREW" install --cask "$@" && return 0
+  else
+    log="$(logfile brew-formulae)"
+    line "… brew install $* (log $log)"
+    "$BREW" install "$@" >"$log" 2>&1 </dev/null && return 0
+  fi
+  KEEP_LOGS=1
+  line "! the batch failed: retrying one by one"
+  for n in "$@"; do
+    if [ "$type" = cask ]; then "$BREW" install --cask "$n" || true
+    else "$BREW" install "$n" >>"$log" 2>&1 </dev/null || true; fi
+  done
+}
+brew_step(){
+  local skipped="" unresolved="" want_f="" want_c="" nobrew="" g type name probes t
+  brew_lists
+  if [ -n "$BREW" ] && on MONGODB && ! "$BREW" tap 2>/dev/null </dev/null | grep -qx 'mongodb/brew'; then
+    if [ "$MODE" = install ]; then "$BREW" tap mongodb/brew >/dev/null 2>&1 </dev/null || line "! brew tap mongodb/brew failed"
+    else line "would: brew tap mongodb/brew"; fi
+  fi
+  while read -r g type name probes; do
+    [ -n "$g" ] || continue
+    on "$g" || continue
+    if item_present "$type" "$name" "$probes"; then skipped="$skipped ${name##*/}"; continue; fi
+    if [ -z "$BREW" ]; then nobrew="$nobrew ${name##*/}"; continue; fi
+    if ! brew_resolves "$type" "$name"; then unresolved="$unresolved $name"; continue; fi
+    if [ "$type" = cask ]; then want_c="$want_c $name"; else want_f="$want_f $name"; fi
+  done <<EOF_ITEMS
+$BREW_ITEMS
+EOF_ITEMS
+  [ -z "$skipped" ] || line "ok  already installed:$skipped"
+  [ -z "$unresolved" ] || line "! brew could not resolve:$unresolved (left out)"
+  [ -z "$nobrew" ] || line "! no Homebrew, not installed:$nobrew (install Homebrew, then rerun; jq and gitleaks have pinned fallbacks below)"
+  [ -n "$want_f$want_c" ] || return 0
+  case "$MODE" in
+    report)
+      [ -z "$want_f" ] || line "! missing formulae:$want_f"
+      [ -z "$want_c" ] || line "! missing casks:$want_c"
+      return 0 ;;
+    dry-run)
+      [ -z "$want_f" ] || line "would: HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install$want_f"
+      [ -z "$want_c" ] || line "would: HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask$want_c$([ "$TTY" = 1 ] || echo '  (no terminal: printed, not run)')"
+      case "$want_c" in *mactex*) line "  (mactex is about 5 GB; STACK_INSTALL_LATEX=0 skips it; brew install --cask mactex-no-gui is the smaller one)" ;; esac
+      return 0 ;;
+  esac
+  # shellcheck disable=SC2086
+  brew_batch formula $want_f
+  if [ -n "$want_c" ]; then
+    case "$want_c" in *mactex*) line "  mactex is about 5 GB and takes a while (STACK_INSTALL_LATEX=0 skips it)" ;; esac
+    if [ "$TTY" = 1 ]; then
+      # shellcheck disable=SC2086
+      brew_batch cask $want_c
+    else
+      line "! casks not installed (the pkg installers need a terminal): HOMEBREW_NO_ANALYTICS=1 brew install --cask$want_c"
+      want_c=""
+    fi
+  fi
+  brew_lists
+  for name in $want_f $want_c; do
+    t=formula; case " $want_c " in *" $name "*) t=cask ;; esac
+    if item_present "$t" "$name" "-"; then line "+ ${name##*/} (brew)"
+    else KEEP_LOGS=1; line "! ${name##*/}: brew install failed"; fi
+  done
+}
+
+# ==== 3. upstream managers =======================================================================
+chk_uv(){ have uv || [ -x "$LOCAL_BIN/uv" ]; }
+inst_uv(){
+  if [ "$NO_PROFILE" = 1 ]; then UV_NO_MODIFY_PATH=1 remote_installer "$URL_UV" sh && return 0
+  else remote_installer "$URL_UV" sh && return 0; fi
+  echo "astral.sh installer failed: the pinned tarball"
+  inst_uv_tarball
+}
+inst_uv_tarball(){
+  set -- $(uv_target)
+  [ -n "${1:-}" ] || { echo "no uv build for $(uname -s)-$(uname -m)"; return 1; }
+  local d rc; d="$(tmpd)" || return 1
+  mkdir -p "$LOCAL_BIN" && fetch_sum "https://github.com/astral-sh/uv/releases/download/$UV_VERSION/uv-$1.tar.gz" "$2" "$d/uv.tgz" \
+    && tar -xzf "$d/uv.tgz" -C "$d" && install -m 0755 "$d/uv-$1/uv" "$d/uv-$1/uvx" "$LOCAL_BIN/"
+  rc=$?; rm -rf "$d"; return $rc
+}
+chk_pypin(){ have uv && uv python find "$PYTHON_PIN" >/dev/null 2>&1 && uv python pin --global 2>/dev/null | grep -q "^$PYTHON_PIN"; }
+inst_pypin(){ uv python install "$PYTHON_PIN" && uv python pin --global "$PYTHON_PIN"; }
+
+nvm_node_bin(){ local d; for d in "$NVM_DIR"/versions/node/v"$NODE_MAJOR".*; do [ -x "$d/bin/node" ] && { printf '%s' "$d/bin"; return 0; }; done; return 1; }
+chk_nvm(){ [ -s "$NVM_DIR/nvm.sh" ]; }
+inst_nvm(){
+  if [ "$NO_PROFILE" = 1 ]; then PROFILE=/dev/null remote_installer "$URL_NVM" bash
+  else remote_installer "$URL_NVM" bash; fi
+}
+chk_node24(){ nvm_node_bin >/dev/null; }
+# nvm is a shell function: sourced in a child bash (nvm.sh does not run under set -u)
+inst_node24(){ NVM_DIR="$NVM_DIR" bash -c '. "$NVM_DIR/nvm.sh" && nvm install '"$NODE_MAJOR"; }
+chk_pnpm(){ have pnpm && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 runs pnpm -v; }
+inst_pnpm(){
+  local b; b="$(nvm_node_bin)" || { echo "no node $NODE_MAJOR from nvm"; return 1; }
+  # corepack's one-time "download pnpm?" question is answered by the variable, never by keystrokes
+  PATH="$b:$PATH" corepack enable pnpm && PATH="$b:$PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm -v
+}
+
+chk_rustup(){ have rustup || [ -x "$HOME/.cargo/bin/rustup" ]; }
+inst_rustup(){
+  if [ "$NO_PROFILE" = 1 ]; then remote_installer "$URL_RUSTUP" sh -y --no-modify-path
+  else remote_installer "$URL_RUSTUP" sh -y; fi
+}
+
+chk_ghcup(){ have ghcup || [ -x "$HOME/.ghcup/bin/ghcup" ]; }
+inst_ghcup(){
+  # ghcup's documented non-interactive variables (bootstrap-haskell's header): HLS on, stack on
+  # (its default; BOOTSTRAP_HASKELL_INSTALL_NO_STACK would skip it), PATH line in the rc files
+  if [ "$NO_PROFILE" = 1 ]; then
+    BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_INSTALL_HLS=1 remote_installer "$URL_GHCUP" sh
+  else
+    BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_INSTALL_HLS=1 BOOTSTRAP_HASKELL_ADJUST_BASHRC=1 remote_installer "$URL_GHCUP" sh
+  fi
+}
+# Outside the sandbox with your own cabal dirs: the sandbox's CABAL_DIR/XDG_CACHE_HOME, if inherited,
+# would send the build into ~/.cache/claude-sandbox.
+cabal_u(){ env -u CABAL_DIR -u XDG_CACHE_HOME cabal "$@" </dev/null; }
+chk_hlint(){ runs hlint --version; }
+inst_hlint(){
+  ghcup whereis ghc "$HLINT_GHC" >/dev/null 2>&1 || ghcup install ghc "$HLINT_GHC" </dev/null || return 1
+  cabal_u update && cabal_u install --ignore-project -w "ghc-$HLINT_GHC" "hlint-$HLINT_VERSION" --overwrite-policy=always
+}
+cabal_ormolu(){ local b; for b in "$HOME/.cabal/bin/ormolu" "$LOCAL_BIN/ormolu"; do [ -x "$b" ] && runs "$b" --version && { printf '%s' "$b"; return 0; }; done; return 1; }
+# run it, don't just find it: ghcup's ormolu 0.8.0.2 crashes
+chk_ormolu(){ runs ormolu --version || cabal_ormolu >/dev/null; }
+inst_ormolu(){ cabal_u update && cabal_u install --ignore-project "ormolu-$ORMOLU_VERSION" --overwrite-policy=always; }
+ormolu_cleanup(){
+  # ghcup's broken ormolu goes once cabal's runs
+  [ "$MODE" = install ] && have ghcup && cabal_ormolu >/dev/null || return 0
+  local g; g="$(ghcup whereis ormolu "$ORMOLU_BROKEN" 2>/dev/null </dev/null)" || return 0
+  [ -n "$g" ] && ! runs "$g" --version || return 0
+  if ghcup rm ormolu "$ORMOLU_BROKEN" >/dev/null 2>&1 </dev/null; then line "- ormolu $ORMOLU_BROKEN (ghcup, broken) removed"
+  else line "! ghcup rm ormolu $ORMOLU_BROKEN failed"; fi
+}
+
+chk_juliaup(){ have juliaup || [ -x "$HOME/.juliaup/bin/juliaup" ]; }
+inst_juliaup(){
+  if [ "$NO_PROFILE" = 1 ]; then remote_installer "$URL_JULIAUP" sh --yes --add-to-path=no
+  else remote_installer "$URL_JULIAUP" sh --yes; fi
+}
+
+chk_cs(){ have cs || have coursier || [ -x "$HOME/Library/Application Support/Coursier/bin/cs" ]; }
+inst_cs(){
+  local d rc; d="$(tmpd)" || return 1
+  echo "download: $URL_COURSIER"
+  ( cd "$d" && curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -o cs.gz "$URL_COURSIER" && gzip -d cs.gz && chmod +x cs \
+      && { xattr -d com.apple.quarantine cs 2>/dev/null || true; } \
+      && echo "sha256: $(shasum -a 256 cs | cut -d' ' -f1)" && ./cs setup -y )
+  rc=$?; rm -rf "$d"; return $rc
+}
+
+upstream_step(){
+  local nb
+  if on UV; then
+    ensure uv 0 chk_uv "astral.sh installer ($URL_UV, latest), else the uv $UV_VERSION tarball (sha256)" inst_uv
+    path_add "$LOCAL_BIN"
+    ensure "python $PYTHON_PIN (uv global pin)" 0 chk_pypin "uv python install $PYTHON_PIN && uv python pin --global $PYTHON_PIN" inst_pypin
+  fi
+  if on NODE; then
+    ensure nvm 0 chk_nvm "nvm $NVM_VERSION installer ($URL_NVM)" inst_nvm
+    ensure "node $NODE_MAJOR (nvm)" 0 chk_node24 "nvm install $NODE_MAJOR" inst_node24
+    nb="$(nvm_node_bin)" && path_add "$nb"
+    ensure "pnpm (corepack)" 0 chk_pnpm "corepack enable pnpm; COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm -v" inst_pnpm
+  fi
+  if on RUST; then
+    ensure rustup 0 chk_rustup "rustup installer ($URL_RUSTUP, latest) -y" inst_rustup
+    path_add "$HOME/.cargo/bin"
+  fi
+  if on HASKELL; then
+    ensure ghcup 0 chk_ghcup "ghcup bootstrap ($URL_GHCUP, latest; non-interactive, with HLS and stack)" inst_ghcup
+    path_add "$HOME/.ghcup/bin"; path_add "$HOME/.cabal/bin"
+    ensure hlint 0 chk_hlint "ghcup install ghc $HLINT_GHC; cabal update; cabal install --ignore-project -w ghc-$HLINT_GHC hlint-$HLINT_VERSION --overwrite-policy=always" inst_hlint
+    ensure ormolu 0 chk_ormolu "cabal update; cabal install --ignore-project ormolu-$ORMOLU_VERSION --overwrite-policy=always" inst_ormolu
+    ormolu_cleanup
+  fi
+  if on JULIA; then
+    ensure juliaup 0 chk_juliaup "juliaup installer ($URL_JULIAUP, latest) --yes" inst_juliaup
+  fi
+  if on SCALA; then
+    ensure coursier 0 chk_cs "cs from $URL_COURSIER (latest), then cs setup -y" inst_cs
+  fi
+  return 0
+}
+
+# ==== 4. required check ==========================================================================
+chk_node(){ have node && have npx; }
+chk_jq(){ have jq; }
+inst_jq_binary(){
+  set -- $(jq_target)
+  [ -n "${1:-}" ] || return 1
+  local d rc; d="$(tmpd)" || return 1
+  mkdir -p "$LOCAL_BIN" && fetch_sum "https://github.com/jqlang/jq/releases/download/jq-$JQ_VERSION/jq-$1" "$2" "$d/jq" \
+    && install -m 0755 "$d/jq" "$LOCAL_BIN/jq"
+  rc=$?; rm -rf "$d"; return $rc
+}
+required_step(){
+  # silent when present (step 3 already said so)
+  if chk_uv; then :
+  elif on DEPS; then ensure uv 1 chk_uv "uv $UV_VERSION release tarball (sha256 checked) into ~/.local/bin" inst_uv_tarball
+  else ensure uv 1 chk_uv "install uv: https://docs.astral.sh/uv/ (STACK_INSTALL_UV=1 does it)" ""; fi
+  chk_node || ensure "node + npx" 1 chk_node "Node.js 22.5+: STACK_INSTALL_NODE=1 (nvm), or Homebrew's node" ""
+  if [ -z "$BREW" ] && on DEPS; then
+    ensure jq 0 chk_jq "jq $JQ_VERSION release binary (sha256 checked) into ~/.local/bin" inst_jq_binary
+  fi
+  if [ -n "$MISSING_REQ" ] && [ "$MODE" = install ]; then
+    printf '\ninstall.sh: required tools are missing and could not be installed:\n' >&2
+    printf '%s' "$MISSING_REQ" | while IFS='|' read -r l c; do [ -n "$l" ] && printf '  %s — %s\n' "$l" "$c" >&2; done
+    printf 'Install them, then rerun ./install.sh (the logs of failed installs are named above).\n' >&2
+    return 3
+  fi
+  return 0
+}
+
+# ==== 5. the rest ================================================================================
+chk_gitleaks(){ have gitleaks; }
+inst_gitleaks_tarball(){
+  set -- $(gitleaks_target)
+  [ -n "${1:-}" ] || return 1
+  local d rc; d="$(tmpd)" || return 1
+  mkdir -p "$LOCAL_BIN" \
+    && fetch_sum "https://github.com/gitleaks/gitleaks/releases/download/v$GITLEAKS_VERSION/gitleaks_${GITLEAKS_VERSION}_$1.tar.gz" "$2" "$d/g.tgz" \
+    && tar -xzf "$d/g.tgz" -C "$d" gitleaks && install -m 0755 "$d/gitleaks" "$LOCAL_BIN/gitleaks"
+  rc=$?; rm -rf "$d"; return $rc
+}
+chk_pre_commit(){ have pre-commit; }
+inst_pre_commit(){
+  have uv || { echo "uv is missing"; return 1; }
+  uv tool install --python "$PRE_COMMIT_PYTHON" --exclude-newer "$PRE_COMMIT_EXCLUDE_NEWER" "pre-commit==$PRE_COMMIT_VERSION"
+}
+GRADLE_HOME_DIR="$LOCAL_OPT/gradle-$GRADLE_VERSION"
+chk_gradle(){ have gradle; }
+inst_gradle(){
+  # already unpacked (an earlier run, or a link removed since): only the link is (re)made
+  if [ ! -x "$GRADLE_HOME_DIR/bin/gradle" ]; then
+    local d rc; d="$(tmpd)" || return 1
+    mkdir -p "$LOCAL_OPT" && fetch_sum "$GRADLE_URL" "$GRADLE_SHA256" "$d/gradle.zip" \
+      && unzip -q "$d/gradle.zip" -d "$d/x" && [ -x "$d/x/gradle-$GRADLE_VERSION/bin/gradle" ] \
+      && rm -rf "$GRADLE_HOME_DIR" && mv "$d/x/gradle-$GRADLE_VERSION" "$GRADLE_HOME_DIR"
+    rc=$?; rm -rf "$d"; [ "$rc" = 0 ] || return "$rc"
+  fi
+  mkdir -p "$LOCAL_BIN" && ln -sfn "$GRADLE_HOME_DIR/bin/gradle" "$LOCAL_BIN/gradle"
+}
+# Playwright's browsers go where Playwright looks by default (macOS ~/Library/Caches/ms-playwright)
+# unless PLAYWRIGHT_BROWSERS_PATH says otherwise: readable by sandboxed runs, writable only from
+# outside the sandbox (settings.json denyWrite), so no sandboxed command can plant a browser your
+# terminal or the playwright MCP later starts.
+pw_dir(){
+  if [ -n "${PLAYWRIGHT_BROWSERS_PATH:-}" ] && [ "$PLAYWRIGHT_BROWSERS_PATH" != 0 ]; then printf '%s' "$PLAYWRIGHT_BROWSERS_PATH"
+  elif [ "$(uname -s)" = Darwin ]; then printf '%s' "$HOME/Library/Caches/ms-playwright"
+  else printf '%s' "${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright"; fi
+}
+chk_playwright(){
+  local d; d="$(pw_dir)"
+  [ -f "$d/chromium-$PLAYWRIGHT_CHROMIUM_REVISION/INSTALLATION_COMPLETE" ] \
+    && [ -f "$d/chromium_headless_shell-$PLAYWRIGHT_CHROMIUM_REVISION/INSTALLATION_COMPLETE" ]
+}
+inst_playwright(){
+  have npx || { echo "npx is missing"; return 1; }
+  npx -y "playwright@$PLAYWRIGHT_VERSION" install chromium chromium-headless-shell
+}
+chk_lfs(){ [ -n "$(git config --global --get filter.lfs.process 2>/dev/null)" ]; }
+inst_lfs(){ git lfs install; }
+
+rest_step(){
+  if on DEVTOOLS; then
+    if [ -z "$BREW" ] && on DEPS; then
+      ensure gitleaks 0 chk_gitleaks "gitleaks $GITLEAKS_VERSION release tarball (sha256 checked) into ~/.local/bin" inst_gitleaks_tarball
+    fi
+    ensure pre-commit 0 chk_pre_commit "uv tool install --python $PRE_COMMIT_PYTHON --exclude-newer $PRE_COMMIT_EXCLUDE_NEWER pre-commit==$PRE_COMMIT_VERSION" inst_pre_commit
+    ensure gradle 0 chk_gradle "gradle-$GRADLE_VERSION-all.zip from GitHub (sha256 checked) into ~/.local/opt, linked from ~/.local/bin/gradle" inst_gradle
+    ensure "playwright browsers" 0 chk_playwright "npx -y playwright@$PLAYWRIGHT_VERSION install chromium chromium-headless-shell  (into $(pw_dir))" inst_playwright
+  fi
+  if on CXX && have git-lfs; then
+    ensure "git lfs (global filters)" 0 chk_lfs "git lfs install" inst_lfs
+  fi
+  if on JAVA && [ "$MODE" = install ]; then
+    local jh="${DEVTOOLS_JAVA_HOME_TOOL-/usr/libexec/java_home}"
+    if [ -n "$jh" ] && [ -x "$jh" ]; then line "java: default JDK $("$jh" 2>/dev/null </dev/null || echo 'none found')"; fi
+  fi
+  if on POSTGRES && [ -n "$BREW" ] && [ "$MODE" = install ]; then
+    line "postgresql@18 is keg-only: its binaries are in $("$BREW" --prefix postgresql@18 2>/dev/null </dev/null)/bin; brew services start postgresql@18 runs it"
+  fi
+  return 0
+}
+
+all(){
+  local g off=""
+  for g in $GROUPS_ALL; do on "$g" || off="$off $g"; done
+  [ -z "$off" ] || line "groups off:$off"
+  homebrew_step
+  brew_step
+  upstream_step
+  required_step || return 3
+  rest_step
+}
+
+case "${1:-}" in
+  all) all ;;
+  *) echo "usage: devtools.sh all" >&2; exit 2 ;;
+esac
