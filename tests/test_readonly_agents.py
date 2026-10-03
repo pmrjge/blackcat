@@ -1199,3 +1199,39 @@ def test_readonly_list_additions_keep_their_blocks(command):
 def test_a_scratch_copy_of_a_hook_cli_is_read_like_any_scratch_script(proj):
     put(proj, ".claude-work/j/hooks/agent_guard.py", PY_WRITER)
     assert viol(proj, "python3 .claude-work/j/hooks/agent_guard.py --self-test")
+
+
+# ---------------------------------------------------------------- security re-review (S6 W2 follow-up)
+def test_uv_run_refuses_a_script_with_a_local_inline_dependency(proj):
+    """HIGH-a: a PEP 723 block naming a local package makes `uv run` build it with its backend."""
+    put(proj, ".claude-work/rr/loc/pyproject.toml",
+        '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n'
+        '[project]\nname = "loc"\nversion = "0"\n')
+    put(proj, ".claude-work/rr/s.py", '# /// script\n# dependencies = '
+        '["loc @ file://%s/.claude-work/rr/loc"]\n# ///\nprint(1)\n' % proj)
+    for cmd in ("uv run .claude-work/rr/s.py", "uv run --script .claude-work/rr/s.py",
+                "uv run --no-project .claude-work/rr/s.py"):
+        why = viol(proj, cmd)
+        assert why and "inline metadata" in str(why), cmd
+    # index dependencies only (the accepted residual) and no block at all still run (read)
+    put(proj, ".claude-work/rr/ok.py", '# /// script\n# dependencies = ["rich>=13"]\n# ///\nprint(1)\n')
+    assert not viol(proj, "uv run .claude-work/rr/ok.py")
+    put(proj, ".claude-work/rr/plain.py", "print(1)\n")
+    assert not viol(proj, "uv run .claude-work/rr/plain.py")
+
+
+def test_a_scratch_venv_entry_point_is_read(proj):
+    """HIGH-b: a scratch .venv/bin/<tool> is not the trusted tool of that name."""
+    put(proj, ".claude-work/v/.venv/bin/pytest", "#!/bin/sh\n" + SH_WRITER)
+    assert viol(proj, ".claude-work/v/.venv/bin/pytest -q")
+
+
+def test_a_scratch_gradlew_is_read(proj):
+    put(proj, ".claude-work/g/gradlew", "#!/bin/sh\n" + SH_WRITER)
+    assert viol(proj, ".claude-work/g/gradlew test")
+
+
+def test_a_scratch_venv_activate_is_read(proj):
+    put(proj, ".claude-work/v/.venv/bin/activate", SH_WRITER)
+    assert viol(proj, "source .claude-work/v/.venv/bin/activate && pytest")
+    assert viol(proj, ". .claude-work/v/.venv/bin/activate")

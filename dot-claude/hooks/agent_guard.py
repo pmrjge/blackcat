@@ -8455,8 +8455,11 @@ class _ReadOnly(object):
         a = self.resolve(head)
         d = os.path.dirname(a)
         user_bins = [os.path.join(self.home, x) for x in (".local/bin", ".cargo/bin", "go/bin")]
-        if d in RO_SYSTEM_BIN or d in user_bins or RO_VENV_BIN_RE.search(d) or \
-                re.search(r"(?:\A|/)(?:gradlew|mvnw)\Z", head):
+        # a trusted entry point by its directory, unless that directory is scratch: a scratch
+        # .venv/bin/pytest or gradlew is whatever was written there, so it is read like any script
+        if (d in RO_SYSTEM_BIN or d in user_bins or RO_VENV_BIN_RE.search(d)
+                or re.search(r"(?:\A|/)(?:gradlew|mvnw)\Z", head)) \
+                and not (self.in_scratch(d) or self.in_scratch(os.path.realpath(d))):
             return self.command([_base(head)] + args[1:], ctx, depth)
         if self.runnable(head):                 # a scratch script is read; a binary is refused
             return self.run_file(head, what, None, depth)
@@ -8745,7 +8748,9 @@ class _ReadOnly(object):
             return self.check(" ".join(rest), depth + 1)
         if base in ("source", "."):
             if rest and re.search(r"/(?:\.?venv|venvs/[^/]+)/bin/activate(?:\.\w+)?\Z",
-                                  self.resolve(rest[0])):
+                                  self.resolve(rest[0])) \
+                    and not self.in_scratch(self.resolve(rest[0])) \
+                    and not self.in_scratch(os.path.realpath(self.resolve(rest[0]))):
                 return None
             if rest and self.runnable(rest[0]):
                 return self.run_file(rest[0], what, "shell", depth)
@@ -9417,6 +9422,28 @@ class _ReadOnly(object):
         self.pending = True
         return None
 
+    def script_build(self, script, what):
+        """`uv run <script>` installs the dependencies of the script's PEP 723 block (also with
+        --no-project or --no-sync); a local one (file:, a path, editable, a workspace, tool.uv
+        sources) is built with its backend, which runs unread. A scratch script naming one is
+        refused; index packages are the accepted residual."""
+        a = self.resolve(script)
+        if not (self.in_scratch(a) or self.in_scratch(os.path.realpath(a))):
+            return None
+        try:
+            if os.path.getsize(a) > RO_FILE_MAX:
+                raise OSError("too big")
+            with open(a, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            return None                         # run_file reads (or refuses) it next
+        m = re.search(r"(?ms)^#\s*///\s*script\s*$(.*?)^#\s*///\s*$", text)
+        if m and re.search(r"file:|\bpath\s*=|\beditable\b|\bworkspace\b|\btool\.uv\b|"
+                           r"@\s*[./~]|\\[uU]", m.group(1)):
+            return (what, ("installs a local package named in the script's inline metadata, "
+                           "whose build runs unread (drop the local dependency)"))
+        return None
+
     def scratch_build(self, project, what):
         """`uv run` syncs the project it finds (--project, else the nearest pyproject.toml up from
         the cwd) and builds it with its build backend, which runs unread. In scratch: refuse a
@@ -9510,7 +9537,8 @@ class _ReadOnly(object):
             if module is not None:
                 return self.py_module(rest[module + 1], rest[module + 2:], ctx, depth, what)
             if k < len(rest) and re.search(r"\.pyw?\Z", rest[k]):
-                found = self.stack_cli(rest[k], rest[k + 1:], ctx, what)
+                found = self.script_build(rest[k], what) or \
+                    self.stack_cli(rest[k], rest[k + 1:], ctx, what)
                 return self.run_file(rest[k], what, "python", depth) if found == "no" else found
             return self.command(rest[k:], ctx, depth + 1) if rest[k:] else \
                 (what, "opens a REPL")
