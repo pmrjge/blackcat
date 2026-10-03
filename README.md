@@ -235,7 +235,7 @@ the call. Wiring: `dot-claude/settings.json` → `hooks`.
 | `stack_usage.py status`, `runs`, `refresh`, `propose` | `~/.claude/hooks/`, your terminal | Collector state, per-agent runs, a manual refit, drift report |
 | `stack_sched.py plan`, `next`, `replay` | `uv run --script dot-claude/hooks/stack_sched.py` | Scheduler advisor: waves for a task graph; a report tool that no hook reads |
 | `agent_guard.py delegations [session] [--json]`, `--print-policy`, `--self-test` | `/usr/bin/python3 ~/.claude/hooks/agent_guard.py` | The delegation ledger; the spawn table; the guard's own checks |
-| `claude-ninja`, `claude-supreme` (links in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder or supreme-coder as your main thread at ultracode |
+| `claude-ninja`, `claude-supreme` (links in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder or supreme-coder as your main thread at ultracode, starting in Plan (`--permission-mode plan` unless you pass a mode) |
 | `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
 
 ### Safety and guardrails
@@ -333,6 +333,7 @@ The full list is in [Knobs](#knobs) and [CONFIG.md](CONFIG.md) §5. The ones mos
 | `READ_GATE` (in `stack.env` or the environment) | 1 | `0` turns the read gate off |
 | `STACK_POLICY` | `on` | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on |
 | `autoCompactWindow` (settings key) | 900000 | Compaction at about 900K tokens on the 1M-context models |
+| `permissions.defaultMode` (settings key) | `plan` | The mode every session starts in; a mode you set is kept on upgrade ([Permission modes](#permission-modes)) |
 
 ### Compared with plain Claude Code
 
@@ -627,7 +628,7 @@ the call (fail closed); every hook command runs on an absolute interpreter chose
 
 | Guard | What it enforces |
 |---|---|
-| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 12 tool calls per prompt, at most 4 of them its own Read/Bash/Write/Edit, and no foreground Bash timeout over 120 s |
+| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 24 tool calls per prompt, at most 4 of them its own Read/Bash/Write/Edit, and no foreground Bash timeout over 120 s |
 | Read-only agents | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide and proof-checker hold Bash, but only read-only commands pass (tests, linters in check mode, `git diff/log/show`, inspection, scanners); scratch code is content-checked; anything else is refused |
 | No push | `git push` in any form and forge writes (`gh`/`tea`/`fj`, `gh api`, curl/wget/httpie to forge hosts) are denied, also inside `bash -c`, `eval`, `$(...)`, `ssh` and git's own command hooks. `STACK_POLICY=off` does not lift it |
 | Protected paths | Bash-level writes, deletes and renames of the installed stack, the backups and the hook state are refused, on top of the Edit/Write deny rules; so is running `install.sh` except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs |
@@ -982,7 +983,9 @@ rc, and `claude mcp remove -s user exa` (and `jina`, `wolfram`, `huggingface`, `
    `settings.json`). For a plain session without the stack's main thread: `claude --agent claude`.
 2. Once, in the first session: `/effort medium`.
 3. Type `/stack-doctor` and fix any FAIL line it names.
-4. Ask for something. BlackCat answers in a line, does a small job itself, or dispatches and says who
+4. The session starts in Plan mode: BlackCat reads, asks and plans, and nothing is edited until you
+   approve a plan or switch modes with Shift+Tab ([Permission modes](#permission-modes)).
+5. Ask for something. BlackCat answers in a line, does a small job itself, or dispatches and says who
    does what; results are relayed as they land.
 
 ### Typical workflows
@@ -994,7 +997,7 @@ rc, and `claude mcp remove -s user exa` (and `jina`, `wolfram`, `huggingface`, `
 | A fix or feature in a repository | describe the deliverable | coder, a language engineer or main-coder; a reviewer only when a review trigger fires |
 | A specific agent | start with `@<agent>` or `<agent>:` (e.g. `@verifier check …`) | that agent gets your prompt verbatim |
 | A job with dependent parts (build, then document, then translate) | describe the whole job | the orchestrator plans, dispatches in parallel and integrates |
-| A plan before any code | Plan mode | planner writes it; builders start after you approve |
+| A plan before any code | the default: sessions start in Plan mode | planner writes it; BlackCat sends builders after you approve it ([Permission modes](#permission-modes)) |
 | A follow-up on an earlier result | "also …", "fix …" | the same agent, resumed with `SendMessage` |
 | To see who is doing what | `/stack-tree` | the live agent tree with each agent's commands and tokens |
 | A different model for one agent type, this session only | `/override-agent coder opus`; `/override-agent reset all` | the guard rewrites that type's spawns |
@@ -1017,6 +1020,49 @@ The stack's user commands (the model can't run them: `disable-model-invocation`)
 | `/override-agent reset <agent\|all>` | Back to the agent definition's model and effort |
 
 Terminal tools beside them: [Commands and CLIs](#commands-and-clis).
+
+### Permission modes
+
+Sessions start in **Plan**: `permissions.defaultMode` is `plan` in the `settings.json` the installer
+writes (it shipped `bypassPermissions` until 2026-10-03). In Plan, BlackCat reads, asks, sends the
+planner, relays its plan and calls `ExitPlanMode` with it. Approving the plan switches the session to the
+mode you pick in that dialog, and agents dispatched afterwards inherit it. Shift+Tab changes the mode at
+any time: Plan is where a session starts, not a lock. The sandbox, the deny rules and the guard's hooks
+apply in every mode.
+
+How the mode reaches the agents (Claude Code docs, 2026-10-03):
+
+| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 45 agents that write files (`permissionMode: acceptEdits`) |
+|---|---|---|
+| `plan`, `default`, `dontAsk` | follow it | accept edits without prompts: the agent file wins |
+| `acceptEdits`, `auto`, `bypassPermissions` | follow it | follow it: the session's mode wins |
+
+- The 45 are every agent with Write, Edit or NotebookEdit except BlackCat. The read-only ones are
+  claude-code-guide, code-reviewer, explore, oracle, plan-reviewer, planner, proof-checker, scout,
+  security-auditor and verifier.
+- So a switch to Plan or Default does not make a dispatched builder read-only, while a switch to
+  `acceptEdits`, `auto` or `bypassPermissions` reaches every agent. BlackCat holds builders back until
+  you approve the plan (its rule 5). That is a prompt rule, not a guard.
+- `acceptEdits` is meant for subagent runs. As your main thread, `claude-ninja`, `claude-supreme` and
+  `claude-ultracode <agent>` pass `--permission-mode plan` unless you pass a mode yourself; plain
+  `claude` runs BlackCat, which has no `permissionMode`, in the settings default. Whether Claude Code
+  applies an agent file's `permissionMode` to a main thread started by hand (`claude --agent main-coder`)
+  is not documented: add `--permission-mode plan`, or use `claude-ultracode main-coder`.
+- Not verified, because the docs are silent: whether a running subagent follows a later mode switch; how
+  nested spawns, `isolation: worktree`, forks and workflow agents inherit; whether hook events inside
+  subagents carry `permission_mode`; whether approving a plan counts as a new prompt for
+  `BLACKCAT_MAX_STEPS`. `STACK_MODE_PROBE=1` logs what Claude Code reports ([CONFIG.md](CONFIG.md) §5,
+  "Permission modes", has the procedure).
+- Headless runs (`claude -p`, scheduled and background jobs, `-p` scripts) under Plan: the main
+  thread's edits are never auto-approved, and a call that would ask is denied when no host answers. A
+  script whose main thread must edit passes `--permission-mode acceptEdits`, since the flag beats the
+  settings file. Waiting for your approval instead of denying is queued, not shipped.
+- Back to `bypassPermissions`: set `"permissions": {"defaultMode": "bypassPermissions"}` in
+  `~/.claude/settings.json` (the installer keeps a mode you set), or start one session with
+  `claude --permission-mode bypassPermissions`. Project and local settings ignore `bypassPermissions` and
+  `auto` as a default mode.
+- Upgrading: an install still on the previously shipped `bypassPermissions` is moved to `plan` once, with
+  a note. A mode you chose stays, and the installer prints `kept your permissions.defaultMode=...`.
 
 ## Environment variables
 
@@ -1104,6 +1150,7 @@ you may set yourself.
 | `SCREEN_LOCK_TTL_S` | 900 | Screen lock expiry | guard |
 | `STRIP_AGENT_MODEL` | 1 | Remove per-call `model` | guard |
 | `STACK_GUARD_LOG` | 0 | 1 = log hook events (tool names and ids only in budget mode) | guard |
+| `STACK_MODE_PROBE` | 0 | 1 = diagnostic: log the permission mode each PreToolUse, PermissionRequest and SubagentStart event reports to `mode-probe.jsonl` in the state dir (no tool input; 0600; stops at 1 MB). Decides nothing ([CONFIG.md](CONFIG.md) §5, "Permission modes") | guard |
 | `STACK_IMAGE_MAX_PX` / `STACK_IMAGE_MAX_B64` | 1919 / 4500000 | Longest image side; most base64 chars per image | guard, image-studio, doctor |
 | `STACK_IMAGE_UPLOAD_TOOLS` | — | Regex of more MCP tools whose image arguments get downscaled copies | guard |
 | `STACK_ENV_FILE` ● | `~/.claude/stack.env` | Where the keys live | `mcp-headers`, `with-stack-env`, libdocs, image-studio, `read_gate.py`, `web_caps.py` |
@@ -1297,7 +1344,8 @@ Only you can run these.
 4. **Keychain from the sandbox:** whether the osxkeychain helper answers inside the sandbox (count the
    bytes of its answer, never print it).
 5. **Routing:** a task with a supreme-coder plan step goes to the orchestrator.
-6. **Ask rules:** an ask rule prompts under `bypassPermissions` (for example a magg `duckdb_*` call).
+6. **Ask rules:** an ask rule prompts in every mode, `bypassPermissions` included (start one session with
+   `claude --permission-mode bypassPermissions`; for example a magg `duckdb_*` call).
 7. **Credentials:** `bash ~/.claude/bin/doctor.sh`, section "GitHub credentials agents could use".
 
 ## Apps
@@ -1376,6 +1424,9 @@ outside this repository).
   `tests/fixtures/prompt_budget_base.json`.
 - **Record parameters with their reason** in [CONFIG.md](CONFIG.md); counts in this README come from the
   files (the commands under [Verify](#verify)).
+- **Agent permission modes:** an agent that writes files carries `permissionMode: acceptEdits`, so its
+  subagent runs never stop at an edit prompt; a read-only agent carries none (or `plan`). Any other value
+  fails `tests/lint_agents.py`, because an agent file's mode wins over a Plan, Default or dontAsk session.
 - **Hook code stays Python 3.9-compatible and stdlib-only**: the hooks run on `/usr/bin/python3`.
 - **Agents never push** and never write to a forge, in any form; publishing is your step. They report the
   branch and commits instead.

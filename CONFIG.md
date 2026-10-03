@@ -168,6 +168,8 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` | from `stack.env` (Opus, Sonnet, Sonnet) | moved | Copied from `stack.env` by the installer; the haiku slot holds the Sonnet ID (section 2) |
 | `MCP_DISCOVERY_CACHE` / `MCP_TIMEOUT` / `MAX_MCP_OUTPUT_TOKENS` | 1 / 60000 / 25000 | — | Unchanged |
 | `agent` | `blackcat` | — | BlackCat is the main thread in the terminal and in SDK apps |
+| `permissions.defaultMode` | `plan` | `bypassPermissions` | Every session starts in Plan (the user, 2026-10-03). Not owned: the installer keeps a mode you set, and moves an install still on the previously shipped `bypassPermissions` to `plan` once ("Permission modes" below) |
+| `STACK_MODE_PROBE` | 0 (code) | new | `1` = diagnostic: one JSON line per PreToolUse, PermissionRequest and SubagentStart event in `<state root>/mode-probe.jsonl` (time, session, event, tool name, agent type and id, depth, `permission_mode` when present; never the tool input; 0600; stops at 1 MB). Decides nothing |
 | `autoCompactWindow` | 900000 | 400000 | Compaction at ~900K tokens. The pinned 5.5 models run a native 1M window on the Anthropic API (no `[1m]` suffix, nothing to set; `CLAUDE_CODE_DISABLE_1M_CONTEXT` would cap them at 200K). The one place the number is set: the installer re-asserts it, doctor and the smoke test check it |
 
 ### Soft token limits (2026-10-02)
@@ -310,11 +312,48 @@ Per-agent plugin enabling does not exist: plugins are session-wide (user, projec
 - **Limits:** `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` makes Claude Code drop per-call models, and the command warns when it is set. Workflow `agent()` stages are not rewritten: the guard refuses a `model` there.
 - **Tests:** `uv run --python 3.13 --with pytest pytest -q tests/test_override_agent.py` (parser, table validity and rule, clamping, the rewrite, isolation, injection); `agent_guard.py --self-test` checks the table covers every agent and model.
 
+### Permission modes (2026-10-03)
+
+- **Default:** `permissions.defaultMode: "plan"` in the user `settings.json` (was `bypassPermissions`). User scope accepts every mode; project and local settings ignore `auto` and `bypassPermissions` there; `claude --permission-mode` beats the settings file; Claude Code's own terminal default is `auto` (2.1.283+), so the setting matters. A once-only prompt may offer Pro/Max/Team users a switch to `auto`; declining keeps Plan. No project or managed settings file sets the mode, and only the launchers pass the flag (below).
+- **Inheritance** (sub-agents.md, permission-modes.md, as reported by claude-code-guide, 2026-10-03): an agent without `permissionMode` inherits the main conversation's mode. A parent in `bypassPermissions`, `acceptEdits` or `auto` wins over the agent file; a parent in `plan`, `default` or `dontAsk` loses to it (`bypassPermissions` in a file excepted). A subagent in plan is read-only, and ExitPlanMode is removed from subagents not in plan. Approving a plan switches the session's mode, and new subagents inherit the new one.
+- **The stack's agents:** 45 carry `permissionMode: acceptEdits`, every agent with Write, Edit or NotebookEdit except BlackCat, so their subagent runs never stop at an edit prompt (the user: subagents must not bloat their context or wait on prompts). The other 11 carry none: blackcat (the main thread follows the session's mode) and the read-only claude-code-guide, code-reviewer, explore, oracle, plan-reviewer, planner, proof-checker, scout, security-auditor and verifier. `tests/lint_agents.py` (`permission_mode_problem`) allows `acceptEdits` only on agents that write files and `plan` only on read-only ones; `default`, `auto`, `dontAsk` and `bypassPermissions` fail. Consequence: a switch to Plan or Default does not make a dispatched builder read-only. BlackCat's rule 5 sends builders only after the plan is approved; that is a prompt rule. A guard check that would make Plan bind builders waits for the probe below.
+- **Main thread:** `bin/claude-ultracode` (claude-ninja, claude-supreme, `claude-ultracode <agent>`) adds `--permission-mode plan` unless the arguments already hold `--permission-mode[=…]` or `--dangerously-skip-permissions` (scanned up to `--`). Whether Claude Code applies a main-thread agent's `permissionMode` is not documented, so a builder started by hand (`claude --agent main-coder`) may start in `acceptEdits`; the probe's last step checks it.
+- **Headless:** with `claude -p`, scheduled or background jobs under Plan, the main thread's edits are never auto-approved, and a call that would ask is denied when no host answers. A script whose main thread must edit passes `--permission-mode acceptEdits`. Making such runs wait for an approval is queued, not built.
+- **Not verified** (the docs are silent): whether a running subagent follows a later mode switch; inheritance through nested spawns, `isolation: worktree`, forks and workflow agents; whether subagent hook events carry `permission_mode`; whether plan approval counts as a new prompt for `BLACKCAT_MAX_STEPS`; the Agent tool's own `mode` input (listed by 2.1.287) and how it ranks against the agent file.
+
+**The probe** (`STACK_MODE_PROBE=1`; no agent can run it, because it needs your interactive session and Shift+Tab). The log is `~/.local/state/claude-agent-stack/mode-probe.jsonl` (under `$XDG_STATE_HOME` if set). The variable must be in the environment of the `claude` process, so export it in that terminal; settings.json does not set it.
+
+1. `export STACK_MODE_PROBE=1; claude` in a scratch project. Do not pass `--permission-mode`. The footer shows plan mode.
+2. Ask: `@planner list the files in this folder` (read-only, no mode), then `@coder run git status and report it` (acceptEdits), then `@orchestrator have explore list the files here` (explore nested under an acceptEdits parent).
+3. While a longer agent runs (for example `@verifier run the test suite`), press Shift+Tab until the footer shows another mode (say, accept edits), then ask `@planner list the files again`.
+4. Main thread: quit, then `STACK_MODE_PROBE=1 claude --agent ninja-coder` (no flag; ask one read-only question, then quit), then `STACK_MODE_PROBE=1 claude-ninja` (the launcher).
+5. Read the log, then delete it and unset the variable:
+
+```bash
+L="${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack/mode-probe.jsonl"
+jq -r '[.time, .event, (.agent_type // "main"), (.depth|tostring), (.tool // "-"), (.permission_mode // "absent")] | @tsv' "$L"
+jq -s 'group_by(.session) | map({session: .[0].session, by_agent: (group_by(.agent_type // "main") | map({agent: (.[0].agent_type // "main"), modes: (map(.permission_mode // "absent") | unique)}))})' "$L"
+rm -f "$L"; unset STACK_MODE_PROBE
+```
+
+What the outcome means:
+
+| Observation | Meaning | Then |
+|---|---|---|
+| Subagent lines (depth ≥ 1) never have `permission_mode` | the field is not on subagent events | the enforcement follow-up cannot use it; keep rule 5 as the only brake |
+| planner shows `plan` in step 2 and the new mode in step 3 | new read-only subagents inherit the session's mode, as documented | nothing |
+| coder shows `acceptEdits` while the session is in plan | the agent file wins over a Plan parent, as documented | nothing; this is why rule 5 matters |
+| explore under orchestrator shows `plan` / `acceptEdits` | nested agents inherit the main thread's / their parent's mode | record it in NEXT_STEPS |
+| the long-running verifier's lines change mode after the switch / do not | running subagents follow a switch / keep their start mode | record it; README "Permission modes" |
+| `claude --agent ninja-coder` starts with `plan` | the frontmatter is not applied to a main thread | nothing |
+| `claude --agent ninja-coder` starts with `acceptEdits`, `claude-ninja` with `plan` | the frontmatter is applied to a main thread; the flag beats it | use the launchers (or pass the flag) for builders as main thread |
+| `claude-ninja` also starts with `acceptEdits` | the flag does not beat the frontmatter | remove `permissionMode` from the builders and give subagent runs their edits another way (a guard PreToolUse `allow` for Write/Edit in builder subagents, which never overrides a deny rule) |
+
 ## 6. Recommended session settings
 
 - **Claude Desktop, Conductor and other SDK apps:** set effort to **medium** for the main thread; the agent files set each subagent's effort. Start a new session after installing.
 - **Terminal:** `claude` (BlackCat) at the session's effort, `/effort medium`. For the hardest problems:
-  - `claude-ninja` and `claude-supreme` run ninja-coder and supreme-coder as the main thread at `ultracode`.
+  - `claude-ninja` and `claude-supreme` run ninja-coder and supreme-coder as the main thread at `ultracode`, in Plan: the launcher passes `--permission-mode plan` unless you pass a mode yourself ("Permission modes" above).
   - Dispatched as subagents, both run at `max`.
 - **Not verified:**
   - whether AskUserQuestion is offered to the main thread in Claude Desktop (it goes through the host's `canUseTool`); BlackCat falls back to plain-text questions;
@@ -456,6 +495,16 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-03 (Plan as the default mode, acceptEdits on the 45 writers, step cap 24)
+
+- **Plan by default.** `dot-claude/settings.json` ships `permissions.defaultMode: "plan"`; the previous value was `"bypassPermissions"` (shipped since 2026-09-28). The user: "I want the default permissions to be Plan, it makes much more sense and I want it if the user changes permissions to pass them down chain to subagents". Docs facts (claude-code-guide's report on `code.claude.com/docs/en/permission-modes.md`, `settings.md`, `sub-agents.md`, fetched 2026-10-03; not re-fetched for this entry): `defaultMode` takes `default`, `acceptEdits`, `plan`, `auto`, `dontAsk` or `bypassPermissions`; user scope accepts all of them, and project and local settings ignore `auto` and `bypassPermissions`; the settings file loses to `--permission-mode`; the terminal default is `auto` from 2.1.283; an agent without `permissionMode` inherits the main mode; a parent in `bypassPermissions`, `acceptEdits` or `auto` beats the agent file, while with a parent in `default`, `dontAsk` or `plan` the file wins (except `bypassPermissions`); ExitPlanMode is removed from subagents not in plan, subagents in plan are read-only, and approving a plan switches the session's mode, which new subagents inherit.
+- **Installer:** a scalar `permissions` key is no longer overwritten on every run. The stack's value is set while you have none or still hold the value shipped last time; a mode you chose is kept (`kept your permissions.defaultMode=…`). The manifest records the shipped scalars (`settings_permission_scalars`). For an older manifest the previous value is read from the recorded commit's `dot-claude/settings.json` (earlier installers overwrote the mode on every run, so that value was in place). An install still on the old shipped `bypassPermissions` moves to `plan` once, with a note on Shift+Tab, ExitPlanMode and how to set `bypassPermissions` again. When the recorded commit is not in the repository, nothing changes and the installer says why. Smoke §13c.
+- **Agents:** 45 agent files carry `permissionMode: acceptEdits`: the 31 builders as before, plus orchestrator, designer, writer, researcher, doc-specialist, image-director, claude-code-engineer, cg-artist, motion-designer, data-scientist, mcp-broker, mathematician, browser-operator and vfx-td. The user: "most ssubagents must run in accept edits or else it will bloat context for them too and lag on resolution time", for subagent runs. Without a mode: blackcat and the 10 read-only agents (claude-code-guide, code-reviewer, explore, oracle, plan-reviewer, planner, proof-checker, scout, security-auditor, verifier). New lint rule (`tests/lint_agents.py` `permission_mode_problem`, `tests/test_permission_modes.py`): `acceptEdits` only with Write/Edit/NotebookEdit, `plan` only without; any other value fails. blackcat.md rule 5 now says builders edit even in Plan, so they go out only after approval (body length unchanged).
+- **Launchers:** `bin/claude-ultracode` passes `--permission-mode plan` unless you pass `--permission-mode` or `--dangerously-skip-permissions`. This replaces "no mode flag in the launcher": the user wants `acceptEdits` only "when run as subagents, not when on main thread", and whether a main-thread agent's frontmatter mode applies is not documented. That the flag also beats the agent file is expected, not verified. `tests/test_ultracode_launcher.py`.
+- **Probe:** `STACK_MODE_PROBE=1` logs the `permission_mode` hooks see (section 5, "Permission modes", has the procedure); settings.json wires PermissionRequest to the guard, which returns no decision. A guard rule that denies edits to builder subagents while the main thread is in plan (`STACK_MODE_ENFORCE`) is a follow-up that waits for the probe; it is not built.
+- **`BLACKCAT_MAX_STEPS` 12 → 24** (the user: "make it 24"); `BLACKCAT_MAX_DISPATCH` stays 8 and `BLACKCAT_MAX_OWN_STEPS` 4, so 24 − 4 ≥ 8 holds.
+- Rerun `./install.sh` from the main checkout and restart Claude Code. To keep starting in `bypassPermissions`, set it in `~/.claude/settings.json` after the install (later runs keep it), or pass `--permission-mode bypassPermissions` for one session.
 
 ### 2026-10-03 (prompt budget base frozen)
 
