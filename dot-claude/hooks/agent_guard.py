@@ -3542,7 +3542,7 @@ def on_subagent_start(ev, d):
     now = time.time()
 
     def start():
-        reg_put(d, aid, {"type": atype or None, "started": now}, clear=("stopped", "status"),
+        reg_put(d, aid, {"type": atype or None, "started": now}, clear=("stopped", "status", "report"),
                 resumed={"bg": True, "resumed": now})
 
     def drop():

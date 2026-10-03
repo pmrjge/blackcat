@@ -4,5 +4,6 @@ RESULT: Parser done, writer not started.
 FILES:
 - src/parser.py — done
 - src/writer.py — stub only
+- a.py (new) — parser
 EVIDENCE: pytest -q → 4 passed, 3 skipped
 NEXT: coder: implement src/writer.py from the stub

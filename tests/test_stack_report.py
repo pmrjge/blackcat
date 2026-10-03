@@ -250,6 +250,17 @@ def test_restate_once_lifecycle(rig, active_on_second):
     assert any(n.startswith("aa1.%d." % int(new["started"])) for n in rig.copies())
 
 
+def test_a_resumed_run_drops_the_previous_report(tmp_path):
+    """SubagentStart clears the earlier run's report: a resume that ends without a reply shows none."""
+    rig = Rig(tmp_path, STACK_REPORT_FORMAT="observe")
+    rig.seed("ag1", "coder")
+    rig.run(rig.stop("ag1", "coder", "STATUS: failed\nRESULT: x\nEVIDENCE: e\nNEXT: n"))
+    assert rig.reg("ag1")["report"]["status"] == "failed"
+    rig.run(rig.start("ag1", "coder"))
+    rig.run(rig.stop("ag1", "coder", ""))
+    assert "report" not in rig.reg("ag1")
+
+
 def test_rows_of_a_restate_share_the_run_stamp_and_carry_wrapped(rig):
     """21. `run` is the registry `started` stamp as a string, so both rows of a restate join; `wrapped` too."""
     rig.seed("rr1", "coder")
@@ -292,6 +303,26 @@ def test_two_concurrent_stops_block_exactly_once(rig):
     assert rig.copies() == ["cc1.%d.1.md" % int(STARTED), "cc1.%d.2.md" % int(STARTED)]
     rep = rig.reg("cc1")["report"]
     assert rep["stops"] == 2 and rep["restated"] is True
+
+
+def test_an_earlier_finish_never_overwrites_a_later_stop(guard, tmp_path):
+    """The interleaving forced in-process: stop 1 decides, then stop 2 runs whole before stop 1 copies its
+    reply and finishes; the registry keeps stop 2's report and copy (the `stops == n` guard in finish)."""
+    d = seed_inproc(guard, tmp_path)
+    real, calls = guard.report_copy, []
+
+    def copy(*a):
+        calls.append(a[3])
+        if len(calls) == 1:
+            guard.report_stop(stop_event("ff1", "coder", GOOD, tmp_path), d, "ff1", "coder")
+        return real(*a)
+    guard.report_copy = copy
+    assert guard.report_stop(stop_event("ff1", "coder", GOOD, tmp_path), d, "ff1", "coder") is None
+    assert calls == [1, 2]
+    rep = guard.reg_get(d, "ff1")["report"]
+    assert rep["stops"] == 2 and rep["path"].endswith(".2.md")
+    assert sorted(os.listdir(os.path.join(d, "reports"))) == ["ff1.%d.1.md" % int(STARTED),
+                                                              "ff1.%d.2.md" % int(STARTED)]
 
 
 # ================================================================ 4. stop_hook_active on the first stop

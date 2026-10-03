@@ -173,8 +173,8 @@ def _files(block):
         for p, purpose in items:
             p = p.strip()
             par = PAREN_RE.match(p)
-            if par and not purpose:
-                p, purpose = par.group(1), par.group(2)
+            if par:
+                p, purpose = par.group(1), purpose or par.group(2)
             p = RANGE_RE.sub("", p.strip("`'\"").strip())
             purpose = purpose.strip()
             if p.lower() in NONE_WORDS or NONE_RE.match(p):

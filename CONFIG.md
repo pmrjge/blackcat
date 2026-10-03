@@ -378,7 +378,7 @@ Phase 1 of the hand-back protocol is behaviour-neutral: in the default mode `obs
   | plan | planner | 12,000 soft |
 
   On the 80 frozen pre-protocol hand-backs (builder 65, lookup 8, review 6, plan 1, coord 0), 70/80 would be restated at 1.0x and 60/80 at 1.5x; the measured p90 of rewritten compliant builder reports is 3,100 chars done (n=29) and 3,200 otherwise (n=19) (the counterfactual on the frozen baseline, 2026-10-03; local-only, not linked).
-- **Restate once:** the check-and-set of `restate_key` (the run's registry `started` stamp) runs under one registry lock (`reg_update`); `stop_hook_active` true never blocks; a blocked agent is not marked stopped (it keeps its locks and fan-out slot) until its next SubagentStop. Unverified: whether a child that hits maxTurns while restating fires another SubagentStop (otherwise it shows running until `STACK_FANOUT_IDLE_S`).
+- **Restate once:** the check-and-set of `restate_key` (the run's registry `started` stamp) runs under one registry lock (`reg_update`); `stop_hook_active` true never blocks; a blocked agent is not marked stopped (it keeps its locks and fan-out slot) until its next SubagentStop. Unverified: whether a child that hits maxTurns while restating fires another SubagentStop (otherwise it counts as running for the per-parent fan-out until `STACK_FANOUT_IDLE_S`, and a background child keeps its session slot (K_sess) until TaskStop, StopFailure or the next SessionStart).
 - **Fail open:** any error warns on stderr, marks the agent stopped and outputs no decision; a record that cannot be written never cancels a decision.
 - **Rollback:** `STACK_REPORT_FORMAT=off` in `stack.env` or the environment. `agent_guard.py --self-test` now runs `report_self_test`.
 

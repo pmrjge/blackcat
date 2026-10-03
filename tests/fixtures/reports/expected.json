@@ -6,7 +6,7 @@
                   "files": ["db/migrate_007.sql"], "deleted": [false],
                   "sdk_format": "status", "sdk_status": "failed", "tree": ["failed", "look"], "usage": "failed"},
   "partial": {"format": "status", "status": "partial", "eflag": "look", "wrapped": false,
-              "files": ["src/parser.py", "src/writer.py"], "deleted": [false, false],
+              "files": ["src/parser.py", "src/writer.py", "a.py"], "deleted": [false, false, false],
               "sdk_format": "status", "sdk_status": "partial", "tree": ["partial", "look"], "usage": "partial"},
   "blocked_ask": {"format": "status", "status": "blocked", "eflag": "look", "wrapped": false,
                   "files": [], "deleted": [],
