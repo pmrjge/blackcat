@@ -170,7 +170,7 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `agent` | `blackcat` | — | BlackCat is the main thread in the terminal and in SDK apps |
 | `permissions.defaultMode` | `plan` | `bypassPermissions` | Every session starts in Plan (the user, 2026-10-03). Not owned: the installer keeps a mode you set, and moves an install still on the previously shipped `bypassPermissions` to `plan` once ("Permission modes" below) |
 | `STACK_MODE_PROBE` | 0 (code) | new | `1` = diagnostic: one JSON line per PreToolUse, PermissionRequest and SubagentStart event in `<state root>/mode-probe.jsonl` (time, session, event, tool name, agent type and id, depth, `permission_mode` when present; never the tool input; 0600; stops at 1 MB). Decides nothing |
-| `autoCompactWindow` | 900000 | 400000 | Compaction at ~900K tokens. The pinned 5.5 models run a native 1M window on the Anthropic API (no `[1m]` suffix, nothing to set; `CLAUDE_CODE_DISABLE_1M_CONTEXT` would cap them at 200K). The one place the number is set: the installer re-asserts it, doctor and the smoke test check it |
+| `autoCompactWindow` | 629000 | 400000 | Compaction at ~629K tokens. The pinned 5.5 models run a native 1M window on the Anthropic API (no `[1m]` suffix, nothing to set; `CLAUDE_CODE_DISABLE_1M_CONTEXT` would cap them at 200K). The one place the number is set: the installer re-asserts it, doctor and the smoke test check it |
 
 ### Soft token limits (2026-10-02)
 
@@ -497,6 +497,14 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-03 (session budget 1.92B, re-seed on install, auto-compact window 629K)
+
+- `hard.session` (per-session hard context budget, whole tree): seed 666,000,000 → 1,920,000,000, repo ceiling 1,500,000,000 → 2,500,000,000, floor 300,000,000 unchanged (`dot-claude/hooks/stack_limits_seed.json`; the guard's built-in fallback and the doctor's seed check follow).
+- `stack_limits.py seed` (run by install.sh): a variable still at its seed (status unset, no evidence, not frozen or held now, never rolled back) takes a changed shipped seed, unless the soft ≤ ratio × hard invariant would then move a learned or frozen partner; learned, frozen and held values are kept, and a re-seeded variable keeps learning. History records the move as `reseeded`. Schema-0 values imported with a value other than the seed are marked `migrated` and so never re-seeded.
+- `autoCompactWindow` 900000 → 629000 in `dot-claude/settings.json` (the single source; Claude Code accepts 100000–1000000, capped at the model's window). The installer re-asserts it; `/stack-doctor` and the status line's bar follow it. It bounds one conversation's context, not the cumulative budgets: `hard.session` and `hard.prompt` count context tokens summed over every call of the tree.
+- Tests: `tests/test_stack_limits.py` T15b–T15d, `tests/test_install_state.py::test_install_reseeds_unlearned_limits_and_keeps_learned_ones`, `tests/test_autocompact_window.py`.
+- Rerun `./install.sh` from the main checkout and restart Claude Code. A window you saved with `/autocompact` (under `modelSettings` in your own settings) still wins over the stack's key for that model.
 
 ### 2026-10-03 (MCP allow rules for computer-use, lean, mobilebuild)
 

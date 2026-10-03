@@ -2321,7 +2321,7 @@ for bad in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "C
     if bad in env:
         print("  WARNING: env %s overrides per-agent model/effort — removed" % bad)
         env.pop(bad)
-# Auto-compaction is part of the spec (on, autoCompactWindow 900K of the models' 1M window): drop settings that silently defeat it.
+# Auto-compaction is part of the spec (on, autoCompactWindow 629K of the models' 1M window): drop settings that silently defeat it.
 for bad, why in (("DISABLE_AUTO_COMPACT", "turns auto-compaction off"),
                  ("DISABLE_COMPACT", "turns every compaction off"),
                  ("CLAUDE_CODE_AUTO_COMPACT_WINDOW", "overrides autoCompactWindow")):
@@ -2404,7 +2404,10 @@ else
     { (umask 077 && mkdir -p "$pw_out") && chmod 700 "$pw_out"; } || note "! could not create $pw_out (the Playwright MCP needs it): mkdir -p it yourself"
   fi
   # the learned limits' live.json: created from the seed only when absent (an older schema is copied
-  # to live.v<N>.json and migrated); learned values are never rewritten. Sessions snapshot it.
+  # to live.v<N>.json and migrated); a variable still at its seed (unset, no evidence, not frozen or
+  # held now, never rolled back) takes the new seed when the shipped seed changed, unless that would
+  # move a learned partner (soft <= ratio x hard); learned and frozen values are never rewritten.
+  # Sessions snapshot it.
   if ! seed_out="$("$STACK_PYTHON" "$C/hooks/stack_limits.py" seed 2>&1)"; then
     note "! stack_limits.py seed failed (sessions use the seed values): $seed_out"
   elif [ -n "$seed_out" ]; then
@@ -2960,7 +2963,7 @@ cat <<EOF
      MCP servers read that file at connect time — no reinstall needed (except the first time you add
      WANDB_API_KEY: rerun ./install.sh $ORIG_ARGS). Open a new terminal so CLI tools see them too.
   2. Start: claude        (main thread = BlackCat; the status line shows context vs the auto-compact
-     window, 900K of the models' 1M). Claude Desktop's Code tab, Conductor, VS Code and Zed load the same
+     window, 629K of the models' 1M). Claude Desktop's Code tab, Conductor, VS Code and Zed load the same
      setup (README → Apps). A plain session without BlackCat: claude --agent claude.
      Inside: /stack-doctor   (health check)   /stack-tree   (agents and their commands)
      /mcp   (server status; no sign-in needed with keys)

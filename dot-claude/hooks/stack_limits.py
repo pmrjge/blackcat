@@ -25,7 +25,8 @@ rewritten: the filter is at read time, and proposals.json counts the rows it ski
 
 Files under ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/limits/ (0700):
   live.json                    learned values, replaced atomically; written only by
-                               apply_and_snapshot (SessionStart) and the user commands below
+                               apply_and_snapshot (SessionStart), the user commands below and
+                               `seed` (install.sh: a changed seed reaches the unlearned variables)
   snapshots/<sid>.json         one session's frozen values (0444, created once, hash-checked) and
   snapshots/<sid>.sched_model.json   the scheduler model copied for that session
   proposals.json               the evidence for the next SessionStart (propose(); changes no value)
@@ -1378,7 +1379,10 @@ def _migrate_0(doc, seed):
         if v in live["vars"]:
             if x is not None and not _isnum(x):
                 raise LiveInvalid(f"{v} is not a number")
-            live["vars"][v]["value"] = x
+            st = live["vars"][v]
+            if x != st["value"]:                 # not the seed's: learned or set, so never re-seeded
+                st["recent"] = [{"dec": "migrated", "sign": 0, "rel": None}]
+            st["value"] = x
     return live
 
 
@@ -1496,16 +1500,65 @@ def load_live_locked(seed, now=None):
     return live, None
 
 
+def pristine(st):
+    """True for a variable nothing has touched since it was seeded: no evidence, decision, rollback
+    or value change, and not frozen or held now. Only such a value is still the seed's."""
+    return (st["status"] == "unset" and st["n"] == 0 and st["agents"] == 0 and st["frozen"] is None
+            and st["hold"] == 0 and st["changed"] is None and st["prev"] is None and not st["recent"]
+            and st["d"] == 1.0 and st["streak"] == 0)
+
+
+def reseed_pristine(seed, live, now=None):
+    """A shipped seed value that changed reaches the pristine variables (pristine()); a learned,
+    frozen, held or rolled-back value is kept. Mutates live (the variable stays pristine, so a later
+    seed change reaches it too); returns the history records, invariant clamps included."""
+    recs = []
+    for v, spec in seed["vars"].items():
+        st = live["vars"][v]
+        if not pristine(st) or st["value"] == spec["seed"]:
+            continue
+        trial = dict(live)
+        trial["vars"] = {k: _copy_state(x) for k, x in live["vars"].items()}
+        trial["vars"][v]["value"] = spec["seed"]
+        if any(not pristine(live["vars"][r["var"]]) for r in enforce_invariants(seed, trial, now)
+               if r["new"] != r["old"]):
+            continue                    # soft <= ratio x hard would move a learned or frozen partner
+        recs.append({"var": v, "old": st["value"], "new": spec["seed"], "decision": "reseeded",
+                     "why": "seed changed, variable unlearned"})
+        st["value"] = spec["seed"]
+    if recs:
+        recs += enforce_invariants(seed, live, now)
+    return recs
+
+
 def seed():
     """`stack_limits.py seed` (install.sh): create live.json only if absent, migrate an older
-    schema after copying it to live.v<N>.json; never rewrites values. Returns the outcome."""
+    schema after copying it to live.v<N>.json, and re-seed the pristine variables whose shipped seed
+    changed (reseed_pristine); a learned, frozen or user-set value is never rewritten. Returns the
+    outcome."""
     s = load_seed()
     _mkdirs()
+    now = time.time()
     with Lock(_p("limits.lock"), wait=CMD_LOCK_WAIT_S) as lk:
         if not lk.ok:
             return "busy"
-        _, note = load_live_locked(s)
-        return note or "present"
+        live, note = load_live_locked(s, now)
+        if live is None:
+            return note
+        new = dict(live)
+        new["vars"] = {v: _copy_state(x) for v, x in live["vars"].items()}
+        recs = reseed_pristine(s, new, now)
+        if not recs:
+            return note or "present"
+        new.update(version=live["version"] + 1, updated=iso(now))
+        for r in recs:
+            r.update(ts=round(now, 3), session=None, live_version=new["version"])
+        _write_live(new)
+        _history_append(recs)
+        moved = ", ".join("{} {} -> {}".format(r["var"], fmt(r["old"], s["vars"][r["var"]]["unit"]),
+                                               fmt(r["new"], s["vars"][r["var"]]["unit"])) for r in recs)
+        return "{}reseeded from the new seed: {}; live v{}".format(note + "; " if note else "", moved,
+                                                                  new["version"])
 
 
 # ---------------------------------------------------------------- snapshots

@@ -2,7 +2,7 @@
   "$schema": "https://json.schemastore.org/claude-code-settings.json",
   "agent": "blackcat",
   "autoCompactEnabled": true,
-  "autoCompactWindow": 900000,
+  "autoCompactWindow": 629000,
   "skillListingBudgetFraction": 0.012,
   "skillListingMaxDescChars": 500,
   "skillOverrides": {

@@ -748,6 +748,85 @@ def test_T15_older_schema_migrated_newer_left_untouched(st):
     assert len(lim(st, "limits.log").read_text().splitlines()) == 1
 
 
+def test_T15b_seed_change_reaches_only_pristine_variables(st, capsys):
+    """`seed` (install.sh) moves a variable still at an older seed (unset, n = 0, never frozen,
+    held or rolled back) to the shipped seed; a learned, frozen or held value is kept."""
+    s = L.load_seed()
+    lim(st).mkdir(parents=True)
+    old = L.live_from_seed(s)
+    V = old["vars"]
+    V["hard.session"]["value"] = 666000000                       # an older stack's seed, untouched
+    V["hard.prompt"].update(value=90000000, frozen=120000000)    # frozen: kept
+    V["soft.agent.coder"].update(value=25000000, status="supported", n=7, agents=3, changed=1.0e9,
+                                 prev=19000000, recent=[{"dec": "step", "sign": 1, "rel": 0.3}])
+    V["turns.scout"].update(value=10, hold=2)                    # held by the user: kept
+    V["soft.agent.scout"].update(value=2000000, status="provisional", n=2,
+                                 recent=[{"dec": "hold", "sign": 0, "rel": None}])   # evidence, unmoved
+    old["version"] = 5
+    lim(st, "live.json").write_text(json.dumps(old))
+    out = L.seed()
+    assert out.startswith("reseeded from the new seed: hard.session 666M -> 1.92B") and out.endswith("live v6")
+    live = json.loads(lim(st, "live.json").read_text())
+    hs = live["vars"]["hard.session"]
+    assert hs["value"] == s["vars"]["hard.session"]["seed"] == 1920000000
+    assert hs["status"] == "unset" and hs["frozen"] is None and hs["changed"] is None and L.pristine(hs)
+    assert (live["vars"]["hard.prompt"]["value"], live["vars"]["hard.prompt"]["frozen"]) == (90000000, 120000000)
+    assert live["vars"]["soft.agent.coder"]["value"] == 25000000
+    assert (live["vars"]["turns.scout"]["value"], live["vars"]["turns.scout"]["hold"]) == (10, 2)
+    assert live["vars"]["soft.agent.scout"]["value"] == 2000000
+    changed = {v for v in s["vars"] if live["vars"][v]["value"] != V[v]["value"]}
+    assert changed == {"hard.session"} and live["version"] == 6
+    hist = [json.loads(x) for x in lim(st, "history.jsonl").read_text().splitlines()]
+    assert [(h["var"], h["decision"], h["old"], h["new"]) for h in hist] == [
+        ("hard.session", "reseeded", 666000000, 1920000000)]
+    assert L.seed() == "present"                                 # idempotent
+    L.apply_and_snapshot({"session_id": "s-reseed", "source": "startup"}, spawn=False)
+    snap = L.read_snapshot("s-reseed")[0]
+    assert snap["values"]["hard.session"] == 1920000000 and snap["origin"]["hard.session"] == "live"
+    capsys.readouterr()
+    assert run_cli("show", "hard.session*") == 0
+    row = [x for x in capsys.readouterr().out.splitlines() if x.startswith("hard.session ")][0].split()
+    assert row[1:3] == ["1.92B", "1.92B"] and "live" in row
+
+
+def test_T15d_reseed_never_moves_a_learned_partner_or_a_rolled_back_value(st):
+    """A re-seed that would break soft <= ratio x hard against a learned partner is skipped (the
+    invariant would move the learned value); a rolled-back variable (d = 1/2) is not pristine."""
+    s = L.load_seed()
+    assert s["vars"]["soft.agent.coder"]["seed"] == 19000000
+    lim(st).mkdir(parents=True)
+    old = L.live_from_seed(s)
+    V = old["vars"]
+    V["soft.agent.coder"]["value"] = 15000000                    # pristine at an older seed
+    V["hard.agent.coder"].update(value=20000000, status="supported", n=9, agents=3, changed=1.0e9,
+                                 recent=[{"dec": "step", "sign": 1, "rel": None}])
+    V["soft.agent.scout"]["value"] = 2000000                     # pristine, partner unset: re-seeded
+    lim(st, "live.json").write_text(json.dumps(old))
+    L.seed()
+    W = json.loads(lim(st, "live.json").read_text())["vars"]
+    assert W["hard.agent.coder"]["value"] == 20000000 and W["soft.agent.coder"]["value"] == 15000000
+    assert W["soft.agent.scout"]["value"] == s["vars"]["soft.agent.scout"]["seed"]
+    seed_turns = s["vars"]["turns.coder"]["seed"]
+    W["turns.coder"]["value"] = seed_turns - 1
+    lim(st, "live.json").write_text(json.dumps(dict(json.loads(lim(st, "live.json").read_text()), vars=W)))
+    L.cmd_rollback("turns.coder", to="prev")                     # value unchanged, hold 1, d 1/2
+    L.cmd_hold("turns.coder", sessions=0)                        # released: still d 1/2
+    assert L.seed() == "present"
+    assert json.loads(lim(st, "live.json").read_text())["vars"]["turns.coder"]["value"] == seed_turns - 1
+
+
+def test_T15c_schema0_values_are_not_pristine(st):
+    """Values imported from schema 0 that differ from the seed carry a `migrated` decision, so a
+    later `seed` never takes them for an untouched seed value."""
+    lim(st).mkdir(parents=True)
+    lim(st, "live.json").write_text(json.dumps({"version": 3, "values": {"hard.session": 700000000}}))
+    assert L.seed() == "migrated"
+    live = json.loads(lim(st, "live.json").read_text())
+    assert live["vars"]["hard.session"]["value"] == 700000000
+    assert not L.pristine(live["vars"]["hard.session"]) and L.pristine(live["vars"]["hard.prompt"])
+    assert L.seed() == "present"
+
+
 def test_T16_invalid_live_set_aside_and_reseeded(st):
     lim(st).mkdir(parents=True)
     lim(st, "live.json").write_bytes(b"{not json")

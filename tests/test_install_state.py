@@ -501,3 +501,43 @@ def test_install_seeds_live_json_once_and_retracts_the_budget_env(tmp_path):
     _install(new, home, conf)                                    # a plain re-run
     assert _read(live) == first
     assert json.loads(_read(sp))["env"]["STACK_SESSION_CTX_BUDGET"] == "777000000"
+
+
+@pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, ".git")) and not os.path.isfile(
+    os.path.join(ROOT, ".git")), reason="needs the stack's git checkout")
+def test_install_reseeds_unlearned_limits_and_keeps_learned_ones(tmp_path):
+    """A live.json written by an older stack (hard.session still at its old seed 666M, untouched)
+    takes the shipped seed on install; a frozen and a learned value stay. A session started after
+    the install snapshots hard.session = 1.92B with origin live."""
+    import subprocess
+    home = str(tmp_path / "home")
+    os.makedirs(home)
+    conf = os.path.join(home, ".claude")
+    repo = _scratch_repo(str(tmp_path / "repo"))
+    log = _install(repo, home, conf)
+    live = os.path.join(home, ".local", "state", "claude-agent-stack", "limits", "live.json")
+    assert os.path.isfile(live), log[-2000:]
+    doc = json.loads(_read(live))
+    V = doc["vars"]
+    V["hard.session"]["value"] = 666000000
+    V["hard.prompt"]["frozen"] = 120000000
+    V["soft.agent.coder"].update(value=25000000, status="supported", n=7, changed=1.0e9, prev=19000000,
+                                 recent=[{"dec": "step", "sign": 1, "rel": 0.3}])
+    with open(live, "w") as f:
+        json.dump(doc, f)
+    log = _install(repo, home, conf, "--yes")
+    assert "reseeded from the new seed: hard.session 666M -> 1.92B" in log, log[-2000:]
+    V2 = json.loads(_read(live))["vars"]
+    assert V2["hard.session"]["value"] == 1920000000 and V2["hard.session"]["frozen"] is None
+    assert V2["hard.session"]["status"] == "unset"
+    assert V2["hard.prompt"]["frozen"] == 120000000 and V2["soft.agent.coder"]["value"] == 25000000
+    hooks = os.path.join(conf, "hooks")
+    env = {k: v for k, v in os.environ.items() if not k.startswith(("STACK_", "CLAUDE_", "XDG_"))}
+    env.update(HOME=home, CLAUDE_CONFIG_DIR=conf, XDG_STATE_HOME=os.path.join(home, ".local", "state"))
+    subprocess.run(["/usr/bin/python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import stack_limits "
+                    "as L; L.apply_and_snapshot({'session_id': 's-after', 'source': 'startup'}, spawn=False)",
+                    hooks], env=env, check=True)
+    out = subprocess.run(["/usr/bin/python3", os.path.join(hooks, "stack_limits.py"), "show", "hard.session*"],
+                         env=env, check=True, stdout=subprocess.PIPE, text=True).stdout
+    row = [x for x in out.splitlines() if x.startswith("hard.session ")][0].split()
+    assert row[1:3] == ["1.92B", "1.92B"] and row[-1] == "live", out

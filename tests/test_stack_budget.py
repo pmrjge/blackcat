@@ -173,7 +173,7 @@ def test_plan_gives_intervals_and_a_verdict_per_node_and_for_the_plan(env, tmp_p
     snapshot(STACK_SOFT_PROMPT_CTX="5000000")
     sdir = env / SID
     sdir.mkdir()
-    (sdir / "budget.json").write_text(json.dumps({"total": 700000000, "prompt_base": 0}))
+    (sdir / "budget.json").write_text(json.dumps({"total": 1950000000, "prompt_base": 0}))   # past hard.session 1.92B
     g = tmp_path / "g.json"
     g.write_text(json.dumps({"job": "j", "dispatcher": "blackcat", "nodes": [
         {"id": "A", "a": "claude-code-engineer", "n": 80}, {"id": "B", "a": "scout", "n": 3, "dep": ["A"]}]}))
@@ -183,7 +183,7 @@ def test_plan_gives_intervals_and_a_verdict_per_node_and_for_the_plan(env, tmp_p
     assert nodes["B"]["verdict_turns"] == "fits" and nodes["B"]["limits"]["soft"] == 390000
     plan = {w["scope"]: w for w in d["plan"]}
     assert plan["prompt soft"]["limit"] == 5000000 and plan["prompt soft"]["verdict"] == "does not fit"
-    assert plan["session hard"]["already_used"] == 700000000.0 and plan["session hard"]["verdict"] == "does not fit"
+    assert plan["session hard"]["already_used"] == 1950000000.0 and plan["session hard"]["verdict"] == "does not fit"
     assert d["verdict"] == "does not fit"
     txt = run("plan", str(g), "--session", SID).stdout
     assert "whole plan vs prompt soft" in txt and "verdict: does not fit" in txt

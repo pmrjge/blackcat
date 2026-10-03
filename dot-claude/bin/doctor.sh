@@ -687,7 +687,7 @@ elif agent:
 else:
     warn("no main thread agent — rerun install.sh for the stack's BlackCat, or set \"agent\": \"claude\" to opt out")
 (ok if s.get("autoCompactEnabled", True) is True else fail)("autoCompactEnabled=%s" % s.get("autoCompactEnabled", "default(true)"))
-(ok if s.get("autoCompactWindow") == 900000 else warn)("autoCompactWindow=%s (stack: 900000)" % s.get("autoCompactWindow"))
+(ok if s.get("autoCompactWindow") == 629000 else warn)("autoCompactWindow=%s (stack: 629000)" % s.get("autoCompactWindow"))
 env = s.get("env", {})
 want = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4", "MCP_DISCOVERY_CACHE": "1"}
 for k, v in want.items():
