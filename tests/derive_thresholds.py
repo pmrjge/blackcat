@@ -340,7 +340,7 @@ def report(seg, run, sess, pw, mt):
     P("## Data\n")
     rows = []
     for r in sess.itertuples():
-        rows.append([sh(r.session), r.project.split("ZDone-")[-1][:40], r.subagents, r.stack_typed,
+        rows.append([sh(r.session), re.sub(r"^-Users-[^-]+-", "", r.project)[:40], r.subagents, r.stack_typed,
                      M(r.ctx), M(r.fresh), f"{100*r.cache_read_input_tokens/max(r.cum,1):.1f}%", r.api_calls,
                      "live (partial)" if r.live else "ended"])
     P(table(rows, ["session", "project", "subagents", "of a stack type", "ctx (hook unit)", "fresh",
@@ -348,7 +348,7 @@ def report(seg, run, sess, pw, mt):
     P(f"\nIncluded: every session transcript under `~/.claude/projects/` ({len(sess)}). Both ran this stack's "
       "agents (every subagent's `.meta.json` `agentType` is a stack type; the stack's state folder "
       "`~/.local/state/claude-agent-stack/<session>/` exists with `budget.json` and `delegations.md` for both). "
-      "`~/.claude/projects/-Users-pmrj-ZDone-claude-agent-stack/` holds only `memory/` (no transcript). Two "
+      "The stack repo's own folder under `~/.claude/projects/` holds only `memory/` (no transcript). Two "
       "more stack state folders (17b4b227, 67b92311) hold only lock files and no transcript exists: not usable.\n")
     P(f"Segments: {len(seg)} ({len(fin)} finished, {int(seg.open.sum())} still running and excluded), from "
       f"{len(run)} subagents. Problem segments (compacted or turn-limited): {int(fin.problem.sum())}; "

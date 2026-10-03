@@ -841,8 +841,8 @@ def test_r3_suspect_expansions_denied(shell_env, cmd):
     "rm -rf $(pwd)/bin", "rm -rf $(git rev-parse --show-toplevel)/hooks",
     'mkdir -p src/{a,b}', 'cp x{,.bak} /tmp/', 'for d in build dist; do rm -rf "$d/bin"; done',
     'for d in $VENVS; do rm -rf "$d/bin"; done',        # inherited variable: never suspect
-    "cd /Users/pmrj/PProjects/claude-agent-stack && for d in build dist; do rm -rf \"$d/bin\"; done",
-    'D=$(mktemp -d /Users/pmrj/PProjects/claude-agent-stack/.claude-work/t.XXXX) && '
+    "cd /Users/example/project && for d in build dist; do rm -rf \"$d/bin\"; done",
+    'D=$(mktemp -d /Users/example/project/.claude-work/t.XXXX) && '
     'install -m755 tool "$D/bin/tool"',
     'ls ~/.claude/agents | head; rm -rf "$VENV/bin"',
     'ls ~/.claude.json; for d in $DIRS; do rm -rf "$d/hooks"; done',
@@ -857,7 +857,7 @@ def test_r3_positional_parameters_still_follow_the_command_text(shell_env):
     g, cfg, proj, home = shell_env
     assert denied(g, proj, "bash -c 'rm -rf $1/hooks' _ ~/.claude")
     assert not denied(g, proj, "bash -c 'rm -rf $1/hooks' _ /tmp/x; echo .claude-work")
-    assert not denied(g, proj, "bash -c 'rm -rf $1/hooks' _ /Users/pmrj/PProjects/claude-agent-stack")
+    assert not denied(g, proj, "bash -c 'rm -rf $1/hooks' _ /Users/example/project")
 
 
 @pytest.mark.parametrize("cmd", [
@@ -921,7 +921,7 @@ def test_r3_root_text_regex(installed):
     hit = ["~/.claude/x", "$CLAUDE_CONFIG_DIR/x", "${CLAUDE_CONFIG_DIR}", ".claude",
            "~/.local/state/claude-agent-stack-backups", "${XDG_STATE_HOME}/claude-agent-stack",
            "$XDG_STATE_HOME/claude-agent-stack"]
-    miss = ["/Users/pmrj/PProjects/claude-agent-stack", ".claude-work/t", "~/.claude.json",
+    miss = ["/Users/example/project/claude-agent-stack", ".claude-work/t", "~/.claude.json",
             "/x/claude-agent-stack/.claude-work", "my.claude"]
     for t in hit:
         assert g.ROOT_TEXT_RE.search(t), t

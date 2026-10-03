@@ -14,7 +14,7 @@ call (every PreToolUse hook in settings.json plus blackcat.md's frontmatter hook
   tools"), so with BlackCat as the main thread it now gets Bash (the /stack-doctor failure of
   0b3e022 was a forked agent left without it).
 
-Run: /Users/pmrj/.claude/venvs/tools/bin/python -m pytest -q tests/test_blackcat_tools.py
+Run: ~/.claude/venvs/tools/bin/python -m pytest -q tests/test_blackcat_tools.py
 """
 import json
 import os

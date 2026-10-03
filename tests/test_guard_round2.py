@@ -248,15 +248,15 @@ INSTALL_DENY = [
     "python3 -c \"open('go.sh','w').write(open('install.sh').read())\" && sh go.sh",
     "git cat-file -p HEAD:install.sh | sh",
     # a link or moved directory made in the same command hides a non-temp HOME from realpath
-    "ln -s /Users /tmp/q && HOME=/tmp/q/pmrj CLAUDE_CONFIG_DIR=/tmp/q/pmrj/.claude ./install.sh",
-    "ln -sfn /Users /tmp/q; HOME=/tmp/q/pmrj CLAUDE_CONFIG_DIR=/tmp/q/pmrj/.claude bash install.sh",
+    "ln -s /Users /tmp/q && HOME=/tmp/q/me CLAUDE_CONFIG_DIR=/tmp/q/me/.claude ./install.sh",
+    "ln -sfn /Users /tmp/q; HOME=/tmp/q/me CLAUDE_CONFIG_DIR=/tmp/q/me/.claude bash install.sh",
     "mv /Users/x /tmp/q && HOME=/tmp/q CLAUDE_CONFIG_DIR=/tmp/q/.claude ./install.sh",
     "cp -s /Users /tmp/q && HOME=/tmp/q/p CLAUDE_CONFIG_DIR=/tmp/q/p/.claude ./install.sh",
     "cp -R /tmp/l /tmp/q && HOME=/tmp/q CLAUDE_CONFIG_DIR=/tmp/q/.claude ./install.sh",
     "rsync -a /tmp/l/ /tmp/q/ && HOME=/tmp/q CLAUDE_CONFIG_DIR=/tmp/q/.claude ./install.sh",
-    "T=$(mktemp -d) && ln -s /Users $T/q && HOME=$T/q/pmrj CLAUDE_CONFIG_DIR=$T/q/pmrj/.claude ./install.sh",
+    "T=$(mktemp -d) && ln -s /Users $T/q && HOME=$T/q/me CLAUDE_CONFIG_DIR=$T/q/me/.claude ./install.sh",
     "python3 -c 'import os; os.symlink(\"/Users\", \"/tmp/q\")' && HOME=/tmp/q CLAUDE_CONFIG_DIR=/tmp/q/c ./install.sh",
-    "ln -s /Users /tmp/q && python3 lib/install_state.py apply /tmp/q/pmrj/.claude s p r c o",
+    "ln -s /Users /tmp/q && python3 lib/install_state.py apply /tmp/q/me/.claude s p r c o",
 ]
 INSTALL_ALLOW = [
     "./install.sh --help", "./install.sh -h", "bash install.sh --dry-run",
