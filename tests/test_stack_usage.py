@@ -1357,3 +1357,115 @@ def test_refresh_skips_overridden_runs(st, tmp_path, refit):
     sc = J["types"]["scout"]
     assert sc["evidence"]["n_seg_seen"] == 3 and J["refresh"]["model_mismatch"] == 4
     assert "ovr1" not in J["sessions"] and "new1" in J["sessions"]
+
+
+V2_REV = "6a736c6"            # the last commit with the v2 collector (runs2.csv, no `model`)
+
+
+def test_upgrade_hands_off_from_an_older_collector(st, tmp_path, owner, reap):
+    """Audit follow-up: a collector keeps the code it started with, so after an install the session's
+    v2 collector would write an /override-agent run typed now without `model` (read as unknown, learned
+    from). The next start hook stops it (SIGTERM: final scan, exit) and a successor reads the session
+    again in schema 3, whose rows win."""
+    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-claude/hooks/stack_usage.py" % V2_REV],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        pytest.skip("commit %s not available: %s" % (V2_REV, p.stderr.strip()[:80]))
+    old = tmp_path / "v2" / "stack_usage.py"
+    old.parent.mkdir()
+    old.write_text(p.stdout)
+    sub = subdir(tmp_path)
+    write_agent(sub, "u1", [user("go", 0), call("a1", 1, model=HAIKU), result(2),
+                            call("a2", 3, model=HAIKU, tool=False)], atype="scout")
+    c = subprocess.Popen([PY, str(old), "run", "--session", SID, "--subagents", str(sub), "--owner-pid",
+                          str(owner.pid)], env=env_for(tmp_path), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    assert wait(lambda: lock_held(st) and (st / "usage" / "runs2.csv").exists())
+    assert "schema" not in collector_meta(st) and rows_by_key()[(SID, "u1", 0)]["model"] == ""
+    assert hook("start", tmp_path, event(tmp_path, "SubagentStart")).returncode == 0
+    assert c.wait(timeout=20) == 0 and collector_meta(st).get("reason") in ("signal", None)
+    assert wait(lambda: collector_meta(st).get("schema") == U.SCHEMA_VERSION, timeout=30)
+    assert wait(lambda: rows_by_key()[(SID, "u1", 0)]["model"] == HAIKU, timeout=30)
+    assert rows_by_key()[(SID, "u1", 0)]["schema_version"] == "3"
+    # a collector of this schema is left alone
+    pid = collector_meta(st)["pid"]
+    assert hook("start", tmp_path, event(tmp_path, "SubagentStart")).returncode == 0
+    time.sleep(0.5)
+    assert collector_meta(st)["pid"] == pid and lock_held(st)
+
+
+def test_handoff_signals_only_a_running_older_collector_of_this_session(st, tmp_path, owner, monkeypatch):
+    """Under a held lock the pid in collector.json gets SIGTERM only when the meta is an older schema's,
+    unexited, with a fresh heartbeat and a live pid, and, where ps runs, that pid runs this session's
+    `stack_usage.py run`. Anything else: "running", nobody signalled, no successor."""
+    sd = Path(U.session_dir(SID))
+    spawned = []
+    monkeypatch.setattr(U, "spawn_collector", lambda *a, **k: spawned.append(k.get("wait_lock")))
+    mine = "%s %s run --session %s --subagents %s" % (PY, USAGE_PY, SID, subdir(tmp_path))
+    other = mine.replace(SID, "99999999-2222-3333-4444-555555555555")
+    now = time.time()
+    live = {"pid": owner.pid, "heartbeat": now, "exited": None}
+    refused = [
+        ({"pid": owner.pid}, None),                                   # no heartbeat
+        ({"pid": os.getpid(), "heartbeat": now, "exited": None}, None),
+        ({"pid": "1", "heartbeat": now}, None), ({"pid": True, "heartbeat": now}, None), ({}, None), ([1], None),
+        (dict(live, exited=now), None),                               # it has let go
+        (dict(live, heartbeat=now - U.HANDOFF_FRESH_S - 5), None),    # stale: hung, or a crashed one's
+        (dict(live, heartbeat=float("nan")), None), (dict(live, heartbeat=now + 3600), None),
+        (dict(live, schema=U.SCHEMA_VERSION), None), (dict(live, schema=U.SCHEMA_VERSION + 1), None),
+        (live, "sleep 120"),                                          # ps: not a collector
+        (live, other),                                                # ps: another session's collector
+    ]
+    for meta, args in refused:
+        monkeypatch.setattr(U, "proc_args", lambda pid, a=args: a)
+        (sd / "collector.json").write_text(json.dumps(meta))
+        with U.Locked(str(sd / "collector.lock"), nb=True) as lk:
+            assert lk.ok and U.hook_start(event(tmp_path), owner=owner.pid) == "running", meta
+        assert owner.poll() is None and spawned == []
+    # dead pid
+    gone = subprocess.Popen(["true"])
+    gone.wait()
+    (sd / "collector.json").write_text(json.dumps(dict(live, pid=gone.pid)))
+    with U.Locked(str(sd / "collector.lock"), nb=True):
+        assert U.hook_start(event(tmp_path), owner=owner.pid) == "running" and spawned == []
+    # ps confirms this session's collector (schema 2 in its meta, or none): signalled, successor spawned
+    for meta in (dict(live, schema=2), live):
+        victim = subprocess.Popen(["sleep", "120"])
+        monkeypatch.setattr(U, "proc_args", lambda pid: mine)
+        (sd / "collector.json").write_text(json.dumps(dict(meta, pid=victim.pid)))
+        with U.Locked(str(sd / "collector.lock"), nb=True):
+            assert U.hook_start(event(tmp_path), owner=owner.pid) == "handed off"
+        assert victim.wait(timeout=5) == -signal.SIGTERM and spawned[-1] == U.HANDOFF_WAIT_S
+    # no ps (a sandbox): the held lock and the fresh, unexited meta are the proof
+    victim = subprocess.Popen(["sleep", "120"])
+    monkeypatch.setattr(U, "proc_args", lambda pid: None)
+    (sd / "collector.json").write_text(json.dumps(dict(live, pid=victim.pid)))
+    with U.Locked(str(sd / "collector.lock"), nb=True):
+        assert U.hook_start(event(tmp_path), owner=owner.pid) == "handed off"
+    assert victim.wait(timeout=5) == -signal.SIGTERM and len(spawned) == 3 and owner.poll() is None
+
+
+def test_a_successor_waits_for_the_lock_and_then_runs(st, tmp_path):
+    """--wait-lock: the successor takes collector.lock once the older collector lets go (here within the
+    wait); without it, a held lock means "already running" at once. NaN and inf are refused or capped."""
+    sub = subdir(tmp_path)
+    write_agent(sub, "w1", [user("go", 0), call("a1", 1, model=HAIKU), result(2),
+                            call("a2", 3, model=HAIKU, tool=False)], atype="scout")
+    sd = Path(U.session_dir(SID))
+    lk = U.Locked(str(sd / "collector.lock"), nb=True).__enter__()
+    assert lk.ok
+    t = time.time()
+    assert U.run(SID, str(sub), poll=0.05, idle=0.3) == "already running" and time.time() - t < 1
+    c = subprocess.Popen([PY, str(USAGE_PY), "run", "--session", SID, "--subagents", str(sub), "--wait-lock", "30"],
+                         env=env_for(tmp_path, STACK_USAGE_IDLE_S="0.5"), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    time.sleep(1.0)
+    assert c.poll() is None and not (st / "usage" / "runs3.csv").exists()
+    lk.__exit__(None, None, None)
+    assert c.wait(timeout=20) == 0
+    assert collector_meta(st)["reason"] == "idle" and collector_meta(st)["schema"] == U.SCHEMA_VERSION
+    assert rows_by_key()[(SID, "w1", 0)]["model"] == HAIKU
+    for bad in ("nan", "inf", "-1", "x"):
+        p = subprocess.run([PY, str(USAGE_PY), "run", "--session", SID, "--subagents", str(sub), "--wait-lock", bad],
+                           env=env_for(tmp_path, STACK_USAGE_IDLE_S="0.3"), capture_output=True, timeout=30)
+        assert p.returncode == 0

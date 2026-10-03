@@ -33,6 +33,10 @@ process that ran the hook is gone (owner pid; its start time guards against pid 
 STACK_USAGE_IDLE_S without transcript growth, or never starts with STACK_USAGE_COLLECT=0. The next
 SessionStart or SubagentStart of the session starts it again; offsets are persisted, so nothing is
 read twice and nothing is lost. Every exit path fails silently: a hook never fails because of it.
+Upgrade hand-off: a `start` that finds the lock held by a running collector of an older schema (its
+collector.json has no `schema`, or a lower one) sends it SIGTERM (final scan, exit, no propose) and
+spawns a successor that waits up to HANDOFF_WAIT_S for the lock, then reads the session again from
+the start in this schema; its rows win (last row per key), the older rows stay (append-only).
 
 Files under ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/:
   usage/runs3.csv             segment rows (COLUMNS_V3, schema 3), append-only under usage/runs3.lock
@@ -1347,15 +1351,16 @@ def propose_limits():
         return None
 
 
-def run(sid, folder, owner=None, poll=None, idle=None):
+def run(sid, folder, owner=None, poll=None, idle=None, wait_lock=None):
     """The collector loop. Returns the exit reason. Exit order: final scan (rows appended), propose
-    (proposals.json), the uv refresh (the candidate scheduler model)."""
+    (proposals.json), the uv refresh (the candidate scheduler model). wait_lock: a successor
+    (hook_start's hand-off) tries for collector.lock this many seconds; else one try."""
     if not enabled():
         return "disabled"
     sd = session_dir(sid)
     poll = knob("STACK_USAGE_POLL_S", 5.0) if poll is None else poll
     idle = knob("STACK_USAGE_IDLE_S", 7200.0) if idle is None else idle
-    with Locked(os.path.join(sd, "collector.lock"), nb=True) as lk:
+    with Locked(os.path.join(sd, "collector.lock"), nb=True, wait=wait_lock) as lk:
         if not lk.ok:
             return "already running"
         lstart = None
@@ -1364,7 +1369,7 @@ def run(sid, folder, owner=None, poll=None, idle=None):
             lstart = info[2] if info else None
         started = time.time()
         meta = {"pid": os.getpid(), "owner": owner, "started": round(started, 3), "heartbeat": round(started, 3),
-                "rows": 0, "exited": None, "reason": None}
+                "rows": 0, "exited": None, "reason": None, "schema": SCHEMA_VERSION}
         write_json_atomic(os.path.join(sd, "collector.json"), meta)
         try:
             prune_sessions(sid)
@@ -1410,12 +1415,71 @@ def run(sid, folder, owner=None, poll=None, idle=None):
     return reason
 
 
-def spawn_collector(sid, folder, owner):
+def spawn_collector(sid, folder, owner, wait_lock=None):
     cmd = [sys.executable, os.path.abspath(__file__), "run", "--session", sid, "--subagents", folder]
     if owner:
         cmd += ["--owner-pid", str(owner)]
+    if wait_lock:
+        cmd += ["--wait-lock", "%g" % wait_lock]
     subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                      close_fds=True, start_new_session=True, cwd="/")
+
+
+HANDOFF_WAIT_S = 120.0    # a successor waits this long for an older collector's final scan to free the lock
+HANDOFF_FRESH_S = 120.0   # an older collector's heartbeat (rewritten every 30 s while it runs) at most this old
+
+
+def proc_args(pid):
+    """A process's full command line (ps -ww args=); None when it is gone or ps is unusable (none at its
+    fixed paths, or a sandbox that refuses to run it)."""
+    ps = find_ps()
+    if ps is None:
+        return None
+    try:
+        p = subprocess.run([ps, "-ww", "-o", "args=", "-p", str(int(pid))], stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, timeout=3)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    return p.stdout.strip() or None
+
+
+def retire_older_collector(sd, sid):
+    """The upgrade hand-off; called only while collector.lock is held by another process. A collector
+    keeps the code it started with until the session ends, its owner is gone or it idles out, so after
+    an install the session's running collector may write an older schema (no `model`: an /override-agent
+    run typed now would read as unknown and be learned from). It gets SIGTERM (its final scan, then exit
+    with reason "signal": no propose, no refresh; the successor does both at its own exit) when
+    collector.json says it is one of an older schema (no `schema`, or a lower one), still running
+    (`exited` unset, heartbeat at most HANDOFF_FRESH_S old, pid alive) and, where ps can be run, the pid
+    runs this session's `stack_usage.py run`. Without ps (a sandbox) the lock is the proof: its holder
+    writes collector.json as soon as it takes it and the heartbeat every 30 s, so a fresh, unexited meta
+    under a held lock is the holder's. True when signalled."""
+    meta = read_json(os.path.join(sd, "collector.json"))
+    if not isinstance(meta, dict):
+        return False
+    schema = _num(meta.get("schema"))
+    if schema is not None and schema >= SCHEMA_VERSION:
+        return False                              # ours, or a newer one: never stopped by older code
+    if meta.get("exited") is not None:
+        return False                              # it is letting go already (or the meta is stale)
+    pid, beat = meta.get("pid"), _num(meta.get("heartbeat"))
+    if not isinstance(pid, int) or isinstance(pid, bool) or pid <= 1 or pid == os.getpid():
+        return False
+    if beat is None or not -5.0 <= time.time() - beat <= HANDOFF_FRESH_S:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError:
+        return False
+    args = proc_args(pid)
+    if args is not None and (os.path.basename(__file__) + " run " not in args
+                             or "--session %s " % sid not in args + " "):
+        return False
+    try:
+        os.kill(pid, signal.SIGTERM)
+    except OSError:
+        return False
+    return True
 
 
 def hook_start(ev, owner=None):
@@ -1433,8 +1497,14 @@ def hook_start(ev, owner=None):
     except OSError:
         pass
     with Locked(os.path.join(sd, "collector.lock"), nb=True) as lk:
-        if not lk.ok:
+        running = not lk.ok
+    if running:
+        if not retire_older_collector(sd, sid):
             return "running"
+        # the successor (this code) takes the lock once the older one has let go, reads the session's
+        # transcripts again (another schema's state.json) and writes them as schema 3 rows, which win
+        spawn_collector(sid, folder, owner if owner is not None else find_owner(), wait_lock=HANDOFF_WAIT_S)
+        return "handed off"
     spawn_collector(sid, folder, owner if owner is not None else find_owner())
     return "started"
 
@@ -1659,7 +1729,12 @@ def main(argv):
             return 2
         owner = _arg(argv, "--owner-pid")
         try:
-            run(sid, folder, int(owner) if owner else None)
+            wl = float(_arg(argv, "--wait-lock") or 0)
+        except ValueError:
+            wl = 0.0
+        wl = min(wl, 600.0) if wl > 0 else None          # NaN and inf fail or are capped
+        try:
+            run(sid, folder, int(owner) if owner else None, wait_lock=wl)
         except Exception:  # noqa: BLE001 - a detached job: nothing to report to
             pass
         return 0
