@@ -35,7 +35,8 @@ VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 # install.sh copies from stack.env into settings.json's env. Two families: no Haiku in the stack.
 STACK_MODELS = {"opus", "sonnet"}
 # A specific Claude model ID (claude-<family>-<version>[-<date>]). Allowed only in the
-# places below: stack.env.example (the single source), the installer's migration list of old IDs
+# places below: lib/stack.env.example (the single source), PREVIOUS_GIT_COMMITS.md (the pre-publication
+# history, quoted as committed), the installer's migration list of old IDs
 # (the OLD_DEFAULTS line), the record of the models the token limits were measured on (doctor.sh's
 # MEASURED_MODELS line), and legacy/ (byte-exact templates of released versions the installer
 # recognizes on upgrade; none kept today, install.sh still reads one). Untracked files and anything
@@ -45,7 +46,7 @@ MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(
 # the second: this regex's test vectors; the effort table records which model IDs take which
 # effort levels (Claude Code's own checks), and its test's vectors
 MODEL_ID_FILES = {"lib/stack.env.example", "tests/test_lint_skills.py", "dot-claude/hooks/agent_effort.json",
-                  "tests/test_override_agent.py"}
+                  "tests/test_override_agent.py", "PREVIOUS_GIT_COMMITS.md"}
 MODEL_ID_DIRS = ("legacy/",)
 # the usage/limits/budget tests: synthetic transcript model IDs and the model matcher's vectors, on
 # module-level constant lines only (NAME[, NAME...] = "...")
@@ -746,7 +747,7 @@ def main():
 
     for where in check_model_ids():
         fail(f"{where}: a specific Claude model ID — name the alias (opus, sonnet) or read "
-             "ANTHROPIC_DEFAULT_<FAMILY>_MODEL; the IDs live in stack.env.example only")
+             "ANTHROPIC_DEFAULT_<FAMILY>_MODEL; the IDs live in lib/stack.env.example only")
 
     if errors:
         print(f"lint_agents: {len(errors)} failure(s):", file=sys.stderr)

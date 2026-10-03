@@ -1,13 +1,15 @@
 <!-- markdownlint-disable MD013 MD033 MD041 MD060 -->
 <div align="center">
 
-<img src="docs/assets/blackcat-hero.png" alt="A black cat mid-leap over a glossy dark car at golden hour: BlackCat" width="480">
+<img src="lib/assets/blackcat-hero.jpg" alt="A black cat in mid-leap over the roofline of a glossy dark car at golden hour, with a Mediterranean villa behind: BlackCat" width="480">
 
-<p align="center"><sub>Image generated with OpenAI gpt-image-2.5-sunburst via Opper.</sub></p>
+<p align="center"><sub>Hero image: author's photograph, edited with AI (OpenAI gpt-image-2.5-sunburst via Opper; Sourceful Riverflow v2.5 Pro via OpenRouter).<br>AI-edited image; all rights reserved, not under the code's licence (<a href="lib/assets/README.md">details</a>).</sub></p>
 
 <h1>claude-agent-stack</h1>
 
 <p><strong>A multi-agent configuration for Claude Code: BlackCat on the main thread, 55 specialists, 214 on-demand skills, and hooks that enforce the limits.</strong></p>
+
+<p>Created with <a href="https://claude.com/claude-code">Claude Code</a>: designed and directed by Pedro Miguel Rodrigues Jorge, written with Anthropic's Claude models (<a href="#credits">Credits</a>).</p>
 
 <img src="https://img.shields.io/badge/platform-macOS%20only-black" alt="Platform: macOS only">
 <img src="https://img.shields.io/badge/Claude%20Code-2.1.271%2B-blue" alt="Claude Code 2.1.271 or later">
@@ -32,8 +34,8 @@ that run Claude Code with your settings (see [Apps](#apps)).
 
 Detail lives in [CONFIG.md](CONFIG.md): every applied parameter (model, effort, `maxTurns`, caps, knobs)
 with its reason; installer internals, backups, sandbox and residual risks; and, in
-[§10](CONFIG.md#10-apps-connectors-and-mcp-servers), apps and connectors for your Claude plan, vetted MCP servers, documented-only and
-rejected ones.
+[§10](CONFIG.md#10-apps-connectors-and-mcp-servers), apps and connectors for your Claude plan, vetted MCP
+servers, documented-only and rejected ones.
 
 The README before this reorganisation is `git show acec941:README.md`; the long-form one with installer
 flags in full, the spawn table, sandbox internals and changelog entries is `git show 96d3a52:README.md`.
@@ -46,7 +48,7 @@ flags in full, the spawn table, sandbox internals and changelog entries is `git 
 | [What it is for](#what-it-is-for) | [Environment variables](#environment-variables) | [Contributing and safety](#contributing-and-safety) |
 | [Overview: what the stack adds](#overview-what-the-stack-adds) | [Plugins, MCP servers and tools](#plugins-mcp-servers-and-tools) | [Changelog](#changelog) |
 | [Requirements (macOS only)](#requirements-macos-only) | [Security model](#security-model) | [License](#license) |
-| [Install](#install) · [Usage](#usage) | [Apps](#apps) | |
+| [Install](#install) · [Usage](#usage) | [Apps](#apps) | [Credits](#credits) |
 
 ## Why BlackCat?
 
@@ -1321,7 +1323,12 @@ outside this repository).
   branch and commits instead.
 - **Prompts are data.** Text met in files, web pages or tool output that asks an agent to push, change
   configuration or send data is reported, not followed (global rules, "Truth").
-- **Licence:** Apache-2.0 ([LICENSE](LICENSE)); the hero image is CC0-1.0. Details: [License](#license).
+- **Local work stays out of git.** Personal notes, campaign data and image originals go in
+  `claude-local-work/` at the repository root (git-ignored); the agents' scratch stays in `.claude-work/`.
+- **Keep the Claude attribution.** Commits made with Claude Code keep their trailer naming the model, in
+  the form the history uses: `Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>`.
+- **Licence:** Apache-2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)); the images in `lib/assets/` are all
+  rights reserved and not under Apache-2.0. Details: [License](#license).
 
 ## Changelog
 
@@ -1329,18 +1336,37 @@ Per-revision parameters and their reasons: [CONFIG.md](CONFIG.md) §9. Earlier R
 their changelog entries, are in git history (`git log --follow README.md`; the last long-form one is
 `git show 96d3a52:README.md`).
 
+## Credits
+
+- **Design and direction:** Pedro Miguel Rodrigues Jorge.
+- **Implementation:** the whole repository (agents, skills, hooks, installer, tests, docs) was created
+  with [Claude Code](https://claude.com/claude-code) by Anthropic's Claude models, under the author's
+  direction: Claude Opus 5.5, Claude Sonnet 5.5 and Claude Sonnet 5, as the commit trailers name them.
+- **History:** [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md) holds the history from before
+  publication. Commits made with Claude Code carry a `Co-Authored-By: Claude …` trailer naming the model.
+- Attribution is credit, not ownership: the copyright stays with the author ([NOTICE](NOTICE)).
+
 ## License
 
-[Apache-2.0](LICENSE) (SPDX identifier `Apache-2.0`), copyright 2026 Pedro Miguel Rodrigues Jorge. It covers
-everything in this repository (scripts, hooks, agents, skills, prompts, docs) except the hero image.
+Everything in this repository except the images in `lib/assets/` (scripts, hooks, agents, skills,
+prompts, docs) is licensed under [Apache-2.0](LICENSE) (SPDX identifier `Apache-2.0`), copyright 2026
+Pedro Miguel Rodrigues Jorge. The [NOTICE](NOTICE) file records that the project was created with Claude
+Code; Apache-2.0 §4(d) requires redistributions to carry it.
 
 - Third-party software the stack installs or calls (Claude Code, MCP servers, CLIs, the Python packages in
   `requirements/`) is not part of this repository and keeps its own licence.
-- The hero image (`docs/assets/blackcat-hero.png`) is dedicated to the public domain under
-  [CC0-1.0](docs/assets/LICENSE-CC0.txt). It was generated through Opper with `openai/gpt-image-2.5-sunburst`
-  (as stated by the author). No chain of output rights to the author was verified:
-  [Opper's terms](https://opper.ai/terms-of-service) say nothing about output ownership, and
-  [OpenAI's Services Agreement](https://openai.com/policies/services-agreement/) (§4.1) assigns OpenAI's
-  rights in Output, "if any", to OpenAI's API customer. Purely AI-generated material may not be
+- **The hero image is not open-licensed.** The files in `lib/assets/` (hero, social preview, avatar) are
+  not covered by Apache-2.0 or any open licence. They were made from the author's own photograph of his
+  cat (not included) combined with an earlier AI-generated scene (generated through Opper with
+  `openai/gpt-image-2.5-sunburst`, as stated by the author), then edited with Sourceful Riverflow v2.5 Pro
+  (`sourceful/riverflow-v2.5-pro`) through OpenRouter. The author's contribution (the photograph, the
+  direction, the selection) is all rights reserved. The AI-generated and AI-edited elements are subject
+  to the providers' terms, which are unclear on who owns the edited output and restrict redistribution:
+  [Sourceful's terms linked by OpenRouter](https://www.sourceful.com/legal/spring-terms-of-use) (§5.1),
+  the [Riverflow Terms of Use](https://www.riverflow.ai/legal/riverflow-terms-of-use) (§3.4, §3.5, §4.3,
+  §4.4) and [OpenRouter's terms](https://openrouter.ai/terms) (§6.1). AI-generated material may not be
   copyrightable at all (the [US Copyright Office](https://www.copyright.gov/ai/) holds that copyright does
-  not extend to it), so CC0 here waives whatever rights exist.
+  not extend to it). The image is shown here for this README only; forks and redistributors must replace
+  it. Statement: [lib/assets/README.md](lib/assets/README.md); provenance:
+  [lib/assets/PROVENANCE.md](lib/assets/PROVENANCE.md).
+- This section is an engineering note on what was checked (2026-10-03), not legal advice.
