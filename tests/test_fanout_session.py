@@ -261,6 +261,24 @@ def test_a_failing_count_is_the_static_decision(tmp_path, monkeypatch):
     assert not (tmp_path / "fanout-session.jsonl").exists()
 
 
+def test_an_os_error_on_the_main_thread_path_is_the_lock_free_decision(tmp_path, monkeypatch):
+    """shadow refuses nothing: an OSError while the session guard counts (the registry folder
+    unreadable) gives a caller with no cap today's lock-free decision, for a spawn and a resume."""
+    g = load_guard()
+    for k in ("STACK_POLICY", "STACK_FANOUT_DYN", "STACK_MAX_FANOUT_BY_TYPE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("STACK_FANOUT_SESSION", "shadow")
+
+    def denied(*_a, **_k):
+        raise PermissionError(13, "x")
+    monkeypatch.setattr(g, "load_registry", denied)
+    d = str(tmp_path)
+    assert g.fanout_acquire(d, {"tool_use_id": "t1"}, "main", "blackcat", "scout") is None
+    assert (tmp_path / "fanout" / "main" / "t1.json").exists()
+    g.write_json_atomic(str(tmp_path / "agents" / "X1.json"), {"type": "scout", "stopped": 1.0})
+    assert g.resume_reserve(d, {"agent_type": "blackcat"}, "X1", "scout") == (None, None)
+
+
 def test_session_guard_modes(monkeypatch):
     g = load_guard()
     for k in ("STACK_POLICY", "STACK_FANOUT_SESSION", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"):

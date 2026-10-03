@@ -1318,11 +1318,14 @@ def fanout_acquire(d, ev, caller, caller_type, child):
     try:
         return _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, copy,
                                       max_copies, tid, lease, guard)
-    except MutexTimeout:
+    except (MutexTimeout, OSError) as exc:
         if limit > 0 or copy:
             raise
-        # only the session guard wanted the lock: the lock-free decision of a caller with no cap
-        warn_once("fanout.mutex timed out; session slot guard skipped for this spawn")
+        # only the session guard wanted the lock (or the registry): the lock-free decision of a
+        # caller with no cap; shadow and enforce never refuse it on their own failure
+        warn_once("fanout.mutex timed out; session slot guard skipped for this spawn"
+                  if isinstance(exc, MutexTimeout) else
+                  "session slot guard skipped for this spawn (%s)" % type(exc).__name__)
         if tid:
             write_json_atomic(os.path.join(fanout_dir(d, caller), safe(tid) + ".json"),
                               dict(lease, ts=time.time()))
@@ -2983,10 +2986,12 @@ def resume_reserve(d, ev, target_id, ttype):
     try:
         return _resume_reserve_locked(d, ev, target_id, ttype, owner, owner_type, limit, knob,
                                       copy, max_copies, guard)
-    except MutexTimeout:
+    except (MutexTimeout, OSError) as exc:
         if limit > 0 or copy:
             raise
-        warn_once("fanout.mutex timed out; session slot guard skipped for this resume")
+        warn_once("fanout.mutex timed out; session slot guard skipped for this resume"
+                  if isinstance(exc, MutexTimeout) else
+                  "session slot guard skipped for this resume (%s)" % type(exc).__name__)
         return None, None
 
 

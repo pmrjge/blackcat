@@ -77,11 +77,11 @@ PLAN_MAX_NODES = 32
 PLAN_MAX_GLOBS = 16
 PLAN_MAX_GLOB_CHARS = 256
 PLAN_MAX_SLACK = 4
-NODE_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,15}$")
-TYPE_RE = re.compile(r"^[a-z][a-z0-9-]{0,47}$")
-JOB_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}$")
-OUTCOME_RE = re.compile(r"^[a-z_]{1,32}$")
-SID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+NODE_ID_RE = re.compile(r"^[A-Za-z][A-Za-z0-9_.-]{0,15}\Z")
+TYPE_RE = re.compile(r"^[a-z][a-z0-9-]{0,47}\Z")
+JOB_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
+OUTCOME_RE = re.compile(r"^[a-z_]{1,32}\Z")
+SID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 STOP_ERRORS_RL = ("rate_limit", "overloaded")      # StopFailure error -> beta_rl cut
 STOP_ERRORS_FAIL = ("server_error", "unknown")     # StopFailure error -> beta_fail cut
 RUNS_KEPT = 64                 # runs kept per node (aborted ones dropped first)
@@ -438,7 +438,7 @@ def glob_overlap(a, b):
             continue
         if any(ch in x for ch in "*?[") and any(ch in y for ch in "*?["):
             fx, fy = _first_chars(x), _first_chars(y)
-            if fx is not None and fy is not None and not (fx & fy):
+            if fx is not None and fy is not None and not _ranges_meet(fx, fy):
                 return False                                      # e.g. [a-m]* and [n-z]*
             continue                                              # two patterns: maybe the same name
         return False
@@ -446,25 +446,33 @@ def glob_overlap(a, b):
 
 
 def _first_chars(seg):
-    """The characters a name matching `seg` can start with, None when any (copied)."""
+    """The code-point ranges [(lo, hi)] a name matching `seg` can start with, None when any
+    (copied). Ranges stay intervals, never expanded: a class over all of Unicode costs the same as
+    [a-m]."""
     if not seg or seg[0] in "*?":
         return None
     if seg[0] != "[":
-        return {seg[0]}
+        return [(ord(seg[0]), ord(seg[0]))]
     end = seg.find("]", 2)
     if end < 0:
         return None
-    body, out, i = seg[1:end], set(), 0
+    body, out, i = seg[1:end], [], 0
     if body[:1] in "!^":
         return None
     while i < len(body):
         if i + 2 < len(body) and body[i + 1] == "-":
-            out |= {chr(c) for c in range(ord(body[i]), ord(body[i + 2]) + 1)}
+            out.append((ord(body[i]), ord(body[i + 2])))
             i += 3
         else:
-            out.add(body[i])
+            out.append((ord(body[i]), ord(body[i])))
             i += 1
     return out
+
+
+def _ranges_meet(xs, ys):
+    """True when two lists of (lo, hi) code-point ranges share a character (an empty range, lo >
+    hi, holds none)."""
+    return any(a <= d and c <= b for a, b in xs if a <= b for c, d in ys if c <= d)
 
 
 class _Deadline(Exception):
@@ -1245,7 +1253,7 @@ def _report(session_dir):
     except OSError:
         names = []
     for f in names:
-        m = re.match(r"^([A-Za-z0-9_-]{1,128})\.(plan|nodes|aimd)\.json$", f)
+        m = re.match(r"^([A-Za-z0-9_-]{1,128})\.(plan|nodes|aimd)\.json\Z", f)
         if not m:
             continue
         o = out["orchestrators"].setdefault(m.group(1), {})

@@ -607,33 +607,39 @@ def _glob_overlap(a: str, b: str) -> bool:
             continue
         if any(ch in x for ch in "*?[") and any(ch in y for ch in "*?["):
             fx, fy = _first_chars(x), _first_chars(y)
-            if fx is not None and fy is not None and not (fx & fy):
+            if fx is not None and fy is not None and not _ranges_meet(fx, fy):
                 return False                                      # e.g. [a-m]* and [n-z]*
             continue                                              # two patterns: maybe the same name
         return False
     return True
 
 
-def _first_chars(seg: str) -> Optional[set]:
-    """The characters a name matching `seg` can start with, None when any."""
+def _first_chars(seg: str) -> Optional[List[Tuple[int, int]]]:
+    """The code-point ranges [(lo, hi)] a name matching `seg` can start with, None when any.
+    Ranges stay intervals, never expanded (a class over all of Unicode costs the same as [a-m])."""
     if not seg or seg[0] in "*?":
         return None
     if seg[0] != "[":
-        return {seg[0]}
+        return [(ord(seg[0]), ord(seg[0]))]
     end = seg.find("]", 2)
     if end < 0:
         return None
-    body, out, i = seg[1:end], set(), 0
+    body, out, i = seg[1:end], [], 0
     if body[:1] in "!^":
         return None
     while i < len(body):
         if i + 2 < len(body) and body[i + 1] == "-":
-            out |= {chr(c) for c in range(ord(body[i]), ord(body[i + 2]) + 1)}
+            out.append((ord(body[i]), ord(body[i + 2])))
             i += 3
         else:
-            out.add(body[i])
+            out.append((ord(body[i]), ord(body[i])))
             i += 1
     return out
+
+
+def _ranges_meet(xs: Sequence[Tuple[int, int]], ys: Sequence[Tuple[int, int]]) -> bool:
+    """True when two lists of (lo, hi) code-point ranges share a character (lo > hi: empty)."""
+    return any(a <= d and c <= b for a, b in xs if a <= b for c, d in ys if c <= d)
 
 
 def _sets_overlap(xs: Sequence[str], ys: Sequence[str], ignore: Sequence[str] = ()) -> bool:

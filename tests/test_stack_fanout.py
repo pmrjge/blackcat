@@ -363,3 +363,93 @@ def test_cli_check_and_import_under_system_python(py, tmp_path):
     assert r.returncode == 1 and "depends on itself; static cap 32 applies" in r.stdout
     r = subprocess.run([py, str(MOD), "report", "--session", "../x"], capture_output=True, text=True)
     assert r.returncode == 2
+
+
+# ---------------------------------------------------------------- review fixes (glob ranges, regex anchors)
+def test_wide_class_globs_overlap_fast():
+    """A class spanning all of Unicode is an interval, never expanded into a set of characters."""
+    import time
+    a, b = "[\x01-\U0010ffff]a*", "[\x01-\U0010ffff]b*"
+    t0 = time.perf_counter()
+    assert F.glob_overlap(a, b) is True
+    assert time.perf_counter() - t0 < 0.02
+
+
+def _first_chars_set(seg):
+    """The old set semantics of _first_chars: the oracle (small classes only)."""
+    if not seg or seg[0] in "*?":
+        return None
+    if seg[0] != "[":
+        return {seg[0]}
+    end = seg.find("]", 2)
+    if end < 0:
+        return None
+    body, out, i = seg[1:end], set(), 0
+    if body[:1] in "!^":
+        return None
+    while i < len(body):
+        if i + 2 < len(body) and body[i + 1] == "-":
+            out |= {chr(c) for c in range(ord(body[i]), ord(body[i + 2]) + 1)}
+            i += 3
+        else:
+            out.add(body[i])
+            i += 1
+    return out
+
+
+def test_first_char_ranges_meet_exactly_when_the_sets_intersect():
+    rng = random.Random(20261004)
+    alphabet = "abcdefghij-*?!^]"
+    for _ in range(4000):
+        segs = []
+        for _ in range(2):
+            body = "".join(rng.choice(alphabet) for _ in range(rng.randint(0, 6)))
+            segs.append(rng.choice(["[" + body + "]x", "[" + body, body + "*", "*" + body]))
+        sx, sy = (_first_chars_set(s) for s in segs)
+        rx, ry = (F._first_chars(s) for s in segs)
+        assert (sx is None) == (rx is None) and (sy is None) == (ry is None), segs
+        if sx is not None and sy is not None:
+            assert bool(sx & sy) == F._ranges_meet(rx, ry), segs
+
+
+@pytest.mark.parametrize("name", ["NODE_ID_RE", "TYPE_RE", "JOB_RE", "OUTCOME_RE", "SID_RE"])
+def test_id_patterns_refuse_a_trailing_newline(name):
+    rx = getattr(F, name)
+    assert rx.match("abc") and not rx.match("abc\n")
+
+
+def test_a_node_id_with_a_trailing_newline_is_rejected():
+    with pytest.raises(F.PlanError):
+        plan_of([{"id": "A\n", "a": "coder"}])
+
+
+# ---------------------------------------------------------------- parity with stack_sched (copied code)
+def _sched():
+    hooks = str(ROOT / "dot-claude" / "hooks")
+    if hooks not in sys.path:
+        sys.path.insert(0, hooks)
+    sp = importlib.util.spec_from_file_location("stack_sched_parity",
+                                                ROOT / "dot-claude" / "hooks" / "stack_sched.py")
+    mod = importlib.util.module_from_spec(sp)
+    sys.modules["stack_sched_parity"] = mod
+    sp.loader.exec_module(mod)
+    return mod
+
+
+def test_glob_overlap_parity_with_stack_sched():
+    S = _sched()
+    rng = random.Random(7)
+    parts = ["*", "?", "[a-m]", "[n-z]", "[!x]", "a", "b", "src", "x.py", "**", "[ab]c", "a*"]
+    for _ in range(3000):
+        a, b = ("/".join(rng.choice(parts) for _ in range(rng.randint(1, 4))) for _ in range(2))
+        assert F.glob_overlap(a, b) == S._glob_overlap(a, b), (a, b)
+
+
+def test_cost_model_parity_with_stack_sched():
+    """c_med and wall_hi equal stack_sched._est_for on an empty model (its built-ins), for every
+    built-in type and for pool-only types."""
+    S = _sched()
+    for t in list(S._TURNS) + ["rust-engineer", "security-auditor", "scout", "designer"]:
+        e = S._est_for({}, t, None, None)
+        assert F.c_med(None, t) == pytest.approx(e.ctx_p50), t
+        assert F.cost_model(None, t)["wall_hi"] == pytest.approx(e.wall_hi), t

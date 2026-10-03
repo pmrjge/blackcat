@@ -1605,3 +1605,15 @@ def test_simulation_exercises_the_interesting_paths():
 
 def test_simulation_is_deterministic():
     assert _simulate(77, "healthy") == _simulate(77, "healthy")
+
+
+def test_one_glob_pair_cannot_outrun_the_conflict_deadline():
+    """A class over all of Unicode once took seconds per glob pair (ranges were expanded into sets
+    and the deadline was checked only between pairs); now each pair is cheap."""
+    wide = "[" + "\x01-\U0010ffff" * 8 + "]"           # one class, 8 ranges over all of Unicode
+    plan = mkplan([{"id": "A", "a": "coder", "w": [wide + "a/b"]},
+                   {"id": "B", "a": "coder", "w": [wide + "b/c"]}])
+    st = F.record_spawn(F.nodes_new("J1"), "A", "tuA", "coder", 1.0)
+    t0 = time.perf_counter()
+    dec(kn(), plan, st, "B", live_tids={"tuA"}, live_children=set())
+    assert time.perf_counter() - t0 < 1.0

@@ -358,6 +358,19 @@ def test_a_corrupt_state_file_is_the_static_decision():
     assert allowed(r), r
 
 
+@pytest.mark.parametrize("mode", ["shadow", "enforce"])
+def test_an_os_error_on_the_state_files_is_the_static_decision(mode):
+    """nodes.json is a directory: reading it fails, writing it raises IsADirectoryError (an
+    OSError) inside the 'fanout' mutex; the spawn gets the static decision, lease included."""
+    e = env(mode)
+    write_plan(e, CHAIN)
+    os.makedirs(os.path.join(e.sdir(), "fanout-dyn", "O1.nodes.json", "x"), exist_ok=True)
+    pre, r = spawn(e, "coder", "T2 build")              # enforce would refuse it (deps) if it ran
+    assert allowed(r), r
+    assert "static decision" in r.stderr
+    assert os.listdir(os.path.join(e.sdir(), "fanout", "O1")) == [pre["tool_use_id"] + ".json"]
+
+
 # ---------------------------------------------------------------- hostile plans
 def hostile_plan():
     """32 nodes of long multi-wildcard globs that all overlap, just under the 64 KiB limit."""

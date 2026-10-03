@@ -42,7 +42,9 @@ LOG_MAX_BYTES = 4 << 20
 EVENTS_LOG = "fanout-dyn-events.jsonl"
 PLAN_FILE = "plan.dag.json"
 CONFLICT_S = 0.02
-ERROR_RE = re.compile(r"^[a-z_]{1,32}$")
+ERROR_RE = re.compile(r"^[a-z_]{1,32}\Z")
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")      # LIMITS_ID_RE, anchored with \Z
+EXC_RE = re.compile(r"^[A-Za-z]{1,40}\Z")
 WHY_CODES = ("planned", "no_plan", "no_label", "unknown_node", "type_mismatch")
 
 
@@ -71,7 +73,7 @@ def num(x):
 
 
 def valid_id(g, aid):
-    return aid if isinstance(aid, str) and g.LIMITS_ID_RE.match(aid) else "invalid"
+    return aid if isinstance(aid, str) and ID_RE.match(aid) else "invalid"
 
 
 def valid_type(g, t):
@@ -100,7 +102,7 @@ def log_decision(g, d, mod, result, who, who_type, child, **extra):
            "agent_type": valid_type(g, who_type), "child": valid_type(g, child)}
     rec.update(mod.log_fields(result))
     err = result.get("error")
-    if isinstance(err, str) and re.match(r"^[A-Za-z]{1,40}$", err):
+    if isinstance(err, str) and EXC_RE.match(err):
         rec["error"] = err
     rec.update(extra)
     append(g, d, mod.LOG_NAME, rec)
@@ -141,7 +143,7 @@ def model_of(g, mod, ev):
     """The session's copy of the sched model (snapshots/<sid>.sched_model.json), or None (the
     module's built-ins)."""
     sid = ev.get("session_id")
-    if not isinstance(sid, str) or not g.LIMITS_ID_RE.match(sid):
+    if not isinstance(sid, str) or not ID_RE.match(sid):
         return None
     return mod.load_model(os.path.join(g.state_root(), "limits", "snapshots",
                                        sid + ".sched_model.json"))
