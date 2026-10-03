@@ -938,3 +938,34 @@ def test_collect_off_writes_no_rows_and_no_proposals(st, tmp_path, monkeypatch):
     assert U.run(SID, str(subdir(tmp_path))) == "disabled"
     assert order == [] and not (st / "usage").exists()
     assert U.hook_start(event(tmp_path)) == "disabled"
+
+
+def test_exit_refresh_passes_the_session(st, tmp_path, monkeypatch):
+    """The collector's exit refresh runs stack_sched_refresh.py with --session <sid> (its snapshot's
+    soft limits); a manual refresh or a bad id passes none."""
+    seen = []
+    fake = tmp_path / "uv"
+    fake.write_text("#!/bin/sh\nprintf '%s\\n' \"$@\" > \"$UV_ARGS\"\necho '{}'\n")
+    fake.chmod(0o755)
+    monkeypatch.setenv("UV_ARGS", str(tmp_path / "args"))
+    monkeypatch.setattr(U, "find_uv", lambda: str(fake))
+
+    def args():
+        return (tmp_path / "args").read_text().split("\n")
+    U.refresh(trigger="session end", force=True, session=SID)
+    a = args()
+    assert a[a.index("--session") + 1] == SID and a[a.index("--script") + 1].endswith("stack_sched_refresh.py")
+    for sess in (None, "../x", "-rf"):
+        U.refresh(trigger="manual", force=True, session=sess)
+        assert "--session" not in args()
+    # run() hands its sid to the exit refresh
+    write_agent(subdir(tmp_path), "x1", agent_lines()[:4])
+    Path(U.session_dir(SID), "end").write_text("1\n")
+    monkeypatch.setattr(U, "refresh", lambda **k: seen.append(k) or {})
+    monkeypatch.setitem(sys.modules, "stack_limits", None)
+    old = signal.getsignal(signal.SIGTERM)
+    try:
+        assert U.run(SID, str(subdir(tmp_path)), poll=0.01) == "session end"
+    finally:
+        signal.signal(signal.SIGTERM, old)
+    assert seen == [{"trigger": "session end", "session": SID}]

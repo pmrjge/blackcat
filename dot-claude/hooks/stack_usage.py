@@ -1229,7 +1229,7 @@ def run(sid, folder, owner=None, poll=None, idle=None):
         write_json_atomic(os.path.join(sd, "collector.json"), meta)
     if reason in ("session end", "owner gone", "idle"):
         propose_limits()
-        refresh(trigger=reason)
+        refresh(trigger=reason, session=sid)      # the refit takes this session's snapshot soft limits
     return reason
 
 
@@ -1294,9 +1294,11 @@ def _fingerprint():
     return fp
 
 
-def refresh(trigger="manual", online=False, force=False):
+def refresh(trigger="manual", online=False, force=False, session=None):
     """Run stack_sched_refresh.py through uv (pandas/numpy). Offline by default: without uv or a
-    warm uv cache it is skipped and refresh.json says so. Returns the recorded result."""
+    warm uv cache it is skipped and refresh.json says so. session: the collector's session id, passed
+    as --session (its limits snapshot gives the soft limits; a bad id is dropped). Returns the
+    recorded result."""
     rec_path = os.path.join(usage_dir(), "refresh.json")
     prev = read_json(rec_path) or {}
     res = {"ts": round(time.time(), 3), "trigger": trigger, "status": None, "rc": None, "summary": None}
@@ -1318,6 +1320,8 @@ def refresh(trigger="manual", online=False, force=False):
             cmd = [uv, "run", "--quiet"] + ([] if online else ["--offline"]) + ["--script", script,
                                                                                 "--usage", usage_dir(),
                                                                                 "--out", active_model_path()]
+            if isinstance(session, str) and ID_RE.match(session):
+                cmd += ["--session", session]
             env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")     # no __pycache__ in the hooks folder
             if not online:
                 env["UV_OFFLINE"] = "1"

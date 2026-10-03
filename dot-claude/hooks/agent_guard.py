@@ -160,7 +160,8 @@ Knobs (env):
   recorded in the snapshot when the session starts (a later change waits for the next session):
   STACK_PROMPT_CTX_BUDGET   hard.prompt: context tokens per human prompt, whole session tree
   STACK_SESSION_CTX_BUDGET  hard.session: context tokens per session, whole session tree
-  STACK_MAXTURNS_<TYPE>     turns.<type>: API calls per subagent run (the turn gate)
+  STACK_MAXTURNS_<TYPE>     turns.<type>: API calls per subagent run (the turn gate refuses
+                            the tools of any call past it; report calls pass)
   STACK_HARDCTX_<TYPE>, STACK_SOFTCTX_<TYPE>  hard.agent / soft.agent: context tokens per run
   STACK_SOFT_PROMPT_CTX[_<TYPE>], STACK_SOFT_SESSION_CTX  soft.prompt[.<type>], soft.session
   STACK_LIMITS_AUTO=1       0 = the snapshot holds the seed (plus env overrides), nothing learned
@@ -3089,9 +3090,21 @@ def session_env_status(sid, state, reason=""):
         pass
 
 
+def limits_env_line(sid):
+    """The export of STACK_LIMITS_SNAPSHOT for a session (stack_sched.py and other Bash-run tools
+    find the session's limits snapshot with it): the path stack_limits.snapshot_path gives, computed
+    from the id alone (the snapshot may not exist yet: SessionStart hooks run in parallel, and
+    this one never waits for the guard's). None for an id the snapshots never use."""
+    import shlex
+    if not isinstance(sid, str) or not LIMITS_ID_RE.match(sid):
+        return None
+    return f"export STACK_LIMITS_SNAPSHOT={shlex.quote(limits_snapshot_path(sid))}"
+
+
 def session_env():
     """`session-env` (a SessionStart hook for every source): add the Bash-only environment to
-    $CLAUDE_ENV_FILE once per file, and make the cache root, so a sandboxed command never has to
+    $CLAUDE_ENV_FILE once per file, and STACK_LIMITS_SNAPSHOT for this session (a later line for
+    another session id wins), and make the cache root, so a sandboxed command never has to
     create it in ~/.cache. Never blocks a session; a failure is shown to the user (exit 2: Claude
     Code renders a SessionStart hook's exit-2 stderr as a hook error notice and the session goes
     on) and recorded for the status line and doctor.sh."""
@@ -3114,13 +3127,19 @@ def session_env():
     else:
         try:
             os.makedirs(os.path.join(home, SANDBOX_CACHE_DIR), mode=0o700, exist_ok=True)
+            snap = limits_env_line(sid)
             with open(path, "a+", encoding="utf-8") as f:
                 f.seek(0)
                 cur = f.read()
-                if SANDBOX_ENV_MARK not in cur:
-                    f.write(("\n" if cur and not cur.endswith("\n") else "") + sandbox_env_script(home))
+                add = "" if SANDBOX_ENV_MARK in cur else sandbox_env_script(home)
+                last = [ln for ln in cur.splitlines() if ln.startswith("export STACK_LIMITS_SNAPSHOT=")]
+                if snap and (not last or last[-1] != snap):
+                    add += snap + "\n"
+                if add:
+                    f.write(("\n" if cur and not cur.endswith("\n") else "") + add)
             with open(path, encoding="utf-8") as f:
-                if SANDBOX_ENV_MARK not in f.read():
+                cur = f.read()
+                if SANDBOX_ENV_MARK not in cur or (snap and snap not in cur):
                     why = "the exports are not in CLAUDE_ENV_FILE after writing them"
         except (OSError, ValueError) as exc:
             why = "%s writing CLAUDE_ENV_FILE or %s" % (type(exc).__name__,
@@ -3741,7 +3760,9 @@ def budget_gate(ev, d):
                  f"of {fmt_int(cap)} context tokens; {var}, {lim.where(var)}). Limits change only "
                  f"when a session starts ({LIMITS_SHOW}).")
         turns = lim.typed("turns", atype)
-        if turns and calls >= turns:
+        # the T-th call is allowed (as Claude Code's own maxTurns lets the last turn run): the
+        # gate refuses from call T + 1, a call the frontmatter ceiling may still allow
+        if turns and calls > turns:
             var = lim.key("turns", atype)
             note_limit_hit(d, ev, "turn", calls, turns, lim, run)
             deny(f"Turn budget reached: you have made {calls} API calls since you were started "

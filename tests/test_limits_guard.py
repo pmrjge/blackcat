@@ -196,7 +196,7 @@ def test_T9_live_json_changed_mid_session_changes_nothing(S):
     snap = S.snap.read_bytes()
     assert S.snapdoc()["values"]["turns.coder"] == turns
     S.sub_start("A1", "coder")
-    S.calls("A1", floor)
+    S.calls("A1", floor + 1)
     # mid-session: the user freezes turns.coder at its floor (a valid live.json change) ...
     L.cmd_freeze("turns.coder", value=floor)
     assert json.loads((S.root / "limits" / "live.json").read_text())["vars"]["turns.coder"]["frozen"] == floor
@@ -220,6 +220,8 @@ def test_T9_live_json_changed_mid_session_changes_nothing(S):
     assert S.snapdoc()["values"]["turns.coder"] == floor and S.snapdoc()["origin"]["turns.coder"] == "frozen"
     S.sub_start("A1", "coder")
     S.calls("A1", floor)
+    assert out(S.run(S.tool("Read")))[0] == "allow"          # the last turn of the budget runs
+    S.calls("A1", 1)
     d, why, _ = out(S.run(S.tool("Read")))
     assert d == "deny" and "origin frozen" in why
 
@@ -253,12 +255,13 @@ def test_T11_subagent_reads_parent_snapshot_turn_gate_and_exempt_calls(S):
     snap = S.snapdoc()["hash"][7:23]
     S.prompt("p1")
     S.sub_start("A1", "coder")
-    S.calls("A1", 2)
-    # the subagent's own hook process has another value in its env: the snapshot wins
+    S.calls("A1", 3)
+    # the T-th call keeps its tools (Claude Code's maxTurns lets the last turn run too); the
+    # subagent's own hook process has another value in its env: the snapshot wins
     assert out(S.run(S.tool("Read"), STACK_MAXTURNS_CODER="50"))[0] == "allow"
     S.calls("A1", 1)
     d, why, msg = out(S.run(S.tool("Bash", command="ls"), STACK_MAXTURNS_CODER="50"))
-    assert d == "deny" and why.startswith("Turn budget reached") and "3 API calls" in why
+    assert d == "deny" and why.startswith("Turn budget reached") and "4 API calls" in why
     assert "STATUS: partial" in why and "stack_limits.py show" in why
     assert "turns.coder=3" in why and "STACK_MAXTURNS_CODER=3" in why
     assert "stack_limits.py show" in msg and "install.sh" not in msg
@@ -280,7 +283,7 @@ def test_T11_subagent_reads_parent_snapshot_turn_gate_and_exempt_calls(S):
     assert out(S.run(S.tool("Read")))[0] == "allow"
     hit = [h for h in S.hits() if h["kind"] == "turn"]               # one line per firing: Bash, Agent
     assert len(hit) == 2 and {h["agent_id"] for h in hit} == {"A1"} and hit[0]["agent_type"] == "coder"
-    assert (hit[0]["value"], hit[0]["limit"], hit[0]["snap"]) == (3, 3, snap)
+    assert (hit[0]["value"], hit[0]["limit"], hit[0]["snap"]) == (4, 3, snap)
     assert isinstance(hit[0]["run"], float) and isinstance(hit[0]["ts"], float)
 
 
@@ -299,6 +302,8 @@ def test_T11_copy_types_use_the_base_and_mcp_cap_takes_the_snapshot_turns(S):
     ev2 = S.tool("mcp__exa__web_search_exa", aid="C2", atype="coder-copy", query="x")
     assert out(S.run(ev2, STACK_MAX_MCP_CALLS="2"))[0] == "deny"
     S.calls("C1", 4)
+    assert out(S.run(S.tool("Read", aid="C1", atype="coder-copy")))[0] == "allow"
+    S.calls("C1", 1)
     assert out(S.run(S.tool("Read", aid="C1", atype="coder-copy")))[0] == "deny"
 
 
@@ -358,7 +363,7 @@ def test_prompt_windows_one_line_per_human_prompt(S):
 def test_limit_hits_meet_the_collector_schema(S):
     S.start("startup", STACK_MAXTURNS_CODER="1")
     S.sub_start("A1", "coder")
-    S.calls("A1", 1)
+    S.calls("A1", 2)
     assert out(S.run(S.tool("Read")))[0] == "deny"
     U = _load("stack_usage_for_limits_guard2", HOOKS / "stack_usage.py")
     got = U.load_hits(str(S.sdir))
@@ -383,6 +388,8 @@ def test_T18_auto_off_snapshot_is_seed_plus_env_overrides(S):
             assert (doc["values"][v], doc["origin"][v]) == (spec["seed"], "seed"), v
     S.sub_start("A1", "scout")
     S.calls("A1", 6)
+    assert out(S.run(S.tool("Read", atype="scout")))[0] == "allow"
+    S.calls("A1", 1)
     d, why, _ = out(S.run(S.tool("Read", atype="scout")))
     assert d == "deny" and "STACK_MAXTURNS_SCOUT=6" in why
 
@@ -424,3 +431,39 @@ def test_lean_reader_matches_stack_limits_and_costs_under_3ms(S):
     best = min(r["ms"] for r in runs)
     print(f"lean snapshot read, fresh process: min {best:.2f} ms over 5")
     assert best <= 3.0, runs
+
+
+# ---------------------------------------------------------------- STACK_LIMITS_SNAPSHOT in the session
+def test_session_env_exports_the_snapshot_path_and_stack_sched_resolves_it(S):
+    """session-env writes STACK_LIMITS_SNAPSHOT (stack_limits.snapshot_path of the sid, before any
+    snapshot exists) into CLAUDE_ENV_FILE once; a later session id gets its own line, which wins;
+    stack_sched.py, run with that file sourced, resolves the session from it."""
+    envf = S.tmp / "envfile.sh"
+    ev = json.dumps({"session_id": S.sid, "hook_event_name": "SessionStart", "source": "startup"})
+
+    def session_env(ev_json):
+        return subprocess.run([PY, str(GUARD), "session-env"], input=ev_json, capture_output=True,
+                              text=True, env=dict(S.env, CLAUDE_ENV_FILE=str(envf), HOME=str(S.tmp)),
+                              timeout=60, check=False)
+    assert not S.snap.exists()
+    for _ in range(2):
+        assert session_env(ev).returncode == 0
+    text = envf.read_text()
+    want = f"export STACK_LIMITS_SNAPSHOT={L.snapshot_path(S.sid)}"
+    assert text.count(want) == 1 and text.count("claude-agent-stack: sandboxed Bash caches") == 1
+    first = S.sid
+    S.new()
+    assert session_env(ev.replace(first, S.sid)).returncode == 0
+    lines = [x for x in envf.read_text().splitlines() if x.startswith("export STACK_LIMITS_SNAPSHOT=")]
+    assert lines == [want, f"export STACK_LIMITS_SNAPSHOT={L.snapshot_path(S.sid)}"]
+    # no usable id: no line, the rest still written
+    assert session_env(json.dumps({"session_id": "../x", "hook_event_name": "SessionStart"})).returncode == 0
+    assert len([x for x in envf.read_text().splitlines() if "STACK_LIMITS_SNAPSHOT" in x]) == 2
+    probe = ("import importlib.util, sys; spec = importlib.util.spec_from_file_location('s', sys.argv[1]); "
+             "m = importlib.util.module_from_spec(spec); sys.modules['s'] = m; spec.loader.exec_module(m); "
+             "print(m.session_id())")
+    env = {k: v for k, v in S.env.items() if k != "CLAUDE_SESSION_ID"}
+    p = subprocess.run(["/bin/sh", "-c", '. "$1" && exec "$2" -c "$3" "$4"', "sh", str(envf), PY, probe,
+                        str(HOOKS / "stack_sched.py")], capture_output=True, text=True, env=env, timeout=60,
+                       check=False)
+    assert p.returncode == 0 and p.stdout.strip() == S.sid, p.stderr
