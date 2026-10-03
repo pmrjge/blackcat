@@ -16,6 +16,19 @@ case "$(basename "$0")" in
     agent=$1
     shift ;;
 esac
+# The session starts in Plan, the stack's default. These agents' files carry `permissionMode:
+# acceptEdits` for their runs as subagents; whether Claude Code applies that line to a main-thread
+# agent is not documented, so the mode is passed explicitly (the CLI flag beats the settings file;
+# that it also beats the agent file is expected, not verified: CONFIG.md, "Permission modes", has
+# the probe). A mode you pass yourself wins: --permission-mode or --dangerously-skip-permissions.
+own_mode=0
+for a in "$@"; do
+  case $a in
+    --) break ;;
+    --permission-mode|--permission-mode=*|--dangerously-skip-permissions) own_mode=1; break ;;
+  esac
+done
+[ "$own_mode" = 1 ] || set -- --permission-mode plan "$@"
 # Forge tokens stay out of the session (C6): agents never push or write to a forge, and a token in
 # the environment would reach every subprocess an agent starts. gh's own login (gh auth) still
 # answers reads.
