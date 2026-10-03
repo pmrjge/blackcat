@@ -415,6 +415,22 @@ def test_launcher_stack_python_override_wins(tree, env, sh, tmp_path):
     assert decision((rc, out, err)) == "deny" and "picked:override" in err and "stack-python" not in err
 
 
+def test_launcher_sibling_stack_python(tree, env, sh, tmp_path):
+    """A config dir installed while CLAUDE_CONFIG_DIR pointed elsewhere (or was unset): the
+    stack-python beside the launcher is found before uv; the config dir's own one still wins."""
+    (tree.c / "bin" / "stack-python").symlink_to(wrapper(tmp_path / "sib" / "py", PY, "sibling"))
+    log = tmp_path / "uv.args"
+    fake_uv(tmp_path / "fakebin", wrapper(tmp_path / "uvpy" / "python3.13", PY, "uv"), log)
+    e = dict(env, PATH="%s:/usr/bin:/bin" % (tmp_path / "fakebin"))   # CLAUDE_CONFIG_DIR: an empty dir
+    rc, out, err = launch(tree, e, sh)
+    assert decision((rc, out, err)) == "deny" and "picked:sibling" in err and not log.exists()
+    cfg_bin = Path(e["CLAUDE_CONFIG_DIR"]) / "bin"
+    cfg_bin.mkdir()
+    (cfg_bin / "stack-python").symlink_to(wrapper(tmp_path / "cfg" / "py", PY, "config"))
+    rc, out, err = launch(tree, e, sh)
+    assert decision((rc, out, err)) == "deny" and "picked:config" in err and "sibling" not in err
+
+
 def test_launcher_uv_fallback(tree, env, sh, tmp_path):
     log = tmp_path / "uv.args"
     fake_uv(tmp_path / "fakebin", wrapper(tmp_path / "uvpy" / "bin" / "python3.13", PY, "uv"), log)

@@ -3,7 +3,8 @@
 # on the stack's Python (>= 3.13) in one exec; no Python is spawned to probe a version.
 # Interpreter, the first that exists, is executable and is not visibly older than 3.13 by its file
 # name (the stub asserts the real version and fails like the line below if it is older):
-#   $STACK_PYTHON, ${CLAUDE_CONFIG_DIR:-~/.claude}/bin/stack-python (installer's symlink), then
+#   $STACK_PYTHON, ${CLAUDE_CONFIG_DIR:-~/.claude}/bin/stack-python (installer's symlink), the
+#   stack-python beside this launcher (a config dir installed without CLAUDE_CONFIG_DIR set), then
 #   `uv python find 3.13` restricted to uv-managed interpreters (never a .venv or uv.toml of the
 #   hook's working directory, which is the user's project).
 # None found: with --fail-closed (PreToolUse entries) exit 2, which blocks the tool call, unless
@@ -24,7 +25,7 @@ usable() {
   return 0
 }
 
-for py in "${STACK_PYTHON-}" "${CLAUDE_CONFIG_DIR:-${HOME-}/.claude}/bin/stack-python"; do
+for py in "${STACK_PYTHON-}" "${CLAUDE_CONFIG_DIR:-${HOME-}/.claude}/bin/stack-python" "$here/stack-python"; do
   usable "$py" && exec "$py" "$stub" "$@"
 done
 if command -v uv >/dev/null 2>&1; then
@@ -32,7 +33,7 @@ if command -v uv >/dev/null 2>&1; then
   usable "$py" && exec "$py" "$stub" "$@"
 fi
 
-echo "stack-hook: no Python >= 3.13 found (STACK_PYTHON, ${CLAUDE_CONFIG_DIR:-~/.claude}/bin/stack-python," \
+echo "stack-hook: no Python >= 3.13 found (STACK_PYTHON, ${CLAUDE_CONFIG_DIR:-~/.claude}/bin/stack-python, $here/stack-python," \
   "uv python find 3.13); run ./install.sh from the claude-agent-stack repo" >&2
 if [ "${1-}" = --fail-closed ]; then
   case ${STACK_POLICY-} in
