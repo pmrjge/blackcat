@@ -1,4 +1,4 @@
-"""/override-agent and /reset-agent (agent_guard.py `override-agent` mode on UserPromptExpansion;
+"""/override-agent (set, list, reset; agent_guard.py `override-agent` mode on UserPromptExpansion;
 the model rewrite in on_agent). Only a user-typed slash command (UserPromptExpansion, main thread,
 the stack's user skill) sets or clears an override; nothing an agent writes can.
 
@@ -86,8 +86,8 @@ def spawned_model(s, child, env, **kw):
     ("override-agent", "  Orchestrator   FABLE ", ("set", "orchestrator", "fable")),
     ("override-agent", "scout haiku", ("set", "scout", "haiku")),
     ("override-agent", "list", ("list",)),
-    ("reset-agent", "orchestrator", ("reset", "orchestrator")),
-    ("reset-agent", "all", ("reset", "all")),
+    ("override-agent", "reset orchestrator", ("reset", "orchestrator")),
+    ("override-agent", "  RESET  All ", ("reset", "all")),
 ])
 def test_parser_accepts(name, args, want):
     assert G.parse_override_command(name, args) == want
@@ -107,9 +107,13 @@ def test_parser_accepts(name, args, want):
     ("override-agent", "orchestrator gpt5", "unknown model"),
     ("override-agent", "orchestrator claude-opus-5-5", "unknown model"),
     ("override-agent", "orchestrator inherit", "unknown model"),
-    ("reset-agent", "", "usage"),
-    ("reset-agent", "orchestrator scout", "usage"),
-    ("reset-agent", "nosuch", "unknown agent"),
+    ("override-agent", "reset", "usage: /override-agent reset"),
+    ("override-agent", "reset orchestrator scout", "usage: /override-agent reset"),
+    ("override-agent", "reset nosuch", "unknown agent"),
+    ("override-agent", "reset blackcat", "main thread"),
+    ("override-agent", "list all", "list takes no argument"),
+    ("override-agent", "list orchestrator opus", "list takes no argument"),
+    ("reset-agent", "orchestrator", "unknown command"),
     ("agent-override", "orchestrator opus", "unknown command"),     # the old names are gone
     ("agent-reset", "orchestrator", "unknown command"),
 ])
@@ -291,12 +295,12 @@ def test_reset_one_and_all(env):
     s = sid()
     command(s, "orchestrator fable", env)
     command(s, "scout haiku", env)
-    msg = command(s, "orchestrator", env, name="reset-agent")
+    msg = command(s, "reset orchestrator", env)
     assert "orchestrator model fable -> opus, effort high -> high" in msg
     assert spawned_model(s, "orchestrator", env)[0] is None
     assert spawned_model(s, "scout", env)[0] == "haiku"
-    assert "nothing changed" in command(s, "orchestrator", env, name="reset-agent")
-    msg = command(s, "all", env, name="reset-agent")
+    assert "nothing changed" in command(s, "reset orchestrator", env)
+    msg = command(s, "reset all", env)
     assert "scout model haiku -> sonnet, effort low -> low" in msg
     assert not (state(env, s) / "agent-overrides.json").exists()
     assert spawned_model(s, "scout", env)[0] is None
@@ -432,12 +436,34 @@ def test_override_mode_ignores_other_commands_and_garbage(env):
 
 
 def test_skills_are_user_only_and_wired():
-    for name in ("override-agent", "reset-agent"):
+    assert not (SKILLS / "reset-agent").exists()
+    for name in ("override-agent",):
         head = (SKILLS / name / "SKILL.md").read_text().split("\n---", 1)[0]
         assert "\ndisable-model-invocation: true" in head
         assert "\nname: %s" % name in head
         assert "!`" not in (SKILLS / name / "SKILL.md").read_text()
     hooks = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["hooks"]
     (entry,) = hooks["UserPromptExpansion"]
-    assert entry["matcher"] == "override-agent|reset-agent"
+    assert entry["matcher"] == "override-agent"
     assert entry["hooks"][0]["command"].endswith('agent_guard.py" override-agent')
+
+
+def test_a_fifo_at_the_state_path_does_not_hang_the_agent_hook(env):
+    # security audit of f235e7a (LOW): open() of a FIFO blocks until a writer appears, so the
+    # PreToolUse(Agent) hook hung until its timeout; O_NONBLOCK + S_ISREG ignore it
+    s = sid()
+    d = state(env, s)
+    d.mkdir(parents=True)
+    os.mkfifo(d / "agent-overrides.json")
+    os.mkfifo(d / "agent-overrides.log")
+    p = subprocess.run([sys.executable, str(GUARD)], input=json.dumps(agent(s, "scout", model="opus")),
+                       capture_output=True, text=True, env=env, timeout=5)
+    assert p.returncode == 0, p.stderr
+    hso = json.loads(p.stdout)["hookSpecificOutput"] if p.stdout.strip() else {}
+    assert hso.get("permissionDecision") != "deny"
+    assert "model" not in (hso.get("updatedInput") or {})
+    # the command's own read and its log line don't hang either (the state file stays a FIFO)
+    p = subprocess.run([sys.executable, str(GUARD), "override-agent"],
+                       input=json.dumps(expansion(s, "scout opus")), capture_output=True, text=True,
+                       env=env, timeout=5)
+    assert p.returncode == 0 and json.loads(p.stdout)["decision"] == "block"

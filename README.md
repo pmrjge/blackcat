@@ -2,7 +2,7 @@
 
 <!-- markdownlint-disable MD013 MD060 -->
 
-BlackCat, a dispatcher on the main thread, routes work to 55 specialist agents (56 agent files). 214
+BlackCat, a dispatcher on the main thread, routes work to 55 specialist agents (56 agent files). 213
 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the Claude Code sandbox hold
 the limits, and MCP servers start and stop with the agents that use them. Built for Claude Code
 **2.1.271 or later**, macOS only (Apple Silicon first). It runs in the terminal and in the apps that run
@@ -120,19 +120,19 @@ family heads, not BlackCat. Depth is BlackCat → L1 → L2 → L3 → L4, and L
 
 ### Skills: hubs, modules, references
 
-214 skills in `dot-claude/skills/`, in three shapes (counts from `tests/test_skill_modules.py`'s own
+213 skills in `dot-claude/skills/`, in three shapes (counts from `tests/test_skill_modules.py`'s own
 parser):
 
 | Shape | Count | What it is | Caps (`tests/test_skill_modules.py`) |
 |---|---:|---|---|
 | Hub | 24 | A `SKILL.md` with a `## Modules` table naming its modules | ≤ 80 lines |
 | Module | 98 | A skill named in a hub's table; 83 are read by path, 15 listed | ≤ 150 lines, description ≤ 140 chars |
-| Standalone | 92 | Neither hub nor module | ≤ 500 lines |
+| Standalone | 91 | Neither hub nor module | ≤ 500 lines |
 | `references/*.md` | 185 files | Detail a skill links to and reads only when needed | must exist where named |
 
 - **Listed, not preloaded.** 128 skills (hubs, standalone skills, 15 modules) are listed with an
   explanatory description that starts with its trigger ("Load before …", "Use when …") and names no
-  agent; 83 hub modules are `user-invocable-only` (below); `stack-doctor`, `override-agent` and `reset-agent` are user commands. No
+  agent; 83 hub modules are `user-invocable-only` (below); `stack-doctor` and `override-agent` are user commands. No
   `skills:` frontmatter preloads anything; a body enters context only when it is loaded.
 - **Pointers.** Agent bodies carry a `## Skills` section of one-line "load X when Y" pointers
   (rust-engineer: "Load `rust-engineering` first; async `rust-async`, …"). Every module is reachable
@@ -176,7 +176,7 @@ Summary of [CONFIG.md](CONFIG.md) §5 ("On demand and automatic"):
 
 | Kind | Automatic (the work needs it) | On demand | Idle cost |
 |---|---|---|---|
-| Skills (214; 128 listed) | Listed description, plus a "load X when Y" pointer in the agent or hub | Skill tool by name; hidden hub modules by Read | The listing, on every spawn |
+| Skills (213; 128 listed) | Listed description, plus a "load X when Y" pointer in the agent or hub | Skill tool by name; hidden hub modules by Read | The listing, on every spawn |
 | MCP, agent-scoped (17 servers) | Start and stop with the agent that declares them inline | Spawn that agent | 0 elsewhere; schemas deferred |
 | MCP, magg catalog (23 servers) | A one-line pointer in the agent with the gap ("cluster state → mcp-broker mounts `kubernetes`") | Ask mcp-broker | 0 until mounted |
 | MCP, user scope (5 remote) | Session-wide, tools deferred until tool search loads them | — | Tool names only |
@@ -320,7 +320,7 @@ The stack's user commands (the model can't run them: `disable-model-invocation`)
 | `/stack-doctor` | Read-only health check (`bin/doctor.sh`) |
 | `/override-agent <agent> <model>` | This session only: every delegated `<agent>` runs on `<model>` (`sonnet`, `opus`, `haiku`, `fable`). The effort comes from the built-in table `hooks/agent_effort.json` (per agent and model, clamped to what the model accepts); it is shown but not applied (CONFIG.md §5, "Session model overrides") |
 | `/override-agent list` | Read-only: this session's overrides (agent, model, effort and its source) and every agent's default model/effort |
-| `/reset-agent <agent\|all>` | Back to the agent definition's model and effort |
+| `/override-agent reset <agent\|all>` | Back to the agent definition's model and effort |
 
 ### Verify
 
@@ -342,7 +342,7 @@ The counts in this README come from the files:
 
 ```bash
 ls dot-claude/agents/*.md | wc -l                             # 56 agents
-ls dot-claude/skills/*/SKILL.md | wc -l                       # 214 skills
+ls dot-claude/skills/*/SKILL.md | wc -l                       # 213 skills
 ls dot-claude/skills/*/references/*.md | wc -l                # 185 references
 jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 89 hidden: 83 hub modules + 6 bundled
 jq '.servers | length' dot-claude/magg/config.json            # 23 catalog servers

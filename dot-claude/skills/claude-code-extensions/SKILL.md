@@ -24,7 +24,7 @@ Details: `references/mcp-hooks-settings.md`. Must-knows:
 - MCP tiers: a local stdio server goes inline in ONE agent's `mcpServers`; a remote HTTP server shared by agents goes to user scope with the `mcp-headers` helper (keys from stack.env, never config files); a rare server becomes a disabled magg catalog entry that mcp-broker mounts. Reserved names: `workspace`, `claude-in-chrome`, `computer-use`, `Claude Preview`, `Claude Browser`.
 - Hook commands use the installer's absolute interpreter (`__PYTHON3__`): a hook that cannot start is a silent open gate. PreToolUse decides in `hookSpecificOutput.permissionDecision`; `updatedInput` replaces the whole input; `systemMessage` reaches the user, not the model.
 - Settings changes go to the repo's `dot-claude/settings.json`, never the live file; loosening a permission, hook or sandbox needs the user's consent.
-- User commands are skills with `disable-model-invocation: true`: `stack-doctor`, and `override-agent`/`reset-agent` (per-session model of a delegated agent type). The UserPromptExpansion hook answers those two, and a user-only state change hooks onto that event, never UserPromptSubmit (CONFIG.md §5).
+- User commands are skills with `disable-model-invocation: true`: `stack-doctor`, and `override-agent` (per-session model of a delegated agent type; `list`, `reset`). The UserPromptExpansion hook answers it, and a user-only state change hooks onto that event, never UserPromptSubmit (CONFIG.md §5).
 
 ## Agent SDK
 Running the installed stack from an SDK app or `claude -p` (what `setting_sources` loads, what a call can override, hooks without a TTY, JSON reports, cache order, `bin/stack_sdk.py`): `references/agent-sdk.md`.

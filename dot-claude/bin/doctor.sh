@@ -419,12 +419,12 @@ PY
 else
   warn "hooks/stack_limits.py missing (learned limits: the guard uses its built-in values) — rerun install.sh"
 fi
-# /override-agent, /reset-agent: the two user skills and the UserPromptExpansion hook, probed with a
+# /override-agent (list, reset): the user skill and the UserPromptExpansion hook, probed with a
 # read-only `list` in a temp state dir (the hook command run as settings.json has it)
 python3 - "$C" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
 import json, os, shutil, subprocess, sys, tempfile
 c = sys.argv[1]
-miss = [n for n in ("override-agent", "reset-agent") if not os.path.isfile(os.path.join(c, "skills", n, "SKILL.md"))]
+miss = [n for n in ("override-agent",) if not os.path.isfile(os.path.join(c, "skills", n, "SKILL.md"))]
 if not os.path.isfile(os.path.join(c, "hooks", "agent_effort.json")):
     miss.append("hooks/agent_effort.json")
 try:
@@ -445,7 +445,7 @@ try:
                        env=dict(os.environ, XDG_STATE_HOME=tmp))
     out = json.loads(p.stdout or "{}")
     if out.get("decision") == "block" and "defaults (model/effort)" in str(out.get("reason")):
-        print("ok /override-agent, /reset-agent: skills installed, UserPromptExpansion hook answers")
+        print("ok /override-agent: skill installed, UserPromptExpansion hook answers")
     else:
         print("/override-agent hook gave no answer (rc %d): %s" % (p.returncode, (p.stderr or p.stdout)[:200]))
 except (OSError, ValueError, subprocess.SubprocessError) as exc:

@@ -463,7 +463,7 @@
     ],
     "UserPromptExpansion": [
       {
-        "matcher": "override-agent|reset-agent",
+        "matcher": "override-agent",
         "hooks": [
           {
             "type": "command",
