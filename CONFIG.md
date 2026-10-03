@@ -433,6 +433,13 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 
 ## 9. Changelog
 
+### 2026-10-03 (god-coder renamed to supreme-coder)
+
+- god-coder renamed to supreme-coder: the agent file (`agents/supreme-coder.md`, `name: supreme-coder`), the guard's `POLICY` rows, fan-out, soft-limit and read-only tables, the limits seed (`turns.`, `soft.agent.`, `hard.agent.supreme-coder`), `sched_model.json`, `agent_effort.json`, every agent body, the rules, skills, docs and tests. Entries above keep the old name. The knobs follow it: `GOD_SPAWNERS`, `GOD_ONCE_PER_SESSION`, `GOD_AFTER_NINJA`, `GOD_PENDING_TTL_S`, `GOD_IDLE_S`, `GOD_LOCK_TTL_S` are now `SUPREME_*` (install.sh's `RENAMED_ENV` moves a value you tuned in settings.json; one still at the stack default is dropped for the new default). The lock and markers in the hook state are `supreme-coder.lock`, `supreme-coder.spawned` and `supreme.mutex`; `GOD_` stays a fixed-guard prefix in `stack_limits.FIXED_PREFIXES`.
+- The launcher is `claude-supreme`. `bin/claude-ultracode` still answers to `claude-god`, printing a deprecation note and starting supreme-coder; install.sh no longer creates that link and notes an existing one, and doctor.sh warns about it, about a left-over `agents/god-coder.md` and about any `GOD_*` variable still set.
+- install.sh's `RENAMED` maps `agents/god-coder.md` to `agents/supreme-coder.md`: an install prunes the old file (the backup keeps it); `--no-prune` lists it.
+- Usage rows recorded as `god-coder` (runs*.csv, transcripts read by `tests/derive_*.py`) are read as supreme-coder (`stack_limits.RENAMED_TYPES` / `renamed_type`, `stack_usage.RENAMED_TYPES` in `read_rows`; rotation keeps rows as written); nothing is rewritten. The frozen fixture `tests/fixtures/sched/graph-4e2da3ce.json` keeps the old path. Rerun install.sh and restart Claude Code.
+
 ### 2026-10-03 (BlackCat does small jobs itself)
 
 - BlackCat's `tools` and `BLACKCAT_TOOLS` gain Bash, Write and Edit and drop Grep and Glob (with Bash listed, Claude Code leaves them out on macOS/Linux; `find`/`grep` run through Bash, `tests/lint_agents.py` checks it). The prompt's Decide rule 3 now has a "yourself" class (a few tool calls, no skill or specialist judgement: a look, a small edit the user spelled out, one command or test, git inspection, committing its own edit, the delegation ledger), a stop-and-dispatch rule when such a job grows, and a "Doing it yourself" section (same guards as every agent, Git rules for its edits, AskUserQuestion before destructive steps). Specialist, long, parallel and review work is dispatched as before; the orchestrator gets dependent multi-specialist jobs. The 12-call and 8-dispatch caps count its own work.

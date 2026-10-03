@@ -739,6 +739,19 @@ args = json.loads(open(sys.argv[1]).read().splitlines()[-1])
 want = ["--agent", "supreme-coder", "--effort", "ultracode", "--settings", '{"permissions":{"allow":["Workflow"]}}', "-p", "hello"]
 sys.exit(0 if args == want else 1)
 PY
+# claude-god (god-coder is now supreme-coder): not created any more; an existing link is a deprecated alias of claude-supreme
+old_launcher="$T4/.local/bin/claude-god"   # supreme-coder's launcher before the rename
+[ ! -e "$old_launcher" ] && [ ! -L "$old_launcher" ] \
+  && pass "the install creates no claude-god link (renamed to claude-supreme)" || failed "install created a claude-god link (now claude-supreme)"
+ln -s "$T4/.claude/bin/claude-ultracode" "$old_launcher"
+supreme_err="$(FAKE_CLAUDE_LOG="$T4/.fake.log" "$old_launcher" -p hello 2>&1 >/dev/null)"
+python3 - "$T4/.fake.log" <<'PY' && case "$supreme_err" in *"claude-god is deprecated"*claude-supreme*) true ;; *) false ;; esac \
+  && pass "an old claude-god link starts supreme-coder with a deprecation note (alias of claude-supreme)" || failed "claude-god alias of claude-supreme: [$supreme_err] $(tail -n 1 "$T4/.fake.log" 2>/dev/null)"
+import json, sys
+args = json.loads(open(sys.argv[1]).read().splitlines()[-1])
+sys.exit(0 if args[:2] == ["--agent", "supreme-coder"] and args[-2:] == ["-p", "hello"] else 1)
+PY
+rm -f "$old_launcher"
 rcline="$(grep '# claude-agent-stack$' "$T4/.zshrc")"
 out=$(env -i HOME="$T4" PATH="$PATH" HF_TOKEN=hf_user_token bash -c "$rcline
 printf '%s' \"\$HF_TOKEN\"")

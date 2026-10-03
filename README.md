@@ -595,7 +595,7 @@ embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The
 | `gh` (read-only) | `view`, `list`, `status`, `checks`, `diff` only | not checked |
 | `ffmpeg`, `magick`, `rsvg-convert`, `pdftoppm`, `sips` | Media, SVG and PDF rasterizing; `sips -Z 1919` downscales | installed with Homebrew if present; doctor warns; `sips` ships with macOS |
 | `pandoc` | Document conversion | not checked |
-| `claude-ninja`, `claude-supreme` | ninja-coder or supreme-coder as your main thread at ultracode | installed in `~/.local/bin` |
+| `claude-ninja`, `claude-supreme` | ninja-coder or supreme-coder as your main thread at ultracode | installed in `~/.local/bin`; an older `claude-god` link still starts supreme-coder, with a deprecation note |
 | Scanners: `gitleaks`, `trufflehog`, `semgrep`, `osv-scanner`, `pip-audit`, `npm audit`, `cargo audit`/`deny`, `trivy` | The read-only reviewers' allowlist | not installed; used when present |
 | Language toolchains (cargo, ghcup, juliaup, go, Gradle/Maven, elan) | The language engineers | not installed; installing a toolchain from a session fails by design (sandbox) |
 

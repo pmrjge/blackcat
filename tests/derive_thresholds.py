@@ -48,6 +48,7 @@ HERE = os.path.join(REPO, ".claude-work", "agents-usage")   # output folder (--o
 # beside this file or in the repo's hooks folder)
 sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)), os.path.join(REPO, "dot-claude", "hooks")]
 from stack_limits import q, ceil2, derive as _derive  # noqa: E402,F401
+from stack_limits import renamed_type  # noqa: E402  (god-coder transcripts count as supreme-coder)
 F = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 RESUME_RE = re.compile(r"^(Another Claude session|The coordinator) sent a message while you were working")
 COMPACT_RE = re.compile(r"^This session is being continued from a previous conversation")
@@ -194,7 +195,7 @@ def load(root):
                 meta = json.load(open(f[:-6] + ".meta.json"))
             except (OSError, ValueError):
                 meta = {}
-            atype = meta.get("agentType") or "(unknown)"
+            atype = renamed_type(meta.get("agentType") or "(unknown)")
             typed += atype in TIER_OF
             ev = read_records(f)
             allcalls += [e for k, e in ev if k == "call"]

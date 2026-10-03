@@ -235,9 +235,10 @@ def load(root, until):
 
 
 def prepare(seg):
-    """Derived columns (problem, healthy, wall_s, spc) and copy types folded into their base."""
+    """Derived columns (problem, healthy, wall_s, spc), copy types folded into their base and renamed
+    types under their current name (stack_limits.renamed_type: god-coder rows count as supreme-coder)."""
     df = seg.copy()
-    df["type"] = df.type.astype(str).map(lambda t: t[:-5] if t.endswith("-copy") else t)
+    df["type"] = df.type.astype(str).map(lambda t: DT.renamed_type(t[:-5] if t.endswith("-copy") else t))
     for c, v in (("compactions", 0), ("turn_limit", False), ("after_limit", False), ("open", False)):
         if c not in df:
             df[c] = v

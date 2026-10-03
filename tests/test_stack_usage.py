@@ -1508,3 +1508,20 @@ def test_a_successor_waits_for_the_lock_and_then_runs(st, tmp_path):
         p = subprocess.run([PY, str(USAGE_PY), "run", "--session", SID, "--subagents", str(sub), "--wait-lock", bad],
                            env=env_for(tmp_path, STACK_USAGE_IDLE_S="0.3"), capture_output=True, timeout=30)
         assert p.returncode == 0
+
+
+RENAMED_OLD = "god-coder"     # supreme-coder's name before the rename
+
+
+def test_read_rows_gives_a_renamed_type_its_new_name_but_rotation_keeps_rows_as_written(st):
+    """read_rows (the learners, stack-budget, the scheduler refresh) reads a row recorded before
+    supreme-coder's rename under the new name; the strict reader rotation uses keeps it verbatim."""
+    U.append_rows([row3(id="g1", type=RENAMED_OLD), row3(id="g2", type=RENAMED_OLD + "-copy"),
+                   row3(id="n1", type="supreme-coder")])
+    r = U.read_rows()
+    assert {k[1]: v["type"] for k, v in r.items()} == {"g1": "supreme-coder", "g2": "supreme-coder-copy",
+                                                       "n1": "supreme-coder"}
+    path = str(st / "usage" / "runs3.csv")
+    strict = U.read_rows([path], schemas=(str(U.SCHEMA_VERSION),), strict=True)
+    assert strict[(SID, "g1", 0)]["type"] == RENAMED_OLD and strict[(SID, "g2", 0)]["type"] == RENAMED_OLD + "-copy"
+    assert open(path).read().count(RENAMED_OLD) == 2
