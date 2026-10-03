@@ -1335,9 +1335,10 @@ everything in this repository (scripts, hooks, agents, skills, prompts, docs) ex
 
 - Third-party software the stack installs or calls (Claude Code, MCP servers, CLIs, the Python packages in
   `requirements/`) is not part of this repository and keeps its own licence.
-- The hero image (`docs/assets/blackcat-hero.png`) is AI-generated through Opper with `openai-image-2.5-pro`
-  (as stated by the author; exact model version unverified) and is excluded from the Apache-2.0 licence.
-  [Opper's terms](https://opper.ai/terms-of-service) say nothing on output ownership;
-  [OpenAI's terms of use](https://openai.com/policies/terms-of-use/) assign to the user OpenAI's rights,
-  if any, in output; and the [US Copyright Office](https://www.copyright.gov/ai/) holds that purely
-  AI-generated material is not protected by copyright.
+- The hero image (`docs/assets/blackcat-hero.png`) was generated through Opper with
+  `openai/gpt-image-2.5-sunburst` (as stated by the author) and is excluded from the Apache-2.0 licence.
+  [Opper's terms](https://opper.ai/terms-of-service) say nothing about output ownership;
+  [OpenAI's Services Agreement](https://openai.com/policies/services-agreement/) (§4.1) assigns OpenAI's
+  rights in Output, "if any", to OpenAI's API customer; and the
+  [US Copyright Office](https://www.copyright.gov/ai/) holds that copyright does not extend to purely
+  AI-generated material.
