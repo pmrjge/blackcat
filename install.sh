@@ -1854,9 +1854,11 @@ PY
 
 say "7/11 Merge settings.json, validate, apply"
 [ -f "$S/settings.json" ] || echo '{}' > "$S/settings.json"
-PRUNE="$PRUNE" python3 - "$RENDERED_SETTINGS" "$S/settings.json" "$S/.stack-manifest.json" "$REPORT" "$C/settings.json" \
-  "$S/stack.env" "$SRC/bin/mcp-headers" <<'PY'
-import json, os, re, runpy, sys
+# PREV_COMMIT (the commit the last install shipped, read from $C's manifest above) and the repo let
+# the merge tell a permission setting the stack shipped from one you chose (settings_permission_scalars)
+PRUNE="$PRUNE" PREV_COMMIT="$prev_commit" STACK_REPO="$HERE" python3 - "$RENDERED_SETTINGS" "$S/settings.json" \
+  "$S/.stack-manifest.json" "$REPORT" "$C/settings.json" "$S/stack.env" "$SRC/bin/mcp-headers" <<'PY'
+import json, os, re, runpy, subprocess, sys
 from pathlib import Path
 src, manifest_path, report_path, shown = sys.argv[1], sys.argv[3], sys.argv[4], sys.argv[5]
 PRUNE = os.environ.get("PRUNE") == "1"
@@ -1942,6 +1944,39 @@ except (OSError, ValueError):
 prev_env = manifest.get("settings_env") or {}
 prev_perm = manifest.get("settings_permissions") or {}
 prev_owned = manifest.get("settings_set_if_absent") or {}
+
+
+def shipped_permission_scalars(commit):
+    """The scalar permissions keys (defaultMode) the stack's settings.json held at `commit`, read
+    from this repo; None when that can't be told (no commit, or one this repo doesn't have)."""
+    if not re.fullmatch(r"[0-9a-f]{7,64}", commit or ""):
+        return None
+    try:
+        out = subprocess.run(["git", "-C", os.environ.get("STACK_REPO") or ".", "show",
+                              commit + ":dot-claude/settings.json"],
+                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20)
+        doc = json.loads(out.stdout) if out.returncode == 0 else None
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+    if not isinstance(doc, dict):
+        return None
+    perm = doc.get("permissions")
+    return {k: v for k, v in perm.items() if not isinstance(v, list)} if isinstance(perm, dict) else {}
+
+
+# Scalar permissions keys (defaultMode) follow the unowned env keys' rule: the stack's value is set
+# while you have none or still hold the value the stack shipped last time; a value you chose is
+# kept ("kept your permissions..."). The last install's shipped values come from the manifest; a
+# manifest older than "settings_permission_scalars" (installers up to 2026-10-03 overwrote the
+# scalar on every run, so the value then in place was the one that commit shipped) from the
+# settings.json of the commit it records. Neither: nothing of yours is changed.
+prev_perm_scalars = manifest.get("settings_permission_scalars")
+if not isinstance(prev_perm_scalars, dict):
+    prev_perm_scalars = shipped_permission_scalars(os.environ.get("PREV_COMMIT"))
+MODE_NOTICE = ("default permission mode is now plan; you were on %s by default; Shift+Tab or "
+               "ExitPlanMode to change it. To start every session in %s again, set "
+               "\"permissions\": {\"defaultMode\": \"%s\"} in %s (later runs keep it), or start one "
+               "session with claude --permission-mode %s")
 # permission rules earlier stack versions shipped before the manifest recorded them, and no longer
 # ship: retracted on upgrade (a stack-shipped "mcp__magg" allowed every tool of every mounted server;
 # "Read(**/.env.*)" also blocked agents from writing .env.example / .env.test — Read denies cover Edit)
@@ -2159,7 +2194,21 @@ for k, v in new.items():
         p = dict(cur.get("permissions") or {})
         for pk, pv in v.items():
             if not isinstance(pv, list):
-                p[pk] = pv
+                mine = p.get(pk)
+                was = (prev_perm_scalars or {}).get(pk)
+                if mine is None or mine == pv or (was is not None and mine == was):
+                    if mine is not None and mine != pv:
+                        print("  set permissions.%s=%s (was %s, the stack's earlier default)"
+                              % (pk, json.dumps(pv), json.dumps(mine)))
+                        if pk == "defaultMode":
+                            report["notes"].append(MODE_NOTICE % (mine, mine, mine, shown, mine))
+                    p[pk] = pv
+                else:
+                    print("  kept your permissions.%s=%s (the stack's: %s)" % (pk, json.dumps(mine), json.dumps(pv)))
+                    if prev_perm_scalars is None and os.environ.get("PREV_COMMIT"):
+                        print("    (the last install's commit %s is not in this repository, so the installer can't "
+                              "tell the stack's earlier default from your choice; set it to %s yourself if you "
+                              "want the stack's)" % (os.environ["PREV_COMMIT"][:12], json.dumps(pv)))
                 continue
             retired = (set(prev_perm.get(pk) or []) | RETIRED_PERMISSIONS.get(pk, set())) - set(pv)
             have = list(p.get(pk) or [])
@@ -2171,6 +2220,9 @@ for k, v in new.items():
                 report["config_removed"].append(["settings.json permissions.%s" % pk, "%d duplicate rule%s" % (
                     dups, "" if dups == 1 else "s")])
             p[pk] = uniq([x for x in have if x not in retired] + pv)
+        for pk in sorted(set(prev_perm_scalars or {}) - set(v)):      # a scalar no longer shipped
+            if pk in p and p[pk] == prev_perm_scalars[pk]:
+                print("  retracted stack setting permissions.%s=%s (no longer shipped)" % (pk, json.dumps(p.pop(pk))))
         merged["permissions"] = p
     elif k == "worktree":
         # the stack owns worktree.baseRef ("head": agents never push, so origin/main goes stale and
@@ -2301,6 +2353,8 @@ os.replace(dst + ".tmp", dst)
 manifest["settings_env"] = new.get("env", {})
 manifest["settings_permissions"] = {pk: pv for pk, pv in (new.get("permissions") or {}).items()
                                     if isinstance(pv, list)}
+manifest["settings_permission_scalars"] = {pk: pv for pk, pv in (new.get("permissions") or {}).items()
+                                           if not isinstance(pv, list)}
 manifest["settings_set_if_absent"] = {k: new[k] for k in SET_IF_ABSENT if k in new}
 manifest["settings_sandbox"] = new.get("sandbox") or {}
 with open(manifest_path + ".tmp", "w") as f:

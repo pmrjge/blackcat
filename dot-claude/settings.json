@@ -122,7 +122,7 @@
     "SUPREME_IDLE_S": "1800"
   },
   "permissions": {
-    "defaultMode": "bypassPermissions",
+    "defaultMode": "plan",
     "ask": [
       "mcp__magg__magg_add_server",
       "mcp__magg__magg_load_kit",

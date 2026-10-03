@@ -162,7 +162,8 @@ def test_write_and_edit_to_the_installed_stack_are_denied_by_rule():
                 "magg/**", "skills/**", "CLAUDE.md", "stack-plugins/**", ".stack-manifest.json"):
         assert "Edit(/__CLAUDE_DIR__/%s)" % rel in deny, rel
     assert "Edit(/__STACK_STATE__/**)" in deny
-    assert s["permissions"]["defaultMode"] == "bypassPermissions"   # deny rules hold here too
+    # sessions start in Plan; deny rules hold in every mode, bypassPermissions included
+    assert s["permissions"]["defaultMode"] == "plan"
     assert "__CLAUDE_DIR__" in s["sandbox"]["filesystem"]["denyWrite"]
     assert s["sandbox"]["enabled"] is True and s["sandbox"]["allowUnsandboxedCommands"] is False
 

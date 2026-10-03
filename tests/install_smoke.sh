@@ -284,7 +284,7 @@ out=$(XDG_STATE_HOME="$T1/state" "$T1/bin/magg-private" /bin/echo --env-pass --c
 priv=$(printf '%s\n' "$out" | sed -n 's/^--env-pass --config \(.*\) serve$/\1/p')
 [ -n "$priv" ] && [ "$priv" != "$T1/magg/config.json" ] && cmp -s "$priv" "$T1/magg/config.json" \
   && pass "magg-private runs magg on a private copy of the catalog" || failed "magg-private: [$out]"
-python3 - "$T1/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "settings: autocompact on at the shipped window, depth 4, default tool search, lazy MCP, blackcat, shipped skill-listing budget, 500-char cut, 6 user-only bundled skills, hidden hub modules" || failed "settings.json values (see above)"
+python3 - "$T1/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "settings: autocompact on at the shipped window, depth 4, default tool search, lazy MCP, blackcat, shipped skill-listing budget, 500-char cut, 6 user-only bundled skills, hidden hub modules, Plan by default" || failed "settings.json values (see above)"
 import json, os, re, sys
 def stack_models(p):
     """stack.env.example's Claude model IDs (the single source)."""
@@ -313,6 +313,7 @@ checks = {
     "Claude models from stack.env (no Haiku)": all(env.get(k) == v for k, v in example_models.items())
                                                and len(example_models) == 3
                                                and "haiku" not in example_models["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
+    "Plan as the default permission mode": s["permissions"].get("defaultMode") == "plan",
     "image limit hooks": any("image-limit" in json.dumps(g) for g in s["hooks"]["PostToolUse"])
                          and any("image-limit" in json.dumps(g) for g in s["hooks"]["PreToolUse"]),
 }
@@ -1405,6 +1406,67 @@ grep -q 'retracted stack skillOverrides for postgresql (no longer shipped)' "$TN
   && pass "per-skill retraction is reported" || failed "per-skill retraction message: $(grep -i retract "$TN/r.log")"
 assert_unchanged_real_home
 drop_scratch "$TN"
+
+echo "== 13c. permissions.defaultMode: plan shipped; the earlier shipped bypassPermissions moved once, a mode you chose kept"
+TP="$(scratch_dir)" || exit 1
+# the earlier version shipped bypassPermissions, and its installer overwrote the mode on every run
+cp -R "$HERE" "$TP/repo"
+python3 - "$TP/repo/dot-claude/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p))
+s["permissions"]["defaultMode"] = "bypassPermissions"
+json.dump(s, open(p, "w"), indent=2)
+PY
+tgit -C "$TP/repo" commit -qam "bypassPermissions era" || failed "could not commit the earlier repository"
+for c in old mine lost; do
+  CLAUDE_CONFIG_DIR="$TP/$c" "$TP/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1
+done
+# manifests from before settings_permission_scalars (the mode comes from the recorded commit's
+# settings.json); "mine" chose acceptEdits after that install; "fresh" has a settings.json of its own
+# and no install yet
+mkdir -p "$TP/fresh" && printf '{"permissions": {"defaultMode": "auto"}}\n' > "$TP/fresh/settings.json"
+python3 - "$TP" <<'PY'
+import json, os, sys
+for c in ("old", "mine", "lost"):
+    m = os.path.join(sys.argv[1], c, ".stack-manifest.json"); d = json.load(open(m))
+    d.pop("settings_permission_scalars", None); json.dump(d, open(m, "w"), indent=2)
+p = os.path.join(sys.argv[1], "mine", "settings.json"); s = json.load(open(p))
+s["permissions"]["defaultMode"] = "acceptEdits"; json.dump(s, open(p, "w"), indent=2)
+PY
+# the upgrade: the same repository moves on to plan; the bypassPermissions commit stays in its history
+tgit -C "$TP/repo" checkout -q HEAD~1 -- dot-claude/settings.json && tgit -C "$TP/repo" commit -qam "plan era" \
+  || failed "could not commit the plan-era repository"
+for c in old mine fresh; do
+  CLAUDE_CONFIG_DIR="$TP/$c" "$TP/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile --yes >"$TP/$c.log" 2>&1
+done
+dmode(){ python3 -c 'import json, sys; print(json.load(open(sys.argv[1])).get("permissions", {}).get("defaultMode"))' "$1/settings.json"; }
+[ "$(dmode "$TP/old")" = plan ] && grep -qF 'set permissions.defaultMode="plan" (was "bypassPermissions", the stack'"'"'s earlier default)' "$TP/old.log" \
+  && grep -qF 'note: default permission mode is now plan; you were on bypassPermissions by default; Shift+Tab or ExitPlanMode to change it' "$TP/old.log" \
+  && python3 -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1])).get("settings_permission_scalars") == {"defaultMode": "plan"} else 1)' "$TP/old/.stack-manifest.json" \
+  && pass "upgrade: the earlier shipped bypassPermissions becomes plan, with the notice; the manifest records plan" \
+  || { failed "defaultMode upgrade from the earlier shipped value: $(dmode "$TP/old")"; grep -i 'defaultMode\|permission mode' "$TP/old.log" | sed 's/^/    /'; }
+[ "$(dmode "$TP/mine")" = acceptEdits ] && grep -qF 'kept your permissions.defaultMode="acceptEdits" (the stack'"'"'s: "plan")' "$TP/mine.log" \
+  && ! grep -q 'permission mode is now plan' "$TP/mine.log" \
+  && [ "$(dmode "$TP/fresh")" = auto ] && grep -qF 'kept your permissions.defaultMode="auto"' "$TP/fresh.log" \
+  && pass "a mode you chose (after an install, or before the first one) is kept and reported" \
+  || { failed "defaultMode chosen by the user: $(dmode "$TP/mine") / $(dmode "$TP/fresh")"; grep -i 'defaultMode' "$TP/mine.log" "$TP/fresh.log" | sed 's/^/    /'; }
+# back to bypassPermissions by choice: later runs keep it, and the notice does not come back
+python3 - "$TP/old/settings.json" <<'PY'
+import json, sys
+p = sys.argv[1]; s = json.load(open(p)); s["permissions"]["defaultMode"] = "bypassPermissions"; json.dump(s, open(p, "w"), indent=2)
+PY
+CLAUDE_CONFIG_DIR="$TP/old" "$TP/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile --yes >"$TP/old2.log" 2>&1
+[ "$(dmode "$TP/old")" = bypassPermissions ] && grep -qF 'kept your permissions.defaultMode="bypassPermissions"' "$TP/old2.log" \
+  && ! grep -q 'permission mode is now plan' "$TP/old2.log" \
+  && pass "bypassPermissions set back by you is kept on the next run; the notice is shown once" \
+  || failed "defaultMode restored to bypassPermissions: $(dmode "$TP/old")"
+# an install from a repository that lacks the recorded commit can't tell the old default from a choice: kept
+CLAUDE_CONFIG_DIR="$TP/lost" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --yes >"$TP/lost.log" 2>&1
+[ "$(dmode "$TP/lost")" = bypassPermissions ] && grep -q "can't tell the stack's earlier default from your choice" "$TP/lost.log" \
+  && pass "an unknown last-install commit: bypassPermissions kept, and the installer says why" \
+  || { failed "defaultMode with an unknown last-install commit: $(dmode "$TP/lost")"; grep -i 'defaultMode' "$TP/lost.log" | sed 's/^/    /'; }
+assert_unchanged_real_home
+drop_scratch "$TP"
 
 echo "== 14. Copy types: researcher-copy and coder-copy rendered from their base agents"
 TC="$(scratch_dir)" || exit 1
