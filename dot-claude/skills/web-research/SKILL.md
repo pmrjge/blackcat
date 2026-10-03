@@ -12,10 +12,10 @@ description: Use before web work beyond one WebSearch — tool ladder, crawling,
 5. **mcp__exa** — `web_search_exa` (semantic search with content), `web_search_advanced_exa` (domain/date filters, subpage crawling), `web_fetch_exa` (several URLs in one call). Works without a key (rate-limited); `EXA_API_KEY` raises the limits.
 6. **mcp__spider** (researcher only) — `spider_crawl` for a whole site or section (set limit and depth), `spider_scrape` for JS-heavy single pages, `spider_links` to map a site first. Check cost with `spider_get_credits` before big crawls.
 
-Per-call caps (results, characters, pages, depth) and Spider's politeness rules (robots.txt obeyed, 1 s crawl delay, concurrency 2) are applied by a hook (`hooks/web_caps.py`, values in stack.env); a changed call says so in its context. The hook refuses Spider's bypass tools and options (`spider_unblocker`, `spider_browser_open`, proxies, fingerprint, user_agent, cookies) unless the user enabled them.
+Per-call caps (results, characters, pages, depth) and Spider's anti-bot defaults are applied by a hook (`hooks/web_caps.py`, values in stack.env); a changed call says so in its context. In the user's opt-in polite mode (`SPIDER_ANTIBOT=0`) it instead enforces robots.txt, a 1 s crawl delay and concurrency 2, and refuses Spider's bypass tools and options.
 
 ## Blocked pages
-Public pages only; the aim is a polite fetch, not defeating the protection. No CAPTCHA solving, stealth or fingerprint tricks, user-agent spoofing, proxy rotation, someone's cookies or login, or ignoring robots.txt.
+Public pages only; never someone else's cookies or login. Spider's own service escalates on its side (stealth, residential proxies, retries) whatever the call says; that is a known property of Spider, not something to switch off or rely on.
 - **Recognise**: HTTP 403, 429 or 503; a challenge or interstitial title ("Just a moment…", "Attention Required", "Access denied", "Verify you are human", "Checking your browser"); a CAPTCHA; a body that is empty, a few hundred characters of boilerplate, or only an "enable JavaScript" notice. A page disallowed by robots.txt counts as blocked for crawlers.
 - **Escalate in this order**, one URL at a time, stopping at the first rung that returns the content:
   1. Retry the same tool at most twice with exponential backoff and jitter (about 5 s then 20 s, ±30%), never sooner than a `Retry-After` header says; do other sub-questions in between rather than idling. `Retry-After` over 2 minutes → skip to rung 2.

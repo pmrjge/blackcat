@@ -5,13 +5,13 @@ PreToolUse hook (settings.json matcher ^mcp__(exa|jina|spider)__). For each call
   - clamps result counts, characters per call, crawl pages and depth to the caps in KNOBS,
   - fills a cap where the server's own default is unbounded or large (jina num 30, spider limit 0 =
     every page, spider return_format raw HTML, jina sort_by_relevance returning every document),
-  - fills Spider's polite defaults (respect_robots, crawl delay, concurrency, request mode, idle wait),
-  - refuses spider `cron`, `webhooks` and `run_in_background` (recurring spend, data sent to a third URL)
-    and `respect_robots: false`,
-  - with SPIDER_ANTIBOT=0 (default) refuses Spider's bot-protection bypasses: spider_unblocker,
-    spider_browser_open / spider_ai_browser (stealth escalation, CAPTCHA solving), premium or external
-    proxies, fingerprint profiles, custom user agents and cookies; SPIDER_ANTIBOT=1 restores the
-    fingerprint/proxy/stealth defaults below (the user's choice in stack.env, never an agent's),
+  - fills Spider's anti-bot options (request mode, fingerprint, proxies, country, idle wait, browser
+    stealth) the agent left out (SPIDER_ANTIBOT=1, the default),
+  - refuses spider `cron`, `webhooks` and `run_in_background` (recurring spend, data sent to a third URL),
+  - with SPIDER_ANTIBOT=0 (opt-in polite mode, the user's choice in stack.env) instead fills
+    respect_robots=true, a crawl delay floor and a concurrency cap, sends fingerprint=false, and refuses
+    respect_robots=false and Spider's bypasses: spider_unblocker, spider_browser_open / spider_ai_browser
+    (stealth escalation, CAPTCHA solving), proxies, fingerprint profiles, custom user agents and cookies,
 and returns the whole input as updatedInput with one line of additionalContext naming the changes.
 No permissionDecision: the changed input still goes through the normal permission evaluation, so
 nothing here loosens a guard. Values the agent passes within the caps are kept.
@@ -53,12 +53,13 @@ KNOBS = {
     "SPIDER_MAX_LINKS": (500, "spider_links / spider_ai_links limit (filled)"),
     "SPIDER_MAX_DELAY_MS": (10000, "crawl delay"),
     "SPIDER_RETURN_FORMAT": ("markdown", "return_format when omitted (Spider's default: raw HTML)"),
-    # spider politeness (crawl/scrape/unblocker; respect_robots is always filled true, false is refused)
+    "SPIDER_REQUEST": ("smart", "request mode: smart (HTTP, Chrome when needed), chrome, http"),
+    # spider mode: 1 fills the anti-bot options below the agent left out; 0 is polite mode
+    "SPIDER_ANTIBOT": ("1", "0 = polite mode: robots.txt, delay, concurrency; bypass tools and options refused"),
+    # polite mode only (SPIDER_ANTIBOT=0)
     "SPIDER_DELAY_MS": (1000, "crawl delay floor and fill, ms between requests to the site (Spider: disables concurrency)"),
     "SPIDER_CONCURRENCY": (2, "concurrency_limit fill and cap (Spider's default: unlimited)"),
-    "SPIDER_REQUEST": ("smart", "request mode: smart (HTTP, Chrome when needed), chrome, http"),
-    # spider anti-bot bypass: 0 refuses it; 1 fills the options below the agent left out
-    "SPIDER_ANTIBOT": ("0", "1 allows unblocker, browser sessions, proxies, fingerprint, user_agent, cookies"),
+    # anti-bot defaults (SPIDER_ANTIBOT=1; filled only when the agent left them out)
     "SPIDER_FINGERPRINT": ("1", "fingerprint: a full, consistent browser profile"),
     "SPIDER_PROXY_ENABLED": ("0", "premium proxies on every call (x1.5 credits); spider_unblocker always defaults to 1"),
     "SPIDER_PROXY": ("residential", "proxy pool when proxies are on: residential, mobile, isp, datacenter"),
@@ -237,11 +238,11 @@ def spider(tool, e, k):
                   "URL). Call again without it; run the crawl now and read its result."
                   % (", ".join(hit), tool))
         return
-    if e.inp.get("respect_robots") is False or str(e.inp.get("respect_robots")).lower() == "false":
-        e.deny = "Spider respect_robots=false is refused: robots.txt is obeyed. Call again without it."
-        return
     antibot = truthy(k["SPIDER_ANTIBOT"])
     if not antibot:
+        if e.inp.get("respect_robots") is False or str(e.inp.get("respect_robots")).lower() == "false":
+            e.deny = "Spider respect_robots=false is refused: robots.txt is obeyed. Call again without it."
+            return
         hit = ([tool] if tool in BYPASS_TOOLS else []) + \
               [f for f in BYPASS_OPTS if e.inp.get(f) not in (None, False, "", {}, [])] + \
               [f for f in ("proxy_enabled", "fingerprint") if e.inp.get(f) is True]
@@ -261,7 +262,7 @@ def spider(tool, e, k):
         e.cap("delay", k["SPIDER_MAX_DELAY_MS"], floor=0)
         lo = min(k["SPIDER_DELAY_MS"], k["SPIDER_MAX_DELAY_MS"] or k["SPIDER_DELAY_MS"])
         cur = num(e.inp.get("delay"))
-        if lo and (cur is None or cur < lo):
+        if not antibot and lo and (cur is None or cur < lo):
             e.inp["delay"] = lo
             e.notes.append("delay=%d" % lo if cur is None else "delay %s->%d" % (cur, lo))
         b = e.inp.get("budget")
@@ -290,7 +291,7 @@ def spider(tool, e, k):
 
     if tool in SPIDER_FORMAT_TOOLS:
         e.fill("return_format", k["SPIDER_RETURN_FORMAT"])
-    if tool in SPIDER_POOL_TOOLS:
+    if not antibot and tool in SPIDER_POOL_TOOLS:
         e.fill("respect_robots", True)
         e.cap("concurrency_limit", k["SPIDER_CONCURRENCY"], fill=k["SPIDER_CONCURRENCY"] or None)
     if tool in SPIDER_REQUEST_TOOLS:
@@ -376,22 +377,23 @@ def self_test():
     check("jina rerank fill", u and u["top_n"] == 20)
     u, _ = run("mcp__spider__spider_crawl", {"url": "https://a.example"})
     check("spider crawl defaults", u and u["limit"] == 25 and u["depth"] == 3
-          and u["return_format"] == "markdown" and u["request"] == "smart" and u["fingerprint"] is False
-          and "proxy_enabled" not in u and u["respect_robots"] is True and u["delay"] == 1000
-          and u["concurrency_limit"] == 2)
-    u, _ = run("mcp__spider__spider_crawl", {"url": "https://a.example", "delay": 100, "concurrency_limit": 50})
+          and u["return_format"] == "markdown" and u["request"] == "smart" and u["fingerprint"] is True
+          and "proxy_enabled" not in u and not {"respect_robots", "delay", "concurrency_limit"} & set(u))
+    pol = dict(k, SPIDER_ANTIBOT="0")
+    u, _ = run("mcp__spider__spider_crawl", {"url": "https://a.example"}, pol)
+    check("spider polite defaults", u and u["fingerprint"] is False and u["respect_robots"] is True
+          and u["delay"] == 1000 and u["concurrency_limit"] == 2)
+    u, _ = run("mcp__spider__spider_crawl", {"url": "https://a.example", "delay": 100, "concurrency_limit": 50},
+               pol)
     check("spider polite floor", u and u["delay"] == 1000 and u["concurrency_limit"] == 2)
     for inp in ({"respect_robots": False}, {"proxy_enabled": True}, {"fingerprint": True},
                 {"user_agent": "x"}, {"cookies": "a=b"}, {"proxy": "residential"}, {"country_code": "us"}):
-        _, d = run("mcp__spider__spider_scrape", dict(inp, url="https://a.example"))
+        _, d = run("mcp__spider__spider_scrape", dict(inp, url="https://a.example"), pol)
         check("spider polite refuses %s" % list(inp)[0], d == "deny")
     for tool in ("spider_unblocker", "spider_browser_open", "spider_ai_browser"):
-        _, d = run("mcp__spider__" + tool, {"url": "https://a.example"})
+        _, d = run("mcp__spider__" + tool, {"url": "https://a.example"}, pol)
         check("spider polite refuses " + tool, d == "deny")
-    _, d = run("mcp__spider__spider_scrape", {"url": "https://a.example", "respect_robots": False},
-               dict(k, SPIDER_ANTIBOT="1"))
-    check("robots refused with antibot on", d == "deny")
-    ab = dict(k, SPIDER_ANTIBOT="1")
+    ab = k
     u, _ = run("mcp__spider__spider_crawl", {"url": "https://a.example,https://b.example", "limit": 0,
                                              "depth": 40, "budget": {"*": 500}})
     check("spider crawl multi-url", u and u["limit"] == 25 and u["depth"] == 10 and u["budget"]["*"] == 50)
@@ -403,7 +405,7 @@ def self_test():
     u, _ = run("mcp__spider__spider_scrape", {"url": "https://a.example", "request": "chrome",
                                               "proxy_enabled": False})
     check("spider chrome wait, agent proxy kept", u and "wait_for" in u and u["proxy_enabled"] is False
-          and "proxy" not in u and u["fingerprint"] is False)
+          and "proxy" not in u and u["fingerprint"] is True)
     _, d = run("mcp__spider__spider_crawl", {"url": "https://a.example", "cron": "daily"})
     check("spider cron refused", d == "deny")
     u, _ = run("mcp__spider__spider_browser_open", {}, dict(ab, SPIDER_BROWSER_STEALTH=2))
