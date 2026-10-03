@@ -1069,9 +1069,11 @@ The magg catalog keys reach mcp-broker's magg through `bin/with-stack-env --only
 
 ### Knobs
 
-Set in `settings.json` → `env`. ● = shipped in `dot-claude/settings.json` and reset on every install:
-change it in the repo and re-run the installer. The rest are defaults in `agent_guard.py` you may set
-yourself.
+Set in `settings.json` → `env`. ● = shipped in `dot-claude/settings.json` and owned by the stack
+(`OWNED_ENV` in `install.sh`): reset on every install, so change it in the repo and re-run the
+installer. ○ = shipped as a default: it follows stack upgrades while you leave it unchanged, and a value
+you change is kept (the installer prints `kept your env …`). The rest are defaults in `agent_guard.py`
+you may set yourself.
 
 <details>
 <summary>All knobs</summary>
@@ -1082,7 +1084,7 @@ yourself.
 | `STACK_AGENT_LABEL` | `description` | Child label: `description` (`<type>: <task>`), `name` (`<type>-<n>`), `off` | guard |
 | `STACK_AGENT_STARTED` | `1` | SubagentStart gives a stack agent its start time (`0` = off) | guard |
 | `STACK_REPORT_FORMAT` | unset | `json`: every final report is one JSON line (SessionStart and SubagentStart add one line); for Agent SDK apps | guard |
-| `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` ● | 8 / 120 | BlackCat Agent calls per prompt, within this many seconds of the first | guard |
+| `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` ○ | 8 / 120 | BlackCat Agent calls per prompt, within this many seconds of the first | guard |
 | `BLACKCAT_MAX_STEPS` ● | 12 | BlackCat tool calls per prompt | guard |
 | `BLACKCAT_MAX_OWN_STEPS` | 4 | Of those, BlackCat's own Read/Bash/Write/Edit calls (8 dispatches always fit) | guard |
 | `BLACKCAT_BASH_TIMEOUT_MS` | 120000 | Longest timeout a BlackCat foreground Bash call may ask for (longer: `run_in_background` or a specialist) | guard |
@@ -1095,10 +1097,10 @@ yourself.
 | `STACK_MAX_MCP_CALLS` ● | 64 | MCP calls per subagent per prompt, lower if `maxTurns` is | guard |
 | `STACK_SOFT_LIMIT_SCALE` | unset = 1 | Multiplies the soft token limits (per agent run, 33M per human prompt, 80M with an orchestrator); `0` = off | guard |
 | `STACK_SCHED_POLICY` | `report` | `report`: the scheduler only reports; `fresh_fixer` (opt-in): `stack_sched.py next` also advises a fresh fixer after a long resume gap. Fixed per session (snapshot) | stack_sched |
-| `STACK_FANOUT_IDLE_S` ● | 600 (code: 1800) | A silent background subtree stops counting | guard |
+| `STACK_FANOUT_IDLE_S` ○ | 600 (code: 1800) | A silent background subtree stops counting | guard |
 | `STACK_LEASE_TTL_S` / `STACK_RESUME_TTL_S` | 21600 / 120 | Ceilings on unreported leases and resume reservations | guard |
 | `SUPREME_SPAWNERS` / `SUPREME_ONCE_PER_SESSION` / `SUPREME_AFTER_NINJA` | `orchestrator` / 1 / 1 | Who spawns supreme-coder; once; after a finished ninja-coder | guard |
-| `SUPREME_IDLE_S` ● / `SUPREME_PENDING_TTL_S` / `SUPREME_LOCK_TTL_S` | 1800 (code: 900) / 120 / 21600 | supreme-coder lock timers | guard |
+| `SUPREME_IDLE_S` ○ / `SUPREME_PENDING_TTL_S` / `SUPREME_LOCK_TTL_S` | 1800 (code: 900) / 120 / 21600 | supreme-coder lock timers | guard |
 | `SCREEN_LOCK_TTL_S` | 900 | Screen lock expiry | guard |
 | `STRIP_AGENT_MODEL` | 1 | Remove per-call `model` | guard |
 | `STACK_GUARD_LOG` | 0 | 1 = log hook events (tool names and ids only in budget mode) | guard |
@@ -1107,12 +1109,12 @@ yourself.
 | `STACK_ENV_FILE` ● | `~/.claude/stack.env` | Where the keys live | `mcp-headers`, `with-stack-env`, libdocs, image-studio, `read_gate.py`, `web_caps.py` |
 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` ● | 4 | Claude Code's nesting limit (its default is 3) | Claude Code, guard |
 | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 33 | Subagents running in one session | Claude Code |
-| `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` ● | 1 | Built-in Explore and Plan off (the stack's `explore` replaces Explore) | Claude Code |
-| `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` ● | 1 | Every built-in type off in `claude -p` | Claude Code |
+| `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` ○ | 1 | Built-in Explore and Plan off (the stack's `explore` replaces Explore) | Claude Code |
+| `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` ○ | 1 | Every built-in type off in `claude -p` | Claude Code |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` | from `stack.env` | Not in `dot-claude/settings.json`: the installer copies them from `stack.env` (Keys and paths above) | Claude Code |
-| `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` ● | 400 | WebSearch calls per session | Claude Code |
-| `MCP_DISCOVERY_CACHE` ● / `_TTL_S` ● / `_MAX_STALE_S` ● | 1 / 21600 / 604800 | MCP discovery cache (unverified: not on the docs page checked for this README) | Claude Code |
-| `MCP_TIMEOUT` ● / `MAX_MCP_OUTPUT_TOKENS` ● | 60000 / 25000 | MCP start-up timeout; tool output cap | Claude Code |
+| `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` ○ | 400 | WebSearch calls per session | Claude Code |
+| `MCP_DISCOVERY_CACHE` ● / `_TTL_S` ○ / `_MAX_STALE_S` ○ | 1 / 21600 / 604800 | MCP discovery cache (unverified: not on the docs page checked for this README) | Claude Code |
+| `MCP_TIMEOUT` ○ / `MAX_MCP_OUTPUT_TOKENS` ○ | 60000 / 25000 | MCP start-up timeout; tool output cap | Claude Code |
 
 </details>
 
