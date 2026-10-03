@@ -25,6 +25,9 @@ Runs on the system python3 (3.8+), standard library only.
                             JSON in $STACK_MCP_ENTRY)
   install_state.py latest   <C> <backup-root>
   install_state.py new-backup <C> <backup-root> <commit>       an empty backup (prints its path)
+  install_state.py config-dir <flag-set> <flag> <interactive> <quiet> <yes> <no-prompt> [repo...]
+                            resolve and check the install target (key<TAB>value lines; exit 2: refused)
+  install_state.py ask      <question>                       y/Y/yes on stdin: exit 0, else 1
 """
 from __future__ import annotations
 
@@ -849,9 +852,313 @@ def move_legacy(c, root):
     return moved
 
 
+# ---- install target (--config-dir) -------------------------------------------------------------
+# Precedence: --config-dir PATH > CLAUDE_CONFIG_DIR > ~/.claude. A target is refused (exit 2, nothing
+# changed) when it is unusable or dangerous; a non-default or ambiguous one is confirmed on a terminal.
+# Files and folders that mark a directory as Claude Code's own (or the stack's): a non-default target
+# that is a non-empty directory with none of them is "foreign" and needs a yes on the terminal.
+CONFIG_MARKERS = (".stack-manifest.json", "settings.json", "settings.local.json", ".claude.json",
+                  ".credentials.json", "CLAUDE.md", "stack.env", "agents", "skills", "rules", "hooks",
+                  "commands", "output-styles", "projects", "plugins", "statsig", "todos",
+                  "shell-snapshots")
+IGNORED_ENTRIES = (".DS_Store",)
+# shell metacharacters that would break the double-quoted hook commands settings.json runs, plus
+# control characters (newline, NUL, tab: the installer passes paths through lines and tabs)
+BAD_PATH_CHARS = re.compile(r'[\x00-\x1f\x7f"`$\\]')
+# never a config dir: equal to one of these (relative to $HOME, or absolute) ...
+HOME_EQUAL = (".config", ".local", ".local/bin", ".cache", "Library", "Desktop", "Documents",
+              "Downloads", "Applications")
+SYSTEM_EQUAL = ("/Users", "/Volumes", "/private", "/var", "/tmp", "/private/tmp", "/private/var", "/opt")
+# ... nor inside (or equal to) one of these
+HOME_INSIDE = (".ssh", ".gnupg", ".aws", ".kube", ".docker", "Library/Keychains")
+SYSTEM_INSIDE = ("/System", "/usr", "/bin", "/sbin", "/etc", "/private/etc", "/dev", "/Library",
+                 "/Applications")
+
+
+class ConfigDirError(Exception):
+    """An unsafe or unusable install target; the message says why."""
+
+
+def _real(p):
+    return os.path.realpath(p)
+
+
+def _inside(path, root):
+    """path equals root or lies below it (both already absolute and normalised)."""
+    return path == root or path.startswith(root.rstrip("/") + "/")
+
+
+def choose_config_dir(flag, flag_set, env, home):
+    """(raw path, source) by precedence: --config-dir > CLAUDE_CONFIG_DIR > ~/.claude. An empty
+    CLAUDE_CONFIG_DIR counts as unset (as ${CLAUDE_CONFIG_DIR:-} did); an empty flag is an error."""
+    if flag_set:
+        if not flag:
+            raise ConfigDirError("--config-dir needs a path")
+        return flag, "flag"
+    if env:
+        return env, "env"
+    return os.path.join(home, ".claude"), "default"
+
+
+def absolute_path(raw, home, cwd):
+    """~ and ~/... expand to `home`, ~user to that user's home; a relative path is taken from `cwd`.
+    Not normalised: `..` is still there (see expand_path)."""
+    if not raw:
+        raise ConfigDirError("empty path")
+    if BAD_PATH_CHARS.search(raw):
+        raise ConfigDirError("the path contains a newline, NUL, tab, other control character or one "
+                             "of \" ` $ \\ (they would break the hook commands): %r" % raw)
+    p = raw
+    if p == "~" or p.startswith("~/"):
+        p = home + p[1:]
+    elif p.startswith("~"):
+        p = os.path.expanduser(p)
+        if p.startswith("~"):
+            raise ConfigDirError("unknown user in %r" % raw)
+    return p if os.path.isabs(p) else os.path.join(cwd, p)
+
+
+def expand_path(raw, home, cwd):
+    """absolute_path with `.` and `..` folded lexically, as the shell's `cd DIR && pwd` does."""
+    p = os.path.normpath(absolute_path(raw, home, cwd))
+    return "/" + p.lstrip("/") if p.startswith("//") else p
+
+
+def dir_kind(path):
+    """missing | empty | stack (has .stack-manifest.json) | claude (a CONFIG_MARKERS entry) | foreign"""
+    if not os.path.isdir(path):
+        return "missing"
+    try:
+        names = [n for n in os.listdir(path) if n not in IGNORED_ENTRIES]
+    except OSError:
+        return "foreign"
+    if not names:
+        return "empty"
+    if ".stack-manifest.json" in names:
+        return "stack"
+    return "claude" if any(m in names for m in CONFIG_MARKERS) else "foreign"
+
+
+def manifest_id(c):
+    """(repo, commit) a stack install recorded in C/.stack-manifest.json, or None."""
+    m = load_json(os.path.join(c, ".stack-manifest.json"), None)
+    if not isinstance(m, dict):
+        return None
+    return (str(m.get("repo") or "?"), str(m.get("commit") or "?"))
+
+
+def check_config_dir(path, home, repos=(), state_root=None):
+    """Raise ConfigDirError when `path` (absolute, normalised) must not be an install target."""
+    real, rhome = _real(path), _real(home)
+    if path == "/" or real == "/":
+        raise ConfigDirError("refusing / as the config dir")
+    if real == rhome or _inside(rhome, real):
+        raise ConfigDirError("refusing %s: it is your home folder or contains it" % path)
+    for r in repos:
+        if r and (_inside(real, _real(r)) or _inside(path, os.path.normpath(r))):
+            raise ConfigDirError("refusing %s: it is inside the stack's repo checkout %s (the installer "
+                                 "copies from there)" % (path, r))
+    for rel in HOME_EQUAL:
+        if real == _real(os.path.join(home, rel)):
+            raise ConfigDirError("refusing %s: a general-purpose folder, not a config dir" % path)
+    for p in SYSTEM_EQUAL:
+        if real == _real(p):
+            raise ConfigDirError("refusing %s: a system folder" % path)
+    inside = [os.path.join(home, rel) for rel in HOME_INSIDE] + list(SYSTEM_INSIDE)
+    if state_root:
+        inside += [os.path.join(state_root, "claude-agent-stack" + s) for s in ("", "-backups", "-cache")]
+    for p in inside:
+        if _inside(real, _real(p)) or _inside(path, os.path.normpath(p)):
+            raise ConfigDirError("refusing %s: inside %s (credentials, system or the stack's own state)"
+                                 % (path, p))
+    if os.path.lexists(path) and not os.path.isdir(path):
+        raise ConfigDirError("refusing %s: it exists and is not a directory" % path)
+    if os.path.isdir(path):
+        if not os.access(real, os.W_OK | os.X_OK):
+            raise ConfigDirError("refusing %s: not writable by you" % path)
+        return
+    up = os.path.dirname(path)
+    while up != os.path.dirname(up) and not os.path.lexists(up):
+        up = os.path.dirname(up)
+    if not os.path.isdir(up) or not os.access(_real(up), os.W_OK | os.X_OK):
+        raise ConfigDirError("refusing %s: it cannot be created (%s is not a writable directory)" % (path, up))
+
+
+def decide_prompt(reasons, foreign, interactive, quiet=False, yes=False, no_prompt=False):
+    """What the installer does about the target: proceed | ask | refuse | warn.
+    quiet: --dry-run, --mcp-plan or --print-managed-settings (nothing changes, never asks).
+    interactive: stdin AND stdout are terminals."""
+    if foreign:
+        if quiet:
+            return "warn"
+        return "ask" if interactive and not yes and not no_prompt else "refuse"
+    if not reasons or quiet or yes or no_prompt or not interactive:
+        return "proceed"
+    return "ask"
+
+
+def profile_hint(shell):
+    """Which startup file exports a variable for the user's login shell on macOS."""
+    name = os.path.basename(shell or "")
+    if name == "zsh":
+        return "~/.zshrc (zsh reads it in every interactive shell; ~/.zprofile only in login shells)"
+    if name == "bash":
+        return ("~/.bash_profile (macOS Terminal starts bash as a login shell, which reads "
+                "~/.bash_profile, not ~/.bashrc)")
+    return "your shell's startup file (zsh: ~/.zshrc; bash: ~/.bash_profile)"
+
+
+def _sq(s):
+    return "'" + s.replace("'", "'\"'\"'") + "'"
+
+
+def resolve_config_dir(flag, flag_set, env, home, cwd, repos=(), state_root=None,
+                       stack_claude_json="", shell="", interactive=False, quiet=False, yes=False,
+                       no_prompt=False):
+    """Everything install.sh needs to know about its target, as a dict (see main: config-dir)."""
+    raw, source = choose_config_dir(flag, flag_set, env, home)
+    path = expand_path(raw, home, cwd)
+    raw_abs = absolute_path(raw, home, cwd)
+    if _real(path) != _real(raw_abs):
+        raise ConfigDirError("%r goes through a symlink before a '..' (the shell would read it as %s, the "
+                             "file system as %s): give the resolved path" % (raw, path, _real(raw_abs)))
+    check_config_dir(path, home, repos, state_root)
+    real = _real(path)
+    default = os.path.join(home, ".claude")
+    is_default = real == _real(default)
+    env_path = ""
+    if env:
+        try:
+            env_path = expand_path(env, home, cwd)
+        except ConfigDirError:
+            env_path = env
+    env_same = bool(env_path) and _real(env_path) == real
+    if source == "flag":
+        export = "keep" if env_same else ("unset" if is_default else "set")
+    else:
+        export = "keep"
+    claude_dir_set = (export == "set") or (export == "keep" and bool(env))
+    if stack_claude_json:
+        claude_json = stack_claude_json
+    elif claude_dir_set:
+        claude_json = os.path.join(path, ".claude.json")
+    else:
+        claude_json = os.path.join(home, ".claude.json")
+    kind = dir_kind(path)
+    nondefault = claude_dir_set or not is_default
+    foreign = kind == "foreign" and not is_default
+    reasons = []
+    if source == "flag" and not is_default:
+        reasons.append("--config-dir names a folder other than ~/.claude")
+    if source == "env":
+        reasons.append("CLAUDE_CONFIG_DIR is set in this shell (%s)" % env)
+    if source == "flag" and env and not env_same:
+        reasons.append("CLAUDE_CONFIG_DIR=%s in this shell points elsewhere: a Claude Code started from it "
+                       "reads that folder, not this target" % env)
+    other = manifest_id(default) if not is_default else None
+    mine = manifest_id(path)
+    if other and mine and other != mine:
+        reasons.append("~/.claude and the target both hold a stack install, and they differ "
+                       "(%s at %s vs %s at %s)" % (other[0], other[1][:12], mine[0], mine[1][:12]))
+    if foreign:
+        reasons.append("the target is a non-empty folder with no Claude Code files (none of: %s)"
+                       % ", ".join(CONFIG_MARKERS))
+    decision = decide_prompt(reasons, foreign, interactive, quiet, yes, no_prompt)
+    how = {"flag": "--config-dir", "env": "CLAUDE_CONFIG_DIR",
+           "default": "the default (no --config-dir, CLAUDE_CONFIG_DIR unset)"}[source]
+    banner = ["install target: %s" % path,
+              "  chosen by: %s   (precedence: --config-dir > CLAUDE_CONFIG_DIR > ~/.claude)" % how]
+    if real != path:
+        banner.append("  resolved: %s (through a symlink)" % real)
+    banner.append("  Claude Code's .claude.json for it: %s%s" % (
+        claude_json, " (STACK_CLAUDE_JSON)" if stack_claude_json else ""))
+    if export == "set":
+        banner.append("  this run sets CLAUDE_CONFIG_DIR=%s for the claude commands it runs" % path)
+    elif export == "unset" and env:
+        banner.append("  this run unsets CLAUDE_CONFIG_DIR for the claude commands it runs")
+    if source == "flag" and env and not env_same:
+        banner.append("  ! CLAUDE_CONFIG_DIR=%s in this shell is overridden for this run; a Claude Code started "
+                      "from this shell still reads that folder" % env)
+    if other and not is_default:
+        banner.append("  ~/.claude holds another stack install (commit %s): left untouched" % other[1][:12])
+    warn = []
+    if nondefault:
+        if real == _real(default):
+            warn.append("! CLAUDE_CONFIG_DIR is set to the default folder: Claude Code then keeps its "
+                        ".claude.json inside it (%s), not in ~/.claude.json" % claude_json)
+        else:
+            warn.append("! a non-default config folder: Claude Code reads it only when CLAUDE_CONFIG_DIR is "
+                        "exported%s. Add" % (" (it is set in this shell; keep it in your profile)"
+                                             if env_same else ""))
+            warn.append("      export CLAUDE_CONFIG_DIR=%s" % _sq(path))
+            warn.append("  to %s, then open a new terminal. Apps opened from the Dock or Finder do not read "
+                        "shell startup files." % profile_hint(shell))
+            warn.append("! settings.json, the hooks and the MCP entries hold absolute paths to this folder: "
+                        "to move it, reinstall with --config-dir <new path> (a plain mv breaks them)")
+    if foreign and decision in ("refuse", "warn"):
+        warn.append("! %s is a non-empty folder with no Claude Code files: a real run asks on a terminal "
+                    "and stops without one (empty it, or pick another folder)" % path)
+    ask = []
+    if decision == "ask":
+        ask = ["About to install the stack into a folder that is not the plain default:",
+               "  target: %s  (from %s)" % (path, how)]
+        ask += ["  why you are asked: " + r for r in reasons]
+        ask += ["  this run writes agents/, skills/, rules/, hooks/, bin/, mcp/, settings.json, stack.env "
+                "and .stack-manifest.json there (files it replaces or removes go to a backup first),",
+                "  registers MCP servers in %s through `claude mcp` and enables plugins for that folder%s."
+                % (claude_json, "; ~/.claude is not touched" if not is_default else "")]
+    return {"path": path, "real": real, "source": source, "export": export, "claude_json": claude_json,
+            "kind": kind, "decision": decision, "reasons": reasons, "banner": banner, "warn": warn,
+            "ask": ask, "nondefault": nondefault, "is_default": is_default}
+
+
+def ask_yes_no(question, inp=None, out=None):
+    """Print `question`, read one line; True only for y/Y/yes (the default is No, EOF is No)."""
+    inp, out = inp or sys.stdin, out or sys.stdout
+    out.write(question)
+    out.flush()
+    ans = inp.readline()
+    return ans.strip() in ("y", "Y", "yes", "Yes", "YES")
+
+
+def _cwd():
+    """The shell's logical working directory when $PWD names it, else the physical one."""
+    pwd, cwd = os.environ.get("PWD", ""), os.getcwd()
+    try:
+        if pwd and os.path.isabs(pwd) and os.path.samefile(pwd, cwd):
+            return pwd
+    except OSError:
+        pass
+    return cwd
+
+
 def main(argv):
     cmd = argv[1] if len(argv) > 1 else ""
     a = argv[2:]
+    if cmd == "config-dir":
+        # config-dir <flag-set 0|1> <flag> <interactive 0|1> <quiet 0|1> <yes 0|1> <no-prompt 0|1> [repo...]
+        # reads HOME, CLAUDE_CONFIG_DIR, STACK_CLAUDE_JSON, XDG_STATE_HOME, SHELL, PWD; prints key<TAB>value
+        env = os.environ
+        home = env.get("HOME") or os.path.expanduser("~")
+        try:
+            r = resolve_config_dir(a[1], a[0] == "1", env.get("CLAUDE_CONFIG_DIR", ""), home, _cwd(),
+                                   repos=a[6:], state_root=env.get("XDG_STATE_HOME") or
+                                   os.path.join(home, ".local", "state"),
+                                   stack_claude_json=env.get("STACK_CLAUDE_JSON", ""),
+                                   shell=env.get("SHELL", ""), interactive=a[2] == "1", quiet=a[3] == "1",
+                                   yes=a[4] == "1", no_prompt=a[5] == "1")
+        except ConfigDirError as e:
+            sys.stderr.write("install.sh: %s. Nothing was changed.\n" % e)
+            return 2
+        for k in ("path", "real", "source", "export", "claude_json", "kind", "decision"):
+            print("%s\t%s" % (k, r[k]))
+        print("nondefault\t%d" % r["nondefault"])
+        for k in ("banner", "warn", "ask"):
+            for line in r[k]:
+                print("%s\t%s" % (k, line))
+        return 0
+    if cmd == "ask":
+        return 0 if ask_yes_no(a[0]) else 1
     if cmd == "stage":
         stage(a[0], a[1], a[2] if len(a) > 2 else None)
     elif cmd == "plan":

@@ -33,7 +33,30 @@
 #   ./install.sh --mcp-plan      print the MCP server add/migrate/replace/keep plan and make no changes
 #   ./install.sh --yes           install without asking when the stack's files changed since the last
 #                                 install (asked on the terminal; with no terminal, e.g. in CI, the
-#                                 run stops unless --yes is given)
+#                                 run stops unless --yes is given), and without the target question
+#   ./install.sh --config-dir PATH  (or --config-dir=PATH) install into PATH instead of ~/.claude.
+#                                 Precedence: --config-dir > CLAUDE_CONFIG_DIR > ~/.claude. PATH may
+#                                 use ~ and be relative; symlinks are resolved and shown. Refused (exit
+#                                 2, nothing changed): /, your home folder or a folder containing it,
+#                                 anything inside this repo checkout, ~/.ssh ~/.gnupg ~/.aws ~/.kube
+#                                 ~/.docker ~/Library/Keychains and system folders, a file, a folder
+#                                 you can't write or create, the stack's state and backup folders, a
+#                                 path with a control character or one of " ` $ \. A non-default
+#                                 target that is a non-empty folder with no Claude Code files (none of
+#                                 .stack-manifest.json settings.json .claude.json CLAUDE.md stack.env
+#                                 agents/ skills/ rules/ hooks/ projects/ plugins/ ...) needs a yes on
+#                                 the terminal; without one the run stops.
+#                                 Every run prints the target, how it was chosen and the .claude.json
+#                                 it implies. On a terminal (stdin and stdout), a non-default or
+#                                 ambiguous target (--config-dir other than ~/.claude, CLAUDE_CONFIG_DIR
+#                                 set, or two differing stack installs) is confirmed first [y/N];
+#                                 --yes, --no-prompt, --dry-run, --mcp-plan and runs without a terminal
+#                                 never ask. A non-default folder works only with
+#                                 export CLAUDE_CONFIG_DIR=PATH in your shell profile (~/.zshrc; bash:
+#                                 ~/.bash_profile), and moving it later means reinstalling.
+#   ./install.sh --no-prompt     never ask on the terminal: the target question is skipped (the run
+#                                 proceeds, a foreign non-empty target stops it) and a changed stack
+#                                 stops the run unless --yes is given
 # Default pruning: the installed agents/ and skills/ hold exactly the stack's files (your own and
 # edited ones are removed or replaced), and stack config the stack no longer ships (hooks, rules,
 # magg catalog entries, MCP entries it registered, duplicate hook wiring) goes. Everything changed
@@ -42,14 +65,17 @@
 # read it), and the run prints the list and the restore command. A run that changes nothing makes
 # no backup. Never touched: credentials, ~/.claude.json (MCP changes go through `claude mcp`),
 # the claude.ai-synced skills, plugins' own files, projects and sessions.
-# CLAUDE_CONFIG_DIR overrides the install target (default ~/.claude).
+# CLAUDE_CONFIG_DIR overrides the install target (default ~/.claude); --config-dir overrides both.
 # STACK_CLAUDE_JSON overrides which JSON file the MCP plan reads (default: $C/.claude.json when
-# CLAUDE_CONFIG_DIR is set — Claude Code then uses only that file —, else ~/.claude.json). The
-# installer never writes that file itself: every MCP change goes through `claude mcp`.
+# CLAUDE_CONFIG_DIR is set, or --config-dir names another folder — Claude Code then uses only that
+# file —, else ~/.claude.json). The installer never writes that file itself: every MCP change goes
+# through `claude mcp`, run with CLAUDE_CONFIG_DIR pointing at the target.
+# Runs from any clone location (also through a symlink to this script), with bash 3.2 or later.
 set -euo pipefail
 
 WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; WITH_EXTRA_PLUGINS=0; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
 NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; PRUNE=1; RESTORE=""; PRINT_MANAGED=0; ASSUME_YES=0; ORIG_ARGS="$*"
+NO_PROMPT=0; CONFIG_DIR_SET=0; CONFIG_DIR_ARG=""
 i=0; argv=("$@")
 while [ "$i" -lt "${#argv[@]}" ]; do
   a="${argv[$i]}"
@@ -72,6 +98,11 @@ while [ "$i" -lt "${#argv[@]}" ]; do
     --no-prune) PRUNE=0 ;;
     --print-managed-settings) PRINT_MANAGED=1 ;;
     --yes|-y) ASSUME_YES=1 ;;
+    --no-prompt) NO_PROMPT=1 ;;
+    --config-dir)
+      [ $((i + 1)) -lt "${#argv[@]}" ] || { echo "--config-dir needs a path (--config-dir PATH or --config-dir=PATH)"; exit 2; }
+      CONFIG_DIR_SET=1; CONFIG_DIR_ARG="${argv[$((i + 1))]}"; i=$((i + 1)) ;;
+    --config-dir=*) CONFIG_DIR_SET=1; CONFIG_DIR_ARG="${a#--config-dir=}" ;;
     --restore)
       nxt="${argv[$((i + 1))]:-}"
       case "$nxt" in ""|-*) RESTORE=latest ;; *) RESTORE="$nxt"; i=$((i + 1)) ;; esac ;;
@@ -93,7 +124,16 @@ if [ "$(uname)" != "Darwin" ] && [ "${STACK_ALLOW_NON_MACOS:-0}" != 1 ]; then
   exit 1
 fi
 
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# The repo is wherever this script really lives: follow a symlink to the script itself (a link in
+# ~/bin, say) to the clone; a symlinked clone directory keeps its logical path. Spaces are fine.
+self="${BASH_SOURCE[0]}"
+while [ -L "$self" ]; do
+  link="$(readlink "$self")"
+  case "$link" in /*) self="$link" ;; *) self="$(dirname "$self")/$link" ;; esac
+done
+HERE="$(cd "$(dirname "$self")" && pwd)"
+unset self link
+STATE_PY="$HERE/lib/install_state.py"
 
 # ---- Main-branch rule (hard-coded; no flag or variable turns it off) ----------------------------
 # The stack installs only from its repo's `main` branch, the same Git rule the agents follow
@@ -187,10 +227,55 @@ main_branch_rule(){
   printf 'stack repo: re-running the installer from the %s checkout %s\n' "$MAIN_BRANCH" "$target"
   STACK_MAIN_REEXEC=1 exec "$target/install.sh" ${1+"$@"}
 }
+# ---- Install target: --config-dir > CLAUDE_CONFIG_DIR > ~/.claude --------------------------------
+# lib/install_state.py (config-dir) resolves and checks it; an unsafe target stops here, before the
+# main-branch rule merges anything. Sets CD_PATH CD_EXPORT CD_DECISION and the banner, warning and
+# question lines. Checked against this checkout and the repo's main checkout.
+resolve_target(){
+  local out k v tty=0 quiet=0 common repos
+  [ -t 0 ] && [ -t 1 ] && tty=1
+  [ "$DRY_RUN$MCP_PLAN$PRINT_MANAGED" != 000 ] && quiet=1
+  repos=("$HERE")
+  common="$(repo_git -C "$HERE" rev-parse --path-format=absolute --git-common-dir 2>/dev/null || true)"
+  case "$common" in */.git) repos+=("${common%/.git}") ;; esac
+  out="$(python3 "$STATE_PY" config-dir "$CONFIG_DIR_SET" "$CONFIG_DIR_ARG" "$tty" "$quiet" \
+         "$ASSUME_YES" "$NO_PROMPT" "${repos[@]}")" || exit 2
+  CD_PATH=""; CD_EXPORT=""; CD_DECISION=""; CD_BANNER=""; CD_WARN=""; CD_ASK=""
+  while IFS=$'\t' read -r k v; do
+    case "$k" in
+      path) CD_PATH="$v" ;; export) CD_EXPORT="$v" ;; decision) CD_DECISION="$v" ;;
+      banner) CD_BANNER="$CD_BANNER$v"$'\n' ;; warn) CD_WARN="$CD_WARN  $v"$'\n' ;; ask) CD_ASK="$CD_ASK$v"$'\n' ;;
+    esac
+  done <<EOF
+$out
+EOF
+  [ -n "$CD_PATH" ] || { echo "install.sh: could not resolve the install target"; exit 2; }
+}
+resolve_target
+
 main_branch_rule ${1+"$@"}
 
 SRC="$HERE/dot-claude"
-C="${CLAUDE_CONFIG_DIR:-$HOME/.claude}"
+# The banner: always, on stdout (stderr under --print-managed-settings, whose stdout is the JSON).
+printf '\n%s' "$CD_BANNER"
+[ -n "$CD_WARN" ] && printf '%s' "$CD_WARN"
+case "$CD_DECISION" in
+  refuse)
+    echo "install.sh: $CD_PATH is a non-empty folder with no Claude Code files, and there is no terminal to confirm it (or --yes/--no-prompt was given). Empty it, pick another folder, or run on a terminal and answer y. Nothing was changed." >&2
+    exit 2 ;;
+  ask)
+    printf '\n%s' "$CD_ASK"
+    if ! python3 "$STATE_PY" ask "Install into $CD_PATH? [y/N] "; then
+      echo "install.sh: stopped before changing anything (answer was not y). Nothing was changed." >&2
+      exit 1
+    fi ;;
+esac
+# the claude commands this run starts (mcp, plugin) act on the target, as Claude Code will
+case "$CD_EXPORT" in
+  set) export CLAUDE_CONFIG_DIR="$CD_PATH" ;;
+  unset) unset CLAUDE_CONFIG_DIR ;;
+esac
+C="$CD_PATH"
 # The same (logical) path in every mode, so a dry run renders exactly what a real run would.
 if [ "$DRY_RUN" = 1 ] || [ "$PRINT_MANAGED" = 1 ] || [ -n "$RESTORE" ]; then
   [ -d "$C" ] || [ "$DRY_RUN" = 1 ] || [ "$PRINT_MANAGED" = 1 ] || { echo "no config dir at $C"; exit 1; }
@@ -559,7 +644,10 @@ fi
 if [ "$SUPPLY_CHANGED" = 1 ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ]; then
   q="The stack changed since the last install (listed above). Install it? (see the whole plan first: $0 --dry-run) [y/N] "
   ans=""
-  if [ -t 0 ] && [ -t 2 ]; then
+  if [ "$NO_PROMPT" = 1 ]; then
+    echo "install.sh: the stack changed since the last install (listed above) and --no-prompt forbids asking: rerun with --yes to install it (--dry-run shows the whole plan). Nothing in $C was changed." >&2
+    exit 1
+  elif [ -t 0 ] && [ -t 2 ]; then
     printf '%s' "$q" >&2; read -r ans || true
   elif { : </dev/tty; } 2>/dev/null && { : >/dev/tty; } 2>/dev/null; then
     printf '%s' "$q" >/dev/tty; read -r ans </dev/tty || true
@@ -2747,7 +2835,11 @@ PY
   [ "$(readlink "$old_launcher" 2>/dev/null)" = "$C/bin/claude-ultracode" ] \
     && note "= claude-god: deprecated alias of claude-supreme (god-coder is now supreme-coder); remove it: rm $old_launcher"
   case "$(basename "${SHELL:-}")" in
-    zsh|bash|"") ;;
+    zsh|"") ;;
+    bash)  # macOS Terminal starts login shells: bash reads ~/.bash_profile there, not ~/.bashrc
+      if [ -f "$HOME/.bashrc" ] && ! grep -qs 'bashrc' "$HOME/.bash_profile"; then
+        PROFILE_NOTE="your login shell is bash, whose login shells (macOS Terminal) read ~/.bash_profile, not ~/.bashrc: add  [ -f ~/.bashrc ] && . ~/.bashrc  to ~/.bash_profile"
+      fi ;;
     *) PROFILE_NOTE="your login shell is $SHELL: export the keys of $C/stack.env there yourself" ;;
   esac
 fi
@@ -2777,6 +2869,7 @@ if [ "$DRY_RUN" = 1 ]; then
 fi
 say "Done. Next:"
 [ -n "$PROFILE_NOTE" ] && note "! $PROFILE_NOTE"
+[ -n "$CD_WARN" ] && printf '%s' "$CD_WARN"
 if [ -n "$B" ]; then
   note "backup of everything this run changed or removed: $B"
   note "restore it: $HERE/install.sh --restore $B"

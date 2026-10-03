@@ -52,6 +52,9 @@ fi
 
 if [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ "$(cd "$CLAUDE_CONFIG_DIR" 2>/dev/null && pwd)" != "$C" ]; then
   warn "CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR differs from this script's install dir ($C) — checking $C"
+elif [ -z "${CLAUDE_CONFIG_DIR:-}" ] && [ "$(cd "$C" && pwd -P)" != "$(cd "$HOME/.claude" 2>/dev/null && pwd -P)" ]; then
+  # an install made with ./install.sh --config-dir: Claude Code reads it only with the variable exported
+  warn "this install is in $C, not ~/.claude, and CLAUDE_CONFIG_DIR is unset: Claude Code won't read it — export CLAUDE_CONFIG_DIR='$C' in your shell profile (~/.zshrc; bash: ~/.bash_profile)"
 fi
 
 echo "== Claude Code"

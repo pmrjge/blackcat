@@ -1908,17 +1908,18 @@ grep -q "changes to the stack's shipped files and installer since the last insta
 # on a terminal the run asks before applying those changes: "n" applies nothing, --yes doesn't ask
 cat > "$TX/tty_run.py" <<'PY'
 import os, select, subprocess, sys
-answer, log, argv = sys.argv[1].encode(), sys.argv[2], sys.argv[3:]
+# answers: comma-separated, one per [y/N] question in order (the target question comes first)
+answers, log, argv = sys.argv[1].encode().split(b","), sys.argv[2], sys.argv[3:]
 m, s = os.openpty()
 p = subprocess.Popen(argv, stdin=s, stdout=s, stderr=s, close_fds=True)
-buf, answered = b"", False
+buf, answered = b"", 0
 while True:                  # the slave stays open here: no EIO while the child's output is read
     r, _, _ = select.select([m], [], [], 0.5)
     if m in r:
         buf += os.read(m, 65536)
-        if not answered and b"[y/N]" in buf:
-            os.write(m, answer + b"\n")
-            answered = True
+        if answered < len(answers) and buf.count(b"[y/N]") > answered:
+            os.write(m, answers[answered] + b"\n")
+            answered += 1
     elif p.poll() is not None:
         break
 os.close(s)
@@ -1928,7 +1929,7 @@ sys.exit(rc)
 PY
 set_commit "$old_commit"; nb=$(count_backups "$TX/r"); fp "$TX/r" > "$TX/fp.s0"
 FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="$TX/r" \
-  python3 "$TX/tty_run.py" n "$TX/s3.log" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile; rc3=$?
+  python3 "$TX/tty_run.py" y,n "$TX/s3.log" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile; rc3=$?
 cmp -s "$TX/fp.s0" <(fp "$TX/r") && [ "$(count_backups "$TX/r")" = "$nb" ]; same3=$?
 FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="$TX/r" \
   python3 "$TX/tty_run.py" n "$TX/s4.log" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --yes; rc4=$?
@@ -2149,6 +2150,130 @@ srun "$TS/h3" "$TS/stubs:$NOCARGO_PATH" c.log; rc=$?
 unset CARGO_LOG
 assert_unchanged_real_home
 drop_scratch "$TS"
+
+echo "== 19. Install target: --config-dir, precedence, banner, refusals, the question, spaces, clone paths"
+TG="$(scratch_dir)"
+mkdir -p "$TG/home/.ssh" "$TG/home/.claude" && echo k > "$TG/home/.ssh/id_ed25519"
+# every case: scratch HOME and state, no STACK_CLAUDE_JSON (the banner shows the .claude.json the
+# target implies), no terminal on stdin unless the case makes a pty
+tg_run(){ local log="$1"; shift
+  env -u STACK_CLAUDE_JSON HOME="$TG/home" SHELL=/bin/zsh FAKE_CLAUDE_JSON="$TG/fake.json" "$@" </dev/null >"$log" 2>&1; }
+# precedence: the flag beats CLAUDE_CONFIG_DIR; a real install into a path with a space
+tg_run "$TG/p1.log" env CLAUDE_CONFIG_DIR="$TG/env dir" "$INSTALL" --config-dir "$TG/flag dir" \
+  --no-mcp --no-plugins --no-deps --no-profile; rc=$?
+# every hook command, split as the shell splits it, keeps the spaced path as one word
+hooks_split_ok(){ python3 - "$1" "$2" <<'PY'
+import json, shlex, sys
+s, want = json.load(open(sys.argv[1])), sys.argv[2]
+cmds = [h["command"] for gs in s["hooks"].values() for g in gs for h in g["hooks"] if "agent_guard" in h["command"]]
+sys.exit(0 if cmds and all(want in shlex.split(c) for c in cmds) else 1)
+PY
+}
+hooks_split_ok "$TG/flag dir/settings.json" "$TG/flag dir/hooks/agent_guard.py" 2>/dev/null; hooks_ok=$?
+[ "$rc" = 0 ] && [ -f "$TG/flag dir/agents/coder.md" ] && [ ! -e "$TG/env dir" ] && [ "$hooks_ok" = 0 ] \
+  && grep -qF "install target: $TG/flag dir" "$TG/p1.log" && grep -q 'chosen by: --config-dir' "$TG/p1.log" \
+  && grep -qF "Claude Code's .claude.json for it: $TG/flag dir/.claude.json" "$TG/p1.log" \
+  && grep -qF "CLAUDE_CONFIG_DIR=$TG/env dir in this shell is overridden for this run" "$TG/p1.log" \
+  && pass "--config-dir beats CLAUDE_CONFIG_DIR; installs into a path with a space; hooks quote it; banner names target, source, .claude.json" \
+  || failed "--config-dir precedence / space install (rc=$rc, hooks $hooks_ok): $(grep -i 'target\|chosen\|refus' "$TG/p1.log" | head -4)"
+grep -qF "export CLAUDE_CONFIG_DIR='$TG/flag dir'" "$TG/p1.log" && grep -q '~/.zshrc' "$TG/p1.log" \
+  && grep -q 'reinstall with --config-dir' "$TG/p1.log" \
+  && [ "$(grep -c "export CLAUDE_CONFIG_DIR='$TG/flag dir'" "$TG/p1.log")" = 2 ] \
+  && pass "non-default target: export line, profile file and the reinstall-to-move warning, in the banner and after the install" \
+  || failed "non-default warning missing: $(grep -i 'export CLAUDE_CONFIG_DIR\|zshrc' "$TG/p1.log" | head -3)"
+out=$(env -u CLAUDE_CONFIG_DIR HOME="$TG/home" bash "$TG/flag dir/bin/doctor.sh" </dev/null 2>&1)
+printf '%s\n' "$out" | grep -qF "WARN  this install is in $TG/flag dir, not ~/.claude, and CLAUDE_CONFIG_DIR is unset" \
+  && pass "doctor.sh warns when a non-default install is not what CLAUDE_CONFIG_DIR names" \
+  || failed "doctor.sh: no warning for a non-default install with CLAUDE_CONFIG_DIR unset"
+# --config-dir=PATH form, ~ expansion, and the env fallback (dry runs change nothing)
+tg_run "$TG/p2.log" "$INSTALL" --dry-run --config-dir='~/alt' --no-mcp --no-plugins --no-deps --no-profile; rc2=$?
+tg_run "$TG/p3.log" env CLAUDE_CONFIG_DIR="$TG/only env" "$INSTALL" --dry-run --no-mcp --no-plugins --no-deps --no-profile; rc3=$?
+tg_run "$TG/p4.log" env -u CLAUDE_CONFIG_DIR "$INSTALL" --dry-run --no-mcp --no-plugins --no-deps --no-profile; rc4=$?
+[ "$rc2" = 0 ] && grep -qF "install target: $TG/home/alt" "$TG/p2.log" && [ ! -e "$TG/home/alt" ] \
+  && [ "$rc3" = 0 ] && grep -qF "install target: $TG/only env" "$TG/p3.log" && grep -q 'chosen by: CLAUDE_CONFIG_DIR' "$TG/p3.log" \
+  && grep -qF ".claude.json for it: $TG/only env/.claude.json" "$TG/p3.log" \
+  && [ "$rc4" = 0 ] && grep -qF "install target: $TG/home/.claude" "$TG/p4.log" && grep -q 'chosen by: the default' "$TG/p4.log" \
+  && grep -qF ".claude.json for it: $TG/home/.claude.json" "$TG/p4.log" && ! grep -q 'non-default config folder' "$TG/p4.log" \
+  && pass "--config-dir=~/alt expands ~; CLAUDE_CONFIG_DIR is the fallback; ~/.claude the default (with ~/.claude.json, no warning)" \
+  || failed "precedence/banner (rc=$rc2/$rc3/$rc4): $(grep -h 'install target\|chosen by' "$TG/p2.log" "$TG/p3.log" "$TG/p4.log" | head -6)"
+# no question without a terminal: a non-default target proceeds
+! grep -q 'Install into' "$TG/p1.log" "$TG/p3.log" && pass "no terminal: no question, the run proceeds with the banner" \
+  || failed "a run without a terminal asked about the target"
+# refusals: exit 2, nothing created
+mkdir -p "$TG/ro" && chmod 500 "$TG/ro"; echo x > "$TG/afile"; ln -s "$HERE/dot-claude" "$TG/into-repo"
+mkdir -p "$TG/foreign" && echo x > "$TG/foreign/photo.jpg"; mkdir -p "$TG/real/inner" && ln -s "$TG/real/inner" "$TG/lnk"
+bad=""
+for t in / "$TG/home" "$TG/home/.ssh" "$HERE" "$HERE/dot-claude" "$TG/into-repo" "$TG/afile" "$TG/ro" \
+         "$TG/ro/sub" "$TG/lnk/../x" "$(printf '%s/new\nline' "$TG")" "$TG/a\$b"; do
+  tg_run "$TG/r.log" "$INSTALL" --config-dir "$t" --no-mcp --no-plugins --no-deps --no-profile; rc=$?
+  { [ "$rc" = 2 ] && grep -q 'refusing\|control character\|symlink before' "$TG/r.log"; } || bad="$bad [$t rc=$rc]"
+done
+tg_run "$TG/r2.log" "$INSTALL" --config-dir "$TG/foreign" --no-mcp --no-plugins --no-deps --no-profile; rcf=$?
+tg_run "$TG/r3.log" "$INSTALL" --config-dir "$TG/foreign" --yes --no-mcp --no-plugins --no-deps --no-profile; rcy=$?
+[ -z "$bad" ] && [ ! -e "$TG/ro/sub" ] && [ "$(ls "$TG/foreign")" = photo.jpg ] \
+  && [ "$rcf" = 2 ] && grep -q 'no Claude Code files' "$TG/r2.log" && [ "$rcy" = 2 ] \
+  && pass "refused with exit 2: /, HOME, ~/.ssh, the repo, a symlink into it, a file, a read-only dir, '..' through a symlink, newline and \$; a foreign non-empty dir without a terminal (also with --yes)" \
+  || failed "refusals:$bad foreign rc=$rcf/$rcy $(tail -n 2 "$TG/r2.log")"
+chmod 700 "$TG/ro"
+# the question: the answer parser with an injected answer, then a real pty when the sandbox allows one
+printf 'y\n' | python3 "$HERE/lib/install_state.py" ask 'Q? [y/N] ' >/dev/null; a1=$?
+printf '\n' | python3 "$HERE/lib/install_state.py" ask 'Q? [y/N] ' >/dev/null; a2=$?
+python3 "$HERE/lib/install_state.py" ask 'Q? [y/N] ' </dev/null >/dev/null; a3=$?
+[ "$a1" = 0 ] && [ "$a2" = 1 ] && [ "$a3" = 1 ] && pass "the target question: y proceeds, Enter and EOF answer No" \
+  || failed "ask: y=$a1 enter=$a2 eof=$a3"
+cat > "$TG/pty.py" <<'PY'
+import os, select, subprocess, sys
+answer, log, argv = sys.argv[1].encode(), sys.argv[2], sys.argv[3:]
+try:
+    m, s = os.openpty()
+except OSError as e:
+    print("openpty: %s" % e)
+    sys.exit(77)
+p = subprocess.Popen(argv, stdin=s, stdout=s, stderr=s, close_fds=True)
+buf, answered = b"", False
+while True:
+    r, _, _ = select.select([m], [], [], 0.5)
+    if m in r:
+        buf += os.read(m, 65536)
+        if not answered and b"[y/N]" in buf:
+            os.write(m, answer + b"\n")
+            answered = True
+    elif p.poll() is not None:
+        break
+os.close(s)
+rc = p.wait()
+open(log, "wb").write(buf)
+sys.exit(rc)
+PY
+env -u STACK_CLAUDE_JSON HOME="$TG/home" SHELL=/bin/zsh FAKE_CLAUDE_JSON="$TG/fake.json" \
+  python3 "$TG/pty.py" n "$TG/q1.log" "$INSTALL" --config-dir "$TG/asked" --no-mcp --no-plugins --no-deps --no-profile >"$TG/q1.err" 2>&1; q1=$?
+if [ "$q1" = 77 ]; then
+  echo "  SKIP  the target question on a real pty: $(cat "$TG/q1.err") (the answer parser is tested above)"
+else
+  env -u STACK_CLAUDE_JSON HOME="$TG/home" SHELL=/bin/zsh FAKE_CLAUDE_JSON="$TG/fake.json" \
+    python3 "$TG/pty.py" y "$TG/q2.log" "$INSTALL" --config-dir "$TG/asked" --no-mcp --no-plugins --no-deps --no-profile; q2=$?
+  env -u STACK_CLAUDE_JSON HOME="$TG/home" SHELL=/bin/zsh FAKE_CLAUDE_JSON="$TG/fake.json" \
+    python3 "$TG/pty.py" n "$TG/q3.log" "$INSTALL" --config-dir "$TG/asked2" --no-prompt --no-mcp --no-plugins --no-deps --no-profile; q3=$?
+  [ "$q1" = 1 ] && grep -q "Install into $TG/asked? \[y/N\]" "$TG/q1.log" && grep -q 'why you are asked' "$TG/q1.log" \
+    && [ ! -e "$TG/asked" ] && [ "$q2" = 0 ] && [ -f "$TG/asked/agents/coder.md" ] \
+    && [ "$q3" = 0 ] && ! grep -q 'Install into' "$TG/q3.log" \
+    && pass "on a terminal: a non-default target is asked first ('n' stops before anything exists, 'y' installs; --no-prompt skips it)" \
+    || failed "target question on a pty (n=$q1 y=$q2 no-prompt=$q3): $(grep -a 'Install into\|stopped' "$TG/q1.log" | head -2)"
+fi
+# the clone anywhere: through a symlinked directory, a symlink to install.sh, and a path with a space
+cp -R "$HERE" "$TG/my clone"
+ln -s "$TG/my clone" "$TG/clone link"; mkdir -p "$TG/bin dir"; ln -s "$TG/my clone/install.sh" "$TG/bin dir/stack-install"
+tg_run "$TG/c1.log" "$TG/clone link/install.sh" --dry-run --config-dir "$TG/c1" --no-mcp --no-plugins --no-deps --no-profile; c1=$?
+tg_run "$TG/c2.log" "$TG/bin dir/stack-install" --dry-run --config-dir "$TG/c2" --no-mcp --no-plugins --no-deps --no-profile; c2=$?
+tg_run "$TG/c3.log" "$TG/my clone/install.sh" --config-dir "$TG/c3 target" --no-mcp --no-plugins --no-deps --no-profile; c3=$?
+[ "$c1" = 0 ] && grep -qF "stack repo: $TG/clone link (branch main)" "$TG/c1.log" \
+  && [ "$c2" = 0 ] && grep -qF "stack repo: $TG/my clone (branch main)" "$TG/c2.log" \
+  && [ "$c3" = 0 ] && grep -qF "$TG/my clone" "$TG/c3 target/agents/claude-code-engineer.md" \
+  && hooks_split_ok "$TG/c3 target/settings.json" "$TG/c3 target/hooks/agent_guard.py" \
+  && pass "clone anywhere: via a symlinked dir, via a symlink to install.sh, from a path with a space (rendered into the agents)" \
+  || failed "clone paths (rc=$c1/$c2/$c3): $(grep -h 'stack repo\|install.sh:' "$TG/c1.log" "$TG/c2.log" "$TG/c3.log" | head -4)"
+assert_unchanged_real_home
+drop_scratch "$TG"
 
 echo
 echo "== Summary: $PASS passed, $FAIL failed"
