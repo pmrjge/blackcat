@@ -93,6 +93,10 @@ Reads the hook JSON on stdin.
                                     every expansion is blocked, its reason is the output)
   SessionStart `session-env`        every source: the sandboxed Bash env (cache dirs, git
                                     credential helpers off) into $CLAUDE_ENV_FILE
+  PermissionRequest                 no decision, no output (the permission dialog, or in a headless
+                                    run the denial, proceeds as without the hook); wired for the
+                                    STACK_MODE_PROBE diagnostic, which with PreToolUse (`budget`
+                                    mode) and SubagentStart logs each event's permission_mode
 
 Concurrency model (the user's spec): depth 4 below the main thread (blackcat -> L1 -> L2 -> L3 ->
 L4; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4, and the fallback here stays at
@@ -125,6 +129,8 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
                           registry `started` stamp), type, cap, ts}
   blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
   supreme-coder.lock, screen.lock  JSON, replaced atomically; transitions under flock(*.mutex)
+  ../mode-probe.jsonl     STACK_MODE_PROBE=1 only, beside the session dirs: one line per
+                          PreToolUse, PermissionRequest and SubagentStart event (mode_probe)
 
 Failure policy: an exception in a PreToolUse handler (or in blackcat-guard mode) denies the call
 (fail closed); lifecycle events log to stderr and exit 0. The token budgets fail open: a transcript
@@ -214,6 +220,11 @@ Knobs (env):
                           CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, else 3)
   STACK_GUARD_LOG=0       1 = append every raw event to <session>/guard.log (`budget` mode, which
                           sees every tool call: the tool name and ids only, never the input)
+  STACK_MODE_PROBE=0      1 = diagnostic: append one JSON line per PreToolUse, PermissionRequest and
+                          SubagentStart event to <state root>/mode-probe.jsonl (time, session,
+                          event, tool name, agent type and id, depth, permission_mode if the event
+                          has one; never the tool input), 0600, no more lines past 1 MB. Not a
+                          gate: it decides nothing (CONFIG.md, "Permission modes": the probe)
   STACK_IMAGE_MAX_PX=1919 image-limit mode: longest side of any image an agent sees or uploads
                           (0 = off)
   STACK_IMAGE_UPLOAD_TOOLS  image-limit mode: regex of more MCP tool names whose image-file
@@ -776,6 +787,53 @@ def log(d, ev):
     if os.environ.get("STACK_GUARD_LOG", "0") == "1":
         with open(os.path.join(d, "guard.log"), "a") as f:
             f.write(json.dumps(ev) + "\n")
+
+
+# STACK_MODE_PROBE=1: which permission mode Claude Code reports to hooks, per event and agent. The
+# docs are silent on running subagents after a mode switch, nested spawns and the field inside
+# subagent events; the log answers that empirically (CONFIG.md, "Permission modes"). Diagnostic
+# only: it never decides, and a failure only warns.
+MODE_PROBE_EVENTS = ("PreToolUse", "PermissionRequest", "SubagentStart")
+MODE_PROBE_FILE = "mode-probe.jsonl"
+MODE_PROBE_MAX_BYTES = 1 << 20
+
+
+def mode_probe(ev):
+    if os.environ.get("STACK_MODE_PROBE", "0") != "1" or ev.get("hook_event_name") not in MODE_PROBE_EVENTS:
+        return
+    try:
+        def field(key):
+            v = ev.get(key)
+            return v if v is None or isinstance(v, (bool, int, float)) else str(v)[:128]
+        aid = ident(ev.get("agent_id")) if ev.get("agent_id") else None
+        if aid is None:
+            depth = 0                       # the main thread
+        else:
+            rec = read_json(reg_path(os.path.join(state_root(), safe(ev.get("session_id"), "nosession")), aid))
+            depth = (rec or {}).get("depth")
+            depth = depth if isinstance(depth, int) and not isinstance(depth, bool) else None
+        row = {"time": time.strftime("%Y-%m-%dT%H:%M:%S%z"), "session": field("session_id"),
+               "event": field("hook_event_name"), "tool": field("tool_name"),
+               "agent_type": field("agent_type"), "agent_id": aid[:128] if aid else None, "depth": depth}
+        if "permission_mode" in ev:
+            row["permission_mode"] = field("permission_mode")
+        line = (json.dumps(row, sort_keys=True) + "\n").encode()
+        root = state_root()
+        os.makedirs(root, exist_ok=True)
+        fd = os.open(os.path.join(root, MODE_PROBE_FILE),
+                     os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+        try:
+            st = os.fstat(fd)
+            if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+                return
+            if stat.S_IMODE(st.st_mode) != 0o600:
+                os.fchmod(fd, 0o600)
+            if st.st_size + len(line) <= MODE_PROBE_MAX_BYTES:
+                os.write(fd, line)
+        finally:
+            os.close(fd)
+    except Exception as exc:  # noqa: BLE001 - a diagnostic never blocks a call
+        warn("mode probe: %s: %s" % (type(exc).__name__, exc))
 
 
 def tool_input(ev):
@@ -4510,8 +4568,10 @@ def mcp_gate(ev, d):
 
 def budget_main(raw):
     """`budget` mode, a PreToolUse hook on every tool: the token budgets and the MCP call cap for
-    the calls the main hook doesn't see (it checks its own before taking any lease). Fails open."""
-    if not policy_on():
+    the calls the main hook doesn't see (it checks its own before taking any lease). Fails open.
+    It sees every tool call, so STACK_MODE_PROBE logs PreToolUse here (also with STACK_POLICY=off)."""
+    probe = os.environ.get("STACK_MODE_PROBE", "0") == "1"
+    if not policy_on() and not probe:
         return 0
     try:
         ev = json.loads(raw)
@@ -4519,6 +4579,9 @@ def budget_main(raw):
         warn("token budget: unparseable hook input (%s); not checked" % type(exc).__name__)
         return 0
     if not isinstance(ev, dict) or ev.get("hook_event_name") != "PreToolUse":
+        return 0
+    mode_probe(ev)
+    if not policy_on():
         return 0
     # every tool call of every agent passes here: a subagent of a foreign or generic type (a forked
     # skill without `agent:`, a workflow stage without agentType, a fork, a host's own agent) runs
@@ -10738,6 +10801,8 @@ def dispatch(ev):
     if ev.get("tool_name"):
         ev["tool_name"] = canonical_tool(ev["tool_name"])     # Task / SubAgent -> Agent, ...
     event, tool = ev.get("hook_event_name"), ev.get("tool_name") or ""
+    if event in ("SubagentStart", "PermissionRequest"):
+        mode_probe(ev)              # PreToolUse: `budget` mode logs every one (one line per call)
     if event == "PreToolUse":
         handler = pre_handler(tool)
     else:
