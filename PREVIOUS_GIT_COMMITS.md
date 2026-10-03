@@ -1,8 +1,90 @@
 # Previous git commits
 
-History of the project before it was published as a fresh repository; generated from the git log of the former repository at commit `e0c0e12` on 2026-10-03; 208 commits, all by Pedro Jorge. The project was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude models, under the author's direction; messages of commits made with it end with a Co-Authored-By line naming the model. Newest first, grouped by month. Each entry gives the date, the short hash (kept so references in the text stay meaningful), the subject, the full message and a files-changed summary. Private data (home paths, e-mail addresses, keys, session ids) was removed or replaced.
+History of the project before it was published as a fresh repository; generated from the git log of the former repository at commit `0e11144` on 2026-10-03; 213 commits, all by Pedro Jorge. The project was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude models, under the author's direction; messages of commits made with it end with a Co-Authored-By line naming the model. Newest first, grouped by month. Each entry gives the date, the short hash (kept so references in the text stay meaningful), the subject, the full message and a files-changed summary. Private data (home paths, e-mail addresses, keys, session ids) was removed or replaced.
 
 ## 2026-10
+
+### 2026-10-03 16:02 · `0e11144`
+
+**README: model-agnostic Co-Authored-By rule**
+
+> Contributing now asks for a `Co-Authored-By: Claude` trailer on commits
+> made with Claude Code, the model name optional after "Claude" as in the history, instead of
+> prescribing one model's trailer. Credits keeps the model names found in the trailers.
+>
+> Co-Authored-By: Claude Sonnet 5.5
+
+*Files changed: 1 file, +3/-2.* `README.md`.
+
+### 2026-10-03 16:01 · `1c3f562`
+
+**README, CONFIG: describe earlier commits instead of citing their hashes**
+
+> A repository published with fresh history has none of the pre-publication commits, so
+> `git show <hash>:README.md` and bare hashes would point nowhere. Each citation now names the
+> commit by date and subject, with a pointer to the commit history in PREVIOUS_GIT_COMMITS.md.
+> The legacy/be5b940 changelog entry no longer gives git log/show commands for the same reason.
+>
+> Kept: `ad22962` (tests/prompt_budget.py DEFAULT_BASE, the gate baseline) and `6a736c6`
+> (tests/test_stack_usage.py V2_REV, the schema-2 collector the hand-off test runs); both tests skip
+> when the commit is absent.
+>
+> Co-Authored-By: Claude Sonnet 5.5
+
+*Files changed: 2 files, +31/-22.* `CONFIG.md`, `README.md`.
+
+### 2026-10-03 15:47 · `da021b7`
+
+**Supply diff covers the tests/derive\_\*.py scripts install.sh copies into hooks/**
+
+> Review finding (older than the layout change): install.sh copies tests/derive_sched_model.py and
+> tests/derive_thresholds.py into hooks/, but SUPPLY_PATHS did not list them, so changes to these
+> installed files never showed in the pre-apply diff. Both are listed now; the R3-SUPPLY test checks
+> every script of that copy loop is covered. CONFIG.md §7 names them.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 3 files, +9/-6.* `CONFIG.md`, `install.sh`, `tests/test_guard_round3.py`.
+
+### 2026-10-03 15:41 · `25f89fa`
+
+**Hero image in lib/assets (all rights reserved), Claude Code attribution, NOTICE, previous commits**
+
+> - lib/assets/: the new hero (1600 px JPEG), social preview and avatar, with README.md (not under
+>   Apache-2.0 or any open licence: the author's contribution all rights reserved, the AI-generated and
+>   AI-edited elements subject to Sourceful's, Riverflow's and OpenRouter's terms; forks replace them)
+>   and a sanitised PROVENANCE.md (the author's photograph is referenced by hash only; the model output
+>   carries no provider metadata, so the stripped derivatives lose nothing).
+> - docs/assets/ (the earlier AI-only hero and its CC0 text) removed; no CC0 or CC BY claim remains.
+> - README: new hero path and alt text, credit and AI-edited lines under it, a "Created with Claude Code"
+>   line, Credits section (models named as in the commit trailers), License rewritten for the image's
+>   real status, Contributing rules for claude-local-work/ and the Co-Authored-By trailer.
+> - NOTICE (Apache-2.0 §4(d)): copyright with the author, created with Claude Code, lib/assets excluded.
+> - PREVIOUS_GIT_COMMITS.md: pre-publication history, generated from main (e0c0e12); lint exempts it
+>   from the model-ID rule.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 11 files, +3534/-139.*
+
+### 2026-10-03 15:35 · `ad063c4`
+
+**Public layout: stack.env.example under lib/, mcp_servers.md into CONFIG.md, working files out of git**
+
+> - stack.env.example moves to lib/stack.env.example; install.sh, doctor.sh's hint, the scheduler's
+>   shared-docs list, lint and the tests read it there.
+> - SUPPLY_PATHS lists lib/install_state.py and lib/stack.env.example instead of the whole lib/, so
+>   README images under lib/assets/ never show in the pre-apply diff; the R3-SUPPLY test checks every
+>   "$HERE/&lt;path&gt;" install.sh reads lies under a supply path, and the smoke test that lib/assets/ stays out.
+> - mcp_servers.md becomes CONFIG.md §10 "Apps, connectors and MCP servers" (headings shifted, the stale
+>   agent and skill counts dropped); README links and the duplicate-row test follow.
+> - RESUME.md and the force-added campaign files under .claude-work/ leave git (kept locally under
+>   claude-local-work/); README no longer links to them.
+> - .gitignore: claude-local-work/, .claude/worktrees/, .claude/settings.local.json.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 133 files, +506/-126507.*
 
 ### 2026-10-03 15:20 · `e0c0e12`
 
@@ -3255,7 +3337,7 @@ Section 9 of CONFIG.md at the same commit, copied as it stood (names and paths s
 
 ### 2026-10-03 (legacy/be5b940 removed)
 
-- The repo no longer ships `legacy/be5b940/` (old `CLAUDE.md`, `agents/senior-coder.md`, seven skills); it stays in git history: `git log --diff-filter=D --oneline -- legacy/be5b940` names the removal commit, `git show <that commit>^:legacy/be5b940/CLAUDE.md` prints a file. install.sh keeps its generic `legacy/<version>/<rel>` recognition (`legacy_renders`, `template_copy`), which finds nothing while `legacy/` is absent, and the model-ID lint keeps its `legacy/` exception. Upgrade effect, only for an install whose files the manifest does not track (pre-manifest): an unedited untracked `CLAUDE.md` of that release (and a leftover `CLAUDE.md.new`) is now kept instead of moved to the backup, without the "kept" advice (its line similarity to today's rules, 0.385, is under `similar()`'s 0.4), and an untracked old skill file under `--no-prune` is kept with a `.new` render instead of refreshed (with pruning it is replaced and listed). Tracked files, and `senior-coder.md` (removed by name as renamed), behave as before. `tests/install_smoke.sh` takes its old-release files from `tests/fixtures/legacy-release/` and puts them under the scratch repo's `legacy/` only for the CLAUDE.md migration cases; a new case checks an unrecognised old `CLAUDE.md` is kept. Nothing to rerun.
+- The repo no longer ships `legacy/be5b940/` (old `CLAUDE.md`, `agents/senior-coder.md`, seven skills); it stays in the history from before publication (the 2026-10-03 commit "Remove legacy/be5b940; smoke tests take old-release files from tests/fixtures"; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)). install.sh keeps its generic `legacy/<version>/<rel>` recognition (`legacy_renders`, `template_copy`), which finds nothing while `legacy/` is absent, and the model-ID lint keeps its `legacy/` exception. Upgrade effect, only for an install whose files the manifest does not track (pre-manifest): an unedited untracked `CLAUDE.md` of that release (and a leftover `CLAUDE.md.new`) is now kept instead of moved to the backup, without the "kept" advice (its line similarity to today's rules, 0.385, is under `similar()`'s 0.4), and an untracked old skill file under `--no-prune` is kept with a `.new` render instead of refreshed (with pruning it is replaced and listed). Tracked files, and `senior-coder.md` (removed by name as renamed), behave as before. `tests/install_smoke.sh` takes its old-release files from `tests/fixtures/legacy-release/` and puts them under the scratch repo's `legacy/` only for the CLAUDE.md migration cases; a new case checks an unrecognised old `CLAUDE.md` is kept. Nothing to rerun.
 
 ### 2026-10-03 (top-tier coder agent renamed to supreme-coder)
 
@@ -3285,7 +3367,7 @@ Section 9 of CONFIG.md at the same commit, copied as it stood (names and paths s
 
 ### 2026-10-03 (override runs are no longer learned from)
 
-- Security audit of f235e7a, MEDIUM: an `/override-agent` run (e.g. scout on haiku) fed `soft.agent.scout`, `turns.scout`, the pool proposals and the scheduler refit that later sessions on scout's own model use, against the "this session only" scope. The collector now writes schema 3 rows to `usage/runs3.csv` with the segment's `model`; `stack_limits.py`, `stack_sched_refresh.py` and `stack budget` skip an agent row whose model is not its frontmatter one and count what they skipped (§5, "Session model overrides" and "Usage collector"). `runs*.csv` and `runs2*.csv` are read as before and never written again. Rerun install.sh; a session collected by the old code is read again from the start the next time its collector runs.
+- Security audit of the first `/override-agent` commit (2026-10-03, "/agent-override and /agent-reset: per-session model override for delegated agent types"; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)), MEDIUM: an `/override-agent` run (e.g. scout on haiku) fed `soft.agent.scout`, `turns.scout`, the pool proposals and the scheduler refit that later sessions on scout's own model use, against the "this session only" scope. The collector now writes schema 3 rows to `usage/runs3.csv` with the segment's `model`; `stack_limits.py`, `stack_sched_refresh.py` and `stack budget` skip an agent row whose model is not its frontmatter one and count what they skipped (§5, "Session model overrides" and "Usage collector"). `runs*.csv` and `runs2*.csv` are read as before and never written again. Rerun install.sh; a session collected by the old code is read again from the start the next time its collector runs.
 - Audit follow-up, MEDIUM: a collector started before the install kept the old code and wrote model-less rows for override runs typed after it. The next SessionStart or SubagentStart now stops a running older-schema collector (SIGTERM after the checks in §5, "Upgrade hand-off") and a successor reads the session again as schema 3 (tests: `test_upgrade_hands_off_from_an_older_collector` runs the real schema 2 collector from `6a736c6`; `test_handoff_signals_only_a_running_older_collector_of_this_session`; `test_a_successor_waits_for_the_lock_and_then_runs`). Its audit (MEDIUM): the stopped collector's mid-session session row stood as a whole session when the successor idled out; such stale session rows are now left out (`test_a_handoff_session_row_is_not_learned_as_a_whole_session`, `test_a_session_row_older_than_its_sessions_rows_is_not_learned`). The model IDs of the usage, limits and budget tests sit on module-level constant lines, which `tests/lint_agents.py` allows (`MODEL_ID_CONST`).
 
 ### 2026-10-03 (scheduler policy back to report)
@@ -3296,7 +3378,7 @@ Section 9 of CONFIG.md at the same commit, copied as it stood (names and paths s
 ### 2026-10-03 (/override-agent reset, FIFO fix)
 
 - `/reset-agent` is now the subcommand `/override-agent reset <agent|all>` (beside `list`). The effort stays display-only (the user's decision: no agent variants).
-- Security audit of f235e7a (LOW): a FIFO at the override state path hung the PreToolUse(Agent) hook until its timeout. The state and log files are now opened with `O_NONBLOCK` and refused unless `S_ISREG` (test: `test_a_fifo_at_the_state_path_does_not_hang_the_agent_hook`).
+- Security audit of the first `/override-agent` commit (LOW): a FIFO at the override state path hung the PreToolUse(Agent) hook until its timeout. The state and log files are now opened with `O_NONBLOCK` and refused unless `S_ISREG` (test: `test_a_fifo_at_the_state_path_does_not_hang_the_agent_hook`).
 
 ### 2026-10-03 (/override-agent, built-in effort table)
 
@@ -3343,10 +3425,10 @@ Section 9 of CONFIG.md at the same commit, copied as it stood (names and paths s
 
 ### 2026-09-29 (security rounds 3 and 4, supreme-coder plan flow)
 
-Commits `ea80f87`, `7292272`, `b93b557`, `c9ef24b`, `693296f`, `275eead`, `b7a075b`, `7e8386b`, `47acb92`, `1e1cd82`, `80bc1dd`, `9aeec09`, `e0b5544`, `df21992`, `cfa9ee7`; magg `bb77d58`, `17fdd46`; docs `f8124cc` and this commit.
+The 2026-09-29 commits of security rounds 3 and 4, two for magg, one for the docs and the one that added this entry; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
 
-- Without a terminal on stdin/stderr the supply question goes to `/dev/tty`; with no terminal at all a changed stack stops with exit 1 unless `--yes` (R4-1, `df21992`).
-- A failed session-env hook exits 2 with a hook error, is recorded in `session-env.json`, and shows in the status line and `doctor.sh` (R4-2, `cfa9ee7`).
+- Without a terminal on stdin/stderr the supply question goes to `/dev/tty`; with no terminal at all a changed stack stops with exit 1 unless `--yes` (R4-1).
+- A failed session-env hook exits 2 with a hook error, is recorded in `session-env.json`, and shows in the status line and `doctor.sh` (R4-2).
 - Round-4 residuals recorded (taint gaps, `SUPREME_AFTER_NINJA` order only, a session started in `/tmp`, live checks open).
 
 - Web taint follows reports, messages and spawn prompts (R3-T3-RELAY).
@@ -3398,4 +3480,6 @@ Commits `ea80f87`, `7292272`, `b93b557`, `c9ef24b`, `693296f`, `275eead`, `b7a07
   - new: BlackCat foreground drop, shipped spawn defaults, supreme-coder orchestrator-only and once per session;
   - the mechanics tests pin their former caps as a baseline.
 
-The full entry is in the README as of 96d3a52 (`git show 96d3a52:README.md`, section Changelog).
+The full entry was in the Changelog section of the README as of the 2026-10-02 commit "Skills listed, not
+name-only" (that README revision is not shipped; see the commit history in
+[PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)).
