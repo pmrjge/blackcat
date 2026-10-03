@@ -12,8 +12,9 @@ The session: --session, else STACK_LIMITS_SNAPSHOT (a snapshot path), else CLAUD
 snapshot (reported as such), else the seed. Verdicts are three-way: fits (the interval's upper end is within the
 limit), does not fit (its lower end is over it), uncertain (the interval straddles the limit, or there is none).
 A learned value that is not `supported` always prints its interval. Nothing here writes: it reads snapshots,
-live.json, proposals, runs*.csv / runs2*.csv and the session's budget.json, never creating a snapshot (U4);
-change limits with stack_limits.py (the next session's snapshot picks them up).
+live.json, proposals, runs*.csv / runs2*.csv / runs3*.csv and the session's budget.json, never creating a snapshot
+(U4); change limits with stack_limits.py (the next session's snapshot picks them up). The row samples leave out, as
+the learner does, the runs on another model than the type's frontmatter one (/override-agent), and count them.
 Exit: 0 ok, 1 invalid input (graph, unknown type), 2 limits unavailable. Python 3.8+, stdlib only.
 """
 import argparse
@@ -152,15 +153,21 @@ def consumption(sess):
 
 
 def usage_rows(typ=None):
-    """Complete, healthy agent-segment rows of runs*.csv + runs2*.csv (empty cells stay None)."""
-    U = mod("stack_usage")
-    out = []
+    """(rows, skipped): the complete agent-segment rows of runs*.csv, runs2*.csv and runs3*.csv (empty cells
+    stay None), and per type how many of them ran on another model than the type's frontmatter one (a
+    /override-agent run: stack_limits.model_mismatch), which the rows leave out as the learner does."""
+    U, L = mod("stack_usage"), mod("stack_limits")
+    models = L.agent_models()
+    out, skipped = [], {}
     for r in U.read_rows().values():
         if r.get("is_main") == "1" or r.get("status") != "complete" or (typ and r.get("type") != typ):
             continue
+        if L.model_mismatch(models, r.get("type") or "", r.get("model") or ""):
+            skipped[r["type"]] = skipped.get(r["type"], 0) + 1
+            continue
         out.append(r)
     out.sort(key=lambda r: num(r.get("last_ts")) or 0)
-    return out
+    return out, skipped
 
 
 def sample(rows, col, healthy=True):
@@ -183,9 +190,9 @@ def stats(L, xs, B=500):
     return {"n": len(s), "p50": L.q(s, 0.5), "p90": L.q(s, 0.9), "max": s[-1], "ci": list(ci) if ci[0] is not None else None}
 
 
-def type_row(sess, t, rows):
+def type_row(sess, t, rows, skipped=0):
     L = sess.L
-    out = {"type": t}
+    out = {"type": t, "model_mismatch": skipped}
     for fam, key in (("turns", "turns"), ("soft.agent", "soft"), ("hard.agent", "hard")):
         var = sess.var_of(fam, t)
         out[key] = sess.limit(var)
@@ -225,13 +232,15 @@ def cmd_summary(a):
         lim["verdict"] = "unknown (no budget.json)" if used is None else verdict(used, used, lim["value"])
         scopes.append(lim)
     by_type = {}
-    for r in usage_rows():
+    urows, skipped = usage_rows()
+    for r in urows:
         by_type.setdefault(r["type"], []).append(r)
     types = sorted(t[len("turns."):] for t in sess.seed["vars"] if t.startswith("turns."))
-    rows = [type_row(sess, t, by_type.get(t, [])) for t in types if a.all or by_type.get(t)]
+    rows = [type_row(sess, t, by_type.get(t, []), skipped.get(t, 0)) for t in types
+            if a.all or by_type.get(t) or skipped.get(t)]
     if a.json:
         print(json.dumps({"session": sess.head(), "consumption": cons, "limits": scopes, "soft_prompt_effective": pl,
-                          "types": rows}, indent=1, sort_keys=True))
+                          "types": rows, "model_mismatch": sum(skipped.values())}, indent=1, sort_keys=True))
         return 0
     h = sess.head()
     print("session %s (%s): snapshot %s, values from %s, live v%s now, snapshot of v%s, sched_policy %s" % (
@@ -253,6 +262,10 @@ def cmd_summary(a):
         print(line % (r["type"], lim_txt(r["turns"]), lim_txt(r["soft"]), lim_txt(r["hard"]), c["n"],
                       "-" if c["p90"] is None else "%s %s" % (fmt(c["p90"]), span(*(c["ci"] or (None, None)))),
                       "%s / %s" % (r["verdict_soft"], r["verdict_turns"])))
+    if skipped:
+        per_type = ", ".join(f"{t} {n}" for t, n in sorted(skipped.items()))
+        print(f"  n leaves out {sum(skipped.values())} completed runs on another model than the frontmatter's "
+              f"(/override-agent): {per_type}")
     if not a.all:
         print("  (types with rows only; --all lists every type)")
     return 0
@@ -270,8 +283,8 @@ def cmd_agent(a):
         print("stack-budget: unknown agent type %r" % t, file=sys.stderr)
         return 1
     base = t[:-5] if t.endswith("-copy") else t
-    rows = usage_rows(base)
-    res = type_row(sess, base, rows)
+    rows, skipped = usage_rows(base)
+    res = type_row(sess, base, rows, skipped.get(base, 0))
     res["recent"] = [{k: r.get(k) or None for k in ("session", "id", "seg", "api_calls", "ctx", "status", "status_code",
                                                       "last_ts", "src", "stack_commit")} for r in rows[-5:]]
     res["session"] = sess.head()
@@ -287,7 +300,8 @@ def cmd_agent(a):
             x["status"] or "-", x["n"] if x["n"] is not None else "-", span(*(x["ci"] or (None, None)), unit=x["unit"]),
             " hold %s" % x["hold"] if x["hold"] else "", " frozen %s" % fmt(x["frozen"], x["unit"]) if x["frozen"] is not None else ""))
     c, g = res["ctx"], res["calls"]
-    print("  rows (healthy, complete): n %d" % c["n"])
+    print(f"  rows (healthy, complete): n {c['n']}; left out, run on another model than the frontmatter's "
+          f"(/override-agent): {res['model_mismatch']}")
     print("    ctx   p50 %s  p90 %s %s  max %s  vs soft %s: %s" % (fmt(c["p50"]), fmt(c["p90"]), span(*(c["ci"] or (None, None))),
                                                                    fmt(c["max"]), fmt(res["soft"]["value"]), res["verdict_soft"]))
     print("    calls p50 %s  p90 %s %s  max %s  vs turns %s: %s" % (

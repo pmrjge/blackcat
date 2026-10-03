@@ -204,3 +204,31 @@ def test_install_stages_and_tracks_the_script():
     install = (ROOT / "install.sh").read_text(encoding="utf-8")
     assert install.count("stack-budget") >= 2                 # staged (stage_script loop) and tracked in STACK_SCRIPTS
     assert os.access(CLI, os.X_OK)
+
+
+def test_overridden_runs_are_left_out_and_counted(env):
+    """Runs of a type on another model than its frontmatter's (/override-agent; scout is sonnet) are not
+    in the sample, as the learner leaves them out, and the views say how many."""
+    snapshot()
+    U = sys.modules.get("stack_usage") or _load("stack_usage")
+    d = env / "usage"
+    d.mkdir(exist_ok=True)
+    runs = [(500000, "claude-sonnet-5-5"), (510000, ""), (520000, "claude-sonnet-5-5"),
+            (9000000, "claude-haiku-4-5-20251001"), (9100000, "claude-opus-5-5")]
+    with open(d / "runs3.csv", "w", newline="") as fh:
+        w = csv.DictWriter(fh, fieldnames=U.COLUMNS)
+        w.writeheader()
+        for i, (c, m) in enumerate(runs):
+            w.writerow(dict(U.EMPTY_ROW, schema_version="3", session=SID, id=f"b{i}", type="scout", seg="0",
+                            status="complete", api_calls=str(4 + i), ctx=str(c), first_ts=str(1000 + i),
+                            last_ts=str(1100 + i), src="measured", model=m))
+    d = js("--session", SID)
+    row = next(r for r in d["types"] if r["type"] == "scout")
+    assert row["ctx"]["n"] == 3 and row["ctx"]["max"] == 520000 and row["model_mismatch"] == 2
+    assert d["model_mismatch"] == 2
+    assert "leaves out 2 completed runs on another model than the frontmatter's (/override-agent): scout 2" in \
+        run("--session", SID).stdout
+    a = js("agent", "scout", "--session", SID)
+    assert a["ctx"]["n"] == 3 and a["model_mismatch"] == 2
+    assert "left out, run on another model than the frontmatter's (/override-agent): 2" in \
+        run("agent", "scout", "--session", SID).stdout

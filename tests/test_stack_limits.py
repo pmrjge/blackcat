@@ -1135,7 +1135,7 @@ def test_V2b_five_session_u4_loop(st):
 
 def test_collector_v2_rows_and_snapshot_cells_meet_the_proposer(st):
     """W3 (stack_usage.py) reads `regime`, `hash` and `source_event` of this module's snapshot and
-    writes runs2.csv rows this module's proposer reads (same column names)."""
+    writes runs3.csv rows this module's proposer reads (same column names)."""
     U = _load("stack_usage_v2_for_limits", HOOKS / "stack_usage.py")
     rows = []
     for s in range(3):
@@ -1146,10 +1146,156 @@ def test_collector_v2_rows_and_snapshot_cells_meet_the_proposer(st):
         assert cells == {"sess_src": "startup", "snap": snap["hash"][7:23], "regime": snap["regime"]}
         assert L.session_limits(sid)["snap"] == cells["snap"]
         for a in range(4):
-            rows.append(dict(U.EMPTY_ROW, schema_version=2, session=sid, id=f"a{s}{a}", type="coder", seg=0,
-                             status="complete", api_calls=30, ctx=40000000 + 1000 * a, last_ts=T0 + 10 * s + a,
-                             compacted=0, turn_limited=0, status_code=0, is_main=0, src="measured", **cells))
+            rows.append(dict(U.EMPTY_ROW, schema_version=U.SCHEMA_VERSION, session=sid, id=f"a{s}{a}", type="coder",
+                             seg=0, status="complete", api_calls=30, ctx=40000000 + 1000 * a, last_ts=T0 + 10 * s + a,
+                             compacted=0, turn_limited=0, status_code=0, is_main=0, src="measured",
+                             model="claude-sonnet-5-5" if a % 2 else "", **cells))
     U.append_rows(rows)
-    assert (st / "usage" / "runs2.csv").exists() and not (st / "usage" / "runs.csv").exists()
+    assert (st / "usage" / "runs3.csv").exists()
+    assert not (st / "usage" / "runs.csv").exists() and not (st / "usage" / "runs2.csv").exists()
     e = L.build_proposals(L.load_seed())["vars"]["soft.agent.coder"]
-    assert e["n"] == 12 and e["regime_ok"] is True
+    assert e["n"] == 12 and e["regime_ok"] is True               # coder is a sonnet agent: every row counts
+
+
+# ---------------------------------------------------------------- /override-agent runs are no evidence (model)
+def _ts(k):
+    return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(T0 + k)) + ".250Z"
+
+
+def _subagent(folder, aid, atype, models, k0, cr=20000):
+    """A finished subagent transcript (prompt, tool calls, a text-only last call) whose assistant messages
+    report `models` (one per call, the last repeated) and its meta file."""
+    folder.mkdir(parents=True, exist_ok=True)
+    lines = [{"type": "user", "timestamp": _ts(k0), "message": {"role": "user", "content": "go"}}]
+    for i, m in enumerate(models):
+        last = i == len(models) - 1
+        content = [{"type": "text", "text": "ok"}]
+        if not last:
+            content.append({"type": "tool_use", "id": f"tu{aid}{i}", "name": "Read", "input": {"file_path": "/r/a"}})
+        lines.append({"type": "assistant", "requestId": f"req{aid}{i}", "timestamp": _ts(k0 + 2 * i + 1),
+                      "uuid": f"u{aid}{i}", "message": {"id": f"msg{aid}{i}", "model": m, "content": content,
+                                                        "usage": {"input_tokens": 3, "output_tokens": 50,
+                                                                  "cache_creation_input_tokens": 1000,
+                                                                  "cache_read_input_tokens": cr + 100 * i}}})
+        if not last:
+            lines.append({"type": "user", "timestamp": _ts(k0 + 2 * i + 2), "message": {
+                "role": "user", "content": [{"type": "tool_result", "tool_use_id": f"tu{aid}{i}", "content": "r"}]}})
+    (folder / f"agent-{aid}.jsonl").write_text("".join(json.dumps(x) + "\n" for x in lines))
+    (folder / f"agent-{aid}.meta.json").write_text(json.dumps({"agentType": atype, "description": "look it up"}))
+
+
+def _scan_cli(tmp_path, sid, folder):
+    """The collector's one-shot scan, as a hook runs it (stack_usage.py on the hooks' interpreter)."""
+    env = dict(os.environ, HOME=str(tmp_path / "home"), PYTHONDONTWRITEBYTECODE="1")
+    p = subprocess.run([PY, str(HOOKS / "stack_usage.py"), "scan", "--session", sid, "--subagents", str(folder),
+                        "--final"], env=env, capture_output=True, text=True, timeout=60, check=False)
+    assert p.returncode == 0, p.stderr
+
+
+HAIKU = "claude-haiku-4-5-20251001"
+SONNET = "claude-sonnet-5-5"
+
+
+def test_overridden_runs_are_no_evidence_for_the_type(st, tmp_path):
+    """Audit MEDIUM (f235e7a): `/override-agent scout haiku` is that session's only, but its haiku scout
+    runs fed soft.agent.scout, turns.scout and the scout pool for later sessions on scout's own model
+    (sonnet). The collector now records each segment's model and the proposer skips such rows."""
+    for s in range(4):              # sessions 0-2: scout on its frontmatter model; 3: /override-agent scout haiku
+        sid = f"11111111-2222-3333-4444-55555555555{s}"
+        folder = tmp_path / "projects" / "p" / sid / "subagents"
+        if s < 3:
+            _subagent(folder, f"s{s}", "scout", [SONNET] * 3, 1000 * s)
+        else:                                                # the overridden runs: haiku, far more context
+            for i in range(2):
+                _subagent(folder, f"h{i}", "scout", [HAIKU] * 6, 1000 * s + 20 * i, cr=5000000)
+        _scan_cli(tmp_path, sid, folder)
+    doc = L.build_proposals(L.load_seed())
+    soft, turns = doc["vars"]["soft.agent.scout"], doc["vars"]["turns.scout"]
+    assert soft["n"] == 3 and turns["n"] == 3 and max(soft["x"]) < 1e6 and max(turns["x"]) == 3
+    pools = [e for k, e in doc["pools"].items() if k.startswith("soft.agent:")]
+    assert pools and all(max(e["x"]) < 1e6 for e in pools)
+    assert doc.get("model_mismatch") == 2 and doc["rows"] == 3
+    # the rows themselves are kept (append-only, provenance): only the readers that learn skip them
+    raw = (st / "usage" / "runs3.csv").read_text()
+    assert raw.count(HAIKU) == 2 and raw.count(SONNET) == 3
+
+
+def test_model_mismatch_rules(tmp_path):
+    agents = tmp_path / "agents"
+    agents.mkdir()
+    for name, fm in (("a-sonnet", "model: sonnet"), ("a-opus", "model: Opus  # tuned"), ("a-inherit", "model: inherit"),
+                     ("a-none", "effort: low"), ("a-full", "model: claude-haiku-4-5")):
+        (agents / f"{name}.md").write_text(f"---\nname: {name}\n{fm}\n---\nbody\nmodel: fable\n")
+    (agents / "notes.txt").write_text("model: opus\n")
+    models = L.agent_models(str(agents))
+    assert models == {"a-sonnet": "sonnet", "a-opus": "opus", "a-inherit": "inherit", "a-full": "claude-haiku-4-5"}
+    mm = (lambda t, m: L.model_mismatch(models, t, m))
+    assert mm("a-sonnet", HAIKU) and mm("a-sonnet", "claude-opus-5-5") and mm("a-sonnet", "mixed")
+    assert not mm("a-sonnet", SONNET) and not mm("a-sonnet", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
+    assert not mm("a-opus", "claude-opus-4-6[1m]") and mm("a-opus", SONNET)
+    assert mm("a-full", SONNET) and not mm("a-full", HAIKU)               # a full id: its family
+    assert mm("a-sonnet-copy", HAIKU) and not mm("a-sonnet-copy", SONNET)  # a copy follows its base
+    for m in ("", None):                                                   # unknown (v1/v2, none reported)
+        assert not mm("a-sonnet", m)
+    for t in ("a-inherit", "a-none", "no-such-type", "a-inherit-copy"):    # no family to hold the row to
+        assert not mm(t, HAIKU)
+    assert L.agent_models(str(tmp_path / "missing")) == {}
+
+
+def test_agent_models_parse_as_the_guard_does():
+    G = _load("agent_guard_for_limits", GUARD)
+    models = L.agent_models(str(AGENTS_DIR))
+    files = sorted(p.stem for p in AGENTS_DIR.glob("*.md"))
+    assert files and set(models) <= set(files)
+    for t in files:
+        assert models.get(t) == (G.agent_defaults(t, str(AGENTS_DIR)) or (None, None))[0], t
+    assert models["scout"] == "sonnet" and models["orchestrator"] == "opus"
+
+
+def test_reader_skips_mismatched_rows_after_the_merge_and_keeps_unknown_models(st):
+    """Rows are filtered after last-row-wins: a v2 row (no model) of a key whose v3 row is an overridden
+    run never stands in for it. v1/v2 rows, an empty model, a type without a frontmatter family and the
+    main thread's rows count as before."""
+    u = st / "usage"
+    write_csv(u / "runs.csv", [dict(row("s0", "v1a", typ="scout", ctx=3e5), schema_version=1)], V1_COLUMNS)
+    write_csv(u / "runs2.csv", [row("s0", "v2a", typ="scout", ctx=3.1e5, regime=""),        # no regime: one sample
+                                row("s1", "k", typ="scout", ctx=3.2e5, status="partial", regime="")])
+    v3 = V2_COLUMNS + ["model"]
+    r3 = (lambda *a, model="", **kw: dict(row(*a, **kw), schema_version=3, model=model, regime=""))
+    write_csv(u / "runs3.csv", [r3("s1", "k", typ="scout", ctx=9e6, model=HAIKU),           # the same key, overridden
+                                r3("s3", "e", typ="scout", ctx=3.3e5),                       # empty: unknown
+                                r3("s4", "ok", typ="scout", ctx=3.4e5, model=SONNET),
+                                r3("s1", "mx", typ="scout", ctx=9e6, model="mixed"),
+                                r3("s5", "bad", typ="scout", ctx=3.5e5, model="not a model"),  # invalid: unknown
+                                r3("s2", "c1", typ="scout-copy", ctx=9e6, model=HAIKU),
+                                r3("s2", "x1", typ="custom-agent", ctx=9e6, model=HAIKU),
+                                r3("s2", "main", typ="blackcat", seg=0, ctx="", window_ctx=5e7, is_main=1,
+                                   model=HAIKU)], v3)
+    rows, stats = L.read_rows(known={"scout"})
+    ids = {r["id"] for r in rows}
+    assert ids == {"v1a", "v2a", "e", "ok", "bad", "x1", "main"} and stats["model_mismatch"] == 3
+    assert {r["model"] for r in rows if r["id"] in ("v1a", "v2a", "e", "bad")} == {None}
+    rows, stats = L.read_rows(known={"scout"}, models={})                 # no frontmatter: nothing skipped
+    assert len(rows) == 10 and stats["model_mismatch"] == 0
+    doc = L.build_proposals(L.load_seed())
+    assert doc["vars"]["soft.agent.scout"]["n"] == 5 and doc["model_mismatch"] == 3
+    assert max(doc["vars"]["soft.agent.scout"]["x"]) < 1e6
+
+
+def test_prompt_windows_of_an_overridden_agent_are_not_its_types(st):
+    """soft.prompt.<type> reads the main windows in which an agent of that type ran: an overridden run
+    (an orchestrator on sonnet) does not make its window that type's evidence."""
+    rows = []
+    for s in range(3):
+        for w in range(10):
+            rows.append(row(f"p{s}", "main", typ="blackcat", seg=w, ctx="", window_ctx=6e7 + 1e6 * w, is_main=1,
+                            ts=T0 + 100 * s + w))
+        rows.append(dict(row(f"p{s}", f"o{s}", typ="orchestrator", seg=0, window=2, ts=T0 + 100 * s + 2),
+                         schema_version=3, model="claude-opus-5-5"))
+        rows.append(dict(row(f"p{s}", f"n{s}", typ="orchestrator", seg=0, window=5, ts=T0 + 100 * s + 5),
+                         schema_version=3, model=SONNET))
+    write_csv(st / "usage" / "runs3.csv", rows, V2_COLUMNS + ["model"])
+    doc = L.build_proposals(L.load_seed())
+    e = doc["vars"]["soft.prompt.orchestrator"]
+    assert e["n"] == 3 and e["x"] == [6.2e7] * 3 and doc["model_mismatch"] == 3
+    assert doc["vars"]["soft.prompt"]["n"] == 30                        # the main windows themselves all count

@@ -13,8 +13,10 @@ cache is missing), or by hand: `stack_usage.py refresh [--online] [--force]`.
 
 Model: target = the shipped model (sched_model.json beside this file, fitted on the stack's own
 transcripts) combined with fit() (tests/derive_sched_model.py, installed beside this file) on every
-complete segment row in usage/runs*.csv and runs2*.csv (v2 wins per key; empty cells are skipped, never
-imputed; src and stack_commit travel with each row) whose session the shipped model did not already use:
+complete segment row in usage/runs*.csv, runs2*.csv and runs3*.csv (the later schema wins per key; empty
+cells are skipped, never imputed; src and stack_commit travel with each row) whose session the shipped
+model did not already use, but for an agent row that ran on another model than its type's frontmatter
+one (stack_limits.model_mismatch: a /override-agent run; counted in refresh.model_mismatch):
   values    n-weighted mean per type and pool: turns and sec_per_call by healthy segments (n_seg),
             ctx a, b and static_cc by healthy first segments (n_first). New rows count only once
             fit() gives the type a value (its own data or its pool's are gated: >= 5 healthy
@@ -100,6 +102,15 @@ def frame(rows, skip_sessions=()):
                          after_limit=bool(int(float(r.get("after_limit") or 0))), open=False,
                          src=r.get("src") or "", stack_commit=r.get("stack_commit") or ""))
     return pd.DataFrame(recs)
+
+
+def drop_model_mismatch(rows, models):
+    """(rows without the agent segments that ran on another model than their type's frontmatter one,
+    how many were left out): stack_limits.model_mismatch on each row's type and `model` (empty in v1/v2
+    rows: kept). After read_rows' last-row-wins merge, as stack_limits.read_rows does."""
+    keep = {k: r for k, r in rows.items()
+            if r.get("is_main") == "1" or not L.model_mismatch(models, r.get("type") or "", r.get("model") or "")}
+    return keep, len(rows) - len(keep)
 
 
 def soft_limits(guard, sid=None):
@@ -299,7 +310,9 @@ def refresh(usage, out, shipped_path, agents_dir, guard, step=STEP_DEFAULT, B=D.
     active = U.read_json(out)
     base = active if valid_model(active) and (active.get("refresh") or {}).get("base_generated") == \
         shipped.get("generated") else shipped
-    rows = U.read_rows([os.path.join(usage, n) for n in ("runs.1.csv", "runs.csv", "runs2.1.csv", "runs2.csv")])
+    rows = U.read_rows([os.path.join(usage, n) for n in ("runs.1.csv", "runs.csv", "runs2.1.csv", "runs2.csv",
+                                                         "runs3.1.csv", "runs3.csv")])
+    rows, n_mismatch = drop_model_mismatch(rows, L.agent_models(agents_dir))
     seg = frame(rows, set(shipped.get("sessions") or []))
     fm_all = D.frontmatter(agents_dir)
     fm = {t: v for t, v in fm_all.items() if t in D.DT.TIER_OF}
@@ -312,6 +325,7 @@ def refresh(usage, out, shipped_path, agents_dir, guard, step=STEP_DEFAULT, B=D.
     J = rounded(bounded(base, target, step))
     J["generated"] = now_iso()
     J["refresh"].update(refreshed=J["generated"], step=step, base=("active" if base is active else "shipped"),
+                        model_mismatch=n_mismatch,
                         method="n-weighted combination of the shipped model and fit() on runs.csv; bands combined "
                                "on the log scale; each value moves at most x step per refresh")
     if not dry_run:
@@ -324,8 +338,8 @@ def refresh(usage, out, shipped_path, agents_dir, guard, step=STEP_DEFAULT, B=D.
     sup = sum(1 for v in J["types"].values() if v.get("status") == "supported")
     flips = sorted(t for t, v in J["types"].items()
                    if v.get("status") == "supported" and (base["types"].get(t) or {}).get("status") != "supported")
-    print("refresh: %d rows from %d sessions; %d/%d types supported; newly supported: %d" % (
-        len(seg), len(sessions), sup, len(J["types"]), len(flips)))
+    print(f"refresh: {len(seg)} rows from {len(sessions)} sessions ({n_mismatch} skipped: another model than the "
+          f"frontmatter's); {sup}/{len(J['types'])} types supported; newly supported: {len(flips)}")
     return J
 
 

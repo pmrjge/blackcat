@@ -17,6 +17,12 @@ guards (depth, fan-out, BlackCat, god-coder, TTLs, MCP cap, images, policy, read
 and sched-policy knobs) are never variables: a fixed-guard name in live.json or proposals.json
 invalidates that file (FIXED_GUARDS).
 
+Evidence: the collector's rows (stack_usage.py: usage/runs*.csv v1, runs2*.csv v2, runs3*.csv v3).
+An agent row whose `model` (v3) is set and is not its type's frontmatter model (model_mismatch: a
+/override-agent run, which is that session's only) is no evidence for the type, its pool or the
+prompt windows it ran in; v1/v2 rows and an empty model (unknown) count as before. Rows are never
+rewritten: the filter is at read time, and proposals.json counts the rows it skipped.
+
 Files under ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/limits/ (0700):
   live.json                    learned values, replaced atomically; written only by
                                apply_and_snapshot (SessionStart) and the user commands below
@@ -110,6 +116,9 @@ TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$")
 HEX16_RE = re.compile(r"^[0-9a-f]{16}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$")
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/\[\]-]{0,127}\Z")     # stack_usage.MODEL_RE
+MODEL_ALIASES = ("haiku", "sonnet", "opus", "fable")      # the Agent tool's `model` enum (/override-agent)
+FM_MODEL_RE = re.compile(r"(?m)^model:\s*([A-Za-z0-9._-]+)\s*(?:#.*)?$")   # agent_guard.MODEL_RE
 VAR_RE = re.compile(r"^(?:(?:turns|soft\.agent|hard\.agent|soft\.prompt)\.[a-z0-9][a-z0-9_.:-]{0,79}"
                     r"|(?:soft|hard)\.(?:prompt|session))$")
 
@@ -245,7 +254,8 @@ def candidate_model_path():
 
 def csv_paths():
     u = usage_dir()
-    return [os.path.join(u, n) for n in ("runs.1.csv", "runs.csv", "runs2.1.csv", "runs2.csv")]
+    return [os.path.join(u, n) for n in ("runs.1.csv", "runs.csv", "runs2.1.csv", "runs2.csv", "runs3.1.csv",
+                                         "runs3.csv")]
 
 
 def _mkdirs():
@@ -626,11 +636,66 @@ def _flag(r, k):
 _HIT_COLS = ("hit_soft", "hit_turn", "hit_hard_agent", "hit_hard_prompt", "hit_hard_session")
 
 
+def agents_dir_default():
+    return os.path.join(os.path.dirname(HERE), "agents")
+
+
+def agent_models(agents_dir=None):
+    """{type: its frontmatter `model`, lower-cased} over <agents>/*.md, parsed as
+    agent_guard.agent_defaults does (the first 8 KB, the block between the leading `---` lines); a file
+    without a model line, or unreadable, is left out."""
+    agents_dir = agents_dir or agents_dir_default()
+    out = {}
+    try:
+        names = sorted(os.listdir(agents_dir))
+    except OSError:
+        return out
+    for n in names:
+        if not n.endswith(".md") or not TYPE_RE.match(n[:-3]):
+            continue
+        try:
+            with open(os.path.join(agents_dir, n), encoding="utf-8", errors="replace") as fh:
+                head = fh.read(8192)
+        except OSError:
+            continue
+        parts = head.split("\n---", 1) if head.startswith("---") else None
+        m = FM_MODEL_RE.search(parts[0]) if parts and len(parts) == 2 else None
+        if m:
+            out[n[:-3]] = m.group(1).lower()
+    return out
+
+
+def model_family(model):
+    """The alias (haiku, sonnet, opus, fable) a model alias or id names, by substring; None when it
+    names none (`inherit`, a custom id)."""
+    s = (model or "").lower()
+    for a in MODEL_ALIASES:
+        if a in s:
+            return a
+    return None
+
+
+def model_mismatch(models, atype, model):
+    """Whether an agent row of type `atype` measured on `model` ran on another model than the type's
+    frontmatter `model` (models: agent_models()): the frontmatter names an alias family and the row's
+    model id does not contain it (`mixed`, a segment on two models, never does). A `<base>-copy` without
+    a file of its own uses its base's. Never a mismatch: an empty model (v1/v2 rows, none reported), a
+    type without a file or a model line, a frontmatter model of no family (`inherit` follows the parent,
+    whose model the row does not say: kept, as before)."""
+    if not model:
+        return False
+    exp = models.get(atype)
+    if exp is None and atype.endswith("-copy"):
+        exp = models.get(atype[:-len("-copy")])
+    fam = model_family(exp)
+    return fam is not None and fam not in model.lower()
+
+
 def parse_row(r, known=()):
     """A runs*.csv row (dict of strings) -> the fields the proposer reads, or None when it fails
     the hostile-CSV filter (schema, ids, type, finite non-negative numbers within bounds)."""
     sv = (r.get("schema_version") or "").strip()
-    if sv not in ("1", "2"):
+    if sv not in ("1", "2", "3"):
         return None
     sess, aid = (r.get("session") or "").strip(), (r.get("id") or "").strip()
     if not ID_RE.match(sess) or not ID_RE.match(aid):
@@ -660,6 +725,8 @@ def parse_row(r, known=()):
     row["regime"] = reg if HEX16_RE.match(reg) else None
     src = (r.get("src") or "").strip()
     row["src"] = "seed_v1" if sv == "1" else (src if src in ("measured", "seed_v1") else "measured")
+    mdl = (r.get("model") or "").strip() if sv == "3" else ""
+    row["model"] = mdl if MODEL_RE.match(mdl) else None      # None: unknown (v1/v2, unmeasured, invalid)
     if aid == "session":
         row["scope"], row["type"] = "session", "blackcat"
     elif aid == "main" or row["is_main"] == 1:
@@ -700,12 +767,15 @@ def _csv_rows(fh):
         yield row
 
 
-def read_rows(paths=None, known=()):
-    """(rows, stats) over runs.1.csv, runs.csv, runs2.1.csv, runs2.csv (v1 rows read as
-    src = seed_v1), the last row per (session, id, seg) winning; at most MAX_LINES_PER_FILE lines a
-    file and MAX_ROWS rows (the newest). Missing files or columns are fine; bad rows are dropped, and a
-    malformed line (csv, NUL, bad UTF-8) costs only itself (_csv_rows)."""
-    rows, stats = {}, {"read": 0, "dropped": 0, "truncated": False, "errors": 0}
+def read_rows(paths=None, known=(), models=None):
+    """(rows, stats) over runs.1.csv, runs.csv, runs2.1.csv, runs2.csv, runs3.1.csv, runs3.csv (v1 rows
+    read as src = seed_v1), the last row per (session, id, seg) winning; at most MAX_LINES_PER_FILE lines
+    a file and MAX_ROWS rows (the newest). Missing files or columns are fine; bad rows are dropped, and a
+    malformed line (csv, NUL, bad UTF-8) costs only itself (_csv_rows). Then an agent row that ran on
+    another model than its type's frontmatter one (model_mismatch over `models`, default agent_models())
+    is left out and counted in stats["model_mismatch"]: after the last-row-wins merge, so an earlier
+    row of the same key (a v2 row, a partial one) never stands in for it."""
+    rows, stats = {}, {"read": 0, "dropped": 0, "truncated": False, "errors": 0, "model_mismatch": 0}
     for p in csv_paths() if paths is None else paths:
         try:
             with open(p, encoding="utf-8", errors="replace", newline="") as fh:
@@ -725,7 +795,9 @@ def read_rows(paths=None, known=()):
             continue
         except (OSError, ValueError):
             stats["errors"] += 1
-    out = list(rows.values())
+    models = agent_models() if models is None else models
+    out = [r for r in rows.values() if r["scope"] != "agent" or not model_mismatch(models, r["type"], r["model"])]
+    stats["model_mismatch"] = len(rows) - len(out)
     if len(out) > MAX_ROWS:
         out.sort(key=lambda r: r["ts"], reverse=True)
         out = out[:MAX_ROWS]
@@ -834,11 +906,12 @@ def _entry_regime(rows, fam, kind, upto_ref, rng_key, regime, cache):
     return e
 
 
-def build_proposals(seed, paths=None, regime=None, live=None, now=None):
-    """The proposals document over the given CSV files (pure apart from reading them)."""
+def build_proposals(seed, paths=None, regime=None, live=None, now=None, models=None):
+    """The proposals document over the given CSV files (pure apart from reading them and, without
+    `models`, the agent files' frontmatter models)."""
     now = time.time() if now is None else now
     types = set(_types(seed))
-    rows, stats = read_rows(paths, known=types)
+    rows, stats = read_rows(paths, known=types, models=models)
     eid = evidence_id(rows)
     regime = regime if regime is not None else current_regime()
     if live is None:
@@ -876,7 +949,8 @@ def build_proposals(seed, paths=None, regime=None, live=None, now=None):
                     P[f"{fam}:{pool}"] = e
     return {"schema_version": SCHEMA, "generated": iso(now), "evidence_id": eid,
             "rows_upto": max([r["ts"] for r in rows] or [0]), "rows": len(rows),
-            "dropped": stats["dropped"], "truncated": stats["truncated"], "regime": regime,
+            "dropped": stats["dropped"], "model_mismatch": stats["model_mismatch"],
+            "truncated": stats["truncated"], "regime": regime,
             "fingerprint": fingerprint(paths), "vars": V, "pools": P}
 
 
@@ -2084,8 +2158,10 @@ def main(argv):
             doc = propose(paths=a.csv, out=a.out)
             if not a.quiet:
                 print("no proposals (collection off or another proposer runs)" if doc is None else
-                      "proposals: {} rows ({} dropped), {} variables with evidence, evidence {}".format(
-                          doc["rows"], doc["dropped"], len(doc["vars"]), doc["evidence_id"][:12]))
+                      "proposals: {} rows ({} dropped, {} skipped: another model than the frontmatter's), "
+                      "{} variables with evidence, evidence {}".format(
+                          doc["rows"], doc["dropped"], doc["model_mismatch"], len(doc["vars"]),
+                          doc["evidence_id"][:12]))
         elif a.cmd == "apply":
             if not a.dry_run:
                 raise CmdError("values change only at SessionStart (one swap per session); use --dry-run")

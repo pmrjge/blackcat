@@ -5,7 +5,8 @@ A background job per Claude Code session reads the session's subagent transcript
 appends one row per agent segment (a spawn or a resume), one row per human-prompt window of the main
 thread and one session row to a CSV that the scheduler's cost model and the learned limits are
 refitted from (stack_sched_refresh.py, stack_limits.py). Numbers and ids only (plus `task`, the plain
-words of the Agent description: a word with a digit, '/', ':', '.' or '_' is dropped): no prompt,
+words of the Agent description: a word with a digit, '/', ':', '.' or '_' is dropped, and `model`, the
+model id the API reported for the segment's calls): no prompt,
 transcript text, tool input, path, command, URL or secret is ever written. Every field is measured
 (transcripts, agent meta files, the guard's JSONL files); a field that cannot be measured is left
 empty, never estimated or defaulted.
@@ -34,14 +35,17 @@ SessionStart or SubagentStart of the session starts it again; offsets are persis
 read twice and nothing is lost. Every exit path fails silently: a hook never fails because of it.
 
 Files under ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/:
-  usage/runs2.csv             segment rows (COLUMNS_V2, schema 2), append-only under usage/runs2.lock
+  usage/runs3.csv             segment rows (COLUMNS_V3, schema 3), append-only under usage/runs3.lock
                               (fcntl), header line, last row per (session, id, seg) wins
-  usage/runs2.1.csv           the archive: rows rotated out of runs2.csv (STACK_USAGE_MAX_BYTES); a
-                              runs2.csv of another header is set aside as runs2.old-schema-<epoch>.csv,
+  usage/runs3.1.csv           the archive: rows rotated out of runs3.csv (STACK_USAGE_MAX_BYTES); a
+                              runs3.csv of another header is set aside as runs3.old-schema-<epoch>.csv,
                               one rotation cannot read (a line the csv module refuses, a NUL, bad UTF-8)
-                              as runs2[.1].unreadable-<epoch>.csv, byte for byte
-  usage/runs.csv, runs.1.csv  the v1 history (COLUMNS_V1): read as src=seed_v1, NEVER written, renamed
-                              or rotated here (an older install keeps appending to runs.csv)
+                              as runs3[.1].unreadable-<epoch>.csv, byte for byte
+  usage/runs2.csv, runs2.1.csv  the v2 history (COLUMNS_V2, no `model`: read as unknown), and
+  usage/runs.csv, runs.1.csv  the v1 history (COLUMNS_V1): read as src=seed_v1; both NEVER written,
+                              renamed or rotated here (an older install's collector, still running
+                              after an upgrade, keeps appending to its own file; a new header in the
+                              same file would have each version set the other's file aside)
   usage/sessions/<id>/        collector.lock, collector.json (pid, owner, heartbeat, exit reason),
                               state.json (byte offsets and parser state per transcript), end (marker)
   usage/refresh.json          the last refresh: time, trigger, result
@@ -54,6 +58,12 @@ compaction stays inside the segment. Status: `partial` while the segment's last 
 call or tool result and the transcript changed within LIVE_S (600 s), else `complete`. A later row
 for the same key replaces an earlier one (a complete segment can grow again when a background
 child's notification wakes the agent).
+
+`model` (schema 3): the `message.model` of the segment's API calls, one id when they all agree,
+`mixed` when they do not, empty when none was reported (a `<synthetic>` line is no model). The
+readers that learn from the rows (stack_limits.read_rows, stack_sched_refresh, stack-budget) skip an
+agent row whose model is set and is not its type's frontmatter model (stack_limits.model_mismatch: a
+/override-agent run is that session's only); rows are never rewritten, the filter is at read time.
 """
 import csv
 import errno
@@ -72,7 +82,7 @@ import time
 from bisect import bisect_left, bisect_right
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 V1_SCHEMA = 1
 COLUMNS_V1 = ["schema_version", "session", "id", "type", "seg", "status", "api_calls", "ctx", "input", "output",
               "cache_creation", "cache_read", "first_cc", "first_cr", "peak", "prev_peak", "gap_s", "first_ts",
@@ -87,10 +97,11 @@ COLUMNS_V2 = (COLUMNS_V1
               + ["resume", "cold", "parent", "depth", "node", "window"]                          # C
               + ["status_code"] + HIT_COLS + ["sess_src", "snap", "regime", "is_main", "window_ctx"]   # S6
               + ["task", "stack_commit", "src"])                                                 # U
-COLUMNS = COLUMNS_V2
-EMPTY_ROW = {c: "" for c in COLUMNS_V2}      # an unmeasured field is an empty cell, never 0
+COLUMNS_V3 = COLUMNS_V2 + ["model"]
+COLUMNS = COLUMNS_V3
+EMPTY_ROW = {c: "" for c in COLUMNS}         # an unmeasured field is an empty cell, never 0
 STRING_COLUMNS = ("session", "id", "type", "status", "parent", "node", "sess_src", "snap", "regime", "task",
-                  "stack_commit", "src")      # every other column is a number (or empty)
+                  "stack_commit", "src", "model")      # every other column is a number (or empty)
 REQUIRED_STRINGS = STRING_COLUMNS[:4]         # a row with an invalid one is neither written nor read
 OPTIONAL_STRINGS = STRING_COLUMNS[4:]         # validated; an invalid or unmeasurable value is an empty cell
 KEY = ("session", "id", "seg")
@@ -128,6 +139,10 @@ HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
 COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 TASK_RE = re.compile(r"^[A-Za-z][A-Za-z -]{0,59}\Z")
 TASK_WORD_RE = re.compile(r"[A-Za-z][A-Za-z-]{0,23}\Z")
+# a model id as the API reports it (claude-opus-5-5, us.anthropic.claude-...-v1:0, ...@date, ...[1m]);
+# `<synthetic>` (Claude Code's own error lines) fails it and is no model
+MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/\[\]-]{0,127}\Z")
+MODEL_MIXED = "mixed"     # a segment whose calls reported two different models
 SESS_SRC = ("startup", "resume", "clear", "compact", "fork")
 SRC_VALUES = ("measured", "seed_v1")
 STATUS_VALUES = ("partial", "complete")
@@ -251,7 +266,9 @@ def _new_seg(a, idx=None):
                 "fts": None, "lts": None, "fcc": 0, "fcr": 0, "fkey": None, "lkey": None, "comp": 0, "tl": False,
                 "after": bool(a["prev_tl"]), "gap": None, "prev_peak": None,
                 # tool counts, the segment's written files (sha256 prefixes, dropped with the segment), commits
-                "tc": {}, "fw": {}, "gc": 0, "fctx": 0, "fwc": None, "cfw": None, "lsc": None, "ltxt": False}
+                "tc": {}, "fw": {}, "gc": 0, "fctx": 0, "fwc": None, "cfw": None, "lsc": None, "ltxt": False,
+                # the distinct model ids its calls reported (two are enough to say `mixed`)
+                "models": []}
     a["nseg"] += 1
     if a["prev"]:
         a["cur"]["prev_peak"] = a["prev"]["peak"]
@@ -365,6 +382,11 @@ def _on_call_line(a, r, m, u, out):
     cur = a["cur"]
     if cur is None or w["seg"] != cur["idx"]:
         return                       # a late line of a call in a finished segment: ignored
+    md = m.get("model")
+    if isinstance(md, str) and MODEL_RE.match(md):
+        ms = cur.setdefault("models", [])
+        if md not in ms and len(ms) < 2:
+            ms.append(md)
     old = w["v"]
     nv = [max(o, v) for o, v in zip(old, vals)]
     for i, k in enumerate(("in", "out", "cc", "cr")):
@@ -491,6 +513,8 @@ def seg_row_values(cur, status, tl, end=None, main=False):
     d["tool_calls"] = sum(d[c] for c in TOOL_COLS)
     d.update(files_written=len(cur["fw"]), files_written_repo=sum(cur["fw"].values()), git_commits=cur["gc"],
              first_ctx=cur["fctx"], first_write_call=num(cur["fwc"]), ctx_at_first_write=num(cur["cfw"]))
+    ms = cur.get("models") or []
+    d["model"] = ms[0] if len(ms) == 1 else (MODEL_MIXED if ms else "")
     if main:
         d.update(resume=0, cold="", status_code="", window=cur["idx"], is_main=1, depth=0)
     else:
@@ -888,9 +912,21 @@ def v2_paths():
     return os.path.join(u, "runs2.1.csv"), os.path.join(u, "runs2.csv")
 
 
+def v3_paths():
+    u = usage_dir()
+    return os.path.join(u, "runs3.1.csv"), os.path.join(u, "runs3.csv")
+
+
 def csv_paths():
-    """Every row file a v2 reader merges, oldest first: the v1 history (never written here), then v2."""
-    return v1_paths() + v2_paths()
+    """Every row file a reader merges, oldest first: the v1 and v2 histories (never written here), then
+    v3 (the rows this collector writes)."""
+    return v1_paths() + v2_paths() + v3_paths()
+
+
+def file_schemas(path):
+    """The schema versions a row file holds, by its name: runs3*.csv 3, runs2*.csv 2, any other 1."""
+    b = os.path.basename(path)
+    return ("3",) if b.startswith("runs3") else ("2",) if b.startswith("runs2") else ("1",)
 
 
 def _header_ok(path):
@@ -902,13 +938,14 @@ def _header_ok(path):
         return False
 
 
-ARCHIVE_FACTOR = 4        # runs2.1.csv keeps at most this many times STACK_USAGE_MAX_BYTES
-APPEND_LOCK_WAIT_S = 5.0  # append_rows: runs2.lock busy this long -> TimeoutError, retried next tick
+ARCHIVE_FACTOR = 4        # runs3.1.csv keeps at most this many times STACK_USAGE_MAX_BYTES
+APPEND_LOCK_WAIT_S = 5.0  # append_rows: runs3.lock busy this long -> TimeoutError, retried next tick
+APPEND_LOCK = "runs3.lock"
 
 
 def _set_aside(path, tag="old-schema"):
-    """runs2.csv of another header becomes runs2.old-schema-<epoch>.csv, a file rotation cannot read
-    runs2[.1].unreadable-<epoch>.csv: renamed, byte for byte, never over an earlier one."""
+    """runs3.csv of another header becomes runs3.old-schema-<epoch>.csv, a file rotation cannot read
+    runs3[.1].unreadable-<epoch>.csv: renamed, byte for byte, never over an earlier one."""
     base = "%s.%s-%d" % (os.path.splitext(path)[0], tag, int(time.time()))
     dest, n = base + ".csv", 0
     while os.path.exists(dest):
@@ -928,14 +965,14 @@ def _read_strict(path):
 
 
 def _rotate_if_needed(cur, old):
-    """Rotation: once runs2.csv passes STACK_USAGE_MAX_BYTES (default 8 MB) it is merged into
-    runs2.1.csv (the last row per key, newest sessions first, at most ARCHIVE_FACTOR x the cap: the
+    """Rotation: once runs3.csv passes STACK_USAGE_MAX_BYTES (default 8 MB) it is merged into
+    runs3.1.csv (the last row per key, newest sessions first, at most ARCHIVE_FACTOR x the cap: the
     oldest sessions beyond that are dropped; the newest one always stays) and starts again empty. A file
     of another header is set aside (_set_aside). Rotation reads strictly (U1, append-only): a file with a
     line the csv module refuses, a NUL or bad UTF-8 (or, for the archive, another header or no read
-    access) is set aside intact as runs2[.1].unreadable-<epoch>.csv, never rewritten from the rows
-    ahead of that line; an unreadable runs2.csv then starts again empty, an unreadable archive is
-    rebuilt from runs2.csv alone. Only runs2*.csv is ever touched. Called under runs2.lock."""
+    access) is set aside intact as runs3[.1].unreadable-<epoch>.csv, never rewritten from the rows
+    ahead of that line; an unreadable runs3.csv then starts again empty, an unreadable archive is
+    rebuilt from runs3.csv alone. Only runs3*.csv is ever touched. Called under runs3.lock."""
     cap = knob("STACK_USAGE_MAX_BYTES", 8e6)
     try:
         size = os.path.getsize(cur)
@@ -947,7 +984,7 @@ def _rotate_if_needed(cur, old):
     if cap <= 0 or size <= cap:
         return
     if os.path.lexists(old) and not _header_ok(old):
-        _set_aside(old, "unreadable")    # its rows would read as none: never replace it by runs2.csv's
+        _set_aside(old, "unreadable")    # its rows would read as none: never replace it by runs3.csv's
     rows = _read_strict(old) or {}
     new = _read_strict(cur)
     if new is None:
@@ -1005,20 +1042,23 @@ def valid_cell(col, v):
         return v in SRC_VALUES
     if col == "task":
         return bool(TASK_RE.match(v))
+    if col == "model":
+        return bool(MODEL_RE.match(v))
     return True
 
 
 def append_rows(rows):
-    """Append v2 rows to runs2.csv (rotating to runs2.1.csv). runs.csv, runs.1.csv and
-    runs.old-schema.csv are never written, renamed or rotated. A row with an invalid session, id, type or
-    status is not written (every reader drops it); an optional string cell that is not valid is written
-    empty. So no written cell needs csv quoting (_csv_rows)."""
+    """Append rows to runs3.csv (rotating to runs3.1.csv), each as a schema 3 row (COLUMNS; a column the
+    row lacks is an empty cell). The v1 and v2 files (runs[2].csv, runs[2].1.csv, their set-aside copies)
+    are never written, renamed or rotated. A row with an invalid session, id, type or status is not
+    written (every reader drops it); an optional string cell that is not valid is written empty. So no
+    written cell needs csv quoting (_csv_rows)."""
     if not rows:
         return
-    old, cur = v2_paths()
-    with Locked(os.path.join(usage_dir(), "runs2.lock"), wait=APPEND_LOCK_WAIT_S) as lk:
+    old, cur = v3_paths()
+    with Locked(os.path.join(usage_dir(), APPEND_LOCK), wait=APPEND_LOCK_WAIT_S) as lk:
         if not lk.ok:            # scan_once reloads its state: the rows are derived again next tick
-            raise TimeoutError("runs2.lock busy")
+            raise TimeoutError(APPEND_LOCK + " busy")
         _rotate_if_needed(cur, old)
         new = not os.path.exists(cur) or os.path.getsize(cur) == 0
         buf = io.StringIO()
@@ -1028,7 +1068,7 @@ def append_rows(rows):
         for r in rows:
             if not all(isinstance(r.get(c), str) and valid_cell(c, r[c]) for c in REQUIRED_STRINGS):
                 continue                 # a row every reader drops (bad session, id, type or status)
-            r = dict(r)
+            r = dict(r, schema_version=SCHEMA_VERSION)
             for c in OPTIONAL_STRINGS:
                 v = r.get(c)
                 if v not in (None, "") and not (isinstance(v, str) and valid_cell(c, v)):
@@ -1078,15 +1118,17 @@ def _csv_rows(fh, strict=False):
 
 def read_rows(paths=None, schemas=None, strict=False):
     """{(session, id, seg): row}, the last row of a key winning, over the given files (default: runs.1.csv,
-    runs.csv, runs2.1.csv, runs2.csv in that order: the v1 history, then v2). Every row has all
-    COLUMNS_V2 keys: a v1 row (schema_version 1) has its new columns empty and src = seed_v1. Rows of
-    another schema version, with a bad session/id/type/status or a non-numeric seg are skipped; an invalid
-    optional string cell (parent, node, task, ...) is read as empty. A malformed line (csv, NUL, bad
-    UTF-8) is skipped alone; strict=True raises Unreadable on it instead (rotation). `schemas` limits the
-    accepted schema versions; by default runs2*.csv holds schema 2 rows and every other file schema 1."""
+    runs.csv, runs2.1.csv, runs2.csv, runs3.1.csv, runs3.csv in that order: the v1 and v2 histories,
+    then v3). Every row has all COLUMNS keys: a v1 or v2 row has the columns its schema lacks empty
+    (`model` among them: unknown, never guessed) and a v1 row src = seed_v1. Rows of another schema
+    version, with a bad session/id/type/status or a non-numeric seg are skipped; an invalid optional
+    string cell (parent, node, task, model, ...) is read as empty. A malformed line (csv, NUL, bad UTF-8)
+    is skipped alone; strict=True raises Unreadable on it instead (rotation). `schemas` limits the
+    accepted schema versions; by default a file holds the schema of its name (file_schemas). Nothing is
+    filtered by model here (rotation keeps every row): the learners do that (stack_limits.model_mismatch)."""
     out = {}
     for p in paths or csv_paths():
-        accept = schemas or (("2",) if os.path.basename(p).startswith("runs2") else ("1",))
+        accept = schemas or file_schemas(p)
         try:
             fh = open(p, encoding="utf-8", errors="strict" if strict else "replace", newline="")
         except FileNotFoundError:
@@ -1107,7 +1149,7 @@ def read_rows(paths=None, schemas=None, strict=False):
                         k = (r["session"], r["id"], int(r["seg"]))
                     except (KeyError, TypeError, ValueError):
                         continue
-                    if ver == "2" and not (valid_cell("type", r.get("type") or "") and
+                    if ver != "1" and not (valid_cell("type", r.get("type") or "") and
                                            valid_cell("status", r.get("status") or "")):
                         continue
                     r = {c: (r.get(c) if isinstance(r.get(c), str) else "") for c in COLUMNS}
@@ -1235,6 +1277,8 @@ def alive(pid, lstart=None):
 def load_state(sd):
     st = read_json(os.path.join(sd, "state.json")) or {}
     if st.get("v") != SCHEMA_VERSION:
+        # another schema's state (an older collector): the transcripts are read again from the start, so
+        # every row of the session is written anew in this schema (the last row per key wins)
         st = {"v": SCHEMA_VERSION, "agents": {}}
     return st
 

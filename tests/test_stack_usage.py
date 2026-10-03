@@ -78,14 +78,14 @@ def ts(k):
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(T0 + k)) + ".250Z"
 
 
-def call(mid, k, inp=3, out=50, cc=1000, cr=20000, tool=True, text="ok", content=None):
+def call(mid, k, inp=3, out=50, cc=1000, cr=20000, tool=True, text="ok", content=None, model=None):
     if content is None:
         content = [{"type": "text", "text": text}]
         if tool:
             content.append({"type": "tool_use", "id": "tu_" + mid, "name": "Bash",
                             "input": {"command": "echo SECRET-TOOL-INPUT sk-ant-api03-XYZ"}})
     return {"type": "assistant", "requestId": "req_" + mid, "timestamp": ts(k), "uuid": "u" + mid,
-            "message": {"id": "msg_" + mid, "model": "-".join(("claude", "opus", "5", "5")), "content": content,
+            "message": {"id": "msg_" + mid, "model": model or "-".join(("claude", "opus", "5", "5")), "content": content,
                         "usage": {"input_tokens": inp, "output_tokens": out, "cache_creation_input_tokens": cc,
                                   "cache_read_input_tokens": cr}}}
 
@@ -134,10 +134,11 @@ def rows_by_key():
     return U.read_rows()
 
 
-def v2_row(**kw):
-    """A complete v2 row with every column present (empty unless given)."""
+def row3(**kw):
+    """A complete row of the writer's schema (3) with every column present (empty unless given)."""
     r = {c: "" for c in U.COLUMNS}
-    r.update(schema_version=2, session=SID, id="x1", type="scout", seg=0, status="complete", src="measured")
+    r.update(schema_version=U.SCHEMA_VERSION, session=SID, id="x1", type="scout", seg=0, status="complete",
+             src="measured")
     r.update(kw)
     return r
 
@@ -200,7 +201,7 @@ def test_idempotent_rows_and_last_row_wins(st, tmp_path):
     assert rows == [] and not grew                      # nothing new: nothing appended
     rows, _ = U.scan_once(SID, str(sub), final=True)    # the session ended
     assert [r["status"] for r in rows] == ["complete"] and rows[0]["turn_limited"] == 1
-    csv_lines = (st / "usage" / "runs2.csv").read_text().splitlines()
+    csv_lines = (st / "usage" / "runs3.csv").read_text().splitlines()
     assert csv_lines[0] == ",".join(U.COLUMNS) and len(csv_lines) == 3
     r = rows_by_key()
     assert len(r) == 1 and r[(SID, "i1", 0)]["status"] == "complete"
@@ -210,13 +211,13 @@ def test_idempotent_rows_and_last_row_wins(st, tmp_path):
 
 def test_rotation_keeps_last_rows(st, tmp_path, monkeypatch):
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "3000")
-    base = dict(v2_row(), last_ts=T0, ctx=0)
+    base = dict(row3(), last_ts=T0, ctx=0)
     for i in range(60):
         U.append_rows([dict(base, id="r%d" % (i % 7), status="partial" if i < 53 else "complete", api_calls=i)])
     for i in range(80):
         U.append_rows([dict(base, id="k%d" % i, status="partial", api_calls=i)])
     U.append_rows([dict(base, id="k0", status="complete", api_calls=1000)])
-    assert (st / "usage" / "runs2.1.csv").exists() and os.path.getsize(st / "usage" / "runs2.csv") <= 3200
+    assert (st / "usage" / "runs3.1.csv").exists() and os.path.getsize(st / "usage" / "runs3.csv") <= 3200
     assert not (st / "usage" / "runs.csv").exists() and not (st / "usage" / "runs.1.csv").exists()
     r = rows_by_key()
     assert len(r) == 87 and r[(SID, "k0", 0)]["status"] == "complete" and r[(SID, "k0", 0)]["api_calls"] == "1000"
@@ -236,7 +237,7 @@ def test_no_text_in_rows(st, tmp_path):
     write_agent(sub, "t1", agent_lines())
     write_agent(sub, "t2", agent_lines()[:6], atype="Not a valid type; rm -rf /")
     U.scan_once(SID, str(sub), final=True)
-    raw = (st / "usage" / "runs2.csv").read_text()
+    raw = (st / "usage" / "runs3.csv").read_text()
     for secret in ("SECRET", "sk-ant", "hunter2", "FINAL REPORT", "echo", "rm -rf"):
         assert secret not in raw
     for r in rows_by_key().values():
@@ -612,7 +613,7 @@ def test_tool_counts_writes_and_first_write(st, tmp_path):
     assert r["ro_write"] == "1" and r["status_code"] == "2"      # a read-only type that wrote repo files
     assert (r["resume"], r["cold"], r["parent"], r["depth"], r["node"]) == ("0", "", "ab12", "2", "T3")
     assert r["task"] == "implement the parser" and r["is_main"] == "0" and r["src"] == "measured"
-    raw = (st / "usage" / "runs2.csv").read_text()
+    raw = (st / "usage" / "runs3.csv").read_text()
     for leak in ("secret msg", "/repo", "a.py", "git commit", "scratch"):
         assert leak not in raw
 
@@ -771,13 +772,13 @@ def test_T22_append_only_provenance(st, tmp_path):
     write_main(tmp_path, [dict(user("hi", 0), promptId="p0"), call("m1", 1, tool=False)])
     write_agent(sub, "q1", agent_lines()[:4], atype=None)
     U.scan_once(SID, str(sub))
-    f = st / "usage" / "runs2.csv"
+    f = st / "usage" / "runs3.csv"
     first = f.read_bytes()
     rows = rows_by_key()
     assert {k[1] for k in rows} == {"main", "q1"}
     for r in rows.values():
         assert r["src"] == "measured" and r["session"] == SID and r["first_ts"] != ""
-        assert r["stack_commit"] == full and r["schema_version"] == "2"
+        assert r["stack_commit"] == full and r["schema_version"] == "3"
         # nothing the collector cannot measure yet is a 0: the guard's files and the snapshot do not exist
         for c in U.HIT_COLS + ["window_ctx", "sess_src", "snap", "regime"]:
             assert r[c] == "", c
@@ -805,7 +806,7 @@ def test_v1_and_v2_writers_coexist(st, tmp_path, monkeypatch):
                             api_calls=i + 1, last_ts=T0 + i, first_ts=T0, prev_peak="", gap_s="")])
         expect[(SID, ids, 0)] = ("seed_v1", str(i + 1))
         idw = "v2x%d" % i
-        U.append_rows([v2_row(id=idw, api_calls=100 + i, last_ts=T0 + i, first_ts=T0, stack_commit="1dea215",
+        U.append_rows([row3(id=idw, api_calls=100 + i, last_ts=T0 + i, first_ts=T0, stack_commit="1dea215",
                               task="T%d x" % i, node="T%d" % i)])
         expect[(SID, idw, 0)] = ("measured", str(100 + i))
     r = U.read_rows()
@@ -817,16 +818,16 @@ def test_v1_and_v2_writers_coexist(st, tmp_path, monkeypatch):
     # the same key in both histories: the v2 row (read later) wins
     V.append_rows([dict(base1, schema_version=1, session=SID, id="dup", type="scout", seg=0, status="partial",
                         api_calls=1, prev_peak="", gap_s="")])
-    U.append_rows([v2_row(id="dup", status="complete", api_calls=7)])
+    U.append_rows([row3(id="dup", status="complete", api_calls=7)])
     assert U.read_rows()[(SID, "dup", 0)]["api_calls"] == "7"
     assert V.read_rows()[(SID, "v1x0", 0)]["api_calls"] == "1"        # the v1 reader still reads its own file
     # v1 rotation (its own business) never disturbs the v2 files
-    before = (st / "usage" / "runs2.csv").read_bytes()
+    before = (st / "usage" / "runs3.csv").read_bytes()
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "1500")
     for i in range(30):
         V.append_rows([dict(base1, schema_version=1, session=SID, id="rot%d" % i, type="scout", seg=0,
                             status="complete", last_ts=T0 + 50, prev_peak="", gap_s="")])
-    assert (st / "usage" / "runs.1.csv").exists() and (st / "usage" / "runs2.csv").read_bytes() == before
+    assert (st / "usage" / "runs.1.csv").exists() and (st / "usage" / "runs3.csv").read_bytes() == before
     assert (SID, "v2x5", 0) in U.read_rows() and (SID, "rot29", 0) in U.read_rows()
 
 
@@ -844,24 +845,24 @@ def test_migration_unknown_header_set_aside_and_v1_files_untouched(st, tmp_path,
     (u / "runs.1.csv").write_text((u / "runs.csv").read_text())
     (u / "runs.old-schema.csv").write_text("a,b\n1,2\n")
     v1_files = {n: sha(u / n) for n in ("runs.csv", "runs.1.csv", "runs.old-schema.csv")}
-    (u / "runs2.csv").write_text("schema_version,session,id\n2,%s,zzz\n" % SID)           # an unknown header
+    (u / "runs3.csv").write_text(f"schema_version,session,id\n2,{SID},zzz\n")           # an unknown header
     monkeypatch.setattr(U, "time", types.SimpleNamespace(time=lambda: 1790000123.9, sleep=time.sleep,
                                                              monotonic=time.monotonic))
-    U.append_rows([v2_row(id="n1")])
-    aside = u / "runs2.old-schema-1790000123.csv"
+    U.append_rows([row3(id="n1")])
+    aside = u / "runs3.old-schema-1790000123.csv"
     assert aside.read_text().endswith("2,%s,zzz\n" % SID)
-    assert (u / "runs2.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
+    assert (u / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
     assert (SID, "zzz", 0) not in U.read_rows() and (SID, "n1", 0) in U.read_rows()
     first_aside = aside.read_bytes()
-    (u / "runs2.csv").write_text("other,header\n1,2\n")                                    # again, same second
-    U.append_rows([v2_row(id="n2")])
-    assert aside.read_bytes() == first_aside and (u / "runs2.old-schema-1790000123-1.csv").exists()
+    (u / "runs3.csv").write_text("other,header\n1,2\n")                                    # again, same second
+    U.append_rows([row3(id="n2")])
+    assert aside.read_bytes() == first_aside and (u / "runs3.old-schema-1790000123-1.csv").exists()
     assert {k[1] for k in U.read_rows() if k[1].startswith("n")} == {"n2"}
     # v2 rotation and appends never touch the v1 files, even when runs.csv is over the cap
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "400")
     for i in range(20):
-        U.append_rows([v2_row(id="big%d" % i, last_ts=T0 + i)])
-    assert (u / "runs2.1.csv").exists()
+        U.append_rows([row3(id=f"big{i}", last_ts=T0 + i)])
+    assert (u / "runs3.1.csv").exists()
     assert {n: sha(u / n) for n in v1_files} == v1_files
     assert sorted(p.name for p in u.iterdir() if p.name.endswith(".csv") and p.name.startswith("runs.")) == [
         "runs.1.csv", "runs.csv", "runs.old-schema.csv"]
@@ -871,18 +872,18 @@ def test_migration_unknown_header_set_aside_and_v1_files_untouched(st, tmp_path,
 def test_hostile_csv_is_filtered_by_the_reader_and_writer(st, tmp_path):
     u = st / "usage"
     u.mkdir(parents=True)
-    good = v2_row(id="good", parent="main", node="T3", task="a b", snap="0123456789abcdef", sess_src="resume",
+    good = row3(id="good", parent="main", node="T3", task="a b", snap="0123456789abcdef", sess_src="resume",
                   regime="fedcba9876543210", stack_commit="abcdef1", api_calls=5)
-    bad = v2_row(id="opt", parent="../../x", node="lower", task="<script>", snap="XYZ", sess_src="boot",
+    bad = row3(id="opt", parent="../../x", node="lower", task="<script>", snap="XYZ", sess_src="boot",
                  regime="1234", stack_commit="HEAD", src="evil", api_calls=6)
-    rows = [good, bad, v2_row(id="../etc"), v2_row(id="ty", type="a;b"), v2_row(id="st", status="weird"),
-            v2_row(id="seg", seg="x"), dict(v2_row(id="v3"), schema_version=3),
-            dict(v2_row(id="v1"), schema_version=1)]
+    rows = [good, bad, row3(id="../etc"), row3(id="ty", type="a;b"), row3(id="st", status="weird"),
+            row3(id="seg", seg="x"), dict(row3(id="v2"), schema_version=2),
+            dict(row3(id="v1"), schema_version=1)]
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=U.COLUMNS, lineterminator="\n")
     w.writeheader()
     w.writerows(rows)
-    (u / "runs2.csv").write_text(buf.getvalue() + "short,row\n" + "\x00garbage\n")
+    (u / "runs3.csv").write_text(buf.getvalue() + "short,row\n" + "\x00garbage\n")
     r = U.read_rows()
     assert {k[1] for k in r} == {"good", "opt"}
     g, o = r[(SID, "good", 0)], r[(SID, "opt", 0)]
@@ -890,15 +891,15 @@ def test_hostile_csv_is_filtered_by_the_reader_and_writer(st, tmp_path):
         "main", "T3", "a b", "0123456789abcdef", "resume", "fedcba9876543210", "abcdef1")
     assert all(o[c] == "" for c in U.OPTIONAL_STRINGS) and o["api_calls"] == "6"
     # the writer blanks an invalid optional cell as well: a formula, a newline or a comma in `task`
-    U.append_rows([v2_row(id="w1", task="=cmd|' /C calc'!A0", parent="a b", stack_commit="zz"),
-                   v2_row(id="w2", task="line1\nline2,x")])
-    raw = (u / "runs2.csv").read_text()
+    U.append_rows([row3(id="w1", task="=cmd|' /C calc'!A0", parent="a b", stack_commit="zz"),
+                   row3(id="w2", task="line1\nline2,x")])
+    raw = (u / "runs3.csv").read_text()
     assert "calc" not in raw and "line1" not in raw
     r = U.read_rows()
     assert r[(SID, "w1", 0)]["task"] == "" and r[(SID, "w1", 0)]["parent"] == "" and r[(SID, "w2", 0)]["task"] == ""
 
 
-def _v2_csv(rows):
+def _csv3(rows):
     buf = io.StringIO()
     w = csv.DictWriter(buf, fieldnames=U.COLUMNS, lineterminator="\n")
     w.writeheader()
@@ -911,95 +912,95 @@ def test_reader_keeps_rows_after_a_bad_line(st):
     line only, never the rows after them."""
     u = st / "usage"
     u.mkdir(parents=True)
-    body = _v2_csv([v2_row(id="g1")])
+    body = _csv3([row3(id="g1")])
     for i, bad in enumerate((b"\x00bad\n", b'2,"open quote,x\n', b"\xff\xfe broken\n", b"\x00" * 40 + b"\n"), 2):
-        body += bad + _v2_csv([v2_row(id=f"g{i}")]).split(b"\n", 1)[1]
-    (u / "runs2.csv").write_bytes(body)
+        body += bad + _csv3([row3(id=f"g{i}")]).split(b"\n", 1)[1]
+    (u / "runs3.csv").write_bytes(body)
     assert {k[1] for k in U.read_rows()} == {"g1", "g2", "g3", "g4", "g5"}
 
 
 def _rotation_files(u):
-    return sorted(p.name for p in u.iterdir() if p.name.startswith("runs2") and p.name.endswith(".csv"))
+    return sorted(p.name for p in u.iterdir() if p.name.startswith("runs3") and p.name.endswith(".csv"))
 
 
 @pytest.mark.parametrize("bad", [b"\x00" * 40 + b"\n", b'2,"an unbalanced quote\n', b"\xff\xfe broken\n"],
                          ids=["nul", "quote", "utf8"])
 def test_rotation_after_a_corrupt_line_loses_no_row(st, monkeypatch, bad):
     """M2: rotation reads strictly; a file it cannot read is set aside byte for byte as
-    runs2.unreadable-<epoch>.csv (never over an earlier one) and runs2.csv starts again: no row after
-    the corrupt line is lost (before, rotation archived only the rows ahead of it and unlinked runs2.csv)."""
+    runs3.unreadable-<epoch>.csv (never over an earlier one) and runs3.csv starts again: no row after
+    the corrupt line is lost (before, rotation archived only the rows ahead of it and unlinked runs3.csv)."""
     u = st / "usage"
-    base = dict(v2_row(), last_ts=T0, ctx=0)
+    base = dict(row3(), last_ts=T0, ctx=0)
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "1000000")
     U.append_rows([dict(base, id=f"a{i}") for i in range(3)])
-    with open(u / "runs2.csv", "ab") as fh:
+    with open(u / "runs3.csv", "ab") as fh:
         fh.write(bad)
     U.append_rows([dict(base, id=f"b{i}") for i in range(3)])
-    before = (u / "runs2.csv").read_bytes()
+    before = (u / "runs3.csv").read_bytes()
     monkeypatch.setattr(U, "time", types.SimpleNamespace(time=lambda: 1790000123.9, sleep=time.sleep,
                                                              monotonic=time.monotonic))
-    (u / "runs2.unreadable-1790000123.csv").write_bytes(b"an earlier one\n")
+    (u / "runs3.unreadable-1790000123.csv").write_bytes(b"an earlier one\n")
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "300")
     U.append_rows([dict(base, id="c0")])                              # past the cap: rotation
     live = set(U.read_rows())
-    aside = u / "runs2.unreadable-1790000123-1.csv"
+    aside = u / "runs3.unreadable-1790000123-1.csv"
     kept = set(live)
     if aside.exists():
         assert aside.read_bytes() == before                           # intact, byte for byte
         kept |= set(U.read_rows([str(aside)]))
-    assert (u / "runs2.unreadable-1790000123.csv").read_bytes() == b"an earlier one\n"
+    assert (u / "runs3.unreadable-1790000123.csv").read_bytes() == b"an earlier one\n"
     for k in ["a0", "a1", "a2", "b0", "b1", "b2"]:
         assert (SID, k, 0) in kept, k
     assert (SID, "c0", 0) in live
     # strict rotation sets aside on any interpreter (the csv module of /usr/bin/python3 refuses NUL)
-    assert aside.exists() and not (u / "runs2.1.csv").exists()
-    assert (u / "runs2.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
-    # an unreadable archive is set aside as well; the rotation goes on with runs2.csv's rows
-    (u / "runs2.1.csv").write_bytes(_v2_csv([dict(base, id="old1")]) + bad
-                                    + _v2_csv([dict(base, id="old2")]).split(b"\n", 1)[1])
-    arch = (u / "runs2.1.csv").read_bytes()
+    assert aside.exists() and not (u / "runs3.1.csv").exists()
+    assert (u / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
+    # an unreadable archive is set aside as well; the rotation goes on with runs3.csv's rows
+    (u / "runs3.1.csv").write_bytes(_csv3([dict(base, id="old1")]) + bad
+                                    + _csv3([dict(base, id="old2")]).split(b"\n", 1)[1])
+    arch = (u / "runs3.1.csv").read_bytes()
     U.append_rows([dict(base, id=f"c{i}") for i in range(1, 4)])  # rotates again
-    assert (u / "runs2.1.unreadable-1790000123.csv").read_bytes() == arch
-    assert {k[1] for k in U.read_rows([str(u / "runs2.1.csv")])} == {"c0"}
-    assert {k[1] for k in U.read_rows([str(u / "runs2.csv")])} == {"c1", "c2", "c3"}
-    assert _rotation_files(u) == ["runs2.1.csv", "runs2.1.unreadable-1790000123.csv", "runs2.csv",
-                                  "runs2.unreadable-1790000123-1.csv", "runs2.unreadable-1790000123.csv"]
+    assert (u / "runs3.1.unreadable-1790000123.csv").read_bytes() == arch
+    assert {k[1] for k in U.read_rows([str(u / "runs3.1.csv")])} == {"c0"}
+    assert {k[1] for k in U.read_rows([str(u / "runs3.csv")])} == {"c1", "c2", "c3"}
+    assert _rotation_files(u) == ["runs3.1.csv", "runs3.1.unreadable-1790000123.csv", "runs3.csv",
+                                  "runs3.unreadable-1790000123-1.csv", "runs3.unreadable-1790000123.csv"]
 
 
 @pytest.mark.parametrize("damage", ["bom", "stray", "header", "eacces"])
 def test_rotation_keeps_an_archive_it_cannot_read(st, monkeypatch, damage):
     """M2 (audit follow-up): an archive whose header the strict reader would not see (a BOM, a stray
-    byte, another header, no read permission) read as empty and was replaced by runs2.csv's rows; it is
+    byte, another header, no read permission) read as empty and was replaced by runs3.csv's rows; it is
     set aside intact instead."""
     if damage == "eacces" and os.geteuid() == 0:
         pytest.skip("root reads a mode-0 file")
-    u, base = st / "usage", dict(v2_row(), last_ts=T0, ctx=0)
+    u, base = st / "usage", dict(row3(), last_ts=T0, ctx=0)
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "1000000")
     U.append_rows([dict(base, id=f"a{i}") for i in range(3)])
-    arch = _v2_csv([dict(base, id="old1")])
+    arch = _csv3([dict(base, id="old1")])
     pre = {"bom": b"\xef\xbb\xbf", "stray": b"x", "header": b"", "eacces": b""}[damage]
     if damage == "header":
         arch = b"schema_version,session,id\n2," + SID.encode() + b",old1\n"
-    (u / "runs2.1.csv").write_bytes(pre + arch)
+    (u / "runs3.1.csv").write_bytes(pre + arch)
     if damage == "eacces":
-        (u / "runs2.1.csv").chmod(0)
+        (u / "runs3.1.csv").chmod(0)
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "300")
     U.append_rows([dict(base, id="c0")])
-    for p in u.glob("runs2.1*.csv"):
+    for p in u.glob("runs3.1*.csv"):
         p.chmod(0o600)
-    asides = list(u.glob("runs2.1.unreadable-*.csv"))
+    asides = list(u.glob("runs3.1.unreadable-*.csv"))
     assert len(asides) == 1 and asides[0].read_bytes() == pre + arch
-    assert {k[1] for k in U.read_rows([str(u / "runs2.1.csv")])} == {"a0", "a1", "a2"}
+    assert {k[1] for k in U.read_rows([str(u / "runs3.1.csv")])} == {"a0", "a1", "a2"}
 
 
-def test_a_bad_byte_in_runs2_never_stops_the_writer(st, monkeypatch):
+def test_a_bad_byte_in_runs3_never_stops_the_writer(st, monkeypatch):
     """M2 (audit follow-up): the header check decoded the first 8 KB strictly, so one bad byte near the
-    top of runs2.csv made every append raise (no row written again, below the cap too)."""
+    top of runs3.csv made every append raise (no row written again, below the cap too)."""
     u = st / "usage"
-    U.append_rows([v2_row(id="a1")])
-    with open(u / "runs2.csv", "ab") as fh:
+    U.append_rows([row3(id="a1")])
+    with open(u / "runs3.csv", "ab") as fh:
         fh.write(b"\xff\xfe broken\n")
-    U.append_rows([v2_row(id="a2")])
+    U.append_rows([row3(id="a2")])
     assert {k[1] for k in U.read_rows()} == {"a1", "a2"}
 
 
@@ -1008,18 +1009,18 @@ def test_the_writer_never_quotes_a_cell(st, monkeypatch):
     a value that would need quoting (a trailing newline passed `$`) is blanked, or its row (a key cell
     every reader drops) is not written, so strict rotation never sets a good file aside."""
     u = st / "usage"
-    U.append_rows([v2_row(id="ok1", task="abc\n", node="T3\n", parent="main\n", stack_commit="abcdef1\n",
+    U.append_rows([row3(id="ok1", task="abc\n", node="T3\n", parent="main\n", stack_commit="abcdef1\n",
                           snap="0123456789abcdef\n"),
-                   v2_row(id="bad\n"), v2_row(id="ok2", type="coder\n"), v2_row(id="ok3", session=SID + "\n"),
-                   v2_row(id="ok4", status="complete\n"), v2_row(id='q"x'), v2_row(id="c,x")])
-    raw = (u / "runs2.csv").read_bytes()
+                   row3(id="bad\n"), row3(id="ok2", type="coder\n"), row3(id="ok3", session=SID + "\n"),
+                   row3(id="ok4", status="complete\n"), row3(id='q"x'), row3(id="c,x")])
+    raw = (u / "runs3.csv").read_bytes()
     assert b'"' not in raw and raw.count(b"\n") == 2
     r = U.read_rows()
-    assert set(r) == {(SID, "ok1", 0)} and all(r[(SID, "ok1", 0)][c] == "" for c in U.OPTIONAL_STRINGS[:-1])
+    assert set(r) == {(SID, "ok1", 0)} and all(r[(SID, "ok1", 0)][c] == "" for c in U.OPTIONAL_STRINGS if c != "src")
     assert not U.valid_cell("task", "abc\n") and not U.ID_RE.match("a1\n") and not U.TYPE_RE.match("coder\n")
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "300")
-    U.append_rows([v2_row(id="ok5")])                                    # rotation reads it strictly
-    assert not list(u.glob("runs2*.unreadable-*.csv")) and set(U.read_rows()) == {(SID, "ok1", 0), (SID, "ok5", 0)}
+    U.append_rows([row3(id="ok5")])                                    # rotation reads it strictly
+    assert not list(u.glob("runs3*.unreadable-*.csv")) and set(U.read_rows()) == {(SID, "ok1", 0), (SID, "ok5", 0)}
 
 
 def test_refresh_scrubs_interpreter_env(st, tmp_path, monkeypatch):
@@ -1071,12 +1072,12 @@ time.sleep(60)
 
 
 def test_append_rows_bounded_when_lock_held(st, tmp_path, monkeypatch):
-    """S2: a process holding runs2.lock (from a read-only fd) made append_rows, and so the collector,
+    """S2: a process holding runs3.lock (from a read-only fd) made append_rows, and so the collector,
     block forever; now it gives up after APPEND_LOCK_WAIT_S with TimeoutError, scan_once reloads its
     state, and the rows are appended at a later tick."""
     import threading
-    U.append_rows([v2_row(id="a1")])
-    lock = st / "usage" / "runs2.lock"
+    U.append_rows([row3(id="a1")])
+    lock = st / "usage" / "runs3.lock"
     holder = subprocess.Popen([PY, "-c", HOLD_LOCK, str(lock)], stdout=subprocess.PIPE, text=True)
     try:
         assert holder.stdout.readline().strip() == "held"
@@ -1085,7 +1086,7 @@ def test_append_rows_bounded_when_lock_held(st, tmp_path, monkeypatch):
         def go():
             t = time.monotonic()
             try:
-                U.append_rows([v2_row(id="a2")])
+                U.append_rows([row3(id="a2")])
                 got.append(("ok", time.monotonic() - t))
             except TimeoutError:
                 got.append(("timeout", time.monotonic() - t))
@@ -1103,7 +1104,7 @@ def test_append_rows_bounded_when_lock_held(st, tmp_path, monkeypatch):
         holder.kill()
         holder.wait()
     U.scan_once(SID, str(subdir(tmp_path)), final=True)
-    U.append_rows([v2_row(id="a2")])
+    U.append_rows([row3(id="a2")])
     assert {(SID, "a1", 0), (SID, "a2", 0), (SID, "s1", 0)} <= set(U.read_rows())
 
 
@@ -1267,3 +1268,92 @@ def test_exit_refresh_passes_the_session(st, tmp_path, monkeypatch):
     finally:
         signal.signal(signal.SIGTERM, old)
     assert seen == [{"trigger": "session end", "session": SID}]
+
+
+# ---------------------------------------------------------------- schema 3: the segment's model
+HAIKU, SONNET = "claude-haiku-4-5-20251001", "claude-sonnet-5-5"
+
+
+def test_segment_model_per_segment_mixed_and_synthetic(st, tmp_path):
+    """`model` is what the API reported for the segment's calls: one id, `mixed` for two, empty for none
+    valid; Claude Code's `<synthetic>` lines are no model. A resume is its own segment."""
+    sub = subdir(tmp_path)
+    resume = user("Another Claude session sent a message while you were working: more", 400)
+    write_agent(sub, "m1", [user("go", 0), call("a1", 1, model=HAIKU), result(2), call("a2", 3, model=HAIKU, tool=False),
+                            resume, call("b1", 401, model=SONNET, tool=False)], atype="scout")
+    write_agent(sub, "m2", [user("go", 0), call("c1", 1, model=HAIKU), result(2), call("c2", 3, model=SONNET),
+                            result(4), call("c3", 5, model=HAIKU, tool=False)], atype="scout")
+    write_agent(sub, "m3", [user("go", 0), call("d1", 1, model=SONNET), result(2),
+                            call("d2", 3, model="<synthetic>", tool=False, inp=0, cc=0, cr=0)], atype="scout")
+    write_agent(sub, "m4", [user("go", 0), call("e1", 1, model="bad model, x", tool=False)], atype="scout")
+    write_main(tmp_path, [dict(user("hi", 0), promptId="p0"), call("w1", 1, tool=False, model=SONNET)])
+    r = scan_final(tmp_path)
+    assert (r[(SID, "m1", 0)]["model"], r[(SID, "m1", 1)]["model"]) == (HAIKU, SONNET)
+    assert r[(SID, "m2", 0)]["model"] == U.MODEL_MIXED == "mixed"
+    assert r[(SID, "m3", 0)]["model"] == SONNET and r[(SID, "m4", 0)]["model"] == ""
+    assert r[(SID, "main", 0)]["model"] == SONNET
+    assert all(v["schema_version"] == "3" and (v["model"] == "" or U.valid_cell("model", v["model"])) for v in r.values())
+    assert not U.valid_cell("model", "<synthetic>") and not U.valid_cell("model", "a,b") and not U.valid_cell("model", "x\n")
+    assert U.valid_cell("model", "us.anthropic.claude-sonnet-4-5-20250929-v1:0") and U.valid_cell("model", "claude-opus-4-6[1m]")
+
+
+def test_schema3_reads_the_v1_and_v2_files_and_never_writes_them(st, tmp_path, monkeypatch):
+    """The migration: runs3*.csv is the writer's; the v1 (runs*.csv) and v2 (runs2*.csv) histories stay
+    as they are, read with `model` empty (unknown, never guessed); a later v3 row of a key wins."""
+    V = load_v1(tmp_path)
+    V.append_rows([dict({c: 0 for c in V.COLUMNS}, schema_version=1, session=SID, id="o1", type="scout", seg=0,
+                        status="complete", api_calls=1, prev_peak="", gap_s="")])
+    u = st / "usage"
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=U.COLUMNS_V2, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    w.writerows([dict(row3(id="t1", api_calls=2), schema_version=2),
+                 dict(row3(id="dup", api_calls=3, status="partial"), schema_version=2)])
+    (u / "runs2.csv").write_text(buf.getvalue())
+    (u / "runs2.1.csv").write_text(buf.getvalue().replace(",t1,", ",t0,"))
+    before = {n: sha(u / n) for n in ("runs.csv", "runs2.csv", "runs2.1.csv")}
+    U.append_rows([row3(id="dup", api_calls=7, model=SONNET), dict(row3(id="n1", model=HAIKU), schema_version=2)])
+    r = U.read_rows()
+    assert r[(SID, "o1", 0)]["src"] == "seed_v1" and r[(SID, "o1", 0)]["model"] == ""
+    for k in ("t0", "t1"):
+        assert r[(SID, k, 0)]["schema_version"] == "2" and r[(SID, k, 0)]["model"] == ""
+    assert r[(SID, "dup", 0)]["api_calls"] == "7" and r[(SID, "dup", 0)]["model"] == SONNET   # v3 read last
+    assert r[(SID, "n1", 0)]["schema_version"] == "3"          # the writer writes its own schema only
+    assert (u / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS) and U.COLUMNS[-1] == "model"
+    monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "400")          # rotation: runs3*.csv only
+    for i in range(20):
+        U.append_rows([row3(id=f"big{i}", last_ts=T0 + i)])
+    assert (u / "runs3.1.csv").exists() and {n: sha(u / n) for n in before} == before
+    assert {(SID, "t1", 0), (SID, "o1", 0), (SID, "big19", 0)} <= set(U.read_rows())
+    assert [U.file_schemas(p) for p in ("a/runs3.1.csv", "runs2.csv", "runs.1.csv")] == [("3",), ("2",), ("1",)]
+
+
+def test_an_older_collector_state_is_read_again_in_schema_3(st, tmp_path):
+    """A session an older collector (state v2) had read is read again from the start, so its rows are
+    written anew with `model`."""
+    sub = subdir(tmp_path)
+    write_agent(sub, "g1", agent_lines()[:4], atype="scout")
+    U.scan_once(SID, str(sub), final=True)
+    stp = st / "usage" / "sessions" / SID / "state.json"
+    old = json.loads(stp.read_text())
+    stp.write_text(json.dumps(dict(old, v=2)))
+    (st / "usage" / "runs3.csv").unlink()
+    U.scan_once(SID, str(sub), final=True)
+    assert rows_by_key()[(SID, "g1", 0)]["model"] == "claude-opus-5-5"
+    stp.write_text(json.dumps(old))                              # the same schema: nothing read twice
+    (st / "usage" / "runs3.csv").unlink()
+    U.scan_once(SID, str(sub), final=True)
+    assert rows_by_key() == {}
+
+
+def test_refresh_skips_overridden_runs(st, tmp_path, refit):
+    """The scheduler refit: scout runs on another model than scout's (sonnet: the refit's agents dir)
+    are no evidence; v1 rows and rows of scout's model count."""
+    k = refit
+    sonnet = csv_rows(k["segs"]("scout", 3, 20.0, 9, "new1"))
+    haiku = csv_rows(k["segs"]("scout", 4, 200.0, 21, "ovr1"))
+    U.append_rows([dict(r, model=SONNET) for r in sonnet] + [dict(r, model=HAIKU) for r in haiku])
+    J = do_refresh(k, st)
+    sc = J["types"]["scout"]
+    assert sc["evidence"]["n_seg_seen"] == 3 and J["refresh"]["model_mismatch"] == 4
+    assert "ovr1" not in J["sessions"] and "new1" in J["sessions"]
