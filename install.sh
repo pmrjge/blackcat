@@ -14,7 +14,7 @@
 #   ./install.sh --keep-plugin-duplicates  keep the document-skills and skill-creator plugins enabled
 #                                 where claude.ai syncs the same skills (default: disabled, one copy)
 #   ./install.sh --replace-mcp   re-register exa/jina/wolfram/huggingface/wandb even if you configured them
-#   ./install.sh --no-deps       skip brew/uv/node/magg/huetension/venv installs and MCP dep prefetch
+#   ./install.sh --no-deps       skip brew/uv/node/magg/huetension/serial-mcp/venv installs and MCP dep prefetch
 #                                 (missing tools become warnings instead of installs)
 #   ./install.sh --no-profile    leave your shell rc file alone (don't add the stack.env source line)
 #   ./install.sh --dry-run       print every change (files, removals, MCP, plugins, rc) and make none
@@ -572,7 +572,7 @@ if [ "$SUPPLY_CHANGED" = 1 ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ]; the
   esac
 fi
 
-say "2/11 Tools: magg, huetension, science venv"
+say "2/11 Tools: magg, huetension, serial-mcp, science venv"
 # Supply chain (C7): every download is pinned to a version and, where the project publishes one, a
 # checksum; the Python venvs install from hash-locked lockfiles (requirements/, 7-day cooldown).
 UV_VERSION=0.12.20
@@ -606,14 +606,52 @@ venv_sync(){  # venv_sync NAME REQS [uv pip flags]: hash-locked install into $C/
   [ -x "$C/venvs/$name/bin/python" ] || uv venv --quiet --python 3.12 "$C/venvs/$name"
   uv pip install --quiet --python "$C/venvs/$name/bin/python" --require-hashes "$@" -r "$reqs"
 }
+# serial-mcp: the magg catalog's `serial` server (embedded-engineer, through mcp-broker), built from
+# crates.io with cargo when cargo exists; Rust itself is never installed here. The pinned version
+# lives in one place, the catalog entry's notes ("cargo install serial-mcp@X --locked"); --root puts
+# the binary where the entry's command looks (__HOME__/.cargo/bin), whatever CARGO_INSTALL_ROOT says.
+SERIAL_MCP_VERSION="$(python3 -c 'import json, re, sys
+try:
+    n = json.load(open(sys.argv[1]))["servers"]["serial"]["notes"]
+except Exception:
+    n = ""
+m = re.search(r"cargo install serial-mcp@([0-9][0-9A-Za-z.+-]*) --locked", n)
+print(m.group(1) if m else "")' "$HERE/dot-claude/magg/config.json" 2>/dev/null || true)"
+SERIAL_MCP_BIN="$HOME/.cargo/bin/serial-mcp"
+SERIAL_MCP_CMD="cargo install serial-mcp@$SERIAL_MCP_VERSION --locked --root $HOME/.cargo"
+cargo_bin(){ command -v cargo 2>/dev/null || { [ -x "$HOME/.cargo/bin/cargo" ] && echo "$HOME/.cargo/bin/cargo"; } || true; }
+# the pinned serial-mcp is in place (a binary cargo has no record of is yours, and stays)
+serial_mcp_current(){
+  [ -x "$SERIAL_MCP_BIN" ] || return 1
+  local rec; rec="$(grep -o '"serial-mcp [^ ]*' "$HOME/.cargo/.crates2.json" 2>/dev/null | head -n 1 | cut -d' ' -f2 || true)"
+  [ -z "$rec" ] || [ "$rec" = "$SERIAL_MCP_VERSION" ]
+}
+serial_mcp_step(){  # serial_mcp_step install|plan (plan: --dry-run, lists the build)
+  if [ -z "$SERIAL_MCP_VERSION" ]; then
+    note "! serial-mcp: no pinned version in the serial entry of $HERE/dot-claude/magg/config.json — skipped"; return 0
+  fi
+  if serial_mcp_current; then [ "$1" = plan ] || note "serial-mcp present ($SERIAL_MCP_BIN)"; return 0; fi
+  local cargo; cargo="$(cargo_bin)"
+  if [ -z "$cargo" ]; then
+    note "serial-mcp: skipped, no cargo (install Rust, then rerun or: $SERIAL_MCP_CMD)"; return 0
+  fi
+  if [ "$1" = plan ]; then would "$SERIAL_MCP_CMD"; return 0; fi
+  note "building serial-mcp $SERIAL_MCP_VERSION with cargo (a few minutes the first time)"
+  if "$cargo" install "serial-mcp@$SERIAL_MCP_VERSION" --locked --root "$HOME/.cargo" </dev/null; then
+    note "+ serial-mcp $SERIAL_MCP_VERSION in $HOME/.cargo/bin"
+  else
+    note "! serial-mcp $SERIAL_MCP_VERSION build failed — $SERIAL_MCP_CMD"
+  fi
+}
 if [ "$NO_DEPS" = 1 ] || [ "$DRY_RUN" = 1 ]; then
-  if [ "$NO_DEPS" = 1 ]; then note "--no-deps: skipping brew/uv/node/magg/huetension/venv installs"
+  if [ "$NO_DEPS" = 1 ]; then note "--no-deps: skipping brew/uv/node/magg/huetension/serial-mcp/venv installs"
   else note "--dry-run: listing the tool installs a real run would do"; fi
   miss(){ if [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ]; then would "$2"; else note "! $1 missing — $2"; fi; }
   have uv || miss uv "install uv $UV_VERSION (brew, else the checksummed release tarball into ~/.local/bin)"
   have node || miss node "install Node.js 22.5+ (brew install node)"
   have magg || miss magg "uv tool install --exclude-newer $MAGG_EXCLUDE_NEWER magg==$MAGG_VERSION"
   have huetension || miss huetension "install huetension v$HUETENSION_VERSION (checksummed release tarball; designer works without it)"
+  if [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ]; then serial_mcp_step plan; fi
   if [ -x "$C/venvs/sci/bin/python" ]; then [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ] && would "sync $C/venvs/sci to requirements/sci.txt (--require-hashes)"
   else miss "science venv at $C/venvs/sci" "uv venv $C/venvs/sci && uv pip install --require-hashes --only-binary :all: -r requirements/sci.txt"; fi
 else
@@ -669,6 +707,7 @@ else
     rm -rf "$d"
   fi
   have huetension && note "huetension ok" || note "! huetension missing — designer works without color MCP; see README"
+  serial_mcp_step install
   if venv_sync sci "$HERE/requirements/sci.txt" --only-binary :all:; then note "science venv: $C/venvs/sci (hash-locked)"
   else note "! science venv install failed — uv pip install --python $C/venvs/sci/bin/python --require-hashes --only-binary :all: -r $HERE/requirements/sci.txt"; fi
 fi

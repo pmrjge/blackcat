@@ -626,10 +626,15 @@ if [ -n "$unexpected" ]; then
 else
   pass "doctor.sh: only expected FAILs (--no-deps skipped venv/magg)"
 fi
-# a catalog-only server the user installs (serial: cargo install) is a WARN when missing, never a FAIL
+# a catalog-only server install.sh builds only with cargo (serial) is a WARN when missing, never a
+# FAIL, and names the pinned install command from its catalog notes
+SERIAL_V=$(python3 -c 'import json, re, sys
+n = json.load(open(sys.argv[1]))["servers"]["serial"]["notes"]
+print(re.search(r"cargo install serial-mcp@(\S+) --locked", n).group(1))' "$HERE/dot-claude/magg/config.json")
 if [ -x "$HOME/.cargo/bin/serial-mcp" ] \
-   || printf '%s\n' "$out" | grep -q 'WARN  .*/serial-mcp missing — MCP server of magg catalog: serial'; then
-  pass "doctor.sh: a missing user-installed catalog server is a WARN"
+   || printf '%s\n' "$out" | grep 'WARN  .*/serial-mcp missing — MCP server of magg catalog: serial' \
+        | grep -qF "rerun ./install.sh with cargo on PATH, or run: cargo install serial-mcp@$SERIAL_V --locked)"; then
+  pass "doctor.sh: a missing cargo-built catalog server is a WARN with its pinned install command"
 else
   failed "doctor.sh serial-mcp line: $(printf '%s\n' "$out" | grep serial-mcp)"
 fi
@@ -1997,6 +2002,76 @@ got=$(env -i HOME="$TB/home" PATH="$PATH" GIT_CONFIG_PARAMETERS="'user.name=smok
   || failed "session-env script: [$got] $(grep -c 'sandboxed Bash caches' "$TB/envfile")"
 assert_unchanged_real_home
 drop_scratch "$TB"
+
+echo "== 18. serial-mcp: built with cargo at the catalog's pin, once; skipped without cargo, in --dry-run, --mcp-plan, --no-deps"
+# The tools step runs without --no-deps here, so every tool it would install or call is a stub on
+# PATH (exit 0) and cargo is a fake that records its arguments and creates the binary under --root.
+# HOME is scratch per case: the catalog's command is __HOME__/.cargo/bin/serial-mcp.
+TS="$(scratch_dir)" || exit 1
+mkdir -p "$TS/stubs" "$TS/cargo" "$TS/farm"
+for b in uv uvx node npx npm brew magg huetension; do printf '#!/bin/sh\nexit 0\n' > "$TS/stubs/$b"; chmod +x "$TS/stubs/$b"; done
+cat > "$TS/cargo/cargo" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$CARGO_LOG"
+root=""; prev=""
+for a in "$@"; do [ "$prev" = --root ] && root="$a"; prev="$a"; done
+[ -n "$root" ] || exit 1
+v=$(printf '%s\n' "$*" | sed -n 's/.*serial-mcp@\([^ ]*\).*/\1/p')
+mkdir -p "$root/bin" && printf '#!/bin/sh\nexit 0\n' > "$root/bin/serial-mcp" && chmod +x "$root/bin/serial-mcp"
+printf '{"installs":{"serial-mcp %s (registry+https://github.com/rust-lang/crates.io-index)":{}}}\n' "$v" > "$root/.crates2.json"
+SH
+chmod +x "$TS/cargo/cargo"
+# PATH without any real cargo: a directory holding one is replaced by links to its other commands
+NOCARGO_PATH=""; farmed=0
+IFS=: read -r -a _dirs <<<"$PATH"
+for d in "${_dirs[@]}"; do
+  if [ -n "$d" ] && [ -e "$d/cargo" ]; then
+    for f in "$d"/*; do b="${f##*/}"; [ "$b" = cargo ] || [ -e "$TS/farm/$b" ] || ln -s "$f" "$TS/farm/$b"; done
+    [ "$farmed" = 1 ] || NOCARGO_PATH="$NOCARGO_PATH${NOCARGO_PATH:+:}$TS/farm"; farmed=1
+  else
+    NOCARGO_PATH="$NOCARGO_PATH${NOCARGO_PATH:+:}$d"
+  fi
+done
+export CARGO_LOG="$TS/cargo.log" FAKE_CLAUDE_JSON="$TS/fake-claude.json" STACK_CLAUDE_JSON="$TS/fake-claude.json"
+: > "$CARGO_LOG"; echo '{}' > "$FAKE_CLAUDE_JSON"
+srun(){ local home="$1" path="$2" log="$3"; shift 3; mkdir -p "$home"
+  HOME="$home" PATH="$path" CLAUDE_CONFIG_DIR="$home/.claude" "$INSTALL" --no-mcp --no-plugins --no-profile "$@" >"$TS/$log" 2>&1; }
+ncalls(){ wc -l <"$CARGO_LOG" | tr -d ' '; }
+WANT="install serial-mcp@$SERIAL_V --locked --root $TS/h1/.cargo"
+srun "$TS/h1" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" r1.log; rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && [ "$(head -n 1 "$CARGO_LOG")" = "$WANT" ] && [ -x "$TS/h1/.cargo/bin/serial-mcp" ] \
+  && grep -qF "+ serial-mcp $SERIAL_V in $TS/h1/.cargo/bin" "$TS/r1.log" \
+  && pass "serial-mcp: cargo called once with: $WANT" \
+  || { failed "serial-mcp install (rc=$rc, $(ncalls) cargo calls: $(head -n 2 "$CARGO_LOG" | tr '\n' '|'))"; grep -i 'serial\|cargo' "$TS/r1.log" | sed 's/^/    /'; }
+srun "$TS/h1" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" r2.log; rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && grep -qF "serial-mcp present ($TS/h1/.cargo/bin/serial-mcp)" "$TS/r2.log" \
+  && pass "serial-mcp: a re-run with the pinned binary in place doesn't call cargo" \
+  || failed "serial-mcp re-run (rc=$rc, $(ncalls) cargo calls): $(grep -i 'serial' "$TS/r2.log" | head -2)"
+sed -i.bak "s/serial-mcp $SERIAL_V /serial-mcp 0.0.1 /" "$TS/h1/.cargo/.crates2.json" && rm -f "$TS/h1/.cargo/.crates2.json.bak"
+srun "$TS/h1" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" r3.log; rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = 2 ] && [ "$(tail -n 1 "$CARGO_LOG")" = "$WANT" ] \
+  && pass "serial-mcp: an older version cargo installed is rebuilt at the pin" \
+  || failed "serial-mcp upgrade (rc=$rc, $(ncalls) cargo calls)"
+: > "$CARGO_LOG"
+srun "$TS/h2" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" d.log --dry-run; rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = 0 ] && [ ! -e "$TS/h2/.cargo" ] \
+  && grep -qF "would: cargo install serial-mcp@$SERIAL_V --locked --root $TS/h2/.cargo" "$TS/d.log" \
+  && pass "serial-mcp: --dry-run lists the cargo build and runs nothing" \
+  || failed "serial-mcp --dry-run (rc=$rc, $(ncalls) cargo calls): $(grep -i 'serial' "$TS/d.log" | head -2)"
+HOME="$TS/h2" PATH="$TS/cargo:$TS/stubs:$NOCARGO_PATH" CLAUDE_CONFIG_DIR="$TS/h2/.claude" "$INSTALL" --mcp-plan >"$TS/p.log" 2>&1; rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = 0 ] && [ ! -e "$TS/h2/.cargo" ] && pass "serial-mcp: --mcp-plan never calls cargo" \
+  || failed "serial-mcp --mcp-plan (rc=$rc, $(ncalls) cargo calls)"
+srun "$TS/h2" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" n.log --no-deps; rc=$?
+[ "$rc" = 0 ] && [ "$(ncalls)" = 0 ] && [ ! -e "$TS/h2/.cargo" ] && pass "serial-mcp: --no-deps never calls cargo" \
+  || failed "serial-mcp --no-deps (rc=$rc, $(ncalls) cargo calls)"
+srun "$TS/h3" "$TS/stubs:$NOCARGO_PATH" c.log; rc=$?
+[ "$rc" = 0 ] && [ ! -e "$TS/h3/.cargo" ] && [ "$(grep -c 'serial-mcp: skipped, no cargo' "$TS/c.log")" = 1 ] \
+  && grep -qF "cargo install serial-mcp@$SERIAL_V --locked --root $TS/h3/.cargo" "$TS/c.log" \
+  && pass "serial-mcp: without cargo, one line names the skipped build; the install goes on" \
+  || failed "serial-mcp without cargo (rc=$rc): $(grep -i 'serial\|cargo' "$TS/c.log" | head -3)"
+unset CARGO_LOG
+assert_unchanged_real_home
+drop_scratch "$TS"
 
 echo
 echo "== Summary: $PASS passed, $FAIL failed"

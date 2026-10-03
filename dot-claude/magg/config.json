@@ -269,7 +269,7 @@
       "args": [
         "--allowlist=/dev/cu.usbmodem*,/dev/cu.usbserial*,/dev/ttyACM*,/dev/ttyUSB*"
       ],
-      "notes": "Serial consoles of dev boards: list ports, open, read, write, DTR/RTS/BREAK (line control can reset a board). Ports limited by --allowlist. Install first: cargo install serial-mcp@0.9.3 --locked. Only a board the user said is connected and may be used.",
+      "notes": "Serial consoles of dev boards: list ports, open, read, write, DTR/RTS/BREAK (line control can reset a board). Ports limited by --allowlist. install.sh builds it when cargo is present (pinned here: cargo install serial-mcp@0.9.3 --locked). Only a board the user said is connected and may be used.",
       "enabled": false
     },
     "gis": {

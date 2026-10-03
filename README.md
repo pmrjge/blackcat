@@ -284,7 +284,8 @@ eleven steps, as the run prints them:
 1. **Prerequisites**: macOS, git, python3, Claude Code version, the absolute interpreter for hooks
    (`STACK_PYTHON`).
 2. **Tools**: uv, node, magg, huetension, media tools, the hash-locked science venv
-   (`~/.claude/venvs/sci`).
+   (`~/.claude/venvs/sci`); serial-mcp (`cargo install --locked` at the catalog's pin) when cargo
+   is present, else one line saying it was skipped (Rust is never installed).
 3. **ML venv** (`--with-ml`): `~/.claude/venvs/ml` from `requirements/ml.txt`, several GB.
 4. **Adobe** (`--with-adobe`): the After Effects MCP at a pinned commit, the Premiere connector.
 5. **Stage**: copy the stack's part of the config dir to a private staging dir.
@@ -542,7 +543,7 @@ every call for the rest (ask).
 | kubernetes | `kubernetes-mcp-server@0.0.67 --read-only` (`magg/k8s-mcp.toml`) | ask | your kubeconfig |
 | grafana | `mcp-grafana@2.0.0 --disable-write` | ask | `GRAFANA_URL`, `GRAFANA_SERVICE_ACCOUNT_TOKEN` |
 | sec-edgar | `sec-edgar-mcp@1.1.0` | ask | `SEC_EDGAR_USER_AGENT` |
-| serial | `~/.cargo/bin/serial-mcp`, port allowlist | ask | `cargo install serial-mcp@0.9.3 --locked` first |
+| serial | `~/.cargo/bin/serial-mcp`, port allowlist | ask | cargo (install.sh builds `serial-mcp@0.9.3 --locked`) |
 | gis | `gis-mcp@0.15.0` | ask | — |
 
 **Documented, not installed** (heavy, an app plugin, cloud credentials or hardware writes): unity-mcp,

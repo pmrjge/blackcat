@@ -298,6 +298,7 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 - uv 0.12.20: release tarball, checked by sha256.
 - magg 1.2.1: `uv tool install --exclude-newer 2026-09-22T00:00:00Z`.
 - huetension v0.3.0: tarball checked by sha256 (`go install ...@v0.3.0` as fallback).
+- serial-mcp 0.9.3 (magg catalog `serial`): `cargo install serial-mcp@0.9.3 --locked --root ~/.cargo` (the crate's own `Cargo.lock`; crates.io checks the crate's checksum), only when cargo is present: Rust is never installed, and without cargo the step prints one line and doctor.sh WARNs with the command. The pin lives in the catalog entry's notes; install.sh reads it from there and skips the build when `~/.cargo/.crates2.json` already records that version (or the binary exists without a cargo record).
 - sci/ml venvs: `requirements/*.txt` with `--require-hashes` (sci also `--only-binary :all:`), 7-day cooldown.
 - After Effects MCP: pinned commit `88d5fbf0`, `npm ci --ignore-scripts`, then an explicit `npm run build`.
 - `--with-lsp` npm installs: `pyright@1.1.414`, `typescript-language-server@6.0.1` (`@5.3.0` on Node < 22.22.2) and `typescript@6.0.3` (TypeScript 7 ships no `tsserver`), all with `--ignore-scripts` (versions checked against the npm registry 2026-09-29).

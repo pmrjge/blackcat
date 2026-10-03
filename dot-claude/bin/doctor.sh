@@ -93,16 +93,24 @@ try:
     catalog = json.load(open(sys.argv[2])).get("servers", {})
 except (OSError, ValueError):
     catalog = {}
+cargo_cmd = {}      # catalog command path -> the pinned "cargo install X@V --locked" in its notes
 for name, entry in sorted(catalog.items()):
     if isinstance(entry, dict) and isinstance(entry.get("command"), str):
         need(entry["command"], "magg catalog: " + name, True)
+        m = re.search(r"cargo install \S+@\S+ --locked", str(entry.get("notes", "")))
+        if m:
+            cargo_cmd[entry["command"]] = m.group(0)
 for path, agents in sorted(bad.items()):
     # designer works without huetension; a path only magg catalog entries use is disabled until
-    # mcp-broker mounts it, and some (serial: cargo install) are installed by the user, not install.sh
+    # mcp-broker mounts it (serial: install.sh builds it only when cargo is present)
     catalog_only = all(a.startswith("magg catalog: ") for a in agents)
     level = "WARN" if path.endswith("/huetension") or catalog_only else "FAIL"
-    hint = ("install it per its notes in magg/config.json, or rerun ./install.sh if the path is stale"
-            if catalog_only else "rerun ./install.sh to re-render")
+    if catalog_only and path in cargo_cmd:
+        hint = "rerun ./install.sh with cargo on PATH, or run: %s" % cargo_cmd[path]
+    elif catalog_only:
+        hint = "install it per its notes in magg/config.json, or rerun ./install.sh if the path is stale"
+    else:
+        hint = "rerun ./install.sh to re-render"
     print("  %s  %s missing — MCP server of %s won't start (%s)"
           % (level, path, ", ".join(agents) if len(agents) <= 3 else "%d agents" % len(agents), hint))
 if not bad:
