@@ -1857,7 +1857,6 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
     tok_lo = any(rows_out[k]["S_tok_warm"] >= 0.03 for k in oracle)
     measured = all("S_tok_measured" in rows_out[k] for k in oracle) and bool(oracle)
     if measured:
-        m_lo = min(rows_out[k]["S_tok_measured_lo"] for k in oracle)
         m_hi = max(rows_out[k]["S_tok_measured_hi"] for k in oracle)
         m_txt = ", ".join("%s %.2f%% [%.2f-%.2f%%]" % (k, 100 * rows_out[k]["S_tok_measured"], 100 * rows_out[k]["S_tok_measured_lo"],
                                                          100 * rows_out[k]["S_tok_measured_hi"]) for k in oracle)

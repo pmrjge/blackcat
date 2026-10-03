@@ -4306,7 +4306,7 @@ def session_env():
 # Every firing appends one line to <session>/limit-hits.jsonl and every human prompt boundary one
 # to <session>/prompt-windows.jsonl (numbers and ids only; stack_usage.py reads both).
 LIMITS_SCHEMA = 1
-LIMITS_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+LIMITS_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 LIMIT_HITS = "limit-hits.jsonl"
 PROMPT_WINDOWS = "prompt-windows.jsonl"
 LIMITS_SHOW = "stack_limits.py show"

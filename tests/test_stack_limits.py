@@ -1414,3 +1414,12 @@ def test_a_session_row_older_than_its_sessions_rows_is_not_learned(st):
     got, stats = L.read_rows(models={})
     assert {r["session"]: r["ctx"] for r in got if r["scope"] == "session"}["cut"] == 9.5e7
     assert stats["stale_session"] == 0
+
+
+def test_id_regexes_reject_a_trailing_newline():
+    G = _load("agent_guard_ids", ROOT / "dot-claude" / "hooks" / "agent_guard.py")
+    good = [(G.LIMITS_ID_RE, "sess-1.a_b"), (L.ID_RE, "sess-1.a_b"), (L.TYPE_RE, "coder:x"),
+            (L.HEX16_RE, "0123456789abcdef"), (L.HEX64_RE, "a" * 64), (L.COMMIT_RE, "abcdef1")]
+    for rx, ok in good:
+        assert rx.match(ok), rx.pattern
+        assert not rx.match(ok + "\n"), rx.pattern

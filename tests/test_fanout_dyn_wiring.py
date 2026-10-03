@@ -292,6 +292,25 @@ def test_resume_goes_through_the_dynamic_decision():
 
 
 # ---------------------------------------------------------------- AIMD
+def test_a_resumed_childs_failure_still_cuts_the_window_once():
+    e = env("shadow")
+    pre, r = spawn(e, "coder", "x one")
+    assert allowed(r)
+    launched(e, pre, "K1", "coder")
+    assert e.run(e.stop("K1", "coder")).rc == 0                  # first end: run closed, + alpha at most
+    assert allowed(e.run(e.send("K1", agent_id="O1", agent_type="orchestrator")))
+    assert e.run(e.start("K1", "coder")).rc == 0                 # resumed
+    w0 = (state(e, "O1", "aimd") or {}).get("w", 8)
+    ev = e.base("StopFailure", agent_id="K1", agent_type="coder", error="rate_limit")
+    assert e.run(ev).rc == 0
+    w1 = state(e, "O1", "aimd")["w"]
+    assert w1 < w0 and w1 == int(w0 * 0.5)                       # the cut (fails before the fix: w == w0)
+    assert e.run(ev).rc == 0                                     # the same run again: no second cut
+    assert state(e, "O1", "aimd")["w"] == w1
+    evs = [x for x in log_lines(e, "fanout-dyn-events.jsonl") if x["event"] == "stop_failure"]
+    assert len(evs) == 1
+
+
 def test_stop_failure_rate_limit_halves_the_window():
     e = env("shadow")
     pre, r = spawn(e, "coder", "x one")

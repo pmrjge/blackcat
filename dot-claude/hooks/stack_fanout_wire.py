@@ -369,18 +369,23 @@ def dyn_child_end(g, d, ev, child_id, kind=None):
         now = time.time()
         with g.mutex(d, "fanout"):
             st = g.read_json(paths["nodes"])
-            if not any(r.get("child_id") == child_id and r.get("t_end") is None
-                       for r in runs_of(st)):
-                return                                  # not a run of this agent, or ended before
-            st, _ = mod.end_run(st, child_id, now,
-                                kind if kind != "stop_failure" else "sf_" + (error or "other"))
-            g.write_json_atomic(paths["nodes"], st)
+            run_key = "%s@%s" % (child_id, rec.get("started"))   # a resumed child is a new run
+            mine = [r for r in runs_of(st) if r.get("child_id") == child_id]
+            if not mine:
+                return                                  # not a run of this agent
+            if any(r.get("t_end") is None for r in mine):
+                st, _ = mod.end_run(st, child_id, now,
+                                    kind if kind != "stop_failure" else "sf_" + (error or "other"))
+                g.write_json_atomic(paths["nodes"], st)
             if kind not in ("finish", "stop_failure"):
                 return
-            aimd, action = mod.aimd_update(g.read_json(paths["aimd"]), kind, now, limit, k,
-                                           healthy=healthy, error=error)
-            if action in ("increase", "cut"):
-                g.write_json_atomic(paths["aimd"], aimd)
+            cur = g.read_json(paths["aimd"])
+            seen = [x for x in ((cur or {}).get("seen") or []) if isinstance(x, str)]
+            if run_key in seen:
+                return                                  # this run already counted
+            aimd, action = mod.aimd_update(cur, kind, now, limit, k, healthy=healthy, error=error)
+            aimd["seen"] = (seen + [run_key])[-64:]
+            g.write_json_atomic(paths["aimd"], aimd)
         append(g, d, EVENTS_LOG, {
             "v": 1, "ts": round(now, 3), "event": kind, "agent_id": valid_id(g, parent),
             "child": valid_type(g, rec.get("type")), "error": error, "healthy": bool(healthy),

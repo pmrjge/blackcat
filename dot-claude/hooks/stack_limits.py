@@ -112,11 +112,11 @@ SCHED_POLICY_DEFAULT = "report"         # fresh_fixer: opt-in (user decision 202
 SOURCES = ("startup", "resume", "clear", "compact", "fork")
 STATUSES = ("supported", "provisional", "pooled", "unset")
 
-ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
-TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$")
-HEX16_RE = re.compile(r"^[0-9a-f]{16}$")
-HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
-COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$")
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
+HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
+HEX64_RE = re.compile(r"^[0-9a-f]{64}\Z")
+COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/\[\]-]{0,127}\Z")     # stack_usage.MODEL_RE
 MODEL_ALIASES = ("haiku", "sonnet", "opus", "fable")      # the Agent tool's `model` enum (/override-agent)
 FM_MODEL_RE = re.compile(r"(?m)^model:\s*([A-Za-z0-9._-]+)\s*(?:#.*)?$")   # agent_guard.MODEL_RE
