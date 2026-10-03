@@ -562,10 +562,17 @@ def test_replay_synthetic_session(model, tmp_path):
     w0, w1 = rep.windows
     # window 0: A (4 min after prompt... starts 10:00:10), B starts 10:02:00 -> makespan from first start to last end
     assert w0.makespan == pytest.approx(10 * 60 - 10)
-    # barrier simulation (not a tautology): A, B, C fall in one wave (dispatch gaps under 120 s), so it ends at B's duration,
-    # 480 s, against the recorded 590 s: B was dispatched 110 s into the window, after A finished
-    assert w0.sim_makespan == pytest.approx(480.0) and w0.sim_err == pytest.approx(480.0 / 590.0 - 1)
+    # barrier simulation: B depends on A, so it opens a wave of its own although it was dispatched under 60 s after A
+    # (a wave never holds a unit and its prerequisite); C joins B's wave. With the session's own medians (the only
+    # latency sample is B's 50 s, the only in-wave gap C's 10 s) the window is reproduced: 60 + 50 + 480 = 590.
+    assert [sorted(x) for x in w0.waves] == [["A#0"], ["B#0", "C#0"]]
+    assert rep.sim_params == {"lat": pytest.approx(50.0, abs=1), "stagger": pytest.approx(10.0, abs=1), "gap": 60.0}
+    assert w0.sim_makespan == pytest.approx(590.0, abs=1)
     assert abs(w1.sim_err) <= 0.05
+    # not a tautology: the recorded start times are not inputs, a latency fitted elsewhere gives 60 + 30 + 480
+    rep30 = S.replay(str(tmp_path / "led.md"), str(tmp_path / "seg.csv"), str(tmp_path / "prm.csv"), graph, model, session=sid,
+                     sim={"lat": 30.0, "stagger": 0.0})
+    assert rep30.windows[0].sim_makespan == pytest.approx(570.0) and rep30.windows[0].sim_err == pytest.approx(570.0 / 590.0 - 1)
     # B waited for A (ended 10:01:10) until 10:02:00; C was dispatched 120 s after the window start
     assert w0.barrier_wait == pytest.approx(50 + 120, abs=2)
     assert len(rep.cold) == 1 and rep.cold[0]["excess"] == 90000.0                 # min(cc 90000, prior peak 120000)
@@ -587,6 +594,69 @@ def test_replay_fed_the_actual_waves_reproduces_each_window(model):
     assert S.cluster_waves([(0, "a"), (30, "b"), (400, "c"), (410, "d")], gap=120) == [["a", "b"], ["c", "d"]]
 
 
+def test_barrier_sim_waves_follow_dependencies_origin_stagger_and_releases():
+    # window 3 of the recorded session: P2 depends on P1 and was dispatched 62 s after it (under 120 s); one wave would
+    # end at P2's duration and miss P1's 27 s plus the reaction before P2
+    assert S.cluster_waves([(0, "P1"), (62, "P2")], gap=120, deps={"P2": ["P1"]}) == [["P1"], ["P2"]]
+    assert S.cluster_waves([(0, "P1"), (62, "P2"), (70, "P3")], gap=120, deps={"P2": ["P1"]}) == [["P1"], ["P2", "P3"]]
+    # window 18: one unit, 3.8 s startup lag, 39.8 s long; the recorded makespan runs from its start, so must the simulation
+    assert S.simulate_waves([[(3.8, 39.8)]]) == pytest.approx(43.6)                       # from the dispatch (the old +9.6%)
+    assert S.simulate_waves([[(3.8, 39.8)]], from_first_start=True) == pytest.approx(39.8)
+    # one dispatcher message streams its calls: the j-th unit of a wave starts j x stagger later
+    assert S.simulate_waves([[(0.0, 100.0), (0.0, 100.0)], [(0.0, 50.0)]], lat=20, stagger=10) == pytest.approx(110 + 20 + 50)
+    # a prerequisite still running from an earlier window holds its wave until it ends plus one reaction latency
+    assert S.simulate_waves([[(0.0, 100.0, 180.0)]], lat=20) == pytest.approx(180 + 20 + 100)
+    assert S.simulate_waves([[(0.0, 100.0, 0.0)]], lat=20) == pytest.approx(100)          # no release: wave 0 at 0
+    # several dispatchers: one timeline each, all from the window start, measured from the first unit start
+    assert S.simulate_window([[[(2.0, 10.0)]], [[(0.0, 300.0, 180.0)]]], lat=20) == pytest.approx(180 + 20 + 300 - 2.0)
+
+
+def make_window2_session(tmp_path):
+    """Window 2 of the recorded session in miniature: the main thread runs X (10 s) on the user's prompt, while the
+    orchestrator resumes T as soon as P, started in the previous window, finishes 180 s into this one."""
+    sid = "22222222-0000-0000-0000-000000000000"
+    import csv
+    hdr = ["session", "id", "type", "desc", "depth", "seg", "nsegs", "compactions", "turn_limit", "after_limit", "open",
+           "input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens", "api_calls",
+           "tool_calls", "fresh", "ctx", "cum", "peak", "rereads", "first_ts", "last_ts"]
+
+    def row(i, typ, seg, t0, t1):
+        return [sid, i, typ, "x", 1, seg, 2, 0, False, False, False, 10, 100, 1000, 1000, 5, 5, 0, 0, 0, 2000, 0,
+                "2026-10-02T10:%s.000Z" % t0, "2026-10-02T10:%s.000Z" % t1]
+
+    with open(tmp_path / "seg.csv", "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(hdr)
+        w.writerows([row("tttt", "claude-code-engineer", 0, "00:00", "05:00"),
+                     row("pppp", "verifier", 0, "05:20", "13:00"),      # window 0, still running at 10:10:00
+                     row("xxxx", "coder", 0, "10:00", "10:10"),          # window 1, main thread
+                     row("tttt", "claude-code-engineer", 1, "13:20", "18:20")])   # window 1, waits for P
+    with open(tmp_path / "prm.csv", "w", newline="") as fh:
+        w = csv.writer(fh)
+        w.writerow(["session", "kind", "i", "start", "prompt", "fresh", "ctx", "cum", "api_calls"])
+        w.writerow([sid, "human", 0, "10:00", "first", 0, 0, 0, 0])
+        w.writerow([sid, "human", 1, "10:10", "second", 0, 0, 0, 0])
+    graph = {"job": "w2", "session": sid, "dispatcher": "orchestrator",
+             "aux": [{"id": "X", "a": "coder", "agent": "xxxx", "segs": [0]}],
+             "nodes": [{"id": "T", "a": "claude-code-engineer", "n": 30,
+                        "ph": [{"agent": "tttt", "segs": [0], "dep": []}, {"agent": "tttt", "segs": [1], "dep": ["P:0"]}]},
+                       {"id": "P", "a": "verifier", "n": 30, "dep": ["T"], "ph": [{"agent": "pppp", "segs": [0], "dep": ["T:0"]}]}]}
+    return sid, graph
+
+
+def test_replay_window_waiting_on_a_unit_from_the_previous_window(model, tmp_path):
+    # before: X and T as two waves from the window start, T one latency after X: 10 + 20 + 300 = 330 s against 500 s (-34%)
+    sid, graph = make_window2_session(tmp_path)
+    rep = S.replay(None, str(tmp_path / "seg.csv"), str(tmp_path / "prm.csv"), graph, model, session=sid)
+    w1 = [w for w in rep.windows if w.i == 1][0]
+    assert w1.makespan == pytest.approx(500.0) and sorted(w1.aux) == ["X#0"] and w1.units == ["T#1"]
+    assert abs(w1.sim_err) <= 0.02, w1.sim_err
+    # with a latency fitted elsewhere (15 s instead of the recorded 20 s): 180 + 15 + 300 = 495, still inside 2%
+    rep15 = S.replay(None, str(tmp_path / "seg.csv"), str(tmp_path / "prm.csv"), graph, model, session=sid, sim={"lat": 15.0})
+    w1 = [w for w in rep15.windows if w.i == 1][0]
+    assert w1.sim_makespan == pytest.approx(495.0) and abs(w1.sim_err) <= 0.02
+
+
 @pytest.mark.skipif(not (USAGE / "segments.csv").is_file(), reason="agents-usage data not in this checkout")
 def test_replay_recorded_session(model, tmp_path):
     led = Path.home() / ".local/state/claude-agent-stack" / SESSION / "delegations.md"
@@ -597,6 +667,11 @@ def test_replay_recorded_session(model, tmp_path):
     # (not 0 by construction; the 2% target is not met on this session, and the report says so)
     assert any(abs(w.sim_err) > 0 for w in rep.windows)
     assert "NOT met" in S.render_md(rep, max_chars=None) or max(abs(w.sim_err) for w in rep.windows) <= 0.02
+    by = {w.i: w for w in rep.windows}
+    # windows 2 and 18 (-37% and +9.6% with one 120 s-gap timeline measured from the first dispatch) are within 2%
+    assert abs(by[2].sim_err) <= 0.02 and abs(by[18].sim_err) <= 0.02
+    # the one window left above 2% is window 3: its orchestrator spent 99 s, not one median latency, before a 5-unit wave
+    assert [w.i for w in rep.windows if abs(w.sim_err) > 0.02] == [3] and abs(by[3].sim_err) < 0.03
     # no advised row beats physics: the advised makespan is at least the longest unit of each window
     for w in rep.windows:
         longest = max([rep.units[k].end - rep.units[k].start for k in w.units] or [0.0])

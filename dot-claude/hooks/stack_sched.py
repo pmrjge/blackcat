@@ -1461,6 +1461,7 @@ class Window:
     sim_makespan: float = 0.0
     sim_err: float = 0.0
     rows: Dict[str, Dict[str, float]] = field(default_factory=dict)
+    sim_in: List[Any] = field(default_factory=list)      # simulate_window's timelines (lag, duration, release)
 
 
 @dataclass
@@ -1481,6 +1482,7 @@ class Report:
     phase1: Dict[str, Any]
     barrier_rewrites: Dict[str, float]
     tz_offset: float = 0.0
+    sim_params: Dict[str, float] = field(default_factory=dict)   # barrier simulation: lat, stagger, gap (s)
 
 
 def _unit_tokens(m: Dict[str, Any], t: str, row: Dict[str, str]) -> float:
@@ -1489,24 +1491,60 @@ def _unit_tokens(m: Dict[str, Any], t: str, row: Dict[str, str]) -> float:
         kr * float(row["cache_read_input_tokens"])
 
 
-def simulate_waves(waves: Sequence[Sequence[Tuple[float, float]]], lat: float = 0.0) -> float:
+def _sim_timeline(waves: Sequence[Sequence[Sequence[float]]], lat: float, stagger: float) -> Tuple[float, float]:
+    """(first unit start, last unit end) of one dispatcher's barrier timeline; see simulate_waves."""
+    t: Optional[float] = None
+    first: Optional[float] = None
+    for w in waves:
+        st = 0.0 if t is None else t + lat
+        st = max([st] + [m[2] + lat for m in w if len(m) > 2 and m[2] > 0])
+        end = st
+        for j, m in enumerate(w):
+            s = st + j * stagger + m[0]
+            end = max(end, s + m[1])
+            first = s if first is None else min(first, s)
+        t = end
+    return (first or 0.0), (t or 0.0)
+
+
+def simulate_waves(waves: Sequence[Sequence[Sequence[float]]], lat: float = 0.0, stagger: float = 0.0,
+                   from_first_start: bool = False) -> float:
     """Makespan under barrier semantics from recorded (startup lag, duration) pairs per unit: the first wave is
     dispatched at 0, each next wave `lat` seconds after the previous wave's last unit ends, and a wave ends at
     start + max(lag + duration). Nothing of the recorded start times enters, so comparing the result with the
-    recorded makespan is a real test of the barrier model."""
-    t = 0.0
-    for k, w in enumerate(waves):
-        st = 0.0 if k == 0 else t + lat
-        t = st + max([lag + d for lag, d in w] or [0.0])
-    return t
+    recorded makespan is a real test of the barrier model.
+    A unit given as (lag, duration, release) also holds its wave until release + lat (release: when a unit it
+    depends on, still running when the window opened, ends; the dispatcher reacts to it like to any
+    completion). stagger: the j-th unit of a wave (in dispatch order) is dispatched j * stagger after the wave
+    (one dispatcher message streams its calls one by one). from_first_start: measured from the first unit
+    start, like the recorded makespan, instead of from the first dispatch."""
+    s, e = _sim_timeline(waves, lat, stagger)
+    return e - s if from_first_start else e
 
 
-def cluster_waves(items: Sequence[Tuple[float, str]], gap: float = 120.0) -> List[List[str]]:
-    """Group (dispatch time, key) pairs: a new wave starts after a gap above `gap` seconds."""
+def simulate_window(timelines: Sequence[Sequence[Sequence[Sequence[float]]]], lat: float = 0.0,
+                    stagger: float = 0.0) -> float:
+    """Makespan of a window whose units came from several dispatchers (the main thread and the graph's
+    dispatcher): one barrier timeline per dispatcher (simulate_waves), all starting with the window, measured
+    from the first unit start to the last unit end."""
+    se = [_sim_timeline(w, lat, stagger) for w in timelines if w]
+    return max(e for _, e in se) - min(s for s, _ in se) if se else 0.0
+
+
+WAVE_GAP_S = 60.0    # replay: dispatches of one dispatcher closer than this share a wave. Best pairwise F1 against
+#                      the dispatchers' own message waves over 3 sessions (0.993; 20-120 s all >= 0.990; the
+#                      leave-one-session-out folds chose 60, 30, 60): tests/derive_wave_sim.py
+
+
+def cluster_waves(items: Sequence[Tuple[float, str]], gap: float = WAVE_GAP_S,
+                  deps: Optional[Dict[str, Sequence[str]]] = None) -> List[List[str]]:
+    """Group (dispatch time, key) pairs: a new wave starts after a gap above `gap` seconds, or at a unit that
+    depends (deps: key -> keys) on a unit of the current wave (barrier semantics: a wave never holds a unit
+    and its prerequisite)."""
     out: List[List[str]] = []
     last = None
     for t, k in sorted(items):
-        if last is None or t - last > gap:
+        if last is None or t - last > gap or (deps and any(d in out[-1] for d in deps.get(k, ()))):
             out.append([])
         out[-1].append(k)
         last = t
@@ -1528,11 +1566,13 @@ def _union_len(iv: Sequence[Tuple[float, float]]) -> float:
 
 
 def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, Any], session: Optional[str] = None,
-           caps: Optional[Dict[str, Any]] = None) -> Report:
+           caps: Optional[Dict[str, Any]] = None, sim: Optional[Dict[str, float]] = None) -> Report:
     """Replay a recorded session. `ledger` is a delegations.md path (or None), `segments` and
     `prompts` the agents-usage CSVs (path or list of row dicts), `graph` a graph path/dict/Graph
     whose nodes carry `ph` phases (agent id, segment numbers, dependencies as "node:phase", write
-    sets) mapping the recorded segments to the plan. See render_md for the numbers."""
+    sets) mapping the recorded segments to the plan. `sim` overrides the barrier simulation's
+    parameters (lat, stagger, gap; default: this session's medians and WAVE_GAP_S), e.g. with
+    values fitted on other sessions. See render_md for the numbers."""
     g = graph if isinstance(graph, Graph) else load_graph(graph)
     seg_rows = segments if isinstance(segments, list) else _read_csv(segments)
     prm_rows = prompts if isinstance(prompts, list) else _read_csv(prompts)
@@ -1631,6 +1671,9 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
                   if u.deps and all(units[d].end <= u.dispatch + 1 for d in u.deps))
     lats = [x for x in lats if 0 <= x <= 60]
     lat = lats[len(lats) // 2] if lats else 0.0
+    sim_p = dict(sim or {})
+    sim_lat = float(sim_p.get("lat", lat))
+    sim_gap = float(sim_p.get("gap", WAVE_GAP_S))
     # windows (human prompts, HH:MM UTC)
     starts_w: List[float] = []
     labels: List[str] = []
@@ -1646,6 +1689,7 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
         u.window = max(0, bisect.bisect_right(starts_w, u.start) - 1) if starts_w else 0
     # actual per-window
     windows: List[Window] = []
+    groups: Dict[int, List[List[List[str]]]] = {}
     for wi in sorted({u.window for u in allu}):
         wu = [u for u in allu if u.window == wi]
         t0 = min(u.start for u in wu)
@@ -1657,16 +1701,29 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
                 continue
             ready = max([units[d].end for d in u.deps] + [t0])
             bw += max(0.0, u.dispatch - ready)
-        waves = cluster_waves([(u.dispatch, u.key) for u in wu])
-        sim = simulate_waves([[(units_or_aux(units, aux_units, k).start - units_or_aux(units, aux_units, k).dispatch,
-                                units_or_aux(units, aux_units, k).end - units_or_aux(units, aux_units, k).start)
-                               for k in w] for w in waves], lat)
+        # one barrier timeline per dispatcher: the graph's units, and the main thread's (aux) apart
+        groups[wi] = [cluster_waves([(u.dispatch, u.key) for u in wu if (u.kind == "aux") == ax], sim_gap,
+                                    deps={u.key: u.deps for u in wu}) for ax in (False, True)]
         mk = t1 - t0
         windows.append(Window(i=wi, prompt=labels[wi] if wi < len(labels) else "", t0=t0, t_end=t1,
                               units=[u.key for u in wu if u.kind != "aux"], aux=[u.key for u in wu if u.kind == "aux"],
-                              makespan=mk, busy=busy, dead=mk - busy, barrier_wait=bw, waves=waves,
-                              open=any(u.open for u in wu), sim_makespan=sim,
-                              sim_err=(sim - mk) / mk if mk else 0.0))
+                              makespan=mk, busy=busy, dead=mk - busy, barrier_wait=bw,
+                              waves=[w for grp in groups[wi] for w in grp], open=any(u.open for u in wu)))
+    # stagger: median gap between consecutive dispatches inside a wave (a dispatcher message streams its calls)
+    stg = sorted(units_or_aux(units, aux_units, b).dispatch - units_or_aux(units, aux_units, a).dispatch
+                 for w in windows for wv in w.waves for a, b in zip(wv, wv[1:]))
+    sim_stagger = float(sim_p.get("stagger", stg[len(stg) // 2] if stg else 0.0))
+    for w in windows:
+        tls = []
+        for grp in groups[w.i]:
+            mine = {k for wv in grp for k in wv}
+            # release: a prerequisite outside this timeline (an earlier window's unit still running) ends
+            tls.append([[(u.start - u.dispatch, u.end - u.start,
+                          max([0.0] + [units[d].end - w.t0 for d in u.deps if d in units and d not in mine]))
+                         for u in (units_or_aux(units, aux_units, k) for k in wv)] for wv in grp])
+        w.sim_in = tls
+        w.sim_makespan = simulate_window(tls, sim_lat, sim_stagger)
+        w.sim_err = (w.sim_makespan - w.makespan) / w.makespan if w.makespan else 0.0
     # cold resumes over every segment of the session
     cold: List[Dict[str, Any]] = []
     unit_of_seg: Dict[Tuple[str, int], Unit] = {}
@@ -1834,7 +1891,7 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
     return Report(session=session, windows=windows, units=units, cold=cold, misroutes=misroutes, rows=rows_out,
                   s_wall=s_wall, s_tok=s_tok, session_tw=session_tw, cold_excess_tokens=cold_total,
                   cold_excess_tw=cold_tw, verdict=verdict, notes=notes, phase1=phase1, barrier_rewrites=barrier_rw,
-                  tz_offset=tz)
+                  tz_offset=tz, sim_params={"lat": sim_lat, "stagger": sim_stagger, "gap": sim_gap})
 
 
 def _actual_model(g: Graph, m: Dict[str, Any], w: Window, units: Dict[str, Unit], aux: Dict[str, Unit]) -> float:
@@ -2028,11 +2085,19 @@ def _render_report(r: Report) -> str:
             _fmt_min(w.barrier_wait), len(w.waves), 100 * w.sim_err, "yes" if w.open else "",
             " | ".join(_fmt_min(w.rows[k]["makespan"]) for k in r.rows)))
     worst = max((abs(w.sim_err) for w in r.windows), default=0.0)
+    wi_worst = max(r.windows, key=lambda w: abs(w.sim_err)).i if r.windows else 0
+    sp = r.sim_params
     o.append("")
-    o.append("Barrier simulation from the recorded startup lags and durations (first wave at 0, each next wave one median "
-             "dispatch latency after the previous wave's last end; recorded start times are not inputs) differs from the recorded "
-             "makespan by at most %.2f%% per window (the done-when asked for 2%%: %s)." % (
-                 100 * worst, "met" if worst <= 0.02 else "NOT met, reported as measured"))
+    o.append("Barrier simulation from the recorded startup lags and durations, one timeline per dispatcher (the graph's, the main "
+             "thread's aux units): waves are dispatches closer than %.0f s, a unit never shares a wave with its prerequisite; each "
+             "next wave starts %.1f s (median dispatch latency) after the previous wave's last end, or that long after a prerequisite "
+             "still running from an earlier window ends; the j-th unit of a wave is dispatched j x %.1f s (median in-wave gap) "
+             "later; measured from the first unit start, like the recorded makespan. Recorded start times are not inputs. It "
+             "differs from the recorded makespan by at most %.2f%% (window %d); %d of %d windows are within 2%% (the done-when "
+             "asked for 2%% in every window: %s). Held-out sessions: tests/derive_wave_sim.py." % (
+                 sp.get("gap", WAVE_GAP_S), sp.get("lat", 0.0), sp.get("stagger", 0.0), 100 * worst, wi_worst,
+                 sum(abs(w.sim_err) <= 0.02 for w in r.windows), len(r.windows),
+                 "met" if worst <= 0.02 else "NOT met, reported as measured"))
     o.append("")
     o.append("## Hand estimates\n")
     cold_noorch = sum(c["excess"] for c in r.cold if c["type"] != "orchestrator")
