@@ -1,0 +1,434 @@
+#!/usr/bin/python3
+"""stack-budget - one read-only view of the stack's limits and budgets (S6, design U4).
+
+  stack-budget [--json] [--session SID] [--all]       this session's frozen limits (with origin), consumption so
+                                                      far against them, per-type turns / soft / hard
+  stack-budget plan GRAPH.json [--mode M] [--json]    stack_sched estimate with intervals and a verdict per node
+                                                      and for the whole plan against the prompt / session limits
+  stack-budget agent TYPE [--json]                    seed / live / snapshot values of one type, n, CI, recent rows
+  stack-budget static [--json]                        the static prompt budget (tests/prompt_budget.py, repo only)
+
+The session: --session, else STACK_LIMITS_SNAPSHOT (a snapshot path), else CLAUDE_SESSION_ID, else the newest
+snapshot (reported as such), else the seed. Verdicts are three-way: fits (the interval's upper end is within the
+limit), does not fit (its lower end is over it), uncertain (the interval straddles the limit, or there is none).
+A learned value that is not `supported` always prints its interval. Nothing here writes: it reads snapshots,
+live.json, proposals, runs*.csv / runs2*.csv and the session's budget.json, never creating a snapshot (U4);
+change limits with stack_limits.py (the next session's snapshot picks them up).
+Exit: 0 ok, 1 invalid input (graph, unknown type), 2 limits unavailable. Python 3.8+, stdlib only.
+"""
+import argparse
+import importlib.util
+import json
+import os
+import subprocess
+import sys
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+_MODS = {}
+
+
+def hooks_dir():
+    return os.environ.get("STACK_HOOKS_DIR") or os.path.join(os.path.dirname(HERE), "hooks")
+
+
+def mod(name):
+    """A module of the hooks folder, loaded once and shared (stack_sched finds the same stack_limits)."""
+    if name not in _MODS:
+        sp = importlib.util.spec_from_file_location(name, os.path.join(hooks_dir(), name + ".py"))
+        m = importlib.util.module_from_spec(sp)
+        sys.modules[name] = m
+        sp.loader.exec_module(m)
+        _MODS[name] = m
+    return _MODS[name]
+
+
+# ---------------------------------------------------------------- small helpers
+def fmt(v, unit="ctx"):
+    if v is None:
+        return "off"
+    if unit == "turns":
+        return str(int(v))
+    v = float(v)
+    if v >= 1e9:
+        return "%.3gB" % (v / 1e9)
+    if v >= 1e6:
+        return "%.3gM" % (v / 1e6)
+    return "%dk" % round(v / 1e3)
+
+
+def span(lo, hi, unit="ctx"):
+    return "[%s-%s]" % (fmt(lo, unit), fmt(hi, unit)) if lo is not None and hi is not None else "[n/a]"
+
+
+def verdict(lo, hi, limit):
+    """fits / does not fit / uncertain (the interval straddles the limit or is missing); None limit: no limit."""
+    if limit is None:
+        return "no limit"
+    if lo is None or hi is None:
+        return "uncertain"
+    if hi <= limit:
+        return "fits"
+    return "does not fit" if lo > limit else "uncertain"
+
+
+def num(x):
+    try:
+        v = float(x)
+    except (TypeError, ValueError):
+        return None
+    return v if v == v and abs(v) != float("inf") else None
+
+
+class Session(object):
+    """Which session's limits are shown, and the values of that snapshot (or the seed)."""
+
+    def __init__(self, sid_arg=None):
+        self.L = mod("stack_limits")
+        self.seed = self.L.load_seed()
+        self.live, self.live_why = self.L.read_live(self.seed)
+        self.sid, self.how, self.doc, self.state = None, "none", None, "missing"
+        sid = sid_arg
+        how = "--session" if sid else None
+        if not sid and os.environ.get("STACK_LIMITS_SNAPSHOT"):
+            b = os.path.basename(os.environ["STACK_LIMITS_SNAPSHOT"])
+            sid, how = (b[:-5] if b.endswith(".json") else b), "STACK_LIMITS_SNAPSHOT"
+        if not sid and os.environ.get("CLAUDE_SESSION_ID"):
+            sid, how = os.environ["CLAUDE_SESSION_ID"], "CLAUDE_SESSION_ID"
+        if sid:
+            try:
+                self.doc, self.state = self.L.read_snapshot(sid)
+            except ValueError:
+                self.doc, self.state = None, "bad session id"
+            self.sid, self.how = sid, how
+        else:
+            doc = self.L._latest_snapshot()
+            if doc:
+                self.doc, self.state, self.sid, self.how = doc, "ok", doc.get("session_id"), "newest snapshot"
+        if self.state == "ok" and self.doc:
+            self.values, self.origin = self.doc["values"], self.doc["origin"]
+        else:
+            self.values = {v: x["seed"] for v, x in self.seed["vars"].items()}
+            self.origin = {v: "seed" for v in self.seed["vars"]}
+
+    def head(self):
+        d = self.doc or {}
+        return {"id": self.sid, "found_by": self.how, "snapshot": self.state if self.sid else "none",
+                "values_from": "snapshot" if self.state == "ok" and self.doc else "seed",
+                "live_version": d.get("live_version"), "snapshot_hash": (d.get("hash") or "")[7:23] or None,
+                "sched_policy": d.get("sched_policy"), "regime": d.get("regime"),
+                "current_live_version": self.live["version"] if self.live else None}
+
+    def limit(self, var):
+        """One variable: value, origin, unit, and for a learned one its status and interval."""
+        spec = self.seed["vars"].get(var) or {}
+        st = ((self.live or {}).get("vars") or {}).get(var) or {}
+        ci = st.get("ci") or [None, None]
+        return {"var": var, "value": self.values.get(var), "origin": self.origin.get(var), "unit": spec.get("unit", "ctx"),
+                "seed": spec.get("seed"), "live": st.get("value"), "status": st.get("status"), "n": st.get("n"),
+                "ci": list(ci) if ci[0] is not None else None, "hold": st.get("hold"), "frozen": st.get("frozen")}
+
+    def val(self, family, t):
+        return self.L.lookup(self.values, family, t)
+
+    def var_of(self, family, t):
+        key = "%s.%s" % (family, t)
+        if key not in self.values and t.endswith("-copy"):
+            key = "%s.%s" % (family, t[:-5])
+        return key
+
+
+def consumption(sess):
+    """Session total and current prompt window of the session's budget.json (the guard's token count)."""
+    if not sess.sid:
+        return None
+    try:
+        p = os.path.join(sess.L.state_root(), sess.sid, "budget.json")
+        with open(p, encoding="utf-8") as fh:
+            b = json.load(fh)
+    except (OSError, ValueError):
+        return None
+    total, base = num(b.get("total")), num(b.get("prompt_base"))
+    return {"session": total, "prompt": (total - base) if total is not None and base is not None and total >= base else None}
+
+
+def usage_rows(typ=None):
+    """Complete, healthy agent-segment rows of runs*.csv + runs2*.csv (empty cells stay None)."""
+    U = mod("stack_usage")
+    out = []
+    for r in U.read_rows().values():
+        if r.get("is_main") == "1" or r.get("status") != "complete" or (typ and r.get("type") != typ):
+            continue
+        out.append(r)
+    out.sort(key=lambda r: num(r.get("last_ts")) or 0)
+    return out
+
+
+def sample(rows, col, healthy=True):
+    xs = []
+    for r in rows:
+        if healthy and (r.get("compacted") == "1" or r.get("turn_limited") == "1"):
+            continue
+        v = num(r.get(col))
+        if v is not None:
+            xs.append(v)
+    return xs
+
+
+def stats(L, xs, B=500):
+    """n, median, p90, max and the bootstrap 90% CI of the p90 (None below 3 values)."""
+    if not xs:
+        return {"n": 0, "p50": None, "p90": None, "max": None, "ci": None}
+    s = sorted(xs)
+    ci = L.boot_ci(s, B=B)
+    return {"n": len(s), "p50": L.q(s, 0.5), "p90": L.q(s, 0.9), "max": s[-1], "ci": list(ci) if ci[0] is not None else None}
+
+
+def type_row(sess, t, rows):
+    L = sess.L
+    out = {"type": t}
+    for fam, key in (("turns", "turns"), ("soft.agent", "soft"), ("hard.agent", "hard")):
+        var = sess.var_of(fam, t)
+        out[key] = sess.limit(var)
+    ctx, turns = stats(L, sample(rows, "ctx")), stats(L, sample(rows, "api_calls"))
+    out["ctx"], out["calls"] = ctx, turns
+    ci = ctx["ci"] or [None, None]
+    out["verdict_soft"] = verdict(ci[0], ci[1], out["soft"]["value"])
+    cj = turns["ci"] or [None, None]
+    out["verdict_turns"] = verdict(cj[0], cj[1], out["turns"]["value"])
+    return out
+
+
+def lim_txt(x):
+    """value, origin and, for a learned value that is not supported, its interval."""
+    s = fmt(x["value"], x["unit"]) + ("/" + x["origin"][0] if x["origin"] else "")
+    if x["status"] in ("provisional", "pooled") and x["value"] is not None:
+        s += " " + span(*(x["ci"] or (None, None)), unit=x["unit"]) + " " + x["status"]
+    return s
+
+
+# ---------------------------------------------------------------- summary
+def cmd_summary(a):
+    try:
+        sess = Session(a.session)
+    except Exception as exc:  # noqa: BLE001 - SeedError, missing hooks folder
+        print("stack-budget: limits unavailable: %s" % exc, file=sys.stderr)
+        return 2
+    L = sess.L
+    cons = consumption(sess)
+    pl = L.prompt_soft_limit(sess.values)
+    scopes = []
+    for name, key in (("prompt", "soft.prompt"), ("prompt", "hard.prompt"),
+                      ("session", "soft.session"), ("session", "hard.session")):
+        lim = sess.limit(key)
+        used = (cons or {}).get(name)
+        lim["scope"], lim["used"] = name, used
+        lim["verdict"] = "unknown (no budget.json)" if used is None else verdict(used, used, lim["value"])
+        scopes.append(lim)
+    by_type = {}
+    for r in usage_rows():
+        by_type.setdefault(r["type"], []).append(r)
+    types = sorted(t[len("turns."):] for t in sess.seed["vars"] if t.startswith("turns."))
+    rows = [type_row(sess, t, by_type.get(t, [])) for t in types if a.all or by_type.get(t)]
+    if a.json:
+        print(json.dumps({"session": sess.head(), "consumption": cons, "limits": scopes, "soft_prompt_effective": pl,
+                          "types": rows}, indent=1, sort_keys=True))
+        return 0
+    h = sess.head()
+    print("session %s (%s): snapshot %s, values from %s, live v%s now, snapshot of v%s, sched_policy %s" % (
+        h["id"] or "-", h["found_by"], h["snapshot"], h["values_from"], h["current_live_version"], h["live_version"],
+        h["sched_policy"]))
+    if sess.state != "ok" and sess.sid:
+        print("  note: the snapshot is %s; seed values shown" % sess.state)
+    if not sess.sid:
+        print("  note: no session and no snapshot; seed values shown")
+    print("consumption (guard's count, whole tree) against this session's frozen limits:")
+    for s in scopes:
+        print("  %-8s %-13s limit %-18s used %-8s %s" % (s["scope"], s["var"], lim_txt(s), fmt(s["used"]) if s["used"] is not None else "-",
+                                                         s["verdict"]))
+    print("per type (limit/origin: e env, l live, s seed, f frozen; completed-run sample p90 [90% CI] vs soft):")
+    line = "  %-22s %-14s %-24s %-14s %5s %-24s %s"
+    print(line % ("type", "turns", "soft", "hard", "n", "ctx p90 [CI]", "verdict (soft / turns)"))
+    for r in rows:
+        c = r["ctx"]
+        print(line % (r["type"], lim_txt(r["turns"]), lim_txt(r["soft"]), lim_txt(r["hard"]), c["n"],
+                      "-" if c["p90"] is None else "%s %s" % (fmt(c["p90"]), span(*(c["ci"] or (None, None)))),
+                      "%s / %s" % (r["verdict_soft"], r["verdict_turns"])))
+    if not a.all:
+        print("  (types with rows only; --all lists every type)")
+    return 0
+
+
+# ---------------------------------------------------------------- agent
+def cmd_agent(a):
+    try:
+        sess = Session(a.session)
+    except Exception as exc:  # noqa: BLE001
+        print("stack-budget: limits unavailable: %s" % exc, file=sys.stderr)
+        return 2
+    t = a.type
+    if "turns." + t not in sess.seed["vars"] and "turns." + t[:-5] not in sess.seed["vars"]:
+        print("stack-budget: unknown agent type %r" % t, file=sys.stderr)
+        return 1
+    base = t[:-5] if t.endswith("-copy") else t
+    rows = usage_rows(base)
+    res = type_row(sess, base, rows)
+    res["recent"] = [{k: r.get(k) or None for k in ("session", "id", "seg", "api_calls", "ctx", "status", "status_code",
+                                                      "last_ts", "src", "stack_commit")} for r in rows[-5:]]
+    res["session"] = sess.head()
+    res["pool_note"] = None
+    if a.json:
+        print(json.dumps(res, indent=1, sort_keys=True))
+        return 0
+    print("%s  (session %s, values from %s)" % (base, sess.sid or "-", sess.head()["values_from"]))
+    for k in ("turns", "soft", "hard"):
+        x = res[k]
+        print("  %-5s value %-8s origin %-9s seed %-8s live %-8s status %-11s n %-4s interval %s%s%s" % (
+            k, fmt(x["value"], x["unit"]), x["origin"] or "-", fmt(x["seed"], x["unit"]), "-" if x["live"] is None else fmt(x["live"], x["unit"]),
+            x["status"] or "-", x["n"] if x["n"] is not None else "-", span(*(x["ci"] or (None, None)), unit=x["unit"]),
+            " hold %s" % x["hold"] if x["hold"] else "", " frozen %s" % fmt(x["frozen"], x["unit"]) if x["frozen"] is not None else ""))
+    c, g = res["ctx"], res["calls"]
+    print("  rows (healthy, complete): n %d" % c["n"])
+    print("    ctx   p50 %s  p90 %s %s  max %s  vs soft %s: %s" % (fmt(c["p50"]), fmt(c["p90"]), span(*(c["ci"] or (None, None))),
+                                                                   fmt(c["max"]), fmt(res["soft"]["value"]), res["verdict_soft"]))
+    print("    calls p50 %s  p90 %s %s  max %s  vs turns %s: %s" % (
+        fmt(g["p50"], "turns"), fmt(g["p90"], "turns"), span(*(g["ci"] or (None, None)), unit="turns"), fmt(g["max"], "turns"),
+        fmt(res["turns"]["value"], "turns"), res["verdict_turns"]))
+    for r in res["recent"]:
+        print("    %s %s seg %s calls %s ctx %s %s src %s" % ((r["session"] or "")[:8], r["id"], r["seg"], r["api_calls"] or "-",
+                                                            r["ctx"] or "-", r["status"], r["src"] or "-"))
+    return 0
+
+
+# ---------------------------------------------------------------- plan
+def cmd_plan(a):
+    try:
+        sess = Session(a.session)
+    except Exception as exc:  # noqa: BLE001
+        print("stack-budget: limits unavailable: %s" % exc, file=sys.stderr)
+        return 2
+    S = mod("stack_sched")
+    S._SESSION_OVERRIDE = sess.sid if sess.state == "ok" else None
+    try:
+        g = S.load_graph(a.graph)
+        m = S.load_model(None)
+        errs = [i for i in S.validate(g, m) if i.level == "error"]
+        if errs:
+            for i in errs:
+                print("error: %s: %s" % (i.node or "graph", i.msg), file=sys.stderr)
+            return 1
+        sched = S.schedule(g, m, mode=a.mode)
+    except S.GraphError as exc:
+        print("invalid graph: %s" % exc, file=sys.stderr)
+        return 1
+    except (S.ModelError, OSError, ValueError) as exc:
+        print("stack-budget: %s" % exc, file=sys.stderr)
+        return 1
+    est = S.estimate(g, m)
+    nodes, tot_med, tot_hi, types = [], 0.0, 0.0, []
+    for nd in g.nodes:
+        e, t = est[nd.id], sched.variants.get(nd.id, nd.a)
+        t = t[:-5] if t.endswith("-copy") else t
+        types.append(t)
+        lt, ls, lh = sess.val("turns", t), sess.val("soft.agent", t), sess.val("hard.agent", t)
+        tot_med += e.ctx_p50
+        tot_hi += e.ctx_hi
+        nodes.append({"id": nd.id, "type": t, "turns": [e.turns, e.turns_hi], "ctx": [e.ctx_p50, e.ctx_hi],
+                      "limits": {"turns": lt, "soft": ls, "hard": lh},
+                      "verdict_turns": verdict(e.turns, e.turns_hi, lt) if lt is not None else "no limit",
+                      "verdict_soft": S.three_way(e.ctx_p50, e.ctx_hi, ls) if ls else "no limit",
+                      "verdict_hard": S.three_way(e.ctx_p50, e.ctx_hi, lh) if lh else "no limit",
+                      "status": e.status})
+    cons = consumption(sess) or {}
+    plim = sess.L.prompt_soft_limit(sess.values, [g.meta.get("dispatcher") or ""] + types)
+    whole = []
+    for name, lim, base in (("prompt soft", plim, 0.0), ("prompt hard", sess.values.get("hard.prompt"), 0.0),
+                            ("session soft", sess.values.get("soft.session"), cons.get("session") or 0.0),
+                            ("session hard", sess.values.get("hard.session"), cons.get("session") or 0.0)):
+        whole.append({"scope": name, "limit": lim, "med": tot_med + base, "hi": tot_hi + base,
+                      "already_used": base or None, "verdict": S.three_way(tot_med + base, tot_hi + base, lim) if lim else "no limit"})
+    rank = {"does not fit": 2, "uncertain": 1, "fits": 0, "no limit": 0}
+    worst = max([n[k] for n in nodes for k in ("verdict_turns", "verdict_soft", "verdict_hard")] + [w["verdict"] for w in whole],
+                key=lambda v: rank.get(v, 0))
+    out = {"session": sess.head(), "job": g.job, "mode": sched.mode, "wall_s": sched.wall, "waves": sched.waves,
+           "nodes": nodes, "plan": whole, "verdict": worst, "sched_verdict": sched.verdict,
+           "warnings": sched.warnings}
+    if a.json:
+        print(json.dumps(out, indent=1, sort_keys=True))
+        return 0
+    h = sess.head()
+    print("plan %s (%s): limits of session %s from %s; model %s" % (g.job, sched.mode, h["id"] or "-", h["values_from"],
+                                                                    os.path.basename(m.get("file") or "built-in")))
+    line = "  %-10s %-20s %-18s %-8s %-20s %-8s %-13s %s"
+    print(line % ("node", "type", "turns med-hi", "limit", "ctx med-hi", "soft", "verdict", "status"))
+    for n in nodes:
+        print(line % (n["id"], n["type"], "%d-%d" % (n["turns"][0], round(n["turns"][1])), fmt(n["limits"]["turns"], "turns"),
+                      "%s-%s" % (fmt(n["ctx"][0]), fmt(n["ctx"][1])), fmt(n["limits"]["soft"]),
+                      "/".join(sorted({n["verdict_turns"], n["verdict_soft"], n["verdict_hard"]} - {"no limit"}, key=lambda v: -rank[v])) or "no limit",
+                      n["status"]))
+    for w in whole:
+        print("  whole plan vs %-13s limit %-8s med %-8s hi %-8s %s%s" % (
+            w["scope"], fmt(w["limit"]), fmt(w["med"]), fmt(w["hi"]), w["verdict"],
+            " (incl. %s already used)" % fmt(w["already_used"]) if w["already_used"] else ""))
+    print("verdict: %s (stack_sched: %s); wall %.0f s" % (worst, sched.verdict, sched.wall))
+    for w in sched.warnings:
+        print("warning: " + w)
+    return 0
+
+
+# ---------------------------------------------------------------- static
+def cmd_static(a):
+    root = os.path.dirname(os.path.dirname(HERE))
+    pb = os.path.join(root, "tests", "prompt_budget.py")
+    if not os.path.exists(pb):
+        print("stack-budget: tests/prompt_budget.py not found (static budgets are measured in the stack repo)", file=sys.stderr)
+        return 1
+    p = subprocess.run([sys.executable, pb, "--json"], capture_output=True, text=True, cwd=root, check=False)
+    if p.returncode != 0:
+        print(p.stderr.strip() or "prompt_budget failed", file=sys.stderr)
+        return 1
+    if a.json:
+        print(p.stdout.strip())
+        return 0
+    head = json.loads(p.stdout).get("head") or {}
+    for k, v in sorted(head.items()):
+        if isinstance(v, (int, float)):
+            print("  %-28s %s" % (k, v))
+    return 0
+
+
+def build():
+    ap = argparse.ArgumentParser(prog="stack budget", description=__doc__.split("\n")[0],
+                                 formatter_class=argparse.RawDescriptionHelpFormatter, epilog="\n".join(__doc__.split("\n")[2:]))
+    common = argparse.ArgumentParser(add_help=False)
+    common.add_argument("--json", action="store_true", default=argparse.SUPPRESS)
+    common.add_argument("--session", default=argparse.SUPPRESS, help="session id (default: STACK_LIMITS_SNAPSHOT, CLAUDE_SESSION_ID, the newest snapshot)")
+    ap.add_argument("--json", action="store_true")
+    ap.add_argument("--session", default=None)
+    ap.add_argument("--all", action="store_true", help="every type, not only those with rows")
+    ap.set_defaults(fn=cmd_summary)
+    sub = ap.add_subparsers(dest="cmd")
+    p = sub.add_parser("summary", parents=[common])
+    p.add_argument("--all", action="store_true")
+    p.set_defaults(fn=cmd_summary)
+    p = sub.add_parser("plan", parents=[common], help="estimate a task graph against the limits")
+    p.add_argument("graph")
+    p.add_argument("--mode", choices=["barrier", "release"], default="barrier")
+    p.set_defaults(fn=cmd_plan)
+    p = sub.add_parser("agent", parents=[common], help="one agent type")
+    p.add_argument("type")
+    p.set_defaults(fn=cmd_agent)
+    p = sub.add_parser("static", parents=[common], help="static prompt budget (repo only)")
+    p.set_defaults(fn=cmd_static)
+    return ap
+
+
+def main(argv=None):
+    a = build().parse_args(argv)
+    for k, d in (("json", False), ("session", None), ("all", False)):
+        if not hasattr(a, k):
+            setattr(a, k, d)
+    return a.fn(a)
+
+
+if __name__ == "__main__":
+    sys.exit(main())

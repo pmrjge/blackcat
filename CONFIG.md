@@ -188,6 +188,19 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 - **Refresh:** `uv run --script tests/derive_thresholds.py` (pandas, read-only over `~/.claude/projects/`) rewrites `.claude-work/agents-usage/thresholds.md` and its CSVs (first run as `.claude-work/agents-usage/thresholds.py` in the phase-3 worktree); copy changed values into `SOFT_LIMITS` / `SOFT_PROMPT_CTX` by hand.
 - **Revisit** when the healthy segment count of a type, or the number of sessions, doubles, and after any major stack change (agent prompts, skill loading, models, maxTurns). Today's counts: orchestrator 46, claude-code-engineer 36, scout 24, claude-code-guide 7, coder 7, verifier 6, main-coder 6, code-reviewer 5, researcher 4, browser-operator 4, explore 3, planner 2, writer 2; sessions 2. All values except claude-code-engineer and scout are provisional.
 
+### `stack budget`: where the limits stand (2026-10-03)
+
+`bin/stack-budget` (installed as `<config>/bin/stack-budget`, stdlib Python 3.8+, run it with `/usr/bin/python3`) is the one read-only view of the limits. It never writes a snapshot, `live.json` or any state: a session's limits are fixed at its start (S6, U4), and `stack_limits.py` is the only way to change what the next session starts with. It takes the session from `--session`, else `STACK_LIMITS_SNAPSHOT`, else `CLAUDE_SESSION_ID`, else the newest snapshot (said so), else the seed.
+
+| command | shows |
+|---|---|
+| `stack-budget [--all]` | this session's frozen limits with their origin (env / live / seed / frozen), the guard's token count for the prompt and the session against them, and per type turns / soft / hard with the p90 of completed runs and its 90% CI |
+| `stack-budget plan GRAPH.json` | stack_sched estimate (turns and ctx, median to hi) with a verdict per node and for the whole plan against the prompt and session limits (what the session already used counts) |
+| `stack-budget agent TYPE` | seed, live and snapshot values of one type, status, n, interval, the sample statistics of `runs*.csv` + `runs2*.csv` and the last 5 rows |
+| `stack-budget static` | the static prompt budget of `tests/prompt_budget.py` (repo checkout only) |
+
+Every command takes `--json`. Verdicts are three-way: fits (the interval's upper end is within the limit), does not fit (its lower end is over it), uncertain (it straddles the limit, or there is no interval, n < 3). A learned value that is not `supported` always prints its interval. Exit 0 ok, 1 invalid input, 2 limits unavailable.
+
 ### On demand and automatic: MCP servers, plugins, skills (2026-10-02)
 
 | Kind | Automatic (the situation needs it) | On demand (asked for) | Idle cost, before → after |

@@ -826,7 +826,7 @@ for f in stack_sched_refresh.py sched_model.json stack_limits_seed.json; do stag
 for f in derive_sched_model.py derive_thresholds.py; do
   rm -rf "$S/hooks/$f" && cp "$HERE/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
 done
-for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py; do stage_script 755 "bin/$f"; done
+for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget; do stage_script 755 "bin/$f"; done
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
 stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry reads it (--config)
 # The stack's local LSP marketplace (step 10 registers it): replaced as a whole.
@@ -1695,7 +1695,7 @@ STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/web_caps.py", "hooks/read_gate.p
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
-                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py",
+                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
                  "mcp/image_studio_mcp.py",
                  "mcp/libdocs_mcp.py", "mcp/neural_memory_mcp.py"]
 # files earlier stack versions installed before the manifest tracked scripts
