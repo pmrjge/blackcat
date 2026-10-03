@@ -25,9 +25,13 @@
         "-y",
         "@playwright/mcp@0.0.82",
         "--headless",
-        "--isolated"
+        "--isolated",
+        "--output-dir",
+        "__HOME__/.cache/claude-sandbox/playwright-mcp",
+        "--file-paths",
+        "absolute"
       ],
-      "notes": "Scripted browser automation (forms, logins, JS-heavy pages) when WebFetch/Jina/Spider are not enough. Headless, in-memory profile (parallel instances don't fight over a profile lock); uses Google Chrome \u2014 without it: npx @playwright/mcp@0.0.82 install-browser chrome.",
+      "notes": "Scripted browser automation (forms, logins, JS-heavy pages) when WebFetch/Jina/Spider are not enough. Headless, in-memory profile (parallel instances don't fight over a profile lock); auto-named output (screenshots, snapshots, logs) in ~/.cache/claude-sandbox/playwright-mcp, never the working tree; uses Google Chrome \u2014 without it: npx @playwright/mcp@0.0.82 install-browser chrome.",
       "enabled": false
     },
     "lean": {

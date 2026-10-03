@@ -13,7 +13,7 @@ This skill decides which browser to use and holds the stack's procedure: the Pla
 | Read a public page | WebFetch / mcp__jina first — no browser |
 | The user's logins, cookies, extensions | Claude in Chrome (`mcp__claude-in-chrome__*`; mechanics in `anthropic-skills:chrome-browser`) |
 | Inside the Claude desktop app, a page the user watches alongside the chat | built-in browser pane (`anthropic-skills:built-in-browser`) |
-| Clean, repeatable, headless or test runs; public JS-heavy pages | Playwright (`mcp__playwright__*`): its own headless Chrome, in-memory profile (`--headless --isolated`), so parallel agents never share state |
+| Clean, repeatable, headless or test runs; public JS-heavy pages | Playwright (`mcp__playwright__*`): its own headless Chrome, in-memory profile (`--headless --isolated`), so parallel agents never share state; unnamed screenshots and snapshots land in `~/.cache/claude-sandbox/playwright-mcp/` (absolute paths in results), named files under the working directory |
 If the needed tools are absent, say which one and why; don't fall back to the user's browser silently.
 
 ## Efficient loop

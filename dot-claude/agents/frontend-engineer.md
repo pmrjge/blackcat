@@ -13,7 +13,7 @@ mcpServers:
   - playwright:
       type: stdio
       command: "__NPX__"
-      args: ["-y", "@playwright/mcp@0.0.82", "--headless", "--isolated"]
+      args: ["-y", "@playwright/mcp@0.0.82", "--headless", "--isolated", "--output-dir", "__HOME__/.cache/claude-sandbox/playwright-mcp", "--file-paths", "absolute"]
 permissionMode: acceptEdits
 color: orange
 ---

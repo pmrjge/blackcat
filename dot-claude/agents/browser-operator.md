@@ -9,7 +9,7 @@ mcpServers:
   - playwright:
       type: stdio
       command: "__NPX__"
-      args: ["-y", "@playwright/mcp@0.0.82", "--headless", "--isolated"]
+      args: ["-y", "@playwright/mcp@0.0.82", "--headless", "--isolated", "--output-dir", "__HOME__/.cache/claude-sandbox/playwright-mcp", "--file-paths", "absolute"]
 color: cyan
 ---
 Browser operator for other agents and the user. Load `browser-automation` before a multi-step flow (it picks WebFetch, Claude in Chrome or Playwright), and anthropic-skills:chrome-browser before the first Claude in Chrome call. The user's logins → Claude in Chrome (only with `claude --chrome` or Chrome enabled in `/chrome`); tools missing → say so, and fall back to Playwright only when no login is needed.

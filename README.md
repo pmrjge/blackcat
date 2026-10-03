@@ -1111,7 +1111,7 @@ alternatives: [mcp_servers.md](mcp_servers.md).
 | libdocs | stack's own (`mcp/libdocs_mcp.py`) | 32 coding, ML and planning agents | `EXA_`/`JINA_`/`SPIDER_API_KEY`, `GITHUB_TOKEN` optional |
 | neural-memory | `neural-memory==4.62.0` via `mcp/neural_memory_mcp.py` | orchestrator, researcher, mathematician, main-/ninja-/supreme-coder, data-scientist, ml-/dl-/llm-/robotics-/quantum-engineer | — |
 | image-studio | stack's own (`mcp/image_studio_mcp.py`) | designer, image-director | `OPENROUTER_API_KEY`, `OPPER_API_KEY` |
-| playwright | `@playwright/mcp@0.0.82 --headless --isolated` | browser-operator, frontend-engineer, verifier | Google Chrome |
+| playwright | `@playwright/mcp@0.0.82 --headless --isolated --output-dir ~/.cache/claude-sandbox/playwright-mcp --file-paths absolute` | browser-operator, frontend-engineer, verifier | Google Chrome |
 | context-mode | `context-mode@1.0.169` | researcher, doc-specialist | Node ≥ 22.5 |
 | spider | `spider-cloud-mcp@2.1.2` | researcher | `SPIDER_API_KEY` |
 | markitdown | `markitdown-mcp@0.0.1a7` | doc-specialist | — |
