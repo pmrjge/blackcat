@@ -898,6 +898,48 @@ def test_main_and_session_rows_feed_the_scope_variables(st):
     assert invariants_ok(L.load_seed(), new) == (True, None)
 
 
+def test_reader_keeps_rows_after_a_bad_line(tmp_path):
+    """F2: a NUL line (csv on Python < 3.11 refuses it), an unbalanced quote and bad UTF-8 cost their own
+    line only, never the rest of the file."""
+    p = tmp_path / "runs2.csv"
+    p.write_bytes(b"schema_version,session,id,type,seg,status,api_calls,ctx,last_ts\n"
+                  b"2,s1,a1,coder,0,complete,5,1000,1790000000\n\x00bad\n"
+                  b"2,s1,a2,coder,0,complete,6,2000,1790000001\n"
+                  b'2,s1,"open,quote\n'
+                  b"2,s1,a3,coder,0,complete,6,2000,1790000002\n\xff\xfe broken\n"
+                  b"2,s1,a4,coder,0,complete,6,2000,1790000003\n")
+    rows, stats = L.read_rows([str(p)])
+    assert {r["id"] for r in rows} == {"a1", "a2", "a3", "a4"} and stats["errors"] == 0
+
+
+def _scope_row(i, aid, hit_col=None, code=""):
+    r = {c: "" for c in V2_COLUMNS}
+    top = aid in ("main", "session")
+    r.update(schema_version="2", session=f"s{i % 4}", id=aid, type="blackcat" if top else "coder",
+             seg=str(i), status="complete", last_ts=str(T0 + i), ctx=str(int(4e8 + 1e6 * i)),
+             window_ctx=str(int(5e7 + 1e5 * i)), is_main="1" if top else "0", src="measured",
+             compacted="0", turn_limited="0", status_code=code,
+             **{c: "0" for c in ("hit_soft", "hit_turn", "hit_hard_agent", "hit_hard_prompt", "hit_hard_session")})
+    if hit_col:
+        r[hit_col] = "1"
+    return L.parse_row(r)
+
+
+def test_tight_counts_main_and_session_rows_without_a_status_code():
+    """M1: main-window and session rows carry no status code (the collector writes it empty); a hit of
+    their own kind there is tight. Agent rows still need a done or partial status code."""
+    main = [_scope_row(i, "main", "hit_hard_prompt" if i % 8 == 0 else None) for i in range(40)]
+    assert all(r["status_code"] is None and r["scope"] == "main" for r in main)
+    assert L._entry(main, "hard.prompt", "hard", 0.0, "k", {})["tight"] == 5
+    soft = [_scope_row(i, "main", "hit_soft" if i < 3 else None) for i in range(40)]
+    assert L._entry(soft, "soft.prompt", "soft", 0.0, "k", {})["tight"] == 3
+    sess = [_scope_row(i, "session", "hit_hard_session" if i in (1, 4) else None) for i in range(8)]
+    assert L._entry(sess, "hard.session", "hard", 0.0, "k", {})["tight"] == 2
+    agents = [_scope_row(i, f"a{i}", "hit_hard_agent" if i < 4 else None, code="" if i < 2 else "1")
+              for i in range(20)]
+    assert L._entry(agents, "hard.agent", "hard", 0.0, "k", {})["tight"] == 2
+
+
 def test_collector_v2_rows_and_snapshot_cells_meet_the_proposer(st):
     """W3 (stack_usage.py) reads `regime`, `hash` and `source_event` of this module's snapshot and
     writes runs2.csv rows this module's proposer reads (same column names)."""

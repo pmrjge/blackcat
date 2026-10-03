@@ -4,10 +4,11 @@
 A background job per Claude Code session reads the session's subagent transcripts incrementally and
 appends one row per agent segment (a spawn or a resume), one row per human-prompt window of the main
 thread and one session row to a CSV that the scheduler's cost model and the learned limits are
-refitted from (stack_sched_refresh.py, stack_limits.py). Numbers and ids only (plus `task`, the
-sanitized Agent description): no prompt, transcript text, tool input, path, command, URL or secret
-is ever written. Every field is measured (transcripts, agent meta files, the guard's JSONL files);
-a field that cannot be measured is left empty, never estimated or defaulted.
+refitted from (stack_sched_refresh.py, stack_limits.py). Numbers and ids only (plus `task`, the plain
+words of the Agent description: a word with a digit, '/', ':', '.' or '_' is dropped): no prompt,
+transcript text, tool input, path, command, URL or secret is ever written. Every field is measured
+(transcripts, agent meta files, the guard's JSONL files); a field that cannot be measured is left
+empty, never estimated or defaulted.
 
 Hook entry points (settings.json; both read the hook's JSON on stdin and exit 0 at once):
   stack_usage.py start      SessionStart and SubagentStart: start the session's collector, detached
@@ -36,7 +37,9 @@ Files under ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/:
   usage/runs2.csv             segment rows (COLUMNS_V2, schema 2), append-only under usage/runs2.lock
                               (fcntl), header line, last row per (session, id, seg) wins
   usage/runs2.1.csv           the archive: rows rotated out of runs2.csv (STACK_USAGE_MAX_BYTES); a
-                              runs2.csv of another header is set aside as runs2.old-schema-<epoch>.csv
+                              runs2.csv of another header is set aside as runs2.old-schema-<epoch>.csv,
+                              one rotation cannot read (a line the csv module refuses, a NUL, bad UTF-8)
+                              as runs2[.1].unreadable-<epoch>.csv, byte for byte
   usage/runs.csv, runs.1.csv  the v1 history (COLUMNS_V1): read as src=seed_v1, NEVER written, renamed
                               or rotated here (an older install keeps appending to runs.csv)
   usage/sessions/<id>/        collector.lock, collector.json (pid, owner, heartbeat, exit reason),
@@ -100,6 +103,9 @@ READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewe
 HIT_KIND = {"soft_agent": "hit_soft", "soft_prompt": "hit_soft", "soft_session": "hit_soft", "turn": "hit_turn",
             "hard_agent": "hit_hard_agent", "hard_prompt": "hit_hard_prompt", "hard_session": "hit_hard_session",
             "mcp": "hit_mcp"}
+# the prompt and session limits: a firing is the main window's (and the session's) whoever's call tripped it
+SCOPE_KINDS = ("soft_prompt", "hard_prompt", "soft_session", "hard_session")
+SESSION_KINDS = ("soft_session", "hard_session")
 HIT_SLACK_S = 5.0         # the guard's PreToolUse fires just after the transcript line of the call it refuses
 GUARD_FILE_MAX = 8 << 20  # limit-hits.jsonl / prompt-windows.jsonl: the last bytes read per scan
 
@@ -117,8 +123,8 @@ UNKNOWN_TYPE = "(unknown)"
 NODE_RE = re.compile(r"^[A-Z]{1,3}[0-9]{1,3}[a-z]?$")
 HEX16_RE = re.compile(r"^[0-9a-f]{16}$")
 COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}$")
-TASK_RE = re.compile(r"^[A-Za-z0-9 ._:/-]{1,60}$")
-TASK_DROP_RE = re.compile(r"[^A-Za-z0-9 ._:/-]")
+TASK_RE = re.compile(r"^[A-Za-z][A-Za-z -]{0,59}$")
+TASK_WORD_RE = re.compile(r"[A-Za-z][A-Za-z-]{0,23}\Z")
 SESS_SRC = ("startup", "resume", "clear", "compact", "fork")
 SRC_VALUES = ("measured", "seed_v1")
 STATUS_VALUES = ("partial", "complete")
@@ -515,7 +521,7 @@ def current_row(a, live):
 def agent_meta(folder, aid):
     """The measured, validated fields of agent-<id>.meta.json (None when the file is unreadable):
     type, parent ("main" when the meta names none), depth, node, task. Only these survive; the
-    description is reduced to a plan-node id and a sanitized label."""
+    description is reduced to a plan-node id and its plain words."""
     meta = read_json(os.path.join(folder, "agent-%s.meta.json" % aid))
     if meta is None:
         return None
@@ -528,7 +534,10 @@ def agent_meta(folder, aid):
         words = desc.split(None, 1)
         if words and NODE_RE.match(words[0]):
             node = words[0]
-        task = TASK_DROP_RE.sub("", desc)[:60].strip()
+        # plain words only: a token with a digit, '/', ':', '.', '_' or over 24 letters (paths, URLs,
+        # flags, keys, hashes) is dropped; the plan node id lives in `node`
+        task = " ".join(w for w in (x.strip(".,;:!?()") for x in desc.split())
+                        if TASK_WORD_RE.match(w))[:60].strip()
     return {"type": t if isinstance(t, str) and TYPE_RE.match(t) else None,
             "parent": "main" if par is None else (par if isinstance(par, str) and ID_RE.match(par) else ""),
             "depth": dep if isinstance(dep, int) and not isinstance(dep, bool) and 0 <= dep <= 99 else "",
@@ -570,8 +579,9 @@ def _jsonl_tail(path):
 
 
 def load_hits(gdir):
-    """[(column, agent_id | None, ts)] of <gdir>/limit-hits.jsonl; None when the file does not exist
-    (the hit_* cells are then unmeasurable: empty). Lines that fail the schema are skipped."""
+    """[(column, agent_id | None, ts, kind)] of <gdir>/limit-hits.jsonl; None when the file does not
+    exist (the hit_* cells are then unmeasurable: empty). Lines that fail the schema are skipped. The
+    guard records the agent whose call tripped a limit, for prompt and session limits too."""
     lines = _jsonl_tail(os.path.join(gdir, "limit-hits.jsonl"))
     if lines is None:
         return None
@@ -586,7 +596,7 @@ def load_hits(gdir):
         t, aid = _num(r.get("ts")), r.get("agent_id")
         if t is None or not (aid is None or (isinstance(aid, str) and ID_RE.match(aid))):
             continue
-        out.append((HIT_KIND[r["kind"]], aid, float(t)))
+        out.append((HIT_KIND[r["kind"]], aid, float(t), r["kind"]))
     return out
 
 
@@ -612,13 +622,27 @@ def load_windows(gdir):
 
 
 def hit_cells(hits, aid, lo, hi):
-    """The six hit_* cells of a run: a 1 when a firing of the kind falls in [lo, hi + slack]; aid None =
-    the main thread. Empty cells when there is no limit-hits.jsonl (nothing measured) or no time span."""
+    """The six hit_* cells of an agent segment: a 1 when a firing of the kind by this agent falls in
+    [lo, hi + slack]. hit_soft is the agent's own soft limit only (soft_agent): a soft prompt or session
+    firing during its call is the main window's and the session's hit. Empty cells when there is no
+    limit-hits.jsonl (nothing measured) or no time span."""
     if hits is None or lo == "" or hi == "":
         return {c: "" for c in HIT_COLS}
     got = {c: 0 for c in HIT_COLS}
-    for col, who, t in hits:
-        if who == aid and lo <= t <= hi + HIT_SLACK_S:
+    for col, who, t, kind in hits:
+        if who == aid and lo <= t <= hi + HIT_SLACK_S and (col != "hit_soft" or kind == "soft_agent"):
+            got[col] = 1
+    return got
+
+
+def session_hit_cells(hits):
+    """The session row's hit_* cells: hit_soft from soft_session, hit_hard_session from hard_session
+    (limit-hits.jsonl is the session's own file), 0 otherwise; empty when the file does not exist."""
+    if hits is None:
+        return {c: "" for c in HIT_COLS}
+    got = {c: 0 for c in HIT_COLS}
+    for col, _who, _t, kind in hits:
+        if kind in SESSION_KINDS:
             got[col] = 1
     return got
 
@@ -764,8 +788,11 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
             if hits is not None and i < len(hs):
                 lo, hi = hs[i], (hs[i + 1] if i + 1 < len(hs) else float("inf"))
                 cells = {c: 0 for c in HIT_COLS}
-                for col, who, t in hits:
-                    if who is None and lo <= t < hi:
+                for col, who, t, kind in hits:
+                    # the main thread's own firings and every prompt/session firing (whoever's call
+                    # tripped it); soft_session is the session row's: it shares hit_soft with
+                    # soft_prompt, and soft.prompt reads a window's hit_soft
+                    if (who is None or kind in SCOPE_KINDS) and kind != "soft_session" and lo <= t < hi:
                         cells[col] = 1
             span(vals)
             emit(ma, "main", "blackcat", vals,
@@ -810,6 +837,7 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
     if final and budget is not None and st.get("tmin") is not None:
         vals = {"seg": 0, "status": "complete", "ctx": int(budget), "first_ts": st["tmin"], "last_ts": st["tmax"],
                 "wall_s": round(st["tmax"] - st["tmin"], 3), "is_main": 1, "depth": 0}
+        vals.update(session_hit_cells(hits))
         row = dict(EMPTY_ROW, **base, id="session", type="blackcat", **vals)
         sig = json.dumps([row[c] for c in COLUMNS])
         if st.get("emitted_session") != sig:
@@ -867,22 +895,36 @@ def _header_ok(path):
 ARCHIVE_FACTOR = 4        # runs2.1.csv keeps at most this many times STACK_USAGE_MAX_BYTES
 
 
-def _set_aside(cur):
-    """A runs2.csv of another header becomes runs2.old-schema-<epoch>.csv (never over an earlier one)."""
-    base = os.path.join(os.path.dirname(cur), "runs2.old-schema-%d" % int(time.time()))
+def _set_aside(path, tag="old-schema"):
+    """runs2.csv of another header becomes runs2.old-schema-<epoch>.csv, a file rotation cannot read
+    runs2[.1].unreadable-<epoch>.csv: renamed, byte for byte, never over an earlier one."""
+    base = "%s.%s-%d" % (os.path.splitext(path)[0], tag, int(time.time()))
     dest, n = base + ".csv", 0
     while os.path.exists(dest):
         n += 1
         dest = "%s-%d.csv" % (base, n)
-    os.replace(cur, dest)
+    os.replace(path, dest)
+
+
+def _read_strict(path):
+    """read_rows of one file for rotation; None (the file set aside, see _rotate_if_needed) when the
+    strict reader refuses it."""
+    try:
+        return read_rows([path], schemas=(str(SCHEMA_VERSION),), strict=True)
+    except Unreadable:
+        _set_aside(path, "unreadable")
+        return None
 
 
 def _rotate_if_needed(cur, old):
     """Rotation: once runs2.csv passes STACK_USAGE_MAX_BYTES (default 8 MB) it is merged into
     runs2.1.csv (the last row per key, newest sessions first, at most ARCHIVE_FACTOR x the cap: the
     oldest sessions beyond that are dropped; the newest one always stays) and starts again empty. A file
-    of another header is set aside (_set_aside). Only runs2*.csv is ever touched. Called under
-    runs2.lock."""
+    of another header is set aside (_set_aside). Rotation reads strictly (U1, append-only): a file with a
+    line the csv module refuses, a NUL or bad UTF-8 is set aside intact as
+    runs2[.1].unreadable-<epoch>.csv, never rewritten from the rows ahead of that line; an unreadable
+    runs2.csv then starts again empty, an unreadable archive is rebuilt from runs2.csv alone. Only
+    runs2*.csv is ever touched. Called under runs2.lock."""
     cap = knob("STACK_USAGE_MAX_BYTES", 8e6)
     try:
         size = os.path.getsize(cur)
@@ -893,8 +935,13 @@ def _rotate_if_needed(cur, old):
         return
     if cap <= 0 or size <= cap:
         return
+    rows = _read_strict(old) or {}
+    new = _read_strict(cur)
+    if new is None:
+        return
+    rows.update(new)                       # the last row of a key wins, as read_rows([old, cur])
     by_session = {}
-    for k, r in read_rows([old, cur], schemas=(str(SCHEMA_VERSION),)).items():
+    for k, r in rows.items():
         by_session.setdefault(k[0], []).append(r)
 
     def newest(sess):
@@ -976,23 +1023,59 @@ def append_rows(rows):
             os.close(fd)
 
 
-def read_rows(paths=None, schemas=None):
+class Unreadable(Exception):
+    """A row file the strict reader refuses (read_rows(strict=True), rotation)."""
+
+
+def _csv_rows(fh, strict=False):
+    """The rows of a CSV file as csv.DictReader gives them (a short row's missing cells None, extra
+    cells under the key None), each physical line parsed on its own: no valid cell holds a quote, comma
+    or newline, so a line the csv module refuses or a NUL (csv on Python < 3.11 refuses it) costs that
+    line only, never the rest of the file, and an unbalanced quote cannot swallow the lines after it.
+    strict (rotation): such a line raises csv.Error instead."""
+    header = None
+    for ln in fh:
+        if "\x00" in ln:
+            if strict:
+                raise csv.Error("line contains NUL")
+            ln = ln.replace("\x00", "")
+        try:
+            cells = next(csv.reader((ln,), strict=strict), None)
+        except csv.Error:
+            if strict:
+                raise
+            continue
+        if not cells:
+            continue                    # a blank line, as DictReader
+        if header is None:
+            header = cells
+            continue
+        row = dict(zip(header, cells))
+        for k in header[len(cells):]:
+            row[k] = None
+        if len(cells) > len(header):
+            row[None] = cells[len(header):]
+        yield row
+
+
+def read_rows(paths=None, schemas=None, strict=False):
     """{(session, id, seg): row}, the last row of a key winning, over the given files (default: runs.1.csv,
     runs.csv, runs2.1.csv, runs2.csv in that order: the v1 history, then v2). Every row has all
     COLUMNS_V2 keys: a v1 row (schema_version 1) has its new columns empty and src = seed_v1. Rows of
     another schema version, with a bad session/id/type/status or a non-numeric seg are skipped; an invalid
-    optional string cell (parent, node, task, ...) is read as empty. `schemas` limits the accepted
-    schema versions; by default runs2*.csv holds schema 2 rows and every other file schema 1 rows."""
+    optional string cell (parent, node, task, ...) is read as empty. A malformed line (csv, NUL, bad
+    UTF-8) is skipped alone; strict=True raises Unreadable on it instead (rotation). `schemas` limits the
+    accepted schema versions; by default runs2*.csv holds schema 2 rows and every other file schema 1."""
     out = {}
     for p in paths or csv_paths():
         accept = schemas or (("2",) if os.path.basename(p).startswith("runs2") else ("1",))
         try:
-            fh = open(p, encoding="utf-8", newline="")
+            fh = open(p, encoding="utf-8", errors="strict" if strict else "replace", newline="")
         except OSError:
             continue
         with fh:
             try:
-                for r in csv.DictReader(fh):
+                for r in _csv_rows(fh, strict):
                     ver = r.get("schema_version")
                     if ver not in accept:
                         continue
@@ -1012,8 +1095,9 @@ def read_rows(paths=None, schemas=None):
                         if r[c] != "" and not valid_cell(c, r[c]):
                             r[c] = ""
                     out[k] = r
-            except (csv.Error, UnicodeDecodeError):
-                continue
+            except (csv.Error, UnicodeDecodeError) as exc:     # strict only: _csv_rows skips the line
+                if strict:
+                    raise Unreadable(p) from exc
     return out
 
 
@@ -1051,10 +1135,37 @@ def runs_view(rows, session=None):
 
 
 # ---------------------------------------------------------------- the collector
+UV_PATHS = ("~/.local/bin/uv", "/opt/homebrew/bin/uv", "/usr/local/bin/uv", "~/.cargo/bin/uv")
+PS_PATHS = ("/bin/ps", "/usr/bin/ps")
+_EXE = {}                 # name -> absolute path or None, resolved once per process
+
+
+def _exe(name, candidates):
+    """The first executable regular file among fixed absolute candidates (install.sh puts uv in
+    Homebrew's bin or ~/.local/bin), resolved once; None when there is none. Never a PATH lookup: an
+    agent-writable directory on PATH (an activated project .venv/bin) cannot substitute uv or ps."""
+    if name not in _EXE:
+        found = None
+        for c in candidates:
+            c = os.path.expanduser(c)
+            if os.path.isabs(c) and os.path.isfile(c) and os.access(c, os.X_OK):
+                found = c
+                break
+        _EXE[name] = found
+    return _EXE[name]
+
+
+def find_ps():
+    return _exe("ps", PS_PATHS)
+
+
 def proc_info(pid):
-    """(ppid, comm, lstart) of a process; None when it is gone."""
+    """(ppid, comm, lstart) of a process; None when it is gone (or no ps at its fixed paths)."""
+    ps = find_ps()
+    if ps is None:
+        return None
     try:
-        p = subprocess.run(["ps", "-o", "ppid=", "-o", "lstart=", "-o", "comm=", "-p", str(int(pid))],
+        p = subprocess.run([ps, "-o", "ppid=", "-o", "lstart=", "-o", "comm=", "-p", str(int(pid))],
                            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=3)
     except (OSError, subprocess.SubprocessError, ValueError):
         return None
@@ -1276,11 +1387,8 @@ def hook_end(ev):
 
 # ---------------------------------------------------------------- refresh (stack_sched_refresh.py)
 def find_uv():
-    for c in (shutil.which("uv"), os.path.expanduser("~/.local/bin/uv"), "/opt/homebrew/bin/uv",
-              "/usr/local/bin/uv", os.path.expanduser("~/.cargo/bin/uv")):
-        if c and os.access(c, os.X_OK):
-            return c
-    return None
+    """uv at a fixed install path (UV_PATHS), never from PATH; None: the refresh is skipped."""
+    return _exe("uv", UV_PATHS)
 
 
 def _fingerprint():

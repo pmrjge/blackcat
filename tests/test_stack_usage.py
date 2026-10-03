@@ -1,9 +1,10 @@
 """stack_usage.py (the per-session usage collector) and stack_sched_refresh.py (the model refit).
 
 Run: uv run --python 3.13 --with pytest --with pandas --with numpy pytest -q tests/test_stack_usage.py
-(the refresh tests are skipped without pandas/numpy). Synthetic transcripts only; every test uses its
-own XDG_STATE_HOME under tmp_path, never the stack's state folder. Hook and collector processes run
-under /usr/bin/python3, the hooks' interpreter.
+(the refresh tests are skipped without pandas/numpy), and on the hooks' own interpreter:
+UV_PYTHON=/usr/bin/python3 uv run --with pytest pytest -q tests/test_stack_usage.py. Synthetic transcripts
+only; every test uses its own XDG_STATE_HOME under tmp_path, never the stack's state folder. Hook and
+collector processes run under /usr/bin/python3, the hooks' interpreter.
 """
 import csv
 import hashlib
@@ -11,6 +12,7 @@ import importlib.util
 import io
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -609,7 +611,7 @@ def test_tool_counts_writes_and_first_write(st, tmp_path):
     assert r["first_write_call"] == "1" and r["first_ctx"] == r["ctx_at_first_write"] == str(3 + 7000 + 1000)
     assert r["ro_write"] == "1" and r["status_code"] == "2"      # a read-only type that wrote repo files
     assert (r["resume"], r["cold"], r["parent"], r["depth"], r["node"]) == ("0", "", "ab12", "2", "T3")
-    assert r["task"] == "T3 implement the parser" and r["is_main"] == "0" and r["src"] == "measured"
+    assert r["task"] == "implement the parser" and r["is_main"] == "0" and r["src"] == "measured"
     raw = (st / "usage" / "runs2.csv").read_text()
     for leak in ("secret msg", "/repo", "a.py", "git commit", "scratch"):
         assert leak not in raw
@@ -721,11 +723,31 @@ def test_task_sanitized_and_node(st, tmp_path):
     r = scan_final(tmp_path)
     for aid, (_, node) in cases.items():
         row = r[(SID, aid, 0)]
-        assert row["node"] == node and len(row["task"]) <= 60 and U.TASK_DROP_RE.search(row["task"]) is None, aid
+        assert row["node"] == node and len(row["task"]) <= 60, aid
         assert row["task"] == "" or U.TASK_RE.match(row["task"])
-    assert r[(SID, "k1", 0)]["task"].startswith("P9d fix rm -rf / curl http://evil.example/xabid")
+    # plain words only: the plan node id lives in `node`, never in `task`
+    assert r[(SID, "k1", 0)]["task"] == "fix"
     assert r[(SID, "k2", 0)]["task"] == "Fix the thing" and r[(SID, "k3", 0)]["task"] == ""
+    assert [r[(SID, k, 0)]["task"] for k in ("k4", "k5", "k6", "k7")] == ["", "lower", "x", "x"]
     assert (r[(SID, "k8", 0)]["task"], r[(SID, "k8", 0)]["depth"]) == ("", "")
+
+
+def test_task_label_keeps_no_path_url_args_or_key(tmp_path):
+    """F1: `task` keeps the plain words of the description: no digit, '/', ':', URL, path, flag or key."""
+    for desc in ("T3 review https://evil.example/c?k=1", "read /Users/x/.ssh/id_ed25519 now",
+                 "key sk-ant-api03-DUMMY0000EXAMPLE", "run rm -rf /tmp/x", "fetch file:///etc/passwd ok",
+                 "token ghp_ABCDEFGHIJKLMNOPQRSTUVWXYZabcd"):
+        (tmp_path / "agent-a1.meta.json").write_text(json.dumps({"agentType": "coder", "description": desc}))
+        t = U.agent_meta(str(tmp_path), "a1")["task"]
+        assert not re.search(r"[/:\d_.]|https?|\.ssh|-rf|sk-|ghp", t), (desc, t)
+        assert t == "" or U.TASK_RE.match(t), (desc, t)
+    assert U.agent_meta(str(tmp_path), "a1")["task"] == "token"
+    (tmp_path / "agent-a1.meta.json").write_text(json.dumps({"agentType": "coder",
+                                                             "description": "T3 fix the (flaky) re-run test, again!"}))
+    m = U.agent_meta(str(tmp_path), "a1")
+    assert (m["node"], m["task"]) == ("T3", "fix the flaky re-run test again")
+    # the writer and the reader hold `task` to the same rule
+    assert not U.valid_cell("task", "T3 x") and not U.valid_cell("task", "a/b") and U.valid_cell("task", "a b-c")
 
 
 def test_stack_commit_from_manifest(st, tmp_path):
@@ -873,6 +895,138 @@ def test_hostile_csv_is_filtered_by_the_reader_and_writer(st, tmp_path):
     assert "calc" not in raw and "line1" not in raw
     r = U.read_rows()
     assert r[(SID, "w1", 0)]["task"] == "" and r[(SID, "w1", 0)]["parent"] == "" and r[(SID, "w2", 0)]["task"] == ""
+
+
+def _v2_csv(rows):
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=U.COLUMNS, lineterminator="\n")
+    w.writeheader()
+    w.writerows(rows)
+    return buf.getvalue().encode("utf-8")
+
+
+def test_reader_keeps_rows_after_a_bad_line(st):
+    """F2: a NUL line (csv on Python < 3.11 refuses it), an unbalanced quote and bad UTF-8 cost their own
+    line only, never the rows after them."""
+    u = st / "usage"
+    u.mkdir(parents=True)
+    body = _v2_csv([v2_row(id="g1")])
+    for i, bad in enumerate((b"\x00bad\n", b'2,"open quote,x\n', b"\xff\xfe broken\n", b"\x00" * 40 + b"\n"), 2):
+        body += bad + _v2_csv([v2_row(id=f"g{i}")]).split(b"\n", 1)[1]
+    (u / "runs2.csv").write_bytes(body)
+    assert {k[1] for k in U.read_rows()} == {"g1", "g2", "g3", "g4", "g5"}
+
+
+def _rotation_files(u):
+    return sorted(p.name for p in u.iterdir() if p.name.startswith("runs2") and p.name.endswith(".csv"))
+
+
+@pytest.mark.parametrize("bad", [b"\x00" * 40 + b"\n", b'2,"an unbalanced quote\n'], ids=["nul", "quote"])
+def test_rotation_after_a_corrupt_line_loses_no_row(st, monkeypatch, bad):
+    """M2: rotation reads strictly; a file it cannot read is set aside byte for byte as
+    runs2.unreadable-<epoch>.csv (never over an earlier one) and runs2.csv starts again: no row after
+    the corrupt line is lost (before, rotation archived only the rows ahead of it and unlinked runs2.csv)."""
+    u = st / "usage"
+    base = dict(v2_row(), last_ts=T0, ctx=0)
+    monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "1000000")
+    U.append_rows([dict(base, id=f"a{i}") for i in range(3)])
+    with open(u / "runs2.csv", "ab") as fh:
+        fh.write(bad)
+    U.append_rows([dict(base, id=f"b{i}") for i in range(3)])
+    before = (u / "runs2.csv").read_bytes()
+    monkeypatch.setattr(U, "time", types.SimpleNamespace(time=lambda: 1790000123.9, sleep=time.sleep))
+    (u / "runs2.unreadable-1790000123.csv").write_bytes(b"an earlier one\n")
+    monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "300")
+    U.append_rows([dict(base, id="c0")])                              # past the cap: rotation
+    live = set(U.read_rows())
+    aside = u / "runs2.unreadable-1790000123-1.csv"
+    kept = set(live)
+    if aside.exists():
+        assert aside.read_bytes() == before                           # intact, byte for byte
+        kept |= set(U.read_rows([str(aside)]))
+    assert (u / "runs2.unreadable-1790000123.csv").read_bytes() == b"an earlier one\n"
+    for k in ["a0", "a1", "a2", "b0", "b1", "b2"]:
+        assert (SID, k, 0) in kept, k
+    assert (SID, "c0", 0) in live
+    # strict rotation sets aside on any interpreter (the csv module of /usr/bin/python3 refuses NUL)
+    assert aside.exists() and not (u / "runs2.1.csv").exists()
+    assert (u / "runs2.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
+    # an unreadable archive is set aside as well; the rotation goes on with runs2.csv's rows
+    (u / "runs2.1.csv").write_bytes(_v2_csv([dict(base, id="old1")]) + bad
+                                    + _v2_csv([dict(base, id="old2")]).split(b"\n", 1)[1])
+    arch = (u / "runs2.1.csv").read_bytes()
+    U.append_rows([dict(base, id=f"c{i}") for i in range(1, 4)])  # rotates again
+    assert (u / "runs2.1.unreadable-1790000123.csv").read_bytes() == arch
+    assert {k[1] for k in U.read_rows([str(u / "runs2.1.csv")])} == {"c0"}
+    assert {k[1] for k in U.read_rows([str(u / "runs2.csv")])} == {"c1", "c2", "c3"}
+    assert _rotation_files(u) == ["runs2.1.csv", "runs2.1.unreadable-1790000123.csv", "runs2.csv",
+                                  "runs2.unreadable-1790000123-1.csv", "runs2.unreadable-1790000123.csv"]
+
+
+def test_scope_hits_credit_the_main_window_and_the_session_not_the_agent(st, tmp_path):
+    """M1: a prompt or session limit tripped by a subagent's call is the main window's hit (and a
+    session limit the session row's); an agent row's hit_soft is its own soft limit only. A soft_session
+    firing marks the session row, not the window (soft.prompt reads a window's hit_soft)."""
+    write_main(tmp_path, [dict(user("prompt", 0), promptId="pid-0"), call("m1", 1),
+                          dict(user("prompt", 30), promptId="pid-1"), call("m2", 31, tool=False)])
+    write_agent(subdir(tmp_path), "q1", [user("go", 2), call("q1a", 3), result(4), call("q1b", 5, tool=False)])
+    sdir = st / SID
+    sdir.mkdir(parents=True)
+    (sdir / "budget.json").write_text(json.dumps({"total": 50000}))
+    hits = [{"v": 1, "kind": "hard_prompt", "agent_id": "q1", "ts": t_(4)},
+            {"v": 1, "kind": "soft_prompt", "agent_id": "q1", "ts": t_(3.5)},
+            {"v": 1, "kind": "hard_session", "agent_id": "q1", "ts": t_(5)},
+            {"v": 1, "kind": "soft_session", "agent_id": None, "ts": t_(31.5)}]
+    (sdir / "limit-hits.jsonl").write_text("".join(json.dumps(h) + "\n" for h in hits))
+    U.scan_once(SID, str(subdir(tmp_path)), final=True)
+    r = rows_by_key()
+    m0, m1, q, s = r[(SID, "main", 0)], r[(SID, "main", 1)], r[(SID, "q1", 0)], r[(SID, "session", 0)]
+    assert m0["hit_hard_prompt"] == "1" and q["hit_soft"] != "1"
+    assert [m0[c] for c in U.HIT_COLS] == ["1", "0", "0", "1", "1", "0"]
+    assert [m1[c] for c in U.HIT_COLS] == ["0"] * 6                     # soft_session: not the window's
+    assert [q[c] for c in U.HIT_COLS] == ["0", "0", "0", "1", "1", "0"]  # q1's calls were refused
+    assert [s[c] for c in U.HIT_COLS] == ["1", "0", "0", "0", "1", "0"]
+    # without limit-hits.jsonl nothing is measured: the session row's hit cells are empty, not 0
+    (sdir / "limit-hits.jsonl").unlink()
+    rows, _ = U.scan({"v": 2, "agents": {}}, SID, str(subdir(tmp_path)), final=True)
+    srow = next(x for x in rows if x["id"] == "session")
+    assert all(srow[c] == "" for c in U.HIT_COLS)
+
+
+def test_uv_and_ps_by_absolute_path_never_from_PATH(st, tmp_path, monkeypatch):
+    """Hardening: the collector runs ps and the refit runs uv from fixed absolute paths, resolved once;
+    a uv or ps first on PATH (an agent-writable dir there) is never run; none found: skipped quietly."""
+    evil, marker = tmp_path / "evil", tmp_path / "evil-ran"
+    evil.mkdir()
+    for n in ("uv", "ps"):
+        (evil / n).write_text(f"#!/bin/sh\ntouch '{marker}'\necho '1 Mon Jan  1 00:00:00 2024 x'\n")
+        (evil / n).chmod(0o755)
+    good, goodps = tmp_path / "bin" / "uv", tmp_path / "bin" / "ps"
+    good.parent.mkdir()
+    good.write_text("#!/bin/sh\necho refresh: fake\n")
+    goodps.write_text("#!/bin/sh\necho '   77 Mon Jan  1 00:00:00 2024     /usr/local/bin/claude'\n")
+    for f in (good, goodps):
+        f.chmod(0o755)
+    monkeypatch.setenv("PATH", str(evil) + os.pathsep + os.environ.get("PATH", ""))
+    monkeypatch.setattr(U, "_EXE", {})
+    assert U.find_ps() in ("/bin/ps", "/usr/bin/ps")                 # the default fixed paths
+    monkeypatch.setattr(U, "_EXE", {})
+    monkeypatch.setattr(U, "UV_PATHS", (str(tmp_path / "none" / "uv"), "relative/uv", str(good)))
+    monkeypatch.setattr(U, "PS_PATHS", ("ps", str(goodps)))
+    assert U.find_uv() == str(good) and U.find_ps() == str(goodps)
+    assert U.proc_info(12345) == (77, "claude", "Mon Jan  1 00:00:00 2024")
+    assert U.refresh(trigger="manual", force=True)["summary"] == "refresh: fake"
+    # resolved once: a later change of the candidates does not move it
+    monkeypatch.setattr(U, "UV_PATHS", (str(evil / "uv"),))
+    assert U.find_uv() == str(good)
+    # nothing at the fixed paths: the step is skipped quietly, nothing from PATH runs
+    monkeypatch.setattr(U, "_EXE", {})
+    monkeypatch.setattr(U, "UV_PATHS", (str(tmp_path / "none" / "uv"),))
+    monkeypatch.setattr(U, "PS_PATHS", (str(tmp_path / "none" / "ps"),))
+    assert U.find_uv() is None and U.find_ps() is None
+    assert U.refresh(trigger="manual", force=True)["status"] == "skipped: uv not found"
+    assert U.proc_info(os.getpid()) is None and U.find_owner() is None
+    assert not marker.exists()
 
 
 class FakeLimits:

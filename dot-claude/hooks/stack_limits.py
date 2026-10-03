@@ -673,16 +673,42 @@ def parse_row(r, known=()):
     return row
 
 
+def _csv_rows(fh):
+    """The rows of a CSV file as csv.DictReader gives them (a short row's missing cells None, extra
+    cells under the key None), each physical line parsed on its own: no valid cell holds a quote, comma
+    or newline, so a line the csv module refuses or a NUL (csv on Python < 3.11 refuses it) costs that
+    line only, never the rest of the file, and an unbalanced quote cannot swallow the lines after it.
+    The same helper as stack_usage._csv_rows (whose strict mode is rotation's)."""
+    import csv
+    header = None
+    for ln in fh:
+        try:
+            cells = next(csv.reader((ln.replace("\x00", ""),)), None)
+        except csv.Error:
+            continue
+        if not cells:
+            continue                    # a blank line, as DictReader
+        if header is None:
+            header = cells
+            continue
+        row = dict(zip(header, cells))
+        for k in header[len(cells):]:
+            row[k] = None
+        if len(cells) > len(header):
+            row[None] = cells[len(header):]
+        yield row
+
+
 def read_rows(paths=None, known=()):
     """(rows, stats) over runs.1.csv, runs.csv, runs2.1.csv, runs2.csv (v1 rows read as
     src = seed_v1), the last row per (session, id, seg) winning; at most MAX_LINES_PER_FILE lines a
-    file and MAX_ROWS rows (the newest). Missing files or columns are fine; bad rows are dropped."""
-    import csv
+    file and MAX_ROWS rows (the newest). Missing files or columns are fine; bad rows are dropped, and a
+    malformed line (csv, NUL, bad UTF-8) costs only itself (_csv_rows)."""
     rows, stats = {}, {"read": 0, "dropped": 0, "truncated": False, "errors": 0}
     for p in csv_paths() if paths is None else paths:
         try:
             with open(p, encoding="utf-8", errors="replace", newline="") as fh:
-                for i, r in enumerate(csv.DictReader(fh)):
+                for i, r in enumerate(_csv_rows(fh)):
                     if i >= MAX_LINES_PER_FILE:
                         stats["truncated"] = True
                         break
@@ -696,7 +722,7 @@ def read_rows(paths=None, known=()):
                     rows[k] = pr
         except FileNotFoundError:
             continue
-        except (OSError, csv.Error, UnicodeError, ValueError):
+        except (OSError, ValueError):
             stats["errors"] += 1
     out = list(rows.values())
     if len(out) > MAX_ROWS:
@@ -770,7 +796,11 @@ def _entry(rows, fam, kind, upto_ref, rng_key, cache):
         return None
     xs = sorted(r[qn] for r in samp)
     codes = (1,) if kind == "soft" else (0, 1)
+    # main-window and session rows carry no status code (the collector leaves it empty): a hit of their
+    # own kind there is tight as it stands; an agent row needs done (hard) or partial
+    scoped = SCOPE[fam] != "type"
     hit = (lambda r: any(r[h] == 1 for h in hits))
+    tight = (lambda r: hit(r) and (r["status_code"] in codes or (scoped and r["status_code"] is None)))
     key = tuple(xs)
     if key not in cache:
         cache[key] = _boot_p90s(xs, BOOT_B, rng_key) if len(xs) >= 3 else []
@@ -781,7 +811,7 @@ def _entry(rows, fam, kind, upto_ref, rng_key, cache):
             "agents": len({(r["session"], r["id"]) for r in samp}),
             "sessions": len({r["session"] for r in samp}),
             "healthy": sum(1 for r in samp if not hit(r)),
-            "tight": sum(1 for r in win if hit(r) and r["status_code"] in codes),
+            "tight": sum(1 for r in win if tight(r)),
             "top": [_intish(v) for v in sorted((r[qn] for r in win), reverse=True)[:MAX_TOP]],
             "n_new": sum(1 for r in samp if r["ts"] > upto_ref),
             "upto": max(r["ts"] for r in samp)}
