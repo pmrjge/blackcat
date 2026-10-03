@@ -511,10 +511,10 @@ fi
 # What changed in what this run installs since the last install (the manifest records the commit each
 # install shipped), and edits not committed yet: the whole shipped tree (agents and their MCP servers
 # and hooks, skills, rules, hooks, settings, bin, mcp, magg's catalog, the LSP marketplace), the
-# installer and its library, stack.env.example, the pinned requirements (not lib/assets/: README
-# images, never installed). Read them before applying. On a terminal the
-# run asks here, before step 2 changes anything (the venvs sync from requirements/) (--yes: don't).
-SUPPLY_PATHS="dot-claude install.sh lib/install_state.py lib/stack.env.example requirements"
+# installer and its library, stack.env.example, the pinned requirements, the two tests/derive_*.py
+# scripts copied into hooks/ (not lib/assets/: README images, never installed). Read them before
+# applying. On a terminal the run asks here, before step 2 changes anything (the venvs sync from requirements/) (--yes: don't).
+SUPPLY_PATHS="dot-claude install.sh lib/install_state.py lib/stack.env.example requirements tests/derive_sched_model.py tests/derive_thresholds.py"
 SUPPLY_CHANGED=0
 prev_commit="$(python3 -c 'import json, re, sys
 try:
