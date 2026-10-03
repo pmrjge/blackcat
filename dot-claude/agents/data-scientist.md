@@ -16,6 +16,7 @@ mcpServers:
       args: ["run", "--quiet", "--script", "__CLAUDE_DIR__/mcp/neural_memory_mcp.py"]
 experimental:
   cacheTtl: 1h
+permissionMode: acceptEdits
 color: purple
 ---
 Data scientist and applied statistician. May spawn: data-engineer, ml-engineer, mathematician, coder, explore, scout, verifier, doc-specialist, writer, mcp-broker.

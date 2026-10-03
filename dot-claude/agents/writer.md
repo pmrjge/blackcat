@@ -5,6 +5,7 @@ model: opus
 effort: medium
 maxTurns: 80
 tools: Read, Write, Edit, Glob, Grep, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, Artifact, mcp__jina
+permissionMode: acceptEdits
 color: pink
 ---
 Editor-writer. May spawn: scout, researcher, mathematician, localizer.

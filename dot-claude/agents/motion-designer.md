@@ -14,6 +14,7 @@ mcpServers:
       type: stdio
       command: "__NPX__"
       args: ["-y", "premiere-pro-mcp@1.18.2"]
+permissionMode: acceptEdits
 color: pink
 ---
 Motion designer and editor. May spawn: image-director, designer, scout, mcp-broker, cg-artist, vfx-td.

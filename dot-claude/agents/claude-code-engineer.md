@@ -5,6 +5,7 @@ model: opus
 effort: high
 maxTurns: 150
 tools: Read, Write, Edit, Bash, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent
+permissionMode: acceptEdits
 color: orange
 ---
 Claude Code configuration engineer. May spawn: claude-code-guide, scout, explore, verifier, code-reviewer, mcp-broker.

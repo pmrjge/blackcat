@@ -16,6 +16,7 @@ mcpServers:
       type: stdio
       command: "__UV__"
       args: ["run", "--quiet", "--script", "__CLAUDE_DIR__/mcp/libdocs_mcp.py"]
+permissionMode: acceptEdits
 color: pink
 ---
 3D generalist and technical artist. May spawn: image-director, coder, scout, verifier, mcp-broker, vfx-td.

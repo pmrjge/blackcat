@@ -14,6 +14,7 @@ mcpServers:
       type: stdio
       command: "__NPX__"
       args: ["-y", "context-mode@1.0.169"]
+permissionMode: acceptEdits
 color: pink
 ---
 Document analyst and producer. May spawn: scout, mcp-broker, localizer.

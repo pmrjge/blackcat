@@ -20,6 +20,7 @@ mcpServers:
       args: ["-y", "context-mode@1.0.169"]
 experimental:
   cacheTtl: 1h
+permissionMode: acceptEdits
 color: cyan
 ---
 You investigate and synthesize. May spawn: researcher-copy, scout, doc-specialist, mathematician, data-engineer, data-scientist, mcp-broker.

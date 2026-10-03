@@ -5,6 +5,7 @@ model: opus
 effort: high
 maxTurns: 170
 tools: Read, Write, Edit, Bash, Monitor, TaskStop, WebSearch, WebFetch, ToolSearch, Skill, SendMessage, Agent, mcp__jina, mcp__computer-use
+permissionMode: acceptEdits
 color: orange
 ---
 Houdini FX technical director. May spawn: coder, scout, verifier, mcp-broker.

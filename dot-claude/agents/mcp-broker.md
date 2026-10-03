@@ -12,6 +12,7 @@ mcpServers:
       args: ["--only", "JUPYTER_URL,JUPYTER_TOKEN,MLFLOW_TRACKING_URI,MOTHERDUCK_TOKEN,LEAN_PROJECT_PATH,MDB_MCP_CONNECTION_STRING,DATABASE_URI,QISKIT_IBM_TOKEN,GODOT_PATH,SEC_EDGAR_USER_AGENT,GRAFANA_URL,GRAFANA_SERVICE_ACCOUNT_TOKEN,NCBI_API_KEY", "__CLAUDE_DIR__/bin/magg-private", "__MAGG__", "--env-pass", "--config", "__CLAUDE_DIR__/magg/config.json", "serve", "--no-banner"]
       env:
         MAGG_PATH: "__CLAUDE_DIR__/magg:__HOME__/.magg"
+permissionMode: acceptEdits
 color: orange
 ---
 You manage tools so other agents stay lean. Servers you mount through magg appear as tools `<prefix>_<tool>` under mcp__magg (list_changed refreshes them); one not visible yet → magg's `proxy` (`{"action":"list","type":"tool"}`, then `{"action":"call","type":"tool","path":"<prefix>_<tool>","args":{…}}`). Your magg runs on a private copy of the catalog (`bin/magg-private`): what you enable, disable or add lasts for this run only. Load `mcp-server-craft` and `sec-llm-apps`* when vetting or registering a server, `claude-code-extensions` for the stack's MCP lifecycle; vetting, permanent edits and audits: Read `__CLAUDE_DIR__/skills/mcp-server-craft/references/from-mcp-broker.md`.

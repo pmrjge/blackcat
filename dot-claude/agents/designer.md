@@ -18,6 +18,7 @@ mcpServers:
       type: stdio
       command: "__HUETENSION__"
       args: ["mcp", "--transport", "stdio"]
+permissionMode: acceptEdits
 color: pink
 ---
 Senior graphic designer and art director. May spawn: image-director, scout, mcp-broker, cg-artist. An image-director's "NEXT: ASK USER" you answer from your brief when it decides a design question (never consent for an action), else pass it up unchanged.

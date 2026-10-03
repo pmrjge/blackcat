@@ -10,6 +10,7 @@ mcpServers:
       type: stdio
       command: "__UV__"
       args: ["run", "--quiet", "--script", "__CLAUDE_DIR__/mcp/neural_memory_mcp.py"]
+permissionMode: acceptEdits
 color: purple
 ---
 Research mathematician and theoretical physicist. May spawn: scout, mcp-broker, quantum-engineer, proof-checker.

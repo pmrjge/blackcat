@@ -77,18 +77,21 @@ def test_notebook_edit_counts_as_editing(tmp_path, monkeypatch):
 
 
 def test_shipped_agents_follow_the_rule():
-    """Every builder file that declares a mode declares acceptEdits; no read-only agent carries one."""
-    modes = {}
+    """Every agent that can write files carries acceptEdits for its subagent runs (45); BlackCat,
+    the main thread, follows the session's mode (Plan) and the read-only agents carry none."""
+    modes, writers = {}, set()
     for f in sorted(AGENTS.glob("*.md")):
         data, _ = lint_agents.parse_frontmatter(f.read_text())
         assert lint_agents.permission_mode_problem(data) is None, f.name
+        if lint_agents.EDIT_TOOLS & set(lint_agents.get_tools(data)[0]):
+            writers.add(f.stem)
         if "permissionMode" in data:
             modes[f.stem] = lint_agents.get_inline(data, "permissionMode")
-    assert set(modes.values()) <= {"acceptEdits", "plan"}
-    assert {"coder", "main-coder", "ninja-coder", "supreme-coder", "test-engineer"} <= set(modes)
-    assert "blackcat" not in modes          # the main thread follows the session's mode (Plan)
-    for ro in ("code-reviewer", "security-auditor", "verifier", "planner", "plan-reviewer", "scout"):
-        assert modes.get(ro) != "acceptEdits", ro
+    assert set(modes.values()) == {"acceptEdits"}
+    assert set(modes) == writers - {"blackcat"} and len(modes) == 45
+    assert {f.stem for f in AGENTS.glob("*.md")} - set(modes) == {
+        "blackcat", "claude-code-guide", "code-reviewer", "explore", "oracle", "plan-reviewer", "planner",
+        "proof-checker", "scout", "security-auditor", "verifier"}
 
 
 # ---------------------------------------------------------------- STACK_MODE_PROBE (diagnostic)
