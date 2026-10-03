@@ -91,6 +91,7 @@ COLUMNS = COLUMNS_V2
 EMPTY_ROW = {c: "" for c in COLUMNS_V2}      # an unmeasured field is an empty cell, never 0
 STRING_COLUMNS = ("session", "id", "type", "status", "parent", "node", "sess_src", "snap", "regime", "task",
                   "stack_commit", "src")      # every other column is a number (or empty)
+REQUIRED_STRINGS = STRING_COLUMNS[:4]         # a row with an invalid one is neither written nor read
 OPTIONAL_STRINGS = STRING_COLUMNS[4:]         # validated; an invalid or unmeasurable value is an empty cell
 KEY = ("session", "id", "seg")
 TOOL_MAP = {"Read": "n_read", "Write": "n_write", "Edit": "n_edit", "MultiEdit": "n_edit",
@@ -117,13 +118,15 @@ TURN_LIMIT_RE = re.compile(r"turn limit", re.I)
 TEXT_HEAD = 300           # derive_thresholds matches only the first 300 characters of a user message
 LIVE_S = 600
 
-ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
-TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$")
+# validation patterns end in \Z, not $ ($ also matches before a trailing newline): no cell the writer
+# lets through needs csv quoting, which _csv_rows' line-at-a-time parsing relies on
+ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
+TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
 UNKNOWN_TYPE = "(unknown)"
-NODE_RE = re.compile(r"^[A-Z]{1,3}[0-9]{1,3}[a-z]?$")
-HEX16_RE = re.compile(r"^[0-9a-f]{16}$")
-COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}$")
-TASK_RE = re.compile(r"^[A-Za-z][A-Za-z -]{0,59}$")
+NODE_RE = re.compile(r"^[A-Z]{1,3}[0-9]{1,3}[a-z]?\Z")
+HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
+COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
+TASK_RE = re.compile(r"^[A-Za-z][A-Za-z -]{0,59}\Z")
 TASK_WORD_RE = re.compile(r"[A-Za-z][A-Za-z-]{0,23}\Z")
 SESS_SRC = ("startup", "resume", "clear", "compact", "fork")
 SRC_VALUES = ("measured", "seed_v1")
@@ -885,9 +888,10 @@ def csv_paths():
 
 
 def _header_ok(path):
+    """Whether the file's first line is COLUMNS' header (bytes: a bad byte further down is no error)."""
     try:
-        with open(path, encoding="utf-8", newline="") as fh:
-            return fh.readline().rstrip("\r\n") == ",".join(COLUMNS)
+        with open(path, "rb") as fh:
+            return fh.readline(1 << 16).rstrip(b"\r\n") == ",".join(COLUMNS).encode("ascii")
     except OSError:
         return False
 
@@ -921,10 +925,10 @@ def _rotate_if_needed(cur, old):
     runs2.1.csv (the last row per key, newest sessions first, at most ARCHIVE_FACTOR x the cap: the
     oldest sessions beyond that are dropped; the newest one always stays) and starts again empty. A file
     of another header is set aside (_set_aside). Rotation reads strictly (U1, append-only): a file with a
-    line the csv module refuses, a NUL or bad UTF-8 is set aside intact as
-    runs2[.1].unreadable-<epoch>.csv, never rewritten from the rows ahead of that line; an unreadable
-    runs2.csv then starts again empty, an unreadable archive is rebuilt from runs2.csv alone. Only
-    runs2*.csv is ever touched. Called under runs2.lock."""
+    line the csv module refuses, a NUL or bad UTF-8 (or, for the archive, another header or no read
+    access) is set aside intact as runs2[.1].unreadable-<epoch>.csv, never rewritten from the rows
+    ahead of that line; an unreadable runs2.csv then starts again empty, an unreadable archive is
+    rebuilt from runs2.csv alone. Only runs2*.csv is ever touched. Called under runs2.lock."""
     cap = knob("STACK_USAGE_MAX_BYTES", 8e6)
     try:
         size = os.path.getsize(cur)
@@ -935,6 +939,8 @@ def _rotate_if_needed(cur, old):
         return
     if cap <= 0 or size <= cap:
         return
+    if os.path.lexists(old) and not _header_ok(old):
+        _set_aside(old, "unreadable")    # its rows would read as none: never replace it by runs2.csv's
     rows = _read_strict(old) or {}
     new = _read_strict(cur)
     if new is None:
@@ -997,8 +1003,9 @@ def valid_cell(col, v):
 
 def append_rows(rows):
     """Append v2 rows to runs2.csv (rotating to runs2.1.csv). runs.csv, runs.1.csv and
-    runs.old-schema.csv are never written, renamed or rotated. An optional string cell that is not valid
-    is written empty."""
+    runs.old-schema.csv are never written, renamed or rotated. A row with an invalid session, id, type or
+    status is not written (every reader drops it); an optional string cell that is not valid is written
+    empty. So no written cell needs csv quoting (_csv_rows)."""
     if not rows:
         return
     old, cur = v2_paths()
@@ -1010,6 +1017,8 @@ def append_rows(rows):
         if new:
             w.writeheader()
         for r in rows:
+            if not all(isinstance(r.get(c), str) and valid_cell(c, r[c]) for c in REQUIRED_STRINGS):
+                continue                 # a row every reader drops (bad session, id, type or status)
             r = dict(r)
             for c in OPTIONAL_STRINGS:
                 v = r.get(c)
@@ -1071,7 +1080,11 @@ def read_rows(paths=None, schemas=None, strict=False):
         accept = schemas or (("2",) if os.path.basename(p).startswith("runs2") else ("1",))
         try:
             fh = open(p, encoding="utf-8", errors="strict" if strict else "replace", newline="")
-        except OSError:
+        except FileNotFoundError:
+            continue
+        except OSError as exc:
+            if strict:
+                raise Unreadable(p) from exc
             continue
         with fh:
             try:

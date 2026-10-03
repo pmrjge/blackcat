@@ -921,7 +921,8 @@ def _rotation_files(u):
     return sorted(p.name for p in u.iterdir() if p.name.startswith("runs2") and p.name.endswith(".csv"))
 
 
-@pytest.mark.parametrize("bad", [b"\x00" * 40 + b"\n", b'2,"an unbalanced quote\n'], ids=["nul", "quote"])
+@pytest.mark.parametrize("bad", [b"\x00" * 40 + b"\n", b'2,"an unbalanced quote\n', b"\xff\xfe broken\n"],
+                         ids=["nul", "quote", "utf8"])
 def test_rotation_after_a_corrupt_line_loses_no_row(st, monkeypatch, bad):
     """M2: rotation reads strictly; a file it cannot read is set aside byte for byte as
     runs2.unreadable-<epoch>.csv (never over an earlier one) and runs2.csv starts again: no row after
@@ -961,6 +962,62 @@ def test_rotation_after_a_corrupt_line_loses_no_row(st, monkeypatch, bad):
     assert {k[1] for k in U.read_rows([str(u / "runs2.csv")])} == {"c1", "c2", "c3"}
     assert _rotation_files(u) == ["runs2.1.csv", "runs2.1.unreadable-1790000123.csv", "runs2.csv",
                                   "runs2.unreadable-1790000123-1.csv", "runs2.unreadable-1790000123.csv"]
+
+
+@pytest.mark.parametrize("damage", ["bom", "stray", "header", "eacces"])
+def test_rotation_keeps_an_archive_it_cannot_read(st, monkeypatch, damage):
+    """M2 (audit follow-up): an archive whose header the strict reader would not see (a BOM, a stray
+    byte, another header, no read permission) read as empty and was replaced by runs2.csv's rows; it is
+    set aside intact instead."""
+    if damage == "eacces" and os.geteuid() == 0:
+        pytest.skip("root reads a mode-0 file")
+    u, base = st / "usage", dict(v2_row(), last_ts=T0, ctx=0)
+    monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "1000000")
+    U.append_rows([dict(base, id=f"a{i}") for i in range(3)])
+    arch = _v2_csv([dict(base, id="old1")])
+    pre = {"bom": b"\xef\xbb\xbf", "stray": b"x", "header": b"", "eacces": b""}[damage]
+    if damage == "header":
+        arch = b"schema_version,session,id\n2," + SID.encode() + b",old1\n"
+    (u / "runs2.1.csv").write_bytes(pre + arch)
+    if damage == "eacces":
+        (u / "runs2.1.csv").chmod(0)
+    monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "300")
+    U.append_rows([dict(base, id="c0")])
+    for p in u.glob("runs2.1*.csv"):
+        p.chmod(0o600)
+    asides = list(u.glob("runs2.1.unreadable-*.csv"))
+    assert len(asides) == 1 and asides[0].read_bytes() == pre + arch
+    assert {k[1] for k in U.read_rows([str(u / "runs2.1.csv")])} == {"a0", "a1", "a2"}
+
+
+def test_a_bad_byte_in_runs2_never_stops_the_writer(st, monkeypatch):
+    """M2 (audit follow-up): the header check decoded the first 8 KB strictly, so one bad byte near the
+    top of runs2.csv made every append raise (no row written again, below the cap too)."""
+    u = st / "usage"
+    U.append_rows([v2_row(id="a1")])
+    with open(u / "runs2.csv", "ab") as fh:
+        fh.write(b"\xff\xfe broken\n")
+    U.append_rows([v2_row(id="a2")])
+    assert {k[1] for k in U.read_rows()} == {"a1", "a2"}
+
+
+def test_the_writer_never_quotes_a_cell(st, monkeypatch):
+    """_csv_rows parses each line on its own because no written cell holds a quote, comma or newline:
+    a value that would need quoting (a trailing newline passed `$`) is blanked, or its row (a key cell
+    every reader drops) is not written, so strict rotation never sets a good file aside."""
+    u = st / "usage"
+    U.append_rows([v2_row(id="ok1", task="abc\n", node="T3\n", parent="main\n", stack_commit="abcdef1\n",
+                          snap="0123456789abcdef\n"),
+                   v2_row(id="bad\n"), v2_row(id="ok2", type="coder\n"), v2_row(id="ok3", session=SID + "\n"),
+                   v2_row(id="ok4", status="complete\n"), v2_row(id='q"x'), v2_row(id="c,x")])
+    raw = (u / "runs2.csv").read_bytes()
+    assert b'"' not in raw and raw.count(b"\n") == 2
+    r = U.read_rows()
+    assert set(r) == {(SID, "ok1", 0)} and all(r[(SID, "ok1", 0)][c] == "" for c in U.OPTIONAL_STRINGS[:-1])
+    assert not U.valid_cell("task", "abc\n") and not U.ID_RE.match("a1\n") and not U.TYPE_RE.match("coder\n")
+    monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "300")
+    U.append_rows([v2_row(id="ok5")])                                    # rotation reads it strictly
+    assert not list(u.glob("runs2*.unreadable-*.csv")) and set(U.read_rows()) == {(SID, "ok1", 0), (SID, "ok5", 0)}
 
 
 def test_scope_hits_credit_the_main_window_and_the_session_not_the_agent(st, tmp_path):
