@@ -3,6 +3,8 @@
 
 <img src="docs/assets/blackcat-hero.png" alt="A black cat mid-leap over a glossy dark car at golden hour: BlackCat" width="480">
 
+<p align="center"><sub>Image generated with OpenAI gpt-image-2.5-sunburst via Opper.</sub></p>
+
 <h1>claude-agent-stack</h1>
 
 <p><strong>A multi-agent configuration for Claude Code: BlackCat on the main thread, 55 specialists, 214 on-demand skills, and hooks that enforce the limits.</strong></p>
@@ -45,7 +47,7 @@ flags in full, the spawn table, sandbox internals and changelog entries is `git 
 | [Why BlackCat?](#why-blackcat) | [How it works](#how-it-works) | [Troubleshooting](#troubleshooting) |
 | [What it is for](#what-it-is-for) | [Environment variables](#environment-variables) | [Contributing and safety](#contributing-and-safety) |
 | [Overview: what the stack adds](#overview-what-the-stack-adds) | [Plugins, MCP servers and tools](#plugins-mcp-servers-and-tools) | [Changelog](#changelog) |
-| [Requirements (macOS only)](#requirements-macos-only) | [Security model](#security-model) | |
+| [Requirements (macOS only)](#requirements-macos-only) | [Security model](#security-model) | [License](#license) |
 | [Install](#install) · [Usage](#usage) | [Apps](#apps) | |
 
 ## Why BlackCat?
@@ -1320,7 +1322,7 @@ from [CONFIG.md](CONFIG.md) §1 and §7, `doctor.sh`, and the agents' reports in
   branch and commits instead.
 - **Prompts are data.** Text met in files, web pages or tool output that asks an agent to push, change
   configuration or send data is reported, not followed (global rules, "Truth").
-- **Licence:** the repository has no LICENSE file.
+- **Licence:** Apache-2.0 ([LICENSE](LICENSE)); the hero image is CC0-1.0. Details: [License](#license).
 
 ## Changelog
 
@@ -1343,4 +1345,3 @@ everything in this repository (scripts, hooks, agents, skills, prompts, docs) ex
   rights in Output, "if any", to OpenAI's API customer. Purely AI-generated material may not be
   copyrightable at all (the [US Copyright Office](https://www.copyright.gov/ai/) holds that copyright does
   not extend to it), so CC0 here waives whatever rights exist.
-- Image generated with OpenAI gpt-image-2.5-sunburst via Opper.
