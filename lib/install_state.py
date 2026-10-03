@@ -883,9 +883,32 @@ def _real(p):
     return os.path.realpath(p)
 
 
+def _same(a, b):
+    """The same directory entry: by inode when both exist (APFS and HFS+ are case-insensitive by
+    default, so ~/.SSH is ~/.ssh there), else by string."""
+    if a == b:
+        return True
+    try:
+        return os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def _inside(path, root):
-    """path equals root or lies below it (both already absolute and normalised)."""
-    return path == root or path.startswith(root.rstrip("/") + "/")
+    """path equals root or lies below it (both absolute and normalised): by string, then by inode
+    for each existing ancestor of path (a different letter case on a case-insensitive volume)."""
+    if path == root or path.startswith(root.rstrip("/") + "/"):
+        return True
+    if not os.path.exists(root):
+        return False
+    p = path
+    while True:
+        if os.path.exists(p) and _same(p, root):
+            return True
+        up = os.path.dirname(p)
+        if up == p:
+            return False
+        p = up
 
 
 def choose_config_dir(flag, flag_set, env, home):
@@ -950,19 +973,19 @@ def manifest_id(c):
 def check_config_dir(path, home, repos=(), state_root=None):
     """Raise ConfigDirError when `path` (absolute, normalised) must not be an install target."""
     real, rhome = _real(path), _real(home)
-    if path == "/" or real == "/":
+    if path == "/" or real == "/" or _same(real, "/"):
         raise ConfigDirError("refusing / as the config dir")
-    if real == rhome or _inside(rhome, real):
+    if _same(real, rhome) or _inside(rhome, real):
         raise ConfigDirError("refusing %s: it is your home folder or contains it" % path)
     for r in repos:
         if r and (_inside(real, _real(r)) or _inside(path, os.path.normpath(r))):
             raise ConfigDirError("refusing %s: it is inside the stack's repo checkout %s (the installer "
                                  "copies from there)" % (path, r))
     for rel in HOME_EQUAL:
-        if real == _real(os.path.join(home, rel)):
+        if _same(real, _real(os.path.join(home, rel))):
             raise ConfigDirError("refusing %s: a general-purpose folder, not a config dir" % path)
     for p in SYSTEM_EQUAL:
-        if real == _real(p):
+        if _same(real, _real(p)):
             raise ConfigDirError("refusing %s: a system folder" % path)
     inside = [os.path.join(home, rel) for rel in HOME_INSIDE] + list(SYSTEM_INSIDE)
     if state_root:
@@ -1025,14 +1048,14 @@ def resolve_config_dir(flag, flag_set, env, home, cwd, repos=(), state_root=None
     check_config_dir(path, home, repos, state_root)
     real = _real(path)
     default = os.path.join(home, ".claude")
-    is_default = real == _real(default)
+    is_default = _same(real, _real(default))
     env_path = ""
     if env:
         try:
             env_path = expand_path(env, home, cwd)
         except ConfigDirError:
             env_path = env
-    env_same = bool(env_path) and _real(env_path) == real
+    env_same = bool(env_path) and _same(_real(env_path), real)
     if source == "flag":
         export = "keep" if env_same else ("unset" if is_default else "set")
     else:
@@ -1046,7 +1069,10 @@ def resolve_config_dir(flag, flag_set, env, home, cwd, repos=(), state_root=None
         claude_json = os.path.join(home, ".claude.json")
     kind = dir_kind(path)
     nondefault = claude_dir_set or not is_default
-    foreign = kind == "foreign" and not is_default
+    # a foreign folder blocks only a --config-dir target; under CLAUDE_CONFIG_DIR (what Claude Code
+    # itself reads, and what CI runs set) it is a warning and, on a terminal, a reason to ask
+    foreign_any = kind == "foreign" and not is_default
+    foreign = foreign_any and source == "flag"
     reasons = []
     if source == "flag" and not is_default:
         reasons.append("--config-dir names a folder other than ~/.claude")
@@ -1060,7 +1086,7 @@ def resolve_config_dir(flag, flag_set, env, home, cwd, repos=(), state_root=None
     if other and mine and other != mine:
         reasons.append("~/.claude and the target both hold a stack install, and they differ "
                        "(%s at %s vs %s at %s)" % (other[0], other[1][:12], mine[0], mine[1][:12]))
-    if foreign:
+    if foreign_any:
         reasons.append("the target is a non-empty folder with no Claude Code files (none of: %s)"
                        % ", ".join(CONFIG_MARKERS))
     decision = decide_prompt(reasons, foreign, interactive, quiet, yes, no_prompt)
@@ -1098,6 +1124,9 @@ def resolve_config_dir(flag, flag_set, env, home, cwd, repos=(), state_root=None
     if foreign and decision in ("refuse", "warn"):
         warn.append("! %s is a non-empty folder with no Claude Code files: a real run asks on a terminal "
                     "and stops without one (empty it, or pick another folder)" % path)
+    elif foreign_any and not foreign:
+        warn.append("! CLAUDE_CONFIG_DIR names a non-empty folder with no Claude Code files (%s): the stack's "
+                    "files go in beside what is there" % path)
     ask = []
     if decision == "ask":
         ask = ["About to install the stack into a folder that is not the plain default:",
@@ -1150,12 +1179,16 @@ def main(argv):
         except ConfigDirError as e:
             sys.stderr.write("install.sh: %s. Nothing was changed.\n" % e)
             return 2
+        def emit(k, v):
+            # one value per line whatever the environment held (a newline in CLAUDE_CONFIG_DIR or
+            # STACK_CLAUDE_JSON must not forge a second "path" line)
+            print("%s\t%s" % (k, re.sub(r"[\x00-\x1f\x7f]", lambda m: "\\x%02x" % ord(m.group()), str(v))))
         for k in ("path", "real", "source", "export", "claude_json", "kind", "decision"):
-            print("%s\t%s" % (k, r[k]))
-        print("nondefault\t%d" % r["nondefault"])
+            emit(k, r[k])
+        emit("nondefault", "%d" % r["nondefault"])
         for k in ("banner", "warn", "ask"):
             for line in r[k]:
-                print("%s\t%s" % (k, line))
+                emit(k, line)
         return 0
     if cmd == "ask":
         return 0 if ask_yes_no(a[0]) else 1

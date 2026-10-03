@@ -892,12 +892,15 @@ export CLAUDE_CONFIG_DIR="$HOME/claude-work"   # then in ~/.zshrc (bash: ~/.bash
   `~/.docker`, `~/Library/Keychains`, system folders (`/System`, `/usr`, `/etc`, ...), the stack's state
   and backup folders, a file, a folder you can't write or create, a `..` that follows a symlink, and
   paths with a control character (newline, NUL, tab) or one of `"` `` ` `` `$` `\`.
-- **Foreign folders:** a non-default target that is a non-empty folder with no Claude Code files
+- **Foreign folders:** a `--config-dir` target other than `~/.claude` that is a non-empty folder with no Claude Code files
   (none of `.stack-manifest.json`, `settings.json`, `settings.local.json`, `.claude.json`,
   `.credentials.json`, `CLAUDE.md`, `stack.env`, `agents/`, `skills/`, `rules/`, `hooks/`, `commands/`,
   `output-styles/`, `projects/`, `plugins/`, `statsig/`, `todos/`, `shell-snapshots/`; a lone
   `.DS_Store` counts as empty) is installed into only after a `y` on the terminal. Without a terminal,
-  or with `--yes` or `--no-prompt`, the run stops; `--dry-run` warns and goes on.
+  or with `--yes` or `--no-prompt`, the run stops; `--dry-run` warns and goes on. A foreign folder
+  named by `CLAUDE_CONFIG_DIR` only gets a warning (and a reason in the question), so existing
+  scripted runs keep working. Paths are compared by inode as well as by name, so `~/.SSH` counts as
+  `~/.ssh` on the default case-insensitive APFS.
 - **After a non-default install:** Claude Code reads the folder only when `CLAUDE_CONFIG_DIR` is
   exported, so the installer prints the `export` line and the file to put it in (zsh: `~/.zshrc`;
   bash: `~/.bash_profile`). Apps opened from the Dock or Finder do not read shell startup files.

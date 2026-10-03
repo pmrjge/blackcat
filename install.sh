@@ -41,11 +41,12 @@
 #                                 anything inside this repo checkout, ~/.ssh ~/.gnupg ~/.aws ~/.kube
 #                                 ~/.docker ~/Library/Keychains and system folders, a file, a folder
 #                                 you can't write or create, the stack's state and backup folders, a
-#                                 path with a control character or one of " ` $ \. A non-default
+#                                 path with a control character or one of " ` $ \. A --config-dir
 #                                 target that is a non-empty folder with no Claude Code files (none of
 #                                 .stack-manifest.json settings.json .claude.json CLAUDE.md stack.env
 #                                 agents/ skills/ rules/ hooks/ projects/ plugins/ ...) needs a yes on
-#                                 the terminal; without one the run stops.
+#                                 the terminal; without one the run stops (under CLAUDE_CONFIG_DIR it
+#                                 is only a warning).
 #                                 Every run prints the target, how it was chosen and the .claude.json
 #                                 it implies. On a terminal (stdin and stdout), a non-default or
 #                                 ambiguous target (--config-dir other than ~/.claude, CLAUDE_CONFIG_DIR
@@ -100,7 +101,9 @@ while [ "$i" -lt "${#argv[@]}" ]; do
     --yes|-y) ASSUME_YES=1 ;;
     --no-prompt) NO_PROMPT=1 ;;
     --config-dir)
-      [ $((i + 1)) -lt "${#argv[@]}" ] || { echo "--config-dir needs a path (--config-dir PATH or --config-dir=PATH)"; exit 2; }
+      case "${argv[$((i + 1))]:-}" in
+        ""|-*) echo "--config-dir needs a path (--config-dir PATH or --config-dir=PATH; ./-name for a folder starting with -)"; exit 2 ;;
+      esac
       CONFIG_DIR_SET=1; CONFIG_DIR_ARG="${argv[$((i + 1))]}"; i=$((i + 1)) ;;
     --config-dir=*) CONFIG_DIR_SET=1; CONFIG_DIR_ARG="${a#--config-dir=}" ;;
     --restore)
@@ -243,7 +246,7 @@ resolve_target(){
   CD_PATH=""; CD_EXPORT=""; CD_DECISION=""; CD_BANNER=""; CD_WARN=""; CD_ASK=""
   while IFS=$'\t' read -r k v; do
     case "$k" in
-      path) CD_PATH="$v" ;; export) CD_EXPORT="$v" ;; decision) CD_DECISION="$v" ;;
+      path) [ -n "$CD_PATH" ] || CD_PATH="$v" ;; export) CD_EXPORT="$v" ;; decision) CD_DECISION="$v" ;;
       banner) CD_BANNER="$CD_BANNER$v"$'\n' ;; warn) CD_WARN="$CD_WARN  $v"$'\n' ;; ask) CD_ASK="$CD_ASK$v"$'\n' ;;
     esac
   done <<EOF
@@ -252,24 +255,35 @@ EOF
   [ -n "$CD_PATH" ] || { echo "install.sh: could not resolve the install target"; exit 2; }
 }
 resolve_target
-
-main_branch_rule ${1+"$@"}
-
-SRC="$HERE/dot-claude"
 # The banner: always, on stdout (stderr under --print-managed-settings, whose stdout is the JSON).
-printf '\n%s' "$CD_BANNER"
-[ -n "$CD_WARN" ] && printf '%s' "$CD_WARN"
+show_banner(){ printf '\n%s' "$CD_BANNER"; [ -z "$CD_WARN" ] || printf '%s' "$CD_WARN"; CD_SHOWN=1; }
+CD_SHOWN=0
+# Refuse or ask before the main-branch rule can fast-forward main or switch this checkout. The re-run
+# from the main checkout inherits the yes (same target, and only together with STACK_MAIN_REEXEC).
+if [ "${STACK_MAIN_REEXEC:-}" = 1 ] && [ "${STACK_TARGET_CONFIRMED:-}" = "$CD_PATH" ]; then
+  CD_DECISION=proceed
+fi
+unset STACK_TARGET_CONFIRMED
 case "$CD_DECISION" in
   refuse)
+    show_banner
     echo "install.sh: $CD_PATH is a non-empty folder with no Claude Code files, and there is no terminal to confirm it (or --yes/--no-prompt was given). Empty it, pick another folder, or run on a terminal and answer y. Nothing was changed." >&2
     exit 2 ;;
   ask)
+    show_banner
     printf '\n%s' "$CD_ASK"
     if ! python3 "$STATE_PY" ask "Install into $CD_PATH? [y/N] "; then
       echo "install.sh: stopped before changing anything (answer was not y). Nothing was changed." >&2
       exit 1
-    fi ;;
+    fi
+    export STACK_TARGET_CONFIRMED="$CD_PATH" ;;
 esac
+
+main_branch_rule ${1+"$@"}
+unset STACK_TARGET_CONFIRMED
+
+SRC="$HERE/dot-claude"
+[ "$CD_SHOWN" = 1 ] || show_banner
 # the claude commands this run starts (mcp, plugin) act on the target, as Claude Code will
 case "$CD_EXPORT" in
   set) export CLAUDE_CONFIG_DIR="$CD_PATH" ;;

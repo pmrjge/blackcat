@@ -2215,6 +2215,26 @@ tg_run "$TG/r3.log" "$INSTALL" --config-dir "$TG/foreign" --yes --no-mcp --no-pl
   && pass "refused with exit 2: /, HOME, ~/.ssh, the repo, a symlink into it, a file, a read-only dir, '..' through a symlink, newline and \$; a foreign non-empty dir without a terminal (also with --yes)" \
   || failed "refusals:$bad foreign rc=$rcf/$rcy $(tail -n 2 "$TG/r2.log")"
 chmod 700 "$TG/ro"
+# the refusal comes before the main-branch rule: from a side branch, main is not fast-forwarded and
+# the checkout stays on its branch
+cp -R "$HERE" "$TG/br clone" && tgit -C "$TG/br clone" switch -q -c side \
+  && tgit -C "$TG/br clone" commit -q --allow-empty -m side
+m0="$(tgit -C "$TG/br clone" rev-parse main)"
+tg_run "$TG/b.log" "$TG/br clone/install.sh" --config-dir "$TG/foreign" --no-mcp --no-plugins --no-deps --no-profile; rcb=$?
+[ "$rcb" = 2 ] && [ "$(tgit -C "$TG/br clone" rev-parse main)" = "$m0" ] \
+  && [ "$(tgit -C "$TG/br clone" symbolic-ref --short HEAD)" = side ] \
+  && pass "a refused target stops before the main-branch rule (main not moved, branch not switched)" \
+  || failed "main-branch rule ran before the target refusal (rc=$rcb): $(tail -n 2 "$TG/b.log")"
+# --config-dir followed by another option is a missing value, not a folder named --yes
+tg_run "$TG/m.log" "$INSTALL" --config-dir --yes --dry-run; rcm=$?
+[ "$rcm" = 2 ] && grep -q -- '--config-dir needs a path' "$TG/m.log" && [ ! -e "./--yes" ] \
+  && pass "--config-dir with an option after it: exit 2, 'needs a path'" \
+  || failed "--config-dir --yes (rc=$rcm): $(head -n 2 "$TG/m.log")"
+# a foreign folder named by CLAUDE_CONFIG_DIR (a CI run's log in it, say) is a warning, not a refusal
+tg_run "$TG/e.log" env CLAUDE_CONFIG_DIR="$TG/foreign" "$INSTALL" --dry-run --no-mcp --no-plugins --no-deps --no-profile; rce=$?
+[ "$rce" = 0 ] && grep -q 'CLAUDE_CONFIG_DIR names a non-empty folder with no Claude Code files' "$TG/e.log" \
+  && pass "CLAUDE_CONFIG_DIR naming a foreign folder: warned, not refused (today's non-interactive runs keep working)" \
+  || failed "CLAUDE_CONFIG_DIR foreign folder (rc=$rce): $(tail -n 2 "$TG/e.log")"
 # the question: the answer parser with an injected answer, then a real pty when the sandbox allows one
 printf 'y\n' | python3 "$HERE/lib/install_state.py" ask 'Q? [y/N] ' >/dev/null; a1=$?
 printf '\n' | python3 "$HERE/lib/install_state.py" ask 'Q? [y/N] ' >/dev/null; a2=$?

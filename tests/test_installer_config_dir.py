@@ -185,6 +185,47 @@ def test_foreign_nonempty_dir(home, tmp_path):
     assert r["decision"] == "warn" and any("non-empty folder" in w for w in r["warn"])
 
 
+def test_foreign_dir_under_env_warns_but_proceeds(home, tmp_path):
+    d = tmp_path / "ci target"
+    d.mkdir()
+    (d / ".install.log").write_text("x")           # what a CI run may write there first
+    r = resolve(home, env=str(d))
+    assert r["kind"] == "foreign" and r["decision"] == "proceed"
+    assert any("beside what is there" in w for w in r["warn"])
+    r = resolve(home, env=str(d), interactive=True)
+    assert r["decision"] == "ask" and any("no Claude Code files" in x for x in r["reasons"])
+
+
+CASE_INSENSITIVE = os.path.exists(ROOT.swapcase())
+
+
+@pytest.mark.skipif(not CASE_INSENSITIVE, reason="case-sensitive volume")
+@pytest.mark.parametrize("which", ["home", "ssh", "keychains", "repo"])
+def test_case_variants_refused(home, which):
+    os.makedirs(os.path.join(home, "Library", "Keychains"), exist_ok=True)
+    t = {"home": home.swapcase(), "ssh": "~/.SSH", "keychains": "~/library/keychains/x",
+         "repo": os.path.join(ROOT, "dot-claude").swapcase()}[which]
+    with pytest.raises(st.ConfigDirError):
+        resolve(home, flag=t, yes=True)
+
+
+@pytest.mark.skipif(not CASE_INSENSITIVE, reason="case-sensitive volume")
+def test_case_variant_of_default_is_default(home):
+    r = resolve(home, flag="~/.CLAUDE")
+    assert r["is_default"] and r["export"] == "unset"
+    assert r["claude_json"] == os.path.join(home, ".claude.json")
+
+
+def test_cli_output_cannot_be_forged_by_the_environment(home, tmp_path):
+    env = dict(os.environ, HOME=home, CLAUDE_CONFIG_DIR="x\npath\t/", STACK_CLAUDE_JSON="j\npath\t/")
+    p = subprocess.run([sys.executable, os.path.join(ROOT, "lib", "install_state.py"), "config-dir",
+                        "1", str(tmp_path / "t"), "0", "0", "1", "0", ROOT], env=env,
+                       capture_output=True, text=True)
+    assert p.returncode == 0, p.stderr
+    paths = [line for line in p.stdout.splitlines() if line.startswith("path\t")]
+    assert paths == ["path\t" + str(tmp_path / "t")]
+
+
 @pytest.mark.parametrize("marker", ["settings.json", ".claude.json", ".stack-manifest.json", "projects"])
 def test_claude_markers_make_it_not_foreign(home, tmp_path, marker):
     d = tmp_path / "cfg"
