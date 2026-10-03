@@ -38,7 +38,8 @@ STACK_MODELS = {"opus", "sonnet"}
 # places below: stack.env.example (the single source), the installer's migration list of old IDs
 # (the OLD_DEFAULTS line), the record of the models the token limits were measured on (doctor.sh's
 # MEASURED_MODELS line), and legacy/ (byte-exact templates of released versions the installer
-# recognizes on upgrade). Untracked files (.claude-work/ benchmarks) are not scanned.
+# recognizes on upgrade). Untracked files and anything under .claude-work/ (agents' scratch, some of
+# it force-committed) are not scanned.
 # new style (claude-<family>-<n>...) and old style (claude-<n>[-<n>]-<family>-<date or latest>)
 MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(?:opus|sonnet|haiku))")
 # the second: this regex's test vectors; the effort table records which model IDs take which
@@ -76,6 +77,28 @@ BARE_PY_ALLOW = [
 ]
 
 errors = []
+# Agents' scratch and hand-off notes (rules: Files & safety); never linted, tracked or not, at any depth.
+WORK_DIR = ".claude-work"
+
+
+def under_work_dir(path, root=None):
+    """True when `path` has a .claude-work component below `root`. Only the part below root counts:
+    a checkout that itself sits inside some .claude-work/ still lints its own files. `path` may be
+    relative to root (git ls-files), built on a relative root, or absolute under root as given,
+    absolute or resolved (a symlinked checkout). Lexical: a shipped file that is a symlink stays linted."""
+    p, r = Path(path), Path(REPO_ROOT if root is None else root)
+    if not p.is_absolute():
+        try:
+            p = p.relative_to(r)
+        except ValueError:
+            pass
+        return WORK_DIR in p.parts
+    for base in (r.absolute(), r.resolve()):
+        try:
+            return WORK_DIR in p.relative_to(base).parts
+        except ValueError:
+            continue
+    return False
 
 
 def fail(msg):
@@ -516,6 +539,8 @@ def check_bare_python():
     root = REPO_ROOT / "dot-claude"
     paths = sorted(AGENTS_DIR.glob("*.md")) + sorted(SKILLS_DIR.rglob("*.md"))
     for p in paths:
+        if under_work_dir(p):
+            continue
         rel = p.relative_to(root).as_posix()
         for n, line in enumerate(p.read_text().splitlines(), 1):
             if not BARE_PY_RE.search(line):
@@ -551,10 +576,10 @@ def check_model_ids(root=REPO_ROOT):
                                check=True).stdout.decode().split("\0")
     except (OSError, subprocess.CalledProcessError):     # an export without .git: walk the tree
         files = [str(p.relative_to(root)) for p in root.rglob("*")
-                 if p.is_file() and not {".git", ".claude-work"} & set(p.relative_to(root).parts)]
+                 if p.is_file() and ".git" not in p.relative_to(root).parts]
     found = []
     for rel in filter(None, files):
-        if rel in MODEL_ID_FILES or rel.startswith(MODEL_ID_DIRS):
+        if under_work_dir(rel, root) or rel in MODEL_ID_FILES or rel.startswith(MODEL_ID_DIRS):
             continue
         try:
             text = (root / rel).read_text(encoding="utf-8")
@@ -581,6 +606,8 @@ def check_stale_skill_refs():
     paths = (sorted(AGENTS_DIR.glob("*.md")) + sorted(SKILLS_DIR.rglob("*.md"))
              + sorted((root / "rules").glob("*.md")))
     for p in paths:
+        if under_work_dir(p):
+            continue
         for n, line in enumerate(p.read_text().splitlines(), 1):
             for old in stale_skill_refs(line):
                 if old in shipped:

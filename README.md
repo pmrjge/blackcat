@@ -327,7 +327,7 @@ The stack's user commands (the model can't run them: `disable-model-invocation`)
 ```bash
 bash ~/.claude/bin/doctor.sh                                   # installed health check (= /stack-doctor)
 /usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test   # the hook on the hooks' own interpreter
-uv run tests/lint_agents.py                                    # frontmatter, POLICY ↔ "May spawn", skills, listing budget
+uv run tests/lint_agents.py                                    # frontmatter, POLICY ↔ "May spawn", skills, listing budget, model IDs (skips .claude-work/)
 ~/.claude/venvs/tools/bin/python -m pytest -q tests/                # full suite (the tools venv from install.sh)
 bash tests/install_smoke.sh                                    # hermetic installer runs; run it outside any sandbox
 uv run --script tests/prompt_budget.py --check                 # prompt-budget gates
