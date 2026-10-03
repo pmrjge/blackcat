@@ -1,12 +1,13 @@
-"""/agent-override and /agent-reset (agent_guard.py `agent-override` mode on UserPromptExpansion;
+"""/override-agent and /reset-agent (agent_guard.py `override-agent` mode on UserPromptExpansion;
 the model rewrite in on_agent). Only a user-typed slash command (UserPromptExpansion, main thread,
 the stack's user skill) sets or clears an override; nothing an agent writes can.
 
-Run: uv run --python 3.13 --with pytest pytest -q tests/test_agent_override.py
+Run: uv run --python 3.13 --with pytest pytest -q tests/test_override_agent.py
 """
 import importlib.util
 import json
 import os
+import re
 import stat
 import subprocess
 import sys
@@ -18,7 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
 SKILLS = ROOT / "dot-claude" / "skills"
-PREFIXES = ("STACK_", "BLACKCAT_", "GOD_", "SCREEN_", "STRIP_", "CLAUDE_CODE_")
+PREFIXES = ("STACK_", "BLACKCAT_", "GOD_", "SCREEN_", "STRIP_", "CLAUDE_CODE_", "ANTHROPIC_DEFAULT_")
 
 _spec = importlib.util.spec_from_file_location("agent_guard_override", GUARD)
 G = importlib.util.module_from_spec(_spec)
@@ -47,7 +48,7 @@ def state(env, s):
     return Path(env["XDG_STATE_HOME"]) / "claude-agent-stack" / s
 
 
-def expansion(s, args, name="agent-override", **kw):
+def expansion(s, args, name="override-agent", **kw):
     ev = {"session_id": s, "hook_event_name": "UserPromptExpansion", "prompt_id": "p1",
           "expansion_type": "slash_command", "command_name": name, "command_args": args,
           "command_source": "userSettings", "prompt": "/%s %s" % (name, args)}
@@ -55,8 +56,8 @@ def expansion(s, args, name="agent-override", **kw):
     return ev
 
 
-def command(s, args, env, name="agent-override", **kw):
-    out = run(expansion(s, args, name, **kw), env, "agent-override")
+def command(s, args, env, name="override-agent", knobs=None, **kw):
+    out = run(expansion(s, args, name, **kw), env, "override-agent", **(knobs or {}))
     assert out["decision"] == "block"
     assert out["hookSpecificOutput"] == {"hookEventName": "UserPromptExpansion",
                                          "suppressOriginalPrompt": True}
@@ -81,38 +82,36 @@ def spawned_model(s, child, env, **kw):
 
 # ------------------------------------------------------------------ parser
 @pytest.mark.parametrize("name,args,want", [
-    ("agent-override", "orchestrator fable", ("set", "orchestrator", "fable", None)),
-    ("agent-override", "orchestrator fable high", ("set", "orchestrator", "fable", "high")),
-    ("agent-override", "  Orchestrator   FABLE  xhigh ", ("set", "orchestrator", "fable", "xhigh")),
-    ("agent-override", "code-reviewer - max", ("set", "code-reviewer", None, "max")),
-    ("agent-override", "scout haiku -", ("set", "scout", "haiku", None)),
-    ("agent-override", "list", ("list",)),
-    ("agent-reset", "orchestrator", ("reset", "orchestrator")),
-    ("agent-reset", "all", ("reset", "all")),
+    ("override-agent", "orchestrator fable", ("set", "orchestrator", "fable")),
+    ("override-agent", "  Orchestrator   FABLE ", ("set", "orchestrator", "fable")),
+    ("override-agent", "scout haiku", ("set", "scout", "haiku")),
+    ("override-agent", "list", ("list",)),
+    ("reset-agent", "orchestrator", ("reset", "orchestrator")),
+    ("reset-agent", "all", ("reset", "all")),
 ])
 def test_parser_accepts(name, args, want):
     assert G.parse_override_command(name, args) == want
 
 
 @pytest.mark.parametrize("name,args,why", [
-    ("agent-override", "", "usage"),
-    ("agent-override", "orchestrator", "usage"),
-    ("agent-override", "orchestrator opus fable high", "usage"),
-    ("agent-override", "nosuch opus", "unknown agent"),
-    ("agent-override", "general-purpose opus", "unknown agent"),
-    ("agent-override", "orchestrator-copy opus", "unknown agent"),
-    ("agent-override", "blackcat sonnet", "main thread"),
-    ("agent-override", "orchestrator gpt5", "unknown model"),
-    ("agent-override", "orchestrator claude-opus-5-5", "unknown model"),
-    ("agent-override", "orchestrator inherit", "unknown model"),
-    ("agent-override", "orchestrator opus extreme", "unknown effort"),
-    ("agent-override", "orchestrator opus 3", "unknown effort"),
-    ("agent-override", "orchestrator - -", "nothing to change"),
-    ("agent-override", "orchestrator -", "nothing to change"),
-    ("agent-reset", "", "usage"),
-    ("agent-reset", "orchestrator scout", "usage"),
-    ("agent-reset", "nosuch", "unknown agent"),
-    ("agent-other", "orchestrator opus", "unknown command"),
+    ("override-agent", "", "usage"),
+    ("override-agent", "orchestrator", "usage"),
+    ("override-agent", "orchestrator fable high", "two arguments, no effort"),
+    ("override-agent", "orchestrator opus fable", "two arguments, no effort"),
+    ("override-agent", "orchestrator - high", "two arguments, no effort"),
+    ("override-agent", "orchestrator -", "unknown model"),
+    ("override-agent", "nosuch opus", "unknown agent"),
+    ("override-agent", "general-purpose opus", "unknown agent"),
+    ("override-agent", "orchestrator-copy opus", "unknown agent"),
+    ("override-agent", "blackcat sonnet", "main thread"),
+    ("override-agent", "orchestrator gpt5", "unknown model"),
+    ("override-agent", "orchestrator claude-opus-5-5", "unknown model"),
+    ("override-agent", "orchestrator inherit", "unknown model"),
+    ("reset-agent", "", "usage"),
+    ("reset-agent", "orchestrator scout", "usage"),
+    ("reset-agent", "nosuch", "unknown agent"),
+    ("agent-override", "orchestrator opus", "unknown command"),     # the old names are gone
+    ("agent-reset", "orchestrator", "unknown command"),
 ])
 def test_parser_rejects(name, args, why):
     with pytest.raises(G.OverrideError) as exc:
@@ -129,7 +128,7 @@ def test_parser_rejects(name, args, why):
 ])
 def test_parser_rejects_injection(args):
     with pytest.raises(G.OverrideError):
-        G.parse_override_command("agent-override", args)
+        G.parse_override_command("override-agent", args)
 
 
 def test_valid_sets_match_claude_code():
@@ -145,73 +144,166 @@ def test_overridable_agents_are_the_stack_agents_with_files():
     assert "orchestrator" in got and "main-coder" in got
 
 
+# ------------------------------------------------------------------ the effort table
+TABLE = json.loads((ROOT / "dot-claude" / "hooks" / "agent_effort.json").read_text())
+ENV_IDS = dict(re.findall(r"(?m)^ANTHROPIC_DEFAULT_([A-Z]+)_MODEL=(\S+)",
+                          (ROOT / "stack.env.example").read_text()))
+
+
+def test_table_covers_every_agent_and_model_with_supported_levels():
+    agents = TABLE["agents"]
+    assert set(agents) == set(G.override_agents())
+    ids = dict(fable=TABLE["models"]["alias_defaults"]["fable"], **{k.lower(): v for k, v in ENV_IDS.items()})
+    for a, row in agents.items():
+        assert set(row) == set(G.OVERRIDE_MODELS), a
+        for m, level in row.items():
+            assert level in G.OVERRIDE_EFFORTS, (a, m)
+            # the stack's own model IDs take every level, so the shipped values stand unclamped
+            assert level in G.model_effort_levels(ids[m], TABLE), (a, m, ids[m])
+    assert "initial" in TABLE["_about"].lower() and TABLE["version"] == 1
+
+
+def test_table_follows_rule_v1():
+    order = G.OVERRIDE_EFFORTS
+    tier = {"haiku": 1, "sonnet": 2, "opus": 3, "fable": 4}
+    for a, row in TABLE["agents"].items():
+        dm, de = G.agent_defaults(a)
+        i = order.index(de)
+        want = {m: order[i] for m in row}
+        want["haiku"] = order[max(0, i - 1)]
+        for m in ("sonnet", "opus", "fable"):
+            if tier[m] < tier[dm] and de != "max":
+                want[m] = order[min(order.index("xhigh"), i + 1)]
+        assert row == want, a
+    # the classes the user named: planners/heads higher, lookups lower
+    assert TABLE["agents"]["ninja-coder"]["opus"] in ("xhigh", "max")
+    assert TABLE["agents"]["scout"]["opus"] == "low" and TABLE["agents"]["oracle"]["opus"] == "low"
+
+
+@pytest.mark.parametrize("mid,levels", [
+    ("claude-opus-5-5", ["low", "medium", "high", "xhigh", "max"]),
+    ("claude-fable-5-1", ["low", "medium", "high", "xhigh", "max"]),
+    ("claude-opus-4-6", ["low", "medium", "high", "max"]),
+    ("claude-sonnet-4-6", ["low", "medium", "high", "max"]),
+    ("claude-opus-4-5-20251101", ["low", "medium", "high"]),
+    ("claude-haiku-4-5-20251001", []),
+    ("claude-3-7-sonnet-latest", []),
+])
+def test_model_levels(mid, levels):
+    assert G.model_effort_levels(mid, TABLE) == levels
+
+
+@pytest.mark.parametrize("level,levels,want", [
+    ("xhigh", ["low", "medium", "high", "max"], "high"),
+    ("max", ["low", "medium", "high"], "high"),
+    ("low", ["medium", "high"], "medium"),
+    ("high", [], None),
+    ("medium", list(G.OVERRIDE_EFFORTS), "medium"),
+])
+def test_clamp(level, levels, want):
+    assert G.clamp_effort(level, levels) == want
+
+
 # ------------------------------------------------------------------ the command
-def test_set_writes_private_state_and_reports(env):
+def test_set_uses_the_table_and_writes_private_state(env):
     s = sid()
-    msg = command(s, "orchestrator fable high", env)
-    assert "this session only" in msg and "model  opus -> fable" in msg
-    assert "effort high -> high" in msg and "NOT enforced" in msg
+    msg = command(s, "orchestrator sonnet", env,
+                  knobs={"ANTHROPIC_DEFAULT_SONNET_MODEL": ENV_IDS["SONNET"]})
+    assert "this session only" in msg and "model   opus -> sonnet (%s)" % ENV_IDS["SONNET"] in msg
+    assert "effort  high -> xhigh (table; recorded, not applied" in msg
     f = state(env, s) / "agent-overrides.json"
     assert stat.S_IMODE(f.stat().st_mode) == 0o600
     obj = json.loads(f.read_text())
     assert obj["session_id"] == s
-    assert obj["overrides"]["orchestrator"]["model"] == "fable"
-    assert obj["overrides"]["orchestrator"]["effort"] == "high"
+    e = obj["overrides"]["orchestrator"]
+    assert (e["model"], e["effort"], e["effort_source"], e["model_id"]) == (
+        "sonnet", "xhigh", "table", ENV_IDS["SONNET"])
+    # unset: the alias itself, taken as a current model
+    assert "model   opus -> opus (opus)" in command(sid(), "code-reviewer opus", env)
     log = [json.loads(x) for x in (state(env, s) / "agent-overrides.log").read_text().splitlines()]
-    assert log[-1]["event"] == "set" and log[-1]["agent"] == "orchestrator"
+    assert log[-1]["event"] == "set" and log[-1]["effort"] == "xhigh"
 
 
-def test_dash_keeps_the_other_half(env):
+def test_effort_is_clamped_to_the_resolved_model(env):
     s = sid()
-    command(s, "orchestrator fable", env)
-    msg = command(s, "orchestrator - xhigh", env)
-    assert "model  fable -> fable" in msg and "effort high -> xhigh" in msg
+    msg = command(s, "orchestrator sonnet", env, knobs={"ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6"})
+    assert "effort  high -> high (table, xhigh clamped to high for claude-sonnet-4-6" in msg
+    msg = command(s, "scout haiku", env, knobs={"ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001"})
+    assert "-> none (table; claude-haiku-4-5-20251001 takes no effort" in msg
     ov = json.loads((state(env, s) / "agent-overrides.json").read_text())["overrides"]
-    assert ov["orchestrator"]["model"] == "fable" and ov["orchestrator"]["effort"] == "xhigh"
-    msg = command(s, "code-reviewer - low", env)
-    assert "model  opus (unchanged)" in msg
-    assert spawned_model(s, "code-reviewer", env)[0] is None      # effort only: no model rewrite
+    assert ov["orchestrator"]["effort"] == "high" and ov["scout"]["effort"] is None
+    assert spawned_model(s, "scout", env)[0] == "haiku"
+
+
+def test_a_stored_effort_survives_a_table_change(env, tmp_path):
+    s = sid()
+    d = state(env, s)
+    ev = expansion(s, "orchestrator fable")
+    table = dict(TABLE, agents=dict(TABLE["agents"], orchestrator=dict(TABLE["agents"]["orchestrator"], fable="max")))
+    path = tmp_path / "t.json"
+    path.write_text(json.dumps(table))
+    os.environ["XDG_STATE_HOME"] = env["XDG_STATE_HOME"]
+    try:
+        G.override_command(ev, table_path=str(path))
+        assert G.read_overrides(str(d), s)["orchestrator"]["effort"] == "max"
+        path.write_text(json.dumps(TABLE))               # a later install ships another value
+        assert G.read_overrides(str(d), s)["orchestrator"]["effort"] == "max"
+        assert "max (table" in G.override_command(expansion(s, "list"))
+    finally:
+        os.environ.pop("XDG_STATE_HOME", None)
+
+
+def test_missing_table_still_sets_the_model(env, tmp_path):
+    os.environ["XDG_STATE_HOME"] = env["XDG_STATE_HOME"]
+    try:
+        s = sid()
+        msg = G.override_command(expansion(s, "coder opus"), table_path=str(tmp_path / "none.json"))
+        assert "table missing (rerun install.sh)" in msg
+        assert G.read_overrides(G.sdir(s), s)["coder"]["model"] == "opus"
+    finally:
+        os.environ.pop("XDG_STATE_HOME", None)
 
 
 def test_invalid_command_changes_nothing(env):
     s = sid()
     msg = command(s, "orchestrator opus; rm -rf ~", env)
-    assert msg.startswith("agent-override: arguments may hold only")
+    assert msg.startswith("override-agent: arguments may hold only")
+    assert "two arguments, no effort" in command(s, "orchestrator opus high", env)
     assert not (state(env, s) / "agent-overrides.json").exists()
     assert "unknown agent" in command(s, "nosuch opus", env)
     assert "unknown model" in command(s, "orchestrator gpt", env)
 
 
-def test_list_is_read_only(env):
+def test_list_is_read_only_and_shows_the_source(env):
     s = sid()
     msg = command(s, "list", env)
     assert "no overrides" in msg and "orchestrator opus/high" in msg
     assert not (state(env, s) / "agent-overrides.json").exists()
-    command(s, "orchestrator fable xhigh", env)
+    command(s, "orchestrator fable", env)
     f = state(env, s) / "agent-overrides.json"
     before = (f.read_bytes(), f.stat().st_mtime_ns)
     msg = command(s, "list", env)
-    assert "orchestrator" in msg and "opus -> fable" in msg and "xhigh (recorded, not enforced)" in msg
+    assert "orchestrator         fable (default opus), effort high (table; recorded, not applied" in msg
     assert (f.read_bytes(), f.stat().st_mtime_ns) == before
 
 
 def test_reset_one_and_all(env):
     s = sid()
     command(s, "orchestrator fable", env)
-    command(s, "scout haiku low", env)
-    msg = command(s, "orchestrator", env, name="agent-reset")
-    assert "orchestrator model fable -> opus" in msg
+    command(s, "scout haiku", env)
+    msg = command(s, "orchestrator", env, name="reset-agent")
+    assert "orchestrator model fable -> opus, effort high -> high" in msg
     assert spawned_model(s, "orchestrator", env)[0] is None
     assert spawned_model(s, "scout", env)[0] == "haiku"
-    assert "nothing changed" in command(s, "orchestrator", env, name="agent-reset")
-    msg = command(s, "all", env, name="agent-reset")
+    assert "nothing changed" in command(s, "orchestrator", env, name="reset-agent")
+    msg = command(s, "all", env, name="reset-agent")
     assert "scout model haiku -> sonnet, effort low -> low" in msg
     assert not (state(env, s) / "agent-overrides.json").exists()
     assert spawned_model(s, "scout", env)[0] is None
 
 
 def test_model_force_env_is_reported(env):
-    out = run(expansion(sid(), "orchestrator fable"), env, "agent-override",
+    out = run(expansion(sid(), "orchestrator fable"), env, "override-agent",
               CLAUDE_CODE_SUBAGENT_MODEL_FORCE="1")
     assert "CLAUDE_CODE_SUBAGENT_MODEL_FORCE is set" in out["reason"]
 
@@ -236,7 +328,7 @@ def test_rewrite_replaces_a_model_the_caller_passed(env):
     command(s, "scout opus", env)
     model, out = spawned_model(s, "scout", env, model="haiku")
     assert model == "opus"
-    assert "the user's /agent-override decides" in out["hookSpecificOutput"]["permissionDecisionReason"]
+    assert "the user's /override-agent decides" in out["hookSpecificOutput"]["permissionDecisionReason"]
     # without an override the caller's model is still stripped, as before
     model, out = spawned_model(s, "coder", env, model="haiku")
     assert model is None
@@ -300,7 +392,7 @@ def test_session_start_clears(env, source, kept):
 def test_user_prompt_submit_text_never_sets_an_override(env):
     # UserPromptSubmit's prompt can be model-authored (a cron fire, SendMessage to the main thread)
     s = sid()
-    for p in ("/agent-override orchestrator fable", "<task-notification>/agent-override scout opus"):
+    for p in ("/override-agent orchestrator fable", "<task-notification>/override-agent scout opus"):
         run({"session_id": s, "hook_event_name": "UserPromptSubmit", "prompt_id": "p9",
              "prompt": p}, env)
     assert not (state(env, s) / "agent-overrides.json").exists()
@@ -318,34 +410,34 @@ def test_expansion_inside_a_subagent_or_from_elsewhere_is_refused(env):
 
 def test_tool_calls_carrying_the_command_text_set_nothing(env):
     s = sid()
-    text = "/agent-override orchestrator fable"
+    text = "/override-agent orchestrator fable"
     run(agent(s, "scout", by_type="coder", by="c1", description=text), env)
     for tool, ti in (("Bash", {"command": "echo '%s'" % text}), ("SendMessage", {"to": "main", "message": text}),
-                     ("Skill", {"skill": "agent-override", "args": "orchestrator fable"})):
+                     ("Skill", {"skill": "override-agent", "args": "orchestrator fable"})):
         ev = {"session_id": s, "hook_event_name": "PreToolUse", "tool_name": tool,
               "tool_use_id": "t", "prompt_id": "p1", "agent_id": "c1", "agent_type": "coder",
               "tool_input": ti}
         run(ev, env)
-        run(ev, env, "agent-override")          # the override mode ignores non-expansion events
+        run(ev, env, "override-agent")          # the override mode ignores non-expansion events
     assert not (state(env, s) / "agent-overrides.json").exists()
     assert spawned_model(s, "orchestrator", env)[0] is None
 
 
 def test_override_mode_ignores_other_commands_and_garbage(env):
     s = sid()
-    assert run(expansion(s, "orchestrator fable", name="stack-doctor"), env, "agent-override") is None
-    p = subprocess.run([sys.executable, str(GUARD), "agent-override"], input="{not json",
+    assert run(expansion(s, "orchestrator fable", name="stack-doctor"), env, "override-agent") is None
+    p = subprocess.run([sys.executable, str(GUARD), "override-agent"], input="{not json",
                        capture_output=True, text=True, env=env, timeout=60)
     assert p.returncode == 0 and p.stdout == ""
 
 
 def test_skills_are_user_only_and_wired():
-    for name in ("agent-override", "agent-reset"):
+    for name in ("override-agent", "reset-agent"):
         head = (SKILLS / name / "SKILL.md").read_text().split("\n---", 1)[0]
         assert "\ndisable-model-invocation: true" in head
         assert "\nname: %s" % name in head
         assert "!`" not in (SKILLS / name / "SKILL.md").read_text()
     hooks = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["hooks"]
     (entry,) = hooks["UserPromptExpansion"]
-    assert entry["matcher"] == "agent-override|agent-reset"
-    assert entry["hooks"][0]["command"].endswith('agent_guard.py" agent-override')
+    assert entry["matcher"] == "override-agent|reset-agent"
+    assert entry["hooks"][0]["command"].endswith('agent_guard.py" override-agent')

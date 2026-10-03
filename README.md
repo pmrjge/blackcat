@@ -132,7 +132,7 @@ parser):
 
 - **Listed, not preloaded.** 128 skills (hubs, standalone skills, 15 modules) are listed with an
   explanatory description that starts with its trigger ("Load before …", "Use when …") and names no
-  agent; 83 hub modules are `user-invocable-only` (below); `stack-doctor`, `agent-override` and `agent-reset` are user commands. No
+  agent; 83 hub modules are `user-invocable-only` (below); `stack-doctor`, `override-agent` and `reset-agent` are user commands. No
   `skills:` frontmatter preloads anything; a body enters context only when it is loaded.
 - **Pointers.** Agent bodies carry a `## Skills` section of one-line "load X when Y" pointers
   (rust-engineer: "Load `rust-engineering` first; async `rust-async`, …"). Every module is reachable
@@ -318,9 +318,9 @@ The stack's user commands (the model can't run them: `disable-model-invocation`)
 | Command | Does |
 |---|---|
 | `/stack-doctor` | Read-only health check (`bin/doctor.sh`) |
-| `/agent-override <agent> <model\|-> [<effort\|->]` | This session only: every delegated `<agent>` runs on `<model>` (`sonnet`, `opus`, `haiku`, `fable`); `-` leaves a part unchanged. Effort (`low` … `max`) is recorded but not enforced (CONFIG.md §5, "Session model overrides") |
-| `/agent-override list` | Read-only: this session's overrides and every agent's default model/effort |
-| `/agent-reset <agent\|all>` | Back to the agent definition's model and effort |
+| `/override-agent <agent> <model>` | This session only: every delegated `<agent>` runs on `<model>` (`sonnet`, `opus`, `haiku`, `fable`). The effort comes from the built-in table `hooks/agent_effort.json` (per agent and model, clamped to what the model accepts); it is shown but not applied (CONFIG.md §5, "Session model overrides") |
+| `/override-agent list` | Read-only: this session's overrides (agent, model, effort and its source) and every agent's default model/effort |
+| `/reset-agent <agent\|all>` | Back to the agent definition's model and effort |
 
 ### Verify
 

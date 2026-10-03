@@ -823,6 +823,8 @@ mkdir -p "$S"/{agents,skills,hooks,mcp,magg,bin,rules}
 # it would write through the link, out of the staging dir; the backup keeps the link).
 stage_script(){ rm -rf "$S/$2" && cp "$SRC/$2" "$S/$2" && chmod "$1" "$S/$2"; }
 stage_script 755 hooks/agent_guard.py
+# /override-agent's built-in effort per (agent, model): read by agent_guard.py, beside it
+stage_script 644 hooks/agent_effort.json
 # per-call caps for exa/jina/spider and Spider's anti-bot defaults (PreToolUse ^mcp__(exa|jina|spider)__)
 stage_script 755 hooks/web_caps.py
 # the token gate on reads of build output, dependencies, data, media and binaries (PreToolUse Read|Grep|Glob|Bash)
@@ -1701,7 +1703,7 @@ for rel in skills_kept:
 
 # --- scripts the stack copies into hooks/, bin/ and mcp/ (step 6 put them in DEST): tracked in the
 # manifest, so a later version that stops shipping one removes it. Files of your own there stay. ---
-STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
+STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",

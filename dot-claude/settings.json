@@ -463,11 +463,11 @@
     ],
     "UserPromptExpansion": [
       {
-        "matcher": "agent-override|agent-reset",
+        "matcher": "override-agent|reset-agent",
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" agent-override",
+            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" override-agent",
             "timeout": 15
           }
         ]

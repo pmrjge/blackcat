@@ -41,7 +41,10 @@ STACK_MODELS = {"opus", "sonnet"}
 # recognizes on upgrade). Untracked files (.claude-work/ benchmarks) are not scanned.
 # new style (claude-<family>-<n>...) and old style (claude-<n>[-<n>]-<family>-<date or latest>)
 MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(?:opus|sonnet|haiku))")
-MODEL_ID_FILES = {"stack.env.example", "tests/test_lint_skills.py"}   # the second: this regex's test vectors
+# the second: this regex's test vectors; the effort table records which model IDs take which
+# effort levels (Claude Code's own checks), and its test's vectors
+MODEL_ID_FILES = {"stack.env.example", "tests/test_lint_skills.py", "dot-claude/hooks/agent_effort.json",
+                  "tests/test_override_agent.py"}
 MODEL_ID_DIRS = ("legacy/",)
 MODEL_ID_LINES = {"install.sh": re.compile(r"^OLD_DEFAULTS = "),
                   "dot-claude/bin/doctor.sh": re.compile(r'^MEASURED_MODELS="')}

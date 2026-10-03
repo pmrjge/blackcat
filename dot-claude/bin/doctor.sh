@@ -419,35 +419,37 @@ PY
 else
   warn "hooks/stack_limits.py missing (learned limits: the guard uses its built-in values) — rerun install.sh"
 fi
-# /agent-override, /agent-reset: the two user skills and the UserPromptExpansion hook, probed with a
+# /override-agent, /reset-agent: the two user skills and the UserPromptExpansion hook, probed with a
 # read-only `list` in a temp state dir (the hook command run as settings.json has it)
 python3 - "$C" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
 import json, os, shutil, subprocess, sys, tempfile
 c = sys.argv[1]
-miss = [n for n in ("agent-override", "agent-reset") if not os.path.isfile(os.path.join(c, "skills", n, "SKILL.md"))]
+miss = [n for n in ("override-agent", "reset-agent") if not os.path.isfile(os.path.join(c, "skills", n, "SKILL.md"))]
+if not os.path.isfile(os.path.join(c, "hooks", "agent_effort.json")):
+    miss.append("hooks/agent_effort.json")
 try:
     groups = json.load(open(os.path.join(c, "settings.json"))).get("hooks", {}).get("UserPromptExpansion") or []
 except (OSError, ValueError):
     groups = []
-cmds = [h.get("command") for g in groups if isinstance(g, dict) and "agent-override" in str(g.get("matcher"))
-        for h in g.get("hooks") or [] if isinstance(h, dict) and "agent-override" in str(h.get("command"))]
+cmds = [h.get("command") for g in groups if isinstance(g, dict) and "override-agent" in str(g.get("matcher"))
+        for h in g.get("hooks") or [] if isinstance(h, dict) and "override-agent" in str(h.get("command"))]
 if miss or not cmds:
-    print("/agent-override not usable (%s) — rerun install.sh" % ", ".join(
-        ["skills/%s missing" % n for n in miss] + ([] if cmds else ["no UserPromptExpansion hook"])))
+    print("/override-agent not usable (%s) — rerun install.sh" % ", ".join(
+        ["%s missing" % (n if "/" in n else "skills/" + n) for n in miss] + ([] if cmds else ["no UserPromptExpansion hook"])))
     sys.exit(0)
 tmp = tempfile.mkdtemp(prefix="stack-doctor-override-")
 ev = {"session_id": "doctor", "hook_event_name": "UserPromptExpansion", "expansion_type": "slash_command",
-      "command_name": "agent-override", "command_args": "list", "command_source": "userSettings"}
+      "command_name": "override-agent", "command_args": "list", "command_source": "userSettings"}
 try:
     p = subprocess.run(cmds[0], shell=True, input=json.dumps(ev), capture_output=True, text=True, timeout=20,
                        env=dict(os.environ, XDG_STATE_HOME=tmp))
     out = json.loads(p.stdout or "{}")
     if out.get("decision") == "block" and "defaults (model/effort)" in str(out.get("reason")):
-        print("ok /agent-override, /agent-reset: skills installed, UserPromptExpansion hook answers")
+        print("ok /override-agent, /reset-agent: skills installed, UserPromptExpansion hook answers")
     else:
-        print("/agent-override hook gave no answer (rc %d): %s" % (p.returncode, (p.stderr or p.stdout)[:200]))
+        print("/override-agent hook gave no answer (rc %d): %s" % (p.returncode, (p.stderr or p.stdout)[:200]))
 except (OSError, ValueError, subprocess.SubprocessError) as exc:
-    print("/agent-override hook probe failed: %s" % type(exc).__name__)
+    print("/override-agent hook probe failed: %s" % type(exc).__name__)
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 PY

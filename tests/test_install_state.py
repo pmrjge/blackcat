@@ -480,7 +480,7 @@ def test_install_seeds_live_json_once_and_retracts_the_budget_env(tmp_path):
     first = _read(live)
     doc = json.loads(first)
     assert doc["vars"]["hard.prompt"]["value"] == 100000000 and doc["version"] == 1
-    for f in ("stack_limits.py", "stack_limits_seed.json"):
+    for f in ("stack_limits.py", "stack_limits_seed.json", "agent_effort.json"):
         assert os.path.isfile(os.path.join(conf, "hooks", f)), f
     assert os.stat(os.path.join(conf, "hooks", "stack_limits.py")).st_mode & 0o111
     sp = os.path.join(conf, "settings.json")
