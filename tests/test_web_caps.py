@@ -1,4 +1,4 @@
-"""hooks/web_caps.py: per-call caps for exa/jina/spider and Spider's anti-bot defaults.
+"""hooks/web_caps.py: per-call caps for exa/jina/spider and Spider's politeness rules.
 
 Run: uv run --python 3.13 --with pytest pytest -q tests/test_web_caps.py
 """
@@ -30,7 +30,7 @@ def test_self_test():
 
 def test_stack_env_overrides(tmp_path):
     env = tmp_path / "stack.env"
-    env.write_text("EXA_MAX_RESULTS=5  # mine\nSPIDER_PROXY_ENABLED=1\nSPIDER_PROXY='isp'\n"
+    env.write_text("EXA_MAX_RESULTS=5  # mine\nSPIDER_ANTIBOT=1\nSPIDER_PROXY_ENABLED=1\nSPIDER_PROXY='isp'\n"
                    "EXA_API_KEY=secret\nJINA_MAX_RESULTS=oops\n")
     out = run(ev("mcp__exa__web_search_exa", {"query": "q", "numResults": 9}), env)
     assert out["hookSpecificOutput"]["updatedInput"]["numResults"] == 5
@@ -52,6 +52,17 @@ def test_refuses_recurring_spider(tmp_path):
     out = run(ev("mcp__spider__spider_crawl", {"url": "https://a.example", "webhooks": {"on_find": "x"}}),
               tmp_path / "none")
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
+
+
+def test_polite_by_default(tmp_path):
+    """No stack.env: robots.txt obeyed, crawl delayed, bypass tools and options refused."""
+    out = run(ev("mcp__spider__spider_crawl", {"url": "https://a.example", "delay": 0}), tmp_path / "none")
+    u = out["hookSpecificOutput"]["updatedInput"]
+    assert u["respect_robots"] is True and u["delay"] == 1000 and u["fingerprint"] is False
+    for tool, inp in (("spider_unblocker", {}), ("spider_browser_open", {}),
+                      ("spider_scrape", {"proxy_enabled": True}), ("spider_scrape", {"respect_robots": False})):
+        out = run(ev("mcp__spider__" + tool, dict(inp, url="https://a.example")), tmp_path / "none")
+        assert out["hookSpecificOutput"]["permissionDecision"] == "deny", tool
 
 
 def test_example_documents_every_knob():
