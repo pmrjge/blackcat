@@ -8,7 +8,8 @@ on sessions the parameters were not fitted on?
 
 Read-only over Claude Code transcripts (--root: <project>/<session>.jsonl and <session>/subagents/agent-*.jsonl,
 parsed by tests/derive_thresholds.py) and the stack's delegation ledgers (--state: <session>/delegations.md).
-Writes only --out (default .claude-work/agents-sched/wave-sim.md). Point --root and --state at copies.
+Writes only --out (default .claude-work/agents-sched/wave-sim.md). Point --root and --state at copies, and list only
+closed sessions in --sessions: a session still being written changes between runs.
 
 Run:  uv run --script tests/derive_wave_sim.py --root DIR --state DIR [--sessions ID,ID]
           [--replay-usage DIR] [--replay-ledger FILE] [--before OLD_stack_sched.py] [--out FILE]
@@ -18,20 +19,25 @@ Definitions
                 the first API call for a resume; a resume depends on the agent's previous segment.
   group         the units one dispatcher (the ledger parent: an agent id, or "main") started inside one
                 human-prompt window (exact prompt timestamps). makespan = first unit start to last unit end.
-  true waves    the dispatcher's own assistant messages: the Agent/SendMessage calls of one message form one
+  message waves the dispatcher's own assistant messages: the Agent/SendMessage calls of one message form one
                 wave (tool_use -> "agentId: ..." in its tool_result; SendMessage -> the target's next segment).
-                The clustering rule is scored against them (pairwise F1), the simulation is run on both.
+                The clustering rule is scored against them (pairwise F1), the simulation is run on both. They are
+                not barrier waves: a later message can dispatch before an earlier message's units end (negative
+                gaps between message waves), so they are no upper bound on what a rule can reach.
   fit           on the training sessions' multi-unit groups of subagent dispatchers: gap = the GRID value
-                with the best pairwise F1 against the true waves (ties: the larger gap); lat = median gap
+                with the best pairwise F1 against the message waves (ties: the larger gap); lat = median gap
                 between a rule wave's last end and the next wave's first dispatch, kept in [0, 60] s (as the
                 replay's own latency estimate); stagger = median gap between consecutive dispatches in a rule wave.
   held-out      leave one session out: each session's groups are simulated with the parameters fitted on
                 the others. The main thread is reported apart: BlackCat's children run in the background, so
                 its groups are not barrier waves and the barrier model is not expected to hold there.
-  minimax       the smallest worst-case |error| any (lat, stagger) on a grid reaches on a set of groups with
-                their true waves: if it is above 2%, no clustering rule and no choice of the two parameters
-                meets 2% in every window, because the true partition is the best a rule can recover and the
-                residual is the dispatchers' own time between waves, which is not a model input.
+                Headline: the groups with more than one message wave; a single-wave group only replaces its
+                dispatch offsets with j x stagger and never exercises the barrier.
+  CI            groups of one (session, dispatcher) share a dispatcher and a fitted parameter set: the share
+                within 2% and the median |error| are bootstrapped over those clusters (few clusters: crude).
+  minimax       the smallest worst-case |error| over a (lat, stagger) grid for a fixed partition; it bounds
+                nothing about other partitions. For the replay windows: the smallest stagger at which some lat
+                puts every window within 2%, against the per-session median in-wave gaps.
 """
 import argparse, glob, importlib.util, json, math, os, random, re, statistics as st, sys
 
@@ -102,7 +108,7 @@ def ledger_parents(path):
 
 
 def session_groups(sid, seg, ev, files, ledger):
-    """Groups of one session (see Definitions), with their true waves."""
+    """Groups of one session (see Definitions), with their message waves."""
     rows = seg[seg.session == sid].to_dict("records")
     led = ledger_parents(ledger)
     t0of = {(r["id"], int(r["seg"])): SS._ts(r["first_ts"]) for r in rows}
@@ -120,7 +126,7 @@ def session_groups(sid, seg, ev, files, ledger):
             disp = st0 + min(0.0, delta) if delta > -600 else st0
         units["%s#%d" % (aid, k)] = dict(key="%s#%d" % (aid, k), agent=aid, seg=k, dispatch=disp, start=st0, end=en,
                                          parent=parent, deps=["%s#%d" % (aid, k - 1)] if k else [])
-    # true waves: the dispatching message of each unit
+    # message waves: the dispatching message of each unit
     segs_of = {}
     for u in units.values():
         segs_of.setdefault(u["agent"], []).append(u)
@@ -146,9 +152,10 @@ def session_groups(sid, seg, ev, files, ledger):
     out = []
     for (wi, disp), us in sorted(groups.items()):
         t0 = min(u["start"] for u in us)
+        t_org = min(u["dispatch"] for u in us)          # the simulated timeline's 0: the group's first dispatch
         keys = {u["key"] for u in us}
         for u in us:
-            u["rel"] = max([0.0] + [units[d]["end"] - t0 for d in u["deps"] if d not in keys and d in units])
+            u["rel"] = max([0.0] + [units[d]["end"] - t_org for d in u["deps"] if d not in keys and d in units])
         tw = {}
         for u in sorted(us, key=lambda u: u["dispatch"]):
             tw.setdefault(msg.get(u["key"], u["key"]), []).append(u["key"])
@@ -240,15 +247,39 @@ def boot_median(x, B=2000, seed=SEED):
     return (m[int(0.025 * B)], m[int(0.975 * B) - 1])
 
 
-def summary(errs):
+def _cluster_resamples(errs, clusters, B, seed):
+    by = {}
+    for e, c in zip(errs, clusters):
+        by.setdefault(c, []).append(abs(e))
+    keys, rng = sorted(by), random.Random(seed)
+    return [[x for k in rng.choices(keys, k=len(keys)) for x in by[k]] for _ in range(B)]
+
+
+def cluster_share_ci(errs, clusters, B=2000, seed=SEED):
+    """95% bootstrap CI of the share within 2%, resampling whole clusters (crude with few clusters)"""
+    s = sorted(sum(x <= 0.02 for x in pick) / len(pick) for pick in _cluster_resamples(errs, clusters, B, seed))
+    return s[int(0.025 * B)], s[int(0.975 * B) - 1]
+
+
+def cluster_median_ci(errs, clusters, B=2000, seed=SEED):
+    """95% bootstrap CI of the median |error|, resampling whole clusters (crude with few clusters)"""
+    m = sorted(st.median(pick) for pick in _cluster_resamples(errs, clusters, B, seed))
+    return m[int(0.025 * B)], m[int(0.975 * B) - 1]
+
+
+def summary(errs, clusters=None):
     a = [abs(e) for e in errs]
     if not a:
         return "n=0"
     k = sum(x <= 0.02 for x in a)
-    lo, hi = wilson(k, len(a))
-    mlo, mhi = boot_median(a)
-    return "n=%d; within 2%%: %d (%.0f%%, 95%% CI %.0f-%.0f%%); median |error| %.2f%% (95%% CI %.2f-%.2f%%); max %.1f%%" % (
-        len(a), k, 100 * k / len(a), 100 * lo, 100 * hi, 100 * st.median(a), 100 * mlo, 100 * mhi, 100 * max(a))
+    if clusters is None:
+        (lo, hi), (mlo, mhi), ci, n = wilson(k, len(a)), boot_median(a), "95% CI", "n=%d" % len(a)
+    else:
+        lo, hi = cluster_share_ci(errs, clusters)
+        mlo, mhi = cluster_median_ci(errs, clusters)
+        ci, n = "crude 95% CI", "n=%d in %d clusters" % (len(a), len(set(clusters)))
+    return "%s; within 2%%: %d (%.0f%%, %s %.0f-%.0f%%); median |error| %.2f%% (%s %.2f-%.2f%%); max %.1f%%" % (
+        n, k, 100 * k / len(a), ci, 100 * lo, 100 * hi, 100 * st.median(a), ci, 100 * mlo, 100 * mhi, 100 * max(a))
 
 
 def minimax(timelines_mk, stagger_max=None):
@@ -263,6 +294,15 @@ def minimax(timelines_mk, stagger_max=None):
             if k > best_share[0]:
                 best_share = (k, lat, sg)
     return best, best_share
+
+
+def min_stagger(timelines_mk, tol=0.02):
+    """(smallest stagger on the grid at which some lat puts every item within tol, that lat), or None"""
+    for sg in STAGGER_GRID:
+        for lat in LAT_GRID:
+            if all(abs(SS.simulate_window(tl, lat, sg) - mk) / mk <= tol for tl, mk in timelines_mk):
+                return sg, lat
+    return None
 
 
 def fmt(e):
@@ -284,24 +324,26 @@ def main():
     o = ["# Barrier simulation, held-out check", "",
          "Generated by tests/derive_wave_sim.py (definitions in its docstring). Sessions: %s." % ", ".join(s[:8] for s in sids), ""]
     full = fit(rows)
-    o.append("Fitted on all sessions: gap %.0f s (pairwise F1 against the true waves %.3f), lat %.1f s (n=%d), stagger %.1f s (n=%d)."
+    o.append("Fitted on all sessions: gap %.0f s (pairwise F1 against the message waves %.3f), lat %.1f s (n=%d), stagger %.1f s (n=%d)."
              % (full["gap"], full["f1"], full["lat"], full["n_lat"], full["stagger"], full["n_stagger"]))
     o.append("")
-    o.append("Pairwise F1 of the rule against the true waves, subagent dispatchers, all sessions: " + ", ".join(
+    o.append("Pairwise F1 of the rule against the message waves, subagent dispatchers, all sessions: " + ", ".join(
         "%d s %.3f" % (g, f1(barrier(rows), g)) for g in GRID) + ".")
     o.append("")
     o += ["## Leave one session out", "",
-          "| held-out session | fitted gap s | lat s | stagger s | F1 held-out | groups | before (120 s, old sim) | after (rule) | after (true waves) |",
+          "| held-out session | fitted gap s | lat s | stagger s | F1 held-out | groups | before (120 s, old sim) | after (rule) | after (message waves) |",
           "|---|---|---|---|---|---|---|---|---|"]
-    ho_new, ho_old, ho_truth, ho_main, detail = [], [], [], [], []
+    ho_new, ho_old, ho_truth, ho_main, detail, ho_rows, main_cl = [], [], [], [], [], [], []
     for s in sids:
         p = fit([r for r in rows if r["sid"] != s])
         test = barrier([r for r in rows if r["sid"] == s])
         en = [err_new(r, p) for r in test]
         eo = [err_old(r, p["lat"]) for r in test]
         et = [err_new(r, p, r["truth"]) for r in test]
-        ho_new += en; ho_old += eo; ho_truth += et
-        ho_main += [err_new(r, p) for r in rows if r["sid"] == s and r["disp"] == "main" and len(r["units"]) > 1 and r["mk"] > 0]
+        ho_new += en; ho_old += eo; ho_truth += et; ho_rows += test
+        mrows = [r for r in rows if r["sid"] == s and r["disp"] == "main" and len(r["units"]) > 1 and r["mk"] > 0]
+        ho_main += [err_new(r, p) for r in mrows]
+        main_cl += [(r["sid"], r["disp"]) for r in mrows]
         within = lambda e: "%d/%d within 2%%" % (sum(abs(x) <= 0.02 for x in e), len(e))
         o.append("| %s | %.0f | %.1f | %.1f | %.3f | %d | %s | %s | %s |" % (
             s[:8], p["gap"], p["lat"], p["stagger"], f1(test, p["gap"]), len(test), within(eo), within(en), within(et)))
@@ -311,15 +353,23 @@ def main():
             detail.append("| %s | %d | %s | %d | %d | %.1f | %s | %s | %s | %s |" % (
                 s[:8], r["wi"], r["disp"][:8], len(us), len(r["truth"]), r["mk"] / 60, fmt(x), fmt(y), fmt(z),
                 " ".join("%.0f" % g for g in gaps) or "-"))
-    o += ["", "Held-out, subagent dispatchers (multi-unit groups):", "",
-          "- before: " + summary(ho_old), "- after, rule waves: " + summary(ho_new), "- after, true waves: " + summary(ho_truth),
-          "- main thread (not barrier; reported apart): " + summary(ho_main), "",
-          "| session | window | dispatcher | units | true waves | makespan min | before | after | after, true waves | gaps between true waves s |",
+    cl = [(r["sid"], r["disp"]) for r in ho_rows]
+    mw = [i for i, r in enumerate(ho_rows) if len(r["truth"]) > 1]
+    pick = lambda e, ix: [e[i] for i in ix]
+    o += ["", "Held-out, subagent dispatchers (multi-unit groups). CIs resample (session, dispatcher) clusters.", "",
+          "Headline, groups with more than one message wave (the only ones that exercise the barrier):", "",
+          "- before: " + summary(pick(ho_old, mw), pick(cl, mw)), "- after, rule waves: " + summary(pick(ho_new, mw), pick(cl, mw)),
+          "", "All groups (%d of %d have one message wave: the simulation only replaces their dispatch offsets with j x stagger):"
+          % (len(ho_rows) - len(mw), len(ho_rows)), "",
+          "- before: " + summary(ho_old, cl), "- after, rule waves: " + summary(ho_new, cl),
+          "- after, message waves: " + summary(ho_truth, cl),
+          "- main thread (not barrier; reported apart): " + summary(ho_main, main_cl), "",
+          "| session | window | dispatcher | units | message waves | makespan min | before | after | after, message waves | gaps between message waves s |",
           "|---|---|---|---|---|---|---|---|---|---|"] + detail
     (mm, lat_mm, sg_mm), (share, lat_sh, sg_sh) = minimax([([timeline(r, r["truth"])], r["mk"]) for r in barrier(rows)])
-    o += ["", "Minimax over lat 0-120 s and stagger 0-20 s with the true waves, all subagent-dispatcher groups: worst |error| "
-          "at best %.1f%% (lat %.0f s, stagger %.1f s); at most %d of %d groups within 2%% (lat %.0f s, stagger %.1f s)." % (
-              100 * mm, lat_mm, sg_mm, share, len(barrier(rows)), lat_sh, sg_sh), ""]
+    o += ["", "Minimax over lat 0-120 s and stagger 0-20 s with the message waves (not barrier waves), all subagent-dispatcher "
+          "groups: worst |error| at best %.1f%% (lat %.0f s, stagger %.1f s); at most %d of %d groups within 2%% (lat %.0f s, "
+          "stagger %.1f s)." % (100 * mm, lat_mm, sg_mm, share, len(barrier(rows)), lat_sh, sg_sh), ""]
     if a.replay_usage:
         m = SS.load_model("/nonexistent/sched_model.json")
         seg_f, prm_f = os.path.join(a.replay_usage, "segments.csv"), os.path.join(a.replay_usage, "prompts.csv")
@@ -352,15 +402,26 @@ def main():
             if R:
                 o.append("")
                 o.append("- %s: %s" % (name, summary([w.sim_err for w in R])))
+        bw = [w.i for w in rep.windows if any(len(g) > 1 for g in w.sim_in)]
+        cnt = lambda R: "%d/%d" % (sum(abs(w.sim_err) <= 0.02 for w in R if w.i in bw), len(bw))
+        parts = (["before " + cnt(old.values())] if old else []) + ["in-session " + cnt(rep.windows),
+                                                                     "held-out " + cnt(rho.windows)]
+        o += ["", "Windows with more than one wave in a timeline (the only ones that exercise the barrier): %s; within 2%%: %s."
+              % (", ".join(map(str, bw)) or "none", ", ".join(parts))]
         tm = [(w.sim_in, w.makespan) for w in rep.windows]
         (mm, lat_mm, sg_mm), (share, lat_sh, sg_sh) = minimax(tm)
         cap = max([rep.sim_params["stagger"]] + [fit([r for r in rows if r["sid"] == s])["stagger"] for s in sids])
-        (mc, lat_mc, sg_mc), _ = minimax(tm, cap)
-        o += ["", "Minimax over lat 0-120 s and stagger 0-20 s on these windows' own waves: worst |error| at best %.2f%% "
+        need = min_stagger(tm)
+        o += ["", "Minimax over lat 0-120 s and stagger 0-20 s on these windows' rule waves: worst |error| at best %.2f%% "
               "(lat %.0f s, stagger %.1f s); at most %d of %d windows within 2%% (lat %.0f s, stagger %.1f s). A pair that "
-              "only these windows select is fitted on the windows it is judged on. With the stagger at most %.1f s (the "
-              "largest median in-wave gap measured in any session), the worst |error| is at best %.2f%% (lat %.0f s, stagger "
-              "%.1f s)." % (100 * mm, lat_mm, sg_mm, share, len(rep.windows), lat_sh, sg_sh, cap, 100 * mc, lat_mc, sg_mc)]
+              "only these windows select is fitted on the windows it is judged on." % (
+                  100 * mm, lat_mm, sg_mm, share, len(rep.windows), lat_sh, sg_sh)]
+        if need is None:
+            o[-1] += " No (lat, stagger) on the grid puts every window within 2%."
+        else:
+            o[-1] += (" 2%% in every window needs a stagger of at least %.1f s (with lat %.0f s), %s every median in-wave "
+                      "gap measured (per session and in this replay: at most %.1f s)." % (
+                          need[0], need[1], "above" if need[0] > cap else "within", cap))
     os.makedirs(os.path.dirname(os.path.abspath(a.out)), exist_ok=True)
     open(a.out, "w").write("\n".join(o) + "\n")
     print("\n".join(o))

@@ -85,7 +85,7 @@ def test_held_out_report(tmp_path):
     assert sids == [s1, s2]
     g = [r for r in rows if r["sid"] == s1 and r["disp"] == "a0000000000000001"][0]
     assert g["mk"] == pytest.approx(mk1)
-    # the true waves come from the orchestrator's own messages, and the rule recovers them
+    # the message waves come from the orchestrator's own messages, and the rule recovers them
     assert g["truth"] == [["a0000000000000002#0", "a0000000000000003#0"], ["a0000000000000004#0"]]
     assert D.rule_waves(g, 60.0) == g["truth"] and D.f1(D.barrier(rows), 60.0) == 1.0
     # held out: session 1 simulated with session 2's latency (20 s) and stagger (7 s), not with its own 30 s
@@ -96,4 +96,55 @@ def test_held_out_report(tmp_path):
     D.main()
     md = open(out).read()
     assert "## Leave one session out" in md and "| 11111111 |" in md and "| 22222222 |" in md
-    assert "- after, rule waves: n=2;" in md and "Minimax over lat" in md
+    assert "- after, rule waves: n=2 in 2 clusters;" in md and "Minimax over lat" in md
+    # the headline is the groups that exercise the barrier (more than one message wave): here both
+    head = md.split("Headline, groups with more than one message wave")[1].split("All groups")[0]
+    assert "- after, rule waves: n=2 in 2 clusters; within 2%: 2 " in head and "crude 95% CI" in head
+    assert "All groups (0 of 2 have one message wave" in md
+
+
+def test_cluster_ci_resamples_dispatchers_not_groups():
+    # 9 groups of one dispatcher within 2%, 1 group of another far off: as 10 independent groups the share's 95% CI
+    # excludes 50%; with 2 clusters, resampling draws {B, B} a quarter of the time and the interval spans 0-100%
+    errs, cl = [0.0] * 9 + [0.5], [("s", "A")] * 9 + [("s", "B")]
+    assert D.wilson(9, 10)[0] > 0.5
+    assert D.cluster_share_ci(errs, cl) == (0.0, 1.0)
+    assert D.cluster_median_ci(errs, cl) == (0.0, 0.5)
+    assert D.summary(errs, cl).startswith("n=10 in 2 clusters; within 2%: 9 (90%, crude 95% CI 0-100%)")
+
+
+def test_release_is_measured_from_the_groups_first_dispatch(tmp_path):
+    pd = pytest.importorskip("pandas")
+    # orchestrator O: P runs from window 0 into window 1; in window 1 O spawns Y at 10:09:40 (started 20 s later) and
+    # resumes P when P#0 ends at 10:13:00. The simulated timeline starts at Y's dispatch: P#0 ends 200 s into it
+    sid, O, P, Y = "33333333-0000-0000-0000-000000000000", "c0000000000000001", "c0000000000000002", "c0000000000000003"
+    seg = pd.DataFrame([dict(session=sid, id=P, seg=0, first_ts=iso("10:05:20"), last_ts=iso("10:13:00")),
+                        dict(session=sid, id=Y, seg=0, first_ts=iso("10:10:00"), last_ts=iso("10:10:10")),
+                        dict(session=sid, id=P, seg=1, first_ts=iso("10:13:20"), last_ts=iso("10:18:20"))])
+    ev = [("user", {"tr": False, "meta": False, "text": t, "ts": iso(ts)}) for t, ts in (("go", "10:00:00"), ("next", "10:09:30"))]
+    led = tmp_path / "delegations.md"
+    led.write_text("# Delegations, session %s\n\n- orchestrator · (no description) · finished · 10:59:00 · id %s\n"
+                   "  - verifier · (no description) · finished · 11:05:20 · id %s\n"
+                   "  - coder · (no description) · finished · 11:09:40 · id %s\n" % (sid, O, P, Y))
+    g = [r for r in D.session_groups(sid, seg, ev, [], str(led)) if r["wi"] == 1][0]
+    y, p1 = g["units"][Y + "#0"], g["units"][P + "#1"]
+    assert g["disp"] == O and len(g["units"]) == 2 and y["dispatch"] == y["start"] - 20 and g["mk"] == pytest.approx(500.0)
+    assert p1["rel"] == pytest.approx(200.0)                                    # 180 s from Y's start
+    # Y 20 + 10 s; P#1 released at 200 + 20 s, 300 s long: 520 - 20 = 500 s, the recorded makespan (-4% from the start)
+    assert D.err_new(g, {"gap": 60.0, "lat": 20.0, "stagger": 0.0}) == pytest.approx(0.0)
+
+
+def test_replay_section_on_the_committed_fixture(tmp_path):
+    root, state, out = str(tmp_path / "projects"), str(tmp_path / "state"), str(tmp_path / "wave-sim.md")
+    session(root, state, "11111111-aaaa-0000-0000-000000000000", "a0000000000000001",
+            ["a0000000000000002", "a0000000000000003", "a0000000000000004"], lat=30, durs=(190, 280, 270))
+    fx = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "sched", "4e2da3ce")
+    sys.argv = ["derive_wave_sim.py", "--root", root, "--state", state, "--out", out, "--replay-usage", fx,
+                "--replay-ledger", os.path.join(fx, "delegations.md")]
+    D.main()
+    md = open(out).read()
+    assert "## Replay windows, session 4e2da3ce" in md and "unreachable" not in md
+    # the windows with a barrier are named and scored apart; the minimax states the stagger 2% in every window needs
+    assert "Windows with more than one wave in a timeline (the only ones that exercise the barrier): 1, 3, 21, 36;" in md
+    mm = float(md.split("on these windows' rule waves: worst |error| at best ")[1].split("%")[0])
+    assert ("2% in every window needs a stagger of at least" in md) == (mm <= 2.0)

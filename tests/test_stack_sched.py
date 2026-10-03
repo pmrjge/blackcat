@@ -1,8 +1,8 @@
 """stack_sched.py: the scheduler advisor (dot-claude/hooks/stack_sched.py).
 
 Run: uv run --python 3.13 --with pytest pytest -q tests/test_stack_sched.py
-No test touches the stack's state folder; the replay test on the recorded session reads
-.claude-work/agents-usage/ (untracked) and is skipped when that folder is absent.
+No test touches the stack's state folder; the replay tests on the recorded session read the committed
+fixture tests/fixtures/sched/4e2da3ce/ (see USAGE).
 """
 import importlib.util
 import itertools
@@ -18,7 +18,16 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 SCHED = ROOT / "dot-claude" / "hooks" / "stack_sched.py"
 FIXTURE = ROOT / "tests" / "fixtures" / "sched" / "graph-4e2da3ce.json"
-USAGE = ROOT / ".claude-work" / "agents-usage"
+# session 4e2da3ce's rows of segments.csv and prompts.csv as of the 2026-10-02 20:27 UTC snapshot the graph fixture was
+# built on (the session was still running: window 52 is open), plus its ledger; desc cut to the graph node id ("-" if
+# none), prompt text and task descriptions removed. Regenerating from the closed transcripts instead extends window 52
+# (10.5 -> 20.6 min) and the cold excess outside the graph (3.02M -> 4.28M); the snapshot is what these tests pin.
+USAGE = ROOT / "tests" / "fixtures" / "sched" / "4e2da3ce"
+LEDGER = USAGE / "delegations.md"
+# tests/derive_wave_sim.py, closed sessions 4e2da3ce and cc39b6a0, fold 4e2da3ce: fitted on cc39b6a0 alone (lat from 2
+# samples; gap ties at F1 1.000 from 15 to 300 s and the tie rule takes the largest)
+HELD_OUT = {"lat": 40.2, "stagger": 6.0, "gap": 300.0}
+HELD_OUT_MISSES = [1, 2, 36]                 # +2.49%, +4.19%, +3.86%: 16 of 19 windows within 2% held out
 SESSION = "4e2da3ce-e2f4-4971-aac5-a67f2dcf252e"
 
 spec = importlib.util.spec_from_file_location("stack_sched", SCHED)
@@ -599,6 +608,9 @@ def test_barrier_sim_waves_follow_dependencies_origin_stagger_and_releases():
     # end at P2's duration and miss P1's 27 s plus the reaction before P2
     assert S.cluster_waves([(0, "P1"), (62, "P2")], gap=120, deps={"P2": ["P1"]}) == [["P1"], ["P2"]]
     assert S.cluster_waves([(0, "P1"), (62, "P2"), (70, "P3")], gap=120, deps={"P2": ["P1"]}) == [["P1"], ["P2", "P3"]]
+    # nor with its dependent: equal timestamps (the ledger has 1 s resolution) or a record order against the graph
+    assert S.cluster_waves([(0.0, "a"), (0.0, "b")], gap=60, deps={"a": ["b"]}) == [["a"], ["b"]]
+    assert S.cluster_waves([(0.0, "a"), (5.0, "b")], gap=60, deps={"a": ["b"]}) == [["a"], ["b"]]
     # window 18: one unit, 3.8 s startup lag, 39.8 s long; the recorded makespan runs from its start, so must the simulation
     assert S.simulate_waves([[(3.8, 39.8)]]) == pytest.approx(43.6)                       # from the dispatch (the old +9.6%)
     assert S.simulate_waves([[(3.8, 39.8)]], from_first_start=True) == pytest.approx(39.8)
@@ -657,11 +669,28 @@ def test_replay_window_waiting_on_a_unit_from_the_previous_window(model, tmp_pat
     assert w1.sim_makespan == pytest.approx(495.0) and abs(w1.sim_err) <= 0.02
 
 
-@pytest.mark.skipif(not (USAGE / "segments.csv").is_file(), reason="agents-usage data not in this checkout")
+def test_replay_release_is_measured_from_the_first_dispatch(model, tmp_path):
+    # window 2 again, with the main thread's X replaced by the orchestrator's Y, spawned at 10:09:40 and started 20 s later:
+    # the simulated timeline starts at Y's dispatch, so P's end (10:13:00) is 200 s into it, not 180 s (from Y's start)
+    sid, graph = make_window2_session(tmp_path)
+    graph = dict(graph, aux=[], nodes=graph["nodes"] + [{"id": "Y", "a": "coder", "n": 5,
+                                                         "ph": [{"agent": "xxxx", "segs": [0], "dep": []}]}])
+    (tmp_path / "led.md").write_text("# Delegations, session %s\nUpdated 12:00:00.\n\n"
+                                     "- claude-code-engineer · (no description) · finished · 11:00:00 · id tttt\n"
+                                     "- verifier · (no description) · finished · 11:05:20 · id pppp\n"
+                                     "- coder · (no description) · finished · 11:09:40 · id xxxx\n" % sid)
+    rep = S.replay(str(tmp_path / "led.md"), str(tmp_path / "seg.csv"), str(tmp_path / "prm.csv"), graph, model, session=sid,
+                   sim={"lat": 20.0, "stagger": 0.0})
+    w1 = [w for w in rep.windows if w.i == 1][0]
+    assert rep.tz_offset == 3600.0 and rep.units["Y#0"].dispatch == rep.units["Y#0"].start - 20
+    assert w1.waves == [["Y#0"], ["T#1"]] and w1.makespan == pytest.approx(500.0)
+    # Y: 20 + 10 s; T#1: released at 200 + 20 s, 300 s long; from Y's start (20 s): 520 - 20 = 500 (480 from t0)
+    assert w1.sim_makespan == pytest.approx(500.0)
+
+
 def test_replay_recorded_session(model, tmp_path):
-    led = Path.home() / ".local/state/claude-agent-stack" / SESSION / "delegations.md"
-    rep = S.replay(str(led) if led.is_file() else None, str(USAGE / "segments.csv"), str(USAGE / "prompts.csv"), FIXTURE, model,
-                   session=SESSION)
+    led = LEDGER
+    rep = S.replay(str(led), str(USAGE / "segments.csv"), str(USAGE / "prompts.csv"), FIXTURE, model, session=SESSION)
     assert rep.windows
     # (3) the barrier simulation from recorded lags and durations is a real comparison: its error is measured and reported
     # (not 0 by construction; the 2% target is not met on this session, and the report says so)
@@ -671,7 +700,14 @@ def test_replay_recorded_session(model, tmp_path):
     # windows 2 and 18 (-37% and +9.6% with one 120 s-gap timeline measured from the first dispatch) are within 2%
     assert abs(by[2].sim_err) <= 0.02 and abs(by[18].sim_err) <= 0.02
     # the one window left above 2% is window 3: its orchestrator spent 99 s, not one median latency, before a 5-unit wave
+    # (in-sample: lat and stagger are this session's own medians, and the model was shaped on windows 2, 3 and 18)
     assert [w.i for w in rep.windows if abs(w.sim_err) > 0.02] == [3] and abs(by[3].sim_err) < 0.03
+    # held out: lat, stagger and gap fitted on the other closed session (tests/derive_wave_sim.py, fold 4e2da3ce)
+    ho = S.replay(str(led), str(USAGE / "segments.csv"), str(USAGE / "prompts.csv"), FIXTURE, model, session=SESSION,
+                  sim=HELD_OUT)
+    assert sorted(w.i for w in ho.windows if abs(w.sim_err) > 0.02) == HELD_OUT_MISSES, \
+        [(w.i, round(100 * w.sim_err, 2)) for w in ho.windows if abs(w.sim_err) > 0.02]
+    assert sum(abs(w.sim_err) <= 0.02 for w in ho.windows) == 16 and max(abs(w.sim_err) for w in ho.windows) < 0.045
     # no advised row beats physics: the advised makespan is at least the longest unit of each window
     for w in rep.windows:
         longest = max([rep.units[k].end - rep.units[k].start for k in w.units] or [0.0])
@@ -809,11 +845,9 @@ def test_provisional_plan_is_never_below_the_hi_estimate():
         assert p.tokens >= hi_tokens - 1e-6 and p.tokens >= q.tokens - 1e-6 and p.wall >= q.wall - 1e-6
 
 
-@pytest.mark.skipif(not (USAGE / "segments.csv").is_file(), reason="agents-usage data not in this checkout")
 def test_replay_reports_the_provisional_share(model):
-    led = Path.home() / ".local/state/claude-agent-stack" / SESSION / "delegations.md"
-    rep = S.replay(str(led) if led.is_file() else None, str(USAGE / "segments.csv"), str(USAGE / "prompts.csv"), FIXTURE, model,
-                   session=SESSION)
+    led = LEDGER
+    rep = S.replay(str(led), str(USAGE / "segments.csv"), str(USAGE / "prompts.csv"), FIXTURE, model, session=SESSION)
     for v in rep.rows.values():
         assert 0.0 <= v["prov_share_wall"] <= 1.0 and 0.0 <= v["prov_share_tok"] <= 1.0
     assert "provisional types" in S.render_md(rep, max_chars=None)

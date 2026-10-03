@@ -63,7 +63,7 @@ import sys
 import time
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Sequence, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
 # ---------------------------------------------------------------- constants (copied, not imported)
 # agent_guard.py owns these; the values below are the ones of the commit this file was written
@@ -1532,21 +1532,30 @@ def simulate_window(timelines: Sequence[Sequence[Sequence[Sequence[float]]]], la
 
 
 WAVE_GAP_S = 60.0    # replay: dispatches of one dispatcher closer than this share a wave. Best pairwise F1 against
-#                      the dispatchers' own message waves over 3 sessions (0.993; 20-120 s all >= 0.990; the
-#                      leave-one-session-out folds chose 60, 30, 60): tests/derive_wave_sim.py
+#                      the dispatchers' own message waves over the 2 closed sessions (0.995; 30-120 s all >= 0.993;
+#                      the leave-one-session-out folds chose 60 and 300, the latter a tie from 15 to 300 s on one
+#                      session): tests/derive_wave_sim.py
 
 
 def cluster_waves(items: Sequence[Tuple[float, str]], gap: float = WAVE_GAP_S,
                   deps: Optional[Dict[str, Sequence[str]]] = None) -> List[List[str]]:
     """Group (dispatch time, key) pairs: a new wave starts after a gap above `gap` seconds, or at a unit that
-    depends (deps: key -> keys) on a unit of the current wave (barrier semantics: a wave never holds a unit
-    and its prerequisite)."""
+    depends (deps: key -> keys) on a unit of the current wave or is a prerequisite of one (barrier semantics: a
+    wave never holds a unit and its prerequisite, also at equal times or in a record order against the graph)."""
     out: List[List[str]] = []
     last = None
+    cur: Set[str] = set()
+    rdeps: Dict[str, Set[str]] = {}
+    for k0, ds in (deps or {}).items():
+        for d in ds:
+            rdeps.setdefault(d, set()).add(k0)
     for t, k in sorted(items):
-        if last is None or t - last > gap or (deps and any(d in out[-1] for d in deps.get(k, ()))):
+        clash = bool(deps) and (any(d in cur for d in deps.get(k, ())) or bool(rdeps.get(k, set()) & cur))
+        if last is None or t - last > gap or clash:
             out.append([])
+            cur = set()
         out[-1].append(k)
+        cur.add(k)
         last = t
     return out
 
@@ -1715,11 +1724,13 @@ def replay(ledger: Any, segments: Any, prompts: Any, graph: Any, m: Dict[str, An
     sim_stagger = float(sim_p.get("stagger", stg[len(stg) // 2] if stg else 0.0))
     for w in windows:
         tls = []
+        # the simulated timelines start at 0 = the window's first dispatch (w.t0 is its first start)
+        t_org = min(units_or_aux(units, aux_units, k).dispatch for grp in groups[w.i] for wv in grp for k in wv)
         for grp in groups[w.i]:
             mine = {k for wv in grp for k in wv}
             # release: a prerequisite outside this timeline (an earlier window's unit still running) ends
             tls.append([[(u.start - u.dispatch, u.end - u.start,
-                          max([0.0] + [units[d].end - w.t0 for d in u.deps if d in units and d not in mine]))
+                          max([0.0] + [units[d].end - t_org for d in u.deps if d in units and d not in mine]))
                          for u in (units_or_aux(units, aux_units, k) for k in wv)] for wv in grp])
         w.sim_in = tls
         w.sim_makespan = simulate_window(tls, sim_lat, sim_stagger)
