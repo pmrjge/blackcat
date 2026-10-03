@@ -8,6 +8,9 @@ that no evidence, file or command can cross):
   soft.agent.<type>            soft context limit per agent segment (seed: agent_guard SOFT_LIMITS)
   hard.agent.<type>            hard context cap per agent segment (seed: unset = off)
   soft.prompt, hard.prompt     per human prompt (seed 33M / 100M)
+  soft.prompt.<type>           per human prompt while an agent of that type runs (agent_guard
+                               SOFT_PROMPT_CTX_BY_TYPE, user-set: seed = floor, so the learner only
+                               raises it; prompt_soft_limit() applies the largest running one)
   soft.session, hard.session   per session (seed unset / 666M)
 Copy types (<base>-copy) use their base type's values; blackcat has no per-agent variable. Fixed
 guards (depth, fan-out, BlackCat, god-coder, TTLs, MCP cap, images, policy, read gate, the scale
@@ -29,7 +32,8 @@ no snapshot yet (SessionStart). Every consumer reads that session's snapshot (se
 resume, compact and clear keep the id and so the snapshot. propose() only writes proposals.json.
 
 Python API: apply_and_snapshot(ev) -> (path, notice), ensure_snapshot(sid, src), propose(paths,
-out), seed(), env_name(type[, family]), session_limits(sid), lookup(values, family, type); the
+out), seed(), env_name(type[, family]), session_limits(sid), lookup(values, family, type),
+prompt_soft_limit(values, running_types); the
 shared statistics q, ceil2, derive, boot_ci, support, step (tests/derive_thresholds.py).
 
 CLI (the user's terminal: agents cannot write the state folder; effects reach the next snapshot):
@@ -44,7 +48,7 @@ VAR is a variable name or an fnmatch pattern (soft.agent.*).
 
 Environment: STACK_LIMITS_AUTO=0 (snapshot = seed + env overrides, nothing applied),
 STACK_USAGE_COLLECT=0 (no proposals), overrides STACK_MAXTURNS_<TYPE>, STACK_SOFTCTX_<TYPE>,
-STACK_HARDCTX_<TYPE>, STACK_SOFT_PROMPT_CTX, STACK_PROMPT_CTX_BUDGET, STACK_SOFT_SESSION_CTX,
+STACK_HARDCTX_<TYPE>, STACK_SOFT_PROMPT_CTX[_<TYPE>], STACK_PROMPT_CTX_BUDGET, STACK_SOFT_SESSION_CTX,
 STACK_SESSION_CTX_BUDGET (digits; 0 = off), recorded with origin "env" in the snapshot.
 """
 import errno
@@ -106,7 +110,7 @@ TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$")
 HEX16_RE = re.compile(r"^[0-9a-f]{16}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$")
-VAR_RE = re.compile(r"^(?:(?:turns|soft\.agent|hard\.agent)\.[a-z0-9][a-z0-9_.:-]{0,79}"
+VAR_RE = re.compile(r"^(?:(?:turns|soft\.agent|hard\.agent|soft\.prompt)\.[a-z0-9][a-z0-9_.:-]{0,79}"
                     r"|(?:soft|hard)\.(?:prompt|session))$")
 
 TYPE_FAMILIES = ("turns", "soft.agent", "hard.agent")
@@ -121,7 +125,11 @@ OWN_HITS = {"turns": ("hit_turn", "turn_limited"), "soft.agent": ("hit_soft",),
             "hard.prompt": ("hit_hard_prompt",), "soft.session": ("hit_soft",),
             "hard.session": ("hit_hard_session",)}
 PAIR_RATIO = {"soft.agent": 0.8, "soft.prompt": 0.67, "soft.session": 0.8}   # soft <= ratio x hard
-ENV_PREFIX = {"turns": "STACK_MAXTURNS_", "soft.agent": "STACK_SOFTCTX_", "hard.agent": "STACK_HARDCTX_"}
+# soft.prompt.<type> (agent_guard SOFT_PROMPT_CTX_BY_TYPE): the per-prompt soft limit while an agent
+# of that type runs, user-set; its seed is its floor, so only a user command can lower it. Its sample
+# is the prompt windows (main rows) in which such an agent ran (agent rows' `window`).
+ENV_PREFIX = {"turns": "STACK_MAXTURNS_", "soft.agent": "STACK_SOFTCTX_", "hard.agent": "STACK_HARDCTX_",
+              "soft.prompt": "STACK_SOFT_PROMPT_CTX_"}
 ENV_SCOPE = {"soft.prompt": "STACK_SOFT_PROMPT_CTX", "hard.prompt": "STACK_PROMPT_CTX_BUDGET",
              "soft.session": "STACK_SOFT_SESSION_CTX", "hard.session": "STACK_SESSION_CTX_BUDGET"}
 
@@ -165,8 +173,9 @@ def env_name(atype, family=None):
 
 
 def split_var(var):
-    """(family, type or None) of a variable name; ValueError for anything else."""
-    for fam in TYPE_FAMILIES:
+    """(family, type or None) of a variable name (soft.prompt.<type> -> ("soft.prompt", type));
+    ValueError for anything else."""
+    for fam in TYPE_FAMILIES + ("soft.prompt",):
         if var.startswith(fam + "."):
             return fam, var[len(fam) + 1:]
     if var in ENV_SCOPE:
@@ -185,6 +194,20 @@ def lookup(values, family, atype):
     if key not in values and str(atype).endswith("-copy"):
         key = "{}.{}".format(family, str(atype)[:-len("-copy")])
     return values.get(key)
+
+
+def prompt_soft_limit(values, running_types=()):
+    """The per-prompt soft limit of a snapshot's values (agent_guard.soft_prompt_ctx): soft.prompt,
+    raised to the largest soft.prompt.<type> of the agent types running now (a copy counts as its
+    base). None when soft.prompt is off (an env override of 0)."""
+    best = values.get("soft.prompt")
+    if best is None:
+        return None
+    for t in running_types:
+        v = lookup(values, "soft.prompt", t)
+        if v is not None and v > best:
+            best = v
+    return best
 
 
 # ---------------------------------------------------------------- paths and small I/O
@@ -623,7 +646,7 @@ def parse_row(r, known=()):
                "api_calls": _num(r, "api_calls", TURNS_MAX), "ctx": _num(r, "ctx", CTX_MAX),
                "window_ctx": _num(r, "window_ctx", CTX_MAX),
                "compacted": _flag(r, "compacted"), "turn_limited": _flag(r, "turn_limited"),
-               "is_main": _flag(r, "is_main")}
+               "is_main": _flag(r, "is_main"), "window": _num(r, "window", 1e6)}
         for k in _HIT_COLS:
             row[k] = _flag(r, k)
         code = (r.get("status_code") or "").strip()
@@ -791,16 +814,21 @@ def build_proposals(seed, paths=None, regime=None, live=None, now=None):
         live = read_live(seed)[0]
     lv = (live or {}).get("vars", {})
     upto = (lambda v: float((lv.get(v) or {}).get("upto") or 0))
-    by_type, main, sess = {}, [], []
+    by_type, main, sess, windows = {}, [], [], {}
     for r in rows:
         if r["scope"] == "agent":
             by_type.setdefault(r["type"], []).append(r)
+            if r["window"] is not None:
+                windows.setdefault(r["type"], set()).add((r["session"], int(r["window"])))
         else:
             (main if r["scope"] == "main" else sess).append(r)
     cache, V, P = {}, {}, {}
     for v in sorted(seed["vars"]):
         fam, t = split_var(v)
-        rs = by_type.get(t, []) if t else (main if SCOPE[fam] == "prompt" else sess)
+        if fam == "soft.prompt" and t:          # the prompt windows in which an agent of type t ran
+            rs = [r for r in main if (r["session"], r["seg"]) in windows.get(t, ())]
+        else:
+            rs = by_type.get(t, []) if t else (main if SCOPE[fam] == "prompt" else sess)
         if rs:
             e = _entry_regime(rs, fam, seed["vars"][v]["kind"], upto(v), f"{eid}:{v}", regime, cache)
             if e:
@@ -1083,10 +1111,24 @@ def _pairs(seed):
     return [p for p in out if p[0] in seed["vars"] and p[1] in seed["vars"]]
 
 
+def _raise_hard(seed, live, hv, es, ratio, recs, now):
+    """Raise hard variable hv (not frozen) within its ceiling so that es <= ratio x hv; its value."""
+    H = live["vars"][hv]
+    nh = math.ceil(es / ratio)
+    while nh * ratio < es:
+        nh += 1
+    nh = min(seed["vars"][hv]["ceiling"], max(H["value"], nh))
+    if nh != H["value"]:
+        recs.append({"var": hv, "old": H["value"], "new": nh, "decision": "clamp", "why": "invariant"})
+        H.update(prev=H["value"], value=nh, changed=now)
+    return nh
+
+
 def enforce_invariants(seed, live, now=None):
     """soft <= ratio x hard when both sides are set: raise the hard side within its ceiling, else
-    lower the soft side. Frozen sides are not moved; an unset hard side is never set. Mutates live;
-    returns the history records."""
+    lower the soft side. Frozen sides are not moved; an unset hard side is never set. A user-set
+    soft.prompt.<type> is never lowered: only while hard.prompt is set and supported, hard.prompt is
+    raised within its ceiling for it, else the pair holds. Mutates live; returns the history records."""
     recs = []
     for sv, hv, ratio in _pairs(seed):
         S, H = live["vars"][sv], live["vars"][hv]
@@ -1094,14 +1136,7 @@ def enforce_invariants(seed, live, now=None):
         if es is None or eh is None or es <= ratio * eh:
             continue
         if H["frozen"] is None:
-            nh = math.ceil(es / ratio)
-            while nh * ratio < es:
-                nh += 1
-            nh = min(seed["vars"][hv]["ceiling"], max(H["value"], nh))
-            if nh != H["value"]:
-                recs.append({"var": hv, "old": H["value"], "new": nh, "decision": "clamp", "why": "invariant"})
-                H.update(prev=H["value"], value=nh, changed=now)
-            eh = nh
+            eh = _raise_hard(seed, live, hv, es, ratio, recs, now)
         if es > ratio * eh and S["frozen"] is None:
             ns = math.floor(ratio * eh)
             while ns > ratio * eh:
@@ -1109,6 +1144,16 @@ def enforce_invariants(seed, live, now=None):
             ns = max(ns, seed["vars"][sv]["floor"])
             recs.append({"var": sv, "old": S["value"], "new": ns, "decision": "clamp", "why": "invariant"})
             S.update(prev=S["value"], value=ns, changed=now)
+    H, ratio = live["vars"].get("hard.prompt"), PAIR_RATIO["soft.prompt"]
+    for sv in sorted(v for v in seed["vars"] if v.startswith("soft.prompt.")):
+        es, eh = _eff(live["vars"][sv]), _eff(H) if H else None
+        if es is None or eh is None or H["status"] != "supported" or es <= ratio * eh:
+            continue
+        if H["frozen"] is None:
+            eh = _raise_hard(seed, live, "hard.prompt", es, ratio, recs, now)
+        if es > ratio * eh:                     # hard.prompt at its ceiling or frozen: hold both
+            recs.append({"var": sv, "old": live["vars"][sv]["value"], "new": live["vars"][sv]["value"],
+                         "decision": "hold", "why": "invariant: hard.prompt cannot rise"})
     return recs
 
 
@@ -1566,7 +1611,8 @@ def session_limits(sid, sdir=None):
 # ---------------------------------------------------------------- SessionStart
 def _short(var):
     fam, t = split_var(var)
-    return {"turns": "%s.turns", "soft.agent": "%s.soft", "hard.agent": "%s.hard"}[fam] % t if t \
+    return {"turns": "%s.turns", "soft.agent": "%s.soft", "hard.agent": "%s.hard",
+            "soft.prompt": "%s.prompt"}[fam] % t if t \
         else "{}.{}".format(fam.split(".")[1], fam.split(".")[0])
 
 

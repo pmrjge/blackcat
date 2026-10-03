@@ -179,6 +179,10 @@ def test_seed_parity_with_frontmatter_and_guard():
         assert (mt is None) == (t == "blackcat") and (mt is None or "turns." + t in s["vars"]), t
     assert set(soft) == set(agents)
     assert s["vars"]["soft.prompt"]["seed"] == ast_assign(GUARD, "SOFT_PROMPT_CTX")
+    by_type = ast_assign(GUARD, "SOFT_PROMPT_CTX_BY_TYPE")        # user-set: the seed is the floor
+    assert by_type and {v: x for v, x in s["vars"].items() if v.startswith("soft.prompt.")} == {
+        "soft.prompt." + t: {"seed": val, "floor": val, "ceiling": max(100000000, val), "unit": "ctx", "kind": "soft"}
+        for t, val in by_type.items()}
     scope = {k: (v["seed"], v["floor"], v["ceiling"], v["kind"]) for k, v in s["vars"].items() if "." not in k[5:]}
     assert scope == {"soft.prompt": (33000000, 5000000, 100000000, "soft"),
                      "hard.prompt": (100000000, 50000000, 250000000, "hard"),
@@ -237,6 +241,12 @@ def test_shared_statistics():
     assert L.env_var("hard.prompt") == "STACK_PROMPT_CTX_BUDGET" and L.env_var("hard.session") == \
         "STACK_SESSION_CTX_BUDGET"
     assert L.lookup({"turns.coder": 99}, "turns", "coder-copy") == 99
+    assert L.env_var("soft.prompt.orchestrator") == "STACK_SOFT_PROMPT_CTX_ORCHESTRATOR"
+    assert L.split_var("soft.prompt.orchestrator") == ("soft.prompt", "orchestrator")
+    vals = {"soft.prompt": 33000000, "soft.prompt.orchestrator": 80000000}
+    assert L.prompt_soft_limit(vals) == 33000000 and L.prompt_soft_limit(vals, ["coder", "scout"]) == 33000000
+    assert L.prompt_soft_limit(vals, ["coder", "orchestrator"]) == 80000000
+    assert L.prompt_soft_limit(dict(vals, **{"soft.prompt": None}), ["orchestrator"]) is None   # prompt limit off
 
 
 # ---------------------------------------------------------------- T1 fixed guards
@@ -318,7 +328,7 @@ def test_T2_T3_random_proposals_stay_in_bounds_and_steps_are_bounded():
     rng = random.Random(20261003)
     seed = mini_seed()
     names = sorted(seed["vars"])
-    fams = sorted({L.split_var(v)[0] for v in names if L.split_var(v)[1]})
+    fams = list(L.TYPE_FAMILIES)                          # the families with pools
     steps = 0
     for it in range(10000):
         live = _rand_live(rng, seed)
@@ -346,6 +356,38 @@ def test_T2_T3_random_proposals_stay_in_bounds_and_steps_are_bounded():
                 c = r["old"]
                 assert abs(r["stepped"] - c) <= L.STEP_MAX * r["d"] * c + 1e-9, (it, r)    # T3
     assert steps > 500                    # the sample exercised the step rule
+
+
+def test_user_set_prompt_limit_is_never_lowered_by_proposals():
+    rng = random.Random(80000000)
+    seed = mini_seed()
+    v, floor = "soft.prompt.orchestrator", L.load_seed()["vars"]["soft.prompt.orchestrator"]["seed"]
+    assert seed["vars"][v]["floor"] == floor == 80000000
+    raised = 0
+    for it in range(1000):
+        live = _rand_live(rng, seed)
+        live["vars"]["hard.prompt"]["status"] = rng.choice(["supported", "provisional", "unset"])
+        vs = {}
+        for name in (v, "hard.prompt", "soft.prompt"):
+            e = _rand_entry(rng, seed["vars"][name], T0 + it)
+            if e:
+                vs[name] = dict(e, x=[x * rng.choice([0.001, 0.1, 1, 3]) for x in e["x"]])  # mostly far below
+        new, recs, _ = L.apply_proposals(seed, live, props(vs), now=T0 + it)
+        o, h = new["vars"][v], new["vars"]["hard.prompt"]
+        assert o["value"] >= floor and (o["frozen"] is None or o["frozen"] >= floor), it
+        if h["status"] == "supported" and L._eff(h) is not None:
+            assert L._eff(o) <= 0.67 * L._eff(h) or h["frozen"] is not None, (it, o["value"], h)
+            raised += any(r["var"] == "hard.prompt" and r.get("why") == "invariant" for r in recs)
+    assert raised > 10
+    # the seed itself: hard.prompt 100M < 80M / 0.67 is allowed until hard.prompt is supported
+    live = L.live_from_seed(L.load_seed())
+    assert L.enforce_invariants(L.load_seed(), live) == [] and live["vars"]["hard.prompt"]["value"] == 100000000
+    live["vars"]["hard.prompt"]["status"] = "supported"
+    recs = L.enforce_invariants(L.load_seed(), live)
+    assert live["vars"]["hard.prompt"]["value"] == 119402986 and live["vars"][v]["value"] == 80000000, recs
+    live["vars"]["hard.prompt"]["frozen"] = 100000000
+    recs = L.enforce_invariants(L.load_seed(), live)
+    assert [r["decision"] for r in recs] == ["hold"] and live["vars"][v]["value"] == 80000000
 
 
 def test_T3_step_function():
@@ -844,5 +886,13 @@ def test_main_and_session_rows_feed_the_scope_variables(st):
     new, recs, _ch = L.apply_proposals(L.load_seed(), live, ok)
     by = {r["var"]: r for r in recs}
     assert by["soft.prompt"]["decision"] == "step" and new["vars"]["soft.prompt"]["value"] > 33000000
+    assert "soft.prompt.orchestrator" not in doc["vars"]                         # no orchestrator ran
+    # the windows in which an orchestrator ran are the per-type prompt sample
+    rows += [row(f"p{s}", f"o{s}", typ="orchestrator", seg=w, window=w, ts=T0 + 100 * s + w)
+             for s in range(3) for w in (2, 5)]
+    _setup_rows(st, rows)
+    doc = L.build_proposals(L.load_seed())
+    e = doc["vars"]["soft.prompt.orchestrator"]
+    assert e["n"] == 6 and e["sessions"] == 3 and e["x"] == sorted([6.2e7, 6.5e7] * 3)
     assert new["vars"]["soft.session"]["value"] is not None                      # supported: >= 5 sessions
     assert invariants_ok(L.load_seed(), new) == (True, None)
