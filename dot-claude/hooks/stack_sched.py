@@ -36,9 +36,9 @@ med x (1 + w) = hi for provisional types and on med for supported ones, so a pro
 cheaper than its hi allows (an explicit `n` on a node is taken as given: only sec_per_call and ctx are widened).
 Every limit is checked at hi, with a three-way verdict: fits (hi fits), does not fit (even med does not), uncertain
 (med fits, hi does not), the types driving the uncertainty named. Checked: the type's maxTurns and soft token
-limit (ctx per segment), the per-prompt soft limit (33M ctx), the fan-out cap, and an optional user budget
-(`plan --budget N`, in the hook's ctx unit). A type without its own band takes its pool's band; without a pool band
-it is provisional with w = 1.0, a documented heuristic marked unverified.
+limit (ctx per segment), the per-prompt soft limit (33M ctx; 80M with an orchestrator), the fan-out cap, and an
+optional user budget (`plan --budget N`, in the hook's ctx unit). A type without its own band takes its pool's band;
+without a pool band it is provisional with w = 1.0, a documented heuristic marked unverified.
 
 Environment: STACK_SCHED_MODEL (model file), STACK_SCHED_LAMBDA (tokens per second; unset =
 balanced, T_w(baseline)/W(baseline)), STACK_SCHED_TOKEN_SLACK (eps, default 0).
@@ -76,6 +76,7 @@ EXCLUSIVE_TAGS = ("gui", "accel")          # one agent on the screen; one accele
 SPEEDS = {"frugal": 0.25, "balanced": 1.0, "fast": 4.0}
 BLACKCAT_WINDOW_S = 120.0                  # agent_guard.py BLACKCAT_DISPATCH_WINDOW_S: one prompt's dispatches start within it
 SOFT_PROMPT_CTX = 33000000                 # per human prompt (agent_guard.py SOFT_PROMPT_CTX)
+SOFT_PROMPT_CTX_BY_TYPE = {"orchestrator": 80000000}   # while one runs (agent_guard.py, same name)
 UNVERIFIED_W = 1.0                         # safety factor when neither the type nor its pool has a band
 RESUME_WARM_S = 270.0                      # a resume is only warm when the gap is under this
 EXACT_MAX_NODES = 14
@@ -1188,7 +1189,9 @@ def limit_checks(m: Dict[str, Any], used: Sequence[Tuple[Node, Est]], width: int
         if e.ctx_hi > e.ctx_p50:
             contrib[e.type] = contrib.get(e.type, 0.0) + e.ctx_hi - e.ctx_p50
     drivers = [t for t, _ in sorted(contrib.items(), key=lambda kv: -kv[1])]
-    for name, lim in (("prompt", float(SOFT_PROMPT_CTX)), ("budget", budget)):
+    prompt_lim = max([SOFT_PROMPT_CTX] + [SOFT_PROMPT_CTX_BY_TYPE.get(t or "", 0)
+                                          for t in [dispatcher] + [e.type for _, e in used]])
+    for name, lim in (("prompt", float(prompt_lim)), ("budget", budget)):
         if lim is None:
             continue
         v = three_way(tot_med, tot_hi, float(lim))

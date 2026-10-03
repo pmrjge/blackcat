@@ -2170,7 +2170,7 @@ def test_soft_agent_limit_scale_and_unlimited_types(env, sess):
                                extra=dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0")))[1] is None
     assert "soft limit for scout: 390,000" in soft_out(
         budget_run(subagent_ev(s, main, "S1", "scout"), env, extra=SHIPPED))[1]
-    # the orchestrator has no per-agent limit (the prompt limit, 33 at this scale, still applies)
+    # the orchestrator has no per-agent limit (the prompt limit, 80 at this scale, still applies)
     ctx = soft_out(budget_run(subagent_ev(s, main, "O1", "orchestrator"), env,
                               extra=dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0.000001")))[1]
     assert "for this prompt" in ctx and "for this run" not in ctx
@@ -2195,6 +2195,27 @@ def test_soft_prompt_limit_once_per_human_prompt(env, sess):
     dec, ctx = soft_out(budget_run(tool_ev(s, main, "Bash", prompt="p2", command="ls"), env,
                                    extra=extra))                  # a subagent (coder) this time
     assert dec == "allow" and "ask your caller" in ctx
+
+
+
+def test_soft_prompt_limit_80m_while_an_orchestrator_runs(env, sess):
+    """A running orchestrator raises the prompt limit from 33,000,000 to 80,000,000 (x 0.001:
+    33,000 -> 80,000); once it stops, 33,000,000 applies again."""
+    s, main, subs = sess
+    extra = dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0.001")
+    run(prompt_ev(s, main, "p1"), env, extra=extra)
+    run(lifecycle(s, "SubagentStart", "O1", "orchestrator"), env)
+    append(main, call_line("m1", 79999))
+    main_ev = tool_ev(s, main, "Read", agent_id=None, file_path="x")
+    assert soft_out(budget_run(main_ev, env, extra=extra)) == ("allow", None)
+    append(main, call_line("m2", 1))
+    ctx = soft_out(budget_run(main_ev, env, extra=extra))[1]
+    assert "Soft token limit reached for this prompt" in ctx and "soft limit 80,000" in ctx
+    run(prompt_ev(s, main, "p2"), env, extra=extra)
+    run(lifecycle(s, "SubagentStop", "O1", "orchestrator"), env)
+    append(main, call_line("m3", 33000))
+    ctx = soft_out(budget_run(main_ev, env, extra=extra))[1]
+    assert "Soft token limit reached for this prompt" in ctx and "soft limit 33,000" in ctx
 
 
 def test_soft_limits_leave_the_hard_caps_alone(env, sess):

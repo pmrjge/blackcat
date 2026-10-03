@@ -3471,6 +3471,11 @@ def budget_reason(kind, span, used, knob, cap, ev):
 # STACK_SOFT_LIMIT_SCALE (float, default 1) multiplies every soft limit; 0 turns them off. The
 # hard budgets and the MCP call cap are independent of it.
 SOFT_PROMPT_CTX = 33000000
+# The per-prompt soft limit while an agent of one of these types runs (a registry entry not
+# stopped; a copy counts as its base): the largest value applies, never below SOFT_PROMPT_CTX.
+# Set by the user (2026-10-03), not derived: an orchestrator job of up to 10 tasks runs under one
+# human prompt.
+SOFT_PROMPT_CTX_BY_TYPE = {"orchestrator": 80000000}
 _SOFT_BUILDER = 19000000     # builder pool: implementers and domain engineers
 _SOFT_ANALYST = 8700000      # analyst pool: planners, reviewers, research
 _SOFT_LOOKUP = 450000        # lookup pool: one-question agents
@@ -3538,6 +3543,18 @@ def soft_limit(atype, scale=None):
     return int(base * scale) if base and scale > 0 else None
 
 
+def soft_prompt_ctx(d):
+    """The per-prompt soft limit (unscaled): SOFT_PROMPT_CTX, raised to SOFT_PROMPT_CTX_BY_TYPE's
+    value while an agent of a listed type runs."""
+    best = SOFT_PROMPT_CTX
+    for rec in load_registry(d).values():
+        t = norm(rec.get("type"))
+        if not rec.get("stopped"):
+            best = max(best, SOFT_PROMPT_CTX_BY_TYPE.get(t)
+                       or SOFT_PROMPT_CTX_BY_TYPE.get(COPY_BASE.get(t)) or 0)
+    return best
+
+
 def soft_check(st, ev, files, d):
     """Inside budget_update's lock, after the scan: the warning this call carries, or None. Marks
     what it warns about in `st`, so each limit warns once (soft_prompt: the prompt_base it warned
@@ -3550,6 +3567,8 @@ def soft_check(st, ev, files, d):
     base = int(st.get("prompt_base") or 0)
     used = int(st.get("total") or 0) - base
     limit = int(SOFT_PROMPT_CTX * scale)
+    if limit and used >= limit and st.get("soft_prompt") != base:
+        limit = int(soft_prompt_ctx(d) * scale)     # the registry is read only past the base value
     if limit and used >= limit and st.get("soft_prompt") != base:
         st["soft_prompt"] = base
         notes.append("Soft token limit reached for this prompt: the agents of this session have "
@@ -9243,7 +9262,8 @@ def budget_self_test():
 def soft_self_test():
     """Soft limits: every agent type has an entry; a run's segment counts only calls after its
     start; soft_check warns at the limit, once per segment and once per prompt, never for the
-    orchestrator, scaled by STACK_SOFT_LIMIT_SCALE (0 = off)."""
+    orchestrator's own run, scaled by STACK_SOFT_LIMIT_SCALE (0 = off); a running orchestrator
+    raises the prompt limit to SOFT_PROMPT_CTX_BY_TYPE's value."""
     import shutil
     import tempfile
     problems = []
@@ -9276,7 +9296,7 @@ def soft_self_test():
         if subagent_of_file(files, path) != "a1" or subagent_of_file(files, files[0]) is not None:
             problems.append("soft: subagent_of_file does not map agent-<id>.jsonl")
         reg_put(tmp, "a1", {"type": "scout", "started": t0})
-        reg_put(tmp, "o1", {"type": "orchestrator", "started": t0})
+        reg_put(tmp, "o1", {"type": "orchestrator", "started": t0, "stopped": t0 + 1})
         lim = SOFT_LIMITS["scout"]
 
         def st(seg, used=0, run=t0):
@@ -9311,6 +9331,12 @@ def soft_self_test():
         once["files"][path] = {"seg": lim, "seg_run": t0 + 60}
         if not soft_check(once, scout, files, tmp):
             problems.append("soft_check: a resumed run was not warned again")
+        reg_put(tmp, "o1", {}, clear=("stopped",))           # an orchestrator runs again
+        top = SOFT_PROMPT_CTX_BY_TYPE["orchestrator"]
+        for used, want in ((SOFT_PROMPT_CTX, False), (top - 1, False), (top, True)):
+            if bool(soft_check(st(0, used), {}, files, tmp)) != want:
+                problems.append("soft_check: prompt limit with a running orchestrator at %d: "
+                                "expected %s" % (used, want))
     except Exception as exc:  # noqa: BLE001 - report, do not crash
         problems.append("soft limits: %s: %s" % (type(exc).__name__, exc))
     finally:

@@ -674,6 +674,10 @@ def test_three_way_on_budget_prompt_and_max_turns():
     c = {c.name: c for c in S.schedule(big, m, caps={"fanout": 8}).checks}["prompt"]
     assert c.verdict == "does not fit" or c.verdict == "uncertain"
     assert c.hi > S.SOFT_PROMPT_CTX >= c.med or c.verdict == "does not fit"
+    orch = S.load_graph({"dispatcher": "orchestrator",
+                         "nodes": [{"id": "A%d" % i, "a": "coder", "s": "M"} for i in range(8)]})
+    co = {c.name: c for c in S.schedule(orch, m, caps={"fanout": 8}).checks}["prompt"]
+    assert co.limit == S.SOFT_PROMPT_CTX_BY_TYPE["orchestrator"] == 80000000 and co.limit > c.limit
     mt = S.schedule(one(), bmodel(max_turns=40))
     assert {c.name: c for c in mt.checks}["maxTurns:A"].verdict == "uncertain"       # med 30 <= 40 < hi 45
     assert S.schedule(one(), bmodel(max_turns=20)).verdict == "does not fit"
