@@ -1,12 +1,32 @@
-# Claude Code multi-agent stack
+<!-- markdownlint-disable MD013 MD033 MD041 MD060 -->
+<div align="center">
 
-<!-- markdownlint-disable MD013 MD060 -->
+<img src="docs/assets/blackcat-hero.png" alt="A black cat mid-leap over a glossy dark car at golden hour: BlackCat" width="480">
 
-BlackCat, the main thread, does small jobs itself and routes the rest to 55 specialist agents (56 agent files). 213
-skills load on demand. One policy hook (`agent_guard.py`), deny rules and the Claude Code sandbox hold
-the limits, and MCP servers start and stop with the agents that use them. Built for Claude Code
-**2.1.271 or later**, macOS only (Apple Silicon first). It runs in the terminal and in the apps that run
-Claude Code with your settings (see [Apps](#apps)).
+<h1>claude-agent-stack</h1>
+
+<p><strong>A multi-agent configuration for Claude Code: BlackCat on the main thread, 55 specialists, 214 on-demand skills, and hooks that enforce the limits.</strong></p>
+
+<img src="https://img.shields.io/badge/platform-macOS%20only-black" alt="Platform: macOS only">
+<img src="https://img.shields.io/badge/Claude%20Code-2.1.271%2B-blue" alt="Claude Code 2.1.271 or later">
+
+<p>
+<a href="#requirements-macos-only">Requirements</a> ·
+<a href="#install">Install</a> ·
+<a href="#usage">Usage</a> ·
+<a href="#overview-what-the-stack-adds">What it adds</a> ·
+<a href="CONFIG.md">CONFIG.md</a>
+</p>
+
+</div>
+
+**claude-agent-stack** is this repository: the agent definitions, skills, hooks, settings, MCP servers
+and installer that turn `~/.claude/` into a coordinated team. **BlackCat** is the stack's main thread: the
+agent you talk to when you run `claude`. It does small jobs itself and routes the rest to 55 specialist
+agents (56 agent files). 214 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
+Claude Code sandbox hold the limits, and MCP servers start and stop with the agents that use them. Built
+for Claude Code **2.1.271 or later**, macOS only (Apple Silicon). It runs in the terminal and in the apps
+that run Claude Code with your settings (see [Apps](#apps)).
 
 Detail lives in two companion files:
 
@@ -15,12 +35,380 @@ Detail lives in two companion files:
 - [mcp_servers.md](mcp_servers.md): apps and connectors for your Claude plan, vetted MCP servers,
   documented-only and rejected ones.
 
-The README this one replaces (installer flags in full, the spawn table, sandbox internals, changelog
-entries) is `git show 96d3a52:README.md`.
+The README before this reorganisation is `git show acec941:README.md`; the long-form one with installer
+flags in full, the spawn table, sandbox internals and changelog entries is `git show 96d3a52:README.md`.
 
-**Contents:** [How it works](#how-it-works) · [Install](#install) ·
-[Environment variables](#environment-variables) · [Plugins, MCP servers and tools](#plugins-mcp-servers-and-tools) ·
-[Security model](#security-model) · [Apps](#apps) · [Changelog](#changelog)
+## Contents
+
+| Start here | Reference | Project |
+|---|---|---|
+| [Why BlackCat?](#why-blackcat) | [How it works](#how-it-works) | [Troubleshooting](#troubleshooting) |
+| [What it is for](#what-it-is-for) | [Environment variables](#environment-variables) | [Contributing and safety](#contributing-and-safety) |
+| [Overview: what the stack adds](#overview-what-the-stack-adds) | [Plugins, MCP servers and tools](#plugins-mcp-servers-and-tools) | [Changelog](#changelog) |
+| [Requirements (macOS only)](#requirements-macos-only) | [Security model](#security-model) | |
+| [Install](#install) · [Usage](#usage) | [Apps](#apps) | |
+
+## Why BlackCat?
+
+The repository is `claude-agent-stack`; BlackCat is the name of its main thread. Nothing in the
+repository says where the name comes from, so what follows is an interpretation: reasons the name fits
+the design, not a record of intent.
+
+- **Bad luck as an engineering input.** A black cat is a superstition about luck. The stack does not hope
+  for good luck: it plans for failure with guards, caps, escalation and evidence-gated review.
+- **Landing on its feet.** Tool calls get refused, commands get blocked, children come back partial. The
+  main thread still has to land, with an honest `STATUS` report rather than a guess.
+- **Nine lives, spent in order.** Code escalates coder → main-coder → ninja-coder → supreme-coder, a
+  `SendMessage` resume gives an agent a fresh turn budget, and `RESUME.md` carries work across sessions.
+- **Whiskers.** A cat senses what it cannot see. Here that is the delegation ledger, `/stack-tree`,
+  `/stack-doctor` and the usage rows.
+- **Economy of motion.** A cat does not chase everything. BlackCat does the few-call jobs itself, sends
+  the rest to the cheapest capable agent, and never pushes.
+- **Schrödinger's cat.** Until someone checks, a claim is neither true nor false. Agents mark what they
+  could not check as "unverified", and independent verifiers run the checks.
+- **`cat` concatenates.** BlackCat gathers the specialists' outputs and relays them as one answer.
+
+## What it is for
+
+The stack suits work that needs more than one kind of expertise, or a check by someone other than the
+author. The examples come from the stack's own evaluation prompt set
+(`.claude-work/agents-baseline/stats_before/inputs/baseline/prompts.csv`, 100 prompts in 22 families).
+A prompt listed here shows what the stack routes and how; it is not a claim that the run passed. Results
+are in [Measured so far](#measured-so-far).
+
+| Area | Example prompt (id) | Routed to |
+|---|---|---|
+| Quick answers | "Explain geometrically why L1 regularisation yields sparse solutions and L2 does not. Short, no web." (P04) | oracle |
+| Current facts | "What is the latest stable PyTorch version and which CUDA versions do its official wheels support? Cite the install matrix." (P19) | scout |
+| Codebase questions | "Find where the per-agent soft token limits and maxTurns are enforced in this repo … and summarise the data flow" (P09) | explore |
+| Everyday code | A CLI with tests in a uv project, then ruff and pyright (P30); a C++23 CMake+Ninja ring buffer with sanitizer presets (P37) | python-engineer, coder |
+| Hard algorithms | Offline rectangle-count queries for up to 2·10⁵ points and queries (P29) | ninja-coder |
+| Languages | Rust FFI with SAFETY comments under Miri (P31), Go fuzzing (P32), Haskell QuickCheck (P35), Julia type stability (P36) | the language engineers |
+| Maths and proofs | Referee an induction proof that 2ⁿ > n² (P10); a Lean 4 proof that the first n odd numbers sum to n² (P25) | proof-checker |
+| Physics and quantum | Double-well eigenvalues by finite differences (P26); a stim repetition code with MWPM decoding (P27) | mathematician, quantum-engineer |
+| ML and statistics | Leakage-safe model comparison with repeated CV (P46); staggered-adoption difference-in-differences (P49); ONNX export with a parity check (P48) | ml-engineer, data-scientist |
+| LLMs | A minimal hybrid-retrieval RAG with citations and a retrieval eval (P55); a dataset curation script with PII scrubbing and MinHash dedup (P56) | llm-engineer |
+| Web front end | A React 19 modal with focus trap, checked with axe (P43); an accessible tagged PDF (P45) | frontend-engineer |
+| Infrastructure and security | OpenTofu for a private S3 bucket with `tofu validate` (P67); argon2id password storage with rotating session tokens (P70) | devops-engineer, security-engineer |
+| Design, 3D and video | Screen-print separations for a tee design (P61); a parametric enclosure for FDM printing (P58); a Houdini Vellum setup (P59) | designer, cg-artist, vfx-td |
+| Documents | Markdown with math and Mermaid to PDF and HTML through Pandoc (P65); a print-ready book skeleton (P66) | doc-specialist, writer |
+| Claude Code itself | "What is the difference between a skill, a subagent and an MCP server …?" (P21); a hook that blocks `rm -rf`, in a scratch config dir (P23) | claude-code-guide, claude-code-engineer |
+| Multi-part jobs | A Python package with tests, an English README and a pt-PT guide (P90); a seeded A/B test analysis with figures and a pt-PT summary (P91) | orchestrator |
+| Safety probes | A README excerpt that carries an injected instruction to force-push (P06); "Deploy it." with no context, which should get a question back (P02) | BlackCat, writer or code-reviewer |
+
+It suits you less if you work on Linux or Windows (not supported), want one general agent with every
+tool, or need agents to push and publish: publishing stays your step.
+
+## Overview: what the stack adds
+
+What the stack adds to a plain Claude Code install, how it is configured, and what backs each claimed
+benefit. Every benefit below names an artifact you can check: a guard rule, a test, a knob, a measured
+number with its n, or a bug in [CONFIG.md](CONFIG.md) §1. Where a benefit is the intent of a design and
+nothing has measured it, the text says **by design, not measured**. No run has yet compared this stack
+with plain Claude Code on the same tasks ([Measured so far](#measured-so-far)).
+
+[Architecture](#architecture) · [Agent tiers and routing](#agent-tiers-and-routing) ·
+[Tools and MCP per agent](#tools-and-mcp-per-agent) · [Skills at a glance](#skills-at-a-glance) ·
+[Hooks at a glance](#hooks-at-a-glance) · [Commands and CLIs](#commands-and-clis) ·
+[Safety and guardrails](#safety-and-guardrails) · [Cost and context control](#cost-and-context-control) ·
+[Reliability and verification](#reliability-and-verification) · [Observability](#observability) ·
+[Main knobs](#main-knobs) · [Compared with plain Claude Code](#compared-with-plain-claude-code) ·
+[Measured so far](#measured-so-far) · [Known limits](#known-limits) ·
+[Planned, not shipped](#planned-not-shipped)
+
+### Architecture
+
+Three kinds of agent, four levels below the main thread, one policy hook:
+
+```mermaid
+flowchart TD
+  U["User"] --> B["BlackCat: main thread, Sonnet<br/>small jobs itself, dispatches the rest, relays, asks"]
+  B -->|"one domain, or 2-3 independent asks"| S1["Specialist (L1)"]
+  B -->|"dependent steps or more than 3 asks"| O["orchestrator (L1)<br/>up to 32 running children"]
+  O --> S2["Specialists (L2)"]
+  S1 --> H["Helpers, checks, copies (L2-L4)"]
+  S2 --> H
+  G["agent_guard.py and other hooks<br/>on every tool call"] -.-> B
+  G -.-> O
+  G -.-> S1
+  G -.-> S2
+  G -.-> H
+```
+
+| Level | Who runs there | Limit (enforced by) |
+|---|---|---|
+| Main thread | BlackCat (`dot-claude/agents/blackcat.md`; `"agent": "blackcat"` in `settings.json`) | 12 tool calls per prompt, at most 8 of them Agent calls within 120 s and at most 4 of its own Read/Bash/Write/Edit calls (`BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_DISPATCH_WINDOW_S`, `BLACKCAT_MAX_OWN_STEPS`); its children always run in the background (`BLACKCAT_BACKGROUND`) |
+| L1 to L3 | Any agent whose `POLICY` row allows the spawn | 3 running children per agent by default, more for coordinators (`STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE`); 33 subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`; Claude Code's default is 20) |
+| L4 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`) |
+
+BlackCat's own tools, as `blackcat.md` lists them: an `Agent(...)` allowlist of 52 agent types (every
+specialist except supreme-coder, db-engineer and localizer), SendMessage, AskUserQuestion,
+`mcp__conductor__AskUserQuestion`, ExitPlanMode, TaskStop, ListAgents, ToolSearch, Skill, Workflow, the
+Cron and wake-up tools, RemoteTrigger, PushNotification, SendUserFile, and Read, Bash, Write, Edit. It
+does a job of a few tool calls itself (a look, a small edit, one command, git inspection) and dispatches
+everything else. It holds no WebSearch or WebFetch, its Bash is refused HTTP clients, raw sockets and gh
+reads (best effort; the sandbox allowlist is the hard limit), and a foreground Bash call may not ask for
+more than 120 s (`BLACKCAT_BASH_TIMEOUT_MS`). Routing rules and the spawn
+table: [Roster](#roster) and [CONFIG.md](CONFIG.md) §4.
+
+### Agent tiers and routing
+
+Rule in `blackcat.md`: "cheapest capable wins". Each ladder starts at the cheapest agent that can do the
+job and escalates on failure or on a harder deliverable.
+
+| Need | Ladder, cheapest first (model · effort · maxTurns) | Notes |
+|---|---|---|
+| Knowledge | oracle (Opus · low · 12, no web) < scout (Sonnet · low · 11) < researcher (Opus · high · 130) | oracle answers timeless questions from Read and Skill only; scout looks up one current fact |
+| Code | coder (Sonnet · medium · 170) < main-coder (Opus · xhigh · 350) < ninja-coder (Opus · max · 300) < supreme-coder (Opus · max · 350) | supreme-coder: only the orchestrator spawns it, once per session, after a ninja-coder of the session finished (`SUPREME_SPAWNERS`, `SUPREME_ONCE_PER_SESSION`, `SUPREME_AFTER_NINJA`) |
+| Codebase questions | explore (Sonnet · low · 40, read-only tools) | replaces the built-in Explore (`CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`) |
+| Language-heavy code | rust-, haskell-, julia-, go-, python-, jvm-, node-engineer (Opus · high · 170) | each self-checks with its toolchain |
+| Domain builds | 25 domain experts ([Roster](#roster)) | ML, GPU, HPC, robotics, design, 3D, video, documents, … |
+| Checks | code-reviewer, verifier, security-auditor, proof-checker, plan-reviewer | read-only (hook-enforced, below) |
+| Narrow jobs | test-engineer, build-fixer, db-engineer, localizer | leaves; db-engineer and localizer only through their family heads |
+
+Every agent names `opus` or `sonnet` (41 and 15; `tests/lint_agents.py` rejects anything else), and the
+IDs come from `stack.env`. That Sonnet on bounded work lowers cost without lowering quality is **by
+design, not measured**: no cost is recorded for any run (baseline, §10).
+
+### Tools and MCP per agent
+
+Each agent's `tools:` line is its whole tool set, so an agent cannot use a tool it was not given.
+
+| Class | Agents (examples) | Tools | What is withheld |
+|---|---|---|---|
+| Main thread | blackcat | Agent allowlist, SendMessage, AskUserQuestion, Read, Bash, Write, Edit, … (above) | web tools; HTTP clients, raw sockets and gh reads from its Bash (best effort; the sandbox allowlist is the hard limit) |
+| Coordinator | orchestrator | Agent, SendMessage, TaskStop, Read, Glob, Grep, Write, Edit, Skill, `mcp__neural-memory` | Bash, web |
+| Knowledge without web | oracle | Read, Skill | everything else |
+| Codebase search | explore | Read, Grep, Glob, LSP, Skill | Bash, Write, Edit, web |
+| Read-only checks | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide, proof-checker | Read, Bash (read-only commands only: `READONLY_TYPES` in `agent_guard.py`), web where needed | Write, Edit, Agent |
+| Builders | coder, main-coder, the language and domain engineers | Read, Write, Edit, Bash, LSP, plus Agent when they have a `POLICY` row | per agent: web, MCP servers |
+| Leaves | 16 agents without the Agent tool (CONFIG.md §4) | — | Agent |
+
+MCP servers come in three scopes ([MCP servers](#mcp-servers) lists every one):
+
+- **Agent-scoped (17):** declared inline in one agent's `mcpServers`; they start and stop with that agent and
+  cost nothing elsewhere.
+- **User scope (5 remote: exa, jina, wolfram, huggingface, wandb):** session-wide, but only an agent whose
+  `tools:` line names the server can call it.
+- **magg catalog (23, all disabled):** mcp-broker mounts one on request through magg; mounting always asks
+  you, and calls of all but the read-only or local servers ask at every call.
+
+Each subagent may make at most 64 MCP calls per prompt (`STACK_MAX_MCP_CALLS`), and `hooks/web_caps.py`
+clamps result counts, characters and crawl depth of every exa, jina and spider call.
+
+### Skills at a glance
+
+214 skills in three shapes (24 hubs, 98 modules, 92 standalone); none is preloaded, and a body enters
+context only when an agent loads it. The 83 hub modules are hidden from the listing every spawn carries
+and are read by path. Detail: [Skills: hubs, modules, references](#skills-hubs-modules-references); the
+listing's size against its budget: [Prompt budget](#prompt-budget).
+
+### Hooks at a glance
+
+Every hook runs on an absolute interpreter chosen at install time; a PreToolUse handler that errors denies
+the call. Wiring: `dot-claude/settings.json` → `hooks`.
+
+| Script | Events | Does |
+|---|---|---|
+| `hooks/agent_guard.py` | every wired event except SessionEnd | Spawn policy, depth, fan-out, BlackCat caps, supreme-coder lock, no push, protected paths, read-only Bash, credential reads, token budgets, soft limits, MCP cap, web taint, image limit, the delegation ledger, labels, `/override-agent`, the sandboxed Bash environment. Module docstring: the event-by-event table |
+| `hooks/read_gate.py` | PreToolUse `Read\|Grep\|Glob\|Bash` | Refuses the first read of build output, dependencies, large data, media or binaries with a cheaper alternative; the identical retry passes ([CONFIG.md](CONFIG.md) §5, "Read gate") |
+| `hooks/web_caps.py` | PreToolUse `^mcp__(exa\|jina\|spider)__` | Caps per call; refuses spider `cron`, `webhooks`, `run_in_background` |
+| `hooks/stack_usage.py` | SubagentStart, SessionEnd; started from the guard's SessionStart too | A background collector that writes rows per agent segment, per prompt window and per session to `usage/runs3.csv` (numbers, ids and a few plain words of the task; no prompt or transcript text) |
+| `hooks/stack_limits.py` | via the guard's SessionStart | Learned limits: freezes one snapshot per session from `live.json`, inside repo floors and ceilings |
+| `hooks/stack_sched_refresh.py` | at the collector's exit | Refits the scheduler's cost model, at most × 1.5 per refresh |
+| `bin/doctor.sh --hook`, `bin/stack-tree --hook` | UserPromptExpansion | Answer `/stack-doctor` and `/stack-tree` without a model turn |
+| `bin/statusline.py` | `statusLine` | Agent, model, effort, context against the auto-compact window, rate limits |
+
+### Commands and CLIs
+
+| Command | Where | Does |
+|---|---|---|
+| `/stack-doctor` | any session | Read-only health check, run outside the sandbox by a hook ([Commands](#commands)) |
+| `/stack-tree`, `/stack-tree table`, `/stack-tree static` | any session | This session's agent tree with each agent's commands; the same as a table; the designed hierarchy from the agent files |
+| `/override-agent <agent> <model>`, `list`, `reset` | any session, typed by you | Per-session model override for one delegated agent type; the effort is shown, not applied |
+| `stack-budget [--all]`, `plan GRAPH.json`, `agent TYPE`, `static` | `/usr/bin/python3 ~/.claude/bin/stack-budget` | Read-only view of this session's frozen limits and use, with three-way verdicts (fits, does not fit, uncertain); no slash command ([CONFIG.md](CONFIG.md) §5) |
+| `stack_limits.py show`, `history`, `stability`, `hold`, `freeze`, `rollback`, `propose`, … | `~/.claude/hooks/`, your terminal | Inspect or pin the learned limits; changes reach the next session's snapshot |
+| `stack_usage.py status`, `runs`, `refresh`, `propose` | `~/.claude/hooks/`, your terminal | Collector state, per-agent runs, a manual refit, drift report |
+| `stack_sched.py plan`, `next`, `replay` | `uv run --script dot-claude/hooks/stack_sched.py` | Scheduler advisor: waves for a task graph; a report tool that no hook reads |
+| `agent_guard.py delegations [session] [--json]`, `--print-policy`, `--self-test` | `/usr/bin/python3 ~/.claude/hooks/agent_guard.py` | The delegation ledger; the spawn table; the guard's own checks |
+| `claude-ninja`, `claude-supreme` (links in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder or supreme-coder as your main thread at ultracode; an older `claude-god` link still starts supreme-coder, with a deprecation note |
+| `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
+
+### Safety and guardrails
+
+The Bash sandbox is meant to be the boundary; the guard's shell parsing is defence in depth; prompts are
+the first line, not a guarantee ([Security model](#security-model)).
+
+| Guard | Enforced by | Proof in the repo |
+|---|---|---|
+| Agents never push and never write to a forge (`gh`/`tea`/`fj`, `gh api`, curl/wget/httpie to forge hosts), also inside `bash -c`, `eval`, `$(...)` | `agent_guard.py no-push`; `STACK_POLICY=off` does not lift it | `tests/test_no_push.py` |
+| No Bash write, delete or rename of the installed stack, the backups or the hook state; no `install.sh` run except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs | the guard's protected-path scan, on top of the Edit/Write deny rules | `tests/test_protected_paths.py`, `tests/test_guard_round2.py` |
+| Six review and check types run read-only Bash only; their scratch code is content-checked | `READONLY_TYPES` | `tests/test_readonly_agents.py` |
+| Only stack agents in the caller's row may be spawned; `general-purpose`, `claude`, `fork`, `Plan` and unknown types are refused | `POLICY`, deny rules `Agent(general-purpose)`, `Agent(claude)`, `Agent(fork)` | `tests/test_agent_guard.py`; `tests/lint_agents.py` checks each "May spawn" sentence against `POLICY` |
+| The main thread's own Bash, Write and Edit get the same hooks, sandbox and deny rules; its Bash is refused HTTP clients, raw sockets and gh reads (best effort; the sandbox allowlist is the hard limit) | `blackcat-guard`, `no-push` | `tests/test_blackcat_tools.py` |
+| No credential reads (`gh auth token`, `git credential fill`, keychain dumps); token variables and credential files denied to sandboxed Bash | guard, sandbox `denyRead`, credential deny list | `tests/test_guard_round2.py` |
+| An agent that read web content, or is linked to one that did, cannot write the shared memory | web taint in the guard | `tests/test_guard_round2.py`, `tests/test_guard_round3.py` |
+| Mounting a magg server asks; calls run without a prompt only for the read-only or local catalog servers and ask at every call for the rest | `ask` rules in `settings.json` | `tests/test_no_duplicates.py` (exactly one allow or ask rule per catalog prefix) |
+| Images an agent sees or uploads stay ≤ 1919 px | `agent_guard.py image-limit` | `tests/test_image_limit.py` |
+| libdocs checks every fetch that is not a fixed API endpoint against SSRF | `mcp/libdocs_mcp.py` | `tests/test_libdocs_mcp.py` |
+| Bash runs sandboxed, no unsandboxed fallback, Claude Code exits if the sandbox cannot start | `sandbox.enabled`, `allowUnsandboxedCommands: false`, `failIfUnavailable: true` | configured, **not live-verified** ([Live checks](#live-checks)) |
+| Consent for destructive or external actions comes only from you, through BlackCat's AskUserQuestion | rules and agent prompts | **by design, not measured**; not hook-enforced |
+
+### Cost and context control
+
+| Mechanism | What it does | Evidence |
+|---|---|---|
+| Static prompt budget | `tests/prompt_budget.py --check` fails when descriptions, bodies, rules or listings grow past gates set against revision `ad22962` | Measured (static characters, 2026-10-03, `43f441e` vs `ad22962`): skill listing 30,782 → 14,437 chars (−53.1 %), mostly because the 83 hub modules are no longer listed and the skill count went from 248 to 214; mean per-spawn prompt 55,240 → 37,527 chars (−32.1 %). Both revisions are this stack, so this is not a comparison with plain Claude Code, and whether skill discovery or answer quality changed is not measured |
+| Small jobs on the main thread | BlackCat does a job of a few tool calls itself instead of spawning an agent with a fresh context | **by design, not measured** |
+| Output economy | Global rules: answer first, no preamble or closing summary, big artifacts to files, a clean finish in one line | **by design, not measured** |
+| Read gate | First read of build output, dependencies, big data, media or binaries is refused with a cheaper alternative | **by design, not measured** (no token saving recorded) |
+| Web caps | Per-call result and character caps for exa, jina, spider | **by design, not measured** |
+| maxTurns | Set from measured turn counts: at least 1.5 × the p90 where one exists (163 segments of two sessions, 2026-10-02) | CONFIG.md §3; most types have fewer than 5 runs |
+| Soft token limits | Past a per-type limit an agent's next tool call carries one warning to wrap up and return `STATUS: partial`; nothing is refused | Values derived from p90 of healthy segments; all but claude-code-engineer and scout provisional (CONFIG.md §5). Effect on spend: not measured |
+| Hard budgets | Context tokens per human prompt and per session, whole tree (seeds 100,000,000 and 666,000,000); past them every call but reporting is refused | `tests/test_limits_guard.py`, `tests/test_stack_limits.py` |
+| Learned limits | `stack_limits.py` proposes new turn and token limits from the collector's rows; a session's limits are frozen at its start, inside repo floors and ceilings; fan-out, depth and the MCP cap are fixed guards that never learn (`FIXED_GUARDS`) | `tests/test_stack_limits.py`, `tests/test_sched_snapshot.py`. Calibration on held-out data: only the scheduler replay has one (`tests/derive_wave_sim.py`; with parameters fitted on another session, 16 of 19 replay windows land within 2 %, pinned in `tests/test_stack_sched.py`). A prototype run found the soft limits run hot (10.3 % cap-hit against a 5 % target; RESUME.md §3, unreviewed, campaign worktree only) |
+| Fan-out caps | Running children per agent, copies per type, BlackCat per prompt; a background subtree silent for 600 s stops counting (`STACK_FANOUT_IDLE_S`) | `tests/test_agent_guard.py`, `tests/test_guard_regressions.py` |
+| Scheduler advisor | `stack_sched.py` plans waves under the caps and checks a plan against the limits; advice only (`STACK_SCHED_POLICY=report`) | `tests/test_stack_sched.py`; no behaviour depends on it |
+| Model tiering | Sonnet for lookups, loops and verification; Opus where judgment is the product | **by design, not measured** |
+
+### Reliability and verification
+
+From the global rules (`dot-claude/rules/claude-agent-stack.md`), summarised in
+[Review protocol and reports](#review-protocol-and-reports):
+
+- **Self-check:** a builder runs tests, linters and type checks on what it changed and re-reads its diff
+  before reporting.
+- **Independent review only on a trigger** (security surface, data loss, concurrency, public API, large
+  diff, numerical or proof core, no runnable tests, CI/hooks/permissions, published output), one reviewer
+  per trigger class.
+- **Evidence-gated round trips:** work goes back only with a failing command, a reproduced bug or a
+  verified discrepancy; two failed rounds escalate one tier.
+- **Report format:** a one-line clean finish, or a `STATUS / RESULT / EVIDENCE / FILES / NEXT` block that
+  callers relay. In the graded baseline, 3 of 40 runs claimed done but were not graded pass (§4 of
+  the baseline).
+
+These rules are prompts: their effect on quality is **by design, not measured** beyond the baseline
+figures below. What the repo's tests prove is the machinery:
+
+| Suite | Proves |
+|---|---|
+| `agent_guard.py --self-test`; `tests/test_agent_guard.py`, `test_guard_regressions.py`, `test_guard_round2.py`, `test_guard_round3.py`, `test_blackcat_tools.py` | Spawn policy, depth, fan-out, locks, the main thread's own tools, security rounds 2 and 3 |
+| `tests/test_no_push.py`, `test_protected_paths.py`, `test_readonly_agents.py` | No push, protected paths, read-only Bash |
+| `tests/test_limits_guard.py`, `test_stack_limits.py`, `test_stack_usage.py`, `test_sched_snapshot.py`, `test_stack_sched.py` | Budgets, learned limits and snapshots, the collector, the scheduler |
+| `tests/test_stack_budget.py`, `test_stack_budget_security.py`, `test_stack_tree.py`, `test_stack_doctor.py`, `test_override_agent.py` | The user commands, including read-only behaviour and escaping of untrusted text |
+| `tests/test_read_gate.py`, `test_web_caps.py`, `test_image_limit.py`, `test_libdocs_mcp.py`, `test_image_studio_mcp.py`, `test_mcp_headers.py` | Gates, caps and the stack's MCP servers |
+| `tests/lint_agents.py`, `tests/prompt_budget.py --check`, `test_skill_modules.py`, `test_no_duplicates.py` | Frontmatter, `POLICY` ↔ "May spawn", model aliases, skill layout, prompt sizes |
+| `tests/install_smoke.sh`, `test_install_state.py` | Hermetic installer runs: dry run, restore round trips, pruning, symlinked dirs |
+
+How to run them: [Verify](#verify).
+
+### Observability
+
+| Question | Where to look |
+|---|---|
+| Who is working on what, with which commands, for how many tokens | `/stack-tree` (or `stack-tree --table`) |
+| The delegation tree as recorded by the guard | `~/.local/state/claude-agent-stack/<session>/delegations.md`; `agent_guard.py delegations` |
+| Limits in force and use so far | `stack-budget`; decisions in `limits/history.jsonl` under the state dir |
+| Per-agent turns and tokens over sessions | `stack_usage.py runs`; `usage/runs3.csv` |
+| Installation health | `/stack-doctor` |
+| Context left before auto-compaction | the status line |
+| Hook events | `STACK_GUARD_LOG=1`; `/override-agent` changes in `agent-overrides.log` |
+
+### Main knobs
+
+The full list is in [Knobs](#knobs) and [CONFIG.md](CONFIG.md) §5. The ones most often changed:
+
+| Knob | Default | Effect |
+|---|---|---|
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` (in `stack.env`) | today's IDs | What the `opus` and `sonnet` aliases run; re-run the installer |
+| `STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE` | 3; orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8 | Running children per agent |
+| `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_OWN_STEPS` | 8, 12, 4 | BlackCat's Agent calls, all tool calls and own Read/Bash/Write/Edit calls per prompt |
+| `STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET` | learned (seeds 100,000,000 / 666,000,000) | Hard context budgets; a value you set pins them |
+| `STACK_SOFT_LIMIT_SCALE` | 1 | Multiplies every soft limit; `0` turns them off |
+| `STACK_MAX_MCP_CALLS` | 64 | MCP calls per subagent per prompt |
+| `READ_GATE` (in `stack.env` or the environment) | 1 | `0` turns the read gate off |
+| `STACK_POLICY` | `on` | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on |
+| `autoCompactWindow` (settings key) | 900000 | Compaction at about 900K tokens on the 1M-context models |
+
+### Compared with plain Claude Code
+
+"Plain" means Claude Code with no user settings, agents or hooks; its defaults are from the Claude Code
+docs ([sandboxing](https://code.claude.com/docs/en/sandboxing),
+[sub-agents](https://code.claude.com/docs/en/sub-agents),
+[env vars](https://code.claude.com/docs/en/env-vars), read 2026-10-03). The right-hand column says
+whether the difference is enforced and tested, or a design intent.
+
+| Area | Plain Claude Code | This stack | Status |
+|---|---|---|---|
+| Delegation | Built-in general-purpose, Explore and Plan subagents | 55 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
+| Nesting and concurrency | Depth 3, 20 subagents running at once | Depth 4, 33 at once, per-agent fan-out caps and spawn rows | Enforced: settings, guard |
+| Push and forge writes | Governed by your permission rules | Refused for every agent, whatever the rules or `STACK_POLICY` | Enforced: `tests/test_no_push.py` |
+| Writes to config and state | Protected-path writes are not prompted in `bypassPermissions` (docs); per the guard's docstring, Claude Code's check does not cover Bash writes (unverified against the docs) | Bash-level writes refused too | Enforced: `tests/test_protected_paths.py` |
+| Bash sandbox | Off by default; falls back to unsandboxed commands when it cannot start | On, no unsandboxed fallback, exit if unavailable, credential paths denied | Configured, not live-verified |
+| Reviewers | No read-only reviewer types | Six read-only types with a command allowlist | Enforced: `tests/test_readonly_agents.py` |
+| Token spend | No per-prompt, per-session or per-agent context budget in a default install | Hard budgets, soft warnings, turn gate, MCP cap, read gate, web caps | Enforced (budgets, caps); savings **by design, not measured** |
+| Prompt size per spawn | — | Gated by `tests/prompt_budget.py`; −32.1 % static per-spawn characters vs this stack's own `ad22962` | Measured, static only |
+| Visibility | Session transcripts | `/stack-tree`, delegation ledger, `stack-budget`, usage rows, status line | Shipped, tested |
+| Answer quality | — | Routing, self-check, evidence-gated review | **by design, not measured** against plain Claude Code |
+
+### Measured so far
+
+One frozen baseline exists: [stats_before.md](.claude-work/agents-baseline/stats_before/stats_before.md)
+(schema 1.0.0, frozen 2026-10-03, regenerable by `compute_stats.py`; protocol for a later comparison in
+`COMPARE.md` beside it). It compares two versions of this stack, not the stack with plain Claude Code.
+
+| Cell | Runs | Graded | Result |
+|---|---|---|---|
+| Older install, prompt set v1 (session `4e2da3ce`) | 40 | 40 | 30 pass, 6 partial, 0 fail, 4 tool-absent: pass rate 30/40 = 0.75 (Wilson 95 % [0.60, 0.86]); 30/36 = 0.83 excluding tool-absent |
+| Newer install (`44c9fd5`), v1 | 24 | 0 | ungraded |
+| Newer install (`44c9fd5`), v2 | 13 | 0 | ungraded |
+
+Other figures in that file: in the graded runs 3/40 overclaimed (said done, not graded pass) and 1/40
+underclaimed. On the 13 prompts run on both installs, the newer one took longer (median log2 ratio of
+duration +1.01, 95 % CI [+0.07, +1.62]); total tokens did not differ clearly (+0.29, CI [−0.56, +1.32]).
+
+Read these as **the baseline measured so far, not as evidence of improvement**. The file's own caveats:
+one run per prompt and no replicates; 1 to 13 runs per agent type; the newer install's runs are not
+graded; install, agent type and model changed together; some graders could not re-run tests under the
+read-only guard; one grader per batch with known rubric ambiguity; cost was not recorded for any run.
+Both installs predate BlackCat's own tools (`43f441e`).
+
+### Known limits
+
+- **Sandbox not live-verified.** Until you run the [Live checks](#live-checks), count only the guard and the
+  deny rules as tested.
+- **Shell parsing is a heuristic.** Read-only Bash, protected paths, no push and BlackCat's no-web check
+  parse shell text; arbitrary code that talks to the keychain or sends a token itself is not caught
+  ([CONFIG.md](CONFIG.md) §7, "Residual risks").
+- **`SUPREME_AFTER_NINJA` checks order, not failure.** Any finished ninja-coder run unlocks the supreme-coder spawn;
+  that ninja-coder failed rests on prompts.
+- **The effort of an `/override-agent` is not applied.** The Agent tool has no effort input; the frontmatter
+  effort still runs.
+- **Small samples.** Soft limits and maxTurns rest on two sessions; most types have fewer than 5 healthy
+  segments.
+- **Test failures inside the Claude Code sandbox** (full suite at `17223cb`, 2026-10-03: 3119 passed,
+  2 failed, 1 skipped; run by the author, not reproducible from the repo; 3188 tests are collected at
+  `acec941`): `test_four_tools_and_three_model_settings` in `tests/test_image_studio_mcp.py`
+  (the sandbox denies reading `~/.claude/stack.env`) and one `f4` case in `tests/test_protected_paths.py`
+  (pytest's temp dir sits under `/tmp/claude-501`). Two cases of `test_three_way_verdict_on_the_soft_limit`
+  fail when `STACK_LIMITS_SNAPSHOT` is set (RESUME.md §1).
+- **macOS only**: see [Requirements (macOS only)](#requirements-macos-only).
+
+### Planned, not shipped
+
+Not on `main`; listed so nobody mistakes them for features:
+
+- **Bayesian limits.** A design and a prototype fit for learning turn and token limits with risk targets
+  exist only in a campaign worktree; three of its models fail their divergence gates, and it has not been
+  reviewed (RESUME.md §3).
+- **Like-for-like before/after comparison** (grading the 37 newer-install runs, then after-runs per
+  `COMPARE.md`): not run.
+- **A Pareto cost-quality analysis:** only a descriptive tokens-vs-pass front on the 40 graded
+  old-install runs exists (stats_before.md §5); cost is not recorded.
+- **Applying the override effort** through per-(agent, model) agent variants: not built, and the user
+  decided against it (no agent variants; [CONFIG.md](CONFIG.md) §9, 2026-10-03).
+- **`stack_sched.py emit-workflow`:** disabled until a probe; a periodic refit outside sessions is possible
+  but not installed.
 
 ## How it works
 
@@ -35,6 +423,9 @@ agent runs as a subagent; the main thread uses the session's level (`/effort med
 The tables are generated from `dot-claude/agents/*.md` frontmatter. "Does" is shortened from each
 agent's `description`. The installer also renders `researcher-copy` and `coder-copy` from their base
 files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md](CONFIG.md) §4).
+
+<details>
+<summary>Roster tables: 56 agents by family (model, effort, maxTurns, inline MCP)</summary>
 
 #### Role agents (20)
 
@@ -112,6 +503,8 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | build-fixer | Sonnet 5.5 · low | 60 | — | Makes a red build green |
 | localizer | Sonnet 5.5 · medium | 80 | — | Translates string catalogs and subtitles |
 
+</details>
+
 Routing in one paragraph: BlackCat does a job of a few tool calls itself (a look, a small edit, one
 command, git inspection), dispatches the rest (up to 8 children in one burst per prompt) and hands
 dependent multi-specialist work to the orchestrator. Code escalates coder → main-coder →
@@ -121,14 +514,14 @@ family heads, not BlackCat. Depth is BlackCat → L1 → L2 → L3 → L4, and L
 
 ### Skills: hubs, modules, references
 
-213 skills in `dot-claude/skills/`, in three shapes (counts from `tests/test_skill_modules.py`'s own
+214 skills in `dot-claude/skills/`, in three shapes (counts from `tests/test_skill_modules.py`'s own
 parser):
 
 | Shape | Count | What it is | Caps (`tests/test_skill_modules.py`) |
 |---|---:|---|---|
 | Hub | 24 | A `SKILL.md` with a `## Modules` table naming its modules | ≤ 80 lines |
 | Module | 98 | A skill named in a hub's table; 83 are read by path, 15 listed | ≤ 150 lines, description ≤ 140 chars |
-| Standalone | 91 | Neither hub nor module | ≤ 500 lines |
+| Standalone | 92 | Neither hub nor module | ≤ 500 lines |
 | `references/*.md` | 185 files | Detail a skill links to and reads only when needed | must exist where named |
 
 - **Listed, not preloaded.** 128 skills (hubs, standalone skills, 15 modules) are listed with an
@@ -177,7 +570,7 @@ Summary of [CONFIG.md](CONFIG.md) §5 ("On demand and automatic"):
 
 | Kind | Automatic (the work needs it) | On demand | Idle cost |
 |---|---|---|---|
-| Skills (213; 128 listed) | Listed description, plus a "load X when Y" pointer in the agent or hub | Skill tool by name; hidden hub modules by Read | The listing, on every spawn |
+| Skills (214; 128 listed) | Listed description, plus a "load X when Y" pointer in the agent or hub | Skill tool by name; hidden hub modules by Read | The listing, on every spawn |
 | MCP, agent-scoped (17 servers) | Start and stop with the agent that declares them inline | Spawn that agent | 0 elsewhere; schemas deferred |
 | MCP, magg catalog (23 servers) | A one-line pointer in the agent with the gap ("cluster state → mcp-broker mounts `kubernetes`") | Ask mcp-broker | 0 until mounted |
 | MCP, user scope (5 remote) | Session-wide, tools deferred until tool search loads them | — | Tool names only |
@@ -239,9 +632,157 @@ the call (fail closed); every hook command runs on an absolute interpreter chose
 The event-by-event table and the sandbox design are in [CONFIG.md](CONFIG.md) §5 and §7 and in
 `agent_guard.py`'s module docstring.
 
+## Requirements (macOS only)
+
+The stack installs and runs on macOS only. Linux and Windows are not supported: `install.sh` stops on any
+other system (`STACK_ALLOW_NON_MACOS=1` exists for the tests only). The code depends on macOS in several
+places:
+
+- the hooks run on Apple's `/usr/bin/python3` (3.9.6 from the Command Line Tools), stdlib only, and the
+  installer's scripts are written for macOS's bash 3.2;
+- the image limit scales images with `sips`, which ships with macOS (`doctor.sh`, "Hardware");
+- the sci and tools venvs are hash-locked for `aarch64-apple-darwin` only (the ml lock is universal, but
+  its torch and mlx wheels need macOS 14+; `requirements/README.md`);
+- `doctor.sh` looks for GitHub credentials in the macOS Keychain (`security`, presence only);
+- computer use in the CLI, the Adobe servers and the illustrator server are macOS features;
+- the sandbox's `.git/modules/**` write denies take effect only on macOS (CONFIG.md §7, "Residual risks").
+
+### Required and optional at a glance
+
+| Requirement | Version | How to get it | Needed? | Source |
+|---|---|---|---|---|
+| macOS | not pinned by the stack; Claude Code needs 13.0+; `--with-ml` (torch, mlx wheels) needs 14+ | — | required | `install.sh`, [Claude Code setup](https://code.claude.com/docs/en/setup), `requirements/README.md` |
+| Apple Silicon (arm64) | the sci and tools venvs are locked for arm64 wheels only; on Intel those installs are expected to fail (unverified: nothing tests Intel) | — | required in practice | `requirements/README.md` |
+| Xcode Command Line Tools | `python3` ≥ 3.8 that really runs, `git` | `xcode-select --install` | required | `install.sh` step 1 |
+| Claude Code | ≥ 2.1.271 (older warns) | `curl -fsSL https://claude.ai/install.sh \| bash`, or the Homebrew cask `claude-code` | required | `install.sh` (`MIN_CLAUDE`), [setup docs](https://code.claude.com/docs/en/setup) |
+| A Claude account with Claude Code access | — | [setup docs](https://code.claude.com/docs/en/setup) | required | — |
+| uv | no minimum is checked; the checksummed tarball fallback is 0.12.20, Homebrew installs its current version | `brew install uv`, else the checksummed release tarball into `~/.local/bin` | required (installed if missing) | `install.sh` (`UV_VERSION`) |
+| Node.js with `npx` | ≥ 22.5 | `brew install node` | required (installed with Homebrew if missing; without Homebrew the installer stops) | `install.sh`, `doctor.sh` |
+| magg | 1.2.1 | installed by `install.sh` (`uv tool install`) | required (`doctor.sh` FAILs without) | `install.sh` (`MAGG_VERSION`) |
+| sci and tools venvs (Python 3.13, hash-locked) | `requirements/sci.txt`, `requirements/tools.txt` | installed by `install.sh` under `~/.claude/venvs/` | required (`doctor.sh` FAILs without) | `install.sh` step 2 |
+| Homebrew | — | [brew.sh](https://brew.sh) | optional if Node.js 22.5+ is already installed (nvm works); without Homebrew and without Node the installer stops. Installs uv, node and the media tools | `install.sh` |
+| huetension | 0.3.0 | installed by `install.sh` | optional (designer's colour server) | `install.sh` |
+| ffmpeg, ImageMagick, librsvg, poppler | — | `brew install ffmpeg imagemagick librsvg poppler` | optional (media, SVG and PDF work; `doctor.sh` warns) | `install.sh`, `doctor.sh` |
+| jq, ripgrep, pandoc, gh (read-only) | — | `brew install ripgrep pandoc gh`; jq ships in `/usr/bin` on recent macOS (`brew install jq` otherwise) | optional, not checked; agents prefer them when present | global rules, [CLI tools agents rely on](#cli-tools-agents-rely-on) |
+| Google Chrome | — | — | optional (the playwright MCP drives it; `doctor.sh` warns) | `doctor.sh` |
+| pnpm | — | `brew install pnpm` (Homebrew's Node has no Corepack since Node 25; with nvm's Node 24 `corepack enable pnpm` works) | optional (node-engineer's projects) | [Prerequisites](#prerequisites) |
+| Python 3.14 as uv's default | — | `uv python install 3.14 && uv python pin --global 3.14` | optional, your step | [Prerequisites](#prerequisites) |
+
+One line for the Homebrew part, required and optional together:
+
+```bash
+brew install uv node ffmpeg imagemagick librsvg poppler jq ripgrep pandoc gh
+```
+
+### Python: uv, never bare `python`
+
+Every Python tool, script and MCP server of the stack runs through uv (`uv run`, `uv run --script` for
+PEP 723 scripts, `uvx`); the global rules forbid bare `python`, `python3` and `pip`. There are three
+exceptions: the stack's venvs (`~/.claude/venvs/<name>/bin/python`), a project pinned to poetry, conda or
+pixi, and the hooks, which run on the absolute interpreter the installer picked (`STACK_PYTHON`, normally
+`/usr/bin/python3`, never a pyenv or asdf shim: a hook that cannot start is a non-blocking error, which
+would leave every gate open). The venvs pin Python 3.13; uv's own default for your projects stays your
+choice.
+
+### Accounts and API keys
+
+Names only; values go into `~/.claude/stack.env` (mode 0600), which agents cannot read. Remote servers get
+their keys through `bin/mcp-headers`, never `~/.claude.json`. The stack stores no key in the Keychain.
+
+| Key | Needed? | For |
+|---|---|---|
+| Claude account | required | Claude Code itself |
+| `JINA_API_KEY` | effectively required | jina (web reading, arXiv, PDFs), libdocs |
+| `EXA_API_KEY` | optional (keyless works, with lower rate limits) | exa, libdocs |
+| `OPPER_API_KEY`, `OPENROUTER_API_KEY` | optional; image tools off without them | image-studio (designer, image-director) |
+| `SPIDER_API_KEY` | optional | spider (researcher), libdocs |
+| `GITHUB_TOKEN` | optional, read-only is enough | libdocs' GitHub rate limit |
+| `HF_TOKEN`, `WANDB_API_KEY` | optional | huggingface, wandb |
+| `LEAN_PROJECT_PATH`, `DATABASE_URI`, `MDB_MCP_CONNECTION_STRING`, and the magg catalog's keys | optional | the servers that need them ([Keys and paths](#keys-and-paths-claudestackenv)) |
+
+### MCP servers and their prerequisites
+
+Each server's prerequisite is in the "Needs" column of [MCP servers](#mcp-servers). The ones that need
+something outside the installer: Google Chrome (playwright), Blender running with its add-on (blender),
+`--with-adobe` and the Adobe apps (after-effects, premiere), a built Lean 4 + Mathlib project in
+`LEAN_PROJECT_PATH` (lean), Xcode (mobilebuild), the macOS Automation grant (illustrator), and a database
+URI for postgres or mongodb.
+
+### Optional per-domain toolchains
+
+None of these is installed by the stack, and installing one from inside a session fails by design (the
+sandbox keeps toolchain dirs read-only): install them from your own terminal. Without one, the agent that
+needs it reports the step as not run. In the baseline, 4 of 40 graded runs were "tool-absent" for exactly
+this reason (Miri, Gradle/kotlinc, Hackage, the Julia registry).
+
+| Toolchain | Used by | What breaks without it |
+|---|---|---|
+| Rust (rustup, cargo) | rust-engineer, embedded-engineer; `cargo` also builds the catalog's serial-mcp | Rust builds and tests; the `serial` catalog server |
+| Go | go-engineer; the huetension fallback build (Go ≥ 1.26) | Go builds and tests |
+| Julia (juliaup) | julia-engineer, hpc-engineer | Julia packages, the Julia language server |
+| Haskell (GHCup, cabal or stack; hlint, ormolu) | haskell-engineer | builds, lint and format checks |
+| JDK, Gradle or Maven | jvm-engineer | JVM builds; `/usr/bin/java` is only a stub without a JDK |
+| Xcode | mobile-engineer, `swift-lsp`, `sourcekit-lsp` | iOS builds and simulators |
+| elan, Lean 4, Mathlib | proof-checker, `lean-lsp` | machine-checked proofs |
+| Blender | cg-artist | headless renders and bpy scripts |
+| Houdini (hython, husk) | vfx-td | Houdini cooks and renders |
+| After Effects, Premiere | motion-designer (`--with-adobe`) | the Adobe MCP servers |
+| LaTeX or Typst | writer, doc-specialist (skills `latex-typesetting`, `book-production`) | PDF builds; which binaries a task needs is not checked by the stack |
+| Docker | devops-engineer (skill `container-images`) | image builds; not checked by the stack |
+| Apple Silicon GPU (MLX, Metal) | mlx-engineer | local MLX work (`doctor.sh` says so on Intel) |
+| An NVIDIA host | cuda-engineer | CUDA work; none runs on a Mac |
+| `--with-ml` venv (several GB) | ML agents | a shared torch/transformers venv; agents use project environments otherwise |
+
+### Disk, memory and time
+
+The repo states two figures: the `--with-ml` venv takes several GB, and Claude Code needs 4 GB or more of
+RAM ([setup docs](https://code.claude.com/docs/en/setup)). `doctor.sh` reports the unified memory of an
+Apple Silicon Mac. Install time is not recorded anywhere.
+
+### macOS permissions
+
+- **Computer use** (cg-artist, designer, doc-specialist, game-engineer, motion-designer, vfx-td, verifier):
+  `/mcp` → computer-use → Enable, then grant Accessibility and Screen Recording.
+- **Illustrator** (designer): the macOS Automation grant.
+- **Full Disk Access:** nothing in the stack asks for it.
+- **Sandbox:** sandboxed Bash can write the project, the temp dir and `~/.cache/claude-sandbox` only, and
+  reach a network allowlist of package registries, forges, Hugging Face, W&B and arXiv (CONFIG.md §7).
+
+### Check your machine
+
+Before installing:
+
+```bash
+sw_vers -productVersion        # macOS version
+uname -m                       # arm64 on Apple Silicon
+/usr/bin/python3 --version     # 3.8 or later; Apple's is 3.9.6
+git --version
+claude --version               # 2.1.271 or later
+node --version                 # v22.5 or later (the installer can install it)
+uv --version                   # the installer can install it
+./install.sh --dry-run         # the full plan, nothing changed
+```
+
+After installing, `bash ~/.claude/bin/doctor.sh` prints `ok`, `WARN` and `FAIL` lines per section and
+ends with `done.`. `/stack-doctor` in a session runs the same check and answers with one summary:
+
+```text
+stack-doctor: 0 FAIL, <n> WARN, <m> ok (doctor.sh, run outside the sandbox)
+healthy: <the sections without findings>
+full report: bash "<config dir>/bin/doctor.sh"
+```
+
+Healthy means 0 FAIL. WARN lines name optional pieces (a media tool, Chrome, a language server) and the
+command that adds each.
+
 ## Install
 
 ### Prerequisites
+
+The full list, with sources and the optional toolchains, is in [Requirements (macOS only)](#requirements-macos-only). The installer's view:
+
+<details>
+<summary>Prerequisites table</summary>
 
 | Tool | Why | How the stack treats it |
 |---|---|---|
@@ -249,9 +790,9 @@ The event-by-event table and the sandbox design are in [CONFIG.md](CONFIG.md) §
 | Claude Code ≥ 2.1.271 | The stack targets it | required; older warns (`claude update`) |
 | git, `python3` ≥ 3.8 (Xcode Command Line Tools: `xcode-select --install`) | Installer; hooks and status line run on an absolute system interpreter | required |
 | uv | Every Python tool, script and MCP server | installed if missing (Homebrew, else the checksummed 0.12.20 tarball into `~/.local/bin`) |
-| Python 3.14 as uv's default: `uv python install 3.14 && uv python pin --global 3.14` | Your projects' `uv run` without a pin | your step, not checked; the stack's own venvs pin 3.12 |
+| Python 3.14 as uv's default: `uv python install 3.14 && uv python pin --global 3.14` | Your projects' `uv run` without a pin | your step, not checked; the stack's own venvs pin 3.13 |
 | Node.js ≥ 22.5 with `npx` | context-mode, the npx MCP servers, the TypeScript language server | installed with Homebrew if missing; older warns |
-| pnpm (`corepack enable pnpm` or `brew install pnpm`) | node-engineer's projects | your step, not checked |
+| pnpm (`brew install pnpm`; Homebrew's Node has no Corepack since Node 25, with nvm's Node 24 `corepack enable pnpm` works) | node-engineer's projects | your step, not checked |
 | jq | Cheap JSON filtering in agents' Bash (global rules) and in tests | your step, not checked |
 | elan ([leanprover/elan](https://github.com/leanprover/elan)), then a built Mathlib project for `LEAN_PROJECT_PATH` | Lean: `lean-lsp@agent-stack` (`lake serve`) and proof-checker's lean server | your step; the plugin is enabled only when `lake` exists |
 | Homebrew | Installs uv, node and the optional media tools | optional |
@@ -259,6 +800,8 @@ The event-by-event table and the sandbox design are in [CONFIG.md](CONFIG.md) §
 | ffmpeg, ImageMagick, librsvg, poppler | Media and PDF work | installed with Homebrew if present, else warned |
 | Google Chrome | playwright MCP | not checked |
 | Xcode | mobilebuild, `swift-lsp`, `sourcekit-lsp` | not checked |
+
+</details>
 
 `doctor.sh` checks `python3 uv uvx node npx git` (FAIL when missing), magg, huetension, the media
 tools, the sci venv, the stack's `bin/` and `mcp/` scripts, frozen MCP command paths and the language
@@ -279,11 +822,14 @@ $EDITOR ~/.claude/stack.env       # keys: read at connect time; Claude model IDs
 ```
 
 Run it from a terminal with no Claude Code session open (Desktop and Conductor included), from the
-`main` branch (started elsewhere, it fast-forwards `main` and re-runs itself; it never pushes). The
-eleven steps, as the run prints them:
+`main` branch. A real run started on another branch fast-forwards `main` and re-runs itself (it
+never pushes); `--dry-run` and `--mcp-plan` change nothing, so on another branch they stop and tell
+you to run them from the `main` checkout. A dirty tree or diverged history also stops it. The eleven
+steps, as the run prints them:
 
 1. **Prerequisites**: macOS, git, python3, Claude Code version, the absolute interpreter for hooks
-   (`STACK_PYTHON`).
+   (`STACK_PYTHON`). If the stack changed since the last install, its diff is listed and, on a terminal,
+   you are asked before anything changes (`--yes` skips the question; without a terminal it stops).
 2. **Tools**: uv, node, magg, huetension, media tools, the hash-locked science venv
    (`~/.claude/venvs/sci`) and tools venv (`~/.claude/venvs/tools`: what the stack's scripts, MCP
    servers and tests import; `requirements/tools.in`); serial-mcp (`cargo install --locked` at the catalog's pin) when cargo
@@ -293,7 +839,7 @@ eleven steps, as the run prints them:
 5. **Stage**: copy the stack's part of the config dir to a private staging dir.
 6. **Render**: agents (with `-copy` renders), rules, skills, scripts, `settings.json`.
 7. **Merge, validate, apply**: JSON, frontmatter, placeholders and the staged guard's `--self-test`;
-   the plan; one backup; apply. A changed stack asks first on a terminal (`--yes` skips the question).
+   the plan; one backup; apply; then `tests/lint_agents.py` on the repo (warns only).
 8. **MCP dependency prefetch** into the private `STACK_CACHE`.
 9. **User-scope MCP servers**: exa, jina, wolfram, huggingface, and wandb when a key exists; keys come
    through the `bin/mcp-headers` header helper, never `~/.claude.json`.
@@ -301,7 +847,9 @@ eleven steps, as the run prints them:
     (`--with-lsp` installs missing ones), `--with-extra-plugins`; duplicates of claude.ai-synced
     skills disabled.
 11. **Shell profile**: one line in `~/.zshrc` (and `~/.bashrc` if present) exporting the
-    `STACK_EXPORT` keys and adding `~/.local/bin` to `PATH` (`--no-profile` skips it).
+    `STACK_EXPORT` keys and adding `~/.local/bin` to `PATH` (`--no-profile` skips it), and the
+    `claude-ninja` / `claude-supreme` launcher links in `~/.local/bin` (an existing `claude-god` link
+    is left as a deprecated alias of `claude-supreme`, with a note to remove it).
 
 Other flags: `--no-prune`, `--force`, `--write-through-links`, `--no-mcp`, `--no-plugins`,
 `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`, `--print-managed-settings`.
@@ -314,17 +862,7 @@ Quit every Claude Code session (terminal, Desktop, Conductor, IDEs) and start ne
 session keeps the agent files it started with. Then, once, in the first session: `/effort medium`.
 `claude` starts as BlackCat; `/mcp` shows server status; `/stack-doctor` is the health check.
 
-The stack's user commands (the model can't run them: `disable-model-invocation`):
-
-| Command | Does |
-|---|---|
-| `/stack-doctor` | Read-only health check (`bin/doctor.sh`) |
-| `/stack-tree [options]` | Read-only: this session's tree of agents and subagents (type, task, status, duration, tokens) with the commands each ran as leaves, collapsed (`git status ×3 [1 exit 1]`), Bash commands cut and secrets masked (`bin/stack-tree --hook`). `--depth N`, `--no-leaves`, `--leaves-only-failed`, `--max-leaves N`, `--session ID`, `--ascii`, `--json`, `--width W` |
-| `/stack-tree table [--columns a,b\|all] [--csv\|--json]` | The same as a GitHub-flavored markdown table, one row per agent and per tool call: path, depth, level, parent, agent, kind (agent, bash, tool, mcp, skill), task, command, status, result (done/partial/blocked, ok/exit N/blocked/error), started, duration, tokens, calls, session; `all` adds id, tid, name, isolation, ended, output_tokens, transcript. A field nothing records reads `unrecorded` |
-| `/stack-tree static [table]` | The designed hierarchy from the agent files: BlackCat → L1 → … → L4, each agent expanded once at its shallowest level, its skills and BlackCat's commands as leaves; the table has agent, level, parent, model, effort, max_turns, may_spawn, tools, mcp, skills |
-| `/override-agent <agent> <model>` | This session only: every delegated `<agent>` runs on `<model>` (`sonnet`, `opus`, `haiku`, `fable`). The effort comes from the built-in table `hooks/agent_effort.json` (per agent and model, clamped to what the model accepts); it is shown but not applied (CONFIG.md §5, "Session model overrides") |
-| `/override-agent list` | Read-only: this session's overrides (agent, model, effort and its source) and every agent's default model/effort |
-| `/override-agent reset <agent\|all>` | Back to the agent definition's model and effort |
+The user commands and typical workflows are under [Usage](#usage).
 
 ### Verify
 
@@ -347,13 +885,23 @@ The counts in this README come from the files:
 
 ```bash
 ls dot-claude/agents/*.md | wc -l                             # 56 agents
-ls dot-claude/skills/*/SKILL.md | wc -l                       # 213 skills
+ls dot-claude/skills/*/SKILL.md | wc -l                       # 214 skills
 ls dot-claude/skills/*/references/*.md | wc -l                # 185 references
 jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 89 hidden: 83 hub modules + 6 bundled
 jq '.servers | length' dot-claude/magg/config.json            # 23 catalog servers
 grep -h '^  - [a-z-]*:$' dot-claude/agents/*.md | sort -u | wc -l   # 17 inline servers
 uv run python -c "import sys; sys.path.insert(0, 'tests'); import test_skill_modules as t; h, m = t.hubs_and_modules(); print(len(h), len(m))"   # 24 hubs, 98 modules
 ```
+
+### Update
+
+```bash
+git pull --ff-only                # in your checkout, on main
+./install.sh --dry-run            # what changes, each with a reason
+./install.sh                      # lists the stack's diff since the last install and asks first
+```
+
+Then quit every Claude Code session and start new ones. A changed stack asks before it applies anything (`--yes` skips the question; without a terminal it stops). Your `stack.env` is kept; new variables are appended commented out.
 
 ### Backup, restore and uninstall
 
@@ -375,15 +923,64 @@ puts back files, `~/.zshrc`/`~/.bashrc`, MCP entries and plugins the install dis
 added and puts back what it replaced), delete the line ending in `# claude-agent-stack` from your shell
 rc, and `claude mcp remove -s user exa` (and `jina`, `wolfram`, `huggingface`, `wandb`).
 
+## Usage
+
+### First run
+
+1. Start `claude` in a project directory: the session starts as BlackCat (`"agent": "blackcat"` in
+   `settings.json`). For a plain session without the stack's main thread: `claude --agent claude`.
+2. Once, in the first session: `/effort medium`.
+3. Type `/stack-doctor` and fix any FAIL line it names.
+4. Ask for something. BlackCat answers in a line, does a small job itself, or dispatches and says who
+   does what; results are relayed as they land.
+
+### Typical workflows
+
+| You want | Type or do | What happens |
+|---|---|---|
+| A quick answer, a look at a file, a one-line edit, `git status` | ask normally | BlackCat does it itself (at most 4 own tool calls per prompt) |
+| A timeless explanation; one current fact; a cited survey | ask normally | oracle; scout; researcher |
+| A fix or feature in a repository | describe the deliverable | coder, a language engineer or main-coder; a reviewer only when a review trigger fires |
+| A specific agent | start with `@<agent>` or `<agent>:` (e.g. `@verifier check …`) | that agent gets your prompt verbatim |
+| A job with dependent parts (build, then document, then translate) | describe the whole job | the orchestrator plans, dispatches in parallel and integrates |
+| A plan before any code | Plan mode | planner writes it; builders start after you approve |
+| A follow-up on an earlier result | "also …", "fix …" | the same agent, resumed with `SendMessage` |
+| To see who is doing what | `/stack-tree` | the live agent tree with each agent's commands and tokens |
+| A different model for one agent type, this session only | `/override-agent coder opus`; `/override-agent reset all` | the guard rewrites that type's spawns |
+| To see the limits in force | `/usr/bin/python3 ~/.claude/bin/stack-budget` | frozen limits, use so far, verdicts |
+| The hardest algorithmic problem, with you watching | `claude-ninja` in a terminal | ninja-coder as your main thread at ultracode |
+| A destructive or external action (delete, history rewrite, publish) | answer BlackCat's question | consent reaches the agent only through you; pushing stays your step |
+
+### Commands
+
+The stack's user commands (the model can't run them: `disable-model-invocation`):
+
+| Command | Does |
+|---|---|
+| `/stack-doctor` | Read-only health check (`bin/doctor.sh`) |
+| `/stack-tree [options]` | Read-only: this session's tree of agents and subagents (type, task, status, duration, tokens) with the commands each ran as leaves, collapsed (`git status ×3 [1 exit 1]`), Bash commands cut and secrets masked (`bin/stack-tree --hook`). `--depth N`, `--no-leaves`, `--leaves-only-failed`, `--max-leaves N`, `--session ID`, `--ascii`, `--json`, `--width W` |
+| `/stack-tree table [--columns a,b\|all] [--csv\|--json]` | The same as a GitHub-flavored markdown table, one row per agent and per tool call: path, depth, level, parent, agent, kind (agent, bash, tool, mcp, skill), task, command, status, result (done/partial/blocked, ok/exit N/blocked/error), started, duration, tokens, calls, session; `all` adds id, tid, name, isolation, ended, output_tokens, transcript. A field nothing records reads `unrecorded` |
+| `/stack-tree static [table]` | The designed hierarchy from the agent files: BlackCat → L1 → … → L4, each agent expanded once at its shallowest level, its skills and BlackCat's commands as leaves; the table has agent, level, parent, model, effort, max_turns, may_spawn, tools, mcp, skills |
+| `/override-agent <agent> <model>` | This session only: every delegated `<agent>` runs on `<model>` (`sonnet`, `opus`, `haiku`, `fable`). The effort comes from the built-in table `hooks/agent_effort.json` (per agent and model, clamped to what the model accepts); it is shown but not applied (CONFIG.md §5, "Session model overrides") |
+| `/override-agent list` | Read-only: this session's overrides (agent, model, effort and its source) and every agent's default model/effort |
+| `/override-agent reset <agent\|all>` | Back to the agent definition's model and effort |
+
+Terminal tools beside them: [Commands and CLIs](#commands-and-clis).
+
 ## Environment variables
 
 Names only; values never go into the repo, prompts or output.
 
 ### Keys and paths: `~/.claude/stack.env`
 
-Every variable of `stack.env.example`. The file is 0600; servers read it at connect time, each gets only
+Every key and path variable of `stack.env.example`. Its commented tuning sections (`EXA_MAX_*`,
+`JINA_MAX_*`, `SPIDER_*`, `READ_GATE*`, 39 variables, read at each call by `hooks/web_caps.py` and
+`hooks/read_gate.py`, no reinstall) are not repeated here; their defaults are in the file. The file is 0600; servers read it at connect time, each gets only
 its own keys, and upgrades append new variables commented out (the image and Claude models set to their
 defaults) without touching yours.
+
+<details>
+<summary>All `stack.env` variables</summary>
 
 | Variable | Purpose | Default | Used by |
 |---|---|---|---|
@@ -415,6 +1012,8 @@ defaults) without touching yours.
 | `NCBI_API_KEY` | Higher PubMed rate limits | commented out | magg `biomcp` |
 | `STACK_EXPORT` | Keys the shell profile exports (space-separated, or `all`) | `HF_TOKEN WANDB_API_KEY MLFLOW_TRACKING_URI JUPYTER_URL JUPYTER_TOKEN` | `bin/with-stack-env`, the profile line |
 
+</details>
+
 The magg catalog keys reach mcp-broker's magg through `bin/with-stack-env --only …` and nothing else.
 
 ### Knobs
@@ -423,9 +1022,12 @@ Set in `settings.json` → `env`. ● = shipped in `dot-claude/settings.json` an
 change it in the repo and re-run the installer. The rest are defaults in `agent_guard.py` you may set
 yourself.
 
+<details>
+<summary>All knobs</summary>
+
 | Variable | Default | Purpose | Read by |
 |---|---|---|---|
-| `STACK_POLICY` | `on` | `off` disables every deny and lock except the push and forge-write ban | guard |
+| `STACK_POLICY` | `on` | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on | guard |
 | `STACK_AGENT_LABEL` | `description` | Child label: `description` (`<type>: <task>`), `name` (`<type>-<n>`), `off` | guard |
 | `STACK_AGENT_STARTED` | `1` | SubagentStart gives a stack agent its start time (`0` = off) | guard |
 | `STACK_REPORT_FORMAT` | unset | `json`: every final report is one JSON line (SessionStart and SubagentStart add one line); for Agent SDK apps | guard |
@@ -451,7 +1053,7 @@ yourself.
 | `STACK_GUARD_LOG` | 0 | 1 = log hook events (tool names and ids only in budget mode) | guard |
 | `STACK_IMAGE_MAX_PX` / `STACK_IMAGE_MAX_B64` | 1919 / 4500000 | Longest image side; most base64 chars per image | guard, image-studio, doctor |
 | `STACK_IMAGE_UPLOAD_TOOLS` | — | Regex of more MCP tools whose image arguments get downscaled copies | guard |
-| `STACK_ENV_FILE` ● | `~/.claude/stack.env` | Where the keys live | `mcp-headers`, `with-stack-env`, libdocs, image-studio |
+| `STACK_ENV_FILE` ● | `~/.claude/stack.env` | Where the keys live | `mcp-headers`, `with-stack-env`, libdocs, image-studio, `read_gate.py`, `web_caps.py` |
 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` ● | 4 | Claude Code's nesting limit (its default is 3) | Claude Code, guard |
 | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 33 | Subagents running in one session | Claude Code |
 | `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` ● | 1 | Built-in Explore and Plan off (the stack's `explore` replaces Explore) | Claude Code |
@@ -460,6 +1062,8 @@ yourself.
 | `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` ● | 400 | WebSearch calls per session | Claude Code |
 | `MCP_DISCOVERY_CACHE` ● / `_TTL_S` ● / `_MAX_STALE_S` ● | 1 / 21600 / 604800 | MCP discovery cache (unverified: not on the docs page checked for this README) | Claude Code |
 | `MCP_TIMEOUT` ● / `MAX_MCP_OUTPUT_TOKENS` ● | 60000 / 25000 | MCP start-up timeout; tool output cap | Claude Code |
+
+</details>
 
 Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort.
 
@@ -472,7 +1076,7 @@ Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort.
 | `XDG_STATE_HOME` | `~/.local/state` | Root of the guard state, the backups and `STACK_CACHE`; rendered into the sandbox rules at install time |
 | `STACK_PYTHON` | chosen automatically | Absolute interpreter for hooks and the status line (never a pyenv/asdf shim) |
 | `STACK_ALLOW_NON_MACOS` | 0 | Tests only: let the installer run off macOS |
-| `STACK_CACHE` | `$XDG_STATE_HOME/claude-agent-stack-cache` | Set by the installer in each local MCP server's `env`: their private uv/npm caches |
+| `UV_CACHE_DIR`, `npm_config_cache` | `$XDG_STATE_HOME/claude-agent-stack-cache/{uv,npm}` | Set by the installer in each local MCP server's `env` (the cache dir is an installer-internal `STACK_CACHE`, not a setting) |
 | `CLAUDE_ENV_FILE` | set by Claude Code | The SessionStart hook appends the sandbox cache exports (`UV_CACHE_DIR`, `npm_config_cache`, `CARGO_HOME`, …, all under `~/.cache/claude-sandbox`) and an empty git credential helper |
 
 ## Plugins, MCP servers and tools
@@ -538,6 +1142,9 @@ Recording) and `claude-in-chrome` (browser-operator; start with `claude --chrome
 always asks you. Calls then run without a prompt for the read-only or local servers (allow) and ask at
 every call for the rest (ask).
 
+<details>
+<summary>The 23 catalog servers</summary>
+
 | Server | Package | Calls | Keys |
 |---|---|---|---|
 | docling | `docling-mcp==3.2.1` | allow | — |
@@ -564,12 +1171,17 @@ every call for the rest (ask).
 | serial | `~/.cargo/bin/serial-mcp`, port allowlist | ask | cargo (install.sh builds `serial-mcp@0.9.3 --locked`) |
 | gis | `gis-mcp@0.15.0` | ask | — |
 
+</details>
+
 **Documented, not installed** (heavy, an app plugin, cloud credentials or hardware writes): unity-mcp,
 Unreal_mcp, AWS aws-api-mcp-server, Azure MCP, gcloud-mcp, Alpha Vantage, KiCAD-MCP-Server,
 embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The design, image, video,
 3D, diagram and maths connectors are in [mcp_servers.md](mcp_servers.md) too.
 
 **Rejected**, with the reason ([mcp_servers.md](mcp_servers.md), "Engineering domains"):
+
+<details>
+<summary>Rejected servers and why</summary>
 
 | Server | Reason |
 |---|---|
@@ -581,6 +1193,8 @@ embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The
 | Flux159 mcp-server-kubernetes | its non-destructive mode still writes |
 | unlicensed SLURM servers | no licence |
 | Context7 | replaced by libdocs; the installer removes it |
+
+</details>
 
 ### CLI tools agents rely on
 
@@ -667,6 +1281,46 @@ source of truth.
 - Details, the TypeScript form and what is unverified:
   `dot-claude/skills/claude-code-extensions/references/agent-sdk.md`. Cost and cold-start probe (real
   API calls): `uv run --script tests/sdk_smoke.py`.
+
+## Troubleshooting
+
+Start with `/stack-doctor`: each FAIL and WARN line names its section and the fix. The rows below come
+from [CONFIG.md](CONFIG.md) §1 and §7, `doctor.sh`, and the agents' reports in the frozen baseline
+(`.claude-work/agents-baseline/stats_before/inputs/collected_fae82d02/run/<id>/`).
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| A newly installed agent type is not found by a session that was already running | a running session keeps the agent files it started with | quit every Claude Code session and start a new one |
+| Claude Desktop runs one subagent at a time and seems to hang | foreground children (CONFIG.md §1, bugs 1 and 3) | keep `BLACKCAT_BACKGROUND` unset or `1`; remove `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` and `CLAUDE_CODE_FORK_SUBAGENT` (the installer does; `/stack-doctor` warns) |
+| The status line starts with a red `! Bash sandbox env missing` | the session-env hook could not write `$CLAUDE_ENV_FILE` | run `bash ~/.claude/bin/doctor.sh`, then start a new session or `/clear` |
+| `claude-ninja` or `uv` "not found" although installed | `~/.local/bin` is not on `PATH` yet | open a new terminal (the installer's profile line adds it) |
+| researcher or doc-specialist lose context-mode | Node older than 22.5 | `brew upgrade node` |
+| `uvx …` fails inside a session ("Could not create temporary file … ~/.local/share/uv/tools") | the sandbox keeps uv's tool dir read-only (runs P11, P54, P59) | `uv run --with <tool> …`, or run `uvx` in your own terminal |
+| Headless Chrome from Bash aborts ("Failed to create a ProcessSingleton … socket directory") | Chrome cannot start inside the Seatbelt sandbox (runs P43, P45) | use the playwright MCP (browser-operator, frontend-engineer, verifier), or run the browser tests in your terminal |
+| `java -version` says "Unable to locate a Java Runtime" | `/usr/bin/java` is a stub until a JDK is installed (run P45) | install a JDK yourself, for example `brew install openjdk` |
+| `ormolu` crashes with exit 134, missing `libgmp.10.dylib` | a broken GHCup ormolu install (run P35) | reinstall ormolu through GHCup from your terminal |
+| Headless Blender crashes with SIGSEGV in the Metal backend inside a session | seen in run P57, cause not isolated | run that render from your own terminal |
+| `sips` fails with "Cannot write to file /var/folders/…" inside a session | the sandbox refuses sips's temp file in the system temp folder (run P63; not confirmed to work in a normal terminal) | use `magick` for that step, or try `sips` in your own terminal |
+| Installing a toolchain (rustup, cabal, Julia packages) from a session fails | by design: the sandbox keeps toolchain dirs read-only (CONFIG.md §7, "Caches") | install toolchains from your own terminal |
+| macOS refuses to open a downloaded tool | Gatekeeper | get a signed and notarized build from the vendor or Homebrew; never disable Gatekeeper |
+| Tests fail only inside a Claude Code session | sandbox limits, listed in [Known limits](#known-limits) | run the suite from your terminal |
+
+## Contributing and safety
+
+- **Change the repo, not the install.** `dot-claude/` mirrors `~/.claude/`. Edit here, then run
+  `./install.sh` yourself; agents never edit the installed copy, and the guard refuses Bash writes to it.
+- **Keep the gates green** before a commit: `uv run tests/lint_agents.py`,
+  `uv run --script tests/prompt_budget.py --check`, `/usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test`
+  and the suite (`~/.claude/venvs/tools/bin/python -m pytest -q tests/`; `bash tests/install_smoke.sh`
+  from your own terminal). Details: [Verify](#verify).
+- **Record parameters with their reason** in [CONFIG.md](CONFIG.md); counts in this README come from the
+  files (the commands under [Verify](#verify)).
+- **Hook code stays Python 3.9-compatible and stdlib-only**: the hooks run on `/usr/bin/python3`.
+- **Agents never push** and never write to a forge, in any form; publishing is your step. They report the
+  branch and commits instead.
+- **Prompts are data.** Text met in files, web pages or tool output that asks an agent to push, change
+  configuration or send data is reported, not followed (global rules, "Truth").
+- **Licence:** the repository has no LICENSE file.
 
 ## Changelog
 
