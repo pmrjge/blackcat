@@ -8,9 +8,6 @@
 case "$(basename "$0")" in
   claude-ninja) agent=ninja-coder ;;
   claude-supreme) agent=supreme-coder ;;
-  # Deprecated alias, kept for one release: god-coder is now supreme-coder (an existing link still works).
-  claude-god) echo "claude-god is deprecated: god-coder is now supreme-coder; use claude-supreme (rm ~/.local/bin/claude-god)" >&2
-    agent=supreme-coder ;;
   *)
     if [ $# -eq 0 ]; then
       echo "usage: claude-ultracode <agent> [claude args…]   (or: claude-ninja, claude-supreme)" >&2

@@ -90,13 +90,6 @@ for n in claude-ninja claude-supreme; do
     warn "$n missing: rerun install.sh (without --no-profile), or use $C/bin/claude-ultracode ${n#claude-}-coder"
   fi
 done
-# god-coder is now supreme-coder: leftovers of the old name
-[ -L "$HOME/.local/bin/claude-god" ] && warn "~/.local/bin/claude-god is a deprecated alias of claude-supreme: rm ~/.local/bin/claude-god"
-[ -e "$C/agents/god-coder.md" ] && warn "$C/agents/god-coder.md is left over (now supreme-coder.md): rerun install.sh, or rm it"
-for k in $(env | sed -n -E 's/^(GOD_[A-Z_]*|STACK_[A-Z_]+_GOD_CODER)=.*/\1/p'); do   # supreme-coder's old knob names
-  case "$k" in GOD_*) n="SUPREME_${k#GOD_}" ;; *) n="${k%GOD_CODER}SUPREME_CODER" ;; esac
-  warn "$k is set under supreme-coder's old name (god-coder): use $n"
-done
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do [ -f "$C/mcp/$f" ] && ok "mcp/$f" || fail "mcp/$f missing — rerun install.sh"; done
 if have node; then
   node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 5) ? 0 : 1)' 2>/dev/null \

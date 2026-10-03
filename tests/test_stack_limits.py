@@ -1327,39 +1327,3 @@ def test_a_session_row_older_than_its_sessions_rows_is_not_learned(st):
     got, stats = L.read_rows(models={})
     assert {r["session"]: r["ctx"] for r in got if r["scope"] == "session"}["cut"] == 9.5e7
     assert stats["stale_session"] == 0
-
-
-RENAMED_OLD = "god-coder"     # supreme-coder's name before the rename (rows recorded under it stay as written)
-
-
-def test_rows_of_a_renamed_type_count_for_its_new_name(st):
-    """Rows recorded before supreme-coder's rename are read under the new name (a `-copy` too) and feed
-    its soft.agent / turns variables; the CSV itself is not rewritten."""
-    u = st / "usage"
-    write_csv(u / "runs2.csv", [row("s0", "g1", typ=RENAMED_OLD, ctx=3e5, regime=""),
-                                row("s1", "g2", typ=RENAMED_OLD + "-copy", ctx=3.1e5, regime=""),
-                                row("s2", "n1", typ="supreme-coder", ctx=3.2e5, regime="")])
-    assert L.renamed_type(RENAMED_OLD) == "supreme-coder" and L.renamed_type("coder-copy") == "coder-copy"
-    rows, stats = L.read_rows(known={"supreme-coder"}, models={})
-    assert {r["id"]: r["type"] for r in rows} == {"g1": "supreme-coder", "g2": "supreme-coder", "n1": "supreme-coder"}
-    assert stats["dropped"] == 0 and (u / "runs2.csv").read_text().count(RENAMED_OLD) == 2
-    doc = L.build_proposals(L.load_seed())
-    assert doc["vars"]["soft.agent.supreme-coder"]["n"] == 3
-    assert not any(RENAMED_OLD in k for k in doc["vars"])
-
-
-def test_overrides_and_live_state_of_a_renamed_type_carry_over(st, monkeypatch):
-    """An env override set under supreme-coder's old name counts while the current one is unset (the
-    current one wins), and live.json's state of the old name (value, freeze) moves to the new name."""
-    s = L.load_seed()
-    old_env = L.env_name(RENAMED_OLD, "hard.agent")
-    monkeypatch.setenv(old_env, "3000000")
-    assert L.env_override("hard.agent.supreme-coder") == (True, 3000000)
-    assert L.snapshot_values(s, None, True)[0]["hard.agent.supreme-coder"] == 3000000
-    monkeypatch.setenv("STACK_HARDCTX_SUPREME_CODER", "4000000")
-    assert L.env_override("hard.agent.supreme-coder") == (True, 4000000)
-    live = L.live_from_seed(s)
-    old_state = dict(live["vars"].pop("turns.supreme-coder"), value=200, frozen=150)
-    live["vars"]["turns." + RENAMED_OLD] = old_state
-    got = L.validate_live(live, s)["vars"]
-    assert got["turns.supreme-coder"]["frozen"] == 150 and "turns." + RENAMED_OLD not in got

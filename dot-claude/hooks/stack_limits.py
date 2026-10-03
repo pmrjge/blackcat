@@ -113,9 +113,6 @@ STATUSES = ("supported", "provisional", "pooled", "unset")
 
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$")
-# Agent types renamed since rows were collected (god-coder is now supreme-coder): read under the new
-# name, a `<old>-copy` as `<new>-copy`; the CSVs are never rewritten. stack_usage.RENAMED_TYPES too.
-RENAMED_TYPES = {"god-coder": "supreme-coder"}
 HEX16_RE = re.compile(r"^[0-9a-f]{16}$")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}$")
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}$")
@@ -157,7 +154,7 @@ FIXED_GUARDS = frozenset((
     "STACK_SOFT_LIMIT_SCALE", "STACK_SCHED_POLICY", "READ_GATE",
     "FLOOR", "CEILING", "FLOORS", "CEILINGS", "MAXTURNS", "MAX_TURNS",
 ))
-FIXED_PREFIXES = ("SUPREME_", "GOD_", "STACK_IMAGE_", "READ_GATE_", "EXA_MAX_", "JINA_MAX_", "SPIDER_MAX_")
+FIXED_PREFIXES = ("SUPREME_", "STACK_IMAGE_", "READ_GATE_", "EXA_MAX_", "JINA_MAX_", "SPIDER_MAX_")
 
 
 class SeedError(Exception):
@@ -678,12 +675,6 @@ def model_family(model):
     return None
 
 
-def renamed_type(t):
-    """The current name of an agent type a row recorded (RENAMED_TYPES; `-copy` kept)."""
-    base, copy = (t[:-len("-copy")], "-copy") if t.endswith("-copy") else (t, "")
-    return RENAMED_TYPES.get(base, base) + copy
-
-
 def model_mismatch(models, atype, model):
     """Whether an agent row of type `atype` measured on `model` ran on another model than the type's
     frontmatter `model` (models: agent_models()): the frontmatter names an alias family and the row's
@@ -744,7 +735,6 @@ def parse_row(r, known=()):
         t = (r.get("type") or "").strip()
         if not TYPE_RE.match(t):
             return None
-        t = renamed_type(t)
         if t.endswith("-copy") and t[:-len("-copy")] in known:
             t = t[:-len("-copy")]
         row["scope"], row["type"] = "agent", t
@@ -1339,14 +1329,6 @@ def validate_live(doc, seed):
     eid = doc.get("evidence_id")
     if eid is not None and (not isinstance(eid, str) or not HEX64_RE.match(eid)):
         raise LiveInvalid("evidence_id")
-    V = dict(V)
-    for old in list(V):             # a renamed type's state (value, freeze) moves to its current name
-        try:
-            fam, t = split_var(old)
-        except ValueError:
-            continue
-        if t and renamed_type(t) != t:
-            V.setdefault(fam + "." + renamed_type(t), V[old])
     out = {}
     for v, spec in seed["vars"].items():
         st = V.get(v)
@@ -1603,11 +1585,9 @@ _ENV_WARNED = set()
 
 
 def env_override(var):
-    """(present, value) of a variable's env override: digits only, 0 = off (None). An override set
-    under a renamed type's old name (RENAMED_TYPES) counts while the current one is unset."""
-    fam, t = split_var(var)
-    names = [env_var(var)] + [env_name(o, fam) for o, n in RENAMED_TYPES.items() if t and n == t]
-    name, raw = next(((k, os.environ[k]) for k in names if (os.environ.get(k) or "").strip()), (names[0], None))
+    """(present, value) of a variable's env override: digits only, 0 = off (None)."""
+    name = env_var(var)
+    raw = os.environ.get(name)
     if raw is None or not raw.strip():
         return False, None
     raw = raw.strip()

@@ -235,7 +235,7 @@ the call. Wiring: `dot-claude/settings.json` → `hooks`.
 | `stack_usage.py status`, `runs`, `refresh`, `propose` | `~/.claude/hooks/`, your terminal | Collector state, per-agent runs, a manual refit, drift report |
 | `stack_sched.py plan`, `next`, `replay` | `uv run --script dot-claude/hooks/stack_sched.py` | Scheduler advisor: waves for a task graph; a report tool that no hook reads |
 | `agent_guard.py delegations [session] [--json]`, `--print-policy`, `--self-test` | `/usr/bin/python3 ~/.claude/hooks/agent_guard.py` | The delegation ledger; the spawn table; the guard's own checks |
-| `claude-ninja`, `claude-supreme` (links in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder or supreme-coder as your main thread at ultracode; an older `claude-god` link still starts supreme-coder, with a deprecation note |
+| `claude-ninja`, `claude-supreme` (links in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder or supreme-coder as your main thread at ultracode |
 | `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
 
 ### Safety and guardrails
@@ -858,8 +858,7 @@ steps, as the run prints them:
     skills disabled.
 11. **Shell profile**: one line in `~/.zshrc` (and `~/.bashrc` if present) exporting the
     `STACK_EXPORT` keys and adding `~/.local/bin` to `PATH` (`--no-profile` skips it), and the
-    `claude-ninja` / `claude-supreme` launcher links in `~/.local/bin` (an existing `claude-god` link
-    is left as a deprecated alias of `claude-supreme`, with a note to remove it).
+    `claude-ninja` / `claude-supreme` launcher links in `~/.local/bin`.
 
 Other flags: `--config-dir PATH`, `--no-prompt`, `--no-prune`, `--force`, `--write-through-links`,
 `--no-mcp`, `--no-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
@@ -1261,7 +1260,7 @@ embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The
 | `gh` (read-only) | `view`, `list`, `status`, `checks`, `diff` only | not checked |
 | `ffmpeg`, `magick`, `rsvg-convert`, `pdftoppm`, `sips` | Media, SVG and PDF rasterizing; `sips -Z 1919` downscales | installed with Homebrew if present; doctor warns; `sips` ships with macOS |
 | `pandoc` | Document conversion | not checked |
-| `claude-ninja`, `claude-supreme` | ninja-coder or supreme-coder as your main thread at ultracode | installed in `~/.local/bin`; an older `claude-god` link still starts supreme-coder, with a deprecation note |
+| `claude-ninja`, `claude-supreme` | ninja-coder or supreme-coder as your main thread at ultracode | installed in `~/.local/bin` |
 | Scanners: `gitleaks`, `trufflehog`, `semgrep`, `osv-scanner`, `pip-audit`, `npm audit`, `cargo audit`/`deny`, `trivy` | The read-only reviewers' allowlist | not installed; used when present |
 | Language toolchains (cargo, ghcup, juliaup, go, Gradle/Maven, elan) | The language engineers | not installed; installing a toolchain from a session fails by design (sandbox) |
 

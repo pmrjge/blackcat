@@ -1603,11 +1603,10 @@ for rel, src_path, copy_of in targets:
     print("  %-34s %s" % (rel, action))
 
 # Everything else in agents/: the stack owns that directory. Pruning removes it — agents an earlier
-# stack version shipped (senior-coder is now main-coder, the main-thread router is now blackcat,
-# god-coder is now supreme-coder), leftover .new renders, and agents of your own or of other tools
-# (the backup keeps them all; run with --no-prune to keep them). --no-prune lists them instead.
-RENAMED = {"agents/senior-coder.md": "agents/main-coder.md", "agents/router.md": "agents/blackcat.md",
-           "agents/god-coder.md": "agents/supreme-coder.md"}
+# stack version shipped (senior-coder is now main-coder, the main-thread router is now blackcat),
+# leftover .new renders, and agents of your own or of other tools (the backup keeps them all; run
+# with --no-prune to keep them). --no-prune lists them instead.
+RENAMED = {"agents/senior-coder.md": "agents/main-coder.md", "agents/router.md": "agents/blackcat.md"}
 shipped = {rel for rel, _, _ in targets}
 stale_kept = []
 
@@ -1997,11 +1996,6 @@ OLD_DEFAULTS = {"ROUTER_MAX_DISPATCH": {"1"}, "ANTHROPIC_DEFAULT_HAIKU_MODEL": {
 OLD_SET_IF_ABSENT = {"agent": {"router"}}
 RENAMED_ENV = {"ROUTER_MAX_STEPS": "BLACKCAT_MAX_STEPS", "ROUTER_MAX_DISPATCH": "BLACKCAT_MAX_DISPATCH",
                "ROUTER_DISPATCH_WINDOW_S": "BLACKCAT_DISPATCH_WINDOW_S"}
-# god-coder is now supreme-coder: its knobs follow the rename the same way.
-RENAMED_ENV.update({"GOD_" + k: "SUPREME_" + k for k in (
-    "SPAWNERS", "ONCE_PER_SESSION", "AFTER_NINJA", "PENDING_TTL_S", "IDLE_S", "LOCK_TTL_S")})
-RENAMED_ENV.update({p + "GOD_CODER": p + "SUPREME_CODER" for p in (   # per-type limit overrides
-    "STACK_MAXTURNS_", "STACK_SOFTCTX_", "STACK_HARDCTX_", "STACK_SOFT_PROMPT_CTX_")})
 cur_env = dict(cur.get("env") or {})
 for old, now in RENAMED_ENV.items():
     if old not in cur_env:
@@ -2010,8 +2004,7 @@ for old, now in RENAMED_ENV.items():
     if (now not in cur_env and str(val) != str(prev_env.get(old))
             and str(val) not in OLD_DEFAULTS.get(old, ()) and str(val) != str((new.get("env") or {}).get(now))):
         cur_env[now] = val
-        print("  moved your env %s=%s to %s (%s)" % (old, val, now, "the router is now blackcat"
-              if old.startswith("ROUTER_") else "god-coder is now supreme-coder"))
+        print("  moved your env %s=%s to %s (the router is now blackcat)" % (old, val, now))
 if cur_env != (cur.get("env") or {}):
     cur = dict(cur, env=cur_env)
 
@@ -2844,10 +2837,6 @@ PY
       note "! $l exists and isn't the stack's: left alone ($C/bin/claude-ultracode ${n#claude-}-coder does the same)"
     fi
   done
-  # The old launcher name is not created any more; an existing link stays as a deprecated alias of claude-supreme.
-  old_launcher="$HOME/.local/bin/claude-god"   # claude-supreme's name before the rename
-  [ "$(readlink "$old_launcher" 2>/dev/null)" = "$C/bin/claude-ultracode" ] \
-    && note "= claude-god: deprecated alias of claude-supreme (god-coder is now supreme-coder); remove it: rm $old_launcher"
   case "$(basename "${SHELL:-}")" in
     zsh|"") ;;
     bash)  # macOS Terminal starts login shells: bash reads ~/.bash_profile there, not ~/.bashrc

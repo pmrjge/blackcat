@@ -138,10 +138,6 @@ LIVE_S = 600
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
 UNKNOWN_TYPE = "(unknown)"
-# Agent types renamed since rows were collected (god-coder is now supreme-coder): read_rows gives them
-# under the new name, a `<old>-copy` as `<new>-copy`, except to rotation (strict), which keeps rows as
-# written. The same map as stack_limits.RENAMED_TYPES.
-RENAMED_TYPES = {"god-coder": "supreme-coder"}
 NODE_RE = re.compile(r"^[A-Z]{1,3}[0-9]{1,3}[a-z]?\Z")
 HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
 COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
@@ -1163,10 +1159,6 @@ def read_rows(paths=None, schemas=None, strict=False):
                     r = {c: (r.get(c) if isinstance(r.get(c), str) else "") for c in COLUMNS}
                     if ver == "1":
                         r["src"] = "seed_v1"
-                    if not strict:
-                        t = r["type"]
-                        base, copy = (t[:-len("-copy")], "-copy") if t.endswith("-copy") else (t, "")
-                        r["type"] = RENAMED_TYPES.get(base, base) + copy
                     for c in OPTIONAL_STRINGS:
                         if r[c] != "" and not valid_cell(c, r[c]):
                             r[c] = ""

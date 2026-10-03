@@ -589,10 +589,6 @@ STEP_LIMIT_REASON = ("BlackCat step limit (%d tool calls per prompt, dispatches 
 SUPREME = "supreme-coder"
 SUPREME_LOCK = "supreme-coder.lock"
 SUPREME_ONCE = "supreme-coder.spawned"        # the session's one supreme-coder spawn (its Agent tool_use_id)
-# supreme-coder was god-coder: state written under that name (a session resumed or running across the
-# upgrade) is adopted, and the old spellings normalize to supreme-coder (norm), so the rename frees
-# neither the session's slot nor the lock.
-LEGACY_SUPREME = {"god-coder.lock": SUPREME_LOCK, "god-coder.spawned": SUPREME_ONCE}
 SCREEN_LOCK = "screen.lock"
 TERMINAL_STATUSES = {"completed", "failed", "error", "cancelled", "canceled", "killed"}
 # Shown to the USER (systemMessage) when the guard itself fails; the model only sees a neutral
@@ -619,7 +615,6 @@ def norm(name):
         _KNOWN_TYPES = {re.sub(r"[^a-z0-9]", "", a): a
                         for a in AGENTS + list(COPY_BASE) + BUILTINS
                         + ["general-purpose", "fork", "plan", "claude", "statusline-setup"]}
-        _KNOWN_TYPES["godcoder"] = SUPREME       # LEGACY_SUPREME: the type's name before the rename
     s = str(name or "").strip().lower()
     return _KNOWN_TYPES.get(re.sub(r"[^a-z0-9]", "", s)) or re.sub(r"[\s_]+", "-", s)
 
@@ -1229,23 +1224,7 @@ def drop_spawn_lease(d, ev, aid):
 
 
 # ---------------------------------------------------------------- supreme-coder lock
-def supreme_adopt_legacy(d):
-    """Move a pre-rename lock or spawn marker (LEGACY_SUPREME) to its current name, never over one."""
-    for old, new in LEGACY_SUPREME.items():
-        op = os.path.join(d, old)
-        if os.path.lexists(op):
-            try:
-                os.link(op, os.path.join(d, new))
-            except FileExistsError:
-                pass                    # the current file wins
-            except OSError:
-                continue                # not moved (or already gone): the old file stays
-            unlink(op)
-
-
 def supreme_path(d):
-    """The lock's path, after adopting a pre-rename lock (callers hold the supreme mutex)."""
-    supreme_adopt_legacy(d)
     return os.path.join(d, SUPREME_LOCK)
 
 
@@ -1406,7 +1385,6 @@ def supreme_claim_session(d, ev):
     SendMessage resume of that supreme-coder is the same instance and needs no slot."""
     if os.environ.get("SUPREME_ONCE_PER_SESSION", "1").strip() == "0":
         return None
-    supreme_adopt_legacy(d)
     path = os.path.join(d, SUPREME_ONCE)
     try:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)

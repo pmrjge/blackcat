@@ -24,8 +24,8 @@ Code 2.1.284. Turn counts were measured from this machine's transcripts.
 | 3 | Settings could silently disable background scheduling | `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` and `CLAUDE_CODE_FORK_SUBAGENT` in settings env | The installer removes both and warns. `/stack-doctor` warns about them and about `BLACKCAT_BACKGROUND=0`. |
 | 4 | BlackCat ran out of dispatches on large prompts | 6 dispatches, 8 steps and a 30 s dispatch window; eight long briefs in one message take longer than 30 s | 8 dispatches, 12 steps, 120 s window |
 | 5 | The session limit could throttle a full fan-out | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` was 20, below BlackCat 8 × orchestrator 10 | 32 |
-| 6 | god-coder's prompt said it could not spawn at depth L3 | Wrong depth in the text (only L4 cannot spawn) | Corrected to L4 |
-| 7 | Mixed models (Fable on god-coder) | Drift | Every agent names `opus` or `sonnet`; the IDs come from stack.env (section 2), enforced by lint |
+| 6 | supreme-coder's prompt said it could not spawn at depth L3 | Wrong depth in the text (only L4 cannot spawn) | Corrected to L4 |
+| 7 | Mixed models (Fable on supreme-coder) | Drift | Every agent names `opus` or `sonnet`; the IDs come from stack.env (section 2), enforced by lint |
 | 8 | `/stack-doctor` returned STATUS: blocked: its agent had no Bash | The skill forked `claude-code-guide` (`context: fork`). A forked skill's agent gets its `tools` only from the main conversation's tool pool, and BlackCat has no Bash, WebFetch or WebSearch, so it was left with Read, ToolSearch and Skill. Even with Bash, the guard holds claude-code-guide (and verifier) to read-only commands and refuses `bash doctor.sh`, and any agent's sandboxed Bash cannot read stack.env or `~/.claude.json` nor write the state dir, so doctor.sh reports false FAILs there | `/stack-doctor` is answered by a UserPromptExpansion hook (matcher `stack-doctor`, `bin/doctor.sh --hook`): it runs doctor.sh outside the sandbox and blocks the expansion with the FAIL lines, the WARN lines (each with its section) and the ok count; no model turn. The skill body is only the fallback when the hook did not run |
 
 ## 2. Models
@@ -455,6 +455,14 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 
 ## 9. Changelog
 
+Entries name agents, knobs and files by their current names.
+
+### 2026-10-03 (previous-name compatibility removed)
+
+- The compatibility layer for supreme-coder's previous name is gone. install.sh's `RENAMED` (agent files) and `RENAMED_ENV` (settings knobs) keep only the senior-coder → main-coder and router → blackcat entries, so the mechanism and its smoke tests stay. `bin/claude-ultracode` answers to `claude-ninja`, `claude-supreme` and `claude-ultracode <agent>` only; install.sh no longer notes an old launcher link, and doctor.sh no longer warns about one, about a left-over agent file or about knobs under the previous prefix. The guard no longer adopts a lock or spawn marker written under the previous name, nor maps that spelling to supreme-coder.
+- Usage rows recorded before the rename are not aliased. `stack_limits` and `stack_usage.read_rows` read them under the type they were recorded with, a type the stack no longer ships, so they feed no supreme-coder limit (`stack_limits.RENAMED_TYPES`/`renamed_type` and `stack_usage.RENAMED_TYPES` are removed). An env override or live.json state under the previous name no longer carries over, and `tests/derive_*.py` count such transcripts under their recorded type. The frozen fixture `tests/fixtures/sched/graph-4e2da3ce.json` names `dot-claude/agents/supreme-coder.md`.
+- Upgrading straight from an install older than the rename: the previous agent file is still pruned as no longer shipped (the backup keeps it), and a shipped knob still at its default is retracted. A knob you tuned under the previous prefix stays in settings.json unread: set its `SUPREME_*` name. An old launcher link in `~/.local/bin` is no longer recognised: remove it. Rerun install.sh and restart Claude Code.
+
 ### 2026-10-03 (hero image, CC BY 4.0)
 
 - Hero image replaced: the author's cat photograph edited with OpenAI GPT Image 2.5 Sunburst via Opper; images licensed CC BY 4.0. `lib/assets/` holds the unmodified model output (`blackcat-hero-original.png`, with its C2PA manifest), the resized hero, social preview and avatar, the CC BY 4.0 legal code and the provenance (prompts, settings, hashes); README's License section and NOTICE follow. `lib/assets/` is not installed: nothing to rerun.
@@ -474,13 +482,9 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 
 - The repo no longer ships `legacy/be5b940/` (old `CLAUDE.md`, `agents/senior-coder.md`, seven skills); it stays in the history from before publication (the 2026-10-03 commit "Remove legacy/be5b940; smoke tests take old-release files from tests/fixtures"; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)). install.sh keeps its generic `legacy/<version>/<rel>` recognition (`legacy_renders`, `template_copy`), which finds nothing while `legacy/` is absent, and the model-ID lint keeps its `legacy/` exception. Upgrade effect, only for an install whose files the manifest does not track (pre-manifest): an unedited untracked `CLAUDE.md` of that release (and a leftover `CLAUDE.md.new`) is now kept instead of moved to the backup, without the "kept" advice (its line similarity to today's rules, 0.385, is under `similar()`'s 0.4), and an untracked old skill file under `--no-prune` is kept with a `.new` render instead of refreshed (with pruning it is replaced and listed). Tracked files, and `senior-coder.md` (removed by name as renamed), behave as before. `tests/install_smoke.sh` takes its old-release files from `tests/fixtures/legacy-release/` and puts them under the scratch repo's `legacy/` only for the CLAUDE.md migration cases; a new case checks an unrecognised old `CLAUDE.md` is kept. Nothing to rerun.
 
-### 2026-10-03 (god-coder renamed to supreme-coder)
+### 2026-10-03 (top-tier coder agent renamed to supreme-coder)
 
-- god-coder renamed to supreme-coder: the agent file (`agents/supreme-coder.md`, `name: supreme-coder`), the guard's `POLICY` rows, fan-out, soft-limit and read-only tables, the limits seed (`turns.`, `soft.agent.`, `hard.agent.supreme-coder`), `sched_model.json`, `agent_effort.json`, every agent body, the rules, skills, docs and tests. Entries above keep the old name. The knobs follow it: `GOD_SPAWNERS`, `GOD_ONCE_PER_SESSION`, `GOD_AFTER_NINJA`, `GOD_PENDING_TTL_S`, `GOD_IDLE_S`, `GOD_LOCK_TTL_S` are now `SUPREME_*` (install.sh's `RENAMED_ENV` moves a value you tuned in settings.json; one still at the stack default is dropped for the new default). The lock and markers in the hook state are `supreme-coder.lock`, `supreme-coder.spawned` and `supreme.mutex`; `GOD_` stays a fixed-guard prefix in `stack_limits.FIXED_PREFIXES`.
-- The launcher is `claude-supreme`. `bin/claude-ultracode` still answers to `claude-god`, printing a deprecation note and starting supreme-coder; install.sh no longer creates that link and notes an existing one, and doctor.sh warns about it, about a left-over `agents/god-coder.md` and about any `GOD_*` variable still set.
-- install.sh's `RENAMED` maps `agents/god-coder.md` to `agents/supreme-coder.md`: an install prunes the old file (the backup keeps it); `--no-prune` lists it.
-- State and overrides from before the rename keep working: the guard adopts a session's `god-coder.lock` and `god-coder.spawned` under the new names (a resumed session gets no second spawn, a running holder still blocks) and normalizes the old spellings to supreme-coder; `STACK_{MAXTURNS,SOFTCTX,HARDCTX,SOFT_PROMPT_CTX}_GOD_CODER` count while the `_SUPREME_CODER` one is unset (install.sh moves them in settings.json); live.json's `*.god-coder` state, a freeze included, moves to `*.supreme-coder`. Rules file trimmed by 17 characters to stay inside `tests/prompt_budget.py` (rules <= 0.95 x base).
-- Usage rows recorded as `god-coder` (runs*.csv, transcripts read by `tests/derive_*.py`) are read as supreme-coder (`stack_limits.RENAMED_TYPES` / `renamed_type`, `stack_usage.RENAMED_TYPES` in `read_rows`; rotation keeps rows as written); nothing is rewritten. The frozen fixture `tests/fixtures/sched/graph-4e2da3ce.json` keeps the old path. Rerun install.sh and restart Claude Code.
+- The top-tier coder agent is now supreme-coder: the agent file (`agents/supreme-coder.md`, `name: supreme-coder`), the guard's `POLICY` rows, fan-out, soft-limit and read-only tables, the limits seed (`turns.`, `soft.agent.`, `hard.agent.supreme-coder`), `sched_model.json`, `agent_effort.json`, every agent body, the rules, skills, docs and tests. Its knobs are `SUPREME_SPAWNERS`, `SUPREME_ONCE_PER_SESSION`, `SUPREME_AFTER_NINJA`, `SUPREME_PENDING_TTL_S`, `SUPREME_IDLE_S`, `SUPREME_LOCK_TTL_S` and the `STACK_{MAXTURNS,SOFTCTX,HARDCTX,SOFT_PROMPT_CTX}_SUPREME_CODER` overrides; the lock and markers in the hook state are `supreme-coder.lock`, `supreme-coder.spawned` and `supreme.mutex`; the launcher is `claude-supreme`. Rules file trimmed by 17 characters to stay inside `tests/prompt_budget.py` (rules <= 0.95 x base). The compatibility layer for the previous name that shipped with it is gone (entry "previous-name compatibility removed"). Rerun install.sh and restart Claude Code.
 
 ### 2026-10-03 (BlackCat does small jobs itself)
 
@@ -518,7 +522,7 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 ### 2026-10-03 (/override-agent, built-in effort table)
 
 - The commands are now `/override-agent <agent> <model>`, `/override-agent list` and `/reset-agent <agent|all>`. The old `/agent-override` and `/agent-reset` and their effort argument are gone. The effort comes from `hooks/agent_effort.json` (initial defaults, rule v1), clamped to the model; it is recorded and shown, not applied (§5, "Session model overrides").
-- Not built: enforcing the effort through per-(agent, model) agent definition variants, which install.sh would render statically (frontmatter `model` + `effort` from the table) with the guard resolving `<agent>@<model>` to `<agent>`. That means up to 220 more agent files in the listing every Agent caller sees. Every guard keyed by agent type would also need one alias function: spawn rows and allowlists, copy rules, READONLY_TYPES (no-push read-only Bash), fan-out by type, god-coder and browser spawners, web taint, MCP and turn caps, the limits snapshot (turns, hard and soft per type), read_gate and web_caps exemptions, ledger labels, stack_usage and the scheduler model, and lint_agents. A missed site there weakens a guard, and the result can only be checked in a live session. Decided later the same day: no agent variants (the user's decision; entry above).
+- Not built: enforcing the effort through per-(agent, model) agent definition variants, which install.sh would render statically (frontmatter `model` + `effort` from the table) with the guard resolving `<agent>@<model>` to `<agent>`. That means up to 220 more agent files in the listing every Agent caller sees. Every guard keyed by agent type would also need one alias function: spawn rows and allowlists, copy rules, READONLY_TYPES (no-push read-only Bash), fan-out by type, supreme-coder and browser spawners, web taint, MCP and turn caps, the limits snapshot (turns, hard and soft per type), read_gate and web_caps exemptions, ledger labels, stack_usage and the scheduler model, and lint_agents. A missed site there weakens a guard, and the result can only be checked in a live session. Decided later the same day: no agent variants (the user's decision; entry above).
 
 ### 2026-10-03 (session model overrides)
 
@@ -558,13 +562,13 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 - Hooks under the SDK and `claude -p`: no TTY dependence (hooks always run without a controlling terminal); `tests/test_sdk_integration.py` runs them with SDK-shaped events and environment. Cache order checked: no hook writes a system prompt or rewrites earlier context; the SubagentStart line sits in the first user message and is kept.
 - Reference: `skills/claude-code-extensions/references/agent-sdk.md`; cost probe for the user: `tests/sdk_smoke.py` (real API calls; not run in the build sandbox).
 
-### 2026-09-29 (security rounds 3 and 4, god-coder plan flow)
+### 2026-09-29 (security rounds 3 and 4, supreme-coder plan flow)
 
 The 2026-09-29 commits of security rounds 3 and 4, two for magg, one for the docs and the one that added this entry; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
 
 - Without a terminal on stdin/stderr the supply question goes to `/dev/tty`; with no terminal at all a changed stack stops with exit 1 unless `--yes` (R4-1).
 - A failed session-env hook exits 2 with a hook error, is recorded in `session-env.json`, and shows in the status line and `doctor.sh` (R4-2).
-- Round-4 residuals recorded (taint gaps, `GOD_AFTER_NINJA` order only, a session started in `/tmp`, live checks open).
+- Round-4 residuals recorded (taint gaps, `SUPREME_AFTER_NINJA` order only, a session started in `/tmp`, live checks open).
 
 - Web taint follows reports, messages and spawn prompts (R3-T3-RELAY).
 - Caches and the git credential reset moved to a SessionStart `CLAUDE_ENV_FILE` for sandboxed Bash only; `allowWrite` is `~/.cache/claude-sandbox`; an upgrade retracts the old settings (R3-CACHES, R3-GITENV).
@@ -574,7 +578,7 @@ The 2026-09-29 commits of security rounds 3 and 4, two for magg, one for the doc
 - `doctor.sh` reports GitHub credentials agents could use, by presence only (R3-N1-P2); least-privilege GitHub setup documented; `~/.config/git/credentials` denied.
 - Read-only reviewers treat a project under a temp dir as the project (R3-INFO).
 - magg `ros_*`, `qiskit_*`, `docspace_*` and the ten domain prefixes ask; every catalog prefix has exactly one allow or ask rule.
-- god-coder only after a finished ninja-coder (`GOD_AFTER_NINJA`); a plan's god-coder step runs only after its ninja-coder step failed (planner, plan-reviewer, BlackCat, orchestrator prompts; section 4).
+- supreme-coder only after a finished ninja-coder (`SUPREME_AFTER_NINJA`); a plan's supreme-coder step runs only after its ninja-coder step failed (planner, plan-reviewer, BlackCat, orchestrator prompts; section 4).
 - N-MANAGED: managed settings pin the hook entries, not the hook's code, unless the root-owned copy is installed (documented).
 - T1 URL policy weighed and not built (residual risks).
 
@@ -599,7 +603,7 @@ The 2026-09-29 commits of security rounds 3 and 4, two for magg, one for the doc
 - Desktop hang fixed: BlackCat's children always run in the background, and the hook drops `run_in_background: false`.
 - BlackCat always gives a visible reply and asks clarifying questions. The recommended main-thread effort is `medium`.
 - Models: only Opus 5.5 and Sonnet 5.5 are used, with no Haiku.
-  - god-coder moved from Fable to Opus 5.5.
+  - supreme-coder moved from Fable to Opus 5.5.
   - doc-specialist moved to Sonnet 5.5.
 - Effort recalibrated for 5.5:
   - lowered from `xhigh` to `high`: orchestrator, plan-reviewer, code-reviewer, quantum-engineer;
@@ -607,12 +611,12 @@ The 2026-09-29 commits of security rounds 3 and 4, two for magg, one for the doc
 - maxTurns set per task type (section 3).
 - Caps:
   - BlackCat: 8 dispatches, 12 steps, 120 s window;
-  - running children per agent: orchestrator 32, main-coder and god-coder 6, ninja-coder 5, researcher 4, planner 8, everyone else 3;
+  - running children per agent: orchestrator 32, main-coder and supreme-coder 6, ninja-coder 5, researcher 4, planner 8, everyone else 3;
   - `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` 33.
-- god-coder: only the orchestrator spawns it, once per session. BlackCat, main-coder, ninja-coder and the ML platform engineers return `NEXT: god-coder` instead of spawning it.
+- supreme-coder: only the orchestrator spawns it, once per session. BlackCat, main-coder, ninja-coder and the ML platform engineers return `NEXT: supreme-coder` instead of spawning it.
 - The installer removes `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` and `CLAUDE_CODE_FORK_SUBAGENT`; `/stack-doctor` warns about them.
 - Tests:
-  - new: BlackCat foreground drop, shipped spawn defaults, god-coder orchestrator-only and once per session;
+  - new: BlackCat foreground drop, shipped spawn defaults, supreme-coder orchestrator-only and once per session;
   - the mechanics tests pin their former caps as a baseline.
 
 The full entry was in the Changelog section of the README as of the 2026-10-02 commit "Skills listed, not

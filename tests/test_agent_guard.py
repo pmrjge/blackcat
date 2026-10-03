@@ -2697,33 +2697,3 @@ def test_blackcat_foreground_cap_follows_a_raised_default(env):
     p = run(rg(s, "Bash", prompt="p2", tool_input={"command": "ls", "timeout": 60000}), env,
             args=["blackcat-guard"], extra=raised)
     assert decision(p) == "allow"
-
-
-LEGACY = "god-coder"     # supreme-coder's name before the rename (state a resumed session may still hold)
-
-
-def test_pre_rename_spawn_marker_still_counts(bare_env):
-    """A session that spent its slot before supreme-coder's rename (its old-name marker) and is resumed
-    after it gets no second spawn: the marker is adopted under the current name."""
-    s = sid()
-    ninja_done(bare_env, s)
-    (state(bare_env, s) / (LEGACY + ".spawned")).write_text("tu-old")
-    p = run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O1"), bare_env)
-    assert decision(p) == "deny" and "One supreme-coder per session" in reason(p)
-    assert (state(bare_env, s) / "supreme-coder.spawned").read_text() == "tu-old"
-    assert not (state(bare_env, s) / (LEGACY + ".spawned")).exists()
-
-
-def test_pre_rename_lock_blocks_and_its_holder_releases_it(bare_env):
-    """A lock written under supreme-coder's old name (a live install) still blocks a new spawn, and the
-    old-name holder's SubagentStop (its type normalizes to supreme-coder) releases it."""
-    s = sid()
-    ninja_done(bare_env, s)
-    (state(bare_env, s) / (LEGACY + ".lock")).write_text(json.dumps(
-        {"state": "running", "holder": "G0", "by": "O0", "ts": time.time()}))
-    p = run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O1"), bare_env,
-            extra={"SUPREME_ONCE_PER_SESSION": "0"})
-    assert decision(p) == "deny" and "already" in reason(p), reason(p)
-    assert supreme_lock(bare_env, s)["holder"] == "G0"
-    run(lifecycle(s, "SubagentStop", "G0", LEGACY), bare_env)
-    assert supreme_lock(bare_env, s) is None
