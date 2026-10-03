@@ -759,8 +759,10 @@ def test_settings_wiring_acts_only_for_blackcat():
         assert env.run(main_ev(env, "Bash", atype), args=("blackcat-guard", "--settings")
                        ).decision == "allow(no-output)"
     # blackcat named: the same gate as the frontmatter wiring
-    r = env.run(main_ev(env, "Bash", "blackcat"), args=("blackcat-guard", "--settings"))
-    assert r.decision == "deny" and "BlackCat only delegates" in r.reason
+    r = env.run(main_ev(env, "WebFetch", "blackcat"), args=("blackcat-guard", "--settings"))
+    assert r.decision == "deny" and "belongs to a specialist" in r.reason
+    assert env.run(main_ev(env, "Bash", "blackcat"), args=("blackcat-guard", "--settings")
+                   ).decision == "allow(no-output)"
 
 
 def test_both_wirings_count_one_step_per_call():

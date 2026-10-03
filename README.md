@@ -2,7 +2,7 @@
 
 <!-- markdownlint-disable MD013 MD060 -->
 
-BlackCat, a dispatcher on the main thread, routes work to 55 specialist agents (56 agent files). 213
+BlackCat, the main thread, does small jobs itself and routes the rest to 55 specialist agents (56 agent files). 213
 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the Claude Code sandbox hold
 the limits, and MCP servers start and stop with the agents that use them. Built for Claude Code
 **2.1.271 or later**, macOS only (Apple Silicon first). It runs in the terminal and in the apps that run
@@ -40,7 +40,7 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 
 | Agent | Model · effort | maxTurns | Inline MCP | Does |
 |---|---|---|---|---|
-| blackcat | Sonnet 5.5 · medium (session) | — | — | Main-thread dispatcher; never does the work |
+| blackcat | Sonnet 5.5 · medium (session) | — | — | Main thread: small jobs itself (Read, Bash, Write, Edit), routes the rest |
 | orchestrator | Opus 5.5 · high | 200 | neural-memory | Coordinates work needing several specialists or dependent steps |
 | planner | Opus 5.5 · xhigh | 60 | libdocs | Plans before anything is built |
 | plan-reviewer | Opus 5.5 · high | 60 | libdocs | Critiques a plan against the goal, the code and current docs |
@@ -112,8 +112,9 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | build-fixer | Sonnet 5.5 · low | 60 | — | Makes a red build green |
 | localizer | Sonnet 5.5 · medium | 80 | — | Translates string catalogs and subtitles |
 
-Routing in one paragraph: BlackCat classifies and dispatches (up to 8 children in one burst per prompt)
-or hands dependent multi-specialist work to the orchestrator. Code escalates coder → main-coder →
+Routing in one paragraph: BlackCat does a job of a few tool calls itself (a look, a small edit, one
+command, git inspection), dispatches the rest (up to 8 children in one burst per prompt) and hands
+dependent multi-specialist work to the orchestrator. Code escalates coder → main-coder →
 ninja-coder → god-coder; language-heavy work goes to the language engineer, domain builds to the domain
 expert. The helpers are leaves (no Agent tool); db-engineer and localizer are reached through their
 family heads, not BlackCat. Depth is BlackCat → L1 → L2 → L3 → L4, and L4 cannot spawn.
@@ -226,14 +227,14 @@ the call (fail closed); every hook command runs on an absolute interpreter chose
 
 | Guard | What it enforces |
 |---|---|
-| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/god-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 12 tool calls per prompt |
+| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/god-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 12 tool calls per prompt, at most 4 of them its own Read/Bash/Write/Edit, and no foreground Bash timeout over 120 s |
 | Read-only agents | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide and proof-checker hold Bash, but only read-only commands pass (tests, linters in check mode, `git diff/log/show`, inspection, scanners); scratch code is content-checked; anything else is refused |
 | No push | `git push` in any form and forge writes (`gh`/`tea`/`fj`, `gh api`, curl/wget/httpie to forge hosts) are denied, also inside `bash -c`, `eval`, `$(...)`, `ssh` and git's own command hooks. `STACK_POLICY=off` does not lift it |
 | Protected paths | Bash-level writes, deletes and renames of the installed stack, the backups and the hook state are refused, on top of the Edit/Write deny rules; so is running `install.sh` except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs |
 | Delegation ledger | Every Agent call is recorded as a tree (type, task, state, agent id) in `~/.local/state/claude-agent-stack/<session>/delegations.md`, which BlackCat reads; `agent_guard.py delegations [session] [--json]` prints it |
 | god-coder once | Only the orchestrator spawns god-coder, once per session, and only after a ninja-coder of the session has finished (`GOD_SPAWNERS`, `GOD_ONCE_PER_SESSION`, `GOD_AFTER_NINJA`; the hook checks order, the prompts check that ninja-coder failed) |
 | Soft token limits | Past its soft limit (context tokens per subagent run, by type: scout 390K … verifier 26M; 33M per human prompt, 80M while an orchestrator runs) an agent's next tool call carries one warning to wrap up, return `STATUS: partial` and ask before continuing; nothing is refused. Values, derivation and refresh (`tests/derive_thresholds.py`): [CONFIG.md](CONFIG.md) §5 |
-| Also | Context-token budgets (hard) and the per-subagent MCP call cap; one agent on the screen; web-tainted agents can't write neural-memory; images re-encoded to ≤ 1919 px; BlackCat's children forced to the background; per-call `model` stripped |
+| Also | Context-token budgets (hard) and the per-subagent MCP call cap; one agent on the screen; web-tainted agents can't write neural-memory; images re-encoded to ≤ 1919 px; BlackCat's children forced to the background; BlackCat holds no web tool and its Bash is refused HTTP clients in any spelling, raw sockets, `gh` forge reads and inline HTTP code (T1; best effort: script files and text assembled at run time are not seen, git clone/fetch/pull stay allowed, the sandbox network allowlist is the hard limit); per-call `model` stripped |
 
 The event-by-event table and the sandbox design are in [CONFIG.md](CONFIG.md) §5 and §7 and in
 `agent_guard.py`'s module docstring.
@@ -430,6 +431,8 @@ yourself.
 | `STACK_REPORT_FORMAT` | unset | `json`: every final report is one JSON line (SessionStart and SubagentStart add one line); for Agent SDK apps | guard |
 | `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` ● | 8 / 120 | BlackCat Agent calls per prompt, within this many seconds of the first | guard |
 | `BLACKCAT_MAX_STEPS` ● | 12 | BlackCat tool calls per prompt | guard |
+| `BLACKCAT_MAX_OWN_STEPS` | 4 | Of those, BlackCat's own Read/Bash/Write/Edit calls (8 dispatches always fit) | guard |
+| `BLACKCAT_BASH_TIMEOUT_MS` | 120000 | Longest timeout a BlackCat foreground Bash call may ask for (longer: `run_in_background` or a specialist) | guard |
 | `BLACKCAT_BACKGROUND` | 1 | Drop BlackCat's `run_in_background: false` | guard |
 | `STACK_MAX_FANOUT` ● | 3 | Running children per agent (0 = no cap) | guard |
 | `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |

@@ -26,7 +26,8 @@ KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "GOD_PEN
          "STACK_FANOUT_IDLE_S", "STACK_MAX_FANOUT_BY_TYPE", "STACK_LEASE_TTL_S",
          "STACK_RESUME_TTL_S", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET",
          "STACK_MAX_MCP_CALLS", "BLACKCAT_BACKGROUND", "GOD_ONCE_PER_SESSION", "GOD_SPAWNERS",
-         "GOD_AFTER_NINJA", "STACK_SOFT_LIMIT_SCALE")
+         "GOD_AFTER_NINJA", "STACK_SOFT_LIMIT_SCALE", "BLACKCAT_MAX_OWN_STEPS",
+         "BLACKCAT_BASH_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS")
 COPY_DENIED = ("Copies cannot spawn copies: %s may not spawn %s. Do this part yourself or return "
                "STATUS: partial listing what is left.")
 
@@ -217,9 +218,11 @@ def test_print_policy_format(env):
     assert not set(copies.values()) & (set(d["policy"]["blackcat"]) | set(d["policy"]["orchestrator"]))
     assert d["policy"]["planner"]                           # planner keeps Agent
     assert {"plan-reviewer", "image-director"} <= set(d["leaves"])
-    assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill", "Read", "Grep", "Glob"} <= set(
+    assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill", "Read", "Bash", "Write",
+            "Edit"} <= set(d["blackcat_tools"])
+    # no web tool on the main thread (T1), no Grep/Glob next to Bash (they never resolve)
+    assert not {"WebFetch", "WebSearch", "Monitor", "NotebookEdit", "Grep", "Glob"} & set(
         d["blackcat_tools"])
-    assert not {"Bash", "Write", "Edit", "NotebookEdit", "WebSearch"} & set(d["blackcat_tools"])
 
 
 def test_self_test(env):
@@ -811,57 +814,64 @@ def test_unparseable_stdin(env):
 # ---------------------------------------------------------------- blackcat-guard mode
 def rg(s, tool, prompt="p1", **extra):
     return dict({"session_id": s, "hook_event_name": "PreToolUse", "tool_name": tool,
-                 "prompt_id": prompt, "tool_input": {}}, **extra)
+                 "prompt_id": prompt,
+                 "tool_input": {"command": "git status"} if tool == "Bash" else {}}, **extra)
 
 
 def test_blackcat_guard_allowlist(env):
     s = sid()
-    for tool in ("Bash", "Write", "Edit", "WebSearch", "WebFetch", "mcp__exa__search",
-                 "TaskOutput", "NotebookEdit", "Monitor", "PowerShell", "LSP"):
+    for tool in ("WebSearch", "WebFetch", "mcp__exa__search", "mcp__claude-in-chrome__navigate",
+                 "TaskOutput", "NotebookEdit", "Monitor", "PowerShell", "LSP", "Grep", "Glob"):
         p = run(rg(s, tool), env, args=["blackcat-guard"])
-        assert decision(p) == "deny" and "BlackCat only delegates" in reason(p), tool
+        assert decision(p) == "deny" and "belongs to a specialist" in reason(p), tool
     for tool in ("SendMessage", "AskUserQuestion", "mcp__conductor__AskUserQuestion", "ExitPlanMode",
                  "TaskStop", "ListAgents", "ToolSearch",
                  "Skill", "Workflow", "CronCreate", "CronList", "CronDelete", "ScheduleWakeup",
-                 "RemoteTrigger", "PushNotification", "SendUserFile", "Read", "Grep", "Glob"):
+                 "RemoteTrigger", "PushNotification", "SendUserFile", "Read", "Write", "Edit"):
         assert decision(run(rg(s, tool, prompt="p-" + tool), env, args=["blackcat-guard"])) \
             == "allow", tool
+    p = run(rg(s, "Bash", prompt="p-Bash", tool_input={"command": "git status"}), env,
+            args=["blackcat-guard"])
+    assert decision(p) == "allow"
 
 
 def test_blackcat_reads_count_as_steps(env):
-    """Read, Grep and Glob are BlackCat's own read-only tools: each call is a step, and the 9th
-    call of any kind in one prompt is refused."""
+    """Read, Bash, Write and Edit are BlackCat's own tools: each call is a step (and an own-work
+    step), and the 9th call of any kind in one prompt is refused."""
     s = sid()
     extra = {"BLACKCAT_MAX_DISPATCH": "10"}
-    calls = ["Read", "Grep", "Glob", "Agent", "Read", "ToolSearch", "Agent", "Glob"]
+    calls = ["Read", "Bash", "Agent", "Edit", "ToolSearch", "Agent", "Write", "AskUserQuestion"]
     for tool in calls:
         p = (run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env, extra=extra)
              if tool == "Agent" else run(rg(s, tool, prompt="q1"), env, args=["blackcat-guard"]))
         assert decision(p) == "allow", tool
-    for tool in ("Read", "Grep", "Glob", "ToolSearch"):
+    for tool in ("ToolSearch", "AskUserQuestion", "Skill"):
         p = run(rg(s, tool, prompt="q1"), env, args=["blackcat-guard"])
         assert decision(p) == "deny" and "step limit (8 tool calls" in reason(p), tool
+    for tool in ("Read", "Bash", "Write"):             # own-work cap (4) reached first
+        p = run(rg(s, tool, prompt="q1"), env, args=["blackcat-guard"])
+        assert decision(p) == "deny" and "own-work limit (4" in reason(p), tool
     p = run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env, extra=extra)
     assert decision(p) == "deny" and "step limit" in reason(p)
     # SendMessage, like Agent, is counted by the main hook (with its resume reservation)
     p = run(dict(send(s, "X1"), agent_type="blackcat", prompt_id="q1"), env)
     assert decision(p) == "deny" and "step limit (8 tool calls" in reason(p)
-    # eight reads alone use the whole allowance too; writes never pass, whatever is left
+    # reads alone stop at the own-work cap; specialist tools never pass, whatever is left
     s2 = sid()
     res = [decision(run(rg(s2, "Read", prompt="q1"), env, args=["blackcat-guard"]))
-           for _ in range(9)]
-    assert res == ["allow"] * 8 + ["deny"]
-    for tool in ("Write", "Edit", "Bash"):
+           for _ in range(6)]
+    assert res == ["allow"] * 4 + ["deny"] * 2
+    for tool in ("WebFetch", "NotebookEdit", "Monitor"):
         p = run(rg(sid(), tool, prompt="q1"), env, args=["blackcat-guard"])
-        assert decision(p) == "deny" and "BlackCat only delegates" in reason(p), tool
+        assert decision(p) == "deny" and "belongs to a specialist" in reason(p), tool
 
 
 def test_blackcat_guard_subagent_passes_and_no_substring_bypass(env):
     s = sid()
     assert decision(run(rg(s, "Bash", agent_id="A1", agent_type="coder"), env,
                         args=["blackcat-guard"])) == "allow"
-    ev = rg(s, "Bash")
-    ev["tool_input"] = {"command": "echo", "agent_id": "fake", "note": '"agent_id"'}
+    ev = rg(s, "WebFetch")
+    ev["tool_input"] = {"url": "https://x", "agent_id": "fake", "note": '"agent_id"'}
     assert decision(run(ev, env, args=["blackcat-guard"])) == "deny"
 
 
@@ -892,7 +902,7 @@ def test_blackcat_hook_command_as_rendered(env, tmp_path):
     cmd = cmd.replace("__PYTHON3__", sys.executable).replace(
         "__CLAUDE_DIR__", str(ROOT / "dot-claude"))
     s = sid()
-    p = run(rg(s, "Bash"), env, cmd=["sh", "-c", cmd])
+    p = run(rg(s, "WebFetch"), env, cmd=["sh", "-c", cmd])
     assert decision(p) == "deny"
     p = run(rg(s, "SendMessage"), env, cmd=["sh", "-c", cmd])
     assert decision(p) == "allow"
@@ -911,7 +921,8 @@ def test_model_strip(env):
 
 
 def test_shipped_spawn_defaults(bare_env):
-    """No knobs set: BlackCat 8 dispatches and 12 steps per prompt; the per-type fan-out table."""
+    """No knobs set: BlackCat 8 dispatches, 12 steps and 4 own calls per prompt; the per-type
+    fan-out table."""
     env = bare_env
     s = sid()
     res = [decision(run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env))
@@ -920,9 +931,13 @@ def test_shipped_spawn_defaults(bare_env):
     assert "dispatch limit (8 per prompt)" in reason(run(pre_agent(s, "scout", parent="blackcat",
                                                                    prompt="q1"), env))
     s = sid()
-    res = [decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"]))
+    res = [decision(run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"]))
            for _ in range(13)]
     assert res == ["allow"] * 12 + ["deny"]
+    s = sid()
+    res = [decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"]))
+           for _ in range(5)]
+    assert res == ["allow"] * 4 + ["deny"]
     for parent, cap in (("orchestrator", 32), ("god-coder", 6), ("main-coder", 6),
                         ("ninja-coder", 5), ("researcher", 4), ("coder", 3), ("designer", 3)):
         s, child = sid(), ("scout" if parent in ("researcher", "coder", "designer") else "coder")
@@ -2432,7 +2447,7 @@ def test_blackcat_step_limit_refuses_a_resume_and_holds_no_slot(env):
     run(lifecycle(s, "SubagentStart", "L1", "main-coder"), env)
     finished_children(env, s, "L1", "main-coder", "coder", ["W1"])
     for _ in range(8):
-        assert decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
+        assert decision(run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
     ev = dict(send(s, "W1"), agent_type="blackcat", prompt_id="q1")
     res = [decision(run(ev, env, args=a)) for a in (["blackcat-guard"], [])]
     assert "deny" in res, res
@@ -2452,7 +2467,7 @@ def test_blackcat_resume_is_one_step_and_a_refused_one_spends_none(env):
     steps = lambda: len([p for p in folder.iterdir() if p.name.startswith("step.")]) \
         if folder.exists() else 0
     for _ in range(7):
-        assert decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
+        assert decision(run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
     # a refused resume (another god-coder is starting) spends no step and reserves nothing
     assert decision(run(pre_agent(s, "god-coder", parent="orchestrator", agent_id="O9"), env)) \
         == "allow"
@@ -2463,7 +2478,7 @@ def test_blackcat_resume_is_one_step_and_a_refused_one_spends_none(env):
     ev = dict(send(s, "W1"), agent_type="blackcat", prompt_id="q1")
     assert [decision(run(ev, env, args=a)) for a in (["blackcat-guard"], [])] == ["allow", "allow"]
     assert steps() == 8 and leases(env, s, "L1") == ["resume-W1"]
-    p = run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"])
+    p = run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"])
     assert decision(p) == "deny" and "step limit" in reason(p)
 
 
@@ -2637,3 +2652,48 @@ def test_readonly_lake_env_checks_the_wrapped_command(command, ok):
     g = _guard_types()
     bad = g.readonly_violation(command, {"cwd": str(ROOT)})
     assert (bad is None) == ok, bad
+
+
+def test_blackcat_own_work_never_eats_the_dispatch_burst(env):
+    """Shipped caps (12 steps, 8 dispatches, 4 own calls): own work first, against the rules, still
+    leaves room for a full burst of 8 dispatches; the 5th own call is refused, and so is a 13th
+    call."""
+    s = sid()
+    shipped = {"BLACKCAT_MAX_STEPS": "12", "BLACKCAT_MAX_DISPATCH": "8"}
+    for tool in ("Read", "Bash", "Edit", "Bash"):
+        assert decision(run(rg(s, tool, prompt="w1"), env, args=["blackcat-guard"],
+                            extra=shipped)) == "allow", tool
+    p = run(rg(s, "Write", prompt="w1"), env, args=["blackcat-guard"], extra=shipped)
+    assert decision(p) == "deny" and "own-work limit (4" in reason(p)
+    for i in range(8):
+        p = run(pre_agent(s, "scout", parent="blackcat", prompt="w1"), env, extra=shipped)
+        assert decision(p) == "allow", i
+    p = run(rg(s, "ToolSearch", prompt="w1"), env, args=["blackcat-guard"], extra=shipped)
+    assert decision(p) == "deny" and "step limit (12" in reason(p)
+
+
+@pytest.mark.parametrize("ti,ok", [
+    ({"command": "make test"}, True),                                     # harness default 120 s
+    ({"command": "make test", "timeout": 120000}, True),
+    ({"command": "make test", "timeout": 120001}, False),
+    ({"command": "make test", "timeout": 600000}, False),
+    ({"command": "make test", "timeout": 600000, "run_in_background": True}, True),
+    ({"command": "make test", "run_in_background": "yes", "timeout": 600000}, False),
+])
+def test_blackcat_foreground_bash_is_bounded(env, ti, ok):
+    p = run(rg(sid(), "Bash", tool_input=ti), env, args=["blackcat-guard"])
+    assert (decision(p) == "allow") == ok, ti
+    if not ok:
+        assert "foreground Bash is capped at 120 s" in reason(p)
+
+
+def test_blackcat_foreground_cap_follows_a_raised_default(env):
+    """BASH_DEFAULT_TIMEOUT_MS raised in settings env: a Bash call without a timeout would wait
+    that long, so it must pass an explicit timeout within the cap."""
+    s = sid()
+    raised = {"BASH_DEFAULT_TIMEOUT_MS": "300000"}
+    p = run(rg(s, "Bash", tool_input={"command": "ls"}), env, args=["blackcat-guard"], extra=raised)
+    assert decision(p) == "deny" and "asks for 300 s" in reason(p)
+    p = run(rg(s, "Bash", prompt="p2", tool_input={"command": "ls", "timeout": 60000}), env,
+            args=["blackcat-guard"], extra=raised)
+    assert decision(p) == "allow"
