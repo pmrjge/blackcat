@@ -426,7 +426,7 @@ def test_static_hierarchy_matches_the_agent_files_and_policy(tmp_path):
         assert got == want, name
     l1 = {a for a, r in by.items() if r["level"] == "L1"}
     assert l1 == set(policy["blackcat"]) and by["blackcat"]["level"] == "main"
-    assert by["god-coder"]["level"] == "L2" and by["god-coder"]["parent"] == "orchestrator"
+    assert by["supreme-coder"]["level"] == "L2" and by["supreme-coder"]["parent"] == "orchestrator"
     assert all(r["level"] in ("main", "L1", "L2", "L3", "L4") for r in rows)
     assert by["python-engineer"]["skills"].startswith("python-engineering")
     assert "/stack-tree" in by["blackcat"]["skills"] and "/stack-doctor" in by["blackcat"]["skills"]

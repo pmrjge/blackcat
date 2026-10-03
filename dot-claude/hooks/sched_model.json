@@ -1143,7 +1143,7 @@
    "source": "pool:builder",
    "source_ctx": "pool:builder"
   },
-  "god-coder": {
+  "supreme-coder": {
    "model": "opus",
    "ttl": "1h",
    "tier": "builder",

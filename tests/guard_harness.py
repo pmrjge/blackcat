@@ -16,12 +16,12 @@ import uuid
 HERE = os.path.dirname(os.path.abspath(__file__))
 GUARD = os.environ.get("GUARD", os.path.join(os.path.dirname(HERE), "dot-claude", "hooks",
                                              "agent_guard.py"))
-KNOB_PREFIXES = ("STACK_", "BLACKCAT_", "GOD_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
+KNOB_PREFIXES = ("STACK_", "BLACKCAT_", "SUPREME_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 # The mechanics these tests exercise were written against these caps; the shipped defaults are
 # checked separately (test_agent_guard.py::test_shipped_spawn_defaults).
-BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8", "GOD_ONCE_PER_SESSION": "0",
-            "GOD_AFTER_NINJA": "0",
-            "GOD_SPAWNERS": "orchestrator,main",
+BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8", "SUPREME_ONCE_PER_SESSION": "0",
+            "SUPREME_AFTER_NINJA": "0",
+            "SUPREME_SPAWNERS": "orchestrator,main",
             "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=8,planner=8,plan-reviewer=8"}
 
 
@@ -50,11 +50,11 @@ class Env:
         os.utime(p, (t, t))
         return p
 
-    def lock(self, name="god-coder.lock"):
+    def lock(self, name="supreme-coder.lock"):
         p = os.path.join(self.sdir(), name)
         return json.load(open(p)) if os.path.exists(p) else None
 
-    def age_lock(self, seconds, name="god-coder.lock"):
+    def age_lock(self, seconds, name="supreme-coder.lock"):
         p = os.path.join(self.sdir(), name)
         obj = json.load(open(p))
         obj["ts"] = time.time() - seconds

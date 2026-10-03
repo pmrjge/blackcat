@@ -2660,7 +2660,7 @@ elif [ "$DRY_RUN" = 1 ]; then
       fi
     fi
   done
-  for n in claude-ninja claude-god; do
+  for n in claude-ninja claude-supreme; do
     [ -e "$HOME/.local/bin/$n" ] || [ -L "$HOME/.local/bin/$n" ] || would "ln -s $C/bin/claude-ultracode $HOME/.local/bin/$n"
   done
 else
@@ -2719,10 +2719,10 @@ PY
       esac
     fi
   done
-  # claude-ninja / claude-god: ninja-coder or god-coder as the main thread at ultracode, the only
+  # claude-ninja / claude-supreme: ninja-coder or supreme-coder as the main thread at ultracode, the only
   # place ultracode runs (an agent file's effort reaches subagents only, and they can't run workflows).
   mkdir -p "$HOME/.local/bin"
-  for n in claude-ninja claude-god; do
+  for n in claude-ninja claude-supreme; do
     l="$HOME/.local/bin/$n"
     if [ "$(readlink "$l" 2>/dev/null)" = "$C/bin/claude-ultracode" ]; then
       note "= $n (ultracode launcher)"
@@ -2790,7 +2790,7 @@ cat <<EOF
      /mcp   (server status; no sign-in needed with keys)
      Once, in that first session: /effort medium — BlackCat runs at the session's level (saved
      for Sonnet 5.5); an agent file's effort applies only to subagents.
-     Hardest problems at ultracode, as a session of their own: claude-ninja, or claude-god
+     Hardest problems at ultracode, as a session of their own: claude-ninja, or claude-supreme
      (dispatched by BlackCat they run at max: ultracode exists only on a main thread).
 EOF
 cat <<EOF

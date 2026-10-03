@@ -305,7 +305,7 @@ checks = {
     "caps and budgets": (env.get("STACK_MAX_FANOUT"), env.get("STACK_MAX_FANOUT_BY_TYPE"), env.get("STACK_MAX_SELF_FANOUT"),
                          env.get("STACK_PROMPT_CTX_BUDGET"), env.get("STACK_SESSION_CTX_BUDGET"),
                          env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"), env.get("STACK_MAX_MCP_CALLS"))
-                        == ("3", "orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", None, None, "33", "64"),
+                        == ("3", "orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", None, None, "33", "64"),
     "skill listing budget": s.get("skillListingBudgetFraction") == frac and 0.01 <= frac <= 0.02
                             and s.get("skillListingMaxDescChars") == 500
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only"
@@ -730,13 +730,13 @@ rcf="$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["rc"][sy
 [ -n "$rcf" ] && grep -q "alias cas=" "$B8/rc/$rcf" && ! grep -q 'with-stack-env' "$B8/rc/$rcf" && [ "$(fmode "$B8/rc/$rcf")" = 0o600 ] \
   && pass "rc file backed up (0600, the version before the edit) into the run's backup" || failed "no rc backup in [$B8]"
 [ "$(readlink "$T4/.local/bin/claude-ninja")" = "$T4/.claude/bin/claude-ultracode" ] \
-  && [ "$(readlink "$T4/.local/bin/claude-god")" = "$T4/.claude/bin/claude-ultracode" ] \
-  && pass "claude-ninja and claude-god linked into ~/.local/bin" || failed "ultracode launchers not linked"
-FAKE_CLAUDE_LOG="$T4/.fake.log" "$T4/.local/bin/claude-god" -p hello >/dev/null 2>&1
-python3 - "$T4/.fake.log" <<'PY' && pass "claude-god starts god-coder as the main thread at ultracode, workflows pre-approved" || failed "claude-god arguments: $(tail -n 1 "$T4/.fake.log" 2>/dev/null)"
+  && [ "$(readlink "$T4/.local/bin/claude-supreme")" = "$T4/.claude/bin/claude-ultracode" ] \
+  && pass "claude-ninja and claude-supreme linked into ~/.local/bin" || failed "ultracode launchers not linked"
+FAKE_CLAUDE_LOG="$T4/.fake.log" "$T4/.local/bin/claude-supreme" -p hello >/dev/null 2>&1
+python3 - "$T4/.fake.log" <<'PY' && pass "claude-supreme starts supreme-coder as the main thread at ultracode, workflows pre-approved" || failed "claude-supreme arguments: $(tail -n 1 "$T4/.fake.log" 2>/dev/null)"
 import json, sys
 args = json.loads(open(sys.argv[1]).read().splitlines()[-1])
-want = ["--agent", "god-coder", "--effort", "ultracode", "--settings", '{"permissions":{"allow":["Workflow"]}}', "-p", "hello"]
+want = ["--agent", "supreme-coder", "--effort", "ultracode", "--settings", '{"permissions":{"allow":["Workflow"]}}', "-p", "hello"]
 sys.exit(0 if args == want else 1)
 PY
 rcline="$(grep '# claude-agent-stack$' "$T4/.zshrc")"

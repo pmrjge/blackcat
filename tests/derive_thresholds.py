@@ -67,7 +67,7 @@ TIER = {
     "verifier": "verifier",
     "coordinator": "orchestrator",
     "artifact": "writer browser-operator doc-specialist designer image-director localizer motion-designer cg-artist",
-    "builder": ("claude-code-engineer coder main-coder ninja-coder god-coder build-fixer test-engineer "
+    "builder": ("claude-code-engineer coder main-coder ninja-coder supreme-coder build-fixer test-engineer "
                 "data-scientist data-engineer db-engineer devops-engineer frontend-engineer python-engineer "
                 "rust-engineer go-engineer node-engineer jvm-engineer julia-engineer haskell-engineer "
                 "mobile-engineer game-engineer embedded-engineer hpc-engineer cuda-engineer mlx-engineer "

@@ -51,7 +51,7 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | coder | Sonnet 5.5 · medium | 170 | libdocs | Implementer for small and medium code tasks |
 | main-coder | Opus 5.5 · xhigh | 350 | libdocs, neural-memory | Main engineer for cross-cutting code: large codebases |
 | ninja-coder | Opus 5.5 · max | 300 | libdocs, neural-memory | Engineer-mathematician for the hardest code |
-| god-coder | Opus 5.5 · max | 350 | libdocs, neural-memory | Last-resort engineer after ninja-coder failed |
+| supreme-coder | Opus 5.5 · max | 350 | libdocs, neural-memory | Last-resort engineer after ninja-coder failed |
 | code-reviewer | Opus 5.5 · high | 80 | libdocs | Reviews diffs, PRs or codebases; read-only |
 | verifier | Sonnet 5.5 · high | 140 | playwright | Independent verification: runs tests and builds; read-only |
 | security-auditor | Opus 5.5 · xhigh | 100 | — | Security review: threat models, vulnerable code; read-only |
@@ -115,7 +115,7 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 Routing in one paragraph: BlackCat does a job of a few tool calls itself (a look, a small edit, one
 command, git inspection), dispatches the rest (up to 8 children in one burst per prompt) and hands
 dependent multi-specialist work to the orchestrator. Code escalates coder → main-coder →
-ninja-coder → god-coder; language-heavy work goes to the language engineer, domain builds to the domain
+ninja-coder → supreme-coder; language-heavy work goes to the language engineer, domain builds to the domain
 expert. The helpers are leaves (no Agent tool); db-engineer and localizer are reached through their
 family heads, not BlackCat. Depth is BlackCat → L1 → L2 → L3 → L4, and L4 cannot spawn.
 
@@ -227,12 +227,12 @@ the call (fail closed); every hook command runs on an absolute interpreter chose
 
 | Guard | What it enforces |
 |---|---|
-| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/god-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 12 tool calls per prompt, at most 4 of them its own Read/Bash/Write/Edit, and no foreground Bash timeout over 120 s |
+| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 12 tool calls per prompt, at most 4 of them its own Read/Bash/Write/Edit, and no foreground Bash timeout over 120 s |
 | Read-only agents | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide and proof-checker hold Bash, but only read-only commands pass (tests, linters in check mode, `git diff/log/show`, inspection, scanners); scratch code is content-checked; anything else is refused |
 | No push | `git push` in any form and forge writes (`gh`/`tea`/`fj`, `gh api`, curl/wget/httpie to forge hosts) are denied, also inside `bash -c`, `eval`, `$(...)`, `ssh` and git's own command hooks. `STACK_POLICY=off` does not lift it |
 | Protected paths | Bash-level writes, deletes and renames of the installed stack, the backups and the hook state are refused, on top of the Edit/Write deny rules; so is running `install.sh` except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs |
 | Delegation ledger | Every Agent call is recorded as a tree (type, task, state, agent id) in `~/.local/state/claude-agent-stack/<session>/delegations.md`, which BlackCat reads; `agent_guard.py delegations [session] [--json]` prints it |
-| god-coder once | Only the orchestrator spawns god-coder, once per session, and only after a ninja-coder of the session has finished (`GOD_SPAWNERS`, `GOD_ONCE_PER_SESSION`, `GOD_AFTER_NINJA`; the hook checks order, the prompts check that ninja-coder failed) |
+| supreme-coder once | Only the orchestrator spawns supreme-coder, once per session, and only after a ninja-coder of the session has finished (`SUPREME_SPAWNERS`, `SUPREME_ONCE_PER_SESSION`, `SUPREME_AFTER_NINJA`; the hook checks order, the prompts check that ninja-coder failed) |
 | Soft token limits | Past its soft limit (context tokens per subagent run, by type: scout 390K … verifier 26M; 33M per human prompt, 80M while an orchestrator runs) an agent's next tool call carries one warning to wrap up, return `STATUS: partial` and ask before continuing; nothing is refused. Values, derivation and refresh (`tests/derive_thresholds.py`): [CONFIG.md](CONFIG.md) §5 |
 | Also | Context-token budgets (hard) and the per-subagent MCP call cap; one agent on the screen; web-tainted agents can't write neural-memory; images re-encoded to ≤ 1919 px; BlackCat's children forced to the background; BlackCat holds no web tool and its Bash is refused HTTP clients in any spelling, raw sockets, `gh` forge reads and inline HTTP code (T1; best effort: script files and text assembled at run time are not seen, git clone/fetch/pull stay allowed, the sandbox network allowlist is the hard limit); per-call `model` stripped |
 
@@ -435,7 +435,7 @@ yourself.
 | `BLACKCAT_BASH_TIMEOUT_MS` | 120000 | Longest timeout a BlackCat foreground Bash call may ask for (longer: `run_in_background` or a specialist) | guard |
 | `BLACKCAT_BACKGROUND` | 1 | Drop BlackCat's `run_in_background: false` | guard |
 | `STACK_MAX_FANOUT` ● | 3 | Running children per agent (0 = no cap) | guard |
-| `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
+| `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
 | `STACK_MAX_SELF_FANOUT` ● | 2 | Live copies per copy type | guard |
 | `STACK_MAX_DEPTH` | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, else 3 | Deny Agent from callers at this depth | guard |
 | `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | learned (seed 100000000 / 666000000) | Context tokens per prompt / per session, whole tree (0 = off); a value you set pins the learned limit | guard |
@@ -444,8 +444,8 @@ yourself.
 | `STACK_SCHED_POLICY` | `report` | `report`: the scheduler only reports; `fresh_fixer` (opt-in): `stack_sched.py next` also advises a fresh fixer after a long resume gap. Fixed per session (snapshot) | stack_sched |
 | `STACK_FANOUT_IDLE_S` ● | 600 (code: 1800) | A silent background subtree stops counting | guard |
 | `STACK_LEASE_TTL_S` / `STACK_RESUME_TTL_S` | 21600 / 120 | Ceilings on unreported leases and resume reservations | guard |
-| `GOD_SPAWNERS` / `GOD_ONCE_PER_SESSION` / `GOD_AFTER_NINJA` | `orchestrator` / 1 / 1 | Who spawns god-coder; once; after a finished ninja-coder | guard |
-| `GOD_IDLE_S` ● / `GOD_PENDING_TTL_S` / `GOD_LOCK_TTL_S` | 1800 (code: 900) / 120 / 21600 | god-coder lock timers | guard |
+| `SUPREME_SPAWNERS` / `SUPREME_ONCE_PER_SESSION` / `SUPREME_AFTER_NINJA` | `orchestrator` / 1 / 1 | Who spawns supreme-coder; once; after a finished ninja-coder | guard |
+| `SUPREME_IDLE_S` ● / `SUPREME_PENDING_TTL_S` / `SUPREME_LOCK_TTL_S` | 1800 (code: 900) / 120 / 21600 | supreme-coder lock timers | guard |
 | `SCREEN_LOCK_TTL_S` | 900 | Screen lock expiry | guard |
 | `STRIP_AGENT_MODEL` | 1 | Remove per-call `model` | guard |
 | `STACK_GUARD_LOG` | 0 | 1 = log hook events (tool names and ids only in budget mode) | guard |
@@ -503,7 +503,7 @@ alternatives: [mcp_servers.md](mcp_servers.md).
 | Server | Package | Agents | Needs |
 |---|---|---|---|
 | libdocs | stack's own (`mcp/libdocs_mcp.py`) | 32 coding, ML and planning agents | `EXA_`/`JINA_`/`SPIDER_API_KEY`, `GITHUB_TOKEN` optional |
-| neural-memory | `neural-memory==4.62.0` via `mcp/neural_memory_mcp.py` | orchestrator, researcher, mathematician, main-/ninja-/god-coder, data-scientist, ml-/dl-/llm-/robotics-/quantum-engineer | — |
+| neural-memory | `neural-memory==4.62.0` via `mcp/neural_memory_mcp.py` | orchestrator, researcher, mathematician, main-/ninja-/supreme-coder, data-scientist, ml-/dl-/llm-/robotics-/quantum-engineer | — |
 | image-studio | stack's own (`mcp/image_studio_mcp.py`) | designer, image-director | `OPENROUTER_API_KEY`, `OPPER_API_KEY` |
 | playwright | `@playwright/mcp@0.0.82 --headless --isolated` | browser-operator, frontend-engineer, verifier | Google Chrome |
 | context-mode | `context-mode@1.0.169` | researcher, doc-specialist | Node ≥ 22.5 |
@@ -526,7 +526,7 @@ alternatives: [mcp_servers.md](mcp_servers.md).
 |---|---|---|
 | exa | 21 agents (scout, researcher, planner, coders, verifier, security-auditor, ML agents, …) | `EXA_API_KEY` optional |
 | jina | 22 agents (scout, researcher, writer, mathematician, designers, ML agents, …) | `JINA_API_KEY` |
-| wolfram | mathematician, proof-checker, quantum-engineer, ninja-coder, god-coder | none |
+| wolfram | mathematician, proof-checker, quantum-engineer, ninja-coder, supreme-coder | none |
 | huggingface | researcher, data-scientist, ml-/dl-/llm-/robotics-engineer | `HF_TOKEN` optional |
 | wandb | ml-/dl-/llm-/robotics-engineer | `WANDB_API_KEY` |
 
@@ -595,7 +595,7 @@ embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The
 | `gh` (read-only) | `view`, `list`, `status`, `checks`, `diff` only | not checked |
 | `ffmpeg`, `magick`, `rsvg-convert`, `pdftoppm`, `sips` | Media, SVG and PDF rasterizing; `sips -Z 1919` downscales | installed with Homebrew if present; doctor warns; `sips` ships with macOS |
 | `pandoc` | Document conversion | not checked |
-| `claude-ninja`, `claude-god` | ninja-coder or god-coder as your main thread at ultracode | installed in `~/.local/bin` |
+| `claude-ninja`, `claude-supreme` | ninja-coder or supreme-coder as your main thread at ultracode | installed in `~/.local/bin` |
 | Scanners: `gitleaks`, `trufflehog`, `semgrep`, `osv-scanner`, `pip-audit`, `npm audit`, `cargo audit`/`deny`, `trivy` | The read-only reviewers' allowlist | not installed; used when present |
 | Language toolchains (cargo, ghcup, juliaup, go, Gradle/Maven, elan) | The language engineers | not installed; installing a toolchain from a session fails by design (sandbox) |
 
@@ -629,7 +629,7 @@ Only you can run these.
    empty last line. Check whether settings `env` reaches MCP servers and hooks.
 4. **Keychain from the sandbox:** whether the osxkeychain helper answers inside the sandbox (count the
    bytes of its answer, never print it).
-5. **Routing:** a task with a god-coder plan step goes to the orchestrator.
+5. **Routing:** a task with a supreme-coder plan step goes to the orchestrator.
 6. **Ask rules:** an ask rule prompts under `bypassPermissions` (for example a magg `duckdb_*` call).
 7. **Credentials:** `bash ~/.claude/bin/doctor.sh`, section "GitHub credentials agents could use".
 
@@ -640,7 +640,7 @@ stack. Checked on 27 Sep 2026.
 
 | App | What to set |
 |---|---|
-| Terminal | once: `/effort medium`; the only place for `claude-ninja` / `claude-god` |
+| Terminal | once: `/effort medium`; the only place for `claude-ninja` / `claude-supreme` |
 | Claude Desktop, Code tab (Local) | model Sonnet 5.5, effort medium; if `/stack-doctor` in a Desktop session shows an alias resolving elsewhere, add the three `ANTHROPIC_DEFAULT_*_MODEL` values from `stack.env` under Local → gear; computer use: Settings → General |
 | Conductor | model Sonnet 5.5, thinking medium, Ultracode off |
 | VS Code / Cursor extension, JetBrains plugin, Zed | nothing |

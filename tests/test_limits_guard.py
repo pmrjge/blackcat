@@ -53,7 +53,7 @@ class Sess:
         self.tmp = tmp
         self.state = tmp / "xdg"
         self.env = {k: v for k, v in os.environ.items()
-                    if not k.startswith(("STACK_", "BLACKCAT_", "GOD_", "SCREEN_", "CLAUDE_CODE_MAX"))}
+                    if not k.startswith(("STACK_", "BLACKCAT_", "SUPREME_", "SCREEN_", "CLAUDE_CODE_MAX"))}
         self.env.update(XDG_STATE_HOME=str(self.state), STACK_USAGE_COLLECT="0",
                         CLAUDE_CONFIG_DIR=str(tmp / "cfg"))
         for k in [k for k in os.environ if k.startswith("STACK_")]:

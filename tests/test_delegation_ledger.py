@@ -14,7 +14,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
-PREFIXES = ("STACK_", "BLACKCAT_", "GOD_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
+PREFIXES = ("STACK_", "BLACKCAT_", "SUPREME_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 
 
 @pytest.fixture

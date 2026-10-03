@@ -25,7 +25,7 @@ Reads the hook JSON on stdin.
                                     bundled/plugin workflows and nested workflow() are refused
   PreToolUse  Agent                 spawn policy, copy rule, depth limit, fan-out caps (spawn
                                     lease), session copy cap, blackcat dispatch and step limits
-                                    (atomic markers), god-coder singleton (pending lease), strip
+                                    (atomic markers), supreme-coder singleton (pending lease), strip
                                     `model` (then set it to the user's /override-agent model for
                                     this session, if any), and drop a BlackCat
                                     `run_in_background: false` (its
@@ -35,7 +35,7 @@ Reads the hook JSON on stdin.
   PreToolUse  SendMessage           resuming a finished agent follows the spawn policy (the caller's
                                     row, or its own child/parent), its parent's fan-out cap and the
                                     copy cap, and holds a resume reservation until it starts;
-                                    resuming a finished god-coder takes the god-coder lock;
+                                    resuming a finished supreme-coder takes the supreme-coder lock;
                                     blackcat's call is one of its steps (claimed with the
                                     reservation, both rolled back on a refusal)
   PreToolUse  mcp__computer-use__*  one agent on the screen at a time
@@ -68,7 +68,7 @@ Reads the hook JSON on stdin.
   PostToolUse Agent                 drop the spawn lease; record child id/type/depth/parent (once,
                                     from the caller's own event) and, for "async_launched", the
                                     child as a live background child; confirm or release the
-                                    god-coder lock
+                                    supreme-coder lock
   SubagentStart / SubagentStop      registry bookkeeping (a start of a stopped agent is a resume:
                                     a live background child again, its resume reservation gone);
                                     confirm / release locks; a starting or stopped agent's own
@@ -78,7 +78,7 @@ Reads the hook JSON on stdin.
                                     report line when STACK_REPORT_FORMAT=json
   PostToolUse TaskStop, StopFailure mark the agent stopped and release its locks and leases (a
                                     stopped or failed subagent is not promised a SubagentStop)
-  PostToolUseFailure / PermissionDenied (Agent)   roll back god-coder lease, blackcat marker and
+  PostToolUseFailure / PermissionDenied (Agent)   roll back supreme-coder lease, blackcat marker and
                                     spawn lease
   UserPromptSubmit                  start the prompt token budget; prune blackcat markers of
                                     earlier prompts
@@ -124,7 +124,7 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
   mcp-calls/<agent_id>.json  MCP tool calls of one subagent's current run {calls, run (its
                           registry `started` stamp), type, cap, ts}
   blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
-  god-coder.lock, screen.lock  JSON, replaced atomically; transitions under flock(*.mutex)
+  supreme-coder.lock, screen.lock  JSON, replaced atomically; transitions under flock(*.mutex)
 
 Failure policy: an exception in a PreToolUse handler (or in blackcat-guard mode) denies the call
 (fail closed); lifecycle events log to stderr and exit 0. The token budgets fail open: a transcript
@@ -159,7 +159,7 @@ Knobs (env):
   BLACKCAT_BASH_TIMEOUT_MS=120000  longest timeout a blackcat foreground Bash call may ask for
   STACK_MAX_FANOUT=3      running + starting children per parent agent (0 = no cap); the main
                           thread has none (BLACKCAT_MAX_DISPATCH bounds BlackCat per prompt)
-  STACK_MAX_FANOUT_BY_TYPE="orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,
+  STACK_MAX_FANOUT_BY_TYPE="orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,
                           planner=8,plan-reviewer=8" (DEFAULT_FANOUT_BY_TYPE)
                           per-type overrides of STACK_MAX_FANOUT
                           (type=N, separated by , ; or newlines; a copy type falls back to its base)
@@ -187,17 +187,17 @@ Knobs (env):
                           carries a wrap-up warning, nothing is refused (0 = off; unset in
                           settings.json, so a process environment value reaches the hooks). A fixed
                           guard read from the environment (the snapshot records it)
-  GOD_SPAWNERS=orchestrator  parent types that may spawn god-coder ("main" = a main thread without
+  SUPREME_SPAWNERS=orchestrator  parent types that may spawn supreme-coder ("main" = a main thread without
                           an agent type); the POLICY rows list it for the orchestrator only
-  GOD_ONCE_PER_SESSION=1  at most one god-coder spawn per session (a SendMessage resume of it is the
+  SUPREME_ONCE_PER_SESSION=1  at most one supreme-coder spawn per session (a SendMessage resume of it is the
                           same instance); 0 = only the one-at-a-time lock
-  GOD_AFTER_NINJA=1       a god-coder spawn needs a ninja-coder of this session that has finished
+  SUPREME_AFTER_NINJA=1       a supreme-coder spawn needs a ninja-coder of this session that has finished
                           (SubagentStop, or its Agent call reported a terminal status): ninja-coder
                           comes first; 0 = off
-  GOD_PENDING_TTL_S=120   an unconfirmed god-coder lease (spawn or resume) is reclaimable after this
-  GOD_IDLE_S=900          a holder whose live subtree is idle this long is presumed gone
+  SUPREME_PENDING_TTL_S=120   an unconfirmed supreme-coder lease (spawn or resume) is reclaimable after this
+  SUPREME_IDLE_S=900          a holder whose live subtree is idle this long is presumed gone
                           (settings.json ships 1800)
-  GOD_LOCK_TTL_S=21600    hard ceiling on any god-coder lock
+  SUPREME_LOCK_TTL_S=21600    hard ceiling on any supreme-coder lock
   SCREEN_LOCK_TTL_S=900   screen lock expiry
   STRIP_AGENT_MODEL=1     remove per-call `model` from Agent input
   STACK_AGENT_LABEL=description  label of an allowed Agent call's child: `description` prefixes
@@ -237,7 +237,7 @@ import time
 AGENTS = [
     "blackcat", "orchestrator", "planner", "plan-reviewer", "oracle", "scout", "researcher",
     "mathematician", "image-director", "designer", "motion-designer", "writer",
-    "doc-specialist", "coder", "main-coder", "ninja-coder", "god-coder", "mlx-engineer",
+    "doc-specialist", "coder", "main-coder", "ninja-coder", "supreme-coder", "mlx-engineer",
     "cuda-engineer",
     "devops-engineer", "data-engineer", "frontend-engineer", "code-reviewer", "verifier",
     "security-auditor", "mcp-broker", "claude-code-guide",
@@ -273,7 +273,7 @@ GENERIC_KEYS = frozenset(re.sub(r"[^a-z0-9]", "", t) for t in GENERIC_TYPES)
 # mode maps an alias to its canonical name before deciding; settings.json's matchers list them all.
 TOOL_ALIASES = {"Task": "Agent", "SubAgent": "Agent", "RunWorkflow": "Workflow"}
 
-# god-coder is spawned by the orchestrator only, once per session (GOD_SPAWNERS, GOD_ONCE_PER_SESSION):
+# supreme-coder is spawned by the orchestrator only, once per session (SUPREME_SPAWNERS, SUPREME_ONCE_PER_SESSION):
 # the last resort after ninja-coder, decided where the whole job is visible. No other row lists it.
 # BlackCat's row is explicit: db-engineer and localizer are reached through their family heads
 # (data-engineer, main-coder, devops-engineer; frontend-engineer, writer, doc-specialist, mobile-engineer).
@@ -336,7 +336,7 @@ POLICY = {
                     "verifier", "code-reviewer", "security-auditor", "researcher", "mlx-engineer",
                     "cuda-engineer", "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker",
                     "quantum-engineer", "proof-checker", "test-engineer", "build-fixer"] + _LANG,
-    "god-coder": ["coder", "main-coder", "ninja-coder", "mlx-engineer", "cuda-engineer",
+    "supreme-coder": ["coder", "main-coder", "ninja-coder", "mlx-engineer", "cuda-engineer",
                   "ml-engineer", "dl-engineer", "llm-engineer", "explore", "scout", "verifier",
                   "code-reviewer", "security-auditor", "mathematician", "researcher",
                   "proof-checker", "test-engineer", "build-fixer"] + _LANG,
@@ -419,14 +419,14 @@ SPAWNABLE = STACK_TYPES - {"blackcat"}
 def spawn_row(parent, main):
     """The agent types `parent` may spawn: its POLICY row; for a caller without one, a main thread
     (plain `claude`, a host's own main agent, `--agent <foreign>`) gets BlackCat's row (plus
-    god-coder when GOD_SPAWNERS lists "main") and a subagent of a foreign or generic type nothing.
+    supreme-coder when SUPREME_SPAWNERS lists "main") and a subagent of a foreign or generic type nothing.
     Before 2026-10 a caller without a row was unrestricted: a typeless main thread or a generic
     agent could spawn general-purpose, fork or a host-defined "SubAgent"."""
     row = POLICY.get(parent)
     if row is not None:
         return row
     if main:
-        return list(_BLACKCAT_ROW) + ([GOD] if "main" in god_spawners() and not parent else [])
+        return list(_BLACKCAT_ROW) + ([SUPREME] if "main" in supreme_spawners() and not parent else [])
     return []
 
 
@@ -586,9 +586,9 @@ BROWSER_SPAWNERS = {"blackcat", "orchestrator"}
 STEP_LIMIT_REASON = ("BlackCat step limit (%d tool calls per prompt, dispatches included) reached. "
                      "Call no more tools: answer the user now with what you have, or say what is "
                      "still pending.")
-GOD = "god-coder"
-GOD_LOCK = "god-coder.lock"
-GOD_ONCE = "god-coder.spawned"        # the session's one god-coder spawn (its Agent tool_use_id)
+SUPREME = "supreme-coder"
+SUPREME_LOCK = "supreme-coder.lock"
+SUPREME_ONCE = "supreme-coder.spawned"        # the session's one supreme-coder spawn (its Agent tool_use_id)
 SCREEN_LOCK = "screen.lock"
 TERMINAL_STATUSES = {"completed", "failed", "error", "cancelled", "canceled", "killed"}
 # Shown to the USER (systemMessage) when the guard itself fails; the model only sees a neutral
@@ -917,12 +917,12 @@ def dispatch_window_closed(d, pid, limit, now):
 # Lock order: the 'fanout' mutex, then 'registry' (reg_put); nothing takes them the other way.
 # Running children per spawning agent, by task type (the one table; STACK_MAX_FANOUT_BY_TYPE in
 # settings.json overrides it as a whole). Coordinators and the implementer escalation chain fan out
-# widest: orchestrator 32 (a job of up to 32 independent tasks), god-coder and main-coder 6 (parallel
+# widest: orchestrator 32 (a job of up to 32 independent tasks), supreme-coder and main-coder 6 (parallel
 # work on disjoint modules of a large codebase plus a reviewer and a verifier), ninja-coder 5 (a
 # mathematical core stays with it; racing approach, reviewer, verifier, mathematician, one coder);
 # researcher 4 (its 2 session-wide copies plus 2 lookups). planner keeps 8 and plan-reviewer's entry
 # is inert (it has no Agent tool). Every other agent: STACK_MAX_FANOUT.
-DEFAULT_FANOUT_BY_TYPE = ("orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,"
+DEFAULT_FANOUT_BY_TYPE = ("orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,"
                           "planner=8,plan-reviewer=8")
 RESUME_PREFIX = "resume-"
 
@@ -968,7 +968,7 @@ def subtree_activity(d, root, ev, reg=None, root_times=True):
     """(latest activity of `root` and its live (not stopped) descendants, any transcript seen).
     A parent that waits for background children writes nothing to its own transcript, so its own
     mtime alone is not a liveness signal. root_times=False ignores the root's registry timestamps
-    (god_stale already folds in the lock's own ts)."""
+    (supreme_stale already folds in the lock's own ts)."""
     reg = load_registry(d) if reg is None else reg
     kids = {}
     for aid, rec in reg.items():
@@ -1223,9 +1223,9 @@ def drop_spawn_lease(d, ev, aid):
                        else "main", tid.strip())
 
 
-# ---------------------------------------------------------------- god-coder lock
-def god_path(d):
-    return os.path.join(d, GOD_LOCK)
+# ---------------------------------------------------------------- supreme-coder lock
+def supreme_path(d):
+    return os.path.join(d, SUPREME_LOCK)
 
 
 def transcript_of(d, holder, ev):
@@ -1247,25 +1247,25 @@ def transcript_of(d, holder, ev):
     return None
 
 
-def god_stale(d, lock, ev, now):
-    """Reason string if the lock may be reclaimed, else None. Caller holds god.mutex."""
+def supreme_stale(d, lock, ev, now):
+    """Reason string if the lock may be reclaimed, else None. Caller holds supreme.mutex."""
     ts = float(lock.get("ts") or 0)
-    if now - ts > knob_int("GOD_LOCK_TTL_S", 21600):
-        return "lock older than GOD_LOCK_TTL_S"
+    if now - ts > knob_int("SUPREME_LOCK_TTL_S", 21600):
+        return "lock older than SUPREME_LOCK_TTL_S"
     state, holder = lock.get("state"), lock.get("holder")
     # 'pending' (Agent call) and 'resumed' (SendMessage) are unconfirmed until SubagentStart turns
     # them into 'running'; a resume that is refused or never starts must not hold the lock.
-    if state in ("pending", "resumed") and now - ts > knob_int("GOD_PENDING_TTL_S", 120):
+    if state in ("pending", "resumed") and now - ts > knob_int("SUPREME_PENDING_TTL_S", 120):
         return "unconfirmed %s lease expired" % state
     if holder and not str(holder).startswith("name:"):
         stopped = (reg_get(d, holder) or {}).get("stopped")
         if isinstance(stopped, (int, float)) and stopped >= ts:
             return "holder stopped"
-        # Liveness = the holder's transcript OR any live descendant's: a god-coder waiting for the
+        # Liveness = the holder's transcript OR any live descendant's: a supreme-coder waiting for the
         # coders/reviewers it delegated to writes nothing to its own transcript.
         # Without any transcript to look at, liveness is unknown: keep the lock (TTL still applies).
         last, seen_tr = subtree_activity(d, holder, ev, root_times=False)
-        if seen_tr and now - max(last, ts) > knob_int("GOD_IDLE_S", 900):
+        if seen_tr and now - max(last, ts) > knob_int("SUPREME_IDLE_S", 900):
             return "holder idle"
     return None
 
@@ -1280,86 +1280,86 @@ def holder_matches(d, lock_holder, agent_id, name=None):
     return bool(name) and lock_holder == "name:" + name
 
 
-def god_acquire(d, ev, state, holder, by):
+def supreme_acquire(d, ev, state, holder, by):
     """Take the lock if free or stale. Returns None on success, else the blocking lock."""
-    with mutex(d, "god"):
+    with mutex(d, "supreme"):
         now = time.time()
-        lock = read_json(god_path(d))
+        lock = read_json(supreme_path(d))
         if lock:
-            reason = god_stale(d, lock, ev, now)
+            reason = supreme_stale(d, lock, ev, now)
             if not reason:
                 return lock
-            warn("reclaiming god-coder lock held by %s (%s)" % (lock.get("holder"), reason))
-        write_json_atomic(god_path(d), {"state": state, "holder": holder, "by": by, "ts": now,
+            warn("reclaiming supreme-coder lock held by %s (%s)" % (lock.get("holder"), reason))
+        write_json_atomic(supreme_path(d), {"state": state, "holder": holder, "by": by, "ts": now,
                                         "tool_use_id": ev.get("tool_use_id")})
         return None
 
 
-def god_release_pending(d, by, tool_use_id):
-    with mutex(d, "god"):
-        lock = read_json(god_path(d))
+def supreme_release_pending(d, by, tool_use_id):
+    with mutex(d, "supreme"):
+        lock = read_json(supreme_path(d))
         if not lock or lock.get("state") != "pending" or lock.get("by") != by:
             return
         if tool_use_id and lock.get("tool_use_id") and lock["tool_use_id"] != tool_use_id:
             return
-        unlink(god_path(d))
+        unlink(supreme_path(d))
 
 
-def god_confirm(d, ev, agent_id):
+def supreme_confirm(d, ev, agent_id):
     """pending -> running with holder=agent_id (best effort if the lock is missing)."""
-    with mutex(d, "god"):
+    with mutex(d, "supreme"):
         now = time.time()
-        # Re-check under the god mutex: SubagentStop writes `stopped` before it takes this mutex
+        # Re-check under the supreme mutex: SubagentStop writes `stopped` before it takes this mutex
         # to release, so a stop that raced the caller's check is always seen here.
         if (reg_get(d, agent_id) or {}).get("stopped"):
             return
-        lock = read_json(god_path(d))
+        lock = read_json(supreme_path(d))
         if lock is None:
-            warn("god-coder %s started without a lock; recording it as running" % agent_id)
+            warn("supreme-coder %s started without a lock; recording it as running" % agent_id)
             by = "?"
         elif holder_matches(d, lock.get("holder"), agent_id):
             by = lock.get("by")
         elif not lock.get("holder") and lock.get("state") == "pending":
             by = lock.get("by")
-        elif god_stale(d, lock, ev, now):
+        elif supreme_stale(d, lock, ev, now):
             by = "?"
         else:
-            warn("two live god-coder holders: %s and %s" % (lock.get("holder"), agent_id))
+            warn("two live supreme-coder holders: %s and %s" % (lock.get("holder"), agent_id))
             return
-        write_json_atomic(god_path(d), {"state": "running", "holder": agent_id, "by": by,
+        write_json_atomic(supreme_path(d), {"state": "running", "holder": agent_id, "by": by,
                                         "ts": now})
 
 
-def god_release_holder(d, agent_id, agent_type, by=None):
+def supreme_release_holder(d, agent_id, agent_type, by=None):
     """Release if agent_id holds the lock, or if an unconfirmed pending lease was taken by `by`
     (PostToolUse 'completed' from the caller that spawned it). A SubagentStop (by=None) never
     releases someone else's unconfirmed lease: it cannot tell whose spawn that lease is for."""
-    with mutex(d, "god"):
-        lock = read_json(god_path(d))
+    with mutex(d, "supreme"):
+        lock = read_json(supreme_path(d))
         if not lock:
             return
         unconfirmed = not lock.get("holder") and lock.get("state") == "pending"
         if holder_matches(d, lock.get("holder"), agent_id) or (
-                unconfirmed and norm(agent_type) == GOD and by is not None
+                unconfirmed and norm(agent_type) == SUPREME and by is not None
                 and lock.get("by") == by):
-            unlink(god_path(d))
+            unlink(supreme_path(d))
 
 
-GOD_ONCE_REASON = (
-    "One god-coder per session: this session already spawned one, and god-coder is the last "
-    "resort. SendMessage that god-coder to continue its work, or return STATUS: partial naming "
+SUPREME_ONCE_REASON = (
+    "One supreme-coder per session: this session already spawned one, and supreme-coder is the last "
+    "resort. SendMessage that supreme-coder to continue its work, or return STATUS: partial naming "
     "what is left.")
 
 
-GOD_NINJA_REASON = (
-    "god-coder comes after ninja-coder: no ninja-coder has finished in this session. Run "
-    "ninja-coder on the problem first, and spawn god-coder only if it fails or returns partial, "
+SUPREME_NINJA_REASON = (
+    "supreme-coder comes after ninja-coder: no ninja-coder has finished in this session. Run "
+    "ninja-coder on the problem first, and spawn supreme-coder only if it fails or returns partial, "
     "with a dossier built from its report (goal, constraints, what failed and why, logs, minimal "
-    "repro). If ninja-coder succeeds, drop the god-coder step.")
+    "repro). If ninja-coder succeeds, drop the supreme-coder step.")
 
 
 def ninja_finished(d):
-    """A ninja-coder of this session has finished (GOD_AFTER_NINJA): its registry record is
+    """A ninja-coder of this session has finished (SUPREME_AFTER_NINJA): its registry record is
     stopped (SubagentStop), or its Agent call reported a terminal status ("completed", ...;
     on_agent_done). Any other response (async_launched, a bare string, an unknown status) and a
     resume (SubagentStart clears both) leave it running. Whether it failed is in its report,
@@ -1371,21 +1371,21 @@ def ninja_finished(d):
     return False
 
 
-def god_spawners():
-    """Parent types allowed to spawn god-coder (GOD_SPAWNERS, default the orchestrator only;
+def supreme_spawners():
+    """Parent types allowed to spawn supreme-coder (SUPREME_SPAWNERS, default the orchestrator only;
     "main" = a main thread without an agent type)."""
-    raw = os.environ.get("GOD_SPAWNERS", "orchestrator")
+    raw = os.environ.get("SUPREME_SPAWNERS", "orchestrator")
     return {norm(x) for x in re.split(r"[,\s]+", raw) if x.strip()}
 
 
-def god_claim_session(d, ev):
-    """At most one god-coder spawn per session (GOD_ONCE_PER_SESSION=1, the default): the marker's
+def supreme_claim_session(d, ev):
+    """At most one supreme-coder spawn per session (SUPREME_ONCE_PER_SESSION=1, the default): the marker's
     path when this spawn claimed the session's slot, False when another spawn holds it, None when
     the rule is off. The marker holds the Agent call's tool_use_id, so a failed call frees it; a
-    SendMessage resume of that god-coder is the same instance and needs no slot."""
-    if os.environ.get("GOD_ONCE_PER_SESSION", "1").strip() == "0":
+    SendMessage resume of that supreme-coder is the same instance and needs no slot."""
+    if os.environ.get("SUPREME_ONCE_PER_SESSION", "1").strip() == "0":
         return None
-    path = os.path.join(d, GOD_ONCE)
+    path = os.path.join(d, SUPREME_ONCE)
     try:
         fd = os.open(path, os.O_CREAT | os.O_EXCL | os.O_WRONLY, 0o600)
     except FileExistsError:
@@ -1395,9 +1395,9 @@ def god_claim_session(d, ev):
     return path
 
 
-def god_unclaim_session(d, ev):
-    """A god-coder Agent call that failed or was refused never ran: free the session's slot."""
-    path = os.path.join(d, GOD_ONCE)
+def supreme_unclaim_session(d, ev):
+    """A supreme-coder Agent call that failed or was refused never ran: free the session's slot."""
+    path = os.path.join(d, SUPREME_ONCE)
     try:
         with open(path) as f:
             holder = f.read().strip()
@@ -1407,9 +1407,9 @@ def god_unclaim_session(d, ev):
         unlink(path)
 
 
-def god_busy_reason(lock):
-    return ("A god-coder is already %s in this session (holder: %s). Only one at a time per "
-            "session, and resuming a finished god-coder counts. SendMessage the holder, or wait "
+def supreme_busy_reason(lock):
+    return ("A supreme-coder is already %s in this session (holder: %s). Only one at a time per "
+            "session, and resuming a finished supreme-coder counts. SendMessage the holder, or wait "
             "for it to finish." % (lock.get("state") or "active", lock.get("holder") or "starting"))
 
 
@@ -1432,25 +1432,25 @@ def on_agent(ev, d):
         # 1. pure checks (the token budget ran before this handler: dispatch())
         if str(ti.get("isolation") or "").strip().lower() == "remote":
             deny("Remote isolation runs the agent in a cloud session that does not load this "
-                 "stack's hooks (no spawn policy, depth, fan-out, god-coder or screen locks). Omit "
+                 "stack's hooks (no spawn policy, depth, fan-out, supreme-coder or screen locks). Omit "
                  "isolation or use isolation: \"worktree\".")
         why = copy_rule_violation(parent, child)
         if why:
             deny(why)
         # an allowlist: a missing, generic, built-in or foreign subagent_type, or one outside the
         # caller's row, is refused for every caller, with or without a POLICY row (spawn_row);
-        # god-coder gets its own messages first
+        # supreme-coder gets its own messages first
         type_why = spawn_type_violation(parent, caller_is_main(ev, parent),
                                         ti.get("subagent_type"))
-        if type_why and child != GOD:
+        if type_why and child != SUPREME:
             deny(type_why)
-        if child == GOD and (parent or "main") not in god_spawners():
-            deny("Spawn policy: only the orchestrator spawns god-coder (once per session, the last "
-                 "resort after ninja-coder). Return STATUS: partial with NEXT: god-coder and a "
+        if child == SUPREME and (parent or "main") not in supreme_spawners():
+            deny("Spawn policy: only the orchestrator spawns supreme-coder (once per session, the last "
+                 "resort after ninja-coder). Return STATUS: partial with NEXT: supreme-coder and a "
                  "dossier (goal, constraints, what failed and why, logs, minimal repro).")
-        if child == GOD and os.environ.get("GOD_AFTER_NINJA", "1").strip() != "0" \
+        if child == SUPREME and os.environ.get("SUPREME_AFTER_NINJA", "1").strip() != "0" \
                 and not ninja_finished(d):
-            deny(GOD_NINJA_REASON)
+            deny(SUPREME_NINJA_REASON)
         if type_why:
             deny(type_why)
         depth, limit = caller_depth(d, ev), max_depth()
@@ -1472,17 +1472,17 @@ def on_agent(ev, d):
             if markers_full(d, "step", pid, max_steps):
                 deny(STEP_LIMIT_REASON % max_steps)
         # 2. side effects, each rolled back if a later step denies or fails
-        leased, took_god, claimed, stepped, god_mark = False, False, None, None, None
+        leased, took_supreme, claimed, stepped, supreme_mark = False, False, None, None, None
 
         def rollback():
-            if god_mark:
-                unlink(god_mark)
+            if supreme_mark:
+                unlink(supreme_mark)
             if stepped:
                 unlink(stepped)
             if claimed:
                 unlink(claimed)
-            if took_god:
-                god_release_pending(d, caller, tid)
+            if took_supreme:
+                supreme_release_pending(d, caller, tid)
             if leased:
                 fanout_release(d, caller, tid)
 
@@ -1491,17 +1491,17 @@ def on_agent(ev, d):
             if why:
                 deny(why)
             leased = True
-            if child == GOD:
-                god_mark = god_claim_session(d, ev)
-                if god_mark is False:
-                    god_mark = None
+            if child == SUPREME:
+                supreme_mark = supreme_claim_session(d, ev)
+                if supreme_mark is False:
+                    supreme_mark = None
                     rollback()
-                    deny(GOD_ONCE_REASON)
-                blocking = god_acquire(d, ev, "pending", None, caller)
+                    deny(SUPREME_ONCE_REASON)
+                blocking = supreme_acquire(d, ev, "pending", None, caller)
                 if blocking:
                     rollback()
-                    deny(god_busy_reason(blocking))
-                took_god = True
+                    deny(supreme_busy_reason(blocking))
+                took_supreme = True
             if is_blackcat:
                 claimed = claim_marker(d, "dispatch", pid, max_dispatch)
                 if not claimed:
@@ -2704,11 +2704,11 @@ def on_send(ev, d):
             if not stepped:
                 rollback()
                 deny(STEP_LIMIT_REASON % max_steps)
-        if ttype == GOD:
-            blocking = god_resume(d, ev, to, target_id, tname)
+        if ttype == SUPREME:
+            blocking = supreme_resume(d, ev, to, target_id, tname)
             if blocking:
                 rollback()
-                deny(god_busy_reason(blocking))
+                deny(supreme_busy_reason(blocking))
     except SystemExit:
         raise
     except Exception:
@@ -2717,20 +2717,20 @@ def on_send(ev, d):
     note_relay(ev, d, target_id, ttype, tname)
 
 
-def god_resume(d, ev, to, target_id, tname):
-    """Resuming a finished god-coder takes the god-coder lock ('resumed'). Returns the blocking
+def supreme_resume(d, ev, to, target_id, tname):
+    """Resuming a finished supreme-coder takes the supreme-coder lock ('resumed'). Returns the blocking
     lock, or None when the call may go ahead."""
     holder = target_id or "name:" + norm(to)
     caller = ev.get("agent_id") or "main"
-    with mutex(d, "god"):
+    with mutex(d, "supreme"):
         now = time.time()
-        lock = read_json(god_path(d))
+        lock = read_json(supreme_path(d))
         if lock and (lock.get("holder") == holder
                      or holder_matches(d, lock.get("holder"), target_id, tname)):
             return None  # talking to the current holder
-        if lock and not god_stale(d, lock, ev, now):
+        if lock and not supreme_stale(d, lock, ev, now):
             return lock
-        write_json_atomic(god_path(d), {"state": "resumed", "holder": holder, "by": caller,
+        write_json_atomic(supreme_path(d), {"state": "resumed", "holder": holder, "by": caller,
                                         "ts": now})
     return None
 
@@ -3236,11 +3236,11 @@ def on_agent_done(ev, d):
                                                 "by": ev.get("agent_id") or "main",
                                                 "ts": time.time()})
     ledger_safe(ledger_done, d, ev, ti, child, child_id, status)
-    if child == GOD:
+    if child == SUPREME:
         if str(status or "").lower() in TERMINAL_STATUSES:
-            god_release_holder(d, child_id, GOD, by=ev.get("agent_id") or "main")
+            supreme_release_holder(d, child_id, SUPREME, by=ev.get("agent_id") or "main")
         elif policy_on() and not (reg_get(d, child_id) or {}).get("stopped"):
-            god_confirm(d, ev, child_id)
+            supreme_confirm(d, ev, child_id)
     ledger_hint(ev, d, child)
 
 
@@ -3276,7 +3276,7 @@ def on_subagent_start(ev, d):
             if locked:
                 raise           # the registry lock inside timed out: nothing to redo here
             # A stuck fan-out lock must not leave a resumed agent 'stopped' (no background child,
-            # no god-coder confirmation) with its reservation counting for STACK_RESUME_TTL_S:
+            # no supreme-coder confirmation) with its reservation counting for STACK_RESUME_TTL_S:
             # record the start and drop the reservation without the lock (as on_agent_done drops
             # its lease); a count running meanwhile may miss this resume once.
             start()
@@ -3284,8 +3284,8 @@ def on_subagent_start(ev, d):
     else:
         start()
     ledger_safe(ledger_link_start, d, ev, aid)
-    if atype == GOD and policy_on():
-        god_confirm(d, ev, aid)
+    if atype == SUPREME and policy_on():
+        supreme_confirm(d, ev, aid)
     started_context(atype, now)
 
 
@@ -3335,7 +3335,7 @@ def mark_stopped(d, aid, atype, transcript=None, ev=None):
         cur = read_json(path)
         if cur and cur.get("holder") == aid:
             unlink(path)
-    god_release_holder(d, aid, atype)
+    supreme_release_holder(d, aid, atype)
     if os.path.isdir(os.path.join(d, LEDGER_DIR)):
         ledger_safe(ledger_render, d)
 
@@ -3372,9 +3372,9 @@ def on_agent_failed(ev, d):
     aid = ev.get("agent_id")
     fanout_release(d, aid or "main", ev.get("tool_use_id"))
     ledger_safe(ledger_failed, d, ev)
-    if norm(ti.get("subagent_type")) == GOD:
-        god_release_pending(d, aid or "main", ev.get("tool_use_id"))
-        god_unclaim_session(d, ev)
+    if norm(ti.get("subagent_type")) == SUPREME:
+        supreme_release_pending(d, aid or "main", ev.get("tool_use_id"))
+        supreme_unclaim_session(d, ev)
     if not aid and norm(ev.get("agent_type")) == "blackcat":
         drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_DISPATCH", 8))
 
@@ -3444,8 +3444,8 @@ def session_start_bookkeeping(ev, d):
     if ev.get("source") not in ("startup", "resume"):
         return
     import shutil
-    with mutex(d, "god"):
-        unlink(god_path(d))
+    with mutex(d, "supreme"):
+        unlink(supreme_path(d))
     with mutex(d, "screen"):
         unlink(os.path.join(d, SCREEN_LOCK))
     shutil.rmtree(os.path.join(d, "blackcat"), ignore_errors=True)
@@ -3626,7 +3626,7 @@ def session_env():
 # ensure_snapshot), an altered one gives the seed values with one stderr line (O_EXCL marker
 # <session>/limits-tamper). If stack_limits.py or its seed cannot be used, the constants of this
 # file are the last-resort fallback (SOFT_LIMITS, SOFT_PROMPT_CTX, SOFT_PROMPT_CTX_BY_TYPE, the
-# budget knobs or 100M/666M, frontmatter maxTurns). Fixed guards (fan-out, depth, BlackCat, god-coder,
+# budget knobs or 100M/666M, frontmatter maxTurns). Fixed guards (fan-out, depth, BlackCat, supreme-coder,
 # TTLs, STACK_MAX_MCP_CALLS, images, policy, STACK_SOFT_LIMIT_SCALE) are never learned: env only.
 # Every firing appends one line to <session>/limit-hits.jsonl and every human prompt boundary one
 # to <session>/prompt-windows.jsonl (numbers and ids only; stack_usage.py reads both).
@@ -4286,7 +4286,7 @@ SOFT_LIMITS = {
     "code-reviewer": 8700000, "verifier": 26000000,
     # builder pool
     "coder": _SOFT_BUILDER, "main-coder": _SOFT_BUILDER, "ninja-coder": _SOFT_BUILDER,
-    "god-coder": _SOFT_BUILDER, "build-fixer": _SOFT_BUILDER, "test-engineer": _SOFT_BUILDER,
+    "supreme-coder": _SOFT_BUILDER, "build-fixer": _SOFT_BUILDER, "test-engineer": _SOFT_BUILDER,
     "data-scientist": _SOFT_BUILDER, "data-engineer": _SOFT_BUILDER, "db-engineer": _SOFT_BUILDER,
     "devops-engineer": _SOFT_BUILDER, "frontend-engineer": _SOFT_BUILDER,
     "python-engineer": _SOFT_BUILDER, "rust-engineer": _SOFT_BUILDER,
@@ -7154,7 +7154,7 @@ class _Scan(object):
         """([(compiled regex, literal prefix)], bases) for every path a Bash write must not
         resolve to: the Read/Edit/Write deny rules that apply here (a Read deny also blocks
         Edit/Write on the same path), plus, in an installed config dir, the stack's own files
-        (PROTECTED_CONFIG) and the hook state dir — the god-coder lock and the step markers."""
+        (PROTECTED_CONFIG) and the hook state dir — the supreme-coder lock and the step markers."""
         if self._protect_specs is None:
             bases = (path_bases(self.ev) if self.ev is not None else []) or [os.getcwd()]
             specs = read_deny_specs(bases) + edit_deny_specs(bases) + builtin_protect_specs()
@@ -10220,8 +10220,8 @@ def self_test():
     empty = sorted(p for p, row in POLICY.items() if not row)
     if empty != sorted(LEAVES):
         problems.append("LEAVES %s != empty rows %s" % (sorted(LEAVES), empty))
-    if set(POLICY.get("blackcat", [])) != set(AGENTS) - {"blackcat", GOD} - set(BLACKCAT_VIA_HEADS):
-        problems.append("blackcat row must list every specialist but god-coder and BLACKCAT_VIA_HEADS")
+    if set(POLICY.get("blackcat", [])) != set(AGENTS) - {"blackcat", SUPREME} - set(BLACKCAT_VIA_HEADS):
+        problems.append("blackcat row must list every specialist but supreme-coder and BLACKCAT_VIA_HEADS")
     for _a in BLACKCAT_VIA_HEADS:
         if not any(_a in POLICY.get(h, []) for h in POLICY.get("blackcat", [])):
             problems.append("%s: no agent in blackcat's row may spawn it" % _a)
@@ -10241,18 +10241,18 @@ def self_test():
                         ("env -i PATH=/bin curl u", True), ("command -v curl", False)):
         if blackcat_web_command(_cmd) != _want:
             problems.append("blackcat web-command check misjudges %r" % _cmd[:60])
-    spawners = sorted(p for p, row in POLICY.items() if GOD in row)
+    spawners = sorted(p for p, row in POLICY.items() if SUPREME in row)
     if spawners != ["orchestrator"]:
-        problems.append("only the orchestrator's row may list god-coder, not %s" % spawners)
+        problems.append("only the orchestrator's row may list supreme-coder, not %s" % spawners)
     browsers = {p for p, row in POLICY.items() if "browser-operator" in row}
     if browsers != BROWSER_SPAWNERS:
         problems.append("only %s may list browser-operator, not %s"
                         % (sorted(BROWSER_SPAWNERS), sorted(browsers)))
-    for never in ("blackcat", "orchestrator", GOD, "mlx-engineer", "cuda-engineer"):
+    for never in ("blackcat", "orchestrator", SUPREME, "mlx-engineer", "cuda-engineer"):
         if never in SELF_SPAWN:
             problems.append("%s must not spawn copies of itself" % never)
     if parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE) != {
-            "orchestrator": 32, "god-coder": 6, "main-coder": 6, "ninja-coder": 5, "researcher": 4,
+            "orchestrator": 32, "supreme-coder": 6, "main-coder": 6, "ninja-coder": 5, "researcher": 4,
             "planner": 8, "plan-reviewer": 8}:
         problems.append("STACK_MAX_FANOUT_BY_TYPE default does not parse")
     # Installed layout: <config>/hooks/agent_guard.py next to <config>/agents/*.md; install.sh
@@ -10365,7 +10365,7 @@ def generic_agent_self_test(conf):
     for bad in ("await agent('do it')", "await agent('x', {label: 'a'})",
                 "await agent('x', {agentType: 'general-purpose'})",
                 "await agent('x', {agentType: 'SubAgent'})",
-                "await agent('x', {agentType: 'god-coder'})",
+                "await agent('x', {agentType: 'supreme-coder'})",
                 "await agent('x', {agentType: t})", "await agent('x', opts)",
                 "await agent('x', {agentType: 'coder', model: 'opus'})",
                 "await agent('x', {agentType: 'coder', model: M})",
@@ -10626,8 +10626,8 @@ FIXED_LIMIT_KNOBS = (
     "STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_DISPATCH_WINDOW_S", "BLACKCAT_MAX_STEPS",
     "BLACKCAT_BACKGROUND", "STACK_MAX_FANOUT", "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_SELF_FANOUT",
     "STACK_LEASE_TTL_S", "STACK_RESUME_TTL_S", "STACK_FANOUT_IDLE_S", "STACK_MAX_MCP_CALLS",
-    "STACK_SOFT_LIMIT_SCALE", "GOD_SPAWNERS", "GOD_ONCE_PER_SESSION", "GOD_AFTER_NINJA",
-    "GOD_PENDING_TTL_S", "GOD_IDLE_S", "GOD_LOCK_TTL_S", "SCREEN_LOCK_TTL_S", "STACK_MAX_DEPTH",
+    "STACK_SOFT_LIMIT_SCALE", "SUPREME_SPAWNERS", "SUPREME_ONCE_PER_SESSION", "SUPREME_AFTER_NINJA",
+    "SUPREME_PENDING_TTL_S", "SUPREME_IDLE_S", "SUPREME_LOCK_TTL_S", "SCREEN_LOCK_TTL_S", "STACK_MAX_DEPTH",
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
     "STACK_IMAGE_MAX_PX", "STACK_IMAGE_UPLOAD_TOOLS", "STACK_IMAGE_MAX_B64", "STACK_SCHED_POLICY")
 

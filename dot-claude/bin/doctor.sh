@@ -80,7 +80,7 @@ elif "$C/venvs/tools/bin/python" -c 'import pytest, numpy, pandas, httpx, mcp, P
 else fail "tools venv imports fail — rerun install.sh"; fi
 [ -x "$C/venvs/ml/bin/python" ] && ok "ML venv ($C/venvs/ml)" || ok "ML venv not installed (optional: ./install.sh --with-ml)"
 for f in with-stack-env mcp-headers magg-private claude-ultracode; do [ -x "$C/bin/$f" ] && ok "bin/$f" || fail "bin/$f missing or not executable — rerun install.sh"; done
-for n in claude-ninja claude-god; do
+for n in claude-ninja claude-supreme; do
   if [ "$(readlink "$HOME/.local/bin/$n" 2>/dev/null)" = "$C/bin/claude-ultracode" ]; then
     have "$n" && ok "$n (${n#claude-}-coder at ultracode)" || warn "$n is in ~/.local/bin, which isn't on PATH — open a new terminal"
   else
@@ -546,7 +546,7 @@ env = dict(os.environ, XDG_STATE_HOME=state, STACK_POLICY="on")
 probes = [("settings.json PreToolUse(Agent)", cmds,
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Agent",
             "agent_id": "doctor-scout", "agent_type": "scout", "tool_use_id": "toolu_doctor",
-            "tool_input": {"subagent_type": "god-coder", "prompt": "x", "description": "x"}}),
+            "tool_input": {"subagent_type": "supreme-coder", "prompt": "x", "description": "x"}}),
           ("blackcat.md blackcat-guard", [rcmd] if rcmd else [],
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "WebFetch",
             "agent_type": "blackcat", "prompt_id": "doctor", "tool_input": {"url": "https://example.com"}}),

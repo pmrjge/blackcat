@@ -10,7 +10,7 @@ For coding, keep Claude Code with your stack in the terminal and add Conductor f
 
 | Job | Best pick | Why | Next best |
 | --- | --- | --- | --- |
-| Coding, deep work | Claude Code in Ghostty or Terminal | Every feature of your stack, including `claude-ninja` and `claude-god` at ultracode | Claude Desktop, Code tab |
+| Coding, deep work | Claude Code in Ghostty or Terminal | Every feature of your stack, including `claude-ninja` and `claude-supreme` at ultracode | Claude Desktop, Code tab |
 | Coding, many tasks at once | [Conductor](https://conductor.build) | Parallel chats in git worktrees; loads your `~/.claude` as is | Superset, Emdash, Claude Squad |
 | UI and visual design | [Claude Design](https://claude.com/product/design) + [Figma MCP](https://developers.figma.com/docs/figma-mcp-server/) | Design from a prompt, then read and write real Figma files | Penpot (free, open source), Canva |
 | Vector graphics (SVG) | [Recraft](https://www.recraft.ai/docs/mcp-reference/remote-server) | Generates true vector images and vectorizes rasters | SVGator for animated SVG; Illustrator (Beta) MCP |

@@ -1,16 +1,16 @@
 #!/bin/sh
-# claude-agent-stack: ninja-coder or god-coder as the MAIN THREAD at ultracode — xhigh effort plus
+# claude-agent-stack: ninja-coder or supreme-coder as the MAIN THREAD at ultracode — xhigh effort plus
 # dynamic workflows, with workflow launches pre-approved in these sessions only.
-#   claude-ninja [claude args…]     claude-god [claude args…]     claude-ultracode <agent> [claude args…]
+#   claude-ninja [claude args…]     claude-supreme [claude args…]     claude-ultracode <agent> [claude args…]
 # Ultracode exists only on a main thread. An agent file's `effort` applies to subagents only, and
 # `effort: ultracode` there is ignored (the agent would run at the calling session's level), so
 # dispatched by BlackCat these agents run at max; started from here they run at ultracode.
 case "$(basename "$0")" in
   claude-ninja) agent=ninja-coder ;;
-  claude-god) agent=god-coder ;;
+  claude-supreme) agent=supreme-coder ;;
   *)
     if [ $# -eq 0 ]; then
-      echo "usage: claude-ultracode <agent> [claude args…]   (or: claude-ninja, claude-god)" >&2
+      echo "usage: claude-ultracode <agent> [claude args…]   (or: claude-ninja, claude-supreme)" >&2
       exit 2
     fi
     agent=$1
