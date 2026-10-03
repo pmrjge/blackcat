@@ -252,6 +252,47 @@ def test_session_env_writes_every_cache_under_the_sandbox_root_once(tmp_path):
     assert maven == "-Dmaven.repo.local=%s/m2" % root and git == "'credential.helper='"
 
 
+def test_session_env_adds_pnpm_store_corepack_home_and_java_home(tmp_path, monkeypatch):
+    """pnpm reads pnpm_config_store_dir (not npm_config_store_dir); Corepack's shim needs the home
+    that already holds pnpm; JAVA_HOME comes from /usr/libexec/java_home, which works only outside
+    the sandbox (this SessionStart hook), and a value already set wins. A failing or missing tool
+    adds no line and never fails the script."""
+    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    import agent_guard as G
+    home = tmp_path / "home"
+    jdk = tmp_path / "Library" / "Java" / "jdk-27.jdk" / "Contents" / "Home"
+    jdk.mkdir(parents=True)
+    tool = tmp_path / "java_home"
+    tool.write_text("#!/bin/sh\necho '%s'\n" % jdk)
+    tool.chmod(0o755)
+    monkeypatch.setattr(G, "JAVA_HOME_TOOL", str(tool))
+    env_file = tmp_path / "env.sh"
+    env_file.write_text(G.sandbox_env_script(str(home)))
+    root = str(home / ".cache" / "claude-sandbox")
+    pnpm, npm, corepack, java = sourced(env_file, "pnpm_config_store_dir", "npm_config_store_dir",
+                                        "COREPACK_HOME", "JAVA_HOME")
+    assert pnpm == npm == root + "/pnpm-store"
+    assert corepack == str(home / ".cache" / "node" / "corepack")
+    assert java == str(jdk)
+    assert sourced(env_file, "JAVA_HOME", JAVA_HOME="/opt/mine")[0] == "/opt/mine"
+    for body in ("#!/bin/sh\nexit 1\n", "#!/bin/sh\necho relative/path\n",
+                 "#!/bin/sh\necho '%s/missing'\n" % tmp_path):
+        tool.write_text(body)
+        text = G.sandbox_env_script(str(home))
+        assert "JAVA_HOME" not in text and "COREPACK_HOME" in text, body
+    monkeypatch.setattr(G, "JAVA_HOME_TOOL", str(tmp_path / "no-such-tool"))
+    assert "JAVA_HOME" not in G.sandbox_env_script(str(home))
+
+
+def test_config_lists_every_sandboxed_bash_variable():
+    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    import agent_guard as G
+    text = (ROOT / "CONFIG.md").read_text()
+    line = next(x for x in text.splitlines() if "Sandboxed Bash gets its own caches" in x)
+    for name in [k for k, _ in G.SANDBOX_ENV] + ["COREPACK_HOME", "JAVA_HOME", "MAVEN_OPTS"]:
+        assert "`%s`" % name in line, name
+
+
 def test_session_env_quotes_an_odd_home_and_never_blocks(tmp_path):
     home, env_file = tmp_path / "my home $x", tmp_path / "env.sh"
     home.mkdir()

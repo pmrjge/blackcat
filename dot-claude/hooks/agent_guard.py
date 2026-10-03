@@ -4112,7 +4112,9 @@ SANDBOX_CACHE_DIR = os.path.join(".cache", "claude-sandbox")        # under $HOM
 SANDBOX_ENV = (
     ("XDG_CACHE_HOME", "xdg"), ("UV_CACHE_DIR", "uv"), ("PIP_CACHE_DIR", "pip"),
     ("npm_config_cache", "npm"), ("npm_config_devdir", "node-gyp"),
-    ("npm_config_store_dir", "pnpm-store"), ("YARN_CACHE_FOLDER", "yarn"),
+    # pnpm 12 reads pnpm_config_store_dir (or --store-dir), not npm_config_store_dir: both, one dir
+    ("npm_config_store_dir", "pnpm-store"), ("pnpm_config_store_dir", "pnpm-store"),
+    ("YARN_CACHE_FOLDER", "yarn"),
     ("BUN_INSTALL_CACHE_DIR", "bun"), ("DENO_DIR", "deno"), ("PRE_COMMIT_HOME", "pre-commit"),
     ("HF_HOME", "huggingface"), ("MPLCONFIGDIR", "matplotlib"), ("CARGO_HOME", "cargo"),
     ("GOMODCACHE", "go/mod"), ("GOCACHE", "go/build"), ("GRADLE_USER_HOME", "gradle"),
@@ -4140,7 +4142,34 @@ def sandbox_env_script(home):
              "sandboxed Bash falls back to ~/.m2, which the sandbox refuses" % m2)
     lines.append("export GIT_CONFIG_PARAMETERS=\"${GIT_CONFIG_PARAMETERS:+$GIT_CONFIG_PARAMETERS }"
                  "'credential.helper='\"")
+    # Corepack's shim fails behind the sandbox proxy unless it finds the pnpm it already holds; the
+    # sandbox's XDG_CACHE_HOME moves its default away from ~/.cache/node/corepack (read-only use)
+    lines.append("export COREPACK_HOME=%s" % shlex.quote(os.path.join(home, COREPACK_SUBDIR)))
+    jh = java_home()
+    if jh:
+        lines.append('export JAVA_HOME="${JAVA_HOME:-%s}"' % jh)     # a value already set wins
     return "\n".join(lines) + "\n"
+
+
+COREPACK_SUBDIR = os.path.join(".cache", "node", "corepack")         # under $HOME
+JAVA_HOME_TOOL = "/usr/libexec/java_home"
+
+
+def java_home():
+    """The default JDK's home from /usr/libexec/java_home, or None. It fails inside the sandbox;
+    this SessionStart hook runs outside it, so the sandboxed Bash gets the answer. Accepted only as
+    an existing absolute directory whose path needs no quoting; any failure: None (no line)."""
+    import subprocess
+    try:
+        p = subprocess.run([JAVA_HOME_TOOL], capture_output=True, text=True, timeout=5,
+                           check=False, stdin=subprocess.DEVNULL)
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return None
+    path = p.stdout.strip() if p.returncode == 0 else ""
+    if not path or "\n" in path or not os.path.isabs(path) or not _PLAIN_PATH.match(path) \
+            or not os.path.isdir(path):
+        return None
+    return path
 
 
 SESSION_ENV_STATUS = "session-env.json"   # in the session's state dir: what the hook did
