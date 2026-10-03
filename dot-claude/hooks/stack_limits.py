@@ -1339,6 +1339,14 @@ def validate_live(doc, seed):
     eid = doc.get("evidence_id")
     if eid is not None and (not isinstance(eid, str) or not HEX64_RE.match(eid)):
         raise LiveInvalid("evidence_id")
+    V = dict(V)
+    for old in list(V):             # a renamed type's state (value, freeze) moves to its current name
+        try:
+            fam, t = split_var(old)
+        except ValueError:
+            continue
+        if t and renamed_type(t) != t:
+            V.setdefault(fam + "." + renamed_type(t), V[old])
     out = {}
     for v, spec in seed["vars"].items():
         st = V.get(v)
@@ -1595,9 +1603,11 @@ _ENV_WARNED = set()
 
 
 def env_override(var):
-    """(present, value) of a variable's env override: digits only, 0 = off (None)."""
-    name = env_var(var)
-    raw = os.environ.get(name)
+    """(present, value) of a variable's env override: digits only, 0 = off (None). An override set
+    under a renamed type's old name (RENAMED_TYPES) counts while the current one is unset."""
+    fam, t = split_var(var)
+    names = [env_var(var)] + [env_name(o, fam) for o, n in RENAMED_TYPES.items() if t and n == t]
+    name, raw = next(((k, os.environ[k]) for k in names if (os.environ.get(k) or "").strip()), (names[0], None))
     if raw is None or not raw.strip():
         return False, None
     raw = raw.strip()

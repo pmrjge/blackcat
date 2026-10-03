@@ -1895,6 +1895,8 @@ RENAMED_ENV = {"ROUTER_MAX_STEPS": "BLACKCAT_MAX_STEPS", "ROUTER_MAX_DISPATCH": 
 # god-coder is now supreme-coder: its knobs follow the rename the same way.
 RENAMED_ENV.update({"GOD_" + k: "SUPREME_" + k for k in (
     "SPAWNERS", "ONCE_PER_SESSION", "AFTER_NINJA", "PENDING_TTL_S", "IDLE_S", "LOCK_TTL_S")})
+RENAMED_ENV.update({p + "GOD_CODER": p + "SUPREME_CODER" for p in (   # per-type limit overrides
+    "STACK_MAXTURNS_", "STACK_SOFTCTX_", "STACK_HARDCTX_", "STACK_SOFT_PROMPT_CTX_")})
 cur_env = dict(cur.get("env") or {})
 for old, now in RENAMED_ENV.items():
     if old not in cur_env:

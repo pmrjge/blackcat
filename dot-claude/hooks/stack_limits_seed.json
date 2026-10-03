@@ -3,7 +3,7 @@
  "pools": {
   "analyst": ["code-reviewer", "plan-reviewer", "planner", "proof-checker", "researcher", "security-auditor"],
   "artifact": ["browser-operator", "cg-artist", "designer", "doc-specialist", "image-director", "localizer", "motion-designer", "writer"],
-  "builder": ["biochem-engineer", "build-fixer", "claude-code-engineer", "coder", "cuda-engineer", "data-engineer", "data-scientist", "db-engineer", "devops-engineer", "dl-engineer", "embedded-engineer", "frontend-engineer", "game-engineer", "go-engineer", "supreme-coder", "haskell-engineer", "hpc-engineer", "julia-engineer", "jvm-engineer", "llm-engineer", "main-coder", "mathematician", "ml-engineer", "mlx-engineer", "mobile-engineer", "ninja-coder", "node-engineer", "python-engineer", "quantum-engineer", "robotics-engineer", "rust-engineer", "security-engineer", "test-engineer", "vfx-td"],
+  "builder": ["biochem-engineer", "build-fixer", "claude-code-engineer", "coder", "cuda-engineer", "data-engineer", "data-scientist", "db-engineer", "devops-engineer", "dl-engineer", "embedded-engineer", "frontend-engineer", "game-engineer", "go-engineer", "haskell-engineer", "hpc-engineer", "julia-engineer", "jvm-engineer", "llm-engineer", "main-coder", "mathematician", "ml-engineer", "mlx-engineer", "mobile-engineer", "ninja-coder", "node-engineer", "python-engineer", "quantum-engineer", "robotics-engineer", "rust-engineer", "security-engineer", "supreme-coder", "test-engineer", "vfx-td"],
   "coordinator": ["orchestrator"],
   "lookup": ["claude-code-guide", "explore", "mcp-broker", "oracle", "scout"],
   "verifier": ["verifier"]

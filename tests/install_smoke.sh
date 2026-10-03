@@ -1102,8 +1102,41 @@ ok = (s.get("agent") == "blackcat" and e.get("BLACKCAT_MAX_STEPS") == "12" and e
       and not any(k.startswith("ROUTER_") for k in e) and "Agent(blackcat)" in deny and "Agent(router)" not in deny)
 sys.exit(0 if ok else 1)
 PY
+# supreme-coder was god-coder: an old agent file goes as renamed, and its knobs and limit overrides
+# in settings.json follow the rename (a tuned one moves, one at the stack default is dropped)
+T15="$(cd "$(mktemp -d)" && pwd -P)"
+CLAUDE_CONFIG_DIR="$T15" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1
+SUPREME_OLD=god python3 - "$T15" <<'PY'
+import hashlib, json, os, sys
+t, old_name = sys.argv[1], os.environ["SUPREME_OLD"]
+old = open(os.path.join(t, "agents", "supreme-coder.md")).read().replace("name: supreme-coder", "name: %s-coder" % old_name)
+open(os.path.join(t, "agents", "%s-coder.md" % old_name), "w").write(old)
+ren = lambda k: k.replace("SUPREME_", old_name.upper() + "_")
+mp = os.path.join(t, ".stack-manifest.json"); m = json.load(open(mp))
+m["files"]["agents/%s-coder.md" % old_name] = hashlib.sha256(old.encode()).hexdigest()
+m["settings_env"] = {ren(k): v for k, v in m["settings_env"].items()}
+json.dump(m, open(mp, "w"))
+sp = os.path.join(t, "settings.json"); s = json.load(open(sp))
+s["env"] = {ren(k): v for k, v in s["env"].items()}
+s["env"][ren("SUPREME_SPAWNERS")] = "orchestrator,main"
+s["env"]["STACK_HARDCTX_%s_CODER" % old_name.upper()] = "3000000"
+json.dump(s, open(sp, "w"), indent=2)
+PY
+CLAUDE_CONFIG_DIR="$T15" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T15/.log" 2>&1
+supreme_old_rel=agents/god-coder.md
+[ ! -e "$T15/$supreme_old_rel" ] && [ -f "$(latest_backup "$T15")/files/$supreme_old_rel" ] \
+  && grep -qx '  - agents/god-coder.md  (renamed: now agents/supreme-coder.md)' "$T15/.log" \
+  && pass "an old god-coder.md is removed as renamed: it is now supreme-coder" || failed "old god-coder.md not removed (renamed to supreme-coder)"
+python3 - "$T15/settings.json" <<'PY' && pass "settings follow god-coder -> supreme-coder: tuned knob and limit override moved, default dropped" || failed "god-coder settings not migrated to supreme-coder"
+import json, sys
+e = json.load(open(sys.argv[1]))["env"]
+ok = (e.get("SUPREME_SPAWNERS") == "orchestrator,main" and e.get("SUPREME_IDLE_S") == "1800"
+      and e.get("STACK_HARDCTX_SUPREME_CODER") == "3000000"
+      and not any(k.startswith("GOD_") or k.endswith("_GOD_CODER") for k in e))   # supreme-coder's old names
+sys.exit(0 if ok else 1)
+PY
 assert_unchanged_real_home
-rm -rf "$T4" "$T5" "$T6" "$T7" "$T9" "$T10" "$T11" "$T12" "$T13" "$T14"
+rm -rf "$T4" "$T5" "$T6" "$T7" "$T9" "$T10" "$T11" "$T12" "$T13" "$T14" "$T15"
 
 echo "== 9. macOS render (simulated): the After Effects server only once it is built"
 T8="$(cd "$(mktemp -d)" && pwd -P)"

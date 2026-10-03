@@ -1346,3 +1346,20 @@ def test_rows_of_a_renamed_type_count_for_its_new_name(st):
     doc = L.build_proposals(L.load_seed())
     assert doc["vars"]["soft.agent.supreme-coder"]["n"] == 3
     assert not any(RENAMED_OLD in k for k in doc["vars"])
+
+
+def test_overrides_and_live_state_of_a_renamed_type_carry_over(st, monkeypatch):
+    """An env override set under supreme-coder's old name counts while the current one is unset (the
+    current one wins), and live.json's state of the old name (value, freeze) moves to the new name."""
+    s = L.load_seed()
+    old_env = L.env_name(RENAMED_OLD, "hard.agent")
+    monkeypatch.setenv(old_env, "3000000")
+    assert L.env_override("hard.agent.supreme-coder") == (True, 3000000)
+    assert L.snapshot_values(s, None, True)[0]["hard.agent.supreme-coder"] == 3000000
+    monkeypatch.setenv("STACK_HARDCTX_SUPREME_CODER", "4000000")
+    assert L.env_override("hard.agent.supreme-coder") == (True, 4000000)
+    live = L.live_from_seed(s)
+    old_state = dict(live["vars"].pop("turns.supreme-coder"), value=200, frozen=150)
+    live["vars"]["turns." + RENAMED_OLD] = old_state
+    got = L.validate_live(live, s)["vars"]
+    assert got["turns.supreme-coder"]["frozen"] == 150 and "turns." + RENAMED_OLD not in got
