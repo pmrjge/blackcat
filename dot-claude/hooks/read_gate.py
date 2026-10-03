@@ -11,7 +11,7 @@ Gated targets (CONFIG.md, "Read gate"):
   build   generated output: .next .nuxt .output .svelte-kit .astro .docusaurus _site htmlcov
           .nyc_output DerivedData .build dist-newstyle _build zig-out .zig-cache .stack-work
           resources/_gen (Hugo) .lake/build (only: .lake/packages holds Mathlib's sources);
-          public dist build out target coverage only when git ignores them, or public/ beside a
+          public dist build out target coverage only when git ignores and does not track them, or public/ beside a
           Hugo config; *.min.js *.min.css *.map
   deps    dependencies and tool caches: node_modules .venv venv .tox .nox __pycache__ .mypy_cache
           .pytest_cache .ruff_cache .hypothesis .ipynb_checkpoints .gradle Pods .terraform
@@ -23,7 +23,7 @@ Gated targets (CONFIG.md, "Read gate"):
   visual  video, audio, 3D and layered design files; images over READ_GATE_IMAGE_BYTES
   binary  objects, libraries, archives, fonts, bytecode
 Never gated: anything under a .claude-work/ directory; Read with 0 < limit <= READ_GATE_LIMIT;
-Grep with output_mode count or head_limit <= READ_GATE_LIMIT; Bash readers whose output is cut
+Grep unless output_mode is content without head_limit <= READ_GATE_LIMIT; Bash readers whose output is cut
 (| head, | tail, | wc, grep -l/-c/-q, > file) or capped (head, tail, find -maxdepth <= 2).
 Exemptions: READ_GATE_EXEMPT_<CATEGORY> agent types (a `<type>-copy` counts as its base).
 
@@ -213,6 +213,11 @@ class Ctx:
                                stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                                env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"), timeout=3, check=False)
             res = r.returncode == 0
+            if res:                      # ignored by a pattern but tracked (src/build/ under `build/`): source
+                t = subprocess.run(["git", "-C", anc or "/", "ls-files", "--error-unmatch", "--", dirpath],
+                                   stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                   env=dict(os.environ, GIT_OPTIONAL_LOCKS="0"), timeout=3, check=False)
+                res = t.returncode != 0
         except (OSError, subprocess.SubprocessError):
             res = False
         self.ignored[dirpath] = res
@@ -340,7 +345,8 @@ def literal_prefix(pattern):
 
 
 def check_grep(inp, cwd, knobs, atype, ctx):
-    if inp.get("output_mode") == "count" or small(inp.get("head_limit"), knobs):
+    # Grep's default output_mode is files_with_matches: paths only, like `rg -l`
+    if inp.get("output_mode", "files_with_matches") != "content" or small(inp.get("head_limit"), knobs):
         return None
     p = absolute(inp.get("path") or cwd or ".", cwd)
     if os.path.isdir(p):
@@ -394,6 +400,10 @@ GREP_CHEAP = {"-l", "-L", "-c", "-q", "--files-with-matches", "--files-without-m
 FD_VALUE_OPTS = {"-e", "-t", "-E", "-d", "-x", "-X", "-j", "-S", "-c", "--extension", "--type", "--exclude",
                  "--max-depth", "--min-depth", "--exec", "--exec-batch", "--threads", "--size", "--color",
                  "--changed-within", "--changed-before", "--owner", "--base-directory", "--search-path"}
+TREE_VALUE_OPTS = {"-L", "-I", "-P", "-o", "-H", "-T", "--filelimit", "--charset", "--sort", "--timefmt",
+                   "--gitfile", "--fromfile"}
+# a heredoc body is data, not commands: replaced by its delimiter before tokenizing
+HEREDOC_RE = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z_]\w*)\1([^\n]*)\n.*?^\t*\2[ \t]*$", re.DOTALL | re.MULTILINE)
 SEPARATORS = {"|", "|&", ";", "&&", "||", "&", "\n", "(", ")", ";;", ";&", "{", "}"}
 
 
@@ -542,8 +552,15 @@ def reader_paths(kind, args):
         return (pos[1:] or ["."]), False, md is not None and md <= 2
     if kind == "tree":
         md = int_after(args, ("-L",))
-        return [a for a in args if not a.startswith("-") and not a.isdigit()] or ["."], False, \
-            md is not None and md <= 2
+        pos, j = [], 0
+        while j < len(args):
+            if args[j] in TREE_VALUE_OPTS:
+                j += 2
+                continue
+            if not args[j].startswith("-"):
+                pos.append(args[j])
+            j += 1
+        return pos or ["."], False, md is not None and md <= 2
     if kind == "ls":
         rec = any(a == "--recursive" or (a.startswith("-") and not a.startswith("--") and "R" in a) for a in args)
         if not rec:
@@ -587,7 +604,7 @@ def check_bash(inp, cwd, knobs, atype, ctx):
     if not isinstance(cmd, str) or not READER_RE.search(cmd):
         return None
     try:
-        pipes = pipelines(tokenize(cmd))
+        pipes = pipelines(tokenize(HEREDOC_RE.sub(lambda m: "<< " + m.group(2) + m.group(3), cmd)))
     except ValueError:
         return None                      # unbalanced quotes: Claude Code's shell will say so
     for pipe in pipes:
@@ -621,6 +638,9 @@ def check_bash(inp, cwd, knobs, atype, ctx):
                 if word == "-":
                     continue
                 for p in expand(word, cwd):
+                    if os.path.isdir(p) and (kind in ("cat", "dump", "sed", "awk", "jq")
+                                             or (kind == "grep" and not recursive)):
+                        continue         # a directory these readers skip (grep -n x *)
                     hit = gated(p, knobs, atype, ctx, is_file=not os.path.isdir(p))
                     if hit:
                         return hit
@@ -808,7 +828,8 @@ def self_test():
               == "deny")
         check("lake packages", run("Read", {"file_path": os.path.join(
             root, "proof/.lake/packages/mathlib/Mathlib/X.lean")}) is None)
-        check("grep tool dir", run("Grep", {"pattern": "x", "path": os.path.join(root, "app/node_modules")})
+        check("grep tool dir", run("Grep", {"pattern": "x", "path": os.path.join(root, "app/node_modules"),
+                                            "output_mode": "content"})
               == "deny")
         check("grep tool count", run("Grep", {"pattern": "x", "path": os.path.join(root, "app/node_modules"),
                                               "output_mode": "count"}) is None)

@@ -123,6 +123,11 @@ def test_git_ignore_decides_ambiguous_dirs(env, repo):
     assert read("public/favicon.svg", "5") is None   # Vite public/: source
     assert read("node_modules/pkg/index.js", "6")    # always gated, ignored or not
     assert read("src/main.ts", "7") is None
+    mk(repo, ".gitignore", "dist/\n/target\nvendor/\nbuild/\n")
+    mk(repo, "src/build/gen.py")                     # tracked although `build/` matches: source
+    subprocess.run(["git", "-C", str(repo), "add", "-f", "src/build/gen.py"], check=True)
+    assert read("src/build/gen.py", "8") is None
+    assert read("build/notes.md", "9")               # untracked and now ignored
 
 
 def test_data_size_and_claude_work(env, repo):
@@ -164,6 +169,9 @@ def test_bash_readers_refused(env, repo, cmd):
     "grep -rn foo src",
     "cat src/main.ts",
     'echo "cat dist/app.js"',
+    "cat > clean.sh <<'EOF'\nfind node_modules -name '*.md' -delete\nEOF\nchmod +x clean.sh",   # heredoc body
+    "tree -L 3 -I node_modules",                                                            # -I value
+    "grep -n TODO *",                                                # non-recursive grep skips directories
 ])
 def test_bash_cheap_or_ungated_passes(env, repo, cmd):
     assert run(env, "Bash", {"command": cmd}, repo) is None
@@ -173,6 +181,7 @@ def test_grep_and_glob_tools(env, repo):
     nm = str(repo / "node_modules")
     assert run(env, "Grep", {"pattern": "x", "path": nm, "output_mode": "content"}, repo)
     assert run(env, "Grep", {"pattern": "x", "path": nm, "output_mode": "count"}, repo) is None
+    assert run(env, "Grep", {"pattern": "x", "path": nm}, repo) is None          # files_with_matches default
     assert run(env, "Grep", {"pattern": "x", "path": nm, "head_limit": 50}, repo, agent_id="b") is None
     assert run(env, "Grep", {"pattern": "x", "path": str(repo / "src")}, repo) is None
     assert run(env, "Glob", {"pattern": "**/node_modules/**/*.js"}, repo)
