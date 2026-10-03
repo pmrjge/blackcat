@@ -101,7 +101,7 @@ HISTORY_MAX = 5 << 20
 LOG_MAX = 1 << 20
 NOTICE_MAX = 300
 SCHED_POLICIES = ("report", "fresh_fixer")
-SCHED_POLICY_DEFAULT = "fresh_fixer"
+SCHED_POLICY_DEFAULT = "report"         # fresh_fixer: opt-in (user decision 2026-10-03)
 SOURCES = ("startup", "resume", "clear", "compact", "fork")
 STATUSES = ("supported", "provisional", "pooled", "unset")
 

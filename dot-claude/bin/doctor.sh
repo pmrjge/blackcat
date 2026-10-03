@@ -413,8 +413,8 @@ else:
 raw = (env.get("STACK_SCHED_POLICY") or os.environ.get("STACK_SCHED_POLICY") or "").strip().lower()
 policy = raw if raw in L.SCHED_POLICIES else L.SCHED_POLICY_DEFAULT
 note = "" if not raw or raw in L.SCHED_POLICIES else f" ({raw[:20]!r} is not one of {', '.join(L.SCHED_POLICIES)})"
-print(f"ok scheduler policy: {policy}{note} (STACK_SCHED_POLICY; report = advice only, fresh_fixer = "
-      "a fresh fixer after a long resume gap)")
+print(f"ok scheduler policy: {policy}{note} (STACK_SCHED_POLICY; report = the scheduler only reports (default), "
+      "fresh_fixer = opt-in, `stack_sched.py next` also advises a fresh fixer after a long resume gap)")
 PY
 else
   warn "hooks/stack_limits.py missing (learned limits: the guard uses its built-in values) — rerun install.sh"

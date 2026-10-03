@@ -68,7 +68,7 @@ def test_T21_single_swap_stack_sched_reads_only_the_session_snapshot(st, tmp_pat
     assert path1 and os.path.exists(path1)
     before = report(SID1)
     assert before["src"] == "snapshot" and before["path"].endswith(SID1 + ".sched_model.json")
-    assert before["scout"]["turns"] == {"S": 3, "M": 4, "L": 5} and before["policy"] == "fresh_fixer"
+    assert before["scout"]["turns"] == {"S": 3, "M": 4, "L": 5} and before["policy"] == "report"
     snap_before = Path(path1).read_bytes()
 
     # mid-session: live.json, proposals.json, the candidate model, new rows, propose, the refresh
@@ -187,7 +187,7 @@ def test_next_advises_a_fresh_fixer_for_a_cold_resume(tmp_path):
     assert adv[0]["cost"] == pytest.approx(kw * (S.tinfo(m, "coder")["static_cc"] + m["fixer"]["reread"]))
     assert adv[0]["reread"] == m["fixer"]["reread"]
     assert _advice("fresh_fixer", S.RESUME_WARM_S - 30, tmp_path)[1] == []     # warm: no advice
-    assert _advice("report", S.RESUME_WARM_S + 30, tmp_path)[1] == []          # report policy: advice only off
+    assert _advice("report", S.RESUME_WARM_S + 30, tmp_path)[1] == []          # report policy: no advice
 
 
 def test_next_cli_keeps_stdout_and_advises_on_stderr(st, tmp_path):
@@ -198,12 +198,52 @@ def test_next_cli_keeps_stdout_and_advises_on_stderr(st, tmp_path):
     for k in [k for k in env if k.startswith("STACK_")]:
         env.pop(k)
     cmd = [sys.executable, str(HOOKS / "stack_sched.py"), "next", str(tmp_path / "g.json"), str(tmp_path / "s.json")]
+    # default (report, user decision 2026-10-03): the ready ids only, no advice
+    p = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    assert p.returncode == 0 and json.loads(p.stdout) == ["B"] and p.stderr == ""
+    # fresh_fixer is opt-in; outside a session the env knob applies
+    env["STACK_SCHED_POLICY"] = "fresh_fixer"
     p = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
     assert p.returncode == 0 and json.loads(p.stdout) == ["B"] and "fresh fixer" in p.stderr
-    env["STACK_SCHED_POLICY"] = "report"
-    # report is read from the snapshot in a session; outside one the env knob applies
+    for bad in ("bogus", ""):                                    # anything else falls back to report
+        env["STACK_SCHED_POLICY"] = bad
+        p = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+        assert json.loads(p.stdout) == ["B"] and p.stderr == ""
+
+
+def test_default_policy_is_report_everywhere(st):
+    assert L.SCHED_POLICY_DEFAULT == "report" and L.sched_policy() == "report"
+    assert S.soft_values()["sched_policy"] == "report"           # no snapshot: seed source, default policy
+    assert L.session_limits("33333333-3333-4333-8333-333333333333")["sched_policy"] == "report"   # fallback
+
+
+@pytest.mark.parametrize("at_start, later", [("fresh_fixer", "report"), ("report", "fresh_fixer"),
+                                             (None, "fresh_fixer")])
+def test_next_reads_the_policy_from_the_snapshot_only(st, tmp_path, monkeypatch, at_start, later):
+    """U4: the policy is fixed at the session's start (its snapshot); changing STACK_SCHED_POLICY
+    mid-session changes nothing for that session; a new session takes the new value."""
+    import subprocess
+    (tmp_path / "g.json").write_text(json.dumps(GRAPH))
+    (tmp_path / "s.json").write_text(json.dumps({"nodes": {"A": {"status": "done", "end": 1000.0}}, "now": 1500.0}))
+    if at_start:
+        monkeypatch.setenv("STACK_SCHED_POLICY", at_start)
+    L.apply_and_snapshot({"session_id": SID1, "source": "startup"}, spawn=False)
+    assert json.loads(Path(L.snapshot_path(SID1)).read_text())["sched_policy"] == (at_start or "report")
+    env = {k: v for k, v in os.environ.items() if not k.startswith("STACK_")}
+    env.update(STACK_SCHED_POLICY=later, CLAUDE_SESSION_ID=SID1)
+    cmd = [sys.executable, str(HOOKS / "stack_sched.py"), "next", str(tmp_path / "g.json"), str(tmp_path / "s.json")]
     p = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
-    assert json.loads(p.stdout) == ["B"] and p.stderr == ""
+    assert p.returncode == 0 and json.loads(p.stdout) == ["B"]
+    assert ("fresh fixer" in p.stderr) == (at_start == "fresh_fixer"), p.stderr
+    # resume of the same session id: same snapshot, same policy
+    L.apply_and_snapshot({"session_id": SID1, "source": "resume"}, spawn=False)
+    p = subprocess.run(cmd, capture_output=True, text=True, env=env, check=False)
+    assert ("fresh fixer" in p.stderr) == (at_start == "fresh_fixer"), p.stderr
+    # a new session snapshots the env value in force at its start
+    monkeypatch.setenv("STACK_SCHED_POLICY", later)
+    L.apply_and_snapshot({"session_id": SID2, "source": "startup"}, spawn=False)
+    p = subprocess.run(cmd, capture_output=True, text=True, env=dict(env, CLAUDE_SESSION_ID=SID2), check=False)
+    assert ("fresh fixer" in p.stderr) == (later == "fresh_fixer"), p.stderr
 
 
 def test_refresh_frame_skips_main_rows_and_empty_cells():

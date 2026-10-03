@@ -42,8 +42,9 @@ limit (ctx per segment), the per-prompt soft limit (33M ctx; 80M with an orchest
 optional user budget (`plan --budget N`, in the hook's ctx unit). A type without its own band takes its pool's band;
 without a pool band it is provisional with w = 1.0, a documented heuristic marked unverified.
 
-Environment: STACK_SCHED_MODEL (model file), STACK_SCHED_POLICY (report | fresh_fixer, default fresh_fixer:
-`next` also advises a fresh fixer for a resume whose gap is >= 270 s; read from the snapshot in a session), STACK_SCHED_LAMBDA (tokens per second; unset =
+Environment: STACK_SCHED_MODEL (model file), STACK_SCHED_POLICY (report | fresh_fixer, default report:
+the scheduler only reports; fresh_fixer, opt-in: `next` also advises a fresh fixer on stderr for a resume whose gap is
+>= 270 s; read from the snapshot in a session), STACK_SCHED_LAMBDA (tokens per second; unset =
 balanced, T_w(baseline)/W(baseline)), STACK_SCHED_TOKEN_SLACK (eps, default 0).
 """
 from __future__ import annotations
@@ -225,9 +226,9 @@ def soft_values() -> Dict[str, Any]:
     snap = session_snapshot()
     if snap is not None:
         return {"values": dict(snap["values"]), "source": "snapshot",
-                "sched_policy": snap.get("sched_policy") or "fresh_fixer"}
+                "sched_policy": snap.get("sched_policy") or "report"}
     policy = (os.environ.get("STACK_SCHED_POLICY") or "").strip().lower()
-    policy = policy if policy in ("report", "fresh_fixer") else "fresh_fixer"
+    policy = policy if policy in ("report", "fresh_fixer") else "report"     # fresh_fixer is opt-in
     lim = _limits()
     if lim is not None:
         try:

@@ -431,9 +431,10 @@ yourself.
 | `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
 | `STACK_MAX_SELF_FANOUT` ● | 2 | Live copies per copy type | guard |
 | `STACK_MAX_DEPTH` | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, else 3 | Deny Agent from callers at this depth | guard |
-| `STACK_PROMPT_CTX_BUDGET` ● / `STACK_SESSION_CTX_BUDGET` ● | 100000000 / 666000000 | Context tokens per prompt / per session, whole tree (0 = off) | guard |
+| `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | learned (seed 100000000 / 666000000) | Context tokens per prompt / per session, whole tree (0 = off); a value you set pins the learned limit | guard |
 | `STACK_MAX_MCP_CALLS` ● | 64 | MCP calls per subagent per prompt, lower if `maxTurns` is | guard |
 | `STACK_SOFT_LIMIT_SCALE` | unset = 1 | Multiplies the soft token limits (per agent run, 33M per human prompt, 80M with an orchestrator); `0` = off | guard |
+| `STACK_SCHED_POLICY` | `report` | `report`: the scheduler only reports; `fresh_fixer` (opt-in): `stack_sched.py next` also advises a fresh fixer after a long resume gap. Fixed per session (snapshot) | stack_sched |
 | `STACK_FANOUT_IDLE_S` ● | 600 (code: 1800) | A silent background subtree stops counting | guard |
 | `STACK_LEASE_TTL_S` / `STACK_RESUME_TTL_S` | 21600 / 120 | Ceilings on unreported leases and resume reservations | guard |
 | `GOD_SPAWNERS` / `GOD_ONCE_PER_SESSION` / `GOD_AFTER_NINJA` | `orchestrator` / 1 / 1 | Who spawns god-coder; once; after a finished ninja-coder | guard |

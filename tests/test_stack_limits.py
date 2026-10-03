@@ -289,6 +289,45 @@ def test_T1_fixed_guards_are_never_variables(st):
     assert "proposals.json ignored: fixed guard BLACKCAT_MAX_DISPATCH" in lim(st, "limits.log").read_text()
 
 
+def test_T1b_mcp_caps_stay_fixed_guards(st):
+    """A6: STACK_MAX_MCP_CALLS and the per-server web caps (web_caps.py KNOBS) are never learned: no
+    seed variable, rejected in live.json and proposals.json, never a snapshot value; the effective
+    MCP cap only follows the turn budget (min(knob, turns.<type>), test_limits_guard T11)."""
+    s = L.load_seed()
+    W = _load_web_caps()
+    names = ["STACK_MAX_MCP_CALLS"] + sorted(k for k in W.KNOBS if "_MAX_" in k)
+    for name in names:
+        assert L.is_fixed_guard(name), name
+    for name in ["STACK_MAX_MCP_CALLS"] + sorted(W.KNOBS):          # every web cap: never a variable
+        assert not L.VAR_RE.match(name) and name not in s["vars"] and name.lower() not in s["vars"], name
+        assert name not in {L.env_var(v) for v in s["vars"]}, name
+    ok = {"soft.agent.coder": {"x": [5e7] * 6, "ci": [5e7, 5e7], "agents": 6, "sessions": 3, "tight": 0, "n_new": 6,
+                               "upto": T0, "top": [5e7], "regime_ok": True}}
+    for name in ("STACK_MAX_MCP_CALLS", "stack.max.mcp.calls", "EXA_MAX_RESULTS", "SPIDER_MAX_PAGES"):
+        doc = dict(props(ok), vars=dict(ok, **{name: {"x": [9] * 6, "ci": [9, 9], "agents": 6}}))
+        assert L.validate_proposals(doc, s) == (None, f"fixed guard {name}"), name
+        with pytest.raises(L.LiveInvalid, match="fixed guard"):
+            L.validate_live(dict(L.live_from_seed(s), vars={name: {"value": 999}}), s)
+    # a proposed MCP cap never reaches live.json or a snapshot
+    L.seed()
+    doc = dict(props(ok), vars=dict(ok, STACK_MAX_MCP_CALLS={"x": [999] * 6, "ci": [999, 999], "agents": 6}))
+    lim(st, "proposals.json").write_text(json.dumps(doc))
+    path, _ = L.apply_and_snapshot({"session_id": "s-t1mcp", "source": "startup"}, spawn=False)
+    snap = json.loads(open(path).read())
+    assert set(snap["values"]) <= set(s["vars"]) and not [k for k in snap["values"] if L.is_fixed_guard(k)]
+    assert "STACK_MAX_MCP_CALLS" not in json.dumps(snap)
+    assert "STACK_MAX_MCP_CALLS" not in json.dumps(json.loads(lim(st, "live.json").read_text()))
+    assert "proposals.json ignored: fixed guard STACK_MAX_MCP_CALLS" in lim(st, "limits.log").read_text()
+
+
+def _load_web_caps():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("web_caps_t1b", HOOKS / "web_caps.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
 # ---------------------------------------------------------------- T2, T3 random proposals
 def _rand_entry(rng, spec, upto):
     turns = spec["unit"] == "turns"
@@ -460,6 +499,34 @@ def test_T5_damping():
     for k in range(8):
         s, rec = L.decide("soft.agent.coder", SPEC_SOFT, s, (_loosen if k % 2 else _tighten)(T0 + k))
     assert s["d"] == 0.125
+
+
+def test_T6b_support_rule_boundaries():
+    """A5 (s6-design-v2 section 4): (n >= 5 and agents >= 3) or (n >= 3 and agents >= 2 and
+    w <= 0.35), w = (hi - lo) / p90; prompt scope n >= 30 windows from >= 3 sessions; session
+    scope >= 5 sessions. Every bound inclusive, each side of the "or" sufficient on its own."""
+    sup = L.support
+    wide, at, over = (0, 100), (65, 100), (64.9, 100)              # w = 1.0, 0.35, 0.351 at p90 = 100
+    # first clause alone (CI irrelevant, even missing or infinitely wide)
+    for ci in (None, (None, None), wide):
+        assert sup(5, 3, ci, 100) and sup(500, 3, ci, 100)
+        assert not sup(4, 3, ci, 100) and not sup(5, 2, ci, 100)
+    # second clause alone: the width bound is inclusive
+    assert sup(3, 2, at, 100) and sup(4, 2, at, 100) and sup(5, 2, at, 100)
+    assert not sup(3, 2, over, 100) and not sup(2, 2, at, 100) and not sup(3, 1, at, 100)
+    assert not sup(3, 2, (100, 100), 0) and not sup(3, 2, (None, 100), 100)   # p90 0 or open CI: w = inf
+    assert sup(3, 2, (100, 100), 100)                                        # w = 0
+    # scopes: agents and CI play no part
+    assert sup(30, 0, None, 0, "prompt", sessions=3) and not sup(29, 99, at, 100, "prompt", sessions=99)
+    assert not sup(999, 99, at, 100, "prompt", sessions=2)
+    assert sup(1, 0, None, 0, "session", sessions=5) and not sup(99, 99, at, 100, "session", sessions=4)
+    # classify uses the regime-filtered own sample first, then the pool (type scope), then provisional
+    e = entry([5e7 + 1e5 * i for i in range(5)], agents=3, ci=list(wide))
+    assert L.classify("soft.agent", e, None)[0] == "supported"
+    e = entry([5e7 + 1e5 * i for i in range(5)], agents=2, ci=[4.9e7, 4.9e7 + 0.34 * L._qs(e["x"], 0.9)])
+    assert L.classify("soft.agent", e, None)[0] == "supported"
+    e = entry([5e7 + 1e5 * i for i in range(5)], agents=2, ci=[4.9e7, 4.9e7 + 0.36 * L._qs(e["x"], 0.9)])
+    assert L.classify("soft.agent", e, None)[0] == "provisional"
 
 
 def test_T6_support_provisional_and_hard_caps():

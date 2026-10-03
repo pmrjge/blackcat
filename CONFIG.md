@@ -154,9 +154,10 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `GOD_AFTER_NINJA` | 1 (code) | new | A god-coder spawn needs a ninja-coder of this session that has finished; checks order, not failure; 0 = off |
 | `GOD_IDLE_S` | 1800 | — | Time after which an idle god-coder releases the lock |
 | `STACK_MAX_MCP_CALLS` | 64 | — | MCP calls per agent per prompt, as set by you; unchanged (browser-operator comes near it) |
-| `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | 100,000,000 / 666,000,000 | — | As set by you; unchanged (hard: refuses every call but reporting). Since 2026-10-02 the prompt window restarts only on a human prompt, not on a task notification's turn |
+| `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | learned (seed 100,000,000 / 666,000,000), not in settings.json since S6 | — | A value you set pins `hard.prompt` / `hard.session` (`/stack-doctor` lists it) (hard: refuses every call but reporting). Since 2026-10-02 the prompt window restarts only on a human prompt, not on a task notification's turn |
 | Soft token limits (code: `SOFT_LIMITS`, `SOFT_PROMPT_CTX`) | per type, below; 33,000,000 per human prompt (80,000,000 while an orchestrator runs: `SOFT_PROMPT_CTX_BY_TYPE`) | new | A wrap-up warning, never a refusal; see "Soft token limits" below |
 | `STACK_SOFT_LIMIT_SCALE` | unset = 1 (code) | new | Multiplies every soft limit; `0` turns them off. Not in settings.json, so a process environment value reaches the hooks (the benchmark sets it per run) |
+| `STACK_SCHED_POLICY` | `report` (code) | `fresh_fixer` | The user's decision (2026-10-03): the scheduler stays a report tool. `fresh_fixer` is opt-in: `stack_sched.py next` then also advises a fresh fixer on stderr for a resume after a gap of 270 s or more (stdout, the ready ids, is the same). Fixed knob, recorded in each session's snapshot and read from it |
 | `STACK_FANOUT_IDLE_S` | 600 | — | A silent background subtree stops counting against the caps |
 | `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` | 400 | — | Unchanged |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` | from `stack.env` (Opus, Sonnet, Sonnet) | moved | Copied from `stack.env` by the installer; the haiku slot holds the Sonnet ID (section 2) |
@@ -409,6 +410,11 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-03 (scheduler policy back to report)
+
+- `STACK_SCHED_POLICY` defaults to `report` again (`stack_limits.SCHED_POLICY_DEFAULT`, `stack_sched.soft_values`); `fresh_fixer` is opt-in. A session keeps the policy of its snapshot. The default enters the regime hash, so sessions without the knob start a new regime: rows of the old one count as provisional evidence until the new regime has support.
+- Tests: the default gives no advice, `fresh_fixer` advises, a mid-session env change does not reach the session; the MCP caps are pinned as fixed guards (T1b); support-rule boundaries (T6b).
 
 ### 2026-10-03 (/override-agent reset, FIFO fix)
 
