@@ -1,0 +1,43 @@
+#!/bin/sh
+# stack-hook [--fail-closed] <module> [args...]: run hooks/<module>.py through hooks/stack_hook.py
+# on the stack's Python (>= 3.13) in one exec; no Python is spawned to probe a version.
+# Interpreter, the first that exists, is executable and is not visibly older than 3.13 by its file
+# name (the stub asserts the real version and fails like the line below if it is older):
+#   $STACK_PYTHON, ${CLAUDE_CONFIG_DIR:-~/.claude}/bin/stack-python (installer's symlink), then
+#   `uv python find 3.13` restricted to uv-managed interpreters (never a .venv or uv.toml of the
+#   hook's working directory, which is the user's project).
+# None found: with --fail-closed (PreToolUse entries) exit 2, which blocks the tool call, unless
+# STACK_POLICY=off; otherwise exit 0. Both name the fix on stderr. A hook that cannot start must
+# not silently open every gate (Claude Code treats exit 127 and 1 as non-blocking).
+
+case $0 in
+  */*) here=${0%/*} ;;
+  *) here=. ;;
+esac
+stub=$here/../hooks/stack_hook.py
+
+usable() {
+  [ -n "$1" ] && [ -f "$1" ] && [ -x "$1" ] || return 1   # -f/-x follow symlinks: dangling fails
+  case ${1##*/} in
+    python2* | python3.[0-9] | python3.[0-9][!0-9]* | python3.1[0-2] | python3.1[0-2][!0-9]*) return 1 ;;
+  esac
+  return 0
+}
+
+for py in "${STACK_PYTHON-}" "${CLAUDE_CONFIG_DIR:-${HOME-}/.claude}/bin/stack-python"; do
+  usable "$py" && exec "$py" "$stub" "$@"
+done
+if command -v uv >/dev/null 2>&1; then
+  py=$(uv python find --system --managed-python --no-project --no-config 3.13 2>/dev/null)
+  usable "$py" && exec "$py" "$stub" "$@"
+fi
+
+echo "stack-hook: no Python >= 3.13 found (STACK_PYTHON, ${CLAUDE_CONFIG_DIR:-~/.claude}/bin/stack-python," \
+  "uv python find 3.13); run ./install.sh from the claude-agent-stack repo" >&2
+if [ "${1-}" = --fail-closed ]; then
+  case ${STACK_POLICY-} in
+    [Oo][Ff][Ff]) ;;
+    *) exit 2 ;;
+  esac
+fi
+exit 0
