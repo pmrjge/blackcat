@@ -519,6 +519,50 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 - `--with-lsp` npm installs: `pyright@1.1.414`, `typescript-language-server@6.0.1` (`@5.3.0` on Node < 22.22.2) and `typescript@6.0.3` (TypeScript 7 ships no `tsserver`), all with `--ignore-scripts` (versions checked against the npm registry 2026-09-29).
 - Agents can't run `install.sh` (guard, every agent type and the main thread) except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs (`HOME` and `CLAUDE_CONFIG_DIR` both under a temp dir, checked after resolving symlinks); installing is your step. The rule follows `cd <repo> && ./install.sh`, covers `lib/install_state.py apply|restore|stage|record|move-legacy` on a non-scratch config dir, and a command that copies or pipes the stack's `install.sh` and runs a shell.
 
+### Open-file limit (2026-10-03)
+
+macOS starts programs with a soft open-file limit of 256; elan and lake (`lake exe cache get`) need
+65536, and cargo, ghcup/cabal builds and brew batches run into the default too. So before step 2
+installs anything (after the step-1 checks and the change-review question), `install.sh` handles it:
+
+1. **The LaunchDaemon** `/Library/LaunchDaemons/ulimit.max-files.plist` (Label `ulimit.max-files`,
+   `RunAtLoad`, `ProgramArguments` = `/bin/launchctl limit maxfiles 65536 524288`) sets launchd's
+   limit at every boot. The plist is a fixed template (a quoted heredoc, nothing interpolated;
+   `tests/test_install_devtools.py` snapshots it). On a terminal (stdin and stdout) the run shows the
+   path, the whole plist, the three steps, that sudo asks for the admin password itself, that running
+   apps may need a re-login or reboot, and the removal commands, then asks `[y/N]`; only `y`/`yes`
+   proceeds: (1) the template into a temp file, `plutil -lint`; (2) `sudo install -m 644 -o root -g
+   wheel <temp> /Library/LaunchDaemons/ulimit.max-files.plist`, then `stat -f '%Su:%Sg %Lp'` must print
+   `root:wheel 644` (printed); (3) `sudo launchctl bootout system <plist>` when `launchctl print
+   system/ulimit.max-files` shows it loaded, then `sudo launchctl bootstrap system <plist>` (`launchctl
+   load` is the deprecated form; `launchctl help` on macOS 27.0.1 lists `load` as "Recommended
+   alternatives: bootstrap"); (4) `launchctl limit maxfiles`, one line. A failed step stops the
+   sequence and prints the manual commands; the install goes on. This is the only place `install.sh`
+   calls sudo (`lib/devtools.sh` and `stack-update-tools` never do; a test checks it).
+2. **Nothing is installed, the commands are printed** (with the plist) when there is no terminal,
+   under `--dry-run`, `--no-deps`, `STACK_INSTALL_MAXFILES=0`, on any answer but y, and under `--yes`
+   or `--no-prompt` (they never ask; `STACK_INSTALL_MAXFILES=1`, which you set yourself, skips the
+   question, still only on a terminal and never in a dry run). Already in place: launchd's soft limit
+   ≥ 65536 and the plist there with the same content gives one `ok` line; ≥ 65536 set by another
+   LaunchDaemon that names `maxfiles` (say `limit.maxfiles.plist`) also gives one `ok` line naming it,
+   and nothing is written. Another content at the same path, or another such daemon while the limit
+   is low: the diff is shown and a second `[y/N]` comes before writing; the other daemon is never
+   touched (its removal commands are printed).
+3. **This run's own limit.** launchd's limit reaches only programs started after it, so the run then
+   raises its own soft limit with `ulimit -Sn 65536` (soft only: `ulimit -n` would also lower the hard
+   limit for good), which elan, lake, rustup, cargo, brew and ghcup/cabal inherit. It reads `ulimit -Hn`
+   and `sysctl -n kern.maxfilesperproc`; 65536 refused, it takes the highest value accepted (the
+   smaller of those two, else 49152, 32768, …) and prints one line with the effective value. Below
+   65536 step 2 skips the Lean group with the reason and the commands; the other groups go on.
+
+Hard limit 524288 as asked: launchd itself already reports a hard limit of `unlimited` here, so the
+value only matters for programs that read the hard limit (unverified whether the kernel clamps it to
+`kern.maxfilesperproc`, which the sandbox can't read). This machine (read-only, 2026-10-03):
+`launchctl limit maxfiles` = 65536 / unlimited, set by an existing
+`/Library/LaunchDaemons/limit.maxfiles.plist` (soft 65536, hard 200000, `launchctl` without a path);
+`ulimit.max-files.plist` does not exist. The next install therefore prints the `ok … set by
+limit.maxfiles.plist` line and writes nothing.
+
 ### Prerequisites and toolchains (2026-10-03)
 
 `install.sh` step 2 runs `lib/devtools.sh all` (bash 3.2; you run it in a terminal, outside the
@@ -528,7 +572,8 @@ sandbox). Order: (1) Homebrew, (2) one Homebrew batch per type, (3) the upstream
 a JDK of the wanted major or newer in `/Library/Java/JavaVirtualMachines` (its `release` file, so a
 `java_home` failure in the sandbox doesn't matter), `/Library/TeX/texbin/pdflatex` for MacTeX, and
 each manager's own state (`~/.nvm/nvm.sh` and `~/.nvm/versions/node/v24.*`, `~/.cargo/bin/rustup`,
-`~/.ghcup/bin/ghcup`, `~/.juliaup/bin/juliaup`, Coursier's `cs`, `uv python pin --global`). One
+`~/.ghcup/bin/ghcup`, `~/.juliaup/bin/juliaup`, Coursier's `cs`, `~/.elan/bin/elan` or `elan`/`lake`
+on PATH, `uv python pin --global`). One
 line per tool: `ok`, `+` installed, `!` missing or failed (with its log and the command); the
 Homebrew batch prints the names it skipped as one `ok  already installed:` line.
 
@@ -540,10 +585,10 @@ Homebrew batch prints the names it skipped as one `ok  already installed:` line.
   (`oracle-jdk` and `mactex` are pkg installers that ask for your password) runs only when stdin is a
   terminal, otherwise the exact command is printed. Formula versions are Homebrew's current ones
   (not pinned; Homebrew checks each bottle's sha256 against its formula).
-- **Upstream managers** stay outside Homebrew on purpose: rustup, ghcup, nvm, juliaup, uv and
-  coursier each manage several toolchains and update themselves; under Homebrew, per-project
+- **Upstream managers** stay outside Homebrew on purpose: rustup, ghcup, nvm, juliaup, uv,
+  coursier and elan each manage several toolchains and update themselves; under Homebrew, per-project
   toolchain selection (`rust-toolchain.toml`, `cabal.project` GHC pins, `.nvmrc`, `juliaup`
-  channels, `.python-version`) would break. Each runs its official installer, user-approved: fetched
+  channels, `.python-version`, `lean-toolchain`) would break. Each runs its official installer, user-approved: fetched
   with `curl --proto '=https' --tlsv1.2` into a temp file (never piped, so a cut-off download never
   runs half a script), its URL and sha256 written to the log, then run with its non-interactive flags;
   never in a dry run. Everything that is a plain program comes from Homebrew.
@@ -551,7 +596,24 @@ Homebrew batch prints the names it skipped as one `ok  already installed:` line.
   the run stops with one message listing each and its command. `--no-deps` lists what is missing and
   installs nothing (nothing then stops the run). `--dry-run` prints `would: …` lines, including the
   two exact batch commands with their final lists, and runs nothing.
+- **Lean** (`STACK_INSTALL_LEAN`, after the managers above): elan from
+  `https://elan.lean-lang.org/elan-init.sh` with `-y --default-toolchain stable` (flags from the
+  script's usage text, fetched 2026-10-03, sha256 `a620ff16…aa685bf53` that day; the script itself
+  downloads the elan binary from `github.com/leanprover/elan/releases/latest` with `curl -sSfL`, no
+  checksum), skipped when `elan` or `lake` is on PATH or `~/.elan/bin/elan` exists. Then, in "the rest",
+  the Mathlib project by the repo's convention (`lib/stack.env.example`, the lean-formalization skill):
+  a project `LEAN_PROJECT_PATH` names (your `stack.env`, else the environment) is used as it is and
+  never touched; otherwise `~/lean/stack_mathlib` is made with `lake +stable new stack_mathlib math`
+  (its `lakefile.toml` requires Mathlib at the tag of its `lean-toolchain`; checked after creation, a
+  mismatch stops with the fix), then `lake exe cache get` and, only if that succeeded, `lake build`
+  (the template's library, cheap with the cache; a failed cache never starts a build of all of
+  Mathlib). About 8 GB and 10-30 minutes: only on a terminal or with `STACK_INSTALL_LEAN_MATHLIB=1`
+  (`=0` never), otherwise the commands are printed. The run then prints the `LEAN_PROJECT_PATH=…`
+  line to put in your `stack.env` (proof-checker's lean server reads it; the installer doesn't write
+  it). The whole group is skipped while the open-file limit is below 65536 ("Open-file limit" above).
+  `~/.elan/bin` joins the PATH of the rest of the run (the `lean-lsp` plugin then finds `lake`).
 - **`--no-profile`** reaches the installers that have a switch for it (rustup `--no-modify-path`,
+  elan `--no-modify-path`,
   juliaup `--add-to-path=no`, uv `UV_NO_MODIFY_PATH=1`, nvm `PROFILE=/dev/null`, ghcup without
   `BOOTSTRAP_HASKELL_ADJUST_BASHRC`) and stops the Homebrew `shellenv` line. Without it, Homebrew
   installed by this step gets `eval "$(/opt/homebrew/bin/brew shellenv)"` in `~/.zprofile`, once
@@ -573,6 +635,9 @@ Groups (environment, read by `lib/devtools.sh`; `=0` skips one, `=1` adds an off
 | `STACK_INSTALL_LATEX` | 1 | `mactex` cask (about 5 GB; `brew install --cask mactex-no-gui` is the smaller one) |
 | `STACK_INSTALL_CXX` | 1 | cmake, cmake-docs, ninja, ffmpeg-full, pandoc, git-lfs, tesseract, typst, shellcheck, markdownlint-cli2; then `git lfs install` when its global filters are missing |
 | `STACK_INSTALL_GO` | 1 | go, gopls |
+| `STACK_INSTALL_LEAN` | 1 | elan (stable toolchain) and the Mathlib project (`~/lean/stack_mathlib` unless `LEAN_PROJECT_PATH` names one); skipped while the open-file limit is below 65536 |
+| `STACK_INSTALL_LEAN_MATHLIB` | auto | the Mathlib project (about 8 GB): auto = only on a terminal, `1` also without one, `0` never (the commands are printed) |
+| `STACK_INSTALL_MAXFILES` | ask | read by `install.sh` itself, before step 2: the `ulimit.max-files` LaunchDaemon. `ask` = asks on a terminal (default No), `0` = never (prints the commands), `1` = no question (still only on a terminal, never in `--dry-run`) |
 | `STACK_INSTALL_POSTGRES` | 0 | postgresql@18 (keg-only: `$(brew --prefix postgresql@18)/bin`; `brew services start postgresql@18`) |
 | `STACK_INSTALL_MONGODB` | 0 | `brew tap mongodb/brew`, then mongodb/brew/mongodb-community |
 
@@ -606,6 +671,9 @@ upstream installer):
 | pre-commit | optional | `uv tool install --python 3.14 --exclude-newer 2026-09-26T00:00:00Z pre-commit==4.6.2` | version + dependency cooldown | missing |
 | Gradle | optional | `gradle-9.8.0-all.zip` from `github.com/gradle/gradle-distributions` into `~/.local/opt/gradle-9.8.0`, linked from `~/.local/bin/gradle` (not Homebrew: its formula pulls a second JDK) | 9.8.0, sha256 `46ac66d4…47bc0cf` (equal to Homebrew's for the same zip) | missing |
 | Playwright Chromium + headless shell | optional | `npx -y playwright@1.63.0 install chromium chromium-headless-shell` into Playwright's default cache (or `$PLAYWRIGHT_BROWSERS_PATH`) | npm package 1.63.0 (registry integrity); browser revision 1243 over HTTPS, no published checksum | missing |
+| Open-file limit LaunchDaemon `/Library/LaunchDaemons/ulimit.max-files.plist` | optional (Lean needs the limit) | `install.sh` before step 2, after your y on a terminal: `sudo install -m 644 -o root -g wheel`, `sudo launchctl bootstrap system` (the only sudo the installer runs) | fixed template in `install.sh`, `plutil -lint` | limit already 65536 via `limit.maxfiles.plist`: one `ok` line, nothing written |
+| elan (+ Lean stable) | optional | `https://elan.lean-lang.org/elan-init.sh` `-y --default-toolchain stable` | latest; the script fetches elan's latest GitHub release, no checksum | present (`~/.elan/bin/elan`, `lake`) |
+| Mathlib project | optional | `lake +stable new stack_mathlib math` in `~/lean`, `lake exe cache get`, `lake build`; terminal or `STACK_INSTALL_LEAN_MATHLIB=1` | Mathlib pinned to the `lean-toolchain` tag (lake manifest pins the commit); cache from Mathlib's own `cache` tool | `~/lean/stack_mathlib` missing; `LEAN_PROJECT_PATH` unknown (stack.env unreadable from the sandbox) |
 | magg, huetension, serial-mcp, venvs | as in "Supply chain" | install.sh step 2 | as there | — |
 
 Corrections to the commands as first written (applied): Homebrew runs interactively, not with
@@ -629,7 +697,9 @@ keg-only `openjdk` needs a `sudo ln -sfn` that install.sh never runs.
 one skipped, a failure never stopping the rest: `brew update && brew upgrade` (every formula and
 cask), `rustup update`, `juliaup update`, `ghcup upgrade` (ghcup itself; GHC/cabal/HLS versions stay
 yours: `ghcup tui`), `uv self update` (only for uv not installed by Homebrew) and `uv tool upgrade
---all` (pre-commit, magg: within the constraints they were installed with), `cs update`; node is
+--all` (pre-commit, magg: within the constraints they were installed with), `cs update`, `elan self
+update` (only for elan not installed by Homebrew) and `elan update` (the channels you installed; a
+project's `lean-toolchain` and Mathlib move only with `lake update` there); node is
 manual (it prints the version and the `nvm install 24 --reinstall-packages-from=current` command).
 The pinned tools (Gradle, Playwright's browsers, hlint/ormolu, the venvs) move when a newer
 `install.sh` pins newer versions. From an agent's sandboxed Bash every step fails on the sandbox's
@@ -725,6 +795,10 @@ and `COREPACK_HOME=~/.cache/node/corepack` on the command.
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-03 (open-file limit before step 2; Lean group)
+- `install.sh`, before step 2 installs anything: the open-file limit step (§7 "Open-file limit"). On a terminal it offers `/Library/LaunchDaemons/ulimit.max-files.plist` (launchd soft 65536, hard 524288; fixed template, `plutil -lint`), asks `[y/N]`, and only after y runs `sudo install -m 644 -o root -g wheel`, checks `root:wheel 644` with `stat`, `sudo launchctl bootout` (when loaded) and `bootstrap system`, and prints `launchctl limit maxfiles`; otherwise it prints the commands. Knob `STACK_INSTALL_MAXFILES=ask|0|1`. Then the run raises its own soft limit (`ulimit -Sn 65536`, else the highest accepted) for every tool it starts.
+- `lib/devtools.sh`: group `STACK_INSTALL_LEAN` (on): elan from its official script (`-y --default-toolchain stable`, `--no-modify-path` under `--no-profile`), then the Mathlib project (`~/lean/stack_mathlib` by `lake +stable new … math`, `lake exe cache get`, `lake build`; a `LEAN_PROJECT_PATH` project is used as it is), the project only on a terminal or with `STACK_INSTALL_LEAN_MATHLIB=1`. Skipped while the open-file limit is below 65536. `stack-update-tools` adds `elan self update` and `elan update`. Tests: `tests/test_install_devtools.py` (shimmed sudo, launchctl, plutil, stat, sysctl and `ulimit`; a scratch-repo install run checks that the step precedes every install call).
 
 ### 2026-10-03 (installer sets up prerequisites and toolchains)
 - `lib/devtools.sh all`, called from step 2: Homebrew, one brew batch per type (formulae, casks) for every missing item of the enabled groups, the upstream managers (uv + Python 3.14 pin, nvm + node 24 + pnpm, rustup, ghcup + hlint/ormolu, juliaup, coursier), the required check (uv, node), then pre-commit, Gradle 9.8.0, Playwright 1.63.0's Chromium and `git lfs install`. Group knobs `STACK_INSTALL_{DEPS,DEVTOOLS,UV,NODE,RUST,HASKELL,JULIA,SCALA,JAVA,LATEX,CXX,GO}` (on) and `STACK_INSTALL_{POSTGRES,MONGODB}` (off). New `bin/stack-update-tools`. Pins, routes and the dependency table: §7 "Prerequisites and toolchains". `lib/devtools.sh` joins the change-review diff (`SUPPLY_PATHS`); uv, node and the media tools moved there from install.sh. Tests: `tests/test_install_devtools.py`.

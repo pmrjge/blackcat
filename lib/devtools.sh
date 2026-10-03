@@ -10,19 +10,26 @@
 #                          ask for a password); each name checked with `brew info` first (an
 #                          unresolved one is reported and left out); a failed batch is retried name by name
 #     3. upstream managers uv (+ Python 3.14 global pin), nvm (+ node 24, pnpm via corepack), rustup,
-#                          ghcup (+ hlint, ormolu), juliaup, coursier: each through its official
+#                          ghcup (+ hlint, ormolu), juliaup, coursier, elan: each through its official
 #                          installer (HTTPS only, into a temp file, URL and sha256 logged, then run)
 #     4. required check    uv, node + npx: still missing -> one message listing them, exit 3
-#     5. the rest          pre-commit, Gradle, Playwright's browsers, `git lfs install`
+#     5. the rest          the Mathlib project (~/lean/stack_mathlib unless LEAN_PROJECT_PATH names
+#                          one), pre-commit, Gradle, Playwright's browsers, `git lfs install`
 #
 # Groups (environment; =0 skips one, =1 turns on an off-by-default one):
 #   STACK_INSTALL_DEPS      1  Homebrew itself; jq rg gh ffmpeg imagemagick librsvg poppler; the uv
 #                              tarball and jq/gitleaks binary fallbacks
 #   STACK_INSTALL_DEVTOOLS  1  gitleaks, pre-commit, Gradle, Playwright's Chromium
 #   STACK_INSTALL_UV NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO  1 each
+#   STACK_INSTALL_LEAN      1  elan (stable toolchain) and the Mathlib project; skipped while the
+#                              open-file limit (ulimit -Sn, raised by install.sh first) is below 65536
+#   STACK_INSTALL_LEAN_MATHLIB  auto: the Mathlib project (about 8 GB) only on a terminal; 1 also
+#                              without one; 0 never (the commands are printed)
 #   STACK_INSTALL_POSTGRES MONGODB                                     0 each
 # DEVTOOLS_MODE: install (default) | dry-run (print what a real run would do, run nothing) |
 # report (--no-deps: list what is missing, install nothing, never fail).
+# DEVTOOLS_LEAN_PROJECT: install.sh's LEAN_PROJECT_PATH (stack.env, else the environment); a project
+# there is used as it is. DEVTOOLS_NOFILE (tests): the open-file limit instead of `ulimit -Sn`.
 # DEVTOOLS_NO_PROFILE=1 (install.sh --no-profile): installers are told not to edit shell profiles
 # where they have a switch for it. Every tool is checked first (command -v, its manager's own state,
 # brew list); a present one is never touched. One line per tool: "ok", "+" installed, "!" missing
@@ -36,7 +43,7 @@ NO_PROFILE="${DEVTOOLS_NO_PROFILE:-0}"
 if [ -n "${DEVTOOLS_TTY:-}" ]; then TTY="$DEVTOOLS_TTY"; elif [ -t 0 ]; then TTY=1; else TTY=0; fi
 export HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1
 
-GROUPS_ALL="DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO POSTGRES MONGODB"
+GROUPS_ALL="DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO LEAN POSTGRES MONGODB"
 on(){ # on GROUP: its switch; POSTGRES and MONGODB default off
   local v d=1
   case "$1" in POSTGRES|MONGODB) d=0 ;; esac
@@ -95,6 +102,10 @@ URL_GHCUP="https://get-ghcup.haskell.org"
 URL_JULIAUP="https://install.julialang.org"
 case "$(uname -m)" in arm64|aarch64) CS_ARCH=aarch64 ;; *) CS_ARCH=x86_64 ;; esac
 URL_COURSIER="https://github.com/coursier/coursier/releases/latest/download/cs-$CS_ARCH-apple-darwin.gz"
+URL_ELAN="https://elan.lean-lang.org/elan-init.sh"   # flags from its usage text: -y, --default-toolchain, --no-modify-path
+LEAN_NOFILE_MIN=65536               # open files elan and lake need
+LEAN_DEFAULT_PROJECT="$HOME/lean/stack_mathlib"
+LEAN_USER_PROJECT="${DEVTOOLS_LEAN_PROJECT:-${LEAN_PROJECT_PATH:-}}"
 
 LOCAL_BIN="$HOME/.local/bin"
 LOCAL_OPT="$HOME/.local/opt"
@@ -435,6 +446,33 @@ inst_cs(){
   rc=$?; rm -rf "$d"; return $rc
 }
 
+chk_elan(){ have elan || have lake || [ -x "$HOME/.elan/bin/elan" ]; }
+inst_elan(){
+  if [ "$NO_PROFILE" = 1 ]; then remote_installer "$URL_ELAN" sh -y --default-toolchain stable --no-modify-path
+  else remote_installer "$URL_ELAN" sh -y --default-toolchain stable; fi
+}
+# the open-file limit this process got from install.sh (resource limits are inherited)
+nofile(){ if [ -n "${DEVTOOLS_NOFILE:-}" ]; then printf '%s' "$DEVTOOLS_NOFILE"; else ulimit -Sn; fi; }
+LEAN_LIMIT_SAID=0; LEAN_LIMIT_OK=1
+# below 65536 a real run skips the Lean group (said once); dry-run and report only note it
+lean_limit_ok(){
+  local n; n="$(nofile)"
+  case "$n" in unlimited) return 0 ;; ''|*[!0-9]*) n=0 ;; esac
+  [ "$n" -lt "$LEAN_NOFILE_MIN" ] || return 0
+  if [ "$LEAN_LIMIT_SAID" = 0 ]; then
+    LEAN_LIMIT_SAID=1
+    if [ "$MODE" = install ]; then
+      LEAN_LIMIT_OK=0
+      line "! lean skipped: the open-file limit is $n (< $LEAN_NOFILE_MIN, which elan and lake need). Raise it, then rerun ./install.sh:"
+      line "    its open-file limit step (first, on a terminal) installs /Library/LaunchDaemons/ulimit.max-files.plist and prints every command;"
+      line "    for one shell only: sudo launchctl limit maxfiles 65536 524288; ulimit -Sn 65536"
+    else
+      line "  (lean: the open-file limit here is $n; a real run raises it first and skips Lean if it stays below $LEAN_NOFILE_MIN)"
+    fi
+  fi
+  [ "$LEAN_LIMIT_OK" = 1 ]
+}
+
 upstream_step(){
   local nb
   if on UV; then
@@ -464,6 +502,10 @@ upstream_step(){
   fi
   if on SCALA; then
     ensure coursier 0 chk_cs "cs from $URL_COURSIER (latest), then cs setup -y" inst_cs
+  fi
+  if on LEAN && lean_limit_ok; then
+    ensure elan 0 chk_elan "elan installer ($URL_ELAN, latest) -y --default-toolchain stable$([ "$NO_PROFILE" = 1 ] && echo ' --no-modify-path')" inst_elan
+    path_add "$HOME/.elan/bin"
   fi
   return 0
 }
@@ -547,7 +589,56 @@ inst_playwright(){
 chk_lfs(){ [ -n "$(git config --global --get filter.lfs.process 2>/dev/null)" ]; }
 inst_lfs(){ git lfs install; }
 
+# The Mathlib project, by the repo's convention (lib/stack.env.example, the lean-formalization skill):
+# `lake +stable new <name> math` (its lakefile requires Mathlib at the tag of its lean-toolchain), then
+# `lake exe cache get` (the prebuilt cache) and `lake build` (cheap once the cache is there). A
+# project LEAN_PROJECT_PATH names is used as it is, never touched.
+chk_mathlib(){ local p="$LEAN_DEFAULT_PROJECT"; { [ -f "$p/lakefile.toml" ] || [ -f "$p/lakefile.lean" ]; } && [ -d "$p/.lake/build" ]; }
+inst_mathlib(){
+  local p="$LEAN_DEFAULT_PROJECT" tc rev
+  have lake || { echo "lake is missing (elan installs it)"; return 1; }
+  if [ ! -f "$p/lakefile.toml" ] && [ ! -f "$p/lakefile.lean" ]; then
+    [ ! -e "$p" ] || { echo "$p exists and is not a Lake project: left alone"; return 1; }
+    mkdir -p "$(dirname "$p")" && (cd "$(dirname "$p")" && lake +stable new "$(basename "$p")" math) || return 1
+  fi
+  tc="$(sed -n 's|^leanprover/lean4:\(v[0-9][^[:space:]]*\)$|\1|p' "$p/lean-toolchain" 2>/dev/null | head -n 1)"
+  rev="$(sed -n 's/^rev = "\(.*\)"$/\1/p' "$p/lakefile.toml" 2>/dev/null | head -n 1)"
+  echo "lean-toolchain: ${tc:-?}; Mathlib rev: ${rev:-?}"
+  if [ -z "$tc" ] || [ "$rev" != "$tc" ]; then
+    echo "Mathlib is not pinned to the lean-toolchain's tag: set rev = \"$tc\" in $p/lakefile.toml, then lake update mathlib"
+    return 1
+  fi
+  # a failed cache download must not start a build of all of Mathlib (hours)
+  (cd "$p" && lake exe cache get) || return 1
+  (cd "$p" && lake build)
+}
+mathlib_step(){
+  local p="$LEAN_USER_PROJECT" route m="${STACK_INSTALL_LEAN_MATHLIB:-auto}"
+  if [ -n "$p" ]; then
+    if [ -f "$p/lakefile.toml" ] || [ -f "$p/lakefile.lean" ]; then line "ok  mathlib project (LEAN_PROJECT_PATH=$p)"
+    else line "! LEAN_PROJECT_PATH=$p has no lakefile: make the project there (lake +stable new <name> math; lake exe cache get) or point it at one"; fi
+    return 0
+  fi
+  p="$LEAN_DEFAULT_PROJECT"
+  route="cd $(dirname "$p") && lake +stable new $(basename "$p") math; cd $p && lake exe cache get && lake build  (about 8 GB: Mathlib's checkout and prebuilt cache)"
+  if [ "$MODE" = install ] && ! chk_mathlib; then
+    if [ "$m" = 0 ]; then line "! mathlib project not made (STACK_INSTALL_LEAN_MATHLIB=0) — $route"; return 0; fi
+    if [ "$m" != 1 ] && [ "$TTY" != 1 ]; then
+      line "! mathlib project not made (no terminal; STACK_INSTALL_LEAN_MATHLIB=1 makes it anyway) — $route"; return 0
+    fi
+    line "  Mathlib: a large download (about 8 GB on disk, 10-30 minutes); STACK_INSTALL_LEAN_MATHLIB=0 skips it"
+  fi
+  ensure "mathlib project" 0 chk_mathlib "$route" inst_mathlib
+  if [ "$MODE" = install ] && chk_mathlib; then
+    line "  set LEAN_PROJECT_PATH=$p in your stack.env (proof-checker's lean server reads it)"
+  fi
+  return 0
+}
+
 rest_step(){
+  if on LEAN && lean_limit_ok; then
+    mathlib_step
+  fi
   if on DEVTOOLS; then
     if [ -z "$BREW" ] && on DEPS; then
       ensure gitleaks 0 chk_gitleaks "gitleaks $GITLEAKS_VERSION release tarball (sha256 checked) into ~/.local/bin" inst_gitleaks_tarball

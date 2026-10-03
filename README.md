@@ -678,7 +678,8 @@ places:
 | Google Chrome | — | — | optional (the playwright MCP drives it; `doctor.sh` warns) | `doctor.sh` |
 | pnpm | — | `corepack enable pnpm` on nvm's node 24 | optional (node-engineer's projects) | `lib/devtools.sh` |
 | Python 3.14 as uv's default | — | `uv python install 3.14 && uv python pin --global 3.14` | optional (`STACK_INSTALL_UV`) | `lib/devtools.sh` |
-| Toolchains: rustup, ghcup (+ hlint, ormolu), juliaup, coursier, JDK, Gradle, MacTeX, cmake/ninja, go/gopls, gitleaks, pre-commit, Playwright's Chromium | see [CONFIG.md](CONFIG.md) §7 | installed by step 2 when missing, one group knob each ([Installer and session environment](#installer-and-session-environment)) | optional | `lib/devtools.sh` |
+| Open-file limit 65536 (elan/Lean need it; macOS starts programs with 256) | `/Library/LaunchDaemons/ulimit.max-files.plist`: launchd soft 65536, hard 524288 | offered before step 2 on a terminal: shows the plist and the steps, asks [y/N], runs sudo only after y (`STACK_INSTALL_MAXFILES`); the run then raises its own limit | optional (without it the Lean group is skipped) | `install.sh`, [CONFIG.md](CONFIG.md) §7 "Open-file limit" |
+| Toolchains: rustup, ghcup (+ hlint, ormolu), juliaup, coursier, elan + a Mathlib project, JDK, Gradle, MacTeX, cmake/ninja, go/gopls, gitleaks, pre-commit, Playwright's Chromium | see [CONFIG.md](CONFIG.md) §7 | installed by step 2 when missing, one group knob each ([Installer and session environment](#installer-and-session-environment)) | optional | `lib/devtools.sh` |
 
 `./install.sh` installs what is missing (step 2). To see what it would install first:
 `./install.sh --dry-run` (the brew batches, the upstream installers and the pinned downloads, one line
@@ -806,7 +807,7 @@ The full list, with sources and the optional toolchains, is in [Requirements (ma
 | Node.js ≥ 22.5 with `npx` | context-mode, the npx MCP servers, the TypeScript language server | installed if missing (nvm, node 24); older warns |
 | pnpm (`corepack enable pnpm` on nvm's node 24) | node-engineer's projects | installed by step 2 (`STACK_INSTALL_NODE`) |
 | jq | Cheap JSON filtering in agents' Bash (global rules) and in tests | brew batch when missing |
-| elan ([leanprover/elan](https://github.com/leanprover/elan)), then a built Mathlib project for `LEAN_PROJECT_PATH` | Lean: `lean-lsp@agent-stack` (`lake serve`) and proof-checker's lean server | your step; the plugin is enabled only when `lake` exists |
+| elan ([leanprover/elan](https://github.com/leanprover/elan)), then a built Mathlib project for `LEAN_PROJECT_PATH` | Lean: `lean-lsp@agent-stack` (`lake serve`) and proof-checker's lean server | installed by step 2 (`STACK_INSTALL_LEAN`; the project, about 8 GB, at `~/lean/stack_mathlib` only on a terminal or with `STACK_INSTALL_LEAN_MATHLIB=1`; your own `LEAN_PROJECT_PATH` project is used as it is); you set `LEAN_PROJECT_PATH` in `stack.env`; the plugin is enabled only when `lake` exists |
 | Homebrew | One batch for every missing formula, one for every missing cask | installed when missing (on a terminal) |
 | magg 1.2.1, huetension 0.3.0 | mcp-broker's catalog; designer's colour server | installed (pinned, checksummed) |
 | ffmpeg, ImageMagick, librsvg, poppler | Media and PDF work | brew batch, else warned |
@@ -846,9 +847,14 @@ steps, as the run prints them:
    (`STACK_PYTHON`). Before it, the run prints the install target and asks about a non-default one
    ([Choose the config folder](#choose-the-config-folder)). If the stack changed since the last install, its diff is listed and, on a terminal,
    you are asked before anything changes (`--yes` skips the question; without a terminal it stops).
+   Then, before anything is installed, the **open-file limit**: on a terminal the run shows the
+   `/Library/LaunchDaemons/ulimit.max-files.plist` LaunchDaemon (launchd soft 65536, hard 524288), its
+   steps and how to remove it, and asks [y/N]; only y runs sudo (`install`, `launchctl bootstrap`).
+   Otherwise it prints the commands (`STACK_INSTALL_MAXFILES=0|1`). The run then raises its own soft
+   limit to 65536 for every tool it starts ([CONFIG.md](CONFIG.md) §7 "Open-file limit").
 2. **Tools**: prerequisites and toolchains (`lib/devtools.sh`: Homebrew, one brew batch for the
    missing formulae and one for the missing casks, the upstream managers uv, nvm, rustup, ghcup,
-   juliaup and coursier, then gitleaks, pre-commit, Gradle and Playwright's Chromium; one line per
+   juliaup, coursier and elan, then the Mathlib project, gitleaks, pre-commit, Gradle and Playwright's Chromium; one line per
    tool, a present one never touched, `STACK_INSTALL_<GROUP>=0` skips a group), magg, huetension, the hash-locked science venv
    (`~/.claude/venvs/sci`) and tools venv (`~/.claude/venvs/tools`: what the stack's scripts, MCP
    servers and tests import; `requirements/tools.in`); serial-mcp (`cargo install --locked` at the catalog's pin) when cargo
@@ -1198,6 +1204,9 @@ Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort.
 | `STACK_INSTALL_DEPS`, `STACK_INSTALL_DEVTOOLS` | 1 | Step 2 groups: Homebrew + jq/rg/gh/media tools (and the no-Homebrew fallbacks); gitleaks, pre-commit, Gradle, Playwright's Chromium. `=0` skips the group; `--no-deps` skips every install |
 | `STACK_INSTALL_UV`, `STACK_INSTALL_NODE`, `STACK_INSTALL_RUST`, `STACK_INSTALL_HASKELL`, `STACK_INSTALL_JULIA`, `STACK_INSTALL_SCALA`, `STACK_INSTALL_JAVA`, `STACK_INSTALL_LATEX`, `STACK_INSTALL_CXX`, `STACK_INSTALL_GO` | 1 | One toolchain group each (uv + Python 3.14 pin; nvm + node 24 + pnpm; rustup; ghcup + hlint + ormolu; juliaup; coursier; JDK ≥ 27 + kotlin-lsp; MacTeX; cmake, ninja, typst, shellcheck, …; go + gopls). `=0` skips it ([CONFIG.md](CONFIG.md) §7) |
 | `STACK_INSTALL_POSTGRES`, `STACK_INSTALL_MONGODB` | 0 | `=1` adds postgresql@18 / mongodb-community (Homebrew) |
+| `STACK_INSTALL_LEAN` | 1 | Step 2 group: elan (stable) and the Mathlib project (`~/lean/stack_mathlib`, unless `LEAN_PROJECT_PATH` names one); skipped while the open-file limit is below 65536 |
+| `STACK_INSTALL_LEAN_MATHLIB` | auto | The Mathlib project (about 8 GB): only on a terminal; `=1` also without one, `=0` never (the commands are printed) |
+| `STACK_INSTALL_MAXFILES` | ask | Before step 2: the `ulimit.max-files` LaunchDaemon (open-file limit 65536). `ask` asks on a terminal (default No); `=0` never, prints the commands; `=1` no question (still only on a terminal, never with `--dry-run`) ([CONFIG.md](CONFIG.md) §7) |
 | `UV_CACHE_DIR`, `npm_config_cache` | `$XDG_STATE_HOME/claude-agent-stack-cache/{uv,npm}` | Set by the installer in each local MCP server's `env` (the cache dir is an installer-internal `STACK_CACHE`, not a setting) |
 | `CLAUDE_ENV_FILE` | set by Claude Code | The SessionStart hook appends the sandbox cache exports (`UV_CACHE_DIR`, `npm_config_cache`, `CARGO_HOME`, …, all under `~/.cache/claude-sandbox`) and an empty git credential helper |
 

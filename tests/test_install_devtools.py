@@ -15,11 +15,14 @@ import gzip
 import io
 import os
 import re
+import shutil
 import stat
 import subprocess
 import tarfile
 import zipfile
 from pathlib import Path
+
+import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "lib" / "devtools.sh"
@@ -542,3 +545,442 @@ def test_install_sh_wires_modes_and_stops_on_required():
     assert not re.search(r"curl[^\n|]*\|\s*(ba|z)?sh\b", code)
     for m in re.finditer(r"\bcurl --[^\n]*", code):
         assert "--proto '=https' --tlsv1.2" in m.group(0), m.group(0)
+
+
+# ---------------------------------------------------------------- Lean group (elan, Mathlib)
+LEAN_TOOLCHAIN = "leanprover/lean4:v4.34.1"
+# a fake elan proxy: `lake +stable new NAME math` writes the math template's two files, `lake exe
+# cache get` and `lake build` fill .lake (LAKE_FAIL=cache makes the cache download fail)
+LAKE_SHIM = r'''
+case "$*" in
+  "+stable new "*" math")
+    mkdir -p "$3"; printf '%s\n' "$LAKE_TOOLCHAIN" >"$3/lean-toolchain"
+    printf 'name = "%s"\n\n[[require]]\nname = "mathlib"\nscope = "leanprover-community"\nrev = "%s"\n' "$3" "$LAKE_REV" >"$3/lakefile.toml" ;;
+  "exe cache get") [ "${LAKE_FAIL:-}" = cache ] && exit 1; mkdir -p .lake/packages/mathlib ;;
+  build) mkdir -p .lake/build ;;
+esac
+exit 0
+'''
+
+
+def lean_env(tmp_path):
+    e = Env(tmp_path)
+    e.present("uv", "node", "npx")
+    return e
+
+
+def test_elan_from_the_official_script_with_its_noninteractive_flags(tmp_path):
+    e = lean_env(tmp_path)
+    installer(e, "ELAN", [".elan/bin/elan"])
+    rc, out, err = e.run("LEAN", DEVTOOLS_NOFILE="65536", LEAN_PROJECT_PATH=str(tmp_path / "nolake"))
+    assert rc == 0, err
+    assert url("ELAN") == "https://elan.lean-lang.org/elan-init.sh"
+    assert inst_line(e, "ELAN")[0].split(" | ")[0] == "installer-ELAN -y --default-toolchain stable"
+    curl = e.argv("curl")
+    assert curl[0].startswith("--proto =https --tlsv1.2 ") and curl[0].endswith(url("ELAN"))
+    assert re.search(r"^  \+ elan \(", out, re.M), out
+
+
+def test_elan_no_profile_and_a_present_elan_is_never_rerun(tmp_path):
+    e = lean_env(tmp_path)
+    installer(e, "ELAN", [".elan/bin/elan"])
+    e.run("LEAN", DEVTOOLS_NOFILE="65536", DEVTOOLS_NO_PROFILE="1", LEAN_PROJECT_PATH=str(tmp_path / "nolake"))
+    assert inst_line(e, "ELAN")[0].split(" | ")[0] == "installer-ELAN -y --default-toolchain stable --no-modify-path"
+    e.log.write_text("")
+    rc, out, _ = e.run("LEAN", DEVTOOLS_NOFILE="65536", LEAN_PROJECT_PATH=str(tmp_path / "nolake"))
+    assert rc == 0 and e.calls("curl") == []                   # elan in ~/.elan/bin, not on PATH
+    assert "ok  elan" in out
+
+
+def test_lean_is_skipped_while_the_open_file_limit_is_low(tmp_path):
+    e = lean_env(tmp_path)
+    installer(e, "ELAN", [".elan/bin/elan"])
+    rc, out, _ = e.run("LEAN", "RUST", DEVTOOLS_NOFILE="10240")
+    assert rc == 0
+    assert inst_line(e, "ELAN") == [] and not [c for c in e.argv("curl") if "elan" in c]
+    assert out.count("! lean skipped: the open-file limit is 10240") == 1, out
+    assert "sudo launchctl limit maxfiles 65536 524288; ulimit -Sn 65536" in out
+    assert "/Library/LaunchDaemons/ulimit.max-files.plist" in out
+    assert [c for c in e.argv("curl") if "rustup" in c]           # the other groups go on
+    rc, out, _ = e.run("LEAN", mode="dry-run", DEVTOOLS_NOFILE="256")
+    assert "would: elan ← elan installer" in out and "lean skipped" not in out
+
+
+def test_mathlib_project_by_the_convention_on_a_terminal(tmp_path):
+    e = lean_env(tmp_path)
+    e.shim("elan")
+    e.shim("lake", LAKE_SHIM)
+    rc, out, err = e.run("LEAN", tty="1", DEVTOOLS_NOFILE="unlimited", LAKE_TOOLCHAIN=LEAN_TOOLCHAIN, LAKE_REV="v4.34.1")
+    assert rc == 0, err
+    proj = e.home / "lean" / "stack_mathlib"
+    assert e.argv("lake") == ["+stable new stack_mathlib math", "exe cache get", "build"]
+    assert (proj / ".lake" / "build").is_dir()
+    assert "about 8 GB" in out and re.search(r"^  \+ mathlib project \(", out, re.M), out
+    assert "set LEAN_PROJECT_PATH=%s in your stack.env" % proj in out
+    e.log.write_text("")
+    rc, out, _ = e.run("LEAN", tty="1", DEVTOOLS_NOFILE="65536")
+    assert e.calls("lake") == [] and "ok  mathlib project" in out          # present: untouched
+
+
+def test_mathlib_needs_a_terminal_or_the_knob_and_never_touches_a_named_project(tmp_path):
+    e = lean_env(tmp_path)
+    e.shim("elan")
+    e.shim("lake", LAKE_SHIM)
+    rc, out, _ = e.run("LEAN", tty="0", DEVTOOLS_NOFILE="65536")
+    assert e.calls("lake") == []
+    assert re.search(r"! mathlib project not made \(no terminal; STACK_INSTALL_LEAN_MATHLIB=1 .*lake \+stable new stack_mathlib math", out), out
+    rc, out, _ = e.run("LEAN", tty="1", DEVTOOLS_NOFILE="65536", STACK_INSTALL_LEAN_MATHLIB="0")
+    assert e.calls("lake") == [] and "STACK_INSTALL_LEAN_MATHLIB=0" in out
+    rc, out, _ = e.run("LEAN", tty="0", DEVTOOLS_NOFILE="65536", STACK_INSTALL_LEAN_MATHLIB="1",
+                       LAKE_TOOLCHAIN=LEAN_TOOLCHAIN, LAKE_REV="v4.34.1")
+    assert e.argv("lake")[0] == "+stable new stack_mathlib math"
+    e.log.write_text("")
+    mine = tmp_path / "mine"
+    mine.mkdir()
+    (mine / "lakefile.lean").write_text("")
+    rc, out, _ = e.run("LEAN", tty="1", DEVTOOLS_NOFILE="65536", DEVTOOLS_LEAN_PROJECT=str(mine))
+    assert e.calls("lake") == [] and "ok  mathlib project (LEAN_PROJECT_PATH=%s)" % mine in out
+
+
+def test_mathlib_pin_mismatch_or_a_failed_cache_never_builds(tmp_path):
+    e = lean_env(tmp_path)
+    e.shim("elan")
+    e.shim("lake", LAKE_SHIM)
+    rc, out, _ = e.run("LEAN", tty="1", DEVTOOLS_NOFILE="65536", LAKE_TOOLCHAIN=LEAN_TOOLCHAIN, LAKE_REV="master")
+    assert e.argv("lake") == ["+stable new stack_mathlib math"]
+    assert re.search(r"^  ! mathlib project: install failed \(log \S+\)", out, re.M), out
+    e.log.write_text("")
+    shutil.rmtree(e.home / "lean")
+    e.run("LEAN", tty="1", DEVTOOLS_NOFILE="65536", LAKE_TOOLCHAIN=LEAN_TOOLCHAIN, LAKE_REV="v4.34.1", LAKE_FAIL="cache")
+    assert e.argv("lake") == ["+stable new stack_mathlib math", "exe cache get"]
+
+
+def test_update_tools_updates_elan(tmp_path):
+    e = Env(tmp_path)
+    e.shim("elan")
+    rc, out, _ = e.run(script=UPDATE, args=("--dry-run",))
+    assert "would: elan self update: elan self update" in out and "would: elan update: elan update" in out
+    rc, out, _ = e.run(script=UPDATE, args=())
+    assert e.argv("elan") == ["self update", "update"]
+    assert "ok  elan update" in out
+
+
+# ---------------------------------------------------------------- open-file limit (install.sh)
+INSTALL_TEXT = (ROOT / "install.sh").read_text()
+MF_BEGIN = "# ==== open-file limit (maxfiles): BEGIN"
+MF_BLOCK = re.search(r"^# ==== open-file limit \(maxfiles\): BEGIN.*?^# ==== open-file limit \(maxfiles\): END[^\n]*\n",
+                     INSTALL_TEXT, re.M | re.S).group(0)
+PLIST_SNAPSHOT = """<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ulimit.max-files</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/launchctl</string>
+    <string>limit</string>
+    <string>maxfiles</string>
+    <string>65536</string>
+    <string>524288</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+"""
+# launchctl: `limit maxfiles` prints the soft value in $LCTL_SOFT (bootstrap raises it to 65536);
+# `print system/...` succeeds while $LCTL_LOADED exists
+LAUNCHCTL_SHIM = r'''
+case "$1" in
+  limit) printf '\tmaxfiles    %s            unlimited      \n' "$(cat "$LCTL_SOFT")" ;;
+  print) [ -e "$LCTL_LOADED" ] || exit 113 ;;
+  bootstrap) echo 65536 >"$LCTL_SOFT"; : >"$LCTL_LOADED" ;;
+  bootout) rm -f "$LCTL_LOADED" ;;
+esac
+exit 0
+'''
+# sudo: logs, never runs anything as root; `install` copies the file (as you, into the test's dir),
+# launchctl goes to the shim
+SUDO_SHIM = r'''
+case "$1" in
+  install) eval "src=\${$(($# - 1))}"; eval "dst=\${$#}"; [ -z "${SUDO_NO_COPY:-}" ] && cp "$src" "$dst" ;;
+  launchctl) shift; launchctl "$@" ;;
+esac
+exit 0
+'''
+# ulimit is a builtin: an exported function replaces it (bash imports BASH_FUNC_<name>%%)
+ULIMIT_FN = ('() { case "$1" in -Hn) echo unlimited ;; -Sn|-n) if [ $# -lt 2 ]; then cat "$ULIMIT_STATE"; '
+             'elif [ "$2" -le "$ULIMIT_MAX" ]; then echo "$2" >"$ULIMIT_STATE"; echo "ulimit $* | " >>"$SHIM_LOG"; '
+             'else echo "ulimit-refused $* | " >>"$SHIM_LOG"; return 1; fi ;; esac; }')
+
+
+def mf_shims(e, tmp_path, soft):
+    st = {"LCTL_SOFT": tmp_path / "lctl.soft", "LCTL_LOADED": tmp_path / "lctl.loaded", "ULIMIT_STATE": tmp_path / "ulimit.state"}
+    st["LCTL_SOFT"].write_text(soft + "\n")
+    st["ULIMIT_STATE"].write_text("256\n")
+    e.shim("launchctl", LAUNCHCTL_SHIM)
+    e.shim("sudo", SUDO_SHIM)
+    e.shim("plutil")
+    e.shim("stat", 'echo "root:wheel 644"')
+    e.shim("sysctl", "echo 245760")
+    return {k: str(v) for k, v in st.items()}
+
+
+class MF:
+    def __init__(self, tmp_path, soft="256", ulimit_max=1048576):
+        self.e = Env(tmp_path)
+        self.dir = tmp_path / "LaunchDaemons"
+        self.dir.mkdir()
+        self.plist = self.dir / "ulimit.max-files.plist"
+        self.loaded = tmp_path / "lctl.loaded"
+        self.state = mf_shims(self.e, tmp_path, soft)
+        self.ulimit_max = ulimit_max
+        block = MF_BLOCK.replace("MF_DIR=/Library/LaunchDaemons", "MF_DIR=%s" % self.dir)
+        assert block != MF_BLOCK
+        self.script = tmp_path / "mf.sh"
+        self.script.write_text(
+            "set -euo pipefail\nDRY_RUN=${T_DRY:-0}; NO_DEPS=${T_NO_DEPS:-0}; NO_PROMPT=0; ASSUME_YES=${T_YES:-0}\n"
+            "note(){ printf '  %s\\n' \"$*\"; }\nsay(){ printf '\\n%s\\n' \"$*\"; }\n"
+            "have(){ command -v \"$1\" >/dev/null 2>&1; }\n" + block +
+            "maxfiles_step\nmf_raise_ulimit\necho \"NOFILE=$MF_NOFILE\"\n")
+
+    def run(self, tty="1", stdin="", **extra):
+        env = {"HOME": str(self.e.home), "PATH": "%s:/usr/bin:/bin" % self.e.bin, "SHIM_LOG": str(self.e.log),
+               "TMPDIR": str(self.e.tmp), "ULIMIT_MAX": str(self.ulimit_max), "DEVTOOLS_TTY": tty,
+               "BASH_FUNC_ulimit%%": ULIMIT_FN}
+        env.update(self.state)
+        env.update(extra)
+        p = subprocess.run(["bash", str(self.script)], env=env, input=stdin, capture_output=True, text=True, timeout=60)
+        assert p.returncode == 0, p.stdout + p.stderr
+        return p.stdout
+
+    def root_calls(self):
+        return root_calls(self.e)
+
+
+def root_calls(e):
+    return [c for c in e.calls() if c.split(" ", 1)[0] in ("sudo", "plutil", "stat")
+            or c.startswith(("launchctl bootstrap", "launchctl bootout"))]
+
+
+def test_plist_template_snapshot_and_lint(tmp_path):
+    out = subprocess.run(["bash", "-c", MF_BLOCK + "\nmf_plist"], capture_output=True, text=True).stdout
+    assert out == PLIST_SNAPSHOT
+    assert "<string>%s</string>" % re.search(r"^MF_SOFT=(\d+)$", INSTALL_TEXT, re.M).group(1) in out
+    assert re.search(r"^  cat <<'PLIST'$", MF_BLOCK, re.M)                 # quoted: nothing interpolated
+    assert re.search(r"^MF_PLIST=\"\$MF_DIR/\$MF_LABEL\.plist\"$", MF_BLOCK, re.M)
+    assert "MF_DIR=/Library/LaunchDaemons\nMF_LABEL=ulimit.max-files\n" in MF_BLOCK
+    if os.path.exists("/usr/bin/plutil"):
+        f = tmp_path / "p.plist"
+        f.write_text(out)
+        assert subprocess.run(["/usr/bin/plutil", "-lint", str(f)], capture_output=True).returncode == 0
+
+
+def test_maxfiles_without_a_terminal_is_printed_not_run(tmp_path):
+    m = MF(tmp_path)
+    out = m.run(tty="0", stdin="y\n")
+    assert m.root_calls() == [] and not m.plist.exists()
+    assert "not installed (no terminal)" in out and "[y/N]" not in out
+    assert "sudo install -m 644 -o root -g wheel ./ulimit.max-files.plist %s" % m.plist in out
+    assert "sudo launchctl bootstrap system %s" % m.plist in out
+    assert "remove: sudo launchctl bootout system %s; sudo rm %s" % (m.plist, m.plist) in out
+    assert "<string>524288</string>" in out
+    assert "NOFILE=65536" in out                                            # this run's own limit, raised anyway
+
+
+def test_maxfiles_answer_no_installs_nothing(tmp_path):
+    m = MF(tmp_path)
+    for answer in ("n\n", "\n", "", "yess\n"):
+        out = m.run(stdin=answer)
+        assert m.root_calls() == [] and not m.plist.exists()
+        assert "not installed (the answer was not y)" in out
+    assert "[y/N]" in out and "admin password" in out and "re-login or reboot" in out
+    assert out.index("Proposed:") < out.index("<string>ulimit.max-files</string>") < out.index("[y/N]")
+    assert "Remove it later: sudo launchctl bootout system %s; sudo rm %s" % (m.plist, m.plist) in out
+
+
+def test_maxfiles_yes_runs_exactly_the_three_steps_in_order(tmp_path):
+    m = MF(tmp_path)
+    out = m.run(stdin="y\n")
+    progs = [c.partition(" | ")[0] for c in m.root_calls()]
+    assert progs[0].startswith("plutil -lint %s/ulimit.max-files." % m.e.tmp)
+    assert re.fullmatch(r"sudo install -m 644 -o root -g wheel \S+/ulimit\.max-files\.\w+ %s" % re.escape(str(m.plist)), progs[1])
+    assert progs[2] == "stat -f %%Su:%%Sg %%Lp %s" % m.plist
+    assert progs[3:] == ["sudo launchctl bootstrap system %s" % m.plist, "launchctl bootstrap system %s" % m.plist]
+    assert m.plist.read_text() == PLIST_SNAPSHOT
+    assert "2. %s: root:wheel 644" % m.plist in out
+    assert "4. launchctl limit maxfiles: maxfiles 65536 unlimited" in out
+    assert not list(m.e.tmp.glob("ulimit.max-files.*"))                      # the temp file is gone
+
+
+def test_maxfiles_wrong_owner_stops_before_launchctl(tmp_path):
+    m = MF(tmp_path)
+    m.e.shim("stat", 'echo "pmrj:staff 644"')
+    out = m.run(stdin="y\n")
+    assert "! 2. expected owner root:wheel and mode 644" in out
+    assert not [c for c in m.e.calls("sudo") if "launchctl" in c]
+
+
+def test_maxfiles_loaded_service_is_booted_out_first(tmp_path):
+    m = MF(tmp_path)
+    m.loaded.write_text("")
+    m.run(stdin="y\n")
+    sudo = [c.partition(" | ")[0] for c in m.e.calls("sudo")]
+    assert sudo[1:] == ["sudo launchctl bootout system %s" % m.plist, "sudo launchctl bootstrap system %s" % m.plist]
+
+
+def test_maxfiles_already_satisfied_is_one_line(tmp_path):
+    m = MF(tmp_path, soft="65536")
+    m.plist.write_text(PLIST_SNAPSHOT)
+    out = m.run(stdin="")
+    assert m.root_calls() == []
+    assert [l for l in lines(out) if "open-file limit" in l] == ["  ok  open-file limit: launchd soft 65536 (%s in place)" % m.plist]
+
+
+def test_maxfiles_set_by_another_daemon_is_left_alone(tmp_path):
+    m = MF(tmp_path, soft="65536")
+    other = m.dir / "limit.maxfiles.plist"
+    other.write_text(PLIST_SNAPSHOT.replace("ulimit.max-files", "limit.maxfiles").replace("524288", "200000"))
+    out = m.run(stdin="y\n")
+    assert m.root_calls() == [] and "set by %s" % other in out and "[y/N]" not in out
+
+
+def test_maxfiles_different_plist_shows_a_diff_and_asks_again(tmp_path):
+    m = MF(tmp_path, soft="65536")
+    old = PLIST_SNAPSHOT.replace("524288", "200000")
+    m.plist.write_text(old)
+    out = m.run(stdin="y\nn\n")
+    assert m.root_calls() == [] and m.plist.read_text() == old
+    assert "-    <string>200000</string>" in out and "+    <string>524288</string>" in out
+    assert out.count("[y/N]") == 2
+    m.run(stdin="y\ny\n")
+    assert m.plist.read_text() == PLIST_SNAPSHOT
+
+
+def test_maxfiles_dry_run_prints_the_plist_and_commands(tmp_path):
+    m = MF(tmp_path)
+    out = m.run(stdin="y\n", T_DRY="1")
+    assert m.root_calls() == [] and "not installed (--dry-run)" in out and "[y/N]" not in out
+    assert "\n".join(l.strip() for l in PLIST_SNAPSHOT.splitlines()) in "\n".join(l.strip() for l in out.splitlines())
+    assert "sudo launchctl bootstrap system %s" % m.plist in out
+
+
+def test_maxfiles_knob_and_flags(tmp_path):
+    m = MF(tmp_path)
+    out = m.run(stdin="y\n", STACK_INSTALL_MAXFILES="0")
+    assert m.root_calls() == [] and "not installed (STACK_INSTALL_MAXFILES=0)" in out
+    m.run(tty="0", STACK_INSTALL_MAXFILES="1")
+    assert m.root_calls() == []                                              # =1 still needs a terminal
+    out = m.run(stdin="y\n", T_DRY="1", STACK_INSTALL_MAXFILES="1")
+    assert m.root_calls() == []                                              # and never in a dry run
+    out = m.run(stdin="y\n", T_NO_DEPS="1")
+    assert m.root_calls() == [] and "not installed (--no-deps)" in out
+    out = m.run(stdin="y\n", T_YES="1")
+    assert m.root_calls() == [] and "--yes/--no-prompt never ask" in out
+    out = m.run(stdin="", STACK_INSTALL_MAXFILES="1")                       # no question, installs
+    assert "[y/N]" not in out and m.plist.read_text() == PLIST_SNAPSHOT
+    assert [c for c in m.e.calls("sudo") if "bootstrap" in c]
+
+
+def test_ulimit_refused_falls_back_to_the_highest_accepted(tmp_path):
+    m = MF(tmp_path, ulimit_max=12000)
+    out = m.run(tty="0")
+    assert "NOFILE=10240" in out
+    assert m.e.calls("ulimit-refused")[0].startswith("ulimit-refused -Sn 65536")
+    assert "! below 65536: elan/Lean may fail, so step 2 skips the Lean group" in out
+    assert "kern.maxfilesperproc 245760" in out
+
+
+def test_install_sh_runs_the_maxfiles_step_before_anything_is_installed():
+    t = INSTALL_TEXT
+    begin, call = t.index(MF_BEGIN), t.index("\nmaxfiles_step\nmf_raise_ulimit\n")
+    assert t.index("# ==== open-file limit (maxfiles): END") < call < t.index('say "2/11') < t.index('lib/devtools.sh" all')
+    assert t.index('q="The stack changed since the last install') < begin   # after the change-review question
+    for needle in ("venv_sync ", "fetch_verified ", "uv tool install", "npm_g ", "cargo install", "brew install", "serial_mcp_step"):
+        for mt in re.finditer(re.escape(needle), t):
+            ls = t.rfind("\n", 0, mt.start()) + 1
+            if t[ls:mt.start()].lstrip().startswith("#") or begin < mt.start() < call:
+                continue
+            assert mt.start() > call, (needle, t[ls:mt.start() + 40])
+    # sudo is called only inside the block, and there only for install and launchctl
+    def code(s):
+        return "\n".join(re.sub(r'"[^"\n]*"|\'[^\'\n]*\'', '""', l) for l in s.splitlines() if not l.lstrip().startswith("#"))
+    assert not re.search(r"(^|[;&|(]|\bthen|\bif|!)\s*sudo\b", code(t.replace(MF_BLOCK, "")), re.M)
+    used = set(re.findall(r"(?:^|[;&|(]|\bthen|\bif|!)\s*sudo\s+(\S+)", code(MF_BLOCK), re.M))
+    assert used == {"install", "launchctl"}, used
+    assert "launchctl load" not in MF_BLOCK                                 # bootstrap, not the deprecated load
+
+
+# ---------------------------------------------------------------- install.sh end to end (scratch)
+def _git(*a, cwd=None):
+    subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "init.defaultBranch=main",
+                    "-c", "user.name=t", "-c", "user.email=t@example.invalid"] + list(a),
+                   cwd=cwd, check=True, capture_output=True, stdin=subprocess.DEVNULL)
+
+
+@pytest.fixture(scope="module")
+def scratch_repo(tmp_path_factory):
+    """install.sh runs only from the main branch of a git checkout: a snapshot of this tree on main."""
+    d = tmp_path_factory.mktemp("repo") / "claude-agent-stack"
+    out = subprocess.run(["git", "-C", str(ROOT), "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
+                         capture_output=True, check=True).stdout.decode()
+    for rel in filter(None, out.split("\0")):
+        s = ROOT / rel
+        if not os.path.lexists(s):
+            continue
+        (d / rel).parent.mkdir(parents=True, exist_ok=True)
+        shutil.copy2(s, d / rel, follow_symlinks=False)
+    _git("init", "-q", cwd=d)
+    _git("add", "-A", cwd=d)
+    _git("commit", "-q", "-m", "snapshot", cwd=d)
+    return d
+
+
+def run_install(repo, tmp_path, args, stdin="", **extra):
+    e = Env(tmp_path)
+    state = mf_shims(e, tmp_path, "256")
+    # macOS mktemp without a template ignores TMPDIR (the user temp dir; not writable in a sandbox)
+    mkexe(e.bin / "mktemp", 'case "$*" in "") exec /usr/bin/mktemp "$TMPDIR/tmp.XXXXXX" ;; '
+                            '-d) exec /usr/bin/mktemp -d "$TMPDIR/tmp.XXXXXX" ;; *) exec /usr/bin/mktemp "$@" ;; esac')
+    env = {"HOME": str(e.home), "USER": os.environ.get("USER", "u"), "LANG": "C",
+           "PATH": "%s:%s:/usr/bin:/bin" % (e.bin, repo / "tests" / "fake-claude"),
+           "TMPDIR": str(e.tmp), "SHIM_LOG": str(e.log), "SERVE_DIR": str(e.serve),
+           "CLAUDE_CONFIG_DIR": str(tmp_path / "cfg"), "XDG_STATE_HOME": str(tmp_path / "state"),
+           "FAKE_CLAUDE_JSON": str(tmp_path / "cj.json"), "STACK_CLAUDE_JSON": str(tmp_path / "cj.json"),
+           "DEVTOOLS_BREW_CANDIDATES": "", "DEVTOOLS_JAVA_HOME_TOOL": "", "DEVTOOLS_JVM_DIR": str(e.jvm),
+           "DEVTOOLS_TEX_BIN": str(tmp_path / "notex"), "ULIMIT_MAX": "1048576", "BASH_FUNC_ulimit%%": ULIMIT_FN,
+           "SUDO_NO_COPY": "1"}
+    env.update(state)
+    for g in GROUPS:
+        env["STACK_INSTALL_" + g] = "0"
+    env.update(extra)
+    p = subprocess.run(["bash", str(repo / "install.sh")] + list(args), env=env, input=stdin,
+                       capture_output=True, text=True, timeout=600)
+    return e, p
+
+
+def test_install_sh_maxfiles_runs_before_any_install_call(scratch_repo, tmp_path):
+    """A real (shimmed) run: the yes reaches sudo, then step 2's first download; it stops there on
+    the missing required tools (no uv, no node on PATH). sudo never copies anything here."""
+    e, p = run_install(scratch_repo, tmp_path, ["--no-mcp", "--no-plugins", "--no-profile"], stdin="y\ny\n",
+                       DEVTOOLS_TTY="1", STACK_INSTALL_RUST="1")
+    out = p.stdout
+    assert p.returncode == 1 and "2/11 Tools" in out, out[-3000:] + p.stderr[-3000:]
+    assert out.index("Open-file limit (maxfiles)") < out.index("2/11 Tools")
+    log = e.calls()
+    first_root = next(i for i, c in enumerate(log) if c.startswith(("sudo ", "plutil ")))
+    first_curl = next(i for i, c in enumerate(log) if c.startswith("curl "))
+    assert first_root < first_curl, log
+    assert e.argv("sudo")[-1] == "launchctl bootstrap system /Library/LaunchDaemons/ulimit.max-files.plist"
+    assert "required tools are missing" in p.stderr
+
+
+def test_install_sh_dry_run_prints_the_maxfiles_step_first(scratch_repo, tmp_path):
+    e, p = run_install(scratch_repo, tmp_path, ["--dry-run", "--no-profile"], stdin="y\n")
+    out = p.stdout
+    assert p.returncode == 0, out[-3000:] + p.stderr[-3000:]
+    assert out.index("Open-file limit (maxfiles)") < out.index("2/11 Tools")
+    assert root_calls(e) == []
+    assert "not installed (--dry-run)" in out and "<string>ulimit.max-files</string>" in out
+    assert "sudo launchctl bootstrap system /Library/LaunchDaemons/ulimit.max-files.plist" in out

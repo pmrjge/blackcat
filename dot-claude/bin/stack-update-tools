@@ -13,6 +13,9 @@
 #   uv         uv self update (only for uv installed by astral.sh's installer, not Homebrew's),
 #              then uv tool upgrade --all (pre-commit, magg: each within its recorded constraints)
 #   coursier   cs update (the apps cs setup installed)
+#   elan       elan self update (only for elan installed by its own installer, not Homebrew's), then
+#              elan update (the toolchain channels you installed, stable included; a project's
+#              lean-toolchain pin and its Mathlib stay as they are: lake update in the project moves them)
 #   nvm/node   manual: prints node's version and the update command
 # Pinned tools (Gradle, Playwright's browsers, hlint/ormolu, the stack's venvs) move when a new
 # install.sh pins a newer version: run ./install.sh from the stack repo.
@@ -40,7 +43,7 @@ step(){
 brew_up(){ brew update && brew upgrade; }
 
 for d in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.juliaup/bin" \
-         "$HOME/.local/bin" "$HOME/Library/Application Support/Coursier/bin"; do
+         "$HOME/.local/bin" "$HOME/Library/Application Support/Coursier/bin" "$HOME/.elan/bin"; do
   [ -d "$d" ] && case ":$PATH:" in *":$d:"*) ;; *) PATH="$PATH:$d" ;; esac
 done
 export PATH
@@ -60,6 +63,16 @@ else
   line "- uv: absent"
 fi
 if have cs; then step coursier cs update; else line "- coursier: absent"; fi
+if have elan; then
+  elp="$(command -v elan)"
+  case "$(cd "$(dirname "$elp")" && pwd -P)/" in
+    /opt/homebrew/*|/usr/local/Cellar/*|/usr/local/opt/*) line "- elan self update: elan is Homebrew's (brew upgrade covers it)" ;;
+    *) step "elan self update" elan self update ;;
+  esac
+  step "elan update" elan update
+else
+  line "- elan: absent"
+fi
 if have node; then
   line "manual  node $(node --version 2>/dev/null): . ~/.nvm/nvm.sh && nvm install 24 --reinstall-packages-from=current"
 else

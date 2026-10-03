@@ -69,7 +69,13 @@
 # Step 2 installs what is missing (lib/devtools.sh, CONFIG.md §7 "Prerequisites and toolchains"):
 # Homebrew, one brew batch per type, the upstream version managers, the dev tools; one line per
 # tool, a present one never touched. Groups: STACK_INSTALL_<GROUP>=0 skips one (DEPS DEVTOOLS UV
-# NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO, all on), =1 adds POSTGRES or MONGODB (off).
+# NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO LEAN, all on), =1 adds POSTGRES or MONGODB (off);
+# STACK_INSTALL_LEAN_MATHLIB=1 makes the Mathlib project also without a terminal (=0 never).
+# Before step 2: the open-file limit. On a terminal the run offers a LaunchDaemon
+# (/Library/LaunchDaemons/ulimit.max-files.plist: launchd soft 65536, hard 524288) and asks [y/N];
+# only a yes runs sudo (install, launchctl bootstrap). STACK_INSTALL_MAXFILES=ask (default) | 0
+# (never; prints the commands) | 1 (no question, terminal only). Then the run raises its own soft
+# limit to 65536 (else the highest accepted; below 65536 the Lean group is skipped).
 # CLAUDE_CONFIG_DIR overrides the install target (default ~/.claude); --config-dir overrides both.
 # STACK_CLAUDE_JSON overrides which JSON file the MCP plan reads (default: $C/.claude.json when
 # CLAUDE_CONFIG_DIR is set, or --config-dir names another folder — Claude Code then uses only that
@@ -679,31 +685,217 @@ if [ "$SUPPLY_CHANGED" = 1 ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ]; the
   esac
 fi
 
+# ==== open-file limit (maxfiles): BEGIN ==========================================================
+# Before step 2 installs anything: elan and lake (`lake exe cache get`), cargo, ghcup/cabal builds and
+# brew open more files than macOS's default soft limit (256); elan needs 65536. Offered here: a
+# LaunchDaemon that sets launchd's limit at every boot (soft 65536, hard 524288). Then this run raises
+# its own soft limit, which every program it starts inherits (CONFIG.md §7 "Open-file limit").
+# The ONE place install.sh calls sudo: only after y/yes on a terminal, only `install` (owner, group and
+# mode in one step) and `launchctl bootout|bootstrap system` on the one file below. Never in a dry run.
+#   STACK_INSTALL_MAXFILES=ask (default: asks on a terminal, default answer No) | 0 (never: prints
+#   the commands) | 1 (set by you: no question, still only on a terminal, never in --dry-run)
+MF_DIR=/Library/LaunchDaemons
+MF_LABEL=ulimit.max-files
+MF_PLIST="$MF_DIR/$MF_LABEL.plist"
+MF_SOFT=65536
+# a fixed template: nothing is interpolated (the quoted heredoc); tests/test_install_devtools.py
+# snapshots it and checks it against MF_SOFT
+mf_plist(){
+  cat <<'PLIST'
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>ulimit.max-files</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/launchctl</string>
+    <string>limit</string>
+    <string>maxfiles</string>
+    <string>65536</string>
+    <string>524288</string>
+  </array>
+  <key>RunAtLoad</key>
+  <true/>
+</dict>
+</plist>
+PLIST
+}
+# launchd's soft maxfiles (a number or "unlimited"; empty when launchctl can't say)
+mf_launchd_soft(){ launchctl limit maxfiles 2>/dev/null | awk '$1 == "maxfiles" {print $2; exit}' || true; }
+mf_ge(){ case "$1" in unlimited) return 0 ;; ''|*[!0-9]*) return 1 ;; esac; [ "$1" -ge "$2" ]; }
+mf_loaded(){ launchctl print "system/$MF_LABEL" >/dev/null 2>&1; }
+# other LaunchDaemons that set maxfiles (XML plists naming it); never touched, only reported
+mf_others(){ grep -l '<string>maxfiles</string>' "$MF_DIR"/*.plist 2>/dev/null | grep -vxF "$MF_PLIST" || true; }
+# mf_diff FILE: FILE -> the stack's plist, unified, indented (diff exits 1 on a difference)
+mf_diff(){
+  local t
+  t="$(mktemp "${TMPDIR:-/tmp}/$MF_LABEL.diff.XXXXXX")" || return 0
+  mf_plist >"$t"
+  { diff -u "$1" "$t" || true; } | sed 's/^/      /'
+  rm -f "$t"
+}
+mf_ask(){
+  local ans=""
+  printf '%s' "$1"; read -r ans || ans=""
+  case "$ans" in y|Y|yes|YES|Yes) return 0 ;; *) return 1 ;; esac
+}
+mf_print_later(){
+  note "to set it up later, in a terminal (sudo asks for your admin password):"
+  note "  1. save this as ./$MF_LABEL.plist, then: plutil -lint ./$MF_LABEL.plist"
+  mf_plist | sed 's/^/         /'
+  note "  2. sudo install -m 644 -o root -g wheel ./$MF_LABEL.plist $MF_PLIST"
+  note "  3. sudo launchctl bootstrap system $MF_PLIST   (already loaded: sudo launchctl bootout system $MF_PLIST first)"
+  note "  check: launchctl limit maxfiles; or rerun ./install.sh in a terminal and answer y"
+  note "  remove: sudo launchctl bootout system $MF_PLIST; sudo rm $MF_PLIST"
+}
+mf_show_plan(){
+  note "Proposed: a LaunchDaemon that raises launchd's open-file limit at every boot to soft 65536,"
+  note "hard 524288 (elan/Lean need 65536; macOS starts programs with 256)."
+  note "  file: $MF_PLIST (owner root:wheel, mode 644), exactly:"
+  mf_plist | sed 's/^/      /'
+  note "  1. write it from the fixed template above to a temp file and check it: plutil -lint <temp file>"
+  note "  2. sudo install -m 644 -o root -g wheel <temp file> $MF_PLIST  (then stat must show root:wheel 644)"
+  if mf_loaded; then
+    note "  3. sudo launchctl bootout system $MF_PLIST (loaded now), then sudo launchctl bootstrap system $MF_PLIST"
+  else
+    note "  3. sudo launchctl bootstrap system $MF_PLIST"
+  fi
+  note "  then: launchctl limit maxfiles (read-only check, one line)"
+  note "sudo asks for your admin password through its own prompt (this script never sees it). Apps"
+  note "already running keep their old limit: a re-login or reboot may be needed for them."
+  note "Remove it later: sudo launchctl bootout system $MF_PLIST; sudo rm $MF_PLIST"
+}
+# after a yes: the three steps in order, stopping at the first failure
+mf_install(){
+  local tmp st soft="" i
+  tmp="$(mktemp "${TMPDIR:-/tmp}/$MF_LABEL.XXXXXX")" || { note "! mktemp failed"; return 1; }
+  mf_plist >"$tmp"
+  if ! plutil -lint "$tmp" >/dev/null 2>&1; then rm -f "$tmp"; note "! 1. plutil -lint rejected the generated plist"; return 1; fi
+  note "1. plutil -lint: OK"
+  if ! sudo install -m 644 -o root -g wheel "$tmp" "$MF_PLIST"; then rm -f "$tmp"; note "! 2. sudo install failed"; return 1; fi
+  rm -f "$tmp"
+  st="$(stat -f '%Su:%Sg %Lp' "$MF_PLIST" 2>/dev/null || true)"
+  note "2. $MF_PLIST: $st"
+  [ "$st" = "root:wheel 644" ] || { note "! 2. expected owner root:wheel and mode 644"; return 1; }
+  if mf_loaded; then
+    sudo launchctl bootout system "$MF_PLIST" || { note "! 3. sudo launchctl bootout system $MF_PLIST failed"; return 1; }
+  fi
+  if ! sudo launchctl bootstrap system "$MF_PLIST"; then
+    # a bootout just before can still be finishing: one retry after a second
+    sleep 1
+    sudo launchctl bootstrap system "$MF_PLIST" || { note "! 3. sudo launchctl bootstrap system $MF_PLIST failed"; return 1; }
+  fi
+  note "3. launchctl bootstrap system: OK"
+  for i in 1 2 3; do soft="$(mf_launchd_soft)"; mf_ge "$soft" "$MF_SOFT" && break; [ "$i" = 3 ] || sleep 1; done
+  note "4. launchctl limit maxfiles: $(launchctl limit maxfiles 2>/dev/null | awk '{$1 = $1; print}')"
+  mf_ge "$soft" "$MF_SOFT" || note "! launchd still reports soft ${soft:-unknown}: check with launchctl print system/$MF_LABEL"
+  return 0
+}
+maxfiles_step(){
+  local want="${STACK_INSTALL_MAXFILES:-ask}" tty=0 soft state=absent others o why=""
+  if [ -n "${DEVTOOLS_TTY:-}" ]; then tty="$DEVTOOLS_TTY"; elif [ -t 0 ] && [ -t 1 ]; then tty=1; fi
+  case "$want" in ask|0|1) ;; *) note "! STACK_INSTALL_MAXFILES=$want is not ask, 0 or 1: treated as ask"; want=ask ;; esac
+  soft="$(mf_launchd_soft)"
+  if [ -f "$MF_PLIST" ]; then
+    if [ "$(cat "$MF_PLIST" 2>/dev/null || true)" = "$(mf_plist)" ]; then state=same; else state=different; fi
+  fi
+  others="$(mf_others)"
+  if mf_ge "$soft" "$MF_SOFT" && [ "$state" = same ]; then
+    note "ok  open-file limit: launchd soft $soft ($MF_PLIST in place)"; return 0
+  fi
+  if mf_ge "$soft" "$MF_SOFT" && [ "$state" = absent ] && [ -n "$others" ]; then
+    note "ok  open-file limit: launchd soft $soft, set by $(printf '%s ' $others)(the stack's $MF_PLIST is not needed)"; return 0
+  fi
+  note "launchd's open-file limit: soft ${soft:-unknown} (elan/Lean need $MF_SOFT)"
+  if [ "$DRY_RUN" = 1 ]; then why="--dry-run"
+  elif [ "$want" = 0 ]; then why="STACK_INSTALL_MAXFILES=0"
+  elif [ "$NO_DEPS" = 1 ]; then why="--no-deps"
+  elif [ "$tty" != 1 ]; then why="no terminal"
+  elif [ "$want" = ask ] && [ "$NO_PROMPT$ASSUME_YES" != 00 ]; then why="--yes/--no-prompt never ask; STACK_INSTALL_MAXFILES=1 installs without the question"
+  fi
+  if [ -n "$why" ]; then
+    note "not installed ($why): $MF_PLIST"
+    mf_print_later; return 0
+  fi
+  mf_show_plan
+  if [ "$want" = ask ] && ! mf_ask "  Install $MF_PLIST now (sudo, 3 steps above)? [y/N] "; then
+    note "not installed (the answer was not y)"; mf_print_later; return 0
+  fi
+  if [ "$state" = different ] || [ -n "$others" ]; then
+    if [ "$state" = different ]; then
+      note "$MF_PLIST exists with other content (diff: now -> the stack's):"
+      mf_diff "$MF_PLIST"
+    fi
+    printf '%s\n' "$others" | while IFS= read -r o; do
+      [ -n "$o" ] || continue
+      note "$o also sets maxfiles; it stays (remove: sudo launchctl bootout system $o; sudo rm $o). diff: it -> the stack's:"
+      mf_diff "$o"
+    done
+    if [ "$want" = ask ] && ! mf_ask "  Write the stack's $MF_PLIST anyway$([ "$state" = different ] && echo ', replacing the one there')? [y/N] "; then
+      note "not installed (the answer was not y)"; mf_print_later; return 0
+    fi
+  fi
+  mf_install || { note "! the open-file limit step stopped at the step above; the run goes on"; mf_print_later; }
+  return 0
+}
+# This run's own soft limit, raised for every program it starts (resource limits are inherited:
+# elan, lake, rustup, cargo, brew, ghcup/cabal). launchctl's limit reaches only programs started
+# after it, so this is done whatever happened above. 65536 refused: the highest value accepted.
+MF_NOFILE=""
+mf_raise_ulimit(){
+  local cur hard perproc cap="" v
+  cur="$(ulimit -Sn)"; hard="$(ulimit -Hn)"
+  perproc="$(sysctl -n kern.maxfilesperproc 2>/dev/null || true)"
+  if ! mf_ge "$cur" "$MF_SOFT"; then
+    for v in "$hard" "$perproc"; do
+      case "$v" in ''|unlimited|*[!0-9]*) ;; *) if [ -z "$cap" ] || [ "$v" -lt "$cap" ]; then cap="$v"; fi ;; esac
+    done
+    for v in "$MF_SOFT" $cap 49152 32768 16384 10240 8192 4096 2048 1024; do
+      case "$cur" in ''|*[!0-9]*) ;; *) [ "$v" -gt "$cur" ] || continue ;; esac
+      if ulimit -Sn "$v" 2>/dev/null; then break; fi
+    done
+  fi
+  MF_NOFILE="$(ulimit -Sn)"
+  note "open files for this run and every tool it starts: $MF_NOFILE (was $cur; hard $hard, kern.maxfilesperproc ${perproc:-unknown})"
+  mf_ge "$MF_NOFILE" "$MF_SOFT" \
+    || note "! below $MF_SOFT: elan/Lean may fail, so step 2 skips the Lean group (the commands above raise the limit)"
+}
+# ==== open-file limit (maxfiles): END ============================================================
+say "Open-file limit (maxfiles), before anything is installed"
+maxfiles_step
+mf_raise_ulimit
+
 say "2/11 Tools: prerequisites, dev tools, magg, huetension, serial-mcp, science and tools venvs"
 # Supply chain (C7): every download is pinned to a version and, where the project publishes one, a
 # checksum; the Python venvs install from hash-locked lockfiles (requirements/, 7-day cooldown).
 # Prerequisites and toolchains are lib/devtools.sh's (pins, routes and groups there; CONFIG.md §7):
 # Homebrew, one brew batch for every missing formula and one for every missing cask, the upstream
-# managers (uv, nvm, rustup, ghcup, juliaup, coursier), then gitleaks, pre-commit, Gradle and
-# Playwright's Chromium. One line per tool, a present tool never touched, a failed optional install
+# managers (uv, nvm, rustup, ghcup, juliaup, coursier, elan), then gitleaks, pre-commit, Gradle,
+# Playwright's Chromium and the Mathlib project. One line per tool, a present tool never touched, a failed optional install
 # only reported; a required one (uv, node) still missing stops the run here.
 #   --no-deps: no installs at all (missing tools are listed);
 #   STACK_INSTALL_<GROUP>=0 skips a group (DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX
-#   CXX GO), STACK_INSTALL_POSTGRES=1 / STACK_INSTALL_MONGODB=1 add those.
+#   CXX GO LEAN), STACK_INSTALL_POSTGRES=1 / STACK_INSTALL_MONGODB=1 add those.
 MAGG_VERSION=1.2.1                         # 1.3.0 (2026-09-26) is inside the 7-day cooldown
 MAGG_EXCLUDE_NEWER=2026-09-22T00:00:00Z    # dependency cooldown for magg's own requirements
 HUETENSION_VERSION=0.3.0
 if [ "$NO_DEPS" = 1 ]; then DT_MODE=report; elif [ "$DRY_RUN" = 1 ]; then DT_MODE=dry-run; else DT_MODE=install; fi
 note "prerequisites and toolchains (lib/devtools.sh):"
+# the Lean group uses your LEAN_PROJECT_PATH (stack.env, else the environment) instead of making a project
+lean_proj="$(sed -n 's/^LEAN_PROJECT_PATH=//p' "$C/stack.env" 2>/dev/null | tail -n 1 || true)"
+lean_proj="${lean_proj%\"}"; lean_proj="${lean_proj#\"}"
+[ -n "$lean_proj" ] || lean_proj="${LEAN_PROJECT_PATH:-}"
 dt_rc=0
-DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$HERE/lib/devtools.sh" all || dt_rc=$?
+DEVTOOLS_LEAN_PROJECT="$lean_proj" DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$HERE/lib/devtools.sh" all || dt_rc=$?
 # a required tool still missing: devtools.sh listed each with its command
 [ "$dt_rc" = 3 ] && exit 1
 [ "$dt_rc" = 0 ] || note "! lib/devtools.sh exited $dt_rc (see above); the install goes on"
 # what devtools.sh installed must be found below, also before your shell profile has its PATH line:
-# Homebrew's bin dir, nvm's node 24, rustup's and ghcup's bins; appended, so your own PATH order wins
-for b in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin"; do
-  { [ -x "$b/brew" ] || [ -x "$b/cargo" ] || [ -x "$b/ghcup" ]; } || continue
+# Homebrew's bin dir, nvm's node 24, rustup's, ghcup's and elan's bins; appended, so your own PATH order wins
+for b in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.elan/bin"; do
+  { [ -x "$b/brew" ] || [ -x "$b/cargo" ] || [ -x "$b/ghcup" ] || [ -x "$b/lake" ]; } || continue
   case ":$PATH:" in *":$b:"*) ;; *) PATH="$PATH:$b"; export PATH ;; esac
 done
 if ! have node; then
@@ -2747,8 +2939,8 @@ PY
       || note "! typescript-language-server install failed — npm install -g --ignore-scripts --prefix ~/.local $TSLS $TS_PIN"
     lsp_works rust-analyzer || { have rustup && rustup component add rust-analyzer >/dev/null 2>&1; } || note "! rust-analyzer: rustup component add rust-analyzer"
     # Servers for the stack's other languages come from each language's own toolchain manager, and
-    # only when that manager is already here: the installer never installs GHCup, juliaup, elan,
-    # Coursier or Kotlin for you. Lean needs nothing extra (elan's `lake serve` is the server).
+    # only when that manager is already here (step 2 installs GHCup, juliaup, elan and Coursier unless
+    # their group is off). Lean needs nothing extra (elan's `lake serve` is the server).
     if ! lsp_works haskell-language-server-wrapper && have ghcup; then
       ghcup install hls recommended >/dev/null 2>&1 || true
       lsp_works haskell-language-server-wrapper || note "! haskell-language-server: ghcup install hls recommended (then ghcup set hls recommended)"
