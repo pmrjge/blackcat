@@ -38,11 +38,16 @@ Definitions
              after_limit = the continuation segment of a turn-limited run.
   healthy    finished, not problem, not after_limit.
 """
-import argparse, glob, json, math, os, re, datetime as dt
+import argparse, glob, json, os, re, datetime as dt
+import sys
 import numpy as np, pandas as pd
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(REPO, ".claude-work", "agents-usage")   # output folder (--out)
+# q, ceil2 and derive are the stack's shared statistics (dot-claude/hooks/stack_limits.py; installed
+# beside this file or in the repo's hooks folder)
+sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)), os.path.join(REPO, "dot-claude", "hooks")]
+from stack_limits import q, ceil2, derive as _derive  # noqa: E402,F401
 F = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 RESUME_RE = re.compile(r"^(Another Claude session|The coordinator) sent a message while you were working")
 COMPACT_RE = re.compile(r"^This session is being continued from a previous conversation")
@@ -258,20 +263,6 @@ def prompt_windows(mains):
 
 
 # ------------------------------------------------------------------------------------- statistics
-def q(x, p):
-    x = np.asarray(x, float)
-    return float(np.quantile(x, p)) if len(x) else np.nan
-
-
-def boot_p90(x, B=4000):
-    x = np.asarray(x, float)
-    if len(x) < 3:
-        return (np.nan, np.nan)
-    rng = np.random.default_rng(SEED)
-    v = np.quantile(rng.choice(x, size=(B, len(x)), replace=True), 0.9, axis=1)
-    return (float(np.quantile(v, 0.05)), float(np.quantile(v, 0.95)))
-
-
 def auc(pos, neg):
     pos, neg = np.asarray(pos, float), np.asarray(neg, float)
     if not len(pos) or not len(neg):
@@ -279,36 +270,13 @@ def auc(pos, neg):
     return float((pos[:, None] > neg[None, :]).mean() + (pos[:, None] == neg[None, :]).mean() / 2)
 
 
-def ceil2(v):
-    """Round up to 2 significant figures (never below the computed value)."""
-    if not v or not np.isfinite(v):
-        return v
-    e = 10 ** (math.floor(math.log10(v)) - 1)
-    return math.ceil(v / e) * e
-
-
 def derive(x, names, hard=False):
-    """soft = p90(healthy) x m with floor 2 x median. Soft limits: the smallest m in M_GRID whose
-    false-trip rate is <= 5 %, else the m with the lowest rate. Hard caps (maxTurns, which kill
-    the run): the top of the band, m = 1.5."""
-    x = np.asarray(x, float)
-    med, p90 = q(x, .5), q(x, .9)
-    grid = (M_GRID[-1],) if hard else M_GRID
-    best = None
-    for m in grid:
-        soft = max(p90 * m, 2 * med)
-        ft = float((x > soft).mean())
-        if best is None or ft < best[2] - 1e-12:
-            best = (m, soft, ft)
-        if ft <= FT_OK:
-            best = (m, soft, ft)
-            break
-    m, soft, _ = best
-    soft = ceil2(soft) if not hard else float(math.ceil(soft))
-    ft = float((x > soft).mean())
-    return dict(n=len(x), median=med, p90=p90, max=float(x.max()), m=m, soft=soft, ft=ft,
-                tripped=[nm for v, nm in zip(x, names) if v > soft], floor=2 * med > p90 * m,
-                ci=boot_p90(x), mult_p90=soft / p90 if p90 else np.nan)
+    """stack_limits.derive (the shared core), with a NaN pair for the CI of fewer than 3 values (this
+    report formats it)."""
+    d = _derive(x, names, hard=hard)
+    if d["ci"][0] is None:
+        d["ci"] = (np.nan, np.nan)
+    return d
 
 
 def M(v):

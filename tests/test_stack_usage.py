@@ -422,20 +422,20 @@ def test_guard_prune_keeps_usage(st, tmp_path):
 
 
 # ---------------------------------------------------------------- the active model
-def test_load_model_prefers_active(st, tmp_path, monkeypatch):
+def test_load_model_ignores_the_candidate(st, tmp_path, monkeypatch):
+    """S6 U4: the refreshed (candidate) model is the next session's input; stack_sched never reads it."""
     monkeypatch.delenv("STACK_SCHED_MODEL", raising=False)
+    monkeypatch.delenv("STACK_LIMITS_SNAPSHOT", raising=False)
+    monkeypatch.delenv("CLAUDE_SESSION_ID", raising=False)
     S = _load("stack_sched_for_usage_test", HOOKS / "stack_sched.py")
     shipped = HOOKS / "sched_model.json"
-    assert S.default_model_path() == shipped.resolve()
     st.mkdir(parents=True, exist_ok=True)
     act = st / "sched_model.json"
-    act.write_text("[]")                                   # invalid: the shipped file is used
-    assert S.default_model_path() == shipped.resolve()
     act.write_text(json.dumps({"version": 1, "types": {"scout": {"turns": {"S": 1, "M": 2, "L": 3}}}}))
-    m = S.load_model()
-    assert m["file"] == str(act) and S.tinfo(m, "scout")["turns"] == {"S": 1, "M": 2, "L": 3}
-    monkeypatch.setenv("STACK_SCHED_MODEL", str(shipped))  # the explicit override still wins
-    assert S.load_model()["file"] == str(shipped)
+    assert S.default_model_path() == shipped.resolve()
+    assert S.load_model()["file"] == str(shipped.resolve())
+    monkeypatch.setenv("STACK_SCHED_MODEL", str(act))      # the explicit override still wins
+    assert S.load_model()["file"] == str(act)
 
 
 def test_propose_prints_only(st, tmp_path):

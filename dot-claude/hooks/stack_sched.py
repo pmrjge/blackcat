@@ -25,9 +25,11 @@ Exit codes: 0 ok, 1 invalid graph, 2 usage error.
 Token unit (T_w): input + kappa_w * cache_write + kappa_r * cache_read per API call (output
 excluded until its price ratio is read from the pricing page). kappa_w: 1.25 (5 minute cache),
 2.0 (1 hour); kappa_r: 0.05 for Opus 5.5, 0.1 for the other models. The per-type numbers come from
-the active model (state dir, refreshed by stack_usage.py; see active_model_path) or else
-sched_model.json beside this file (schema in the stack's agents-sched plan, section b); without
-either the built-in defaults below apply.
+the model copy in the session's limits snapshot (the candidate the usage collector refreshed before
+the session started; a session never reads the candidate itself) or else sched_model.json beside
+this file (schema in the stack's agents-sched plan, section b); without either the built-in
+defaults below apply. The soft limits come from the same snapshot, else stack_limits_seed.json,
+else the constants below. The session id: --session, STACK_LIMITS_SNAPSHOT, CLAUDE_SESSION_ID.
 
 Small-n values are used, not just shown. Every type carries a status ("provisional" or "supported") and a
 90% band (lo/med/hi for turns, sec_per_call and a multiplicative ctx factor) in sched_model.json. An estimate
@@ -40,7 +42,8 @@ limit (ctx per segment), the per-prompt soft limit (33M ctx; 80M with an orchest
 optional user budget (`plan --budget N`, in the hook's ctx unit). A type without its own band takes its pool's band;
 without a pool band it is provisional with w = 1.0, a documented heuristic marked unverified.
 
-Environment: STACK_SCHED_MODEL (model file), STACK_SCHED_LAMBDA (tokens per second; unset =
+Environment: STACK_SCHED_MODEL (model file), STACK_SCHED_POLICY (report | fresh_fixer, default fresh_fixer:
+`next` also advises a fresh fixer for a resume whose gap is >= 270 s; read from the snapshot in a session), STACK_SCHED_LAMBDA (tokens per second; unset =
 balanced, T_w(baseline)/W(baseline)), STACK_SCHED_TOKEN_SLACK (eps, default 0).
 """
 from __future__ import annotations
@@ -138,7 +141,7 @@ def pool_of(t: str) -> str:
     return "builder"
 
 
-def _builtin_type(t: str) -> Dict[str, Any]:
+def _builtin_type(t: str, soft: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
     rep = t if t in _TURNS else _POOL_REP[pool_of(t)]
     m, l = _TURNS[rep]
     a, b = _CTX.get(rep, _CTX["claude-code-engineer"])
@@ -148,8 +151,120 @@ def _builtin_type(t: str) -> Dict[str, Any]:
             "ttl": "1h" if t in ONE_HOUR_TTL else "5m",
             "turns": {"S": max(1, m // 2), "M": m, "L": l}, "ctx": {"a": a, "b": b},
             "static_cc": _STATIC.get(rep, 57000), "sec_per_call": {"p50": p50, "p90": p90},
-            "soft_limit": SOFT_LIMITS.get(t, SOFT_POOLS.get(pool)), "maxTurns": None,
+            "soft_limit": _soft_limit_of(soft if soft is not None else soft_values()["values"], t, pool),
+            "maxTurns": None,
             "n_seg": 0, "n_agents": 0, "source": "default" if t in _TURNS else "pool:" + pool}
+
+
+# ---------------------------------------------------------------- the session's limits (U4)
+# A session's limits are fixed by its SessionStart snapshot (stack_limits.py). This tool reads that
+# snapshot only: it never reads live.json, proposals.json or the candidate (refreshed) model, so
+# nothing it reports changes inside a session.
+_LIMITS_MOD: Any = None
+
+
+def _limits() -> Any:
+    """The stack_limits module (loaded beside this file), or None when unavailable."""
+    global _LIMITS_MOD
+    if _LIMITS_MOD is None:
+        _LIMITS_MOD = sys.modules.get("stack_limits") or False
+        if not _LIMITS_MOD:
+            try:
+                import importlib.util as _iu
+                sp = _iu.spec_from_file_location("stack_limits", str(Path(__file__).resolve().with_name("stack_limits.py")))
+                mod = _iu.module_from_spec(sp)
+                sp.loader.exec_module(mod)            # type: ignore[union-attr]
+                _LIMITS_MOD = mod
+            except Exception:                         # noqa: BLE001 - any import failure: constants
+                _LIMITS_MOD = False
+    return _LIMITS_MOD or None
+
+
+_SESSION_OVERRIDE: Optional[str] = None
+
+
+def session_id() -> Optional[str]:
+    """The session id: --session, else STACK_LIMITS_SNAPSHOT (a snapshot path), else CLAUDE_SESSION_ID."""
+    if _SESSION_OVERRIDE:
+        return _SESSION_OVERRIDE
+    snap = os.environ.get("STACK_LIMITS_SNAPSHOT")
+    if snap:
+        b = os.path.basename(snap)
+        for suf in (".sched_model.json", ".json"):
+            if b.endswith(suf):
+                return b[:-len(suf)]
+    return os.environ.get("CLAUDE_SESSION_ID") or None
+
+
+def session_snapshot(sid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """stack_limits.session_limits(sid) for a session whose snapshot exists and verifies; None
+    otherwise (no writes: a missing or altered snapshot is not created here)."""
+    sid = sid or session_id()
+    lim = _limits()
+    if not sid or lim is None:
+        return None
+    try:
+        _doc, state = lim.read_snapshot(sid)
+        if state != "ok":
+            return None
+        return lim.session_limits(sid)
+    except Exception:                                 # noqa: BLE001 - bad id, unreadable state
+        return None
+
+
+def _const_soft_values() -> Dict[str, Any]:
+    v: Dict[str, Any] = {"soft.agent." + t: x for t, x in SOFT_LIMITS.items()}
+    v["soft.prompt"] = SOFT_PROMPT_CTX
+    v.update({"soft.prompt." + t: x for t, x in SOFT_PROMPT_CTX_BY_TYPE.items()})
+    return v
+
+
+def soft_values() -> Dict[str, Any]:
+    """{"values", "source", "sched_policy"}: the soft limits (soft.agent.<t>, soft.prompt,
+    soft.prompt.<t>) from the session snapshot, else stack_limits_seed.json, else the constants above."""
+    snap = session_snapshot()
+    if snap is not None:
+        return {"values": dict(snap["values"]), "source": "snapshot",
+                "sched_policy": snap.get("sched_policy") or "fresh_fixer"}
+    policy = (os.environ.get("STACK_SCHED_POLICY") or "").strip().lower()
+    policy = policy if policy in ("report", "fresh_fixer") else "fresh_fixer"
+    lim = _limits()
+    if lim is not None:
+        try:
+            seed = lim.load_seed()
+            vals = {k: x["seed"] for k, x in seed["vars"].items() if k.startswith("soft.")}
+            if vals:
+                return {"values": vals, "source": "seed", "sched_policy": policy}
+        except Exception:                             # noqa: BLE001 - SeedError, bad shape
+            pass
+    return {"values": _const_soft_values(), "source": "constants", "sched_policy": policy}
+
+
+def _soft_lookup(values: Dict[str, Any], family: str, t: str) -> Tuple[bool, Any]:
+    for k in (t, t[:-5] if t.endswith("-copy") else None):
+        if k and "%s.%s" % (family, k) in values:
+            return True, values["%s.%s" % (family, k)]
+    return False, None
+
+
+def _soft_limit_of(values: Dict[str, Any], t: str, pool: str) -> Any:
+    found, v = _soft_lookup(values, "soft.agent", t)
+    return v if found else SOFT_POOLS.get(pool)
+
+
+def prompt_limit(m: Optional[Dict[str, Any]], types: Sequence[str]) -> Optional[float]:
+    """Per-prompt soft limit: soft.prompt raised to the largest soft.prompt.<type> among `types`;
+    None when it is off."""
+    sv = (m or {}).get("soft_values")
+    values = sv if isinstance(sv, dict) else soft_values()["values"]
+    best = values.get("soft.prompt")
+    if best is None:
+        return None
+    for t in types:
+        found, v = _soft_lookup(values, "soft.prompt", t or "")
+        if found and v is not None and v > best:
+            best = v
+    return float(best)
 
 
 class GraphError(ValueError):
@@ -175,9 +290,16 @@ def active_model_path() -> Optional[Path]:
 
 
 def default_model_path() -> Path:
-    """STACK_SCHED_MODEL, else the active (refreshed) model, else the shipped file beside this script."""
+    """STACK_SCHED_MODEL, else the session snapshot's model copy (<sid>.sched_model.json), else the
+    shipped file beside this script. The candidate (refreshed) model is never read in a session:
+    it is the next session's input (U4)."""
     env = os.environ.get("STACK_SCHED_MODEL")
-    return Path(env) if env else (active_model_path() or Path(__file__).resolve().with_name("sched_model.json"))
+    if env:
+        return Path(env)
+    snap = session_snapshot()
+    if snap is not None and snap.get("sched_model"):
+        return Path(snap["sched_model"])
+    return Path(__file__).resolve().with_name("sched_model.json")
 
 
 def load_model(path: Any = None) -> Dict[str, Any]:
@@ -188,6 +310,8 @@ def load_model(path: Any = None) -> Dict[str, Any]:
                          "kappa": {"cache_write_5m": 1.25, "cache_write_1h": 2.0,
                                    "cache_read_opus": 0.05, "cache_read_other": 0.1, "output": None},
                          "types": {}, "pools": {}, "file": None}
+    sv = soft_values()
+    m["soft_values"], m["soft_source"], m["sched_policy"] = sv["values"], sv["source"], sv["sched_policy"]
     p = Path(path) if path else default_model_path()
     if not p.is_file():
         return m
@@ -235,8 +359,13 @@ def _merge(base: Dict[str, Any], over: Dict[str, Any]) -> Dict[str, Any]:
 
 
 def tinfo(m: Dict[str, Any], t: str) -> Dict[str, Any]:
-    """Per-type numbers: built-in default overridden by the model file's row for the type."""
-    return _merge(_builtin_type(t), m.get("types", {}).get(t, {}))
+    """Per-type numbers: built-in default overridden by the model file's row for the type; inside a session
+    (a verified snapshot) the snapshot's soft limit wins over the one the model row recorded when it was fitted."""
+    base = _builtin_type(t, m.get("soft_values"))
+    out = _merge(base, m.get("types", {}).get(t, {}))
+    if m.get("soft_source") == "snapshot":
+        out["soft_limit"] = base["soft_limit"]
+    return out
 
 
 _MODEL_RE = re.compile(r"claude-(opus|sonnet|haiku|fable)-(\d+)(?:-(\d{1,2})(?!\d))?")
@@ -1189,9 +1318,8 @@ def limit_checks(m: Dict[str, Any], used: Sequence[Tuple[Node, Est]], width: int
         if e.ctx_hi > e.ctx_p50:
             contrib[e.type] = contrib.get(e.type, 0.0) + e.ctx_hi - e.ctx_p50
     drivers = [t for t, _ in sorted(contrib.items(), key=lambda kv: -kv[1])]
-    prompt_lim = max([SOFT_PROMPT_CTX] + [SOFT_PROMPT_CTX_BY_TYPE.get(t or "", 0)
-                                          for t in [dispatcher] + [e.type for _, e in used]])
-    for name, lim in (("prompt", float(prompt_lim)), ("budget", budget)):
+    prompt_lim = prompt_limit(m, [dispatcher or ""] + [e.type for _, e in used])
+    for name, lim in (("prompt", prompt_lim), ("budget", budget)):
         if lim is None:
             continue
         v = three_way(tot_med, tot_hi, float(lim))
@@ -1978,6 +2106,42 @@ def _plan_cmd(a: argparse.Namespace) -> int:
     return 0
 
 
+def next_advice(g: Graph, state: Dict[str, Any], sched: Schedule, m: Dict[str, Any],
+                ready: Sequence[str], now: Optional[float] = None) -> List[Dict[str, Any]]:
+    """With sched_policy fresh_fixer: for each ready node that resumes another (extra["resume"]) after a gap
+    >= RESUME_WARM_S, an advice row {id, resume, gap_s, action: "fresh_fixer", cost}: cost = kappa_w x
+    (static_cc + fixer.reread) from the model's measured `fixer` (static_cc only when it has none). The gap
+    is measured from the state (nodes[src].end, epoch s; `now` or state["now"] or the clock) when the state
+    has it, else the scheduled gap. Empty under policy "report"."""
+    if m.get("sched_policy") != "fresh_fixer":
+        return []
+    byid = g.by_id()
+    st = state.get("nodes", {}) if isinstance(state, dict) else {}
+    out: List[Dict[str, Any]] = []
+    for i in ready:
+        nd = byid[i]
+        src = nd.extra.get("resume")
+        if src not in byid:
+            continue
+        end = (st.get(src) or {}).get("end")
+        if isinstance(end, (int, float)) and not isinstance(end, bool):
+            t = now if now is not None else state.get("now") if isinstance(state.get("now"), (int, float)) else time.time()
+            gap = float(t) - float(end)
+        elif i in sched.times and src in sched.times:
+            gap = sched.times[i][0] - sched.times[src][1]
+        else:
+            continue
+        if gap < RESUME_WARM_S:
+            continue
+        typ = sched.variants.get(i, nd.a)
+        kw, _ = kappas(m, typ)
+        fx = m.get("fixer") if isinstance(m.get("fixer"), dict) else {}
+        out.append({"id": i, "resume": src, "gap_s": round(gap, 1), "action": "fresh_fixer",
+                    "cost": kw * (float(tinfo(m, typ)["static_cc"]) + float(fx.get("reread") or 0.0)),
+                    "reread": fx.get("reread")})
+    return out
+
+
 def _next_cmd(a: argparse.Namespace) -> int:
     try:
         g = load_graph(a.graph)
@@ -1998,7 +2162,11 @@ def _next_cmd(a: argparse.Namespace) -> int:
             print("error: %s: %s" % (i.node or "graph", i.msg), file=sys.stderr)
         return 1
     s = schedule(g, m, mode=a.mode)
-    print(json.dumps(next_ready(g, state, s)))
+    ready = next_ready(g, state, s)
+    print(json.dumps(ready))
+    for adv in next_advice(g, state, s, m, ready):
+        print("advice: %s resumes %s after %.0f s (>= %d s): spawn a fresh fixer (cost ~%.0f weighted tokens)"
+              % (adv["id"], adv["resume"], adv["gap_s"], RESUME_WARM_S, adv["cost"]), file=sys.stderr)
     return 0
 
 
@@ -2032,7 +2200,8 @@ def _replay_cmd(a: argparse.Namespace) -> int:
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     ap = argparse.ArgumentParser(prog="stack_sched.py", description="Scheduler advisor (report tool).")
-    ap.add_argument("--model", default=None, help="sched_model.json (default: STACK_SCHED_MODEL, the active model, the one beside this script)")
+    ap.add_argument("--model", default=None, help="sched_model.json (default: STACK_SCHED_MODEL, the session snapshot's copy, the one beside this script)")
+    ap.add_argument("--session", default=None, help="session id whose limits snapshot is used (default: STACK_LIMITS_SNAPSHOT, CLAUDE_SESSION_ID)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("plan", help="schedule a graph")
     p.add_argument("graph")
@@ -2057,6 +2226,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     p = sub.add_parser("emit-workflow", help="disabled until the probe")
     p.set_defaults(fn=lambda a: (print("emit-workflow: disabled until probe", file=sys.stderr), 2)[1])
     a = ap.parse_args(argv)
+    global _SESSION_OVERRIDE
+    _SESSION_OVERRIDE = a.session
     return a.fn(a)
 
 

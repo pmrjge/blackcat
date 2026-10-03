@@ -13,7 +13,8 @@ cache is missing), or by hand: `stack_usage.py refresh [--online] [--force]`.
 
 Model: target = the shipped model (sched_model.json beside this file, fitted on the stack's own
 transcripts) combined with fit() (tests/derive_sched_model.py, installed beside this file) on every
-complete segment row in usage/runs*.csv whose session the shipped model did not already use:
+complete segment row in usage/runs*.csv and runs2*.csv (v2 wins per key; empty cells are skipped, never
+imputed; src and stack_commit travel with each row) whose session the shipped model did not already use:
   values    n-weighted mean per type and pool: turns and sec_per_call by healthy segments (n_seg),
             ctx a, b and static_cc by healthy first segments (n_first). New rows count only once
             fit() gives the type a value (its own data or its pool's are gated: >= 5 healthy
@@ -29,6 +30,9 @@ Bounded step: every value (turns S/M/L, ctx a/b, static_cc, sec_per_call, band l
 x STEP (default 1.5, STACK_SCHED_REFRESH_STEP) per refresh from the model in force (the active file
 when it was refreshed from the same shipped model, else the shipped one); repeated refreshes
 converge on the target. The output keeps the evidence per type (`evidence`) and a `refresh` record.
+Soft limits come from the session's limits snapshot, else the seed (stack_limits_seed.json), else
+agent_guard.py. It reads no live.json and writes only the candidate model, the next session's input
+(the scheduler reads the copy its own session's snapshot made at SessionStart, U4).
 It never writes limits, thresholds, maxTurns, prompts or agent files: only --out, atomically.
 """
 import argparse
@@ -46,6 +50,7 @@ sys.path[:0] = [HERE, os.path.join(os.path.dirname(os.path.dirname(HERE)), "test
 import pandas as pd  # noqa: E402
 
 import derive_sched_model as D  # noqa: E402
+import stack_limits as L  # noqa: E402
 import stack_usage as U  # noqa: E402
 
 STEP_DEFAULT = 1.5
@@ -76,8 +81,8 @@ def frame(rows, skip_sessions=()):
     """runs.csv rows (complete, with API calls, sessions not in skip_sessions) as fit()'s segment table."""
     recs = []
     for (s, aid, seg), r in rows.items():
-        if s in skip_sessions or r.get("status") != "complete":
-            continue
+        if s in skip_sessions or r.get("status") != "complete" or r.get("is_main") == "1":
+            continue                                  # main-thread and session rows are no agent segments
         try:
             n = int(r["api_calls"])
             f0, f1 = float(r["first_ts"]), float(r["last_ts"])
@@ -92,8 +97,38 @@ def frame(rows, skip_sessions=()):
                          first_ts=U.iso(f0), last_ts=U.iso(f1), wall_s=max(0.0, f1 - f0),
                          compactions=int(float(r.get("compacted") or 0)),
                          turn_limit=bool(int(float(r.get("turn_limited") or 0))),
-                         after_limit=bool(int(float(r.get("after_limit") or 0))), open=False))
+                         after_limit=bool(int(float(r.get("after_limit") or 0))), open=False,
+                         src=r.get("src") or "", stack_commit=r.get("stack_commit") or ""))
     return pd.DataFrame(recs)
+
+
+def soft_limits(guard, sid=None):
+    """{type: soft limit or None}: the session snapshot's soft.agent.* values (a session's limits are
+    fixed at its start, U4), else the seed, else the AST read of agent_guard.py (D.soft_limits_auto)."""
+    sid = sid or snapshot_sid()
+    if sid:
+        try:
+            doc, state = L.read_snapshot(sid)
+            if state == "ok":
+                pre = "soft.agent."
+                vals = {v[len(pre):]: x for v, x in doc["values"].items() if v.startswith(pre)}
+                if vals:
+                    return vals
+        except (ValueError, OSError):
+            pass
+    try:
+        return D.soft_limits_auto(guard, L.SEED_PATH if os.path.exists(L.SEED_PATH) else None)
+    except (OSError, SyntaxError, SystemExit):         # no seed and no guard: types without a soft limit
+        return {}
+
+
+def snapshot_sid():
+    """The session whose snapshot applies: STACK_LIMITS_SNAPSHOT (a path), else CLAUDE_SESSION_ID."""
+    snap = os.environ.get("STACK_LIMITS_SNAPSHOT")
+    if snap:
+        b = os.path.basename(snap)
+        return b[:-len(".json")] if b.endswith(".json") else b
+    return os.environ.get("CLAUDE_SESSION_ID") or None
 
 
 def usable(n):
@@ -257,18 +292,18 @@ def valid_model(J):
     return isinstance(J, dict) and isinstance(J.get("types"), dict) and bool(J["types"])
 
 
-def refresh(usage, out, shipped_path, agents_dir, guard, step=STEP_DEFAULT, B=D.B_DEFAULT, dry_run=False):
+def refresh(usage, out, shipped_path, agents_dir, guard, step=STEP_DEFAULT, B=D.B_DEFAULT, dry_run=False, sid=None):
     shipped = json.load(open(shipped_path, encoding="utf-8"))
     if not valid_model(shipped):
         raise SystemExit("refresh: %s is not a model" % shipped_path)
     active = U.read_json(out)
     base = active if valid_model(active) and (active.get("refresh") or {}).get("base_generated") == \
         shipped.get("generated") else shipped
-    rows = U.read_rows([os.path.join(usage, "runs.1.csv"), os.path.join(usage, "runs.csv")])
+    rows = U.read_rows([os.path.join(usage, n) for n in ("runs.1.csv", "runs.csv", "runs2.1.csv", "runs2.csv")])
     seg = frame(rows, set(shipped.get("sessions") or []))
     fm_all = D.frontmatter(agents_dir)
     fm = {t: v for t, v in fm_all.items() if t in D.DT.TIER_OF}
-    soft = D.soft_limits(guard) if os.path.exists(guard) else {}
+    soft = soft_limits(guard, sid)
     new = None
     if len(seg):
         new = D.fit(seg, fm, soft, seed=0, B=B)
@@ -304,10 +339,12 @@ def main(argv=None):
     ap.add_argument("--step", type=float, default=float(os.environ.get("STACK_SCHED_REFRESH_STEP") or STEP_DEFAULT))
     ap.add_argument("--B", type=int, default=int(os.environ.get("STACK_SCHED_REFRESH_B") or D.B_DEFAULT))
     ap.add_argument("--dry-run", action="store_true")
+    ap.add_argument("--session", default=None, help="session whose limits snapshot gives the soft limits "
+                    "(default: STACK_LIMITS_SNAPSHOT, CLAUDE_SESSION_ID; else the seed)")
     a = ap.parse_args(argv)
     if a.step <= 1:
         ap.error("--step must be > 1")
-    refresh(a.usage, a.out, a.shipped, a.agents, a.guard, a.step, a.B, a.dry_run)
+    refresh(a.usage, a.out, a.shipped, a.agents, a.guard, a.step, a.B, a.dry_run, a.session)
     return 0
 
 

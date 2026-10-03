@@ -32,7 +32,7 @@ turn-limited segment):
   cold              a resume whose gap exceeds the type's cache TTL re-writes about
                     min(cache_creation of the resumed segment, prior segment peak); `frac` is the
                     measured median of first-call cache_creation / that bound on cold resumes
-  ttl, model, maxTurns from the agent's frontmatter; soft_limit from agent_guard.py SOFT_LIMITS
+  ttl, model, maxTurns from the agent's frontmatter; soft_limit from stack_limits_seed.json (else agent_guard.py SOFT_LIMITS)
 Pooling: theta = (n*theta_own + 5*theta_pool)/(n + 5) when the type has >= 5 healthy segments from
 >= 3 agents (for ctx and static_cc: >= 5 healthy first segments), else theta = theta_pool and
 source = "pool:<tier>". Tiers are derive_thresholds.TIER; the coordinator pool (orchestrator only)
@@ -138,6 +138,27 @@ def soft_limits(guard):
     if soft is None:
         raise SystemExit(f"SOFT_LIMITS not found in {guard}")
     return soft
+
+
+def seed_soft_limits(seed):
+    """{agent type: soft limit or None} from stack_limits_seed.json (the soft.agent.<type> seeds)."""
+    with open(seed, encoding="utf-8") as fh:
+        doc = json.load(fh)
+    pre = "soft.agent."
+    out = {v[len(pre):]: x.get("seed") for v, x in doc["vars"].items() if v.startswith(pre)}
+    if not out:
+        raise ValueError(f"no {pre}* variables in {seed}")
+    return out
+
+
+def soft_limits_auto(guard, seed=None):
+    """The soft limits fit() takes: the seed JSON (default: stack_limits_seed.json beside `guard`),
+    else the AST read of agent_guard.py's SOFT_LIMITS."""
+    seed = seed or os.path.join(os.path.dirname(os.path.abspath(guard)), "stack_limits_seed.json")
+    try:
+        return seed_soft_limits(seed)
+    except (OSError, ValueError, KeyError, AttributeError, TypeError):
+        return soft_limits(guard)
 
 
 WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
@@ -935,7 +956,7 @@ def main():
     a = ap.parse_args()
     until = (dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ") if a.until == "now" else a.until)
     fm = frontmatter(a.agents)
-    soft = soft_limits(a.guard)
+    soft = soft_limits_auto(a.guard)
     seg = load(a.root, until)
     J = fit(seg, fm, soft, seed=0, until=until,
             generated=dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"))
