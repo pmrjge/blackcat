@@ -1,58 +1,98 @@
 <!-- markdownlint-disable MD013 MD060 -->
 # Provenance: BlackCat hero image
 
-The files in this folder: `blackcat-hero.jpg` (README hero), `blackcat-social-1280x640.jpg` (social
-preview) and `blackcat-avatar-640.png` (avatar). Rights and restrictions: [README.md](README.md) in this
-folder. Hashes are SHA-256.
+The files in this folder: `blackcat-hero-original.png` (the model's output, unmodified),
+`blackcat-hero.jpg` (README hero), `blackcat-social-1280x640.jpg` (social preview) and
+`blackcat-avatar-640.png` (avatar). Licence and attribution: [README.md](README.md) in this folder.
+Hashes are SHA-256; times are Europe/Lisbon.
 
-## 1. The author's photograph (human-authored, not included)
+## 1. Decisions by the author (2026-10-03)
 
-- The author's own photograph of his black cat (Pedro Miguel Rodrigues Jorge), 900x1600 JPEG,
-  SHA-256 `4c682759d818a97988cd9a4de54b349da9866afe401261d921bf1af7544fb288`. Not published.
-- No EXIF metadata in the file (no capture date, camera or location recorded).
-- A crop of it (600x340 px, SHA-256 `2ec32d48f46e411ab94d1123c7952a464c9abd2654138212651346573def91d6`)
-  was sent as a second identity reference. Not published.
+- Published variant: **B** (violet/turquoise/amber) of two generated variants.
+- Licence: **CC BY 4.0** ([legal code](LICENSE-CC-BY-4.0.txt)). Attribution: Pedro Miguel Rodrigues Jorge.
+- AI-edit disclosure: "Photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper".
 
-## 2. Earlier AI image (base scene)
+## 2. Source photograph (human-authored, not included)
 
-- 2048x2048 PNG, SHA-256 `0d783e95ca97288020a8d8fe7b7d5a3bbe3716232caa4e92501d171184baae78`. Not published.
-- Origin, as stated by the author (not independently verified): generated through Opper with
-  `openai/gpt-image-2.5-sunburst`, under the author's direction. Prompt and date not recorded.
+- The author's own photograph (not included), SHA-256
+  `c05d1d75a39c90e55760c3e4b3055955e6c979be7caa65a4e047ae15b121efa2`. Author: Pedro Miguel Rodrigues
+  Jorge; subject: his own black cat.
+- The model's reference was the photo region cut from it (689x362 px, ImageMagick `-crop`, pixels
+  untouched; not included), SHA-256 `95297f01a81fbc958501400bd3114c6b948b6cf9d3acab98ae320f334dbcba50`.
 
-## 3. Edit (2026-10-03, Europe/Lisbon)
+## 3. Model
 
-- Model: Sourceful Riverflow v2.5 Pro (`sourceful/riverflow-v2.5-pro`) through OpenRouter, called from
-  the stack's image-studio MCP server (`edit_image`), which scales local inputs under 1920 px first.
-- Inputs, in order: the earlier AI image (§2), the photograph (§1), its crop.
-- Settings: aspect ratio `1:1`, resolution `4K`, output PNG; the model has no seed parameter.
-- Output: 2880x2880 PNG, SHA-256 `99455317a8f79a41bfaadb00f452d8285e159b1d806d99f29c6fa941d21797ea`
-  (variant B of two; the other variant was not used). Not published.
-- Prompt (verbatim):
+- Tool: the stack's image-studio MCP server, `generate_image`; model `openai/gpt-image-2.5-sunburst`
+  (OpenAI GPT Image 2.5 Sunburst), provider Opper (as reported by the tool; no further snapshot id returned).
+- Reference: the crop of §2 (image 1). Settings: size 2048x2048, quality high, PNG, one image per call.
 
-> Edit image 1 and change only the cat. Images 2 and 3 show the owner's own cat (image 3 is a close crop of image 2); the cat in image 1 must become this exact cat, recognisable as the same individual. Match it closely: pure jet-black short, smooth coat lying flat to the body; tall, upright, pointed ears that are large for the head; a lean angular face with a narrow muzzle and white whiskers; a slim, light-boned body with long slender legs; and a long, thin tail, much thinner than the fluffy tail in image 1, tapering to a fine tip. The cat keeps the mid-leap pose over the car roof from image 1, same place in the frame, same size, front paws reaching forward, tail streaming back. Under the low golden-hour sun the black fur shows a natural glossy sheen with warm highlights along the back and ears. Everything except the cat stays exactly as in image 1: the dark grand-tourer and its reflections, the villa entrance, the cypress and olive trees, the terracotta pots, the cobbled drive, the hills and sky, the shallow depth of field and the square composition. Photorealistic, no text, no logo, no watermark, no extra limbs.
+| Variant | Job id | Request time | Output SHA-256 | Cost (USD) | Published |
+|---|---|---|---|---|---|
+| A terracotta/cream + teal | gen_034zziwRJN9k9Kq3D3YQSS | 2026-10-03T16:15:18+01:00 | `d2a302284d0c7ecdf159f6c90e2ec775a2dd1d22957d8249d94ce0b212eeba8b` | 0.113217 | no |
+| B violet/turquoise/amber | gen_034zzk2bbrrciKK0YV3Enh | 2026-10-03T16:16:17+01:00 | `cc7e566f2529343fa4bc10f8dd988c15b74dad40a956e93e3cbdf3cbd0835663` | 0.113282 | yes: `blackcat-hero-original.png` |
 
-## 4. Metadata and watermarks
+### Prompt A (verbatim)
 
-The model's output (§3) carries no provider metadata: its only chunks besides the image data are
-`IHDR` and `pHYs` (no `tEXt`/`iTXt`/`zTXt`, `eXIf`, XMP or C2PA content credentials), and no visible
-watermark. The published derivatives were made with `-strip`, which therefore removed nothing the
-provider generated; they carry a bare JFIF header (JPEG) or no ancillary chunks (PNG), so no EXIF and
-no location data.
+```text
+Image 1 is a photo of my own black cat: keep this exact cat and pose. An all-black short-haired cat with a slim body, large pointed ears and a long thin tail, seen from slightly above and side-on facing right, sitting with its head bowed, licking its raised front paw (small pink tongue, grey paw pads visible, white whiskers), the tail stretched straight out to the left along the ground. Exactly one cat, four legs, one tail, two ears, natural anatomy.
 
-## 5. Derivatives (ImageMagick, no model)
+The cat is a calm giant sitting in the middle of a bright miniature toy city of code, seen as a slightly isometric tabletop diorama: glossy little building blocks and tiles forming streets and terraces; tiny cute generic robots (round and boxy bodies, antennae, glowing visor eyes, no markings) carrying and stacking blocks; miniature terminal windows showing only abstract coloured bars; floating curly-brace, bracket and angle-bracket shapes; a small branching graph of glowing lines; circuit-board paths; folder and file tiles; small checkmark and gear tiles; tiny pipes linking the robots. All details are small and surround the cat and its tail.
 
-From the output of §3 (`S`):
+Palette A: warm terracotta #C8643C, coral #E8836B, amber #F2A541 and cream #F6E9D7 dominant, with teal #1FA5A0 accents. Warm rim light and a soft glow outline the black fur so it reads clearly against the bright ground; soft shadows, shallow depth of field, crisp clean toy-diorama render, square composition with the cat centred.
 
-| File | Command | SHA-256 |
+No text, no letters, no numbers, no logos, no star or sparkle symbols, no watermarks, no people, no other cats.
+```
+
+### Prompt B (verbatim; identical to A except the palette paragraph)
+
+```text
+Palette B, vivid and high-contrast: electric violet #7B4DFF, turquoise #22D3C5 and teal #0E9F9A with glowing amber #FFB238, plus touches of coral #F07858 and cream #FFF1DC. Neon-tinted rim light and a soft glow outline the black fur so it reads clearly against the bright ground; soft shadows, shallow depth of field, crisp clean toy-diorama render, square composition with the cat centred.
+```
+
+## 4. Metadata of the unmodified output
+
+- PNG, 2048x2048, 8-bit TrueColor sRGB, gAMA 0.4545; no EXIF/XMP text chunks.
+- A `caBX` chunk with a C2PA JUMBF manifest (spec 2.2.0, `c2pa.actions.v2` with `c2pa.created`,
+  digitalSourceType `trainedAlgorithmicMedia`), signed for "OpenAI Media Service API" (OpenAI OpCo, LLC;
+  Trufo C2PA Claim Signing CA; OpenAI TSA timestamp). Checked with `magick identify -verbose` and a byte
+  search; the signature was not cryptographically validated (unverified).
+- An invisible SynthID watermark may be present (cannot be checked locally). Nothing was done to strip or
+  bypass either; `blackcat-hero-original.png` is published byte for byte as the model returned it.
+
+## 5. Published files (ImageMagick only, Lanczos; no model calls)
+
+| File | Operation | SHA-256 |
 |---|---|---|
-| `blackcat-hero.jpg` (1600x1600) | `magick S -colorspace sRGB -resize 1600x1600 -strip -sampling-factor 4:4:4 -quality 90` | `200c21ac488cc190b2d546f5f098a3fff0595a678ebeb89e6636e11b666c7534` |
-| `blackcat-social-1280x640.jpg` | `magick S -crop 2880x1440+0+200 +repage -resize 1280x640! -strip -quality 88` | `3c3b8adb86e975e4a75c0663b9bb9a0639e06bf2ff61dcc71f4c260141a5d8bd` |
-| `blackcat-avatar-640.png` | `magick S -crop 1300x1300+585+0 +repage -resize 640x640 -strip` | `6a065cf928c6f38d6e9e5f470b3a3c28efe0e9706486164f593c65b7db72a448` |
+| `blackcat-hero-original.png` (2048x2048, 5,178,979 B) | byte-identical copy of the variant B output; keeps the C2PA manifest | `cc7e566f2529343fa4bc10f8dd988c15b74dad40a956e93e3cbdf3cbd0835663` |
+| `blackcat-hero.jpg` (1600x1600, sRGB, q90, 527,692 B) | resize | `dd2cd35afdc061b7d0c57aaf68f838e295e19d5d6796e0682e9a72c257de0f69` |
+| `blackcat-social-1280x640.jpg` (q88, 191,758 B) | 2:1 crop 2048x1024+0+430, resize | `e5dfc4a305d64f96c2422ee18335c88c106a008d7d6a23b159bf1a644a73364d` |
+| `blackcat-avatar-640.png` (640x640, 569,170 B) | crop 1000x1000+960+400 (head and upper body), resize | `fdbfa301a409253e8595fae3c0461a839c9bba1ad649b71892fa983e68579f15` |
+
+The three resized copies were re-encoded, so they carry no C2PA manifest (it is bound to the original
+file's bytes); `blackcat-hero-original.png` keeps it, which is why it is published next to them.
 
 ## 6. Who did what
 
-- Human (Pedro Miguel Rodrigues Jorge): the photograph of the cat; the direction of the earlier AI
-  image (per the author); the choice to base the hero on the photograph; the final selection.
-- AI: the earlier scene (`openai/gpt-image-2.5-sunburst`, per the author); the re-rendering of the cat
-  into that scene from the photograph (`sourceful/riverflow-v2.5-pro`). The cat's pose, the scene, the
-  light and the eyes (yellow; not visible in the photograph) are model output, not from the photograph.
+- Human (Pedro Miguel Rodrigues Jorge): the photograph of his cat; the direction; the choice of variant B
+  and of the crops.
+- AI (`openai/gpt-image-2.5-sunburst` through Opper): the toy-diorama scene and the rendering of the cat
+  into it from the photograph.
+
+## 7. Licensing notes (research summary, 2026-10-03; not legal advice)
+
+1. The model maker's output terms give the output to OpenAI's customer (here Opper):
+   [OpenAI Services Agreement](https://cdn.openai.com/osa/openai-services-agreement.pdf) §4.1.
+2. Opper's terms cover only its users' data; nothing found passes the output rights on to them, so who
+   holds those rights is unclear: [Opper terms of service](https://opper.ai/terms-of-service) §8.2.
+3. Nothing found limits licensing or redistributing the outputs.
+4. API images carry C2PA metadata and an invisible SynthID watermark; do not strip or bypass them
+   ([OpenAI help](https://help.openai.com/en/articles/8912793)). The original is published unmodified.
+5. CC BY 4.0 §2(b)(2) leaves trademark rights out of the licence.
+6. EU AI Act Art. 50: nothing mandatory for the author; the README's caption is a voluntary disclosure.
+7. No Anthropic logo, starburst/sparkle mark, mascot or the word "Claude" appears: Anthropic's
+   [trademark guidelines](https://www.anthropic.com/legal/trademark-guidelines) forbid them without written
+   permission (the prompts forbade text, logos and star/sparkle symbols).
+8. No people or likenesses appear in the image.
+9. Purely AI-generated material may not be copyrightable (the [US Copyright Office](https://www.copyright.gov/ai/)
+   holds that copyright does not extend to it), so CC BY 4.0 applies to the extent rights exist: the
+   author's photograph and his creative choices.
