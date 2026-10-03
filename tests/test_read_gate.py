@@ -1,6 +1,6 @@
 """hooks/read_gate.py: the token gate on reads of generated, vendored, data, media and binary files.
 
-Run: uv run --python 3.12 --with pytest pytest -q tests/test_read_gate.py
+Run: uv run --python 3.13 --with pytest pytest -q tests/test_read_gate.py
 """
 import ast
 import json

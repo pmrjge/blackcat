@@ -2798,7 +2798,10 @@ def on_subagent_start(ev, d):
     now = time.time()
 
     def start():
-        reg_put(d, aid, {"type": atype or None, "started": now}, clear=("stopped", "status"),
+        # first_started: set once (a resume keeps it); the read-only check counts files older
+        # than it as another agent's (_ro_since)
+        reg_put(d, aid, {"type": atype or None, "started": now, "first_started": now},
+                clear=("stopped", "status"), keep=("first_started",),
                 resumed={"bg": True, "resumed": now})
 
     def drop():
@@ -3025,6 +3028,9 @@ SANDBOX_ENV = (
     ("HF_HOME", "huggingface"), ("MPLCONFIGDIR", "matplotlib"), ("CARGO_HOME", "cargo"),
     ("GOMODCACHE", "go/mod"), ("GOCACHE", "go/build"), ("GRADLE_USER_HOME", "gradle"),
     ("COURSIER_CACHE", "coursier"), ("CCACHE_DIR", "ccache"), ("SCCACHE_DIR", "sccache"),
+    ("CABAL_DIR", "cabal"),
+    # the trailing ':' appends Julia's default depots (~/.julia, the bundled stdlib) after this one
+    ("JULIA_DEPOT_PATH", "julia:"),
 )
 SANDBOX_ENV_MARK = "# claude-agent-stack: sandboxed Bash caches and git credentials (v1)"
 _PLAIN_PATH = re.compile(r"[A-Za-z0-9@%+=:,./_-]+\Z")
@@ -7108,7 +7114,7 @@ RO_PLAIN = {
     "system_profiler", "ioreg", "nvidia-smi", "tput", "clear", "iconv", "look", "tsort", "numfmt",
     "factor", "shuf", "apropos", "whatis", "ping", "traceroute", "netstat", "ifconfig", "sysctl",
     "pathchk", "mktemp", "cloc", "tokei", "scc", "gron", "xsv", "qsv", "bat", "difft", "delta",
-    "wdiff", "colordiff", "z3", "cvc5", "set", "trap",
+    "wdiff", "colordiff", "z3", "cvc5", "set", "trap", "pdfinfo", "pdffonts",
 }
 RO_OUT_OPTS_PLAIN = {"sort", "iconv", "shuf", "base64", "tree", "cloc", "scc", "xsv", "qsv"}
 # wrappers: the command they run is checked; options that take a value, per wrapper
@@ -7229,7 +7235,11 @@ RO_EXEC_VAR_RE = re.compile(
     # library and config search paths: they load code the agent may have written into scratch
     r"PYTHONPATH|PYTHONUSERBASE|PYTHONPYCACHEPREFIX|PYTEST_ADDOPTS|PYTEST_PLUGINS|JULIA_LOAD_PATH|"
     r"JULIA_DEPOT_PATH|JULIA_PROJECT|R_LIBS|R_LIBS_USER|R_LIBS_SITE|R_PROFILE|R_PROFILE_USER|"
-    r"R_ENVIRON|R_ENVIRON_USER|LUA_PATH\w*|LUA_CPATH\w*|LUA_INIT\w*)\Z")
+    r"R_ENVIRON|R_ENVIRON_USER|LUA_PATH\w*|LUA_CPATH\w*|LUA_INIT\w*|"
+    # C compilers: where they find the programs they run, edits to their command line, dep files
+    r"COMPILER_PATH|GCC_EXEC_PREFIX|CCC_OVERRIDE_OPTIONS|DEPENDENCIES_OUTPUT|SUNPRO_DEPENDENCIES|"
+    # TeX (kpathsea reads any texmf.cnf variable, also as NAME_progname, from the environment)
+    r"openout_any\w*|openin_any\w*|shell_escape\w*|TEXMFCNF\w*|TEXMFOUTPUT\w*)\Z")
 # of those, the ones that may name project directories (a reviewer can't write there)
 RO_PATH_VARS = {"PYTHONPATH"}
 RO_SAFE_VARS = {"GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS", "GIT_LITERAL_PATHSPECS",
@@ -7296,6 +7306,38 @@ RO_RUNNER_CONFIG_RE = re.compile(
     r"pyproject\.toml|setup\.cfg|tox\.ini|package\.json|conftest\.py)\Z", re.I)
 RO_SAME_CALL = ("runs or collects scratch code that an earlier part of the same command "
                 "writes: write and run in separate calls so the file can be read first")
+# temp-dir variables a command may name in a scratch path ($TMPDIR/x, ${TMPDIR}/x): expanded to
+# the hook's own value, which _ro_scratch_roots counts as scratch (see _ReadOnly.subst_tmp)
+RO_TMP_VARS = ("TMPDIR", "CLAUDE_CODE_TMPDIR")
+RO_TMP_NAME_RE = re.compile(r"(?:CLAUDE_CODE_)?TMPDIR")
+RO_TMP_REF_RE = re.compile(r"\$(?:(CLAUDE_CODE_TMPDIR|TMPDIR)(?!\w)|\{(CLAUDE_CODE_TMPDIR|TMPDIR)\})")
+# builtins that bind a variable named by their arguments (a dynamic name may be a temp-dir var)
+RO_BIND_BUILTINS = {"read", "printf", "unset", "local", "export", "declare", "typeset",
+                    "readonly", "getopts", "mapfile", "readarray"}
+# `$(mktemp [-d] [-q] [-u] [-t PREFIX])`: a fresh path in the temp dir
+RO_MKTEMP_RE = re.compile(r"(?:\$\(|`)\s*mktemp(?:\s+(?:-[dqu]+|--directory|--quiet|--dry-run)"
+                          r")*(?:\s+-t\s+[\w.-]+)?\s*(?:\)|`)\Z")
+# C/C++ compilers: allowed with -fsyntax-only, -E, or every -o into scratch; these options run
+# other programs, load plugins or config, or write files of their own
+RO_COMPILERS = {"cc", "c++", "clang", "clang++", "gcc", "g++"}
+RO_CC_BAD = ("@", "-B", "-wrapper", "-specs", "--specs", "-fplugin", "-fpass-plugin", "-Xclang",
+             "-Xlinker", "-Xassembler", "-Xpreprocessor", "-Xanalyzer", "-Xarch", "-Xcuda",
+             "-Xopenmp", "-Xoffload", "-Xflang", "-Wl,", "-Wa,", "-Wp,", "-mllvm", "-fuse-ld",
+             "--ld-path", "-save-temps", "--save-temps", "-dumpdir", "-dumpbase", "-fdump-",
+             "-aux-info", "-MD", "-MMD", "-MF", "-ftime-trace", "-fcrash-diagnostics",
+             "-gsplit-dwarf", "--serialize-diagnostics", "-fmodules-cache-path",
+             "-fmodule-output", "-foptimization-record-file", "-fsave-optimization-record",
+             "-fdiagnostics-format=sarif", "-fdiagnostics-add-output",
+             "-fdiagnostics-set-output", "--gcc-toolchain", "--gcc-install-dir", "-ccc-",
+             "--config", "-fstack-usage", "-fcallgraph-info", "-fopt-info", "-ftest-coverage",
+             "--coverage", "-coverage", "-fprofile-arcs", "-objcmt", "-fintegrated-cc1",
+             "-fno-integrated-cc1", "--driver-mode")
+# TeX engines (no Lua engines: their io and os libraries; no latexmk: its rc files are Perl)
+RO_TEX = {"pdflatex", "xelatex", "latex", "pdftex", "xetex", "tex"}
+# options (also as an unambiguous prefix: web2c uses getopt_long_only) that run programs or
+# change kpathsea's settings
+RO_TEX_BAD = ("shell-escape", "shell-restricted", "enable-write18", "cnf-line", "output-driver",
+              "progname")
 
 
 def _ro_scratch_roots(bases):
@@ -7334,6 +7376,52 @@ def _ro_project_dirs(bases, roots):
     return out
 
 
+def _ro_since(ev):
+    """When the calling agent first started (its registry `first_started`, written once by
+    SubagentStart; `started` for a record from before that key), else None. The state dir is
+    outside what sandboxed Bash may write, so an agent can't move this stamp."""
+    sid, aid = ev.get("session_id"), ev.get("agent_id")
+    if not (isinstance(sid, str) and sid.strip() and isinstance(aid, str) and aid.strip()):
+        return None
+    rec = read_json(reg_path(os.path.join(state_root(), safe(sid, "nosession")), aid)) or {}
+    for key in ("first_started", "started"):
+        v = rec.get(key)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
+            return float(v)
+    return None
+
+
+def _ro_tmp_values():
+    """The temp-dir variables as the hook sees them: absolute plain paths only (anything else is
+    left unexpanded, so a path naming it is refused as before)."""
+    out = {}
+    for name in RO_TMP_VARS:
+        v = (os.environ.get(name) or "").rstrip("/")
+        if v and os.path.isabs(v) and _PLAIN_PATH.match(v):
+            out[name] = v
+    return out
+
+
+def _pytest_config(path, name):
+    """Would pytest read `path` (a pytest.ini, pyproject.toml, tox.ini or setup.cfg) as its
+    config? pytest.ini always; the others only with a pytest section (conservatively: any TOML
+    header, key or dotted key naming pytest, or a \\u escape that could spell it). Unreadable or
+    too big: yes."""
+    if name in ("pytest.ini", ".pytest.ini"):
+        return True
+    try:
+        if os.path.getsize(path) > RO_FILE_MAX:
+            return True
+        with open(path, encoding="utf-8", errors="replace") as fh:
+            text = fh.read()
+    except OSError:
+        return True
+    if name == "pyproject.toml":
+        return bool(re.search(r"\\[uU]", text) or re.search(r"(?m)^\s*\[[^\n]*pytest", text, re.IGNORECASE)
+                    or re.search(r"pytest[\"']?\s*(?:\.|=(?!=))", text, re.IGNORECASE))
+    return bool(re.search(r"(?m)^\s*\[[^\]\n]*pytest[^\]\n]*\]", text, re.IGNORECASE))
+
+
 class _ReadOnly(object):
     """The read-only check of one Bash command for a READONLY_TYPES agent: the first violation as
     (what, why), else None. ctx (per simple command): piped (stdin comes from a pipe), herestr
@@ -7360,12 +7448,109 @@ class _ReadOnly(object):
         self.wrote = False                      # an earlier segment wrote into scratch
         self.pending = False                    # the segment being checked writes into scratch
         self.wrote_paths = []                   # (path, from a plain redirect) written into scratch
+        self.since = _ro_since(ev)              # this agent's first start: older files aren't its
+        self.tmp_vals = _ro_tmp_values()
+        self.rebound = set()                    # temp-dir vars this command may rebind: unexpanded
+        self.assigned = {}                      # NAME=value segments and exports seen so far
 
     # -- paths
     def expand(self, p):
+        """~ and a leading $HOME. $TMPDIR, ${TMPDIR} and $CLAUDE_CODE_TMPDIR are expanded earlier,
+        in the command text (subst_tmp), where quoting still shows which ones the shell expands."""
         if p[:1] == "$":
             p = re.sub(r"\A\$(?:HOME\b|\{HOME\})", lambda m: self.home, p)
         return os.path.expanduser(p) if p[:1] == "~" else p
+
+    def note_rebinds(self, raw, words):
+        """Leave the temp-dir variables unexpanded when the command may rebind them: their name
+        anywhere but in a plain $NAME / ${NAME} reference (an assignment, read NAME,
+        ${NAME:=x}, arithmetic, a quoted split name), a binding builtin with a dynamic argument,
+        or a script sourced into this shell."""
+        if any(not self.tmp_ref_at(raw, m) for m in RO_TMP_NAME_RE.finditer(raw)):
+            self.rebound.update(RO_TMP_VARS)
+        seg = []
+        for w in words + [";"]:
+            if not SEP_RE.match(w):
+                if any(not self.tmp_ref_at(w, m) for m in RO_TMP_NAME_RE.finditer(w)):
+                    self.rebound.update(RO_TMP_VARS)
+                seg.append(w)
+                continue
+            args = seg
+            while args and (ASSIGN_RE.match(args[0]) or args[0] in RO_KEYWORDS):
+                args = args[1:]
+            if args and (args[0] in ("source", ".") or (args[0] in RO_BIND_BUILTINS and any(
+                    _expansion(a) for a in args[1:]))):
+                self.rebound.update(RO_TMP_VARS)
+            seg = []
+
+    @staticmethod
+    def tmp_ref_at(s, m):
+        """Is the temp-dir name matched by m a plain $NAME or ${NAME} reference in s?"""
+        a, b = m.start(), m.end()
+        if s[a - 1:a] == "$" and a >= 1:
+            return not (b < len(s) and (s[b].isalnum() or s[b] == "_"))
+        return s[a - 2:a] == "${" and s[b:b + 1] == "}"
+
+    def subst_tmp(self, raw, text):
+        """Expand $TMPDIR, ${TMPDIR} and $CLAUDE_CODE_TMPDIR in the lexed command text where the
+        shell would (unquoted or in double quotes, not escaped), to the hook's own value; every
+        reference must be accounted for, else nothing is expanded and the words keep the `$`."""
+        vals = {k: v for k, v in self.tmp_vals.items() if k not in self.rebound}
+        if not vals or "TMPDIR" not in text:
+            return text
+        try:
+            words = _shell_words(text)
+        except ValueError:
+            return text
+        self.note_rebinds(raw, words)
+        vals = {k: v for k, v in vals.items() if k not in self.rebound}
+        if not vals:
+            return text
+        word_refs = sum(len(RO_TMP_REF_RE.findall(w)) for w in words)
+        out, i, n, sq, dq, refs = [], 0, len(text), False, False, 0
+        while i < n:
+            c = text[i]
+            if sq:
+                sq = c != "'"
+            elif c == "\\":
+                out.append(text[i:i + 2])
+                i += 2
+                continue
+            elif c == "'" and not dq:
+                sq = True
+            elif c == '"':
+                dq = not dq
+            elif c == "$":
+                m = RO_TMP_REF_RE.match(text, i)
+                if m:
+                    refs += 1
+                    name = m.group(1) or m.group(2)
+                    if name not in vals:
+                        return text
+                    out.append(vals[name])
+                    i = m.end()
+                    continue
+            out.append(c)
+            i += 1
+        return "".join(out) if refs == word_refs else text
+
+    def scratch_value(self, v):
+        """A variable value naming only a scratch place: a scratch path, or $(mktemp ...) of a
+        fresh temp file or dir."""
+        return bool(v) and (bool(RO_MKTEMP_RE.match(v)) or self.scratch(v))
+
+    def foreign(self, real):
+        """A file under a .claude-work dir that this agent did not write: neither its content nor
+        its metadata changed since the agent first started (st_ctime can't be set back from user
+        space, unlike st_mtime). It runs like the project's own code. Without a start stamp
+        (no agent id, unreadable registry) nothing is foreign."""
+        if self.since is None or ".claude-work" not in real.split("/"):
+            return False
+        try:
+            st = os.stat(real)
+        except OSError:
+            return False
+        return max(st.st_mtime, st.st_ctime) < self.since
 
     def resolve(self, p):
         return os.path.normpath(os.path.join(self.cwd or self.bases[0], self.expand(p)))
@@ -7456,10 +7641,23 @@ class _ReadOnly(object):
         return None
 
     def file_content(self, real, what, fam, depth, seen):
-        if real in seen:
+        if real in seen or ("foreign", real) in seen:
             return None
+        if self.foreign(real):
+            # another agent's project code: it runs unread, like the project's own; modules it
+            # imports from its directory that this agent wrote are still read
+            seen.add(("foreign", real))
+            if len(seen) > 4000:
+                return (what, "runs scratch code that pulls in too many other files to check")
+            try:
+                with open(real, "rb") as fh:
+                    text = fh.read(RO_FILE_MAX).decode("utf-8")
+            except (OSError, UnicodeDecodeError):
+                return None
+            fam = fam or self.shebang_family(text)
+            return self.file_imports(real, text, fam, what, depth, seen) if fam else None
         seen.add(real)
-        if len(seen) > RO_FILE_SEEN:
+        if sum(isinstance(x, str) for x in seen) > RO_FILE_SEEN:
             return (what, "runs a scratch file that pulls in too many other files to check")
         try:
             if not os.path.isfile(real):
@@ -7629,13 +7827,15 @@ class _ReadOnly(object):
             targets = [a]
         for t in targets:
             if os.path.isdir(t):
-                files, n = [], 0
+                files, n, own = [], 0, 0
                 for cur, subdirs, names in os.walk(t):
                     subdirs[:] = sorted(x for x in subdirs if x not in (
                         "node_modules", "__pycache__", ".git", ".venv", "venv"))
-                    files += [os.path.join(cur, x) for x in sorted(names) if x.endswith(suffixes)]
+                    batch = [os.path.join(cur, x) for x in sorted(names) if x.endswith(suffixes)]
+                    files += batch
+                    own += sum(not self.foreign(f) for f in batch)    # another agent's: unread
                     n += len(names)
-                    if n > 4000 or len(files) > RO_FILE_SEEN:
+                    if n > 4000 or own > RO_FILE_SEEN:
                         return (what, "runs a scratch directory with too many files to check")
             else:
                 files = [t]
@@ -7651,15 +7851,18 @@ class _ReadOnly(object):
 
     def py_chain(self, files, what, depth, seen):
         """pytest imports conftest.py and __init__.py of every directory from a test file up to the
-        scratch root, and reads a config file found on the way."""
+        scratch root, and reads a config file found on the way (a pyproject.toml, tox.ini or
+        setup.cfg only when it has a pytest section; one another agent wrote is the project's)."""
         for f in files:
             d = os.path.dirname(f)
             root = self.root_of(d) or d
             while _within(d, root):
                 for cfg in RO_PY_CONFIGS:
-                    if os.path.isfile(os.path.join(d, cfg)):
+                    p = os.path.join(d, cfg)
+                    if os.path.isfile(p) and not self.foreign(os.path.realpath(p)) and \
+                            _pytest_config(p, cfg):
                         return (what, "would read %s from the scratch dirs (a pytest config there "
-                                      "can load plugins and code)" % os.path.join(d, cfg))
+                                      "can load plugins and code)" % p)
                 for name in ("conftest.py", "__init__.py"):
                     c = os.path.join(d, name)
                     if os.path.isfile(c):
@@ -7754,6 +7957,7 @@ class _ReadOnly(object):
             return (command[:120], "can't be checked (%s)" % exc)
         if len(text) > MAX_COMMAND:
             return (command[:120], "is too long to check")
+        text = self.subst_tmp(command, text)
         for inner, _pos in substs:              # $(...), `...`, <(...): all of them run
             found = self.check(inner, depth + 1)
             if found:
@@ -7862,8 +8066,11 @@ class _ReadOnly(object):
                 name, _, value = args[0].partition("=")
                 ctx["assigns"][name.rstrip("+")] = value
             args = args[1:]
-        if not args or args[0] in ("for", "select", "in", "esac", "]]", "]", "fi", "done"):
-            return None                         # an assignment, a loop header, a lone keyword
+        if not args:                            # NAME=value alone: it holds for later segments
+            self.assigned.update(ctx["assigns"])
+            return None
+        if args[0] in ("for", "select", "in", "esac", "]]", "]", "fi", "done"):
+            return None                         # a loop header, a lone keyword
         return self.command(args, ctx, depth)
 
     def assign(self, word):
@@ -7895,6 +8102,8 @@ class _ReadOnly(object):
         if len(rest) == 1 and rest[0] in RO_VERSION_FLAGS and base not in SHELLS \
                 and not INTERPRETER_RE.match(base):
             return None
+        if base == "export":
+            return self.export(rest, what)
         if base in RO_PLAIN:
             return self.plain(base, rest, ctx, depth, what)
         if base in RO_WRITERS:
@@ -7948,6 +8157,7 @@ class _ReadOnly(object):
                 bad = self.assign(a)
                 if bad:
                     return bad
+                ctx["assigns"][a.partition("=")[0].rstrip("+")] = a.partition("=")[2]
                 k += 1
             elif base == "env" and a.split("=")[0] in ("-S", "--split-string"):
                 return self.check(" ".join(rest[k + 1:]), depth + 1)
@@ -7969,6 +8179,23 @@ class _ReadOnly(object):
             else:
                 break
         return self.command(rest[k:], ctx, depth) if rest[k:] else None
+
+    def export(self, rest, what):
+        """export NAME=<scratch path> (or =$(mktemp ...)) for a variable that runs nothing."""
+        if not rest:
+            return (what, "prints the environment (it can hold keys)")
+        for a in rest:
+            name, eq, value = a.partition("=")
+            if not eq or not ASSIGN_RE.match(a) or name.endswith("+"):
+                return (what, "exports only NAME=<scratch path> (no options, no bare names)")
+            bad = self.assign(a)
+            if bad:
+                return bad
+            if not self.scratch_value(value):
+                return (what, (f"exports {name} with a value that is not a scratch path or "
+                               "$(mktemp ...)"))
+            self.assigned[name] = value
+        return None
 
     # -- families
     def outputs(self, rest, what, names=RO_OUT_OPTS):
@@ -8314,9 +8541,62 @@ class _ReadOnly(object):
         if inline:
             return None
         if k < len(rest) and rest[k] != "-":
+            if fam == "python":
+                found = self.stack_cli(rest[k], rest[k + 1:], ctx, what)
+                if found != "no":
+                    return found
             return self.run_file(rest[k], what, fam, depth)
         return self.scratch_import_cwd(fam, what) or self.stdin_program(
             ctx, depth, what, lambda s: self.code(s, what, fam), fam)
+
+    def stack_cli(self, script, args, ctx, what):
+        """The stack's own hook CLIs that only check or report: agent_guard.py --self-test or
+        --print-policy, stack_sched.py plan, and stack_sched.py replay with its report in
+        scratch. The script must be a hooks/ file outside scratch (installed or in the stack's
+        repo). "no" when this is none of them (the script is judged like any other)."""
+        if not script or _expansion(self.expand(script)):
+            return "no"
+        lex = self.resolve(script)
+        real = os.path.realpath(lex)
+        name = os.path.basename(real)
+        if name not in ("agent_guard.py", "stack_sched.py") or \
+                os.path.basename(os.path.dirname(real)) != "hooks" or \
+                os.path.basename(lex) != name or self.in_scratch(lex) or \
+                self.in_scratch(real) or not os.path.isfile(real):
+            return "no"
+        if name == "agent_guard.py":
+            if args not in (["--self-test"], ["--print-policy"]):
+                return (what, "runs agent_guard.py beyond --self-test and --print-policy")
+            state = ctx["assigns"].get("XDG_STATE_HOME", self.assigned.get("XDG_STATE_HOME"))
+            if state is not None and not self.scratch_value(state):
+                return (what, "points the self-test's state dir (XDG_STATE_HOME) outside scratch")
+            return None
+        def opt(word, full, least):             # argparse takes an unambiguous prefix
+            return len(word) >= least and full.startswith(word)
+
+        k = 0                                   # stack_sched.py [--model FILE] plan|replay ...
+        while k < len(args) and args[k].startswith("-"):
+            k += 2 if "=" not in args[k] and opt(args[k], "--model", 3) else 1
+        sub, sub_args = (args[k], args[k + 1:]) if k < len(args) else ("", [])
+        if sub == "plan":
+            return None
+        if sub != "replay":
+            return (what, "runs stack_sched.py beyond plan and replay")
+        session, out = None, None
+        for j, a in enumerate(sub_args):
+            name_, eq, val = a.partition("=")
+            val = val if eq else (sub_args[j + 1] if j + 1 < len(sub_args) else "")
+            if opt(name_, "--session", 5):
+                session = val
+            elif opt(name_, "--out", 3):
+                out = val
+        if not session or not re.fullmatch(r"[\w-]+", session):
+            return (what, "replays a session id that is not a plain name")
+        target = out if out is not None else os.path.join(".claude-work", "agents-sched", "x.md")
+        if not self.scratch(target):
+            return (what, "writes the replay report outside the scratch dirs (--out)")
+        self.pending = True
+        return None
 
     def scratch_import_cwd(self, fam, what):
         """python puts the cwd (or '') first on sys.path for -c and stdin programs: from a scratch
@@ -8680,6 +8960,10 @@ class _ReadOnly(object):
                 return None
             return (what, "is not a read-only claude command (--version, mcp list, mcp get, "
                           "plugin list)")
+        if base in RO_COMPILERS:
+            return self.compiler(rest, what)
+        if base in RO_TEX:
+            return self.tex(rest, what)
         if base == "tar":
             return self.tar(rest, what)
         if base == "unzip":
@@ -8759,6 +9043,62 @@ class _ReadOnly(object):
                 (what, "is not a read-only form")
         return (what, "is not on the read-only list")
 
+    def compiler(self, rest, what):
+        """cc, c++, clang, clang++, gcc, g++: -fsyntax-only, -E (to stdout or -o scratch), or a
+        build whose every -o is scratch (the program it builds is not run: a scratch binary is
+        refused). Options that run other programs, load plugins, config or response files, or
+        write files of their own are refused."""
+        outs = []
+        for j, a in enumerate(rest):
+            bad = next((p for p in RO_CC_BAD if a.startswith(p)), None)
+            if bad:
+                return (what, ("runs other programs, loads plugins or config, or writes files "
+                               f"of its own ({a[:60]})"))
+            if a in ("-o", "--output"):
+                outs.append(rest[j + 1] if j + 1 < len(rest) else "")
+            elif a.startswith("--output="):
+                outs.append(a.split("=", 1)[1])
+            elif a.startswith("-o"):
+                outs.append(a[2:])
+        for o in outs:
+            if not o or (o != "-" and not self.scratch(o)):
+                return (what, "writes %s outside the scratch dirs" % (o or "?"))
+        if not outs and not any(a in ("-fsyntax-only", "-E") for a in rest):
+            return (what, ("builds into the project (use -o ./.claude-work/<job>/a.out, "
+                           "-fsyntax-only or -E)"))
+        if any(o != "-" for o in outs):
+            self.pending = True
+        return None
+
+    def tex(self, rest, what):
+        """pdflatex, xelatex, latex, pdftex, xetex, tex: only with -no-shell-escape and
+        -output-directory in scratch (TeX's own \\openout stays in the output dir)."""
+        noshell, outdir = False, None
+        for j, a in enumerate(rest):
+            if not a.startswith("-") or a == "-":
+                continue
+            name, eq, val = a.lstrip("-").partition("=")
+            nxt = rest[j + 1] if j + 1 < len(rest) else ""
+            if name == "no-shell-escape":
+                noshell = True
+                continue
+            if len(name) >= 2 and any(b.startswith(name) for b in RO_TEX_BAD):
+                return (what, f"runs programs or changes TeX's settings ({a[:60]})")
+            if len(name) >= 8 and "output-directory".startswith(name):
+                outdir = val if eq else nxt
+            elif len(name) >= 2 and "aux-directory".startswith(name):
+                if not self.scratch(val if eq else nxt):
+                    return (what, "writes aux files outside the scratch dirs")
+            elif len(name) >= 2 and "jobname".startswith(name) and "/" in (val if eq else nxt):
+                return (what, "names its output with a path (-jobname)")
+        if not noshell:
+            return (what, "may run shell commands from the document (add -no-shell-escape)")
+        if not outdir or not self.scratch(outdir):
+            return (what, ("writes its output outside the scratch dirs (add -output-directory="
+                           "./.claude-work/<job>/)"))
+        self.pending = True
+        return None
+
     def tar(self, rest, what):
         bad = [a for a in rest if a.split("=")[0] in ("-I", "--use-compress-program",
                                                       "--to-command", "--checkpoint-action",
@@ -8800,7 +9140,8 @@ class _ReadOnly(object):
                     return self.py_module(rest[k + 1], rest[k + 2:], ctx, depth, what)
                 k += 2 if rest[k] in opts_with_value else 1
             if k < len(rest) and re.search(r"\.pyw?\Z", rest[k]):
-                return self.run_file(rest[k], what, "python", depth)
+                found = self.stack_cli(rest[k], rest[k + 1:], ctx, what)
+                return self.run_file(rest[k], what, "python", depth) if found == "no" else found
             return self.command(rest[k:], ctx, depth + 1) if rest[k:] else \
                 (what, "opens a REPL")
         if sub in ("tree", "audit", "help") or rest[:1] in (["--version"], ["-V"]):
@@ -9025,7 +9366,14 @@ def self_test():
         finally:
             shutil.rmtree(probe, ignore_errors=True)
     except Exception as exc:  # report, do not crash
-        problems.append("state dir %s not writable: %s" % (state_root(), exc))
+        if isinstance(exc, OSError) and exc.errno == errno.EPERM:
+            # EPERM is the sandbox's answer (Seatbelt denies writes with it; a plain permission
+            # problem is EACCES): this run can't probe the state dir, the hooks (unsandboxed) can
+            sys.stdout.write(f"agent_guard self-test: WARN state dir {state_root()} not writable "
+                             "here (EPERM: sandboxed Bash; set XDG_STATE_HOME to a scratch dir to "
+                             f"probe it): {exc}\n")
+        else:
+            problems.append(f"state dir {state_root()} not writable: {exc}")
     if problems:
         for p in problems:
             sys.stdout.write("agent_guard self-test: FAIL %s\n" % p)

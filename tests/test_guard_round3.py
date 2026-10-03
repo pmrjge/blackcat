@@ -369,3 +369,64 @@ def test_the_project_is_claude_project_dir_when_set(tmp_path, monkeypatch):
     assert G.readonly_violation("echo x > %s" % (moved / "n.txt"), ev) is None
     assert G.readonly_violation("echo x > %s" % (proj / "src" / "a.py"), ev)
     assert G.readonly_violation("echo x > src/a.py", {"cwd": str(proj)})
+
+
+# ---------------------------------------------------------------- T4: sandbox env, domains, self-test
+def test_session_env_redirects_cabal_and_puts_a_julia_depot_first(tmp_path):
+    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    import agent_guard as G
+    home, env_file = tmp_path / "home", tmp_path / "env.sh"
+    home.mkdir()
+    assert session_env(home, env_file).returncode == 0
+    cabal, julia, rustup = sourced(env_file, "CABAL_DIR", "JULIA_DEPOT_PATH", "RUSTUP_HOME")
+    root = str(home / ".cache" / "claude-sandbox")
+    assert cabal == root + "/cabal"
+    assert julia == root + "/julia:"          # the trailing ':' keeps Julia's default depots
+    assert rustup == "UNSET"                  # ~/.rustup stays the user's (installs stay blocked)
+    assert not any(k.startswith(("RUSTUP", "UV_TOOL")) for k, _ in G.SANDBOX_ENV)
+
+
+def test_network_allowlist_gains_the_package_and_docs_hosts_and_stays_strict():
+    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    net = s["sandbox"]["network"]
+    assert net["strictAllowlist"] is True
+    assert {"code.claude.com", "repo1.maven.org", "repo.maven.apache.org", "hackage.haskell.org",
+            "storage.julialang.net"} <= set(net["allowedDomains"])
+    assert not any("*" == d or d.startswith("*.") and d.count(".") < 2
+                   for d in net["allowedDomains"])
+
+
+def _self_test_with_probe_error(monkeypatch, err):
+    import errno as _errno
+    import io
+    import tempfile
+    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    import agent_guard as G
+    real = tempfile.mkdtemp
+
+    def mkdtemp(*a, **kw):
+        if str(kw.get("prefix", "")).startswith(".self-test-"):
+            raise OSError(getattr(_errno, err), os.strerror(getattr(_errno, err)))
+        return real(*a, **kw)
+    monkeypatch.setattr(tempfile, "mkdtemp", mkdtemp)
+    out = io.StringIO()
+    monkeypatch.setattr(sys, "stdout", out)
+    rc = G.self_test()
+    return rc, out.getvalue()
+
+
+def test_self_test_reports_a_sandboxed_state_dir_as_a_warning(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path))
+    rc, out = _self_test_with_probe_error(monkeypatch, "EPERM")
+    assert rc == 0 and "WARN state dir" in out and "self-test: ok" in out, out
+    rc, out = _self_test_with_probe_error(monkeypatch, "EACCES")      # a real permission problem
+    assert rc == 1 and "FAIL state dir" in out, out
+
+
+def test_self_test_probes_xdg_state_home(tmp_path):
+    import subprocess
+    env = dict(os.environ, XDG_STATE_HOME=str(tmp_path))
+    p = subprocess.run(["/usr/bin/python3", str(ROOT / "dot-claude" / "hooks" / "agent_guard.py"),
+                        "--self-test"], capture_output=True, text=True, env=env, timeout=120, check=False)
+    assert p.returncode == 0 and "WARN" not in p.stdout, p.stdout + p.stderr
+    assert (tmp_path / "claude-agent-stack").is_dir()

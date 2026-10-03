@@ -1,5 +1,5 @@
 """Regression tests for the 2026-09-26 hook review (liveness, god-coder singleton, id joins).
-Run: uv run --python 3.12 --with pytest pytest -q tests/test_guard_regressions.py
+Run: uv run --python 3.13 --with pytest pytest -q tests/test_guard_regressions.py
 GUARD=/path/to/agent_guard.py points them at another copy of the hook.
 """
 import os
