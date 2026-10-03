@@ -1970,8 +1970,12 @@ def shipped_permission_scalars(commit):
 # manifest older than "settings_permission_scalars" (installers up to 2026-10-03 overwrote the
 # scalar on every run, so the value then in place was the one that commit shipped) from the
 # settings.json of the commit it records. Neither: nothing of yours is changed.
+# An installer older than that key keeps it but rewrites "commit" (a rollback): the record counts only
+# for the commit it was written with.
 prev_perm_scalars = manifest.get("settings_permission_scalars")
-if not isinstance(prev_perm_scalars, dict):
+if not isinstance(prev_perm_scalars, dict) or (
+        os.environ.get("PREV_COMMIT")
+        and manifest.get("settings_permission_scalars_commit") != os.environ["PREV_COMMIT"]):
     prev_perm_scalars = shipped_permission_scalars(os.environ.get("PREV_COMMIT"))
 MODE_NOTICE = ("default permission mode is now plan; you were on %s by default; Shift+Tab or "
                "ExitPlanMode to change it. To start every session in %s again, set "
@@ -2355,6 +2359,7 @@ manifest["settings_permissions"] = {pk: pv for pk, pv in (new.get("permissions")
                                     if isinstance(pv, list)}
 manifest["settings_permission_scalars"] = {pk: pv for pk, pv in (new.get("permissions") or {}).items()
                                            if not isinstance(pv, list)}
+manifest["settings_permission_scalars_commit"] = manifest.get("commit")
 manifest["settings_set_if_absent"] = {k: new[k] for k in SET_IF_ABSENT if k in new}
 manifest["settings_sandbox"] = new.get("sandbox") or {}
 with open(manifest_path + ".tmp", "w") as f:

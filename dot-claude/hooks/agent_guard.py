@@ -27,7 +27,7 @@ Reads the hook JSON on stdin.
                                     lease), session copy cap, blackcat dispatch and step limits
                                     (atomic markers), supreme-coder singleton (pending lease), strip
                                     `model` (then set it to the user's /override-agent model for
-                                    this session, if any), and drop a BlackCat
+                                    this session, if any) and `mode`, and drop a BlackCat
                                     `run_in_background: false` (its
                                     children run in the background: BLACKCAT_BACKGROUND); after
                                     every gate, label the child (STACK_AGENT_LABEL: description
@@ -821,7 +821,8 @@ def mode_probe(ev):
         root = state_root()
         os.makedirs(root, exist_ok=True)
         fd = os.open(os.path.join(root, MODE_PROBE_FILE),
-                     os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+                     os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0),
+                     0o600)
         try:
             st = os.fstat(fd)
             if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
@@ -1596,6 +1597,12 @@ def on_agent(ev, d):
         new_input.pop("model")
         why.append("model override removed; " + ("the user's /override-agent decides" if forced
                                                   else "agent definition decides"))
+    # Agent `mode` (2.1.287 schema: "Deprecated; ignored. Subagents inherit the parent session's
+    # permission mode; agent-definition frontmatter may override it."): a caller never picks its
+    # child's permission mode, should a later version honour it again
+    if "mode" in ti:
+        new_input.pop("mode")
+        why.append("mode removed; the session's mode and the agent definition decide")
     if blackcat_foreground(ev, ti):
         new_input.pop("run_in_background")
         why.append("BlackCat dispatches run in the background")

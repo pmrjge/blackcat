@@ -1466,6 +1466,18 @@ CLAUDE_CONFIG_DIR="$TP/lost" "$INSTALL" --no-mcp --no-plugins --no-deps --no-pro
 [ "$(dmode "$TP/lost")" = bypassPermissions ] && grep -q "can't tell the stack's earlier default from your choice" "$TP/lost.log" \
   && pass "an unknown last-install commit: bypassPermissions kept, and the installer says why" \
   || { failed "defaultMode with an unknown last-install commit: $(dmode "$TP/lost")"; grep -i 'defaultMode' "$TP/lost.log" | sed 's/^/    /'; }
+# a rollback through an older installer: it rewrites the commit and the mode (bypassPermissions) but keeps
+# the manifest's settings_permission_scalars it doesn't know; the record counts only for its own commit
+CLAUDE_CONFIG_DIR="$TP/rb" "$TP/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile --yes >/dev/null 2>&1
+python3 - "$TP/rb" "$(tgit -C "$TP/repo" rev-parse HEAD~1)" <<'PY'
+import json, os, sys
+m = os.path.join(sys.argv[1], ".stack-manifest.json"); d = json.load(open(m)); d["commit"] = sys.argv[2]; json.dump(d, open(m, "w"))
+p = os.path.join(sys.argv[1], "settings.json"); s = json.load(open(p)); s["permissions"]["defaultMode"] = "bypassPermissions"; json.dump(s, open(p, "w"))
+PY
+CLAUDE_CONFIG_DIR="$TP/rb" "$TP/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile --yes >"$TP/rb.log" 2>&1
+[ "$(dmode "$TP/rb")" = plan ] && grep -q 'permission mode is now plan' "$TP/rb.log" \
+  && pass "rollback through an older installer: its bypassPermissions moves to plan again" \
+  || failed "stale settings_permission_scalars kept bypassPermissions: $(dmode "$TP/rb")"
 assert_unchanged_real_home
 drop_scratch "$TP"
 

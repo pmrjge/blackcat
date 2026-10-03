@@ -175,3 +175,11 @@ def test_probe_never_follows_a_symlink(tmp_path):
     p = guard(pre("s5", "Read", file_path="/z"), tmp_path, ["budget"])
     assert p.returncode == 0 and target.read_text() == ""
     assert "mode probe" in p.stderr                     # warned, the call itself allowed
+
+
+def test_probe_never_hangs_on_a_fifo(tmp_path):
+    root = tmp_path / "state" / "claude-agent-stack"
+    root.mkdir(parents=True)
+    os.mkfifo(root / "mode-probe.jsonl")
+    p = guard(pre("s6", "Read", file_path="/z"), tmp_path, ["budget"])      # timeout=60 would raise
+    assert p.returncode == 0 and "mode probe" in p.stderr

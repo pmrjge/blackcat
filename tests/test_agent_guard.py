@@ -920,6 +920,18 @@ def test_model_strip(env):
     assert p.stdout == ""
 
 
+@pytest.mark.parametrize("mode", ["bypassPermissions", "acceptEdits", "plan"])
+def test_agent_mode_input_is_removed(env, mode):
+    """A caller never picks its child's permission mode (the Agent tool's `mode`, deprecated and
+    ignored in 2.1.287), whatever it asks for, also from a subagent."""
+    for parent, aid in (("blackcat", None), ("main-coder", "M1")):
+        p = run(pre_agent(sid(), "coder", parent=parent, agent_id=aid, mode=mode), env,
+                extra={"STACK_AGENT_LABEL": "off"})
+        out = json.loads(p.stdout)["hookSpecificOutput"]
+        assert "mode" not in out["updatedInput"] and out["updatedInput"]["subagent_type"] == "coder"
+        assert "mode removed" in out["permissionDecisionReason"]
+
+
 def test_shipped_spawn_defaults(bare_env):
     """No knobs set: BlackCat 8 dispatches, 24 steps and 4 own calls per prompt; the per-type
     fan-out table."""

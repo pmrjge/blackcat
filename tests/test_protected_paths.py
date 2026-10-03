@@ -4,7 +4,7 @@ chmod/ln/touch/truncate, tar -x/unzip, inline python/node/perl code) is denied w
 path already denied to the Read/Edit/Write tools (the stack's config dir: hooks/, bin/, agents/,
 rules/, mcp/, magg/, skills/, CLAUDE.md, backup-*/, settings.json; the hook state dir; the
 project's .git hooks/config and .claude settings). Claude Code's own protected-path check applies
-to the Edit/Write tools, not to raw Bash, and bypassPermissions mode (the stack's default) skips
+to the Edit/Write tools, not to raw Bash, and bypassPermissions mode (a mode users may choose) skips
 even that — this hook is the replacement, and it must not block ordinary Bash writes elsewhere.
 
 Run: uv run --with pytest pytest -q tests/test_protected_paths.py
