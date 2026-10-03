@@ -457,6 +457,10 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 
 Entries name agents, knobs and files by their current names.
 
+### 2026-10-03 (prompt budget base frozen)
+
+- `tests/prompt_budget.py --check` compares with its base revision through git; in a clone without that commit (a fresh history, an export without `.git`) it skipped every ratio check. It now falls back to `tests/fixtures/prompt_budget_base.json`, the base's measurement frozen (totals, and per agent description, body, maxTurns and per spawn; the base agent no current agent matches is left out, as `check()` never compares it), so the ratios run there too. `tests/test_prompt_budget.py` checks the fixture against a live measurement when the commit is present and the fallback with a seeded violation. The collector upgrade tests in `tests/test_stack_usage.py` still skip without their commits (README, Contributing). Nothing to rerun.
+
 ### 2026-10-03 (Playwright MCP output dir created by the installer)
 
 - install.sh now creates `~/.cache/claude-sandbox/playwright-mcp` (the rendered `--output-dir` of the Playwright entries; parents new to it get 0700, like the session-env hook's `~/.cache/claude-sandbox`, and the folder itself is set to 0700) after applying the files, when an installed agent or the magg catalog names it; `--dry-run` creates nothing. doctor.sh checks every path in an MCP entry's args and reported `[Binaries] ~/.cache/claude-sandbox/playwright-mcp missing` as a FAIL on a fresh install: the entry below assumed the server creates the folder on its first write, and doctor checks before any server has run. doctor's check stays. Tests: `tests/test_playwright_mcp.py` (the path install.sh builds matches the entries) and `tests/install_smoke.sh` §8 (created 0700 under a scratch HOME, doctor quiet about it, nothing under `--dry-run`). Rerun install.sh.

@@ -122,3 +122,29 @@ def test_check_defaults_to_base():
 def test_missing_base_skips_ratios():
     r = run("--base", "0" * 40, "--check")
     assert "ratio checks skipped" in r.stderr
+
+
+def test_frozen_base_matches_a_live_measurement():
+    """BASE_FIXTURE is measure(Tree(BASE)) reduced to what check() and the table read; it drops only
+    a base agent no agent of the working tree matches (one that never enters a ratio)."""
+    if not pb.rev_exists(BASE):
+        pytest.skip("base revision %s not in this clone: the fixture is the only measurement" % BASE)
+    live, fx = pb.measure(pb.Tree(BASE)), pb.frozen_base(BASE)
+    assert {k: v for k, v in live.items() if k != "agents"} == {k: v for k, v in fx.items() if k != "agents"}
+    for n, rec in fx["agents"].items():
+        assert {k: live["agents"][n][k] for k in rec} == rec, n
+    dropped = set(live["agents"]) - set(fx["agents"])
+    assert not dropped & set(pb.measure(pb.Tree())["agents"])
+
+
+def test_check_uses_the_frozen_base_without_the_commit(monkeypatch, capsys):
+    """Without the base commit (a fresh history, an export without .git) --check still runs the
+    ratios, against the frozen measurement: a seeded violation fails it."""
+    monkeypatch.setattr(pb, "rev_exists", lambda rev: False)
+    assert pb.main(["--check", "--json"]) == 0
+    err = capsys.readouterr().err
+    assert "frozen measurement" in err and "ratio checks skipped" not in err
+    fx = pb.frozen_base(BASE)
+    monkeypatch.setattr(pb, "frozen_base", lambda rev: dict(fx, rules=1))
+    assert pb.main(["--check", "--json"]) == 1
+    assert "prompt_budget: FAIL rules:" in capsys.readouterr().err

@@ -25,7 +25,8 @@ blackcat: blackcat_listing). Tokens ~ ceil(chars / 3).
              (leaf); and against the base (--base, default DEFAULT_BASE): bodies of the agents present
              at base <= 0.867 x base, agent listing <= 0.97 x, blackcat listing <= 0.96 x, skill listing
              <= 0.478 x, rules <= 0.95 x, mean per spawn of the base agents (blackcat excluded: it is the
-             main thread, never spawned) <= 0.691 x. Ratios are skipped when the base revision is missing.
+             main thread, never spawned) <= 0.691 x. Without the base revision in this clone, DEFAULT_BASE
+             falls back to its frozen measurement (BASE_FIXTURE); any other missing base skips the ratios.
 --turns      read Claude Code subagent transcripts (read-only; default
              ~/.claude/projects/**/subagents/agent-*.meta.json) and print p50/p90/max turns per agent
              type (one turn = one assistant message id).
@@ -44,6 +45,7 @@ ROOT = Path(__file__).resolve().parent.parent
 DOT = "dot-claude"
 RULES = DOT + "/rules/claude-agent-stack.md"
 DEFAULT_BASE = "ad22962"   # phase-3 baseline (main after phase 2: 56 agents, 248 skills)
+BASE_FIXTURE = ROOT / "tests" / "fixtures" / "prompt_budget_base.json"   # DEFAULT_BASE measured, frozen
 DESC_MAX = 200
 BLACKCAT_BODY_MAX = 5200
 # agents absent at base: (description cap, body cap) with the Agent tool / as a leaf
@@ -132,6 +134,15 @@ class Tree:
         r = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "-r", "--name-only", self.rev, rel_dir],
                            capture_output=True, text=True)
         return sorted(r.stdout.split()) if r.returncode == 0 else []
+
+
+def frozen_base(rev):
+    """BASE_FIXTURE's measurement when it is the one of `rev`, else None."""
+    try:
+        doc = json.loads(BASE_FIXTURE.read_text())
+    except (OSError, ValueError):
+        return None
+    return doc["measure"] if doc.get("rev") == rev else None
 
 
 def rev_exists(rev):
@@ -423,6 +434,10 @@ def main(argv=None):
     if args.base:
         if rev_exists(args.base):
             base = measure(Tree(args.base))
+        elif frozen_base(args.base) is not None:
+            base = frozen_base(args.base)
+            print("prompt_budget: base revision %r not in this clone; ratio checks use its frozen "
+                  "measurement (%s)" % (args.base, BASE_FIXTURE.relative_to(ROOT)), file=sys.stderr)
         else:
             print("prompt_budget: base revision %r not found; ratio checks skipped" % args.base,
                   file=sys.stderr)

@@ -1370,9 +1370,10 @@ outside this repository).
 - **Keep the gates green** before a commit: `uv run tests/lint_agents.py`,
   `uv run --script tests/prompt_budget.py --check`, `/usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test`
   and the suite (`~/.claude/venvs/tools/bin/python -m pytest -q tests/`; `bash tests/install_smoke.sh`
-  from your own terminal). Details: [Verify](#verify). A few checks read older commits: the ratio checks
-  of `prompt_budget.py --check` and the collector upgrade tests in `tests/test_stack_usage.py`. In a clone
-  without those commits (or an export without `.git`) they are skipped with a note, and the rest still runs.
+  from your own terminal). Details: [Verify](#verify). The collector upgrade tests in
+  `tests/test_stack_usage.py` read older commits: in a clone without them (or an export without `.git`)
+  they are skipped with a note. `prompt_budget.py --check` then takes its base from
+  `tests/fixtures/prompt_budget_base.json`.
 - **Record parameters with their reason** in [CONFIG.md](CONFIG.md); counts in this README come from the
   files (the commands under [Verify](#verify)).
 - **Hook code stays Python 3.9-compatible and stdlib-only**: the hooks run on `/usr/bin/python3`.
