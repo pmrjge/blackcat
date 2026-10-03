@@ -270,7 +270,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | Web caps | Per-call result and character caps for exa, jina, spider | **by design, not measured** |
 | maxTurns | Set from measured turn counts: at least 1.5 × the p90 where one exists (163 segments of two sessions, 2026-10-02) | CONFIG.md §3; most types have fewer than 5 runs |
 | Soft token limits | Past a per-type limit an agent's next tool call carries one warning to wrap up and return `STATUS: partial`; nothing is refused | Values derived from p90 of healthy segments; all but claude-code-engineer and scout provisional (CONFIG.md §5). Effect on spend: not measured |
-| Hard budgets | Context tokens per human prompt and per session, whole tree (seeds 100,000,000 and 666,000,000); past them every call but reporting is refused | `tests/test_limits_guard.py`, `tests/test_stack_limits.py` |
+| Hard budgets | Context tokens per human prompt and per session, whole tree (seeds 100,000,000 and 1,920,000,000); past them every call but reporting is refused | `tests/test_limits_guard.py`, `tests/test_stack_limits.py` |
 | Learned limits | `stack_limits.py` proposes new turn and token limits from the collector's rows; a session's limits are frozen at its start, inside repo floors and ceilings; fan-out, depth and the MCP cap are fixed guards that never learn (`FIXED_GUARDS`) | `tests/test_stack_limits.py`, `tests/test_sched_snapshot.py`. Calibration on held-out data: only the scheduler replay has one (`tests/derive_wave_sim.py`; with parameters fitted on another session, 16 of 19 replay windows land within 2 %, pinned in `tests/test_stack_sched.py`). A prototype run found the soft limits run hot (10.3 % cap-hit against a 5 % target; unreviewed, campaign worktree only) |
 | Fan-out caps | Running children per agent, copies per type, BlackCat per prompt; a background subtree silent for 600 s stops counting (`STACK_FANOUT_IDLE_S`) | `tests/test_agent_guard.py`, `tests/test_guard_regressions.py` |
 | Scheduler advisor | `stack_sched.py` plans waves under the caps and checks a plan against the limits; advice only (`STACK_SCHED_POLICY=report`) | `tests/test_stack_sched.py`; no behaviour depends on it |
@@ -328,7 +328,7 @@ The full list is in [Knobs](#knobs) and [CONFIG.md](CONFIG.md) §5. The ones mos
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` (in `stack.env`) | today's IDs | What the `opus` and `sonnet` aliases run; re-run the installer |
 | `STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE` | 3; orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8 | Running children per agent |
 | `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_OWN_STEPS` | 8, 24, 4 | BlackCat's Agent calls, all tool calls and own Read/Bash/Write/Edit calls per prompt |
-| `STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET` | learned (seeds 100,000,000 / 666,000,000) | Hard context budgets; a value you set pins them |
+| `STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET` | learned (seeds 100,000,000 / 1,920,000,000) | Hard context budgets; a value you set pins them |
 | `STACK_SOFT_LIMIT_SCALE` | 1 | Multiplies every soft limit; `0` turns them off |
 | `STACK_MAX_MCP_CALLS` | 64 | MCP calls per subagent per prompt |
 | `READ_GATE` (in `stack.env` or the environment) | 1 | `0` turns the read gate off |
@@ -1148,7 +1148,7 @@ you may set yourself.
 | `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
 | `STACK_MAX_SELF_FANOUT` ● | 2 | Live copies per copy type | guard |
 | `STACK_MAX_DEPTH` | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, else 3 | Deny Agent from callers at this depth | guard |
-| `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | learned (seed 100000000 / 666000000) | Context tokens per prompt / per session, whole tree (0 = off); a value you set pins the learned limit | guard |
+| `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | learned (seed 100000000 / 1920000000) | Context tokens per prompt / per session, whole tree (0 = off); a value you set pins the learned limit | guard |
 | `STACK_MAX_MCP_CALLS` ● | 64 | MCP calls per subagent per prompt, lower if `maxTurns` is | guard |
 | `STACK_SOFT_LIMIT_SCALE` | unset = 1 | Multiplies the soft token limits (per agent run, 33M per human prompt, 80M with an orchestrator); `0` = off | guard |
 | `STACK_SCHED_POLICY` | `report` | `report`: the scheduler only reports; `fresh_fixer` (opt-in): `stack_sched.py next` also advises a fresh fixer after a long resume gap. Fixed per session (snapshot) | stack_sched |

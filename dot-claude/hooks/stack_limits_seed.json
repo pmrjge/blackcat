@@ -65,7 +65,7 @@
   "hard.agent.vfx-td": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.writer": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.prompt": {"ceiling": 250000000, "floor": 50000000, "kind": "hard", "seed": 100000000, "unit": "ctx"},
-  "hard.session": {"ceiling": 1500000000, "floor": 300000000, "kind": "hard", "seed": 666000000, "unit": "ctx"},
+  "hard.session": {"ceiling": 2500000000, "floor": 300000000, "kind": "hard", "seed": 1920000000, "unit": "ctx"},
   "soft.agent.biochem-engineer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},
   "soft.agent.browser-operator": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 3100000, "unit": "ctx"},
   "soft.agent.build-fixer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},

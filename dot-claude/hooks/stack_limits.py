@@ -11,7 +11,7 @@ that no evidence, file or command can cross):
   soft.prompt.<type>           per human prompt while an agent of that type runs (agent_guard
                                SOFT_PROMPT_CTX_BY_TYPE, user-set: seed = floor, so the learner only
                                raises it; prompt_soft_limit() applies the largest running one)
-  soft.session, hard.session   per session (seed unset / 666M)
+  soft.session, hard.session   per session (seed unset / 1.92B)
 Copy types (<base>-copy) use their base type's values; blackcat has no per-agent variable. Fixed
 guards (depth, fan-out, BlackCat, supreme-coder, TTLs, MCP cap, images, policy, read gate, the scale
 and sched-policy knobs) are never variables: a fixed-guard name in live.json or proposals.json

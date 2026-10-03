@@ -191,7 +191,7 @@ def test_seed_parity_with_frontmatter_and_guard():
     assert scope == {"soft.prompt": (33000000, 5000000, 100000000, "soft"),
                      "hard.prompt": (100000000, 50000000, 250000000, "hard"),
                      "soft.session": (None, 100000000, 1500000000, "soft"),
-                     "hard.session": (666000000, 300000000, 1500000000, "hard")}
+                     "hard.session": (1920000000, 300000000, 2500000000, "hard")}
     tier = ast_assign(ROOT / "tests" / "derive_thresholds.py", "TIER")
     assert s["pools"] == {k: sorted(v.split()) for k, v in tier.items()}
     assert sorted(t for m in s["pools"].values() for t in m) == sorted(a for a in agents if a != "blackcat")

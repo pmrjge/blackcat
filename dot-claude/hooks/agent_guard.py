@@ -3823,7 +3823,7 @@ def builtin_limits():
     values["soft.prompt"] = SOFT_PROMPT_CTX
     values.update({"soft.prompt." + t: v for t, v in SOFT_PROMPT_CTX_BY_TYPE.items()})
     values["hard.prompt"] = knob_int("STACK_PROMPT_CTX_BUDGET", 100000000)
-    values["hard.session"] = knob_int("STACK_SESSION_CTX_BUDGET", 666000000)
+    values["hard.session"] = knob_int("STACK_SESSION_CTX_BUDGET", 1920000000)
     return Limits(values, {}, None, "builtin")
 
 
@@ -10735,7 +10735,7 @@ def limits_self_test(agents_dir=None):
         problems.append(f"limits: fixed knobs not marked fixed: {' '.join(loose)}")
     fb = builtin_limits()
     want = {k: v for k, v in fb.values.items() if not k.startswith("hard.")}
-    want.update({"hard.prompt": 100000000, "hard.session": 666000000})
+    want.update({"hard.prompt": 100000000, "hard.session": 1920000000})
     off = sorted(k for k, v in want.items() if k not in vs or vs[k]["seed"] != v)
     if off:
         problems.append(f"limits: seed differs from the built-in fallback for {' '.join(off)}")

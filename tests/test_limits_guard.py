@@ -336,7 +336,7 @@ def test_hard_prompt_and_session_deny_texts_name_the_snapshot(S):
     assert "stack_limits.py show" in why and "STATUS: partial" in why
     assert "stack_limits.py show" in msg and "install.sh" not in msg
     S.new()
-    S.start("startup")                     # live.json (seeded by the first start): 100M / 666M
+    S.start("startup")                     # live.json (seeded by the first start): 100M / 1.92B
     assert S.snapdoc()["origin"]["hard.session"] == "live"
     S.prompt("p1")
     S.main_calls(10)
