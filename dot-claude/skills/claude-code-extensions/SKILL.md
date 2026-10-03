@@ -29,6 +29,6 @@ Details: `references/mcp-hooks-settings.md`. Must-knows:
 Running the installed stack from an SDK app or `claude -p` (what `setting_sources` loads, what a call can override, hooks without a TTY, JSON reports, cache order, `bin/stack_sdk.py`): `references/agent-sdk.md`.
 
 ## Validate
-`jq empty <file>` for JSON; `claude plugin validate <dir>` for plugins and agent directories; in the stack repo `uv run tests/lint_agents.py`, `uv run --python 3.13 --with pytest --with httpx --with "mcp>=1.10,<2" pytest -q tests/`, `bash tests/install_smoke.sh`; `/usr/bin/python3 <config>/hooks/agent_guard.py --self-test` (the hooks' own interpreter, as in settings.json); `/doctor` and `/stack-doctor` in a session.
+`jq empty <file>` for JSON; `claude plugin validate <dir>` for plugins and agent directories; in the stack repo `uv run tests/lint_agents.py`, `__CLAUDE_DIR__/venvs/tools/bin/python -m pytest -q tests/` (the tools venv), `bash tests/install_smoke.sh`; `/usr/bin/python3 <config>/hooks/agent_guard.py --self-test` (the hooks' own interpreter, as in settings.json); `/doctor` and `/stack-doctor` in a session.
 
 Division of labour: built-in `update-config` (mechanics of editing a settings.json), `workflow-authoring` (Workflow scripts), `skill-creator` (skill evals, description tuning), `mcp-server-craft` (writing an MCP server), `prompt-and-brief-design` (CLAUDE.md, agent and skill prompts), `agent-harness-design` (agent loops outside Claude Code).

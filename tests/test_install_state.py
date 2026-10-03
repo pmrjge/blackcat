@@ -280,6 +280,53 @@ def test_lsp_npm_installs_pinned_without_scripts():
     assert 'npm_g pyright ' not in text and 'npm_g "$TSLS" typescript ' not in text
 
 
+def test_tools_venv_lock_covers_the_stack_imports():
+    """The tools venv (requirements/tools.in -> tools.txt) holds every third-party import of the
+    stack's scripts, MCP servers and tests, is locked like sci (hashes, 3.13, arm64 wheels, same
+    cooldown), and install.sh syncs it while doctor.sh checks the same imports."""
+    import ast
+    import re
+    req = os.path.join(ROOT, "requirements")
+    norm = lambda n: re.sub(r"[-_.]+", "-", n).lower()  # noqa: E731
+    dist = {"PIL": "pillow"}
+    left_out = {"claude-agent-sdk"}       # inside the cooldown at the last lock (requirements/README.md)
+    dirs = ["dot-claude/bin", "dot-claude/mcp", "dot-claude/hooks", "lib", "tests"]
+    files = [os.path.join(ROOT, d, f) for d in dirs for f in sorted(os.listdir(os.path.join(ROOT, d)))
+             if f.endswith(".py")]
+    local = {os.path.basename(f)[:-3] for f in files}
+    need = {}
+    for f in files:
+        for n in ast.walk(ast.parse(open(f, encoding="utf-8").read())):
+            mods = [a.name for a in n.names] if isinstance(n, ast.Import) else \
+                [n.module] if isinstance(n, ast.ImportFrom) and n.level == 0 and n.module else []
+            for m in mods:
+                top = m.split(".")[0]
+                if top not in sys.stdlib_module_names and top not in local and top != "__future__":
+                    need.setdefault(norm(dist.get(top, top)), set()).add(os.path.relpath(f, ROOT))
+    names = lambda text: {norm(m.group(1)) for m in re.finditer(r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)", text)}  # noqa: E731
+    tin = open(os.path.join(req, "tools.in"), encoding="utf-8").read()
+    have = names(tin)
+    missing = {k: sorted(v) for k, v in need.items() if k not in have | left_out}
+    assert not missing, missing
+    txt = open(os.path.join(req, "tools.txt"), encoding="utf-8").read()
+    sci = open(os.path.join(req, "sci.txt"), encoding="utf-8").read()
+    cmd = txt.splitlines()[1]
+    for flag in ("--generate-hashes", "--python-version 3.13", "--python-platform aarch64-apple-darwin",
+                 "--only-binary :all:"):
+        assert flag in cmd, flag
+    cutoff = lambda t: re.search(r"--exclude-newer (\S+)", t.splitlines()[1]).group(1)  # noqa: E731
+    assert cutoff(txt) == cutoff(sci)
+    pins = re.findall(r"(?m)^([A-Za-z0-9][A-Za-z0-9._-]*)==\S+ \\\n((?:\s+--hash=sha256:[0-9a-f]{64}.*\n)+)", txt)
+    assert len(pins) == len(re.findall(r"(?m)^[A-Za-z0-9][A-Za-z0-9._-]*==", txt)) > 0
+    assert have <= {norm(p) for p, _ in pins}
+    inst = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
+    assert 'TOOLS_REQS="$HERE/requirements/tools.txt"' in inst
+    assert 'venv_sync tools "$TOOLS_REQS" --only-binary :all:' in inst
+    imports = re.search(r"TOOLS_IMPORTS='([^']+)'", inst).group(1)
+    doctor = open(os.path.join(ROOT, "dot-claude", "bin", "doctor.sh"), encoding="utf-8").read()
+    assert f'"$C/venvs/tools/bin/python" -c \'{imports}\'' in doctor
+
+
 def test_restore_keeps_the_current_entry_where_it_skips_a_link(conf, tmp_path, capsys):
     """R3-RESTORE-LINK: skills/pe was a link out of C before the install, which put the stack's
     skill there. --restore without --force skips the link and keeps the stack's skill (it used to

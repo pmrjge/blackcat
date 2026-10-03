@@ -284,7 +284,8 @@ eleven steps, as the run prints them:
 1. **Prerequisites**: macOS, git, python3, Claude Code version, the absolute interpreter for hooks
    (`STACK_PYTHON`).
 2. **Tools**: uv, node, magg, huetension, media tools, the hash-locked science venv
-   (`~/.claude/venvs/sci`); serial-mcp (`cargo install --locked` at the catalog's pin) when cargo
+   (`~/.claude/venvs/sci`) and tools venv (`~/.claude/venvs/tools`: what the stack's scripts, MCP
+   servers and tests import; `requirements/tools.in`); serial-mcp (`cargo install --locked` at the catalog's pin) when cargo
    is present, else one line saying it was skipped (Rust is never installed).
 3. **ML venv** (`--with-ml`): `~/.claude/venvs/ml` from `requirements/ml.txt`, several GB.
 4. **Adobe** (`--with-adobe`): the After Effects MCP at a pinned commit, the Premiere connector.
@@ -318,7 +319,7 @@ session keeps the agent files it started with. Then, once, in the first session:
 bash ~/.claude/bin/doctor.sh                                   # installed health check (= /stack-doctor)
 /usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test   # the hook on the hooks' own interpreter
 uv run tests/lint_agents.py                                    # frontmatter, POLICY ↔ "May spawn", skills, listing budget
-uv run --python 3.12 --with pytest --with pillow --with httpx --with "mcp>=1.10,<2" pytest -q tests/
+~/.claude/venvs/tools/bin/python -m pytest -q tests/                # full suite (the tools venv from install.sh)
 bash tests/install_smoke.sh                                    # hermetic installer runs; run it outside any sandbox
 uv run --script tests/prompt_budget.py --check                 # prompt-budget gates
 ```

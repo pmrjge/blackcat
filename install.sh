@@ -572,7 +572,7 @@ if [ "$SUPPLY_CHANGED" = 1 ] && [ "$DRY_RUN" = 0 ] && [ "$ASSUME_YES" = 0 ]; the
   esac
 fi
 
-say "2/11 Tools: magg, huetension, serial-mcp, science venv"
+say "2/11 Tools: magg, huetension, serial-mcp, science and tools venvs"
 # Supply chain (C7): every download is pinned to a version and, where the project publishes one, a
 # checksum; the Python venvs install from hash-locked lockfiles (requirements/, 7-day cooldown).
 UV_VERSION=0.12.20
@@ -601,6 +601,11 @@ fetch_verified(){
   fi
   rm -rf "$t"; return 1
 }
+# tools venv: what the stack's own scripts, MCP servers and tests import (hooks stay stdlib on
+# /usr/bin/python3). A future extra (e.g. a Bayesian stack) is its own lock, requirements/tools-<extra>.in
+# starting with "-r tools.in", installed by pointing TOOLS_REQS at its .txt (requirements/README.md).
+TOOLS_REQS="$HERE/requirements/tools.txt"
+TOOLS_IMPORTS='import pytest, numpy, pandas, httpx, mcp, PIL, neural_memory'
 venv_sync(){  # venv_sync NAME REQS [uv pip flags]: hash-locked install into $C/venvs/NAME (Python 3.13)
   local name="$1" reqs="$2"; shift 2
   local want=3.13 vdir="$C/venvs/$name" have=""
@@ -664,6 +669,8 @@ if [ "$NO_DEPS" = 1 ] || [ "$DRY_RUN" = 1 ]; then
   if [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ]; then serial_mcp_step plan; fi
   if [ -x "$C/venvs/sci/bin/python" ]; then [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ] && would "sync $C/venvs/sci to requirements/sci.txt (--require-hashes)"
   else miss "science venv at $C/venvs/sci" "uv venv $C/venvs/sci && uv pip install --require-hashes --only-binary :all: -r requirements/sci.txt"; fi
+  if [ -x "$C/venvs/tools/bin/python" ]; then [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ] && would "sync $C/venvs/tools to $TOOLS_REQS (--require-hashes)"
+  else miss "tools venv at $C/venvs/tools" "uv venv --python 3.13 $C/venvs/tools && uv pip install --require-hashes --only-binary :all: -r requirements/$(basename "$TOOLS_REQS")"; fi
 else
   if ! have uv; then
     if have brew; then brew install uv
@@ -720,6 +727,9 @@ else
   serial_mcp_step install
   if venv_sync sci "$HERE/requirements/sci.txt" --only-binary :all:; then note "science venv: $C/venvs/sci (hash-locked)"
   else note "! science venv install failed — uv pip install --python $C/venvs/sci/bin/python --require-hashes --only-binary :all: -r $HERE/requirements/sci.txt"; fi
+  if venv_sync tools "$TOOLS_REQS" --only-binary :all:; then
+    note "tools venv: $C/venvs/tools ($("$C/venvs/tools/bin/python" -c "$TOOLS_IMPORTS"'; print("imports ok")' 2>/dev/null || echo '! imports failed'))"
+  else note "! tools venv install failed — uv pip install --python $C/venvs/tools/bin/python --require-hashes --only-binary :all: -r $TOOLS_REQS"; fi
 fi
 
 say "3/11 ML venv (--with-ml)"

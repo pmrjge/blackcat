@@ -635,7 +635,7 @@ assert_unchanged_real_home
 
 echo "== 7. doctor.sh against the installed scratch dir"
 out=$(CLAUDE_CONFIG_DIR="$T3" bash "$T3/bin/doctor.sh" 2>&1)
-unexpected=$(printf '%s\n' "$out" | grep 'FAIL' | grep -vE 'sci venv|magg missing|huetension missing|uvx missing|uv missing|node missing|npx missing')
+unexpected=$(printf '%s\n' "$out" | grep 'FAIL' | grep -vE 'sci venv|tools venv|magg missing|huetension missing|uvx missing|uv missing|node missing|npx missing')
 if [ -n "$unexpected" ]; then
   failed "doctor.sh reported unexpected FAILs:"; printf '%s\n' "$unexpected" | sed 's/^/    /'
 else

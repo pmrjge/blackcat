@@ -39,6 +39,9 @@ found magg && ok "magg" || fail "magg missing — uv tool install magg"
 found huetension && ok "huetension" || warn "huetension missing (designer color tools) — rerun install.sh"
 for b in ffmpeg magick rsvg-convert pdftoppm; do have "$b" && ok "$b" || warn "$b missing (optional; brew install ffmpeg imagemagick librsvg poppler)"; done
 [ -x "$C/venvs/sci/bin/python" ] && ok "sci venv" || fail "sci venv missing — rerun install.sh"
+if [ ! -x "$C/venvs/tools/bin/python" ]; then fail "tools venv missing — rerun install.sh"
+elif "$C/venvs/tools/bin/python" -c 'import pytest, numpy, pandas, httpx, mcp, PIL, neural_memory' >/dev/null 2>&1; then ok "tools venv (imports ok; full suite: $C/venvs/tools/bin/python -m pytest -q tests/)"
+else fail "tools venv imports fail — rerun install.sh"; fi
 [ -x "$C/venvs/ml/bin/python" ] && ok "ML venv ($C/venvs/ml)" || ok "ML venv not installed (optional: ./install.sh --with-ml)"
 for f in with-stack-env mcp-headers magg-private claude-ultracode; do [ -x "$C/bin/$f" ] && ok "bin/$f" || fail "bin/$f missing or not executable — rerun install.sh"; done
 for n in claude-ninja claude-god; do
