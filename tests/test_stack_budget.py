@@ -15,6 +15,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
+# Model IDs as the API reports them (synthetic transcripts, the matcher's vectors): only on module-level
+# constant lines like these, which tests/lint_agents.py allows (MODEL_ID_LINES)
+HAIKU, SONNET, OPUS = "claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"
 HOOKS = ROOT / "dot-claude" / "hooks"
 CLI = ROOT / "dot-claude" / "bin" / "stack-budget"
 PY = "/usr/bin/python3"
@@ -213,8 +216,7 @@ def test_overridden_runs_are_left_out_and_counted(env):
     U = sys.modules.get("stack_usage") or _load("stack_usage")
     d = env / "usage"
     d.mkdir(exist_ok=True)
-    runs = [(500000, "claude-sonnet-5-5"), (510000, ""), (520000, "claude-sonnet-5-5"),
-            (9000000, "claude-haiku-4-5-20251001"), (9100000, "claude-opus-5-5")]
+    runs = [(500000, SONNET), (510000, ""), (520000, SONNET), (9000000, HAIKU), (9100000, OPUS)]
     with open(d / "runs3.csv", "w", newline="") as fh:
         w = csv.DictWriter(fh, fieldnames=U.COLUMNS)
         w.writeheader()

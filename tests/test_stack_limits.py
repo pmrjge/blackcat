@@ -39,6 +39,10 @@ def _load(name, path):
 
 L = _load("stack_limits", LIMITS_PY)
 T0 = 1790000000.0
+# Model IDs as the API reports them (synthetic transcripts, the matcher's vectors): only on module-level
+# constant lines like these, which tests/lint_agents.py allows (MODEL_ID_LINES)
+HAIKU, SONNET, OPUS = "claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"
+HAIKU_SHORT, BEDROCK_SONNET, OPUS_1M = "claude-haiku-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-opus-4-6[1m]"
 
 V1_COLUMNS = ["schema_version", "session", "id", "type", "seg", "status", "api_calls", "ctx", "input", "output",
               "cache_creation", "cache_read", "first_cc", "first_cr", "peak", "prev_peak", "gap_s", "first_ts",
@@ -1149,7 +1153,7 @@ def test_collector_v2_rows_and_snapshot_cells_meet_the_proposer(st):
             rows.append(dict(U.EMPTY_ROW, schema_version=U.SCHEMA_VERSION, session=sid, id=f"a{s}{a}", type="coder",
                              seg=0, status="complete", api_calls=30, ctx=40000000 + 1000 * a, last_ts=T0 + 10 * s + a,
                              compacted=0, turn_limited=0, status_code=0, is_main=0, src="measured",
-                             model="claude-sonnet-5-5" if a % 2 else "", **cells))
+                             model=SONNET if a % 2 else "", **cells))
     U.append_rows(rows)
     assert (st / "usage" / "runs3.csv").exists()
     assert not (st / "usage" / "runs.csv").exists() and not (st / "usage" / "runs2.csv").exists()
@@ -1192,10 +1196,6 @@ def _scan_cli(tmp_path, sid, folder):
     assert p.returncode == 0, p.stderr
 
 
-HAIKU = "claude-haiku-4-5-20251001"
-SONNET = "claude-sonnet-5-5"
-
-
 def test_overridden_runs_are_no_evidence_for_the_type(st, tmp_path):
     """Audit MEDIUM (f235e7a): `/override-agent scout haiku` is that session's only, but its haiku scout
     runs fed soft.agent.scout, turns.scout and the scout pool for later sessions on scout's own model
@@ -1224,15 +1224,15 @@ def test_model_mismatch_rules(tmp_path):
     agents = tmp_path / "agents"
     agents.mkdir()
     for name, fm in (("a-sonnet", "model: sonnet"), ("a-opus", "model: Opus  # tuned"), ("a-inherit", "model: inherit"),
-                     ("a-none", "effort: low"), ("a-full", "model: claude-haiku-4-5")):
+                     ("a-none", "effort: low"), ("a-full", "model: " + HAIKU_SHORT)):
         (agents / f"{name}.md").write_text(f"---\nname: {name}\n{fm}\n---\nbody\nmodel: fable\n")
     (agents / "notes.txt").write_text("model: opus\n")
     models = L.agent_models(str(agents))
-    assert models == {"a-sonnet": "sonnet", "a-opus": "opus", "a-inherit": "inherit", "a-full": "claude-haiku-4-5"}
+    assert models == {"a-sonnet": "sonnet", "a-opus": "opus", "a-inherit": "inherit", "a-full": HAIKU_SHORT}
     mm = (lambda t, m: L.model_mismatch(models, t, m))
-    assert mm("a-sonnet", HAIKU) and mm("a-sonnet", "claude-opus-5-5") and mm("a-sonnet", "mixed")
-    assert not mm("a-sonnet", SONNET) and not mm("a-sonnet", "us.anthropic.claude-sonnet-4-5-20250929-v1:0")
-    assert not mm("a-opus", "claude-opus-4-6[1m]") and mm("a-opus", SONNET)
+    assert mm("a-sonnet", HAIKU) and mm("a-sonnet", OPUS) and mm("a-sonnet", "mixed")
+    assert not mm("a-sonnet", SONNET) and not mm("a-sonnet", BEDROCK_SONNET)
+    assert not mm("a-opus", OPUS_1M) and mm("a-opus", SONNET)
     assert mm("a-full", SONNET) and not mm("a-full", HAIKU)               # a full id: its family
     assert mm("a-sonnet-copy", HAIKU) and not mm("a-sonnet-copy", SONNET)  # a copy follows its base
     for m in ("", None):                                                   # unknown (v1/v2, none reported)
@@ -1291,7 +1291,7 @@ def test_prompt_windows_of_an_overridden_agent_are_not_its_types(st):
             rows.append(row(f"p{s}", "main", typ="blackcat", seg=w, ctx="", window_ctx=6e7 + 1e6 * w, is_main=1,
                             ts=T0 + 100 * s + w))
         rows.append(dict(row(f"p{s}", f"o{s}", typ="orchestrator", seg=0, window=2, ts=T0 + 100 * s + 2),
-                         schema_version=3, model="claude-opus-5-5"))
+                         schema_version=3, model=OPUS))
         rows.append(dict(row(f"p{s}", f"n{s}", typ="orchestrator", seg=0, window=5, ts=T0 + 100 * s + 5),
                          schema_version=3, model=SONNET))
     write_csv(st / "usage" / "runs3.csv", rows, V2_COLUMNS + ["model"])
@@ -1299,3 +1299,31 @@ def test_prompt_windows_of_an_overridden_agent_are_not_its_types(st):
     e = doc["vars"]["soft.prompt.orchestrator"]
     assert e["n"] == 3 and e["x"] == [6.2e7] * 3 and doc["model_mismatch"] == 3
     assert doc["vars"]["soft.prompt"]["n"] == 30                        # the main windows themselves all count
+
+
+def test_a_session_row_older_than_its_sessions_rows_is_not_learned(st):
+    """Audit of the upgrade hand-off (MEDIUM): an older collector stopped mid-session writes a `complete`
+    session row with the ctx of that moment; if the successor then idles out, nothing replaces it, and
+    soft.session/hard.session would learn a truncated session. A session row whose last_ts is below
+    another row of its session is left out (stats["stale_session"]); one that spans them all is kept."""
+    rows = [row("ok", "a1", ts=T0 + 10), row("ok", "main", typ="blackcat", is_main=1, ts=T0 + 20),
+            row("ok", "session", typ="blackcat", is_main=1, ctx=9e7, ts=T0 + 20),            # spans its rows
+            row("cut", "a1", ts=T0 + 10), row("cut", "session", typ="blackcat", is_main=1, ctx=5e7, ts=T0 + 30),
+            row("cut", "a2", ts=T0 + 50),                                                     # the session went on
+            row("lone", "session", typ="blackcat", is_main=1, ctx=7e7, ts=T0 + 5)]            # no other rows
+    write_csv(st / "usage" / "runs2.csv", rows)
+    # the successor's rows (schema 3) for the cut session's agents: newer, and still no new session row
+    write_csv(st / "usage" / "runs3.csv", [dict(row("cut", "a3", ts=T0 + 60), schema_version=3, model="")],
+              V2_COLUMNS + ["model"])
+    got, stats = L.read_rows(models={})
+    sess = {r["session"]: r["ctx"] for r in got if r["scope"] == "session"}
+    assert sess == {"ok": 9e7, "lone": 7e7} and stats["stale_session"] == 1
+    assert {(r["session"], r["id"]) for r in got if r["scope"] != "session"} >= {("cut", "a1"), ("cut", "a2"), ("cut", "a3")}
+    assert L.build_proposals(L.load_seed())["stale_session"] == 1
+    # the successor's own final scan writes a session row spanning everything: learned again
+    write_csv(st / "usage" / "runs3.csv", [dict(row("cut", "a3", ts=T0 + 60), schema_version=3, model=""),
+                                           dict(row("cut", "session", typ="blackcat", is_main=1, ctx=9.5e7,
+                                                    ts=T0 + 60), schema_version=3, model="")], V2_COLUMNS + ["model"])
+    got, stats = L.read_rows(models={})
+    assert {r["session"]: r["ctx"] for r in got if r["scope"] == "session"}["cut"] == 9.5e7
+    assert stats["stale_session"] == 0

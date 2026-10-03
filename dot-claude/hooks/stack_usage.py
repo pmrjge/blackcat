@@ -143,7 +143,7 @@ HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
 COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 TASK_RE = re.compile(r"^[A-Za-z][A-Za-z -]{0,59}\Z")
 TASK_WORD_RE = re.compile(r"[A-Za-z][A-Za-z-]{0,23}\Z")
-# a model id as the API reports it (claude-opus-5-5, us.anthropic.claude-...-v1:0, ...@date, ...[1m]);
+# a model id as the API reports it (claude-<family>-<version>, us.anthropic.claude-...-v1:0, ...@date, ...[1m]);
 # `<synthetic>` (Claude Code's own error lines) fails it and is no model
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/\[\]-]{0,127}\Z")
 MODEL_MIXED = "mixed"     # a segment whose calls reported two different models

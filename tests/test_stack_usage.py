@@ -1271,7 +1271,10 @@ def test_exit_refresh_passes_the_session(st, tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------- schema 3: the segment's model
-HAIKU, SONNET = "claude-haiku-4-5-20251001", "claude-sonnet-5-5"
+# Model IDs as the API reports them (synthetic transcripts, the matcher's vectors): only on module-level
+# constant lines like these, which tests/lint_agents.py allows (MODEL_ID_LINES)
+HAIKU, SONNET, OPUS = "claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"
+HAIKU_SHORT, BEDROCK_SONNET, OPUS_1M = "claude-haiku-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "claude-opus-4-6[1m]"
 
 
 def test_segment_model_per_segment_mixed_and_synthetic(st, tmp_path):
@@ -1294,7 +1297,7 @@ def test_segment_model_per_segment_mixed_and_synthetic(st, tmp_path):
     assert r[(SID, "main", 0)]["model"] == SONNET
     assert all(v["schema_version"] == "3" and (v["model"] == "" or U.valid_cell("model", v["model"])) for v in r.values())
     assert not U.valid_cell("model", "<synthetic>") and not U.valid_cell("model", "a,b") and not U.valid_cell("model", "x\n")
-    assert U.valid_cell("model", "us.anthropic.claude-sonnet-4-5-20250929-v1:0") and U.valid_cell("model", "claude-opus-4-6[1m]")
+    assert U.valid_cell("model", BEDROCK_SONNET) and U.valid_cell("model", OPUS_1M)
 
 
 def test_schema3_reads_the_v1_and_v2_files_and_never_writes_them(st, tmp_path, monkeypatch):
@@ -1339,7 +1342,7 @@ def test_an_older_collector_state_is_read_again_in_schema_3(st, tmp_path):
     stp.write_text(json.dumps(dict(old, v=2)))
     (st / "usage" / "runs3.csv").unlink()
     U.scan_once(SID, str(sub), final=True)
-    assert rows_by_key()[(SID, "g1", 0)]["model"] == "claude-opus-5-5"
+    assert rows_by_key()[(SID, "g1", 0)]["model"] == OPUS
     stp.write_text(json.dumps(old))                              # the same schema: nothing read twice
     (st / "usage" / "runs3.csv").unlink()
     U.scan_once(SID, str(sub), final=True)
@@ -1392,6 +1395,42 @@ def test_upgrade_hands_off_from_an_older_collector(st, tmp_path, owner, reap):
     assert hook("start", tmp_path, event(tmp_path, "SubagentStart")).returncode == 0
     time.sleep(0.5)
     assert collector_meta(st)["pid"] == pid and lock_held(st)
+
+
+def test_a_handoff_session_row_is_not_learned_as_a_whole_session(st, tmp_path, owner, reap):
+    """Audit of the hand-off (MEDIUM): SIGTERM makes the v2 collector's final scan write a `complete`
+    session row with the ctx of that moment (50k). The session goes on (90k) and the successor idles out
+    (no final scan), so nothing replaces that row: stack_limits leaves it out (stale_session), as a session
+    row older than the session's own later rows."""
+    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-claude/hooks/stack_usage.py" % V2_REV],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        pytest.skip("commit %s not available: %s" % (V2_REV, p.stderr.strip()[:80]))
+    old = tmp_path / "v2" / "stack_usage.py"
+    old.parent.mkdir()
+    old.write_text(p.stdout)
+    (st / SID).mkdir(parents=True)
+    (st / SID / "budget.json").write_text(json.dumps({"total": 50000}))
+    sub = subdir(tmp_path)
+    write_agent(sub, "u1", [user("go", 0), call("a1", 1, model=HAIKU), result(2),
+                            call("a2", 3, model=HAIKU, tool=False)], atype="scout")
+    c = subprocess.Popen([PY, str(old), "run", "--session", SID, "--subagents", str(sub), "--owner-pid",
+                          str(owner.pid)], env=env_for(tmp_path), stdin=subprocess.DEVNULL,
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    assert wait(lambda: lock_held(st) and (st / "usage" / "runs2.csv").exists())
+    assert (SID, "session", 0) not in rows_by_key()
+    assert hook("start", tmp_path, event(tmp_path, "SubagentStart"), STACK_USAGE_IDLE_S="3").returncode == 0
+    assert c.wait(timeout=20) == 0
+    assert wait(lambda: collector_meta(st).get("schema") == U.SCHEMA_VERSION, timeout=30)
+    assert rows_by_key()[(SID, "session", 0)]["ctx"] == "50000"          # the v2 final scan's row
+    (st / SID / "budget.json").write_text(json.dumps({"total": 90000}))
+    write_agent(sub, "u2", [user("go", 500), call("b1", 501, model=HAIKU, tool=False)], atype="scout")
+    assert wait(lambda: collector_meta(st).get("reason") == "idle", timeout=30)
+    assert rows_by_key()[(SID, "session", 0)]["ctx"] == "50000"          # still there: no final scan since
+    L = _load("stack_limits_handoff", HOOKS / "stack_limits.py")
+    rows, stats = L.read_rows(models={})
+    assert [r for r in rows if r["scope"] == "session"] == [] and stats["stale_session"] == 1
+    assert {r["id"] for r in rows if r["session"] == SID} >= {"u1", "u2"}
 
 
 def test_handoff_signals_only_a_running_older_collector_of_this_session(st, tmp_path, owner, monkeypatch):

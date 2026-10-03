@@ -47,8 +47,13 @@ MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(
 MODEL_ID_FILES = {"stack.env.example", "tests/test_lint_skills.py", "dot-claude/hooks/agent_effort.json",
                   "tests/test_override_agent.py"}
 MODEL_ID_DIRS = ("legacy/",)
+# the usage/limits/budget tests: synthetic transcript model IDs and the model matcher's vectors, on
+# module-level constant lines only (NAME[, NAME...] = "...")
+MODEL_ID_CONST = re.compile(r'^[A-Z][A-Z0-9_]*(?:, [A-Z][A-Z0-9_]*)* = "')
 MODEL_ID_LINES = {"install.sh": re.compile(r"^OLD_DEFAULTS = "),
-                  "dot-claude/bin/doctor.sh": re.compile(r'^MEASURED_MODELS="')}
+                  "dot-claude/bin/doctor.sh": re.compile(r'^MEASURED_MODELS="'),
+                  "tests/test_stack_usage.py": MODEL_ID_CONST, "tests/test_stack_limits.py": MODEL_ID_CONST,
+                  "tests/test_stack_budget.py": MODEL_ID_CONST}
 VALID_MEMORY = {"user", "project", "local"}
 ANTHROPIC_DOC_SKILLS = {"docx", "xlsx", "pptx", "pdf"}
 KNOWN_PLACEHOLDERS = {

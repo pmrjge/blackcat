@@ -774,8 +774,13 @@ def read_rows(paths=None, known=(), models=None):
     malformed line (csv, NUL, bad UTF-8) costs only itself (_csv_rows). Then an agent row that ran on
     another model than its type's frontmatter one (model_mismatch over `models`, default agent_models())
     is left out and counted in stats["model_mismatch"]: after the last-row-wins merge, so an earlier
-    row of the same key (a v2 row, a partial one) never stands in for it."""
-    rows, stats = {}, {"read": 0, "dropped": 0, "truncated": False, "errors": 0, "model_mismatch": 0}
+    row of the same key (a v2 row, a partial one) never stands in for it. A session row older than
+    another row of its session is left out too (stats["stale_session"]): a final scan's session row
+    spans every row it saw (last_ts = their max), so a later row means the session went on after it
+    (an older collector stopped mid-session by the upgrade hand-off, or a resumed session whose last
+    collector idled out) and its ctx is no whole session's."""
+    rows, stats = {}, {"read": 0, "dropped": 0, "truncated": False, "errors": 0, "model_mismatch": 0,
+                       "stale_session": 0}
     for p in csv_paths() if paths is None else paths:
         try:
             with open(p, encoding="utf-8", errors="replace", newline="") as fh:
@@ -798,6 +803,13 @@ def read_rows(paths=None, known=(), models=None):
     models = agent_models() if models is None else models
     out = [r for r in rows.values() if r["scope"] != "agent" or not model_mismatch(models, r["type"], r["model"])]
     stats["model_mismatch"] = len(rows) - len(out)
+    newest = {}
+    for r in rows.values():
+        if r["scope"] != "session":
+            newest[r["session"]] = max(newest.get(r["session"], 0.0), r["ts"])
+    n = len(out)
+    out = [r for r in out if r["scope"] != "session" or r["ts"] >= newest.get(r["session"], 0.0)]
+    stats["stale_session"] = n - len(out)
     if len(out) > MAX_ROWS:
         out.sort(key=lambda r: r["ts"], reverse=True)
         out = out[:MAX_ROWS]
@@ -950,7 +962,7 @@ def build_proposals(seed, paths=None, regime=None, live=None, now=None, models=N
     return {"schema_version": SCHEMA, "generated": iso(now), "evidence_id": eid,
             "rows_upto": max([r["ts"] for r in rows] or [0]), "rows": len(rows),
             "dropped": stats["dropped"], "model_mismatch": stats["model_mismatch"],
-            "truncated": stats["truncated"], "regime": regime,
+            "stale_session": stats["stale_session"], "truncated": stats["truncated"], "regime": regime,
             "fingerprint": fingerprint(paths), "vars": V, "pools": P}
 
 
