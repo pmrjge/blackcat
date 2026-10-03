@@ -16,7 +16,8 @@ Hook entry points (settings.json; both read the hook's JSON on stdin and exit 0 
                             (new session, stdio on /dev/null), unless one runs already
   stack_usage.py end        SessionEnd: write the session's end marker; the collector sees it, scans
                             one last time, writes the limit proposals (stack_limits.propose, when
-                            importable) and refreshes the candidate model, then exits. Nothing there
+                            importable) and refreshes the candidate model, then exits. With no collector
+                            running (it idled out), one is started for that final scan. Nothing there
                             changes any limit (S6 U4)
 CLI:
   stack_usage.py runs [--session ID] [--json]   agent-run view (segments aggregated per agent)
@@ -30,7 +31,8 @@ Lifecycle: one collector per session, guaranteed by an flock on sessions/<id>/co
 for the collector's life (a second `start` sees the lock and does nothing; two racing starts spawn
 two processes and the loser exits at once). It exits on the end marker, when the Claude Code
 process that ran the hook is gone (owner pid; its start time guards against pid reuse), after
-STACK_USAGE_IDLE_S without transcript growth, or never starts with STACK_USAGE_COLLECT=0. The next
+STACK_USAGE_IDLE_S without transcript growth (a final scan first), or never starts with
+STACK_USAGE_COLLECT=0. The next
 SessionStart or SubagentStart of the session starts it again; offsets are persisted, so nothing is
 read twice and nothing is lost. Every exit path fails silently: a hook never fails because of it.
 Upgrade hand-off: a `start` that finds the lock held by a running collector of an older schema (its
@@ -62,6 +64,13 @@ compaction stays inside the segment. Status: `partial` while the segment's last 
 call or tool result and the transcript changed within LIVE_S (600 s), else `complete`. A later row
 for the same key replaces an earlier one (a complete segment can grow again when a background
 child's notification wakes the agent).
+
+hit_*: the guard's limit-hits.jsonl, measured from the session's limits snapshot `created` on (the
+guard writes the file at its first firing: no file then means 0). window_ctx (main rows): the guard's
+prompt-windows.jsonl, else the transcripts (the window's own context plus every subagent call
+timestamped in it). The session row (id `session`, seg 0, written by every final scan, an idle exit's
+too): ctx is the guard's budget total (else the transcripts' sum), input/output/cache_*/api_calls the
+transcripts' totals, hit_* its session-scope firings.
 
 `model` (schema 3): the `message.model` of the segment's API calls, one id when they all agree,
 `mixed` when they do not, empty when none was reported (a `<synthetic>` line is no model). The
@@ -139,6 +148,9 @@ ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
 UNKNOWN_TYPE = "(unknown)"
 NODE_RE = re.compile(r"^[A-Z]{1,3}[0-9]{1,3}[a-z]?\Z")
+# the plan node / prompt id at the head of a description (P10, T3, S1e), ended by a non-word character
+# or the end: "P10 v2 run", "P10: run" (the reference collector's ^\s*(P\d{2,3})\b, for every node id)
+NODE_HEAD_RE = re.compile(r"^\s*([A-Z]{1,3}[0-9]{1,3}[a-z]?)(?![A-Za-z0-9_])")
 HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
 COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 TASK_RE = re.compile(r"^[A-Za-z][A-Za-z -]{0,59}\Z")
@@ -262,7 +274,12 @@ def new_agent(main=False):
     windows (seg = window index) and which keeps the human prompts' times (and promptIds) in `humans`."""
     return {"off": 0, "ino": None, "type": None, "nseg": 0, "cur": None, "last_kind": None, "last_evt": None,
             "win": {}, "prev": None, "prev_tl": False, "emitted": {}, "meta": None, "main": bool(main),
-            "humans": []}
+            "humans": [],
+            # wv: tot/wc/wp were kept since offset 0 (a state of an earlier collector lacks them: the
+            # session row's sums and the transcript window_ctx stay empty for it). tot: the context-token
+            # fields and API calls of every segment ([in, out, cc, cr, calls]); wc: a subagent's context
+            # tokens per main window {window: tokens}, wp: [[call epoch, tokens]] not yet in a final window
+            "wv": 1, "tot": [0, 0, 0, 0, 0], "wc": {}, "wp": []}
 
 
 def _new_seg(a, idx=None):
@@ -370,11 +387,13 @@ def _on_call_line(a, r, m, u, out):
             _new_seg(a)
         cur = a["cur"]
         w = {"v": [0, 0, 0, 0], "tools": False, "seg": cur["idx"], "tu": [], "sc": None, "txt": False, "wr": False,
-             "i": cur["n"] + 1}
+             "i": cur["n"] + 1, "t": epoch(ts)}
         a["win"][key] = w
         while len(a["win"]) > WINDOW:
             a["win"].pop(next(iter(a["win"])))
         cur["n"] += 1
+        if a.get("tot"):
+            a["tot"][4] += 1
         if cur["fkey"] is None:
             cur["fkey"] = key
             cur["fts"] = epoch(ts)
@@ -393,8 +412,14 @@ def _on_call_line(a, r, m, u, out):
             ms.append(md)
     old = w["v"]
     nv = [max(o, v) for o, v in zip(old, vals)]
+    tot = a.get("tot")
     for i, k in enumerate(("in", "out", "cc", "cr")):
         cur[k] += nv[i] - old[i]
+        if tot:
+            tot[i] += nv[i] - old[i]
+    dctx = (nv[0] + nv[2] + nv[3]) - (old[0] + old[2] + old[3])
+    if dctx > 0 and not a["main"] and w.get("t") is not None and isinstance(a.get("wp"), list):
+        a["wp"].append([w["t"], dctx])      # attributed to its main window by fold_windows
     w["v"] = nv
     w["tools"] = w["tools"] or tools
     if isinstance(m.get("content"), list):
@@ -562,9 +587,13 @@ def agent_meta(folder, aid):
     desc = meta.get("description")
     node = task = ""
     if isinstance(desc, str):
-        words = desc.split(None, 1)
-        if words and NODE_RE.match(words[0]):
-            node = words[0]
+        # newer Claude Code stores "<agentType>: <description>": the type prefix is no part of the label
+        desc = desc.lstrip()
+        if isinstance(t, str) and t and desc.startswith(t + ": "):
+            desc = desc[len(t) + 2:]
+        mh = NODE_HEAD_RE.match(desc)
+        if mh:
+            node = mh.group(1)
         # plain words only: a token with a digit, '/', ':', '.', '_' or over 24 letters (paths, URLs,
         # flags, keys, hashes) is dropped; the plan node id lives in `node`
         task = " ".join(w for w in (x.strip(".,;:!?()") for x in desc.split())
@@ -652,12 +681,27 @@ def load_windows(gdir):
     return out
 
 
-def hit_cells(hits, aid, lo, hi):
+def hit_cover(sid, hits):
+    """The epoch from which the session's limit firings are on record, or None (nothing measured).
+    The guard that writes limit-hits.jsonl is the one that creates the session's limits snapshot (at
+    its SessionStart, once: `created`), and it creates limit-hits.jsonl only at the first firing: from
+    the snapshot's creation on, a missing file means no firing (0), never unmeasured. Before it (a
+    session resumed from an older install) a firing may have gone unrecorded: empty. A file without a
+    snapshot: measured over the whole session, as written."""
+    snap = read_json(os.path.join(state_root(), "limits", "snapshots", sid + ".json")) or {}
+    created = epoch(snap.get("created"))
+    if created is not None:
+        return created
+    return float("-inf") if hits is not None else None
+
+
+def hit_cells(hits, aid, lo, hi, cover=float("-inf")):
     """The six hit_* cells of an agent segment: a 1 when a firing of the kind by this agent falls in
     [lo, hi + slack]. hit_soft is the agent's own soft limit only (soft_agent): a soft prompt or session
-    firing during its call is the main window's and the session's hit. Empty cells when there is no
-    limit-hits.jsonl (nothing measured) or no time span."""
-    if hits is None or lo == "" or hi == "":
+    firing during its call is the main window's and the session's hit. Empty cells when nothing is
+    measured (no limit-hits.jsonl and no snapshot: hits None), when the segment began before `cover`
+    (hit_cover) or has no time span."""
+    if hits is None or cover is None or lo == "" or hi == "" or lo < cover:
         return {c: "" for c in HIT_COLS}
     got = {c: 0 for c in HIT_COLS}
     for col, who, t, kind in hits:
@@ -666,10 +710,11 @@ def hit_cells(hits, aid, lo, hi):
     return got
 
 
-def session_hit_cells(hits):
+def session_hit_cells(hits, cover=float("-inf"), tmin=None):
     """The session row's hit_* cells: hit_soft from soft_session, hit_hard_session from hard_session
-    (limit-hits.jsonl is the session's own file), 0 otherwise; empty when the file does not exist."""
-    if hits is None:
+    (limit-hits.jsonl is the session's own file), 0 otherwise; empty when nothing is measured or the
+    session's first call came before `cover` (hit_cover)."""
+    if hits is None or cover is None or (tmin is not None and tmin < cover):
         return {c: "" for c in HIT_COLS}
     got = {c: 0 for c in HIT_COLS}
     for col, _who, _t, kind in hits:
@@ -698,6 +743,38 @@ def window_ctx(i, humans, pw, total):
     else:
         return ""
     return int(v) if v >= 0 else ""
+
+
+def fold_windows(a, hts, settled):
+    """A subagent's pending call tokens (wp) into its per-window sums (wc): a call of epoch t goes to the
+    main window of the last human prompt at or before t (hts: the prompts' epochs, sorted; before the
+    first prompt: none) once that window is final for it, i.e. a later prompt is known (t < hts[-1]) or
+    settled(t) says no earlier unread prompt can still appear. The rest waits for the next scan."""
+    keep, wc = [], a["wc"]
+    for t, d in a["wp"]:
+        if not ((hts and t < hts[-1]) or settled(t)):
+            keep.append([t, d])
+            continue
+        k = bisect_right(hts, t) - 1
+        if k >= 0:
+            wc[str(k)] = wc.get(str(k), 0) + d
+    a["wp"] = keep
+
+
+def tree_window_ctx(i, own, agents, hts):
+    """Main window i's whole-tree context from the transcripts: its own calls' context (own, the row's
+    ctx) plus every subagent call timestamped in it (input + cache creation + cache read, the guard's
+    sum, attributed by the call's time as the guard's prompt boundary does). Empty when an agent's sums
+    were not kept from its start (an earlier collector's state)."""
+    if not all(x.get("wv") for x in agents.values()):
+        return ""
+    v = own
+    for x in agents.values():
+        v += x["wc"].get(str(i), 0)
+        for t, d in x["wp"]:
+            if bisect_right(hts, t) - 1 == i:
+                v += d
+    return v
 
 
 def snapshot_cells(sid):
@@ -764,6 +841,9 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
     st["more"] = False
     gdir = os.path.join(state_root(), sid)               # the guard's session state folder (read only)
     hits, pw = load_hits(gdir), load_windows(gdir)
+    cover = hit_cover(sid, hits)
+    if hits is None and cover is not None:
+        hits = []                        # the guard records firings since `cover`: none so far
     base = dict(schema_version=SCHEMA_VERSION, session=sid, src="measured", stack_commit=commit,
                 **snapshot_cells(sid))
     budget = _num((read_json(os.path.join(gdir, "budget.json")) or {}).get("total"))
@@ -796,40 +876,32 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
             for k in [k for k in a["emitted"] if int(k) < a["cur"]["idx"] - 1]:
                 a["emitted"].pop(k, None)
 
-    # ---- the main thread: one row per human-prompt window (scanned first: the subagents' `window` needs it)
+    # ---- the main thread: one row per human-prompt window. Read first (the subagents' `window` needs its
+    # prompts), its rows emitted after the subagents (window_ctx sums their calls)
     mpath = os.path.join(os.path.dirname(os.path.dirname(folder)), sid + ".jsonl")
     ma = st.get("main")
     try:
         stt = os.stat(mpath)
     except OSError:
         stt = None
+    main_out, main_backlog = [], False
     if stt is not None:
         ma = st["main"] = _fresh(ma, stt, True)
-        out = []
-        g, live = settle(ma, mpath, stt, feed_main_line, out)
+        g, live = settle(ma, mpath, stt, feed_main_line, main_out)
+        main_backlog = bool(st["more"])
         grew = grew or g
         cr = current_row(ma, live)
         if cr is not None:
-            out.append(cr)
-        humans = ma["humans"]
-        hs = [h[0] for h in humans]
-        for vals in out:
-            i = vals["seg"]
-            cells = {c: "" for c in HIT_COLS}
-            if hits is not None and i < len(hs):
-                lo, hi = hs[i], (hs[i + 1] if i + 1 < len(hs) else float("inf"))
-                cells = {c: 0 for c in HIT_COLS}
-                for col, who, t, kind in hits:
-                    # the main thread's own firings and every prompt/session firing (whoever's call
-                    # tripped it); soft_session is the session row's: it shares hit_soft with
-                    # soft_prompt, and soft.prompt reads a window's hit_soft
-                    if (who is None or kind in SCOPE_KINDS) and kind != "soft_session" and lo <= t < hi:
-                        cells[col] = 1
+            main_out.append(cr)
+        for vals in main_out:
             span(vals)
-            emit(ma, "main", "blackcat", vals,
-                 dict(cells, ro_write=0, window_ctx=window_ctx(i, humans, pw, budget)))
-        trim(ma)
+    stt_main = stt
     humans = ma["humans"] if ma else []
+    hts = [h[0] for h in humans]
+
+    def settled(t):
+        # no unread prompt can come before t: the final scan, or t well behind a fully read main transcript
+        return final or (not main_backlog and t < now - LIVE_S)
 
     # ---- the subagents: one row per segment
     for path in sorted(glob.glob(os.path.join(folder, "agent-*.jsonl"))):
@@ -847,6 +919,11 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
         out = []
         g, live = settle(a, path, stt, feed_line, out)
         grew = grew or g
+        if a.get("wv"):
+            if stt_main is None:
+                a["wp"] = []                     # no main transcript: no window to credit
+            else:
+                fold_windows(a, hts, settled)
         cr = current_row(a, live)
         if cr is not None:
             out.append(cr)
@@ -859,16 +936,53 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
                 (atype[:-5] if atype.endswith("-copy") else atype) in READONLY_TYPES
                 and vals["files_written_repo"] + vals["git_commits"] > 0)
             win = max(0, bisect_right(humans, [fts, "￿"]) - 1) if humans and fts != "" else ""
-            extra = dict(hit_cells(hits, aid, fts, lts), ro_write=ro, parent=mt.get("parent", ""),
+            extra = dict(hit_cells(hits, aid, fts, lts, cover), ro_write=ro, parent=mt.get("parent", ""),
                          depth=mt.get("depth", ""), node=mt.get("node", ""), task=mt.get("task", ""), window=win)
             emit(a, aid, atype, vals, extra)
         trim(a)
 
-    # ---- the session row, at the final scan: the budget's whole-session context
-    if final and budget is not None and st.get("tmin") is not None:
-        vals = {"seg": 0, "status": "complete", "ctx": int(budget), "first_ts": st["tmin"], "last_ts": st["tmax"],
+    # ---- the main rows: held while a transcript has a backlog (a subagent call of a closed window may
+    # still be unread), then emitted with the latest window_ctx
+    hold = st.get("main_hold") or {}
+    for vals in main_out:
+        hold[str(vals["seg"])] = vals
+    st["main_hold"] = hold
+    if ma is not None and not st["more"]:
+        for k in sorted(hold, key=int):
+            vals = hold[k]
+            i = vals["seg"]
+            cells = {c: "" for c in HIT_COLS}
+            if hits is not None and cover is not None and i < len(hts) and hts[i] >= cover:
+                lo, hi = hts[i], (hts[i + 1] if i + 1 < len(hts) else float("inf"))
+                cells = {c: 0 for c in HIT_COLS}
+                for col, who, t, kind in hits:
+                    # the main thread's own firings and every prompt/session firing (whoever's call
+                    # tripped it); soft_session is the session row's: it shares hit_soft with
+                    # soft_prompt, and soft.prompt reads a window's hit_soft
+                    if (who is None or kind in SCOPE_KINDS) and kind != "soft_session" and lo <= t < hi:
+                        cells[col] = 1
+            wctx = window_ctx(i, humans, pw, budget)
+            if wctx == "" and i < len(hts):
+                wctx = tree_window_ctx(i, vals["ctx"], agents, hts)
+            emit(ma, "main", "blackcat", vals, dict(cells, ro_write=0, window_ctx=wctx))
+        st["main_hold"] = {}
+    if ma is not None:
+        trim(ma)
+
+    # ---- the session row, at the final scan: the whole-session context (the guard's budget total, else
+    # the transcripts' sum) and the transcripts' token and call totals (only with the main transcript read:
+    # without it no sum is the whole session's)
+    every = list(agents.values()) + [ma]
+    sums = [sum(x["tot"][j] for x in every) for j in range(5)] \
+        if ma is not None and all(x.get("wv") for x in every) else None
+    ctx = int(budget) if budget is not None else (sums[0] + sums[2] + sums[3] if sums else None)
+    if final and ctx is not None and st.get("tmin") is not None:
+        vals = {"seg": 0, "status": "complete", "ctx": ctx, "first_ts": st["tmin"], "last_ts": st["tmax"],
                 "wall_s": round(st["tmax"] - st["tmin"], 3), "is_main": 1, "depth": 0}
-        vals.update(session_hit_cells(hits))
+        if sums:
+            vals.update(input=sums[0], output=sums[1], cache_creation=sums[2], cache_read=sums[3],
+                        api_calls=sums[4])
+        vals.update(session_hit_cells(hits, cover, st["tmin"]))
         row = dict(EMPTY_ROW, **base, id="session", type="blackcat", **vals)
         sig = json.dumps([row[c] for c in COLUMNS])
         if st.get("emitted_session") != sig:
@@ -1401,6 +1515,14 @@ def run(sid, folder, owner=None, poll=None, idle=None, wait_lock=None):
                 break
             if now - last_growth > idle:
                 reason = "idle"
+                # a final scan before letting go: nothing may restart this collector before SessionEnd
+                # (a main-thread-only stretch starts none), so the session row is written now; a later
+                # collector's final scan replaces it (the last row per key wins)
+                try:
+                    rows, _ = scan_once(sid, folder, final=True, st=st, sd=sd, commit=commit)
+                    meta["rows"] += len(rows)
+                except Exception:  # noqa: BLE001 - as above
+                    pass
                 break
             if now - last_beat >= 30:
                 meta["heartbeat"] = round(now, 3)
@@ -1518,7 +1640,17 @@ def hook_end(ev):
         return "no collector"
     with open(os.path.join(d, "end"), "w") as fh:
         fh.write("%.3f\n" % time.time())
-    return "marked"
+    # no collector runs (it idled out, or its owner went away): one is started for the final scan the
+    # marker asks for (rows since its exit, the session row), then it exits ("session end")
+    folder = subagents_dir(ev)
+    if not enabled() or not folder:
+        return "marked"
+    with Locked(os.path.join(d, "collector.lock"), nb=True) as lk:
+        running = not lk.ok
+    if running:
+        return "marked"
+    spawn_collector(sid, folder, None)
+    return "final scan"
 
 
 # ---------------------------------------------------------------- refresh (stack_sched_refresh.py)

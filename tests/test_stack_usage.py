@@ -673,7 +673,9 @@ def test_main_rows_windows_and_session_row(st, tmp_path):
     sess = r[(SID, "session", 0)]
     assert (sess["type"], sess["is_main"], sess["ctx"], sess["window_ctx"]) == ("blackcat", "1", "777000", "")
     assert float(sess["first_ts"]) == pytest.approx(t_(1)) and float(sess["last_ts"]) == pytest.approx(t_(14))
-    assert sess["api_calls"] == "" and sess["input"] == ""            # only what the budget measured
+    # the transcripts' totals over the main thread and every subagent (5 calls of 3/50/1000/20000)
+    assert [sess[c] for c in ("api_calls", "input", "output", "cache_creation", "cache_read")] == [
+        "5", "15", "250", "5000", "100000"]
     assert {k[1] for k in r} == {"main", "session", "w0", "w1"}
     assert {a["id"] for a in U.runs_view(U.read_rows())} == {"w0", "w1"}
 
@@ -687,7 +689,10 @@ def test_hits_and_window_ctx_empty_until_the_guard_files_exist(st, tmp_path):
     rows, _ = U.scan({"v": 2, "agents": {}}, SID, sub, final=False)
     r = {(x["id"], x["seg"]): x for x in rows}
     for k in (("main", 0), ("main", 1), ("h1", 0)):
-        assert all(r[k][c] == "" for c in U.HIT_COLS + ["window_ctx"]), k      # nothing measured: empty, not 0
+        assert all(r[k][c] == "" for c in U.HIT_COLS), k      # nothing measured: empty, not 0
+    # window_ctx without the guard's file: from the transcripts (h1's call at 12 is window 1's)
+    assert (r[("main", 0)]["window_ctx"], r[("main", 1)]["window_ctx"], r[("h1", 0)]["window_ctx"]) == (
+        21003, 2 * 21003, "")
     sdir = st / SID
     sdir.mkdir(parents=True)
     snap = "0123456789abcdef"
@@ -780,8 +785,10 @@ def test_T22_append_only_provenance(st, tmp_path):
         assert r["src"] == "measured" and r["session"] == SID and r["first_ts"] != ""
         assert r["stack_commit"] == full and r["schema_version"] == "3"
         # nothing the collector cannot measure yet is a 0: the guard's files and the snapshot do not exist
-        for c in U.HIT_COLS + ["window_ctx", "sess_src", "snap", "regime"]:
+        for c in U.HIT_COLS + ["sess_src", "snap", "regime"]:
             assert r[c] == "", c
+    # window_ctx is measured from the transcripts: main's call plus q1's (in window 0)
+    assert rows[(SID, "main", 0)]["window_ctx"] == str(21003 + 15003) and rows[(SID, "q1", 0)]["window_ctx"] == ""
     q = rows[(SID, "q1", 0)]
     assert (q["parent"], q["depth"], q["node"], q["task"], q["cold"], q["first_write_call"],
             q["ctx_at_first_write"]) == ("",) * 7
@@ -1399,9 +1406,9 @@ def test_upgrade_hands_off_from_an_older_collector(st, tmp_path, owner, reap):
 
 def test_a_handoff_session_row_is_not_learned_as_a_whole_session(st, tmp_path, owner, reap):
     """Audit of the hand-off (MEDIUM): SIGTERM makes the v2 collector's final scan write a `complete`
-    session row with the ctx of that moment (50k). The session goes on (90k) and the successor idles out
-    (no final scan), so nothing replaces that row: stack_limits leaves it out (stale_session), as a session
-    row older than the session's own later rows."""
+    session row with the ctx of that moment (50k). The session goes on (90k) and the successor idles out:
+    its idle exit's final scan replaces that row (90k, spanning every row), which stack_limits learns as
+    the session's; the stale v2 row alone (no successor row yet) would be left out (stale_session)."""
     p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-claude/hooks/stack_usage.py" % V2_REV],
                        capture_output=True, text=True)
     if p.returncode != 0:
@@ -1425,11 +1432,11 @@ def test_a_handoff_session_row_is_not_learned_as_a_whole_session(st, tmp_path, o
     assert rows_by_key()[(SID, "session", 0)]["ctx"] == "50000"          # the v2 final scan's row
     (st / SID / "budget.json").write_text(json.dumps({"total": 90000}))
     write_agent(sub, "u2", [user("go", 500), call("b1", 501, model=HAIKU, tool=False)], atype="scout")
-    assert wait(lambda: collector_meta(st).get("reason") == "idle", timeout=30)
-    assert rows_by_key()[(SID, "session", 0)]["ctx"] == "50000"          # still there: no final scan since
     L = _load("stack_limits_handoff", HOOKS / "stack_limits.py")
+    assert wait(lambda: collector_meta(st).get("reason") == "idle", timeout=30)
+    assert rows_by_key()[(SID, "session", 0)]["ctx"] == "90000"          # the idle exit's final scan
     rows, stats = L.read_rows(models={})
-    assert [r for r in rows if r["scope"] == "session"] == [] and stats["stale_session"] == 1
+    assert [r["ctx"] for r in rows if r["scope"] == "session"] == [90000] and stats["stale_session"] == 0
     assert {r["id"] for r in rows if r["session"] == SID} >= {"u1", "u2"}
 
 
@@ -1508,3 +1515,164 @@ def test_a_successor_waits_for_the_lock_and_then_runs(st, tmp_path):
         p = subprocess.run([PY, str(USAGE_PY), "run", "--session", SID, "--subagents", str(sub), "--wait-lock", bad],
                            env=env_for(tmp_path, STACK_USAGE_IDLE_S="0.3"), capture_output=True, timeout=30)
         assert p.returncode == 0
+
+
+# ---------------------------------------------------------------- step 6.1: the columns written empty, the prefix
+def iso_s(k):
+    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(T0 + k))
+
+
+def write_snapshot(st_root, created_k):
+    d = st_root / "limits" / "snapshots"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / (SID + ".json")).write_text(json.dumps({"created": iso_s(created_k), "source_event": "startup"}))
+
+
+def human_(k, pid):
+    return dict(user("prompt", k), promptId=pid)
+
+
+def two_windows(tmp_path):
+    return write_main(tmp_path, [human_(0, "pid-0"), call("m1", 1), human_(10, "pid-1"), call("m2", 11)])
+
+
+def test_agent_type_prefix_does_not_hide_the_prompt_id(st, tmp_path):
+    """Newer Claude Code stores "<agentType>: <description>" in agent-<id>.meta.json: the prefix is
+    stripped before the prompt id (^\\s*(P\\d{2,3})\\b, the reference collector's) and the task words."""
+    cases = [("proof-checker", "proof-checker: P10 v2 run proof-checker", "P10", "run proof-checker"),
+             ("build-fixer", "build-fixer: P11: fix the build", "P11", "fix the build"),
+             ("coder", "  coder: P123 x", "P123", "x"),
+             ("coder", "coder: P1000 x", "", "x"),
+             ("coder", "scout: P10 run", "", "scout run"),          # another type's prefix: not stripped
+             ("coder", "P10 run", "P10", "run"),
+             ("coder", "coder: T3 implement the parser", "T3", "implement the parser")]
+    for atype, desc, node, task in cases:
+        (tmp_path / "agent-a1.meta.json").write_text(json.dumps({"agentType": atype, "description": desc}))
+        m = U.agent_meta(str(tmp_path), "a1")
+        assert (m["node"], m["task"]) == (node, task), desc
+    write_agent(subdir(tmp_path), "p1", [user("go", 0), call("p1", 1, tool=False)], atype="proof-checker",
+                extra_meta={"description": "proof-checker: P10 v2 run proof-checker"})
+    r = scan_final(tmp_path)[(SID, "p1", 0)]
+    assert (r["node"], r["task"], r["type"]) == ("P10", "run proof-checker", "proof-checker")
+
+
+def test_hits_are_zero_without_a_firing_once_the_guard_snapshot_exists(st, tmp_path):
+    """The guard creates limit-hits.jsonl only at its first firing: from the session's snapshot on, no
+    file means no firing (0), for agent, main and session rows."""
+    two_windows(tmp_path)
+    write_agent(subdir(tmp_path), "h1", [user("go", 0), call("h1", 12, tool=False)])
+    (st / SID).mkdir(parents=True)
+    (st / SID / "budget.json").write_text(json.dumps({"total": 1000}))
+    write_snapshot(st, -5)
+    r = scan_final(tmp_path)
+    for k in ((SID, "main", 0), (SID, "main", 1), (SID, "h1", 0), (SID, "session", 0)):
+        assert [r[k][c] for c in U.HIT_COLS] == ["0"] * 6, k
+
+
+def test_hits_before_the_snapshot_stay_empty(st, tmp_path):
+    """A session resumed from an older install: its snapshot is created at the resume; a firing before
+    it may have gone unrecorded, so rows that began earlier (and the session row) stay empty; later
+    rows read the file (or 0 without it)."""
+    two_windows(tmp_path)
+    write_agent(subdir(tmp_path), "h0", [user("go", 0), call("h0", 1, tool=False)])
+    write_agent(subdir(tmp_path), "h1", [user("go", 0), call("h1", 12, tool=False)])
+    (st / SID).mkdir(parents=True)
+    (st / SID / "budget.json").write_text(json.dumps({"total": 1000}))
+    write_snapshot(st, 5)
+    for with_file in (False, True):
+        if with_file:
+            (st / SID / "limit-hits.jsonl").write_text(json.dumps(
+                {"v": 1, "ts": t_(12.5), "agent_id": "h1", "kind": "turn"}) + "\n")
+        rows, _ = U.scan({"v": 3, "agents": {}}, SID, str(subdir(tmp_path)), final=True)
+        r = {(x["id"], x["seg"]): x for x in rows}
+        assert all(r[k][c] == "" for k in (("main", 0), ("h0", 0), ("session", 0)) for c in U.HIT_COLS)
+        assert [r[("main", 1)][c] for c in U.HIT_COLS] == [0] * 6
+        assert [r[("h1", 0)][c] for c in U.HIT_COLS] == [0, int(with_file), 0, 0, 0, 0]
+
+
+def test_window_ctx_from_the_transcripts_by_call_time(st, tmp_path):
+    """No prompt-windows.jsonl: window_ctx is the window's own context plus every subagent call
+    timestamped in it (a background agent's calls split across the windows), a streamed call once."""
+    write_main(tmp_path, [human_(0, "pid-0"), call("m1", 1, inp=0, cc=10, cr=0), human_(100, "pid-1"),
+                          call("m2", 101, inp=0, cc=20, cr=0, tool=False)])
+    b1 = call("b1", 3, inp=0, cc=1000, cr=0)
+    b1s = dict(b1, message=dict(b1["message"], usage=dict(b1["message"]["usage"], output_tokens=999)))
+    write_agent(subdir(tmp_path), "bg", [user("go", 2), b1, b1s, result(4),
+                                         call("b2", 150, inp=0, cc=0, cr=2000, tool=False)])
+    r = scan_final(tmp_path)
+    assert (r[(SID, "main", 0)]["window_ctx"], r[(SID, "main", 1)]["window_ctx"]) == ("1010", "2020")
+    assert r[(SID, "bg", 0)]["window"] == "0" and r[(SID, "bg", 0)]["window_ctx"] == ""
+
+
+def test_window_ctx_waits_for_a_backlog(st, tmp_path, monkeypatch):
+    """A closed window's row is held while a transcript still has unread bytes (one of its subagent
+    calls may be among them), then written with every call of the window."""
+    monkeypatch.setattr(U, "READ_CHUNK", 1400)                # two or three lines per file per scan
+    write_main(tmp_path, [human_(0, "pid-0"), call("m1", 1, inp=0, cc=10, cr=0), human_(100, "pid-1"),
+                          call("m2", 101, inp=0, cc=20, cr=0, tool=False)])
+    lines = [user("go", 2)]
+    for j in range(10):
+        lines += [call("s%d" % j, 3 + 2 * j, inp=0, cc=100, cr=0), result(4 + 2 * j)]
+    write_agent(subdir(tmp_path), "slow", lines)
+    U.scan_once(SID, str(subdir(tmp_path)))
+    assert rows_by_key()[(SID, "main", 0)]["window_ctx"] == str(10 + 10 * 100)
+
+
+def test_an_earlier_collector_state_leaves_the_transcript_sums_empty(st, tmp_path):
+    """An agent state kept by an earlier collector (no per-window sums from its start): the transcript
+    window_ctx and the session row's totals are empty, never a part sum; the budget's ctx stays."""
+    main = two_windows(tmp_path)
+    write_agent(subdir(tmp_path), "h1", [user("go", 0), call("h1", 12, tool=False)])
+    (st / SID).mkdir(parents=True)
+    (st / SID / "budget.json").write_text(json.dumps({"total": 4242}))
+    state = {"v": 3, "agents": {}}
+    U.scan(state, SID, str(subdir(tmp_path)), final=False)
+    for k in ("wv", "tot", "wc", "wp"):
+        state["agents"]["h1"].pop(k)
+    with open(main, "a") as fh:
+        fh.write(json.dumps(human_(20, "pid-2")) + "\n" + json.dumps(call("m3", 21, tool=False)) + "\n")
+    rows, _ = U.scan(state, SID, str(subdir(tmp_path)), final=True)
+    r = {(x["id"], x["seg"]): x for x in rows}
+    assert r[("main", 2)]["window_ctx"] == ""
+    s = r[("session", 0)]
+    assert s["ctx"] == 4242 and all(s[c] == "" for c in ("api_calls", "input", "output", "cache_read"))
+
+
+def test_session_row_without_the_guard_budget(st, tmp_path):
+    """No budget.json (the guard's budgets off): the final scan's session row takes its ctx from the
+    transcripts (input + cache creation + cache read of every call), with their totals."""
+    two_windows(tmp_path)
+    write_agent(subdir(tmp_path), "h1", [user("go", 0), call("h1", 12, tool=False)])
+    s = scan_final(tmp_path)[(SID, "session", 0)]
+    assert [s[c] for c in ("ctx", "api_calls", "input", "output", "cache_creation", "cache_read")] == [
+        str(3 * 21003), "3", "9", "150", "3000", "60000"]
+    assert (s["status"], s["is_main"], s["window_ctx"]) == ("complete", "1", "")
+
+
+def test_an_idle_exit_writes_the_session_row(st, tmp_path, monkeypatch):
+    """A collector that idles out does a final scan first: nothing restarts it before SessionEnd."""
+    two_windows(tmp_path)
+    write_agent(subdir(tmp_path), "h1", [user("go", 0), call("h1", 12, tool=False)])
+    monkeypatch.setattr(U, "refresh", lambda **k: {})
+    monkeypatch.setitem(sys.modules, "stack_limits", None)
+    old = signal.getsignal(signal.SIGTERM)
+    try:
+        assert U.run(SID, str(subdir(tmp_path)), poll=0.01, idle=0.1) == "idle"
+    finally:
+        signal.signal(signal.SIGTERM, old)
+    s = rows_by_key()[(SID, "session", 0)]
+    assert s["ctx"] == str(3 * 21003) and s["status"] == "complete"
+
+
+def test_session_end_without_a_collector_runs_the_final_scan(st, tmp_path, reap):
+    """SessionEnd after the collector idled out: the hook starts one for the final scan (rows since,
+    the session row); it exits with "session end"."""
+    two_windows(tmp_path)
+    write_agent(subdir(tmp_path), "h1", [user("go", 0), call("h1", 12, tool=False)])
+    U.session_dir(SID)                                         # the collector's folder from an earlier run
+    assert not lock_held(st)
+    assert hook("end", tmp_path, event(tmp_path, "SessionEnd")).returncode == 0
+    assert wait(lambda: collector_meta(st)["reason"] == "session end")
+    assert wait(lambda: not lock_held(st))
+    assert rows_by_key()[(SID, "session", 0)]["ctx"] == str(3 * 21003)
+    assert U.hook_end({"session_id": SID}) == "marked"         # no transcript_path: nothing to scan
