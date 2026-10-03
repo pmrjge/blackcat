@@ -67,7 +67,7 @@ from typing import Any, Dict, List, Optional, Sequence, Tuple
 # is a hook with side effects.
 READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewer", "claude-code-guide",
                   "proof-checker"}
-DEFAULT_CAPS = {"fanout": 3, "fanout_by_type": {"orchestrator": 10, "god-coder": 6, "main-coder": 6,
+DEFAULT_CAPS = {"fanout": 3, "fanout_by_type": {"orchestrator": 32, "god-coder": 6, "main-coder": 6,
                                                 "ninja-coder": 5, "researcher": 4, "planner": 8,
                                                 "plan-reviewer": 8},
                 "depth": 3, "blackcat": 8, "workflow": 16}

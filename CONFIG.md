@@ -60,7 +60,7 @@ Column key:
 | Agent | Model | Effort | maxTurns | Children | Was | Why |
 |---|---|---|---|---|---|---|
 | blackcat (main thread) | Sonnet 5.5 | medium (session) | none | 8 dispatches/prompt | effort low | Routes every request, trivial or complex, to specialists. At `medium` it asks questions and stays visible. |
-| orchestrator | Opus 5.5 | high | 200 | 10 | xhigh, 300 | Decomposes a job into up to 10 parallel tasks. On 5.5, `high` is enough for coordination. |
+| orchestrator | Opus 5.5 | high | 200 | 32 | xhigh, 300 | Decomposes a job into up to 32 parallel tasks. On 5.5, `high` is enough for coordination. |
 | planner | Opus 5.5 | xhigh | 60 | 8 | 100 | Read-only design work that needs deep reasoning and few turns |
 | plan-reviewer | Opus 5.5 | high | 60 | leaf | xhigh, 100 | Critique against the code and docs. `high` suffices on 5.5. |
 | oracle | Opus 5.5 | low | 12 | leaf | 20 | Answers from knowledge alone and uses almost no tools |
@@ -147,7 +147,7 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `STACK_AGENT_STARTED` | 1 (code) | new | SubagentStart gives a stack agent its local start time for the clean-finish line; 0 disables it |
 | `STACK_REPORT_FORMAT` | unset (code) | new | `json`: SessionStart (main thread, every source) and SubagentStart (stack agents) add one line asking for the final report as one JSON line, which `bin/stack_sdk.py` `parse_report` reads; unset: no hook output, the prompt is unchanged. For Agent SDK apps (`env` option) |
 | `STACK_MAX_FANOUT` | 3 | — | Default number of running children per agent |
-| `STACK_MAX_FANOUT_BY_TYPE` | `orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | `orchestrator=8,planner=8,plan-reviewer=8` | The coordinators get room; everyone else keeps 3 |
+| `STACK_MAX_FANOUT_BY_TYPE` | `orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | `orchestrator=8,planner=8,plan-reviewer=8` | The coordinators get room; everyone else keeps 3 |
 | `STACK_MAX_SELF_FANOUT` | 2 | — | Copies per base agent |
 | `GOD_SPAWNERS` | `orchestrator` (code) | new | Only the orchestrator spawns god-coder |
 | `GOD_ONCE_PER_SESSION` | 1 (code) | new | At most one god-coder spawn per session |
@@ -465,7 +465,7 @@ Commits `ea80f87`, `7292272`, `b93b557`, `c9ef24b`, `693296f`, `275eead`, `b7a07
 - maxTurns set per task type (section 3).
 - Caps:
   - BlackCat: 8 dispatches, 12 steps, 120 s window;
-  - running children per agent: orchestrator 10, main-coder and god-coder 6, ninja-coder 5, researcher 4, planner 8, everyone else 3;
+  - running children per agent: orchestrator 32, main-coder and god-coder 6, ninja-coder 5, researcher 4, planner 8, everyone else 3;
   - `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` 32.
 - god-coder: only the orchestrator spawns it, once per session. BlackCat, main-coder, ninja-coder and the ML platform engineers return `NEXT: god-coder` instead of spawning it.
 - The installer removes `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` and `CLAUDE_CODE_FORK_SUBAGENT`; `/stack-doctor` warns about them.

@@ -305,7 +305,7 @@ checks = {
     "caps and budgets": (env.get("STACK_MAX_FANOUT"), env.get("STACK_MAX_FANOUT_BY_TYPE"), env.get("STACK_MAX_SELF_FANOUT"),
                          env.get("STACK_PROMPT_CTX_BUDGET"), env.get("STACK_SESSION_CTX_BUDGET"),
                          env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"), env.get("STACK_MAX_MCP_CALLS"))
-                        == ("3", "orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", "100000000", "666000000", "32", "64"),
+                        == ("3", "orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", "100000000", "666000000", "32", "64"),
     "skill listing budget": s.get("skillListingBudgetFraction") == frac and 0.01 <= frac <= 0.02
                             and s.get("skillListingMaxDescChars") == 500
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only"

@@ -226,7 +226,7 @@ the call (fail closed); every hook command runs on an absolute interpreter chose
 
 | Guard | What it enforces |
 |---|---|
-| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 10, main-/god-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 12 tool calls per prompt |
+| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/god-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 12 tool calls per prompt |
 | Read-only agents | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide and proof-checker hold Bash, but only read-only commands pass (tests, linters in check mode, `git diff/log/show`, inspection, scanners); scratch code is content-checked; anything else is refused |
 | No push | `git push` in any form and forge writes (`gh`/`tea`/`fj`, `gh api`, curl/wget/httpie to forge hosts) are denied, also inside `bash -c`, `eval`, `$(...)`, `ssh` and git's own command hooks. `STACK_POLICY=off` does not lift it |
 | Protected paths | Bash-level writes, deletes and renames of the installed stack, the backups and the hook state are refused, on top of the Edit/Write deny rules; so is running `install.sh` except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs |
@@ -418,7 +418,7 @@ yourself.
 | `BLACKCAT_MAX_STEPS` ● | 12 | BlackCat tool calls per prompt | guard |
 | `BLACKCAT_BACKGROUND` | 1 | Drop BlackCat's `run_in_background: false` | guard |
 | `STACK_MAX_FANOUT` ● | 3 | Running children per agent (0 = no cap) | guard |
-| `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
+| `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
 | `STACK_MAX_SELF_FANOUT` ● | 2 | Live copies per copy type | guard |
 | `STACK_MAX_DEPTH` | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, else 3 | Deny Agent from callers at this depth | guard |
 | `STACK_PROMPT_CTX_BUDGET` ● / `STACK_SESSION_CTX_BUDGET` ● | 100000000 / 666000000 | Context tokens per prompt / per session, whole tree (0 = off) | guard |

@@ -246,7 +246,7 @@ def test_no_wave_exceeds_the_caps(model, mode):
 
 def test_default_caps_by_dispatcher(model):
     nodes = [{"id": "N%d" % i, "a": "scout", "n": 3} for i in range(12)]
-    for disp, cap in (("blackcat", 8), ("orchestrator", 10), ("planner", 8), (None, 3)):
+    for disp, cap in (("blackcat", 8), ("orchestrator", 32), ("planner", 8), (None, 3)):
         g = S.load_graph({"nodes": nodes, "dispatcher": disp} if disp else {"nodes": nodes})
         s = S.schedule(g, model)
         assert max(len(w) for w in s.waves) <= cap

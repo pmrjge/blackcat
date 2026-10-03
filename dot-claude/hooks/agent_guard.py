@@ -145,7 +145,7 @@ Knobs (env):
   BLACKCAT_MAX_STEPS=12     blackcat tool calls per user prompt, Agent dispatches included
   STACK_MAX_FANOUT=3      running + starting children per parent agent (0 = no cap); the main
                           thread has none (BLACKCAT_MAX_DISPATCH bounds BlackCat per prompt)
-  STACK_MAX_FANOUT_BY_TYPE="orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,
+  STACK_MAX_FANOUT_BY_TYPE="orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,
                           planner=8,plan-reviewer=8" (DEFAULT_FANOUT_BY_TYPE)
                           per-type overrides of STACK_MAX_FANOUT
                           (type=N, separated by , ; or newlines; a copy type falls back to its base)
@@ -810,12 +810,12 @@ def dispatch_window_closed(d, pid, limit, now):
 # Lock order: the 'fanout' mutex, then 'registry' (reg_put); nothing takes them the other way.
 # Running children per spawning agent, by task type (the one table; STACK_MAX_FANOUT_BY_TYPE in
 # settings.json overrides it as a whole). Coordinators and the implementer escalation chain fan out
-# widest: orchestrator 10 (a job of up to 10 independent tasks), god-coder and main-coder 6 (parallel
+# widest: orchestrator 32 (a job of up to 32 independent tasks), god-coder and main-coder 6 (parallel
 # work on disjoint modules of a large codebase plus a reviewer and a verifier), ninja-coder 5 (a
 # mathematical core stays with it; racing approach, reviewer, verifier, mathematician, one coder);
 # researcher 4 (its 2 session-wide copies plus 2 lookups). planner keeps 8 and plan-reviewer's entry
 # is inert (it has no Agent tool). Every other agent: STACK_MAX_FANOUT.
-DEFAULT_FANOUT_BY_TYPE = ("orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,"
+DEFAULT_FANOUT_BY_TYPE = ("orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,"
                           "planner=8,plan-reviewer=8")
 RESUME_PREFIX = "resume-"
 
@@ -9328,7 +9328,7 @@ def self_test():
         if never in SELF_SPAWN:
             problems.append("%s must not spawn copies of itself" % never)
     if parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE) != {
-            "orchestrator": 10, "god-coder": 6, "main-coder": 6, "ninja-coder": 5, "researcher": 4,
+            "orchestrator": 32, "god-coder": 6, "main-coder": 6, "ninja-coder": 5, "researcher": 4,
             "planner": 8, "plan-reviewer": 8}:
         problems.append("STACK_MAX_FANOUT_BY_TYPE default does not parse")
     # Installed layout: <config>/hooks/agent_guard.py next to <config>/agents/*.md; install.sh

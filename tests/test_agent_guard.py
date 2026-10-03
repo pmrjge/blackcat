@@ -922,12 +922,25 @@ def test_shipped_spawn_defaults(bare_env):
     res = [decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"]))
            for _ in range(13)]
     assert res == ["allow"] * 12 + ["deny"]
-    for parent, cap in (("orchestrator", 10), ("god-coder", 6), ("main-coder", 6),
+    for parent, cap in (("orchestrator", 32), ("god-coder", 6), ("main-coder", 6),
                         ("ninja-coder", 5), ("researcher", 4), ("coder", 3), ("designer", 3)):
         s, child = sid(), ("scout" if parent in ("researcher", "coder", "designer") else "coder")
         res = [decision(run(pre_agent(s, child, parent=parent, agent_id="P1"), env))
                for _ in range(cap + 1)]
         assert res == ["allow"] * cap + ["deny"], (parent, res)
+
+
+def test_orchestrator_fanout_32_from_settings_and_env_lowers_it(bare_env):
+    """settings.json's STACK_MAX_FANOUT_BY_TYPE carries orchestrator=32 (32 running children, the
+    33rd refused, the knob named); a lower value in the env var still lowers it."""
+    shipped = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["env"]
+    for value, cap in ((shipped["STACK_MAX_FANOUT_BY_TYPE"], 32), ("orchestrator=5", 5)):
+        s, extra = sid(), {"STACK_MAX_FANOUT_BY_TYPE": value}
+        res = [decision(run(pre_agent(s, "coder", parent="orchestrator", agent_id="O1"),
+                            bare_env, extra=extra)) for _ in range(cap)]
+        assert res == ["allow"] * cap, (value, res)
+        p = run(pre_agent(s, "coder", parent="orchestrator", agent_id="O1"), bare_env, extra=extra)
+        assert decision(p) == "deny" and "orchestrator=%d" % cap in reason(p), (value, reason(p))
 
 
 def ninja_done(env, s, caller="O1", nid=None, foreground=True):

@@ -114,7 +114,7 @@
     "BLACKCAT_MAX_DISPATCH": "8",
     "BLACKCAT_DISPATCH_WINDOW_S": "120",
     "STACK_MAX_FANOUT": "3",
-    "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=10,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8",
+    "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8",
     "STACK_MAX_SELF_FANOUT": "2",
     "STACK_PROMPT_CTX_BUDGET": "100000000",
     "STACK_SESSION_CTX_BUDGET": "666000000",
