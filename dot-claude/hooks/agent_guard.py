@@ -175,6 +175,11 @@ Knobs (env):
                           refused after this hook allowed it) stops counting after this
   STACK_FANOUT_IDLE_S=1800  a background child whose live subtree shows no activity for this long
                           no longer counts as running (settings.json ships 600)
+  STACK_FANOUT_SESSION=shadow  session slot guard for every caller, the main thread included:
+                          live leases and resume reservations plus live background agents (idle
+                          ones too) against CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS (default 20);
+                          `shadow` logs each count to fanout-session.jsonl, `enforce` also refuses
+                          a spawn or resume with no free slot, `off` = no lock, no count
   Learned limits (stack_limits.py; fixed per session by the SessionStart snapshot, see "learned
   limits" below; `stack_limits.py show` lists them). Each env override is digits, 0 = off, and is
   recorded in the snapshot when the session starts (a later change waits for the next session):
@@ -1083,11 +1088,11 @@ def live_leases(d, now, caller=None):
     return out
 
 
-def bg_running(d, now, ev, reg, skip, parent=None, ctype=None):
+def bg_running(d, now, ev, reg, skip, parent=None, ctype=None, idle_filter=True):
     """Number of live background agents (bg, not stopped, subtree active within
     STACK_FANOUT_IDLE_S): the children of `parent`, or the agents of type `ctype`. `skip`: lease
-    ids still live, never counted twice."""
-    idle = knob_int("STACK_FANOUT_IDLE_S", 1800)
+    ids still live, never counted twice. idle_filter=False counts idle ones too (session slots)."""
+    idle = knob_int("STACK_FANOUT_IDLE_S", 1800) if idle_filter else 0
     n = 0
     for aid, rec in reg.items():
         if not rec.get("bg") or rec.get("stopped") or safe(rec.get("tool_use_id"), "") in skip:
@@ -1095,6 +1100,9 @@ def bg_running(d, now, ev, reg, skip, parent=None, ctype=None):
         if parent is not None and rec.get("parent") != parent:
             continue
         if ctype is not None and norm(rec.get("type")) != ctype:
+            continue
+        if idle <= 0:
+            n += 1
             continue
         last, _ = subtree_activity(d, aid, ev, reg)
         if idle > 0 and last and now - last > idle:
@@ -1115,6 +1123,84 @@ def copies_running(d, ctype, now, ev, reg):
     caller) plus live background agents of that type."""
     leases = [x for x in live_leases(d, now) if norm(x[2].get("type")) == ctype]
     return len(leases) + bg_running(d, now, ev, reg, {lid for _, lid, _ in leases}, ctype=ctype)
+
+
+# Session slot guard (K_sess). Past CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS Claude Code refuses an
+# Agent call with no queue and tells the model not to retry, and it starts a resume without any
+# check (sub-agents.md#concurrent-subagent-limit). Slots in use: every live spawn lease and resume
+# reservation, plus the live background agents no lease covers, idle ones included (an idle agent
+# still holds its slot). SubagentStart records carry no tool_use_id and are never counted on their
+# own: a foreground child is its lease. Checked for every caller, the main thread included, under
+# the 'fanout' mutex. STACK_FANOUT_SESSION: off | shadow (default: count and log, never deny) |
+# enforce; STACK_POLICY=off turns it off. Not seen: agents Claude Code starts without an Agent call.
+SESSION_MODES = ("off", "shadow", "enforce")
+SESSION_LOG = "fanout-session.jsonl"
+SESSION_LOG_MAX_BYTES = 4 << 20
+SESSION_SPAWN_REASON = ("Session limit: %d of %d subagent slots in use "
+                        "(CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS). Wait for a task notification "
+                        "before spawning more, or do this part yourself.")
+SESSION_RESUME_REASON = ("Session limit: %d of %d subagent slots in use "
+                         "(CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS). Wait for a task notification, "
+                         "then resume it.")
+
+
+def session_guard():
+    """(mode, MAXC) of the session slot guard, or None when it is off (STACK_FANOUT_SESSION=off,
+    STACK_POLICY=off, or a MAXC <= 0). An unknown mode means shadow: it never denies."""
+    if not policy_on():
+        return None
+    mode = os.environ.get("STACK_FANOUT_SESSION", "").strip().lower() or "shadow"
+    if mode not in SESSION_MODES:
+        warn_once("STACK_FANOUT_SESSION: ignoring %r (expected off, shadow or enforce); shadow "
+                  "applies" % mode[:32])
+        mode = "shadow"
+    maxc = knob_int("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", 20)
+    return None if mode == "off" or maxc <= 0 else (mode, maxc)
+
+
+def session_slots(d, now, ev, reg):
+    """Subagent slots in use in the session (n_sess): live leases and resume reservations of
+    every caller plus live background agents whose tool_use_id is not a live lease."""
+    leases = live_leases(d, now)
+    return len(leases) + bg_running(d, now, ev, reg, {lid for _, lid, _ in leases},
+                                    idle_filter=False)
+
+
+def session_log(d, ev, kind, mode, n, maxc):
+    """<session>/fanout-session.jsonl: one line per check (numbers and validated ids only; stops
+    at SESSION_LOG_MAX_BYTES). Best effort: never changes the decision."""
+    try:
+        path = os.path.join(d, SESSION_LOG)
+        try:
+            if os.path.getsize(path) >= SESSION_LOG_MAX_BYTES:
+                return
+        except FileNotFoundError:
+            pass
+        aid = ev.get("agent_id") or None
+        atype = norm(ev.get("agent_type")) or None
+        append_jsonl(path, {
+            "v": 1, "ts": round(time.time(), 3), "kind": kind, "mode": mode, "n": int(n),
+            "maxc": int(maxc), "full": n >= maxc,
+            "agent_id": aid if aid is None or LIMITS_ID_RE.match(str(aid)) else "invalid",
+            "agent_type": atype if atype is None or atype in AGENTS else "other"})
+    except (OSError, TypeError, ValueError) as exc:
+        warn_once("%s not written (%s)" % (SESSION_LOG, type(exc).__name__))
+
+
+def session_check(d, ev, now, reg, guard, kind):
+    """Under the 'fanout' mutex: the denial reason when the guard enforces and no slot is free,
+    else None. The count is logged in shadow and enforce mode; a count that fails is the static
+    decision (None), never a refusal."""
+    mode, maxc = guard
+    try:
+        n = session_slots(d, now, ev, reg)
+    except Exception as exc:  # noqa: BLE001 - fail to the static decision
+        warn_once("session slot count failed (%s); static decision" % type(exc).__name__)
+        return None
+    session_log(d, ev, kind, mode, n, maxc)
+    if mode == "enforce" and n >= maxc:
+        return (SESSION_SPAWN_REASON if kind == "spawn" else SESSION_RESUME_REASON) % (n, maxc)
+    return None
 
 
 def parse_fanout_by_type(raw):
@@ -1162,14 +1248,35 @@ def fanout_acquire(d, ev, caller, caller_type, child):
     copy = child in COPY_BASE and max_copies > 0
     tid = ev.get("tool_use_id")
     lease = {"type": child, "caller": caller, "caller_type": caller_type or None}
-    if limit <= 0 and not copy:        # no cap to check: no lock, no registry scan (review #15)
+    guard = session_guard()
+    if limit <= 0 and not copy and guard is None:   # no cap to check: no lock, no registry scan
+        if tid:                                     # (review #15)
+            write_json_atomic(os.path.join(fanout_dir(d, caller), safe(tid) + ".json"),
+                              dict(lease, ts=time.time()))
+        return None
+    try:
+        return _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, copy,
+                                      max_copies, tid, lease, guard)
+    except MutexTimeout:
+        if limit > 0 or copy:
+            raise
+        # only the session guard wanted the lock: the lock-free decision of a caller with no cap
+        warn_once("fanout.mutex timed out; session slot guard skipped for this spawn")
         if tid:
             write_json_atomic(os.path.join(fanout_dir(d, caller), safe(tid) + ".json"),
                               dict(lease, ts=time.time()))
         return None
+
+
+def _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, copy, max_copies, tid,
+                           lease, guard):
     with mutex(d, "fanout"):
         now = time.time()
         reg = load_registry(d)
+        if guard:
+            why = session_check(d, ev, now, reg, guard, "spawn")
+            if why:
+                return why
         if limit > 0:
             n = running_children(d, caller, now, ev, reg)
             if n >= limit:
@@ -2704,8 +2811,21 @@ def resume_reserve(d, ev, target_id, ttype):
     limit, knob = fanout_limit(owner, owner_type)
     max_copies = knob_int("STACK_MAX_SELF_FANOUT", 2)
     copy = ttype in COPY_BASE and max_copies > 0
-    if limit <= 0 and not copy:
+    guard = session_guard()         # the session slot guard applies to every owner
+    if limit <= 0 and not copy and guard is None:
         return None, None
+    try:
+        return _resume_reserve_locked(d, ev, target_id, ttype, owner, owner_type, limit, knob,
+                                      copy, max_copies, guard)
+    except MutexTimeout:
+        if limit > 0 or copy:
+            raise
+        warn_once("fanout.mutex timed out; session slot guard skipped for this resume")
+        return None, None
+
+
+def _resume_reserve_locked(d, ev, target_id, ttype, owner, owner_type, limit, knob, copy,
+                           max_copies, guard):
     rid = RESUME_PREFIX + safe(target_id)
     with mutex(d, "fanout"):
         now = time.time()
@@ -2714,6 +2834,10 @@ def resume_reserve(d, ev, target_id, ttype):
         if rid in {lid for _, lid, _ in live_leases(d, now, owner)}:
             return None, None       # already resumed in this burst: one run, one reservation
         reg = load_registry(d)
+        if guard:
+            why = session_check(d, ev, now, reg, guard, "resume")
+            if why:
+                return why, None
         if limit > 0:
             n = running_children(d, owner, now, ev, reg)
             if n >= limit:
@@ -10699,7 +10823,8 @@ FIXED_LIMIT_KNOBS = (
     "STACK_SOFT_LIMIT_SCALE", "SUPREME_SPAWNERS", "SUPREME_ONCE_PER_SESSION", "SUPREME_AFTER_NINJA",
     "SUPREME_PENDING_TTL_S", "SUPREME_IDLE_S", "SUPREME_LOCK_TTL_S", "SCREEN_LOCK_TTL_S", "STACK_MAX_DEPTH",
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
-    "STACK_IMAGE_MAX_PX", "STACK_IMAGE_UPLOAD_TOOLS", "STACK_IMAGE_MAX_B64", "STACK_SCHED_POLICY")
+    "STACK_IMAGE_MAX_PX", "STACK_IMAGE_UPLOAD_TOOLS", "STACK_IMAGE_MAX_B64", "STACK_SCHED_POLICY",
+    "STACK_FANOUT_SESSION")
 
 
 def limits_self_test(agents_dir=None):

@@ -259,6 +259,7 @@ def test_T1_fixed_guards_are_never_variables(st):
     for v in s["vars"]:
         assert not L.is_fixed_guard(v) and not L.is_fixed_guard(L.env_var(v)), v
     for name in sorted(L.FIXED_GUARDS) + ["SUPREME_ONCE_PER_SESSION", "STACK_IMAGE_MAX_PX", "READ_GATE_DATA_BYTES",
+                                          "STACK_FANOUT_SESSION",
                                           "stack-max-depth", "blackcat.max.dispatch"]:
         assert L.is_fixed_guard(name), name
         assert not L.VAR_RE.match(name) and name not in s["vars"]

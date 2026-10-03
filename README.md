@@ -272,7 +272,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | Soft token limits | Past a per-type limit an agent's next tool call carries one warning to wrap up and return `STATUS: partial`; nothing is refused | Values derived from p90 of healthy segments; all but claude-code-engineer and scout provisional (CONFIG.md §5). Effect on spend: not measured |
 | Hard budgets | Context tokens per human prompt and per session, whole tree (seeds 100,000,000 and 1,920,000,000); past them every call but reporting is refused | `tests/test_limits_guard.py`, `tests/test_stack_limits.py` |
 | Learned limits | `stack_limits.py` proposes new turn and token limits from the collector's rows; a session's limits are frozen at its start, inside repo floors and ceilings; `install.sh` moves a variable that never learned (status unset, not frozen or held now, never rolled back) to a changed seed and keeps every other value; fan-out, depth and the MCP cap are fixed guards that never learn (`FIXED_GUARDS`) | `tests/test_stack_limits.py`, `tests/test_sched_snapshot.py`. Calibration on held-out data: only the scheduler replay has one (`tests/derive_wave_sim.py`; with parameters fitted on another session, 16 of 19 replay windows land within 2 %, pinned in `tests/test_stack_sched.py`). A prototype run found the soft limits run hot (10.3 % cap-hit against a 5 % target; unreviewed, campaign worktree only) |
-| Fan-out caps | Running children per agent, copies per type, BlackCat per prompt; a background subtree silent for 600 s stops counting (`STACK_FANOUT_IDLE_S`) | `tests/test_agent_guard.py`, `tests/test_guard_regressions.py` |
+| Fan-out caps | Running children per agent, copies per type, BlackCat per prompt; a background subtree silent for 600 s stops counting (`STACK_FANOUT_IDLE_S`); session slots against `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (`STACK_FANOUT_SESSION`, shadow by default) | `tests/test_agent_guard.py`, `tests/test_guard_regressions.py`, `tests/test_fanout_session.py` |
 | Scheduler advisor | `stack_sched.py` plans waves under the caps and checks a plan against the limits; advice only (`STACK_SCHED_POLICY=report`) | `tests/test_stack_sched.py`; no behaviour depends on it |
 | Model tiering | Sonnet for lookups, loops and verification; Opus where judgment is the product | **by design, not measured** |
 
@@ -1153,6 +1153,7 @@ you may set yourself.
 | `STACK_SOFT_LIMIT_SCALE` | unset = 1 | Multiplies the soft token limits (per agent run, 33M per human prompt, 80M with an orchestrator); `0` = off | guard |
 | `STACK_SCHED_POLICY` | `report` | `report`: the scheduler only reports; `fresh_fixer` (opt-in): `stack_sched.py next` also advises a fresh fixer after a long resume gap. Fixed per session (snapshot) | stack_sched |
 | `STACK_FANOUT_IDLE_S` ○ | 600 (code: 1800) | A silent background subtree stops counting | guard |
+| `STACK_FANOUT_SESSION` | `shadow` | Session slot guard against `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, every caller: `shadow` logs the count (`fanout-session.jsonl`), `enforce` also refuses a spawn or resume with no free slot, `off` = none ([CONFIG.md](CONFIG.md) §5) | guard |
 | `STACK_LEASE_TTL_S` / `STACK_RESUME_TTL_S` | 21600 / 120 | Ceilings on unreported leases and resume reservations | guard |
 | `SUPREME_SPAWNERS` / `SUPREME_ONCE_PER_SESSION` / `SUPREME_AFTER_NINJA` | `orchestrator` / 1 / 1 | Who spawns supreme-coder; once; after a finished ninja-coder | guard |
 | `SUPREME_IDLE_S` ○ / `SUPREME_PENDING_TTL_S` / `SUPREME_LOCK_TTL_S` | 1800 (code: 900) / 120 / 21600 | supreme-coder lock timers | guard |
@@ -1164,7 +1165,7 @@ you may set yourself.
 | `STACK_IMAGE_UPLOAD_TOOLS` | — | Regex of more MCP tools whose image arguments get downscaled copies | guard |
 | `STACK_ENV_FILE` ● | `~/.claude/stack.env` | Where the keys live | `mcp-headers`, `with-stack-env`, libdocs, image-studio, `read_gate.py`, `web_caps.py` |
 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` ● | 4 | Claude Code's nesting limit (its default is 3) | Claude Code, guard |
-| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 33 | Subagents running in one session | Claude Code |
+| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 33 | Subagents running in one session | Claude Code, guard |
 | `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` ○ | 1 | Built-in Explore and Plan off (the stack's `explore` replaces Explore) | Claude Code |
 | `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` ○ | 1 | Every built-in type off in `claude -p` | Claude Code |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` | from `stack.env` | Not in `dot-claude/settings.json`: the installer copies them from `stack.env` (Keys and paths above) | Claude Code |
