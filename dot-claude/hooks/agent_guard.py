@@ -155,15 +155,23 @@ Knobs (env):
                           refused after this hook allowed it) stops counting after this
   STACK_FANOUT_IDLE_S=1800  a background child whose live subtree shows no activity for this long
                           no longer counts as running (settings.json ships 600)
-  STACK_PROMPT_CTX_BUDGET=100000000   context tokens per human prompt, whole session tree (0 = off)
-  STACK_SESSION_CTX_BUDGET=666000000  context tokens per session, whole session tree (0 = off)
+  Learned limits (stack_limits.py; fixed per session by the SessionStart snapshot, see "learned
+  limits" below; `stack_limits.py show` lists them). Each env override is digits, 0 = off, and is
+  recorded in the snapshot when the session starts (a later change waits for the next session):
+  STACK_PROMPT_CTX_BUDGET   hard.prompt: context tokens per human prompt, whole session tree
+  STACK_SESSION_CTX_BUDGET  hard.session: context tokens per session, whole session tree
+  STACK_MAXTURNS_<TYPE>     turns.<type>: API calls per subagent run (the turn gate)
+  STACK_HARDCTX_<TYPE>, STACK_SOFTCTX_<TYPE>  hard.agent / soft.agent: context tokens per run
+  STACK_SOFT_PROMPT_CTX[_<TYPE>], STACK_SOFT_SESSION_CTX  soft.prompt[.<type>], soft.session
+  STACK_LIMITS_AUTO=1       0 = the snapshot holds the seed (plus env overrides), nothing learned
   STACK_MAX_MCP_CALLS=64  MCP tool calls (mcp__*) per subagent per prompt (a spawn or a resume
-                          starts a new count); an agent whose frontmatter maxTurns is lower
-                          gets that instead (0 = off)
-  STACK_SOFT_LIMIT_SCALE=1  multiplies the soft token limits (SOFT_LIMITS per subagent run,
-                          SOFT_PROMPT_CTX per human prompt): past one, the next tool call carries a
-                          wrap-up warning, nothing is refused (0 = off; unset in settings.json, so
-                          a process environment value reaches the hooks)
+                          starts a new count); an agent whose turn budget (turns.<type>) is lower
+                          gets that instead (0 = off). A fixed guard, never learned.
+  STACK_SOFT_LIMIT_SCALE=1  multiplies the soft token limits (soft.agent per subagent run,
+                          soft.prompt per human prompt, soft.session): past one, the next tool call
+                          carries a wrap-up warning, nothing is refused (0 = off; unset in
+                          settings.json, so a process environment value reaches the hooks). A fixed
+                          guard read from the environment (the snapshot records it)
   GOD_SPAWNERS=orchestrator  parent types that may spawn god-coder ("main" = a main thread without
                           an agent type); the POLICY rows list it for the orchestrator only
   GOD_ONCE_PER_SESSION=1  at most one god-coder spawn per session (a SendMessage resume of it is the
@@ -2949,15 +2957,27 @@ def last_activity(path):
 
 
 def on_session_start(ev, d):
-    """Bookkeeping first (emit exits), then the JSON report line for every source: clear and
-    compact start a new context too (STACK_REPORT_FORMAT=json only)."""
+    """The limits snapshot and the usage collector first (limits_session_start; resume, compact
+    and clear keep an existing snapshot), then bookkeeping (emit exits), then one output for every
+    source: the limits notice for the user (systemMessage, only on a change or a fallback) and the
+    JSON report line (STACK_REPORT_FORMAT=json only; clear and compact start a new context too)."""
+    notice = None
+    try:
+        notice = limits_session_start(ev, d)
+    except Exception as exc:  # noqa: BLE001 - never block a session
+        warn(f"limits: {type(exc).__name__}: {exc}")
     try:
         session_start_bookkeeping(ev, d)
     except Exception as exc:  # noqa: BLE001 - as dispatch() would: warn, never block a session
         warn("%s: %s" % (type(exc).__name__, exc))
+    out = {}
+    if isinstance(notice, str) and notice:
+        out["systemMessage"] = notice[:300]
     line = report_format_line()
     if line:
-        emit({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": line}})
+        out["hookSpecificOutput"] = {"hookEventName": "SessionStart", "additionalContext": line}
+    if out:
+        emit(out)
 
 
 def session_start_bookkeeping(ev, d):
@@ -2996,7 +3016,9 @@ def session_start_bookkeeping(ev, d):
     root = state_root()
     for s in os.listdir(root):
         p = os.path.join(root, s)
-        if s == "usage":      # stack_usage.py's runs.csv and collectors: kept across sessions
+        # stack_usage.py's runs.csv and collectors, stack_limits.py's live values and snapshots
+        # (pruned by stack_limits itself after 30 days): kept across sessions
+        if s in ("usage", "limits"):
             continue
         try:
             if os.path.isdir(p) and p != d and now - last_activity(p) > 3 * 86400:
@@ -3115,15 +3137,258 @@ def session_env():
     return 2
 
 
+# ---------------------------------------------------------------- learned limits (S6 snapshot)
+# The learnable limits come from this session's immutable snapshot, written once at SessionStart by
+# stack_limits.apply_and_snapshot (the only place a limit changes; resume, compact and clear keep the
+# session id and so the snapshot):
+#   turns.<type>        API calls per subagent run (the turn gate; frontmatter maxTurns stays the
+#                       ceiling and backstop); also lowers the MCP call cap
+#   soft.agent.<type>   per-run soft limit (warning)        hard.agent.<type>  per-run cap (deny)
+#   soft.prompt[.<type>] per-prompt soft limit (warning)    hard.prompt        per-prompt cap (deny)
+#   soft.session        per-session soft limit (warning)    hard.session       per-session cap (deny)
+# None = off. Copy types use their base type's values; blackcat has no per-agent variable. The hot
+# path reads <state>/limits/snapshots/<sid>.json with a lean, hash-checked reader (no stack_limits
+# import; ~1.5 ms); a missing snapshot is written without applying (stack_limits.session_limits ->
+# ensure_snapshot), an altered one gives the seed values with one stderr line (O_EXCL marker
+# <session>/limits-tamper). If stack_limits.py or its seed cannot be used, the constants of this
+# file are the last-resort fallback (SOFT_LIMITS, SOFT_PROMPT_CTX, SOFT_PROMPT_CTX_BY_TYPE, the
+# budget knobs or 100M/666M, frontmatter maxTurns). Fixed guards (fan-out, depth, BlackCat, god-coder,
+# TTLs, STACK_MAX_MCP_CALLS, images, policy, STACK_SOFT_LIMIT_SCALE) are never learned: env only.
+# Every firing appends one line to <session>/limit-hits.jsonl and every human prompt boundary one
+# to <session>/prompt-windows.jsonl (numbers and ids only; stack_usage.py reads both).
+LIMITS_SCHEMA = 1
+LIMITS_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+LIMIT_HITS = "limit-hits.jsonl"
+PROMPT_WINDOWS = "prompt-windows.jsonl"
+LIMITS_SHOW = "stack_limits.py show"
+LIMITS_ENV_PREFIX = {"turns": "STACK_MAXTURNS_", "soft.agent": "STACK_SOFTCTX_",
+                     "hard.agent": "STACK_HARDCTX_", "soft.prompt": "STACK_SOFT_PROMPT_CTX_"}
+LIMITS_ENV_SCOPE = {"soft.prompt": "STACK_SOFT_PROMPT_CTX", "hard.prompt": "STACK_PROMPT_CTX_BUDGET",
+                    "soft.session": "STACK_SOFT_SESSION_CTX", "hard.session": "STACK_SESSION_CTX_BUDGET"}
+_LIMITS = {}          # session id -> Limits (one hook process)
+_LIMITS_MOD = []      # [stack_limits module or None] once imported
+
+
+def limits_module():
+    """stack_limits.py beside this file (imported once), or None when it cannot be loaded."""
+    if not _LIMITS_MOD:
+        mod = None
+        try:
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            import stack_limits as mod
+        except Exception as exc:  # noqa: BLE001 - the built-in fallback takes over
+            warn_once(f"limits: stack_limits.py unusable ({type(exc).__name__}: {exc}); built-in "
+                      "fallback limits")
+            mod = None
+        _LIMITS_MOD.append(mod)
+    return _LIMITS_MOD[0]
+
+
+def limits_snapshot_path(sid):
+    return os.path.join(state_root(), "limits", "snapshots", sid + ".json")
+
+
+def read_limits_snapshot(sid):
+    """(doc, "ok") for a snapshot whose schema, session id and hash check (stack_limits.snap_hash:
+    sha256 of the canonical JSON of every other field); else (None, "missing"|"unreadable"|
+    "tamper")."""
+    try:
+        with open(limits_snapshot_path(sid), "rb") as f:
+            raw = f.read(4 << 20)
+    except FileNotFoundError:
+        return None, "missing"
+    except OSError:
+        return None, "unreadable"
+    try:
+        doc = json.loads(raw.decode("utf-8"))
+    except (ValueError, RecursionError):
+        return None, "tamper"
+    if not isinstance(doc, dict) or doc.get("schema_version") != LIMITS_SCHEMA \
+            or doc.get("session_id") != sid or not isinstance(doc.get("values"), dict) \
+            or not isinstance(doc.get("hash"), str):
+        return None, "tamper"
+    import hashlib
+    rest = {k: v for k, v in doc.items() if k != "hash"}
+    try:
+        canon = json.dumps(rest, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    except ValueError:
+        return None, "tamper"
+    if doc["hash"] != "sha256:" + hashlib.sha256(canon.encode("utf-8")).hexdigest():
+        return None, "tamper"
+    return doc, "ok"
+
+
+def limit_int(v):
+    """A limit value: a positive int, else None (off)."""
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else None
+
+
+def limits_env_name(var):
+    """The env override of a variable (soft.agent.code-reviewer -> STACK_SOFTCTX_CODE_REVIEWER)."""
+    if var in LIMITS_ENV_SCOPE:
+        return LIMITS_ENV_SCOPE[var]
+    for fam, prefix in LIMITS_ENV_PREFIX.items():
+        if var.startswith(fam + "."):
+            return prefix + re.sub(r"[^A-Z0-9]", "_", var[len(fam) + 1:].upper())
+    return None
+
+
+class Limits:
+    """One session's limits: values {var: int|None}, origin {var: env|live|seed|frozen|fallback},
+    snap (first 16 hex of the snapshot hash, None without one), state ("ok" = verified snapshot;
+    "builtin" = this file's constants)."""
+
+    def __init__(self, values, origin, snap, state):
+        self.values = values if isinstance(values, dict) else {}
+        self.origin = origin if isinstance(origin, dict) else {}
+        self.snap = snap if isinstance(snap, str) and re.match(r"^[0-9a-f]{16}\Z", snap) else None
+        self.state = state
+
+    def get(self, var):
+        return limit_int(self.values.get(var))
+
+    def key(self, family, atype):
+        """The variable a type's value lives in (a copy type: its base's when it has none)."""
+        t = norm(atype)
+        key = f"{family}.{t}"
+        if key not in self.values and t in COPY_BASE:
+            key = f"{family}.{COPY_BASE[t]}"
+        return key
+
+    def typed(self, family, atype):
+        if self.state == "builtin" and family == "turns":
+            return limit_int(agent_max_turns(atype))
+        return self.get(self.key(family, atype))
+
+    def any_set(self, *families):
+        return any(limit_int(v) for k, v in self.values.items() if k.startswith(families))
+
+    def where(self, var):
+        """Where a value comes from, for deny texts."""
+        if self.state == "builtin":
+            return "built-in fallback: stack_limits.py unusable"
+        o = self.origin.get(var) or "seed"
+        env = limits_env_name(var)
+        if o == "env" and env:
+            return f"set by {env}={self.get(var) or 0} in this session's limits snapshot"
+        if self.state != "ok":
+            return f"seed value: this session's limits snapshot is {self.state}"
+        return f"origin {o} in this session's limits snapshot"
+
+
+def builtin_limits():
+    """The last-resort fallback: this file's constants (stack_limits.py or its seed unusable)."""
+    values = {"soft.agent." + t: v for t, v in SOFT_LIMITS.items() if t != "blackcat"}
+    values["soft.prompt"] = SOFT_PROMPT_CTX
+    values.update({"soft.prompt." + t: v for t, v in SOFT_PROMPT_CTX_BY_TYPE.items()})
+    values["hard.prompt"] = knob_int("STACK_PROMPT_CTX_BUDGET", 100000000)
+    values["hard.session"] = knob_int("STACK_SESSION_CTX_BUDGET", 666000000)
+    return Limits(values, {}, None, "builtin")
+
+
+def session_limits(ev, d=None):
+    """This session's Limits (cached for the process). Never raises."""
+    sid = ev.get("session_id")
+    key = sid if isinstance(sid, str) else None
+    if key in _LIMITS:
+        return _LIMITS[key]
+    lim = None
+    ok_sid = isinstance(sid, str) and LIMITS_ID_RE.match(sid)
+    if ok_sid:
+        doc, state = read_limits_snapshot(sid)
+        if state == "ok":
+            lim = Limits(doc["values"], doc.get("origin"), doc["hash"][7:23], "ok")
+    if lim is None:
+        mod = limits_module()
+        if mod is not None:
+            try:
+                if ok_sid:
+                    r = mod.session_limits(sid, sdir=d)
+                    lim = Limits(r["values"], r["origin"], r["snap"], r["state"])
+                else:
+                    seed = mod.load_seed()
+                    lim = Limits({v: x["seed"] for v, x in seed["vars"].items()},
+                                 {v: "seed" for v in seed["vars"]}, None, "nosession")
+            except Exception as exc:  # noqa: BLE001 - the built-in fallback takes over
+                warn_once(f"limits: session limits unreadable ({type(exc).__name__}: {exc}); "
+                          "built-in fallback limits")
+                lim = None
+    if lim is None:
+        lim = builtin_limits()
+    _LIMITS[key] = lim
+    return lim
+
+
+def limits_session_start(ev, d):
+    """SessionStart, first (design section 3): apply the evidence and write this session's
+    snapshot (steps 1-4, 6, 7: stack_limits.apply_and_snapshot), then start the usage collector
+    (step 5). Returns the notice for the user (a change or a fallback), else None."""
+    notice = None
+    mod = limits_module()
+    if mod is None:
+        notice = "limits: stack_limits.py unusable; built-in fallback limits in use"
+    else:
+        try:
+            notice = mod.apply_and_snapshot(ev, spawn=True)[1]
+        except Exception as exc:  # noqa: BLE001 - never block a session
+            warn(f"limits: snapshot not written ({type(exc).__name__}: {exc})")
+    _LIMITS.pop(ev.get("session_id") if isinstance(ev.get("session_id"), str) else None, None)
+    try:
+        import stack_usage
+        stack_usage.hook_start(ev)
+    except Exception as exc:  # noqa: BLE001 - the collector is best effort
+        warn(f"usage collector not started ({type(exc).__name__}: {exc})")
+    return notice
+
+
+def append_jsonl(path, obj):
+    """One line, O_APPEND (concurrent hooks never interleave a line this short), 0600."""
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_APPEND, 0o600)
+    try:
+        os.write(fd, (json.dumps(obj, separators=(",", ":")) + "\n").encode("utf-8"))
+    finally:
+        os.close(fd)
+
+
+def note_limit_hit(d, ev, kind, value, limit, lim, run=None):
+    """<session>/limit-hits.jsonl: one line per firing (schema v1, read by stack_usage.py). Best
+    effort: a line that cannot be written never changes the decision."""
+    aid = ev.get("agent_id") or None
+    if aid is not None and not LIMITS_ID_RE.match(str(aid)):
+        return
+    try:
+        append_jsonl(os.path.join(d, LIMIT_HITS), {
+            "v": 1, "ts": time.time(), "agent_id": aid,
+            "agent_type": norm(ev.get("agent_type")) or ("blackcat" if not aid else "unknown"),
+            "run": run if isinstance(run, (int, float)) and not isinstance(run, bool) else None,
+            "kind": kind, "value": int(value), "limit": int(limit), "snap": lim.snap})
+    except (OSError, TypeError, ValueError) as exc:
+        warn_once(f"limits: {LIMIT_HITS} not written ({type(exc).__name__})")
+
+
+def note_prompt_window(d, pid, base):
+    """<session>/prompt-windows.jsonl: one line per human prompt boundary (schema v1)."""
+    try:
+        append_jsonl(os.path.join(d, PROMPT_WINDOWS), {
+            "v": 1, "ts": time.time(),
+            "prompt_id": pid if isinstance(pid, str) and LIMITS_ID_RE.match(pid) else None,
+            "base": int(base)})
+    except (OSError, TypeError, ValueError) as exc:
+        warn_once(f"limits: {PROMPT_WINDOWS} not written ({type(exc).__name__})")
+
+
 # ---------------------------------------------------------------- token budgets
 # Context tokens = input + cache_creation + cache_read tokens of every API call (the usage fields,
 # hooks.md:1759), summed over the whole session tree: the main transcript (transcript_path,
 # hooks.md:738) and each subagent's own <session>/subagents/agent-<id>.jsonl (hooks.md:2385, 2405).
-# STACK_PROMPT_CTX_BUDGET covers the calls since the last UserPromptSubmit, STACK_SESSION_CTX_BUDGET
-# the whole session; both are checked on every PreToolUse of every agent (`budget` mode, and the
-# main hook's own tools in dispatch()). Once spent, every call is refused except the ones an agent
-# needs to report or stop (REPORT_TOOLS, ToolSearch loading one of them, Write/Edit under a
-# .claude-work/ folder or the session scratchpad).
+# hard.prompt covers the calls since the last UserPromptSubmit, hard.session the whole session,
+# hard.agent.<type> one subagent run's context and turns.<type> its API calls (the session's
+# snapshot values, see "learned limits"); all are checked on every PreToolUse of every agent
+# (`budget` mode, and the main hook's own tools in dispatch()). Once spent, every call is refused
+# except the ones an agent needs to report or stop (REPORT_TOOLS, ToolSearch loading one of them,
+# Write/Edit under a .claude-work/ folder or the session scratchpad).
 # The transcript format is not documented. As observed (118 files, 12,231 assistant lines): one API
 # call is one line per content block, every line with the same message.id, requestId and usage,
 # always adjacent and never split across files; so each call counts once per (message.id,
@@ -3143,9 +3408,9 @@ BUDGET_LOG_KEYS = ("hook_event_name", "session_id", "prompt_id", "tool_name", "t
 BUDGET_CHECK_MIN_LINES = 50  # --check-budget: this many lines and no assistant line = format drift
 
 
-def budget_caps():
-    return (knob_int("STACK_PROMPT_CTX_BUDGET", 100000000),
-            knob_int("STACK_SESSION_CTX_BUDGET", 666000000))
+def budget_caps(lim):
+    """(prompt cap, session cap) of this session's limits (hard.prompt, hard.session); 0 = off."""
+    return lim.get("hard.prompt") or 0, lim.get("hard.session") or 0
 
 
 def transcript_files(ev):
@@ -3202,8 +3467,9 @@ def scan_transcript(path, fst, deadline, stats, run_of=None):
     `deadline` (time.monotonic).
     run_of (a subagent's own file): returns the registry `started` stamp of the agent's current
     run; fst["seg"] then holds the context tokens of that run alone (calls timestamped before the
-    stamp belong to an earlier run), fst["seg_run"] the stamp it counts for: the soft per-agent
-    limit's segment, reset on a spawn or a resume like the MCP call cap."""
+    stamp belong to an earlier run), fst["seg_calls"] its API calls (the turn gate's unit),
+    fst["seg_run"] the stamp they count for: the per-agent limits' segment, reset on a spawn or a
+    resume like the MCP call cap."""
     try:
         st = os.stat(path)
     except OSError:
@@ -3219,7 +3485,7 @@ def scan_transcript(path, fst, deadline, stats, run_of=None):
     run = run_of() if run_of else None
     since = iso_stamp(run) if isinstance(run, (int, float)) and not isinstance(run, bool) else None
     if run_of and fst.get("seg_run") != run:
-        fst["seg_run"], fst["seg"] = run, 0
+        fst["seg_run"], fst["seg"], fst["seg_calls"] = run, 0, 0
     keys, added = list(fst.get("keys") or []), 0
     with open(path, "rb") as f:
         f.seek(off)
@@ -3265,6 +3531,7 @@ def scan_transcript(path, fst, deadline, stats, run_of=None):
                 if since is None or not isinstance(ts, str) or len(ts) != len(since) \
                         or ts >= since:
                     fst["seg"] = int(fst.get("seg") or 0) + max(tokens, 0)
+                    fst["seg_calls"] = int(fst.get("seg_calls") or 0) + 1
     fst["off"], fst["keys"] = off, keys
     return added
 
@@ -3308,9 +3575,11 @@ def budget_update(d, ev, scan_s=BUDGET_SCAN_S, mutate=None, start_at_end=False, 
         return read_json(path)
 
 
-def budgets_off():
-    """No hard budget and no soft limit: nothing to count."""
-    return max(budget_caps()) <= 0 and soft_scale() <= 0
+def budgets_off(lim):
+    """No hard budget, no soft limit, no turn budget and no per-agent cap: nothing to count."""
+    return max(budget_caps(lim)) <= 0 and soft_scale() <= 0 \
+        and not lim.any_set("turns.", "hard.agent.") \
+        and lim.state != "builtin"       # the fallback's turns come from the agent files
 
 
 def budget_prompt(d, ev):
@@ -3320,8 +3589,9 @@ def budget_prompt(d, ev):
     one (budget_note_prompt). A notification delivered as a prompt event is not a human prompt.
     PROMPT_PENDING is written first, outside the lock: when the lock times out (budget_update then
     skips `mark`) or the hook is killed (5 s of lock wait plus the 10 s scan can pass the 15 s hook
-    timeout), the next main-thread call under this prompt_id starts the window instead."""
-    if not policy_on() or budgets_off():
+    timeout), the next main-thread call under this prompt_id starts the window instead.
+    Each boundary is recorded in prompt-windows.jsonl (the per-prompt limits' evidence)."""
+    if not policy_on() or budgets_off(session_limits(ev, d)):
         return
     if str(ev.get("prompt") or "").lstrip().startswith("<task-notification>"):
         return
@@ -3332,6 +3602,7 @@ def budget_prompt(d, ev):
 
     def mark(st):
         st["prompt_id"], st["prompt_base"], st["human"] = pid, st["total"], True
+        note_prompt_window(d, pid, st["total"])
         if pid and (read_json(pending) or {}).get("prompt_id") == pid:
             unlink(pending)
     budget_update(d, ev, scan_s=BUDGET_LONG_SCAN_S, mutate=mark, lock_s=5.0)
@@ -3341,7 +3612,7 @@ def budget_session_start(d, ev):
     """SessionStart: a resumed session catches up on its transcripts (the session budget spans
     the whole session); a fork counts only what it adds itself (hooks.md:1138)."""
     source = ev.get("source")
-    if not policy_on() or budgets_off() or source not in ("resume", "fork"):
+    if not policy_on() or source not in ("resume", "fork") or budgets_off(session_limits(ev, d)):
         return
     budget_update(d, ev, scan_s=BUDGET_LONG_SCAN_S, start_at_end=source == "fork", lock_s=5.0)
 
@@ -3393,49 +3664,93 @@ def budget_note_prompt(st, ev, d):
             return
         unlink(pending)
     st["prompt_id"], st["prompt_base"] = pid, st["total"]
+    note_prompt_window(d, pid, st["total"])
+
+
+def run_segment(st, files, d, aid):
+    """(context tokens, API calls, run stamp) of a subagent's current run (its registry `started`
+    stamp; counts kept for an earlier run read as 0)."""
+    run = (reg_get(d, aid) or {}).get("started")
+    fst = st["files"].get(subagent_file(files, aid)) or {}
+    if fst.get("seg_run") != run:
+        return 0, 0, run
+    return int(fst.get("seg") or 0), int(fst.get("seg_calls") or 0), run
 
 
 def budget_gate(ev, d):
-    """PreToolUse: refuse the call once the prompt or session context-token budget is spent; queue
-    the soft-limit warning (soft_check) for this call's output. Fails open: any error only
-    warns."""
+    """PreToolUse: refuse the call once the session or prompt context-token cap, the run's
+    per-agent cap (hard.agent) or its turn budget (turns) is spent; queue the soft-limit warning
+    (soft_check) for this call's output. Calls an agent needs to report or stop (budget_exempt)
+    always pass. Limits come from this session's snapshot. Fails open: any error only warns."""
     if not policy_on():
         return
-    prompt_cap, session_cap = budget_caps()
-    if budgets_off() or budget_exempt(ev):
+    lim = session_limits(ev, d)
+    prompt_cap, session_cap = budget_caps(lim)
+    if budgets_off(lim) or budget_exempt(ev):
         return
-    note = []
+    note, seg = [], []
+    aid = ev.get("agent_id")
+    files = transcript_files(ev)
 
     def mutate(s):
         budget_note_prompt(s, ev, d)
+        if aid and files:
+            seg[:] = [run_segment(s, files, d, aid)]
         try:
-            note.append(soft_check(s, ev, transcript_files(ev), d))
+            note.append(soft_check(s, ev, files, d, lim, seg[0] if seg else None))
         except Exception as exc:  # noqa: BLE001 - the soft limits never cost the hard ones
             warn("soft token limit not checked (%s: %s)" % (type(exc).__name__, exc))
     try:
         st = budget_update(d, ev, mutate=mutate)
         total = int((st or {}).get("total") or 0)
         used = total - int((st or {}).get("prompt_base") or 0)
+        if st and not seg and aid and files:        # the lock timed out: the last saved counts
+            seg[:] = [run_segment(st, files, d, aid)]
     except Exception as exc:  # noqa: BLE001 - a budget we cannot count never blocks work
         warn("token budget not checked (%s: %s); the call is allowed" % (type(exc).__name__, exc))
         return
-    # The budget knobs are OWNED_ENV in install.sh: a raised value is reset by the next install.
+    run = seg[0][2] if seg else None
     if session_cap > 0 and total >= session_cap:
-        deny(budget_reason("Session", "in this session", total, "STACK_SESSION_CTX_BUDGET",
-                           session_cap, ev),
-             "claude-agent-stack: the session token budget is spent (%s of %s context tokens); "
-             "agents are told to wrap up. Start a new session, or raise STACK_SESSION_CTX_BUDGET "
-             "in the env block of ~/.claude/settings.json (it holds until the next install.sh "
-             "run, which resets the stack's budget knobs)."
-             % (fmt_int(total), fmt_int(session_cap)))
+        note_limit_hit(d, ev, "hard_session", total, session_cap, lim, run)
+        deny(budget_reason("Session", "in this session", total, "hard.session", session_cap,
+                           lim, ev),
+             f"claude-agent-stack: the session token budget is spent ({fmt_int(total)} of "
+             f"{fmt_int(session_cap)} context tokens; hard.session, {lim.where('hard.session')}); "
+             f"agents are told to wrap up. Start a new session: limits change only when a session "
+             f"starts ({LIMITS_SHOW}).")
     if prompt_cap > 0 and used >= prompt_cap:
-        deny(budget_reason("Prompt", "since the user's last prompt", used,
-                           "STACK_PROMPT_CTX_BUDGET", prompt_cap, ev),
-             "claude-agent-stack: this prompt's token budget is spent (%s of %s context tokens); "
-             "agents are told to wrap up. Your next prompt starts a new budget; to allow more per "
-             "prompt, raise STACK_PROMPT_CTX_BUDGET in the env block of ~/.claude/settings.json "
-             "(it holds until the next install.sh run, which resets the stack's budget knobs)."
-             % (fmt_int(used), fmt_int(prompt_cap)))
+        note_limit_hit(d, ev, "hard_prompt", used, prompt_cap, lim, run)
+        deny(budget_reason("Prompt", "since the user's last prompt", used, "hard.prompt",
+                           prompt_cap, lim, ev),
+             f"claude-agent-stack: this prompt's token budget is spent ({fmt_int(used)} of "
+             f"{fmt_int(prompt_cap)} context tokens; hard.prompt, {lim.where('hard.prompt')}); "
+             f"agents are told to wrap up. Your next prompt starts a new budget; the limit itself "
+             f"changes only when a session starts ({LIMITS_SHOW}).")
+    if seg:
+        atype = norm(ev.get("agent_type")) or "unknown"
+        tokens, calls, run = seg[0]
+        cap = lim.typed("hard.agent", atype)
+        if cap and tokens >= cap:
+            var = lim.key("hard.agent", atype)
+            note_limit_hit(d, ev, "hard_agent", tokens, cap, lim, run)
+            deny(f"Per-agent token cap reached: you have used {fmt_int(tokens)} context tokens "
+                 f"since you were started or resumed ({var}={cap}, {lim.where(var)}). Finish with "
+                 f"what you have: make no more tool calls except to report or stop, and return "
+                 f"STATUS: partial listing what is left (`{LIMITS_SHOW}` lists the limits).",
+                 f"claude-agent-stack: a {atype} reached its per-run token cap ({fmt_int(tokens)} "
+                 f"of {fmt_int(cap)} context tokens; {var}, {lim.where(var)}). Limits change only "
+                 f"when a session starts ({LIMITS_SHOW}).")
+        turns = lim.typed("turns", atype)
+        if turns and calls >= turns:
+            var = lim.key("turns", atype)
+            note_limit_hit(d, ev, "turn", calls, turns, lim, run)
+            deny(f"Turn budget reached: you have made {calls} API calls since you were started "
+                 f"or resumed ({var}={turns}, {lim.where(var)}). Finish with what you have: make "
+                 f"no more tool calls except to report or stop, and return STATUS: partial "
+                 f"listing what is left (`{LIMITS_SHOW}` lists the limits).",
+                 f"claude-agent-stack: a {atype} reached its turn budget ({turns} API calls per "
+                 f"run; {var}, {lim.where(var)}). Limits change only when a session starts "
+                 f"({LIMITS_SHOW}).")
     if note and note[0]:     # a hard refusal above supersedes the soft warning
         _SOFT_NOTE[:] = [note[0]]
 
@@ -3444,9 +3759,10 @@ def fmt_int(n):
     return "{:,}".format(int(n))
 
 
-def budget_reason(kind, span, used, knob, cap, ev):
-    head = ("%s token budget reached: the agents of this session have used %s context tokens %s "
-            "(%s=%d). " % (kind, fmt_int(used), span, knob, cap))
+def budget_reason(kind, span, used, var, cap, lim, ev):
+    head = (f"{kind} token budget reached: the agents of this session have used {fmt_int(used)} "
+            f"context tokens {span} ({var}={cap}, {lim.where(var)}; `{LIMITS_SHOW}` lists the "
+            f"limits). ")
     if not ev.get("agent_id"):
         return head + ("Call no more tools: answer the user now with what you have, and say what "
                        "is left.")
@@ -3465,6 +3781,11 @@ def budget_reason(kind, span, used, knob, cap, ev):
 #                      own transcript (scan_transcript's fst["seg"]); once per segment.
 #   per human prompt   the hard prompt budget's window (total - prompt_base); once per prompt
 #                      (keyed by prompt_base).
+#   per session        the session total (soft.session; off until the learner supports it); once.
+# The values in force come from the session's limits snapshot (soft.agent.<type>, soft.prompt[.<type>],
+# soft.session; see "learned limits" above). The constants below are what stack_limits_seed.json
+# was seeded from (self-test: they agree) and the last-resort fallback when stack_limits.py or its
+# seed cannot be used.
 # Values (context tokens) derived on 2026-10-02 from 165 segments and 78 human prompts of two
 # sessions by tests/derive_thresholds.py: soft = p90 of healthy runs x 1.25-1.5, floor 2 x median,
 # two significant figures, per type when it has >= 5 healthy segments from >= 3 agents, else per pool
@@ -3538,56 +3859,69 @@ def soft_scale():
     return v
 
 
-def soft_limit(atype, scale=None):
-    """The per-segment soft limit of an agent type in context tokens (scaled); None = none."""
+def soft_limit(atype, scale=None, lim=None):
+    """The per-segment soft limit of an agent type in context tokens (scaled); None = none.
+    lim: the session's Limits (default: the built-in constants)."""
     scale = soft_scale() if scale is None else scale
-    t = norm(atype)
-    base = SOFT_LIMITS.get(t, SOFT_LIMITS.get(COPY_BASE.get(t)))
+    lim = lim or builtin_limits()
+    base = lim.typed("soft.agent", atype)
     return int(base * scale) if base and scale > 0 else None
 
 
-def soft_prompt_ctx(d):
-    """The per-prompt soft limit (unscaled): SOFT_PROMPT_CTX, raised to SOFT_PROMPT_CTX_BY_TYPE's
-    value while an agent of a listed type runs."""
-    best = SOFT_PROMPT_CTX
+def soft_prompt_ctx(d, lim=None):
+    """The per-prompt soft limit (unscaled; None = off): soft.prompt, raised to the largest
+    soft.prompt.<type> of the agent types running now (stack_limits.prompt_soft_limit)."""
+    lim = lim or builtin_limits()
+    best = lim.get("soft.prompt")
+    if best is None:
+        return None
     for rec in load_registry(d).values():
-        t = norm(rec.get("type"))
         if not rec.get("stopped"):
-            best = max(best, SOFT_PROMPT_CTX_BY_TYPE.get(t)
-                       or SOFT_PROMPT_CTX_BY_TYPE.get(COPY_BASE.get(t)) or 0)
+            best = max(best, lim.typed("soft.prompt", rec.get("type")) or 0)
     return best
 
 
-def soft_check(st, ev, files, d):
+def soft_check(st, ev, files, d, lim=None, seg=None):
     """Inside budget_update's lock, after the scan: the warning this call carries, or None. Marks
     what it warns about in `st`, so each limit warns once (soft_prompt: the prompt_base it warned
-    for; soft_agents: agent id -> the run stamp it warned for)."""
+    for; soft_agents: agent id -> the run stamp it warned for; soft_session: the limit it warned
+    at). Each warning appends a limit-hits.jsonl line. seg: run_segment()'s result, when known."""
     scale = soft_scale()
     if scale <= 0:
         return None
+    lim = lim or builtin_limits()
     aid = ev.get("agent_id")
     notes = []
+    total = int(st.get("total") or 0)
     base = int(st.get("prompt_base") or 0)
-    used = int(st.get("total") or 0) - base
-    limit = int(SOFT_PROMPT_CTX * scale)
+    used = total - base
+    floor = lim.get("soft.prompt")
+    limit = int(floor * scale) if floor else 0
     if limit and used >= limit and st.get("soft_prompt") != base:
-        limit = int(soft_prompt_ctx(d) * scale)     # the registry is read only past the base value
+        limit = int((soft_prompt_ctx(d, lim) or 0) * scale)   # the registry is read only past it
     if limit and used >= limit and st.get("soft_prompt") != base:
         st["soft_prompt"] = base
+        note_limit_hit(d, ev, "soft_prompt", used, limit, lim)
         notes.append("Soft token limit reached for this prompt: the agents of this session have "
                      "used %s context tokens since the user's last prompt (soft limit %s)."
                      % (fmt_int(used), fmt_int(limit)))
-    limit = soft_limit(ev.get("agent_type"), scale) if aid and files else None
+    ss = lim.get("soft.session")
+    limit = int(ss * scale) if ss else 0
+    if limit and total >= limit and not st.get("soft_session"):
+        st["soft_session"] = limit
+        note_limit_hit(d, ev, "soft_session", total, limit, lim)
+        notes.append(f"Soft token limit reached for this session: its agents have used "
+                     f"{fmt_int(total)} context tokens (soft limit {fmt_int(limit)}).")
+    limit = soft_limit(ev.get("agent_type"), scale, lim) if aid and files else None
     if limit:
-        run = (reg_get(d, aid) or {}).get("started")
-        fst = st["files"].get(subagent_file(files, aid)) or {}
-        seg = int(fst.get("seg") or 0) if fst.get("seg_run") == run else 0
+        tokens, _, run = seg if seg else run_segment(st, files, d, aid)
         warned = st.setdefault("soft_agents", {})
-        if seg >= limit and not (aid in warned and warned[aid] == run):
+        if tokens >= limit and not (aid in warned and warned[aid] == run):
             warned[aid] = run
+            note_limit_hit(d, ev, "soft_agent", tokens, limit, lim, run)
             notes.append("Soft token limit reached for this run: you have used %s context tokens "
                          "since you were started or resumed (soft limit for %s: %s)."
-                         % (fmt_int(seg), norm(ev.get("agent_type")), fmt_int(limit)))
+                         % (fmt_int(tokens), norm(ev.get("agent_type")), fmt_int(limit)))
     if not notes:
         return None
     return " ".join(notes + [SOFT_WRAP_UP if aid else SOFT_WRAP_UP_MAIN])
@@ -3613,8 +3947,9 @@ def soft_flush():
 # PreToolUse; a call this gate allows counts even if another hook or the permission system then
 # refuses it. The main thread is not counted: BlackCat's BLACKCAT_MAX_STEPS already bounds every
 # one of its calls per prompt.
-# maxTurns comes from <config>/agents/<type>.md (a copy type falls back to its base file); a type
-# with no file or no maxTurns (explore, general-purpose, plugin agents) gets STACK_MAX_MCP_CALLS.
+# The turn budget is the session snapshot's turns.<type> (seeded from frontmatter maxTurns; a copy
+# type uses its base's); a type with none (plugin agents) gets STACK_MAX_MCP_CALLS. The built-in
+# fallback reads maxTurns from <config>/agents/<type>.md (a copy type falls back to its base file).
 # Past the cap only MCP calls are refused (REPORT_TOOLS never), other tools keep working. Fails
 # open like the token budgets: state it cannot read or lock warns and allows the call.
 MCP_CALLS_DIR = "mcp-calls"
@@ -3646,9 +3981,11 @@ def agent_max_turns(agent_type, agents_dir=None):
     return None
 
 
-def mcp_cap(agent_type, knob=None):
+def mcp_cap(agent_type, knob=None, lim=None):
+    """min(STACK_MAX_MCP_CALLS, the type's turn budget): turns.<type> of the session's limits
+    (the built-in fallback: frontmatter maxTurns). The knob itself is a fixed guard."""
     knob = mcp_calls_knob() if knob is None else knob
-    turns = agent_max_turns(agent_type)
+    turns = (lim or builtin_limits()).typed("turns", agent_type)
     return min(knob, turns) if turns and turns > 0 else knob
 
 
@@ -3662,7 +3999,8 @@ def mcp_gate(ev, d):
         return
     atype = norm(ev.get("agent_type")) or "unknown"
     try:
-        cap = mcp_cap(atype, knob)
+        lim = session_limits(ev, d)
+        cap = mcp_cap(atype, knob, lim)
         folder = os.path.join(d, MCP_CALLS_DIR)
         os.makedirs(folder, exist_ok=True)
         path = os.path.join(folder, safe(aid) + ".json")
@@ -3681,15 +4019,17 @@ def mcp_gate(ev, d):
         warn("MCP call cap not checked (%s: %s); the call is allowed" % (type(exc).__name__, exc))
         return
     # The knob is OWNED_ENV in install.sh: a raised value is reset by the next install.
+    var = lim.key("turns", atype)
     limit = ("STACK_MAX_MCP_CALLS=%d" % knob if cap == knob
-             else "its maxTurns %d, below STACK_MAX_MCP_CALLS=%d" % (cap, knob))
+             else f"its turn budget {var}={cap}, {lim.where(var)}, below STACK_MAX_MCP_CALLS={knob}")
+    note_limit_hit(d, ev, "mcp", n, cap, lim, run)
     deny("MCP call limit reached: this %s has made %d MCP tool calls for its current prompt (%s). "
          "Make no more MCP tool calls; other tools still work. Finish with what you have, or "
          "return STATUS: partial naming what the remaining MCP calls were for." % (atype, n, limit),
          "claude-agent-stack: a %s reached its MCP call limit (%d per agent per prompt; a resume "
          "starts a new count). To allow more, raise STACK_MAX_MCP_CALLS in the env block of ~/.claude/settings.json (it "
          "holds until the next install.sh run, which resets the stack's budget knobs); the "
-         "agent's maxTurns still caps it." % (atype, cap))
+         "agent's turn budget still caps it (stack_limits.py show)." % (atype, cap))
 
 
 def budget_main(raw):
@@ -9381,6 +9721,7 @@ def self_test():
         if unread:
             problems.append("MCP call cap: no maxTurns read from %s" % " ".join(unread))
     problems += generic_agent_self_test(conf)
+    problems += limits_self_test(agents_dir if os.path.isdir(agents_dir) else None)
     problems += budget_self_test()
     problems += ledger_self_test()
     problems += label_self_test()
@@ -9722,6 +10063,86 @@ def soft_self_test():
             os.environ.pop("STACK_SOFT_LIMIT_SCALE", None)
         else:
             os.environ["STACK_SOFT_LIMIT_SCALE"] = saved
+        shutil.rmtree(tmp, ignore_errors=True)
+    return problems
+
+
+# The guard's fixed knobs (design section 1): env only, never a learnable limits variable.
+FIXED_LIMIT_KNOBS = (
+    "STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_DISPATCH_WINDOW_S", "BLACKCAT_MAX_STEPS",
+    "BLACKCAT_BACKGROUND", "STACK_MAX_FANOUT", "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_SELF_FANOUT",
+    "STACK_LEASE_TTL_S", "STACK_RESUME_TTL_S", "STACK_FANOUT_IDLE_S", "STACK_MAX_MCP_CALLS",
+    "STACK_SOFT_LIMIT_SCALE", "GOD_SPAWNERS", "GOD_ONCE_PER_SESSION", "GOD_AFTER_NINJA",
+    "GOD_PENDING_TTL_S", "GOD_IDLE_S", "GOD_LOCK_TTL_S", "SCREEN_LOCK_TTL_S", "STACK_MAX_DEPTH",
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
+    "STACK_IMAGE_MAX_PX", "STACK_IMAGE_UPLOAD_TOOLS", "STACK_IMAGE_MAX_B64", "STACK_SCHED_POLICY")
+
+
+def limits_self_test(agents_dir=None):
+    """Learned limits: the seed covers AGENTS (every subagent type has turns, soft.agent and
+    hard.agent; blackcat none; no unknown type), no fixed guard is a learnable variable or an
+    override name, the seed agrees with this file's fallback constants (and with the agents'
+    maxTurns when agents_dir is given), and the lean snapshot reader accepts a snapshot
+    stack_limits writes and refuses an altered one."""
+    import shutil
+    import tempfile
+    mod = limits_module()
+    if mod is None:
+        return ["limits: stack_limits.py cannot be imported next to the hook"]
+    try:
+        vs = mod.load_seed()["vars"]
+    except Exception as exc:  # noqa: BLE001 - report, do not crash
+        return [f"limits: seed unusable ({type(exc).__name__}: {exc})"]
+    problems = []
+    subagents = [a for a in AGENTS if a != "blackcat"]
+    for fam in ("turns", "soft.agent", "hard.agent"):
+        missing = [a for a in subagents if f"{fam}.{a}" not in vs]
+        if missing:
+            problems.append(f"limits: seed lacks {fam} for {' '.join(missing)}")
+    strays = sorted(v for v in vs if mod.split_var(v)[1] not in (None, *subagents))
+    if strays:
+        problems.append(f"limits: seed variables of no subagent type: {' '.join(strays)}")
+    names = {v: mod.env_var(v) for v in vs}
+    learnable = sorted(v for v, n in names.items() if mod.is_fixed_guard(n) or mod.is_fixed_guard(v))
+    if learnable:
+        problems.append(f"limits: fixed guards are learnable: {' '.join(learnable)}")
+    loose = [k for k in FIXED_LIMIT_KNOBS if not mod.is_fixed_guard(k) or k in names.values()]
+    if loose:
+        problems.append(f"limits: fixed knobs not marked fixed: {' '.join(loose)}")
+    fb = builtin_limits()
+    want = {k: v for k, v in fb.values.items() if not k.startswith("hard.")}
+    want.update({"hard.prompt": 100000000, "hard.session": 666000000})
+    off = sorted(k for k, v in want.items() if k not in vs or vs[k]["seed"] != v)
+    if off:
+        problems.append(f"limits: seed differs from the built-in fallback for {' '.join(off)}")
+    if agents_dir:
+        off = sorted(a for a in subagents if agent_max_turns(a, agents_dir) != vs[f"turns.{a}"]["seed"])
+        if off:
+            problems.append(f"limits: turns seed != frontmatter maxTurns for {' '.join(off)}")
+    saved = os.environ.get("XDG_STATE_HOME")
+    tmp = tempfile.mkdtemp(prefix="agent-guard-limits-")
+    try:
+        os.environ["XDG_STATE_HOME"] = tmp
+        sid = "self-test-limits"
+        path = mod.ensure_snapshot(sid, "startup")
+        doc, state = read_limits_snapshot(sid)
+        ref = mod.read_snapshot(sid)[0]
+        if state != "ok" or ref is None or doc["values"] != ref["values"]:
+            problems.append(f"limits: the lean snapshot reader says {state} for a fresh snapshot")
+        os.chmod(path, 0o644)
+        with open(path, "r+") as f:
+            text = f.read().replace('"values":{', '"values":{"turns.x":1,', 1)
+            f.seek(0)
+            f.write(text)
+        if read_limits_snapshot(sid)[1] != "tamper":
+            problems.append("limits: the lean snapshot reader accepts an altered snapshot")
+    except Exception as exc:  # noqa: BLE001 - report, do not crash
+        problems.append(f"limits: snapshot round trip: {type(exc).__name__}: {exc}")
+    finally:
+        if saved is None:
+            os.environ.pop("XDG_STATE_HOME", None)
+        else:
+            os.environ["XDG_STATE_HOME"] = saved
         shutil.rmtree(tmp, ignore_errors=True)
     return problems
 

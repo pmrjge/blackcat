@@ -43,6 +43,7 @@ BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8", "GOD_ONCE_P
 def bare_env(tmp_path):
     e = {k: v for k, v in os.environ.items() if k not in KNOBS}
     e["XDG_STATE_HOME"] = str(tmp_path / "state")
+    e["STACK_USAGE_COLLECT"] = "0"     # SessionStart starts no usage collector in these tests
     return e
 
 
@@ -1854,8 +1855,9 @@ def test_budget_prompt_cap_denies_and_a_new_prompt_resets(env, sess):
     assert reason(p).startswith("Prompt token budget reached") and "1,100" in reason(p)
     assert "STACK_PROMPT_CTX_BUDGET=1000" in reason(p) and "STATUS: partial" in reason(p)
     msg = json.loads(p.stdout)["systemMessage"]
-    # the installer owns the budget knobs (OWNED_ENV): a raised value lasts until its next run
-    assert "STACK_PROMPT_CTX_BUDGET" in msg and "until the next install.sh run" in msg
+    # the limit comes from the session's limits snapshot (here the env override it recorded)
+    assert "STACK_PROMPT_CTX_BUDGET" in msg and "stack_limits.py show" in msg
+    assert "install.sh" not in msg
     p = budget_run(tool_ev(s, main, "Read", agent_id=None, file_path="x"), env)   # BlackCat
     assert decision(p) == "deny" and "answer the user now" in reason(p)
     # the main hook's own tools check it too, before any lease
@@ -1885,7 +1887,7 @@ def test_budget_session_cap_spans_prompts(env, sess):
     assert decision(p) == "deny" and reason(p).startswith("Session token budget reached")
     assert "STACK_SESSION_CTX_BUDGET=1000" in reason(p)
     msg = json.loads(p.stdout)["systemMessage"]
-    assert "Start a new session" in msg and "until the next install.sh run" in msg
+    assert "Start a new session" in msg and "stack_limits.py show" in msg
 
 
 def test_budget_never_blocks_reporting(env, sess, tmp_path):
@@ -1953,8 +1955,15 @@ def test_budget_fails_open(env, sess):
     # STACK_POLICY=off, or both budgets 0: nothing is refused
     over = tool_ev(s, main, "Read", file_path="x")
     assert decision(budget_run(over, env, extra={"STACK_POLICY": "off"})) == "allow"
-    assert decision(budget_run(over, env, extra={"STACK_PROMPT_CTX_BUDGET": "0",
-                                                 "STACK_SESSION_CTX_BUDGET": "0"})) == "allow"
+    # the budgets are fixed when the session's limits snapshot is written (its first event here):
+    # 0 set now waits for the next session; a session started with both 0 refuses nothing
+    off = {"STACK_PROMPT_CTX_BUDGET": "0", "STACK_SESSION_CTX_BUDGET": "0"}
+    assert decision(budget_run(over, env, extra=off)) == "deny"
+    s2 = sid()
+    main2 = main.parent / (s2 + ".jsonl")
+    main2.write_text(call_line("m1", 5000))
+    assert decision(budget_run(tool_ev(s2, main2, "Read", file_path="x"), env, extra=off)) \
+        == "allow"
     # unreadable hook input: allowed (the budget fails open; the main hook fails closed)
     p = run("{not json", env, args=["budget"])
     assert p.returncode == 0 and p.stdout == ""
@@ -2563,7 +2572,8 @@ def test_mcp_cap_is_min_of_knob_and_max_turns(env, sess):
         p = budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)
         assert decision(p) == "deny", atype
         assert ("%d MCP tool calls" % cap) in reason(p), reason(p)
-        assert (("its maxTurns %d" % cap) in reason(p)) == (cap < 64), reason(p)
+        assert (("its turn budget turns.%s=%d" % (atype.replace("-copy", ""), cap)) in reason(p)) \
+            == (cap < 64), reason(p)
 
 
 def test_mcp_cap_on_the_main_hooks_mcp_tools(env, sess):
