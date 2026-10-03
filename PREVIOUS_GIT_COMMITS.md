@@ -1,8 +1,121 @@
 # Previous git commits
 
-History of the project before it was published as a fresh repository; generated from the git log of the former repository at commit `0e11144` on 2026-10-03; 213 commits, all by Pedro Jorge. The project was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude models, under the author's direction; messages of commits made with it end with a Co-Authored-By line naming the model. Newest first, grouped by month. Each entry gives the date, the short hash (kept so references in the text stay meaningful), the subject, the full message and a files-changed summary. Private data (home paths, e-mail addresses, keys, session ids) was removed or replaced.
+History of the project before it was published as a fresh repository; generated from the git log of the former repository at commit `9970940` on 2026-10-03; 220 commits, all by Pedro Jorge. The project was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude models, under the author's direction; messages of commits made with it end with a Co-Authored-By line naming the model. Newest first, grouped by month. Each entry gives the date, the short hash (kept so references in the text stay meaningful), the subject, the full message and a files-changed summary. Private data (home paths, e-mail addresses, keys, session ids) was removed or replaced.
 
 ## 2026-10
+
+### 2026-10-03 17:02 · `9970940`
+
+**README, NOTICE, CONFIG: credit the new hero; lib/assets images under CC BY 4.0**
+
+> - README: alt text describing the new image, the credit line under the
+>   hero, a License section split into code/docs/prompts (Apache-2.0) and
+>   the images in lib/assets (CC BY 4.0, attribution to the author for his
+>   photograph, to the extent rights exist, trademarks not licensed, links
+>   to the legal code and the provenance); the contributing note follows.
+> - NOTICE: the images in lib/assets are licensed under CC BY 4.0 instead
+>   of excluded and all rights reserved.
+> - CONFIG.md: changelog entry.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 3 files, +24/-25.* `CONFIG.md`, `NOTICE`, `README.md`.
+
+### 2026-10-03 17:00 · `be79cd8`
+
+**lib/assets: new hero (variant B) under CC BY 4.0, with its unmodified original and provenance**
+
+> Replaces the previous AI-edited hero, social preview and avatar and their
+> all-rights-reserved statement. The new image is the author's photograph of
+> his cat, edited with OpenAI GPT Image 2.5 Sunburst via Opper.
+>
+> - blackcat-hero-original.png: the model output byte for byte (keeps its
+>   C2PA manifest); blackcat-hero.jpg, blackcat-social-1280x640.jpg and
+>   blackcat-avatar-640.png: resized copies (no metadata).
+> - LICENSE-CC-BY-4.0.txt: the CC BY 4.0 legal code (plain text).
+> - README.md: licence, attribution wording, provenance note, trademarks
+>   not licensed. PROVENANCE.md: prompts, settings, hashes, licensing notes;
+>   the source photograph is not included (hash only).
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 7 files, +479/-59.*
+
+### 2026-10-03 16:50 · `21ca24b`
+
+**install.sh --config-dir: review fixes (case, order, forged lines, missing value)**
+
+> - Paths compare by inode as well as by name: ~/.SSH, /USERS/&lt;you&gt; or the
+>   repo in other case are refused on case-insensitive APFS, and ~/.CLAUDE
+>   counts as the default.
+> - The foreign-target refusal and the [y/N] question run before the
+>   main-branch rule, so "Nothing was changed" holds on a side branch; a yes
+>   carries to the re-run via STACK_TARGET_CONFIRMED (only with
+>   STACK_MAIN_REEXEC=1 and the same target).
+> - config-dir output escapes control characters, and install.sh takes the
+>   first path line only: a newline in CLAUDE_CONFIG_DIR or STACK_CLAUDE_JSON
+>   can't forge the target.
+> - --config-dir followed by an option is a missing value (exit 2).
+> - A foreign folder named by CLAUDE_CONFIG_DIR is a warning, not a refusal:
+>   scripted runs that write a log into the target first keep working.
+>
+> Co-Authored-By: Claude Sonnet 5.5
+
+*Files changed: 6 files, +140/-28.*
+
+### 2026-10-03 16:33 · `3c6d6f6`
+
+**Docs: choosing the config folder (--config-dir), Intel untested, troubleshooting**
+
+> Co-Authored-By: Claude Sonnet 5.5
+
+*Files changed: 2 files, +82/-9.* `CONFIG.md`, `README.md`.
+
+### 2026-10-03 16:33 · `0857e7c`
+
+**Tests: neutral paths instead of the author's home**
+
+> /Users/example/project in test_protected_paths, ~/.claude in the
+> test_blackcat_tools docstring, /tmp/q/me in test_guard_round2, and
+> derive_thresholds strips any -Users-&lt;name&gt;- project prefix.
+>
+> Co-Authored-By: Claude Sonnet 5.5
+
+*Files changed: 4 files, +11/-11.* `tests/derive_thresholds.py`, `tests/test_blackcat_tools.py`, `tests/test_guard_round2.py`, `tests/test_protected_paths.py`.
+
+### 2026-10-03 16:33 · `09ceb5f`
+
+**install.sh: --config-dir, target banner and confirmation, unsafe-target refusals**
+
+> --config-dir PATH (or =PATH) beats CLAUDE_CONFIG_DIR, which beats ~/.claude.
+> lib/install_state.py config-dir expands, resolves and checks the target before
+> the main-branch rule merges anything: /, $HOME and its parents, the repo
+> checkout, credential and system folders, the stack's state, files, unwritable
+> paths, '..' through a symlink and shell metacharacters exit 2. A foreign
+> non-empty folder needs a y on a terminal. Every run prints the target, its
+> source and the .claude.json it implies; a non-default or ambiguous target is
+> confirmed only when stdin and stdout are terminals and none of --yes,
+> --no-prompt, --dry-run, --mcp-plan applies. The run exports CLAUDE_CONFIG_DIR
+> for its claude commands, prints the export line and profile file, and warns
+> that moving the folder takes a reinstall. The script follows a symlink to
+> itself; bash login shells get a ~/.bash_profile note; doctor.sh warns about a
+> non-default install with CLAUDE_CONFIG_DIR unset.
+>
+> Co-Authored-By: Claude Sonnet 5.5
+
+*Files changed: 5 files, +835/-14.* `dot-claude/bin/doctor.sh`, `install.sh`, `lib/install_state.py`, `tests/install_smoke.sh`, `tests/test_installer_config_dir.py`.
+
+### 2026-10-03 16:03 · `7aca04c`
+
+**Regenerate PREVIOUS_GIT_COMMITS.md**
+
+> Generated from main at 0e11144 (213 commits) with the same sanitising generator, so it now lists
+> the public-layout commits and the README follow-ups; the commit that regenerates it comes after
+> 0e11144 and is not listed. CONFIG.md §9 copied as it stands at 0e11144.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 1 file, +92/-8.* `PREVIOUS_GIT_COMMITS.md`.
 
 ### 2026-10-03 16:02 · `0e11144`
 
@@ -3330,6 +3443,17 @@ History of the project before it was published as a fresh repository; generated 
 ## Changelog from CONFIG.md
 
 Section 9 of CONFIG.md at the same commit, copied as it stood (names and paths sanitised).
+
+### 2026-10-03 (hero image, CC BY 4.0)
+
+- Hero image replaced: the author's cat photograph edited with OpenAI GPT Image 2.5 Sunburst via Opper; images licensed CC BY 4.0. `lib/assets/` holds the unmodified model output (`blackcat-hero-original.png`, with its C2PA manifest), the resized hero, social preview and avatar, the CC BY 4.0 legal code and the provenance (prompts, settings, hashes); README's License section and NOTICE follow. `lib/assets/` is not installed: nothing to rerun.
+
+### 2026-10-03 (install target: --config-dir, any clone, any user)
+
+- `install.sh --config-dir PATH` (also `--config-dir=PATH`) and `--no-prompt`; precedence `--config-dir` > `CLAUDE_CONFIG_DIR` > `~/.claude`; a banner on every run; a `[y/N]` question on a terminal for a non-default or ambiguous target; unsafe and foreign targets refused (§7, "Install target"). Before, `CLAUDE_CONFIG_DIR` was used as given, unchecked (`CLAUDE_CONFIG_DIR=/` was accepted), and nothing said where the install went except one line in step 1. Runs without a terminal behave as before, apart from the new refusals. `--no-prompt` also makes a changed stack stop instead of asking on `/dev/tty`.
+- The script follows a symlink to itself to find the clone (before, a link to `install.sh` in `~/bin` took `~/bin` as the repo). A bash login shell whose `~/.bash_profile` does not source `~/.bashrc` gets a note at step 11. `doctor.sh` warns when the folder it checks is not `~/.claude` and `CLAUDE_CONFIG_DIR` is unset.
+- Author-specific paths removed from the tests and `tests/derive_thresholds.py` (the report's project column now strips any `-Users-<name>-` prefix). Intel Macs remain untested (README, Requirements).
+- Tests: `tests/test_installer_config_dir.py`; `tests/install_smoke.sh` §19 (precedence, banner, refusals, the question with an injected answer and on a pty when one can be opened, a target and a clone with spaces, a symlinked clone and a symlink to `install.sh`); the §16 pty driver answers the target question first. Nothing to rerun for an existing `~/.claude` install.
 
 ### 2026-10-03 (Playwright MCP output out of the working tree)
 
