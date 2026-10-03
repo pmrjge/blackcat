@@ -34,7 +34,7 @@ COPY_DENIED = ("Copies cannot spawn copies: %s may not spawn %s. Do this part yo
 
 # ---------------------------------------------------------------- harness
 # The mechanics below were written against these caps; the shipped defaults (BlackCat 8 dispatches
-# and 12 steps, the per-type fan-out table) are checked by test_shipped_spawn_defaults.
+# and 24 steps, the per-type fan-out table) are checked by test_shipped_spawn_defaults.
 BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8", "SUPREME_ONCE_PER_SESSION": "0",
             "SUPREME_SPAWNERS": "orchestrator,main", "SUPREME_AFTER_NINJA": "0",
             "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=8,planner=8,plan-reviewer=8"}
@@ -921,7 +921,7 @@ def test_model_strip(env):
 
 
 def test_shipped_spawn_defaults(bare_env):
-    """No knobs set: BlackCat 8 dispatches, 12 steps and 4 own calls per prompt; the per-type
+    """No knobs set: BlackCat 8 dispatches, 24 steps and 4 own calls per prompt; the per-type
     fan-out table."""
     env = bare_env
     s = sid()
@@ -932,8 +932,8 @@ def test_shipped_spawn_defaults(bare_env):
                                                                    prompt="q1"), env))
     s = sid()
     res = [decision(run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"]))
-           for _ in range(13)]
-    assert res == ["allow"] * 12 + ["deny"]
+           for _ in range(25)]
+    assert res == ["allow"] * 24 + ["deny"]
     s = sid()
     res = [decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"]))
            for _ in range(5)]
@@ -2655,11 +2655,11 @@ def test_readonly_lake_env_checks_the_wrapped_command(command, ok):
 
 
 def test_blackcat_own_work_never_eats_the_dispatch_burst(env):
-    """Shipped caps (12 steps, 8 dispatches, 4 own calls): own work first, against the rules, still
-    leaves room for a full burst of 8 dispatches; the 5th own call is refused, and so is a 13th
-    call."""
+    """Shipped caps (24 steps, 8 dispatches, 4 own calls): own work first, against the rules, still
+    leaves room for a full burst of 8 dispatches; the 5th own call is refused (and spends no step),
+    then 12 more calls fit and the 25th is refused."""
     s = sid()
-    shipped = {"BLACKCAT_MAX_STEPS": "12", "BLACKCAT_MAX_DISPATCH": "8"}
+    shipped = {"BLACKCAT_MAX_STEPS": "24", "BLACKCAT_MAX_DISPATCH": "8"}
     for tool in ("Read", "Bash", "Edit", "Bash"):
         assert decision(run(rg(s, tool, prompt="w1"), env, args=["blackcat-guard"],
                             extra=shipped)) == "allow", tool
@@ -2668,8 +2668,11 @@ def test_blackcat_own_work_never_eats_the_dispatch_burst(env):
     for i in range(8):
         p = run(pre_agent(s, "scout", parent="blackcat", prompt="w1"), env, extra=shipped)
         assert decision(p) == "allow", i
+    for i in range(12):
+        p = run(rg(s, "ToolSearch", prompt="w1"), env, args=["blackcat-guard"], extra=shipped)
+        assert decision(p) == "allow", i
     p = run(rg(s, "ToolSearch", prompt="w1"), env, args=["blackcat-guard"], extra=shipped)
-    assert decision(p) == "deny" and "step limit (12" in reason(p)
+    assert decision(p) == "deny" and "step limit (24" in reason(p)
 
 
 @pytest.mark.parametrize("ti,ok", [

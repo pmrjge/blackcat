@@ -159,7 +159,7 @@ Knobs (env):
   BLACKCAT_MAX_DISPATCH=8   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
   BLACKCAT_DISPATCH_WINDOW_S=120  all blackcat dispatches for one prompt must start within this many
                           seconds of the first one (one parallel burst, not ad-hoc orchestration)
-  BLACKCAT_MAX_STEPS=12     blackcat tool calls per user prompt, Agent dispatches included
+  BLACKCAT_MAX_STEPS=24     blackcat tool calls per user prompt, Agent dispatches included
   BLACKCAT_MAX_OWN_STEPS=4  of those, blackcat's own Read/Bash/Write/Edit calls (a dispatch burst
                           of BLACKCAT_MAX_DISPATCH always fits)
   BLACKCAT_BASH_TIMEOUT_MS=120000  longest timeout a blackcat foreground Bash call may ask for
@@ -541,7 +541,7 @@ BLACKCAT_INLINE_HTTP_RE = re.compile(
     r"http\.client|net::http|lwp::|open-uri|urlsession|xmlhttprequest)|\bfetch\s*\(")
 BLACKCAT_WEB_SCAN_MAX = 20000
 # BlackCat's own work must never crowd out its dispatches or hold up the main loop:
-# - BLACKCAT_MAX_OWN_STEPS (4): Read/Bash/Write/Edit calls per prompt, so with BLACKCAT_MAX_STEPS 12
+# - BLACKCAT_MAX_OWN_STEPS (4): Read/Bash/Write/Edit calls per prompt, so with BLACKCAT_MAX_STEPS 24
 #   and BLACKCAT_MAX_DISPATCH 8 a full dispatch burst always fits (own calls count as steps too;
 #   ToolSearch, AskUserQuestion and SendMessage are steps outside this sub-cap);
 # - BLACKCAT_BASH_TIMEOUT_MS (120000): a foreground Bash call may not ask for a longer timeout
@@ -1483,7 +1483,7 @@ def on_agent(ev, d):
     pid = prompt_key(ev)
     tid = ev.get("tool_use_id")
     max_dispatch = knob_int("BLACKCAT_MAX_DISPATCH", 8)
-    max_steps = knob_int("BLACKCAT_MAX_STEPS", 12)
+    max_steps = knob_int("BLACKCAT_MAX_STEPS", 24)
 
     if policy_on():
         is_blackcat = not aid and parent == "blackcat"
@@ -2738,7 +2738,7 @@ def on_send(ev, d):
     # as it does Agent), so the step and the resume reservation are one decision: a call refused
     # at the step limit holds no slot, and a refused resume spends no step.
     is_blackcat = not ev.get("agent_id") and norm(ev.get("agent_type")) == "blackcat"
-    pid, max_steps = prompt_key(ev), knob_int("BLACKCAT_MAX_STEPS", 12)
+    pid, max_steps = prompt_key(ev), knob_int("BLACKCAT_MAX_STEPS", 24)
     if is_blackcat and markers_full(d, "step", pid, max_steps):
         deny(STEP_LIMIT_REASON % max_steps)
     target_id, ttype, tname = resolve_target(d, to) if to else (None, None, None)
@@ -5263,7 +5263,7 @@ def blackcat_guard(raw, from_settings=False):
         own = knob_int("BLACKCAT_MAX_OWN_STEPS", 4)
         if not claim_marker(d, "own", prompt_key(ev), own):
             deny(OWN_LIMIT_REASON % own)
-    steps = knob_int("BLACKCAT_MAX_STEPS", 12)
+    steps = knob_int("BLACKCAT_MAX_STEPS", 24)
     if not claim_marker(d, "step", prompt_key(ev), steps):
         deny(STEP_LIMIT_REASON % steps)
     sys.exit(0)

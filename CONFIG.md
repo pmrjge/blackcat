@@ -143,10 +143,10 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` | 33 | 20 | Room for an orchestrator's 32 running children plus the orchestrator itself without hitting the session limit |
 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` | 4 | — | Four layers below BlackCat |
 | `BLACKCAT_MAX_DISPATCH` | 8 | 6 | Enough to cover a multi-domain request in one burst |
-| `BLACKCAT_MAX_STEPS` | 12 | 8 | Dispatches plus relays and questions within one prompt |
+| `BLACKCAT_MAX_STEPS` | 24 | 12 | Dispatches plus relays, questions and its own small jobs within one prompt; 12 ran out on long prompts (the user, 2026-10-03) |
 | `BLACKCAT_DISPATCH_WINDOW_S` | 120 | 30 | Eight long briefs in one message take longer than 30 s to emit |
 | `BLACKCAT_BACKGROUND` | 1 (code) | new | Drops BlackCat's `run_in_background: false` (fixes bug 1) |
-| `BLACKCAT_MAX_OWN_STEPS` | 4 (code) | new | BlackCat's own Read/Bash/Write/Edit calls per prompt: 12 − 4 leaves a full burst of 8 dispatches |
+| `BLACKCAT_MAX_OWN_STEPS` | 4 (code) | new | BlackCat's own Read/Bash/Write/Edit calls per prompt: 24 − 4 leaves room for a full burst of 8 dispatches |
 | `BLACKCAT_BASH_TIMEOUT_MS` | 120000 (code) | new | Longest timeout a BlackCat foreground Bash call may ask for; with none given, `BASH_DEFAULT_TIMEOUT_MS` counts (2 min out of the box) |
 | `STACK_AGENT_LABEL` | `description` (code) | new | `description\|name\|off`. `description` prefixes each allowed Agent call's description with `<type>: ` (Claude Code shows `agent-name(description)`); `name` names an unnamed child `<type>-<n>`; zero prompt tokens |
 | `STACK_AGENT_STARTED` | 1 (code) | new | SubagentStart gives a stack agent its local start time for the clean-finish line; 0 disables it |

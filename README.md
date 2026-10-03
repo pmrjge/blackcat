@@ -141,7 +141,7 @@ flowchart TD
 
 | Level | Who runs there | Limit (enforced by) |
 |---|---|---|
-| Main thread | BlackCat (`dot-claude/agents/blackcat.md`; `"agent": "blackcat"` in `settings.json`) | 12 tool calls per prompt, at most 8 of them Agent calls within 120 s and at most 4 of its own Read/Bash/Write/Edit calls (`BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_DISPATCH_WINDOW_S`, `BLACKCAT_MAX_OWN_STEPS`); its children always run in the background (`BLACKCAT_BACKGROUND`) |
+| Main thread | BlackCat (`dot-claude/agents/blackcat.md`; `"agent": "blackcat"` in `settings.json`) | 24 tool calls per prompt, at most 8 of them Agent calls within 120 s and at most 4 of its own Read/Bash/Write/Edit calls (`BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_DISPATCH_WINDOW_S`, `BLACKCAT_MAX_OWN_STEPS`); its children always run in the background (`BLACKCAT_BACKGROUND`) |
 | L1 to L3 | Any agent whose `POLICY` row allows the spawn | 3 running children per agent by default, more for coordinators (`STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE`); 33 subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`; Claude Code's default is 20) |
 | L4 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`) |
 
@@ -326,7 +326,7 @@ The full list is in [Knobs](#knobs) and [CONFIG.md](CONFIG.md) §5. The ones mos
 |---|---|---|
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` (in `stack.env`) | today's IDs | What the `opus` and `sonnet` aliases run; re-run the installer |
 | `STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE` | 3; orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8 | Running children per agent |
-| `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_OWN_STEPS` | 8, 12, 4 | BlackCat's Agent calls, all tool calls and own Read/Bash/Write/Edit calls per prompt |
+| `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_OWN_STEPS` | 8, 24, 4 | BlackCat's Agent calls, all tool calls and own Read/Bash/Write/Edit calls per prompt |
 | `STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET` | learned (seeds 100,000,000 / 666,000,000) | Hard context budgets; a value you set pins them |
 | `STACK_SOFT_LIMIT_SCALE` | 1 | Multiplies every soft limit; `0` turns them off |
 | `STACK_MAX_MCP_CALLS` | 64 | MCP calls per subagent per prompt |
@@ -1085,7 +1085,7 @@ you may set yourself.
 | `STACK_AGENT_STARTED` | `1` | SubagentStart gives a stack agent its start time (`0` = off) | guard |
 | `STACK_REPORT_FORMAT` | unset | `json`: every final report is one JSON line (SessionStart and SubagentStart add one line); for Agent SDK apps | guard |
 | `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` ○ | 8 / 120 | BlackCat Agent calls per prompt, within this many seconds of the first | guard |
-| `BLACKCAT_MAX_STEPS` ● | 12 | BlackCat tool calls per prompt | guard |
+| `BLACKCAT_MAX_STEPS` ● | 24 | BlackCat tool calls per prompt | guard |
 | `BLACKCAT_MAX_OWN_STEPS` | 4 | Of those, BlackCat's own Read/Bash/Write/Edit calls (8 dispatches always fit) | guard |
 | `BLACKCAT_BASH_TIMEOUT_MS` | 120000 | Longest timeout a BlackCat foreground Bash call may ask for (longer: `run_in_background` or a specialist) | guard |
 | `BLACKCAT_BACKGROUND` | 1 | Drop BlackCat's `run_in_background: false` | guard |
