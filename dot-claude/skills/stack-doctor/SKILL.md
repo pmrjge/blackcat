@@ -2,12 +2,7 @@
 name: stack-doctor
 description: Check the multi-agent stack installation — binaries, API keys, MCP servers, agents, hooks, settings.
 disable-model-invocation: true
-context: fork
-agent: claude-code-guide
-background: false
-allowed-tools: Bash(bash *)
 ---
-Run the stack health check and report on it. This is a read-only check: do not fix anything.
+The stack's hook (`bin/doctor.sh --hook`, UserPromptExpansion) answers this command itself, outside the Bash sandbox, and never lets it reach you. If you are reading this, that hook did not run or timed out (180 s). Do not run doctor.sh yourself or through an agent: sandboxed Bash cannot read stack.env or ~/.claude.json and reports false FAILs. Reply with exactly this line and nothing else:
 
-1. Run: `bash "__CLAUDE_DIR__/bin/doctor.sh" 2>&1 | tail -n 150`
-2. Summarize for the user: FAIL lines first, each with its exact fix command; then WARN lines; then one line saying what is healthy. Be brief. Never print key values.
+stack-doctor: the stack hook did not run or timed out. Run `bash "__CLAUDE_DIR__/bin/doctor.sh"` in a terminal; to restore /stack-doctor, re-run ./install.sh in the stack repo, then restart Claude Code.

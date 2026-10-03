@@ -14,6 +14,42 @@ MEASURED_MODELS="opus=claude-opus-5-5 sonnet=claude-sonnet-5-5"
 # portable "a <= b" for dotted versions (BSD sort on older macOS has no -V)
 version_ge(){ [ "$(printf '%s\n%s\n' "$2" "$1" | sort -t. -k1,1n -k2,2n -k3,3n | head -n1)" = "$2" ]; }
 
+# /stack-doctor = `doctor.sh --hook`, settings.json's UserPromptExpansion hook (matcher stack-doctor).
+# A hook runs outside the Bash sandbox, so stack.env, ~/.claude.json, the state dir and the network
+# read as they are (an agent's sandboxed Bash gets false FAILs there), and BlackCat needs no Bash.
+# The report is the block reason the user sees: FAIL lines, WARN lines, the ok count; no model turn.
+# Claude Code drops a hook's output at its timeout (180 s) and stock macOS has no timeout(1), so the
+# run is stopped after STACK_DOCTOR_HOOK_BUDGET seconds (default 150) and reported as unfinished.
+if [ "${1:-}" = "--hook" ]; then
+  [ -t 0 ] || cat >/dev/null    # the event on stdin; the matcher already chose the command
+  budget="${STACK_DOCTOR_HOOK_BUDGET:-150}"; case "$budget" in ''|*[!0-9]*) budget=150 ;; esac
+  out=$(mktemp "${TMPDIR:-/tmp}/stack-doctor.XXXXXX") || { echo "stack-doctor: mktemp failed — run: bash \"$0\"" >&2; exit 2; }
+  bash "$0" </dev/null >"$out" 2>&1 & pid=$!
+  n=0; while kill -0 "$pid" 2>/dev/null && [ "$n" -lt "$budget" ]; do sleep 1; n=$((n + 1)); done
+  stopped=0
+  if kill -0 "$pid" 2>/dev/null; then    # wait reaps it quietly (no "Terminated" job line in the reason)
+    stopped=1; { pkill -TERM -P "$pid"; kill -TERM "$pid" && wait "$pid"; } 2>/dev/null
+  fi
+  awk -v full="bash \"$0\"" -v stopped="$stopped" -v budget="$budget" '
+    /^== / { sec = substr($0, 4); sub(/ \(.*/, "", sec); seen[++ns] = sec; next }
+    /^  FAIL  / { f[++nf] = "FAIL  [" (sec == "" ? "Setup" : sec) "] " substr($0, 9); bad[sec] = 1; next }
+    /^  WARN  / { w[++nw] = "WARN  [" (sec == "" ? "Setup" : sec) "] " substr($0, 9); bad[sec] = 1; next }
+    /^  ok    / { ok++; next }
+    /^done\.$/ { done = 1 }
+    END {
+      if (!done) { f[++nf] = "FAIL  [" (sec == "" ? "Setup" : sec) "] doctor.sh did not finish (" \
+                     (stopped ? "stopped after " budget " s: a check hung" : "it exited early") "): run " full; bad[sec] = 1 }
+      printf "stack-doctor: %d FAIL, %d WARN, %d ok (doctor.sh, run outside the sandbox)\n", nf, nw, ok
+      for (i = 1; i <= nf; i++) print f[i]
+      for (i = 1; i <= nw; i++) print w[i]
+      clean = ""; for (i = 1; i <= ns; i++) if (!(seen[i] in bad)) clean = clean (clean == "" ? "" : ", ") seen[i]
+      print "healthy: " (clean == "" ? "no section without findings" : clean)
+      print "full report: " full
+    }' "$out" >&2
+  rm -f "$out"
+  exit 2                       # UserPromptExpansion: exit 2 blocks the expansion, stderr is the reason
+fi
+
 if [ -n "${CLAUDE_CONFIG_DIR:-}" ] && [ "$(cd "$CLAUDE_CONFIG_DIR" 2>/dev/null && pwd)" != "$C" ]; then
   warn "CLAUDE_CONFIG_DIR=$CLAUDE_CONFIG_DIR differs from this script's install dir ($C) — checking $C"
 fi
@@ -26,7 +62,7 @@ else fail "claude not found — install: curl -fsSL https://claude.ai/install.sh
 
 echo "== Binaries"
 # Agents' Bash calls use bare names (uv run, uvx semgrep, node, git): those must be on this PATH —
-# run from /stack-doctor it is the PATH every agent gets. MCP commands are the absolute paths
+# run from /stack-doctor (a hook) it is the PATH of Claude Code's process. MCP commands are the absolute paths
 # rendered at install time (often ~/.local/bin), so magg and huetension only need to exist.
 found(){ have "$1" || [ -x "$HOME/.local/bin/$1" ]; }
 for b in python3 uv uvx node npx git; do
@@ -453,6 +489,14 @@ except (OSError, ValueError, subprocess.SubprocessError) as exc:
 finally:
     shutil.rmtree(tmp, ignore_errors=True)
 PY
+# /stack-doctor: the skill and its UserPromptExpansion hook (this script with --hook; not run here)
+if [ -f "$C/skills/stack-doctor/SKILL.md" ] && python3 -c '
+import json, sys
+gs = json.load(open(sys.argv[1])).get("hooks", {}).get("UserPromptExpansion") or []
+sys.exit(not any(isinstance(g, dict) and g.get("matcher") == "stack-doctor" and any(isinstance(h, dict)
+    and str(h.get("command", "")).endswith("doctor.sh\" --hook") for h in g.get("hooks") or []) for g in gs))
+' "$C/settings.json" 2>/dev/null; then ok "/stack-doctor: skill installed, UserPromptExpansion hook runs doctor.sh --hook"
+else warn "/stack-doctor not wired (skills/stack-doctor or its UserPromptExpansion hook missing) — rerun install.sh"; fi
 # Run the hook commands exactly as Claude Code will (from settings.json and blackcat.md), on events that
 # must be denied. A hook that cannot start is a non-blocking error in Claude Code: every gate open.
 if [ -f "$C/settings.json" ] && [ -f "$C/hooks/agent_guard.py" ]; then

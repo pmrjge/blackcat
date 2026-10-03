@@ -26,6 +26,7 @@ Code 2.1.284. Turn counts were measured from this machine's transcripts.
 | 5 | The session limit could throttle a full fan-out | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` was 20, below BlackCat 8 × orchestrator 10 | 32 |
 | 6 | god-coder's prompt said it could not spawn at depth L3 | Wrong depth in the text (only L4 cannot spawn) | Corrected to L4 |
 | 7 | Mixed models (Fable on god-coder) | Drift | Every agent names `opus` or `sonnet`; the IDs come from stack.env (section 2), enforced by lint |
+| 8 | `/stack-doctor` returned STATUS: blocked: its agent had no Bash | The skill forked `claude-code-guide` (`context: fork`). A forked skill's agent gets its `tools` only from the main conversation's tool pool, and BlackCat has no Bash, WebFetch or WebSearch, so it was left with Read, ToolSearch and Skill. Even with Bash, the guard holds claude-code-guide (and verifier) to read-only commands and refuses `bash doctor.sh`, and any agent's sandboxed Bash cannot read stack.env or `~/.claude.json` nor write the state dir, so doctor.sh reports false FAILs there | `/stack-doctor` is answered by a UserPromptExpansion hook (matcher `stack-doctor`, `bin/doctor.sh --hook`): it runs doctor.sh outside the sandbox and blocks the expansion with the FAIL lines, the WARN lines (each with its section) and the ok count; no model turn. The skill body is only the fallback when the hook did not run |
 
 ## 2. Models
 
@@ -413,6 +414,10 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-03 (/stack-doctor runs from a hook)
+
+- `/stack-doctor` no longer forks claude-code-guide, which had no Bash under BlackCat (§1, bug 8). settings.json gets a second UserPromptExpansion group (matcher `stack-doctor`, `/bin/bash "__CLAUDE_DIR__/bin/doctor.sh" --hook`, timeout 180 s); `doctor.sh --hook` runs the full check outside the Bash sandbox, stops it after `STACK_DOCTOR_HOOK_BUDGET` seconds (default 150; stock macOS has no timeout(1), and Claude Code drops a timed-out hook's output) and exits 2 with the summary as the block reason; a run that did not reach its last line is a FAIL. install.sh's `STACK_HOOK_RE` recognises the hook (`/bin/doctor.sh" --hook`), so a re-install replaces it instead of keeping a second copy. `skills/stack-doctor` drops `context`, `agent`, `background` and `allowed-tools` and only tells the model the hook did not run. doctor.sh checks that the skill and the hook are wired. Tests: `tests/test_stack_doctor.py`, `tests/test_override_agent.py::test_skills_are_user_only_and_wired`. Rerun install.sh and restart Claude Code.
 
 ### 2026-10-03 (override runs are no longer learned from)
 

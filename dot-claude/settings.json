@@ -471,6 +471,16 @@
             "timeout": 15
           }
         ]
+      },
+      {
+        "matcher": "stack-doctor",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/bash \"__CLAUDE_DIR__/bin/doctor.sh\" --hook",
+            "timeout": 180
+          }
+        ]
       }
     ],
     "PreToolUse": [

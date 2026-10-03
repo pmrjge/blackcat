@@ -1911,10 +1911,10 @@ for key in ("removed", "replaced"):
 for key in ("config_removed", "config_replaced", "notes"):
     report.setdefault(key, [])
 # hook commands of the stack, any version: its guard (whatever config dir or interpreter an earlier
-# install rendered), the usage collector, the web caps, the read gate and the retired router-guard.sh. Every hook
-# script settings.json ships must match, or each re-run keeps the installed copy as yours and appends
-# the shipped one again (tests/test_install_state.py checks this)
-STACK_HOOK_RE = re.compile(r"agent_guard\.py|router-guard\.sh|stack_usage\.py|web_caps\.py|read_gate\.py")
+# install rendered), the usage collector, the web caps, the read gate, /stack-doctor's bin/doctor.sh --hook
+# and the retired router-guard.sh. Every hook script settings.json ships must match, or each re-run keeps
+# the installed copy as yours and appends the shipped one again (tests/test_install_state.py checks this)
+STACK_HOOK_RE = re.compile(r"agent_guard\.py|router-guard\.sh|stack_usage\.py|web_caps\.py|read_gate\.py|/bin/doctor\.sh[^ ]{0,2} --hook")
 
 
 def canon(x):
