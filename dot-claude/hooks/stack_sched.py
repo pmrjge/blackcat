@@ -86,7 +86,7 @@ RESUME_WARM_S = 270.0                      # a resume is only warm when the gap 
 EXACT_MAX_NODES = 14
 SEARCH_BUDGET = 1_500_000                  # state expansions before exact search gives up
 SHARED_DOCS = ("README.md", "CONFIG.md", "**/FINAL-REPORT.md", "FINAL-REPORT.md", "mcp_servers.md",
-               "stack.env.example", "install.sh")
+               "stack.env.example", "lib/stack.env.example", "install.sh")
 SONNET_TYPES = {"blackcat", "browser-operator", "build-fixer", "claude-code-guide", "coder",
                 "data-engineer", "db-engineer", "devops-engineer", "doc-specialist", "explore",
                 "localizer", "mcp-broker", "scout", "test-engineer", "verifier"}

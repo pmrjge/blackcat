@@ -79,7 +79,7 @@ def test_example_documents_every_knob():
     ns = {}
     src = HOOK.read_text()
     exec(compile(src.split("\nKEY_RE")[0], str(HOOK), "exec"), ns)   # KNOBS only
-    example = (ROOT / "stack.env.example").read_text()
+    example = (ROOT / "lib" / "stack.env.example").read_text()
     for name, (default, _) in ns["KNOBS"].items():
         m = re.search(r"^#%s=(.*)$" % name, example, re.M)
         assert m, name + " missing from stack.env.example"

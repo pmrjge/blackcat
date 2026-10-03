@@ -44,7 +44,7 @@ STACK_MODELS = {"opus", "sonnet"}
 MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(?:opus|sonnet|haiku))")
 # the second: this regex's test vectors; the effort table records which model IDs take which
 # effort levels (Claude Code's own checks), and its test's vectors
-MODEL_ID_FILES = {"stack.env.example", "tests/test_lint_skills.py", "dot-claude/hooks/agent_effort.json",
+MODEL_ID_FILES = {"lib/stack.env.example", "tests/test_lint_skills.py", "dot-claude/hooks/agent_effort.json",
                   "tests/test_override_agent.py"}
 MODEL_ID_DIRS = ("legacy/",)
 # the usage/limits/budget tests: synthetic transcript model IDs and the model matcher's vectors, on

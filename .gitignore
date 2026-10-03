@@ -5,3 +5,8 @@ __pycache__/
 .claude-work/
 .playwright-mcp/
 .DS_Store
+# local, never shipped: working notes, campaign data, image originals (README "Contributing and safety")
+claude-local-work/
+# Claude Code's per-checkout worktrees and local settings
+.claude/worktrees/
+.claude/settings.local.json

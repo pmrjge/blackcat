@@ -224,7 +224,7 @@ if [ -f "$C/stack.env" ]; then
     esac
   done
   [ -z "$expanding" ] || ok "never exported to shells (values with \$VAR aren't expanded):$expanding — set them in your shell rc file if a CLI tool needs them"
-else fail "missing $C/stack.env — cp stack.env.example $C/stack.env && chmod 600"; fi
+else fail "missing $C/stack.env — cp <stack repo>/lib/stack.env.example $C/stack.env && chmod 600"; fi
 if [ -x "$C/bin/mcp-headers" ]; then
   for s in exa jina huggingface wandb; do
     out=$("$C/bin/mcp-headers" "$s" 2>/dev/null)

@@ -1,5 +1,0 @@
-O teorema de Noether (1918) diz que, num sistema descrito por uma ação, a cada simetria contínua dessa ação corresponde uma quantidade conservada.
-Formalmente, se a lagrangiana L(q, q̇, t) é invariante sob uma transformação a um parâmetro q → q + εδq, então Q = Σᵢ (∂L/∂q̇ᵢ) δqᵢ mantém-se constante ao longo das soluções das equações de Euler–Lagrange.
-A correspondência é entre simetrias e leis de conservação. A invariância por translação no tempo conserva a energia. A invariância por translação no espaço conserva o momento linear. A invariância por rotação conserva o momento angular.
-Em teoria de campos, o resultado dá uma corrente conservada, com ∂_μ j^μ = 0. Por exemplo, a simetria de fase U(1) do eletromagnetismo conserva a carga elétrica.
-Exemplo físico: um planeta à volta do Sol move-se num potencial central V(r), que é simétrico por rotação. Por isso o momento angular L = r × p conserva-se, e daí decorre a 2.ª lei de Kepler (o raio vetor varre áreas iguais em tempos iguais).

@@ -221,7 +221,7 @@ def test_example_documents_every_knob():
     tree = ast.parse(HOOK.read_text())
     knobs = next(ast.literal_eval(n.value) for n in tree.body
                  if isinstance(n, ast.Assign) and getattr(n.targets[0], "id", "") == "KNOBS")
-    example = (ROOT / "stack.env.example").read_text()
+    example = (ROOT / "lib" / "stack.env.example").read_text()
     for name, (default, _) in knobs.items():
         m = re.search(rf"^#{name}=(.*)$", example, re.MULTILINE)
         assert m, name + " missing from stack.env.example"

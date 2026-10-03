@@ -308,13 +308,20 @@ def test_supply_diff_covers_everything_the_install_ships():
     import subprocess
     text = (ROOT / "install.sh").read_text()
     paths = re.search(r'^SUPPLY_PATHS="([^"]+)"$', text, re.M).group(1).split()
-    assert set(paths) == {"dot-claude", "install.sh", "lib", "requirements", "stack.env.example"}
-    shipped = set(re.findall(r'"\$HERE/([A-Za-z0-9_.-]+)', text)) | {"dot-claude"}
-    shipped -= {"tests", ".git", "legacy"}          # never installed: legacy is a migration source
+    assert set(paths) == {"dot-claude", "install.sh", "lib/install_state.py", "lib/stack.env.example",
+                          "requirements"}
+    # every repo path install.sh reads ("$HERE/<path>") lies under a supply path; lib/assets/ (README
+    # images) is never read, so it stays out of the diff
+    shipped = set(re.findall(r'"\$HERE/([A-Za-z0-9_./-]+)', text)) | {"dot-claude"}
+    shipped = {p.rstrip("/") for p in shipped if p.split("/", 1)[0] not in {"tests", ".git", "legacy"}}
     tracked = set(subprocess.run(["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True,
                                  check=True).stdout.split())
     top = {p.split("/", 1)[0] for p in tracked}
-    assert {p for p in shipped if p in top} <= set(paths), shipped - set(paths)
+
+    def covered(p):
+        return any(p == s or p.startswith(s + "/") for s in paths)
+    assert not [p for p in shipped if p.split("/", 1)[0] in top and not covered(p)]
+    assert covered("lib/install_state.py") and not covered("lib/assets/blackcat-hero.jpg")
     ask = re.search(r'^if \[ "\$SUPPLY_CHANGED" = 1 \] (.+); then$', text, re.M).group(1)
     for cond in ('[ "$DRY_RUN" = 0 ]', '[ "$ASSUME_YES" = 0 ]'):
         assert cond in ask, cond

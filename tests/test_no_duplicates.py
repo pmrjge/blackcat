@@ -386,9 +386,13 @@ def test_playwright_magg_and_inline_never_in_one_agent():
 
 
 def test_mcp_servers_md_tables_have_no_duplicate_rows():
-    lines = (ROOT / "mcp_servers.md").read_text().splitlines()
+    # the former mcp_servers.md is CONFIG.md §10 ("Apps, connectors and MCP servers")
+    lines = (ROOT / "CONFIG.md").read_text().splitlines()
+    sec = next(i for i, ln in enumerate(lines) if ln.startswith("## 10. "))
     tables, cur, start = [], [], 0
     for i, ln in enumerate(lines, 1):
+        if i <= sec:
+            continue
         if ln.lstrip().startswith("|"):
             if not cur:
                 start = i
@@ -407,7 +411,7 @@ def test_mcp_servers_md_tables_have_no_duplicate_rows():
             if not first or set(first) <= set("-: "):
                 continue
             if first in seen:
-                bad.append("mcp_servers.md:%d duplicates row %r first seen at line %d (table at line %d)"
+                bad.append("CONFIG.md:%d duplicates row %r first seen at line %d (table at line %d)"
                            % (i, first, seen[first], start))
             seen.setdefault(first, i)
     assert not bad, "\n".join(bad)

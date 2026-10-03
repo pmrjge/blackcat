@@ -151,7 +151,7 @@ def test_overridable_agents_are_the_stack_agents_with_files():
 # ------------------------------------------------------------------ the effort table
 TABLE = json.loads((ROOT / "dot-claude" / "hooks" / "agent_effort.json").read_text())
 ENV_IDS = dict(re.findall(r"(?m)^ANTHROPIC_DEFAULT_([A-Z]+)_MODEL=(\S+)",
-                          (ROOT / "stack.env.example").read_text()))
+                          (ROOT / "lib" / "stack.env.example").read_text()))
 
 
 def test_table_covers_every_agent_and_model_with_supported_levels():

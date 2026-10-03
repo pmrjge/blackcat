@@ -1,9 +1,0 @@
-STATUS: done
-RESULT: I wrote a one-page user guide for `bibfmt` in European Portuguese (pt-PT, AO1990). It has every section the brief asked for: what the tool does, installing it with uv, usage (file in/out, stdin/stdout, `--check` with exit codes 0/1/2), the duplicate-key policy, field ordering, what is kept unchanged, two worked examples and three FAQ items.
-- The duplicates section says all conflicting variants are renamed, the first one included, so `\cite{chave}` stops resolving and each citation has to be fixed by hand.
-- Example 1 drops an identical duplicate.
-- Example 2 is the `--check` line for CI, plus what happens with conflicting `Costa21` entries.
-- I added one detail that is in `cli.py` but not in the README: files are read and written as UTF-8, and Windows line endings (CRLF) become LF. Without it, the FAQ claim that "values are copied byte for byte" would be slightly wrong.
-EVIDENCE: Every command, flag, exit code, rule and the field list was checked against README.md and `src/bibfmt/cli.py`, including: input defaults to `-`, `--check` writes nothing and returns 1 when the output would differ, warnings and errors go to stderr, and I/O and syntax errors return 2. The guide doesn't quote the exact warning text, because only `core.py` would show it and I didn't read that file. I didn't run the tool, so both examples were worked out from the README rules, not from real output. I applied the pt-PT skill: polite third-person imperative, no *você*, and pt-PT vocabulary (ecrã, ficheiro).
-FILES: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P90/docs/guia-pt-PT.md
-NEXT: Optionally, run `bibfmt` on the two examples to confirm the output.

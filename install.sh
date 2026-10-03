@@ -388,7 +388,7 @@ fi
 # JSON, reason — tab-separated) and CFG.
 compute_mcp_plan() {
   local envfile="$C/stack.env"
-  [ -f "$envfile" ] || envfile="$HERE/stack.env.example"
+  [ -f "$envfile" ] || envfile="$HERE/lib/stack.env.example"
   # stack.env is NOT sourced here: sourcing ran user code under set -u (an unset $VAR aborted the
   # installer, with exit 0 under bash 3.2's EXIT trap) and let an empty KEY= override a key already
   # exported in the environment. The plan parses it with the headersHelper's own parser instead.
@@ -511,9 +511,10 @@ fi
 # What changed in what this run installs since the last install (the manifest records the commit each
 # install shipped), and edits not committed yet: the whole shipped tree (agents and their MCP servers
 # and hooks, skills, rules, hooks, settings, bin, mcp, magg's catalog, the LSP marketplace), the
-# installer and its library, the pinned requirements. Read them before applying. On a terminal the
+# installer and its library, stack.env.example, the pinned requirements (not lib/assets/: README
+# images, never installed). Read them before applying. On a terminal the
 # run asks here, before step 2 changes anything (the venvs sync from requirements/) (--yes: don't).
-SUPPLY_PATHS="dot-claude install.sh lib requirements stack.env.example"
+SUPPLY_PATHS="dot-claude install.sh lib/install_state.py lib/stack.env.example requirements"
 SUPPLY_CHANGED=0
 prev_commit="$(python3 -c 'import json, re, sys
 try:
@@ -845,7 +846,7 @@ stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry read
 if [ "$SKIP_PLUGINS" = 0 ] && [ -d "$SRC/stack-plugins" ]; then
   rm -rf "$S/stack-plugins" && cp -R "$SRC/stack-plugins" "$S/stack-plugins"
 fi
-[ -f "$S/stack.env" ] || cp "$HERE/stack.env.example" "$S/stack.env"
+[ -f "$S/stack.env" ] || cp "$HERE/lib/stack.env.example" "$S/stack.env"
 chmod 600 "$S/stack.env"
 # Variables stack.env.example gained since your stack.env was created: appended with their comment
 # lines, commented out — except the image models, appended set to image-studio's own defaults (the
@@ -856,7 +857,7 @@ chmod 600 "$S/stack.env"
 # comments get today's wording, and settings nothing reads any more go while they still hold the
 # stack's own default (Lumenfall's empty key, the old Opper model and folder); the previous file is
 # kept in the backup folder.
-python3 - "$HERE/stack.env.example" "$S/stack.env" <<'PY'
+python3 - "$HERE/lib/stack.env.example" "$S/stack.env" <<'PY'
 import os, re, sys, time
 example, target = sys.argv[1], sys.argv[2]
 VAR = re.compile(r"^\s*(?:#\s?)?(?:export\s+)?([A-Z][A-Z0-9_]*)=")
@@ -965,7 +966,7 @@ PY
 # the new one (step 11) exports only STACK_EXPORT: variables of your own stay exported through it.
 # Done on the staged stack.env, so the plan lists it and the backup keeps the previous file.
 if [ "$NO_PROFILE" = 0 ] && grep -qE 'set -a.*stack\.env.*# claude-agent-stack[[:space:]]*$' "$HOME/.zshrc" "$HOME/.bashrc" 2>/dev/null; then
-  python3 - "$HERE/stack.env.example" "$S/stack.env" "$SRC/bin/mcp-headers" "$SRC/bin/with-stack-env" <<'PY' || true
+  python3 - "$HERE/lib/stack.env.example" "$S/stack.env" "$SRC/bin/mcp-headers" "$SRC/bin/with-stack-env" <<'PY' || true
 import os, re, runpy, sys
 from pathlib import Path
 example, target, parser, wse = sys.argv[1:5]

@@ -30,12 +30,10 @@ Claude Code sandbox hold the limits, and MCP servers start and stop with the age
 for Claude Code **2.1.271 or later**, macOS only (Apple Silicon). It runs in the terminal and in the apps
 that run Claude Code with your settings (see [Apps](#apps)).
 
-Detail lives in two companion files:
-
-- [CONFIG.md](CONFIG.md): every applied parameter (model, effort, `maxTurns`, caps, knobs) with its reason;
-  installer internals, backups, sandbox and residual risks.
-- [mcp_servers.md](mcp_servers.md): apps and connectors for your Claude plan, vetted MCP servers,
-  documented-only and rejected ones.
+Detail lives in [CONFIG.md](CONFIG.md): every applied parameter (model, effort, `maxTurns`, caps, knobs)
+with its reason; installer internals, backups, sandbox and residual risks; and, in
+[§10](CONFIG.md#10-apps-connectors-and-mcp-servers), apps and connectors for your Claude plan, vetted MCP servers, documented-only and
+rejected ones.
 
 The README before this reorganisation is `git show acec941:README.md`; the long-form one with installer
 flags in full, the spawn table, sandbox internals and changelog entries is `git show 96d3a52:README.md`.
@@ -61,7 +59,8 @@ the design, not a record of intent.
 - **Landing on its feet.** Tool calls get refused, commands get blocked, children come back partial. The
   main thread still has to land, with an honest `STATUS` report rather than a guess.
 - **Nine lives, spent in order.** Code escalates coder → main-coder → ninja-coder → supreme-coder, a
-  `SendMessage` resume gives an agent a fresh turn budget, and `RESUME.md` carries work across sessions.
+  `SendMessage` resume gives an agent a fresh turn budget, and a `RESUME.md` hand-off carries work across
+  sessions.
 - **Whiskers.** A cat senses what it cannot see. Here that is the delegation ledger, `/stack-tree`,
   `/stack-doctor` and the usage rows.
 - **Economy of motion.** A cat does not chase everything. BlackCat does the few-call jobs itself, sends
@@ -74,7 +73,7 @@ the design, not a record of intent.
 
 The stack suits work that needs more than one kind of expertise, or a check by someone other than the
 author. The examples come from the stack's own evaluation prompt set
-(`.claude-work/agents-baseline/stats_before/inputs/baseline/prompts.csv`, 100 prompts in 22 families).
+(100 prompts in 22 families, kept with the campaign data outside this repository).
 A prompt listed here shows what the stack routes and how; it is not a claim that the run passed. Results
 are in [Measured so far](#measured-so-far).
 
@@ -268,7 +267,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | maxTurns | Set from measured turn counts: at least 1.5 × the p90 where one exists (163 segments of two sessions, 2026-10-02) | CONFIG.md §3; most types have fewer than 5 runs |
 | Soft token limits | Past a per-type limit an agent's next tool call carries one warning to wrap up and return `STATUS: partial`; nothing is refused | Values derived from p90 of healthy segments; all but claude-code-engineer and scout provisional (CONFIG.md §5). Effect on spend: not measured |
 | Hard budgets | Context tokens per human prompt and per session, whole tree (seeds 100,000,000 and 666,000,000); past them every call but reporting is refused | `tests/test_limits_guard.py`, `tests/test_stack_limits.py` |
-| Learned limits | `stack_limits.py` proposes new turn and token limits from the collector's rows; a session's limits are frozen at its start, inside repo floors and ceilings; fan-out, depth and the MCP cap are fixed guards that never learn (`FIXED_GUARDS`) | `tests/test_stack_limits.py`, `tests/test_sched_snapshot.py`. Calibration on held-out data: only the scheduler replay has one (`tests/derive_wave_sim.py`; with parameters fitted on another session, 16 of 19 replay windows land within 2 %, pinned in `tests/test_stack_sched.py`). A prototype run found the soft limits run hot (10.3 % cap-hit against a 5 % target; RESUME.md §3, unreviewed, campaign worktree only) |
+| Learned limits | `stack_limits.py` proposes new turn and token limits from the collector's rows; a session's limits are frozen at its start, inside repo floors and ceilings; fan-out, depth and the MCP cap are fixed guards that never learn (`FIXED_GUARDS`) | `tests/test_stack_limits.py`, `tests/test_sched_snapshot.py`. Calibration on held-out data: only the scheduler replay has one (`tests/derive_wave_sim.py`; with parameters fitted on another session, 16 of 19 replay windows land within 2 %, pinned in `tests/test_stack_sched.py`). A prototype run found the soft limits run hot (10.3 % cap-hit against a 5 % target; unreviewed, campaign worktree only) |
 | Fan-out caps | Running children per agent, copies per type, BlackCat per prompt; a background subtree silent for 600 s stops counting (`STACK_FANOUT_IDLE_S`) | `tests/test_agent_guard.py`, `tests/test_guard_regressions.py` |
 | Scheduler advisor | `stack_sched.py` plans waves under the caps and checks a plan against the limits; advice only (`STACK_SCHED_POLICY=report`) | `tests/test_stack_sched.py`; no behaviour depends on it |
 | Model tiering | Sonnet for lookups, loops and verification; Opus where judgment is the product | **by design, not measured** |
@@ -355,9 +354,9 @@ whether the difference is enforced and tested, or a design intent.
 
 ### Measured so far
 
-One frozen baseline exists: [stats_before.md](.claude-work/agents-baseline/stats_before/stats_before.md)
-(schema 1.0.0, frozen 2026-10-03, regenerable by `compute_stats.py`; protocol for a later comparison in
-`COMPARE.md` beside it). It compares two versions of this stack, not the stack with plain Claude Code.
+One frozen baseline exists: `stats_before.md` (schema 1.0.0, frozen 2026-10-03, regenerable by
+`compute_stats.py`; protocol for a later comparison in `COMPARE.md` beside it), kept with the campaign
+data outside this repository. It compares two versions of this stack, not the stack with plain Claude Code.
 
 | Cell | Runs | Graded | Result |
 |---|---|---|---|
@@ -393,7 +392,7 @@ Both installs predate BlackCat's own tools (`43f441e`).
   `acec941`): `test_four_tools_and_three_model_settings` in `tests/test_image_studio_mcp.py`
   (the sandbox denies reading `~/.claude/stack.env`) and one `f4` case in `tests/test_protected_paths.py`
   (pytest's temp dir sits under `/tmp/claude-501`). Two cases of `test_three_way_verdict_on_the_soft_limit`
-  fail when `STACK_LIMITS_SNAPSHOT` is set (RESUME.md §1).
+  fail when `STACK_LIMITS_SNAPSHOT` is set.
 - **macOS only**: see [Requirements (macOS only)](#requirements-macos-only).
 
 ### Planned, not shipped
@@ -402,7 +401,7 @@ Not on `main`; listed so nobody mistakes them for features:
 
 - **Bayesian limits.** A design and a prototype fit for learning turn and token limits with risk targets
   exist only in a campaign worktree; three of its models fail their divergence gates, and it has not been
-  reviewed (RESUME.md §3).
+  reviewed.
 - **Like-for-like before/after comparison** (grading the 37 newer-install runs, then after-runs per
   `COMPARE.md`): not run.
 - **A Pareto cost-quality analysis:** only a descriptive tokens-vs-pass front on the 40 graded
@@ -604,7 +603,7 @@ every agent carries, and the Skill tool refuses them, so an agent Reads
 hub's table names one. That line (`## Skills, if needed`) is a lookup, not a checklist: a task that
 needs no skill reads none. Hubs, standalone skills and 15 entry-grade modules (database engines, cloud,
 k8s, obs, flutter, react-native, docs-sites, wasm, linux-nvidia-cuda) stay listed with their
-descriptions. Measured in `.claude-work/agents-p3/lookup/lookup-eval.md`: −8.7K characters per spawn.
+descriptions. Measured in a local evaluation (not in this repository): −8.7K characters per spawn.
 
 **`skillListingBudgetFraction` 0.012.** Claude Code caps the skill listing at context window × 3
 chars per token × this fraction, and the cap is shared with plugin, bundled and claude.ai skills; over
@@ -975,7 +974,7 @@ Names only; values never go into the repo, prompts or output.
 
 ### Keys and paths: `~/.claude/stack.env`
 
-Every key and path variable of `stack.env.example`. Its commented tuning sections (`EXA_MAX_*`,
+Every key and path variable of `lib/stack.env.example`. Its commented tuning sections (`EXA_MAX_*`,
 `JINA_MAX_*`, `SPIDER_*`, `READ_GATE*`, 39 variables, read at each call by `hooks/web_caps.py` and
 `hooks/read_gate.py`, no reinstall) are not repeated here; their defaults are in the file. The file is 0600; servers read it at connect time, each gets only
 its own keys, and upgrades append new variables commented out (the image and Claude models set to their
@@ -1102,7 +1101,7 @@ disable the installer makes prints its `claude plugin enable … --scope user` u
 
 Third-party servers are pinned to exact versions; to upgrade one, bump it in the repo (agent file,
 `magg/config.json`, the installer's prefetch) and re-run the installer. Versions, vetting notes and
-alternatives: [mcp_servers.md](mcp_servers.md).
+alternatives: [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers).
 
 **Inline, agent-scoped (17).** Declared in an agent's `mcpServers`; they start and stop with that agent.
 
@@ -1178,9 +1177,9 @@ every call for the rest (ask).
 **Documented, not installed** (heavy, an app plugin, cloud credentials or hardware writes): unity-mcp,
 Unreal_mcp, AWS aws-api-mcp-server, Azure MCP, gcloud-mcp, Alpha Vantage, KiCAD-MCP-Server,
 embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The design, image, video,
-3D, diagram and maths connectors are in [mcp_servers.md](mcp_servers.md) too.
+3D, diagram and maths connectors are in [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers) too.
 
-**Rejected**, with the reason ([mcp_servers.md](mcp_servers.md), "Engineering domains"):
+**Rejected**, with the reason ([CONFIG.md §10](CONFIG.md#engineering-domains), "Engineering domains"):
 
 <details>
 <summary>Rejected servers and why</summary>
@@ -1287,8 +1286,8 @@ source of truth.
 ## Troubleshooting
 
 Start with `/stack-doctor`: each FAIL and WARN line names its section and the fix. The rows below come
-from [CONFIG.md](CONFIG.md) §1 and §7, `doctor.sh`, and the agents' reports in the frozen baseline
-(`.claude-work/agents-baseline/stats_before/inputs/collected_fae82d02/run/<id>/`).
+from [CONFIG.md](CONFIG.md) §1 and §7, `doctor.sh`, and the agents' reports in the frozen baseline (run ids below; the run reports are kept
+outside this repository).
 
 | Symptom | Cause | Fix |
 |---|---|---|

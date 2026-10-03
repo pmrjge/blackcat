@@ -1,7 +1,0 @@
-**Latest stable CPython:** 3.14.8, released 2026-09-30. It is the newest stable series, in bugfix phase. Python 3.13.16 and 3.12.15 were released the same day.
-Source: https://www.python.org/downloads/ (fetched 2026-10-03)
-
-**Current uv:** 0.12.22, tagged "Latest" on GitHub. The release notes say "Released on 2026-10-01". The page timestamp reads 2 October, which is probably a timezone difference.
-Source: https://github.com/astral-sh/uv/releases/latest (fetched 2026-10-03)
-
-Both values come from one page each. I didn't cross-check them against a second source, such as python.org/downloads/release/python-3148/ or PyPI. I took them from WebFetch's summaries of the pages, not from raw text.

@@ -292,7 +292,7 @@ def stack_models(p):
 s = json.load(open(sys.argv[1]))
 frac = json.load(open(sys.argv[2]))["skillListingBudgetFraction"]
 env = s["env"]
-example_models = stack_models(os.path.join(os.path.dirname(os.path.dirname(sys.argv[2])), "stack.env.example"))
+example_models = stack_models(os.path.join(os.path.dirname(os.path.dirname(sys.argv[2])), "lib", "stack.env.example"))
 checks = {
     "agent": s.get("agent") == "blackcat",
     "autoCompactEnabled": s.get("autoCompactEnabled") is True,
@@ -516,7 +516,7 @@ def check(cond, good, bad):
     global ok
     print("  %s  %s" % ("PASS" if cond else "FAIL", good if cond else bad))
     ok = ok and cond
-models = example_models(os.path.join(os.path.dirname(os.path.dirname(shipped_path)), "stack.env.example"))
+models = example_models(os.path.join(os.path.dirname(os.path.dirname(shipped_path)), "lib", "stack.env.example"))
 check(env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == models["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
       "a Haiku pin is replaced by stack.env's haiku slot (the stack runs no Haiku)",
       "ANTHROPIC_DEFAULT_HAIKU_MODEL=%r" % env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL"))
@@ -578,7 +578,7 @@ cat > "$FAKE_CJ" <<'JSON'
 }
 JSON
 FAKE_CJ_BEFORE="$(sha "$FAKE_CJ" | awk '{print $1}')"
-cp "$HERE/stack.env.example" "$T3/stack.env"; chmod 600 "$T3/stack.env"
+cp "$HERE/lib/stack.env.example" "$T3/stack.env"; chmod 600 "$T3/stack.env"
 plan_out="$(CLAUDE_CONFIG_DIR="$T3" "$INSTALL" --mcp-plan 2>"$T3/.mcpplan.err")"
 [ "$FAKE_CJ_BEFORE" = "$(sha "$FAKE_CJ" | awk '{print $1}')" ] && pass "--mcp-plan made no changes to the MCP config" \
   || failed "--mcp-plan modified the MCP config"
@@ -718,7 +718,7 @@ export EDITOR=vi
 RC
 export FAKE_CLAUDE_JSON="$T4/fake-claude.json" STACK_CLAUDE_JSON="$T4/fake-claude.json"
 echo '{"mcpServers":{"exa":{"type":"http","url":"https://mcp.exa.ai/mcp","headers":{"x-api-key":"exa-only-in-config-1234"}},"jina":{"type":"http","url":"https://mcp.jina.ai/v1?exclude_tools=search_jina_blog","headersHelper":"/opt/op/jina-headers"}}}' > "$FAKE_CLAUDE_JSON"
-mkdir -p "$T4/.claude"; { cat "$HERE/stack.env.example"; echo 'OPENAI_API_KEY=sk-mine-123'; echo 'MY_DIR=$HOME/work'; } > "$T4/.claude/stack.env"
+mkdir -p "$T4/.claude"; { cat "$HERE/lib/stack.env.example"; echo 'OPENAI_API_KEY=sk-mine-123'; echo 'MY_DIR=$HOME/work'; } > "$T4/.claude/stack.env"
 chmod 600 "$T4/.claude/stack.env"
 HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" "$INSTALL" --no-plugins --no-deps >"$T4/.install.log" 2>&1 \
   && pass "install with profile step (scratch HOME) exits 0" || { failed "install with profile step failed"; tail -n 30 "$T4/.install.log"; }
@@ -816,7 +816,7 @@ HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" "$INSTALL" --no-mcp --no-plugins --no
 # restore puts both back exactly
 T4R="$(scratch_dir)" || exit 1
 printf 'export EDITOR=vi\n[ -f "/old/.claude/stack.env" ] && { set -a; . "/old/.claude/stack.env"; set +a; }  # claude-agent-stack\n' > "$T4R/.zshrc"
-mkdir -p "$T4R/.claude"; { cat "$HERE/stack.env.example"; echo 'OPENAI_API_KEY=sk-mine-123'; } > "$T4R/.claude/stack.env"; chmod 600 "$T4R/.claude/stack.env"
+mkdir -p "$T4R/.claude"; { cat "$HERE/lib/stack.env.example"; echo 'OPENAI_API_KEY=sk-mine-123'; } > "$T4R/.claude/stack.env"; chmod 600 "$T4R/.claude/stack.env"
 cp -p "$T4R/.zshrc" "$T4R/zshrc.before"; cp -p "$T4R/.claude/stack.env" "$T4R/env.before"
 HOME="$T4R" FAKE_CLAUDE_JSON="$T4R/f.json" STACK_CLAUDE_JSON="$T4R/f.json" CLAUDE_CONFIG_DIR="$T4R/.claude" "$INSTALL" --no-mcp --no-plugins --no-deps >"$T4R/i.log" 2>&1
 grep -q '^STACK_EXPORT=' "$T4R/.claude/stack.env" && ! cmp -s "$T4R/.zshrc" "$T4R/zshrc.before" \
@@ -832,7 +832,7 @@ plan=$(env -u STACK_CLAUDE_JSON CLAUDE_CONFIG_DIR="$T5" "$INSTALL" --mcp-plan 2>
 printf '%s\n' "$plan" | grep -qF "config read for the plan: $T5/.claude.json" && pass "--mcp-plan reads \$CLAUDE_CONFIG_DIR/.claude.json" \
   || failed "--mcp-plan read the wrong config: $(printf '%s\n' "$plan" | grep 'config read')"
 # stack.env referencing an unset variable must not abort the installer (bash 3.2 even exited 0)
-mkdir -p "$T5/c"; sed 's#^IMAGE_STUDIO_OUT_DIR=.*#IMAGE_STUDIO_OUT_DIR=$XDG_PICTURES_DIR/studio#' "$HERE/stack.env.example" \
+mkdir -p "$T5/c"; sed 's#^IMAGE_STUDIO_OUT_DIR=.*#IMAGE_STUDIO_OUT_DIR=$XDG_PICTURES_DIR/studio#' "$HERE/lib/stack.env.example" \
   | grep -vE 'MOTHERDUCK_TOKEN|STACK_EXPORT' > "$T5/c/stack.env"
 FAKE_CLAUDE_JSON="$T5/f.json" STACK_CLAUDE_JSON="$T5/f.json" CLAUDE_CONFIG_DIR="$T5/c" "$INSTALL" --no-plugins --no-deps --no-profile >"$T5/.log" 2>&1 \
   && grep -q 'Done. Next' "$T5/.log" && pass "stack.env with an unset \$VAR: install completes" || failed "unset \$VAR in stack.env aborted the install"
@@ -848,7 +848,7 @@ fi
 # settings.json's env. Later runs append nothing; a stack.env change reaches settings.json, while a
 # value you set in settings.json yourself is kept.
 T16="$(scratch_dir)"; mkdir -p "$T16/c"
-grep -vE '^ANTHROPIC_DEFAULT_(OPUS|SONNET|HAIKU)_MODEL=' "$HERE/stack.env.example" > "$T16/c/stack.env"
+grep -vE '^ANTHROPIC_DEFAULT_(OPUS|SONNET|HAIKU)_MODEL=' "$HERE/lib/stack.env.example" > "$T16/c/stack.env"
 echo 'ANTHROPIC_DEFAULT_OPUS_MODEL=my-opus-pin  # mine' >> "$T16/c/stack.env"
 CLAUDE_CONFIG_DIR="$T16/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T16/.log1" 2>&1
 cp "$T16/c/stack.env" "$T16/env.after1"
@@ -861,7 +861,7 @@ json.dump(s, open(sys.argv[1], "w"), indent=2)
 PY
 sed -i.bak 's/^ANTHROPIC_DEFAULT_OPUS_MODEL=.*/ANTHROPIC_DEFAULT_OPUS_MODEL=my-opus-2/' "$T16/c/stack.env" && rm -f "$T16/c/stack.env.bak"
 CLAUDE_CONFIG_DIR="$T16/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T16/.log3" 2>&1
-python3 - "$T16" "$HERE/stack.env.example" <<'PY' && pass "stack.env upgrade: Claude model variables appended once with the stack's IDs, your value kept; settings.json env follows stack.env, a settings.json value of yours stays" || failed "Claude model variables in stack.env / settings.json (see above)"
+python3 - "$T16" "$HERE/lib/stack.env.example" <<'PY' && pass "stack.env upgrade: Claude model variables appended once with the stack's IDs, your value kept; settings.json env follows stack.env, a settings.json value of yours stays" || failed "Claude model variables in stack.env / settings.json (see above)"
 import json, os, re, sys
 t, example = sys.argv[1], sys.argv[2]
 ex = {m.group(1): m.group(2) for m in (re.match(r"(ANTHROPIC_DEFAULT_[A-Z]+_MODEL)=(\S+)", l) for l in open(example)) if m}
@@ -1890,7 +1890,8 @@ PY
 # differ from HEAD's (R3-SUPPLY: the whole shipped tree counts, not only the guard and settings)
 blob="$(printf '# an earlier file\n' | tgit -C "$HERE" hash-object -w --stdin)"
 GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" read-tree HEAD
-for f in dot-claude/hooks/agent_guard.py dot-claude/agents/coder.md requirements/sci.in; do
+for f in dot-claude/hooks/agent_guard.py dot-claude/agents/coder.md requirements/sci.in lib/stack.env.example \
+         lib/assets/blackcat-hero.jpg; do
   GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" update-index --cacheinfo "100755,$blob,$f"
 done
 old_commit="$(tgit -C "$HERE" commit-tree "$(GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" write-tree)" -p HEAD -m earlier </dev/null)"
@@ -1900,8 +1901,9 @@ set_commit "0123456789abcdef0123456789abcdef01234567"
 xrun "$TX/r" "$TX/s2.log" --dry-run
 grep -q "changes to the stack's shipped files and installer since the last install" "$TX/s1.log" \
   && grep -q 'dot-claude/hooks/agent_guard.py' "$TX/s1.log" && grep -q 'dot-claude/agents/coder.md' "$TX/s1.log" \
-  && grep -q 'requirements/sci.in' "$TX/s1.log" && grep -q "which this repo doesn't have" "$TX/s2.log" \
-  && pass "an install shows the diff of everything it ships since the recorded commit (and warns on an unknown one)" \
+  && grep -q 'requirements/sci.in' "$TX/s1.log" && grep -q 'lib/stack.env.example' "$TX/s1.log" \
+  && ! grep -q 'lib/assets/' "$TX/s1.log" && grep -q "which this repo doesn't have" "$TX/s2.log" \
+  && pass "an install shows the diff of everything it ships since the recorded commit, not the README images (and warns on an unknown one)" \
   || failed "supply-chain diff: $(grep -i 'since the last install\|repo doesn' "$TX/s1.log" "$TX/s2.log" | head -3)"
 # on a terminal the run asks before applying those changes: "n" applies nothing, --yes doesn't ask
 cat > "$TX/tty_run.py" <<'PY'
