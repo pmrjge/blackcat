@@ -222,7 +222,11 @@ def test_refresh_frame_skips_main_rows_and_empty_cells():
 
 def test_derive_helpers_are_the_shared_core():
     import derive_thresholds as DT
-    assert DT.q is L.q and DT.ceil2 is L.ceil2
+    xs = [3.0, 1.0, 4.0, 1.5, 9.0, 2.6, 5.0]                    # behaviour, not identity (modules may be reloaded)
+    for p in (0.0, 0.5, 0.9, 1.0):
+        assert DT.q(xs, p) == L.q(xs, p)
+    for v in (0.5, 1234.0, 19000001.0, 390000.0):
+        assert DT.ceil2(v) == L.ceil2(v)
     d = DT.derive([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], list("abcdef"))
     e = L.derive([1.0, 2.0, 3.0, 4.0, 5.0, 6.0], list("abcdef"))
     assert {k: v for k, v in d.items() if k != "ci"} == {k: v for k, v in e.items() if k != "ci"}
