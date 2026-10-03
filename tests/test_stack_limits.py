@@ -260,6 +260,13 @@ def test_T1_fixed_guards_are_never_variables(st):
         assert not L.is_fixed_guard(v) and not L.is_fixed_guard(L.env_var(v)), v
     for name in sorted(L.FIXED_GUARDS) + ["SUPREME_ONCE_PER_SESSION", "STACK_IMAGE_MAX_PX", "READ_GATE_DATA_BYTES",
                                           "STACK_FANOUT_SESSION",
+                                          "STACK_FANOUT_DYN", "STACK_FANOUT_DYN_ALPHA",
+                                          "STACK_FANOUT_DYN_BETA_FAIL", "STACK_FANOUT_DYN_BETA_RL",
+                                          "STACK_FANOUT_DYN_BREAKER", "STACK_FANOUT_DYN_DELAY_RATIO",
+                                          "STACK_FANOUT_DYN_ENFORCE", "STACK_FANOUT_DYN_HOLD_S",
+                                          "STACK_FANOUT_DYN_NODE_RUNS", "STACK_FANOUT_DYN_RESERVE_TOK",
+                                          "STACK_FANOUT_DYN_SLACK", "STACK_FANOUT_DYN_TYPES",
+                                          "STACK_FANOUT_DYN_W0", "STACK_FANOUT_DYN_WMIN",
                                           "stack-max-depth", "blackcat.max.dispatch"]:
         assert L.is_fixed_guard(name), name
         assert not L.VAR_RE.match(name) and name not in s["vars"]

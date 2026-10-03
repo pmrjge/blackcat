@@ -133,6 +133,10 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
   fanout/<caller>/<tool_use_id>.json   spawn leases {type, caller, caller_type, ts}
   fanout/<parent>/resume-<agent>.json  resume reservations {type, caller, caller_type, resume, by,
                           ts}, counted like spawn leases
+  fanout-session.jsonl    STACK_FANOUT_SESSION shadow|enforce: one line per session slot count
+  fanout-dyn/<agent>.{plan,nodes,aimd}.json  STACK_FANOUT_DYN shadow|enforce: an in-scope agent's
+                          captured plan, node runs and AIMD window (stack_fanout.py)
+  fanout-dyn.jsonl, fanout-dyn-events.jsonl  its decisions and AIMD events (numbers and ids only)
   budget.json             token counts {files: {path: {off, ino, keys, seg, seg_run}}, total,
                           prompt_base, prompt_id, human, soft_prompt, soft_agents}
   agent-overrides.json    {session_id, overrides: {type: {model, model_id, effort,
@@ -200,6 +204,16 @@ Knobs (env):
                           ones too) against CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS (default 20);
                           `shadow` logs each count to fanout-session.jsonl, `enforce` also refuses
                           a spawn or resume with no free slot, `off` = no lock, no count
+  STACK_FANOUT_DYN=off    dynamic fan-out cap (stack_fanout.py; see "dynamic fan-out cap"): `shadow`
+                          logs each decision of an in-scope caller to fanout-dyn.jsonl, `enforce`
+                          also refuses with the terms in STACK_FANOUT_DYN_ENFORCE (node,deps); never
+                          above the static cap, never the main thread or BlackCat; any error = static
+  STACK_FANOUT_DYN_ENFORCE=node,deps  STACK_FANOUT_DYN_TYPES=orchestrator  STACK_FANOUT_DYN_W0=8
+  STACK_FANOUT_DYN_WMIN=1  STACK_FANOUT_DYN_ALPHA=1  STACK_FANOUT_DYN_BETA_RL=0.5
+  STACK_FANOUT_DYN_BETA_FAIL=0.75  STACK_FANOUT_DYN_HOLD_S=60  STACK_FANOUT_DYN_RESERVE_TOK=8000000
+  STACK_FANOUT_DYN_SLACK=2  STACK_FANOUT_DYN_NODE_RUNS=7  STACK_FANOUT_DYN_DELAY_RATIO=1.5
+  STACK_FANOUT_DYN_BREAKER=5/600  its terms and constants (stack_fanout.KNOB_DEFAULTS; an invalid
+                          value takes the default with a warning). All fixed guards, never learned
   Learned limits (stack_limits.py; fixed per session by the SessionStart snapshot, see "learned
   limits" below; `stack_limits.py show` lists them). Each env override is digits, 0 = off, and is
   recorded in the snapshot when the session starts (a later change waits for the next session):
@@ -1231,16 +1245,19 @@ def session_log(d, ev, kind, mode, n, maxc):
         warn_once("%s not written (%s)" % (SESSION_LOG, type(exc).__name__))
 
 
-def session_check(d, ev, now, reg, guard, kind):
+def session_check(d, ev, now, reg, guard, kind, out=None):
     """Under the 'fanout' mutex: the denial reason when the guard enforces and no slot is free,
     else None. The count is logged in shadow and enforce mode; a count that fails is the static
-    decision (None), never a refusal."""
+    decision (None), never a refusal. `out` (a dict) receives the count as n and maxc (the dynamic
+    fan-out log reports K_sess = maxc - n)."""
     mode, maxc = guard
     try:
         n = session_slots(d, now, ev, reg)
     except Exception as exc:  # noqa: BLE001 - fail to the static decision
         warn_once("session slot count failed (%s); static decision" % type(exc).__name__)
         return None
+    if out is not None:
+        out.update(n=n, maxc=maxc)
     session_log(d, ev, kind, mode, n, maxc)
     if mode == "enforce" and n >= maxc:
         return (SESSION_SPAWN_REASON if kind == "spawn" else SESSION_RESUME_REASON) % (n, maxc)
@@ -1317,8 +1334,9 @@ def _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, copy,
     with mutex(d, "fanout"):
         now = time.time()
         reg = load_registry(d)
+        sess, n = {}, None
         if guard:
-            why = session_check(d, ev, now, reg, guard, "spawn")
+            why = session_check(d, ev, now, reg, guard, "spawn", sess)
             if why:
                 return why
         if limit > 0:
@@ -1328,15 +1346,95 @@ def _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, copy,
                         "Wait for a task notification before spawning more, or do this part "
                         "yourself." % (caller_type or caller, n, knob))
         if copy:
-            n = copies_running(d, child, now, ev, reg)
-            if n >= max_copies:
+            nc = copies_running(d, child, now, ev, reg)
+            if nc >= max_copies:
                 return ("Copy limit: %d %s agents are already running or starting in this "
                         "session (STACK_MAX_SELF_FANOUT=%d). Wait for one to finish, or do this "
-                        "part yourself." % (n, child, max_copies))
+                        "part yourself." % (nc, child, max_copies))
+        # the dynamic cap, after every static check allowed the spawn (R1); off: returns at once
+        why = dyn_spawn(d, ev, caller, caller_type, child, limit, n, now, reg, tid, sess)
+        if why:
+            return why
         if tid:
             write_json_atomic(os.path.join(fanout_dir(d, caller), safe(tid) + ".json"),
                               dict(lease, ts=now))
     return None
+
+
+# ---------------------------------------------------------------- dynamic fan-out cap
+# STACK_FANOUT_DYN (dynamic fan-out plan D1-D6): off (default) | shadow | enforce. The decision core
+# is stack_fanout.py, the guard side stack_fanout_wire.py (scope, plan capture, node runs, AIMD,
+# logs: its docstring), both beside this file and imported only while the switch is on, so `off`
+# costs a hook call one environment lookup. The stubs below pass a live view of this module's
+# globals (_GuardView) and never raise: any failure is the static decision (R3).
+_DYN_MOD, _DYN_WIRE = [], []
+
+
+def fanout_dyn_module():
+    """stack_fanout.py beside this file (imported once), or None when it cannot be loaded."""
+    return _hook_module(_DYN_MOD, "stack_fanout")
+
+
+def fanout_dyn_wire():
+    """stack_fanout_wire.py beside this file (imported once), or None when it cannot be loaded."""
+    return _hook_module(_DYN_WIRE, "stack_fanout_wire")
+
+
+def _hook_module(cache, name):
+    if not cache:
+        mod = None
+        try:
+            here = os.path.dirname(os.path.abspath(__file__))
+            if here not in sys.path:
+                sys.path.insert(0, here)
+            mod = __import__(name)
+        except Exception as exc:  # noqa: BLE001 - the static caps stand
+            warn_once("fanout-dyn: %s.py unusable (%s); static fan-out caps only"
+                      % (name, type(exc).__name__))
+        cache.append(mod)
+    return cache[0]
+
+
+class _GuardView:
+    """This module's globals, looked up at each use (a test's monkeypatch is seen)."""
+
+    def __getattr__(self, name):
+        try:
+            return globals()[name]
+        except KeyError:
+            raise AttributeError(name) from None
+
+
+def dyn_on():
+    return os.environ.get("STACK_FANOUT_DYN", "").strip().lower() not in ("", "off") \
+        and policy_on()
+
+
+def _dyn_stub(name, default=None):
+    def stub(*args):
+        if not dyn_on():
+            return default
+        wire = fanout_dyn_wire()
+        if wire is None:
+            return default
+        try:
+            return getattr(wire, name)(_GuardView(), *args)
+        except Exception as exc:  # noqa: BLE001 - R3: the static decision
+            warn_once("fanout-dyn: %s failed (%s); static decision" % (name, type(exc).__name__))
+            return default
+    stub.__name__ = name
+    return stub
+
+
+# (d, ev, caller, caller_type, child, limit, n, now, reg, tid, sess) -> deny reason or None
+dyn_spawn = _dyn_stub("dyn_spawn")
+# (d, ev, owner, owner_type, ttype, limit, n, now, reg, sess) -> deny reason or None
+dyn_resume = _dyn_stub("dyn_resume")
+dyn_remove_run = _dyn_stub("dyn_remove_run", False)     # (d, caller, tid)
+dyn_bind_child = _dyn_stub("dyn_bind_child")            # (d, caller, tid, child_id)
+dyn_child_end = _dyn_stub("dyn_child_end")              # (d, ev, child_id[, kind])
+dyn_spawn_failed = _dyn_stub("dyn_spawn_failed")        # (d, ev, caller, tid)
+dyn_capture = _dyn_stub("dyn_capture")                  # (ev, d) -> additionalContext or None
 
 
 def fanout_release(d, caller, tool_use_id):
@@ -1695,6 +1793,7 @@ def on_agent(ev, d):
                 supreme_release_pending(d, caller, tid)
             if leased:
                 fanout_release(d, caller, tid)
+                dyn_remove_run(d, caller, tid)      # D1: a refused spawn leaves no live run
 
         try:
             why = fanout_acquire(d, ev, caller, parent, child)
@@ -2901,8 +3000,9 @@ def _resume_reserve_locked(d, ev, target_id, ttype, owner, owner_type, limit, kn
         if rid in {lid for _, lid, _ in live_leases(d, now, owner)}:
             return None, None       # already resumed in this burst: one run, one reservation
         reg = load_registry(d)
+        sess, n = {}, None
         if guard:
-            why = session_check(d, ev, now, reg, guard, "resume")
+            why = session_check(d, ev, now, reg, guard, "resume", sess)
             if why:
                 return why, None
         if limit > 0:
@@ -2915,6 +3015,9 @@ def _resume_reserve_locked(d, ev, target_id, ttype, owner, owner_type, limit, kn
             return ("Copy limit: resuming '%s' would make more than %d %s agents run in this "
                     "session (STACK_MAX_SELF_FANOUT=%d). Wait for one to finish."
                     % (target_id, max_copies, ttype, max_copies)), None
+        why = dyn_resume(d, ev, owner, owner_type, ttype, limit, n, now, reg, sess)
+        if why:
+            return why, None
         path = os.path.join(fanout_dir(d, owner), rid + ".json")
         write_json_atomic(path, {"type": ttype, "caller": owner, "caller_type": owner_type,
                                  "resume": target_id, "by": ev.get("agent_id") or "main",
@@ -3510,6 +3613,7 @@ def on_agent_done(ev, d):
                                   "status": str(status or "").strip().lower() or None},
                     clear=("depth",) if pdepth is not None else (),
                     keep=("parent", "parent_type"))
+            dyn_bind_child(d, caller, tid, child_id)
             fanout_release(d, caller, tid)
     finally:
         # a lock timeout (or any failure above) must not leave the call's lease counting for
@@ -3520,6 +3624,9 @@ def on_agent_done(ev, d):
                                                 "by": ev.get("agent_id") or "main",
                                                 "ts": time.time()})
     ledger_safe(ledger_done, d, ev, ti, child, child_id, status, totals)
+    if not bg:              # a foreground child is done: the end of its node run (its stop came first)
+        dyn_child_end(d, ev, child_id,
+                      "finish" if str(status or "").lower() == "completed" else "other")
     if child == SUPREME:
         if str(status or "").lower() in TERMINAL_STATUSES:
             supreme_release_holder(d, child_id, SUPREME, by=ev.get("agent_id") or "main")
@@ -3620,6 +3727,7 @@ def mark_stopped(d, aid, atype, transcript=None, ev=None):
         if cur and cur.get("holder") == aid:
             unlink(path)
     supreme_release_holder(d, aid, atype)
+    dyn_child_end(d, ev, aid)
     if os.path.isdir(os.path.join(d, LEDGER_DIR)):
         ledger_safe(ledger_render, d)
 
@@ -3870,6 +3978,7 @@ def on_agent_failed(ev, d):
     ti = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
     aid = ev.get("agent_id")
     fanout_release(d, aid or "main", ev.get("tool_use_id"))
+    dyn_spawn_failed(d, ev, aid or "main", ev.get("tool_use_id"))
     ledger_safe(ledger_failed, d, ev)
     if norm(ti.get("subagent_type")) == SUPREME:
         supreme_release_pending(d, aid or "main", ev.get("tool_use_id"))
@@ -3949,6 +4058,7 @@ def session_start_bookkeeping(ev, d):
         unlink(os.path.join(d, SCREEN_LOCK))
     shutil.rmtree(os.path.join(d, "blackcat"), ignore_errors=True)
     shutil.rmtree(os.path.join(d, "fanout"), ignore_errors=True)
+    shutil.rmtree(os.path.join(d, "fanout-dyn"), ignore_errors=True)     # dynamic fan-out state
     # Subagents never outlive the process that ran them: after a restart or --resume nothing from
     # the registry is running any more (a SendMessage resume fires SubagentStart, which clears
     # this again). Without this, dead children would count against the fan-out caps. The spawn
@@ -5046,6 +5156,13 @@ def budget_main(raw):
         raise
     except Exception as exc:  # noqa: BLE001 - fail open by design
         warn("token budget: %s: %s" % (type(exc).__name__, exc))
+    try:
+        plan_note = dyn_capture(ev, d)      # dynamic fan-out: the orchestrator's plan.dag.json
+    except Exception as exc:  # noqa: BLE001 - fail open: the static cap applies
+        warn_once("fanout-dyn: plan not captured (%s)" % type(exc).__name__)
+        plan_note = None
+    if plan_note:
+        emit({"hookSpecificOutput": {"hookEventName": "PreToolUse", "additionalContext": plan_note}})
     soft_flush()
     return 0
 
@@ -10784,6 +10901,7 @@ def self_test():
     problems += ledger_self_test()
     problems += label_self_test()
     problems += report_self_test()
+    problems += fanout_dyn_self_test()
     try:
         root = state_root()
         os.makedirs(root, exist_ok=True)
@@ -11194,7 +11312,38 @@ FIXED_LIMIT_KNOBS = (
     "SUPREME_PENDING_TTL_S", "SUPREME_IDLE_S", "SUPREME_LOCK_TTL_S", "SCREEN_LOCK_TTL_S", "STACK_MAX_DEPTH",
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
     "STACK_IMAGE_MAX_PX", "STACK_IMAGE_UPLOAD_TOOLS", "STACK_IMAGE_MAX_B64", "STACK_SCHED_POLICY",
-    "STACK_FANOUT_SESSION")
+    "STACK_FANOUT_SESSION",
+    # the dynamic fan-out cap (stack_fanout.KNOBS; the self-test checks the two lists agree)
+    "STACK_FANOUT_DYN", "STACK_FANOUT_DYN_ALPHA", "STACK_FANOUT_DYN_BETA_FAIL",
+    "STACK_FANOUT_DYN_BETA_RL", "STACK_FANOUT_DYN_BREAKER", "STACK_FANOUT_DYN_DELAY_RATIO",
+    "STACK_FANOUT_DYN_ENFORCE", "STACK_FANOUT_DYN_HOLD_S", "STACK_FANOUT_DYN_NODE_RUNS",
+    "STACK_FANOUT_DYN_RESERVE_TOK", "STACK_FANOUT_DYN_SLACK", "STACK_FANOUT_DYN_TYPES",
+    "STACK_FANOUT_DYN_W0", "STACK_FANOUT_DYN_WMIN")
+
+
+def fanout_dyn_self_test():
+    """The dynamic fan-out module imports under this interpreter, its knobs are all fixed guards
+    here, `off` (its default) allows, and a plan with a cycle is rejected with a safe message."""
+    mod = fanout_dyn_module()
+    if mod is None or fanout_dyn_wire() is None:
+        return ["fanout-dyn: stack_fanout.py or stack_fanout_wire.py cannot be imported next to "
+                "the hook"]
+    problems = []
+    missing = sorted(set(mod.KNOBS) - set(FIXED_LIMIT_KNOBS))
+    if missing:
+        problems.append("fanout-dyn: knobs not in FIXED_LIMIT_KNOBS: %s" % " ".join(missing))
+    if mod.DEFAULT_KNOBS.get("mode") != "off":
+        problems.append("fanout-dyn: STACK_FANOUT_DYN does not default to off")
+    res = mod.dyn_decision(mod.DEFAULT_KNOBS, "spawn", "o1", "orchestrator", 32, 40, "coder")
+    if not res.get("allow"):
+        problems.append("fanout-dyn: mode off refuses")
+    try:
+        mod.parse_plan('{"job":"j","nodes":[{"id":"A","a":"coder","dep":["B"]},'
+                       '{"id":"B","a":"coder","dep":["A"]}]}', ["coder"])
+        problems.append("fanout-dyn: a plan with a cycle is accepted")
+    except mod.PlanError:
+        pass
+    return problems
 
 
 def limits_self_test(agents_dir=None):
