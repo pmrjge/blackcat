@@ -2337,6 +2337,13 @@ else
   B="$(cat "$WORK/backup-dir")"
   [ -n "$legacy_b" ] && python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" move >/dev/null
   mkdir -p "$C"/{agents,skills,hooks,mcp/vendor,magg/kit.d,bin,venvs}
+  # The Playwright MCP's --output-dir, rendered into the agents' inline entries and the magg catalog:
+  # doctor.sh checks the paths in MCP args and FAILs while it is missing, so it is not left to the
+  # server's first write. 0700, like the session-env hook's ~/.cache/claude-sandbox.
+  pw_out="${HOME%/}/.cache/claude-sandbox/playwright-mcp"
+  if grep -qsF -e "\"$pw_out\"" "$C"/agents/*.md "$C/magg/config.json"; then
+    { (umask 077 && mkdir -p "$pw_out") && chmod 700 "$pw_out"; } || note "! could not create $pw_out (the Playwright MCP needs it): mkdir -p it yourself"
+  fi
   # the learned limits' live.json: created from the seed only when absent (an older schema is copied
   # to live.v<N>.json and migrated); learned values are never rewritten. Sessions snapshot it.
   if ! seed_out="$("$STACK_PYTHON" "$C/hooks/stack_limits.py" seed 2>&1)"; then

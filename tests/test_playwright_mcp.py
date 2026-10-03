@@ -83,3 +83,15 @@ def test_one_pinned_version_everywhere():
 
 def test_gitignore_has_the_old_folder():
     assert ".playwright-mcp/" in (ROOT / ".gitignore").read_text().splitlines()
+
+
+def test_installer_creates_the_output_dir():
+    """install.sh creates the rendered --output-dir, 0700 (doctor.sh FAILs while it is missing; the
+    behaviour, --dry-run included, is checked by tests/install_smoke.sh §8): the path it builds is
+    OUTPUT_DIR with __HOME__ as $HOME, and it only does so when an installed entry names it."""
+    text = (ROOT / "install.sh").read_text()
+    want = 'pw_out="${HOME%%/}%s"' % OUTPUT_DIR[len("__HOME__"):]
+    assert want in text, "install.sh does not build %s" % OUTPUT_DIR
+    block = text[text.index(want):][:600]
+    assert 'grep -qsF -e "\\"$pw_out\\""' in block
+    assert '(umask 077 && mkdir -p "$pw_out") && chmod 700 "$pw_out"' in block

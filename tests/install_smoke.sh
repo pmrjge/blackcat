@@ -722,6 +722,17 @@ mkdir -p "$T4/.claude"; { cat "$HERE/lib/stack.env.example"; echo 'OPENAI_API_KE
 chmod 600 "$T4/.claude/stack.env"
 HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" "$INSTALL" --no-plugins --no-deps >"$T4/.install.log" 2>&1 \
   && pass "install with profile step (scratch HOME) exits 0" || { failed "install with profile step failed"; tail -n 30 "$T4/.install.log"; }
+# the Playwright MCP's --output-dir: created 0700 under HOME (doctor.sh FAILs while it is missing)
+pw_out="$T4/.cache/claude-sandbox/playwright-mcp"
+pw_doc="$(HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" bash "$T4/.claude/bin/doctor.sh" 2>&1)"
+[ -d "$pw_out" ] && [ "$(fmode "$pw_out")" = 0o700 ] && [ "$(fmode "$T4/.cache/claude-sandbox")" = 0o700 ] \
+  && ! printf '%s\n' "$pw_doc" | grep -q 'playwright-mcp missing' \
+  && pass "the Playwright MCP output dir doctor expects is created (0700, scratch HOME)" \
+  || failed "playwright-mcp output dir: [$(fmode "$pw_out" 2>&1)] $(printf '%s\n' "$pw_doc" | grep 'playwright-mcp')"
+T4D="$(cd "$(mktemp -d)" && pwd -P)"
+HOME="$T4D" CLAUDE_CONFIG_DIR="$T4D/.claude" "$INSTALL" --dry-run --no-mcp --no-plugins --no-deps --no-profile >"$T4D/.log" 2>&1 \
+  && [ ! -e "$T4D/.cache/claude-sandbox/playwright-mcp" ] \
+  && { pass "--dry-run creates no Playwright output dir"; rm -rf "$T4D"; } || failed "--dry-run and the Playwright output dir (see $T4D/.log)"
 grep -q "alias cas=" "$T4/.zshrc" && pass "unrelated rc line mentioning claude-agent-stack kept" || failed "unrelated rc line deleted"
 [ "$(grep -c '# claude-agent-stack$' "$T4/.zshrc")" = 1 ] && grep -q 'with-stack-env" --print-env --reveal sh' "$T4/.zshrc" \
   && pass "old stack line replaced by exactly one new line" || failed "rc stack line not replaced exactly once"
