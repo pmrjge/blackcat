@@ -1,9 +1,9 @@
 <!-- markdownlint-disable MD013 MD033 MD041 MD060 -->
 <div align="center">
 
-<img src="lib/assets/blackcat-hero.jpg" alt="A black cat in mid-leap over the roofline of a glossy dark car at golden hour, with a Mediterranean villa behind: BlackCat" width="480">
+<img src="lib/assets/blackcat-hero.jpg" alt="A giant black cat sits calmly licking its raised paw, its long tail stretched across the tiles of a colourful toy-block city where small white robots with antennae and visor eyes carry blocks past miniature terminals, floating code brackets, a glowing git-graph and circuit paths, in violet, turquoise and amber: BlackCat" width="480">
 
-<p align="center"><sub>Hero image: author's photograph, edited with AI (OpenAI gpt-image-2.5-sunburst via Opper; Sourceful Riverflow v2.5 Pro via OpenRouter).<br>AI-edited image; all rights reserved, not under the code's licence (<a href="lib/assets/README.md">details</a>).</sub></p>
+<p align="center"><sub>Hero image: photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper, <a href="lib/assets/README.md">CC BY 4.0</a></sub></p>
 
 <h1>claude-agent-stack</h1>
 
@@ -1382,8 +1382,8 @@ outside this repository).
 - **Keep the Claude attribution.** Commits made with Claude Code end with a
   `Co-Authored-By: Claude <noreply@anthropic.com>` trailer; the model name may follow `Claude`, as in
   the history ([PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)).
-- **Licence:** Apache-2.0 ([LICENSE](LICENSE), [NOTICE](NOTICE)); the images in `lib/assets/` are all
-  rights reserved and not under Apache-2.0. Details: [License](#license).
+- **Licence:** Apache-2.0 for code, docs and prompts ([LICENSE](LICENSE), [NOTICE](NOTICE)); the images
+  in `lib/assets/` are under CC BY 4.0. Details: [License](#license).
 
 ## Changelog
 
@@ -1404,25 +1404,21 @@ their changelog entries, are not shipped; see the commit history in
 
 ## License
 
-Everything in this repository except the images in `lib/assets/` (scripts, hooks, agents, skills,
-prompts, docs) is licensed under [Apache-2.0](LICENSE) (SPDX identifier `Apache-2.0`), copyright 2026
-Pedro Miguel Rodrigues Jorge. The [NOTICE](NOTICE) file records that the project was created with Claude
-Code; Apache-2.0 §4(d) requires redistributions to carry it.
-
+- **Code, docs and prompts** (everything outside `lib/assets/`: scripts, hooks, agents, skills, prompts,
+  docs): [Apache-2.0](LICENSE) (SPDX identifier `Apache-2.0`), copyright 2026 Pedro Miguel Rodrigues
+  Jorge. The [NOTICE](NOTICE) file records that the project was created with Claude Code; Apache-2.0
+  §4(d) requires redistributions to carry it.
+- **The images in `lib/assets/`** (hero, its unmodified original, social preview, avatar):
+  [CC BY 4.0](lib/assets/LICENSE-CC-BY-4.0.txt) (SPDX identifier `CC-BY-4.0`), with attribution to Pedro
+  Miguel Rodrigues Jorge for the human contribution, his photograph of his cat: "Photo by Pedro Miguel
+  Rodrigues Jorge, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper". The image was made from that
+  photograph with OpenAI GPT Image 2.5 Sunburst (`openai/gpt-image-2.5-sunburst`) through Opper. Purely
+  AI-generated elements may not be copyrightable (the [US Copyright Office](https://www.copyright.gov/ai/)
+  holds that copyright does not extend to them), so CC BY 4.0 applies to the extent rights exist.
+  Trademarks are not licensed (CC BY 4.0 §2(b)(2)). `blackcat-hero-original.png` is the unmodified model
+  output with its provenance metadata (C2PA); the resized copies carry none. Statement:
+  [lib/assets/README.md](lib/assets/README.md); provenance, prompts and hashes:
+  [lib/assets/PROVENANCE.md](lib/assets/PROVENANCE.md).
 - Third-party software the stack installs or calls (Claude Code, MCP servers, CLIs, the Python packages in
   `requirements/`) is not part of this repository and keeps its own licence.
-- **The hero image is not open-licensed.** The files in `lib/assets/` (hero, social preview, avatar) are
-  not covered by Apache-2.0 or any open licence. They were made from the author's own photograph of his
-  cat (not included) combined with an earlier AI-generated scene (generated through Opper with
-  `openai/gpt-image-2.5-sunburst`, as stated by the author), then edited with Sourceful Riverflow v2.5 Pro
-  (`sourceful/riverflow-v2.5-pro`) through OpenRouter. The author's contribution (the photograph, the
-  direction, the selection) is all rights reserved. The AI-generated and AI-edited elements are subject
-  to the providers' terms, which are unclear on who owns the edited output and restrict redistribution:
-  [Sourceful's terms linked by OpenRouter](https://www.sourceful.com/legal/spring-terms-of-use) (§5.1),
-  the [Riverflow Terms of Use](https://www.riverflow.ai/legal/riverflow-terms-of-use) (§3.4, §3.5, §4.3,
-  §4.4) and [OpenRouter's terms](https://openrouter.ai/terms) (§6.1). AI-generated material may not be
-  copyrightable at all (the [US Copyright Office](https://www.copyright.gov/ai/) holds that copyright does
-  not extend to it). The image is shown here for this README only; forks and redistributors must replace
-  it. Statement: [lib/assets/README.md](lib/assets/README.md); provenance:
-  [lib/assets/PROVENANCE.md](lib/assets/PROVENANCE.md).
 - This section is an engineering note on what was checked (2026-10-03), not legal advice.

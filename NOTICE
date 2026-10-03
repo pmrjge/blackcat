@@ -4,5 +4,4 @@ Copyright 2026 Pedro Miguel Rodrigues Jorge
 This product was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude
 models, under the author's direction.
 
-The images in lib/assets/ are excluded from the Apache-2.0 grant: all rights reserved, see
-lib/assets/README.md.
+The images in lib/assets/ are licensed under CC BY 4.0 (see lib/assets/README.md).
