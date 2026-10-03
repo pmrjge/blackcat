@@ -315,14 +315,62 @@ def split(block):
 
 
 @pytest.mark.parametrize("command", split(READ_ONLY))
-def test_readonly_commands_pass(command):
-    assert G.readonly_violation(command, EV) is None, command
+def test_readonly_commands_pass(command, hermetic):
+    assert G.readonly_violation(command, hermetic) is None, command
 
 
 @pytest.mark.parametrize("command", split(WRITES))
-def test_mutating_commands_refused(command):
-    got = G.readonly_violation(command, EV)
+def test_mutating_commands_refused(command, hermetic):
+    got = G.readonly_violation(command, hermetic)
     assert got and got[1], command
+
+
+@pytest.fixture
+def hermetic():
+    """An empty project dir outside the temp dirs: what the guard scans (./.claude-work of the
+    runner's root) is the test's own, never the checkout's."""
+    import shutil
+    d = ROOT / (".ro-hermetic-" + uuid.uuid4().hex[:8])
+    d.mkdir()
+    yield {"cwd": str(d)}
+    shutil.rmtree(d, ignore_errors=True)
+
+
+def test_a_big_scratch_dir_does_not_refuse_js_runners(proj):
+    """170,000 scratch files (a venv or two under .claude-work) used to hit a 20,000-entry cap
+    and refuse every JS runner; only a test file there, or running out of time, refuses now."""
+    venv = proj / ".claude-work" / "venv" / "lib"
+    for i in range(30):
+        d = venv / f"pkg{i}"
+        d.mkdir(parents=True)
+        for j in range(800):
+            (d / f"m{j}.py").write_bytes(b"")
+    for cmd in ("npm test", "npx jest", "vitest run", "node --test"):
+        assert viol(proj, cmd) is None, cmd
+    put(proj, ".claude-work/venv/lib/pkg29/zz.test.js", "test('x', () => {})\n")
+    got = viol(proj, "npm test")
+    assert got and "zz.test.js" in got[1]
+
+
+def test_a_walk_past_the_deadline_is_refused(proj):
+    import time
+    put(proj, ".claude-work/j/a.txt", "x")
+    r = G._ReadOnly({"cwd": str(proj)})
+    r.deadline = time.monotonic() - 1                    # unknown: fail closed
+    assert "in time" in (r.scratch_tests() or "")
+    got = r.collects("npm test")
+    assert got and "in time" in got[1]
+
+
+def test_js_runner_scans_its_own_roots_scratch_only(proj, tmp_path):
+    """The scan follows the runner's root (nearest package.json up from the cwd) and the cwd,
+    not every base: a package with its own package.json collects only its own tree."""
+    put(proj, ".claude-work/j/evil.test.js", "x\n")
+    put(proj, "pkg/package.json", "{}\n")
+    assert viol(proj, "cd pkg && npm test") is None
+    assert viol(proj, "cd src && npm test")              # no package.json: up to the project
+    put(proj, "pkg/.claude-work/k/b.spec.ts", "x\n")
+    assert viol(proj, "cd pkg && npm test")
 
 
 # ---------------------------------------------------------------- scratch files that run (T2)
@@ -897,19 +945,19 @@ def test_js_runner_after_a_code_write_is_refused(proj, command):
     assert got and SAME_CALL_MSG in got[1], (command, got)
 
 
-# ---------------------------------------------------------------- another agent's scratch project (T4-1)
+# ---------------------------------------------------------------- another agent's scratch code (T4-1, audit HIGH-2)
 def agent_ev(proj, monkeypatch, tmp_path, since):
-    """An event of a read-only agent whose registry says it first started at `since`."""
+    """An event of a read-only agent whose registry says it started at `since`."""
     sid, aid = "s-" + uuid.uuid4().hex[:8], "a" + uuid.uuid4().hex[:8]
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "state"))
     reg = tmp_path / "state" / "claude-agent-stack" / sid / "agents" / (aid + ".json")
     reg.parent.mkdir(parents=True)
-    reg.write_text(json.dumps({"type": "verifier", "started": since + 100, "first_started": since}))
+    reg.write_text(json.dumps({"type": "verifier", "started": since, "first_started": since}))
     return {"cwd": str(proj), "session_id": sid, "agent_id": aid}
 
 
 def after_start():
-    """A start stamp later than every file written so far (ctime has ns resolution)."""
+    """A start stamp later than every file written so far."""
     import time
     time.sleep(0.02)
     t = time.time()
@@ -920,107 +968,71 @@ def after_start():
 PY_TEST_BAD = "import os\ndef test_b():\n    os.remove('x')\n"
 
 
-def build_foreign(proj):
-    put(proj, ".claude-work/j/w.py", PY_WRITER)
-    put(proj, ".claude-work/j/w.sh", SH_WRITER)
-    put(proj, ".claude-work/j/t/pyproject.toml", "[tool.pytest.ini_options]\naddopts = '-q'\n")
-    put(proj, ".claude-work/j/t/tests/conftest.py", "import os\nos.environ['X'] = '1'\n")
+def test_foreign_scratch_code_is_still_content_checked(proj, monkeypatch, tmp_path):
+    """Audit HIGH-2: scratch code another agent wrote before this one started is read and held
+    to the same rules as the agent's own (no "older than my start" exemption)."""
+    put(proj, ".claude-work/j/net.py",
+        "import socket, subprocess\nsubprocess.run(['id'])\nsocket.socket()\n")
+    put(proj, ".claude-work/j/wr.py", "open('src/a.py','w').write('x')\n")
     put(proj, ".claude-work/j/t/tests/test_b.py", PY_TEST_BAD)
-
-
-@pytest.mark.parametrize("command", [
-    "python3 .claude-work/j/w.py", "bash .claude-work/j/w.sh", "uv run .claude-work/j/w.py",
-    "pytest -q .claude-work/j/t/tests", "uv run pytest .claude-work/j/t/tests/test_b.py",
-    "cd .claude-work/j/t && uv run pytest", "cd .claude-work/j/t && pytest -q tests/",
-])
-def test_another_agents_scratch_files_run_like_project_code(proj, monkeypatch, tmp_path, command):
-    build_foreign(proj)
+    put(proj, ".claude-work/j/t/pyproject.toml", "[tool.pytest.ini_options]\naddopts = '-q'\n")
     ev = agent_ev(proj, monkeypatch, tmp_path, after_start())
-    assert G.readonly_violation(command, ev) is None, command
-    # without a start stamp (no agent id, or no registry record) nothing is foreign
+    assert G.readonly_violation("python3 .claude-work/j/net.py", ev)
+    assert G.readonly_violation("python3 .claude-work/j/wr.py", ev)
+    assert G.readonly_violation("pytest -q .claude-work/j/t/tests", ev)
+    assert G.readonly_violation("cd .claude-work/j/t && pytest -q tests/", ev)
+
+
+def test_foreign_clean_scratch_tests_run(proj, monkeypatch, tmp_path):
+    put(proj, ".claude-work/j/t/pyproject.toml", '[project]\nname = "t"\nversion = "0"\n')
+    put(proj, ".claude-work/j/t/tests/test_a.py", PY_TEST_OK)
+    ev = agent_ev(proj, monkeypatch, tmp_path, after_start())
+    assert G.readonly_violation("cd .claude-work/j/t && uv run pytest -q tests/", ev) is None
+
+
+# ---------------------------------------------------------------- uv run of a scratch project (audit HIGH-1)
+def test_scratch_build_backend_is_not_run_by_uv(proj):
+    put(proj, ".claude-work/up/pyproject.toml",
+        '[build-system]\nrequires=[]\nbuild-backend="b"\nbackend-path=["."]\n'
+        '[project]\nname="x"\nversion="0"\n')
+    put(proj, ".claude-work/up/b.py", "import os\nos.system('id')\n")
+    put(proj, ".claude-work/up/tests/test_a.py", PY_TEST_OK)
+    assert viol(proj, "cd .claude-work/up && uv run pytest -q tests/")
+    assert viol(proj, "uv run --project .claude-work/up pytest")
+
+
+@pytest.mark.parametrize("files", [
+    {"setup.py": "import os\nos.system('id')\n"},
+    {"pyproject.toml": '[build-system]\nrequires = ["hatchling"]\nbuild-backend = "hatchling.build"\n'},
+    {"pyproject.toml": '[project]\nname = "x"\nversion = "0"\n[tool.uv]\npackage = true\n'},
+    {"pyproject.toml": '[project]\nname = "x"\nversion = "0"\ndependencies = ["lib"]\n'
+                       '[tool.uv.sources]\nlib = { path = "lib" }\n'},
+    {"pyproject.toml": '[project]\nname = "x"\nversion = "0"\n[tool.uv.workspace]\nmembers = ["p/*"]\n'},
+    {"pyproject.toml": '[project]\nname = "x"\nversion = "0"\ndependencies = ["y @ file:///tmp/y"]\n'},
+])
+@pytest.mark.parametrize("command", [
+    "cd .claude-work/up && uv run pytest -q tests/", "uv run --project .claude-work/up pytest",
+    "uv run --project=.claude-work/up -m pytest", "cd .claude-work/up/tests && uv run pytest",
+    "cd .claude-work/up && uv run ruff check .", "cd .claude-work/up && uv run python -m pytest",
+])
+def test_uv_run_refuses_scratch_projects_it_would_build(proj, files, command):
+    for name, body in files.items():
+        put(proj, ".claude-work/up/" + name, body)
+    put(proj, ".claude-work/up/tests/test_a.py", PY_TEST_OK)
     assert viol(proj, command), command
-    assert G.readonly_violation(command, dict(ev, agent_id="unknown")), command
 
 
 @pytest.mark.parametrize("command", [
-    "python3 .claude-work/j/w.py", "bash .claude-work/j/w.sh",
-    "pytest -q .claude-work/j/t/tests", "cd .claude-work/j/t && uv run pytest",
+    "cd .claude-work/up && uv run --no-sync pytest -q tests/",
+    "cd .claude-work/up && uv run --no-project pytest -q tests/",
+    "uv run --with-editable .claude-work/up pytest", "uv run --with ./.claude-work/up pytest",
+    "uv run --with 'x @ file:///tmp/x' pytest",
 ])
-def test_files_the_agent_wrote_after_its_start_are_still_read(proj, monkeypatch, tmp_path, command):
-    since = after_start()
-    build_foreign(proj)
-    assert G.readonly_violation(command, agent_ev(proj, monkeypatch, tmp_path, since)), command
-
-
-def test_a_backdated_or_rewritten_file_is_not_foreign(proj, monkeypatch, tmp_path):
-    put(proj, ".claude-work/j/old.py", "print(1)\n")
-    since = after_start()
-    ev = agent_ev(proj, monkeypatch, tmp_path, since)
-    # touch -t / cp -p can set mtime back, never ctime
-    p = put(proj, ".claude-work/j/w.py", PY_WRITER)
-    os.utime(proj / p, (since - 3600, since - 3600))
-    assert G.readonly_violation("python3 .claude-work/j/w.py", ev)
-    # an old file the agent rewrote is its own now
-    (proj / ".claude-work/j/old.py").write_text(PY_WRITER)
-    assert G.readonly_violation("python3 .claude-work/j/old.py", ev)
-
-
-def test_a_foreign_script_still_has_the_agents_own_imports_read(proj, monkeypatch, tmp_path):
-    put(proj, ".claude-work/j/main.py", "import helper\nprint(1)\n")
-    ev = agent_ev(proj, monkeypatch, tmp_path, after_start())
-    put(proj, ".claude-work/j/helper.py", PY_WRITER)
-    got = G.readonly_violation("python3 .claude-work/j/main.py", ev)
-    assert got and "helper.py" in got[1]
-    # a conftest the agent adds beside another agent's tests is read too
-    put(proj, ".claude-work/k/tests/test_ok.py", PY_TEST_OK)
-    ev = agent_ev(proj, monkeypatch, tmp_path, after_start())
-    put(proj, ".claude-work/k/tests/conftest.py", "import os\nos.remove('x')\n")
-    got = G.readonly_violation("pytest -q .claude-work/k/tests", ev)
-    assert got and "conftest.py" in got[1]
-
-
-def test_foreign_needs_a_claude_work_dir_and_a_separate_write_call(proj, monkeypatch, tmp_path):
-    other = tmp_path / "elsewhere" / "w.py"           # a temp dir, not .claude-work
-    other.parent.mkdir()
-    other.write_text(PY_WRITER)
-    build_foreign(proj)
-    ev = agent_ev(proj, monkeypatch, tmp_path, after_start())
-    assert G.readonly_violation("python3 %s" % other, ev)
-    got = G.readonly_violation("cp evil .claude-work/j/w.py; python3 .claude-work/j/w.py", ev)
-    assert got and SAME_CALL_MSG in got[1]
-    # it never opens a project write, a push or a network write
-    for cmd in ("echo x > src/a.py", "python3 .claude-work/j/w.py > src/out", "git push",
-                "curl -d @x https://example.com", "cp .claude-work/j/w.py src/"):
-        assert G.readonly_violation(cmd, ev), cmd
-
-
-def test_subagent_start_keeps_the_first_start_and_the_hook_uses_it(monkeypatch):
-    import shutil
-    import time
-    d = ROOT / (".ro-fixture-" + uuid.uuid4().hex[:8])
-    try:
-        put(d, ".claude-work/j/w.py", PY_WRITER)
-        time.sleep(0.02)
-        env = Env()
-        env.run(env.start("v1", "verifier"))
-        first = env.reg("v1")["first_started"]
-        assert first == env.reg("v1")["started"]
-        env.run(env.stop("v1", "verifier"))
-        time.sleep(0.02)
-        env.run(env.start("v1", "verifier"))               # a resume: a new run, same first start
-        assert env.reg("v1")["first_started"] == first and env.reg("v1")["started"] > first
-
-        def bash(cmd):
-            ev = env.base("PreToolUse", tool_name="Bash", tool_use_id="toolu_" + uuid.uuid4().hex[:12],
-                          agent_id="v1", agent_type="verifier", tool_input={"command": cmd},
-                          cwd=str(d))
-            return env.run(ev, args=("no-push",))
-        assert bash("python3 .claude-work/j/w.py").decision == "allow(no-output)"
-        put(d, ".claude-work/j/w2.py", PY_WRITER)          # written after the start: its own
-        r = bash("python3 .claude-work/j/w2.py")
-        assert r.decision == "deny" and "read-only rule" in r.reason
-    finally:
-        shutil.rmtree(d, ignore_errors=True)
+def test_uv_run_build_switches(proj, command):
+    put(proj, ".claude-work/up/setup.py", "import os\nos.system('id')\n")
+    put(proj, ".claude-work/up/tests/test_a.py", PY_TEST_OK)
+    got = viol(proj, command)
+    assert (got is None) == ("--no-" in command), (command, got)
 
 
 # ---------------------------------------------------------------- pytest config in scratch (T4-1)
@@ -1055,8 +1067,10 @@ def test_a_scratch_uv_project_without_a_pytest_section_runs(proj):
 def test_a_scratch_pytest_config_the_agent_wrote_is_refused(proj, name, body):
     put(proj, ".claude-work/j/t/" + name, body)
     put(proj, ".claude-work/j/t/tests/test_a.py", PY_TEST_OK)
-    got = viol(proj, "cd .claude-work/j/t && uv run pytest")
-    assert got and name in got[1], (name, body)
+    for cmd in ("cd .claude-work/j/t && pytest -q", "pytest -q .claude-work/j/t/tests"):
+        got = viol(proj, cmd)
+        assert got and name in got[1], (name, body, cmd)
+    assert viol(proj, "cd .claude-work/j/t && uv run pytest")
 
 
 # ---------------------------------------------------------------- $TMPDIR in scratch paths (T4-2)

@@ -2798,10 +2798,7 @@ def on_subagent_start(ev, d):
     now = time.time()
 
     def start():
-        # first_started: set once (a resume keeps it); the read-only check counts files older
-        # than it as another agent's (_ro_since)
-        reg_put(d, aid, {"type": atype or None, "started": now, "first_started": now},
-                clear=("stopped", "status"), keep=("first_started",),
+        reg_put(d, aid, {"type": atype or None, "started": now}, clear=("stopped", "status"),
                 resumed={"bg": True, "resumed": now})
 
     def drop():
@@ -7290,6 +7287,8 @@ RO_JS_LOAD_OPTS = {"--config", "--setupFiles", "--setupFilesAfterEnv", "--setupF
 RO_JS_RUNNERS = {"jest", "vitest", "mocha", "ava"}
 RO_JS_SUFFIX = (".js", ".mjs", ".cjs", ".jsx", ".ts", ".tsx", ".mts", ".cts")
 RO_SCRATCH_TEST_RE = re.compile(r".+\.(?:test|spec)\.[^/]+\Z")
+# runner configs that mark the directory a JS runner collects from
+RO_JS_ROOT_RE = re.compile(r"(?:jest|vitest|vite|mocha|ava|playwright)\.config\.\w+\Z|\.mocharc[\w.]*\Z")
 RO_PY_CONFIGS = ("pytest.ini", "pyproject.toml", "tox.ini", "setup.cfg", ".pytest.ini")
 # writers whose target holds new content; a scratch file they write is not yet on disk when the
 # hook reads files, so code run or collected later in the same command can not be checked
@@ -7376,21 +7375,6 @@ def _ro_project_dirs(bases, roots):
     return out
 
 
-def _ro_since(ev):
-    """When the calling agent first started (its registry `first_started`, written once by
-    SubagentStart; `started` for a record from before that key), else None. The state dir is
-    outside what sandboxed Bash may write, so an agent can't move this stamp."""
-    sid, aid = ev.get("session_id"), ev.get("agent_id")
-    if not (isinstance(sid, str) and sid.strip() and isinstance(aid, str) and aid.strip()):
-        return None
-    rec = read_json(reg_path(os.path.join(state_root(), safe(sid, "nosession")), aid)) or {}
-    for key in ("first_started", "started"):
-        v = rec.get(key)
-        if isinstance(v, (int, float)) and not isinstance(v, bool) and v > 0:
-            return float(v)
-    return None
-
-
 def _ro_tmp_values():
     """The temp-dir variables as the hook sees them: absolute plain paths only (anything else is
     left unexpanded, so a path naming it is refused as before)."""
@@ -7448,7 +7432,6 @@ class _ReadOnly(object):
         self.wrote = False                      # an earlier segment wrote into scratch
         self.pending = False                    # the segment being checked writes into scratch
         self.wrote_paths = []                   # (path, from a plain redirect) written into scratch
-        self.since = _ro_since(ev)              # this agent's first start: older files aren't its
         self.tmp_vals = _ro_tmp_values()
         self.rebound = set()                    # temp-dir vars this command may rebind: unexpanded
         self.assigned = {}                      # NAME=value segments and exports seen so far
@@ -7539,19 +7522,6 @@ class _ReadOnly(object):
         fresh temp file or dir."""
         return bool(v) and (bool(RO_MKTEMP_RE.match(v)) or self.scratch(v))
 
-    def foreign(self, real):
-        """A file under a .claude-work dir that this agent did not write: neither its content nor
-        its metadata changed since the agent first started (st_ctime can't be set back from user
-        space, unlike st_mtime). It runs like the project's own code. Without a start stamp
-        (no agent id, unreadable registry) nothing is foreign."""
-        if self.since is None or ".claude-work" not in real.split("/"):
-            return False
-        try:
-            st = os.stat(real)
-        except OSError:
-            return False
-        return max(st.st_mtime, st.st_ctime) < self.since
-
     def resolve(self, p):
         return os.path.normpath(os.path.join(self.cwd or self.bases[0], self.expand(p)))
 
@@ -7641,23 +7611,10 @@ class _ReadOnly(object):
         return None
 
     def file_content(self, real, what, fam, depth, seen):
-        if real in seen or ("foreign", real) in seen:
+        if real in seen:
             return None
-        if self.foreign(real):
-            # another agent's project code: it runs unread, like the project's own; modules it
-            # imports from its directory that this agent wrote are still read
-            seen.add(("foreign", real))
-            if len(seen) > 4000:
-                return (what, "runs scratch code that pulls in too many other files to check")
-            try:
-                with open(real, "rb") as fh:
-                    text = fh.read(RO_FILE_MAX).decode("utf-8")
-            except (OSError, UnicodeDecodeError):
-                return None
-            fam = fam or self.shebang_family(text)
-            return self.file_imports(real, text, fam, what, depth, seen) if fam else None
         seen.add(real)
-        if sum(isinstance(x, str) for x in seen) > RO_FILE_SEEN:
+        if len(seen) > RO_FILE_SEEN:
             return (what, "runs a scratch file that pulls in too many other files to check")
         try:
             if not os.path.isfile(real):
@@ -7737,26 +7694,50 @@ class _ReadOnly(object):
         return fam if fam in self.INTERP else None
 
     # -- test runners
+    def run_root(self):
+        """The directory a JS runner started here collects from: the nearest one up from the
+        cwd with a package.json, deno.json(c), bunfig.toml or a runner config, else None."""
+        cwd = os.path.normpath(self.cwd or self.bases[0])
+        d = cwd
+        while True:
+            try:
+                names = os.listdir(d)
+            except OSError:
+                names = []
+            if any(n in ("package.json", "deno.json", "deno.jsonc", "bunfig.toml") or
+                   RO_JS_ROOT_RE.match(n) for n in names):
+                return d
+            parent = os.path.dirname(d)
+            if parent == d:
+                return None
+            d = parent
+
     def scratch_tests(self):
-        """A test file (*.test.*, *.spec.*, __tests__/) somewhere under <project>/.claude-work
-        that a JS runner would collect, else None."""
+        """A test file (*.test.*, *.spec.*, __tests__/) under the .claude-work of the runner's
+        root and of the cwd (without a root: of the session's cwd too), which a JS runner would
+        collect, else None. Only the clock bounds the walk (a scratch dir of 170,000 files takes
+        ~0.6 s): past the deadline it is unknown, and refused."""
         if hasattr(self, "_scratch_tests"):
             return self._scratch_tests
-        found, seen = None, 0
-        dirs = [os.path.join(b, ".claude-work") for b in self.bases]
-        if self.cwd:
-            dirs.append(os.path.join(self.cwd, ".claude-work"))
+        found, dirs = None, []
+        root = self.run_root()
+        for base in (root, os.path.normpath(self.cwd or self.bases[0]),
+                     None if root else self.bases[0]):
+            if base is None:
+                continue
+            top = os.path.join(base, ".claude-work")
+            if top not in dirs:
+                dirs.append(top)
         for top in dirs:
             for cur, subdirs, files in os.walk(top):
                 subdirs[:] = [x for x in subdirs if x not in ("node_modules", ".git")]
-                seen += len(files) + len(subdirs)
                 hit = ("__tests__" if "__tests__" in subdirs else None) or next(
                     (f for f in files if RO_SCRATCH_TEST_RE.match(f)), None)
                 if hit:
                     found = os.path.join(cur, hit)
                     break
-                if seen > 20000 or time.monotonic() > self.deadline:
-                    found = os.path.join(top, "(too many files to list)")
+                if time.monotonic() > self.deadline:
+                    found = os.path.join(top, "(too many files to list in time)")
                     break
             if found:
                 break
@@ -7827,15 +7808,13 @@ class _ReadOnly(object):
             targets = [a]
         for t in targets:
             if os.path.isdir(t):
-                files, n, own = [], 0, 0
+                files, n = [], 0
                 for cur, subdirs, names in os.walk(t):
                     subdirs[:] = sorted(x for x in subdirs if x not in (
                         "node_modules", "__pycache__", ".git", ".venv", "venv"))
-                    batch = [os.path.join(cur, x) for x in sorted(names) if x.endswith(suffixes)]
-                    files += batch
-                    own += sum(not self.foreign(f) for f in batch)    # another agent's: unread
+                    files += [os.path.join(cur, x) for x in sorted(names) if x.endswith(suffixes)]
                     n += len(names)
-                    if n > 4000 or own > RO_FILE_SEEN:
+                    if n > 4000 or len(files) > RO_FILE_SEEN:
                         return (what, "runs a scratch directory with too many files to check")
             else:
                 files = [t]
@@ -7852,15 +7831,14 @@ class _ReadOnly(object):
     def py_chain(self, files, what, depth, seen):
         """pytest imports conftest.py and __init__.py of every directory from a test file up to the
         scratch root, and reads a config file found on the way (a pyproject.toml, tox.ini or
-        setup.cfg only when it has a pytest section; one another agent wrote is the project's)."""
+        setup.cfg only when it has a pytest section)."""
         for f in files:
             d = os.path.dirname(f)
             root = self.root_of(d) or d
             while _within(d, root):
                 for cfg in RO_PY_CONFIGS:
                     p = os.path.join(d, cfg)
-                    if os.path.isfile(p) and not self.foreign(os.path.realpath(p)) and \
-                            _pytest_config(p, cfg):
+                    if os.path.isfile(p) and _pytest_config(p, cfg):
                         return (what, "would read %s from the scratch dirs (a pytest config there "
                                       "can load plugins and code)" % p)
                 for name in ("conftest.py", "__init__.py"):
@@ -9099,6 +9077,41 @@ class _ReadOnly(object):
         self.pending = True
         return None
 
+    def scratch_build(self, project, what):
+        """`uv run` syncs the project it finds (--project, else the nearest pyproject.toml up from
+        the cwd) and builds it with its build backend, which runs unread. In scratch: refuse a
+        setup.py, a [build-system] or backend-path, tool.uv `package = true`, and local path,
+        workspace or file: sources (they are built too), in every scratch dir from the start
+        up. --no-project and --no-sync build nothing."""
+        start = self.resolve(project) if project else (self.cwd or self.bases[0])
+        if project and _expansion(self.expand(project)):
+            return (what, "names its project in a variable or substitution")
+        d = os.path.normpath(start)
+        while self.in_scratch(d) or self.in_scratch(os.path.realpath(d)):
+            if os.path.isfile(os.path.join(d, "setup.py")):
+                return (what, (f"would build the scratch project {d} with its setup.py, which "
+                               "runs unread (run tests from the project, or use --no-sync)"))
+            pp = os.path.join(d, "pyproject.toml")
+            if os.path.isfile(pp):
+                try:
+                    if os.path.getsize(pp) > RO_FILE_MAX:
+                        raise OSError("too big")
+                    with open(pp, encoding="utf-8", errors="replace") as fh:
+                        text = fh.read()
+                except OSError:
+                    text = "[build-system]"
+                if re.search(r"(?m)^\s*\[\s*build-system\s*\]|backend-path|"
+                             r"(?m:^\s*package\s*=\s*true)|\bpath\s*=|\bworkspace\b|"
+                             r"\beditable\b|file:|\\[uU]", text):
+                    return (what, (f"would build the scratch project {d} with its build backend "
+                                   "or local sources, which run unread (drop [build-system], run "
+                                   "it from the project, or use --no-sync)"))
+            parent = os.path.dirname(d)
+            if parent == d:
+                break
+            d = parent
+        return None
+
     def tar(self, rest, what):
         bad = [a for a in rest if a.split("=")[0] in ("-I", "--use-compress-program",
                                                       "--to-command", "--checkpoint-action",
@@ -9133,12 +9146,29 @@ class _ReadOnly(object):
                                "--default-index", "--index-url", "--extra-index-url",
                                "--exclude-newer", "--cache-dir", "--config-file", "--no-group",
                                "--refresh-package", "--reinstall-package", "--upgrade-package"}
+            project, sync, module = None, True, None
             while k < len(rest) and rest[k].startswith("-"):
-                if rest[k].split("=")[0] == "--directory":
+                name, eq, val = rest[k].partition("=")
+                val = val if eq else (rest[k + 1] if k + 1 < len(rest) else "")
+                if name == "--directory":
                     return (what, "changes directory inside uv (cd first)")
+                if name == "--project":
+                    project = val
+                elif name in ("--no-project", "--no-sync"):
+                    sync = False
+                elif name == "--with-editable" or (name in ("--with", "--with-requirements") and (
+                        "/" in val or val.startswith(".") or "file:" in val)):
+                    return (what, f"builds and installs local code ({name} {val[:60]})")
                 if rest[k] == "-m" and k + 1 < len(rest):
-                    return self.py_module(rest[k + 1], rest[k + 2:], ctx, depth, what)
+                    module = k
+                    break
                 k += 2 if rest[k] in opts_with_value else 1
+            if sync:
+                found = self.scratch_build(project, what)
+                if found:
+                    return found
+            if module is not None:
+                return self.py_module(rest[module + 1], rest[module + 2:], ctx, depth, what)
             if k < len(rest) and re.search(r"\.pyw?\Z", rest[k]):
                 found = self.stack_cli(rest[k], rest[k + 1:], ctx, what)
                 return self.run_file(rest[k], what, "python", depth) if found == "no" else found
