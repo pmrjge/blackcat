@@ -511,6 +511,19 @@ def test_T7_same_evidence_twice_and_no_new_rows(st):
     assert {v: s["value"] for v, s in again["vars"].items()} == {v: s["value"] for v, s in before["vars"].items()}
 
 
+def test_T7_new_rows_only_count_in_the_sample_the_rules_use():
+    own = entry([1e6 + 1e4 * i for i in range(10)], n_new=0, upto=T0)       # supported, nothing new
+    pool = entry([1e6 + 1e4 * i for i in range(12)], upto=T0 + 50)          # other types' new rows
+    s0 = _state(19000000, upto=T0)
+    assert L.decide("soft.agent.coder", SPEC_SOFT, s0, own, pool) == (s0, None)
+    s, rec = L.decide("soft.agent.coder", SPEC_SOFT, s0, dict(own, n_new=2, upto=T0 + 60), pool)
+    assert rec["decision"] == "step" and s["upto"] == T0 + 60
+    weak = entry([4e7], ci=[None, None], upto=T0)                           # pooled: the pool's rows count
+    s, rec = L.decide("soft.agent.coder", SPEC_SOFT, s0, weak, entry([5e7 + 1e5 * i for i in range(10)],
+                                                                     upto=T0 + 50))
+    assert rec["status"] == "pooled" and s["upto"] == T0 + 50
+
+
 def test_T12_T13_propose_changes_nothing_new_sid_gets_next_version(st):
     pa, na = L.apply_and_snapshot({"session_id": "s-a", "source": "startup"}, spawn=False)
     assert na is None and os.stat(pa).st_mode & 0o777 == 0o444

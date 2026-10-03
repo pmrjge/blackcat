@@ -984,13 +984,17 @@ def decide(name, spec, st, ent, pool=None, soft_ref=None, now=None):
     ent: the variable's proposals entry (None without own rows); pool: its pool's entry."""
     fam, _ = split_var(name)
     kind, unit, f, g = spec["kind"], spec["unit"], spec["floor"], spec["ceiling"]
-    cands = [e for e in (ent, pool) if e]
+    if not ent and not pool:
+        return st, None
+    status, use, p90e = classify(fam, ent, pool)
+    if status is None and ent is None:
+        return st, None                                  # only an unusable pool: nothing to decide
     last = float(st.get("upto") or 0)
-    if not any(e["n_new"] > 0 and e["upto"] > last for e in cands):
-        return st, None                                  # no new evidence: no decision
+    if not (use["n_new"] > 0 and use["upto"] > last):
+        return st, None                                  # no new rows in the sample the rules use
     now = time.time() if now is None else now
     s = _copy_state(st)
-    s["upto"] = max([last] + [e["upto"] for e in cands])
+    s["upto"] = max(last, use["upto"])
     c = st["value"]
     rec = {"var": name, "old": c, "new": c, "decision": None, "n": 0, "p90": None, "ci": [None, None],
            "hmax": None, "ft": None, "tight": (ent or {}).get("tight", 0), "loose": None, "d": s["d"]}
@@ -1006,9 +1010,6 @@ def decide(name, spec, st, ent, pool=None, soft_ref=None, now=None):
         if st["hold"] > 0:
             s["hold"] = st["hold"] - 1
         return done("hold")
-    status, use, p90e = classify(fam, ent, pool)
-    if status is None and ent is None:
-        return s, None                                   # only an unusable pool moved: nothing to decide
     xs = use["x"]
     p90, hmax = _qs(xs, 0.9), xs[-1]
     s.update(n=use["n"], agents=use["agents"], ci=list(use["ci"]), hmax=_intish(hmax))
