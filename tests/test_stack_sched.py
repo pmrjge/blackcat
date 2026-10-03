@@ -1,6 +1,6 @@
 """stack_sched.py: the scheduler advisor (dot-claude/hooks/stack_sched.py).
 
-Run: uv run --python 3.12 --with pytest pytest -q tests/test_stack_sched.py
+Run: uv run --python 3.14 --with pytest pytest -q tests/test_stack_sched.py
 No test touches the stack's state folder; the replay test on the recorded session reads
 .claude-work/agents-usage/ (untracked) and is skipped when that folder is absent.
 """
