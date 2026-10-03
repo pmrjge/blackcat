@@ -983,6 +983,89 @@ def test_V1_a_running_session_keeps_its_snapshot_past_the_prune_age(st):
     assert not list(Path(L.snapshots_dir()).glob("s-gone.*"))
 
 
+def test_V2b_five_session_u4_loop(st):
+    """V2(b): five sessions of SessionStart apply -> the collector's rows (stack_usage's writer) ->
+    the collector-exit propose -> the next SessionStart. Every move is a bounded step (<= 25 % x d of
+    the old value) except a first set or an invariant raise; every value stays in [floor, ceiling];
+    nothing moves without new evidence; a session's values never change after its start (U4);
+    soft.prompt.orchestrator never drops below its 80M floor."""
+    U = _load("stack_usage_for_u4_loop", HOOKS / "stack_usage.py")
+    seed = L.load_seed()
+    spec = seed["vars"]
+    live_p, hist_p = lim(st, "live.json"), lim(st, "history.jsonl")
+
+    def hist():
+        return [json.loads(x) for x in hist_p.read_text().splitlines()] if hist_p.exists() else []
+
+    def collector_rows(sid, k):
+        cells = U.snapshot_cells(sid)
+        base = dict(U.EMPTY_ROW, schema_version=2, session=sid, seg=0, status="complete", compacted=0,
+                    turn_limited=0, src="measured", **cells, **{c: 0 for c in U.HIT_COLS})
+        t = T0 + 1000 * k
+        rows = [dict(base, id=f"c{k}{a}", type="coder", api_calls=25 + 3 * a + k, ctx=30000000 + 4000000 * a
+                     + 500000 * k, first_ts=t + a - 100, last_ts=t + a, status_code=0, is_main=0, window=1)
+                for a in range(4)]
+        rows.append(dict(base, id=f"o{k}", type="orchestrator", api_calls=40, ctx=20000000, first_ts=t + 5,
+                         last_ts=t + 9, status_code=0, is_main=0, window=2))
+        rows += [dict(base, id="main", type="blackcat", seg=w, window=w, window_ctx=60000000 + 1000000 * w + k,
+                      api_calls=5, ctx=1000, first_ts=t + 10 * w, last_ts=t + 10 * w + 5, status_code="", is_main=1)
+                 for w in range(10)]
+        rows.append(dict(base, id="session", type="blackcat", ctx=400000000 + 10000000 * k, first_ts=t,
+                         last_ts=t + 200, status_code="", is_main=1))
+        return rows
+
+    started, moved = {}, set()
+
+    def start(sid):
+        """SessionStart of sid; checks the records it wrote and its snapshot. (path, values)"""
+        before = len(hist())
+        path, _note = L.apply_and_snapshot({"session_id": sid, "source": "startup"}, spawn=False)
+        snap = L.read_snapshot(sid)[0]
+        live = json.loads(live_p.read_text())
+        assert snap["values"] == {v: s["value"] for v, s in live["vars"].items()}, sid
+        for r in hist()[before:]:
+            if r["decision"] == "seeded":
+                assert sid == "loop-0" and r["var"] == "*"
+                continue
+            assert r["session"] == sid
+            if r["new"] == r["old"]:
+                continue
+            moved.add(r["var"])
+            f, g = spec[r["var"]]["floor"], spec[r["var"]]["ceiling"]
+            assert f <= r["new"] <= g, r
+            if r["old"] is None or r.get("why") == "invariant":
+                continue                                   # a first set, an invariant raise
+            assert r["decision"] in ("step", "clamp"), r
+            assert abs(r["new"] - r["old"]) <= L.STEP_MAX * r["d"] * r["old"] + 1, r
+        for v, x in snap["values"].items():
+            assert x is None or spec[v]["floor"] <= x <= spec[v]["ceiling"], (v, x)
+        assert snap["values"]["soft.prompt.orchestrator"] >= 80000000
+        return path, snap["values"]
+
+    for k in range(5):
+        sid = f"loop-{k}"
+        path, vals = start(sid)
+        started[sid] = (Path(path).read_bytes(), vals)
+        # the session runs: the collector appends its rows, its exit proposes; nothing live changes
+        live_bytes = live_p.read_bytes()
+        U.append_rows(collector_rows(sid, k))
+        assert L.propose() is not None and live_p.read_bytes() == live_bytes
+        assert L.apply_and_snapshot({"session_id": sid, "source": "resume"}, spawn=False) == (path, None)
+        assert live_p.read_bytes() == live_bytes
+    # U4: every session still sees exactly what it started with
+    for sid, (raw, vals) in started.items():
+        assert Path(L.snapshot_path(sid)).read_bytes() == raw and L.session_limits(sid)["values"] == vals, sid
+    assert {"soft.agent.coder", "soft.prompt"} <= moved                    # the loop is not vacuous
+    # no new evidence: once the last session's rows are applied, a re-propose over the same rows (the
+    # same evidence id) moves nothing at the next SessionStart
+    start("loop-x")
+    live_bytes, n = live_p.read_bytes(), len(hist())
+    L.propose()
+    L.apply_and_snapshot({"session_id": "loop-y", "source": "startup"}, spawn=False)
+    assert live_p.read_bytes() == live_bytes and len(hist()) == n
+    assert L.read_snapshot("loop-y")[0]["values"] == L.read_snapshot("loop-x")[0]["values"]
+
+
 def test_collector_v2_rows_and_snapshot_cells_meet_the_proposer(st):
     """W3 (stack_usage.py) reads `regime`, `hash` and `source_event` of this module's snapshot and
     writes runs2.csv rows this module's proposer reads (same column names)."""
