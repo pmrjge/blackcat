@@ -43,9 +43,10 @@ MAX_JSON_BYTES = 4 << 20                            # one state record
 MAX_TRANSCRIPT_BYTES = 256 << 20                    # one transcript (the rest is reported as truncated)
 MAX_TOTAL_BYTES = 1 << 30                           # all transcripts of one run (then: unscanned)
 MAX_LINE_BYTES = 8 << 20
-RAW_CAP = 8000                                      # untrusted text is cut here before redaction
+RAW_CAP = 1200                                      # untrusted text is cut here before redaction (shown: <= 300)
 HOOK_MAX_CHARS = 16000                              # /stack-tree output (the block reason) is cut here
 HOOK_WIDTH = 140
+HOOK_SECONDS = 20                                   # the hook's own deadline, under its 30 s timeout
 UNREC = "unrecorded"
 NA = "—"
 
@@ -78,8 +79,13 @@ _REDACT = [
     (re.compile(r"(?i)\b(authorization|proxy-authorization|x-api-key|api-key|apikey|x-auth-token|"
                 r"x-goog-api-key|cookie|set-cookie)(\s*:\s*)[^\"'\n]*"), r"\1\2***"),
     (re.compile(r"(?i)\b(bearer|basic|token)(\s+)[A-Za-z0-9._~+/=-]{8,}"), r"\1\2***"),
-    (re.compile(r"(?i)((?:(?<=\s)|^)--?[a-z0-9-]*(?:token|passw(?:or)?d|secret|api-?key|auth|cookie|credential)[a-z0-9-]*)"
-                r"(=|\s+)(\"[^\"]*\"|'[^']*'|\S+)"), r"\1\2***"),
+    (re.compile(r"(?i)(\b(?:mysql|mysqldump|mysqladmin|mariadb)\b[^|;&\n]*?\s-p)(\S+)"), r"\1***"),
+    (re.compile(r"(?i)(\b(?:sshpass|docker\s+login|podman\s+login|helm\s+registry\s+login)\b[^|;&\n]*?\s-p\s+)"
+                r"(\S+)"), r"\1***"),
+    (re.compile(r"(?i)\bpass:\S+"), "pass:***"),
+    (re.compile(r"(?i)(\baws\s+configure\s+set\s+\S*(?:secret|key|token)\S*\s+)\S+"), r"\1***"),
+    (re.compile(r"(?i)((?:(?<=\s)|^)--?[a-z0-9-]*(?:token|passw(?:or)?d|secret|api-?key|auth|cookie|credential)"
+                r"[a-z0-9-]*)(=|\s+)(\"[^\"]*\"|'[^']*'|\S+)"), r"\1\2***"),
     (re.compile(r"(?i)(\s-u\s*|--user[= ]\s*)([^\s:]+):(\S+)"), r"\1\2:***"),
     (re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@"), r"\1***@"),
     (re.compile(r"(?i)([?&;][a-z0-9_.-]*(?:key|token|secret|sig|signature|passw(?:or)?d|auth|code)"
@@ -87,13 +93,35 @@ _REDACT = [
     (re.compile(r"\bsk-ant-[A-Za-z0-9_-]{8,}|\b(?:sk|pk|rk)-[A-Za-z0-9_-]{12,}|\bgh[pousr]_[A-Za-z0-9]{20,}|"
                 r"\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bA(?:KIA|SIA)[0-9A-Z]{16}\b|"
                 r"\bhf_[A-Za-z0-9]{20,}|\bAIza[0-9A-Za-z_-]{30,}|\bglpat-[A-Za-z0-9_-]{16,}|"
+                r"\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{10,}|\bnpm_[A-Za-z0-9]{36}\b|\bhvs\.[A-Za-z0-9_-]{20,}|"
+                r"\bdckr_pat_[A-Za-z0-9_-]{16,}|"
                 r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|"
                 r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "***"),
 ]
 
 
+# `name: value` and `"name": "value"` (headers such as X-Vault-Token or PRIVATE-TOKEN, JSON bodies): a key
+# starts only where a run of [\w-] starts, so each run is tried once and the scan stays linear
+_KV = re.compile(r"(?<![\w-])([\w-]+)([\"']?[ \t]*:[ \t]*[\"']?)")
+_KV_NAME = re.compile(r"(?i)key|token|secret|passw(?:or)?d|auth|cookie|credential")
+_KV_VALUE = re.compile(r"[^\"'\n,}]+")
+DEADLINE = None                                     # set in --hook mode: past it, text is withheld, not shown raw
+
+
+def redact_kv(s):
+    out, pos = [], 0
+    for m in _KV.finditer(s):
+        if m.start() >= pos and _KV_NAME.search(m.group(1)):
+            v = _KV_VALUE.match(s, m.end())
+            if v:
+                out += [s[pos:m.end()], "***"]
+                pos = v.end()
+    return "".join(out) + s[pos:]
+
+
 def redact(s):
     s = "" if s is None else str(s)[:RAW_CAP]
+    s = redact_kv(s)
     for rx, rep in _REDACT:
         s = rx.sub(rep, s)
     return s
@@ -101,13 +129,16 @@ def redact(s):
 
 def text(s, limit=None):
     """Untrusted string -> redacted, cleaned, cut (redaction first, so a cut never exposes half a key)."""
+    if DEADLINE is not None and time.time() > DEADLINE:
+        return "(withheld: time budget)"
     return clean(redact(s), limit)
 
 
 def md_cell(s, limit):
-    """A GitHub-flavored-markdown table cell: cleaned and cut first, then \\ | ` < > [ ] escaped."""
+    """A GitHub-flavored-markdown table cell: cleaned and cut first, then \\ | ` < > [ ] & escaped (& so that a
+    renderer cannot turn &#x202E; into the character clean() removed)."""
     s = clean(s, limit) or NA
-    return re.sub(r"([\\|`<>\[\]])", r"\\\1", s)
+    return re.sub(r"([\\|`<>\[\]&])", r"\\\1", s)
 
 
 def csv_cell(s):
@@ -262,7 +293,7 @@ def classify(block):
     return "exit %s" % m.group(1) if m else "error"
 
 
-STATUS_RE = re.compile(r"(?mi)^[\s*_`]*STATUS[*_`]*\s*:\s*[*_`]*\s*(done|partial|blocked)\b")
+STATUS_RE = re.compile(r"(?mi)^[ \t*_`]*STATUS[*_`]*[ \t]*:[ \t]*[*_`]*[ \t]*(done|partial|blocked)\b")
 
 
 class Budget(object):
@@ -273,13 +304,13 @@ class Budget(object):
 def scan_transcript(path, main, budget):
     """{calls, tokens, out, first, last, report, state} of one transcript; state is missing, unscanned (over
     the run's byte budget), truncated (over one transcript's cap) or ok. tokens = input + cache writes + cache
-    reads + output of each API message once (the stack's context-token measure)."""
+    reads + output of each API message once, its largest values over the lines it spans."""
     res = {"calls": [], "tokens": None, "out": None, "first": None, "last": None, "report": None,
            "state": "missing"}
     if not path:
         return res
     cap = min(MAX_TRANSCRIPT_BYTES, budget.left)
-    if cap <= 0:
+    if cap <= 0 or (DEADLINE is not None and time.time() > DEADLINE):
         res["state"] = "unscanned"
         return res
     data = read_bytes(path, cap + 1)
@@ -288,7 +319,7 @@ def scan_transcript(path, main, budget):
     budget.left -= min(len(data), cap)
     res["state"] = "truncated" if len(data) > cap else "ok"
     data = data[:cap]
-    seen, by_id, tokens, out, last_text, have_usage = set(), {}, 0, 0, None, False
+    usage, anon, by_id, last_text = {}, [], {}, None
     for line in data.split(b"\n"):
         if not line or len(line) > MAX_LINE_BYTES or line[:1] != b"{":
             continue
@@ -310,14 +341,13 @@ def scan_transcript(path, main, budget):
         content = msg.get("content") if isinstance(msg.get("content"), list) else []
         if rec.get("type") == "assistant":
             mid, u = msg.get("id"), msg.get("usage")
-            if isinstance(u, dict) and (mid is None or mid not in seen):
-                if isinstance(mid, str):
-                    seen.add(mid)
+            if isinstance(u, dict):
                 vals = [num(u.get(k)) or 0 for k in ("input_tokens", "cache_creation_input_tokens",
                                                      "cache_read_input_tokens", "output_tokens")]
-                tokens += sum(vals)
-                out += vals[3]
-                have_usage = True
+                if isinstance(mid, str):          # one line per content block: earlier lines hold a partial output
+                    usage[mid] = [max(a, b) for a, b in zip(usage.get(mid, vals), vals)]
+                else:
+                    anon.append(vals)
             for b in content:
                 if not isinstance(b, dict):
                     continue
@@ -338,8 +368,9 @@ def scan_transcript(path, main, budget):
                     call = by_id.get(b.get("tool_use_id"))
                     if call is not None:
                         call["result"], call["end"] = classify(b), ts
-    if have_usage:
-        res["tokens"], res["out"] = tokens, out
+    allv = list(usage.values()) + anon
+    if allv:
+        res["tokens"], res["out"] = sum(sum(v) for v in allv), sum(v[3] for v in allv)
     if last_text:
         m = list(STATUS_RE.finditer(last_text))
         res["report"] = m[-1].group(1).lower() if m else "done"
@@ -392,8 +423,9 @@ def ledger_state(rec, reg):
         return "failed"
     if st in ("cancelled", "canceled", "killed"):
         return "stopped"
-    if num(reg.get("resumed")) and num(reg.get("stopped")) and reg["resumed"] > reg["stopped"]:
-        return "running"                      # resumed (SendMessage) after its last stop
+    resumed, stopped = num(reg.get("resumed")), num(reg.get("stopped"))
+    if resumed and (stopped is None or resumed > stopped):
+        return "running"                      # resumed (SendMessage): its SubagentStart cleared `stopped`
     if reg.get("stopped") or st == "completed":
         return "finished"
     if reg or st in ("async_launched", "running"):
@@ -597,7 +629,7 @@ def collapse(calls, only_failed):
     for c in calls:
         if only_failed and c["result"] in ("ok", "pending"):
             continue
-        key = (c["kind"], text(c["label"], 200))
+        key = (c["kind"], c["label"][:RAW_CAP])     # redacted only when shown (render_tree)
         if key not in groups:
             groups[key] = {"kind": key[0], "label": key[1], "count": 0, "results": {}}
             order.append(key)
@@ -608,7 +640,7 @@ def collapse(calls, only_failed):
 
 
 def leaf_label(g):
-    s = g["label"] + (" ×%d" % g["count"] if g["count"] > 1 else "")
+    s = text(g["label"], 200) + (" ×%d" % g["count"] if g["count"] > 1 else "")
     bad = ["%s%s" % ("%d " % v if g["count"] > 1 else "", k) for k, v in sorted(g["results"].items())
            if k != "ok"]
     return s + (" [%s]" % ", ".join(bad) if bad else "")
@@ -859,9 +891,16 @@ class UsageError(Exception):
     pass
 
 
+class HelpRequested(Exception):
+    pass
+
+
 class Parser(argparse.ArgumentParser):
     def error(self, message):
         raise UsageError(message)
+
+    def print_help(self, file=None):             # -h, --help, --hel: never argparse's own stdout print
+        raise HelpRequested()
 
     def exit(self, status=0, message=None):     # --help inside the hook must not exit the process early
         raise UsageError(message or "")
@@ -997,6 +1036,7 @@ def hook_main():
     """UserPromptExpansion (matcher stack-tree): the event on stdin, its command_args as the options (`table`,
     `static`, `json`, `csv`, `ascii` also as bare words), the output as the block reason on stderr, exit 2,
     so no model turn runs and BlackCat needs no Bash."""
+    global DEADLINE
     ev, argv = {}, []
     try:
         raw = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read(1 << 20)
@@ -1009,20 +1049,24 @@ def hook_main():
         argv = [WORDS.get(a, a) for a in shlex.split(args[:2000])]
         if any(a == "--hook" or a.startswith("--hook=") for a in argv):
             raise UsageError("--hook is not an option of /stack-tree")
-        if any(a in ("-h", "--help") for a in argv):
-            lines = parser("/stack-tree").format_help().rstrip("\n").split("\n")
-        else:
-            lines, _ = run(argv, hook=True, event=ev)
+        DEADLINE = time.time() + HOOK_SECONDS
+        lines, _ = run(argv, hook=True, event=ev)
+    except HelpRequested:
+        lines = parser("/stack-tree").format_help().rstrip("\n").split("\n")
     except UsageError as e:
         lines = ["/stack-tree: %s" % clean(e, 300), clean(parser("/stack-tree").format_usage())]
     except ValueError as e:                     # shlex: unbalanced quotes
         lines = ["/stack-tree: cannot parse the arguments (%s)" % clean(e, 100)]
+    lines = [x for l in lines for x in str(l).split("\n")]        # a JSON document is cut by its lines
+    sid = ev.get("session_id")
+    shown = argv + (["--session", sid] if isinstance(sid, str) and SID_RE.match(sid) and "--static" not in argv
+                    and not any(a.startswith("--sess") for a in argv) else [])
     out, total = [], 0
     for i, l in enumerate(lines):
         if total + len(l) + 1 > HOOK_MAX_CHARS:
             out.append("… cut at %d of %d lines (the /stack-tree output cap); all of it in a terminal: "
                        "/usr/bin/python3 %s %s" % (i, len(lines), shlex.quote(os.path.join(HERE, "stack-tree")),
-                                                   clean(" ".join(shlex.quote(a) for a in argv), 300)))
+                                                   clean(" ".join(shlex.quote(a) for a in shown), 300)))
             break
         out.append(l)
         total += len(l) + 1
@@ -1033,11 +1077,11 @@ def hook_main():
 def main(argv):
     if argv[:1] == ["--hook"]:
         return hook_main()
-    if any(a in ("-h", "--help") for a in argv):
-        sys.stdout.write(parser("stack-tree").format_help())
-        return 0
     try:
         lines, code = run(argv)
+    except HelpRequested:
+        sys.stdout.write(parser("stack-tree").format_help())
+        return 0
     except UsageError as e:
         sys.stderr.write("%s\nstack-tree: %s\n" % (parser("stack-tree").format_usage().strip(), clean(e, 300)))
         return 2

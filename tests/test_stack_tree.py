@@ -476,3 +476,116 @@ def test_every_mode_is_read_only(tmp_path):
     assert h.returncode == 2
     assert snapshot(tmp_path) == before                    # no file created, modified or replaced
     assert sorted(os.listdir(str(TREE.parent))) == repo_bin and not (cfg / "bin" / "__pycache__").exists()
+
+
+# ---------------------------------------------------------------- review round 1 (code-reviewer on 845b6f4)
+def test_resumed_foreground_agent_is_running(tmp_path):
+    # F1: SubagentStart of a resume clears `stopped` and sets `resumed`; a foreground spawn record stays completed
+    f = Fixture(tmp_path)
+    f.spawn("t1", "main", "coder", "first run", child="A1", status="completed")
+    f.agent("A1", "coder", stopped=False, resumed=f.t0 + 300)
+    f.spawn("t2", "main", "writer", "resumed then stopped", child="A2", status="completed")
+    f.agent("A2", "writer", resumed=f.t0 + 10)                      # stopped at t0 + 125, after the resume
+    f.transcript([])
+    p = f.run("--session", SID, "--table", "--no-leaves", "--columns", "agent,status")
+    assert "| coder | running |" in p.stdout and "| writer | finished |" in p.stdout
+
+
+def test_usage_of_a_message_split_over_lines_counts_its_final_output(tmp_path):
+    # F2: one JSONL line per content block; earlier lines carry a partial output_tokens
+    f = Fixture(tmp_path)
+    a, b = asst("m1", [{"type": "text", "text": "x"}], f.t0), asst("m1", [use("u1", "Read", {"file_path": "/a"})], f.t0)
+    b["message"]["usage"] = dict(a["message"]["usage"], output_tokens=300)
+    f.transcript([a, b, asst("m2", [], f.t0 + 1)])
+    rows = lines_of(f.run("--session", SID, "--table", "--no-leaves", "--columns", "tokens,output_tokens"))
+    assert rows[2] == "| %d | 305 |" % (1110 + 300 + 1115)
+
+
+LEAKS = [
+    ('curl -H "X-Vault-Token: hvs.CAESIJabcdefghijklmnop" https://vault/v1/x', "hvs.CAES"),
+    ('curl -H "PRIVATE-TOKEN: abcdEFGH12345678" https://gitlab/api', "abcdEFGH1234"),
+    ("mysql -uroot -pS3cretPassw0rd db", "S3cretPass"),
+    ("sshpass -p hunter2hunter2 ssh host", "hunter2"),
+    ("""curl -d '{"api_key":"sk_live_51Habcdefghijkl","password":"hunter2"}' https://x""", "sk_live_51"),
+    ("curl -d '{\"password\": \"hunter2\"}' https://x", "hunter2"),
+    ("openssl rsa -in k.pem -passin pass:Sup3rSecret", "Sup3rSecret"),
+    ("aws configure set aws_secret_access_key wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY", "wJalr"),
+    ("npm config set //registry.npmjs.org/:_authToken npm_abcdefghijklmnopqrstuvwxyz0123456789", "npm_abcd"),
+    ("echo sk_test_abcdefghijklmnop dckr_pat_abcdefghijklmnopqr", "sk_test_abc"),
+    ("echo dckr_pat_abcdefghijklmnopqr", "dckr_pat_abc"),
+]
+
+
+@pytest.mark.parametrize("cmd,leak", LEAKS)
+def test_more_secret_shapes_are_masked(tmp_path, cmd, leak):
+    # F3
+    f = Fixture(tmp_path)
+    f.transcript([asst("m1", [use("u1", "Bash", {"command": cmd})], f.t0)])
+    for args in ((), ("--table", "--width", "0"), ("--json",)):
+        out = f.run("--session", SID, "--max-leaves", "0", *args).stdout
+        assert leak not in out and "***" in out, (args, out[-400:])
+
+
+def test_hook_json_is_cut_by_lines_not_dropped(tmp_path):
+    # F4: a JSON document over the cap still shows its first lines
+    f = Fixture(tmp_path)
+    f.transcript([asst("m%d" % i, [use("u%d" % i, "Bash", {"command": "echo %d" % i})], f.t0) for i in range(300)])
+    for args in ("json", "table json"):
+        h = f.hook(args)
+        ls = h.stderr.splitlines()
+        assert h.returncode == 2 and len(ls) > 50 and any('"' in l for l in ls[:5]) and ls[-1].startswith("… cut at ")
+
+
+def test_abbreviated_help_goes_to_the_reason(tmp_path):
+    # F5: argparse accepts --hel and -hx and would print help to stdout
+    f = Fixture(tmp_path)
+    for args in ("--hel", "--h", "-h"):
+        h = f.hook(args)
+        assert h.returncode == 2 and h.stdout == "" and "show this help" in h.stderr, args
+    x = f.hook("-hx")                                  # Python 3.9: a usage error, still nothing on stdout
+    assert x.returncode == 2 and x.stdout == "" and "usage: /stack-tree" in x.stderr
+    c = f.run("--hel")
+    assert c.returncode == 0 and "show this help" in c.stdout and c.stderr == ""
+
+
+def test_markdown_cells_escape_character_references(tmp_path):
+    # F6: a renderer would turn &#x202E; into a real bidi override
+    f = Fixture(tmp_path)
+    f.spawn("t1", "main", "coder", "&#x202E;exe.doc &amp;", child="A1")
+    f.agent("A1", "coder")
+    f.transcript([])
+    out = f.run("--session", SID, "--table", "--columns", "task").stdout
+    assert "\\&#x202E;exe.doc \\&amp;" in out
+
+
+def test_cut_line_names_the_shown_session(tmp_path):
+    # F7: the terminal command must show the event's session, not the newest one
+    f = Fixture(tmp_path)
+    f.transcript([asst("m%d" % i, [use("u%d" % i, "Bash", {"command": "echo %d" % i})], f.t0) for i in range(300)])
+    other = Fixture(tmp_path, sid="99999999-0000-0000-0000-000000000000")
+    other.spawn("z1", "main", "writer", "newer", child="Z1")
+    os.utime(other.state / "spawns", (time.time() + 100, time.time() + 100))
+    h = f.hook("table")
+    assert "--session %s" % SID in h.stderr.splitlines()[-1]
+
+
+def test_adversarial_strings_stay_fast(tmp_path):
+    # backtracking-heavy commands and a final message of blank lines: linear patterns, cut before redaction
+    f = Fixture(tmp_path)
+    nasty = ["x-key-" * 3000, "key" + " " * 9000 + ":", "a-" * 5000, "--token-" * 2000, "KEY=" * 3000]
+    f.transcript([asst("m%d" % i, [use("u%d" % i, "Bash", {"command": nasty[i % 5] + str(i)})], f.t0)
+                  for i in range(400)] + [say("z", "\n" * 50000 + " \t" * 20000, f.t0 + 1)])
+    for args in ((), ("--table",), ("--json",)):
+        t = time.time()
+        p = f.run("--session", SID, "--max-leaves", "0", *args, timeout=120)
+        assert p.returncode == 0 and time.time() - t < 20, (args, time.time() - t)
+    t = time.time()
+    assert f.hook("table").returncode == 2 and time.time() - t < 20
+
+
+def test_past_the_deadline_text_is_withheld_and_transcripts_unscanned(tmp_path):
+    code = ("import importlib.machinery as M, importlib.util as U, sys; l = M.SourceFileLoader('t', sys.argv[1]); "
+            "m = U.module_from_spec(U.spec_from_loader('t', l)); l.exec_module(m); m.DEADLINE = 1.0; "
+            "print(m.text('API_KEY=abc'), m.scan_transcript(sys.argv[1], False, m.Budget())['state'])")
+    p = subprocess.run([PY, "-B", "-c", code, str(TREE)], capture_output=True, text=True, timeout=30)
+    assert p.stdout.strip() == "(withheld: time budget) unscanned", p.stderr
