@@ -305,7 +305,7 @@ checks = {
     "caps and budgets": (env.get("STACK_MAX_FANOUT"), env.get("STACK_MAX_FANOUT_BY_TYPE"), env.get("STACK_MAX_SELF_FANOUT"),
                          env.get("STACK_PROMPT_CTX_BUDGET"), env.get("STACK_SESSION_CTX_BUDGET"),
                          env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"), env.get("STACK_MAX_MCP_CALLS"))
-                        == ("3", "orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", "100000000", "666000000", "33", "64"),
+                        == ("3", "orchestrator=32,god-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", None, None, "33", "64"),
     "skill listing budget": s.get("skillListingBudgetFraction") == frac and 0.01 <= frac <= 0.02
                             and s.get("skillListingMaxDescChars") == 500
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only"
@@ -401,6 +401,8 @@ fi
 
 echo "== 2. Second run: agents reported unchanged, no changes, no backup"
 nb_before=$(count_backups "$T1")
+LIVE="$XDG_STATE_HOME/claude-agent-stack/limits/live.json"
+live_before=$( [ -f "$LIVE" ] && sha "$LIVE" | cut -d' ' -f1 )
 if CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T1/.install2.log" 2>&1; then
   if grep -qE '^  (agents/|rules/).* unchanged$' "$T1/.install2.log" \
      && ! grep -qE '^  (agents/|rules/).* (installed|overwritten)' "$T1/.install2.log"; then
@@ -412,6 +414,9 @@ else
   failed "second install.sh run exited non-zero"
 fi
 nb_after=$(count_backups "$T1")
+[ -n "$live_before" ] && [ "$(sha "$LIVE" | cut -d' ' -f1)" = "$live_before" ] \
+  && pass "learned limits: live.json seeded by the first run, byte-identical after the second" \
+  || failed "learned limits: live.json missing after the first run or rewritten by the second"
 [ "$nb_before" = "$nb_after" ] && grep -q "no changes: the config dir already matches this stack version" "$T1/.install2.log" \
   && grep -qF "nothing changed in $T1 (no backup needed)" "$T1/.install2.log" \
   && pass "a run that changes nothing says so and makes no backup" || failed "no-op run: backups $nb_before -> $nb_after, or no 'no changes' line"
@@ -1318,7 +1323,7 @@ for k in ("skillListingMaxDescChars", "skillOverrides"):
 s["skillListingBudgetFraction"] = 0.025
 s["autoCompactWindow"] = 800000
 for k in ("STACK_MAX_FANOUT_BY_TYPE", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET"):
-    s["env"].pop(k)
+    s["env"].pop(k, None)           # the two budgets are learned limits now: not shipped either way
 s["env"].update({"STACK_MAX_FANOUT": "8", "STACK_MAX_SELF_FANOUT": "4", "BLACKCAT_MAX_DISPATCH": "3",
                  "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "32"})
 json.dump(s, open(p, "w"), indent=2)

@@ -817,10 +817,12 @@ stage_script 755 hooks/agent_guard.py
 stage_script 755 hooks/web_caps.py
 # the token gate on reads of build output, dependencies, data, media and binaries (PreToolUse Read|Grep|Glob|Bash)
 stage_script 755 hooks/read_gate.py
-# the usage collector (SessionStart/SubagentStart/SessionEnd hooks), the scheduler advisor, its shipped
-# cost model and the refit (stack_sched_refresh.py imports fit() from the two tests/ scripts beside it)
-for f in stack_usage.py stack_sched.py; do stage_script 755 "hooks/$f"; done
-for f in stack_sched_refresh.py sched_model.json; do stage_script 644 "hooks/$f"; done
+# the usage collector (SubagentStart/SessionEnd hooks; agent_guard.py starts it at SessionStart), the
+# scheduler advisor, its shipped cost model and the refit (stack_sched_refresh.py imports fit() from the
+# two tests/ scripts beside it), and the learned limits (stack_limits.py: per-session snapshots the
+# guard reads; its seed: the floors, ceilings and starting values)
+for f in stack_usage.py stack_sched.py stack_limits.py; do stage_script 755 "hooks/$f"; done
+for f in stack_sched_refresh.py sched_model.json stack_limits_seed.json; do stage_script 644 "hooks/$f"; done
 for f in derive_sched_model.py derive_thresholds.py; do
   rm -rf "$S/hooks/$f" && cp "$HERE/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
 done
@@ -1691,6 +1693,7 @@ for rel in skills_kept:
 # manifest, so a later version that stops shipping one removes it. Files of your own there stay. ---
 STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
+                 "hooks/stack_limits.py", "hooks/stack_limits_seed.json",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
                  "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py",
                  "mcp/image_studio_mcp.py",
@@ -1828,7 +1831,11 @@ RETIRED_PERMISSIONS = {"allow": {"mcp__magg"}, "deny": {"Read(**/.env.*)"}}
 # env values earlier stack versions shipped before the manifest recorded them, and no longer ship:
 # removed while they still hold that value. ENABLE_TOOL_SEARCH=true: tool search is on by default on
 # the Anthropic API, and "true" forces it through gateways (ANTHROPIC_BASE_URL) that reject it.
-RETIRED_ENV = {"ENABLE_TOOL_SEARCH": {"true"}}
+# STACK_PROMPT_CTX_BUDGET / STACK_SESSION_CTX_BUDGET: the per-prompt and per-session caps are learned
+# limits now (hard.prompt / hard.session in stack_limits.py, seeded at these values); a shipped env
+# value would mask the learned one. A value you set yourself stays, as an override (doctor.sh says so).
+RETIRED_ENV = {"ENABLE_TOOL_SEARCH": {"true"}, "STACK_PROMPT_CTX_BUDGET": {"100000000"},
+               "STACK_SESSION_CTX_BUDGET": {"666000000"}}
 # Both apply once, to an install whose manifest predates "settings_permissions"/"settings_env";
 # later retractions come from the manifest itself. A value you add back afterwards stays.
 # sandbox list entries go the same way through "settings_sandbox"; a manifest of an earlier install
@@ -1856,14 +1863,13 @@ SET_IF_ABSENT = {"statusLine", "agent", "skillListingBudgetFraction", "skillList
                  "skillOverrides"}
 # env keys the stack re-asserts on every run; every other shipped env key is a default the user
 # may tune (README "knobs"): it follows stack upgrades only while the user has not changed it.
-# The spawn and token-budget knobs are owned too: they are the stack's guarantees (BlackCat's step
-# cap, fan-out and copy caps, the per-prompt and per-session context budgets, the per-agent MCP
-# call cap), not preferences.
+# The spawn knobs are owned too: they are the stack's guarantees (BlackCat's step cap, fan-out and
+# copy caps, the per-agent MCP call cap), not preferences. The token budgets are learned limits
+# (stack_limits.py), fixed per session by its snapshot, not env knobs the stack ships.
 OWNED_ENV = {"STACK_ENV_FILE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
              "MCP_DISCOVERY_CACHE", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
              "BLACKCAT_MAX_STEPS", "BLACKCAT_MAX_DISPATCH", "STACK_MAX_FANOUT",
-             "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_SELF_FANOUT", "STACK_PROMPT_CTX_BUDGET",
-             "STACK_SESSION_CTX_BUDGET", "STACK_MAX_MCP_CALLS"}
+             "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_SELF_FANOUT", "STACK_MAX_MCP_CALLS"}
 # values shipped by stack versions whose manifest predates "settings_env"
 OLD_DEFAULTS = {"ROUTER_MAX_DISPATCH": {"1"}, "ANTHROPIC_DEFAULT_HAIKU_MODEL": {"claude-sonnet-5"}}
 # The main-thread agent "router" is now "blackcat": its "agent" value and its knobs follow the
@@ -2213,6 +2219,13 @@ else
   B="$(cat "$WORK/backup-dir")"
   [ -n "$legacy_b" ] && python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" move >/dev/null
   mkdir -p "$C"/{agents,skills,hooks,mcp/vendor,magg/kit.d,bin,venvs}
+  # the learned limits' live.json: created from the seed only when absent (an older schema is copied
+  # to live.v<N>.json and migrated); learned values are never rewritten. Sessions snapshot it.
+  if ! seed_out="$("$STACK_PYTHON" "$C/hooks/stack_limits.py" seed 2>&1)"; then
+    note "! stack_limits.py seed failed (sessions use the seed values): $seed_out"
+  elif [ -n "$seed_out" ]; then
+    note "$seed_out"
+  fi
   if [ -n "$B" ]; then
     note "backup: $B"
     note "restore: $HERE/install.sh --restore $B"

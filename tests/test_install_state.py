@@ -351,3 +351,106 @@ def test_every_shipped_hook_script_matches_stack_hook_re():
     assert cmds
     missed = sorted({c for c in cmds if not stack_re.search(c)})
     assert not missed, "hook commands STACK_HOOK_RE misses: %s" % missed
+
+
+# ---------------------------------------------------------------- S6 W4: learned limits in install.sh
+def _scratch_repo(dst, settings_env=None):
+    """The working tree (tracked and untracked files) as a scratch repository on main, as
+    tests/install_smoke.sh builds it (install.sh runs only from main). settings_env: env entries
+    put back into its dot-claude/settings.json (an older stack version)."""
+    import shutil
+    import subprocess
+    out = subprocess.run(["git", "-C", ROOT, "ls-files", "-z", "--cached", "--others",
+                          "--exclude-standard"], stdout=subprocess.PIPE, check=True).stdout.decode()
+    for rel in filter(None, out.split("\0")):
+        s = os.path.join(ROOT, rel)
+        if not os.path.lexists(s):
+            continue
+        d = os.path.join(dst, rel)
+        os.makedirs(os.path.dirname(d), exist_ok=True)
+        shutil.copy2(s, d, follow_symlinks=False)
+    if settings_env:
+        p = os.path.join(dst, "dot-claude", "settings.json")
+        with open(p, encoding="utf-8") as f:
+            s = json.load(f)
+        s["env"].update(settings_env)
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump(s, f, indent=2)
+    git = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c",
+           "init.defaultBranch=main", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
+           "-C", dst]
+    for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "snapshot"]):
+        subprocess.run(git + args, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
+    return dst
+
+
+def _read(path):
+    with open(path, "rb") as f:
+        return f.read()
+
+
+def _install(repo, home, conf, *extra):
+    import subprocess
+    os.makedirs(os.path.join(home, "tmp"), exist_ok=True)
+    # macOS mktemp without a template ignores TMPDIR (it asks for the per-user temp dir, which a
+    # sandboxed test run may not write): give the scratch install one that uses TMPDIR
+    shim = os.path.join(home, "shim")
+    os.makedirs(shim, exist_ok=True)
+    with open(os.path.join(shim, "mktemp"), "w") as f:
+        f.write('#!/bin/sh\ncase "$*" in *XXX*) exec /usr/bin/mktemp "$@" ;; esac\n'
+                'exec /usr/bin/mktemp "$@" "${TMPDIR:-/tmp}/tmp.XXXXXXXXXX"\n')
+    os.chmod(os.path.join(shim, "mktemp"), 0o755)
+    env = {k: v for k, v in os.environ.items()
+           if not k.startswith(("STACK_", "CLAUDE_", "XDG_")) and k not in (
+               "EXA_API_KEY", "JINA_API_KEY", "HF_TOKEN", "WANDB_API_KEY", "GITHUB_TOKEN", "GH_TOKEN")}
+    env.update(HOME=home, CLAUDE_CONFIG_DIR=conf, XDG_STATE_HOME=os.path.join(home, ".local", "state"),
+               TMPDIR=os.path.join(home, "tmp"), STACK_ALLOW_NON_MACOS="1", FAKE_CLAUDE_JSON=os.path.join(home, ".claude.json"),
+               STACK_CLAUDE_JSON=os.path.join(home, ".claude.json"),
+               PATH=os.pathsep.join((os.path.join(repo, "tests", "fake-claude"), shim, env.get("PATH", ""))))
+    p = subprocess.run([os.path.join(repo, "install.sh"), "--no-mcp", "--no-plugins", "--no-deps",
+                        "--no-profile", *extra], env=env, stdin=subprocess.DEVNULL,
+                       capture_output=True, text=True, timeout=900, check=False)
+    assert p.returncode == 0, (p.stdout[-3000:], p.stderr[-3000:])
+    return p.stdout + p.stderr
+
+
+@pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, ".git")) and not os.path.isfile(
+    os.path.join(ROOT, ".git")), reason="needs the stack's git checkout")
+def test_install_seeds_live_json_once_and_retracts_the_budget_env(tmp_path):
+    """install.sh stages stack_limits.py and its seed, creates live.json from the seed once (a
+    second install leaves it byte-identical), and retracts STACK_PROMPT_CTX_BUDGET /
+    STACK_SESSION_CTX_BUDGET while they hold an earlier version's shipped value; a value the user
+    set stays (an override, origin env)."""
+    home = str(tmp_path / "home")
+    os.makedirs(home)
+    conf = os.path.join(home, ".claude")
+    old = _scratch_repo(str(tmp_path / "old"), {"STACK_PROMPT_CTX_BUDGET": "100000000",
+                                                "STACK_SESSION_CTX_BUDGET": "666000000"})
+    new = _scratch_repo(str(tmp_path / "new"))
+    log = _install(old, home, conf)
+    live = os.path.join(home, ".local", "state", "claude-agent-stack", "limits", "live.json")
+    assert os.path.isfile(live), log[-2000:]
+    first = _read(live)
+    doc = json.loads(first)
+    assert doc["vars"]["hard.prompt"]["value"] == 100000000 and doc["version"] == 1
+    for f in ("stack_limits.py", "stack_limits_seed.json"):
+        assert os.path.isfile(os.path.join(conf, "hooks", f)), f
+    assert os.stat(os.path.join(conf, "hooks", "stack_limits.py")).st_mode & 0o111
+    sp = os.path.join(conf, "settings.json")
+    s = json.loads(_read(sp))
+    assert s["env"]["STACK_PROMPT_CTX_BUDGET"] == "100000000"
+    s["env"]["STACK_SESSION_CTX_BUDGET"] = "777000000"            # the user's own value
+    with open(sp, "w") as f:
+        json.dump(s, f, indent=2)
+    log = _install(new, home, conf, "--yes")
+    assert _read(live) == first                                  # never rewritten
+    e = json.loads(_read(sp))["env"]
+    assert "STACK_PROMPT_CTX_BUDGET" not in e, log[-2000:]
+    assert e["STACK_SESSION_CTX_BUDGET"] == "777000000"
+    assert "retracted stack env STACK_PROMPT_CTX_BUDGET=100000000" in log
+    hooks = json.loads(_read(sp))["hooks"]
+    assert not any("stack_usage.py\" start" in h.get("command", "") for g in hooks["SessionStart"]
+                   for h in g["hooks"])
+    _install(new, home, conf)                                    # a plain re-run
+    assert _read(live) == first
+    assert json.loads(_read(sp))["env"]["STACK_SESSION_CTX_BUDGET"] == "777000000"

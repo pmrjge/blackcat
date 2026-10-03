@@ -2252,8 +2252,8 @@ def test_soft_limits_leave_the_hard_caps_alone(env, sess):
     assert decision(p) == "deny" and reason(p).startswith("Prompt token budget reached")
     assert "Soft token limit" not in p.stdout
     shipped = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["env"]
-    assert shipped["STACK_PROMPT_CTX_BUDGET"] == "100000000"
-    assert shipped["STACK_SESSION_CTX_BUDGET"] == "666000000"
+    # the hard budgets are learned limits (stack_limits.py seed: 100M / 666M), not shipped env knobs
+    assert "STACK_PROMPT_CTX_BUDGET" not in shipped and "STACK_SESSION_CTX_BUDGET" not in shipped
     assert "STACK_SOFT_LIMIT_SCALE" not in shipped     # a process env value must reach the hooks
     # the main hook's own tools: the warning joins the handler's output
     s2 = sid()

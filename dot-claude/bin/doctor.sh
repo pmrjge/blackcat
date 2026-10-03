@@ -376,6 +376,46 @@ if [ -f "$C/hooks/stack_usage.py" ]; then
 else
   warn "hooks/stack_usage.py missing (usage collector, scheduler model refresh) — rerun install.sh"
 fi
+# the learned limits (stack_limits.py; each session snapshots them at its start), the env overrides
+# that pin one (origin env: it stops learning) and the scheduler policy recorded in the snapshots
+if [ -f "$C/hooks/stack_limits.py" ]; then
+  if out=$(python3 "$C/hooks/stack_limits.py" status 2>&1); then ok "$out"; else warn "stack_limits.py status failed: $out"; fi
+  python3 - "$C/hooks" "$C/settings.json" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
+import json, os, sys
+sys.path.insert(0, sys.argv[1])
+try:
+    import stack_limits as L
+    seed = L.load_seed()
+except Exception as exc:  # noqa: BLE001 - one line, never a crash
+    print(f"learned limits: stack_limits.py or its seed unusable ({type(exc).__name__}: {exc})")
+    sys.exit(0)
+try:
+    env = json.load(open(sys.argv[2])).get("env") or {}
+except (OSError, ValueError, AttributeError):
+    env = {}
+env = {k: str(v) for k, v in env.items()} if isinstance(env, dict) else {}
+seen = []
+for var in sorted(seed["vars"]):
+    name = L.env_var(var)
+    for where, src in (("settings.json env", env), ("this shell", os.environ)):
+        if (src.get(name) or "").strip():
+            seen.append(f"{name}={src[name].strip()[:20]} ({where}) pins {var}")
+            break
+if seen:
+    print("learned limits: env overrides pin %d limit(s) at origin env, so they never learn: %s — remove "
+          "them to let stack_limits.py learn (stack_limits.py show)" % (len(seen), "; ".join(seen[:6])
+                                                                         + (" …" if len(seen) > 6 else "")))
+else:
+    print("ok learned limits: no env override pins a limit")
+raw = (env.get("STACK_SCHED_POLICY") or os.environ.get("STACK_SCHED_POLICY") or "").strip().lower()
+policy = raw if raw in L.SCHED_POLICIES else L.SCHED_POLICY_DEFAULT
+note = "" if not raw or raw in L.SCHED_POLICIES else f" ({raw[:20]!r} is not one of {', '.join(L.SCHED_POLICIES)})"
+print(f"ok scheduler policy: {policy}{note} (STACK_SCHED_POLICY; report = advice only, fresh_fixer = "
+      "a fresh fixer after a long resume gap)")
+PY
+else
+  warn "hooks/stack_limits.py missing (learned limits: the guard uses its built-in values) — rerun install.sh"
+fi
 # Run the hook commands exactly as Claude Code will (from settings.json and blackcat.md), on events that
 # must be denied. A hook that cannot start is a non-blocking error in Claude Code: every gate open.
 if [ -f "$C/settings.json" ] && [ -f "$C/hooks/agent_guard.py" ]; then
