@@ -37,7 +37,7 @@ Code 2.1.284. Turn counts were measured from this machine's transcripts.
   - `install.sh` copies the non-empty ones into the `env` block of `~/.claude/settings.json`. Re-run it after a change.
   - Upgrading appends the missing variables to your `stack.env`, set to the stack's IDs. A key already in the file, even commented out, is left as you wrote it.
   - A value you set in `settings.json` yourself is kept, and the installer reports it.
-  - Lint fails on a specific ID (`claude-<family>-<version>`) anywhere else. The exceptions are the installer's `OLD_DEFAULTS` migration list, doctor's `MEASURED_MODELS` record, the lint's own test vectors (`tests/test_lint_skills.py`) and `legacy/` (byte-exact templates of a released version).
+  - Lint fails on a specific ID (`claude-<family>-<version>`) anywhere else. The exceptions are the installer's `OLD_DEFAULTS` migration list, doctor's `MEASURED_MODELS` record, the lint's own test vectors (`tests/test_lint_skills.py`) and `legacy/` (byte-exact templates of a released version that the installer recognises on upgrade; none kept today).
 - **Frontmatter can't name a variable.** The subagent docs list only aliases, full IDs and `inherit` for `model:`, and say nothing about expanding `$VAR`. So agents name the alias, and Claude Code resolves it.
 - **Where it resolves** (code.claude.com/docs/en/model-config and sub-agents, checked 2026-10-02):
   - The variables set what `opus`, `sonnet` and `haiku` resolve to. The `haiku` one also sets Claude Code's background work.
@@ -432,6 +432,10 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-03 (legacy/be5b940 removed)
+
+- The repo no longer ships `legacy/be5b940/` (old `CLAUDE.md`, `agents/senior-coder.md`, seven skills); it stays in git history: `git log --diff-filter=D --oneline -- legacy/be5b940` names the removal commit, `git show <that commit>^:legacy/be5b940/CLAUDE.md` prints a file. install.sh keeps its generic `legacy/<version>/<rel>` recognition (`legacy_renders`, `template_copy`), which finds nothing while `legacy/` is absent, and the model-ID lint keeps its `legacy/` exception. Upgrade effect, only for an install whose files the manifest does not track (pre-manifest): an unedited untracked `CLAUDE.md` of that release (and a leftover `CLAUDE.md.new`) is now kept instead of moved to the backup, without the "kept" advice (its line similarity to today's rules, 0.385, is under `similar()`'s 0.4), and an untracked old skill file under `--no-prune` is kept with a `.new` render instead of refreshed (with pruning it is replaced and listed). Tracked files, and `senior-coder.md` (removed by name as renamed), behave as before. `tests/install_smoke.sh` takes its old-release files from `tests/fixtures/legacy-release/` and puts them under the scratch repo's `legacy/` only for the CLAUDE.md migration cases; a new case checks an unrecognised old `CLAUDE.md` is kept. Nothing to rerun.
 
 ### 2026-10-03 (god-coder renamed to supreme-coder)
 

@@ -990,9 +990,14 @@ B6="$(latest_backup "$T6")"
   && grep -q 'My own analysis steps' "$B6/files/skills/data-analysis/SKILL.md" \
   && grep -qx "  ~ skills/data-analysis/SKILL.md  (a same-named file that isn't the stack's)" "$T6/.log" \
   && pass "same-named personal skill replaced by the stack's, listed, and kept in the backup" || failed "personal skill not replaced/listed/backed up"
-# the stack's own (unedited) CLAUDE.md from an earlier version goes (the backup keeps it)
+# the stack's own (unedited) CLAUDE.md from an earlier version goes (the backup keeps it). The repo
+# keeps no legacy/<version>/ today; install.sh still recognises one, so these cases put a small
+# fixture release there (tests/fixtures/legacy-release, lines copied from an old release) and remove
+# it again before T7b: every other install here runs, as a real one does, without legacy/.
+LEGACY_FIX="$HERE/tests/fixtures/legacy-release"
+mkdir -p "$HERE/legacy" && cp -R "$LEGACY_FIX" "$HERE/legacy/fixture"
 T7="$(cd "$(mktemp -d)" && pwd -P)"
-sed "s#__CLAUDE_DIR__#$T7#g; s#__HOME__#$HOME#g" "$HERE/legacy/be5b940/CLAUDE.md" > "$T7/CLAUDE.md"
+sed "s#__CLAUDE_DIR__#$T7#g; s#__HOME__#$HOME#g" "$LEGACY_FIX/CLAUDE.md" > "$T7/CLAUDE.md"
 cp "$T7/CLAUDE.md" "$T7/CLAUDE.md.new"
 CLAUDE_CONFIG_DIR="$T7" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T7/.log" 2>&1
 B7="$(latest_backup "$T7")"
@@ -1001,17 +1006,26 @@ B7="$(latest_backup "$T7")"
   && grep -q '^  - CLAUDE.md  (the stack.s old rules file' "$T7/.log" \
   && pass "the stack's old CLAUDE.md (and its leftover .new) removed into the backup, rules installed" || failed "legacy stack CLAUDE.md not removed"
 T9="$(cd "$(mktemp -d)" && pwd -P)"
-{ sed "s#__CLAUDE_DIR__#$T9#g" "$HERE/legacy/be5b940/CLAUDE.md"; printf '\n## Mine\n- my NAS is 192.168.1.20\n'; } > "$T9/CLAUDE.md"
+{ sed "s#__CLAUDE_DIR__#$T9#g" "$LEGACY_FIX/CLAUDE.md"; printf '\n## Mine\n- my NAS is 192.168.1.20\n'; } > "$T9/CLAUDE.md"
 CLAUDE_CONFIG_DIR="$T9" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T9/.log" 2>&1
 grep -q 192.168.1.20 "$T9/CLAUDE.md" && grep -q 'CLAUDE.md .*kept (it has lines of your own)' "$T9/.log" \
   && pass "an untracked CLAUDE.md with lines of your own is kept (with advice)" || failed "CLAUDE.md with the user's own lines was retired"
-cp "$B7/files/CLAUDE.md" "$T7/CLAUDE.md"     # the user deliberately puts it back
+# the user deliberately puts it back; legacy/ is still there, so only the migrated flag keeps it
+cp "$B7/files/CLAUDE.md" "$T7/CLAUDE.md"
 CLAUDE_CONFIG_DIR="$T7" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T7/.log2" 2>&1
 [ -f "$T7/CLAUDE.md" ] && pass "CLAUDE.md migration runs once: a restored CLAUDE.md is left alone" || failed "a restored CLAUDE.md was moved again"
+rm -rf -- "$HERE/legacy"
+# without a legacy/ template nothing recognises that old copy: it stays (the safe side)
+T7B="$(cd "$(mktemp -d)" && pwd -P)"
+cp "$LEGACY_FIX/CLAUDE.md" "$T7B/CLAUDE.md"
+CLAUDE_CONFIG_DIR="$T7B" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T7B/.log" 2>&1
+cmp -s "$LEGACY_FIX/CLAUDE.md" "$T7B/CLAUDE.md" && [ -f "$T7B/rules/claude-agent-stack.md" ] \
+  && ! grep -q '^  - CLAUDE.md ' "$T7B/.log" \
+  && pass "no legacy/ in the repo: an unrecognised old CLAUDE.md is kept, rules installed" || failed "CLAUDE.md removed without a legacy/ template"
 assert_unchanged_real_home
 # a tracked CLAUDE.md the user trimmed (two stack rules deleted) is theirs: kept, not retired
 T10="$(cd "$(mktemp -d)" && pwd -P)"
-sed "s#__CLAUDE_DIR__#$T10#g" "$HERE/legacy/be5b940/CLAUDE.md" > "$T10/full.md"
+sed "s#__CLAUDE_DIR__#$T10#g" "$LEGACY_FIX/CLAUDE.md" > "$T10/full.md"
 python3 - "$T10" <<'PY'
 import hashlib, json, os, sys
 t = sys.argv[1]
@@ -1031,16 +1045,16 @@ CLAUDE_CONFIG_DIR="$T11" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile
 python3 - "$T11" "$HERE" <<'PY'
 import os, re, sys
 t, here = sys.argv[1:3]
-# render the legacy template the way the installer does: take the substitutions from a rendered agent
+# render the old release's file the way the installer does: take the substitutions from a rendered agent
 coder = open(os.path.join(t, "agents", "coder.md")).read()
 uv = re.search(r'command: "([^"]*/uv)"', coder).group(1)
-old = open(os.path.join(here, "legacy", "be5b940", "agents", "senior-coder.md")).read()
+old = open(os.path.join(here, "tests", "fixtures", "legacy-release", "agents", "senior-coder.md")).read()
 open(os.path.join(t, "agents", "senior-coder.md"), "w").write(old.replace("__UV__", uv).replace("__CLAUDE_DIR__", t))
 PY
 cp "$T11/agents/senior-coder.md" "$T11/agents/senior-coder.md.new"
 T13="$(cd "$(mktemp -d)" && pwd -P)"; mkdir -p "$T13/agents"
 sed 's#__UV__#/opt/somewhere-else/bin/uv#g; s#__CLAUDE_DIR__#/Users/someone/.claude#g' \
-  "$HERE/legacy/be5b940/agents/senior-coder.md" > "$T13/agents/senior-coder.md"
+  "$LEGACY_FIX/agents/senior-coder.md" > "$T13/agents/senior-coder.md"
 CLAUDE_CONFIG_DIR="$T13" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T13/.log" 2>&1
 [ ! -e "$T13/agents/senior-coder.md" ] && [ -f "$(latest_backup "$T13")/files/agents/senior-coder.md" ] \
   && grep -qx '  - agents/senior-coder.md  (renamed: now agents/main-coder.md)' "$T13/.log" \
@@ -1508,7 +1522,7 @@ xrun(){ local c="$1" log="$2"; shift 2
 listing(){ awk '/^(removed: not part of the stack|replaced: )/{on=1; print; next} on && /^  [-~] /{print; next} {on=0}' "$1"; }
 make_dirty(){ # stale, renamed, modified and unknown files; duplicated hooks and rules; junk
   local T="$1"
-  cp "$HERE/legacy/be5b940/agents/senior-coder.md" "$T/agents/senior-coder.md"
+  cp "$LEGACY_FIX/agents/senior-coder.md" "$T/agents/senior-coder.md"
   printf -- '---\nname: my-own\ndescription: mine\n---\nhello\n' > "$T/agents/my-own.md"
   printf '\n<!-- local edit -->\n' >> "$T/agents/coder.md"
   cp "$T/agents/coder.md" "$T/agents/coder.md.new"

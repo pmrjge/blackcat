@@ -38,8 +38,8 @@ STACK_MODELS = {"opus", "sonnet"}
 # places below: stack.env.example (the single source), the installer's migration list of old IDs
 # (the OLD_DEFAULTS line), the record of the models the token limits were measured on (doctor.sh's
 # MEASURED_MODELS line), and legacy/ (byte-exact templates of released versions the installer
-# recognizes on upgrade). Untracked files and anything under .claude-work/ (agents' scratch, some of
-# it force-committed) are not scanned.
+# recognizes on upgrade; none kept today, install.sh still reads one). Untracked files and anything
+# under .claude-work/ (agents' scratch, some of it force-committed) are not scanned.
 # new style (claude-<family>-<n>...) and old style (claude-<n>[-<n>]-<family>-<date or latest>)
 MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(?:opus|sonnet|haiku))")
 # the second: this regex's test vectors; the effort table records which model IDs take which

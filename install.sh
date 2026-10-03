@@ -1151,7 +1151,9 @@ def is_legacy_safe_overwrite(installed_text, rendered_text):
 
 def legacy_renders(rel):
     """Renders of `rel` ("CLAUDE.md", "skills/<name>/SKILL.md") exactly as earlier stack versions
-    shipped them (the repo's legacy/<version>/<rel>)."""
+    shipped them (the repo's legacy/<version>/<rel>). The repo keeps no legacy/ today (the last
+    release's templates are in git history): then this is empty and template_copy finds nothing,
+    so an untracked file is recognised as the stack's only when it is a copy of the current render."""
     out = []
     for p in sorted(glob.glob(os.path.join(REPO, "legacy", "*", rel))):
         try:
