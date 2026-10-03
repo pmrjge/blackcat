@@ -231,6 +231,35 @@ def get_tools(data):
     return flat, agent_children
 
 
+EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+
+
+def permission_mode_problem(data):
+    """Why an agent file's `permissionMode` is not allowed, else None. The docs (sub-agents.md,
+    permission-modes.md, fetched 2026-10-03): with the parent in bypassPermissions, acceptEdits or
+    auto the parent's mode wins; with the parent in plan, default or dontAsk the agent file's value
+    wins (bypassPermissions excepted). So the file decides a subagent's mode in a Plan session (the
+    stack's default): builders (Write/Edit in tools) carry acceptEdits so their subagent runs never
+    stop at an edit prompt, read-only agents may carry plan (it only tightens), and nothing else."""
+    if "permissionMode" not in data:
+        return None
+    mode = (get_inline(data, "permissionMode") or "").strip("\"'")
+    flat, _ = get_tools(data)
+    can_edit = not flat or bool(EDIT_TOOLS & set(flat))      # no tools: line = every tool
+    if mode == "acceptEdits":
+        return None if can_edit else (
+            "permissionMode: acceptEdits on an agent without Write/Edit/NotebookEdit: a read-only agent "
+            "declares no acceptEdits (plan, or nothing, which inherits the parent's mode)")
+    if mode == "plan":
+        return None if not can_edit else (
+            "permissionMode: plan on an agent with Write/Edit: as a subagent it could never edit "
+            "(subagents in plan are read-only); builders carry acceptEdits")
+    return (f"permissionMode: {mode or '(not an inline value)'!r} is not allowed: only acceptEdits (agents "
+            "with Write/Edit) or plan (read-only agents). An agent file's mode wins over a parent in plan, "
+            "default or dontAsk (the docs; bypassPermissions excepted), so default, auto, dontAsk or "
+            "bypassPermissions here would change what that agent may do in a Plan session")
+
+
 def get_skills(data):
     v = data.get("skills")
     if v is None:
@@ -398,6 +427,10 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
     memory = get_inline(data, "memory")
     if memory is not None and memory not in VALID_MEMORY:
         fail(f"{path.name}: invalid memory {memory!r} (expected one of {sorted(VALID_MEMORY)})")
+
+    problem = permission_mode_problem(data)
+    if problem:
+        fail(f"{path.name}: {problem}")
 
     # tools / Agent / SendMessage / Task*
     flat_tools, agent_children = get_tools(data)
