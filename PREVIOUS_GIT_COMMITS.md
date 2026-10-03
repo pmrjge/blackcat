@@ -1,8 +1,37 @@
 # Previous git commits
 
-History of the project before it was published as a fresh repository; generated from the git log of the former repository at commit `3f62cc8` on 2026-10-03; 237 commits, all by Pedro Jorge. The project was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude models, under the author's direction; messages of commits made with it end with a Co-Authored-By line naming the model. Newest first, grouped by month. Each entry gives the date, the short hash (kept so references in the text stay meaningful), the subject, the full message and a files-changed summary. Private data (home paths, e-mail addresses, keys, session ids) was removed or replaced.
+History of the project before it was published as a fresh repository; generated from the git log of the former repository at commit `14ee3ad` on 2026-10-03; 239 commits, all by Pedro Jorge. The project was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude models, under the author's direction; messages of commits made with it end with a Co-Authored-By line naming the model. Newest first, grouped by month. Each entry gives the date, the short hash (kept so references in the text stay meaningful), the subject, the full message and a files-changed summary. Private data (home paths, e-mail addresses, keys, session ids) was removed or replaced.
 
 ## 2026-10
+
+### 2026-10-03 20:09 · `14ee3ad`
+
+**Allow the computer-use, lean and mobilebuild MCP servers without a prompt**
+
+> Under Plan and acceptEdits an MCP tool without an allow rule prompts where
+> bypassPermissions ran it, stalling subagents. The user's decision, "All except
+> DB and Chrome (Recommended)": permissions.allow gains mcp\_\_computer-use,
+> mcp\_\_lean and mcp\_\_mobilebuild (40 -&gt; 43). mongodb, postgres and
+> claude-in-chrome keep no rule, so they prompt and are denied headless. No
+> shipped ask or deny rule names the three; the installer's union merge adds them
+> on upgrade and keeps a user's own ask/deny rule, which wins over allow.
+>
+> tests/test_permission_modes.py pins the 19 whole-server allows, the absence of
+> any allow/deny rule for the three prompting servers, no shipped ask/deny on an
+> allowed server, and a decision for every MCP server an agent names.
+> install_smoke section 4 checks the upgrade path. README, CONFIG updated.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 5 files, +90/-1.* `CONFIG.md`, `README.md`, `dot-claude/settings.json`, `tests/install_smoke.sh`, `tests/test_permission_modes.py`.
+
+### 2026-10-03 19:40 · `3ebd4a6`
+
+**Regenerate PREVIOUS_GIT_COMMITS.md**
+
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 1 file, +178/-1.* `PREVIOUS_GIT_COMMITS.md`.
 
 ### 2026-10-03 19:32 · `3f62cc8`
 
@@ -3720,6 +3749,13 @@ History of the project before it was published as a fresh repository; generated 
 Section 9 of CONFIG.md at the same commit, copied as it stood (names and paths sanitised).
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-03 (MCP allow rules for computer-use, lean, mobilebuild)
+
+- Under Plan and acceptEdits, MCP tools without an allow rule prompted where `bypassPermissions` had run them, which stalled subagents and filled their context. The user's decision, "All except DB and Chrome (Recommended)": `dot-claude/settings.json` adds `mcp__computer-use`, `mcp__lean` and `mcp__mobilebuild` to `permissions.allow` (40 → 43; ask 21 and deny 97 unchanged). `mcp__mongodb`, `mcp__postgres` (database access) and `mcp__claude-in-chrome` (the user's logged-in browser) stay without a rule: they prompt, and are denied in headless runs. No shipped ask or deny rule names the three allowed servers. magg's `mongodb_*` and `postgres_*` stay allowed as before (read-only catalog flags, `tests/test_no_duplicates.py`).
+- Installer: unchanged. The permissions merge keeps the user's rules and appends the shipped ones, so an upgrade adds the three allows and keeps a user's own ask or deny rule, which wins over allow. Smoke §4 checks it with a removed `mcp__lean` and a user `ask` rule on `mcp__mobilebuild`.
+- Tests: `tests/test_permission_modes.py` pins the whole-server allow set (19 servers), asserts no allow or deny rule for mongodb, postgres or claude-in-chrome, no shipped ask or deny on an allowed server, and that every MCP server an agent's `tools:` names is decided.
+- Rerun `./install.sh` from the main checkout and restart Claude Code.
 
 ### 2026-10-03 (Plan as the default mode, acceptEdits on the 45 writers, step cap 24)
 
