@@ -203,6 +203,22 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 
 Every command takes `--json`. Verdicts are three-way: fits (the interval's upper end is within the limit), does not fit (its lower end is over it), uncertain (it straddles the limit, or there is no interval, n < 3). A learned value that is not `supported` always prints its interval. Exit 0 ok, 1 invalid input, 2 limits unavailable.
 
+### `stack-tree`: agents and their commands (2026-10-03)
+
+`bin/stack-tree` (installed as `<config>/bin/stack-tree`, stdlib Python 3.9+, `#!/usr/bin/python3 -B`) prints a session's tree of agents and subagents with the tool calls each ran as leaves; `/stack-tree` is the same from any session, BlackCat included: a UserPromptExpansion hook (matcher `stack-tree`, `"__PYTHON3__" -B "__CLAUDE_DIR__/bin/stack-tree" --hook`, timeout 30 s) runs it with the command's arguments and blocks the expansion with the output as the reason (exit 2), so no model turn runs and no Bash is needed; the skill body is only the fallback when the hook did not run. The hook defaults to the event's own session, 3 distinct commands per agent and 140 columns, and cuts its output at 16,000 characters with the terminal command for the rest (unverified whether Claude Code caps a block reason itself).
+
+| mode | shows |
+|---|---|
+| `stack-tree` | header (agents, running, failed/blocked/partial/stopped, tool calls), then BlackCat and every agent: type, task, status, duration, tokens, calls; its commands collapsed (`$ git status ×3 [1 exit 1]`), then its children. `--depth N`, `--no-leaves`, `--leaves-only-failed`, `--max-leaves N` (default 10, 0 = all), `--session ID` (default: the newest ledger), `--ascii`, `--width W` (default the terminal), `--json` |
+| `stack-tree --table` | GitHub-flavored markdown, one row per agent and per tool call; `--columns a,b,c` or `all`, `--csv`, `--json`, `--width` caps the cells (default 80). Leaf rows carry the agent's level and depth + 1 |
+| `stack-tree --static [--table]` | the designed hierarchy: breadth first from BlackCat's `Agent(...)` allowlist through each agent's "May spawn:" sentence (the one `tests/lint_agents.py` checks against POLICY), each agent expanded once at its shallowest level (later occurrences point there), nothing expanded at L4; leaves are BlackCat's user commands and the skills each agent's `## Skills` section names (`*` = a hub module read by path) |
+
+- **Sources** (all read, none written): `spawns/*.json` (the delegation records `delegations.md` is rendered from; the file itself only when `spawns/` is absent), `agents/*.json` (parent, spawned, started, resumed, stopped, transcript) and Claude Code's transcripts, `<projects>/<project>/<sid>.jsonl` and `<sid>/subagents/agent-<id>.jsonl`, for each agent's tool calls, their results, the token usage of each API message (input + cache writes + cache reads + output, counted once per message) and the final STATUS line (done, partial, blocked; a finished report without one is a clean finish). The hooks keep no per-call log of their own, and none was added: the transcripts already hold every call.
+- **Status:** the ledger's lifecycle (launching, running, finished, failed, stopped), with one difference: an agent resumed after its last stop is running. A finished agent shows its report status. Start is the earliest of started, spawned, the record's time and the transcript's first line (a foreground child's registry entry is written when its call returns; a resumed one's `started` is its resume).
+- **Unrecorded:** tokens per tool call, the arguments of MCP calls (only server.tool is shown), tool results (only ok, exit N, blocked or error), the leaves of an agent whose transcript is missing (spawn failed, or a placeholder for a caller whose own spawn is in neither source), and everything but type, task and state when only `delegations.md` exists.
+- **Untrusted text:** task, name, type, command, path, URL and query strings pass one filter: secret-looking values are masked first (`*KEY*=`/`*TOKEN*=`/`*SECRET*=`/`*PASS*=`… assignments, Authorization/Cookie/API-key headers, Bearer tokens, `--token`-style flags, URL credentials and key/token/signature query values, `sk-`, `ghp_`, `github_pat_`, `xox?-`, `AKIA`, `hf_`, `AIza`, `glpat-`, JWTs, PEM private-key headers), then C0/C1 controls, DEL, format (bidi, zero-width), separator, surrogate, private and unassigned code points become spaces, then the text is cut. WebFetch URLs lose their query and fragment. Markdown cells backslash-escape backslash, pipe, backtick, `<`, `>`, `[` and `]`; CSV cells that start with `= + - @` get a leading `'`. State files are opened `O_NONBLOCK` and read only when regular (a FIFO cannot hang it), at most 4 MB per record, 256 MB per transcript, 1 GB per run.
+- **Read-only:** no file, cache, lock or bytecode is written (`-B` and `sys.dont_write_bytecode`), no network; `tests/test_stack_tree.py` compares a snapshot of the whole fixture tree before and after every mode.
+
 ### On demand and automatic: MCP servers, plugins, skills (2026-10-02)
 
 | Kind | Automatic (the situation needs it) | On demand (asked for) | Idle cost, before → after |
@@ -414,6 +430,10 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-03 (/stack-tree)
+
+- New read-only `bin/stack-tree` and user command `/stack-tree` (§5, "`stack-tree`"): a session's agent tree with each agent's commands as leaves, `--table` for a markdown table of every agent and tool call, `--static` for the designed hierarchy from the agent files. settings.json gets a third UserPromptExpansion group (matcher `stack-tree`, `"__PYTHON3__" -B "__CLAUDE_DIR__/bin/stack-tree" --hook`, timeout 30 s); install.sh stages `bin/stack-tree`, tracks it in the manifest and its `STACK_HOOK_RE` recognises the hook (`/bin/stack-tree" --hook`), so a re-install replaces it instead of keeping a second copy; doctor.sh checks the skill and the hook are wired. Tests: `tests/test_stack_tree.py`, `tests/test_override_agent.py::test_skills_are_user_only_and_wired`. Rerun install.sh and restart Claude Code.
 
 ### 2026-10-03 (/stack-doctor runs from a hook)
 

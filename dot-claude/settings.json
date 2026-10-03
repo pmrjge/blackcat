@@ -481,6 +481,16 @@
             "timeout": 180
           }
         ]
+      },
+      {
+        "matcher": "stack-tree",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"__PYTHON3__\" -B \"__CLAUDE_DIR__/bin/stack-tree\" --hook",
+            "timeout": 30
+          }
+        ]
       }
     ],
     "PreToolUse": [

@@ -838,7 +838,7 @@ for f in stack_sched_refresh.py sched_model.json stack_limits_seed.json; do stag
 for f in derive_sched_model.py derive_thresholds.py; do
   rm -rf "$S/hooks/$f" && cp "$HERE/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
 done
-for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget; do stage_script 755 "bin/$f"; done
+for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget stack-tree; do stage_script 755 "bin/$f"; done
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
 stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry reads it (--config)
 # The stack's local LSP marketplace (step 10 registers it): replaced as a whole.
@@ -1708,6 +1708,7 @@ STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/agent_effort.json", "hooks/web_c
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
                  "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
+                 "bin/stack-tree",
                  "mcp/image_studio_mcp.py",
                  "mcp/libdocs_mcp.py", "mcp/neural_memory_mcp.py"]
 # files earlier stack versions installed before the manifest tracked scripts
@@ -1911,10 +1912,10 @@ for key in ("removed", "replaced"):
 for key in ("config_removed", "config_replaced", "notes"):
     report.setdefault(key, [])
 # hook commands of the stack, any version: its guard (whatever config dir or interpreter an earlier
-# install rendered), the usage collector, the web caps, the read gate, /stack-doctor's bin/doctor.sh --hook
-# and the retired router-guard.sh. Every hook script settings.json ships must match, or each re-run keeps
+# install rendered), the usage collector, the web caps, the read gate, /stack-doctor's bin/doctor.sh --hook,
+# /stack-tree's bin/stack-tree --hook and the retired router-guard.sh. Every hook script settings.json ships must match, or each re-run keeps
 # the installed copy as yours and appends the shipped one again (tests/test_install_state.py checks this)
-STACK_HOOK_RE = re.compile(r"agent_guard\.py|router-guard\.sh|stack_usage\.py|web_caps\.py|read_gate\.py|/bin/doctor\.sh[^ ]{0,2} --hook")
+STACK_HOOK_RE = re.compile(r"agent_guard\.py|router-guard\.sh|stack_usage\.py|web_caps\.py|read_gate\.py|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
 
 
 def canon(x):
@@ -2785,7 +2786,8 @@ cat <<EOF
   2. Start: claude        (main thread = BlackCat; the status line shows context vs the auto-compact
      window, 900K of the models' 1M). Claude Desktop's Code tab, Conductor, VS Code and Zed load the same
      setup (README → Apps). A plain session without BlackCat: claude --agent claude.
-     Inside: /stack-doctor   (health check)   /mcp   (server status; no sign-in needed with keys)
+     Inside: /stack-doctor   (health check)   /stack-tree   (agents and their commands)
+     /mcp   (server status; no sign-in needed with keys)
      Once, in that first session: /effort medium — BlackCat runs at the session's level (saved
      for Sonnet 5.5); an agent file's effort applies only to subagents.
      Hardest problems at ultracode, as a session of their own: claude-ninja, or claude-god

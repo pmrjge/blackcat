@@ -132,7 +132,7 @@ parser):
 
 - **Listed, not preloaded.** 128 skills (hubs, standalone skills, 15 modules) are listed with an
   explanatory description that starts with its trigger ("Load before …", "Use when …") and names no
-  agent; 83 hub modules are `user-invocable-only` (below); `stack-doctor` and `override-agent` are user commands. No
+  agent; 83 hub modules are `user-invocable-only` (below); `stack-doctor`, `stack-tree` and `override-agent` are user commands. No
   `skills:` frontmatter preloads anything; a body enters context only when it is loaded.
 - **Pointers.** Agent bodies carry a `## Skills` section of one-line "load X when Y" pointers
   (rust-engineer: "Load `rust-engineering` first; async `rust-async`, …"). Every module is reachable
@@ -318,6 +318,9 @@ The stack's user commands (the model can't run them: `disable-model-invocation`)
 | Command | Does |
 |---|---|
 | `/stack-doctor` | Read-only health check (`bin/doctor.sh`) |
+| `/stack-tree [options]` | Read-only: this session's tree of agents and subagents (type, task, status, duration, tokens) with the commands each ran as leaves, collapsed (`git status ×3 [1 exit 1]`), Bash commands cut and secrets masked (`bin/stack-tree --hook`). `--depth N`, `--no-leaves`, `--leaves-only-failed`, `--max-leaves N`, `--session ID`, `--ascii`, `--json`, `--width W` |
+| `/stack-tree table [--columns a,b\|all] [--csv\|--json]` | The same as a GitHub-flavored markdown table, one row per agent and per tool call: path, depth, level, parent, agent, kind (agent, bash, tool, mcp, skill), task, command, status, result (done/partial/blocked, ok/exit N/blocked/error), started, duration, tokens, calls, session; `all` adds id, tid, name, isolation, ended, output_tokens, transcript. A field nothing records reads `unrecorded` |
+| `/stack-tree static [table]` | The designed hierarchy from the agent files: BlackCat → L1 → … → L4, each agent expanded once at its shallowest level, its skills and BlackCat's commands as leaves; the table has agent, level, parent, model, effort, max_turns, may_spawn, tools, mcp, skills |
 | `/override-agent <agent> <model>` | This session only: every delegated `<agent>` runs on `<model>` (`sonnet`, `opus`, `haiku`, `fable`). The effort comes from the built-in table `hooks/agent_effort.json` (per agent and model, clamped to what the model accepts); it is shown but not applied (CONFIG.md §5, "Session model overrides") |
 | `/override-agent list` | Read-only: this session's overrides (agent, model, effort and its source) and every agent's default model/effort |
 | `/override-agent reset <agent\|all>` | Back to the agent definition's model and effort |
@@ -326,6 +329,7 @@ The stack's user commands (the model can't run them: `disable-model-invocation`)
 
 ```bash
 bash ~/.claude/bin/doctor.sh                                   # installed health check (= /stack-doctor)
+/usr/bin/python3 ~/.claude/bin/stack-tree --help              # agent tree of the newest session (= /stack-tree)
 /usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test   # the hook on the hooks' own interpreter
 uv run tests/lint_agents.py                                    # frontmatter, POLICY ↔ "May spawn", skills, listing budget, model IDs (skips .claude-work/)
 ~/.claude/venvs/tools/bin/python -m pytest -q tests/                # full suite (the tools venv from install.sh)

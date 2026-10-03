@@ -1,0 +1,1053 @@
+#!/usr/bin/python3 -B
+"""stack-tree - the tree of agents and subagents of a session, with the commands each ran as leaves.
+
+  stack-tree [--session SID] [--depth N] [--no-leaves | --leaves-only-failed] [--max-leaves N]
+             [--width W] [--ascii] [--json]                    live tree of a session (default: the newest)
+  stack-tree --table [--columns a,b,c|all] [--csv | --json] [...] one row per agent and per tool call
+  stack-tree --static [--table] [--json] [--depth N]           the designed hierarchy from agents/*.md
+  stack-tree --hook                                            /stack-tree (UserPromptExpansion, settings.json)
+
+Sources, all read-only: the guard's delegation records (<state>/<sid>/spawns/*.json, which delegations.md is
+rendered from; delegations.md itself when spawns/ is absent), its agent registry (<state>/<sid>/agents/*.json:
+parent, start, stop, transcript path) and Claude Code's transcripts (main: <projects>/<sid>.jsonl, subagents:
+<sid>/subagents/agent-<id>.jsonl) for each agent's tool calls, token usage, tool results and final STATUS line.
+The hooks keep no per-call log of their own; a field neither source holds prints as "unrecorded".
+
+Every string from those files is untrusted: control, C1, format and separator characters are replaced, Bash
+commands are truncated and secret-looking values (KEY=, tokens, Authorization headers, URL credentials, known key
+prefixes) masked; tool results are classified (ok, exit N, blocked, error), never printed. Nothing here writes a
+file, a cache or bytecode, or opens a network connection. Python 3.9+, stdlib only.
+Exit: 0 ok, 1 no such session or no state, 2 usage (and always 2 in --hook mode: the output is the block reason).
+"""
+import sys
+sys.dont_write_bytecode = True      # also when run as `python3 stack-tree` without -B: no cache for later imports
+import argparse  # noqa: E402
+import csv
+import datetime
+import io
+import json
+import os
+import re
+import shlex
+import stat
+import time
+import unicodedata
+from urllib.parse import urlsplit, urlunsplit
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+CONFIG = os.path.dirname(HERE)                      # <config> installed, dot-claude/ in the repo
+MAX_DEPTH = 4                                       # BlackCat -> L1 -> L2 -> L3 -> L4; L4 cannot spawn
+SID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
+ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
+MAX_JSON_BYTES = 4 << 20                            # one state record
+MAX_TRANSCRIPT_BYTES = 256 << 20                    # one transcript (the rest is reported as truncated)
+MAX_TOTAL_BYTES = 1 << 30                           # all transcripts of one run (then: unscanned)
+MAX_LINE_BYTES = 8 << 20
+RAW_CAP = 8000                                      # untrusted text is cut here before redaction
+HOOK_MAX_CHARS = 16000                              # /stack-tree output (the block reason) is cut here
+HOOK_WIDTH = 140
+UNREC = "unrecorded"
+NA = "—"
+
+
+# ---------------------------------------------------------------- untrusted text
+def clean(s, limit=None):
+    """One printable line: C0/C1 controls, DEL, format (bidi, zero-width), separator, surrogate, private and
+    unassigned code points become spaces, runs of space collapse; cut to `limit` with an ellipsis."""
+    if s is None:
+        return ""
+    s = str(s)[:RAW_CAP]
+    out = []
+    for c in s:
+        o = ord(c)
+        if o < 0x20 or 0x7F <= o < 0xA0 or (o > 0x7F and unicodedata.category(c) in
+                                               ("Cf", "Zl", "Zp", "Cs", "Co", "Cn")):
+            out.append(" ")
+        else:
+            out.append(c)
+    s = " ".join("".join(out).split())
+    if limit and len(s) > limit:
+        s = s[:max(limit - 1, 0)] + "…"
+    return s
+
+
+_SECRET_NAME = (r"[A-Za-z0-9_]*(?:KEY|TOKEN|SECRET|PASSW(?:OR)?D|PASS|PWD|AUTH|CREDENTIALS?|COOKIE|SESSION|"
+                r"PRIVATE|SIGNATURE)[A-Za-z0-9_]*")
+_REDACT = [
+    (re.compile(r"(?i)\b(%s)(\s*=\s*)(\"[^\"]*\"|'[^']*'|\S+)" % _SECRET_NAME), r"\1\2***"),
+    (re.compile(r"(?i)\b(authorization|proxy-authorization|x-api-key|api-key|apikey|x-auth-token|"
+                r"x-goog-api-key|cookie|set-cookie)(\s*:\s*)[^\"'\n]*"), r"\1\2***"),
+    (re.compile(r"(?i)\b(bearer|basic|token)(\s+)[A-Za-z0-9._~+/=-]{8,}"), r"\1\2***"),
+    (re.compile(r"(?i)((?:(?<=\s)|^)--?[a-z0-9-]*(?:token|passw(?:or)?d|secret|api-?key|auth|cookie|credential)[a-z0-9-]*)"
+                r"(=|\s+)(\"[^\"]*\"|'[^']*'|\S+)"), r"\1\2***"),
+    (re.compile(r"(?i)(\s-u\s*|--user[= ]\s*)([^\s:]+):(\S+)"), r"\1\2:***"),
+    (re.compile(r"(?i)\b([a-z][a-z0-9+.-]*://)[^/\s:@]+:[^/\s@]+@"), r"\1***@"),
+    (re.compile(r"(?i)([?&;][a-z0-9_.-]*(?:key|token|secret|sig|signature|passw(?:or)?d|auth|code)"
+                r"[a-z0-9_.-]*=)[^&\s\"'#]+"), r"\1***"),
+    (re.compile(r"\bsk-ant-[A-Za-z0-9_-]{8,}|\b(?:sk|pk|rk)-[A-Za-z0-9_-]{12,}|\bgh[pousr]_[A-Za-z0-9]{20,}|"
+                r"\bgithub_pat_[A-Za-z0-9_]{20,}|\bxox[abprs]-[A-Za-z0-9-]{10,}|\bA(?:KIA|SIA)[0-9A-Z]{16}\b|"
+                r"\bhf_[A-Za-z0-9]{20,}|\bAIza[0-9A-Za-z_-]{30,}|\bglpat-[A-Za-z0-9_-]{16,}|"
+                r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|"
+                r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "***"),
+]
+
+
+def redact(s):
+    s = "" if s is None else str(s)[:RAW_CAP]
+    for rx, rep in _REDACT:
+        s = rx.sub(rep, s)
+    return s
+
+
+def text(s, limit=None):
+    """Untrusted string -> redacted, cleaned, cut (redaction first, so a cut never exposes half a key)."""
+    return clean(redact(s), limit)
+
+
+def md_cell(s, limit):
+    """A GitHub-flavored-markdown table cell: cleaned and cut first, then \\ | ` < > [ ] escaped."""
+    s = clean(s, limit) or NA
+    return re.sub(r"([\\|`<>\[\]])", r"\\\1", s)
+
+
+def csv_cell(s):
+    s = clean(s)
+    return "'" + s if s[:1] in ("=", "+", "-", "@") else s
+
+
+# ---------------------------------------------------------------- safe reads
+def read_bytes(path, cap):
+    """A regular file's first `cap` bytes, or None (FIFOs, devices, missing files never block or raise)."""
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | getattr(os, "O_CLOEXEC", 0))
+    except (OSError, ValueError, TypeError):
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        chunks, n = [], 0
+        while n < cap:
+            b = os.read(fd, min(1 << 20, cap - n))
+            if not b:
+                break
+            chunks.append(b)
+            n += len(b)
+        return b"".join(chunks)
+    except OSError:
+        return None
+    finally:
+        os.close(fd)
+
+
+def read_json(path):
+    b = read_bytes(path, MAX_JSON_BYTES + 1)
+    if b is None or len(b) > MAX_JSON_BYTES:
+        return None
+    try:
+        v = json.loads(b.decode("utf-8", "replace"))
+    except (ValueError, RecursionError):
+        return None
+    return v if isinstance(v, dict) else None
+
+
+def listdir(path):
+    try:
+        return sorted(os.listdir(path))
+    except OSError:
+        return []
+
+
+def num(v):
+    return v if isinstance(v, (int, float)) and not isinstance(v, bool) and v == v and abs(v) < 1e12 else None
+
+
+def ident(v):
+    return v if isinstance(v, str) and ID_RE.match(v) else None
+
+
+# ---------------------------------------------------------------- formatting
+def clock(ts):
+    return time.strftime("%H:%M:%S", time.localtime(ts)) if num(ts) is not None else UNREC
+
+
+def dur(sec):
+    if num(sec) is None or sec < 0:
+        return UNREC
+    sec = int(sec)
+    if sec < 60:
+        return "%ds" % sec
+    if sec < 3600:
+        return "%dm%02ds" % (sec // 60, sec % 60)
+    return "%dh%02dm" % (sec // 3600, sec % 3600 // 60)
+
+
+def toks(n):
+    if num(n) is None:
+        return UNREC
+    if n >= 1e6:
+        return "%.1fM" % (n / 1e6)
+    if n >= 1e4:
+        return "%dk" % round(n / 1e3)
+    if n >= 1e3:
+        return "%.1fk" % (n / 1e3)
+    return str(int(n))
+
+
+def iso_ts(s):
+    if not isinstance(s, str) or len(s) > 40:
+        return None
+    try:
+        return datetime.datetime.fromisoformat(s.replace("Z", "+00:00")).timestamp()
+    except (ValueError, OverflowError, OSError):
+        return None
+
+
+def level(depth):
+    return "main" if depth == 0 else "L%d" % depth
+
+
+# ---------------------------------------------------------------- transcripts
+def leaf_of(name, inp):
+    """(kind, label) of one tool call; None for an Agent call (that child is a node of its own)."""
+    name = name if isinstance(name, str) else "?"
+    inp = inp if isinstance(inp, dict) else {}
+
+    def g(k):
+        return inp.get(k) if isinstance(inp.get(k), str) else ""
+    if name in ("Agent", "Task"):
+        return None
+    if name == "Bash":
+        return "bash", "$ " + g("command")
+    if name.startswith("mcp__"):
+        parts = name.split("__")
+        return "mcp", "%s.%s" % (parts[1] if len(parts) > 1 else "?", "__".join(parts[2:]) or "?")
+    if name == "Skill":
+        return "skill", g("skill") or "?"
+    if name in ("Read", "Write", "Edit", "MultiEdit", "NotebookEdit"):
+        return "tool", "%s %s" % (name, g("file_path") or g("notebook_path"))
+    if name in ("Grep", "Glob"):
+        return "tool", "%s %s%s" % (name, g("pattern"), (" in " + g("path")) if g("path") else "")
+    if name == "WebFetch":
+        try:
+            u = urlsplit(g("url"))
+            url = urlunsplit((u.scheme, u.hostname or "", u.path, "", ""))
+        except ValueError:
+            url = "?"
+        return "tool", "WebFetch " + url
+    if name in ("WebSearch", "ToolSearch"):
+        return "tool", "%s %s" % (name, g("query"))
+    if name == "SendMessage":
+        return "tool", "SendMessage to %s" % g("to")
+    return "tool", name
+
+
+def first_text(content):
+    if isinstance(content, str):
+        return content[:400]
+    if isinstance(content, list):
+        for c in content:
+            if isinstance(c, dict) and isinstance(c.get("text"), str):
+                return c["text"][:400]
+    return ""
+
+
+def classify(block):
+    """A tool result as ok / exit N / blocked / error; its text is never printed."""
+    if not block.get("is_error"):
+        return "ok"
+    t = first_text(block.get("content"))
+    if re.search(r"hook error|blocked by|denied|not allowed|doesn't want to proceed|rejected", t, re.I):
+        return "blocked"
+    m = re.match(r"\s*Exit code (\d{1,3})\b", t)
+    return "exit %s" % m.group(1) if m else "error"
+
+
+STATUS_RE = re.compile(r"(?mi)^[\s*_`]*STATUS[*_`]*\s*:\s*[*_`]*\s*(done|partial|blocked)\b")
+
+
+class Budget(object):
+    def __init__(self):
+        self.left = MAX_TOTAL_BYTES
+
+
+def scan_transcript(path, main, budget):
+    """{calls, tokens, out, first, last, report, state} of one transcript; state is missing, unscanned (over
+    the run's byte budget), truncated (over one transcript's cap) or ok. tokens = input + cache writes + cache
+    reads + output of each API message once (the stack's context-token measure)."""
+    res = {"calls": [], "tokens": None, "out": None, "first": None, "last": None, "report": None,
+           "state": "missing"}
+    if not path:
+        return res
+    cap = min(MAX_TRANSCRIPT_BYTES, budget.left)
+    if cap <= 0:
+        res["state"] = "unscanned"
+        return res
+    data = read_bytes(path, cap + 1)
+    if data is None:
+        return res
+    budget.left -= min(len(data), cap)
+    res["state"] = "truncated" if len(data) > cap else "ok"
+    data = data[:cap]
+    seen, by_id, tokens, out, last_text, have_usage = set(), {}, 0, 0, None, False
+    for line in data.split(b"\n"):
+        if not line or len(line) > MAX_LINE_BYTES or line[:1] != b"{":
+            continue
+        if b'"assistant"' not in line and b'"tool_result"' not in line:
+            continue
+        try:
+            rec = json.loads(line.decode("utf-8", "replace"))
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(rec, dict) or (main and rec.get("isSidechain") is True):
+            continue
+        ts = iso_ts(rec.get("timestamp"))
+        if ts is not None:
+            res["first"] = ts if res["first"] is None else min(res["first"], ts)
+            res["last"] = ts if res["last"] is None else max(res["last"], ts)
+        msg = rec.get("message")
+        if not isinstance(msg, dict):
+            continue
+        content = msg.get("content") if isinstance(msg.get("content"), list) else []
+        if rec.get("type") == "assistant":
+            mid, u = msg.get("id"), msg.get("usage")
+            if isinstance(u, dict) and (mid is None or mid not in seen):
+                if isinstance(mid, str):
+                    seen.add(mid)
+                vals = [num(u.get(k)) or 0 for k in ("input_tokens", "cache_creation_input_tokens",
+                                                     "cache_read_input_tokens", "output_tokens")]
+                tokens += sum(vals)
+                out += vals[3]
+                have_usage = True
+            for b in content:
+                if not isinstance(b, dict):
+                    continue
+                if b.get("type") == "tool_use":
+                    leaf = leaf_of(b.get("name"), b.get("input"))
+                    if leaf is None:
+                        continue
+                    call = {"id": ident(b.get("id")), "kind": leaf[0], "label": leaf[1], "ts": ts,
+                            "end": None, "result": "pending"}
+                    res["calls"].append(call)
+                    if call["id"]:
+                        by_id[call["id"]] = call
+                elif b.get("type") == "text" and isinstance(b.get("text"), str) and b["text"].strip():
+                    last_text = b["text"][-20000:]
+        elif rec.get("type") == "user":
+            for b in content:
+                if isinstance(b, dict) and b.get("type") == "tool_result":
+                    call = by_id.get(b.get("tool_use_id"))
+                    if call is not None:
+                        call["result"], call["end"] = classify(b), ts
+    if have_usage:
+        res["tokens"], res["out"] = tokens, out
+    if last_text:
+        m = list(STATUS_RE.finditer(last_text))
+        res["report"] = m[-1].group(1).lower() if m else "done"
+    return res
+
+
+# ---------------------------------------------------------------- session state
+def state_root():
+    base = os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state")
+    return os.path.join(base, "claude-agent-stack")
+
+
+def projects_root():
+    return os.path.join(os.environ.get("CLAUDE_CONFIG_DIR") or os.path.expanduser("~/.claude"), "projects")
+
+
+def session_dirs(root):
+    """Session ids under the state root, oldest ledger change first."""
+    out = []
+    for n in listdir(root):
+        p = os.path.join(root, n)
+        if not SID_RE.match(n) or n in ("limits", "usage") or os.path.islink(p) or not os.path.isdir(p):
+            continue
+        times = []
+        for x in ("delegations.md", "spawns", "agents"):
+            try:
+                times.append(os.lstat(os.path.join(p, x)).st_mtime)
+            except OSError:
+                pass
+        if times:
+            out.append((max(times), n))
+    return [n for _, n in sorted(out)]
+
+
+class Node(object):
+    def __init__(self, **kw):
+        self.type, self.id, self.task, self.name, self.isolation = "?", None, None, None, None
+        self.tid, self.ts, self.state, self.status, self.depth = None, None, "unknown", "unknown", 0
+        self.children, self.reg, self.scan, self.placeholder, self.path = [], {}, None, False, "0"
+        self.start = self.end = self.duration = None
+        self.ref, self.label, self.leaves, self.first_parent = None, "", [], None
+        self.__dict__.update(kw)
+
+
+def ledger_state(rec, reg):
+    """agent_guard.ledger_state (the state delegations.md shows), except that an agent resumed after its
+    last stop is running again."""
+    st = str(rec.get("status") or "").lower()
+    if st in ("failed", "error"):
+        return "failed"
+    if st in ("cancelled", "canceled", "killed"):
+        return "stopped"
+    if num(reg.get("resumed")) and num(reg.get("stopped")) and reg["resumed"] > reg["stopped"]:
+        return "running"                      # resumed (SendMessage) after its last stop
+    if reg.get("stopped") or st == "completed":
+        return "finished"
+    if reg or st in ("async_launched", "running"):
+        return "running"
+    return "launching"
+
+
+MD_ROW = re.compile(r"^( *)- (.+)$")
+
+
+def parse_delegations_md(path):
+    """Without spawns/: delegations.md's rows as delegation records (the caller from the indent)."""
+    b = read_bytes(path, MAX_JSON_BYTES)
+    recs, stack = [], []
+    if b is None:
+        return recs
+    for i, line in enumerate(b.decode("utf-8", "replace").splitlines()):
+        m = MD_ROW.match(line)
+        if not m:
+            continue
+        depth = len(m.group(1)) // 2
+        bits = m.group(2).split(" · ")
+        typ = re.sub(r" \(name .*\)$", "", bits[0])
+        task = bits[1][1:-1] if len(bits) > 1 and bits[1].startswith('"') and bits[1].endswith('"') else None
+        st = bits[2] if len(bits) > 2 else ""
+        aid = None
+        for x in bits:
+            if x.startswith("id "):
+                aid = ident(x[3:].strip())
+        stack = stack[:depth]
+        by = stack[-1] if stack else "main"
+        stack.append(aid or "md%d" % i)
+        recs.append({"tid": "md%d" % i, "by": by, "type": typ, "task": task, "child": aid,
+                     "status": {"finished": "completed", "failed": "failed", "stopped": "cancelled",
+                                "running": "running"}.get(st, ""), "ts": i})
+    return recs
+
+
+def load_session(sid, root, event_transcript=None):
+    d = os.path.join(root, sid)
+    reg = {}
+    for f in listdir(os.path.join(d, "agents")):
+        aid = ident(f[:-5]) if f.endswith(".json") else None
+        if aid:
+            r = read_json(os.path.join(d, "agents", f))
+            if r is not None:
+                reg[aid] = r
+    recs, source = [], "spawns"
+    if os.path.isdir(os.path.join(d, "spawns")):
+        for f in listdir(os.path.join(d, "spawns")):
+            if f.endswith(".json"):
+                r = read_json(os.path.join(d, "spawns", f))
+                if r is not None and isinstance(r.get("tid"), str):
+                    recs.append(r)
+    else:
+        source = "delegations.md"
+        recs = parse_delegations_md(os.path.join(d, "delegations.md"))
+    recs.sort(key=lambda r: (num(r.get("ts")) or 0, str(r.get("tid"))))
+    root_node = Node(type="blackcat", id="main", state="session", status="session", task="main thread")
+    by_key, kids = {"main": root_node}, {}
+    for r in recs:
+        child = ident(r.get("child"))
+        n = Node(type=text(r.get("type"), 60) or "?", id=child, task=text(r.get("task"), 200) or None,
+                 name=text(r.get("name"), 40) or None, isolation=text(r.get("isolation"), 20) or None,
+                 tid=ident(r.get("tid")) or text(r.get("tid"), 40), ts=num(r.get("ts")),
+                 reg=reg.get(child, {}) if child else {})
+        n.state = ledger_state(r, n.reg)
+        kids.setdefault(ident(r.get("by")) or "main", []).append(n)
+        if child and child not in by_key:
+            by_key[child] = n
+    # agents the registry knows but no delegation record names (an Agent call the ledger missed)
+    for aid, rg in sorted(reg.items(), key=lambda kv: num(kv[1].get("spawned")) or 0):
+        if aid in by_key:
+            continue
+        n = Node(type=text(rg.get("type"), 60) or "?", id=aid, tid=ident(rg.get("tool_use_id")),
+                 ts=num(rg.get("spawned")) or num(rg.get("started")), reg=rg)
+        n.state = ledger_state({}, rg)
+        by_key[aid] = n
+        kids.setdefault(ident(rg.get("parent")) or "main", []).append(n)
+    # callers whose own spawn is in neither source: a placeholder under the root
+    for by in sorted(k for k in kids if k not in by_key):
+        n = Node(type=text(reg.get(by, {}).get("type"), 60) or "?", id=by, placeholder=True,
+                 state="spawn not recorded", status="spawn not recorded", reg=reg.get(by, {}), ts=kids[by][0].ts)
+        by_key[by] = n
+        kids.setdefault("main", []).append(n)
+    seen = set()
+
+    def attach(node, depth, path):
+        node.depth, node.path = depth, path
+        seen.add(id(node))
+        i = 0
+        for c in sorted(kids.get(node.id, []) if node.id else [], key=lambda x: (x.ts or 0)):
+            if id(c) in seen:
+                continue
+            i += 1
+            node.children.append(c)
+            attach(c, depth + 1, "%d" % i if depth == 0 else "%s.%d" % (path, i))
+    attach(root_node, 0, "0")
+    return root_node, source, main_transcript(sid, reg, d, event_transcript)
+
+
+def main_transcript(sid, reg, d, event_transcript):
+    """<projects>/<project>/<sid>.jsonl: from the hook event, a subagent's recorded transcript, budget.json's
+    file keys, else a search of the projects folder; only a file named <sid>.jsonl qualifies."""
+    want = sid + ".jsonl"
+    cands = [event_transcript] if isinstance(event_transcript, str) else []
+    for rg in reg.values():
+        t = rg.get("transcript")
+        if isinstance(t, str):
+            sub = os.path.dirname(t)
+            if os.path.basename(sub) == "subagents" and os.path.basename(os.path.dirname(sub)) == sid:
+                cands.append(os.path.dirname(sub) + ".jsonl")
+    files = (read_json(os.path.join(d, "budget.json")) or {}).get("files")
+    cands += [k for k in (files if isinstance(files, dict) else {}) if isinstance(k, str)]
+    pr = projects_root()
+    cands += [os.path.join(pr, proj, want) for proj in listdir(pr)]
+    for c in cands:
+        if os.path.basename(c) == want and os.path.isabs(c) and os.path.isfile(c):
+            return c
+    return None
+
+
+def agent_transcript(node, main_t):
+    want = "agent-%s.jsonl" % node.id
+    t = node.reg.get("transcript")
+    if isinstance(t, str) and os.path.isabs(t) and os.path.basename(t) == want:
+        return t
+    if main_t and node.id:
+        return os.path.join(main_t[:-len(".jsonl")], "subagents", want)
+    return None
+
+
+def enrich(node, main_t, budget, now):
+    """Scan each agent's transcript; fill start, end, duration and the shown status (the STATUS line of a
+    finished agent's last message: done, partial, blocked; a report without one is a clean finish)."""
+    if node.id == "main":
+        node.scan = scan_transcript(main_t, True, budget)
+    elif node.id and not node.placeholder:
+        node.scan = scan_transcript(agent_transcript(node, main_t), False, budget)
+    else:
+        node.scan = scan_transcript(None, False, budget)
+    rg, sc = node.reg, node.scan
+    # a foreground child's registry entry is written when its call returns (spawned after started), a
+    # resumed one's `started` is its resume: the earliest record is the start
+    starts = [t for t in (num(rg.get("started")), num(rg.get("spawned")), node.ts, sc["first"]) if t]
+    node.start = sc["first"] if node.id == "main" else (min(starts) if starts else None)
+    stopped = num(rg.get("stopped"))
+    if node.state == "finished" and stopped:
+        node.end = stopped
+    elif node.state in ("finished", "stopped", "failed", "session"):
+        node.end = sc["last"]
+    if node.start and node.end:
+        node.duration = max(node.end - node.start, 0)
+    elif node.start and node.state == "running":
+        node.duration = max(now - node.start, 0)
+    if node.state == "finished":
+        node.status = sc["report"] or "finished"
+    elif node.id != "main" and not node.placeholder:
+        node.status = node.state
+    for c in node.children:
+        enrich(c, main_t, budget, now)
+
+
+def walk_nodes(n):
+    yield n
+    for c in n.children:
+        for x in walk_nodes(c):
+            yield x
+
+
+# ---------------------------------------------------------------- tree output
+GLYPHS = {"unicode": ("├── ", "└── ", "│   ", "    "), "ascii": ("|-- ", "`-- ", "|   ", "    ")}
+
+
+def node_label(n, static=False):
+    if static:
+        return n.label
+    who = n.type + ((" (name %s)" % n.name) if n.name else "")
+    if n.placeholder:
+        return " · ".join([who, "id %s" % n.id, n.status])
+    if n.id == "main":
+        bits = [who + " (main thread)"]
+    else:
+        bits = [who, '"%s"' % clean(n.task, 60) if n.task else "(no description)", n.status]
+    if n.duration is not None:
+        bits.append(dur(n.duration))
+    if n.scan and n.scan["tokens"] is not None:
+        bits.append("%s tok" % toks(n.scan["tokens"]))
+    if n.scan and n.scan["state"] in ("ok", "truncated"):
+        bits.append("%d calls" % len(n.scan["calls"]))
+    if n.scan and n.scan["state"] in ("truncated", "unscanned"):
+        bits.append("transcript %s" % n.scan["state"])
+    if n.isolation:
+        bits.append("isolation %s" % n.isolation)
+    return " · ".join(bits)
+
+
+def collapse(calls, only_failed):
+    """Identical commands of one agent as one leaf with a count, in first-use order."""
+    groups, order = {}, []
+    for c in calls:
+        if only_failed and c["result"] in ("ok", "pending"):
+            continue
+        key = (c["kind"], text(c["label"], 200))
+        if key not in groups:
+            groups[key] = {"kind": key[0], "label": key[1], "count": 0, "results": {}}
+            order.append(key)
+        g = groups[key]
+        g["count"] += 1
+        g["results"][c["result"]] = g["results"].get(c["result"], 0) + 1
+    return [groups[k] for k in order]
+
+
+def leaf_label(g):
+    s = g["label"] + (" ×%d" % g["count"] if g["count"] > 1 else "")
+    bad = ["%s%s" % ("%d " % v if g["count"] > 1 else "", k) for k, v in sorted(g["results"].items())
+           if k != "ok"]
+    return s + (" [%s]" % ", ".join(bad) if bad else "")
+
+
+def render_tree(root, opts, static=False):
+    tee, last, bar, gap = GLYPHS["ascii" if opts.ascii else "unicode"]
+    lines = [clean(node_label(root, static))]
+
+    def items(n):
+        out = []
+        if not opts.no_leaves:
+            groups = n.leaves if static else collapse(n.scan["calls"] if n.scan else [], opts.leaves_only_failed)
+            cap = opts.max_leaves
+            shown = groups if not cap or len(groups) <= cap else groups[:cap]
+            out += [("leaf", g if static else leaf_label(g)) for g in shown]
+            if len(shown) < len(groups):
+                out.append(("leaf", "… %d more (--max-leaves 0 shows all)" % (len(groups) - len(shown))))
+        if opts.depth is None or n.depth < opts.depth:
+            out += [("node", c) for c in n.children]
+        return out
+
+    def walk(n, prefix):
+        its = items(n)
+        for i, (kind, it) in enumerate(its):
+            end = i == len(its) - 1
+            lines.append(prefix + (last if end else tee) + clean(it if kind == "leaf" else node_label(it, static)))
+            if kind == "node":
+                walk(it, prefix + (gap if end else bar))
+    walk(root, "")
+    return lines
+
+
+def cut(lines, width):
+    return [l if not width or len(l) <= width else l[:max(width - 1, 1)] + "…" for l in lines]
+
+
+def tree_json(n):
+    sc = n.scan or {}
+    return {"type": n.type, "id": n.id, "tid": n.tid, "task": n.task, "name": n.name,
+            "isolation": n.isolation, "depth": n.depth, "level": level(n.depth), "path": n.path,
+            "state": n.state, "status": n.status, "start": n.start, "end": n.end, "duration_s": n.duration,
+            "tokens": sc.get("tokens"), "output_tokens": sc.get("out"), "transcript": sc.get("state"),
+            "calls": [{"kind": c["kind"], "command": text(c["label"], 300), "id": c["id"], "start": c["ts"],
+                       "end": c["end"], "result": c["result"]} for c in sc.get("calls", [])],
+            "children": [tree_json(c) for c in n.children]}
+
+
+# ---------------------------------------------------------------- table output
+LIVE_COLUMNS = ["path", "depth", "level", "parent", "agent", "kind", "task", "command", "status", "result",
+                "started", "duration", "tokens", "calls", "session"]
+LIVE_EXTRA = ["id", "tid", "name", "isolation", "ended", "output_tokens", "transcript"]
+STATIC_COLUMNS = ["agent", "level", "parent", "model", "effort", "max_turns", "may_spawn", "tools", "mcp",
+                  "skills"]
+CELL_CAP = {"task": 60, "command": 80, "may_spawn": 400, "tools": 300, "skills": 300, "mcp": 200}
+
+
+def table_rows(root, opts, sid):
+    """One row per agent (kind agent) and per tool call (kind bash, tool, mcp, skill), depth first."""
+    rows = []
+
+    def ref(n):
+        return "%s %s" % (n.type, (n.id or "")[:8]) if n.id and n.id != "main" else n.type
+
+    def walk(n, parent):
+        if opts.depth is not None and n.depth > opts.depth:
+            return
+        sc = n.scan or {}
+        scanned = sc.get("state") in ("ok", "truncated")
+        rows.append({
+            "path": n.path, "depth": str(n.depth), "level": level(n.depth),
+            "parent": ref(parent) if parent else NA, "agent": n.type, "kind": "agent",
+            "task": n.task or (NA if n.id == "main" else UNREC), "command": NA, "status": n.state,
+            "result": (sc.get("report") or UNREC) if n.state == "finished" else NA,
+            "started": clock(n.start),
+            "duration": dur(n.duration) if n.duration is not None else (NA if n.state == "launching" else UNREC),
+            "tokens": str(sc["tokens"]) if sc.get("tokens") is not None else UNREC,
+            "calls": str(len(sc["calls"])) if scanned else UNREC, "session": sid,
+            "id": n.id or UNREC, "tid": n.tid or (NA if n.id == "main" else UNREC), "name": n.name or NA,
+            "isolation": n.isolation or NA,
+            "ended": clock(n.end) if n.end else (NA if n.state in ("running", "launching") else UNREC),
+            "output_tokens": str(sc["out"]) if sc.get("out") is not None else UNREC,
+            "transcript": sc.get("state") or "missing"})
+        if not opts.no_leaves:
+            for i, c in enumerate(sc.get("calls", []), 1):
+                if opts.leaves_only_failed and c["result"] in ("ok", "pending"):
+                    continue
+                rows.append({
+                    "path": "%s#%d" % (n.path, i), "depth": str(n.depth + 1), "level": level(n.depth),
+                    "parent": ref(n), "agent": n.type, "kind": c["kind"], "task": NA,
+                    "command": text(c["label"], 300), "status": "done" if c["end"] else "pending",
+                    "result": c["result"], "started": clock(c["ts"]),
+                    "duration": dur(c["end"] - c["ts"]) if c["end"] and c["ts"] else UNREC,
+                    "tokens": UNREC, "calls": NA, "session": sid, "id": c["id"] or UNREC, "tid": NA,
+                    "name": NA, "isolation": NA, "ended": clock(c["end"]) if c["end"] else UNREC,
+                    "output_tokens": UNREC, "transcript": NA})
+        for c in n.children:
+            walk(c, n)
+    walk(root, None)
+    return rows
+
+
+def pick_columns(opts, default, extra):
+    if not opts.columns:
+        return list(default)
+    if opts.columns.strip() == "all":
+        return list(default) + list(extra)
+    cols = [c.strip().replace("-", "_") for c in opts.columns.split(",") if c.strip()]
+    bad = [c for c in cols if c not in default and c not in extra]
+    if bad or not cols:
+        raise UsageError("unknown column(s) %s; known: %s" % (", ".join(clean(b, 30) for b in bad) or "(none)",
+                                                             ", ".join(list(default) + list(extra))))
+    return cols
+
+
+def render_table(rows, cols, opts):
+    if opts.json:
+        return [json.dumps([{c: clean(r.get(c, NA)) for c in cols} for r in rows], indent=1, ensure_ascii=False)]
+    if opts.csv:
+        buf = io.StringIO()
+        w = csv.writer(buf, lineterminator="\n")
+        w.writerow(cols)
+        for r in rows:
+            w.writerow([csv_cell(r.get(c, NA)) for c in cols])
+        return buf.getvalue().rstrip("\n").split("\n")
+    cap = opts.width if opts.width else 1000
+    out = ["| " + " | ".join(md_cell(c, 40) for c in cols) + " |", "|" + "|".join(" --- " for _ in cols) + "|"]
+    for r in rows:
+        out.append("| " + " | ".join(md_cell(r.get(c, NA), min(cap, CELL_CAP.get(c, cap)) if opts.width
+                                             else CELL_CAP.get(c, 1000)) for c in cols) + " |")
+    return out
+
+
+# ---------------------------------------------------------------- static hierarchy
+def frontmatter(path):
+    b = read_bytes(path, MAX_JSON_BYTES)
+    if b is None:
+        return {}, ""
+    s = b.decode("utf-8", "replace")
+    if not s.startswith("---\n"):
+        return {}, s
+    head, _, body = s[4:].partition("\n---")
+    fm = {}
+    for line in head.splitlines():
+        m = re.match(r"^([A-Za-z][A-Za-z0-9_-]*):\s*(.*)$", line)
+        if m:
+            v = m.group(2).strip()
+            if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+                v = v[1:-1]
+            fm[m.group(1)] = v
+    return fm, body
+
+
+def split_top(s):
+    out, depth, cur = [], 0, ""
+    for ch in s:
+        depth += (ch == "(") - (ch == ")")
+        if ch == "," and depth == 0:
+            out.append(cur.strip())
+            cur = ""
+        else:
+            cur += ch
+    if cur.strip():
+        out.append(cur.strip())
+    return out
+
+
+def load_agents(agents_dir):
+    """name -> model, effort, maxTurns, tools, spawn list ("May spawn:" sentence, as tests/lint_agents.py
+    reads it; BlackCat's Agent(...) allowlist) and the skills its `## Skills` section names."""
+    agents = {}
+    for f in listdir(agents_dir):
+        if not f.endswith(".md"):
+            continue
+        fm, body = frontmatter(os.path.join(agents_dir, f))
+        name = clean(fm.get("name") or f[:-3], 60)
+        tools = split_top(fm.get("tools", ""))
+        spawn = []
+        m = re.search(r"May spawn:\s*([^.]*)\.", body)
+        if m:
+            spawn = [re.match(r"[A-Za-z0-9_-]*", t.strip()).group(0).lower() for t in m.group(1).split(",")]
+        for t in tools:
+            am = re.match(r"^Agent\((.*)\)$", t)
+            if am:
+                spawn = [x.strip() for x in am.group(1).split(",")]
+        skills = []
+        sm = re.search(r"(?ms)^## Skills[^\n]*\n(.*?)(?=^## |\Z)", body)
+        for x in re.findall(r"`([a-z0-9][a-z0-9-]*)`(\*?)", sm.group(1) if sm else ""):
+            if x[0] + x[1] not in skills:
+                skills.append(x[0] + x[1])
+        agents[name] = {"name": name, "model": fm.get("model"), "effort": fm.get("effort"),
+                        "max_turns": fm.get("maxTurns"), "tools": [t for t in tools if not t.startswith("Agent(")],
+                        "spawn": [s for s in spawn if s], "skills": skills}
+    return agents
+
+
+def user_commands(skills_dir):
+    out = []
+    for d in listdir(skills_dir):
+        fm, _ = frontmatter(os.path.join(skills_dir, d, "SKILL.md"))
+        if fm.get("disable-model-invocation", "").lower() == "true":
+            out.append("/" + clean(fm.get("name") or d, 60))
+    return out
+
+
+def static_tree(config):
+    """Breadth first from BlackCat: each agent expands once, at its shallowest level; a later occurrence
+    points there. Leaves: BlackCat's user commands, each agent's skills (* = a hub module read by path)."""
+    agents = load_agents(os.path.join(config, "agents"))
+    if "blackcat" not in agents:
+        return None
+    root = Node(type="blackcat", id="blackcat", depth=0)
+    first, nodes, queue = {"blackcat": (0, None)}, {"blackcat": root}, [root]
+    while queue:
+        n = queue.pop(0)
+        for child in agents.get(n.type, {}).get("spawn", []) if n.depth < MAX_DEPTH else []:
+            c = Node(type=child, depth=n.depth + 1)
+            n.children.append(c)
+            if child.endswith("-copy"):
+                c.ref = "copy of %s, spawns nothing" % child[:-5]
+            elif child not in agents:
+                c.ref = "no agent file"
+            elif child in first:
+                c.ref = "expanded at %s under %s" % (level(first[child][0]), first[child][1])
+            else:
+                first[child] = (c.depth, n.type)
+                nodes[child] = c
+                c.first_parent = n.type
+                queue.append(c)
+    cmds = user_commands(os.path.join(config, "skills"))
+    for n in walk_nodes(root):
+        a = agents.get(n.type, {})
+        bits = [n.type, level(n.depth)] + ([a["model"]] if a.get("model") else [])
+        if n.ref:
+            bits.append("(%s)" % n.ref)
+        elif n.depth == MAX_DEPTH and a.get("spawn"):
+            bits.append("(L%d: cannot spawn)" % MAX_DEPTH)
+        elif not a.get("spawn"):
+            bits.append("(spawns nothing)")
+        n.label = " · ".join(bits)
+        n.leaves = [] if n.ref else (["command " + c for c in cmds] if n.type == "blackcat" else []) + \
+            ["skill " + s for s in a.get("skills", [])]
+    return root, agents, nodes, sorted(set(agents) - set(first)), cmds
+
+
+# ---------------------------------------------------------------- main
+class UsageError(Exception):
+    pass
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise UsageError(message)
+
+    def exit(self, status=0, message=None):     # --help inside the hook must not exit the process early
+        raise UsageError(message or "")
+
+
+def parser(prog):
+    p = Parser(prog=prog, description="Tree (or table) of a session's agents and the commands they ran.")
+    p.add_argument("--session", help="session id (default: the newest session in the state dir)")
+    p.add_argument("--depth", type=int, help="agents down to this depth (0 = the main thread only)")
+    p.add_argument("--no-leaves", action="store_true", help="agents only, no tool calls")
+    p.add_argument("--leaves-only-failed", action="store_true",
+                   help="only tool calls whose result was not ok (exit N, blocked, error)")
+    p.add_argument("--max-leaves", type=int, help="distinct commands per agent in the tree (0 = all; "
+                                                  "default 10, /stack-tree 3)")
+    p.add_argument("--json", action="store_true", help="JSON instead of text")
+    p.add_argument("--csv", action="store_true", help="--table as CSV")
+    p.add_argument("--width", type=int, help="tree: line width (0 = no cut); table: cell width cap (default 80)")
+    p.add_argument("--ascii", action="store_true", help="ASCII tree glyphs")
+    p.add_argument("--table", action="store_true", help="markdown table: one row per agent and per tool call")
+    p.add_argument("--columns", help="table columns, comma-separated, or 'all'")
+    p.add_argument("--static", action="store_true", help="the designed hierarchy from agents/*.md")
+    return p
+
+
+def run(argv, hook=False, event=None):
+    """(output lines, exit status)."""
+    opts = parser("/stack-tree" if hook else "stack-tree").parse_args(argv)
+    for k in ("depth", "max_leaves", "width"):
+        if getattr(opts, k) is not None and getattr(opts, k) < 0:
+            raise UsageError("--%s must be >= 0" % k.replace("_", "-"))
+    if opts.csv and opts.json:
+        raise UsageError("--csv and --json exclude each other")
+    if opts.csv and not opts.table:
+        raise UsageError("--csv needs --table")
+    if opts.columns and not opts.table:
+        raise UsageError("--columns needs --table")
+    if opts.no_leaves and opts.leaves_only_failed:
+        raise UsageError("--no-leaves and --leaves-only-failed exclude each other")
+    if opts.width is None:
+        opts.width = 80 if opts.table else (HOOK_WIDTH if hook else _term_width())
+    if opts.max_leaves is None:
+        opts.max_leaves = 3 if hook else 10
+    if opts.static:
+        return run_static(opts)
+    root_dir = state_root()
+    event = event if isinstance(event, dict) else {}
+    sid = opts.session
+    if sid is None and hook and isinstance(event.get("session_id"), str) and SID_RE.match(event["session_id"]):
+        sid = event["session_id"]
+    if sid is not None and not SID_RE.match(sid):
+        raise UsageError("--session: not a session id: %s" % clean(sid, 60))
+    if sid is None:
+        found = session_dirs(root_dir)
+        if not found:
+            return ["stack-tree: no session with a delegation ledger under %s" % clean(root_dir)], 1
+        sid = found[-1]
+    d = os.path.join(root_dir, sid)
+    if os.path.islink(d) or not os.path.isdir(d):
+        return ["stack-tree: no session %s under %s" % (clean(sid), clean(root_dir))], 1
+    ev_t = event.get("transcript_path") if hook and event.get("session_id") == sid else None
+    root, source, main_t = load_session(sid, root_dir, ev_t)
+    now = time.time()
+    enrich(root, main_t, Budget(), now)
+    agents = list(walk_nodes(root))[1:]
+    if opts.table:
+        return render_table(table_rows(root, opts, sid), pick_columns(opts, LIVE_COLUMNS, LIVE_EXTRA), opts), 0
+    if opts.json:
+        return [json.dumps({"session": sid, "source": source, "main_transcript": bool(main_t),
+                            "root": tree_json(root)}, indent=1, ensure_ascii=False)], 0
+    running = sum(1 for n in agents if n.status == "running")
+    bad = sum(1 for n in agents if n.status in ("failed", "blocked", "partial", "stopped"))
+    calls = sum(len(n.scan["calls"]) for n in walk_nodes(root) if n.scan)
+    out = ["stack-tree · session %s · %d agents (%d running, %d failed/blocked/partial/stopped) · %d tool calls · %s"
+           % (sid, len(agents), running, bad, calls, clock(now))] + render_tree(root, opts)
+    if not agents:
+        out.append("(no Agent calls recorded yet)")
+    if source != "spawns":
+        out.append("(read from delegations.md: spawns/ is absent, so start, stop and transcripts are unrecorded)")
+    if not main_t:
+        out.append("(main transcript not found: BlackCat's own calls, and the calls of agents without a "
+                   "recorded transcript, are unrecorded)")
+    return cut(out, opts.width), 0
+
+
+def run_static(opts):
+    res = static_tree(CONFIG)
+    if res is None:
+        return ["stack-tree: no agents/blackcat.md under %s" % clean(CONFIG)], 1
+    root, agents, nodes, unreachable, cmds = res
+    if opts.table:
+        cols = pick_columns(opts, STATIC_COLUMNS, [])
+        rows = []
+        for name in ["blackcat"] + sorted(a for a in agents if a != "blackcat"):
+            a, n = agents[name], nodes.get(name)
+            rows.append({"agent": name, "level": level(n.depth) if n else "unreachable",
+                         "parent": (n.first_parent or NA) if n else NA, "model": a["model"] or UNREC,
+                         "effort": a["effort"] or NA, "max_turns": a["max_turns"] or NA,
+                         "may_spawn": ", ".join(a["spawn"]) or NA,
+                         "tools": ", ".join(t for t in a["tools"] if not t.startswith("mcp__")) or NA,
+                         "mcp": ", ".join(t for t in a["tools"] if t.startswith("mcp__")) or NA,
+                         "skills": ", ".join((cmds if name == "blackcat" else []) + a["skills"]) or NA})
+        return render_table(rows, cols, opts), 0
+    if opts.json:
+        def j(n):
+            return {"agent": n.type, "level": level(n.depth), "ref": n.ref, "leaves": n.leaves,
+                    "children": [j(c) for c in n.children]}
+        return [json.dumps({"static": True, "root": j(root), "unreachable": unreachable}, indent=1)], 0
+    out = ["stack-tree --static · %d agents in %s · BlackCat -> L1 -> L2 -> L3 -> L4 (L4 cannot spawn) · each "
+           "agent expands once, at its shallowest level" % (len(agents), clean(os.path.join(CONFIG, "agents")))]
+    out += render_tree(root, opts, static=True)
+    if unreachable:
+        out.append("not reachable from BlackCat: %s" % ", ".join(unreachable))
+    return cut(out, opts.width), 0
+
+
+def _term_width():
+    try:
+        w = int(os.environ.get("COLUMNS", "0"))
+    except ValueError:
+        w = 0
+    if w <= 0:
+        try:
+            w = os.get_terminal_size(sys.stdout.fileno()).columns
+        except (OSError, ValueError, AttributeError):
+            w = 0
+    return w if w > 0 else 120
+
+
+WORDS = {"table": "--table", "static": "--static", "json": "--json", "csv": "--csv", "ascii": "--ascii"}
+
+
+def hook_main():
+    """UserPromptExpansion (matcher stack-tree): the event on stdin, its command_args as the options (`table`,
+    `static`, `json`, `csv`, `ascii` also as bare words), the output as the block reason on stderr, exit 2,
+    so no model turn runs and BlackCat needs no Bash."""
+    ev, argv = {}, []
+    try:
+        raw = "" if sys.stdin is None or sys.stdin.isatty() else sys.stdin.read(1 << 20)
+        ev = json.loads(raw) if raw.strip() else {}
+    except (ValueError, OSError):
+        ev = {}
+    ev = ev if isinstance(ev, dict) else {}
+    args = ev.get("command_args") if isinstance(ev.get("command_args"), str) else ""
+    try:
+        argv = [WORDS.get(a, a) for a in shlex.split(args[:2000])]
+        if any(a == "--hook" or a.startswith("--hook=") for a in argv):
+            raise UsageError("--hook is not an option of /stack-tree")
+        if any(a in ("-h", "--help") for a in argv):
+            lines = parser("/stack-tree").format_help().rstrip("\n").split("\n")
+        else:
+            lines, _ = run(argv, hook=True, event=ev)
+    except UsageError as e:
+        lines = ["/stack-tree: %s" % clean(e, 300), clean(parser("/stack-tree").format_usage())]
+    except ValueError as e:                     # shlex: unbalanced quotes
+        lines = ["/stack-tree: cannot parse the arguments (%s)" % clean(e, 100)]
+    out, total = [], 0
+    for i, l in enumerate(lines):
+        if total + len(l) + 1 > HOOK_MAX_CHARS:
+            out.append("… cut at %d of %d lines (the /stack-tree output cap); all of it in a terminal: "
+                       "/usr/bin/python3 %s %s" % (i, len(lines), shlex.quote(os.path.join(HERE, "stack-tree")),
+                                                   clean(" ".join(shlex.quote(a) for a in argv), 300)))
+            break
+        out.append(l)
+        total += len(l) + 1
+    sys.stderr.write("\n".join(out) + "\n")
+    return 2
+
+
+def main(argv):
+    if argv[:1] == ["--hook"]:
+        return hook_main()
+    if any(a in ("-h", "--help") for a in argv):
+        sys.stdout.write(parser("stack-tree").format_help())
+        return 0
+    try:
+        lines, code = run(argv)
+    except UsageError as e:
+        sys.stderr.write("%s\nstack-tree: %s\n" % (parser("stack-tree").format_usage().strip(), clean(e, 300)))
+        return 2
+    try:
+        sys.stdout.write("\n".join(lines) + "\n")
+        sys.stdout.flush()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    return code
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))

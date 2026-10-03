@@ -437,19 +437,21 @@ def test_override_mode_ignores_other_commands_and_garbage(env):
 
 def test_skills_are_user_only_and_wired():
     assert not (SKILLS / "reset-agent").exists()
-    for name in ("override-agent", "stack-doctor"):
+    for name in ("override-agent", "stack-doctor", "stack-tree"):
         head = (SKILLS / name / "SKILL.md").read_text().split("\n---", 1)[0]
         assert "\ndisable-model-invocation: true" in head
         assert "\nname: %s" % name in head
         assert "!`" not in (SKILLS / name / "SKILL.md").read_text()
     hooks = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["hooks"]
     entries = {e["matcher"]: e for e in hooks["UserPromptExpansion"]}
-    assert set(entries) == {"override-agent", "stack-doctor"}
+    assert set(entries) == {"override-agent", "stack-doctor", "stack-tree"}
     assert entries["override-agent"]["hooks"][0]["command"].endswith('agent_guard.py" override-agent')
     # /stack-doctor: doctor.sh runs from the hook (outside the Bash sandbox), never from a forked agent
     assert entries["stack-doctor"]["hooks"][0]["command"].endswith('bin/doctor.sh" --hook')
     head = (SKILLS / "stack-doctor" / "SKILL.md").read_text().split("\n---", 1)[0]
     assert "\ncontext:" not in head and "\nallowed-tools:" not in head
+    # /stack-tree: bin/stack-tree runs from the hook (BlackCat has no Bash)
+    assert entries["stack-tree"]["hooks"][0]["command"].endswith('bin/stack-tree" --hook')
 
 
 def test_a_fifo_at_the_state_path_does_not_hang_the_agent_hook(env):

@@ -497,6 +497,14 @@ sys.exit(not any(isinstance(g, dict) and g.get("matcher") == "stack-doctor" and 
     and str(h.get("command", "")).endswith("doctor.sh\" --hook") for h in g.get("hooks") or []) for g in gs))
 ' "$C/settings.json" 2>/dev/null; then ok "/stack-doctor: skill installed, UserPromptExpansion hook runs doctor.sh --hook"
 else warn "/stack-doctor not wired (skills/stack-doctor or its UserPromptExpansion hook missing) — rerun install.sh"; fi
+# /stack-tree: the skill and its UserPromptExpansion hook (bin/stack-tree --hook)
+if [ -f "$C/skills/stack-tree/SKILL.md" ] && [ -x "$C/bin/stack-tree" ] && python3 -c '
+import json, sys
+gs = json.load(open(sys.argv[1])).get("hooks", {}).get("UserPromptExpansion") or []
+sys.exit(not any(isinstance(g, dict) and g.get("matcher") == "stack-tree" and any(isinstance(h, dict)
+    and str(h.get("command", "")).endswith("stack-tree\" --hook") for h in g.get("hooks") or []) for g in gs))
+' "$C/settings.json" 2>/dev/null; then ok "/stack-tree: skill installed, UserPromptExpansion hook runs bin/stack-tree --hook"
+else warn "/stack-tree not wired (skills/stack-tree, bin/stack-tree or its UserPromptExpansion hook missing) — rerun install.sh"; fi
 # Run the hook commands exactly as Claude Code will (from settings.json and blackcat.md), on events that
 # must be denied. A hook that cannot start is a non-blocking error in Claude Code: every gate open.
 if [ -f "$C/settings.json" ] && [ -f "$C/hooks/agent_guard.py" ]; then
