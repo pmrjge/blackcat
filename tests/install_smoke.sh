@@ -26,7 +26,7 @@ SRC_REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 tgit(){ GIT_TERMINAL_PROMPT=0 git -c core.hooksPath=/dev/null -c commit.gpgsign=false -c init.defaultBranch=main \
   -c user.name=smoke -c user.email=smoke@example.invalid "$@" </dev/null; }
 # a fresh scratch directory, physical path; aborts instead of falling back to the current directory
-scratch_dir(){ local d; d="$(mktemp -d)" && [ -d "$d" ] && (cd "$d" && pwd -P) || { echo "mktemp -d failed" >&2; exit 1; }; }
+scratch_dir(){ local d; d="$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && [ -d "$d" ] && (cd "$d" && pwd -P) || { echo "mktemp -d failed" >&2; exit 1; }; }
 # remove a directory only if it is one of this test's scratch directories
 drop_scratch(){ case "$1" in */tmp.*) [ -d "$1" ] && rm -rf -- "$1" ;; esac; }
 SCRATCH_ROOT="$(scratch_dir)" || exit 1
@@ -144,7 +144,7 @@ EXPECTED_AGENTS=$((EXPECTED_AGENTS + $(sed -n 's/^COPY_TYPES = (\(.*\))$/\1/p' "
 EXPECTED_SKILLS=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
 
 echo "== 1. Fresh install into a scratch CLAUDE_CONFIG_DIR"
-T1="$(cd "$(mktemp -d)" && pwd -P)"
+T1="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 export FAKE_CLAUDE_JSON="$T1/fake-claude.json" STACK_CLAUDE_JSON="$T1/fake-claude.json"
 if CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T1/.install.log" 2>&1; then
   pass "install.sh exits 0"
@@ -394,7 +394,7 @@ PY
 assert_unchanged_real_home
 
 if [ "$(uname)" != "Darwin" ]; then
-  TG="$(mktemp -d)"
+  TG="$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")"
   out=$(env -u STACK_ALLOW_NON_MACOS CLAUDE_CONFIG_DIR="$TG/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile 2>&1); rc=$?
   { [ "$rc" = 1 ] && printf '%s\n' "$out" | grep -q "macOS only" && [ ! -e "$TG/c" ]; } \
     && pass "refuses to install on $(uname) (macOS only), touching nothing" || failed "non-macOS guard: rc=$rc: $out"
@@ -459,7 +459,7 @@ fi
 assert_unchanged_real_home
 
 echo "== 4. Settings merge: pins, concurrency, compaction overrides; magg catalog merge"
-T2="$(cd "$(mktemp -d)" && pwd -P)"
+T2="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 export FAKE_CLAUDE_JSON="$T2/fake-claude.json" STACK_CLAUDE_JSON="$T2/fake-claude.json"
 mkdir -p "$T2/magg"
 # docling edited by the user (replaced: the backup keeps it), a server of their own (kept), and two
@@ -573,7 +573,7 @@ PY
 assert_unchanged_real_home
 
 echo "== 5. --mcp-plan changes nothing and reports add/migrate/keep"
-T3="$(cd "$(mktemp -d)" && pwd -P)"
+T3="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 FAKE_CJ="$T3/fake-claude.json"
 export FAKE_CLAUDE_JSON="$FAKE_CJ" STACK_CLAUDE_JSON="$FAKE_CJ"
 cat > "$FAKE_CJ" <<'JSON'
@@ -717,7 +717,7 @@ drop_scratch "$T3F"
 assert_unchanged_real_home
 
 echo "== 8. Regressions: rc lines, empty keys, key-preserving migration, settings merge, CLAUDE_CONFIG_DIR"
-T4="$(cd "$(mktemp -d)" && pwd -P)"
+T4="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 cat > "$T4/.zshrc" <<'RC'
 alias cas='cd ~/Projects/claude-agent-stack && git pull'   # my shortcut
 [ -f "/old/.claude/stack.env" ] && { set -a; . "/old/.claude/stack.env"; set +a; }  # claude-agent-stack
@@ -736,7 +736,7 @@ pw_doc="$(HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" bash "$T4/.claude/bin/docto
   && ! printf '%s\n' "$pw_doc" | grep -q 'playwright-mcp missing' \
   && pass "the Playwright MCP output dir doctor expects is created (0700, scratch HOME)" \
   || failed "playwright-mcp output dir: [$(fmode "$pw_out" 2>&1)] $(printf '%s\n' "$pw_doc" | grep 'playwright-mcp')"
-T4D="$(cd "$(mktemp -d)" && pwd -P)"
+T4D="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 HOME="$T4D" CLAUDE_CONFIG_DIR="$T4D/.claude" "$INSTALL" --dry-run --no-mcp --no-plugins --no-deps --no-profile >"$T4D/.log" 2>&1 \
   && [ ! -e "$T4D/.cache/claude-sandbox/playwright-mcp" ] \
   && { pass "--dry-run creates no Playwright output dir"; rm -rf "$T4D"; } || failed "--dry-run and the Playwright output dir (see $T4D/.log)"
@@ -833,7 +833,7 @@ grep -q '^STACK_EXPORT=' "$T4R/.claude/stack.env" && ! cmp -s "$T4R/.zshrc" "$T4
   || { failed "restore after the profile upgrade"; tail -n 8 "$T4R/r.log" | sed 's/^/    /'; }
 drop_scratch "$T4R"
 # fresh CLAUDE_CONFIG_DIR without STACK_CLAUDE_JSON: the plan must read <dir>/.claude.json even before it exists
-T5="$(cd "$(mktemp -d)" && pwd -P)"
+T5="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 plan=$(env -u STACK_CLAUDE_JSON CLAUDE_CONFIG_DIR="$T5" "$INSTALL" --mcp-plan 2>&1)
 printf '%s\n' "$plan" | grep -qF "config read for the plan: $T5/.claude.json" && pass "--mcp-plan reads \$CLAUDE_CONFIG_DIR/.claude.json" \
   || failed "--mcp-plan read the wrong config: $(printf '%s\n' "$plan" | grep 'config read')"
@@ -921,7 +921,7 @@ else
 fi
 # stack.env written by earlier versions (Opper → OpenRouter-only → Lumenfall): the image lines are
 # brought up to date, the models appended set to the defaults, nothing of the user's changed
-T5B="$(cd "$(mktemp -d)" && pwd -P)"; mkdir -p "$T5B/c"
+T5B="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"; mkdir -p "$T5B/c"
 cat > "$T5B/c/stack.env" <<'ENV'
 # my own header line
 # Opper gateway — image generation/editing (image-director). https://platform.opper.ai
@@ -985,7 +985,7 @@ else
 fi
 # first install over the user's own CLAUDE.md (kept) and a same-named skill of their own (the
 # stack owns skills/: replaced, the backup keeps it)
-T6="$(cd "$(mktemp -d)" && pwd -P)"; printf '# my rules\n- my NAS is 192.168.1.20\n' > "$T6/CLAUDE.md"
+T6="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"; printf '# my rules\n- my NAS is 192.168.1.20\n' > "$T6/CLAUDE.md"
 mkdir -p "$T6/skills/data-analysis"
 printf -- '---\nname: data-analysis\ndescription: my own steps\n---\nMy own analysis steps.\n' > "$T6/skills/data-analysis/SKILL.md"
 CLAUDE_CONFIG_DIR="$T6" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T6/.log" 2>&1
@@ -1002,7 +1002,7 @@ B6="$(latest_backup "$T6")"
 # it again before T7b: every other install here runs, as a real one does, without legacy/.
 LEGACY_FIX="$HERE/tests/fixtures/legacy-release"
 mkdir -p "$HERE/legacy" && cp -R "$LEGACY_FIX" "$HERE/legacy/fixture"
-T7="$(cd "$(mktemp -d)" && pwd -P)"
+T7="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 sed "s#__CLAUDE_DIR__#$T7#g; s#__HOME__#$HOME#g" "$LEGACY_FIX/CLAUDE.md" > "$T7/CLAUDE.md"
 cp "$T7/CLAUDE.md" "$T7/CLAUDE.md.new"
 CLAUDE_CONFIG_DIR="$T7" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T7/.log" 2>&1
@@ -1011,7 +1011,7 @@ B7="$(latest_backup "$T7")"
   && [ -f "$T7/rules/claude-agent-stack.md" ] && ! grep -q 'Merge each' "$T7/.log" \
   && grep -q '^  - CLAUDE.md  (the stack.s old rules file' "$T7/.log" \
   && pass "the stack's old CLAUDE.md (and its leftover .new) removed into the backup, rules installed" || failed "legacy stack CLAUDE.md not removed"
-T9="$(cd "$(mktemp -d)" && pwd -P)"
+T9="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 { sed "s#__CLAUDE_DIR__#$T9#g" "$LEGACY_FIX/CLAUDE.md"; printf '\n## Mine\n- my NAS is 192.168.1.20\n'; } > "$T9/CLAUDE.md"
 CLAUDE_CONFIG_DIR="$T9" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T9/.log" 2>&1
 grep -q 192.168.1.20 "$T9/CLAUDE.md" && grep -q 'CLAUDE.md .*kept (it has lines of your own)' "$T9/.log" \
@@ -1022,7 +1022,7 @@ CLAUDE_CONFIG_DIR="$T7" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile 
 [ -f "$T7/CLAUDE.md" ] && pass "CLAUDE.md migration runs once: a restored CLAUDE.md is left alone" || failed "a restored CLAUDE.md was moved again"
 rm -rf -- "$HERE/legacy"
 # without a legacy/ template nothing recognises that old copy: it stays (the safe side)
-T7B="$(cd "$(mktemp -d)" && pwd -P)"
+T7B="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 cp "$LEGACY_FIX/CLAUDE.md" "$T7B/CLAUDE.md"
 CLAUDE_CONFIG_DIR="$T7B" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T7B/.log" 2>&1
 cmp -s "$LEGACY_FIX/CLAUDE.md" "$T7B/CLAUDE.md" && [ -f "$T7B/rules/claude-agent-stack.md" ] \
@@ -1030,7 +1030,7 @@ cmp -s "$LEGACY_FIX/CLAUDE.md" "$T7B/CLAUDE.md" && [ -f "$T7B/rules/claude-agent
   && pass "no legacy/ in the repo: an unrecognised old CLAUDE.md is kept, rules installed" || failed "CLAUDE.md removed without a legacy/ template"
 assert_unchanged_real_home
 # a tracked CLAUDE.md the user trimmed (two stack rules deleted) is theirs: kept, not retired
-T10="$(cd "$(mktemp -d)" && pwd -P)"
+T10="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 sed "s#__CLAUDE_DIR__#$T10#g" "$LEGACY_FIX/CLAUDE.md" > "$T10/full.md"
 python3 - "$T10" <<'PY'
 import hashlib, json, os, sys
@@ -1045,7 +1045,7 @@ CLAUDE_CONFIG_DIR="$T10" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile
 assert_unchanged_real_home
 # senior-coder became main-coder: the old file goes whatever its state (the backup keeps it), listed
 # as renamed; --no-prune keeps an edited one with a note, and doctor flags it.
-T11="$(cd "$(mktemp -d)" && pwd -P)"; T12="$(cd "$(mktemp -d)" && pwd -P)"
+T11="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"; T12="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 mkdir -p "$T11/agents" "$T12/agents"
 CLAUDE_CONFIG_DIR="$T11" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1   # learn the render
 python3 - "$T11" "$HERE" <<'PY'
@@ -1058,7 +1058,7 @@ old = open(os.path.join(here, "tests", "fixtures", "legacy-release", "agents", "
 open(os.path.join(t, "agents", "senior-coder.md"), "w").write(old.replace("__UV__", uv).replace("__CLAUDE_DIR__", t))
 PY
 cp "$T11/agents/senior-coder.md" "$T11/agents/senior-coder.md.new"
-T13="$(cd "$(mktemp -d)" && pwd -P)"; mkdir -p "$T13/agents"
+T13="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"; mkdir -p "$T13/agents"
 sed 's#__UV__#/opt/somewhere-else/bin/uv#g; s#__CLAUDE_DIR__#/Users/someone/.claude#g' \
   "$LEGACY_FIX/agents/senior-coder.md" > "$T13/agents/senior-coder.md"
 CLAUDE_CONFIG_DIR="$T13" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T13/.log" 2>&1
@@ -1087,7 +1087,7 @@ grep -q "senior-coder.md is the stack's old name for main-coder" "$T12/.doctor" 
   && pass "doctor flags the kept senior-coder.md" || failed "doctor does not flag senior-coder.md"
 # the main-thread router became blackcat: an old router.md goes, and the settings
 # follow the rename ("agent": "router", a tuned ROUTER_* knob, the Agent(router) deny rule)
-T14="$(cd "$(mktemp -d)" && pwd -P)"
+T14="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 CLAUDE_CONFIG_DIR="$T14" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1
 python3 - "$T14" <<'PY'
 import hashlib, json, os, sys
@@ -1126,7 +1126,7 @@ assert_unchanged_real_home
 rm -rf "$T4" "$T5" "$T6" "$T7" "$T9" "$T10" "$T11" "$T12" "$T13" "$T14"
 
 echo "== 9. macOS render (simulated): the After Effects server only once it is built"
-T8="$(cd "$(mktemp -d)" && pwd -P)"
+T8="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 mkdir -p "$T8/pyfake"; printf 'import sys\nsys.platform = "darwin"\n' > "$T8/pyfake/sitecustomize.py"
 PYTHONPATH="$T8/pyfake" CLAUDE_CONFIG_DIR="$T8/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T8/.log" 2>&1
 python3 - "$T8/c/agents/motion-designer.md" "$T8/c/agents/designer.md" <<'PY' && pass "darwin without --with-adobe: premiere and illustrator kept, after-effects left out" || failed "darwin render of the Adobe servers"

@@ -38,6 +38,19 @@ spec.loader.exec_module(S)
 TYPES = ("coder", "claude-code-engineer", "explore", "verifier", "planner", "scout")
 
 
+@pytest.fixture(scope="module", autouse=True)
+def _isolated_state(tmp_path_factory):
+    """In-process calls (load_model, tinfo, limits lookup) read XDG_STATE_HOME / the session snapshot at call time;
+    point them at an empty folder so the user's live learned limits never leak into the expected values."""
+    mp = pytest.MonkeyPatch()
+    mp.setenv("XDG_STATE_HOME", str(tmp_path_factory.mktemp("xdg-empty")))
+    for k in list(os.environ):
+        if k.startswith("STACK_") or k == "CLAUDE_SESSION_ID":
+            mp.delenv(k)
+    yield
+    mp.undo()
+
+
 @pytest.fixture(scope="module")
 def model():
     return S.load_model("/nonexistent/sched_model.json")

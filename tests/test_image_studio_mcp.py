@@ -1016,7 +1016,7 @@ def test_tool_descriptions_name_the_models_in_use(home, monkeypatch):
     assert all("stack.env" in d for n, d in described.items() if n != "collect_image")
 
 
-def test_four_tools_and_three_model_settings():
+def test_four_tools_and_three_model_settings(home):    # home: load() runs the module's import-time stack.env read; keep it off the real file
     src = MODULE.read_text()
     assert re.findall(r"@mcp\.tool\([^\n]*\)\s*\nasync def (\w+)", src) == ["generate_svg", "generate_image", "collect_image", "edit_image"]
     for setting, default in (("IMAGE_STUDIO_SVG_MODEL", RECRAFT), ("IMAGE_STUDIO_IMAGE_MODEL", GPT), ("IMAGE_STUDIO_EDIT_MODEL", RIVERFLOW)):

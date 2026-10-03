@@ -627,7 +627,9 @@ def test_f4_git_in_the_config_dir_denied(shell_env, sub):
     "git checkout main", "git reset --hard HEAD~1", "git clean -fd", "git stash", "git pull",
     "git -C /tmp/other checkout .", "git -C $TMPDIR/x reset --hard", "git rebase main",
     "git --git-dir=/tmp/o/.git --work-tree=/tmp/o checkout .", "GIT_DIR=/tmp/o/.git git status",
-    "cd /tmp && git checkout main", "cd $HOME/projects/x && git reset --hard",
+    # not "cd /tmp": where tmp_path lives under /tmp (macOS /private/tmp, as in a sandbox) that directory holds the
+    # protected config dir, and the guard rightly denies a tree rewrite in a directory that contains protected paths
+    "cd /tmp/other && git checkout main", "cd $HOME/projects/x && git reset --hard",
     "git -C ~/projects/repo clean -fdx", "git commit -am x", "git log",
 ])
 def test_f4_read_only_git_and_other_work_trees_allowed(shell_env, cmd):
