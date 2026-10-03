@@ -702,7 +702,7 @@ def test_T17_hostile_csv_moves_at_most_one_bounded_step(st):
         row("sess-0", "nan1", ctx="nan"), row("sess-0", "inf1", ctx="inf"), row("sess-1", "neg1", ctx=-5),
         row("sess-1", "huge1", ctx=2e10), row("sess-2", "turn1", api=20000), row("sess-2", "bad id!", ctx=5e7),
         row("sess-2", "badts", last_ts="nan"), row("sess-2", "badtype", typ="(unknown)"),
-        row("../../etc", "x1"), row("sess-2", "flag1", compacted=7), dict(row("sess-2", "sv"), schema_version=9),
+        row("../../etc", "x1"), row("sess-2", "flag1", compacted=-1), dict(row("sess-2", "sv"), schema_version=9),
     ]
     flood = [row("evil", f"e{i}", ctx=9.9e9, api=9999, ts=T0 + i * 0.01, hit_soft=1, status_code=1)
              for i in range(60000)]
@@ -938,6 +938,49 @@ def test_tight_counts_main_and_session_rows_without_a_status_code():
     agents = [_scope_row(i, f"a{i}", "hit_hard_agent" if i < 4 else None, code="" if i < 2 else "1")
               for i in range(20)]
     assert L._entry(agents, "hard.agent", "hard", 0.0, "k", {})["tight"] == 2
+
+
+def test_S3_compacted_is_a_count_not_a_flag(st):
+    """S3: the collector writes `compacted` as a count; a twice-compacted segment was dropped (U1)."""
+    r = {k: str(v) for k, v in row("s1", "a1").items()}
+    assert L.parse_row(dict(r, compacted="2"))["compacted"] == 1
+    assert L.parse_row(dict(r, compacted="1"))["compacted"] == 1
+    assert L.parse_row(dict(r, compacted="0"))["compacted"] == 0
+    assert L.parse_row(dict(r, compacted=""))["compacted"] is None
+    for bad in ("-1", "nan", "inf", "x", "2e6"):
+        assert L.parse_row(dict(r, compacted=bad)) is None, bad
+
+
+def test_V1_a_running_session_keeps_its_snapshot_past_the_prune_age(st):
+    """V1 (U4): the 30-day snapshot prune went by the snapshot's mtime, which nothing refreshed, inside
+    another session's apply: a session older than 30 days lost its snapshot and the guard's
+    session_limits wrote a new one from the current live.json (limits changed mid-session). The
+    snapshot is touched at each SessionStart of its session, and a session whose guard folder changed
+    lately is kept."""
+    old = time.time() - 31 * 86400
+
+    def backdate(sid):
+        for p in Path(L.snapshots_dir()).glob(sid + ".*"):
+            os.utime(p, (old, old))
+    sids = ("s-live", "s-resumed", "s-gone")
+    for sid in sids:
+        L.apply_and_snapshot({"session_id": sid, "source": "startup"}, spawn=False)
+    vals = {sid: L.session_limits(sid)["values"] for sid in sids}
+    assert len(list(Path(L.snapshots_dir()).glob("s-live.*"))) == 2          # the snapshot and its model
+    for sid in sids:
+        backdate(sid)
+    (st / "s-live").mkdir()                                  # the guard's folder of a running session
+    assert L.apply_and_snapshot({"session_id": "s-resumed", "source": "resume"}, spawn=False)[1] is None
+    _setup_rows(st, coder_rows())
+    assert L.propose() is not None
+    _p, note = L.apply_and_snapshot({"session_id": "s-new", "source": "startup"}, spawn=False)
+    assert note and "coder.soft 19M→23.7M" in note                       # applied: the prune ran
+    for sid in ("s-live", "s-resumed"):
+        assert L.read_snapshot(sid)[1] == "ok", sid
+        assert len(list(Path(L.snapshots_dir()).glob(sid + ".*"))) == 2, sid
+        assert L.session_limits(sid)["values"] == vals[sid], sid
+    assert L.read_snapshot("s-gone")[1] == "missing"                      # idle 31 days: pruned
+    assert not list(Path(L.snapshots_dir()).glob("s-gone.*"))
 
 
 def test_collector_v2_rows_and_snapshot_cells_meet_the_proposer(st):

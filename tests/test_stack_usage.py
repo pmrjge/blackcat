@@ -845,7 +845,8 @@ def test_migration_unknown_header_set_aside_and_v1_files_untouched(st, tmp_path,
     (u / "runs.old-schema.csv").write_text("a,b\n1,2\n")
     v1_files = {n: sha(u / n) for n in ("runs.csv", "runs.1.csv", "runs.old-schema.csv")}
     (u / "runs2.csv").write_text("schema_version,session,id\n2,%s,zzz\n" % SID)           # an unknown header
-    monkeypatch.setattr(U, "time", types.SimpleNamespace(time=lambda: 1790000123.9, sleep=time.sleep))
+    monkeypatch.setattr(U, "time", types.SimpleNamespace(time=lambda: 1790000123.9, sleep=time.sleep,
+                                                             monotonic=time.monotonic))
     U.append_rows([v2_row(id="n1")])
     aside = u / "runs2.old-schema-1790000123.csv"
     assert aside.read_text().endswith("2,%s,zzz\n" % SID)
@@ -935,7 +936,8 @@ def test_rotation_after_a_corrupt_line_loses_no_row(st, monkeypatch, bad):
         fh.write(bad)
     U.append_rows([dict(base, id=f"b{i}") for i in range(3)])
     before = (u / "runs2.csv").read_bytes()
-    monkeypatch.setattr(U, "time", types.SimpleNamespace(time=lambda: 1790000123.9, sleep=time.sleep))
+    monkeypatch.setattr(U, "time", types.SimpleNamespace(time=lambda: 1790000123.9, sleep=time.sleep,
+                                                             monotonic=time.monotonic))
     (u / "runs2.unreadable-1790000123.csv").write_bytes(b"an earlier one\n")
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "300")
     U.append_rows([dict(base, id="c0")])                              # past the cap: rotation
@@ -1018,6 +1020,91 @@ def test_the_writer_never_quotes_a_cell(st, monkeypatch):
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "300")
     U.append_rows([v2_row(id="ok5")])                                    # rotation reads it strictly
     assert not list(u.glob("runs2*.unreadable-*.csv")) and set(U.read_rows()) == {(SID, "ok1", 0), (SID, "ok5", 0)}
+
+
+def test_refresh_scrubs_interpreter_env(st, tmp_path, monkeypatch):
+    """S1: the refit runs unsandboxed at the collector's exit; uv picks its interpreter from an active
+    venv/conda env, a parent uv, UV_PYTHON, a config file, a .venv up from the cwd, then PATH. None of
+    that comes from the session: --no-config, those variables dropped, a fixed PATH, cwd /."""
+    venv = tmp_path / ".venv" / "bin"
+    venv.mkdir(parents=True)
+    seen = {}
+
+    def fake_run(cmd, **kw):
+        seen.update(cmd=cmd, **kw)
+        return subprocess.CompletedProcess(cmd, 0, stdout="refresh: ok\n", stderr="")
+    monkeypatch.setattr(U, "find_uv", lambda: "/fake/uv")
+    monkeypatch.setattr(U.subprocess, "run", fake_run)
+    drop = {"VIRTUAL_ENV": str(tmp_path / ".venv"), "CONDA_PREFIX": str(tmp_path), "CONDA_DEFAULT_ENV": "base",
+            "UV_INTERNAL__PARENT_INTERPRETER": str(venv / "python"), "UV_PYTHON": str(venv / "python"),
+            "UV_CONFIG_FILE": str(tmp_path / "uv.toml"), "PYTHONPATH": str(tmp_path), "PYTHONHOME": str(tmp_path)}
+    for k, v in drop.items():
+        monkeypatch.setenv(k, v)
+    monkeypatch.setenv("PATH", str(venv) + os.pathsep + os.environ.get("PATH", ""))
+    monkeypatch.chdir(tmp_path)
+    assert U.refresh("manual", force=True)["status"] == "ok"
+    env, cmd = seen["env"], seen["cmd"]
+    assert not set(drop) & set(env) and set(drop) == set(U.REFRESH_ENV_DROP)
+    assert str(tmp_path) not in env["PATH"] and env["PATH"] == "/usr/bin:/bin:/usr/sbin:/sbin"
+    assert "--no-config" in cmd and cmd.index("--no-config") < cmd.index("--script") and seen["cwd"] == "/"
+    assert env["PYTHONDONTWRITEBYTECODE"] == "1" and env["UV_OFFLINE"] == "1" and env["HOME"] == os.environ["HOME"]
+
+
+def test_install_warmup_builds_the_refit_env_the_same_way():
+    """S1: install.sh warms the cache the refit reuses with the same scrubbed environment, so uv finds the
+    interpreter and script env it built there."""
+    text = (ROOT / "install.sh").read_text()
+    i = text.index('"$C/hooks/stack_sched_refresh.py" --help')
+    block = text[text.rindex("(cd / &&", 0, i):i]
+    assert set(re.findall(r"-u (\w+)", block)) == set(U.REFRESH_ENV_DROP)
+    assert "PATH=" + U.REFRESH_PATH in block and "PYTHONDONTWRITEBYTECODE=1" in block
+    assert "run --quiet --no-config --script" in block
+
+
+HOLD_LOCK = r"""
+import fcntl, os, sys, time
+fd = os.open(sys.argv[1], os.O_RDONLY)          # a read-only fd is enough for flock
+fcntl.flock(fd, fcntl.LOCK_EX)
+print("held", flush=True)
+time.sleep(60)
+"""
+
+
+def test_append_rows_bounded_when_lock_held(st, tmp_path, monkeypatch):
+    """S2: a process holding runs2.lock (from a read-only fd) made append_rows, and so the collector,
+    block forever; now it gives up after APPEND_LOCK_WAIT_S with TimeoutError, scan_once reloads its
+    state, and the rows are appended at a later tick."""
+    import threading
+    U.append_rows([v2_row(id="a1")])
+    lock = st / "usage" / "runs2.lock"
+    holder = subprocess.Popen([PY, "-c", HOLD_LOCK, str(lock)], stdout=subprocess.PIPE, text=True)
+    try:
+        assert holder.stdout.readline().strip() == "held"
+        got = []
+
+        def go():
+            t = time.monotonic()
+            try:
+                U.append_rows([v2_row(id="a2")])
+                got.append(("ok", time.monotonic() - t))
+            except TimeoutError:
+                got.append(("timeout", time.monotonic() - t))
+        th = threading.Thread(target=go, daemon=True)
+        th.start()
+        th.join(10)
+        assert not th.is_alive() and got and got[0][0] == "timeout" and got[0][1] < 10
+        assert U.APPEND_LOCK_WAIT_S <= 5
+        # the collector's scan: the error leaves the state as it was on disk, nothing is skipped
+        monkeypatch.setattr(U, "APPEND_LOCK_WAIT_S", 0.3)
+        write_agent(subdir(tmp_path), "s1", agent_lines()[:4])
+        with pytest.raises(TimeoutError):
+            U.scan_once(SID, str(subdir(tmp_path)), final=True)
+    finally:
+        holder.kill()
+        holder.wait()
+    U.scan_once(SID, str(subdir(tmp_path)), final=True)
+    U.append_rows([v2_row(id="a2")])
+    assert {(SID, "a1", 0), (SID, "a2", 0), (SID, "s1", 0)} <= set(U.read_rows())
 
 
 def test_scope_hits_credit_the_main_window_and_the_session_not_the_agent(st, tmp_path):

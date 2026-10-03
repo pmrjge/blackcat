@@ -851,21 +851,27 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
 
 # ---------------------------------------------------------------- runs.csv
 class Locked:
-    """flock on a lock file (blocking unless nb=True; `ok` says whether it was taken)."""
+    """flock on a lock file (blocking unless nb=True; `ok` says whether it was taken). wait=S: non-blocking
+    tries for up to S seconds (a flock anyone holds, even from a read-only fd, cannot stall the caller)."""
 
-    def __init__(self, path, nb=False):
-        self.path, self.nb, self.fh, self.ok = path, nb, None, False
+    def __init__(self, path, nb=False, wait=None):
+        self.path, self.nb, self.wait, self.fh, self.ok = path, nb, wait, None, False
 
     def __enter__(self):
         os.makedirs(os.path.dirname(self.path), mode=0o700, exist_ok=True)
         self.fh = open(self.path, "a")
-        try:
-            fcntl.flock(self.fh, fcntl.LOCK_EX | (fcntl.LOCK_NB if self.nb else 0))
-            self.ok = True
-        except OSError as exc:
-            if exc.errno not in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
-                raise
-        return self
+        end = None if self.wait is None else time.monotonic() + self.wait
+        while True:
+            try:
+                fcntl.flock(self.fh, fcntl.LOCK_EX | (fcntl.LOCK_NB if self.nb or end is not None else 0))
+                self.ok = True
+            except OSError as exc:
+                if exc.errno not in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
+                    raise
+                if end is not None and time.monotonic() < end:
+                    time.sleep(0.05)
+                    continue
+            return self
 
     def __exit__(self, *exc):
         if self.fh:
@@ -897,6 +903,7 @@ def _header_ok(path):
 
 
 ARCHIVE_FACTOR = 4        # runs2.1.csv keeps at most this many times STACK_USAGE_MAX_BYTES
+APPEND_LOCK_WAIT_S = 5.0  # append_rows: runs2.lock busy this long -> TimeoutError, retried next tick
 
 
 def _set_aside(path, tag="old-schema"):
@@ -1009,7 +1016,9 @@ def append_rows(rows):
     if not rows:
         return
     old, cur = v2_paths()
-    with Locked(os.path.join(usage_dir(), "runs2.lock")):
+    with Locked(os.path.join(usage_dir(), "runs2.lock"), wait=APPEND_LOCK_WAIT_S) as lk:
+        if not lk.ok:            # scan_once reloads its state: the rows are derived again next tick
+            raise TimeoutError("runs2.lock busy")
         _rotate_if_needed(cur, old)
         new = not os.path.exists(cur) or os.path.getsize(cur) == 0
         buf = io.StringIO()
@@ -1404,6 +1413,22 @@ def find_uv():
     return _exe("uv", UV_PATHS)
 
 
+# what steers uv's interpreter choice for `uv run --script` (an active venv or conda env, a parent uv,
+# a pinned Python, a config file) or what Python imports: the refit runs unsandboxed at the collector's
+# exit, so none of it comes from the session's environment (install.sh warms the cache the same way)
+REFRESH_ENV_DROP = ("VIRTUAL_ENV", "CONDA_PREFIX", "CONDA_DEFAULT_ENV", "UV_INTERNAL__PARENT_INTERPRETER",
+                    "UV_PYTHON", "UV_CONFIG_FILE", "PYTHONPATH", "PYTHONHOME")
+REFRESH_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"
+
+
+def refresh_env():
+    """The environment of the refit's uv: os.environ without REFRESH_ENV_DROP, PATH = REFRESH_PATH (no
+    project .venv/bin), no __pycache__ in the hooks folder. It runs with --no-config and cwd "/"."""
+    env = {k: v for k, v in os.environ.items() if k not in REFRESH_ENV_DROP}
+    env.update(PATH=REFRESH_PATH, PYTHONDONTWRITEBYTECODE="1")
+    return env
+
+
 def _fingerprint():
     fp = []
     for p in csv_paths() + (os.path.join(HERE, "sched_model.json"),):
@@ -1438,12 +1463,11 @@ def refresh(trigger="manual", online=False, force=False, session=None):
         if uv is None or not os.path.exists(script):
             res["status"] = "skipped: uv not found" if uv is None else "skipped: stack_sched_refresh.py missing"
         else:
-            cmd = [uv, "run", "--quiet"] + ([] if online else ["--offline"]) + ["--script", script,
-                                                                                "--usage", usage_dir(),
-                                                                                "--out", active_model_path()]
+            cmd = [uv, "run", "--quiet", "--no-config"] + ([] if online else ["--offline"]) + [
+                "--script", script, "--usage", usage_dir(), "--out", active_model_path()]
             if isinstance(session, str) and ID_RE.match(session):
                 cmd += ["--session", session]
-            env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")     # no __pycache__ in the hooks folder
+            env = refresh_env()
             if not online:
                 env["UV_OFFLINE"] = "1"
             # the cache install.sh warms (sandboxed commands cannot write there), when it exists
@@ -1452,7 +1476,7 @@ def refresh(trigger="manual", online=False, force=False, session=None):
                 env["UV_CACHE_DIR"] = cache
             try:
                 p = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=1800,
-                                   env=env)
+                                   env=env, cwd="/")
                 res["rc"] = p.returncode
                 last = (p.stdout.strip().splitlines() or [""])[-1]
                 # only the script's own one-line numeric summary is kept, never uv's or Python's text

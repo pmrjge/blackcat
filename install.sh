@@ -2264,8 +2264,13 @@ else
   (
     export UV_CACHE_DIR="$STACK_CACHE/uv" npm_config_cache="$STACK_CACHE/npm"
     for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do uv run --quiet --script "$C/mcp/$f" --help >/dev/null 2>&1 </dev/null || true; done
-    # the usage collector's model refit (pandas, numpy) runs offline from this cache at session end
-    uv run --quiet --script "$C/hooks/stack_sched_refresh.py" --help >/dev/null 2>&1 </dev/null || true
+    # the usage collector's model refit (pandas, numpy) runs offline from this cache at session end, with
+    # the environment stack_usage.refresh_env() gives it (no venv/conda/uv interpreter vars, fixed PATH,
+    # --no-config, cwd /), so the interpreter and the script env chosen here are the ones it finds
+    (cd / && env -u VIRTUAL_ENV -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u UV_INTERNAL__PARENT_INTERPRETER \
+       -u UV_PYTHON -u UV_CONFIG_FILE -u PYTHONPATH -u PYTHONHOME PATH=/usr/bin:/bin:/usr/sbin:/sbin \
+       PYTHONDONTWRITEBYTECODE=1 "$(command -v uv)" run --quiet --no-config --script \
+       "$C/hooks/stack_sched_refresh.py" --help) >/dev/null 2>&1 </dev/null || true
     ! have uvx || uvx --quiet markitdown-mcp@0.0.1a7 --help >/dev/null 2>&1 </dev/null || true
     # cg-artist's Blender server: download only (it would wait on the Blender add-on's socket)
     uv tool run --quiet --from mcp-for-blender==2.1.1 python -c pass >/dev/null 2>&1 </dev/null || true

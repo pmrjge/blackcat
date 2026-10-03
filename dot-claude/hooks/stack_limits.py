@@ -641,11 +641,12 @@ def parse_row(r, known=()):
         ts = float(ts_s)
         if not 0 <= seg < 1000000 or not 0 < ts < TS_MAX:
             return None
+        comp = _num(r, "compacted", 1e6)          # the collector writes a count: a flag here
         row = {"session": sess, "id": aid, "seg": seg, "ts": ts, "ts_s": ts_s,
                "status": (r.get("status") or "").strip(),
                "api_calls": _num(r, "api_calls", TURNS_MAX), "ctx": _num(r, "ctx", CTX_MAX),
                "window_ctx": _num(r, "window_ctx", CTX_MAX),
-               "compacted": _flag(r, "compacted"), "turn_limited": _flag(r, "turn_limited"),
+               "compacted": None if comp is None else int(comp >= 1), "turn_limited": _flag(r, "turn_limited"),
                "is_main": _flag(r, "is_main"), "window": _num(r, "window", 1e6)}
         for k in _HIT_COLS:
             row[k] = _flag(r, k)
@@ -1563,7 +1564,23 @@ def _write_snapshot(sid, src, seed, live, values, origin, auto, now=None):
     return p, read_snapshot(sid)[0]
 
 
+def _touch_snapshot(sid, doc):
+    """Refresh the mtime of a session's snapshot and its scheduler model copy (the prune's clock)."""
+    names = [sid + ".json"]
+    m = (doc or {}).get("sched_model") or {}
+    if isinstance(m.get("file"), str) and m["file"] == sid + ".sched_model.json":
+        names.append(m["file"])
+    for name in names:
+        try:
+            os.utime(os.path.join(snapshots_dir(), name))
+        except OSError:
+            pass
+
+
 def _prune_snapshots(keep=None, now=None):
+    """Snapshots (and their model copies) idle for SNAP_KEEP_S: neither the snapshot (touched at every
+    SessionStart of its session) nor the guard's session folder state_root()/<sid> changed since. A
+    session that is still running keeps its values (U4)."""
     cutoff = (time.time() if now is None else now) - SNAP_KEEP_S
     try:
         names = os.listdir(snapshots_dir())
@@ -1577,11 +1594,22 @@ def _prune_snapshots(keep=None, now=None):
             sid = name[:-len(".json")]
         else:
             continue
+        if sid == keep:
+            continue
         p = os.path.join(snapshots_dir(), name)
         try:
-            if sid != keep and os.lstat(p).st_mtime < cutoff:
-                os.unlink(p)
-                n += 1
+            if os.lstat(p).st_mtime >= cutoff:
+                continue
+        except OSError:
+            continue
+        try:
+            if ID_RE.match(sid) and os.stat(os.path.join(state_root(), sid)).st_mtime >= cutoff:
+                continue                       # the guard still writes this session's state
+        except OSError:
+            pass
+        try:
+            os.unlink(p)
+            n += 1
         except OSError:
             pass
     return n
@@ -1704,9 +1732,10 @@ def _apply_and_snapshot(ev, spawn=True, now=None):
         return None, None
     src = ev.get("source") if ev.get("source") in SOURCES else "unknown"
     path = snapshot_path(sid)
-    state = read_snapshot(sid)[1]
-    if state == "ok":
-        return path, None                                # resume / compact / clear: the same values
+    doc, state = read_snapshot(sid)
+    if state == "ok":                                    # resume / compact / clear: the same values
+        _touch_snapshot(sid, doc)                        # a live session's snapshot is never pruned
+        return path, None
     if state != "missing":
         log(f"snapshot of {sid} {state} (not replaced)")
         return path, f"limits: this session's snapshot is {state}; seed values in use — stack_limits.py status"

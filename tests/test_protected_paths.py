@@ -11,6 +11,7 @@ Run: uv run --with pytest pytest -q tests/test_protected_paths.py
 """
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -296,6 +297,34 @@ def test_settings_sandbox_block():
     assert set(net) <= {"allowedDomains", "deniedDomains", "strictAllowlist", "allowLocalBinding",
                         "allowUnixSockets", "allowAllUnixSockets", "allowMachLookup",
                         "httpProxyPort", "socksProxyPort", "tlsTerminate"}
+
+
+def _sandbox_glob(pattern):
+    """A sandbox path pattern as a regex: `**/` any number of directories, `*` within one name."""
+    out, i = "", 0
+    while i < len(pattern):
+        if pattern.startswith("**/", i):
+            out, i = out + "(?:[^/]+/)*", i + 3
+        elif pattern[i] == "*":
+            out, i = out + "[^/]*", i + 1
+        else:
+            out, i = out + re.escape(pattern[i]), i + 1
+    return re.compile(out + r"\Z")
+
+
+def test_state_locks_unreadable_in_the_sandbox():
+    """S2: a flock needs only a read-only fd, so a sandboxed command that can open the state dir's lock
+    or mutex files could hold them and stall the collector (runs2.lock), the limits commands and
+    SessionStart's apply (limits.lock), the read gate or the guard (*.mutex). They are denyRead."""
+    fs = json.loads(SRC_SETTINGS.read_text())["sandbox"]["filesystem"]
+    pats = [_sandbox_glob(p) for p in fs["denyRead"]]
+    for path in ("limits/limits.lock", "limits/proposals.lock", "usage/runs2.lock", "usage/refresh.lock",
+                 "usage/sessions/abc-1/collector.lock", "abc-1/read-gate.json.lock", "abc-1/registry.mutex",
+                 "abc-1/god.mutex"):
+        assert any(p.match("__STACK_STATE__/" + path) for p in pats), path
+    for path in ("limits/live.json", "usage/runs2.csv", "abc-1/budget.json"):    # readable as before
+        assert not any(p.match("__STACK_STATE__/" + path) for p in pats), path
+    assert {"__STACK_STATE__/**/*.lock", "__STACK_STATE__/**/*.mutex"} <= set(fs["denyRead"])
 
 
 def test_settings_round2_hardening():

@@ -250,3 +250,15 @@ def test_hooks_only_import_the_stdlib():
         mods = {n.names[0].name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import)}
         mods |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
         assert not mods & {"pandas", "numpy", "scipy"}, mods
+
+
+def test_S4_refresh_step_must_be_finite_and_above_one(capsys):
+    """S4: `--step nan` (or inf, or STACK_SCHED_REFRESH_STEP=nan) passed `a.step <= 1` and reached the
+    bounded step; argparse now refuses it (exit 2) before anything is read or written."""
+    pytest.importorskip("pandas")
+    R = _load("stack_sched_refresh_s4", HOOKS / "stack_sched_refresh.py")
+    for bad in ("nan", "inf", "-inf", "1", "0.5"):
+        with pytest.raises(SystemExit) as exc:
+            R.main(["--step", bad, "--dry-run", "--usage", "/nonexistent", "--out", "/nonexistent/m.json"])
+        assert exc.value.code == 2, bad
+    assert "finite number > 1" in capsys.readouterr().err

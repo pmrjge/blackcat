@@ -342,8 +342,8 @@ def main(argv=None):
     ap.add_argument("--session", default=None, help="session whose limits snapshot gives the soft limits "
                     "(default: STACK_LIMITS_SNAPSHOT, CLAUDE_SESSION_ID; else the seed)")
     a = ap.parse_args(argv)
-    if a.step <= 1:
-        ap.error("--step must be > 1")
+    if not 1 < a.step < float("inf"):           # NaN fails too
+        ap.error("--step must be a finite number > 1")
     refresh(a.usage, a.out, a.shipped, a.agents, a.guard, a.step, a.B, a.dry_run, a.session)
     return 0
 

@@ -310,6 +310,8 @@
       ],
       "denyRead": [
         "__CLAUDE_DIR__/**/stack.env",
+        "__STACK_STATE__/**/*.lock",
+        "__STACK_STATE__/**/*.mutex",
         "__CLAUDE_DIR__/backup-*",
         "__STACK_BACKUPS__",
         "__CLAUDE_DIR__/.credentials.json",
