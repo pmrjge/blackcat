@@ -337,6 +337,16 @@ PY
 fi
 python3 "$T1/hooks/agent_guard.py" --self-test >/dev/null 2>&1 && pass "installed agent_guard --self-test ok (agent files match POLICY)" \
   || failed "installed agent_guard --self-test failed: $(python3 "$T1/hooks/agent_guard.py" --self-test 2>&1)"
+# the read gate: installed, its self-test passes, and settings.json runs it once on Read|Grep|Glob|Bash
+python3 "$T1/hooks/read_gate.py" --self-test >/dev/null 2>&1 && python3 - "$T1/settings.json" "$T1" <<'PY' \
+  && pass "read gate installed, self-test ok, wired once on PreToolUse Read|Grep|Glob|Bash" \
+  || failed "read gate: self-test or settings wiring (python3 $T1/hooks/read_gate.py --self-test)"
+import json, sys
+s = json.load(open(sys.argv[1]))
+g = [g for g in s["hooks"]["PreToolUse"] if "read_gate.py" in json.dumps(g)]
+sys.exit(0 if len(g) == 1 and g[0]["matcher"] == "Read|Grep|Glob|Bash"
+         and g[0]["hooks"][0]["command"].endswith(sys.argv[2] + '/hooks/read_gate.py"') else 1)
+PY
 # every installed agent's "May spawn" sentence (the rendered copy types included) is its POLICY row
 python3 "$T1/hooks/agent_guard.py" --print-policy | python3 -c '
 import json, os, re, sys

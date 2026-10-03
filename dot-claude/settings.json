@@ -547,6 +547,16 @@
         ]
       },
       {
+        "matcher": "Read|Grep|Glob|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/read_gate.py\"",
+            "timeout": 10
+          }
+        ]
+      },
+      {
         "matcher": "*",
         "hooks": [
           {

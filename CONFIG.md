@@ -241,6 +241,26 @@ Per-agent plugin enabling does not exist: plugins are session-wide (user, projec
   - `STACK_SCHED_REFRESH_B` (bootstrap replicates, default 2000)
 - **Optional:** a periodic refit outside sessions (cron or a launchd agent running `stack_usage.py refresh`) is possible but not installed; the stack ships none.
 
+### Read gate (2026-10-03)
+
+- **What:** `hooks/read_gate.py`, PreToolUse on `Read|Grep|Glob|Bash`. The first read of a gated target is refused (`permissionDecision: deny`) with a cheaper alternative; the identical call repeated by the same agent passes, so "only when strictly necessary" is the agent's explicit second call, not a ban. Bash is covered because Grep and Glob are absent by default on macOS and Linux: agents search with `grep` and `find` through Bash (https://code.claude.com/docs/en/tools-reference, "Glob tool behavior"). Permission rules can't do this: `deny`/`ask` win over a hook `allow`, a Read deny also blocks Edit, and `ask` prompts you.
+- **Gated** (the lists live in the hook):
+
+| Category | Targets | Exempt agents (stack.env knob) |
+|---|---|---|
+| build | `.next` `.nuxt` `.output` `.svelte-kit` `.astro` `.docusaurus` `_site` `htmlcov` `.nyc_output` `DerivedData` `.build` `dist-newstyle` `_build` `zig-out` `.stack-work` `resources/_gen` (Hugo), `.lake/build` only (`.lake/packages` holds Mathlib); `public` `dist` `build` `out` `target` `coverage` only when git ignores them, or `public/` beside a Hugo config (Vite's `public/` source folder stays readable); `*.min.js` `*.min.css` `*.map` | verifier, frontend-engineer, browser-operator (`READ_GATE_EXEMPT_BUILD`) |
+| deps | `node_modules` `.venv` `venv` `.tox` `__pycache__` `.mypy_cache` `.pytest_cache` `.ruff_cache` `.gradle` `Pods` `.terraform` `.pixi` `.dart_tool` `.yarn/cache` and other caches; `vendor` when git-ignored; lockfiles over 64 KiB | none (`READ_GATE_EXEMPT_DEPS`) |
+| data | weights and binary data (`.parquet` `.db` `.sqlite` `.duckdb` `.npy` `.pkl` `.pt` `.safetensors` `.onnx` `.gguf` `.bin` ...); text data (`.csv` `.tsv` `.jsonl` `.json` `.xml` `.log` `.sql`) over 256 KiB | data-engineer, data-scientist, db-engineer, ml-, dl-, llm-, mlx-engineer (`READ_GATE_EXEMPT_DATA`) |
+| visual | video, audio, 3D and layered design files; images over 2 MiB | designer, motion-designer, image-director, cg-artist, doc-specialist (`READ_GATE_EXEMPT_VISUAL`) |
+| binary | objects, libraries, archives, fonts, bytecode | none (`READ_GATE_EXEMPT_BINARY`) |
+
+- **Never gated:** anything under `.claude-work/`; Read with `limit` <= 200; Grep with `output_mode: count` or `head_limit` <= 200; Bash readers whose output is cut or capped (`head`, `tail`, `wc`, `| head`, `| grep`, `grep -l/-c/-q`, `sed -n`, `> file`, `find -maxdepth` <= 2, plain `ls`); builds and tests (they don't go through these readers); Edit and Write.
+- **Bash readers parsed:** `cat bat less more nl tac strings xxd hexdump od grep egrep fgrep ugrep rg ag ack find bfs fd tree ls -R sed awk jq`, per pipeline segment, with `cd` followed, globs expanded and `$VAR` words skipped. `bash -c`, `$(...)` and `xargs` are not followed (a token gate, not a guard).
+- **Retry state:** `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/read-gate.json`, keyed by agent, tool and input (Bash: the command, not its description), at most `READ_GATE_MAX_KEYS` (512) entries, oldest dropped, under `flock`; agent_guard's SessionStart deletes session folders idle for 3 days.
+- **Fails open:** a bad event, an unparsable command, git failing or a state that can't be written lets the call pass (stderr note).
+- **Knobs** (stack.env, read at each call; `/usr/bin/python3 ~/.claude/hooks/read_gate.py --print` shows the effective values): `READ_GATE` (0 = off; the environment variable works too), `READ_GATE_LIMIT`, `READ_GATE_DATA_BYTES`, `READ_GATE_LOCK_BYTES`, `READ_GATE_IMAGE_BYTES`, `READ_GATE_MAX_KEYS`, and the `READ_GATE_EXEMPT_*` lists above (a value replaces the list; `<type>-copy` counts as its base). To exempt another agent from build output: `READ_GATE_EXEMPT_BUILD=verifier,frontend-engineer,browser-operator,coder`.
+- **Tests:** `/usr/bin/python3 dot-claude/hooks/read_gate.py --self-test`; `uv run --python 3.12 --with pytest pytest -q tests/test_read_gate.py`.
+
 ## 6. Recommended session settings
 
 - **Claude Desktop, Conductor and other SDK apps:** set effort to **medium** for the main thread; the agent files set each subagent's effort. Start a new session after installing.
@@ -365,6 +385,10 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-03 (read gate)
+
+- New `hooks/read_gate.py` (PreToolUse `Read|Grep|Glob|Bash`): the first read of build output, dependency dirs, large data, media or binaries is refused with a cheaper alternative; the identical retry passes (§5, "Read gate"). One line in the global rules. Rerun install.sh.
 
 ### 2026-10-03 (auto-compact window 900K)
 
