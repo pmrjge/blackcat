@@ -37,8 +37,9 @@ with its reason; installer internals, backups, sandbox and residual risks; and, 
 [§10](CONFIG.md#10-apps-connectors-and-mcp-servers), apps and connectors for your Claude plan, vetted MCP
 servers, documented-only and rejected ones.
 
-The README before this reorganisation is `git show acec941:README.md`; the long-form one with installer
-flags in full, the spawn table, sandbox internals and changelog entries is `git show 96d3a52:README.md`.
+Earlier README revisions (the one before this reorganisation, and the long-form one with installer flags
+in full, the spawn table, sandbox internals and changelog entries) are not shipped; the commits that
+changed them are in the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
 
 ## Contents
 
@@ -261,7 +262,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 
 | Mechanism | What it does | Evidence |
 |---|---|---|
-| Static prompt budget | `tests/prompt_budget.py --check` fails when descriptions, bodies, rules or listings grow past gates set against revision `ad22962` | Measured (static characters, 2026-10-03, `43f441e` vs `ad22962`): skill listing 30,782 → 14,437 chars (−53.1 %), mostly because the 83 hub modules are no longer listed and the skill count went from 248 to 214; mean per-spawn prompt 55,240 → 37,527 chars (−32.1 %). Both revisions are this stack, so this is not a comparison with plain Claude Code, and whether skill discovery or answer quality changed is not measured |
+| Static prompt budget | `tests/prompt_budget.py --check` fails when descriptions, bodies, rules or listings grow past gates set against revision `ad22962` | Measured (static characters, 2026-10-03, the revision that gave BlackCat its own tools vs `ad22962`; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)): skill listing 30,782 → 14,437 chars (−53.1 %), mostly because the 83 hub modules are no longer listed and the skill count went from 248 to 214; mean per-spawn prompt 55,240 → 37,527 chars (−32.1 %). Both revisions are this stack, so this is not a comparison with plain Claude Code, and whether skill discovery or answer quality changed is not measured |
 | Small jobs on the main thread | BlackCat does a job of a few tool calls itself instead of spawning an agent with a fresh context | **by design, not measured** |
 | Output economy | Global rules: answer first, no preamble or closing summary, big artifacts to files, a clean finish in one line | **by design, not measured** |
 | Read gate | First read of build output, dependencies, big data, media or binaries is refused with a cheaper alternative | **by design, not measured** (no token saving recorded) |
@@ -363,8 +364,8 @@ data outside this repository. It compares two versions of this stack, not the st
 | Cell | Runs | Graded | Result |
 |---|---|---|---|
 | Older install, prompt set v1 (session `4e2da3ce`) | 40 | 40 | 30 pass, 6 partial, 0 fail, 4 tool-absent: pass rate 30/40 = 0.75 (Wilson 95 % [0.60, 0.86]); 30/36 = 0.83 excluding tool-absent |
-| Newer install (`44c9fd5`), v1 | 24 | 0 | ungraded |
-| Newer install (`44c9fd5`), v2 | 13 | 0 | ungraded |
+| Newer install (2026-10-03 hand-off), v1 | 24 | 0 | ungraded |
+| Newer install (2026-10-03 hand-off), v2 | 13 | 0 | ungraded |
 
 Other figures in that file: in the graded runs 3/40 overclaimed (said done, not graded pass) and 1/40
 underclaimed. On the 13 prompts run on both installs, the newer one took longer (median log2 ratio of
@@ -374,7 +375,9 @@ Read these as **the baseline measured so far, not as evidence of improvement**. 
 one run per prompt and no replicates; 1 to 13 runs per agent type; the newer install's runs are not
 graded; install, agent type and model changed together; some graders could not re-run tests under the
 read-only guard; one grader per batch with known rubric ambiguity; cost was not recorded for any run.
-Both installs predate BlackCat's own tools (`43f441e`).
+Both installs predate BlackCat's own tools. The revisions (the newer install is the 2026-10-03 RESUME.md
+hand-off commit; BlackCat got its tools in "BlackCat does small jobs itself") are in the commit history
+in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
 
 ### Known limits
 
@@ -389,9 +392,10 @@ Both installs predate BlackCat's own tools (`43f441e`).
   effort still runs.
 - **Small samples.** Soft limits and maxTurns rest on two sessions; most types have fewer than 5 healthy
   segments.
-- **Test failures inside the Claude Code sandbox** (full suite at `17223cb`, 2026-10-03: 3119 passed,
-  2 failed, 1 skipped; run by the author, not reproducible from the repo; 3188 tests are collected at
-  `acec941`): `test_four_tools_and_three_model_settings` in `tests/test_image_studio_mcp.py`
+- **Test failures inside the Claude Code sandbox** (full suite on 2026-10-03 after the `/stack-tree`
+  review fixes: 3119 passed, 2 failed, 1 skipped; run by the author, not reproducible from the repo;
+  3188 tests are collected after the supreme-coder rename review fixes; see the commit history in
+  [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)): `test_four_tools_and_three_model_settings` in `tests/test_image_studio_mcp.py`
   (the sandbox denies reading `~/.claude/stack.env`) and one `f4` case in `tests/test_protected_paths.py`
   (pytest's temp dir sits under `/tmp/claude-501`). Two cases of `test_three_way_verdict_on_the_soft_limit`
   fail when `STACK_LIMITS_SNAPSHOT` is set.
@@ -1333,8 +1337,9 @@ outside this repository).
 ## Changelog
 
 Per-revision parameters and their reasons: [CONFIG.md](CONFIG.md) §9. Earlier README revisions, with
-their changelog entries, are in git history (`git log --follow README.md`; the last long-form one is
-`git show 96d3a52:README.md`).
+their changelog entries, are not shipped; see the commit history in
+[PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md) (the last long-form README is the 2026-10-02 commit
+"Skills listed, not name-only").
 
 ## Credits
 
