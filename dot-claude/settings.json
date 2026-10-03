@@ -459,6 +459,18 @@
         ]
       }
     ],
+    "UserPromptExpansion": [
+      {
+        "matcher": "agent-override|agent-reset",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" agent-override",
+            "timeout": 15
+          }
+        ]
+      }
+    ],
     "PreToolUse": [
       {
         "matcher": "Agent|Task|SubAgent|Workflow|RunWorkflow",

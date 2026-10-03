@@ -26,7 +26,9 @@ Reads the hook JSON on stdin.
   PreToolUse  Agent                 spawn policy, copy rule, depth limit, fan-out caps (spawn
                                     lease), session copy cap, blackcat dispatch and step limits
                                     (atomic markers), god-coder singleton (pending lease), strip
-                                    `model`, and drop a BlackCat `run_in_background: false` (its
+                                    `model` (then set it to the user's /agent-override model for
+                                    this session, if any), and drop a BlackCat
+                                    `run_in_background: false` (its
                                     children run in the background: BLACKCAT_BACKGROUND); after
                                     every gate, label the child (STACK_AGENT_LABEL: description
                                     "<type>: <task>" or name "<type>-<n>"; silent updatedInput)
@@ -79,11 +81,15 @@ Reads the hook JSON on stdin.
                                     spawn lease
   UserPromptSubmit                  start the prompt token budget; prune blackcat markers of
                                     earlier prompts
-  SessionStart                      startup|resume: clear locks, leases and blackcat markers, prune
+  SessionStart                      startup|resume|clear: drop the /agent-override state;
+                                    startup|resume: clear locks, leases and blackcat markers, prune
                                     old session dirs; resume|fork: bring the token count up to date;
                                     every source: the JSON report line as additionalContext when
                                     STACK_REPORT_FORMAT=json (nothing otherwise)
                                     (settings.json's matcher must list all three)
+  UserPromptExpansion `agent-override`  the user's /agent-override and /agent-reset commands:
+                                    per-session model overrides (see "session model overrides";
+                                    every expansion is blocked, its reason is the output)
   SessionStart `session-env`        every source: the sandboxed Bash env (cache dirs, git
                                     credential helpers off) into $CLAUDE_ENV_FILE
 
@@ -108,6 +114,9 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
                           ts}, counted like spawn leases
   budget.json             token counts {files: {path: {off, ino, keys, seg, seg_run}}, total,
                           prompt_base, prompt_id, human, soft_prompt, soft_agents}
+  agent-overrides.json    {session_id, overrides: {type: {model, effort, ts}}}: the user's
+                          /agent-override (written only by the UserPromptExpansion hook);
+                          agent-overrides.log: its set/reset/apply lines
   prompt-pending.json     {prompt_id, ts} of a human prompt whose budget window the
                           UserPromptSubmit hook has not recorded yet (budget_note_prompt)
   mcp-calls/<agent_id>.json  MCP tool calls of one subagent's current run {calls, run (its
@@ -1434,25 +1443,314 @@ def on_agent(ev, d):
     # 3. input rewrites: models are fixed by agent definitions, BlackCat never blocks on a child,
     # and the child gets its label (STACK_AGENT_LABEL); reached only when every gate allowed it
     new_input, why = dict(ti), []
+    # the user's /agent-override for this session (None: none, or unreadable -> as before)
+    forced = ledger_safe(override_model, d, ev, child)
     if os.environ.get("STRIP_AGENT_MODEL", "1") == "1" and "model" in ti:
         new_input.pop("model")
-        why.append("model override removed; agent definition decides")
+        why.append("model override removed; " + ("the user's /agent-override decides" if forced
+                                                  else "agent definition decides"))
     if blackcat_foreground(ev, ti):
         new_input.pop("run_in_background")
         why.append("BlackCat dispatches run in the background")
+    note = None
+    if forced:
+        new_input["model"] = forced
+        note = ledger_safe(override_applied, d, ev, child, forced, ti.get("model"))
     label = ledger_safe(agent_label, d, ti, child) or {}
     new_input.update(label)
     if label.get("name"):
         ledger_safe(record_name, d, label, child, caller, tid)
+    extra = {"systemMessage": note} if note else {}
     if why:
-        emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                     "permissionDecision": "allow",
-                                     "permissionDecisionReason": "; ".join(why),
-                                     "updatedInput": new_input}})
-    if label:
+        emit(dict({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                          "permissionDecision": "allow",
+                                          "permissionDecisionReason": "; ".join(why),
+                                          "updatedInput": new_input}}, **extra))
+    if label or forced:
         # silent, and no permissionDecision: the relabelled input goes through the normal
         # permission evaluation (hooks.md, PreToolUse updatedInput), so a label loosens nothing
-        emit({"hookSpecificOutput": {"hookEventName": "PreToolUse", "updatedInput": new_input}})
+        emit(dict({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                          "updatedInput": new_input}}, **extra))
+
+
+# ---------------------------------------------------------------- session model overrides
+# `/agent-override <agent> <model|-> [<effort|->]`, `/agent-override list`, `/agent-reset
+# <agent|all>`: the user's commands (skills/agent-override, skills/agent-reset, both
+# disable-model-invocation). Only this hook writes the state, and only from a UserPromptExpansion
+# event (`agent_guard.py agent-override`): Claude Code fires it when a slash command typed by the
+# user expands; prompts it queues itself (cron and /loop wake-ups the model scheduled, SendMessage
+# to the main thread, task notifications, auto-continuations) carry skipSlashCommands and never
+# expand (Claude Code 2.1.287), and the Skill tool cannot run a disable-model-invocation command.
+# UserPromptSubmit is NOT used: its `prompt` can be model-authored (a cron fire). Every expansion
+# is blocked: the reason (shown to the user) is the command's output, and no model turn runs.
+# State: <session>/agent-overrides.json {session_id, overrides: {type: {model, effort, ts}}}
+# (0600, atomic, read with O_NOFOLLOW); log: <session>/agent-overrides.log (JSON lines). Cleared
+# by SessionStart startup|resume|clear. on_agent sets `model` of an allowed Agent call whose
+# subagent_type (or its copy) has a model override, after every gate (caps, leases and the limits
+# snapshot are keyed by type and unchanged). Effort is recorded, never enforced: the Agent tool has
+# no per-call effort (its input: description, prompt, subagent_type, model, run_in_background,
+# name, team_name, mode, isolation, cwd) and a child's effort is its frontmatter `effort`, else the
+# session's; a hook can't change either for one session.
+OVERRIDE_FILE = "agent-overrides.json"
+OVERRIDE_LOG = "agent-overrides.log"
+OVERRIDE_COMMANDS = ("agent-override", "agent-reset")
+OVERRIDE_MODELS = ("sonnet", "opus", "haiku", "fable")      # the Agent tool's `model` enum
+OVERRIDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")  # frontmatter `effort` (= EFFORT_ORDER)
+OVERRIDE_ARGS_RE = re.compile(r"[A-Za-z0-9 -]{0,120}")      # no newline, tab or metacharacter
+MODEL_RE = re.compile(r"(?m)^model:\s*([A-Za-z0-9._-]+)\s*(?:#.*)?$")
+OVERRIDE_USAGE = ("usage: /agent-override <agent> <model|-> [<effort|->] | /agent-override list | "
+                  "/agent-reset <agent|all>; models: %s; efforts: %s; '-' = unchanged"
+                  % (", ".join(OVERRIDE_MODELS), ", ".join(OVERRIDE_EFFORTS)))
+
+
+class OverrideError(ValueError):
+    pass
+
+
+def override_agents_dir():
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agents")
+
+
+def agent_defaults(agent_type, agents_dir=None):
+    """(model, effort) from an agent file's frontmatter; None when there is no such file."""
+    agents_dir = agents_dir or override_agents_dir()
+    if safe(agent_type) != agent_type:
+        return None
+    try:
+        with open(os.path.join(agents_dir, agent_type + ".md")) as f:
+            head = f.read(8192)
+    except OSError:
+        return None
+    parts = head.split("\n---", 1) if head.startswith("---") else None
+    if not parts or len(parts) != 2:
+        return None
+    m, e = MODEL_RE.search(parts[0]), EFFORT_RE.search(parts[0])
+    return (m.group(1).lower() if m else None, e.group(1).lower() if e else None)
+
+
+def override_agents(agents_dir=None):
+    """The types an override may name: stack agents with a definition file, BlackCat aside (the
+    main thread: /model changes it)."""
+    return [a for a in AGENTS if a != "blackcat" and agent_defaults(a, agents_dir) is not None]
+
+
+def parse_override_command(name, args, agents_dir=None):
+    """("list",) | ("set", agent, model or None, effort or None) | ("reset", agent or "all");
+    OverrideError with the message for the user otherwise."""
+    if name not in OVERRIDE_COMMANDS:
+        raise OverrideError("unknown command /%s" % name)
+    if not isinstance(args, str) or not OVERRIDE_ARGS_RE.fullmatch(args):
+        raise OverrideError("arguments may hold only letters, digits, '-' and spaces. "
+                            + OVERRIDE_USAGE)
+    words = args.lower().split()
+    agents = override_agents(agents_dir)
+
+    def agent(word):
+        if word == "blackcat":
+            raise OverrideError("blackcat is the main thread, not a delegated agent: use /model")
+        if word not in agents:
+            raise OverrideError("unknown agent '%s'; one of: %s" % (word, ", ".join(agents)))
+        return word
+
+    if name == "agent-reset":
+        if len(words) != 1:
+            raise OverrideError("usage: /agent-reset <agent|all>")
+        return ("reset", "all" if words[0] == "all" else agent(words[0]))
+    if words == ["list"]:
+        return ("list",)
+    if len(words) not in (2, 3):
+        raise OverrideError(OVERRIDE_USAGE)
+    model = words[1]
+    effort = words[2] if len(words) == 3 else "-"
+    a = agent(words[0])
+    if model != "-" and model not in OVERRIDE_MODELS:
+        raise OverrideError("unknown model '%s'; one of: %s (or '-')"
+                            % (model, ", ".join(OVERRIDE_MODELS)))
+    if effort != "-" and effort not in OVERRIDE_EFFORTS:
+        raise OverrideError("unknown effort '%s'; one of: %s (or '-')"
+                            % (effort, ", ".join(OVERRIDE_EFFORTS)))
+    if model == "-" and effort == "-":
+        raise OverrideError("nothing to change. " + OVERRIDE_USAGE)
+    return ("set", a, None if model == "-" else model, None if effort == "-" else effort)
+
+
+def read_overrides(d, session_id):
+    """{type: {model, effort, ts}} of this session; {} when absent or not well-formed (a symlink,
+    another session's file, values outside the enums)."""
+    path = os.path.join(d, OVERRIDE_FILE)
+    try:
+        fd = os.open(path, os.O_RDONLY | getattr(os, "O_NOFOLLOW", 0))
+    except OSError:
+        return {}
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_size > 65536:
+            return {}
+        with os.fdopen(fd, "r") as f:
+            fd = None
+            obj = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    finally:
+        if fd is not None:
+            os.close(fd)
+    if not isinstance(obj, dict) or obj.get("session_id") != session_id:
+        return {}
+    out = {}
+    for a, v in (obj.get("overrides") or {}).items() if isinstance(obj.get("overrides"), dict) else ():
+        if a in AGENTS and isinstance(v, dict) and v.get("model") in OVERRIDE_MODELS + (None,) \
+                and v.get("effort") in OVERRIDE_EFFORTS + (None,):
+            out[a] = {"model": v.get("model"), "effort": v.get("effort"), "ts": v.get("ts")}
+    return out
+
+
+def write_overrides(d, session_id, overrides):
+    path = os.path.join(d, OVERRIDE_FILE)
+    if overrides:
+        write_json_atomic(path, {"session_id": session_id, "overrides": overrides})
+    else:
+        unlink(path)
+
+
+def override_log(d, record):
+    fd = os.open(os.path.join(d, OVERRIDE_LOG),
+                 os.O_WRONLY | os.O_APPEND | os.O_CREAT | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    with os.fdopen(fd, "a") as f:
+        f.write(json.dumps(dict(record, ts=round(time.time(), 3))) + "\n")
+
+
+def override_model(d, ev, child):
+    """The model the user's /agent-override sets for `child` (a copy type: its base's) in this
+    session, or None."""
+    sid = ev.get("session_id")
+    if not sid or not os.path.exists(os.path.join(d, OVERRIDE_FILE)):
+        return None
+    ov = read_overrides(d, sid)
+    entry = ov.get(child) or ov.get(COPY_BASE.get(child) or "")
+    return (entry or {}).get("model")
+
+
+def override_applied(d, ev, child, model, asked):
+    override_log(d, {"event": "apply", "agent": child, "model": model, "asked": asked,
+                     "caller": ev.get("agent_id") or "main", "tool_use_id": ev.get("tool_use_id")})
+    return "agent-override: %s runs on %s (this session; /agent-reset %s to undo)" % (
+        child, model, COPY_BASE.get(child) or child)
+
+
+def override_effective_env():
+    """Settings that make a per-call model inert (Claude Code drops the Agent tool's `model`
+    parameter when CLAUDE_CODE_SUBAGENT_MODEL_FORCE is set)."""
+    v = os.environ.get("CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "").strip().lower()
+    return v not in ("", "0", "false", "no", "off")
+
+
+def override_list(ov, agents_dir=None):
+    lines = ["agent-override (this session):"]
+    if not ov:
+        lines.append("  no overrides")
+    for a in sorted(ov):
+        dm, de = agent_defaults(a, agents_dir) or (None, None)
+        m, e = ov[a].get("model"), ov[a].get("effort")
+        lines.append("  %-20s model %s -> %s; effort %s -> %s" % (
+            a, dm or "?", m or "(default)", de or "?",
+            ("%s (recorded, not enforced)" % e) if e else "(default)"))
+    defaults = []
+    for a in override_agents(agents_dir):
+        dm, de = agent_defaults(a, agents_dir)
+        defaults.append("%s %s/%s" % (a, dm or "?", de or "?"))
+    lines.append("defaults (model/effort): " + ", ".join(defaults))
+    return "\n".join(lines)
+
+
+EFFORT_NOT_ENFORCED = ("recorded only, NOT enforced: Claude Code has no per-call effort for a "
+                       "delegated agent, so its definition's effort (%s) still applies")
+
+
+def override_command(ev, agents_dir=None):
+    """The user's /agent-override or /agent-reset: the message for the user (the state written
+    when it changes something)."""
+    sid = ev.get("session_id")
+    if not isinstance(sid, str) or not sid:
+        raise OverrideError("no session id in the hook input; nothing changed")
+    cmd = parse_override_command(ev.get("command_name"), ev.get("command_args") or "", agents_dir)
+    d = sdir(sid)
+    if cmd[0] == "list":
+        return override_list(read_overrides(d, sid), agents_dir)
+    with mutex(d, "overrides"):
+        ov = read_overrides(d, sid)
+        if cmd[0] == "reset":
+            names = sorted(ov) if cmd[1] == "all" else [cmd[1]]
+            done = []
+            for a in names:
+                if a in ov:
+                    dm, de = agent_defaults(a, agents_dir) or (None, None)
+                    parts = ["model %s -> %s" % (ov[a]["model"], dm)] if ov[a].get("model") else []
+                    if ov[a].get("effort"):
+                        parts.append("effort %s -> %s" % (ov[a]["effort"], de))
+                    done.append("%s %s" % (a, ", ".join(parts)))
+                    del ov[a]
+            write_overrides(d, sid, ov)
+            override_log(d, {"event": "reset", "agent": cmd[1], "cleared": sorted(names)})
+            if not done:
+                return "agent-reset: no override for %s in this session; nothing changed" % cmd[1]
+            return "agent-reset (this session): " + "; ".join(done)
+        _, a, model, effort = cmd
+        dm, de = agent_defaults(a, agents_dir)
+        cur = ov.get(a) or {"model": None, "effort": None}
+        new = {"model": model if model else cur.get("model"),
+               "effort": effort if effort else cur.get("effort"), "ts": round(time.time(), 3)}
+        ov[a] = new
+        write_overrides(d, sid, ov)
+        override_log(d, {"event": "set", "agent": a, "model": new["model"],
+                         "effort": new["effort"]})
+    msg = ["agent-override (this session only): %s" % a,
+           ("  model  %s -> %s" % (cur.get("model") or dm, new["model"])) if new["model"]
+           else "  model  %s (unchanged)" % dm]
+    if new["effort"]:
+        msg.append("  effort %s -> %s: %s" % (cur.get("effort") or de, new["effort"],
+                                              EFFORT_NOT_ENFORCED % (de or "the session's")))
+    if override_effective_env():
+        msg.append("  ! CLAUDE_CODE_SUBAGENT_MODEL_FORCE is set: Claude Code ignores per-call "
+                   "models, so the model override has no effect")
+    msg.append("  undo: /agent-reset %s" % a)
+    return "\n".join(msg)
+
+
+def override_main(raw):
+    """UserPromptExpansion hook (`agent_guard.py agent-override`, matcher agent-override|
+    agent-reset). Always blocks the expansion of these commands: the reason is the output."""
+    try:
+        ev = json.loads(raw)
+    except (ValueError, RecursionError):
+        return 0
+    if not isinstance(ev, dict) or ev.get("hook_event_name") != "UserPromptExpansion" \
+            or ev.get("command_name") not in OVERRIDE_COMMANDS:
+        return 0
+    try:
+        if ev.get("agent_id"):
+            raise OverrideError("only the user's own prompt in the main session may set or clear "
+                                "an override; nothing changed")
+        if ev.get("expansion_type") != "slash_command" or ev.get("command_source") != "userSettings":
+            raise OverrideError("/%s did not resolve to the stack's user command (%s, %s); nothing "
+                                "changed" % (ev.get("command_name"), ev.get("expansion_type"),
+                                             ev.get("command_source")))
+        msg = override_command(ev)
+    except OverrideError as exc:
+        msg = "%s: %s" % (ev.get("command_name"), exc)
+    except Exception as exc:  # noqa: BLE001 - report, never let the command reach the model
+        msg = "%s: internal error (%s: %s); nothing changed" % (ev.get("command_name"),
+                                                                 type(exc).__name__, exc)
+    sys.stdout.write(json.dumps({"decision": "block", "reason": msg,
+                                 "hookSpecificOutput": {"hookEventName": "UserPromptExpansion",
+                                                        "suppressOriginalPrompt": True}}))
+    sys.stdout.flush()
+    return 0
+
+
+def override_session_start(ev, d):
+    """A new run of a session (startup, resume, /clear) starts with no overrides."""
+    if ev.get("source") in ("startup", "resume", "clear"):
+        unlink(os.path.join(d, OVERRIDE_FILE))
 
 
 # ---------------------------------------------------------------- subagent label
@@ -2963,6 +3261,10 @@ def on_session_start(ev, d):
     source: the limits notice for the user (systemMessage, only on a change or a fallback) and the
     JSON report line (STACK_REPORT_FORMAT=json only; clear and compact start a new context too)."""
     notice = None
+    try:
+        override_session_start(ev, d)
+    except Exception as exc:  # noqa: BLE001 - never block a session
+        warn("agent-override: %s: %s" % (type(exc).__name__, exc))
     try:
         notice = limits_session_start(ev, d)
     except Exception as exc:  # noqa: BLE001 - never block a session
@@ -9708,6 +10010,14 @@ def self_test():
     known = set(AGENTS) | set(BUILTINS) | set(COPY_BASE)
     if len(set(AGENTS)) != len(AGENTS):
         problems.append("AGENTS has duplicates")
+    if OVERRIDE_EFFORTS != EFFORT_ORDER:
+        problems.append("agent-override: OVERRIDE_EFFORTS != EFFORT_ORDER")
+    for bad in ("orchestrator opus; id", "orchestrator\nopus", "blackcat opus", "orchestrator gpt"):
+        try:
+            parse_override_command("agent-override", bad)
+            problems.append("agent-override: accepts %r" % bad)
+        except OverrideError:
+            pass
     if set(POLICY) != set(AGENTS) | set(COPY_BASE):
         problems.append("POLICY rows != AGENTS + copy types: %s"
                         % sorted(set(POLICY) ^ (set(AGENTS) | set(COPY_BASE))))
@@ -10267,6 +10577,8 @@ def main(argv):
             return image_limit_main(sys.stdin.read())
         if argv[1] == "no-push":
             return no_push_main(sys.stdin.read())
+        if argv[1] == "agent-override":
+            return override_main(sys.stdin.read())
         if argv[1] == "budget":
             return budget_main(sys.stdin.read())
         if argv[1] == "--check-budget":
@@ -10285,7 +10597,7 @@ def main(argv):
                 guard_error("%s: %s" % (type(exc).__name__, exc))
             return 0
         sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | --check-budget [transcript] | "
-                         "blackcat-guard [--settings] | budget | image-limit | no-push | session-env | "
+                         "blackcat-guard [--settings] | budget | image-limit | no-push | agent-override | session-env | "
                          "delegations [session_id] [--json]]\n")
         return 2
     raw = sys.stdin.read()

@@ -274,6 +274,16 @@ Per-agent plugin enabling does not exist: plugins are session-wide (user, projec
 - **Knobs** (stack.env, read at each call; `/usr/bin/python3 ~/.claude/hooks/read_gate.py --print` shows the effective values): `READ_GATE` (0 = off; the environment variable works too), `READ_GATE_LIMIT`, `READ_GATE_DATA_BYTES`, `READ_GATE_LOCK_BYTES`, `READ_GATE_IMAGE_BYTES`, `READ_GATE_MAX_KEYS`, and the `READ_GATE_EXEMPT_*` lists above (a value replaces the list; `<type>-copy` counts as its base). To exempt another agent from build output: `READ_GATE_EXEMPT_BUILD=verifier,frontend-engineer,browser-operator,coder`.
 - **Tests:** `/usr/bin/python3 dot-claude/hooks/read_gate.py --self-test`; `uv run --python 3.13 --with pytest pytest -q tests/test_read_gate.py`.
 
+### Session model overrides (2026-10-03)
+
+- **Commands** (user skills `skills/agent-override`, `skills/agent-reset`, both `disable-model-invocation: true`): `/agent-override <agent> <model|-> [<effort|->]`, `/agent-override list`, `/agent-reset <agent|all>`. `<agent>` is a stack agent with a definition file (not blackcat: `/model` changes the main thread); models are the Agent tool's `model` enum (`sonnet`, `opus`, `haiku`, `fable`); efforts the frontmatter levels (`low`, `medium`, `high`, `xhigh`, `max`); `-` keeps that part. Arguments are letters, digits, `-` and spaces only, at most 120 characters; anything else is refused and nothing changes.
+- **Mechanism:** `agent_guard.py agent-override` on UserPromptExpansion (matcher `agent-override|agent-reset`) parses `command_args`, writes `<state>/<session_id>/agent-overrides.json` (0600, atomic, read back with `O_NOFOLLOW` and checked against the session id and the enums) and logs to `agent-overrides.log`. It always blocks the expansion: the block reason is the command's output (shown as "UserPromptExpansion operation blocked by hook:" followed by the change: agent, old → new model and effort, scope this session) and no model turn runs. The PreToolUse(Agent) handler, after every gate (spawn policy, depth, fan-out leases, BlackCat limits, god-coder), strips a caller's `model` as before and sets `model` to the override for that `subagent_type` (a `<type>-copy` follows its base), in nested spawns too; the call gets a `systemMessage` and an `apply` log line. Without an override, nothing changes.
+- **Only the user sets it:** the state is written only from a UserPromptExpansion event of the main thread (no `agent_id`) for a `slash_command` from `userSettings`. Claude Code fires that event when a slash command typed by the user expands; prompts it queues itself (cron and `/loop` wake-ups the model scheduled, SendMessage to the main thread, task notifications, auto-continuations) carry `skipSlashCommands` and never expand (Claude Code 2.1.287), and the Skill tool can't run a `disable-model-invocation` skill. UserPromptSubmit is not used, since a cron fire puts model-written text in its `prompt`. Agents can't write the state dir (sandbox `denyWrite`, the no-push hook's protected paths).
+- **Scope:** keyed by session id. SessionStart `startup`, `resume` and `clear` delete it; `compact` keeps it. Limits are untouched: the snapshot, soft limits, turn and MCP caps and fan-out are keyed by agent type and fixed at session start.
+- **Effort is recorded, not enforced.** The Agent tool has no effort input (2.1.287: `description`, `prompt`, `subagent_type`, `model`, `run_in_background`, `name`, `team_name`, `mode`, `isolation`, `cwd`). A child's effort is its frontmatter `effort`, else the session's (`CLAUDE_CODE_EFFORT_LEVEL` beats both), and no hook output changes it. The command says so. The effort can be changed in the agent's frontmatter in the repo (every session, after install.sh).
+- **Limits:** `CLAUDE_CODE_SUBAGENT_MODEL_FORCE` makes Claude Code drop per-call models, and the command warns when it is set. Workflow `agent()` stages are not rewritten: the guard refuses a `model` there.
+- **Tests:** `uv run --python 3.13 --with pytest pytest -q tests/test_agent_override.py`.
+
 ## 6. Recommended session settings
 
 - **Claude Desktop, Conductor and other SDK apps:** set effort to **medium** for the main thread; the agent files set each subagent's effort. Start a new session after installing.
@@ -398,6 +408,10 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
+
+### 2026-10-03 (session model overrides)
+
+- `/agent-override <agent> <model|-> [<effort|->]`, `/agent-override list`, `/agent-reset <agent|all>`: per-session model override for delegated agents, set only by the user's typed command (UserPromptExpansion hook), applied by the guard's Agent rewrite; effort recorded, not enforced (§5, "Session model overrides"). Rerun install.sh and restart Claude Code.
 
 ### 2026-10-03 (tools venv)
 
