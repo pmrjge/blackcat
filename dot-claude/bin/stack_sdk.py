@@ -22,7 +22,7 @@ def files_of(block):    # `path — purpose` or `- path` per line, or the older 
     for ln in block.split("\n"):
         ln = re.sub(r"^(?:[-*+•]|\d{1,3}[.)])\s+", "", ln.strip())
         for p in [SEP.split(ln)[0]] if SEP.search(ln) else ln.split(","):
-            p = re.sub(r":\d+(?:-\d+)?$", "", re.sub(r"^(\S.*?)\s+\([^()]*\)$", r"\1", p.strip()).strip("`'\" "))
+            p = re.sub(r":\d+(?:-\d+)?$", "", re.sub(r"^(\S.*?)(?<!\s)\s+\([^()]*\)$", r"\1", p.strip()).strip("`'\" "))
             out += [] if p.lower() in ("", "-", "—", "n/a") or NONE.match(p) else [p]
     return out
 

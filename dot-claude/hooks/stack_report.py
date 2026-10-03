@@ -81,13 +81,14 @@ WORD_RE = re.compile(r"(done|partial|failed|blocked)\b", re.I)
 TOKEN_RE = re.compile(r"[A-Za-z][A-Za-z_-]{0,19}")
 EFLAG_RE = re.compile(r"\bE[ \t]*:[ \t]*(look|drop)\b", re.I)
 FENCE_RE = re.compile(r"^[ \t]*(```|~~~)")
+CLEAN_MAX = 400               # chars of a first line that can be the clean-finish line
 CLEAN_RE = re.compile(r"[*`_ ]*.+? · \d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})? · [A-Za-z0-9_-]+[*`_ ]*\Z")
-PURPOSE_SEP = re.compile(r"\s+(?:—|–|--?)\s+")
+PURPOSE_SEP = re.compile(r"(?<!\s)\s+(?:—|–|--?)\s+")   # (?<!\s): linear on long blank runs
 BULLET_RE = re.compile(r"^(?:[-*+•]|\d{1,3}[.)])\s+")
 RANGE_RE = re.compile(r":\d+(?:-\d+)?\Z")
 NONE_WORDS = ("", "-", "—", "none", "(none)", "n/a", "nothing")
 NONE_RE = re.compile(r"^\(?(none|nothing|no files)(\)|\s|\Z)", re.I)
-PAREN_RE = re.compile(r"^(\S.*?)\s+\(([^()]*)\)\Z")
+PAREN_RE = re.compile(r"^(\S.*?)(?<!\s)\s+\(([^()]*)\)\Z")
 DELETED_RE = re.compile(r"^\(?deleted\b", re.I)
 VERDICT_RE = re.compile(r"\bVERDICT\b[*_`:\s]*(pass-with-fixes|pass|fail)\b", re.I)
 COUNT_RE = re.compile(r"\b(\d{1,4})\s+(CRITICAL|HIGH|MEDIUM|LOW|BLOCKING)\b")
@@ -98,10 +99,13 @@ CTRL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 PASTED_RE = re.compile(r"(?m)^[ \t>*_`]*STATUS[*_`]*[ \t]*:[ \t]*[*_`]*[ \t]*(done|partial|failed|blocked)\b"
                        r"|<usage>|\bagentId:\s*[A-Za-z0-9_-]{6,}")
 USER_RE = re.compile(r"(?m)^[ \t]*USER:")
+# matched case-insensitively (APFS is case-insensitive by default): parts and path substrings, lower case
 CREDENTIAL_PARTS = frozenset((".ssh", ".aws", ".gnupg", ".kube", ".docker", ".netrc", ".git-credentials",
-                              ".pypirc", ".npmrc", "Keychains", ".credentials.json", ".claude.json",
-                              "stack.env"))
-ENV_FILE_RE = re.compile(r"^\.env(\..*)?\Z")
+                              ".pypirc", ".npmrc", "keychains", ".credentials.json", ".claude.json",
+                              "stack.env", "claude-agent-stack-backups"))
+CREDENTIAL_SUBSTR = ("/.config/gh/", "/.config/gcloud/", "/.config/git/credentials", "/.cache/huggingface/token",
+                     "/.claude/ide/", "/.claude/backup-")
+ENV_FILE_RE = re.compile(r"^\.env(\..*)?\Z", re.I)
 
 GRAMMAR = ("STATUS: done|partial|failed|blocked [· E:look|E:drop]\nRESULT: answer, no file contents\n"
            "FILES:\n- path — purpose\nEVIDENCE: command + <= 5 lines, or → path\n"
@@ -199,7 +203,7 @@ def parse(text):
         return r
     lines = body.split("\n")
     first = next((ln for ln in lines if ln.strip()), "")
-    r["header"] = bool(CLEAN_RE.match(first.strip()))
+    r["header"] = len(first) <= CLEAN_MAX and bool(CLEAN_RE.match(first.strip()))
     fenced = _fence_flags(lines)
     keys = [KEY_RE.match(ln) for ln in lines]
     idx = [i for i, m in enumerate(keys) if m and m.group(1) == "STATUS"]
@@ -400,9 +404,9 @@ def _broad(root):
 
 
 def _credential(path):
-    parts = path.split(os.sep)
-    return any(p in CREDENTIAL_PARTS or ENV_FILE_RE.match(p) for p in parts) \
-        or "/.config/gh/" in path or "/.config/gcloud/" in path
+    low = path.lower()
+    return any(p in CREDENTIAL_PARTS or ENV_FILE_RE.match(p) for p in low.split(os.sep)) \
+        or any(s in low for s in CREDENTIAL_SUBSTR)
 
 
 def _read_small(path, cap=4096):
@@ -463,7 +467,9 @@ def allowed_roots(cwd, project_dir=None):
             roots.append(r)
     for c in (cwd, project_dir):
         w = main_work_dir(c) if isinstance(c, str) else None
-        w = _real(w) if w else None
+        # the checkout is resolved, never .claude-work itself: an agent may make that a symlink
+        top = _real(os.path.dirname(w)) if w else None
+        w = os.path.join(top, ".claude-work") if top else None
         if w and not _broad(w) and w not in roots:
             roots.append(w)
     return roots

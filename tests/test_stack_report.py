@@ -572,6 +572,36 @@ def test_credential_path_through_the_hook_is_recorded_as_outside(tmp_path):
     assert rig2.reg("ss2")["report"]["files"] == [OUTSIDE("~/.ssh/id_ed25519"), OUTSIDE(".ssh/id_ed25519")]
 
 
+def test_a_symlinked_claude_work_never_widens_the_roots(tmp_path, monkeypatch):
+    """.claude-work is agent-writable: a symlink there to ~/.config must not make ~/.config a root."""
+    home, proj = tmp_path / "home", tmp_path / "proj"
+    (home / ".config" / "git").mkdir(parents=True)
+    cred = home / ".config" / "git" / "credentials"
+    cred.write_text("https://u:token@example.com\n")
+    (proj / ".git").mkdir(parents=True)
+    (proj / ".claude-work").symlink_to(home / ".config")
+    monkeypatch.setenv("HOME", str(home))
+    assert str(home / ".config") not in sr.allowed_roots(str(proj))
+    assert sr.file_meta([{"path": str(cred)}], str(proj)) == [OUTSIDE(str(cred))]
+    assert sr.file_meta([{"path": ".claude-work/git/credentials"}], str(proj)) == \
+        [OUTSIDE(".claude-work/git/credentials")]
+
+
+@pytest.mark.parametrize("path", ["/p/.config/git/credentials", "/p/.cache/huggingface/token",
+                                  "/p/.claude/ide/1234.lock", "/p/.claude/backup-20261003/settings.json",
+                                  "/p/.local/state/claude-agent-stack-backups/a.json", "/p/.SSH/id_rsa",
+                                  "/p/.Env.Local", "/p/sub/.ENV", "/p/.Config/GH/hosts.yml"])
+def test_more_credential_paths_are_never_looked_at(path):
+    """The sandbox-denied reads, matched case-insensitively (APFS is case-insensitive by default)."""
+    assert sr._credential(path)
+
+
+def test_ordinary_paths_are_no_credential():
+    for p in ("/p/src/env.py", "/p/.environment", "/p/.config/app.toml", "/p/.claude/agents/x.md",
+              "/p/.cache/pip/x"):
+        assert not sr._credential(p), p
+
+
 # ================================================================ 10. swaps after resolution
 def bounded(fn, secs=5.0):
     """Run fn in a daemon thread: (result, finished). A hang is a failed assertion, not a stuck suite."""
@@ -748,6 +778,31 @@ def test_hostile_text_in_compact_is_blocked_once_for_a_builder(rig):
     assert "blob" in rig.reg("hs2")["report"]["hard"]
     r2 = rig.run(rig.stop("hs2", "coder", hostile()))
     assert r2.stdout == "" and rig.reg("hs2").get("stopped")
+
+
+WS = " " * 200_000
+BACKTRACK = {"purpose_sep": "STATUS: done\nRESULT: ok\nFILES:\n- a" + WS + "b\n",
+             "paren": "STATUS: done\nRESULT: ok\nFILES:\n- a" + WS + "b)\n",
+             "clean_line": "*" + WS + "x\nSTATUS: done\nRESULT: ok\n"}
+
+
+@pytest.mark.parametrize("name", sorted(BACKTRACK))
+def test_long_whitespace_runs_never_backtrack_past_the_hook_timeout(tmp_path, name):
+    """A 200k-space run in a FILES line or the first line: the stop finishes in 10 s (the hook's own
+    timeout is 15 s, and a killed hook never marks the agent stopped)."""
+    rig = Rig(tmp_path, STACK_REPORT_FORMAT="observe")
+    rig.seed("rx1", "coder")
+    p = rig.popen(rig.stop("rx1", "coder", BACKTRACK[name]))
+    try:
+        rc = p.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        p.kill()
+        p.wait()
+        pytest.fail("SubagentStop still running after 10 s")
+    finally:
+        p.stdout.close()
+        p.stderr.close()
+    assert rc == 0 and rig.reg("rx1").get("stopped")
 
 
 # ================================================================ 13. the brief
