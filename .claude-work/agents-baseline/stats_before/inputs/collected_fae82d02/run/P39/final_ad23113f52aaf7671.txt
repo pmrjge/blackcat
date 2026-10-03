@@ -1,0 +1,23 @@
+<input: fuzz target + snapshot test for a tiny query parser> · 2026-10-03 12:10 · test-engineer
+
+Both tests are in place. The fuzz target finds the seeded crash in about 4 s wall time (including uv startup), well inside the 60 s limit.
+
+**Tests added** (all in `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P39.v2/`):
+- `qparse.py` is the scratch parser fixture. `QPARSE_SEED_BUG=1` turns on the seeded crash: an unchecked read of the second hex digit of a truncated `%X` at the end of a string.
+- `test_fuzz.py` is a Hypothesis stateful fuzz target (`RuleBasedStateMachine`). It uses `derandomize=True`, `database=None` and 2000 examples, so it is deterministic.
+  - It has two rules. `add_encoded` appends a `quote_plus`-encoded key/value pair, and `add_raw` appends junk with malformed escapes, `#`, `?` and `&`.
+  - One invariant says the parser never raises and always returns string pairs. The other says that while the query is built only from encoded pairs, the parsed result equals the model.
+- `test_snapshot.py` plus `snapshot_parse.json` is the snapshot test. It compares the parser output for 7 query strings against the committed JSON file. The cases cover the empty string, `+`, UTF-8 percent escapes, truncated `%` and `%4`, an invalid `%zz`, empty segments, a `#` fragment and an invalid byte `%ff`.
+- `run.sh` runs `uv run --no-project --with hypothesis --with pytest pytest`. The dependencies are project-local and nothing was installed globally.
+
+**Evidence**
+- Clean run: 2 passed (hypothesis 6.168.3, pytest 9.1.1).
+- Seeded crash, `QPARSE_SEED_BUG=1 ./run.sh test_fuzz.py`: fails with `IndexError`, shrunk to `state.add_raw(f='%0')`. The 4 s covers the whole command. The fuzz test is the one that catches this bug. The snapshot also fails under the seeded bug, but only because its `a=%4` case happens to hit the crash.
+- Mutant, `+` decoded to `+` instead of a space (one-line change): the snapshot fails with "snapshot drift" and the fuzz round-trip also fails. I reverted it, and `qparse.py` is back to the original with 2 passed.
+
+**Bugs found:** none in the parser as written. The only crash is the seeded one.
+
+**Notes**
+- The sandbox has no `timeout` command, so the 60 s limit was checked by measuring elapsed time, not enforced.
+- I generated the snapshot JSON from the current parser output and read it through. It looks right, but it was not checked against an independent oracle.
+- `git diff` on product files is empty. All files live only in the scratch directory above.

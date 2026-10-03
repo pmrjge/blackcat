@@ -1,0 +1,29 @@
+The fuzz target finds the seeded crash in 0.73 s, against the 60 s budget. It reduces to the input `%`.
+
+**What I wrote**
+- `qparse.py` is the parser: `parse_query` and `unquote`. Setting `QPARSE_SEED_BUG=1` makes `unquote` assume two hex digits always follow a `%`.
+- `tests/test_fuzz.py` is a hypothesis stateful test, `RuleBasedStateMachine`. It builds queries from well-formed pairs and from raw junk. After each step it checks that the parser doesn't raise, and that it round-trips against a model while the query is still well-formed. It runs 200 examples by default; `FUZZ_EXAMPLES` raises that.
+- `fuzz.sh` runs the same test with 10,000,000 examples and kills it after 60 s. macOS has no `timeout`, so it uses a background `kill`.
+- `tests/test_snapshot.py` snapshots `parse_query` over 7 cases (empty, `?`, percent escapes, `+`, repeated keys). It compares against `tests/snapshots/parse_query.json`. `SNAP_UPDATE=1` rewrites that file.
+
+**Results**
+- Clean code, `uv run pytest -q`: 2 passed in 1.5 s.
+- Seeded crash, `QPARSE_SEED_BUG=1 ./fuzz.sh`: the test failed on the first failing case, then shrank it. Output:
+  ```
+  ValueError: invalid literal for int() with base 16: ''
+  state.add_raw(raw='%')
+  1 failed in 0.73s
+  ```
+- Unseeded `./fuzz.sh`: it ran until the 60 s cap with no failure printed. I did not capture the exit code, because the `rc=0` in the log is `tail`'s.
+- The "elapsed 60s" printed for the seeded run is only the leftover `sleep 60` holding the pipe open. pytest itself finished in 0.73 s.
+- `ruff check` is clean. I ran `ruff format` and its autofixes, and one file was fixed up.
+
+I used hypothesis rather than atheris, since atheris is awkward to build on macOS arm64; I did not test it.
+
+Files are in `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P39/`:
+- `qparse.py`
+- `tests/test_fuzz.py`
+- `tests/test_snapshot.py`
+- `tests/snapshots/parse_query.json`
+- `fuzz.sh`
+- `pyproject.toml`

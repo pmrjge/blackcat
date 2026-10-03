@@ -1,0 +1,23 @@
+```
+STATUS: partial
+RESULT: The plan and the bpy script are written, but neither has been run: Blender 5.2.2 crashes on startup inside this sandbox before it reaches my code, so I have no meshes, maps or numbers to show.
+EVIDENCE: Blender would not start. `Blender -b --factory-startup --python-expr "print('OK')"` crashed with SIGSEGV in `gpu::supports_barycentric_whitelist` / `MTLBackend::metal_is_supported` (/tmp/claude-501/blender.crash.txt). `--gpu-backend` only accepts metal, so there was no workaround. The Blender MCP was not connected ("Could not connect to Blender"). The linter could not run either: `uvx ruff` hit "Operation not permitted" creating a temp file under ~/.local/share/uv/tools.
+  What did pass: the script byte-compiles (`uv run --no-project python -m py_compile`). Every RNA identifier it uses (target_faces, use_preserve_sharp/boundary, use_mesh_symmetry, smooth_normals, scale_to_bounds, island_margin, angle_limit, rotate, margin, scale, use_negative_direction, wrap_mode, remesh_voxel_size, use_clear, save_render, noise_depth) appears in the Blender binary's strings. That only shows the names exist, not that each belongs to the operator or object I use it on.
+  Still unverified: whether QuadriFlow runs synchronously in background mode, the quad count it actually reaches, whether the islands fit in 0-1 at this density, and the values in the baked maps.
+FILES: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P57/plan.md
+       /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P57/retopo_bake.py
+NEXT: Run it outside the sandbox (in your own terminal):
+  `/Applications/Blender.app/Contents/MacOS/Blender -b --factory-startup -P retopo_bake.py -- --demo --out ./out --ao-samples 16`
+  Then check:
+  - the log's SUMMARY line: about 5k faces, density 5.12 px/cm, fits=True;
+  - that flat areas of out/LP_sculpt_normal.png read about (128,128,255).
+```
+
+How the pipeline works (details and risks are in plan.md):
+- **Retopo:** voxel remesh at bbox-diagonal/250 to get a clean closed mesh, then QuadriFlow at 5000 faces, then shrinkwrap back onto the sculpt.
+- **UVs:** Smart UV Project, then one uniform rescale `s = (512/2048)·sqrt(A_world/A_uv)` so the density is exactly 512 px/m. Islands are then packed with `scale=False` so packing can't change it. At this density one 2048 tile covers 4 m × 4 m, so it holds about 10–12 m² of surface; the script logs the UV area it needs and whether it fits.
+- **Bake:** Cycles, selected-to-active, cage set from the bbox size.
+  - Normal map: tangent space, OpenGL (+Y), 16-bit PNG.
+  - AO map: 8-bit PNG, 128 samples by default.
+- **Output:** a .blend and an FBX are saved next to the maps in `out/`.
+- **Input:** `--demo` builds a stand-in sculpt (about 330k tris, 1.0 × 0.8 × 1.3 m); `--high <name>` uses a real one from an open .blend.

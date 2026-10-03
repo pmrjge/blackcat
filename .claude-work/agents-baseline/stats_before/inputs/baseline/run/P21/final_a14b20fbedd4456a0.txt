@@ -1,0 +1,36 @@
+**Skill, subagent and MCP server in Claude Code**
+
+Source for everything below: https://code.claude.com/docs/en/features-overview.md, sections "Compare similar features" and "Understand context costs". The MCP loading details come from https://code.claude.com/docs/en/mcp.md. Fetched 2026-10-03.
+
+| | What it is | When it loads | What loads | Context cost |
+|---|---|---|---|---|
+| **Skill** | Reusable instructions, knowledge or workflows, run in your current conversation | Session start, then again when used | Names and descriptions at start. Full content when you type `/<name>` or Claude decides the skill is relevant. | Low until used |
+| **Subagent** | An isolated worker with its own context window. Only a summary returns to you. | When you or Claude spawns one | Fresh context, as listed below | Separate from the main window |
+| **MCP server** | A protocol connection to an external service. It provides tools and data access. | Session start | Tool names and server instructions only. Full JSON schemas stay deferred until Claude needs a specific tool. | Low until a tool is used |
+
+**Skills**
+- Setting `disable-model-invocation: true` hides a skill from Claude entirely. Nothing loads until you invoke it, so its cost is zero until then.
+- Inside a subagent, skills in its `skills:` field are fully preloaded at launch instead of loading on demand. Unlisted skills can still be found through the Skill tool.
+- A skill can also run in an isolated context with `context: fork`.
+
+**Subagents**
+
+A subagent's fresh context contains:
+- its own system prompt, not the Claude Code system prompt;
+- the full content of the skills in its `skills:` field;
+- CLAUDE.md and git status. The built-in Explore and Plan agents omit both, and `omitClaudeMd` skips the CLAUDE.md files;
+- whatever the lead agent passes in the prompt.
+
+A fork loads the parent's conversation, system prompt and tools instead.
+
+**MCP servers**
+- Tool search is on by default, so idle MCP tools use minimal context.
+- Without tool search, definitions load up front. That happens with `ENABLE_TOOL_SEARCH=false`, a custom `ANTHROPIC_BASE_URL`, or a model older than Claude 4.5 on Google Cloud's Agent Platform.
+- Run `/context all` to see tokens per MCP tool, and `/mcp` for connection status.
+- Cached discovery (v2.1.221+, off by default unless rolled out; `MCP_DISCOVERY_CACHE=1` enables it): remote HTTP/SSE servers can load their tool list from a cache instead of connecting at startup. They connect on the first tool call.
+- Unverified: the fetched MCP page was truncated before "Scale with MCP tool search". The tool-search details above come from the features overview plus the parts of the MCP page that were returned, not from that section.
+
+**How they differ in purpose**
+- MCP supplies the connection and tools. A skill supplies the knowledge of how to use them well. The docs describe the two as complementary, for example an MCP database connection plus a skill documenting the schema.
+- A skill adds to your main window. A subagent uses a separate window, which makes it the right choice when a task would flood your conversation with output you won't reference again.
+- Plugins can bundle all three.

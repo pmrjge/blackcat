@@ -1,0 +1,23 @@
+STATUS: partial
+RESULT: I've written the Typst book skeleton, but I couldn't build the 10-page sample PDF. I have no shell tool in this session, and I found no `typst`, `pandoc`, `xelatex` or `lualatex` in `/opt/homebrew/bin`, `/usr/local/bin` or `/Library/TeX/texbin`. As the brief required, I installed nothing.
+- **Size and bleed:** the page is 6.125 × 9.25 in. That is the 6 × 9 in trim plus 0.125 in bleed on the outside, top and bottom edges, and none on the spine edge (the KDP/IngramSpark convention).
+- **Mirrored margins:** set from the trim line with Typst's `inside`/`outside` margins and `binding: left`. Inside is 0.75 in (the 0.5 in minimum gutter for 151–300 pages, plus some room), outside 0.5 in, top 0.75 in, bottom 0.75 in. The outside, top and bottom values have the bleed added on the page.
+- **Running heads:** left-hand pages show the folio and the book title; right-hand pages show the current chapter and the folio. Front matter and chapter-opening pages have no running head, and chapters always start on a right-hand page. `main-matter()` restarts page numbers at 1 on a right-hand page.
+- **Spine and cover formula:** spine = pages ÷ PPI × 1 in (PPI = pages per inch). The full cover spread is 2 × 6 + spine + 0.25 in wide and 9.25 in tall. With 220 pages and the placeholder 444 PPI, the spine is 0.4955 in and the cover is 12.7455 × 9.25 in. The copyright page prints these computed values.
+- **Proof marks:** setting `show-trim = true` draws the trim box and the text-area box on each page for proofing.
+- **Pandoc route:** `build.sh` notes how to convert Markdown chapters to Typst with `pandoc -t typst`.
+
+EVIDENCE:
+- **No build:** I didn't compile anything, so the page count, page size, running heads and layout are all unchecked.
+- **Page count is an estimate:** each sample chapter has 560 placeholder words, which I estimated fits on two pages. If a chapter overflows, the sample comes out at 12 pages; lower the second number in `paras(4, 140)`.
+- **Unverified Typst behaviour:** I expect that page-number updates sitting before the first chapter heading don't trigger an extra page break. I haven't tested it.
+- **Spine thickness is unverified:** printers quote roughly 400–444 PPI for 55 lb stock, so 444 is a placeholder. Use your printer's figure for the exact stock in `ppi-55lb`. At 400 PPI the spine would be 0.55 in.
+- **The 0.5 in gutter minimum is from memory**, not checked against KDP's or IngramSpark's current specifications.
+- **The PDF won't be PDF/X:** Typst doesn't write a TrimBox or PDF/X output, so the trim position is implicit in the page size. Check whether your printer accepts that.
+
+FILES:
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P66/book.typ
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P66/sample.typ
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P66/build.sh
+
+NEXT: Install Typst (`brew install typst`; your step, since the brief allowed no installs), then run `sh build.sh` in the P66 folder. Expect "Pages: 10" and "Page size: 441 x 666 pts"; any shell-capable agent can run it.

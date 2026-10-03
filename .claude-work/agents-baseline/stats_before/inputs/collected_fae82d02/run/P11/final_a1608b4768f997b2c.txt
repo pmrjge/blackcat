@@ -1,0 +1,21 @@
+STATUS: partial
+RESULT: Both `ruff check` and `pyright` now pass on `bad.py`. One edit changes a type annotation, so it needs your decision.
+
+EVIDENCE:
+- **`uvx`:** it was blocked by the sandbox (`Could not create temporary file ... /Users/pmrj/.local/share/uv/tools`). I ran ruff with `uv run --no-project --with ruff` in the scratch dir instead. pyright was already installed at `/Users/pmrj/.local/bin/pyright`.
+- **`ruff check bad.py`, before:**
+  - First error: `I001 Import block is un-sorted or un-formatted`.
+  - Other errors: `F401 os imported but unused`, and the same for `sys`.
+  - The output was cut off at 20 lines, so I never saw the E731 (lambda assignment) finding I expected. I rewrote the lambda as a `def` anyway.
+- **`pyright bad.py`, before:** I didn't capture this run because `uvx` failed. The expected error is that `x + 1` is `int`, not `str`.
+- **After:** `ruff` reports `All checks passed!` and `pyright` reports `0 errors, 0 warnings, 0 informations`.
+- **Suppressions:** none.
+
+Changes made:
+- **Imports:** removed the unused `import os, sys`.
+- **Lambda:** replaced `l = lambda a: a*2` with `def l(a): return a * 2`.
+- **Return type:** changed `f`'s annotation from `-> str` to `-> int`. Runtime behaviour is the same, but the declared return type changes.
+
+NEXT: Decide whether `f` should return `int` or `str`. If the annotation `-> str` is the intended contract, the fix is `return str(x + 1)`. That changes the returned value, so I didn't make it.
+
+FILES: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P11.v2/bad.py

@@ -1,0 +1,41 @@
+STATUS: done
+
+RESULT: LightGBM and HistGradientBoosting come out level, at RMSE about 0.475 (units of $100k). Both clearly beat Ridge. Plain Ridge is unstable on the raw features: one fold scored 2.00. All results are from 5x2 repeated CV (`RepeatedKFold(2,5,rs=42)`, same paired splits for every model). Every fitted step runs inside a Pipeline on the training half only: scaler, RidgeCV's choice of regularisation strength, and HGB's early stopping.
+
+| model | RMSE, random 5x2 (mean ± std, corrected 95% CI) | RMSE, spatial 5x2 | R² |
+|---|---|---|---|
+| dummy (mean) | 1.154 ± 0.004 [1.143, 1.164] | 1.184 ± 0.063 | 0.00 |
+| Ridge (scaler + RidgeCV) | 0.896 ± 0.392 [-0.03, 1.83] | 0.766 ± 0.069 | 0.29 |
+| Ridge + log1p on 4 heavy-tailed columns (no fitted state) | 0.676 ± 0.006 [0.663, 0.690] | 0.699 ± 0.044 | 0.66 |
+| HGB, defaults | 0.478 ± 0.006 [0.464, 0.492] | 0.652 ± 0.112 | 0.83 |
+| LightGBM 4.7.0, defaults | 0.474 ± 0.006 [0.460, 0.488] | 0.633 ± 0.091 | 0.83 |
+
+- **Ridge:** the bad fold comes from extreme ratio rows (AveOccup goes up to 1243) that the linear model extrapolates on. Taking log1p of those columns fixes it, so I added that as a fifth model.
+- **Gradient boosting vs log-Ridge:** both boosters are better by 0.20 RMSE (CI [-0.217, -0.187]; 5x2cv t and F tests p < 1e-4).
+- **LightGBM vs HGB:** LightGBM is 0.0035 lower and wins 10 of 10 folds, but the corrected CI is [-0.009, 0.002] (p = 0.17). Dietterich's 5x2 t-test gives p = 0.026 and the F-test p = 0.078. In practice there is no difference (0.7% of RMSE).
+- **Spatial check:** random folds overstate accuracy because nearby districts look alike. When 0.5° map cells (176 of them) are kept together in one fold, both boosters lose about 0.16 RMSE. They then beat log-Ridge by only 0.05–0.07, which is not detectable (CI spans 0).
+- **Chosen model:** HGB, because it matches LightGBM statistically and needs no extra dependency. I saved it in `model/`, and a reload-and-predict smoke test passed.
+
+**Calibration note** (held-out halves, mean over 10 folds):
+- **Point predictions:** the boosters are well calibrated. Regressing y on the prediction gives slope 1.006 to 1.008 and intercept -0.013 to -0.016, and the largest gap between mean y and mean prediction across prediction deciles is 0.037. Log-Ridge has a slope of 0.998 but a 0.29 decile gap, so its errors are systematic: the linear form misses curvature in the features.
+- **90% intervals:** I built split-conformal intervals (|residual| quantile from 5-fold CV inside the training half; half-width about 0.72 for the boosters). Overall coverage is 0.90 to 0.903, but only about 0.79 to 0.80 in the top predicted decile and about 0.69 on the 992 rows capped at 5.0. That is because the error spread grows with the predicted price and the target is cut off at 5.0. If intervals will be used per house, switch to normalised conformal or conformalised quantile regression, and treat the 5.0 cap as censored.
+
+**Risks:**
+- The figshare download is blocked by the sandbox, so the data comes from Hugging Face mirrors. Two independent mirrors are identical row for row (20,640 rows), and the column means match sklearn's version, but the original archive checksum could not be checked.
+- Default hyperparameters only, no tuning.
+- HGB's early stopping switches itself on only above 10,000 rows. The outer training halves have 10,320 rows, so it runs there, but not in the inner conformal fits, which are smaller.
+- There are 8,050 repeated lat/lon pairs and no duplicate rows. The spatial CV covers the leakage this could cause.
+- Saving these findings to shared memory was refused by a hook, because this task read web content.
+- Speed: the sandbox shows 32 logical CPUs, and with default threading HGB took 18.6 s per fit against 0.21 s with 4 threads. The scripts pin 4 threads.
+
+FILES (all under `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P46/`):
+- `compare.py`: the CV comparison script.
+- `package.py`: fits the chosen model on all data and runs the smoke test.
+- `runs/20261003-005610/summary.json`, `runs/20261003-005610/folds.csv`: summary and per-fold results.
+- `results.md`
+- `requirements.lock.txt`
+- `model/hgb.joblib`, `model/metadata.json`
+- `data/mirror/bit.csv`, `data/mirror/gv_*.parquet`: the downloaded data.
+- `run.log`
+
+NEXT: if a verified agent can, store the two findings in memory with their sources: the benchmark numbers (`runs/20261003-005610/summary.json`) and the thread-pinning fix (`compare.py` header).

@@ -1,0 +1,27 @@
+Kinetic-type storyboard and animatic · 2026-10-03 12:13 · motion-designer
+
+No Adobe app was used (this run doesn't allow screen control). I wrote the spec as Markdown and rendered the preview with ffmpeg 9.0.2 `drawtext`.
+
+**Storyboard ("MAKE IT MOVE"):** 1920x1080, 30 fps, 180 frames (0–179). Five beats:
+1. **Build, frames 0–35:** the three words come in 12 frames apart. "MAKE" rises, "IT" slides in from the right, "MOVE" drops from above in the accent colour.
+2. **Hold, frames 36–89.**
+3. **Exit, frames 90–101:** all three words fade out together.
+4. **"6 SECONDS.", frames 102–161:** in, hold, then out.
+5. **End card, frames 162–179.**
+
+**Easing:** entrances use ease-out cubic, the "IT" slide uses ease-out quint, and exits use ease-in cubic. The spec gives each curve's formula and an approximate cubic-bezier value for the After Effects build. The timing table lists, for each property, the in/out frame, duration, from→to values and easing.
+
+**Preview:** every keyframe is driven by the frame index, so the timing is frame-exact. Frame number, timecode and beat label are burned in along the bottom of the frame.
+
+**ffprobe:** h264, 1920x1080, yuv420p, 30/1. Duration is 6.000000 s for both the container and the stream, and 180 frames were counted. I checked a contact sheet of frames 6, 18, 30, 60, 96, 120, 165 and 179 against the timing table, and they match.
+
+The first render failed because ffmpeg 9 no longer has `-filter_complex_script`. `render.sh` now uses `-/filter_complex <file>`.
+
+Still to do: build it in After Effects with the real typeface, and add 180° motion blur on the "IT" slide.
+
+Files are in /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P60/:
+- storyboard_spec.md
+- animatic.filter
+- render.sh
+- kinetic_type_preview.mp4
+- contact_sheet.png

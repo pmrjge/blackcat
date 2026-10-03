@@ -1,0 +1,21 @@
+STATUS: partial
+RESULT: The spec and all four prompts for the lighthouse-at-dawn series are written, and the resize and contact-sheet commands are in a script. No image model was called and nothing was paid for. The ImageMagick commands ran correctly on placeholder images. The sips command did not run, because the sandbox blocked it.
+
+- **Spec:** raster photos made with `generate_image` (GPT Image 2.5 Sunburst), `size="2160x1440"` (3:2), quality high, PNG. I invented a lighthouse that doesn't match any real one: a white masonry tower with one oxblood-red band under the gallery, a black domed lantern, and a slate-roofed keeper's cottage on a granite headland. The palette has 7 hex colours.
+- **Consistency:** one style block is pasted word for word into every prompt. It fixes the lighthouse's description, puts the sun on the right in every frame, and sets the grain and what must never appear. Image 01 is made first; images 02–04 are then generated with 01 as a `reference_images` entry and a "keep identity, change only view and light" opening line.
+- **The four frames:** 01 blue-hour wide shot (35 mm), 02 sunrise three-quarter view (50 mm), 03 lantern-room close-up (85 mm), 04 low angle from the sea rocks with a long exposure (24 mm). The full prompts and the exact tool calls are in the spec file.
+- **Cost:** about $0.16 per image at high, roughly $0.64 for the set, plus about $0.02 per low-quality draft. I got this by scaling the $0.053 per 1024² price by image area, so it is an estimate; the real cost appears in the tool results.
+- **Commands:**
+```
+sips -Z 1919 01-blue-hour.png --out web/01-blue-hour-sips.png      # each of the 4
+magick 01-blue-hour.png -resize '1919x1919>' -colorspace sRGB -strip -quality 90 web/01-blue-hour.jpg
+magick montage -font /System/Library/Fonts/Supplemental/Arial.ttf web/0[1-4]-*.jpg \
+  -tile 2x2 -geometry 900x600+10+10 -background '#111111' -quality 90 web/contact-sheet.jpg
+```
+The `-font` flag is needed: without it, `magick montage` wrote the sheet but exited with code 1 ("unable to read font"), and that stops the script.
+
+EVIDENCE: The `sips -Z 1919` step failed under the sandbox with "Cannot write to file /var/folders/.../T/..." (Error 13), because sips writes to the system temp folder. It should work in a normal terminal, but I haven't confirmed that. The ImageMagick part, run on four 2160x1440 placeholder images, produced each image at 1919x1279 and the contact sheet at 1840x1240, with exit code 0 (2026-10-03 12:13).
+FILES:
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P63/lighthouse-series-spec.md
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P63/postprocess.sh
+NEXT: Run `postprocess.sh <render dir>` outside the sandbox to check the sips step.

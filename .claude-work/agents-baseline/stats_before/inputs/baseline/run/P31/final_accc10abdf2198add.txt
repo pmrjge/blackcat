@@ -1,0 +1,28 @@
+STATUS: partial. The Rust tests, clippy and the C test all pass, but Miri did not run.
+
+**Miri:** `cargo miri` is not installed on the stable toolchain. `rustup toolchain install nightly --profile minimal -c miri` failed with `could not create temp file /Users/pmrj/.rustup/tmp/...: Operation not permitted`. The sandbox blocks writes to `~/.rustup`, and I did not work around it.
+
+Miri cannot execute the C program or the staticlib across FFI anyway. It would only apply to the Rust unit tests, which call `sum_u32` directly. To run them yourself:
+- `rustup toolchain install nightly --profile minimal -c miri`
+- `cargo +nightly miri test`, in the project directory below.
+
+**What I built**
+- `sum_u32(ptr: *const u32, len: usize) -> u32` is exported with `#[unsafe(no_mangle)] extern "C"` and sums with wrapping addition.
+- It has a `# Safety` doc section stating the caller contract.
+- The one `unsafe` block, `slice::from_raw_parts`, has a `// SAFETY:` comment.
+- `len == 0` returns 0 before any dereference, so a null pointer is accepted in that case.
+- `tests/test_sum.c` covers a basic sum, null with length 0, wrapping and a heap buffer of 1000 elements.
+- `run_c_test.sh` builds the staticlib and links the C program with `-Wall -Wextra -Werror` and ASan/UBSan.
+
+**Checks**
+- `cargo clippy --all-targets -- -D warnings` is clean, with `undocumented_unsafe_blocks` and `missing_safety_doc` set to deny.
+- `cargo test` passes 4 of 4 unit tests.
+- `./run_c_test.sh` prints `C test: ok` under ASan and UBSan. `cc` also printed a harmless `xcrun_db` cache-write error, which is the same sandbox restriction.
+
+FILES (all under `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P31/`):
+- `Cargo.toml`
+- `src/lib.rs`
+- `tests/test_sum.c`
+- `run_c_test.sh`
+
+NEXT: ASK USER: run the Miri commands above outside the sandbox, or allow writes to `~/.rustup`, and I will rerun it.

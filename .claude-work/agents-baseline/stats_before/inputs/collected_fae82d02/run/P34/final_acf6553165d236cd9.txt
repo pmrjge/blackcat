@@ -1,0 +1,24 @@
+STATUS: partial
+RESULT: I wrote the pipeline and 7 `runTest` virtual-time tests, but none of it has been compiled or run. This machine has no Kotlin compiler and no Gradle, and the brief rules out downloading either.
+- `debounceAndFetchWithRetry(window, policy, fetch)` chains `debounce(window)` → `flatMapLatest` → `flow { emit(fetch(q)) }.retryWithBackoff(policy)` and returns a `Flow<Result<R>>`. A query that runs out of retries emits one failure and the stream keeps going. A newer query cancels the older one's pending backoff delay.
+- `BackoffPolicy.delayFor(n) = min(initial·factorⁿ, maxDelay)` and cannot overflow. `retryWithBackoff` is built on `retryWhen` and never retries a cancellation.
+- Each test asserts exact virtual times:
+  - **Debounce:** a burst at 0/100/250 gives one fetch, at 550.
+  - **Debounce edge:** nothing has fired at t=299. A new value at 299 restarts the window, and the fetch comes at exactly 599 (driven with `advanceTimeBy` and `runCurrent`).
+  - **Backoff:** attempts at 300/400/600/1000, so the gaps are 100/200/400.
+  - **Cap:** gaps 100/200/400/500 (800 capped to 500), then it gives up at 1500 with the 5th error.
+  - **Other:** errors you mark non-retryable fail at once; a newer query cancels the older one's backoff; and a pure test of `delayFor`.
+- The sources stay open with a trailing `delay(10_000)`. That is needed because `debounce` emits its last value immediately when upstream completes, which would hide the window.
+
+EVIDENCE:
+- Not verified, because the tools are missing: no `kotlinc`, `kotlin`, `gradle` or `mvn` on PATH, and no `~/.gradle` or `~/.m2` caches. `/usr/bin/java` is only a stub ("Unable to locate a Java Runtime"). The one real JDK is `/Library/Java/JavaVirtualMachines/jdk-27.jdk` (JDK 27+35). `./gradlew test` was not run, so whether it compiles, whether the tests pass and the exact edge-time behaviour are all unchecked.
+- Checked: Maven Central is reachable this time (`repo1.maven.org` returned HTTP 200). Latest releases as of 2026-10-03: `kotlinx-coroutines-core` and `kotlinx-coroutines-test` 1.11.0, Kotlin Gradle plugin 2.4.20 (2.5.0-Beta1 skipped), `kotlin-test-junit5:2.4.20`, which uses Jupiter 5.10.1. The launcher is pinned to platform 1.10.1 to match.
+- `services.gradle.org` is blocked by the sandbox, so no Gradle wrapper was created or version checked. Whether that Gradle version runs on JDK 27 is also unchecked. Bytecode targets 21 so no toolchain download is triggered.
+
+FILES:
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P34.v2/src/main/kotlin/pipeline/DebounceRetry.kt
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P34.v2/src/test/kotlin/pipeline/DebounceRetryTest.kt
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P34.v2/build.gradle.kts
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P34.v2/settings.gradle.kts
+
+NEXT: once a Gradle that supports JDK 27 is installed (your step), run `JAVA_HOME=/Library/Java/JavaVirtualMachines/jdk-27.jdk/Contents/Home gradle test` in P34.v2. If a test fails, send the output back to jvm-engineer. The 299→599 edge test is the one most sensitive to how `debounce` and `select` order things.

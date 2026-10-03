@@ -1,0 +1,33 @@
+I wrote the schema, the queries and a test suite for the double-entry ledger. All 10 tests pass under SQLite 3.54.0.
+
+The failing-insert proof is `test_unbalanced_post_fails`. It adds a debit of 1000 and a credit of 999, then tries to post. The post is rejected with "transaction does not balance (debits <> credits, or fewer than 2 entries)". The transaction stays a draft and `posted_entries` stays empty.
+
+**How the balance rule works.** SQLite has no deferred constraints. So a transaction starts as a draft, and entries are added to it one at a time. Changing its status to `posted` runs the `transactions_balance` trigger. That trigger aborts unless there are at least 2 entries and the debit sum equals the credit sum.
+
+**Other protections:**
+- Once a transaction is posted, its entries and the transaction itself cannot be inserted, updated, deleted or un-posted.
+- Amounts must be positive integers in cents, and `side` must be `'D'` or `'C'`.
+- An entry's account currency must match the transaction's currency.
+- Foreign keys are enforced. Each connection must run `PRAGMA foreign_keys = ON`.
+- The balance rule applies when a transaction is posted, not when its entries are inserted. A client that never posts leaves a draft, which the balance queries ignore.
+
+**Queries in `queries.sql`:**
+- Posting pattern.
+- Account balances with natural sign.
+- Trial balance.
+- Audit for any posted transaction that doesn't balance.
+- Account statement with running balance.
+- Draft imbalances.
+
+I ran the first three queries inside `test_queries_run`. The statement, posting-pattern and draft-imbalance queries are untested.
+
+**Seeded-bug check.** I deleted the balance trigger from a scratch copy of the schema and re-ran the tests. Four tests failed: `test_unbalanced_post_fails`, `test_unbalanced_atomic_rollback`, `test_single_entry_fails` and `test_empty_fails`. That shows the tests really depend on the trigger. The fifth failure in that run, `test_fk_enforced`, came from an unrelated bug I fixed afterwards. The currency trigger was firing before the foreign-key check on an unknown account. I added an account-exists guard and the test passes.
+
+No new toolchain or global package was installed. The tests use only the Python standard library, run through `uv run --no-project`.
+
+Files are in `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P12.v2/`:
+- `schema.sql`
+- `queries.sql`
+- `test_ledger.py`
+
+Run it with `uv run --no-project python test_ledger.py`.

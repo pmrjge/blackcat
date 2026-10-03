@@ -1,0 +1,32 @@
+Build minimal hybrid RAG with recall@3 eval · 2026-10-03 12:13 · llm-engineer
+
+The hybrid RAG works and scores **recall@3 = 1.00 on all 10 questions**, counting a hit only when the right section of the right file is in the top 3. BM25 alone missed one question.
+
+| Retriever (30 chunks, 10 questions) | Recall@3, right section | Recall@3, right file | MRR, right section |
+|---|---|---|---|
+| BM25 only (baseline) | 0.90 | 1.00 | 0.925 |
+| TF-IDF only | 1.00 | 1.00 | 0.933 |
+| Hybrid (merged by reciprocal rank fusion, k=60) | 1.00 | 1.00 | 0.933 |
+
+The one BM25 miss was "When is the write-up due after a major incident?": the gold Postmortems section ranked 4th. That question shares almost no words with the document, and the character n-gram leg recovered it.
+
+**What's in it:**
+- **Corpus:** 10 short Markdown pages from a fictional company handbook (leave, expenses, onboarding, security, on-call, code review, deploys, incidents, remote work, hardware). Each has three `##` sections.
+- **Chunking:** text is split at headings, then into 60-word windows that overlap by 15. Each chunk has its page title and section name prepended before indexing. Every section here is under 60 words, so each became one chunk (30 in total). I checked the window splitting separately with a 20/5 window: it covers the full text with no lost tail.
+- **BM25:** written by hand (k1=1.5, b=0.75), with stopwords removed and a light plural strip.
+- **Embedding side:** no embedding model was in the local Hugging Face cache, so I used the TF-IDF option you allowed rather than download one. It uses character 3–5-grams, which handle word-form differences but don't capture meaning. Nothing was downloaded.
+- **Citations:** `ask` picks the best-matching sentence from the top 3 chunks and tags it `[n]`, then lists sources as `docs/<file> § <section> (chunk id)`. For example, "Can I expense a parking fine?" returns "…traffic fines are never covered. [1]", citing `02-expenses.md § Eligible costs`.
+- **Setup:** Python 3.11+ with numpy and scikit-learn, installed by `uv run` into a project-local environment. It runs on CPU in under a second.
+
+**Caveats:**
+- The eval is saturated and small. With 10 questions one miss moves recall by 0.10, so TF-IDF matching the hybrid says nothing about which is better. Telling them apart needs a bigger, harder question set.
+- I wrote both the pages and the questions. I paraphrased the questions on purpose, but that still tends to inflate scores.
+- Answers are extracted sentences, not generated. No LLM is in the loop, so answer quality is not measured.
+- Swapping in a cached small embedding model (e.g. bge-small) is just a change to `dense_scores`.
+
+To run it, from the P55 folder: `uv run rag.py eval` (writes `results.json`) or `uv run rag.py ask "<question>"`.
+
+Files are in /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P55/:
+- rag.py
+- results.json (scores and top 3 per question)
+- docs/01-vacation.md … docs/10-hardware.md

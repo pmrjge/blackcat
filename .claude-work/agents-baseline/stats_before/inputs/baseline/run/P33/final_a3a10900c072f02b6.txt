@@ -1,0 +1,35 @@
+STATUS: done
+
+RESULT: `jsonl-stats` is built in `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P33`. It reads JSONL on stdin and prints `count`, `p50` and `p95` of a numeric field.
+
+- **Options:** `--field/-f <dotted.path>` (default `value`), `--json`, `--skip-invalid`, `--help`.
+- **Percentiles:** linear interpolation, the numpy default. Empty input prints `n/a` (`null` with `--json`).
+- **Validation:** zod 4 validates the CLI args and each line. A line must be a JSON object whose field is a number.
+- **Bad input:** the first bad line exits 1 with its line number. `--skip-invalid` counts and skips bad lines instead. Usage errors exit 2.
+- **Setup:** ESM and `nodenext` with a strict tsconfig, plus `noUncheckedIndexedAccess`, `exactOptionalPropertyTypes` and `erasableSyntaxOnly`. ESLint 10 uses typescript-eslint `strictTypeChecked`.
+- **Versions:** Node 24.21 and TypeScript 6.0.3. I picked TS 6 because typescript-eslint 8.71 requires `<6.1`, so it can't run on TS 7.
+
+EVIDENCE (final run, each `pnpm run <script>`):
+- `typecheck` (`tsc --noEmit`): exit 0
+- `lint` (`eslint .`): exit 0, no problems
+- `test` (`vitest run`): 13 tests passed across 2 files
+- `build` (`tsc -p tsconfig.build.json`): exit 0
+- Smoke run: `printf '{"value":1}\n{"value":2}\n{"value":10}\n' | node dist/cli.js --json` printed `{"count":3,"p50":2,"p95":9.2}`.
+
+pnpm caveats:
+- **Version:** I pinned `packageManager` to `pnpm@10.34.6`. pnpm 12.8.1 failed in this sandbox with `ERR_PNPM_STORE_DIR_OPEN_OPERATION_LOCK: Operation not permitted`.
+- **Missing global pnpm:** the global `pnpm` shim is corepack, which can't reach the npm registry from Node here. I ran pnpm 10 from a scratchpad `npm i` instead.
+- **Store:** it lives in the project's `.pnpm-store` (gitignored).
+
+FILES (all under the project root above):
+- `package.json`
+- `pnpm-lock.yaml`
+- `tsconfig.json`
+- `tsconfig.build.json`
+- `eslint.config.js`
+- `.gitignore`
+- `src/cli.ts`
+- `src/parse.ts`
+- `src/stats.ts`
+- `src/stats.test.ts`
+- `src/cli.test.ts`

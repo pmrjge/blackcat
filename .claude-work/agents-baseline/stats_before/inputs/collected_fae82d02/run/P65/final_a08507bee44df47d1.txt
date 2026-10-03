@@ -1,0 +1,15 @@
+STATUS: partial
+RESULT: Both files were built with Pandoc 3.11. Math and the footnote are verified in the PDF and the footnote is verified in the HTML. Math rendering in the HTML and the Mermaid diagram in both files are not verified.
+- **PDF (`note.pdf`, xelatex):** Math is typeset (checked with `pdftotext`: e^{iπ}+1=0 and the integral with limits and √π). The footnote renders as a numbered footnote. The Mermaid block appears as plain source code, not a diagram. Pandoc has no Mermaid filter and `mmdc` is not installed.
+- **HTML (`note.html`, `--katex` plus a header script):** Pandoc wrote 2 math spans, the footnote markup is present, and the Mermaid block has `class="mermaid"`. The KaTeX CSS and JS load from a CDN. `mermaid.min.js` was downloaded next to the file (3.6 MB, from cdn.jsdelivr.net). A script in `hdr.html` renders the diagram in the browser.
+
+EVIDENCE: To check the rendered HTML I tried headless Chrome (`--headless=new --dump-dom`). The sandbox blocked it, once on the Chrome profile directory and again on Crashpad settings (`Operation not permitted`), so it exited with rc=21 and no output. I did not install `jsdom`, `puppeteer` or `mmdc`, because new toolchains were off limits. Missing tools: `mmdc`, `tectonic`, `wkhtmltopdf` and `weasyprint`.
+NEXT: To confirm the rendering, open `note.html` in a browser, or run it outside the sandbox with `"/Applications/Google Chrome.app/Contents/MacOS/Google Chrome" --headless=new --virtual-time-budget=15000 --dump-dom file://<path>/note.html | grep -c 'class="katex"'`. Look for an `<svg id="mermaid-…">` in the output. To get the diagram into the PDF, print the HTML with Chrome's `--print-to-pdf` outside the sandbox.
+
+FILES (all in /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P65/):
+- note.md
+- note.html
+- note.pdf
+- hdr.html
+- mermaid.min.js
+- chrome.err

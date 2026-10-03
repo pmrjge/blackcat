@@ -1,0 +1,14 @@
+**Latest stable PyTorch is 2.14.1, and its official wheels cover CUDA 12.6, 13.0 and 13.2.** Two sources agree on the version. The CUDA list comes from one source, the install-matrix script. As of 2026-10-03.
+
+- **Version:** 2.14.1 is marked "Latest" on the GitHub releases page, released 30 Sep. The matrix script labels its stable channel "Stable (2.14.1)".
+- **Linux:** CPU, CUDA 12.6, CUDA 13.0, CUDA 13.2 and ROCm 7.14.
+- **Windows:** CPU, CUDA 12.6, CUDA 13.0 and CUDA 13.2. ROCm is not available.
+- **macOS:** CPU/default build only.
+- **Linux CUDA 13.2:** the release notes say the Linux binaries moved to CUDA 13.2.2.
+
+The matrix values come from `quick-start-module.js`, the script that drives the install selector on pytorch.org/get-started/locally. I read it through WebFetch's summarizer rather than the raw file. The rendered page itself came back as unreadable page-builder markup, so I didn't read the selector directly.
+
+Sources:
+- https://pytorch.org/get-started/locally/ (install matrix page, last updated 2026-07-27)
+- https://docs.pytorch.org/assets/quick-start-module.js
+- https://github.com/pytorch/pytorch/releases/latest

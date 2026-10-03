@@ -1,0 +1,45 @@
+VERDICT: fail. The one-liner does delete old files, but "safely" does not hold. This is Darwin (BSD `find`), and the real `rm` run was not possible here (see ASSUMED).
+
+ASSUMED: The verifier hook blocks `find -exec rm`, so I could not run the real deletion. I built the tree, then ran the exact `find . -mtime +7 -exec …` with a read-only stand-in that prints each `rm` argv and applies `rm`'s documented semantics. Those semantics are unverified by execution. The predicted outcomes below are the part to treat as unrun. The `find` match sets and `-mtime` boundary behaviour are real output. Scratch tree: `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P40/tree`, edge cases in `.../P40/edge`. `mkdir`, `touch` and `cp` ran inside P40 only.
+
+FINDINGS (most severe first):
+
+- [HIGH] Matches everything, not just files. There is no `-type f`, no `-xdev`, and no exclusion of dotfiles or `.git`.
+  - Evidence: `find edge -mtime +7 -type f` returned `edge/.git/HEAD`, `edge/.git/objects/pack1` and `edge/.hidden`. If run at a repo root, it deletes old git objects and refs and corrupts the repository.
+  - Proof: `find edge -mtime +7 -type f -path '*/.git/*'` prints 2 paths now. It should print none after the fix.
+  - Fix: add `-not -path '*/.git/*'`, or restrict to the intended subtree. Add `-xdev` if mount points are in play.
+
+- [MEDIUM] Directories match but cannot be removed. Without `-r`, `rm` prints `is a directory` and exits non-zero for each one, so the run is noisy and incomplete.
+  - Evidence: the dry-run lists `./sub`, `./emptyold`, `./dir with space` and `./linkdir_target` as matches, and the stand-in printed `DIRECTORY: rm fails` for all four. They survive even when emptied, so old empty directories are never cleaned.
+  - Proof: `find tree -mtime +7 -type d | wc -l` gives 4 now.
+  - Fix: use `-type f` for files only. To also clear empty directories, add a second pass with `find . -mindepth 1 -type d -empty -mtime +7 -delete`.
+
+- [MEDIUM] Symlinks are matched by the link's own mtime, not the target's. `rm` removes only the link.
+  - Evidence: `oldlink_to_new` points to the new `new.txt`, but the link itself is old, so it is selected and removed. That silently breaks a live link. `symlink_to_dir` is removed as a link and its target is kept. `dangling` is removed.
+  - It never follows links into other trees, because `find` defaults to `-P`.
+  - Proof: `find tree -mtime +7 -type l` lists 4 links now, and 0 with `-type f`.
+  - Fix: `-type f` skips links entirely. Add `-o -type l` only if you want links deleted deliberately.
+
+- [LOW] Spaces and newlines are safe, and a leading dash is safe only by accident. A leading dash is safe only because `find .` yields `./-dash.txt`.
+  - Evidence: argv shown as `rm [./old with space.txt]` and `rm [./old\nnewline.txt]`, each passed as one argument, because `-exec … {} \;` does not word-split.
+  - It would break if run as `find -- *`, or with a bare relative start path that begins with `-`.
+  - Fix: `rm -- {}` costs nothing.
+
+- [LOW] Performance, and `-mtime +7` semantics.
+  - `\;` forks one `rm` per file, so 16 matches meant 16 forks. Use `-exec rm -- {} +` or `-delete`.
+  - `-mtime +7` means 8 full days or more. Edge test: 7d00h01m and 7d23h59m were not matched, and only the 8d file was. "Older than 7 days" is therefore really "at least 8 days old".
+  - To match at least 7×24h, use `-mmin +10080`.
+
+Recommended replacement:
+```
+find . -type f -mtime +7 -not -path '*/.git/*' -exec rm -- {} +
+```
+Run it with `-print` first. `-delete` is an equivalent single-process alternative, and `-print0 | xargs -0 rm --` also works.
+
+Confirmed from real output on the scratch tree: `find . -type f -mtime +7` returned 8 files, including the space and newline names. It excluded all 4 directories and all 4 symlinks.
+
+NOT CHECKED: a real `rm` execution (hook-blocked), special files such as FIFOs and sockets (`mkfifo` was blocked), GNU `find` behaviour, and permission failures on read-only directories.
+
+FILES: `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P40/tree`, `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P40/edge`
+
+NEXT: To run the real deletion, the caller or user should run it in P40 on a `cp -Rp tree run1` copy. A builder can do that, since the verifier cannot.

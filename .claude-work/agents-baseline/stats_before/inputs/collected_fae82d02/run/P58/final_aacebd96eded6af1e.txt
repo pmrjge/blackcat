@@ -1,0 +1,26 @@
+Parametric snap-lid enclosure in build123d, 60x40x25 · 2026-10-03 12:14 · cg-artist
+
+I built the enclosure in build123d because OpenSCAD isn't installed. It runs through `uv run --script` with inline dependencies, so nothing was installed globally. Both STLs are watertight.
+
+**Design** (mm; closed outside size is 60 x 40 x 25)
+- **Base:** 60 x 40 x 23.4, wall 1.6, floor 1.6, corner radius 4. There is a 1.0 mm deep pry notch in the rim on the -X side.
+- **Lid:** a 1.6 mm plate with a lip that goes 5 mm into the base. The lip wall is 1.2 mm and it sits 0.2 mm off the base wall on each side.
+- **Snap:** half-round bumps (radius 0.6) on the lip: 16 mm long on the long sides, 10 mm on the short sides. They drop into matching grooves 1 mm longer in the base wall, centred 2.5 mm below the rim. The bumps push 0.4 mm into the wall while the lid goes on (0.6 bump minus 0.2 clearance). Once closed there is 0.2 mm free space at the bump tip, and the wall is 1.0 mm thick behind the groove.
+- **Print orientation:** the base prints opening up. `lid.stl` is already flipped so the plate is on the bed and the bumps point sideways, so neither part needs supports.
+- **Changing it:** every dimension is a command-line option, e.g. `uv run --script enclosure.py --L 80 --clear 0.25 --bump_r 0.7`.
+
+**Checks** (trimesh on the exported STLs, all passed)
+- **base.stl:** 2,092 triangles, 10,334 mm³, 60.0 x 40.0 x 23.4 mm.
+- **lid.stl:** 2,604 triangles, 4,916 mm³, 60.0 x 40.0 x 6.6 mm.
+- **Both parts:** watertight, consistent winding, a valid volume, one body each, Euler number 2.
+- **Fit:** with the lid in the closed position, the lid and base overlap by 0.0 mm³. The cross-section through the snap in `snap_section.png` shows the 0.2 mm gap and how the bump sits in its groove.
+
+It hasn't been test-printed. Whether the 0.4 mm snap feels right depends on the material: in PETG, or if it's too stiff, try `--bump_r 0.5`.
+
+Files are in `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P58/`:
+- `enclosure.py` – the parametric model
+- `base.stl`, `lid.stl` – ready to print
+- `lid_closed_pos.stl` – lid in the closed position, used for the fit check
+- `base.step`, `lid_assembled_pos.step` – CAD files
+- `check_mesh.py`, `mesh_report.json`, `build_report.json` – the checks and their results
+- `snap_section.png` – cross-section through the snap

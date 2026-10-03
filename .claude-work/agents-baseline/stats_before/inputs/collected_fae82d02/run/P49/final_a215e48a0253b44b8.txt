@@ -1,0 +1,48 @@
+Simulate staggered DiD: TWFE vs CS vs imputation · 2026-10-03 12:13 · data-scientist
+
+**Answer.** In this simulation, Callaway-Sant'Anna and the imputation estimator recover the true effect of 2.0 in all three scenarios. Two-way FE recovers it only when the effect is the same for every unit and period. When the effect differs by cohort it gives 2.45, and when the effect grows with time since adoption it gives 0.91, less than half the true value.
+
+The numbers are averages over 500 Monte Carlo runs, with the 2.5–97.5% range across runs in brackets.
+
+| Scenario (true ATT = 2.0) | TWFE | CS (simple aggregate) | Imputation (BJS) |
+|---|---|---|---|
+| Homogeneous, τ = 2 everywhere | 2.003 [1.92, 2.09] | 2.005 [1.85, 2.17] | 2.001 [1.90, 2.10] |
+| Effect differs by cohort (τ_g = 1.0 / 2.5 / 3.25) | **2.451** [2.37, 2.53] | 2.004 [1.83, 2.17] | 2.003 [1.92, 2.09] |
+| Effect grows with exposure (τ ∝ e+1) | **0.911** [0.83, 0.98] | 2.002 [1.83, 2.17] | 1.999 [1.91, 2.09] |
+
+The Monte Carlo standard error is 0.002–0.004 for every entry, so the differences from 2.0 for CS and imputation are noise.
+
+**What each estimator recovers, and why.**
+- **TWFE** recovers a fixed weighted sum of the cell effects, Σ w_it τ_it. Each weight is that cell's treatment dummy after removing unit and period means, divided by a normalising constant. Which cells get weight depends only on the adoption timing, not on the effects.
+  - In this design the three cohorts get total weights 0.233, 0.367 and 0.400. The true ATT weights them by treated cells, 16/36, 12/36 and 8/36.
+  - The early cohort's cells at 8–15 periods after adoption get negative weight (−0.017 per cell, −0.133 in total). These are 22% of the treated cells.
+  - The cause is that TWFE's implicit 2×2 comparisons include later adopters measured against units that were already treated. A change in the earlier group's effect gets subtracted.
+  - With cohort-varying effects, the late cohort (τ = 3.25) is over-weighted, giving 2.45. With growing effects, the largest effects (long exposure) get small or negative weight, giving 0.91. In this scenario TWFE's interval excludes 2.0 entirely.
+  - With a single constant effect the weights do not matter, because they sum to 1, so TWFE is unbiased. It is also the most precise of the three here (SD 0.042).
+- **Callaway-Sant'Anna** (never-treated units as controls, base period g−1) estimates a separate ATT(g,t) for each cohort and period by a clean 2×2 comparison against never-treated units only. It then averages them with weights proportional to cohort size, which equals the treated-cell average. No already-treated unit is ever used as a control, so heterogeneity cannot leak in. It recovers 2.0 and the full event-time profile τ(e). The cost is variance: SD 0.086, about twice the imputation estimator's, because each cell uses only one base period and only the never-treated units.
+- **Imputation (Borusyak-Jaravel-Spiess)** fits unit and period fixed effects on untreated cells only. It then predicts each treated cell's untreated outcome and averages the actual-minus-predicted differences. The target is the treated-cell average by construction, and treated outcomes never enter the fixed-effect fit, so it is unbiased under parallel trends and no anticipation. It also recovers τ(e) exactly. It is the most efficient robust option here (SD 0.045–0.050) because it uses every untreated cell as a control, including not-yet-treated ones.
+
+**Setup and assumptions.**
+- The panel is balanced: 400 units over 20 periods. Adoption cohorts start at periods 5, 9 and 13, with a quarter of units each, and a quarter are never treated. Seed 20261003.
+- Each run adds unit effects correlated with adoption timing, a nonlinear common time trend, and standard normal noise.
+- Parallel trends and no anticipation hold by construction. In every scenario the effects are scaled so the treated-cell average is exactly 2.0, which the code asserts.
+- All three estimators are hand-written in numpy; no new packages were installed.
+
+**Checks.**
+- On a separate draw, each hand-coded estimator matches an independent route to 6 decimals:
+  - TWFE matches statsmodels `y ~ D + C(i) + C(t)` and the weighted sum Σ w·Y (all three give 0.913228).
+  - Imputation matches a regression with a dummy for every treated cell (1.995246).
+  - One CS cell, ATT(9,15), matches a 2×2 DiD regression (1.965134).
+- TWFE's Monte Carlo mean matches the value its weights predict: 2.000, 2.450 and 0.912 against simulated 2.003, 2.451 and 0.911.
+- The event-time estimates from CS and imputation lie on the true τ(e) line (middle panel of the figure).
+
+**Limitations.**
+- There are no analytic or cluster-bootstrap standard errors and no coverage rates. Spread is measured only across Monte Carlo runs.
+- I did not run a dynamic (leads and lags) TWFE event study, so the contamination problem described by Sun-Abraham is not shown.
+- Every setup here has a never-treated group and parallel trends holding exactly. Without never-treated units, CS would have to use not-yet-treated controls, and imputation would rest on its extrapolated fixed effects. If parallel trends fail, all three estimators are biased.
+
+Files are in /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P49/:
+- staggered_sim.py
+- verify.py
+- results.json
+- staggered_did.png

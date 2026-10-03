@@ -1,0 +1,18 @@
+frozen_at_local: 2026-10-03 12:57:49 +0100
+frozen_at_utc: 2026-10-03T11:57:49Z
+frozen_by: data-scientist (stats_before job), worktree branch golden/stack-doctor-a3c277 at 0b3e022
+contents:
+  baseline/runs.csv            collect.py output for session 4e2da3ce (OLD install), written 2026-10-03 00:57, copied unchanged
+  baseline/grades.csv          T8a grades, 22 ids (v1 runs, old install)
+  baseline/grades_T8b.csv      T8b grades, 18 ids (v1 runs, old install; graded in session fae82d02)
+  baseline/prompts.csv         prompt corpus (id, family, target_agent, expected_skills, cost_class, ...)
+  baseline/plan.md, RESUME.md  campaign log; fallback map
+  baseline/collect.py          collector as used for runs.csv
+  baseline/run/<id>/final_*.txt  final reports of old-session roots (written by collect.py)
+  collected_fae82d02/          patched collector (../tools/collect_b0v2.py: strips '<agentType>: ' prefix from meta descriptions)
+                               run on session fae82d02 (NEW install) with --campaign-since 2026-10-03T11:05:00Z at 2026-10-03T11:56Z;
+                               runs.csv + run/<id>/final_*.txt; prompts.csv copy; grades.csv header only (no grades exist for these runs)
+  usage_live/runs_schema1.csv  copy of ~/.local/state/claude-agent-stack/usage/runs.csv (second route, old session)
+  usage_live/runs3.csv         copy of ~/.local/state/claude-agent-stack/usage/runs3.csv (second route, new session; cumulative snapshot rows)
+  b0b3_plan.md                 orchestrator plan/log of the B0-B3 job (v2 fallbacks, STOP list)
+  run_tree_manifest.tsv        path/bytes/sha256 of every file under agents-baseline/run/ (not copied: 1.3 GB)

@@ -1,0 +1,44 @@
+I wrote two versions of the script, a UXP one and an ExtendScript one. Neither has been run in Photoshop yet, because no app was opened. Both files pass a Node syntax check, and I tested the naming rule on sample names (`"Botão Principal / Hover"` became `botao-principal-hover`). A few UXP API details are marked UNVERIFIED in the code: the argument order of `resizeImage`, and whether artboards are reported as groups.
+
+**How it works (same in both scripts)**
+1. Duplicate the active document. The original is never changed or saved.
+2. On the copy, convert once to RGB, 8-bit and sRGB, then resize the canvas to 200% once. Smart objects, text and vectors re-render sharp. Plain pixel layers are interpolated (Bicubic Smoother, or Nearest Neighbour for pixel art), so true 2x quality needs vector or high-resolution content.
+3. Go through the layer tree and collect every group, nested ones included. Any layer or group whose name starts with `_` is skipped, along with everything inside it.
+4. For each group:
+   - Show only that group's branch: its parent groups stay visible, all other branches and the Background are hidden, and its own layers keep their saved visibility.
+   - Duplicate that state, trim transparent pixels, save a PNG copy, then close the copy without saving.
+   - Empty groups and filename clashes with existing files are skipped and logged.
+5. Write a manifest (JSON for UXP, TSV for ExtendScript) listing each file, its group path, pixel size and status. Dialogs are suppressed while it runs and restored at the end.
+
+**Naming rule:** `<doc-slug>__<parent-group>--<group>@2x.png`
+- To make a "slug", accents are removed, text is lowercased, and anything that isn't a letter or number becomes `-`. Each part is capped at 48 characters.
+- An empty name becomes `group-<id>`.
+- If two groups produce the same name, the later ones get `-2`, `-3` and so on.
+- Existing files are never overwritten.
+- Setting `includePath: false` drops the parent groups from the name.
+
+**Steps that need computer use**
+- **Running the `.psjs`:** File > Scripts > Browse… is a menu step. I couldn't confirm a documented way to start a `.psjs` from the command line.
+- **The output-folder picker:** the UXP version always asks for the folder in a dialog. The ExtendScript version only asks if no folder is passed in.
+- **Loading it as a UXP plugin**, if wanted: that goes through the UXP Developer Tool, which is GUI-only.
+- **Unexpected dialogs** that `DialogModes.NO` doesn't suppress, such as missing fonts, profile mismatches or "update text layers". These need someone at the screen.
+- **Checking the PNGs** doesn't need Photoshop: they can be rendered with `magick` and inspected in the terminal.
+
+The ExtendScript version needs no computer use at all if you start it with:
+```
+osascript -e 'tell application id "com.adobe.Photoshop" to do javascript (POSIX file "<abs>/export-groups-2x.jsx") with arguments {"<abs out folder>"}'
+```
+My sandbox blocks `osascript`, so you would run this yourself.
+
+**What needs your consent**
+- **Screen control:** approving access to Photoshop for computer use is yours to grant (`request_access`).
+- **Automation permission:** the first time `osascript` scripts Photoshop, macOS asks whether the terminal may control it.
+- **Writing outside the project:** the script never overwrites PNGs, but `export-manifest.*` is overwritten each run. Say yes or no before it writes into an existing folder.
+- **Installing a UXP plugin** changes Photoshop's configuration.
+- **Opening Photoshop or the PSD** isn't destructive, but it happens on your machine.
+
+Files are in `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P13/`:
+- `export-groups-2x.psjs` (UXP, Photoshop 2023 and later)
+- `export-groups-2x.jsx` (ExtendScript)
+
+To try it, run the `.jsx` command above on a copy of a PSD. For the `.psjs`, use File > Scripts > Browse… and then check the manifest.

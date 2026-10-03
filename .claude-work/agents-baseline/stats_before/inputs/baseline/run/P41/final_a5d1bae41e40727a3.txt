@@ -1,0 +1,119 @@
+STATUS: done. The plan doesn't depend on any particular stack: the monolith isn't in this workspace, so step 1 grounds it in the real code. Library facts were checked against current docs on 2026-10-03.
+
+**GOAL.** Replace the cron jobs of the 3-service Python monolith with a queue plus workers. Each scheduled slot must run exactly once and be observable. Each job moves over without downtime and can be rolled back on its own.
+
+**CONTEXT**
+- The current workspace (`/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0`) is the agent-stack repo, not the monolith. No crontab, Celery or APScheduler code is here. I don't know the monolith's path, database, deploy target or framework (see QUESTIONS).
+- Procrastinate (Postgres-backed): every worker schedules periodic tasks, and the database makes sure each period is deferred only once. Periodic scheduling therefore survives as long as one worker is up. A task more than 10 minutes late is skipped by default (configurable). The task receives the slot `timestamp`. Source: https://procrastinate.readthedocs.io/en/stable/howto/advanced/cron.html
+- Celery 5.6.3 (current stable): "You have to ensure only a single scheduler is running… otherwise you'd end up with duplicate tasks." Source: https://docs.celeryq.dev/en/stable/userguide/periodic-tasks.html
+- The Redis broker's visibility timeout defaults to 1 hour. A task not acknowledged by then is handed to another worker and runs again. Source: https://docs.celeryq.dev/en/stable/getting-started/backends-and-brokers/redis.html
+- Things cron gives for free that the new system must reproduce explicitly: host timezone, `MAILTO` alerting, overlap behaviour (`flock` or none), working directory, environment, host-local files.
+- EU daylight saving time ends Sunday 2026-10-25 (01:00–01:59 repeats in Europe/Lisbon). That date falls inside a likely cutover window.
+
+**OPTIONS**
+
+| | A. Postgres queue (Procrastinate) | B. Redis + Celery 5.6 (beat) | C. Temporal |
+|---|---|---|---|
+| Pros | No new infrastructure if Postgres is the main DB. Periodic scheduling is deduplicated in the DB and highly available. Enqueue can share the app's transaction. Job state can be queried with SQL. | Most mature option; routing, canvas, Flower; widely known. | Durable execution, per-step retries, schedule overlap and catch-up policies (unverified). |
+| Cons | Adds load and connections on the primary DB. Smaller ecosystem. Throughput ceiling, though fine at cron scale. | Beat must be a singleton. Tasks running longer than the 1 h visibility timeout get duplicated. Redis persistence must be configured. New infrastructure if Redis isn't already run. | Heavy platform (server, persistence or Cloud bill), determinism constraints, learning curve. |
+| Cost/risk | Low | Medium | High |
+
+Decision rule, applied at step 2:
+- **A** if Postgres is the primary DB and jobs run at cron scale (well under ~100 enqueues/s).
+- **B** if Redis or Celery is already operated.
+- **C** only if the inventory shows multi-step jobs lasting hours that need compensation on partial failure.
+
+The rest of the plan works with any of them. The safety mechanism (the `job_runs` claim below) doesn't depend on the backend.
+
+The core mechanism is a slot claim table in the app DB, used by both the legacy cron path and the worker:
+```sql
+CREATE TABLE job_runs (job text, slot timestamptz, executor text, status text,
+  attempt int DEFAULT 1, started_at timestamptz, finished_at timestamptz, error text,
+  PRIMARY KEY (job, slot));
+INSERT INTO job_runs (job, slot, executor, status, started_at)
+VALUES ($1, $2, $3, 'claimed', now()) ON CONFLICT DO NOTHING RETURNING 1;
+```
+- Whoever gets the row runs the job. Everyone else exits 0 and logs "claimed by X".
+- Retry reclaims the row with `UPDATE … WHERE status='failed' OR (status='claimed' AND started_at < now() - timeout)`.
+- Slot = the latest cron tick at or before now, in the job's explicit timezone (`croniter`, with 1 s tolerance).
+
+**PLAN** (orchestrator runs it; track it in `./.claude-work/cron-migration/plan.md` inside the monolith repo)
+
+1. **Inventory, in parallel.**
+   - (a) Code side · **explore**. Find every schedule source: crontab and `cron.d` files in the repo, Dockerfiles, compose, k8s CronJobs, systemd timers, Ansible templates, in-process APScheduler or `schedule`. For each job record: service, command → Python entrypoint, schedule expression, timezone, locks, env and file dependencies, external side effects (email, payments, third-party APIs), and whether it's idempotent.
+   - (b) Runtime side · **devops-engineer**, read-only on hosts. Collect `crontab -l` for every user, `/etc/cron.d`, `systemctl list-timers`, `MAILTO` targets, and runtime p50/p95/max plus failure rate over 30 days from logs.
+   - Done when every job has a row in `.claude-work/cron-migration/inventory.md` (orchestrator writes it), including a risk class: R1 read-only/idempotent, R2 side-effecting, R3 long or heavy (over 15 min, or near the visibility timeout).
+2. **Backend decision** · planner, then the user.
+   - Apply the decision rule to the inventory. **scout** checks the current version and timezone support of the chosen library; Procrastinate's timezone handling is unverified.
+   - The output is a short ADR. Done when the user approves the backend; adding infrastructure is the user's call.
+3. **Plan review** · **plan-reviewer**. Inputs: this plan, the inventory and the ADR. Done when the verdict is pass or pass-with-fixes and the fixes are applied.
+4. **Foundation** · **main-coder**, on `main`.
+   - Build `<pkg>/jobs/`:
+     - a worker bootstrap that doesn't import the web app factory
+     - the `job_runs` migration
+     - a `claim(job, slot, executor)` guard
+     - per-job settings: non-overlap lock, timeout, retry/backoff, misfire policy (skip, or catch up once)
+     - structured logs and metrics
+     - the shim `python -m <pkg>.jobs.cron_shim <job>`, which runs the legacy entrypoint through the same guard
+   - Periodic tasks are registered by a decorator in each job's own module, so there is no shared registry file.
+   - Tests use a real Postgres in a container: 50 concurrent claims for one slot give exactly one winner; SIGKILL mid-task is followed by a reclaim after the timeout; a frozen-clock DST test covers both 2026 transitions.
+   - Done when tests are green on `main`.
+5. **Infrastructure in staging** · **devops-engineer**.
+   - Workers per service, with queues `<svc>-default` and `<svc>-heavy` and concurrency capped below the DB pool.
+   - Scheduler: embedded in the workers (A), or one beat with `replicas: 1` and a Recreate strategy (B).
+   - Graceful drain on SIGTERM with a grace period at least the p95 runtime (heavy jobs get chunked instead).
+   - Dashboards and alerts: missed slot (dead-man), failure, queue lag.
+   - Run plan/dry-run first. Any production apply waits for the user.
+   - Done when the staging workers execute a no-op periodic task every minute for 24 h.
+6. **Reviews, in parallel** after steps 4 and 5.
+   - **code-reviewer**: the foundation diff.
+   - **security-auditor**: JSON-only serialization (no pickle), no secrets in task args (pass IDs), least-privilege DB role for workers, broker auth/TLS.
+   - **data-engineer** (option A only): queue table indexes, autovacuum, connection budget.
+   - Done when there are no open high-severity findings.
+7. **Instrument before moving** · **coder** writes the shim change; **devops-engineer** edits the crontabs, gated on the user.
+   - Rewrite every cron line as `cron_shim <job>`. Behaviour doesn't change, but `job_runs` starts recording a baseline.
+   - Done after 7 days, or at least 3 slots for rare jobs, with exactly one `succeeded` row per slot.
+8. **Port jobs in waves R1 → R2 → R3** · **coder** ×3, one per service, each in an `isolation: "worktree"` and owning `<pkg>/<svc>/jobs/*` only.
+   - Each task wraps the existing entrypoint without rewriting its logic, and declares lock, timeout, misfire policy and idempotency key.
+   - R3 jobs are split into fan-out chunks. If chunking needs redesign, **main-coder** takes it.
+   - Each worktree is fast-forwarded into `main`; a failed fast-forward goes to main-coder. Never push.
+   - Done when tests pass on `main` and the job runs in staging with matching `job_runs`.
+9. **Production cutover per job** · **devops-engineer**, with a user gate per wave.
+   - Enable the worker's periodic task while the cron shim stays armed. The claim guarantees a single executor.
+   - Once K consecutive slots (K ≥ 5, or at least 1 for daily/monthly jobs) are executed by `executor='worker'` with output parity, delete that job's cron line.
+   - Rollback: disable the periodic task, and the shim claims the next slot.
+   - Avoid cutting over clock-sensitive jobs in the week of 2026-10-25 unless the DST test passed.
+10. **Decommission** · **devops-engineer**, gated on the user.
+    - After 2 weeks that include every monthly slot, remove the crontabs, the shim and host packages.
+    - Keep `job_runs` with retention pruning.
+11. **Acceptance** · **verifier**. Run the VERIFY suite independently against staging and the production `job_runs`.
+
+**GOD-CODER STEP.** None. Nothing here is algorithmic. Failures escalate main-coder → ninja-coder under the stack rules.
+
+**RISKS**
+1. **Duplicate runs** (at-least-once delivery, two schedulers, cron and worker overlapping during cutover). Mitigation: the `job_runs` primary key, idempotency keys on external side effects, a singleton or DB-deduplicated scheduler.
+2. **Long tasks redelivered** (Redis visibility timeout of 1 h, deploy kills). Mitigation: chunk R3 jobs, timeout below the visibility timeout, graceful drain, reclaim only after the timeout.
+3. **Lost runs** (scheduler down, Procrastinate's 10-minute late skip). Mitigation: explicit misfire policy per job and a dead-man alert on missing slots.
+4. **Hidden cron assumptions** (timezone, working directory, env, host files, `MAILTO` as the only alerting). Mitigation: inventory columns plus the step 7 baseline before any behaviour changes.
+5. **DB pressure** from worker concurrency or queue tables. Mitigation: per-queue concurrency caps, pool budget, data-engineer review.
+6. **Import side effects** when workers load the web app. Mitigation: the dedicated worker bootstrap, tested by importing every task module in CI.
+7. **DST behaviour differs between cron and the new scheduler.** Mitigation: explicit timezone per job, frozen-clock tests for 2026-03-29 and 2026-10-25, prefer UTC for jobs that aren't tied to business hours.
+
+**VERIFY**
+- Exactly-once per slot: `SELECT job, slot FROM job_runs WHERE status='succeeded' GROUP BY 1,2 HAVING count(*) <> 1` returns 0 rows.
+- No missing slots: for every expected slot (from croniter) in the window there is a `succeeded` row within the grace period. Disabling one job in staging makes the missed-slot alert fire.
+- Output parity against the cron baseline: affected-table row counts and checksums, and counts of emails and API calls, for the same slots.
+- Fault drills in staging, each followed by one success per slot:
+  - SIGKILL a worker mid-task
+  - restart the broker or DB
+  - kill the scheduler leader (B)
+  - deploy during a run
+- Latency: p99 enqueue lag under 30 s and start lag under 60 s for the default queues (thresholds to confirm).
+- Rollback drill: re-arm cron for one job and disable its periodic task; the next slot is claimed by `cron`.
+- Security: no pickle in the config, and no secrets in serialized args (grep the queue payloads).
+
+**QUESTIONS**
+1. What is the monolith's repo path? It isn't in this workspace.
+2. Primary DB: is it Postgres, and is Redis already operated? This decides between A and B.
+3. Where does it deploy (k8s, VMs, compose), and what timezone are the cron hosts in?
+4. Does any job have exactly-once external side effects (payments, billing, outbound email) that the receiving API can't deduplicate? Those jobs need idempotency-key design before step 8.

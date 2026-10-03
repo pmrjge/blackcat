@@ -1,0 +1,15 @@
+**Constrained form.** Minimising loss + λ·penalty is equivalent to minimising the loss subject to the penalty ≤ t. The solution is the first point where the loss contours (ellipses around the unregularised optimum β̂) touch the constraint set.
+
+**L1, ‖β‖₁ ≤ t.** The set is a cross-polytope (a diamond in 2D) whose vertices lie on the coordinate axes. In higher dimensions it also has low-dimensional faces where some coordinates are exactly zero. An expanding ellipse in general position almost always touches a vertex or edge first, because those points stick out. The flat faces only win if the ellipse's normal falls inside a narrow cone, and the corners take up most of the possible directions. Touching at a corner means some βᵢ = 0 exactly. This effect grows with dimension: the corners and low-dimensional faces account for nearly all of the "exposed" directions.
+
+**L2, ‖β‖₂ ≤ t.** The set is a ball. Its boundary is smooth and has no special points, so the tangency point is wherever the ellipse's normal points. That lands on an axis only if ∇L(β*) happens to be parallel to an axis, which is a measure-zero event. Coefficients shrink but don't reach exactly zero.
+
+**Subgradient view (same fact, stated locally).** At βᵢ = 0:
+- **L1:** the subdifferential of |βᵢ| is the whole interval [−1, 1]. So βᵢ = 0 is optimal whenever |∂L/∂βᵢ| ≤ λ, which describes an open set of data, not a coincidence.
+- **L2:** the derivative of βᵢ² is 0 at zero, so there's no "dead zone". βᵢ = 0 only if ∂L/∂βᵢ = 0 exactly.
+
+**Orthonormal-design example.**
+- L1 gives soft thresholding: β̂ᵢ^lasso = sign(β̂ᵢ)·(|β̂ᵢ| − λ)₊. Any |β̂ᵢ| ≤ λ maps to exactly 0.
+- L2 gives uniform shrinkage: β̂ᵢ^ridge = β̂ᵢ / (1 + λ). This is never 0 unless β̂ᵢ already is.
+
+STATUS: done

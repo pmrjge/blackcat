@@ -1,0 +1,16 @@
+STATUS: done
+
+RESULT: I benchmarked concatenating 100,000 strings (`str(i)` for i in 0..99999) two ways on CPython 3.14.8 with `timeit`. Each variant had 3 warmup calls and 10 repeats, and `number` was chosen by `autorange`. Both variants return identical strings (asserted).
+
+| Method | Calls per repeat | Mean | Stdev (10 repeats) |
+|---|---|---|---|
+| `"".join(parts)` | 500 | 0.425 ms | 0.021 ms |
+| `s += p` loop | 100 | 3.006 ms | 0.027 ms |
+
+`join` is about 7x faster. The `+=` loop is not quadratic here because CPython resizes the string in place when it holds the only reference. That optimisation is a CPython implementation detail, so other interpreters can behave very differently.
+
+The `+=` loop's per-iteration time is mostly interpreter loop overhead, not copying.
+
+EVIDENCE: I ran `uv run bench.py`. The "mean" is the mean of 10 per-call times, and the stdev is the sample stdev (`statistics.stdev`) of those same 10 values. I used `timeit`, not pyperf, so the runs share one process and I did not pin the CPU or isolate it from other load.
+
+FILES: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P16/bench.py

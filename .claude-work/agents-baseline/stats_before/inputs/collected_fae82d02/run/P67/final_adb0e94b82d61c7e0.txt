@@ -1,0 +1,25 @@
+STATUS: partial
+RESULT: I wrote the OpenTofu configuration, but `tofu validate`, `tofu plan` and `tofu test` were not run because `tofu` is not installed. `terraform`, `tflint`, `checkov` and `trivy` are missing too. I did not install anything, so nothing is validated yet, and the HCL has not been through `fmt` or a syntax check.
+
+The configuration contains:
+- A private S3 bucket with a public access block and `BucketOwnerEnforced` ownership.
+- Versioning enabled.
+- SSE-S3 (AES256) with a bucket key.
+- A lifecycle rule that moves objects to `STANDARD_IA` after 30 days, expires noncurrent versions after 90 days, aborts incomplete multipart uploads after 7 days and removes expired delete markers.
+- A bucket policy that denies non-TLS requests.
+- One IAM role, trusted only by `var.trusted_principal_arns`, with one least-privilege policy attached. The policy allows `ListBucket` and `GetBucketLocation` on the bucket, and read, write and delete of objects under it.
+- An offline AWS provider. `var.offline` defaults to true and sets the skip flags (credentials validation, account ID lookup, metadata check, region validation) plus inert placeholder keys. No real credentials are used.
+- A test file, `tests/offline.tftest.hcl`, that uses `mock_provider "aws" {}` and asserts on versioning, SSE and the public access block.
+
+EVIDENCE: `which tofu terraform` returned nothing, and `tofu version` failed with "command not found". `tofu init` would also need the hashicorp/aws provider from the registry, so it needs network access even with a toolchain. I did not try it.
+
+FILES (all in `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P67/`):
+- `versions.tf`: OpenTofu `~> 1.12.0`, aws provider `~> 6.0`. No `.terraform.lock.hcl` exists yet because `init` has not run.
+- `providers.tf`
+- `variables.tf`
+- `main.tf`
+- `outputs.tf`
+- `tests/offline.tftest.hcl`
+- `README.txt` (the exact commands to run)
+
+NEXT: Install OpenTofu with `brew install opentofu`, then run the commands in `README.txt`. Those are `tofu init -backend=false`, `tofu validate`, `tofu plan` with the two required variables, and `tofu test`. Run `tofu fmt` first.

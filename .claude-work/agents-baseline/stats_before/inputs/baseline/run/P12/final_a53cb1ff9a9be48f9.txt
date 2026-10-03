@@ -1,0 +1,34 @@
+STATUS: done
+
+RESULT: The schema, queries and tests are written. An unbalanced transaction is rejected with `transaction does not balance: debits <> credits`.
+
+**Design**
+- **Tables.** `accounts` has a currency and a type. `transactions` is a header that goes draft to posted. `entries` are one-sided lines, with `side` D or C and an integer `amount` in minor units that must be above 0. A composite foreign key on `(account_id, currency)` forces each entry's currency to match its account.
+- **Where the balance rule lives.** SQLite has no deferred multi-row CHECK, so the rule is a trigger, `trg_txn_post_balanced`, that fires on the draft to posted update. It requires at least two entries and, per currency, debits equal to credits. Cross-currency offsets are rejected: 100 EUR debit against 100 USD credit fails.
+- **Immutability.** Transactions can only be inserted as drafts. A posted transaction cannot be updated or deleted, and its entries cannot be inserted, updated or deleted. This stops anyone unbalancing it after posting. Corrections are reversing transactions via `reverses_id`.
+- **Queries.** `queries.sql` has named blocks for creating a draft, adding an entry, posting, reversing, trial balance, a trial-balance check that must return no rows, balance as of a date, an account statement with running balance, transaction detail and unbalanced drafts.
+
+**Failing-insert proof** (CLI, 10000 debit against 9999 credit):
+```
+UPDATE transactions SET status='posted' WHERE id=1;
+Error: transaction does not balance: debits <> credits
+```
+The transaction stays a draft after the failure.
+
+**Evidence**
+- All 11 tests pass: `uv run python -m unittest -v test_ledger` in the P12 directory. They cover:
+  - unbalanced, single-entry, empty and cross-currency posts;
+  - a transaction inserted directly as posted;
+  - amounts of 0 or below, a bad side and a currency mismatch;
+  - frozen posted data;
+  - the queries, including a reversal that keeps the trial balance balanced.
+- I removed the balance trigger from a copy of the schema and re-ran the tests. Four tests failed: unbalanced, single-entry, empty and cross-currency. So those tests do detect a missing balance rule.
+
+**Caveats**
+- Every connection must run `PRAGMA foreign_keys = ON`. SQLite leaves it off by default, and the currency-match check depends on it. The triggers work either way.
+- The window functions in the statement query need SQLite 3.25 or later. I ran against 3.53.1 (Python) and 3.54.0 (CLI).
+
+FILES (all under `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P12/`):
+- `schema.sql`
+- `queries.sql`
+- `test_ledger.py`

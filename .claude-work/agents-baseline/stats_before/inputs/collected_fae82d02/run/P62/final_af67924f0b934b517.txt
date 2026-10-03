@@ -1,0 +1,40 @@
+STATUS: done
+RESULT: I've drawn the fox, written the plan and prepared the stencil files. It's a front-facing geometric fox head with 10 facets, symmetric, at 56 × 63 mm (line centres; about 57 × 64 mm of ink). Every line is 1.2 mm black (#000000, RGB 0/0/0); the ear tips, nose and eyes are solid black. It goes on the upper, wider half of the forearm with the ears toward the elbow, so it reads upright to others when the arm hangs and to the wearer palm-up.
+- **Size vs line weight over 10 years:** I assumed each line spreads 0.15–0.25 mm per side over 10 years. To stay legible, a gap must still be at least as wide as the line next to it in year 10. That means at least 2.2 mm of clear skin between lines at year 0.
+  - The delivered 63 mm fox has 3.28 mm at its tightest gap (eye to cheek line).
+  - 50 mm is the smallest that works (2.36 mm).
+  - At 40 mm the eyes merge into the cheek line, so it would need 0.8 mm lines and fewer facets.
+  - When rescaling, keep the line at 1.2 mm and scale only the shapes.
+- **Lettering rule:** use the same 2.2 mm gap rule. With a 1.2 mm single-weight sans, that means:
+  - lowercase at least 6 mm tall (capitals only: at least 7 mm), with at least 2.4 mm between letters;
+  - script at least 8 mm tall;
+  - text running along the forearm, at least 8 mm from the fox;
+  - wording confirmed in writing, and a licensed font (desktop licence or SIL OFL) with its terms checked.
+- **Why this design:** the bold silhouette and solid black at the tips age better than fine detail. The facets were sized from the gap rule rather than chosen by eye. I moved the eyes once, after the first version left only 1.88 mm to the cheek line. Narrow corners are either solid on purpose or measured.
+
+EVIDENCE:
+- **Not verified:** the 10-year spread rate is a rule of thumb from studio guidance (thicken lines 0.1–0.2 mm per side), stretched to a decade. It isn't a measured ageing rate, and the artist should confirm the sizes.
+- **Checked:**
+  - All three SVGs pass `xmllint`.
+  - All three stencils are 1-bit with only two colours; ImageMagick labels the files "Grayscale", but that is only the tag.
+  - The stencil PDF page is 175.8 × 195.6 pt, i.e. 62.0 × 69.0 mm at 1:1.
+  - Gap and facet sizes were computed in `build_fox.py` (output in `metrics.json`).
+  - I looked at the ageing simulations at 40, 50 and 63 mm.
+  - Last check finished 2026-10-03 12:16.
+
+Files are in /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P62/:
+- fox_stencil_plan.md (the plan)
+- fox_lineart_stroked.svg (editable, 1.2 mm strokes)
+- fox_lineart_outlined.svg (strokes turned into solid shapes, for the stencil)
+- fox_master.svg / .png (with a 50 mm check bar, dimensions and "NOT MIRRORED")
+- fox_lineart_stroked.png, fox_lineart_outlined.png (600 ppi)
+- fox_stencil_100.png / .pdf, fox_stencil_90.png, fox_stencil_110.png (1-bit, 600 ppi, not mirrored)
+- aging_test_40mm.png, aging_test_50mm.png, aging_test_63mm.png
+- metrics.json
+- build_fox.py (rebuilds everything above with `uv run --script`)
+
+NEXT: four questions for the client and artist:
+1. Forearm circumference at the spot, and inner or outer forearm.
+2. Solid eyes and ear tips, or open outlines? Open outlines need at least 70 mm.
+3. Any text? If so, the exact wording in writing.
+4. One 1.2 mm weight throughout, or 0.9 mm lines inside the silhouette? The thinner inner lines need at least 70 mm.

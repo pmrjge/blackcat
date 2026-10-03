@@ -1,0 +1,44 @@
+STATUS: done
+
+RESULT: The proof is written up and the tikz-cd diagrams compile to a 2-page PDF. There are no errors or warnings.
+
+**Theorem.** Suppose $(P,p_1,p_2)$ and $(Q,q_1,q_2)$ are both products of $A$ and $B$. Then exactly one morphism $\varphi\colon P\to Q$ satisfies $q_i\circ\varphi=p_i$ for $i=1,2$, and that $\varphi$ is an isomorphism. So it is the unique isomorphism that respects the projections.
+
+**Lemma.** If $(P,p_1,p_2)$ is a product and $e\colon P\to P$ satisfies $p_i\circ e=p_i$, then $e=\mathrm{id}_P$.
+*Proof:* Apply the universal property to the pair $(p_1,p_2)$. Both $e$ and $\mathrm{id}_P$ satisfy it, and the universal property allows only one such map, so they are equal.
+
+**Proof of the theorem.**
+1. The universal property of $Q$, applied to $(p_1,p_2)$, gives a unique $\varphi$ with $q_i\varphi=p_i$.
+2. The universal property of $P$, applied to $(q_1,q_2)$, gives a unique $\psi$ with $p_i\psi=q_i$.
+3. $p_i(\psi\varphi)=q_i\varphi=p_i$, so $\psi\varphi=\mathrm{id}_P$ by the Lemma. In the same way, $q_i(\varphi\psi)=q_i$ gives $\varphi\psi=\mathrm{id}_Q$.
+4. Any isomorphism $\theta\colon P\to Q$ with $q_i\theta=p_i$ satisfies the condition that defines $\varphi$, so $\theta=\varphi$. In fact this holds for any such morphism, not just isomorphisms.
+
+The PDF also contains:
+- **What "unique" means:** uniqueness only holds relative to the projections. In **Set**, the swap map on $A\times A$ is an automorphism other than the identity, but it does not commute with $\pi_1,\pi_2$.
+- **The converse:** if $(P,p_1,p_2)$ is a product and $\theta\colon Q\to P$ is an isomorphism, then $(Q,p_1\theta,p_2\theta)$ is also a product.
+- **Two other routes to the same result:**
+  - A product is a terminal object in the category of cones over $(A,B)$, and terminal objects are unique up to unique isomorphism.
+  - By Yoneda: $\mathcal C(-,P)\cong\mathcal C(-,A)\times\mathcal C(-,B)$, and two such representations are related by a unique isomorphism.
+
+**Diagrams:** there are three, all in tikz-cd:
+- the universal property, with a dashed $\exists!\,\langle f,g\rangle$;
+- the Lemma, with $e$ and $\mathrm{id}_P$ drawn as parallel arrows;
+- the main diamond: $P\xrightarrow{\varphi}Q\xrightarrow{\psi}P$ in the middle, $A$ and $B$ on the sides, projections on every edge.
+
+One compile issue came up: a tikz-cd label containing a comma (`"\langle f,g\rangle"`) has to be wrapped in braces. Without them, pdflatex stops with "Missing \endcsname". I fixed it in the source.
+
+EVIDENCE:
+- **Build:** `latexmk -pdf` with TeX Live 2026 and pdflatex exits 0 and writes `product_uniqueness.pdf` (2 pages). The log has 0 errors and 0 warnings. I rendered both pages to PNG and checked the diagrams by eye.
+- **Brute-force check in finite sets** (`check_finset.py`), with $|A|=|B|=2$ and $|P|=4$:
+  - It finds 24 products, which matches $4!$.
+  - It tests all 576 ordered pairs. Every pair has exactly one map compatible with the projections, and that map is a bijection: 0 failures.
+  - Of the 24 automorphisms of $P$, only the identity respects the projections, which matches the Lemma.
+
+FILES:
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P24/product_uniqueness.tex
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P24/product_uniqueness.pdf
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P24/check_finset.py
+
+NEXT: The proof is short and standard. An independent re-derivation is optional; a Lean/Mathlib check is possible but wasn't requested.
+
+VERIFIED BY — every step checked against the definition, a second argument (the terminal-object and Yoneda routes), the brute-force check in finite sets (0 failures in 576 pairs), and a clean compile with the pages inspected; confidence very high.

@@ -1,0 +1,29 @@
+STATUS: done
+
+RESULT: All 14 call sites in the 6 caller modules, plus the definition, were renamed to `new_api(x, *, strict=True)` using a LibCST codemod. The tests show the rename is behaviour-neutral: all 56 pass, with 100% line and branch coverage of `src/p38`. Before the codemod ran, the equivalence tests failed (17 failures/errors), so they do detect an unrenamed tree.
+
+- **Codemod** (`tools/rename_api.py`): it finds calls by fully qualified name, so it catches `old_api(...)`, the alias `parse(...)`, `api.old_api` / `_api.old_api` and `functools.partial(old_api, flag=...)`. A positional flag becomes `strict=<expr>` and `flag=` becomes `strict=`; no argument is moved, and comments and layout are kept. A decoy `LegacyClient.old_api` is left alone. It refuses and writes nothing (exit 2) on cases it can't prove safe: `*args`/`**kw`, bare references, partials that leave the flag unbound, calls that already wouldn't bind, star imports, and names that would clash with an existing `new_api` or `strict`. There are 33 unit tests for it.
+- **The proof** (`tests/test_equivalence.py`, using `_equiv.py`, which uses only the standard library and none of LibCST):
+  1. The signature changed exactly as intended: `strict` is keyword-only with the same default, and `new_api(1, False)` now raises TypeError. That is the one deliberate break.
+  2. A static check compares the old and new syntax trees. They differ only by the rename. At every call site the same expressions are evaluated in the same order and bound to the same parameters (checked with `inspect.Signature.bind`), and inside the definition `flag` → `strict` is a clean rename that can't clash with another name. It counts 14 sites plus 1 definition, and it correctly rejects 8 plausible wrong rewrites.
+  3. A differential test runs the old and new packages side by side and compares results, exceptions and argument evaluation order on a fixed set of inputs and on 500 Hypothesis-generated input lists.
+  4. Mutation check: flipping strictness at any one of the 14 sites is caught every time (14 of 14), so every site is exercised and the test can fail.
+  5. The new `src` is byte-for-byte what the codemod produces from the snapshot, and running it again changes nothing.
+- **ast-grep**: used only as a final check for leftover `old_api` names. Its pattern finds 7 of the 14 sites and can't follow the aliases, which is why the rewrite itself uses LibCST.
+
+EVIDENCE:
+- `uv run pytest -q --cov=p38 --cov-branch`: 56 passed.
+- `tests/test_characterization.py`: 6 passed both before and after the rename; the file was written before it and not changed since.
+- `rename_api.py src --check` after applying: exit 0.
+- `ruff check`: clean.
+- Python 3.14.8, libcst 1.9.0, hypothesis 6.168.3, ast-grep 0.45.3.
+- No independent code review was run.
+
+FILES (root `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P38/`):
+- `src/p38/{api,config,cli,batch,report,pipeline,compat,__init__}.py`
+- `baseline/src/p38/` (read-only snapshot) and `baseline/SHA256SUMS`
+- `tools/rename_api.py`
+- `tests/{conftest.py,_equiv.py,test_characterization.py,test_codemod.py,test_equivalence.py}`
+- `pyproject.toml`, `uv.lock`, `README.md`, `.gitignore`
+
+NEXT: The sandbox blocked creating a git repo inside the scratch folder (writing `.git/config` was denied), so there are no commits. The read-only snapshot with checksums stands in for a pre-refactor tag. The folder sits under `.claude-work/`, which git ignores locally, so the outer repo is unchanged. Not done: a deprecated `old_api` shim for callers outside the package; add one if they exist.

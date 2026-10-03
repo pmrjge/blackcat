@@ -1,0 +1,14 @@
+```
+STATUS: partial
+RESULT: Built a React 19 modal (portal, role="dialog", aria-modal, aria-labelledby/-describedby via useId). It traps Tab and Shift+Tab with wrap, closes on Escape, puts the background in `inert` and locks scroll, returns focus to the opener (StrictMode-safe), and turns its animation off under prefers-reduced-motion. There is also a demo page and a keyboard-only Playwright + axe spec. The checks found one real bug, now fixed: focus did not go back to the opener after closing, because the restore ran while the opener was still inert. All checks pass in the Playwright MCP browser, but the spec file itself has not passed under `npx playwright test`.
+EVIDENCE: Not run: `npx playwright test` fails in all 7 tests. Chrome won't start inside the Seatbelt sandbox ("Failed to create a ProcessSingleton … Failed to create socket directory", Mach bootstrap_check_in denied, exit 21). There are no Playwright browser binaries in ~/Library/Caches/ms-playwright, and I didn't download any (brief constraint). So instead I ran the spec's assertions as one script in the Playwright MCP browser, keyboard only, with axe-core 4.13 loaded from node_modules: 34/34 PASS. Two lines of tests/modal.spec.ts changed after that run and still need a CLI run: the inert-background assertion and the console-error check (it would have failed on a favicon 404, since fixed). Passed: axe WCAG 2.0/2.1/2.2 A/AA + best-practice with the dialog closed and open, light and dark, 0 violations, including color-contrast; Tab/Shift+Tab order and wrap; 12 extra Tabs stay inside; Escape, Enter-submit and Space-on-Close all close and return focus; inert and scroll lock are restored; animations are modal-pop/modal-fade with no preference and none/none with reduce; screenshots at 375/768/1440 have 16 px gutters, no horizontal scroll, visible focus ring; 0 console errors; `tsc --noEmit` clean; `vite build` OK. Dev server and browser stopped (port 5183 free, 2026-10-03 12:16).
+FILES: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P43/
+  src/Modal.tsx, src/modal.css (component); src/App.tsx, src/main.tsx, src/app.css, index.html (demo)
+  tests/modal.spec.ts, playwright.config.ts (channel: 'chrome', webServer on port 5183)
+  package.json, tsconfig.json, vite.config.ts, screenshots/modal-{375,768,1440}.png
+NEXT: Run `npx playwright test` in P43 outside the sandbox (it uses system Chrome), or allow a project-local `PLAYWRIGHT_BROWSERS_PATH=0 npx playwright install chromium`. Either is the user's call.
+```
+
+Also worth knowing:
+- Playwright's `getByRole` still finds elements inside an `inert` subtree, so the spec checks the `inert` property directly. The Tab loop is what proves the background can't take focus.
+- npm skipped esbuild's postinstall script (not yet allowed by allowScripts). Vite and esbuild work anyway.

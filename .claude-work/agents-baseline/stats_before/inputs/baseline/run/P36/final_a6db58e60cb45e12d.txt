@@ -1,0 +1,36 @@
+STATUS: partial
+
+RESULT: The package is written but has not been run. I could not install OrdinaryDiffEq, StaticArrays, JET or BenchmarkTools in this sandbox. The Pkg downloads were denied on `storage.julialang.net:443`. My `allowed_domains` override was refused because the session allowlist is fixed. None of those packages was already in `~/.julia/packages`. So no tests, JET checks or benchmarks have run, and there are no `@btime` numbers.
+
+Package `LorenzODE`:
+- **`src/LorenzODE.jl`**:
+  - `lorenz` is an out-of-place right-hand side on an `SVector{3}`, with `p = (σ, ρ, β)`.
+  - `lorenz!` is the in-place right-hand side.
+  - `lorenz_problem` and `lorenz_problem_inplace` build the two `ODEProblem`s.
+  - `solve_lorenz` calls `solve` with `Tsit5` by default.
+- **`test/runtests.jl`**:
+  - Correctness checks cover bounded trajectories, in-place against out-of-place agreement, both fixed points, and `Float32` propagation.
+  - `@inferred` is applied to the right-hand sides, the problem constructors and `solve_lorenz`.
+  - JET checks are `@test_call` and `@test_opt` on the right-hand sides, `@test_call` on the constructor, and `@test_call` on a full solve restricted to `target_modules = (LorenzODE,)`.
+- **`benchmark/benchmarks.jl`**: a BenchmarkTools `SUITE` covering the right-hand sides and `solve` with `Tsit5` and `Vern7`, both in-place and out-of-place, with `save_everystep=false`.
+- **`Project.toml` files**: the UUIDs for OrdinaryDiffEq, StaticArrays, JET and BenchmarkTools came from the local General registry. The package's own UUID is invented. Standard-library UUIDs for `LinearAlgebra` and `Test` are from memory.
+
+EVIDENCE:
+- `Pkg.add` failed on the network denial. The `julia --project=. -e 'using LorenzODE'` smoke test also failed, with EPERM creating `~/.julia/compiled/v1.13/LorenzODE`.
+- The `[compat]` bounds on OrdinaryDiffEq and StaticArrays are unverified, and `JET` and `BenchmarkTools` have no `[compat]` entries yet. I could not read the registry's version files.
+- Julia is 1.13.1.
+
+NEXT: run this outside the sandbox, or with `storage.julialang.net` and `pkg.julialang.org` allowed and a writable depot. If the first test run shows type-stability failures, fix them from the JET output.
+```
+cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P36/LorenzODE
+julia --project=. -e 'using Pkg; Pkg.instantiate(); Pkg.test()'
+julia --project=benchmark -e 'using Pkg; Pkg.develop(path="."); Pkg.instantiate()'
+julia --project=benchmark benchmark/benchmarks.jl
+```
+
+FILES (all under `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P36/LorenzODE/`):
+- `Project.toml`
+- `src/LorenzODE.jl`
+- `test/runtests.jl`
+- `benchmark/Project.toml`
+- `benchmark/benchmarks.jl`

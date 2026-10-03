@@ -1,0 +1,13 @@
+Both limits are enforced in one hook, `dot-claude/hooks/agent_guard.py`, in its `budget` mode. The soft token limits are a table inside that file. `maxTurns` lives in each agent's frontmatter in `dot-claude/agents/<type>.md`. I did not open `maxTurns` enforcement itself, which is done by Claude Code. The hook only reads `maxTurns` for the MCP call cap.
+
+Data flow, in 8 lines:
+1. **Config.** Soft limits are the `SOFT_LIMITS` dict (`agent_guard.py:3478`), with pool constants at `:3474-3477`. They are context tokens per subagent run, and a copy type falls back to its base (`:3533-3537`). `maxTurns` is a frontmatter line such as `dot-claude/agents/coder.md:6` (`maxTurns: 170`).
+2. **Knob.** `STACK_SOFT_LIMIT_SCALE` multiplies every soft limit, and 0 turns them off (`agent_guard.py:3517-3530`, documented at `:163`). The hard budgets are `STACK_PROMPT_CTX_BUDGET` and `STACK_SESSION_CTX_BUDGET` (`:158-159`).
+3. **Trigger.** `budget` mode is a PreToolUse hook on every tool (`:3674`). It runs before the per-tool handlers, and `soft_flush()` at `:3707` delivers any queued warning.
+4. **Counting.** Context tokens are input + cache_creation + cache_read (`USAGE_KEYS`, `:3136`). The transcript is read incrementally, and `fst["seg"]` holds the tokens of the current run only (`:3197-3264`). A run is a spawn or a SendMessage resume.
+5. **Soft check.** `soft_check` (`:3541-3572`) compares the per-run and per-prompt counts to the limits. It warns once per run and once per prompt, and records this in `soft_agents` and `soft_prompt` in the state file (`budget.json`, `:109-110`).
+6. **Delivery.** The warning goes to `_SOFT_NOTE` and is emitted as `additionalContext` on that same tool call (`:3409`, `:3436`, `:3510`). The text is `SOFT_WRAP_UP` (`:3511`): wrap up, return STATUS: partial. Nothing is refused, whereas a hard budget refuses the call (`:3423-3431`).
+7. **maxTurns.** The only `maxTurns` code in the hook is the MCP call cap, `min(STACK_MAX_MCP_CALLS, maxTurns)`. It is described at `:3582-3597` and read by `MAX_TURNS_RE` at `:3599`. A self-check at `:8988-8992` requires every subagent type to yield a `maxTurns`.
+8. **Docs.** `CONFIG.md:50` and `:169-189` describe the soft limits and their derivation (`tests/derive_thresholds.py`). `CONFIG.md:60` is the `maxTurns` table. Tests are `tests/test_agent_guard.py` and `agent_guard.py:9243` (`soft_self_test`).
+
+Not checked: the exact `maxTurns` code path in `agent_guard.py` between `:3599` and `:3670`, and `install.sh` and `doctor.sh`, which also mention these settings.

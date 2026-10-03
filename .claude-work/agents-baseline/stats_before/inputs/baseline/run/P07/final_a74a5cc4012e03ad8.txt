@@ -1,0 +1,58 @@
+**Not safe.** On any backtracking engine (Python `re`, JavaScript/Node, Java, PCRE/PHP, Perl, .NET by default), `^(\w+\s?)*$` takes exponential time when the match fails. It is a textbook ReDoS pattern.
+
+**Status: partial.** The reasoning below is complete, but I couldn't time it here: the read-only guard blocked running the test script. No timings below were measured.
+
+**Why it blows up:** `\s?` can match nothing, so the group reduces to `(\w+)*`, a repeated group whose body is itself repeated over the same characters. A run of n word characters can be split into `\w+` pieces in 2^(n-1) ways. If the input then fails at the end (a trailing `!`, or two spaces in a row), the engine tries every split before giving up. Each extra character doubles the work. At n = 40 that is 2^39 ≈ 5.5×10^11 paths, over 9 minutes even at 10^9 steps per second. In Node that blocks the whole event loop, and Python `re` has no timeout option.
+
+**Who can hit it:** anyone who can send about 40 bytes to a field checked by this regex, with no login needed if the check runs before authentication. What they take out is CPU and service availability.
+
+**Safe replacement** (accepts exactly the same strings, runs in linear time, works in Python, JS, Java, PCRE, .NET, Go and Rust):
+```
+^(?:\w+(?:\s\w+)*\s?)?$
+```
+- **What both accept:** characters from `\w` and `\s` only, either empty or starting with a word character, with no two whitespace characters in a row and at most one trailing whitespace.
+- **Why it is linear:** each whitespace is now required between word runs, and `\w` and `\s` never overlap, so there is only one way to split the input. If a `\w+` gives back a character, that character lands where `\s` or the end is required, so the attempt fails at once.
+- **Alternative** for Python 3.11+, Java and PCRE (not JS), using possessive quantifiers: `^(?:\w++\s?)*+$`.
+
+**Test string:**
+```python
+evil = "a" * 40 + "!"
+re.match(r'^(?:\w+(?:\s\w+)*\s?)?$', evil)   # None, immediately
+re.match(r'^(\w+\s?)*$', evil)               # effectively hangs
+```
+In Node: `/^(\w+\s?)*$/.test("a".repeat(40)+"!")` hangs, while the rewrite returns `false` at once. Normal inputs give the same answer under both: `"hello world "` and `""` match, `"hello  world"` (two spaces) does not.
+
+```
+VERDICT: fail
+FINDINGS (most severe first):
+- [HIGH, CRITICAL on an unauthenticated path of a single-threaded server] CWE-1333 (the regex as given; no file) — exponential backtracking —
+  needs: the regex runs on a backtracking engine against attacker text → send "a"*40+"!" → one core
+  pinned (or the Node event loop blocked) for minutes; repeat to use up every worker —
+  fix: the rewrite above, plus a length cap before matching (e.g. len(s) <= 256) —
+  test: matching "a"*10_000+"!" returns no match within 50 ms (hangs before the fix, passes after).
+- [LOW] CWE-20 — in Python, PCRE, Perl and Java, `$` also matches just before a final "\n", so "foo \n"
+  passes despite having two trailing whitespace characters — fix: Python re.fullmatch(r'(?:\w+(?:\s\w+)*\s?)?', s)
+  or \Z; PCRE and Perl \z; Java Matcher.matches().
+- [LOW, depends on where the value goes] CWE-93/CWE-117 — `\s` accepts \r, \n, \t and, in Python
+  str patterns, Unicode spaces. If the value reaches logs, headers or CSV, CR/LF gets through
+  validation. If you mean single spaces, use ^(?:\w+(?: \w+)* ?)?$ (also linear).
+  Note: `\w` covers Unicode in Python 3 but only ASCII in JS, so front-end and back-end checks can disagree.
+CHECKED: worked through how both patterns backtrack and showed they accept the same strings by hand; wrote a script
+  that times both (original n=16..24, rewrite on 100k-character attack strings) and compares them on every
+  string up to length 7 over a 10-character alphabet that includes \n, \t and é.
+NOT CHECKED: running that script, which the security-auditor read-only guard blocked:
+  `uv run --no-project python .claude-work/redos-poc/poc2.py`. Scanners were not run because there is no codebase to scan.
+TOP 3 HARDENING ACTIONS:
+1. Use a linear-time engine for regexes on user input (google-re2, Go regexp, Rust regex,
+   .NET RegexOptions.NonBacktracking), or the rewrite above where you can't switch engines.
+2. Cap input length before any regex, and anchor with fullmatch or \z rather than `$`.
+3. Add a ReDoS check to CI (eslint-plugin-regexp `regexp/no-super-linear-backtracking`,
+   regexploit; neither tried here), plus unit tests that time matches against adversarial strings.
+```
+
+To get the measurements yourself (the n=24 line is meant to be slow):
+`uv run --no-project python /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/redos-poc/poc2.py`
+
+Files are in `.claude-work/`, which git ignores:
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/redos-poc/poc2.py
+- /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/redos-poc/poc.py (an earlier draft that was also blocked; you can delete it)

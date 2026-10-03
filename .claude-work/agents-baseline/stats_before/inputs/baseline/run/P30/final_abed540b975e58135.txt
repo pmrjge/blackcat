@@ -1,0 +1,26 @@
+STATUS: done
+
+RESULT: The uv project `tsfix` is at `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P30/tsfix`. The `tsfix` command reads stdin line by line and replaces unix timestamps with ISO-8601 UTC.
+
+What gets converted:
+- **10-digit seconds:** `1700000000` becomes `2023-11-14T22:13:20Z`.
+- **Fractional seconds:** `1700000000.5` becomes `2023-11-14T22:13:20.500000Z`.
+- **13-digit milliseconds:** `1700000000123` becomes `2023-11-14T22:13:20.123Z`.
+- **Left alone:** longer or shorter digit runs, and numbers glued to other digits or a dot (for example `id=17000000001`), pass through unchanged.
+
+I also ran the CLI by hand: `printf 'a 1700000000 b\n' | uv run tsfix` printed `a 2023-11-14T22:13:20Z b`.
+
+I used Python 3.14 (`.python-version`) with `requires-python = ">=3.12"`, not the 3.13 that `uv init` pinned. The sandbox blocked installing 3.13 into `~/.local/share/uv`, so I used the 3.14 already installed.
+
+EVIDENCE (all run from the project directory):
+- `uv run ruff format --check .` reported 4 files already formatted.
+- `uv run ruff check .` reported all checks passed.
+- `uv run pyright` reported 0 errors, 0 warnings, 0 informations.
+- `uv run pytest -q` reported 9 passed in 0.03s. That is 8 parametrized cases for `convert_line` plus one test that runs the CLI as a subprocess.
+
+FILES:
+- `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P30/tsfix/src/tsfix/__init__.py`
+- `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P30/tsfix/src/tsfix/__main__.py`
+- `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P30/tsfix/tests/test_tsfix.py`
+- `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P30/tsfix/pyproject.toml`
+- `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P30/tsfix/uv.lock`

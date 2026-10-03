@@ -1,0 +1,24 @@
+STATUS: done
+
+RESULT: The C++23 CMake+Ninja project is in `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P37`. It builds and passes all 5 Catch2 tests in both the `dev` and `asan` presets.
+
+- **Ring buffer:** `include/ring/ring_buffer.hpp` is a fixed-capacity FIFO `ring::ring_buffer<T,N>` that works with non-trivial and move-only types. It offers `push`/`emplace`, `push_overwrite` (drops the oldest when full), `pop` (returns `std::optional`), `front`/`back`/`operator[]`, `clear`, and copy and move.
+- **Build:**
+  - `CMakeLists.txt` defines a header-only `ring::ring` INTERFACE target with `cxx_std_23`, Catch2 v3.8.1 via FetchContent, and `catch_discover_tests`.
+  - `CMakePresets.json` has `dev` (Debug) and `asan` presets. `asan` adds `-fsanitize=address,undefined` and makes UBSan errors fatal.
+  - The Catch2 download is not in the repo, so a fresh configure needs network access to github.com.
+- **Sandbox workaround:** FetchContent's usual `GIT_REPOSITORY` clone failed here because the sandbox blocks writing a nested `.git` inside the project (`Operation not permitted`). Catch2 is therefore fetched as a tarball with `URL` plus `URL_HASH SHA256=18b3f70a…cadb79`. The hash is of the tarball I downloaded; I did not compare it against anything published. If you want a git clone instead, swap it back in a normal environment.
+
+EVIDENCE:
+- Tools: CMake 4.4.3, Ninja 1.13.2, Apple clang 21.0.0.
+- `cmake --fresh --preset dev && cmake --build --preset dev && ctest --preset dev` gave "100% tests passed out of 5".
+- `cmake --fresh --preset asan && cmake --build --preset asan && ctest --preset asan` gave "100% tests passed out of 5".
+- The sanitizer flags are in the asan build's compile commands, and `__asan_init` is present in the test binary, so the sanitizers were active.
+- The tests run with `ASAN_OPTIONS=detect_leaks=0`, because LeakSanitizer is not supported on macOS arm64.
+
+FILES (all under `.../P37`):
+- `CMakeLists.txt`
+- `CMakePresets.json`
+- `.gitignore`
+- `include/ring/ring_buffer.hpp`
+- `tests/ring_tests.cpp`

@@ -1,0 +1,16 @@
+Translate two SRT cues EN→pt-PT, keep constraints · 2026-10-03 12:11 · editor-writer
+
+```srt
+1
+00:00:01,000 --> 00:00:03,000
+Não toques nisso!
+
+2
+00:00:03,200 --> 00:00:06,000
+É tarde demais,
+temos de sair já do edifício.
+```
+
+- **Line lengths:** cue 1 is 17 characters. Cue 2 has 15 characters on line 1 and 29 on line 2. All lines are within the 42-character limit, and no cue has more than 2 lines.
+- **Reading speed:** cue 2 runs at about 16 characters per second over its 2.8 s, which is under the usual 17 cps limit. A word-for-word version ("Já é tarde demais, temos de sair do edifício agora") would be about 18 cps, so I dropped "already" and moved "now" earlier as "já".
+- **Register:** I used the informal "tu" ("toques") because the line reads as a sharp warning to someone close by. If the speaker should address the listener formally, change it to "Não toque nisso!".

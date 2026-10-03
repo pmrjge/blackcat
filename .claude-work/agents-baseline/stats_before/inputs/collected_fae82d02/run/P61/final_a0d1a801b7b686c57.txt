@@ -1,0 +1,16 @@
+```
+STATUS: done
+RESULT: I wrote the production spec for a 3-colour plastisol screen print of a vector tee design.
+  - Ink choice: use 3 spot inks. I rejected CMYK process: it needs at least 4 screens, only works on light garments, and gains nothing for flat art.
+  - Screen count: 3 screens on a light garment. On a dark garment it is 4: an underbase plus 3 inks, or, if white is one of the 3 colours, the underbase doubles as the white, then 2 inks, then a highlight white. Quote by screens, not colours.
+  - Separations: each one is a named spot swatch on its own layer. Print lightest to darkest with the key ink last; on dark garments the underbase goes first and is flashed.
+  - Mesh: 110–156 for solid areas, 196–230 for any screen carrying halftones.
+  - Halftones (only where the art has tints): 45 LPI by default, 55 LPI on an automatic press, 22.5° angle, usable range 8–90%.
+  - Trapping: 0.25–0.5 pt on an automatic press, 0.5–1 pt on a manual one; the darkest ink overprints as a keyline.
+  - Underbase choke: 0.5–1 pt inside every colour edge, none on small type or the highlight white.
+  - Placement sizes: full front 11 × 14 in for S–2XL, centre chest 8 × 8 in, left chest 3.5–4 in wide, back 12 × 14 in, all measured from the collar seam. Add a second screen set if XS or youth sizes are in the order.
+  - Pantone suggestions: 7406 C, 186 C, Black 6 C, with alternates 2945 C and 151 C. The whites are the ink maker's high-opacity white, not a Pantone.
+EVIDENCE: The Pantone references and their hex values come from memory and are marked unverified in the spec; match inks to a physical Pantone Solid Coated guide. The CMYK values are a simple formula conversion of those hex values, not a colour-managed one: they are for screen mockups and proofs only. Real CMYK should come from Pantone Color Bridge Coated. Mesh, LPI, trap and choke numbers are common shop guidance, to be confirmed with the printer. Assumed blank: 100% cotton tee in adult S–2XL, plastisol ink. The spec has a low-bleed underbase note for blends. No art was generated, nothing was paid for, no web lookups were made. Spec file written 2026-10-03 12:12.
+FILES: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/agents-workflow-token-optimization-573fd0/.claude-work/agents-baseline/run/P61/screenprint_3c_tee_spec.md
+NEXT: Three things to confirm with the user or printer: the garment colour (it decides between 3 and 4 screens), the press type (it decides the trap value), and the actual ink colours of the design (to swap in place of the example palette).
+```
