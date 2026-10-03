@@ -491,6 +491,8 @@ env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "200000"
 s["autoCompactWindow"] = 300000                   # the earlier stack value
 s["permissions"]["allow"].append("Bash(ls *)")
 s["permissions"]["allow"].append("mcp__magg")      # what earlier stack versions shipped
+s["permissions"]["allow"].remove("mcp__lean")      # an install from before the lean/mobilebuild/computer-use allows
+s["permissions"]["ask"].append("mcp__mobilebuild") # the user's own rule: keep prompting for that server
 s["permissions"]["deny"].append("Read(**/.env.*)")
 env["ENABLE_TOOL_SEARCH"] = "true"
 json.dump(s, open(p, "w"), indent=2)
@@ -532,6 +534,10 @@ check("DISABLE_AUTO_COMPACT" not in env and "CLAUDE_CODE_AUTO_COMPACT_WINDOW" no
 check(s.get("autoCompactWindow") == json.load(open(shipped_path))["autoCompactWindow"] and s.get("autoCompactEnabled") is True,
       "autoCompactWindow back to the shipped value", "autoCompactWindow=%r" % s.get("autoCompactWindow"))
 check("Bash(ls *)" in s["permissions"]["allow"], "user's own allow rule kept", "user's allow rule lost")
+check("mcp__lean" in s["permissions"]["allow"] and "mcp__mobilebuild" in s["permissions"]["ask"],
+      "new MCP allow rule added on upgrade; the user's ask rule on an allowed server kept (ask beats allow)",
+      "MCP rules after upgrade: lean allowed %r, mobilebuild ask kept %r" % (
+          "mcp__lean" in s["permissions"]["allow"], "mcp__mobilebuild" in s["permissions"]["ask"]))
 m = json.load(open(magg))["servers"]
 check(m["docling"]["command"] != "my-docling" and m["docling"]["enabled"] is False
       and m.get("mine") == {"source": "y", "command": "my-server", "enabled": True},

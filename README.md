@@ -253,6 +253,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | No credential reads (`gh auth token`, `git credential fill`, keychain dumps); token variables and credential files denied to sandboxed Bash | guard, sandbox `denyRead`, credential deny list | `tests/test_guard_round2.py` |
 | An agent that read web content, or is linked to one that did, cannot write the shared memory | web taint in the guard | `tests/test_guard_round2.py`, `tests/test_guard_round3.py` |
 | Mounting a magg server asks; calls run without a prompt only for the read-only or local catalog servers and ask at every call for the rest | `ask` rules in `settings.json` | `tests/test_no_duplicates.py` (exactly one allow or ask rule per catalog prefix) |
+| 19 MCP servers run without a prompt; `mongodb`, `postgres` and `claude-in-chrome` prompt at each call (denied in headless runs) | whole-server `allow` rules in `settings.json`, none for the three | `tests/test_permission_modes.py` (the exact allowed set, no allow or deny rule for the three, no shipped ask or deny rule on an allowed server, every agent's MCP server decided) |
 | Images an agent sees or uploads stay ≤ 1919 px | `agent_guard.py image-limit` | `tests/test_image_limit.py` |
 | libdocs checks every fetch that is not a fixed API endpoint against SSRF | `mcp/libdocs_mcp.py` | `tests/test_libdocs_mcp.py` |
 | Bash runs sandboxed, no unsandboxed fallback, Claude Code exits if the sandbox cannot start | `sandbox.enabled`, `allowUnsandboxedCommands: false`, `failIfUnavailable: true` | configured, **not live-verified** ([Live checks](#live-checks)) |
@@ -1057,6 +1058,14 @@ How the mode reaches the agents (Claude Code docs, 2026-10-03):
   thread's edits are never auto-approved, and a call that would ask is denied when no host answers. A
   script whose main thread must edit passes `--permission-mode acceptEdits`, since the flag beats the
   settings file. Waiting for your approval instead of denying is queued, not shipped.
+- MCP tools: in `plan`, `default` and `acceptEdits` a tool with no allow rule prompts, in a subagent
+  too. `permissions.allow` allows 19 MCP servers whole (`mcp__computer-use`, `mcp__lean`,
+  `mcp__mobilebuild`, `mcp__exa`, ...). `mongodb` and `postgres` (database access) and
+  `claude-in-chrome` (your logged-in browser) have no rule, so they prompt at each call and are denied
+  in headless runs; magg and context-mode are ruled tool by tool. computer-use still asks you per
+  application (its `request_access`). Claude Code checks deny, then ask, then allow, so an `ask` or
+  `deny` rule you add for an allowed server wins, and the installer keeps your rules when it adds the
+  stack's.
 - Back to `bypassPermissions`: set `"permissions": {"defaultMode": "bypassPermissions"}` in
   `~/.claude/settings.json` (the installer keeps a mode you set), or start one session with
   `claude --permission-mode bypassPermissions`. Project and local settings ignore `bypassPermissions` and

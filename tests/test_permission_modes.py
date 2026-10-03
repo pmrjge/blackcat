@@ -1,6 +1,7 @@
 """Permission modes: sessions start in Plan (settings.json permissions.defaultMode), builders carry
 `permissionMode: acceptEdits` for their subagent runs, read-only agents never do, and no agent
-file declares any other mode (tests/lint_agents.py permission_mode_problem).
+file declares any other mode (tests/lint_agents.py permission_mode_problem), and the MCP servers
+allowed without a prompt are exactly the decided set.
 
 Run: uv run --with pytest pytest -q tests/test_permission_modes.py
 """
@@ -92,6 +93,67 @@ def test_shipped_agents_follow_the_rule():
     assert {f.stem for f in AGENTS.glob("*.md")} - set(modes) == {
         "blackcat", "claude-code-guide", "code-reviewer", "explore", "oracle", "plan-reviewer", "planner",
         "proof-checker", "scout", "security-auditor", "verifier"}
+
+
+# ---------------------------------------------------------------- MCP allow rules
+# Under Plan and acceptEdits an MCP tool without an allow rule prompts (bypassPermissions ran it
+# silently). The user's decision, "All except DB and Chrome": every MCP server an agent names is
+# allowed whole, except mongodb and postgres (database writes) and claude-in-chrome (the user's
+# logged-in browser), which keep prompting and are denied in headless runs. magg and context-mode
+# are allowed or asked tool by tool (test_no_duplicates); conductor serves Conductor's AskUserQuestion.
+ALLOWED_MCP_SERVERS = {
+    "exa", "jina", "libdocs", "wolfram", "huggingface", "wandb", "spider", "image-studio", "huetension",
+    "markitdown", "illustrator", "after-effects", "premiere", "blender", "playwright", "neural-memory",
+    "computer-use", "lean", "mobilebuild"}
+PROMPTING_MCP_SERVERS = {"mongodb", "postgres", "claude-in-chrome"}
+PER_TOOL_MCP_SERVERS = {"magg", "context-mode", "conductor"}
+
+
+def mcp_rules(kind):
+    """(server, tool or None) for each mcp__ rule of permissions.<kind>; `mcp__s` and `mcp__s__*`
+    both name the whole server (docs: permissions, "MCP")."""
+    out = []
+    for rule in json.loads(SETTINGS.read_text())["permissions"].get(kind, []):
+        parts = rule.split("__", 2)
+        if parts[0] == "mcp" and len(parts) > 1:
+            tool = parts[2] if len(parts) == 3 else None
+            out.append((parts[1], None if tool == "*" else tool))
+    return out
+
+
+def test_whole_server_mcp_allow_rules_are_exactly_the_decided_set():
+    whole = [s for s, tool in mcp_rules("allow") if tool is None]
+    assert len(whole) == len(set(whole)), whole
+    assert set(whole) == ALLOWED_MCP_SERVERS
+
+
+def test_database_and_chrome_servers_keep_prompting():
+    """No allow rule (it would run them unprompted) and no deny rule (db-engineer and
+    browser-operator need them) names mongodb, postgres or claude-in-chrome, in any form."""
+    named = {s for kind in ("allow", "deny") for s, _ in mcp_rules(kind)}
+    assert not named & PROMPTING_MCP_SERVERS, named & PROMPTING_MCP_SERVERS
+    assert not {"mcp__mongodb", "mcp__postgres", "mcp__claude-in-chrome"} & set(
+        json.loads(SETTINGS.read_text())["permissions"]["allow"])
+
+
+def test_allowed_mcp_servers_meet_no_ask_or_deny_rule():
+    """Deny, then ask, then allow: the first match wins, so a shipped ask or deny rule on an
+    allowed server would silently cancel its allow rule."""
+    hit = {s for kind in ("ask", "deny") for s, _ in mcp_rules(kind)} & ALLOWED_MCP_SERVERS
+    assert not hit, hit
+
+
+def test_every_mcp_server_an_agent_names_has_a_decision():
+    """A new MCP server in an agent's tools line fails here until someone allows it or lists it as
+    prompting; a server no agent names any more fails until it leaves the lists."""
+    named = set()
+    for f in sorted(AGENTS.glob("*.md")):
+        data, _ = lint_agents.parse_frontmatter(f.read_text())
+        for t in lint_agents.get_tools(data)[0]:
+            if t.startswith("mcp__"):
+                named.add(t.split("__")[1])
+    assert named == ALLOWED_MCP_SERVERS | PROMPTING_MCP_SERVERS | PER_TOOL_MCP_SERVERS, (
+        sorted(named ^ (ALLOWED_MCP_SERVERS | PROMPTING_MCP_SERVERS | PER_TOOL_MCP_SERVERS)))
 
 
 # ---------------------------------------------------------------- STACK_MODE_PROBE (diagnostic)
