@@ -910,7 +910,8 @@ def test_install_sh_runs_the_maxfiles_step_before_anything_is_installed():
     used = set(re.findall(r"(?:^|[;&|(]|\bthen|\bif|!)\s*sudo\s+(\S+)", code(MF_BLOCK), re.M))
     assert used == {"install", "launchctl"}, used
     assert "launchctl load" not in MF_BLOCK                                 # bootstrap, not the deprecated load
-
+    # macOS mktemp without a template ignores TMPDIR (and fails in a sandbox): every call has one
+    assert not re.search(r"mktemp(\s+-d)?\s*\)", t)
 
 # ---------------------------------------------------------------- install.sh end to end (scratch)
 def _git(*a, cwd=None):
@@ -940,9 +941,6 @@ def scratch_repo(tmp_path_factory):
 def run_install(repo, tmp_path, args, stdin="", **extra):
     e = Env(tmp_path)
     state = mf_shims(e, tmp_path, "256")
-    # macOS mktemp without a template ignores TMPDIR (the user temp dir; not writable in a sandbox)
-    mkexe(e.bin / "mktemp", 'case "$*" in "") exec /usr/bin/mktemp "$TMPDIR/tmp.XXXXXX" ;; '
-                            '-d) exec /usr/bin/mktemp -d "$TMPDIR/tmp.XXXXXX" ;; *) exec /usr/bin/mktemp "$@" ;; esac')
     env = {"HOME": str(e.home), "USER": os.environ.get("USER", "u"), "LANG": "C",
            "PATH": "%s:%s:/usr/bin:/bin" % (e.bin, repo / "tests" / "fake-claude"),
            "TMPDIR": str(e.tmp), "SHIM_LOG": str(e.log), "SERVE_DIR": str(e.serve),

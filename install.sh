@@ -416,7 +416,7 @@ note "install target: $C"
 # hook fail to start, which Claude Code treats as a non-blocking error: every gate silently open).
 # (Output goes through a temp file: bash 3.2, macOS's /bin/bash, mis-parses heredocs inside $(...).)
 if [ -z "${STACK_PYTHON:-}" ]; then
-  pyfile="$(mktemp)"
+  pyfile="$(mktemp "${TMPDIR:-/tmp}/stack-install.XXXXXX")"
   python3 - >"$pyfile" <<'PY'
 import os, re, shutil, subprocess, sys
 
@@ -513,7 +513,7 @@ compute_mcp_plan() {
   # wandb is registered only when WANDB_API_KEY is set (it has no anonymous access).
   # (Python writes to a temp file: bash 3.2, macOS's /bin/bash, mis-parses heredocs inside $(...).)
   local planfile
-  planfile="$(mktemp)"
+  planfile="$(mktemp "${TMPDIR:-/tmp}/stack-install.XXXXXX")"
   ENVFILE="$envfile" PARSER="$SRC/bin/mcp-headers" HELPER="$C/bin/mcp-headers" CFG="$CFG" PY="$STACK_PYTHON" \
     REPLACE_MCP="$REPLACE_MCP" python3 - >"$planfile" <<'PY'
 import json, os, re, runpy
@@ -911,7 +911,7 @@ sha256_ok(){ printf '%s  %s\n' "$1" "$2" | shasum -a 256 -c - >/dev/null 2>&1; }
 # fetch URL, check its sha256, extract MEMBER(s) of the tarball into DIR: fetch_verified URL SUM DIR MEMBER...
 fetch_verified(){
   local url="$1" sum="$2" dir="$3"; shift 3
-  local t; t="$(mktemp -d)"
+  local t; t="$(mktemp -d "${TMPDIR:-/tmp}/stack-install.XXXXXX")"
   if curl -fsSL -o "$t/a.tgz" "$url" && sha256_ok "$sum" "$t/a.tgz" && tar -xzf "$t/a.tgz" -C "$dir" "$@"; then
     rm -rf "$t"; return 0
   fi
@@ -999,7 +999,7 @@ else
   if ! have huetension; then
     mkdir -p "$HOME/.local/bin"
     set -- $(huetension_target)
-    d="$(mktemp -d)"
+    d="$(mktemp -d "${TMPDIR:-/tmp}/stack-install.XXXXXX")"
     if [ -n "${1:-}" ] && fetch_verified "https://github.com/leporel/huetension/releases/download/v$HUETENSION_VERSION/huetension_${HUETENSION_VERSION}_$1.tar.gz" "$2" "$d" huetension; then
       install -m 755 "$d/huetension" "$HOME/.local/bin/huetension"
     elif have go; then
