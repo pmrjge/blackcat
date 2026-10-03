@@ -1,7 +1,7 @@
 """Subagent labels (agent_guard.py, STACK_AGENT_LABEL) and the start time a stack agent gets on
 SubagentStart (STACK_AGENT_STARTED).
 
-Run: uv run --python 3.14 --with pytest pytest -q tests/test_agent_label.py
+Run: uv run --python 3.13 --with pytest pytest -q tests/test_agent_label.py
 """
 import json
 import os

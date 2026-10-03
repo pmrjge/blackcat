@@ -2,7 +2,7 @@
 report line (STACK_REPORT_FORMAT), and the optional helper dot-claude/bin/stack_sdk.py (parser,
 options, run() over a fake query, nothing loads it).
 
-Run: uv run --python 3.14 --with pytest pytest -q tests/test_sdk_integration.py
+Run: uv run --python 3.13 --with pytest pytest -q tests/test_sdk_integration.py
      (the options test also runs with --with claude-agent-sdk==<the helper's pin>)
 """
 import asyncio

@@ -601,11 +601,11 @@ fetch_verified(){
   fi
   rm -rf "$t"; return 1
 }
-venv_sync(){  # venv_sync NAME REQS [uv pip flags]: hash-locked install into $C/venvs/NAME (Python 3.14)
+venv_sync(){  # venv_sync NAME REQS [uv pip flags]: hash-locked install into $C/venvs/NAME (Python 3.13)
   local name="$1" reqs="$2"; shift 2
-  local want=3.14 vdir="$C/venvs/$name" have=""
+  local want=3.13 vdir="$C/venvs/$name" have=""
   case "$name" in ''|*[!A-Za-z0-9_-]*) note "! venv_sync: refusing venv name '$name'"; return 1 ;; esac
-  # a venv built for another Python (3.12 before the move to 3.14) is rebuilt in place; only $C/venvs/NAME is touched
+  # a venv built for another Python (3.12 before the move to 3.13) is rebuilt in place; only $C/venvs/NAME is touched
   if [ -x "$vdir/bin/python" ]; then
     have="$(sed -n 's/^version_info *= *\([0-9]*\.[0-9]*\).*/\1/p' "$vdir/pyvenv.cfg" 2>/dev/null | head -n 1)"
     [ -z "$have" ] || [ "$have" = "$want" ] || {

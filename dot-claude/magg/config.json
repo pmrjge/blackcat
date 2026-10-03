@@ -91,7 +91,7 @@
         "run",
         "--no-project",
         "--python",
-        "3.14",
+        "3.13",
         "--with",
         "mlflow[mcp]>=3.5.1,<4",
         "mlflow",

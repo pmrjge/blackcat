@@ -1,6 +1,6 @@
 """stack_usage.py (the per-session usage collector) and stack_sched_refresh.py (the model refit).
 
-Run: uv run --python 3.14 --with pytest --with pandas --with numpy pytest -q tests/test_stack_usage.py
+Run: uv run --python 3.13 --with pytest --with pandas --with numpy pytest -q tests/test_stack_usage.py
 (the refresh tests are skipped without pandas/numpy). Synthetic transcripts only; every test uses its
 own XDG_STATE_HOME under tmp_path, never the stack's state folder. Hook and collector processes run
 under /usr/bin/python3, the hooks' interpreter.

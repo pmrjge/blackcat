@@ -1,6 +1,6 @@
 """hooks/web_caps.py: per-call caps for exa/jina/spider and Spider's anti-bot defaults.
 
-Run: uv run --python 3.14 --with pytest pytest -q tests/test_web_caps.py
+Run: uv run --python 3.13 --with pytest pytest -q tests/test_web_caps.py
 """
 import json
 import re
