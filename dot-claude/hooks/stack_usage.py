@@ -2,15 +2,20 @@
 """stack_usage.py - per-session usage collector of the claude-agent-stack (stdlib only, Python 3.9+).
 
 A background job per Claude Code session reads the session's subagent transcripts incrementally and
-appends one row per agent segment (a spawn or a resume) to a CSV that the scheduler's cost model is
-refitted from (stack_sched_refresh.py). Numbers and ids only: no prompt, transcript text, tool
-input or secret is ever written.
+appends one row per agent segment (a spawn or a resume), one row per human-prompt window of the main
+thread and one session row to a CSV that the scheduler's cost model and the learned limits are
+refitted from (stack_sched_refresh.py, stack_limits.py). Numbers and ids only (plus `task`, the
+sanitized Agent description): no prompt, transcript text, tool input, path, command, URL or secret
+is ever written. Every field is measured (transcripts, agent meta files, the guard's JSONL files);
+a field that cannot be measured is left empty, never estimated or defaulted.
 
 Hook entry points (settings.json; both read the hook's JSON on stdin and exit 0 at once):
   stack_usage.py start      SessionStart and SubagentStart: start the session's collector, detached
                             (new session, stdio on /dev/null), unless one runs already
   stack_usage.py end        SessionEnd: write the session's end marker; the collector sees it, scans
-                            one last time, refreshes the active model and exits
+                            one last time, writes the limit proposals (stack_limits.propose, when
+                            importable) and refreshes the candidate model, then exits. Nothing there
+                            changes any limit (S6 U4)
 CLI:
   stack_usage.py runs [--session ID] [--json]   agent-run view (segments aggregated per agent)
   stack_usage.py status                         one line (doctor.sh)
@@ -28,9 +33,12 @@ SessionStart or SubagentStart of the session starts it again; offsets are persis
 read twice and nothing is lost. Every exit path fails silently: a hook never fails because of it.
 
 Files under ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/:
-  usage/runs.csv              segment rows (COLUMNS), append-only under usage/runs.lock (fcntl),
-                              header line, last row per (session, id, seg) wins
-  usage/runs.1.csv            the archive: rows rotated out of runs.csv (STACK_USAGE_MAX_BYTES)
+  usage/runs2.csv             segment rows (COLUMNS_V2, schema 2), append-only under usage/runs2.lock
+                              (fcntl), header line, last row per (session, id, seg) wins
+  usage/runs2.1.csv           the archive: rows rotated out of runs2.csv (STACK_USAGE_MAX_BYTES); a
+                              runs2.csv of another header is set aside as runs2.old-schema-<epoch>.csv
+  usage/runs.csv, runs.1.csv  the v1 history (COLUMNS_V1): read as src=seed_v1, NEVER written, renamed
+                              or rotated here (an older install keeps appending to runs.csv)
   usage/sessions/<id>/        collector.lock, collector.json (pid, owner, heartbeat, exit reason),
                               state.json (byte offsets and parser state per transcript), end (marker)
   usage/refresh.json          the last refresh: time, trigger, result
@@ -48,6 +56,7 @@ import csv
 import errno
 import fcntl
 import glob
+import hashlib
 import io
 import json
 import os
@@ -57,14 +66,42 @@ import signal
 import subprocess
 import sys
 import time
+from bisect import bisect_left, bisect_right
 from datetime import datetime, timezone
 
-SCHEMA_VERSION = 1
-COLUMNS = ["schema_version", "session", "id", "type", "seg", "status", "api_calls", "ctx", "input", "output",
-           "cache_creation", "cache_read", "first_cc", "first_cr", "peak", "prev_peak", "gap_s", "first_ts",
-           "last_ts", "wall_s", "compacted", "turn_limited", "after_limit"]
-STRING_COLUMNS = ("session", "id", "type", "status")      # every other column is a number (or empty)
+SCHEMA_VERSION = 2
+V1_SCHEMA = 1
+COLUMNS_V1 = ["schema_version", "session", "id", "type", "seg", "status", "api_calls", "ctx", "input", "output",
+              "cache_creation", "cache_read", "first_cc", "first_cr", "peak", "prev_peak", "gap_s", "first_ts",
+              "last_ts", "wall_s", "compacted", "turn_limited", "after_limit"]
+TOOL_COLS = ["n_read", "n_write", "n_edit", "n_notebook", "n_bash", "n_grep", "n_glob", "n_agent", "n_send",
+             "n_skill", "n_toolsearch", "n_webfetch", "n_websearch", "n_lsp", "n_mcp", "n_other"]
+HIT_COLS = ["hit_soft", "hit_turn", "hit_hard_agent", "hit_hard_prompt", "hit_hard_session", "hit_mcp"]
+COLUMNS_V2 = (COLUMNS_V1
+              + TOOL_COLS + ["tool_calls"]                                                       # A
+              + ["files_written", "files_written_repo", "git_commits", "ro_write", "first_ctx",
+                 "first_write_call", "ctx_at_first_write"]                                       # B
+              + ["resume", "cold", "parent", "depth", "node", "window"]                          # C
+              + ["status_code"] + HIT_COLS + ["sess_src", "snap", "regime", "is_main", "window_ctx"]   # S6
+              + ["task", "stack_commit", "src"])                                                 # U
+COLUMNS = COLUMNS_V2
+EMPTY_ROW = {c: "" for c in COLUMNS_V2}      # an unmeasured field is an empty cell, never 0
+STRING_COLUMNS = ("session", "id", "type", "status", "parent", "node", "sess_src", "snap", "regime", "task",
+                  "stack_commit", "src")      # every other column is a number (or empty)
+OPTIONAL_STRINGS = STRING_COLUMNS[4:]         # validated; an invalid or unmeasurable value is an empty cell
 KEY = ("session", "id", "seg")
+TOOL_MAP = {"Read": "n_read", "Write": "n_write", "Edit": "n_edit", "MultiEdit": "n_edit",
+            "NotebookEdit": "n_notebook", "Bash": "n_bash", "Grep": "n_grep", "Glob": "n_glob", "Agent": "n_agent",
+            "Task": "n_agent", "SendMessage": "n_send", "Skill": "n_skill", "ToolSearch": "n_toolsearch",
+            "WebFetch": "n_webfetch", "WebSearch": "n_websearch", "LSP": "n_lsp"}
+WRITE_TOOLS = ("Write", "Edit", "MultiEdit", "NotebookEdit")
+READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewer", "claude-code-guide",
+                  "proof-checker"}            # agent_guard.py's read-only set
+HIT_KIND = {"soft_agent": "hit_soft", "soft_prompt": "hit_soft", "soft_session": "hit_soft", "turn": "hit_turn",
+            "hard_agent": "hit_hard_agent", "hard_prompt": "hit_hard_prompt", "hard_session": "hit_hard_session",
+            "mcp": "hit_mcp"}
+HIT_SLACK_S = 5.0         # the guard's PreToolUse fires just after the transcript line of the call it refuses
+GUARD_FILE_MAX = 8 << 20  # limit-hits.jsonl / prompt-windows.jsonl: the last bytes read per scan
 
 # transcript parsing: the same constants as tests/derive_thresholds.py
 F = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
@@ -77,6 +114,19 @@ LIVE_S = 600
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}$")
 UNKNOWN_TYPE = "(unknown)"
+NODE_RE = re.compile(r"^[A-Z]{1,3}[0-9]{1,3}[a-z]?$")
+HEX16_RE = re.compile(r"^[0-9a-f]{16}$")
+COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}$")
+TASK_RE = re.compile(r"^[A-Za-z0-9 ._:/-]{1,60}$")
+TASK_DROP_RE = re.compile(r"[^A-Za-z0-9 ._:/-]")
+SESS_SRC = ("startup", "resume", "clear", "compact", "fork")
+SRC_VALUES = ("measured", "seed_v1")
+STATUS_VALUES = ("partial", "complete")
+COMMIT_RE = re.compile(r"(?:^|[;&|(]\s*|\n\s*)git(?:\s+-C\s+\S+)?\s+commit\b")   # a commit command, not a mention
+STATUS_RE = re.compile(r"^STATUS:\s*(done|partial|blocked)", re.M)
+STATUS_CODE = {"done": 0, "partial": 1, "blocked": 2}
+HUMAN_SKIP = ("<task-notification>", "Base directory for this skill")
+NOTE_PATHS = ("/.claude-work/", "/tmp/", "/private/tmp/", "/private/var/", "/var/folders/")
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "env"}
 WINDOW = 16               # recent API-call keys kept to merge a message's streamed lines
 READ_CHUNK = 8 << 20      # bytes read per transcript per scan (a large backlog takes a few scans)
@@ -179,15 +229,20 @@ def is_tool_result(c):
     return isinstance(c, list) and any(isinstance(b, dict) and b.get("type") == "tool_result" for b in c)
 
 
-def new_agent():
+def new_agent(main=False):
+    """Parser state of one transcript. main=True: the main thread, whose 'segments' are the human-prompt
+    windows (seg = window index) and which keeps the human prompts' times (and promptIds) in `humans`."""
     return {"off": 0, "ino": None, "type": None, "nseg": 0, "cur": None, "last_kind": None, "last_evt": None,
-            "win": {}, "prev": None, "prev_tl": False, "emitted": {}}
+            "win": {}, "prev": None, "prev_tl": False, "emitted": {}, "meta": None, "main": bool(main),
+            "humans": []}
 
 
-def _new_seg(a):
-    a["cur"] = {"idx": a["nseg"], "n": 0, "in": 0, "out": 0, "cc": 0, "cr": 0, "peak": 0, "fts": None, "lts": None,
-                "fcc": 0, "fcr": 0, "fkey": None, "lkey": None, "comp": 0, "tl": False,
-                "after": bool(a["prev_tl"]), "gap": None, "prev_peak": None}
+def _new_seg(a, idx=None):
+    a["cur"] = {"idx": a["nseg"] if idx is None else idx, "n": 0, "in": 0, "out": 0, "cc": 0, "cr": 0, "peak": 0,
+                "fts": None, "lts": None, "fcc": 0, "fcr": 0, "fkey": None, "lkey": None, "comp": 0, "tl": False,
+                "after": bool(a["prev_tl"]), "gap": None, "prev_peak": None,
+                # tool counts, the segment's written files (sha256 prefixes, dropped with the segment), commits
+                "tc": {}, "fw": {}, "gc": 0, "fctx": 0, "fwc": None, "cfw": None, "lsc": None, "ltxt": False}
     a["nseg"] += 1
     if a["prev"]:
         a["cur"]["prev_peak"] = a["prev"]["peak"]
@@ -199,9 +254,55 @@ def _finish_seg(a, out):
     if cur is None:
         return
     if cur["n"]:
-        out.append(seg_row_values(cur, "complete", bool(cur["tl"])))
-        a["prev"] = {"peak": cur["peak"], "lts": cur["lts"]}
+        out.append(seg_row_values(cur, "complete", bool(cur["tl"]), a["last_kind"], a["main"]))
+        if not a["main"]:
+            a["prev"] = {"peak": cur["peak"], "lts": cur["lts"]}
     a["prev_tl"] = bool(cur["tl"])
+
+
+def repo_path(p):
+    """A written path that is work, not notes: none of the scratch/notes locations (and not $TMPDIR)."""
+    tmp = os.environ.get("TMPDIR", "").rstrip("/")
+    return not (any(n in p for n in NOTE_PATHS) or (len(tmp) > 1 and p.startswith(tmp + "/")))
+
+
+def _on_blocks(cur, w, content):
+    """Tool-use blocks (each once per call, by block id) and the call's STATUS line, into the segment's
+    counts. Paths and commands are matched and dropped; only hashes of written paths stay in memory."""
+    for i, b in enumerate(content):
+        if not isinstance(b, dict):
+            continue
+        if b.get("type") == "text":
+            txt = b.get("text")
+            if isinstance(txt, str) and txt.strip():
+                w["txt"] = True
+                mt = STATUS_RE.search(txt)
+                if mt:
+                    w["sc"] = STATUS_CODE[mt.group(1)]
+            continue
+        if b.get("type") != "tool_use":
+            continue
+        bid = b.get("id") if isinstance(b.get("id"), str) and b.get("id") else "@%d" % i
+        if bid in w["tu"]:
+            continue
+        w["tu"].append(bid)
+        name = str(b.get("name"))
+        col = TOOL_MAP.get(name) or ("n_mcp" if name.startswith("mcp__") else "n_other")
+        cur["tc"][col] = cur["tc"].get(col, 0) + 1
+        inp = b.get("input") if isinstance(b.get("input"), dict) else {}
+        if name in WRITE_TOOLS:
+            p = inp.get("file_path") if isinstance(inp.get("file_path"), str) and inp.get("file_path") \
+                else inp.get("notebook_path")
+            if isinstance(p, str) and p:
+                hsh = hashlib.sha256(p.encode("utf-8", "replace")).hexdigest()[:16]
+                repo = int(repo_path(p))
+                cur["fw"][hsh] = max(cur["fw"].get(hsh, 0), repo)
+                if repo:
+                    w["wr"] = True
+                    if cur["fwc"] is None:
+                        cur["fwc"] = w["i"]
+        elif name == "Bash" and COMMIT_RE.search(str(inp.get("command", ""))):
+            cur["gc"] += 1
 
 
 def _on_call_line(a, r, m, u, out):
@@ -220,10 +321,26 @@ def _on_call_line(a, r, m, u, out):
     w = a["win"].get(key)
     if w is None:
         # a new API call: one event, appended to the current segment
-        if a["cur"] is None:
+        if a["main"]:
+            # the main thread: the segment is the human-prompt window of the call's time
+            t = epoch(ts)
+            i = None if t is None else bisect_right(a["humans"], [t, "￿"]) - 1
+            if i is None or i < 0:                  # before the first prompt: no window, later lines ignored
+                a["win"][key] = {"v": [0, 0, 0, 0], "tools": False, "seg": -1, "tu": [], "sc": None, "txt": False,
+                                 "wr": False, "i": 0}
+                while len(a["win"]) > WINDOW:
+                    a["win"].pop(next(iter(a["win"])))
+                return
+            if a["cur"] is not None:
+                i = max(i, a["cur"]["idx"])
+            if a["cur"] is None or a["cur"]["idx"] != i:
+                _finish_seg(a, out)
+                _new_seg(a, i)
+        elif a["cur"] is None:
             _new_seg(a)
         cur = a["cur"]
-        w = {"v": [0, 0, 0, 0], "tools": False, "seg": cur["idx"]}
+        w = {"v": [0, 0, 0, 0], "tools": False, "seg": cur["idx"], "tu": [], "sc": None, "txt": False, "wr": False,
+             "i": cur["n"] + 1}
         a["win"][key] = w
         while len(a["win"]) > WINDOW:
             a["win"].pop(next(iter(a["win"])))
@@ -245,11 +362,16 @@ def _on_call_line(a, r, m, u, out):
         cur[k] += nv[i] - old[i]
     w["v"] = nv
     w["tools"] = w["tools"] or tools
+    if isinstance(m.get("content"), list):
+        _on_blocks(cur, w, m["content"])
     ctx = nv[0] + nv[2] + nv[3]
     cur["peak"] = max(cur["peak"], ctx)
     if cur["fkey"] == key:
-        cur["fcc"], cur["fcr"] = nv[2], nv[3]
+        cur["fcc"], cur["fcr"], cur["fctx"] = nv[2], nv[3], ctx
+    if cur["fwc"] == w["i"] and w["wr"]:
+        cur["cfw"] = ctx                    # the first repo-writing call's context
     if cur["lkey"] == key:
+        cur["lsc"], cur["ltxt"] = w["sc"], w["txt"]
         t = epoch(ts)
         if t is not None:
             cur["lts"] = t
@@ -296,18 +418,78 @@ def feed_line(a, line, out):
         a["last_evt"] = None
 
 
-def seg_row_values(cur, status, tl):
-    """The numeric part of a segment row (session, id and type are added by the caller)."""
+def feed_main_line(a, line, out):
+    """One line of the main thread's transcript: calls go to their human-prompt window, human prompts
+    (not tool results, not isMeta, not a task notification or skill preamble) open the next window."""
+    try:
+        r = json.loads(line)
+    except ValueError:
+        return
+    if not isinstance(r, dict):
+        return
+    t = r.get("type")
+    if t == "assistant":
+        feed_line(a, line, out)
+    elif t == "user":
+        m = r.get("message") or {}
+        c = m.get("content") if isinstance(m, dict) else None
+        if is_tool_result(c) or r.get("isMeta"):
+            return
+        if text_of(c)[:TEXT_HEAD].startswith(HUMAN_SKIP):
+            return
+        tm = epoch(r.get("timestamp"))
+        if tm is None:
+            return
+        pid = r.get("promptId")
+        ent = [tm, pid if isinstance(pid, str) and ID_RE.match(pid) else ""]
+        k = bisect_left(a["humans"], ent)
+        if k < len(a["humans"]) and a["humans"][k] == ent:
+            return                      # the same prompt record written twice (a resumed transcript replays it)
+        a["humans"].insert(k, ent)
+
+
+def _status_code(cur, status, tl, end):
+    """0 done, 1 partial, 2 blocked; empty while the segment is open or when it ended on a tool call.
+    The STATUS line of the segment's last call wins; a text-only last call without one is a clean finish
+    (0); a segment cut by the turn limit is at least partial."""
+    if status == "partial":
+        return ""
+    code = None
+    if end == "end" and cur["ltxt"]:
+        code = cur["lsc"] if cur["lsc"] is not None else 0
+    if tl and code != 2:
+        code = 1
+    return "" if code is None else code
+
+
+def seg_row_values(cur, status, tl, end=None, main=False):
+    """The measured part of a segment row (session, id, type and the metadata columns are added by
+    the caller). `end` is the kind of the segment's last event (end | tool | tr)."""
     def num(x):
         return "" if x is None else (round(x, 3) if isinstance(x, float) else x)
-    return {"seg": cur["idx"], "status": status, "api_calls": cur["n"],
-            "ctx": cur["in"] + cur["cc"] + cur["cr"], "input": cur["in"], "output": cur["out"],
-            "cache_creation": cur["cc"], "cache_read": cur["cr"], "first_cc": cur["fcc"], "first_cr": cur["fcr"],
-            "peak": cur["peak"], "prev_peak": num(cur["prev_peak"]),
-            "gap_s": num(cur["gap"]),
-            "first_ts": num(cur["fts"]), "last_ts": num(cur["lts"]),
-            "wall_s": num(cur["lts"] - cur["fts"]) if cur["lts"] is not None and cur["fts"] is not None else "",
-            "compacted": cur["comp"], "turn_limited": int(bool(tl)), "after_limit": int(bool(cur["after"]))}
+    d = {"seg": cur["idx"], "status": status, "api_calls": cur["n"],
+         "ctx": cur["in"] + cur["cc"] + cur["cr"], "input": cur["in"], "output": cur["out"],
+         "cache_creation": cur["cc"], "cache_read": cur["cr"], "first_cc": cur["fcc"], "first_cr": cur["fcr"],
+         "peak": cur["peak"], "prev_peak": num(cur["prev_peak"]),
+         "gap_s": num(cur["gap"]),
+         "first_ts": num(cur["fts"]), "last_ts": num(cur["lts"]),
+         "wall_s": num(cur["lts"] - cur["fts"]) if cur["lts"] is not None and cur["fts"] is not None else "",
+         "compacted": cur["comp"], "turn_limited": int(bool(tl)), "after_limit": int(bool(cur["after"]))}
+    if main:                      # a prompt window has no compaction/turn-limit/resume notion of its own
+        d.update(compacted="", turn_limited="", after_limit="")
+    for c in TOOL_COLS:
+        d[c] = cur["tc"].get(c, 0)
+    d["tool_calls"] = sum(d[c] for c in TOOL_COLS)
+    d.update(files_written=len(cur["fw"]), files_written_repo=sum(cur["fw"].values()), git_commits=cur["gc"],
+             first_ctx=cur["fctx"], first_write_call=num(cur["fwc"]), ctx_at_first_write=num(cur["cfw"]))
+    if main:
+        d.update(resume=0, cold="", status_code="", window=cur["idx"], is_main=1, depth=0)
+    else:
+        d["resume"] = int(cur["idx"] != 0)
+        d["cold"] = int(cur["fcr"] < 0.5 * cur["prev_peak"]) if cur["idx"] and cur["prev_peak"] is not None else ""
+        d["status_code"] = _status_code(cur, status, tl, end)
+        d["is_main"] = 0
+    return d
 
 
 def _set_gap(a):
@@ -322,26 +504,276 @@ def current_row(a, live):
     if cur is None or not cur["n"]:
         return None
     end = a["last_kind"]
+    if a["main"]:                 # the last window is open while the transcript is growing
+        return seg_row_values(cur, "partial" if live else "complete", False, end, True)
     status = "partial" if (end in ("tool", "tr") and live) else "complete"
     tl = cur["tl"] or (end == "tr" and not live)
-    return seg_row_values(cur, status, tl)
+    return seg_row_values(cur, status, tl, end)
 
 
 # ---------------------------------------------------------------- scanning a session
-def agent_type(folder, aid):
-    meta = read_json(os.path.join(folder, "agent-%s.meta.json" % aid)) or {}
+def agent_meta(folder, aid):
+    """The measured, validated fields of agent-<id>.meta.json (None when the file is unreadable):
+    type, parent ("main" when the meta names none), depth, node, task. Only these survive; the
+    description is reduced to a plan-node id and a sanitized label."""
+    meta = read_json(os.path.join(folder, "agent-%s.meta.json" % aid))
+    if meta is None:
+        return None
     t = meta.get("agentType")
-    return t if isinstance(t, str) and TYPE_RE.match(t) else None
+    par = meta.get("parentAgentId")
+    dep = meta.get("spawnDepth")
+    desc = meta.get("description")
+    node = task = ""
+    if isinstance(desc, str):
+        words = desc.split(None, 1)
+        if words and NODE_RE.match(words[0]):
+            node = words[0]
+        task = TASK_DROP_RE.sub("", desc)[:60].strip()
+    return {"type": t if isinstance(t, str) and TYPE_RE.match(t) else None,
+            "parent": "main" if par is None else (par if isinstance(par, str) and ID_RE.match(par) else ""),
+            "depth": dep if isinstance(dep, int) and not isinstance(dep, bool) and 0 <= dep <= 99 else "",
+            "node": node, "task": task}
 
 
-def scan(st, sid, folder, final=False, now=None):
-    """Read what the session's subagent transcripts gained since the last scan. Returns the rows
-    to append (only rows that differ from the last one written for their key) and whether any
-    transcript grew."""
+def agent_type(folder, aid):
+    return (agent_meta(folder, aid) or {}).get("type")
+
+
+def read_stack_commit():
+    """The commit of the installed stack (~/.claude/.stack-manifest.json); empty when the manifest is
+    absent, unparseable or holds no hex commit. Read-only."""
+    d = read_json(os.path.join(os.path.expanduser("~"), ".claude", ".stack-manifest.json"))
+    c = d.get("commit") if d else None
+    return c if isinstance(c, str) and COMMIT_HEX_RE.match(c) else ""
+
+
+def _num(x):
+    """A finite number >= 0 (bool excluded) or None."""
+    if isinstance(x, bool) or not isinstance(x, (int, float)) or x != x or x in (float("inf"), float("-inf")) or x < 0:
+        return None
+    return x
+
+
+def _jsonl_tail(path):
+    """Lines of a guard JSONL file (the last GUARD_FILE_MAX bytes), None when the file is absent."""
+    try:
+        with open(path, "rb") as fh:
+            size = os.fstat(fh.fileno()).st_size
+            fh.seek(max(0, size - GUARD_FILE_MAX))
+            data = fh.read(GUARD_FILE_MAX)
+    except OSError:
+        return None
+    lines = data.splitlines()
+    if size > GUARD_FILE_MAX and lines:
+        lines = lines[1:]                       # the first line is cut
+    return lines
+
+
+def load_hits(gdir):
+    """[(column, agent_id | None, ts)] of <gdir>/limit-hits.jsonl; None when the file does not exist
+    (the hit_* cells are then unmeasurable: empty). Lines that fail the schema are skipped."""
+    lines = _jsonl_tail(os.path.join(gdir, "limit-hits.jsonl"))
+    if lines is None:
+        return None
+    out = []
+    for ln in lines:
+        try:
+            r = json.loads(ln)
+        except ValueError:
+            continue
+        if not isinstance(r, dict) or r.get("v") != 1 or r.get("kind") not in HIT_KIND:
+            continue
+        t, aid = _num(r.get("ts")), r.get("agent_id")
+        if t is None or not (aid is None or (isinstance(aid, str) and ID_RE.match(aid))):
+            continue
+        out.append((HIT_KIND[r["kind"]], aid, float(t)))
+    return out
+
+
+def load_windows(gdir):
+    """[{ts, prompt_id, base}] of <gdir>/prompt-windows.jsonl in file order; None when absent."""
+    lines = _jsonl_tail(os.path.join(gdir, "prompt-windows.jsonl"))
+    if lines is None:
+        return None
+    out = []
+    for ln in lines:
+        try:
+            r = json.loads(ln)
+        except ValueError:
+            continue
+        if not isinstance(r, dict) or r.get("v") != 1:
+            continue
+        t, base, pid = _num(r.get("ts")), _num(r.get("base")), r.get("prompt_id")
+        if t is None or base is None or isinstance(base, float) or not (
+                pid is None or (isinstance(pid, str) and ID_RE.match(pid))):
+            continue
+        out.append({"ts": float(t), "prompt_id": pid or "", "base": int(base)})
+    return out
+
+
+def hit_cells(hits, aid, lo, hi):
+    """The six hit_* cells of a run: a 1 when a firing of the kind falls in [lo, hi + slack]; aid None =
+    the main thread. Empty cells when there is no limit-hits.jsonl (nothing measured) or no time span."""
+    if hits is None or lo == "" or hi == "":
+        return {c: "" for c in HIT_COLS}
+    got = {c: 0 for c in HIT_COLS}
+    for col, who, t in hits:
+        if who == aid and lo <= t <= hi + HIT_SLACK_S:
+            got[col] = 1
+    return got
+
+
+def window_ctx(i, humans, pw, total):
+    """The whole-tree context of main window i: base(k+1) - base(k) of the guard's prompt-windows.jsonl,
+    the open window's budget total - base(k). Window i is matched to a guard line by promptId, else
+    by the nearest time (10 s). Empty when it cannot be matched or measured."""
+    if not pw or i >= len(humans):
+        return ""
+    tm, pid = humans[i]
+    k = next((j for j, w in enumerate(pw) if pid and w["prompt_id"] == pid), None)
+    if k is None:
+        j = min(range(len(pw)), key=lambda x: abs(pw[x]["ts"] - tm))
+        k = j if abs(pw[j]["ts"] - tm) <= 10 else None
+    if k is None:
+        return ""
+    if k + 1 < len(pw):
+        v = pw[k + 1]["base"] - pw[k]["base"]
+    elif total is not None:
+        v = total - pw[k]["base"]
+    else:
+        return ""
+    return int(v) if v >= 0 else ""
+
+
+def snapshot_cells(sid):
+    """sess_src, snap, regime from the session's limits snapshot (written by the guard at SessionStart);
+    empty cells while no snapshot exists or a field is not valid."""
+    d = read_json(os.path.join(state_root(), "limits", "snapshots", sid + ".json")) or {}
+    h = d.get("hash")
+    h = h[len("sha256:"):][:16] if isinstance(h, str) and h.startswith("sha256:") else ""
+    src, reg = d.get("source_event"), d.get("regime")
+    return {"sess_src": src if src in SESS_SRC else "", "snap": h if HEX16_RE.match(h) else "",
+            "regime": reg if isinstance(reg, str) and HEX16_RE.match(reg) else ""}
+
+
+def _feed_file(a, path, stt, feed, out):
+    """New complete lines of one transcript into the parser. Returns (grew, pending)."""
+    grew, data = False, b""
+    if stt.st_size > a["off"]:
+        try:
+            with open(path, "rb") as fh:
+                fh.seek(a["off"])
+                data = fh.read(min(READ_CHUNK, stt.st_size - a["off"]))
+        except OSError:
+            data = b""
+        start = 0
+        if a.get("skip"):
+            # the rest of a line longer than READ_CHUNK (no API usage lives in such a line)
+            nl = data.find(b"\n")
+            start = len(data) if nl < 0 else nl + 1
+            a["skip"] = nl < 0
+        cut = data.rfind(b"\n")
+        if cut >= start:
+            grew = True
+            for line in data[start:cut + 1].splitlines():
+                if line.strip():
+                    feed(a, line.decode("utf-8", "replace"), out)
+                    if not a["main"]:
+                        _set_gap(a)
+            a["off"] += cut + 1
+        elif len(data) == READ_CHUNK:
+            a["off"] += len(data)
+            a["skip"] = True
+        else:
+            a["off"] += start
+    return grew, len(data) == READ_CHUNK
+
+
+def _fresh(a, stt, main):
+    if a is None or a.get("ino") != stt.st_ino or stt.st_size < a.get("off", 0):
+        emitted = a["emitted"] if a else {}
+        a = new_agent(main)
+        a["ino"] = stt.st_ino
+        a["emitted"] = emitted
+    return a
+
+
+def scan(st, sid, folder, final=False, now=None, commit=None):
+    """Read what the session's main and subagent transcripts gained since the last scan. Returns the
+    rows to append (only rows that differ from the last one written for their key) and whether any
+    transcript grew. `commit` is the installed stack's commit (read now when None)."""
     now = time.time() if now is None else now
+    commit = read_stack_commit() if commit is None else commit
     agents = st.setdefault("agents", {})
     rows, grew = [], False
     st["more"] = False
+    gdir = os.path.join(state_root(), sid)               # the guard's session state folder (read only)
+    hits, pw = load_hits(gdir), load_windows(gdir)
+    base = dict(schema_version=SCHEMA_VERSION, session=sid, src="measured", stack_commit=commit,
+                **snapshot_cells(sid))
+    budget = _num((read_json(os.path.join(gdir, "budget.json")) or {}).get("total"))
+
+    def emit(a, aid, atype, vals, extra):
+        row = dict(EMPTY_ROW, **base, id=aid, type=atype, **vals, **extra)
+        sig = json.dumps([row[c] for c in COLUMNS])
+        k = str(vals["seg"])
+        if a["emitted"].get(k) != sig:
+            a["emitted"][k] = sig
+            rows.append(row)
+
+    def span(vals):
+        f, t = vals["first_ts"], vals["last_ts"]
+        if f != "":
+            st["tmin"] = f if st.get("tmin") is None else min(st["tmin"], f)
+        if t != "":
+            st["tmax"] = t if st.get("tmax") is None else max(st["tmax"], t)
+
+    def settle(a, path, stt, feed, out):
+        """Feed the file; returns (grew, live). Live: a backlog remains or the file changed lately."""
+        g, pending = _feed_file(a, path, stt, feed, out)
+        if pending:
+            st["more"] = True            # a backlog: read on (the segment is not finished yet)
+        return g, pending or (not final and (now - stt.st_mtime) < LIVE_S)
+
+    def trim(a):
+        # emitted signatures are kept for the last two segments only (older ones never change)
+        if a["cur"] is not None:
+            for k in [k for k in a["emitted"] if int(k) < a["cur"]["idx"] - 1]:
+                a["emitted"].pop(k, None)
+
+    # ---- the main thread: one row per human-prompt window (scanned first: the subagents' `window` needs it)
+    mpath = os.path.join(os.path.dirname(os.path.dirname(folder)), sid + ".jsonl")
+    ma = st.get("main")
+    try:
+        stt = os.stat(mpath)
+    except OSError:
+        stt = None
+    if stt is not None:
+        ma = st["main"] = _fresh(ma, stt, True)
+        out = []
+        g, live = settle(ma, mpath, stt, feed_main_line, out)
+        grew = grew or g
+        cr = current_row(ma, live)
+        if cr is not None:
+            out.append(cr)
+        humans = ma["humans"]
+        hs = [h[0] for h in humans]
+        for vals in out:
+            i = vals["seg"]
+            cells = {c: "" for c in HIT_COLS}
+            if hits is not None and i < len(hs):
+                lo, hi = hs[i], (hs[i + 1] if i + 1 < len(hs) else float("inf"))
+                cells = {c: 0 for c in HIT_COLS}
+                for col, who, t in hits:
+                    if who is None and lo <= t < hi:
+                        cells[col] = 1
+            span(vals)
+            emit(ma, "main", "blackcat", vals,
+                 dict(cells, ro_write=0, window_ctx=window_ctx(i, humans, pw, budget)))
+        trim(ma)
+    humans = ma["humans"] if ma else []
+
+    # ---- the subagents: one row per segment
     for path in sorted(glob.glob(os.path.join(folder, "agent-*.jsonl"))):
         aid = os.path.basename(path)[len("agent-"):-len(".jsonl")]
         if not ID_RE.match(aid):
@@ -350,60 +782,39 @@ def scan(st, sid, folder, final=False, now=None):
             stt = os.stat(path)
         except OSError:
             continue
-        a = agents.get(aid)
-        if a is None or a.get("ino") != stt.st_ino or stt.st_size < a.get("off", 0):
-            emitted = a["emitted"] if a else {}
-            a = agents[aid] = new_agent()
-            a["ino"] = stt.st_ino
-            a["emitted"] = emitted
-        if a["type"] is None:
-            a["type"] = agent_type(folder, aid)
-        out, data = [], b""
-        if stt.st_size > a["off"]:
-            try:
-                with open(path, "rb") as fh:
-                    fh.seek(a["off"])
-                    data = fh.read(min(READ_CHUNK, stt.st_size - a["off"]))
-            except OSError:
-                data = b""
-            start = 0
-            if a.get("skip"):
-                # the rest of a line longer than READ_CHUNK (no API usage lives in such a line)
-                nl = data.find(b"\n")
-                start = len(data) if nl < 0 else nl + 1
-                a["skip"] = nl < 0
-            cut = data.rfind(b"\n")
-            if cut >= start:
-                grew = True
-                for line in data[start:cut + 1].splitlines():
-                    if line.strip():
-                        feed_line(a, line.decode("utf-8", "replace"), out)
-                        _set_gap(a)
-                a["off"] += cut + 1
-            elif len(data) == READ_CHUNK:
-                a["off"] += len(data)
-                a["skip"] = True
-            else:
-                a["off"] += start
-        pending = len(data) == READ_CHUNK
-        if pending:
-            st["more"] = True            # a backlog: read on (the segment is not finished yet)
-        live = pending or (not final and (now - stt.st_mtime) < LIVE_S)
+        a = agents[aid] = _fresh(agents.get(aid), stt, False)
+        if a["type"] is None or a["meta"] is None:
+            a["meta"] = agent_meta(folder, aid)
+            a["type"] = (a["meta"] or {}).get("type")
+        out = []
+        g, live = settle(a, path, stt, feed_line, out)
+        grew = grew or g
         cr = current_row(a, live)
         if cr is not None:
             out.append(cr)
         atype = a["type"] or UNKNOWN_TYPE
+        mt = a["meta"] or {}
         for vals in out:
-            row = dict(schema_version=SCHEMA_VERSION, session=sid, id=aid, type=atype, **vals)
-            sig = json.dumps([row[c] for c in COLUMNS])
-            k = str(vals["seg"])
-            if a["emitted"].get(k) != sig:
-                a["emitted"][k] = sig
-                rows.append(row)
-        # emitted signatures are kept for the last two segments only (older ones never change)
-        if a["cur"] is not None:
-            for k in [k for k in a["emitted"] if int(k) < a["cur"]["idx"] - 1]:
-                a["emitted"].pop(k, None)
+            fts, lts = vals["first_ts"], vals["last_ts"]
+            span(vals)
+            ro = "" if atype == UNKNOWN_TYPE else int(
+                (atype[:-5] if atype.endswith("-copy") else atype) in READONLY_TYPES
+                and vals["files_written_repo"] + vals["git_commits"] > 0)
+            win = max(0, bisect_right(humans, [fts, "￿"]) - 1) if humans and fts != "" else ""
+            extra = dict(hit_cells(hits, aid, fts, lts), ro_write=ro, parent=mt.get("parent", ""),
+                         depth=mt.get("depth", ""), node=mt.get("node", ""), task=mt.get("task", ""), window=win)
+            emit(a, aid, atype, vals, extra)
+        trim(a)
+
+    # ---- the session row, at the final scan: the budget's whole-session context
+    if final and budget is not None and st.get("tmin") is not None:
+        vals = {"seg": 0, "status": "complete", "ctx": int(budget), "first_ts": st["tmin"], "last_ts": st["tmax"],
+                "wall_s": round(st["tmax"] - st["tmin"], 3), "is_main": 1, "depth": 0}
+        row = dict(EMPTY_ROW, **base, id="session", type="blackcat", **vals)
+        sig = json.dumps([row[c] for c in COLUMNS])
+        if st.get("emitted_session") != sig:
+            st["emitted_session"] = sig
+            rows.append(row)
     return rows, grew
 
 
@@ -430,9 +841,19 @@ class Locked:
             self.fh.close()
 
 
-def csv_paths():
+def v1_paths():
     u = usage_dir()
     return os.path.join(u, "runs.1.csv"), os.path.join(u, "runs.csv")
+
+
+def v2_paths():
+    u = usage_dir()
+    return os.path.join(u, "runs2.1.csv"), os.path.join(u, "runs2.csv")
+
+
+def csv_paths():
+    """Every row file a v2 reader merges, oldest first: the v1 history (never written here), then v2."""
+    return v1_paths() + v2_paths()
 
 
 def _header_ok(path):
@@ -443,26 +864,37 @@ def _header_ok(path):
         return False
 
 
-ARCHIVE_FACTOR = 4        # runs.1.csv keeps at most this many times STACK_USAGE_MAX_BYTES
+ARCHIVE_FACTOR = 4        # runs2.1.csv keeps at most this many times STACK_USAGE_MAX_BYTES
+
+
+def _set_aside(cur):
+    """A runs2.csv of another header becomes runs2.old-schema-<epoch>.csv (never over an earlier one)."""
+    base = os.path.join(os.path.dirname(cur), "runs2.old-schema-%d" % int(time.time()))
+    dest, n = base + ".csv", 0
+    while os.path.exists(dest):
+        n += 1
+        dest = "%s-%d.csv" % (base, n)
+    os.replace(cur, dest)
 
 
 def _rotate_if_needed(cur, old):
-    """Rotation: once runs.csv passes STACK_USAGE_MAX_BYTES (default 8 MB) it is merged into
-    runs.1.csv (the last row per key, newest sessions first, at most ARCHIVE_FACTOR x the cap: the
-    oldest sessions beyond that are dropped; the newest one always stays) and starts again empty. A file of another schema is
-    set aside as runs.old-schema.csv. Called under runs.lock."""
+    """Rotation: once runs2.csv passes STACK_USAGE_MAX_BYTES (default 8 MB) it is merged into
+    runs2.1.csv (the last row per key, newest sessions first, at most ARCHIVE_FACTOR x the cap: the
+    oldest sessions beyond that are dropped; the newest one always stays) and starts again empty. A file
+    of another header is set aside (_set_aside). Only runs2*.csv is ever touched. Called under
+    runs2.lock."""
     cap = knob("STACK_USAGE_MAX_BYTES", 8e6)
     try:
         size = os.path.getsize(cur)
     except OSError:
         return
     if size and not _header_ok(cur):
-        os.replace(cur, os.path.join(os.path.dirname(cur), "runs.old-schema.csv"))
+        _set_aside(cur)
         return
     if cap <= 0 or size <= cap:
         return
     by_session = {}
-    for k, r in read_rows([old, cur]).items():
+    for k, r in read_rows([old, cur], schemas=(str(SCHEMA_VERSION),)).items():
         by_session.setdefault(k[0], []).append(r)
 
     def newest(sess):
@@ -493,11 +925,37 @@ def _rotate_if_needed(cur, old):
     os.unlink(cur)
 
 
+def valid_cell(col, v):
+    """Whether a string column's value is acceptable (the hostile-CSV filter of the readers and writer)."""
+    if col == "session" or col == "id" or col == "parent":
+        return bool(ID_RE.match(v))
+    if col == "type":
+        return bool(TYPE_RE.match(v)) or v == UNKNOWN_TYPE
+    if col == "status":
+        return v in STATUS_VALUES
+    if col == "node":
+        return bool(NODE_RE.match(v))
+    if col == "sess_src":
+        return v in SESS_SRC
+    if col in ("snap", "regime"):
+        return bool(HEX16_RE.match(v))
+    if col == "stack_commit":
+        return bool(COMMIT_HEX_RE.match(v))
+    if col == "src":
+        return v in SRC_VALUES
+    if col == "task":
+        return bool(TASK_RE.match(v))
+    return True
+
+
 def append_rows(rows):
+    """Append v2 rows to runs2.csv (rotating to runs2.1.csv). runs.csv, runs.1.csv and
+    runs.old-schema.csv are never written, renamed or rotated. An optional string cell that is not valid
+    is written empty."""
     if not rows:
         return
-    old, cur = csv_paths()
-    with Locked(os.path.join(usage_dir(), "runs.lock")):
+    old, cur = v2_paths()
+    with Locked(os.path.join(usage_dir(), "runs2.lock")):
         _rotate_if_needed(cur, old)
         new = not os.path.exists(cur) or os.path.getsize(cur) == 0
         buf = io.StringIO()
@@ -505,6 +963,11 @@ def append_rows(rows):
         if new:
             w.writeheader()
         for r in rows:
+            r = dict(r)
+            for c in OPTIONAL_STRINGS:
+                v = r.get(c)
+                if v not in (None, "") and not (isinstance(v, str) and valid_cell(c, v)):
+                    r[c] = ""
             w.writerow(r)
         fd = os.open(cur, os.O_WRONLY | os.O_APPEND | os.O_CREAT, 0o600)
         try:
@@ -513,34 +976,55 @@ def append_rows(rows):
             os.close(fd)
 
 
-def read_rows(paths=None):
-    """{(session, id, seg): row} over the given files (default: runs.1.csv then runs.csv), the last
-    row of a key winning. Rows of another schema version or with malformed ids are skipped."""
+def read_rows(paths=None, schemas=None):
+    """{(session, id, seg): row}, the last row of a key winning, over the given files (default: runs.1.csv,
+    runs.csv, runs2.1.csv, runs2.csv in that order: the v1 history, then v2). Every row has all
+    COLUMNS_V2 keys: a v1 row (schema_version 1) has its new columns empty and src = seed_v1. Rows of
+    another schema version, with a bad session/id/type/status or a non-numeric seg are skipped; an invalid
+    optional string cell (parent, node, task, ...) is read as empty. `schemas` limits the accepted
+    schema versions; by default runs2*.csv holds schema 2 rows and every other file schema 1 rows."""
     out = {}
     for p in paths or csv_paths():
+        accept = schemas or (("2",) if os.path.basename(p).startswith("runs2") else ("1",))
         try:
             fh = open(p, encoding="utf-8", newline="")
         except OSError:
             continue
         with fh:
-            for r in csv.DictReader(fh):
-                if r.get("schema_version") != str(SCHEMA_VERSION):
-                    continue
-                if not (ID_RE.match(r.get("session") or "") and ID_RE.match(r.get("id") or "")):
-                    continue
-                try:
-                    k = (r["session"], r["id"], int(r["seg"]))
-                except (KeyError, TypeError, ValueError):
-                    continue
-                out[k] = r
+            try:
+                for r in csv.DictReader(fh):
+                    ver = r.get("schema_version")
+                    if ver not in accept:
+                        continue
+                    if not (ID_RE.match(r.get("session") or "") and ID_RE.match(r.get("id") or "")):
+                        continue
+                    try:
+                        k = (r["session"], r["id"], int(r["seg"]))
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    if ver == "2" and not (valid_cell("type", r.get("type") or "") and
+                                           valid_cell("status", r.get("status") or "")):
+                        continue
+                    r = {c: (r.get(c) if isinstance(r.get(c), str) else "") for c in COLUMNS}
+                    if ver == "1":
+                        r["src"] = "seed_v1"
+                    for c in OPTIONAL_STRINGS:
+                        if r[c] != "" and not valid_cell(c, r[c]):
+                            r[c] = ""
+                    out[k] = r
+            except (csv.Error, UnicodeDecodeError):
+                continue
     return out
+
+
+read_rows_v2 = read_rows
 
 
 def runs_view(rows, session=None):
     """Agent runs: the segment rows of each (session, id) aggregated."""
     agg = {}
     for (s, aid, seg), r in sorted(rows.items()):
-        if session and s != session:
+        if (session and s != session) or r.get("is_main") == "1":     # main-thread and session rows are no agents
             continue
         a = agg.setdefault((s, aid), {"session": s, "id": aid, "type": r["type"], "segments": 0, "api_calls": 0,
                                       "ctx": 0, "output": 0, "first_ts": None, "last_ts": None, "compacted": 0,
@@ -626,15 +1110,16 @@ def save_state(sd, st):
     write_json_atomic(os.path.join(sd, "state.json"), st)
 
 
-def scan_once(sid, folder, final=False, st=None, sd=None):
+def scan_once(sid, folder, final=False, st=None, sd=None, commit=None):
     """Scan until no transcript has a backlog; rows appended, state saved. On an error the state
     is reloaded from disk (nothing counted twice, nothing skipped) and the error raised."""
     sd = sd or session_dir(sid)
     st = load_state(sd) if st is None else st
+    commit = read_stack_commit() if commit is None else commit
     total, grew_any = [], False
     try:
         for _ in range(1000):
-            rows, grew = scan(st, sid, folder, final=final)
+            rows, grew = scan(st, sid, folder, final=final, commit=commit)
             append_rows(rows)
             save_state(sd, st)
             total += rows
@@ -671,8 +1156,23 @@ def prune_sessions(keep):
                 shutil.rmtree(p, ignore_errors=True)
 
 
+def propose_limits():
+    """The proposer of the learned limits (stack_limits.propose, a stdlib writer of proposals.json: inputs
+    to the NEXT SessionStart). Skipped silently when stack_limits is not importable or fails; it never
+    changes a live limit or a snapshot (S6 U4)."""
+    if HERE not in sys.path:
+        sys.path.insert(0, HERE)
+    try:
+        import stack_limits
+        fn = getattr(stack_limits, "propose", None)
+        return fn() if callable(fn) else None
+    except Exception:  # noqa: BLE001 - absent, unfinished (NotImplementedError) or failing: not our failure
+        return None
+
+
 def run(sid, folder, owner=None, poll=None, idle=None):
-    """The collector loop. Returns the exit reason."""
+    """The collector loop. Returns the exit reason. Exit order: final scan (rows appended), propose
+    (proposals.json), the uv refresh (the candidate scheduler model)."""
     if not enabled():
         return "disabled"
     sd = session_dir(sid)
@@ -694,6 +1194,7 @@ def run(sid, folder, owner=None, poll=None, idle=None):
         except Exception:  # noqa: BLE001 - housekeeping only
             pass
         st = load_state(sd)
+        commit = read_stack_commit()                      # the installed stack, as of the collector's start
         last_growth, last_beat, last_pid_check, reason = time.time(), 0.0, time.time(), None
         stop = {"sig": False}
         signal.signal(signal.SIGTERM, lambda *_: stop.update(sig=True))
@@ -706,7 +1207,7 @@ def run(sid, folder, owner=None, poll=None, idle=None):
                 last_pid_check = now
             final = ended or gone or stop["sig"]
             try:
-                rows, grew = scan_once(sid, folder, final=final, st=st, sd=sd)
+                rows, grew = scan_once(sid, folder, final=final, st=st, sd=sd, commit=commit)
                 meta["rows"] += len(rows)
             except Exception:  # noqa: BLE001 - never die on a bad line or a full disk; retry next tick
                 grew = False
@@ -727,6 +1228,7 @@ def run(sid, folder, owner=None, poll=None, idle=None):
         meta.update(heartbeat=round(time.time(), 3), exited=round(time.time(), 3), reason=reason)
         write_json_atomic(os.path.join(sd, "collector.json"), meta)
     if reason in ("session end", "owner gone", "idle"):
+        propose_limits()
         refresh(trigger=reason)
     return reason
 
