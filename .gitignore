@@ -1,12 +1,61 @@
+# What git must not track in a checkout of this repository (local work, caches, secrets).
+
+# --- OS and editors ---
+# macOS Finder metadata and AppleDouble files
+.DS_Store
+._*
+# editor swap and backup files, per-user IDE folders (none is shared in this repo)
+*.swp
+*~
+.idea/
+.vscode/
+
+# --- Python (hooks, bin/, mcp/, tests/, install_state.py) ---
+# bytecode, pytest/ruff/mypy/pyright/hypothesis caches, coverage, local venvs, packaging output
 __pycache__/
-*.pyc
+*.py[cod]
+*$py.class
 .pytest_cache/
 .ruff_cache/
-.claude-work/
-.playwright-mcp/
-.DS_Store
-# local, never shipped: working notes, campaign data, image originals (README "Contributing and safety")
+.mypy_cache/
+.pyright/
+.hypothesis/
+.coverage
+htmlcov/
+.venv/
+venv/
+*.egg-info/
+build/
+dist/
+
+# --- Node (Playwright and other npx tools run in a checkout) ---
+node_modules/
+
+# --- secrets: never committed ---
+# stack.env holds API keys (install.sh renders it into ~/.claude); only the placeholder example ships
+stack.env
+.env
+.env.*
+!lib/stack.env.example
+*.pem
+*.key
+
+# --- Claude Code and agent scratch: local working files, never shipped ---
+# hand-off package and local notes, campaign data, image originals (README "Contributing and safety")
+claude_next_steps/
 claude-local-work/
+# the agents' scratch convention (hard-wired in the guards)
+.claude-work/
 # Claude Code's per-checkout worktrees and local settings
 .claude/worktrees/
 .claude/settings.local.json
+# Playwright MCP output from sessions started before the --output-dir fix
+.playwright-mcp/
+
+# local copy of the GitHub wiki: its own git repository, pushed separately to <repo>.wiki.git
+github-wiki/
+
+# --- logs and archives ---
+*.log
+*.bundle
+*.tar.gz
