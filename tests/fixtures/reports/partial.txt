@@ -1,0 +1,8 @@
+Below is where I stopped.
+STATUS: partial · E:look
+RESULT: Parser done, writer not started.
+FILES:
+- src/parser.py — done
+- src/writer.py — stub only
+EVIDENCE: pytest -q → 4 passed, 3 skipped
+NEXT: coder: implement src/writer.py from the stub

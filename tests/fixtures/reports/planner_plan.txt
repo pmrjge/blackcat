@@ -1,0 +1,317 @@
+STATUS: done
+RESULT: The full plan is below. I couldn't write it to `claude_next_steps/work_carried/compact-protocol/plan.md` because the planner has no Write tool; the orchestrator can save this message there. The plan is limited to the message format between an agent and its subagents, as you corrected.
+EVIDENCE: Unverified: the current size of the rules file (last recorded 11,534 chars at `tests/prompt_budget.py:87`, cap 0.95 × 12,198 = 11,588); the blackcat.md body (the coordinator says 5,187 of the 5,200 cap at `tests/prompt_budget.py:50`); whether subagents can Read the hook state dir (`settings.json:282` denies Edit, `:313-314` list only `*.lock`/`*.mutex`); whether `updatedToolOutput` works on the Agent tool; what a background completion notification contains; and the `SubagentHandback` path in auto mode. Hook facts come from claude-code-guide (hooks.md, read 2026-10-03). Everything else was read from code at main `232bb4c`.
+FILES: none written
+NEXT: plan-reviewer on this plan (step S0), then ASK USER Q1–Q4
+
+---
+
+# Compact message protocol between agents and subagents: plan
+
+## GOAL
+Cut the context that briefs, hand-backs, checks and plan routing add to each agent. The model writes only status, result, file references, evidence when the policy needs it, and an E flag. The hooks record everything else. The result stays measurable and works with today's parsers.
+
+## CONTEXT (facts that shape the plan)
+
+**Today's report and brief rules**
+- `dot-claude/rules/claude-agent-stack.md:34-48` "Briefs and hand-backs":
+  - `:38` is the clean-finish header (`<input> · <YYYY-MM-DD HH:MM> · <type>`).
+  - `:39-46` is the STATUS/RESULT/EVIDENCE/FILES/NEXT block.
+  - `:47` sets the caps by role (~1,000 / ~2,500 chars).
+  - `:48` says that no STATUS line means a clean finish.
+  - `:51` makes builders run `; date '+%F %R'`, only so they can write the timestamp.
+  - `:53` is the evidence-gated round-trip rule.
+- The prompt budget only allows displacement. Rules may be at most 0.95 × 12,198 (`tests/prompt_budget.py:96-97`). Agent bodies may be at most 0.867 × base. The BlackCat body is capped at 5,200 (`:50`).
+
+**What the hooks already know**
+- The registry `agents/<id>.json` already records type, depth, parent, spawned, started and stopped (`agent_guard.py:108-110`). It is written at SubagentStart (`:3247-3289`) and SubagentStop (`:3343-3347` → `mark_stopped` `:3323-3340`).
+- The ledger `spawns/<tid>.json` records by, type, task, ts and status (`:2000-2243`).
+- Tokens, wall time, tool counts and `status_code` per segment come from `stack_usage.py` (columns at `:91-105`).
+- In this session, the result of a foreground Agent call already ended with `agentId: …` and `<usage>subagent_tokens / tool_uses / duration_ms</usage>` (I saw it on my own claude-code-guide call). The model never needs to write the id, type, time, duration or tokens.
+
+**What hooks can and cannot do** (claude-code-guide, hooks.md, read 2026-10-03)
+- SubagentStart `additionalContext` is supported.
+- SubagentStop input has `last_assistant_message` and `stop_hook_active`. `decision:"block"` plus a reason keeps the subagent running and gives it the reason. SubagentStop cannot modify the final message.
+- PostToolUse(Agent): `tool_response` has `content`, `agentId`, `totalTokens` (final request only), `totalDurationMs` and `totalToolUseCount`. `additionalContext` reaches the parent. `updatedToolOutput` "works for all tools", but the Agent tool is not named (unverified).
+- Background children (all of BlackCat's) return a completion notification. No hook is documented that can see or rewrite it. So the format must be enforced at the source (SubagentStop), not at the parent.
+
+**JSON mode**
+- `REPORT_JSON_LINE` is injected at SubagentStart and SessionStart only when `STACK_REPORT_FORMAT=json` (`agent_guard.py:3292-3320`, `:3411-3436`).
+- `settings.json:650-660` wires SubagentStop to agent_guard (timeout 15 s).
+
+**Status parsers that must stay compatible**
+- `stack_usage.py:154-155`: `^STATUS:\s*(done|partial|blocked)`, codes 0/1/2. A last text message with no STATUS line counts as 0 ("clean", `:486-497`).
+- `stack_limits.py:718-721, 883-888` uses `status_code` 0/1 to decide which limit hits were "tight".
+- `stack-tree:296`: a lenient regex. No STATUS line shows as "done" (`:374-376`, `:584-585`).
+- `stack_sdk.py:12-50` `parse_report`: clean, status, json and text forms; FILES split on `,` or newline.
+- Frozen baseline: `compute_stats.py:180-181` and `collect_b0v2.py:52`. COMPARE.md §0 says a changed definition means a schema bump plus recomputing BEFORE from the frozen inputs.
+
+**Baseline numbers** (`stats_before.md`)
+- Compliance with the current rule: new_install 21/24 and 12/13; old_install 16/40 (`:17-19`).
+- Deviations include `header_template_literal` and `header_agent_mismatch` (`:124`), so model-written headers do go wrong.
+- Overclaim 3/40, underclaim 1/40 (`:119`).
+- No cost field exists. BEFORE has one orchestrated run (old_install).
+
+**Other constraints**
+- Read gate: anything under `.claude-work/` is never gated (`read_gate.py:25, 288-295`), so huge output files there are read in full with no warning.
+- Planner, code-reviewer, plan-reviewer, verifier, security-auditor and proof-checker cannot write files (no Write tool, or Bash held to read-only commands). Their findings and plans have to come back inline.
+- `orchestrator.md:25-27` already keeps `plan.md` as a DAG of at most 32 tasks and uses Agent descriptions like `T3 …`. `stack_usage.py:141,564-567` already pulls the node id out of descriptions, so routing by node is measurable today.
+
+## REQUIREMENTS / NON-GOALS
+
+**Requirements**
+- R1. The model writes only STATUS (done|partial|failed|blocked), an optional E flag, RESULT, FILES (path and purpose), EVIDENCE when the policy needs it, and NEXT.
+- R2. Hooks record id, type, start, stop, duration, tool uses, report size and file metadata. When a report is valid, nothing is added to the parent's context.
+- R3. Evidence is always kept for partial, failed and blocked. Evidence longer than 5 lines goes to a file and is referenced.
+- R4. Files travel only as references. The hook stamps size and sha8 and flags files that do not exist.
+- R5. Briefs use the keys GOAL / IN / C / DONE / OUT, pass references only, and never chain context.
+- R6. Check verdicts are compact.
+- R7. `plan.md` is a DAG and routing goes by node id.
+- R8. Caps, a pasted-blob detector, one restate at most, and fail-open on any error.
+- R9. Old and new formats parse side by side.
+- R10. Report and brief sizes are logged so the saving can be measured.
+- R11. The prompt budget does not grow.
+
+**Non-goals**
+- User-facing reply style (the Output economy rule stays as it is).
+- A role-aware split of the rules file, or SubagentStart injection of role blocks.
+- Caps on BlackCat's replies to you.
+- Aligning permission vocabulary.
+- Rewriting the parent-visible tool result in v1.
+- Changing the SDK JSON schema beyond adding `failed` and `eflag`.
+- Editing the frozen `stats_before/`.
+
+Optional later (no tasks): rules split with per-role SubagentStart blocks; caps on BlackCat's replies; vocabulary alignment; truncating results with PostToolUse(Agent) `updatedToolOutput` after a probe; dropping the "Started …" line once no format needs it.
+
+## PROTOCOL SPEC (answers to design questions 1–9)
+
+### (1) The report: who writes what
+
+**Hook-written, never model-written:**
+- agent id and type: event, registry
+- start, stop and duration: registry `started`/`stopped`; `totalDurationMs` for foreground calls
+- tool uses: `totalToolUseCount`
+- tokens per run: the stack_usage collector (`tool_response.totalTokens` covers only the final request, so it is not used)
+- file size and sha8
+- report chars, format and restate count
+
+These go to the registry `report` field and to `usage/reports.jsonl`, which holds no text. The ledger row shows the status and the report path. Nothing is injected into the parent: the foreground result frame already carries the id and usage, and background notifications cannot be hooked.
+
+**Model-written grammar.** It keeps the existing `STATUS:` prefix and keys so every current regex still matches. It adds `failed` and the E flag. The clean-finish header and the `date` call are dropped.
+
+~~~
+report      := status_line NL "RESULT: " text [NL files] [NL evidence] [NL next]
+status_line := "STATUS: " ("done"|"partial"|"failed"|"blocked") [" · E:" ("look"|"drop")]
+files       := "FILES:" (NL "- " path [" — " purpose≤60])+
+evidence    := "EVIDENCE: " (inline ≤ 5 lines | "→ " path[":" a "-" b])
+next        := "NEXT: " (agent ": " step | "ASK USER: " question " (" options ")")
+~~~
+
+**Rules per status**
+- done: RESULT is required. FILES if any file was created or changed. EVIDENCE and the E flag only under the evidence policy.
+- partial, failed or blocked: EVIDENCE and NEXT are required, and E:look is implied. The validator sets it if it is missing.
+- Empty fields are left out.
+
+**Examples (illustrative, not real outputs)**
+
+1. Success
+~~~
+STATUS: done
+RESULT: stack_usage accepts failed/ok; status_code domain unchanged; tests pass (pytest -q tests/test_stack_usage.py).
+FILES:
+- dot-claude/hooks/stack_usage.py — STATUS_RE, STATUS_CODE
+~~~
+
+2. Failed, with evidence
+~~~
+STATUS: failed · E:look
+RESULT: Restate guard not applied: SubagentStop blocks twice for one run.
+EVIDENCE: uv run pytest -q tests/test_agent_guard.py -k restate → 1 failed
+  AssertionError: decision 'block' emitted twice for run a1
+NEXT: main-coder: key the restate marker by the registry `started` stamp
+~~~
+
+3. Success, with justifying evidence (brief said `ev:req`, a hooks trigger fired)
+~~~
+STATUS: done · E:drop
+RESULT: .claude-work exemption narrowed to ≤ 256 KB; knob READ_GATE_CLAUDE_WORK_BYTES (0 = old behaviour).
+FILES:
+- dot-claude/hooks/read_gate.py — gated(), KNOBS
+EVIDENCE: → .claude-work/compact/out/T5.ev.txt (self-test and pytest output)
+~~~
+
+**Hard caps on model-written chars.** The table lives in the new `stack_report.py`. The numbers are provisional and get recalibrated from observe-mode data before enforcement.
+
+| class | agents | cap |
+|---|---|---|
+| lookup | oracle, scout, explore, claude-code-guide | 1,000, hard |
+| builder (default) | every other agent with Write | 800 on done, 2,500 otherwise, hard |
+| coord | orchestrator | 2,500, hard (summary of at most 10 lines plus refs) |
+| review | code-reviewer, plan-reviewer, security-auditor, verifier, proof-checker | 6,000, soft (logged only; findings are the deliverable and must stay inline) |
+| plan | planner | 12,000, soft (logged only) |
+
+**Compatibility**
+- `STATUS_RE` in stack_usage and stack-tree matches the prefix, and `· E:x` comes after the status word.
+- `parse_report` takes the first token of the status line. It needs: an `eflag` key, `failed`, and stripping of `- ` and ` — purpose` from FILES.
+- stack_usage maps `failed`→1 and `ok`→0. The domain {0,1,2} stays, so learned limits keep their meaning. The exact status is kept in `reports.jsonl`.
+- stack-tree prefers the validated `registry.report.status`.
+- The §13 SUBAGENTS.md reads the registry `report` (status, eflag, files with size and sha8, verdict and counts, report path) instead of regex excerpts. So §14 should land before §13.
+- Baseline: the AFTER compute script bumps the schema to 1.2.0 (the regex adds failed/ok, `format_class` adds `compact`) and recomputes BEFORE from the same frozen inputs, as COMPARE.md §0 requires.
+
+### (2) Evidence policy
+- Always present for partial, failed and blocked, always with E:look.
+- On done, only when one of these holds:
+  - the brief says `ev:req`;
+  - a review trigger fired (rules `:52`), which counts as `ev:req`;
+  - the agent judges that a claim needs it (a deviation, an assumption, a non-obvious number).
+- E:look means the parent must read the evidence before acting or relaying.
+- E:drop means proof-of-work kept for reviewers or the user. The parent forwards the reference and does not read it.
+- More than 5 lines go to `./.claude-work/<job>/out/<node>.ev.txt` and are referenced. Read-only agents, and any agent in Plan mode, keep evidence inline within their cap.
+- The validator copies the full report text to `<state>/<sid>/reports/<agent_id>.md` (mode 0600), so a restate never loses anything.
+- Evidence-gated rounds are unchanged (rules `:53`, review-protocol `:11-12`). A ping-back cites `path:line` or the EVIDENCE reference. Reviewers re-run proofs when a report has none.
+
+### (3) Files
+- The model writes `path — purpose`. The hook resolves each path against the event `cwd` and records size and sha8, or flags it missing (missing means a claimed file was hallucinated).
+- Safety of that check: regular files only (`S_ISREG`), open with `O_NONBLOCK`, hash only files up to 8 MB (else size and mtime), at most 20 paths, 2 s total.
+- Location: `./.claude-work/<job>/out/<node>.<ext>`, or `out/<type>-<slug>.<ext>` when there is no plan.
+- Consumers read parts with Read `offset`/`limit`, `rg -n … | head`, `jq '.k'`, or `sed -n 'a,bp'`.
+- Enforcement:
+  - The blob detector (below) runs on the report.
+  - The read gate is narrowed: under `.claude-work/`, only regular text files up to `READ_GATE_CLAUDE_WORK_BYTES` (default 262,144) skip the gate. Larger ones get the usual first-read refusal, and an identical retry passes.
+- Blob detector (in `stack_report.blob_score`), any one of:
+  - 10 or more lines that look like Read output (`^\s*\d+\t`);
+  - a code fence over 15 lines or 1,500 chars (reviewers' diff hunks are allowed);
+  - a run of base64 or hex of 200 chars or more;
+  - control or binary characters;
+  - any line over 2,000 chars.
+
+### (4) Briefs and requests
+~~~
+GOAL: <node id> · <one line>
+IN: plan.md#T3 (<path>); <dep out refs>; <file:line anchors>
+C: <constraints: owned files, no-push, stdlib…>
+DONE: <objective check command>
+OUT: hand-back [ev:req] [file: ./.claude-work/<job>/out/T3.<ext>]
+USER: <user's prompt verbatim>     # only when a prompt is forwarded verbatim (BlackCat); exempt from the cap
+~~~
+- Cap: 2,000 agent-written chars. It is soft: PreToolUse(Agent) logs `brief_chars` in the ledger and adds an `additionalContext` warning above the cap, or when the brief contains a pasted report or blob (`^STATUS:` lines, the hand-back frame, a blob score above the threshold). It never denies.
+- No chaining: a child gets its DAG row, `plan.md#T<n>`, and the `out` references of its dependencies. It never gets the plan's text, the parent's conversation or sibling reports.
+- Follow-ups go by SendMessage to the same agent id, with the same keys and only the delta.
+- BlackCat is just one parent and uses the same keys (`USER:` plus references).
+
+### (5) Checks and reviews
+- STATUS is the review task's completion; the VERDICT goes in RESULT.
+- Clean pass: `STATUS: done` and `RESULT: VERDICT pass — ran: <cmds>`.
+- Otherwise:
+  - `STATUS: done · E:look`
+  - `RESULT: VERDICT pass-with-fixes|fail · <n> CRITICAL <n> HIGH <n> MEDIUM <n> LOW (plans: <n> BLOCKING)`
+  - then `ASSUMED:`, `FINDINGS:` (`- [SEV] path:line — defect | evidence | proof | fix`) and `NOT CHECKED:`. These stay inline because the reviewers are read-only.
+- The hook saves the copy at `reports/<id>.md`, which becomes the findings file. The orchestrator sends `apply F1,F3 from <path>` and never re-pastes the findings.
+- A review that could not finish is `partial` with EVIDENCE.
+- The validator extracts the verdict and the counts into `reports.jsonl`.
+
+### (6) Plan exposition and routing
+- `plan.md` rows: `| T<n> | task | owner | deps | in | done-when | status | out |`, where status is todo|running|done|partial|failed|blocked.
+- The planner returns its DAG inline because it cannot write. The orchestrator writes `plan.md` once and from then on routes by id:
+  - Agent description `T3 <3–5 words>` (already the convention).
+  - On each report, update the row's status and out.
+  - Dispatch the nodes whose dependencies are done, in one message.
+  - Read a child's files only for the part it merges (`orchestrator.md:27`).
+- The orchestrator returns: STATUS, RESULT with at most 10 summary lines, and FILES (`plan.md` and the outputs).
+- BlackCat's relay to you keeps its own style (the Relay section). It reads EVIDENCE only on E:look or a non-done status.
+
+### (7) The guard and hook layer
+- `STACK_REPORT_FORMAT` modes:
+  - unset means `observe` in Phase 1: log only, never blocks, no output;
+  - `compact`: observe plus restate once; becomes the default in Phase 2 if Q1 = compact;
+  - `json`: today's injection plus validation of the JSON line's shape, with the same logging;
+  - `off`: no validation and no logging.
+- SubagentStop flow:
+  1. Skip types outside `STACK_TYPES`, and skip when `last_assistant_message` is empty.
+  2. Parse and check: status present and valid; non-done has EVIDENCE and NEXT; caps by class and status; blob; missing files.
+  3. Record to the registry `report`, `reports/<id>.md` and `usage/reports.jsonl`.
+  4. In compact mode, block once, only if: there is a hard violation, `stop_hook_active` is false, and `report.restated` is not set for this run (keyed by the registry `started` stamp). The reason is at most 400 chars: what is wrong plus the 5-line grammar.
+  5. When it blocks, return before `mark_stopped`, because the agent is still running.
+  6. Any exception: warn, run `mark_stopped`, and emit no decision (fail open).
+- PostToolUse(Agent) on completion copies `totalDurationMs`, `totalToolUseCount` and `totalTokens` into the ledger record, for measurement only.
+- Token accounting: `report_chars`, `brief_chars` and the estimate ceil(chars/3) (as in `prompt_budget.py:306-307`, labelled an estimate) go to `usage/reports.jsonl`, which joins `runs3.csv` on (session, id). No `runs.csv` schema change.
+
+### (8) Rollout and measurement
+- Phase 1: code, behaviour-neutral (observe). The user installs it and can run the optional A arm.
+- Phase 2: prompts, plus `compact` as the default, plus the read gate.
+- Phase 3: docs.
+- Prompt migration replaces rules `:34-48` with text no longer than the old (draft below) and drops "; end the last check command with `; date '+%F %R'`" from `:51`. The BlackCat, orchestrator and planner bodies change with net ≤ 0 chars. The review-protocol skill body carries the verdict details (only its description counts toward the budget).
+- Measurement: steps S9 and S10.
+- Savings: "by design, not measured". Method: rewrite the 77 frozen final reports mechanically under the new rules (`stats_before/inputs/**/final_*.txt`) to get the estimated report-chars saving and the blob rate. That is an estimate with its method, never a measurement.
+
+### (9) Risks
+See RISKS below.
+
+### Draft rules section (replaces `:34-48`; the builder measures it against the old length)
+~~~
+## Briefs and hand-backs
+- Brief: `GOAL:` one line · `IN:` paths/URLs, the plan node (`plan.md#T3`) and its dependencies' output refs · `C:` constraints · `DONE:` the check · `OUT:` what to return, `ev:req` for evidence on success; a user's prompt goes verbatim after `USER:`. ≤ 2,000 chars besides it. Never paste files, plans, your conversation or other reports: the child sees only the brief. Follow-ups: SendMessage to the same agent, only the delta.
+- Dispatch independent children in ONE message; dependent ones wait for their inputs. No spawn for work of a few tool calls or a result your very next step needs.
+- Every subagent finish is this block, empty fields omitted; id, type, time, duration and tokens are hook-recorded, never written:
+  STATUS: done | partial | failed | blocked [· E:look | E:drop]
+  RESULT: <answer, numbers, decisions; never file contents>
+  FILES: <one per line: path — purpose>
+  EVIDENCE: <command + ≤ 5 lines of output, or → path>
+  NEXT: <agent: step | ASK USER: question (options)>
+- EVIDENCE always for partial, failed, blocked (E:look); on done only for `ev:req`, a fired review trigger or a claim that needs it (E:look: the parent must read it; E:drop: kept for review). Over 5 lines → a file in `./.claude-work/<job>/out/`.
+- Caps (hook-checked, one restate): lookup 1,000 chars; builder 800 on done, 2,500 otherwise; reviews and plans carry their findings or plan. Files by reference only; read parts with offset/limit, rg or jq.
+- Relay keeps status, caveats and refs; open EVIDENCE only on E:look or to act on it. NEXT: ASK USER goes up unchanged.
+~~~
+
+## OPTIONS (enforcement point)
+- **A. Validate at the source: SubagentStop logs, then blocks once (chosen).** Documented. Works for background children. A violation costs the child one extra turn.
+- **B. Rewrite at the parent with PostToolUse(Agent) `updatedToolOutput`.** No turn for the child, but it is unverified for the Agent tool, the output shape must match, and it cannot reach BlackCat's background notifications. Left as optional later.
+- **C. Prompt only, no hook.** Free, but not enforceable or measurable. The baseline compliance of 16/40 (old_install) argues against it.
+
+## PLAN
+
+| # | action (files, anchors at main `232bb4c`; re-anchor by function name after §11 shifts agent_guard ~+58 lines) | owner | inputs | done-when |
+|---|---|---|---|---|
+| S0 | Review this plan | plan-reviewer | this plan; the anchors above | VERDICT; the orchestrator applies replacement texts |
+| S1 | ASK USER Q1–Q4 | orchestrator → BlackCat | QUESTIONS | answers recorded in DECISIONS.md |
+| S2 | Phase 1 code, worktree `compact-p1`, from main after §11 merges. (a) New `dot-claude/hooks/stack_report.py` (stdlib, Python 3.8+): `parse`, `ROLE`/caps, `blob_score`, `check`, `file_meta`. (b) agent_guard: `on_subagent_stop` `:3343` calls `report_check` before `mark_stopped`; mode knob; docstring `:72-78`, `:206-210`; `ledger_note` `:2065` adds `brief_chars`/blob; brief warning in PreToolUse Agent; `agent_response` `:3181` returns the totals; `ledger_done` `:2174` stores them; `ledger_render_text` `:2141-2151` adds status, E:look and report-path bits; `REPORT_JSON_LINE` `:3292` adds failed/eflag (≤ 400 chars); self-test. (c) `stack_usage.py:154-155` failed/ok. (d) `stack-tree:296`, `:584-585`, `:681-690`. (e) `stack_sdk.py:19-50` eflag, files, failed | python-engineer | S1; this spec | pytest on test_agent_guard, test_stack_usage, test_stack_tree, test_sdk_integration passes; `agent_guard.py --self-test` ok; observe mode emits no SubagentStop output (test); a blocked run is not marked stopped (test) |
+| S3 | Prompts, worktree `compact-p2`, disjoint from S2, may run in parallel: rules `:34-48` (draft) and `:51`; `blackcat.md:49` and `:57-58`; `orchestrator.md:25-27`; `planner.md:23`; `review-protocol/SKILL.md:31-42`. Merge only after S2 and, if Q2 = yes, after the A arm | claude-code-engineer | S1; draft text | `uv run --script tests/prompt_budget.py --check` ok; rules and each touched body ≤ their size before (measured with `--json \| jq`); `tests/lint_agents.py` ok |
+| S4 | Adversarial tests after S2 merges: `tests/test_stack_report.py`; fixtures `tests/fixtures/reports/*.txt` that four parsers must agree on (stack_report, `parse_report`, the stack-tree regex, the stack_usage regex); restate-once lifecycle; `stop_hook_active`; fail-open with a raising parser; FIFO, device, symlink and huge files in FILES; hostile text (control chars, 1 MB line); two SubagentStops for one agent | test-engineer | S2 diff | every test proven on a seeded bug; full suite = baseline (3261 passed, 2 known failures, `NEXT_STEPS.md:217`) plus the new tests |
+| S5 | Read gate: `read_gate.py:288-295` exemption only for text files ≤ `READ_GATE_CLAUDE_WORK_BYTES`; KNOBS `:56-71`; docstring `:25`; self-test `:781`, `:821`; `stack.env.example` | python-engineer | Q3 | `read_gate.py --self-test` ok; `tests/test_read_gate*` pass |
+| S6 | Default `STACK_REPORT_FORMAT` unset → `compact` (if Q1 = compact), in the S3 merge commit | python-engineer | Q1 | test pins the default |
+| S7 | Docs: `README.md:267`, `:290`, `:552`, `:1086`, `:1332`; `CONFIG.md:152-153`, a new "Message protocol" subsection, the §9 changelog; `skills/claude-code-extensions/references/agent-sdk.md:66-73`; local wiki copies Agents-and-Models, Settings-and-Environment, Troubleshooting, Limits-Budgets-and-Scheduler, Hooks-and-Guards, Status-Line-and-Observability | claude-code-engineer | S2, S3, S5 merged | check_md and markdownlint report 0 problems; `test_readme_knobs` passes |
+| S8 | One review round per install point (Phase 1 before your install; Phases 2–3 before the final merge). security-auditor: hooks parse model text and stat or hash model-supplied paths, new state writes, read gate. code-reviewer: diff likely over 300 lines or 8 files; ordering of `mark_stopped` and registry writes under the mutex. Fixes by python-engineer, proofs re-run | security-auditor, code-reviewer | diff ranges; check commands | pass, or pass-with-fixes applied; at most 2 evidence-backed rounds |
+| S9 | Measurement, starts after S1 and needs no code. (a) `work_carried/stats_after/estimate_compact.py`: counterfactual rewrite of the 77 frozen reports, giving the estimated chars saved and the BEFORE blob rate, labelled an estimate. (b) `COMPARE_compact.md` pre-registration: schema 1.2.0; BEFORE recomputed from the frozen inputs. Metrics: M1 report_chars per final report (paired log2 ratio, bootstrap as P1); M2 tokens_total (P1); M3 pass rate (P2, after COMPARE step 1 grading); M4 parent-carried tokens ≈ report_chars × the parent's API calls after the hand-back; M5 tokens per orchestrated job (needs the A arm); M6 compliance, restate, blob and missing-file rates; M7 E-flag precision (E:look runs graded non-pass or with caveats) and drop error (done with E:drop or no evidence, graded non-pass). Wilson intervals; small n reported as descriptive only. (c) After S10: compute, plus the second-route check | data-scientist | frozen `stats_before/`, COMPARE.md | scripts run from the frozen inputs; the pre-registration is written before any AFTER run |
+| S10 | USER: install Phase 1 → optional A arm (Q2) → install Phases 2–3 → AFTER campaign (labels `<PID> a1 run <agent>`, COMPARE §2) → one real restate check (a prompt that forces an oversized report) | user | install.sh; `/stack-tree` | exactly one restate; registry `report` filled; ledger shows status and refs; `reports.jsonl` rows present |
+
+**Order and conflicts**
+- §11 Plan-default (branch `plan-default` `c30b758`) shares `agent_guard.py`, `blackcat.md` (`:18` vs `:49`/`:57-58`, one 5,200-char budget), README, CONFIG, `settings.json` and `tests/lint_agents.py`. S2 and S3 start only after it merges.
+- §13 compaction summary depends on the registry `report`, so §14 goes first. The read exemption in §13c is for `claude_compact_summary/`, a different folder from S5.
+- §12 headless approval shares the agent_guard docstring, `LIFECYCLE`/`HANDLERS` (`:10704-10719`) and the docs. Run it serially, in either order.
+- Resulting order: §11 → S0–S2, S4, S8 → install and A arm → S3, S5, S6, S7, S8 → §13 → §12.
+- S2 does not change `settings.json`: SubagentStop is already wired at `:650-660`.
+
+## RISKS
+1. **Silent failure on success.** Mitigations: non-done always carries E:look; a fired trigger forces `ev:req`; the full report copy is kept; done reports with failure words are logged as `suspect` and measured (M7).
+2. **Hallucinated success.** Mitigations: the hook checks that files exist and stamps sha8; the overclaim rate is measured against the baseline 3/40.
+3. **Parsers break.** Mitigations: the `STATUS:` prefix and keys are kept; old and new formats parse side by side; the cross-parser fixture test (S4); the `status_code` domain is unchanged.
+4. **Restate loops, cost, registry corruption.** Mitigations: at most one restate per run; `stop_hook_active` respected; fail open; observe mode first; no `mark_stopped` while blocked (tested).
+5. **Hook timeout on model-supplied paths.** Mitigations: `S_ISREG`, `O_NONBLOCK`, 8 MB hash cap, at most 20 paths, 2 s budget.
+6. **Evidence-gated rounds starved.** Mitigations: `ev:req` on fired triggers; reviewers re-run proofs (review-protocol `:11`).
+7. **Prompt budget.** Mitigations: displacement measured in S3; BlackCat has ~13 chars of headroom (unverified).
+8. **Secrets in saved report copies.** Mitigations: 0600 in the state dir (Edit denied at `settings.json:282`, pruned after 3 idle days); `reports.jsonl` holds no text; stack-tree keeps redacting.
+9. **`SubagentHandback` (auto mode, v2.1.271+) puts the report in that tool's input.** Then `last_assistant_message` is only a note, so the validator skips (fails open) when the message is short and the last tool call is `SubagentHandback`. Unverified; the stack does not use auto mode.
+10. **Plan mode or read-only agents cannot write `out/` files.** Mitigation: inline within caps, with soft caps for review and plan.
+11. **Caps too tight.** Mitigation: calibrate from observe-mode data and the counterfactual distribution (S9a) before turning on `compact`.
+
+## VERIFY
+- S2/S4 tests; `agent_guard.py --self-test`; `read_gate.py --self-test`; `prompt_budget.py --check`; lint_agents; full pytest compared with the `NEXT_STEPS.md:217` baseline; install_smoke.
+- S8 reviews (triggers: hooks, untrusted input, a diff over 300 lines).
+- S10 real-session check.
+- S9 numbers count as measured only under COMPARE.md §6: the interval excludes 0, or McNemar p < 0.05, with n stated.
+
+## QUESTIONS
+- **Q1.** Validator default after Phase 2: `compact` (restate once on a violation; recommended) or `observe` (log only)?
+- **Q2.** Run an A arm of 5 or more orchestrated prompts on the Phase-1 install, with the old prompts? It costs a campaign. Without it, M5 cannot be measured, because BEFORE has one orchestrated run. Yes or no.
+- **Q3.** Narrow the read gate's `.claude-work/` exemption to files of at most 256 KB? Recommended yes, with knob value 0 keeping today's behaviour.
+- **Q4.** Should read-only reviewers and the planner keep returning findings and plans inline (recommended for v1), or get Write limited to `.claude-work/**/out/`? The second is a guard and permission change and needs a security review.

@@ -1,0 +1,6 @@
+STATUS: done · E:look
+RESULT: VERDICT pass-with-fixes · 0 CRITICAL 1 HIGH 2 MEDIUM 0 LOW
+- HIGH src/a.py:10 missing bounds check
+FILES: none
+EVIDENCE: → reviews/a.md
+NEXT: coder: fix the HIGH finding

@@ -1,0 +1,5 @@
+STATUS: done
+RESULT: Renamed the module and updated the imports.
+FILES: pkg/core.py, pkg/util.py, tests/test_core.py
+EVIDENCE: pytest -q → 31 passed
+NEXT: none

@@ -1,0 +1,6 @@
+STATUS: failed · E:look
+RESULT: The migration does not apply: column `owner` already exists.
+FILES:
+- db/migrate_007.sql — draft, not applied
+EVIDENCE: psql -f db/migrate_007.sql → ERROR: column "owner" of relation "jobs" already exists
+NEXT: main-coder: decide whether 007 should be an ALTER or be dropped

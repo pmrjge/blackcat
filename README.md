@@ -214,7 +214,7 @@ the call. Wiring: `dot-claude/settings.json` → `hooks`.
 
 | Script | Events | Does |
 |---|---|---|
-| `hooks/agent_guard.py` | every wired event except SessionEnd | Spawn policy, depth, fan-out, BlackCat caps, supreme-coder lock, no push, protected paths, read-only Bash, credential reads, token budgets, soft limits, MCP cap, web taint, image limit, the delegation ledger, labels, `/override-agent`, the sandboxed Bash environment. Module docstring: the event-by-event table |
+| `hooks/agent_guard.py` | every wired event except SessionEnd | Spawn policy, depth, fan-out, BlackCat caps, supreme-coder lock, no push, protected paths, read-only Bash, credential reads, token budgets, soft limits, MCP cap, web taint, image limit, the delegation ledger, labels, the SubagentStop check of each final report (observe only: records, never blocks), `/override-agent`, the sandboxed Bash environment. Module docstring: the event-by-event table |
 | `hooks/read_gate.py` | PreToolUse `Read\|Grep\|Glob\|Bash` | Refuses the first read of build output, dependencies, large data, media or binaries with a cheaper alternative; the identical retry passes ([CONFIG.md](CONFIG.md) §5, "Read gate") |
 | `hooks/web_caps.py` | PreToolUse `^mcp__(exa\|jina\|spider)__` | Caps per call; refuses spider `cron`, `webhooks`, `run_in_background` |
 | `hooks/stack_usage.py` | SubagentStart, SessionEnd; started from the guard's SessionStart too | A background collector that writes rows per agent segment, per prompt window and per session to `usage/runs3.csv` (numbers, ids and a few plain words of the task; no prompt or transcript text) |
@@ -315,6 +315,7 @@ How to run them: [Verify](#verify).
 | The delegation tree as recorded by the guard | `~/.local/state/claude-agent-stack/<session>/delegations.md`; `agent_guard.py delegations` |
 | Limits in force and use so far | `stack-budget`; decisions in `limits/history.jsonl` under the state dir |
 | Per-agent turns and tokens over sessions | `stack_usage.py runs`; `usage/runs3.csv` |
+| Each final report's status, size and checks (no report text) | `usage/reports.jsonl`; full copies in the session's `reports/` ([CONFIG.md](CONFIG.md) §5, "Message protocol") |
 | Installation health | `/stack-doctor` |
 | Context left before auto-compaction | the status line |
 | Hook events | `STACK_GUARD_LOG=1`; `/override-agent` changes in `agent-overrides.log` |
@@ -1013,7 +1014,7 @@ The stack's user commands (the model can't run them: `disable-model-invocation`)
 | Command | Does |
 |---|---|
 | `/stack-doctor` | Read-only health check (`bin/doctor.sh`) |
-| `/stack-tree [options]` | Read-only: this session's tree of agents and subagents (type, task, status, duration, tokens) with the commands each ran as leaves, collapsed (`git status ×3 [1 exit 1]`), Bash commands cut and secrets masked (`bin/stack-tree --hook`). `--depth N`, `--no-leaves`, `--leaves-only-failed`, `--max-leaves N`, `--session ID`, `--ascii`, `--json`, `--width W` |
+| `/stack-tree [options]` | Read-only: this session's tree of agents and subagents (type, task, status, duration, tokens) with the commands each ran as leaves, collapsed (`git status ×3 [1 exit 1]`), Bash commands cut and secrets masked (`bin/stack-tree --hook`). `--depth N`, `--no-leaves`, `--leaves-only-failed`, `--max-leaves N`, `--session ID`, `--ascii`, `--json`, `--width W`; `--pending` keeps only agents still running, failed or blocked, or finished and not yet handled |
 | `/stack-tree table [--columns a,b\|all] [--csv\|--json]` | The same as a GitHub-flavored markdown table, one row per agent and per tool call: path, depth, level, parent, agent, kind (agent, bash, tool, mcp, skill), task, command, status, result (done/partial/blocked, ok/exit N/blocked/error), started, duration, tokens, calls, session; `all` adds id, tid, name, isolation, ended, output_tokens, transcript. A field nothing records reads `unrecorded` |
 | `/stack-tree static [table]` | The designed hierarchy from the agent files: BlackCat → L1 → … → L4, each agent expanded once at its shallowest level, its skills and BlackCat's commands as leaves; the table has agent, level, parent, model, effort, max_turns, may_spawn, tools, mcp, skills |
 | `/override-agent <agent> <model>` | This session only: every delegated `<agent>` runs on `<model>` (`sonnet`, `opus`, `haiku`, `fable`). The effort comes from the built-in table `hooks/agent_effort.json` (per agent and model, clamped to what the model accepts); it is shown but not applied (CONFIG.md §5, "Session model overrides") |
@@ -1138,7 +1139,7 @@ you may set yourself.
 | `STACK_POLICY` | `on` | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on | guard |
 | `STACK_AGENT_LABEL` | `description` | Child label: `description` (`<type>: <task>`), `name` (`<type>-<n>`), `off` | guard |
 | `STACK_AGENT_STARTED` | `1` | SubagentStart gives a stack agent its start time (`0` = off) | guard |
-| `STACK_REPORT_FORMAT` | unset | `json`: every final report is one JSON line (SessionStart and SubagentStart add one line); for Agent SDK apps | guard |
+| `STACK_REPORT_FORMAT` | `observe` | `observe` (unset or any other value): SubagentStop checks and records each stack subagent's final reply and PreToolUse(Agent) the brief's size, never output, warned or blocked; `compact`: plus one restate per run on a hard violation (not the default, planned for Phase 2); `json`: every final report is one JSON line (SessionStart and SubagentStart add one line) plus a logged shape check, for Agent SDK apps; `off`: no check, no log ([CONFIG.md](CONFIG.md) §5, "Message protocol") | guard |
 | `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` ○ | 8 / 120 | BlackCat Agent calls per prompt, within this many seconds of the first | guard |
 | `BLACKCAT_MAX_STEPS` ● | 24 | BlackCat tool calls per prompt | guard |
 | `BLACKCAT_MAX_OWN_STEPS` | 4 | Of those, BlackCat's own Read/Bash/Write/Edit calls (8 dispatches always fit) | guard |
@@ -1388,7 +1389,8 @@ source of truth.
   cost, per-model and per-subagent tokens and the delegation ledger path. CLI: `stack_sdk.py "task"
   --agent scout --max-turns 5 --budget-usd 0.5`.
 - `STACK_REPORT_FORMAT=json` in the SDK's `env` makes every final report one JSON line
-  (`input, timestamp, agent, status, result, evidence, files, next`); unset, nothing changes.
+  (`input, timestamp, agent, status, eflag, result, evidence, files, next`); `status` may be `failed`;
+  unset, the prompt does not change (the default `observe` only records).
 - Details, the TypeScript form and what is unverified:
   `dot-claude/skills/claude-code-extensions/references/agent-sdk.md`. Cost and cold-start probe (real
   API calls): `uv run --script tests/sdk_smoke.py`.

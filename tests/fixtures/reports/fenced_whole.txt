@@ -1,0 +1,22 @@
+```
+STATUS: done · E:look
+RESULT: Wrapped whole in one fence, as 8 of 80 frozen hand-backs were.
+It carries enough lines inside the fence that a fence over 15 lines would
+be a blob if the fence were content: line 1
+line 2
+line 3
+line 4
+line 5
+line 6
+line 7
+line 8
+line 9
+line 10
+line 11
+line 12
+FILES:
+- src/alpha.py — edited
+- src/beta.py — edited
+EVIDENCE: pytest -q → 9 passed
+NEXT: none
+```

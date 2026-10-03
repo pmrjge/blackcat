@@ -1,0 +1,2 @@
+fix the parser · 2026-10-03 20:25 · coder
+Done: the parser handles empty input.

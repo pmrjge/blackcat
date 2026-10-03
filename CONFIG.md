@@ -150,7 +150,7 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 | `BLACKCAT_BASH_TIMEOUT_MS` | 120000 (code) | new | Longest timeout a BlackCat foreground Bash call may ask for; with none given, `BASH_DEFAULT_TIMEOUT_MS` counts (2 min out of the box) |
 | `STACK_AGENT_LABEL` | `description` (code) | new | `description\|name\|off`. `description` prefixes each allowed Agent call's description with `<type>: ` (Claude Code shows `agent-name(description)`); `name` names an unnamed child `<type>-<n>`; zero prompt tokens |
 | `STACK_AGENT_STARTED` | 1 (code) | new | SubagentStart gives a stack agent its local start time for the clean-finish line; 0 disables it |
-| `STACK_REPORT_FORMAT` | unset (code) | new | `json`: SessionStart (main thread, every source) and SubagentStart (stack agents) add one line asking for the final report as one JSON line, which `bin/stack_sdk.py` `parse_report` reads; unset: no hook output, the prompt is unchanged. For Agent SDK apps (`env` option) |
+| `STACK_REPORT_FORMAT` | `observe` (code; unset or any other value) | new | `observe`: SubagentStop checks and records every spawned stack subagent's final reply, PreToolUse(Agent) records the brief's size; nothing is output, warned or blocked, the prompt is unchanged. `compact`: the same plus one restate per run on a hard violation and a brief warning (not the default: planned for Phase 2). `json`: SessionStart (main thread, every source) and SubagentStart (stack agents) add one line asking for the final report as one JSON line, which `bin/stack_sdk.py` `parse_report` reads, plus a logged shape check. `off`: no check, no log (the rollback). See "Message protocol" below. For Agent SDK apps (`env` option) |
 | `STACK_MAX_FANOUT` | 3 | — | Default number of running children per agent |
 | `STACK_MAX_FANOUT_BY_TYPE` | `orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | `orchestrator=8,planner=8,plan-reviewer=8` | The coordinators get room; everyone else keeps 3 |
 | `STACK_MAX_SELF_FANOUT` | 2 | — | Copies per base agent |
@@ -218,6 +218,7 @@ Every command takes `--json`. Verdicts are three-way: fits (the interval's upper
 |---|---|
 | `stack-tree` | header (agents, running, failed/blocked/partial/stopped, tool calls), then BlackCat and every agent: type, task, status, duration, tokens, calls; its commands collapsed (`$ git status ×3 [1 exit 1]`), then its children. `--depth N`, `--no-leaves`, `--leaves-only-failed`, `--max-leaves N` (default 10, 0 = all), `--session ID` (default: the newest ledger), `--ascii`, `--width W` (default the terminal), `--json` |
 | `stack-tree --table` | GitHub-flavored markdown, one row per agent and per tool call; `--columns a,b,c` or `all`, `--csv`, `--json`, `--width` caps the cells (default 80). Leaf rows carry the agent's level and depth + 1 |
+| `stack-tree --pending` | live tree, table or JSON of what needs attention: running or launching agents, failed or blocked ones, and finished agents not yet handled (handled = a foreground Agent call returned the result, ledger status `completed`, or a registry `handled` mark, which nothing writes yet: planned for the compaction read-back, NEXT_STEPS §13h); ancestors are kept; not with `--static`. Table columns `eflag` and `report`, JSON keys `eflag` and `report` |
 | `stack-tree --static [--table]` | the designed hierarchy: breadth first from BlackCat's `Agent(...)` allowlist through each agent's "May spawn:" sentence (the one `tests/lint_agents.py` checks against POLICY), each agent expanded once at its shallowest level (later occurrences point there), nothing expanded at L4; leaves are BlackCat's user commands and the skills each agent's `## Skills` section names (`*` = a hub module read by path) |
 
 - **Sources** (all read, none written): `spawns/*.json` (the delegation records `delegations.md` is rendered from; the file itself only when `spawns/` is absent), `agents/*.json` (parent, spawned, started, resumed, stopped, transcript) and Claude Code's transcripts, `<projects>/<project>/<sid>.jsonl` and `<sid>/subagents/agent-<id>.jsonl`, for each agent's tool calls, their results, the token usage of each API message (input + cache writes + cache reads + output, once per message id, the largest value over the lines it spans: Claude Code writes one line per content block and the earlier ones carry a partial `output_tokens`) and the final STATUS line (done, partial, blocked; a finished report without one is a clean finish). The hooks keep no per-call log of their own, and none was added: the transcripts already hold every call.
@@ -350,6 +351,74 @@ What the outcome means:
 | `claude --agent ninja-coder` starts with `plan` | the frontmatter is not applied to a main thread | nothing |
 | `claude --agent ninja-coder` starts with `acceptEdits`, `claude-ninja` with `plan` | the frontmatter is applied to a main thread; the flag beats it | use the launchers (or pass the flag) for builders as main thread |
 | `claude-ninja` also starts with `acceptEdits` | the flag does not beat the frontmatter | remove `permissionMode` from the builders and give subagent runs their edits another way (a guard PreToolUse `allow` for Write/Edit in builder subagents, which never overrides a deny rule) |
+
+### Message protocol (2026-10-03)
+
+Phase 1 of the hand-back protocol is behaviour-neutral: in the default mode `observe` the hooks measure and record, and never change a prompt, a reply or a decision. The reply format, the compact default and the read gate are Phase 2 and planned, not shipped. Code: `dot-claude/hooks/stack_report.py` (module docstring), `agent_guard.py` (SubagentStop, PreToolUse(Agent)).
+
+| `STACK_REPORT_FORMAT` | SubagentStop | PreToolUse(Agent) and prompt |
+|---|---|---|
+| `observe` (default) | checks and records every spawned stack subagent's final reply; never outputs, warns or blocks | records the brief's size and pasted content in the ledger; prompt unchanged |
+| `compact` | the same, plus ONE restate per run (`decision: block`, reason <= 400 chars) on a hard violation | the same, plus a warning (additionalContext) for a brief over 2,000 agent-written chars (a `USER:` block is exempt) or with a pasted report or blob. Not the default: planned for Phase 2, after the caps are calibrated (plan step S5b) |
+| `json` | today's JSON report line (now with `failed` and `eflag`) plus a shape check, logged, never blocks | SessionStart and SubagentStart add the JSON-line request |
+| `off` | no check, no log | nothing recorded |
+
+- **Who is checked:** an agent_type in the stack's spawnable types (never `blackcat`: Claude Code runs prompt suggestions and `/btw` as the session's agent) that was spawned by an Agent call the guard allowed (registry `spawned`; for a foreground child still in its call, Claude Code's `meta.json` naming an Agent call in the ledger). `meta.json` is undocumented, so such a child may go unchecked. Skipped: an empty reply, and a run whose transcript's last tool_use is `SubagentHandback` (logged with format `handback`).
+- **Grammar** (written by the model, the existing STATUS prefix): `STATUS: done|partial|failed|blocked [· E:look|E:drop]`, `RESULT:`, `FILES:` (one `path — purpose` per line, purpose `deleted` allowed; the older comma list still parses), `EVIDENCE:` (at most 5 lines, or `→ path[:a-b]`), `NEXT:`.
+- **Wrapped replies:** a reply wrapped whole in one code fence (the first non-empty line opens a ``` or ~~~ fence with the STATUS line inside) is unwrapped before the STATUS and blob checks (8 of the 80 frozen hand-backs were wrapped so: markup, not content). `wrapped` is recorded; the size still counts the reply as sent.
+- **Hard violations** (compact only can restate): no or invalid STATUS; a non-done report without EVIDENCE or NEXT; a blob (10+ Read-output lines, a code fence over 15 lines or 1,500 chars, a base64 or hex run of 200+, control characters, a line over 2,000 chars); a size above 1.5x the class cap. **Soft** (logged only): size within 1.5x, an implied E flag, `suspect` (done, no E flag, RESULT says skipped, unverified or not run), missing files (`missing: [...]`, never a block). In the review and plan classes blob and size are soft too.
+- **Caps** (chars, FILES lines excluded; PROVISIONAL, enforced only in compact until the S5b calibration):
+
+  | class | types | cap |
+  |---|---|---|
+  | lookup | oracle, scout, explore, claude-code-guide | 1,000 |
+  | builder | every other type | 800 done, 2,500 otherwise |
+  | coord | orchestrator | 2,500 |
+  | review | code-reviewer, plan-reviewer, security-auditor, verifier, proof-checker | 6,000 soft |
+  | plan | planner | 12,000 soft |
+
+  On the 80 frozen pre-protocol hand-backs (builder 65, lookup 8, review 6, plan 1, coord 0), 70/80 would be restated at 1.0x and 60/80 at 1.5x; the measured p90 of rewritten compliant builder reports is 3,100 chars done (n=29) and 3,200 otherwise (n=19) (the counterfactual on the frozen baseline, 2026-10-03; local-only, not linked).
+- **Restate once:** the check-and-set of `restate_key` (the run's registry `started` stamp) runs under one registry lock (`reg_update`); `stop_hook_active` true never blocks; a blocked agent is not marked stopped (it keeps its locks and fan-out slot) until its next SubagentStop. Unverified: whether a child that hits maxTurns while restating fires another SubagentStop (otherwise it shows running until `STACK_FANOUT_IDLE_S`).
+- **Fail open:** any error warns on stderr, marks the agent stopped and outputs no decision; a record that cannot be written never cancels a decision.
+- **Rollback:** `STACK_REPORT_FORMAT=off` in `stack.env` or the environment. `agent_guard.py --self-test` now runs `report_self_test`.
+
+**Where it is recorded** (no report text outside the first two):
+
+- Registry `agents/<id>.json` gains `report`: run, stops, status, eflag, format, class, cap, chars, counted, hard, soft, blob, verdict, counts, mode, restated, blocked, restate_key, path, `files` (`[{path, state, size, mtime, sha8}]`) and missing.
+- `reports/<agent_id>.<int(started)>.<n>.md` in the session's state folder: the full reply copy (n=1 first, 2 restated), created O_EXCL, mode 0600 in a 0700 folder, cut at 2 MiB, pruned with the session folder.
+- `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/usage/reports.jsonl`, beside `runs3.csv`: one JSON line per check, no report text; it rotates to `reports.jsonl.1` past 16 MiB. A `handback` row has only the common fields.
+
+  | field | meaning |
+  |---|---|
+  | `v` | schema version, 1 |
+  | `ts` | time of the check |
+  | `session` | session id |
+  | `agent_id` | the agent's id |
+  | `run` | the registry `started` stamp as a string; a restate's rows share session, agent_id and run, and the last row of a run is the final report |
+  | `type`, `class`, `mode` | agent type, size class, `STACK_REPORT_FORMAT` mode |
+  | `format` | `status`, `clean`, `text`, `json` or `handback` |
+  | `wrapped` | the reply came in one code fence |
+  | `status`, `status_raw` | the parsed STATUS word (done, partial, failed, blocked or null); the first word when it is not one of those |
+  | `eflag` | `look`, `drop` or none |
+  | `restated`, `blocked`, `stop_hook_active` | restate state of this row |
+  | `n` | copy index (1 first, 2 restated) |
+  | `report_chars` | reply length as sent |
+  | `counted_chars` | length with FILES lines excluded |
+  | `report_tokens_est` | `ceil(report_chars/3)` |
+  | `brief_chars`, `brief_tokens_est` | the brief's size, same estimate |
+  | `est` | the label "ceil(chars/3): an estimate, not a token count" |
+  | `hard`, `soft` | violations found |
+  | `blob` | the blob checks that hit, by name |
+  | `verdict`, `counts` | a review's `VERDICT` (pass, pass-with-fixes, fail) and its severity counts (CRITICAL, HIGH, MEDIUM, LOW, BLOCKING) |
+  | `files` | number of FILES paths |
+  | `missing` | number of missing files; null when not computed (on a block) |
+
+- Ledger `spawns/<tid>.json` gains `brief_chars`, `brief_user_chars`, `brief_blob`, `brief_pasted`, and from PostToolUse(Agent) `duration_ms`, `tool_uses`, `total_tokens`. The last three exist for foreground calls only (absent for background children, i.e. every child of an interactive fork-mode session) and are measurement only: no metric uses them.
+- `delegations.md` rows of finished agents gain `report <status> [E:look|E:drop] · <copy path>`.
+
+**File metadata safety.** FILES paths are model text and command hooks run outside the sandbox, so a path is looked at only when its realpath is inside the event cwd, `$CLAUDE_PROJECT_DIR` or the main checkout's `.claude-work/` (a root that is `/`, the home folder or one of its ancestors does not count; credential paths such as `.ssh`, `.aws`, `.gnupg`, `.env*` and `stack.env` never do). Anything else is recorded `outside` with no stat. The file is opened `O_RDONLY|O_NONBLOCK|O_NOFOLLOW|O_NOCTTY`, the descriptor's own path is re-checked (`F_GETPATH` on macOS), then `fstat` must say S_ISREG. States: ok, missing, deleted, outside, not_regular, symlink, error. `sha8` is the first 8 hex of the SHA-256 for files up to 8 MiB that are not iCloud placeholders, hashed in a daemon thread joined for at most 2 s (else `hash: timeout`). At most 20 paths; the metadata runs after the restate decision and never decides one (not computed on a block).
+
+**Readers.** `stack-tree`: the registry `report` status and E flag win over the transcript scan, `failed` is accepted, `--pending` is new (above). `stack_usage.py`: `STATUS: failed` maps to status_code 1 like partial; the domain {0, 1, 2} and the learned limits are unchanged. `stack_sdk.parse_report`: new key `eflag`, `failed` status (exit code 1 like partial and blocked), FILES `path — purpose` lines and dash bullets give paths only.
 
 ## 6. Recommended session settings
 
@@ -499,6 +568,11 @@ One copy of each skill is the default. A plugin that duplicates a claude.ai-sync
 
 Entries name agents, knobs and files by their current names.
 
+### 2026-10-03 (hand-back protocol, Phase 1: observe)
+
+- `STACK_REPORT_FORMAT` default is now `observe` (§5, "Message protocol"): SubagentStop checks and records every spawned stack subagent's final reply (registry `report`, `reports/` copies, `usage/reports.jsonl`), PreToolUse(Agent) records the brief's size in the ledger. Nothing is output, warned or blocked; the prompt is unchanged. `compact` (one restate per run, a brief warning) exists but is not the default; the compact default, the reply-format prompts and the read gate are Phase 2, planned. Rollback: `STACK_REPORT_FORMAT=off`.
+- `stack-tree --pending`, the registry `report` status and E flag in `stack-tree`; `stack_usage.py` maps `STATUS: failed` to status_code 1; `stack_sdk.parse_report` gains `eflag` and `failed`; `agent_guard.py --self-test` runs `report_self_test`.
+
 ### 2026-10-03 (session budget 1.92B, re-seed on install, auto-compact window 629K)
 
 - `hard.session` (per-session hard context budget, whole tree): seed 666,000,000 → 1,920,000,000, repo ceiling 1,500,000,000 → 2,500,000,000, floor 300,000,000 unchanged (`dot-claude/hooks/stack_limits_seed.json`; the guard's built-in fallback and the doctor's seed check follow).
@@ -633,7 +707,7 @@ Entries name agents, knobs and files by their current names.
 ### 2026-10-02 (Q7: Agent SDK)
 
 - `bin/stack_sdk.py` (installed, loaded by nothing; PEP 723, `claude-agent-sdk==0.2.163`): `options()` builds a plain `ClaudeAgentOptions` from the installed files (`setting_sources` user/project/local, the `claude_code` preset with `exclude_dynamic_sections`, `--agent`), `run()` returns the parsed report, cost, per-model and per-subagent usage and the ledger path; `parse_report()` reads the clean-finish line, the STATUS block and the JSON form.
-- `STACK_REPORT_FORMAT=json` (above); the guard's SessionStart matcher is `startup|resume|clear|compact|fork` so the line survives `/clear` and compaction (no output when unset).
+- `STACK_REPORT_FORMAT=json` (above; the report line is `{"input","timestamp","agent","status","eflag","result","evidence","files","next"}`, `status` may be `failed`); the guard's SessionStart matcher is `startup|resume|clear|compact|fork` so the line survives `/clear` and compaction (no output when unset).
 - Hooks under the SDK and `claude -p`: no TTY dependence (hooks always run without a controlling terminal); `tests/test_sdk_integration.py` runs them with SDK-shaped events and environment. Cache order checked: no hook writes a system prompt or rewrites earlier context; the SubagentStart line sits in the first user message and is kept.
 - Reference: `skills/claude-code-extensions/references/agent-sdk.md`; cost probe for the user: `tests/sdk_smoke.py` (real API calls; not run in the build sandbox).
 
