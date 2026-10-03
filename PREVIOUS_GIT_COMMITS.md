@@ -1,8 +1,175 @@
 # Previous git commits
 
-History of the project before it was published as a fresh repository; generated from the git log of the former repository at commit `75db02f` on 2026-10-03; 227 commits, all by Pedro Jorge. The project was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude models, under the author's direction; messages of commits made with it end with a Co-Authored-By line naming the model. Newest first, grouped by month. Each entry gives the date, the short hash (kept so references in the text stay meaningful), the subject, the full message and a files-changed summary. Private data (home paths, e-mail addresses, keys, session ids) was removed or replaced.
+History of the project before it was published as a fresh repository; generated from the git log of the former repository at commit `3f62cc8` on 2026-10-03; 237 commits, all by Pedro Jorge. The project was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude models, under the author's direction; messages of commits made with it end with a Co-Authored-By line naming the model. Newest first, grouped by month. Each entry gives the date, the short hash (kept so references in the text stay meaningful), the subject, the full message and a files-changed summary. Private data (home paths, e-mail addresses, keys, session ids) was removed or replaced.
 
 ## 2026-10
+
+### 2026-10-03 19:32 · `3f62cc8`
+
+**README Guard hooks: the per-call mode is stripped too**
+
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 1 file, +1/-1.* `README.md`.
+
+### 2026-10-03 19:31 · `9ab382c`
+
+**Review fixes: a rollback's stale mode record, the Agent mode input, a FIFO probe log**
+
+> code-reviewer (MEDIUM): an older installer run after this one rewrites the manifest's commit and
+> sets bypassPermissions but keeps settings_permission_scalars, which then said "plan" and kept the
+> rolled-back bypassPermissions as if chosen. The record now names its commit
+> (settings_permission_scalars_commit) and counts only when that is the last install's commit; else
+> the commit's settings.json decides. Proof: smoke §13c "rollback through an older installer" fails
+> without the fix (8 passed, 1 failed) and passes with it (9 passed).
+> security-auditor: the Agent tool's `mode` input ("Deprecated; ignored" in the 2.1.287 schema) is
+> stripped from every spawn, so no caller picks its child's permission mode should a later version
+> honour it (test_agent_mode_input_is_removed). The probe log opens with O_NONBLOCK: a FIFO planted
+> there hung the hook (HEAD: timeout; now rc 0 with a warning; test_probe_never_hangs_on_a_fifo).
+> code-reviewer (LOW): test_protected_paths' docstring no longer calls bypassPermissions the stack's
+> default. CONFIG.md notes the mode strip.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 7 files, +50/-6.*
+
+### 2026-10-03 19:08 · `c30b758`
+
+**Docs: permission modes (Plan by default, 45 acceptEdits writers, launchers, probe), step cap 24**
+
+> README: Usage → "Permission modes" (the inheritance table from the docs, the 45 writers and the 11
+> agents without a mode, what a switch to Plan does and does not do, the launchers, what is not
+> verified, headless runs under Plan, how to go back to bypassPermissions, the upgrade); First run
+> and Typical workflows say sessions start in Plan; permissions.defaultMode in Main knobs;
+> STACK_MODE_PROBE in Knobs; live check 6 needs a bypass session now; a Contributing line on agent
+> modes; 24 tool calls in Guard hooks. CONFIG.md: §5 rows (permissions.defaultMode, STACK_MODE_PROBE)
+> and a "Permission modes" section with the probe procedure (including the main-thread case) and
+> what each outcome means; §6 launchers start in Plan; changelog entry with the docs facts.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 2 files, +106/-6.* `CONFIG.md`, `README.md`.
+
+### 2026-10-03 19:04 · `8996fa4`
+
+**permissionMode: acceptEdits on the 14 other agents that write files**
+
+> The user's principle (subagents only): "most ssubagents must run in accept edits or else it will
+> bloat context for them too and lag on resolution time". orchestrator, designer, writer,
+> researcher, doc-specialist, image-director, claude-code-engineer, cg-artist, motion-designer,
+> data-scientist, mcp-broker, mathematician, browser-operator and vfx-td have Write, Edit or
+> NotebookEdit and no mode: in a Plan session they inherited Plan and could not write. Now 45
+> agents carry acceptEdits; without a mode: blackcat (the main thread follows the session's mode)
+> and the 10 read-only agents (claude-code-guide, code-reviewer, explore, oracle, plan-reviewer,
+> planner, proof-checker, scout, security-auditor, verifier). None of the 14 is in READONLY_TYPES.
+> Frontmatter only: bodies unchanged (prompt_budget --check ok). test_permission_modes pins the
+> exact sets.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 15 files, +24/-7.*
+
+### 2026-10-03 19:01 · `d4a5d62`
+
+**BLACKCAT_MAX_STEPS 12 -&gt; 24; BlackCat's rule 5 says builders edit even in Plan**
+
+> The user: "make it 24". BLACKCAT_MAX_DISPATCH stays 8 and BLACKCAT_MAX_OWN_STEPS 4 (24 - 4 &gt;= 8:
+> a full dispatch burst still fits after own work; the invariant lives in
+> test_shipped_caps_leave_room_for_a_full_dispatch_burst). settings.json, the guard's three
+> defaults, docstring and comment, blackcat.md, the tests that pin the shipped caps
+> (test_shipped_spawn_defaults: 24 allowed then a deny; the own-work test: 4 own + 8 dispatches +
+> 12 more, the 25th refused), the smoke pins, README and CONFIG §5. blackcat.md rule 5 now says why
+> builders wait for the approved plan: their files carry acceptEdits, which wins over a Plan parent.
+> Body length unchanged (5,187 chars; prompt_budget --check ok).
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 7 files, +28/-25.*
+
+### 2026-10-03 18:59 · `b3fe905`
+
+**Guard: STACK_MODE_PROBE, an opt-in log of the permission mode hooks see**
+
+> The docs are silent on whether a running subagent follows a mode switch, on nested spawns and on
+> permission_mode inside subagent hook events. With STACK_MODE_PROBE=1 the guard appends one JSON
+> line per PreToolUse (`budget` mode, which sees every tool call, also with STACK_POLICY=off),
+> PermissionRequest and SubagentStart event to &lt;state root&gt;/mode-probe.jsonl: time, session, event,
+> tool name, agent type and id, depth (registry), permission_mode when the event carries one; never
+> the tool input. 0600, opened O_NOFOLLOW and only if it is our regular file, no line past 1 MB; a
+> failure warns and decides nothing. settings.json wires PermissionRequest to the guard, which returns
+> no decision (the dialog, or a headless denial, proceeds as before). Off by default; nothing is
+> enforced on the result (the enforcement follow-up waits for the probe). Tests in
+> tests/test_permission_modes.py; STACK_MODE_PROBE joins test_agent_guard's scrubbed knobs.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 4 files, +166/-3.* `dot-claude/hooks/agent_guard.py`, `dot-claude/settings.json`, `tests/test_agent_guard.py`, `tests/test_permission_modes.py`.
+
+### 2026-10-03 18:57 · `02a1789`
+
+**lint_agents: permissionMode is acceptEdits on builders or plan on read-only agents**
+
+> Per the docs (sub-agents.md, permission-modes.md, fetched 2026-10-03) an agent file's
+> permissionMode wins over a parent in plan, default or dontAsk, so in a Plan session it decides the
+> subagent's mode. The 31 builder files keep permissionMode: acceptEdits (the user: subagent runs
+> must not stop at edit prompts, for context and latency). New rule: acceptEdits only on agents with
+> Write/Edit/NotebookEdit (no tools: line counts as every tool), plan only on read-only agents;
+> default, auto, dontAsk and bypassPermissions are errors, with the docs rule in the message.
+> tests/test_permission_modes.py: bad fixtures fail (each other mode, acceptEdits on a read-only
+> agent, plan on a builder), allowed ones pass, the shipped files comply, settings ship plan. No agent
+> file changes: no read-only agent carried acceptEdits.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 2 files, +120/-0.* `tests/lint_agents.py`, `tests/test_permission_modes.py`.
+
+### 2026-10-03 18:56 · `b03c13d`
+
+**claude-ultracode starts its main thread in Plan unless you pass a mode**
+
+> claude-ninja, claude-supreme and claude-ultracode &lt;agent&gt; run a builder agent as the main
+> thread. The builders' files carry permissionMode: acceptEdits for their subagent runs, and the
+> docs do not say whether Claude Code applies that line to a main-thread agent; the user wants
+> acceptEdits only for subagent runs. The launcher now passes --permission-mode plan, unless the
+> arguments already hold --permission-mode[=...] or --dangerously-skip-permissions (scanned up to
+> `--`). The flag overrides the settings file; that it also overrides the agent file is expected,
+> not verified. tests/test_ultracode_launcher.py (fake claude): plan added once, a mode you pass
+> wins and is not doubled, `--` ends the scan, forge tokens still unset; the smoke pin follows.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 3 files, +105/-2.* `dot-claude/bin/claude-ultracode`, `tests/install_smoke.sh`, `tests/test_ultracode_launcher.py`.
+
+### 2026-10-03 18:55 · `0327d09`
+
+**Default permission mode Plan; the installer keeps a mode you chose**
+
+> settings.json ships permissions.defaultMode "plan" (was "bypassPermissions"). install.sh no
+> longer overwrites a scalar permissions key on every run: like the unowned env keys, the stack's
+> value is set while you have none or still hold the value the stack shipped last time, and a value
+> you chose is kept ("kept your permissions.defaultMode=..."). The manifest records the shipped
+> scalars (settings_permission_scalars); for a manifest older than that, the last install's commit
+> is read from this repository (earlier installers overwrote the mode on every run, so the value in
+> place was that commit's). An install still on the earlier shipped bypassPermissions moves to plan
+> once, with a note on how to change or restore it; when the recorded commit is not in the
+> repository nothing is changed and the installer says why. A scalar the stack stops shipping is
+> retracted while unchanged. Smoke §13c covers the upgrade, a chosen mode, a restored bypass and
+> an unknown commit.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 4 files, +124/-7.* `dot-claude/settings.json`, `install.sh`, `tests/install_smoke.sh`, `tests/test_blackcat_tools.py`.
+
+### 2026-10-03 18:40 · `232bb4c`
+
+**Regenerate PREVIOUS_GIT_COMMITS.md**
+
+> 227 commits up to 75db02f, sanitised by the generator (no home paths,
+> e-mails, keys, session ids, no old agent name).
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 1 file, +126/-6.* `PREVIOUS_GIT_COMMITS.md`.
 
 ### 2026-10-03 18:39 · `75db02f`
 
@@ -3553,6 +3720,16 @@ History of the project before it was published as a fresh repository; generated 
 Section 9 of CONFIG.md at the same commit, copied as it stood (names and paths sanitised).
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-03 (Plan as the default mode, acceptEdits on the 45 writers, step cap 24)
+
+- **Plan by default.** `dot-claude/settings.json` ships `permissions.defaultMode: "plan"`; the previous value was `"bypassPermissions"` (shipped since 2026-09-28). The user: "I want the default permissions to be Plan, it makes much more sense and I want it if the user changes permissions to pass them down chain to subagents". Docs facts (claude-code-guide's report on `code.claude.com/docs/en/permission-modes.md`, `settings.md`, `sub-agents.md`, fetched 2026-10-03; not re-fetched for this entry): `defaultMode` takes `default`, `acceptEdits`, `plan`, `auto`, `dontAsk` or `bypassPermissions`; user scope accepts all of them, and project and local settings ignore `auto` and `bypassPermissions`; the settings file loses to `--permission-mode`; the terminal default is `auto` from 2.1.283; an agent without `permissionMode` inherits the main mode; a parent in `bypassPermissions`, `acceptEdits` or `auto` beats the agent file, while with a parent in `default`, `dontAsk` or `plan` the file wins (except `bypassPermissions`); ExitPlanMode is removed from subagents not in plan, subagents in plan are read-only, and approving a plan switches the session's mode, which new subagents inherit.
+- **Installer:** a scalar `permissions` key is no longer overwritten on every run. The stack's value is set while you have none or still hold the value shipped last time; a mode you chose is kept (`kept your permissions.defaultMode=…`). The manifest records the shipped scalars (`settings_permission_scalars`). For an older manifest the previous value is read from the recorded commit's `dot-claude/settings.json` (earlier installers overwrote the mode on every run, so that value was in place). An install still on the old shipped `bypassPermissions` moves to `plan` once, with a note on Shift+Tab, ExitPlanMode and how to set `bypassPermissions` again. When the recorded commit is not in the repository, nothing changes and the installer says why. Smoke §13c.
+- **Agents:** 45 agent files carry `permissionMode: acceptEdits`: the 31 builders as before, plus orchestrator, designer, writer, researcher, doc-specialist, image-director, claude-code-engineer, cg-artist, motion-designer, data-scientist, mcp-broker, mathematician, browser-operator and vfx-td. The user: "most ssubagents must run in accept edits or else it will bloat context for them too and lag on resolution time", for subagent runs. Without a mode: blackcat and the 10 read-only agents (claude-code-guide, code-reviewer, explore, oracle, plan-reviewer, planner, proof-checker, scout, security-auditor, verifier). New lint rule (`tests/lint_agents.py` `permission_mode_problem`, `tests/test_permission_modes.py`): `acceptEdits` only with Write/Edit/NotebookEdit, `plan` only without; any other value fails. blackcat.md rule 5 now says builders edit even in Plan, so they go out only after approval (body length unchanged).
+- **Launchers:** `bin/claude-ultracode` passes `--permission-mode plan` unless you pass `--permission-mode` or `--dangerously-skip-permissions`. This replaces "no mode flag in the launcher": the user wants `acceptEdits` only "when run as subagents, not when on main thread", and whether a main-thread agent's frontmatter mode applies is not documented. That the flag also beats the agent file is expected, not verified. `tests/test_ultracode_launcher.py`.
+- **Probe:** `STACK_MODE_PROBE=1` logs the `permission_mode` hooks see (section 5, "Permission modes", has the procedure); settings.json wires PermissionRequest to the guard, which returns no decision. The guard also strips the Agent tool's `mode` input (deprecated and ignored in 2.1.287) from every spawn. A guard rule that denies edits to builder subagents while the main thread is in plan (`STACK_MODE_ENFORCE`) is a follow-up that waits for the probe; it is not built.
+- **`BLACKCAT_MAX_STEPS` 12 → 24** (the user: "make it 24"); `BLACKCAT_MAX_DISPATCH` stays 8 and `BLACKCAT_MAX_OWN_STEPS` 4, so 24 − 4 ≥ 8 holds.
+- Rerun `./install.sh` from the main checkout and restart Claude Code. To keep starting in `bypassPermissions`, set it in `~/.claude/settings.json` after the install (later runs keep it), or pass `--permission-mode bypassPermissions` for one session.
 
 ### 2026-10-03 (prompt budget base frozen)
 
