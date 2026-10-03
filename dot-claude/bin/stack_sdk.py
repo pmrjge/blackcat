@@ -12,15 +12,26 @@ import argparse, asyncio, dataclasses, json, os, re, sys, time
 CLEAN = re.compile(r"[*`_ ]*(?P<input>.+?) · (?P<timestamp>\d{4}-\d{2}-\d{2}(?: \d{2}:\d{2})?)"
                    r" · (?P<agent>[A-Za-z0-9_-]+)[*`_ ]*")
 FIELD = re.compile(r"(STATUS|RESULT|EVIDENCE|FILES|NEXT):\s*(.*)")
+SEP, NONE = re.compile(r"\s(?:—|–|--?)\s"), re.compile(r"(?i)\(?(none|nothing|no files)(\)|\s|$)")
 TASK_MSGS = ("TaskStartedMessage", "TaskProgressMessage", "TaskNotificationMessage", "TaskUpdatedMessage")
 TYPE = re.compile(r"([\w-]+): |([\w-]+)\Z")     # label "<type>: <task>", or a bare type
 
 
+def files_of(block):    # `path — purpose` or `- path` per line, or the older `a, b`; as hooks/stack_report.py
+    out = []
+    for ln in block.split("\n"):
+        ln = re.sub(r"^(?:[-*+•]|\d{1,3}[.)])\s+", "", ln.strip())
+        for p in [SEP.split(ln)[0]] if SEP.search(ln) else ln.split(","):
+            p = re.sub(r":\d+(?:-\d+)?$", "", re.sub(r"^(\S.*?)\s+\([^()]*\)$", r"\1", p.strip()).strip("`'\" "))
+            out += [] if p.lower() in ("", "-", "—", "n/a") or NONE.match(p) else [p]
+    return out
+
+
 def parse_report(text):
-    """Final reply -> {format, input, timestamp, agent, status, result, evidence, files, next}.
+    """Final reply -> {format, input, timestamp, agent, status, eflag, result, evidence, files, next}.
     format: json (STACK_REPORT_FORMAT=json; the last JSON line wins), clean (the clean-finish line;
     status done), status (the STATUS block) or text (neither: status None, the reply as result)."""
-    r = dict.fromkeys(("input", "timestamp", "agent", "status", "evidence", "next"))
+    r = dict.fromkeys(("input", "timestamp", "agent", "status", "eflag", "evidence", "next"))
     r.update(format="text", result=(text or "").strip(), files=[])
     body = [ln.strip() for ln in r["result"].splitlines() if ln.strip() and not ln.strip().startswith("```")]
     for ln in reversed(body):
@@ -45,8 +56,8 @@ def parse_report(text):
         got[key] = (got.get(key, "") + "\n" + (f.group(2) if f else ln)).strip()
     r.update({k: v for k, v in got.items() if k not in ("files", "status")}, format="status")
     r["status"] = ((got["status"].split() or [""])[0].strip("|*`").lower()) or None
-    r["files"] = [p.strip() for p in re.split(r"[,\n]", got.get("files", ""))
-                  if p.strip().lower() not in ("", "-", "—", "none", "(none)")]
+    e = re.search(r"(?i)\bE\s*:\s*(look|drop)\b", got["status"].split("\n")[0])
+    r["eflag"], r["files"] = e and e.group(1).lower(), files_of(got.get("files", ""))
     return r
 
 
@@ -113,7 +124,7 @@ def main(argv=None):
         return 0
     out = asyncio.run(run(a.prompt, o, (lambda m: print(repr(m), file=sys.stderr)) if a.stream else None))
     print(json.dumps(out, default=str))
-    return int(bool(out.get("error") or out.get("is_error") or out["report"]["status"] in ("partial", "blocked")))
+    return int(bool(out.get("error") or out.get("is_error") or out["report"]["status"] in ("partial", "failed", "blocked")))
 
 
 if __name__ == "__main__":

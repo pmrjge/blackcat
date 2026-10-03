@@ -240,7 +240,7 @@ def test_markdown_table_cells_are_escaped_and_valid(tmp_path):
     for width in ("80", "0"):
         p = f.run("--session", SID, "--table", "--columns", "all", "--width", width)
         rows = lines_of(p)
-        ncols = 15 + 7
+        ncols = 15 + 9                     # LIVE_EXTRA gained eflag and report
         assert rows[1] == "|" + "|".join(" --- " for _ in range(ncols)) + "|"
         for r in rows:
             assert r.startswith("| ") and r.endswith(" |")
@@ -274,7 +274,7 @@ def test_table_columns_rows_and_unrecorded(tmp_path):
     bad = f.run("--session", SID, "--table", "--columns", "agent,nope")
     assert bad.returncode == 2 and "unknown column(s) nope" in bad.stderr
     allc = lines_of(f.run("--session", SID, "--table", "--columns", "all"))
-    assert allc[0].endswith("| id | tid | name | isolation | ended | output_tokens | transcript |")
+    assert allc[0].endswith("| id | tid | name | isolation | ended | output_tokens | transcript | eflag | report |")
     j = json.loads(f.run("--session", SID, "--table", "--json", "--columns", "path,status").stdout)
     assert j[0] == {"path": "0", "status": "session"}
     c = lines_of(f.run("--session", SID, "--table", "--csv", "--columns", "path,agent"))

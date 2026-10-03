@@ -31,7 +31,9 @@ Reads the hook JSON on stdin.
                                     `run_in_background: false` (its
                                     children run in the background: BLACKCAT_BACKGROUND); after
                                     every gate, label the child (STACK_AGENT_LABEL: description
-                                    "<type>: <task>" or name "<type>-<n>"; silent updatedInput)
+                                    "<type>: <task>" or name "<type>-<n>"; silent updatedInput);
+                                    the brief's size and pasted content go to the ledger, and only
+                                    in STACK_REPORT_FORMAT=compact a warning (additionalContext)
   PreToolUse  SendMessage           resuming a finished agent follows the spawn policy (the caller's
                                     row, or its own child/parent), its parent's fan-out cap and the
                                     copy cap, and holds a resume reservation until it starts;
@@ -68,7 +70,8 @@ Reads the hook JSON on stdin.
   PostToolUse Agent                 drop the spawn lease; record child id/type/depth/parent (once,
                                     from the caller's own event) and, for "async_launched", the
                                     child as a live background child; confirm or release the
-                                    supreme-coder lock
+                                    supreme-coder lock; a foreground call's totals (duration, tool
+                                    uses, tokens) into the ledger, for measurement only
   SubagentStart / SubagentStop      registry bookkeeping (a start of a stopped agent is a resume:
                                     a live background child again, its resume reservation gone);
                                     confirm / release locks; a starting or stopped agent's own
@@ -76,6 +79,13 @@ Reads the hook JSON on stdin.
                                     a starting stack agent gets "Started YYYY-MM-DD HH:MM (local)."
                                     as additionalContext (STACK_AGENT_STARTED), plus the JSON
                                     report line when STACK_REPORT_FORMAT=json
+  SubagentStop                      the hand-back check (report_stop, stack_report.py): a spawned
+                                    stack subagent's final reply is parsed and checked, recorded
+                                    (registry `report`, reports/, usage/reports.jsonl) and, in
+                                    STACK_REPORT_FORMAT=compact only, blocked ONCE per run on a hard
+                                    violation (the agent rewrites it; not marked stopped meanwhile);
+                                    observe, the default, outputs nothing; any error: warn, mark
+                                    stopped, no decision (fail open)
   PostToolUse TaskStop, StopFailure mark the agent stopped and release its locks and leases (a
                                     stopped or failed subagent is not promised a SubagentStop)
   PostToolUseFailure / PermissionDenied (Agent)   roll back supreme-coder lease, blackcat marker and
@@ -111,7 +121,13 @@ nothing is linked by guessing. Token budgets: see the token-budget section.
 
 State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
   agents/<agent_id>.json  registry {type, depth, parent, parent_type, name, spawned, started,
-                          stopped, transcript, bg, tool_use_id, resumed}
+                          stopped, transcript, bg, tool_use_id, resumed, report}; report = the
+                          last hand-back check of the current run {run, stops, status, eflag,
+                          format, class, cap, chars, counted, hard, soft, blob, verdict, counts,
+                          mode, restated, blocked, restate_key, path, files [{path, state, size,
+                          mtime, sha8}], missing}
+  reports/<agent_id>.<started>.<n>.md  the full final reply of a run (n = 1 the first, 2 the
+                          restated one), O_EXCL, 0600
   names/<name>.json       {type, id} for agents spawned with a `name`
   labels/<type>.<n>       O_EXCL markers of the names STACK_AGENT_LABEL=name gave out
   fanout/<caller>/<tool_use_id>.json   spawn leases {type, caller, caller_type, ts}
@@ -131,6 +147,10 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
   supreme-coder.lock, screen.lock  JSON, replaced atomically; transitions under flock(*.mutex)
   ../mode-probe.jsonl     STACK_MODE_PROBE=1 only, beside the session dirs: one line per
                           PreToolUse, PermissionRequest and SubagentStart event (mode_probe)
+  ../usage/reports.jsonl  one line per checked hand-back (no text: sizes, the estimate
+                          ceil(chars/3), class, mode, status, E flag, restated, blob, missing count)
+  spawns/<tool_use_id>.json  gains brief_chars, brief_user_chars, brief_blob, brief_pasted (PreToolUse
+                          Agent) and duration_ms, tool_uses, total_tokens (a foreground call's totals)
 
 Failure policy: an exception in a PreToolUse handler (or in blackcat-guard mode) denies the call
 (fail closed); lifecycle events log to stderr and exit 0. The token budgets fail open: a transcript
@@ -215,10 +235,17 @@ Knobs (env):
                           the description with "<subagent_type>: " (once), `name` names an unnamed
                           child "<type>-<n>" (unique per session), `off` = no label
   STACK_AGENT_STARTED=1   SubagentStart tells a stack agent its local start time (0 = off)
-  STACK_REPORT_FORMAT     `json`: SessionStart (main thread) and SubagentStart (stack agents) add
+  STACK_REPORT_FORMAT=observe  the hand-back protocol (stack_report.py; CONFIG.md "Message
+                          protocol"). `observe` (unset or any other value): SubagentStop checks
+                          and logs each spawned stack subagent's final reply, PreToolUse(Agent)
+                          logs the brief's size; nothing is ever output or blocked. `compact`:
+                          the same, plus one restate per run on a hard violation (no or invalid
+                          STATUS; non-done without EVIDENCE or NEXT; a blob or a size over 1.5x
+                          the class cap, builder/lookup/coord classes only) and a brief warning.
+                          `json`: SessionStart (main thread) and SubagentStart (stack agents) add
                           one line asking for the final report as one JSON line (REPORT_JSON_LINE;
-                          parsed by bin/stack_sdk.py); unset or anything else: no output, the
-                          default prompt is unchanged
+                          parsed by bin/stack_sdk.py), and its shape is checked and logged.
+                          `off`: no check, no log
   BLACKCAT_BACKGROUND=1   drop `run_in_background: false` from the BlackCat main thread's Agent
                           calls, so its children never run in the foreground (0 = keep it)
   STACK_MAX_DEPTH         deny Agent from callers at this depth (default
@@ -880,6 +907,23 @@ def reg_put(d, aid, fields, clear=(), keep=(), resumed=None):
             if v is not None or k not in cur:
                 cur[k] = v
         write_json_atomic(reg_path(d, aid), cur)
+
+
+def reg_update(d, aid, fn, create=False):
+    """One read-modify-write of agents/<aid>.json under ONE registry lock: fn(record) -> (write,
+    result), where fn may change the record in place; the record is written atomically when
+    `write`. No record and not `create`: fn is not called, None is returned. The registry mutex is
+    not re-entrant (a second flock on a new fd waits for the first): fn must never take it again,
+    i.e. never call reg_put, reg_update or mark_stopped."""
+    with mutex(d, "registry"):
+        cur = reg_get(d, aid)
+        if cur is None and not create:
+            return None
+        cur = cur or {}
+        write, result = fn(cur)
+        if write:
+            write_json_atomic(reg_path(d, aid), cur)
+        return result
 
 
 def names_path(d, name):
@@ -1693,7 +1737,13 @@ def on_agent(ev, d):
             raise
     else:
         record_name(d, ti, child, caller, tid)
-    ledger_safe(ledger_note, d, ev, ti, child, caller, tid)
+    mode = report_mode()
+    brief = ledger_safe(brief_note, ti) if mode != "off" else None
+    ledger_safe(ledger_note, d, ev, ti, child, caller, tid, brief)
+    # the brief warning reaches the caller only in compact mode (observe only logs: the A arm of the
+    # measurement must see the unchanged prompt)
+    ctx = {"additionalContext": brief["brief_warn"]} \
+        if mode == "compact" and isinstance(brief, dict) and brief.get("brief_warn") else {}
 
     # 3. input rewrites: models are fixed by agent definitions, BlackCat never blocks on a child,
     # and the child gets its label (STACK_AGENT_LABEL); reached only when every gate allowed it
@@ -1723,15 +1773,17 @@ def on_agent(ev, d):
         ledger_safe(record_name, d, label, child, caller, tid)
     extra = {"systemMessage": note} if note else {}
     if why:
-        emit(dict({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                          "permissionDecision": "allow",
-                                          "permissionDecisionReason": "; ".join(why),
-                                          "updatedInput": new_input}}, **extra))
+        emit(dict({"hookSpecificOutput": dict({"hookEventName": "PreToolUse",
+                                               "permissionDecision": "allow",
+                                               "permissionDecisionReason": "; ".join(why),
+                                               "updatedInput": new_input}, **ctx)}, **extra))
     if label or forced:
         # silent, and no permissionDecision: the relabelled input goes through the normal
         # permission evaluation (hooks.md, PreToolUse updatedInput), so a label loosens nothing
-        emit(dict({"hookSpecificOutput": {"hookEventName": "PreToolUse",
-                                          "updatedInput": new_input}}, **extra))
+        emit(dict({"hookSpecificOutput": dict({"hookEventName": "PreToolUse",
+                                               "updatedInput": new_input}, **ctx)}, **extra))
+    if ctx:
+        emit({"hookSpecificOutput": dict({"hookEventName": "PreToolUse"}, **ctx)})
 
 
 # ---------------------------------------------------------------- session model overrides
@@ -2234,10 +2286,15 @@ def ledger_call(d, ev, ti, child, caller):
             "isolation": ledger_text(ti.get("isolation"), 20)}
 
 
-def ledger_note(d, ev, ti, child, caller, tid):
-    """PreToolUse Agent, after every gate allowed the call."""
-    ledger_put(d, tid, dict(ledger_call(d, ev, ti, child, caller), ts=time.time(),
-                            status="launching"))
+BRIEF_KEYS = ("brief_chars", "brief_user_chars", "brief_blob", "brief_pasted")
+
+
+def ledger_note(d, ev, ti, child, caller, tid, brief=None):
+    """PreToolUse Agent, after every gate allowed the call; `brief`: brief_note's measures."""
+    fields = dict(ledger_call(d, ev, ti, child, caller), ts=time.time(), status="launching")
+    if isinstance(brief, dict):
+        fields.update({k: brief[k] for k in BRIEF_KEYS if k in brief})
+    ledger_put(d, tid, fields)
     ledger_render(d)
 
 
@@ -2272,6 +2329,9 @@ def ledger_rows(d):
         cid = r.get("child")
         if cid and cid not in reg:
             reg[cid] = reg_get(d, cid) or {}
+        rep = (reg.get(cid) or {}).get("report") if cid else None
+        if isinstance(rep, dict):
+            r["_report"] = rep                 # in memory only: the render's status bits
     recs.sort(key=lambda r: (r.get("ts") or 0, r.get("tid")))
     kids, spawned = {}, {}
     for r in recs:
@@ -2320,6 +2380,12 @@ def ledger_render_text(d, rows=None):
             bits.append(ledger_clock(r.get("ts")))
         if r.get("child"):
             bits.append("id %s" % r["child"])
+        rep = r.get("_report")
+        if isinstance(rep, dict) and state == "finished" and rep.get("status") in REPORT_STATUSES:
+            bits.append("report %s%s" % (rep["status"], " E:%s" % rep["eflag"]
+                                         if rep.get("eflag") in ("look", "drop") else ""))
+            if isinstance(rep.get("path"), str):
+                bits.append(rep["path"])
         out.append("%s- %s" % ("  " * depth, " · ".join(bits)))
     if len(rows) > LEDGER_MAX_ROWS:
         out.append("… %d more: agent_guard.py delegations %s"
@@ -2343,10 +2409,11 @@ def ledger_render(d):
             raise
 
 
-def ledger_done(d, ev, ti, child, child_id, status):
-    """PostToolUse Agent: the call's agent id and status (created here if PreToolUse missed it)."""
+def ledger_done(d, ev, ti, child, child_id, status, totals=None):
+    """PostToolUse Agent: the call's agent id and status (created here if PreToolUse missed it), and
+    a foreground call's totals (agent_totals)."""
     caller = ev.get("agent_id") or "main"
-    fields = ledger_call(d, ev, ti, child, caller)
+    fields = dict(ledger_call(d, ev, ti, child, caller), **(totals or {}))
     # task and name only fill a record PreToolUse missed: this event sees the relabelled input,
     # whose description may be cut to LABEL_MAX
     fill = {"ts": time.time(), "task": fields.pop("task"), "name": fields.pop("name")}
@@ -3383,15 +3450,43 @@ def agent_response(ev):
     return tr.get("agentId") or tr.get("agent_id"), tr.get("status")
 
 
+AGENT_TOTALS = (("totalDurationMs", "duration_ms"), ("totalToolUseCount", "tool_uses"),
+                ("totalTokens", "total_tokens"))
+
+
+def agent_totals(ev):
+    """{duration_ms, tool_uses, total_tokens} from a PostToolUse(Agent) tool_response: present only
+    for a FOREGROUND call that completed (totalTokens counts its final request only); a background
+    child's response (async_launched: every child of an interactive fork-mode session) has none.
+    Recorded in the ledger for measurement only: no metric and no decision uses them."""
+    tr = ev.get("tool_response")
+    if isinstance(tr, str):
+        try:
+            tr = json.loads(tr)
+        except ValueError:
+            return {}
+    if isinstance(tr, list):
+        tr = next((x for x in tr if isinstance(x, dict) and "totalDurationMs" in x), {})
+    if not isinstance(tr, dict):
+        return {}
+    out = {}
+    for src, dst in AGENT_TOTALS:
+        v = tr.get(src)
+        if isinstance(v, (int, float)) and not isinstance(v, bool) and 0 <= v < 1e15:
+            out[dst] = int(v)
+    return out
+
+
 def on_agent_done(ev, d):
     ti = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
     caller = ev.get("agent_id") or "main"
     tid = ev.get("tool_use_id")
     child_id, status = agent_response(ev)
+    totals = ledger_safe(agent_totals, ev) or {}
     if not child_id:
         fanout_release(d, caller, tid)
         ledger_safe(ledger_done, d, ev, ti, norm(ti.get("subagent_type") or "general-purpose"),
-                    None, status)
+                    None, status, totals)
         return
     child_id = ident(child_id)
     child = norm(ti.get("subagent_type") or "general-purpose")
@@ -3424,7 +3519,7 @@ def on_agent_done(ev, d):
         write_json_atomic(names_path(d, name), {"type": child, "id": child_id,
                                                 "by": ev.get("agent_id") or "main",
                                                 "ts": time.time()})
-    ledger_safe(ledger_done, d, ev, ti, child, child_id, status)
+    ledger_safe(ledger_done, d, ev, ti, child, child_id, status, totals)
     if child == SUPREME:
         if str(status or "").lower() in TERMINAL_STATUSES:
             supreme_release_holder(d, child_id, SUPREME, by=ev.get("agent_id") or "main")
@@ -3479,11 +3574,11 @@ def on_subagent_start(ev, d):
 
 
 REPORT_JSON_LINE = (
-    'Report format of this session (STACK_REPORT_FORMAT=json): the final reply is one line of JSON '
+    'Report format (STACK_REPORT_FORMAT=json): the final reply is one line of JSON '
     'and nothing else, in place of both the clean-finish line and the STATUS block: {"input": '
     '"<task in <= 10 words>", "timestamp": "<YYYY-MM-DD HH:MM>", "agent": "<your agent type>", '
-    '"status": "done|partial|blocked", "result": "...", "evidence": "...", "files": ["<path>"], '
-    '"next": "..."}.')
+    '"status": "done|partial|failed|blocked", "eflag": "look|drop|", "result": "...", '
+    '"evidence": "...", "files": ["<path>"], "next": "..."}.')
 
 
 def report_format_line():
@@ -3533,7 +3628,222 @@ def on_subagent_stop(ev, d):
     aid = ev.get("agent_id")
     if not aid:
         return
-    mark_stopped(d, aid, norm(ev.get("agent_type")), ev.get("agent_transcript_path"), ev)
+    atype = norm(ev.get("agent_type"))
+    try:
+        reason = report_stop(ev, d, aid, atype)
+    except Exception as exc:  # noqa: BLE001 - fail open: no decision, the stop is recorded below
+        warn("hand-back check: %s: %s" % (type(exc).__name__, exc))
+        reason = None
+    if reason:
+        # compact mode, once per run: the agent keeps running to rewrite its reply, so it is not
+        # stopped (its locks, leases and fan-out slot stay); the next SubagentStop records the stop
+        emit({"decision": "block", "reason": reason})
+    mark_stopped(d, aid, atype, ev.get("agent_transcript_path"), ev)
+
+
+# ---------------------------------------------------------------- hand-back reports
+# STACK_REPORT_FORMAT (stack_report.py; CONFIG.md "Message protocol"): `observe` (unset or any other
+# value: the Phase-1 default) checks every spawned stack subagent's final reply at SubagentStop and
+# records it (the registry `report`, a copy under reports/, a usage/reports.jsonl row), and records
+# each brief's size at PreToolUse(Agent); it never outputs anything. `compact` adds one restate per
+# run (decision "block") on a hard violation and the brief warning; `json` keeps the JSON report line
+# and checks its shape (logged, never blocked); `off` does none of it. Bookkeeping only, except the
+# compact restate: every failure warns and fails open.
+REPORT_MODES = ("observe", "compact", "json", "off")
+REPORT_STATUSES = ("done", "partial", "failed", "blocked")
+REPORTS_DIR = "reports"
+REPORTS_LOG = "reports.jsonl"
+REPORTS_LOG_MAX = 16 << 20        # bytes; then reports.jsonl moves to reports.jsonl.1 (one generation)
+REPORT_COPY_MAX = 2 << 20         # chars of a reply kept in its copy
+_REPORT_MOD = []
+
+
+def report_mode():
+    mode = os.environ.get("STACK_REPORT_FORMAT", "").strip().lower()
+    return mode if mode in REPORT_MODES else "observe"
+
+
+def report_module():
+    """stack_report.py beside this file, imported once (an import error propagates: callers fail
+    open)."""
+    if not _REPORT_MOD:
+        here = os.path.dirname(os.path.abspath(__file__))
+        if here not in sys.path:
+            sys.path.insert(0, here)
+        import stack_report
+        _REPORT_MOD.append(stack_report)
+    return _REPORT_MOD[0]
+
+
+def brief_note(ti):
+    """PreToolUse Agent: the brief's measures (stack_report.brief_stats) for the ledger."""
+    return report_module().brief_stats(ti.get("prompt"))
+
+
+def stop_hook_active(ev):
+    v = ev.get("stop_hook_active")
+    return v is True or str(v).strip().lower() == "true"
+
+
+def stack_spawned(d, ev, aid, atype, rec):
+    """True for a subagent an Agent call this hook allowed: the registry has `spawned` (PostToolUse
+    Agent; a background child gets it at launch) or, for a foreground child whose call has not
+    returned yet, Claude Code's meta.json names an Agent call the ledger recorded for this type.
+    Claude Code's own agents (prompt suggestions, /btw: agent_type is the session's agent) have
+    neither."""
+    if rec.get("spawned"):
+        return True
+    tid = spawn_meta(ev, aid).get("toolUseId")
+    led = read_json(ledger_rec_path(d, tid)) if isinstance(tid, str) and tid.strip() else None
+    return bool(led) and norm(led.get("type")) == atype
+
+
+def spawn_tid(ev, aid, rec):
+    tid = rec.get("tool_use_id") or spawn_meta(ev, aid).get("toolUseId")
+    return tid if isinstance(tid, str) and tid.strip() else None
+
+
+def report_copy(d, aid, started, n, text):
+    """reports/<agent_id>.<int(started)>.<n>.md, created O_EXCL (0600, no symlink followed); the next
+    free n when that name exists (two runs in one second). The path, or None."""
+    folder = os.path.join(d, REPORTS_DIR)
+    os.makedirs(folder, mode=0o700, exist_ok=True)
+    try:
+        stamp = int(float(started))
+    except (TypeError, ValueError, OverflowError):
+        stamp = 0
+    body = text[:REPORT_COPY_MAX]
+    if len(text) > REPORT_COPY_MAX:
+        body += "\n[cut at %d of %d chars]\n" % (REPORT_COPY_MAX, len(text))
+    data = body.encode("utf-8", "replace")
+    for k in range(n, n + 20):
+        path = os.path.join(folder, "%s.%d.%d.md" % (safe(aid), stamp, k))
+        try:
+            fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | getattr(os, "O_NOFOLLOW", 0),
+                         0o600)
+        except FileExistsError:
+            continue
+        try:
+            view = memoryview(data)
+            while view:
+                view = view[os.write(fd, view):]
+        finally:
+            os.close(fd)
+        return path
+    return None
+
+
+def report_log(row):
+    """usage/reports.jsonl (beside runs3.csv): one line per checked hand-back, no report text."""
+    folder = os.path.join(state_root(), "usage")
+    os.makedirs(folder, exist_ok=True)
+    path = os.path.join(folder, REPORTS_LOG)
+    try:
+        if os.path.getsize(path) > REPORTS_LOG_MAX:
+            os.replace(path, path + ".1")
+    except OSError:
+        pass
+    append_jsonl(path, row)
+
+
+def report_stop(ev, d, aid, atype):
+    """SubagentStop: check and record a spawned stack subagent's final reply; the block reason when
+    compact mode restates it (the caller then skips mark_stopped), else None. Skipped: mode off,
+    types outside SPAWNABLE (blackcat: the session's own agent, which Claude Code's prompt
+    suggestions and /btw run as), agents no allowed Agent call spawned (stack_spawned), an empty
+    reply, and a run whose last tool call is SubagentHandback (the report is in that tool's input:
+    logged as format handback). Order: the text checks; the restate decision, a check-and-set of
+    restate_key = the run's `started` stamp under ONE registry lock (reg_update); the report copy;
+    file metadata (not on a block, and it never decides one); the registry and usage logs."""
+    mode = report_mode()
+    if mode == "off" or atype not in SPAWNABLE:
+        return None
+    rec = reg_get(d, aid)
+    if not rec or not stack_spawned(d, ev, aid, atype, rec):
+        return None
+    text = ev.get("last_assistant_message")
+    if not isinstance(text, str) or not text.strip():
+        return None
+    sr = report_module()
+    now = time.time()
+    tid = spawn_tid(ev, aid, rec)
+    brief = (read_json(ledger_rec_path(d, tid)) or {}).get("brief_chars") if tid else None
+    brief = brief if isinstance(brief, int) and not isinstance(brief, bool) else None
+    key = str(rec.get("started") or "none")
+    row = {"v": 1, "ts": round(now, 3), "session": safe(ev.get("session_id"), "nosession"),
+           "agent_id": safe(aid), "run": key, "type": atype, "mode": mode, "report_chars": len(text),
+           "report_tokens_est": sr.est_tokens(len(text)), "brief_chars": brief,
+           "brief_tokens_est": sr.est_tokens(brief) if brief else None,
+           "est": "ceil(chars/3): an estimate, not a token count"}
+    if sr.transcript_last_tool(ev.get("agent_transcript_path")) == "SubagentHandback":
+        report_safe(report_log, dict(row, format="handback"))
+        return None
+    parsed = sr.parse_json(text) if mode == "json" else None
+    parsed = parsed or sr.parse(text)
+    chk = sr.check(parsed, atype, text)
+    if mode == "json" and parsed["format"] != "json":
+        chk["soft"].append("json_shape")
+    active = stop_hook_active(ev)
+    want = mode == "compact" and bool(chk["hard"]) and not active
+
+    def decide(cur):
+        old = cur.get("report") if isinstance(cur.get("report"), dict) else {}
+        if old.get("run") != key:
+            old = {}
+        restated = old.get("restate_key") == key
+        block = want and not restated
+        stops = old.get("stops") if isinstance(old.get("stops"), int) else 0
+        new = {"run": key, "stops": stops + 1, "status": parsed["status"],
+               "status_raw": parsed["status_raw"], "eflag": chk["eflag"], "format": parsed["format"],
+               "class": chk["class"], "cap": chk["cap"], "chars": chk["chars"],
+               "counted": chk["counted"], "hard": chk["hard"], "soft": chk["soft"],
+               "blob": chk["blob"], "verdict": parsed["verdict"], "counts": parsed["counts"],
+               "mode": mode, "restated": restated, "blocked": block, "ts": round(now, 3)}
+        if restated or block:
+            new["restate_key"] = key
+        cur["report"] = new
+        return True, (block, stops + 1, restated, cur.get("started"))
+
+    got = reg_update(d, aid, decide)
+    if got is None:
+        return None                     # the record went away meanwhile: nothing to record
+    block, n, restated, started = got
+    # from here on a failure only loses a record, never the decision just taken
+    path = report_safe(report_copy, d, aid, started, n, text)
+    files = None
+    if not block:
+        files = report_safe(sr.file_meta, parsed["files"], ev.get("cwd"),
+                            os.environ.get("CLAUDE_PROJECT_DIR"))
+    missing = [f["path"] for f in files or [] if f.get("state") == "missing"]
+
+    def finish(cur):
+        cur_rep = cur.get("report")
+        if not isinstance(cur_rep, dict) or cur_rep.get("run") != key or cur_rep.get("stops") != n:
+            return False, None          # a later stop of this run recorded its own report
+        cur_rep["path"] = path
+        if files is not None:
+            cur_rep["files"] = files[:50]
+            cur_rep["missing"] = missing[:50]
+        return True, None
+
+    report_safe(reg_update, d, aid, finish)
+    row.update({"class": chk["class"], "format": parsed["format"], "wrapped": parsed["wrapped"],
+                "status": parsed["status"],
+                "status_raw": parsed["status_raw"], "eflag": chk["eflag"], "restated": restated,
+                "blocked": block, "stop_hook_active": active, "n": n,
+                "counted_chars": chk["counted"], "hard": chk["hard"], "soft": chk["soft"],
+                "blob": chk["blob"], "verdict": parsed["verdict"], "counts": parsed["counts"],
+                "files": len(parsed["files"]), "missing": None if files is None else len(missing)})
+    report_safe(report_log, row)
+    return sr.restate_reason(chk["hard"], chk["class"], chk["cap"]) if block else None
+
+
+def report_safe(fn, *args):
+    try:
+        return fn(*args)
+    except Exception as exc:  # noqa: BLE001 - a record that cannot be written never decides
+        warn("hand-back record: %s: %s" % (type(exc).__name__, exc))
+        return None
 
 
 def on_task_stop(ev, d):
@@ -10473,6 +10783,7 @@ def self_test():
     problems += budget_self_test()
     problems += ledger_self_test()
     problems += label_self_test()
+    problems += report_self_test()
     try:
         root = state_root()
         os.makedirs(root, exist_ok=True)
@@ -10599,6 +10910,65 @@ def generic_agent_self_test(conf):
         if not need <= wired[event]:
             problems.append("settings.json %s matcher of agent_guard.py lacks %s"
                             % (event, sorted(need - wired[event])))
+    return problems
+
+
+def report_self_test():
+    """The hand-back check: stack_report.py imports beside the hook; a compact report passes, a reply
+    without STATUS and a non-done one without EVIDENCE/NEXT are hard violations, a planner's long
+    plan only soft ones; observe never blocks, compact blocks once per run (the check-and-set in
+    reg_update) and keeps every copy; a path outside the roots is never looked at."""
+    import shutil
+    import tempfile
+    try:
+        sr = report_module()
+    except Exception as exc:  # noqa: BLE001 - report, do not crash
+        return ["hand-back: stack_report.py unusable next to the hook (%s: %s)" % (type(exc).__name__, exc)]
+    problems = []
+    for text, atype, hard in (("STATUS: done\nRESULT: ok\nFILES:\n- a.py — parser", "coder", []),
+                              ("ok", "coder", ["no_status"]),
+                              ("STATUS: failed\nRESULT: x", "coder", ["no_evidence", "no_next"]),
+                              ("STATUS: done\nRESULT: " + "plan step\n" * 2000, "planner", [])):
+        got = sr.check(sr.parse(text), atype, text)["hard"]
+        if got != hard:
+            problems.append("hand-back: %s %r -> hard %s, not %s" % (atype, text[:30], got, hard))
+    if len(sr.restate_reason(["no_status", "blob", "size"], "builder", 800)) > sr.REASON_MAX \
+            or len(REPORT_JSON_LINE) > 400:
+        problems.append("hand-back: the restate reason or the JSON report line is over 400 chars")
+    keys = ("STACK_REPORT_FORMAT", "XDG_STATE_HOME")
+    saved = {k: os.environ.get(k) for k in keys}
+    tmp = tempfile.mkdtemp(prefix="agent-guard-report-")
+    try:
+        os.environ["XDG_STATE_HOME"] = tmp
+        d = sdir("self-test-report")
+        write_json_atomic(reg_path(d, "r1"), {"type": "coder", "spawned": 1.0, "started": 2.0})
+        ev = {"session_id": "self-test-report", "agent_id": "r1", "agent_type": "coder", "cwd": tmp,
+              "last_assistant_message": "ok", "stop_hook_active": False}
+        got = []
+        for mode in ("observe", "compact", "compact"):
+            os.environ["STACK_REPORT_FORMAT"] = mode
+            got.append(bool(report_stop(ev, d, "r1", "coder")))
+        if got != [False, True, False]:
+            problems.append("hand-back: observe/compact/compact blocked %s, not [False, True, False]" % got)
+        rep = (reg_get(d, "r1") or {}).get("report") or {}
+        copies = sorted(os.listdir(os.path.join(d, REPORTS_DIR)))
+        if not rep.get("restated") or copies != ["r1.2.1.md", "r1.2.2.md", "r1.2.3.md"]:
+            problems.append("hand-back: restate record or copies wrong: %s %s" % (rep.get("restated"), copies))
+        os.environ["STACK_REPORT_FORMAT"] = "off"
+        if report_stop(ev, d, "r1", "coder") is not None or len(os.listdir(os.path.join(d, REPORTS_DIR))) != 3:
+            problems.append("hand-back: mode off still checks")
+        meta = sr.file_meta([{"path": "~/.ssh/id_ed25519"}, {"path": "/etc/hosts"}], tmp)
+        if [m.get("state") for m in meta] != ["outside", "outside"] or any(len(m) != 2 for m in meta):
+            problems.append("hand-back: a path outside the roots was looked at: %s" % meta)
+    except Exception as exc:  # noqa: BLE001 - report, do not crash
+        problems.append("hand-back: %s: %s" % (type(exc).__name__, exc))
+    finally:
+        for k, v in saved.items():
+            if v is None:
+                os.environ.pop(k, None)
+            else:
+                os.environ[k] = v
+        shutil.rmtree(tmp, ignore_errors=True)
     return problems
 
 

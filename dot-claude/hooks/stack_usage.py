@@ -163,8 +163,10 @@ SESS_SRC = ("startup", "resume", "clear", "compact", "fork")
 SRC_VALUES = ("measured", "seed_v1")
 STATUS_VALUES = ("partial", "complete")
 COMMIT_RE = re.compile(r"(?:^|[;&|(]\s*|\n\s*)git(?:\s+-C\s+\S+)?\s+commit\b")   # a commit command, not a mention
-STATUS_RE = re.compile(r"^STATUS:\s*(done|partial|blocked)", re.M)
-STATUS_CODE = {"done": 0, "partial": 1, "blocked": 2}
+# the hand-back protocol's `failed` (stack_report.py) counts as partial: the status_code domain {0, 1, 2}
+# and what the learned limits read from it stay the same; usage/reports.jsonl keeps the exact status
+STATUS_RE = re.compile(r"^STATUS:\s*(done|partial|failed|blocked)", re.M)
+STATUS_CODE = {"done": 0, "partial": 1, "failed": 1, "blocked": 2}
 HUMAN_SKIP = ("<task-notification>", "Base directory for this skill")
 NOTE_PATHS = ("/.claude-work/", "/tmp/", "/private/tmp/", "/private/var/", "/var/folders/")
 SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "env"}
@@ -509,7 +511,7 @@ def feed_main_line(a, line, out):
 
 
 def _status_code(cur, status, tl, end):
-    """0 done, 1 partial, 2 blocked; empty while the segment is open or when it ended on a tool call.
+    """0 done, 1 partial or failed, 2 blocked; empty while the segment is open or when it ended on a tool call.
     The STATUS line of the segment's last call wins; a text-only last call without one is a clean finish
     (0); a segment cut by the turn limit is at least partial."""
     if status == "partial":

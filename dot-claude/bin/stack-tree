@@ -2,15 +2,18 @@
 """stack-tree - the tree of agents and subagents of a session, with the commands each ran as leaves.
 
   stack-tree [--session SID] [--depth N] [--no-leaves | --leaves-only-failed] [--max-leaves N]
-             [--width W] [--ascii] [--json]                    live tree of a session (default: the newest)
+             [--width W] [--ascii] [--json] [--pending]        live tree of a session (default: the newest)
   stack-tree --table [--columns a,b,c|all] [--csv | --json] [...] one row per agent and per tool call
   stack-tree --static [--table] [--json] [--depth N]           the designed hierarchy from agents/*.md
   stack-tree --hook                                            /stack-tree (UserPromptExpansion, settings.json)
 
 Sources, all read-only: the guard's delegation records (<state>/<sid>/spawns/*.json, which delegations.md is
 rendered from; delegations.md itself when spawns/ is absent), its agent registry (<state>/<sid>/agents/*.json:
-parent, start, stop, transcript path) and Claude Code's transcripts (main: <projects>/<sid>.jsonl, subagents:
+parent, start, stop, transcript path, and `report`: the hand-back check of the agent's final reply, whose
+status and E flag win) and Claude Code's transcripts (main: <projects>/<sid>.jsonl, subagents:
 <sid>/subagents/agent-<id>.jsonl) for each agent's tool calls, token usage, tool results and final STATUS line.
+--pending keeps the agents that still need their parent: running or launching, failed or blocked, and finished
+ones not handled (handled: a foreground Agent call returned the result, or the registry marks it `handled`).
 The hooks keep no per-call log of their own; a field neither source holds prints as "unrecorded".
 
 Every string from those files is untrusted: control, C1, format and separator characters are replaced, Bash
@@ -293,7 +296,9 @@ def classify(block):
     return "exit %s" % m.group(1) if m else "error"
 
 
-STATUS_RE = re.compile(r"(?mi)^[ \t*_`]*STATUS[*_`]*[ \t]*:[ \t]*[*_`]*[ \t]*(done|partial|blocked)\b")
+STATUS_RE = re.compile(r"(?mi)^[ \t*_`]*STATUS[*_`]*[ \t]*:[ \t]*[*_`]*[ \t]*(done|partial|failed|blocked)\b"
+                       r"(?:[^\n]*?\bE[ \t]*:[ \t]*(look|drop)\b)?")
+REPORT_STATUSES = ("done", "partial", "failed", "blocked")
 
 
 class Budget(object):
@@ -306,7 +311,7 @@ def scan_transcript(path, main, budget):
     the run's byte budget), truncated (over one transcript's cap) or ok. tokens = input + cache writes + cache
     reads + output of each API message once, its largest values over the lines it spans."""
     res = {"calls": [], "tokens": None, "out": None, "first": None, "last": None, "report": None,
-           "state": "missing"}
+           "eflag": None, "state": "missing"}
     if not path:
         return res
     cap = min(MAX_TRANSCRIPT_BYTES, budget.left)
@@ -374,6 +379,7 @@ def scan_transcript(path, main, budget):
     if last_text:
         m = list(STATUS_RE.finditer(last_text))
         res["report"] = m[-1].group(1).lower() if m else "done"
+        res["eflag"] = (m[-1].group(2) or "").lower() or None if m else None
     return res
 
 
@@ -412,6 +418,7 @@ class Node(object):
         self.children, self.reg, self.scan, self.placeholder, self.path = [], {}, None, False, "0"
         self.start = self.end = self.duration = None
         self.ref, self.label, self.leaves, self.first_parent = None, "", [], None
+        self.eflag, self.report, self.ledger_status = None, None, None
         self.__dict__.update(kw)
 
 
@@ -491,7 +498,7 @@ def load_session(sid, root, event_transcript=None):
         n = Node(type=text(r.get("type"), 60) or "?", id=child, task=text(r.get("task"), 200) or None,
                  name=text(r.get("name"), 40) or None, isolation=text(r.get("isolation"), 20) or None,
                  tid=ident(r.get("tid")) or text(r.get("tid"), 40), ts=num(r.get("ts")),
-                 reg=reg.get(child, {}) if child else {})
+                 reg=reg.get(child, {}) if child else {}, ledger_status=str(r.get("status") or "").lower())
         n.state = ledger_state(r, n.reg)
         kids.setdefault(ident(r.get("by")) or "main", []).append(n)
         if child and child not in by_key:
@@ -581,12 +588,40 @@ def enrich(node, main_t, budget, now):
         node.duration = max(node.end - node.start, 0)
     elif node.start and node.state == "running":
         node.duration = max(now - node.start, 0)
-    if node.state == "finished":
+    rep = rg.get("report") if isinstance(rg.get("report"), dict) else {}
+    if node.state == "finished" and rep.get("status") in REPORT_STATUSES:
+        # the guard's hand-back check (stack_report.py) read the same final reply: its status wins
+        node.status = rep["status"]
+        node.eflag = rep.get("eflag") if rep.get("eflag") in ("look", "drop") else None
+    elif node.state == "finished":
         node.status = sc["report"] or "finished"
+        node.eflag = sc.get("eflag")
     elif node.id != "main" and not node.placeholder:
         node.status = node.state
+    if node.state == "finished" and isinstance(rep.get("path"), str):
+        node.report = text(rep["path"], 300)
     for c in node.children:
         enrich(c, main_t, budget, now)
+
+
+def pending(n):
+    """An agent that still needs its parent: running or launching; failed or blocked; finished and not
+    handled (a foreground Agent call that returned delivered its result; `handled` in the registry or its
+    report is for the later read-back of saved reports). A stopped (TaskStop) agent was ended by its parent."""
+    if n.id == "main" or n.placeholder:
+        return False
+    if n.state in ("running", "launching", "failed") or n.status in ("failed", "blocked"):
+        return True
+    if n.state != "finished":
+        return False
+    rep = n.reg.get("report") if isinstance(n.reg.get("report"), dict) else {}
+    return not (n.reg.get("handled") or rep.get("handled") or n.ledger_status == "completed")
+
+
+def prune_pending(n):
+    """Keep pending agents and the agents above them (their tree paths stay as they were)."""
+    n.children = [c for c in n.children if prune_pending(c)]
+    return bool(n.children) or pending(n)
 
 
 def walk_nodes(n):
@@ -609,7 +644,8 @@ def node_label(n, static=False):
     if n.id == "main":
         bits = [who + " (main thread)"]
     else:
-        bits = [who, '"%s"' % clean(n.task, 60) if n.task else "(no description)", n.status]
+        bits = [who, '"%s"' % clean(n.task, 60) if n.task else "(no description)",
+                n.status + (" E:%s" % n.eflag if n.eflag else "")]
     if n.duration is not None:
         bits.append(dur(n.duration))
     if n.scan and n.scan["tokens"] is not None:
@@ -682,7 +718,8 @@ def tree_json(n):
     sc = n.scan or {}
     return {"type": n.type, "id": n.id, "tid": n.tid, "task": n.task, "name": n.name,
             "isolation": n.isolation, "depth": n.depth, "level": level(n.depth), "path": n.path,
-            "state": n.state, "status": n.status, "start": n.start, "end": n.end, "duration_s": n.duration,
+            "state": n.state, "status": n.status, "eflag": n.eflag, "report": n.report,
+            "start": n.start, "end": n.end, "duration_s": n.duration,
             "tokens": sc.get("tokens"), "output_tokens": sc.get("out"), "transcript": sc.get("state"),
             "calls": [{"kind": c["kind"], "command": text(c["label"], 300), "id": c["id"], "start": c["ts"],
                        "end": c["end"], "result": c["result"]} for c in sc.get("calls", [])],
@@ -692,7 +729,7 @@ def tree_json(n):
 # ---------------------------------------------------------------- table output
 LIVE_COLUMNS = ["path", "depth", "level", "parent", "agent", "kind", "task", "command", "status", "result",
                 "started", "duration", "tokens", "calls", "session"]
-LIVE_EXTRA = ["id", "tid", "name", "isolation", "ended", "output_tokens", "transcript"]
+LIVE_EXTRA = ["id", "tid", "name", "isolation", "ended", "output_tokens", "transcript", "eflag", "report"]
 STATIC_COLUMNS = ["agent", "level", "parent", "model", "effort", "max_turns", "may_spawn", "tools", "mcp",
                   "skills"]
 CELL_CAP = {"task": 60, "command": 80, "may_spawn": 400, "tools": 300, "skills": 300, "mcp": 200}
@@ -714,7 +751,8 @@ def table_rows(root, opts, sid):
             "path": n.path, "depth": str(n.depth), "level": level(n.depth),
             "parent": ref(parent) if parent else NA, "agent": n.type, "kind": "agent",
             "task": n.task or (NA if n.id == "main" else UNREC), "command": NA, "status": n.state,
-            "result": (sc.get("report") or UNREC) if n.state == "finished" else NA,
+            "result": ((n.status if n.status in REPORT_STATUSES else sc.get("report")) or UNREC)
+            if n.state == "finished" else NA,
             "started": clock(n.start),
             "duration": dur(n.duration) if n.duration is not None else (NA if n.state == "launching" else UNREC),
             "tokens": str(sc["tokens"]) if sc.get("tokens") is not None else UNREC,
@@ -723,7 +761,7 @@ def table_rows(root, opts, sid):
             "isolation": n.isolation or NA,
             "ended": clock(n.end) if n.end else (NA if n.state in ("running", "launching") else UNREC),
             "output_tokens": str(sc["out"]) if sc.get("out") is not None else UNREC,
-            "transcript": sc.get("state") or "missing"})
+            "transcript": sc.get("state") or "missing", "eflag": n.eflag or NA, "report": n.report or NA})
         if not opts.no_leaves:
             for i, c in enumerate(sc.get("calls", []), 1):
                 if opts.leaves_only_failed and c["result"] in ("ok", "pending"):
@@ -736,7 +774,7 @@ def table_rows(root, opts, sid):
                     "duration": dur(c["end"] - c["ts"]) if c["end"] and c["ts"] else UNREC,
                     "tokens": UNREC, "calls": NA, "session": sid, "id": c["id"] or UNREC, "tid": NA,
                     "name": NA, "isolation": NA, "ended": clock(c["end"]) if c["end"] else UNREC,
-                    "output_tokens": UNREC, "transcript": NA})
+                    "output_tokens": UNREC, "transcript": NA, "eflag": NA, "report": NA})
         for c in n.children:
             walk(c, n)
     walk(root, None)
@@ -922,6 +960,9 @@ def parser(prog):
     p.add_argument("--table", action="store_true", help="markdown table: one row per agent and per tool call")
     p.add_argument("--columns", help="table columns, comma-separated, or 'all'")
     p.add_argument("--static", action="store_true", help="the designed hierarchy from agents/*.md")
+    p.add_argument("--pending", action="store_true",
+                   help="only agents that still need their parent (running, failed or blocked, finished and not "
+                        "handled) and the agents above them")
     return p
 
 
@@ -943,6 +984,8 @@ def run(argv, hook=False, event=None):
         opts.width = 80 if opts.table else (HOOK_WIDTH if hook else _term_width())
     if opts.max_leaves is None:
         opts.max_leaves = 3 if hook else 10
+    if opts.static and opts.pending:
+        raise UsageError("--pending needs a live session (not --static)")
     if opts.static:
         return run_static(opts)
     root_dir = state_root()
@@ -964,6 +1007,8 @@ def run(argv, hook=False, event=None):
     root, source, main_t = load_session(sid, root_dir, ev_t)
     now = time.time()
     enrich(root, main_t, Budget(), now)
+    if opts.pending:
+        prune_pending(root)
     agents = list(walk_nodes(root))[1:]
     if opts.table:
         return render_table(table_rows(root, opts, sid), pick_columns(opts, LIVE_COLUMNS, LIVE_EXTRA), opts), 0
@@ -974,9 +1019,11 @@ def run(argv, hook=False, event=None):
     bad = sum(1 for n in agents if n.status in ("failed", "blocked", "partial", "stopped"))
     calls = sum(len(n.scan["calls"]) for n in walk_nodes(root) if n.scan)
     out = ["stack-tree · session %s · %d agents (%d running, %d failed/blocked/partial/stopped) · %d tool calls · %s"
-           % (sid, len(agents), running, bad, calls, clock(now))] + render_tree(root, opts)
+           % (sid, len(agents), running, bad, calls, clock(now))
+           + (" · --pending: %d pending" % sum(1 for n in agents if pending(n)) if opts.pending else "")]
+    out += render_tree(root, opts)
     if not agents:
-        out.append("(no Agent calls recorded yet)")
+        out.append("(no pending agent)" if opts.pending else "(no Agent calls recorded yet)")
     if source != "spawns":
         out.append("(read from delegations.md: spawns/ is absent, so start, stop and transcripts are unrecorded)")
     if not main_t:

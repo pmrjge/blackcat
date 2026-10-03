@@ -131,7 +131,7 @@ def test_session_start_bookkeeping_still_runs_in_json_mode(env):
 def test_json_line_schema_is_what_the_parser_reads():
     example = re.search(r"(\{.*\})", guard.REPORT_JSON_LINE).group(1)
     keys = re.findall(r'"(\w+)":', example)
-    assert keys == ["input", "timestamp", "agent", "status", "result", "evidence", "files", "next"]
+    assert keys == ["input", "timestamp", "agent", "status", "eflag", "result", "evidence", "files", "next"]
     assert set(keys) | {"format"} == set(sdk.parse_report("").keys())
 
 
@@ -139,8 +139,8 @@ def test_json_line_schema_is_what_the_parser_reads():
 def test_parse_clean_finish():
     r = sdk.parse_report("Fix the parser crash · 2026-10-02 14:05 · coder\nFixed in src/p.py; 41 tests pass.")
     assert r == {"format": "clean", "input": "Fix the parser crash", "timestamp": "2026-10-02 14:05",
-                 "agent": "coder", "status": "done", "result": "Fixed in src/p.py; 41 tests pass.",
-                 "evidence": None, "files": [], "next": None}
+                 "agent": "coder", "status": "done", "eflag": None,
+                 "result": "Fixed in src/p.py; 41 tests pass.", "evidence": None, "files": [], "next": None}
     r = sdk.parse_report("**Review diff · 2026-10-02 · code-reviewer**\nVERDICT: pass — ran: pytest")
     assert (r["format"], r["timestamp"], r["agent"], r["result"]) == (
         "clean", "2026-10-02", "code-reviewer", "VERDICT: pass — ran: pytest")
@@ -233,7 +233,8 @@ def test_options_with_the_pinned_sdk():
 
 def test_helper_is_small_pinned_installed_and_never_loaded():
     text = HELPER.read_text()
-    assert len(text.splitlines()) <= 120 and os.access(HELPER, os.X_OK)
+    # 135: the hand-back protocol's FILES forms (files_of) and E flag; still one small file
+    assert len(text.splitlines()) <= 135 and os.access(HELPER, os.X_OK)
     pin = re.search(r'"claude-agent-sdk==([\d.]+)"', text)
     assert pin, "the PEP 723 header pins the SDK"
     install = (ROOT / "install.sh").read_text()

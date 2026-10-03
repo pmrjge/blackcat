@@ -68,10 +68,11 @@ the stack's SessionStart is a settings hook, run by the CLI. `session-env` needs
   NEXT` block.
 - `STACK_REPORT_FORMAT=json` (the SDK `env` option, or exported): the SessionStart hook (main thread, every
   source) and SubagentStart (stack agents) add one line, `REPORT_JSON_LINE` in `agent_guard.py`, asking for
-  one JSON line `{"input","timestamp","agent","status","result","evidence","files","next"}`. Unset: no
-  hook output, the default prompt is unchanged.
+  one JSON line `{"input","timestamp","agent","status","eflag","result","evidence","files","next"}` (status
+  done|partial|failed|blocked; eflag look|drop or empty). Unset: no hook output, the default prompt is unchanged.
 - `stack_sdk.parse_report(text)` reads all three (the last JSON line wins) and returns
-  `{format: json|clean|status|text, input, timestamp, agent, status, result, evidence, files, next}`.
+  `{format: json|clean|status|text, input, timestamp, agent, status, eflag, result, evidence, files, next}`
+  (FILES: one `path — purpose` per line, `- ` bullets, or the older comma list; paths only).
 - Native alternative for the main thread: `output_format={"type": "json_schema", "schema": …}` →
   `ResultMessage.structured_output` (subagents: unverified).
 
