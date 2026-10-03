@@ -179,7 +179,7 @@ def test_enforce_never_allows_what_the_static_cap_refuses():
 
 
 # ---------------------------------------------------------------- off
-@pytest.mark.parametrize("mode", [None, "off", "OFF "])
+@pytest.mark.parametrize("mode", ["off", "OFF "])
 def test_off_is_todays_behaviour_and_writes_nothing(mode):
     e = env(mode, STACK_FANOUT_DYN_ENFORCE="node,deps,conflict,budget,aimd", STACK_FANOUT_DYN_W0="1")
     assert write_plan(e, CHAIN) == ""
@@ -358,7 +358,7 @@ def test_a_corrupt_state_file_is_the_static_decision():
     assert allowed(r), r
 
 
-@pytest.mark.parametrize("mode", ["shadow", "enforce"])
+@pytest.mark.parametrize("mode", [None, "shadow", "enforce"])
 def test_an_os_error_on_the_state_files_is_the_static_decision(mode):
     """nodes.json is a directory: reading it fails, writing it raises IsADirectoryError (an
     OSError) inside the 'fanout' mutex; the spawn gets the static decision, lease included."""
@@ -369,6 +369,92 @@ def test_an_os_error_on_the_state_files_is_the_static_decision(mode):
     assert allowed(r), r
     assert "static decision" in r.stderr
     assert os.listdir(os.path.join(e.sdir(), "fanout", "O1")) == [pre["tool_use_id"] + ".json"]
+
+
+# ---------------------------------------------------------------- the default is shadow
+@pytest.mark.parametrize("mode", [None, "", "bogus", "enforce,shadow"])
+def test_default_unset_empty_or_unknown_is_shadow_logs_and_never_denies(mode):
+    e = env(mode, STACK_FANOUT_DYN_ENFORCE="node,deps,conflict,budget,aimd", STACK_FANOUT_DYN_W0="1")
+    assert write_plan(e, CHAIN).startswith("plan accepted")
+    for desc in ("T2 build", "T1 build", "T1 again", "T1 more"):
+        _, r = spawn(e, "coder", desc)
+        assert allowed(r), r
+    lines = log_lines(e)
+    assert len(lines) == 4 and {x["mode"] for x in lines} == {"shadow"}
+    assert all(x["allow"] is True for x in lines) and lines[0]["would_allow"] is False
+    p = os.path.join(e.sdir(), "fanout-dyn.jsonl")
+    assert oct(os.stat(p).st_mode & 0o777) == "0o600"
+
+
+def test_default_shadow_leaves_the_main_thread_and_blackcat_alone():
+    e = env(None, STACK_FANOUT_DYN_TYPES="orchestrator,blackcat,main")
+    for _ in range(3):
+        assert allowed(e.run(e.pre_agent("scout", agent_type="blackcat")))
+        assert allowed(e.run(e.pre_agent("coder")))
+        assert allowed(e.run(e.pre_agent("coder", agent_id="M1", agent_type="main-coder")))
+    assert not any(os.path.exists(os.path.join(e.sdir(), f)) for f in DYN_FILES)
+
+
+def test_default_enforce_is_unchanged_and_off_stays_off():
+    e = env("enforce", STACK_FANOUT_DYN_W0="1", STACK_FANOUT_DYN_ENFORCE="aimd")
+    _, r = spawn(e, "coder", "x one")
+    assert allowed(r)
+    _, r = spawn(e, "coder", "x two")
+    assert r.decision == "deny" and r.reason.startswith("Dynamic fan-out (window)"), r
+    e = env("off", STACK_FANOUT_DYN_W0="1", STACK_FANOUT_DYN_ENFORCE="aimd")
+    for d in ("x one", "x two"):
+        assert allowed(spawn(e, "coder", d)[1])
+    assert not any(os.path.exists(os.path.join(e.sdir(), f)) for f in DYN_FILES)
+
+
+def test_default_shadow_non_orchestrator_calls_never_import_or_touch_the_dyn_files(tmp_path, monkeypatch):
+    g = load_guard()
+    monkeypatch.delenv("STACK_FANOUT_DYN", raising=False)
+    monkeypatch.delenv("STACK_POLICY", raising=False)
+    monkeypatch.delenv("STACK_FANOUT_DYN_TYPES", raising=False)
+    assert g.dyn_on()
+    d = str(tmp_path)
+    read = {"tool_name": "Read", "tool_input": {"file_path": "x"}, "agent_id": "A1"}
+    assert g.dyn_capture(read, d) is None
+    plan_by_main = {"tool_name": "Write", "tool_input": {"file_path": "/p/.claude-work/j/plan.dag.json"}}
+    assert g.dyn_capture(plan_by_main, d) is None
+    ev = {"tool_input": {"subagent_type": "coder", "description": "T1 x"}}
+    assert g.dyn_spawn(d, ev, "C1", "coder", "scout", 6, 1, time.time(), {}, "t1", {}) is None
+    assert g.dyn_spawn(d, ev, "main", "", "scout", 0, None, time.time(), {}, "t1", {}) is None
+    g.dyn_child_end(d, ev, "K1")
+    g.dyn_bind_child(d, "C1", "t1", "K1")
+    assert g.dyn_remove_run(d, "C1", "t1") is False
+    assert g._DYN_WIRE == [] and g._DYN_MOD == []
+    assert os.listdir(d) == []
+
+
+def test_default_shadow_a_lock_timeout_or_error_is_the_static_decision(tmp_path, monkeypatch):
+    g = load_guard()
+    monkeypatch.delenv("STACK_FANOUT_DYN", raising=False)
+    monkeypatch.delenv("STACK_POLICY", raising=False)
+    monkeypatch.setenv("XDG_STATE_HOME", str(tmp_path / "xdg"))
+    d = str(tmp_path)
+    ev = {"session_id": "s1", "tool_use_id": "toolu_1", "agent_id": "O1",
+          "tool_input": {"subagent_type": "coder", "description": "T1 x"}}
+
+    def decide():
+        return g.dyn_spawn(d, ev, "O1", "orchestrator", "coder", 32, 40, time.time(), {},
+                           "toolu_1", {})
+    assert decide() is None                                       # shadow: logged, not refused
+    assert json.loads(open(os.path.join(d, "fanout-dyn.jsonl")).readline())["mode"] == "shadow"
+
+    @contextlib.contextmanager
+    def stuck(*_a, **_k):
+        raise g.MutexTimeout("injected")
+        yield  # unreachable
+    monkeypatch.setattr(g, "mutex", stuck)
+    assert g.dyn_remove_run(d, "O1", "toolu_1") is False
+
+    def boom(*_a, **_k):
+        raise OSError("injected")
+    monkeypatch.setattr(g, "write_json_atomic", boom)
+    assert decide() is None
+    assert g.dyn_resume(d, ev, "O1", "orchestrator", "coder", 32, 40, time.time(), {}, {}) is None
 
 
 # ---------------------------------------------------------------- hostile plans

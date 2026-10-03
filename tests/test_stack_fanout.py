@@ -342,7 +342,7 @@ def test_knob_names_are_fixed_guards():
     assert all(n.startswith("STACK_FANOUT_DYN") for n in F.KNOBS) and len(F.KNOBS) == 14
     assert F.DEFAULT_KNOBS["node_runs"] == F._NODE_RUNS == 7
     assert F.DEFAULT_KNOBS["reserve_tok"] == F.RESERVE_TOK == 8000000
-    assert F.DEFAULT_KNOBS["mode"] == "off" and F.DEFAULT_KNOBS["enforce"] == ("node", "deps")
+    assert F.DEFAULT_KNOBS["mode"] == "shadow" and F.DEFAULT_KNOBS["enforce"] == ("node", "deps")
     k, warnings = F.parse_knobs({"STACK_FANOUT_DYN_ENFORCE": "node,learn", "STACK_FANOUT_DYN_BETA_RL": "0"})
     assert len(warnings) == 2 and k["enforce"] == ("node", "deps") and k["beta_rl"] == 0.5
     assert all("learn" not in w for w in warnings)

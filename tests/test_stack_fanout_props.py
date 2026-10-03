@@ -158,7 +158,7 @@ def test_knob_names_and_plan_defaults():
     assert all(n.startswith("STACK_FANOUT_DYN") for n in F.KNOBS)
     k, w = F.parse_knobs({})
     assert w == []
-    assert (k["mode"], k["enforce"], k["types"]) == ("off", ("node", "deps"), ("orchestrator",))
+    assert (k["mode"], k["enforce"], k["types"]) == ("shadow", ("node", "deps"), ("orchestrator",))
     assert (k["w0"], k["wmin"], k["alpha"]) == (8, 1, 1)
     assert (k["beta_rl"], k["beta_fail"], k["hold_s"]) == (0.5, 0.75, 60)
     assert (k["reserve_tok"], k["slack"], k["node_runs"]) == (8_000_000, 2, 7)
@@ -182,7 +182,8 @@ def test_invalid_knob_value_takes_default_and_is_never_echoed(name):
     ({"STACK_FANOUT_DYN_NODE_RUNS": "32"}, "node_runs", 32),
     ({"STACK_FANOUT_DYN_ENFORCE": "node,bogus"}, "enforce", ("node", "deps")),
     ({"STACK_FANOUT_DYN_ENFORCE": "budget, aimd"}, "enforce", ("budget", "aimd")),
-    ({"STACK_FANOUT_DYN": "enforce,shadow"}, "mode", "off"), ({"STACK_FANOUT_DYN": "ENFORCE"}, "mode", "enforce"),
+    ({"STACK_FANOUT_DYN": "enforce,shadow"}, "mode", "shadow"), ({"STACK_FANOUT_DYN": "bogus"}, "mode", "shadow"),
+    ({"STACK_FANOUT_DYN": "off"}, "mode", "off"), ({"STACK_FANOUT_DYN": ""}, "mode", "shadow"), ({"STACK_FANOUT_DYN": "ENFORCE"}, "mode", "enforce"),
     ({"STACK_FANOUT_DYN_DELAY_RATIO": "1.0"}, "delay_ratio", 1.5),
     ({"STACK_FANOUT_DYN_HOLD_S": "inf"}, "hold_s", 60), ({"STACK_FANOUT_DYN_HOLD_S": "0"}, "hold_s", 0.0),
     ({"STACK_FANOUT_DYN_BREAKER": "0/600"}, "breaker", (0, 600)), ({"STACK_FANOUT_DYN_BREAKER": "3/90s"}, "breaker", (3, 90)),
@@ -885,7 +886,9 @@ def test_off_mode_is_the_static_decision_whatever_the_inputs():
     env = {"STACK_FANOUT_DYN": "enforce", "STACK_POLICY": "off"}
     c = rand_call(rng)
     assert run_call(c, dict(c["env"], **env))["binding"] == "off"
-    assert F.dyn_decision(None, "spawn", "o1", "orchestrator", 8, 3, "coder")["binding"] == "off"
+    off = dict(F.DEFAULT_KNOBS, mode="off")
+    assert F.dyn_decision(off, "spawn", "o1", "orchestrator", 8, 3, "coder")["binding"] == "off"
+    assert F.dyn_decision(None, "spawn", "o1", "orchestrator", 8, 3, "coder")["mode"] == "shadow"
 
 
 def test_shadow_never_denies_while_enforce_does_and_would_allow_matches():

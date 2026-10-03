@@ -94,7 +94,7 @@ LOG_NAME = "fanout-dyn.jsonl"
 
 # ---------------------------------------------------------------- knobs (env-only fixed guards)
 KNOB_DEFAULTS = {
-    "STACK_FANOUT_DYN": "off",
+    "STACK_FANOUT_DYN": "shadow",
     "STACK_FANOUT_DYN_ENFORCE": "node,deps",
     "STACK_FANOUT_DYN_TYPES": "orchestrator",
     "STACK_FANOUT_DYN_W0": "8",

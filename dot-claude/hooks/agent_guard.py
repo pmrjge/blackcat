@@ -204,7 +204,7 @@ Knobs (env):
                           ones too) against CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS (default 20);
                           `shadow` logs each count to fanout-session.jsonl, `enforce` also refuses
                           a spawn or resume with no free slot, `off` = no lock, no count
-  STACK_FANOUT_DYN=off    dynamic fan-out cap (stack_fanout.py; see "dynamic fan-out cap"): `shadow`
+  STACK_FANOUT_DYN=shadow dynamic fan-out cap (stack_fanout.py; see "dynamic fan-out cap"): `shadow`
                           logs each decision of an in-scope caller to fanout-dyn.jsonl, `enforce`
                           also refuses with the terms in STACK_FANOUT_DYN_ENFORCE (node,deps); never
                           above the static cap, never the main thread or BlackCat; any error = static
@@ -1365,10 +1365,11 @@ def _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, copy,
 
 
 # ---------------------------------------------------------------- dynamic fan-out cap
-# STACK_FANOUT_DYN (dynamic fan-out plan D1-D6): off (default) | shadow | enforce. The decision core
+# STACK_FANOUT_DYN (dynamic fan-out plan D1-D6): off | shadow (default) | enforce. The decision core
 # is stack_fanout.py, the guard side stack_fanout_wire.py (scope, plan capture, node runs, AIMD,
-# logs: its docstring), both beside this file and imported only while the switch is on, so `off`
-# costs a hook call one environment lookup. The stubs below pass a live view of this module's
+# logs: its docstring), both beside this file and imported only while the switch is on and a cheap
+# pre-gate (caller type, plan.dag.json path, dyn state folder) says the call can matter, so `off`
+# costs a hook call one environment lookup and a non-orchestrator call no import. The stubs below pass a live view of this module's
 # globals (_GuardView) and never raise: any failure is the static decision (R3).
 _DYN_MOD, _DYN_WIRE = [], []
 
@@ -1409,14 +1410,45 @@ class _GuardView:
 
 
 def dyn_on():
-    return os.environ.get("STACK_FANOUT_DYN", "").strip().lower() not in ("", "off") \
-        and policy_on()
+    """Default shadow: unset, empty or any value but `off` (an unknown one takes the module's
+    default, shadow); STACK_POLICY=off forces off."""
+    return os.environ.get("STACK_FANOUT_DYN", "").strip().lower() != "off" and policy_on()
 
 
-def _dyn_stub(name, default=None):
+def _dyn_types():
+    raw = os.environ.get("STACK_FANOUT_DYN_TYPES", "orchestrator")
+    return re.split(r"[,;\s]+", raw.strip().strip("'\"").lower())
+
+
+def _gate_type(idx):
+    """Cheap pre-gate (no import, no file): the caller type at args[idx] is in scope by name."""
+    def gate(args):
+        t = args[idx] if len(args) > idx else None
+        return isinstance(t, str) and norm(t) in _dyn_types()
+    return gate
+
+
+def _gate_state(args):
+    """Bookkeeping: only where an in-scope agent ever recorded dynamic state in this session."""
+    return os.path.isdir(os.path.join(args[0], "fanout-dyn"))
+
+
+def _gate_capture(args):
+    ev = args[0]
+    ti = ev.get("tool_input") if isinstance(ev, dict) else None
+    fp = ti.get("file_path") if isinstance(ti, dict) else None
+    return isinstance(fp, str) and fp.endswith("plan.dag.json") and bool(ev.get("agent_id"))
+
+
+def _dyn_stub(name, default=None, gate=None):
     def stub(*args):
         if not dyn_on():
             return default
+        try:
+            if gate is not None and not gate(args):
+                return default
+        except Exception:  # noqa: BLE001 - a gate that cannot decide lets the wire decide
+            pass
         wire = fanout_dyn_wire()
         if wire is None:
             return default
@@ -1430,14 +1462,14 @@ def _dyn_stub(name, default=None):
 
 
 # (d, ev, caller, caller_type, child, limit, n, now, reg, tid, sess) -> deny reason or None
-dyn_spawn = _dyn_stub("dyn_spawn")
+dyn_spawn = _dyn_stub("dyn_spawn", gate=_gate_type(3))
 # (d, ev, owner, owner_type, ttype, limit, n, now, reg, sess) -> deny reason or None
-dyn_resume = _dyn_stub("dyn_resume")
-dyn_remove_run = _dyn_stub("dyn_remove_run", False)     # (d, caller, tid)
-dyn_bind_child = _dyn_stub("dyn_bind_child")            # (d, caller, tid, child_id)
-dyn_child_end = _dyn_stub("dyn_child_end")              # (d, ev, child_id[, kind])
-dyn_spawn_failed = _dyn_stub("dyn_spawn_failed")        # (d, ev, caller, tid)
-dyn_capture = _dyn_stub("dyn_capture")                  # (ev, d) -> additionalContext or None
+dyn_resume = _dyn_stub("dyn_resume", gate=_gate_type(3))
+dyn_remove_run = _dyn_stub("dyn_remove_run", False, gate=_gate_state)     # (d, caller, tid)
+dyn_bind_child = _dyn_stub("dyn_bind_child", gate=_gate_state)            # (d, caller, tid, child_id)
+dyn_child_end = _dyn_stub("dyn_child_end", gate=_gate_state)              # (d, ev, child_id[, kind])
+dyn_spawn_failed = _dyn_stub("dyn_spawn_failed", gate=_gate_state)        # (d, ev, caller, tid)
+dyn_capture = _dyn_stub("dyn_capture", gate=_gate_capture)                  # (ev, d) -> additionalContext or None
 
 
 def fanout_release(d, caller, tool_use_id):
@@ -11357,7 +11389,7 @@ FIXED_LIMIT_KNOBS = (
 
 def fanout_dyn_self_test():
     """The dynamic fan-out module imports under this interpreter, its knobs are all fixed guards
-    here, `off` (its default) allows, and a plan with a cycle is rejected with a safe message."""
+    here, `off` and the default allow, and a plan with a cycle is rejected with a safe message."""
     mod = fanout_dyn_module()
     if mod is None or fanout_dyn_wire() is None:
         return ["fanout-dyn: stack_fanout.py or stack_fanout_wire.py cannot be imported next to "
@@ -11366,9 +11398,13 @@ def fanout_dyn_self_test():
     missing = sorted(set(mod.KNOBS) - set(FIXED_LIMIT_KNOBS))
     if missing:
         problems.append("fanout-dyn: knobs not in FIXED_LIMIT_KNOBS: %s" % " ".join(missing))
-    if mod.DEFAULT_KNOBS.get("mode") != "off":
-        problems.append("fanout-dyn: STACK_FANOUT_DYN does not default to off")
+    if mod.DEFAULT_KNOBS.get("mode") != "shadow":
+        problems.append("fanout-dyn: STACK_FANOUT_DYN does not default to shadow")
     res = mod.dyn_decision(mod.DEFAULT_KNOBS, "spawn", "o1", "orchestrator", 32, 40, "coder")
+    if not res.get("allow"):
+        problems.append("fanout-dyn: the default mode refuses")
+    res = mod.dyn_decision(dict(mod.DEFAULT_KNOBS, mode="off"), "spawn", "o1", "orchestrator", 32, 40,
+                           "coder")
     if not res.get("allow"):
         problems.append("fanout-dyn: mode off refuses")
     try:

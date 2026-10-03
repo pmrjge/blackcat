@@ -1,7 +1,7 @@
 """stack_fanout_wire.py - the guard side of the dynamic fan-out cap (stdlib only, Python 3.8+).
 
-agent_guard.py imports this file only while STACK_FANOUT_DYN is shadow or enforce, so the default
-(off) costs the hook nothing: its own stubs return before any import. Every function takes `g`, a
+agent_guard.py imports this file only while STACK_FANOUT_DYN is shadow (the default) or enforce and
+a cheap pre-gate passes, so `off` and every call of a non-in-scope caller cost the hook no import. Every function takes `g`, a
 live view of agent_guard's globals (its helpers, locks and constants), and never raises: any failure
 is the static decision (R3). The decision core is stack_fanout.py (pure: no env, no file on its own).
 
