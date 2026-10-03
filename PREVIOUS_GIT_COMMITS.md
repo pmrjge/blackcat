@@ -1,8 +1,116 @@
 # Previous git commits
 
-History of the project before it was published as a fresh repository; generated from the git log of the former repository at commit `9970940` on 2026-10-03; 220 commits, all by Pedro Jorge. The project was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude models, under the author's direction; messages of commits made with it end with a Co-Authored-By line naming the model. Newest first, grouped by month. Each entry gives the date, the short hash (kept so references in the text stay meaningful), the subject, the full message and a files-changed summary. Private data (home paths, e-mail addresses, keys, session ids) was removed or replaced.
+History of the project before it was published as a fresh repository; generated from the git log of the former repository at commit `75db02f` on 2026-10-03; 227 commits, all by Pedro Jorge. The project was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude models, under the author's direction; messages of commits made with it end with a Co-Authored-By line naming the model. Newest first, grouped by month. Each entry gives the date, the short hash (kept so references in the text stay meaningful), the subject, the full message and a files-changed summary. Private data (home paths, e-mail addresses, keys, session ids) was removed or replaced.
 
 ## 2026-10
+
+### 2026-10-03 18:39 · `75db02f`
+
+**prompt_budget --check: frozen base measurement when the base commit is absent**
+
+> In a clone without the base revision (the fresh repository, an export
+> without .git) every ratio check was skipped. tests/fixtures/prompt_budget_base.json
+> holds the base's measure() output reduced to what check() and the table read
+> (the one base agent no current agent matches is left out: check() never
+> compares it); prompt_budget.py falls back to it for DEFAULT_BASE. Tests: the
+> fixture equals a live measurement when the commit is present; without it,
+> --check uses the fixture and fails on a seeded violation. Verified in a copy
+> without .git: "ratio checks use its frozen measurement", check ok.
+> README Contributing and CONFIG.md changelog follow.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 5 files, +123/-4.* `CONFIG.md`, `README.md`, `tests/fixtures/prompt_budget_base.json`, `tests/prompt_budget.py`, `tests/test_prompt_budget.py`.
+
+### 2026-10-03 18:22 · `a75dae6`
+
+**README Contributing: history-bound checks skip in a clone without those commits**
+
+> prompt_budget.py's ratio checks and the collector upgrade tests in
+> test_stack_usage.py read older commits through git; verified in a git archive
+> export without .git: --check passes with "ratio checks skipped", and
+> test_prompt_budget.py + test_stack_usage.py give 57 passed, 8 skipped.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 1 file, +3/-1.* `README.md`.
+
+### 2026-10-03 18:20 · `5cc4858`
+
+**install.sh creates the Playwright MCP output dir (0700) that doctor.sh checks**
+
+> The agents' inline Playwright entries and the magg catalog pass
+> --output-dir ~/.cache/claude-sandbox/playwright-mcp, but nothing created it:
+> doctor.sh checks every path in MCP args and FAILed on a fresh install. The
+> apply step now makes it (umask 077, chmod 700) when an installed entry names
+> it; --dry-run creates nothing. Tests: test_playwright_mcp.py pins the path to
+> the entries; install_smoke §8 checks it under a scratch HOME, doctor's
+> silence about it and --dry-run. CONFIG.md changelog.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 4 files, +34/-0.* `CONFIG.md`, `install.sh`, `tests/install_smoke.sh`, `tests/test_playwright_mcp.py`.
+
+### 2026-10-03 18:17 · `ff5e732`
+
+**README knobs: ● only for the keys the installer owns, ○ for shipped defaults**
+
+> install.sh resets only its 10 OWNED_ENV keys on every install; the other 10
+> keys dot-claude/settings.json ships follow upgrades while unchanged and a
+> changed value is kept ("kept your env ..."). The table said all 20 were reset.
+> tests/test_readme_knobs.py pins ● to OWNED_ENV and ● + ○ to the shipped env.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 2 files, +72/-11.* `README.md`, `tests/test_readme_knobs.py`.
+
+### 2026-10-03 18:16 · `cc8c205`
+
+**.gitignore: complete Python, secrets, editor/OS and log rules; local hand-off folders**
+
+> Adds claude_next_steps/ and github-wiki/ (local, never committed), the full
+> Python cache/build section, secrets (stack.env, .env\*, keys; the shipped
+> lib/stack.env.example stays tracked), editor/OS files and logs/archives.
+> No tracked file is hidden: git ls-files -ci --exclude-standard is empty.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 1 file, +54/-5.* `.gitignore`.
+
+### 2026-10-03 18:16 · `b575efe`
+
+**Remove supreme-coder's previous-name compatibility layer**
+
+> The rename shipped with shims for the agent's previous name; the installed
+> copies are migrated, so they go:
+>
+> - install.sh: the RENAMED and RENAMED_ENV entries for the previous agent
+>   file, knobs and limit overrides, and the old launcher-link note (the
+>   generic mechanism stays, still used and tested by senior-coder and router)
+> - bin/claude-ultracode: the old launcher alias; doctor.sh: its three warnings
+> - agent_guard.py: lock/marker adoption and the old type spelling in norm()
+> - stack_limits.py / stack_usage.py: RENAMED_TYPES, renamed_type, the env
+>   override and live.json carry-over, the old fixed-guard prefix; rows from
+>   before the rename are no longer aliased
+> - tests: the alias, migration and carry-over cases; derive\_\*.py no longer
+>   map recorded types; the sched fixture names supreme-coder.md
+> - README and CONFIG.md: notes removed, changelog entries name agents by
+>   their current names, new entry for the removal
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 15 files, +40/-239.*
+
+### 2026-10-03 17:02 · `86ffb58`
+
+**Regenerate PREVIOUS_GIT_COMMITS.md**
+
+> Now from main at 9970940 (220 commits): adds the install-target commits
+> and the CC BY 4.0 hero.
+>
+> Co-Authored-By: Claude Opus 5.5
+
+*Files changed: 1 file, +125/-1.* `PREVIOUS_GIT_COMMITS.md`.
 
 ### 2026-10-03 17:02 · `9970940`
 
@@ -3444,6 +3552,22 @@ History of the project before it was published as a fresh repository; generated 
 
 Section 9 of CONFIG.md at the same commit, copied as it stood (names and paths sanitised).
 
+Entries name agents, knobs and files by their current names.
+
+### 2026-10-03 (prompt budget base frozen)
+
+- `tests/prompt_budget.py --check` compares with its base revision through git; in a clone without that commit (a fresh history, an export without `.git`) it skipped every ratio check. It now falls back to `tests/fixtures/prompt_budget_base.json`, the base's measurement frozen (totals, and per agent description, body, maxTurns and per spawn; the base agent no current agent matches is left out, as `check()` never compares it), so the ratios run there too. `tests/test_prompt_budget.py` checks the fixture against a live measurement when the commit is present and the fallback with a seeded violation. The collector upgrade tests in `tests/test_stack_usage.py` still skip without their commits (README, Contributing). Nothing to rerun.
+
+### 2026-10-03 (Playwright MCP output dir created by the installer)
+
+- install.sh now creates `~/.cache/claude-sandbox/playwright-mcp` (the rendered `--output-dir` of the Playwright entries; parents new to it get 0700, like the session-env hook's `~/.cache/claude-sandbox`, and the folder itself is set to 0700) after applying the files, when an installed agent or the magg catalog names it; `--dry-run` creates nothing. doctor.sh checks every path in an MCP entry's args and reported `[Binaries] ~/.cache/claude-sandbox/playwright-mcp missing` as a FAIL on a fresh install: the entry below assumed the server creates the folder on its first write, and doctor checks before any server has run. doctor's check stays. Tests: `tests/test_playwright_mcp.py` (the path install.sh builds matches the entries) and `tests/install_smoke.sh` §8 (created 0700 under a scratch HOME, doctor quiet about it, nothing under `--dry-run`). Rerun install.sh.
+
+### 2026-10-03 (previous-name compatibility removed)
+
+- The compatibility layer for supreme-coder's previous name is gone. install.sh's `RENAMED` (agent files) and `RENAMED_ENV` (settings knobs) keep only the senior-coder → main-coder and router → blackcat entries, so the mechanism and its smoke tests stay. `bin/claude-ultracode` answers to `claude-ninja`, `claude-supreme` and `claude-ultracode <agent>` only; install.sh no longer notes an old launcher link, and doctor.sh no longer warns about one, about a left-over agent file or about knobs under the previous prefix. The guard no longer adopts a lock or spawn marker written under the previous name, nor maps that spelling to supreme-coder.
+- Usage rows recorded before the rename are not aliased. `stack_limits` and `stack_usage.read_rows` read them under the type they were recorded with, a type the stack no longer ships, so they feed no supreme-coder limit (`stack_limits.RENAMED_TYPES`/`renamed_type` and `stack_usage.RENAMED_TYPES` are removed). An env override or live.json state under the previous name no longer carries over, and `tests/derive_*.py` count such transcripts under their recorded type. The frozen fixture `tests/fixtures/sched/graph-4e2da3ce.json` names `dot-claude/agents/supreme-coder.md`.
+- Upgrading straight from an install older than the rename: the previous agent file is still pruned as no longer shipped (the backup keeps it), and a shipped knob still at its default is retracted. A knob you tuned under the previous prefix stays in settings.json unread: set its `SUPREME_*` name. An old launcher link in `~/.local/bin` is no longer recognised: remove it. Rerun install.sh and restart Claude Code.
+
 ### 2026-10-03 (hero image, CC BY 4.0)
 
 - Hero image replaced: the author's cat photograph edited with OpenAI GPT Image 2.5 Sunburst via Opper; images licensed CC BY 4.0. `lib/assets/` holds the unmodified model output (`blackcat-hero-original.png`, with its C2PA manifest), the resized hero, social preview and avatar, the CC BY 4.0 legal code and the provenance (prompts, settings, hashes); README's License section and NOTICE follow. `lib/assets/` is not installed: nothing to rerun.
@@ -3465,11 +3589,7 @@ Section 9 of CONFIG.md at the same commit, copied as it stood (names and paths s
 
 ### 2026-10-03 (top-tier coder agent renamed to supreme-coder)
 
-- The top-tier coder agent is now supreme-coder: the agent file (`agents/supreme-coder.md`, `name: supreme-coder`), the guard's `POLICY` rows, fan-out, soft-limit and read-only tables, the limits seed (`turns.`, `soft.agent.`, `hard.agent.supreme-coder`), `sched_model.json`, `agent_effort.json`, every agent body, the rules, skills, docs and tests. The knobs follow it: `SUPREME_SPAWNERS`, `SUPREME_ONCE_PER_SESSION`, `SUPREME_AFTER_NINJA`, `SUPREME_PENDING_TTL_S`, `SUPREME_IDLE_S`, `SUPREME_LOCK_TTL_S` replace the previous knob names (install.sh's `RENAMED_ENV` moves a value you tuned in settings.json; one still at the stack default is dropped for the new default). The lock and markers in the hook state are `supreme-coder.lock`, `supreme-coder.spawned` and `supreme.mutex`; the previous knob prefix stays a fixed-guard prefix in `stack_limits.FIXED_PREFIXES`.
-- The launcher is `claude-supreme`. `bin/claude-ultracode` still answers to a deprecated alias for the previous launcher name, printing a deprecation note and starting supreme-coder; install.sh no longer creates that link and notes an existing one, and doctor.sh warns about it, about a left-over agent file under the previous name and about any variable still set under the previous knob prefix.
-- install.sh's `RENAMED` maps the previous agent file to `agents/supreme-coder.md`: an install prunes the old file (the backup keeps it); `--no-prune` lists it.
-- State and overrides from before the rename keep working: the guard adopts a session's lock and spawned marker written under the previous names (a resumed session gets no second spawn, a running holder still blocks) and normalizes the old spellings to supreme-coder; the `STACK_{MAXTURNS,SOFTCTX,HARDCTX,SOFT_PROMPT_CTX}_*` overrides set under the previous agent name count while the `_SUPREME_CODER` one is unset (install.sh moves them in settings.json); live.json's state under the previous name, a freeze included, moves to `*.supreme-coder`. Rules file trimmed by 17 characters to stay inside `tests/prompt_budget.py` (rules <= 0.95 x base).
-- Usage rows recorded under the previous agent name (runs*.csv, transcripts read by `tests/derive_*.py`) are read as supreme-coder (`stack_limits.RENAMED_TYPES` / `renamed_type`, `stack_usage.RENAMED_TYPES` in `read_rows`; rotation keeps rows as written); nothing is rewritten. The frozen fixture `tests/fixtures/sched/graph-4e2da3ce.json` keeps the old path. Rerun install.sh and restart Claude Code.
+- The top-tier coder agent is now supreme-coder: the agent file (`agents/supreme-coder.md`, `name: supreme-coder`), the guard's `POLICY` rows, fan-out, soft-limit and read-only tables, the limits seed (`turns.`, `soft.agent.`, `hard.agent.supreme-coder`), `sched_model.json`, `agent_effort.json`, every agent body, the rules, skills, docs and tests. Its knobs are `SUPREME_SPAWNERS`, `SUPREME_ONCE_PER_SESSION`, `SUPREME_AFTER_NINJA`, `SUPREME_PENDING_TTL_S`, `SUPREME_IDLE_S`, `SUPREME_LOCK_TTL_S` and the `STACK_{MAXTURNS,SOFTCTX,HARDCTX,SOFT_PROMPT_CTX}_SUPREME_CODER` overrides; the lock and markers in the hook state are `supreme-coder.lock`, `supreme-coder.spawned` and `supreme.mutex`; the launcher is `claude-supreme`. Rules file trimmed by 17 characters to stay inside `tests/prompt_budget.py` (rules <= 0.95 x base). The compatibility layer for the previous name that shipped with it is gone (entry "previous-name compatibility removed"). Rerun install.sh and restart Claude Code.
 
 ### 2026-10-03 (BlackCat does small jobs itself)
 
