@@ -896,3 +896,25 @@ def test_main_and_session_rows_feed_the_scope_variables(st):
     assert e["n"] == 6 and e["sessions"] == 3 and e["x"] == sorted([6.2e7, 6.5e7] * 3)
     assert new["vars"]["soft.session"]["value"] is not None                      # supported: >= 5 sessions
     assert invariants_ok(L.load_seed(), new) == (True, None)
+
+
+def test_collector_v2_rows_and_snapshot_cells_meet_the_proposer(st):
+    """W3 (stack_usage.py) reads `regime`, `hash` and `source_event` of this module's snapshot and
+    writes runs2.csv rows this module's proposer reads (same column names)."""
+    U = _load("stack_usage_v2_for_limits", HOOKS / "stack_usage.py")
+    rows = []
+    for s in range(3):
+        sid = f"sess-{s}"
+        L.apply_and_snapshot({"session_id": sid, "source": "startup"}, spawn=False)
+        cells = U.snapshot_cells(sid)
+        snap = L.read_snapshot(sid)[0]
+        assert cells == {"sess_src": "startup", "snap": snap["hash"][7:23], "regime": snap["regime"]}
+        assert L.session_limits(sid)["snap"] == cells["snap"]
+        for a in range(4):
+            rows.append(dict(U.EMPTY_ROW, schema_version=2, session=sid, id=f"a{s}{a}", type="coder", seg=0,
+                             status="complete", api_calls=30, ctx=40000000 + 1000 * a, last_ts=T0 + 10 * s + a,
+                             compacted=0, turn_limited=0, status_code=0, is_main=0, src="measured", **cells))
+    U.append_rows(rows)
+    assert (st / "usage" / "runs2.csv").exists() and not (st / "usage" / "runs.csv").exists()
+    e = L.build_proposals(L.load_seed())["vars"]["soft.agent.coder"]
+    assert e["n"] == 12 and e["regime_ok"] is True
