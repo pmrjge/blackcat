@@ -198,17 +198,18 @@ def session_id() -> Optional[str]:
 
 
 def session_snapshot(sid: Optional[str] = None) -> Optional[Dict[str, Any]]:
-    """stack_limits.session_limits(sid) for a session whose snapshot exists and verifies; None
-    otherwise (no writes: a missing or altered snapshot is not created here)."""
+    """stack_limits.snapshot_view of the session's snapshot when it exists and verifies; None otherwise.
+    Reads only: a missing or altered snapshot is not created here, nor a tamper marker or log line written
+    (session_limits would, had the snapshot vanished between its read and ours)."""
     sid = sid or session_id()
     lim = _limits()
     if not sid or lim is None:
         return None
     try:
-        _doc, state = lim.read_snapshot(sid)
+        doc, state = lim.read_snapshot(sid)
         if state != "ok":
             return None
-        return lim.session_limits(sid)
+        return lim.snapshot_view(doc)
     except Exception:                                 # noqa: BLE001 - bad id, unreadable state
         return None
 

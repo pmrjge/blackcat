@@ -24,6 +24,7 @@ import os
 import subprocess
 import sys
 
+sys.dont_write_bytecode = True      # the hooks' modules load from <config>/hooks: no __pycache__ beside them
 HERE = os.path.dirname(os.path.realpath(__file__))
 _MODS = {}
 
@@ -80,6 +81,13 @@ def num(x):
     return v if v == v and abs(v) != float("inf") else None
 
 
+def safe(s):
+    """A string from a graph, a row file, a model or a snapshot as printable text: control, C1 and format characters
+    (ESC, BEL, CR, LF, bidi overrides) escaped, so a field cannot move the cursor, erase or forge a line."""
+    return "".join(c if c.isprintable() else ("\\x%02x" % ord(c) if ord(c) < 0x100 else "\\u%04x" % ord(c))
+                   for c in str(s))
+
+
 class Session(object):
     """Which session's limits are shown, and the values of that snapshot (or the seed)."""
 
@@ -106,7 +114,9 @@ class Session(object):
             if doc:
                 self.doc, self.state, self.sid, self.how = doc, "ok", doc.get("session_id"), "newest snapshot"
         if self.state == "ok" and self.doc:
-            self.values, self.origin = self.doc["values"], self.doc["origin"]
+            self.values = {k: v for k, v in self.doc["values"].items() if v is None or (     # numbers only
+                isinstance(v, (int, float)) and not isinstance(v, bool) and num(v) is not None)}
+            self.origin = {k: str(v) for k, v in self.doc["origin"].items()}
         else:
             self.values = {v: x["seed"] for v, x in self.seed["vars"].items()}
             self.origin = {v: "seed" for v in self.seed["vars"]}
@@ -140,13 +150,15 @@ class Session(object):
 
 def consumption(sess):
     """Session total and current prompt window of the session's budget.json (the guard's token count)."""
-    if not sess.sid:
+    if not sess.sid or sess.state == "bad session id":       # an id that failed ID_RE builds no path
         return None
     try:
         p = os.path.join(sess.L.state_root(), sess.sid, "budget.json")
         with open(p, encoding="utf-8") as fh:
             b = json.load(fh)
-    except (OSError, ValueError):
+    except (OSError, ValueError, RecursionError):
+        return None
+    if not isinstance(b, dict):
         return None
     total, base = num(b.get("total")), num(b.get("prompt_base"))
     return {"session": total, "prompt": (total - base) if total is not None and base is not None and total >= base else None}
@@ -162,6 +174,8 @@ def usage_rows(typ=None):
     for r in U.read_rows().values():
         if r.get("is_main") == "1" or r.get("status") != "complete" or (typ and r.get("type") != typ):
             continue
+        if L.parse_row(r) is None:      # the learner's hostile-CSV filter (ids, type, finite numbers in bounds)
+            continue
         if L.model_mismatch(models, r.get("type") or "", r.get("model") or ""):
             skipped[r["type"]] = skipped.get(r["type"], 0) + 1
             continue
@@ -173,7 +187,7 @@ def usage_rows(typ=None):
 def sample(rows, col, healthy=True):
     xs = []
     for r in rows:
-        if healthy and (r.get("compacted") == "1" or r.get("turn_limited") == "1"):
+        if healthy and ((num(r.get("compacted")) or 0) >= 1 or r.get("turn_limited") == "1"):    # compacted is a count
             continue
         v = num(r.get(col))
         if v is not None:
@@ -207,7 +221,7 @@ def type_row(sess, t, rows, skipped=0):
 
 def lim_txt(x):
     """value, origin and, for a learned value that is not supported, its interval."""
-    s = fmt(x["value"], x["unit"]) + ("/" + x["origin"][0] if x["origin"] else "")
+    s = fmt(x["value"], x["unit"]) + ("/" + safe(x["origin"][0]) if x["origin"] else "")
     if x["status"] in ("provisional", "pooled") and x["value"] is not None:
         s += " " + span(*(x["ci"] or (None, None)), unit=x["unit"]) + " " + x["status"]
     return s
@@ -218,7 +232,7 @@ def cmd_summary(a):
     try:
         sess = Session(a.session)
     except Exception as exc:  # noqa: BLE001 - SeedError, missing hooks folder
-        print("stack-budget: limits unavailable: %s" % exc, file=sys.stderr)
+        print("stack-budget: limits unavailable: %s" % safe(exc), file=sys.stderr)
         return 2
     L = sess.L
     cons = consumption(sess)
@@ -244,8 +258,8 @@ def cmd_summary(a):
         return 0
     h = sess.head()
     print("session %s (%s): snapshot %s, values from %s, live v%s now, snapshot of v%s, sched_policy %s" % (
-        h["id"] or "-", h["found_by"], h["snapshot"], h["values_from"], h["current_live_version"], h["live_version"],
-        h["sched_policy"]))
+        safe(h["id"] or "-"), h["found_by"], h["snapshot"], h["values_from"], safe(h["current_live_version"]),
+        safe(h["live_version"]), safe(h["sched_policy"])))
     if sess.state != "ok" and sess.sid:
         print("  note: the snapshot is %s; seed values shown" % sess.state)
     if not sess.sid:
@@ -276,13 +290,13 @@ def cmd_agent(a):
     try:
         sess = Session(a.session)
     except Exception as exc:  # noqa: BLE001
-        print("stack-budget: limits unavailable: %s" % exc, file=sys.stderr)
+        print("stack-budget: limits unavailable: %s" % safe(exc), file=sys.stderr)
         return 2
     t = a.type
-    if "turns." + t not in sess.seed["vars"] and "turns." + t[:-5] not in sess.seed["vars"]:
+    base = t[:-5] if t.endswith("-copy") else t
+    if "turns." + base not in sess.seed["vars"]:          # the base type, not t[:-5]: "scout12345" is no type
         print("stack-budget: unknown agent type %r" % t, file=sys.stderr)
         return 1
-    base = t[:-5] if t.endswith("-copy") else t
     rows, skipped = usage_rows(base)
     res = type_row(sess, base, rows, skipped.get(base, 0))
     res["recent"] = [{k: r.get(k) or None for k in ("session", "id", "seg", "api_calls", "ctx", "status", "status_code",
@@ -292,11 +306,11 @@ def cmd_agent(a):
     if a.json:
         print(json.dumps(res, indent=1, sort_keys=True))
         return 0
-    print("%s  (session %s, values from %s)" % (base, sess.sid or "-", sess.head()["values_from"]))
+    print("%s  (session %s, values from %s)" % (base, safe(sess.sid or "-"), sess.head()["values_from"]))
     for k in ("turns", "soft", "hard"):
         x = res[k]
         print("  %-5s value %-8s origin %-9s seed %-8s live %-8s status %-11s n %-4s interval %s%s%s" % (
-            k, fmt(x["value"], x["unit"]), x["origin"] or "-", fmt(x["seed"], x["unit"]), "-" if x["live"] is None else fmt(x["live"], x["unit"]),
+            k, fmt(x["value"], x["unit"]), safe(x["origin"] or "-"), fmt(x["seed"], x["unit"]), "-" if x["live"] is None else fmt(x["live"], x["unit"]),
             x["status"] or "-", x["n"] if x["n"] is not None else "-", span(*(x["ci"] or (None, None)), unit=x["unit"]),
             " hold %s" % x["hold"] if x["hold"] else "", " frozen %s" % fmt(x["frozen"], x["unit"]) if x["frozen"] is not None else ""))
     c, g = res["ctx"], res["calls"]
@@ -308,8 +322,8 @@ def cmd_agent(a):
         fmt(g["p50"], "turns"), fmt(g["p90"], "turns"), span(*(g["ci"] or (None, None)), unit="turns"), fmt(g["max"], "turns"),
         fmt(res["turns"]["value"], "turns"), res["verdict_turns"]))
     for r in res["recent"]:
-        print("    %s %s seg %s calls %s ctx %s %s src %s" % ((r["session"] or "")[:8], r["id"], r["seg"], r["api_calls"] or "-",
-                                                            r["ctx"] or "-", r["status"], r["src"] or "-"))
+        print("    %s %s seg %s calls %s ctx %s %s src %s" % tuple(safe(v) for v in (
+            (r["session"] or "")[:8], r["id"], r["seg"], r["api_calls"] or "-", r["ctx"] or "-", r["status"], r["src"] or "-")))
     return 0
 
 
@@ -318,26 +332,30 @@ def cmd_plan(a):
     try:
         sess = Session(a.session)
     except Exception as exc:  # noqa: BLE001
-        print("stack-budget: limits unavailable: %s" % exc, file=sys.stderr)
+        print("stack-budget: limits unavailable: %s" % safe(exc), file=sys.stderr)
         return 2
     S = mod("stack_sched")
-    S._SESSION_OVERRIDE = sess.sid if sess.state == "ok" else None
+    S._SESSION_OVERRIDE = sess.sid      # the shown session's model and soft limits, even when its snapshot is not ok
     try:
         g = S.load_graph(a.graph)
         m = S.load_model(None)
         errs = [i for i in S.validate(g, m) if i.level == "error"]
         if errs:
             for i in errs:
-                print("error: %s: %s" % (i.node or "graph", i.msg), file=sys.stderr)
+                print("error: %s: %s" % (safe(i.node or "graph"), safe(i.msg)), file=sys.stderr)
             return 1
         sched = S.schedule(g, m, mode=a.mode)
+        est = S.estimate(g, m)
     except S.GraphError as exc:
-        print("invalid graph: %s" % exc, file=sys.stderr)
+        print("invalid graph: %s" % safe(exc), file=sys.stderr)
         return 1
-    except (S.ModelError, OSError, ValueError) as exc:
-        print("stack-budget: %s" % exc, file=sys.stderr)
+    except (S.ModelError, OSError, ValueError, TypeError, KeyError, ArithmeticError, RecursionError) as exc:  # a malformed model
+        print("stack-budget: plan not estimable: %s: %s" % (type(exc).__name__, safe(exc)), file=sys.stderr)
         return 1
-    est = S.estimate(g, m)
+    bad = [nd.id for nd in g.nodes if num(est[nd.id].ctx_hi) is None or num(est[nd.id].turns_hi) is None]
+    if bad:
+        print("stack-budget: no finite estimate for %s (sched_model.json?)" % safe(", ".join(bad)), file=sys.stderr)
+        return 1
     nodes, tot_med, tot_hi, types = [], 0.0, 0.0, []
     for nd in g.nodes:
         e, t = est[nd.id], sched.variants.get(nd.id, nd.a)
@@ -370,12 +388,12 @@ def cmd_plan(a):
         print(json.dumps(out, indent=1, sort_keys=True))
         return 0
     h = sess.head()
-    print("plan %s (%s): limits of session %s from %s; model %s" % (g.job, sched.mode, h["id"] or "-", h["values_from"],
-                                                                    os.path.basename(m.get("file") or "built-in")))
+    print("plan %s (%s): limits of session %s from %s; model %s" % (safe(g.job), sched.mode, safe(h["id"] or "-"), h["values_from"],
+                                                                    safe(os.path.basename(m.get("file") or "built-in"))))
     line = "  %-10s %-20s %-18s %-8s %-20s %-8s %-13s %s"
     print(line % ("node", "type", "turns med-hi", "limit", "ctx med-hi", "soft", "verdict", "status"))
     for n in nodes:
-        print(line % (n["id"], n["type"], "%d-%d" % (n["turns"][0], round(n["turns"][1])), fmt(n["limits"]["turns"], "turns"),
+        print(line % (safe(n["id"]), safe(n["type"]), "%d-%d" % (n["turns"][0], round(n["turns"][1])), fmt(n["limits"]["turns"], "turns"),
                       "%s-%s" % (fmt(n["ctx"][0]), fmt(n["ctx"][1])), fmt(n["limits"]["soft"]),
                       "/".join(sorted({n["verdict_turns"], n["verdict_soft"], n["verdict_hard"]} - {"no limit"}, key=lambda v: -rank[v])) or "no limit",
                       n["status"]))
@@ -385,13 +403,17 @@ def cmd_plan(a):
             " (incl. %s already used)" % fmt(w["already_used"]) if w["already_used"] else ""))
     print("verdict: %s (stack_sched: %s); wall %.0f s" % (worst, sched.verdict, sched.wall))
     for w in sched.warnings:
-        print("warning: " + w)
+        print("warning: " + safe(w))
     return 0
 
 
 # ---------------------------------------------------------------- static
 def cmd_static(a):
     root = os.path.dirname(os.path.dirname(HERE))
+    if HERE != os.path.join(root, "dot-claude", "bin") or not os.path.isfile(os.path.join(root, "install.sh")):
+        print("stack-budget: static budgets are measured in the stack repo (run its dot-claude/bin/stack-budget)",
+              file=sys.stderr)                     # an installed copy's root is $(dirname <config dir>), e.g. $HOME
+        return 1
     pb = os.path.join(root, "tests", "prompt_budget.py")
     if not os.path.exists(pb):
         print("stack-budget: tests/prompt_budget.py not found (static budgets are measured in the stack repo)", file=sys.stderr)

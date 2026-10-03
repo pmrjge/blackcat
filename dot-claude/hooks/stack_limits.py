@@ -1420,7 +1420,7 @@ def read_live(seed):
         if sv > SCHEMA:
             return None, "newer"
         return validate_live(_migrate(doc, sv, seed) if sv < SCHEMA else doc, seed), None
-    except (ValueError, LiveInvalid):
+    except (ValueError, LiveInvalid, RecursionError):     # json's C decoder raises RecursionError on deep nesting
         return None, "invalid"
 
 
@@ -1571,10 +1571,12 @@ def read_snapshot(sid):
         return None, "unreadable"
     try:
         doc = json.loads(raw.decode("utf-8"))
-    except ValueError:
+        ok = isinstance(doc, dict) and doc.get("schema_version") == SCHEMA and doc.get("session_id") == sid \
+            and isinstance(doc.get("values"), dict) and isinstance(doc.get("origin"), dict) \
+            and doc.get("hash") == snap_hash(doc)          # snap_hash raises ValueError on NaN (allow_nan=False)
+    except (ValueError, RecursionError):
         return None, "tamper"
-    if not isinstance(doc, dict) or doc.get("schema_version") != SCHEMA or doc.get("session_id") != sid \
-            or not isinstance(doc.get("values"), dict) or doc.get("hash") != snap_hash(doc):
+    if not ok:
         return None, "tamper"
     return doc, "ok"
 
@@ -1715,6 +1717,23 @@ def ensure_snapshot(sid, src="ensure"):
     return _write_snapshot(sid, src, s, live, values, origin, auto)[0]
 
 
+def snapshot_view(doc):
+    """session_limits' answer for a verified snapshot document (read_snapshot's "ok"). Reads only."""
+    m = doc.get("sched_model")
+    m = m if isinstance(m, dict) else {}
+    mp = None
+    if isinstance(m.get("file"), str) and m["file"]:
+        cand = os.path.join(snapshots_dir(), m["file"])
+        try:
+            with open(cand, "rb") as fh:
+                mp = cand if _sha(fh.read(16 << 20)) == m.get("sha") else None
+        except OSError:
+            mp = None
+    return {"state": "ok", "values": doc["values"], "origin": doc["origin"], "snap": doc["hash"][7:23],
+            "regime": doc.get("regime"), "scale": doc.get("scale"), "sched_policy": doc.get("sched_policy"),
+            "sched_model": mp, "live_version": doc.get("live_version")}
+
+
 def session_limits(sid, sdir=None):
     """The values every consumer uses for `sid`: the verified snapshot (ensure_snapshot when
     missing), else the seed with one stderr line per session (O_EXCL marker <sdir>/limits-tamper)."""
@@ -1726,18 +1745,7 @@ def session_limits(sid, sdir=None):
             pass
         doc, state = read_snapshot(sid)
     if state == "ok":
-        m = doc.get("sched_model") or {}
-        mp = None
-        if m.get("file"):
-            cand = os.path.join(snapshots_dir(), m["file"])
-            try:
-                with open(cand, "rb") as fh:
-                    mp = cand if _sha(fh.read(16 << 20)) == m.get("sha") else None
-            except OSError:
-                mp = None
-        return {"state": "ok", "values": doc["values"], "origin": doc["origin"], "snap": doc["hash"][7:23],
-                "regime": doc.get("regime"), "scale": doc.get("scale"), "sched_policy": doc.get("sched_policy"),
-                "sched_model": mp, "live_version": doc.get("live_version")}
+        return snapshot_view(doc)
     s = load_seed()
     sdir = sdir or os.path.join(state_root(), sid)
     try:
@@ -2003,11 +2011,19 @@ def dry_run():
 def _latest_snapshot(sid=None):
     if sid:
         return read_snapshot(sid)[0]
+    d = snapshots_dir()
     try:
-        names = [n for n in os.listdir(snapshots_dir()) if n.endswith(".json") and not n.endswith(".sched_model.json")]
+        names = [n for n in os.listdir(d) if n.endswith(".json") and not n.endswith(".sched_model.json")
+                 and ID_RE.match(n[:-len(".json")])]       # another name made read_snapshot raise ValueError
     except OSError:
         return None
-    names.sort(key=lambda n: os.path.getmtime(os.path.join(snapshots_dir(), n)), reverse=True)
+
+    def mtime(n):
+        try:
+            return os.path.getmtime(os.path.join(d, n))
+        except OSError:                                    # pruned since listdir (_prune_snapshots)
+            return -1.0
+    names.sort(key=mtime, reverse=True)
     for n in names[:5]:
         doc = read_snapshot(n[:-len(".json")])[0]
         if doc:
