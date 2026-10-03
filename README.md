@@ -435,7 +435,7 @@ yourself.
 | `STACK_IMAGE_UPLOAD_TOOLS` | — | Regex of more MCP tools whose image arguments get downscaled copies | guard |
 | `STACK_ENV_FILE` ● | `~/.claude/stack.env` | Where the keys live | `mcp-headers`, `with-stack-env`, libdocs, image-studio |
 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` ● | 4 | Claude Code's nesting limit (its default is 3) | Claude Code, guard |
-| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 32 | Subagents running in one session | Claude Code |
+| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 33 | Subagents running in one session | Claude Code |
 | `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` ● | 1 | Built-in Explore and Plan off (the stack's `explore` replaces Explore) | Claude Code |
 | `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` ● | 1 | Every built-in type off in `claude -p` | Claude Code |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` | from `stack.env` | Not in `dot-claude/settings.json`: the installer copies them from `stack.env` (Keys and paths above) | Claude Code |

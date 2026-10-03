@@ -137,7 +137,7 @@ Values in `dot-claude/settings.json`. Those marked "code" are defaults in `agent
 
 | Key | Value | Was | Why |
 |---|---|---|---|
-| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` | 32 | 20 | Room for BlackCat 8 × orchestrator 10 without hitting the session limit |
+| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` | 33 | 20 | Room for an orchestrator's 32 running children plus the orchestrator itself without hitting the session limit |
 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` | 4 | — | Four layers below BlackCat |
 | `BLACKCAT_MAX_DISPATCH` | 8 | 6 | Enough to cover a multi-domain request in one burst |
 | `BLACKCAT_MAX_STEPS` | 12 | 8 | Dispatches plus relays and questions within one prompt |
@@ -466,7 +466,7 @@ Commits `ea80f87`, `7292272`, `b93b557`, `c9ef24b`, `693296f`, `275eead`, `b7a07
 - Caps:
   - BlackCat: 8 dispatches, 12 steps, 120 s window;
   - running children per agent: orchestrator 32, main-coder and god-coder 6, ninja-coder 5, researcher 4, planner 8, everyone else 3;
-  - `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` 32.
+  - `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` 33.
 - god-coder: only the orchestrator spawns it, once per session. BlackCat, main-coder, ninja-coder and the ML platform engineers return `NEXT: god-coder` instead of spawning it.
 - The installer removes `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` and `CLAUDE_CODE_FORK_SUBAGENT`; `/stack-doctor` warns about them.
 - Tests:

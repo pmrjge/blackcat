@@ -582,9 +582,9 @@ try:
     conc = int(env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "20"))
 except ValueError:
     conc = None
-(ok if conc and conc >= 32 else warn)("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=%s%s" % (
+(ok if conc and conc >= 33 else warn)("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS=%s%s" % (
     env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "20 (default)"),
-    "" if conc and conc >= 32 else " — the stack ships 32 (BlackCat 8 + orchestrator 10 + their children)"))
+    "" if conc and conc >= 33 else " — the stack ships 33 (an orchestrator plus its 32 running children)"))
 for key in ("CLAUDE_CODE_DISABLE_BACKGROUND_TASKS", "CLAUDE_CODE_FORK_SUBAGENT"):
     val = env.get(key, os.environ.get(key))
     if val not in (None, ""):
