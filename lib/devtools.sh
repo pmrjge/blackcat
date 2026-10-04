@@ -47,7 +47,9 @@ MODE="${DEVTOOLS_MODE:-install}"
 case "$MODE" in install|dry-run|report) ;; *) echo "devtools.sh: DEVTOOLS_MODE must be install, dry-run or report" >&2; exit 2 ;; esac
 NO_PROFILE="${DEVTOOLS_NO_PROFILE:-0}"
 # stdin is a terminal (Homebrew's installer and the cask batch need one); the tests set it
-if [ -n "${DEVTOOLS_TTY:-}" ]; then TTY="$DEVTOOLS_TTY"; elif [ -t 0 ]; then TTY=1; else TTY=0; fi
+# A variable can only take the terminal away (DEVTOOLS_TTY=0: install.sh --no-prompt), never stand
+# in for one. (`test -t`, not `[ -t ]`: the tests simulate a terminal by replacing `test`.)
+if [ "${DEVTOOLS_TTY:-}" != 0 ] && test -t 0; then TTY=1; else TTY=0; fi
 export HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1
 
 GROUPS_ALL="DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO LEAN POSTGRES MONGODB"

@@ -33,6 +33,12 @@ GRADLE_V = re.search(r"^GRADLE_VERSION=(\S+)", SRC, re.M).group(1)
 GROUPS = re.search(r'^GROUPS_ALL="([^"]+)"', SRC, re.M).group(1).split()
 BREW_ITEMS = [l.split() for l in re.search(r'^BREW_ITEMS="(.*?)"$', SRC, re.M | re.S).group(1).splitlines()]
 
+# A terminal, for the scripts under test: `test -t N` answers yes (the scripts check the terminal with
+# `test -t`; bash imports an exported function, which wins over the builtin). Environment variables
+# can only take a terminal away (security review F3), so this is how the tests get one.
+TTY_FN_NAME = "BASH_FUNC_test%%"
+TTY_FN = '() { if [ "$1" = -t ] && [ $# -eq 2 ]; then return 0; fi; builtin test "$@"; }'
+
 LOGGER = ('printf "%s %s | PROFILE=%s UV_NO_MODIFY_PATH=%s CABAL_DIR=%s ANALYTICS=%s\\n" '
           '"$(basename "$0")" "$*" "${PROFILE:-}" "${UV_NO_MODIFY_PATH:-}" "${CABAL_DIR:-}" '
           '"${HOMEBREW_NO_ANALYTICS:-}" >>"$SHIM_LOG"\n')
@@ -110,11 +116,13 @@ class Env:
     def run(self, *groups, mode="install", tty="0", args=("all",), script=SCRIPT, **extra):
         env = {"HOME": str(self.home), "PATH": "%s:/usr/bin:/bin" % self.bin, "SHIM_LOG": str(self.log),
                "TMPDIR": str(self.tmp), "SERVE_DIR": str(self.serve), "BREW_STATE": str(self.state),
-               "DEVTOOLS_BREW_CANDIDATES": "", "DEVTOOLS_JAVA_HOME_TOOL": "", "DEVTOOLS_TTY": tty,
+               "DEVTOOLS_BREW_CANDIDATES": "", "DEVTOOLS_JAVA_HOME_TOOL": "",
                "DEVTOOLS_JVM_DIR": str(self.jvm), "DEVTOOLS_TEX_BIN": str(self.t / "notex"),
                "DEVTOOLS_MODE": mode}
         for g in GROUPS:
             env["STACK_INSTALL_" + g] = "1" if g in groups else "0"
+        if tty == "1":
+            env[TTY_FN_NAME] = TTY_FN
         env.update(extra)
         p = subprocess.run(["bash", str(script)] + list(args), env=env, capture_output=True, text=True, timeout=120)
         return p.returncode, p.stdout, p.stderr
@@ -747,8 +755,9 @@ class MF:
 
     def run(self, tty="1", stdin="", **extra):
         env = {"HOME": str(self.e.home), "PATH": "%s:/usr/bin:/bin" % self.e.bin, "SHIM_LOG": str(self.e.log),
-               "TMPDIR": str(self.e.tmp), "ULIMIT_MAX": str(self.ulimit_max), "DEVTOOLS_TTY": tty,
-               "BASH_FUNC_ulimit%%": ULIMIT_FN}
+               "TMPDIR": str(self.e.tmp), "ULIMIT_MAX": str(self.ulimit_max), "BASH_FUNC_ulimit%%": ULIMIT_FN}
+        if tty == "1":
+            env[TTY_FN_NAME] = TTY_FN
         env.update(self.state)
         env.update(extra)
         p = subprocess.run(["bash", str(self.script)], env=env, input=stdin, capture_output=True, text=True, timeout=60)
@@ -962,7 +971,7 @@ def test_install_sh_maxfiles_runs_before_any_install_call(scratch_repo, tmp_path
     """A real (shimmed) run: the yes reaches sudo, then step 2's first download; it stops there on
     the missing required tools (no uv, no node on PATH). sudo never copies anything here."""
     e, p = run_install(scratch_repo, tmp_path, ["--no-mcp", "--no-plugins", "--no-profile"], stdin="y\ny\n",
-                       DEVTOOLS_TTY="1", STACK_INSTALL_RUST="1")
+                       STACK_INSTALL_RUST="1", **{TTY_FN_NAME: TTY_FN})
     out = p.stdout
     assert p.returncode == 1 and "2/11 Tools" in out, out[-3000:] + p.stderr[-3000:]
     assert out.index("Open-file limit (maxfiles)") < out.index("2/11 Tools")
@@ -1043,3 +1052,56 @@ def test_f2_coursiers_hash_is_kept_too(tmp_path):
     e.serve_file(url("COURSIER"), gzip.compress(cs.encode()))
     rc, out, _ = e.run("SCALA")
     assert "  ran %s (gunzipped) sha256 %s" % (url("COURSIER"), hashlib.sha256(cs.encode()).hexdigest()) in out, out
+
+
+def test_f3_an_environment_variable_never_stands_in_for_a_terminal(tmp_path):
+    m = MF(tmp_path)
+    out = m.run(tty="0", stdin="y\n", DEVTOOLS_TTY="1", STACK_INSTALL_MAXFILES="1")    # pipes, no terminal
+    assert m.root_calls() == [] and "not installed (no terminal)" in out
+    (tmp_path / "d").mkdir()
+    e = Env(tmp_path / "d")
+    e.present("uv", "node", "npx")
+    rc, out, _ = e.run("DEPS", tty="0", DEVTOOLS_TTY="1")
+    assert e.calls("curl") == [] and "! homebrew missing — no terminal: run /bin/bash -c" in out
+    # ... but a variable can take a real one away
+    rc, out, _ = e.run("DEPS", tty="1", DEVTOOLS_TTY="0")
+    assert e.calls("curl") == [] and "no terminal: run /bin/bash -c" in out
+
+
+def test_f3_maxfiles_through_a_real_pty(tmp_path):
+    """The real terminal path, end to end, where the platform gives the test a pty (the sandbox
+    agents run in refuses os.openpty: skipped there)."""
+    import pty
+    try:
+        master, slave = pty.openpty()
+    except OSError as exc:
+        pytest.skip("no pty here: %s" % exc)
+    m = MF(tmp_path)
+    env = {"HOME": str(m.e.home), "PATH": "%s:/usr/bin:/bin" % m.e.bin, "SHIM_LOG": str(m.e.log),
+           "TMPDIR": str(m.e.tmp), "ULIMIT_MAX": "1048576", "BASH_FUNC_ulimit%%": ULIMIT_FN}
+    env.update(m.state)
+    p = subprocess.Popen(["bash", str(m.script)], env=env, stdin=slave, stdout=slave, stderr=slave)
+    os.close(slave)
+    os.write(master, b"y\n")
+    buf = b""
+    while True:
+        try:
+            chunk = os.read(master, 4096)
+        except OSError:
+            break
+        if not chunk:
+            break
+        buf += chunk
+    p.wait(timeout=60)
+    os.close(master)
+    out = buf.decode(errors="replace").replace("\r\n", "\n")
+    assert "[y/N]" in out and m.plist.read_text() == PLIST_SNAPSHOT, out
+    assert [c for c in m.e.calls("sudo") if "bootstrap" in c]
+
+
+def test_no_prompt_reaches_devtools_so_homebrews_installer_never_starts(scratch_repo, tmp_path):
+    e, p = run_install(scratch_repo, tmp_path, ["--no-prompt", "--no-mcp", "--no-plugins", "--no-profile"],
+                       STACK_INSTALL_DEPS="1", **{TTY_FN_NAME: TTY_FN})
+    assert not [c for c in e.argv("curl") if "Homebrew/install" in c], e.argv("curl")
+    assert "no terminal: run /bin/bash -c" in p.stdout, p.stdout[-3000:]
+    assert 'dt_tty="${DEVTOOLS_TTY:-}"; [ "$NO_PROMPT" = 1 ] && dt_tty=0' in INSTALL_TEXT

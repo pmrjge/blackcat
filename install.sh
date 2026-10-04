@@ -795,7 +795,9 @@ mf_install(){
 }
 maxfiles_step(){
   local want="${STACK_INSTALL_MAXFILES:-ask}" tty=0 soft state=absent others o why=""
-  if [ -n "${DEVTOOLS_TTY:-}" ]; then tty="$DEVTOOLS_TTY"; elif [ -t 0 ] && [ -t 1 ]; then tty=1; fi
+  # a real terminal only: a variable can take it away (DEVTOOLS_TTY=0), never stand in for one
+  # (`test -t`, not `[ -t ]`: the tests simulate a terminal by replacing `test`)
+  if [ "${DEVTOOLS_TTY:-}" != 0 ] && test -t 0 && test -t 1; then tty=1; fi
   case "$want" in ask|0|1) ;; *) note "! STACK_INSTALL_MAXFILES=$want is not ask, 0 or 1: treated as ask"; want=ask ;; esac
   soft="$(mf_launchd_soft)"
   if [ -f "$MF_PLIST" ]; then
@@ -888,7 +890,9 @@ lean_proj="$(sed -n 's/^LEAN_PROJECT_PATH=//p' "$C/stack.env" 2>/dev/null | tail
 lean_proj="${lean_proj%\"}"; lean_proj="${lean_proj#\"}"
 [ -n "$lean_proj" ] || lean_proj="${LEAN_PROJECT_PATH:-}"
 dt_rc=0
-DEVTOOLS_LEAN_PROJECT="$lean_proj" DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$HERE/lib/devtools.sh" all || dt_rc=$?
+# --no-prompt: never ask, also not through Homebrew's installer or the pkg casks
+dt_tty="${DEVTOOLS_TTY:-}"; [ "$NO_PROMPT" = 1 ] && dt_tty=0
+DEVTOOLS_TTY="$dt_tty" DEVTOOLS_LEAN_PROJECT="$lean_proj" DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$HERE/lib/devtools.sh" all || dt_rc=$?
 # a required tool still missing: devtools.sh listed each with its command
 [ "$dt_rc" = 3 ] && exit 1
 [ "$dt_rc" = 0 ] || note "! lib/devtools.sh exited $dt_rc (see above); the install goes on"
