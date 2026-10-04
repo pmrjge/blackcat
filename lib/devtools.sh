@@ -67,6 +67,19 @@ NO_PROFILE="${DEVTOOLS_NO_PROFILE:-0}"
 # in for one. (`test -t`, not `[ -t ]`: the tests simulate a terminal by replacing `test`.)
 if [ "${DEVTOOLS_TTY:-}" != 0 ] && test -t 0; then TTY=1; else TTY=0; fi
 export HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1
+# dry-run and report create nothing under HOME, yet brew's list/info/deps calls make its cache and
+# log dirs there. A cache that exists is used as it is (it holds the formula/cask API JSON: pointed
+# elsewhere, brew info would download it again); a missing one, and missing logs, go to this run's
+# private dir (removed at exit). Your own HOMEBREW_CACHE/HOMEBREW_LOGS win. HOMEBREW_TEMP's default
+# is outside HOME (/private/tmp).
+if [ "$MODE" != install ]; then
+  case "$(uname -s)" in
+    Darwin) _bc="$HOME/Library/Caches/Homebrew"; _bl="$HOME/Library/Logs/Homebrew" ;;
+    *) _bc="${XDG_CACHE_HOME:-$HOME/.cache}/Homebrew"; _bl="$_bc/Logs" ;;
+  esac
+  [ -n "${HOMEBREW_CACHE:-}" ] || [ -d "$_bc" ] || { HOMEBREW_CACHE="$DT_CWD/brew-cache"; export HOMEBREW_CACHE; }
+  [ -n "${HOMEBREW_LOGS:-}" ] || [ -d "$_bl" ] || { HOMEBREW_LOGS="$DT_CWD/brew-logs"; export HOMEBREW_LOGS; }
+fi
 
 GROUPS_ALL="DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO LEAN POSTGRES MONGODB"
 on(){ # on GROUP: its switch; POSTGRES and MONGODB default off

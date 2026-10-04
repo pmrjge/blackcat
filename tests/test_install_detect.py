@@ -422,3 +422,37 @@ def test_unverified_entries_are_marked_and_config_lists_the_lookup_order():
     order = ["(1) PATH", "(2) the system login PATH", "(3) the known locations", "(4) for the tools in `DETECT_ROWS`",
              "(5) their .pkg receipts", "(6) `brew list"]
     assert [para.index(o) for o in order] == sorted(para.index(o) for o in order)
+
+
+# ---------------------------------------------------------------- dry-run / report write nothing under HOME
+BREW_MKCACHE = r'''
+mkdir -p "${HOMEBREW_CACHE:-$HOME/Library/Caches/Homebrew}" "${HOMEBREW_LOGS:-$HOME/Library/Logs/Homebrew}"
+echo "cache=${HOMEBREW_CACHE:-default}" >>"$SHIM_LOG.cache"
+'''
+
+
+def tree(p):
+    return sorted(str(x.relative_to(p)) for x in p.rglob("*"))
+
+
+def test_dry_run_and_report_leave_homebrews_cache_out_of_a_fresh_home(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    e.shim("brew", BREW_MKCACHE + BREW_SHIM)
+    before = tree(e.home)
+    for mode in ("dry-run", "report"):
+        rc, out, err = e.run("GO", "CXX", mode=mode, **s.env)
+        assert rc == 0, err
+        assert tree(e.home) == before, (mode, tree(e.home))
+    assert e.calls("brew", "list")                                         # brew did run
+    assert not list(e.tmp.glob("stack-devtools-cwd.*"))                    # the throw-away cache went with the run
+
+
+def test_an_existing_homebrew_cache_is_used_as_it_is(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    e.shim("brew", BREW_MKCACHE + BREW_SHIM)
+    (e.home / "Library" / "Caches" / "Homebrew").mkdir(parents=True)
+    (e.home / "Library" / "Logs" / "Homebrew").mkdir(parents=True)
+    rc, out, _ = e.run("GO", mode="dry-run", **s.env)
+    assert set(Path(str(e.log) + ".cache").read_text().split()) == {"cache=default"}
