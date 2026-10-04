@@ -15,6 +15,7 @@ import gzip
 import io
 import os
 import re
+import shlex
 import shutil
 import stat
 import subprocess
@@ -734,6 +735,7 @@ SUDO_SHIM = r'''
 case "$1" in
   install) eval "src=\${$(($# - 1))}"; eval "dst=\${$#}"; [ -z "${SUDO_NO_COPY:-}" ] && cp "$src" "$dst" ;;
   launchctl) shift; launchctl "$@" ;;
+  rm) shift; [ -z "${SUDO_NO_COPY:-}" ] && rm "$@" ;;
 esac
 exit 0
 '''
@@ -764,11 +766,14 @@ class MF:
         self.loaded = tmp_path / "lctl.loaded"
         self.state = mf_shims(self.e, tmp_path, soft)
         self.ulimit_max = ulimit_max
+        self.work = tmp_path / "work"                 # install.sh's private $WORK (0700)
+        self.work.mkdir(mode=0o700)
         block = MF_BLOCK.replace("MF_DIR=/Library/LaunchDaemons", "MF_DIR=%s" % self.dir)
         assert block != MF_BLOCK
         self.script = tmp_path / "mf.sh"
         self.script.write_text(
             "set -euo pipefail\nDRY_RUN=${T_DRY:-0}; NO_DEPS=${T_NO_DEPS:-0}; NO_PROMPT=0; ASSUME_YES=${T_YES:-0}\n"
+            "WORK=%s\n" % shlex.quote(str(self.work)) +
             "note(){ printf '  %s\\n' \"$*\"; }\nsay(){ printf '\\n%s\\n' \"$*\"; }\n"
             "have(){ command -v \"$1\" >/dev/null 2>&1; }\n" + block +
             "maxfiles_step\nmf_raise_ulimit\necho \"NOFILE=$MF_NOFILE\"\n")
@@ -833,14 +838,15 @@ def test_maxfiles_yes_runs_exactly_the_three_steps_in_order(tmp_path):
     m = MF(tmp_path)
     out = m.run(stdin="y\n")
     progs = [c.partition(" | ")[0] for c in m.root_calls()]
-    assert progs[0].startswith("plutil -lint %s/ulimit.max-files." % m.e.tmp)
+    assert progs[0].startswith("plutil -lint %s/ulimit.max-files." % m.work)      # $WORK, never TMPDIR
     assert re.fullmatch(r"sudo install -m 644 -o root -g wheel \S+/ulimit\.max-files\.\w+ %s" % re.escape(str(m.plist)), progs[1])
     assert progs[2] == "stat -f %%Su:%%Sg %%Lp %s" % m.plist
     assert progs[3:] == ["sudo launchctl bootstrap system %s" % m.plist, "launchctl bootstrap system %s" % m.plist]
     assert m.plist.read_text() == PLIST_SNAPSHOT
     assert "2. %s: root:wheel 644" % m.plist in out
     assert "4. launchctl limit maxfiles: maxfiles 65536 unlimited" in out
-    assert not list(m.e.tmp.glob("ulimit.max-files.*"))                      # the temp file is gone
+    assert not list(m.work.glob("ulimit.max-files.*"))                       # the temp file is gone
+    assert not list(m.e.tmp.glob("ulimit.max-files.*"))
 
 
 def test_maxfiles_wrong_owner_stops_before_launchctl(tmp_path):
@@ -852,13 +858,15 @@ def test_maxfiles_wrong_owner_stops_before_launchctl(tmp_path):
 
 
 def test_maxfiles_swapped_temp_file_is_never_loaded(tmp_path):
-    """audit LOW (CWE-367): the temp file waits in TMPDIR during sudo's prompt; a swapped copy that
-    passes the owner/mode check must still not reach launchctl."""
+    """audit LOW (CWE-367) and review MEDIUM (2026-10-04): an installed plist that is not the
+    template's exact bytes (a swapped temp file) never reaches launchctl, and is removed at once:
+    left in /Library/LaunchDaemons, RunAtLoad would load it at the next boot."""
     m = MF(tmp_path)
     m.e.shim("sudo", SUDO_SHIM.replace('cp "$src" "$dst"', 'sed s/524288/1/ "$src" >"$dst"'))
     out = m.run(stdin="y\n")
-    assert "1</string>" in m.plist.read_text() and m.plist.read_text() != PLIST_SNAPSHOT
-    assert "! 2. %s differs from the template: not loaded" % m.plist in out
+    assert not m.plist.exists(), m.plist.read_text()
+    assert "! 2. %s differs from the template: removed, not loaded" % m.plist in out
+    assert "sudo rm -f %s" % m.plist in [c.partition(" | ")[0] for c in m.e.calls("sudo")]
     assert not [c for c in m.e.calls("sudo") if "launchctl" in c]
     assert not [c for c in m.e.calls() if c.startswith("launchctl bootstrap")]
 
@@ -966,9 +974,12 @@ def test_install_sh_runs_the_maxfiles_step_before_anything_is_installed():
             if t[ls:mt.start()].lstrip().startswith("#") or begin < mt.start() < call:
                 continue
             assert mt.start() > call, (needle, t[ls:mt.start() + 40])
-    # sudo is called only inside the block, and there only for install and launchctl
+    # sudo is called only inside the block, and there only for install, launchctl and removing the
+    # one plist (a copy that differs from the template)
     assert not re.search(r"\bsudo\b", shell_code(t.replace(MF_BLOCK, "")))
-    assert set(re.findall(r"\bsudo\s+(\S+)", shell_code(MF_BLOCK))) == {"install", "launchctl"}
+    assert set(re.findall(r"\bsudo\s+(\S+)", shell_code(MF_BLOCK))) == {"install", "launchctl", "rm"}
+    # the one rm that runs: exactly that file, once (the others are in printed instructions)
+    assert re.findall(r'(?m)^\s*if sudo rm\b[^;\n]*', MF_BLOCK) == ['    if sudo rm -f "$MF_PLIST"']
     assert "launchctl load" not in MF_BLOCK                                 # bootstrap, not the deprecated load
     # macOS mktemp without a template ignores TMPDIR (and fails in a sandbox): every call has one
     assert not re.search(r"mktemp(\s+-d)?\s*\)", t)
@@ -1038,7 +1049,7 @@ def test_install_sh_maxfiles_runs_before_any_install_call(scratch_repo, tmp_path
     if same:
         assert e.argv("sudo")[-1] == "launchctl bootstrap system " + real
     else:
-        assert "differs from the template: not loaded" in out and "launchctl" not in " ".join(e.argv("sudo"))
+        assert "differs from the template: removed, not loaded" in out and "launchctl" not in " ".join(e.argv("sudo"))
     assert "required tools are missing" in p.stderr
 
 

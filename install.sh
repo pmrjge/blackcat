@@ -896,7 +896,8 @@ fi
 # LaunchDaemon that sets launchd's limit at every boot (soft 65536, hard 524288). Then this run raises
 # its own soft limit, which every program it starts inherits (CONFIG.md §7 "Open-file limit").
 # The ONE place install.sh calls sudo: only after y/yes on a terminal, only `install` (owner, group and
-# mode in one step) and `launchctl bootout|bootstrap system` on the one file below. Never in a dry run.
+# mode in one step), `launchctl bootout|bootstrap system` and `rm -f` (a copy that differs from the
+# template) on the one file below. Never in a dry run.
 #   STACK_INSTALL_MAXFILES=ask (default: asks on a terminal, default answer No) | 0 (never: prints
 #   the commands) | 1 (set by you: no question, still only on a terminal, never in --dry-run)
 MF_DIR=/Library/LaunchDaemons
@@ -975,7 +976,9 @@ mf_show_plan(){
 # after a yes: the three steps in order, stopping at the first failure
 mf_install(){
   local tmp st soft="" i
-  tmp="$(mktemp "${TMPDIR:-/tmp}/$MF_LABEL.XXXXXX")" || { note "! mktemp failed"; return 1; }
+  # in $WORK (0700, agents can neither read nor write it), not TMPDIR: the file waits there during
+  # sudo's password prompt
+  tmp="$(mktemp "$WORK/$MF_LABEL.XXXXXX")" || { note "! mktemp failed"; return 1; }
   mf_plist >"$tmp"
   if ! plutil -lint "$tmp" >/dev/null 2>&1; then rm -f "$tmp"; note "! 1. plutil -lint rejected the generated plist"; return 1; fi
   note "1. plutil -lint: OK"
@@ -984,9 +987,13 @@ mf_install(){
   st="$(stat -f '%Su:%Sg %Lp' "$MF_PLIST" 2>/dev/null || true)"
   note "2. $MF_PLIST: $st"
   [ "$st" = "root:wheel 644" ] || { note "! 2. expected owner root:wheel and mode 644"; return 1; }
-  # the temp file sat in TMPDIR during sudo's password prompt: load only the template's exact bytes
-  [ "$(cat "$MF_PLIST" 2>/dev/null || true)" = "$(mf_plist)" ] \
-    || { note "! 2. $MF_PLIST differs from the template: not loaded (remove: sudo rm $MF_PLIST)"; return 1; }
+  # load only the template's exact bytes; a file that differs is removed at once, since RunAtLoad
+  # would load it at the next boot
+  if [ "$(cat "$MF_PLIST" 2>/dev/null || true)" != "$(mf_plist)" ]; then
+    if sudo rm -f "$MF_PLIST"; then note "! 2. $MF_PLIST differs from the template: removed, not loaded"
+    else note "! 2. $MF_PLIST differs from the template: not loaded, and sudo rm failed — remove it yourself: sudo rm $MF_PLIST"; fi
+    return 1
+  fi
   if mf_loaded; then
     sudo launchctl bootout system "$MF_PLIST" || { note "! 3. sudo launchctl bootout system $MF_PLIST failed"; return 1; }
   fi
