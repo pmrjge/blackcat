@@ -982,3 +982,39 @@ def test_install_sh_dry_run_prints_the_maxfiles_step_first(scratch_repo, tmp_pat
     assert root_calls(e) == []
     assert "not installed (--dry-run)" in out and "<string>ulimit.max-files</string>" in out
     assert "sudo launchctl bootstrap system /Library/LaunchDaemons/ulimit.max-files.plist" in out
+
+
+# ---------------------------------------------------------------- security review (F1-F5)
+def test_f1_devtools_never_runs_in_the_callers_directory(tmp_path, monkeypatch):
+    """npx would prefer a planted ./node_modules/playwright (run outside the sandbox): devtools.sh
+    runs every tool from /, not from the stack repo install.sh was started in."""
+    e = Env(tmp_path)
+    e.present("uv", "node")
+    caller = tmp_path / "stack-repo"
+    (caller / "node_modules" / ".bin").mkdir(parents=True)
+    e.shim("npx", 'pwd -P >>"$T_CWD"')
+    monkeypatch.chdir(caller)
+    rc, out, err = e.run("DEVTOOLS", T_CWD=str(tmp_path / "cwd.log"))
+    assert (tmp_path / "cwd.log").read_text().split() == ["/"], out + err
+
+
+def test_f1_relative_lean_project_path_is_refused_and_lfs_stays_global(tmp_path):
+    e = Env(tmp_path)
+    e.present("uv", "node", "npx", "elan")
+    e.shim("lake")
+    rc, out, _ = e.run("LEAN", tty="1", DEVTOOLS_NOFILE="65536", DEVTOOLS_LEAN_PROJECT="lean/proj")
+    assert e.calls("lake") == []
+    assert "! LEAN_PROJECT_PATH=lean/proj is not an absolute path" in out
+    assert "inst_lfs(){ git lfs install --skip-repo; }" in SRC
+
+
+def test_f1_install_sh_runs_npx_and_npm_exec_from_root():
+    t = INSTALL_TEXT
+    pre = t[t.index("# First starts of stdio servers"):t.index('note "prefetched libdocs')]
+    assert re.search(r"^  \(\n(    #[^\n]*\n)*    cd / \|\| exit 0\n", pre, re.M), pre[:600]
+    for mt in re.finditer(r"^[^#\n]*\bnpx -y [^\n]*", t, re.M):
+        ln = mt.group(0)
+        if "would " in ln or "note " in ln.split("npx")[0]:
+            continue
+        inside = mt.start() > t.index("# First starts of stdio servers") and mt.start() < t.index('note "prefetched libdocs')
+        assert inside or "(cd / && npx" in ln, ln

@@ -1070,7 +1070,7 @@ else
   else
     note "! After Effects MCP: not at the pinned commit $AE_SHA — not built"
   fi
-  if npx -y premiere-pro-mcp@1.18.2 --install-cep; then note "+ Premiere Pro CEP connector installed (restart Premiere; Window > Extensions > MCP for Adobe Premiere Pro)"
+  if (cd / && npx -y premiere-pro-mcp@1.18.2 --install-cep); then note "+ Premiere Pro CEP connector installed (restart Premiere; Window > Extensions > MCP for Adobe Premiere Pro)"
   else note "! Premiere connector: npx -y premiere-pro-mcp@1.18.2 --install-cep"; fi
   note "Illustrator: first tool call asks for Automation permission (System Settings > Privacy & Security > Automation)"
 fi
@@ -2626,6 +2626,9 @@ else
   # that is the cache warmed here, not your own ~/.cache/uv and ~/.npm.
   mkdir -p "$STACK_CACHE" && chmod 700 "$STACK_CACHE"
   (
+    # never in the caller's directory (the stack repo, which sandboxed agents can write): npx/npm exec
+    # prefer a matching package in ./node_modules, and npm/uv read .npmrc, package.json, uv.toml from cwd up
+    cd / || exit 0
     export UV_CACHE_DIR="$STACK_CACHE/uv" npm_config_cache="$STACK_CACHE/npm"
     for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do uv run --quiet --script "$C/mcp/$f" --help >/dev/null 2>&1 </dev/null || true; done
     # the usage collector's model refit (pandas, numpy) runs offline from this cache at session end, with

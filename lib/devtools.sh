@@ -35,6 +35,11 @@
 # brew list); a present one is never touched. One line per tool: "ok", "+" installed, "!" missing
 # or failed (with the log and the command).
 set -u
+# Never in the caller's directory: install.sh starts here from the stack repo, which sandboxed agents
+# can write, and npx/npm exec prefer a matching package in ./node_modules (its .bin would run outside
+# the sandbox), npm, corepack and uv read .npmrc, package.json, uv.toml from cwd and its parents, and
+# `git lfs install` inside a repository adds hooks there. Every path below is absolute.
+cd / || exit 2
 
 MODE="${DEVTOOLS_MODE:-install}"
 case "$MODE" in install|dry-run|report) ;; *) echo "devtools.sh: DEVTOOLS_MODE must be install, dry-run or report" >&2; exit 2 ;; esac
@@ -587,7 +592,7 @@ inst_playwright(){
   npx -y "playwright@$PLAYWRIGHT_VERSION" install chromium chromium-headless-shell
 }
 chk_lfs(){ [ -n "$(git config --global --get filter.lfs.process 2>/dev/null)" ]; }
-inst_lfs(){ git lfs install; }
+inst_lfs(){ git lfs install --skip-repo; }   # global filters only, never a repository's hooks
 
 # The Mathlib project, by the repo's convention (lib/stack.env.example, the lean-formalization skill):
 # `lake +stable new <name> math` (its lakefile requires Mathlib at the tag of its lean-toolchain), then
@@ -614,6 +619,7 @@ inst_mathlib(){
 }
 mathlib_step(){
   local p="$LEAN_USER_PROJECT" route m="${STACK_INSTALL_LEAN_MATHLIB:-auto}"
+  case "$p" in ""|/*) ;; *) line "! LEAN_PROJECT_PATH=$p is not an absolute path (stack.env takes absolute paths only): ignored, no project made"; return 0 ;; esac
   if [ -n "$p" ]; then
     if [ -f "$p/lakefile.toml" ] || [ -f "$p/lakefile.lean" ]; then line "ok  mathlib project (LEAN_PROJECT_PATH=$p)"
     else line "! LEAN_PROJECT_PATH=$p has no lakefile: make the project there (lake +stable new <name> math; lake exe cache get) or point it at one"; fi
@@ -648,7 +654,7 @@ rest_step(){
     ensure "playwright browsers" 0 chk_playwright "npx -y playwright@$PLAYWRIGHT_VERSION install chromium chromium-headless-shell  (into $(pw_dir))" inst_playwright
   fi
   if on CXX && have git-lfs; then
-    ensure "git lfs (global filters)" 0 chk_lfs "git lfs install" inst_lfs
+    ensure "git lfs (global filters)" 0 chk_lfs "git lfs install --skip-repo" inst_lfs
   fi
   if on JAVA && [ "$MODE" = install ]; then
     local jh="${DEVTOOLS_JAVA_HOME_TOOL-/usr/libexec/java_home}"
