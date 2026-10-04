@@ -13,7 +13,7 @@ the guard's session-env hook exports into every Bash of the session); with neith
 at the newest session, which may belong to another job). The table is built at each call from what the
 guard already writes (the registry agents/<id>.json and the delegation records spawns/<tid>.json, or
 delegations.md), through bin/stack-tree's reader: read-only, task text redacted and cut, at most --max lines
-(default 30, cap 200). For BlackCat, the coordinators and health checks; it is not a messaging directory (agents
+(default 30, cap 200). For the coordinating layers and the user's terminal; it is not a messaging directory (agents
 never message peers: rules, "Delegating"). It never fails a caller's step: any error prints one line saying
 the table is unavailable, exit 0. Exit 2 only for bad arguments. Nothing here sends, writes or decides
 anything."""

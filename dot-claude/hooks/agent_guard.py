@@ -3214,7 +3214,7 @@ def on_send(ev, d):
     pid, max_steps = prompt_key(ev), knob_int("BLACKCAT_MAX_STEPS", 24)
     if is_blackcat and markers_full(d, "step", pid, max_steps):
         deny(STEP_LIMIT_REASON % max_steps)
-    target_id, ttype, tname = resolve_target(d, to) if to else (None, None, None)
+    target_id, ttype, _ = resolve_target(d, to) if to else (None, None, None)
     by_id = bool(target_id) and reg_get(d, ident(to)) is not None      # not through names/
     why = user_relay_violation(d, ev, ti, target_id, by_id) \
         or routing_violation(d, ev, to, target_id, by_id) \
@@ -3243,7 +3243,7 @@ def on_send(ev, d):
     except Exception:
         rollback()
         raise
-    note_relay(ev, d, target_id, ttype, tname)
+    note_relay(ev, d, target_id)
     stamp_sender(ev, d, ti)
 
 
@@ -3300,7 +3300,9 @@ def kv_spans(mod, s):
 
 
 def scrub_patterns():
-    """[(class, spans(text))] from bin/stack-tree's tables, loaded once per process."""
+    """[(class, spans(text))] from bin/stack-tree's tables, loaded once per process. The load
+    writes no bytecode into bin/ (hooks run outside the sandbox; stack-tree's own
+    sys.dont_write_bytecode runs too late: get_code has written the pyc by then)."""
     if not _SCRUB:
         import importlib.machinery
         import importlib.util
@@ -3308,7 +3310,11 @@ def scrub_patterns():
                             "stack-tree")
         loader = importlib.machinery.SourceFileLoader("stack_tree_for_scrub", path)
         mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
-        loader.exec_module(mod)
+        old, sys.dont_write_bytecode = sys.dont_write_bytecode, True
+        try:
+            loader.exec_module(mod)
+        finally:
+            sys.dont_write_bytecode = old
         same = len(mod._REDACT) == len(SCRUB_CLASSES)
         _SCRUB[:] = [("secret-key-value", lambda s: kv_spans(mod, s))] + [
             (SCRUB_CLASSES[i] if same else "pattern-%d" % i,
@@ -3795,28 +3801,19 @@ def note_spawn_taint(ev, d):
     return None
 
 
-def note_relay(ev, d, target_id, ttype, tname=None):
+def note_relay(ev, d, target_id):
     """PreToolUse(SendMessage), after the send passed: the caller and the target now share
-    content both ways. A named target whose id isn't known yet is linked through the Agent call
-    that spawned it (names/<name>.json "tid"); one named as a web-reading type taints the caller
-    at once. Never blocks a send."""
+    content both ways. A subagent reaches only main or a family member it names by agent id
+    (routing_violation), so the target is a known id or none. Never blocks a send."""
     aid = ev.get("agent_id")
-    if not aid:
+    if not aid or not target_id:
         return
     try:
-        peer = _web_key(target_id) if target_id else None
-        if not peer and tname:
-            tids = _tids((read_json(names_path(d, tname)) or {}).get("tid"))
-            peer = WEB_TID_NODE + tids[0] if tids else None
-        if peer:
-            for a, b in ((_web_key(aid), peer), (peer, _web_key(aid))):
-                folder = os.path.join(d, WEB_RELAY_DIR, a)
-                os.makedirs(folder, exist_ok=True)
-                create_excl(os.path.join(folder, b))
-        if not target_id and ttype in WEB_INGESTING_TYPES:
-            folder = os.path.join(d, WEB_TAINT_DIR)
+        peer = _web_key(target_id)
+        for a, b in ((_web_key(aid), peer), (peer, _web_key(aid))):
+            folder = os.path.join(d, WEB_RELAY_DIR, a)
             os.makedirs(folder, exist_ok=True)
-            create_excl(os.path.join(folder, _web_key(aid)))
+            create_excl(os.path.join(folder, b))
     except OSError as exc:
         warn("web relay not recorded (%s)" % type(exc).__name__)
 

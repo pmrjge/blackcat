@@ -890,7 +890,7 @@ Entries name agents, knobs and files by their current names.
 
 - The user: "no peer-to-peer messaging", "no observing other's work", "measure before more tuning". `agent_guard.py` (PreToolUse SendMessage): a subagent messages only `main`, its own parent or its own child; a `USER:` line only from the main thread or a parent to its own child (security audit F1); the sender stamp; a running agent's `name` can't be taken (F3); §4 "Layer rules". test-engineer's SendMessage is withdrawn; build-fixer keeps none. Not built (withdrawn by the user): `STACK_RESUME_SCOPE`, the `You are <id>, L<n>.` start line.
 - `STACK_SCRUB` (§5): the credential scrub, observe only, so the false-positive rate is measured before any rewrite.
-- Tests: `tests/test_send_routing.py` (9 tests, 16 of 16 mutants killed), `tests/test_scrub_observe.py` (8 tests, 10 of 10 mutants killed); `test_guard_regressions.py` l7 follows the new routing.
+- Tests: `tests/test_send_routing.py` (8 tests, 16 of 16 mutants killed), `tests/test_scrub_observe.py` (7 tests, 10 of 10 mutants killed); `test_guard_regressions.py` l7 follows the new routing.
 
 ### 2026-10-04 (rules for eight layers, no peer messaging)
 

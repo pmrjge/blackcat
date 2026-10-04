@@ -167,3 +167,21 @@ def test_a_refused_call_is_refused_before_any_scan():
     ev["tool_input"]["message"] = "token " + FAKE_GH
     r = e.run(ev)
     assert r.decision == "deny" and log_rows(e) == [], (r, log_rows(e))
+
+
+def test_loading_stack_tree_writes_no_bytecode_into_bin(tmp_path):
+    """review a788868 / audit aee5316 LOW: hooks run outside the sandbox, and without
+    PYTHONDONTWRITEBYTECODE the guard's load of bin/stack-tree wrote bin/__pycache__ (stack-tree's own
+    sys.dont_write_bytecode runs after get_code has written the pyc)."""
+    for sub in ("hooks", "bin"):
+        shutil.copytree(os.path.join(os.path.dirname(os.path.dirname(GUARD)), sub), tmp_path / sub,
+                        ignore=shutil.ignore_patterns("__pycache__"))
+    e = Env()
+    env = {k: v for k, v in e.env.items() if k != "PYTHONDONTWRITEBYTECODE"}
+    guard = str(tmp_path / "hooks" / os.path.basename(GUARD))
+    ev = e.pre_agent("coder", agent_type="blackcat")
+    ev["tool_input"]["prompt"] = "secret " + FAKE_GH
+    p = subprocess.run([sys.executable, guard], input=json.dumps(ev), capture_output=True, text=True,
+                       env=env, timeout=60)
+    assert p.returncode == 0 and "known-token-format" in p.stdout, (p.stdout, p.stderr)
+    assert not (tmp_path / "bin" / "__pycache__").exists(), os.listdir(tmp_path / "bin" / "__pycache__")
