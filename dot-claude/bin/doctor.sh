@@ -377,7 +377,9 @@ if "router" in extra:
           " move your changes into blackcat.md and delete it, or rerun install.sh (the backup keeps it)")
 # agent types the stack retired (2026-10-04): install.sh --no-prune kept their files
 RETIRED = {"researcher-copy": "a retired copy type", "coder-copy": "a retired copy type",
-           "supreme-coder": "retired: ninja-coder is the top coding tier"}
+           "supreme-coder": "retired: ninja-coder is the top coding tier",
+           "db-engineer": "retired: data-engineer took its databases",
+           "localizer": "retired: coder (catalogs) and writer (prose)"}
 for a in [x for x in extra if x in RETIRED]:
     extra.remove(a)
     print("  WARN  agents/%s.md is %s (install.sh --no-prune kept it): delete it,"

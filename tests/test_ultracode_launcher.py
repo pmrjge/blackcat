@@ -87,3 +87,15 @@ def test_usage_without_an_agent(tmp_path):
                        timeout=30)
     assert p.returncode == 2 and "usage: claude-ultracode <agent>" in p.stderr
     assert os.access(LAUNCHER, os.X_OK)
+
+
+def test_a_leftover_claude_supreme_link_exits_2_without_starting_claude(tmp_path):
+    """supreme-coder was retired 2026-10-04 and install.sh leaves an old claude-supreme link in
+    place: it must not fall through and take its first argument as the agent."""
+    link = tmp_path / "claude-supreme"
+    link.symlink_to(LAUNCHER)
+    log = tmp_path / "claude.log"
+    env = {"PATH": "%s:/usr/bin:/bin" % FAKE_CLAUDE, "HOME": str(tmp_path), "FAKE_CLAUDE_LOG": str(log)}
+    p = subprocess.run([str(link), "-p", "hello"], env=env, capture_output=True, text=True, timeout=30)
+    assert p.returncode == 2 and "claude-supreme is retired" in p.stderr and "claude-ninja" in p.stderr
+    assert not log.exists()

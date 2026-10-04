@@ -7,6 +7,10 @@
 # dispatched by BlackCat ninja-coder runs at max; started from here they run at ultracode.
 case "$(basename "$0")" in
   claude-ninja) agent=ninja-coder ;;
+  # retired 2026-10-04: an old link must not fall through and take its first argument as the agent
+  claude-supreme)
+    echo "claude-supreme is retired: ninja-coder is the top tier (claude-ninja). rm ~/.local/bin/claude-supreme" >&2
+    exit 2 ;;
   *)
     if [ $# -eq 0 ]; then
       echo "usage: claude-ultracode <agent> [claude args…]   (or: claude-ninja)" >&2

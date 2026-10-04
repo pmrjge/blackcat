@@ -252,6 +252,10 @@ def test_every_allowed_pair_allowed(env):
     ("data-scientist", "data-scientist"), ("blackcat", "coder-copy"),
     ("orchestrator", "researcher-copy"), ("main-coder", "coder-copy"),
     ("writer", "researcher-copy"), ("researcher", "coder-copy"),
+    # retired 2026-10-04: unknown types for every caller
+    ("orchestrator", "supreme-coder"), ("main-coder", "supreme-coder"),
+    ("blackcat", "supreme-coder"), ("blackcat", "db-engineer"), ("blackcat", "localizer"),
+    ("data-engineer", "db-engineer"), ("writer", "localizer"),
     ("plan-reviewer", "scout"), ("image-director", "scout"),        # leaves
     ("coder", "explore"), ("coder", "scout"), ("coder", "test-engineer"), ("coder", "build-fixer"),
 ])
@@ -516,16 +520,19 @@ def test_depth_chain(env):
     assert decision(p) == "deny" and "Depth limit" in reason(p)
     # the stack's depth 8 (settings.json): the same L4 may spawn, an L7 may spawn an L8, the L8 not
     eight = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "8"}
-    assert decision(run(pre_agent(s, "scout", parent="coder-copy", agent_id="A6"), env,
+    assert decision(run(pre_agent(s, "scout", parent="main-coder", agent_id="A6"), env,
                         extra=eight)) == "allow"
-    chain = [("A6", "coder-copy"), ("A7", "coder"), ("A8", "coder-copy"), ("A9", "coder"),
-             ("A10", "coder-copy")]
+    # main-coder and ninja-coder may spawn each other (coder is a leaf, the copies are retired)
+    chain = [("A6", "main-coder"), ("A7", "ninja-coder"), ("A8", "main-coder"),
+             ("A9", "ninja-coder"), ("A10", "main-coder")]
     for (pid, ptype), (cid, ctype) in zip(chain, chain[1:]):
+        assert decision(run(pre_agent(s, ctype, parent=ptype, agent_id=pid), env,
+                            extra=eight)) == "allow"
         run(post_agent(s, ctype, cid, agent_id=pid, parent=ptype), env, extra=eight)
     assert [reg(a)["depth"] for a, _ in chain] == [4, 5, 6, 7, 8]
-    assert decision(run(pre_agent(s, "scout", parent="coder", agent_id="A9"), env,
+    assert decision(run(pre_agent(s, "scout", parent="ninja-coder", agent_id="A9"), env,
                         extra=eight)) == "allow"
-    p = run(pre_agent(s, "scout", parent="coder-copy", agent_id="A10"), env, extra=eight)
+    p = run(pre_agent(s, "scout", parent="main-coder", agent_id="A10"), env, extra=eight)
     assert decision(p) == "deny" and "Depth limit" in reason(p)
 
 
@@ -2198,6 +2205,29 @@ def test_blackcat_resume_is_one_step(env):
     p = run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"])
     assert decision(p) == "deny" and "step limit" in reason(p)
 
+
+def test_a_refused_blackcat_resume_spends_no_step(env):
+    """A BlackCat resume refused at the fan-out limit claims no step and reserves nothing: the
+    step is claimed only after resume_reserve succeeds (on_send)."""
+    s = sid()
+    run(post_agent(s, "main-coder", "L1", status="async_launched"), env)
+    run(lifecycle(s, "SubagentStart", "L1", "main-coder"), env)
+    finished_children(env, s, "L1", "main-coder", "coder", ["W1"])
+    for _ in range(3):                                   # L1 fills STACK_MAX_FANOUT=3
+        assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="L1"), env)) \
+            == "allow"
+    folder = state(env, s) / "blackcat"
+    steps = lambda: len([p for p in folder.iterdir() if p.name.startswith("step.")]) \
+        if folder.exists() else 0
+    for _ in range(7):
+        assert decision(run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
+    before = leases(env, s, "L1")
+    p = run(dict(send(s, "W1"), agent_type="blackcat", prompt_id="q1"), env)
+    assert decision(p) == "deny" and "Fan-out limit" in reason(p)
+    assert steps() == 7 and "resume-W1" not in leases(env, s, "L1")
+    assert leases(env, s, "L1") == before
+    # the step it did not spend is still there: the 8th call passes
+    assert decision(run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
 
 def test_a_resume_starts_even_when_the_fanout_lock_times_out(env):
     """SubagentStart of a resumed agent while the fan-out lock is stuck (> 5 s): the start is

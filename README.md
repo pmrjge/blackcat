@@ -5,7 +5,7 @@
 
 <p align="center"><sub>Hero image: photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper, <a href="lib/assets/README.md">CC BY 4.0</a></sub></p>
 
-A multi-agent configuration for Claude Code: BlackCat on the main thread, 55 specialists, 214 on-demand
+A multi-agent configuration for Claude Code: BlackCat on the main thread, 52 specialists, 214 on-demand
 skills, and hooks that enforce the limits. blackcat-agent-stack is the Swiss Army knife for all things
 agentic and a jack of all trades for AI workflows: one stack that routes any job (code, research, data, ML,
 design, documents, infrastructure, automation) to the cheapest capable specialist agent, with the
@@ -65,7 +65,7 @@ flowchart TD
 
 **claude-agent-stack** is this repository: the agent definitions, skills, hooks, settings, MCP servers
 and installer that turn `~/.claude/` into a coordinated team. **BlackCat** is the stack's main thread: the
-agent you talk to when you run `claude`. It only delegates: it routes every job to one of 53 specialist
+agent you talk to when you run `claude`. It only delegates: it routes every job to one of 52 specialist
 agents (53 agent files). 214 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
 Claude Code sandbox hold the limits, and MCP servers start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later**, macOS only (Apple Silicon). It runs in the terminal and in the apps
@@ -226,7 +226,7 @@ Each agent's `tools:` line is its whole tool set, so an agent cannot use a tool 
 | Codebase search | explore | Read, Grep, Glob, LSP, Skill | Bash, Write, Edit, web |
 | Read-only checks | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide, proof-checker | Read, Bash (read-only commands only: `READONLY_TYPES` in `agent_guard.py`), web where needed | Write, Edit, Agent |
 | Builders | coder, main-coder, the language and domain engineers | Read, Write, Edit, Bash, LSP, plus Agent when they have a `POLICY` row | per agent: web, MCP servers |
-| Leaves | 16 agents without the Agent tool (CONFIG.md §4) | — | Agent |
+| Leaves | 15 agents without the Agent tool (CONFIG.md §4) | — | Agent |
 
 MCP servers come in three scopes ([MCP servers](#mcp-servers) lists every one):
 
@@ -388,7 +388,7 @@ whether the difference is enforced and tested, or a design intent.
 
 | Area | Plain Claude Code | This stack | Status |
 |---|---|---|---|
-| Delegation | Built-in general-purpose, Explore and Plan subagents | 55 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
+| Delegation | Built-in general-purpose, Explore and Plan subagents | 52 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
 | Nesting and concurrency | Depth 3, 20 subagents running at once | Depth 4, 33 at once, per-agent fan-out caps and spawn rows | Enforced: settings, guard |
 | Push and forge writes | Governed by your permission rules | Refused for every agent, whatever the rules or `STACK_POLICY` | Enforced: `tests/test_no_push.py` |
 | Writes to config and state | Protected-path writes are not prompted in `bypassPermissions` (docs); per the guard's docstring, Claude Code's check does not cover Bash writes (unverified against the docs) | Bash-level writes refused too | Enforced: `tests/test_protected_paths.py` |
@@ -464,7 +464,7 @@ Not on `main`; listed so nobody mistakes them for features:
 ### Roster
 
 Every agent names one of two model aliases: `opus` where judgment is the product, `sonnet` for bounded
-execution, lookups and tool loops (41 Opus, 15 Sonnet; `tests/lint_agents.py` rejects any other value
+execution, lookups and tool loops (40 Opus, 13 Sonnet; `tests/lint_agents.py` rejects any other value
 and the hook strips a per-call `model`). The alias is the reference; it resolves to
 `ANTHROPIC_DEFAULT_<FAMILY>_MODEL`, which `stack.env` sets and the installer copies into
 `settings.json` (CONFIG.md section 2). An agent file's `effort` applies only when the
@@ -1106,12 +1106,12 @@ apply in every mode.
 
 How the mode reaches the agents (Claude Code docs, 2026-10-03):
 
-| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 43 agents that write files (`permissionMode: acceptEdits`) |
+| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 42 agents that write files (`permissionMode: acceptEdits`) |
 |---|---|---|
 | `plan`, `default`, `dontAsk` | follow it | accept edits without prompts: the agent file wins |
 | `acceptEdits`, `auto`, `bypassPermissions` | follow it | follow it: the session's mode wins |
 
-- The 43 are every agent with Write, Edit or NotebookEdit except BlackCat. The read-only ones are
+- The 42 are every agent with Write, Edit or NotebookEdit except BlackCat. The read-only ones are
   claude-code-guide, code-reviewer, explore, oracle, plan-reviewer, planner, proof-checker, scout,
   security-auditor and verifier.
 - So a switch to Plan or Default does not make a dispatched builder read-only, while a switch to
@@ -1163,8 +1163,8 @@ defaults) without touching yours.
 
 | Variable | Purpose | Default | Used by |
 |---|---|---|---|
-| `ANTHROPIC_DEFAULT_OPUS_MODEL` | The ID the `opus` alias resolves to: 41 agents | today's Opus ID (source and date in the file) | `install.sh` → settings.json `env` → Claude Code; re-run the installer after a change; `/stack-doctor` |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | The ID the `sonnet` alias resolves to: 15 agents and BlackCat | today's Sonnet ID | as above |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | The ID the `opus` alias resolves to: 40 agents | today's Opus ID (source and date in the file) | `install.sh` → settings.json `env` → Claude Code; re-run the installer after a change; `/stack-doctor` |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | The ID the `sonnet` alias resolves to: 12 agents and BlackCat | today's Sonnet ID | as above |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | The `haiku` alias and Claude Code's background work | the Sonnet ID (the stack runs no Haiku) | as above |
 | `OPPER_API_KEY` | `generate_image`: photos and raster images | empty (tool off) | image-studio (designer, image-director) |
 | `OPENROUTER_API_KEY` | `generate_svg` and `edit_image` | empty (tools off) | image-studio |
@@ -1317,8 +1317,8 @@ alternatives: [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers).
 
 | Server | Agents (from `tools:` lines) | Key |
 |---|---|---|
-| exa | 21 agents (scout, researcher, planner, coders, verifier, security-auditor, ML agents, …) | `EXA_API_KEY` optional |
-| jina | 22 agents (scout, researcher, writer, mathematician, designers, ML agents, …) | `JINA_API_KEY` |
+| exa | 20 agents (scout, researcher, planner, coders, verifier, security-auditor, ML agents, …) | `EXA_API_KEY` optional |
+| jina | 21 agents (scout, researcher, writer, mathematician, designers, ML agents, …) | `JINA_API_KEY` |
 | wolfram | mathematician, proof-checker, quantum-engineer, ninja-coder | none |
 | huggingface | researcher, data-scientist, ml-/dl-/llm-/robotics-engineer | `HF_TOKEN` optional |
 | wandb | ml-/dl-/llm-/robotics-engineer | `WANDB_API_KEY` |
