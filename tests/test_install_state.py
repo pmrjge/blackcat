@@ -564,3 +564,38 @@ def test_install_reseeds_unlearned_limits_and_keeps_learned_ones(tmp_path):
                          env=env, check=True, stdout=subprocess.PIPE, text=True).stdout
     row = [x for x in out.splitlines() if x.startswith("hard.session ")][0].split()
     assert row[1:3] == ["1.92B", "1.92B"] and row[-1] == "live", out
+
+
+@pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, ".git")) and not os.path.isfile(
+    os.path.join(ROOT, ".git")), reason="needs the stack's git checkout")
+def test_install_removes_a_script_the_stack_no_longer_ships(tmp_path):
+    """A script an earlier version installed and recorded in .stack-manifest.json (bin/stack-update-tools,
+    deleted from the repo) is removed by the next install, kept in that run's backup and reported as
+    'no longer shipped by the stack'; a script of the user's own beside it (no manifest entry) stays."""
+    import hashlib
+    home = str(tmp_path / "home")
+    os.makedirs(home)
+    conf = os.path.join(home, ".claude")
+    repo = _scratch_repo(str(tmp_path / "repo"))
+    first = _run_install(repo, home, conf, "--yes")
+    assert first.returncode == 0, (first.stdout[-1500:], first.stderr[-1500:])
+    old = b"#!/bin/sh\n# stack-update-tools, as an earlier stack version shipped it 5e1c\n"
+    for name, data in (("stack-update-tools", old), ("my-tool", b"#!/bin/sh\n# mine\n")):
+        with open(os.path.join(conf, "bin", name), "wb") as f:
+            f.write(data)
+    mpath = os.path.join(conf, ".stack-manifest.json")
+    with open(mpath, encoding="utf-8") as f:
+        m = json.load(f)
+    m["files"]["bin/stack-update-tools"] = hashlib.sha256(old).hexdigest()
+    with open(mpath, "w", encoding="utf-8") as f:
+        json.dump(m, f, indent=2)
+    out = _run_install(repo, home, conf, "--yes")
+    assert out.returncode == 0, (out.stdout[-1500:], out.stderr[-1500:])
+    assert not os.path.lexists(os.path.join(conf, "bin", "stack-update-tools"))
+    assert os.path.isfile(os.path.join(conf, "bin", "my-tool"))
+    assert re.search(r"bin/stack-update-tools.*no longer shipped by the stack", out.stdout), out.stdout[-3000:]
+    with open(mpath, encoding="utf-8") as f:
+        assert "bin/stack-update-tools" not in json.load(f)["files"]
+    backups = os.path.join(home, ".local", "state", "claude-agent-stack-backups")
+    saved = [os.path.join(r, n) for r, _ds, fs in os.walk(backups) for n in fs if n == "stack-update-tools"]
+    assert saved and any(_read(p) == old for p in saved), saved
