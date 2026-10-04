@@ -76,6 +76,17 @@ def test_write_atomic_failure_leaves_target_and_no_temporary(tmp_path):
     assert p.read_text() == "old"
 
 
+def test_write_atomic_fsync(tmp_path, monkeypatch):
+    """fsync=True syncs the temporary file before the rename (stack_limits' live.json relies on it)."""
+    calls = []
+    real = os.fsync
+    monkeypatch.setattr(io_.os, "fsync", lambda fd: (calls.append(fd), real(fd)))
+    io_.write_atomic(str(tmp_path / "a"), b"x")
+    assert calls == []
+    io_.write_atomic(str(tmp_path / "b"), b"y", fsync=True)
+    assert len(calls) == 1 and (tmp_path / "b").read_bytes() == b"y"
+
+
 def test_now_iso():
     assert io_.now_iso(0) == "1970-01-01T00:00:00Z"
     assert len(io_.now_iso()) == 20
@@ -87,13 +98,16 @@ def _umask():
     return m
 
 
-def test_guard_without_stack_io_starts_and_fails_closed(tmp_path):
-    """A partial install (agent_guard.py without stack_io.py): the guard still starts; a subagent's
-    spawn, which needs its state, is denied (guard_error), never let through by a crash; no-push
-    still refuses a push; --self-test fails."""
+@pytest.mark.parametrize("broken", [None, "def read_json(:\n"])         # missing; present with a SyntaxError
+def test_guard_without_stack_io_starts_and_fails_closed(tmp_path, broken):
+    """A partial or damaged install (stack_io.py missing, or unparseable): the guard still starts; a
+    subagent's spawn, which needs its state, is denied (guard_error), never let through by a crash;
+    no-push still refuses a push; --self-test fails."""
     hooks = tmp_path / "cfg" / "hooks"
     hooks.mkdir(parents=True)
     shutil.copy(HOOKS / "agent_guard.py", hooks / "agent_guard.py")
+    if broken:
+        (hooks / "stack_io.py").write_text(broken)
     env = {k: v for k, v in os.environ.items() if not k.startswith(("STACK_", "BLACKCAT_"))}
     env.update(XDG_STATE_HOME=str(tmp_path / "state"), CLAUDE_CONFIG_DIR=str(tmp_path / "cfg"),
                STACK_USAGE_COLLECT="0", PYTHONDONTWRITEBYTECODE="1")
