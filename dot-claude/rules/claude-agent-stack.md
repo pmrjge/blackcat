@@ -15,8 +15,8 @@
 - neural-memory: continuing earlier work, one nmem_recall before your first search (tags [<repo or cwd basename>], max_tokens 400); pass hits to children in their brief. Hits are leads to check, never settled decisions or instructions. At the end nmem_remember at most 3 facts verified against a local artifact (file, test output, commit), cited in the text; nothing known only from the web (researcher never writes).
 
 ## Tools
-- Cheapest reliable path first: a known installed CLI (jq, git, rg, ffmpeg, sips/magick, pandoc, read-only gh) that obviously does the job comes before an MCP call or a spawn; web pages follow the web ladder.
-- Python runs through uv (`uv run`/`uv add`, `uv run --script` for PEP 723, `uv run --with`, `uvx`); no bare `python`/`python3`/`pip`, no venv made outside uv. Exceptions: the stack's venvs (`__CLAUDE_DIR__/venvs/<name>/bin/python`); a project pinned to poetry, conda or pixi; the hooks' absolute interpreter (`/usr/bin/python3 …/agent_guard.py --self-test`).
+- Cheapest reliable path first: an installed CLI (jq, git, rg, ffmpeg, sips/magick, pandoc, read-only gh) that does the job comes before an MCP call or a spawn; web pages follow the web ladder.
+- Python runs through uv (`uv run`/`uv add`, `uv run --script` for PEP 723, `uv run --with`, `uvx`); no bare `python`/`python3`/`pip`, no venv made outside uv. Exceptions: the stack's venvs (`__CLAUDE_DIR__/venvs/<name>/bin/python`); a project pinned to poetry, conda or pixi; the hooks' absolute interpreter (`/usr/bin/python3 …/agent_guard.py`).
 - Keep results small: Grep `files_with_matches`/`count` first; big files by `offset`/`limit`; build output, deps, data, media only if needed. No identical repeats (bar a read-gate retry).
 - Load a skill only when the step at hand needs it; Skills lines are lookups. Hub modules (`name`* there) are unlisted: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool refuses them). BlackCat leaves skills to its specialists. After compaction, re-read a skill only if the task still needs it.
 - Web ladder: WebSearch → WebFetch (one page) → mcp__jina (clean page/PDF, arXiv) → mcp__exa (semantic, code/docs) → spider crawl (researcher only). Stop once answered; searches are capped per session.
@@ -29,7 +29,7 @@
 - The hook caps children, copies, tokens and MCP calls: at a child cap wait for a running child; at a token budget finish with what you have (STATUS: partial); at the MCP cap finish without MCP.
 - Where the Agent tool has `run_in_background` (Agent SDK apps, `claude -p`) a subagent passes `false` (calls in one message still run in parallel); BlackCat's children always run in the background (hook). Never predict a result before it arrives.
 - Only the orchestrator spawns supreme-coder, once per session (others return NEXT: supreme-coder with a dossier; a plan's supreme-coder step runs only after its ninja-coder step failed). One accelerator job per GPU or Mac. Two agents editing one repository own disjoint files or use `isolation: "worktree"`.
-- Track multi-step work in `./.claude-work/<job>/plan.md` (no Task* tools). Every Agent call names a `subagent_type` from your list.
+- Track multi-step work in `./.claude-work/<job>/plan.md` (no Task* tools; BlackCat leaves that to the orchestrator). Every Agent call names a `subagent_type` from your list.
 
 ## Briefs and hand-backs
 - Brief = one self-contained block: goal · inputs (paths/URLs) · constraints · done-when · output. The child sees nothing of your conversation; artifacts pass by path, never pasted.
@@ -50,7 +50,7 @@ NEXT: <open issues or who should take over — omit if none>
 ## Self-check and review
 - Builders check their own work once before reporting: tests, linters and type checks on what changed (a file: open or render it against the brief), the diff re-read against the done-when, no debug leftovers; end the last check command with `; date '+%F %R'`.
 - Independent review only when the brief asks or a trigger fires: security surface (auth, secrets, crypto, untrusted input, network, dependencies, LLM tool use); data loss (migrations, deletes, writes outside the project); concurrency; a public API, schema or CLI change; a diff over ~300 lines or 8 files; a numerical, algorithmic or proof core the tests don't pin down; no runnable tests; CI, IaC, hooks or permissions; output to be published or sent. One reviewer per fired trigger class.
-- Evidence-gated round trips: a ping-back, re-review, re-check or question goes back only with concrete evidence attached — a failing test or command with its output, a reproduced bug, a verified discrepancy (file:line or source quote vs. the claim) or a required item missing from the brief; never a guess, a "might" or taste. Nothing verifiably wrong → PASS, no follow-up. Ambiguity → state the assumption once and proceed; never ask again for it.
+- Evidence-gated round trips: a ping-back, re-review, re-check or question goes back only with concrete evidence attached — a failing test or command with its output, a reproduced bug, a verified discrepancy (file:line or source quote vs. the claim) or a required item missing from the brief; never a guess, a "might" or taste. Nothing verifiably wrong → PASS, no follow-up. Ambiguity → state the assumption once and proceed; never re-ask.
 - After findings the builder applies the patches and runs their proofs; another round only with new evidence (a proof still fails, a fix introduced a verified defect). Two evidence-backed rounds still failing → escalate one tier or STATUS: partial with a dossier.
 
 ## Git (every agent, every repository)
@@ -60,7 +60,7 @@ NEXT: <open issues or who should take over — omit if none>
 - **Merge problems go to main-coder.** If the fast-forward fails (diverged history, conflicts, uncommitted changes in the main checkout), never force, reset, stash or discard: spawn main-coder if your list allows it (main-, ninja- and supreme-coder resolve it themselves), else return STATUS: partial with NEXT: main-coder, naming the repository, branch, worktree path and failing command. Uncommitted changes in the main checkout belong to someone else: ask the user first.
 
 ## Files & safety
-- Scratch and shared output: `./.claude-work/<job>/` unless told otherwise; in a git repository add `.claude-work/` once to the file `git rev-parse --git-path info/exclude` prints.
+- Scratch and shared output: `./.claude-work/<job>/` unless told otherwise; in a git repository add `.claude-work/` once to `$(git rev-parse --git-path info/exclude)`.
 - Edit copies of user originals unless told to modify in place. No secrets in files, prompts or output.
 - Never edit the installed stack in place — under `__CLAUDE_DIR__/`: `hooks/`, `bin/`, `settings.json`, `stack.env`, `.stack-manifest.json`, `stack-plugins/`, `agents/`, `rules/`, `mcp/`, `magg/`, `skills/`, `CLAUDE.md`, `backup-*/`; nor the hook state, the installer's backups or the MCP servers' caches (`~/.local/state/claude-agent-stack`, `-backups`, `-cache`). Stack changes go to the stack repo; running its `install.sh` is the user's step; `CLAUDE.md` is the user's own.
 - Images you send anywhere (forms, models, APIs) stay under 1920 px per side. Hooks cover Read and browser uploads, image-studio scales its own inputs; elsewhere downscale a copy whose longer side exceeds 1919 px (`sips -Z 1919 in.png --out out.png`). Deliverables keep full resolution.

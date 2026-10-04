@@ -1215,6 +1215,11 @@ SESSION_LOG_MAX_BYTES = 4 << 20
 SESSION_SPAWN_REASON = ("Session limit: %d of %d subagent slots in use "
                         "(CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS). Wait for a task notification "
                         "before spawning more, or do this part yourself.")
+# BlackCat does no work itself (blackcat-guard): its spawn waits, then goes to the specialist
+BLACKCAT_SESSION_SPAWN_REASON = ("Session limit: %d of %d subagent slots in use "
+                                 "(CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS). Wait for a task "
+                                 "notification, then dispatch this part to its specialist "
+                                 "(BlackCat does no work itself).")
 SESSION_RESUME_REASON = ("Session limit: %d of %d subagent slots in use "
                          "(CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS). Wait for a task notification, "
                          "then resume it.")
@@ -1278,7 +1283,10 @@ def session_check(d, ev, now, reg, guard, kind, out=None):
         out.update(n=n, maxc=maxc)
     session_log(d, ev, kind, mode, n, maxc)
     if mode == "enforce" and n >= maxc:
-        return (SESSION_SPAWN_REASON if kind == "spawn" else SESSION_RESUME_REASON) % (n, maxc)
+        if kind != "spawn":
+            return SESSION_RESUME_REASON % (n, maxc)
+        blackcat = not ev.get("agent_id") and norm(ev.get("agent_type")) == "blackcat"
+        return (BLACKCAT_SESSION_SPAWN_REASON if blackcat else SESSION_SPAWN_REASON) % (n, maxc)
     return None
 
 

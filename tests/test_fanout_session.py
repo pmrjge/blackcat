@@ -121,9 +121,16 @@ def test_main_coder_under_its_own_cap_is_refused_at_the_session_limit():
     # (cap 6) drops them
     r = e.run(e.pre_agent("coder", agent_id="M1", agent_type="main-coder"))
     assert r.decision == "deny" and "Session limit: 33 of 33" in r.reason, r
-    # the main thread too
+    # the main thread too; BlackCat is told to dispatch later, never to do the part itself
     r = e.run(e.pre_agent("scout", agent_type="blackcat"))
-    assert r.decision == "deny" and "Session limit: 33 of 33" in r.reason, r
+    assert r.decision == "deny" and r.reason == (
+        SESSION_TEXT % (33, 33) + " Wait for a task notification, then dispatch this part to its "
+        "specialist (BlackCat does no work itself)."), r
+    assert "yourself" not in r.reason
+    # another agent on the main thread (claude --agent main-coder, a plain session) keeps its tools
+    for main_type in ("main-coder", None):
+        r = e.run(e.pre_agent("coder", agent_type=main_type))
+        assert r.decision == "deny" and r.reason.endswith("or do this part yourself."), r
     assert leases(e, "main") == []
     # one child stops: one slot frees
     assert e.run(e.stop("M2-0", "coder")).rc == 0
