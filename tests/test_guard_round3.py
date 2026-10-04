@@ -349,10 +349,11 @@ def test_supply_diff_covers_everything_the_install_ships():
     import subprocess
     text = (ROOT / "install.sh").read_text()
     paths = re.search(r'^SUPPLY_PATHS="([^"]+)"$', text, re.M).group(1).split()
-    assert set(paths) == {"dot-claude", "install.sh", "lib/install_state.py", "lib/devtools.sh", "lib/stack.env.example",
-                          "requirements", "tests/derive_sched_model.py", "tests/derive_thresholds.py"}
-    # every repo path install.sh reads ("$HERE/<path>") lies under a supply path; lib/assets/ (README
-    # images) is never read, so it stays out of the diff
+    # all of lib/ (a module planted there next to install_state.py shows up as untracked) and the
+    # lint script the installer runs (security audit 2026-10-04, CWE-427)
+    assert set(paths) == {"dot-claude", "install.sh", "lib", "requirements", "tests/lint_agents.py",
+                          "tests/derive_sched_model.py", "tests/derive_thresholds.py"}
+    # every repo path install.sh reads ("$HERE/<path>") lies under a supply path
     shipped = set(re.findall(r'"\$HERE/([A-Za-z0-9_./-]+)', text)) | {"dot-claude"}
     shipped = {p.rstrip("/") for p in shipped if p.split("/", 1)[0] not in {"tests", ".git", "legacy"}}
     shipped.discard("lib/stack_diff.py")    # read only by the read-only --diff mode: it builds nothing
@@ -363,7 +364,7 @@ def test_supply_diff_covers_everything_the_install_ships():
     def covered(p):
         return any(p == s or p.startswith(s + "/") for s in paths)
     assert not [p for p in shipped if p.split("/", 1)[0] in top and not covered(p)]
-    assert covered("lib/install_state.py") and not covered("lib/assets/blackcat-hero.jpg")
+    assert covered("lib/install_state.py") and covered("lib/datetime.py") and covered("tests/lint_agents.py")
     # the tests/ scripts the installer copies into hooks/ ("$HERE/tests/$f" in a for-loop) count too
     loop = re.search(r'^for f in ((?:derive_\S+ ?)+); do$', text, re.M)
     assert loop and all(covered("tests/" + f) for f in loop.group(1).split()), loop

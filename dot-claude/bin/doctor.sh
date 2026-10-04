@@ -1,6 +1,14 @@
 #!/usr/bin/env bash
 # Health check for the Claude Code multi-agent stack. Read-only: never prints key values.
 C="$(cd "$(dirname "$0")/.." && pwd)"
+SELF="$(cd "$(dirname "$0")" && pwd)/$(basename "$0")"
+# /stack-doctor runs this as a hook, outside the sandbox, in the session's directory (any project an
+# agent can write): nothing below may load code from there (security audit, CWE-427). So: it runs
+# in the config dir (agents can't write it; `"$HPY" -` puts the cwd on sys.path), and every python3
+# is isolated (-I: no cwd or script dir on sys.path, no PYTHON* variables; no bytecode read or
+# written). The stack-python calls run hooks from $C/hooks, which agents can't write either.
+cd "$C" || exit 2
+python3(){ command python3 -I -B -X pycache_prefix=/dev/null/claude-agent-stack-no-bytecode "$@"; }
 ok(){ printf '  ok    %s\n' "$*"; }
 warn(){ printf '  WARN  %s\n' "$*"; }
 fail(){ printf '  FAIL  %s\n' "$*"; }
@@ -23,14 +31,14 @@ version_ge(){ [ "$(printf '%s\n%s\n' "$2" "$1" | sort -t. -k1,1n -k2,2n -k3,3n |
 if [ "${1:-}" = "--hook" ]; then
   [ -t 0 ] || cat >/dev/null    # the event on stdin; the matcher already chose the command
   budget="${STACK_DOCTOR_HOOK_BUDGET:-150}"; case "$budget" in ''|*[!0-9]*) budget=150 ;; esac
-  out=$(mktemp "${TMPDIR:-/tmp}/stack-doctor.XXXXXX") || { echo "stack-doctor: mktemp failed — run: bash \"$0\"" >&2; exit 2; }
-  bash "$0" </dev/null >"$out" 2>&1 & pid=$!
+  out=$(mktemp "${TMPDIR:-/tmp}/stack-doctor.XXXXXX") || { echo "stack-doctor: mktemp failed — run: bash \"$SELF\"" >&2; exit 2; }
+  bash "$SELF" </dev/null >"$out" 2>&1 & pid=$!
   n=0; while kill -0 "$pid" 2>/dev/null && [ "$n" -lt "$budget" ]; do sleep 1; n=$((n + 1)); done
   stopped=0
   if kill -0 "$pid" 2>/dev/null; then    # wait reaps it quietly (no "Terminated" job line in the reason)
     stopped=1; { pkill -TERM -P "$pid"; kill -TERM "$pid" && wait "$pid"; } 2>/dev/null
   fi
-  awk -v full="bash \"$0\"" -v stopped="$stopped" -v budget="$budget" '
+  awk -v full="bash \"$SELF\"" -v stopped="$stopped" -v budget="$budget" '
     /^== / { sec = substr($0, 4); sub(/ \(.*/, "", sec); seen[++ns] = sec; next }
     /^  FAIL  / { f[++nf] = "FAIL  [" (sec == "" ? "Setup" : sec) "] " substr($0, 9); bad[sec] = 1; next }
     /^  WARN  / { w[++nw] = "WARN  [" (sec == "" ? "Setup" : sec) "] " substr($0, 9); bad[sec] = 1; next }
@@ -617,6 +625,8 @@ try:
 except (OSError, ValueError):
     pass
 state = tempfile.mkdtemp(prefix="stack-doctor-")
+import atexit, shutil
+atexit.register(shutil.rmtree, state, True)     # the probes' guard state goes with this process
 env = dict(os.environ, XDG_STATE_HOME=state, STACK_POLICY="on")
 probes = [("settings.json PreToolUse(Agent)", cmds,
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Agent",

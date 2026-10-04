@@ -131,6 +131,13 @@ while [ "$i" -lt "${#argv[@]}" ]; do
   esac
   i=$((i + 1))
 done
+# Every python3 this script starts is isolated (security audit, CWE-427): -I puts neither the script's
+# dir (lib/), the caller's cwd nor PYTHON* variables on sys.path, and -B with a pycache_prefix that
+# cannot exist means no __pycache__ (a planted .pyc in the agent-writable repo) is ever read or
+# written. Repo modules are loaded by file path (spec_from_file_location), never through sys.path.
+PY_ISOLATE="-I -B -X pycache_prefix=/dev/null/claude-agent-stack-no-bytecode"
+# shellcheck disable=SC2086
+python3(){ command python3 $PY_ISOLATE "$@"; }
 # --print-managed-settings: the JSON is the only thing on stdout (fd 3); progress goes to stderr
 if [ "$PRINT_MANAGED" = 1 ]; then exec 3>&1 1>&2; fi
 # the plugin lists the installer manages (tests/test_no_duplicates.py reads these two lines)
@@ -158,9 +165,9 @@ STATE_PY="$HERE/lib/install_state.py"
 if [ "$DIFF" = 1 ]; then
   [ -z "$DIFF_CONFLICT" ] || { echo "--diff takes only --config-dir (got $DIFF_CONFLICT)" >&2; exit 2; }
   if [ "$CONFIG_DIR_SET" = 1 ]; then
-    exec python3 -B "$HERE/lib/stack_diff.py" --repo "$HERE" --config-dir "$CONFIG_DIR_ARG"
+    exec python3 $PY_ISOLATE "$HERE/lib/stack_diff.py" --repo "$HERE" --config-dir "$CONFIG_DIR_ARG"
   fi
-  exec python3 -B "$HERE/lib/stack_diff.py" --repo "$HERE"
+  exec python3 $PY_ISOLATE "$HERE/lib/stack_diff.py" --repo "$HERE"
 fi
 
 # ---- Main-branch rule (hard-coded; no flag or variable turns it off) ----------------------------
@@ -306,6 +313,11 @@ esac
 
 main_branch_rule ${1+"$@"}
 unset STACK_TARGET_CONFIRMED
+# From here on nothing depends on the caller's directory (the stack repo, which sandboxed agents can
+# write): no tool this run starts reads a planted uv.toml, .npmrc, node_modules, rust-toolchain.toml
+# or module from it. A relative --restore DIR is made absolute first (the target already is).
+case "$RESTORE" in ""|latest|/*) ;; *) RESTORE="$PWD/$RESTORE" ;; esac
+cd / || exit 2
 
 SRC="$HERE/dot-claude"
 [ "$CD_SHOWN" = 1 ] || show_banner
@@ -347,6 +359,9 @@ print(top)' "$BACKUP_ROOT")"
 ROOT_STATE="$(python3 "$STATE_PY" private-root "$BACKUP_ROOT")" || exit 1
 find "$BACKUP_ROOT" -maxdepth 1 -name '.work.*' -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 WORK="$(mktemp -d "$BACKUP_ROOT/.work.XXXXXX")"
+# the rest runs in $WORK: private (agents can neither read nor write it), and where macOS's bash 3.2
+# falls back to for here-document temp files when /tmp is not writable (a sandboxed test run)
+cd "$WORK" || exit 2
 cleanup(){
   rm -rf "$WORK"
   if [ "$ROOT_STATE" = created ] && [ "$DRY_RUN$PRINT_MANAGED$MCP_PLAN" != 000 ]; then
@@ -643,10 +658,10 @@ fi
 # What changed in what this run installs since the last install (the manifest records the commit each
 # install shipped), and edits not committed yet: the whole shipped tree (agents and their MCP servers
 # and hooks, skills, rules, hooks, settings, bin, mcp, magg's catalog, the LSP marketplace), the
-# installer and its library, stack.env.example, the pinned requirements, the two tests/derive_*.py
-# scripts copied into hooks/ (not lib/assets/: README images, never installed). Read them before
+# installer and all of lib/ (a file added there shows as untracked), the pinned requirements,
+# tests/lint_agents.py (run in step 7) and the two tests/derive_*.py scripts copied into hooks/. Read them before
 # applying. On a terminal the run asks here, before step 2 changes anything (the venvs sync from requirements/) (--yes: don't).
-SUPPLY_PATHS="dot-claude install.sh lib/install_state.py lib/devtools.sh lib/stack.env.example requirements tests/derive_sched_model.py tests/derive_thresholds.py"
+SUPPLY_PATHS="dot-claude install.sh lib requirements tests/lint_agents.py tests/derive_sched_model.py tests/derive_thresholds.py"
 SUPPLY_CHANGED=0
 prev_commit="$(python3 -c 'import json, re, sys
 try:
@@ -1383,8 +1398,12 @@ def save_report():
         json.dump(report, rf, indent=2, sort_keys=True)
 
 
-sys.path.insert(0, os.path.join(REPO, "lib"))
-from install_state import SCOPE_DIRS, in_scope, within  # noqa: E402  (the backups' scope rule)
+import importlib.util  # noqa: E402
+# by file path, never through sys.path (lib/ is agent-writable: nothing there may shadow a stdlib module)
+_spec = importlib.util.spec_from_file_location("install_state", os.path.join(REPO, "lib", "install_state.py"))
+_ist = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_ist)
+SCOPE_DIRS, in_scope, within = _ist.SCOPE_DIRS, _ist.in_scope, _ist.within   # the backups' scope rule
 
 # a whole scope dir (bin/, mcp/, ...) is never removed by name; .stack-plugins.new is a leftover
 WHOLE_DIRS = tuple(d for d in SCOPE_DIRS if d != ".stack-plugins.new")
@@ -2656,8 +2675,10 @@ if ! ( if [ "$DRY_RUN" = 1 ]; then export XDG_STATE_HOME="$WORK/validate-state";
   exit 1
 fi
 note "validated: JSON, agent and skill frontmatter, placeholders, agent_guard.py --self-test"
-if have uv && [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
-  if (cd "$HERE" && uv run --quiet tests/lint_agents.py >"$WORK/lint.log" 2>&1); then note "lint: tests/lint_agents.py ok"
+if [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
+  # stdlib only, isolated python3 (no uv run: no environment or config is resolved from the repo);
+  # tests/lint_agents.py is in SUPPLY_PATHS, so a change to it was shown before this runs
+  if python3 "$HERE/tests/lint_agents.py" >"$WORK/lint.log" 2>&1; then note "lint: tests/lint_agents.py ok"
   else note "! tests/lint_agents.py reports problems in the stack repo (installing anyway):"; sed 's/^/      /' "$WORK/lint.log" | head -n 20; fi
 fi
 
