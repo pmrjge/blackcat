@@ -54,20 +54,20 @@ def agent_files_block():
     return text[start:text.index("\nPY\n", start)]
 
 
-def test_retired_agent_files_are_named_retired_not_your_own(tmp_path):
-    # install.sh --no-prune keeps the files of retired agent types: doctor names them retired
+def test_agent_files_outside_the_policy_are_listed_as_your_own(tmp_path):
+    # install.sh always prunes agents/: an agent file outside the policy (a retired type such as
+    # supreme-coder included, put back by hand) is named once among "your own agents"
     agents = tmp_path / "agents"
     agents.mkdir()
-    for a in ("blackcat", "data-engineer", "db-engineer", "localizer", "supreme-coder", "coder-copy",
-              "mine"):
+    for a in ("blackcat", "data-engineer", "supreme-coder", "senior-coder", "mine"):
         (agents / (a + ".md")).write_text("---\nname: %s\n---\n" % a)
     policy = json.dumps({"agents": ["blackcat", "data-engineer"]})
     p = subprocess.run(["/usr/bin/python3", "-", policy, str(agents)], input=agent_files_block(),
                        capture_output=True, text=True, timeout=30)
     assert p.returncode == 0, p.stderr
     out = p.stdout
-    for a in ("db-engineer", "localizer", "supreme-coder", "coder-copy"):
-        assert "WARN  agents/%s.md is " % a in out
-    assert "data-engineer took its databases" in out and "coder (catalogs) and writer (prose)" in out
+    assert "ok    2/2 agent files present" in out
     own = [l for l in out.splitlines() if "your own agents" in l]
-    assert len(own) == 1 and own[0].rstrip().endswith("mine — run one with `claude --agent <name>`")
+    assert len(own) == 1 and own[0].rstrip().endswith(
+        "mine senior-coder supreme-coder — run one with `claude --agent <name>`"), out
+    assert "--no-prune" not in out and "retired" not in out

@@ -904,9 +904,10 @@ servers it finds.
 ### Run the installer
 
 > [!WARNING]
-> **First install over an existing `~/.claude`: run `./install.sh --dry-run` first.** The default run
-> prunes: agents and skills that aren't the stack's current version are moved into a backup and
-> replaced. Keep your own with `--no-prune`; get them back with `--restore`.
+> **First install over an existing `~/.claude`: run `./install.sh --dry-run` first.** Every run
+> prunes (no opt-out): stack files you edited, and files of yours named like the stack's, are moved
+> into a backup and replaced; agents and skills of your own under other names stay. Get them back with
+> `--restore`.
 
 ```bash
 git clone <repository-url> claude-agent-stack && cd claude-agent-stack
@@ -961,7 +962,7 @@ steps, as the run prints them:
     `STACK_EXPORT` keys and adding `~/.local/bin` to `PATH` (`--no-profile` skips it), and the
     `claude-ninja` launcher link in `~/.local/bin`.
 
-Other flags: `--config-dir PATH`, `--no-prompt`, `--no-prune`, `--force`, `--write-through-links`,
+Other flags: `--config-dir PATH`, `--no-prompt`, `--restore [DIR] [--force]`, `--write-through-links`,
 `--no-mcp`, `--no-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
 `--print-managed-settings`. `./install.sh --help` prints them all; [CONFIG.md](CONFIG.md) §7 explains
 staging, pruning and the manifest.
@@ -1055,6 +1056,8 @@ git pull --ff-only                # in your checkout, on main
 ```
 
 Then quit every Claude Code session and start new ones. A changed stack asks before it applies anything (`--yes` skips the question; without a terminal it stops). Your `stack.env` is kept; new variables are appended commented out.
+
+An install older than commit `4286278` (2026-10-04) upgrades through that commit first: the installer no longer migrates older layouts (the stack's rules in `CLAUDE.md`, the renamed `senior-coder` and `router` agents and `ROUTER_*` knobs, files, catalog entries, permission rules, env values and sandbox dirs from before the manifest recorded them, backups kept inside the config dir, the `set -a` profile line, the Context7 and old Exa entries, retired `stack.env` keys). From a throwaway clone: `git clone -q . /tmp/cas-4286278 && git -C /tmp/cas-4286278 switch -qC main 4286278 && /tmp/cas-4286278/install.sh`, then `./install.sh` here, then `rm -rf /tmp/cas-4286278`.
 
 ### Backup, restore and uninstall
 
@@ -1358,7 +1361,7 @@ embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The
 | tandemai mcp-rdkit | repository gone |
 | Flux159 mcp-server-kubernetes | its non-destructive mode still writes |
 | unlicensed SLURM servers | no licence |
-| Context7 | replaced by libdocs; the installer removes it |
+| Context7 | replaced by libdocs; the installer names a leftover entry (`claude mcp remove -s user <name>`) |
 
 </details>
 

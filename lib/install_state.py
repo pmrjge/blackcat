@@ -19,7 +19,6 @@ Runs on the system python3 (3.8+), standard library only.
   install_state.py linked   <C>                              top-level scope dirs that are symlinks
   install_state.py private-root <backup-root>                create/check the backup root (0700)
   install_state.py validate <S> <python>                     JSON, frontmatter, placeholders, self-test
-  install_state.py legacy-backups <C> <backup-root> list|move
   install_state.py record   <backup-dir> <key> <name>        key: plugins_disabled, rc (a path),
                             file (a path relative to C), mcp_removed / mcp_replaced (the entry's
                             JSON in $STACK_MCP_ENTRY)
@@ -731,8 +730,8 @@ def frontmatter_problems(path, want_name):
 
 def validate(s, python):
     """(problems, warnings). Problems — anything the stack itself wrote (a file whose hash is the
-    manifest's) — stop the install; the same checks on files the stack doesn't own (kept by
-    --no-prune: yours, or stack files you edited) only warn."""
+    manifest's) — stop the install; the same checks on files the stack doesn't own (yours, or
+    stack files you edited, that the prune keeps) only warn."""
     problems, warnings = [], []
     manifest = load_json(os.path.join(s, ".stack-manifest.json"), {})
     ours = manifest.get("files") or {}
@@ -809,44 +808,6 @@ def validate(s, python):
         except (OSError, ValueError, AttributeError) as exc:
             problems.append("hooks/sched_model.json: %s" % exc)
     return problems, warnings
-
-
-# ---------------------------------------------------------------------------- legacy backups
-def legacy_backups(c):
-    try:
-        return sorted(os.path.join(c, n) for n in os.listdir(c)
-                      if n.startswith("backup-") and os.path.isdir(os.path.join(c, n))
-                      and not os.path.islink(os.path.join(c, n)))
-    except FileNotFoundError:
-        return []
-
-
-def move_legacy(c, root):
-    ensure_root(root)
-    dest_root = os.path.join(root, "legacy")
-    os.makedirs(dest_root, mode=0o700, exist_ok=True)
-    if os.path.islink(dest_root):
-        raise SystemExit("install.sh: %s is a symlink: refusing to move backups into it" % dest_root)
-    os.chmod(dest_root, 0o700)
-    moved = []
-    for d in legacy_backups(c):
-        dst = os.path.join(dest_root, os.path.basename(d))
-        if os.path.exists(dst):
-            dst = tempfile.mkdtemp(prefix=os.path.basename(d) + "-", dir=dest_root)
-            os.rmdir(dst)
-        shutil.move(d, dst)
-        for r, dirs, files in os.walk(dst):
-            for x in dirs:
-                p = os.path.join(r, x)
-                if not os.path.islink(p):
-                    os.chmod(p, 0o700)
-            for x in files:
-                p = os.path.join(r, x)
-                if not os.path.islink(p):
-                    os.chmod(p, stat.S_IMODE(os.stat(p).st_mode) & 0o700)
-        os.chmod(dst, 0o700)
-        moved.append((d, dst))
-    return moved
 
 
 # ---- install target (--config-dir) -------------------------------------------------------------
@@ -1230,14 +1191,6 @@ def main(argv):
         for p in problems:
             print("  ! " + p)
         return 1 if problems else 0
-    elif cmd == "legacy-backups":
-        c, root, op = a
-        if op == "list":
-            for d in legacy_backups(c):
-                print(d)
-        else:
-            for src, dst in move_legacy(c, root):
-                print("  moved %s -> %s" % (src, dst))
     elif cmd == "record":
         record(a[0], a[1], a[2], a[3] if len(a) > 3 else None)
     elif cmd == "new-backup":
