@@ -1,28 +1,44 @@
 <!-- markdownlint-disable MD013 MD033 MD041 MD060 -->
-<div align="center">
+# claude-agent-stack
 
-<img src="lib/assets/blackcat-hero.jpg" alt="A giant black cat sits calmly licking its raised paw, its long tail stretched across the tiles of a colourful toy-block city where small white robots with antennae and visor eyes carry blocks past miniature terminals, floating code brackets, a glowing git-graph and circuit paths, in violet, turquoise and amber: BlackCat" width="480">
+<p align="center"><img src="lib/assets/blackcat-hero.jpg" alt="A giant black cat sits calmly licking its raised paw, its long tail stretched across the tiles of a colourful toy-block city where small white robots with antennae and visor eyes carry blocks past miniature terminals, floating code brackets, a glowing git-graph and circuit paths, in violet, turquoise and amber: BlackCat" width="480"></p>
 
 <p align="center"><sub>Hero image: photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper, <a href="lib/assets/README.md">CC BY 4.0</a></sub></p>
 
-<h1>claude-agent-stack</h1>
+A multi-agent configuration for Claude Code: BlackCat on the main thread, 55 specialists, 214 on-demand
+skills, and hooks that enforce the limits.
 
-<p><strong>A multi-agent configuration for Claude Code: BlackCat on the main thread, 55 specialists, 214 on-demand skills, and hooks that enforce the limits.</strong></p>
+Created with [Claude Code](https://claude.com/claude-code): designed and directed by Pedro Miguel Rodrigues
+Jorge, written with Anthropic's Claude models ([Credits](#credits)).
 
-<p>Created with <a href="https://claude.com/claude-code">Claude Code</a>: designed and directed by Pedro Miguel Rodrigues Jorge, written with Anthropic's Claude models (<a href="#credits">Credits</a>).</p>
+```mermaid
+%%{init: {'theme':'base','themeVariables': {'primaryColor':'#e3e9f0','primaryTextColor':'#1f2933','primaryBorderColor':'#6b7f99','lineColor':'#6b7f99','secondaryColor':'#d5ebe8','tertiaryColor':'#f3f5f8','clusterBkg':'#f3f5f8','clusterBorder':'#b7791f','titleColor':'#1f2933','edgeLabelBackground':'#f3f5f8','background':'#f3f5f8'}}}%%
+flowchart TD
+  accTitle: claude-agent-stack architecture
+  accDescr: The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 4. Hooks check every tool call of every agent.
+  U(["User"])
+  subgraph T["Hooks check every tool call: agent_guard.py and the others"]
+    B["BlackCat · main thread · delegates only"]
+    S1["Specialists · L1"]
+    O["orchestrator · L1 · up to 32 children"]
+    S2["Specialists · L2"]
+    H["Helpers, checks, copies · L2 to L4"]
+  end
+  U --> B
+  B -->|"one domain, or 2-3 independent asks"| S1
+  B -->|"dependent steps, or more than 3 asks"| O
+  O --> S2
+  S1 --> H
+  S2 --> H
+  %% Palette, one colour per role: slate = agents and edges, teal = orchestration,
+  %% amber = guard and hooks, blue = user-facing. Same role, same colour in every diagram.
+  classDef orch fill:#d5ebe8,stroke:#2f7f78,stroke-width:2px,color:#1f2933
+  classDef user fill:#dce6f3,stroke:#3f6ea8,stroke-width:1px,color:#1f2933
+  class B,O orch
+  class U user
+```
 
-<img src="https://img.shields.io/badge/platform-macOS%20only-black" alt="Platform: macOS only">
-<img src="https://img.shields.io/badge/Claude%20Code-2.1.271%2B-blue" alt="Claude Code 2.1.271 or later">
-
-<p>
-<a href="#requirements-macos-only">Requirements</a> ·
-<a href="#install">Install</a> ·
-<a href="#usage">Usage</a> ·
-<a href="#overview-what-the-stack-adds">What it adds</a> ·
-<a href="CONFIG.md">CONFIG.md</a>
-</p>
-
-</div>
+BlackCat delegates every job, hooks check every tool call at every level, and an agent at L4 cannot spawn.
 
 **claude-agent-stack** is this repository: the agent definitions, skills, hooks, settings, MCP servers
 and installer that turn `~/.claude/` into a coordinated team. **BlackCat** is the stack's main thread: the
@@ -41,6 +57,21 @@ Earlier README revisions (the one before this reorganisation, and the long-form 
 in full, the spawn table, sandbox internals and changelog entries) are not shipped; the commits that
 changed them are in the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
 
+## Quick start
+
+```bash
+git clone <repository-url> claude-agent-stack && cd claude-agent-stack
+./install.sh --dry-run            # the plan: added / replaced / removed, each with a reason
+./install.sh                      # core install; one backup of everything it changes or removes
+$EDITOR ~/.claude/stack.env       # keys: read at connect time; Claude model IDs: re-run ./install.sh
+```
+
+On a terminal the installer asks before it acts: whether to install into a non-default config folder,
+whether to apply the stack's diff since the last install, and whether to add the open-file limit
+LaunchDaemon (sudo only after `y`); Homebrew's own installer asks for your password. Then quit every
+Claude Code session, start `claude` (it starts as BlackCat), run `/effort medium` once and
+`/stack-doctor`. Details: [Install](#install).
+
 ## Contents
 
 | Start here | Reference | Project |
@@ -49,7 +80,7 @@ changed them are in the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT
 | [What it is for](#what-it-is-for) | [Environment variables](#environment-variables) | [Contributing and safety](#contributing-and-safety) |
 | [Overview: what the stack adds](#overview-what-the-stack-adds) | [Plugins, MCP servers and tools](#plugins-mcp-servers-and-tools) | [Changelog](#changelog) |
 | [Requirements (macOS only)](#requirements-macos-only) | [Security model](#security-model) | [License](#license) |
-| [Install](#install) · [Usage](#usage) | [Apps](#apps) | [Credits](#credits) |
+| [Quick start](#quick-start) · [Install](#install) · [Usage](#usage) | [Apps](#apps) | [Credits](#credits) |
 
 ## Why BlackCat?
 
@@ -66,8 +97,8 @@ the design, not a record of intent.
   sessions.
 - **Whiskers.** A cat senses what it cannot see. Here that is the delegation ledger, `/stack-tree`,
   `/stack-doctor` and the usage rows.
-- **Economy of motion.** A cat does not chase everything. BlackCat does the few-call jobs itself, sends
-  the rest to the cheapest capable agent, and never pushes.
+- **Economy of motion.** A cat does not chase everything. BlackCat does no work itself: it sends
+  each job to the cheapest capable agent, and never pushes.
 - **Schrödinger's cat.** Until someone checks, a claim is neither true nor false. Agents mark what they
   could not check as "unverified", and independent verifiers run the checks.
 - **`cat` concatenates.** BlackCat gathers the specialists' outputs and relays them as one answer.
@@ -122,22 +153,8 @@ with plain Claude Code on the same tasks ([Measured so far](#measured-so-far)).
 
 ### Architecture
 
-Three kinds of agent, four levels below the main thread, one policy hook:
-
-```mermaid
-flowchart TD
-  U["User"] --> B["BlackCat: main thread, Sonnet<br/>delegates only: dispatches, relays, asks"]
-  B -->|"one domain, or 2-3 independent asks"| S1["Specialist (L1)"]
-  B -->|"dependent steps or more than 3 asks"| O["orchestrator (L1)<br/>up to 32 running children"]
-  O --> S2["Specialists (L2)"]
-  S1 --> H["Helpers, checks, copies (L2-L4)"]
-  S2 --> H
-  G["agent_guard.py and other hooks<br/>on every tool call"] -.-> B
-  G -.-> O
-  G -.-> S1
-  G -.-> S2
-  G -.-> H
-```
+Three kinds of agent, four levels below the main thread, one policy hook; the diagram is at the
+[top of this page](#claude-agent-stack).
 
 | Level | Who runs there | Limit (enforced by) |
 |---|---|---|
@@ -148,12 +165,12 @@ flowchart TD
 BlackCat's own tools, as `blackcat.md` lists them: an `Agent(...)` allowlist of 52 agent types (every
 specialist except supreme-coder, db-engineer and localizer), SendMessage, AskUserQuestion,
 `mcp__conductor__AskUserQuestion`, ExitPlanMode, TaskStop, ListAgents, ToolSearch, Skill, Workflow, the
-Cron and wake-up tools, RemoteTrigger, PushNotification, SendUserFile, and Read, Bash, Write, Edit. It
-does a job of a few tool calls itself (a look, a small edit, one command, git inspection) and dispatches
-everything else. It holds no WebSearch or WebFetch, its Bash is refused HTTP clients, raw sockets and gh
-reads (best effort; the sandbox allowlist is the hard limit), and a foreground Bash call may not ask for
-more than 120 s (`BLACKCAT_BASH_TIMEOUT_MS`). Routing rules and the spawn
-table: [Roster](#roster) and [CONFIG.md](CONFIG.md) §4.
+Cron and wake-up tools, RemoteTrigger, PushNotification, SendUserFile, and Read. It holds no Bash, Write,
+Edit, WebSearch or WebFetch, and blackcat-guard refuses a Bash, Write or Edit call that still reaches it
+(`BLACKCAT_MAX_OWN_STEPS` 0). It reads only the delegation ledger, a plan or a child's output file (at most
+3 Read calls per prompt, `BLACKCAT_MAX_READS`) and dispatches everything else, however small: merges,
+tests, commits and bookkeeping to main-coder, one command or a small edit to coder, finding or reading
+files to explore. Routing rules and the spawn table: [Roster](#roster) and [CONFIG.md](CONFIG.md) §4.
 
 ### Agent tiers and routing
 
@@ -180,7 +197,7 @@ Each agent's `tools:` line is its whole tool set, so an agent cannot use a tool 
 
 | Class | Agents (examples) | Tools | What is withheld |
 |---|---|---|---|
-| Main thread | blackcat | Agent allowlist, SendMessage, AskUserQuestion, Read, Bash, Write, Edit, … (above) | web tools; HTTP clients, raw sockets and gh reads from its Bash (best effort; the sandbox allowlist is the hard limit) |
+| Main thread | blackcat | Agent allowlist, SendMessage, AskUserQuestion, Read, … (above) | Bash, Write, Edit, web tools |
 | Coordinator | orchestrator | Agent, SendMessage, TaskStop, Read, Glob, Grep, Write, Edit, Skill, `mcp__neural-memory` | Bash, web |
 | Knowledge without web | oracle | Read, Skill | everything else |
 | Codebase search | explore | Read, Grep, Glob, LSP, Skill | Bash, Write, Edit, web |
@@ -250,7 +267,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | No Bash write, delete or rename of the installed stack, the backups or the hook state; no `install.sh` run except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs | the guard's protected-path scan, on top of the Edit/Write deny rules | `tests/test_protected_paths.py`, `tests/test_guard_round2.py` |
 | Six review and check types run read-only Bash only; their scratch code is content-checked | `READONLY_TYPES` | `tests/test_readonly_agents.py` |
 | Only stack agents in the caller's row may be spawned; `general-purpose`, `claude`, `fork`, `Plan` and unknown types are refused | `POLICY`, deny rules `Agent(general-purpose)`, `Agent(claude)`, `Agent(fork)` | `tests/test_agent_guard.py`; `tests/lint_agents.py` checks each "May spawn" sentence against `POLICY` |
-| The main thread's own Bash, Write and Edit get the same hooks, sandbox and deny rules; its Bash is refused HTTP clients, raw sockets and gh reads (best effort; the sandbox allowlist is the hard limit) | `blackcat-guard`, `no-push` | `tests/test_blackcat_tools.py` |
+| The main thread only delegates: its tools line holds no Bash, Write or Edit, and a call that still reaches it (an SDK app's tool list, an `--agents` redefinition) is refused; with `BLACKCAT_MAX_OWN_STEPS` > 0 its Bash gets the same hooks, sandbox and deny rules and is refused HTTP clients, raw sockets and gh reads (best effort; the sandbox allowlist is the hard limit) | tools line, `blackcat-guard`, `no-push` | `tests/test_blackcat_tools.py`, `tests/lint_agents.py` |
 | No credential reads (`gh auth token`, `git credential fill`, keychain dumps); token variables and credential files denied to sandboxed Bash | guard, sandbox `denyRead`, credential deny list | `tests/test_guard_round2.py` |
 | An agent that read web content, or is linked to one that did, cannot write the shared memory | web taint in the guard | `tests/test_guard_round2.py`, `tests/test_guard_round3.py` |
 | Mounting a magg server asks; calls run without a prompt only for the read-only or local catalog servers and ask at every call for the rest | `ask` rules in `settings.json` | `tests/test_no_duplicates.py` (exactly one allow or ask rule per catalog prefix) |
@@ -516,8 +533,8 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 
 </details>
 
-Routing in one paragraph: BlackCat does a job of a few tool calls itself (a look, a small edit, one
-command, git inspection), dispatches the rest (up to 8 children in one burst per prompt) and hands
+Routing in one paragraph: BlackCat does no work itself; it answers a greeting or a setup question,
+reads the ledger, dispatches every job (up to 8 children in one burst per prompt) and hands
 dependent multi-specialist work to the orchestrator. Code escalates coder → main-coder →
 ninja-coder → supreme-coder; language-heavy work goes to the language engineer, domain builds to the domain
 expert. The helpers are leaves (no Agent tool); db-engineer and localizer are reached through their
@@ -631,14 +648,14 @@ the call (fail closed); every hook command runs on an absolute interpreter chose
 
 | Guard | What it enforces |
 |---|---|
-| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 24 tool calls per prompt, at most 4 of them its own Read/Bash/Write/Edit, and no foreground Bash timeout over 120 s |
+| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 24 tool calls per prompt, at most 3 of them Read calls and none its own Bash/Write/Edit (`BLACKCAT_MAX_READS` 3, `BLACKCAT_MAX_OWN_STEPS` 0) |
 | Read-only agents | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide and proof-checker hold Bash, but only read-only commands pass (tests, linters in check mode, `git diff/log/show`, inspection, scanners); scratch code is content-checked; anything else is refused |
 | No push | `git push` in any form and forge writes (`gh`/`tea`/`fj`, `gh api`, curl/wget/httpie to forge hosts) are denied, also inside `bash -c`, `eval`, `$(...)`, `ssh` and git's own command hooks. `STACK_POLICY=off` does not lift it |
 | Protected paths | Bash-level writes, deletes and renames of the installed stack, the backups and the hook state are refused, on top of the Edit/Write deny rules; so is running `install.sh` except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs |
 | Delegation ledger | Every Agent call is recorded as a tree (type, task, state, agent id) in `~/.local/state/claude-agent-stack/<session>/delegations.md`, which BlackCat reads; `agent_guard.py delegations [session] [--json]` prints it |
 | supreme-coder once | Only the orchestrator spawns supreme-coder, once per session, and only after a ninja-coder of the session has finished (`SUPREME_SPAWNERS`, `SUPREME_ONCE_PER_SESSION`, `SUPREME_AFTER_NINJA`; the hook checks order, the prompts check that ninja-coder failed) |
 | Soft token limits | Past its soft limit (context tokens per subagent run, by type: scout 390K … verifier 26M; 33M per human prompt, 80M while an orchestrator runs) an agent's next tool call carries one warning to wrap up, return `STATUS: partial` and ask before continuing; nothing is refused. Values, derivation and refresh (`tests/derive_thresholds.py`): [CONFIG.md](CONFIG.md) §5 |
-| Also | Context-token budgets (hard) and the per-subagent MCP call cap; one agent on the screen; web-tainted agents can't write neural-memory; images re-encoded to ≤ 1919 px; BlackCat's children forced to the background; BlackCat holds no web tool and its Bash is refused HTTP clients in any spelling, raw sockets, `gh` forge reads and inline HTTP code (T1; best effort: script files and text assembled at run time are not seen, git clone/fetch/pull stay allowed, the sandbox network allowlist is the hard limit); per-call `model` and `mode` stripped |
+| Also | Context-token budgets (hard) and the per-subagent MCP call cap; one agent on the screen; web-tainted agents can't write neural-memory; images re-encoded to ≤ 1919 px; BlackCat's children forced to the background; BlackCat holds no web tool and no Bash; with `BLACKCAT_MAX_OWN_STEPS` > 0 its Bash is refused HTTP clients in any spelling, raw sockets, `gh` forge reads and inline HTTP code (T1; best effort: script files and text assembled at run time are not seen, git clone/fetch/pull stay allowed, the sandbox network allowlist is the hard limit); per-call `model` and `mode` stripped |
 
 The event-by-event table and the sandbox design are in [CONFIG.md](CONFIG.md) §5 and §7 and in
 `agent_guard.py`'s module docstring.
