@@ -121,7 +121,9 @@ HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
 HEX64_RE = re.compile(r"^[0-9a-f]{64}\Z")
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/\[\]-]{0,127}\Z")     # stack_usage.MODEL_RE
-MODEL_ALIASES = ("haiku", "sonnet", "opus", "fable")      # the Agent tool's `model` enum (/override-agent)
+# the model families a recorded segment can name (model_family); haiku only to tell such a run apart
+# (a built-in agent, an older session): no stack agent or /override-agent picks it
+MODEL_ALIASES = ("haiku", "sonnet", "opus", "fable")
 FM_MODEL_RE = re.compile(r"(?m)^model:\s*([A-Za-z0-9._-]+)\s*(?:#.*)?$")   # agent_guard.MODEL_RE
 VAR_RE = re.compile(r"^(?:(?:turns|soft\.agent|hard\.agent|soft\.prompt)\.[a-z0-9][a-z0-9_.:-]{0,79}"
                     r"|(?:soft|hard)\.(?:prompt|session))$")

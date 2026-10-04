@@ -84,7 +84,7 @@ def spawned_model(s, child, env, **kw):
 @pytest.mark.parametrize("name,args,want", [
     ("override-agent", "orchestrator fable", ("set", "orchestrator", "fable")),
     ("override-agent", "  Orchestrator   FABLE ", ("set", "orchestrator", "fable")),
-    ("override-agent", "scout haiku", ("set", "scout", "haiku")),
+    ("override-agent", "scout opus", ("set", "scout", "opus")),
     ("override-agent", "list", ("list",)),
     ("override-agent", "reset orchestrator", ("reset", "orchestrator")),
     ("override-agent", "  RESET  All ", ("reset", "all")),
@@ -107,6 +107,8 @@ def test_parser_accepts(name, args, want):
     ("override-agent", "orchestrator gpt5", "unknown model"),
     ("override-agent", "orchestrator claude-opus-5-5", "unknown model"),
     ("override-agent", "orchestrator inherit", "unknown model"),
+    ("override-agent", "scout haiku", "unknown model"),          # the stack runs no Haiku
+    ("override-agent", "scout HAIKU", "unknown model"),
     ("override-agent", "reset", "usage: /override-agent reset"),
     ("override-agent", "reset orchestrator scout", "usage: /override-agent reset"),
     ("override-agent", "reset nosuch", "unknown agent"),
@@ -136,8 +138,9 @@ def test_parser_rejects_injection(args):
 
 
 def test_valid_sets_match_claude_code():
-    # the Agent tool's `model` enum and the frontmatter effort levels (Claude Code 2.1.287)
-    assert G.OVERRIDE_MODELS == ("sonnet", "opus", "haiku", "fable")
+    # the Agent tool's `model` enum without haiku (the stack runs no Haiku) and the frontmatter
+    # effort levels (Claude Code 2.1.287)
+    assert G.OVERRIDE_MODELS == ("sonnet", "opus", "fable")
     assert G.OVERRIDE_EFFORTS == G.EFFORT_ORDER == ("low", "medium", "high", "xhigh", "max")
 
 
@@ -169,12 +172,11 @@ def test_table_covers_every_agent_and_model_with_supported_levels():
 
 def test_table_follows_rule_v1():
     order = G.OVERRIDE_EFFORTS
-    tier = {"haiku": 1, "sonnet": 2, "opus": 3, "fable": 4}
+    tier = {"sonnet": 2, "opus": 3, "fable": 4}
     for a, row in TABLE["agents"].items():
         dm, de = G.agent_defaults(a)
         i = order.index(de)
         want = {m: order[i] for m in row}
-        want["haiku"] = order[max(0, i - 1)]
         for m in ("sonnet", "opus", "fable"):
             if tier[m] < tier[dm] and de != "max":
                 want[m] = order[min(order.index("xhigh"), i + 1)]
@@ -232,11 +234,11 @@ def test_effort_is_clamped_to_the_resolved_model(env):
     s = sid()
     msg = command(s, "orchestrator sonnet", env, knobs={"ANTHROPIC_DEFAULT_SONNET_MODEL": "claude-sonnet-4-6"})
     assert "effort  high -> high (table, xhigh clamped to high for claude-sonnet-4-6" in msg
-    msg = command(s, "scout haiku", env, knobs={"ANTHROPIC_DEFAULT_HAIKU_MODEL": "claude-haiku-4-5-20251001"})
-    assert "-> none (table; claude-haiku-4-5-20251001 takes no effort" in msg
+    msg = command(s, "scout opus", env, knobs={"ANTHROPIC_DEFAULT_OPUS_MODEL": "claude-3-opus-20240229"})
+    assert "-> none (table; claude-3-opus-20240229 takes no effort" in msg
     ov = json.loads((state(env, s) / "agent-overrides.json").read_text())["overrides"]
     assert ov["orchestrator"]["effort"] == "high" and ov["scout"]["effort"] is None
-    assert spawned_model(s, "scout", env)[0] == "haiku"
+    assert spawned_model(s, "scout", env)[0] == "opus"
 
 
 def test_a_stored_effort_survives_a_table_change(env, tmp_path):
@@ -294,14 +296,14 @@ def test_list_is_read_only_and_shows_the_source(env):
 def test_reset_one_and_all(env):
     s = sid()
     command(s, "orchestrator fable", env)
-    command(s, "scout haiku", env)
+    command(s, "scout opus", env)
     msg = command(s, "reset orchestrator", env)
     assert "orchestrator model fable -> opus, effort high -> high" in msg
     assert spawned_model(s, "orchestrator", env)[0] is None
-    assert spawned_model(s, "scout", env)[0] == "haiku"
+    assert spawned_model(s, "scout", env)[0] == "opus"
     assert "nothing changed" in command(s, "reset orchestrator", env)
     msg = command(s, "reset all", env)
-    assert "scout model haiku -> sonnet, effort low -> low" in msg
+    assert "scout model opus -> sonnet, effort low -> low" in msg
     assert not (state(env, s) / "agent-overrides.json").exists()
     assert spawned_model(s, "scout", env)[0] is None
 
@@ -341,9 +343,9 @@ def test_rewrite_replaces_a_model_the_caller_passed(env):
 def test_rewrite_applies_to_nested_spawns(env):
     s = sid()
     command(s, "main-coder sonnet", env)
-    command(s, "coder haiku", env)
+    command(s, "coder opus", env)
     assert spawned_model(s, "main-coder", env, by_type="orchestrator", by="orch1")[0] == "sonnet"
-    assert spawned_model(s, "coder", env, by_type="main-coder", by="mc1")[0] == "haiku"
+    assert spawned_model(s, "coder", env, by_type="main-coder", by="mc1")[0] == "opus"
 
 
 def test_gates_still_refuse_with_an_override(env):
@@ -380,6 +382,27 @@ def test_symlinked_or_malformed_state_is_ignored(env, tmp_path):
     assert spawned_model(s, "orchestrator", env)[0] is None
     (d / "agent-overrides.json").write_text("{not json")
     assert spawned_model(s, "orchestrator", env)[0] is None
+
+
+def test_no_haiku_override_is_set_or_applied(env):
+    """The stack runs no Haiku: `/override-agent <agent> haiku` is refused and writes nothing, and a
+    haiku entry in a session's state (an override set before 2026-10-05) is dropped, so the spawn
+    keeps its frontmatter model; the opus entry beside it still applies (the control)."""
+    s = sid()
+    msg = command(s, "scout haiku", env)
+    assert "unknown model 'haiku'; one of: sonnet, opus, fable" in msg
+    assert not (state(env, s) / "agent-overrides.json").exists()
+    state(env, s).mkdir(parents=True, exist_ok=True)
+    (state(env, s) / "agent-overrides.json").write_text(json.dumps(
+        {"session_id": s, "overrides": {"scout": {"model": "haiku", "effort": "low"},
+                                        "coder": {"model": "opus", "effort": "medium"}}}))
+    assert spawned_model(s, "scout", env)[0] is None
+    assert spawned_model(s, "coder", env)[0] == "opus"
+
+
+def test_effort_table_has_no_haiku():
+    assert "haiku" not in G.OVERRIDE_MODELS
+    assert not [a for a, row in TABLE["agents"].items() if "haiku" in row]
 
 
 @pytest.mark.parametrize("source,kept", [("startup", False), ("resume", False), ("clear", False),

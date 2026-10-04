@@ -1754,7 +1754,9 @@ def on_agent(ev, d):
 OVERRIDE_FILE = "agent-overrides.json"
 OVERRIDE_LOG = "agent-overrides.log"
 OVERRIDE_COMMANDS = ("override-agent",)
-OVERRIDE_MODELS = ("sonnet", "opus", "haiku", "fable")      # the Agent tool's `model` enum
+# the Agent tool's `model` enum without haiku: the stack runs no Haiku (an override naming it is
+# refused, and a stored one is dropped by read_overrides)
+OVERRIDE_MODELS = ("sonnet", "opus", "fable")
 OVERRIDE_EFFORTS = ("low", "medium", "high", "xhigh", "max")  # frontmatter `effort` (= EFFORT_ORDER)
 OVERRIDE_ARGS_RE = re.compile(r"[A-Za-z0-9 -]{0,120}")      # no newline, tab or metacharacter
 MODEL_RE = re.compile(r"(?m)^model:\s*([A-Za-z0-9._-]+)\s*(?:#.*)?$")

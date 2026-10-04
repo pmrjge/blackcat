@@ -1,4 +1,6 @@
-"""Skill frontmatter rules the lint enforces: YAML-safe one-line descriptions."""
+"""Skill frontmatter rules the lint enforces: YAML-safe one-line descriptions; model IDs and the
+models of the agents named like Claude Code's built-ins."""
+import json
 import sys
 from pathlib import Path
 
@@ -64,6 +66,21 @@ def test_model_id_regex_catches_new_and_old_style_ids_only():
     for v in ["opus", "sonnet", "haiku", "claude-haiku-old", "claude-opus-old[1m]", "model-x",
               "claude-code-guide", "claude-agent-stack", "ANTHROPIC_DEFAULT_<FAMILY>_MODEL"]:
         assert not lint_agents.MODEL_ID_RE.search(v), v
+
+
+def test_stack_agents_named_like_builtins_run_on_sonnet():
+    """No built-in agent swap (user decision 2026-10-05): Claude Code's built-in claude-code-guide runs
+    on Haiku, and a user agent of the same name replaces it; the built-in Explore is switched off and
+    the stack's explore stands in. Both stack agents keep their names and run on Sonnet, and the env
+    switches that keep the built-ins out stay set."""
+    agents = SKILLS.parent / "agents"
+    for name in ("claude-code-guide", "explore"):
+        head = (agents / (name + ".md")).read_text(encoding="utf-8").split("---", 2)[1]
+        fm = dict(x.split(":", 1) for x in head.strip().splitlines() if ":" in x and x[:1].isalpha())
+        assert (fm["name"].strip(), fm["model"].strip()) == (name, "sonnet"), name
+    env = json.loads((SKILLS.parent / "settings.json").read_text(encoding="utf-8"))["env"]
+    assert env["CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS"] == "1"
+    assert env["CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS"] == "1"
 
 
 def test_model_ids_only_in_the_allowed_places(tmp_path):
