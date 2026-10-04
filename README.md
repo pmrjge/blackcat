@@ -376,7 +376,7 @@ How to run them: [Verify](#verify).
 
 ### Main knobs
 
-Every knob (environment variables and settings keys), its default, why it has that value and whether the installer owns it: [CONFIG.md](CONFIG.md) §5. The ones most often changed: `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` in `stack.env`, `STACK_MAX_FANOUT(_BY_TYPE)`, `BLACKCAT_MAX_*`, the context budgets, `STACK_SOFT_LIMIT_SCALE`, `READ_GATE`, `STACK_POLICY`, `autoCompactWindow` and `permissions.defaultMode`.
+The knobs (environment variables and settings keys; code-only timers and limits: `agent_guard.py`'s docstring), their defaults, why each has its value and whether the installer owns it: [CONFIG.md](CONFIG.md) §5. The ones most often changed: `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` in `stack.env`, `STACK_MAX_FANOUT(_BY_TYPE)`, `BLACKCAT_MAX_*`, the context budgets, `STACK_SOFT_LIMIT_SCALE`, `READ_GATE`, `STACK_POLICY`, `autoCompactWindow` and `permissions.defaultMode`.
 
 ### Compared with plain Claude Code
 
@@ -1205,7 +1205,7 @@ The magg catalog keys reach mcp-broker's magg through `bin/with-stack-env --only
 
 ### Knobs
 
-Set in `settings.json` → `env`. The table (defaults, ownership marks, what reads each) is [CONFIG.md](CONFIG.md) §5.
+Set in `settings.json` → `env`. The table (defaults, ownership marks, why) is [CONFIG.md](CONFIG.md) §5; the remaining code-only defaults are in `dot-claude/hooks/agent_guard.py`'s docstring.
 
 ### Installer and session environment
 
