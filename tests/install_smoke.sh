@@ -2168,14 +2168,15 @@ srun "$TS/h1" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" r1.log; rc=$?
   && pass "serial-mcp: cargo called once with: $WANT" \
   || { failed "serial-mcp install (rc=$rc, $(ncalls) cargo calls: $(head -n 2 "$CARGO_LOG" | tr '\n' '|'))"; grep -i 'serial\|cargo' "$TS/r1.log" | sed 's/^/    /'; }
 srun "$TS/h1" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" r2.log; rc=$?
-[ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && grep -qF "serial-mcp present ($TS/h1/.cargo/bin/serial-mcp)" "$TS/r2.log" \
+[ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && grep -qF "skip serial-mcp (found: $TS/h1/.cargo/bin/serial-mcp, from rustup/cargo)" "$TS/r2.log" \
   && pass "serial-mcp: a re-run with the pinned binary in place doesn't call cargo" \
   || failed "serial-mcp re-run (rc=$rc, $(ncalls) cargo calls): $(grep -i 'serial' "$TS/r2.log" | head -2)"
 sed -i.bak "s/serial-mcp $SERIAL_V /serial-mcp 0.0.1 /" "$TS/h1/.cargo/.crates2.json" && rm -f "$TS/h1/.cargo/.crates2.json.bak"
 srun "$TS/h1" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" r3.log; rc=$?
-[ "$rc" = 0 ] && [ "$(ncalls)" = 2 ] && [ "$(tail -n 1 "$CARGO_LOG")" = "$WANT" ] \
-  && pass "serial-mcp: an older version cargo installed is rebuilt at the pin" \
-  || failed "serial-mcp upgrade (rc=$rc, $(ncalls) cargo calls)"
+# the skip rule: a present serial-mcp of another version is left alone, with a WARN naming the command
+[ "$rc" = 0 ] && [ "$(ncalls)" = 1 ] && grep -qF "WARN serial-mcp 0.0.1 found, the catalog pins $SERIAL_V; left alone" "$TS/r3.log" \
+  && pass "serial-mcp: another version already installed is left alone (WARN with the cargo command)" \
+  || failed "serial-mcp other version (rc=$rc, $(ncalls) cargo calls): $(grep -i 'serial' "$TS/r3.log" | head -2)"
 : > "$CARGO_LOG"
 srun "$TS/h2" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" d.log --dry-run; rc=$?
 [ "$rc" = 0 ] && [ "$(ncalls)" = 0 ] && [ ! -e "$TS/h2/.cargo" ] \

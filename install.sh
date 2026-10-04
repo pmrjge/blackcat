@@ -958,16 +958,22 @@ SERIAL_MCP_BIN="$HOME/.cargo/bin/serial-mcp"
 SERIAL_MCP_CMD="cargo install serial-mcp@$SERIAL_MCP_VERSION --locked --root $HOME/.cargo"
 cargo_bin(){ command -v cargo 2>/dev/null || { [ -x "$HOME/.cargo/bin/cargo" ] && echo "$HOME/.cargo/bin/cargo"; } || true; }
 # the pinned serial-mcp is in place (a binary cargo has no record of is yours, and stays)
+# The skip rule (lib/devtools.sh, CONFIG.md §7): a tool found anywhere is never installed, upgraded
+# or replaced; another version than the pin is a WARN with the command. tool_where NAME: "PATH<tab>SOURCE".
+tool_where(){ bash "$HERE/lib/devtools.sh" where "$@" 2>/dev/null; }
+tool_skip(){ local w tab; tab="$(printf "\t")"; w="$(tool_where "$1")" || return 1; note "skip $1 (found: ${w%%"$tab"*}, from ${w#*"$tab"})"; }
 serial_mcp_current(){
   [ -x "$SERIAL_MCP_BIN" ] || return 1
   local rec; rec="$(grep -o '"serial-mcp [^ ]*' "$HOME/.cargo/.crates2.json" 2>/dev/null | head -n 1 | cut -d' ' -f2 || true)"
-  [ -z "$rec" ] || [ "$rec" = "$SERIAL_MCP_VERSION" ]
+  [ -z "$rec" ] || [ "$rec" = "$SERIAL_MCP_VERSION" ] \
+    || note "WARN serial-mcp $rec found, the catalog pins $SERIAL_MCP_VERSION; left alone. To align: $SERIAL_MCP_CMD --force"
+  return 0
 }
 serial_mcp_step(){  # serial_mcp_step install|plan (plan: --dry-run, lists the build)
   if [ -z "$SERIAL_MCP_VERSION" ]; then
     note "! serial-mcp: no pinned version in the serial entry of $HERE/dot-claude/magg/config.json — skipped"; return 0
   fi
-  if serial_mcp_current; then [ "$1" = plan ] || note "serial-mcp present ($SERIAL_MCP_BIN)"; return 0; fi
+  if serial_mcp_current; then note "skip serial-mcp (found: $SERIAL_MCP_BIN, from rustup/cargo)"; return 0; fi
   local cargo; cargo="$(cargo_bin)"
   if [ -z "$cargo" ]; then
     note "serial-mcp: skipped, no cargo (install Rust, then rerun or: $SERIAL_MCP_CMD)"; return 0
@@ -984,8 +990,8 @@ if [ "$NO_DEPS" = 1 ] || [ "$DRY_RUN" = 1 ]; then
   if [ "$NO_DEPS" = 1 ]; then note "--no-deps: skipping brew/uv/node/magg/huetension/serial-mcp/venv installs"
   else note "--dry-run: listing the tool installs a real run would do"; fi
   miss(){ if [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ]; then would "$2"; else note "! $1 missing — $2"; fi; }
-  have magg || miss magg "uv tool install --exclude-newer $MAGG_EXCLUDE_NEWER magg==$MAGG_VERSION"
-  have huetension || miss huetension "install huetension v$HUETENSION_VERSION (checksummed release tarball; designer works without it)"
+  tool_skip magg || miss magg "uv tool install --exclude-newer $MAGG_EXCLUDE_NEWER magg==$MAGG_VERSION"
+  tool_skip huetension || miss huetension "install huetension v$HUETENSION_VERSION (checksummed release tarball; designer works without it)"
   if [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ]; then serial_mcp_step plan; fi
   if [ -x "$C/venvs/sci/bin/python" ]; then [ "$DRY_RUN" = 1 ] && [ "$NO_DEPS" = 0 ] && would "sync $C/venvs/sci to requirements/sci.txt (--require-hashes)"
   else miss "science venv at $C/venvs/sci" "uv venv $C/venvs/sci && uv pip install --require-hashes --only-binary :all: -r requirements/sci.txt"; fi
@@ -996,13 +1002,17 @@ else
   # (--with-lsp) >= 22, premiere-pro-mcp >= 20.19.
   node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 5) ? 0 : 1)' 2>/dev/null \
     || note "! node $(node --version 2>/dev/null) is older than 22.5 — upgrade (brew upgrade node / nvm install 22); context-mode, some npx MCP servers and the TypeScript language server need it"
-  # magg pinned; its dependencies resolved as of the cooldown date. --force replaces another version.
-  if [ "$(magg --version 2>/dev/null | awk '{print $2}')" != "$MAGG_VERSION" ]; then
-    uv tool install --quiet --force --exclude-newer "$MAGG_EXCLUDE_NEWER" "magg==$MAGG_VERSION" \
+  # magg pinned; its dependencies resolved as of the cooldown date. A magg found anywhere is left
+  # alone (the skip rule); another version than the pin is a WARN with the command.
+  if tool_skip magg; then
+    mv_="$("$(tool_where magg | cut -f1)" --version 2>/dev/null | awk '{print $2}' || true)"
+    [ "$mv_" = "$MAGG_VERSION" ] || note "WARN magg ${mv_:-?} found, the stack pins $MAGG_VERSION; left alone. To align: uv tool install --force --exclude-newer $MAGG_EXCLUDE_NEWER magg==$MAGG_VERSION"
+  else
+    uv tool install --quiet --exclude-newer "$MAGG_EXCLUDE_NEWER" "magg==$MAGG_VERSION" \
+      && note "+ magg $MAGG_VERSION" \
       || note "! magg $MAGG_VERSION install failed — uv tool install --exclude-newer $MAGG_EXCLUDE_NEWER magg==$MAGG_VERSION"
   fi
-  have magg && note "magg $(magg --version 2>/dev/null | awk '{print $2}')"
-  if ! have huetension; then
+  if ! tool_skip huetension; then
     mkdir -p "$HOME/.local/bin"
     set -- $(huetension_target)
     d="$(mktemp -d "${TMPDIR:-/tmp}/stack-install.XXXXXX")"
@@ -1016,8 +1026,8 @@ else
         || note "huetension: go install failed (needs Go >= 1.26; Go >= 1.21 fetches it automatically)"
     fi
     rm -rf "$d"
+    have huetension && note "+ huetension $HUETENSION_VERSION" || note "! huetension missing — designer works without color MCP; see README"
   fi
-  have huetension && note "huetension ok" || note "! huetension missing — designer works without color MCP; see README"
   serial_mcp_step install
   if venv_sync sci "$HERE/requirements/sci.txt" --only-binary :all:; then note "science venv: $C/venvs/sci (hash-locked)"
   else note "! science venv install failed — uv pip install --python $C/venvs/sci/bin/python --require-hashes --only-binary :all: -r $HERE/requirements/sci.txt"; fi
@@ -2946,7 +2956,11 @@ PY
     TS_PIN="typescript@6.0.3"
     have typescript-language-server || { have npm && npm_g "$TSLS" "$TS_PIN" >/dev/null 2>&1; } \
       || note "! typescript-language-server install failed — npm install -g --ignore-scripts --prefix ~/.local $TSLS $TS_PIN"
-    lsp_works rust-analyzer || { have rustup && rustup component add rust-analyzer >/dev/null 2>&1; } || note "! rust-analyzer: rustup component add rust-analyzer"
+    # rustup's rust-analyzer proxy without the component is a found tool that doesn't run: WARN, not installed
+    if lsp_works rust-analyzer; then :
+    elif have rust-analyzer; then note "WARN rust-analyzer at $(command -v rust-analyzer) fails 'rust-analyzer --version'; left alone. Fix: rustup component add rust-analyzer"
+    elif have rustup; then rustup component add rust-analyzer >/dev/null 2>&1 || note "! rust-analyzer: rustup component add rust-analyzer"
+    else note "! rust-analyzer: rustup component add rust-analyzer"; fi
     # Servers for the stack's other languages come from each language's own toolchain manager, and
     # only when that manager is already here (step 2 installs GHCup, juliaup, elan and Coursier unless
     # their group is off). Lean needs nothing extra (elan's `lake serve` is the server).

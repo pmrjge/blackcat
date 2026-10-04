@@ -31,9 +31,17 @@
 # DEVTOOLS_LEAN_PROJECT: install.sh's LEAN_PROJECT_PATH (stack.env, else the environment); a project
 # there is used as it is. DEVTOOLS_NOFILE (tests): the open-file limit instead of `ulimit -Sn`.
 # DEVTOOLS_NO_PROFILE=1 (install.sh --no-profile): installers are told not to edit shell profiles
-# where they have a switch for it. Every tool is checked first (command -v, its manager's own state,
-# brew list); a present one is never touched. One line per tool: "ok", "+" installed, "!" missing
-# or failed (with the log and the command).
+# where they have a switch for it.
+# THE SKIP RULE: every command is looked up first, from any source (command -v; the managers' own
+# bin dirs ~/.local/bin ~/.cargo/bin ~/.ghcup/bin ~/.cabal/bin ~/.elan/bin ~/.juliaup/bin, Coursier's,
+# ~/.nvm/versions/node/*/bin, /opt/homebrew/bin, /usr/local/bin; brew list; the JDK, TeX and
+# Playwright paths). Found = "skip <tool> (found: <path>, from <source>)": never installed, upgraded,
+# replaced or removed. A found tool that fails `--version` gets a WARN line with the fix to run
+# yourself. A manager counts as found when a tool it provides is (rustup: cargo/rustc; ghcup: ghc;
+# juliaup: julia; elan: lake/lean; nvm + node 24: any node). Configuration (uv's Python pin, git
+# lfs filters, the brew shellenv line) is not an install: "ok" when set, set when not. Other lines:
+# "+" installed, "!" missing or failed (with the log and the command); a summary line at the end.
+# DEVTOOLS_SYSTEM_DIRS (tests: "") replaces /opt/homebrew/bin /usr/local/bin in the lookup.
 set -u
 # Never in the caller's directory: install.sh starts here from the stack repo, which sandboxed agents
 # can write, and npx/npm exec prefer a matching package in ./node_modules (its .bin would run outside
@@ -126,7 +134,61 @@ have(){ command -v "$1" >/dev/null 2>&1; }
 line(){ printf '  %s\n' "$*"; }
 sha256_ok(){ printf '%s  %s\n' "$1" "$2" | shasum -a 256 -c - >/dev/null 2>&1; }
 path_add(){ [ -d "$1" ] || return 0; case ":$PATH:" in *":$1:"*) ;; *) PATH="$PATH:$1"; export PATH ;; esac; }
-runs(){ ("$@" >/dev/null 2>&1; exit $?) 2>/dev/null; }   # run it; the subshell keeps a crash report quiet
+runs(){ ("$@" >/dev/null 2>&1 </dev/null; exit $?) 2>/dev/null; }   # run it; the subshell keeps a crash report quiet
+
+# ---- the skip rule: a command found ANYWHERE is never installed, upgraded, replaced or removed ----
+# Found = on PATH (command -v), or in a manager's own bin dir while that is not on PATH yet.
+# DEVTOOLS_SYSTEM_DIRS (tests: "") replaces the Homebrew prefixes in that list.
+known_dirs(){
+  local d
+  printf '%s\n' "$HOME/.local/bin" "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.cabal/bin" "$HOME/.elan/bin" \
+    "$HOME/.juliaup/bin" "$HOME/Library/Application Support/Coursier/bin"
+  for d in ${DEVTOOLS_SYSTEM_DIRS-/opt/homebrew/bin /usr/local/bin}; do printf '%s\n' "$d"; done
+  for d in "${NVM_DIR:-$HOME/.nvm}"/versions/node/*/bin; do [ -d "$d" ] && printf '%s\n' "$d"; done
+  return 0
+}
+FOUND=""
+# find_cmd NAME...: FOUND = the path of the first NAME found (PATH first, then known_dirs)
+find_cmd(){
+  local n d p dirs
+  FOUND=""
+  for n in "$@"; do
+    p="$(command -v "$n" 2>/dev/null || true)"
+    case "$p" in /*) FOUND="$p"; return 0 ;; esac
+  done
+  dirs="$(known_dirs)"
+  for n in "$@"; do
+    while IFS= read -r d; do
+      [ -n "$d" ] && [ -x "$d/$n" ] && [ ! -d "$d/$n" ] && { FOUND="$d/$n"; return 0; }
+    done <<EOF_DIRS
+$dirs
+EOF_DIRS
+  done
+  return 1
+}
+source_of(){ case "$1" in
+  /opt/homebrew/*|/usr/local/Cellar/*|/usr/local/opt/*|"brew list"*) echo Homebrew ;;
+  "$HOME"/.cargo/*) echo "rustup/cargo" ;; "$HOME"/.ghcup/*) echo ghcup ;; "$HOME"/.cabal/*) echo cabal ;;
+  "$HOME"/.elan/*) echo elan ;; "$HOME"/.juliaup/*) echo juliaup ;; "${NVM_DIR:-$HOME/.nvm}"/*) echo nvm ;;
+  "$HOME/Library/Application Support/Coursier"/*) echo coursier ;; "$HOME"/.local/*) echo "~/.local" ;;
+  "$HOME"/Library/Caches/*) echo "Playwright's cache" ;;
+  /usr/bin/*|/bin/*|/usr/sbin/*|/sbin/*) echo "macOS" ;; /Library/*|/Applications/*) echo "an installed app" ;;
+  *) echo "PATH" ;; esac; }
+N_INST=0; N_SKIP=0; N_FAIL=0; N_WARN=0; N_WOULD=0; N_MISS=0
+skip_line(){ line "skip $1 (found: $2, from $(source_of "$2"))"; N_SKIP=$((N_SKIP + 1)); }
+warn_line(){ line "WARN $*"; N_WARN=$((N_WARN + 1)); }
+# a found tool that doesn't run is reported with the fix, never removed or reinstalled
+VERSION_CHECKED=" uv rustup juliaup elan ghcup hlint ormolu pre-commit gradle "
+fix_for(){ case "$1" in
+  ormolu) case "$2" in "$HOME"/.ghcup/*) printf 'ghcup rm ormolu %s; ' "$ORMOLU_BROKEN" ;; esac
+          printf 'cabal update; cabal install --ignore-project ormolu-%s --overwrite-policy=always' "$ORMOLU_VERSION" ;;
+  hlint) printf 'ghcup install ghc %s; cabal update; cabal install --ignore-project -w ghc-%s hlint-%s --overwrite-policy=always' "$HLINT_GHC" "$HLINT_GHC" "$HLINT_VERSION" ;;
+  *) printf '%s' "$3" ;; esac; }
+version_warn(){ # version_warn LABEL PATH ROUTE
+  case "$VERSION_CHECKED" in *" $1 "*) ;; *) return 0 ;; esac
+  runs "$2" --version && return 0
+  warn_line "$1 at $2 fails '$(basename "$2") --version'; the installer leaves it alone. Fix: $(fix_for "$1" "$2" "$3")"
+}
 # temp dirs under $TMPDIR (macOS mktemp -d without a template ignores it)
 tmpd(){ mktemp -d "${TMPDIR:-/tmp}/stack-devtools.XXXXXX"; }
 LOGDIR=""
@@ -171,18 +233,28 @@ MISSING_REQ=""     # "label|command" lines of required tools still missing
 # ensure LABEL REQ(1|0) CHECK ROUTE INSTALL [interactive]: one line per tool. CHECK and INSTALL
 # are function names (INSTALL "" = no route here); ROUTE is what a real run does (printed by
 # dry-run, report and on failure). "interactive": output stays on the terminal, not in a log.
+# A CHECK that finds a command sets FOUND: "skip LABEL (found: PATH, from SOURCE)"; a CHECK of
+# configuration (a pin, git's lfs filters, a project) leaves it empty: "ok  LABEL".
 ensure(){
   local label="$1" req="$2" check="$3" route="$4" inst="$5" inter="${6:-}" log="" rc cr=""
-  if "$check"; then line "ok  $label"; return 0; fi
+  FOUND=""
+  if "$check"; then
+    if [ -n "$FOUND" ]; then
+      skip_line "$label" "$FOUND"; version_warn "$label" "$FOUND" "$route"
+      case "$FOUND" in /*) [ -f "$FOUND" ] && path_add "$(dirname "$FOUND")" ;; esac   # later steps of this run use it
+    else line "ok  $label"; fi
+    return 0
+  fi
   if [ -z "$inst" ]; then
+    N_MISS=$((N_MISS + 1))
     line "! $label missing — $route"
     [ "$req" = 1 ] && MISSING_REQ="$MISSING_REQ$label|$route
 "
     return 0
   fi
   case "$MODE" in
-    report) line "! $label missing — $route"; return 0 ;;
-    dry-run) line "would: $label ← $route"; return 0 ;;
+    report) N_MISS=$((N_MISS + 1)); line "! $label missing — $route"; return 0 ;;
+    dry-run) N_WOULD=$((N_WOULD + 1)); line "would: $label ← $route"; return 0 ;;
   esac
   INSTALLER_RAN=""
   if [ -n "$inter" ]; then
@@ -196,10 +268,11 @@ ensure(){
     "$inst" >"$log" 2>&1 </dev/null; rc=$?
   fi
   if [ "$rc" = 0 ] && "$check"; then
+    N_INST=$((N_INST + 1))
     printf '%s  + %s (%s)\n' "$cr" "$label" "$route"
     [ -z "$INSTALLER_RAN" ] || line "  ran $INSTALLER_RAN"
   else
-    KEEP_LOGS=1
+    KEEP_LOGS=1; N_FAIL=$((N_FAIL + 1))
     printf '%s  ! %s: install failed%s — %s\n' "$cr" "$label" "${log:+ (log $log)}" "$route"
     [ "$req" = 1 ] && MISSING_REQ="$MISSING_REQ$label|$route
 "
@@ -208,7 +281,7 @@ ensure(){
 }
 
 # ==== 1. Homebrew ================================================================================
-chk_brew(){ [ -n "$BREW" ]; }
+chk_brew(){ [ -n "$BREW" ] && FOUND="$BREW"; }
 inst_brew(){
   # interactive on purpose: NONINTERACTIVE=1 makes Homebrew's installer use `sudo -n`, which fails
   # unless your sudo is cached; run on a terminal it asks for RETURN and your password itself
@@ -271,7 +344,7 @@ jdk_at_least(){ # a JDK of major >= $1 under $JVM_DIR (its release file; java_ho
   for r in "$JVM_DIR"/*/Contents/Home/release; do
     [ -f "$r" ] || continue
     v="$(sed -n 's/^JAVA_VERSION="\([0-9]*\).*/\1/p' "$r" | head -n 1)"
-    [ -n "$v" ] && [ "$v" -ge "$1" ] && return 0
+    [ -n "$v" ] && [ "$v" -ge "$1" ] && { JDK_AT="${r%/release}"; return 0; }
   done
   return 1
 }
@@ -281,21 +354,22 @@ brew_lists(){
   BREW_FORMULAE_LIST=" $("$BREW" list --formula -1 2>/dev/null </dev/null | tr '\n' ' ') "
   BREW_CASKS_LIST=" $("$BREW" list --cask -1 2>/dev/null </dev/null | tr '\n' ' ') "
 }
-item_present(){ # TYPE NAME PROBES
+ITEM_AT=""
+item_present(){ # TYPE NAME PROBES: ITEM_AT = where it was found (a path, or "brew list --formula|--cask")
   local type="$1" name="$2" probes="$3" short p
-  short="${name##*/}"
-  case "$type" in
-    formula) case "$BREW_FORMULAE_LIST" in *" $short "*) return 0 ;; esac ;;
-    cask) case "$BREW_CASKS_LIST" in *" $short "*) return 0 ;; esac ;;
-  esac
+  short="${name##*/}"; ITEM_AT=""
   local IFS=,
   for p in $probes; do
     case "$p" in
-      cmd:*) have "${p#cmd:}" && return 0 ;;
-      path:*) [ -e "${p#path:}" ] && return 0 ;;
-      jdk:*) jdk_at_least "${p#jdk:}" && return 0 ;;
+      cmd:*) find_cmd "${p#cmd:}" && { ITEM_AT="$FOUND"; return 0; } ;;
+      path:*) [ -e "${p#path:}" ] && { ITEM_AT="${p#path:}"; return 0; } ;;
+      jdk:*) jdk_at_least "${p#jdk:}" && { ITEM_AT="$JDK_AT"; return 0; } ;;
     esac
   done
+  case "$type" in
+    formula) case "$BREW_FORMULAE_LIST" in *" $short "*) ITEM_AT="brew list --formula"; return 0 ;; esac ;;
+    cask) case "$BREW_CASKS_LIST" in *" $short "*) ITEM_AT="brew list --cask"; return 0 ;; esac ;;
+  esac
   return 1
 }
 brew_resolves(){ # TYPE NAME: brew info knows it
@@ -325,21 +399,20 @@ brew_batch(){
 brew_step(){
   local skipped="" unresolved="" want_f="" want_c="" nobrew="" g type name probes t
   brew_lists
-  if [ -n "$BREW" ] && on MONGODB && ! "$BREW" tap 2>/dev/null </dev/null | grep -qx 'mongodb/brew'; then
+  if [ -n "$BREW" ] && on MONGODB && ! item_present formula mongodb/brew/mongodb-community cmd:mongod && ! "$BREW" tap 2>/dev/null </dev/null | grep -qx 'mongodb/brew'; then
     if [ "$MODE" = install ]; then "$BREW" tap mongodb/brew >/dev/null 2>&1 </dev/null || line "! brew tap mongodb/brew failed"
     else line "would: brew tap mongodb/brew"; fi
   fi
   while read -r g type name probes; do
     [ -n "$g" ] || continue
     on "$g" || continue
-    if item_present "$type" "$name" "$probes"; then skipped="$skipped ${name##*/}"; continue; fi
+    if item_present "$type" "$name" "$probes"; then skip_line "${name##*/}" "$ITEM_AT"; continue; fi
     if [ -z "$BREW" ]; then nobrew="$nobrew ${name##*/}"; continue; fi
     if ! brew_resolves "$type" "$name"; then unresolved="$unresolved $name"; continue; fi
     if [ "$type" = cask ]; then want_c="$want_c $name"; else want_f="$want_f $name"; fi
   done <<EOF_ITEMS
 $BREW_ITEMS
 EOF_ITEMS
-  [ -z "$skipped" ] || line "ok  already installed:$skipped"
   [ -z "$unresolved" ] || line "! brew could not resolve:$unresolved (left out)"
   [ -z "$nobrew" ] || line "! no Homebrew, not installed:$nobrew (install Homebrew, then rerun; jq and gitleaks have pinned fallbacks below)"
   [ -n "$want_f$want_c" ] || return 0
@@ -347,8 +420,10 @@ EOF_ITEMS
     report)
       [ -z "$want_f" ] || line "! missing formulae:$want_f"
       [ -z "$want_c" ] || line "! missing casks:$want_c"
+      N_MISS=$((N_MISS + $(echo $want_f $want_c | wc -w)))
       return 0 ;;
     dry-run)
+      N_WOULD=$((N_WOULD + $(echo $want_f $want_c | wc -w)))
       [ -z "$want_f" ] || line "would: HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install$want_f"
       [ -z "$want_c" ] || line "would: HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install --cask$want_c$([ "$TTY" = 1 ] || echo '  (no terminal: printed, not run)')"
       case "$want_c" in *mactex*) line "  (mactex is about 5 GB; STACK_INSTALL_LATEX=0 skips it; brew install --cask mactex-no-gui is the smaller one)" ;; esac
@@ -363,19 +438,20 @@ EOF_ITEMS
       brew_batch cask $want_c
     else
       line "! casks not installed (the pkg installers need a terminal): HOMEBREW_NO_ANALYTICS=1 brew install --cask$want_c"
+      N_MISS=$((N_MISS + $(echo $want_c | wc -w)))
       want_c=""
     fi
   fi
   brew_lists
   for name in $want_f $want_c; do
     t=formula; case " $want_c " in *" $name "*) t=cask ;; esac
-    if item_present "$t" "$name" "-"; then line "+ ${name##*/} (brew)"
-    else KEEP_LOGS=1; line "! ${name##*/}: brew install failed"; fi
+    if item_present "$t" "$name" "-"; then N_INST=$((N_INST + 1)); line "+ ${name##*/} (brew)"
+    else KEEP_LOGS=1; N_FAIL=$((N_FAIL + 1)); line "! ${name##*/}: brew install failed"; fi
   done
 }
 
 # ==== 3. upstream managers =======================================================================
-chk_uv(){ have uv || [ -x "$LOCAL_BIN/uv" ]; }
+chk_uv(){ find_cmd uv; }
 inst_uv(){
   if [ "$NO_PROFILE" = 1 ]; then UV_NO_MODIFY_PATH=1 remote_installer "$URL_UV" sh && return 0
   else remote_installer "$URL_UV" sh && return 0; fi
@@ -394,28 +470,28 @@ chk_pypin(){ have uv && uv python find "$PYTHON_PIN" >/dev/null 2>&1 && uv pytho
 inst_pypin(){ uv python install "$PYTHON_PIN" && uv python pin --global "$PYTHON_PIN"; }
 
 nvm_node_bin(){ local d; for d in "$NVM_DIR"/versions/node/v"$NODE_MAJOR".*; do [ -x "$d/bin/node" ] && { printf '%s' "$d/bin"; return 0; }; done; return 1; }
-chk_nvm(){ [ -s "$NVM_DIR/nvm.sh" ]; }
+chk_nvm(){ [ -s "$NVM_DIR/nvm.sh" ] && FOUND="$NVM_DIR/nvm.sh"; }
 inst_nvm(){
   if [ "$NO_PROFILE" = 1 ]; then PROFILE=/dev/null remote_installer "$URL_NVM" bash
   else remote_installer "$URL_NVM" bash; fi
 }
-chk_node24(){ nvm_node_bin >/dev/null; }
+chk_node24(){ local b; b="$(nvm_node_bin)" && FOUND="$b/node"; }
 # nvm is a shell function: sourced in a child bash (nvm.sh does not run under set -u)
 inst_node24(){ NVM_DIR="$NVM_DIR" bash -c '. "$NVM_DIR/nvm.sh" && nvm install '"$NODE_MAJOR"; }
-chk_pnpm(){ have pnpm && COREPACK_ENABLE_DOWNLOAD_PROMPT=0 runs pnpm -v; }
+chk_pnpm(){ find_cmd pnpm; }
 inst_pnpm(){
   local b; b="$(nvm_node_bin)" || { echo "no node $NODE_MAJOR from nvm"; return 1; }
   # corepack's one-time "download pnpm?" question is answered by the variable, never by keystrokes
   PATH="$b:$PATH" corepack enable pnpm && PATH="$b:$PATH" COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm -v
 }
 
-chk_rustup(){ have rustup || [ -x "$HOME/.cargo/bin/rustup" ]; }
+chk_rustup(){ find_cmd rustup cargo rustc; }
 inst_rustup(){
   if [ "$NO_PROFILE" = 1 ]; then remote_installer "$URL_RUSTUP" sh -y --no-modify-path
   else remote_installer "$URL_RUSTUP" sh -y; fi
 }
 
-chk_ghcup(){ have ghcup || [ -x "$HOME/.ghcup/bin/ghcup" ]; }
+chk_ghcup(){ find_cmd ghcup ghc; }
 inst_ghcup(){
   # ghcup's documented non-interactive variables (bootstrap-haskell's header): HLS on, stack on
   # (its default; BOOTSTRAP_HASKELL_INSTALL_NO_STACK would skip it), PATH line in the rc files
@@ -428,31 +504,23 @@ inst_ghcup(){
 # Outside the sandbox with your own cabal dirs: the sandbox's CABAL_DIR/XDG_CACHE_HOME, if inherited,
 # would send the build into ~/.cache/claude-sandbox.
 cabal_u(){ env -u CABAL_DIR -u XDG_CACHE_HOME cabal "$@" </dev/null; }
-chk_hlint(){ runs hlint --version; }
+chk_hlint(){ find_cmd hlint; }
 inst_hlint(){
   ghcup whereis ghc "$HLINT_GHC" >/dev/null 2>&1 || ghcup install ghc "$HLINT_GHC" </dev/null || return 1
   cabal_u update && cabal_u install --ignore-project -w "ghc-$HLINT_GHC" "hlint-$HLINT_VERSION" --overwrite-policy=always
 }
-cabal_ormolu(){ local b; for b in "$HOME/.cabal/bin/ormolu" "$LOCAL_BIN/ormolu"; do [ -x "$b" ] && runs "$b" --version && { printf '%s' "$b"; return 0; }; done; return 1; }
-# run it, don't just find it: ghcup's ormolu 0.8.0.2 crashes
-chk_ormolu(){ runs ormolu --version || cabal_ormolu >/dev/null; }
+# an ormolu or hlint found anywhere is skipped; one that fails --version (ghcup's ormolu 0.8.0.2
+# crashes) gets a WARN line with the fix to run yourself: never removed or reinstalled here
+chk_ormolu(){ find_cmd ormolu; }
 inst_ormolu(){ cabal_u update && cabal_u install --ignore-project "ormolu-$ORMOLU_VERSION" --overwrite-policy=always; }
-ormolu_cleanup(){
-  # ghcup's broken ormolu goes once cabal's runs
-  [ "$MODE" = install ] && have ghcup && cabal_ormolu >/dev/null || return 0
-  local g; g="$(ghcup whereis ormolu "$ORMOLU_BROKEN" 2>/dev/null </dev/null)" || return 0
-  [ -n "$g" ] && ! runs "$g" --version || return 0
-  if ghcup rm ormolu "$ORMOLU_BROKEN" >/dev/null 2>&1 </dev/null; then line "- ormolu $ORMOLU_BROKEN (ghcup, broken) removed"
-  else line "! ghcup rm ormolu $ORMOLU_BROKEN failed"; fi
-}
 
-chk_juliaup(){ have juliaup || [ -x "$HOME/.juliaup/bin/juliaup" ]; }
+chk_juliaup(){ find_cmd juliaup julia; }
 inst_juliaup(){
   if [ "$NO_PROFILE" = 1 ]; then remote_installer "$URL_JULIAUP" sh --yes --add-to-path=no
   else remote_installer "$URL_JULIAUP" sh --yes; fi
 }
 
-chk_cs(){ have cs || have coursier || [ -x "$HOME/Library/Application Support/Coursier/bin/cs" ]; }
+chk_cs(){ find_cmd cs coursier; }
 inst_cs(){
   local d rc; d="$(tmpd)" || return 1
   echo "download: $URL_COURSIER"
@@ -464,7 +532,7 @@ inst_cs(){
   rm -rf "$d"; return $rc
 }
 
-chk_elan(){ have elan || have lake || [ -x "$HOME/.elan/bin/elan" ]; }
+chk_elan(){ find_cmd elan lake lean; }
 inst_elan(){
   if [ "$NO_PROFILE" = 1 ]; then remote_installer "$URL_ELAN" sh -y --default-toolchain stable --no-modify-path
   else remote_installer "$URL_ELAN" sh -y --default-toolchain stable; fi
@@ -499,10 +567,20 @@ upstream_step(){
     ensure "python $PYTHON_PIN (uv global pin)" 0 chk_pypin "uv python install $PYTHON_PIN && uv python pin --global $PYTHON_PIN" inst_pypin
   fi
   if on NODE; then
-    ensure nvm 0 chk_nvm "nvm $NVM_VERSION installer ($URL_NVM)" inst_nvm
-    ensure "node $NODE_MAJOR (nvm)" 0 chk_node24 "nvm install $NODE_MAJOR" inst_node24
+    # a node found anywhere: nvm and node 24 are skipped (nvm's installer never runs again)
+    if find_cmd node; then
+      skip_line node "$FOUND"; path_add "$(dirname "$FOUND")"
+    else
+      ensure nvm 0 chk_nvm "nvm $NVM_VERSION installer ($URL_NVM)" inst_nvm
+      ensure "node $NODE_MAJOR (nvm)" 0 chk_node24 "nvm install $NODE_MAJOR" inst_node24
+    fi
     nb="$(nvm_node_bin)" && path_add "$nb"
-    ensure "pnpm (corepack)" 0 chk_pnpm "corepack enable pnpm; COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm -v" inst_pnpm
+    # pnpm through corepack only on nvm's own node 24 (never written into another node's install)
+    if nvm_node_bin >/dev/null; then
+      ensure "pnpm (corepack)" 0 chk_pnpm "corepack enable pnpm; COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm -v" inst_pnpm
+    else
+      ensure "pnpm (corepack)" 0 chk_pnpm "corepack enable pnpm with your node (left to you: it writes into that node's install)" ""
+    fi
   fi
   if on RUST; then
     ensure rustup 0 chk_rustup "rustup installer ($URL_RUSTUP, latest) -y" inst_rustup
@@ -513,7 +591,6 @@ upstream_step(){
     path_add "$HOME/.ghcup/bin"; path_add "$HOME/.cabal/bin"
     ensure hlint 0 chk_hlint "ghcup install ghc $HLINT_GHC; cabal update; cabal install --ignore-project -w ghc-$HLINT_GHC hlint-$HLINT_VERSION --overwrite-policy=always" inst_hlint
     ensure ormolu 0 chk_ormolu "cabal update; cabal install --ignore-project ormolu-$ORMOLU_VERSION --overwrite-policy=always" inst_ormolu
-    ormolu_cleanup
   fi
   if on JULIA; then
     ensure juliaup 0 chk_juliaup "juliaup installer ($URL_JULIAUP, latest) --yes" inst_juliaup
@@ -521,7 +598,8 @@ upstream_step(){
   if on SCALA; then
     ensure coursier 0 chk_cs "cs from $URL_COURSIER (latest), then cs setup -y" inst_cs
   fi
-  if on LEAN && lean_limit_ok; then
+  # elan found anywhere: skipped whatever the open-file limit (the limit gates installing only)
+  if on LEAN && { chk_elan || lean_limit_ok; }; then
     ensure elan 0 chk_elan "elan installer ($URL_ELAN, latest) -y --default-toolchain stable$([ "$NO_PROFILE" = 1 ] && echo ' --no-modify-path')" inst_elan
     path_add "$HOME/.elan/bin"
   fi
@@ -530,7 +608,7 @@ upstream_step(){
 
 # ==== 4. required check ==========================================================================
 chk_node(){ have node && have npx; }
-chk_jq(){ have jq; }
+chk_jq(){ find_cmd jq; }
 inst_jq_binary(){
   set -- $(jq_target)
   [ -n "${1:-}" ] || return 1
@@ -558,7 +636,7 @@ required_step(){
 }
 
 # ==== 5. the rest ================================================================================
-chk_gitleaks(){ have gitleaks; }
+chk_gitleaks(){ find_cmd gitleaks; }
 inst_gitleaks_tarball(){
   set -- $(gitleaks_target)
   [ -n "${1:-}" ] || return 1
@@ -568,13 +646,13 @@ inst_gitleaks_tarball(){
     && tar -xzf "$d/g.tgz" -C "$d" gitleaks && install -m 0755 "$d/gitleaks" "$LOCAL_BIN/gitleaks"
   rc=$?; rm -rf "$d"; return $rc
 }
-chk_pre_commit(){ have pre-commit; }
+chk_pre_commit(){ find_cmd pre-commit; }
 inst_pre_commit(){
   have uv || { echo "uv is missing"; return 1; }
   uv tool install --python "$PRE_COMMIT_PYTHON" --exclude-newer "$PRE_COMMIT_EXCLUDE_NEWER" "pre-commit==$PRE_COMMIT_VERSION"
 }
 GRADLE_HOME_DIR="$LOCAL_OPT/gradle-$GRADLE_VERSION"
-chk_gradle(){ have gradle; }
+chk_gradle(){ find_cmd gradle; }
 inst_gradle(){
   # already unpacked (an earlier run, or a link removed since): only the link is (re)made
   if [ ! -x "$GRADLE_HOME_DIR/bin/gradle" ]; then
@@ -595,10 +673,12 @@ pw_dir(){
   elif [ "$(uname -s)" = Darwin ]; then printf '%s' "$HOME/Library/Caches/ms-playwright"
   else printf '%s' "${XDG_CACHE_HOME:-$HOME/.cache}/ms-playwright"; fi
 }
+# the revision Playwright $PLAYWRIGHT_VERSION uses, both browsers complete under the browsers path
 chk_playwright(){
   local d; d="$(pw_dir)"
   [ -f "$d/chromium-$PLAYWRIGHT_CHROMIUM_REVISION/INSTALLATION_COMPLETE" ] \
-    && [ -f "$d/chromium_headless_shell-$PLAYWRIGHT_CHROMIUM_REVISION/INSTALLATION_COMPLETE" ]
+    && [ -f "$d/chromium_headless_shell-$PLAYWRIGHT_CHROMIUM_REVISION/INSTALLATION_COMPLETE" ] \
+    && FOUND="$d/chromium-$PLAYWRIGHT_CHROMIUM_REVISION"
 }
 inst_playwright(){
   have npx || { echo "npx is missing"; return 1; }
@@ -686,11 +766,22 @@ all(){
   homebrew_step
   brew_step
   upstream_step
-  required_step || return 3
+  required_step || { summary; return 3; }
   rest_step
+  summary
+}
+summary(){
+  local w=""; [ "$N_WARN" = 0 ] || w=", $N_WARN warning(s) (WARN above)"
+  case "$MODE" in
+    install) line "summary: $N_INST installed, $N_SKIP skipped (already there), $N_FAIL failed, $N_MISS not installed$w" ;;
+    dry-run) line "summary: $N_WOULD would be installed, $N_SKIP skipped (already there), $N_MISS not installable here$w" ;;
+    report) line "summary: $N_MISS missing, $N_SKIP present$w" ;;
+  esac
 }
 
 case "${1:-}" in
   all) all ;;
-  *) echo "usage: devtools.sh all" >&2; exit 2 ;;
+  # where NAME...: "PATH<tab>SOURCE" of the first one found (install.sh's own tools use the same rule)
+  where) shift; find_cmd "$@" || exit 1; printf '%s\t%s\n' "$FOUND" "$(source_of "$FOUND")" ;;
+  *) echo "usage: devtools.sh all | where NAME..." >&2; exit 2 ;;
 esac

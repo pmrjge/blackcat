@@ -698,7 +698,11 @@ places:
 | Open-file limit 65536 (elan/Lean need it; macOS starts programs with 256) | `/Library/LaunchDaemons/ulimit.max-files.plist`: launchd soft 65536, hard 524288 | offered before step 2 on a terminal: shows the plist and the steps, asks [y/N], runs sudo only after y (`STACK_INSTALL_MAXFILES`); the run then raises its own limit | optional (without it the Lean group is skipped) | `install.sh`, [CONFIG.md](CONFIG.md) §7 "Open-file limit" |
 | Toolchains: rustup, ghcup (+ hlint, ormolu), juliaup, coursier, elan + a Mathlib project, JDK, Gradle, MacTeX, cmake/ninja, go/gopls, gitleaks, pre-commit, Playwright's Chromium | see [CONFIG.md](CONFIG.md) §7 | installed by step 2 when missing, one group knob each ([Installer and session environment](#installer-and-session-environment)) | optional | `lib/devtools.sh` |
 
-`./install.sh` installs what is missing (step 2). To see what it would install first:
+`./install.sh` installs only what is missing (step 2): a command-line tool already there, from any
+source (PATH, Homebrew, `~/.cargo/bin`, `~/.ghcup/bin`, `~/.elan/bin`, `~/.local/bin`, `~/.nvm`, …),
+is skipped and never upgraded, replaced or removed (`skip <tool> (found: <path>, from <source>)`; one
+that fails `--version` gets a WARN with the fix to run yourself). Configuration (uv's Python pin, git
+lfs filters, profile lines) is set when missing. To see what it would install first:
 `./install.sh --dry-run` (the brew batches, the upstream installers and the pinned downloads, one line
 each); `~/.claude/bin/stack-update-tools` updates them together later.
 
@@ -872,7 +876,7 @@ steps, as the run prints them:
 2. **Tools**: prerequisites and toolchains (`lib/devtools.sh`: Homebrew, one brew batch for the
    missing formulae and one for the missing casks, the upstream managers uv, nvm, rustup, ghcup,
    juliaup, coursier and elan, then the Mathlib project, gitleaks, pre-commit, Gradle and Playwright's Chromium; one line per
-   tool, a present one never touched, `STACK_INSTALL_<GROUP>=0` skips a group), magg, huetension, the hash-locked science venv
+   tool, an existing tool from any source skipped and never touched (`skip <tool> (found: …)`, a summary line at the end), `STACK_INSTALL_<GROUP>=0` skips a group), magg, huetension, the hash-locked science venv
    (`~/.claude/venvs/sci`) and tools venv (`~/.claude/venvs/tools`: what the stack's scripts, MCP
    servers and tests import; `requirements/tools.in`); serial-mcp (`cargo install --locked` at the catalog's pin) when cargo
    is present, else one line saying it was skipped (Rust is never installed).

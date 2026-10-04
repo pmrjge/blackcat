@@ -133,7 +133,7 @@ class Env:
                "TMPDIR": str(self.tmp), "SERVE_DIR": str(self.serve), "BREW_STATE": str(self.state),
                "DEVTOOLS_BREW_CANDIDATES": "", "DEVTOOLS_JAVA_HOME_TOOL": "",
                "DEVTOOLS_JVM_DIR": str(self.jvm), "DEVTOOLS_TEX_BIN": str(self.t / "notex"),
-               "DEVTOOLS_MODE": mode}
+               "DEVTOOLS_MODE": mode, "DEVTOOLS_SYSTEM_DIRS": ""}
         for g in GROUPS:
             env["STACK_INSTALL_" + g] = "1" if g in groups else "0"
         if tty == "1":
@@ -185,7 +185,8 @@ def test_all_present_means_no_brew_install_and_no_download(tmp_path):
     assert rc == 0, err
     assert e.calls("brew", "install") == [] and e.calls("brew", "info") == []
     assert e.calls("curl") == [] and e.calls("uv") == [] and e.calls("npx") == []
-    assert any(l.startswith("  ok  already installed:") for l in lines(out))
+    assert "  skip gh (found: brew list --formula, from Homebrew)" in lines(out)
+    assert "summary: 0 installed, " in out
     assert not [l for l in lines(out) if l.lstrip().startswith(("!", "+", "would"))], out
 
 
@@ -203,8 +204,10 @@ def test_present_from_other_sources_is_skipped(tmp_path):
     rc, out, _ = e.run("GO", "JAVA", "LATEX", DEVTOOLS_TEX_BIN=str(tex))
     assert rc == 0
     assert e.calls("brew", "install") == []
-    skipped = next(l for l in lines(out) if "already installed:" in l).split(":", 1)[1].split()
-    assert set(skipped) == {"go", "gopls", "oracle-jdk", "kotlin-lsp", "mactex"}
+    skipped = {l.split()[1] for l in lines(out) if l.startswith("  skip ")}
+    assert skipped == {"go", "gopls", "oracle-jdk", "kotlin-lsp", "mactex"}
+    assert "  skip go (found: %s/go, from PATH)" % e.bin in lines(out)
+    assert "  skip mactex (found: %s/pdflatex, from PATH)" % tex in lines(out) or "  skip mactex (found: %s, " % (tex / "pdflatex") in out
 
 
 def test_an_older_jdk_does_not_count(tmp_path):
@@ -341,7 +344,7 @@ def test_upstream_installers_run_with_their_noninteractive_flags(tmp_path):
 
 def test_no_profile_is_passed_to_the_installers(tmp_path):
     e = Env(tmp_path)
-    e.present("node", "npx", "hlint", "ormolu")
+    e.present("hlint", "ormolu")          # no node anywhere: nvm runs (rc 3 for the missing node is fine here)
     installer(e, "RUSTUP", [".cargo/bin/rustup"])
     installer(e, "JULIAUP", [".juliaup/bin/juliaup"])
     installer(e, "UV", [".local/bin/uv"])
@@ -376,7 +379,8 @@ def test_present_managers_are_never_rerun(tmp_path):
     rc, out, _ = e.run("UV", "NODE", "RUST", "JULIA", "SCALA", "HASKELL")
     assert rc == 0
     assert e.calls("curl") == []
-    assert not [l for l in lines(out) if not l.startswith(("  ok  ", "  groups off:"))], out
+    assert not [l for l in lines(out) if not l.startswith(("  ok  ", "  skip ", "  groups off:", "  summary:"))], out
+    assert re.search(r"^  skip rustup \(found: \S+/rustup, from PATH\)$", out, re.M), out
 
 
 def test_nvm_node24_and_pnpm_without_keystrokes(tmp_path):
@@ -414,23 +418,41 @@ def test_coursier_from_the_upstream_asset(tmp_path):
     assert not list(e.tmp.glob("stack-devtools.*/cs"))       # the temp cs is gone
 
 
-def test_haskell_plan_uses_the_users_cabal_dirs_and_drops_the_broken_ormolu(tmp_path):
+HASKELL_CABAL = ('case "$*" in *ormolu-*) mkdir -p "$HOME/.cabal/bin"; printf "#!/bin/sh\\nexit 0\\n" >"$HOME/.cabal/bin/ormolu"; '
+                 'chmod +x "$HOME/.cabal/bin/ormolu" ;; *hlint-*) printf "#!/bin/sh\\nexit 0\\n" >"%s/hlint"; chmod +x "%s/hlint" ;; esac')
+
+
+def test_haskell_missing_hlint_and_ormolu_are_built_with_the_users_cabal_dirs(tmp_path):
     e = Env(tmp_path)
     e.present("uv", "node", "npx")
-    broken = mkexe(tmp_path / "ghcup-ormolu", "kill -ABRT $$")
-    e.shim("ghcup", 'case "$1 $2" in "whereis ghc") exit 1 ;; "whereis ormolu") echo %s ;; esac; exit 0' % broken)
-    e.shim("cabal", 'case "$*" in *ormolu-*) mkdir -p "$HOME/.cabal/bin"; printf "#!/bin/sh\\nexit 0\\n" >"$HOME/.cabal/bin/ormolu"; '
-                    'chmod +x "$HOME/.cabal/bin/ormolu" ;; *hlint-*) printf "#!/bin/sh\\nexit 0\\n" >"%s/hlint"; chmod +x "%s/hlint" ;; esac'
-           % (e.bin, e.bin))
+    e.shim("ghcup", 'case "$1 $2" in "whereis ghc") exit 1 ;; esac; exit 0')
+    e.shim("cabal", HASKELL_CABAL % (e.bin, e.bin))
     rc, out, err = e.run("HASKELL", CABAL_DIR=str(tmp_path / "sandboxed-cabal"))
     assert rc == 0, err
-    assert e.argv("ghcup")[:2] == ["whereis ghc 9.12.4", "install ghc 9.12.4"]
-    assert "rm ormolu 0.8.0.2" in e.argv("ghcup")
+    assert [a for a in e.argv("ghcup") if a != "--version"] == ["whereis ghc 9.12.4", "install ghc 9.12.4"]   # never `ghcup rm`
     assert e.argv("cabal") == [
         "update", "install --ignore-project -w ghc-9.12.4 hlint-3.10 --overwrite-policy=always",
         "update", "install --ignore-project ormolu-0.9.0.0 --overwrite-policy=always"]
     assert all("CABAL_DIR= " in c for c in e.calls("cabal"))
-    assert "- ormolu 0.8.0.2 (ghcup, broken) removed" in out
+    assert re.search(r"^  \+ hlint ", out, re.M) and re.search(r"^  \+ ormolu ", out, re.M), out
+
+
+def test_a_broken_present_ormolu_is_warned_about_never_removed_or_rebuilt(tmp_path):
+    """ghcup's ormolu 0.8.0.2 crashes on --version: WARN with the fix, no ghcup rm, no cabal build;
+    a present hlint means no side GHC either."""
+    e = Env(tmp_path)
+    e.present("uv", "node", "npx", "hlint")
+    e.shim("ghcup")
+    e.shim("cabal", HASKELL_CABAL % (e.bin, e.bin))
+    broken = mkexe(e.home / ".ghcup" / "bin" / "ormolu", "kill -ABRT $$")    # not on PATH: found anyway
+    rc, out, err = e.run("HASKELL")
+    assert rc == 0, err
+    assert [a for a in e.argv("ghcup") if a != "--version"] == [] and e.calls("cabal") == []
+    assert "  skip ormolu (found: %s, from ghcup)" % broken in lines(out)
+    assert ("WARN ormolu at %s fails 'ormolu --version'; the installer leaves it alone. Fix: ghcup rm ormolu 0.8.0.2; "
+            "cabal update; cabal install --ignore-project ormolu-0.9.0.0 --overwrite-policy=always" % broken) in out
+    assert re.search(r"^  skip hlint \(found: \S+/hlint, from PATH\)$", out, re.M)
+    assert "1 warning(s)" in out
 
 
 # ---------------------------------------------------------------- required tools
@@ -531,7 +553,8 @@ def test_all_groups_off(tmp_path):
     e.present("uv", "node", "npx")
     rc, out, _ = e.run()
     assert rc == 0
-    assert lines(out) == ["  groups off: " + " ".join(GROUPS)]
+    assert lines(out) == ["  groups off: " + " ".join(GROUPS),
+                          "  summary: 0 installed, 0 skipped (already there), 0 failed, 0 not installed"]
     assert [c for c in e.calls() if not c.startswith("brew list ")] == []
 
 
@@ -614,7 +637,7 @@ def test_elan_no_profile_and_a_present_elan_is_never_rerun(tmp_path):
     e.log.write_text("")
     rc, out, _ = e.run("LEAN", DEVTOOLS_NOFILE="65536", LEAN_PROJECT_PATH=str(tmp_path / "nolake"))
     assert rc == 0 and e.calls("curl") == []                   # elan in ~/.elan/bin, not on PATH
-    assert "ok  elan" in out
+    assert "skip elan (found: %s/.elan/bin/elan, from elan)" % e.home in out
 
 
 def test_lean_is_skipped_while_the_open_file_limit_is_low(tmp_path):
@@ -1174,3 +1197,93 @@ def test_review7_another_low_daemon_gets_the_both_run_warning(tmp_path):
 def test_review8_9_stale_docs_are_gone():
     assert "Until the session-env hook exports them" not in (ROOT / "CONFIG.md").read_text()
     assert "You install it: elan" not in (ROOT / "lib" / "stack.env.example").read_text()
+
+
+# ---------------------------------------------------------------- the skip rule
+UV_PINNED = 'case "$*" in "python find 3.14") exit 0 ;; "python pin --global") echo 3.14 ;; esac; exit 0'
+INSTALLING = re.compile(r"^(brew (install|tap \S|upgrade|reinstall|uninstall|rm)|curl |npx |cabal |ghcup (install|rm|set)|"
+                        r"uv (tool|python install)|lake |corepack |cs setup|installer-|git-lfs )")
+
+
+def everything_present(e, tmp_path):
+    """Every command any group installs, on PATH as a shim; the brew-list-only items in brew's list."""
+    cmds = {p[4:] for _, _, _, probes in BREW_ITEMS for p in probes.split(",") if p.startswith("cmd:")}
+    cmds |= {"node", "npx", "pnpm", "rustup", "ghcup", "hlint", "ormolu", "juliaup", "cs", "elan",
+             "pre-commit", "gradle", "gitleaks"}
+    for c in cmds:
+        e.shim(c)
+    e.shim("uv", UV_PINNED)
+    e.brew(installed=[n.split("/")[-1] for g, t, n, p in BREW_ITEMS if t == "formula" and p == "-"])
+    e.playwright_installed()
+    home = e.jvm / "jdk-27.jdk" / "Contents" / "Home"
+    home.mkdir(parents=True)
+    (home / "release").write_text('JAVA_VERSION="27.0.1"\n')
+    (e.home / ".gitconfig").write_text('[filter "lfs"]\n\tprocess = git-lfs filter-process\n')
+    proj = tmp_path / "proj"
+    proj.mkdir()
+    (proj / "lakefile.toml").write_text("")
+    return {"DEVTOOLS_LEAN_PROJECT": str(proj), "DEVTOOLS_NOFILE": "65536"}
+
+
+def test_every_tool_present_anywhere_means_zero_install_calls(tmp_path):
+    e = Env(tmp_path)
+    extra = everything_present(e, tmp_path)
+    rc, out, err = e.run(*GROUPS, tty="1", **extra)
+    assert rc == 0, err
+    acting = [c for c in e.calls() if INSTALLING.match(c)]
+    assert acting == [], acting
+    assert not [l for l in lines(out) if l.lstrip().startswith(("!", "+", "would", "WARN"))], out
+    skips = [l for l in lines(out) if l.startswith("  skip ")]
+    for tool in ("homebrew", "jq", "go", "gopls", "typst", "shellcheck", "oracle-jdk", "uv", "node", "pnpm (corepack)",
+                 "rustup", "ghcup", "hlint", "ormolu", "juliaup", "coursier", "elan", "pre-commit", "gradle",
+                 "playwright browsers", "cmake-docs", "postgresql@18", "mongodb-community"):
+        assert any(l.startswith("  skip %s (found: " % tool) for l in skips), (tool, out)
+    assert re.search(r"^  summary: 0 installed, %d skipped \(already there\), 0 failed, 0 not installed$" % len(skips), out, re.M), out
+    # dry-run shows the same skip lines and runs nothing
+    e.log.write_text("")
+    rc, dry, _ = e.run(*GROUPS, mode="dry-run", tty="1", **extra)
+    assert [l for l in lines(dry) if l.startswith("  skip ")] == skips
+    assert [c for c in e.calls() if INSTALLING.match(c)] == []
+
+
+def test_a_manager_found_off_path_in_its_own_dir_is_skipped(tmp_path):
+    e = Env(tmp_path)
+    e.present("uv", "node", "npx")
+    cargo = mkexe(e.home / ".cargo" / "bin" / "cargo", "exit 0")           # rustup's dir, not on PATH
+    installer(e, "RUSTUP", [".cargo/bin/rustup"])
+    rc, out, _ = e.run("RUST")
+    assert rc == 0 and e.calls("curl") == [] and inst_line(e, "RUSTUP") == []
+    assert "  skip rustup (found: %s, from rustup/cargo)" % cargo in lines(out)
+
+
+def test_only_the_missing_ones_are_installed(tmp_path):
+    e = Env(tmp_path)
+    e.brew()
+    e.present("uv", "node", "npx", "go", "cmake", "ninja")
+    rc, out, _ = e.run("GO", "CXX")
+    assert rc == 0
+    batch = e.argv("brew", "install")
+    assert len(batch) == 1 and "gopls" in batch[0].split()
+    assert not {"go", "cmake", "ninja"} & set(batch[0].split())
+    assert "  skip go (found: %s/go, from PATH)" % e.bin in lines(out)
+    assert re.search(r"^  summary: \d+ installed, 3 skipped", out, re.M), out
+
+
+def test_a_present_tool_that_fails_version_is_never_reinstalled(tmp_path):
+    e = Env(tmp_path)
+    e.present("uv", "node", "npx")
+    bad = e.shim("juliaup", "exit 1")
+    installer(e, "JULIAUP", [".juliaup/bin/juliaup"])
+    rc, out, _ = e.run("JULIA")
+    assert rc == 0 and inst_line(e, "JULIAUP") == [] and e.calls("curl") == []
+    assert "WARN juliaup at %s fails 'juliaup --version'; the installer leaves it alone. Fix: juliaup installer (" % bad in out
+
+
+def test_install_sh_own_tools_follow_the_skip_rule():
+    t = INSTALL_TEXT
+    assert 'uv tool install --quiet --force' not in t                      # magg: never replaced
+    assert 'tool_where(){ bash "$HERE/lib/devtools.sh" where "$@"' in t
+    assert "if tool_skip magg; then" in t and "if ! tool_skip huetension; then" in t
+    assert 'if serial_mcp_current; then note "skip serial-mcp (found: ' in t
+    assert "ghcup rm" not in t and "ghcup rm" not in "\n".join(l for l in SRC.splitlines() if not l.lstrip().startswith("#")
+                                                             and "fix_for" not in l and "printf 'ghcup rm" not in l)
