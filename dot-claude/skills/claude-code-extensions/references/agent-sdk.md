@@ -47,7 +47,7 @@ never through programmatic copies (`agents=`, inline `hooks=`).
 | `hooks` (callbacks) | run side by side with settings hooks, in parallel; the most restrictive decision wins (deny > defer > ask > allow) | a callback cannot loosen a settings hook's deny |
 
 Precedence: managed policy > programmatic options > local > project > user (claude-code-features).
-Enforced in every mode: no-push and forge writes, spawn policy, depth, fan-out caps, supreme-coder
+Enforced in every mode: no-push and forge writes, spawn policy, depth, fan-out caps
 singleton, read-only reviewers, protected paths, token budgets, MCP call caps, image limit, labels, ledger.
 
 ## Hooks without a terminal
