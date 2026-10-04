@@ -298,6 +298,36 @@ INSTALL_ALLOW = [
 ]
 
 
+# --diff is read-only only alone (with --config-dir) and with no variable set before it
+INSTALL_DIFF_ALLOW = [
+    "./install.sh --diff", "bash install.sh --diff", f"{ROOT}/install.sh --diff",
+    "./install.sh --diff --config-dir /tmp/c", "./install.sh --config-dir=/Users/me/.c --diff",
+    "./install.sh --diff 2>&1 | head", "./install.sh --diff > /tmp/d.txt; cat /tmp/d.txt",
+    "bash -c './install.sh --diff'", "sh -c \"bash install.sh --diff --config-dir ~/.claude\"",
+]
+INSTALL_DIFF_DENY = [
+    "./install.sh --diff --yes", "./install.sh --diff --no-prune", "./install.sh --diff --force",
+    "./install.sh --diff --restore x", "./install.sh --yes --diff", "./install.sh --diff -y",
+    "./install.sh --diff --config-dir", "./install.sh --diff --config-dir --yes",
+    "./install.sh --diff --config-dir=", "./install.sh --diff x",
+    "./install.sh --diffx", "./install.sh --config-dir /tmp/c",
+    "HOME=/Users/me ./install.sh --diff", "env HOME=/x ./install.sh --diff",
+    "CLAUDE_CONFIG_DIR=/x ./install.sh --diff", "export HOME=/x; ./install.sh --diff",
+    "FOO=1 bash install.sh --diff", "bash -c './install.sh --diff --yes'",
+    "bash -c 'HOME=/x ./install.sh --diff'", "eval './install.sh --diff --no-mcp'",
+]
+
+
+@pytest.mark.parametrize("command", INSTALL_DIFF_ALLOW)
+def test_installer_diff_alone_passes(command):
+    assert scan(command) is None, command
+
+
+@pytest.mark.parametrize("command", INSTALL_DIFF_DENY)
+def test_installer_diff_with_writes_or_env_is_denied(command):
+    assert kind(command) == "install", command
+
+
 @pytest.mark.parametrize("command", INSTALL_DENY)
 def test_installer_run_is_denied(command):
     assert kind(command) == "install", command
@@ -332,6 +362,8 @@ def test_installer_denied_for_every_agent_and_main(atype, aid):
     assert "install.sh is the user's step (it rewrites ~/.claude): ask the user to run it" in r.reason
     assert hook("bash install.sh", atype, aid).decision == "deny"
     assert hook("./install.sh --dry-run", atype, aid).decision == "allow(no-output)"
+    assert hook("./install.sh --diff", atype, aid).decision == "allow(no-output)"
+    assert hook("./install.sh --diff --yes", atype, aid).decision == "deny"
     assert hook("bash tests/install_smoke.sh", atype, aid).decision == "allow(no-output)"
     assert hook("HOME=/tmp/s CLAUDE_CONFIG_DIR=/tmp/s/c ./install.sh", atype,
                 aid).decision == "allow(no-output)"
@@ -368,6 +400,7 @@ def test_cd_to_the_stack_repo_then_installer_is_denied(other_project, monkeypatc
     monkeypatch.chdir(other_project["cwd"])
     for cmd in (f"cd {ROOT} && ./install.sh --dry-run", f"cd {ROOT} && ./install.sh --help",
                 f"cd {ROOT} && ./install.sh --print-managed-settings",
+                f"cd {ROOT} && ./install.sh --diff",
                 f"cd {ROOT} && HOME=/tmp/s CLAUDE_CONFIG_DIR=/tmp/s/c ./install.sh"):
         assert G.secrets_leak_in(cmd, other_project) is None, cmd
 

@@ -6500,7 +6500,7 @@ R2_KINDS = {"secrets", "forge", "install"}
 FORGE_NET_TRIGGER_RE = re.compile(r"github|gitlab|gitea|codeberg|bitbucket", re.I)
 INSTALL_REASON = ("Blocked by the stack's supply-chain rule (`%s`): install.sh is the user's step "
                   "(it rewrites ~/.claude): ask the user to run it. `--help`, `--dry-run`, "
-                  "`--print-managed-settings` and a scratch install (HOME and CLAUDE_CONFIG_DIR "
+                  "`--print-managed-settings`, `--diff` alone and a scratch install (HOME and CLAUDE_CONFIG_DIR "
                   "both under a temp dir) are fine.")
 MCP_NAME_VAR = "CLAUDE_CODE_MCP_SERVER_NAME"
 FORGE_HOSTS = ("github.com", "api.github.com", "uploads.github.com", "gitlab.com", "codeberg.org",
@@ -6905,8 +6905,27 @@ def _r2_repo_has_installer(scan):
                for b in _r2_bases(scan))
 
 
+def _r2_diff_only(scan, rest):
+    """`install.sh --diff [--config-dir DIR | --config-dir=DIR]` alone (read-only: it compares the
+    checkout with the installed config and writes nothing), with no variable assigned earlier in
+    the command (`HOME=... ./install.sh --diff`)."""
+    args = _plain_args(rest)
+    if "--diff" not in args or scan.__dict__.get("_r2_env"):
+        return False
+    k = 0
+    while k < len(args):
+        a = args[k]
+        if a == "--config-dir" and k + 1 < len(args) and args[k + 1][:1] not in ("", "-"):
+            k += 2
+            continue
+        if a != "--diff" and not (a.startswith("--config-dir=") and len(a) > 13):
+            return False
+        k += 1
+    return True
+
+
 def _r2_install(scan, target, rest):
-    if any(a in INSTALL_FLAGS_OK for a in rest):
+    if any(a in INSTALL_FLAGS_OK for a in rest) or _r2_diff_only(scan, rest):
         return None
     if _r2_scratch_env(scan):
         return None                            # a scratch install: both under a temp dir
