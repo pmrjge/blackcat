@@ -2168,8 +2168,12 @@ for d in "${_dirs[@]}"; do
 done
 export CARGO_LOG="$TS/cargo.log" FAKE_CLAUDE_JSON="$TS/fake-claude.json" STACK_CLAUDE_JSON="$TS/fake-claude.json"
 : > "$CARGO_LOG"; echo '{}' > "$FAKE_CLAUDE_JSON"
+# the stub uv finds no Python: the hooks' 3.13 (bin/stack-python) comes from the real uv, through
+# the installer's STACK_PYTHON override
+PY313="$(uv python find --system --managed-python --no-project --no-config 3.13 2>/dev/null </dev/null || true)"
 srun(){ local home="$1" path="$2" log="$3"; shift 3; mkdir -p "$home"
-  HOME="$home" PATH="$path" CLAUDE_CONFIG_DIR="$home/.claude" "$INSTALL" --no-mcp --no-plugins --no-profile "$@" >"$TS/$log" 2>&1; }
+  HOME="$home" PATH="$path" CLAUDE_CONFIG_DIR="$home/.claude" STACK_PYTHON="$PY313" \
+    "$INSTALL" --no-mcp --no-plugins --no-profile "$@" >"$TS/$log" 2>&1; }
 ncalls(){ wc -l <"$CARGO_LOG" | tr -d ' '; }
 WANT="install serial-mcp@$SERIAL_V --locked --root $TS/h1/.cargo"
 srun "$TS/h1" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" r1.log; rc=$?
@@ -2192,7 +2196,7 @@ srun "$TS/h2" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" d.log --dry-run; rc=$?
   && grep -qF "would: cargo install serial-mcp@$SERIAL_V --locked --root $TS/h2/.cargo" "$TS/d.log" \
   && pass "serial-mcp: --dry-run lists the cargo build and runs nothing" \
   || failed "serial-mcp --dry-run (rc=$rc, $(ncalls) cargo calls): $(grep -i 'serial' "$TS/d.log" | head -2)"
-HOME="$TS/h2" PATH="$TS/cargo:$TS/stubs:$NOCARGO_PATH" CLAUDE_CONFIG_DIR="$TS/h2/.claude" "$INSTALL" --mcp-plan >"$TS/p.log" 2>&1; rc=$?
+HOME="$TS/h2" PATH="$TS/cargo:$TS/stubs:$NOCARGO_PATH" CLAUDE_CONFIG_DIR="$TS/h2/.claude" STACK_PYTHON="$PY313" "$INSTALL" --mcp-plan >"$TS/p.log" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(ncalls)" = 0 ] && [ ! -e "$TS/h2/.cargo" ] && pass "serial-mcp: --mcp-plan never calls cargo" \
   || failed "serial-mcp --mcp-plan (rc=$rc, $(ncalls) cargo calls)"
 srun "$TS/h2" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" n.log --no-deps; rc=$?
@@ -2217,7 +2221,7 @@ tg_run(){ local log="$1"; shift
 # precedence: the flag beats CLAUDE_CONFIG_DIR; a real install into a path with a space
 tg_run "$TG/p1.log" env CLAUDE_CONFIG_DIR="$TG/env dir" "$INSTALL" --config-dir "$TG/flag dir" \
   --no-mcp --no-plugins --no-deps --no-profile; rc=$?
-# every hook command, split as the shell splits it, keeps the spaced path as one word
+# every guard hook command, split as the shell splits it, keeps the spaced launcher path as one word
 hooks_split_ok(){ python3 - "$1" "$2" <<'PY'
 import json, shlex, sys
 s, want = json.load(open(sys.argv[1])), sys.argv[2]
@@ -2225,7 +2229,7 @@ cmds = [h["command"] for gs in s["hooks"].values() for g in gs for h in g["hooks
 sys.exit(0 if cmds and all(want in shlex.split(c) for c in cmds) else 1)
 PY
 }
-hooks_split_ok "$TG/flag dir/settings.json" "$TG/flag dir/hooks/agent_guard.py" 2>/dev/null; hooks_ok=$?
+hooks_split_ok "$TG/flag dir/settings.json" "$TG/flag dir/bin/stack-hook" 2>/dev/null; hooks_ok=$?
 [ "$rc" = 0 ] && [ -f "$TG/flag dir/agents/coder.md" ] && [ ! -e "$TG/env dir" ] && [ "$hooks_ok" = 0 ] \
   && grep -qF "install target: $TG/flag dir" "$TG/p1.log" && grep -q 'chosen by: --config-dir' "$TG/p1.log" \
   && grep -qF "Claude Code's .claude.json for it: $TG/flag dir/.claude.json" "$TG/p1.log" \
@@ -2345,7 +2349,7 @@ tg_run "$TG/c3.log" "$TG/my clone/install.sh" --config-dir "$TG/c3 target" --no-
 [ "$c1" = 0 ] && grep -qF "stack repo: $TG/clone link (branch main)" "$TG/c1.log" \
   && [ "$c2" = 0 ] && grep -qF "stack repo: $TG/my clone (branch main)" "$TG/c2.log" \
   && [ "$c3" = 0 ] && grep -qF "$TG/my clone" "$TG/c3 target/agents/claude-code-engineer.md" \
-  && hooks_split_ok "$TG/c3 target/settings.json" "$TG/c3 target/hooks/agent_guard.py" \
+  && hooks_split_ok "$TG/c3 target/settings.json" "$TG/c3 target/bin/stack-hook" \
   && pass "clone anywhere: via a symlinked dir, via a symlink to install.sh, from a path with a space (rendered into the agents)" \
   || failed "clone paths (rc=$c1/$c2/$c3): $(grep -h 'stack repo\|install.sh:' "$TG/c1.log" "$TG/c2.log" "$TG/c3.log" | head -4)"
 assert_unchanged_real_home
