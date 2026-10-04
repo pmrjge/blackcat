@@ -2807,17 +2807,8 @@ def compact_text(d, kids, since, when, limit=None, full=True):
 
 
 def compact_write(path, text):
-    folder = os.path.dirname(path)
-    os.makedirs(folder, mode=0o700, exist_ok=True)
-    tmp = os.path.join(folder, ".tmp-%d-%s" % (os.getpid(), os.urandom(6).hex()))
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(text)
-        os.replace(tmp, path)
-    except BaseException:
-        unlink(tmp)
-        raise
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    write_atomic(path, text.encode("utf-8"))
 
 
 def compact_log(d):
