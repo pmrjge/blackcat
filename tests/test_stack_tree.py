@@ -2,6 +2,7 @@
 and the transcripts, and /stack-tree = `stack-tree --hook` on UserPromptExpansion (matcher stack-tree), which
 blocks the expansion (exit 2) with the output on stderr, so no model turn runs and BlackCat needs no Bash.
 Every run here uses /usr/bin/python3 (3.9 on macOS), the interpreter the hook and the shebang name."""
+import importlib.machinery
 import importlib.util
 import json
 import os
@@ -588,3 +589,23 @@ def test_past_the_deadline_text_is_withheld_and_transcripts_unscanned(tmp_path):
             "print(m.text('API_KEY=abc'), m.scan_transcript(sys.argv[1], False, m.Budget())['state'])")
     p = subprocess.run([PY, "-B", "-c", code, str(TREE)], capture_output=True, text=True, timeout=30)
     assert p.stdout.strip() == "(withheld: time budget) unscanned", p.stderr
+
+
+def test_redaction_covers_more_token_shapes():
+    """pypi, Google OAuth access, Slack app-level, SendGrid tokens and Slack/Discord webhook URLs are masked
+    (security audit of stack-who, 2026-10-04: these reach the task text both tools print)."""
+    loader = importlib.machinery.SourceFileLoader("stack_tree_redact", str(TREE))
+    spec = importlib.util.spec_from_loader("stack_tree_redact", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    for raw in ("pypi-AgEIcHlwaS5vcmcCJGFiY2RlZmdo",
+                "ya29.a0AfH6SMBx1234567890abcdefgh",
+                "xapp-1-A0123456789-abcdef",
+                "SG.abcdefghijklmnopqrstuv.ABCDEFGHIJKLMNOPQRSTUVWXYZ012345",
+                "https://hooks.slack.com/services/T000/B000/XXXXXXXXXXXXXXXX",
+                "https://discord.com/api/webhooks/123456/abcDEF_ghi-jkl",
+                "https://discordapp.com/api/webhooks/123456/abcDEF"):
+        out = mod.redact("deploy with %s now" % raw)
+        assert raw not in out and "***" in out, (raw, out)
+        tail = raw.split("/")[-1] if "/" in raw else raw[6:]
+        assert tail not in out, (raw, out)

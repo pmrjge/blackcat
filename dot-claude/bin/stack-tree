@@ -98,6 +98,9 @@ _REDACT = [
                 r"\bhf_[A-Za-z0-9]{20,}|\bAIza[0-9A-Za-z_-]{30,}|\bglpat-[A-Za-z0-9_-]{16,}|"
                 r"\b(?:sk|rk|pk)_(?:live|test)_[A-Za-z0-9]{10,}|\bnpm_[A-Za-z0-9]{36}\b|\bhvs\.[A-Za-z0-9_-]{20,}|"
                 r"\bdckr_pat_[A-Za-z0-9_-]{16,}|"
+                r"\bpypi-[A-Za-z0-9_-]{16,}|\bya29\.[A-Za-z0-9_-]{16,}|\bxapp-[A-Za-z0-9-]{10,}|"
+                r"\bSG\.[A-Za-z0-9_-]{16,}\.[A-Za-z0-9_-]{16,}|"
+                r"\b(?:hooks\.slack\.com/services|discord(?:app)?\.com/api/webhooks)/[A-Za-z0-9/_-]+|"
                 r"\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}|"
                 r"-----BEGIN [A-Z ]*PRIVATE KEY-----"), "***"),
 ]
