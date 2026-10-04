@@ -12,7 +12,9 @@
 #   juliaup    juliaup update
 #   ghcup      ghcup upgrade (ghcup itself; GHC, cabal, HLS versions stay your choice: ghcup tui)
 #   uv         uv self update (only for uv installed by astral.sh's installer, not Homebrew's),
-#              then uv tool upgrade --all (pre-commit, magg: each within its recorded constraints)
+#              then uv tool upgrade --all (pre-commit, magg: each within its recorded constraints),
+#              uv python upgrade 3.13 (the hooks' Python), bin/stack-python re-pointed at it (a
+#              non-uv target, your STACK_PYTHON choice, stays) and the hook modules recompiled
 #   coursier   cs update (the apps cs setup installed)
 #   elan       elan self update (only for elan installed by its own installer, not Homebrew's), then
 #              elan update (the toolchain channels you installed, stable included; a project's
@@ -42,6 +44,28 @@ step(){
   if "$@" >>"$LOG" 2>&1 </dev/null; then line "ok  $label"; else line "! $label failed: $shown (log $LOG)"; FAILED=1; fi
 }
 brew_up(){ brew update && brew upgrade --formula; }
+C="$(cd "$(dirname "$0")/.." && pwd)"     # the config dir this script was installed into
+HOOK_MODS="agent_guard stack_usage stack_limits stack_report stack_fanout stack_fanout_wire read_gate web_caps stack_hook stack_sched"
+relink(){ ln -sfn "$1" "$C/bin/stack-python.tmp.$$" && mv -f "$C/bin/stack-python.tmp.$$" "$C/bin/stack-python"; }   # atomic
+compile_hooks(){
+  local m mods=()
+  for m in $HOOK_MODS; do if [ -f "$C/hooks/$m.py" ]; then mods+=("$C/hooks/$m.py"); fi; done
+  (unset PYTHONPYCACHEPREFIX SOURCE_DATE_EPOCH
+   "$C/bin/stack-python" -m compileall -q -f --invalidation-mode timestamp ${mods[@]+"${mods[@]}"})
+}
+stack_python_refresh(){
+  local cur new udir
+  cur="$(readlink "$C/bin/stack-python" 2>/dev/null || true)"
+  udir="$(uv python dir 2>/dev/null || true)"
+  new="$(uv python find --system --managed-python --no-project --no-config 3.13 2>/dev/null </dev/null || true)"
+  if [ -z "$new" ]; then line "! bin/stack-python: no uv-managed Python 3.13 (uv python install 3.13, then ./install.sh)"; FAILED=1; return; fi
+  if [ -n "$cur" ] && [ -n "$udir" ] && [ "${cur#"$udir"/}" = "$cur" ]; then
+    line "- bin/stack-python -> $cur: not uv-managed (your STACK_PYTHON choice), left as it is"
+  elif [ "$cur" != "$new" ]; then
+    step "bin/stack-python -> $new" relink "$new"
+  fi
+  step "hook bytecode (timestamp, bin/stack-python)" compile_hooks
+}
 
 for d in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.juliaup/bin" \
          "$HOME/.local/bin" "$HOME/Library/Application Support/Coursier/bin" "$HOME/.elan/bin"; do
@@ -65,6 +89,11 @@ if have uv; then
     *) step "uv self update" uv self update ;;
   esac
   step "uv tools" uv tool upgrade --all
+  # the hooks' Python: uv's managed 3.13 to its latest patch, then bin/stack-python re-pointed at
+  # it (only when it points at a uv-managed Python: a STACK_PYTHON choice of yours stays) and the
+  # hook modules recompiled with it (timestamp pycs in hooks/__pycache__)
+  step "python 3.13 (hooks)" uv python upgrade 3.13
+  stack_python_refresh
 else
   line "- uv: absent"
 fi
