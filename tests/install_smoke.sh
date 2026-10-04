@@ -52,6 +52,11 @@ PY
 tgit -C "$HERE" init -q && tgit -C "$HERE" add -A && tgit -C "$HERE" commit -q -m "smoke snapshot" \
   || { echo "could not build the scratch stack repository"; exit 1; }
 INSTALL="$HERE/install.sh"
+# The installer links uv's managed Python 3.13 as bin/stack-python (S2); the cases that run it with a
+# scratch HOME would hide uv's Pythons (and a real run would download one): point uv at the real dir.
+if [ -z "${UV_PYTHON_INSTALL_DIR:-}" ] && command -v uv >/dev/null 2>&1; then
+  UV_PYTHON_INSTALL_DIR="$(uv python dir 2>/dev/null || true)"; [ -n "$UV_PYTHON_INSTALL_DIR" ] && export UV_PYTHON_INSTALL_DIR
+fi
 export PATH="$HERE/tests/fake-claude:$PATH"
 # install.sh is macOS-only; this test also runs on Linux (CI, containers) through its escape hatch.
 export STACK_ALLOW_NON_MACOS=1
@@ -171,16 +176,21 @@ fi
 grep -qF "$HERE" "$T1/agents/claude-code-engineer.md" && grep -qF "\"repo\": \"$HERE\"" "$T1/.stack-manifest.json" \
   && pass "stack repo path rendered into agents and recorded in the manifest" || failed "stack repo path not rendered/recorded"
 
-grep -qF "$T1/hooks/agent_guard.py" "$T1/settings.json" 2>/dev/null && pass "settings.json hook commands point at \$T/hooks" \
-  || failed "settings.json hook commands do not reference $T1/hooks"
-grep -qF "$T1/hooks/agent_guard.py\\\" blackcat-guard" "$T1/agents/blackcat.md" 2>/dev/null && pass "blackcat.md hook runs \$T/hooks/agent_guard.py blackcat-guard" \
-  || failed "blackcat.md hook command does not run $T1/hooks/agent_guard.py blackcat-guard"
+grep -qF "/bin/sh \\\"$T1/bin/stack-hook\\\" --fail-closed agent_guard no-push" "$T1/settings.json" 2>/dev/null \
+  && pass "settings.json hook commands run \$T/bin/stack-hook (fail-closed guard entries)" \
+  || failed "settings.json hook commands do not run $T1/bin/stack-hook"
+grep -qF "$T1/bin/stack-hook\\\" --fail-closed agent_guard blackcat-guard" "$T1/agents/blackcat.md" 2>/dev/null && pass "blackcat.md hook runs \$T/bin/stack-hook --fail-closed agent_guard blackcat-guard" \
+  || failed "blackcat.md hook command does not run $T1/bin/stack-hook --fail-closed agent_guard blackcat-guard"
+[ -x "$T1/bin/stack-python" ] && "$T1/bin/stack-python" -c 'import sys; sys.exit(sys.version_info < (3, 13))' \
+  && [ -f "$T1/hooks/__pycache__/agent_guard.$("$T1/bin/stack-python" -c 'import sys; print(sys.implementation.cache_tag)').pyc" ] \
+  && pass "bin/stack-python is Python >= 3.13 and the guard's bytecode is precompiled" \
+  || failed "bin/stack-python missing/old or hooks/__pycache__ not compiled"
 python3 - "$T1/settings.json" "$T1/agents/blackcat.md" <<'PY' && pass "hooks and status line use an absolute interpreter (no bare python3)" || failed "a hook command uses a bare interpreter"
 import json, re, sys
 s = json.load(open(sys.argv[1]))
 cmds = [h["command"] for gs in s["hooks"].values() for g in gs for h in g["hooks"]]
 cmds.append(s["statusLine"]["command"])
-cmds += re.findall(r'(?m)^\s+command:\s*"(.*agent_guard.*)"', open(sys.argv[2]).read())
+cmds += [json.loads('"%s"' % c) for c in re.findall(r'(?m)^\s+command:\s*"(.*agent_guard.*)"', open(sys.argv[2]).read())]
 bad = [c for c in cmds if not c.lstrip('\\"').startswith("/")]
 if bad:
     print("  bare:", bad)
@@ -191,7 +201,7 @@ import json, os, sys
 s = json.load(open(sys.argv[1]))
 h, allow, deny = s["hooks"], s["permissions"]["allow"], s["permissions"]["deny"]
 checks = {
-    "StopFailure hook": any("agent_guard.py" in json.dumps(g) for g in h.get("StopFailure", [])),
+    "StopFailure hook": any("agent_guard" in json.dumps(g) for g in h.get("StopFailure", [])),
     "PostToolUse TaskStop": any("TaskStop" in (g.get("matcher") or "") for g in h["PostToolUse"]),
     "no blanket mcp__magg": "mcp__magg" not in allow,
     "magg catalog tools allowed": "mcp__magg__docling_*" in allow and "mcp__magg__arxiv_*" in allow,
@@ -202,8 +212,8 @@ checks = {
     "sandbox caches Bash-only": not any(k in s["env"] for k in ("UV_CACHE_DIR", "npm_config_cache",
                                         "PRE_COMMIT_HOME", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0")) and
                                 s["sandbox"]["filesystem"]["allowWrite"] == ["~/.cache/claude-sandbox"] and
-                                any(not g.get("matcher") and any(x.get("command", "").startswith('"/') and
-                                    x["command"].endswith('/hooks/agent_guard.py" session-env')
+                                any(not g.get("matcher") and any(x.get("command", "").startswith('/bin/sh "/') and
+                                    x["command"].endswith('/bin/stack-hook" agent_guard session-env')
                                     for x in g["hooks"]) for g in h["SessionStart"]),
     "MCP cache is denyWrite": any(p.endswith("/claude-agent-stack-cache") and p.startswith("/")
                                   for p in s["sandbox"]["filesystem"]["denyWrite"]),
@@ -214,7 +224,7 @@ checks = {
         and ".local/state" not in json.dumps([s["sandbox"], deny])),
     "failIfUnavailable": s["sandbox"].get("failIfUnavailable") is True,
     "config .claude.json read-deny": any(r.endswith("/.claude.json)") and r.startswith("Read(//") for r in deny),
-    "local-file MCP guard": any("ctx_index" in (g.get("matcher") or "") and "agent_guard.py" in json.dumps(g)
+    "local-file MCP guard": any("ctx_index" in (g.get("matcher") or "") and "agent_guard" in json.dumps(g)
                                 for g in h["PreToolUse"]),
     "context-mode exec denied": {"mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_batch_execute"} <= set(deny),
     "neural-memory allowed": "mcp__neural-memory" in allow and "mcp__context-mode__ctx_search" in allow,
@@ -705,7 +715,7 @@ import json, sys
 p = sys.argv[1]
 s = json.load(open(p))
 for g in s["hooks"]["SessionStart"]:
-    if "agent_guard.py" in json.dumps(g) and "session-env" not in json.dumps(g):
+    if "agent_guard" in json.dumps(g) and "session-env" not in json.dumps(g):
         g["matcher"] = "startup|resume"
 json.dump(s, open(p, "w"), indent=2)
 PY
@@ -807,9 +817,9 @@ HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" "$INSTALL" --no-mcp --no-plugins --no
 python3 - "$T4/.claude/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "user hook in the stack's group, tuned knobs and own main agent kept" || failed "settings merge dropped user changes"
 import json, sys
 s = json.load(open(sys.argv[1]))
-shipped = sum("agent_guard.py" in json.dumps(g) for g in json.load(open(sys.argv[2]))["hooks"]["PreToolUse"])
+shipped = sum("agent_guard" in json.dumps(g) for g in json.load(open(sys.argv[2]))["hooks"]["PreToolUse"])
 cmds = [h.get("command") for g in s["hooks"]["PreToolUse"] for h in g.get("hooks", [])]
-ok = ("my-audit.sh" in cmds and sum("agent_guard.py" in (c or "") for c in cmds) == shipped and s["env"]["BLACKCAT_MAX_STEPS"] == "24"
+ok = ("my-audit.sh" in cmds and sum("agent_guard" in (c or "") for c in cmds) == shipped and s["env"]["BLACKCAT_MAX_STEPS"] == "24"
       and s["env"]["STACK_FANOUT_IDLE_S"] == "900"
       and s["env"].get("ENABLE_TOOL_SEARCH") == "auto:5" and s.get("agent") == "claude"
       and s.get("skillListingBudgetFraction") == 0.05)
@@ -2087,7 +2097,7 @@ if fs["allowWrite"] != ["~/my-cache", "~/.cache/claude-sandbox"]:
     bad.append("allowWrite %s" % fs["allowWrite"])
 if "~/Library/Caches/Coursier" not in fs["denyWrite"]:
     bad.append("Coursier denyWrite")
-if not any(not g.get("matcher") and any(x.get("command", "").endswith('agent_guard.py" session-env')
+if not any(not g.get("matcher") and any(x.get("command", "").endswith('stack-hook" agent_guard session-env')
                                         for x in g["hooks"]) for g in s["hooks"]["SessionStart"]):
     bad.append("session-env hook")
 if bad:
