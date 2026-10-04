@@ -192,6 +192,11 @@ known_dirs(){
 # basictex, the other JDK ids, the app bundles and CLI dirs, Postgres.app's bundle id: the casks'
 # pkgutil/app/binary/quit stanzas (`brew info --cask --json=v2 mactex basictex oracle-jdk temurin zulu
 # corretto microsoft-openjdk cmake julia-app postgres-app`), not seen installed here.
+# UNVERIFIED on a real install (cask JSON only; check with `pkgutil --pkgs` / `mdfind` after installing):
+#   receipts org.tug.mactex.basictex*, net.temurin.*.jdk, com.azulsystems.zulu.*, com.amazon.corretto.*,
+#   com.microsoft.*.jdk; bundle id com.postgresapp.Postgres2; CLI dirs CMake.app/Contents/bin,
+#   Julia-*.app/Contents/Resources/julia/bin, Postgres.app/Contents/Versions/*/bin. Julia.app and
+#   CMake.app have no bundle id here (unknown): they are found by the directory check only.
 DETECT_ROWS="go|go,gofmt|org.golang.go|$USR_LOCAL/go|-|-|-
 mactex|pdflatex,tex|org.tug.mactex.texlive*,org.tug.mactex.basictex*|$LIBRARY_ROOT/TeX,$USR_LOCAL/texlive|-|-|-
 jdk|java|com.oracle.jdk-*,net.temurin.*.jdk,com.azulsystems.zulu.*,com.amazon.corretto.*,com.microsoft.*.jdk|$JVM_DIR|-|-|-

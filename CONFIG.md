@@ -573,13 +573,32 @@ sandbox). Order: (1) Homebrew, (2) one Homebrew batch per type, (3) the upstream
 **The skip rule (2026-10-04): an existing command-line tool is skipped, from whatever source.** Every
 program the installer would install (brew formulae and casks, the upstream managers and what they
 provide, Gradle, pre-commit, gitleaks, hlint, ormolu, Playwright's browsers, cs, elan, magg,
-huetension, serial-mcp, …) is looked up first: `command -v`, then the managers' own bin dirs while
-they are not on PATH yet (`~/.local/bin`, `~/.cargo/bin`, `~/.ghcup/bin`, `~/.cabal/bin`,
-`~/.elan/bin`, `~/.juliaup/bin`, Coursier's bin dir, `~/.nvm/versions/node/*/bin`, `/opt/homebrew/bin`,
-`/usr/local/bin`), `brew list --formula/--cask`, a JDK ≥ 27 in `/Library/Java/JavaVirtualMachines`
-(its `release` file), `/Library/TeX/texbin/pdflatex`, and Playwright's revision under the browsers
-path. Found means skipped: not installed, not upgraded, not replaced, not removed, with one line
-`skip <tool> (found: <path>, from <source>)` (the same in `--dry-run`). A manager is skipped when a
+huetension, serial-mcp, …) is looked up first, in this order (`lib/devtools.sh`'s header and its
+`DETECT_ROWS` table are the reference):
+(1) PATH (`command -v`);
+(2) the system login PATH, `/usr/libexec/path_helper -s` run with an empty PATH (`/etc/paths`,
+`/etc/paths.d/*`: the Go .pkg registers `/usr/local/go/bin`, MacTeX `/Library/TeX/texbin`), added
+to the installer's own PATH only, never to a profile;
+(3) the known locations while they are not on PATH: the managers' bin dirs (`~/.local/bin`,
+`~/.cargo/bin`, `~/.ghcup/bin`, `~/.cabal/bin`, `~/.elan/bin`, `~/.juliaup/bin`, Coursier's,
+`~/.nvm/versions/node/*/bin`, `~/go/bin`), the mise, asdf and nix shims and profiles, `/opt/homebrew/bin`,
+`/usr/local/bin`, MacPorts' `/opt/local/bin`, `/usr/local/go/bin`, `/Library/TeX/texbin`,
+`/usr/local/texlive/*/bin/*`;
+(4) for the tools in `DETECT_ROWS` (go, MacTeX, JDK, cmake, julia, postgres): their app bundles in
+`/Applications`, `~/Applications`, `/Applications/Utilities` (a plain directory check), then
+Spotlight by bundle id (`mdfind`, silent when it finds nothing), each bundle's CLI dirs
+(`Contents/MacOS`, `Contents/Resources/bin`, `Contents/Versions/*/bin`, `Contents/Home/bin` and the
+row's own);
+(5) their .pkg receipts (`pkgutil --pkgs`, read once per run): a receipt whose commands are not
+where the pkg puts them is skipped with a `WARN` and the fix (reinstall from the .pkg, or `sudo
+pkgutil --forget <id>` and rerun);
+(6) `brew list --formula/--cask`; and the special paths: a JDK ≥ 27 in
+`/Library/Java/JavaVirtualMachines` or `~/Library/Java/JavaVirtualMachines` (its `release` file),
+Playwright's revision under the browsers path.
+A path is also judged with its symlinks followed (a link into a `.app` is the app, into a `Cellar`
+is brew). Found means skipped: not installed, not upgraded, not replaced, not removed, with one
+line `skip <tool> (found: <path>, from brew|app|pkg|<manager>|macOS|PATH)` (the same in
+`--dry-run`). A manager is skipped when a
 tool it provides is found (rustup: `cargo`/`rustc`; ghcup: `ghc`; juliaup: `julia`; coursier:
 `coursier`; elan: `lake`/`lean`; nvm and node 24: any `node`), so no upstream installer runs again
 over an existing toolchain; pnpm is set up through corepack only on nvm's own node 24. A found tool

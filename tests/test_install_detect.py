@@ -411,3 +411,14 @@ def test_update_tools_homebrew_uv_is_resolved_too(tmp_path):
     rc, out, _ = e.run(script=UPDATE, args=())
     assert "  - uv self update: uv is Homebrew's (brew upgrade covers it)" in out
     assert e.argv("uv") == ["tool upgrade --all"]
+
+
+def test_unverified_entries_are_marked_and_config_lists_the_lookup_order():
+    note = SRC[SRC.index("# UNVERIFIED on a real install"):SRC.index('DETECT_ROWS="')]
+    for x in ("org.tug.mactex.basictex*", "net.temurin.*.jdk", "com.postgresapp.Postgres2", "Julia-*.app"):
+        assert x in note, x
+    cfg = (Path(__file__).resolve().parent.parent / "CONFIG.md").read_text()
+    para = cfg[cfg.index("**The skip rule (2026-10-04)"):cfg.index("A manager is skipped when a")]
+    order = ["(1) PATH", "(2) the system login PATH", "(3) the known locations", "(4) for the tools in `DETECT_ROWS`",
+             "(5) their .pkg receipts", "(6) `brew list"]
+    assert [para.index(o) for o in order] == sorted(para.index(o) for o in order)
