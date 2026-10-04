@@ -195,6 +195,15 @@ Edit, WebSearch or WebFetch, and blackcat-guard refuses a Bash, Write or Edit ca
 tests, commits and bookkeeping to main-coder, one command or a small edit to coder, finding or reading
 files to explore. Routing rules and the spawn table: [Roster](#roster) and [CONFIG.md](CONFIG.md) §4.
 
+How deep to go is a prompt rule; the hook enforces only the spawn lists, depth and caps. Depth is a ceiling,
+not a target: L1 fans out, L2 and L3 spawn only for a missing capability or a check, deeper layers only
+when their brief names the spawn. Caveats, failures and `ASK USER` travel up verbatim hop by hop, the
+user's answer goes to the agent that asked, and one integrator per job owns the final merge. Hops are
+for hand-backs, not routing: a message for another agent (a file's owner, a sibling, a named consumer of
+a final output) goes to it by SendMessage, with a one-line note to the parent. Subagents read the full
+rules before their first spawn or SendMessage:
+`dot-claude/skills/prompt-and-brief-design/references/delegation.md`.
+
 ### Agent tiers and routing
 
 Rule in `blackcat.md`: "cheapest capable wins". Each ladder starts at the cheapest agent that can do the
