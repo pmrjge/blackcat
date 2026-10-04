@@ -625,10 +625,12 @@ installed, N skipped (already there), N failed, N not installed` (dry-run: would
   (`oracle-jdk` and `mactex` are pkg installers that ask for your password) runs only when stdin is a
   terminal, otherwise the exact command is printed. Formula versions are Homebrew's current ones
   (not pinned; Homebrew checks each bottle's sha256 against its formula).
-- **Upstream managers** stay outside Homebrew on purpose: rustup, ghcup, nvm, juliaup, uv,
-  coursier and elan each manage several toolchains and update themselves; under Homebrew, per-project
+- **Upstream managers** stay outside Homebrew on purpose: rustup, ghcup, nvm, juliaup, uv and
+  coursier each manage several toolchains and update themselves; under Homebrew, per-project
   toolchain selection (`rust-toolchain.toml`, `cabal.project` GHC pins, `.nvmrc`, `juliaup`
-  channels, `.python-version`, `lean-toolchain`) would break. Each runs its official installer, user-approved: fetched
+  channels, `.python-version`) would break. elan is the exception: with Homebrew it is the
+  `elan-init` bottle (which still selects each project's `lean-toolchain`), its official installer
+  only without Homebrew. Each runs its official installer, user-approved: fetched
   with `curl --proto '=https' --tlsv1.2` into a temp file (never piped, so a cut-off download never
   runs half a script), its URL and sha256 written to the log, then run with its non-interactive flags;
   never in a dry run. Everything that is a plain program comes from Homebrew.
@@ -717,7 +719,7 @@ found, never touched; "batch" = joins the brew batch; "install" = its route runs
 | Gradle | optional | `gradle-9.8.0-all.zip` from `github.com/gradle/gradle-distributions` into `~/.local/opt/gradle-9.8.0`, linked from `~/.local/bin/gradle` (not Homebrew: its formula pulls a second JDK) | 9.8.0, sha256 `46ac66d4…47bc0cf` (equal to Homebrew's for the same zip) | install (none found) |
 | Playwright Chromium + headless shell | optional | `npx -y playwright@1.63.0 install chromium chromium-headless-shell` into Playwright's default cache (or `$PLAYWRIGHT_BROWSERS_PATH`) | npm package 1.63.0 (registry integrity); browser revision 1243 over HTTPS, no published checksum; skipped when revision 1243's two browsers are complete there | install unless present (not checked) |
 | Open-file limit LaunchDaemon `/Library/LaunchDaemons/ulimit.max-files.plist` | optional (Lean needs the limit) | `install.sh` before step 2, after your y on a terminal: `sudo install -m 644 -o root -g wheel`, `sudo launchctl bootstrap system` (the only sudo the installer runs) | fixed template in `install.sh`, `plutil -lint` | limit already 65536 via `limit.maxfiles.plist`: one `ok` line, nothing written |
-| elan (+ Lean stable) | optional | Homebrew's `elan-init` in the brew batch, then `elan toolchain install leanprover/lean4:stable && elan default leanprover/lean4:stable`; without Homebrew only (fallback): `https://elan.lean-lang.org/elan-init.sh` `-y --default-toolchain stable` | Homebrew: elan-init 4.2.4, bottle sha256 pinned in the formula (checked 2026-10-04); fallback route only: latest, the script fetches elan's latest GitHub release with no checksum; skipped when `elan`, `lake` or `lean` is found; `stack-update-tools` skips `elan self update` for Homebrew's elan | skip (`~/.elan/bin/elan`) |
+| elan (+ Lean stable) | optional | Homebrew's `elan-init` in the brew batch, then `elan toolchain install leanprover/lean4:stable && elan default leanprover/lean4:stable`; without Homebrew only (fallback): `https://elan.lean-lang.org/elan-init.sh` `-y --default-toolchain stable` | Homebrew: elan-init 4.2.4, bottle sha256 pinned in the formula, brings `coreutils` and `gmp` at runtime (checked 2026-10-04); fallback route only: latest, the script fetches elan's latest GitHub release with no checksum; skipped when `elan`, `lake` or `lean` is found; `stack-update-tools` skips `elan self update` for Homebrew's elan | skip (`~/.elan/bin/elan`) |
 | Mathlib project | optional | `lake +stable new stack_mathlib math` in `~/lean`, `lake exe cache get`, `lake build`; terminal or `STACK_INSTALL_LEAN_MATHLIB=1` | Mathlib pinned to the `lean-toolchain` tag (lake manifest pins the commit); cache from Mathlib's own `cache` tool | `~/lean/stack_mathlib` missing; `LEAN_PROJECT_PATH` unknown (stack.env unreadable from the sandbox) |
 | magg, huetension, serial-mcp, venvs | as in "Supply chain" | install.sh step 2; magg, huetension and serial-mcp follow the skip rule (another magg or serial-mcp version: WARN with the command) | as there | skip magg, huetension (`~/.local/bin`) |
 

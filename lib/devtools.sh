@@ -49,7 +49,8 @@
 # juliaup: julia; elan: lake/lean; nvm + node 24: any node). Configuration (uv's Python pin, git
 # lfs filters, the brew shellenv line) is not an install: "ok" when set, set when not. Other lines:
 # "+" installed, "!" missing or failed (with the log and the command); a summary line at the end.
-# DEVTOOLS_SYSTEM_DIRS (tests: "") replaces /opt/homebrew/bin /usr/local/bin in the lookup.
+# DEVTOOLS_SYSTEM_DIRS (tests: "") replaces the system dirs in the lookup (/opt/homebrew/bin /usr/local/bin
+# /opt/local/bin and the nix profiles).
 set -u
 # Never in the caller's directory: install.sh starts here from the stack repo, which sandboxed agents
 # can write, and npx/npm exec prefer a matching package in ./node_modules (its .bin would run outside
@@ -638,7 +639,7 @@ gopls_step(){
 item_label(){ case "$1" in elan-init) echo elan ;; *) echo "${1##*/}" ;; esac; }
 ELAN_VIA_BREW=0    # elan-init joined the batch: its fresh elan gets the stable toolchain in step 3
 brew_step(){
-  local skipped="" unresolved="" want_f="" want_c="" nobrew="" g type name probes t
+  local unresolved="" want_f="" want_c="" nobrew="" g type name probes t
   brew_lists
   if [ -n "$BREW" ] && on MONGODB && ! item_present formula mongodb/brew/mongodb-community cmd:mongod && ! "$BREW" tap 2>/dev/null </dev/null | grep -qx 'mongodb/brew'; then
     if [ "$MODE" = install ]; then "$BREW" tap mongodb/brew >/dev/null 2>&1 </dev/null || line "! brew tap mongodb/brew failed"
