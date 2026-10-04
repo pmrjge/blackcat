@@ -68,6 +68,21 @@ exit 22
 '''
 
 
+# Shell source with comments removed and plain strings blanked; strings holding a command substitution
+# ($( or a backtick) stay, so `x="$(sudo id)"` is still seen (security review F4).
+_PLAIN_STRING = re.compile(r'"(?:\\.|[^"\\\n$\x60]|\$(?!\())*"|\'[^\'\n]*\'')
+
+
+def shell_code(text):
+    out = []
+    for l in text.splitlines():
+        if l.lstrip().startswith("#"):
+            continue
+        l = _PLAIN_STRING.sub('""', l)
+        out.append(re.sub(r"\s#.*$", "", l))
+    return "\n".join(out)
+
+
 def mkexe(path, body):
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text("#!/bin/bash\n" + body + "\n")
@@ -547,9 +562,10 @@ def test_install_sh_wires_modes_and_stops_on_required():
     # after the change-review question (R4), never before it
     assert text.index('say "2/11') < text.index('lib/devtools.sh" all')
     assert "stack-update-tools stack-budget stack-tree; do stage_script 755" in text and '"bin/stack-update-tools",' in text
-    # no sudo call in the tool installer; every download HTTPS-only into a file (no curl | sh)
+    # no sudo call in the tool installer or the update command; every download HTTPS-only into a file
+    assert not re.search(r"\bsudo\b", shell_code(SRC))
+    assert not re.search(r"\bsudo\b", shell_code(UPDATE.read_text()))
     code = "\n".join(l for l in SRC.splitlines() if not l.lstrip().startswith("#"))
-    assert not re.search(r"(^|[;&|]\s*)sudo\b", code, re.M)
     assert not re.search(r"curl[^\n|]*\|\s*(ba|z)?sh\b", code)
     for m in re.finditer(r"\bcurl --[^\n]*", code):
         assert "--proto '=https' --tlsv1.2" in m.group(0), m.group(0)
@@ -913,11 +929,8 @@ def test_install_sh_runs_the_maxfiles_step_before_anything_is_installed():
                 continue
             assert mt.start() > call, (needle, t[ls:mt.start() + 40])
     # sudo is called only inside the block, and there only for install and launchctl
-    def code(s):
-        return "\n".join(re.sub(r'"[^"\n]*"|\'[^\'\n]*\'', '""', l) for l in s.splitlines() if not l.lstrip().startswith("#"))
-    assert not re.search(r"(^|[;&|(]|\bthen|\bif|!)\s*sudo\b", code(t.replace(MF_BLOCK, "")), re.M)
-    used = set(re.findall(r"(?:^|[;&|(]|\bthen|\bif|!)\s*sudo\s+(\S+)", code(MF_BLOCK), re.M))
-    assert used == {"install", "launchctl"}, used
+    assert not re.search(r"\bsudo\b", shell_code(t.replace(MF_BLOCK, "")))
+    assert set(re.findall(r"\bsudo\s+(\S+)", shell_code(MF_BLOCK))) == {"install", "launchctl"}
     assert "launchctl load" not in MF_BLOCK                                 # bootstrap, not the deprecated load
     # macOS mktemp without a template ignores TMPDIR (and fails in a sandbox): every call has one
     assert not re.search(r"mktemp(\s+-d)?\s*\)", t)
@@ -1105,3 +1118,12 @@ def test_no_prompt_reaches_devtools_so_homebrews_installer_never_starts(scratch_
     assert not [c for c in e.argv("curl") if "Homebrew/install" in c], e.argv("curl")
     assert "no terminal: run /bin/bash -c" in p.stdout, p.stdout[-3000:]
     assert 'dt_tty="${DEVTOOLS_TTY:-}"; [ "$NO_PROMPT" = 1 ] && dt_tty=0' in INSTALL_TEXT
+
+
+def test_f4_the_no_sudo_check_sees_every_ordinary_form():
+    forms = ["  if sudo rm -f /x; then :; fi", '  x="$(sudo id -u)"', "  [ -f a ] || { sudo rm -rf /opt/x; }",
+             '  for f in a; do sudo rm "$f"; done', "  if a; then :; else sudo chown root x; fi", "  y=`sudo id`"]
+    for f in forms:
+        assert re.search(r"\bsudo\b", shell_code(f)), f
+    for quiet in ['  note "run: sudo launchctl bootstrap system /x"', "  # sudo in a comment", "  echo 'sudo x'"]:
+        assert not re.search(r"\bsudo\b", shell_code(quiet)), quiet
