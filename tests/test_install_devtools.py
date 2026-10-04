@@ -214,7 +214,9 @@ def test_present_from_other_sources_is_skipped(tmp_path):
     assert "  skip mactex (found: %s/pdflatex, from PATH)" % tex in lines(out) or "  skip mactex (found: %s, " % (tex / "pdflatex") in out
 
 
-def test_an_older_jdk_does_not_count(tmp_path):
+def test_an_older_jdk_is_left_alone_with_a_warning(tmp_path):
+    """Any JDK counts (the skip rule): an older one than the stack targets gets a WARN, not the cask
+    (java_home would make the cask's newer JDK the default: a replacement in effect)."""
     e = Env(tmp_path)
     e.brew()
     e.present("uv", "node", "npx", "kotlin-lsp")
@@ -222,7 +224,9 @@ def test_an_older_jdk_does_not_count(tmp_path):
     home.mkdir(parents=True)
     (home / "release").write_text('JAVA_VERSION="21.0.4"\n')
     rc, out, _ = e.run("JAVA", tty="1")
-    assert e.argv("brew", "install") == ["install --cask oracle-jdk"]
+    assert e.calls("brew", "install") == [], out
+    assert ("  WARN oracle-jdk: JDK 21 at %s is older than the 27 the stack targets; left alone. "
+            "To add one: brew install --cask oracle-jdk" % home) in lines(out)
 
 
 def test_missing_names_go_in_one_formula_and_one_cask_batch(tmp_path):

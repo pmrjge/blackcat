@@ -282,7 +282,7 @@ def test_a_user_level_jdk_means_no_oracle_jdk_cask(tmp_path):
     assert "  skip oracle-jdk (found: %s, from ~/Library/Java)" % home in lines(out)
 
 
-def test_an_older_user_level_jdk_does_not_count(tmp_path):
+def test_an_older_user_level_jdk_is_left_alone_with_a_warning(tmp_path):
     e, s = setup(tmp_path)
     s.brew()
     e.present("kotlin-lsp")
@@ -290,7 +290,51 @@ def test_an_older_user_level_jdk_does_not_count(tmp_path):
     home.mkdir(parents=True)
     (home / "release").write_text('JAVA_VERSION="21.0.4"\n')
     rc, out, _ = e.run("JAVA", tty="1", **s.env)
-    assert e.argv("brew", "install") == ["install --cask oracle-jdk"]
+    assert e.calls("brew", "install") == [], out
+    assert "  skip oracle-jdk (found: %s, from ~/Library/Java)" % home in lines(out)
+    assert "  WARN oracle-jdk: JDK 21 at %s is older than the 27 the stack targets; left alone." % home in out
+
+
+def jdk(root, version):
+    root.mkdir(parents=True)
+    (root / "release").write_text('JAVA_VERSION="%s"\n' % version)
+    return root
+
+
+def test_jdks_outside_the_two_dirs_count_and_the_newest_one_is_named(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    e.present("kotlin-lsp")
+    jdk(e.jvm / "zulu-8.jdk" / "Contents" / "Home", "1.8.0_392")                       # Java 8: major 8
+    sdk = jdk(e.home / ".sdkman" / "candidates" / "java" / "27.0.1-tem", "27.0.1")
+    rc, out, _ = e.run("JAVA", tty="1", **s.env)
+    assert e.calls("brew", "install") == [] and "WARN" not in out, out
+    assert "  skip oracle-jdk (found: %s, from sdkman)" % sdk in lines(out)
+
+
+def test_java_home_and_homebrews_openjdk_count(tmp_path):
+    for where in ("java_home", "brew"):
+        (tmp_path / where).mkdir()
+        e, s = setup(tmp_path / where)
+        s.brew()                                       # brew shim in e.bin: the Homebrew prefix is e.t
+        e.present("kotlin-lsp")
+        if where == "java_home":
+            home = jdk(e.t / "custom-jdk", "25.0.2")
+            extra = {"JAVA_HOME": str(home)}
+        else:
+            home = jdk(e.t / "opt" / "openjdk@25" / "libexec" / "openjdk.jdk" / "Contents" / "Home", "25")
+            extra = {}
+        rc, out, _ = e.run("JAVA", tty="1", **s.env, **extra)
+        assert e.calls("brew", "install") == [], (where, out)
+        assert "  WARN oracle-jdk: JDK 25 at %s is older than the 27" % home in out, (where, out)
+
+
+def test_no_jdk_anywhere_still_gets_the_cask(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    e.present("kotlin-lsp", "java")                    # /usr/bin/java-like stub: not a JDK
+    rc, out, _ = e.run("JAVA", tty="1", **s.env)
+    assert e.argv("brew", "install") == ["install --cask oracle-jdk"], out
 
 
 def test_pnpm_is_never_run_in_dry_run_or_report(tmp_path):

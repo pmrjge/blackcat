@@ -592,9 +592,10 @@ row's own);
 (5) their .pkg receipts (`pkgutil --pkgs`, read once per run): a receipt whose commands are not
 where the pkg puts them is skipped with a `WARN` and the fix (reinstall from the .pkg, or `sudo
 pkgutil --forget <id>` and rerun);
-(6) `brew list --formula/--cask`; and the special paths: a JDK ≥ 27 in
-`/Library/Java/JavaVirtualMachines` or `~/Library/Java/JavaVirtualMachines` (its `release` file),
-Playwright's revision under the browsers path.
+(6) `brew list --formula/--cask`; and the special paths: any JDK (its `release` file) in
+`/Library/Java/JavaVirtualMachines`, `~/Library/Java/JavaVirtualMachines`, `$JAVA_HOME`, SDKMAN's
+candidates or Homebrew's `openjdk` kegs (older than 27: a `WARN`, never the cask), Playwright's
+revision under the browsers path.
 A path is also judged with its symlinks followed (a link into a `.app` is the app, into a `Cellar`
 is brew). Found means skipped: not installed, not upgraded, not replaced, not removed, with one
 line `skip <tool> (found: <path>, from brew|app|pkg|<manager>|macOS|PATH)` (the same in
@@ -673,7 +674,7 @@ Groups (environment, read by `lib/devtools.sh`; `=0` skips one, `=1` adds an off
 | `STACK_INSTALL_HASKELL` | 1 | ghcup (bootstrap with HLS and stack when missing), hlint 3.10 (GHC 9.12.4), ormolu 0.9.0.0 |
 | `STACK_INSTALL_JULIA` | 1 | juliaup |
 | `STACK_INSTALL_SCALA` | 1 | coursier (`cs setup -y`: JVM tools, scala, sbt) |
-| `STACK_INSTALL_JAVA` | 1 | `oracle-jdk` cask when no JDK ≥ 27 is installed, `kotlin-lsp` cask |
+| `STACK_INSTALL_JAVA` | 1 | `oracle-jdk` cask when no JDK is installed (an older one than 27: WARN only), `kotlin-lsp` cask |
 | `STACK_INSTALL_LATEX` | 1 | `mactex` cask (about 5 GB; `brew install --cask mactex-no-gui` is the smaller one) |
 | `STACK_INSTALL_CXX` | 1 | cmake, cmake-docs, ninja, ffmpeg-full, pandoc, git-lfs, tesseract, typst, shellcheck, markdownlint-cli2; then `git lfs install` when its global filters are missing |
 | `STACK_INSTALL_GO` | 1 | go, gopls |
@@ -706,7 +707,7 @@ found, never touched; "batch" = joins the brew batch; "install" = its route runs
 | gitleaks | optional | brew batch (without Homebrew: 8.30.1 release tarball, sha256 from `gitleaks_8.30.1_checksums.txt`) | Homebrew 8.30.1 | batch (none found) |
 | cmake, cmake-docs, ninja, ffmpeg-full, pandoc, git-lfs, tesseract, typst, shellcheck, markdownlint-cli2 | optional | brew batch | Homebrew current (cmake 4.4.3, ffmpeg-full 9.0.2 keg-only, typst 0.15.1, …) | skip (all in `/opt/homebrew/bin` or brew's list) |
 | go, gopls | optional | brew batch (`gopls` is a formula, not a cask); go only when no Go is found anywhere (the official .pkg counts: `/usr/local/go/bin` from `path_helper` or the known dirs, or its receipt `org.golang.go`). gopls next to a non-Homebrew Go: Homebrew's bottle, which needs no go (`brew deps gopls` is empty, go is build-only; checked 2026-10-04); should the formula pull Homebrew's go in (a runtime dependency, or no bottle for this macOS) it is `go install golang.org/x/tools/gopls@v<the formula's version>` with your Go instead, and the run says which | Homebrew current (go 1.27.1, gopls 0.23.0); `go install` checked by the Go checksum database | skip (go `/usr/local/go/bin/go` from pkg, gopls `/opt/homebrew/bin/gopls` from brew) |
-| Oracle JDK | optional | `oracle-jdk` cask, terminal only, when no JDK ≥ 27 is in `/Library/Java/JavaVirtualMachines` or `~/Library/Java/JavaVirtualMachines` (per-user JDKs, e.g. IntelliJ's downloads; each JDK's `release` file) | cask 27 | skip (jdk-27.jdk, from pkg: receipt `com.oracle.jdk-27`) |
+| Oracle JDK | optional | `oracle-jdk` cask, terminal only, only when no JDK of any version is found (each JDK's `release` file in `/Library/Java/JavaVirtualMachines`, `~/Library/Java/JavaVirtualMachines` (IntelliJ's downloads), `$JAVA_HOME`, SDKMAN's `~/.sdkman/candidates/java`, Homebrew's `opt/openjdk*` kegs; `/usr/bin/java` is only macOS's stub). The newest one found older than 27: left alone with a `WARN` naming `brew install --cask oracle-jdk` (installing it would make 27 the `java_home` default: a replacement in effect) | cask 27 | skip (jdk-27.jdk, from pkg: receipt `com.oracle.jdk-27`) |
 | kotlin-lsp | optional | `kotlin-lsp` cask (homebrew/cask, not JetBrains' tap) | cask 263.4702.0 | skip (`/opt/homebrew/bin/kotlin-lsp`) |
 | MacTeX | optional | `mactex` cask, terminal only, only when no TeX is found: `pdflatex` on PATH or `path_helper`'s dirs, `/Library/TeX/texbin`, `/usr/local/texlive/*/bin/*`, or a receipt `org.tug.mactex.texlive*` / `org.tug.mactex.basictex*` (MacTeX or BasicTeX from their .pkg). Updates are yours: `tlmgr` (the stack never runs it, nor sudo for it; `stack-update-tools` prints the reminder) | cask 2026.0324 | skip (`/Library/TeX/texbin/pdflatex` from pkg) |
 | Tools installed any other way (.pkg, .dmg, apps, other managers) | — | looked up before any route: PATH plus the system login PATH (`path_helper -s`, this run only); the known dirs (managers, `~/go/bin`, mise/asdf/nix shims, MacPorts, `/usr/local/go/bin`, `/Library/TeX/texbin`, `/usr/local/texlive`); for go, MacTeX, the JDK, cmake, julia, postgres (`DETECT_ROWS` in `lib/devtools.sh`) their apps in `/Applications`, `~/Applications`, `/Applications/Utilities`, then Spotlight by bundle id, CLIs inside the bundle, and their receipts (`pkgutil --pkgs`, read once). A receipt whose files are gone: skip + WARN with the fix | receipt ids seen here: `org.golang.go`, `org.tug.mactex.texlive2026`, `com.oracle.jdk-27`; the others from the casks' `pkgutil`/`app`/`binary` stanzas (not installed here: unverified on this machine) | `skip … from pkg` for go, MacTeX, the JDK |

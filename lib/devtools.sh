@@ -125,7 +125,7 @@ PLAYWRIGHT_VERSION=1.63.0
 PLAYWRIGHT_CHROMIUM_REVISION=1243
 PYTHON_PIN=3.14                     # uv's global Python pin
 NODE_MAJOR=24
-JAVA_MAJOR=27                       # a JDK >= this one already installed: nothing is done
+JAVA_MAJOR=27                       # the JDK the stack targets; ANY JDK found means no cask (older: WARN)
 HLINT_VERSION=3.10                  # builds only with GHC 9.12.*
 HLINT_GHC=9.12.4
 ORMOLU_VERSION=0.9.0.0              # builds with the GHC already set
@@ -335,7 +335,7 @@ manager_of(){ case "$1" in
   "$HOME/Library/Application Support/Coursier"/*) echo coursier ;; "$HOME"/.local/share/mise/*) echo mise ;;
   "$HOME"/.asdf/*) echo asdf ;; "$HOME"/.nix-profile/*|/nix/*|/run/current-system/*) echo nix ;;
   "$HOME"/go/*) echo "go install" ;; "$HOME"/.local/*) echo "~/.local" ;; "$HOME"/Library/Java/*) echo "~/Library/Java" ;;
-  "$HOME"/Library/Caches/*) echo "Playwright's cache" ;; /opt/local/*) echo MacPorts ;;
+  "$HOME"/Library/Caches/*) echo "Playwright's cache" ;; "$HOME"/.sdkman/*) echo sdkman ;; /opt/local/*) echo MacPorts ;;
   *) return 1 ;; esac; }
 SRC=""
 # src_of PATH: SRC = brew | app | pkg | <manager> | macOS | PATH (no subshell: the receipts list is
@@ -500,8 +500,9 @@ homebrew_step(){
 
 # ==== 2. Homebrew batch ==========================================================================
 # GROUP TYPE NAME PROBES: a probe is cmd:<binary> (PATH, the system login PATH, the known dirs),
-# path:<file>, tool:<row> (DETECT_ROWS: its apps, then its pkg receipt), jdk:<major> (a JDK >= major
-# in /Library/Java/JavaVirtualMachines or ~/Library/Java/JavaVirtualMachines) or - (brew list only).
+# path:<file>, tool:<row> (DETECT_ROWS: its apps, then its pkg receipt), jdk:<major> (the newest JDK
+# found anywhere, see jdk_at_least, is >= major; oracle-jdk uses jdk:1, so any JDK counts and an older
+# one than JAVA_MAJOR gets a WARN, never the cask) or - (brew list only).
 # LEAN's elan-init is Homebrew's bottle of elan (sha256-pinned in the formula; elan, lake and lean are
 # its links; built without self-update); without Homebrew the official elan installer runs (step 3).
 BREW_ITEMS="DEPS formula jq cmd:jq
@@ -524,21 +525,36 @@ CXX formula shellcheck cmd:shellcheck
 CXX formula markdownlint-cli2 cmd:markdownlint-cli2
 GO formula go cmd:go,tool:go
 GO formula gopls cmd:gopls
-JAVA cask oracle-jdk jdk:$JAVA_MAJOR
+JAVA cask oracle-jdk jdk:1
 JAVA cask kotlin-lsp cmd:kotlin-lsp
 LATEX cask mactex cmd:pdflatex,path:$TEX_BIN/pdflatex,tool:mactex
 POSTGRES formula postgresql@18 cmd:postgres,cmd:psql,tool:postgres
 MONGODB formula mongodb/brew/mongodb-community cmd:mongod
 LEAN formula elan-init cmd:elan,cmd:lake,cmd:lean"
 
-jdk_at_least(){ # a JDK of major >= $1 under $JVM_DIR or ~/Library/Java (its release file; java_home fails in the sandbox)
-  local r v
-  for r in "$JVM_DIR"/*/Contents/Home/release "$USER_JVM_DIR"/*/Contents/Home/release; do
+# jdk_at_least MAJOR: the NEWEST JDK found anywhere is >= MAJOR (JDK_AT, JDK_MAJOR_FOUND: where and
+# which). Read from each JDK's release file (java_home fails in the sandbox; /usr/bin/java is only
+# macOS's stub): /Library/Java/JavaVirtualMachines, ~/Library/Java/JavaVirtualMachines, $JAVA_HOME,
+# SDKMAN's candidates, Homebrew's openjdk kegs. Java 8 says JAVA_VERSION="1.8.0_x": major 8.
+JDK_AT=""; JDK_MAJOR_FOUND=0
+jdk_at_least(){
+  local r v m bp=""
+  [ -n "$BREW" ] && bp="$(dirname "$(dirname "$BREW")")"
+  JDK_AT=""; JDK_MAJOR_FOUND=0
+  for r in "$JVM_DIR"/*/Contents/Home/release "$USER_JVM_DIR"/*/Contents/Home/release \
+           ${JAVA_HOME:+"$JAVA_HOME/release"} "$HOME"/.sdkman/candidates/java/*/release \
+           ${bp:+"$bp"/opt/openjdk*/libexec/openjdk.jdk/Contents/Home/release}; do
     [ -f "$r" ] || continue
-    v="$(sed -n 's/^JAVA_VERSION="\([0-9]*\).*/\1/p' "$r" | head -n 1)"
-    [ -n "$v" ] && [ "$v" -ge "$1" ] && { JDK_AT="${r%/release}"; return 0; }
+    v="$(sed -n 's/^JAVA_VERSION="\([0-9][0-9._]*\).*/\1/p' "$r" | head -n 1)"
+    case "$v" in 1.*) m="${v#1.}"; m="${m%%[._]*}" ;; *) m="${v%%[._]*}" ;; esac
+    case "$m" in ''|*[!0-9]*) continue ;; esac
+    [ "$m" -gt "$JDK_MAJOR_FOUND" ] && { JDK_MAJOR_FOUND="$m"; JDK_AT="${r%/release}"; }
   done
-  return 1
+  [ "$JDK_MAJOR_FOUND" -gt 0 ] && [ "$JDK_MAJOR_FOUND" -ge "$1" ]
+}
+jdk_old_warn(){ # after oracle-jdk was skipped: an older JDK than the stack targets is left alone
+  [ "$JDK_MAJOR_FOUND" -lt "$JAVA_MAJOR" ] || return 0
+  warn_line "oracle-jdk: JDK $JDK_MAJOR_FOUND at $JDK_AT is older than the $JAVA_MAJOR the stack targets; left alone. To add one: brew install --cask oracle-jdk"
 }
 BREW_FORMULAE_LIST=""; BREW_CASKS_LIST=""
 brew_lists(){
@@ -628,7 +644,7 @@ brew_step(){
   while read -r g type name probes; do
     [ -n "$g" ] || continue
     on "$g" || continue
-    if item_present "$type" "$name" "$probes"; then skip_line "$(item_label "$name")" "$ITEM_AT"; continue; fi
+    if item_present "$type" "$name" "$probes"; then skip_line "$(item_label "$name")" "$ITEM_AT"; [ "$name" = oracle-jdk ] && jdk_old_warn; continue; fi
     # elan: the open-file limit gates installing it; without Homebrew its official installer (step 3)
     if [ "$g" = LEAN ] && { [ -z "$BREW" ] || ! lean_limit_ok; }; then continue; fi
     if [ -z "$BREW" ]; then nobrew="$nobrew ${name##*/}"; continue; fi
