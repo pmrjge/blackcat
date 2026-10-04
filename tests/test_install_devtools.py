@@ -995,7 +995,10 @@ def test_f1_devtools_never_runs_in_the_callers_directory(tmp_path, monkeypatch):
     e.shim("npx", 'pwd -P >>"$T_CWD"')
     monkeypatch.chdir(caller)
     rc, out, err = e.run("DEVTOOLS", T_CWD=str(tmp_path / "cwd.log"))
-    assert (tmp_path / "cwd.log").read_text().split() == ["/"], out + err
+    cwds = (tmp_path / "cwd.log").read_text().split()
+    assert len(cwds) == 1 and str(caller.resolve()) not in cwds[0], out + err
+    assert re.fullmatch(re.escape(str(e.tmp.resolve())) + r"/stack-devtools-cwd\.\w+", cwds[0]), cwds
+    assert not list(e.tmp.glob("stack-devtools-cwd.*"))                    # the private dir is gone
 
 
 def test_f1_relative_lean_project_path_is_refused_and_lfs_stays_global(tmp_path):
@@ -1018,3 +1021,25 @@ def test_f1_install_sh_runs_npx_and_npm_exec_from_root():
             continue
         inside = mt.start() > t.index("# First starts of stdio servers") and mt.start() < t.index('note "prefetched libdocs')
         assert inside or "(cd / && npx" in ln, ln
+
+
+def test_f2_the_installers_url_and_sha256_survive_a_successful_run(tmp_path):
+    import hashlib
+    e = Env(tmp_path)
+    e.present("uv", "node", "npx")
+    installer(e, "RUSTUP", [".cargo/bin/rustup"])
+    want = hashlib.sha256((e.serve / key(url("RUSTUP"))).read_bytes()).hexdigest()
+    rc, out, err = e.run("RUST")
+    assert rc == 0 and re.search(r"^  \+ rustup", out, re.M), out + err
+    assert "  ran %s sha256 %s" % (url("RUSTUP"), want) in out, out
+
+
+def test_f2_coursiers_hash_is_kept_too(tmp_path):
+    import hashlib
+    e = Env(tmp_path)
+    e.present("uv", "node", "npx")
+    cs = ('#!/bin/bash\nd="$HOME/Library/Application Support/Coursier/bin"; mkdir -p "$d"; '
+          'printf "#!/bin/sh\\n" >"$d/cs"; chmod +x "$d/cs"\n')
+    e.serve_file(url("COURSIER"), gzip.compress(cs.encode()))
+    rc, out, _ = e.run("SCALA")
+    assert "  ran %s (gunzipped) sha256 %s" % (url("COURSIER"), hashlib.sha256(cs.encode()).hexdigest()) in out, out

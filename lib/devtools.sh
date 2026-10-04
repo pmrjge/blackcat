@@ -38,8 +38,10 @@ set -u
 # Never in the caller's directory: install.sh starts here from the stack repo, which sandboxed agents
 # can write, and npx/npm exec prefer a matching package in ./node_modules (its .bin would run outside
 # the sandbox), npm, corepack and uv read .npmrc, package.json, uv.toml from cwd and its parents, and
-# `git lfs install` inside a repository adds hooks there. Every path below is absolute.
-cd / || exit 2
+# `git lfs install` inside a repository adds hooks there. So the run moves into a fresh private empty
+# directory (not /: macOS's bash 3.2 then can't create here-document temp files). Every path below is
+# absolute.
+DT_CWD="$(mktemp -d "${TMPDIR:-/tmp}/stack-devtools-cwd.XXXXXX")" && cd "$DT_CWD" || exit 2
 
 MODE="${DEVTOOLS_MODE:-install}"
 case "$MODE" in install|dry-run|report) ;; *) echo "devtools.sh: DEVTOOLS_MODE must be install, dry-run or report" >&2; exit 2 ;; esac
@@ -128,7 +130,7 @@ tmpd(){ mktemp -d "${TMPDIR:-/tmp}/stack-devtools.XXXXXX"; }
 LOGDIR=""
 logfile(){ [ -n "$LOGDIR" ] || LOGDIR="$(tmpd)"; printf '%s/%s.log' "$LOGDIR" "$(printf '%s' "$1" | tr -c 'A-Za-z0-9._-' _)"; }
 KEEP_LOGS=0
-finish(){ if [ -n "$LOGDIR" ] && [ "$KEEP_LOGS" = 0 ]; then rm -rf "$LOGDIR"; fi; }
+finish(){ if [ -n "$LOGDIR" ] && [ "$KEEP_LOGS" = 0 ]; then rm -rf "$LOGDIR"; fi; cd / 2>/dev/null; rm -rf "$DT_CWD"; }
 trap finish EXIT
 fetch_sum(){ curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -o "$3" "$1" && sha256_ok "$2" "$3"; }
 
@@ -149,12 +151,16 @@ find_brew
 # remote_installer URL INTERPRETER [ARGS...]: an upstream installer (user-approved), fetched over
 # HTTPS only into a temp file (never a pipe: a cut-off download never runs half a script), its URL
 # and sha256 printed into the log, then run. Environment for it: VAR=value remote_installer ...
+# INSTALLER_RAN: "URL sha256 HEX" of what ran, printed on the tool's result line (the log goes on success)
+INSTALLER_RAN=""
 remote_installer(){
-  local url="$1" interp="$2" d rc; shift 2
+  local url="$1" interp="$2" d rc sum; shift 2
   d="$(tmpd)" || return 1
   echo "installer: $url"
   if ! curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -o "$d/installer.sh" "$url"; then rm -rf "$d"; echo "download failed"; return 1; fi
-  echo "sha256: $(shasum -a 256 "$d/installer.sh" | cut -d' ' -f1)"
+  sum="$(shasum -a 256 "$d/installer.sh" | cut -d' ' -f1)"
+  echo "sha256: $sum"
+  INSTALLER_RAN="${INSTALLER_RAN:+$INSTALLER_RAN; }$url sha256 $sum"
   "$interp" "$d/installer.sh" "$@"; rc=$?
   rm -rf "$d"; return $rc
 }
@@ -176,17 +182,20 @@ ensure(){
     report) line "! $label missing — $route"; return 0 ;;
     dry-run) line "would: $label ← $route"; return 0 ;;
   esac
+  INSTALLER_RAN=""
   if [ -n "$inter" ]; then
     line "… $label: $route"
     "$inst"; rc=$?
   else
     log="$(logfile "$label")"
-    # a terminal sees the tool being installed; the result overwrites that line (one line per tool)
+    # a terminal sees the tool being installed; the result overwrites that line (one line per tool).
+    # Not in a subshell: INSTALLER_RAN set by the installer function must reach the result line.
     if [ -t 1 ]; then printf '  … %s: %s' "$label" "$route"; cr="$(printf '\r\033[K')"; fi
     "$inst" >"$log" 2>&1 </dev/null; rc=$?
   fi
   if [ "$rc" = 0 ] && "$check"; then
     printf '%s  + %s (%s)\n' "$cr" "$label" "$route"
+    [ -z "$INSTALLER_RAN" ] || line "  ran $INSTALLER_RAN"
   else
     KEEP_LOGS=1
     printf '%s  ! %s: install failed%s — %s\n' "$cr" "$label" "${log:+ (log $log)}" "$route"
@@ -448,7 +457,9 @@ inst_cs(){
   ( cd "$d" && curl --proto '=https' --tlsv1.2 -fsSL --retry 2 -o cs.gz "$URL_COURSIER" && gzip -d cs.gz && chmod +x cs \
       && { xattr -d com.apple.quarantine cs 2>/dev/null || true; } \
       && echo "sha256: $(shasum -a 256 cs | cut -d' ' -f1)" && ./cs setup -y )
-  rc=$?; rm -rf "$d"; return $rc
+  rc=$?
+  [ -f "$d/cs" ] && INSTALLER_RAN="$URL_COURSIER (gunzipped) sha256 $(shasum -a 256 "$d/cs" | cut -d' ' -f1)"
+  rm -rf "$d"; return $rc
 }
 
 chk_elan(){ have elan || have lake || [ -x "$HOME/.elan/bin/elan" ]; }
