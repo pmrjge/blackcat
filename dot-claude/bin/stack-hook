@@ -8,8 +8,9 @@
 #   `uv python find 3.13` restricted to uv-managed interpreters (never a .venv or uv.toml of the
 #   hook's working directory, which is the user's project).
 # None found: with --fail-closed (PreToolUse entries) exit 2, which blocks the tool call, unless
-# STACK_POLICY=off (never for `agent_guard no-push`, absolute: Bash stays blocked until ./install.sh);
-# otherwise exit 0. Both name the fix on stderr. A hook that cannot start must
+# STACK_POLICY=off (never for `agent_guard no-push`, absolute: Bash stays blocked until ./install.sh;
+# nor for BlackCat's frontmatter `agent_guard blackcat-guard`, without --settings, unless
+# STACK_BLACKCAT_DELEGATE_ONLY=0); otherwise exit 0. Both name the fix on stderr. A hook that cannot start must
 # not silently open every gate (Claude Code treats exit 127 and 1 as non-blocking).
 # Run by its real path, not through a symlink: the stub is found relative to $0.
 
@@ -42,6 +43,9 @@ echo "stack-hook: no Python >= 3.13 found (STACK_PYTHON, ${CLAUDE_CONFIG_DIR:-~/
   "uv python find 3.13) or no $stub; run ./install.sh from the claude-agent-stack repo" >&2
 if [ "${1-}" = --fail-closed ]; then
   [ "${2-}/${3-}" = agent_guard/no-push ] && exit 2   # absolute (agent_guard.py:44-46): not lifted by STACK_POLICY=off
+  # BlackCat's own (frontmatter) guard: delegate-only, not lifted by STACK_POLICY=off either
+  [ "${2-}/${3-}" = agent_guard/blackcat-guard ] && [ "${4-}" != --settings ] \
+    && [ "${STACK_BLACKCAT_DELEGATE_ONLY-1}" != 0 ] && exit 2
   case ${STACK_POLICY-} in
     [Oo][Ff][Ff]) ;;
     *) exit 2 ;;

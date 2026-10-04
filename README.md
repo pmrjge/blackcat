@@ -552,7 +552,7 @@ agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard
 </details>
 
 Routing in one paragraph: BlackCat does no work itself; it answers a greeting or a setup question,
-reads the ledger, dispatches every job (up to 8 children in one burst per prompt) and hands
+reads the ledger, dispatches every job (one burst per prompt, within its 24 tool calls) and hands
 dependent multi-specialist work to the orchestrator. Code escalates coder → main-coder →
 ninja-coder (the top tier); language-heavy work goes to the language engineer, domain builds to the domain
 expert. The helpers are leaves (no Agent tool). Depth is BlackCat → L1 → … → L8, and L8 cannot spawn.

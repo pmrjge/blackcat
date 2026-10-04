@@ -222,18 +222,15 @@ def test_prompt_says_delegate_only():
 
 
 def test_shipped_caps_leave_room_for_a_full_dispatch_burst():
-    sys.path.insert(0, str(SRC_HOOK.parent))
-    try:
-        import agent_guard as g
-    finally:
-        sys.path.pop(0)
     env = json.loads(SRC_SETTINGS.read_text())["env"]
-    # BLACKCAT_MAX_DISPATCH is retired: the step cap alone bounds dispatches; a burst of 8 fits
+    # BLACKCAT_MAX_DISPATCH is retired: the step cap alone bounds dispatches. The burst is what the
+    # shipped caps leave after BlackCat's reads (own Bash/Write/Edit calls are 0): most of the steps
     assert "BLACKCAT_MAX_DISPATCH" not in env and "STACK_BLACKCAT_DELEGATE_ONLY" not in env
-    steps, burst = int(env["BLACKCAT_MAX_STEPS"]), 8
+    steps = int(env["BLACKCAT_MAX_STEPS"])
     own = int(env.get("BLACKCAT_MAX_OWN_STEPS", 0))
     reads = int(env.get("BLACKCAT_MAX_READS", 3))
-    assert own == 0 and steps - reads >= burst, (steps, own, reads, burst)
+    burst = steps - reads - own
+    assert own == 0 and burst >= steps * 3 // 4, (steps, own, reads, burst)
     assert "BASH_DEFAULT_TIMEOUT_MS" not in env and "BLACKCAT_BASH_TIMEOUT_MS" not in env
 
 

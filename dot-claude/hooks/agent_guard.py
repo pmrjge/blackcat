@@ -165,7 +165,9 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
 
 Failure policy: an exception in a PreToolUse handler (or in blackcat-guard mode) denies the call
 (fail closed; BlackCat's frontmatter wiring also with STACK_POLICY=off while
-STACK_BLACKCAT_DELEGATE_ONLY is on); lifecycle events log to stderr and exit 0. The token budgets fail open: a transcript
+STACK_BLACKCAT_DELEGATE_ONLY is on, and so does a frontmatter guard that cannot start at all:
+bin/stack-hook exits 2 and hooks/stack_hook.py denies, as for no-push); lifecycle events log to
+stderr and exit 0. The token budgets fail open: a transcript
 or state that can't be read warns on stderr and allows the call. The escape hatch
 (STACK_POLICY=off) is shown to the user in `systemMessage`, never to the model in the deny reason.
 
@@ -583,8 +585,9 @@ DELEGATE_ONLY_HINT = ("BlackCat is delegate-only (STACK_BLACKCAT_DELEGATE_ONLY, 
                       "\"STACK_BLACKCAT_DELEGATE_ONLY\": \"0\" in the env block of "
                       "~/.claude/settings.json and restart Claude Code.")
 # a BlackCat main-thread event, recognised in raw text the guard could not parse (the settings wiring
-# with STACK_POLICY=off: every other unreadable event is left alone there)
-BLACKCAT_RAW_RE = re.compile(r'"agent_type"\s*:\s*"blackcat"')
+# with STACK_POLICY=off: every other unreadable event is left alone there); as loose as norm():
+# BlackCat, black-cat, "Black Cat"
+BLACKCAT_RAW_RE = re.compile(r'"agent_type"\s*:\s*"[^a-z0-9"]*black[^a-z0-9"]*cat[^a-z0-9"]*"', re.I)
 BLACKCAT_DENY_REASON = ("BlackCat only delegates (its one work tool is Read, for the ledger, a plan or "
                         "a child's output); this tool belongs to a specialist. Make one Agent call to "
                         "the right specialist (or orchestrator), or SendMessage to resume the "
@@ -4277,7 +4280,6 @@ def on_stop_failure(ev, d):
 
 
 def on_agent_failed(ev, d):
-    ti = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
     aid = ev.get("agent_id")
     fanout_release(d, aid or "main", ev.get("tool_use_id"))
     dyn_spawn_failed(d, ev, aid or "main", ev.get("tool_use_id"))
@@ -4814,7 +4816,7 @@ BUDGET_KEYS_KEPT = 8
 BUDGET_SCAN_S = 2.0          # most seconds of reading in one PreToolUse; the rest waits for the next
 BUDGET_LONG_SCAN_S = 10.0    # UserPromptSubmit and SessionStart (hook timeout 15 s)
 USAGE_KEYS = ("input_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
-REPORT_TOOLS = ("SubagentHandback", "TaskStop", "AskUserQuestion", "mcp__conductor__AskUserQuestion")
+REPORT_TOOLS = ("SubagentHandback", "TaskStop", "AskUserQuestion")
 BUDGET_LOG_KEYS = ("hook_event_name", "session_id", "prompt_id", "tool_name", "tool_use_id",
                    "agent_id", "agent_type")
 BUDGET_CHECK_MIN_LINES = 50  # --check-budget: this many lines and no assistant line = format drift

@@ -531,6 +531,31 @@ def test_no_push_start_failure_not_lifted_by_policy_off(tree, env, sh):
     assert "STACK_POLICY=off never lifts no-push" in json.loads(out)["systemMessage"]
 
 
+def test_blackcat_guard_start_failure_not_lifted_by_policy_off(tree, env, sh):
+    """BlackCat's frontmatter guard (`agent_guard blackcat-guard`, no --settings) is delegate-only:
+    a guard that cannot start still blocks BlackCat's calls under STACK_POLICY=off, in the launcher
+    and in the stub, unless STACK_BLACKCAT_DELEGATE_ONLY=0; the --settings wiring stays bypassable."""
+    pre = {"session_id": SID, "hook_event_name": "PreToolUse", "tool_name": "Bash",
+           "agent_type": "blackcat", "tool_input": {"command": "ls"}}
+    e = dict(env, STACK_POLICY="off")                    # CLAUDE_CONFIG_DIR: an empty dir, no interpreter
+    front = tree.via_launcher("agent_guard", ["blackcat-guard"], closed=True, sh=sh)
+    settings = tree.via_launcher("agent_guard", ["blackcat-guard", "--settings"], closed=True, sh=sh)
+    rc, out, err = run(front, pre, e)
+    assert (rc, out) == (2, "") and "./install.sh" in err
+    assert run(settings, pre, e)[:2] == (0, "")
+    assert run(front, pre, dict(e, STACK_BLACKCAT_DELEGATE_ONLY="0"))[:2] == (0, "")
+    assert run(front, pre, dict(e, STACK_BLACKCAT_DELEGATE_ONLY="no"))[0] == 2   # only 0 lifts it
+    tree.src("agent_guard").unlink()
+    rc, out, err = run(tree.via_stub("agent_guard", ["blackcat-guard"], closed=True), pre, e)
+    assert rc == 0 and decision((rc, out, err)) == "deny"
+    assert "STACK_BLACKCAT_DELEGATE_ONLY" in json.loads(out)["systemMessage"]
+    rc, out, err = run(tree.via_stub("agent_guard", ["blackcat-guard", "--settings"], closed=True), pre, e)
+    assert (rc, out) == (0, "") and "failed to start" in err
+    rc, out, err = run(tree.via_stub("agent_guard", ["blackcat-guard"], closed=True), pre,
+                       dict(e, STACK_BLACKCAT_DELEGATE_ONLY="0"))
+    assert (rc, out) == (0, "")
+
+
 def test_launcher_dangling_symlink_skipped(tree, env, sh, tmp_path):
     (tree.c / "bin" / "stack-python").symlink_to(tmp_path / "gone" / "python3.13")
     e = dict(env, CLAUDE_CONFIG_DIR=str(tree.c))

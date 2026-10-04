@@ -26,15 +26,31 @@ HINT = ("claude-agent-stack hook error (see above). If it persists: run ./instal
 ABSOLUTE = ("agent_guard", "no-push")
 HINT_ABSOLUTE = ("claude-agent-stack hook error (see above): the no-push guard cannot start, so Bash "
                  "stays blocked (STACK_POLICY=off never lifts no-push). Run ./install.sh from the stack repo.")
+# BlackCat's frontmatter guard (`agent_guard blackcat-guard`, without --settings) is delegate-only:
+# STACK_POLICY=off does not lift it either, only STACK_BLACKCAT_DELEGATE_ONLY=0 does (agent_guard.py)
+HINT_DELEGATE = ("claude-agent-stack hook error (see above): BlackCat's guard cannot start, so its tool "
+                 "calls stay blocked (STACK_POLICY=off does not lift delegate-only). Run ./install.sh "
+                 "from the stack repo, or set \"STACK_BLACKCAT_DELEGATE_ONLY\": \"0\" in the env block "
+                 "of ~/.claude/settings.json.")
 
 
-def fail(closed, what, absolute=False):
+def absolute_hint(argv):
+    """The hint of an entry that STACK_POLICY=off does not lift, else None."""
+    if tuple(argv[:2]) == ABSOLUTE:
+        return HINT_ABSOLUTE
+    if (tuple(argv[:2]) == ("agent_guard", "blackcat-guard") and "--settings" not in argv[2:]
+            and os.environ.get("STACK_BLACKCAT_DELEGATE_ONLY", "1").strip() != "0"):
+        return HINT_DELEGATE
+    return None
+
+
+def fail(closed, what, absolute=None):
     if closed and (absolute or os.environ.get("STACK_POLICY", "on").strip().lower() != "off"):
         sys.stdout.write(json.dumps({  # agent_guard.guard_error's deny, verbatim shape
             "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                    "permissionDecisionReason": "stack guard error: %s. Report STATUS: "
                                    "blocked with this message; do not retry." % what},
-            "systemMessage": "%s (%s)" % (HINT_ABSOLUTE if absolute else HINT, what)}))
+            "systemMessage": "%s (%s)" % (absolute or HINT, what)}))
     else:
         sys.stderr.write("stack_hook: %s\n" % what)
     sys.stdout.flush()
@@ -45,7 +61,7 @@ def run(argv):
     closed = argv[:1] == ["--fail-closed"]
     argv = argv[1:] if closed else argv
     name = argv[0] if argv else ""
-    absolute = tuple(argv[:2]) == ABSOLUTE
+    absolute = absolute_hint(argv)
     if name not in MODULES:          # an allow-list: no paths, no other modules
         fail(closed, "unknown hook module %r" % name[:80])
     if sys.version_info < (3, 13):  # noqa: UP036 - the stack-python symlink may point at anything

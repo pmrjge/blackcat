@@ -721,9 +721,13 @@ def test_unparseable_stdin(env):
     assert decision(p) == "deny" and "STACK_BLACKCAT_DELEGATE_ONLY" in json.loads(p.stdout)["systemMessage"]
     p = run("{not json", env, args=["blackcat-guard", "--settings"], extra=off)
     assert p.returncode == 0 and p.stdout == ""
-    p = run('{"agent_type": "blackcat", "tool_name": "Bash"', env, args=["blackcat-guard", "--settings"],
-            extra=off)
-    assert decision(p) == "deny"
+    for spelling in ("blackcat", "BlackCat", "black-cat", "Black Cat"):   # as loose as norm()
+        p = run('{"agent_type": "%s", "tool_name": "Bash"' % spelling, env,
+                args=["blackcat-guard", "--settings"], extra=off)
+        assert decision(p) == "deny", spelling
+    p = run('{"agent_type": "blackcat-helper", "tool_name": "Bash"', env,
+            args=["blackcat-guard", "--settings"], extra=off)
+    assert p.returncode == 0 and p.stdout == ""
     for args in (["blackcat-guard"], ["blackcat-guard", "--settings"]):
         p = run('{"agent_type": "blackcat"', env, args=args,
                 extra=dict(off, STACK_BLACKCAT_DELEGATE_ONLY="0"))
@@ -1080,7 +1084,6 @@ def test_shipped_spawn_defaults(bare_env):
     call per prompt; the per-type
     fan-out table."""
     env = bare_env
-    s = sid()
     s = sid()
     res = [decision(run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env))
            for _ in range(25)]
@@ -1801,7 +1804,7 @@ def test_budget_never_blocks_reporting(env, sess, tmp_path):
     append(main, call_line("m1", 5000))
     scratch = tmp_path / "scratchpad"
     allowed = [("SubagentHandback", {"message": "done"}), ("TaskStop", {"task_id": "x"}),
-               ("AskUserQuestion", {"questions": []}), ("mcp__conductor__AskUserQuestion", {}),
+               ("AskUserQuestion", {"questions": []}),
                ("ToolSearch", {"query": "select:SubagentHandback"}),
                ("ToolSearch", {"query": "select:TaskStop"}),
                ("Write", {"file_path": str(main.parent / ".claude-work" / "job" / "report.md")}),
@@ -1815,6 +1818,7 @@ def test_budget_never_blocks_reporting(env, sess, tmp_path):
                ("Write", {"file_path": ".claude-work/../escape.md"}),
                ("ToolSearch", {"query": "select:WebSearch"}), ("Bash", {"command": "ls"}),
                ("WebSearch", {"query": "x"}), ("mcp__exa__web_search_exa", {"query": "x"}),
+               ("mcp__conductor__AskUserQuestion", {}),      # Conductor dropped 2026-10-04
                ("Read", {"file_path": "x"})]
     for tool, ti in refused:
         ev = dict(tool_ev(s, main, tool, **ti), scratchpad_dir=str(scratch))
