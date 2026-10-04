@@ -218,3 +218,17 @@ def test_shipped_caps_leave_room_for_a_full_dispatch_burst():
     reads = int(env.get("BLACKCAT_MAX_READS", 3))
     assert own == 0 and steps - reads >= burst, (steps, own, reads, burst)
     assert "BASH_DEFAULT_TIMEOUT_MS" not in env and "BLACKCAT_BASH_TIMEOUT_MS" not in env
+
+
+def test_prompt_sends_skill_work_to_specialists():
+    """BlackCat runs no skill work itself: no forked skill and no hub module Read (its Read is for
+    the ledger, a plan or a child's output file)."""
+    body = re.sub(r"\s+", " ", BLACKCAT_MD.read_text().split("\n---\n", 1)[1])
+    assert "skills/<name>/SKILL.md" not in body and "context: fork" not in body
+
+
+def test_readme_has_no_small_jobs_wording():
+    t = re.sub(r"\s+", " ", (ROOT / "README.md").read_text())
+    assert not [p for p in ("few-call jobs itself", "does a job of a few tool calls itself",
+                            "BlackCat does it itself", "SendUserFile, and Read, Bash, Write, Edit")
+                if p in t]
