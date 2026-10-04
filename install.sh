@@ -31,6 +31,10 @@
 #   ./install.sh --print-managed-settings  print an optional managed-settings.json that pins the
 #                                 stack's guards against edits (you install it; see CONFIG.md)
 #   ./install.sh --mcp-plan      print the MCP server add/migrate/replace/keep plan and make no changes
+#   ./install.sh --diff          list what differs between this repo's dot-claude/ and the installed
+#                                 config dir (repo-only, installed-only and changed agents, skills,
+#                                 rules, hooks, scripts, hook wiring, magg entries); writes nothing,
+#                                 runs from any branch, exit 0 (2: usage error). Takes only --config-dir
 #   ./install.sh --yes           install without asking when the stack's files changed since the last
 #                                 install (asked on the terminal; with no terminal, e.g. in CI, the
 #                                 run stops unless --yes is given), and without the target question
@@ -86,11 +90,13 @@ set -euo pipefail
 
 WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; WITH_EXTRA_PLUGINS=0; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
 NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; PRUNE=1; RESTORE=""; PRINT_MANAGED=0; ASSUME_YES=0; ORIG_ARGS="$*"
-NO_PROMPT=0; CONFIG_DIR_SET=0; CONFIG_DIR_ARG=""
+NO_PROMPT=0; CONFIG_DIR_SET=0; CONFIG_DIR_ARG=""; DIFF=0; DIFF_CONFLICT=""
 i=0; argv=("$@")
 while [ "$i" -lt "${#argv[@]}" ]; do
   a="${argv[$i]}"
+  case "$a" in --diff|--config-dir|--config-dir=*|-h|--help) ;; *) [ -n "$DIFF_CONFLICT" ] || DIFF_CONFLICT="$a" ;; esac
   case "$a" in
+    --diff) DIFF=1 ;;
     --with-adobe) WITH_ADOBE=1 ;;
     --with-ml) WITH_ML=1 ;;
     --with-lsp) WITH_LSP=1 ;;
@@ -147,6 +153,15 @@ done
 HERE="$(cd "$(dirname "$self")" && pwd)"
 unset self link
 STATE_PY="$HERE/lib/install_state.py"
+
+# --diff: read-only comparison (lib/stack_diff.py), before anything that could write, merge or ask
+if [ "$DIFF" = 1 ]; then
+  [ -z "$DIFF_CONFLICT" ] || { echo "--diff takes only --config-dir (got $DIFF_CONFLICT)" >&2; exit 2; }
+  if [ "$CONFIG_DIR_SET" = 1 ]; then
+    exec python3 -B "$HERE/lib/stack_diff.py" --repo "$HERE" --config-dir "$CONFIG_DIR_ARG"
+  fi
+  exec python3 -B "$HERE/lib/stack_diff.py" --repo "$HERE"
+fi
 
 # ---- Main-branch rule (hard-coded; no flag or variable turns it off) ----------------------------
 # The stack installs only from its repo's `main` branch, the same Git rule the agents follow

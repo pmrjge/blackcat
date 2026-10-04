@@ -901,6 +901,11 @@ git clone <repository-url> claude-agent-stack && cd claude-agent-stack
 $EDITOR ~/.claude/stack.env       # keys: read at connect time; Claude model IDs: re-run ./install.sh
 ```
 
+`./install.sh --diff` lists, from any branch and without writing anything, what separates this checkout
+from the installed config dir: agents, skills, rules, hook scripts and wiring, `bin/`, `mcp/` and magg
+entries that only the repo has, only the install has, or that differ (details: [CONFIG.md](CONFIG.md)
+§7, "Repo vs install: `--diff`").
+
 The clone can live anywhere (a path with spaces, a symlinked directory, or a symlink to `install.sh`
 all work), under any user name, from zsh or bash; the installer itself runs on macOS's bash 3.2. Run
 it from a terminal with no Claude Code session open (Desktop and Conductor included), from the

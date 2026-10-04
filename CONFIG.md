@@ -494,6 +494,15 @@ Phase 1 of the hand-back protocol is behaviour-neutral: in the default mode `obs
 
 The manifest (`.stack-manifest.json`) lists every stack file as relpath + sha256. On a first run without a manifest, a same-named file that differs from the stack's counts as stale: it is backed up and replaced. **A first install over an existing `~/.claude` therefore moves your own agents and skills into the backup: run `./install.sh --dry-run` first.**
 
+### Repo vs install: `--diff` (2026-10-04)
+
+`./install.sh --diff [--config-dir PATH]` runs `lib/stack_diff.py` (`python3 -B`) right after option parsing, before the main-branch rule, the target checks and the backup root: it works from any branch or worktree, asks nothing, and writes nothing (no temp file, no bytecode, `GIT_OPTIONAL_LOCKS=0` for its one `git rev-parse`). Target: `--config-dir` > `CLAUDE_CONFIG_DIR` > `~/.claude`, resolved without the install's safety checks. Any other option with `--diff`, or a target that is a file, is a usage error (exit 2); otherwise it exits 0, differences or not (a missing target prints "nothing installed"; an area that cannot be compared becomes a `note:` line).
+- **Compared:** `agents/` (with the rendered `coder-copy.md`/`researcher-copy.md`), `rules/`, `skills/` (`synced/` aside), the `hooks/`, `bin/`, `mcp/` (`vendor/` aside) and `magg/` files install.sh stages (read from its `stage_script` lines, including the two `tests/derive_*.py` copies), `stack-plugins/`, the hook wiring of `settings.json` as (event, matcher, command) triples, and magg's catalog entries minus `enabled`/`kits`. Not compared: the rest of `settings.json` (merged with yours), `stack.env`, `CLAUDE.md`, MCP registrations.
+- **Rendering:** text is compared with the installer's render: `__CLAUDE_DIR__`, `__HOME__`, `__STACK_REPO__` and the `__STACK_*__` dirs are filled in, the tool paths found at install time (`__PYTHON3__`, `__UV__`, `__UVX__`, `__NPX__`, `__NODE__`, `__MAGG__`, `__HUETENSION__`) match any path, the same one throughout a file; agents also pass through install.sh's own `make_copy`, `drop_servers` and `mcp_cache_env`, executed from install.sh's source (if they can't be read, a note says the agents were compared without them). A fresh install therefore diffs clean.
+- **Output:** one block per area (`in sync` or counts), one line per path: `+ repo only` (the next install adds it), `- installed only` (stale stack files are pruned by the next install unless `--no-prune`; your own files are pruned too in `agents/` and `skills/`, elsewhere they stay), `~ differs` with `+a -r lines to install` (text; `edited since the last install` when the file no longer matches its manifest hash) or the two sizes (verbatim copies), `? unreadable`. Repo files install.sh doesn't stage are listed as notes; a summary line ends it.
+- **Agents** can't run `./install.sh --diff` (the guard allows `--help`, `--dry-run`, `--print-managed-settings` and scratch installs); `python3 -B lib/stack_diff.py --repo <checkout>` is the same comparison.
+- **Tests:** `tests/test_install_diff.py`: a real scratch install (fresh HOME, fake `claude`) diffs clean except the `--no-plugins` marketplace; eleven seeded drifts on both sides each appear; HOME and the repo are fingerprinted before and after; usage errors; the `stage_script` parse and the extracted installer code.
+
 ### Backups and `--restore`
 
 - Location: `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack-backups/<timestamp>-<random>/`. The folder is 0700, files are 0600, and `backup.json` holds the entries, added files, removed or replaced MCP entries, disabled plugins and rc copies.
@@ -851,6 +860,11 @@ outside the sandbox pass `--store-dir ~/.cache/claude-sandbox/pnpm-store` and
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-04 (`install.sh --diff`; redundancy lint)
+
+- `install.sh --diff` (`lib/stack_diff.py`): read-only repo-vs-install comparison (§7, "Repo vs install: `--diff`"); `tests/test_install_diff.py`. Nothing to rerun.
+- `tests/redundancy_lint.py` with `tests/redundancy_allowlist.json` (§8): long sentences repeated in 3+ agent/skill files, dangling `see`/`load`/`name`*/§ skill references, hook files neither wired nor staged. Baseline `TODO:` entries: 5 repeats, 2 section refs (`self-hosting-ops` § systemd, `technical-writing` §10), `hooks/stack_hook.py`; `tests/test_redundancy.py` proves each check by mutation.
 
 ### 2026-10-04 (lazy skill listing)
 
