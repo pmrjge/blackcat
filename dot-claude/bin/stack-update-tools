@@ -42,6 +42,16 @@ step(){
   if "$@" >>"$LOG" 2>&1 </dev/null; then line "ok  $label"; else line "! $label failed: $shown (log $LOG)"; FAILED=1; fi
 }
 brew_up(){ brew update && brew upgrade --formula; }
+# brew_owned CMD: CMD is Homebrew's. Symlinks are followed first: on Intel /usr/local/bin/elan is a
+# link into /usr/local/Cellar/elan-init/<v>/bin (on Apple Silicon into /opt/homebrew/Cellar/...).
+resolve(){
+  local p="$1" l n=0
+  while [ -L "$p" ] && [ "$n" -lt 20 ]; do
+    l="$(readlink "$p")"; case "$l" in /*) p="$l" ;; *) p="$(dirname "$p")/$l" ;; esac; n=$((n + 1))
+  done
+  printf '%s' "$p"
+}
+brew_owned(){ case "$(resolve "$(command -v "$1")")" in */Cellar/*|/opt/homebrew/*|/usr/local/opt/*|/home/linuxbrew/*) return 0 ;; esac; return 1; }
 
 for d in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.juliaup/bin" \
          "$HOME/.local/bin" "$HOME/Library/Application Support/Coursier/bin" "$HOME/.elan/bin"; do
@@ -60,22 +70,16 @@ if have rustup; then step rustup rustup update; else line "- rustup: absent"; fi
 if have juliaup; then step juliaup juliaup update; else line "- juliaup: absent"; fi
 if have ghcup; then step ghcup ghcup upgrade; else line "- ghcup: absent"; fi
 if have uv; then
-  uvp="$(command -v uv)"
-  case "$(cd "$(dirname "$uvp")" && pwd -P)/" in
-    /opt/homebrew/*|/usr/local/Cellar/*|/usr/local/opt/*) line "- uv self update: uv is Homebrew's (brew upgrade covers it)" ;;
-    *) step "uv self update" uv self update ;;
-  esac
+  if brew_owned uv; then line "- uv self update: uv is Homebrew's (brew upgrade covers it)"
+  else step "uv self update" uv self update; fi
   step "uv tools" uv tool upgrade --all
 else
   line "- uv: absent"
 fi
 if have cs; then step coursier cs update; else line "- coursier: absent"; fi
 if have elan; then
-  elp="$(command -v elan)"
-  case "$(cd "$(dirname "$elp")" && pwd -P)/" in
-    /opt/homebrew/*|/usr/local/Cellar/*|/usr/local/opt/*) line "- elan self update: elan is Homebrew's (brew upgrade covers it)" ;;
-    *) step "elan self update" elan self update ;;
-  esac
+  if brew_owned elan; then line "- elan self update: elan is Homebrew's (brew upgrade covers it)"
+  else step "elan self update" elan self update; fi
   step "elan update" elan update
 else
   line "- elan: absent"

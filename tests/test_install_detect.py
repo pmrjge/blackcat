@@ -368,3 +368,46 @@ def test_elan_init_dry_run_and_the_open_file_limit(tmp_path):
     s.env["DEVTOOLS_NOFILE"] = "256"
     rc, out, _ = e.run("LEAN", **s.env)
     assert e.calls("brew", "install") == [] and "! lean skipped: the open-file limit is 256" in out
+
+
+# ---------------------------------------------------------------- stack-update-tools: Homebrew's elan
+def brew_elan_link(e, prefix):
+    """PREFIX/bin/elan -> ../Cellar/elan-init/4.2.4/bin/elan -> elan-init, as the formula links it;
+    the shim dir's elan points at PREFIX/bin/elan (a second hop)."""
+    cbin = prefix / "Cellar" / "elan-init" / "4.2.4" / "bin"
+    e.shim("elan-init", where=cbin)
+    (cbin / "elan").symlink_to("elan-init")
+    (prefix / "bin").mkdir(parents=True)
+    (prefix / "bin" / "elan").symlink_to("../Cellar/elan-init/4.2.4/bin/elan")
+    (e.bin / "elan").symlink_to(prefix / "bin" / "elan")
+
+
+def test_update_tools_skips_self_update_for_homebrews_elan_on_both_prefixes(tmp_path):
+    for prefix in ("usr-local", "opt-homebrew"):                  # Intel /usr/local, Apple Silicon /opt/homebrew
+        (tmp_path / prefix).mkdir()
+        e = Env(tmp_path / prefix)
+        e.brew()                                                  # never the real brew on /opt/homebrew/bin
+        brew_elan_link(e, tmp_path / prefix / "root")
+        rc, out, err = e.run(script=UPDATE, args=())
+        assert "  - elan self update: elan is Homebrew's (brew upgrade covers it)" in out, (prefix, out)
+        assert e.argv("elan") == ["update"], (prefix, e.argv("elan"))     # the shim logs the name it was run as
+
+
+def test_update_tools_self_updates_an_elan_from_its_own_installer(tmp_path):
+    e = Env(tmp_path)
+    e.brew()
+    e.shim("elan", where=e.home / ".elan" / "bin")
+    rc, out, _ = e.run(script=UPDATE, args=())
+    assert e.argv("elan") == ["self update", "update"], out
+    assert "ok  elan self update" in out
+
+
+def test_update_tools_homebrew_uv_is_resolved_too(tmp_path):
+    e = Env(tmp_path)
+    e.brew()
+    cbin = tmp_path / "root" / "Cellar" / "uv" / "0.12.20" / "bin"
+    e.shim("uv", where=cbin)
+    (e.bin / "uv").symlink_to(cbin / "uv")
+    rc, out, _ = e.run(script=UPDATE, args=())
+    assert "  - uv self update: uv is Homebrew's (brew upgrade covers it)" in out
+    assert e.argv("uv") == ["tool upgrade --all"]
