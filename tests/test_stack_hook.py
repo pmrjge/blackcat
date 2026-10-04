@@ -123,6 +123,8 @@ def pyc_loads(p):
 
 PUSH = {"session_id": SID, "hook_event_name": "PreToolUse", "tool_name": "Bash", "cwd": "/",
         "tool_use_id": "tu-p", "tool_input": {"command": "git push origin main"}}
+READ = {"session_id": SID, "hook_event_name": "PreToolUse", "tool_name": "Read", "cwd": "/",
+        "tool_use_id": "tu-r", "tool_input": {"file_path": "/etc/hosts"}}
 BROKEN_PRE = '{"hook_event_name": "PreToolUse", "tool_name": "Agent", oops'
 
 
@@ -339,7 +341,7 @@ def test_import_failure_fails_closed_on_pretooluse_only(tree, env, breakage):
     stop = {"session_id": SID, "hook_event_name": "SubagentStop", "agent_id": "A1"}
     rc, out, err = run(tree.via_stub("agent_guard"), stop, env)               # other events: no flag
     assert (rc, out) == (0, "") and "stack_hook: hook agent_guard failed to start" in err
-    rc, out, err = run(tree.via_stub("agent_guard", ["no-push"], closed=True), PUSH,
+    rc, out, err = run(tree.via_stub("agent_guard", ["budget"], closed=True), READ,
                        dict(env, STACK_POLICY="off"))                         # the bypass still works
     assert (rc, out) == (0, "") and "failed to start" in err
 
@@ -500,19 +502,33 @@ def test_launcher_missing_stub_never_reaches_python(tree, env, sh, closed):
     tree.stub.unlink()
     rc, out, err = launch(tree, dict(env, STACK_PYTHON=PY), sh, closed=closed)
     assert (rc, out) == ((2 if closed else 0), "") and "./install.sh" in err and "can't open" not in err
-    rc, out, err = launch(tree, dict(env, STACK_PYTHON=PY, STACK_POLICY="off"), sh, closed=closed)
+    rc, out, err = run(tree.via_launcher("agent_guard", ["budget"], closed=closed, sh=sh), READ,
+                       dict(env, STACK_PYTHON=PY, STACK_POLICY="off"))
     assert (rc, out) == (0, "")
 
 
 @pytest.mark.parametrize("policy", ["off", "OFF"])
 def test_launcher_policy_off(tree, env, sh, policy, tmp_path):
-    # nothing found: never blocks
-    rc, out, err = launch(tree, dict(env, CLAUDE_CONFIG_DIR=str(tree.c), STACK_POLICY=policy), sh)
+    # nothing found: never blocks (but no-push, see test_no_push_start_failure_not_lifted_by_policy_off)
+    rc, out, err = run(tree.via_launcher("agent_guard", ["budget"], closed=True, sh=sh), READ,
+                       dict(env, CLAUDE_CONFIG_DIR=str(tree.c), STACK_POLICY=policy))
     assert (rc, out) == (0, "") and "./install.sh" in err
     # an interpreter found: the hook still runs (usage accounting and logs do not stop under off)
     e = dict(env, STACK_POLICY=policy, STACK_PYTHON=PY)
     assert run(tree.via_launcher("agent_guard", ["no-push"], closed=True, sh=sh), PUSH, e) == \
         run(tree.direct("agent_guard", ["no-push"]), PUSH, e)
+
+
+def test_no_push_start_failure_not_lifted_by_policy_off(tree, env, sh):
+    """no-push is absolute (agent_guard.py: not switched off by STACK_POLICY=off): a hook that cannot
+    start still blocks a push under STACK_POLICY=off, in the launcher and in the stub."""
+    e = dict(env, STACK_POLICY="off")                    # CLAUDE_CONFIG_DIR: an empty dir, no interpreter
+    rc, out, err = launch(tree, e, sh)
+    assert (rc, out) == (2, "") and "./install.sh" in err
+    tree.src("agent_guard").unlink()
+    rc, out, err = run(tree.via_stub("agent_guard", ["no-push"], closed=True), PUSH, e)
+    assert rc == 0 and decision((rc, out, err)) == "deny"
+    assert "STACK_POLICY=off never lifts no-push" in json.loads(out)["systemMessage"]
 
 
 def test_launcher_dangling_symlink_skipped(tree, env, sh, tmp_path):

@@ -21,15 +21,20 @@ MODULES = {"agent_guard": True, "stack_usage": True, "read_gate": False, "web_ca
 HINT = ("claude-agent-stack hook error (see above). If it persists: run ./install.sh from the stack "
         "repo, or set \"STACK_POLICY\": \"off\" in the env block of ~/.claude/settings.json to bypass "
         "the stack policy.")
+# the no-push entry is absolute (agent_guard.py: "not switched off by STACK_POLICY=off"): a start
+# failure there denies even under STACK_POLICY=off, so Bash stays blocked until ./install.sh
+ABSOLUTE = ("agent_guard", "no-push")
+HINT_ABSOLUTE = ("claude-agent-stack hook error (see above): the no-push guard cannot start, so Bash "
+                 "stays blocked (STACK_POLICY=off never lifts no-push). Run ./install.sh from the stack repo.")
 
 
-def fail(closed, what):
-    if closed and os.environ.get("STACK_POLICY", "on").strip().lower() != "off":
+def fail(closed, what, absolute=False):
+    if closed and (absolute or os.environ.get("STACK_POLICY", "on").strip().lower() != "off"):
         sys.stdout.write(json.dumps({  # agent_guard.guard_error's deny, verbatim shape
             "hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
                                    "permissionDecisionReason": "stack guard error: %s. Report STATUS: "
                                    "blocked with this message; do not retry." % what},
-            "systemMessage": "%s (%s)" % (HINT, what)}))
+            "systemMessage": "%s (%s)" % (HINT_ABSOLUTE if absolute else HINT, what)}))
     else:
         sys.stderr.write("stack_hook: %s\n" % what)
     sys.stdout.flush()
@@ -40,11 +45,12 @@ def run(argv):
     closed = argv[:1] == ["--fail-closed"]
     argv = argv[1:] if closed else argv
     name = argv[0] if argv else ""
+    absolute = tuple(argv[:2]) == ABSOLUTE
     if name not in MODULES:          # an allow-list: no paths, no other modules
         fail(closed, "unknown hook module %r" % name[:80])
     if sys.version_info < (3, 13):  # noqa: UP036 - the stack-python symlink may point at anything
         fail(closed, "hook %s needs Python >= 3.13, %s runs %d.%d (run ./install.sh)"
-             % (name, sys.executable, sys.version_info[0], sys.version_info[1]))
+             % (name, sys.executable, sys.version_info[0], sys.version_info[1]), absolute)
     src = os.path.join(HOOKS, name + ".py")
     sys.argv = [src] + argv[1:]
     sys.path.insert(0, HOOKS)
@@ -64,7 +70,7 @@ def run(argv):
             runpy.run_path(src, run_name="__main__")
         except Exception as exc2:  # noqa: BLE001
             fail(closed, "hook %s failed to start (%s: %s; then %s: %s)"
-                 % (name, type(exc).__name__, exc, type(exc2).__name__, exc2))
+                 % (name, type(exc).__name__, exc, type(exc2).__name__, exc2), absolute)
         return 0
     return mod.main(sys.argv if MODULES[name] else sys.argv[1:])
 
