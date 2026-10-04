@@ -10,6 +10,7 @@
 # None found: with --fail-closed (PreToolUse entries) exit 2, which blocks the tool call, unless
 # STACK_POLICY=off; otherwise exit 0. Both name the fix on stderr. A hook that cannot start must
 # not silently open every gate (Claude Code treats exit 127 and 1 as non-blocking).
+# Run by its real path, not through a symlink: the stub is found relative to $0.
 
 case $0 in
   */*) here=${0%/*} ;;
@@ -25,16 +26,19 @@ usable() {
   return 0
 }
 
-for py in "${STACK_PYTHON-}" "${CLAUDE_CONFIG_DIR:-${HOME-}/.claude}/bin/stack-python" "$here/stack-python"; do
-  usable "$py" && exec "$py" "$stub" "$@"
-done
-if command -v uv >/dev/null 2>&1; then
-  py=$(uv python find --system --managed-python --no-project --no-config 3.13 2>/dev/null)
-  usable "$py" && exec "$py" "$stub" "$@"
+# a missing stub must not reach python: its exit 2 ("can't open file") blocks every event
+if [ -f "$stub" ]; then
+  for py in "${STACK_PYTHON-}" "${CLAUDE_CONFIG_DIR:-${HOME-}/.claude}/bin/stack-python" "$here/stack-python"; do
+    usable "$py" && exec "$py" "$stub" "$@"
+  done
+  if command -v uv >/dev/null 2>&1; then
+    py=$(uv python find --system --managed-python --no-project --no-config 3.13 2>/dev/null)
+    usable "$py" && exec "$py" "$stub" "$@"
+  fi
 fi
 
 echo "stack-hook: no Python >= 3.13 found (STACK_PYTHON, ${CLAUDE_CONFIG_DIR:-~/.claude}/bin/stack-python, $here/stack-python," \
-  "uv python find 3.13); run ./install.sh from the claude-agent-stack repo" >&2
+  "uv python find 3.13) or no $stub; run ./install.sh from the claude-agent-stack repo" >&2
 if [ "${1-}" = --fail-closed ]; then
   case ${STACK_POLICY-} in
     [Oo][Ff][Ff]) ;;

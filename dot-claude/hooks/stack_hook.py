@@ -2,7 +2,9 @@
 
 Imports hooks/<module>.py as a module, so its bytecode is cached in hooks/__pycache__ (timestamp
 pyc; a script run as __main__ is recompiled on every call), and calls main() exactly as the
-module's own `if __name__ == "__main__"` block does: same argv, stdin, stdout and exit code. An
+module's own `if __name__ == "__main__"` block does: same argv, stdin, stdout and exit code.
+Not carried over: DeprecationWarnings raised in hook code (Python shows them only for __main__) and
+compile-time SyntaxWarnings (shown only when the pyc is rewritten). An
 import that fails (missing or corrupt pyc body, SyntaxError, ...) falls back to running the source
 as __main__ (the direct-script path). If that fails too, or the module or interpreter is wrong:
 with --fail-closed (PreToolUse entries) the guard's own guard_error deny, else exit 0 and stderr.

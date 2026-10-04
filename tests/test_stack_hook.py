@@ -185,6 +185,15 @@ def session_events(root):
     ]
 
 
+STARTED = re.compile(r"Started \d{4}-\d\d-\d\d \d\d:\d\d \(local\)\.")
+
+
+def scrub(res):
+    """SubagentStart's `Started <local time>` line: runs seconds apart may straddle a minute."""
+    rc, out, err = res
+    return rc, STARTED.sub("Started <T> (local).", out), err
+
+
 def run_session(tree, tmp_path, how):
     root = tmp_path / "session"              # the same paths for every runner: outputs must match exactly
     shutil.rmtree(root, ignore_errors=True)
@@ -198,7 +207,7 @@ def run_session(tree, tmp_path, how):
             cmd = tree.via_stub(mod, args)
         else:                                 # as S2 wires it: --fail-closed on the PreToolUse entries
             cmd = tree.via_launcher(mod, args, closed=closed)
-        out.append(((mod, args), run(cmd, stdin, e)))
+        out.append(((mod, args), scrub(run(cmd, stdin, e))))
     return out
 
 
@@ -210,6 +219,7 @@ def test_parity_stub_and_launcher_match_direct_script(tree, tmp_path):
     assert d[4] == d[5] == d[9] == d[13] == d[14] == "deny", d
     assert d[3] == d[8] == d[10] == d[15] == "allow", d
     assert direct[21][1][0] == 2 and "updatedInput" in direct[16][1][1], direct[16]
+    assert "Started <T> (local)." in direct[7][1][1], direct[7]
     for how in ("stub", "launcher"):
         got = run_session(tree, tmp_path, how)
         for (call, want), (_, have) in zip(direct, got, strict=True):
@@ -238,6 +248,17 @@ def test_cached_pyc_is_used_not_rewritten(tree, env):
 
 
 # ---------------------------------------------------------------- bytecode failure modes
+def test_pycache_prefix_env_ignored(tree, env, tmp_path):
+    """PYTHONPYCACHEPREFIX in the hook's environment: bytecode still comes from (and goes to) the
+    protected hooks/__pycache__, never the prefix dir (stack_hook.py sets sys.pycache_prefix = None)."""
+    pfx = tmp_path / "pfx"
+    rc, out, err = run([PY, "-v", *tree.via_stub("agent_guard", ["no-push"])[1:]], PUSH,
+                       dict(env, PYTHONPYCACHEPREFIX=str(pfx)))
+    assert decision((rc, out, err)) == "deny"
+    assert "code object from '%s'" % tree.pyc("agent_guard") in err
+    assert not pfx.exists() or not list(pfx.rglob("agent_guard*.pyc"))
+
+
 def test_corrupt_pyc_body_falls_back_and_heals(tree, env):
     want = run(tree.direct("agent_guard", ["no-push"]), PUSH, env)
     b = bytearray(tree.pyc("agent_guard").read_bytes())
@@ -470,6 +491,17 @@ def test_launcher_uv_flags_ignore_project_venv_and_config(tree, env, tmp_path):
 def test_launcher_nothing_found(tree, env, sh, closed, want_rc):
     rc, out, err = launch(tree, dict(env, CLAUDE_CONFIG_DIR=str(tree.c)), sh, closed=closed)
     assert (rc, out) == (want_rc, "") and "./install.sh" in err and "no Python >= 3.13" in err
+
+
+@pytest.mark.parametrize("closed", [True, False])
+def test_launcher_missing_stub_never_reaches_python(tree, env, sh, closed):
+    """No hooks/stack_hook.py (a partial install): python's own exit 2 would block every event, also
+    the non-fail-closed ones; the launcher takes the nothing-found path instead."""
+    tree.stub.unlink()
+    rc, out, err = launch(tree, dict(env, STACK_PYTHON=PY), sh, closed=closed)
+    assert (rc, out) == ((2 if closed else 0), "") and "./install.sh" in err and "can't open" not in err
+    rc, out, err = launch(tree, dict(env, STACK_PYTHON=PY, STACK_POLICY="off"), sh, closed=closed)
+    assert (rc, out) == (0, "")
 
 
 @pytest.mark.parametrize("policy", ["off", "OFF"])
