@@ -201,8 +201,9 @@ when their brief names the spawn. Caveats, failures and `ASK USER` travel up ver
 user's answer goes to the agent that asked, and one integrator per job owns the final merge. Hops are
 for hand-backs, not routing: a message for another agent (a file's owner, a sibling, a named consumer of
 a final output) goes to it by SendMessage, found with one `stack-who` lookup, with a one-line note to
-the parent. Nothing an agent sends, writes or hands on carries credentials, logins or personal data unless
-the user's request names that use and recipient. Subagents read the full rules before their first spawn
+the parent. Agents are told to strip credentials, logins and personal data from what they send, write or hand on
+unless the user's request names that use and recipient (a prompt rule; no hook scrubs messages, briefs
+or files). Subagents read the full rules before their first spawn
 or SendMessage: `dot-claude/skills/prompt-and-brief-design/references/delegation.md`.
 
 ### Agent tiers and routing
