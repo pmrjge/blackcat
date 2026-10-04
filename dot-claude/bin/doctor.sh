@@ -1046,6 +1046,39 @@ done
 [ -d "/Applications/Google Chrome.app" ] && ok "Google Chrome found (Playwright MCP)" \
   || warn "Google Chrome not found — the Playwright MCP of browser-operator, frontend-engineer and verifier drives it: npx @playwright/mcp@0.0.82 install-browser chrome"
 
+echo "== Anthropic plugins"
+# install.sh step 10 records the Anthropic skill plugins it installed or found (plugins_installed) and
+# the ones whose install failed (plugins_missing: offline, or the marketplace unreachable); read here
+# with settings.json's enabledPlugins, no network and no claude call
+python3 - "$C/.stack-manifest.json" "$C/settings.json" <<'PY'
+import json, sys
+def load(p):
+    try:
+        v = json.load(open(p))
+        return v if isinstance(v, dict) else {}
+    except (OSError, ValueError):
+        return {}
+m, s = load(sys.argv[1]), load(sys.argv[2])
+if "plugins_installed" not in m and "plugins_missing" not in m:
+    print("  ok    no Anthropic plugin list in the manifest (installed with --no-plugins, or before 2026-10-04)")
+    sys.exit(0)
+on = s.get("enabledPlugins") if isinstance(s.get("enabledPlugins"), dict) else {}
+ids = lambda k: [x for x in (m.get(k) or []) if isinstance(x, str)]
+missing = ids("plugins_missing")
+gone = [x for x in ids("plugins_installed") if x not in on]
+off = [x for x in ids("plugins_installed") if on.get(x) is False]
+if missing:
+    print("  WARN  not installed: %s (the installer was offline or the install failed) — rerun ./install.sh, "
+          "or inside claude: /plugin install <name>@claude-plugins-official" % " ".join(missing))
+if gone:
+    print("  WARN  installed by the stack, no longer in settings.json enabledPlugins: %s — rerun ./install.sh"
+          % " ".join(gone))
+ok = [x for x in ids("plugins_installed") if on.get(x) is True]
+if ok or off:
+    print("  ok    enabled: %s%s" % (" ".join(ok) or "none",
+                                     "; disabled by you: " + " ".join(off) if off else ""))
+PY
+
 echo "== User-scope MCP servers"
 if have claude; then
   out=$($T claude mcp list 2>&1 </dev/null || true)

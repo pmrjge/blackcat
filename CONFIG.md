@@ -249,7 +249,7 @@ Every command takes `--json`. Verdicts are three-way: fits (the interval's upper
 | MCP, magg catalog (23 servers, all disabled) | A one-line pointer in the agent that has the gap: "X → mcp-broker mounts `<server>`" (devops → `kubernetes`/`grafana`, data-scientist → `sec-edgar`/`gis`/`jupyter`, doc-specialist → `docling`/`docspace`, llm-engineer → `mlflow`, researcher → `arxiv`, game → `godot`, biochem → `biomcp`/`pubchem`, mobile → `mobile`/`android`, embedded → `serial`, frontend → `chrome-devtools`, robotics → `ros`, quantum → `qiskit-runtime`) | ask mcp-broker | 0 until mounted (unchanged); the pointers add ~430 chars to four agent bodies |
 | MCP, user scope (exa, jina, wolfram, huggingface, wandb) | session-wide, tools deferred | — | unchanged; nothing new added to user scope |
 | Plugins, LSP (pyright, typescript, rust-analyzer, gopls, jdtls, kotlin, clangd, swift; haskell, julia, lean, metals from the stack's marketplace) | enabled; a language server starts when Claude touches a matching file | — | 0 listing (no skills); unchanged |
-| Plugins with skills (document-skills, math-olympiad, skill-creator) | enabled, each named by a pointer (doc-specialist, technical-writing, presentation-design → docx/xlsx/pptx/pdf; mathematician, proof-craft → math-olympiad; claude-code-engineer → skill-creator), so none is disabled for being idle; the installer still disables document-skills and skill-creator where claude.ai syncs the same skills (§7, Plugins) | `/plugin enable <id>`, or `"enabledPlugins": {"<id>": true}` in a project's `.claude/settings.json` | 2,919 listing chars (measured); unchanged |
+| Plugins with skills (document-skills, mcp-server-dev, session-report, math-olympiad, skill-creator) | enabled, each named by a pointer (doc-specialist, technical-writing, presentation-design → docx/xlsx/pptx/pdf; mathematician, proof-craft → math-olympiad; claude-code-engineer → skill-creator), so none is disabled for being idle; the installer still disables document-skills and skill-creator where claude.ai syncs the same skills (§7, Plugins) | `/plugin enable <id>`, or `"enabledPlugins": {"<id>": true}` in a project's `.claude/settings.json` | 2,919 listing chars (measured); unchanged |
 | Bundled Claude Code skills | listed, except seven user-run commands (code-review, security-review, simplify, fewer-permission-prompts, keybindings-help, init, dataviz) that are `user-invocable-only`; update-config is named by stack skills | `/<name>` | ~3,950 → ~2,550 (estimated; cap 250, dataviz hidden) |
 | claude.ai-synced skills (`anthropic-skills:*`) | listed, except deep-research, morning, import-memory, consolidate-memory, setup-claude, explain-usage, google-workspace and schedule (`user-invocable-only`, keyed by the full name) | `/<name>` | ~7,300 → ~3,000 (estimated margin; cap 250) |
 
@@ -526,7 +526,7 @@ The manifest (`.stack-manifest.json`) lists every stack file as relpath + sha256
 
 ### Plugins
 
-One copy of each skill is the default. A plugin that duplicates a claude.ai-synced skill (document-skills, skill-creator) is disabled, and so is `mcp-server-dev@claude-plugins-official` (the stack's `mcp-server-craft` covers it). Each disable prints `To undo: claude plugin enable ...` and is recorded for `--restore`; `--keep-plugin-duplicates` keeps both. `math-olympiad` (with `--with-extra-plugins`) and the built-in `dataviz` skill stay.
+One copy of each skill is the default. A plugin that duplicates a claude.ai-synced skill (document-skills, skill-creator) is disabled. Each disable prints `To undo: claude plugin enable ...` and is recorded for `--restore`; `--keep-plugin-duplicates` keeps both. Anthropic's skill plugins in install.sh `ANTHROPIC_PLUGINS` (mcp-server-dev, which replaced the stack's own MCP-server skill, session-report, skill-creator, math-olympiad) are installed at user scope unless `--no-anthropic-plugins`; the step is idempotent, records `plugins_installed` and `plugins_missing` in the manifest, and re-enables mcp-server-dev where an earlier install disabled it. The built-in `dataviz` skill stays.
 
 ### Supply chain (C7)
 
@@ -1338,7 +1338,7 @@ Your stack's mathematician agent (Opus 5.5 at xhigh) with the formal-methods, la
 | Tool | Use | Connect | Cost |
 | --- | --- | --- | --- |
 | Wolfram | Exact symbolic and numeric computation, curated data | Already in your stack for the mathematician: `https://agenttools.wolfram.com/mcp` | Free, no key |
-| math-olympiad skills | Anthropic's competition-maths skills | `./install.sh --with-extra-plugins` | Free |
+| math-olympiad skills | Anthropic's competition-maths skills | Installed by `./install.sh` (`--no-anthropic-plugins` skips) | Free |
 | Lean 4 and Mathlib | Machine-checked proofs | In your stack: proof-checker runs `lean-lsp-mcp` itself and mcp-broker can mount the catalog copy; you install elan and a built Mathlib Lake project and set `LEAN_PROJECT_PATH` in stack.env; LeanExplore searches Mathlib | Free |
 | [arxiv-mcp-server](https://github.com/blazickjp/arxiv-mcp-server) | Search, download and read arXiv papers | In your stack's catalog as `arxiv` | Free |
 | alphaXiv | Search and full text of arXiv papers | Remote: `https://api.alphaxiv.org/mcp/v1` | Free |

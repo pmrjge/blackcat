@@ -317,14 +317,17 @@ def get_may_spawn(body):
 OVERRIDE_STATES = {"on", "name-only", "user-invocable-only", "off"}
 # Skill-listing budget (see main()): what shares it besides the stack's own skills, 2026-10-04, at
 # skillListingMaxDescChars 250 (entries "- name: description", description cut at 250). Plugins
-# (skillOverrides can't touch them): document-skills docx/xlsx/pptx/pdf 1,095, math-olympiad 281,
-# skill-creator 281 (descriptions measured from their SKILL.md files, all over 250), + separators.
+# (skillOverrides can't touch them; listed as plugin:skill): document-skills docx/xlsx/pptx/pdf 1,095,
+# and install.sh ANTHROPIC_PLUGINS (measured from claude-plugins-official's SKILL.md files 2026-10-04):
+# mcp-server-dev build-mcp-app 282, build-mcp-server 285, build-mcpb 279, session-report 187,
+# skill-creator 281, math-olympiad 281 = 1,595 (skill-creator counted where claude.ai syncs it too), + 9
+# separators.
 # Bundled Claude Code skills still listed (artifact-*, update-config, loop, schedule, claude-api,
 # workflow-authoring, run, plugin-authoring; dataviz is user-invocable-only): ~2,550, estimated from a
 # 2.1.287 session's listing. claude.ai-synced skills still listed (anthropic-skills: built-in-browser,
 # chrome-browser, computer-use, docs, docx, pdf, pptx, skill-creator, xlsx; 8 others are
 # user-invocable-only): ~2,520 computed from ~/.claude/skills/synced manifest lengths, 3,000 margin.
-NON_STACK = {"plugins": 1_657 + 6, "bundled (est.)": 2_550, "claude.ai synced (est. margin)": 3_000}
+NON_STACK = {"plugins": 1_095 + 1_595 + 9,"bundled (est.)": 2_550, "claude.ai synced (est. margin)": 3_000}
 NON_STACK_LISTING = sum(NON_STACK.values())
 LISTING_NOTE = ("non-stack %d chars estimated 2026-10-04 (cap 250, 9 non-stack skills hidden); see "
                 "tests/prompt_budget.py SKILL_BUDGET" % NON_STACK_LISTING)
@@ -369,18 +372,38 @@ def hidden_skills():
     return {k for k, v in so.items() if v in ("user-invocable-only", "off")} & skill_names()
 
 
+# Skills of the plugins the installer adds (install.sh ANTHROPIC_PLUGINS, plus document-skills), named
+# `plugin:skill` in bodies (measured from claude-plugins-official and anthropic-agent-skills 2026-10-04).
+# A body naming a plugin skill outside this map (a typo, a skill the plugin dropped) fails the lint.
+# anthropic-skills:<name> (claude.ai-synced; the set differs per account) is not checked.
+PLUGIN_SKILLS = {
+    "mcp-server-dev": {"build-mcp-server", "build-mcp-app", "build-mcpb"},
+    "session-report": {"session-report"},
+    "skill-creator": {"skill-creator"},
+    "math-olympiad": {"math-olympiad"},
+    "document-skills": {"docx", "xlsx", "pptx", "pdf"},
+}
+SKILL_REF = r"[a-z0-9-]+(?::[a-z0-9-]+)?"
+
+
+def plugin_skill_known(ref):
+    """True for `plugin:skill` refs PLUGIN_SKILLS has (or any anthropic-skills:<name>)."""
+    plugin, _, skill = ref.partition(":")
+    return plugin == "anthropic-skills" or skill in PLUGIN_SKILLS.get(plugin, ())
+
+
 def referenced_skills(body):
     """Skill names an agent body tells the agent to load: backticked names in a 'Skills' section
-    and 'Load the `x` skill' / '`x` with the Skill tool' phrases."""
-    names = set(re.findall(r"[Ll]oad (?:the )?`([a-z0-9-]+)`", body))
-    names |= set(re.findall(r"`([a-z0-9-]+)` with the Skill tool", body))
+    and 'Load the `x` skill' / '`x` with the Skill tool' phrases; `plugin:skill` included."""
+    names = set(re.findall(r"[Ll]oad (?:the )?`(%s)`" % SKILL_REF, body))
+    names |= set(re.findall(r"`(%s)` with the Skill tool" % SKILL_REF, body))
     in_skills = False
     for line in body.splitlines():
         if line.startswith("#"):
             in_skills = "skill" in line.lower()
             continue
         if in_skills:
-            names |= set(re.findall(r"`([a-z0-9-]+)`", line))
+            names |= set(re.findall(r"`(%s)`" % SKILL_REF, line))
     return names
 
 
@@ -532,7 +555,11 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
     wanted = referenced_skills(body)
     known = skill_names() | ANTHROPIC_DOC_SKILLS | {"document-skills", "anthropic-skills"}
     for s in sorted(wanted - known):
-        fail(f"{path.name}: body refers to skill {s!r}, which does not exist under {SKILLS_DIR}")
+        if ":" not in s:
+            fail(f"{path.name}: body refers to skill {s!r}, which does not exist under {SKILLS_DIR}")
+        elif not plugin_skill_known(s):
+            fail(f"{path.name}: body refers to plugin skill {s!r}, which no plugin the installer adds "
+                 "ships (lint_agents.py PLUGIN_SKILLS, install.sh ANTHROPIC_PLUGINS)")
     if wanted and "Skill" not in flat_tools:
         fail(f"{path.name}: body tells the agent to load skills but tools: has no Skill")
     # skills are looked up when a step needs them (the user, 2026-10-02: "## Skills are not always on,
@@ -590,7 +617,7 @@ audio-analysis audio-dsp audio-plugins compiler-backend-jit compiler-frontend co
 compiler-types diag-graphviz-d2 diag-mermaid diag-tikz ffmpeg-audio-subs ffmpeg-edit ffmpeg-encode
 fm-rust-kani-miri fm-smt-z3 fm-tla geo-crs-gdal geo-raster-vector geo-tiles-webmaps git-history-edit
 git-large-repos git-recovery-bisect git-worktrees l10n-qa linux-desktop-btrfs macos-dmg-sparkle-brew
-macos-sign-notarize mcp-http-release mcp-python-server mcp-ts-server net-protocols net-vpn-firewall
+macos-sign-notarize mcp-http-release mcp-python-server mcp-server-craft mcp-ts-server net-protocols net-vpn-firewall
 num-optimization ops-runbooks quant-backtesting quant-pricing quant-risk sec-local-servers
 sec-threat-model test-mutation viz-interactive write-articles write-docs-adr write-reports
 """.split())
@@ -648,6 +675,30 @@ def check_stale_skill_refs():
                      "skill or references/ file that absorbed it")
 
 
+def anthropic_plugins(root=REPO_ROOT):
+    """install.sh's ANTHROPIC_PLUGINS list (names without @marketplace); None when the line is absent."""
+    try:
+        m = re.search(r'^ANTHROPIC_PLUGINS="([^"]*)"$', (root / "install.sh").read_text(), re.M)
+    except OSError:
+        return None
+    return m.group(1).split() if m else None
+
+
+def check_plugin_skills():
+    """Every plugin install.sh adds has its skills in PLUGIN_SKILLS (the plugin:skill refs lint checks)."""
+    plugins = anthropic_plugins()
+    if plugins is None:
+        fail("install.sh has no ANTHROPIC_PLUGINS=\"...\" line (lint_agents.py PLUGIN_SKILLS mirrors it)")
+        return
+    for p in plugins:
+        if p not in PLUGIN_SKILLS:
+            fail(f"install.sh ANTHROPIC_PLUGINS names {p!r}, which lint_agents.py PLUGIN_SKILLS lacks: add "
+                 "its skill names (its skills/*/SKILL.md in the marketplace)")
+    for p, skills in PLUGIN_SKILLS.items():
+        for s in sorted(skills & skill_names()):
+            fail(f"dot-claude/skills/{s}/ duplicates plugin {p}'s skill {s!r}: one copy of each skill")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--policy-json", default=None, help="fallback policy fixture path")
@@ -689,6 +740,7 @@ def main():
 
     check_bare_python()
     check_stale_skill_refs()
+    check_plugin_skills()
 
     # every model-invocable skill is pre-approved, or background agents hit permission prompts
     try:

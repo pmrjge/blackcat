@@ -5,7 +5,7 @@ description: Use for TypeScript or JavaScript — TS 7 vs 6, tsconfig, ESM/CJS, 
 # TypeScript engineering
 
 ## Scope and baseline
-- Covers TS/JS for CLIs, libraries, Node servers and web front-ends. MCP server design is in `mcp-server-craft`; security review in `secure-coding`; interactive browser driving in `browser-automation`.
+- Covers TS/JS for CLIs, libraries, Node servers and web front-ends. MCP server design is in `mcp-server-dev:build-mcp-server`; security review in `secure-coding`; interactive browser driving in `browser-automation`.
 - Baseline (re-check with `npm view <pkg> version` before pinning):
   - **TypeScript 7.0** (native Go port, `typescript@7`, `tsc` ~10x faster) is `latest` since July 2026 (7.0.2, 2026-07-08). It ships **no programmatic API** until 7.1, so tools that import `typescript` keep needing **TypeScript 6.0** (Mar 2026, the last JS-based line): typescript-eslint 8.x supports `>=4.8.4 <6.1.0`; Volar-based Vue/Svelte/Astro/MDX and Angular template checking stay on 6.
   - Node: 24 = active LTS (maintenance from 2026-10-20), 22 = maintenance LTS (EOL 2027-04-30), 26 = current (LTS from 2026-10-28), 20 = end of life (2026-04-30). Target 24 for new work.

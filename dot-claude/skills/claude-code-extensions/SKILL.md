@@ -26,10 +26,19 @@ Details: `references/mcp-hooks-settings.md`. Must-knows:
 - Settings changes go to the repo's `dot-claude/settings.json`, never the live file; loosening a permission, hook or sandbox needs the user's consent.
 - User commands are skills with `disable-model-invocation: true`: `stack-doctor`, `stack-tree` (agent tree or table of a session, `static` for the design), and `override-agent` (per-session model of a delegated agent type; `list`, `reset`). UserPromptExpansion hooks answer all three (`/stack-doctor` runs `bin/doctor.sh --hook` outside the sandbox, `/stack-tree` `bin/stack-tree --hook`), and a user-only state change hooks onto that event, never UserPromptSubmit (CONFIG.md §5).
 
+## MCP servers you build (stack conventions)
+Design, SDKs, transports, MCPB bundles and MCP Apps: Anthropic's `mcp-server-dev` plugin (`mcp-server-dev:build-mcp-server`, `mcp-server-dev:build-mcpb`, `mcp-server-dev:build-mcp-app`). What the stack adds:
+- Python servers are PEP 723 scripts run by `uv run --script` with pinned dependencies; working examples: `dot-claude/mcp/` (`libdocs_mcp.py`, `image_studio_mcp.py`, `neural_memory_mcp.py`). The installer prefetches their dependencies (step 8), since a first `uv run --script` downloads them.
+- stdout is the protocol channel: no `print()`, logs to stderr, subprocesses get `stdout=PIPE` or `DEVNULL`.
+- Keys only from the environment or stack.env (copy `_load_env_file()` from `libdocs_mcp.py`; an inline server that needs a key starts through `bin/with-stack-env`), remote headers through `bin/mcp-headers` (a `HEADERS` entry); never in arguments, results, errors or logs. A missing key is a `ToolError` naming its stack.env variable.
+- Few verb_noun tools, descriptions that lead with what, when and what comes back; large results go to files and return paths.
+- A path, URL or shell argument: allowlist after `resolve()`, SSRF check on every redirect hop, no shell interpolation (`secure-coding`).
+- Registration follows the MCP tiers above; check with `/mcp`, `claude mcp get <name>` and `uv run tests/lint_agents.py`, then one real call from the target agent. mcp-broker's vetting, permanent-add and audit steps: `references/mcp-broker.md`.
+
 ## Agent SDK
 Running the installed stack from an SDK app or `claude -p` (what `setting_sources` loads, what a call can override, hooks without a TTY, JSON reports, cache order, `bin/stack_sdk.py`): `references/agent-sdk.md`.
 
 ## Validate
 `jq empty <file>` for JSON; `claude plugin validate <dir>` for plugins and agent directories; in the stack repo `uv run tests/lint_agents.py`, `__CLAUDE_DIR__/venvs/tools/bin/python -m pytest -q tests/` (the tools venv), `bash tests/install_smoke.sh`; `/usr/bin/python3 <config>/hooks/agent_guard.py --self-test` (the hooks' own interpreter, as in settings.json); `/doctor` and `/stack-doctor` in a session.
 
-Division of labour: built-in `update-config` (mechanics of editing a settings.json), `workflow-authoring` (Workflow scripts), `skill-creator` (skill evals, description tuning), `mcp-server-craft` (writing an MCP server), `prompt-and-brief-design` (CLAUDE.md, agent and skill prompts), `agent-harness-design` (agent loops outside Claude Code).
+Division of labour: built-in `update-config` (mechanics of editing a settings.json), `workflow-authoring` (Workflow scripts), `skill-creator` (skill evals, description tuning), `mcp-server-dev:build-mcp-server` (writing an MCP server; conventions above), `prompt-and-brief-design` (CLAUDE.md, agent and skill prompts), `agent-harness-design` (agent loops outside Claude Code).

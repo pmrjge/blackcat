@@ -13,7 +13,7 @@ on new drift:
   refs     a skill reference that does not resolve: `see `x`` / `load `x``, chained with `, `/`and`/
            `or` (`load `a` and `b``), every backticked name in an agent's `## Skills` paragraph and
            every hub-module mark `x`* must name a shipped skill (or a
-           plugin's or Claude Code's own: EXTERNAL_SKILLS, any `plugin:skill`); a section named as
+           plugin's or Claude Code's own: EXTERNAL_SKILLS, `plugin:skill` with skill in it); a section named as
            `see `x` (Heading)`, `` `x` § Heading`` or `` `x` §N`` must be a heading of x's SKILL.md
            or references/*.md (a prefix of the heading text, case-insensitive, "N." numbering ignored)
   hooks    every file in dot-claude/hooks is wired in dot-claude/settings.json (`hooks/<file>` in a
@@ -46,7 +46,7 @@ EXTERNAL_SKILLS = {
     "build-mcpb", "math-olympiad", "consolidate-memory", "deep-research", "docs", "explain-usage",
     "google-workspace", "import-memory", "morning", "setup-claude", "chrome-browser",
     "built-in-browser", "computer-use", "artifact-design", "artifact-diagramming",
-    "artifact-capabilities", "plugin-authoring",
+    "artifact-capabilities", "plugin-authoring", "session-report",
 }
 SKILL_NAME = r"[a-z0-9][a-z0-9-]*(?::[a-z0-9][a-z0-9-]*)?"
 NAME_TICK = r"`(" + SKILL_NAME + r")`\*?"
@@ -155,7 +155,8 @@ def find_bad_refs(root: Path):
     heads_cache = {}
 
     def known(name):
-        return name in have or name in EXTERNAL_SKILLS or ":" in name
+        # `plugin:skill`: the skill part must be a known external one (a typo'd plugin ref fails)
+        return name in have or name in EXTERNAL_SKILLS or name.partition(":")[2] in EXTERNAL_SKILLS
 
     bad = set()
     for rel, text in scanned_files(root):

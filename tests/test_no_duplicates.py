@@ -23,7 +23,7 @@ EXTERNAL_SKILLS = {
     "docx", "xlsx", "pptx", "pdf", "skill-creator", "build-mcp-server", "build-mcp-app",
     "build-mcpb", "math-olympiad", "consolidate-memory", "deep-research", "docs", "explain-usage",
     "google-workspace", "import-memory", "morning", "setup-claude", "chrome-browser",
-    "built-in-browser", "computer-use",
+    "built-in-browser", "computer-use", "session-report",
 }
 EXTERNAL_PREFIXES = ("artifact-",)
 
@@ -32,6 +32,7 @@ PLUGIN_SKILLS = {
     "skill-creator": ["skill-creator"],
     "math-olympiad": ["math-olympiad"],
     "mcp-server-dev": ["build-mcp-server", "build-mcp-app", "build-mcpb"],
+    "session-report": ["session-report"],
 }
 
 
@@ -426,42 +427,29 @@ def test_rules_no_shared_heading_or_repeated_long_lines():
 
 # ---------------------------------------------------------------- 8. plugins
 
-def _plugin_lists():
-    txt = install_text()
-    out = []
-    for var, line in (("EXTRA_PLUGINS", 'EXTRA_PLUGINS="skill-creator math-olympiad"'),
-                      ("RETIRED_PLUGINS", 'RETIRED_PLUGINS="mcp-server-dev@claude-plugins-official"')):
-        if not re.search(r"^%s$" % re.escape(line), txt, re.M):
-            pytest.skip("install.sh does not have the line yet: %s" % line)
-        m = re.search(r'^%s="([^"]*)"' % var, txt, re.M)
-        out.append([w.split("@")[0] for w in m.group(1).split()])
-    return out
+def _anthropic_plugins():
+    m = re.search(r'^ANTHROPIC_PLUGINS="([^"]*)"$', install_text(), re.M)
+    assert m, 'install.sh has no ANTHROPIC_PLUGINS="..." line'
+    return [w.split("@")[0] for w in m.group(1).split()]
 
 
-def test_plugins_extra_not_retired():
-    extra, retired = _plugin_lists()
-    both = sorted(set(extra) & set(retired))
-    assert not both, "install.sh EXTRA_PLUGINS and RETIRED_PLUGINS both name: %s" % both
+def test_anthropic_plugins_have_known_skills():
+    missing = [p for p in _anthropic_plugins() if p not in PLUGIN_SKILLS]
+    assert not missing, "install.sh ANTHROPIC_PLUGINS names plugins with no skill list here: %s" % missing
 
 
 def test_plugin_skills_do_not_equal_stack_skills():
-    extra, _ = _plugin_lists()
     stack = stack_skill_names()
     bad = []
-    for plugin in ["document-skills"] + extra:
+    for plugin in ["document-skills"] + _anthropic_plugins():
         for s in PLUGIN_SKILLS.get(plugin, []):
             if s in stack:
                 bad.append("plugin %s ships skill %r and dot-claude/skills/%s/ also does" % (plugin, s, s))
     assert not bad, "\n".join(bad)
 
 
-def test_retired_plugin_skills_covered_by_stack_skill():
-    _, retired = _plugin_lists()
-    craft = DOT / "skills" / "mcp-server-craft" / "SKILL.md"
-    assert craft.exists(), "dot-claude/skills/mcp-server-craft/SKILL.md is missing"
-    desc = fm_value(frontmatter(craft), "description") or ""
-    for plugin in retired:
-        assert plugin in PLUGIN_SKILLS, "retired plugin %s has no known skill list in this test" % plugin
-        assert re.search(r"MCP servers?", desc, re.I), (
-            "%s no longer covers retired plugin %s (%s): description does not mention MCP servers"
-            % (rel(craft), plugin, ", ".join(PLUGIN_SKILLS[plugin])))
+def test_mcp_server_craft_retired_for_mcp_server_dev():
+    """S1 (2026-10-04): the stack's mcp-server-craft gave way to Anthropic's mcp-server-dev plugin."""
+    assert "mcp-server-dev" in _anthropic_plugins()
+    assert not (DOT / "skills" / "mcp-server-craft").exists()
+    assert "RETIRED_PLUGINS" not in install_text()

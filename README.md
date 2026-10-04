@@ -358,7 +358,7 @@ figures below. What the repo's tests prove is the machinery:
 | `tests/test_stack_budget.py`, `test_stack_budget_security.py`, `test_stack_tree.py`, `test_stack_doctor.py`, `test_override_agent.py` | The user commands, including read-only behaviour and escaping of untrusted text |
 | `tests/test_read_gate.py`, `test_web_caps.py`, `test_image_limit.py`, `test_libdocs_mcp.py`, `test_image_studio_mcp.py`, `test_mcp_headers.py` | Gates, caps and the stack's MCP servers |
 | `tests/lint_agents.py`, `tests/prompt_budget.py --check`, `test_skill_modules.py`, `test_no_duplicates.py` | Frontmatter, `POLICY` ↔ "May spawn", model aliases, skill layout, prompt sizes |
-| `tests/install_smoke.sh`, `test_install_state.py` | Hermetic installer runs: dry run, restore round trips, pruning, symlinked dirs |
+| `tests/install_smoke.sh`, `test_install_state.py`, `test_install_plugins.py` | Hermetic installer runs: dry run, restore round trips, pruning, symlinked dirs, the Anthropic skill plugins step |
 
 How to run them: [Verify](#verify).
 
@@ -677,7 +677,7 @@ fewer-permission-prompts, keybindings-help, init and dataviz, and the claude.ai 
 `anthropic-skills:` deep-research, morning, import-memory, consolidate-memory, setup-claude,
 explain-usage, google-workspace and schedule. The duplicate `schedule` is keyed by its full name only: a
 plain `"schedule"` would hide Claude Code's own cloud-routines `/schedule`. Plugin skills
-(document-skills, math-olympiad, skill-creator) ignore `skillOverrides` and stay listed at the cap.
+(document-skills, mcp-server-dev, session-report, math-olympiad, skill-creator) ignore `skillOverrides` and stay listed at the cap.
 
 ### Guard hooks
 
@@ -958,14 +958,15 @@ steps, as the run prints them:
 9. **User-scope MCP servers**: exa, jina, wolfram, huggingface, and wandb when a key exists; keys come
    through the `bin/mcp-headers` header helper, never `~/.claude.json`.
 10. **Plugins and code intelligence**: document-skills, LSP plugins for the servers it finds
-    (`--with-lsp` installs missing ones and names why any is still missing), `--with-extra-plugins`; duplicates of claude.ai-synced
-    skills disabled.
+    (`--with-lsp` installs missing ones and names why any is still missing), Anthropic's skill plugins
+    (mcp-server-dev, session-report, skill-creator, math-olympiad; `--no-anthropic-plugins` skips them);
+    duplicates of claude.ai-synced skills disabled.
 11. **Shell profile**: one line in `~/.zshrc` (and `~/.bashrc` if present) exporting the
     `STACK_EXPORT` keys and adding `~/.local/bin` to `PATH` (`--no-profile` skips it), and the
     `claude-ninja` launcher link in `~/.local/bin`.
 
 Other flags: `--config-dir PATH`, `--no-prompt`, `--restore [DIR] [--force]`, `--write-through-links`,
-`--no-mcp`, `--no-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
+`--no-mcp`, `--no-plugins`, `--no-anthropic-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
 `--print-managed-settings`. `./install.sh --help` prints them all; [CONFIG.md](CONFIG.md) §7 explains
 staging, pruning and the manifest.
 
@@ -1260,8 +1261,7 @@ Set in `settings.json` → `env`. The table (defaults, ownership marks, why) is 
 | `pyright-lsp`, `typescript-lsp`, `rust-analyzer-lsp`, `clangd-lsp`, `gopls-lsp`, `swift-lsp`, `jdtls-lsp`, `kotlin-lsp` | `claude-plugins-official` | Enabled by the installer when the server binary is on `PATH` | `./install.sh --with-lsp` installs pyright, typescript-language-server, rust-analyzer (rustup's component, else Homebrew), jdtls (Homebrew, in step 2) and kotlin-lsp (Homebrew cask), and ends by naming why any server is still missing; gopls comes with step 2's Go group, clangd and sourcekit-lsp with Xcode's Command Line Tools |
 | `haskell-lsp`, `julia-lsp`, `lean-lsp`, `metals-lsp` | `agent-stack` (`dot-claude/stack-plugins/`) | Enabled when `haskell-language-server-wrapper`, LanguageServer.jl, `lake` or `metals` exist | `--with-lsp` uses ghcup, julia or cs when present; Lean needs elan |
 | `document-skills` | `anthropic-agent-skills` | Installed; disabled where claude.ai already syncs docx/xlsx/pptx/pdf | `--keep-plugin-duplicates` keeps both |
-| `skill-creator`, `math-olympiad` | `claude-plugins-official` | Not installed by default | `./install.sh --with-extra-plugins`; skill-creator is disabled where claude.ai syncs it |
-| `mcp-server-dev` | `claude-plugins-official` | Disabled if present: `mcp-server-craft` covers it | `claude plugin enable mcp-server-dev@claude-plugins-official --scope user` |
+| `mcp-server-dev`, `session-report`, `skill-creator`, `math-olympiad` (install.sh `ANTHROPIC_PLUGINS`; skills only) | `claude-plugins-official` | Installed by default; one already enabled is left alone, one you disabled stays off; skill-creator is skipped where claude.ai syncs it. The manifest records `plugins_installed` and `plugins_missing` (offline: `/stack-doctor` warns until a later run installs them) | `--no-anthropic-plugins` skips them; `--restore` does not uninstall (`claude plugin uninstall <id> --scope user`) |
 
 Plugins are session-wide. Switch one for your user with `/plugin enable <id>` / `/plugin disable <id>`,
 or for one project with `"enabledPlugins": {"<id>": true}` in its `.claude/settings.json`. Every

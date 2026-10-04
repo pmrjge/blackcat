@@ -4,7 +4,7 @@ description: Use for RAG pipelines — chunking, embeddings, hybrid search, rera
 ---
 # RAG pipelines
 
-Division of labour: this skill covers retrieval-augmented generation end to end. The agent loop, tool design, context, memory and multi-agent runtime → `agent-harness-design`; Claude API and Agent SDK specifics (model IDs, parameters, caching, tool-use wire format) → the built-in `claude-api` skill; graph-backed retrieval → `graph-rag`; building MCP servers → `mcp-server-craft`.
+Division of labour: this skill covers retrieval-augmented generation end to end. The agent loop, tool design, context, memory and multi-agent runtime → `agent-harness-design`; Claude API and Agent SDK specifics (model IDs, parameters, caching, tool-use wire format) → the built-in `claude-api` skill; graph-backed retrieval → `graph-rag`; building MCP servers → `mcp-server-dev:build-mcp-server`.
 
 Current API facts (model IDs, context windows, prices, tool-use and caching features) change: verify them with libdocs, the provider's docs, or claude-code-guide for Claude API / Agent SDK questions. Never hard-code a model ID from memory.
 
@@ -28,4 +28,4 @@ Measure tokens per request (input/cached/output) and latency percentiles; cache 
 ## Report
 Architecture (diagram or bullet flow), component choices with the evidence behind them, eval results per component and end-to-end, cost per request, open risks.
 
-Related skills: `graph-rag` (knowledge-graph retrieval), `agent-harness-design` (the agent loop, tools, memory, multi-agent limits), `mcp-server-craft` (building an MCP server), `prompt-and-brief-design` (prompts and structured outputs), `local-llm-serving` (local models behind the pipeline).
+Related skills: `graph-rag` (knowledge-graph retrieval), `agent-harness-design` (the agent loop, tools, memory, multi-agent limits), `mcp-server-dev:build-mcp-server` (building an MCP server), `prompt-and-brief-design` (prompts and structured outputs), `local-llm-serving` (local models behind the pipeline).

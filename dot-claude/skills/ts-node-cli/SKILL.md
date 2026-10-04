@@ -22,7 +22,7 @@ Part of `typescript-engineering` (baseline versions, async rules). Feature-since
 
 ## CLIs and MCP servers
 - CLI: `#!/usr/bin/env node` + `"bin"` in package.json; parse with `node:util` `parseArgs` (no dependency) or commander; data to stdout, diagnostics to stderr, meaningful exit codes, respect `NO_COLOR`.
-- MCP servers in TypeScript (`@modelcontextprotocol/sdk`): tool design, schemas, transports and testing are in `mcp-server-craft`; security of tool inputs in `secure-coding`.
+- MCP servers in TypeScript (`@modelcontextprotocol/sdk`): tool design, schemas, transports and testing are in `mcp-server-dev:build-mcp-server`; security of tool inputs in `secure-coding`.
 
 ## Verify
 - [ ] ESM/CJS: correct `exports`/`types`, extensions in relative imports; libraries pass `publint` and `attw`.

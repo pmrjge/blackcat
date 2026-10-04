@@ -1,4 +1,4 @@
-# mcp-broker procedures (moved from its prompt)
+# mcp-broker procedures (moved from its prompt; was the `mcp-server-craft` skill's reference)
 
 ## Vetting a server before mounting
 - An official or well-maintained repository, minimal permissions, no install scripts you can't read.

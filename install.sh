@@ -9,10 +9,12 @@
 #                                 enabling the code-intelligence plugins; the end of step 10 says why
 #                                 any server is still missing
 #   ./install.sh --with-adobe    also build the After Effects MCP + install the Premiere connector (macOS)
-#   ./install.sh --with-extra-plugins  also install Anthropic's skill-creator and math-olympiad
-#                                 plugins (their skills load on demand)
+#   ./install.sh --no-anthropic-plugins  skip Anthropic's skill plugins the stack relies on
+#                                 (ANTHROPIC_PLUGINS below: mcp-server-dev, session-report,
+#                                 skill-creator, math-olympiad; installed by default, skills only)
 #   ./install.sh --no-mcp        skip registering user-scope MCP servers
-#   ./install.sh --no-plugins    skip plugins (document skills, code-intelligence/LSP plugins)
+#   ./install.sh --no-plugins    skip all plugins (document skills, Anthropic skill plugins,
+#                                 code-intelligence/LSP plugins)
 #   ./install.sh --keep-plugin-duplicates  keep the document-skills and skill-creator plugins enabled
 #                                 where claude.ai syncs the same skills (default: disabled, one copy)
 #   ./install.sh --replace-mcp   re-register exa/jina/wolfram/huggingface/wandb even if you configured them
@@ -90,7 +92,7 @@
 # Runs from any clone location (also through a symlink to this script), with bash 3.2 or later.
 set -euo pipefail
 
-WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; WITH_EXTRA_PLUGINS=0; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
+WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; ANTHROPIC_PLUGINS_ON=1; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
 NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; RESTORE=""; PRINT_MANAGED=0; ASSUME_YES=0; ORIG_ARGS="$*"
 NO_PROMPT=0; CONFIG_DIR_SET=0; CONFIG_DIR_ARG=""; DIFF=0; DIFF_CONFLICT=""
 i=0; argv=("$@")
@@ -102,7 +104,9 @@ while [ "$i" -lt "${#argv[@]}" ]; do
     --with-adobe) WITH_ADOBE=1 ;;
     --with-ml) WITH_ML=1 ;;
     --with-lsp) WITH_LSP=1 ;;
-    --with-extra-plugins) WITH_EXTRA_PLUGINS=1 ;;
+    --no-anthropic-plugins) ANTHROPIC_PLUGINS_ON=0 ;;
+    # the default since 2026-10-04 (ANTHROPIC_PLUGINS); still accepted so older command lines run
+    --with-extra-plugins) ;;
     --no-mcp) SKIP_MCP=1 ;;
     --no-plugins) SKIP_PLUGINS=1 ;;
     --keep-plugin-duplicates) DEDUPE_PLUGINS=0 ;;
@@ -153,9 +157,9 @@ done
 [ -z "$SANDBOX_DROPPED" ] || printf 'install.sh: ignoring the sandbox cache variables of this shell:%s\n' "$SANDBOX_DROPPED" >&2
 # --print-managed-settings: the JSON is the only thing on stdout (fd 3); progress goes to stderr
 if [ "$PRINT_MANAGED" = 1 ]; then exec 3>&1 1>&2; fi
-# the plugin lists the installer manages (tests/test_no_duplicates.py reads these two lines)
-EXTRA_PLUGINS="skill-creator math-olympiad"
-RETIRED_PLUGINS="mcp-server-dev@claude-plugins-official"
+# Anthropic's skill plugins (claude-plugins-official) the stack uses instead of its own copies: step 10
+# installs them at user scope (tests/test_no_duplicates.py and lint_agents.py PLUGIN_SKILLS read this line)
+ANTHROPIC_PLUGINS="mcp-server-dev session-report skill-creator math-olympiad"
 # macOS only. Linux support was dropped; the repo's own tests run the installer on Linux with
 # STACK_ALLOW_NON_MACOS=1 (nothing else is supported there).
 if [ "$(uname)" != "Darwin" ] && [ "${STACK_ALLOW_NON_MACOS:-0}" != 1 ]; then
@@ -2964,13 +2968,6 @@ PY
       && note "+ document-skills (docx, xlsx, pptx, pdf)" \
       || note "! run inside claude: /plugin marketplace add anthropics/skills  then  /plugin install document-skills@anthropic-agent-skills"
   fi
-  # Plugins the stack's own skills replaced (mcp-server-craft absorbed mcp-server-dev's three
-  # skills): disabled with the duplicates.
-  for p in $RETIRED_PLUGINS; do
-    plugin_on "$p" || continue
-    if [ "$DEDUPE_PLUGINS" = 1 ]; then plugin_off "$p" "the stack's mcp-server-craft skill covers it (one copy of each skill)"
-    else note "plugin $p overlaps the stack's mcp-server-craft skill (kept: --keep-plugin-duplicates)"; fi
-  done
   # Code intelligence: a language server starts only when Claude edits a matching file (on demand).
   # --with-lsp installs the missing servers: jdtls in step 2 (lib/devtools.sh's LSP group, Homebrew's
   # formula), the others here, each by its language's own route. Each install's output goes to its
@@ -3151,18 +3148,75 @@ PY
       note "    $b: $c"
     done
   fi
-  # Optional Anthropic skill plugins (skill-creator for claude-code-engineer, math-olympiad for the
-  # mathematician). Only their descriptions sit in context; the skills load when a task matches. A
-  # plugin whose skills claude.ai already syncs is skipped (one copy of each skill).
-  if [ "$WITH_EXTRA_PLUGINS" = 1 ]; then
-    extra_added=""; extra_failed=""
-    for p in $EXTRA_PLUGINS; do
-      [ "$DEDUPE_PLUGINS" = 1 ] && synced_skill "$p" && continue
-      if plugin_on "$p@claude-plugins-official" && [ "$DRY_RUN" = 1 ]; then continue; fi
-      if pcmd plugin install "$p@claude-plugins-official" --scope user; then extra_added="$extra_added $p"; else extra_failed="$extra_failed $p"; fi
+  # Anthropic's skill plugins (ANTHROPIC_PLUGINS; skills only: no hooks, MCP servers or agents):
+  # mcp-server-dev builds MCP servers (it replaced the stack's mcp-server-craft), session-report
+  # reports session usage, skill-creator runs skill evals, math-olympiad serves the mathematician.
+  # Only their descriptions sit in context; a skill loads when a task matches (`plugin:skill`).
+  # Idempotent: an enabled one is left alone (no claude call); one you disabled stays off; one an
+  # earlier install disabled (plugins_deduped: mcp-server-dev while mcp-server-craft shipped) is
+  # enabled again; one whose skill claude.ai syncs is skipped (one copy of each skill). The manifest
+  # records plugins_installed and plugins_missing (a failed install: offline, or the marketplace
+  # unreachable); /stack-doctor warns about the missing ones until a later run installs them.
+  plugin_state(){ python3 -c 'import json, sys
+try: v = (json.load(open(sys.argv[1])).get("enabledPlugins") or {}).get(sys.argv[2])
+except (OSError, ValueError, AttributeError): v = None
+print("on" if v is True else "off" if v is False else "absent")' "$C/settings.json" "$1" 2>/dev/null || echo absent; }
+  # plugins_record check|write set|keep INSTALLED MISSING: exit 0 when the manifest's plugins_installed
+  # and plugins_missing differ from these (write: and records them); keep: plugins_installed unchanged
+  plugins_record(){ python3 - "$C/.stack-manifest.json" "$@" <<'PY'
+import json, os, sys
+p, op, mode, inst, miss = sys.argv[1:6]
+try:
+    m = json.load(open(p))
+except (OSError, ValueError):
+    m = {}
+if not isinstance(m, dict):
+    m = {}
+have = m.get("plugins_installed") if isinstance(m.get("plugins_installed"), list) else []
+new = {"plugins_installed": sorted(set(have if mode == "keep" else inst.split())),
+       "plugins_missing": sorted(set(miss.split()))}
+if all(m.get(k) == v for k, v in new.items()):
+    sys.exit(1)
+if op == "write":
+    m.update(new)
+    with open(p + ".tmp", "w") as f:
+        json.dump(m, f, indent=2, sort_keys=True)
+    os.replace(p + ".tmp", p)
+PY
+  }
+  ap_mode=set; ap_have=""; ap_added=""; ap_missing=""
+  if [ "$ANTHROPIC_PLUGINS_ON" = 1 ]; then
+    for p in $ANTHROPIC_PLUGINS; do
+      id="$p@claude-plugins-official"
+      if [ "$DEDUPE_PLUGINS" = 1 ] && synced_skill "$p"; then continue; fi
+      case "$(plugin_state "$id")" in
+        on) ap_have="$ap_have $id" ;;
+        off)
+          if ! deduped has "$id"; then
+            ap_have="$ap_have $id"; note "= plugin $id: disabled by you, left off (claude plugin enable $id --scope user)"
+          elif [ "$DRY_RUN" = 1 ]; then would "claude plugin enable $id --scope user  (an earlier install disabled it)"
+          elif ensure_backup && python3 "$STATE_PY" record "$B" file .stack-manifest.json \
+               && claude plugin enable "$id" --scope user >/dev/null 2>&1 </dev/null; then
+            deduped drop "$id"; ap_have="$ap_have $id"; note "+ re-enabled plugin $id (an earlier install had disabled it)"
+          else
+            ap_missing="$ap_missing $id"
+          fi ;;
+        *)
+          if pcmd plugin install "$id" --scope user; then
+            [ "$DRY_RUN" = 1 ] || { ap_have="$ap_have $id"; ap_added="$ap_added $p"; }
+          else
+            ap_missing="$ap_missing $id"
+          fi ;;
+      esac
     done
-    [ -n "$extra_added" ] && [ "$DRY_RUN" = 0 ] && note "+ extra skill plugins:$extra_added"
-    [ -n "$extra_failed" ] && note "! plugin install failed:$extra_failed (inside claude: /plugin install <name>@claude-plugins-official)"
+    [ -z "$ap_added" ] || note "+ Anthropic skill plugins:$ap_added"
+    [ -z "$ap_missing" ] || note "! Anthropic plugins not installed:$ap_missing (offline, or the claude-plugins-official marketplace unreachable?): run ./install.sh again when online, or inside claude: /plugin install <name>@claude-plugins-official; /stack-doctor warns until then"
+  else
+    ap_mode=keep; note "Anthropic skill plugins skipped (--no-anthropic-plugins)"
+  fi
+  if [ "$DRY_RUN" = 0 ] && plugins_record check "$ap_mode" "$ap_have" "$ap_missing"; then
+    ensure_backup && python3 "$STATE_PY" record "$B" file .stack-manifest.json \
+      && plugins_record write "$ap_mode" "$ap_have" "$ap_missing" || note "! could not record the plugins in $C/.stack-manifest.json"
   fi
 else
   note "plugins skipped"
@@ -3319,5 +3373,5 @@ cat <<EOF
      /mcp → computer-use → Enable  (once per project), then grant Accessibility + Screen Recording.
   4. Browser agent with your logins: start with  claude --chrome  (or /chrome → Enabled by default).
   5. Optional: ./install.sh --with-ml (shared ML venv) · --with-lsp (language servers) · --with-adobe
-     · --with-extra-plugins (skill-creator, math-olympiad skills)
+     · --no-anthropic-plugins (skips mcp-server-dev, session-report, skill-creator, math-olympiad)
 EOF

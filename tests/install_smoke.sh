@@ -1132,7 +1132,7 @@ PY
 assert_unchanged_real_home
 drop_scratch "$TL"
 
-echo "== 12. One copy of each skill: plugin duplicates of synced skills and retired plugins disabled by default (fake claude)"
+echo "== 12. One copy of each skill: plugin duplicates of synced skills disabled by default; Anthropic skill plugins installed (fake claude)"
 TD="$(scratch_dir)" || exit 1
 mkdir -p "$TD/c/skills/synced/0000-sync/docx" "$TD/c/skills/synced/0000-sync/skill-creator"
 printf -- '---\nname: docx\ndescription: x\n---\n' > "$TD/c/skills/synced/0000-sync/docx/SKILL.md"
@@ -1141,8 +1141,9 @@ printf '{"enabledPlugins": {"document-skills@anthropic-agent-skills": true, "ski
 FAKE_CLAUDE_LOG="$TD/calls0.log" CLAUDE_CONFIG_DIR="$TD/c" "$INSTALL" --no-mcp --no-deps --no-profile --keep-plugin-duplicates >"$TD/i0.log" 2>&1
 if ! grep -qF '"disable"' "$TD/calls0.log" && ! grep -qF '"install", "document-skills@' "$TD/calls0.log" \
    && grep -qF 'plugin document-skills@anthropic-agent-skills duplicates the synced anthropic-skills:docx/xlsx/pptx/pdf in the skill listing (kept: --keep-plugin-duplicates)' "$TD/i0.log" \
-   && grep -qF 'plugin mcp-server-dev@claude-plugins-official overlaps the stack' "$TD/i0.log"; then
-  pass "--keep-plugin-duplicates: duplicate and retired plugins stay enabled, each named"
+   && ! grep -qF '"install", "mcp-server-dev@' "$TD/calls0.log" && ! grep -qF '"install", "skill-creator@' "$TD/calls0.log" \
+   && grep -qF '["plugin", "install", "session-report@claude-plugins-official", "--scope", "user"]' "$TD/calls0.log"; then
+  pass "--keep-plugin-duplicates: duplicate plugins stay enabled, each named; enabled Anthropic plugins left alone, missing ones installed"
 else
   failed "plugins touched under --keep-plugin-duplicates"; grep -i plugin "$TD/i0.log" | sed 's/^/    /'
 fi
@@ -1151,16 +1152,15 @@ deduped_is(){ python3 -c 'import json,sys; sys.exit(0 if json.load(open(sys.argv
 BD="$(latest_backup "$TD/c")"
 if grep -qF '["plugin", "disable", "document-skills@anthropic-agent-skills", "--scope", "user"]' "$TD/calls.log" \
    && grep -qF '["plugin", "disable", "skill-creator@claude-plugins-official", "--scope", "user"]' "$TD/calls.log" \
-   && grep -qF '["plugin", "disable", "mcp-server-dev@claude-plugins-official", "--scope", "user"]' "$TD/calls.log" \
+   && ! grep -qF '"mcp-server-dev@' "$TD/calls.log" \
    && ! grep -qF '"install", "document-skills@' "$TD/calls.log" && ! grep -qF '"install", "skill-creator@' "$TD/calls.log" \
    && grep -qF '["plugin", "install", "math-olympiad@claude-plugins-official", "--scope", "user"]' "$TD/calls.log" \
    && grep -qF 'To undo: claude plugin enable document-skills@anthropic-agent-skills --scope user' "$TD/i.log" \
    && grep -qF 'To undo: claude plugin enable skill-creator@claude-plugins-official --scope user' "$TD/i.log" \
-   && grep -qF 'To undo: claude plugin enable mcp-server-dev@claude-plugins-official --scope user' "$TD/i.log" \
-   && deduped_is document-skills@anthropic-agent-skills mcp-server-dev@claude-plugins-official skill-creator@claude-plugins-official \
+   && deduped_is document-skills@anthropic-agent-skills skill-creator@claude-plugins-official \
    && python3 -c 'import json, sys; sys.exit(0 if sorted(json.load(open(sys.argv[1]))["plugins_disabled"]) == sys.argv[2:] else 1)' \
-        "$BD/backup.json" document-skills@anthropic-agent-skills mcp-server-dev@claude-plugins-official skill-creator@claude-plugins-official; then
-  pass "default: duplicates and mcp-server-dev disabled (not installed), math-olympiad installed, undo printed, recorded in manifest and backup"
+        "$BD/backup.json" document-skills@anthropic-agent-skills skill-creator@claude-plugins-official; then
+  pass "default (--with-extra-plugins still accepted): duplicates disabled (not installed), mcp-server-dev kept enabled, math-olympiad installed, undo printed, recorded in manifest and backup"
 else
   failed "default plugin dedupe"; tail -n 14 "$TD/i.log" | sed 's/^/    /'
 fi
@@ -1168,7 +1168,7 @@ rm -rf "$TD/c/skills/synced/0000-sync/docx"
 FAKE_CLAUDE_LOG="$TD/calls2.log" CLAUDE_CONFIG_DIR="$TD/c" "$INSTALL" --no-mcp --no-deps --no-profile >"$TD/i2.log" 2>&1
 if grep -qF '["plugin", "enable", "document-skills@anthropic-agent-skills", "--scope", "user"]' "$TD/calls2.log" \
    && ! grep -qF '"enable", "skill-creator@' "$TD/calls2.log" \
-   && deduped_is mcp-server-dev@claude-plugins-official skill-creator@claude-plugins-official; then
+   && deduped_is skill-creator@claude-plugins-official; then
   pass "a deduped plugin is re-enabled once its synced skill is gone; the others stay disabled"
 else
   failed "re-enable after the synced skill went away"; grep -i plugin "$TD/i2.log" | sed 's/^/    /'

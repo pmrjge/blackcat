@@ -247,7 +247,7 @@ def test_settings_wire_ask_rules_and_protected_paths():
     assert "Edit(.claude/**)" not in deny
     # C1: the stack's own config is denied to Edit/Write
     for rel in ("hooks/**", "bin/**", "settings.json", "agents/**", "rules/**", "mcp/**",
-                "magg/**", "skills/**", "CLAUDE.md", "backup-*/**", "stack-plugins/**"):
+                "magg/**", "skills/**", "CLAUDE.md", "backup-*/**", "stack-plugins/**", "plugins/**"):
         assert "Edit(/__CLAUDE_DIR__/%s)" % rel in deny, rel
     # R3-STATE: the guard's state dir as the installer renders it ($XDG_STATE_HOME/...), like the
     # backups and the cache; never a fixed ~/.local/state the guard may not be using

@@ -141,3 +141,15 @@ def test_text_checks_skip_claude_work_but_not_dot_claude(tmp_path, monkeypatch):
     assert lint_agents.errors and all(e.startswith("agents/bad.md:1:") for e in lint_agents.errors), \
         lint_agents.errors
     assert len(lint_agents.errors) == 2
+
+
+def test_plugin_skill_refs_are_checked_against_the_installed_plugins():
+    """`plugin:skill` refs in agent bodies resolve against PLUGIN_SKILLS (install.sh ANTHROPIC_PLUGINS)."""
+    assert lint_agents.plugin_skill_known("mcp-server-dev:build-mcp-server")
+    assert lint_agents.plugin_skill_known("session-report:session-report")
+    assert lint_agents.plugin_skill_known("anthropic-skills:anything")         # synced: differs per account
+    assert not lint_agents.plugin_skill_known("mcp-server-dev:build-mcp-servr")
+    assert not lint_agents.plugin_skill_known("mcp-server-craft:build-mcp-server")
+    body = "## Skills\n`mcp-server-dev:build-mcp-server` for MCP servers; `proof-craft` for proofs.\n"
+    assert lint_agents.referenced_skills(body) == {"mcp-server-dev:build-mcp-server", "proof-craft"}
+    assert set(lint_agents.anthropic_plugins()) <= set(lint_agents.PLUGIN_SKILLS)

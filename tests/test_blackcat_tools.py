@@ -182,7 +182,7 @@ def test_write_and_edit_to_the_installed_stack_are_denied_by_rule():
     s = json.loads(SRC_SETTINGS.read_text())
     deny = set(s["permissions"]["deny"])
     for rel in ("hooks/**", "settings.json", "bin/**", "agents/**", "rules/**", "mcp/**",
-                "magg/**", "skills/**", "CLAUDE.md", "stack-plugins/**", ".stack-manifest.json"):
+                "magg/**", "skills/**", "CLAUDE.md", "stack-plugins/**", "plugins/**", ".stack-manifest.json"):
         assert "Edit(/__CLAUDE_DIR__/%s)" % rel in deny, rel
     assert "Edit(/__STACK_STATE__/**)" in deny
     # sessions start in Plan; deny rules hold in every mode, bypassPermissions included
