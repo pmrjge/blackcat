@@ -103,7 +103,6 @@ while [ "$i" -lt "${#argv[@]}" ]; do
     --with-extra-plugins) WITH_EXTRA_PLUGINS=1 ;;
     --no-mcp) SKIP_MCP=1 ;;
     --no-plugins) SKIP_PLUGINS=1 ;;
-    --dedupe-plugins) DEDUPE_PLUGINS=1 ;;          # the default now; accepted for old scripts
     --keep-plugin-duplicates) DEDUPE_PLUGINS=0 ;;
     --replace-mcp) REPLACE_MCP=1 ;;
     --force) FORCE=1 ;;
@@ -224,6 +223,10 @@ main_branch_rule(){
     "Run it from the checkout on $MAIN_BRANCH, or run ./install.sh here without --mcp-plan to fast-forward $MAIN_BRANCH first."
   [ "$DRY_RUN" != 1 ] || guard_fail "$HERE is on '$label', not $MAIN_BRANCH, and --dry-run changes nothing (so it does not merge)." \
     "Run it from the checkout on $MAIN_BRANCH, or run ./install.sh here without --dry-run to fast-forward $MAIN_BRANCH first."
+  [ "$PRINT_MANAGED" != 1 ] || guard_fail "$HERE is on '$label', not $MAIN_BRANCH, and --print-managed-settings changes nothing (so it does not merge)." \
+    "Run it from the checkout on $MAIN_BRANCH."
+  [ -z "$RESTORE" ] || guard_fail "$HERE is on '$label', not $MAIN_BRANCH, and --restore installs nothing from the repo (so it does not merge)." \
+    "Run it from the checkout on $MAIN_BRANCH."
 
   # 1. this checkout is clean: uncommitted or untracked files would not reach main
   dirty="$(repo_git -C "$HERE" status --porcelain --untracked-files=normal)"
@@ -447,7 +450,8 @@ PY
         if [ "$DRY_RUN" = 1 ]; then would "claude mcp add-json -s user $name <its entry in the backup>  (${kind#mcp_} by the install)"
         elif [ "$kind" = mcp_removed ] && claude mcp get "$name" >/dev/null 2>&1 </dev/null; then note "= MCP server $name exists — kept as is"
         else
-          [ "$kind" = mcp_replaced ] && claude mcp remove -s user "$name" >/dev/null 2>&1 </dev/null
+          # already gone is fine; under set -e a failing `[ ] && cmd` would end the restore here
+          if [ "$kind" = mcp_replaced ]; then claude mcp remove -s user "$name" >/dev/null 2>&1 </dev/null || true; fi
           if claude mcp add-json -s user "$name" "$(cat "$val")" >/dev/null 2>&1 </dev/null; then note "+ put back MCP server $name"
           else note "! put back MCP server $name yourself: claude mcp add-json -s user $name '<its entry in the backup.json>'"; fi
         fi ;;
@@ -941,8 +945,10 @@ HUETENSION_VERSION=0.3.0
 if [ "$NO_DEPS" = 1 ]; then DT_MODE=report; elif [ "$DRY_RUN" = 1 ]; then DT_MODE=dry-run; else DT_MODE=install; fi
 note "prerequisites and toolchains (lib/devtools.sh):"
 # the Lean group uses your LEAN_PROJECT_PATH (stack.env, else the environment) instead of making a project
-lean_proj="$(sed -n 's/^LEAN_PROJECT_PATH=//p' "$C/stack.env" 2>/dev/null | tail -n 1 || true)"
-lean_proj="${lean_proj%\"}"; lean_proj="${lean_proj#\"}"
+# (read by bin/mcp-headers' read_env_file, the stack's one stack.env parser: export, quotes, comments)
+lean_proj="$(python3 -c 'import runpy, sys; from pathlib import Path
+print(runpy.run_path(sys.argv[1], run_name="mcp_headers")["read_env_file"](Path(sys.argv[2])).get("LEAN_PROJECT_PATH", ""))' \
+  "$SRC/bin/mcp-headers" "$C/stack.env" 2>/dev/null || true)"
 [ -n "$lean_proj" ] || lean_proj="${LEAN_PROJECT_PATH:-}"
 dt_rc=0
 # --no-prompt: never ask, also not through Homebrew's installer or the pkg casks

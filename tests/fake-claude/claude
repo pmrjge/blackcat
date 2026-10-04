@@ -79,6 +79,8 @@ if args[:1] == ["mcp"]:
         print("Added HTTP MCP server %s" % name)
         sys.exit(0)
     if sub == "remove":
+        if os.environ.get("FAKE_CLAUDE_FAIL_REMOVE") == "1":    # tests: `claude mcp remove` fails
+            sys.exit(1)
         if rest and rest[0] in servers:
             del servers[rest[0]]
             save(cfg)

@@ -1218,6 +1218,13 @@ tgit -C "$R0/repo" checkout -q -- SMOKE_FEAT.txt
 run_from "$R0/wt-dirty" "$R0/ce" --mcp-plan >"$R0/e.log" 2>&1; rc=$?
 [ "$rc" = 1 ] && [ "$(main_sha)" = "$FEAT" ] && grep -q -- '--mcp-plan changes nothing' "$R0/e.log" \
   && pass "--mcp-plan off main: refused, main not moved" || { failed "--mcp-plan off main: rc=$rc"; tail -n 5 "$R0/e.log" | sed 's/^/    /'; }
+# e2) so do --print-managed-settings and --restore: main not moved, the branch checkout not switched
+for fl in --print-managed-settings --restore; do
+  run_from "$R0/wt-dirty" "$R0/ce" "$fl" >"$R0/e2.log" 2>&1; rc=$?
+  [ "$rc" = 1 ] && [ "$(main_sha)" = "$FEAT" ] && [ "$(git -C "$R0/wt-dirty" symbolic-ref --short HEAD)" = dirty ] \
+    && grep -q -- "$fl [a-z ]*nothing" "$R0/e2.log" \
+    && pass "$fl off main: refused, main not moved" || { failed "$fl off main: rc=$rc"; tail -n 5 "$R0/e2.log" | sed 's/^/    /'; }
+done
 # f) a clone whose only checkout is on a feature branch: it switches to main and fast-forwards
 tgit clone -q "$R0/remote.git" "$R0/solo" && tgit -C "$R0/solo" switch -q -c feat3
 echo f > "$R0/solo/SMOKE_F.txt"; tgit -C "$R0/solo" add SMOKE_F.txt; tgit -C "$R0/solo" commit -q -m f3
@@ -1705,6 +1712,17 @@ fp "$TX/c" > "$TX/fp.restored"
 xrun "$TX/c" "$TX/reprune.log"
 cmp -s "$TX/fp.pruned" <(fp "$TX/c") && pass "installing again after the restore gives the same pruned config" \
   || failed "re-install after restore differs: $(diff "$TX/fp.pruned" <(fp "$TX/c") | head -5)"
+# a replaced MCP entry whose `claude mcp remove` fails (already gone): the restore goes on (set -e)
+BM="$(latest_backup "$TX/c")"
+STACK_MCP_ENTRY='{"type": "http", "url": "https://example.invalid/mcp"}' \
+  python3 "$HERE/lib/install_state.py" record "$BM" mcp_replaced smoke-mcp
+python3 "$HERE/lib/install_state.py" record "$BM" plugins_disabled smoke-plugin@smoke
+FAKE_CLAUDE_FAIL_REMOVE=1 xrun "$TX/c" "$TX/rmcp.log" --restore "$BM"; rc=$?
+[ "$rc" = 0 ] && grep -q '+ put back MCP server smoke-mcp' "$TX/rmcp.log" && grep -q '+ re-enabled plugin smoke-plugin@smoke' "$TX/rmcp.log" \
+  && grep -q 'undo this restore:' "$TX/rmcp.log" \
+  && pass "--restore goes on when claude mcp remove fails: entry put back, plugin re-enabled, undo printed" \
+  || { failed "--restore stopped at a failing claude mcp remove (rc=$rc)"; tail -n 6 "$TX/rmcp.log" | sed 's/^/    /'; }
+xrun "$TX/c" "$TX/reprune2.log"
 # a backup.json that names paths outside the config scope is refused before anything changes
 BEVIL="$(latest_backup "$TX/c")"
 python3 - "$BEVIL/backup.json" <<'PY'

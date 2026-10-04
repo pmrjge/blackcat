@@ -1081,6 +1081,21 @@ def test_install_sh_dry_run_prints_the_maxfiles_step_first(scratch_repo, tmp_pat
     assert "sudo launchctl bootstrap system /Library/LaunchDaemons/ulimit.max-files.plist" in out
 
 
+@pytest.mark.parametrize("line", ["export LEAN_PROJECT_PATH='%s'", 'LEAN_PROJECT_PATH="%s"  # mine'])
+def test_install_sh_reads_lean_project_path_like_the_stack_env_parser(scratch_repo, tmp_path, line):
+    """review LOW: export and quoted forms reach devtools.sh (a sed missed them, and step 2 made
+    ~/lean/stack_mathlib, ~8 GB, although stack.env named a project)."""
+    proj = tmp_path / "my lean"
+    proj.mkdir()
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "settings.json").write_text("{}\n")
+    (cfg / "stack.env").write_text("# mine\n" + line % proj + "\n")
+    e, p = run_install(scratch_repo, tmp_path, ["--dry-run", "--no-profile"], STACK_INSTALL_LEAN="1")
+    assert p.returncode == 0, p.stdout[-3000:] + p.stderr[-3000:]
+    assert "LEAN_PROJECT_PATH=%s has no lakefile" % proj in p.stdout, p.stdout[-3000:]
+
+
 # ---------------------------------------------------------------- security review (F1-F5)
 def test_f1_devtools_never_runs_in_the_callers_directory(tmp_path, monkeypatch):
     """npx would prefer a planted ./node_modules/playwright (run outside the sandbox): devtools.sh
