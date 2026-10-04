@@ -155,6 +155,27 @@ def test_install_drops_the_sandbox_cache_variables(tmp_path):
     assert seen and "claude-sandbox" not in seen, seen
 
 
+@needs_git
+def test_dry_run_without_no_mcp_calls_no_claude_but_version_and_writes_nothing(tmp_path):
+    """`claude mcp get spider` rewrote ~/.claude.json and left backups and telemetry (claude 2.1.287):
+    a dry run may call `claude --version` and nothing else, and leaves the scratch HOME untouched."""
+    repo = _tis._scratch_repo(str(tmp_path / "repo"))
+    home = tmp_path / "home"
+    home.mkdir()
+    log = tmp_path / "claude-calls.log"
+    path = os.pathsep.join((os.path.join(repo, "tests", "fake-claude"), os.environ.get("PATH", "")))
+    out = _tis._run_install(repo, str(home), str(home / ".claude"), env_extra={"PATH": path, "FAKE_CLAUDE_LOG": str(log)},
+                            argv=["--dry-run", "--no-deps", "--no-profile"])
+    assert out.returncode == 0, (out.stdout[-1500:], out.stderr[-1500:])
+    calls = [json.loads(l) for l in log.read_text().splitlines()] if log.exists() else []
+    assert [c for c in calls if c != ["--version"]] == [], calls
+    assert "claude mcp get spider" in out.stdout
+    # the harness itself makes shim/ (mktemp wrapper) and tmp/; nothing else may appear
+    written = sorted(str(p.relative_to(home)) for p in home.rglob("*")
+                     if p.relative_to(home).parts[0] not in ("shim", "tmp"))
+    assert written == [], written
+
+
 # ---------------------------------------------------------------- MEDIUM: CWE-494 unpinned scripts
 def test_every_shipped_pep723_script_has_a_dependency_cutoff():
     """The stack's own PEP 723 scripts (MCP servers holding API keys, the model refit, the SDK helper)

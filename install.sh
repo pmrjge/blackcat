@@ -1413,7 +1413,9 @@ fi
 # Researcher's spider mcpServers block is only rewritten (to reuse an already-configured
 # 'spider' server) when MCP registration is active and the user already has one.
 SPIDER_REWRITE=0
-if [ "$SKIP_MCP" = 0 ] && [ "$MCP_PLAN" = 0 ] && claude mcp get spider >/dev/null 2>&1 </dev/null; then SPIDER_REWRITE=1; fi
+if [ "$SKIP_MCP" = 0 ] && [ "$MCP_PLAN" = 0 ] && [ "$DRY_RUN" = 1 ]; then
+  would "claude mcp get spider  (skipped in a dry run: the CLI may write ~/.claude.json; researcher's spider block stays as shipped)"
+elif [ "$SKIP_MCP" = 0 ] && [ "$MCP_PLAN" = 0 ] && claude mcp get spider >/dev/null 2>&1 </dev/null; then SPIDER_REWRITE=1; fi
 
 RENDERED_SETTINGS="$WORK/settings.rendered.json"
 
