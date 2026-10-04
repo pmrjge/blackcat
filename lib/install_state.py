@@ -49,7 +49,11 @@ SCOPE_DIRS = ("agents", "skills", "rules", "hooks", "bin", "mcp", "stack-plugins
 SCOPE_FILES = ("settings.json", "stack.env", ".stack-manifest.json", "CLAUDE.md", "CLAUDE.md.new",
                "magg/config.json", "magg/k8s-mcp.toml", "settings.json.tmp", "stack.env.tmp",
                ".stack-manifest.json.tmp", "magg/config.json.tmp", "magg/k8s-mcp.toml.tmp")
-EXCLUDED = ("skills/synced", "mcp/vendor")
+# Bytecode (install.sh compiles the hook modules after apply; the stub rewrites a stale pyc) and the
+# stack-python link (install.sh makes it, smoke-tested, before the plan runs): never compared, backed
+# up, restored or removed as files of the stack.
+EXCLUDED = ("skills/synced", "mcp/vendor", "hooks/__pycache__", "bin/__pycache__", "mcp/__pycache__",
+            "bin/stack-python")
 # Written through a symlink (a dotfiles repo) instead of replacing the link.
 WRITE_THROUGH = ("settings.json", "stack.env")
 BACKUP_FORMAT = 1
