@@ -227,7 +227,7 @@ def test_print_policy_format(env):
     assert {"plan-reviewer", "image-director"} <= set(d["leaves"])
     assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill", "Read"} <= set(
         d["blackcat_tools"])
-    # no web tool on the main thread (T1), no work tool (it only delegates), no search tool
+    # no web tool on BlackCat (T1), no work tool (it only delegates), no search tool
     assert not {"WebFetch", "WebSearch", "Monitor", "NotebookEdit", "Grep", "Glob", "Bash", "Write",
                 "Edit"} & set(d["blackcat_tools"])
 
@@ -841,7 +841,7 @@ def test_blackcat_guard_allowlist(env):
 
 @pytest.mark.parametrize("tool", ["Bash", "Write", "Edit"])
 def test_blackcat_does_no_work_itself(env, tool):
-    """BLACKCAT_MAX_OWN_STEPS defaults to 0: every Bash/Write/Edit call of the main thread is
+    """BLACKCAT_MAX_OWN_STEPS defaults to 0: every Bash/Write/Edit call of BlackCat is
     refused, through both wirings, with a reason that names whom to dispatch; it spends no step."""
     s = sid()
     ti = {"command": "git status"} if tool == "Bash" else {"file_path": "/x/a.md"}
@@ -927,6 +927,76 @@ def test_blackcat_read_cap_holds_through_the_settings_wiring(env):
     res = [decision(run(rg(s, "Read", prompt="sr", agent_type="blackcat", tool_use_id="sr%d" % i),
                         env, args=["blackcat-guard", "--settings"])) for i in range(4)]
     assert res == ["allow"] * 3 + ["deny"]
+
+
+NOT_BLACKCAT = [None, "", "main-coder", "claude", "general-purpose", "coder", "unknown"]
+
+
+@pytest.mark.parametrize("agent_type", NOT_BLACKCAT)
+def test_other_main_thread_agents_are_untouched_by_the_settings_wiring(env, agent_type):
+    """Only BlackCat is delegate-only. settings.json runs `blackcat-guard --settings` on every
+    main-thread call of every session; for any other agent (claude --agent main-coder, --agent
+    claude, a typeless main thread, a foreign name) it returns at once: no decision, no output,
+    no step/read/own-work counter, no state file, whatever the tool and however many calls."""
+    s = sid()
+    for tool in ("Bash", "Write", "Edit", "Read"):
+        ti = {"command": "git status"} if tool == "Bash" else {"file_path": "/x/a.md"}
+        for i in range(10):
+            ev = rg(s, tool, prompt="nb", tool_input=ti, tool_use_id="nb-%s-%d" % (tool, i))
+            if agent_type is not None:
+                ev["agent_type"] = agent_type
+            p = run(ev, env, args=["blackcat-guard", "--settings"])
+            assert p.returncode == 0 and p.stdout == "" and p.stderr == "", (tool, i, p)
+    for tool in ("WebFetch", "Grep", "NotebookEdit", "Monitor"):   # not on BlackCat's allowlist
+        ev = rg(s, tool, prompt="nb", tool_use_id="nb-" + tool)
+        if agent_type is not None:
+            ev["agent_type"] = agent_type
+        p = run(ev, env, args=["blackcat-guard", "--settings"])
+        assert p.returncode == 0 and p.stdout == "", (tool, p)
+    root = Path(env["XDG_STATE_HOME"])
+    assert not root.exists() or not [f for f in root.rglob("*") if f.is_file()]
+
+
+def test_blackcat_stays_restricted_through_the_settings_wiring(env):
+    """The same calls from BlackCat through the same wiring are refused or counted."""
+    s = sid()
+    for tool in ("Bash", "Write", "Edit", "WebFetch", "Grep"):
+        ti = {"command": "git status"} if tool == "Bash" else {"file_path": "/x/a.md"}
+        p = run(rg(s, tool, tool_input=ti, agent_type="blackcat", tool_use_id="bc-" + tool), env,
+                args=["blackcat-guard", "--settings"])
+        assert decision(p) == "deny", tool
+    res = [decision(run(rg(s, "Read", prompt="bc", agent_type="blackcat", tool_use_id="bcr%d" % i),
+                        env, args=["blackcat-guard", "--settings"])) for i in range(4)]
+    assert res == ["allow"] * 3 + ["deny"]
+
+
+def test_the_unconditional_wiring_is_blackcat_md_only():
+    """blackcat-guard without --settings (which acts on every main-thread call it sees) is wired
+    only in blackcat.md's frontmatter, whose hooks run only while BlackCat is the session's agent
+    (sub-agents.md, "Hooks in subagent frontmatter"); settings.json wires only `--settings`."""
+    agents = sorted(p.name for p in (ROOT / "dot-claude" / "agents").glob("*.md")
+                    if "blackcat-guard" in p.read_text())
+    assert agents == ["blackcat.md"]
+    settings = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    cmds = [h["command"] for ev in settings["hooks"].values() for g in ev for h in g["hooks"]
+            if "blackcat-guard" in h.get("command", "")]
+    assert cmds and all(c.rstrip().endswith("blackcat-guard --settings") for c in cmds), cmds
+
+
+def test_blackcat_spawn_caps_and_foreground_drop_key_on_blackcat(env):
+    """The dispatch cap (BLACKCAT_MAX_DISPATCH, 6 here) and the run_in_background drop bind
+    BlackCat, not any main thread: main-coder on the main thread spawns past 6 at its own fan-out
+    cap and keeps a foreground child."""
+    s = sid()
+    res = [decision(run(pre_agent(s, "coder", parent="main-coder", prompt="mc"), env,
+                        extra={"STACK_MAX_FANOUT_BY_TYPE": "main-coder=20"})) for _ in range(8)]
+    assert res == ["allow"] * 8
+    p = run(pre_agent(sid(), "coder", parent="main-coder", run_in_background=False), env,
+            extra={"STACK_AGENT_LABEL": "off"})
+    assert decision(p) == "allow" and "run_in_background" not in p.stdout
+    p = run(pre_agent(sid(), "coder", parent="blackcat", run_in_background=False), env,
+            extra={"STACK_AGENT_LABEL": "off"})
+    assert "run_in_background" not in json.loads(p.stdout)["hookSpecificOutput"]["updatedInput"]
 
 
 def test_blackcat_guard_steps_concurrent(env):

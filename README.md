@@ -267,7 +267,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | No Bash write, delete or rename of the installed stack, the backups or the hook state; no `install.sh` run except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs | the guard's protected-path scan, on top of the Edit/Write deny rules | `tests/test_protected_paths.py`, `tests/test_guard_round2.py` |
 | Six review and check types run read-only Bash only; their scratch code is content-checked | `READONLY_TYPES` | `tests/test_readonly_agents.py` |
 | Only stack agents in the caller's row may be spawned; `general-purpose`, `claude`, `fork`, `Plan` and unknown types are refused | `POLICY`, deny rules `Agent(general-purpose)`, `Agent(claude)`, `Agent(fork)` | `tests/test_agent_guard.py`; `tests/lint_agents.py` checks each "May spawn" sentence against `POLICY` |
-| The main thread only delegates: its tools line holds no Bash, Write or Edit, and a call that still reaches it (an SDK app's tool list, an `--agents` redefinition) is refused; with `BLACKCAT_MAX_OWN_STEPS` > 0 its Bash gets the same hooks, sandbox and deny rules and is refused HTTP clients, raw sockets and gh reads (best effort; the sandbox allowlist is the hard limit) | tools line, `blackcat-guard`, `no-push` | `tests/test_blackcat_tools.py`, `tests/lint_agents.py` |
+| BlackCat only delegates (any other agent on the main thread keeps its tools): its tools line holds no Bash, Write or Edit, and a call that still reaches it (an SDK app's tool list, an `--agents` redefinition) is refused; with `BLACKCAT_MAX_OWN_STEPS` > 0 its Bash gets the same hooks, sandbox and deny rules and is refused HTTP clients, raw sockets and gh reads (best effort; the sandbox allowlist is the hard limit) | tools line, `blackcat-guard`, `no-push` | `tests/test_blackcat_tools.py`, `tests/lint_agents.py` |
 | No credential reads (`gh auth token`, `git credential fill`, keychain dumps); token variables and credential files denied to sandboxed Bash | guard, sandbox `denyRead`, credential deny list | `tests/test_guard_round2.py` |
 | An agent that read web content, or is linked to one that did, cannot write the shared memory | web taint in the guard | `tests/test_guard_round2.py`, `tests/test_guard_round3.py` |
 | Mounting a magg server asks; calls run without a prompt only for the read-only or local catalog servers and ask at every call for the rest | `ask` rules in `settings.json` | `tests/test_no_duplicates.py` (exactly one allow or ask rule per catalog prefix) |
@@ -282,7 +282,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | Mechanism | What it does | Evidence |
 |---|---|---|
 | Static prompt budget | `tests/prompt_budget.py --check` fails when descriptions, bodies, rules or listings grow past gates set against revision `ad22962` | Measured (static characters, 2026-10-03, the revision that gave BlackCat its own tools vs `ad22962`; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)): skill listing 30,782 → 14,437 chars (−53.1 %), mostly because the 83 hub modules are no longer listed and the skill count went from 248 to 214; mean per-spawn prompt 55,240 → 37,527 chars (−32.1 %). Both revisions are this stack, so this is not a comparison with plain Claude Code, and whether skill discovery or answer quality changed is not measured |
-| Delegate-only main thread | BlackCat runs no commands and edits nothing (no Bash/Write/Edit on its tools line; blackcat-guard refuses them); every job, however small, goes to a specialist | **enforced by tools line and hook; the cost of spawning for small jobs is not measured** |
+| Delegate-only BlackCat | BlackCat runs no commands and edits nothing (no Bash/Write/Edit on its tools line; blackcat-guard refuses them); every job, however small, goes to a specialist | **enforced by tools line and hook; the cost of spawning for small jobs is not measured** |
 | Output economy | Global rules: answer first, no preamble or closing summary, big artifacts to files, a clean finish in one line | **by design, not measured** |
 | Read gate | First read of build output, dependencies, big data, media or binaries is refused with a cheaper alternative | **by design, not measured** (no token saving recorded) |
 | Web caps | Per-call result and character caps for exa, jina, spider | **by design, not measured** |
@@ -315,7 +315,7 @@ figures below. What the repo's tests prove is the machinery:
 
 | Suite | Proves |
 |---|---|
-| `agent_guard.py --self-test`; `tests/test_agent_guard.py`, `test_guard_regressions.py`, `test_guard_round2.py`, `test_guard_round3.py`, `test_blackcat_tools.py` | Spawn policy, depth, fan-out, locks, the main thread's own tools, security rounds 2 and 3 |
+| `agent_guard.py --self-test`; `tests/test_agent_guard.py`, `test_guard_regressions.py`, `test_guard_round2.py`, `test_guard_round3.py`, `test_blackcat_tools.py` | Spawn policy, depth, fan-out, locks, BlackCat's own tools, security rounds 2 and 3 |
 | `tests/test_no_push.py`, `test_protected_paths.py`, `test_readonly_agents.py` | No push, protected paths, read-only Bash |
 | `tests/test_limits_guard.py`, `test_stack_limits.py`, `test_stack_usage.py`, `test_sched_snapshot.py`, `test_stack_sched.py` | Budgets, learned limits and snapshots, the collector, the scheduler |
 | `tests/test_stack_budget.py`, `test_stack_budget_security.py`, `test_stack_tree.py`, `test_stack_doctor.py`, `test_override_agent.py` | The user commands, including read-only behaviour and escaping of untrusted text |
@@ -1011,7 +1011,8 @@ rc, and `claude mcp remove -s user exa` (and `jina`, `wolfram`, `huggingface`, `
 ### First run
 
 1. Start `claude` in a project directory: the session starts as BlackCat (`"agent": "blackcat"` in
-   `settings.json`). For a plain session without the stack's main thread: `claude --agent claude`.
+   `settings.json`). For a plain session without BlackCat: `claude --agent claude`; any agent started
+   with `claude --agent <name>` keeps all its tools (only BlackCat is restricted).
 2. Once, in the first session: `/effort medium`.
 3. Type `/stack-doctor` and fix any FAIL line it names.
 4. The session starts in Plan mode: BlackCat reads, asks and plans, and nothing is edited until you
@@ -1172,7 +1173,7 @@ you may set yourself.
 | `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` ○ | 8 / 120 | BlackCat Agent calls per prompt, within this many seconds of the first | guard |
 | `BLACKCAT_MAX_STEPS` ● | 24 | BlackCat tool calls per prompt | guard |
 | `BLACKCAT_MAX_READS` | 3 | Of those, BlackCat's Read calls: the delegation ledger, a plan, a child's output file (8 dispatches always fit) | guard |
-| `BLACKCAT_MAX_OWN_STEPS` | 0 | Of those, BlackCat's own Bash/Write/Edit calls: 0, it only delegates. Its `tools` line lists none of them, so a value > 0 changes nothing in a normal session; for a session where the main thread runs commands, start it as another agent (`claude --agent claude`, or `--agent main-coder`) | guard |
+| `BLACKCAT_MAX_OWN_STEPS` | 0 | Of those, BlackCat's own Bash/Write/Edit calls: 0, it only delegates. Its `tools` line lists none of them, so a value > 0 changes nothing in a normal session; any other agent started with `claude --agent <name>` (`claude --agent claude` for a plain session) is not restricted: the restriction belongs to BlackCat only, through its own tools line and its own guard | guard |
 | `BLACKCAT_BASH_TIMEOUT_MS` | 120000 | Longest timeout a BlackCat foreground Bash call may ask for, only with `BLACKCAT_MAX_OWN_STEPS` > 0 | guard |
 | `BLACKCAT_BACKGROUND` | 1 | Drop BlackCat's `run_in_background: false` | guard |
 | `STACK_MAX_FANOUT` ● | 3 | Running children per agent (0 = no cap) | guard |
