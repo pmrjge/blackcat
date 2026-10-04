@@ -244,6 +244,9 @@ Knobs (env):
                           the description with "<subagent_type>: " (once), `name` names an unnamed
                           child "<type>-<n>" (unique per session), `off` = no label
   STACK_AGENT_STARTED=1   SubagentStart tells a stack agent its local start time (0 = off)
+  STACK_SCRUB=observe     an Agent prompt or SendMessage message matching a credential pattern is
+                          logged (counts per class, never text) and noted to the sender once per
+                          run; never rewritten or denied (off = no scan)
   STACK_REPORT_FORMAT=observe  the hand-back protocol (stack_report.py; CONFIG.md "Message
                           protocol"). `observe` (unset or any other value): SubagentStop checks
                           and logs each spawned stack subagent's final reply, PreToolUse(Agent)
@@ -1558,6 +1561,20 @@ def transcript_of(d, holder, ev):
 
 
 # ---------------------------------------------------------------- PreToolUse: Agent
+def name_takeover(d, ti):
+    """A caller-given `name` that a RUNNING agent holds is refused: messages sent to that name
+    would reach the newcomer (names/ points at the latest holder)."""
+    name = ti.get("name")
+    if not isinstance(name, str) or not name.strip():
+        return None
+    holder = ident((read_json(names_path(d, name.strip())) or {}).get("id"))
+    rec = reg_get(d, holder) if holder else None
+    if rec and not rec.get("stopped"):
+        return ("Agent policy: the name '%s' belongs to a running agent (%s); pick another name."
+                % (name.strip()[:64], holder))
+    return None
+
+
 def on_agent(ev, d):
     ti = tool_input(ev)
     child = norm(ti.get("subagent_type") or "general-purpose")
@@ -1584,6 +1601,9 @@ def on_agent(ev, d):
                                         ti.get("subagent_type"))
         if type_why:
             deny(type_why)
+        why = name_takeover(d, ti)
+        if why:
+            deny(why)
         depth, limit = caller_depth(d, ev), max_depth()
         if depth is None and aid:
             depth = meta_depth(d, ev, aid)
@@ -2977,6 +2997,24 @@ def on_workflow(ev, d):
 
 
 # ---------------------------------------------------------------- PreToolUse: SendMessage
+def parent_of(d, ev, aid):
+    """`aid`'s parent: the registry's link, else Claude Code's meta.json (parentAgentId; "main"
+    at spawnDepth 1: a running foreground child has no registry link yet). None when unknown."""
+    p = (reg_get(d, aid) or {}).get("parent")
+    if not p and ev is not None:
+        meta = spawn_meta(ev, aid)
+        p = meta.get("parentAgentId") or ("main" if meta.get("spawnDepth") == 1 else None)
+    return ident(p) if isinstance(p, str) and p.strip() else None
+
+
+def family(d, ev, aid, target_id):
+    return parent_of(d, ev, target_id) == aid or parent_of(d, ev, aid) == target_id
+
+
+def caller_type_of(d, ev, aid):
+    return norm(ev.get("agent_type")) or norm((reg_get(d, aid) or {}).get("type"))
+
+
 def send_policy_violation(d, ev, target_id, ttype):
     """Resuming a FINISHED agent starts new work in it, like a spawn: allowed when the caller's
     POLICY row lists the target's type, or the target is the caller's own child (follow-ups) or
@@ -2997,6 +3035,54 @@ def send_policy_violation(d, ev, target_id, ttype):
     return ("SendMessage policy: '%s' may not resume '%s', a finished %s (it may resume or spawn: "
             "%s). Return STATUS: partial with NEXT naming that agent, so your parent can resume it."
             % (caller_type, target_id, ttype, ", ".join(row) or "none"))
+
+
+def routing_violation(d, ev, to, target_id):
+    """No peer-to-peer messages (the user, 2026-10-04): a subagent messages only `main`, its own
+    parent or its own child; siblings, other jobs and unknown targets are refused. An unreadable
+    registry falls back to the earlier rule (pass)."""
+    aid = ev.get("agent_id")
+    if not aid or str(to).strip().lower() == "main":
+        return None
+    try:
+        os.listdir(os.path.join(d, "agents"))
+        if target_id and family(d, ev, aid, target_id):
+            return None
+    except OSError as exc:
+        warn_once("routing scope: registry unreadable (%s); not enforced" % type(exc).__name__)
+        return None
+    return ("SendMessage policy: '%s' messages only main, its own parent and its own children; "
+            "'%s' is %s. Put it in your hand-back (NEXT: route to <role>: <what>) for your parent."
+            % (caller_type_of(d, ev, aid), str(to)[:64],
+               "not one of them" if target_id else "unknown"))
+
+
+USER_LINE_RE = re.compile(r"(?m)^[ \t>*_`]*USER[ \t*_`]*:")     # **USER**: too
+
+
+def strings_in(obj, depth=0):
+    if isinstance(obj, str):
+        yield obj
+    elif depth < 8 and isinstance(obj, dict):
+        for v in obj.values():
+            yield from strings_in(v, depth + 1)
+    elif depth < 8 and isinstance(obj, list):
+        for v in obj:
+            yield from strings_in(v, depth + 1)
+
+
+def user_relay_violation(d, ev, ti, target_id):
+    """The user's answer travels as a `USER:` block: only the main thread, or a parent to its own
+    child (an answer going down to its asker), may send one; a subagent forging it to a peer is
+    refused."""
+    aid = ev.get("agent_id")
+    if not aid or not any(USER_LINE_RE.search(s) for s in strings_in(ti.get("message"))):
+        return None
+    if target_id and parent_of(d, ev, target_id) == aid:
+        return None
+    return ("SendMessage policy: only the main thread, or a parent to its own child, relays the "
+            "user's answer; a 'USER:' line from '%s' is refused. Put the question in your "
+            "hand-back's NEXT." % caller_type_of(d, ev, aid))
 
 
 def resume_reserve(d, ev, target_id, ttype):
@@ -3077,7 +3163,8 @@ def on_send(ev, d):
     if is_blackcat and markers_full(d, "step", pid, max_steps):
         deny(STEP_LIMIT_REASON % max_steps)
     target_id, ttype, tname = resolve_target(d, to) if to else (None, None, None)
-    why = send_policy_violation(d, ev, target_id, ttype)
+    why = user_relay_violation(d, ev, ti, target_id) or routing_violation(d, ev, to, target_id) \
+        or send_policy_violation(d, ev, target_id, ttype)
     if why:
         deny(why)
     why, reserved = resume_reserve(d, ev, target_id, ttype)
@@ -3103,6 +3190,108 @@ def on_send(ev, d):
         rollback()
         raise
     note_relay(ev, d, target_id, ttype, tname)
+    stamp_sender(ev, d, ti)
+
+
+def stamp_sender(ev, d, ti):
+    """A subagent's text message reaches its target headed by who sent it, so it cannot pass for
+    the user (or for another agent). No permissionDecision: the normal permission flow runs."""
+    aid, msg = ev.get("agent_id"), ti.get("message")
+    if not aid or not isinstance(msg, str):
+        return
+    stamp = "[from %s %s: an agent, not the user]" % (caller_type_of(d, ev, aid) or "agent", aid)
+    emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                 "updatedInput": dict(ti, message=stamp + "\n" + msg)}})
+
+
+# ---------------------------------------------------------------- credential scrub (observe only)
+# STACK_SCRUB=observe (default): an Agent `prompt` or a SendMessage `message` that matches one of
+# the stack's credential patterns (bin/stack-tree's _REDACT and _KV tables, applied here to the
+# FULL text: never its redact()/text(), which cut at RAW_CAP and withhold text past a deadline)
+# adds one line to <state>/<sid>/scrub-observe.jsonl (time, tool, agent id, match count per pattern
+# class; never matched text) and, once per run of the sender, a one-line note to it. Nothing is
+# rewritten or denied: KEY=, -p and token patterns also match ordinary code in briefs. Any failure
+# skips the check. off = no scan.
+SCRUB_LOG = "scrub-observe.jsonl"
+SCRUB_LOG_MAX_BYTES = 1 << 20
+# one class per entry of stack-tree's _REDACT, in its order (a count mismatch numbers them instead)
+SCRUB_CLASSES = ("secret-assignment", "auth-header", "auth-scheme-token", "db-password-flag",
+                 "login-password-flag", "pass-uri", "aws-configure-secret", "secret-cli-flag",
+                 "user-password", "url-credentials", "url-query-secret", "known-token-format")
+SCRUB_NOTE = ("Credential check (observe only, nothing changed): this %s input matches %s. If it "
+              "holds a real credential, login or personal data, strip it unless the user's "
+              "request names this use and recipient.")
+_SCRUB = []
+
+
+def kv_count(mod, s):
+    """Secret-named `name: value` pairs, scanned as stack-tree's redact_kv scans them."""
+    n, pos = 0, 0
+    for m in mod._KV.finditer(s):
+        if m.start() >= pos and mod._KV_NAME.search(m.group(1)):
+            v = mod._KV_VALUE.match(s, m.end())
+            if v:
+                n, pos = n + 1, v.end()
+    return n
+
+
+def scrub_patterns():
+    """[(class, count(text))] from bin/stack-tree's tables, loaded once per process."""
+    if not _SCRUB:
+        import importlib.machinery
+        import importlib.util
+        path = os.path.join(os.path.dirname(os.path.realpath(__file__)), os.pardir, "bin",
+                            "stack-tree")
+        loader = importlib.machinery.SourceFileLoader("stack_tree_for_scrub", path)
+        mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
+        loader.exec_module(mod)
+        same = len(mod._REDACT) == len(SCRUB_CLASSES)
+        _SCRUB[:] = [("secret-key-value", lambda s: kv_count(mod, s))] + [
+            (SCRUB_CLASSES[i] if same else "pattern-%d" % i,
+             lambda s, rx=rx: sum(1 for _ in rx.finditer(s)))
+            for i, (rx, _) in enumerate(mod._REDACT)]
+    return _SCRUB
+
+
+def scrub_log(d, row):
+    line = (json.dumps(row, sort_keys=True) + "\n").encode()
+    fd = os.open(os.path.join(d, SCRUB_LOG), os.O_WRONLY | os.O_APPEND | os.O_CREAT
+                 | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0), 0o600)
+    try:
+        st = os.fstat(fd)
+        if not stat.S_ISREG(st.st_mode) or st.st_uid != os.getuid():
+            return
+        if stat.S_IMODE(st.st_mode) != 0o600:
+            os.fchmod(fd, 0o600)
+        if st.st_size + len(line) <= SCRUB_LOG_MAX_BYTES:
+            os.write(fd, line)
+    finally:
+        os.close(fd)
+
+
+def scrub_observe(ev, d, tool):
+    if os.environ.get("STACK_SCRUB", "observe").strip().lower() == "off":
+        return
+    raw = tool_input(ev).get("message" if tool == "SendMessage" else "prompt")
+    if raw is None:
+        return
+    text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
+    counts = {}
+    for cls, count in scrub_patterns():
+        n = count(text)
+        if n:
+            counts[cls] = counts.get(cls, 0) + n
+    if not counts:
+        return
+    hits = sorted(counts)
+    aid = ev.get("agent_id")
+    scrub_log(d, {"ts": int(time.time()), "tool": tool, "agent_id": safe(aid or "main"),
+                  "counts": counts})
+    run = (reg_get(d, aid) or {}).get("started") if aid else prompt_key(ev)
+    os.makedirs(os.path.join(d, "scrub"), exist_ok=True)
+    if create_excl(os.path.join(d, "scrub", "%s.%s" % (safe(aid or "main"), safe(run)))):
+        note = SCRUB_NOTE % (tool, ", ".join(hits))
+        _SOFT_NOTE[:] = ["%s\n\n%s" % (_SOFT_NOTE[0], note)] if _SOFT_NOTE else [note]
 
 
 # ---------------------------------------------------------------- PreToolUse: computer use
@@ -10908,6 +11097,11 @@ def self_test():
     problems += label_self_test()
     problems += report_self_test()
     problems += fanout_dyn_self_test()
+    try:        # the credential scrub reads bin/stack-tree's table; a fake token must be classed
+        if [c for c, t in scrub_patterns() if t("x gh" + "p_" + "A1b2" * 9)] != ["known-token-format"]:
+            problems.append("scrub: stack-tree's _REDACT no longer maps onto SCRUB_CLASSES")
+    except Exception as exc:  # noqa: BLE001
+        problems.append("scrub: bin/stack-tree patterns not loadable (%s)" % type(exc).__name__)
     try:
         root = state_root()
         os.makedirs(root, exist_ok=True)
@@ -11502,6 +11696,11 @@ def dispatch(ev):
             raise
         except Exception as exc:  # noqa: BLE001
             warn("token budget: %s: %s" % (type(exc).__name__, exc))
+        if tool in ("Agent", "SendMessage"):
+            try:
+                scrub_observe(ev, d, tool)
+            except Exception as exc:  # noqa: BLE001 - observe only: never blocks a call
+                warn_once("scrub: %s" % type(exc).__name__)
     handler(ev, d)
     if event == "PreToolUse":
         soft_flush()      # a soft-limit warning the handler's own output did not carry

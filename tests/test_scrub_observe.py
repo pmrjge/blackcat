@@ -1,0 +1,129 @@
+"""Credential scrub, observe only (agent_guard.py scrub_observe, STACK_SCRUB): an Agent prompt or a
+SendMessage message matching bin/stack-tree's credential patterns is logged (class, tool, agent id;
+never the text) and noted once per run to the sender; nothing is rewritten or denied.
+Run: uv run --with pytest pytest -q tests/test_scrub_observe.py
+GUARD=/path/to/agent_guard.py points them at another copy of the hook (its ../bin/stack-tree is read)."""
+import json
+import os
+import shutil
+import stat
+import subprocess
+import sys
+
+from guard_harness import GUARD, Env
+
+# built at run time, so no token-shaped literal sits in the repository
+FAKE_GH = "gh" + "p_" + "Q7w" * 12
+FAKE_PW = "pass" + "word=" + "Hu" * 6 + "42"
+
+
+def log_path(e):
+    return os.path.join(e.sdir(), "scrub-observe.jsonl")
+
+
+def log_rows(e):
+    p = log_path(e)
+    return [json.loads(x) for x in open(p).read().splitlines()] if os.path.exists(p) else []
+
+
+def context(r):
+    return json.loads(r.stdout)["hookSpecificOutput"].get("additionalContext", "") if r.stdout.strip() else ""
+
+
+def dispatch(e, prompt, **extra):
+    ev = e.pre_agent("coder", agent_type="blackcat")
+    ev["tool_input"]["prompt"] = prompt
+    return ev, e.run(ev, extra=extra or None)
+
+
+def child(e, cid="C1"):
+    ev, r = dispatch(e, "fix the parser")
+    e.run(e.start(cid, "coder"))
+    e.run(e.post_agent(ev, cid))
+    return cid
+
+
+def send(e, text, aid="C1", to="main"):
+    ev = e.send(to, agent_id=aid, agent_type="coder")
+    ev["tool_input"]["message"] = text
+    return e.run(ev)
+
+
+def test_secret_in_a_brief_is_logged_and_noted_never_rewritten():
+    e = Env()
+    prompt = "Deploy with this token: " + FAKE_GH + " then report."
+    ev, r = dispatch(e, prompt)
+    assert r.decision != "deny", r
+    out = json.loads(r.stdout)["hookSpecificOutput"]
+    assert out.get("updatedInput", {}).get("prompt", prompt) == prompt      # not rewritten
+    assert "Credential check (observe only" in out["additionalContext"]
+    assert "known-token-format" in out["additionalContext"]
+    rows = log_rows(e)
+    assert len(rows) == 1 and rows[0]["tool"] == "Agent" and rows[0]["agent_id"] == "main"
+    assert "known-token-format" in rows[0]["counts"] and set(rows[0]) == {"ts", "tool", "agent_id", "counts"}
+    assert stat.S_IMODE(os.stat(log_path(e)).st_mode) == 0o600
+
+
+def test_the_log_never_holds_the_secret_or_the_text():
+    e = Env()
+    child(e)
+    send(e, "use " + FAKE_PW + " and " + FAKE_GH)
+    raw = open(log_path(e)).read()
+    for secret in (FAKE_GH, FAKE_PW, FAKE_GH[4:16], "Hu" * 6, "use "):
+        assert secret not in raw, secret
+    assert {"secret-assignment", "known-token-format"} <= set(log_rows(e)[-1]["counts"])
+
+
+def test_the_full_text_is_scanned_and_matches_counted():
+    e = Env()
+    child(e)
+    send(e, "a" * 70000 + "\n" + FAKE_GH + " and " + FAKE_GH)      # past RAW_CAP and any 64K cut
+    assert log_rows(e)[-1]["counts"]["known-token-format"] == 2
+
+
+def test_note_once_per_run_log_every_match():
+    e = Env()
+    child(e)
+    first = send(e, "token " + FAKE_GH)
+    second = send(e, "again " + FAKE_PW)
+    assert "Credential check" in context(first) and "Credential check" not in context(second)
+    assert len(log_rows(e)) == 2 and log_rows(e)[1]["agent_id"] == "C1"
+    # a resume is a new run (SubagentStart rewrites `started`): one more note
+    e.run(e.stop("C1", "coder"))
+    e.age_reg("C1", 5)
+    e.run(e.start("C1", "coder"))
+    assert "Credential check" in context(send(e, "third " + FAKE_GH))
+
+
+def test_clean_text_and_off_write_nothing():
+    e = Env()
+    child(e)
+    r = send(e, "Plan: run the suite, then report the token counts per agent.")
+    assert "Credential check" not in context(r) and log_rows(e) == []
+    e2 = Env(STACK_SCRUB="off")
+    ev, r = dispatch(e2, "secret " + FAKE_GH)
+    assert "Credential check" not in context(r) and not os.path.exists(log_path(e2))
+    assert not os.path.exists(os.path.join(e2.sdir(), "scrub"))
+
+
+def test_log_is_capped_at_one_megabyte():
+    e = Env()
+    child(e)
+    with open(log_path(e), "w") as f:
+        f.write("x" * ((1 << 20) - 10))
+    os.chmod(log_path(e), 0o600)
+    send(e, FAKE_GH)
+    assert os.path.getsize(log_path(e)) == (1 << 20) - 10
+
+
+def test_fails_open_without_the_pattern_table(tmp_path):
+    hooks = tmp_path / "hooks"
+    shutil.copytree(os.path.dirname(GUARD), hooks)            # no ../bin/stack-tree beside it
+    e = Env()
+    e_guard = str(hooks / os.path.basename(GUARD))
+    ev = e.pre_agent("coder", agent_type="blackcat")
+    ev["tool_input"]["prompt"] = "secret " + FAKE_GH
+    p = subprocess.run([sys.executable, e_guard], input=json.dumps(ev), capture_output=True, text=True,
+                       env=e.env, timeout=60)
+    assert p.returncode == 0 and '"deny"' not in p.stdout, (p.stdout, p.stderr)
+    assert "scrub: FileNotFoundError" in p.stderr and not os.path.exists(log_path(e))

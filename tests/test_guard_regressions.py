@@ -58,8 +58,8 @@ def test_l7_resuming_a_finished_agent_follows_the_spawn_policy():
     spawned(e, "orchestrator", "O1")
     spawned(e, "security-auditor", "SA1", caller="O1", ctype="orchestrator", name="audit")
     spawned(e, "coder", "C1", caller="O1", ctype="orchestrator")
-    # running target: a message, not a resume
-    assert e.run(e.send("SA1", agent_id="C1", agent_type="coder")).decision.startswith("allow")
+    # running sibling: no peer-to-peer messages (routing scope, tests/test_send_routing.py)
+    assert e.run(e.send("SA1", agent_id="C1", agent_type="coder")).decision == "deny"
     e.run(e.stop("SA1", "security-auditor"))
     for to in ("SA1", "agent-SA1", "audit"):
         r = e.run(e.send(to, agent_id="C1", agent_type="coder"))
@@ -69,8 +69,10 @@ def test_l7_resuming_a_finished_agent_follows_the_spawn_policy():
     # its own parent may resume it; so may the main thread
     assert e.run(e.send("SA1", agent_id="O1", agent_type="orchestrator")).decision.startswith("allow")
     assert e.run(e.send("SA1")).decision.startswith("allow")
-    # unknown targets and STACK_POLICY=off pass
-    assert e.run(e.send("nobody", agent_id="C1", agent_type="coder")).decision.startswith("allow")
+    # an unknown target is refused; STACK_POLICY=off passes
+    assert e.run(e.send("nobody", agent_id="C1", agent_type="coder")).decision == "deny"
+    assert e.run(e.send("nobody", agent_id="C1", agent_type="coder"),
+                 extra={"STACK_POLICY": "off"}).decision.startswith("allow")
     assert e.run(e.send("SA1", agent_id="C1", agent_type="coder"),
                  extra={"STACK_POLICY": "off"}).decision.startswith("allow")
 
