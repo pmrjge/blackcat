@@ -136,7 +136,7 @@ maxTurns:
 
 ## 5. Guard knobs and settings
 
-The stack's only knob table. Values in `dot-claude/settings.json` → `env` unless named otherwise. ● = shipped and owned by the stack (`OWNED_ENV` in `install.sh`): reset on every install, so change it in the repo and re-run the installer. ○ = shipped as a default: it follows stack upgrades while you leave it unchanged, and a value you change is kept (the installer prints `kept your env …`). Those marked "code" are defaults in the hooks (mostly `agent_guard.py`), with no settings entry; set them yourself. Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort.
+The stack's only knob table. Values in `dot-claude/settings.json` → `env` unless named otherwise. ● = shipped and owned by the stack (`OWNED_ENV` in `install.sh`): reset on every install, so change it in the repo and re-run the installer. ○ = shipped as a default: it follows stack upgrades while you leave it unchanged, and a value you change is kept (the installer prints `kept your env …`). Those marked "code" are defaults in the hooks, with no settings entry; the other code defaults (`STACK_POLICY`, lock and lease timers, image limits, logging) are listed in `agent_guard.py`'s docstring, `READ_GATE` under "Read gate". Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort.
 
 | Key | Value | Was | Why |
 |---|---|---|---|
@@ -171,16 +171,6 @@ The stack's only knob table. Values in `dot-claude/settings.json` → `env` unle
 | `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` ○ | 400 | — | Unchanged |
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` | from `stack.env` (Opus, Sonnet, Sonnet) | moved | Copied from `stack.env` by the installer; the haiku slot holds the Sonnet ID (section 2) |
 | `MCP_DISCOVERY_CACHE` ● / `_TTL_S` ○ / `_MAX_STALE_S` ○ / `MCP_TIMEOUT` ○ / `MAX_MCP_OUTPUT_TOKENS` ○ | 1 / 21600 / 604800 / 60000 / 25000 | — | Unchanged: MCP discovery cache (unverified: not on the docs page checked), start-up timeout, tool output cap |
-| `STACK_POLICY` | `on` (code) | — | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on. It also lifts blackcat-guard (BlackCat's step, dispatch and read caps and its tool allowlist): only BlackCat's tools line still keeps Bash, Write and Edit from it |
-| `STACK_MAX_DEPTH` | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, else 3 (code) | — | Deny Agent from callers at this depth |
-| `STACK_LEASE_TTL_S` / `STACK_RESUME_TTL_S` | 21600 / 120 (code) | — | Ceilings on unreported leases and resume reservations |
-| `SUPREME_PENDING_TTL_S` / `SUPREME_LOCK_TTL_S` | 120 / 21600 (code) | — | supreme-coder lock timers, with `SUPREME_IDLE_S` |
-| `SCREEN_LOCK_TTL_S` | 900 (code) | — | Screen lock expiry |
-| `STRIP_AGENT_MODEL` | 1 (code) | — | Remove a per-call `model` from Agent calls |
-| `STACK_GUARD_LOG` | 0 (code) | — | 1 = log hook events (tool names and ids only in budget mode) |
-| `STACK_IMAGE_MAX_PX` / `STACK_IMAGE_MAX_B64` | 1919 / 4500000 (code) | — | Longest image side; most base64 characters per image (guard, image-studio, doctor) |
-| `STACK_IMAGE_UPLOAD_TOOLS` | — (code) | — | Regex of more MCP tools whose image arguments get downscaled copies |
-| `READ_GATE` | 1 (`stack.env` or the environment) | — | `0` turns the read gate off ("Read gate" below) |
 | `STACK_ENV_FILE` ● | `~/.claude/stack.env` | — | Where the keys live; read by `mcp-headers`, `with-stack-env`, libdocs, image-studio, `read_gate.py`, `web_caps.py` |
 | `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` ○ | 1 | — | Built-in Explore and Plan off (the stack's `explore` replaces Explore) |
 | `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` ○ | 1 | — | Every built-in agent type off in `claude -p` |
