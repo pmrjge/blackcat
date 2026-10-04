@@ -210,6 +210,23 @@ def test_malformed_install_files_become_notes_not_crashes(tmp_path):
     assert d.rows["skills"][0][0] == "+"                               # a file where skills/ should be
 
 
+@pytest.mark.skipif(os.geteuid() == 0, reason="root reads a mode-000 folder")
+def test_an_area_that_raises_is_a_note_and_the_rest_still_runs(tmp_path):
+    """run()'s per-area guard: an unreadable skills/ (listdir raises) becomes a note, later areas still run."""
+    conf = tmp_path / "conf"
+    (conf / "skills").mkdir(parents=True)
+    text = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
+    d = stack_diff.Diff(ROOT, str(conf), {"__CLAUDE_DIR__": str(conf), "__STACK_CACHE__": "/c"}, text)
+    os.chmod(conf / "skills", 0)
+    try:
+        d.run()
+    finally:
+        os.chmod(conf / "skills", 0o755)
+    assert any(n.startswith("skills: not compared (PermissionError") for n in d.notes), d.notes
+    assert "skills" not in d.rows
+    assert any(r[0] == "+" for r in d.rows["settings.json hooks"])     # a later area still compared
+
+
 def test_tool_placeholders_match_consistently():
     m = stack_diff.Matcher({"__CLAUDE_DIR__": "/c"})
     assert m.same('cmd: "__UV__" run __CLAUDE_DIR__/x; again __UV__', 'cmd: "/opt/uv" run /c/x; again /opt/uv')
