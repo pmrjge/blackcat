@@ -1,0 +1,179 @@
+#!/usr/bin/python3 -B
+"""stack-who - the lookup table of a session's agents, for routing a message straight to the right worker.
+
+  stack-who [--session SID] [--running | --finished] [--type T] [--id ID] [--name N] [KEYWORD ...]
+            [--max N] [--json]
+
+One line per agent: `<id> · <type> [name <n>] · <state>[/<report status>] · L<depth> · parent <id|main> ·
+started HH:MM · "<task>"`. KEYWORD words match the task (the Agent call's description), type and name,
+case-insensitively, all of them. --id matches a full id or a prefix of at least 6 characters.
+
+The session: --session, else the one this shell belongs to (the basename of $STACK_LIMITS_SNAPSHOT, which
+the guard's session-env hook exports into every Bash of the session), else the newest under the state root
+(marked "guessed"). The table is built at each call from what the guard already writes (the registry
+agents/<id>.json and the delegation records spawns/<tid>.json, or delegations.md), through bin/stack-tree's
+reader: read-only, task text redacted and cut, at most --max lines (default 30, cap 200). It never fails a
+caller's step: any error prints one line saying the table is unavailable and to route through the parent,
+exit 0. Exit 2 only for bad arguments. Nothing here sends, writes or decides anything; whether a message may
+resume a finished agent is the guard's rule (PreToolUse SendMessage)."""
+import argparse
+import json
+import os
+import re
+import sys
+import time
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+MAX_DEFAULT, MAX_CAP, TASK_CAP = 30, 200, 90
+FALLBACK = "stack-who: no agent table (%s); route the message through your parent (NEXT: route to ...)."
+
+
+def load_tree_module():
+    """bin/stack-tree as a module (its reader, redaction and limits), without running its main."""
+    import importlib.machinery
+    import importlib.util
+    path = os.path.join(HERE, "stack-tree")
+    loader = importlib.machinery.SourceFileLoader("stack_tree_for_who", path)
+    spec = importlib.util.spec_from_loader("stack_tree_for_who", loader)
+    mod = importlib.util.module_from_spec(spec)
+    loader.exec_module(mod)
+    return mod
+
+
+def own_session(st):
+    snap = os.environ.get("STACK_LIMITS_SNAPSHOT") or ""
+    base = os.path.basename(snap)
+    sid = base[:-5] if base.endswith(".json") else ""
+    return sid if sid and st.SID_RE.match(sid) else None
+
+
+def rows(st, root):
+    """(node, parent id, depth) for every agent below the main thread, depth first."""
+    out = []
+
+    def walk(n, parent):
+        for c in n.children:
+            if not c.placeholder or c.id:
+                out.append((c, parent, c.depth))
+            walk(c, c.id or parent)
+    walk(root, "main")
+    return out
+
+
+def started(st, n):
+    for v in (n.reg.get("started"), n.reg.get("spawned"), n.ts):
+        t = st.num(v)
+        if t:
+            return time.strftime("%H:%M", time.localtime(t))
+    return "?"
+
+
+def record(st, n, parent, depth):
+    rep = n.reg.get("report") if isinstance(n.reg.get("report"), dict) else {}
+    status = rep.get("status") if rep.get("status") in st.REPORT_STATUSES else None
+    return {"id": n.id or "?", "type": n.type, "name": n.name or st.text(n.reg.get("name"), 40) or None,
+            "state": n.state, "report": status, "layer": depth, "parent": parent,
+            "started": started(st, n), "task": n.task or ""}
+
+
+def line(r):
+    name = " name %s" % r["name"] if r["name"] else ""
+    state = r["state"] + ("/" + r["report"] if r["report"] else "")
+    task = r["task"] if len(r["task"]) <= TASK_CAP else r["task"][:TASK_CAP - 1] + "…"
+    return '%s · %s%s · %s · L%d · parent %s · started %s · "%s"' % (
+        r["id"], r["type"], name, state, r["layer"], r["parent"], r["started"], task)
+
+
+def matches(r, opts):
+    if opts.running and r["state"] not in ("running", "launching"):
+        return False
+    if opts.finished and r["state"] in ("running", "launching"):
+        return False
+    if opts.type and r["type"] != opts.type:
+        return False
+    if opts.name and (r["name"] or "") != opts.name:
+        return False
+    if opts.id:
+        want = opts.id.strip()
+        if not (r["id"] == want or (len(want) >= 6 and r["id"].startswith(want))):
+            return False
+    hay = " ".join([r["task"], r["type"], r["name"] or ""]).lower()
+    return all(k.lower() in hay for k in opts.keyword)
+
+
+class Usage(Exception):
+    pass
+
+
+class Parser(argparse.ArgumentParser):
+    def error(self, message):
+        raise Usage(message)
+
+
+def parser():
+    p = Parser(prog="stack-who", description="Lookup table of this session's agents (read-only).")
+    p.add_argument("keyword", nargs="*", help="words that must all appear in the task, type or name")
+    p.add_argument("--session", help="session id (default: this shell's session, else the newest)")
+    g = p.add_mutually_exclusive_group()
+    g.add_argument("--running", action="store_true", help="running agents only")
+    g.add_argument("--finished", action="store_true", help="finished, failed or stopped agents only")
+    p.add_argument("--type", help="agent type, exact")
+    p.add_argument("--id", help="agent id, or a prefix of 6+ characters")
+    p.add_argument("--name", help="agent name, exact")
+    p.add_argument("--max", type=int, default=MAX_DEFAULT, help="lines (default %d, cap %d)" % (MAX_DEFAULT, MAX_CAP))
+    p.add_argument("--json", action="store_true", help="JSON list instead of lines")
+    return p
+
+
+def run(argv):
+    opts = parser().parse_args(argv)
+    if opts.max < 1:
+        raise Usage("--max must be >= 1")
+    st = load_tree_module()
+    if opts.session is not None and not st.SID_RE.match(opts.session):
+        raise Usage("--session: not a session id")
+    root_dir = st.state_root()
+    sid, how = opts.session, "given"
+    if sid is None:
+        sid, how = own_session(st), "this shell's"
+    if sid is None:
+        found = st.session_dirs(root_dir)
+        if not found:
+            return [FALLBACK % "no session in the state dir"]
+        sid, how = found[-1], "newest, guessed"
+    if not os.path.isdir(os.path.join(root_dir, sid)):
+        return [FALLBACK % "no state for session %s" % sid]
+    root, _source, _main = st.load_session(sid, root_dir)
+    table = [record(st, n, p, dep) for n, p, dep in rows(st, root)]
+    hits = [r for r in table if matches(r, opts)]
+    cap = min(opts.max, MAX_CAP)
+    if opts.json:
+        return [json.dumps({"session": sid, "session_source": how, "agents": len(table),
+                            "matches": hits[:cap], "cut": max(len(hits) - cap, 0)}, ensure_ascii=False)]
+    running = sum(1 for r in table if r["state"] in ("running", "launching"))
+    out = ["stack-who · session %s (%s) · %d agents, %d running · %d match" % (
+        sid, how, len(table), running, len(hits))]
+    out += [line(r) for r in hits[:cap]]
+    if len(hits) > cap:
+        out.append("… %d more: narrow with --running, --type or a keyword" % (len(hits) - cap))
+    return out
+
+
+def main(argv):
+    try:
+        out = run(argv)
+    except Usage as e:
+        sys.stderr.write("%s\nstack-who: %s\n" % (parser().format_usage().strip(), str(e)[:300]))
+        return 2
+    except Exception as e:                      # fail open: a lookup never breaks the caller's step
+        out = [FALLBACK % type(e).__name__]
+    try:
+        sys.stdout.write("\n".join(out) + "\n")
+        sys.stdout.flush()
+    except BrokenPipeError:
+        os.dup2(os.open(os.devnull, os.O_WRONLY), sys.stdout.fileno())
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
