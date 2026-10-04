@@ -72,7 +72,7 @@ def staged_files(install_text):
         for f in names.split():
             out["%s/%s" % (d, f)] = "dot-claude/%s/%s" % (d, f)
     for names, d, src in re.findall(r"(?m)^for f in ([^;\n]+); do\n\s*rm -rf \"\$S/(\w+)/\$f\" && "
-                                    r"cp \"\$HERE/([\w-]+)/\$f\"", install_text):
+                                    r"cp \"\$(?:HERE|SNAP_ROOT)/([\w-]+)/\$f\"", install_text):  # SNAP_ROOT: the repo's layout
         for f in names.split():
             out["%s/%s" % (d, f)] = "%s/%s" % (src, f)
     return out

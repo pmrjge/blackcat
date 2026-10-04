@@ -196,7 +196,8 @@ repo_git(){
     case "$a" in -C|-c) skip=1 ;; -*) ;; *) sub="$a"; break ;; esac
   done
   case "$sub" in push|send-pack) echo "install.sh: refusing 'git $sub' — the installer never pushes" >&2; return 97 ;; esac
-  GIT_TERMINAL_PROMPT=0 git -c core.hooksPath=/dev/null "$@" </dev/null
+  # core.fsmonitor names a program `status` would run (the repo's .git/config is agent-writable)
+  GIT_TERMINAL_PROMPT=0 git -c core.hooksPath=/dev/null -c core.fsmonitor=false "$@" </dev/null
 }
 main_branch_rule(){
   local here_p top cur head main_sha label dirty main_wt target out ahead behind
@@ -228,6 +229,12 @@ main_branch_rule(){
   [ -z "$RESTORE" ] || guard_fail "$HERE is on '$label', not $MAIN_BRANCH, and --restore installs nothing from the repo (so it does not merge)." \
     "Run it from the checkout on $MAIN_BRANCH."
 
+  # 0. no filter driver in the repo's own git config (agent-writable, like .git/info/attributes): git
+  # would run its clean command on `status` below and its smudge command on `switch` and `merge`
+  out="$(repo_git -C "$HERE" config --show-scope --get-regexp '^filter\..*\.(clean|smudge|process)$' 2>/dev/null \
+    | awk '$1 == "local" || $1 == "worktree" {print $2}' || true)"
+  [ -z "$out" ] || guard_fail "the stack repo's git config sets a filter driver, which git would run as you while switching or merging:" \
+    "$out" "Remove it (git -C '$HERE' config --unset <key>), then re-run ./install.sh."
   # 1. this checkout is clean: uncommitted or untracked files would not reach main
   dirty="$(repo_git -C "$HERE" status --porcelain --untracked-files=normal)"
   [ -z "$dirty" ] || guard_fail "$HERE ('$label') has uncommitted or untracked files, which would not reach $MAIN_BRANCH:" \
@@ -293,9 +300,7 @@ resolve_target(){
       path) [ -n "$CD_PATH" ] || CD_PATH="$v" ;; export) CD_EXPORT="$v" ;; decision) CD_DECISION="$v" ;;
       banner) CD_BANNER="$CD_BANNER$v"$'\n' ;; warn) CD_WARN="$CD_WARN  $v"$'\n' ;; ask) CD_ASK="$CD_ASK$v"$'\n' ;;
     esac
-  done <<EOF
-$out
-EOF
+  done < <(printf '%s\n' "$out")    # a pipe, not a here-document's temp file in $TMPDIR (agent-writable?)
   [ -n "$CD_PATH" ] || { echo "install.sh: could not resolve the install target"; exit 2; }
 }
 resolve_target
@@ -374,6 +379,14 @@ WORK="$(mktemp -d "$BACKUP_ROOT/.work.XXXXXX")"
 # the rest runs in $WORK: private (agents can neither read nor write it), and where macOS's bash 3.2
 # falls back to for here-document temp files when /tmp is not writable (a sandboxed test run)
 cd "$WORK" || exit 2
+# A TMPDIR inherited from a Claude Code shell (/tmp/claude-<uid>, the sandbox's own temp dir) is
+# agent-writable: bash 4+'s here-document files (written, closed, then reopened by name: the python
+# scripts below), this run's mktemp files and dirs and every tool's temp files would sit where an agent
+# can swap them (security re-check, CWE-377). Such a TMPDIR is replaced by $WORK/tmp for the whole run.
+case "$(cd "${TMPDIR:-/tmp}" 2>/dev/null && pwd -P)/" in
+  /private/tmp/claude*|/tmp/claude*|"$HOME/.cache/claude-sandbox/"*)
+    mkdir -m 700 "$WORK/tmp" && export TMPDIR="$WORK/tmp" ;;
+esac
 cleanup(){
   rm -rf "$WORK"
   if [ "$ROOT_STATE" = created ] && [ "$DRY_RUN$PRINT_MANAGED$MCP_PLAN" != 000 ]; then
@@ -504,6 +517,148 @@ STACK_PYTHON="$C/bin/stack-python"
 export STACK_PYTHON
 note "hook interpreter: $STACK_PYTHON -> ${STACK_PYTHON_TARGET:-the uv-managed Python 3.13 (step 2)}"
 # ==== stack-python: END ===========================================================================
+
+# ==== source snapshot (security re-check 2026-10-04: CWE-829, CWE-345, CWE-367) ==================
+# This run installs exactly the files HEAD tracks under dot-claude/ (and the two tests/derive_*.py
+# scripts copied into hooks/), read ONCE from the working tree into $WORK/src (private: agents can
+# neither read nor write it); every later step reads that copy, never the repo, so a file swapped in
+# the repo after this point never reaches $C. Each file is opened without following a link on any
+# path component (O_NOFOLLOW) and must be a regular file. The supply review below compares those
+# bytes, not git's index, with HEAD: the index (stat cache, assume-unchanged and skip-worktree bits,
+# fsmonitor and untracked-cache data), .gitignore, .git/info/exclude and the repo's git config are all
+# writable by an agent, so none of them can hide an edit; git runs with hooks, fsmonitor, the
+# untracked cache, replace refs and your global excludes file off. Untracked and staged-only files
+# are listed and never copied (commit a file to ship it); a file git's index marks assume-unchanged
+# or skip-worktree stops the run, as does a symlink anywhere under dot-claude/.
+# What the review covers: the whole shipped tree, the installer and all of lib/ (a file added there
+# shows as untracked), the pinned requirements, tests/lint_agents.py (run in step 7) and the two
+# tests/derive_*.py scripts. lib/assets (the README's images) is neither installed nor run: left out.
+SUPPLY_PATHS="dot-claude install.sh lib requirements tests/lint_agents.py tests/derive_sched_model.py tests/derive_thresholds.py :(exclude)lib/assets"
+SUPPLY_SHOW="${SUPPLY_PATHS% *} ':(exclude)lib/assets'"     # the same, quoted for pasting into a shell
+SNAP_ROOT="$WORK/src"
+SUPPLY_LIST="$WORK/supply-review.txt"
+python3 - "$HERE" "$SNAP_ROOT" "$SUPPLY_LIST" "$C" "$SUPPLY_PATHS" <<'PY' || exit 1
+import errno, hashlib, os, stat, subprocess, sys
+here, root, out, c, supply = sys.argv[1:6]
+
+
+def die(msg):
+    sys.exit("install.sh: %s — nothing in %s was changed" % (msg, c))
+
+
+GIT = ["git", "--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
+       "-c", "core.untrackedCache=false", "-c", "core.excludesFile=/dev/null", "-c", "core.sparseCheckout=false",
+       "-C", here]
+ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+ENV.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
+
+
+def git(*args):
+    p = subprocess.run(GIT + list(args), stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                       stderr=subprocess.PIPE, env=ENV)
+    if p.returncode:
+        die("git %s failed in %s: %s" % (args[0], here, p.stderr.decode("utf-8", "replace").strip()[:300]))
+    return p.stdout
+
+
+def paths(blob):
+    return [os.fsdecode(x) for x in blob.split(b"\0") if x]
+
+
+def show(p):        # a name with control characters (a terminal escape could hide its line) is quoted
+    return p if p.isprintable() else ascii(p)
+
+
+spec = supply.split()
+inc = [p for p in spec if not p.startswith(":")]
+exc = [p[len(":(exclude)"):] for p in spec if p.startswith(":(exclude)")]
+
+
+def under(p, xs):
+    return any(p == x or p.startswith(x + "/") for x in xs)
+
+
+COPY = ["dot-claude", "tests/derive_sched_model.py", "tests/derive_thresholds.py"]
+# a link anywhere under dot-claude/, tracked or not (a skill's notes.log -> ~/.ssh/id_ed25519, which
+# .gitignore hides from the review): the stack ships none
+links = sorted(os.path.relpath(os.path.join(r, n), here) for r, ds, fs in os.walk(os.path.join(here, "dot-claude"))
+               for n in ds + fs if os.path.islink(os.path.join(r, n)))
+if links:
+    sys.exit("install.sh: %s is a symlink; the stack ships none — remove it (nothing in %s was changed)"
+             % (", ".join(map(show, links[:5])), c))
+index = [(e[0], e[2:]) for e in paths(git("ls-files", "-v", "-z", "--", *spec))]
+hidden = sorted(p for t, p in index if t.islower() or t == "S")
+if hidden:
+    sys.stderr.write("install.sh: git's index marks these stack files assume-unchanged or skip-worktree, so git"
+                     " status hides their edits:\n%s\n  clear the marks, then re-run: git -C '%s' update-index"
+                     " --no-assume-unchanged --no-skip-worktree -- <file>...   (a sparse checkout: git -C '%s'"
+                     " sparse-checkout disable)\n" % ("\n".join("    " + show(p) for p in hidden[:40]), here, here))
+    die("the stack repo's index hides %d file(s) from the review" % len(hidden))
+fmt = git("rev-parse", "--show-object-format").decode().strip()
+fmt = fmt if fmt in ("sha1", "sha256") else "sha1"
+tree = {}
+for ent in git("ls-tree", "-r", "-z", "--full-tree", "HEAD").split(b"\0"):
+    meta, _, p = ent.partition(b"\t")
+    p = os.fsdecode(p)
+    if meta and under(p, inc) and not under(p, exc):
+        tree[p] = meta.decode().split()
+
+
+def open_nofollow(rel):
+    """An fd on here/rel, following no link on any component (a swapped-in link is refused)."""
+    d = os.open(here, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        parts = rel.split("/")
+        for part in parts[:-1]:
+            n = os.open(part, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW, dir_fd=d)
+            os.close(d)
+            d = n
+        return os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=d)
+    finally:
+        os.close(d)
+
+
+changed = []
+for rel in sorted(tree):
+    mode, _kind, oid = tree[rel]
+    if mode == "120000":
+        die("%s is a symlink; the stack ships none" % show(rel))
+    if mode not in ("100644", "100755"):
+        die("%s is not a regular file in HEAD (mode %s)" % (show(rel), mode))
+    try:
+        fd = open_nofollow(rel)
+    except OSError as e:
+        if e.errno == errno.ENOENT:
+            changed.append(" D " + show(rel))
+            continue
+        if e.errno == errno.ELOOP:
+            die("%s is a symlink; the stack ships none" % show(rel))
+        die("%s cannot be read as a regular file (%s)" % (show(rel), e.strerror))
+    with os.fdopen(fd, "rb") as f:
+        st = os.fstat(f.fileno())
+        if not stat.S_ISREG(st.st_mode):
+            die("%s is not a regular file" % show(rel))
+        data = f.read()
+    h = hashlib.new(fmt)
+    h.update(b"blob %d\0" % len(data))
+    h.update(data)
+    exe = bool(st.st_mode & 0o100)
+    if h.hexdigest() != oid or exe != (mode == "100755"):
+        changed.append(" M " + show(rel))
+    if under(rel, COPY):
+        dst = os.path.join(root, rel)
+        os.makedirs(os.path.dirname(dst), mode=0o700, exist_ok=True)
+        wfd = os.open(dst, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o755 if exe else 0o644)
+        with os.fdopen(wfd, "wb") as f:
+            f.write(data)
+# not in HEAD, so never copied: staged only (in the index) or untracked (and not ignored)
+changed += ["A  %s  (staged, not committed: not installed)" % show(p) for _t, p in sorted(index) if p not in tree]
+changed += ["?? %s  (untracked: not installed)" % show(p)
+            for p in sorted(paths(git("ls-files", "-z", "--others", "--exclude-standard", "--", *spec)))]
+with open(out, "w", encoding="utf-8", errors="surrogateescape") as f:
+    f.write("".join(line + "\n" for line in changed))
+PY
+SRC="$SNAP_ROOT/dot-claude"
 
 # Optional hardening the installer never installs itself (it would be root-owned): a
 # managed-settings.json that repeats the stack's guard hook, its protected-path deny rules and its
@@ -669,14 +824,9 @@ if [ "$MCP_PLAN" = 1 ]; then
 fi
 
 # What changed in what this run installs since the last install (the manifest records the commit each
-# install shipped), and edits not committed yet: the whole shipped tree (agents and their MCP servers
-# and hooks, skills, rules, hooks, settings, bin, mcp, magg's catalog, the LSP marketplace), the
-# installer and all of lib/ (a file added there shows as untracked), the pinned requirements,
-# tests/lint_agents.py (run in step 7) and the two tests/derive_*.py scripts copied into hooks/. Read them before
-# applying. On a terminal the run asks here, before step 2 changes anything (the venvs sync from requirements/) (--yes: don't).
-# lib/assets (the README's images) is neither installed nor run: left out
-SUPPLY_PATHS="dot-claude install.sh lib requirements tests/lint_agents.py tests/derive_sched_model.py tests/derive_thresholds.py :(exclude)lib/assets"
-SUPPLY_SHOW="${SUPPLY_PATHS% *} ':(exclude)lib/assets'"     # the same, quoted for pasting into a shell
+# install shipped), and edits not committed yet (the source snapshot above, over SUPPLY_PATHS). Read
+# them before applying. On a terminal the run asks here, before step 2 changes anything (the venvs
+# sync from requirements/) (--yes: don't).
 SUPPLY_CHANGED=0
 prev_commit="$(python3 -c 'import json, re, sys
 try:
@@ -685,17 +835,19 @@ except Exception:
     v = ""
 print(v if re.fullmatch(r"[0-9a-f]{7,64}", str(v)) else "")' "$C/.stack-manifest.json" 2>/dev/null || true)"
 if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
-  # shellcheck disable=SC2086
-  dirty="$(git -C "$HERE" status --porcelain -- $SUPPLY_PATHS 2>/dev/null || true)"
-  if [ -n "$dirty" ]; then
+  if [ -s "$SUPPLY_LIST" ]; then
     SUPPLY_CHANGED=1
-    note "! uncommitted changes in the stack repo's shipped files or installer — this run installs them:"
-    printf '%s\n' "$dirty" | head -n 40 | sed 's/^/      /'
-    [ "$(printf '%s\n' "$dirty" | wc -l)" -gt 40 ] && note "  ... and more: git -C $HERE status -- $SUPPLY_SHOW"
+    note "! uncommitted changes in the stack repo's shipped files or installer — this run installs (or runs) the M lines as they are in the working tree:"
+    # every edit of a file HEAD tracks is listed; files not in HEAD (never copied) past the first 40 are counted
+    grep -v '^[A?][A?] ' "$SUPPLY_LIST" | sed 's/^/      /' || true
+    grep '^[A?][A?] ' "$SUPPLY_LIST" | head -n 40 | sed 's/^/      /' || true
+    n_new="$(grep -c '^[A?][A?] ' "$SUPPLY_LIST" || true)"
+    [ "${n_new:-0}" -le 40 ] || note "  ... and $((n_new - 40)) more file(s) not in HEAD (not installed)"
   fi
   if [ -n "$prev_commit" ] && [ "$prev_commit" != "$STACK_COMMIT_FULL" ]; then
     # shellcheck disable=SC2086
-    if supply="$(git -C "$HERE" diff --stat "$prev_commit" HEAD -- $SUPPLY_PATHS 2>/dev/null)"; then
+    if supply="$(git --no-replace-objects -c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.quotePath=true \
+                 -C "$HERE" diff --no-ext-diff --no-textconv --stat "$prev_commit" HEAD -- $SUPPLY_PATHS 2>/dev/null)"; then
       if [ -n "$supply" ]; then
         SUPPLY_CHANGED=1
         note "changes to the stack's shipped files and installer since the last install (${prev_commit:0:12}..$STACK_COMMIT):"
@@ -1015,7 +1167,7 @@ try:
 except Exception:
     n = ""
 m = re.search(r"cargo install serial-mcp@([0-9][0-9A-Za-z.+-]*) --locked", n)
-print(m.group(1) if m else "")' "$HERE/dot-claude/magg/config.json" 2>/dev/null || true)"
+print(m.group(1) if m else "")' "$SRC/magg/config.json" 2>/dev/null || true)"
 SERIAL_MCP_BIN="$HOME/.cargo/bin/serial-mcp"
 SERIAL_MCP_CMD="cargo install serial-mcp@$SERIAL_MCP_VERSION --locked --root $HOME/.cargo"
 cargo_bin(){ command -v cargo 2>/dev/null || { [ -x "$HOME/.cargo/bin/cargo" ] && echo "$HOME/.cargo/bin/cargo"; } || true; }
@@ -1209,18 +1361,8 @@ note "staged in $S (prune: $([ "$PRUNE" = 1 ] && echo on || echo 'off (--no-prun
 legacy_b="$(python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" list)"
 
 say "6/11 Render (agents, rules, skills, scripts, settings.json)"
-# The stack ships no symlinks (security audit, CWE-59): a link under dot-claude/ (say a skill's
-# notes.log -> ~/.ssh/id_ed25519, a name .gitignore hides from the review above) would copy what it
-# points at into the config dir, where agents can read it. Any link stops the run here.
-python3 - "$SRC" "$C" <<'PY' || exit 1
-import os, sys
-src, c = sys.argv[1:3]
-links = [os.path.relpath(os.path.join(r, n), os.path.dirname(src))
-         for r, ds, fs in os.walk(src) for n in ds + fs if os.path.islink(os.path.join(r, n))]
-if links:
-    sys.exit("install.sh: %s is a symlink; the stack ships none — remove it (nothing in %s was changed)"
-             % (", ".join(sorted(links)[:5]), c))
-PY
+# Everything below reads $SRC, the private source snapshot (regular files HEAD tracks, no links: a
+# link under dot-claude/ already stopped the run there), never the repo (security audit, CWE-59/367).
 mkdir -p "$S"/{agents,skills,hooks,mcp,magg,bin,rules}
 # The stack's scripts replace whatever is staged there — a symlink too (removed first: a copy onto
 # it would write through the link, out of the staging dir; the backup keeps the link).
@@ -1248,7 +1390,7 @@ stage_script 644 hooks/stack_io.py
 for f in stack_usage.py stack_sched.py stack_limits.py stack_fanout.py; do stage_script 755 "hooks/$f"; done
 for f in stack_sched_refresh.py sched_model.json stack_limits_seed.json stack_fanout_wire.py; do stage_script 644 "hooks/$f"; done
 for f in derive_sched_model.py derive_thresholds.py; do
-  rm -rf "$S/hooks/$f" && cp "$HERE/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
+  rm -rf "$S/hooks/$f" && cp "$SNAP_ROOT/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
 done
 for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget stack-tree; do stage_script 755 "bin/$f"; done
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
@@ -1983,18 +2125,15 @@ def install_tracked(rel, dest, rendered):
     return "kept"
 
 
-# Only the files git lists (tracked, or untracked and not ignored: what the review above showed) are
-# copied: an ignored file (*.log, build/, ...) planted in a skill never reaches the config dir. Each
-# must be a regular file inside dot-claude/skills (the symlink check before step 6 already ran).
-_ls = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-C", REPO, "ls-files", "-z", "--cached",
-                      "--others", "--exclude-standard", "--", "dot-claude/skills"],
-                     stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, check=False)
-if _ls.returncode != 0:
-    sys.exit("install.sh: git ls-files failed in %s — nothing in %s was changed" % (REPO, C))
+# SRC is the private source snapshot: only the files HEAD tracks (what the review above showed), read
+# once from the repo; an ignored or untracked file planted in a skill never reaches the config dir,
+# and nothing swapped in the repo after the snapshot does either. Each must be a regular file inside
+# dot-claude/skills.
 SKILLS_SRC = os.path.realpath(os.path.join(SRC, "skills"))
 listed = {}                                    # skill name -> [path relative to its dir]
-for _rel in sorted(filter(None, _ls.stdout.decode("utf-8", "surrogateescape").split("\0"))):
-    _sp = os.path.join(REPO, _rel)
+for _rel in sorted(os.path.relpath(os.path.join(_r, _n), os.path.dirname(SRC))
+                   for _r, _ds, _fs in os.walk(os.path.join(SRC, "skills")) for _n in _fs):
+    _sp = os.path.join(os.path.dirname(SRC), _rel)
     _parts = os.path.relpath(_sp, os.path.join(SRC, "skills")).split(os.sep)
     if not os.path.lexists(_sp) or len(_parts) < 2:
         continue                               # deleted in the working tree; a file beside the skills
@@ -2780,8 +2919,13 @@ fi
 note "validated: JSON, agent and skill frontmatter, placeholders, agent_guard.py --self-test"
 if [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
   # stdlib only, isolated python3 (no uv run: no environment or config is resolved from the repo);
-  # tests/lint_agents.py is in SUPPLY_PATHS, so a change to it was shown before this runs
-  if python3 "$HERE/tests/lint_agents.py" >"$WORK/lint.log" 2>&1; then note "lint: tests/lint_agents.py ok"
+  # tests/lint_agents.py is in SUPPLY_PATHS, so a change to it was shown before this runs. The policy
+  # comes from the STAGED guard (security re-check, CWE-427): agent_guard.py puts its own dir first on
+  # sys.path, and the repo's dot-claude/hooks may hold an ignored json.pyc that git never shows;
+  # nothing in the repo's dot-claude/ is ever executed.
+  # shellcheck disable=SC2086
+  if "$RUN_PY" $PY_ISOLATE "$S/hooks/agent_guard.py" --print-policy >"$WORK/policy.json" 2>"$WORK/lint.log" </dev/null \
+     && python3 "$HERE/tests/lint_agents.py" --policy-json "$WORK/policy.json" >>"$WORK/lint.log" 2>&1; then note "lint: tests/lint_agents.py ok"
   else note "! tests/lint_agents.py reports problems in the stack repo (installing anyway):"; sed 's/^/      /' "$WORK/lint.log" | head -n 20; fi
 fi
 

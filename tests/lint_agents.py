@@ -4,8 +4,9 @@
 Usage:
     python3 tests/lint_agents.py [--policy-json PATH]
 
-By default the policy is obtained by running:
-    python3 dot-claude/hooks/agent_guard.py --print-policy
+By default the policy is obtained by running (isolated; refused when dot-claude/hooks holds a
+.pyc, an extension module or a package dir, which the guard would import):
+    python3 -I -B dot-claude/hooks/agent_guard.py --print-policy
 which must print JSON: {"policy": {...}, "leaves": [...], "agents": [...], "builtins": ["explore"],
 "blackcat_tools": [...]}.
 
@@ -117,10 +118,21 @@ def load_policy(policy_json_path):
     if policy_json_path:
         data = json.loads(Path(policy_json_path).read_text())
         return data, f"fixture {policy_json_path}"
+    # agent_guard.py puts its own dir first on sys.path: a sourceless module there (json.pyc, which
+    # .gitignore hides from git status), an extension module or a package dir would run in place of
+    # the stdlib one. Refused here; install.sh never runs this path (it passes the staged guard's
+    # policy with --policy-json). Isolated, and no __pycache__ is read (pycache_prefix).
+    import importlib.machinery
+    hooks = AGENT_GUARD.parent
+    planted = sorted(p.name for p in hooks.iterdir() if p.name.endswith((".pyc", ".pyo", *importlib.machinery.EXTENSION_SUFFIXES))
+                     or (p.is_dir() and p.name != "__pycache__")) if hooks.is_dir() else []
+    if planted:
+        return None, "refused: %s holds %s, which agent_guard.py would import" % (hooks, ", ".join(planted[:5]))
     try:
         out = subprocess.run(
-            [sys.executable, str(AGENT_GUARD), "--print-policy"],
-            capture_output=True, text=True, timeout=15, check=True,
+            [sys.executable, "-I", "-B", "-X", "pycache_prefix=/dev/null/claude-agent-stack-no-bytecode",
+             str(AGENT_GUARD), "--print-policy"],
+            capture_output=True, text=True, timeout=15, check=True, stdin=subprocess.DEVNULL,
         )
         return json.loads(out.stdout), "agent_guard.py --print-policy"
     except Exception as exc:  # noqa: BLE001 - report and let caller decide
@@ -594,8 +606,10 @@ PROVENANCE_RE = re.compile(r"was the `[a-z0-9-]+` skill")
 def check_model_ids(root=REPO_ROOT):
     """No specific Claude model ID in a tracked file outside the allowed places (MODEL_ID_*)."""
     try:
-        files = subprocess.run(["git", "-C", str(root), "ls-files", "-z"], capture_output=True,
-                               check=True).stdout.decode().split("\0")
+        # hooks and fsmonitor off: the repo's .git/config is agent-writable (core.fsmonitor runs a command)
+        files = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false", "-C", str(root),
+                                "ls-files", "-z"], capture_output=True, check=True,
+                               stdin=subprocess.DEVNULL).stdout.decode().split("\0")
     except (OSError, subprocess.CalledProcessError):     # an export without .git: walk the tree
         files = [str(p.relative_to(root)) for p in root.rglob("*")
                  if p.is_file() and ".git" not in p.relative_to(root).parts]
