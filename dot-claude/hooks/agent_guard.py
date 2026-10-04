@@ -3038,25 +3038,26 @@ def caller_type_of(d, ev, aid):
 
 
 def send_policy_violation(d, ev, target_id, ttype):
-    """Resuming a FINISHED agent starts new work in it, like a spawn: allowed when the caller's
-    POLICY row lists the target's type, or the target is the caller's own child (follow-ups) or
-    its own parent. A message to a running agent is coordination, not a spawn, and passes; so do
-    the main thread (blackcat's row lists every agent) and targets the registry doesn't know. A
-    caller without a row (a generic or foreign type) may resume only its own child or parent."""
+    """Resuming a FINISHED agent starts new work in it, like a spawn. Past routing_violation a
+    subagent reaches only main, its own parent and its own children: it may resume its own child
+    (follow-ups), never a finished parent (that starts new work upward, charged to the
+    grandparent's fan-out; the decision of 2026-10-04: a child messages its parent only while the
+    parent runs). A message to a running agent is coordination, not a spawn, and passes; so do the
+    main thread and targets the registry doesn't know."""
     aid = ev.get("agent_id")
     if not aid or not target_id or not ttype:
         return None
-    caller_type = norm(ev.get("agent_type")) or norm((reg_get(d, aid) or {}).get("type"))
-    row = spawn_row(caller_type, False)
-    if ttype in row:
-        return None
     rec = reg_get(d, target_id) or {}
-    if not rec.get("stopped") or rec.get("parent") == aid \
-            or (reg_get(d, aid) or {}).get("parent") == target_id:
+    if not rec.get("stopped") or parent_of(d, ev, target_id) == aid:
         return None
-    return ("SendMessage policy: '%s' may not resume '%s', a finished %s (it may resume or spawn: "
-            "%s). Return STATUS: partial with NEXT naming that agent, so your parent can resume it."
-            % (caller_type, target_id, ttype, ", ".join(row) or "none"))
+    caller_type = caller_type_of(d, ev, aid)
+    if parent_of(d, ev, aid) == target_id:
+        return ("SendMessage policy: '%s' may not resume its parent '%s', a finished %s: that "
+                "starts new work upward. Put it in your hand-back (NEXT) instead."
+                % (caller_type, target_id, ttype))
+    return ("SendMessage policy: '%s' may not resume '%s', a finished %s: only its own parent "
+            "resumes it. Return STATUS: partial with NEXT naming that agent, so your parent can "
+            "resume it." % (caller_type, target_id, ttype))
 
 
 def routing_violation(d, ev, to, target_id, by_id=True):

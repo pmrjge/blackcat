@@ -77,12 +77,17 @@ def test_l7_resuming_a_finished_agent_follows_the_spawn_policy():
                  extra={"STACK_POLICY": "off"}).decision.startswith("allow")
 
 
-def test_l7_own_child_and_own_parent_may_be_resumed():
+def test_l7_own_child_may_be_resumed_a_finished_parent_never():
+    """guard-land finding 5 (decided 2026-10-04): a child messages its parent while the parent
+    runs; resuming a FINISHED parent starts new work upward and is refused."""
     e = Env()
     spawned(e, "main-coder", "SC1")
     spawned(e, "coder", "C2", caller="SC1", ctype="main-coder")
-    e.run(e.stop("SC1", "main-coder"))
     assert e.run(e.send("SC1", agent_id="C2", agent_type="coder")).decision.startswith("allow")
+    e.run(e.stop("SC1", "main-coder"))
+    r = e.run(e.send("SC1", agent_id="C2", agent_type="coder"))
+    assert r.decision == "deny" and "may not resume its parent" in r.reason, r
+    assert e.run(e.send("SC1")).decision.startswith("allow")        # the main thread may
     # a child whose type is outside the row (spawned while the policy was off) is still its own
     pre = e.pre_agent("writer", agent_id="C2", agent_type="coder")
     assert e.run(pre, extra={"STACK_POLICY": "off"}).decision.startswith("allow")

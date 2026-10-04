@@ -58,6 +58,20 @@ def test_parent_child_and_main_are_reachable():
     assert ok(msg(e, "V2", "anything"))                                     # the main thread
 
 
+def test_a_child_messages_a_running_parent_never_resumes_a_finished_one():
+    """Decided 2026-10-04 (guard-land finding 5): child -> parent while the parent runs; resuming a
+    finished parent starts new work upward and is refused. A parent still resumes its own child."""
+    e = two_jobs()
+    e.run(e.stop("X1", "explore"))
+    assert ok(msg(e, "X1", "one more look", "C1", "main-coder"))            # resume own child
+    e.age_reg("X1", 5)
+    e.run(e.start("X1", "explore"))                                         # its resumed run
+    e.run(e.stop("C1", "main-coder"))
+    r = msg(e, "C1", "next step?", "X1", "explore")                         # finished parent
+    assert refused(r, "may not resume its parent") and "upward" in r.reason, r
+    assert ok(msg(e, "C1", "follow-up", "O1", "orchestrator"))              # its own parent may
+
+
 def test_no_peer_to_peer_siblings_and_other_jobs_are_refused():
     e = two_jobs()
     r = msg(e, "W1", "the parser owner is C1", "C1", "main-coder")               # sibling
