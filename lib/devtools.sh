@@ -366,15 +366,18 @@ skip_line(){
 }
 warn_line(){ line "WARN $*"; N_WARN=$((N_WARN + 1)); }
 # a found tool that doesn't run is reported with the fix, never removed or reinstalled
-VERSION_CHECKED=" uv rustup juliaup elan ghcup hlint ormolu pre-commit gradle "
+VERSION_CHECKED=" uv rustup juliaup elan ghcup hlint ormolu pre-commit gradle pnpm (corepack) "
 fix_for(){ case "$1" in
   ormolu) case "$2" in "$HOME"/.ghcup/*) printf 'ghcup rm ormolu %s; ' "$ORMOLU_BROKEN" ;; esac
           printf 'cabal update; cabal install --ignore-project ormolu-%s --overwrite-policy=always' "$ORMOLU_VERSION" ;;
   hlint) printf 'ghcup install ghc %s; cabal update; cabal install --ignore-project -w ghc-%s hlint-%s --overwrite-policy=always' "$HLINT_GHC" "$HLINT_GHC" "$HLINT_VERSION" ;;
   *) printf '%s' "$3" ;; esac; }
+# Only in a real run: dry-run and report execute none of the tools they find (pnpm --version can
+# make corepack download pnpm; COREPACK_ENABLE_DOWNLOAD_PROMPT=0 keeps that from asking).
 version_warn(){ # version_warn LABEL PATH ROUTE
+  [ "$MODE" = install ] || return 0
   case "$VERSION_CHECKED" in *" $1 "*) ;; *) return 0 ;; esac
-  runs "$2" --version && return 0
+  COREPACK_ENABLE_DOWNLOAD_PROMPT=0 runs "$2" --version && return 0
   warn_line "$1 at $2 fails '$(basename "$2") --version'; the installer leaves it alone. Fix: $(fix_for "$1" "$2" "$3")"
 }
 # temp dirs under $TMPDIR (macOS mktemp -d without a template ignores it)
@@ -729,8 +732,9 @@ inst_nvm(){
 chk_node24(){ local b; b="$(nvm_node_bin)" && FOUND="$b/node"; }
 # nvm is a shell function: sourced in a child bash (nvm.sh does not run under set -u)
 inst_node24(){ NVM_DIR="$NVM_DIR" bash -c '. "$NVM_DIR/nvm.sh" && nvm install '"$NODE_MAJOR"; }
-# `pnpm -v` can make corepack download pnpm: only in a real run, never in dry-run or report
-chk_pnpm(){ find_cmd pnpm || return 1; [ "$MODE" = install ] || return 0; COREPACK_ENABLE_DOWNLOAD_PROMPT=0 runs "$FOUND" -v; }
+# a pnpm found counts; one that does not run gets version_warn's WARN (real runs only), never
+# `corepack enable` over it
+chk_pnpm(){ find_cmd pnpm; }
 inst_pnpm(){
   local b; b="$(nvm_node_bin)" || { echo "no node $NODE_MAJOR from nvm"; return 1; }
   # corepack's one-time "download pnpm?" question is answered by the variable, never by keystrokes

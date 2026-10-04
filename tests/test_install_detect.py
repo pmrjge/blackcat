@@ -346,7 +346,7 @@ def test_pnpm_is_never_run_in_dry_run_or_report(tmp_path):
         assert e.calls("pnpm") == [], (mode, e.calls("pnpm"))
         assert "  skip pnpm (corepack) (found: %s, from PATH)" % pnpm in lines(out), out
     rc, out, _ = e.run("NODE", **s.env)
-    assert e.argv("pnpm") == ["-v"]
+    assert e.argv("pnpm") == ["--version"]                                 # version_warn, real run only
 
 
 # ---------------------------------------------------------------- elan: Homebrew's elan-init first
@@ -537,3 +537,30 @@ def test_rust_analyzer_hints_name_rustup_only_when_it_is_there():
     block = t[t.index("# rustup's rust-analyzer proxy without the component"):t.index("# Servers for the stack's other languages")]
     assert 'if have rustup; then ra_fix="rustup component add rust-analyzer"' in block
     assert 'else note "! rust-analyzer: no rustup here (a Rust from Homebrew or elsewhere): brew install rust-analyzer"; fi' in block
+
+
+# ---------------------------------------------------------------- review: found-but-broken pnpm, no runs in dry-run
+def test_a_pnpm_that_fails_gets_a_warn_and_corepack_is_never_run(tmp_path):
+    e, s = setup(tmp_path)
+    pnpm = e.shim("pnpm", "exit 1")
+    e.shim("corepack")
+    rc, out, err = e.run("NODE", **s.env)
+    assert rc == 0, err
+    assert e.calls("corepack") == [], e.calls("corepack")
+    assert "  WARN pnpm (corepack) at %s fails 'pnpm --version'; the installer leaves it alone." % pnpm in out, out
+
+
+FOUND_TOOLS = ("juliaup", "rustup", "ghcup", "hlint", "ormolu", "elan", "pre-commit", "gradle", "pnpm")
+
+
+def test_dry_run_and_report_execute_no_found_tool(tmp_path):
+    e, s = setup(tmp_path)
+    for t in FOUND_TOOLS:
+        e.shim(t)
+    for mode in ("dry-run", "report"):
+        e.log.write_text("")
+        rc, out, err = e.run("JULIA", "RUST", "HASKELL", "LEAN", "DEVTOOLS", "NODE", mode=mode,
+                             DEVTOOLS_NOFILE="65536", STACK_INSTALL_LEAN_MATHLIB="0", **s.env)
+        assert rc == 0, err
+        ran = [c for c in e.calls() if c.split()[0] in FOUND_TOOLS]
+        assert ran == [], (mode, ran)

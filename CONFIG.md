@@ -604,7 +604,8 @@ tool it provides is found (rustup: `cargo`/`rustc`; ghcup: `ghc`; juliaup: `juli
 `coursier`; elan: `lake`/`lean`; nvm and node 24: any `node`), so no upstream installer runs again
 over an existing toolchain; pnpm is set up through corepack only on nvm's own node 24. A found tool
 that fails `<tool> --version` (checked for uv, rustup, juliaup, elan, ghcup, hlint, ormolu,
-pre-commit, gradle) is not touched either: one `WARN` line names it and the exact fix for you to
+pre-commit, gradle, pnpm; in a real run only: `--dry-run` and `--no-deps` execute none of the tools
+they find) is not touched either: one `WARN` line names it and the exact fix for you to
 run (the known case: ghcup's ormolu 0.8.0.2, which crashes; the fix printed is `ghcup rm ormolu
 0.8.0.2; cabal update; cabal install --ignore-project ormolu-0.9.0.0 --overwrite-policy=always`).
 The side GHC 9.12.4 is installed only to build a missing hlint. magg and serial-mcp of another
@@ -696,7 +697,7 @@ found, never touched; "batch" = joins the brew batch; "install" = its route runs
 | uv | required | astral.sh installer `https://astral.sh/uv/install.sh`; else the 0.12.20 release tarball | installer latest; tarball sha256-pinned | skip (`~/.local/bin/uv`) |
 | Python 3.14 global pin | optional | `uv python install 3.14 && uv python pin --global 3.14` | uv's checksummed managed Pythons | configuration: the pin is set (3.14 present) |
 | nvm, node 24 | required (node) | `https://raw.githubusercontent.com/nvm-sh/nvm/v0.40.8/install.sh`, then `nvm install 24` | nvm pinned v0.40.8 (latest unverified); node from nodejs.org via nvm | skip (node v24.21.0 from nvm) |
-| pnpm | optional | `corepack enable pnpm`, verified with `COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm -v` (that check runs only in a real run: never in `--dry-run` or `--no-deps`, where `pnpm -v` could make corepack download pnpm) | corepack's signature check | skip (nvm's node 24 `pnpm`) |
+| pnpm | optional | `corepack enable pnpm` (only on nvm's node 24, only when no pnpm is found), then `COREPACK_ENABLE_DOWNLOAD_PROMPT=0 pnpm -v`; a found pnpm that fails `--version` gets a `WARN`, never `corepack enable` over it (checked in a real run only: `pnpm --version` could make corepack download pnpm) | corepack's signature check | skip (nvm's node 24 `pnpm`) |
 | rustup | optional | `https://sh.rustup.rs` with `-y`; skipped when `rustup`, `cargo` or `rustc` is found | latest | skip (`~/.cargo/bin/rustup`) |
 | ghcup | optional | `https://get-ghcup.haskell.org`, `BOOTSTRAP_HASKELL_NONINTERACTIVE=1 BOOTSTRAP_HASKELL_INSTALL_HLS=1 BOOTSTRAP_HASKELL_ADJUST_BASHRC=1`; skipped when `ghcup` or `ghc` is found | latest | skip (`~/.ghcup/bin/ghcup`) |
 | hlint | optional | `ghcup install ghc 9.12.4` (no `--set`), `cabal update`, `cabal install --ignore-project -w ghc-9.12.4 hlint-3.10 --overwrite-policy=always` (`CABAL_DIR`, `XDG_CACHE_HOME` unset); only when no hlint is found | 3.10; ghcup checks GHC's sha256, cabal Hackage's signed index | install (no hlint found) |
