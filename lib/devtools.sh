@@ -481,7 +481,7 @@ homebrew_step(){
 # ==== 2. Homebrew batch ==========================================================================
 # GROUP TYPE NAME PROBES: a probe is cmd:<binary> (PATH, the system login PATH, the known dirs),
 # path:<file>, tool:<row> (DETECT_ROWS: its apps, then its pkg receipt), jdk:<major> (a JDK >= major
-# in /Library/Java/JavaVirtualMachines) or - (brew list only).
+# in /Library/Java/JavaVirtualMachines or ~/Library/Java/JavaVirtualMachines) or - (brew list only).
 BREW_ITEMS="DEPS formula jq cmd:jq
 DEPS formula ripgrep cmd:rg
 DEPS formula gh cmd:gh
@@ -508,9 +508,9 @@ LATEX cask mactex cmd:pdflatex,path:$TEX_BIN/pdflatex,tool:mactex
 POSTGRES formula postgresql@18 cmd:postgres,cmd:psql,tool:postgres
 MONGODB formula mongodb/brew/mongodb-community cmd:mongod"
 
-jdk_at_least(){ # a JDK of major >= $1 under $JVM_DIR (its release file; java_home fails in the sandbox)
+jdk_at_least(){ # a JDK of major >= $1 under $JVM_DIR or ~/Library/Java (its release file; java_home fails in the sandbox)
   local r v
-  for r in "$JVM_DIR"/*/Contents/Home/release; do
+  for r in "$JVM_DIR"/*/Contents/Home/release "$USER_JVM_DIR"/*/Contents/Home/release; do
     [ -f "$r" ] || continue
     v="$(sed -n 's/^JAVA_VERSION="\([0-9]*\).*/\1/p' "$r" | head -n 1)"
     [ -n "$v" ] && [ "$v" -ge "$1" ] && { JDK_AT="${r%/release}"; return 0; }
@@ -681,7 +681,8 @@ inst_nvm(){
 chk_node24(){ local b; b="$(nvm_node_bin)" && FOUND="$b/node"; }
 # nvm is a shell function: sourced in a child bash (nvm.sh does not run under set -u)
 inst_node24(){ NVM_DIR="$NVM_DIR" bash -c '. "$NVM_DIR/nvm.sh" && nvm install '"$NODE_MAJOR"; }
-chk_pnpm(){ find_cmd pnpm; }
+# `pnpm -v` can make corepack download pnpm: only in a real run, never in dry-run or report
+chk_pnpm(){ find_cmd pnpm || return 1; [ "$MODE" = install ] || return 0; COREPACK_ENABLE_DOWNLOAD_PROMPT=0 runs "$FOUND" -v; }
 inst_pnpm(){
   local b; b="$(nvm_node_bin)" || { echo "no node $NODE_MAJOR from nvm"; return 1; }
   # corepack's one-time "download pnpm?" question is answered by the variable, never by keystrokes

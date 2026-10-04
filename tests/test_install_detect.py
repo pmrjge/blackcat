@@ -266,3 +266,40 @@ def test_the_detection_table_names_only_evidenced_entries():
     assert names == ["go", "mactex", "jdk", "cmake", "julia", "postgres"]
     assert all(len(r.split("|")) == 7 for r in rows)
     assert "org.golang.go" in rows[0] and "org.tug.mactex.texlive*" in rows[1]
+
+
+# ---------------------------------------------------------------- review items 4 and 6
+def test_a_user_level_jdk_means_no_oracle_jdk_cask(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    e.present("kotlin-lsp")
+    home = e.home / "Library" / "Java" / "JavaVirtualMachines" / "openjdk-27" / "Contents" / "Home"
+    home.mkdir(parents=True)
+    (home / "release").write_text('JAVA_VERSION="27.0.1"\n')
+    rc, out, err = e.run("JAVA", tty="1", **s.env)
+    assert rc == 0, err
+    assert e.calls("brew", "install") == [], out
+    assert "  skip oracle-jdk (found: %s, from ~/Library/Java)" % home in lines(out)
+
+
+def test_an_older_user_level_jdk_does_not_count(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    e.present("kotlin-lsp")
+    home = e.home / "Library" / "Java" / "JavaVirtualMachines" / "openjdk-21" / "Contents" / "Home"
+    home.mkdir(parents=True)
+    (home / "release").write_text('JAVA_VERSION="21.0.4"\n')
+    rc, out, _ = e.run("JAVA", tty="1", **s.env)
+    assert e.argv("brew", "install") == ["install --cask oracle-jdk"]
+
+
+def test_pnpm_is_never_run_in_dry_run_or_report(tmp_path):
+    e, s = setup(tmp_path)
+    pnpm = e.shim("pnpm")
+    for mode in ("dry-run", "report"):
+        rc, out, err = e.run("NODE", mode=mode, **s.env)
+        assert rc == 0, err
+        assert e.calls("pnpm") == [], (mode, e.calls("pnpm"))
+        assert "  skip pnpm (corepack) (found: %s, from PATH)" % pnpm in lines(out), out
+    rc, out, _ = e.run("NODE", **s.env)
+    assert e.argv("pnpm") == ["-v"]
