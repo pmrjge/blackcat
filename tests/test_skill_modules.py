@@ -24,8 +24,9 @@ SKILL_MAX_LINES = 500
 HUB_MAX_LINES = 80
 MODULE_MAX_LINES = 150
 # 140 holds "what it covers, when to load it, its hub or siblings" in one line; 100 forced cryptic
-# text. Listed skills carry their description (no "name-only" overrides since the user's decision
-# of 2026-10-02); a hidden module is picked from its hub's table row instead.
+# text. The description is in the listing only for LISTED_CORE (below); every other listed skill is
+# "name-only" and its description is read when the skill is invoked; a hidden module is picked from
+# its hub's table row instead.
 MODULE_DESC_MAX = 140
 # Skills the stack hides from the model (user-run commands; they stay /name commands); not shipped here.
 # Bundled with Claude Code: the first six and dataviz. Synced from claude.ai, keyed by the full name the
@@ -205,8 +206,41 @@ def test_hub_modules_hidden_except_keep_listed():
                               "missing %s, extra %s" % (sorted(want - hidden()), sorted(hidden() - want)))
     assert not KEEP_LISTED - modules, "KEEP_LISTED names a skill no table row names: %s" % sorted(
         KEEP_LISTED - modules)
-    bad = sorted(k for k, v in overrides().items() if k in sk and v != "user-invocable-only")
-    assert not bad, "shipped skills use only user-invocable-only (no name-only, no off): %s" % bad
+    bad = sorted(k for k, v in overrides().items() if k in sk and v not in ("user-invocable-only", "name-only"))
+    assert not bad, "shipped skills use only user-invocable-only or name-only (no off, no on): %s" % bad
+
+
+# Lazy skill listing (2026-10-04, the user's decision: most skills listed by name only). These keep
+# their description in the listing: cross-domain entry skills any agent may need without its Skills
+# line naming them (workflow, review, config, prompts, security, shell, git, web, tests, writing,
+# diagrams, browser and screen, pt-PT), the skills loaded more than 3 times in 360 subagent runs
+# (image-prompting, python-engineering beyond the above), and the language, database, ops and media
+# entries generalist coders, planners and reviewers reach without a row. Every other listed skill is
+# "name-only": still invocable through the Skill tool by name. Offline lookup eval (52 tasks, a
+# name-only skill counted as found only when the agent's own Skills line names it): one-call reach
+# 98.7% (misses: hf-hub for llm-engineer, category-theory for mathematician), listing 14,564 -> 5,433.
+LISTED_CORE = {
+    "code-standards", "review-protocol", "claude-code-extensions", "prompt-and-brief-design",
+    "secure-coding", "shell-scripting", "git-workflows", "web-research", "test-strategy",
+    "technical-writing", "diagrams-as-code", "browser-automation", "computer-use-apps",
+    "portuguese-pt-writing", "image-prompting", "python-engineering", "typescript-engineering",
+    "go-engineering", "rust-engineering", "cpp-engineering", "jvm-engineering", "db-design",
+    "postgresql", "mysql", "sqlite", "obs-otel", "container-images", "ci-cd-pipelines",
+    "raster-imaging", "media-ffmpeg", "api-design", "algorithm-design"}
+
+
+def test_listed_skills_are_name_only_except_core():
+    sk, so = shipped(), overrides()
+    invocable = {n for n, p in sk.items()
+                 if not re.search(r"(?m)^disable-model-invocation:\s*true", split(p.read_text())[0])}
+    listed = invocable - hidden()
+    assert LISTED_CORE <= listed, "LISTED_CORE names a hidden, user-only or missing skill: %s" % sorted(
+        LISTED_CORE - listed)
+    described = sorted(n for n in listed if so.get(n, "on") == "on")
+    assert set(described) == LISTED_CORE, ("described skills != LISTED_CORE: extra %s, missing %s" % (
+        sorted(set(described) - LISTED_CORE), sorted(LISTED_CORE - set(described))))
+    wrong = sorted(n for n in listed - LISTED_CORE if so.get(n) != "name-only")
+    assert not wrong, "listed skills outside LISTED_CORE must be name-only: %s" % wrong
 
 
 def test_hidden_modules_reachable_by_path_from_a_marked_row():

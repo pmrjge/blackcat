@@ -17,7 +17,7 @@ Full field list and runtime facts: `references/subagents.md`. Must-knows:
 - Workflow, scheduling, AskUserQuestion and plan-mode tools exist only on the main thread (BlackCat). BlackCat only delegates: no Bash, Write, Edit or web tool, Read ≤ 3 per prompt (`BLACKCAT_MAX_READS`; blackcat-guard refuses Bash/Write/Edit while `BLACKCAT_MAX_OWN_STEPS` is 0); its `tools` line equals `BLACKCAT_TOOLS` (lint). A `context: fork` skill runs as its `agent:` (general-purpose if omitted, which the guard refuses), with that agent's tools narrowed to the main thread's (CONFIG.md bug 8), so no Bash: ship no forked skill.
 
 ## Skills (`<dir>/SKILL.md`)
-Fields, listing budget, `skillOverrides` and the hub/module layout: `references/skills.md`. Must-knows: descriptions are always in context, bodies load on invocation; a description is ≤ 140 characters, starts with `Load `/`Use `, says what and when, never names an agent, and is YAML-safe (no `: ` or ` #` unquoted); hubs ≤ 80 lines with a `## Modules` table, modules ≤ 150 lines with detail in `references/`; no `!`cmd`` injection in skills the main thread may run.
+Fields, listing budget, `skillOverrides` and the hub/module layout: `references/skills.md`. Must-knows: only `LISTED_CORE` skills show descriptions in the listing (the rest are `name-only`), bodies load on invocation; a description is ≤ 140 characters, starts with `Load `/`Use `, says what and when, never names an agent, and is YAML-safe (no `: ` or ` #` unquoted); hubs ≤ 80 lines with a `## Modules` table, modules ≤ 150 lines with detail in `references/`; no `!`cmd`` injection in skills the main thread may run.
 
 ## MCP, hooks, settings, LSP
 Details: `references/mcp-hooks-settings.md`. Must-knows:
