@@ -268,7 +268,7 @@ def test_no_wave_exceeds_the_caps(model, mode):
 
 def test_default_caps_by_dispatcher(model):
     nodes = [{"id": "N%d" % i, "a": "scout", "n": 3} for i in range(12)]
-    for disp, cap in (("blackcat", 8), ("orchestrator", 32), ("planner", 8), (None, 3)):
+    for disp, cap in (("blackcat", 24), ("orchestrator", 32), ("planner", 8), (None, 3)):
         g = S.load_graph({"nodes": nodes, "dispatcher": disp} if disp else {"nodes": nodes})
         s = S.schedule(g, model)
         assert max(len(w) for w in s.waves) <= cap
@@ -282,14 +282,15 @@ def check_of(s, name):
 
 
 def test_blackcat_cap_is_dispatches_per_prompt(model):
-    # agent_guard.py: 8 Agent calls per prompt (BLACKCAT_MAX_DISPATCH), all within 120 s (BLACKCAT_DISPATCH_WINDOW_S)
+    # agent_guard.py: 24 tool calls per prompt, Agent calls included (BLACKCAT_MAX_STEPS; BLACKCAT_MAX_DISPATCH
+    # is retired), all within 120 s (BLACKCAT_DISPATCH_WINDOW_S)
     mk = lambda k, disp: S.load_graph({"dispatcher": disp, "nodes": [{"id": "N%d" % i, "a": "scout", "n": 3} for i in range(k)]})
+    s25 = S.schedule(mk(25, "blackcat"), model)
+    c = check_of(s25, "blackcat_dispatches")
+    assert (c.hi, c.limit, c.verdict) == (25, 24, "does not fit") and s25.verdict == "does not fit"
+    assert any("tool calls per prompt" in i.msg for i in S.validate(mk(25, "blackcat"), model) if i.level == "warn")
     s12 = S.schedule(mk(12, "blackcat"), model)
-    c = check_of(s12, "blackcat_dispatches")
-    assert (c.hi, c.limit, c.verdict) == (12, 8, "does not fit") and s12.verdict == "does not fit"
-    assert any("Agent calls per prompt" in i.msg for i in S.validate(mk(12, "blackcat"), model) if i.level == "warn")
-    s8 = S.schedule(mk(8, "blackcat"), model)
-    assert check_of(s8, "blackcat_dispatches").verdict == "fits" and check_of(s8, "blackcat_window_s").verdict == "fits"
+    assert check_of(s12, "blackcat_dispatches").verdict == "fits" and check_of(s12, "blackcat_window_s").verdict == "fits"
     assert not any(c.name.startswith("blackcat") for c in S.schedule(mk(12, "orchestrator"), model).checks)
     # a chain whose later dispatch starts after 120 s breaks the burst window
     chain = S.load_graph({"dispatcher": "blackcat", "nodes": [

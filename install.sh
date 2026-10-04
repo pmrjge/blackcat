@@ -2271,9 +2271,11 @@ SET_IF_ABSENT = {"statusLine", "agent", "skillListingBudgetFraction", "skillList
 # The spawn knobs are owned too: they are the stack's guarantees (BlackCat's step cap, fan-out
 # caps, the per-agent MCP call cap), not preferences. The token budgets are learned limits
 # (stack_limits.py), fixed per session by its snapshot, not env knobs the stack ships.
+# BLACKCAT_MAX_DISPATCH is retired (2026-10-04): no longer shipped, so the retraction below drops
+# the value an earlier install set (owned, hence still the shipped "8").
 OWNED_ENV = {"STACK_ENV_FILE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
              "MCP_DISCOVERY_CACHE", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
-             "BLACKCAT_MAX_STEPS", "BLACKCAT_MAX_DISPATCH", "STACK_MAX_FANOUT",
+             "BLACKCAT_MAX_STEPS", "STACK_MAX_FANOUT",
              "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_MCP_CALLS"}
 try:
     report = json.load(open(report_path))

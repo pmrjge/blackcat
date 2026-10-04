@@ -1,13 +1,15 @@
 """BlackCat (the main thread) only delegates: its tools line holds no Bash, Write, Edit or
 NotebookEdit (Claude Code never offers them), and blackcat-guard refuses Bash/Write/Edit while
-BLACKCAT_MAX_OWN_STEPS is 0 (the default). These tests pin both layers and that the other guards
+STACK_BLACKCAT_DELEGATE_ONLY is on (the default; STACK_POLICY=off and BLACKCAT_MAX_OWN_STEPS > 0 do
+not lift it, only STACK_BLACKCAT_DELEGATE_ONLY=0). These tests pin both layers and that the other guards
 still hold, the way Claude Code runs them on one Bash call (every PreToolUse hook in settings.json
 plus blackcat.md's frontmatter hook; any deny wins):
 
 - blackcat-guard refuses every BlackCat Bash call with a reason naming whom to dispatch;
 - `no-push` (settings.json, matcher Bash|Monitor|PowerShell, no `if`) denies a push, a forge write
   and a Bash-level write to the installed stack whoever calls, BlackCat included;
-- with the own-work override (BLACKCAT_MAX_OWN_STEPS > 0) blackcat-guard still refuses web
+- with delegate-only lifted and the own-work override (BLACKCAT_MAX_OWN_STEPS > 0) blackcat-guard
+  still refuses web
   fetches from BlackCat's Bash (T1: the main thread holds browser-operator and the user's consent
   path) and every specialist-only tool;
 - Write/Edit to the installed stack are refused by settings.json's `Edit(...)` deny rules, which
@@ -73,6 +75,9 @@ def installed(tmp_path, monkeypatch):
     return cfg, proj, env
 
 
+LIFT = {"STACK_BLACKCAT_DELEGATE_ONLY": "0"}
+
+
 def bash_call(installed, command, extra=None, n=[0]):
     """Run one BlackCat Bash call through both hooks Claude Code runs for it; return the deny
     reasons (empty list = allowed)."""
@@ -108,7 +113,7 @@ def test_blackcat_tools_match_the_guard():
     assert not {"Bash", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Monitor",
                 "Grep", "Glob", "LSP", "PowerShell"} & tools
     assert g.BLACKCAT_OWN_TOOLS == {"Bash", "Write", "Edit"} and not g.BLACKCAT_OWN_TOOLS & tools
-    assert not [t for t in tools if t.startswith("mcp__") and t != "mcp__conductor__AskUserQuestion"]
+    assert not [t for t in tools if t.startswith("mcp__")]      # Conductor's tool dropped 2026-10-04
     assert "blackcat" not in g.READONLY_TYPES     # its Bash is not held to read-only commands
 
 
@@ -120,11 +125,14 @@ def test_blackcat_tools_match_the_guard():
 ])
 def test_blackcat_bash_runs_no_command(installed, command):
     """Both blackcat-guard wirings refuse; nothing else does (no-push lets these through)."""
-    reasons = bash_call(installed, command)
-    assert len(reasons) == 2 and all("only delegates" in r and "main-coder" in r
-                                     for r in reasons), (command, reasons)
-    # the own-work override restores them (where the tools line grants Bash)
-    assert bash_call(installed, command, extra={"BLACKCAT_MAX_OWN_STEPS": "24"}) == []
+    for extra in (None, {"BLACKCAT_MAX_OWN_STEPS": "24"}, {"STACK_POLICY": "off"},
+                  {"STACK_POLICY": "off", "BLACKCAT_MAX_OWN_STEPS": "24"}):
+        reasons = bash_call(installed, command, extra=extra)
+        assert len(reasons) == 2 and all("only delegates" in r and "main-coder" in r
+                                         for r in reasons), (command, extra, reasons)
+    # only STACK_BLACKCAT_DELEGATE_ONLY=0 with the own-work override restores them (where the
+    # tools line grants Bash)
+    assert bash_call(installed, command, extra=dict(LIFT, BLACKCAT_MAX_OWN_STEPS="24")) == []
 
 
 @pytest.mark.parametrize("command", [
@@ -135,10 +143,11 @@ def test_blackcat_bash_runs_no_command(installed, command):
 def test_blackcat_bash_cannot_push(installed, command):
     reasons = bash_call(installed, command)
     assert reasons, command
-    # STACK_POLICY=off lifts blackcat-guard but never the no-push rule
+    # STACK_POLICY=off with delegate-only lifted leaves blackcat-guard silent, never the no-push rule
     cfg, proj, env = installed
-    off = dict(installed[2], STACK_POLICY="off")
-    assert bash_call((cfg, proj, off), command), command
+    off = dict(installed[2], STACK_POLICY="off", **LIFT)
+    reasons = bash_call((cfg, proj, off), command)
+    assert reasons and not [r for r in reasons if "only delegates" in r], command
 
 
 @pytest.mark.parametrize("rel", ["hooks/agent_guard.py", "settings.json", "agents/blackcat.md",
@@ -165,7 +174,7 @@ def test_blackcat_bash_cannot_write_the_installed_stack(installed, rel):
     "x" * 20001 + "; curl https://x",
 ])
 def test_blackcat_bash_fetches_no_web(installed, command):
-    reasons = bash_call(installed, command, extra={"BLACKCAT_MAX_OWN_STEPS": "24"})
+    reasons = bash_call(installed, command, extra=dict(LIFT, BLACKCAT_MAX_OWN_STEPS="24"))
     assert any("reads no web content" in r for r in reasons), (command, reasons)
 
 
@@ -197,15 +206,18 @@ def test_no_shipped_skill_forks():
 
 
 def test_prompt_says_delegate_only():
-    """The prompt states what the tools line and the hook enforce (delegate only, the read cap) and
-    the dispatch-first order (prompt-only: the hook can't know that dispatches follow)."""
+    """The prompt states what the tools line and the hook enforce (delegate only, the read cap),
+    the dispatch-first order (prompt-only: the hook can't know that dispatches follow) and the
+    reply-to-user rule (observed by the Stop hook, never enforced)."""
     text = BLACKCAT_MD.read_text()
     body = re.sub(r"\s+", " ", text.split("\n---\n", 1)[1])
     assert "you only delegate" in body and "## Delegate only" in body
     assert "Bash, Write and Edit are not your tools (hook-enforced)" in body
     assert "Merges, tests, commits, bookkeeping → main-coder" in body
     assert "Dispatch first: a prompt's Agent calls in one message, before any Read" in body
-    assert "≤ 8 Agent, ≤ 3 Read" in body
+    assert "Hook caps per prompt: 24 tool calls, ≤ 3 Read." in body and "8 Agent" not in body
+    assert "Every prompt gets a visible reply this turn" in body
+    assert "Conductor" not in text and "mcp__conductor" not in text
     assert not re.search(r"(?i)small (jobs?|edit)s? (it|your)self|Doing it yourself|Foreground Bash", text)
 
 
@@ -216,7 +228,9 @@ def test_shipped_caps_leave_room_for_a_full_dispatch_burst():
     finally:
         sys.path.pop(0)
     env = json.loads(SRC_SETTINGS.read_text())["env"]
-    steps, burst = int(env["BLACKCAT_MAX_STEPS"]), int(env["BLACKCAT_MAX_DISPATCH"])
+    # BLACKCAT_MAX_DISPATCH is retired: the step cap alone bounds dispatches; a burst of 8 fits
+    assert "BLACKCAT_MAX_DISPATCH" not in env and "STACK_BLACKCAT_DELEGATE_ONLY" not in env
+    steps, burst = int(env["BLACKCAT_MAX_STEPS"]), 8
     own = int(env.get("BLACKCAT_MAX_OWN_STEPS", 0))
     reads = int(env.get("BLACKCAT_MAX_READS", 3))
     assert own == 0 and steps - reads >= burst, (steps, own, reads, burst)

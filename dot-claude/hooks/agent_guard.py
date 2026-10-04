@@ -64,7 +64,10 @@ Reads the hook JSON on stdin.
   PreToolUse  *                     `blackcat-guard --settings`: blackcat's own gate, also wired
                                     from settings.json (acts only when agent_type is blackcat):
                                     BLACKCAT_TOOLS only, no Bash/Write/Edit (it only delegates),
-                                    read and step caps
+                                    read and step caps; STACK_BLACKCAT_DELEGATE_ONLY (default 1)
+                                    keeps the allowlist and the read cap with STACK_POLICY=off
+  Stop        (blackcat.md)         `blackcat-reply`: observe only, never blocks: a BlackCat turn
+                                    that ends with no text is logged to reply-check.jsonl
   PreToolUse  local-file MCP tools  context-mode ctx_index, markitdown, docling, playwright: a path
                                     or file: URI argument is held to the Read deny rules (Claude Code
                                     cannot see inside MCP arguments)
@@ -116,7 +119,7 @@ Concurrency model (the user's spec): depth 8 below the main thread (blackcat -> 
 L8; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8, and the fallback here stays at
 Claude Code's own default of 3); any agent whose row allows it may launch several children in ONE
 message (they run concurrently); at most STACK_MAX_FANOUT running children per parent
-(STACK_MAX_FANOUT_BY_TYPE per type; BlackCat: BLACKCAT_MAX_DISPATCH per prompt instead). No
+(STACK_MAX_FANOUT_BY_TYPE per type; BlackCat: BLACKCAT_MAX_STEPS per prompt instead). No
 agent spawns its own type. Running children =
 live spawn leases + resume reservations + live background children (see the fan-out section);
 nothing is linked by guessing. Token budgets: see the token-budget section.
@@ -161,7 +164,8 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
                           Agent) and duration_ms, tool_uses, total_tokens (a foreground call's totals)
 
 Failure policy: an exception in a PreToolUse handler (or in blackcat-guard mode) denies the call
-(fail closed); lifecycle events log to stderr and exit 0. The token budgets fail open: a transcript
+(fail closed; BlackCat's frontmatter wiring also with STACK_POLICY=off while
+STACK_BLACKCAT_DELEGATE_ONLY is on); lifecycle events log to stderr and exit 0. The token budgets fail open: a transcript
 or state that can't be read warns on stderr and allows the call. The escape hatch
 (STACK_POLICY=off) is shown to the user in `systemMessage`, never to the model in the deny reason.
 
@@ -175,7 +179,8 @@ subtree (the agent's transcript and every live descendant's).
 CLI: `agent_guard.py --print-policy` (JSON consumed by doctor.sh and tests/lint_agents.py),
 `--self-test`, `--check-budget [transcript]` (doctor: the budgets still read real transcripts),
 `blackcat-guard [--settings]` (PreToolUse hook of the blackcat main thread; --settings: the
-settings.json wiring, which checks agent_type), `budget` (PreToolUse hook on every
+settings.json wiring, which checks agent_type), `blackcat-reply` (Stop hook of the blackcat main
+thread, log only), `budget` (PreToolUse hook on every
 tool: token budgets and the MCP call cap), `image-limit` (PreToolUse/PostToolUse hook that keeps images under
 STACK_IMAGE_MAX_PX), `no-push` (PreToolUse Bash/Monitor/PowerShell hook that denies any git push or
 forge write, a --reveal key print, `-x` tracing of install.sh/doctor.sh, a write to a protected
@@ -183,19 +188,23 @@ path, and for the read-only agent types any command outside the read-only allowl
 = event.
 
 Knobs (env):
-  STACK_POLICY=off        lift every deny and lock except no-push's refusals (bookkeeping and model strip continue)
-  BLACKCAT_MAX_DISPATCH=8   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
+  STACK_POLICY=off        lift every deny and lock except no-push's refusals and BlackCat's
+                          delegate-only gate (bookkeeping and model strip continue)
+  STACK_BLACKCAT_DELEGATE_ONLY=1  BlackCat runs only BLACKCAT_TOOLS, never Bash/Write/Edit (whatever
+                          BLACKCAT_MAX_OWN_STEPS says), Read at most BLACKCAT_MAX_READS per prompt,
+                          also with STACK_POLICY=off; only 0 lifts it (then the policy decides)
   BLACKCAT_DISPATCH_WINDOW_S=120  all blackcat dispatches for one prompt must start within this many
                           seconds of the first one (one parallel burst, not ad-hoc orchestration)
-  BLACKCAT_MAX_STEPS=24     blackcat tool calls per user prompt, Agent dispatches included
+  BLACKCAT_MAX_STEPS=24     blackcat tool calls per user prompt, Agent dispatches included (the
+                          only cap on dispatches: BLACKCAT_MAX_DISPATCH is retired)
   BLACKCAT_MAX_OWN_STEPS=0  of those, blackcat's own Bash/Write/Edit calls (0: refused, it only
-                          delegates; > 0 matters only where its tools line grants them)
-  BLACKCAT_MAX_READS=3      of those, blackcat's Read calls (ledger, plan, a child's output file);
-                          a dispatch burst of BLACKCAT_MAX_DISPATCH always fits
+                          delegates; > 0 matters only with STACK_BLACKCAT_DELEGATE_ONLY=0 and where
+                          its tools line grants them)
+  BLACKCAT_MAX_READS=3      of those, blackcat's Read calls (ledger, plan, a child's output file)
   BLACKCAT_BASH_TIMEOUT_MS=120000  longest timeout a blackcat foreground Bash call may ask for
                           (only with BLACKCAT_MAX_OWN_STEPS > 0)
   STACK_MAX_FANOUT=3      running + starting children per parent agent (0 = no cap); the main
-                          thread has none (BLACKCAT_MAX_DISPATCH bounds BlackCat per prompt)
+                          thread has none (BLACKCAT_MAX_STEPS bounds BlackCat per prompt)
   STACK_MAX_FANOUT_BY_TYPE="orchestrator=32,main-coder=6,ninja-coder=5,researcher=4,planner=8,
                           plan-reviewer=8" (DEFAULT_FANOUT_BY_TYPE)
                           per-type overrides of STACK_MAX_FANOUT
@@ -546,24 +555,36 @@ def canonical_tool(name):
 
 # Main-thread blackcat: delegation tools plus the main-thread-only features subagents never get
 # (dynamic workflows, scheduled tasks, routines, push notifications, file hand-off, skills).
-# ExitPlanMode: the main thread leaves plan mode with it (Desktop/Conductor/CLI plan mode).
-# mcp__conductor__AskUserQuestion: Conductor disables AskUserQuestion and serves its own.
+# ExitPlanMode: the main thread leaves plan mode with it (Desktop/CLI plan mode).
 # BlackCat only delegates: no work tools. Read stays for the delegation ledger, a plan or a child's
 # output file (BLACKCAT_MAX_READS per prompt). Bash, Write, Edit (BLACKCAT_OWN_TOOLS) are off its
-# tools line, so Claude Code never offers them, and blackcat-guard refuses them while
-# BLACKCAT_MAX_OWN_STEPS is 0 (the default): a second gate for a run whose tools line does not bind
-# (an SDK app's own tool list, an --agents redefinition). A forked skill runs as its `agent:` type
+# tools line, so Claude Code never offers them, and blackcat-guard refuses them: a second gate for a
+# run whose tools line does not bind (an SDK app's own tool list, an --agents redefinition).
+# STACK_BLACKCAT_DELEGATE_ONLY (default 1, the user 2026-10-04: "guarantee that main work is out of
+# the main thread") makes that gate absolute: this allowlist and the read cap hold with
+# STACK_POLICY=off too, BLACKCAT_MAX_OWN_STEPS > 0 re-allows nothing, and input the frontmatter
+# wiring cannot read is refused; only STACK_BLACKCAT_DELEGATE_ONLY=0 hands the decision back to
+# STACK_POLICY and BLACKCAT_MAX_OWN_STEPS (the previous behaviour). A forked skill runs as its `agent:` type
 # (general-purpose when omitted: generic_agent_reason refuses its every call), with that agent's
 # tools narrowed to the main conversation's (sub-agents.md, "Available tools"; CONFIG.md bug 8),
 # so it gets no Bash either. No Grep or
 # Glob (searching is explore's job). Not granted: WebFetch, WebSearch and Monitor (its WebSocket
-# source); with BLACKCAT_MAX_OWN_STEPS > 0 blackcat-guard still refuses web fetches from Bash
-# (BLACKCAT_WEB_CMD_REASON): BlackCat holds browser-operator, AskUserQuestion and the user's consent
-# path, so it reads no web content (T1). NotebookEdit, LSP, PowerShell: specialists.
-BLACKCAT_TOOLS = {"Agent", "SendMessage", "AskUserQuestion", "mcp__conductor__AskUserQuestion",
+# source); with BLACKCAT_MAX_OWN_STEPS > 0 (and STACK_BLACKCAT_DELEGATE_ONLY=0) blackcat-guard
+# still refuses web fetches from Bash (BLACKCAT_WEB_CMD_REASON): BlackCat holds browser-operator,
+# AskUserQuestion and the user's consent path, so it reads no web content (T1). NotebookEdit, LSP,
+# PowerShell: specialists. No MCP tool at all (Conductor's AskUserQuestion was dropped 2026-10-04:
+# the stack targets Claude Code and VS Code only).
+BLACKCAT_TOOLS = {"Agent", "SendMessage", "AskUserQuestion",
                   "ExitPlanMode", "TaskStop", "ListAgents", "ToolSearch", "Skill", "Workflow",
                   "CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",
                   "PushNotification", "SendUserFile", "Read"}
+DELEGATE_ONLY_HINT = ("BlackCat is delegate-only (STACK_BLACKCAT_DELEGATE_ONLY, default 1; "
+                      "STACK_POLICY=off does not lift it). To let BlackCat work itself, set "
+                      "\"STACK_BLACKCAT_DELEGATE_ONLY\": \"0\" in the env block of "
+                      "~/.claude/settings.json and restart Claude Code.")
+# a BlackCat main-thread event, recognised in raw text the guard could not parse (the settings wiring
+# with STACK_POLICY=off: every other unreadable event is left alone there)
+BLACKCAT_RAW_RE = re.compile(r'"agent_type"\s*:\s*"blackcat"')
 BLACKCAT_DENY_REASON = ("BlackCat only delegates (its one work tool is Read, for the ledger, a plan or "
                         "a child's output); this tool belongs to a specialist. Make one Agent call to "
                         "the right specialist (or orchestrator), or SendMessage to resume the "
@@ -599,11 +620,12 @@ BLACKCAT_INLINE_HTTP_RE = re.compile(
 BLACKCAT_WEB_SCAN_MAX = 20000
 # BlackCat does no work itself (fixed guards, env only, never learned):
 # - BLACKCAT_MAX_OWN_STEPS (0): Bash/Write/Edit calls per prompt; 0 refuses each with OWN_DENY_REASON,
-#   which names the agent to dispatch. A value > 0 matters only where those tools are granted;
+#   which names the agent to dispatch. A value > 0 matters only with STACK_BLACKCAT_DELEGATE_ONLY=0
+#   and where those tools are granted;
 # - BLACKCAT_MAX_READS (3): Read calls per prompt, enough for the ledger, a plan and one child's
-#   output file; a 4th read is investigation, which is explore's. With BLACKCAT_MAX_STEPS 24 and
-#   BLACKCAT_MAX_DISPATCH 8 a full dispatch burst always fits (reads and own calls count as steps;
-#   ToolSearch, AskUserQuestion and SendMessage are steps outside these sub-caps);
+#   output file; a 4th read is investigation, which is explore's. Reads, dispatches and every other
+#   call count against BLACKCAT_MAX_STEPS 24, the only cap on dispatches (BLACKCAT_MAX_DISPATCH was
+#   retired 2026-10-04);
 # - BLACKCAT_BASH_TIMEOUT_MS (120000), only with BLACKCAT_MAX_OWN_STEPS > 0: a foreground Bash call
 #   may not ask for a longer timeout
 #   (none given: BASH_DEFAULT_TIMEOUT_MS, two minutes out of the box), so the main thread waits at
@@ -719,6 +741,11 @@ def knob_int(name, default):
 
 def policy_on():
     return os.environ.get("STACK_POLICY", "on").strip().lower() != "off"
+
+
+def delegate_only():
+    """STACK_BLACKCAT_DELEGATE_ONLY: on unless exactly "0" (fail closed: a typo keeps it on)."""
+    return os.environ.get("STACK_BLACKCAT_DELEGATE_ONLY", "1").strip() != "0"
 
 
 def max_depth():
@@ -1288,7 +1315,7 @@ def parse_fanout_by_type(raw):
 
 def fanout_limit(caller, caller_type):
     """(cap on the running children of this caller, the knob that set it); 0 = no cap. The main thread has no per-parent cap unless
-    STACK_MAX_FANOUT_BY_TYPE names its agent: BlackCat is held to BLACKCAT_MAX_DISPATCH per
+    STACK_MAX_FANOUT_BY_TYPE names its agent: BlackCat is held to BLACKCAT_MAX_STEPS per
     prompt, and a new prompt is the user's own call."""
     raw = os.environ.get("STACK_MAX_FANOUT_BY_TYPE")
     by = parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE if raw is None else raw)
@@ -1607,7 +1634,8 @@ def on_agent(ev, d):
         parent = norm((reg_get(d, aid) or {}).get("type"))
     pid = prompt_key(ev)
     tid = ev.get("tool_use_id")
-    max_dispatch = knob_int("BLACKCAT_MAX_DISPATCH", 8)
+    # BlackCat's dispatches are bounded by its step cap alone (BLACKCAT_MAX_DISPATCH was retired
+    # 2026-10-04); the dispatch markers stay for the dispatch window, at most one per step
     max_steps = knob_int("BLACKCAT_MAX_STEPS", 24)
 
     if policy_on():
@@ -1634,11 +1662,7 @@ def on_agent(ev, d):
                  "Do the work yourself or return STATUS: partial with NEXT naming the agent."
                  % (parent or caller, depth, limit))
         if is_blackcat:
-            if markers_full(d, "dispatch", pid, max_dispatch):
-                deny("BlackCat dispatch limit (%d per prompt) reached. Use SendMessage to resume an "
-                     "agent, or tell the user what is missing; work that needs coordination goes "
-                     "to ONE orchestrator call." % max_dispatch)
-            if dispatch_window_closed(d, pid, max_dispatch, time.time()):
+            if dispatch_window_closed(d, pid, max_steps, time.time()):
                 deny("BlackCat already dispatched for this prompt: parallel dispatches must go out "
                      "together in one message. Relay the results as they arrive; follow-ups go "
                      "through SendMessage, and multi-step work goes to the orchestrator.")
@@ -1662,11 +1686,10 @@ def on_agent(ev, d):
                 deny(why)
             leased = True
             if is_blackcat:
-                claimed = claim_marker(d, "dispatch", pid, max_dispatch)
-                if not claimed:
+                claimed = claim_marker(d, "dispatch", pid, max_steps)
+                if not claimed:     # as many dispatches as steps already: the step cap is full
                     rollback()
-                    deny("BlackCat dispatch limit (%d per prompt) reached. Use SendMessage to "
-                         "resume that agent." % max_dispatch)
+                    deny(STEP_LIMIT_REASON % max_steps)
                 # BLACKCAT_MAX_STEPS counts every blackcat tool call, dispatches included; this
                 # one is counted here, with its lease and dispatch marker, as one decision
                 # (blackcat-guard counts the other tools).
@@ -3344,9 +3367,10 @@ def scrub_scan(text):
         base += SCRUB_WINDOW - SCRUB_OVERLAP
 
 
-def scrub_log(d, row):
+def append_capped(path, row, cap):
+    """One JSON line, O_APPEND, 0600, only into a regular file of ours and while it stays <= cap."""
     line = (json.dumps(row, sort_keys=True) + "\n").encode()
-    fd = os.open(os.path.join(d, SCRUB_LOG), os.O_WRONLY | os.O_APPEND | os.O_CREAT
+    fd = os.open(path, os.O_WRONLY | os.O_APPEND | os.O_CREAT
                  | os.O_NONBLOCK | getattr(os, "O_NOFOLLOW", 0), 0o600)
     try:
         st = os.fstat(fd)
@@ -3354,10 +3378,14 @@ def scrub_log(d, row):
             return
         if stat.S_IMODE(st.st_mode) != 0o600:
             os.fchmod(fd, 0o600)
-        if st.st_size + len(line) <= SCRUB_LOG_MAX_BYTES:
+        if st.st_size + len(line) <= cap:
             os.write(fd, line)
     finally:
         os.close(fd)
+
+
+def scrub_log(d, row):
+    append_capped(os.path.join(d, SCRUB_LOG), row, SCRUB_LOG_MAX_BYTES)
 
 
 def scrub_observe(ev, d, tool):
@@ -4255,7 +4283,7 @@ def on_agent_failed(ev, d):
     dyn_spawn_failed(d, ev, aid or "main", ev.get("tool_use_id"))
     ledger_safe(ledger_failed, d, ev)
     if not aid and norm(ev.get("agent_type")) == "blackcat":
-        drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_DISPATCH", 8))
+        drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_STEPS", 24))
 
 
 def on_prompt(ev, d):
@@ -6060,32 +6088,48 @@ def blackcat_guard(raw, from_settings=False):
     blackcat is the main thread) and in settings.json (`blackcat-guard --settings`, every main
     thread: it acts only when the event names agent_type "blackcat", which hooks.md documents for
     sessions run with an agent; with no agent_type it leaves the call to the frontmatter wiring).
-    Both wirings count one step per call: the first to claim the call's tool_use_id decides."""
-    if not policy_on():
+    Both wirings count one step per call: the first to claim the call's tool_use_id decides.
+    STACK_BLACKCAT_DELEGATE_ONLY (default on) is checked before STACK_POLICY: with the policy off
+    it still refuses every tool outside BLACKCAT_TOOLS, Bash/Write/Edit whatever
+    BLACKCAT_MAX_OWN_STEPS says, a Read past BLACKCAT_MAX_READS, and input the frontmatter wiring
+    cannot read; the step cap and the rest of the policy are what STACK_POLICY=off lifts."""
+    only, policy = delegate_only(), policy_on()
+    if not (only or policy):
         sys.exit(0)
+    hint = None if policy else DELEGATE_ONLY_HINT   # the user switched the policy off: say why
     try:
         ev = json.loads(raw)
         if not isinstance(ev, dict):
             raise ValueError("hook input is not a JSON object")
     except (ValueError, RecursionError) as exc:   # RecursionError: absurdly nested JSON
-        guard_error("unparseable hook input (%s)" % type(exc).__name__)
+        if policy:
+            guard_error("unparseable hook input (%s)" % type(exc).__name__)
+        # delegate-only with the policy off: the frontmatter wiring runs only for BlackCat's main
+        # thread, so it fails closed; the settings wiring refuses only what names BlackCat
+        if not from_settings or BLACKCAT_RAW_RE.search(raw):
+            deny("stack guard error: unparseable hook input (%s). BlackCat only delegates: make "
+                 "one Agent call instead, or report the error to the user." % type(exc).__name__,
+                 hint)
+        sys.exit(0)
     if ev.get("agent_id"):
         sys.exit(0)  # a subagent's tool call
     if from_settings and norm(ev.get("agent_type")) != "blackcat":
         sys.exit(0)  # another main thread (claude, ninja-coder, ...) or no agent_type to go by
     tool = canonical_tool(ev.get("tool_name"))
     if tool in ("Agent", "SendMessage"):
-        # the main hook counts a dispatch against BLACKCAT_MAX_DISPATCH and BLACKCAT_MAX_STEPS
+        # the main hook counts a dispatch against BLACKCAT_MAX_STEPS
         # together with its fan-out lease (on_agent), and a SendMessage against
         # BLACKCAT_MAX_STEPS together with its resume reservation (on_send): one call, one
         # decision (this hook runs in parallel with that one and cannot roll it back)
         sys.exit(0)
-    own = knob_int("BLACKCAT_MAX_OWN_STEPS", 0)
+    own = 0 if only else knob_int("BLACKCAT_MAX_OWN_STEPS", 0)
     if tool in BLACKCAT_OWN_TOOLS:
         if own <= 0:
-            deny(OWN_DENY_REASON)
+            deny(OWN_DENY_REASON, hint)
     elif tool not in BLACKCAT_TOOLS:
-        deny(BLACKCAT_DENY_REASON)
+        deny(BLACKCAT_DENY_REASON, hint)
+    if not policy and tool != "Read":
+        sys.exit(0)  # delegate-only alone: an allowlisted tool, no step counting
     if tool == "Bash":
         ti = ev.get("tool_input")
         cmd = ti.get("command") if isinstance(ti, dict) else None
@@ -6114,11 +6158,43 @@ def blackcat_guard(raw, from_settings=False):
     elif tool == "Read":
         reads = max(knob_int("BLACKCAT_MAX_READS", 3), 0)
         if not claim_marker(d, "read", prompt_key(ev), reads):
-            deny(READ_LIMIT_REASON % reads)
+            deny(READ_LIMIT_REASON % reads, hint)
+    if not policy:
+        sys.exit(0)
     steps = knob_int("BLACKCAT_MAX_STEPS", 24)
     if not claim_marker(d, "step", prompt_key(ev), steps):
         deny(STEP_LIMIT_REASON % steps)
     sys.exit(0)
+
+
+# ---------------------------------------------------------------- blackcat-reply mode
+# The reply-to-user rule (the user, 2026-10-04): every user prompt gets a visible same-turn reply
+# from BlackCat. Observe only, by the user's decision: a Stop hook in blackcat.md's frontmatter (it
+# runs only while BlackCat is the session's agent) that never blocks, never prints and always exits
+# 0. A turn whose last assistant message has no text (`last_assistant_message`, hooks.md "Stop
+# input") adds one line to <state>/<sid>/reply-check.jsonl (0600, 1 MB cap): time, prompt id,
+# whether the field was present, stop_hook_active and the background task count; never any text.
+REPLY_LOG = "reply-check.jsonl"
+REPLY_LOG_MAX_BYTES = 1 << 20
+
+
+def blackcat_reply_main(raw):
+    try:
+        ev = json.loads(raw)
+        if not isinstance(ev, dict) or ev.get("agent_id") or ev.get("hook_event_name") != "Stop":
+            return 0
+        msg = ev.get("last_assistant_message")
+        if isinstance(msg, str) and msg.strip():
+            return 0
+        tasks = ev.get("background_tasks")
+        row = {"ts": round(time.time(), 3), "prompt_id": safe(ev.get("prompt_id"), "noprompt"),
+               "field": "last_assistant_message" in ev,
+               "stop_hook_active": ev.get("stop_hook_active") is True,
+               "background_tasks": len(tasks) if isinstance(tasks, list) else None}
+        append_capped(os.path.join(sdir(ev.get("session_id")), REPLY_LOG), row, REPLY_LOG_MAX_BYTES)
+    except Exception as exc:  # noqa: BLE001 - observe only: never blocks, never fails the turn
+        warn("blackcat-reply: %s" % type(exc).__name__)
+    return 0
 
 
 # ---------------------------------------------------------------- no-push mode
@@ -11226,12 +11302,27 @@ def self_test():
             problems.append("%s: no agent in blackcat's row may spawn it" % _a)
     # T1: the main thread holds browser-operator and the consent path, so it gets no web tool
     _web = sorted(t for t in BLACKCAT_TOOLS if t in ("WebFetch", "WebSearch", "Monitor")
-                  or (t.startswith("mcp__") and t != "mcp__conductor__AskUserQuestion"))
+                  or t.startswith("mcp__"))
     if _web:
-        problems.append("BLACKCAT_TOOLS must hold no web-reading tool: %s" % _web)
+        problems.append("BLACKCAT_TOOLS must hold no web-reading or MCP tool: %s" % _web)
     _work = sorted(BLACKCAT_TOOLS & (BLACKCAT_OWN_TOOLS | {"NotebookEdit"}))
     if _work:
         problems.append("BLACKCAT_TOOLS must hold no work tool (BlackCat only delegates): %s" % _work)
+    # delegate-only: on by default and with any value but "0" (a typo keeps BlackCat delegate-only)
+    _saved = os.environ.get("STACK_BLACKCAT_DELEGATE_ONLY")
+    try:
+        for _v, _want in ((None, True), ("1", True), ("off", True), (" 0 ", False), ("0", False)):
+            if _v is None:
+                os.environ.pop("STACK_BLACKCAT_DELEGATE_ONLY", None)
+            else:
+                os.environ["STACK_BLACKCAT_DELEGATE_ONLY"] = _v
+            if delegate_only() != _want:
+                problems.append("STACK_BLACKCAT_DELEGATE_ONLY=%r misread" % _v)
+    finally:
+        if _saved is None:
+            os.environ.pop("STACK_BLACKCAT_DELEGATE_ONLY", None)
+        else:
+            os.environ["STACK_BLACKCAT_DELEGATE_ONLY"] = _saved
     for _cmd, _want in (("curl -s https://example.com", True), ("git -C x log | wget -qO- y", True),
                         ("bash -c \"$(curl -fsSL u)\"", True), ("timeout 9 curl u", True),
                         ("if curl -fsS u; then :; fi", True), ("{ curl u; }", True),
@@ -11698,7 +11789,7 @@ def soft_self_test():
 
 # The guard's fixed knobs (design section 1): env only, never a learnable limits variable.
 FIXED_LIMIT_KNOBS = (
-    "STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_DISPATCH_WINDOW_S", "BLACKCAT_MAX_STEPS",
+    "STACK_POLICY", "STACK_BLACKCAT_DELEGATE_ONLY", "BLACKCAT_DISPATCH_WINDOW_S", "BLACKCAT_MAX_STEPS",
     "BLACKCAT_BACKGROUND", "STACK_MAX_FANOUT", "STACK_MAX_FANOUT_BY_TYPE",
     "STACK_LEASE_TTL_S", "STACK_RESUME_TTL_S", "STACK_FANOUT_IDLE_S", "STACK_MAX_MCP_CALLS",
     "STACK_SOFT_LIMIT_SCALE", "SCREEN_LOCK_TTL_S", "STACK_MAX_DEPTH",
@@ -11920,10 +12011,15 @@ def main(argv):
             except SystemExit:
                 raise
             except Exception as exc:
-                guard_error("%s: %s" % (type(exc).__name__, exc))
+                if policy_on():
+                    guard_error("%s: %s" % (type(exc).__name__, exc))
+                deny("stack guard error: %s. BlackCat only delegates: make one Agent call instead, "
+                     "or report the error to the user." % type(exc).__name__, DELEGATE_ONLY_HINT)
             return 0
+        if argv[1] == "blackcat-reply":
+            return blackcat_reply_main(sys.stdin.read())
         sys.stderr.write("usage: agent_guard.py [--print-policy | --self-test | --check-budget [transcript] | "
-                         "blackcat-guard [--settings] | budget | image-limit | no-push | override-agent | session-env | "
+                         "blackcat-guard [--settings] | blackcat-reply | budget | image-limit | no-push | override-agent | session-env | "
                          "delegations [session_id] [--json]]\n")
         return 2
     raw = sys.stdin.read()

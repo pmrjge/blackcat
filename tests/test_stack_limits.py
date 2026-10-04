@@ -269,7 +269,8 @@ def test_T1_fixed_guards_are_never_variables(st):
                                           "STACK_FANOUT_DYN_NODE_RUNS", "STACK_FANOUT_DYN_RESERVE_TOK",
                                           "STACK_FANOUT_DYN_SLACK", "STACK_FANOUT_DYN_TYPES",
                                           "STACK_FANOUT_DYN_W0", "STACK_FANOUT_DYN_WMIN",
-                                          "stack-max-depth", "blackcat.max.dispatch",
+                                          "stack-max-depth", "blackcat.max.steps",
+                                          "STACK_BLACKCAT_DELEGATE_ONLY", "stack.blackcat.delegate-only",
                                           "BLACKCAT_MAX_OWN_STEPS", "BLACKCAT_MAX_READS",
                                           "BLACKCAT_BASH_TIMEOUT_MS"]:
         assert L.is_fixed_guard(name), name
@@ -293,8 +294,8 @@ def test_T1_fixed_guards_are_never_variables(st):
     # ... and in proposals.json: the whole file is ignored
     ok = {"soft.agent.coder": {"x": [5e7] * 6, "ci": [5e7, 5e7], "agents": 6, "sessions": 3, "tight": 0, "n_new": 6,
                                    "upto": T0, "top": [5e7], "regime_ok": True}}
-    doc = dict(props(ok), vars=dict(ok, BLACKCAT_MAX_DISPATCH=ok["soft.agent.coder"]))
-    assert L.validate_proposals(doc, s) == (None, "fixed guard BLACKCAT_MAX_DISPATCH")
+    doc = dict(props(ok), vars=dict(ok, BLACKCAT_MAX_STEPS=ok["soft.agent.coder"]))
+    assert L.validate_proposals(doc, s) == (None, "fixed guard BLACKCAT_MAX_STEPS")
     doc2 = dict(props(ok), pools={"BLACKCAT_MAX_READS": ok["soft.agent.coder"]})
     assert L.validate_proposals(doc2, s)[0] is None
     assert L.validate_proposals(props(ok), s)[0]["vars"]["soft.agent.coder"]["n"] == 6
@@ -302,7 +303,7 @@ def test_T1_fixed_guards_are_never_variables(st):
     before = lim(st, "live.json").read_bytes()
     L.apply_and_snapshot({"session_id": "s-t1b", "source": "startup"}, spawn=False)
     assert lim(st, "live.json").read_bytes() == before
-    assert "proposals.json ignored: fixed guard BLACKCAT_MAX_DISPATCH" in lim(st, "limits.log").read_text()
+    assert "proposals.json ignored: fixed guard BLACKCAT_MAX_STEPS" in lim(st, "limits.log").read_text()
 
 
 def test_T1b_mcp_caps_stay_fixed_guards(st):

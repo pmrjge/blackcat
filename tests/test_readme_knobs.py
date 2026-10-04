@@ -60,6 +60,46 @@ def test_owned_keys_are_shipped():
     assert owned_env() <= shipped_env()
 
 
+RETIRED = {"BLACKCAT_MAX_DISPATCH": "2026-10-04"}
+
+
+def knob_rows():
+    """{variable: (value, rest of the row)} for CONFIG.md §5's first-column names."""
+    text = (ROOT / "CONFIG.md").read_text()
+    section = text.split("\n## 5. Guard knobs and settings\n", 1)[1].split("\n### ", 1)[0]
+    rows = {}
+    for line in section.splitlines():
+        m = re.match(r"\| `([A-Z_][A-Z0-9_]*)`[^|]*\| ([^|]*) \|(.*)$", line)
+        if m:
+            rows[m.group(1)] = (m.group(2).strip(), m.group(3))
+    return rows
+
+
+def test_retired_knobs_are_gone_and_listed_as_retired():
+    """A retired knob is shipped nowhere (settings.json, OWNED_ENV, the guard's code, stack_limits,
+    BlackCat's prompt) and its §5 row says "retired (<date>)", unmarked."""
+    rows, marks = knob_rows(), readme_marks()
+    guard = (ROOT / "dot-claude" / "hooks" / "agent_guard.py").read_text()
+    for knob, date in RETIRED.items():
+        assert knob not in shipped_env() and knob not in owned_env() and knob not in marks
+        assert rows[knob][0] == "retired (%s)" % date, rows.get(knob)
+        assert not re.search(r'knob_int\("%s"|environ\.get\("%s"' % (knob, knob), guard)
+        assert knob not in (ROOT / "dot-claude" / "hooks" / "stack_limits.py").read_text()
+        assert knob not in (ROOT / "dot-claude" / "agents" / "blackcat.md").read_text()
+    assert "≤ 8 Agent" not in (ROOT / "dot-claude" / "agents" / "blackcat.md").read_text()
+
+
+def test_delegate_only_knob_is_documented_as_a_code_default():
+    """STACK_BLACKCAT_DELEGATE_ONLY is a code default (1), not shipped in settings.json (so no
+    install resets a user's 0), documented in §5 as surviving STACK_POLICY=off; STACK_POLICY's
+    row no longer claims to lift BlackCat's allowlist."""
+    rows = knob_rows()
+    assert "STACK_BLACKCAT_DELEGATE_ONLY" not in shipped_env()
+    value, why = rows["STACK_BLACKCAT_DELEGATE_ONLY"]
+    assert value == "1 (code)" and "STACK_POLICY=off" in why and "`0`" in why
+    assert "not its delegate-only gate" in rows["STACK_POLICY"][1]
+
+
 def test_readme_has_no_knob_table():
     """One copy: the README's Main knobs and Knobs sections point to CONFIG.md §5."""
     text = (ROOT / "README.md").read_text()

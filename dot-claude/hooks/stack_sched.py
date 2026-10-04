@@ -74,7 +74,9 @@ READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewe
 DEFAULT_CAPS = {"fanout": 3, "fanout_by_type": {"orchestrator": 32, "main-coder": 6,
                                                 "ninja-coder": 5, "researcher": 4, "planner": 8,
                                                 "plan-reviewer": 8},
-                "depth": 3, "blackcat": 8, "workflow": 16}
+                "depth": 3, "blackcat": 24, "workflow": 16}   # blackcat: agent_guard.py BLACKCAT_MAX_STEPS
+# (24 tool calls per prompt, dispatches included: the only cap on them since BLACKCAT_MAX_DISPATCH was
+# retired on 2026-10-04; relays, questions and reads spend the same steps)
 RISK_TAGS = {"hook", "security", "prod", "gui", "accel"}
 EXCLUSIVE_TAGS = ("gui", "accel")          # one agent on the screen; one accelerator job per device
 SPEEDS = {"frugal": 0.25, "balanced": 1.0, "fast": 4.0}
@@ -708,7 +710,7 @@ def validate(g: Graph, m: Dict[str, Any], policy: Optional[Dict[str, Any]] = Non
     if width > cap:
         out.append(Issue("warn", None, "up to %d nodes are ready at once, the fan-out cap is %d: waves will be split" % (width, cap)))
     if g.meta.get("dispatcher") == "blackcat" and len(g.nodes) > caps["blackcat"]:
-        out.append(Issue("warn", None, "%d nodes dispatched by BlackCat exceed %d Agent calls per prompt: the guard blocks the rest"
+        out.append(Issue("warn", None, "%d nodes dispatched by BlackCat exceed its %d tool calls per prompt: the guard blocks the rest"
                          % (len(g.nodes), caps["blackcat"])))
     if len(g.nodes) > caps["workflow"]:
         out.append(Issue("warn", None, "%d nodes exceed the Workflow cap of %d" % (len(g.nodes), caps["workflow"])))
@@ -1332,7 +1334,8 @@ def limit_checks(m: Dict[str, Any], used: Sequence[Tuple[Node, Est]], width: int
         out.append(Check(name, v, tot_med, tot_hi, float(lim), drivers if v == "uncertain" else []))
     out.append(Check("fanout", three_way(width, width, cap), width, width, cap))
     if dispatcher == "blackcat":
-        # the guard counts Agent calls per prompt (not concurrent agents) and closes the burst after the window
+        # the guard counts Agent calls as steps per prompt (not concurrent agents) and closes the burst
+        # after the window
         k = float(len(used))
         lim = float(DEFAULT_CAPS["blackcat"])
         out.append(Check("blackcat_dispatches", three_way(k, k, lim), k, k, lim))

@@ -19,7 +19,7 @@ GUARD = os.environ.get("GUARD", os.path.join(os.path.dirname(HERE), "dot-claude"
 KNOB_PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 # The mechanics these tests exercise were written against these caps; the shipped defaults are
 # checked separately (test_agent_guard.py::test_shipped_spawn_defaults).
-BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8",
+BASELINE = {"BLACKCAT_MAX_STEPS": "8",
             "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=8,planner=8,plan-reviewer=8"}
 
 

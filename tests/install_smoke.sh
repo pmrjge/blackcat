@@ -319,7 +319,7 @@ checks = {
     "tool search left at its default": "ENABLE_TOOL_SEARCH" not in env,
     ".env.example writable": "Read(**/.env.*)" not in s["permissions"]["deny"] and "Read(**/.env.local)" in s["permissions"]["deny"],
     "discovery cache": env.get("MCP_DISCOVERY_CACHE") == "1",
-    "blackcat dispatch": env.get("BLACKCAT_MAX_DISPATCH") == "8" and env.get("BLACKCAT_MAX_STEPS") == "24",
+    "blackcat steps, no dispatch cap": "BLACKCAT_MAX_DISPATCH" not in env and env.get("BLACKCAT_MAX_STEPS") == "24",
     "caps and budgets": (env.get("STACK_MAX_FANOUT"), env.get("STACK_MAX_FANOUT_BY_TYPE"),
                          env.get("STACK_PROMPT_CTX_BUDGET"), env.get("STACK_SESSION_CTX_BUDGET"),
                          env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"), env.get("STACK_MAX_MCP_CALLS"))
@@ -1198,7 +1198,7 @@ s["skillListingBudgetFraction"] = 0.025
 s["autoCompactWindow"] = 800000
 for k in ("STACK_MAX_FANOUT_BY_TYPE", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET"):
     s["env"].pop(k, None)           # the two budgets are learned limits now: not shipped either way
-s["env"].update({"STACK_MAX_FANOUT": "8", "BLACKCAT_MAX_DISPATCH": "3",
+s["env"].update({"STACK_MAX_FANOUT": "8",
                  "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "32"})
 json.dump(s, open(p, "w"), indent=2)
 PY
