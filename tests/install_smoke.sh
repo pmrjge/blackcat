@@ -1134,6 +1134,9 @@ drop_scratch "$TL"
 
 echo "== 12. One copy of each skill: plugin duplicates of synced skills disabled by default; Anthropic skill plugins installed (fake claude)"
 TD="$(scratch_dir)" || exit 1
+# the fake writes enabledPlugins on install/enable/disable as the real CLI does: install.sh leaves out a
+# plugin it installed before that enabledPlugins no longer names (`claude plugin uninstall`)
+export FAKE_CLAUDE_PLUGINS=1
 mkdir -p "$TD/c/skills/synced/0000-sync/docx" "$TD/c/skills/synced/0000-sync/skill-creator"
 printf -- '---\nname: docx\ndescription: x\n---\n' > "$TD/c/skills/synced/0000-sync/docx/SKILL.md"
 printf -- '---\nname: skill-creator\ndescription: x\n---\n' > "$TD/c/skills/synced/0000-sync/skill-creator/SKILL.md"
@@ -1142,7 +1145,8 @@ FAKE_CLAUDE_LOG="$TD/calls0.log" CLAUDE_CONFIG_DIR="$TD/c" "$INSTALL" --no-mcp -
 if ! grep -qF '"disable"' "$TD/calls0.log" && ! grep -qF '"install", "document-skills@' "$TD/calls0.log" \
    && grep -qF 'plugin document-skills@anthropic-agent-skills duplicates the synced anthropic-skills:docx/xlsx/pptx/pdf in the skill listing (kept: --keep-plugin-duplicates)' "$TD/i0.log" \
    && ! grep -qF '"install", "mcp-server-dev@' "$TD/calls0.log" && ! grep -qF '"install", "skill-creator@' "$TD/calls0.log" \
-   && grep -qF '["plugin", "install", "session-report@claude-plugins-official", "--scope", "user"]' "$TD/calls0.log"; then
+   && grep -qF '["plugin", "install", "session-report@claude-plugins-official", "--scope", "user"]' "$TD/calls0.log" \
+   && grep -qF '["plugin", "install", "math-olympiad@claude-plugins-official", "--scope", "user"]' "$TD/calls0.log"; then
   pass "--keep-plugin-duplicates: duplicate plugins stay enabled, each named; enabled Anthropic plugins left alone, missing ones installed"
 else
   failed "plugins touched under --keep-plugin-duplicates"; grep -i plugin "$TD/i0.log" | sed 's/^/    /'
@@ -1154,13 +1158,14 @@ if grep -qF '["plugin", "disable", "document-skills@anthropic-agent-skills", "--
    && grep -qF '["plugin", "disable", "skill-creator@claude-plugins-official", "--scope", "user"]' "$TD/calls.log" \
    && ! grep -qF '"mcp-server-dev@' "$TD/calls.log" \
    && ! grep -qF '"install", "document-skills@' "$TD/calls.log" && ! grep -qF '"install", "skill-creator@' "$TD/calls.log" \
-   && grep -qF '["plugin", "install", "math-olympiad@claude-plugins-official", "--scope", "user"]' "$TD/calls.log" \
+   && ! grep -qF '"math-olympiad@' "$TD/calls.log" \
+   && python3 -c 'import json, sys; sys.exit(0 if json.load(open(sys.argv[1]))["enabledPlugins"].get("math-olympiad@claude-plugins-official") is True else 1)' "$TD/c/settings.json" \
    && grep -qF 'To undo: claude plugin enable document-skills@anthropic-agent-skills --scope user' "$TD/i.log" \
    && grep -qF 'To undo: claude plugin enable skill-creator@claude-plugins-official --scope user' "$TD/i.log" \
    && deduped_is document-skills@anthropic-agent-skills skill-creator@claude-plugins-official \
    && python3 -c 'import json, sys; sys.exit(0 if sorted(json.load(open(sys.argv[1]))["plugins_disabled"]) == sys.argv[2:] else 1)' \
         "$BD/backup.json" document-skills@anthropic-agent-skills skill-creator@claude-plugins-official; then
-  pass "default (--with-extra-plugins still accepted): duplicates disabled (not installed), mcp-server-dev kept enabled, math-olympiad installed, undo printed, recorded in manifest and backup"
+  pass "default (--with-extra-plugins still accepted): duplicates disabled (not installed), mcp-server-dev and math-olympiad (installed by the first run) kept enabled, undo printed, recorded in manifest and backup"
 else
   failed "default plugin dedupe"; tail -n 14 "$TD/i.log" | sed 's/^/    /'
 fi
@@ -1173,6 +1178,7 @@ if grep -qF '["plugin", "enable", "document-skills@anthropic-agent-skills", "--s
 else
   failed "re-enable after the synced skill went away"; grep -i plugin "$TD/i2.log" | sed 's/^/    /'
 fi
+unset FAKE_CLAUDE_PLUGINS
 assert_unchanged_real_home
 drop_scratch "$TD"
 
