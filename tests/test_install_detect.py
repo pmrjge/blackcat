@@ -303,3 +303,68 @@ def test_pnpm_is_never_run_in_dry_run_or_report(tmp_path):
         assert "  skip pnpm (corepack) (found: %s, from PATH)" % pnpm in lines(out), out
     rc, out, _ = e.run("NODE", **s.env)
     assert e.argv("pnpm") == ["-v"]
+
+
+# ---------------------------------------------------------------- elan: Homebrew's elan-init first
+ELAN_FAKE = r'''
+case "$1 $2" in
+  "toolchain list") [ -f "$ELAN_TC" ] && cat "$ELAN_TC" || echo "no installed toolchains" ;;
+  "toolchain install") echo "leanprover/lean4:v4.99.0" >"$ELAN_TC" ;;
+esac
+exit 0
+'''
+BREW_ELAN = r'''
+if [ "$1" = install ]; then for n in "$@"; do [ "$n" = elan-init ] && cp "$ELAN_SRC" "$SHIM_DIR/elan"; done; fi
+'''
+
+
+def elan_brew(e, s):
+    s.brew()
+    src = mkexe(e.t / "elan-src", LOGGER_ELAN + ELAN_FAKE)
+    e.shim("brew", BREW_ELAN + BREW_EXTRA + BREW_SHIM)
+    s.env.update(ELAN_SRC=str(src), SHIM_DIR=str(e.bin), ELAN_TC=str(e.t / "elan-tc"), DEVTOOLS_NOFILE="65536")
+
+
+LOGGER_ELAN = 'echo "elan $*" >>"$SHIM_LOG"\n'
+
+
+def test_elan_comes_from_homebrews_elan_init_and_gets_the_stable_toolchain(tmp_path):
+    e, s = setup(tmp_path)
+    elan_brew(e, s)
+    rc, out, err = e.run("LEAN", STACK_INSTALL_LEAN_MATHLIB="0", **s.env)
+    assert rc == 0, err
+    assert e.argv("brew", "install") == ["install elan-init"], out
+    assert e.calls("curl") == []                                            # never the elan-init.sh route
+    assert "  + elan (brew)" in lines(out)
+    assert e.argv("elan") == ["toolchain list", "toolchain install leanprover/lean4:stable",
+                              "default leanprover/lean4:stable", "toolchain list"], e.argv("elan")
+    assert re.search(r"^  \+ lean toolchain \(stable\) \(elan toolchain install leanprover/lean4:stable", out, re.M), out
+
+
+def test_elan_found_anywhere_means_no_elan_init_and_no_toolchain_step(tmp_path):
+    e, s = setup(tmp_path)
+    elan_brew(e, s)
+    lake = mkexe(e.home / ".elan" / "bin" / "lake", "exit 0")
+    rc, out, _ = e.run("LEAN", STACK_INSTALL_LEAN_MATHLIB="0", **s.env)
+    assert e.calls("brew", "install") == [] and e.calls("elan") == []
+    assert "  skip elan (found: %s, from elan)" % lake in lines(out), out
+    assert sum(1 for l in lines(out) if l.startswith("  skip elan ")) == 1
+
+
+def test_without_homebrew_the_official_elan_installer_is_the_fallback(tmp_path):
+    e, s = setup(tmp_path)
+    rc, out, _ = e.run("LEAN", mode="dry-run", DEVTOOLS_NOFILE="65536", **s.env)
+    assert "would: elan ← elan installer (https://elan.lean-lang.org/elan-init.sh, latest; no Homebrew)" in out, out
+    assert "no Homebrew, not installed" not in out
+
+
+def test_elan_init_dry_run_and_the_open_file_limit(tmp_path):
+    e, s = setup(tmp_path)
+    elan_brew(e, s)
+    rc, out, _ = e.run("LEAN", mode="dry-run", **s.env)
+    assert "would: HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install elan-init" in out
+    assert "would: lean toolchain (stable) ← elan toolchain install leanprover/lean4:stable" in out
+    assert e.calls("brew", "install") == [] and e.calls("elan") == []
+    s.env["DEVTOOLS_NOFILE"] = "256"
+    rc, out, _ = e.run("LEAN", **s.env)
+    assert e.calls("brew", "install") == [] and "! lean skipped: the open-file limit is 256" in out

@@ -8,10 +8,12 @@
 #     2. Homebrew batch    every MISSING formula of the enabled groups in ONE `brew install`, every
 #                          missing cask in ONE `brew install --cask` (on a terminal only: the pkg casks
 #                          ask for a password); each name checked with `brew info` first (an
-#                          unresolved one is reported and left out); a failed batch is retried name by name
+#                          unresolved one is reported and left out); a failed batch is retried name by
+#                          name. elan comes from here too (the elan-init formula, a sha256-pinned bottle)
 #     3. upstream managers uv (+ Python 3.14 global pin), nvm (+ node 24, pnpm via corepack), rustup,
-#                          ghcup (+ hlint, ormolu), juliaup, coursier, elan: each through its official
-#                          installer (HTTPS only, into a temp file, URL and sha256 logged, then run)
+#                          ghcup (+ hlint, ormolu), juliaup, coursier, and elan only without Homebrew:
+#                          each through its official installer (HTTPS only, into a temp file, URL and
+#                          sha256 logged, then run); Homebrew's fresh elan gets the stable toolchain
 #     4. required check    uv, node + npx: still missing -> one message listing them, exit 3
 #     5. the rest          the Mathlib project (~/lean/stack_mathlib unless LEAN_PROJECT_PATH names
 #                          one), pre-commit, Gradle, Playwright's browsers, `git lfs install`
@@ -482,6 +484,8 @@ homebrew_step(){
 # GROUP TYPE NAME PROBES: a probe is cmd:<binary> (PATH, the system login PATH, the known dirs),
 # path:<file>, tool:<row> (DETECT_ROWS: its apps, then its pkg receipt), jdk:<major> (a JDK >= major
 # in /Library/Java/JavaVirtualMachines or ~/Library/Java/JavaVirtualMachines) or - (brew list only).
+# LEAN's elan-init is Homebrew's bottle of elan (sha256-pinned in the formula; elan, lake and lean are
+# its links; built without self-update); without Homebrew the official elan installer runs (step 3).
 BREW_ITEMS="DEPS formula jq cmd:jq
 DEPS formula ripgrep cmd:rg
 DEPS formula gh cmd:gh
@@ -506,7 +510,8 @@ JAVA cask oracle-jdk jdk:$JAVA_MAJOR
 JAVA cask kotlin-lsp cmd:kotlin-lsp
 LATEX cask mactex cmd:pdflatex,path:$TEX_BIN/pdflatex,tool:mactex
 POSTGRES formula postgresql@18 cmd:postgres,cmd:psql,tool:postgres
-MONGODB formula mongodb/brew/mongodb-community cmd:mongod"
+MONGODB formula mongodb/brew/mongodb-community cmd:mongod
+LEAN formula elan-init cmd:elan,cmd:lake,cmd:lean"
 
 jdk_at_least(){ # a JDK of major >= $1 under $JVM_DIR or ~/Library/Java (its release file; java_home fails in the sandbox)
   local r v
@@ -593,6 +598,8 @@ gopls_step(){
   [ -n "$GOPLS_GO" ] || return 0
   ensure gopls 0 chk_gopls "$GOPLS_GO install golang.org/x/tools/gopls@v${GOPLS_VER:-?} (your go; the Go module proxy's checksum database verifies it)" inst_gopls_go
 }
+item_label(){ case "$1" in elan-init) echo elan ;; *) echo "${1##*/}" ;; esac; }
+ELAN_VIA_BREW=0    # elan-init joined the batch: its fresh elan gets the stable toolchain in step 3
 brew_step(){
   local skipped="" unresolved="" want_f="" want_c="" nobrew="" g type name probes t
   brew_lists
@@ -603,10 +610,13 @@ brew_step(){
   while read -r g type name probes; do
     [ -n "$g" ] || continue
     on "$g" || continue
-    if item_present "$type" "$name" "$probes"; then skip_line "${name##*/}" "$ITEM_AT"; continue; fi
+    if item_present "$type" "$name" "$probes"; then skip_line "$(item_label "$name")" "$ITEM_AT"; continue; fi
+    # elan: the open-file limit gates installing it; without Homebrew its official installer (step 3)
+    if [ "$g" = LEAN ] && { [ -z "$BREW" ] || ! lean_limit_ok; }; then continue; fi
     if [ -z "$BREW" ]; then nobrew="$nobrew ${name##*/}"; continue; fi
     if ! brew_resolves "$type" "$name"; then unresolved="$unresolved $name"; continue; fi
     if [ "$type" = cask ]; then want_c="$want_c $name"; else want_f="$want_f $name"; fi
+    [ "$name" = elan-init ] && ELAN_VIA_BREW=1
   done <<EOF_ITEMS
 $BREW_ITEMS
 EOF_ITEMS
@@ -648,8 +658,8 @@ EOF_ITEMS
   brew_lists
   for name in $want_f $want_c; do
     t=formula; case " $want_c " in *" $name "*) t=cask ;; esac
-    if item_present "$t" "$name" "-"; then N_INST=$((N_INST + 1)); line "+ ${name##*/} (brew)"
-    else KEEP_LOGS=1; N_FAIL=$((N_FAIL + 1)); line "! ${name##*/}: brew install failed"; fi
+    if item_present "$t" "$name" "-"; then N_INST=$((N_INST + 1)); line "+ $(item_label "$name") (brew)"
+    else KEEP_LOGS=1; N_FAIL=$((N_FAIL + 1)); line "! $(item_label "$name"): brew install failed"; fi
   done
 }
 
@@ -737,6 +747,15 @@ inst_cs(){
 }
 
 chk_elan(){ find_cmd elan lake lean; }
+# configuration of a fresh Homebrew elan (built without self-update): a default toolchain
+LEAN_STABLE="leanprover/lean4:stable"
+chk_elan_tc(){
+  local l; have elan || return 1
+  l="$(elan toolchain list 2>/dev/null </dev/null)"
+  [ -n "$l" ] || return 1
+  case "$l" in *"no installed toolchains"*) return 1 ;; esac
+}
+inst_elan_tc(){ elan toolchain install "$LEAN_STABLE" && elan default "$LEAN_STABLE"; }
 inst_elan(){
   if [ "$NO_PROFILE" = 1 ]; then remote_installer "$URL_ELAN" sh -y --default-toolchain stable --no-modify-path
   else remote_installer "$URL_ELAN" sh -y --default-toolchain stable; fi
@@ -802,9 +821,17 @@ upstream_step(){
   if on SCALA; then
     ensure coursier 0 chk_cs "cs from $URL_COURSIER (latest), then cs setup -y" inst_cs
   fi
-  # elan found anywhere: skipped whatever the open-file limit (the limit gates installing only)
-  if on LEAN && { chk_elan || lean_limit_ok; }; then
-    ensure elan 0 chk_elan "elan installer ($URL_ELAN, latest) -y --default-toolchain stable$([ "$NO_PROFILE" = 1 ] && echo ' --no-modify-path')" inst_elan
+  if on LEAN; then
+    if [ -n "$BREW" ]; then
+      # Homebrew's elan-init came with the batch (step 2); a fresh elan has no toolchain yet
+      if [ "$ELAN_VIA_BREW" = 1 ] && { have elan || [ "$MODE" != install ]; }; then
+        ensure "lean toolchain (stable)" 0 chk_elan_tc "elan toolchain install $LEAN_STABLE && elan default $LEAN_STABLE" inst_elan_tc
+      fi
+    # no Homebrew: the official installer (the fallback route). elan found anywhere: skipped whatever
+    # the open-file limit (the limit gates installing only)
+    elif chk_elan || lean_limit_ok; then
+      ensure elan 0 chk_elan "elan installer ($URL_ELAN, latest; no Homebrew) -y --default-toolchain stable$([ "$NO_PROFILE" = 1 ] && echo ' --no-modify-path')" inst_elan
+    fi
     path_add "$HOME/.elan/bin"
   fi
   return 0
