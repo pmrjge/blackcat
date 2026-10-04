@@ -843,6 +843,7 @@ outside the sandbox pass `--store-dir ~/.cache/claude-sandbox/pnpm-store` and
 |---|---|
 | `/usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test` | ok |
 | `uv run tests/lint_agents.py` | ok |
+| `uv run tests/redundancy_lint.py` | ok (2026-10-04): no long sentence in 3+ agent/skill files, no dangling `see`/`load`/`name`*/§ skill reference, no hook file outside settings.json or install.sh's staging, beyond `tests/redundancy_allowlist.json` (justified repeats and placeholders; `TODO:` entries are the baseline to fix; `--strict` lists stale entries) |
 | `uv run --with pytest --with httpx --with pillow --with "mcp>=1.10,<2" pytest -q tests/` | 2401 passed at the R4-2 session-env commit (2400 at the credential-store review commit before it, also from a snapshot under `/private/tmp`, where 118 had failed before R3-INFO; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)) |
 | `bash tests/install_smoke.sh` | 244 passed, 0 failed at the R4-2 session-env commit (scratch HOME only; re-runs itself without a controlling terminal, so no install in it can wait on yours; includes a drifted config, dry-run, restore round trips, `--no-prune`, symlinked scope dirs with dir and file links, manifest traversal) |
 | `jq empty dot-claude/settings.json` | ok |
