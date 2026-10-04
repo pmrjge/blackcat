@@ -4,8 +4,9 @@
 
 Target: --config-dir > CLAUDE_CONFIG_DIR > ~/.claude (as install.sh, without its safety checks: nothing
 is written). Compared, per area: agents/ (incl. the rendered <type>-copy.md), rules/, skills/ (claude.ai's
-synced/ aside), the hooks/, bin/, mcp/ (vendor/ aside) and magg/ files install.sh stages, stack-plugins/,
-settings.json's hook wiring (event, matcher, command) and magg's catalog entries (minus enabled/kits).
+synced/ aside), the hooks/, bin/ (the stack-python link aside), mcp/ (vendor/ aside) and magg/ files
+install.sh stages, stack-plugins/, settings.json's hook wiring (event, matcher, command) and magg's
+catalog entries (minus enabled/kits).
 
 Text is compared after the installer's own render: __CLAUDE_DIR__, __HOME__, __STACK_*__ are filled in;
 tool paths it found at install time (__UV__, __PYTHON3__, ...) match any path, consistently within a
@@ -276,7 +277,8 @@ class Diff:
             mine = {rel: srel for rel, srel in files.items() if rel.startswith(d + "/")}
             inst = {"%s/%s" % (d, p) for p in walk(os.path.join(self.c, d))
                     if not (d == "mcp" and p.startswith("vendor/")) and not (d == "magg" and p == "config.json")
-                    and not (d == "magg" and p.startswith("kit.d/"))}
+                    and not (d == "magg" and p.startswith("kit.d/"))
+                    and not (d == "bin" and p == "stack-python")}  # the installer's link to uv's Python
             for rel in sorted(set(mine) - inst):
                 self.add(area, "+", rel)
             for rel in sorted(inst - set(mine)):

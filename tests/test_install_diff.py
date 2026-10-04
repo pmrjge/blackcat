@@ -126,7 +126,7 @@ def test_seeded_drift_is_listed(installed):
                 r"~ differs\s+rules/claude-agent-stack\.md\s+\(\+1 -0 lines",
                 r"~ differs\s+hooks/web_caps\.py",
                 r"- installed only\s+bin/my-tool",
-                r"\+ repo only\s+SessionEnd \[\*\] \"/[^\"_]+\" \"[^\"]+/hooks/stack_usage\.py\" end",
+                r"\+ repo only\s+SessionEnd \[\*\] /bin/sh \"[^\"]+/bin/stack-hook\" stack_usage end",
                 r"- installed only\s+Stop \[\*\] /bin/echo mine",
                 r"~ differs\s+docling\s+\(entry differs\)",
                 r"- installed only\s+mine",

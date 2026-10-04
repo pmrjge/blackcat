@@ -30,8 +30,5 @@
     {"file": "skills/technical-writing/references/review-checklist.md", "ref": "technical-writing § 10",
      "reason": "TODO: technical-writing has no section 10 (its numbered headings are 1, 3 and 8)"}
   ],
-  "hooks": [
-    {"file": "stack_hook.py",
-     "reason": "TODO: the bytecode-cached hook entry (launched by bin/stack-hook) is neither staged by install.sh nor wired in settings.json"}
-  ]
+  "hooks": []
 }
