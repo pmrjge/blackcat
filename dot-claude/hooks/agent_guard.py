@@ -548,8 +548,10 @@ def canonical_tool(name):
 # output file (BLACKCAT_MAX_READS per prompt). Bash, Write, Edit (BLACKCAT_OWN_TOOLS) are off its
 # tools line, so Claude Code never offers them, and blackcat-guard refuses them while
 # BLACKCAT_MAX_OWN_STEPS is 0 (the default): a second gate for a run whose tools line does not bind
-# (an SDK app's own tool list, an --agents redefinition). A forked skill's agent inherits only the
-# main conversation's tools (sub-agents.md, "Available tools"), so it gets no Bash either. No Grep or
+# (an SDK app's own tool list, an --agents redefinition). A forked skill runs as its `agent:` type
+# (general-purpose when omitted: generic_agent_reason refuses its every call), with that agent's
+# tools narrowed to the main conversation's (sub-agents.md, "Available tools"; CONFIG.md bug 8),
+# so it gets no Bash either. No Grep or
 # Glob (searching is explore's job). Not granted: WebFetch, WebSearch and Monitor (its WebSocket
 # source); with BLACKCAT_MAX_OWN_STEPS > 0 blackcat-guard still refuses web fetches from Bash
 # (BLACKCAT_WEB_CMD_REASON): BlackCat holds browser-operator, AskUserQuestion and the user's consent

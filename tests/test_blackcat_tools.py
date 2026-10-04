@@ -14,8 +14,9 @@ plus blackcat.md's frontmatter hook; any deny wins):
   Claude Code applies to every file-editing tool and in bypassPermissions too (permissions.md:
   "Edit rules apply to all built-in tools that edit files"; permission-modes.md: "Deny rules block
   in every mode, including bypassPermissions"), backed by the sandbox's denyWrite;
-- a `context: fork` skill's agent inherits the main conversation's tools (sub-agents.md, "Available
-  tools"), so under BlackCat it gets no Bash: no shipped skill may fork.
+- a `context: fork` skill runs as its `agent:` type (general-purpose when omitted, which the guard
+  refuses), with that agent's tools narrowed to the main conversation's (sub-agents.md, "Available
+  tools"; CONFIG.md bug 8), so under BlackCat it gets no Bash: no shipped skill may fork.
 
 Run: ~/.claude/venvs/tools/bin/python -m pytest -q tests/test_blackcat_tools.py
 """
@@ -181,10 +182,11 @@ def test_write_and_edit_to_the_installed_stack_are_denied_by_rule():
 
 
 def test_no_shipped_skill_forks():
-    """The tool pool of a `context: fork` skill's agent under BlackCat is the main conversation's
-    tools narrowed by the background filter and the agent's own `tools`: Read and no Bash, Write,
-    Edit or web tool. So no shipped skill forks (user commands run from UserPromptExpansion hooks,
-    e.g. /stack-doctor, outside BlackCat's tools)."""
+    """A `context: fork` skill runs as its `agent:` type (general-purpose when omitted: the guard
+    refuses its every call); that agent's own `tools`, narrowed by the background filter to the
+    main conversation's pool (bug 8), leave at most Read and no Bash, Write, Edit or web tool under
+    BlackCat. So no shipped skill forks (user commands run from UserPromptExpansion hooks, e.g.
+    /stack-doctor, outside BlackCat's tools)."""
     pool = blackcat_tools() & BACKGROUND_KEEPS
     assert "Read" in pool and not {"Bash", "Write", "Edit", "WebFetch", "WebSearch"} & pool
     forked = [str(p.relative_to(ROOT)) for p in (ROOT / "dot-claude").rglob("SKILL.md")
