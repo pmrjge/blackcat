@@ -681,7 +681,9 @@ nsk=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
 # hub modules hidden by skillOverrides (user-invocable-only or off) are not listed
 nhid=$(python3 -c 'import json, os, sys; so = json.load(open(sys.argv[1])).get("skillOverrides", {}); print(sum(1 for k, v in so.items() if v in ("user-invocable-only", "off") and os.path.isdir(os.path.join(sys.argv[2], k))))' "$HERE/dot-claude/settings.json" "$HERE/dot-claude/skills")
 budget=$(python3 -c 'import json, sys; print(int(1000000 * 3 * json.load(open(sys.argv[1]))["skillListingBudgetFraction"]))' "$HERE/dot-claude/settings.json")
-printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - 1 - nhid)) skills, ~[0-9]+ of $budget characters" \
+# user commands (disable-model-invocation: true) are not listed either
+ncmd=$(grep -l '^disable-model-invocation: *true' "$HERE"/dot-claude/skills/*/SKILL.md | wc -l | tr -d ' ')
+printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - ncmd - nhid)) skills, ~[0-9]+ of $budget characters" \
   && pass "doctor.sh: skill listing within its budget" || failed "doctor.sh: skill listing line: $(printf '%s\n' "$out" | grep 'skill listing')"
 printf '%s\n' "$out" | grep -q "exa-from-stack-env" && failed "doctor.sh printed a key value" || pass "doctor.sh never prints key values"
 # GitHub credentials agents could use: reported by presence, never by value (its own HOME: no real file)
