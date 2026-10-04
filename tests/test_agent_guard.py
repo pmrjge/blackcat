@@ -330,8 +330,61 @@ def test_generic_types_denied_for_every_caller(env, parent, agent_id, tool):
     ("my-plugin:helper", "P1", "coder", "deny"),
 ])
 def test_rowless_callers(env, parent, agent_id, child, want):
-    """A caller without a row: BlackCat's row on a main thread, nothing as a subagent."""
+    """A caller without a row: every stack agent on a main thread, nothing as a subagent."""
     assert decision(run(pre_agent(sid(), child, parent=parent, agent_id=agent_id), env)) == want
+
+
+def _guard_module():
+    sys.path.insert(0, str(GUARD.parent))
+    try:
+        import agent_guard
+    finally:
+        sys.path.pop(0)
+    return agent_guard
+
+
+@pytest.mark.parametrize("parent", [None, "", "claude", "my-custom-agent"])
+def test_rowless_main_thread_spawns_every_stack_agent(env, parent):
+    """User decision 2026-10-04: only BlackCat is held to a spawn list. A main thread with no POLICY
+    row (typeless, `claude --agent claude`, a foreign agent) may spawn every stack agent, the
+    orchestrator and the two family-only types included; supreme-coder keeps its own rule
+    (SUPREME_SPAWNERS lists "main": a typeless main thread only); generic and built-in types and
+    blackcat stay refused."""
+    g = _guard_module()
+    for child in [a for a in g.AGENTS if a not in ("blackcat", "supreme-coder")]:
+        assert decision(run(pre_agent(sid(), child, parent=parent), env)) == "allow", child
+    want = "allow" if not parent else "deny"           # BASELINE: SUPREME_SPAWNERS=orchestrator,main
+    assert decision(run(pre_agent(sid(), "supreme-coder", parent=parent), env)) == want
+    assert decision(run(pre_agent(sid(), "supreme-coder", parent=parent), env,
+                        extra={"SUPREME_SPAWNERS": "orchestrator"})) == "deny"
+    for child in ("blackcat", "general-purpose", "claude", "fork", "Plan", "statusline-setup",
+                  "my-plugin:helper", "coder-copy"):
+        assert decision(run(pre_agent(sid(), child, parent=parent), env)) == "deny", child
+    s = sid()
+    script = "await agent('x', {agentType: 'db-engineer'})"
+    assert decision(run(workflow_ev(s, parent=parent, script=script), env)) == "allow"
+
+
+def test_rows_unchanged_for_blackcat_typed_main_threads_and_subagents(env):
+    """BlackCat keeps its own list (db-engineer and localizer only through their family heads); a
+    main thread with a POLICY row (claude --agent main-coder) keeps that row; subagents keep theirs,
+    and an agent context of no known type keeps BlackCat's row."""
+    g = _guard_module()
+    for child in ("db-engineer", "localizer", "supreme-coder", "blackcat", "general-purpose"):
+        assert decision(run(pre_agent(sid(), child, parent="blackcat"), env)) == "deny", child
+    outside = [a for a in g.AGENTS if a not in g.POLICY["main-coder"] and a != "blackcat"]
+    assert "orchestrator" in outside
+    for child in outside:
+        assert decision(run(pre_agent(sid(), child, parent="main-coder"), env)) == "deny", child
+    assert decision(run(pre_agent(sid(), "coder", parent="main-coder"), env)) == "allow"
+    assert decision(run(pre_agent(sid(), "designer", parent="coder", agent_id="C1"), env)) == "deny"
+    for parent in ("", "main-session"):
+        assert decision(run(pre_agent(sid(), "db-engineer", parent=parent, agent_id="X1"),
+                            env)) == "deny", parent
+        assert decision(run(pre_agent(sid(), "coder", parent=parent, agent_id="X1"),
+                            env)) == "allow", parent
+    for parent in ("general-purpose", "my-plugin:helper"):
+        assert decision(run(pre_agent(sid(), "coder", parent=parent, agent_id="G1"), env)) == "deny"
 
 
 def test_task_alias_reaches_the_spawn_gate(env):

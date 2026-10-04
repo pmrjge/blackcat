@@ -15,8 +15,9 @@ Reads the hook JSON on stdin.
                                     call cap (the tools below check them in this mode's place,
                                     first)
   PreToolUse  Agent (aliases Task, SubAgent)  an allowlist: subagent_type must name a stack agent
-                                    in the caller's row (spawn_row: a caller without a row gets
-                                    BlackCat's as a main thread, nothing as a subagent); missing,
+                                    in the caller's row (spawn_row: a caller without a row may
+                                    spawn every stack agent as a main thread, nothing as a
+                                    subagent; BlackCat has its own row); missing,
                                     generic, built-in and unknown types are refused
   PreToolUse  Workflow (RunWorkflow)  every agent() call of the script names a stack agentType
                                     the caller may spawn, as a string literal, no model and no
@@ -371,7 +372,7 @@ COPY_OF = {base: base + "-copy" for base in COPY_TYPES}          # base -> copy 
 COPY_BASE = {copy: base for base, copy in COPY_OF.items()}       # copy type -> base
 
 # parent agent_type -> child agent types it may spawn. A caller with no row (no agent type, a
-# generic or a foreign one) gets spawn_row(): a main thread BlackCat's row, a subagent nothing.
+# generic or a foreign one) gets spawn_row(): a main thread every stack agent, a subagent nothing.
 POLICY = {
     "blackcat": list(_BLACKCAT_ROW),
     "orchestrator": [a for a in AGENTS if a not in ("blackcat", "orchestrator")],
@@ -477,25 +478,40 @@ STACK_TYPES = frozenset(AGENTS) | frozenset(COPY_BASE)
 SPAWNABLE = STACK_TYPES - {"blackcat"}
 
 
+# caller_is_main() for a real main thread (no agent_id); True stays "an agent context of no known
+# type", which keeps BlackCat's row
+MAIN_THREAD = "thread"
+# what a main thread without a POLICY row may spawn: every stack agent (copies are self-spawns;
+# supreme-coder keeps its own rule in spawn_row)
+_OPEN_MAIN_ROW = [a for a in AGENTS if a not in ("blackcat", "supreme-coder")]
+
+
 def spawn_row(parent, main):
-    """The agent types `parent` may spawn: its POLICY row; for a caller without one, a main thread
-    (plain `claude`, a host's own main agent, `--agent <foreign>`) gets BlackCat's row (plus
-    supreme-coder when SUPREME_SPAWNERS lists "main") and a subagent of a foreign or generic type nothing.
+    """The agent types `parent` may spawn: its POLICY row (BlackCat's list is POLICY["blackcat"]).
+    For a caller without one: a real main thread (main == MAIN_THREAD: plain `claude`, `claude
+    --agent claude`, a host's own main agent, `--agent <foreign>`) may spawn every stack agent (user
+    decision 2026-10-04: only BlackCat is held to a list); an agent context of no known type
+    (main True) gets BlackCat's row; either adds supreme-coder only when SUPREME_SPAWNERS lists
+    "main" and no type is named; a subagent of a foreign or generic type gets nothing. Generic,
+    built-in and foreign child types stay refused for every caller (spawn_type_violation).
     Before 2026-10 a caller without a row was unrestricted: a typeless main thread or a generic
     agent could spawn general-purpose, fork or a host-defined "SubAgent"."""
     row = POLICY.get(parent)
     if row is not None:
         return row
     if main:
-        return list(_BLACKCAT_ROW) + ([SUPREME] if "main" in supreme_spawners() and not parent else [])
+        base = _OPEN_MAIN_ROW if main == MAIN_THREAD else _BLACKCAT_ROW
+        return list(base) + ([SUPREME] if "main" in supreme_spawners() and not parent else [])
     return []
 
 
 def caller_is_main(ev, parent):
-    """A main thread for spawn_row: no agent_id, or an agent context that names no type the
-    registry knows or is Claude Code's backgrounded main session ("main-session"). Either way the
-    child must still be a stack type: this only picks BlackCat's row over an empty one."""
-    return not ev.get("agent_id") or parent in ("", "main-session")
+    """A main thread for spawn_row: MAIN_THREAD when the event has no agent_id; True for an agent
+    context that names no type the registry knows or is Claude Code's backgrounded main session
+    ("main-session"); else False. The child must still be a stack type either way."""
+    if not ev.get("agent_id"):
+        return MAIN_THREAD
+    return parent in ("", "main-session")
 
 
 def spawn_type_violation(parent, main, raw_type):
@@ -11062,6 +11078,19 @@ def generic_agent_self_test(conf):
     for parent in ("general-purpose", "SubAgent", "fork", "my-host-agent"):
         if spawn_type_violation(parent, False, "coder") is None:
             problems.append("spawn gate: a %s subagent may spawn coder" % parent)
+    # only BlackCat is held to its list: a row-less main thread spawns every stack agent
+    for parent in ("", "claude", "my-host-agent"):
+        for t in ("db-engineer", "orchestrator", "localizer"):
+            if spawn_type_violation(parent, MAIN_THREAD, t):
+                problems.append("spawn gate: a %s main thread may not spawn %s"
+                                % (parent or "typeless", t))
+        for t in refused:
+            if spawn_type_violation(parent, MAIN_THREAD, t) is None:
+                problems.append("spawn gate: a %s main thread may spawn %r" % (parent or "typeless", t))
+    for parent, main, t in (("blackcat", MAIN_THREAD, "db-engineer"), ("", True, "db-engineer"),
+                            ("main-coder", MAIN_THREAD, "orchestrator")):
+        if spawn_type_violation(parent, main, t) is None:
+            problems.append("spawn gate: %s (main=%s) may spawn %s" % (parent or "typeless", main, t))
     why = spawn_type_violation("blackcat", True, "general-purpose") or ""
     if "coder" not in why or "explore" not in why:
         problems.append("spawn gate: the denial does not list the valid types: %s" % why[:120])
