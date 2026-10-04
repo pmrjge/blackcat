@@ -744,6 +744,21 @@ T4D="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 HOME="$T4D" CLAUDE_CONFIG_DIR="$T4D/.claude" "$INSTALL" --dry-run --no-mcp --no-plugins --no-deps --no-profile >"$T4D/.log" 2>&1 \
   && [ ! -e "$T4D/.cache/claude-sandbox/playwright-mcp" ] \
   && { pass "--dry-run creates no Playwright output dir"; rm -rf "$T4D"; } || failed "--dry-run and the Playwright output dir (see $T4D/.log)"
+# --dry-run with the plugins step runs no language server (a rustup proxy writes ~/.rustup, julia
+# ~/.julia): found counts, LanguageServer.jl by its environment's Project.toml; a fresh HOME stays empty
+T4R="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
+mkdir -p "$T4R/stubs" "$T4R/home" "$T4R/depot/environments/claude-lsp"
+printf '[deps]\nLanguageServer = "2b0e0bc5-e4fd-59b4-8912-456d1b03d8d7"\n' >"$T4R/depot/environments/claude-lsp/Project.toml"
+for t in rust-analyzer rustup cargo julia; do
+  printf '#!/bin/sh\necho "%s $*" >>"%s/ran.log"\nmkdir -p "$HOME/.%s"\n' "$t" "$T4R" "$t" >"$T4R/stubs/$t"; chmod +x "$T4R/stubs/$t"
+done
+HOME="$T4R/home" CLAUDE_CONFIG_DIR="$T4R/home/.claude" JULIA_DEPOT_PATH="$T4R/depot:" PATH="$T4R/stubs:$PATH" \
+  "$INSTALL" --dry-run --no-mcp --no-deps --no-profile >"$T4R/.log" 2>&1 \
+  && [ ! -e "$T4R/ran.log" ] && [ -z "$(ls -A "$T4R/home")" ] \
+  && grep -q 'would: claude plugin install rust-analyzer-lsp@claude-plugins-official' "$T4R/.log" \
+  && grep -q 'would: claude plugin install julia-lsp@agent-stack' "$T4R/.log" \
+  && { pass "--dry-run runs no language server and leaves a fresh HOME empty"; rm -rf "$T4R"; } \
+  || failed "--dry-run ran [$(cat "$T4R/ran.log" 2>/dev/null)] or wrote HOME [$(ls -A "$T4R/home")] (see $T4R/.log)"
 grep -q "alias cas=" "$T4/.zshrc" && pass "unrelated rc line mentioning claude-agent-stack kept" || failed "unrelated rc line deleted"
 [ "$(grep -c '# claude-agent-stack$' "$T4/.zshrc")" = 1 ] && grep -q 'with-stack-env" --print-env --reveal sh' "$T4/.zshrc" \
   && pass "old stack line replaced by exactly one new line" || failed "rc stack line not replaced exactly once"

@@ -336,14 +336,26 @@ would(){ printf '  would: %s\n' "$*"; }
 say(){ printf '\n\033[1m%s\033[0m\n' "$*"; }
 note(){ printf '  %s\n' "$*"; }
 have(){ command -v "$1" >/dev/null 2>&1; }
-# rustup installs a rust-analyzer proxy even without the component: run it, don't just find it
-lsp_works(){ case "$1" in
+# rustup installs a rust-analyzer proxy even without the component: run it, don't just find it.
+# --dry-run runs none of them (a rustup proxy writes ~/.rustup, julia ~/.julia): found counts, and
+# LanguageServer.jl counts when an environment's Project.toml lists it.
+lsp_works(){
+  if [ "$DRY_RUN" = 1 ]; then
+    local depot="${JULIA_DEPOT_PATH:-}"; depot="${depot%%:*}"; [ -n "$depot" ] || depot="$HOME/.julia"
+    case "$1" in
+      julia-languageserver) have julia && grep -qs '^LanguageServer *=' "$depot/environments/claude-lsp/Project.toml" "$depot"/environments/v*/Project.toml ;;
+      *) have "$1" ;;
+    esac
+    return
+  fi
+  case "$1" in
   rust-analyzer) rust-analyzer --version >/dev/null 2>&1 ;;
   # LanguageServer.jl is a package, not a binary: loadable from the @claude-lsp environment (or the
   # default one, also on that load path)
   julia-languageserver) have julia && julia --startup-file=no --history-file=no --project=@claude-lsp \
     -e 'exit(Base.find_package("LanguageServer") === nothing ? 1 : 0)' >/dev/null 2>&1 ;;
-  *) have "$1" ;; esac; }
+  *) have "$1" ;; esac
+}
 # ~/.local/bin (uv, magg, huetension, npm --prefix installs) is APPENDED, so tools already on your
 # PATH win — including a test double of `claude` — and the uv installer still sees the original PATH.
 ORIG_PATH="$PATH"

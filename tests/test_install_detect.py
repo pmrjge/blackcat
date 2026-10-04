@@ -194,6 +194,30 @@ def test_a_symlink_into_an_app_bundle_counts_as_the_app_and_a_cellar_link_as_bre
     assert "  skip ninja (found: %s/ninja, from brew)" % e.bin in lines(out), out
 
 
+def test_a_spotlight_hit_in_an_agent_writable_folder_does_not_count(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    app = e.home / "ZDone" / "proj" / "Postgres.app"                   # a project folder sandboxed agents can write
+    mkexe(app / "Contents" / "Versions" / "17" / "bin" / "postgres", "exit 0")
+    s.spotlight("com.postgresapp.Postgres2", app)
+    rc, out, err = e.run("POSTGRES", **s.env)
+    assert rc == 0, err
+    assert e.argv("mdfind"), "Spotlight was asked"
+    assert e.argv("brew", "install") == ["install postgresql@18"], out
+    assert not skips(out), out
+
+
+def test_a_spotlight_hit_in_your_applications_folder_counts(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    app = e.home / "Applications" / "Databases" / "Postgres.app"      # below ~/Applications: the directory check misses it
+    psql = mkexe(app / "Contents" / "Versions" / "17" / "bin" / "postgres", "exit 0")
+    s.spotlight("com.postgresapp.Postgres2", app)
+    rc, out, _ = e.run("POSTGRES", **s.env)
+    assert "  skip postgresql@18 (found: %s, from app)" % psql in lines(out), out
+    assert e.calls("brew", "install") == []
+
+
 def test_mdfind_failing_or_absent_is_silent(tmp_path):
     e, s = setup(tmp_path)
     s.brew()
@@ -210,9 +234,13 @@ def test_the_lookup_never_uses_system_profiler_or_lsregister():
 
 # ---------------------------------------------------------------- gopls next to a non-Homebrew Go
 def go_pkg(e, s):
+    """A stand-in for the Go .pkg's go: `go env GOBIN` prints $GOBIN, else FAKE_GO_ENV_GOBIN (a `go env -w`
+    value); `go install` writes gopls where go would ($GOBIN, else ~/go/bin) and logs the caches it saw."""
     return mkexe(s.usr_local / "go" / "bin" / "go",
-                 'echo "go $*" >>"$SHIM_LOG"; [ "$1" = install ] || exit 0\n'
-                 'mkdir -p "$HOME/go/bin" && printf "#!/bin/sh\\n" >"$HOME/go/bin/gopls" && chmod +x "$HOME/go/bin/gopls"')
+                 'echo "go $*" >>"$SHIM_LOG"\n'
+                 'case "$1" in env) [ "$2" = GOBIN ] && echo "${GOBIN:-${FAKE_GO_ENV_GOBIN:-}}"; exit 0 ;; install) ;; *) exit 0 ;; esac\n'
+                 'echo "GOMODCACHE=${GOMODCACHE-unset} GOCACHE=${GOCACHE-unset}" >>"$SHIM_LOG.go"\n'
+                 'd="${GOBIN:-$HOME/go/bin}"; mkdir -p "$d" && printf "#!/bin/sh\\n" >"$d/gopls" && chmod +x "$d/gopls"')
 
 
 def test_gopls_comes_from_go_install_when_the_formula_would_pull_in_homebrews_go(tmp_path):
@@ -220,12 +248,28 @@ def test_gopls_comes_from_go_install_when_the_formula_would_pull_in_homebrews_go
     s.brew(BREW_GOPLS_INFO=GOPLS_INFO, BREW_GOPLS_DEPS="go")
     go = go_pkg(e, s)
     s.receipts("org.golang.go")
-    rc, out, err = e.run("GO", **s.env)
+    sandbox = e.home / ".cache" / "claude-sandbox"
+    rc, out, err = e.run("GO", GOMODCACHE=str(sandbox / "go" / "mod"), GOCACHE=str(sandbox / "go" / "build"), **s.env)
     assert rc == 0, err
     assert e.calls("brew", "install") == [], out
-    assert e.argv("go") == ["install golang.org/x/tools/gopls@v0.23.0"]
+    assert e.argv("go") == ["env GOBIN", "install golang.org/x/tools/gopls@v0.23.0"]
     assert "  gopls: Homebrew's formula would bring in Homebrew's go; gopls comes from go install with your go (%s)" % go in out
     assert re.search(r"^  \+ gopls \(%s install golang\.org/x/tools/gopls@v0\.23\.0 " % re.escape(str(go)), out, re.M), out
+    # no GOBIN anywhere: ~/.local/bin (on PATH), not go's ~/go/bin; the sandbox's caches never reach go
+    assert (e.home / ".local" / "bin" / "gopls").is_file() and not (e.home / "go").exists()
+    assert Path(str(e.log) + ".go").read_text() == "GOMODCACHE=unset GOCACHE=unset\n"
+
+
+def test_gopls_from_go_install_goes_to_your_gobin(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew(BREW_GOPLS_INFO=GOPLS_INFO, BREW_GOPLS_DEPS="go")
+    go_pkg(e, s)
+    s.receipts("org.golang.go")
+    mine = e.home / "bin-go"                                   # `go env -w GOBIN=...`, on the user's PATH
+    rc, out, err = e.run("GO", FAKE_GO_ENV_GOBIN=str(mine), PATH="%s:%s:/usr/bin:/bin" % (e.bin, mine), **s.env)
+    assert rc == 0, err
+    assert re.search(r"^  \+ gopls \(", out, re.M), out
+    assert (mine / "gopls").is_file() and not (e.home / ".local" / "bin" / "gopls").exists()
 
 
 def test_gopls_without_a_bottle_for_this_macos_also_goes_through_go_install(tmp_path):
@@ -312,6 +356,16 @@ def test_jdks_outside_the_two_dirs_count_and_the_newest_one_is_named(tmp_path):
     rc, out, _ = e.run("JAVA", tty="1", **s.env)
     assert e.calls("brew", "install") == [] and "WARN" not in out, out
     assert "  skip oracle-jdk (found: %s, from sdkman)" % sdk in lines(out)
+
+
+def test_java_8_alone_counts_as_8(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    e.present("kotlin-lsp")
+    home = jdk(e.jvm / "zulu-8.jdk" / "Contents" / "Home", "1.8.0_392")
+    rc, out, _ = e.run("JAVA", tty="1", **s.env)
+    assert e.calls("brew", "install") == [], out
+    assert "  WARN oracle-jdk: JDK 8 at %s is older than the 27" % home in out, out
 
 
 def test_java_home_and_homebrews_openjdk_count(tmp_path):

@@ -128,7 +128,7 @@ class Env:
         p.write_bytes(data if isinstance(data, bytes) else data.encode())
         return p
 
-    def run(self, *groups, mode="install", tty="0", args=("all",), script=SCRIPT, **extra):
+    def run(self, *groups, mode="install", tty="0", args=("all",), script=SCRIPT, cwd=None, **extra):
         env = {"HOME": str(self.home), "PATH": "%s:/usr/bin:/bin" % self.bin, "SHIM_LOG": str(self.log),
                "TMPDIR": str(self.tmp), "SERVE_DIR": str(self.serve), "BREW_STATE": str(self.state),
                "DEVTOOLS_BREW_CANDIDATES": "", "DEVTOOLS_JAVA_HOME_TOOL": "",
@@ -143,7 +143,8 @@ class Env:
         if tty == "1":
             env[TTY_FN_NAME] = TTY_FN
         env.update(extra)
-        p = subprocess.run(["bash", str(script)] + list(args), env=env, capture_output=True, text=True, timeout=120)
+        p = subprocess.run(["bash", str(script)] + list(args), env=env, capture_output=True, text=True, timeout=120,
+                           cwd=cwd)
         return p.returncode, p.stdout, p.stderr
 
     def calls(self, name=None, sub=None):
@@ -1295,3 +1296,19 @@ def test_install_sh_own_tools_follow_the_skip_rule():
     assert 'if serial_mcp_current; then note "skip serial-mcp (found: ' in t
     assert "ghcup rm" not in t and "ghcup rm" not in "\n".join(l for l in SRC.splitlines() if not l.lstrip().startswith("#")
                                                              and "fix_for" not in l and "printf 'ghcup rm" not in l)
+
+
+def test_sandbox_writable_dirs_never_count_as_found(tmp_path):
+    """What sandboxed agents can write (the project, its bin, ~/.cache/claude-sandbox, $TMPDIR) is never
+    a place a tool is "found": a planted binary there would skip the real install and join the run's PATH."""
+    e = Env(tmp_path)
+    repo = tmp_path / "repo"
+    sandbox = e.home / ".cache" / "claude-sandbox"
+    planted = [repo, repo / "bin", sandbox / "bin", sandbox / "go" / "bin", sandbox / "cargo" / "bin", e.tmp]
+    for d in planted:
+        e.shim("gitleaks", where=d)
+    rc, out, err = e.run(args=("where", "gitleaks"), cwd=repo,
+                         PATH="%s:.:bin::/usr/bin:/bin" % e.bin,                # relative and empty entries
+                         CARGO_HOME=str(sandbox / "cargo"), GOPATH=str(sandbox / "go"), XDG_CACHE_HOME=str(sandbox))
+    assert rc == 1 and out == "", (rc, out, err)
+    assert e.calls("gitleaks") == []

@@ -41,7 +41,8 @@
 # Coursier's, ~/go/bin, mise/asdf/nix shims, ~/.nvm/versions/node/*/bin, /opt/homebrew/bin
 # /usr/local/bin /opt/local/bin, /usr/local/go/bin, /Library/TeX/texbin, /usr/local/texlive/*/bin/*);
 # brew list; for the tools in DETECT_ROWS their apps (/Applications, ~/Applications,
-# /Applications/Utilities, then Spotlight by bundle id; CLIs inside the bundle) and their .pkg receipts
+# /Applications/Utilities, then Spotlight by bundle id, never a hit elsewhere under HOME; CLIs inside
+# the bundle) and their .pkg receipts
 # (`pkgutil --pkgs`, read once); the JDK, TeX and Playwright paths. Found = "skip <tool> (found:
 # <path>, from brew|app|pkg|<manager>|macOS|PATH)": never installed, upgraded, replaced or removed.
 # A found tool that fails `--version` (or a receipt whose files are gone) gets a WARN line with the
@@ -295,6 +296,9 @@ find_app(){ # find_app ROWNAME: FOUND = one of its commands inside an app bundle
   if [ "$ids" != - ] && [ -n "$MDFIND" ] && [ -x "$MDFIND" ]; then  # an app elsewhere (Spotlight; silent when off)
     for id in $(printf '%s' "$ids" | tr ',' ' '); do
       while IFS= read -r a; do
+        # a Spotlight hit elsewhere under HOME (a project, ~/Downloads) does not count: sandboxed
+        # agents can write the projects, and a planted bundle would join this run's PATH
+        case "$a" in "$HOME"/Applications/*) ;; "$HOME"/*) continue ;; esac
         # shellcheck disable=SC2086
         [ -n "$a" ] && [ -d "$a" ] && app_cli "$a" "$subs" $cmds && return 0
       done <<EOF_MD
@@ -628,13 +632,20 @@ gopls_route(){ # gopls_route GO
   fi
 }
 chk_gopls(){ find_cmd gopls; }
+# Into your GOBIN (`go env GOBIN`: the variable or `go env -w`), else ~/.local/bin, which is on PATH;
+# go's own default, $(go env GOPATH)/bin = ~/go/bin, is often on no PATH. The sandbox's GOMODCACHE and
+# GOCACHE, if inherited, would build it from ~/.cache/claude-sandbox, which sandboxed agents can write.
+go_u(){ env -u GOMODCACHE -u GOCACHE "$@" </dev/null; }
 inst_gopls_go(){
+  local gobin
   [ -n "$GOPLS_VER" ] || { echo "the gopls formula's version is unknown (brew info --formula gopls)"; return 1; }
-  "$GOPLS_GO" install "golang.org/x/tools/gopls@v$GOPLS_VER"   # into \$(go env GOPATH)/bin, ~/go/bin by default
+  gobin="$(go_u "$GOPLS_GO" env GOBIN 2>/dev/null)"
+  [ -n "$gobin" ] || gobin="$LOCAL_BIN"
+  mkdir -p "$gobin" && go_u GOBIN="$gobin" "$GOPLS_GO" install "golang.org/x/tools/gopls@v$GOPLS_VER"
 }
 gopls_step(){
   [ -n "$GOPLS_GO" ] || return 0
-  ensure gopls 0 chk_gopls "$GOPLS_GO install golang.org/x/tools/gopls@v${GOPLS_VER:-?} (your go; the Go module proxy's checksum database verifies it)" inst_gopls_go
+  ensure gopls 0 chk_gopls "$GOPLS_GO install golang.org/x/tools/gopls@v${GOPLS_VER:-?} (your go, into your GOBIN, else ~/.local/bin; the Go module proxy's checksum database verifies it)" inst_gopls_go
 }
 item_label(){ case "$1" in elan-init) echo elan ;; *) echo "${1##*/}" ;; esac; }
 ELAN_VIA_BREW=0    # elan-init joined the batch: its fresh elan gets the stable toolchain in step 3
