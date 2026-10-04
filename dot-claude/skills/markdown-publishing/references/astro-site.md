@@ -95,8 +95,7 @@ Astro 7 specifics and pitfalls:
   documented rule (`.astro-code, .astro-code span { color: var(--shiki-dark) !important; … }` inside
   `prefers-color-scheme: dark` or a theme class). `defaultColor: false` removes the inline default so both themes
   come from your CSS. `<Code />` from `astro:components` highlights code inside `.astro` files.
-- Mermaid: build-time `rehype-mermaid` (`[rehypeMermaid, {strategy: 'img-svg', dark: true}]` inside `unified()`;
-  needs `playwright` and `npx playwright install chromium`), or ship `mermaid` client-side for `<pre class="mermaid">`.
+- Mermaid rendering and embedding (build-time `rehype-mermaid` or client-side `mermaid`): `diagrams-as-code`.
 - MDX: `import` components at the top of the `.mdx` file; map Markdown elements with
   `<Content components={{ h2: MyHeading }} />`; `<Image>`/`<Picture>` work in MDX, not in `.md`.
 - Images: `![alt](./x.png)` in `src/` is optimized and gets `srcset`, `sizes`, width/height, lazy loading;
