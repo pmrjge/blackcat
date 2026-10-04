@@ -53,9 +53,12 @@ def rows(st, root):
 
     def walk(n, parent):
         for c in n.children:
-            if not c.placeholder or c.id:
-                out.append((c, parent, c.depth))
-            walk(c, c.id or parent)
+            if not c.placeholder or c.reg:          # a placeholder the registry does not know is no agent
+                dep, par = c.reg.get("depth"), c.reg.get("parent")
+                dep = dep if isinstance(dep, int) and not isinstance(dep, bool) and 0 < dep < 64 else c.depth
+                par = st.ident(par) if isinstance(par, str) and st.ident(par) else parent
+                out.append((c, par, dep))           # the registry's layer and parent win: a lost spawn record
+            walk(c, c.id or parent)                 # moves a node in the tree, not in the session
     walk(root, "main")
     return out
 
@@ -87,7 +90,7 @@ def line(r):
 def matches(r, opts):
     if opts.running and r["state"] not in ("running", "launching"):
         return False
-    if opts.finished and r["state"] in ("running", "launching"):
+    if opts.finished and r["state"] not in ("finished", "failed", "stopped"):
         return False
     if opts.type and r["type"] != opts.type:
         return False

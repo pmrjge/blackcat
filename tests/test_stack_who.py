@@ -155,3 +155,22 @@ def test_caps_hold(fx):
     task = row.split(' · "', 1)[1][:-1]
     assert task == "Q" * 89 + "…"                              # TASK_CAP 90: 89 characters and the ellipsis
     assert len(json.loads(who(fx, "--max", "500", "--json").stdout)["matches"]) == 200
+
+
+def test_layer_from_registry_when_a_spawn_is_lost(fx):
+    # alost's spawn record is lost and so is its parent's; the registry still knows its depth and parent
+    fx.agent("alost00008", "coder", parent="aghost00009", stopped=False, depth=3)
+    rows = body(who(fx))[1]
+    row = [r for r in rows if r.startswith("alost00008 ")][0]
+    assert " · coder · running · L3 · parent aghost00009 · " in row
+    assert not [r for r in rows if r.startswith("aghost00009 ")]       # an unknown parent is no agent
+    # once the registry knows the parent it is an agent like any other
+    fx.agent("aghost00009", "main-coder", parent="main", stopped=False, depth=1)
+    rows = body(who(fx))[1]
+    assert [r for r in rows if r.startswith("aghost00009 ")]
+    assert "aghost00009" not in who(fx, "--finished").stdout
+    # a spawn record naming the wrong caller moves the node in the tree; the registry's parent and depth win
+    fx.spawn("t9", "main", "verifier", "Re-run the suite", child="adrift00010", ts=fx.t0 + 7)
+    fx.agent("adrift00010", "verifier", parent="aorch000001", stopped=False, depth=2)
+    row = body(who(fx, "--type", "verifier"))[1][0]
+    assert " · verifier · running · L2 · parent aorch000001 · " in row
