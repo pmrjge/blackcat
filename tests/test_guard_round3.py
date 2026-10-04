@@ -361,7 +361,7 @@ def test_supply_diff_covers_everything_the_install_ships():
                 if any(p == x or p.startswith(x + "/") for x in excluded)]          # nothing read from there
     # every repo path install.sh reads ("$HERE/<path>") lies under a supply path
     shipped = set(re.findall(r'"\$HERE/([A-Za-z0-9_./-]+)', text)) | {"dot-claude"}
-    shipped = {p.rstrip("/") for p in shipped if p.split("/", 1)[0] not in {"tests", ".git", "legacy"}}
+    shipped = {p.rstrip("/") for p in shipped if p.split("/", 1)[0] not in {"tests", ".git"}}
     shipped.discard("lib/stack_diff.py")    # read only by the read-only --diff mode: it builds nothing
     tracked = set(subprocess.run(["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True,
                                  check=True).stdout.split())

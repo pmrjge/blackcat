@@ -69,9 +69,7 @@ def test_model_id_regex_catches_new_and_old_style_ids_only():
 def test_model_ids_only_in_the_allowed_places(tmp_path):
     (tmp_path / "lib").mkdir()
     (tmp_path / "lib" / "stack.env.example").write_text("ANTHROPIC_DEFAULT_OPUS_MODEL=claude-opus-5-5\n")
-    (tmp_path / "install.sh").write_text('OLD_DEFAULTS = {"X": {"claude-sonnet-5"}}\nY="claude-3-opus-20240229"\n')
-    (tmp_path / "legacy" / "v").mkdir(parents=True)
-    (tmp_path / "legacy" / "v" / "a.md").write_text("model: claude-opus-5-5\n")
+    (tmp_path / "install.sh").write_text('X = 1\nY="claude-3-opus-20240229"\n')
     (tmp_path / "README.md").write_text("pins claude-3-5-sonnet-20241022\nmodel: opus\n")
     assert sorted(lint_agents.check_model_ids(tmp_path)) == ["README.md:1", "install.sh:2"]
 

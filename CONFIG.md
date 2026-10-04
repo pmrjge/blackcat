@@ -37,7 +37,7 @@ Code 2.1.284. Turn counts were measured from this machine's transcripts.
   - `install.sh` copies the non-empty ones into the `env` block of `~/.claude/settings.json`. Re-run it after a change.
   - Upgrading appends the missing variables to your `stack.env`, set to the stack's IDs. A key already in the file, even commented out, is left as you wrote it.
   - A value you set in `settings.json` yourself is kept, and the installer reports it.
-  - Lint fails on a specific ID (`claude-<family>-<version>`) anywhere else. The exceptions are the installer's `OLD_DEFAULTS` migration list, doctor's `MEASURED_MODELS` record, the lint's own test vectors (`tests/test_lint_skills.py`) and `legacy/` (byte-exact templates of a released version that the installer recognises on upgrade; none kept today).
+  - Lint fails on a specific ID (`claude-<family>-<version>`) anywhere else. The exceptions are doctor's `MEASURED_MODELS` record and the lint's own test vectors (`tests/test_lint_skills.py`).
 - **Frontmatter can't name a variable.** The subagent docs list only aliases, full IDs and `inherit` for `model:`, and say nothing about expanding `$VAR`. So agents name the alias, and Claude Code resolves it.
 - **Where it resolves** (code.claude.com/docs/en/model-config and sub-agents, checked 2026-10-02):
   - The variables set what `opus`, `sonnet` and `haiku` resolve to. The `haiku` one also sets Claude Code's background work.
@@ -453,6 +453,8 @@ Phase 1 of the hand-back protocol is behaviour-neutral: in the default mode `obs
 
 `lib/install_state.py` does the staging, plan, backup, apply, restore and validation (system `python3`, stdlib only).
 
+**Upgrading from an older install.** An install older than commit `4286278` (2026-10-04) upgrades through that commit first: the installer no longer migrates older layouts (the stack's rules in `CLAUDE.md`, the renamed `senior-coder` and `router` agents and `ROUTER_*` knobs, files, catalog entries, permission rules, env values and sandbox dirs from before the manifest recorded them, backups kept inside the config dir, the `set -a` profile line, the Context7 and old Exa entries, retired `stack.env` keys). From a throwaway clone: `git clone -q . /tmp/cas-4286278 && git -C /tmp/cas-4286278 switch -qC main 4286278 && /tmp/cas-4286278/install.sh`, then `./install.sh` here, then `rm -rf /tmp/cas-4286278`.
+
 ### Hook interpreter: `stack-python` and the launcher (2026-10-04)
 
 - **Command shape.** Every Python hook in `settings.json` (and blackcat.md's) runs `/bin/sh "<config>/bin/stack-hook" [--fail-closed] <module> [args]`, modules `agent_guard`, `stack_usage`, `read_gate`, `web_caps`. `bin/stack-hook` (POSIX sh) finds the interpreter without starting a Python: `$STACK_PYTHON`, `${CLAUDE_CONFIG_DIR:-~/.claude}/bin/stack-python`, the `stack-python` beside the launcher, then `uv python find --system --managed-python --no-project --no-config 3.13` (never a project's `.venv`, `VIRTUAL_ENV` or `uv.toml`), and execs `hooks/stack_hook.py`, which imports the module so its bytecode in `hooks/__pycache__` is reused. The status line and `/stack-tree`'s hook run `"<config>/bin/stack-python" ...` directly.
@@ -488,9 +490,9 @@ Phase 1 of the hand-back protocol is behaviour-neutral: in the default mode `obs
 | What | Default | `--no-prune` |
 |---|---|---|
 | `agents/`, `skills/` (stack-owned) | files of other origins, renamed agents (`senior-coder` → `main-coder`, `router` → `blackcat`), stale renders removed; edited stack files replaced | kept, listed as notes; an edited stack file keeps your version and gets `<file>.new` (`--force` replaces it; `--write-through-links` doesn't) |
-| `hooks/`, `bin/`, `mcp/`, `rules/` | stack files it no longer ships (manifest or a legacy list) removed; your own files stay | kept |
+| `hooks/`, `bin/`, `mcp/`, `rules/` | stack files it no longer ships (manifest) removed; your own files stay | kept |
 | magg catalog | edited stack entries replaced, entries it no longer ships removed; your servers stay | kept |
-| MCP (user scope) | entries it registered and no longer ships (and Context7) removed via `claude mcp remove`, recorded in the backup | kept |
+| MCP (user scope) | entries it registered and no longer ships removed via `claude mcp remove`, recorded in the backup | kept |
 | `settings.json` | duplicate hooks and permission rules, old guard hooks (any path) and hooks on events it no longer wires removed, each hook entry listed; your own hooks sharing a group with the guard stay; sandbox merged (stack scalars win, lists unioned) | the same |
 | temp leftovers, `.new` of files back in sync | removed | removed |
 
@@ -510,7 +512,6 @@ The manifest (`.stack-manifest.json`) lists every stack file as relpath + sha256
 - Location: `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack-backups/<timestamp>-<random>/`. The folder is 0700, files are 0600, and `backup.json` holds the entries, added files, removed or replaced MCP entries, disabled plugins and rc copies.
 - The backups sit beside the guard's state dir, not inside it (the guard deletes state folders idle for three days).
 - Agents can't reach them: `Read`/`Edit` deny rules, sandbox `denyRead`/`denyWrite` and a guard protected path.
-- Backups that earlier versions kept inside the config dir (`backup-*`, with copies of `stack.env`) are moved to `<backups>/legacy/` on every run.
 - `./install.sh --restore [DIR]` (default: the latest install backup) puts back files, rc files, MCP entries and plugins. It works as a staged plan, backs up the current state first and prints `undo this restore: ...`. `--restore --dry-run` only prints the plan.
 - A `backup.json` naming paths outside the config scope is refused. rc restores are limited to `~/.zshrc` and `~/.bashrc`.
 - More than ten backups of one config dir: the run says so; it never deletes one.
@@ -856,6 +857,9 @@ outside the sandbox pass `--store-dir ~/.cache/claude-sandbox/pnpm-store` and
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-04 (installer: legacy-version migrations removed)
+- User decision: `install.sh` drops the migrations for installs older than commit `4286278`: the stack's old rules in `CLAUDE.md` (`claude_md_migrated`), the `legacy/<version>/` template matchers (`legacy_renders`, `template_copy`, `pure_stack_copy`, `is_legacy_safe_overwrite`, "overwritten (legacy)", "refreshed"), the `senior-coder`/`router` renames and the `ROUTER_*` knob moves (`RENAMED_ENV`, `OLD_DEFAULTS`, `OLD_SET_IF_ABSENT`), the pre-manifest lists `LEGACY_MAGG`, `LEGACY_SCRIPTS`, `RETIRED_PERMISSIONS`, `RETIRED_ENV` and the R3-CACHES `allowWrite` default, `router-guard.sh` in the stack-hook pattern, the in-config `backup-*` move (`install_state.py legacy-backups`), the `set -a` profile line's `STACK_EXPORT` migration, the Exa `OLD_URLS` and Context7 removals, and the retired `stack.env` keys (`LUMENFALL_API_KEY`, `OPPER_IMAGE_MODEL`, `OPPER_IMAGE_OUT_DIR`: their `REWORD` entries and "delete that line" notes; the comment rewording stays). Manifest-driven retraction (what the last install shipped and this one doesn't), the value checks (`[1m]` pins, `CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION`, `CLAUDE_CODE_SUBAGENT_MODEL`/`_FORCE`, `CLAUDE_CODE_EFFORT_LEVEL`) and the `defaultMode` record stay. `doctor.sh` drops its `senior-coder`/`router` and old-`CLAUDE.md` warnings; the model-ID lint drops its `OLD_DEFAULTS` and `legacy/` exceptions. Upgrading an older install: §7 "How an install runs". Tests: `tests/fixtures/legacy-release` and the smoke cases built on it (CLAUDE.md migration, renames, legacy magg and script lists, in-config backups, `STACK_EXPORT`, retired keys) are gone.
 
 ### 2026-10-04 (supreme-coder retired: ninja-coder is the top tier)
 - User decision: supreme-coder and its launcher `claude-supreme` are removed; ninja-coder takes its place at the top of coder < main-coder < ninja-coder. Gone from `agent_guard.py`: the agent type and its `POLICY` row, the lock (`supreme-coder.lock`, the `supreme` mutex, pending/running/resumed leases, the idle and TTL reclaim), the once-per-session marker (`supreme-coder.spawned`), the after-ninja rule, the knobs `SUPREME_SPAWNERS`, `SUPREME_ONCE_PER_SESSION`, `SUPREME_AFTER_NINJA`, `SUPREME_PENDING_TTL_S`, `SUPREME_IDLE_S` (settings.json), `SUPREME_LOCK_TTL_S`, and the `SUPREME_` fixed-guard prefix in `stack_limits.py`; its fan-out entry (`supreme-coder=6`), soft limit, limits seed, effort-table row, scheduler-model entry and `stack_sched` caps. `stack_fanout.CHAIN` ends at ninja-coder and `STACK_FANOUT_DYN_NODE_RUNS` defaults to 6 (two runs each of coder, main-coder, ninja-coder). Escalations that named it (`NEXT: supreme-coder`, the planner's conditional step, plan-reviewer's check 8, the orchestrator's once-per-session spawn, BlackCat's routing of a ninja-coder failure or a near-impossible problem) now end at ninja-coder. `install.sh` links only `claude-ninja`; `doctor.sh` warns on a leftover `agents/supreme-coder.md` (`--no-prune`) and on an old `~/.local/bin/claude-supreme` link (remove it by hand); such a link now exits 2 with a retirement line instead of taking its first argument as the agent (`tests/test_ultracode_launcher.py`). 54 → 53 agent files. Older entries below keep the name as it was.

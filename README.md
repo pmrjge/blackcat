@@ -1045,6 +1045,8 @@ git pull --ff-only                # in your checkout, on main
 
 Then quit every Claude Code session and start new ones. A changed stack asks before it applies anything (`--yes` skips the question; without a terminal it stops). Your `stack.env` is kept; new variables are appended commented out.
 
+An install older than commit `4286278` (2026-10-04) upgrades through that commit first: the installer no longer migrates older layouts (the stack's rules in `CLAUDE.md`, the renamed `senior-coder` and `router` agents and `ROUTER_*` knobs, files, catalog entries, permission rules, env values and sandbox dirs from before the manifest recorded them, backups kept inside the config dir, the `set -a` profile line, the Context7 and old Exa entries, retired `stack.env` keys). From a throwaway clone: `git clone -q . /tmp/cas-4286278 && git -C /tmp/cas-4286278 switch -qC main 4286278 && /tmp/cas-4286278/install.sh`, then `./install.sh` here, then `rm -rf /tmp/cas-4286278`.
+
 ### Backup, restore and uninstall
 
 Every run that changes something saves what it changes or removes into one backup,
@@ -1347,7 +1349,7 @@ embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The
 | tandemai mcp-rdkit | repository gone |
 | Flux159 mcp-server-kubernetes | its non-destructive mode still writes |
 | unlicensed SLURM servers | no licence |
-| Context7 | replaced by libdocs; the installer removes it |
+| Context7 | replaced by libdocs; the installer names a leftover entry (`claude mcp remove -s user <name>`) |
 
 </details>
 

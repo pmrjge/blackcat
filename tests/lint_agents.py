@@ -36,10 +36,8 @@ VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 STACK_MODELS = {"opus", "sonnet"}
 # A specific Claude model ID (claude-<family>-<version>[-<date>]). Allowed only in the
 # places below: lib/stack.env.example (the single source), PREVIOUS_GIT_COMMITS.md (the pre-publication
-# history, quoted as committed), the installer's migration list of old IDs
-# (the OLD_DEFAULTS line), the record of the models the token limits were measured on (doctor.sh's
-# MEASURED_MODELS line), and legacy/ (byte-exact templates of released versions the installer
-# recognizes on upgrade; none kept today, install.sh still reads one). Untracked files and anything
+# history, quoted as committed) and the record of the models the token limits were measured on
+# (doctor.sh's MEASURED_MODELS line). Untracked files and anything
 # under .claude-work/ (agents' scratch, some of it force-committed) are not scanned.
 # new style (claude-<family>-<n>...) and old style (claude-<n>[-<n>]-<family>-<date or latest>)
 MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(?:opus|sonnet|haiku))")
@@ -47,12 +45,10 @@ MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(
 # effort levels (Claude Code's own checks), and its test's vectors
 MODEL_ID_FILES = {"lib/stack.env.example", "tests/test_lint_skills.py", "dot-claude/hooks/agent_effort.json",
                   "tests/test_override_agent.py", "PREVIOUS_GIT_COMMITS.md"}
-MODEL_ID_DIRS = ("legacy/",)
 # the usage/limits/budget tests: synthetic transcript model IDs and the model matcher's vectors, on
 # module-level constant lines only (NAME[, NAME...] = "...")
 MODEL_ID_CONST = re.compile(r'^[A-Z][A-Z0-9_]*(?:, [A-Z][A-Z0-9_]*)* = "')
-MODEL_ID_LINES = {"install.sh": re.compile(r"^OLD_DEFAULTS = "),
-                  "dot-claude/bin/doctor.sh": re.compile(r'^MEASURED_MODELS="'),
+MODEL_ID_LINES = {"dot-claude/bin/doctor.sh": re.compile(r'^MEASURED_MODELS="'),
                   "tests/test_stack_usage.py": MODEL_ID_CONST, "tests/test_stack_limits.py": MODEL_ID_CONST,
                   "tests/test_stack_budget.py": MODEL_ID_CONST}
 VALID_MEMORY = {"user", "project", "local"}
@@ -601,7 +597,7 @@ def check_model_ids(root=REPO_ROOT):
                  if p.is_file() and ".git" not in p.relative_to(root).parts]
     found = []
     for rel in filter(None, files):
-        if under_work_dir(rel, root) or rel in MODEL_ID_FILES or rel.startswith(MODEL_ID_DIRS):
+        if under_work_dir(rel, root) or rel in MODEL_ID_FILES:
             continue
         try:
             text = (root / rel).read_text(encoding="utf-8")

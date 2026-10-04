@@ -476,14 +476,10 @@ echo "== 4. Settings merge: pins, concurrency, compaction overrides; magg catalo
 T2="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
 export FAKE_CLAUDE_JSON="$T2/fake-claude.json" STACK_CLAUDE_JSON="$T2/fake-claude.json"
 mkdir -p "$T2/magg"
-# docling edited by the user (replaced: the backup keeps it), a server of their own (kept), and two
-# entries exactly as an earlier stack version shipped them (mlflow disabled, playwright left enabled
-# by magg): updated.
+# docling edited by the user (replaced: the backup keeps it) and a server of their own (kept).
 cat > "$T2/magg/config.json" <<'JSON'
 {"servers": {"docling": {"source": "x", "command": "my-docling", "enabled": true},
-             "mine": {"source": "y", "command": "my-server", "enabled": true},
-             "mlflow": {"source": "https://mlflow.org/docs/latest/genai/mcp/", "prefix": "mlflow", "command": "uv", "args": ["run", "--with", "mlflow[mcp]>=3.5.1", "mlflow", "mcp", "run"], "notes": "MLflow trace search and management for LLM/agent evaluation. Needs MLFLOW_TRACKING_URI in stack.env (e.g. http://127.0.0.1:5000 or a file:// store).", "enabled": false},
-             "playwright": {"source": "https://github.com/microsoft/playwright-mcp", "prefix": "pw", "command": "npx", "args": ["-y", "@playwright/mcp@latest"], "notes": "Scripted browser automation (forms, logins, JS-heavy pages) when WebFetch/Jina/Spider are not enough."}}}
+             "mine": {"source": "y", "command": "my-server", "enabled": true}}}
 JSON
 CLAUDE_CONFIG_DIR="$T2" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T2/.install.log" 2>&1
 B4="$(latest_backup "$T2")"
@@ -504,19 +500,9 @@ env["DISABLE_AUTO_COMPACT"] = "1"
 env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "200000"
 s["autoCompactWindow"] = 300000                   # the earlier stack value
 s["permissions"]["allow"].append("Bash(ls *)")
-s["permissions"]["allow"].append("mcp__magg")      # what earlier stack versions shipped
 s["permissions"]["allow"].remove("mcp__lean")      # an install from before the lean/mobilebuild/computer-use allows
 s["permissions"]["ask"].append("mcp__mobilebuild") # the user's own rule: keep prompting for that server
-s["permissions"]["deny"].append("Read(**/.env.*)")
-env["ENABLE_TOOL_SEARCH"] = "true"
 json.dump(s, open(p, "w"), indent=2)
-PY
-python3 - "$T2/.stack-manifest.json" <<'PY'
-import json, sys
-m = json.load(open(sys.argv[1]))
-for k in ("settings_env", "settings_permissions", "settings_set_if_absent"):
-    m.pop(k, None)                                   # an install from before these were recorded
-json.dump(m, open(sys.argv[1], "w"), indent=2)
 PY
 CLAUDE_CONFIG_DIR="$T2" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T2/.install2.log" 2>&1
 python3 - "$T2/settings.json" "$HERE/dot-claude/settings.json" "$T2/magg/config.json" <<'PY'
@@ -559,15 +545,6 @@ check(m["docling"]["command"] != "my-docling" and m["docling"]["enabled"] is Fal
       "magg: docling %r, mine %r" % (m["docling"], m.get("mine")))
 check(all(k in m for k in ("duckdb", "arxiv", "jupyter", "mlflow", "playwright", "lean")),
       "magg: new catalog entries added", "magg: catalog entries missing: %s" % sorted(m))
-check("--no-project" in m["mlflow"]["args"] and m["mlflow"]["enabled"] is False,
-      "magg: untouched legacy mlflow entry updated (state kept)", "magg: mlflow entry %r" % m["mlflow"])
-check("--isolated" in m["playwright"]["args"] and m["playwright"]["enabled"] is False,
-      "magg: legacy playwright updated and disabled again", "magg: playwright entry %r" % m["playwright"])
-check("ENABLE_TOOL_SEARCH" not in env, "old ENABLE_TOOL_SEARCH=true retracted", "ENABLE_TOOL_SEARCH kept: %r" % env.get("ENABLE_TOOL_SEARCH"))
-check("Read(**/.env.*)" not in s["permissions"]["deny"] and "Read(**/.env.local)" in s["permissions"]["deny"],
-      "old Read(**/.env.*) deny retracted (narrower rules shipped)", "Read(**/.env.*) still denied")
-check("mcp__magg" not in s["permissions"]["allow"] and "mcp__magg__magg_list_servers" in s["permissions"]["allow"],
-      "retired blanket mcp__magg allow rule retracted", "blanket mcp__magg still allowed")
 sys.exit(0 if ok else 1)
 PY
 [ $? -eq 0 ] && pass "settings/magg merge block" || failed "settings/magg merge block (see messages above)"
@@ -796,12 +773,6 @@ printf '%s' \"\$HF_TOKEN\"")
 out=$(env -i HOME="$T4" PATH="$PATH" bash -c "$rcline
 printf '%s' \"\${EXA_API_KEY:-unset}\"")
 [ "$out" = unset ] && pass "profile line exports only the CLI keys (EXA_API_KEY stays out of the shell)" || failed "profile line exported EXA_API_KEY"
-out=$(env -i HOME="$T4" PATH="$PATH" bash -c "$rcline
-printf '%s' \"\${OPENAI_API_KEY:-unset}\"")
-[ "$out" = sk-mine-123 ] && grep -q '^STACK_EXPORT=".*OPENAI_API_KEY"$' "$T4/.claude/stack.env" \
-  && pass "upgrade from the set -a line: your own stack.env variables stay exported (STACK_EXPORT)" || failed "own variable no longer exported: [$out]"
-! grep -q '^STACK_EXPORT=.*MY_DIR' "$T4/.claude/stack.env" && grep -q 'MY_DIR use \$VAR expansion' "$T4/.install.log" \
-  && pass "a \$VAR value is not claimed as exported; the installer says to move it" || failed "\$VAR value handling in the STACK_EXPORT migration"
 python3 - "$FAKE_CLAUDE_JSON" <<'PY' && pass "a user's own headersHelper is kept" || failed "the user's own headersHelper was replaced"
 import json, sys
 sys.exit(0 if json.load(open(sys.argv[1]))["mcpServers"]["jina"].get("headersHelper") == "/opt/op/jina-headers" else 1)
@@ -849,18 +820,17 @@ PY
 grep -q "Olá" "$T4/dotfiles/settings.json" && pass "non-ASCII kept as-is" || failed "non-ASCII re-escaped"
 HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" "$INSTALL" --no-mcp --no-plugins --no-deps >/dev/null 2>&1
 [ "$(grep -c '# claude-agent-stack$' "$T4/.zshrc")" = 1 ] && pass "third run: still one rc line" || failed "rc line duplicated"
-# the upgrade from the set -a profile line rewrites stack.env (STACK_EXPORT) and the rc file: a
-# restore puts both back exactly
+# an old profile line is rewritten (the rc file is backed up): a restore puts it back exactly
 T4R="$(scratch_dir)" || exit 1
 printf 'export EDITOR=vi\n[ -f "/old/.claude/stack.env" ] && { set -a; . "/old/.claude/stack.env"; set +a; }  # claude-agent-stack\n' > "$T4R/.zshrc"
 mkdir -p "$T4R/.claude"; { cat "$HERE/lib/stack.env.example"; echo 'OPENAI_API_KEY=sk-mine-123'; } > "$T4R/.claude/stack.env"; chmod 600 "$T4R/.claude/stack.env"
 cp -p "$T4R/.zshrc" "$T4R/zshrc.before"; cp -p "$T4R/.claude/stack.env" "$T4R/env.before"
 HOME="$T4R" FAKE_CLAUDE_JSON="$T4R/f.json" STACK_CLAUDE_JSON="$T4R/f.json" CLAUDE_CONFIG_DIR="$T4R/.claude" "$INSTALL" --no-mcp --no-plugins --no-deps >"$T4R/i.log" 2>&1
-grep -q '^STACK_EXPORT=' "$T4R/.claude/stack.env" && ! cmp -s "$T4R/.zshrc" "$T4R/zshrc.before" \
+! cmp -s "$T4R/.zshrc" "$T4R/zshrc.before" \
   && HOME="$T4R" CLAUDE_CONFIG_DIR="$T4R/.claude" "$INSTALL" --restore latest >"$T4R/r.log" 2>&1 \
   && cmp -s "$T4R/.zshrc" "$T4R/zshrc.before" && cmp -s "$T4R/.claude/stack.env" "$T4R/env.before" \
   && [ -z "$(ls -A "$T4R/.claude/agents" 2>/dev/null)" ] \
-  && pass "--restore undoes the profile upgrade: rc file and stack.env byte-identical again, stack files gone" \
+  && pass "--restore undoes the profile line rewrite: rc file and stack.env byte-identical again, stack files gone" \
   || { failed "restore after the profile upgrade"; tail -n 8 "$T4R/r.log" | sed 's/^/    /'; }
 drop_scratch "$T4R"
 # fresh CLAUDE_CONFIG_DIR without STACK_CLAUDE_JSON: the plan must read <dir>/.claude.json even before it exists
@@ -929,37 +899,13 @@ if bad:
 sys.exit(1 if bad else 0)
 PY
 drop_scratch "$T16"
-printf '# an old install\n' > "$T5/c/mcp/opper_image_mcp.py"
-printf '# an old install\n' > "$T5/c/mcp/openrouter_image_mcp.py"
-FAKE_CLAUDE_JSON="$T5/f.json" STACK_CLAUDE_JSON="$T5/f.json" CLAUDE_CONFIG_DIR="$T5/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T5/.log2" 2>&1
-B5="$(latest_backup "$T5/c")"
-if [ ! -e "$T5/c/mcp/opper_image_mcp.py" ] && [ ! -e "$T5/c/mcp/openrouter_image_mcp.py" ] \
-   && [ -f "$B5/files/mcp/opper_image_mcp.py" ] && [ -f "$B5/files/mcp/openrouter_image_mcp.py" ] \
-   && grep -qx '  - mcp/opper_image_mcp.py  (images come from image-studio now)' "$T5/.log2" \
-   && grep -qx '  - mcp/openrouter_image_mcp.py  (images come from image-studio now)' "$T5/.log2"; then
-  pass "the retired Opper and OpenRouter image servers are removed, listed and kept in the backup"
-else
-  failed "an old image server was not removed"; grep -E '^  [-~] |^removed' "$T5/.log2" | sed 's/^/    /'
-fi
-printf '# an old install\n' > "$T5/c/mcp/openrouter_image_mcp.py"
-printf '\n# my edit: args ["run", "--script", "%s/mcp/openrouter_image_mcp.py"]\n' "$T5/c" >> "$T5/c/agents/image-director.md"
-FAKE_CLAUDE_JSON="$T5/f.json" STACK_CLAUDE_JSON="$T5/f.json" CLAUDE_CONFIG_DIR="$T5/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --no-prune >"$T5/.log3" 2>&1
-if [ -f "$T5/c/mcp/openrouter_image_mcp.py" ] && grep -q '# my edit' "$T5/c/agents/image-director.md" \
-   && grep -qF 'note: mcp/openrouter_image_mcp.py: images come from image-studio now — kept (--no-prune)' "$T5/.log3"; then
-  pass "--no-prune: an edited agent and the older image server it starts are kept, with a note"
-else
-  failed "--no-prune removed the older image server or the edited agent"; grep -i -E 'openrouter|note' "$T5/.log3" | sed 's/^/    /'
-fi
-# stack.env written by earlier versions (Opper → OpenRouter-only → Lumenfall): the image lines are
-# brought up to date, the models appended set to the defaults, nothing of the user's changed
+# stack.env written by earlier versions (Opper → OpenRouter-only → image-studio): the image comment
+# lines are brought up to date, the models appended set to the defaults, nothing of the user's changed
 T5B="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"; mkdir -p "$T5B/c"
 cat > "$T5B/c/stack.env" <<'ENV'
 # my own header line
 # Opper gateway — image generation/editing (image-director). https://platform.opper.ai
 OPPER_API_KEY=op-mine-123
-# Default image model and output folder (optional)
-OPPER_IMAGE_MODEL=bytedance:ap/seedream-5-pro
-OPPER_IMAGE_OUT_DIR=$HOME/Pictures/opper
 EXA_API_KEY=exa-mine
 
 # --- added by install.sh 2026-09-26: new in stack.env.example (uncomment to use) ---
@@ -972,9 +918,6 @@ EXA_API_KEY=exa-mine
 # --- added by install.sh 2026-09-27: new in stack.env.example (uncomment to use) ---
 # Images (designer, image-director) come from image-studio, one tool per provider, each billed to its
 # own account; a missing key disables only its tool.
-# Lumenfall — generate_svg: Recraft V4.1 Pro SVG for logos, icons, illustrations and other graphics
-# (about $0.30 an image). https://lumenfall.ai/app
-#LUMENFALL_API_KEY=
 # Where generated images go when an agent names no folder (optional; an older
 # OPENROUTER_IMAGE_OUT_DIR line still works)
 #IMAGE_STUDIO_OUT_DIR=$HOME/Pictures/image-studio
@@ -994,8 +937,7 @@ if grep -q '^OPPER_API_KEY=op-mine-123$' "$E" && grep -q '^EXA_API_KEY=exa-mine$
    && grep -q '^#OPENROUTER_API_KEY=$' "$E" && grep -q '^#IMAGE_STUDIO_OUT_DIR=' "$E" && grep -q '^#JINA_API_KEY=$' "$E" \
    && cmp -s "$T5B/before.env" "$B5B/files/stack.env" && [ "$(mode "$E")" = 0o600 ] \
    && [ "$(mode "$B5B/files/stack.env")" = 0o600 ] && [ "$(mode "$B5B")" = 0o700 ] \
-   && grep -q 'appended the image models, set to the defaults' "$T5B/.log" && grep -q 'brought the image lines' "$T5B/.log" \
-   && ! grep -q 'note: stack.env sets' "$T5B/.log"; then
+   && grep -q 'appended the image models, set to the defaults' "$T5B/.log" && grep -q 'brought the image lines' "$T5B/.log"; then
   pass "stack.env from earlier versions: image lines brought up to date, models set, values kept, backup made"
 else
   failed "stack.env from earlier versions"; sed 's/^/    /' "$E"; grep -i 'stack.env' "$T5B/.log" | sed 's/^/    /'
@@ -1004,16 +946,6 @@ cp -p "$E" "$T5B/after1.env"
 FAKE_CLAUDE_JSON="$T5B/f.json" STACK_CLAUDE_JSON="$T5B/f.json" CLAUDE_CONFIG_DIR="$T5B/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T5B/.log2" 2>&1
 cmp -s "$E" "$T5B/after1.env" && ! grep -qE '^  (stack.env|note): ' "$T5B/.log2" \
   && pass "stack.env: a second run changes nothing" || failed "stack.env: a second run changed it: $(diff "$T5B/after1.env" "$E" | head -5)"
-printf 'LUMENFALL_API_KEY=lf-mine-9\nOPPER_IMAGE_MODEL=acme/my-choice\n' >> "$E"
-FAKE_CLAUDE_JSON="$T5B/f.json" STACK_CLAUDE_JSON="$T5B/f.json" CLAUDE_CONFIG_DIR="$T5B/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T5B/.log3" 2>&1
-if grep -q '^LUMENFALL_API_KEY=lf-mine-9$' "$E" && grep -q '^OPPER_IMAGE_MODEL=acme/my-choice$' "$E" \
-   && grep -q "note: stack.env sets LUMENFALL_API_KEY, which image-studio doesn't read" "$T5B/.log3" \
-   && grep -q "note: stack.env sets OPPER_IMAGE_MODEL, which image-studio doesn't read (generate_image's model is IMAGE_STUDIO_IMAGE_MODEL)" "$T5B/.log3" \
-   && ! grep -q 'lf-mine-9' "$T5B/.log3"; then
-  pass "stack.env: settings of yours that nothing reads are kept and named, never printed"
-else
-  failed "stack.env: retired settings of the user"; grep -i 'stack.env' "$T5B/.log3" | sed 's/^/    /'
-fi
 # first install over the user's own CLAUDE.md (kept) and a same-named skill of their own (the
 # stack owns skills/: replaced, the backup keeps it)
 T6="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"; printf '# my rules\n- my NAS is 192.168.1.20\n' > "$T6/CLAUDE.md"
@@ -1027,134 +959,8 @@ B6="$(latest_backup "$T6")"
   && grep -q 'My own analysis steps' "$B6/files/skills/data-analysis/SKILL.md" \
   && grep -qx "  ~ skills/data-analysis/SKILL.md  (a same-named file that isn't the stack's)" "$T6/.log" \
   && pass "same-named personal skill replaced by the stack's, listed, and kept in the backup" || failed "personal skill not replaced/listed/backed up"
-# the stack's own (unedited) CLAUDE.md from an earlier version goes (the backup keeps it). The repo
-# keeps no legacy/<version>/ today; install.sh still recognises one, so these cases put a small
-# fixture release there (tests/fixtures/legacy-release, lines copied from an old release) and remove
-# it again before T7b: every other install here runs, as a real one does, without legacy/.
-LEGACY_FIX="$HERE/tests/fixtures/legacy-release"
-mkdir -p "$HERE/legacy" && cp -R "$LEGACY_FIX" "$HERE/legacy/fixture"
-T7="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
-sed "s#__CLAUDE_DIR__#$T7#g; s#__HOME__#$HOME#g" "$LEGACY_FIX/CLAUDE.md" > "$T7/CLAUDE.md"
-cp "$T7/CLAUDE.md" "$T7/CLAUDE.md.new"
-CLAUDE_CONFIG_DIR="$T7" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T7/.log" 2>&1
-B7="$(latest_backup "$T7")"
-[ ! -e "$T7/CLAUDE.md" ] && [ ! -e "$T7/CLAUDE.md.new" ] && [ -f "$B7/files/CLAUDE.md" ] && [ -f "$B7/files/CLAUDE.md.new" ] \
-  && [ -f "$T7/rules/claude-agent-stack.md" ] && ! grep -q 'Merge each' "$T7/.log" \
-  && grep -q '^  - CLAUDE.md  (the stack.s old rules file' "$T7/.log" \
-  && pass "the stack's old CLAUDE.md (and its leftover .new) removed into the backup, rules installed" || failed "legacy stack CLAUDE.md not removed"
-T9="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
-{ sed "s#__CLAUDE_DIR__#$T9#g" "$LEGACY_FIX/CLAUDE.md"; printf '\n## Mine\n- my NAS is 192.168.1.20\n'; } > "$T9/CLAUDE.md"
-CLAUDE_CONFIG_DIR="$T9" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T9/.log" 2>&1
-grep -q 192.168.1.20 "$T9/CLAUDE.md" && grep -q 'CLAUDE.md .*kept (it has lines of your own)' "$T9/.log" \
-  && pass "an untracked CLAUDE.md with lines of your own is kept (with advice)" || failed "CLAUDE.md with the user's own lines was retired"
-# the user deliberately puts it back; legacy/ is still there, so only the migrated flag keeps it
-cp "$B7/files/CLAUDE.md" "$T7/CLAUDE.md"
-CLAUDE_CONFIG_DIR="$T7" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T7/.log2" 2>&1
-[ -f "$T7/CLAUDE.md" ] && pass "CLAUDE.md migration runs once: a restored CLAUDE.md is left alone" || failed "a restored CLAUDE.md was moved again"
-rm -rf -- "$HERE/legacy"
-# without a legacy/ template nothing recognises that old copy: it stays (the safe side)
-T7B="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
-cp "$LEGACY_FIX/CLAUDE.md" "$T7B/CLAUDE.md"
-CLAUDE_CONFIG_DIR="$T7B" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T7B/.log" 2>&1
-cmp -s "$LEGACY_FIX/CLAUDE.md" "$T7B/CLAUDE.md" && [ -f "$T7B/rules/claude-agent-stack.md" ] \
-  && ! grep -q '^  - CLAUDE.md ' "$T7B/.log" \
-  && pass "no legacy/ in the repo: an unrecognised old CLAUDE.md is kept, rules installed" || failed "CLAUDE.md removed without a legacy/ template"
 assert_unchanged_real_home
-# a tracked CLAUDE.md the user trimmed (two stack rules deleted) is theirs: kept, not retired
-T10="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
-sed "s#__CLAUDE_DIR__#$T10#g" "$LEGACY_FIX/CLAUDE.md" > "$T10/full.md"
-python3 - "$T10" <<'PY'
-import hashlib, json, os, sys
-t = sys.argv[1]
-full = open(os.path.join(t, "full.md")).read()
-json.dump({"files": {"CLAUDE.md": hashlib.sha256(full.encode()).hexdigest()}}, open(os.path.join(t, ".stack-manifest.json"), "w"))
-open(os.path.join(t, "CLAUDE.md"), "w").write("".join(l for l in full.splitlines(True) if "European Portuguese" not in l and "is an expert" not in l))
-PY
-CLAUDE_CONFIG_DIR="$T10" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T10/.log" 2>&1
-[ -f "$T10/CLAUDE.md" ] && grep -q 'CLAUDE.md .*kept' "$T10/.log" \
-  && pass "a tracked CLAUDE.md you trimmed is kept (only a hash match is retired)" || failed "trimmed tracked CLAUDE.md was retired"
-assert_unchanged_real_home
-# senior-coder became main-coder: the old file goes whatever its state (the backup keeps it), listed
-# as renamed; --no-prune keeps an edited one with a note, and doctor flags it.
-T11="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"; T12="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
-mkdir -p "$T11/agents" "$T12/agents"
-CLAUDE_CONFIG_DIR="$T11" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1   # learn the render
-python3 - "$T11" "$HERE" <<'PY'
-import os, re, sys
-t, here = sys.argv[1:3]
-# render the old release's file the way the installer does: take the substitutions from a rendered agent
-coder = open(os.path.join(t, "agents", "coder.md")).read()
-uv = re.search(r'command: "([^"]*/uv)"', coder).group(1)
-old = open(os.path.join(here, "tests", "fixtures", "legacy-release", "agents", "senior-coder.md")).read()
-open(os.path.join(t, "agents", "senior-coder.md"), "w").write(old.replace("__UV__", uv).replace("__CLAUDE_DIR__", t))
-PY
-cp "$T11/agents/senior-coder.md" "$T11/agents/senior-coder.md.new"
-T13="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"; mkdir -p "$T13/agents"
-sed 's#__UV__#/opt/somewhere-else/bin/uv#g; s#__CLAUDE_DIR__#/Users/someone/.claude#g' \
-  "$LEGACY_FIX/agents/senior-coder.md" > "$T13/agents/senior-coder.md"
-CLAUDE_CONFIG_DIR="$T13" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T13/.log" 2>&1
-[ ! -e "$T13/agents/senior-coder.md" ] && [ -f "$(latest_backup "$T13")/files/agents/senior-coder.md" ] \
-  && grep -qx '  - agents/senior-coder.md  (renamed: now agents/main-coder.md)' "$T13/.log" \
-  && pass "an untracked old senior-coder.md rendered with other paths is removed as renamed (backup keeps it)" \
-  || failed "old senior-coder.md with other rendered paths not removed: $(grep senior "$T13/.log")"
-CLAUDE_CONFIG_DIR="$T11" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T11/.log" 2>&1
-B11="$(latest_backup "$T11")"
-[ ! -e "$T11/agents/senior-coder.md" ] && [ ! -e "$T11/agents/senior-coder.md.new" ] \
-  && [ -f "$B11/files/agents/senior-coder.md" ] && [ -f "$B11/files/agents/senior-coder.md.new" ] \
-  && grep -qx '  - agents/senior-coder.md  (renamed: now agents/main-coder.md)' "$T11/.log" \
-  && pass "old senior-coder.md (and its .new) removed: it is now main-coder" || failed "old senior-coder.md not removed"
-printf -- '---\nname: senior-coder\ndescription: "x"\nmodel: opus\n---\nmine\n' > "$T12/agents/senior-coder.md"
-python3 - "$T12" <<'PY'
-import json, os, sys
-t = sys.argv[1]
-json.dump({"files": {"agents/senior-coder.md": "0" * 64}}, open(os.path.join(t, ".stack-manifest.json"), "w"))
-PY
-CLAUDE_CONFIG_DIR="$T12" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --no-prune >"$T12/.log" 2>&1
-[ -f "$T12/agents/senior-coder.md" ] && grep -q 'mine' "$T12/agents/senior-coder.md" \
-  && grep -qF 'note: agents/senior-coder.md: renamed: now agents/main-coder.md — kept (--no-prune)' "$T12/.log" \
-  && pass "--no-prune: an edited senior-coder.md is kept with a note" || failed "edited senior-coder.md under --no-prune"
-"$T12/bin/doctor.sh" >"$T12/.doctor" 2>&1
-grep -q "senior-coder.md is the stack's old name for main-coder" "$T12/.doctor" \
-  && pass "doctor flags the kept senior-coder.md" || failed "doctor does not flag senior-coder.md"
-# the main-thread router became blackcat: an old router.md goes, and the settings
-# follow the rename ("agent": "router", a tuned ROUTER_* knob, the Agent(router) deny rule)
-T14="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
-CLAUDE_CONFIG_DIR="$T14" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >/dev/null 2>&1
-python3 - "$T14" <<'PY'
-import hashlib, json, os, sys
-t = sys.argv[1]
-old = open(os.path.join(t, "agents", "blackcat.md")).read().replace("name: blackcat", "name: router")
-open(os.path.join(t, "agents", "router.md"), "w").write(old)
-ren = lambda k: k.replace("BLACKCAT_", "ROUTER_")
-deny = lambda xs: [x.replace("Agent(blackcat)", "Agent(router)") for x in xs]
-mp = os.path.join(t, ".stack-manifest.json"); m = json.load(open(mp))
-m["files"]["agents/router.md"] = hashlib.sha256(old.encode()).hexdigest()
-m["settings_env"] = {ren(k): v for k, v in m["settings_env"].items()}
-m["settings_set_if_absent"]["agent"] = "router"
-m["settings_permissions"]["deny"] = deny(m["settings_permissions"]["deny"])
-json.dump(m, open(mp, "w"))
-sp = os.path.join(t, "settings.json"); s = json.load(open(sp))
-s["agent"] = "router"
-s["env"] = {ren(k): v for k, v in s["env"].items()}
-s["env"]["ROUTER_MAX_STEPS"] = "20"
-s["env"]["ROUTER_DISPATCH_WINDOW_S"] = "45"
-s["permissions"]["deny"] = deny(s["permissions"]["deny"])
-json.dump(s, open(sp, "w"), indent=2)
-PY
-CLAUDE_CONFIG_DIR="$T14" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T14/.log" 2>&1
-[ ! -e "$T14/agents/router.md" ] && [ -f "$(latest_backup "$T14")/files/agents/router.md" ] \
-  && grep -qx '  - agents/router.md  (renamed: now agents/blackcat.md)' "$T14/.log" \
-  && pass "an old router.md is removed as renamed: it is now blackcat" || failed "old router.md not removed"
-python3 - "$T14/settings.json" <<'PY' && pass "settings follow router -> blackcat: agent, tuned knob moved, defaults and deny rule" || failed "router settings not migrated"
-import json, sys
-s = json.load(open(sys.argv[1])); e = s["env"]; deny = s["permissions"]["deny"]
-ok = (s.get("agent") == "blackcat" and e.get("BLACKCAT_MAX_STEPS") == "24" and e.get("BLACKCAT_DISPATCH_WINDOW_S") == "45"
-      and e.get("BLACKCAT_MAX_DISPATCH") == "8"
-      and not any(k.startswith("ROUTER_") for k in e) and "Agent(blackcat)" in deny and "Agent(router)" not in deny)
-sys.exit(0 if ok else 1)
-PY
-assert_unchanged_real_home
-rm -rf "$T4" "$T5" "$T6" "$T7" "$T9" "$T10" "$T11" "$T12" "$T13" "$T14"
+rm -rf "$T4" "$T5" "$T6"
 
 echo "== 9. macOS render (simulated): the After Effects server only once it is built"
 T8="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
@@ -1539,7 +1345,7 @@ drop_scratch "$TC"
 echo "== 15. A drifted config: --dry-run, default prune, one backup that restores exactly, idempotence, --no-prune"
 TX="$(scratch_dir)" || exit 1
 # one line per file or link under a config dir (relpath, kind, sha256, mode), Claude Code's own state
-# and the legacy in-config backups aside
+# aside
 cat > "$TX/fingerprint.py" <<'PY'
 import hashlib, os, stat, sys
 root, out = sys.argv[1], []
@@ -1547,12 +1353,12 @@ skip = {"projects", "sessions", "statsig", "todos", "shell-snapshots", "venvs", 
 for d, dirs, files in os.walk(root):
     rel_d = os.path.relpath(d, root)
     top = rel_d.split(os.sep)[0]
-    if top in skip or top.startswith("backup-"):
+    if top in skip:
         dirs[:] = []
         continue
     for f in sorted(files) + sorted(x for x in dirs if os.path.islink(os.path.join(d, x))):
         p, rel = os.path.join(d, f), os.path.normpath(os.path.join(rel_d, f))
-        if rel.startswith("backup-") or rel.startswith(".install"):
+        if rel.startswith(".install"):
             continue
         if os.path.islink(p):
             out.append("%s L %s" % (rel, os.readlink(p)))
@@ -1566,9 +1372,8 @@ xrun(){ local c="$1" log="$2"; shift 2
   FAKE_CLAUDE_JSON="$TX/f.json" STACK_CLAUDE_JSON="$TX/f.json" CLAUDE_CONFIG_DIR="$c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile "$@" >"$log" 2>&1; }
 # the list a run prints: the lines under "replaced:" and "removed: not part of the stack"
 listing(){ awk '/^(removed: not part of the stack|replaced: )/{on=1; print; next} on && /^  [-~] /{print; next} {on=0}' "$1"; }
-make_dirty(){ # stale, renamed, modified and unknown files; duplicated hooks and rules; junk
+make_dirty(){ # stale, modified and unknown files; duplicated hooks and rules; junk
   local T="$1"
-  cp "$LEGACY_FIX/agents/senior-coder.md" "$T/agents/senior-coder.md"
   printf -- '---\nname: my-own\ndescription: mine\n---\nhello\n' > "$T/agents/my-own.md"
   printf '\n<!-- local edit -->\n' >> "$T/agents/coder.md"
   cp "$T/agents/coder.md" "$T/agents/coder.md.new"
@@ -1586,14 +1391,10 @@ make_dirty(){ # stale, renamed, modified and unknown files; duplicated hooks and
   printf 'old ref\n' > "$T/skills/retired-edited/ref.md"
   printf 'old reference\n' > "$T/skills/python-engineering/old-ref.md"
   mkdir -p "$T/skills/synced/abc/docx"; printf -- '---\nname: docx\ndescription: synced\n---\n' > "$T/skills/synced/abc/docx/SKILL.md"
-  printf '#!/bin/sh\n' > "$T/hooks/router-guard.sh"
-  printf '# old\n' > "$T/mcp/opper_image_mcp.py"
   printf '#!/bin/sh\necho mine\n' > "$T/hooks/my-hook.sh"; chmod +x "$T/hooks/my-hook.sh"
   printf '# My rule\n- be nice\n' > "$T/rules/my-rule.md"
   cp "$T/rules/claude-agent-stack.md" "$T/rules/claude-agent-stack.md.new"
   printf '{}' > "$T/settings.json.tmp"
-  mkdir -p "$T/backup-20250101-000000-abc"; printf 'EXA_API_KEY=fake-legacy\n' > "$T/backup-20250101-000000-abc/stack.env"
-  chmod 644 "$T/backup-20250101-000000-abc/stack.env"
   chmod 644 "$T/stack.env"                       # world-readable keys: the plan repairs the mode
   python3 - "$T/settings.json" "$T/magg/config.json" "$T/.stack-manifest.json" <<'PY'
 import json, sys
@@ -1632,7 +1433,7 @@ fp "$TX/c" > "$TX/fp.dirty"; nb0=$(count_backups "$TX/c")
 xrun "$TX/c" "$TX/dry.log" --dry-run; rc=$?
 fp "$TX/c" > "$TX/fp.dry"
 [ "$rc" = 0 ] && cmp -s "$TX/fp.dirty" "$TX/fp.dry" && [ "$(count_backups "$TX/c")" = "$nb0" ] \
-  && [ -d "$TX/c/backup-20250101-000000-abc" ] && grep -q 'Dry run done: nothing was changed' "$TX/dry.log" \
+  && grep -q 'Dry run done: nothing was changed' "$TX/dry.log" \
   && pass "--dry-run over a drifted config changes nothing and makes no backup" \
   || failed "--dry-run changed something (rc=$rc): $(diff "$TX/fp.dirty" "$TX/fp.dry" | head -5)"
 xrun "$TX/c" "$TX/real.log"; rc=$?
@@ -1648,10 +1449,7 @@ done <<'EOF_WANT'
 removed: not part of the stack
   - agents/coder.md.new  (leftover render of a stack file)
   - agents/my-own.md  (not shipped by the stack: yours or another tool's)
-  - agents/senior-coder.md  (renamed: now agents/main-coder.md)
   - agents/team/  (not shipped by the stack: yours or another tool's)
-  - hooks/router-guard.sh  (blackcat.md runs agent_guard.py directly now)
-  - mcp/opper_image_mcp.py  (images come from image-studio now)
   - rules/claude-agent-stack.md.new  (leftover render of a stack file)
   - settings.json.tmp  (leftover of an interrupted install)
   - skills/python-engineering/old-ref.md  (no longer part of the stack's python-engineering skill)
@@ -1670,9 +1468,9 @@ removed: not part of the stack
   note: skills/retired-edited/SKILL.md: kept (edited since the stack installed it)
   note: skills/retired-edited/mine.md: kept (not installed by the stack: yours)
 EOF_WANT
-[ -z "$missing" ] && pass "pruned and listed: stale, renamed, modified, unknown files, junk, magg entries, duplicate hooks and rules" \
+[ -z "$missing" ] && pass "pruned and listed: stale, modified, unknown files, junk, magg entries, duplicate hooks and rules" \
   || { failed "listing is missing:$missing"; sed 's/^/    /' "$TX/list.real"; }
-python3 - "$TX/c" "$HERE" "$B15" "$BK_ROOT" "$EXPECTED_AGENTS" <<'PY' && pass "after the prune: only the stack's agents and skills, user hook/rule/magg entry kept, no duplicates, sandbox on, stack.env 0600, backup 0700/0600, legacy backup moved out" || failed "post-prune state (see above)"
+python3 - "$TX/c" "$HERE" "$B15" "$BK_ROOT" "$EXPECTED_AGENTS" <<'PY' && pass "after the prune: only the stack's agents and skills, user hook/rule/magg entry kept, no duplicates, sandbox on, stack.env 0600, backup 0700/0600" || failed "post-prune state (see above)"
 import json, os, stat, sys
 c, here, b, bk, n_agents = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5])
 bad = []
@@ -1711,9 +1509,6 @@ check(s["sandbox"]["enabled"] is True and "~/my-cache" in s["sandbox"]["filesyst
 m = json.load(open(os.path.join(c, "magg", "config.json")))["servers"]
 check("mine" in m and "oldsrv" not in m and m["docling"]["command"] != "my-docling", "magg: %s" % sorted(m))
 check(mode(os.path.join(c, "stack.env")) == 0o600, "stack.env mode %o" % mode(os.path.join(c, "stack.env")))
-check(not os.path.exists(os.path.join(c, "backup-20250101-000000-abc")), "legacy backup left in the config dir")
-leg = os.path.join(bk, "legacy", "backup-20250101-000000-abc")
-check(os.path.isdir(leg) and mode(leg) == 0o700 and mode(os.path.join(leg, "stack.env")) == 0o600, "legacy backup not moved/locked down")
 check(mode(b) == 0o700, "backup dir mode")
 for root, dirs, files in os.walk(os.path.join(b, "files")):
     for d in dirs:
@@ -1740,7 +1535,7 @@ xrun "$TX/c" "$TX/restore.log" --restore latest; rc=$?
 fp "$TX/c" > "$TX/fp.restored"
 [ "$rc" = 0 ] && cmp -s "$TX/fp.dirty" "$TX/fp.restored" && grep -q "restoring $B15" "$TX/restore.log" \
   && grep -q 'undo this restore:' "$TX/restore.log" \
-  && pass "--restore latest puts the drifted config back byte- and mode-exactly (the legacy backup aside)" \
+  && pass "--restore latest puts the drifted config back byte- and mode-exactly" \
   || failed "restore not exact (rc=$rc): $(diff "$TX/fp.dirty" "$TX/fp.restored" | head -8)"
 xrun "$TX/c" "$TX/reprune.log"
 cmp -s "$TX/fp.pruned" <(fp "$TX/c") && pass "installing again after the restore gives the same pruned config" \
@@ -1775,9 +1570,8 @@ xrun "$TX/n" "$TX/n.log" --no-prune; rc=$?
 python3 - "$TX/n" <<'PY' && [ "$rc" = 0 ] && pass "--no-prune keeps old, unknown and edited files (edits get a .new), still removes duplicates and temp junk" || failed "--no-prune (rc=$rc; see above)"
 import json, os, sys
 n = sys.argv[1]
-keep = ["agents/senior-coder.md", "agents/my-own.md", "agents/team/a.md", "skills/old-skill/SKILL.md",
-        "skills/python-engineering/notes.md", "hooks/router-guard.sh", "mcp/opper_image_mcp.py",
-        "agents/coder.md.new", "skills/python-engineering/SKILL.md.new"]
+keep = ["agents/my-own.md", "agents/team/a.md", "skills/old-skill/SKILL.md",
+        "skills/python-engineering/notes.md", "agents/coder.md.new", "skills/python-engineering/SKILL.md.new"]
 bad = [k for k in keep if not os.path.exists(os.path.join(n, k))]
 if "<!-- local edit -->" not in open(os.path.join(n, "agents", "coder.md")).read():
     bad.append("coder.md edit lost")

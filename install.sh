@@ -605,9 +605,6 @@ helper_cmd = '"%s" "%s"' % (os.environ["PY"], helper)
 # Exa: an explicit tools= list is the only way to get web_search_advanced_exa; agent_run is left out
 # because requesting it without a key fails the connection (401), and keys may be added later.
 EXA_URL = "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa"
-# URLs earlier stack versions registered: an entry still on one of these follows the stack's URL;
-# any other URL on the same host is the user's own choice and is kept.
-OLD_URLS = {"exa": {"https://mcp.exa.ai/mcp"}}
 rows = [
     ("exa", "mcp.exa.ai", {"type": "http", "url": EXA_URL, "headersHelper": helper_cmd}),
     ("jina", "mcp.jina.ai", {"type": "http", "url": "https://mcp.jina.ai/v1?exclude_tools=search_jina_blog",
@@ -642,8 +639,6 @@ for name, host, desired in rows:
             action, why = "keep", "your own headersHelper (your own command) kept"
         elif "headersHelper" in desired and cur.get("headersHelper") != desired["headersHelper"]:
             action, why = "migrate", "the stack's headersHelper, now run by %s" % os.environ["PY"]
-        elif cur.get("url") != desired["url"] and cur.get("url") in OLD_URLS.get(name, ()):
-            action, why = "migrate", "stack URL changed (%s)" % url_display(desired["url"])
         elif cur.get("url") != desired["url"]:
             action, why = "keep", "your URL (%s) kept; the stack's is %s" % (
                 url_display(cur.get("url")), url_display(desired["url"]))
@@ -1205,8 +1200,6 @@ fi
 mkdir -p "$S"
 python3 "$STATE_PY" stage "$C" "$S" "$SNAP"
 note "staged in $S (prune: $([ "$PRUNE" = 1 ] && echo on || echo 'off (--no-prune)'))"
-# backups earlier versions kept inside $C (with copies of stack.env) move out on every run
-legacy_b="$(python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" list)"
 
 say "6/11 Render (agents, rules, skills, scripts, settings.json)"
 # The stack ships no symlinks (security audit, CWE-59): a link under dot-claude/ (say a skill's
@@ -1264,10 +1257,8 @@ chmod 600 "$S/stack.env"
 # same models either way, now named where you change them), and the Claude model variables, appended
 # set to the stack's IDs (step 7 copies them into settings.json's env). A key already in your file,
 # even commented out, is never added again, and a value you wrote is never changed. The
-# image lines earlier versions of stack.env.example put in your file are brought up to date: stale
-# comments get today's wording, and settings nothing reads any more go while they still hold the
-# stack's own default (Lumenfall's empty key, the old Opper model and folder); the previous file is
-# kept in the backup folder.
+# image comment lines earlier versions of stack.env.example put in your file get today's wording;
+# the previous file is kept in the backup folder.
 python3 - "$HERE/lib/stack.env.example" "$S/stack.env" <<'PY'
 import os, re, sys, time
 example, target = sys.argv[1], sys.argv[2]
@@ -1282,9 +1273,6 @@ OPPER_LINE = "# Opper — generate_image: photographs and other raster images. h
 REWORD = {
     # the first versions, up to 26 Sep 2026 (opper-image)
     "# Opper gateway — image generation/editing (image-director). https://platform.opper.ai": OPPER_LINE,
-    "# Default image model and output folder (optional)": None,
-    "OPPER_IMAGE_MODEL=bytedance:ap/seedream-5-pro": None,
-    "OPPER_IMAGE_OUT_DIR=$HOME/Pictures/opper": None,
     # 26 Sep 2026 (openrouter-image: Recraft SVG only)
     "# OpenRouter — the stack's only image model: Recraft V4.1 Pro Vector, SVG output only (designer,":
         OPENROUTER_LINES.split("\n")[0],
@@ -1297,10 +1285,6 @@ REWORD = {
         "# Images (designer, image-director) come from image-studio: generate_svg and edit_image through",
     "# own account; a missing key disables only its tool.":
         "# OpenRouter, generate_image through Opper; a missing key disables only the tools that need it.",
-    "# Lumenfall — generate_svg: Recraft V4.1 Pro SVG for logos, icons, illustrations and other graphics": None,
-    "# (about $0.30 an image). https://lumenfall.ai/app": None,
-    "LUMENFALL_API_KEY=": None,
-    "#LUMENFALL_API_KEY=": None,
     "# Opper — generate_image: GPT Image 2.5 Sunburst for photographs and other raster images (about": OPPER_LINE,
     "# $0.006-$0.21 an image, by quality). https://platform.opper.ai": None,
     "# OpenRouter — edit_image: Riverflow V2.5 Pro for edits, retouching and composites (from about $0.13).":
@@ -1355,59 +1339,7 @@ if out or reworded:
         print("  stack.env: appended new variables (commented out): " + ", ".join(names))
     if reworded:
         print("  stack.env: brought the image lines of an earlier version up to date (the backup keeps the previous copy)")
-
-
-def value(raw):
-    v = raw.strip()
-    if v[:1] in ("'", '"') and v[0] in v[1:]:
-        return v[1:v.index(v[0], 1)]
-    return re.split(r"\s+#", v, maxsplit=1)[0].strip()
-
-
-set_now = {m.group(1): value(m.group(2)) for m in (re.match(r"^\s*(?:export\s+)?([A-Z][A-Z0-9_]*)=(.*)$", l)
-                                                   for l in lines) if m}
-for old, now in (("LUMENFALL_API_KEY", "generate_svg runs on OpenRouter now, with OPENROUTER_API_KEY"),
-                 ("OPPER_IMAGE_MODEL", "generate_image's model is IMAGE_STUDIO_IMAGE_MODEL"),
-                 ("OPPER_IMAGE_OUT_DIR", "the output folder is IMAGE_STUDIO_OUT_DIR")):
-    if set_now.get(old):
-        print("  note: stack.env sets %s, which image-studio doesn't read (%s): delete that line" % (old, now))
 PY
-
-# The previous profile line ({ set -a; . stack.env; set +a; }) exported EVERY variable of stack.env;
-# the new one (step 11) exports only STACK_EXPORT: variables of your own stay exported through it.
-# Done on the staged stack.env, so the plan lists it and the backup keeps the previous file.
-if [ "$NO_PROFILE" = 0 ] && grep -qE 'set -a.*stack\.env.*# claude-agent-stack[[:space:]]*$' "$HOME/.zshrc" "$HOME/.bashrc" 2>/dev/null; then
-  python3 - "$HERE/lib/stack.env.example" "$S/stack.env" "$SRC/bin/mcp-headers" "$SRC/bin/with-stack-env" <<'PY' || true
-import os, re, runpy, sys
-from pathlib import Path
-example, target, parser, wse = sys.argv[1:5]
-mh = runpy.run_path(parser, run_name="mcp_headers")
-VAR = re.compile(r"^\s*(?:#\s?)?(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=")
-stack_keys = {m.group(1) for m in map(VAR.match, open(example, encoding="utf-8").read().splitlines()) if m}
-text = open(target, encoding="utf-8", errors="surrogateescape").read()
-vals = mh["read_env_file"](Path(target))
-own = {k: v for k, v in vals.items() if v and k not in stack_keys and not k.startswith(("LUMENFALL_", "OPPER_", "OPENROUTER_", "IMAGE_STUDIO_", "LIBDOCS_"))}
-mine = sorted(k for k, v in own.items() if "$" not in v)
-expanding = sorted(k for k, v in own.items() if "$" in v)
-if expanding:
-    print("  note: %s use $VAR expansion, which the profile line doesn't do: set them in your shell rc file"
-          % ", ".join(expanding))
-if mine and not re.search(r"(?m)^\s*(?:export\s+)?STACK_EXPORT=", text):
-    default = re.search(r'(?m)^DEFAULT_EXPORT="([^"]*)"', open(wse, encoding="utf-8").read()).group(1)
-    block = ("\n# added by install.sh: your previous profile line exported every variable in this file;\n"
-             "# these of your own stay exported (the stack's API keys no longer are)\n"
-             'STACK_EXPORT="%s %s"\n' % (default, " ".join(mine)))
-    fd = os.open(target + ".tmp", os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
-    with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape") as f:
-        f.write(text + ("" if text.endswith("\n") or not text else "\n") + block)
-    os.replace(target + ".tmp", target)
-    print("  stack.env: STACK_EXPORT keeps exporting your own variables: " + ", ".join(mine))
-gone = [k for k in ("OPPER_API_KEY", "OPENROUTER_API_KEY", "EXA_API_KEY", "JINA_API_KEY", "SPIDER_API_KEY")
-        if vals.get(k)]
-if gone:
-    print("  note: no longer exported to your shells: %s (the MCP servers read stack.env themselves)" % ", ".join(gone))
-PY
-fi
 
 # Researcher's spider mcpServers block is only rewritten (to reuse an already-configured
 # 'spider' server) when MCP registration is active and the user already has one.
@@ -1418,7 +1350,7 @@ RENDERED_SETTINGS="$WORK/settings.rendered.json"
 
 FORCE="$FORCE" SPIDER_REWRITE="$SPIDER_REWRITE" RENDERED_SETTINGS="$RENDERED_SETTINGS" DEST="$S" PRUNE="$PRUNE" \
 REPORT="$REPORT" STACK_BACKUPS="$BACKUP_ROOT" STACK_CACHE="$STACK_CACHE" STACK_STATE="$STACK_STATE" STACK_COMMIT_FULL="$STACK_COMMIT_FULL" python3 - "$SRC" "$C" "$HERE" <<'PY'
-import difflib, glob, hashlib, json, os, re, shutil, subprocess, sys
+import glob, hashlib, json, os, re, shutil, subprocess, sys
 
 # C is where the files will live (every rendered path names it); DEST is the staged copy of C
 # they are written to (install_state.py compares it with C afterwards and applies the difference).
@@ -1536,80 +1468,6 @@ def sha256_text(text):
     return hashlib.sha256(text.encode("utf-8")).hexdigest()
 
 
-def frontmatter_sets(text):
-    """(tools set, mcpServers-name set) parsed loosely from an agent's frontmatter."""
-    tools = set()
-    m = re.search(r"(?m)^tools:\s*(.*)$", text)
-    if m:
-        tools = {t.strip() for t in m.group(1).split(",") if t.strip()}
-    mcps = set(re.findall(r"(?m)^\s*-\s*([A-Za-z0-9_-]+):\s*$", text.split("mcpServers:", 1)[-1])) \
-        if "mcpServers:" in text else set()
-    return tools, mcps
-
-
-def similar(installed_text, rendered_text):
-    # old stack versions share >= 59% of their lines with the current render; user files <= 18%
-    return difflib.SequenceMatcher(None, installed_text.splitlines(), rendered_text.splitlines(),
-                                   autojunk=False).ratio() >= 0.4
-
-
-def is_legacy_safe_overwrite(installed_text, rendered_text):
-    """Heuristic for files installed before the manifest existed: safe to overwrite
-    unless the installed copy has tools/mcpServers not present in the new render
-    (a sign of a manual mcp-broker edit worth keeping), or is not an older copy of this
-    stack's file at all (a same-named agent of the user's own: few shared lines)."""
-    it, im = frontmatter_sets(installed_text)
-    rt, rm = frontmatter_sets(rendered_text)
-    if not (it.issubset(rt) and im.issubset(rm)):
-        return False
-    return similar(installed_text, rendered_text)
-
-
-def legacy_renders(rel):
-    """Renders of `rel` ("CLAUDE.md", "skills/<name>/SKILL.md") exactly as earlier stack versions
-    shipped them (the repo's legacy/<version>/<rel>). The repo keeps no legacy/ today (the last
-    release's templates are in git history): then this is empty and template_copy finds nothing,
-    so an untracked file is recognised as the stack's only when it is a copy of the current render."""
-    out = []
-    for p in sorted(glob.glob(os.path.join(REPO, "legacy", "*", rel))):
-        try:
-            out.append(render(open(p, encoding="utf-8").read()))
-        except (OSError, UnicodeDecodeError):
-            pass
-    return out
-
-
-def only_stack_lines(installed_text, renders):
-    """True when every non-blank line of a file is a line some stack version shipped: it holds
-    nothing of the user's own. A similarity ratio can't tell "the stack's old copy" from "the
-    stack's copy plus my notes"."""
-    known = {ln.strip() for r in renders for ln in r.splitlines() if ln.strip()}
-    return all(ln.strip() in known for ln in installed_text.splitlines() if ln.strip())
-
-
-def template_copy(installed_text, rel):
-    """The file is a legacy/<version>/<rel> template with its placeholders filled in any way (another
-    uv or npx path, another config dir than today's render would use): the stack's own, unedited."""
-    for p in sorted(glob.glob(os.path.join(REPO, "legacy", "*", rel))):
-        try:
-            parts = re.split(r"(__[A-Z0-9_]+__)", open(p, encoding="utf-8").read())
-        except (OSError, UnicodeDecodeError):
-            continue
-        rx = "".join(r"[^\n]*" if k % 2 else re.escape(part) for k, part in enumerate(parts))
-        if re.fullmatch(rx, installed_text):
-            return True
-    return False
-
-
-def pure_stack_copy(installed_text, renders):
-    """An untracked file that is exactly some version the stack shipped (line for line, blank lines
-    and order aside): nothing added, nothing removed. Replacing it (after the backup) loses nothing;
-    a copy the user trimmed is a customization and is kept."""
-    have = {ln.strip() for ln in installed_text.splitlines() if ln.strip()}
-    return only_stack_lines(installed_text, renders) and any(
-        {ln.strip() for ln in r.splitlines() if ln.strip()} <= have for r in renders)
-
-
 manifest_path = os.path.join(DEST, ".stack-manifest.json")
 try:
     manifest = json.load(open(manifest_path))
@@ -1657,11 +1515,6 @@ def fingerprint(entry):
     return hashlib.sha256(json.dumps(core, sort_keys=True).encode()).hexdigest()[:16]
 
 
-# fingerprints of entries earlier stack versions shipped (before the manifest recorded them)
-LEGACY_MAGG = {"docling": {"84d001fc6386deb0"}, "playwright": {"604f97c45597d8e6"},
-               "lean": {"ef061039770a7579"}, "docspace": {"d93d837abbebe4ed"},
-               "duckdb": {"529df3589fc6a3f6"}, "arxiv": {"484fdabd5d7ac75e"},
-               "jupyter": {"4df0d303a3d2f0d2"}, "mlflow": {"4ca92ebdcfb8dd81"}}
 magg_dst = os.path.join(DEST, "magg", "config.json")
 shipped_magg = json.loads(render(open(os.path.join(SRC, "magg", "config.json")).read(), json_escape=True))
 prev_magg = manifest.get("magg_shipped") or {}
@@ -1691,7 +1544,7 @@ if magg_ok:
             continue
         if fingerprint(mine) == fingerprint(entry):
             pass
-        elif fingerprint(mine) in LEGACY_MAGG.get(k, set()) | ({prev_magg[k]} if k in prev_magg else set()):
+        elif k in prev_magg and fingerprint(mine) == prev_magg[k]:
             servers[k] = dict(entry, enabled=mine.get("enabled", True))
             updated.append(k)
         elif PRUNE:
@@ -1735,7 +1588,7 @@ AE_BUILT = os.path.isfile(os.path.join(C, "mcp", "vendor", "after-effects-mcp", 
 
 installed_count = 0
 total_agents = sum(1 for rel, _ in targets if rel.startswith("agents/"))
-IN_SYNC = {"installed", "unchanged", "overwritten", "overwritten (legacy)", "overwritten (--force)", "replaced"}
+IN_SYNC = {"installed", "unchanged", "overwritten", "overwritten (--force)", "replaced"}
 
 # Adobe servers exist only on macOS: elsewhere they are left out of the renders, so designer and
 # motion-designer don't start servers that can only fail (their prompts fall back to SVG/ffmpeg).
@@ -1827,9 +1680,6 @@ for rel, src_path in targets:
     elif entry is not None and installed_hash == entry:
         write()
         action = "overwritten"
-    elif entry is None and is_legacy_safe_overwrite(open(dest, encoding="utf-8", errors="replace").read(), rendered):
-        write()
-        action = "overwritten (legacy)"
     elif PRUNE:
         report["replaced"][rel] = ("edited since the last install" if entry is not None
                                    else "a same-named file that isn't the stack's")
@@ -1839,8 +1689,8 @@ for rel, src_path in targets:
         write()
         action = "overwritten (--force)"
     else:
-        # --no-prune: dest was hand-edited since the last install (or a legacy file with extra
-        # tools/mcpServers) — keep it, and drop the new render next to it as <name>.new.
+        # --no-prune: dest was hand-edited since the last install, or a same-named file of
+        # yours — keep it, and drop the new render next to it as <name>.new.
         nd = dest + ".new"
         if offered.get(rel) == rendered_hash and not os.path.exists(nd):
             # this exact render was already offered and its .new removed after review: don't nag
@@ -1855,10 +1705,8 @@ for rel, src_path in targets:
     print("  %-34s %s" % (rel, action))
 
 # Everything else in agents/: the stack owns that directory. Pruning removes it — agents an earlier
-# stack version shipped (senior-coder is now main-coder, the main-thread router is now blackcat),
-# leftover .new renders, and agents of your own or of other tools (the backup keeps them all; run
-# with --no-prune to keep them). --no-prune lists them instead.
-RENAMED = {"agents/senior-coder.md": "agents/main-coder.md", "agents/router.md": "agents/blackcat.md"}
+# stack version shipped, leftover .new renders, and agents of your own or of other tools (the backup
+# keeps them all; run with --no-prune to keep them). --no-prune lists them instead.
 shipped = {rel for rel, _ in targets}
 stale_kept = []
 
@@ -1866,15 +1714,8 @@ stale_kept = []
 def agent_reason(rel):
     if rel.endswith(".new") and rel[:-4] in shipped:
         return "leftover render of a stack file"
-    if rel in RENAMED:
-        return "renamed: now %s" % RENAMED[rel]
     if rel in files_entry or rel in offered:
         return "no longer shipped by the stack"
-    p = os.path.join(DEST, rel)
-    if rel.endswith(".md") and os.path.isfile(p):
-        text = open(p, encoding="utf-8", errors="replace").read()
-        if template_copy(text, rel) or pure_stack_copy(text, legacy_renders(rel)):
-            return "an earlier stack version's agent"
     return "not shipped by the stack: yours or another tool's"
 
 
@@ -1894,32 +1735,6 @@ for rel in [r for r in list(files_entry) + list(offered) if r.startswith("agents
     if PRUNE or not os.path.lexists(os.path.join(DEST, rel)):
         files_entry.pop(rel, None)
         offered.pop(rel, None)
-
-# The global rules used to be installed as CLAUDE.md. That file is yours now: the stack's old copy
-# goes while still unedited (tracked: the hash decides; untracked: only an exact old version), an
-# edited one, or your own, stays. Decided once — CLAUDE.md is never looked at again. (Not under
-# --no-prune: a later run decides.)
-old_md = os.path.join(DEST, "CLAUDE.md")
-if PRUNE and not manifest.get("claude_md_migrated"):
-    rules_render = render(open(os.path.join(SRC, "rules", "claude-agent-stack.md"), encoding="utf-8").read())
-    stack_versions = legacy_renders("CLAUDE.md") + [rules_render]
-    if os.path.isfile(old_md):
-        old_entry = files_entry.get("CLAUDE.md")
-        old_text = open(old_md, encoding="utf-8", errors="replace").read()
-        if sha256(old_md) == old_entry if old_entry is not None else pure_stack_copy(old_text, stack_versions):
-            drop("CLAUDE.md", "the stack's old rules file: they live in rules/claude-agent-stack.md now")
-        elif old_entry is not None or any(similar(old_text, r) for r in stack_versions):
-            print("  %-34s kept (it has lines of your own): the stack's rules moved to rules/claude-agent-stack.md —"
-                  " delete the stack's old sections from CLAUDE.md so the two versions don't conflict" % "CLAUDE.md")
-    # an old render of the rules the previous installer left next to an edited CLAUDE.md
-    old_new = old_md + ".new"
-    if os.path.isfile(old_new):
-        new_text = open(old_new, encoding="utf-8", errors="replace").read()
-        if "CLAUDE.md" in offered or only_stack_lines(new_text, stack_versions):
-            drop("CLAUDE.md.new", "an old render of the stack's rules")
-    files_entry.pop("CLAUDE.md", None)
-    offered.pop("CLAUDE.md", None)
-    manifest["claude_md_migrated"] = True
 
 # rules/: files of your own stay; rules the stack installed and no longer ships go, as do .new renders
 for fn in sorted(os.listdir(os.path.join(DEST, "rules"))):
@@ -1947,10 +1762,9 @@ if installed_count < total_agents:
 # installed and nobody edited go (manifest hashes): skills and files of your own, and stack files you
 # edited, stay (named in the notes). --no-prune: manifest-guarded — a file you edited
 # since the last install, or a same-named file of your own, is kept with the render next to it as
-# <file>.new; an untracked file that is an older copy of the stack's is refreshed; nothing goes. ---
+# <file>.new; nothing goes. ---
 def install_tracked(rel, dest, rendered):
-    """None when the file is (now) in sync; "refreshed" when an untracked copy made only of lines
-    some stack version shipped was replaced; "replaced" when pruning replaced a file that differed;
+    """None when the file is (now) in sync; "replaced" when pruning replaced a file that differed;
     "kept" when --no-prune kept yours."""
     rendered_hash = sha256_text(rendered)
     if os.path.islink(dest) or os.path.isdir(dest):
@@ -1958,9 +1772,7 @@ def install_tracked(rel, dest, rendered):
     installed_hash = sha256(dest)
     entry = files_entry.get(rel)
     nd = dest + ".new"
-    legacy_ours = entry is None and installed_hash not in (None, rendered_hash) and pure_stack_copy(
-        open(dest, encoding="utf-8", errors="replace").read(), [rendered] + legacy_renders(rel))
-    in_sync = installed_hash is None or installed_hash == rendered_hash or installed_hash == entry or legacy_ours
+    in_sync = installed_hash is None or installed_hash == rendered_hash or installed_hash == entry
     if in_sync or PRUNE or FORCE:
         os.makedirs(os.path.dirname(dest), exist_ok=True)
         with open(dest, "w", encoding="utf-8") as f:
@@ -1970,7 +1782,7 @@ def install_tracked(rel, dest, rendered):
         if os.path.lexists(nd):
             drop(rel + ".new", "leftover render of a stack file")
         if in_sync:
-            return "refreshed" if legacy_ours else None
+            return None
         if PRUNE:
             report["replaced"][rel] = ("edited since the last install" if entry is not None
                                        else "a same-named file that isn't the stack's")
@@ -2005,7 +1817,7 @@ for _rel in sorted(filter(None, _ls.stdout.decode("utf-8", "surrogateescape").sp
         continue
     listed.setdefault(_parts[0], []).append(os.path.join(*_parts[1:]))
 skill_names = sorted(listed)
-skills_kept, skills_refreshed, skills_replaced = [], [], []
+skills_kept, skills_replaced = [], []
 skill_files = set()
 for name in skill_names:
     sdir = os.path.join(SRC, "skills", name)
@@ -2037,8 +1849,6 @@ for name in skill_names:
         state = install_tracked(rel, op, render(text))
         if state == "kept":
             skills_kept.append(rel)
-        elif state == "refreshed":
-            skills_refreshed.append(rel)
         elif state == "replaced":
             skills_replaced.append(rel)
 # what the stack doesn't ship: whole skills, and files inside shipped skills. The prune removes only
@@ -2118,8 +1928,6 @@ for rel in [r for r in list(files_entry) + list(offered) if r.startswith("skills
         files_entry.pop(rel, None)
         offered.pop(rel, None)
 print("  skills rendered (%d): %s" % (len(skill_names), ", ".join(skill_names)))
-for rel in skills_refreshed:
-    print("  %-34s refreshed (an older copy of the stack's; the backup keeps it)" % rel)
 for rel in skills_replaced:
     print("  %-34s replaced (it differed from the stack's; the backup keeps it)" % rel)
 for rel in skills_kept:
@@ -2135,10 +1943,6 @@ STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook"
                  "bin/stack-tree",
                  "mcp/image_studio_mcp.py",
                  "mcp/libdocs_mcp.py", "mcp/neural_memory_mcp.py"]
-# files earlier stack versions installed before the manifest tracked scripts
-LEGACY_SCRIPTS = {"hooks/router-guard.sh": "blackcat.md runs agent_guard.py directly now",
-                  "mcp/opper_image_mcp.py": "images come from image-studio now",
-                  "mcp/openrouter_image_mcp.py": "images come from image-studio now"}
 _missing = [rel for rel in STACK_SCRIPTS if not os.path.isfile(os.path.join(DEST, rel))]
 if _missing:
     sys.exit("install.sh: the staged copy lacks the stack's scripts (%s) — stopping; nothing in %s "
@@ -2147,7 +1951,6 @@ for rel in STACK_SCRIPTS:
     files_entry[rel] = sha256(os.path.join(DEST, rel))
 stale_scripts = {r: "no longer shipped by the stack" for r in files_entry
                  if r.split("/")[0] in ("hooks", "bin", "mcp") and r not in STACK_SCRIPTS}
-stale_scripts.update(LEGACY_SCRIPTS)
 for rel, why in sorted(stale_scripts.items()):
     _p = os.path.join(DEST, rel)
     if not os.path.lexists(_p) or (os.path.isdir(_p) and not os.path.islink(_p)):
@@ -2378,35 +2181,11 @@ MODE_NOTICE = ("default permission mode is now plan; you were on %s by default; 
                "ExitPlanMode to change it. To start every session in %s again, set "
                "\"permissions\": {\"defaultMode\": \"%s\"} in %s (later runs keep it), or start one "
                "session with claude --permission-mode %s")
-# permission rules earlier stack versions shipped before the manifest recorded them, and no longer
-# ship: retracted on upgrade (a stack-shipped "mcp__magg" allowed every tool of every mounted server;
-# "Read(**/.env.*)" also blocked agents from writing .env.example / .env.test — Read denies cover Edit)
-RETIRED_PERMISSIONS = {"allow": {"mcp__magg"}, "deny": {"Read(**/.env.*)"}}
-# env values earlier stack versions shipped before the manifest recorded them, and no longer ship:
-# removed while they still hold that value. ENABLE_TOOL_SEARCH=true: tool search is on by default on
-# the Anthropic API, and "true" forces it through gateways (ANTHROPIC_BASE_URL) that reject it.
-# STACK_PROMPT_CTX_BUDGET / STACK_SESSION_CTX_BUDGET: the per-prompt and per-session caps are learned
-# limits now (hard.prompt / hard.session in stack_limits.py, seeded at these values); a shipped env
-# value would mask the learned one. A value you set yourself stays, as an override (doctor.sh says so).
-RETIRED_ENV = {"ENABLE_TOOL_SEARCH": {"true"}, "STACK_PROMPT_CTX_BUDGET": {"100000000"},
-               "STACK_SESSION_CTX_BUDGET": {"666000000"}}
-# Both apply once, to an install whose manifest predates "settings_permissions"/"settings_env";
-# later retractions come from the manifest itself. A value you add back afterwards stays.
-# sandbox list entries go the same way through "settings_sandbox"; a manifest of an earlier install
-# older than that key retires the cache dirs earlier versions let the sandbox write (R3-CACHES:
-# unsandboxed tools load code from them). A first install (no manifest in $C: the staged one is
-# already this run's) retracts nothing of yours.
+# sandbox list entries the last install shipped and this one doesn't go through "settings_sandbox"
+# (a first install, with no manifest, retracts nothing of yours).
 prev_sandbox = manifest.get("settings_sandbox")
 if not isinstance(prev_sandbox, dict):
-    prev_sandbox = {"filesystem": {"allowWrite": [
-        "~/.cache", "~/Library/Caches", "~/.cargo/registry", "~/.cargo/git", "~/go/pkg",
-        "~/.gradle/caches", "~/.m2/repository", "~/.bun/install/cache", "~/.matplotlib",
-        "~/.local/share/uv", "~/.npm", "~/.rustup", "~/.julia", "~/.elan"]}} \
-        if os.path.exists(os.path.join(os.path.dirname(shown), ".stack-manifest.json")) else {}
-if "settings_permissions" in manifest:
-    RETIRED_PERMISSIONS = {}
-if "settings_env" in manifest:
-    RETIRED_ENV = {}
+    prev_sandbox = {}
 # top-level keys the stack sets only when you have none (or still have the stack's own value).
 # "agent": set "agent": "claude" to keep the plain main thread (then: claude --agent blackcat).
 # "skillListingBudgetFraction" (Claude Code's default 0.01: about 30K characters on a 1M-context
@@ -2424,26 +2203,6 @@ OWNED_ENV = {"STACK_ENV_FILE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
              "MCP_DISCOVERY_CACHE", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
              "BLACKCAT_MAX_STEPS", "BLACKCAT_MAX_DISPATCH", "STACK_MAX_FANOUT",
              "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_MCP_CALLS"}
-# values shipped by stack versions whose manifest predates "settings_env"
-OLD_DEFAULTS = {"ROUTER_MAX_DISPATCH": {"1"}, "ANTHROPIC_DEFAULT_HAIKU_MODEL": {"claude-sonnet-5"}}
-# The main-thread agent "router" is now "blackcat": its "agent" value and its knobs follow the
-# rename. A knob you tuned moves to the new name; one still at a stack default is dropped (the
-# merge below sets the new default).
-OLD_SET_IF_ABSENT = {"agent": {"router"}}
-RENAMED_ENV = {"ROUTER_MAX_STEPS": "BLACKCAT_MAX_STEPS", "ROUTER_MAX_DISPATCH": "BLACKCAT_MAX_DISPATCH",
-               "ROUTER_DISPATCH_WINDOW_S": "BLACKCAT_DISPATCH_WINDOW_S"}
-cur_env = dict(cur.get("env") or {})
-for old, now in RENAMED_ENV.items():
-    if old not in cur_env:
-        continue
-    val = cur_env.pop(old)
-    if (now not in cur_env and str(val) != str(prev_env.get(old))
-            and str(val) not in OLD_DEFAULTS.get(old, ()) and str(val) != str((new.get("env") or {}).get(now))):
-        cur_env[now] = val
-        print("  moved your env %s=%s to %s (the router is now blackcat)" % (old, val, now))
-if cur_env != (cur.get("env") or {}):
-    cur = dict(cur, env=cur_env)
-
 try:
     report = json.load(open(report_path))
 except (OSError, ValueError):
@@ -2455,9 +2214,9 @@ for key in ("config_removed", "config_replaced", "notes"):
 # hook commands of the stack, any version: its launcher bin/stack-hook (any module), its guard run
 # directly (`<python> .../hooks/agent_guard.py ...`, whatever config dir or interpreter an earlier
 # install rendered), the usage collector, the web caps, the read gate, /stack-doctor's bin/doctor.sh --hook,
-# /stack-tree's bin/stack-tree --hook and the retired router-guard.sh. Every hook script settings.json ships must match, or each re-run keeps
+# /stack-tree's bin/stack-tree --hook. Every hook script settings.json ships must match, or each re-run keeps
 # the installed copy as yours and appends the shipped one again (tests/test_install_state.py checks this)
-STACK_HOOK_RE = re.compile(r"/bin/stack-hook\b|agent_guard\.py|router-guard\.sh|stack_usage\.py|web_caps\.py|read_gate\.py|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
+STACK_HOOK_RE = re.compile(r"/bin/stack-hook\b|agent_guard\.py|stack_usage\.py|web_caps\.py|read_gate\.py|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
 
 
 def canon(x):
@@ -2612,7 +2371,7 @@ for k, v in new.items():
                               "tell the stack's earlier default from your choice; set it to %s yourself if you "
                               "want the stack's)" % (os.environ["PREV_COMMIT"][:12], json.dumps(pv)))
                 continue
-            retired = (set(prev_perm.get(pk) or []) | RETIRED_PERMISSIONS.get(pk, set())) - set(pv)
+            retired = set(prev_perm.get(pk) or []) - set(pv)
             have = list(p.get(pk) or [])
             dropped = [x for x in have if x in retired]
             if dropped:
@@ -2650,8 +2409,7 @@ for k, v in new.items():
             print("  retracted stack skillOverrides for %s (no longer shipped)" % ", ".join(gone))
         merged[k] = so
     elif k in SET_IF_ABSENT:
-        if (k not in cur or cur.get(k) == prev_owned.get(k) or cur.get(k) == v
-                or cur.get(k) in OLD_SET_IF_ABSENT.get(k, ())):
+        if k not in cur or cur.get(k) == prev_owned.get(k) or cur.get(k) == v:
             merged[k] = v
         else:
             print("  kept your %s (the stack's: %s)" % (k, json.dumps(v)))
@@ -2659,10 +2417,9 @@ for k, v in new.items():
         e = dict(cur.get("env") or {})
         for ek, sv in v.items():
             mine = e.get(ek)
-            if (mine is None or ek in OWNED_ENV or str(mine) == str(sv) or str(mine) == str(prev_env.get(ek))
-                    or str(mine) in OLD_DEFAULTS.get(ek, ())):
+            if mine is None or ek in OWNED_ENV or str(mine) == str(sv) or str(mine) == str(prev_env.get(ek)):
                 if (mine is not None and ek in OWNED_ENV and str(mine) != str(sv)
-                        and str(mine) != str(prev_env.get(ek)) and str(mine) not in OLD_DEFAULTS.get(ek, ())):
+                        and str(mine) != str(prev_env.get(ek))):
                     print("  set env %s=%s (was %s): the stack owns this knob" % (ek, sv, mine))
                 e[ek] = sv
             elif ek == "ANTHROPIC_DEFAULT_HAIKU_MODEL" and "haiku" in str(mine).lower():
@@ -2677,11 +2434,8 @@ for k, v in new.items():
             else:
                 print("  kept your env %s=%s (stack default: %s)" % (ek, mine, sv))
         # keys an earlier stack version shipped and this one doesn't: removed while unchanged
-        for ek in sorted((set(prev_env) | set(RETIRED_ENV)) - set(v)):
-            shipped = set(RETIRED_ENV.get(ek, ()))
-            if ek in prev_env:
-                shipped.add(str(prev_env[ek]))
-            if ek in e and str(e[ek]) in shipped:
+        for ek in sorted(set(prev_env) - set(v)):
+            if ek in e and str(e[ek]) == str(prev_env[ek]):
                 print("  retracted stack env %s=%s (no longer shipped)" % (ek, e.pop(ek)))
         merged["env"] = e
     else:
@@ -2787,17 +2541,12 @@ fi
 
 echo
 python3 "$STATE_PY" plan "$C" "$S" "$REPORT" "$PLAN_JSON" "$SNAP"
-if [ -n "$legacy_b" ]; then
-  echo "moved out of the config dir: backups of earlier installs (they may hold a copy of stack.env)"
-  printf '%s\n' "$legacy_b" | sed "s|^|  > |; s|\$| -> $BACKUP_ROOT/legacy/|"
-fi
 B=""
 if [ "$DRY_RUN" = 1 ]; then
   note "--dry-run: nothing above was applied"
 else
   python3 "$STATE_PY" apply "$C" "$S" "$PLAN_JSON" "$BACKUP_ROOT" "$STACK_COMMIT" "$WORK/backup-dir" "$SNAP"
   B="$(cat "$WORK/backup-dir")"
-  [ -n "$legacy_b" ] && python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" move >/dev/null
   mkdir -p "$C"/{agents,skills,hooks,mcp/vendor,magg/kit.d,bin,venvs}
   # The Playwright MCP's --output-dir, rendered into the agents' inline entries and the magg catalog:
   # doctor.sh checks the paths in MCP args and FAILs while it is missing, so it is not left to the
@@ -2892,8 +2641,8 @@ say "9/11 MCP servers (user scope, remote HTTP — lazy connect, tools deferred,
 compute_mcp_plan
 
 # User-scope servers the stack registered once and no longer uses: removed through `claude mcp`
-# (the backup keeps each entry; --restore re-adds it). Context7 came before libdocs; later ones are
-# the names the manifest recorded (mcp_registered) that the stack stopped shipping. An entry that
+# (the backup keeps each entry; --restore re-adds it): the names the manifest recorded
+# (mcp_registered) that the stack stopped shipping. An entry that
 # points elsewhere than the stack's host is yours and stays.
 stale_mcp(){ python3 - "$CFG" "$C/.stack-manifest.json" "$PLAN" <<'PY'
 import json, re, sys
@@ -2907,7 +2656,7 @@ def load(p):
         return {}
 servers = (load(cfg_path).get("mcpServers") or {})
 shipped = {line.split("\t")[1] for line in plan.splitlines() if line.count("\t") >= 1}
-known = {"context7": ("mcp.context7.com", "libdocs replaced Context7")}
+known = {}
 NAME = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]{0,63}\Z")
 HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}\Z")
 reg = load(manifest_path).get("mcp_registered")
