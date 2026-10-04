@@ -310,7 +310,7 @@ checks = {
                          env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"), env.get("STACK_MAX_MCP_CALLS"))
                         == ("3", "orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", None, None, "33", "64"),
     "skill listing budget": s.get("skillListingBudgetFraction") == frac and 0.01 <= frac <= 0.02
-                            and s.get("skillListingMaxDescChars") == 500
+                            and s.get("skillListingMaxDescChars") == 250
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only"
                             and s.get("skillOverrides", {}).get("rust-async") == "user-invocable-only",
     "Claude models from stack.env (no Haiku)": all(env.get(k) == v for k, v in example_models.items())
@@ -1396,7 +1396,7 @@ if not ok:
 sys.exit(0 if ok else 1)
 PY
 python3 -c 'import re, sys; m = re.search(r"retracted stack skillOverrides for (.*) \(no longer shipped\)", open(sys.argv[1]).read()); got = set(m.group(1).split(", ")) if m else set(); sys.exit(0 if {"code-review", "fewer-permission-prompts", "init", "keybindings-help", "security-review", "rust-async"} <= got and "simplify" not in got else 1)' "$TR/r.log" \
-  && grep -q 'retracted stack setting skillListingMaxDescChars=500' "$TR/r.log" \
+  && grep -q 'retracted stack setting skillListingMaxDescChars=250' "$TR/r.log" \
   && pass "rollback: each retraction is reported" || failed "rollback retraction messages: $(grep -i retract "$TR/r.log")"
 assert_unchanged_real_home
 drop_scratch "$TR"

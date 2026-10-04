@@ -308,17 +308,19 @@ def get_may_spawn(body):
 # skillOverrides values (code.claude.com/docs/en/skills.md, "Override skill visibility from settings"):
 # "on" lists name and description, "name-only" the name, "user-invocable-only" and "off" nothing.
 OVERRIDE_STATES = {"on", "name-only", "user-invocable-only", "off"}
-# Skill-listing budget (see main()): what shares it besides the stack's own skills, 2026-10-02.
-# Plugins the installer enables (measured from their SKILL.md files, entries "- name: description" cut
-# at skillListingMaxDescChars 500): document-skills docx/xlsx/pptx/pdf 2,032, math-olympiad 531,
-# skill-creator 350; the LSP plugins have no skills. Bundled Claude Code skills (dataviz, artifact-*,
-# update-config, loop, schedule, claude-api, workflow-authoring, run, plugin-authoring): ~3,950,
-# estimated from a 2.1.287 session's listing. claude.ai-synced skills (anthropic-skills:*, only in
-# sessions signed in to claude.ai; the stack can't see them): ~7,300 margin, estimated likewise.
-NON_STACK = {"plugins": 2_913 + 6, "bundled (est.)": 3_950, "claude.ai synced (est. margin)": 7_300}
+# Skill-listing budget (see main()): what shares it besides the stack's own skills, 2026-10-04, at
+# skillListingMaxDescChars 250 (entries "- name: description", description cut at 250). Plugins
+# (skillOverrides can't touch them): document-skills docx/xlsx/pptx/pdf 1,095, math-olympiad 281,
+# skill-creator 281 (descriptions measured from their SKILL.md files, all over 250), + separators.
+# Bundled Claude Code skills still listed (artifact-*, update-config, loop, schedule, claude-api,
+# workflow-authoring, run, plugin-authoring; dataviz is user-invocable-only): ~2,550, estimated from a
+# 2.1.287 session's listing. claude.ai-synced skills still listed (anthropic-skills: built-in-browser,
+# chrome-browser, computer-use, docs, docx, pdf, pptx, skill-creator, xlsx; 8 others are
+# user-invocable-only): ~2,520 computed from ~/.claude/skills/synced manifest lengths, 3,000 margin.
+NON_STACK = {"plugins": 1_657 + 6, "bundled (est.)": 2_550, "claude.ai synced (est. margin)": 3_000}
 NON_STACK_LISTING = sum(NON_STACK.values())
-LISTING_NOTE = ("0.012 set 2026-10-02 from stack 14,564 (83 hub modules hidden) + non-stack %d = %d chars "
-                "plus 25%%; see tests/prompt_budget.py SKILL_BUDGET" % (NON_STACK_LISTING, 14_564 + NON_STACK_LISTING))
+LISTING_NOTE = ("non-stack %d chars estimated 2026-10-04 (cap 250, 9 non-stack skills hidden); see "
+                "tests/prompt_budget.py SKILL_BUDGET" % NON_STACK_LISTING)
 
 
 def skill_listing_entry(name, desc_len, override="on", desc_cap=1536, model_invocable=True):

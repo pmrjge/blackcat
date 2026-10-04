@@ -27,9 +27,14 @@ MODULE_MAX_LINES = 150
 # text. Listed skills carry their description (no "name-only" overrides since the user's decision
 # of 2026-10-02); a hidden module is picked from its hub's table row instead.
 MODULE_DESC_MAX = 140
-# Claude Code's bundled skills the stack hides from the model (user-run commands); not shipped here.
+# Skills the stack hides from the model (user-run commands; they stay /name commands); not shipped here.
+# Bundled with Claude Code: the first six and dataviz. Synced from claude.ai, keyed by the full name the
+# listing shows (Claude Code 2.1.287 matches the full name, then the short one unless another command
+# holds it): a plain "schedule" key would hide Claude Code's own cloud-routines /schedule instead.
 EXTERNAL = {"code-review", "security-review", "simplify", "fewer-permission-prompts", "keybindings-help",
-            "init"}
+            "init", "dataviz"} | {"anthropic-skills:" + s for s in (
+                "deep-research", "morning", "import-memory", "consolidate-memory", "setup-claude",
+                "explain-usage", "google-workspace", "schedule")}
 REF_RE = re.compile(r"(?<![\w/.-])((?:\.\./[\w-]+/)?references/[\w./-]+?\.md)\b")
 
 
