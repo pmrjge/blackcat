@@ -260,11 +260,12 @@ def test_settings_wiring():
     hooks = json.loads(SETTINGS.read_text())["hooks"]
     pre = [h for g in hooks.get("PreCompact", []) for h in g.get("hooks", [])]
     assert len(pre) == 1 and pre[0]["type"] == "command"
-    assert pre[0]["command"] == '"__PYTHON3__" "__CLAUDE_DIR__/hooks/agent_guard.py"'
+    # through the launcher (S2), fail-open: PreCompact is not a PreToolUse gate
+    assert pre[0]["command"] == '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" agent_guard'
     assert 0 < pre[0]["timeout"] <= 30
     assert not any(g.get("matcher") for g in hooks["PreCompact"])            # manual and auto
     starts = [g for g in hooks["SessionStart"] if g.get("matcher")
-              and any(h["command"].endswith('agent_guard.py"') for h in g["hooks"])]
+              and any(h["command"].endswith('stack-hook" agent_guard') for h in g["hooks"])]
     assert starts and "compact" in starts[0]["matcher"].split("|")
 
 

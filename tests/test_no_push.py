@@ -375,7 +375,7 @@ def test_settings_wire_no_push():
     # no `if`: Claude Code's `if: "Bash(git *)"` skips `bash -c 'git push'`, `eval` and /usr/bin/git
     assert set(g["matcher"].split("|")) == {"Bash", "Monitor", "PowerShell"}
     assert all("if" not in h for h in g["hooks"])
-    assert any(h["command"].endswith("agent_guard.py\" no-push") for h in g["hooks"])
+    assert any(h["command"].endswith("--fail-closed agent_guard no-push") for h in g["hooks"])
     assert s["worktree"]["baseRef"] == "head"
 
 

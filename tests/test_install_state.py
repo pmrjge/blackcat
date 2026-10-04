@@ -2,6 +2,7 @@
 L2 restored links, L3 drift, L4 backup root). The end-to-end runs are in tests/install_smoke.sh."""
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -436,7 +437,26 @@ def _read(path):
         return f.read()
 
 
+def _uv_python_dir():
+    import shutil
+    import subprocess
+    uv = shutil.which("uv")
+    out = subprocess.run([uv, "python", "dir"], capture_output=True, text=True, check=False).stdout.strip() \
+        if uv else ""
+    if not out:
+        pytest.skip("needs uv (the installer links uv's managed Python 3.13 as stack-python)")
+    return out
+
+
 def _install(repo, home, conf, *extra):
+    p = _run_install(repo, home, conf, *extra)
+    assert p.returncode == 0, (p.stdout[-3000:], p.stderr[-3000:])
+    return p.stdout + p.stderr
+
+
+def _run_install(repo, home, conf, *extra, env_extra=None):
+    """install.sh --no-mcp --no-plugins --no-deps --no-profile into a scratch HOME and config dir;
+    env_extra: variables added last (STACK_PYTHON, UV_PYTHON_INSTALL_DIR, ...)."""
     import subprocess
     os.makedirs(os.path.join(home, "tmp"), exist_ok=True)
     # macOS mktemp without a template ignores TMPDIR (it asks for the per-user temp dir, which a
@@ -450,15 +470,17 @@ def _install(repo, home, conf, *extra):
     env = {k: v for k, v in os.environ.items()
            if not k.startswith(("STACK_", "CLAUDE_", "XDG_")) and k not in (
                "EXA_API_KEY", "JINA_API_KEY", "HF_TOKEN", "WANDB_API_KEY", "GITHUB_TOKEN", "GH_TOKEN")}
+    # the scratch HOME hides uv's managed Pythons: point uv at the real ones, so the installer finds
+    # (never installs) the 3.13 it links as stack-python
+    env.setdefault("UV_PYTHON_INSTALL_DIR", _uv_python_dir())
     env.update(HOME=home, CLAUDE_CONFIG_DIR=conf, XDG_STATE_HOME=os.path.join(home, ".local", "state"),
                TMPDIR=os.path.join(home, "tmp"), STACK_ALLOW_NON_MACOS="1", FAKE_CLAUDE_JSON=os.path.join(home, ".claude.json"),
                STACK_CLAUDE_JSON=os.path.join(home, ".claude.json"),
                PATH=os.pathsep.join((os.path.join(repo, "tests", "fake-claude"), shim, env.get("PATH", ""))))
-    p = subprocess.run([os.path.join(repo, "install.sh"), "--no-mcp", "--no-plugins", "--no-deps",
-                        "--no-profile", *extra], env=env, stdin=subprocess.DEVNULL,
-                       capture_output=True, text=True, timeout=900, check=False)
-    assert p.returncode == 0, (p.stdout[-3000:], p.stderr[-3000:])
-    return p.stdout + p.stderr
+    env.update(env_extra or {})
+    return subprocess.run([os.path.join(repo, "install.sh"), "--no-mcp", "--no-plugins", "--no-deps",
+                           "--no-profile", *extra], env=env, stdin=subprocess.DEVNULL,
+                          capture_output=True, text=True, timeout=900, check=False)
 
 
 @pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, ".git")) and not os.path.isfile(
@@ -496,7 +518,7 @@ def test_install_seeds_live_json_once_and_retracts_the_budget_env(tmp_path):
     assert e["STACK_SESSION_CTX_BUDGET"] == "777000000"
     assert "retracted stack env STACK_PROMPT_CTX_BUDGET=100000000" in log
     hooks = json.loads(_read(sp))["hooks"]
-    assert not any("stack_usage.py\" start" in h.get("command", "") for g in hooks["SessionStart"]
+    assert not any(re.search(r'stack_usage(\.py")? start', h.get("command", "")) for g in hooks["SessionStart"]
                    for h in g["hooks"])
     _install(new, home, conf)                                    # a plain re-run
     assert _read(live) == first
@@ -534,10 +556,10 @@ def test_install_reseeds_unlearned_limits_and_keeps_learned_ones(tmp_path):
     hooks = os.path.join(conf, "hooks")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("STACK_", "CLAUDE_", "XDG_"))}
     env.update(HOME=home, CLAUDE_CONFIG_DIR=conf, XDG_STATE_HOME=os.path.join(home, ".local", "state"))
-    subprocess.run(["/usr/bin/python3", "-c", "import sys; sys.path.insert(0, sys.argv[1]); import stack_limits "
+    subprocess.run([os.path.join(conf, "bin", "stack-python"), "-c", "import sys; sys.path.insert(0, sys.argv[1]); import stack_limits "
                     "as L; L.apply_and_snapshot({'session_id': 's-after', 'source': 'startup'}, spawn=False)",
                     hooks], env=env, check=True)
-    out = subprocess.run(["/usr/bin/python3", os.path.join(hooks, "stack_limits.py"), "show", "hard.session*"],
+    out = subprocess.run([os.path.join(conf, "bin", "stack-python"), os.path.join(hooks, "stack_limits.py"), "show", "hard.session*"],
                          env=env, check=True, stdout=subprocess.PIPE, text=True).stdout
     row = [x for x in out.splitlines() if x.startswith("hard.session ")][0].split()
     assert row[1:3] == ["1.92B", "1.92B"] and row[-1] == "live", out

@@ -262,7 +262,7 @@ fi
 # hook ($CLAUDE_ENV_FILE, Bash only). In settings env they would reach MCP servers, hooks and
 # language servers, which run outside the sandbox (R3-CACHES, R3-GITENV).
 python3 - "$C/settings.json" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
-import glob, json, os, shlex, shutil, subprocess, sys, tempfile, time
+import glob, json, os, re, shlex, shutil, subprocess, sys, tempfile, time
 try:
     s = json.load(open(sys.argv[1]))
 except (OSError, ValueError):
@@ -277,7 +277,7 @@ if moved:
           "sets them for Bash only (rerun ./install.sh)" % ", ".join(moved))
 hooks = s.get("hooks") if isinstance(s.get("hooks"), dict) else {}
 wired = any(isinstance(g, dict) and not g.get("matcher") and any(
-    isinstance(h, dict) and str(h.get("command", "")).endswith('agent_guard.py" session-env')
+    isinstance(h, dict) and re.search(r'agent_guard(\.py")? session-env$', str(h.get("command", "")))
     for h in g.get("hooks") or []) for g in hooks.get("SessionStart") or [])
 allow = ((s.get("sandbox") or {}).get("filesystem") or {}).get("allowWrite") or []
 if wired:
@@ -285,7 +285,7 @@ if wired:
     # run it as Claude Code would, against a throwaway CLAUDE_ENV_FILE, HOME and state dir
     cmd = next(str(h.get("command")) for g in hooks.get("SessionStart") or [] if isinstance(g, dict)
                and not g.get("matcher") for h in g.get("hooks") or [] if isinstance(h, dict)
-               and str(h.get("command", "")).endswith('agent_guard.py" session-env'))
+               and re.search(r'agent_guard(\.py")? session-env$', str(h.get("command", ""))))
     tmp = tempfile.mkdtemp(prefix="stack-doctor-env-")
     try:
         envf = os.path.join(tmp, "env.sh")
@@ -348,8 +348,11 @@ else
   fi
 fi
 
+# the hook scripts run on bin/stack-python (Python >= 3.13); checked under == Hooks
+HPY="$C/bin/stack-python"
+"$HPY" -c 'import sys; sys.exit(sys.version_info < (3, 13))' >/dev/null 2>&1 </dev/null || HPY=python3
 echo "== Agents"
-policy_json=$(python3 "$C/hooks/agent_guard.py" --print-policy 2>/dev/null || true)
+policy_json=$("$HPY" "$C/hooks/agent_guard.py" --print-policy 2>/dev/null || true)
 if [ -z "$policy_json" ]; then
   fail "agent_guard.py --print-policy failed — rerun install.sh"
 else
@@ -398,15 +401,74 @@ pending="$( (cd "$C" && find agents rules skills -name '*.new' -type f 2>/dev/nu
   || warn "pending .new renders (your edited files were kept; merge them, then delete the .new): $pending"
 
 echo "== Hooks"
+# The hooks' interpreter: every hook runs /bin/sh bin/stack-hook, which runs hooks/stack_hook.py on
+# $STACK_PYTHON, bin/stack-python (installer's link to uv's managed 3.13) or `uv python find 3.13`;
+# the PreToolUse guard entries fail closed when none starts (every tool call denied).
+SP="$C/bin/stack-python"
+if [ ! -L "$SP" ] && [ ! -e "$SP" ]; then
+  fail "bin/stack-python missing: each hook call searches uv for Python 3.13 (slow) or blocks — rerun install.sh"
+elif ! spv=$("$SP" -c 'import sys; print("%d.%d.%d" % sys.version_info[:3]); sys.exit(sys.version_info < (3, 13))' 2>/dev/null </dev/null); then
+  fail "bin/stack-python -> $(readlink "$SP" 2>/dev/null || echo '?') is not a working Python >= 3.13${spv:+ (it runs $spv)} — rerun install.sh (it installs 3.13 with uv)"
+else
+  ok "bin/stack-python -> $(readlink "$SP" 2>/dev/null || echo "$SP") (Python $spv)"
+fi
+if [ -n "${STACK_PYTHON:-}" ] && ! "$STACK_PYTHON" -c 'import sys; sys.exit(sys.version_info < (3, 13))' >/dev/null 2>&1 </dev/null; then
+  fail "STACK_PYTHON=$STACK_PYTHON in this environment wins over bin/stack-python but is not a working Python >= 3.13: the fail-closed hooks deny every tool call — unset it"
+fi
+# bytecode (checked before the smoke test below, which rewrites a stale pyc): install.sh compiles
+# the hook modules (timestamp pycs in hooks/__pycache__); missing or stale costs a recompile per
+# call until the stub rewrites it (it does on the first call that can write there)
+"$HPY" - "$C/hooks" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
+import importlib.util, os, sys
+sys.pycache_prefix = None
+h, stale = sys.argv[1], []
+for m in ("agent_guard", "stack_hook", "stack_usage", "stack_limits", "stack_report", "read_gate", "web_caps"):
+    src = os.path.join(h, m + ".py")
+    if not os.path.isfile(src):
+        continue
+    try:
+        with open(importlib.util.cache_from_source(src), "rb") as f:
+            head = f.read(16)
+        st = os.stat(src)
+        fresh = (head[:4] == importlib.util.MAGIC_NUMBER and int.from_bytes(head[4:8], "little") == 0
+                 and int.from_bytes(head[8:12], "little") == int(st.st_mtime) & 0xFFFFFFFF
+                 and int.from_bytes(head[12:16], "little") == st.st_size & 0xFFFFFFFF)
+    except OSError:
+        fresh = False
+    if not fresh:
+        stale.append(m)
+if stale:
+    print("hook bytecode missing or stale for %s (%s): the hooks recompile until it is rewritten — rerun install.sh"
+          % (", ".join(stale), sys.implementation.cache_tag))
+else:
+    print("ok hook bytecode fresh (timestamp pycs, %s) for the guard and the hook modules" % sys.implementation.cache_tag)
+PY
+if [ -f "$C/bin/stack-hook" ] && [ -f "$C/hooks/stack_hook.py" ]; then
+  ok "bin/stack-hook and hooks/stack_hook.py (the hook launcher and entry)"
+  # smoke test, as a session runs it: a Read through the fail-closed budget entry must be allowed (a
+  # broken interpreter or stub denies everything, which the deny probes below cannot tell apart)
+  sm_dir="$(mktemp -d "${TMPDIR:-/tmp}/stack-doctor-smoke.XXXXXX")"
+  sm_out=$(cd "$sm_dir" && printf '{"hook_event_name":"PreToolUse","session_id":"doctor-smoke","tool_name":"Read","tool_input":{"file_path":"%s/a.py"},"tool_use_id":"tu-doctor-smoke","cwd":"%s"}' "$sm_dir" "$sm_dir" \
+    | env -u STACK_POLICY CLAUDE_CONFIG_DIR="$C" XDG_STATE_HOME="$sm_dir/state" STACK_USAGE_COLLECT=0 \
+      /bin/sh "$C/bin/stack-hook" --fail-closed agent_guard budget 2>"$sm_dir/err") && sm_rc=0 || sm_rc=$?
+  if [ "$sm_rc" = 0 ] && ! printf '%s' "$sm_out" | grep -qE '"permissionDecision": *"(deny|ask)"'; then
+    ok "hook launcher smoke test: a Read through stack-hook --fail-closed agent_guard budget is allowed"
+  else
+    fail "hook launcher smoke test failed (exit $sm_rc): $(printf '%s %s' "$sm_out" "$(cat "$sm_dir/err")" | tr '\n' ' ' | cut -c1-200) — rerun install.sh"
+  fi
+  rm -rf "$sm_dir"
+else
+  fail "bin/stack-hook or hooks/stack_hook.py missing: every hook command fails — rerun install.sh"
+fi
 [ -f "$C/hooks/agent_guard.py" ] && ok "hooks/agent_guard.py" || fail "hooks/agent_guard.py missing — rerun install.sh"
 if [ -f "$C/hooks/agent_guard.py" ]; then
-  if out=$(python3 "$C/hooks/agent_guard.py" --self-test 2>&1); then
+  if out=$("$HPY" "$C/hooks/agent_guard.py" --self-test 2>&1); then
     ok "agent_guard.py --self-test: $out"
   else
     fail "agent_guard.py --self-test failed: $out"
   fi
   # the token budgets read the session transcripts: FAIL when the newest one yields no usage
-  if out=$(CLAUDE_CONFIG_DIR="$C" python3 "$C/hooks/agent_guard.py" --check-budget 2>&1); then
+  if out=$(CLAUDE_CONFIG_DIR="$C" "$HPY" "$C/hooks/agent_guard.py" --check-budget 2>&1); then
     ok "token budgets: $out"
   else
     fail "token budgets count nothing — the transcript format changed: $out"
@@ -414,15 +476,15 @@ if [ -f "$C/hooks/agent_guard.py" ]; then
 fi
 # the usage collector and the scheduler model it refreshes (one line; it never blocks a session)
 if [ -f "$C/hooks/stack_usage.py" ]; then
-  if out=$(python3 "$C/hooks/stack_usage.py" status 2>&1); then ok "$out"; else warn "stack_usage.py status failed: $out"; fi
+  if out=$("$HPY" "$C/hooks/stack_usage.py" status 2>&1); then ok "$out"; else warn "stack_usage.py status failed: $out"; fi
 else
   warn "hooks/stack_usage.py missing (usage collector, scheduler model refresh) — rerun install.sh"
 fi
 # the learned limits (stack_limits.py; each session snapshots them at its start), the env overrides
 # that pin one (origin env: it stops learning) and the scheduler policy recorded in the snapshots
 if [ -f "$C/hooks/stack_limits.py" ]; then
-  if out=$(python3 "$C/hooks/stack_limits.py" status 2>&1); then ok "$out"; else warn "stack_limits.py status failed: $out"; fi
-  python3 - "$C/hooks" "$C/settings.json" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
+  if out=$("$HPY" "$C/hooks/stack_limits.py" status 2>&1); then ok "$out"; else warn "stack_limits.py status failed: $out"; fi
+  "$HPY" - "$C/hooks" "$C/settings.json" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
 import json, os, sys
 sys.path.insert(0, sys.argv[1])
 try:
@@ -518,19 +580,26 @@ try:
     hooks = json.load(open(settings)).get("hooks", {})
 except (OSError, ValueError):
     hooks = {}
+# the guard's hook commands: through the launcher (`/bin/sh .../bin/stack-hook [--fail-closed]
+# agent_guard <mode>`) or, from an install before it, `<python> .../hooks/agent_guard.py <mode>`
+GUARD_RE = re.compile(r'(?:/bin/stack-hook"? (?:--fail-closed )?agent_guard|agent_guard\.py"?)(?=\s|$)')
+def is_guard(c):
+    return bool(GUARD_RE.search(str(c)))
+def mode(h):
+    found = list(GUARD_RE.finditer(str(h.get("command"))))
+    return str(h.get("command"))[found[-1].end():].split() if found else []
 # policy probe: the default-mode commands only (budget mode leaves Agent calls to the main hook)
-mode = lambda h: str(h.get("command")).rsplit("agent_guard.py", 1)[-1].strip().strip('"').split()
 cmds = sorted({h.get("command") for g in hooks.get("PreToolUse", []) if isinstance(g, dict)
-               for h in g.get("hooks", []) if "agent_guard.py" in str(h.get("command"))
+               for h in g.get("hooks", []) if is_guard(h.get("command"))
                and not set(mode(h)) & {"image-limit", "no-push", "budget", "blackcat-guard"}})
 # blackcat's gate, also wired in settings.json (acts only on events naming agent_type "blackcat")
 bcmds = sorted({h.get("command") for g in hooks.get("PreToolUse", []) if isinstance(g, dict)
-                for h in g.get("hooks", []) if "agent_guard.py" in str(h.get("command"))
+                for h in g.get("hooks", []) if is_guard(h.get("command"))
                 and "blackcat-guard" in mode(h)})
 # the token budgets gate every tool call: a PreToolUse group matching "*" runs `agent_guard.py budget`
 if any(isinstance(g, dict) and g.get("matcher") == "*" and "budget" in mode(h)
        for g in hooks.get("PreToolUse", []) for h in (g.get("hooks", []) if isinstance(g, dict) else [])
-       if "agent_guard.py" in str(h.get("command"))):
+       if is_guard(h.get("command"))):
     print("  ok    token budgets wired: PreToolUse \"*\" runs agent_guard.py budget")
 else:
     print("  FAIL  no PreToolUse \"*\" group runs agent_guard.py budget: the token budgets are off — rerun install.sh")
@@ -540,7 +609,7 @@ icmds = sorted({h.get("command") for g in hooks.get("PostToolUse", []) if isinst
                 for h in g.get("hooks", []) if "image-limit" in str(h.get("command"))})
 rcmd = None
 try:
-    m = re.search(r'(?m)^\s+command:\s*"(.*agent_guard\.py.*)"\s*$', open(blackcat_md).read())
+    m = re.search(r'(?m)^\s+command:\s*"(.*agent_guard.*)"\s*$', open(blackcat_md).read())
     rcmd = json.loads('"%s"' % m.group(1)) if m else None
 except (OSError, ValueError):
     pass
@@ -582,7 +651,7 @@ for g in hooks.get("PreToolUse", []):
             print("  ok    no-push hook sees every Bash and Monitor command (no `if` filter)")
 for label, commands, ev in probes:
     if not commands:
-        print("  FAIL  %s: no agent_guard.py hook command found — rerun install.sh" % label)
+        print("  FAIL  %s: no agent_guard hook command found — rerun install.sh" % label)
         continue
     for cmd in commands:
         try:
@@ -733,14 +802,18 @@ for bad in ("DISABLE_AUTO_COMPACT", "DISABLE_COMPACT", "CLAUDE_CODE_AUTO_COMPACT
 hooks = s.get("hooks", {})
 events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop",
           "PostToolUseFailure", "PermissionDenied", "StopFailure", "PreCompact"]
-missing_ev = [ev for ev in events if not any("agent_guard.py" in json.dumps(g) for g in hooks.get(ev, []))]
+GUARD_RE = re.compile(r'(?:/bin/stack-hook"? (?:--fail-closed )?agent_guard|agent_guard\.py"?)(?=\s|$)')
+is_guard = lambda c: bool(GUARD_RE.search(str(c)))
+in_group = lambda g: isinstance(g, dict) and any(isinstance(h, dict) and is_guard(h.get("command"))
+                                                 for h in g.get("hooks") or [])
+missing_ev = [ev for ev in events if not any(in_group(g) for g in hooks.get(ev, []))]
 (fail if missing_ev else ok)("guard hooks wired for all %d events" % len(events) if not missing_ev else "guard hooks missing for: " + ", ".join(missing_ev))
 # SessionStart: startup and resume clear stale locks and leases; fork starts a forked session's
 # token count at the end of the history it copied (without it, the fork inherits its parent's usage);
 # compact re-injects the compaction digest (the PreCompact snapshot's running and unrelayed children)
 starts = [str(g.get("matcher") or "*") for g in hooks.get("SessionStart", [])
           if isinstance(g, dict) and any(
-              isinstance(h, dict) and "agent_guard.py" in str(h.get("command", ""))
+              isinstance(h, dict) and is_guard(h.get("command", ""))
               and not str(h.get("command", "")).rstrip().endswith(" session-env")
               for h in g.get("hooks") or [])]
 def _matches(m, source):
@@ -754,12 +827,12 @@ lost = [src for src in ("startup", "resume", "fork", "compact") if not any(_matc
 (fail if lost else ok)("SessionStart guard matcher covers startup, resume, fork and compact" if not lost
                        else "SessionStart guard matcher %s misses %s — rerun install.sh"
                        % (" / ".join(starts) or "(none)", ", ".join(lost)))
-post = {g.get("matcher") for g in hooks.get("PostToolUse", []) if isinstance(g, dict) and "agent_guard.py" in json.dumps(g)}
+post = {g.get("matcher") for g in hooks.get("PostToolUse", []) if in_group(g)}
 (ok if any("TaskStop" in (m or "") for m in post) else warn)(
     "PostToolUse also watches TaskStop (a stopped agent releases its locks)" if any("TaskStop" in (m or "") for m in post)
     else "PostToolUse guard matcher lacks TaskStop — rerun install.sh")
 cmds = {h.get("command", "") for gs in hooks.values() for g in gs if isinstance(g, dict) for h in g.get("hooks", [])
-        if "agent_guard.py" in str(h.get("command"))}
+        if is_guard(h.get("command"))}
 bare = sorted(c for c in cmds if c.split()[0].strip('"') in ("python3", "python"))
 (warn if bare else ok)("guard hooks call an absolute interpreter" if not bare
                        else "guard hooks call a bare python3 (a broken pyenv/asdf shim would disable them) — rerun install.sh")
