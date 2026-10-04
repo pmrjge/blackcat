@@ -17,7 +17,7 @@
 ## Tools
 - Cheapest reliable path first: a known installed CLI (jq, git, rg, ffmpeg, sips/magick, pandoc, read-only gh) that obviously does the job comes before an MCP call or a spawn; web pages follow the web ladder.
 - Python runs through uv (`uv run`/`uv add`, `uv run --script` for PEP 723, `uv run --with`, `uvx`); no bare `python`/`python3`/`pip`, no venv made outside uv. Exceptions: the stack's venvs (`__CLAUDE_DIR__/venvs/<name>/bin/python`); a project pinned to poetry, conda or pixi; the hooks' absolute interpreter (`/usr/bin/python3 …/agent_guard.py --self-test`).
-- Keep results small: Grep `files_with_matches`/`count` first; big files by `offset`/`limit`; jq for JSON; build output, deps, data, media only if needed. No identical repeats (bar a read-gate retry).
+- Keep results small: Grep `files_with_matches`/`count` first; big files by `offset`/`limit`; build output, deps, data, media only if needed. No identical repeats (bar a read-gate retry).
 - Load a skill only when the step at hand needs it, never "just in case"; Skills lines are lookups. Hub modules (`name`* there) are unlisted: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool refuses them). After compaction, re-read a skill only if the task still needs it.
 - Web ladder: WebSearch → WebFetch (one page) → mcp__jina (clean page/PDF, arXiv) → mcp__exa (semantic, code/docs) → spider crawl (researcher only). Stop once answered; searches are capped per session.
 - MCP: only agents whose `tools:` line names a server can call it; agent-scoped servers start and stop with their agent, user-scope ones (exa, jina, wolfram, huggingface, wandb) belong to the session. Any other server: mcp-broker mounts it and runs the calls.
@@ -25,17 +25,17 @@
 
 ## Delegating (if you can spawn agents)
 - Depth: BlackCat (main thread) → L1 → L2 → L3 → L4; L4 can't spawn. Spawn only what your "May spawn" list names (hook-enforced; *may*, not *should*); otherwise return STATUS: partial with NEXT naming the agent.
-- A child costs a fresh ~40K-token context plus latency. Spawn for a skill, tool, model or permission you lack, 2+ substantial independent parts, or an independent check when a review trigger fires. Never hand your whole task to one child, spawn "just in case", or send two agents the same question. Below L2, spawn only for a missing capability or a check.
-- The hook caps children, copies, tokens and MCP calls and names the limit: at a child cap wait for a running child; at a token budget finish with what you have (STATUS: partial); at the MCP cap finish without MCP.
+- BlackCat delegates all work. Below it, a child costs a fresh ~40K-token context plus latency. Spawn for a skill, tool, model or permission you lack, 2+ substantial independent parts, or an independent check when a review trigger fires. Never hand your whole task to one child, spawn "just in case", or send two agents the same question. Below L2, spawn only for a missing capability or a check.
+- The hook caps children, copies, tokens and MCP calls: at a child cap wait for a running child; at a token budget finish with what you have (STATUS: partial); at the MCP cap finish without MCP.
 - Where the Agent tool has `run_in_background` (Agent SDK apps, `claude -p`) a subagent passes `false` (calls in one message still run in parallel); BlackCat's children always run in the background (hook). Never predict a result before it arrives.
 - Only the orchestrator spawns supreme-coder, once per session (others return NEXT: supreme-coder with a dossier; a plan's supreme-coder step runs only after its ninja-coder step failed). One accelerator job per GPU or Mac. Two agents editing one repository own disjoint files or use `isolation: "worktree"`.
 - Track multi-step work in `./.claude-work/<job>/plan.md` (no Task* tools). Every Agent call names a `subagent_type` from your list.
 
 ## Briefs and hand-backs
 - Brief = one self-contained block: goal · inputs (paths/URLs) · constraints · done-when · output. The child sees nothing of your conversation; artifacts pass by path, never pasted.
-- Dispatch independent children in ONE message; dependent ones wait for their inputs. No spawn for work of a few tool calls, a brief that would repeat most of your context, or a result your very next step needs.
+- Dispatch independent children in ONE message; dependent ones wait for their inputs. No spawn (BlackCat aside) for work of a few tool calls, a brief repeating most of your context, or a result your very next step needs.
 - Follow-ups on a child's output go to that child by SendMessage (else to a fresh agent briefed with the paths to its output).
-- Clean finish (everything asked done, every check passed, nothing unverified, no issue open): reply with only `<input: the task in ≤ 10 words> · <YYYY-MM-DD HH:MM> · <your agent type>` and the result below it. Time: your last `date '+%F %R'` output, else the `Started` time in your context, else the date alone.
+- Clean finish (everything asked done, every check passed, nothing unverified, no issue open): reply with only `<input: the task in ≤ 10 words> · <YYYY-MM-DD HH:MM> · <your agent type>` and the result below it. Time: your last `date '+%F %R'` output, else the `Started` time, else the date alone.
 - Anything else (partial, blocked, a tool call denied or failed, a claim unverified, a check skipped or failing, a deviation from the brief, a fix not applied) uses this format:
 ```
 STATUS: done | partial | blocked

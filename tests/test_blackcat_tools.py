@@ -193,14 +193,17 @@ def test_no_shipped_skill_forks():
     assert forked == []
 
 
-def test_rules_keep_the_main_thread_free_for_dispatch():
-    """The prompt states the dispatch-first order, the foreground bound and the own-work cap that
-    the hook enforces (the order itself is prompt-only: the hook can't know that dispatches follow)."""
-    body = re.sub(r"\s+", " ", BLACKCAT_MD.read_text().split("\n---\n", 1)[1])
-    assert "Dispatch first: Agent calls in one message before your own calls" in body
-    assert "Foreground Bash: ≤ 2 min (a longer timeout is refused)" in body
-    assert "`run_in_background` or a specialist" in body
-    assert "≤ 8 Agent, ≤ 4 own (Read, Bash, Write, Edit)" in body
+def test_prompt_says_delegate_only():
+    """The prompt states what the tools line and the hook enforce (delegate only, the read cap) and
+    the dispatch-first order (prompt-only: the hook can't know that dispatches follow)."""
+    text = BLACKCAT_MD.read_text()
+    body = re.sub(r"\s+", " ", text.split("\n---\n", 1)[1])
+    assert "you only delegate" in body and "## Delegate only" in body
+    assert "Bash, Write and Edit are not your tools (hook-enforced)" in body
+    assert "Merges, tests, commits, bookkeeping → main-coder" in body
+    assert "Dispatch first: a prompt's Agent calls in one message, before any Read" in body
+    assert "≤ 8 Agent, ≤ 3 Read" in body
+    assert not re.search(r"(?i)small (jobs?|edit)s? (it|your)self|Doing it yourself|Foreground Bash", text)
 
 
 def test_shipped_caps_leave_room_for_a_full_dispatch_burst():

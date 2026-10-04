@@ -26,7 +26,7 @@
 
 **claude-agent-stack** is this repository: the agent definitions, skills, hooks, settings, MCP servers
 and installer that turn `~/.claude/` into a coordinated team. **BlackCat** is the stack's main thread: the
-agent you talk to when you run `claude`. It does small jobs itself and routes the rest to 55 specialist
+agent you talk to when you run `claude`. It only delegates: it routes every job to one of 55 specialist
 agents (56 agent files). 214 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
 Claude Code sandbox hold the limits, and MCP servers start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later**, macOS only (Apple Silicon). It runs in the terminal and in the apps
@@ -126,7 +126,7 @@ Three kinds of agent, four levels below the main thread, one policy hook:
 
 ```mermaid
 flowchart TD
-  U["User"] --> B["BlackCat: main thread, Sonnet<br/>small jobs itself, dispatches the rest, relays, asks"]
+  U["User"] --> B["BlackCat: main thread, Sonnet<br/>delegates only: dispatches, relays, asks"]
   B -->|"one domain, or 2-3 independent asks"| S1["Specialist (L1)"]
   B -->|"dependent steps or more than 3 asks"| O["orchestrator (L1)<br/>up to 32 running children"]
   O --> S2["Specialists (L2)"]
@@ -141,7 +141,7 @@ flowchart TD
 
 | Level | Who runs there | Limit (enforced by) |
 |---|---|---|
-| Main thread | BlackCat (`dot-claude/agents/blackcat.md`; `"agent": "blackcat"` in `settings.json`) | 24 tool calls per prompt, at most 8 of them Agent calls within 120 s and at most 4 of its own Read/Bash/Write/Edit calls (`BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_DISPATCH_WINDOW_S`, `BLACKCAT_MAX_OWN_STEPS`); its children always run in the background (`BLACKCAT_BACKGROUND`) |
+| Main thread | BlackCat (`dot-claude/agents/blackcat.md`; `"agent": "blackcat"` in `settings.json`) | 24 tool calls per prompt, at most 8 of them Agent calls within 120 s and at most 3 Read calls; no Bash, Write or Edit: it only delegates (`BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_DISPATCH_WINDOW_S`, `BLACKCAT_MAX_READS`, `BLACKCAT_MAX_OWN_STEPS` 0); its children always run in the background (`BLACKCAT_BACKGROUND`) |
 | L1 to L3 | Any agent whose `POLICY` row allows the spawn | 3 running children per agent by default, more for coordinators (`STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE`); 33 subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`; Claude Code's default is 20) |
 | L4 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`) |
 
@@ -265,7 +265,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | Mechanism | What it does | Evidence |
 |---|---|---|
 | Static prompt budget | `tests/prompt_budget.py --check` fails when descriptions, bodies, rules or listings grow past gates set against revision `ad22962` | Measured (static characters, 2026-10-03, the revision that gave BlackCat its own tools vs `ad22962`; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)): skill listing 30,782 → 14,437 chars (−53.1 %), mostly because the 83 hub modules are no longer listed and the skill count went from 248 to 214; mean per-spawn prompt 55,240 → 37,527 chars (−32.1 %). Both revisions are this stack, so this is not a comparison with plain Claude Code, and whether skill discovery or answer quality changed is not measured |
-| Small jobs on the main thread | BlackCat does a job of a few tool calls itself instead of spawning an agent with a fresh context | **by design, not measured** |
+| Delegate-only main thread | BlackCat runs no commands and edits nothing (no Bash/Write/Edit on its tools line; blackcat-guard refuses them); every job, however small, goes to a specialist | **enforced by tools line and hook; the cost of spawning for small jobs is not measured** |
 | Output economy | Global rules: answer first, no preamble or closing summary, big artifacts to files, a clean finish in one line | **by design, not measured** |
 | Read gate | First read of build output, dependencies, big data, media or binaries is refused with a cheaper alternative | **by design, not measured** (no token saving recorded) |
 | Web caps | Per-call result and character caps for exa, jina, spider | **by design, not measured** |
@@ -329,7 +329,7 @@ The full list is in [Knobs](#knobs) and [CONFIG.md](CONFIG.md) §5. The ones mos
 |---|---|---|
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` (in `stack.env`) | today's IDs | What the `opus` and `sonnet` aliases run; re-run the installer |
 | `STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE` | 3; orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8 | Running children per agent |
-| `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_OWN_STEPS` | 8, 24, 4 | BlackCat's Agent calls, all tool calls and own Read/Bash/Write/Edit calls per prompt |
+| `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_READS`, `BLACKCAT_MAX_OWN_STEPS` | 8, 24, 3, 0 | BlackCat's Agent calls, all tool calls, Read calls and own Bash/Write/Edit calls (0: it only delegates) per prompt |
 | `STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET` | learned (seeds 100,000,000 / 1,920,000,000) | Hard context budgets; a value you set pins them |
 | `STACK_SOFT_LIMIT_SCALE` | 1 | Multiplies every soft limit; `0` turns them off |
 | `STACK_MAX_MCP_CALLS` | 64 | MCP calls per subagent per prompt |
@@ -442,7 +442,7 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 
 | Agent | Model · effort | maxTurns | Inline MCP | Does |
 |---|---|---|---|---|
-| blackcat | Sonnet 5.5 · medium (session) | — | — | Main thread: small jobs itself (Read, Bash, Write, Edit), routes the rest |
+| blackcat | Sonnet 5.5 · medium (session) | — | — | Main thread: only delegates (no Bash, Write or Edit; Read ≤ 3 per prompt), routes everything |
 | orchestrator | Opus 5.5 · high | 200 | neural-memory | Coordinates work needing several specialists or dependent steps |
 | planner | Opus 5.5 · xhigh | 60 | libdocs | Plans before anything is built |
 | plan-reviewer | Opus 5.5 · high | 60 | libdocs | Critiques a plan against the goal, the code and current docs |
@@ -999,8 +999,8 @@ rc, and `claude mcp remove -s user exa` (and `jina`, `wolfram`, `huggingface`, `
 3. Type `/stack-doctor` and fix any FAIL line it names.
 4. The session starts in Plan mode: BlackCat reads, asks and plans, and nothing is edited until you
    approve a plan or switch modes with Shift+Tab ([Permission modes](#permission-modes)).
-5. Ask for something. BlackCat answers in a line, does a small job itself, or dispatches and says who
-   does what; results are relayed as they land.
+5. Ask for something. BlackCat answers in a line or dispatches and says who does what (it runs no
+   commands and edits nothing itself); results are relayed as they land.
 
 ### Typical workflows
 
@@ -1154,8 +1154,9 @@ you may set yourself.
 | `STACK_REPORT_FORMAT` | `observe` | `observe` (unset or any other value): SubagentStop checks and records each stack subagent's final reply and PreToolUse(Agent) the brief's size, never output, warned or blocked; `compact`: plus one restate per run on a hard violation (not the default, planned for Phase 2); `json`: every final report is one JSON line (SessionStart and SubagentStart add one line) plus a logged shape check, for Agent SDK apps; `off`: no check, no log ([CONFIG.md](CONFIG.md) §5, "Message protocol") | guard |
 | `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` ○ | 8 / 120 | BlackCat Agent calls per prompt, within this many seconds of the first | guard |
 | `BLACKCAT_MAX_STEPS` ● | 24 | BlackCat tool calls per prompt | guard |
-| `BLACKCAT_MAX_OWN_STEPS` | 4 | Of those, BlackCat's own Read/Bash/Write/Edit calls (8 dispatches always fit) | guard |
-| `BLACKCAT_BASH_TIMEOUT_MS` | 120000 | Longest timeout a BlackCat foreground Bash call may ask for (longer: `run_in_background` or a specialist) | guard |
+| `BLACKCAT_MAX_READS` | 3 | Of those, BlackCat's Read calls: the delegation ledger, a plan, a child's output file (8 dispatches always fit) | guard |
+| `BLACKCAT_MAX_OWN_STEPS` | 0 | Of those, BlackCat's own Bash/Write/Edit calls: 0, it only delegates. Its `tools` line lists none of them, so a value > 0 changes nothing in a normal session; for a session where the main thread runs commands, start it as another agent (`claude --agent claude`, or `--agent main-coder`) | guard |
+| `BLACKCAT_BASH_TIMEOUT_MS` | 120000 | Longest timeout a BlackCat foreground Bash call may ask for, only with `BLACKCAT_MAX_OWN_STEPS` > 0 | guard |
 | `BLACKCAT_BACKGROUND` | 1 | Drop BlackCat's `run_in_background: false` | guard |
 | `STACK_MAX_FANOUT` ● | 3 | Running children per agent (0 = no cap) | guard |
 | `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
