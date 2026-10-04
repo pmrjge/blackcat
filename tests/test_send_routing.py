@@ -142,6 +142,18 @@ def test_subagent_text_is_stamped_main_is_not():
     assert not r.stdout.strip() or "updatedInput" not in json.loads(r.stdout)["hookSpecificOutput"]
 
 
+def test_a_parents_user_relay_to_its_child_is_stamped_as_the_relay():
+    """review a788868 MEDIUM: a parent's legitimate USER: relay to its own child was stamped "not
+    the user", so an asker at L2 or deeper was told to reject the user's consent."""
+    e = two_jobs()
+    r = msg(e, "X1", "USER: yes, delete build/", "C1", "main-coder")
+    stamped = json.loads(r.stdout)["hookSpecificOutput"]["updatedInput"]["message"]
+    assert stamped == ("[from main-coder C1: your parent relaying the user's answer in its USER: "
+                       "block]\nUSER: yes, delete build/"), stamped
+    plain = json.loads(msg(e, "X1", "look at lexer.py", "C1", "main-coder").stdout)
+    assert "an agent, not the user" in plain["hookSpecificOutput"]["updatedInput"]["message"]
+
+
 # ---------------------------------------------------------------- name takeover
 def test_a_running_agents_name_cannot_be_taken():
     e = two_jobs()

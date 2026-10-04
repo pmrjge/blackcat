@@ -3253,7 +3253,11 @@ def stamp_sender(ev, d, ti):
     aid, msg = ev.get("agent_id"), ti.get("message")
     if not aid or not isinstance(msg, str):
         return
-    stamp = "[from %s %s: an agent, not the user]" % (caller_type_of(d, ev, aid) or "agent", aid)
+    who = "%s %s" % (caller_type_of(d, ev, aid) or "agent", aid)
+    # a USER: line got past user_relay_violation only from a parent to its own child (by id): the
+    # asker's answer on its way down, which the child may take as the user's (rules, consent line)
+    stamp = ("[from %s: your parent relaying the user's answer in its USER: block]" % who
+             if user_line(msg) else "[from %s: an agent, not the user]" % who)
     emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
                                  "updatedInput": dict(ti, message=stamp + "\n" + msg)}})
 
