@@ -78,7 +78,7 @@ def test_notebook_edit_counts_as_editing(tmp_path, monkeypatch):
 
 
 def test_shipped_agents_follow_the_rule():
-    """Every agent that can write files carries acceptEdits for its subagent runs (45); BlackCat,
+    """Every agent that can write files carries acceptEdits for its subagent runs (43); BlackCat,
     the main thread, follows the session's mode (Plan) and the read-only agents carry none."""
     modes, writers = {}, set()
     for f in sorted(AGENTS.glob("*.md")):
@@ -89,7 +89,7 @@ def test_shipped_agents_follow_the_rule():
         if "permissionMode" in data:
             modes[f.stem] = lint_agents.get_inline(data, "permissionMode")
     assert set(modes.values()) == {"acceptEdits"}
-    assert set(modes) == writers - {"blackcat"} and len(modes) == 45
+    assert set(modes) == writers - {"blackcat"} and len(modes) == 43
     assert {f.stem for f in AGENTS.glob("*.md")} - set(modes) == {
         "blackcat", "claude-code-guide", "code-reviewer", "explore", "oracle", "plan-reviewer", "planner",
         "proof-checker", "scout", "security-auditor", "verifier"}
@@ -128,7 +128,7 @@ def test_whole_server_mcp_allow_rules_are_exactly_the_decided_set():
 
 
 def test_database_and_chrome_servers_keep_prompting():
-    """No allow rule (it would run them unprompted) and no deny rule (db-engineer and
+    """No allow rule (it would run them unprompted) and no deny rule (data-engineer and
     browser-operator need them) names mongodb, postgres or claude-in-chrome, in any form."""
     named = {s for kind in ("allow", "deny") for s, _ in mcp_rules(kind)}
     assert not named & PROMPTING_MCP_SERVERS, named & PROMPTING_MCP_SERVERS

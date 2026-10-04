@@ -746,7 +746,7 @@ _POOL_REP = {"builder": "claude-code-engineer", "analyst": "researcher", "lookup
 _ANALYST = frozenset(("planner", "plan-reviewer", "researcher", "security-auditor", "proof-checker"))
 _LOOKUP = frozenset(("explore", "oracle", "mcp-broker", "scout", "claude-code-guide"))
 _ARTIFACT = frozenset(("writer", "browser-operator", "doc-specialist", "designer", "image-director",
-                       "localizer", "motion-designer", "cg-artist"))
+                       "motion-designer", "cg-artist"))
 UNVERIFIED_W = 1.0
 MODEL_MAX_BYTES = 4 << 20
 

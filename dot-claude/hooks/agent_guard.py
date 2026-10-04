@@ -313,7 +313,7 @@ AGENTS = [
     "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist", "explore",
     "proof-checker", "vfx-td",
     "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
-    "biochem-engineer", "db-engineer", "test-engineer", "build-fixer", "localizer",
+    "biochem-engineer", "test-engineer", "build-fixer",
     "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
     "jvm-engineer", "node-engineer",
 ]
@@ -325,7 +325,7 @@ AGENTS = [
 BUILTINS = []
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
           "claude-code-guide", "browser-operator", "plan-reviewer", "image-director", "explore",
-          "proof-checker", "db-engineer", "test-engineer", "build-fixer", "localizer"]
+          "proof-checker", "test-engineer", "build-fixer"]
 # Generic agent types: Claude Code's catch-alls (general-purpose, claude, fork), the default
 # workflow stage ("workflow-subagent" in Claude Code 2.1.285), and the names a model or a host has
 # used for a generic spawn ("SubAgent": the label of an agent context without a type, e.g. a forked
@@ -343,9 +343,9 @@ TOOL_ALIASES = {"Task": "Agent", "SubAgent": "Agent", "RunWorkflow": "Workflow"}
 
 # supreme-coder is spawned by the orchestrator only, once per session (SUPREME_SPAWNERS, SUPREME_ONCE_PER_SESSION):
 # the last resort after ninja-coder, decided where the whole job is visible. No other row lists it.
-# BlackCat's row is explicit: db-engineer and localizer are reached through their family heads
-# (data-engineer, main-coder, devops-engineer; frontend-engineer, writer, doc-specialist, mobile-engineer).
-BLACKCAT_VIA_HEADS = ("db-engineer", "localizer")
+# BlackCat's row is explicit: every specialist but supreme-coder and BLACKCAT_VIA_HEADS (types reached
+# only through a family head; currently none: a type off this row is unreachable at every depth).
+BLACKCAT_VIA_HEADS = ()
 _BLACKCAT_ROW = [
     "orchestrator", "planner", "plan-reviewer", "oracle", "scout", "researcher", "mathematician",
     "image-director", "designer", "motion-designer", "writer", "doc-specialist", "coder",
@@ -388,9 +388,9 @@ POLICY = {
     # spawn" lines match: .claude-work/stack-tighten/spawn-browser-operator.txt).
     "researcher": ["researcher-copy", "scout", "doc-specialist", "mathematician", "data-engineer",
                    "data-scientist", "mcp-broker"],
-    "writer": ["scout", "researcher", "mathematician", "localizer"],
+    "writer": ["scout", "researcher", "mathematician"],
     "mathematician": ["scout", "mcp-broker", "quantum-engineer", "proof-checker"],
-    "doc-specialist": ["scout", "mcp-broker", "localizer"],
+    "doc-specialist": ["scout", "mcp-broker"],
     "designer": ["image-director", "scout", "mcp-broker", "cg-artist"],
     "motion-designer": ["image-director", "designer", "scout", "mcp-broker", "cg-artist",
                         "vfx-td"],
@@ -398,7 +398,7 @@ POLICY = {
     "main-coder": ["coder", "explore", "scout", "verifier", "code-reviewer",
                    "security-auditor", "plan-reviewer", "mlx-engineer", "cuda-engineer",
                    "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker", "claude-code-guide",
-                   "ninja-coder", "test-engineer", "build-fixer", "security-engineer", "db-engineer"]
+                   "ninja-coder", "test-engineer", "build-fixer", "security-engineer"]
                   + _LANG,
     "ninja-coder": ["main-coder", "coder", "mathematician", "explore", "scout",
                     "verifier", "code-reviewer", "security-auditor", "researcher", "mlx-engineer",
@@ -414,11 +414,11 @@ POLICY = {
     "cuda-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
                       "mcp-broker", "ninja-coder"],
     "devops-engineer": ["coder", "explore", "scout", "verifier", "security-auditor", "mcp-broker",
-                        "security-engineer", "build-fixer", "db-engineer"],
+                        "security-engineer", "build-fixer"],
     "data-engineer": ["coder", "explore", "scout", "verifier", "mathematician",
-                      "data-scientist", "doc-specialist", "mcp-broker", "db-engineer", "test-engineer"],
+                      "data-scientist", "doc-specialist", "mcp-broker", "test-engineer"],
     "frontend-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "designer",
-                          "image-director", "mcp-broker", "test-engineer", "build-fixer", "localizer",
+                          "image-director", "mcp-broker", "test-engineer", "build-fixer",
                           "node-engineer"],
     "ml-engineer": ["data-scientist", "data-engineer", "coder", "explore", "scout",
                     "verifier", "code-reviewer", "mathematician", "mcp-broker"],
@@ -448,7 +448,7 @@ POLICY = {
     "embedded-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "test-engineer",
                           "build-fixer", "mcp-broker", "rust-engineer"],
     "mobile-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "designer",
-                        "test-engineer", "build-fixer", "localizer", "mcp-broker"],
+                        "test-engineer", "build-fixer", "mcp-broker"],
     "game-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "cg-artist",
                       "test-engineer", "build-fixer", "mcp-broker", "rust-engineer"],
     "hpc-engineer": ["coder", "explore", "scout", "verifier", "mathematician", "ninja-coder",
@@ -470,8 +470,8 @@ POLICY = {
     "explore": [],
     # a referee (read-only Bash, Lean server inline): one bounded check, no delegation
     "proof-checker": [],
-    # bounded helpers (Sonnet): one database, one test suite, one red build, one catalog
-    "db-engineer": [], "test-engineer": [], "build-fixer": [], "localizer": [],
+    # bounded helpers (Sonnet): one test suite, one red build
+    "test-engineer": [], "build-fixer": [],
 }
 # A copy's row: its base's row without the base type and without any copy type.
 for _base, _copy in COPY_OF.items():
@@ -5265,7 +5265,7 @@ SOFT_LIMITS = {
     # builder pool
     "coder": _SOFT_BUILDER, "main-coder": _SOFT_BUILDER, "ninja-coder": _SOFT_BUILDER,
     "supreme-coder": _SOFT_BUILDER, "build-fixer": _SOFT_BUILDER, "test-engineer": _SOFT_BUILDER,
-    "data-scientist": _SOFT_BUILDER, "data-engineer": _SOFT_BUILDER, "db-engineer": _SOFT_BUILDER,
+    "data-scientist": _SOFT_BUILDER, "data-engineer": _SOFT_BUILDER,
     "devops-engineer": _SOFT_BUILDER, "frontend-engineer": _SOFT_BUILDER,
     "python-engineer": _SOFT_BUILDER, "rust-engineer": _SOFT_BUILDER,
     "go-engineer": _SOFT_BUILDER, "node-engineer": _SOFT_BUILDER, "jvm-engineer": _SOFT_BUILDER,
@@ -5285,7 +5285,7 @@ SOFT_LIMITS = {
     # artifact pool
     "writer": _SOFT_ARTIFACT, "browser-operator": _SOFT_ARTIFACT,
     "doc-specialist": _SOFT_ARTIFACT, "designer": _SOFT_ARTIFACT,
-    "image-director": _SOFT_ARTIFACT, "localizer": _SOFT_ARTIFACT,
+    "image-director": _SOFT_ARTIFACT,
     "motion-designer": _SOFT_ARTIFACT, "cg-artist": _SOFT_ARTIFACT,
     # no per-agent limit
     "orchestrator": None, "blackcat": None,

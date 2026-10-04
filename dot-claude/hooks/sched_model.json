@@ -613,59 +613,6 @@
    "source": "pool:builder",
    "source_ctx": "pool:builder"
   },
-  "db-engineer": {
-   "model": "sonnet",
-   "ttl": "5m",
-   "tier": "builder",
-   "status": "provisional",
-   "turns": {
-    "S": 10.0,
-    "M": 27.0,
-    "L": 83.2
-   },
-   "ctx": {
-    "a": 56936,
-    "b": 1234.3
-   },
-   "static_cc": 21249,
-   "sec_per_call": {
-    "p50": 13.1,
-    "p90": 28.4
-   },
-   "band": {
-    "level": 0.9,
-    "method": "pool-prior",
-    "B": 2000,
-    "n_ref": 27.0,
-    "turns": {
-     "lo": 15.4,
-     "med": 27.0,
-     "hi": 47.3
-    },
-    "sec_per_call": {
-     "lo": 10.4,
-     "med": 13.1,
-     "hi": 16.7
-    },
-    "ctx": {
-     "lo": 0.842,
-     "med": 1.0,
-     "hi": 1.153
-    }
-   },
-   "cold": {
-    "after_s": 300,
-    "rewrite": "min(cache_creation, prior_peak)",
-    "frac": 0.986
-   },
-   "soft_limit": 19000000,
-   "maxTurns": 120,
-   "n_seg": 0,
-   "n_agents": 0,
-   "n_first": 0,
-   "source": "pool:builder",
-   "source_ctx": "pool:builder"
-  },
   "designer": {
    "model": "opus",
    "ttl": "5m",
@@ -1513,59 +1460,6 @@
    "n_first": 0,
    "source": "pool:builder",
    "source_ctx": "pool:builder"
-  },
-  "localizer": {
-   "model": "sonnet",
-   "ttl": "5m",
-   "tier": "artifact",
-   "status": "provisional",
-   "turns": {
-    "S": 8.5,
-    "M": 10.0,
-    "L": 33.5
-   },
-   "ctx": {
-    "a": 70417,
-    "b": 0.0
-   },
-   "static_cc": 18376,
-   "sec_per_call": {
-    "p50": 16.3,
-    "p90": 44.0
-   },
-   "band": {
-    "level": 0.9,
-    "method": "pool-prior",
-    "B": 2000,
-    "n_ref": 10.0,
-    "turns": {
-     "lo": 5.7,
-     "med": 10.0,
-     "hi": 26.5
-    },
-    "sec_per_call": {
-     "lo": 7.6,
-     "med": 16.3,
-     "hi": 38.5
-    },
-    "ctx": {
-     "lo": 0.518,
-     "med": 1.0,
-     "hi": 1.593
-    }
-   },
-   "cold": {
-    "after_s": 300,
-    "rewrite": "min(cache_creation, prior_peak)",
-    "frac": 0.986
-   },
-   "soft_limit": 3100000,
-   "maxTurns": 80,
-   "n_seg": 0,
-   "n_agents": 0,
-   "n_first": 0,
-   "source": "pool:artifact",
-   "source_ctx": "pool:artifact"
   },
   "main-coder": {
    "model": "opus",

@@ -63,7 +63,7 @@ KNOBS = {
     "READ_GATE_EXEMPT_BUILD": ("verifier,frontend-engineer,browser-operator",
                                "agent types that read build output without the gate"),
     "READ_GATE_EXEMPT_DEPS": ("", "agent types that read dependency and cache dirs without the gate"),
-    "READ_GATE_EXEMPT_DATA": (("data-engineer,data-scientist,db-engineer,ml-engineer,dl-engineer,"
+    "READ_GATE_EXEMPT_DATA": (("data-engineer,data-scientist,ml-engineer,dl-engineer,"
                                "llm-engineer,mlx-engineer"), "agent types that read data files without the gate"),
     "READ_GATE_EXEMPT_VISUAL": ("designer,motion-designer,image-director,cg-artist,doc-specialist",
                                 "agent types that read media files without the gate"),

@@ -88,8 +88,8 @@ SEARCH_BUDGET = 1_500_000                  # state expansions before exact searc
 SHARED_DOCS = ("README.md", "CONFIG.md", "**/FINAL-REPORT.md", "FINAL-REPORT.md", "mcp_servers.md",
                "stack.env.example", "lib/stack.env.example", "install.sh")
 SONNET_TYPES = {"blackcat", "browser-operator", "build-fixer", "claude-code-guide", "coder",
-                "data-engineer", "db-engineer", "devops-engineer", "doc-specialist", "explore",
-                "localizer", "mcp-broker", "scout", "test-engineer", "verifier"}
+                "data-engineer", "devops-engineer", "doc-specialist", "explore",
+                "mcp-broker", "scout", "test-engineer", "verifier"}
 ONE_HOUR_TTL = {"orchestrator", "researcher", "main-coder", "ninja-coder", "supreme-coder", "ml-engineer",
                 "dl-engineer", "llm-engineer", "quantum-engineer", "robotics-engineer", "data-scientist"}
 SOFT_POOLS = {"builder": 19000000, "analyst": 8700000, "lookup": 450000, "artifact": 3100000}
@@ -100,7 +100,7 @@ SOFT_LIMITS = {"claude-code-engineer": 19000000, "scout": 390000, "claude-code-g
 ANALYST_TYPES = {"planner", "plan-reviewer", "researcher", "security-auditor", "proof-checker"}
 LOOKUP_TYPES = {"explore", "oracle", "mcp-broker", "scout", "claude-code-guide"}
 ARTIFACT_TYPES = {"writer", "browser-operator", "doc-specialist", "designer", "image-director",
-                  "localizer", "motion-designer", "cg-artist"}
+                  "motion-designer", "cg-artist"}
 
 # (b) provisional defaults: turns M/L, ctx a/b, sec_per_call p50/p90, static_cc. S = M/2 (heuristic
 # until the fit supplies p25). Types without a row use their pool's representative.

@@ -65,8 +65,8 @@ flowchart TD
 
 **claude-agent-stack** is this repository: the agent definitions, skills, hooks, settings, MCP servers
 and installer that turn `~/.claude/` into a coordinated team. **BlackCat** is the stack's main thread: the
-agent you talk to when you run `claude`. It only delegates: it routes every job to one of 55 specialist
-agents (56 agent files). 214 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
+agent you talk to when you run `claude`. It only delegates: it routes every job to one of 53 specialist
+agents (54 agent files). 214 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
 Claude Code sandbox hold the limits, and MCP servers start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later**, macOS only (Apple Silicon). It runs in the terminal and in the apps
 that run Claude Code with your settings (see [Apps](#apps)).
@@ -186,7 +186,7 @@ Three kinds of agent, eight levels below the main thread, one policy hook; the d
 | L8 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8`) |
 
 BlackCat's own tools, as `blackcat.md` lists them: an `Agent(...)` allowlist of 52 agent types (every
-specialist except supreme-coder, db-engineer and localizer), SendMessage, AskUserQuestion,
+specialist except supreme-coder), SendMessage, AskUserQuestion,
 `mcp__conductor__AskUserQuestion`, ExitPlanMode, TaskStop, ListAgents, ToolSearch, Skill, Workflow, the
 Cron and wake-up tools, RemoteTrigger, PushNotification, SendUserFile, and Read. It holds no Bash, Write,
 Edit, WebSearch or WebFetch, and blackcat-guard refuses a Bash, Write or Edit call that still reaches it
@@ -208,9 +208,9 @@ job and escalates on failure or on a harder deliverable.
 | Language-heavy code | rust-, haskell-, julia-, go-, python-, jvm-, node-engineer (Opus · high · 170) | each self-checks with its toolchain |
 | Domain builds | 25 domain experts ([Roster](#roster)) | ML, GPU, HPC, robotics, design, 3D, video, documents, … |
 | Checks | code-reviewer, verifier, security-auditor, proof-checker, plan-reviewer | read-only (hook-enforced, below) |
-| Narrow jobs | test-engineer, build-fixer, db-engineer, localizer | leaves; db-engineer and localizer only through their family heads |
+| Narrow jobs | test-engineer, build-fixer | leaves |
 
-Every agent names `opus` or `sonnet` (41 and 15; `tests/lint_agents.py` rejects anything else), and the
+Every agent names `opus` or `sonnet` (41 and 13; `tests/lint_agents.py` rejects anything else), and the
 IDs come from `stack.env`. That Sonnet on bounded work lowers cost without lowering quality is **by
 design, not measured**: no cost is recorded for any run (baseline, §10).
 
@@ -476,7 +476,7 @@ agent's `description`. The installer also renders `researcher-copy` and `coder-c
 files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md](CONFIG.md) §4).
 
 <details>
-<summary>Roster tables: 56 agents by family (model, effort, maxTurns, inline MCP)</summary>
+<summary>Roster tables: 54 agents by family (model, effort, maxTurns, inline MCP)</summary>
 
 #### Role agents (20)
 
@@ -522,7 +522,7 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | biochem-engineer | Opus 5.5 · high | 170 | libdocs | Computational biology and chemistry |
 | cg-artist | Opus 5.5 · medium | 150 | libdocs, blender | 3D in Blender, ZBrush, Substance |
 | cuda-engineer | Opus 5.5 · high | 190 | libdocs | NVIDIA GPU systems: CUDA and Triton kernels |
-| data-engineer | Sonnet 5.5 · high | 150 | libdocs | Data and databases: PostgreSQL, SQLite, DuckDB, MongoDB |
+| data-engineer | Sonnet 5.5 · high | 150 | libdocs, postgres, mongodb | Data and databases: SQL, schemas, safe migrations, query plans |
 | data-scientist | Opus 5.5 · high | 150 | libdocs, neural-memory | Statistics for decisions |
 | designer | Opus 5.5 · high | 150 | image-studio, illustrator, huetension | Visual design: logos, brand identity, illustration, layout |
 | devops-engineer | Sonnet 5.5 · high | 140 | libdocs | Infrastructure and delivery: CI/CD, containers, Kubernetes |
@@ -545,14 +545,12 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | vfx-td | Opus 5.5 · high | 170 | — | Houdini FX: VEX, HDAs, Pyro/FLIP/Vellum/RBD, Solaris/Karma |
 | writer | Opus 5.5 · medium | 80 | — | Writes and edits prose |
 
-#### Helpers (4)
+#### Helpers (2)
 
 | Agent | Model · effort | maxTurns | Inline MCP | Does |
 |---|---|---|---|---|
-| db-engineer | Sonnet 5.5 · high | 120 | postgres, mongodb | DB tuning and ops: query plans, indexes, safe migrations |
 | test-engineer | Sonnet 5.5 · medium | 100 | — | Writes and repairs tests (unit, property, fuzz, e2e) |
 | build-fixer | Sonnet 5.5 · low | 60 | — | Makes a red build green |
-| localizer | Sonnet 5.5 · medium | 80 | — | Translates string catalogs and subtitles |
 
 </details>
 
@@ -560,8 +558,7 @@ Routing in one paragraph: BlackCat does no work itself; it answers a greeting or
 reads the ledger, dispatches every job (up to 8 children in one burst per prompt) and hands
 dependent multi-specialist work to the orchestrator. Code escalates coder → main-coder →
 ninja-coder → supreme-coder; language-heavy work goes to the language engineer, domain builds to the domain
-expert. The helpers are leaves (no Agent tool); db-engineer and localizer are reached through their
-family heads, not BlackCat. Depth is BlackCat → L1 → … → L8, and L8 cannot spawn.
+expert. The helpers are leaves (no Agent tool). Depth is BlackCat → L1 → … → L8, and L8 cannot spawn.
 
 ### Skills: hubs, modules, references
 
@@ -1016,7 +1013,7 @@ Claude Code sandbox refuses parts of it, so run it from your own terminal.
 The counts in this README come from the files:
 
 ```bash
-ls dot-claude/agents/*.md | wc -l                             # 56 agents
+ls dot-claude/agents/*.md | wc -l                             # 54 agents
 ls dot-claude/skills/*/SKILL.md | wc -l                       # 214 skills
 ls dot-claude/skills/*/references/*.md | wc -l                # 185 references
 jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 98 hidden: 83 hub modules + 7 bundled + 8 claude.ai
@@ -1114,12 +1111,12 @@ apply in every mode.
 
 How the mode reaches the agents (Claude Code docs, 2026-10-03):
 
-| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 45 agents that write files (`permissionMode: acceptEdits`) |
+| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 43 agents that write files (`permissionMode: acceptEdits`) |
 |---|---|---|
 | `plan`, `default`, `dontAsk` | follow it | accept edits without prompts: the agent file wins |
 | `acceptEdits`, `auto`, `bypassPermissions` | follow it | follow it: the session's mode wins |
 
-- The 45 are every agent with Write, Edit or NotebookEdit except BlackCat. The read-only ones are
+- The 43 are every agent with Write, Edit or NotebookEdit except BlackCat. The read-only ones are
   claude-code-guide, code-reviewer, explore, oracle, plan-reviewer, planner, proof-checker, scout,
   security-auditor and verifier.
 - So a switch to Plan or Default does not make a dispatched builder read-only, while a switch to
@@ -1190,8 +1187,8 @@ defaults) without touching yours.
 | `MLFLOW_TRACKING_URI` | MLflow tracking server or store | commented out | magg `mlflow`; exported |
 | `MOTHERDUCK_TOKEN` | MotherDuck (`md:`) databases | commented out | magg `duckdb` |
 | `LEAN_PROJECT_PATH` | A built Lean 4 + Mathlib Lake project | commented out | proof-checker's `lean`, magg `lean` |
-| `MDB_MCP_CONNECTION_STRING` | MongoDB connection, read-only server | commented out | db-engineer's `mongodb`, magg `mongodb` |
-| `DATABASE_URI` | Postgres connection, restricted mode | commented out | db-engineer's `postgres`, magg `postgres` |
+| `MDB_MCP_CONNECTION_STRING` | MongoDB connection, read-only server | commented out | data-engineer's `mongodb`, magg `mongodb` |
+| `DATABASE_URI` | Postgres connection, restricted mode | commented out | data-engineer's `postgres`, magg `postgres` |
 | `QISKIT_IBM_TOKEN` | IBM Quantum Platform (hardware jobs spend quota) | commented out | magg `qiskit-runtime` |
 | `GODOT_PATH` | The Godot executable | commented out | magg `godot` |
 | `SEC_EDGAR_USER_AGENT` | The "Name email" User-Agent the SEC requires | commented out | magg `sec-edgar` |
@@ -1319,8 +1316,8 @@ alternatives: [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers).
 | after-effects | Dakkshin/after-effects-mcp at `88d5fbf0` | motion-designer | `--with-adobe` |
 | premiere | `premiere-pro-mcp@1.18.2` | motion-designer | `--with-adobe` |
 | lean | `lean-lsp-mcp@0.30.0` | proof-checker | `LEAN_PROJECT_PATH` |
-| postgres | `postgres-mcp@0.3.0 --access-mode=restricted` | db-engineer | `DATABASE_URI` |
-| mongodb | `mongodb-mcp-server@3.0.5 --readOnly`, telemetry off | db-engineer | `MDB_MCP_CONNECTION_STRING` |
+| postgres | `postgres-mcp@0.3.0 --access-mode=restricted` | data-engineer | `DATABASE_URI` |
+| mongodb | `mongodb-mcp-server@3.0.5 --readOnly`, telemetry off | data-engineer | `MDB_MCP_CONNECTION_STRING` |
 | mobilebuild | `mobilebuildmcp@2.7.1`, Sentry off | mobile-engineer | Xcode |
 | magg | `magg` 1.2.1 via `bin/magg-private` | mcp-broker | the catalog keys |
 
