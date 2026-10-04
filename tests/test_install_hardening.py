@@ -284,7 +284,7 @@ def test_install_lint_step_runs_nothing_from_the_repo_hooks(tmp_path):
         "note(){ printf '  %s\\n' \"$*\"; }",
         'PY_ISOLATE="-I -B -X pycache_prefix=/dev/null/claude-agent-stack-no-bytecode"',
         'python3(){ command python3 $PY_ISOLATE "$@"; }',
-        "NO_DEPS=0 DRY_RUN=0 RUN_PY=%s HERE=%s S=%s WORK=%s" % tuple(map(shlex.quote, (PY3, repo, str(stage), str(work)))),
+        "NO_DEPS=0 DRY_RUN=0 RUN_PY=%s HERE=%s SNAP_ROOT=%s S=%s WORK=%s" % tuple(map(shlex.quote, (PY3, repo, repo, str(stage), str(work)))),
         _lint_block(), ""])
     p = subprocess.run(["/bin/bash", "-c", script], cwd=str(work), capture_output=True, text=True, timeout=180,
                        stdin=subprocess.DEVNULL)
@@ -549,6 +549,44 @@ def test_skill_copy_reads_only_the_bytes_the_review_saw(tmp_path):
     assert out.returncode == 0, (out.stdout[-1500:], out.stderr[-1500:])
     assert _grep_tree(str(home / ".claude"), b"SECRET-7f3a9c") == []
     assert (home / ".claude" / "skills" / "typography" / "references" / "web-fonts.md").is_file()
+
+
+@needs_git
+def test_lib_swapped_after_the_review_never_runs(tmp_path):
+    """Delta re-check MEDIUM (CWE-367): lib/install_state.py (run for staging, validation, the plan and
+    the apply), lib/stack.env.example and tests/lint_agents.py are reviewed at snapshot time; an agent
+    that swaps install_state.py once staging has started must not get its code run. Every later step
+    runs the snapshot's copy."""
+    repo = _tis._scratch_repo(str(tmp_path / "repo"))
+    home = tmp_path / "home"
+    home.mkdir()
+    mark = tmp_path / "pwned"
+    target = Path(repo, "lib", "install_state.py")
+    payload = target.read_text().replace("\nimport json\n", "\nimport json\nopen(%r, 'w').close()\n" % str(mark), 1)
+    assert str(mark) in payload
+    pat = str(home / ".local" / "state" / "claude-agent-stack-backups" / ".work.*" / "stage" / "skills")
+    swapped, stop = [], threading.Event()
+
+    def attacker():
+        while not stop.is_set():
+            if glob.glob(pat):
+                tmp = target.with_name("install_state.py.new")
+                tmp.write_text(payload)
+                os.replace(str(tmp), str(target))
+                swapped.append(time.time())
+                return
+            time.sleep(0.0005)
+
+    t = threading.Thread(target=attacker)
+    t.start()
+    try:
+        out = _tis._run_install(repo, str(home), str(home / ".claude"), "--yes")
+    finally:
+        stop.set()
+        t.join()
+    assert swapped, "the attacker never saw the staging dir"
+    assert not mark.exists(), "install.sh ran lib/install_state.py swapped in after the review"
+    assert out.returncode == 0, (out.stdout[-1500:], out.stderr[-1500:])
 
 
 @needs_git

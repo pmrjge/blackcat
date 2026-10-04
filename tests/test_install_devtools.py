@@ -572,7 +572,7 @@ def test_install_sh_wires_modes_and_stops_on_required():
     text = (ROOT / "install.sh").read_text()
     assert re.search(r'if \[ "\$NO_DEPS" = 1 \]; then DT_MODE=report; elif \[ "\$DRY_RUN" = 1 \]; then DT_MODE=dry-run; '
                      r'else DT_MODE=install; fi', text)
-    assert 'DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$HERE/lib/devtools.sh" all || dt_rc=$?' in text
+    assert 'DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$SNAP_ROOT/lib/devtools.sh" all || dt_rc=$?' in text
     assert '[ "$dt_rc" = 3 ] && exit 1' in text
     # after the change-review question (R4), never before it
     assert text.index('say "2/11') < text.index('lib/devtools.sh" all')
@@ -1330,7 +1330,7 @@ def test_a_present_tool_that_fails_version_is_never_reinstalled(tmp_path):
 def test_install_sh_own_tools_follow_the_skip_rule():
     t = INSTALL_TEXT
     assert 'uv tool install --quiet --force' not in t                      # magg: never replaced
-    assert 'tool_where(){ bash "$HERE/lib/devtools.sh" where "$@"' in t
+    assert 'tool_where(){ bash "$SNAP_ROOT/lib/devtools.sh" where "$@"' in t
     assert "if tool_skip magg; then" in t and "if ! tool_skip huetension; then" in t
     assert 'if serial_mcp_current; then note "skip serial-mcp (found: ' in t
     assert "ghcup rm" not in t and "ghcup rm" not in "\n".join(l for l in SRC.splitlines() if not l.lstrip().startswith("#")

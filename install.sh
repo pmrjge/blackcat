@@ -578,7 +578,10 @@ def under(p, xs):
     return any(p == x or p.startswith(x + "/") for x in xs)
 
 
-COPY = ["dot-claude", "tests/derive_sched_model.py", "tests/derive_thresholds.py"]
+# everything a later step reads or runs: the shipped tree, the derive scripts copied into hooks/, lib/
+# (install_state.py, devtools.sh, stack.env.example), the pinned requirements and the lint script
+COPY = ["dot-claude", "tests/derive_sched_model.py", "tests/derive_thresholds.py", "lib", "requirements",
+        "tests/lint_agents.py"]
 # a link anywhere under dot-claude/, tracked or not (a skill's notes.log -> ~/.ssh/id_ed25519, which
 # .gitignore hides from the review): the stack ships none
 links = sorted(os.path.relpath(os.path.join(r, n), here) for r, ds, fs in os.walk(os.path.join(here, "dot-claude"))
@@ -674,6 +677,9 @@ with open(out, "w", encoding="utf-8", errors="surrogateescape") as f:
     f.write("".join(line + "\n" for line in changed))
 PY
 SRC="$SNAP_ROOT/dot-claude"
+# lib/, the requirements and the lint script are run and read from the snapshot from here on (a file
+# swapped in the repo after the review never runs); bash re-reading install.sh itself is inherent.
+STATE_PY="$SNAP_ROOT/lib/install_state.py"
 
 # Optional hardening the installer never installs itself (it would be root-owned): a
 # managed-settings.json that repeats the stack's guard hook, its protected-path deny rules and its
@@ -718,7 +724,7 @@ fi
 # JSON, reason — tab-separated) and CFG.
 compute_mcp_plan() {
   local envfile="$C/stack.env"
-  [ -f "$envfile" ] || envfile="$HERE/lib/stack.env.example"
+  [ -f "$envfile" ] || envfile="$SNAP_ROOT/lib/stack.env.example"
   # stack.env is NOT sourced here: sourcing ran user code under set -u (an unset $VAR aborted the
   # installer, with exit 0 under bash 3.2's EXIT trap) and let an empty KEY= override a key already
   # exported in the environment. The plan parses it with the headersHelper's own parser instead.
@@ -1129,7 +1135,7 @@ print(runpy.run_path(sys.argv[1], run_name="mcp_headers")["read_env_file"](Path(
 dt_rc=0
 # --no-prompt: never ask, also not through Homebrew's installer or the pkg casks
 dt_tty="${DEVTOOLS_TTY:-}"; [ "$NO_PROMPT" = 1 ] && dt_tty=0
-DEVTOOLS_TTY="$dt_tty" DEVTOOLS_LEAN_PROJECT="$lean_proj" DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$HERE/lib/devtools.sh" all || dt_rc=$?
+DEVTOOLS_TTY="$dt_tty" DEVTOOLS_LEAN_PROJECT="$lean_proj" DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$SNAP_ROOT/lib/devtools.sh" all || dt_rc=$?
 # a required tool still missing: devtools.sh listed each with its command
 [ "$dt_rc" = 3 ] && exit 1
 [ "$dt_rc" = 0 ] || note "! lib/devtools.sh exited $dt_rc (see above); the install goes on"
@@ -1162,7 +1168,7 @@ fetch_verified(){
 # tools venv: what the stack's own scripts, MCP servers and tests import (hooks stay stdlib on
 # bin/stack-python). A future extra (e.g. a Bayesian stack) is its own lock, requirements/tools-<extra>.in
 # starting with "-r tools.in", installed by pointing TOOLS_REQS at its .txt (requirements/README.md).
-TOOLS_REQS="$HERE/requirements/tools.txt"
+TOOLS_REQS="$SNAP_ROOT/requirements/tools.txt"
 TOOLS_IMPORTS='import pytest, numpy, pandas, httpx, mcp, PIL, neural_memory'
 venv_sync(){  # venv_sync NAME REQS [uv pip flags]: hash-locked install into $C/venvs/NAME (Python 3.13)
   local name="$1" reqs="$2"; shift 2
@@ -1196,7 +1202,7 @@ cargo_bin(){ command -v cargo 2>/dev/null || { [ -x "$HOME/.cargo/bin/cargo" ] &
 # the pinned serial-mcp is in place (a binary cargo has no record of is yours, and stays)
 # The skip rule (lib/devtools.sh, CONFIG.md §7): a tool found anywhere is never installed, upgraded
 # or replaced; another version than the pin is a WARN with the command. tool_where NAME: "PATH<tab>SOURCE".
-tool_where(){ bash "$HERE/lib/devtools.sh" where "$@" 2>/dev/null; }
+tool_where(){ bash "$SNAP_ROOT/lib/devtools.sh" where "$@" 2>/dev/null; }
 tool_skip(){ local w tab; tab="$(printf "\t")"; w="$(tool_where "$1")" || return 1; note "skip $1 (found: ${w%%"$tab"*}, from ${w#*"$tab"})"; }
 serial_mcp_current(){
   [ -x "$SERIAL_MCP_BIN" ] || return 1
@@ -1265,7 +1271,7 @@ else
     have huetension && note "+ huetension $HUETENSION_VERSION" || note "! huetension missing — designer works without color MCP; see README"
   fi
   serial_mcp_step install
-  if venv_sync sci "$HERE/requirements/sci.txt" --only-binary :all:; then note "science venv: $C/venvs/sci (hash-locked)"
+  if venv_sync sci "$SNAP_ROOT/requirements/sci.txt" --only-binary :all:; then note "science venv: $C/venvs/sci (hash-locked)"
   else note "! science venv install failed — uv pip install --python $C/venvs/sci/bin/python --require-hashes --only-binary :all: -r $HERE/requirements/sci.txt"; fi
   if venv_sync tools "$TOOLS_REQS" --only-binary :all:; then
     note "tools venv: $C/venvs/tools ($("$C/venvs/tools/bin/python" -c "$TOOLS_IMPORTS"'; print("imports ok")' 2>/dev/null || echo '! imports failed'))"
@@ -1306,7 +1312,7 @@ elif [ "$NO_DEPS" = 1 ] || ! have uv; then
   note "! --with-ml needs uv and is skipped under --no-deps"
 else
   # ml.txt holds one sdist-only package (rouge-score, hashed), so no --only-binary here
-  if venv_sync ml "$HERE/requirements/ml.txt"; then
+  if venv_sync ml "$SNAP_ROOT/requirements/ml.txt"; then
     note "ML venv: $C/venvs/ml ($("$C/venvs/ml/bin/python" -c 'import torch,transformers;print("torch",torch.__version__,"· transformers",transformers.__version__)' 2>/dev/null || echo 'installed'))"
   else
     note "! ML venv install failed — rerun ./install.sh --with-ml, or use project environments"
@@ -1421,7 +1427,7 @@ stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry read
 if [ "$SKIP_PLUGINS" = 0 ] && [ -d "$SRC/stack-plugins" ]; then
   rm -rf "$S/stack-plugins" && cp -R "$SRC/stack-plugins" "$S/stack-plugins"
 fi
-[ -f "$S/stack.env" ] || cp "$HERE/lib/stack.env.example" "$S/stack.env"
+[ -f "$S/stack.env" ] || cp "$SNAP_ROOT/lib/stack.env.example" "$S/stack.env"
 chmod 600 "$S/stack.env"
 # Variables stack.env.example gained since your stack.env was created: appended with their comment
 # lines, commented out — except the image models, appended set to image-studio's own defaults (the
@@ -1432,7 +1438,7 @@ chmod 600 "$S/stack.env"
 # comments get today's wording, and settings nothing reads any more go while they still hold the
 # stack's own default (Lumenfall's empty key, the old Opper model and folder); the previous file is
 # kept in the backup folder.
-python3 - "$HERE/lib/stack.env.example" "$S/stack.env" <<'PY'
+python3 - "$SNAP_ROOT/lib/stack.env.example" "$S/stack.env" <<'PY'
 import os, re, sys, time
 example, target = sys.argv[1], sys.argv[2]
 VAR = re.compile(r"^\s*(?:#\s?)?(?:export\s+)?([A-Z][A-Z0-9_]*)=")
@@ -1541,7 +1547,7 @@ PY
 # the new one (step 11) exports only STACK_EXPORT: variables of your own stay exported through it.
 # Done on the staged stack.env, so the plan lists it and the backup keeps the previous file.
 if [ "$NO_PROFILE" = 0 ] && grep -qE 'set -a.*stack\.env.*# claude-agent-stack[[:space:]]*$' "$HOME/.zshrc" "$HOME/.bashrc" 2>/dev/null; then
-  python3 - "$HERE/lib/stack.env.example" "$S/stack.env" "$SRC/bin/mcp-headers" "$SRC/bin/with-stack-env" <<'PY' || true
+  python3 - "$SNAP_ROOT/lib/stack.env.example" "$S/stack.env" "$SRC/bin/mcp-headers" "$SRC/bin/with-stack-env" <<'PY' || true
 import os, re, runpy, sys
 from pathlib import Path
 example, target, parser, wse = sys.argv[1:5]
@@ -1600,7 +1606,7 @@ def save_report():
 
 import importlib.util  # noqa: E402
 # by file path, never through sys.path (lib/ is agent-writable: nothing there may shadow a stdlib module)
-_spec = importlib.util.spec_from_file_location("install_state", os.path.join(REPO, "lib", "install_state.py"))
+_spec = importlib.util.spec_from_file_location("install_state", os.path.join(os.path.dirname(SRC), "lib", "install_state.py"))   # the snapshot
 _ist = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_ist)
 SCOPE_DIRS, in_scope, within = _ist.SCOPE_DIRS, _ist.in_scope, _ist.within   # the backups' scope rule
@@ -2947,7 +2953,7 @@ if [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
   # nothing in the repo's dot-claude/ is ever executed.
   # shellcheck disable=SC2086
   if "$RUN_PY" $PY_ISOLATE "$S/hooks/agent_guard.py" --print-policy >"$WORK/policy.json" 2>"$WORK/lint.log" </dev/null \
-     && python3 "$HERE/tests/lint_agents.py" --policy-json "$WORK/policy.json" >>"$WORK/lint.log" 2>&1; then note "lint: tests/lint_agents.py ok"
+     && python3 "$SNAP_ROOT/tests/lint_agents.py" --policy-json "$WORK/policy.json" >>"$WORK/lint.log" 2>&1; then note "lint: tests/lint_agents.py ok"
   else note "! tests/lint_agents.py reports problems in the stack repo (installing anyway):"; sed 's/^/      /' "$WORK/lint.log" | head -n 20; fi
 fi
 

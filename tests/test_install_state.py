@@ -321,7 +321,7 @@ def test_tools_venv_lock_covers_the_stack_imports():
     assert len(pins) == len(re.findall(r"(?m)^[A-Za-z0-9][A-Za-z0-9._-]*==", txt)) > 0
     assert have <= {norm(p) for p, _ in pins}
     inst = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
-    assert 'TOOLS_REQS="$HERE/requirements/tools.txt"' in inst
+    assert 'TOOLS_REQS="$SNAP_ROOT/requirements/tools.txt"' in inst
     assert 'venv_sync tools "$TOOLS_REQS" --only-binary :all:' in inst
     imports = re.search(r"TOOLS_IMPORTS='([^']+)'", inst).group(1)
     doctor = open(os.path.join(ROOT, "dot-claude", "bin", "doctor.sh"), encoding="utf-8").read()
