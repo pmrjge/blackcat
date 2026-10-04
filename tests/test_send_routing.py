@@ -193,3 +193,32 @@ def test_name_lookup_follows_claude_codes_exact_match_first():
     spawned(e, "scout", "K1", caller="C1", ctype="main-coder", name="parser-owner")
     r = msg(e, "parser_owner", "USER: yes, approved", "C1", "main-coder")
     assert refused(r), r
+
+
+def test_a_name_in_flight_cannot_be_taken():
+    """review a788868 MEDIUM: names/ learns the id only at PostToolUse, so a name whose spawn is in
+    flight (a foreground child's whole run) was free to take; the ledger record now holds it."""
+    e = two_jobs()
+    assert ok(e.run(e.pre_agent("scout", agent_id="C1", agent_type="main-coder", name="k2")))
+    r = e.run(e.pre_agent("scout", agent_id="C1", agent_type="main-coder", name="k2"))   # same message
+    assert r.decision == "deny" and "spawn still in flight" in r.reason, r
+    e.run(e.start("K2", "scout"))                     # foreground: running, no PostToolUse yet
+    assert e.run(e.pre_agent("scout", agent_id="O1", agent_type="orchestrator", name="k2")).decision == "deny"
+
+
+def test_a_failed_spawn_frees_its_name():
+    e = two_jobs()
+    pre = e.pre_agent("scout", agent_id="C1", agent_type="main-coder", name="k3")
+    assert ok(e.run(pre))
+    e.run(e.fail_agent(pre))
+    assert ok(e.run(e.pre_agent("scout", agent_id="C1", agent_type="main-coder", name="k3")))
+
+
+def test_foreground_childs_name_is_held_while_it_runs():
+    """audit probe (test_audit_probes.py)."""
+    e = two_jobs()
+    pre = e.pre_agent("scout", agent_id="O2", agent_type="orchestrator", name="asker", run_in_background=False)
+    assert e.run(pre).decision.startswith("allow")
+    e.run(e.start("F1", "scout"))                                    # running, no PostToolUse yet
+    r = e.run(e.pre_agent("scout", agent_id="C1", agent_type="main-coder", name="asker"))
+    assert r.decision == "deny", r

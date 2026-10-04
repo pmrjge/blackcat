@@ -1569,11 +1569,27 @@ def transcript_of(d, holder, ev):
 # ---------------------------------------------------------------- PreToolUse: Agent
 def name_takeover(d, ti):
     """A caller-given `name` that a RUNNING agent holds is refused: messages sent to that name
-    would reach the newcomer (names/ points at the latest holder)."""
+    would reach the newcomer (names/ points at the latest holder). So is one whose spawn is still
+    in flight: names/ learns the id only at PostToolUse (for a foreground child, when it is done),
+    so until then the spawn's ledger record decides (launching or running; a record older than
+    STACK_LEASE_TTL_S, like a spawn lease, no longer holds the name)."""
     name = ti.get("name")
     if not isinstance(name, str) or not name.strip():
         return None
-    holder = ident((read_json(names_path(d, name.strip())) or {}).get("id"))
+    nrec = read_json(names_path(d, name.strip())) or {}
+    holder = ident(nrec.get("id"))
+    tid = nrec.get("tid")
+    if not holder and isinstance(tid, str) and tid.strip():
+        led = read_json(ledger_rec_path(d, tid)) or {}
+        holder = ident(led.get("child"))
+        try:
+            age = time.time() - float(nrec.get("ts") or 0)
+        except (TypeError, ValueError):
+            age = float("inf")
+        if not holder and led and ledger_state(led, {}) in ("launching", "running") \
+                and age < knob_int("STACK_LEASE_TTL_S", 21600):
+            return ("Agent policy: the name '%s' belongs to a spawn still in flight; pick another "
+                    "name." % name.strip()[:64])
     rec = reg_get(d, holder) if holder else None
     if rec and not rec.get("stopped"):
         return ("Agent policy: the name '%s' belongs to a running agent (%s); pick another name."
