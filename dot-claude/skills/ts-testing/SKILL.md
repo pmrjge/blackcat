@@ -1,6 +1,6 @@
 ---
 name: ts-testing
-description: Use for TS/JS tests — Vitest, mocks, type tests, coverage, Playwright end to end.
+description: Use for TS/JS tests — Vitest, mocks, type tests, coverage.
 ---
 # TypeScript testing
 
@@ -13,8 +13,7 @@ import { defineConfig } from "vitest/config";
 export default defineConfig({ test: { include: ["src/**/*.test.ts"], coverage: { provider: "v8" } } });
 ```
 
-## End to end (Playwright Test)
-- `npm init playwright@latest`, `npx playwright install --with-deps chromium`; role/label locators (`page.getByRole("button", { name: "Save" })`), web-first assertions (`await expect(locator).toBeVisible()`), no fixed sleeps, `webServer` in the config to start the app, `trace: "on-first-retry"`; accessibility scans with `@axe-core/playwright`.
+E2E: see `test-e2e-playwright`*.
 
 ## Verify
 - [ ] Tests cover new behavior; e2e for critical flows; accessibility scan clean or issues filed.
