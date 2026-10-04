@@ -920,6 +920,15 @@ def test_blackcat_guard_steps_and_agent_never_denied(env):
                         extra={"BLACKCAT_MAX_STEPS": "20"})) == "allow"
 
 
+def test_blackcat_read_cap_holds_through_the_settings_wiring(env):
+    """settings.json's `blackcat-guard --settings` wiring alone (each call claimed by it first)
+    still holds BlackCat to BLACKCAT_MAX_READS: the read cap is not the frontmatter wiring's."""
+    s = sid()
+    res = [decision(run(rg(s, "Read", prompt="sr", agent_type="blackcat", tool_use_id="sr%d" % i),
+                        env, args=["blackcat-guard", "--settings"])) for i in range(4)]
+    assert res == ["allow"] * 3 + ["deny"]
+
+
 def test_blackcat_guard_steps_concurrent(env):
     s = sid()
     res = run_many([rg(s, "ToolSearch") for _ in range(FANOUT)], env, args=["blackcat-guard"])
