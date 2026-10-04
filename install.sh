@@ -2958,9 +2958,11 @@ PY
       || note "! typescript-language-server install failed — npm install -g --ignore-scripts --prefix ~/.local $TSLS $TS_PIN"
     # rustup's rust-analyzer proxy without the component is a found tool that doesn't run: WARN, not installed
     if lsp_works rust-analyzer; then :
-    elif have rust-analyzer; then note "WARN rust-analyzer at $(command -v rust-analyzer) fails 'rust-analyzer --version'; left alone. Fix: rustup component add rust-analyzer"
+    elif have rust-analyzer; then
+      if have rustup; then ra_fix="rustup component add rust-analyzer"; else ra_fix="reinstall it the way you installed it (no rustup here)"; fi
+      note "WARN rust-analyzer at $(command -v rust-analyzer) fails 'rust-analyzer --version'; left alone. Fix: $ra_fix"
     elif have rustup; then rustup component add rust-analyzer >/dev/null 2>&1 || note "! rust-analyzer: rustup component add rust-analyzer"
-    else note "! rust-analyzer: rustup component add rust-analyzer"; fi
+    else note "! rust-analyzer: no rustup here (a Rust from Homebrew or elsewhere): brew install rust-analyzer"; fi
     # Servers for the stack's other languages come from each language's own toolchain manager, and
     # only when that manager is already here (step 2 installs GHCup, juliaup, elan and Coursier unless
     # their group is off). Lean needs nothing extra (elan's `lake serve` is the server).

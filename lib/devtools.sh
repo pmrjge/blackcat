@@ -850,7 +850,12 @@ upstream_step(){
   if on HASKELL; then
     ensure ghcup 0 chk_ghcup "ghcup bootstrap ($URL_GHCUP, latest; non-interactive, with HLS and stack)" inst_ghcup
     path_add "$HOME/.ghcup/bin"; path_add "$HOME/.cabal/bin"
-    ensure hlint 0 chk_hlint "ghcup install ghc $HLINT_GHC; cabal update; cabal install --ignore-project -w ghc-$HLINT_GHC hlint-$HLINT_VERSION --overwrite-policy=always" inst_hlint
+    # ghcup present, or (dry-run/report) about to be installed because no ghc exists either
+    if have ghcup || { [ "$MODE" != install ] && ! find_cmd ghcup ghc; }; then
+      ensure hlint 0 chk_hlint "ghcup install ghc $HLINT_GHC; cabal update; cabal install --ignore-project -w ghc-$HLINT_GHC hlint-$HLINT_VERSION --overwrite-policy=always" inst_hlint
+    else   # a ghc that is not ghcup's (Homebrew, a GHC pkg): no side GHC from here, the command only
+      ensure hlint 0 chk_hlint "hlint $HLINT_VERSION needs GHC $HLINT_GHC and your ghc is not ghcup's: cabal install --ignore-project -w ghc-$HLINT_GHC hlint-$HLINT_VERSION with that GHC" ""
+    fi
     ensure ormolu 0 chk_ormolu "cabal update; cabal install --ignore-project ormolu-$ORMOLU_VERSION --overwrite-policy=always" inst_ormolu
   fi
   if on JULIA; then

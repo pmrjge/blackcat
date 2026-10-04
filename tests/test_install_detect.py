@@ -517,3 +517,23 @@ def test_without_homebrew_jq_gitleaks_elan_get_one_skip_line_and_the_misses_are_
     m = re.search(r"summary: \d+ would be installed, (\d+) skipped \(already there\), (\d+) not installable here", out)
     assert m and int(m.group(2)) >= len(names), out
     assert int(m.group(1)) == sum(1 for l in lines(out) if l.startswith("  skip "))
+
+
+# ---------------------------------------------------------------- review: a ghc without ghcup, rust without rustup
+def test_a_ghc_without_ghcup_gets_the_hlint_command_not_a_failed_install(tmp_path):
+    e, s = setup(tmp_path)
+    ghc = e.shim("ghc")
+    e.present("ormolu")
+    rc, out, err = e.run("HASKELL", **s.env)
+    assert rc == 0, err
+    assert "  skip ghcup (found: %s, from PATH)" % ghc in lines(out)
+    assert "hlint: install failed" not in out and e.calls("ghcup") == [] and e.calls("cabal") == [], out
+    assert "  ! hlint missing — hlint 3.10 needs GHC 9.12.4 and your ghc is not ghcup's: cabal install" in out
+    assert re.search(r"summary: 0 installed, \d+ skipped \(already there\), 0 failed, 1 not installed", out), out
+
+
+def test_rust_analyzer_hints_name_rustup_only_when_it_is_there():
+    t = (Path(__file__).resolve().parent.parent / "install.sh").read_text()
+    block = t[t.index("# rustup's rust-analyzer proxy without the component"):t.index("# Servers for the stack's other languages")]
+    assert 'if have rustup; then ra_fix="rustup component add rust-analyzer"' in block
+    assert 'else note "! rust-analyzer: no rustup here (a Rust from Homebrew or elsewhere): brew install rust-analyzer"; fi' in block
