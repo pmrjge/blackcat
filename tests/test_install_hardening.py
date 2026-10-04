@@ -75,6 +75,57 @@ def test_install_lists_a_new_file_in_lib_and_lint_agents_in_the_supply_review(tm
     assert out.returncode == 1 and "--no-prompt forbids asking" in log
 
 
+# ---------------------------------------------------------------- HIGH: CWE-59 symlinks, ignored files
+def _secret_tree(tmp_path):
+    secret = tmp_path / "secret"
+    secret.write_text("SECRET-7f3a9c\n")
+    return secret
+
+
+def _grep_tree(root, needle):
+    hits = []
+    for r, _ds, fs in os.walk(root):
+        for n in fs:
+            p = os.path.join(r, n)
+            try:
+                if needle in open(p, "rb").read():
+                    hits.append(p)
+            except OSError:
+                pass
+    return hits
+
+
+@needs_git
+@pytest.mark.parametrize("where", ["dot-claude/skills/web-research/notes.log", "dot-claude/agents/zz-link.md"])
+def test_install_refuses_a_symlink_under_dot_claude(tmp_path, where):
+    """A link planted in the repo (a name .gitignore hides from the review, or any untracked one)
+    stops the install before anything is copied: the secret it points at never reaches the config
+    dir, where agents could read it."""
+    repo = _tis._scratch_repo(str(tmp_path / "repo"))
+    home = tmp_path / "home"
+    home.mkdir()
+    os.symlink(str(_secret_tree(tmp_path)), os.path.join(repo, where))
+    out = _tis._run_install(repo, str(home), str(home / ".claude"), "--yes")
+    assert out.returncode == 1 and "is a symlink; the stack ships none" in out.stderr, (out.stdout[-1500:], out.stderr[-1500:])
+    assert _grep_tree(str(home / ".claude"), b"SECRET-7f3a9c") == []
+
+
+@needs_git
+def test_install_copies_only_the_skill_files_git_lists(tmp_path):
+    """An ignored file planted in a skill (notes.log: `*.log` is ignored, so the supply review never
+    shows it) is not copied; an untracked, unignored one is (the review lists it)."""
+    repo = _tis._scratch_repo(str(tmp_path / "repo"))
+    home = tmp_path / "home"
+    home.mkdir()
+    Path(repo, "dot-claude", "skills", "web-research", "notes.log").write_text("SECRET-7f3a9c\n")
+    Path(repo, "dot-claude", "skills", "web-research", "extra.md").write_text("an untracked note\n")
+    out = _tis._run_install(repo, str(home), str(home / ".claude"), "--yes")
+    assert out.returncode == 0, (out.stdout[-1500:], out.stderr[-1500:])
+    skill = home / ".claude" / "skills" / "web-research"
+    assert (skill / "SKILL.md").is_file() and (skill / "extra.md").is_file()
+    assert not (skill / "notes.log").exists() and _grep_tree(str(home / ".claude"), b"SECRET-7f3a9c") == []
+
+
 def _doctor_copy(tmp_path, with_guard_section=False):
     c = tmp_path / "conf"
     (c / "bin").mkdir(parents=True)

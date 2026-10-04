@@ -1185,6 +1185,18 @@ note "staged in $S (prune: $([ "$PRUNE" = 1 ] && echo on || echo 'off (--no-prun
 legacy_b="$(python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" list)"
 
 say "6/11 Render (agents, rules, skills, scripts, settings.json)"
+# The stack ships no symlinks (security audit, CWE-59): a link under dot-claude/ (say a skill's
+# notes.log -> ~/.ssh/id_ed25519, a name .gitignore hides from the review above) would copy what it
+# points at into the config dir, where agents can read it. Any link stops the run here.
+python3 - "$SRC" "$C" <<'PY' || exit 1
+import os, sys
+src, c = sys.argv[1:3]
+links = [os.path.relpath(os.path.join(r, n), os.path.dirname(src))
+         for r, ds, fs in os.walk(src) for n in ds + fs if os.path.islink(os.path.join(r, n))]
+if links:
+    sys.exit("install.sh: %s is a symlink; the stack ships none — remove it (nothing in %s was changed)"
+             % (", ".join(sorted(links)[:5]), c))
+PY
 mkdir -p "$S"/{agents,skills,hooks,mcp,magg,bin,rules}
 # The stack's scripts replace whatever is staged there — a symlink too (removed first: a copy onto
 # it would write through the link, out of the staging dir; the backup keeps the link).
@@ -1946,7 +1958,28 @@ def install_tracked(rel, dest, rendered):
     return "kept"
 
 
-skill_names = sorted(os.path.basename(d) for d in glob.glob(os.path.join(SRC, "skills", "*")) if os.path.isdir(d))
+# Only the files git lists (tracked, or untracked and not ignored: what the review above showed) are
+# copied: an ignored file (*.log, build/, ...) planted in a skill never reaches the config dir. Each
+# must be a regular file inside dot-claude/skills (the symlink check before step 6 already ran).
+_ls = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-C", REPO, "ls-files", "-z", "--cached",
+                      "--others", "--exclude-standard", "--", "dot-claude/skills"],
+                     stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, check=False)
+if _ls.returncode != 0:
+    sys.exit("install.sh: git ls-files failed in %s — nothing in %s was changed" % (REPO, C))
+SKILLS_SRC = os.path.realpath(os.path.join(SRC, "skills"))
+listed = {}                                    # skill name -> [path relative to its dir]
+for _rel in sorted(filter(None, _ls.stdout.decode("utf-8", "surrogateescape").split("\0"))):
+    _sp = os.path.join(REPO, _rel)
+    _parts = os.path.relpath(_sp, os.path.join(SRC, "skills")).split(os.sep)
+    if not os.path.lexists(_sp) or len(_parts) < 2:
+        continue                               # deleted in the working tree; a file beside the skills
+    if os.path.islink(_sp) or not os.path.isfile(_sp) or not within(os.path.realpath(_sp), SKILLS_SRC):
+        sys.exit("install.sh: %s is not a regular file inside dot-claude/skills — nothing in %s was changed"
+                 % (_rel, C))
+    if _parts[-1].endswith((".pyc", ".new")) or _parts[-1] == ".DS_Store" or "__pycache__" in _parts:
+        continue
+    listed.setdefault(_parts[0], []).append(os.path.join(*_parts[1:]))
+skill_names = sorted(listed)
 skills_kept, skills_refreshed, skills_replaced = [], [], []
 skill_files = set()
 for name in skill_names:
@@ -1955,34 +1988,33 @@ for name in skill_names:
     if os.path.islink(ddir) or os.path.isfile(ddir):
         os.unlink(ddir)
         report["replaced"]["skills/%s" % name] = "not a directory"
-    for root, dirs, files in os.walk(sdir):
-        dirs[:] = [d for d in dirs if d != "__pycache__"]
-        rel_root = os.path.relpath(root, sdir)
-        out_root = ddir if rel_root == "." else os.path.join(ddir, rel_root)
-        if os.path.islink(out_root) or os.path.isfile(out_root):   # never write through a link
-            os.unlink(out_root)
+    for frel in listed[name]:
+        sp = os.path.join(sdir, frel)
+        op = os.path.join(ddir, frel)
+        out_root = os.path.dirname(op)
+        # never write through a link: a staged link or file where a directory goes is removed
+        _d = ddir
+        for _part in [""] + os.path.dirname(frel).split(os.sep):
+            _d = os.path.join(_d, _part) if _part else _d
+            if os.path.islink(_d) or os.path.isfile(_d):
+                os.unlink(_d)
         os.makedirs(out_root, exist_ok=True)
-        for fn in files:
-            if fn.endswith((".pyc", ".new")) or fn == ".DS_Store":
-                continue
-            sp = os.path.join(root, fn)
-            op = os.path.join(out_root, fn)
-            rel = os.path.relpath(op, DEST)
-            skill_files.add(rel)
-            try:
-                text = open(sp, encoding="utf-8").read()
-            except (UnicodeDecodeError, ValueError):
-                if os.path.islink(op) or os.path.isdir(op):
-                    (shutil.rmtree if os.path.isdir(op) and not os.path.islink(op) else os.unlink)(op)
-                shutil.copy2(sp, op)
-                continue
-            state = install_tracked(rel, op, render(text))
-            if state == "kept":
-                skills_kept.append(rel)
-            elif state == "refreshed":
-                skills_refreshed.append(rel)
-            elif state == "replaced":
-                skills_replaced.append(rel)
+        rel = os.path.relpath(op, DEST)
+        skill_files.add(rel)
+        try:
+            text = open(sp, encoding="utf-8").read()
+        except (UnicodeDecodeError, ValueError):
+            if os.path.islink(op) or os.path.isdir(op):
+                (shutil.rmtree if os.path.isdir(op) and not os.path.islink(op) else os.unlink)(op)
+            shutil.copy2(sp, op)
+            continue
+        state = install_tracked(rel, op, render(text))
+        if state == "kept":
+            skills_kept.append(rel)
+        elif state == "refreshed":
+            skills_refreshed.append(rel)
+        elif state == "replaced":
+            skills_replaced.append(rel)
 # what the stack doesn't ship: whole skills, and files inside shipped skills
 skills_root = os.path.join(DEST, "skills")
 for name in sorted(os.listdir(skills_root)):
