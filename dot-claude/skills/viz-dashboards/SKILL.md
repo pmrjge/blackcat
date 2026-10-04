@@ -30,5 +30,5 @@ Hub: `data-visualization` (chart choice, color, uncertainty). Charts as Claude A
 - [ ] Keyboard access and a table alternative for each chart (`web-accessibility`).
 
 ## Sources
-- Verified 2026-10-02 https://pypi.org/pypi/streamlit/json — Streamlit 1.64.0; https://pypi.org/pypi/dash/json — Dash 4.4.1; https://pypi.org/pypi/panel/json — Panel 1.9.4.
-- Unverified as of 2026-10-02: Evidence, `st.cache_data` naming (check the docs of the installed version).
+- Verified 2026-10-04 https://pypi.org/pypi/streamlit/json — Streamlit 1.65.0 (`st.cache_data(ttl=…)` run on Python 3.13); https://pypi.org/pypi/dash/json — Dash 4.4.1; https://pypi.org/pypi/panel/json — Panel 1.9.4.
+- Unverified as of 2026-10-02: Evidence.

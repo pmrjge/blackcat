@@ -3,11 +3,11 @@ name: viz-matplotlib
 description: Use for publication figures in matplotlib or seaborn — styles, fonts, sizes, facets, export.
 ---
 # matplotlib and seaborn for publication
-Hub: `data-visualization` (chart choice, perception, color, uncertainty, checklist; design rules in `data-visualization` `references/design-rules.md`). APIs were checked earlier against matplotlib 3.11, seaborn 0.13, plotly with Kaleido ≥ 1 and Altair 5 without recorded URLs: unverified as of 2026-10-02.
+Hub: `data-visualization` (chart choice, perception, color, uncertainty, checklist; design rules in `data-visualization` `references/design-rules.md`). APIs verified on Python 3.13 with matplotlib 3.11.2, seaborn 0.13.2, plotly 7.1.0, Altair 6.3.0, as of 2026-10-04; `text.usetex` (needs a LaTeX install) unverified.
 
 ```python
 import matplotlib as mpl, matplotlib.pyplot as plt
-plt.style.use("petroff10")                      # color cycle only; apply before the rc overrides
+plt.style.use("petroff10")                      # colors only (cycle, patch face); apply before the rc overrides
 mpl.rcParams.update({
     "figure.constrained_layout.use": True,
     "pdf.fonttype": 42, "ps.fonttype": 42,      # embed TrueType (default 3 = Type 3 fonts)

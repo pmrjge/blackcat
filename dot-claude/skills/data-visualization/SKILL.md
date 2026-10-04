@@ -5,7 +5,7 @@ description: Use before making a data figure in code — chart choice, perceptio
 # Data visualization
 
 ## Scope
-Figures made in code and saved as files (PNG/SVG/PDF/HTML) for papers, reports, notebooks and slides. Charts built as Artifacts, React/HTML pages or chat-surface dashboards follow this skill too (Claude Code's `dataviz` is a user-run `/dataviz` command here, hidden from the model). The analysis behind the numbers → `data-analysis`; experiment result tables → `ml-experiment`; color spaces, print profiles and contrast math → `color-management`; charts inside slide decks → `presentation-design`; figures in LaTeX papers → `latex-typesetting`. Environment: the science venv `__CLAUDE_DIR__/venvs/sci/bin/python` has matplotlib, seaborn, pandas, polars; add plotly or Altair per project (`uv run --with plotly --with kaleido …`, `uv run --with altair --with vl-convert-python …`). APIs below were checked against matplotlib 3.11, seaborn 0.13, plotly with Kaleido ≥ 1 and Altair 5.
+Figures made in code and saved as files (PNG/SVG/PDF/HTML) for papers, reports, notebooks and slides. Charts built as Artifacts, React/HTML pages or chat-surface dashboards follow this skill too (Claude Code's `dataviz` is a user-run `/dataviz` command here, hidden from the model). The analysis behind the numbers → `data-analysis`; experiment result tables → `ml-experiment`; color spaces, print profiles and contrast math → `color-management`; charts inside slide decks → `presentation-design`; figures in LaTeX papers → `latex-typesetting`. Environment: the science venv `__CLAUDE_DIR__/venvs/sci/bin/python` has matplotlib, seaborn, pandas, polars; add plotly or Altair per project (`uv run --with plotly --with kaleido …`, `uv run --with altair --with vl-convert-python …`). APIs below verified on Python 3.13 with matplotlib 3.11.2, seaborn 0.13.2, plotly 7.1.0 (Kaleido 1.4.0), Altair 6.3.0 (vl-convert-python 1.9.0.post1) and colorspacious 1.1.2, as of 2026-10-04.
 
 ## 1. Start from the question
 1. Write the one-sentence message and the audience (paper, slide, report, dashboard) before choosing anything.
@@ -43,7 +43,7 @@ Figures made in code and saved as files (PNG/SVG/PDF/HTML) for papers, reports, 
 - Never jet/rainbow for continuous data (non-uniform lightness creates false boundaries); never red vs green as the only distinction.
 - Same category → same color in every figure of a piece of work; one neutral gray for "other"/missing.
 - Redundant encoding (shape, line style, direct labels) so the figure survives grayscale and color-vision deficiency.
-- Check: simulate CVD (`colorspacious`, not in the science venv — `uv run --with colorspacious`: `cspace_convert(rgb, {"name": "sRGB1+CVD", "cvd_type": "deuteranomaly", "severity": 100}, "sRGB1")`, likewise protanomaly and tritanomaly), print or render in grayscale; where the huetension color MCP server is available, use its WCAG/APCA contrast and color-blindness checks.
+- Check: simulate CVD (`colorspacious`, not in the science venv — `uv run --with colorspacious`: `cspace_convert(rgb, {"name": "sRGB1+CVD", "cvd_type": "deuteranomaly", "severity": 100}, "sRGB1")`, likewise protanomaly and tritanomaly; clip the result to [0, 1] before plotting), print or render in grayscale; where the huetension color MCP server is available, use its WCAG/APCA contrast and color-blindness checks.
 
 ## 6. Uncertainty
 - Name the interval every time: 95% CI of the mean, ±1 SD, 50/90% prediction interval, bootstrap percentile CI — plus n.
