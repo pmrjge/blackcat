@@ -144,7 +144,8 @@ def running_named(env, parent_id, parent_type, child, child_id, name):
 def test_send_by_name_to_a_running_agent_links_both_ways():
     """A name whose agent id isn't known yet (a running foreground child) is refused to a
     subagent: nothing is sent, so nothing is linked (no peer-to-peer, 2026-10-04). Once it has
-    returned, its parent messages it by name and the link is made."""
+    returned, its parent messages it by its agent id (a subagent never addresses by name: guard-land
+    finding 2) and the link is made; by name it is refused."""
     env = Env()
     running_named(env, "O1", "orchestrator", "coder", "H1", "helper")
     web_fetch(env, "A1", "main-coder")
@@ -154,7 +155,9 @@ def test_send_by_name_to_a_running_agent_links_both_ways():
     os.remove(os.path.join(env.proj, env.sid, "subagents", "agent-E3.meta.json"))
     env.run(env.post_agent(pre, "E3", status="completed"))
     web_fetch(env, "O1", "orchestrator")
-    assert env.run(env.send("later", agent_id="O1", agent_type="orchestrator")).decision != "deny"
+    r = env.run(env.send("later", agent_id="O1", agent_type="orchestrator"))
+    assert r.decision == "deny" and "by agent id, not by name" in r.reason, r
+    assert env.run(env.send("E3", agent_id="O1", agent_type="orchestrator")).decision != "deny"
     assert denied_from(remember(env, "E3", "coder"), "O1")
 
 

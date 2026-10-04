@@ -3043,10 +3043,13 @@ def send_policy_violation(d, ev, target_id, ttype):
             % (caller_type, target_id, ttype, ", ".join(row) or "none"))
 
 
-def routing_violation(d, ev, to, target_id):
+def routing_violation(d, ev, to, target_id, by_id=True):
     """No peer-to-peer messages (the user, 2026-10-04): a subagent messages only `main`, its own
-    parent or its own child; siblings, other jobs and unknown targets are refused. An unreadable
-    registry falls back to the earlier rule (pass)."""
+    parent or its own child; siblings, other jobs and unknown targets are refused. It addresses
+    them by agent id only (`by_id`: `to` is a registry id): Claude Code resolves a name exact-first
+    and keeps finished agents' names, names/ folds case and '_' with the last writer winning, so a
+    look-alike name could pass here as the caller's own child and reach another job's agent. An
+    unreadable registry falls back to the earlier rule (pass)."""
     aid = ev.get("agent_id")
     if not aid or str(to).strip().lower() == "main":
         return None
@@ -3055,11 +3058,14 @@ def routing_violation(d, ev, to, target_id):
             os.listdir(os.path.join(d, "agents"))
         except FileNotFoundError:
             pass                    # no registry yet: nobody is this caller's family
-        if target_id and family(d, ev, aid, target_id):
+        if target_id and by_id and family(d, ev, aid, target_id):
             return None
     except OSError as exc:
         warn_once("routing scope: registry unreadable (%s); not enforced" % type(exc).__name__)
         return None
+    if target_id and not by_id:
+        return ("SendMessage policy: a subagent addresses agents by agent id, not by name: send "
+                "to the agentId of its Agent result instead of '%s'." % str(to)[:64])
     return ("SendMessage policy: '%s' messages only main, its own parent and its own children; "
             "'%s' is %s. Put it in your hand-back (NEXT: route to <role>: <what>) for your parent."
             % (caller_type_of(d, ev, aid), str(to)[:64],
@@ -3080,14 +3086,14 @@ def strings_in(obj, depth=0):
             yield from strings_in(v, depth + 1)
 
 
-def user_relay_violation(d, ev, ti, target_id):
+def user_relay_violation(d, ev, ti, target_id, by_id=True):
     """The user's answer travels as a `USER:` block: only the main thread, or a parent to its own
-    child (an answer going down to its asker), may send one; a subagent forging it to a peer is
-    refused."""
+    child (an answer going down to its asker, addressed by agent id), may send one; a subagent
+    forging it to a peer is refused."""
     aid = ev.get("agent_id")
     if not aid or not any(USER_LINE_RE.search(s) for s in strings_in(ti.get("message"))):
         return None
-    if target_id and parent_of(d, ev, target_id) == aid:
+    if target_id and by_id and parent_of(d, ev, target_id) == aid:
         return None
     return ("SendMessage policy: only the main thread, or a parent to its own child, relays the "
             "user's answer; a 'USER:' line from '%s' is refused. Put the question in your "
@@ -3172,7 +3178,9 @@ def on_send(ev, d):
     if is_blackcat and markers_full(d, "step", pid, max_steps):
         deny(STEP_LIMIT_REASON % max_steps)
     target_id, ttype, tname = resolve_target(d, to) if to else (None, None, None)
-    why = user_relay_violation(d, ev, ti, target_id) or routing_violation(d, ev, to, target_id) \
+    by_id = bool(target_id) and reg_get(d, ident(to)) is not None      # not through names/
+    why = user_relay_violation(d, ev, ti, target_id, by_id) \
+        or routing_violation(d, ev, to, target_id, by_id) \
         or send_policy_violation(d, ev, target_id, ttype)
     if why:
         deny(why)
