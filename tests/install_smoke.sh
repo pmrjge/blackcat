@@ -1665,10 +1665,10 @@ removed: not part of the stack
   ~ agents/coder.md  (edited since the last install)
   ~ skills/python-engineering/SKILL.md  (edited since the last install)
   ~ magg catalog: docling  (differed from the stack's entry)
-  note: skills/old-skill/: not installed by the stack (yours or another tool's) — kept
-  note: skills/python-engineering/notes.md: not installed by the stack (yours) — kept
-  note: skills/retired-edited/SKILL.md: edited since the stack installed it — kept
-  note: skills/retired-edited/mine.md: not installed by the stack (yours) — kept
+  note: skills/old-skill/: kept (not installed by the stack: yours or another tool's)
+  note: skills/python-engineering/notes.md: kept (not installed by the stack: yours)
+  note: skills/retired-edited/SKILL.md: kept (edited since the stack installed it)
+  note: skills/retired-edited/mine.md: kept (not installed by the stack: yours)
 EOF_WANT
 [ -z "$missing" ] && pass "pruned and listed: stale, renamed, modified, unknown files, junk, magg entries, duplicate hooks and rules" \
   || { failed "listing is missing:$missing"; sed 's/^/    /' "$TX/list.real"; }

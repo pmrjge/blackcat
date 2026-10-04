@@ -674,7 +674,9 @@ fi
 # installer and all of lib/ (a file added there shows as untracked), the pinned requirements,
 # tests/lint_agents.py (run in step 7) and the two tests/derive_*.py scripts copied into hooks/. Read them before
 # applying. On a terminal the run asks here, before step 2 changes anything (the venvs sync from requirements/) (--yes: don't).
-SUPPLY_PATHS="dot-claude install.sh lib requirements tests/lint_agents.py tests/derive_sched_model.py tests/derive_thresholds.py"
+# lib/assets (the README's images) is neither installed nor run: left out
+SUPPLY_PATHS="dot-claude install.sh lib requirements tests/lint_agents.py tests/derive_sched_model.py tests/derive_thresholds.py :(exclude)lib/assets"
+SUPPLY_SHOW="${SUPPLY_PATHS% *} ':(exclude)lib/assets'"     # the same, quoted for pasting into a shell
 SUPPLY_CHANGED=0
 prev_commit="$(python3 -c 'import json, re, sys
 try:
@@ -689,7 +691,7 @@ if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
     SUPPLY_CHANGED=1
     note "! uncommitted changes in the stack repo's shipped files or installer — this run installs them:"
     printf '%s\n' "$dirty" | head -n 40 | sed 's/^/      /'
-    [ "$(printf '%s\n' "$dirty" | wc -l)" -gt 40 ] && note "  ... and more: git -C $HERE status -- $SUPPLY_PATHS"
+    [ "$(printf '%s\n' "$dirty" | wc -l)" -gt 40 ] && note "  ... and more: git -C $HERE status -- $SUPPLY_SHOW"
   fi
   if [ -n "$prev_commit" ] && [ "$prev_commit" != "$STACK_COMMIT_FULL" ]; then
     # shellcheck disable=SC2086
@@ -704,7 +706,7 @@ if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
         else
           printf '%s\n' "$supply" | sed 's/^/      /'
         fi
-        note "review: git -C $HERE diff ${prev_commit:0:12} HEAD -- $SUPPLY_PATHS"
+        note "review: git -C $HERE diff ${prev_commit:0:12} HEAD -- $SUPPLY_SHOW"
       fi
     else
       SUPPLY_CHANGED=1
@@ -2058,7 +2060,7 @@ def entries_below(top):
 
 
 def kept_why(rel):
-    return "edited since the stack installed it" if rel in files_entry else "not installed by the stack (yours)"
+    return "edited since the stack installed it" if rel in files_entry else "not installed by the stack: yours"
 
 
 def drop_empty_dirs(top):
@@ -2086,14 +2088,14 @@ for name in sorted(os.listdir(skills_root)):
         elif ours and len(ours) == len(rels):
             drop(rel_dir + "/" * is_dir, why)                  # all the stack's, unedited: the whole skill
         elif not any(r in files_entry for r in rels):
-            report["notes"].append("%s: not installed by the stack (yours or another tool's) — kept"
+            report["notes"].append("%s: kept (not installed by the stack: yours or another tool's)"
                                    % (rel_dir + "/" * is_dir))
         else:
             for rel in rels:
                 if rel in ours:
                     drop(rel, why)
                 else:
-                    report["notes"].append("%s: %s — kept" % (rel, kept_why(rel)))
+                    report["notes"].append("%s: kept (%s)" % (rel, kept_why(rel)))
             drop_empty_dirs(rel_dir)
         continue
     for rel in entries_below(rel_dir) if is_dir else []:
@@ -2107,7 +2109,7 @@ for name in sorted(os.listdir(skills_root)):
         elif stack_unedited(rel):
             drop(rel, "no longer part of the stack's %s skill" % name)
         else:
-            report["notes"].append("%s: %s — kept" % (rel, kept_why(rel)))
+            report["notes"].append("%s: kept (%s)" % (rel, kept_why(rel)))
     if PRUNE and is_dir:                        # directories the removals left empty (not the skill's own)
         for sub in sorted(os.listdir(p_dir)):
             drop_empty_dirs(os.path.join(rel_dir, sub))
