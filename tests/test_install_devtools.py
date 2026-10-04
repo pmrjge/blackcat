@@ -543,13 +543,14 @@ def test_update_tools_dry_run_and_failure_isolation(tmp_path):
     e.shim("juliaup")
     rc, out, _ = e.run(script=UPDATE, args=("--dry-run",))
     assert rc == 0 and e.calls() == []
-    assert "would: homebrew: brew update && brew upgrade" in out and "would: rustup: rustup update" in out
+    assert "would: homebrew: brew update && brew upgrade --formula" in out and "would: rustup: rustup update" in out
     assert "- ghcup: absent" in out
     rc, out, _ = e.run(script=UPDATE, args=())
     assert rc == 1
     assert re.search(r"^  ! rustup failed: rustup update \(log \S+\)", out, re.M), out
     assert "ok  juliaup" in out and "ok  homebrew" in out
-    assert e.argv("brew") == ["update", "upgrade"]
+    assert e.argv("brew") == ["update", "upgrade --formula"]          # never casks (sudo pkg installers)
+    assert "manual  casks: brew upgrade --cask (pkg casks ask for your password)" in out
 
 
 # ---------------------------------------------------------------- install.sh wiring

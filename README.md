@@ -254,7 +254,7 @@ the call. Wiring: `dot-claude/settings.json` → `hooks`.
 | `agent_guard.py delegations [session] [--json]`, `--print-policy`, `--self-test` | `/usr/bin/python3 ~/.claude/hooks/agent_guard.py` | The delegation ledger; the spawn table; the guard's own checks |
 | `claude-ninja`, `claude-supreme` (links in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder or supreme-coder as your main thread at ultracode, starting in Plan (`--permission-mode plan` unless you pass a mode) |
 | `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
-| `stack-update-tools [--dry-run]` | `~/.claude/bin/`, your terminal | Updates the installed toolchains together: `brew update && brew upgrade`, `rustup update`, `juliaup update`, `ghcup upgrade`, `uv self update` + `uv tool upgrade --all`, `cs update`; node is printed as a manual step ([CONFIG.md](CONFIG.md) §7, "Prerequisites and toolchains") |
+| `stack-update-tools [--dry-run]` | `~/.claude/bin/`, your terminal | Updates the installed toolchains together: `brew update && brew upgrade --formula`, `rustup update`, `juliaup update`, `ghcup upgrade`, `uv self update` + `uv tool upgrade --all`, `cs update`, `elan self update` + `elan update`; node and Homebrew casks (`brew upgrade --cask`: the pkg casks ask for your password) are printed as manual steps ([CONFIG.md](CONFIG.md) §7, "Prerequisites and toolchains") |
 
 ### Safety and guardrails
 

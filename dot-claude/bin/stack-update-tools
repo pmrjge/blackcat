@@ -6,7 +6,8 @@
 #
 # One line per tool: "ok" updated, "-" absent (skipped), "!" failed (the others still run),
 # "manual" (left to you, with the command). What it runs, each only when the tool is present:
-#   Homebrew   brew update && brew upgrade   (formulae and casks: everything Homebrew installed)
+#   Homebrew   brew update && brew upgrade --formula   (casks are manual: the pkg casks oracle-jdk and
+#              mactex run sudo installers, so the line prints `brew upgrade --cask` for you to run)
 #   rustup     rustup update
 #   juliaup    juliaup update
 #   ghcup      ghcup upgrade (ghcup itself; GHC, cabal, HLS versions stay your choice: ghcup tui)
@@ -35,12 +36,12 @@ FAILED=0
 # step LABEL CMD...: run (or print) one update; its output goes to the log
 step(){
   local label="$1" shown; shift
-  shown="$*"; [ "$1" = brew_up ] && shown="brew update && brew upgrade"
+  shown="$*"; [ "$1" = brew_up ] && shown="brew update && brew upgrade --formula"
   if [ "$DRY" = 1 ]; then line "would: $label: $shown"; return 0; fi
   printf '\n== %s: %s\n' "$label" "$shown" >>"$LOG"
   if "$@" >>"$LOG" 2>&1 </dev/null; then line "ok  $label"; else line "! $label failed: $shown (log $LOG)"; FAILED=1; fi
 }
-brew_up(){ brew update && brew upgrade; }
+brew_up(){ brew update && brew upgrade --formula; }
 
 for d in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.juliaup/bin" \
          "$HOME/.local/bin" "$HOME/Library/Application Support/Coursier/bin" "$HOME/.elan/bin"; do
@@ -48,7 +49,12 @@ for d in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin" 
 done
 export PATH
 
-if have brew; then step homebrew brew_up; else line "- homebrew: absent"; fi
+if have brew; then
+  step homebrew brew_up
+  line "manual  casks: brew upgrade --cask (pkg casks ask for your password)"
+else
+  line "- homebrew: absent"
+fi
 if have rustup; then step rustup rustup update; else line "- rustup: absent"; fi
 if have juliaup; then step juliaup juliaup update; else line "- juliaup: absent"; fi
 if have ghcup; then step ghcup ghcup upgrade; else line "- ghcup: absent"; fi

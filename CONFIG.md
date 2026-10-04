@@ -695,8 +695,8 @@ cask (27, matching the installed Oracle JDK) because a cask's pkg lands in
 keg-only `openjdk` needs a `sudo ln -sfn` that install.sh never runs.
 
 **Updating together: `~/.claude/bin/stack-update-tools [--dry-run]`.** One line per tool, a missing
-one skipped, a failure never stopping the rest: `brew update && brew upgrade` (every formula and
-cask), `rustup update`, `juliaup update`, `ghcup upgrade` (ghcup itself; GHC/cabal/HLS versions stay
+one skipped, a failure never stopping the rest: `brew update && brew upgrade --formula` (casks are
+printed as a manual line, `brew upgrade --cask`: the pkg casks run sudo installers), `rustup update`, `juliaup update`, `ghcup upgrade` (ghcup itself; GHC/cabal/HLS versions stay
 yours: `ghcup tui`), `uv self update` (only for uv not installed by Homebrew) and `uv tool upgrade
 --all` (pre-commit, magg: within the constraints they were installed with), `cs update`, `elan self
 update` (only for elan not installed by Homebrew) and `elan update` (the channels you installed; a
