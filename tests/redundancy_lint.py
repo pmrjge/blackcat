@@ -11,7 +11,8 @@ on new drift:
   repeats  the same long sentence (normalised: markdown marks dropped, lower case, one space; at
            least MIN_CHARS characters) in MIN_FILES or more agent or skill files
   refs     a skill reference that does not resolve: `see `x`` / `load `x``, chained with `, `/`and`/
-           `or` (`load `a` and `b``), and every hub-module mark `x`* must name a shipped skill (or a
+           `or` (`load `a` and `b``), every backticked name in an agent's `## Skills` paragraph and
+           every hub-module mark `x`* must name a shipped skill (or a
            plugin's or Claude Code's own: EXTERNAL_SKILLS, any `plugin:skill`); a section named as
            `see `x` (Heading)`, `` `x` § Heading`` or `` `x` §N`` must be a heading of x's SKILL.md
            or references/*.md (a prefix of the heading text, case-insensitive, "N." numbering ignored)
@@ -57,6 +58,8 @@ CHAIN_RE = re.compile(r"`(" + SKILL_NAME + r")`")
 STAR_RE = re.compile(r"`(" + SKILL_NAME + r")`\*(?![*\w])")
 # `name` § Heading / `name` §N (anywhere); `see|load `name` (Heading)` (only after see/load)
 SECT_RE = re.compile(r"`(" + SKILL_NAME + r")`\*?\s*§\s*(\d+\b|[^|)\].;,\n`]+)")
+# an agent's `## Skills` / `## Skills, if needed` section, up to the next heading or blank line
+SKILLS_SECTION_RE = re.compile(r"(?m)^## Skills\b[^\n]*\n((?:[^#\n][^\n]*\n?)+)")
 PAREN_RE = re.compile(r"(?i)\b(?:see|load)\s+(?:the\s+)?`(" + SKILL_NAME + r")`\*?\s+\(([^()`:\n]{2,60})\)")
 
 
@@ -161,6 +164,9 @@ def find_bad_refs(root: Path):
             names.add(m.group(1))
             names.update(CHAIN_RE.findall(m.group(2) or ""))
         names.update(STAR_RE.findall(text))
+        if rel.startswith("agents/"):           # an agent's `## Skills` paragraph: every `name` is a skill
+            for m in SKILLS_SECTION_RE.finditer(text):
+                names.update(CHAIN_RE.findall(m.group(1)))
         for n in names:
             if not known(n):
                 bad.add((rel, n, "no such skill"))

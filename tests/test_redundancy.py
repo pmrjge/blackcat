@@ -183,3 +183,10 @@ def test_unstaged_existing_hook_is_found(repo):
     assert "stage_script 644 hooks/stack_report.py" in text
     inst.write_text(text.replace("stage_script 644 hooks/stack_report.py", ": unstaged"))
     assert any("hooks/stack_report.py" in n for n in new_findings(repo))
+
+
+def test_removed_skill_listed_in_an_agents_skills_section_dangles(repo):
+    """A plain `name` in `## Skills, if needed` counts (the agents' main way to name a skill)."""
+    shutil.rmtree(repo / "dot-claude" / "skills" / "cpu-performance")
+    new = new_findings(repo)
+    assert any("ref agents/go-engineer.md: `cpu-performance` (no such skill)" in n for n in new), new
