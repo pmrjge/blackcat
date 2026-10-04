@@ -142,3 +142,16 @@ def test_resumed_after_failure_is_running(fx):
     # an older resume (before the last stop) leaves the failure in place
     fx.agent("acoder00007", "coder", parent="aorch000001", depth=2, resumed=fx.t0 + 10)
     assert " · coder · failed · L2 · " in body(who(fx, "--type", "coder"))[1][0]
+
+
+def test_caps_hold(fx):
+    long_task = "Q" * 89 + "XYZ" + "w" * 30                 # 122 characters, no spaces to fold
+    fx.spawn("tl", "main", "scout", long_task, child="along00000", ts=fx.t0 + 6)
+    for i in range(205):
+        fx.spawn("c%d" % i, "main", "scout", "lookup %d" % i, child="acap%06d" % i, ts=fx.t0 + 30 + i)
+    head, rows = body(who(fx, "--max", "500"))                 # asks for 500, MAX_CAP 200 holds
+    assert len(rows) == 201 and rows[-1].startswith("… 11 more")
+    row = [r for r in body(who(fx, "--id", "along0"))[1]][0]
+    task = row.split(' · "', 1)[1][:-1]
+    assert task == "Q" * 89 + "…"                              # TASK_CAP 90: 89 characters and the ellipsis
+    assert len(json.loads(who(fx, "--max", "500", "--json").stdout)["matches"]) == 200
