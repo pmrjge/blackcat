@@ -351,7 +351,7 @@ The full list is in [Knobs](#knobs) and [CONFIG.md](CONFIG.md) §5. The ones mos
 | `STACK_SOFT_LIMIT_SCALE` | 1 | Multiplies every soft limit; `0` turns them off |
 | `STACK_MAX_MCP_CALLS` | 64 | MCP calls per subagent per prompt |
 | `READ_GATE` (in `stack.env` or the environment) | 1 | `0` turns the read gate off |
-| `STACK_POLICY` | `on` | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on |
+| `STACK_POLICY` | `on` | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on. It also lifts blackcat-guard (BlackCat's step, dispatch and read caps and its tool allowlist): only BlackCat's tools line still keeps Bash, Write and Edit from it |
 | `autoCompactWindow` (settings key) | 629000 | Compaction at about 629K tokens on the 1M-context models |
 | `permissions.defaultMode` (settings key) | `plan` | The mode every session starts in; a mode you set is kept on upgrade ([Permission modes](#permission-modes)) |
 
@@ -1165,7 +1165,7 @@ you may set yourself.
 
 | Variable | Default | Purpose | Read by |
 |---|---|---|---|
-| `STACK_POLICY` | `on` | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on | guard |
+| `STACK_POLICY` | `on` | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on. It also lifts blackcat-guard (BlackCat's step, dispatch and read caps and its tool allowlist): only BlackCat's tools line still keeps Bash, Write and Edit from it | guard |
 | `STACK_AGENT_LABEL` | `description` | Child label: `description` (`<type>: <task>`), `name` (`<type>-<n>`), `off` | guard |
 | `STACK_AGENT_STARTED` | `1` | SubagentStart gives a stack agent its start time (`0` = off) | guard |
 | `STACK_REPORT_FORMAT` | `observe` | `observe` (unset or any other value): SubagentStop checks and records each stack subagent's final reply and PreToolUse(Agent) the brief's size, never output, warned or blocked; `compact`: plus one restate per run on a hard violation (not the default, planned for Phase 2); `json`: every final report is one JSON line (SessionStart and SubagentStart add one line) plus a logged shape check, for Agent SDK apps; `off`: no check, no log ([CONFIG.md](CONFIG.md) §5, "Message protocol") | guard |
