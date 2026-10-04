@@ -230,9 +230,10 @@ def test_example_documents_every_knob():
 
 def test_settings_and_installer_wire_the_hook():
     s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
-    groups = [g for g in s["hooks"]["PreToolUse"] if "read_gate.py" in json.dumps(g)]
+    groups = [g for g in s["hooks"]["PreToolUse"] if "read_gate" in json.dumps(g)]
     assert len(groups) == 1 and groups[0]["matcher"] == "Read|Grep|Glob|Bash"
-    assert groups[0]["hooks"][0]["command"] == '"__PYTHON3__" "__CLAUDE_DIR__/hooks/read_gate.py"'
+    # fail-open by design: no --fail-closed (S2)
+    assert groups[0]["hooks"][0]["command"] == '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" read_gate'
     inst = (ROOT / "install.sh").read_text()
     assert "stage_script 755 hooks/read_gate.py" in inst
     assert '"hooks/read_gate.py"' in inst.split("STACK_SCRIPTS = [", 1)[1].split("]", 1)[0]

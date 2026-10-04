@@ -322,13 +322,27 @@ STACK_COMMIT_FULL="$(git -C "$HERE" rev-parse HEAD 2>/dev/null || echo unknown)"
 # The working dir (the staged copy of $C, stack.env with your keys included, MCP entries on their way
 # to `claude mcp`) lives inside the backup root: a real directory of yours, 0700 (a symlink there is
 # refused), which agents can neither read nor write. A run that changes nothing (--dry-run,
-# --mcp-plan, --print-managed-settings) and had to create the root removes it again.
+# --mcp-plan, --print-managed-settings) and had to create the root removes it again, with the
+# parent dirs it had to create for it (an XDG_STATE_HOME that did not exist yet, ~/.local/state).
+BR_NEW_TOP="$(python3 -c 'import os, sys
+p, top = os.path.abspath(sys.argv[1]), ""
+while not os.path.lexists(p) and os.path.dirname(p) != p:
+    top, p = p, os.path.dirname(p)
+print(top)' "$BACKUP_ROOT")"
 ROOT_STATE="$(python3 "$STATE_PY" private-root "$BACKUP_ROOT")" || exit 1
 find "$BACKUP_ROOT" -maxdepth 1 -name '.work.*' -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 WORK="$(mktemp -d "$BACKUP_ROOT/.work.XXXXXX")"
 cleanup(){
   rm -rf "$WORK"
-  if [ "$ROOT_STATE" = created ] && [ "$DRY_RUN$PRINT_MANAGED$MCP_PLAN" != 000 ]; then rmdir "$BACKUP_ROOT" 2>/dev/null || true; fi
+  if [ "$ROOT_STATE" = created ] && [ "$DRY_RUN$PRINT_MANAGED$MCP_PLAN" != 000 ]; then
+    rmdir "$BACKUP_ROOT" 2>/dev/null || true
+    # then each empty parent this run created, up to the first one that existed before it
+    local d="${BACKUP_ROOT%/*}"
+    while [ -n "$BR_NEW_TOP" ] && case "$d/" in "$BR_NEW_TOP"/*) true ;; *) false ;; esac; do
+      rmdir "$d" 2>/dev/null || break
+      d="${d%/*}"
+    done
+  fi
 }
 trap cleanup EXIT
 # --dry-run: nothing outside $WORK is written; commands that would change something are printed.
@@ -423,48 +437,30 @@ if [ -n "$CLAUDE_V" ] && [ "$(printf '%s\n%s\n' "$MIN_CLAUDE" "$CLAUDE_V" | sort
 fi
 note "install target: $C"
 
-# The interpreter every hook, the status line and the MCP header helper run with: absolute, stable
-# across upgrades and never a version-manager shim (a shim that fails in some project makes every
-# hook fail to start, which Claude Code treats as a non-blocking error: every gate silently open).
-# (Output goes through a temp file: bash 3.2, macOS's /bin/bash, mis-parses heredocs inside $(...).)
-if [ -z "${STACK_PYTHON:-}" ]; then
-  pyfile="$(mktemp "${TMPDIR:-/tmp}/stack-install.XXXXXX")"
-  python3 - >"$pyfile" <<'PY'
-import os, re, shutil, subprocess, sys
-
-
-def works(py):
-    try:
-        return subprocess.run([py, "-c", "import fcntl, json, sys; sys.exit(sys.version_info < (3, 8))"],
-                              stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, timeout=30).returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
-def clt_installed():
-    try:
-        return subprocess.run(["/usr/bin/xcode-select", "-p"], stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL,
-                              stderr=subprocess.DEVNULL, timeout=30).returncode == 0
-    except (OSError, subprocess.SubprocessError):
-        return False
-
-
-cands = []
-# macOS: /usr/bin/python3 is real only with the Command Line Tools (else a stub that opens an installer)
-if sys.platform != "darwin" or clt_installed():
-    cands.append("/usr/bin/python3")
-cands += ["/opt/homebrew/bin/python3", "/usr/local/bin/python3"]
-found = shutil.which("python3")
-if found and not re.search(r"/(shims|\.pyenv|\.asdf|mise|\.rye)/", found):
-    cands.append(found)
-cands.append(os.path.realpath(sys.executable))
-print(next((c for c in cands if os.path.isfile(c) and os.access(c, os.X_OK) and works(c)), "python3"))
-PY
-  STACK_PYTHON="$(cat "$pyfile")"; rm -f "$pyfile"
+# ==== stack-python (S2): the hooks' interpreter ===================================================
+# Every hook (through bin/stack-hook), the status line, /stack-tree's hook and the MCP header helper
+# run on one stable path, $C/bin/stack-python: a symlink to uv's managed Python 3.13 (uv's
+# minor-version link, which survives patch upgrades; never a version-manager shim or a project venv).
+# STACK_PYTHON (rendered as __PYTHON3__) is that path. Step 2 installs 3.13 when none is found; the
+# link is made and smoke-tested after step 6, before step 7 writes the hook commands (they fail
+# closed). A STACK_PYTHON already in the environment names another interpreter for the link: it
+# must be Python >= 3.13 (an absolute path or a command on PATH).
+STACK_PYTHON_TARGET=""
+if [ -n "${STACK_PYTHON:-}" ]; then
+  case "$STACK_PYTHON" in
+    "$C/bin/stack-python") STACK_PYTHON_TARGET="$(python3 -c 'import os, sys; print(os.path.realpath(sys.argv[1]))' "$STACK_PYTHON")" ;;
+    /*) STACK_PYTHON_TARGET="$STACK_PYTHON" ;;
+    *) STACK_PYTHON_TARGET="$(command -v "$STACK_PYTHON" 2>/dev/null || true)" ;;
+  esac
+  if [ -z "$STACK_PYTHON_TARGET" ] || ! "$STACK_PYTHON_TARGET" -c 'import sys; sys.exit(sys.version_info < (3, 13))' >/dev/null 2>&1 </dev/null; then
+    echo "STACK_PYTHON=$STACK_PYTHON is not a working Python >= 3.13, which the hooks need: unset it (the installer then uses uv's managed 3.13), or point it at one (uv python find 3.13)"
+    exit 1
+  fi
 fi
+STACK_PYTHON="$C/bin/stack-python"
 export STACK_PYTHON
-note "hook interpreter: $STACK_PYTHON"
+note "hook interpreter: $STACK_PYTHON -> ${STACK_PYTHON_TARGET:-the uv-managed Python 3.13 (step 2)}"
+# ==== stack-python: END ===========================================================================
 
 # Optional hardening the installer never installs itself (it would be root-owned): a
 # managed-settings.json that repeats the stack's guard hook, its protected-path deny rules and its
@@ -936,7 +932,7 @@ fetch_verified(){
   rm -rf "$t"; return 1
 }
 # tools venv: what the stack's own scripts, MCP servers and tests import (hooks stay stdlib on
-# /usr/bin/python3). A future extra (e.g. a Bayesian stack) is its own lock, requirements/tools-<extra>.in
+# bin/stack-python). A future extra (e.g. a Bayesian stack) is its own lock, requirements/tools-<extra>.in
 # starting with "-r tools.in", installed by pointing TOOLS_REQS at its .txt (requirements/README.md).
 TOOLS_REQS="$HERE/requirements/tools.txt"
 TOOLS_IMPORTS='import pytest, numpy, pandas, httpx, mcp, PIL, neural_memory'
@@ -1048,6 +1044,31 @@ else
   else note "! tools venv install failed — uv pip install --python $C/venvs/tools/bin/python --require-hashes --only-binary :all: -r $TOOLS_REQS"; fi
 fi
 
+# ==== stack-python (S2): Python 3.13 for the hooks ================================================
+# uv's managed 3.13 (never a project's .venv or uv.toml: --system --managed-python --no-project
+# --no-config, the launcher's own lookup). Present: used, not touched. Missing: `uv python install
+# 3.13` (configuration of uv, which step 2 already has); not under --no-deps or STACK_INSTALL_UV=0,
+# printed under --dry-run. Still missing: the step after 6/11 stops the run before settings.json.
+stack_python_find(){ have uv && uv python find --system --managed-python --no-project --no-config 3.13 2>/dev/null </dev/null || true; }
+if [ -z "$STACK_PYTHON_TARGET" ]; then
+  STACK_PYTHON_TARGET="$(stack_python_find)"
+  if [ -n "$STACK_PYTHON_TARGET" ]; then
+    note "Python 3.13 for the hooks: $STACK_PYTHON_TARGET (present)"
+  elif ! have uv; then
+    note "! no Python 3.13 for the hooks and no uv: install uv, then rerun ./install.sh"
+  elif [ "$NO_DEPS" = 1 ] || [ "${STACK_INSTALL_UV:-1}" = 0 ]; then
+    note "! no uv-managed Python 3.13 for the hooks (--no-deps / STACK_INSTALL_UV=0): uv python install 3.13, then rerun ./install.sh"
+  elif [ "$DRY_RUN" = 1 ]; then
+    would "uv python install 3.13   (the hooks' interpreter, linked as $STACK_PYTHON)"
+  elif uv python install 3.13 </dev/null; then
+    STACK_PYTHON_TARGET="$(stack_python_find)"
+    note "+ Python 3.13 for the hooks: ${STACK_PYTHON_TARGET:-? (uv python find 3.13 found nothing after the install)}"
+  else
+    note "! uv python install 3.13 failed: the hooks need it (run it yourself, then rerun ./install.sh)"
+  fi
+fi
+# ==== stack-python: END ===========================================================================
+
 say "3/11 ML venv (--with-ml)"
 if [ "$WITH_ML" = 0 ]; then
   if [ -x "$C/venvs/ml/bin/python" ]; then note "ML venv present: $C/venvs/ml (rerun with --with-ml to update)"; else note "skipped — ML agents use the project's environment or the science venv; add --with-ml for a shared ML venv"; fi
@@ -1139,6 +1160,10 @@ mkdir -p "$S"/{agents,skills,hooks,mcp,magg,bin,rules}
 # it would write through the link, out of the staging dir; the backup keeps the link).
 stage_script(){ rm -rf "$S/$2" && cp "$SRC/$2" "$S/$2" && chmod "$1" "$S/$2"; }
 stage_script 755 hooks/agent_guard.py
+# every hook command runs /bin/sh bin/stack-hook (finds stack-python), which runs hooks/stack_hook.py
+# (imports the hook module, so its bytecode in hooks/__pycache__ is reused)
+stage_script 755 bin/stack-hook
+stage_script 644 hooks/stack_hook.py
 # /override-agent's built-in effort per (agent, model): read by agent_guard.py, beside it
 stage_script 644 hooks/agent_effort.json
 # per-call caps for exa/jina/spider and Spider's anti-bot defaults (PreToolUse ^mcp__(exa|jina|spider)__)
@@ -2023,7 +2048,7 @@ for rel in skills_kept:
 
 # --- scripts the stack copies into hooks/, bin/ and mcp/ (step 6 put them in DEST): tracked in the
 # manifest, so a later version that stops shipping one removes it. Files of your own there stay. ---
-STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/stack_report.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
+STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/stack_report.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json", "hooks/stack_fanout.py", "hooks/stack_fanout_wire.py",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
@@ -2066,6 +2091,84 @@ open(os.environ["RENDERED_SETTINGS"], "w").write(render(settings_text, json_esca
 
 print("  " + ", ".join("%s=%s" % (k.strip("_").lower(), v) for k, v in SUBS.items()))
 PY
+
+# ==== stack-python (S2): link and smoke test, before settings.json ================================
+say "Hook interpreter: $STACK_PYTHON, smoke-tested before settings.json changes"
+# The hook commands step 7 writes run /bin/sh bin/stack-hook, and its PreToolUse entries FAIL CLOSED
+# when no Python >= 3.13 starts: the link must exist and work first. The smoke test runs the staged
+# launcher, stub and guard on it as a session will (PreToolUse events on stdin, the config dir's
+# stack-python, a scratch state dir, STACK_POLICY on): a Read through `--fail-closed agent_guard
+# budget` must be allowed (exit 0, no deny), and `git push` through `--fail-closed agent_guard
+# no-push` denied (the guard really decides). A failure stops the run here with the previous link
+# back: the installed hook commands, and everything else in $C, stay as they were.
+smoke_event(){  # smoke_event TOOL INPUT-JSON
+  printf '{"hook_event_name":"PreToolUse","session_id":"install-smoke","tool_name":"%s","tool_input":%s,"tool_use_id":"tu-install-smoke","cwd":"%s","permission_mode":"default"}' \
+    "$1" "$2" "$WORK/smoke/proj"
+}
+smoke_run(){  # smoke_run INTERPRETER-OVERRIDE|"" ARGS...: the staged launcher, as a hook runs it
+  local py="$1"; shift
+  ( cd "$WORK/smoke/proj" && if [ -n "$py" ]; then export STACK_PYTHON="$py"; else unset STACK_PYTHON; fi \
+    && unset PYTHONPATH PYTHONHOME PYTHONPYCACHEPREFIX STACK_POLICY \
+    && CLAUDE_CONFIG_DIR="$C" XDG_STATE_HOME="$WORK/smoke/state" STACK_USAGE_COLLECT=0 \
+       /bin/sh "$S/bin/stack-hook" --fail-closed agent_guard "$@" 2>>"$WORK/smoke/err" )
+}
+stack_python_smoke(){  # stack_python_smoke [interpreter override]: 0 when both probes pass
+  local py="${1:-}" out rc
+  rm -rf "$WORK/smoke"; mkdir -p "$WORK/smoke/proj" "$WORK/smoke/state"; : >"$WORK/smoke/err"
+  rc=0; out="$(smoke_event Read "{\"file_path\":\"$WORK/smoke/proj/a.py\"}" | smoke_run "$py" budget)" || rc=$?
+  if [ "$rc" != 0 ] || printf '%s' "$out" | grep -qE '"permissionDecision": *"(deny|ask)"'; then
+    SMOKE_WHY="a Read was not allowed (exit $rc): $(printf '%s %s' "$out" "$(cat "$WORK/smoke/err")" | tr '\n' ' ' | cut -c1-400)"
+    return 1
+  fi
+  rc=0; out="$(smoke_event Bash '{"command":"git push origin main"}' | smoke_run "$py" no-push)" || rc=$?
+  if [ "$rc" != 0 ] || ! printf '%s' "$out" | grep -qE '"permissionDecision": *"deny"' \
+      || printf '%s' "$out" | grep -q 'stack guard error'; then
+    SMOKE_WHY="git push was not denied by the guard (exit $rc): $(printf '%s %s' "$out" "$(cat "$WORK/smoke/err")" | tr '\n' ' ' | cut -c1-400)"
+    return 1
+  fi
+  return 0
+}
+# link_stack_python TARGET: $STACK_PYTHON -> TARGET atomically (a session running hooks meanwhile
+# sees the old link or the new one, never none)
+link_stack_python(){ python3 -c 'import os, sys
+tmp = sys.argv[2] + ".tmp-%d" % os.getpid()
+os.symlink(sys.argv[1], tmp)
+os.replace(tmp, sys.argv[2])' "$1" "$STACK_PYTHON"; }
+SMOKE_WHY=""
+SMOKE_FIX="fix: uv python install 3.13 (or STACK_PYTHON=/path/to/python3.13+), then rerun ./install.sh; until then the previously installed hooks stay"
+RUN_PY="$STACK_PYTHON"     # what this run executes the staged and installed scripts with
+if [ -z "$STACK_PYTHON_TARGET" ]; then
+  if [ "$DRY_RUN" = 0 ]; then
+    echo "install.sh: no Python 3.13 for the hooks (uv python find 3.13 found none; step 2 above says why). Nothing in $C was changed. $SMOKE_FIX" >&2
+    exit 1
+  fi
+  would "ln -s <uv's Python 3.13, installed above> $STACK_PYTHON"
+  would "smoke-test the staged hooks on it: PreToolUse Read via stack-hook --fail-closed agent_guard budget (allow), git push via no-push (deny)"
+  RUN_PY="python3"; note "--dry-run: validation below runs the guard's self-test on python3 (no 3.13 yet)"
+elif [ "$DRY_RUN" = 1 ]; then
+  [ "$(readlink "$STACK_PYTHON" 2>/dev/null || true)" = "$STACK_PYTHON_TARGET" ] \
+    && note "$STACK_PYTHON -> $STACK_PYTHON_TARGET (in place)" || would "ln -sfn $STACK_PYTHON_TARGET $STACK_PYTHON"
+  if stack_python_smoke "$STACK_PYTHON_TARGET"; then note "smoke test passed on $STACK_PYTHON_TARGET (Read allowed, git push denied)"
+  else note "! smoke test failed: $SMOKE_WHY — the real run stops here. $SMOKE_FIX"; fi
+  RUN_PY="$STACK_PYTHON_TARGET"
+else
+  prev_link=""; [ -L "$STACK_PYTHON" ] && prev_link="$(readlink "$STACK_PYTHON")"
+  mkdir -p "$C/bin"
+  link_stack_python "$STACK_PYTHON_TARGET"
+  if stack_python_smoke; then
+    note "$STACK_PYTHON -> $STACK_PYTHON_TARGET; smoke test passed (Read allowed, git push denied)"
+  else
+    if [ -n "$prev_link" ]; then
+      link_stack_python "$prev_link"
+    else
+      rm -f "$STACK_PYTHON"
+    fi
+    echo "install.sh: the hook smoke test failed on $STACK_PYTHON_TARGET: $SMOKE_WHY" >&2
+    echo "install.sh: nothing else in $C was changed (stack-python restored${prev_link:+ to $prev_link}). $SMOKE_FIX" >&2
+    exit 1
+  fi
+fi
+# ==== stack-python: END ===========================================================================
 
 say "7/11 Merge settings.json, validate, apply"
 [ -f "$S/settings.json" ] || echo '{}' > "$S/settings.json"
@@ -2270,11 +2373,12 @@ for key in ("removed", "replaced"):
     report.setdefault(key, {})
 for key in ("config_removed", "config_replaced", "notes"):
     report.setdefault(key, [])
-# hook commands of the stack, any version: its guard (whatever config dir or interpreter an earlier
+# hook commands of the stack, any version: its launcher bin/stack-hook (any module), its guard run
+# directly (`<python> .../hooks/agent_guard.py ...`, whatever config dir or interpreter an earlier
 # install rendered), the usage collector, the web caps, the read gate, /stack-doctor's bin/doctor.sh --hook,
 # /stack-tree's bin/stack-tree --hook and the retired router-guard.sh. Every hook script settings.json ships must match, or each re-run keeps
 # the installed copy as yours and appends the shipped one again (tests/test_install_state.py checks this)
-STACK_HOOK_RE = re.compile(r"agent_guard\.py|router-guard\.sh|stack_usage\.py|web_caps\.py|read_gate\.py|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
+STACK_HOOK_RE = re.compile(r"/bin/stack-hook\b|agent_guard\.py|router-guard\.sh|stack_usage\.py|web_caps\.py|read_gate\.py|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
 
 
 def canon(x):
@@ -2587,7 +2691,10 @@ PY
 
 # Validate the staged result before anything in $C changes: JSON files parse, every agent and skill
 # has sound frontmatter, no placeholder is left, and the staged guard passes its --self-test.
-if ! python3 "$STATE_PY" validate "$S" "$STACK_PYTHON"; then
+# The self-test probes the guard's state dir by writing to it (creating it): a dry run points it at
+# a scratch dir inside $WORK, so it leaves nothing behind.
+if ! ( if [ "$DRY_RUN" = 1 ]; then export XDG_STATE_HOME="$WORK/validate-state"; fi
+       python3 "$STATE_PY" validate "$S" "$RUN_PY" ); then
   echo "install.sh: the staged install failed validation (above) — nothing in $C was changed." >&2
   exit 1
 fi
@@ -2623,6 +2730,23 @@ else
   # held now, never rolled back) takes the new seed when the shipped seed changed, unless that would
   # move a learned partner (soft <= ratio x hard); learned and frozen values are never rewritten.
   # Sessions snapshot it.
+  # ==== stack-python (S2): bytecode for the hook modules =========================================
+  # compiled by the interpreter the hooks run on, so a session's first hook call is warm; TIMESTAMP
+  # pycs (a source whose mtime or size differs from what its pyc records is recompiled on import, so
+  # a restore or an edit never runs stale code), beside the sources in the protected
+  # hooks/__pycache__ (no PYTHONPYCACHEPREFIX; SOURCE_DATE_EPOCH would switch to checked-hash)
+  hook_mods=()
+  for m in agent_guard stack_usage stack_limits stack_report stack_fanout stack_fanout_wire read_gate web_caps stack_hook stack_sched; do
+    if [ -f "$C/hooks/$m.py" ]; then hook_mods+=("$C/hooks/$m.py"); fi
+  done
+  if (unset PYTHONPYCACHEPREFIX SOURCE_DATE_EPOCH
+      "$STACK_PYTHON" -m compileall -q -f --invalidation-mode timestamp ${hook_mods[@]+"${hook_mods[@]}"} >"$WORK/compileall.log" 2>&1); then
+    note "hook bytecode: ${#hook_mods[@]} modules compiled (timestamp) in $C/hooks/__pycache__"
+  else
+    note "! compileall of the hook modules failed (the hooks still run, compiling on first use):"
+    sed 's/^/      /' "$WORK/compileall.log" | head -n 10
+  fi
+  # ==== stack-python: END =========================================================================
   if ! seed_out="$("$STACK_PYTHON" "$C/hooks/stack_limits.py" seed 2>&1)"; then
     note "! stack_limits.py seed failed (sessions use the seed values): $seed_out"
   elif [ -n "$seed_out" ]; then

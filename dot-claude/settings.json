@@ -543,7 +543,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
             "timeout": 15
           }
         ]
@@ -552,7 +552,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" session-env",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard session-env",
             "timeout": 10
           }
         ]
@@ -563,7 +563,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
             "timeout": 15
           }
         ]
@@ -575,7 +575,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" override-agent",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard override-agent",
             "timeout": 15
           }
         ]
@@ -607,7 +607,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" --fail-closed agent_guard",
             "timeout": 15
           }
         ]
@@ -617,7 +617,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" --fail-closed agent_guard",
             "timeout": 15
           }
         ]
@@ -627,7 +627,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" no-push",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" --fail-closed agent_guard no-push",
             "timeout": 15
           }
         ]
@@ -637,7 +637,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" --fail-closed agent_guard",
             "timeout": 15
           }
         ]
@@ -647,7 +647,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" --fail-closed agent_guard",
             "timeout": 15
           }
         ]
@@ -657,7 +657,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" --fail-closed agent_guard",
             "timeout": 15
           }
         ]
@@ -667,7 +667,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" image-limit",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" --fail-closed agent_guard image-limit",
             "timeout": 60
           }
         ]
@@ -677,7 +677,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/web_caps.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" web_caps",
             "timeout": 10
           }
         ]
@@ -687,7 +687,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/read_gate.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" read_gate",
             "timeout": 10
           }
         ]
@@ -697,7 +697,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" blackcat-guard --settings",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" --fail-closed agent_guard blackcat-guard --settings",
             "timeout": 15
           }
         ]
@@ -707,7 +707,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" budget",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" --fail-closed agent_guard budget",
             "timeout": 15
           }
         ]
@@ -719,7 +719,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
             "timeout": 15
           }
         ]
@@ -729,7 +729,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" image-limit",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard image-limit",
             "timeout": 60
           }
         ]
@@ -740,7 +740,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
             "timeout": 15
           }
         ]
@@ -749,7 +749,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/stack_usage.py\" start",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" stack_usage start",
             "timeout": 5
           }
         ]
@@ -760,7 +760,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
             "timeout": 15
           }
         ]
@@ -772,7 +772,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
             "timeout": 15
           }
         ]
@@ -784,7 +784,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
             "timeout": 15
           }
         ]
@@ -795,7 +795,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
             "timeout": 15
           }
         ]
@@ -806,7 +806,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
             "timeout": 15
           }
         ]
@@ -817,7 +817,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/stack_usage.py\" end"
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" stack_usage end"
           }
         ]
       }
@@ -827,7 +827,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\"",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
             "timeout": 10
           }
         ]

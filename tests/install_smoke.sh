@@ -52,6 +52,11 @@ PY
 tgit -C "$HERE" init -q && tgit -C "$HERE" add -A && tgit -C "$HERE" commit -q -m "smoke snapshot" \
   || { echo "could not build the scratch stack repository"; exit 1; }
 INSTALL="$HERE/install.sh"
+# The installer links uv's managed Python 3.13 as bin/stack-python (S2); the cases that run it with a
+# scratch HOME would hide uv's Pythons (and a real run would download one): point uv at the real dir.
+if [ -z "${UV_PYTHON_INSTALL_DIR:-}" ] && command -v uv >/dev/null 2>&1; then
+  UV_PYTHON_INSTALL_DIR="$(uv python dir 2>/dev/null || true)"; [ -n "$UV_PYTHON_INSTALL_DIR" ] && export UV_PYTHON_INSTALL_DIR
+fi
 export PATH="$HERE/tests/fake-claude:$PATH"
 # install.sh is macOS-only; this test also runs on Linux (CI, containers) through its escape hatch.
 export STACK_ALLOW_NON_MACOS=1
@@ -171,16 +176,21 @@ fi
 grep -qF "$HERE" "$T1/agents/claude-code-engineer.md" && grep -qF "\"repo\": \"$HERE\"" "$T1/.stack-manifest.json" \
   && pass "stack repo path rendered into agents and recorded in the manifest" || failed "stack repo path not rendered/recorded"
 
-grep -qF "$T1/hooks/agent_guard.py" "$T1/settings.json" 2>/dev/null && pass "settings.json hook commands point at \$T/hooks" \
-  || failed "settings.json hook commands do not reference $T1/hooks"
-grep -qF "$T1/hooks/agent_guard.py\\\" blackcat-guard" "$T1/agents/blackcat.md" 2>/dev/null && pass "blackcat.md hook runs \$T/hooks/agent_guard.py blackcat-guard" \
-  || failed "blackcat.md hook command does not run $T1/hooks/agent_guard.py blackcat-guard"
+grep -qF "/bin/sh \\\"$T1/bin/stack-hook\\\" --fail-closed agent_guard no-push" "$T1/settings.json" 2>/dev/null \
+  && pass "settings.json hook commands run \$T/bin/stack-hook (fail-closed guard entries)" \
+  || failed "settings.json hook commands do not run $T1/bin/stack-hook"
+grep -qF "$T1/bin/stack-hook\\\" --fail-closed agent_guard blackcat-guard" "$T1/agents/blackcat.md" 2>/dev/null && pass "blackcat.md hook runs \$T/bin/stack-hook --fail-closed agent_guard blackcat-guard" \
+  || failed "blackcat.md hook command does not run $T1/bin/stack-hook --fail-closed agent_guard blackcat-guard"
+[ -x "$T1/bin/stack-python" ] && "$T1/bin/stack-python" -c 'import sys; sys.exit(sys.version_info < (3, 13))' \
+  && [ -f "$T1/hooks/__pycache__/agent_guard.$("$T1/bin/stack-python" -c 'import sys; print(sys.implementation.cache_tag)').pyc" ] \
+  && pass "bin/stack-python is Python >= 3.13 and the guard's bytecode is precompiled" \
+  || failed "bin/stack-python missing/old or hooks/__pycache__ not compiled"
 python3 - "$T1/settings.json" "$T1/agents/blackcat.md" <<'PY' && pass "hooks and status line use an absolute interpreter (no bare python3)" || failed "a hook command uses a bare interpreter"
 import json, re, sys
 s = json.load(open(sys.argv[1]))
 cmds = [h["command"] for gs in s["hooks"].values() for g in gs for h in g["hooks"]]
 cmds.append(s["statusLine"]["command"])
-cmds += re.findall(r'(?m)^\s+command:\s*"(.*agent_guard.*)"', open(sys.argv[2]).read())
+cmds += [json.loads('"%s"' % c) for c in re.findall(r'(?m)^\s+command:\s*"(.*agent_guard.*)"', open(sys.argv[2]).read())]
 bad = [c for c in cmds if not c.lstrip('\\"').startswith("/")]
 if bad:
     print("  bare:", bad)
@@ -191,8 +201,8 @@ import json, os, sys
 s = json.load(open(sys.argv[1]))
 h, allow, deny = s["hooks"], s["permissions"]["allow"], s["permissions"]["deny"]
 checks = {
-    "StopFailure hook": any("agent_guard.py" in json.dumps(g) for g in h.get("StopFailure", [])),
-    "PreCompact hook + SessionStart compact": any("agent_guard.py" in json.dumps(g) for g in h.get("PreCompact", []))
+    "StopFailure hook": any("agent_guard" in json.dumps(g) for g in h.get("StopFailure", [])),
+    "PreCompact hook + SessionStart compact": any("agent_guard" in json.dumps(g) for g in h.get("PreCompact", []))
                                               and any("compact" in str(g.get("matcher") or "").split("|")
                                                       for g in h["SessionStart"]),
     "PostToolUse TaskStop": any("TaskStop" in (g.get("matcher") or "") for g in h["PostToolUse"]),
@@ -205,8 +215,8 @@ checks = {
     "sandbox caches Bash-only": not any(k in s["env"] for k in ("UV_CACHE_DIR", "npm_config_cache",
                                         "PRE_COMMIT_HOME", "GIT_CONFIG_COUNT", "GIT_CONFIG_KEY_0")) and
                                 s["sandbox"]["filesystem"]["allowWrite"] == ["~/.cache/claude-sandbox"] and
-                                any(not g.get("matcher") and any(x.get("command", "").startswith('"/') and
-                                    x["command"].endswith('/hooks/agent_guard.py" session-env')
+                                any(not g.get("matcher") and any(x.get("command", "").startswith('/bin/sh "/') and
+                                    x["command"].endswith('/bin/stack-hook" agent_guard session-env')
                                     for x in g["hooks"]) for g in h["SessionStart"]),
     "MCP cache is denyWrite": any(p.endswith("/claude-agent-stack-cache") and p.startswith("/")
                                   for p in s["sandbox"]["filesystem"]["denyWrite"]),
@@ -217,7 +227,7 @@ checks = {
         and ".local/state" not in json.dumps([s["sandbox"], deny])),
     "failIfUnavailable": s["sandbox"].get("failIfUnavailable") is True,
     "config .claude.json read-deny": any(r.endswith("/.claude.json)") and r.startswith("Read(//") for r in deny),
-    "local-file MCP guard": any("ctx_index" in (g.get("matcher") or "") and "agent_guard.py" in json.dumps(g)
+    "local-file MCP guard": any("ctx_index" in (g.get("matcher") or "") and "agent_guard" in json.dumps(g)
                                 for g in h["PreToolUse"]),
     "context-mode exec denied": {"mcp__context-mode__ctx_execute", "mcp__context-mode__ctx_batch_execute"} <= set(deny),
     "neural-memory allowed": "mcp__neural-memory" in allow and "mcp__context-mode__ctx_search" in allow,
@@ -347,9 +357,9 @@ python3 "$T1/hooks/read_gate.py" --self-test >/dev/null 2>&1 && python3 - "$T1/s
   || failed "read gate: self-test or settings wiring (python3 $T1/hooks/read_gate.py --self-test)"
 import json, sys
 s = json.load(open(sys.argv[1]))
-g = [g for g in s["hooks"]["PreToolUse"] if "read_gate.py" in json.dumps(g)]
+g = [g for g in s["hooks"]["PreToolUse"] if "read_gate" in json.dumps(g)]
 sys.exit(0 if len(g) == 1 and g[0]["matcher"] == "Read|Grep|Glob|Bash"
-         and g[0]["hooks"][0]["command"].endswith(sys.argv[2] + '/hooks/read_gate.py"') else 1)
+         and g[0]["hooks"][0]["command"] == '/bin/sh "%s/bin/stack-hook" read_gate' % sys.argv[2] else 1)
 PY
 # every installed agent's "May spawn" sentence (the rendered copy types included) is its POLICY row
 python3 "$T1/hooks/agent_guard.py" --print-policy | python3 -c '
@@ -711,7 +721,7 @@ import json, sys
 p = sys.argv[1]
 s = json.load(open(p))
 for g in s["hooks"]["SessionStart"]:
-    if "agent_guard.py" in json.dumps(g) and "session-env" not in json.dumps(g):
+    if "agent_guard" in json.dumps(g) and "session-env" not in json.dumps(g):
         g["matcher"] = "startup|resume"
 json.dump(s, open(p, "w"), indent=2)
 PY
@@ -828,9 +838,9 @@ HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" "$INSTALL" --no-mcp --no-plugins --no
 python3 - "$T4/.claude/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "user hook in the stack's group, tuned knobs and own main agent kept" || failed "settings merge dropped user changes"
 import json, sys
 s = json.load(open(sys.argv[1]))
-shipped = sum("agent_guard.py" in json.dumps(g) for g in json.load(open(sys.argv[2]))["hooks"]["PreToolUse"])
+shipped = sum("agent_guard" in json.dumps(g) for g in json.load(open(sys.argv[2]))["hooks"]["PreToolUse"])
 cmds = [h.get("command") for g in s["hooks"]["PreToolUse"] for h in g.get("hooks", [])]
-ok = ("my-audit.sh" in cmds and sum("agent_guard.py" in (c or "") for c in cmds) == shipped and s["env"]["BLACKCAT_MAX_STEPS"] == "24"
+ok = ("my-audit.sh" in cmds and sum("agent_guard" in (c or "") for c in cmds) == shipped and s["env"]["BLACKCAT_MAX_STEPS"] == "24"
       and s["env"]["STACK_FANOUT_IDLE_S"] == "900"
       and s["env"].get("ENABLE_TOOL_SEARCH") == "auto:5" and s.get("agent") == "claude"
       and s.get("skillListingBudgetFraction") == 0.05)
@@ -2108,7 +2118,7 @@ if fs["allowWrite"] != ["~/my-cache", "~/.cache/claude-sandbox"]:
     bad.append("allowWrite %s" % fs["allowWrite"])
 if "~/Library/Caches/Coursier" not in fs["denyWrite"]:
     bad.append("Coursier denyWrite")
-if not any(not g.get("matcher") and any(x.get("command", "").endswith('agent_guard.py" session-env')
+if not any(not g.get("matcher") and any(x.get("command", "").endswith('stack-hook" agent_guard session-env')
                                         for x in g["hooks"]) for g in s["hooks"]["SessionStart"]):
     bad.append("session-env hook")
 if bad:
@@ -2179,8 +2189,12 @@ for d in "${_dirs[@]}"; do
 done
 export CARGO_LOG="$TS/cargo.log" FAKE_CLAUDE_JSON="$TS/fake-claude.json" STACK_CLAUDE_JSON="$TS/fake-claude.json"
 : > "$CARGO_LOG"; echo '{}' > "$FAKE_CLAUDE_JSON"
+# the stub uv finds no Python: the hooks' 3.13 (bin/stack-python) comes from the real uv, through
+# the installer's STACK_PYTHON override
+PY313="$(uv python find --system --managed-python --no-project --no-config 3.13 2>/dev/null </dev/null || true)"
 srun(){ local home="$1" path="$2" log="$3"; shift 3; mkdir -p "$home"
-  HOME="$home" PATH="$path" CLAUDE_CONFIG_DIR="$home/.claude" "$INSTALL" --no-mcp --no-plugins --no-profile "$@" >"$TS/$log" 2>&1; }
+  HOME="$home" PATH="$path" CLAUDE_CONFIG_DIR="$home/.claude" STACK_PYTHON="$PY313" \
+    "$INSTALL" --no-mcp --no-plugins --no-profile "$@" >"$TS/$log" 2>&1; }
 ncalls(){ wc -l <"$CARGO_LOG" | tr -d ' '; }
 WANT="install serial-mcp@$SERIAL_V --locked --root $TS/h1/.cargo"
 srun "$TS/h1" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" r1.log; rc=$?
@@ -2204,7 +2218,7 @@ srun "$TS/h2" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" d.log --dry-run; rc=$?
   && grep -qF "would: cargo install serial-mcp@$SERIAL_V --locked --root $TS/h2/.cargo" "$TS/d.log" \
   && pass "serial-mcp: --dry-run lists the cargo build and runs nothing" \
   || failed "serial-mcp --dry-run (rc=$rc, $(ncalls) cargo calls): $(grep -i 'serial' "$TS/d.log" | head -2)"
-HOME="$TS/h2" PATH="$TS/cargo:$TS/stubs:$NOCARGO_PATH" CLAUDE_CONFIG_DIR="$TS/h2/.claude" "$INSTALL" --mcp-plan >"$TS/p.log" 2>&1; rc=$?
+HOME="$TS/h2" PATH="$TS/cargo:$TS/stubs:$NOCARGO_PATH" CLAUDE_CONFIG_DIR="$TS/h2/.claude" STACK_PYTHON="$PY313" "$INSTALL" --mcp-plan >"$TS/p.log" 2>&1; rc=$?
 [ "$rc" = 0 ] && [ "$(ncalls)" = 0 ] && [ ! -e "$TS/h2/.cargo" ] && pass "serial-mcp: --mcp-plan never calls cargo" \
   || failed "serial-mcp --mcp-plan (rc=$rc, $(ncalls) cargo calls)"
 srun "$TS/h2" "$TS/cargo:$TS/stubs:$NOCARGO_PATH" n.log --no-deps; rc=$?
@@ -2229,7 +2243,7 @@ tg_run(){ local log="$1"; shift
 # precedence: the flag beats CLAUDE_CONFIG_DIR; a real install into a path with a space
 tg_run "$TG/p1.log" env CLAUDE_CONFIG_DIR="$TG/env dir" "$INSTALL" --config-dir "$TG/flag dir" \
   --no-mcp --no-plugins --no-deps --no-profile; rc=$?
-# every hook command, split as the shell splits it, keeps the spaced path as one word
+# every guard hook command, split as the shell splits it, keeps the spaced launcher path as one word
 hooks_split_ok(){ python3 - "$1" "$2" <<'PY'
 import json, shlex, sys
 s, want = json.load(open(sys.argv[1])), sys.argv[2]
@@ -2237,7 +2251,7 @@ cmds = [h["command"] for gs in s["hooks"].values() for g in gs for h in g["hooks
 sys.exit(0 if cmds and all(want in shlex.split(c) for c in cmds) else 1)
 PY
 }
-hooks_split_ok "$TG/flag dir/settings.json" "$TG/flag dir/hooks/agent_guard.py" 2>/dev/null; hooks_ok=$?
+hooks_split_ok "$TG/flag dir/settings.json" "$TG/flag dir/bin/stack-hook" 2>/dev/null; hooks_ok=$?
 [ "$rc" = 0 ] && [ -f "$TG/flag dir/agents/coder.md" ] && [ ! -e "$TG/env dir" ] && [ "$hooks_ok" = 0 ] \
   && grep -qF "install target: $TG/flag dir" "$TG/p1.log" && grep -q 'chosen by: --config-dir' "$TG/p1.log" \
   && grep -qF "Claude Code's .claude.json for it: $TG/flag dir/.claude.json" "$TG/p1.log" \
@@ -2357,7 +2371,7 @@ tg_run "$TG/c3.log" "$TG/my clone/install.sh" --config-dir "$TG/c3 target" --no-
 [ "$c1" = 0 ] && grep -qF "stack repo: $TG/clone link (branch main)" "$TG/c1.log" \
   && [ "$c2" = 0 ] && grep -qF "stack repo: $TG/my clone (branch main)" "$TG/c2.log" \
   && [ "$c3" = 0 ] && grep -qF "$TG/my clone" "$TG/c3 target/agents/claude-code-engineer.md" \
-  && hooks_split_ok "$TG/c3 target/settings.json" "$TG/c3 target/hooks/agent_guard.py" \
+  && hooks_split_ok "$TG/c3 target/settings.json" "$TG/c3 target/bin/stack-hook" \
   && pass "clone anywhere: via a symlinked dir, via a symlink to install.sh, from a path with a space (rendered into the agents)" \
   || failed "clone paths (rc=$c1/$c2/$c3): $(grep -h 'stack repo\|install.sh:' "$TG/c1.log" "$TG/c2.log" "$TG/c3.log" | head -4)"
 assert_unchanged_real_home

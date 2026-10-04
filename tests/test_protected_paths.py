@@ -348,7 +348,7 @@ def test_settings_round2_hardening():
                 "GIT_CONFIG_PARAMETERS", "HF_HOME", "MAVEN_OPTS"):
         assert key not in env, key
     groups = [g for g in s["hooks"]["SessionStart"]
-              if any(h.get("command", "").endswith('agent_guard.py\" session-env')
+              if any(h.get("command", "").endswith('stack-hook" agent_guard session-env')
                      for h in g["hooks"])]
     assert len(groups) == 1 and "matcher" not in groups[0]      # every source: clear included
     # N1: gh's and git's stores unreadable
@@ -378,7 +378,7 @@ def test_settings_wire_blackcat_guard_and_memory_hooks():
     pre = s["hooks"]["PreToolUse"]
     cmds = [(g["matcher"], h["command"]) for g in pre for h in g["hooks"]]
     assert [m for m, c in cmds if c.endswith("blackcat-guard --settings")] == ["*"]
-    assert any(m == "mcp__neural-memory__nmem_remember" and c.endswith('agent_guard.py"')
+    assert any(m == "mcp__neural-memory__nmem_remember" and c.endswith('--fail-closed agent_guard')
                for m, c in cmds)
     assert len(cmds) == len(set(cmds))
 

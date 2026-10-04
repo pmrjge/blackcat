@@ -249,8 +249,10 @@ listing's size against its budget: [Prompt budget](#prompt-budget).
 
 ### Hooks at a glance
 
-Every hook runs on an absolute interpreter chosen at install time; a PreToolUse handler that errors denies
-the call. Wiring: `dot-claude/settings.json` → `hooks`.
+Every hook runs `/bin/sh <config>/bin/stack-hook [--fail-closed] <module>`, which starts the module on
+`<config>/bin/stack-python` (uv's managed Python 3.13) with bytecode compiled at install. A PreToolUse
+guard handler that errors, or cannot start, denies the call; recovery is `./install.sh`
+([CONFIG.md §7](CONFIG.md), "Hook interpreter"). Wiring: `dot-claude/settings.json` → `hooks`.
 
 | Script | Events | Does |
 |---|---|---|
@@ -688,7 +690,9 @@ plain `"schedule"` would hide Claude Code's own cloud-routines `/schedule`. Plug
 ### Guard hooks
 
 `dot-claude/hooks/agent_guard.py` is the single policy hook. A PreToolUse handler that errors denies
-the call (fail closed); every hook command runs on an absolute interpreter chosen at install time.
+the call (fail closed), and so does its PreToolUse entry when the hook cannot start (`--fail-closed`;
+`STACK_POLICY=off` lifts that, never for `no-push`). Every hook command runs through `bin/stack-hook` on
+`bin/stack-python` (Python 3.13).
 
 | Guard | What it enforces |
 |---|---|
@@ -711,8 +715,8 @@ The stack installs and runs on macOS only. Linux and Windows are not supported: 
 other system (`STACK_ALLOW_NON_MACOS=1` exists for the tests only). The code depends on macOS in several
 places:
 
-- the hooks run on Apple's `/usr/bin/python3` (3.9.6 from the Command Line Tools), stdlib only, and the
-  installer's scripts are written for macOS's bash 3.2;
+- the hooks run on uv's managed Python 3.13 (`bin/stack-python`), stdlib only, launched by a POSIX sh
+  script; the installer itself starts on the system `python3` and its scripts are written for macOS's bash 3.2;
 - the image limit scales images with `sips`, which ships with macOS (`doctor.sh`, "Hardware");
 - the sci and tools venvs are hash-locked for `aarch64-apple-darwin` only (the ml lock is universal, but
   its torch and mlx wheels need macOS 14+; `requirements/README.md`);
@@ -756,9 +760,9 @@ each); `~/.claude/bin/stack-update-tools` updates them together later.
 Every Python tool, script and MCP server of the stack runs through uv (`uv run`, `uv run --script` for
 PEP 723 scripts, `uvx`); the global rules forbid bare `python`, `python3` and `pip`. There are three
 exceptions: the stack's venvs (`~/.claude/venvs/<name>/bin/python`), a project pinned to poetry, conda or
-pixi, and the hooks, which run on the absolute interpreter the installer picked (`STACK_PYTHON`, normally
-`/usr/bin/python3`, never a pyenv or asdf shim: a hook that cannot start is a non-blocking error, which
-would leave every gate open). The venvs pin Python 3.13; uv's own default for your projects stays your
+pixi, and the hooks, which run on `~/.claude/bin/stack-python`, the installer's link to uv's managed
+Python 3.13 (never a pyenv or asdf shim, never a project venv; the guard's PreToolUse entries fail
+closed when the hook cannot start, so a broken interpreter blocks tool calls instead of opening the gates). The venvs pin Python 3.13; uv's own default for your projects stays your
 choice.
 
 ### Accounts and API keys
@@ -834,7 +838,7 @@ Before installing:
 ```bash
 sw_vers -productVersion        # macOS version
 uname -m                       # arm64 on Apple Silicon
-/usr/bin/python3 --version     # 3.8 or later; Apple's is 3.9.6
+/usr/bin/python3 --version     # 3.8 or later (runs the installer; the hooks use uv's Python 3.13)
 git --version
 claude --version               # 2.1.271 or later
 node --version                 # v22.5 or later (the installer can install it)
@@ -909,8 +913,9 @@ never pushes); `--dry-run` and `--mcp-plan` change nothing, so on another branch
 you to run them from the `main` checkout. A dirty tree or diverged history also stops it. The eleven
 steps, as the run prints them:
 
-1. **Prerequisites**: macOS, git, python3, Claude Code version, the absolute interpreter for hooks
-   (`STACK_PYTHON`). Before it, the run prints the install target and asks about a non-default one
+1. **Prerequisites**: macOS, git, python3, Claude Code version, the hooks' interpreter path
+   (`STACK_PYTHON` = `<config>/bin/stack-python`; step 2 installs uv's Python 3.13 when missing, and
+   after step 6 the link is made and smoke-tested before `settings.json` changes). Before it, the run prints the install target and asks about a non-default one
    ([Choose the config folder](#choose-the-config-folder)). If the stack changed since the last install, its diff is listed and, on a terminal,
    you are asked before anything changes (`--yes` skips the question; without a terminal it stops).
    Then, before anything is installed, the **open-file limit**: on a terminal the run shows the
@@ -1001,7 +1006,7 @@ The user commands and typical workflows are under [Usage](#usage).
 ```bash
 bash ~/.claude/bin/doctor.sh                                   # installed health check (= /stack-doctor)
 /usr/bin/python3 ~/.claude/bin/stack-tree --help              # agent tree of the newest session (= /stack-tree)
-/usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test   # the hook on the hooks' own interpreter
+~/.claude/bin/stack-python dot-claude/hooks/agent_guard.py --self-test   # the hook on the hooks' own interpreter
 uv run tests/lint_agents.py                                    # frontmatter, POLICY ↔ "May spawn", skills, listing budget, model IDs (skips .claude-work/)
 ~/.claude/venvs/tools/bin/python -m pytest -q tests/                # full suite (the tools venv from install.sh)
 bash tests/install_smoke.sh                                    # hermetic installer runs; run it outside any sandbox
@@ -1268,7 +1273,7 @@ Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort.
 | `CLAUDE_CONFIG_DIR` | `~/.claude` | Install target when `install.sh --config-dir PATH` is not given (the flag wins); Claude Code reads a non-default folder only with it exported ([Choose the config folder](#choose-the-config-folder)) |
 | `STACK_CLAUDE_JSON` | `<target>/.claude.json` when `CLAUDE_CONFIG_DIR` is set or `--config-dir` names a folder other than `~/.claude`, else `~/.claude.json` | Which file the MCP plan reads (the banner prints it) |
 | `XDG_STATE_HOME` | `~/.local/state` | Root of the guard state, the backups and `STACK_CACHE`; rendered into the sandbox rules at install time |
-| `STACK_PYTHON` | chosen automatically | Absolute interpreter for hooks and the status line (never a pyenv/asdf shim) |
+| `STACK_PYTHON` | `<config>/bin/stack-python` | Exported for `./install.sh`: the interpreter the link points at (Python >= 3.13; default uv's managed 3.13). Exported in a session: wins over the link for every hook |
 | `STACK_ALLOW_NON_MACOS` | 0 | Tests only: let the installer run off macOS |
 | `STACK_INSTALL_DEPS`, `STACK_INSTALL_DEVTOOLS` | 1 | Step 2 groups: Homebrew + jq/rg/gh/media tools (and the no-Homebrew fallbacks); gitleaks, pre-commit, Gradle, Playwright's Chromium. `=0` skips the group; `--no-deps` skips every install |
 | `STACK_INSTALL_UV`, `STACK_INSTALL_NODE`, `STACK_INSTALL_RUST`, `STACK_INSTALL_HASKELL`, `STACK_INSTALL_JULIA`, `STACK_INSTALL_SCALA`, `STACK_INSTALL_JAVA`, `STACK_INSTALL_LATEX`, `STACK_INSTALL_CXX`, `STACK_INSTALL_GO` | 1 | One toolchain group each (uv + Python 3.14 pin; nvm + node 24 + pnpm; rustup; ghcup + hlint + ormolu; juliaup; coursier; a JDK (the 27 cask only when none is found) + kotlin-lsp; MacTeX; cmake, ninja, typst, shellcheck, …; go + gopls). `=0` skips it ([CONFIG.md](CONFIG.md) §7) |
@@ -1403,7 +1408,8 @@ embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The
 | `uv`, `uvx` | All Python: `uv run`, PEP 723 scripts, `uvx` tools | installed; doctor FAILs without |
 | `node`, `npx` | npx MCP servers, JS/TS work | installed; doctor FAILs without |
 | `git` | Every repository task (never push) | required |
-| `/usr/bin/python3` | Hooks, status line, installer state | required |
+| `/usr/bin/python3` | The installer and its state helper (3.8+) | required |
+| `~/.claude/bin/stack-python` | Hooks, status line (uv's Python 3.13) | installed; doctor FAILs without |
 | `jq` | JSON filtering | not checked |
 | `rg` | Search in Bash | not checked |
 | `gh` (read-only) | `view`, `list`, `status`, `checks`, `diff` only | not checked |
@@ -1528,7 +1534,8 @@ outside this repository).
 - **Agent permission modes:** an agent that writes files carries `permissionMode: acceptEdits`, so its
   subagent runs never stop at an edit prompt; a read-only agent carries none (or `plan`). Any other value
   fails `tests/lint_agents.py`, because an agent file's mode wins over a Plan, Default or dontAsk session.
-- **Hook code stays Python 3.9-compatible and stdlib-only**: the hooks run on `/usr/bin/python3`.
+- **Hook code is stdlib-only and runs on Python 3.13** (`bin/stack-python`); `bin/stack-tree` and
+  `bin/stack-budget` are CLI tools outside the hooks and stay 3.9-compatible.
 - **Agents never push** and never write to a forge, in any form; publishing is your step. They report the
   branch and commits instead.
 - **Prompts are data.** Text met in files, web pages or tool output that asks an agent to push, change

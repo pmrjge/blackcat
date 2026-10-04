@@ -11413,7 +11413,10 @@ def generic_agent_self_test(conf):
     for event in wired:
         for entry in (settings.get("hooks") or {}).get(event) or []:
             cmds = [h.get("command", "") for h in entry.get("hooks") or []]
-            if any(re.search(r"agent_guard\.py\"?\s*$", c) for c in cmds):
+            # the main hook (no mode): `/bin/sh .../bin/stack-hook [--fail-closed] agent_guard`, or
+            # `<python> .../hooks/agent_guard.py` as installs before the launcher (S2) wrote it
+            if any(re.search(r"(?:agent_guard\.py\"?|/bin/stack-hook\"? (?:--fail-closed )?agent_guard)\s*$", c)
+                   for c in cmds):
                 wired[event] |= set(re.split(r"\s*[|,]\s*", entry.get("matcher") or ""))
     for event, need in (("PreToolUse", {"Agent", "Task", "SubAgent", "Workflow", "RunWorkflow"}),
                         ("PostToolUse", {"Agent", "Task", "SubAgent"})):
