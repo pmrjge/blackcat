@@ -313,7 +313,8 @@ env = s["env"]
 example_models = stack_models(os.path.join(os.path.dirname(os.path.dirname(sys.argv[2])), "lib", "stack.env.example"))
 checks = {
     "agent": s.get("agent") == "blackcat",
-    "autoCompactEnabled": s.get("autoCompactEnabled") is True,
+    "autoCompactEnabled and MAX_MCP_OUTPUT_TOKENS left to Claude Code's defaults": "autoCompactEnabled" not in s
+                                                                               and "MAX_MCP_OUTPUT_TOKENS" not in env,
     "autoCompactWindow": s.get("autoCompactWindow") == json.load(open(sys.argv[2]))["autoCompactWindow"],
     "depth": env.get("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH") == "8",
     "tool search left at its default": "ENABLE_TOOL_SEARCH" not in env,
@@ -495,7 +496,9 @@ env["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"] = "12"
 env["CLAUDE_CODE_MAX_SUBAGENTS_PER_SESSION"] = "5"
 env["DISABLE_AUTO_COMPACT"] = "1"
 env["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = "200000"
+env["MAX_MCP_OUTPUT_TOKENS"] = "25000"            # retired: an earlier stack shipped Claude Code's default
 s["autoCompactWindow"] = 300000                   # the earlier stack value
+s["autoCompactEnabled"] = False                   # /config's toggle; every earlier install reset it to true
 s["permissions"]["allow"].append("Bash(ls *)")
 s["permissions"]["allow"].remove("mcp__lean")      # an install from before the lean/mobilebuild/computer-use allows
 s["permissions"]["ask"].append("mcp__mobilebuild") # the user's own rule: keep prompting for that server
@@ -528,8 +531,12 @@ check(env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS") == shipped["CLAUDE_CODE_MA
       "concurrency not reset (%r)" % env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"))
 check("DISABLE_AUTO_COMPACT" not in env and "CLAUDE_CODE_AUTO_COMPACT_WINDOW" not in env,
       "auto-compaction overrides removed", "auto-compaction overrides kept")
-check(s.get("autoCompactWindow") == json.load(open(shipped_path))["autoCompactWindow"] and s.get("autoCompactEnabled") is True,
+check(s.get("autoCompactWindow") == json.load(open(shipped_path))["autoCompactWindow"],
       "autoCompactWindow back to the shipped value", "autoCompactWindow=%r" % s.get("autoCompactWindow"))
+check("autoCompactEnabled" not in s and "MAX_MCP_OUTPUT_TOKENS" not in env,
+      "retired autoCompactEnabled=false and MAX_MCP_OUTPUT_TOKENS=25000 removed (Claude Code's defaults apply)",
+      "retired keys kept: autoCompactEnabled=%r MAX_MCP_OUTPUT_TOKENS=%r"
+      % (s.get("autoCompactEnabled"), env.get("MAX_MCP_OUTPUT_TOKENS")))
 check("Bash(ls *)" in s["permissions"]["allow"], "user's own allow rule kept", "user's allow rule lost")
 check("mcp__lean" in s["permissions"]["allow"] and "mcp__mobilebuild" in s["permissions"]["ask"],
       "new MCP allow rule added on upgrade; the user's ask rule on an allowed server kept (ask beats allow)",

@@ -21,7 +21,7 @@ FANOUT = 20
 
 KNOBS = ("STACK_POLICY", "STACK_BLACKCAT_DELEGATE_ONLY", "BLACKCAT_MAX_STEPS", "SCREEN_LOCK_TTL_S",
          "STRIP_AGENT_MODEL",
-         "STACK_MAX_DEPTH", "STACK_GUARD_LOG", "STACK_MODE_PROBE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
+         "STACK_GUARD_LOG", "STACK_MODE_PROBE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
          "BLACKCAT_DISPATCH_WINDOW_S", "STACK_MAX_FANOUT",
          "STACK_FANOUT_IDLE_S", "STACK_MAX_FANOUT_BY_TYPE", "STACK_LEASE_TTL_S",
          "STACK_RESUME_TTL_S", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET",
@@ -477,6 +477,9 @@ def test_workflow_by_name_and_path(env, tmp_path):
 
 # ---------------------------------------------------------------- depth
 def test_depth_chain(env):
+    """The registry records each child's depth (ledger, budgets, stack-who); the hook refuses no
+    spawn by depth: Claude Code withholds the Agent tool at CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH
+    (sub-agents.md), so a call that reaches the hook is within the native limit."""
     s = sid()
     assert decision(run(pre_agent(s, "orchestrator", parent="blackcat"), env)) == "allow"
     run(post_agent(s, "orchestrator", "A1"), env)
@@ -485,11 +488,11 @@ def test_depth_chain(env):
     reg = lambda a: json.loads((state(env, s) / "agents" / (a + ".json")).read_text())  # noqa
     assert [reg(a)["depth"] for a in ("A1", "A2", "A3")] == [1, 2, 3]
     assert reg("A3")["parent"] == "A2"
-    # L2 may spawn, L3 may not
+    # L2 and L3 may spawn (the hook's own depth limit, Claude Code's default 3, is gone)
     assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="A2"), env)) \
         == "allow"
     p = run(pre_agent(s, "scout", parent="ninja-coder", agent_id="A3"), env)
-    assert decision(p) == "deny" and "Depth limit" in reason(p)
+    assert decision(p) == "allow"
     # unknown provenance decides nothing any more: a main-coder never spawns a main-coder (policy,
     # whatever the registry knows); an allowed pair from a caller of unknown depth passes (Claude
     # Code's native depth limit stays authoritative)
@@ -502,14 +505,11 @@ def test_depth_chain(env):
     assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="A4"), env)) == "allow"
     p = run(pre_agent(s, "main-coder", parent="main-coder", agent_id="A4"), env)
     assert decision(p) == "deny" and "Spawn policy" in reason(p)
-    # knob
-    p = run(pre_agent(s, "coder", parent="main-coder", agent_id="A2"), env,
-            extra={"STACK_MAX_DEPTH": "2"})
-    assert decision(p) == "deny"
+    # the native knob is not read by the hook: an L2 still spawns at a limit of 2
     p = run(pre_agent(s, "coder", parent="main-coder", agent_id="A2"), env,
             extra={"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2"})
-    assert decision(p) == "deny"
-    # an explicit depth 4: L3 may spawn an L4, and the L4 may not spawn
+    assert decision(p) == "allow"
+    # an explicit depth 4: L3 may spawn an L4, and the hook does not refuse the L4 either
     four = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4"}
     assert decision(run(pre_agent(s, "main-coder", parent="ninja-coder", agent_id="A3"), env,
                         extra=four)) == "allow"
@@ -517,8 +517,8 @@ def test_depth_chain(env):
     assert reg("A5")["depth"] == 4
     run(post_agent(s, "main-coder", "A6", agent_id="A3", parent="ninja-coder"), env, extra=four)
     p = run(pre_agent(s, "scout", parent="main-coder", agent_id="A6"), env, extra=four)
-    assert decision(p) == "deny" and "Depth limit" in reason(p)
-    # the stack's depth 8 (settings.json): the same L4 may spawn, an L7 may spawn an L8, the L8 not
+    assert decision(p) == "allow"
+    # the stack's depth 8 (settings.json): the registry follows the chain down to an L8
     eight = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "8"}
     assert decision(run(pre_agent(s, "scout", parent="main-coder", agent_id="A6"), env,
                         extra=eight)) == "allow"
@@ -533,7 +533,7 @@ def test_depth_chain(env):
     assert decision(run(pre_agent(s, "scout", parent="ninja-coder", agent_id="A9"), env,
                         extra=eight)) == "allow"
     p = run(pre_agent(s, "scout", parent="main-coder", agent_id="A10"), env, extra=eight)
-    assert decision(p) == "deny" and "Depth limit" in reason(p)
+    assert decision(p) == "allow"           # natively an L8 has no Agent tool at limit 8
 
 
 def test_subagent_start_does_not_clobber_depth(env):
@@ -1068,15 +1068,18 @@ def test_model_strip(env):
 
 
 @pytest.mark.parametrize("mode", ["bypassPermissions", "acceptEdits", "plan"])
-def test_agent_mode_input_is_removed(env, mode):
-    """A caller never picks its child's permission mode (the Agent tool's `mode`, deprecated and
-    ignored in 2.1.287), whatever it asks for, also from a subagent."""
+def test_agent_mode_input_is_left_alone(env, mode):
+    """The Agent tool's `mode` is deprecated and ignored by Claude Code (2.1.287 schema: subagents
+    inherit the session's permission mode), so the guard no longer strips it: `mode` alone causes
+    no rewrite, and a rewrite for another reason (the label) keeps it."""
     for parent, aid in (("blackcat", None), ("main-coder", "M1")):
         p = run(pre_agent(sid(), "coder", parent=parent, agent_id=aid, mode=mode), env,
                 extra={"STACK_AGENT_LABEL": "off"})
+        assert decision(p) == "allow" and p.stdout == ""
+        p = run(pre_agent(sid(), "coder", parent=parent, agent_id=aid, mode=mode), env)
         out = json.loads(p.stdout)["hookSpecificOutput"]
-        assert "mode" not in out["updatedInput"] and out["updatedInput"]["subagent_type"] == "coder"
-        assert "mode removed" in out["permissionDecisionReason"]
+        assert out["updatedInput"]["mode"] == mode and out["updatedInput"]["subagent_type"] == "coder"
+        assert "mode removed" not in out.get("permissionDecisionReason", "")
 
 
 def test_shipped_spawn_defaults(bare_env):
@@ -1640,7 +1643,9 @@ def test_resume_cap_uses_per_type_caps(env):
     assert decision(run(send(s, "W", agent_id="O1"), env)) == "allow"
 
 
-def test_depth_from_spawn_meta_for_a_running_foreground_caller(env, tmp_path):
+def test_no_depth_check_from_spawn_meta_for_a_running_foreground_caller(env, tmp_path):
+    """A caller whose depth only its meta.json knows (spawnDepth 4 at a limit of 4) is not refused,
+    and PreToolUse(Agent) writes no depth from meta.json: Claude Code enforces the limit itself."""
     s = sid()
     sub = tmp_path / "p" / s / "subagents"
     sub.mkdir(parents=True)
@@ -1650,11 +1655,8 @@ def test_depth_from_spawn_meta_for_a_running_foreground_caller(env, tmp_path):
     four = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4"}
     p = run(dict(pre_agent(s, "scout", parent="main-coder", agent_id="F1"), transcript_path=str(main)),
             env, extra=four)
-    assert decision(p) == "deny" and "depth 4" in reason(p)
-    assert reg_of(env, s, "F1")["depth"] == 4
-    p = run(dict(pre_agent(s, "scout", parent="main-coder", agent_id="F2"), transcript_path=str(main)),
-            env, extra=four)
-    assert decision(p) == "allow"                     # no meta file: depth unknown, native limit
+    assert decision(p) == "allow"
+    assert not (state(env, s) / "agents" / "F1.json").exists()
 
 
 # ---------------------------------------------------------------- BlackCat: 8 steps, dispatches included

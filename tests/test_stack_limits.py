@@ -269,27 +269,27 @@ def test_T1_fixed_guards_are_never_variables(st):
                                           "STACK_FANOUT_DYN_NODE_RUNS", "STACK_FANOUT_DYN_RESERVE_TOK",
                                           "STACK_FANOUT_DYN_SLACK", "STACK_FANOUT_DYN_TYPES",
                                           "STACK_FANOUT_DYN_W0", "STACK_FANOUT_DYN_WMIN",
-                                          "stack-max-depth", "blackcat.max.steps",
+                                          "claude-code-max-subagent-spawn-depth", "blackcat.max.steps",
                                           "STACK_BLACKCAT_DELEGATE_ONLY", "stack.blackcat.delegate-only",
                                           "BLACKCAT_MAX_OWN_STEPS", "BLACKCAT_MAX_READS",
                                           "BLACKCAT_BASH_TIMEOUT_MS"]:
         assert L.is_fixed_guard(name), name
         assert not L.VAR_RE.match(name) and name not in s["vars"]
     bad = json.loads(SEED_JSON.read_text())
-    bad["vars"]["STACK_MAX_DEPTH"] = {"seed": 3, "floor": 1, "ceiling": 5, "unit": "ctx", "kind": "hard"}
+    bad["vars"]["CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"] = {"seed": 3, "floor": 1, "ceiling": 5, "unit": "ctx", "kind": "hard"}
     with pytest.raises(L.SeedError):
         L._validate_seed(bad)
 
     # a fixed-guard name in live.json invalidates the file: set aside, reseeded, logged
     L.seed()
     live = json.loads(lim(st, "live.json").read_text())
-    live["vars"]["STACK_MAX_DEPTH"] = {"value": 9}
+    live["vars"]["CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"] = {"value": 9}
     lim(st, "live.json").write_text(json.dumps(live))
     _path, notice = L.apply_and_snapshot({"session_id": "s-t1a", "source": "startup"}, spawn=False)
     assert notice and "reseeded" in notice
     assert len(list(lim(st).glob("live.invalid-*.json"))) == 1
-    assert "STACK_MAX_DEPTH" not in json.loads(lim(st, "live.json").read_text())["vars"]
-    assert "fixed guard STACK_MAX_DEPTH" in lim(st, "limits.log").read_text()
+    assert "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH" not in json.loads(lim(st, "live.json").read_text())["vars"]
+    assert "fixed guard CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH" in lim(st, "limits.log").read_text()
 
     # ... and in proposals.json: the whole file is ignored
     ok = {"soft.agent.coder": {"x": [5e7] * 6, "ci": [5e7, 5e7], "agents": 6, "sessions": 3, "tight": 0, "n_new": 6,

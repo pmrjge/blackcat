@@ -13,7 +13,9 @@ SHIPPED = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
 
 def test_shipped_window_is_629k():
     # the user's decision (2026-10-03); Claude Code accepts 100000-1000000, capped at the model's window
-    assert SHIPPED["autoCompactWindow"] == 629_000 and SHIPPED["autoCompactEnabled"] is True
+    assert SHIPPED["autoCompactWindow"] == 629_000
+    # autoCompactEnabled is retired (Claude Code's default is true; doctor.sh reads absent as true)
+    assert "autoCompactEnabled" not in SHIPPED
 
 
 def test_doctor_checks_the_shipped_value():

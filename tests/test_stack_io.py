@@ -112,7 +112,7 @@ def test_guard_without_stack_io_starts_and_fails_closed(tmp_path, broken):
     env.update(XDG_STATE_HOME=str(tmp_path / "state"), CLAUDE_CONFIG_DIR=str(tmp_path / "cfg"),
                STACK_USAGE_COLLECT="0", PYTHONDONTWRITEBYTECODE="1")
     ev = {"session_id": "s1", "hook_event_name": "PreToolUse", "tool_name": "Agent",       # a subagent's spawn
-          "agent_type": "orchestrator", "agent_id": "a1",
+          "agent_type": "orchestrator", "agent_id": "a1", "tool_use_id": "tu-1",       # its fan-out lease is state
           "tool_input": {"subagent_type": "coder", "description": "x", "prompt": "do x"},
           "transcript_path": str(tmp_path / "t.jsonl"), "cwd": str(tmp_path)}
     p = subprocess.run([sys.executable, str(hooks / "agent_guard.py")], input=json.dumps(ev), env=env,

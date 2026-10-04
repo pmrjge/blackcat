@@ -149,7 +149,7 @@ ENV_SCOPE = {"soft.prompt": "STACK_SOFT_PROMPT_CTX", "hard.prompt": "STACK_PROMP
 # Fixed guards: env-only, never learned (design section 1). Names compare upper-case with every run
 # of non-alphanumerics as "_".
 FIXED_GUARDS = frozenset((
-    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "STACK_MAX_DEPTH",
+    "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
     "STACK_MAX_FANOUT", "STACK_MAX_FANOUT_BY_TYPE",
     "STACK_BLACKCAT_DELEGATE_ONLY", "BLACKCAT_MAX_STEPS", "BLACKCAT_DISPATCH_WINDOW_S", "BLACKCAT_BACKGROUND",
     "SCREEN_LOCK_TTL_S", "STACK_LEASE_TTL_S", "STACK_RESUME_TTL_S", "STACK_FANOUT_IDLE_S",

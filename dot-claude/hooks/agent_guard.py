@@ -24,11 +24,11 @@ Reads the hook JSON on stdin.
                                     effort above the agent's own; every source (scriptPath,
                                     script, name) is checked;
                                     bundled/plugin workflows and nested workflow() are refused
-  PreToolUse  Agent                 spawn policy, depth limit, fan-out caps (spawn lease),
+  PreToolUse  Agent                 spawn policy, fan-out caps (spawn lease),
                                     blackcat dispatch and step limits
                                     (atomic markers), strip `model`
                                      (then set it to the user's /override-agent model for
-                                    this session, if any) and `mode`, and drop a BlackCat
+                                    this session, if any), and drop a BlackCat
                                     `run_in_background: false` (its
                                     children run in the background: BLACKCAT_BACKGROUND); after
                                     every gate, label the child (STACK_AGENT_LABEL: description
@@ -116,8 +116,8 @@ Reads the hook JSON on stdin.
                                     mode) and SubagentStart logs each event's permission_mode
 
 Concurrency model (the user's spec): depth 8 below the main thread (blackcat -> L1 -> ... ->
-L8; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8, and the fallback here stays at
-Claude Code's own default of 3); any agent whose row allows it may launch several children in ONE
+L8; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8, and Claude Code withholds Agent
+at that limit: no hook check); any agent whose row allows it may launch several children in ONE
 message (they run concurrently); at most STACK_MAX_FANOUT running children per parent
 (STACK_MAX_FANOUT_BY_TYPE per type; BlackCat: BLACKCAT_MAX_STEPS per prompt instead). No
 agent spawns its own type. Running children =
@@ -271,8 +271,6 @@ Knobs (env):
                           `off`: no check, no log
   BLACKCAT_BACKGROUND=1   drop `run_in_background: false` from the BlackCat main thread's Agent
                           calls, so its children never run in the foreground (0 = keep it)
-  STACK_MAX_DEPTH         deny Agent from callers at this depth (default
-                          CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH, else 3)
   STACK_GUARD_LOG=0       1 = append every raw event to <session>/guard.log (`budget` mode, which
                           sees every tool call: the tool name and ids only, never the input)
   STACK_MODE_PROBE=0      1 = diagnostic: append one JSON line per PreToolUse, PermissionRequest and
@@ -749,11 +747,6 @@ def policy_on():
 def delegate_only():
     """STACK_BLACKCAT_DELEGATE_ONLY: on unless exactly "0" (fail closed: a typo keeps it on)."""
     return os.environ.get("STACK_BLACKCAT_DELEGATE_ONLY", "1").strip() != "0"
-
-
-def max_depth():
-    fallback = knob_int("CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", 3)
-    return knob_int("STACK_MAX_DEPTH", fallback)
 
 
 def state_root():
@@ -1535,7 +1528,7 @@ def spawn_meta(ev, aid):
     """Claude Code's own record of a subagent's spawn, <session>/subagents/agent-<id>.meta.json:
     {agentType, spawnDepth, toolUseId (the Agent call), parentAgentId (absent at depth 1), ...}
     as observed on 2.1.283. Not a documented interface: {} when absent or unreadable, and used
-    only where a missing file costs nothing (a depth the registry lacks, an early lease drop)."""
+    only where a missing file costs nothing (an early lease drop, a link the registry lacks)."""
     for folder in meta_folders(ev):
         meta = read_json(os.path.join(folder, "agent-%s.meta.json" % safe(aid)))
         if meta is not None:
@@ -1552,17 +1545,6 @@ def meta_folders(ev):
     if files and files[1] not in folders:
         folders.append(files[1])
     return folders
-
-
-def meta_depth(d, ev, aid):
-    """The caller's depth from its meta.json `spawnDepth` (spawn_meta), when the registry has
-    none (a foreground child's PostToolUse comes only when it is done). Read only at the agent's
-    own PreToolUse(Agent), and used only for the depth check (review #1 iii)."""
-    dep = spawn_meta(ev, aid).get("spawnDepth")
-    if not isinstance(dep, int) or isinstance(dep, bool) or not 0 < dep < 64:
-        return None
-    reg_put(d, aid, {"depth": dep})
-    return dep
 
 
 def drop_spawn_lease(d, ev, aid):
@@ -1646,7 +1628,7 @@ def on_agent(ev, d):
         # 1. pure checks (the token budget ran before this handler: dispatch())
         if str(ti.get("isolation") or "").strip().lower() == "remote":
             deny("Remote isolation runs the agent in a cloud session that does not load this "
-                 "stack's hooks (no spawn policy, depth, fan-out or screen lock). Omit "
+                 "stack's hooks (no spawn policy, fan-out or screen lock). Omit "
                  "isolation or use isolation: \"worktree\".")
         # an allowlist: a missing, generic, built-in or foreign subagent_type, or one outside the
         # caller's row, is refused for every caller, with or without a POLICY row (spawn_row)
@@ -1657,13 +1639,6 @@ def on_agent(ev, d):
         why = name_takeover(d, ti)
         if why:
             deny(why)
-        depth, limit = caller_depth(d, ev), max_depth()
-        if depth is None and aid:
-            depth = meta_depth(d, ev, aid)
-        if depth is not None and depth >= limit:
-            deny("Depth limit: '%s' runs at depth %d and agents at depth >= %d cannot spawn. "
-                 "Do the work yourself or return STATUS: partial with NEXT naming the agent."
-                 % (parent or caller, depth, limit))
         if is_blackcat:
             if dispatch_window_closed(d, pid, max_steps, time.time()):
                 deny("BlackCat already dispatched for this prompt: parallel dispatches must go out "
@@ -1729,12 +1704,6 @@ def on_agent(ev, d):
         new_input.pop("model")
         why.append("model override removed; " + ("the user's /override-agent decides" if forced
                                                   else "agent definition decides"))
-    # Agent `mode` (2.1.287 schema: "Deprecated; ignored. Subagents inherit the parent session's
-    # permission mode; agent-definition frontmatter may override it."): a caller never picks its
-    # child's permission mode, should a later version honour it again
-    if "mode" in ti:
-        new_input.pop("mode")
-        why.append("mode removed; the session's mode and the agent definition decide")
     if blackcat_foreground(ev, ti):
         new_input.pop("run_in_background")
         why.append("BlackCat dispatches run in the background")
@@ -11794,7 +11763,7 @@ FIXED_LIMIT_KNOBS = (
     "STACK_POLICY", "STACK_BLACKCAT_DELEGATE_ONLY", "BLACKCAT_DISPATCH_WINDOW_S", "BLACKCAT_MAX_STEPS",
     "BLACKCAT_BACKGROUND", "STACK_MAX_FANOUT", "STACK_MAX_FANOUT_BY_TYPE",
     "STACK_LEASE_TTL_S", "STACK_RESUME_TTL_S", "STACK_FANOUT_IDLE_S", "STACK_MAX_MCP_CALLS",
-    "STACK_SOFT_LIMIT_SCALE", "SCREEN_LOCK_TTL_S", "STACK_MAX_DEPTH",
+    "STACK_SOFT_LIMIT_SCALE", "SCREEN_LOCK_TTL_S",
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
     "STACK_IMAGE_MAX_PX", "STACK_IMAGE_UPLOAD_TOOLS", "STACK_IMAGE_MAX_B64", "STACK_SCHED_POLICY",
     "STACK_FANOUT_SESSION",

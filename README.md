@@ -196,7 +196,7 @@ text (`reply-check.jsonl`). It reads only the delegation ledger, a plan or a chi
 tests, commits and bookkeeping to main-coder, one command or a small edit to coder, finding or reading
 files to explore. Routing rules and the spawn table: [Roster](#roster) and [CONFIG.md](CONFIG.md) §4.
 
-How deep to go is a prompt rule; the hook enforces only the spawn lists, depth, caps and SendMessage scope. Depth is a ceiling,
+How deep to go is a prompt rule; the hook enforces only the spawn lists, caps and SendMessage scope (Claude Code enforces the depth). Depth is a ceiling,
 not a target: L1 fans out, L2 and L3 spawn only for a missing capability or a check, deeper layers only
 when their brief names the spawn. Caveats, failures and `ASK USER` travel up verbatim hop by hop, the
 user's answer comes back down the same chain, and one integrator per job owns the final merge. Agents
@@ -268,7 +268,7 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 
 | Script | Events | Does |
 |---|---|---|
-| `hooks/agent_guard.py` | every wired event except SessionEnd | Spawn policy, depth, fan-out, BlackCat caps, no push, protected paths, read-only Bash, credential reads, token budgets, soft limits, MCP cap, web taint, image limit, the delegation ledger and its compaction snapshot, labels, the SubagentStop check of each final report (observe only: records, never blocks), `/override-agent`, the sandboxed Bash environment. Module docstring: the event-by-event table |
+| `hooks/agent_guard.py` | every wired event except SessionEnd | Spawn policy, fan-out, BlackCat caps, no push, protected paths, read-only Bash, credential reads, token budgets, soft limits, MCP cap, web taint, image limit, the delegation ledger and its compaction snapshot, labels, the SubagentStop check of each final report (observe only: records, never blocks), `/override-agent`, the sandboxed Bash environment. Module docstring: the event-by-event table |
 | `hooks/read_gate.py` | PreToolUse `Read\|Grep\|Glob\|Bash` | Refuses the first read of build output, dependencies, large data, media or binaries with a cheaper alternative; the identical retry passes ([CONFIG.md](CONFIG.md) §5, "Read gate") |
 | `hooks/web_caps.py` | PreToolUse `^mcp__(exa\|jina\|spider)__` | Caps per call; refuses spider `cron`, `webhooks`, `run_in_background` |
 | `hooks/stack_usage.py` | SubagentStart, SessionEnd; started from the guard's SessionStart too | A background collector that writes rows per agent segment, per prompt window and per session to `usage/runs3.csv` (numbers, ids and a few plain words of the task; no prompt or transcript text) |
@@ -695,7 +695,7 @@ the call (fail closed), and so does its PreToolUse entry when the hook cannot st
 | Delegation ledger | Every Agent call is recorded as a tree (type, task, state, agent id) in `~/.local/state/claude-agent-stack/<session>/delegations.md`, which BlackCat reads; `agent_guard.py delegations [session] [--json]` prints it |
 | Compaction survival | PreCompact snapshots the ledger with the running and unrelayed children (main-thread children that finished since the last compaction with no delivery recorded) into `<session>/compact/`; after the compaction, SessionStart (`compact`) re-renders them from the live state and adds them to the new context (≤ 9,000 characters, full list in `compact/post.md`). Never blocks a compaction; nothing is added to a session without Agent calls |
 | Soft token limits | Past its soft limit (context tokens per subagent run, by type: scout 390K … verifier 26M; 33M per human prompt, 80M while an orchestrator runs) an agent's next tool call carries one warning to wrap up, return `STATUS: partial` and ask before continuing; nothing is refused. Values, derivation and refresh (`tests/derive_thresholds.py`): [CONFIG.md](CONFIG.md) §5 |
-| Also | Context-token budgets (hard) and the per-subagent MCP call cap; one agent on the screen; web-tainted agents can't write neural-memory; images re-encoded to ≤ 1919 px; BlackCat's children forced to the background; BlackCat holds no web tool and no Bash; with `STACK_BLACKCAT_DELEGATE_ONLY=0` and `BLACKCAT_MAX_OWN_STEPS` > 0 its Bash is refused HTTP clients in any spelling, raw sockets, `gh` forge reads and inline HTTP code (T1; best effort: script files and text assembled at run time are not seen, git clone/fetch/pull stay allowed, the sandbox network allowlist is the hard limit); per-call `model` and `mode` stripped |
+| Also | Context-token budgets (hard) and the per-subagent MCP call cap; one agent on the screen; web-tainted agents can't write neural-memory; images re-encoded to ≤ 1919 px; BlackCat's children forced to the background; BlackCat holds no web tool and no Bash; with `STACK_BLACKCAT_DELEGATE_ONLY=0` and `BLACKCAT_MAX_OWN_STEPS` > 0 its Bash is refused HTTP clients in any spelling, raw sockets, `gh` forge reads and inline HTTP code (T1; best effort: script files and text assembled at run time are not seen, git clone/fetch/pull stay allowed, the sandbox network allowlist is the hard limit); per-call `model` stripped |
 
 The event-by-event table and the sandbox design are in [CONFIG.md](CONFIG.md) §5 and §7 and in
 `agent_guard.py`'s module docstring.

@@ -1,5 +1,5 @@
 # Delegation at depth (BlackCat → L1 → … → L8)
-Read from the rules ("Delegating") before your first spawn as a subagent; once per session. Extends the rules' "Briefs and hand-backs", "Self-check and review" and consent lines; nothing here loosens them. The hook enforces the May-spawn lists, depth (L8 cannot spawn), fan-out, tokens, MCP calls and who may resume a finished agent; this file decides what is sensible inside those limits.
+Read from the rules ("Delegating") before your first spawn as a subagent; once per session. Extends the rules' "Briefs and hand-backs", "Self-check and review" and consent lines; nothing here loosens them. The hook enforces the May-spawn lists, fan-out, tokens, MCP calls and who may resume a finished agent, Claude Code the depth (L8 cannot spawn); this file decides what is sensible inside those limits.
 
 ## 1. Depth is a ceiling, not a target
 - Every hop costs a fresh ~40K-token context (body, rules, listings), latency (a foreground child blocks its parent) and one lossy summary each way. Eight layers mean the goal is re-briefed seven times and the result relayed seven times.
