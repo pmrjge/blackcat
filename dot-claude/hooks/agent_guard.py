@@ -3088,7 +3088,20 @@ def routing_violation(d, ev, to, target_id, by_id=True):
                "not one of them" if target_id else "unknown"))
 
 
-USER_LINE_RE = re.compile(r"(?m)^[ \t>*_`]*USER[ \t*_`]*:")     # **USER**: too
+# A line that starts (after punctuation, list numbers or markdown) with USER and a colon, in any
+# case, once the text is NFKC-folded (fullwidth forms, NBSP), stripped of format characters
+# (zero-width) and its common Cyrillic, Greek, Armenian and Cherokee look-alikes mapped to Latin;
+# splitlines() also breaks at \r, U+2028 and the other Unicode line ends.
+USER_LINE_RE = re.compile(r"[\W\d_]*USER[\W_]*?:", re.I)
+_USER_FOLD = {0x405: "S", 0x455: "s", 0x415: "E", 0x435: "e", 0x395: "E", 0x3B5: "e",
+              0x54D: "U", 0x57D: "u", 0x13A1: "R", 0xA789: ":"}
+
+
+def user_line(s):
+    import unicodedata
+    s = unicodedata.normalize("NFKC", s).translate(_USER_FOLD)
+    s = "".join(c for c in s if unicodedata.category(c) != "Cf")
+    return any(USER_LINE_RE.match(line) for line in s.splitlines())
 
 
 def strings_in(obj, depth=0):
@@ -3107,12 +3120,19 @@ def user_relay_violation(d, ev, ti, target_id, by_id=True):
     child (an answer going down to its asker, addressed by agent id), may send one; a subagent
     forging it to a peer is refused."""
     aid = ev.get("agent_id")
-    if not aid or not any(USER_LINE_RE.search(s) for s in strings_in(ti.get("message"))):
+    if not aid:
+        return None
+    raw = ti.get("message")
+    if raw is not None and not isinstance(raw, str):
+        return ("SendMessage policy: a subagent sends text messages only (they carry the sender "
+                "stamp); structured protocol messages are the main thread's.")
+    if not any(user_line(s) for s in strings_in(raw)):
         return None
     if target_id and by_id and parent_of(d, ev, target_id) == aid:
         return None
     return ("SendMessage policy: only the main thread, or a parent to its own child, relays the "
-            "user's answer; a 'USER:' line from '%s' is refused. Put the question in your "
+            "user's answer; a 'USER:' line from '%s' is refused (any case or form at a line's "
+            "start; reword a line that is not the user's answer). Put the question in your "
             "hand-back's NEXT." % caller_type_of(d, ev, aid))
 
 
