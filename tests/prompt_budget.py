@@ -24,8 +24,8 @@ blackcat: blackcat_listing). Tokens ~ ceil(chars / 3).
              absent at base, description <= 160 / body <= 2,400 (with Agent) or <= 120 / <= 1,400
              (leaf); and against the base (--base, default DEFAULT_BASE): bodies of the agents present
              at base <= 0.867 x base, agent listing <= 0.97 x, blackcat listing <= 0.96 x, skill listing
-             <= 0.478 x, rules <= 0.95 x, mean per spawn of the base agents (blackcat excluded: it is the
-             main thread, never spawned) <= 0.691 x. Without the base revision in this clone, DEFAULT_BASE
+             <= 0.175 x, rules <= 0.95 x, mean per spawn of the base agents (blackcat excluded: it is the
+             main thread, never spawned) <= 0.523 x. Without the base revision in this clone, DEFAULT_BASE
              falls back to its frozen measurement (BASE_FIXTURE); any other missing base skips the ratios.
 --turns      read Claude Code subagent transcripts (read-only; default
              ~/.claude/projects/**/subagents/agent-*.meta.json) and print p50/p90/max turns per agent
@@ -93,8 +93,12 @@ NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
 # bodies UP from 0.85 to 0.867 (2026-10-02, soft token limits): the verifier gained one line the user
 # approved with the maxTurns fix (build work goes to a builder, or dispatches of <= ~90 tool calls;
 # +183 chars); measured 79,815 (0.8505 x), x 1.02 rounded down to 0.001.
-RATIO = {"bodies": 0.867, "agent_listing": 0.97, "blackcat_listing": 0.96, "skill_listing": 0.478,
-         "rules": 0.95, "per_spawn_mean": 0.691}
+# Lazy skill listing (2026-10-04, the user's decision: most skills listed by name only): 96 listed stack
+# skills became skillOverrides "name-only" (tests/test_skill_modules.py LISTED_CORE keeps 32 described).
+# Measured against ad22962: skill_listing 30,782 -> 5,306 (0.1724 x)   per_spawn_mean (base agents)
+# 55,155 -> 28,299 (0.5131 x). Each gate is that ratio x 1.02, rounded down to 0.001.
+RATIO = {"bodies": 0.867, "agent_listing": 0.97, "blackcat_listing": 0.96, "skill_listing": 0.175,
+         "rules": 0.95, "per_spawn_mean": 0.523}
 # SKILL_BUDGET: Claude Code's listing budget is context window x chars/token x
 # skillListingBudgetFraction = 1,000,000 x 3 x f for the 5.5 models (Claude Code 2.1.287), shared by the
 # stack's skills and every plugin, bundled and claude.ai skill; over it, the least-used skills lose
@@ -105,7 +109,11 @@ RATIO = {"bodies": 0.867, "agent_listing": 0.97, "blackcat_listing": 0.96, "skil
 # (both estimated, lint NON_STACK) = 28,733. The fraction goes back from 0.0156 to 0.012: 36,000
 # chars, 7,267 (25%) above that total (the default 0.01 would leave 4.4%). It is a cost-only knob (how
 # many descriptions are kept; no permission, hook or sandbox changes).
-SKILL_BUDGET = {"fraction": 0.012, "budget": 36_000, "stack": 14_564, "non_stack": 14_169}
+# 2026-10-04 (lazy listing, cap 250, 9 non-stack skills hidden): stack 5,433 (with separators) +
+# non-stack ~7,213 (lint NON_STACK) = 12,646 of 36,000. The fraction stays 0.012 as headroom: lowering it
+# saves nothing while the listing fits, and over the budget Claude Code drops descriptions by each
+# user's usage history, which is not deterministic.
+SKILL_BUDGET = {"fraction": 0.012, "budget": 36_000, "stack": 5_433, "non_stack": 7_213}
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lint_agents import skill_listing_entry, split_top_level, leading_name  # noqa: E402
