@@ -13,9 +13,16 @@ SHIPPED = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
 
 def test_shipped_window_is_629k():
     # the user's decision (2026-10-03); Claude Code accepts 100000-1000000, capped at the model's window
-    assert SHIPPED["autoCompactWindow"] == 629_000
-    # autoCompactEnabled is retired (Claude Code's default is true; doctor.sh reads absent as true)
-    assert "autoCompactEnabled" not in SHIPPED
+    assert SHIPPED["autoCompactWindow"] == 629_000 and SHIPPED["autoCompactEnabled"] is True
+
+
+def test_default_valued_keys_stay_pinned():
+    """Both equal Claude Code's documented defaults but are not redundant (security review of the
+    2.1.287 bundle, 2026-10-04): without the settings key, auto-compaction falls back to a legacy
+    ~/.claude.json value (an old /config false wins), and an unset MAX_MCP_OUTPUT_TOKENS takes a
+    remote flag before 25000. The pin keeps compaction on and the MCP output cap local and fixed."""
+    assert SHIPPED["autoCompactEnabled"] is True
+    assert SHIPPED["env"]["MAX_MCP_OUTPUT_TOKENS"] == "25000"
 
 
 def test_doctor_checks_the_shipped_value():

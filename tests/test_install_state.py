@@ -497,9 +497,7 @@ def test_install_seeds_live_json_once_and_retracts_the_budget_env(tmp_path):
     old = _scratch_repo(str(tmp_path / "old"), {"STACK_PROMPT_CTX_BUDGET": "100000000",
                                                 "STACK_SESSION_CTX_BUDGET": "666000000",
                                                 # retired 2026-10-04 (an earlier install shipped "8")
-                                                "BLACKCAT_MAX_DISPATCH": "8",
-                                                # retired 2026-10-04: Claude Code's own default
-                                                "MAX_MCP_OUTPUT_TOKENS": "25000"})
+                                                "BLACKCAT_MAX_DISPATCH": "8"})
     new = _scratch_repo(str(tmp_path / "new"))
     log = _install(old, home, conf)
     live = os.path.join(home, ".local", "state", "claude-agent-stack", "limits", "live.json")
@@ -514,19 +512,15 @@ def test_install_seeds_live_json_once_and_retracts_the_budget_env(tmp_path):
     s = json.loads(_read(sp))
     assert s["env"]["STACK_PROMPT_CTX_BUDGET"] == "100000000"
     s["env"]["STACK_SESSION_CTX_BUDGET"] = "777000000"            # the user's own value
-    s["autoCompactEnabled"] = True                                # an earlier stack's value
     with open(sp, "w") as f:
         json.dump(s, f, indent=2)
     log = _install(new, home, conf, "--yes")
     assert _read(live) == first                                  # never rewritten
-    assert "autoCompactEnabled" not in json.loads(_read(sp))
-    assert "retracted stack setting autoCompactEnabled=true" in log
     e = json.loads(_read(sp))["env"]
     assert "STACK_PROMPT_CTX_BUDGET" not in e, log[-2000:]
     assert e["STACK_SESSION_CTX_BUDGET"] == "777000000"
     assert "retracted stack env STACK_PROMPT_CTX_BUDGET=100000000" in log
     assert "BLACKCAT_MAX_DISPATCH" not in e and "retracted stack env BLACKCAT_MAX_DISPATCH=8" in log
-    assert "MAX_MCP_OUTPUT_TOKENS" not in e and "retracted stack env MAX_MCP_OUTPUT_TOKENS=25000" in log
     hooks = json.loads(_read(sp))["hooks"]
     assert not any(re.search(r'stack_usage(\.py")? start', h.get("command", "")) for g in hooks["SessionStart"]
                    for h in g["hooks"])

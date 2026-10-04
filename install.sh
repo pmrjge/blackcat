@@ -2277,11 +2277,6 @@ OWNED_ENV = {"STACK_ENV_FILE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
              "MCP_DISCOVERY_CACHE", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
              "BLACKCAT_MAX_STEPS", "STACK_MAX_FANOUT",
              "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_MCP_CALLS"}
-# env keys an earlier stack shipped at Claude Code's own default (env-vars docs, 2026-10-04), retired
-# then: removed while they hold that value and settings.json does not ship them, also without a
-# manifest; another value is yours and stays. The settings key autoCompactEnabled (default true)
-# retires below, with the compaction keys.
-RETIRED_ENV = {"MAX_MCP_OUTPUT_TOKENS": "25000"}
 try:
     report = json.load(open(report_path))
 except (OSError, ValueError):
@@ -2552,9 +2547,6 @@ for bad in ("CLAUDE_CODE_SUBAGENT_MODEL", "CLAUDE_CODE_SUBAGENT_MODEL_FORCE", "C
     if bad in env:
         print("  WARNING: env %s overrides per-agent model/effort — removed" % bad)
         env.pop(bad)
-for k, dv in RETIRED_ENV.items():
-    if k in env and k not in (new.get("env") or {}) and str(env[k]) == dv:
-        print("  retracted stack env %s=%s (Claude Code's default; no longer shipped)" % (k, env.pop(k)))
 # Auto-compaction is part of the spec (on, autoCompactWindow 629K of the models' 1M window): drop settings that silently defeat it.
 for bad, why in (("DISABLE_AUTO_COMPACT", "turns auto-compaction off"),
                  ("DISABLE_COMPACT", "turns every compaction off"),
@@ -2562,16 +2554,6 @@ for bad, why in (("DISABLE_AUTO_COMPACT", "turns auto-compaction off"),
     if bad in env:
         print("  WARNING: env %s=%s %s — removed (autoCompactWindow=%s is the stack's setting)"
               % (bad, env.pop(bad), why, new.get("autoCompactWindow")))
-# autoCompactEnabled is no longer shipped (retired 2026-10-04: Claude Code's default is true, the
-# settings reference). An earlier install's true goes; any other value (/config's Auto-compact
-# toggle writes false) goes too, as every install so far replaced it with the stack's true.
-if "autoCompactEnabled" in merged and "autoCompactEnabled" not in new:
-    ac = merged.pop("autoCompactEnabled")
-    if ac is True:
-        print("  retracted stack setting autoCompactEnabled=true (Claude Code's default; no longer shipped)")
-    else:
-        print("  WARNING: autoCompactEnabled=%s — removed (auto-compaction is part of the spec: Claude Code's "
-              "default, true, applies; autoCompactWindow=%s is the stack's setting)" % (json.dumps(ac), new.get("autoCompactWindow")))
 # Subagent scheduling is part of the spec: BlackCat's children run in the background, a subagent's
 # own children in the Agent SDK apps in the foreground (their results reach it). Either key breaks
 # that: 1 forces every subagent into the foreground (the main thread blocks on each child, as the
@@ -2588,7 +2570,7 @@ for warn_only, why in (("CLAUDE_CODE_DISABLE_1M_CONTEXT", "caps every model at 2
 merged["env"] = env
 if "model" in cur:
     print("  note: kept your 'model' setting (%s); the blackcat agent sets the main-thread model" % cur["model"])
-order = ["$schema", "agent", "autoCompactWindow"]
+order = ["$schema", "agent", "autoCompactEnabled", "autoCompactWindow"]
 merged = {**{k: merged[k] for k in order if k in merged}, **{k: v for k, v in merged.items() if k not in order}}
 with open(dst + ".tmp", "w", encoding="utf-8") as f:
     json.dump(merged, f, indent=2, ensure_ascii=False)
