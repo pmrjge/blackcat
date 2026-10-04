@@ -18,7 +18,7 @@ description: Use for TypeScript or JavaScript — TS 7 vs 6, tsconfig, ESM/CJS, 
 | `ts-tooling`* | TS 6 vs 7, tsconfig, builds (Vite, tsdown, type stripping), ESLint/oxlint/Biome |
 | `ts-node-cli`* | ESM/CJS packaging, Node versions, pnpm/npm, CLIs |
 | `ts-types-validation`* | zod schemas at boundaries, discriminated unions, brands, generics |
-| `ts-testing`* | Vitest, type-level tests, coverage, Playwright end-to-end |
+| `ts-testing`* | Vitest, type-level tests, coverage (end to end: `test-e2e-playwright`*) |
 
 `*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 

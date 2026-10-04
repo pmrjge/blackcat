@@ -25,7 +25,7 @@ A **BLOCKING** finding means the plan cannot safely execute as written: an unver
 ## After the verdict
 - pass-with-fixes: the author applies the patches and runs the proofs; no second review.
 - fail: the author fixes, then re-runs only the failing findings' proofs (a verifier re-runs them for CRITICAL security or when the author cannot).
-- Another round only with new evidence attached: a proof that still fails (its output) or a verified defect a fix introduced. Two evidence-backed rounds still failing → escalate one tier or STATUS: partial.
+- Further rounds: the rules file's evidence-gated round trips ("Self-check and review").
 - A re-check brief runs only the named proofs; no new findings unless a fix introduced them.
 
 ## Report

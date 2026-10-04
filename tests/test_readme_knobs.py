@@ -1,6 +1,7 @@
-"""README "Knobs" markers follow the installer: ● marks exactly the env keys install.sh owns
+"""The knob table's markers follow the installer: ● marks exactly the env keys install.sh owns
 (OWNED_ENV: reset on every install), ○ the other keys dot-claude/settings.json ships (a default that
-follows upgrades while unchanged; a changed value is kept).
+follows upgrades while unchanged; a changed value is kept). The table is CONFIG.md §5, its only copy;
+the README's Knobs sections point there and list no knob table of their own.
 
 Run: uv run --with pytest pytest -q tests/test_readme_knobs.py
 """
@@ -25,10 +26,10 @@ def shipped_env():
 
 
 def readme_marks():
-    """{variable: marker} for every marked name in the README's Knobs table. A name that starts
+    """{variable: marker} for every marked name in CONFIG.md §5's table. A name that starts
     with `_` continues the row's first name (`MCP_DISCOVERY_CACHE` / `_TTL_S`)."""
-    text = (ROOT / "README.md").read_text()
-    section = text.split("\n### Knobs\n", 1)[1].split("\n### ", 1)[0]
+    text = (ROOT / "CONFIG.md").read_text()
+    section = text.split("\n## 5. Guard knobs and settings\n", 1)[1].split("\n### ", 1)[0]
     marks = {}
     for line in section.splitlines():
         if not line.startswith("| `"):
@@ -57,3 +58,11 @@ def test_every_shipped_key_is_marked_and_nothing_else():
 
 def test_owned_keys_are_shipped():
     assert owned_env() <= shipped_env()
+
+
+def test_readme_has_no_knob_table():
+    """One copy: the README's Main knobs and Knobs sections point to CONFIG.md §5."""
+    text = (ROOT / "README.md").read_text()
+    for head in ("\n### Main knobs\n", "\n### Knobs\n"):
+        section = text.split(head, 1)[1].split("\n### ", 1)[0]
+        assert "CONFIG.md" in section and "\n|" not in section, head

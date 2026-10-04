@@ -42,6 +42,16 @@ import subprocess
 import sys
 import tempfile
 
+# the hooks' file helpers (dot-claude/hooks/stack_io.py of this repo): JSON objects in, atomic writes out
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dot-claude", "hooks"))
+from stack_io import read_json as load_json, write_json_atomic  # noqa: E402
+
+
+def write_json(path, data, mode=0o600):
+    """Backup metadata, plans and snapshots: indented and sorted, for people reading them."""
+    write_json_atomic(path, data, mode, indent=2, sort_keys=True)
+
+
 # What install.sh manages inside the config dir. Everything else there (projects/, sessions,
 # credentials, plugins/, venvs/, mcp/vendor/, the claude.ai-synced skills) is never staged, compared,
 # backed up or touched.
@@ -182,14 +192,6 @@ def stage(c, s, snap_path=None):
 
 
 # --------------------------------------------------------------------------------------- plan
-def load_json(path, default):
-    try:
-        with open(path, encoding="utf-8") as f:
-            return json.load(f)
-    except (OSError, ValueError):
-        return default
-
-
 def gone_dir(rel, dirs, removed, before, after):
     """The directory (a report key ending in "/") holding rel when every file of it goes and
     nothing of it stays: the listing names it once. Skills count as such directories anyway."""
@@ -359,15 +361,6 @@ def fix_dir_modes(bdir):
             p = os.path.join(root, d)
             if not os.path.islink(p):
                 os.chmod(p, 0o700)
-
-
-def write_json(path, data, mode=0o600):
-    tmp = path + ".tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, mode)
-    with os.fdopen(fd, "w", encoding="utf-8") as f:
-        json.dump(data, f, indent=2, sort_keys=True)
-        f.write("\n")
-    os.replace(tmp, path)
 
 
 def place(src, c, rel):

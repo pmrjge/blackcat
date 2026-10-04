@@ -23,7 +23,5 @@ def test_doctor_checks_the_shipped_value():
 
 
 def test_docs_name_the_shipped_value():
-    readme = (ROOT / "README.md").read_text()
-    config = (ROOT / "CONFIG.md").read_text()
-    assert "| `autoCompactWindow` (settings key) | 629000 |" in readme
+    config = (ROOT / "CONFIG.md").read_text()      # §5 is the only knob table (the README points there)
     assert "| `autoCompactWindow` | 629000 |" in config

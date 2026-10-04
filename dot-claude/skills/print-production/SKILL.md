@@ -94,7 +94,7 @@ Coated vs uncoated, basis-weight to gsm, caliper, grain direction; standard trim
 | Die line printed on the product | die not spot, not overprint, or not separated as asked | spot + overprint + the printer's layout |
 
 ## References
-- `references/color.md` — read when setting up colour, profiles, ink limits or rich black.
+- `references/color.md` — read when setting up colour, profiles, ink limits or rich black (it points to `color-management`) and for overprint, knockout and trapping.
 - `references/preflight.md` — read when preflighting a print PDF in detail.
 - `references/finishes-large-format.md` — read when specifying finishes (foil, spot UV, die cuts, white ink) or large-format and vehicle-wrap jobs.
 

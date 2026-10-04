@@ -10,6 +10,7 @@ import mdx from '@astrojs/mdx';
 import sitemap from '@astrojs/sitemap';
 import remarkMath from 'remark-math';
 import rehypeKatex from 'rehype-katex';
+import rehypeMermaid from 'rehype-mermaid';
 
 export default defineConfig({
   site: 'https://example.org',                 // required by sitemap, RSS, canonical URLs
@@ -18,7 +19,7 @@ export default defineConfig({
   markdown: {
     processor: unified({
       remarkPlugins: [remarkMath],
-      rehypePlugins: [[rehypeKatex, { macros: { '\\R': '\\mathbb{R}' } }]],
+      rehypePlugins: [[rehypeKatex, { macros: { '\\R': '\\mathbb{R}' } }], [rehypeMermaid, { strategy: 'img-svg', dark: true }]],
     }),
     syntaxHighlight: { type: 'shiki', excludeLangs: ['mermaid', 'math'] },
     shikiConfig: { themes: { light: 'github-light', dark: 'github-dark' }, wrap: true },
@@ -95,8 +96,7 @@ Astro 7 specifics and pitfalls:
   documented rule (`.astro-code, .astro-code span { color: var(--shiki-dark) !important; … }` inside
   `prefers-color-scheme: dark` or a theme class). `defaultColor: false` removes the inline default so both themes
   come from your CSS. `<Code />` from `astro:components` highlights code inside `.astro` files.
-- Mermaid: build-time `rehype-mermaid` (`[rehypeMermaid, {strategy: 'img-svg', dark: true}]` inside `unified()`;
-  needs `playwright` and `npx playwright install chromium`), or ship `mermaid` client-side for `<pre class="mermaid">`.
+- Mermaid rendering and embedding (build-time `rehype-mermaid` or client-side `mermaid`): `diagrams-as-code`.
 - MDX: `import` components at the top of the `.mdx` file; map Markdown elements with
   `<Content components={{ h2: MyHeading }} />`; `<Image>`/`<Picture>` work in MDX, not in `.md`.
 - Images: `![alt](./x.png)` in `src/` is optimized and gets `srcset`, `sizes`, width/height, lazy loading;

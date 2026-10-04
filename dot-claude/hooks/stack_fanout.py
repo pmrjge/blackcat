@@ -49,6 +49,11 @@ import re
 import sys
 import time
 
+_HERE = os.path.dirname(os.path.abspath(__file__))
+if _HERE not in sys.path:     # stack_io.py beside this file, also when loaded by path
+    sys.path.insert(0, _HERE)
+from stack_io import read_json  # noqa: E402
+
 # ---------------------------------------------------------------- constants
 MODES = ("off", "shadow", "enforce")
 ENFORCE_TERMS = ("node", "deps", "conflict", "budget", "aimd")
@@ -1206,16 +1211,6 @@ def state_paths(session_dir, caller):
 
 
 # ---------------------------------------------------------------- CLI
-def _read_json(path, limit=MODEL_MAX_BYTES):
-    try:
-        if os.path.getsize(path) > limit:
-            return None
-        with open(path, "rb") as f:
-            return json.loads(f.read().decode("utf-8"))
-    except (OSError, ValueError, RecursionError):
-        return None
-
-
 def _check_cmd(args):
     path, types, cap = None, None, 32
     it = iter(args)
@@ -1257,7 +1252,7 @@ def _report(session_dir):
         if not m:
             continue
         o = out["orchestrators"].setdefault(m.group(1), {})
-        data = _read_json(os.path.join(folder, f))
+        data = read_json(os.path.join(folder, f), limit=MODEL_MAX_BYTES)
         if m.group(2) == "plan" and isinstance(data, dict) and isinstance(data.get("nodes"), list):
             o["plan"] = {"nodes": len(data["nodes"]), "width": data.get("width")}
         elif m.group(2) == "nodes" and isinstance(data, dict):

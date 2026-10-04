@@ -183,7 +183,7 @@ path, and for the read-only agent types any command outside the read-only allowl
 = event.
 
 Knobs (env):
-  STACK_POLICY=off        disable every deny and lock (bookkeeping and model strip continue)
+  STACK_POLICY=off        lift every deny and lock except no-push's refusals (bookkeeping and model strip continue)
   BLACKCAT_MAX_DISPATCH=8   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
   BLACKCAT_DISPATCH_WINDOW_S=120  all blackcat dispatches for one prompt must start within this many
                           seconds of the first one (one parallel burst, not ad-hoc orchestration)
@@ -282,6 +282,23 @@ import re
 import stat
 import sys
 import time
+
+# read_json, write_json_atomic, write_atomic: stack_io.py beside this file (also when a test or
+# bin/stack-budget loads this file by path). Missing or broken, start-up still succeeds (no-push and
+# the checks that touch no state keep working) and every use raises, so a PreToolUse call that needs
+# state is denied by guard_error: closed, never a guard that cannot start (an open gate).
+_HOOKS_DIR = os.path.dirname(os.path.abspath(__file__))
+if _HOOKS_DIR not in sys.path:
+    sys.path.insert(0, _HOOKS_DIR)
+try:
+    from stack_io import read_json, write_atomic, write_json_atomic
+except Exception as _io_exc:  # noqa: BLE001 - ImportError, SyntaxError, ...: fail closed at use
+    _IO_ERROR = "stack_io.py unusable next to the hook (%s: %s)" % (type(_io_exc).__name__, _io_exc)
+
+    def read_json(*_a, **_k):
+        raise RuntimeError(_IO_ERROR)
+
+    write_atomic = write_json_atomic = read_json
 # base64, shlex, shutil, struct, subprocess, tempfile and urllib.parse are imported where they are
 # used: every tool call starts this script at least once, and they cost ~9 ms of start-up.
 
@@ -797,29 +814,6 @@ def create_excl(path):
     os.write(fd, str(time.time()).encode())
     os.close(fd)
     return True
-
-
-def write_json_atomic(path, obj):
-    folder = os.path.dirname(path)
-    os.makedirs(folder, exist_ok=True)
-    tmp = os.path.join(folder, ".tmp-%d-%s" % (os.getpid(), os.urandom(6).hex()))
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "w") as f:
-            json.dump(obj, f)
-        os.replace(tmp, path)
-    except BaseException:
-        unlink(tmp)
-        raise
-
-
-def read_json(path):
-    try:
-        with open(path) as f:
-            obj = json.load(f)
-    except (OSError, ValueError):
-        return None
-    return obj if isinstance(obj, dict) else None
 
 
 def unlink(path):
@@ -2309,16 +2303,7 @@ def ledger_render(d):
     """Re-render delegations.md. Renders are serialized and each runs after its own state write,
     so the last one to run sees every write."""
     with mutex(d, "ledger", timeout=2.0):
-        text = ledger_render_text(d)
-        tmp = os.path.join(d, ".tmp-%d-%s" % (os.getpid(), os.urandom(6).hex()))
-        fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-        try:
-            with os.fdopen(fd, "w") as f:
-                f.write(text)
-            os.replace(tmp, os.path.join(d, LEDGER_FILE))
-        except BaseException:
-            unlink(tmp)
-            raise
+        write_atomic(os.path.join(d, LEDGER_FILE), ledger_render_text(d).encode("utf-8"))
 
 
 def ledger_done(d, ev, ti, child, child_id, status, totals=None):
@@ -2550,17 +2535,8 @@ def compact_text(d, kids, since, when, limit=None, full=True):
 
 
 def compact_write(path, text):
-    folder = os.path.dirname(path)
-    os.makedirs(folder, mode=0o700, exist_ok=True)
-    tmp = os.path.join(folder, ".tmp-%d-%s" % (os.getpid(), os.urandom(6).hex()))
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
-    try:
-        with os.fdopen(fd, "w") as f:
-            f.write(text)
-        os.replace(tmp, path)
-    except BaseException:
-        unlink(tmp)
-        raise
+    os.makedirs(os.path.dirname(path), mode=0o700, exist_ok=True)
+    write_atomic(path, text.encode("utf-8"))
 
 
 def compact_log(d):
@@ -10842,6 +10818,9 @@ def print_policy():
 def self_test():
     import shutil
     import tempfile
+    if globals().get("_IO_ERROR"):   # every check below reads state through stack_io
+        sys.stdout.write("agent_guard self-test: FAIL %s\n" % _IO_ERROR)
+        return 1
     problems = []
     known = set(AGENTS) | set(BUILTINS)
     if len(set(AGENTS)) != len(AGENTS):

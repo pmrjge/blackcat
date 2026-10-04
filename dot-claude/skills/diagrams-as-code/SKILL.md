@@ -39,7 +39,7 @@ description: Use for diagrams as text — Mermaid, Graphviz, D2, PlantUML, TikZ/
 |---|---|
 | GitHub Markdown | ```` ```mermaid ```` fences (also geojson, topojson, stl); other tools: commit source and SVG side by side |
 | GitLab | ```` ```mermaid ````; ```` ```plantuml ```` on GitLab.com (self-managed: admin enables); Kroki fences if the instance enables Kroki |
-| Astro or other unified sites | build time: `rehype-mermaid` (strategies `inline-svg` default, `img-svg`, `img-png`, `pre-mermaid`; `dark: true` for a color-scheme `<picture>`; needs Playwright + Chromium); exclude `mermaid` from Shiki. Details: `markdown-publishing` |
+| Astro or other unified sites | build time: `rehype-mermaid` (strategies `inline-svg` default, `img-svg`, `img-png`, `pre-mermaid`; `dark: true` for a color-scheme `<picture>`; needs Playwright + Chromium); exclude `mermaid` from Shiki. Astro config wiring: `markdown-publishing` `references/astro-site.md` |
 | MkDocs Material | `pymdownx.superfences` custom fence: `name: mermaid`, `class: mermaid`, `format: !!python/name:pymdownx.superfences.fence_code_format` |
 | Docusaurus | `@docusaurus/theme-mermaid` with `markdown: {mermaid: true}` |
 | LaTeX, Word, slides | pre-rendered PDF/SVG (vector) or PNG at ≥ 2× display size |

@@ -173,6 +173,9 @@ SHELLS = {"sh", "bash", "zsh", "dash", "ksh", "fish", "env"}
 WINDOW = 16               # recent API-call keys kept to merge a message's streamed lines
 READ_CHUNK = 8 << 20      # bytes read per transcript per scan (a large backlog takes a few scans)
 HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:      # stack_io.py beside this file, also when loaded by path
+    sys.path.insert(0, HERE)
+from stack_io import read_json, write_json_atomic  # noqa: E402,F401 - U.read_json is used by stack_sched_refresh
 
 
 def knob(name, default):
@@ -204,22 +207,6 @@ def session_dir(sid, create=True):
     if create:
         os.makedirs(d, mode=0o700, exist_ok=True)
     return d
-
-
-def write_json_atomic(path, obj):
-    tmp = "%s.%d.tmp" % (path, os.getpid())
-    with open(tmp, "w", encoding="utf-8") as fh:
-        json.dump(obj, fh, separators=(",", ":"))
-    os.replace(tmp, path)
-
-
-def read_json(path):
-    try:
-        with open(path, encoding="utf-8") as fh:
-            v = json.load(fh)
-        return v if isinstance(v, dict) else None
-    except (OSError, ValueError):
-        return None
 
 
 def epoch(ts):

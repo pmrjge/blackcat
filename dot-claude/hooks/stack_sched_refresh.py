@@ -39,7 +39,6 @@ It never writes limits, thresholds, maxTurns, prompts or agent files: only --out
 """
 import argparse
 import copy
-import datetime as dt
 import json
 import math
 import os
@@ -54,15 +53,12 @@ import pandas as pd  # noqa: E402
 import derive_sched_model as D  # noqa: E402
 import stack_limits as L  # noqa: E402
 import stack_usage as U  # noqa: E402
+from stack_io import now_iso  # noqa: E402
 
 STEP_DEFAULT = 1.5
 TURN_VALUES = (("turns", "S"), ("turns", "M"), ("turns", "L"), ("sec_per_call", "p50"), ("sec_per_call", "p90"))
 FIRST_VALUES = (("ctx", "a"), ("ctx", "b"), ("static_cc", None))
 BAND_QTY = (("turns", "n_seg"), ("sec_per_call", "n_seg"), ("ctx", "n_first"))
-
-
-def now_iso():
-    return dt.datetime.now(dt.timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
 
 def _get(d, k, sub):

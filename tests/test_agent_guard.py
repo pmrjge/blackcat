@@ -1184,6 +1184,7 @@ def installed(tmp_path):
     cfg, home, proj = tmp_path / "cfg", tmp_path / "home", tmp_path / "proj"
     (cfg / "hooks").mkdir(parents=True)
     (cfg / "hooks" / "agent_guard.py").write_text(GUARD.read_text())
+    (cfg / "hooks" / "stack_io.py").write_text((GUARD.parent / "stack_io.py").read_text())
     settings = (ROOT / "dot-claude" / "settings.json").read_text()
     (cfg / "settings.json").write_text(settings.replace("__CLAUDE_DIR__", str(cfg)))
     (cfg / "stack.env").write_text("EXA_API_KEY=x\n")

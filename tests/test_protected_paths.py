@@ -35,6 +35,7 @@ def installed(tmp_path, monkeypatch):
     cfg = tmp_path / "claude"
     (cfg / "hooks").mkdir(parents=True)
     shutil.copy(SRC_HOOK, cfg / "hooks" / "agent_guard.py")
+    shutil.copy(SRC_HOOK.with_name("stack_io.py"), cfg / "hooks" / "stack_io.py")
     settings = SRC_SETTINGS.read_text().replace("__CLAUDE_DIR__", str(cfg))
     (cfg / "settings.json").write_text(settings)
     proj = tmp_path / "proj"
