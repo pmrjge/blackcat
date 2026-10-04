@@ -1,5 +1,5 @@
 # Delegation at depth (BlackCat → L1 → … → L8)
-Read from the rules ("Delegating") before your first spawn as a subagent; once per session. Extends the rules' "Briefs and hand-backs", "Self-check and review" and consent lines; nothing here loosens them. The hook enforces the May-spawn lists, depth (L8 cannot spawn), fan-out, copies, tokens, MCP calls and who may resume a finished agent; this file decides what is sensible inside those limits.
+Read from the rules ("Delegating") before your first spawn as a subagent; once per session. Extends the rules' "Briefs and hand-backs", "Self-check and review" and consent lines; nothing here loosens them. The hook enforces the May-spawn lists, depth (L8 cannot spawn), fan-out, tokens, MCP calls and who may resume a finished agent; this file decides what is sensible inside those limits.
 
 ## 1. Depth is a ceiling, not a target
 - Every hop costs a fresh ~40K-token context (body, rules, listings), latency (a foreground child blocks its parent) and one lossy summary each way. Eight layers mean the goal is re-briefed seven times and the result relayed seven times.
@@ -21,7 +21,7 @@ Read from the rules ("Delegating") before your first spawn as a subagent; once p
 
 - Agents without the Agent tool are leaves at any layer.
 - Your layer: the `Layer: L<n>` line in your brief; none means BlackCat sent you, so you are L1. Every brief you write says `Layer: L<n+1>`.
-- At a cap (child, copy, token, MCP) follow the rules' cap line; never route around a cap through a deeper layer.
+- At a cap (child, token, MCP) follow the rules' cap line; never route around a cap through a deeper layer.
 
 ## 3. Briefs down
 - The rules' brief block plus: `Layer`, `Why`, the files the child owns (globs) or `isolation: "worktree"`, its integrator (`integrator: you` or `integrator: <your type>`), its share of the budget (`budget: ~N K tokens, ≤ k children`), the facts already found (paths, `USER:` answers, neural-memory hits) so no layer looks them up again, and the artifact paths it reads from earlier steps and writes for later ones (§5).
@@ -86,8 +86,8 @@ BlackCat → L1 orchestrator: "fix one flaky test" (one specialist's job)
     L3 ninja-coder: "harder than expected", no failure evidence
       L4 main-coder: the whole task handed back down a tier
         L5 python-engineer: "a Python specialist would do it better"
-          L6 coder: one edit
-            L7 coder-copy: "to keep context clean"
+          L6 data-engineer: one edit
+            L7 data-scientist: "to keep context clean"
               L8 explore: find the test file
 ```
 What goes wrong: eight ~40K contexts for one edit; explore's path:line is summarised seven times; L6's "still fails 1 in 20" becomes "fixed" at L3; a question from L7 is answered by L4 instead of the user; L6 and L2 both merge. Fix: BlackCat → L1 main-coder, which spawns explore and verifier as L2 in one message, or does the look-up itself.
