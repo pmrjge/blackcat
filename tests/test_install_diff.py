@@ -100,7 +100,7 @@ def test_seeded_drift_is_listed(installed):
     with open(os.path.join(conf, "hooks", "web_caps.py"), "a") as f:
         f.write("# tweak\n")
     open(os.path.join(conf, "bin", "my-tool"), "w").write("#!/bin/sh\n")
-    with open(os.path.join(conf, "agents", "coder-copy.md"), "a") as f:                 # rendered copy edited
+    with open(os.path.join(conf, "agents", "coder.md"), "a") as f:                      # rendered agent edited
         f.write("local edit\n")
     s = json.load(open(os.path.join(conf, "settings.json")))
     s["hooks"]["SessionEnd"] = []                                                         # wiring gone
@@ -130,7 +130,7 @@ def test_seeded_drift_is_listed(installed):
                 r"- installed only\s+Stop \[\*\] /bin/echo mine",
                 r"~ differs\s+docling\s+\(entry differs\)",
                 r"- installed only\s+mine",
-                r"~ differs\s+agents/coder-copy\.md\s+\(\+0 -1 lines to install; edited since the last install\)"):
+                r"~ differs\s+agents/coder\.md\s+\(\+0 -1 lines to install; edited since the last install\)"):
         assert re.search(pat, out), pat + "\n" + out
     assert summary(out) == (4, 4, 5), out
     assert fingerprint(home) == before
@@ -163,13 +163,13 @@ def test_staged_files_follow_install_sh():
     for rel, src in staged.items():
         assert os.path.isfile(os.path.join(ROOT, src)), (rel, src)
     code = stack_diff.installer_code(text, {"__STACK_CACHE__": "/c"})
-    assert {"coder", "researcher"} <= set(code["COPY_TYPES"]) and callable(code["make_copy"])
+    assert "after-effects" in code["MACOS_ONLY_SERVERS"] and callable(code["drop_servers"])
 
 
 def test_broken_installer_code_is_a_note_not_a_crash(tmp_path):
-    text = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read().replace("def make_copy(", "def renamed(")
+    text = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read().replace("def drop_servers(", "def renamed(")
     d = stack_diff.Diff(ROOT, str(tmp_path), {"__CLAUDE_DIR__": str(tmp_path)}, text)
-    assert d.code is None and any("make_copy" in n for n in d.notes)
+    assert d.code is None and any("drop_servers" in n for n in d.notes)
 
 
 @needs_git

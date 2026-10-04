@@ -3,14 +3,14 @@
   stack_diff.py --repo REPO [--config-dir PATH]
 
 Target: --config-dir > CLAUDE_CONFIG_DIR > ~/.claude (as install.sh, without its safety checks: nothing
-is written). Compared, per area: agents/ (incl. the rendered <type>-copy.md), rules/, skills/ (claude.ai's
+is written). Compared, per area: agents/, rules/, skills/ (claude.ai's
 synced/ aside), the hooks/, bin/ (the stack-python link aside), mcp/ (vendor/ aside) and magg/ files
 install.sh stages, stack-plugins/, settings.json's hook wiring (event, matcher, command) and magg's
 catalog entries (minus enabled/kits).
 
 Text is compared after the installer's own render: __CLAUDE_DIR__, __HOME__, __STACK_*__ are filled in;
 tool paths it found at install time (__UV__, __PYTHON3__, ...) match any path, consistently within a
-file; agents also go through install.sh's make_copy, drop_servers and mcp_cache_env (their source is
+file; agents also go through install.sh's drop_servers and mcp_cache_env (their source is
 read from install.sh, so the two cannot drift; if that read fails, a note says so).
 
 Exit 0 always (differences are output, not errors); 2 on a usage error (unknown option, a target that
@@ -54,10 +54,9 @@ def extract(src, name):
 
 
 def installer_code(install_text, subs):
-    """make_copy, drop_servers, mcp_cache_env, COPY_TYPES, MACOS_ONLY_SERVERS from install.sh."""
+    """drop_servers, mcp_cache_env, MACOS_ONLY_SERVERS from install.sh."""
     ns = {"re": re, "json": json, "os": os, "SUBS": subs}
-    for name in ("COPY_TYPES", "MACOS_ONLY_SERVERS", "split_top_level", "make_copy", "drop_servers",
-                 "MCP_CACHE_ENV", "mcp_cache_env"):
+    for name in ("MACOS_ONLY_SERVERS", "drop_servers", "MCP_CACHE_ENV", "mcp_cache_env"):
         exec(compile(extract(install_text, name), "install.sh:" + name, "exec"), ns)
     return ns
 
@@ -222,32 +221,26 @@ class Diff:
 
     def agents(self):
         src = os.path.join(self.repo, "dot-claude", "agents")
-        targets = {f: (f, None) for f in sorted(os.listdir(src)) if f.endswith(".md")} if os.path.isdir(src) else {}
-        if self.code:
-            for b in self.code["COPY_TYPES"]:
-                targets["%s-copy.md" % b] = ("%s.md" % b, b)
+        targets = {f for f in sorted(os.listdir(src)) if f.endswith(".md")} if os.path.isdir(src) else set()
         inst = {p for p in walk(os.path.join(self.c, "agents")) if "/" not in p}
-        for f in sorted(set(targets) - inst):
+        for f in sorted(targets - inst):
             self.add("agents", "+", "agents/" + f)
-        for f in sorted(inst - set(targets)):
+        for f in sorted(inst - targets):
             self.add("agents", "-", "agents/" + f)
         ae_built = os.path.isfile(os.path.join(self.c, "mcp", "vendor", "after-effects-mcp", "build", "index.js"))
-        for f in sorted(set(targets) & inst):
-            srcf, copy_of = targets[f]
+        for f in sorted(targets & inst):
             rel = "agents/" + f
 
-            def transform(text, rel=rel, copy_of=copy_of):
+            def transform(text, rel=rel):
                 if not self.code:
                     return text
                 k = self.code
-                if copy_of:
-                    text = k["make_copy"](text, copy_of)
                 text = self.m.render(text)
                 if sys.platform != "darwin":
                     text = k["drop_servers"](text, k["MACOS_ONLY_SERVERS"])
                 elif rel == "agents/motion-designer.md" and not ae_built:
                     text = k["drop_servers"](text, ("after-effects",))
-                if rel in ("agents/researcher.md", "agents/researcher-copy.md"):
+                if rel == "agents/researcher.md":
                     try:
                         installed = read(os.path.join(self.c, rel)).decode("utf-8", "replace")
                     except OSError:
@@ -255,7 +248,7 @@ class Diff:
                     if "mcpServers:\n  - spider\n" in installed:     # install.sh's SPIDER_REWRITE
                         text = re.sub(r"mcpServers:\n  - spider:\n(?:      .*\n)+", "mcpServers:\n  - spider\n", text)
                 return k["mcp_cache_env"](text)
-            self.compare("agents", rel, read(os.path.join(src, srcf)), True, transform)
+            self.compare("agents", rel, read(os.path.join(src, f)), True, transform)
 
     def skills(self):
         src = os.path.join(self.repo, "dot-claude", "skills")
