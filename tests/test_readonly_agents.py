@@ -761,7 +761,9 @@ def test_settings_wiring_acts_only_for_blackcat():
     # blackcat named: the same gate as the frontmatter wiring
     r = env.run(main_ev(env, "WebFetch", "blackcat"), args=("blackcat-guard", "--settings"))
     assert r.decision == "deny" and "belongs to a specialist" in r.reason
-    assert env.run(main_ev(env, "Bash", "blackcat"), args=("blackcat-guard", "--settings")
+    r = env.run(main_ev(env, "Bash", "blackcat"), args=("blackcat-guard", "--settings"))
+    assert r.decision == "deny" and "only delegates" in r.reason     # BlackCat runs no commands
+    assert env.run(main_ev(env, "Read", "blackcat"), args=("blackcat-guard", "--settings")
                    ).decision == "allow(no-output)"
 
 

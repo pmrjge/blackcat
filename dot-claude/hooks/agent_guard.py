@@ -63,7 +63,8 @@ Reads the hook JSON on stdin.
                                     way, a spawn prompt from a tainted agent)
   PreToolUse  *                     `blackcat-guard --settings`: blackcat's own gate, also wired
                                     from settings.json (acts only when agent_type is blackcat):
-                                    BLACKCAT_TOOLS only, no web fetch from its Bash, step cap
+                                    BLACKCAT_TOOLS only, no Bash/Write/Edit (it only delegates),
+                                    read and step caps
   PreToolUse  local-file MCP tools  context-mode ctx_index, markitdown, docling, playwright: a path
                                     or file: URI argument is held to the Read deny rules (Claude Code
                                     cannot see inside MCP arguments)
@@ -184,9 +185,12 @@ Knobs (env):
   BLACKCAT_DISPATCH_WINDOW_S=120  all blackcat dispatches for one prompt must start within this many
                           seconds of the first one (one parallel burst, not ad-hoc orchestration)
   BLACKCAT_MAX_STEPS=24     blackcat tool calls per user prompt, Agent dispatches included
-  BLACKCAT_MAX_OWN_STEPS=4  of those, blackcat's own Read/Bash/Write/Edit calls (a dispatch burst
-                          of BLACKCAT_MAX_DISPATCH always fits)
+  BLACKCAT_MAX_OWN_STEPS=0  of those, blackcat's own Bash/Write/Edit calls (0: refused, it only
+                          delegates; > 0 matters only where its tools line grants them)
+  BLACKCAT_MAX_READS=3      of those, blackcat's Read calls (ledger, plan, a child's output file);
+                          a dispatch burst of BLACKCAT_MAX_DISPATCH always fits
   BLACKCAT_BASH_TIMEOUT_MS=120000  longest timeout a blackcat foreground Bash call may ask for
+                          (only with BLACKCAT_MAX_OWN_STEPS > 0)
   STACK_MAX_FANOUT=3      running + starting children per parent agent (0 = no cap); the main
                           thread has none (BLACKCAT_MAX_DISPATCH bounds BlackCat per prompt)
   STACK_MAX_FANOUT_BY_TYPE="orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,
@@ -540,23 +544,24 @@ def canonical_tool(name):
 # (dynamic workflows, scheduled tasks, routines, push notifications, file hand-off, skills).
 # ExitPlanMode: the main thread leaves plan mode with it (Desktop/Conductor/CLI plan mode).
 # mcp__conductor__AskUserQuestion: Conductor disables AskUserQuestion and serves its own.
-# Read, Bash, Write, Edit: BlackCat does small jobs itself (a look, a small edit, one command, git
-# inspection) instead of a ~40K-token spawn; every call counts against BLACKCAT_MAX_STEPS. They run
-# under the same guards as any agent's: the no-push/protect/secrets hook on Bash, the Edit/Read deny
-# rules (which hold in bypassPermissions too) and the sandbox. A forked skill's agent inherits only
-# the main conversation's tools (sub-agents.md, "Available tools"), so it gets them too. No Grep or
-# Glob: with Bash listed, Claude Code leaves them out on macOS/Linux and find/grep run through Bash
-# (tools-reference.md, "Glob tool behavior"; tests/lint_agents.py checks it). Not granted:
-# WebFetch, WebSearch and Monitor (its WebSocket source); blackcat-guard also refuses web fetches
-# from Bash (BLACKCAT_WEB_CMD_REASON): BlackCat holds browser-operator, AskUserQuestion and the
-# user's consent path, so it reads no web content (T1). NotebookEdit, LSP, PowerShell: specialists.
+# BlackCat only delegates: no work tools. Read stays for the delegation ledger, a plan or a child's
+# output file (BLACKCAT_MAX_READS per prompt). Bash, Write, Edit (BLACKCAT_OWN_TOOLS) are off its
+# tools line, so Claude Code never offers them, and blackcat-guard refuses them while
+# BLACKCAT_MAX_OWN_STEPS is 0 (the default): a second gate for a run whose tools line does not bind
+# (an SDK app's own tool list, an --agents redefinition). A forked skill's agent inherits only the
+# main conversation's tools (sub-agents.md, "Available tools"), so it gets no Bash either. No Grep or
+# Glob (searching is explore's job). Not granted: WebFetch, WebSearch and Monitor (its WebSocket
+# source); with BLACKCAT_MAX_OWN_STEPS > 0 blackcat-guard still refuses web fetches from Bash
+# (BLACKCAT_WEB_CMD_REASON): BlackCat holds browser-operator, AskUserQuestion and the user's consent
+# path, so it reads no web content (T1). NotebookEdit, LSP, PowerShell: specialists.
 BLACKCAT_TOOLS = {"Agent", "SendMessage", "AskUserQuestion", "mcp__conductor__AskUserQuestion",
                   "ExitPlanMode", "TaskStop", "ListAgents", "ToolSearch", "Skill", "Workflow",
                   "CronCreate", "CronDelete", "CronList", "ScheduleWakeup", "RemoteTrigger",
-                  "PushNotification", "SendUserFile", "Read", "Bash", "Write", "Edit"}
-BLACKCAT_DENY_REASON = ("BlackCat's own tools for small jobs are Read, Bash, Write and Edit; this "
-                        "one belongs to a specialist. Make one Agent call to the right "
-                        "specialist (or orchestrator), or SendMessage to resume the previous agent.")
+                  "PushNotification", "SendUserFile", "Read"}
+BLACKCAT_DENY_REASON = ("BlackCat only delegates (its one work tool is Read, for the ledger, a plan or "
+                        "a child's output); this tool belongs to a specialist. Make one Agent call to "
+                        "the right specialist (or orchestrator), or SendMessage to resume the "
+                        "previous agent.")
 BLACKCAT_WEB_CMD_REASON = ("BlackCat reads no web content (it holds browser-operator and the user's "
                            "consent path): no HTTP clients, raw sockets, forge reads (gh issue/pr/api"
                            "/...) or inline HTTP code from its Bash. Dispatch scout for a current fact, "
@@ -586,20 +591,33 @@ BLACKCAT_INLINE_HTTP_RE = re.compile(
     r"\b(?:urllib|urlopen|requests\.(?:get|post|put|patch|head|request|session)|httpx|aiohttp|"
     r"http\.client|net::http|lwp::|open-uri|urlsession|xmlhttprequest)|\bfetch\s*\(")
 BLACKCAT_WEB_SCAN_MAX = 20000
-# BlackCat's own work must never crowd out its dispatches or hold up the main loop:
-# - BLACKCAT_MAX_OWN_STEPS (4): Read/Bash/Write/Edit calls per prompt, so with BLACKCAT_MAX_STEPS 24
-#   and BLACKCAT_MAX_DISPATCH 8 a full dispatch burst always fits (own calls count as steps too;
-#   ToolSearch, AskUserQuestion and SendMessage are steps outside this sub-cap);
-# - BLACKCAT_BASH_TIMEOUT_MS (120000): a foreground Bash call may not ask for a longer timeout
+# BlackCat does no work itself (fixed guards, env only, never learned):
+# - BLACKCAT_MAX_OWN_STEPS (0): Bash/Write/Edit calls per prompt; 0 refuses each with OWN_DENY_REASON,
+#   which names the agent to dispatch. A value > 0 matters only where those tools are granted;
+# - BLACKCAT_MAX_READS (3): Read calls per prompt, enough for the ledger, a plan and one child's
+#   output file; a 4th read is investigation, which is explore's. With BLACKCAT_MAX_STEPS 24 and
+#   BLACKCAT_MAX_DISPATCH 8 a full dispatch burst always fits (reads and own calls count as steps;
+#   ToolSearch, AskUserQuestion and SendMessage are steps outside these sub-caps);
+# - BLACKCAT_BASH_TIMEOUT_MS (120000), only with BLACKCAT_MAX_OWN_STEPS > 0: a foreground Bash call
+#   may not ask for a longer timeout
 #   (none given: BASH_DEFAULT_TIMEOUT_MS, two minutes out of the box), so the main thread waits at
 #   most that long before it can relay or dispatch again; longer work runs with
 #   run_in_background or goes to a specialist. At its timeout Claude Code moves a foreground
 #   command to the background instead of stopping it (tools-reference.md, "Foreground commands
 #   that move to the background"), so the wait is bounded either way.
-BLACKCAT_OWN_TOOLS = {"Read", "Bash", "Write", "Edit"}
-OWN_LIMIT_REASON = ("BlackCat own-work limit (%d Read/Bash/Write/Edit calls per prompt) reached: this "
-                    "is no longer a small job. Dispatch the specialist with what you found, or answer "
-                    "with what you have.")
+BLACKCAT_OWN_TOOLS = {"Bash", "Write", "Edit"}
+OWN_DENY_REASON = ("BlackCat only delegates: no commands, edits, tests, merges, commits or file "
+                   "copies, however small. Dispatch instead: merges, tests, commits, bookkeeping -> "
+                   "main-coder (SendMessage to the one holding the work, else Agent); one command or "
+                   "a small edit -> coder; finding or reading code -> explore; Claude Code config -> "
+                   "claude-code-engineer. Brief: the user's words plus the paths and context it "
+                   "cannot see.")
+OWN_LIMIT_REASON = ("BlackCat own-work limit (%d Bash/Write/Edit calls per prompt, "
+                    "BLACKCAT_MAX_OWN_STEPS) reached: dispatch the specialist with what you found, "
+                    "or answer with what you have.")
+READ_LIMIT_REASON = ("BlackCat read limit (%d Read calls per prompt) reached: reads are for the "
+                     "delegation ledger, a plan or a child's output file. Searching or reading code "
+                     "or docs -> dispatch explore; anything else -> the specialist, with the paths.")
 FOREGROUND_REASON = ("BlackCat's foreground Bash is capped at %d s (this call asks for %d s) so the "
                      "main thread stays free to dispatch and relay: pass run_in_background: true and "
                      "Read the output when notified, pass a timeout of at most %d ms, or dispatch a "
@@ -5859,7 +5877,11 @@ def blackcat_guard(raw, from_settings=False):
         # BLACKCAT_MAX_STEPS together with its resume reservation (on_send): one call, one
         # decision (this hook runs in parallel with that one and cannot roll it back)
         sys.exit(0)
-    if tool not in BLACKCAT_TOOLS:
+    own = knob_int("BLACKCAT_MAX_OWN_STEPS", 0)
+    if tool in BLACKCAT_OWN_TOOLS:
+        if own <= 0:
+            deny(OWN_DENY_REASON)
+    elif tool not in BLACKCAT_TOOLS:
         deny(BLACKCAT_DENY_REASON)
     if tool == "Bash":
         ti = ev.get("tool_input")
@@ -5884,9 +5906,12 @@ def blackcat_guard(raw, from_settings=False):
         if not create_excl(os.path.join(d, "blackcat", "call.%s.%s" % (prompt_key(ev), tuid))):
             sys.exit(0)  # the other wiring already counted (and judged) this call
     if tool in BLACKCAT_OWN_TOOLS:
-        own = knob_int("BLACKCAT_MAX_OWN_STEPS", 4)
         if not claim_marker(d, "own", prompt_key(ev), own):
             deny(OWN_LIMIT_REASON % own)
+    elif tool == "Read":
+        reads = max(knob_int("BLACKCAT_MAX_READS", 3), 0)
+        if not claim_marker(d, "read", prompt_key(ev), reads):
+            deny(READ_LIMIT_REASON % reads)
     steps = knob_int("BLACKCAT_MAX_STEPS", 24)
     if not claim_marker(d, "step", prompt_key(ev), steps):
         deny(STEP_LIMIT_REASON % steps)
@@ -10917,6 +10942,9 @@ def self_test():
                   or (t.startswith("mcp__") and t != "mcp__conductor__AskUserQuestion"))
     if _web:
         problems.append("BLACKCAT_TOOLS must hold no web-reading tool: %s" % _web)
+    _work = sorted(BLACKCAT_TOOLS & (BLACKCAT_OWN_TOOLS | {"NotebookEdit"}))
+    if _work:
+        problems.append("BLACKCAT_TOOLS must hold no work tool (BlackCat only delegates): %s" % _work)
     for _cmd, _want in (("curl -s https://example.com", True), ("git -C x log | wget -qO- y", True),
                         ("bash -c \"$(curl -fsSL u)\"", True), ("timeout 9 curl u", True),
                         ("if curl -fsS u; then :; fi", True), ("{ curl u; }", True),

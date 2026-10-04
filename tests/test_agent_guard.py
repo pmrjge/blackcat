@@ -26,7 +26,7 @@ KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "SUPREME
          "STACK_FANOUT_IDLE_S", "STACK_MAX_FANOUT_BY_TYPE", "STACK_LEASE_TTL_S",
          "STACK_RESUME_TTL_S", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET",
          "STACK_MAX_MCP_CALLS", "BLACKCAT_BACKGROUND", "SUPREME_ONCE_PER_SESSION", "SUPREME_SPAWNERS",
-         "SUPREME_AFTER_NINJA", "STACK_SOFT_LIMIT_SCALE", "BLACKCAT_MAX_OWN_STEPS",
+         "SUPREME_AFTER_NINJA", "STACK_SOFT_LIMIT_SCALE", "BLACKCAT_MAX_OWN_STEPS", "BLACKCAT_MAX_READS",
          "BLACKCAT_BASH_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS", "STACK_FANOUT_SESSION",
          "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
          # the dynamic fan-out knobs (stack_fanout.KNOBS)
@@ -225,11 +225,11 @@ def test_print_policy_format(env):
     assert not set(copies.values()) & (set(d["policy"]["blackcat"]) | set(d["policy"]["orchestrator"]))
     assert d["policy"]["planner"]                           # planner keeps Agent
     assert {"plan-reviewer", "image-director"} <= set(d["leaves"])
-    assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill", "Read", "Bash", "Write",
-            "Edit"} <= set(d["blackcat_tools"])
-    # no web tool on the main thread (T1), no Grep/Glob next to Bash (they never resolve)
-    assert not {"WebFetch", "WebSearch", "Monitor", "NotebookEdit", "Grep", "Glob"} & set(
+    assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill", "Read"} <= set(
         d["blackcat_tools"])
+    # no web tool on the main thread (T1), no work tool (it only delegates), no search tool
+    assert not {"WebFetch", "WebSearch", "Monitor", "NotebookEdit", "Grep", "Glob", "Bash", "Write",
+                "Edit"} & set(d["blackcat_tools"])
 
 
 def test_self_test(env):
@@ -834,20 +834,41 @@ def test_blackcat_guard_allowlist(env):
     for tool in ("SendMessage", "AskUserQuestion", "mcp__conductor__AskUserQuestion", "ExitPlanMode",
                  "TaskStop", "ListAgents", "ToolSearch",
                  "Skill", "Workflow", "CronCreate", "CronList", "CronDelete", "ScheduleWakeup",
-                 "RemoteTrigger", "PushNotification", "SendUserFile", "Read", "Write", "Edit"):
+                 "RemoteTrigger", "PushNotification", "SendUserFile", "Read"):
         assert decision(run(rg(s, tool, prompt="p-" + tool), env, args=["blackcat-guard"])) \
             == "allow", tool
-    p = run(rg(s, "Bash", prompt="p-Bash", tool_input={"command": "git status"}), env,
-            args=["blackcat-guard"])
-    assert decision(p) == "allow"
+
+
+@pytest.mark.parametrize("tool", ["Bash", "Write", "Edit"])
+def test_blackcat_does_no_work_itself(env, tool):
+    """BLACKCAT_MAX_OWN_STEPS defaults to 0: every Bash/Write/Edit call of the main thread is
+    refused, through both wirings, with a reason that names whom to dispatch; it spends no step."""
+    s = sid()
+    ti = {"command": "git status"} if tool == "Bash" else {"file_path": "/x/a.md"}
+    for args in (["blackcat-guard"], ["blackcat-guard", "--settings"]):
+        p = run(rg(s, tool, tool_input=ti, agent_type="blackcat", tool_use_id="t-" + args[-1]),
+                env, args=args)
+        assert decision(p) == "deny", args
+        r = reason(p)
+        assert "only delegates" in r and "main-coder" in r and "explore" in r and "coder" in r, r
+    assert not list((state(env, s) / "blackcat").glob("step.*"))
+    # a subagent's call, and the policy switched off, are untouched
+    assert decision(run(rg(s, tool, tool_input=ti, agent_id="A1", agent_type="coder"), env,
+                        args=["blackcat-guard"])) == "allow"
+    assert decision(run(rg(s, tool, tool_input=ti), env, args=["blackcat-guard"],
+                        extra={"STACK_POLICY": "off"})) == "allow"
+    # an explicit override (where the tools line grants the tool) is counted by the own-work cap
+    res = [decision(run(rg(s, tool, prompt="o1", tool_input=ti), env, args=["blackcat-guard"],
+                        extra={"BLACKCAT_MAX_OWN_STEPS": "2"})) for _ in range(3)]
+    assert res == ["allow", "allow", "deny"]
 
 
 def test_blackcat_reads_count_as_steps(env):
-    """Read, Bash, Write and Edit are BlackCat's own tools: each call is a step (and an own-work
-    step), and the 9th call of any kind in one prompt is refused."""
+    """Read is BlackCat's one work tool: each call is a step and a read (BLACKCAT_MAX_READS 3);
+    the 9th call of any kind in one prompt is refused."""
     s = sid()
     extra = {"BLACKCAT_MAX_DISPATCH": "10"}
-    calls = ["Read", "Bash", "Agent", "Edit", "ToolSearch", "Agent", "Write", "AskUserQuestion"]
+    calls = ["Read", "Read", "Agent", "Read", "ToolSearch", "Agent", "Skill", "AskUserQuestion"]
     for tool in calls:
         p = (run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env, extra=extra)
              if tool == "Agent" else run(rg(s, tool, prompt="q1"), env, args=["blackcat-guard"]))
@@ -855,19 +876,26 @@ def test_blackcat_reads_count_as_steps(env):
     for tool in ("ToolSearch", "AskUserQuestion", "Skill"):
         p = run(rg(s, tool, prompt="q1"), env, args=["blackcat-guard"])
         assert decision(p) == "deny" and "step limit (8 tool calls" in reason(p), tool
-    for tool in ("Read", "Bash", "Write"):             # own-work cap (4) reached first
+    p = run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"])   # read cap (3) first
+    assert decision(p) == "deny" and "read limit (3" in reason(p) and "explore" in reason(p)
+    for tool in ("Bash", "Write"):                     # never BlackCat's, whatever is left
         p = run(rg(s, tool, prompt="q1"), env, args=["blackcat-guard"])
-        assert decision(p) == "deny" and "own-work limit (4" in reason(p), tool
+        assert decision(p) == "deny" and "only delegates" in reason(p), tool
     p = run(pre_agent(s, "scout", parent="blackcat", prompt="q1"), env, extra=extra)
     assert decision(p) == "deny" and "step limit" in reason(p)
     # SendMessage, like Agent, is counted by the main hook (with its resume reservation)
     p = run(dict(send(s, "X1"), agent_type="blackcat", prompt_id="q1"), env)
     assert decision(p) == "deny" and "step limit (8 tool calls" in reason(p)
-    # reads alone stop at the own-work cap; specialist tools never pass, whatever is left
+    # reads alone stop at the read cap; the knob moves it; specialist tools never pass
     s2 = sid()
     res = [decision(run(rg(s2, "Read", prompt="q1"), env, args=["blackcat-guard"]))
-           for _ in range(6)]
-    assert res == ["allow"] * 4 + ["deny"] * 2
+           for _ in range(5)]
+    assert res == ["allow"] * 3 + ["deny"] * 2
+    res = [decision(run(rg(s2, "Read", prompt="q2"), env, args=["blackcat-guard"],
+                        extra={"BLACKCAT_MAX_READS": "1"})) for _ in range(2)]
+    assert res == ["allow", "deny"]
+    assert decision(run(rg(s2, "Read", prompt="q3"), env, args=["blackcat-guard"],
+                        extra={"BLACKCAT_MAX_READS": "0"})) == "deny"
     for tool in ("WebFetch", "NotebookEdit", "Monitor"):
         p = run(rg(sid(), tool, prompt="q1"), env, args=["blackcat-guard"])
         assert decision(p) == "deny" and "belongs to a specialist" in reason(p), tool
@@ -940,7 +968,8 @@ def test_agent_mode_input_is_removed(env, mode):
 
 
 def test_shipped_spawn_defaults(bare_env):
-    """No knobs set: BlackCat 8 dispatches, 24 steps and 4 own calls per prompt; the per-type
+    """No knobs set: BlackCat 8 dispatches, 24 steps, 3 reads and no own Bash/Write/Edit call per
+    prompt; the per-type
     fan-out table."""
     env = bare_env
     s = sid()
@@ -955,8 +984,10 @@ def test_shipped_spawn_defaults(bare_env):
     assert res == ["allow"] * 24 + ["deny"]
     s = sid()
     res = [decision(run(rg(s, "Read", prompt="q1"), env, args=["blackcat-guard"]))
-           for _ in range(5)]
-    assert res == ["allow"] * 4 + ["deny"]
+           for _ in range(4)]
+    assert res == ["allow"] * 3 + ["deny"]
+    for tool in ("Bash", "Write", "Edit"):
+        assert decision(run(rg(s, tool, prompt="q2"), env, args=["blackcat-guard"])) == "deny"
     for parent, cap in (("orchestrator", 32), ("supreme-coder", 6), ("main-coder", 6),
                         ("ninja-coder", 5), ("researcher", 4), ("coder", 3), ("designer", 3)):
         s, child = sid(), ("scout" if parent in ("researcher", "coder", "designer") else "coder")
@@ -2673,25 +2704,31 @@ def test_readonly_lake_env_checks_the_wrapped_command(command, ok):
     assert (bad is None) == ok, bad
 
 
-def test_blackcat_own_work_never_eats_the_dispatch_burst(env):
-    """Shipped caps (24 steps, 8 dispatches, 4 own calls): own work first, against the rules, still
-    leaves room for a full burst of 8 dispatches; the 5th own call is refused (and spends no step),
-    then 12 more calls fit and the 25th is refused."""
+def test_blackcat_reads_never_eat_the_dispatch_burst(env):
+    """Shipped caps (24 steps, 8 dispatches, 3 reads, 0 own calls): reads first, against the rules,
+    still leave room for a full burst of 8 dispatches; the 4th read and every Bash/Write/Edit are
+    refused (and spend no step), then 13 more calls fit and the 25th is refused."""
     s = sid()
     shipped = {"BLACKCAT_MAX_STEPS": "24", "BLACKCAT_MAX_DISPATCH": "8"}
-    for tool in ("Read", "Bash", "Edit", "Bash"):
-        assert decision(run(rg(s, tool, prompt="w1"), env, args=["blackcat-guard"],
-                            extra=shipped)) == "allow", tool
-    p = run(rg(s, "Write", prompt="w1"), env, args=["blackcat-guard"], extra=shipped)
-    assert decision(p) == "deny" and "own-work limit (4" in reason(p)
+    for _ in range(3):
+        assert decision(run(rg(s, "Read", prompt="w1"), env, args=["blackcat-guard"],
+                            extra=shipped)) == "allow"
+    p = run(rg(s, "Read", prompt="w1"), env, args=["blackcat-guard"], extra=shipped)
+    assert decision(p) == "deny" and "read limit (3" in reason(p)
+    for tool in ("Bash", "Edit", "Write"):
+        p = run(rg(s, tool, prompt="w1"), env, args=["blackcat-guard"], extra=shipped)
+        assert decision(p) == "deny" and "only delegates" in reason(p), tool
     for i in range(8):
         p = run(pre_agent(s, "scout", parent="blackcat", prompt="w1"), env, extra=shipped)
         assert decision(p) == "allow", i
-    for i in range(12):
+    for i in range(13):
         p = run(rg(s, "ToolSearch", prompt="w1"), env, args=["blackcat-guard"], extra=shipped)
         assert decision(p) == "allow", i
     p = run(rg(s, "ToolSearch", prompt="w1"), env, args=["blackcat-guard"], extra=shipped)
     assert decision(p) == "deny" and "step limit (24" in reason(p)
+
+
+OWN_ON = {"BLACKCAT_MAX_OWN_STEPS": "4"}
 
 
 @pytest.mark.parametrize("ti,ok", [
@@ -2703,7 +2740,8 @@ def test_blackcat_own_work_never_eats_the_dispatch_burst(env):
     ({"command": "make test", "run_in_background": "yes", "timeout": 600000}, False),
 ])
 def test_blackcat_foreground_bash_is_bounded(env, ti, ok):
-    p = run(rg(sid(), "Bash", tool_input=ti), env, args=["blackcat-guard"])
+    """Only reachable with an explicit BLACKCAT_MAX_OWN_STEPS override (the default refuses Bash)."""
+    p = run(rg(sid(), "Bash", tool_input=ti), env, args=["blackcat-guard"], extra=OWN_ON)
     assert (decision(p) == "allow") == ok, ti
     if not ok:
         assert "foreground Bash is capped at 120 s" in reason(p)
@@ -2713,7 +2751,7 @@ def test_blackcat_foreground_cap_follows_a_raised_default(env):
     """BASH_DEFAULT_TIMEOUT_MS raised in settings env: a Bash call without a timeout would wait
     that long, so it must pass an explicit timeout within the cap."""
     s = sid()
-    raised = {"BASH_DEFAULT_TIMEOUT_MS": "300000"}
+    raised = dict(OWN_ON, BASH_DEFAULT_TIMEOUT_MS="300000")
     p = run(rg(s, "Bash", tool_input={"command": "ls"}), env, args=["blackcat-guard"], extra=raised)
     assert decision(p) == "deny" and "asks for 300 s" in reason(p)
     p = run(rg(s, "Bash", prompt="p2", tool_input={"command": "ls", "timeout": 60000}), env,

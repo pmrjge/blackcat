@@ -156,7 +156,7 @@ FIXED_GUARDS = frozenset((
     "FLOOR", "CEILING", "FLOORS", "CEILINGS", "MAXTURNS", "MAX_TURNS",
 ))
 FIXED_PREFIXES = ("SUPREME_", "STACK_IMAGE_", "READ_GATE_", "EXA_MAX_", "JINA_MAX_", "SPIDER_MAX_",
-                  "STACK_FANOUT_")
+                  "STACK_FANOUT_", "BLACKCAT_")
 
 
 class SeedError(Exception):

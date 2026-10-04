@@ -62,6 +62,9 @@ KNOWN_PLACEHOLDERS = {
     "__NODE__", "__MAGG__", "__HUETENSION__", "__STACK_REPO__", "__STACK_STATE__",
 }
 TASK_TOOL_RE = re.compile(r"^Task(Create|Get|Update|List|Output)$")
+# what a delegate-only main thread needs: dispatch, resume, stop, list, ask, plan exit, tool and skill lookup
+BLACKCAT_DELEGATION_TOOLS = {"Agent", "SendMessage", "TaskStop", "ListAgents", "AskUserQuestion",
+                             "ExitPlanMode", "ToolSearch", "Skill"}
 PLACEHOLDER_RE = re.compile(r"__[A-Z_]+__")
 INSTALL_SH = REPO_ROOT / "install.sh"
 
@@ -460,6 +463,13 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
                     f"{path.name}: blackcat Agent(...) {sorted(got)} != blackcat policy row "
                     f"{sorted(want)}"
                 )
+        # BlackCat only delegates: no work tool on its line (hook-independent), the delegation set present
+        work = sorted({"Bash", "Write", "Edit", "NotebookEdit"} & set(flat_tools))
+        if work:
+            fail(f"{path.name}: blackcat only delegates; drop {work} from tools:")
+        missing = sorted(BLACKCAT_DELEGATION_TOOLS - set(flat_tools))
+        if missing:
+            fail(f"{path.name}: blackcat tools: lacks delegation tools {missing}")
         if blackcat_tools is not None and set(flat_tools) != set(blackcat_tools):
             fail(f"{path.name}: blackcat tools {sorted(flat_tools)} != agent_guard BLACKCAT_TOOLS "
                  f"{sorted(blackcat_tools)} (the blackcat-guard hook would deny the difference)")

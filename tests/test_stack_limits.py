@@ -267,7 +267,9 @@ def test_T1_fixed_guards_are_never_variables(st):
                                           "STACK_FANOUT_DYN_NODE_RUNS", "STACK_FANOUT_DYN_RESERVE_TOK",
                                           "STACK_FANOUT_DYN_SLACK", "STACK_FANOUT_DYN_TYPES",
                                           "STACK_FANOUT_DYN_W0", "STACK_FANOUT_DYN_WMIN",
-                                          "stack-max-depth", "blackcat.max.dispatch"]:
+                                          "stack-max-depth", "blackcat.max.dispatch",
+                                          "BLACKCAT_MAX_OWN_STEPS", "BLACKCAT_MAX_READS",
+                                          "BLACKCAT_BASH_TIMEOUT_MS"]:
         assert L.is_fixed_guard(name), name
         assert not L.VAR_RE.match(name) and name not in s["vars"]
     bad = json.loads(SEED_JSON.read_text())

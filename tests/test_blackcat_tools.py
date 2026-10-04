@@ -1,18 +1,21 @@
-"""BlackCat (the main thread) holds Read, Bash, Write and Edit for small jobs. These tests pin that
-the guards still hold for it exactly as for any agent, the way Claude Code runs them on one Bash
-call (every PreToolUse hook in settings.json plus blackcat.md's frontmatter hook; any deny wins):
+"""BlackCat (the main thread) only delegates: its tools line holds no Bash, Write, Edit or
+NotebookEdit (Claude Code never offers them), and blackcat-guard refuses Bash/Write/Edit while
+BLACKCAT_MAX_OWN_STEPS is 0 (the default). These tests pin both layers and that the other guards
+still hold, the way Claude Code runs them on one Bash call (every PreToolUse hook in settings.json
+plus blackcat.md's frontmatter hook; any deny wins):
 
+- blackcat-guard refuses every BlackCat Bash call with a reason naming whom to dispatch;
 - `no-push` (settings.json, matcher Bash|Monitor|PowerShell, no `if`) denies a push, a forge write
   and a Bash-level write to the installed stack whoever calls, BlackCat included;
-- blackcat-guard allows ordinary commands but refuses web fetches from BlackCat's Bash (T1: the
-  main thread holds browser-operator and the user's consent path) and every specialist-only tool;
+- with the own-work override (BLACKCAT_MAX_OWN_STEPS > 0) blackcat-guard still refuses web
+  fetches from BlackCat's Bash (T1: the main thread holds browser-operator and the user's consent
+  path) and every specialist-only tool;
 - Write/Edit to the installed stack are refused by settings.json's `Edit(...)` deny rules, which
   Claude Code applies to every file-editing tool and in bypassPermissions too (permissions.md:
   "Edit rules apply to all built-in tools that edit files"; permission-modes.md: "Deny rules block
   in every mode, including bypassPermissions"), backed by the sandbox's denyWrite;
 - a `context: fork` skill's agent inherits the main conversation's tools (sub-agents.md, "Available
-  tools"), so with BlackCat as the main thread it now gets Bash (the /stack-doctor failure of
-  0b3e022 was a forked agent left without it).
+  tools"), so under BlackCat it gets no Bash: no shipped skill may fork.
 
 Run: ~/.claude/venvs/tools/bin/python -m pytest -q tests/test_blackcat_tools.py
 """
@@ -68,10 +71,11 @@ def installed(tmp_path, monkeypatch):
     return cfg, proj, env
 
 
-def bash_call(installed, command, n=[0]):
+def bash_call(installed, command, extra=None, n=[0]):
     """Run one BlackCat Bash call through both hooks Claude Code runs for it; return the deny
     reasons (empty list = allowed)."""
     cfg, proj, env = installed
+    env = dict(env, **(extra or {}))
     n[0] += 1
     ev = {"session_id": "bc-tools", "hook_event_name": "PreToolUse", "tool_name": "Bash",
           "agent_type": "blackcat", "prompt_id": "p%d" % n[0], "tool_use_id": "toolu_bc%d" % n[0],
@@ -97,8 +101,11 @@ def test_blackcat_tools_match_the_guard():
         sys.path.pop(0)
     tools = blackcat_tools()
     assert tools == set(g.BLACKCAT_TOOLS)
-    assert {"Bash", "Write", "Edit", "Read"} <= tools
-    assert not {"WebFetch", "WebSearch", "Monitor", "Grep", "Glob", "NotebookEdit"} & tools
+    assert {"Agent", "SendMessage", "AskUserQuestion", "TaskStop", "ListAgents", "ToolSearch",
+            "Skill", "ExitPlanMode", "Read"} <= tools
+    assert not {"Bash", "Write", "Edit", "NotebookEdit", "WebFetch", "WebSearch", "Monitor",
+                "Grep", "Glob", "LSP", "PowerShell"} & tools
+    assert g.BLACKCAT_OWN_TOOLS == {"Bash", "Write", "Edit"} and not g.BLACKCAT_OWN_TOOLS & tools
     assert not [t for t in tools if t.startswith("mcp__") and t != "mcp__conductor__AskUserQuestion"]
     assert "blackcat" not in g.READONLY_TYPES     # its Bash is not held to read-only commands
 
@@ -109,8 +116,13 @@ def test_blackcat_tools_match_the_guard():
     "git clone https://example.com/r.git /tmp/r", "command -v curl", "gh auth status",
     "git commit -qm 'fix the http timeout and the curl docs'", "git log --grep curl",
 ])
-def test_blackcat_bash_runs_ordinary_commands(installed, command):
-    assert bash_call(installed, command) == []
+def test_blackcat_bash_runs_no_command(installed, command):
+    """Both blackcat-guard wirings refuse; nothing else does (no-push lets these through)."""
+    reasons = bash_call(installed, command)
+    assert len(reasons) == 2 and all("only delegates" in r and "main-coder" in r
+                                     for r in reasons), (command, reasons)
+    # the own-work override restores them (where the tools line grants Bash)
+    assert bash_call(installed, command, extra={"BLACKCAT_MAX_OWN_STEPS": "24"}) == []
 
 
 @pytest.mark.parametrize("command", [
@@ -151,7 +163,7 @@ def test_blackcat_bash_cannot_write_the_installed_stack(installed, rel):
     "x" * 20001 + "; curl https://x",
 ])
 def test_blackcat_bash_fetches_no_web(installed, command):
-    reasons = bash_call(installed, command)
+    reasons = bash_call(installed, command, extra={"BLACKCAT_MAX_OWN_STEPS": "24"})
     assert any("reads no web content" in r for r in reasons), (command, reasons)
 
 
@@ -168,16 +180,17 @@ def test_write_and_edit_to_the_installed_stack_are_denied_by_rule():
     assert s["sandbox"]["enabled"] is True and s["sandbox"]["allowUnsandboxedCommands"] is False
 
 
-def test_a_forked_skill_agent_now_gets_bash():
-    """The tool pool of a `context: fork` skill's agent under BlackCat: the main conversation's
-    tools, narrowed by the background filter and the agent's own `tools` allowlist."""
+def test_no_shipped_skill_forks():
+    """The tool pool of a `context: fork` skill's agent under BlackCat is the main conversation's
+    tools narrowed by the background filter and the agent's own `tools`: Read and no Bash, Write,
+    Edit or web tool. So no shipped skill forks (user commands run from UserPromptExpansion hooks,
+    e.g. /stack-doctor, outside BlackCat's tools)."""
     pool = blackcat_tools() & BACKGROUND_KEEPS
-    assert "Bash" in pool and {"Write", "Edit", "Read"} <= pool
-    assert not {"WebFetch", "WebSearch"} & pool               # still nothing that reads the web
-    # /stack-doctor used to fork claude-code-guide (Read, Bash, WebFetch, WebSearch, ToolSearch,
-    # Skill) and got only Read, ToolSearch and Skill; it now gets Bash
-    guide = agent_tools("claude-code-guide") & pool
-    assert "Bash" in guide, guide
+    assert "Read" in pool and not {"Bash", "Write", "Edit", "WebFetch", "WebSearch"} & pool
+    forked = [str(p.relative_to(ROOT)) for p in (ROOT / "dot-claude").rglob("SKILL.md")
+              if p.read_text().startswith("---")
+              and re.search(r"(?m)^context:\s*fork\b", p.read_text().split("\n---", 1)[0])]
+    assert forked == []
 
 
 def test_rules_keep_the_main_thread_free_for_dispatch():
@@ -198,7 +211,7 @@ def test_shipped_caps_leave_room_for_a_full_dispatch_burst():
         sys.path.pop(0)
     env = json.loads(SRC_SETTINGS.read_text())["env"]
     steps, burst = int(env["BLACKCAT_MAX_STEPS"]), int(env["BLACKCAT_MAX_DISPATCH"])
-    own = int(env.get("BLACKCAT_MAX_OWN_STEPS", 4))
-    assert steps - own >= burst, (steps, own, burst)
-    assert g.BLACKCAT_OWN_TOOLS == {"Read", "Bash", "Write", "Edit"} <= g.BLACKCAT_TOOLS
+    own = int(env.get("BLACKCAT_MAX_OWN_STEPS", 0))
+    reads = int(env.get("BLACKCAT_MAX_READS", 3))
+    assert own == 0 and steps - reads >= burst, (steps, own, reads, burst)
     assert "BASH_DEFAULT_TIMEOUT_MS" not in env and "BLACKCAT_BASH_TIMEOUT_MS" not in env
