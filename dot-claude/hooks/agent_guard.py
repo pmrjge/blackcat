@@ -3045,7 +3045,10 @@ def routing_violation(d, ev, to, target_id):
     if not aid or str(to).strip().lower() == "main":
         return None
     try:
-        os.listdir(os.path.join(d, "agents"))
+        try:
+            os.listdir(os.path.join(d, "agents"))
+        except FileNotFoundError:
+            pass                    # no registry yet: nobody is this caller's family
         if target_id and family(d, ev, aid, target_id):
             return None
     except OSError as exc:

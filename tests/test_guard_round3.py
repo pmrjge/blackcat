@@ -101,30 +101,32 @@ def test_spawn_prompt_from_a_tainted_agent_taints_the_child():
 
 
 def test_send_message_relays_both_ways():
+    """Messages go only between parent and child (no peer-to-peer, 2026-10-04): the taint follows
+    them both ways along those links."""
     env = Env()
-    spawn(env, "O1", "orchestrator", "researcher", "R1")
+    spawn(env, None, "blackcat", "orchestrator", "O2")
     spawn(env, "O2", "orchestrator", "main-coder", "M1")
-    spawn(env, "O2", "orchestrator", "coder", "C1")
+    spawn(env, "M1", "main-coder", "coder", "C1")
+    web_fetch(env, "O2", "orchestrator")                # the parent reads a page after spawning
     assert remember(env, "M1", "main-coder").decision == "allow(no-output)"
-    # M1 asks R1 (not its child): R1's reply reaches M1
-    assert env.run(env.send("R1", agent_id="M1", agent_type="main-coder")).decision != "deny"
-    assert denied_from(remember(env, "M1", "main-coder"), "R1")
+    # M1 asks its parent O2: O2's reply reaches M1
+    assert env.run(env.send("O2", agent_id="M1", agent_type="main-coder")).decision != "deny"
+    assert denied_from(remember(env, "M1", "main-coder"), "O2")
     # C1 is messaged by the now tainted M1: M1's message reaches C1
     assert env.run(env.send("C1", agent_id="M1", agent_type="main-coder")).decision != "deny"
-    assert denied_from(remember(env, "C1", "coder"), "R1")
-    for a, b in (("M1", "R1"), ("R1", "M1"), ("M1", "C1"), ("C1", "M1")):
+    assert denied_from(remember(env, "C1", "coder"), "O2")
+    for a, b in (("M1", "O2"), ("O2", "M1"), ("M1", "C1"), ("C1", "M1")):
         assert os.path.exists(os.path.join(env.sdir(), "web-relay", a, b))
 
 
-def test_send_to_an_unregistered_web_reader_taints_the_caller():
+def test_send_to_an_unregistered_name_is_refused_and_links_nothing():
     env = Env()
     names = os.path.join(env.sdir(), "names")
     os.makedirs(names, exist_ok=True)
     with open(os.path.join(names, "digger.json"), "w") as f:     # named, id not yet known
         json.dump({"type": "researcher", "id": None, "by": "main", "ts": 0}, f)
-    assert env.run(env.send("digger", agent_id="M1", agent_type="main-coder")).decision != "deny"
-    r = remember(env, "M1", "main-coder")
-    assert r.decision == "deny" and "read web content" in r.reason
+    assert env.run(env.send("digger", agent_id="M1", agent_type="main-coder")).decision == "deny"
+    assert remember(env, "M1", "main-coder").decision == "allow(no-output)"
 
 
 def running_named(env, parent_id, parent_type, child, child_id, name):
@@ -140,25 +142,20 @@ def running_named(env, parent_id, parent_type, child, child_id, name):
 
 
 def test_send_by_name_to_a_running_agent_links_both_ways():
-    """Review: a SendMessage to a name whose agent id isn't known yet (a foreground child) was not
-    linked. It is now, through the Agent call that spawned it, in both directions."""
+    """A name whose agent id isn't known yet (a running foreground child) is refused to a
+    subagent: nothing is sent, so nothing is linked (no peer-to-peer, 2026-10-04). Once it has
+    returned, its parent messages it by name and the link is made."""
     env = Env()
     running_named(env, "O1", "orchestrator", "coder", "H1", "helper")
     web_fetch(env, "A1", "main-coder")
+    assert env.run(env.send("helper", agent_id="A1", agent_type="main-coder")).decision == "deny"
     assert remember(env, "H1", "coder").decision == "allow(no-output)"
-    assert env.run(env.send("helper", agent_id="A1", agent_type="main-coder")).decision != "deny"
-    assert denied_from(remember(env, "H1", "coder"), "A1")
-    # the other way: a clean agent messages a running named agent that has read the web
-    running_named(env, "O1", "orchestrator", "coder", "D2", "digger")
-    web_fetch(env, "D2", "coder")
-    assert env.run(env.send("digger", agent_id="B1", agent_type="main-coder")).decision != "deny"
-    assert denied_from(remember(env, "B1", "main-coder"), "D2")
-    # once it has returned, the registry carries the same link (names/ now has its id)
     pre = running_named(env, "O1", "orchestrator", "coder", "E3", "later")
-    assert env.run(env.send("later", agent_id="A1", agent_type="main-coder")).decision != "deny"
     os.remove(os.path.join(env.proj, env.sid, "subagents", "agent-E3.meta.json"))
     env.run(env.post_agent(pre, "E3", status="completed"))
-    assert denied_from(remember(env, "E3", "coder"), "A1")
+    web_fetch(env, "O1", "orchestrator")
+    assert env.run(env.send("later", agent_id="O1", agent_type="orchestrator")).decision != "deny"
+    assert denied_from(remember(env, "E3", "coder"), "O1")
 
 
 def test_a_spawn_whose_taint_cannot_be_recorded_is_refused():
