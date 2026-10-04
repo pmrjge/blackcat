@@ -738,7 +738,14 @@ inst_uv_tarball(){
     && tar -xzf "$d/uv.tgz" -C "$d" && install -m 0755 "$d/uv-$1/uv" "$d/uv-$1/uvx" "$LOCAL_BIN/"
   rc=$?; rm -rf "$d"; return $rc
 }
-chk_pypin(){ have uv && uv python find "$PYTHON_PIN" >/dev/null 2>&1 && uv python pin --global 2>/dev/null | grep -q "^$PYTHON_PIN"; }
+# dry-run and report read uv's global pin file and run no uv command (uv 0.12 keeps the pin in
+# $XDG_CONFIG_HOME/uv/.python-version, ~/.config without it); a real run asks uv itself
+chk_pypin(){
+  if [ "$MODE" != install ]; then
+    have uv && grep -qs "^$PYTHON_PIN" "${XDG_CONFIG_HOME:-$HOME/.config}/uv/.python-version"; return
+  fi
+  have uv && uv python find "$PYTHON_PIN" >/dev/null 2>&1 && uv python pin --global 2>/dev/null | grep -q "^$PYTHON_PIN"
+}
 inst_pypin(){ uv python install "$PYTHON_PIN" && uv python pin --global "$PYTHON_PIN"; }
 
 nvm_node_bin(){ local d; for d in "$NVM_DIR"/versions/node/v"$NODE_MAJOR".*; do [ -x "$d/bin/node" ] && { printf '%s' "$d/bin"; return 0; }; done; return 1; }

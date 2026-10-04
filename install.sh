@@ -826,6 +826,9 @@ mf_install(){
   st="$(stat -f '%Su:%Sg %Lp' "$MF_PLIST" 2>/dev/null || true)"
   note "2. $MF_PLIST: $st"
   [ "$st" = "root:wheel 644" ] || { note "! 2. expected owner root:wheel and mode 644"; return 1; }
+  # the temp file sat in TMPDIR during sudo's password prompt: load only the template's exact bytes
+  [ "$(cat "$MF_PLIST" 2>/dev/null || true)" = "$(mf_plist)" ] \
+    || { note "! 2. $MF_PLIST differs from the template: not loaded (remove: sudo rm $MF_PLIST)"; return 1; }
   if mf_loaded; then
     sudo launchctl bootout system "$MF_PLIST" || { note "! 3. sudo launchctl bootout system $MF_PLIST failed"; return 1; }
   fi

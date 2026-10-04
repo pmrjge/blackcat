@@ -880,6 +880,40 @@ def test_maxfiles_wrong_owner_stops_before_launchctl(tmp_path):
     assert not [c for c in m.e.calls("sudo") if "launchctl" in c]
 
 
+def test_maxfiles_swapped_temp_file_is_never_loaded(tmp_path):
+    """audit LOW (CWE-367): the temp file waits in TMPDIR during sudo's prompt; a swapped copy that
+    passes the owner/mode check must still not reach launchctl."""
+    m = MF(tmp_path)
+    m.e.shim("sudo", SUDO_SHIM.replace('cp "$src" "$dst"', 'sed s/524288/1/ "$src" >"$dst"'))
+    out = m.run(stdin="y\n")
+    assert "1</string>" in m.plist.read_text() and m.plist.read_text() != PLIST_SNAPSHOT
+    assert "! 2. %s differs from the template: not loaded" % m.plist in out
+    assert not [c for c in m.e.calls("sudo") if "launchctl" in c]
+    assert not [c for c in m.e.calls() if c.startswith("launchctl bootstrap")]
+
+
+def test_pypin_dry_run_and_report_read_the_pin_file_and_run_no_uv_pin(tmp_path):
+    """audit LOW: dry-run and report only read uv's global pin file; a real run asks uv."""
+    e = Env(tmp_path)
+    e.shim("uv", UV_PINNED)
+    for mode in ("dry-run", "report"):
+        e.log.write_text("")
+        rc, out, _ = e.run("UV", mode=mode)
+        assert rc == 0 and not [c for c in e.calls("uv") if c.startswith("uv python")], e.calls("uv")
+        assert "python 3.14 (uv global pin)" in out and "  ok  python 3.14" not in out
+    pin = e.home / ".config" / "uv" / ".python-version"
+    pin.parent.mkdir(parents=True)
+    pin.write_text("3.14\n")
+    for mode in ("dry-run", "report"):
+        e.log.write_text("")
+        rc, out, _ = e.run("UV", mode=mode)
+        assert "  ok  python 3.14 (uv global pin)" in lines(out) and not [c for c in e.calls("uv") if c.startswith("uv python")]
+    pin.unlink()
+    e.log.write_text("")
+    rc, out, _ = e.run("UV")
+    assert "  ok  python 3.14 (uv global pin)" in lines(out) and "uv python pin --global" in [c.partition(" | ")[0] for c in e.calls("uv")]
+
+
 def test_maxfiles_loaded_service_is_booted_out_first(tmp_path):
     m = MF(tmp_path)
     m.loaded.write_text("")
@@ -1025,7 +1059,15 @@ def test_install_sh_maxfiles_runs_before_any_install_call(scratch_repo, tmp_path
     first_root = next(i for i, c in enumerate(log) if c.startswith(("sudo ", "plutil ")))
     first_curl = next(i for i, c in enumerate(log) if c.startswith("curl "))
     assert first_root < first_curl, log
-    assert e.argv("sudo")[-1] == "launchctl bootstrap system /Library/LaunchDaemons/ulimit.max-files.plist"
+    real = "/Library/LaunchDaemons/ulimit.max-files.plist"
+    assert e.argv("sudo")[0].startswith("install -m 644 -o root -g wheel ")
+    # sudo copies nothing here, so the content check reads this machine's file: launchd loads it
+    # only when it is the template's exact bytes
+    same = os.path.isfile(real) and open(real, encoding="utf-8").read() == PLIST_SNAPSHOT
+    if same:
+        assert e.argv("sudo")[-1] == "launchctl bootstrap system " + real
+    else:
+        assert "differs from the template: not loaded" in out and "launchctl" not in " ".join(e.argv("sudo"))
     assert "required tools are missing" in p.stderr
 
 
