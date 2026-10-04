@@ -6163,6 +6163,18 @@ GIT_EXEC_KEY_RE = re.compile(
     r"merge\..+\.driver|filter\..+\.(?:clean|smudge|process)|interactive\.difffilter|"
     r"gpg\.program|gpg\..+\.program|credential\.helper|credential\..+\.helper|"
     r"uploadpack\.packobjectshook|sendemail\..+)\Z", re.I)
+# Index blinding (CWE-345): install.sh reviews the checkout with `git status`/`git diff`; these
+# make git skip a file's working-tree content, so an edited file would be installed unseen.
+# update-index options are matched by any prefix (git accepts unique abbreviations); the
+# clearing forms (--no-assume-unchanged, --no-skip-worktree) stay allowed.
+INDEX_BLIND_OPTS = ("assume-unchanged", "skip-worktree", "cacheinfo", "index-info")
+INDEX_BLIND_KEYS = {"core.sparsecheckout", "core.sparsecheckoutcone", "core.ignorestat"}
+INDEX_BLIND_ENV_RE = re.compile(r"GIT_CONFIG_(?:KEY_\d+|PARAMETERS)=", re.I)
+INDEX_BLIND_TEXT_RE = re.compile(r"core\.(?:sparsecheckout(?:cone)?|ignorestat)\b", re.I)
+GIT_CONFIG_NOSET = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--get-color",
+                    "--get-colorbool", "-l", "--list", "--unset", "--unset-all", "-e", "--edit",
+                    "--remove-section", "--rename-section"}
+GIT_CONFIG_VALUE_OPTS = {"-f", "--file", "--blob", "--type", "--default", "--comment", "--value"}
 ENV_EXEC_RE = re.compile(r"(?:GIT_[A-Z0-9_]+|EDITOR|VISUAL|PAGER|SSH_ASKPASS)=(.*)\Z", re.S)
 ASSIGN_RE = re.compile(r"[A-Za-z_]\w*\+?=")
 OPAQUE_SUB_RE = re.compile(r"[$`{}*?\[\]\x00]")      # expansions and globs: decided at run time
@@ -6456,6 +6468,11 @@ OPAQUE_REASON = ("Blocked by the stack's git rule (agents never push): `%s` cann
                  "because the shell decides it only when the command runs. Write the git or forge "
                  "subcommand literally, without variables, globs or nesting this deep; pushing is "
                  "the user's own step.")
+INDEX_REASON = ("Blocked by the stack's git rule: `%s` hides working-tree edits from git status/diff "
+                "(assume-unchanged, skip-worktree, direct index writes, sparse checkout, also inside "
+                "bash -c, eval or $(...)), which would blind install.sh's review of the checkout; "
+                "edit and commit files normally (--no-assume-unchanged, --no-skip-worktree and "
+                "`git sparse-checkout list` are fine).")
 GUARD_FAIL_REASON = ("Blocked: the stack's no-push guard could not check this command (%s). Split "
                      "it into simpler commands; pushing and forge writes stay the user's own step.")
 SECRETS_REASON = ("Blocked by the stack's secret-hardening rule: `%s` would put a real API key or "
@@ -7717,6 +7734,9 @@ class _Scan(object):
                     self.note_assign(restore(w))
                 m = ENV_EXEC_RE.match(w)
                 found = self.scan(restore(m.group(1)), depth + 1) if m else None
+                if not found and INDEX_BLIND_ENV_RE.match(w) and INDEX_BLIND_TEXT_RE.search(w):
+                    found = self.hit("index", w.split("=", 1)[0] + "=" + "core.sparseCheckout/"
+                                     "ignoreStat")       # GIT_CONFIG_KEY_0=core.sparseCheckout
             elif base in PUSH_PROGRAMS and here_cmd:
                 found = self.hit("push", base)       # not `ls .../git-push`
             elif base == "git":
@@ -7911,6 +7931,11 @@ class _Scan(object):
                 gopts.append(("-C", restore(opt[2:])))      # git -C~/dir
             if opt == "--config-env" and GIT_EXEC_KEY_RE.match(key):
                 return self.hit("opaque", "git --config-env " + restore(val))
+            if opt in ("-c", "--config-env") and (key.lower() in INDEX_BLIND_KEYS
+                                                   or _expansion(key)):
+                found = self.hit("index", "git %s %s" % (opt, key))   # -c core.sparseCheckout=true
+                if found:
+                    return found
             if opt == "-c":                    # git -c alias.p=push p, -c core.editor=...
                 found = self.git_config_value(key, value, depth)
                 if found:
@@ -7934,7 +7959,9 @@ class _Scan(object):
         if sub in PUSH_UNDER and PUSH_UNDER[sub] & set(words[k + 1:min(end, k + 6)]):
             return self.hit("push", "git %s %s" % (sub, "/".join(sorted(PUSH_UNDER[sub]))))
         args = [restore(x) for x in words[k + 1:min(end, k + 257)]]
-        found = None
+        found = self.git_index_blind(sub, args)
+        if found:
+            return found
         if sub == "config":                    # defining an alias or editor that pushes
             for j in range(len(args) - 1):
                 if GIT_EXEC_KEY_RE.match(args[j]) and not args[j + 1].startswith("-"):
@@ -7967,6 +7994,51 @@ class _Scan(object):
         if key.lower().startswith("alias.") and not value.startswith("!"):
             return self.scan("git " + value, depth + 1)
         return self.scan(value.lstrip("!"), depth + 1)
+
+    def git_index_blind(self, sub, args):
+        """Index blinding (INDEX_REASON): `git update-index` with an INDEX_BLIND_OPTS option (any
+        prefix, or a word the shell decides at run time), `git sparse-checkout` other than
+        `list`/help, `git config` setting an INDEX_BLIND_KEYS key (or a key decided at run time)
+        or an alias that runs update-index/sparse-checkout."""
+        if "index" not in self.want:
+            return None
+        if sub == "update-index":
+            for a in args:
+                if a == "--":
+                    break
+                name = a[2:].partition("=")[0] if a[:2] == "--" else ""
+                if name and any(o.startswith(name) for o in INDEX_BLIND_OPTS):
+                    return self.hit("index", "git update-index " + a)
+                if a[:1] in "$`*?[{" or (a[:1] == "-" and OPAQUE_SUB_RE.search(a)):
+                    return self.hit("index", "git update-index %s (decided at run time)" % a)
+            return None
+        if sub == "sparse-checkout":
+            if args[:1] in (["list"], ["-h"], ["--help"]):
+                return None
+            return self.hit("index", "git sparse-checkout " + " ".join(args[:2]))
+        if sub != "config":
+            return None
+        for j in range(len(args) - 1):         # git config alias.x 'update-index ...'
+            if args[j].lower().startswith("alias.") and \
+                    re.search(r"\b(?:update-index|sparse-checkout)\b", args[j + 1]):
+                return self.hit("index", "git config %s (runs update-index/sparse-checkout)"
+                                % args[j])
+        if any(a.partition("=")[0] in GIT_CONFIG_NOSET for a in args):
+            return None
+        pos, j = [], 0
+        while j < len(args):
+            a = args[j]
+            if a in GIT_CONFIG_VALUE_OPTS:
+                j += 2
+                continue
+            if a[:1] != "-" or a == "-":
+                pos.append(a)
+            j += 1
+        if pos[:1] == ["set"]:                 # get/unset/list...: pos[0] is no key, so no hit
+            pos = pos[1:]
+        if len(pos) >= 2 and (pos[0].lower() in INDEX_BLIND_KEYS or _expansion(pos[0])):
+            return self.hit("index", "git config %s" % pos[0])
+        return None
 
     def forge(self, tool, words, start, end, depth, xargs_seen=False):
         """Walk the forge's command tree over words[start:end] (options skipped; unknown words,
@@ -10988,9 +11060,9 @@ def readonly_violation(command, ev):
 
 def remote_write_in(command):
     """(kind, what) for the first remote write in a shell command — kind "push" (git push and
-    friends), "forge" (gh/tea/fj writes) or "opaque" (a git or forge command decided only at run
-    time) — else None."""
-    return _Scan(("push", "forge", "opaque")).scan(command)
+    friends), "forge" (gh/tea/fj writes), "index" (git index blinding: INDEX_REASON) or "opaque"
+    (a git or forge command decided only at run time) — else None."""
+    return _Scan(("push", "forge", "opaque", "index")).scan(command)
 
 
 def git_push_in(command):
@@ -11063,6 +11135,7 @@ def no_push_main(raw):
         kind, what = found
         deny(FORGE_REASON % what if kind == "forge" else
              OPAQUE_REASON % what if kind == "opaque" else
+             INDEX_REASON % what if kind == "index" else
              SECRETS_REASON % what if kind == "secrets" else
              INSTALL_REASON % what if kind == "install" else
              PROTECT_REASON % what if kind == "protect" else NO_PUSH_REASON)

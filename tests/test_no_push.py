@@ -469,3 +469,78 @@ def test_rules_file_claims_match_enforcement():
                 "tea pulls merge 1", "fj pr merge 1", "gh release create v1", "gh repo fork",
                 "gh api -X POST repos/o/r/issues"):
         assert G.remote_write_in(cmd), cmd
+
+
+# ---------------------------------------------------------------- index blinding (CWE-345):
+# install.sh reviews the checkout with `git status`/`git diff`; assume-unchanged, skip-worktree,
+# direct index writes and sparse checkout hide an edited file from that review.
+INDEX_BLINDS = [
+    "git update-index --assume-unchanged f", "git update-index --skip-worktree dot-claude/x.py",
+    "git update-index --cacheinfo 100644,abc,f", "git update-index --cacheinfo=100644,abc,f",
+    "git update-index --index-info", "git update-index --assume-u f", "git update-index --sk f",
+    "git update-index --add --assume-unchanged f", "git -C /repo update-index --skip-worktree f",
+    "git -c a=b update-index --assume-unchanged f", "/usr/bin/git update-index --index-info",
+    "git update-index $FLAG f", "git update-index \"$(echo --skip-worktree)\" f",
+    "git sparse-checkout set dot-claude", "git sparse-checkout init --cone", "git sparse-checkout",
+    "git sparse-checkout add x", "git sparse-checkout reapply", "git -C /r sparse-checkout set d",
+    "git config core.sparseCheckout true", "git config --bool core.sparsecheckout true",
+    "git config set core.sparseCheckoutCone true", "git config --worktree core.sparseCheckout true",
+    "git config --type bool core.sparseCheckout true", "git config core.ignoreStat true",
+    "git config --add core.sparseCheckout true", "git -C /r config core.sparseCheckout true",
+    "git config $KEY true",
+    "git -c core.sparseCheckout=true read-tree -mu HEAD", "git -c core.sparseCheckoutCone=true checkout",
+    "git --config-env=core.sparseCheckout=X checkout", "git -c \"$K=true\" checkout",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sparseCheckout GIT_CONFIG_VALUE_0=true git read-tree -mu HEAD",
+    "GIT_CONFIG_PARAMETERS=\"'core.sparsecheckout=true'\" git checkout",
+    "git config alias.ui update-index", "git config alias.h '!git update-index --skip-worktree'",
+    "git -c alias.x='update-index --assume-unchanged' x f", "git -c alias.x=update-index x --skip-worktree f",
+]
+NESTED_INDEX_BLINDS = [
+    "bash -c 'git update-index --assume-unchanged f'", 'sh -c "git sparse-checkout set d"',
+    "eval 'git config core.sparseCheckout true'", "echo $(git update-index --skip-worktree f)",
+    "bash -c \"$(echo 'git update-index --assume-unchanged f')\"",
+    "bash -c \"bash -c 'git -C r update-index --index-info'\"", "cd x && git update-index --skip-worktree f",
+    "zsh -c 'git -c core.sparseCheckout=true checkout'", "echo `git sparse-checkout init`",
+]
+INDEX_SAFE = [
+    "git update-index --no-assume-unchanged f", "git update-index --no-skip-worktree f",
+    "git update-index --refresh", "git update-index --add f", "git update-index --chmod=+x f",
+    "git update-index --really-refresh", "git update-index -- --assume-unchanged",
+    "git sparse-checkout list", "git -C r sparse-checkout list", "git sparse-checkout --help",
+    "git config core.sparseCheckout", "git config --get core.sparseCheckout",
+    "git config --unset core.sparseCheckout", "git config get core.sparseCheckout",
+    "git config --get core.sparseCheckout true", "git config --unset-all core.ignoreStat true",
+    "git config unset core.sparseCheckout",
+    "git config --list", "git config user.name x", "git config alias.st status",
+    "git -c core.editor=true commit", "git -c user.name=x commit -m m",
+    "git commit -m 'git update-index --assume-unchanged'", "grep -r skip-worktree docs",
+    "git ls-files -v", "git status", "bash -c 'git sparse-checkout list'",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=x git commit",
+]
+
+
+@pytest.mark.parametrize("command", INDEX_BLINDS + NESTED_INDEX_BLINDS)
+def test_index_blinding_detected(command):
+    found = G.remote_write_in(command)
+    assert found and found[0] == "index", (command, found)
+
+
+@pytest.mark.parametrize("command", INDEX_SAFE)
+def test_index_blinding_not_flagged(command):
+    assert G.remote_write_in(command) is None, command
+
+
+@pytest.mark.parametrize("command", ["git update-index --assume-unchanged f",
+                                     "bash -c 'git -C r update-index --skip-worktree f'",
+                                     "eval 'git sparse-checkout set d'",
+                                     "git -c core.sparseCheckout=true checkout"])
+def test_hook_denies_index_blinding_even_with_policy_off(command):
+    for policy in ("on", "off"):
+        out = decision(run_hook(command, STACK_POLICY=policy))
+        assert out["permissionDecision"] == "deny", command
+        assert "hides working-tree edits" in out["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("command", ["git update-index --no-skip-worktree f", "git sparse-checkout list"])
+def test_hook_allows_index_clearing_and_listing(command):
+    assert decision(run_hook(command)) is None
