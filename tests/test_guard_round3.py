@@ -351,8 +351,14 @@ def test_supply_diff_covers_everything_the_install_ships():
     paths = re.search(r'^SUPPLY_PATHS="([^"]+)"$', text, re.M).group(1).split()
     # all of lib/ (a module planted there next to install_state.py shows up as untracked) and the
     # lint script the installer runs (security audit 2026-10-04, CWE-427)
+    # lint script the installer runs (security audit 2026-10-04, CWE-427); only the README's images
+    # (lib/assets: neither installed nor run) are excluded
     assert set(paths) == {"dot-claude", "install.sh", "lib", "requirements", "tests/lint_agents.py",
-                          "tests/derive_sched_model.py", "tests/derive_thresholds.py"}
+                          "tests/derive_sched_model.py", "tests/derive_thresholds.py", ":(exclude)lib/assets"}
+    excluded = [p[len(":(exclude)"):] for p in paths if p.startswith(":(exclude)")]
+    paths = [p for p in paths if not p.startswith(":")]
+    assert not [p for p in re.findall(r'"\$HERE/([A-Za-z0-9_./-]+)', text)
+                if any(p == x or p.startswith(x + "/") for x in excluded)]          # nothing read from there
     # every repo path install.sh reads ("$HERE/<path>") lies under a supply path
     shipped = set(re.findall(r'"\$HERE/([A-Za-z0-9_./-]+)', text)) | {"dot-claude"}
     shipped = {p.rstrip("/") for p in shipped if p.split("/", 1)[0] not in {"tests", ".git", "legacy"}}
