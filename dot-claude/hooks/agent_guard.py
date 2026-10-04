@@ -752,8 +752,14 @@ def warn(msg):
     sys.stderr.write("agent_guard: %s\n" % msg)
 
 
+_HELD = {"on": False, "obj": None}     # dispatch(): an Agent/SendMessage output that waits for the scrub
+
+
 def emit(obj):
     hso = obj.get("hookSpecificOutput") if isinstance(obj, dict) else None
+    if _HELD["on"] and not (isinstance(hso, dict) and hso.get("permissionDecision") == "deny"):
+        _HELD["obj"] = obj          # the handler's decision is made; dispatch writes it after the scrub
+        sys.exit(0)
     if _SOFT_NOTE and isinstance(hso, dict) and hso.get("hookEventName") == "PreToolUse":
         # a queued soft-limit warning rides on whatever this call outputs: the reason of a
         # refusal, else the context added to the call
@@ -3210,7 +3216,7 @@ def stamp_sender(ev, d, ti):
 # ---------------------------------------------------------------- credential scrub (observe only)
 # STACK_SCRUB=observe (default): an Agent `prompt` or a SendMessage `message` that matches one of
 # the stack's credential patterns (bin/stack-tree's _REDACT and _KV tables, applied here to the
-# FULL text: never its redact()/text(), which cut at RAW_CAP and withhold text past a deadline)
+# FULL text in bounded windows: never its redact()/text(), which cut at RAW_CAP and withhold text past a deadline)
 # adds one line to <state>/<sid>/scrub-observe.jsonl (time, tool, agent id, match count per pattern
 # class; never matched text) and, once per run of the sender, a one-line note to it. Nothing is
 # rewritten or denied: KEY=, -p and token patterns also match ordinary code in briefs. Any failure
@@ -3224,22 +3230,28 @@ SCRUB_CLASSES = ("secret-assignment", "auth-header", "auth-scheme-token", "db-pa
 SCRUB_NOTE = ("Credential check (observe only, nothing changed): this %s input matches %s. If it "
               "holds a real credential, login or personal data, strip it unless the user's "
               "request names this use and recipient.")
+# stack-tree's patterns backtrack quadratically on one long crafted word ("pass"*60000: ~15 s;
+# 81 KB of " -tokentoken…": ~34 s), and a PreToolUse command hook past its timeout does not
+# block the call (hooks.md, "Timeouts"). So the scan runs in windows of SCRUB_WINDOW chars that
+# overlap by SCRUB_OVERLAP, stops at SCRUB_DEADLINE_S (the log row then says "partial"), and runs
+# only after the call's own decision (dispatch): a refusal never waits for it.
+SCRUB_WINDOW, SCRUB_OVERLAP, SCRUB_DEADLINE_S = 4096, 512, 1.0
 _SCRUB = []
 
 
-def kv_count(mod, s):
-    """Secret-named `name: value` pairs, scanned as stack-tree's redact_kv scans them."""
-    n, pos = 0, 0
+def kv_spans(mod, s):
+    """Spans of secret-named `name: value` pairs, scanned as stack-tree's redact_kv scans them."""
+    pos = 0
     for m in mod._KV.finditer(s):
         if m.start() >= pos and mod._KV_NAME.search(m.group(1)):
             v = mod._KV_VALUE.match(s, m.end())
             if v:
-                n, pos = n + 1, v.end()
-    return n
+                pos = v.end()
+                yield m.start(), v.end()
 
 
 def scrub_patterns():
-    """[(class, count(text))] from bin/stack-tree's tables, loaded once per process."""
+    """[(class, spans(text))] from bin/stack-tree's tables, loaded once per process."""
     if not _SCRUB:
         import importlib.machinery
         import importlib.util
@@ -3249,11 +3261,32 @@ def scrub_patterns():
         mod = importlib.util.module_from_spec(importlib.util.spec_from_loader(loader.name, loader))
         loader.exec_module(mod)
         same = len(mod._REDACT) == len(SCRUB_CLASSES)
-        _SCRUB[:] = [("secret-key-value", lambda s: kv_count(mod, s))] + [
+        _SCRUB[:] = [("secret-key-value", lambda s: kv_spans(mod, s))] + [
             (SCRUB_CLASSES[i] if same else "pattern-%d" % i,
-             lambda s, rx=rx: sum(1 for _ in rx.finditer(s)))
+             lambda s, rx=rx: (m.span() for m in rx.finditer(s)))
             for i, (rx, _) in enumerate(mod._REDACT)]
     return _SCRUB
+
+
+def scrub_scan(text):
+    """({class: matches}, partial): every pattern over overlapping windows of `text`; a match is
+    counted once (one that starts inside a counted match of its class, as a window's re-find of
+    it does, is skipped). partial: SCRUB_DEADLINE_S ran out before the end of the text."""
+    counts, done_to, base = {}, {}, 0
+    deadline = time.monotonic() + SCRUB_DEADLINE_S
+    patterns = scrub_patterns()
+    while True:
+        chunk = text[base:base + SCRUB_WINDOW]
+        for cls, spans in patterns:
+            for a, b in spans(chunk):
+                if base + a >= done_to.get(cls, 0):
+                    counts[cls] = counts.get(cls, 0) + 1
+                    done_to[cls] = base + max(b, a + 1)
+            if time.monotonic() > deadline:
+                return counts, True
+        if base + SCRUB_WINDOW >= len(text):
+            return counts, False
+        base += SCRUB_WINDOW - SCRUB_OVERLAP
 
 
 def scrub_log(d, row):
@@ -3279,18 +3312,18 @@ def scrub_observe(ev, d, tool):
     if raw is None:
         return
     text = raw if isinstance(raw, str) else json.dumps(raw, ensure_ascii=False)
-    counts = {}
-    for cls, count in scrub_patterns():
-        n = count(text)
-        if n:
-            counts[cls] = counts.get(cls, 0) + n
+    counts, partial = scrub_scan(text)
+    if not counts and not partial:
+        return
+    aid = ev.get("agent_id")
+    row = {"ts": int(time.time()), "tool": tool, "agent_id": safe(aid or "main"), "counts": counts}
+    if partial:
+        row["partial"] = True
+    scrub_log(d, row)
     if not counts:
         return
     hits = sorted(counts)
-    aid = ev.get("agent_id")
-    scrub_log(d, {"ts": int(time.time()), "tool": tool, "agent_id": safe(aid or "main"),
-                  "counts": counts})
-    run = (reg_get(d, aid) or {}).get("started") if aid else prompt_key(ev)
+    run =(reg_get(d, aid) or {}).get("started") if aid else prompt_key(ev)
     os.makedirs(os.path.join(d, "scrub"), exist_ok=True)
     if create_excl(os.path.join(d, "scrub", "%s.%s" % (safe(aid or "main"), safe(run)))):
         note = SCRUB_NOTE % (tool, ", ".join(hits))
@@ -11101,7 +11134,7 @@ def self_test():
     problems += report_self_test()
     problems += fanout_dyn_self_test()
     try:        # the credential scrub reads bin/stack-tree's table; a fake token must be classed
-        if [c for c, t in scrub_patterns() if t("x gh" + "p_" + "A1b2" * 9)] != ["known-token-format"]:
+        if scrub_scan("x gh" + "p_" + "A1b2" * 9) != ({"known-token-format": 1}, False):
             problems.append("scrub: stack-tree's _REDACT no longer maps onto SCRUB_CLASSES")
     except Exception as exc:  # noqa: BLE001
         problems.append("scrub: bin/stack-tree patterns not loadable (%s)" % type(exc).__name__)
@@ -11699,12 +11732,25 @@ def dispatch(ev):
             raise
         except Exception as exc:  # noqa: BLE001
             warn("token budget: %s: %s" % (type(exc).__name__, exc))
-        if tool in ("Agent", "SendMessage"):
-            try:
-                scrub_observe(ev, d, tool)
-            except Exception as exc:  # noqa: BLE001 - observe only: never blocks a call
-                warn_once("scrub: %s" % type(exc).__name__)
-    handler(ev, d)
+    if event == "PreToolUse" and tool in ("Agent", "SendMessage"):
+        # the credential scrub runs after the handler has decided: a refusal goes out at once and
+        # never waits for it; any other output is held (emit) and written once the scrub is done
+        _HELD["on"], _HELD["obj"] = True, None
+        try:
+            handler(ev, d)
+        except SystemExit:
+            if _HELD["obj"] is None:
+                raise
+        finally:
+            _HELD["on"] = False
+        try:
+            scrub_observe(ev, d, tool)
+        except Exception as exc:  # noqa: BLE001 - observe only: never blocks a call
+            warn_once("scrub: %s" % type(exc).__name__)
+        if _HELD["obj"] is not None:
+            emit(_HELD["obj"])
+    else:
+        handler(ev, d)
     if event == "PreToolUse":
         soft_flush()      # a soft-limit warning the handler's own output did not carry
 

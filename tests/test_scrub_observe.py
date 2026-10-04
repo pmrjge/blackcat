@@ -9,6 +9,7 @@ import shutil
 import stat
 import subprocess
 import sys
+import time
 
 from guard_harness import GUARD, Env
 
@@ -127,3 +128,42 @@ def test_fails_open_without_the_pattern_table(tmp_path):
                        env=e.env, timeout=60)
     assert p.returncode == 0 and '"deny"' not in p.stdout, (p.stdout, p.stderr)
     assert "scrub: FileNotFoundError" in p.stderr and not os.path.exists(log_path(e))
+
+
+# ---------------------------------------------------------------- guard-land: bounded scan
+def test_a_crafted_word_is_scanned_in_bounded_time_and_logged_partial():
+    """review a788868 / audit aee5316 HIGH: stack-tree's patterns backtrack quadratically on one long
+    word ("pass"*60000: ~15 s uncapped), past the hook's 15 s timeout. The scan runs in windows to a
+    deadline: an allowed call keeps its output (the stamp) and the log row says partial."""
+    e = Env()
+    child(e)
+    t = time.monotonic()
+    r = send(e, "pass" * 60000)
+    took = time.monotonic() - t
+    assert took < 5 and r.decision != "deny", (took, r)
+    out = json.loads(r.stdout)["hookSpecificOutput"]
+    assert out["updatedInput"]["message"].startswith("[from coder C1: ")       # held, then written
+    assert log_rows(e)[-1].get("partial") is True, log_rows(e)
+
+
+def test_matches_across_window_edges_count_once():
+    e = Env()
+    child(e)
+    # windows of 4096 that overlap by 512: [0,4096) [3584,7680) [7168,11264) [10752,14848) ...
+    # tokens at a window's start, inside an overlap (seen by two windows) and across a window's end
+    text = [" "] * 16000
+    for at in (3584, 3700, 4076, 7168, 7670, 11000, 11240, 14830):
+        text[at:at + len(FAKE_GH)] = FAKE_GH
+    send(e, "".join(text))
+    row = log_rows(e)[-1]
+    assert row["counts"]["known-token-format"] == 8 and "partial" not in row, row
+
+
+def test_a_refused_call_is_refused_before_any_scan():
+    """The scrub runs after the decision: a refusal never waits for it (and logs nothing)."""
+    e = Env()
+    child(e)
+    ev = e.send("nobody", agent_id="C1", agent_type="coder")
+    ev["tool_input"]["message"] = "token " + FAKE_GH
+    r = e.run(ev)
+    assert r.decision == "deny" and log_rows(e) == [], (r, log_rows(e))
