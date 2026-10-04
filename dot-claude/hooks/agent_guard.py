@@ -187,7 +187,7 @@ path, and for the read-only agent types any command outside the read-only allowl
 = event.
 
 Knobs (env):
-  STACK_POLICY=off        disable every deny and lock (bookkeeping and model strip continue)
+  STACK_POLICY=off        lift every deny and lock except no-push's refusals (bookkeeping and model strip continue)
   BLACKCAT_MAX_DISPATCH=8   blackcat Agent calls per user prompt (parallel fan-out of independent asks)
   BLACKCAT_DISPATCH_WINDOW_S=120  all blackcat dispatches for one prompt must start within this many
                           seconds of the first one (one parallel burst, not ad-hoc orchestration)
