@@ -42,9 +42,20 @@ import subprocess
 import sys
 import tempfile
 
-# the hooks' file helpers (dot-claude/hooks/stack_io.py of this repo): JSON objects in, atomic writes out
-sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dot-claude", "hooks"))
-from stack_io import read_json as load_json, write_json_atomic  # noqa: E402
+# the hooks' file helpers (dot-claude/hooks/stack_io.py of this repo): JSON objects in, atomic writes
+# out. Loaded by file path, never by putting dot-claude/hooks on sys.path: a module planted there (an
+# ignored json.pyc, ...) would shadow every stdlib module imported after it (review LOW, CWE-427).
+def _load_stack_io():
+    import importlib.util
+    path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "dot-claude", "hooks", "stack_io.py")
+    spec = importlib.util.spec_from_file_location("stack_io", path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_stack_io = _load_stack_io()
+load_json, write_json_atomic = _stack_io.read_json, _stack_io.write_json_atomic
 
 
 def write_json(path, data, mode=0o600):

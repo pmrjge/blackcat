@@ -61,6 +61,14 @@ def test_install_never_imports_a_module_planted_in_the_repo_or_cwd(tmp_path):
     out = _tis._run_install(repo, str(home), str(home / ".claude"), "--dry-run", cwd=repo)
     assert out.returncode == 0, (out.stdout[-2000:], out.stderr[-2000:])
     assert [m.name for m in marks if m.exists()] == [], out.stdout[-2000:]
+    # install_state.py loads stack_io.py by file path: the repo's dot-claude/hooks (agent-writable,
+    # ignored *.pyc there never shown) is never put on sys.path, where it would shadow later imports
+    p = subprocess.run([shutil.which("python3"), "-I", "-B", "-c",
+                        "import importlib.util, sys; s = importlib.util.spec_from_file_location('install_state', sys.argv[1]); "
+                        "m = importlib.util.module_from_spec(s); s.loader.exec_module(m); "
+                        "print(m.load_json is not None, [p for p in sys.path if 'dot-claude' in p])",
+                        os.path.join(repo, "lib", "install_state.py")], capture_output=True, text=True, cwd=str(tmp_path))
+    assert p.stdout.strip() == "True []", (p.stdout, p.stderr[-800:])
 
 
 @needs_git
