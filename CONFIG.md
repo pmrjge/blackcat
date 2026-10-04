@@ -62,7 +62,7 @@ Column key:
 
 | Agent | Model | Effort | maxTurns | Children | Was | Why |
 |---|---|---|---|---|---|---|
-| blackcat (main thread) | Sonnet 5.5 | medium (session) | none | 8 dispatches/prompt | effort low | Does a job of a few tool calls itself (Read, Bash, Write, Edit) and dispatches the rest; the orchestrator gets dependent multi-specialist work. At `medium` it asks questions and stays visible. |
+| blackcat (main thread) | Sonnet 5.5 | medium (session) | none | 8 dispatches/prompt | effort low | Only delegates (no Bash, Write or Edit; Read ≤ 3 per prompt for the ledger, a plan or a child's output); the orchestrator gets dependent multi-specialist work. At `medium` it asks questions and stays visible. |
 | orchestrator | Opus 5.5 | high | 200 | 32 | xhigh, 300 | Decomposes a job into up to 32 parallel tasks. On 5.5, `high` is enough for coordination. |
 | planner | Opus 5.5 | xhigh | 60 | 8 | 100 | Read-only design work that needs deep reasoning and few turns |
 | plan-reviewer | Opus 5.5 | high | 60 | leaf | xhigh, 100 | Critique against the code and docs. `high` suffices on 5.5. |

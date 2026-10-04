@@ -1023,7 +1023,7 @@ rc, and `claude mcp remove -s user exa` (and `jina`, `wolfram`, `huggingface`, `
 
 | You want | Type or do | What happens |
 |---|---|---|
-| A quick answer, a look at a file, a one-line edit, `git status` | ask normally | BlackCat does it itself (at most 4 own tool calls per prompt) |
+| A quick answer, a look at a file, a one-line edit, `git status` | ask normally | BlackCat answers a greeting or setup question itself; a look → explore, an edit or one command → coder |
 | A timeless explanation; one current fact; a cited survey | ask normally | oracle; scout; researcher |
 | A fix or feature in a repository | describe the deliverable | coder, a language engineer or main-coder; a reviewer only when a review trigger fires |
 | A specific agent | start with `@<agent>` or `<agent>:` (e.g. `@verifier check …`) | that agent gets your prompt verbatim |
