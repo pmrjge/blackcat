@@ -338,12 +338,12 @@ def test_rewrite_replaces_a_model_the_caller_passed(env):
     assert model is None
 
 
-def test_rewrite_applies_to_nested_spawns_and_copies(env):
+def test_rewrite_applies_to_nested_spawns(env):
     s = sid()
     command(s, "main-coder sonnet", env)
     command(s, "coder haiku", env)
     assert spawned_model(s, "main-coder", env, by_type="orchestrator", by="orch1")[0] == "sonnet"
-    assert spawned_model(s, "coder-copy", env, by_type="coder", by="cod1")[0] == "haiku"
+    assert spawned_model(s, "coder", env, by_type="main-coder", by="mc1")[0] == "haiku"
 
 
 def test_gates_still_refuse_with_an_override(env):

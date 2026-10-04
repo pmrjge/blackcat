@@ -188,7 +188,7 @@ def test_l7_own_child_and_own_parent_may_be_resumed():
 
 
 def test_r11_resuming_a_finished_child_counts_against_the_fanout_cap():
-    e = Env(STACK_MAX_FANOUT=2, STACK_MAX_SELF_FANOUT=1)
+    e = Env(STACK_MAX_FANOUT=2)
     spawned(e, "main-coder", "SC")
     spawned(e, "coder", "C1", caller="SC", ctype="main-coder")
     spawned(e, "coder", "C2", caller="SC", ctype="main-coder")
@@ -205,13 +205,6 @@ def test_r11_resuming_a_finished_child_counts_against_the_fanout_cap():
     r = e.run(e.pre_agent("scout", agent_id="SC", agent_type="main-coder"))
     assert r.decision == "deny" and "Fan-out limit" in r.reason, r
     e.run(e.stop("C1", "coder"))
-    # copies: a coder resuming a finished coder-copy while another copy runs (session-wide cap 1)
-    spawned(e, "coder", "CC", caller="SC", ctype="main-coder")
-    spawned(e, "coder-copy", "S2", caller="CC", ctype="coder")
-    e.run(e.stop("S2", "coder-copy"))
-    spawned(e, "coder-copy", "S3", caller="CC", ctype="coder")
-    r = e.run(e.send("S2", agent_id="CC", agent_type="coder"))
-    assert r.decision == "deny" and "Copy limit" in r.reason, r
 
 
 # ---------------------------------------------------------------- review 2026-09-28

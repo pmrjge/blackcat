@@ -25,7 +25,7 @@ Gated targets (CONFIG.md, "Read gate"):
 Never gated: anything under a .claude-work/ directory; Read with 0 < limit <= READ_GATE_LIMIT;
 Grep unless output_mode is content without head_limit <= READ_GATE_LIMIT; Bash readers whose output is cut
 (| head, | tail, | wc, grep -l/-c/-q, > file) or capped (head, tail, find -maxdepth <= 2).
-Exemptions: READ_GATE_EXEMPT_<CATEGORY> agent types (a `<type>-copy` counts as its base).
+Exemptions: READ_GATE_EXEMPT_<CATEGORY> agent types.
 
 Retry state: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/read-gate.json,
 {key: [ts, hits]} with key = sha256(agent_id, tool, the call's input), at most
@@ -175,11 +175,10 @@ def read_knobs(path=None):
 
 
 def agent_type(ev):
-    """The calling agent's type, lowercased, a `<type>-copy` and a `plugin:type` mapped to type."""
+    """The calling agent's type, lowercased, a `plugin:type` mapped to type."""
     t = str(ev.get("agent_type") or "").strip().lower()
     t = t.rsplit(":", 1)[-1]
-    t = re.sub(r"[\s_]+", "-", t)
-    return t.removesuffix("-copy")
+    return re.sub(r"[\s_]+", "-", t)
 
 
 def exempt(knobs, category, atype):
@@ -808,7 +807,6 @@ def self_test():
         check("identical retry passes", run("Read", {"file_path": hugo}) is None)
         check("other agent refused", run("Read", {"file_path": hugo}, aid="a2") == "deny")
         check("verifier exempt", run("Read", {"file_path": hugo}, "verifier", aid="a3") is None)
-        check("copy type exempt", run("Read", {"file_path": hugo}, "verifier-copy", aid="a4") is None)
         check("small limit passes", run("Read", {"file_path": hugo, "limit": 50}, aid="a5") is None)
         check("hugo source passes", run("Read", {"file_path": os.path.join(site, "content/post.md")}) is None)
         check("vite public passes", run("Read", {"file_path": os.path.join(root, "app/public/favicon.svg")}) is None)

@@ -8,8 +8,8 @@ is the static decision (R3). The decision core is stack_fanout.py (pure: no env,
 Dynamic fan-out plan D1-D6, as wired here:
   scope     stack_fanout.in_scope: a subagent whose type is in STACK_FANOUT_DYN_TYPES (default
             orchestrator) with a static cap > 0; never the main thread or BlackCat (R2).
-  decision  dyn_spawn / dyn_resume run inside the guard's 'fanout' mutex after its session (K_sess),
-            fan-out and copy checks allowed the call, so they only refuse what static allows (R1).
+  decision  dyn_spawn / dyn_resume run inside the guard's 'fanout' mutex after its session (K_sess)
+            and fan-out checks allowed the call, so they only refuse what static allows (R1).
             shadow: computed and logged, never refused; enforce: the terms in
             STACK_FANOUT_DYN_ENFORCE refuse with stack_fanout.deny_text. K_sess stays the guard's
             (STACK_FANOUT_SESSION); here it is only a reported cap term.
@@ -78,7 +78,7 @@ def valid_id(g, aid):
 
 def valid_type(g, t):
     t = g.norm(t)
-    return t if t in g.AGENTS or t in g.COPY_BASE else ("other" if t else None)
+    return t if t in g.AGENTS else ("other" if t else None)
 
 
 def append(g, d, name, rec):

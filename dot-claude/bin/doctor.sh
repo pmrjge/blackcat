@@ -358,16 +358,13 @@ import json, os, sys
 p = json.loads(sys.argv[1])
 d = sys.argv[2]
 agents = p.get("agents", [])
-# copy types (researcher-copy, coder-copy): POLICY rows of the hook, files rendered by install.sh
-copy_of = p.get("copy_types") or {}
-copies = sorted(copy_of.values()) if isinstance(copy_of, dict) else sorted(b + "-copy" for b in copy_of)
-missing = [a for a in agents + copies if not os.path.isfile(os.path.join(d, a + ".md"))]
-extra = sorted(f[:-3] for f in os.listdir(d) if f.endswith(".md") and f[:-3] not in agents + copies) if os.path.isdir(d) else []
+missing = [a for a in agents if not os.path.isfile(os.path.join(d, a + ".md"))]
+extra = sorted(f[:-3] for f in os.listdir(d) if f.endswith(".md") and f[:-3] not in agents) if os.path.isdir(d) else []
 if missing:
     print("  FAIL  missing agent files: " + " ".join(missing))
 else:
-    print("  ok    %d/%d agent files present (BlackCat + %d specialists + %d copy types)"
-          % (len(agents) + len(copies), len(agents) + len(copies), len(agents) - 1, len(copies)))
+    print("  ok    %d/%d agent files present (BlackCat + %d specialists)"
+          % (len(agents), len(agents), len(agents) - 1))
 if "senior-coder" in extra:
     extra.remove("senior-coder")
     print("  WARN  agents/senior-coder.md is the stack's old name for main-coder (install.sh --no-prune kept it):"
@@ -376,14 +373,14 @@ if "router" in extra:
     extra.remove("router")
     print("  WARN  agents/router.md is the stack's old name for blackcat (install.sh --no-prune kept it):"
           " move your changes into blackcat.md and delete it, or rerun install.sh (the backup keeps it)")
-# a copy file the installed hook's policy doesn't know yet (hook older than the agents)
-for a in [x for x in extra if x.endswith("-copy") and x[:-5] in agents]:
+# copy types the stack retired (2026-10-04): install.sh --no-prune kept them
+for a in [x for x in extra if x in ("researcher-copy", "coder-copy")]:
     extra.remove(a)
-    print("  WARN  agents/%s.md is a copy type this hook's policy doesn't list yet: rerun install.sh" % a)
+    print("  WARN  agents/%s.md is a retired copy type (install.sh --no-prune kept it): delete it,"
+          " or rerun install.sh (the backup keeps it)" % a)
 if extra:
     print("  WARN  your own agents, unreachable from BlackCat and the stack's agents (the spawn policy"
           " lists only the stack's): %s — run one with `claude --agent <name>`" % " ".join(extra))
-print("  ok    copy types: " + (", ".join(copies) or "none"))
 PY
 fi
 [ -f "$C/rules/claude-agent-stack.md" ] && ok "global rules: rules/claude-agent-stack.md" \

@@ -243,10 +243,8 @@ def soft_values() -> Dict[str, Any]:
 
 
 def _soft_lookup(values: Dict[str, Any], family: str, t: str) -> Tuple[bool, Any]:
-    for k in (t, t[:-5] if t.endswith("-copy") else None):
-        if k and "%s.%s" % (family, k) in values:
-            return True, values["%s.%s" % (family, k)]
-    return False, None
+    k = "%s.%s" % (family, t)
+    return (True, values[k]) if k in values else (False, None)
 
 
 def _soft_limit_of(values: Dict[str, Any], t: str, pool: str) -> Any:

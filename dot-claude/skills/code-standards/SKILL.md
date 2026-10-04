@@ -20,7 +20,7 @@ Clear names; small functions; explicit error handling (no silent catches); no se
 - Library/API usage: confirm against current docs with mcp__libdocs when unsure (`get_library_docs(library, topic)`); for a library the project leans on heavily, run `index_library_docs` once so later lookups are free.
 
 ## Offloading and escalation
-- Offload mechanical, well-specified work (boilerplate, tests, call-site updates, docs) to coder with an exact brief: files, interfaces, done-when. Copies (coder-copy, researcher-copy) are spawned only by their base agent and spawn no copies; the hook caps them (STACK_MAX_SELF_FANOUT).
+- Offload mechanical, well-specified work (boilerplate, tests, call-site updates, docs) to coder with an exact brief: files, interfaces, done-when.
 - Escalation chain: coder → main-coder (ml-/dl-/llm-engineer for model work, mlx-/cuda-engineer for accelerator work) after two failed attempts or when architecture or numerics is needed. main-coder hands an algorithmic or mathematical core (novel algorithm, proof, numerical stability, performance-critical kernel) to ninja-coder, and escalates to it after two serious, evidence-based attempts failed; mlx-, cuda-, dl- and llm-engineer use ninja-coder for such cores. supreme-coder comes only after ninja-coder (or, for platform and research-grade model problems, the specialist) failed twice or the problem is clearly novel.
 - Every escalation carries a dossier: goal, constraints, what failed and why, logs, minimal repro, current hypothesis. Only the orchestrator spawns supreme-coder (hook-enforced); others return STATUS: partial with NEXT: supreme-coder and the dossier.
 - TaskStop ends a runaway subagent.

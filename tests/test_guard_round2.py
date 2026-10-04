@@ -537,7 +537,7 @@ def test_main_thread_is_never_tainted_or_refused():
 
 def test_web_ingesting_types_still_refused_without_a_marker():
     env = Env()
-    for atype in ("researcher", "researcher-copy", "scout", "browser-operator"):
+    for atype in ("researcher", "scout", "browser-operator"):
         r = env.run(remember_ev(env, "w3", atype))
         assert r.decision == "deny" and "reads web pages" in r.reason, r
 

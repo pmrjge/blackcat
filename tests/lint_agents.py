@@ -7,7 +7,7 @@ Usage:
 By default the policy is obtained by running:
     python3 dot-claude/hooks/agent_guard.py --print-policy
 which must print JSON: {"policy": {...}, "leaves": [...], "agents": [...], "builtins": ["explore"],
-"self_spawn": [...], "copy_types": {base: copy}, "blackcat_tools": [...]}.
+"blackcat_tools": [...]}.
 
 If that invocation fails (e.g. agent_guard.py isn't rewritten yet in a parallel
 branch of work), pass --policy-json pointing at a JSON file with the same shape
@@ -66,7 +66,6 @@ TASK_TOOL_RE = re.compile(r"^Task(Create|Get|Update|List|Output)$")
 BLACKCAT_DELEGATION_TOOLS = {"Agent", "SendMessage", "TaskStop", "ListAgents", "AskUserQuestion",
                              "ExitPlanMode", "ToolSearch", "Skill"}
 PLACEHOLDER_RE = re.compile(r"__[A-Z_]+__")
-INSTALL_SH = REPO_ROOT / "install.sh"
 
 # maxTurns tiers (a runaway bound, not a budget): every agent at most MAX_TURNS_CAP; the agents whose
 # work is iterative by nature (coordination, the implementer escalation chain) may go higher than
@@ -548,41 +547,11 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
             fail(f"{path.name}: `{s}`* is marked hidden but the skill is listed; drop the *")
 
 
-def installer_copy_types():
-    """COPY_TYPES as install.sh declares it (the tuple of base agent types that get a -copy)."""
-    m = re.search(r"(?m)^COPY_TYPES = \(([^)]*)\)", INSTALL_SH.read_text())
-    if not m:
-        fail("install.sh: no COPY_TYPES = (...) line")
-        return []
-    return re.findall(r'"([a-z0-9-]+)"', m.group(1))
-
-
-def check_copy_policy(policy_row, copy_bases, hook_copy_of):
-    """One generation of copies as a static policy: <base> lists <base>-copy and not itself; a copy's
-    row is the base row minus the base and every copy; nobody else lists a copy; no other agent
-    lists its own type. `hook_copy_of` is agent_guard's COPY_OF ({base: copy}, `copy_types` in
-    --print-policy); the hook keeps AGENTS to the shipped files and adds the copies as POLICY rows."""
-    copies = {b + "-copy" for b in copy_bases}
-    for b in copy_bases:
-        c = b + "-copy"
-        if hook_copy_of.get(b) != c:
-            fail(f"copy type {c}: missing from agent_guard COPY_OF/copy_types (the hook would not know it)")
-        base_row, copy_row = policy_row.get(b), policy_row.get(c)
-        if base_row is None or copy_row is None:
-            fail(f"copy type {c}: agent_guard POLICY needs rows for {b} and {c}")
-            continue
-        if c not in base_row or b in base_row:
-            fail(f"POLICY[{b}] must list {c} and not {b} (copies are their own type)")
-        want = sorted(x for x in base_row if x != b and x not in copies)
-        if sorted(copy_row) != want:
-            fail(f"POLICY[{c}] {sorted(copy_row)} != POLICY[{b}] minus {b} and copies {want}")
+def check_no_self_spawn(policy_row):
+    """No agent lists its own type (the copy types were retired 2026-10-04)."""
     for parent, row in policy_row.items():
         if parent in row:
-            fail(f"POLICY[{parent}] lists {parent} itself: only copy types may run copies")
-        base = parent[:-len("-copy")] if parent in copies else parent
-        for c in copies & set(row):
-            if c != base + "-copy" or parent in copies:
-                fail(f"POLICY[{parent}] lists {c}: only {c[:-len('-copy')]} may spawn it")
+            fail(f"POLICY[{parent}] lists {parent} itself: no agent spawns its own type")
 
 
 def check_bare_python():
@@ -687,15 +656,7 @@ def main():
     builtins = set(policy_data.get("builtins", ["explore"]))
     expected_agents = policy_data.get("agents")
 
-    # Copy types: install.sh renders <base>-copy.md from <base>.md, so the repo has no file for them.
-    copy_bases = installer_copy_types()
-    hook_copy_of = policy_data.get("copy_types") or {}
-    if not isinstance(hook_copy_of, dict):
-        hook_copy_of = {b: b + "-copy" for b in hook_copy_of}
-    if set(hook_copy_of) != set(copy_bases):
-        fail(f"copy types: agent_guard {sorted(hook_copy_of)} != install.sh COPY_TYPES {sorted(copy_bases)}")
-    copy_names = {b + "-copy" for b in copy_bases}
-    check_copy_policy(policy_row, copy_bases, hook_copy_of)
+    check_no_self_spawn(policy_row)
     # leaves by decision (a review or an image job is one bounded task); planner keeps delegation
     for a in ("plan-reviewer", "image-director"):
         if a not in leaves or policy_row.get(a):
@@ -704,16 +665,10 @@ def main():
         fail("planner must keep a non-empty POLICY row (it keeps Agent + SendMessage)")
 
     files = sorted(AGENTS_DIR.glob("*.md"))
-    for f in files:
-        if f.stem in copy_names:
-            fail(f"{f.name}: a copy type is rendered by install.sh from its base agent; don't ship the file")
     if expected_agents is not None:
         got_names = {f.stem for f in files}
-        want_names = set(expected_agents) - copy_names
-        if got_names != want_names:
-            fail(
-                f"agent file set {sorted(got_names)} != policy agents without copies {sorted(want_names)}"
-            )
+        if got_names != set(expected_agents):
+            fail(f"agent file set {sorted(got_names)} != policy agents {sorted(expected_agents)}")
 
     blackcat_tools = policy_data.get("blackcat_tools")
     for f in files:

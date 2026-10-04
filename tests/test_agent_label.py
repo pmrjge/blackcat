@@ -173,7 +173,7 @@ def test_subagent_start_gets_its_start_time(env):
                                                                      "additionalContext"}
     assert re.fullmatch(r"Started \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(local\)\.",
                         out["additionalContext"])
-    assert hook(start(sid(), "a2", "researcher-copy"), env) is not None
+    assert hook(start(sid(), "a2", "researcher"), env) is not None
 
 
 def test_subagent_start_context_is_small_and_never_a_skill_body(env):

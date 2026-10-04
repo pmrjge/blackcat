@@ -24,8 +24,8 @@ Reads the hook JSON on stdin.
                                     effort above the agent's own; every source (scriptPath,
                                     script, name) is checked;
                                     bundled/plugin workflows and nested workflow() are refused
-  PreToolUse  Agent                 spawn policy, copy rule, depth limit, fan-out caps (spawn
-                                    lease), session copy cap, blackcat dispatch and step limits
+  PreToolUse  Agent                 spawn policy, depth limit, fan-out caps (spawn lease),
+                                    blackcat dispatch and step limits
                                     (atomic markers), supreme-coder singleton (pending lease), strip
                                     `model` (then set it to the user's /override-agent model for
                                     this session, if any) and `mode`, and drop a BlackCat
@@ -36,8 +36,8 @@ Reads the hook JSON on stdin.
                                     the brief's size and pasted content go to the ledger, and only
                                     in STACK_REPORT_FORMAT=compact a warning (additionalContext)
   PreToolUse  SendMessage           resuming a finished agent follows the spawn policy (the caller's
-                                    row, or its own child/parent), its parent's fan-out cap and the
-                                    copy cap, and holds a resume reservation until it starts;
+                                    row, or its own child/parent) and its parent's fan-out cap, and
+                                    holds a resume reservation until it starts;
                                     resuming a finished supreme-coder takes the supreme-coder lock;
                                     blackcat's call is one of its steps (claimed with the
                                     reservation, both rolled back on a refusal)
@@ -118,10 +118,8 @@ Concurrency model (the user's spec): depth 8 below the main thread (blackcat -> 
 L8; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8, and the fallback here stays at
 Claude Code's own default of 3); any agent whose row allows it may launch several children in ONE
 message (they run concurrently); at most STACK_MAX_FANOUT running children per parent
-(STACK_MAX_FANOUT_BY_TYPE per type; BlackCat: BLACKCAT_MAX_DISPATCH per prompt instead). Copies:
-only the COPY_TYPES spawn copies of themselves, as the separate agent type `<type>-copy`, whose row
-lists neither its base nor any copy (one generation, decided on agent_type alone); at most
-STACK_MAX_SELF_FANOUT live `<type>-copy` agents per type in the whole session. Running children =
+(STACK_MAX_FANOUT_BY_TYPE per type; BlackCat: BLACKCAT_MAX_DISPATCH per prompt instead). No
+agent spawns its own type. Running children =
 live spawn leases + resume reservations + live background children (see the fan-out section);
 nothing is linked by guessing. Token budgets: see the token-budget section.
 
@@ -203,8 +201,7 @@ Knobs (env):
   STACK_MAX_FANOUT_BY_TYPE="orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,
                           planner=8,plan-reviewer=8" (DEFAULT_FANOUT_BY_TYPE)
                           per-type overrides of STACK_MAX_FANOUT
-                          (type=N, separated by , ; or newlines; a copy type falls back to its base)
-  STACK_MAX_SELF_FANOUT=2 live `<type>-copy` agents per copy type in the whole session (0 = no cap)
+                          (type=N, separated by , ; or newlines)
   STACK_LEASE_TTL_S=21600 ceiling on a spawn lease whose Agent call never reported back
   STACK_RESUME_TTL_S=120  a resume reservation whose agent never started (the SendMessage was
                           refused after this hook allowed it) stops counting after this
@@ -368,15 +365,6 @@ _LANG_ROW = ["coder", "explore", "scout", "verifier", "code-reviewer", "test-eng
 _ACCEL_ROW = ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
               "mcp-broker", "ninja-coder"]
 
-# Copies: a base type in COPY_TYPES spawns copies of itself only as its own `<type>-copy` agent
-# type (install.sh renders agents/<type>-copy.md from agents/<type>.md). One generation is then a
-# static rule on the caller's agent_type, which PreToolUse carries inside subagents
-# (hooks.md:745-750): a copy's row never lists its base type or any copy. No other agent may spawn
-# its own type.
-COPY_TYPES = ["researcher", "coder"]
-COPY_OF = {base: base + "-copy" for base in COPY_TYPES}          # base -> copy type
-COPY_BASE = {copy: base for base, copy in COPY_OF.items()}       # copy type -> base
-
 # parent agent_type -> child agent types it may spawn. A caller with no row (no agent type, a
 # generic or a foreign one) gets spawn_row(): a main thread every stack agent, a subagent nothing.
 POLICY = {
@@ -386,7 +374,7 @@ POLICY = {
     # Web-reading agents never reach browser-operator (the user's logged-in Chrome sessions): a
     # page they read could steer it. Only blackcat and orchestrator keep it (T1; the prompts' "May
     # spawn" lines match: .claude-work/stack-tighten/spawn-browser-operator.txt).
-    "researcher": ["researcher-copy", "scout", "doc-specialist", "mathematician", "data-engineer",
+    "researcher": ["scout", "doc-specialist", "mathematician", "data-engineer",
                    "data-scientist", "mcp-broker"],
     "writer": ["scout", "researcher", "mathematician"],
     "mathematician": ["scout", "mcp-broker", "quantum-engineer", "proof-checker"],
@@ -394,7 +382,7 @@ POLICY = {
     "designer": ["image-director", "scout", "mcp-broker", "cg-artist"],
     "motion-designer": ["image-director", "designer", "scout", "mcp-broker", "cg-artist",
                         "vfx-td"],
-    "coder": ["coder-copy", "explore", "scout", "test-engineer", "build-fixer"],
+    "coder": ["explore", "scout", "test-engineer", "build-fixer"],
     "main-coder": ["coder", "explore", "scout", "verifier", "code-reviewer",
                    "security-auditor", "plan-reviewer", "mlx-engineer", "cuda-engineer",
                    "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker", "claude-code-guide",
@@ -459,7 +447,7 @@ POLICY = {
     "julia-engineer": list(_LANG_ROW), "go-engineer": list(_LANG_ROW),
     "python-engineer": _LANG_ROW + ["data-engineer"], "jvm-engineer": list(_LANG_ROW),
     "node-engineer": list(_LANG_ROW),
-    # GUI agents (ZBrush, Substance; Houdini through computer use): no copies, one screen
+    # GUI agents (ZBrush, Substance; Houdini through computer use): one screen
     "cg-artist": ["image-director", "coder", "scout", "verifier", "mcp-broker", "vfx-td"],
     "vfx-td": ["coder", "scout", "verifier", "mcp-broker"],
     "oracle": [], "scout": [], "code-reviewer": [], "verifier": [], "security-auditor": [],
@@ -473,21 +461,16 @@ POLICY = {
     # bounded helpers (Sonnet): one test suite, one red build
     "test-engineer": [], "build-fixer": [],
 }
-# A copy's row: its base's row without the base type and without any copy type.
-for _base, _copy in COPY_OF.items():
-    POLICY[_copy] = [c for c in POLICY[_base] if c != _base and c not in COPY_BASE]
-# Agents that may spawn copies of themselves (derived: the row lists the agent's copy type).
-SELF_SPAWN = sorted(b for b, c in COPY_OF.items() if c in POLICY.get(b, []))
 # The stack's agent types: the only ones that may be spawned (on_agent) or run a workflow stage
 # (on_workflow). blackcat is the main thread only.
-STACK_TYPES = frozenset(AGENTS) | frozenset(COPY_BASE)
+STACK_TYPES = frozenset(AGENTS)
 SPAWNABLE = STACK_TYPES - {"blackcat"}
 
 
 # caller_is_main() for a real main thread (no agent_id); True stays "an agent context of no known
 # type", which keeps BlackCat's row
 MAIN_THREAD = "thread"
-# what a main thread without a POLICY row may spawn: every stack agent (copies are self-spawns;
+# what a main thread without a POLICY row may spawn: every stack agent (no self-spawns;
 # supreme-coder keeps its own rule in spawn_row)
 _OPEN_MAIN_ROW = [a for a in AGENTS if a not in ("blackcat", "supreme-coder")]
 
@@ -678,7 +661,7 @@ READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewe
                   "proof-checker"}
 # Agents that ingest web pages never write the shared memory (a page could plant "decisions" other
 # agents recall later): their nmem_remember calls are refused (on_memory_write).
-WEB_INGESTING_TYPES = {"researcher", "researcher-copy", "scout", "browser-operator"}
+WEB_INGESTING_TYPES = {"researcher", "scout", "browser-operator"}
 MEMORY_WRITE_TOOLS = re.compile(r"mcp__neural-memory__nmem_remember\Z")
 # The only rows that may list browser-operator (self-test; T1)
 BROWSER_SPAWNERS = {"blackcat", "orchestrator"}
@@ -712,7 +695,7 @@ def norm(name):
     global _KNOWN_TYPES
     if _KNOWN_TYPES is None:
         _KNOWN_TYPES = {re.sub(r"[^a-z0-9]", "", a): a
-                        for a in AGENTS + list(COPY_BASE) + BUILTINS
+                        for a in AGENTS + BUILTINS
                         + ["general-purpose", "fork", "plan", "claude", "statusline-setup"]}
     s = str(name or "").strip().lower()
     return _KNOWN_TYPES.get(re.sub(r"[^a-z0-9]", "", s)) or re.sub(r"[\s_]+", "-", s)
@@ -1056,7 +1039,7 @@ def dispatch_window_closed(d, pid, limit, now):
     return window > 0 and first is not None and now - first > window
 
 
-# ---------------------------------------------------------------- fan-out caps and copies
+# ---------------------------------------------------------------- fan-out caps
 # Running children of a parent = its live spawn leases + its live background children. Nothing
 # links a child to a lease: SubagentStart names no parent (hooks.md:2349), so there is no guessing.
 #   lease        fanout/<caller>/<tool_use_id>.json, taken by PreToolUse(Agent), dropped by the same
@@ -1084,7 +1067,7 @@ def dispatch_window_closed(d, pid, limit, now):
 # widest: orchestrator 32 (a job of up to 32 independent tasks), supreme-coder and main-coder 6 (parallel
 # work on disjoint modules of a large codebase plus a reviewer and a verifier), ninja-coder 5 (a
 # mathematical core stays with it; racing approach, reviewer, verifier, mathematician, one coder);
-# researcher 4 (its 2 session-wide copies plus 2 lookups). planner keeps 8 and plan-reviewer's entry
+# researcher 4 (lookups and specialist hand-offs). planner keeps 8 and plan-reviewer's entry
 # is inert (it has no Agent tool). Every other agent: STACK_MAX_FANOUT.
 DEFAULT_FANOUT_BY_TYPE = ("orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,"
                           "planner=8,plan-reviewer=8")
@@ -1188,9 +1171,9 @@ def live_leases(d, now, caller=None):
     return out
 
 
-def bg_running(d, now, ev, reg, skip, parent=None, ctype=None, idle_filter=True):
+def bg_running(d, now, ev, reg, skip, parent=None, idle_filter=True):
     """Number of live background agents (bg, not stopped, subtree active within
-    STACK_FANOUT_IDLE_S): the children of `parent`, or the agents of type `ctype`. `skip`: lease
+    STACK_FANOUT_IDLE_S): the children of `parent` (every one when None). `skip`: lease
     ids still live, never counted twice. idle_filter=False counts idle ones too (session slots)."""
     idle = knob_int("STACK_FANOUT_IDLE_S", 1800) if idle_filter else 0
     n = 0
@@ -1198,8 +1181,6 @@ def bg_running(d, now, ev, reg, skip, parent=None, ctype=None, idle_filter=True)
         if not rec.get("bg") or rec.get("stopped") or safe(rec.get("tool_use_id"), "") in skip:
             continue
         if parent is not None and rec.get("parent") != parent:
-            continue
-        if ctype is not None and norm(rec.get("type")) != ctype:
             continue
         if idle <= 0:
             n += 1
@@ -1216,13 +1197,6 @@ def running_children(d, caller, now, ev, reg):
     children."""
     leases = live_leases(d, now, caller)
     return len(leases) + bg_running(d, now, ev, reg, {lid for _, lid, _ in leases}, parent=caller)
-
-
-def copies_running(d, ctype, now, ev, reg):
-    """Session-wide number of `ctype` agents running or starting: leases for that type (any
-    caller) plus live background agents of that type."""
-    leases = [x for x in live_leases(d, now) if norm(x[2].get("type")) == ctype]
-    return len(leases) + bg_running(d, now, ev, reg, {lid for _, lid, _ in leases}, ctype=ctype)
 
 
 # Session slot guard (K_sess). Past CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS Claude Code refuses an
@@ -1335,15 +1309,13 @@ def parse_fanout_by_type(raw):
 
 
 def fanout_limit(caller, caller_type):
-    """(cap on the running children of this caller, the knob that set it); 0 = no cap. A copy
-    type falls back to its base type's entry. The main thread has no per-parent cap unless
+    """(cap on the running children of this caller, the knob that set it); 0 = no cap. The main thread has no per-parent cap unless
     STACK_MAX_FANOUT_BY_TYPE names its agent: BlackCat is held to BLACKCAT_MAX_DISPATCH per
     prompt, and a new prompt is the user's own call."""
     raw = os.environ.get("STACK_MAX_FANOUT_BY_TYPE")
     by = parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE if raw is None else raw)
-    for t in (caller_type, COPY_BASE.get(caller_type)):
-        if t and t in by:
-            return by[t], "STACK_MAX_FANOUT_BY_TYPE %s=%d" % (t, by[t])
+    if caller_type and caller_type in by:
+        return by[caller_type], "STACK_MAX_FANOUT_BY_TYPE %s=%d" % (caller_type, by[caller_type])
     if caller == "main":
         return 0, None
     cap = knob_int("STACK_MAX_FANOUT", 3)
@@ -1351,25 +1323,23 @@ def fanout_limit(caller, caller_type):
 
 
 def fanout_acquire(d, ev, caller, caller_type, child):
-    """Check the caller's fan-out cap and the session's copy cap and, if they allow it, take a
+    """Check the caller's fan-out cap and the session's slot guard and, if they allow it, take a
     lease for this spawn, atomically (one session-wide mutex). Returns a denial reason, or None
     when the spawn may proceed."""
     limit, knob = fanout_limit(caller, caller_type)
-    max_copies = knob_int("STACK_MAX_SELF_FANOUT", 2)
-    copy = child in COPY_BASE and max_copies > 0
     tid = ev.get("tool_use_id")
     lease = {"type": child, "caller": caller, "caller_type": caller_type or None}
     guard = session_guard()
-    if limit <= 0 and not copy and guard is None:   # no cap to check: no lock, no registry scan
+    if limit <= 0 and guard is None:                # no cap to check: no lock, no registry scan
         if tid:                                     # (review #15)
             write_json_atomic(os.path.join(fanout_dir(d, caller), safe(tid) + ".json"),
                               dict(lease, ts=time.time()))
         return None
     try:
-        return _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, copy,
-                                      max_copies, tid, lease, guard)
+        return _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, tid, lease,
+                                      guard)
     except (MutexTimeout, OSError) as exc:
-        if limit > 0 or copy:
+        if limit > 0:
             raise
         # only the session guard wanted the lock (or the registry): the lock-free decision of a
         # caller with no cap; shadow and enforce never refuse it on their own failure
@@ -1382,8 +1352,7 @@ def fanout_acquire(d, ev, caller, caller_type, child):
         return None
 
 
-def _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, copy, max_copies, tid,
-                           lease, guard):
+def _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, tid, lease, guard):
     with mutex(d, "fanout"):
         now = time.time()
         reg = load_registry(d)
@@ -1398,12 +1367,6 @@ def _fanout_acquire_locked(d, ev, caller, caller_type, child, limit, knob, copy,
                 return ("Fan-out limit: '%s' already has %d children running or starting (%s). "
                         "Wait for a task notification before spawning more, or do this part "
                         "yourself." % (caller_type or caller, n, knob))
-        if copy:
-            nc = copies_running(d, child, now, ev, reg)
-            if nc >= max_copies:
-                return ("Copy limit: %d %s agents are already running or starting in this "
-                        "session (STACK_MAX_SELF_FANOUT=%d). Wait for one to finish, or do this "
-                        "part yourself." % (nc, child, max_copies))
         # the dynamic cap, after every static check allowed the spawn (R1); off: returns at once
         why = dyn_spawn(d, ev, caller, caller_type, child, limit, n, now, reg, tid, sess)
         if why:
@@ -1558,16 +1521,6 @@ def resume_reservations(d, aid):
         return []
     name = RESUME_PREFIX + safe(aid) + ".json"
     return [p for p in (os.path.join(root, c, name) for c in callers) if os.path.isfile(p)]
-
-
-def copy_rule_violation(parent_type, child):
-    """One generation of copies, decided on the caller's own agent_type alone (no registry, so
-    no timing): a copy spawns neither its base type nor any copy."""
-    base = COPY_BASE.get(parent_type)
-    if base and (child == base or child in COPY_BASE):
-        return ("Copies cannot spawn copies: %s may not spawn %s. Do this part yourself or "
-                "return STATUS: partial listing what is left." % (parent_type, child))
-    return None
 
 
 def spawn_meta(ev, aid):
@@ -1827,9 +1780,6 @@ def on_agent(ev, d):
             deny("Remote isolation runs the agent in a cloud session that does not load this "
                  "stack's hooks (no spawn policy, depth, fan-out, supreme-coder or screen locks). Omit "
                  "isolation or use isolation: \"worktree\".")
-        why = copy_rule_violation(parent, child)
-        if why:
-            deny(why)
         # an allowlist: a missing, generic, built-in or foreign subagent_type, or one outside the
         # caller's row, is refused for every caller, with or without a POLICY row (spawn_row);
         # supreme-coder gets its own messages first
@@ -1983,7 +1933,7 @@ def on_agent(ev, d):
 # State: <session>/agent-overrides.json {session_id, overrides: {type: {model, model_id, effort,
 # effort_source, ts}}} (0600, atomic, read with O_NOFOLLOW); log: <session>/agent-overrides.log
 # (JSON lines). Cleared by SessionStart startup|resume|clear. on_agent sets `model` of an allowed
-# Agent call whose subagent_type (or its copy) has an override, after every gate (caps, leases and
+# Agent call whose subagent_type has an override, after every gate (caps, leases and
 # the limits snapshot are keyed by type and unchanged).
 # Effort: the built-in table hooks/agent_effort.json gives the level for (agent, model), clamped to
 # what the resolved model accepts; the command stores it (a table changed by a later install never
@@ -2184,13 +2134,12 @@ def override_log(d, record):
 
 
 def override_model(d, ev, child):
-    """The model the user's /override-agent sets for `child` (a copy type: its base's) in this
-    session, or None."""
+    """The model the user's /override-agent sets for `child` in this session, or None."""
     sid = ev.get("session_id")
     if not sid or not os.path.exists(os.path.join(d, OVERRIDE_FILE)):
         return None
     ov = read_overrides(d, sid)
-    entry = ov.get(child) or ov.get(COPY_BASE.get(child) or "")
+    entry = ov.get(child)
     return (entry or {}).get("model")
 
 
@@ -2198,7 +2147,7 @@ def override_applied(d, ev, child, model, asked):
     override_log(d, {"event": "apply", "agent": child, "model": model, "asked": asked,
                      "caller": ev.get("agent_id") or "main", "tool_use_id": ev.get("tool_use_id")})
     return "override-agent: %s runs on %s (this session; /override-agent reset %s to undo)" % (
-        child, model, COPY_BASE.get(child) or child)
+        child, model, child)
 
 
 def override_effective_env():
@@ -3077,24 +3026,28 @@ def split_top(text, sep=","):
     return parts
 
 
-def agent_effort(agent_type, agents_dir=None):
-    """The frontmatter effort of an installed agent type (a copy: its base's), or None."""
+def agent_frontmatter(agent_type, agents_dir=None):
+    """The frontmatter text of an installed agent type's file, or None."""
     if agents_dir is None:
         agents_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                                   "agents")
-    t = norm(agent_type)
-    for name in (t, COPY_BASE.get(t)):
-        if not name or safe(name) != name:
-            continue
-        try:
-            with open(os.path.join(agents_dir, name + ".md")) as f:
-                head = f.read(8192)
-        except OSError:
-            continue
-        parts = head.split("\n---", 1) if head.startswith("---") else None
-        m = EFFORT_RE.search(parts[0]) if parts and len(parts) == 2 else None
-        return m.group(1).lower() if m else None
-    return None
+    name = norm(agent_type)
+    if not name or safe(name) != name:
+        return None
+    try:
+        with open(os.path.join(agents_dir, name + ".md")) as f:
+            head = f.read(8192)
+    except OSError:
+        return None
+    parts = head.split("\n---", 1) if head.startswith("---") else None
+    return parts[0] if parts and len(parts) == 2 else None
+
+
+def agent_effort(agent_type, agents_dir=None):
+    """The frontmatter effort of an installed agent type, or None."""
+    fm = agent_frontmatter(agent_type, agents_dir)
+    m = EFFORT_RE.search(fm) if fm is not None else None
+    return m.group(1).lower() if m else None
 
 
 def stage_options_violation(opts, vals, row, k):
@@ -3293,8 +3246,8 @@ def send_policy_violation(d, ev, target_id, ttype):
 
 def resume_reserve(d, ev, target_id, ttype):
     """Resuming a finished agent starts a background run of it under its registry parent
-    (sub-agents.md:1102), so it counts against that parent's fan-out cap and, for a copy, against
-    the session's copy cap, like a new spawn. The check and a reservation
+    (sub-agents.md:1102), so it counts against that parent's fan-out cap like a new spawn. The
+    check and a reservation
     fanout/<parent>/resume-<target>.json are one step under the 'fanout' mutex, so resumes sent in
     one message are counted one by one. The target's SubagentStart turns the reservation into a
     live background child (on_subagent_start); one that never starts (the call was refused after
@@ -3306,16 +3259,14 @@ def resume_reserve(d, ev, target_id, ttype):
     owner = rec.get("parent") or ev.get("agent_id") or "main"
     owner_type = norm(rec.get("parent_type")) or None
     limit, knob = fanout_limit(owner, owner_type)
-    max_copies = knob_int("STACK_MAX_SELF_FANOUT", 2)
-    copy = ttype in COPY_BASE and max_copies > 0
     guard = session_guard()         # the session slot guard applies to every owner
-    if limit <= 0 and not copy and guard is None:
+    if limit <= 0 and guard is None:
         return None, None
     try:
         return _resume_reserve_locked(d, ev, target_id, ttype, owner, owner_type, limit, knob,
-                                      copy, max_copies, guard)
+                                      guard)
     except (MutexTimeout, OSError) as exc:
-        if limit > 0 or copy:
+        if limit > 0:
             raise
         warn_once("fanout.mutex timed out; session slot guard skipped for this resume"
                   if isinstance(exc, MutexTimeout) else
@@ -3323,8 +3274,7 @@ def resume_reserve(d, ev, target_id, ttype):
         return None, None
 
 
-def _resume_reserve_locked(d, ev, target_id, ttype, owner, owner_type, limit, knob, copy,
-                           max_copies, guard):
+def _resume_reserve_locked(d, ev, target_id, ttype, owner, owner_type, limit, knob, guard):
     rid = RESUME_PREFIX + safe(target_id)
     with mutex(d, "fanout"):
         now = time.time()
@@ -3344,10 +3294,6 @@ def _resume_reserve_locked(d, ev, target_id, ttype, owner, owner_type, limit, kn
                 return ("Fan-out limit: resuming '%s' would give '%s' more than %d running "
                         "children (%s). Wait for a task notification, then resume it."
                         % (target_id, owner_type or owner, limit, knob)), None
-        if copy and copies_running(d, ttype, now, ev, reg) >= max_copies:
-            return ("Copy limit: resuming '%s' would make more than %d %s agents run in this "
-                    "session (STACK_MAX_SELF_FANOUT=%d). Wait for one to finish."
-                    % (target_id, max_copies, ttype, max_copies)), None
         why = dyn_resume(d, ev, owner, owner_type, ttype, limit, n, now, reg, sess)
         if why:
             return why, None
@@ -3662,7 +3608,7 @@ def on_local_read(ev, d):
 
 def on_memory_write(ev, d):
     """neural-memory is shared by every agent of every session: an agent that reads web pages
-    (researcher, its copies, scout, browser-operator) never writes it, so a page cannot plant a
+    (researcher, scout, browser-operator) never writes it, so a page cannot plant a
     "decision" that other agents recall later (T3)."""
     if not policy_on():
         return
@@ -4598,7 +4544,7 @@ def session_env():
 #   soft.agent.<type>   per-run soft limit (warning)        hard.agent.<type>  per-run cap (deny)
 #   soft.prompt[.<type>] per-prompt soft limit (warning)    hard.prompt        per-prompt cap (deny)
 #   soft.session        per-session soft limit (warning)    hard.session       per-session cap (deny)
-# None = off. Copy types use their base type's values; blackcat has no per-agent variable. The hot
+# None = off. blackcat has no per-agent variable. The hot
 # path reads <state>/limits/snapshots/<sid>.json with a lean, hash-checked reader (no stack_limits
 # import; ~1.5 ms); a missing snapshot is written without applying (stack_limits.session_limits ->
 # ensure_snapshot), an altered one gives the seed values with one stderr line (O_EXCL marker
@@ -4702,12 +4648,8 @@ class Limits:
         return limit_int(self.values.get(var))
 
     def key(self, family, atype):
-        """The variable a type's value lives in (a copy type: its base's when it has none)."""
-        t = norm(atype)
-        key = f"{family}.{t}"
-        if key not in self.values and t in COPY_BASE:
-            key = f"{family}.{COPY_BASE[t]}"
-        return key
+        """The variable a type's value lives in."""
+        return f"{family}.{norm(atype)}"
 
     def typed(self, family, atype):
         if self.state == "builtin" and family == "turns":
@@ -5245,12 +5187,12 @@ def budget_reason(kind, span, used, var, cap, lim, ev):
 # two significant figures, per type when it has >= 5 healthy segments from >= 3 agents, else per pool
 # of comparable types. Every subagent type is listed (self-test: SOFT_LIMITS covers AGENTS); None =
 # no per-agent limit (orchestrator: short relays, too few runs to derive one; blackcat: the main
-# thread, covered by the prompt limit). Copy types use their base's value; unknown types get none.
+# thread, covered by the prompt limit). Unknown types get none.
 # STACK_SOFT_LIMIT_SCALE (float, default 1) multiplies every soft limit; 0 turns them off. The
 # hard budgets and the MCP call cap are independent of it.
 SOFT_PROMPT_CTX = 33000000
 # The per-prompt soft limit while an agent of one of these types runs (a registry entry not
-# stopped; a copy counts as its base): the largest value applies, never below SOFT_PROMPT_CTX.
+# stopped): the largest value applies, never below SOFT_PROMPT_CTX.
 # Set by the user (2026-10-03), not derived: an orchestrator job of up to 10 tasks runs under one
 # human prompt.
 SOFT_PROMPT_CTX_BY_TYPE = {"orchestrator": 80000000}
@@ -5401,9 +5343,9 @@ def soft_flush():
 # PreToolUse; a call this gate allows counts even if another hook or the permission system then
 # refuses it. The main thread is not counted: BlackCat's BLACKCAT_MAX_STEPS already bounds every
 # one of its calls per prompt.
-# The turn budget is the session snapshot's turns.<type> (seeded from frontmatter maxTurns; a copy
-# type uses its base's); a type with none (plugin agents) gets STACK_MAX_MCP_CALLS. The built-in
-# fallback reads maxTurns from <config>/agents/<type>.md (a copy type falls back to its base file).
+# The turn budget is the session snapshot's turns.<type> (seeded from frontmatter maxTurns); a type
+# with none (plugin agents) gets STACK_MAX_MCP_CALLS. The built-in fallback reads maxTurns from
+# <config>/agents/<type>.md.
 # Past the cap only MCP calls are refused (REPORT_TOOLS never), other tools keep working. Fails
 # open like the token budgets: state it cannot read or lock warns and allows the call.
 MCP_CALLS_DIR = "mcp-calls"
@@ -5415,24 +5357,10 @@ def mcp_calls_knob():
 
 
 def agent_max_turns(agent_type, agents_dir=None):
-    """The frontmatter maxTurns of an installed agent type (a copy type: its base's file when its
-    own is missing); None when there is none."""
-    if agents_dir is None:
-        agents_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-                                  "agents")
-    t = norm(agent_type)
-    for name in (t, COPY_BASE.get(t)):
-        if not name or safe(name) != name:
-            continue
-        try:
-            with open(os.path.join(agents_dir, name + ".md")) as f:
-                head = f.read(8192)
-        except OSError:
-            continue
-        parts = head.split("\n---", 1) if head.startswith("---") else None
-        m = MAX_TURNS_RE.search(parts[0]) if parts and len(parts) == 2 else None
-        return int(m.group(1)) if m else None
-    return None
+    """The frontmatter maxTurns of an installed agent type; None when there is none."""
+    fm = agent_frontmatter(agent_type, agents_dir)
+    m = MAX_TURNS_RE.search(fm) if fm is not None else None
+    return int(m.group(1)) if m else None
 
 
 def mcp_cap(agent_type, knob=None, lim=None):
@@ -11163,8 +11091,7 @@ def no_push_main(raw):
 # ---------------------------------------------------------------- CLI
 def print_policy():
     sys.stdout.write(json.dumps({"policy": POLICY, "leaves": LEAVES, "agents": AGENTS,
-                                 "builtins": BUILTINS, "self_spawn": SELF_SPAWN,
-                                 "copy_types": COPY_OF,
+                                 "builtins": BUILTINS,
                                  "blackcat_tools": sorted(BLACKCAT_TOOLS)}) + "\n")
     return 0
 
@@ -11173,7 +11100,7 @@ def self_test():
     import shutil
     import tempfile
     problems = []
-    known = set(AGENTS) | set(BUILTINS) | set(COPY_BASE)
+    known = set(AGENTS) | set(BUILTINS)
     if len(set(AGENTS)) != len(AGENTS):
         problems.append("AGENTS has duplicates")
     if OVERRIDE_EFFORTS != EFFORT_ORDER:
@@ -11194,9 +11121,8 @@ def self_test():
             _bad = [m for m in OVERRIDE_MODELS if _row.get(m) not in OVERRIDE_EFFORTS]
             if _bad:
                 problems.append("override-agent: %s has no valid effort for %s" % (_a, _bad))
-    if set(POLICY) != set(AGENTS) | set(COPY_BASE):
-        problems.append("POLICY rows != AGENTS + copy types: %s"
-                        % sorted(set(POLICY) ^ (set(AGENTS) | set(COPY_BASE))))
+    if set(POLICY) != set(AGENTS):
+        problems.append("POLICY rows != AGENTS: %s" % sorted(set(POLICY) ^ set(AGENTS)))
     for parent, row in POLICY.items():
         for child in row:
             if child not in known or child == "blackcat":
@@ -11204,16 +11130,7 @@ def self_test():
         if len(set(row)) != len(row):
             problems.append("%s row has duplicates" % parent)
         if parent in row:
-            problems.append("%s may spawn its own type (copies go through COPY_TYPES)" % parent)
-        for child in row:
-            if child in COPY_BASE and COPY_BASE[child] != parent:
-                problems.append("%s -> %s: only %s spawns its copies" % (parent, child,
-                                                                          COPY_BASE[child]))
-    for base, copy in COPY_OF.items():
-        if base not in AGENTS or copy not in POLICY.get(base, []):
-            problems.append("copy type %s: %s must list it" % (copy, base))
-        if copy_rule_violation(copy, base) is None:
-            problems.append("%s may spawn %s" % (copy, base))
+            problems.append("%s may spawn its own type" % parent)
     empty = sorted(p for p, row in POLICY.items() if not row)
     if empty != sorted(LEAVES):
         problems.append("LEAVES %s != empty rows %s" % (sorted(LEAVES), empty))
@@ -11248,24 +11165,15 @@ def self_test():
     if browsers != BROWSER_SPAWNERS:
         problems.append("only %s may list browser-operator, not %s"
                         % (sorted(BROWSER_SPAWNERS), sorted(browsers)))
-    for never in ("blackcat", "orchestrator", SUPREME, "mlx-engineer", "cuda-engineer"):
-        if never in SELF_SPAWN:
-            problems.append("%s must not spawn copies of itself" % never)
     if parse_fanout_by_type(DEFAULT_FANOUT_BY_TYPE) != {
             "orchestrator": 32, "supreme-coder": 6, "main-coder": 6, "ninja-coder": 5, "researcher": 4,
             "planner": 8, "plan-reviewer": 8}:
         problems.append("STACK_MAX_FANOUT_BY_TYPE default does not parse")
-    # Installed layout: <config>/hooks/agent_guard.py next to <config>/agents/*.md; install.sh
-    # renders the copy types' files (the repo's dot-claude/ still holds __CLAUDE_DIR__).
+    # Installed layout: <config>/hooks/agent_guard.py next to <config>/agents/*.md.
     conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     agents_dir = os.path.join(conf, "agents")
     if os.path.isdir(agents_dir):
-        try:
-            with open(os.path.join(conf, "settings.json")) as f:
-                installed = "__CLAUDE_DIR__" not in f.read()
-        except OSError:
-            installed = False
-        want = AGENTS + (list(COPY_BASE) if installed else [])
+        want = AGENTS
         missing = [a for a in want if not os.path.isfile(os.path.join(agents_dir, a + ".md"))]
         if missing:
             problems.append("agent files missing in %s: %s" % (agents_dir, " ".join(missing)))
@@ -11328,8 +11236,7 @@ def generic_agent_self_test(conf):
     allowed = [("blackcat", True, "coder"), ("blackcat", True, " Coder "),
                ("blackcat", True, "CODE_REVIEWER"), ("blackcat", True, "Code Reviewer"),
                ("blackcat", True, "explore"), ("blackcat", True, "Explore"),
-               ("", True, "researcher"), ("main-coder", False, "explore"),
-               ("coder", False, "coder-copy")]
+               ("", True, "researcher"), ("main-coder", False, "explore")]
     for parent, main, t in allowed:
         why = spawn_type_violation(parent, main, t)
         if why:
@@ -11339,14 +11246,14 @@ def generic_agent_self_test(conf):
             problems.append("spawn gate: a %s subagent may spawn coder" % parent)
     # only BlackCat is held to its list: a row-less main thread spawns every stack agent
     for parent in ("", "claude", "my-host-agent"):
-        for t in ("db-engineer", "orchestrator", "localizer"):
+        for t in ("data-engineer", "orchestrator", "writer"):
             if spawn_type_violation(parent, MAIN_THREAD, t):
                 problems.append("spawn gate: a %s main thread may not spawn %s"
                                 % (parent or "typeless", t))
         for t in refused:
             if spawn_type_violation(parent, MAIN_THREAD, t) is None:
                 problems.append("spawn gate: a %s main thread may spawn %r" % (parent or "typeless", t))
-    for parent, main, t in (("blackcat", MAIN_THREAD, "db-engineer"), ("", True, "db-engineer"),
+    for parent, main, t in (("blackcat", MAIN_THREAD, "supreme-coder"),
                             ("main-coder", MAIN_THREAD, "orchestrator")):
         if spawn_type_violation(parent, main, t) is None:
             problems.append("spawn gate: %s (main=%s) may spawn %s" % (parent or "typeless", main, t))
@@ -11703,7 +11610,7 @@ def soft_self_test():
 # The guard's fixed knobs (design section 1): env only, never a learnable limits variable.
 FIXED_LIMIT_KNOBS = (
     "STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_DISPATCH_WINDOW_S", "BLACKCAT_MAX_STEPS",
-    "BLACKCAT_BACKGROUND", "STACK_MAX_FANOUT", "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_SELF_FANOUT",
+    "BLACKCAT_BACKGROUND", "STACK_MAX_FANOUT", "STACK_MAX_FANOUT_BY_TYPE",
     "STACK_LEASE_TTL_S", "STACK_RESUME_TTL_S", "STACK_FANOUT_IDLE_S", "STACK_MAX_MCP_CALLS",
     "STACK_SOFT_LIMIT_SCALE", "SUPREME_SPAWNERS", "SUPREME_ONCE_PER_SESSION", "SUPREME_AFTER_NINJA",
     "SUPREME_PENDING_TTL_S", "SUPREME_IDLE_S", "SUPREME_LOCK_TTL_S", "SCREEN_LOCK_TTL_S", "STACK_MAX_DEPTH",

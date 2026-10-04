@@ -244,7 +244,7 @@ def test_shared_statistics():
     assert L.env_var("hard.agent.coder") == "STACK_HARDCTX_CODER"
     assert L.env_var("hard.prompt") == "STACK_PROMPT_CTX_BUDGET" and L.env_var("hard.session") == \
         "STACK_SESSION_CTX_BUDGET"
-    assert L.lookup({"turns.coder": 99}, "turns", "coder-copy") == 99
+    assert L.lookup({"turns.coder": 99}, "turns", "coder") == 99
     assert L.env_var("soft.prompt.orchestrator") == "STACK_SOFT_PROMPT_CTX_ORCHESTRATOR"
     assert L.split_var("soft.prompt.orchestrator") == ("soft.prompt", "orchestrator")
     vals = {"soft.prompt": 33000000, "soft.prompt.orchestrator": 80000000}
@@ -1005,11 +1005,11 @@ def test_tamper_and_session_limits(st, capsys, tmp_path):
 def test_rows_reader_v1_v2_and_regime(st):
     v1 = [dict(row("old", "a1", ctx=5e6, ts=T0 - 10), schema_version=1) for _ in range(1)]
     write_csv(st / "usage" / "runs.csv", v1, V1_COLUMNS)
-    write_csv(st / "usage" / "runs2.csv", [row("old", "a1", ctx=6e6, ts=T0 - 5), row("new", "b1", typ="coder-copy"),
+    write_csv(st / "usage" / "runs2.csv", [row("old", "a1", ctx=6e6, ts=T0 - 5), row("new", "b1", typ="coder"),
                                            row("new", "main", typ="blackcat", seg=2, ctx="", window_ctx=7e7,
                                                is_main=1),
                                            row("new", "session", typ="blackcat", ctx=3e8, is_main=1)])
-    rows, _stats = L.read_rows(known={"coder"})
+    rows, _stats = L.read_rows()
     by = {(r["session"], r["id"]): r for r in rows}
     assert by[("old", "a1")]["ctx"] == 6e6 and by[("old", "a1")]["src"] == "measured"     # runs2 wins
     assert by[("new", "b1")]["type"] == "coder" and by[("new", "main")]["scope"] == "main"
@@ -1323,10 +1323,9 @@ def test_model_mismatch_rules(tmp_path):
     assert not mm("a-sonnet", SONNET) and not mm("a-sonnet", BEDROCK_SONNET)
     assert not mm("a-opus", OPUS_1M) and mm("a-opus", SONNET)
     assert mm("a-full", SONNET) and not mm("a-full", HAIKU)               # a full id: its family
-    assert mm("a-sonnet-copy", HAIKU) and not mm("a-sonnet-copy", SONNET)  # a copy follows its base
     for m in ("", None):                                                   # unknown (v1/v2, none reported)
         assert not mm("a-sonnet", m)
-    for t in ("a-inherit", "a-none", "no-such-type", "a-inherit-copy"):    # no family to hold the row to
+    for t in ("a-inherit", "a-none", "no-such-type"):                      # no family to hold the row to
         assert not mm(t, HAIKU)
     assert L.agent_models(str(tmp_path / "missing")) == {}
 
@@ -1356,18 +1355,17 @@ def test_reader_skips_mismatched_rows_after_the_merge_and_keeps_unknown_models(s
                                 r3("s4", "ok", typ="scout", ctx=3.4e5, model=SONNET),
                                 r3("s1", "mx", typ="scout", ctx=9e6, model="mixed"),
                                 r3("s5", "bad", typ="scout", ctx=3.5e5, model="not a model"),  # invalid: unknown
-                                r3("s2", "c1", typ="scout-copy", ctx=9e6, model=HAIKU),
                                 r3("s2", "x1", typ="custom-agent", ctx=9e6, model=HAIKU),
                                 r3("s2", "main", typ="blackcat", seg=0, ctx="", window_ctx=5e7, is_main=1,
                                    model=HAIKU)], v3)
-    rows, stats = L.read_rows(known={"scout"})
+    rows, stats = L.read_rows()
     ids = {r["id"] for r in rows}
-    assert ids == {"v1a", "v2a", "e", "ok", "bad", "x1", "main"} and stats["model_mismatch"] == 3
+    assert ids == {"v1a", "v2a", "e", "ok", "bad", "x1", "main"} and stats["model_mismatch"] == 2
     assert {r["model"] for r in rows if r["id"] in ("v1a", "v2a", "e", "bad")} == {None}
-    rows, stats = L.read_rows(known={"scout"}, models={})                 # no frontmatter: nothing skipped
-    assert len(rows) == 10 and stats["model_mismatch"] == 0
+    rows, stats = L.read_rows(models={})                                  # no frontmatter: nothing skipped
+    assert len(rows) == 9 and stats["model_mismatch"] == 0
     doc = L.build_proposals(L.load_seed())
-    assert doc["vars"]["soft.agent.scout"]["n"] == 5 and doc["model_mismatch"] == 3
+    assert doc["vars"]["soft.agent.scout"]["n"] == 5 and doc["model_mismatch"] == 2
     assert max(doc["vars"]["soft.agent.scout"]["x"]) < 1e6
 
 

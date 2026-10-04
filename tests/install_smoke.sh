@@ -139,8 +139,6 @@ print(len(st.backups_of(sys.argv[2], sys.argv[3])))' "$HERE/lib" "$1" "$BK_ROOT"
 fmode(){ python3 -c 'import os, sys; print(oct(os.lstat(sys.argv[1]).st_mode & 0o777))' "$1"; }
 
 EXPECTED_AGENTS=$(ls "$HERE"/dot-claude/agents/*.md | wc -l | tr -d ' ')
-# plus the copy types install.sh renders from their base agents (COPY_TYPES)
-EXPECTED_AGENTS=$((EXPECTED_AGENTS + $(sed -n 's/^COPY_TYPES = (\(.*\))$/\1/p' "$HERE/install.sh" | grep -o '"[a-z0-9-]*"' | wc -l | tr -d ' ')))
 EXPECTED_SKILLS=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
 
 echo "== 1. Fresh install into a scratch CLAUDE_CONFIG_DIR"
@@ -305,10 +303,10 @@ checks = {
     ".env.example writable": "Read(**/.env.*)" not in s["permissions"]["deny"] and "Read(**/.env.local)" in s["permissions"]["deny"],
     "discovery cache": env.get("MCP_DISCOVERY_CACHE") == "1",
     "blackcat dispatch": env.get("BLACKCAT_MAX_DISPATCH") == "8" and env.get("BLACKCAT_MAX_STEPS") == "24",
-    "caps and budgets": (env.get("STACK_MAX_FANOUT"), env.get("STACK_MAX_FANOUT_BY_TYPE"), env.get("STACK_MAX_SELF_FANOUT"),
+    "caps and budgets": (env.get("STACK_MAX_FANOUT"), env.get("STACK_MAX_FANOUT_BY_TYPE"),
                          env.get("STACK_PROMPT_CTX_BUDGET"), env.get("STACK_SESSION_CTX_BUDGET"),
                          env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"), env.get("STACK_MAX_MCP_CALLS"))
-                        == ("3", "orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", "2", None, None, "33", "64"),
+                        == ("3", "orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", None, None, "33", "64"),
     "skill listing budget": s.get("skillListingBudgetFraction") == frac and 0.01 <= frac <= 0.02
                             and s.get("skillListingMaxDescChars") == 250
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only"
@@ -351,15 +349,11 @@ g = [g for g in s["hooks"]["PreToolUse"] if "read_gate.py" in json.dumps(g)]
 sys.exit(0 if len(g) == 1 and g[0]["matcher"] == "Read|Grep|Glob|Bash"
          and g[0]["hooks"][0]["command"].endswith(sys.argv[2] + '/hooks/read_gate.py"') else 1)
 PY
-# every installed agent's "May spawn" sentence (the rendered copy types included) is its POLICY row
+# every installed agent's "May spawn" sentence is its POLICY row
 python3 "$T1/hooks/agent_guard.py" --print-policy | python3 -c '
 import json, os, re, sys
 p, d = json.load(sys.stdin), sys.argv[1]
 bad = []
-for copy in p["copy_types"].values():
-    text = open(os.path.join(d, copy + ".md")).read()
-    if not re.search(r"(?m)^name: %s$" % re.escape(copy), text):
-        bad.append("%s.md: name is not %s" % (copy, copy))
 for a, row in p["policy"].items():
     if a == "blackcat":
         continue
@@ -370,7 +364,7 @@ for a, row in p["policy"].items():
         bad.append("%s: May spawn %s != POLICY %s" % (a, sorted(got), sorted(row)))
 print("\n".join("    " + b for b in bad))
 sys.exit(1 if bad else 0)
-' "$T1/agents" && pass "copy types rendered; every May spawn sentence matches POLICY (copies included)" \
+' "$T1/agents" && pass "every May spawn sentence matches POLICY" \
   || failed "a May spawn sentence differs from POLICY (see above)"
 B1="$(latest_backup "$T1")"
 python3 - "$B1" "$T1" <<'PY' && pass "first install: one backup outside the config dir (0700, backup.json 0600) listing what it added" \
@@ -1378,7 +1372,7 @@ s["skillListingBudgetFraction"] = 0.025
 s["autoCompactWindow"] = 800000
 for k in ("STACK_MAX_FANOUT_BY_TYPE", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET"):
     s["env"].pop(k, None)           # the two budgets are learned limits now: not shipped either way
-s["env"].update({"STACK_MAX_FANOUT": "8", "STACK_MAX_SELF_FANOUT": "4", "BLACKCAT_MAX_DISPATCH": "3",
+s["env"].update({"STACK_MAX_FANOUT": "8", "BLACKCAT_MAX_DISPATCH": "3",
                  "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS": "32"})
 json.dump(s, open(p, "w"), indent=2)
 PY
@@ -1508,52 +1502,14 @@ CLAUDE_CONFIG_DIR="$TP/rb" "$TP/repo/install.sh" --no-mcp --no-plugins --no-deps
 assert_unchanged_real_home
 drop_scratch "$TP"
 
-echo "== 14. Copy types: researcher-copy and coder-copy rendered from their base agents"
+echo "== 14. No copy types: install.sh renders no <type>-copy agent (retired 2026-10-04)"
 TC="$(scratch_dir)" || exit 1
 CLAUDE_CONFIG_DIR="$TC/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$TC/i.log" 2>&1
-python3 - "$TC/c/agents" <<'PY' && pass "copies: own name and short description, same tools/model/maxTurns/mcpServers, May spawn = base minus base and copies, body names no copy" || failed "copy-type rendering"
-import os, re, sys
-d = sys.argv[1]
-def fm(text):
-    head = text.split("\n---\n", 1)[0]
-    return {m.group(1): m.group(2) for m in re.finditer(r"(?m)^([A-Za-z]+): ?(.*)$", head)}, head
-def may(text):
-    m = re.search(r"May spawn:\s*([^.]*)\.", text)
-    if not m:
-        return []
-    parts, cur, depth = [], "", 0
-    for ch in m.group(1):
-        depth += (ch in "([") - (ch in ")]")
-        if ch == "," and depth == 0:
-            parts.append(cur.strip()); cur = ""
-        else:
-            cur += ch
-    parts.append(cur.strip())
-    return [re.match(r"[A-Za-z0-9_-]+", p).group(0).lower() for p in parts if p]
-ok = True
-for base in ("researcher", "coder"):
-    b, c = (open(os.path.join(d, n + ".md")).read() for n in (base, base + "-copy"))
-    (bf, bh), (cf, ch) = fm(b), fm(c)
-    checks = {
-        "name": cf.get("name") == base + "-copy",
-        "description": cf.get("description") == '"Copy of %s for one independent part; spawned only by %s."' % (base, base),
-        "same frontmatter": all(cf.get(k) == bf.get(k) for k in ("tools", "model", "effort", "maxTurns", "color")),
-        "same mcpServers": bh.partition("mcpServers:")[2] == ch.partition("mcpServers:")[2],
-        "base lists its copy": base + "-copy" in may(b) and base not in may(b),
-        "copy May spawn": may(c) == [x for x in may(b) if x != base and not x.endswith("-copy")],
-        "copy note": "You are a copy of %s" % base in c,
-        # a copy spawns no copies: its body names no <type>-copy agent (the base body's
-        # "sub-tasks can go to coder-copy agents" lines are rewritten away)
-        "copy body names no -copy": not re.search(r"[A-Za-z0-9_]-copy\b", c.split("\n---\n", 1)[1]),
-        "base body still names its copy": base + "-copy" in b.split("\n---\n", 1)[1],
-    }
-    for k, v in checks.items():
-        if not v:
-            print("    %s-copy: %s wrong" % (base, k)); ok = False
-sys.exit(0 if ok else 1)
-PY
-grep -q 'agents/researcher-copy.md *installed' "$TC/i.log" && grep -q 'agents/coder-copy.md *installed' "$TC/i.log" \
-  && pass "copies are installed and tracked like the other agents" || failed "copies not installed: $(grep -- '-copy' "$TC/i.log")"
+if ls "$TC/c/agents/"*-copy.md >/dev/null 2>&1 || grep -q -- '-copy.md' "$TC/i.log"; then
+  failed "a copy-type agent was rendered: $(ls "$TC/c/agents/" | grep -- '-copy')"
+else
+  pass "no copy-type agent files rendered or tracked"
+fi
 assert_unchanged_real_home
 drop_scratch "$TC"
 

@@ -117,11 +117,11 @@
     <text x="1000" y="661" text-anchor="middle" class="t">Specialists</text>
     <text x="1000" y="687" text-anchor="middle" class="s">L2</text>
   </g>
-  <!-- H: Helpers, checks, copies (lilac) -->
+  <!-- H: Helpers and checks (lilac) -->
   <g>
     <rect x="520" y="790" width="360" height="90" rx="22" fill="#c4a1ff" class="node" filter="url(#shadow)"/>
     <rect x="526" y="794" width="348" height="38" rx="18" fill="url(#gloss)"/>
-    <text x="700" y="831" text-anchor="middle" class="t">Helpers, checks, copies</text>
+    <text x="700" y="831" text-anchor="middle" class="t">Helpers and checks</text>
     <text x="700" y="857" text-anchor="middle" class="s">L2 to L8</text>
   </g>
 </svg>

@@ -34,7 +34,7 @@ flowchart TD
     S1["Specialists · L1"]
     O["orchestrator · L1 · up to 32 children"]
     S2["Specialists · L2"]
-    H["Helpers, checks, copies · L2 to L8"]
+    H["Helpers and checks · L2 to L8"]
   end
   U --> B
   B -->|"one domain, or 2-3 independent asks"| S1
@@ -313,7 +313,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | Soft token limits | Past a per-type limit an agent's next tool call carries one warning to wrap up and return `STATUS: partial`; nothing is refused | Values derived from p90 of healthy segments; all but claude-code-engineer and scout provisional (CONFIG.md §5). Effect on spend: not measured |
 | Hard budgets | Context tokens per human prompt and per session, whole tree (seeds 100,000,000 and 1,920,000,000); past them every call but reporting is refused | `tests/test_limits_guard.py`, `tests/test_stack_limits.py` |
 | Learned limits | `stack_limits.py` proposes new turn and token limits from the collector's rows; a session's limits are frozen at its start, inside repo floors and ceilings; `install.sh` moves a variable that never learned (status unset, not frozen or held now, never rolled back) to a changed seed and keeps every other value; fan-out, depth and the MCP cap are fixed guards that never learn (`FIXED_GUARDS`) | `tests/test_stack_limits.py`, `tests/test_sched_snapshot.py`. Calibration on held-out data: only the scheduler replay has one (`tests/derive_wave_sim.py`; with parameters fitted on another session, 16 of 19 replay windows land within 2 %, pinned in `tests/test_stack_sched.py`). A prototype run found the soft limits run hot (10.3 % cap-hit against a 5 % target; unreviewed, campaign worktree only) |
-| Fan-out caps | Running children per agent, copies per type, BlackCat per prompt; a background subtree silent for 600 s stops counting (`STACK_FANOUT_IDLE_S`); session slots against `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (`STACK_FANOUT_SESSION`, shadow by default); a dynamic cap per orchestrator job (`STACK_FANOUT_DYN`, off by default) | `tests/test_agent_guard.py`, `tests/test_guard_regressions.py`, `tests/test_fanout_session.py`, `tests/test_fanout_dyn_wiring.py` |
+| Fan-out caps | Running children per agent, BlackCat per prompt; a background subtree silent for 600 s stops counting (`STACK_FANOUT_IDLE_S`); session slots against `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (`STACK_FANOUT_SESSION`, shadow by default); a dynamic cap per orchestrator job (`STACK_FANOUT_DYN`, off by default) | `tests/test_agent_guard.py`, `tests/test_guard_regressions.py`, `tests/test_fanout_session.py`, `tests/test_fanout_dyn_wiring.py` |
 | Scheduler advisor | `stack_sched.py` plans waves under the caps and checks a plan against the limits; advice only (`STACK_SCHED_POLICY=report`) | `tests/test_stack_sched.py`; no behaviour depends on it |
 | Model tiering | Sonnet for lookups, loops and verification; Opus where judgment is the product | **by design, not measured** |
 
@@ -472,8 +472,7 @@ and the hook strips a per-call `model`). The alias is the reference; it resolves
 `settings.json` (CONFIG.md section 2). An agent file's `effort` applies only when the
 agent runs as a subagent; the main thread uses the session's level (`/effort medium` for BlackCat).
 The tables are generated from `dot-claude/agents/*.md` frontmatter. "Does" is shortened from each
-agent's `description`. The installer also renders `researcher-copy` and `coder-copy` from their base
-files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md](CONFIG.md) §4).
+agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md](CONFIG.md) §4).
 
 <details>
 <summary>Roster tables: 54 agents by family (model, effort, maxTurns, inline MCP)</summary>
@@ -689,7 +688,7 @@ the call (fail closed); every hook command runs on an absolute interpreter chose
 
 | Guard | What it enforces |
 |---|---|
-| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row (BlackCat's row is its list; a main thread with no row of its own, such as `claude --agent claude` or a typeless session, may spawn every stack agent; a subagent with no row, none). Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 24 tool calls per prompt, at most 3 of them Read calls and none its own Bash/Write/Edit (`BLACKCAT_MAX_READS` 3, `BLACKCAT_MAX_OWN_STEPS` 0) |
+| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row (BlackCat's row is its list; a main thread with no row of its own, such as `claude --agent claude` or a typeless session, may spawn every stack agent; a subagent with no row, none). Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), BlackCat 8 dispatches within 120 s and 24 tool calls per prompt, at most 3 of them Read calls and none its own Bash/Write/Edit (`BLACKCAT_MAX_READS` 3, `BLACKCAT_MAX_OWN_STEPS` 0) |
 | Read-only agents | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide and proof-checker hold Bash, but only read-only commands pass (tests, linters in check mode, `git diff/log/show`, inspection, scanners); scratch code is content-checked; anything else is refused |
 | No push | `git push` in any form and forge writes (`gh`/`tea`/`fj`, `gh api`, curl/wget/httpie to forge hosts) are denied, also inside `bash -c`, `eval`, `$(...)`, `ssh` and git's own command hooks. `STACK_POLICY=off` does not lift it |
 | Protected paths | Bash-level writes, deletes and renames of the installed stack, the backups and the hook state are refused, on top of the Edit/Write deny rules; so is running `install.sh` except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs |
@@ -925,7 +924,7 @@ steps, as the run prints them:
 3. **ML venv** (`--with-ml`): `~/.claude/venvs/ml` from `requirements/ml.txt`, several GB.
 4. **Adobe** (`--with-adobe`): the After Effects MCP at a pinned commit, the Premiere connector.
 5. **Stage**: copy the stack's part of the config dir to a private staging dir.
-6. **Render**: agents (with `-copy` renders), rules, skills, scripts, `settings.json`.
+6. **Render**: agents, rules, skills, scripts, `settings.json`.
 7. **Merge, validate, apply**: JSON, frontmatter, placeholders and the staged guard's `--self-test`;
    the plan; one backup; apply; then `tests/lint_agents.py` on the repo (warns only).
 8. **MCP dependency prefetch** into the private `STACK_CACHE`.
@@ -1225,7 +1224,6 @@ you may set yourself.
 | `BLACKCAT_BACKGROUND` | 1 | Drop BlackCat's `run_in_background: false` | guard |
 | `STACK_MAX_FANOUT` ● | 3 | Running children per agent (0 = no cap) | guard |
 | `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
-| `STACK_MAX_SELF_FANOUT` ● | 2 | Live copies per copy type | guard |
 | `STACK_MAX_DEPTH` | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, else 3 | Deny Agent from callers at this depth | guard |
 | `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | learned (seed 100000000 / 1920000000) | Context tokens per prompt / per session, whole tree (0 = off); a value you set pins the learned limit | guard |
 | `STACK_MAX_MCP_CALLS` ● | 64 | MCP calls per subagent per prompt, lower if `maxTurns` is | guard |
