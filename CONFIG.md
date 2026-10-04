@@ -881,7 +881,7 @@ Entries name agents, knobs and files by their current names.
 ### 2026-10-04 (`install.sh --diff`; redundancy lint)
 
 - `install.sh --diff` (`lib/stack_diff.py`): read-only repo-vs-install comparison (§7, "Repo vs install: `--diff`"); `tests/test_install_diff.py`. Nothing to rerun.
-- `tests/redundancy_lint.py` with `tests/redundancy_allowlist.json` (§8): long sentences repeated in 3+ agent/skill files, dangling `see`/`load`/`name`*/§ skill references, hook files neither wired nor staged. Baseline `TODO:` entries: 5 repeats, 2 section refs (`self-hosting-ops` § systemd, `technical-writing` §10); the S2 merge staged `hooks/stack_hook.py`, so its dead-hook entry is gone; `tests/test_redundancy.py` proves each check by mutation.
+- `tests/redundancy_lint.py` with `tests/redundancy_allowlist.json` (§8): long sentences repeated in 3+ agent/skill files, dangling `see`/`load`/`name`*/§ skill references, hook files neither wired nor staged. Baseline `TODO:` entries: 4 repeats (the reviewers' evidence-gated sentence went with the drift cleanup), 2 section refs (`self-hosting-ops` § systemd, `technical-writing` §10); the S2 merge staged `hooks/stack_hook.py`, so its dead-hook entry is gone; `tests/test_redundancy.py` proves each check by mutation.
 
 ### 2026-10-04 (lazy skill listing)
 

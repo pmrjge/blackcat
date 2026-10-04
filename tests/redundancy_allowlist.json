@@ -5,8 +5,6 @@
      "reason": "language-engineer template: the same escalation line in every <lang>-engineer body by design"},
     {"contains": "args: [\"-y\", \"@playwright/mcp@",
      "reason": "pasted inline mcpServers block: an agent-scoped stdio server is repeated in each agent that mounts it (as the libdocs and neural-memory blocks, whose lines stay under the length threshold)"},
-    {"contains": "evidence-gated: nothing verifiably wrong → verdict: pass, no follow-up",
-     "reason": "TODO: the four read-only reviewers restate the rules' evidence-gated round trips"},
     {"contains": "hub: gpu-kernel-dev (is a kernel justified, performance model, device table",
      "reason": "TODO: the same hub pointer line in gpu-cuda, gpu-metal-mlx and gpu-triton"},
     {"contains": "hub: numerical-methods (conditioning §3, verification §9",
