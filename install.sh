@@ -322,13 +322,27 @@ STACK_COMMIT_FULL="$(git -C "$HERE" rev-parse HEAD 2>/dev/null || echo unknown)"
 # The working dir (the staged copy of $C, stack.env with your keys included, MCP entries on their way
 # to `claude mcp`) lives inside the backup root: a real directory of yours, 0700 (a symlink there is
 # refused), which agents can neither read nor write. A run that changes nothing (--dry-run,
-# --mcp-plan, --print-managed-settings) and had to create the root removes it again.
+# --mcp-plan, --print-managed-settings) and had to create the root removes it again, with the
+# parent dirs it had to create for it (an XDG_STATE_HOME that did not exist yet, ~/.local/state).
+BR_NEW_TOP="$(python3 -c 'import os, sys
+p, top = os.path.abspath(sys.argv[1]), ""
+while not os.path.lexists(p) and os.path.dirname(p) != p:
+    top, p = p, os.path.dirname(p)
+print(top)' "$BACKUP_ROOT")"
 ROOT_STATE="$(python3 "$STATE_PY" private-root "$BACKUP_ROOT")" || exit 1
 find "$BACKUP_ROOT" -maxdepth 1 -name '.work.*' -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 WORK="$(mktemp -d "$BACKUP_ROOT/.work.XXXXXX")"
 cleanup(){
   rm -rf "$WORK"
-  if [ "$ROOT_STATE" = created ] && [ "$DRY_RUN$PRINT_MANAGED$MCP_PLAN" != 000 ]; then rmdir "$BACKUP_ROOT" 2>/dev/null || true; fi
+  if [ "$ROOT_STATE" = created ] && [ "$DRY_RUN$PRINT_MANAGED$MCP_PLAN" != 000 ]; then
+    rmdir "$BACKUP_ROOT" 2>/dev/null || true
+    # then each empty parent this run created, up to the first one that existed before it
+    local d="${BACKUP_ROOT%/*}"
+    while [ -n "$BR_NEW_TOP" ] && case "$d/" in "$BR_NEW_TOP"/*) true ;; *) false ;; esac; do
+      rmdir "$d" 2>/dev/null || break
+      d="${d%/*}"
+    done
+  fi
 }
 trap cleanup EXIT
 # --dry-run: nothing outside $WORK is written; commands that would change something are printed.
@@ -2655,7 +2669,10 @@ PY
 
 # Validate the staged result before anything in $C changes: JSON files parse, every agent and skill
 # has sound frontmatter, no placeholder is left, and the staged guard passes its --self-test.
-if ! python3 "$STATE_PY" validate "$S" "$RUN_PY"; then
+# The self-test probes the guard's state dir by writing to it (creating it): a dry run points it at
+# a scratch dir inside $WORK, so it leaves nothing behind.
+if ! ( if [ "$DRY_RUN" = 1 ]; then export XDG_STATE_HOME="$WORK/validate-state"; fi
+       python3 "$STATE_PY" validate "$S" "$RUN_PY" ); then
   echo "install.sh: the staged install failed validation (above) — nothing in $C was changed." >&2
   exit 1
 fi

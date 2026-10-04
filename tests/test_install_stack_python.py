@@ -140,6 +140,21 @@ def test_dry_run_prints_stack_python_and_smoke_before_settings(scratch, tmp_path
 
 
 @needs_git
+def test_dry_run_creates_nothing(scratch, tmp_path):
+    """--dry-run writes nothing outside its own working dir (removed at exit): no config dir, no
+    stack-python, no state, backup or cache dir under XDG_STATE_HOME (here HOME/.local/state)."""
+    repo, home, conf = scratch
+    py, _, _ = shim(tmp_path, conf)
+    p = _run_install(repo, home, conf, "--dry-run", env_extra={"STACK_PYTHON": py})
+    assert p.returncode == 0, (p.stdout + p.stderr)[-3000:]
+    left = sorted(os.path.relpath(os.path.join(d, x), home) for d, ds, fs in os.walk(home) for x in ds + fs)
+    # the stack's paths only: the test helper's scratch dirs (tmp, shim) are its own, and brew's
+    # ~/Library/Caches/Homebrew comes from lib/devtools.sh's report (not checked here)
+    ours = [x for x in left if x.startswith((".local", ".claude", ".cache"))]
+    assert ours == [], " ".join(x for x in ours if x.count("/") < 3)
+
+
+@needs_git
 def test_dry_run_without_313_says_what_it_would_do(scratch, tmp_path):
     repo, home, conf = scratch
     empty = tmp_path / "no-pythons"
