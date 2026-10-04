@@ -114,6 +114,7 @@ def test_seeded_drift_is_listed(installed):
     shutil.copy(os.path.join(repo, "dot-claude", "agents", "oracle.md"), os.path.join(repo, "dot-claude", "agents", "zz-new.md"))
     with open(os.path.join(repo, "dot-claude", "rules", "claude-agent-stack.md"), "a") as f:
         f.write("- a new rule line\n")
+    shutil.rmtree(os.path.join(repo, "dot-claude", "skills", "typography"))   # a stack skill retired: pruned
 
     before = fingerprint(home)
     p = diff(repo, home, conf)
@@ -121,7 +122,9 @@ def test_seeded_drift_is_listed(installed):
     out = p.stdout
     for pat in (r"\+ repo only\s+agents/scout\.md",
                 r"\+ repo only\s+agents/zz-new\.md",
-                r"- installed only\s+skills/my-own-skill/\s+\(whole skill\)",
+                # the user's own skill (no manifest entry) is kept; a retired stack skill is not
+                r"- installed only\s+skills/my-own-skill/\s+\(whole skill; yours: install\.sh keeps it\)",
+                r"- installed only\s+skills/typography/\s+\(whole skill\)\n",
                 r"~ differs\s+skills/sqlite/SKILL\.md\s+\(\+0 -2 lines to install; edited since the last install\)",
                 r"~ differs\s+rules/claude-agent-stack\.md\s+\(\+1 -0 lines",
                 r"~ differs\s+hooks/web_caps\.py",
@@ -132,7 +135,7 @@ def test_seeded_drift_is_listed(installed):
                 r"- installed only\s+mine",
                 r"~ differs\s+agents/coder\.md\s+\(\+0 -1 lines to install; edited since the last install\)"):
         assert re.search(pat, out), pat + "\n" + out
-    assert summary(out) == (4, 4, 5), out
+    assert summary(out) == (4, 5, 5), out
     assert fingerprint(home) == before
 
 

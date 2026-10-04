@@ -257,9 +257,11 @@ class Diff:
         inames = {d for d in os.listdir(ib) if d not in SKIP_NAMES and d != "synced"} if os.path.isdir(ib) else set()
         for n in sorted(rnames - inames):
             self.add("skills", "+", "skills/%s/" % n, "whole skill")
+        shipped = {k.split("/")[1] for k in (self.manifest.get("files") or {}) if k.startswith("skills/") and k.count("/") >= 2}
         for n in sorted(inames - rnames):
+            # a skill the manifest never recorded is the user's own: install.sh leaves it alone
             self.add("skills", "-", "skills/%s%s" % (n, "/" if os.path.isdir(os.path.join(ib, n)) else ""),
-                     "whole skill")
+                     "whole skill" if n in shipped else "whole skill; yours: install.sh keeps it")
         for n in sorted(rnames & inames):
             self.tree("skills", os.path.join(src, n), "skills/" + n, True)
 
