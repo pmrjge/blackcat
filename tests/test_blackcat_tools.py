@@ -62,6 +62,7 @@ def installed(tmp_path, monkeypatch):
     for sub in ("agents", "rules", "skills", "bin"):
         (cfg / sub).mkdir()
     shutil.copy(SRC_HOOK, cfg / "hooks" / "agent_guard.py")
+    shutil.copy(SRC_HOOK.with_name("stack_io.py"), cfg / "hooks" / "stack_io.py")
     (cfg / "settings.json").write_text(SRC_SETTINGS.read_text().replace("__CLAUDE_DIR__", str(cfg)))
     proj = tmp_path / "proj"
     (proj / ".git").mkdir(parents=True)

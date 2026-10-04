@@ -72,6 +72,9 @@ from bisect import bisect_left, bisect_right
 SCHEMA = 1                      # live.json, proposals.json, snapshots, seed
 CODE_VERSION = "stack_limits/1"
 HERE = os.path.dirname(os.path.abspath(__file__))
+if HERE not in sys.path:      # stack_io.py beside this file, also when loaded by path
+    sys.path.insert(0, HERE)
+from stack_io import now_iso as iso, write_atomic as _write_atomic  # noqa: E402
 SEED_PATH = os.path.join(HERE, "stack_limits_seed.json")
 SHIPPED_MODEL = os.path.join(HERE, "sched_model.json")
 
@@ -288,10 +291,6 @@ def soft_scale():
     return v if 0 <= v < float("inf") else 1.0
 
 
-def iso(t=None):
-    return time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime(time.time() if t is None else t))
-
-
 def _isnum(x):
     return isinstance(x, (int, float)) and not isinstance(x, bool) and math.isfinite(x)
 
@@ -302,24 +301,6 @@ def _sha(data):
 
 def _dumps(obj):
     return json.dumps(obj, sort_keys=True, separators=(",", ":"), allow_nan=False)
-
-
-def _write_atomic(path, data, mode=0o600, fsync=False):
-    tmp = f"{path}.{os.getpid()}.{os.urandom(4).hex()}.tmp"
-    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_EXCL, mode)
-    try:
-        with os.fdopen(fd, "wb") as fh:
-            fh.write(data)
-            if fsync:
-                fh.flush()
-                os.fsync(fh.fileno())
-        os.replace(tmp, path)
-    except BaseException:
-        try:
-            os.unlink(tmp)
-        except OSError:
-            pass
-        raise
 
 
 def _create_excl(path, data, mode=0o444):

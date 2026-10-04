@@ -1147,6 +1147,9 @@ stage_script 755 hooks/web_caps.py
 stage_script 755 hooks/read_gate.py
 # the hand-back protocol's parser and checks (STACK_REPORT_FORMAT): imported by agent_guard.py, beside it
 stage_script 644 hooks/stack_report.py
+# the hooks' shared file helpers (read_json, atomic writes, timestamps): imported by agent_guard.py,
+# stack_usage.py, stack_limits.py, stack_fanout.py and stack_sched_refresh.py, beside them
+stage_script 644 hooks/stack_io.py
 # the usage collector (SubagentStart/SessionEnd hooks; agent_guard.py starts it at SessionStart), the
 # scheduler advisor, its shipped cost model and the refit (stack_sched_refresh.py imports fit() from the
 # two tests/ scripts beside it), and the learned limits (stack_limits.py: per-session snapshots the
@@ -2023,7 +2026,7 @@ for rel in skills_kept:
 
 # --- scripts the stack copies into hooks/, bin/ and mcp/ (step 6 put them in DEST): tracked in the
 # manifest, so a later version that stops shipping one removes it. Files of your own there stay. ---
-STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/stack_report.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
+STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/stack_report.py", "hooks/stack_io.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json", "hooks/stack_fanout.py", "hooks/stack_fanout_wire.py",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",

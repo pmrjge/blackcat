@@ -200,8 +200,10 @@ def test_seed_parity_with_frontmatter_and_guard():
     assert json.loads(SEED_JSON.read_text())["schema_version"] == 1
 
 
-def test_stdlib_only_imports():
-    tree = ast.parse(LIMITS_PY.read_text(encoding="utf-8"))
+@pytest.mark.parametrize("path", [LIMITS_PY, LIMITS_PY.with_name("stack_io.py")])
+def test_stdlib_only_imports(path):
+    """stack_limits.py imports the stdlib and stack_io.py beside it (itself stdlib only)."""
+    tree = ast.parse(path.read_text(encoding="utf-8"))
     mods = set()
     for node in ast.walk(tree):
         if isinstance(node, ast.Import):
@@ -212,7 +214,7 @@ def test_stdlib_only_imports():
     std = getattr(sys, "stdlib_module_names", None)
     if std is None:
         pytest.skip("needs Python >= 3.10 for sys.stdlib_module_names")
-    assert mods and mods <= set(std), sorted(mods - set(std))
+    assert mods and mods - {"stack_io"} <= set(std), sorted(mods - set(std) - {"stack_io"})
 
 
 def test_imports_on_hook_interpreter():
