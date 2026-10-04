@@ -732,11 +732,12 @@ for bad in ("DISABLE_AUTO_COMPACT", "DISABLE_COMPACT", "CLAUDE_CODE_AUTO_COMPACT
         warn("your shell exports %s=%s — it overrides the stack's compaction/model/effort settings" % (bad, os.environ[bad]))
 hooks = s.get("hooks", {})
 events = ["SessionStart", "UserPromptSubmit", "PreToolUse", "PostToolUse", "SubagentStart", "SubagentStop",
-          "PostToolUseFailure", "PermissionDenied", "StopFailure"]
+          "PostToolUseFailure", "PermissionDenied", "StopFailure", "PreCompact"]
 missing_ev = [ev for ev in events if not any("agent_guard.py" in json.dumps(g) for g in hooks.get(ev, []))]
 (fail if missing_ev else ok)("guard hooks wired for all %d events" % len(events) if not missing_ev else "guard hooks missing for: " + ", ".join(missing_ev))
 # SessionStart: startup and resume clear stale locks and leases; fork starts a forked session's
-# token count at the end of the history it copied (without it, the fork inherits its parent's usage)
+# token count at the end of the history it copied (without it, the fork inherits its parent's usage);
+# compact re-injects the compaction digest (the PreCompact snapshot's running and unrelayed children)
 starts = [str(g.get("matcher") or "*") for g in hooks.get("SessionStart", [])
           if isinstance(g, dict) and any(
               isinstance(h, dict) and "agent_guard.py" in str(h.get("command", ""))
@@ -749,8 +750,8 @@ def _matches(m, source):
         return re.fullmatch(m, source) is not None
     except re.error:
         return source in m.split("|")
-lost = [src for src in ("startup", "resume", "fork") if not any(_matches(m, src) for m in starts)]
-(fail if lost else ok)("SessionStart guard matcher covers startup, resume and fork" if not lost
+lost = [src for src in ("startup", "resume", "fork", "compact") if not any(_matches(m, src) for m in starts)]
+(fail if lost else ok)("SessionStart guard matcher covers startup, resume, fork and compact" if not lost
                        else "SessionStart guard matcher %s misses %s — rerun install.sh"
                        % (" / ".join(starts) or "(none)", ", ".join(lost)))
 post = {g.get("matcher") for g in hooks.get("PostToolUse", []) if isinstance(g, dict) and "agent_guard.py" in json.dumps(g)}

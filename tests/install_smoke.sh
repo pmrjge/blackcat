@@ -186,12 +186,15 @@ if bad:
     print("  bare:", bad)
 sys.exit(1 if bad else 0)
 PY
-python3 - "$T1/settings.json" <<'PY' && pass "settings: StopFailure + TaskStop wiring, narrowed magg allow, Exa-safe denies, no-push wiring" || failed "settings wiring/permissions (see above)"
+python3 - "$T1/settings.json" <<'PY' && pass "settings: StopFailure + PreCompact + TaskStop wiring, narrowed magg allow, Exa-safe denies, no-push wiring" || failed "settings wiring/permissions (see above)"
 import json, os, sys
 s = json.load(open(sys.argv[1]))
 h, allow, deny = s["hooks"], s["permissions"]["allow"], s["permissions"]["deny"]
 checks = {
     "StopFailure hook": any("agent_guard.py" in json.dumps(g) for g in h.get("StopFailure", [])),
+    "PreCompact hook + SessionStart compact": any("agent_guard.py" in json.dumps(g) for g in h.get("PreCompact", []))
+                                              and any("compact" in str(g.get("matcher") or "").split("|")
+                                                      for g in h["SessionStart"]),
     "PostToolUse TaskStop": any("TaskStop" in (g.get("matcher") or "") for g in h["PostToolUse"]),
     "no blanket mcp__magg": "mcp__magg" not in allow,
     "magg catalog tools allowed": "mcp__magg__docling_*" in allow and "mcp__magg__arxiv_*" in allow,
@@ -694,9 +697,10 @@ printf '%s\n' "$outc" | grep -q 'WARN  GH_TOKEN is set in this environment' \
   || failed "doctor.sh credential presence: $(printf '%s\n' "$outc" | grep -i 'token\|credential' | sed 's/SMOKESECRET[0-9]*/<value>/g' | head -4)"
 drop_scratch "$T3C"
 # SessionStart must reach the guard for fork too (a fork's token count starts at the end of the
-# history it copied): the shipped matcher passes, one without fork fails
-printf '%s\n' "$out" | grep -q 'ok    SessionStart guard matcher covers startup, resume and fork' \
-  && pass "doctor.sh: SessionStart guard matcher covers fork" \
+# history it copied) and compact (the compaction digest): the shipped matcher passes, one without
+# them fails
+printf '%s\n' "$out" | grep -q 'ok    SessionStart guard matcher covers startup, resume, fork and compact' \
+  && pass "doctor.sh: SessionStart guard matcher covers fork and compact" \
   || failed "doctor.sh: SessionStart matcher line: $(printf '%s\n' "$out" | grep 'SessionStart')"
 T3F="$(scratch_dir)" || exit 1
 cp -R "$T3/." "$T3F/"
@@ -710,8 +714,8 @@ for g in s["hooks"]["SessionStart"]:
 json.dump(s, open(p, "w"), indent=2)
 PY
 outf=$(CLAUDE_CONFIG_DIR="$T3F" bash "$T3F/bin/doctor.sh" 2>&1)
-printf '%s\n' "$outf" | grep -q 'FAIL  SessionStart guard matcher startup|resume misses fork — rerun install.sh' \
-  && pass "doctor.sh fails a SessionStart guard matcher without fork" \
+printf '%s\n' "$outf" | grep -q 'FAIL  SessionStart guard matcher startup|resume misses fork, compact — rerun install.sh' \
+  && pass "doctor.sh fails a SessionStart guard matcher without fork or compact" \
   || failed "doctor.sh: no FAIL for a SessionStart matcher without fork: $(printf '%s\n' "$outf" | grep 'SessionStart')"
 drop_scratch "$T3F"
 assert_unchanged_real_home

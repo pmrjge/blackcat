@@ -797,7 +797,12 @@ def test_session_start_sources(env, source, cleared):
     run(post_agent(s, "supreme-coder", "G1"), env)
     run(screen(s, agent_id="D1"), env)
     p = run({"session_id": s, "hook_event_name": "SessionStart", "source": source}, env)
-    assert p.returncode == 0 and p.stdout == ""
+    if source == "compact":       # the compaction digest (tests/test_compact_survival.py), only output
+        out = json.loads(p.stdout)
+        assert p.returncode == 0 and set(out) == {"hookSpecificOutput"}
+        assert out["hookSpecificOutput"]["additionalContext"].startswith("Compaction survival")
+    else:
+        assert p.returncode == 0 and p.stdout == ""
     d = state(env, s)
     for f in ("supreme-coder.lock", "screen.lock", "blackcat"):
         assert (d / f).exists() != cleared, (source, f)
