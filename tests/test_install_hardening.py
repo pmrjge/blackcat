@@ -126,6 +126,35 @@ def test_install_copies_only_the_skill_files_git_lists(tmp_path):
     assert not (skill / "notes.log").exists() and _grep_tree(str(home / ".claude"), b"SECRET-7f3a9c") == []
 
 
+# ---------------------------------------------------------------- MEDIUM: sandbox cache variables
+@needs_git
+def test_install_drops_the_sandbox_cache_variables(tmp_path):
+    """install.sh run from a sandboxed shell drops every exported variable naming
+    ~/.cache/claude-sandbox before any tool starts: the uv it runs sees none of them."""
+    repo = _tis._scratch_repo(str(tmp_path / "repo"))
+    home = tmp_path / "home"
+    home.mkdir()
+    real_uv = shutil.which("uv")
+    if not real_uv:
+        pytest.skip("needs uv")
+    wrap = tmp_path / "wrap"
+    wrap.mkdir()
+    log = tmp_path / "uv-env.log"
+    (wrap / "uv").write_text('#!/bin/sh\necho "UV_CACHE_DIR=${UV_CACHE_DIR-unset} CARGO_HOME=${CARGO_HOME-unset}" '
+                             '>>"%s"\nexec "%s" "$@"\n' % (log, real_uv))
+    (wrap / "uv").chmod(0o755)
+    sb = home / ".cache" / "claude-sandbox"
+    path = os.pathsep.join((str(wrap), os.path.join(repo, "tests", "fake-claude"), str(home / "shim"),
+                            os.environ.get("PATH", "")))
+    out = _tis._run_install(repo, str(home), str(home / ".claude"), "--dry-run",
+                            env_extra={"PATH": path, "UV_CACHE_DIR": str(sb / "uv"), "CARGO_HOME": str(sb / "cargo")})
+    assert out.returncode == 0, (out.stdout[-1500:], out.stderr[-1500:])
+    assert "ignoring the sandbox cache variables of this shell: UV_CACHE_DIR CARGO_HOME" in out.stderr or \
+        "ignoring the sandbox cache variables of this shell: CARGO_HOME UV_CACHE_DIR" in out.stderr, out.stderr[-800:]
+    seen = log.read_text()
+    assert seen and "claude-sandbox" not in seen, seen
+
+
 def _doctor_copy(tmp_path, with_guard_section=False):
     c = tmp_path / "conf"
     (c / "bin").mkdir(parents=True)

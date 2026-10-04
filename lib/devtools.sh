@@ -60,6 +60,12 @@ set -u
 # directory (not /: macOS's bash 3.2 then can't create here-document temp files). Every path below is
 # absolute.
 DT_CWD="$(mktemp -d "${TMPDIR:-/tmp}/stack-devtools-cwd.XXXXXX")" && cd "$DT_CWD" || exit 2
+# Run from a Claude Code Bash command, the environment carries the sandbox's cache dirs (agent_guard
+# SANDBOX_ENV: CARGO_HOME, UV_CACHE_DIR, GOMODCACHE, npm_config_cache, ...), which sandboxed agents
+# can write: nothing installed here may build from or land in them (security audit, CWE-427).
+for v in $(compgen -e); do
+  [ "$v" = PATH ] || case "${!v}" in *"$HOME/.cache/claude-sandbox"*) unset "$v" ;; esac
+done
 
 MODE="${DEVTOOLS_MODE:-install}"
 case "$MODE" in install|dry-run|report) ;; *) echo "devtools.sh: DEVTOOLS_MODE must be install, dry-run or report" >&2; exit 2 ;; esac

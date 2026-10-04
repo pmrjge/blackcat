@@ -138,6 +138,15 @@ done
 PY_ISOLATE="-I -B -X pycache_prefix=/dev/null/claude-agent-stack-no-bytecode"
 # shellcheck disable=SC2086
 python3(){ command python3 $PY_ISOLATE "$@"; }
+# Run from a Claude Code Bash command, the environment carries the sandbox's cache dirs (agent_guard
+# SANDBOX_ENV: CARGO_HOME, UV_CACHE_DIR, GOMODCACHE, npm_config_cache, ...), which sandboxed agents
+# can write: no installer, build or prefetch of this run may read from or write to them (security
+# audit, CWE-427). Every exported variable naming that dir is dropped (PATH aside).
+SANDBOX_DROPPED=""
+for v in $(compgen -e); do
+  [ "$v" = PATH ] || case "${!v}" in *"$HOME/.cache/claude-sandbox"*) unset "$v"; SANDBOX_DROPPED="$SANDBOX_DROPPED $v" ;; esac
+done
+[ -z "$SANDBOX_DROPPED" ] || printf 'install.sh: ignoring the sandbox cache variables of this shell:%s\n' "$SANDBOX_DROPPED" >&2
 # --print-managed-settings: the JSON is the only thing on stdout (fd 3); progress goes to stderr
 if [ "$PRINT_MANAGED" = 1 ]; then exec 3>&1 1>&2; fi
 # the plugin lists the installer manages (tests/test_no_duplicates.py reads these two lines)

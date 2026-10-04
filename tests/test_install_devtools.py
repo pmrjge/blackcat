@@ -1312,3 +1312,20 @@ def test_sandbox_writable_dirs_never_count_as_found(tmp_path):
                          CARGO_HOME=str(sandbox / "cargo"), GOPATH=str(sandbox / "go"), XDG_CACHE_HOME=str(sandbox))
     assert rc == 1 and out == "", (rc, out, err)
     assert e.calls("gitleaks") == []
+
+
+def test_sandbox_cache_variables_never_reach_an_installer(tmp_path):
+    """Run from a Claude Code Bash command, the environment carries the sandbox's agent-writable cache
+    dirs (agent_guard SANDBOX_ENV): devtools.sh drops every exported variable naming
+    ~/.cache/claude-sandbox before anything runs; a cache dir of the user's own stays (security audit,
+    MEDIUM, CWE-427)."""
+    e = Env(tmp_path)
+    envlog = tmp_path / "env.log"
+    mkexe(e.bin / "uv", 'echo "UV_CACHE_DIR=${UV_CACHE_DIR-unset} CARGO_HOME=${CARGO_HOME-unset} '
+                        'GOMODCACHE=${GOMODCACHE-unset} PIP_CACHE_DIR=${PIP_CACHE_DIR-unset}" >>"%s"\nexit 0' % envlog)
+    sb = e.home / ".cache" / "claude-sandbox"
+    rc, out, err = e.run("UV", UV_CACHE_DIR=str(sb / "uv"), CARGO_HOME=str(sb / "cargo"),
+                         GOMODCACHE=str(sb / "go/mod"), PIP_CACHE_DIR=str(tmp_path / "mine"))
+    seen = envlog.read_text()
+    assert seen and "claude-sandbox" not in seen, (seen, out, err)
+    assert "UV_CACHE_DIR=unset CARGO_HOME=unset GOMODCACHE=unset PIP_CACHE_DIR=%s" % (tmp_path / "mine") in seen
