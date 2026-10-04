@@ -3,7 +3,7 @@ name: viz-dashboards
 description: Use for dashboards and data apps — Streamlit, Dash, Panel or BI tools, layout, caching, freshness.
 ---
 # Dashboards and data apps
-Hub: `data-visualization` (chart choice, color, uncertainty). Charts as Claude Artifacts or chat-surface dashboards: the built-in `dataviz` skill. Front-end code: `frontend-frameworks`. Serving and exposing an app on the home server: `self-hosting-ops`.
+Hub: `data-visualization` (chart choice, color, uncertainty). Charts as Claude Artifacts or chat-surface dashboards: the hub's rules (Claude Code's `dataviz` is a user-run `/dataviz` command here). Front-end code: `frontend-frameworks`. Serving and exposing an app on the home server: `self-hosting-ops`.
 
 ## Design
 - Dashboards: each view answers one question; defaults that show the main message without interaction; consistent colors and scales across views; data freshness and n visible; pre-aggregate for speed; prefer a static report when interaction answers nothing new.

@@ -42,4 +42,4 @@ Sources:
 ```
 Quote at most one sentence per source; paraphrase the rest.
 
-Division of labour: this skill is the tool and sourcing procedure for any web lookup. `anthropic-skills:deep-research` plans and coordinates a multi-source narrative report (it spawns research subagents, which then follow this procedure). `literature-review` covers papers, preprints and checking every citation.
+Division of labour: this skill is the tool and sourcing procedure for any web lookup. The claude.ai `deep-research` skill (multi-source narrative reports) is user-run only here (`/anthropic-skills:deep-research`), hidden from the model; research subagents follow this procedure. `literature-review` covers papers, preprints and checking every citation.
