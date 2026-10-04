@@ -284,7 +284,6 @@ INSTALL_ALLOW = [
     "python3 lib/install_state.py plan /tmp/c /tmp/s x /tmp/w/plan.json",
     "python3 lib/install_state.py validate /Users/me/.claude s", "python3 lib/install_state.py",
     "python3 lib/install_state.py linked /Users/me/.claude",
-    "python3 lib/install_state.py legacy-backups /Users/me/.claude root list",
     "python3 lib/install_state.py apply /tmp/c s plan r c out",
     "python3 lib/install_state.py restore /private/tmp/c latest r w c h",
     "uv run lib/install_state.py stage /var/folders/ab/T/c a b",

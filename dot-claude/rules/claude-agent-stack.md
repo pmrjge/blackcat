@@ -34,7 +34,7 @@
 ## Briefs and hand-backs
 - Brief = one self-contained block: goal · inputs (paths/URLs) · constraints · done-when · output. The child sees nothing of your conversation; artifacts pass by path, never pasted.
 - Dispatch independent children in ONE message; dependent ones wait for their inputs. No spawn (BlackCat aside) for a few tool calls' work, a brief repeating most of your context, or a result your next step needs.
-- Follow-ups on a child's output go to that child by SendMessage (else to a fresh agent briefed with the paths to its output). Message no other agent but main and your parent while it runs (never resume it).
+- Follow-ups on a child's output go to that child by SendMessage (else to a fresh agent briefed with the paths to its output). Else message only main and your parent while it runs (never resume it), by agent id (a name is refused).
 - Clean finish (everything asked done, every check passed, nothing unverified, no issue open): reply with only `<input: the task in ≤ 10 words> · <YYYY-MM-DD HH:MM> · <your agent type>` and the result below it. Time: your last `date '+%F %R'` output, else the `Started` time, else the date alone.
 - Anything else (partial, blocked, a tool call denied or failed, a claim unverified, a check skipped or failing, a deviation from the brief, a fix not applied) uses this format:
 ```

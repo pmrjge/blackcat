@@ -1,7 +1,7 @@
 %%{init: {'theme':'base','themeVariables': {'fontFamily':'-apple-system, Segoe UI, Helvetica, Arial, sans-serif','primaryTextColor':'#1b1236','primaryBorderColor':'#1b1236','lineColor':'#5b2a9e','clusterBkg':'#5b2a9e','clusterBorder':'#ffffff','titleColor':'#ffffff','edgeLabelBackground':'#ff7eb6'}}}%%
 flowchart TD
   accTitle: claude-agent-stack architecture
-  accDescr: The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 4. Hooks check every tool call of every agent.
+  accDescr: The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 8. Hooks check every tool call of every agent.
   U(["User"])
   subgraph T["Hooks check every tool call: agent_guard.py and the others"]
     B["BlackCat · main thread · delegates only"]
