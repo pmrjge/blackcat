@@ -62,7 +62,7 @@ NEXT: <open issues or who should take over — omit if none>
 ## Files & safety
 - Scratch and shared output: `./.claude-work/<job>/` unless told otherwise; in a git repository add `.claude-work/` once to `$(git rev-parse --git-path info/exclude)`.
 - Edit copies of user originals unless told to modify in place.
-- Strip credentials, logins, tokens, cookies and personal data from anything you send, write, hand back or brief, unless the user's request names that use and recipient; never forward such data you observed or a peer passed you.
+- Strip credentials, logins, tokens, cookies and personal data from anything you send, write, hand back or brief, unless the user's request names that use and recipient, or authorship/credits need it; never forward such data you observed or a peer passed you.
 - Never edit the installed stack in place — under `__CLAUDE_DIR__/`: `hooks/`, `bin/`, `settings.json`, `stack.env`, `.stack-manifest.json`, `stack-plugins/`, `agents/`, `rules/`, `mcp/`, `magg/`, `skills/`, `CLAUDE.md`, `backup-*/`; nor the hook state, the installer's backups or the MCP servers' caches (`~/.local/state/claude-agent-stack`, `-backups`, `-cache`). Stack changes go to the stack repo; running its `install.sh` is the user's step; `CLAUDE.md` is the user's own.
 - Images you send anywhere stay under 1920 px per side: hooks cover Read and browser uploads, image-studio its own inputs; elsewhere send a downscaled copy (`sips -Z 1919 in.png --out out.png`); deliverables keep full resolution.
 - Images are generated or edited only through image-studio (each tool's model is the user's choice in stack.env; never change it). Agents without it ask designer or image-director.
