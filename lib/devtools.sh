@@ -644,6 +644,8 @@ brew_step(){
   while read -r g type name probes; do
     [ -n "$g" ] || continue
     on "$g" || continue
+    # without Homebrew these have their own step below (one line each there, not two)
+    if [ -z "$BREW" ]; then case "$name" in jq|elan-init) continue ;; gitleaks) on DEPS && continue ;; esac; fi
     if item_present "$type" "$name" "$probes"; then skip_line "$(item_label "$name")" "$ITEM_AT"; [ "$name" = oracle-jdk ] && jdk_old_warn; continue; fi
     # elan: the open-file limit gates installing it; without Homebrew its official installer (step 3)
     if [ "$g" = LEAN ] && { [ -z "$BREW" ] || ! lean_limit_ok; }; then continue; fi
@@ -654,8 +656,10 @@ brew_step(){
   done <<EOF_ITEMS
 $BREW_ITEMS
 EOF_ITEMS
-  [ -z "$unresolved" ] || line "! brew could not resolve:$unresolved (left out)"
-  [ -z "$nobrew" ] || line "! no Homebrew, not installed:$nobrew (install Homebrew, then rerun; jq and gitleaks have pinned fallbacks below)"
+  # shellcheck disable=SC2086
+  [ -z "$unresolved" ] || { line "! brew could not resolve:$unresolved (left out)"; N_MISS=$((N_MISS + $(echo $unresolved | wc -w))); }
+  # shellcheck disable=SC2086
+  [ -z "$nobrew" ] || { line "! no Homebrew, not installed:$nobrew (install Homebrew, then rerun)"; N_MISS=$((N_MISS + $(echo $nobrew | wc -w))); }
   case " $want_f " in *" gopls "*)
     if find_cmd go; then src_of "$FOUND"; [ "$SRC" = brew ] || gopls_route "$FOUND"; fi ;;
   esac

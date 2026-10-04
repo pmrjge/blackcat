@@ -500,3 +500,20 @@ def test_an_existing_homebrew_cache_is_used_as_it_is(tmp_path):
     (e.home / "Library" / "Logs" / "Homebrew").mkdir(parents=True)
     rc, out, _ = e.run("GO", mode="dry-run", **s.env)
     assert set(Path(str(e.log) + ".cache").read_text().split()) == {"cache=default"}
+
+
+# ---------------------------------------------------------------- review: no Homebrew, one line per tool
+def test_without_homebrew_jq_gitleaks_elan_get_one_skip_line_and_the_misses_are_counted(tmp_path):
+    e, s = setup(tmp_path)
+    e.present("jq", "gitleaks", "elan")
+    rc, out, _ = e.run("DEPS", "DEVTOOLS", "LEAN", "CXX", mode="dry-run", DEVTOOLS_NOFILE="65536",
+                       STACK_INSTALL_LEAN_MATHLIB="0", **s.env)
+    for tool in ("jq", "gitleaks", "elan"):
+        assert sum(1 for l in lines(out) if l.startswith("  skip %s (" % tool)) == 1, (tool, out)
+    nobrew = re.search(r"^  ! no Homebrew, not installed:(.*) \(install Homebrew, then rerun\)$", out, re.M)
+    assert nobrew, out
+    names = nobrew.group(1).split()
+    assert "jq" not in names and "gitleaks" not in names and "elan-init" not in names
+    m = re.search(r"summary: \d+ would be installed, (\d+) skipped \(already there\), (\d+) not installable here", out)
+    assert m and int(m.group(2)) >= len(names), out
+    assert int(m.group(1)) == sum(1 for l in lines(out) if l.startswith("  skip "))
