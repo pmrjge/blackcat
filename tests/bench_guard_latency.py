@@ -44,7 +44,7 @@ class Session:
         with open(os.path.join(self.subs, "agent-A1.meta.json"), "w") as f:
             json.dump({"agentType": "coder", "description": "bench"}, f)
         self.env = {k: v for k, v in os.environ.items()
-                    if not k.startswith(("STACK_", "BLACKCAT_", "SUPREME_", "SCREEN_", "CLAUDE_CODE_MAX"))}
+                    if not k.startswith(("STACK_", "BLACKCAT_", "SCREEN_", "CLAUDE_CODE_MAX"))}
         self.env.update(XDG_STATE_HOME=os.path.join(self.tmp, "xdg"), CLAUDE_CONFIG_DIR=os.path.join(self.tmp, "cfg"),
                         STACK_USAGE_COLLECT="0", PYTHONDONTWRITEBYTECODE="1")
 

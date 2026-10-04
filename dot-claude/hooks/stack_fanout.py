@@ -55,10 +55,10 @@ ENFORCE_TERMS = ("node", "deps", "conflict", "budget", "aimd")
 # deny code -> the enforce term that owns it ("ceil" is the static cap and always applies)
 CODE_TERM = {"running": "node", "runs_used": "node", "deps": "deps", "exclusive": "conflict",
              "conflict": "conflict", "window": "aimd", "budget": "budget", "ceil": "static"}
-CHAIN = ("coder", "main-coder", "ninja-coder", "supreme-coder")
-# first run + 1 retry (orchestrator.md:39), 2x main-coder and 2x ninja-coder (each "failed twice"
-# before escalating, :33), 1x supreme-coder (once per session, :34)
-_NODE_RUNS = 7
+CHAIN = ("coder", "main-coder", "ninja-coder")
+# first run + 1 retry (orchestrator.md "On failure"), 2x main-coder and 2x ninja-coder (each
+# "failed twice" before escalating; ninja-coder is the top tier)
+_NODE_RUNS = 6
 RESERVE_TOK = 8000000          # absolute tokens held back from B_rem: integration plus a verifier
 HEALTHY_FRAC = 0.25            # a finish is healthy only while B_rem >= HEALTHY_FRAC * hard.prompt
 UNDERSTATED_MAX = 3            # unplanned spawns past the slack before the plan terms switch off
@@ -400,7 +400,7 @@ def plan_reject_text(err, c_ceil):
 
 def chain_types(node):
     """Agent types a spawn for `node` may have: its a, its alt, and every escalation-chain step after
-    the earliest of them on coder -> main-coder -> ninja-coder -> supreme-coder."""
+    the earliest of them on coder -> main-coder -> ninja-coder."""
     own = [t for t in (node.get("a"), node.get("alt")) if t]
     on = [CHAIN.index(t) for t in own if t in CHAIN]
     later = list(CHAIN[min(on) + 1:]) if on else []
@@ -746,7 +746,7 @@ _POOL_REP = {"builder": "claude-code-engineer", "analyst": "researcher", "lookup
 _ANALYST = frozenset(("planner", "plan-reviewer", "researcher", "security-auditor", "proof-checker"))
 _LOOKUP = frozenset(("explore", "oracle", "mcp-broker", "scout", "claude-code-guide"))
 _ARTIFACT = frozenset(("writer", "browser-operator", "doc-specialist", "designer", "image-director",
-                       "localizer", "motion-designer", "cg-artist"))
+                       "motion-designer", "cg-artist"))
 UNVERIFIED_W = 1.0
 MODEL_MAX_BYTES = 4 << 20
 

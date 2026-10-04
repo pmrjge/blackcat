@@ -142,10 +142,7 @@ class Session(object):
         return self.L.lookup(self.values, family, t)
 
     def var_of(self, family, t):
-        key = "%s.%s" % (family, t)
-        if key not in self.values and t.endswith("-copy"):
-            key = "%s.%s" % (family, t[:-5])
-        return key
+        return "%s.%s" % (family, t)
 
 
 def consumption(sess):
@@ -292,9 +289,8 @@ def cmd_agent(a):
     except Exception as exc:  # noqa: BLE001
         print("stack-budget: limits unavailable: %s" % safe(exc), file=sys.stderr)
         return 2
-    t = a.type
-    base = t[:-5] if t.endswith("-copy") else t
-    if "turns." + base not in sess.seed["vars"]:          # the base type, not t[:-5]: "scout12345" is no type
+    t = base = a.type
+    if "turns." + base not in sess.seed["vars"]:
         print("stack-budget: unknown agent type %r" % t, file=sys.stderr)
         return 1
     rows, skipped = usage_rows(base)
@@ -359,7 +355,6 @@ def cmd_plan(a):
     nodes, tot_med, tot_hi, types = [], 0.0, 0.0, []
     for nd in g.nodes:
         e, t = est[nd.id], sched.variants.get(nd.id, nd.a)
-        t = t[:-5] if t.endswith("-copy") else t
         types.append(t)
         lt, ls, lh = sess.val("turns", t), sess.val("soft.agent", t), sess.val("hard.agent", t)
         tot_med += e.ctx_p50

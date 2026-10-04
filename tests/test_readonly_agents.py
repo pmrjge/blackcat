@@ -731,7 +731,7 @@ def remember_ev(env, agent_type, agent_id="a1"):
                     agent_type=agent_type, tool_input={"content": "x", "tags": ["p"]})
 
 
-@pytest.mark.parametrize("atype", ["researcher", "researcher-copy", "scout", "browser-operator"])
+@pytest.mark.parametrize("atype", ["researcher", "scout", "browser-operator"])
 def test_web_readers_do_not_write_memory(atype):
     env = Env()
     r = env.run(remember_ev(env, atype))

@@ -15,7 +15,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
-PREFIXES = ("STACK_", "BLACKCAT_", "SUPREME_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
+PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 
 
 @pytest.fixture
@@ -173,7 +173,7 @@ def test_subagent_start_gets_its_start_time(env):
                                                                      "additionalContext"}
     assert re.fullmatch(r"Started \d{4}-\d{2}-\d{2} \d{2}:\d{2} \(local\)\.",
                         out["additionalContext"])
-    assert hook(start(sid(), "a2", "researcher-copy"), env) is not None
+    assert hook(start(sid(), "a2", "researcher"), env) is not None
 
 
 def test_subagent_start_context_is_small_and_never_a_skill_body(env):

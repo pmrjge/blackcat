@@ -12,8 +12,8 @@ that no evidence, file or command can cross):
                                SOFT_PROMPT_CTX_BY_TYPE, user-set: seed = floor, so the learner only
                                raises it; prompt_soft_limit() applies the largest running one)
   soft.session, hard.session   per session (seed unset / 1.92B)
-Copy types (<base>-copy) use their base type's values; blackcat has no per-agent variable. Fixed
-guards (depth, fan-out, BlackCat, supreme-coder, TTLs, MCP cap, images, policy, read gate, the scale
+blackcat has no per-agent variable. Fixed
+guards (depth, fan-out, BlackCat, TTLs, MCP cap, images, policy, read gate, the scale
 and sched-policy knobs) are never variables: a fixed-guard name in live.json or proposals.json
 invalidates that file (FIXED_GUARDS).
 
@@ -147,7 +147,7 @@ ENV_SCOPE = {"soft.prompt": "STACK_SOFT_PROMPT_CTX", "hard.prompt": "STACK_PROMP
 # of non-alphanumerics as "_".
 FIXED_GUARDS = frozenset((
     "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH", "STACK_MAX_DEPTH",
-    "STACK_MAX_FANOUT", "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_SELF_FANOUT",
+    "STACK_MAX_FANOUT", "STACK_MAX_FANOUT_BY_TYPE",
     "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "BLACKCAT_DISPATCH_WINDOW_S", "BLACKCAT_BACKGROUND",
     "SCREEN_LOCK_TTL_S", "STACK_LEASE_TTL_S", "STACK_RESUME_TTL_S", "STACK_FANOUT_IDLE_S",
     "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS", "CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION",
@@ -155,8 +155,8 @@ FIXED_GUARDS = frozenset((
     "STACK_SOFT_LIMIT_SCALE", "STACK_SCHED_POLICY", "READ_GATE",
     "FLOOR", "CEILING", "FLOORS", "CEILINGS", "MAXTURNS", "MAX_TURNS",
 ))
-FIXED_PREFIXES = ("SUPREME_", "STACK_IMAGE_", "READ_GATE_", "EXA_MAX_", "JINA_MAX_", "SPIDER_MAX_",
-                  "STACK_FANOUT_", "BLACKCAT_")
+FIXED_PREFIXES = ("STACK_IMAGE_", "READ_GATE_", "EXA_MAX_", "JINA_MAX_", "SPIDER_MAX_", "STACK_FANOUT_",
+                  "BLACKCAT_")
 
 
 class SeedError(Exception):
@@ -200,17 +200,14 @@ def env_var(var):
 
 
 def lookup(values, family, atype):
-    """A type's value in a snapshot's values; copy types use their base type's."""
-    key = f"{family}.{atype}"
-    if key not in values and str(atype).endswith("-copy"):
-        key = "{}.{}".format(family, str(atype)[:-len("-copy")])
-    return values.get(key)
+    """A type's value in a snapshot's values."""
+    return values.get(f"{family}.{atype}")
 
 
 def prompt_soft_limit(values, running_types=()):
     """The per-prompt soft limit of a snapshot's values (agent_guard.soft_prompt_ctx): soft.prompt,
-    raised to the largest soft.prompt.<type> of the agent types running now (a copy counts as its
-    base). None when soft.prompt is off (an env override of 0)."""
+    raised to the largest soft.prompt.<type> of the agent types running now. None when soft.prompt is off (an env
+    override of 0)."""
     best = values.get("soft.prompt")
     if best is None:
         return None
@@ -680,20 +677,17 @@ def model_family(model):
 def model_mismatch(models, atype, model):
     """Whether an agent row of type `atype` measured on `model` ran on another model than the type's
     frontmatter `model` (models: agent_models()): the frontmatter names an alias family and the row's
-    model id does not contain it (`mixed`, a segment on two models, never does). A `<base>-copy` without
-    a file of its own uses its base's. Never a mismatch: an empty model (v1/v2 rows, none reported), a
+    model id does not contain it (`mixed`, a segment on two models, never does). Never a mismatch: an empty model (v1/v2 rows, none reported), a
     type without a file or a model line, a frontmatter model of no family (`inherit` follows the parent,
     whose model the row does not say: kept, as before)."""
     if not model:
         return False
     exp = models.get(atype)
-    if exp is None and atype.endswith("-copy"):
-        exp = models.get(atype[:-len("-copy")])
     fam = model_family(exp)
     return fam is not None and fam not in model.lower()
 
 
-def parse_row(r, known=()):
+def parse_row(r):
     """A runs*.csv row (dict of strings) -> the fields the proposer reads, or None when it fails
     the hostile-CSV filter (schema, ids, type, finite non-negative numbers within bounds)."""
     sv = (r.get("schema_version") or "").strip()
@@ -737,8 +731,6 @@ def parse_row(r, known=()):
         t = (r.get("type") or "").strip()
         if not TYPE_RE.match(t):
             return None
-        if t.endswith("-copy") and t[:-len("-copy")] in known:
-            t = t[:-len("-copy")]
         row["scope"], row["type"] = "agent", t
     return row
 
@@ -769,7 +761,7 @@ def _csv_rows(fh):
         yield row
 
 
-def read_rows(paths=None, known=(), models=None):
+def read_rows(paths=None, models=None):
     """(rows, stats) over runs.1.csv, runs.csv, runs2.1.csv, runs2.csv, runs3.1.csv, runs3.csv (v1 rows
     read as src = seed_v1), the last row per (session, id, seg) winning; at most MAX_LINES_PER_FILE lines
     a file and MAX_ROWS rows (the newest). Missing files or columns are fine; bad rows are dropped, and a
@@ -791,7 +783,7 @@ def read_rows(paths=None, known=(), models=None):
                         stats["truncated"] = True
                         break
                     stats["read"] += 1
-                    pr = parse_row(r, known)
+                    pr = parse_row(r)
                     if pr is None:
                         stats["dropped"] += 1
                         continue
@@ -924,8 +916,7 @@ def build_proposals(seed, paths=None, regime=None, live=None, now=None, models=N
     """The proposals document over the given CSV files (pure apart from reading them and, without
     `models`, the agent files' frontmatter models)."""
     now = time.time() if now is None else now
-    types = set(_types(seed))
-    rows, stats = read_rows(paths, known=types, models=models)
+    rows, stats = read_rows(paths, models=models)
     eid = evidence_id(rows)
     regime = regime if regime is not None else current_regime()
     if live is None:

@@ -83,13 +83,15 @@ elif "$C/venvs/tools/bin/python" -c 'import pytest, numpy, pandas, httpx, mcp, P
 else fail "tools venv imports fail — rerun install.sh"; fi
 [ -x "$C/venvs/ml/bin/python" ] && ok "ML venv ($C/venvs/ml)" || ok "ML venv not installed (optional: ./install.sh --with-ml)"
 for f in with-stack-env mcp-headers magg-private claude-ultracode; do [ -x "$C/bin/$f" ] && ok "bin/$f" || fail "bin/$f missing or not executable — rerun install.sh"; done
-for n in claude-ninja claude-supreme; do
+for n in claude-ninja; do
   if [ "$(readlink "$HOME/.local/bin/$n" 2>/dev/null)" = "$C/bin/claude-ultracode" ]; then
     have "$n" && ok "$n (${n#claude-}-coder at ultracode)" || warn "$n is in ~/.local/bin, which isn't on PATH — open a new terminal"
   else
     warn "$n missing: rerun install.sh (without --no-profile), or use $C/bin/claude-ultracode ${n#claude-}-coder"
   fi
 done
+[ "$(readlink "$HOME/.local/bin/claude-supreme" 2>/dev/null)" = "$C/bin/claude-ultracode" ] \
+  && warn "~/.local/bin/claude-supreme starts a retired agent: rm ~/.local/bin/claude-supreme (ninja-coder is the top tier: claude-ninja)"
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do [ -f "$C/mcp/$f" ] && ok "mcp/$f" || fail "mcp/$f missing — rerun install.sh"; done
 if have node; then
   node -e 'const [a, b] = process.versions.node.split(".").map(Number); process.exit(a > 22 || (a === 22 && b >= 5) ? 0 : 1)' 2>/dev/null \
@@ -361,16 +363,13 @@ import json, os, sys
 p = json.loads(sys.argv[1])
 d = sys.argv[2]
 agents = p.get("agents", [])
-# copy types (researcher-copy, coder-copy): POLICY rows of the hook, files rendered by install.sh
-copy_of = p.get("copy_types") or {}
-copies = sorted(copy_of.values()) if isinstance(copy_of, dict) else sorted(b + "-copy" for b in copy_of)
-missing = [a for a in agents + copies if not os.path.isfile(os.path.join(d, a + ".md"))]
-extra = sorted(f[:-3] for f in os.listdir(d) if f.endswith(".md") and f[:-3] not in agents + copies) if os.path.isdir(d) else []
+missing = [a for a in agents if not os.path.isfile(os.path.join(d, a + ".md"))]
+extra = sorted(f[:-3] for f in os.listdir(d) if f.endswith(".md") and f[:-3] not in agents) if os.path.isdir(d) else []
 if missing:
     print("  FAIL  missing agent files: " + " ".join(missing))
 else:
-    print("  ok    %d/%d agent files present (BlackCat + %d specialists + %d copy types)"
-          % (len(agents) + len(copies), len(agents) + len(copies), len(agents) - 1, len(copies)))
+    print("  ok    %d/%d agent files present (BlackCat + %d specialists)"
+          % (len(agents), len(agents), len(agents) - 1))
 if "senior-coder" in extra:
     extra.remove("senior-coder")
     print("  WARN  agents/senior-coder.md is the stack's old name for main-coder (install.sh --no-prune kept it):"
@@ -379,14 +378,18 @@ if "router" in extra:
     extra.remove("router")
     print("  WARN  agents/router.md is the stack's old name for blackcat (install.sh --no-prune kept it):"
           " move your changes into blackcat.md and delete it, or rerun install.sh (the backup keeps it)")
-# a copy file the installed hook's policy doesn't know yet (hook older than the agents)
-for a in [x for x in extra if x.endswith("-copy") and x[:-5] in agents]:
+# agent types the stack retired (2026-10-04): install.sh --no-prune kept their files
+RETIRED = {"researcher-copy": "a retired copy type", "coder-copy": "a retired copy type",
+           "supreme-coder": "retired: ninja-coder is the top coding tier",
+           "db-engineer": "retired: data-engineer took its databases",
+           "localizer": "retired: coder (catalogs) and writer (prose)"}
+for a in [x for x in extra if x in RETIRED]:
     extra.remove(a)
-    print("  WARN  agents/%s.md is a copy type this hook's policy doesn't list yet: rerun install.sh" % a)
+    print("  WARN  agents/%s.md is %s (install.sh --no-prune kept it): delete it,"
+          " or rerun install.sh (the backup keeps it)" % (a, RETIRED[a]))
 if extra:
     print("  WARN  your own agents, unreachable from BlackCat and the stack's agents (the spawn policy"
           " lists only the stack's): %s — run one with `claude --agent <name>`" % " ".join(extra))
-print("  ok    copy types: " + (", ".join(copies) or "none"))
 PY
 fi
 [ -f "$C/rules/claude-agent-stack.md" ] && ok "global rules: rules/claude-agent-stack.md" \
@@ -618,7 +621,7 @@ env = dict(os.environ, XDG_STATE_HOME=state, STACK_POLICY="on")
 probes = [("settings.json PreToolUse(Agent)", cmds,
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "Agent",
             "agent_id": "doctor-scout", "agent_type": "scout", "tool_use_id": "toolu_doctor",
-            "tool_input": {"subagent_type": "supreme-coder", "prompt": "x", "description": "x"}}),
+            "tool_input": {"subagent_type": "coder", "prompt": "x", "description": "x"}}),
           ("blackcat.md blackcat-guard", [rcmd] if rcmd else [],
            {"session_id": "doctor", "hook_event_name": "PreToolUse", "tool_name": "WebFetch",
             "agent_type": "blackcat", "prompt_id": "doctor", "tool_input": {"url": "https://example.com"}}),

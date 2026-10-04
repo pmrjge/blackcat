@@ -99,7 +99,6 @@ def test_read_with_small_limit_passes(env, hugo):
 def test_exempt_agents_and_overrides(env, hugo, repo, tmp_path):
     page = str(hugo / "public" / "index.html")
     assert run(env, "Read", {"file_path": page}, hugo, "verifier") is None
-    assert run(env, "Read", {"file_path": page}, hugo, "frontend-engineer-copy", agent_id="c") is None
     assert run(env, "Read", {"file_path": page}, hugo, "coder", agent_id="d")
     big = str(repo / "data" / "big.csv")
     assert run(env, "Read", {"file_path": big}, repo, "data-scientist") is None

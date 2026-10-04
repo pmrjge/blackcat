@@ -1,4 +1,4 @@
-"""bin/claude-ultracode (claude-ninja, claude-supreme, claude-ultracode <agent>): the main thread
+"""bin/claude-ultracode (claude-ninja, claude-ultracode <agent>): the main thread
 starts in Plan unless you pass a mode yourself. The builders' agent files carry
 `permissionMode: acceptEdits` for their subagent runs; the launcher passes `--permission-mode plan`
 so a main-thread builder follows the stack's default whatever Claude Code does with that line.
@@ -34,7 +34,7 @@ def launch(tmp_path, name, *args):
     return json.loads(log.read_text().splitlines()[-1])
 
 
-@pytest.mark.parametrize("name,agent", [("claude-ninja", "ninja-coder"), ("claude-supreme", "supreme-coder")])
+@pytest.mark.parametrize("name,agent", [("claude-ninja", "ninja-coder")])
 def test_default_adds_plan_once(tmp_path, name, agent):
     argv = launch(tmp_path, name, "-p", "hello")
     assert argv == ["--agent", agent, "--effort", "ultracode", "--settings", SETTINGS,
@@ -64,7 +64,7 @@ def test_a_mode_you_pass_wins_and_is_not_doubled(tmp_path, user):
 
 def test_text_after_double_dash_is_not_a_mode(tmp_path):
     """After `--` everything is a positional argument (the prompt), not a flag of yours."""
-    argv = launch(tmp_path, "claude-supreme", "-p", "--", "--permission-mode")
+    argv = launch(tmp_path, "claude-ninja", "-p", "--", "--permission-mode")
     assert argv[6:] == ["--permission-mode", "plan", "-p", "--", "--permission-mode"]
 
 
@@ -87,3 +87,15 @@ def test_usage_without_an_agent(tmp_path):
                        timeout=30)
     assert p.returncode == 2 and "usage: claude-ultracode <agent>" in p.stderr
     assert os.access(LAUNCHER, os.X_OK)
+
+
+def test_a_leftover_claude_supreme_link_exits_2_without_starting_claude(tmp_path):
+    """supreme-coder was retired 2026-10-04 and install.sh leaves an old claude-supreme link in
+    place: it must not fall through and take its first argument as the agent."""
+    link = tmp_path / "claude-supreme"
+    link.symlink_to(LAUNCHER)
+    log = tmp_path / "claude.log"
+    env = {"PATH": "%s:/usr/bin:/bin" % FAKE_CLAUDE, "HOME": str(tmp_path), "FAKE_CLAUDE_LOG": str(log)}
+    p = subprocess.run([str(link), "-p", "hello"], env=env, capture_output=True, text=True, timeout=30)
+    assert p.returncode == 2 and "claude-supreme is retired" in p.stderr and "claude-ninja" in p.stderr
+    assert not log.exists()

@@ -14,8 +14,8 @@ import pytest
 from guard_harness import GUARD, Env
 
 # the shipped per-type table (guard_harness's BASELINE lowers it for older mechanics tests)
-SHIPPED_BY_TYPE = ("orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,"
-                   "planner=8,plan-reviewer=8")
+SHIPPED_BY_TYPE = ("orchestrator=32,main-coder=6,ninja-coder=5,researcher=4,planner=8,"
+                   "plan-reviewer=8")
 SESSION_TEXT = "Session limit: %d of %d subagent slots in use (CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS)."
 
 

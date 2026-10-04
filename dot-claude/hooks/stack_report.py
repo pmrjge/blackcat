@@ -44,7 +44,7 @@ import time
 
 STATUSES = ("done", "partial", "failed", "blocked")
 EFLAGS = ("look", "drop")
-# role class of each agent type (a `<type>-copy` takes its base's); every other type is a builder
+# role class of each agent type; every other type is a builder
 CLASS_OF = {
     "oracle": "lookup", "scout": "lookup", "explore": "lookup", "claude-code-guide": "lookup",
     "orchestrator": "coord",
@@ -113,10 +113,7 @@ GRAMMAR = ("STATUS: done|partial|failed|blocked [· E:look|E:drop]\nRESULT: answ
 
 
 def role_class(agent_type):
-    t = str(agent_type or "")
-    if t.endswith("-copy"):
-        t = t[:-len("-copy")]
-    return CLASS_OF.get(t, "builder")
+    return CLASS_OF.get(str(agent_type or ""), "builder")
 
 
 def cap_for(cls, status):

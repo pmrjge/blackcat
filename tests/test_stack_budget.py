@@ -166,7 +166,7 @@ def test_agent_prints_seed_live_snapshot_interval_and_recent_rows(env):
     txt = run("agent", "scout", "--session", SID).stdout
     assert "[350k-420k]" in txt and "provisional" in txt
     assert run("agent", "no-such-type").returncode == 1
-    assert js("agent", "scout-copy", "--session", SID)["type"] == "scout"
+    assert run("agent", "scout-copy", "--session", SID).returncode == 1     # copy types are retired
 
 
 def test_plan_gives_intervals_and_a_verdict_per_node_and_for_the_plan(env, tmp_path):

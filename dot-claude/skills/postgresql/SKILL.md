@@ -61,7 +61,7 @@ Roles with least privilege (app role owns nothing it doesn't need; separate migr
 psycopg 3 (sync/async, `COPY` support) or asyncpg in Python; SQLAlchemy 2 for ORM; node-postgres; JDBC with HikariCP. Tests against a real Postgres (Testcontainers, a Docker service, or a per-test transaction rolled back), never SQLite as a stand-in.
 
 ## Agent access in this stack
-psql via Bash is the default. db-engineer runs the `postgres` server inline (Postgres MCP Pro, `postgres-mcp==0.3.0 --access-mode=restricted`: read-only queries, EXPLAIN plans, index recommendations, health checks) with `DATABASE_URI` from stack.env; for other agents mcp-broker mounts the same server from the magg catalog on request. Verified 2026-10-02 .claude-work/agents-p2/mcp-vetting.md (https://pypi.org/project/postgres-mcp/, https://registry.npmjs.org/mongodb-mcp-server).
+psql via Bash is the default. data-engineer runs the `postgres` server inline (Postgres MCP Pro, `postgres-mcp==0.3.0 --access-mode=restricted`: read-only queries, EXPLAIN plans, index recommendations, health checks) with `DATABASE_URI` from stack.env; for other agents mcp-broker mounts the same server from the magg catalog on request. Verified 2026-10-02 .claude-work/agents-p2/mcp-vetting.md (https://pypi.org/project/postgres-mcp/, https://registry.npmjs.org/mongodb-mcp-server).
 
 ## Checklist
 Version known · plan read with actuals and buffers · index justified by a plan · FK columns indexed · migration lock-safe with lock_timeout and tested on a copy · backups restore-tested · no secrets in files.

@@ -71,7 +71,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 # is a hook with side effects.
 READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewer", "claude-code-guide",
                   "proof-checker"}
-DEFAULT_CAPS = {"fanout": 3, "fanout_by_type": {"orchestrator": 32, "supreme-coder": 6, "main-coder": 6,
+DEFAULT_CAPS = {"fanout": 3, "fanout_by_type": {"orchestrator": 32, "main-coder": 6,
                                                 "ninja-coder": 5, "researcher": 4, "planner": 8,
                                                 "plan-reviewer": 8},
                 "depth": 3, "blackcat": 8, "workflow": 16}
@@ -88,9 +88,9 @@ SEARCH_BUDGET = 1_500_000                  # state expansions before exact searc
 SHARED_DOCS = ("README.md", "CONFIG.md", "**/FINAL-REPORT.md", "FINAL-REPORT.md", "mcp_servers.md",
                "stack.env.example", "lib/stack.env.example", "install.sh")
 SONNET_TYPES = {"blackcat", "browser-operator", "build-fixer", "claude-code-guide", "coder",
-                "data-engineer", "db-engineer", "devops-engineer", "doc-specialist", "explore",
-                "localizer", "mcp-broker", "scout", "test-engineer", "verifier"}
-ONE_HOUR_TTL = {"orchestrator", "researcher", "main-coder", "ninja-coder", "supreme-coder", "ml-engineer",
+                "data-engineer", "devops-engineer", "doc-specialist", "explore",
+                "mcp-broker", "scout", "test-engineer", "verifier"}
+ONE_HOUR_TTL = {"orchestrator", "researcher", "main-coder", "ninja-coder", "ml-engineer",
                 "dl-engineer", "llm-engineer", "quantum-engineer", "robotics-engineer", "data-scientist"}
 SOFT_POOLS = {"builder": 19000000, "analyst": 8700000, "lookup": 450000, "artifact": 3100000}
 SOFT_LIMITS = {"claude-code-engineer": 19000000, "scout": 390000, "claude-code-guide": 680000,
@@ -100,7 +100,7 @@ SOFT_LIMITS = {"claude-code-engineer": 19000000, "scout": 390000, "claude-code-g
 ANALYST_TYPES = {"planner", "plan-reviewer", "researcher", "security-auditor", "proof-checker"}
 LOOKUP_TYPES = {"explore", "oracle", "mcp-broker", "scout", "claude-code-guide"}
 ARTIFACT_TYPES = {"writer", "browser-operator", "doc-specialist", "designer", "image-director",
-                  "localizer", "motion-designer", "cg-artist"}
+                  "motion-designer", "cg-artist"}
 
 # (b) provisional defaults: turns M/L, ctx a/b, sec_per_call p50/p90, static_cc. S = M/2 (heuristic
 # until the fit supplies p25). Types without a row use their pool's representative.
@@ -243,10 +243,8 @@ def soft_values() -> Dict[str, Any]:
 
 
 def _soft_lookup(values: Dict[str, Any], family: str, t: str) -> Tuple[bool, Any]:
-    for k in (t, t[:-5] if t.endswith("-copy") else None):
-        if k and "%s.%s" % (family, k) in values:
-            return True, values["%s.%s" % (family, k)]
-    return False, None
+    k = "%s.%s" % (family, t)
+    return (True, values[k]) if k in values else (False, None)
 
 
 def _soft_limit_of(values: Dict[str, Any], t: str, pool: str) -> Any:

@@ -20,7 +20,7 @@ memory: user
 permissionMode: acceptEdits
 color: cyan
 ---
-Mobile engineer: native iOS and macOS (Swift, SwiftUI), Android (Kotlin, Compose), Flutter and React Native. May spawn: coder, explore, scout, verifier, code-reviewer, designer, test-engineer, build-fixer, localizer, mcp-broker.
+Mobile engineer: native iOS and macOS (Swift, SwiftUI), Android (Kotlin, Compose), Flutter and React Native. May spawn: coder, explore, scout, verifier, code-reviewer, designer, test-engineer, build-fixer, mcp-broker.
 
 ## Skills, if needed
 Apple `swift-engineering`, `swiftui`*, `ios-build-sim`*; Android `android-engineering`, `kotlin-coroutines`*; cross-platform `flutter`, `react-native`; release `app-store-release`*, `android-release`*, `macos-app-distribution`; accessibility `a11y-mobile`*.

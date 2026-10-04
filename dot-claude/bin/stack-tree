@@ -897,9 +897,7 @@ def static_tree(config):
         for child in agents.get(n.type, {}).get("spawn", []) if n.depth < MAX_DEPTH else []:
             c = Node(type=child, depth=n.depth + 1)
             n.children.append(c)
-            if child.endswith("-copy"):
-                c.ref = "copy of %s, spawns nothing" % child[:-5]
-            elif child not in agents:
+            if child not in agents:
                 c.ref = "no agent file"
             elif child in first:
                 c.ref = "expanded at %s under %s" % (level(first[child][0]), first[child][1])

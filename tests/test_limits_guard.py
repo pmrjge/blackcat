@@ -53,7 +53,7 @@ class Sess:
         self.tmp = tmp
         self.state = tmp / "xdg"
         self.env = {k: v for k, v in os.environ.items()
-                    if not k.startswith(("STACK_", "BLACKCAT_", "SUPREME_", "SCREEN_", "CLAUDE_CODE_MAX"))}
+                    if not k.startswith(("STACK_", "BLACKCAT_", "SCREEN_", "CLAUDE_CODE_MAX"))}
         self.env.update(XDG_STATE_HOME=str(self.state), STACK_USAGE_COLLECT="0",
                         CLAUDE_CONFIG_DIR=str(tmp / "cfg"))
         for k in [k for k in os.environ if k.startswith("STACK_")]:
@@ -287,24 +287,24 @@ def test_T11_subagent_reads_parent_snapshot_turn_gate_and_exempt_calls(S):
     assert isinstance(hit[0]["run"], float) and isinstance(hit[0]["ts"], float)
 
 
-def test_T11_copy_types_use_the_base_and_mcp_cap_takes_the_snapshot_turns(S):
+def test_T11_mcp_cap_takes_the_snapshot_turns(S):
     S.start("startup", STACK_MAXTURNS_CODER="4")
     folder = S.sdir / "mcp-calls"
     folder.mkdir(parents=True, exist_ok=True)
     (folder / "C1.json").write_text(json.dumps({"calls": 3}))       # no SubagentStart: run None
-    ev = S.tool("mcp__exa__web_search_exa", aid="C1", atype="coder-copy", query="x")
+    ev = S.tool("mcp__exa__web_search_exa", aid="C1", atype="coder", query="x")
     assert out(S.run(ev))[0] == "allow"
     d, why, _ = out(S.run(ev))
     assert d == "deny" and "4 MCP tool calls" in why and "turns.coder=4" in why
     assert [h["kind"] for h in S.hits()] == ["mcp"]
     # STACK_MAX_MCP_CALLS stays a fixed env knob: it is read per call, min with the turns
     (folder / "C2.json").write_text(json.dumps({"calls": 2}))
-    ev2 = S.tool("mcp__exa__web_search_exa", aid="C2", atype="coder-copy", query="x")
+    ev2 = S.tool("mcp__exa__web_search_exa", aid="C2", atype="coder", query="x")
     assert out(S.run(ev2, STACK_MAX_MCP_CALLS="2"))[0] == "deny"
     S.calls("C1", 4)
-    assert out(S.run(S.tool("Read", aid="C1", atype="coder-copy")))[0] == "allow"
+    assert out(S.run(S.tool("Read", aid="C1", atype="coder")))[0] == "allow"
     S.calls("C1", 1)
-    assert out(S.run(S.tool("Read", aid="C1", atype="coder-copy")))[0] == "deny"
+    assert out(S.run(S.tool("Read", aid="C1", atype="coder")))[0] == "deny"
 
 
 def test_hard_agent_and_soft_session_from_the_snapshot(S):

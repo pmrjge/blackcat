@@ -5,7 +5,7 @@
 
 <p align="center"><sub>Hero image: photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper, <a href="lib/assets/README.md">CC BY 4.0</a></sub></p>
 
-A multi-agent configuration for Claude Code: BlackCat on the main thread, 55 specialists, 214 on-demand
+A multi-agent configuration for Claude Code: BlackCat on the main thread, 52 specialists, 214 on-demand
 skills, and hooks that enforce the limits. blackcat-agent-stack is the Swiss Army knife for all things
 agentic and a jack of all trades for AI workflows: one stack that routes any job (code, research, data, ML,
 design, documents, infrastructure, automation) to the cheapest capable specialist agent, with the
@@ -34,7 +34,7 @@ flowchart TD
     S1["Specialists · L1"]
     O["orchestrator · L1 · up to 32 children"]
     S2["Specialists · L2"]
-    H["Helpers, checks, copies · L2 to L8"]
+    H["Helpers and checks · L2 to L8"]
   end
   U --> B
   B -->|"one domain, or 2-3 independent asks"| S1
@@ -65,8 +65,8 @@ flowchart TD
 
 **claude-agent-stack** is this repository: the agent definitions, skills, hooks, settings, MCP servers
 and installer that turn `~/.claude/` into a coordinated team. **BlackCat** is the stack's main thread: the
-agent you talk to when you run `claude`. It only delegates: it routes every job to one of 55 specialist
-agents (56 agent files). 214 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
+agent you talk to when you run `claude`. It only delegates: it routes every job to one of 52 specialist
+agents (53 agent files). 214 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
 Claude Code sandbox hold the limits, and MCP servers start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later**, macOS only (Apple Silicon). It runs in the terminal and in the apps
 that run Claude Code with your settings (see [Apps](#apps)).
@@ -115,7 +115,7 @@ the design, not a record of intent.
   for good luck: it plans for failure with guards, caps, escalation and evidence-gated review.
 - **Landing on its feet.** Tool calls get refused, commands get blocked, children come back partial. The
   main thread still has to land, with an honest `STATUS` report rather than a guess.
-- **Nine lives, spent in order.** Code escalates coder → main-coder → ninja-coder → supreme-coder, a
+- **Nine lives, spent in order.** Code escalates coder → main-coder → ninja-coder, a
   `SendMessage` resume gives an agent a fresh turn budget, and a `RESUME.md` hand-off carries work across
   sessions.
 - **Whiskers.** A cat senses what it cannot see. Here that is the delegation ledger, `/stack-tree`,
@@ -186,7 +186,7 @@ Three kinds of agent, eight levels below the main thread, one policy hook; the d
 | L8 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8`) |
 
 BlackCat's own tools, as `blackcat.md` lists them: an `Agent(...)` allowlist of 52 agent types (every
-specialist except supreme-coder, db-engineer and localizer), SendMessage, AskUserQuestion,
+specialist), SendMessage, AskUserQuestion,
 `mcp__conductor__AskUserQuestion`, ExitPlanMode, TaskStop, ListAgents, ToolSearch, Skill, Workflow, the
 Cron and wake-up tools, RemoteTrigger, PushNotification, SendUserFile, and Read. It holds no Bash, Write,
 Edit, WebSearch or WebFetch, and blackcat-guard refuses a Bash, Write or Edit call that still reaches it
@@ -203,14 +203,14 @@ job and escalates on failure or on a harder deliverable.
 | Need | Ladder, cheapest first (model · effort · maxTurns) | Notes |
 |---|---|---|
 | Knowledge | oracle (Opus · low · 12, no web) < scout (Sonnet · low · 11) < researcher (Opus · high · 130) | oracle answers timeless questions from Read and Skill only; scout looks up one current fact |
-| Code | coder (Sonnet · medium · 170) < main-coder (Opus · xhigh · 350) < ninja-coder (Opus · max · 300) < supreme-coder (Opus · max · 350) | supreme-coder: only the orchestrator spawns it, once per session, after a ninja-coder of the session finished (`SUPREME_SPAWNERS`, `SUPREME_ONCE_PER_SESSION`, `SUPREME_AFTER_NINJA`) |
+| Code | coder (Sonnet · medium · 170, a leaf) < main-coder (Opus · xhigh · 350) < ninja-coder (Opus · max · 300) | ninja-coder is the top tier: a failure there ends in STATUS: partial with a dossier |
 | Codebase questions | explore (Sonnet · low · 40, read-only tools) | replaces the built-in Explore (`CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`) |
 | Language-heavy code | rust-, haskell-, julia-, go-, python-, jvm-, node-engineer (Opus · high · 170) | each self-checks with its toolchain |
 | Domain builds | 25 domain experts ([Roster](#roster)) | ML, GPU, HPC, robotics, design, 3D, video, documents, … |
 | Checks | code-reviewer, verifier, security-auditor, proof-checker, plan-reviewer | read-only (hook-enforced, below) |
-| Narrow jobs | test-engineer, build-fixer, db-engineer, localizer | leaves; db-engineer and localizer only through their family heads |
+| Narrow jobs | test-engineer, build-fixer | leaves (coder is one too) |
 
-Every agent names `opus` or `sonnet` (41 and 15; `tests/lint_agents.py` rejects anything else), and the
+Every agent names `opus` or `sonnet` (40 and 13; `tests/lint_agents.py` rejects anything else), and the
 IDs come from `stack.env`. That Sonnet on bounded work lowers cost without lowering quality is **by
 design, not measured**: no cost is recorded for any run (baseline, §10).
 
@@ -226,7 +226,7 @@ Each agent's `tools:` line is its whole tool set, so an agent cannot use a tool 
 | Codebase search | explore | Read, Grep, Glob, LSP, Skill | Bash, Write, Edit, web |
 | Read-only checks | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide, proof-checker | Read, Bash (read-only commands only: `READONLY_TYPES` in `agent_guard.py`), web where needed | Write, Edit, Agent |
 | Builders | coder, main-coder, the language and domain engineers | Read, Write, Edit, Bash, LSP, plus Agent when they have a `POLICY` row | per agent: web, MCP servers |
-| Leaves | 16 agents without the Agent tool (CONFIG.md §4) | — | Agent |
+| Leaves | 15 agents without the Agent tool (CONFIG.md §4) | — | Agent |
 
 MCP servers come in three scopes ([MCP servers](#mcp-servers) lists every one):
 
@@ -256,7 +256,7 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 
 | Script | Events | Does |
 |---|---|---|
-| `hooks/agent_guard.py` | every wired event except SessionEnd | Spawn policy, depth, fan-out, BlackCat caps, supreme-coder lock, no push, protected paths, read-only Bash, credential reads, token budgets, soft limits, MCP cap, web taint, image limit, the delegation ledger and its compaction snapshot, labels, the SubagentStop check of each final report (observe only: records, never blocks), `/override-agent`, the sandboxed Bash environment. Module docstring: the event-by-event table |
+| `hooks/agent_guard.py` | every wired event except SessionEnd | Spawn policy, depth, fan-out, BlackCat caps, no push, protected paths, read-only Bash, credential reads, token budgets, soft limits, MCP cap, web taint, image limit, the delegation ledger and its compaction snapshot, labels, the SubagentStop check of each final report (observe only: records, never blocks), `/override-agent`, the sandboxed Bash environment. Module docstring: the event-by-event table |
 | `hooks/read_gate.py` | PreToolUse `Read\|Grep\|Glob\|Bash` | Refuses the first read of build output, dependencies, large data, media or binaries with a cheaper alternative; the identical retry passes ([CONFIG.md](CONFIG.md) §5, "Read gate") |
 | `hooks/web_caps.py` | PreToolUse `^mcp__(exa\|jina\|spider)__` | Caps per call; refuses spider `cron`, `webhooks`, `run_in_background` |
 | `hooks/stack_usage.py` | SubagentStart, SessionEnd; started from the guard's SessionStart too | A background collector that writes rows per agent segment, per prompt window and per session to `usage/runs3.csv` (numbers, ids and a few plain words of the task; no prompt or transcript text) |
@@ -277,7 +277,7 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 | `stack_usage.py status`, `runs`, `refresh`, `propose` | `~/.claude/hooks/`, your terminal | Collector state, per-agent runs, a manual refit, drift report |
 | `stack_sched.py plan`, `next`, `replay` | `uv run --script dot-claude/hooks/stack_sched.py` | Scheduler advisor: waves for a task graph; a report tool that no hook reads |
 | `agent_guard.py delegations [session] [--json]`, `--print-policy`, `--self-test` | `/usr/bin/python3 ~/.claude/hooks/agent_guard.py` | The delegation ledger; the spawn table; the guard's own checks |
-| `claude-ninja`, `claude-supreme` (links in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder or supreme-coder as your main thread at ultracode, starting in Plan (`--permission-mode plan` unless you pass a mode) |
+| `claude-ninja` (a link in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder (or any agent) as your main thread at ultracode, starting in Plan (`--permission-mode plan` unless you pass a mode) |
 | `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
 | `stack-update-tools [--dry-run]` | `~/.claude/bin/`, your terminal | Updates the installed toolchains together: `brew update && brew upgrade --formula`, `rustup update`, `juliaup update`, `ghcup upgrade`, `uv self update` + `uv tool upgrade --all`, `cs update`, `elan self update` + `elan update`; node and Homebrew casks (`brew upgrade --cask`: the pkg casks ask for your password) are printed as manual steps ([CONFIG.md](CONFIG.md) §7, "Prerequisites and toolchains") |
 
@@ -315,7 +315,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | Soft token limits | Past a per-type limit an agent's next tool call carries one warning to wrap up and return `STATUS: partial`; nothing is refused | Values derived from p90 of healthy segments; all but claude-code-engineer and scout provisional (CONFIG.md §5). Effect on spend: not measured |
 | Hard budgets | Context tokens per human prompt and per session, whole tree (seeds 100,000,000 and 1,920,000,000); past them every call but reporting is refused | `tests/test_limits_guard.py`, `tests/test_stack_limits.py` |
 | Learned limits | `stack_limits.py` proposes new turn and token limits from the collector's rows; a session's limits are frozen at its start, inside repo floors and ceilings; `install.sh` moves a variable that never learned (status unset, not frozen or held now, never rolled back) to a changed seed and keeps every other value; fan-out, depth and the MCP cap are fixed guards that never learn (`FIXED_GUARDS`) | `tests/test_stack_limits.py`, `tests/test_sched_snapshot.py`. Calibration on held-out data: only the scheduler replay has one (`tests/derive_wave_sim.py`; with parameters fitted on another session, 16 of 19 replay windows land within 2 %, pinned in `tests/test_stack_sched.py`). A prototype run found the soft limits run hot (10.3 % cap-hit against a 5 % target; unreviewed, campaign worktree only) |
-| Fan-out caps | Running children per agent, copies per type, BlackCat per prompt; a background subtree silent for 600 s stops counting (`STACK_FANOUT_IDLE_S`); session slots against `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (`STACK_FANOUT_SESSION`, shadow by default); a dynamic cap per orchestrator job (`STACK_FANOUT_DYN`, off by default) | `tests/test_agent_guard.py`, `tests/test_guard_regressions.py`, `tests/test_fanout_session.py`, `tests/test_fanout_dyn_wiring.py` |
+| Fan-out caps | Running children per agent, BlackCat per prompt; a background subtree silent for 600 s stops counting (`STACK_FANOUT_IDLE_S`); session slots against `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (`STACK_FANOUT_SESSION`, shadow by default); a dynamic cap per orchestrator job (`STACK_FANOUT_DYN`, off by default) | `tests/test_agent_guard.py`, `tests/test_guard_regressions.py`, `tests/test_fanout_session.py`, `tests/test_fanout_dyn_wiring.py` |
 | Scheduler advisor | `stack_sched.py` plans waves under the caps and checks a plan against the limits; advice only (`STACK_SCHED_POLICY=report`) | `tests/test_stack_sched.py`; no behaviour depends on it |
 | Model tiering | Sonnet for lookups, loops and verification; Opus where judgment is the product | **by design, not measured** |
 
@@ -370,7 +370,7 @@ The full list is in [Knobs](#knobs) and [CONFIG.md](CONFIG.md) §5. The ones mos
 | Knob | Default | Effect |
 |---|---|---|
 | `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` (in `stack.env`) | today's IDs | What the `opus` and `sonnet` aliases run; re-run the installer |
-| `STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE` | 3; orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8 | Running children per agent |
+| `STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE` | 3; orchestrator 32, main-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8 | Running children per agent |
 | `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_READS`, `BLACKCAT_MAX_OWN_STEPS` | 8, 24, 3, 0 | BlackCat's Agent calls, all tool calls, Read calls and own Bash/Write/Edit calls (0: it only delegates) per prompt |
 | `STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET` | learned (seeds 100,000,000 / 1,920,000,000) | Hard context budgets; a value you set pins them |
 | `STACK_SOFT_LIMIT_SCALE` | 1 | Multiplies every soft limit; `0` turns them off |
@@ -390,7 +390,7 @@ whether the difference is enforced and tested, or a design intent.
 
 | Area | Plain Claude Code | This stack | Status |
 |---|---|---|---|
-| Delegation | Built-in general-purpose, Explore and Plan subagents | 55 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
+| Delegation | Built-in general-purpose, Explore and Plan subagents | 52 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
 | Nesting and concurrency | Depth 3, 20 subagents running at once | Depth 4, 33 at once, per-agent fan-out caps and spawn rows | Enforced: settings, guard |
 | Push and forge writes | Governed by your permission rules | Refused for every agent, whatever the rules or `STACK_POLICY` | Enforced: `tests/test_no_push.py` |
 | Writes to config and state | Protected-path writes are not prompted in `bypassPermissions` (docs); per the guard's docstring, Claude Code's check does not cover Bash writes (unverified against the docs) | Bash-level writes refused too | Enforced: `tests/test_protected_paths.py` |
@@ -432,15 +432,13 @@ in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
 - **Shell parsing is a heuristic.** Read-only Bash, protected paths, no push and BlackCat's no-web check
   parse shell text; arbitrary code that talks to the keychain or sends a token itself is not caught
   ([CONFIG.md](CONFIG.md) §7, "Residual risks").
-- **`SUPREME_AFTER_NINJA` checks order, not failure.** Any finished ninja-coder run unlocks the supreme-coder spawn;
-  that ninja-coder failed rests on prompts.
 - **The effort of an `/override-agent` is not applied.** The Agent tool has no effort input; the frontmatter
   effort still runs.
 - **Small samples.** Soft limits and maxTurns rest on two sessions; most types have fewer than 5 healthy
   segments.
 - **Test failures inside the Claude Code sandbox** (full suite on 2026-10-03 after the `/stack-tree`
   review fixes: 3119 passed, 2 failed, 1 skipped; run by the author, not reproducible from the repo;
-  3188 tests are collected after the supreme-coder rename review fixes; see the commit history in
+  3188 tests were collected after the 2026-10-03 rename review fixes; see the commit history in
   [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)): `test_four_tools_and_three_model_settings` in `tests/test_image_studio_mcp.py`
   (the sandbox denies reading `~/.claude/stack.env`) and one `f4` case in `tests/test_protected_paths.py`
   (pytest's temp dir sits under `/tmp/claude-501`). Two cases of `test_three_way_verdict_on_the_soft_limit`
@@ -468,17 +466,16 @@ Not on `main`; listed so nobody mistakes them for features:
 ### Roster
 
 Every agent names one of two model aliases: `opus` where judgment is the product, `sonnet` for bounded
-execution, lookups and tool loops (41 Opus, 15 Sonnet; `tests/lint_agents.py` rejects any other value
+execution, lookups and tool loops (40 Opus, 13 Sonnet; `tests/lint_agents.py` rejects any other value
 and the hook strips a per-call `model`). The alias is the reference; it resolves to
 `ANTHROPIC_DEFAULT_<FAMILY>_MODEL`, which `stack.env` sets and the installer copies into
 `settings.json` (CONFIG.md section 2). An agent file's `effort` applies only when the
 agent runs as a subagent; the main thread uses the session's level (`/effort medium` for BlackCat).
 The tables are generated from `dot-claude/agents/*.md` frontmatter. "Does" is shortened from each
-agent's `description`. The installer also renders `researcher-copy` and `coder-copy` from their base
-files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md](CONFIG.md) §4).
+agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md](CONFIG.md) §4).
 
 <details>
-<summary>Roster tables: 56 agents by family (model, effort, maxTurns, inline MCP)</summary>
+<summary>Roster tables: 53 agents by family (model, effort, maxTurns, inline MCP)</summary>
 
 #### Role agents (20)
 
@@ -495,7 +492,6 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | coder | Sonnet 5.5 · medium | 170 | libdocs | Implementer for small and medium code tasks |
 | main-coder | Opus 5.5 · xhigh | 350 | libdocs, neural-memory | Main engineer for cross-cutting code: large codebases |
 | ninja-coder | Opus 5.5 · max | 300 | libdocs, neural-memory | Engineer-mathematician for the hardest code |
-| supreme-coder | Opus 5.5 · max | 350 | libdocs, neural-memory | Last-resort engineer after ninja-coder failed |
 | code-reviewer | Opus 5.5 · high | 80 | libdocs | Reviews diffs, PRs or codebases; read-only |
 | verifier | Sonnet 5.5 · high | 140 | playwright | Independent verification: runs tests and builds; read-only |
 | security-auditor | Opus 5.5 · xhigh | 100 | — | Security review: threat models, vulnerable code; read-only |
@@ -524,7 +520,7 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | biochem-engineer | Opus 5.5 · high | 170 | libdocs | Computational biology and chemistry |
 | cg-artist | Opus 5.5 · medium | 150 | libdocs, blender | 3D in Blender, ZBrush, Substance |
 | cuda-engineer | Opus 5.5 · high | 190 | libdocs | NVIDIA GPU systems: CUDA and Triton kernels |
-| data-engineer | Sonnet 5.5 · high | 150 | libdocs | Data and databases: PostgreSQL, SQLite, DuckDB, MongoDB |
+| data-engineer | Sonnet 5.5 · high | 150 | libdocs, postgres, mongodb | Data and databases: SQL, schemas, safe migrations, query plans |
 | data-scientist | Opus 5.5 · high | 150 | libdocs, neural-memory | Statistics for decisions |
 | designer | Opus 5.5 · high | 150 | image-studio, illustrator, huetension | Visual design: logos, brand identity, illustration, layout |
 | devops-engineer | Sonnet 5.5 · high | 140 | libdocs | Infrastructure and delivery: CI/CD, containers, Kubernetes |
@@ -547,23 +543,20 @@ files. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md
 | vfx-td | Opus 5.5 · high | 170 | — | Houdini FX: VEX, HDAs, Pyro/FLIP/Vellum/RBD, Solaris/Karma |
 | writer | Opus 5.5 · medium | 80 | — | Writes and edits prose |
 
-#### Helpers (4)
+#### Helpers (2)
 
 | Agent | Model · effort | maxTurns | Inline MCP | Does |
 |---|---|---|---|---|
-| db-engineer | Sonnet 5.5 · high | 120 | postgres, mongodb | DB tuning and ops: query plans, indexes, safe migrations |
 | test-engineer | Sonnet 5.5 · medium | 100 | — | Writes and repairs tests (unit, property, fuzz, e2e) |
 | build-fixer | Sonnet 5.5 · low | 60 | — | Makes a red build green |
-| localizer | Sonnet 5.5 · medium | 80 | — | Translates string catalogs and subtitles |
 
 </details>
 
 Routing in one paragraph: BlackCat does no work itself; it answers a greeting or a setup question,
 reads the ledger, dispatches every job (up to 8 children in one burst per prompt) and hands
 dependent multi-specialist work to the orchestrator. Code escalates coder → main-coder →
-ninja-coder → supreme-coder; language-heavy work goes to the language engineer, domain builds to the domain
-expert. The helpers are leaves (no Agent tool); db-engineer and localizer are reached through their
-family heads, not BlackCat. Depth is BlackCat → L1 → … → L8, and L8 cannot spawn.
+ninja-coder (the top tier); language-heavy work goes to the language engineer, domain builds to the domain
+expert. The helpers are leaves (no Agent tool). Depth is BlackCat → L1 → … → L8, and L8 cannot spawn.
 
 ### Skills: hubs, modules, references
 
@@ -696,13 +689,12 @@ the call (fail closed), and so does its PreToolUse entry when the hook cannot st
 
 | Guard | What it enforces |
 |---|---|
-| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row (BlackCat's row is its list; a main thread with no row of its own, such as `claude --agent claude` or a typeless session, may spawn every stack agent; a subagent with no row, none). Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), 2 live copies per copy type, BlackCat 8 dispatches within 120 s and 24 tool calls per prompt, at most 3 of them Read calls and none its own Bash/Write/Edit (`BLACKCAT_MAX_READS` 3, `BLACKCAT_MAX_OWN_STEPS` 0) |
+| Spawn allowlist | `subagent_type` must name a stack agent in the caller's `POLICY` row (BlackCat's row is its list; a main thread with no row of its own, such as `claude --agent claude` or a typeless session, may spawn every stack agent; a subagent with no row, none). Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`, …), a missing type and unknown types are refused for every caller; a generic agent started outside the Agent tool has every tool call refused. Caps: 3 running children per agent (orchestrator 32, main-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8), BlackCat 8 dispatches within 120 s and 24 tool calls per prompt, at most 3 of them Read calls and none its own Bash/Write/Edit (`BLACKCAT_MAX_READS` 3, `BLACKCAT_MAX_OWN_STEPS` 0) |
 | Read-only agents | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide and proof-checker hold Bash, but only read-only commands pass (tests, linters in check mode, `git diff/log/show`, inspection, scanners); scratch code is content-checked; anything else is refused |
 | No push | `git push` in any form and forge writes (`gh`/`tea`/`fj`, `gh api`, curl/wget/httpie to forge hosts) are denied, also inside `bash -c`, `eval`, `$(...)`, `ssh` and git's own command hooks. `STACK_POLICY=off` does not lift it |
 | Protected paths | Bash-level writes, deletes and renames of the installed stack, the backups and the hook state are refused, on top of the Edit/Write deny rules; so is running `install.sh` except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs |
 | Delegation ledger | Every Agent call is recorded as a tree (type, task, state, agent id) in `~/.local/state/claude-agent-stack/<session>/delegations.md`, which BlackCat reads; `agent_guard.py delegations [session] [--json]` prints it |
 | Compaction survival | PreCompact snapshots the ledger with the running and unrelayed children (main-thread children that finished since the last compaction with no delivery recorded) into `<session>/compact/`; after the compaction, SessionStart (`compact`) re-renders them from the live state and adds them to the new context (≤ 9,000 characters, full list in `compact/post.md`). Never blocks a compaction; nothing is added to a session without Agent calls |
-| supreme-coder once | Only the orchestrator spawns supreme-coder, once per session, and only after a ninja-coder of the session has finished (`SUPREME_SPAWNERS`, `SUPREME_ONCE_PER_SESSION`, `SUPREME_AFTER_NINJA`; the hook checks order, the prompts check that ninja-coder failed) |
 | Soft token limits | Past its soft limit (context tokens per subagent run, by type: scout 390K … verifier 26M; 33M per human prompt, 80M while an orchestrator runs) an agent's next tool call carries one warning to wrap up, return `STATUS: partial` and ask before continuing; nothing is refused. Values, derivation and refresh (`tests/derive_thresholds.py`): [CONFIG.md](CONFIG.md) §5 |
 | Also | Context-token budgets (hard) and the per-subagent MCP call cap; one agent on the screen; web-tainted agents can't write neural-memory; images re-encoded to ≤ 1919 px; BlackCat's children forced to the background; BlackCat holds no web tool and no Bash; with `BLACKCAT_MAX_OWN_STEPS` > 0 its Bash is refused HTTP clients in any spelling, raw sockets, `gh` forge reads and inline HTTP code (T1; best effort: script files and text assembled at run time are not seen, git clone/fetch/pull stay allowed, the sandbox network allowlist is the hard limit); per-call `model` and `mode` stripped |
 
@@ -938,7 +930,7 @@ steps, as the run prints them:
 3. **ML venv** (`--with-ml`): `~/.claude/venvs/ml` from `requirements/ml.txt`, several GB.
 4. **Adobe** (`--with-adobe`): the After Effects MCP at a pinned commit, the Premiere connector.
 5. **Stage**: copy the stack's part of the config dir to a private staging dir.
-6. **Render**: agents (with `-copy` renders), rules, skills, scripts, `settings.json`.
+6. **Render**: agents, rules, skills, scripts, `settings.json`.
 7. **Merge, validate, apply**: JSON, frontmatter, placeholders and the staged guard's `--self-test`;
    the plan; one backup; apply; then `tests/lint_agents.py` on the repo (warns only).
 8. **MCP dependency prefetch** into the private `STACK_CACHE`.
@@ -949,7 +941,7 @@ steps, as the run prints them:
     skills disabled.
 11. **Shell profile**: one line in `~/.zshrc` (and `~/.bashrc` if present) exporting the
     `STACK_EXPORT` keys and adding `~/.local/bin` to `PATH` (`--no-profile` skips it), and the
-    `claude-ninja` / `claude-supreme` launcher links in `~/.local/bin`.
+    `claude-ninja` launcher link in `~/.local/bin`.
 
 Other flags: `--config-dir PATH`, `--no-prompt`, `--no-prune`, `--force`, `--write-through-links`,
 `--no-mcp`, `--no-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
@@ -1026,7 +1018,7 @@ Claude Code sandbox refuses parts of it, so run it from your own terminal.
 The counts in this README come from the files:
 
 ```bash
-ls dot-claude/agents/*.md | wc -l                             # 56 agents
+ls dot-claude/agents/*.md | wc -l                             # 53 agents
 ls dot-claude/skills/*/SKILL.md | wc -l                       # 214 skills
 ls dot-claude/skills/*/references/*.md | wc -l                # 185 references
 jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 98 hidden: 83 hub modules + 7 bundled + 8 claude.ai
@@ -1124,18 +1116,18 @@ apply in every mode.
 
 How the mode reaches the agents (Claude Code docs, 2026-10-03):
 
-| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 45 agents that write files (`permissionMode: acceptEdits`) |
+| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 42 agents that write files (`permissionMode: acceptEdits`) |
 |---|---|---|
 | `plan`, `default`, `dontAsk` | follow it | accept edits without prompts: the agent file wins |
 | `acceptEdits`, `auto`, `bypassPermissions` | follow it | follow it: the session's mode wins |
 
-- The 45 are every agent with Write, Edit or NotebookEdit except BlackCat. The read-only ones are
+- The 42 are every agent with Write, Edit or NotebookEdit except BlackCat. The read-only ones are
   claude-code-guide, code-reviewer, explore, oracle, plan-reviewer, planner, proof-checker, scout,
   security-auditor and verifier.
 - So a switch to Plan or Default does not make a dispatched builder read-only, while a switch to
   `acceptEdits`, `auto` or `bypassPermissions` reaches every agent. BlackCat holds builders back until
   you approve the plan (its rule 5). That is a prompt rule, not a guard.
-- `acceptEdits` is meant for subagent runs. As your main thread, `claude-ninja`, `claude-supreme` and
+- `acceptEdits` is meant for subagent runs. As your main thread, `claude-ninja` and
   `claude-ultracode <agent>` pass `--permission-mode plan` unless you pass a mode yourself; plain
   `claude` runs BlackCat, which has no `permissionMode`, in the settings default. Whether Claude Code
   applies an agent file's `permissionMode` to a main thread started by hand (`claude --agent main-coder`)
@@ -1181,8 +1173,8 @@ defaults) without touching yours.
 
 | Variable | Purpose | Default | Used by |
 |---|---|---|---|
-| `ANTHROPIC_DEFAULT_OPUS_MODEL` | The ID the `opus` alias resolves to: 41 agents | today's Opus ID (source and date in the file) | `install.sh` → settings.json `env` → Claude Code; re-run the installer after a change; `/stack-doctor` |
-| `ANTHROPIC_DEFAULT_SONNET_MODEL` | The ID the `sonnet` alias resolves to: 15 agents and BlackCat | today's Sonnet ID | as above |
+| `ANTHROPIC_DEFAULT_OPUS_MODEL` | The ID the `opus` alias resolves to: 40 agents | today's Opus ID (source and date in the file) | `install.sh` → settings.json `env` → Claude Code; re-run the installer after a change; `/stack-doctor` |
+| `ANTHROPIC_DEFAULT_SONNET_MODEL` | The ID the `sonnet` alias resolves to: 12 agents and BlackCat | today's Sonnet ID | as above |
 | `ANTHROPIC_DEFAULT_HAIKU_MODEL` | The `haiku` alias and Claude Code's background work | the Sonnet ID (the stack runs no Haiku) | as above |
 | `OPPER_API_KEY` | `generate_image`: photos and raster images | empty (tool off) | image-studio (designer, image-director) |
 | `OPENROUTER_API_KEY` | `generate_svg` and `edit_image` | empty (tools off) | image-studio |
@@ -1200,8 +1192,8 @@ defaults) without touching yours.
 | `MLFLOW_TRACKING_URI` | MLflow tracking server or store | commented out | magg `mlflow`; exported |
 | `MOTHERDUCK_TOKEN` | MotherDuck (`md:`) databases | commented out | magg `duckdb` |
 | `LEAN_PROJECT_PATH` | A built Lean 4 + Mathlib Lake project | commented out | proof-checker's `lean`, magg `lean` |
-| `MDB_MCP_CONNECTION_STRING` | MongoDB connection, read-only server | commented out | db-engineer's `mongodb`, magg `mongodb` |
-| `DATABASE_URI` | Postgres connection, restricted mode | commented out | db-engineer's `postgres`, magg `postgres` |
+| `MDB_MCP_CONNECTION_STRING` | MongoDB connection, read-only server | commented out | data-engineer's `mongodb`, magg `mongodb` |
+| `DATABASE_URI` | Postgres connection, restricted mode | commented out | data-engineer's `postgres`, magg `postgres` |
 | `QISKIT_IBM_TOKEN` | IBM Quantum Platform (hardware jobs spend quota) | commented out | magg `qiskit-runtime` |
 | `GODOT_PATH` | The Godot executable | commented out | magg `godot` |
 | `SEC_EDGAR_USER_AGENT` | The "Name email" User-Agent the SEC requires | commented out | magg `sec-edgar` |
@@ -1237,8 +1229,7 @@ you may set yourself.
 | `BLACKCAT_BASH_TIMEOUT_MS` | 120000 | Longest timeout a BlackCat foreground Bash call may ask for, only with `BLACKCAT_MAX_OWN_STEPS` > 0 | guard |
 | `BLACKCAT_BACKGROUND` | 1 | Drop BlackCat's `run_in_background: false` | guard |
 | `STACK_MAX_FANOUT` ● | 3 | Running children per agent (0 = no cap) | guard |
-| `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
-| `STACK_MAX_SELF_FANOUT` ● | 2 | Live copies per copy type | guard |
+| `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
 | `STACK_MAX_DEPTH` | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, else 3 | Deny Agent from callers at this depth | guard |
 | `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | learned (seed 100000000 / 1920000000) | Context tokens per prompt / per session, whole tree (0 = off); a value you set pins the learned limit | guard |
 | `STACK_MAX_MCP_CALLS` ● | 64 | MCP calls per subagent per prompt, lower if `maxTurns` is | guard |
@@ -1247,10 +1238,8 @@ you may set yourself.
 | `STACK_FANOUT_IDLE_S` ○ | 600 (code: 1800) | A silent background subtree stops counting | guard |
 | `STACK_FANOUT_SESSION` | `shadow` | Session slot guard against `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, every caller: `shadow` logs the count (`fanout-session.jsonl`), `enforce` also refuses a spawn or resume with no free slot, `off` = none ([CONFIG.md](CONFIG.md) §5) | guard |
 | `STACK_FANOUT_DYN` | `shadow` | Dynamic fan-out cap for orchestrators (`stack_fanout.py`; never the main thread or BlackCat, never above the static cap): `shadow` (default; only for `STACK_FANOUT_DYN_TYPES` = orchestrator, never denies, 0600, 4 MiB cap) logs each decision from `plan.dag.json`, budget, AIMD window and K_sess to `fanout-dyn.jsonl`, `enforce` also refuses (`Dynamic fan-out (<term>): ...`) with the terms in `STACK_FANOUT_DYN_ENFORCE`; any error = static; `off` = nothing runs, no file, the rollback ([CONFIG.md](CONFIG.md), "Dynamic fan-out cap") | guard |
-| `STACK_FANOUT_DYN_{ENFORCE,TYPES,W0,WMIN,ALPHA,BETA_RL,BETA_FAIL,HOLD_S,RESERVE_TOK,SLACK,NODE_RUNS,DELAY_RATIO,BREAKER}` | `node,deps` / `orchestrator` / 8 / 1 / 1 / 0.5 / 0.75 / 60 / 8000000 / 2 / 7 / 1.5 / `5/600` | Its enforced terms, scope, AIMD window, token reserve, slack, runs per node, delay signal and breaker | guard |
+| `STACK_FANOUT_DYN_{ENFORCE,TYPES,W0,WMIN,ALPHA,BETA_RL,BETA_FAIL,HOLD_S,RESERVE_TOK,SLACK,NODE_RUNS,DELAY_RATIO,BREAKER}` | `node,deps` / `orchestrator` / 8 / 1 / 1 / 0.5 / 0.75 / 60 / 8000000 / 2 / 6 / 1.5 / `5/600` | Its enforced terms, scope, AIMD window, token reserve, slack, runs per node, delay signal and breaker | guard |
 | `STACK_LEASE_TTL_S` / `STACK_RESUME_TTL_S` | 21600 / 120 | Ceilings on unreported leases and resume reservations | guard |
-| `SUPREME_SPAWNERS` / `SUPREME_ONCE_PER_SESSION` / `SUPREME_AFTER_NINJA` | `orchestrator` / 1 / 1 | Who spawns supreme-coder; once; after a finished ninja-coder | guard |
-| `SUPREME_IDLE_S` ○ / `SUPREME_PENDING_TTL_S` / `SUPREME_LOCK_TTL_S` | 1800 (code: 900) / 120 / 21600 | supreme-coder lock timers | guard |
 | `SCREEN_LOCK_TTL_S` | 900 | Screen lock expiry | guard |
 | `STRIP_AGENT_MODEL` | 1 | Remove per-call `model` | guard |
 | `STACK_GUARD_LOG` | 0 | 1 = log hook events (tool names and ids only in budget mode) | guard |
@@ -1317,7 +1306,7 @@ alternatives: [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers).
 | Server | Package | Agents | Needs |
 |---|---|---|---|
 | libdocs | stack's own (`mcp/libdocs_mcp.py`) | 32 coding, ML and planning agents | `EXA_`/`JINA_`/`SPIDER_API_KEY`, `GITHUB_TOKEN` optional |
-| neural-memory | `neural-memory==4.62.0` via `mcp/neural_memory_mcp.py` | orchestrator, researcher, mathematician, main-/ninja-/supreme-coder, data-scientist, ml-/dl-/llm-/robotics-/quantum-engineer | — |
+| neural-memory | `neural-memory==4.62.0` via `mcp/neural_memory_mcp.py` | orchestrator, researcher, mathematician, main-/ninja-coder, data-scientist, ml-/dl-/llm-/robotics-/quantum-engineer | — |
 | image-studio | stack's own (`mcp/image_studio_mcp.py`) | designer, image-director | `OPENROUTER_API_KEY`, `OPPER_API_KEY` |
 | playwright | `@playwright/mcp@0.0.82 --headless --isolated --output-dir ~/.cache/claude-sandbox/playwright-mcp --file-paths absolute` | browser-operator, frontend-engineer, verifier | Google Chrome |
 | context-mode | `context-mode@1.0.169` | researcher, doc-specialist | Node ≥ 22.5 |
@@ -1329,8 +1318,8 @@ alternatives: [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers).
 | after-effects | Dakkshin/after-effects-mcp at `88d5fbf0` | motion-designer | `--with-adobe` |
 | premiere | `premiere-pro-mcp@1.18.2` | motion-designer | `--with-adobe` |
 | lean | `lean-lsp-mcp@0.30.0` | proof-checker | `LEAN_PROJECT_PATH` |
-| postgres | `postgres-mcp@0.3.0 --access-mode=restricted` | db-engineer | `DATABASE_URI` |
-| mongodb | `mongodb-mcp-server@3.0.5 --readOnly`, telemetry off | db-engineer | `MDB_MCP_CONNECTION_STRING` |
+| postgres | `postgres-mcp@0.3.0 --access-mode=restricted` | data-engineer | `DATABASE_URI` |
+| mongodb | `mongodb-mcp-server@3.0.5 --readOnly`, telemetry off | data-engineer | `MDB_MCP_CONNECTION_STRING` |
 | mobilebuild | `mobilebuildmcp@2.7.1`, Sentry off | mobile-engineer | Xcode |
 | magg | `magg` 1.2.1 via `bin/magg-private` | mcp-broker | the catalog keys |
 
@@ -1338,9 +1327,9 @@ alternatives: [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers).
 
 | Server | Agents (from `tools:` lines) | Key |
 |---|---|---|
-| exa | 21 agents (scout, researcher, planner, coders, verifier, security-auditor, ML agents, …) | `EXA_API_KEY` optional |
-| jina | 22 agents (scout, researcher, writer, mathematician, designers, ML agents, …) | `JINA_API_KEY` |
-| wolfram | mathematician, proof-checker, quantum-engineer, ninja-coder, supreme-coder | none |
+| exa | 20 agents (scout, researcher, planner, coders, verifier, security-auditor, ML agents, …) | `EXA_API_KEY` optional |
+| jina | 21 agents (scout, researcher, writer, mathematician, designers, ML agents, …) | `JINA_API_KEY` |
+| wolfram | mathematician, proof-checker, quantum-engineer, ninja-coder | none |
 | huggingface | researcher, data-scientist, ml-/dl-/llm-/robotics-engineer | `HF_TOKEN` optional |
 | wandb | ml-/dl-/llm-/robotics-engineer | `WANDB_API_KEY` |
 
@@ -1420,7 +1409,7 @@ embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The
 | `gh` (read-only) | `view`, `list`, `status`, `checks`, `diff` only | not checked |
 | `ffmpeg`, `magick`, `rsvg-convert`, `pdftoppm`, `sips` | Media, SVG and PDF rasterizing; `sips -Z 1919` downscales | installed with Homebrew if present; doctor warns; `sips` ships with macOS |
 | `pandoc` | Document conversion | not checked |
-| `claude-ninja`, `claude-supreme` | ninja-coder or supreme-coder as your main thread at ultracode | installed in `~/.local/bin` |
+| `claude-ninja` | ninja-coder as your main thread at ultracode | installed in `~/.local/bin` |
 | Scanners: `gitleaks`, `trufflehog`, `semgrep`, `osv-scanner`, `pip-audit`, `npm audit`, `cargo audit`/`deny`, `trivy` | The read-only reviewers' allowlist | not installed; used when present |
 | Language toolchains (cargo, ghcup, juliaup, go, Gradle/Maven, elan) | The language engineers | not installed; installing a toolchain from a session fails by design (sandbox) |
 
@@ -1454,7 +1443,7 @@ Only you can run these.
    empty last line. Check whether settings `env` reaches MCP servers and hooks.
 4. **Keychain from the sandbox:** whether the osxkeychain helper answers inside the sandbox (count the
    bytes of its answer, never print it).
-5. **Routing:** a task with a supreme-coder plan step goes to the orchestrator.
+5. **Routing:** a near-impossible coding problem goes to ninja-coder with a dossier.
 6. **Ask rules:** an ask rule prompts in every mode, `bypassPermissions` included (start one session with
    `claude --permission-mode bypassPermissions`; for example a magg `duckdb_*` call).
 7. **Credentials:** `bash ~/.claude/bin/doctor.sh`, section "GitHub credentials agents could use".
@@ -1466,7 +1455,7 @@ stack. Checked on 27 Sep 2026.
 
 | App | What to set |
 |---|---|
-| Terminal | once: `/effort medium`; the only place for `claude-ninja` / `claude-supreme` |
+| Terminal | once: `/effort medium`; the only place for `claude-ninja` |
 | Claude Desktop, Code tab (Local) | model Sonnet 5.5, effort medium; if `/stack-doctor` in a Desktop session shows an alias resolving elsewhere, add the three `ANTHROPIC_DEFAULT_*_MODEL` values from `stack.env` under Local → gear; computer use: Settings → General |
 | Conductor | model Sonnet 5.5, thinking medium, Ultracode off |
 | VS Code / Cursor extension, JetBrains plugin, Zed | nothing |

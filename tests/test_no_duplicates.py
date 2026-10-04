@@ -197,19 +197,6 @@ def test_agent_names_unique_and_match_file_stem():
     assert not d, "agent name shipped twice: %s" % d
 
 
-def test_rendered_copy_types_do_not_collide_with_agent_files():
-    m = re.search(r"^COPY_TYPES = \(([^)]*)\)", install_text(), re.M)
-    assert m, "install.sh has no `COPY_TYPES = (...)` line"
-    bases = re.findall(r'"([a-z0-9-]+)"', m.group(1))
-    assert bases, "COPY_TYPES parsed empty"
-    shipped = {p.stem for p in agents()}
-    bad = ["install.sh COPY_TYPES renders %s-copy, but dot-claude/agents/%s-copy.md also exists"
-           % (b, b) for b in bases if b + "-copy" in shipped]
-    assert not bad, "\n".join(bad)
-    missing = [b for b in bases if b not in shipped]
-    assert not missing, "COPY_TYPES names agents that do not exist: %s" % missing
-
-
 # ---------------------------------------------------------------- 3. JSON keys
 
 @pytest.mark.parametrize("path", [SETTINGS, MAGG], ids=lambda p: p.name if p == SETTINGS else "magg/config.json")

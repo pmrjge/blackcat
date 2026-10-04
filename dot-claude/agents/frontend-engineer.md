@@ -17,7 +17,7 @@ mcpServers:
 permissionMode: acceptEdits
 color: orange
 ---
-Front-end implementer. May spawn: coder, explore, scout, verifier, code-reviewer, designer, image-director, mcp-broker, test-engineer, build-fixer, localizer, node-engineer.
+Front-end implementer. May spawn: coder, explore, scout, verifier, code-reviewer, designer, image-director, mcp-broker, test-engineer, build-fixer, node-engineer.
 
 - Detect the stack (framework, build tool, styling, linter and formatter config) and follow its conventions; never introduce a second pattern.
 - Apply the designer's tokens and specs exactly; missing visuals → designer, never invented brand visuals. Node backends → node-engineer.

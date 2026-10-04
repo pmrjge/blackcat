@@ -19,14 +19,13 @@ GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
 REPEATS = 20
 FANOUT = 20
 
-KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "SUPREME_PENDING_TTL_S",
-         "SUPREME_IDLE_S", "SUPREME_LOCK_TTL_S", "SCREEN_LOCK_TTL_S", "STRIP_AGENT_MODEL",
+KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "SCREEN_LOCK_TTL_S",
+         "STRIP_AGENT_MODEL",
          "STACK_MAX_DEPTH", "STACK_GUARD_LOG", "STACK_MODE_PROBE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
-         "BLACKCAT_DISPATCH_WINDOW_S", "STACK_MAX_FANOUT", "STACK_MAX_SELF_FANOUT",
+         "BLACKCAT_DISPATCH_WINDOW_S", "STACK_MAX_FANOUT",
          "STACK_FANOUT_IDLE_S", "STACK_MAX_FANOUT_BY_TYPE", "STACK_LEASE_TTL_S",
          "STACK_RESUME_TTL_S", "STACK_PROMPT_CTX_BUDGET", "STACK_SESSION_CTX_BUDGET",
-         "STACK_MAX_MCP_CALLS", "BLACKCAT_BACKGROUND", "SUPREME_ONCE_PER_SESSION", "SUPREME_SPAWNERS",
-         "SUPREME_AFTER_NINJA", "STACK_SOFT_LIMIT_SCALE", "BLACKCAT_MAX_OWN_STEPS", "BLACKCAT_MAX_READS",
+         "STACK_MAX_MCP_CALLS", "BLACKCAT_BACKGROUND", "STACK_SOFT_LIMIT_SCALE", "BLACKCAT_MAX_OWN_STEPS", "BLACKCAT_MAX_READS",
          "BLACKCAT_BASH_TIMEOUT_MS", "BASH_DEFAULT_TIMEOUT_MS", "STACK_FANOUT_SESSION",
          "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
          # the dynamic fan-out knobs (stack_fanout.KNOBS)
@@ -35,15 +34,12 @@ KNOBS = ("STACK_POLICY", "BLACKCAT_MAX_DISPATCH", "BLACKCAT_MAX_STEPS", "SUPREME
          "STACK_FANOUT_DYN_ENFORCE", "STACK_FANOUT_DYN_HOLD_S", "STACK_FANOUT_DYN_NODE_RUNS",
          "STACK_FANOUT_DYN_RESERVE_TOK", "STACK_FANOUT_DYN_SLACK", "STACK_FANOUT_DYN_TYPES",
          "STACK_FANOUT_DYN_W0", "STACK_FANOUT_DYN_WMIN")
-COPY_DENIED = ("Copies cannot spawn copies: %s may not spawn %s. Do this part yourself or return "
-               "STATUS: partial listing what is left.")
 
 
 # ---------------------------------------------------------------- harness
 # The mechanics below were written against these caps; the shipped defaults (BlackCat 8 dispatches
 # and 24 steps, the per-type fan-out table) are checked by test_shipped_spawn_defaults.
-BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8", "SUPREME_ONCE_PER_SESSION": "0",
-            "SUPREME_SPAWNERS": "orchestrator,main", "SUPREME_AFTER_NINJA": "0",
+BASELINE = {"BLACKCAT_MAX_DISPATCH": "6", "BLACKCAT_MAX_STEPS": "8",
             "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=8,planner=8,plan-reviewer=8"}
 
 
@@ -157,11 +153,6 @@ def screen(s, agent_id=None, agent_type="designer"):
     return ev
 
 
-def supreme_lock(env, s):
-    p = state(env, s) / "supreme-coder.lock"
-    return json.loads(p.read_text()) if p.exists() else None
-
-
 def age_lock(env, s, name, seconds):
     p = state(env, s) / name
     obj = json.loads(p.read_text())
@@ -178,27 +169,22 @@ def test_print_policy_format(env):
     p = run("", env, args=["--print-policy"])
     assert p.returncode == 0
     d = json.loads(p.stdout)
-    assert list(d) == ["policy", "leaves", "agents", "builtins", "self_spawn", "copy_types",
-                       "blackcat_tools"]
-    assert len(d["agents"]) == 56 and len(set(d["agents"])) == 56
+    assert list(d) == ["policy", "leaves", "agents", "builtins", "blackcat_tools"]
+    assert len(d["agents"]) == 53 and len(set(d["agents"])) == 53
     assert d["builtins"] == [] and "explore" in d["agents"] and "explore" in d["leaves"]
-    assert set(d["policy"]) == set(d["agents"]) | {"researcher-copy", "coder-copy"}
+    assert set(d["policy"]) == set(d["agents"])
     assert sorted(d["leaves"]) == sorted(k for k, v in d["policy"].items() if not v)
-    # db-engineer and localizer are reached through their family heads, not from BlackCat
-    assert set(d["policy"]["blackcat"]) == set(d["agents"]) - {"blackcat", "supreme-coder", "db-engineer",
-                                                               "localizer"}
-    assert set(d["policy"]["orchestrator"]) == set(d["policy"]["blackcat"]) - {"orchestrator"} | {
-        "explore", "supreme-coder", "db-engineer", "localizer"}
-    assert [k for k, v in d["policy"].items() if "supreme-coder" in v] == ["orchestrator"]
+    # only agents on BlackCat's row are reachable at any depth: it lists every specialist
+    assert set(d["policy"]["blackcat"]) == set(d["agents"]) - {"blackcat"}
+    assert set(d["policy"]["orchestrator"]) == set(d["policy"]["blackcat"]) - {"orchestrator"}
     assert {"ml-engineer", "dl-engineer", "llm-engineer", "ninja-coder"} <= set(
         d["policy"]["main-coder"])
-    # escalation chain coder < main-coder < ninja-coder < supreme-coder
-    assert "ninja-coder" not in d["policy"]["coder"] and "supreme-coder" not in d["policy"]["coder"]
+    # escalation chain coder < main-coder < ninja-coder (the top tier); coder is a leaf
+    assert d["policy"]["coder"] == [] and "coder" in d["leaves"]
     assert {"main-coder", "mathematician"} <= set(d["policy"]["ninja-coder"])
-    assert {"main-coder", "ninja-coder"} <= set(d["policy"]["supreme-coder"])
+    assert sorted(a for a in d["agents"] if a.endswith("-coder")) == ["main-coder", "ninja-coder"]
     for eng in ("mlx-engineer", "cuda-engineer", "dl-engineer", "llm-engineer"):
-        assert "ninja-coder" in d["policy"][eng]         # supreme-coder: NEXT back to the orchestrator
-    assert d["policy"]["researcher"][0] == "researcher-copy"
+        assert "ninja-coder" in d["policy"][eng]
     # T1: browser-operator (logged-in browser) is spawned only by blackcat and the orchestrator,
     # never by an agent that reads web pages (an injected page must not reach the user's sessions)
     assert {k for k, v in d["policy"].items() if "browser-operator" in v} == {
@@ -210,21 +196,11 @@ def test_print_policy_format(env):
                 "ninja-coder"):
         assert new in d["agents"]
     assert "senior-coder" not in d["agents"]
-    # copies: only researcher and coder, as their own <type>-copy agent types, one generation
-    copies = d["copy_types"]
-    assert copies == {"researcher": "researcher-copy", "coder": "coder-copy"}
-    assert d["self_spawn"] == ["coder", "researcher"]
-    for base, copy in copies.items():
-        assert copy in d["policy"][base] and base not in d["policy"][base]
-        assert d["policy"][copy] == [c for c in d["policy"][base]
-                                     if c != base and c not in copies.values()]
     for parent, row in d["policy"].items():
         assert parent not in row, parent                    # nobody spawns its own type
-        for copy in set(row) & set(copies.values()):
-            assert copies.get(parent) == copy, (parent, copy)
-    assert not set(copies.values()) & (set(d["policy"]["blackcat"]) | set(d["policy"]["orchestrator"]))
+        assert not [c for c in row if c.endswith("-copy")], parent      # copy types retired
     assert d["policy"]["planner"]                           # planner keeps Agent
-    assert {"plan-reviewer", "image-director"} <= set(d["leaves"])
+    assert {"plan-reviewer", "image-director", "coder"} <= set(d["leaves"])
     assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill", "Read"} <= set(
         d["blackcat_tools"])
     # no web tool on BlackCat (T1), no work tool (it only delegates), no search tool
@@ -263,20 +239,25 @@ def test_every_allowed_pair_allowed(env):
     ("mlx-engineer", "mlx-engineer"), ("cuda-engineer", "cuda-engineer"),
     ("devops-engineer", "devops-engineer"), ("designer", "designer"),
     ("image-director", "image-director"), ("browser-operator", "scout"),
-    ("claude-code-engineer", "claude-code-engineer"), ("data-scientist", "supreme-coder"),
-    ("ml-engineer", "supreme-coder"), ("planner", "planner"), ("llm-engineer", "designer"),
-    ("coder", "main-coder"), ("coder", "supreme-coder"), ("scout", "coder"),
+    ("claude-code-engineer", "claude-code-engineer"), ("data-scientist", "ninja-coder"),
+    ("ml-engineer", "ninja-coder"), ("planner", "planner"), ("llm-engineer", "designer"),
+    ("coder", "main-coder"), ("coder", "ninja-coder"), ("scout", "coder"),
     ("planner", "coder"), ("plan-reviewer", "coder"), ("researcher", "coder"),
-    ("devops-engineer", "supreme-coder"), ("data-engineer", "designer"),
-    ("frontend-engineer", "supreme-coder"), ("mlx-engineer", "main-coder"),
-    ("supreme-coder", "supreme-coder"), ("claude-code-guide", "scout"), ("verifier", "coder"),
-    # nobody spawns its own type; copies only through the base's own <type>-copy row
+    ("devops-engineer", "ninja-coder"), ("data-engineer", "designer"),
+    ("frontend-engineer", "ninja-coder"), ("mlx-engineer", "main-coder"),
+    ("claude-code-guide", "scout"), ("verifier", "coder"),
+    # nobody spawns its own type; the retired copy types are unknown
     ("coder", "coder"), ("researcher", "researcher"), ("main-coder", "main-coder"),
     ("ninja-coder", "ninja-coder"), ("writer", "writer"), ("mathematician", "mathematician"),
     ("data-scientist", "data-scientist"), ("blackcat", "coder-copy"),
     ("orchestrator", "researcher-copy"), ("main-coder", "coder-copy"),
     ("writer", "researcher-copy"), ("researcher", "coder-copy"),
+    # retired 2026-10-04: unknown types for every caller
+    ("orchestrator", "supreme-coder"), ("main-coder", "supreme-coder"),
+    ("blackcat", "supreme-coder"), ("blackcat", "db-engineer"), ("blackcat", "localizer"),
+    ("data-engineer", "db-engineer"), ("writer", "localizer"),
     ("plan-reviewer", "scout"), ("image-director", "scout"),        # leaves
+    ("coder", "explore"), ("coder", "scout"), ("coder", "test-engineer"), ("coder", "build-fixer"),
 ])
 def test_denied_pairs(env, parent, child):
     ev = (pre_agent(sid(), child, parent="blackcat") if parent == "blackcat" else
@@ -284,6 +265,20 @@ def test_denied_pairs(env, parent, child):
     p = run(ev, env)
     assert decision(p) == "deny"
     assert "Spawn policy" in reason(p)
+
+
+def test_coder_is_a_leaf(env):
+    """coder (decided 2026-10-04): no Agent or SendMessage on its tools line, an empty POLICY row,
+    and every spawn it attempts is refused."""
+    text = (ROOT / "dot-claude" / "agents" / "coder.md").read_text()
+    tools = {t.strip() for t in re.search(r"(?m)^tools:(.*)$", text).group(1).split(",")}
+    assert not {"Agent", "SendMessage"} & tools, tools
+    assert "May spawn:" not in text
+    pol = policy(env)
+    assert pol["policy"]["coder"] == [] and "coder" in pol["leaves"]
+    for child in sorted(set(pol["agents"]) - {"blackcat"}):
+        p = run(pre_agent(sid(), child, parent="coder", agent_id="id-coder"), env)
+        assert decision(p) == "deny" and "Spawn policy" in reason(p), child
 
 
 def test_missing_subagent_type_is_general_purpose(env):
@@ -325,7 +320,7 @@ def test_generic_types_denied_for_every_caller(env, parent, agent_id, tool):
 
 @pytest.mark.parametrize("parent,agent_id,child,want", [
     ("", None, "coder", "allow"), ("my-custom-agent", None, " Code Reviewer ", "allow"),
-    ("", None, "supreme-coder", "allow"),             # BASELINE lists "main" in SUPREME_SPAWNERS
+    ("", None, "ninja-coder", "allow"), ("claude", None, "orchestrator", "allow"),
     ("general-purpose", "G1", "coder", "deny"), ("SubAgent", "S1", "scout", "deny"),
     ("my-plugin:helper", "P1", "coder", "deny"),
 ])
@@ -347,30 +342,24 @@ def _guard_module():
 def test_rowless_main_thread_spawns_every_stack_agent(env, parent):
     """User decision 2026-10-04: only BlackCat is held to a spawn list. A main thread with no POLICY
     row (typeless, `claude --agent claude`, a foreign agent) may spawn every stack agent, the
-    orchestrator and the two family-only types included; supreme-coder keeps its own rule
-    (SUPREME_SPAWNERS lists "main": a typeless main thread only); generic and built-in types and
-    blackcat stay refused."""
+    orchestrator included; generic and built-in types and blackcat stay refused."""
     g = _guard_module()
-    for child in [a for a in g.AGENTS if a not in ("blackcat", "supreme-coder")]:
+    for child in [a for a in g.AGENTS if a != "blackcat"]:
         assert decision(run(pre_agent(sid(), child, parent=parent), env)) == "allow", child
-    want = "allow" if not parent else "deny"           # BASELINE: SUPREME_SPAWNERS=orchestrator,main
-    assert decision(run(pre_agent(sid(), "supreme-coder", parent=parent), env)) == want
-    assert decision(run(pre_agent(sid(), "supreme-coder", parent=parent), env,
-                        extra={"SUPREME_SPAWNERS": "orchestrator"})) == "deny"
     for child in ("blackcat", "general-purpose", "claude", "fork", "Plan", "statusline-setup",
                   "my-plugin:helper", "coder-copy"):
         assert decision(run(pre_agent(sid(), child, parent=parent), env)) == "deny", child
     s = sid()
-    script = "await agent('x', {agentType: 'db-engineer'})"
+    script = "await agent('x', {agentType: 'data-engineer'})"
     assert decision(run(workflow_ev(s, parent=parent, script=script), env)) == "allow"
 
 
 def test_rows_unchanged_for_blackcat_typed_main_threads_and_subagents(env):
-    """BlackCat keeps its own list (db-engineer and localizer only through their family heads); a
+    """BlackCat keeps its own list (every specialist, generic types refused); a
     main thread with a POLICY row (claude --agent main-coder) keeps that row; subagents keep theirs,
     and an agent context of no known type keeps BlackCat's row."""
     g = _guard_module()
-    for child in ("db-engineer", "localizer", "supreme-coder", "blackcat", "general-purpose"):
+    for child in ("blackcat", "general-purpose", "coder-copy"):
         assert decision(run(pre_agent(sid(), child, parent="blackcat"), env)) == "deny", child
     outside = [a for a in g.AGENTS if a not in g.POLICY["main-coder"] and a != "blackcat"]
     assert "orchestrator" in outside
@@ -379,7 +368,7 @@ def test_rows_unchanged_for_blackcat_typed_main_threads_and_subagents(env):
     assert decision(run(pre_agent(sid(), "coder", parent="main-coder"), env)) == "allow"
     assert decision(run(pre_agent(sid(), "designer", parent="coder", agent_id="C1"), env)) == "deny"
     for parent in ("", "main-session"):
-        assert decision(run(pre_agent(sid(), "db-engineer", parent=parent, agent_id="X1"),
+        assert decision(run(pre_agent(sid(), "blackcat", parent=parent, agent_id="X1"),
                             env)) == "deny", parent
         assert decision(run(pre_agent(sid(), "coder", parent=parent, agent_id="X1"),
                             env)) == "allow", parent
@@ -391,7 +380,7 @@ def test_task_alias_reaches_the_spawn_gate(env):
     ev = pre_agent(sid(), "coder", parent="blackcat")
     ev["tool_name"] = "Task"
     assert decision(run(ev, env)) == "allow"
-    ev = pre_agent(sid(), "scout", parent="coder", agent_id="C1")
+    ev = pre_agent(sid(), "scout", parent="main-coder", agent_id="C1")
     ev["tool_name"] = "SubAgent"
     assert decision(run(ev, env)) == "allow"
 
@@ -410,7 +399,7 @@ def test_generic_subagent_runs_no_tools(env, atype, tool, ti):
     assert decision(run(ev, env, args=["budget"], extra={"STACK_POLICY": "off"})) == "allow"
 
 
-@pytest.mark.parametrize("atype", ["coder", "explore", "researcher-copy", "claude-test:runner"])
+@pytest.mark.parametrize("atype", ["coder", "explore", "researcher", "claude-test:runner"])
 def test_stack_and_namespaced_subagents_keep_tools(env, atype):
     ev = {"session_id": sid(), "hook_event_name": "PreToolUse", "tool_name": "Read",
           "tool_input": {"file_path": "x"}, "agent_id": "X1", "agent_type": atype}
@@ -446,7 +435,7 @@ def test_workflow_needs_typed_stages(env, tool):
                      ("await agent(`a ${await agent('i', {agentType: 'explore'})}`)",
                       "exactly two arguments"),
                      ("await agent('x', {agentType: 'general-purpose'})", "not an agent you may"),
-                     ("await agent('x', {agentType: 'supreme-coder'})", "not an agent you may"),
+                     ("await agent('x', {agentType: 'senior-coder'})", "not an agent you may"),
                      ("await agent('x', {agentType: 'coder', model: 'opus'})", "sets model"),
                      ("await workflow('other')", "nested workflow"),
                      ("await agent('x', {agentType: 'coder'", "not closed")):
@@ -492,26 +481,26 @@ def test_depth_chain(env):
     assert decision(run(pre_agent(s, "orchestrator", parent="blackcat"), env)) == "allow"
     run(post_agent(s, "orchestrator", "A1"), env)
     run(post_agent(s, "main-coder", "A2", agent_id="A1", parent="orchestrator"), env)
-    run(post_agent(s, "coder", "A3", agent_id="A2", parent="main-coder", as_string=True), env)
+    run(post_agent(s, "ninja-coder", "A3", agent_id="A2", parent="main-coder", as_string=True), env)
     reg = lambda a: json.loads((state(env, s) / "agents" / (a + ".json")).read_text())  # noqa
     assert [reg(a)["depth"] for a in ("A1", "A2", "A3")] == [1, 2, 3]
     assert reg("A3")["parent"] == "A2"
     # L2 may spawn, L3 may not
     assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="A2"), env)) \
         == "allow"
-    p = run(pre_agent(s, "scout", parent="coder", agent_id="A3"), env)
+    p = run(pre_agent(s, "scout", parent="ninja-coder", agent_id="A3"), env)
     assert decision(p) == "deny" and "Depth limit" in reason(p)
-    # unknown provenance decides nothing any more: a coder never spawns a coder (policy, whatever
-    # the registry knows); an allowed pair from a caller of unknown depth passes (Claude Code's
-    # native depth limit stays authoritative)
-    p = run(pre_agent(s, "coder", parent="coder", agent_id="ZZ"), env)
+    # unknown provenance decides nothing any more: a main-coder never spawns a main-coder (policy,
+    # whatever the registry knows); an allowed pair from a caller of unknown depth passes (Claude
+    # Code's native depth limit stays authoritative)
+    p = run(pre_agent(s, "main-coder", parent="main-coder", agent_id="ZZ"), env)
     assert decision(p) == "deny" and "Spawn policy" in reason(p)
-    assert decision(run(pre_agent(s, "scout", parent="coder", agent_id="ZZ"), env)) == "allow"
-    # child of an unknown caller has null depth; it may use its own row (a coder-copy included)
-    run(post_agent(s, "coder", "A4", agent_id="ZZ", parent="main-coder"), env)
+    assert decision(run(pre_agent(s, "scout", parent="main-coder", agent_id="ZZ"), env)) == "allow"
+    # child of an unknown caller has null depth; it may use its own row
+    run(post_agent(s, "main-coder", "A4", agent_id="ZZ", parent="ninja-coder"), env)
     assert reg("A4")["depth"] is None
-    assert decision(run(pre_agent(s, "coder-copy", parent="coder", agent_id="A4"), env)) == "allow"
-    p = run(pre_agent(s, "coder", parent="coder", agent_id="A4"), env)
+    assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="A4"), env)) == "allow"
+    p = run(pre_agent(s, "main-coder", parent="main-coder", agent_id="A4"), env)
     assert decision(p) == "deny" and "Spawn policy" in reason(p)
     # knob
     p = run(pre_agent(s, "coder", parent="main-coder", agent_id="A2"), env,
@@ -522,25 +511,28 @@ def test_depth_chain(env):
     assert decision(p) == "deny"
     # an explicit depth 4: L3 may spawn an L4, and the L4 may not spawn
     four = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4"}
-    assert decision(run(pre_agent(s, "coder-copy", parent="coder", agent_id="A3"), env,
+    assert decision(run(pre_agent(s, "main-coder", parent="ninja-coder", agent_id="A3"), env,
                         extra=four)) == "allow"
-    run(post_agent(s, "scout", "A5", agent_id="A3", parent="coder"), env, extra=four)
+    run(post_agent(s, "scout", "A5", agent_id="A3", parent="ninja-coder"), env, extra=four)
     assert reg("A5")["depth"] == 4
-    run(post_agent(s, "coder-copy", "A6", agent_id="A3", parent="coder"), env, extra=four)
-    p = run(pre_agent(s, "scout", parent="coder-copy", agent_id="A6"), env, extra=four)
+    run(post_agent(s, "main-coder", "A6", agent_id="A3", parent="ninja-coder"), env, extra=four)
+    p = run(pre_agent(s, "scout", parent="main-coder", agent_id="A6"), env, extra=four)
     assert decision(p) == "deny" and "Depth limit" in reason(p)
     # the stack's depth 8 (settings.json): the same L4 may spawn, an L7 may spawn an L8, the L8 not
     eight = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "8"}
-    assert decision(run(pre_agent(s, "scout", parent="coder-copy", agent_id="A6"), env,
+    assert decision(run(pre_agent(s, "scout", parent="main-coder", agent_id="A6"), env,
                         extra=eight)) == "allow"
-    chain = [("A6", "coder-copy"), ("A7", "coder"), ("A8", "coder-copy"), ("A9", "coder"),
-             ("A10", "coder-copy")]
+    # main-coder and ninja-coder may spawn each other (coder is a leaf, the copies are retired)
+    chain = [("A6", "main-coder"), ("A7", "ninja-coder"), ("A8", "main-coder"),
+             ("A9", "ninja-coder"), ("A10", "main-coder")]
     for (pid, ptype), (cid, ctype) in zip(chain, chain[1:]):
+        assert decision(run(pre_agent(s, ctype, parent=ptype, agent_id=pid), env,
+                            extra=eight)) == "allow"
         run(post_agent(s, ctype, cid, agent_id=pid, parent=ptype), env, extra=eight)
     assert [reg(a)["depth"] for a, _ in chain] == [4, 5, 6, 7, 8]
-    assert decision(run(pre_agent(s, "scout", parent="coder", agent_id="A9"), env,
+    assert decision(run(pre_agent(s, "scout", parent="ninja-coder", agent_id="A9"), env,
                         extra=eight)) == "allow"
-    p = run(pre_agent(s, "scout", parent="coder-copy", agent_id="A10"), env, extra=eight)
+    p = run(pre_agent(s, "scout", parent="main-coder", agent_id="A10"), env, extra=eight)
     assert decision(p) == "deny" and "Depth limit" in reason(p)
 
 
@@ -615,168 +607,6 @@ def test_user_prompt_prunes_other_prompts(env):
     assert decision(run(ev, env)) == "allow"
 
 
-def test_blackcat_supreme_rollback_when_dispatch_taken(env):
-    env["BLACKCAT_MAX_DISPATCH"] = "1"
-    s = sid()
-    assert decision(run(pre_agent(s, "coder", parent="blackcat"), env)) == "allow"
-    assert decision(run(pre_agent(s, "supreme-coder", parent="blackcat"), env)) == "deny"
-    assert supreme_lock(env, s) is None
-
-
-# ---------------------------------------------------------------- supreme-coder lock
-def test_supreme_concurrent_spawns_single_winner(env):
-    for _ in range(REPEATS):
-        s = sid()
-        evs = [pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc%d" % i)
-               for i in range(FANOUT)]
-        res = run_many(evs, env)
-        assert res.count("allow") == 1, res
-        assert supreme_lock(env, s)["state"] == "pending"
-
-
-def test_supreme_confirm_and_release_by_subagent_stop(env):
-    s = sid()
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc"),
-                        env)) == "allow"
-    run(lifecycle(s, "SubagentStart", "G1", "supreme-coder"), env)
-    lk = supreme_lock(env, s)
-    assert lk["state"] == "running" and lk["holder"] == "G1" and lk["by"] == "sc"
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc2"),
-                        env)) == "deny"
-    p = run(lifecycle(s, "SubagentStop", "X9", "coder"), env)
-    assert p.stdout == "" and supreme_lock(env, s)
-    p = run(lifecycle(s, "SubagentStop", "G1", "supreme-coder"), env)
-    assert p.stdout == "" and supreme_lock(env, s) is None
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc2"),
-                        env)) == "allow"
-
-
-def test_supreme_post_tool_use_confirm_and_completed_release(env):
-    s = sid()
-    run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc"), env)
-    run(post_agent(s, "supreme-coder", "G1", agent_id="sc", parent="orchestrator"), env)
-    assert supreme_lock(env, s)["holder"] == "G1"
-    run(post_agent(s, "supreme-coder", "G1", agent_id="sc", parent="orchestrator",
-                   status="completed"), env)
-    assert supreme_lock(env, s) is None
-
-
-def test_supreme_foreground_completed_does_not_recreate(env):
-    s = sid()
-    run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc"), env)
-    run(lifecycle(s, "SubagentStart", "G1", "supreme-coder"), env)
-    run(lifecycle(s, "SubagentStop", "G1", "supreme-coder"), env)
-    run(post_agent(s, "supreme-coder", "G1", agent_id="sc", parent="orchestrator",
-                   status="completed"), env)
-    assert supreme_lock(env, s) is None
-
-
-def test_supreme_failure_rollback_only_by_owner(env):
-    s = sid()
-    ev = pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc")
-    run(ev, env)
-    other = dict(ev, agent_id="sc-other", hook_event_name="PostToolUseFailure")
-    run(other, env)
-    assert supreme_lock(env, s)["state"] == "pending"
-    run(dict(ev, hook_event_name="PermissionDenied"), env)
-    assert supreme_lock(env, s) is None
-
-
-def test_supreme_pending_lease_expires(env):
-    """M3: a lease left by a call denied elsewhere blocks until SUPREME_PENDING_TTL_S."""
-    s = sid()
-    run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc"), env)
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc2"),
-                        env)) == "deny"
-    age_lock(env, s, "supreme-coder.lock", 121)
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc2"),
-                        env)) == "allow"
-    assert supreme_lock(env, s)["by"] == "sc2"
-
-
-def test_supreme_idle_reclaim(env, tmp_path):
-    s = sid()
-    tp = tmp_path / "proj" / "main.jsonl"
-    sub = tmp_path / "proj" / s / "subagents" / "agent-G1.jsonl"
-    sub.parent.mkdir(parents=True)
-    sub.write_text("{}\n")
-    run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc"), env)
-    run(lifecycle(s, "SubagentStart", "G1", "supreme-coder"), env)
-    age_lock(env, s, "supreme-coder.lock", 1000)
-    nxt = dict(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc2"),
-               transcript_path=str(tp))
-    # transcript fresh -> still busy
-    assert decision(run(nxt, env)) == "deny"
-    old = time.time() - 1000
-    os.utime(sub, (old, old))
-    assert decision(run(nxt, env)) == "allow"
-
-
-def test_supreme_hard_ttl(env):
-    s = sid()
-    run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc"), env)
-    run(lifecycle(s, "SubagentStart", "G1", "supreme-coder"), env)
-    age_lock(env, s, "supreme-coder.lock", 3600)
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc2"),
-                        env)) == "deny"
-    age_lock(env, s, "supreme-coder.lock", 21601)
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc2"),
-                        env)) == "allow"
-
-
-def test_supreme_resume_via_sendmessage(env):
-    """M2: resuming a finished supreme-coder takes the lock."""
-    s = sid()
-    run(pre_agent(s, "supreme-coder"), env)
-    run(post_agent(s, "supreme-coder", "GA"), env)
-    run(lifecycle(s, "SubagentStop", "GA", "supreme-coder"), env)
-    assert supreme_lock(env, s) is None
-    assert run(send(s, "GA"), env).stdout == ""
-    lk = supreme_lock(env, s)
-    assert lk["state"] == "resumed" and lk["holder"] == "GA" and lk["by"] == "main"
-    p = run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc"), env)
-    assert decision(p) == "deny" and "GA" in reason(p)
-    assert decision(run(send(s, "GA"), env)) == "allow"
-    # a second finished supreme-coder cannot be resumed meanwhile
-    run(post_agent(s, "supreme-coder", "GB", agent_id="sc", parent="orchestrator",
-                   status="completed"), env)
-    assert decision(run(send(s, "GB"), env)) == "deny"
-    # non-supreme targets untouched
-    run(post_agent(s, "coder", "C1"), env)
-    before = supreme_lock(env, s)
-    assert run(send(s, "C1"), env).stdout == ""
-    assert run(send(s, "unknown-id"), env).stdout == ""
-    assert supreme_lock(env, s) == before
-    # resumed run finishes -> released
-    run(lifecycle(s, "SubagentStop", "GA", "supreme-coder"), env)
-    assert supreme_lock(env, s) is None
-
-
-def test_supreme_resume_by_name(env):
-    s = sid()
-    run(pre_agent(s, "supreme-coder", name="Deep Fix"), env)
-    run(post_agent(s, "supreme-coder", "GN", name="Deep Fix", status="completed"), env)
-    assert supreme_lock(env, s) is None
-    assert decision(run(send(s, "deep-fix"), env)) == "allow"
-    assert supreme_lock(env, s)["holder"] == "GN"
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="x"),
-                        env)) == "deny"
-
-
-def test_sendmessage_resume_stopped_holder_is_stale(env):
-    s = sid()
-    run(post_agent(s, "supreme-coder", "GA"), env)
-    run(post_agent(s, "supreme-coder", "GB", status="completed"), env)
-    run(lifecycle(s, "SubagentStop", "GB", "supreme-coder"), env)
-    # lock held by GA (running); force GA's registry to stopped after the lock ts
-    reg = state(env, s) / "agents" / "GA.json"
-    obj = json.loads(reg.read_text())
-    obj["stopped"] = time.time() + 1
-    reg.write_text(json.dumps(obj))
-    assert decision(run(send(s, "GB"), env)) == "allow"
-    assert supreme_lock(env, s)["holder"] == "GB"
-
-
 # ---------------------------------------------------------------- screen lock
 def test_screen_concurrent_single_holder(env):
     for _ in range(REPEATS):
@@ -806,8 +636,8 @@ def test_screen_holder_release_and_stale(env):
 def test_session_start_sources(env, source, cleared):
     s = sid()
     run(pre_agent(s, "coder", parent="blackcat"), env)        # a BlackCat dispatch marker
-    run(pre_agent(s, "supreme-coder"), env)
-    run(post_agent(s, "supreme-coder", "G1"), env)
+    run(pre_agent(s, "ninja-coder"), env)
+    run(post_agent(s, "ninja-coder", "G1"), env)
     run(screen(s, agent_id="D1"), env)
     p = run({"session_id": s, "hook_event_name": "SessionStart", "source": source}, env)
     if source == "compact":       # the compaction digest (tests/test_compact_survival.py), only output
@@ -817,7 +647,7 @@ def test_session_start_sources(env, source, cleared):
     else:
         assert p.returncode == 0 and p.stdout == ""
     d = state(env, s)
-    for f in ("supreme-coder.lock", "screen.lock", "blackcat"):
+    for f in ("screen.lock", "blackcat"):
         assert (d / f).exists() != cleared, (source, f)
     assert (d / "agents" / "G1.json").exists()  # registry kept
 
@@ -827,9 +657,9 @@ def test_session_start_prunes_old_dirs(env):
     old, fresh = root / "old-session", root / "fresh-session"
     for d in (old, fresh):
         (d / "agents").mkdir(parents=True)
-        (d / "supreme-coder.lock").write_text("{}")
+        (d / "screen.lock").write_text("{}")
     t = time.time() - 4 * 86400
-    for p in (old / "agents", old / "supreme-coder.lock", old):
+    for p in (old / "agents", old / "screen.lock", old):
         os.utime(p, (t, t))
     run({"session_id": "cur", "hook_event_name": "SessionStart", "source": "startup"}, env)
     assert not old.exists() and fresh.exists() and (root / "cur").exists()
@@ -853,11 +683,11 @@ def test_policy_off_no_output(env):
     s = sid()
     for ev in (pre_agent(s, "general-purpose", parent="blackcat"),
                pre_agent(s, "coder", parent="blackcat"), pre_agent(s, "coder", parent="blackcat"),
-               pre_agent(s, "supreme-coder", parent="scout", agent_id="x"),
+               pre_agent(s, "ninja-coder", parent="scout", agent_id="x"),
                screen(s, agent_id="a"), screen(s, agent_id="b")):
         p = run(ev, env, extra=extra)
         assert p.returncode == 0 and p.stdout == ""
-    assert supreme_lock(env, s) is None
+    assert not (state(env, s) / "screen.lock").exists()
     bad = pre_agent(s, "coder")
     bad["tool_input"] = []
     p = run(bad, env, extra=extra)
@@ -1138,9 +968,9 @@ def test_shipped_spawn_defaults(bare_env):
     assert res == ["allow"] * 3 + ["deny"]
     for tool in ("Bash", "Write", "Edit"):
         assert decision(run(rg(s, tool, prompt="q2"), env, args=["blackcat-guard"])) == "deny"
-    for parent, cap in (("orchestrator", 32), ("supreme-coder", 6), ("main-coder", 6),
-                        ("ninja-coder", 5), ("researcher", 4), ("coder", 3), ("designer", 3)):
-        s, child = sid(), ("scout" if parent in ("researcher", "coder", "designer") else "coder")
+    for parent, cap in (("orchestrator", 32), ("main-coder", 6),
+                        ("ninja-coder", 5), ("researcher", 4), ("devops-engineer", 3), ("designer", 3)):
+        s, child = sid(), ("scout" if parent in ("researcher", "devops-engineer", "designer") else "coder")
         res = [decision(run(pre_agent(s, child, parent=parent, agent_id="P1"), env))
                for _ in range(cap + 1)]
         assert res == ["allow"] * cap + ["deny"], (parent, res)
@@ -1159,50 +989,6 @@ def test_orchestrator_fanout_32_from_settings_and_env_lowers_it(bare_env):
         assert decision(p) == "deny" and "orchestrator=%d" % cap in reason(p), (value, reason(p))
 
 
-def ninja_done(env, s, caller="O1", nid=None, foreground=True):
-    """The orchestrator ran a ninja-coder in session s that finished (foreground call returned,
-    or a background one stopped). Returns its agent id."""
-    nid = nid or "N-" + uuid.uuid4().hex[:6]
-    ev = pre_agent(s, "ninja-coder", parent="orchestrator", agent_id=caller)
-    assert decision(run(ev, env)) == "allow"
-    run(post_agent(s, "ninja-coder", nid, agent_id=caller, parent="orchestrator",
-                   status="completed" if foreground else "async_launched",
-                   tool_use_id=ev["tool_use_id"]), env)
-    if not foreground:
-        run(lifecycle(s, "SubagentStop", nid, "ninja-coder"), env)
-    return nid
-
-
-def test_supreme_coder_orchestrator_only_once_per_session(bare_env):
-    """Shipped defaults: only the orchestrator spawns supreme-coder, once per session; a failed or
-    refused spawn frees the slot; a SendMessage resume of it is the same instance."""
-    env, s = bare_env, sid()
-    for parent, aid in (("blackcat", None), ("main-coder", "M1"), ("ninja-coder", "N1"),
-                        ("dl-engineer", "D1"), ("general-purpose", "GP"), ("", None)):
-        p = run(pre_agent(s, "supreme-coder", parent=parent, agent_id=aid), env)
-        assert decision(p) == "deny" and "supreme-coder" in reason(p), parent
-    assert supreme_lock(env, s) is None
-    ninja_done(env, s)                                         # ninja-coder first (SUPREME_AFTER_NINJA)
-    first = pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O1")
-    assert decision(run(first, env)) == "allow"
-    run(post_agent(s, "supreme-coder", "G1", agent_id="O1", parent="orchestrator", status="completed",
-                   tool_use_id=first["tool_use_id"]), env)
-    run(lifecycle(s, "SubagentStop", "G1", "supreme-coder"), env)              # done: the lock is free
-    p = run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O2", prompt="p2"), env)
-    assert decision(p) == "deny" and "One supreme-coder per session" in reason(p)
-    # the orchestrator may resume the one it has
-    assert decision(run(dict(send(s, "G1", agent_id="O1"), agent_type="orchestrator"), env)) \
-        == "allow"
-    # a failed call frees the slot
-    s2 = sid()
-    ninja_done(env, s2)
-    ev = pre_agent(s2, "supreme-coder", parent="orchestrator", agent_id="O1")
-    assert decision(run(ev, env)) == "allow"
-    run(dict(ev, hook_event_name="PostToolUseFailure"), env)
-    assert decision(run(pre_agent(s2, "supreme-coder", parent="orchestrator", agent_id="O1"), env)) \
-        == "allow"
-
-
 def _guard_types():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
@@ -1212,166 +998,21 @@ def _guard_types():
     return g
 
 
-SUPREME_SPELLINGS = ["supreme-coder", "Supreme-Coder", "SupremeCoder", " supreme coder ", "supreme_coder", "SUPREME.CODER"]
-
-
-def test_supreme_coder_denied_to_every_non_orchestrator_type(bare_env):
-    """(a) Shipped defaults: every agent type but the orchestrator, copies and built-ins included,
-    is refused a supreme-coder spawn, in every spelling the guard normalises; nothing is claimed."""
-    g, s = _guard_types(), sid()
-    parents = sorted((set(g.AGENTS) | set(g.COPY_BASE) | set(g.BUILTINS)
-                      | {"general-purpose", "fork", "plan"}) - {"orchestrator"})
-    assert {"blackcat", "planner", "plan-reviewer", "ninja-coder", "main-coder", "researcher-copy",
-            "coder-copy"} <= set(parents)
-    ninja_done(bare_env, s)                     # so no denial here comes from the ninja-first rule
-    for i, parent in enumerate(parents):
-        child = SUPREME_SPELLINGS[i % len(SUPREME_SPELLINGS)]
-        aid = None if parent == "blackcat" else "A%d" % i
-        p = run(pre_agent(s, child, parent=parent, agent_id=aid), bare_env)
-        assert decision(p) == "deny" and "only the orchestrator spawns supreme-coder" in reason(p), \
-            (parent, child)
-    for parent in ("blackcat", "Planner", "plan reviewer", "NinjaCoder", "main_coder",
-                   "Researcher-Copy", "coder copy"):
-        for child in SUPREME_SPELLINGS:
-            aid = None if parent == "blackcat" else "B-" + parent
-            p = run(pre_agent(s, child, parent=parent, agent_id=aid), bare_env)
-            assert decision(p) == "deny" and "only the orchestrator spawns supreme-coder" in reason(p), \
-                (parent, child)
-    p = run(pre_agent(s, "supreme-coder"), bare_env)                   # a main thread with no type
-    assert decision(p) == "deny"
-    assert supreme_lock(bare_env, s) is None
-    assert not (state(bare_env, s) / "supreme-coder.spawned").exists()
-
-
-@pytest.mark.parametrize("spelling", SUPREME_SPELLINGS)
-def test_supreme_coder_orchestrator_first_allowed_second_denied(bare_env, spelling):
-    """(b) The orchestrator's first supreme-coder spawn (after a finished ninja-coder) is allowed, a
-    second one in the same session is refused, whatever the spelling of either."""
-    s = sid()
-    ninja_done(bare_env, s)
-    first = pre_agent(s, spelling, parent="Orchestrator", agent_id="O1")
-    assert decision(run(first, bare_env)) == "allow"
-    run(post_agent(s, "supreme-coder", "G1", agent_id="O1", parent="orchestrator",
-                   status="completed", tool_use_id=first["tool_use_id"]), bare_env)
-    run(lifecycle(s, "SubagentStop", "G1", "supreme-coder"), bare_env)
-    for other in ("supreme-coder", "SupremeCoder"):
-        p = run(pre_agent(s, other, parent="orchestrator", agent_id="O2", prompt="p2"), bare_env)
-        assert decision(p) == "deny" and "One supreme-coder per session" in reason(p), other
-
-
-def test_supreme_coder_needs_a_finished_ninja_coder_first(bare_env):
-    """SUPREME_AFTER_NINJA (default on): the orchestrator's supreme-coder spawn is refused until a
-    ninja-coder of this session has finished; the refusal claims no slot and takes no lock."""
-    s = sid()
-    p = run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O1"), bare_env)
-    assert decision(p) == "deny" and "run ninja-coder on the problem first" in reason(p).lower()
-    assert supreme_lock(bare_env, s) is None
-    assert not (state(bare_env, s) / "supreme-coder.spawned").exists()
-    # a ninja-coder still running in the background doesn't count yet
-    ev = pre_agent(s, "ninja-coder", parent="orchestrator", agent_id="O1")
-    assert decision(run(ev, bare_env)) == "allow"
-    run(post_agent(s, "ninja-coder", "N1", agent_id="O1", parent="orchestrator",
-                   tool_use_id=ev["tool_use_id"]), bare_env)
-    run(lifecycle(s, "SubagentStart", "N1", "ninja-coder"), bare_env)
-    p = run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O1"), bare_env)
-    assert decision(p) == "deny" and "ninja-coder" in reason(p)
-    # once it stopped (it reported failure or partial), the one supreme-coder spawn is allowed
-    run(lifecycle(s, "SubagentStop", "N1", "ninja-coder"), bare_env)
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O1"),
-                        bare_env)) == "allow"
-    # a ninja-coder spawned by another agent of the session (main-coder escalating) counts too
-    s2 = sid()
-    ev = pre_agent(s2, "ninja-coder", parent="main-coder", agent_id="M1")
-    assert decision(run(ev, bare_env)) == "allow"
-    run(post_agent(s2, "ninja-coder", "N2", agent_id="M1", parent="main-coder",
-                   status="completed", tool_use_id=ev["tool_use_id"]), bare_env)
-    assert decision(run(pre_agent(s2, "supreme-coder", parent="orchestrator", agent_id="O1"),
-                        bare_env)) == "allow"
-    # the knob turns the order check off; the spawner and once-per-session checks stay
-    s3, off = sid(), dict(bare_env, SUPREME_AFTER_NINJA="0")
-    assert decision(run(pre_agent(s3, "supreme-coder", parent="orchestrator", agent_id="O1"),
-                        off)) == "allow"
-    assert decision(run(pre_agent(s3, "supreme-coder", parent="main-coder", agent_id="M1"),
-                        off)) == "deny"
-
-
-def _supreme_denied_then_allowed_after_stop(env, s, nid):
-    p = run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O1"), env)
-    assert decision(p) == "deny" and "ninja-coder" in reason(p)
-    run(lifecycle(s, "SubagentStop", nid, "ninja-coder"), env)
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O1"),
-                        env)) == "allow"
-
-
-def test_supreme_coder_ninja_still_running_is_not_finished(bare_env):
-    """Only SubagentStop or a terminal status of the ninja-coder's Agent call counts as finished."""
-    # foreground ninja-coder: started, its Agent call not yet returned (no PostToolUse)
-    s = sid()
-    ev = pre_agent(s, "ninja-coder", parent="orchestrator", agent_id="O1")
-    assert decision(run(ev, bare_env)) == "allow"
-    run(lifecycle(s, "SubagentStart", "N1", "ninja-coder"), bare_env)
-    _supreme_denied_then_allowed_after_stop(bare_env, s, "N1")
-    # a finished ninja-coder resumed through SendMessage runs again
-    s = sid()
-    nid = ninja_done(bare_env, s)
-    assert decision(run(send(s, nid, agent_id="O1"), bare_env)) == "allow"
-    run(lifecycle(s, "SubagentStart", nid, "ninja-coder"), bare_env)
-    _supreme_denied_then_allowed_after_stop(bare_env, s, nid)
-    # background launches whose response is a bare string, has no status or an unknown one
-    for resp in ("Async agent launched successfully. agentId: N3",
-                 {"agentId": "N3"}, {"agentId": "N3", "status": "teammate_spawned"}):
-        s = sid()
-        ev = pre_agent(s, "ninja-coder", parent="orchestrator", agent_id="O1")
-        assert decision(run(ev, bare_env)) == "allow"
-        done = post_agent(s, "ninja-coder", "N3", agent_id="O1", parent="orchestrator",
-                          tool_use_id=ev["tool_use_id"])
-        done["tool_response"] = resp
-        run(done, bare_env)
-        run(lifecycle(s, "SubagentStart", "N3", "ninja-coder"), bare_env)
-        _supreme_denied_then_allowed_after_stop(bare_env, s, "N3")
-
-
-def test_supreme_coder_markers_live_in_the_protected_state_dir(bare_env):
-    """The once-per-session marker and the lock sit in the per-session state dir, which the
-    guard protects (builtin protect spec) and settings.json keeps out of the sandbox's reach."""
-    g = _guard_types()
-    assert g.SUPREME_ONCE == "supreme-coder.spawned" and g.SUPREME_LOCK == "supreme-coder.lock"
-    specs = [spec for spec, _ in g.builtin_protect_specs()]
-    assert any(g.state_root() in spec for spec in specs), specs
-    settings = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
-    assert "__STACK_STATE__" in settings["sandbox"]["filesystem"]["denyWrite"]
-    assert "Edit(/__STACK_STATE__/**)" in settings["permissions"]["deny"]
-
-
-SUPREME_FLOW_PHRASES = {
-    "planner.md": ["if ninja-coder fails or returns partial, then supreme-coder with the dossier",
-                   "requires orchestrator; once per session; only after ninja-coder failed"],
-    "plan-reviewer.md": ["BLOCKING if it has no preceding ninja-coder step on the same problem, is "
-                         "unconditional, or appears more than once"],
-    "blackcat.md": ["a plan or task with a supreme-coder step goes to the orchestrator with the plan "
-                    "attached by path"],
-    "orchestrator.md": ["run its ninja-coder step first; spawn supreme-coder only when ninja-coder "
-                        "reports failure or partial on that problem",
-                        "Never skip ninja-coder because the plan names supreme-coder",
-                        "if ninja-coder succeeds, drop the supreme-coder step and report it as not "
-                        "needed"],
-    "supreme-coder.md": ["a plan's supreme-coder step completed with ninja-coder's failure report"],
+TOP_TIER_PHRASES = {
+    "ninja-coder.md": ["You are the top of the coding chain"],
+    "orchestrator.md": ["coder → main-coder → ninja-coder (the top tier"],
+    "blackcat.md": ["a near-impossible problem → ninja-coder with a dossier"],
+    "main-coder.md": ["ninja-coder failed too → STATUS: partial"],
 }
 
 
-@pytest.mark.parametrize("fname", sorted(SUPREME_FLOW_PHRASES))
-def test_supreme_coder_plan_flow_in_prompts(fname):
-    """(c) The supreme-coder plan step (ninja-coder first, orchestrator only, once per session) is
-    stated in the prompts that plan, review, route and run it (ea80f87)."""
+@pytest.mark.parametrize("fname", sorted(TOP_TIER_PHRASES))
+def test_ninja_coder_is_the_top_tier_in_prompts(fname):
+    """ninja-coder tops the coding chain (2026-10-04): routing and escalation name it last, and
+    no plan step or escalation goes past it."""
     text = re.sub(r"\s+", " ", (ROOT / "dot-claude" / "agents" / fname).read_text())
-    for phrase in SUPREME_FLOW_PHRASES[fname]:
+    for phrase in TOP_TIER_PHRASES[fname]:
         assert phrase in text, (fname, phrase)
-
-
-def test_rules_limit_names_the_plan_step_order():
-    text = (ROOT / "dot-claude" / "rules" / "claude-agent-stack.md").read_text()
-    assert ("(others return NEXT: supreme-coder with a dossier; a plan's supreme-coder step runs only "
-            "after its ninja-coder step failed)") in text
 
 
 def test_blackcat_foreground_dropped(env):
@@ -1408,8 +1049,8 @@ def test_guard_log(env):
 
 def test_lifecycle_never_outputs_decision(env):
     s = sid()
-    for ev in (lifecycle(s, "SubagentStart", "G", "supreme-coder"),
-               lifecycle(s, "SubagentStop", "G", "supreme-coder"),
+    for ev in (lifecycle(s, "SubagentStart", "G", "ninja-coder"),
+               lifecycle(s, "SubagentStop", "G", "ninja-coder"),
                {"session_id": s, "hook_event_name": "UserPromptSubmit", "prompt_id": "p"},
                post_agent(s, "coder", "C")):
         p = run(ev, env)
@@ -1441,29 +1082,19 @@ def test_blackcat_dispatch_window(env):
                         extra={"BLACKCAT_MAX_DISPATCH": "5"})) == "allow"
 
 
-# ---------------------------------------------------------------- copies (self-spawn)
-def test_copies_one_generation(env):
+# ---------------------------------------------------------------- no self-spawn, no copies
+def test_no_agent_spawns_its_own_type_and_copy_types_are_gone(env):
+    """The copy types (researcher-copy, coder-copy) were retired 2026-10-04: no caller may spawn
+    them, and no agent spawns its own type."""
     s = sid()
-    # blackcat -> coder C1: C1 copies itself only as a coder-copy
-    run(post_agent(s, "coder", "C1"), env, extra={})
-    p = run(pre_agent(s, "coder", parent="coder", agent_id="C1"), env)
-    assert decision(p) == "deny" and "coder-copy" in reason(p)
-    ev = pre_agent(s, "coder-copy", parent="coder", agent_id="C1")
-    assert decision(run(ev, env)) == "allow"
-    run(post_agent(s, "coder-copy", "C2", agent_id="C1", parent="coder"), env)
-    reg = json.loads((state(env, s) / "agents" / "C2.json").read_text())
-    assert reg["parent"] == "C1" and reg["parent_type"] == "coder" and reg["depth"] == 2
-    # C2 is a copy: no coder, no copy, but its other children
-    for child in ("coder", "coder-copy", "researcher-copy"):
-        p = run(pre_agent(s, child, parent="coder-copy", agent_id="C2"), env)
-        assert decision(p) == "deny" and reason(p) == COPY_DENIED % ("coder-copy", child)
-    assert decision(run(pre_agent(s, "scout", parent="coder-copy", agent_id="C2"), env)) == "allow"
-    # a researcher spawned by the orchestrator copies itself as researcher-copy, never directly
     run(post_agent(s, "researcher", "R1", agent_id="O1", parent="orchestrator"), env)
-    assert decision(run(pre_agent(s, "researcher-copy", parent="researcher", agent_id="R1"),
-                        env)) == "allow"
     p = run(pre_agent(s, "researcher", parent="researcher", agent_id="R1"), env)
     assert decision(p) == "deny" and "Spawn policy" in reason(p)
+    for parent, aid in (("blackcat", None), ("orchestrator", "O1"), ("researcher", "R1"),
+                        ("main-coder", "M1")):
+        for child in ("researcher-copy", "coder-copy"):
+            p = run(pre_agent(s, child, parent=parent, agent_id=aid), env)
+            assert decision(p) == "deny", (parent, child)
 
 
 # ---------------------------------------------------------------- fan-out caps
@@ -1473,19 +1104,6 @@ def test_fanout_cap_concurrent(env):
         evs = [pre_agent(s, "coder", parent="main-coder", agent_id="SC") for _ in range(FANOUT)]
         res = run_many(evs, env, extra={} if limit == "3" else {"STACK_MAX_FANOUT": limit})
         assert res.count("allow") == int(limit), res
-
-
-def test_self_fanout_cap_concurrent(env):
-    s = sid()
-    evs = [pre_agent(s, "coder-copy", parent="coder", agent_id="SC") for _ in range(FANOUT)]
-    res = run_many(evs, env)
-    assert res.count("allow") == 2, res
-    p = run(pre_agent(s, "coder-copy", parent="coder", agent_id="SC"), env)
-    assert decision(p) == "deny" and "Copy limit" in reason(p) and "STACK_MAX_SELF_FANOUT=2" in reason(p)
-    # other children still fit under the overall cap (3)
-    assert decision(run(pre_agent(s, "scout", parent="coder", agent_id="SC"), env)) == "allow"
-    p = run(pre_agent(s, "scout", parent="coder", agent_id="SC"), env)
-    assert decision(p) == "deny" and "STACK_MAX_FANOUT=3" in reason(p)
 
 
 def test_fanout_lease_lifecycle(env):
@@ -1783,49 +1401,24 @@ def test_parents_never_swap(env):
     s = sid()
     for r in ("R1", "R2"):                         # two researchers at the same depth
         run(post_agent(s, "researcher", r, agent_id="O1", parent="orchestrator"), env)
-    a = pre_agent(s, "researcher-copy", parent="researcher", agent_id="R1")
-    b = pre_agent(s, "researcher-copy", parent="researcher", agent_id="R2")
+    a = pre_agent(s, "scout", parent="researcher", agent_id="R1")
+    b = pre_agent(s, "scout", parent="researcher", agent_id="R2")
     assert run_many([a, b], env) == ["allow", "allow"]
     # the children start in the other order; SubagentStart names no parent and links nothing
-    run(lifecycle(s, "SubagentStart", "X2", "researcher-copy"), env)
-    run(lifecycle(s, "SubagentStart", "X1", "researcher-copy"), env)
+    run(lifecycle(s, "SubagentStart", "X2", "scout"), env)
+    run(lifecycle(s, "SubagentStart", "X1", "scout"), env)
     assert "parent" not in reg_of(env, s, "X1") and "parent" not in reg_of(env, s, "X2")
     assert leases(env, s, "R1") == [a["tool_use_id"]] and leases(env, s, "R2") == [b["tool_use_id"]]
     # each parent's own PostToolUse records its own child
-    run(post_agent(s, "researcher-copy", "X2", agent_id="R2", parent="researcher",
+    run(post_agent(s, "scout", "X2", agent_id="R2", parent="researcher",
                    tool_use_id=b["tool_use_id"]), env)
-    run(post_agent(s, "researcher-copy", "X1", agent_id="R1", parent="researcher",
+    run(post_agent(s, "scout", "X1", agent_id="R1", parent="researcher",
                    status="completed", tool_use_id=a["tool_use_id"]), env)
     assert reg_of(env, s, "X1")["parent"] == "R1" and reg_of(env, s, "X2")["parent"] == "R2"
     assert leases(env, s, "R1") == [] and leases(env, s, "R2") == []
     # a stray event naming another caller never moves a child
-    run(post_agent(s, "researcher-copy", "X1", agent_id="R2", parent="researcher"), env)
+    run(post_agent(s, "scout", "X1", agent_id="R2", parent="researcher"), env)
     assert reg_of(env, s, "X1")["parent"] == "R1"
-
-
-@pytest.mark.parametrize("timing", ["no-record", "started", "reported", "resumed",
-                                    "registry-says-coder"])
-def test_copy_of_copy_denied_at_any_timing(env, timing):
-    s = sid()
-    if timing != "no-record":
-        run(lifecycle(s, "SubagentStart", "X", "researcher-copy"), env)
-    if timing in ("reported", "resumed"):
-        run(post_agent(s, "researcher-copy", "X", agent_id="R1", parent="researcher",
-                       status="completed"), env)
-    if timing == "resumed":
-        run(lifecycle(s, "SubagentStop", "X", "researcher-copy"), env)
-        run(lifecycle(s, "SubagentStart", "X", "researcher-copy"), env)
-    if timing == "registry-says-coder":            # the event's agent_type decides, not the registry
-        (state(env, s) / "agents" / "X.json").write_text(
-            json.dumps({"type": "coder", "parent_type": "orchestrator", "depth": 1}))
-    for caller in ("researcher-copy", "ResearcherCopy"):
-        for child, name in (("researcher", "researcher"), ("researcher-copy", "researcher-copy"),
-                            ("Researcher Copy", "researcher-copy"), ("coder-copy", "coder-copy")):
-            p = run(pre_agent(s, child, parent=caller, agent_id="X"), env)
-            assert decision(p) == "deny", (timing, caller, child)
-            assert reason(p) == COPY_DENIED % ("researcher-copy", name)
-    assert decision(run(pre_agent(s, "scout", parent="researcher-copy", agent_id="X"), env)) \
-        == "allow"
 
 
 def test_foreground_counts_hold_past_120s_without_subagent_start(env):
@@ -1869,7 +1462,7 @@ def test_stale_leases_voided_when_the_caller_stops(env):
 
 @pytest.mark.parametrize("parent,child,cap", [
     ("main-coder", "coder", 3), ("orchestrator", "coder", 8), ("planner", "scout", 8),
-    ("coder-copy", "scout", 3), ("researcher", "scout", 3)])
+    ("researcher", "scout", 3)])
 def test_fanout_cap_per_type(env, parent, child, cap):
     s = sid()
     res = run_many([pre_agent(s, child, parent=parent, agent_id="P") for _ in range(12)], env)
@@ -1889,8 +1482,7 @@ def test_fanout_by_type_parsing(env):
                         extra=extra)) == "allow"
     p = run(pre_agent(s, "scout", parent="planner", agent_id="PL"), env, extra=extra)
     assert decision(p) == "deny" and "planner=1" in reason(p)
-    # a copy type falls back to its base type's entry
-    res = run_many([pre_agent(s, "scout", parent="researcher-copy", agent_id="RC")
+    res = run_many([pre_agent(s, "scout", parent="researcher", agent_id="RC")
                     for _ in range(8)], env, extra=extra)
     assert res.count("allow") == 5
     # malformed items are skipped with a warning; everything else keeps STACK_MAX_FANOUT
@@ -1917,46 +1509,19 @@ def test_resume_cap_uses_per_type_caps(env):
     assert decision(run(send(s, "W", agent_id="O1"), env)) == "allow"
 
 
-def test_two_copies_session_wide(env):
-    s = sid()
-    evs = [pre_agent(s, "researcher-copy", parent="researcher", agent_id="R%d" % (i % 4))
-           for i in range(FANOUT)]
-    res = run_many(evs, env)
-    assert res.count("allow") == 2, res
-    first, second = [ev for ev, r in zip(evs, res) if r == "allow"]
-    p = run(pre_agent(s, "researcher-copy", parent="researcher", agent_id="R9"), env)
-    assert decision(p) == "deny" and "2 researcher-copy agents" in reason(p)
-    # each copy type has its own count
-    res = run_many([pre_agent(s, "coder-copy", parent="coder", agent_id="C%d" % i)
-                    for i in range(6)], env)
-    assert res.count("allow") == 2
-    # a foreground copy that reports back frees its slot; a background one holds it until it stops
-    run(post_agent(s, "researcher-copy", "X1", agent_id=first["agent_id"], parent="researcher",
-                   status="completed", tool_use_id=first["tool_use_id"]), env)
-    run(post_agent(s, "researcher-copy", "X2", agent_id=second["agent_id"], parent="researcher",
-                   tool_use_id=second["tool_use_id"]), env)
-    assert decision(run(pre_agent(s, "researcher-copy", parent="researcher", agent_id="R9"),
-                        env)) == "allow"
-    assert decision(run(pre_agent(s, "researcher-copy", parent="researcher", agent_id="R8"),
-                        env)) == "deny"
-    run(lifecycle(s, "SubagentStop", "X2", "researcher-copy"), env)
-    assert decision(run(pre_agent(s, "researcher-copy", parent="researcher", agent_id="R8"),
-                        env)) == "allow"
-
-
 def test_depth_from_spawn_meta_for_a_running_foreground_caller(env, tmp_path):
     s = sid()
     sub = tmp_path / "p" / s / "subagents"
     sub.mkdir(parents=True)
     main = tmp_path / "p" / (s + ".jsonl")
     main.write_text("")
-    (sub / "agent-F1.meta.json").write_text(json.dumps({"agentType": "coder", "spawnDepth": 4}))
+    (sub / "agent-F1.meta.json").write_text(json.dumps({"agentType": "main-coder", "spawnDepth": 4}))
     four = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4"}
-    p = run(dict(pre_agent(s, "scout", parent="coder", agent_id="F1"), transcript_path=str(main)),
+    p = run(dict(pre_agent(s, "scout", parent="main-coder", agent_id="F1"), transcript_path=str(main)),
             env, extra=four)
     assert decision(p) == "deny" and "depth 4" in reason(p)
     assert reg_of(env, s, "F1")["depth"] == 4
-    p = run(dict(pre_agent(s, "scout", parent="coder", agent_id="F2"), transcript_path=str(main)),
+    p = run(dict(pre_agent(s, "scout", parent="main-coder", agent_id="F2"), transcript_path=str(main)),
             env, extra=four)
     assert decision(p) == "allow"                     # no meta file: depth unknown, native limit
 
@@ -1997,10 +1562,8 @@ def test_blackcat_steps_concurrent_dispatches(env):
 
 def test_blackcat_refused_dispatch_spends_no_step(env):
     s = sid()
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="sc"), env)) \
-        == "allow"
-    p = run(pre_agent(s, "supreme-coder", parent="blackcat", prompt="q1"), env)
-    assert decision(p) == "deny" and "supreme-coder" in reason(p)
+    p = run(pre_agent(s, "general-purpose", parent="blackcat", prompt="q1"), env)
+    assert decision(p) == "deny" and "general-purpose" in reason(p)
     folder = state(env, s) / "blackcat"
     assert not folder.exists() or not list(folder.iterdir())
 
@@ -2476,14 +2039,14 @@ def test_soft_limits_leave_the_hard_caps_alone(env, sess):
     main2.write_text("")
     (main.parent / s2 / "subagents").mkdir(parents=True)
     run(prompt_ev(s2, main2, "p1"), env)
-    run(pre_agent(s2, "coder", parent="main-coder", agent_id="M1"), env)
-    run(lifecycle(s2, "SubagentStart", "C1", "coder"), env)
-    run(post_agent(s2, "coder", "C1", agent_id="M1", parent="main-coder"), env)
+    run(pre_agent(s2, "ninja-coder", parent="main-coder", agent_id="M1"), env)
+    run(lifecycle(s2, "SubagentStart", "C1", "ninja-coder"), env)
+    run(post_agent(s2, "ninja-coder", "C1", agent_id="M1", parent="main-coder"), env)
     append(main.parent / s2 / "subagents" / "agent-C1.jsonl", call_line("m1", 20000))
-    ev = dict(pre_agent(s2, "explore", parent="coder", agent_id="C1"),
+    ev = dict(pre_agent(s2, "explore", parent="ninja-coder", agent_id="C1"),
               transcript_path=str(main2), cwd=str(main.parent))
     dec, ctx = soft_out(run(ev, env, extra={"STACK_SOFT_LIMIT_SCALE": "0.001"}))
-    assert dec == "allow" and "soft limit for coder: 19,000" in ctx
+    assert dec == "allow" and "soft limit for ninja-coder: 19,000" in ctx
 
 
 # ---------------------------------------------------------------- review 2026-09-28: resumes, leases
@@ -2496,29 +2059,6 @@ def finished_children(env, s, caller, ctype, child, ids):
         run(lifecycle(s, "SubagentStop", x, child), env)
         run(post_agent(s, child, x, agent_id=caller, parent=ctype, status="completed",
                        tool_use_id=ev["tool_use_id"]), env)
-
-
-def test_parallel_resumes_respect_the_copy_cap(env):
-    s = sid()
-    finished_children(env, s, "R1", "researcher", "researcher-copy", ("X1", "X2", "X3"))
-    # R1 resumes all three in ONE message: parallel PreToolUse(SendMessage)
-    xs = ("X1", "X2", "X3")
-    res = run_many([dict(send(s, x, agent_id="R1"), agent_type="researcher") for x in xs], env)
-    assert sorted(res) == ["allow", "allow", "deny"], res          # STACK_MAX_SELF_FANOUT=2
-    assert len(leases(env, s, "R1")) == 2                          # one reservation per resume
-    p = run(pre_agent(s, "researcher-copy", parent="researcher", agent_id="R2"), env)
-    assert decision(p) == "deny" and "Copy limit" in reason(p)
-    for x, r in zip(xs, res):
-        if r == "allow":
-            run(lifecycle(s, "SubagentStart", x, "researcher-copy"), env)
-    live = [x for x in xs if reg_of(env, s, x).get("bg") and not reg_of(env, s, x).get("stopped")]
-    assert len(live) == 2 and leases(env, s, "R1") == []
-    denied = xs[res.index("deny")]
-    p = run(dict(send(s, denied, agent_id="R1"), agent_type="researcher"), env)
-    assert decision(p) == "deny" and "Copy limit" in reason(p)
-    run(lifecycle(s, "SubagentStop", live[0], "researcher-copy"), env)
-    assert decision(run(dict(send(s, denied, agent_id="R1"), agent_type="researcher"), env)) \
-        == "allow"
 
 
 def test_parallel_resumes_respect_the_fanout_cap(env):
@@ -2542,16 +2082,6 @@ def test_two_messages_to_one_finished_agent_reserve_once(env):
     res = run_many([dict(send(s, "K0", agent_id="M1"), agent_type="main-coder") for _ in range(2)],
                    env)
     assert res == ["allow", "allow"] and leases(env, s, "M1") == ["resume-K0"]
-
-
-def test_refused_supreme_resume_leaves_no_reservation(env):
-    s = sid()
-    finished_children(env, s, "M1", "orchestrator", "supreme-coder", ["G1"])
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O9"), env)) \
-        == "allow"                                              # another supreme-coder is starting
-    p = run(dict(send(s, "G1", agent_id="M1"), agent_type="main-coder"), env)
-    assert decision(p) == "deny" and "supreme-coder" in reason(p)
-    assert leases(env, s, "M1") == []
 
 
 def test_a_starting_agent_voids_its_own_leases(env):
@@ -2657,22 +2187,16 @@ def test_blackcat_step_limit_refuses_a_resume_and_holds_no_slot(env):
             == "allow"
 
 
-def test_blackcat_resume_is_one_step_and_a_refused_one_spends_none(env):
+def test_blackcat_resume_is_one_step(env):
     s = sid()
     run(post_agent(s, "main-coder", "L1", status="async_launched"), env)
     run(lifecycle(s, "SubagentStart", "L1", "main-coder"), env)
     finished_children(env, s, "L1", "main-coder", "coder", ["W1"])
-    finished_children(env, s, "L1", "orchestrator", "supreme-coder", ["G1"])
     folder = state(env, s) / "blackcat"
     steps = lambda: len([p for p in folder.iterdir() if p.name.startswith("step.")]) \
         if folder.exists() else 0
     for _ in range(7):
         assert decision(run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
-    # a refused resume (another supreme-coder is starting) spends no step and reserves nothing
-    assert decision(run(pre_agent(s, "supreme-coder", parent="orchestrator", agent_id="O9"), env)) \
-        == "allow"
-    ev = dict(send(s, "G1"), agent_type="blackcat", prompt_id="q1")
-    assert [decision(run(ev, env, args=a)) for a in (["blackcat-guard"], [])] == ["allow", "deny"]
     assert steps() == 7 and leases(env, s, "L1") == []
     # the 8th step: both hooks run for the one call, one step is claimed, the resume reserved
     ev = dict(send(s, "W1"), agent_type="blackcat", prompt_id="q1")
@@ -2682,42 +2206,48 @@ def test_blackcat_resume_is_one_step_and_a_refused_one_spends_none(env):
     assert decision(p) == "deny" and "step limit" in reason(p)
 
 
+def test_a_refused_blackcat_resume_spends_no_step(env):
+    """A BlackCat resume refused at the fan-out limit claims no step and reserves nothing: the
+    step is claimed only after resume_reserve succeeds (on_send)."""
+    s = sid()
+    run(post_agent(s, "main-coder", "L1", status="async_launched"), env)
+    run(lifecycle(s, "SubagentStart", "L1", "main-coder"), env)
+    finished_children(env, s, "L1", "main-coder", "coder", ["W1"])
+    for _ in range(3):                                   # L1 fills STACK_MAX_FANOUT=3
+        assert decision(run(pre_agent(s, "coder", parent="main-coder", agent_id="L1"), env)) \
+            == "allow"
+    folder = state(env, s) / "blackcat"
+    steps = lambda: len([p for p in folder.iterdir() if p.name.startswith("step.")]) \
+        if folder.exists() else 0
+    for _ in range(7):
+        assert decision(run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
+    before = leases(env, s, "L1")
+    p = run(dict(send(s, "W1"), agent_type="blackcat", prompt_id="q1"), env)
+    assert decision(p) == "deny" and "Fan-out limit" in reason(p)
+    assert steps() == 7 and "resume-W1" not in leases(env, s, "L1")
+    assert leases(env, s, "L1") == before
+    # the step it did not spend is still there: the 8th call passes
+    assert decision(run(rg(s, "ToolSearch", prompt="q1"), env, args=["blackcat-guard"])) == "allow"
+
 def test_a_resume_starts_even_when_the_fanout_lock_times_out(env):
     """SubagentStart of a resumed agent while the fan-out lock is stuck (> 5 s): the start is
-    still recorded (a live background child again, the supreme-coder lock confirmed) and its
-    reservation dropped, outside the lock."""
+    still recorded (a live background child again) and its reservation dropped, outside the
+    lock."""
     import fcntl
     s = sid()
-    finished_children(env, s, "M1", "orchestrator", "supreme-coder", ["G1"])
+    finished_children(env, s, "M1", "main-coder", "ninja-coder", ["G1"])
     assert decision(run(dict(send(s, "G1", agent_id="M1"), agent_type="main-coder"), env)) \
         == "allow"
-    assert leases(env, s, "M1") == ["resume-G1"] and supreme_lock(env, s)["state"] == "resumed"
+    assert leases(env, s, "M1") == ["resume-G1"]
     fd = os.open(str(state(env, s) / "fanout.mutex"), os.O_RDWR | os.O_CREAT, 0o600)
     try:
         fcntl.flock(fd, fcntl.LOCK_EX)              # someone holds the fan-out lock for > 5 s
-        p = run(lifecycle(s, "SubagentStart", "G1", "supreme-coder"), env)
+        p = run(lifecycle(s, "SubagentStart", "G1", "ninja-coder"), env)
         assert p.returncode == 0 and "Decision" not in p.stdout
     finally:
         os.close(fd)
     rec = reg_of(env, s, "G1")
     assert not rec.get("stopped") and rec.get("bg") is True and rec.get("resumed")
-    assert leases(env, s, "M1") == []
-    assert supreme_lock(env, s)["state"] == "running" and supreme_lock(env, s)["holder"] == "G1"
-
-
-def test_supreme_resume_failure_drops_the_reservation(env):
-    """An error in the supreme-coder lock step after the resume was reserved (here: the supreme mutex is
-    stuck > 5 s) fails the call closed and leaves no reservation behind."""
-    import fcntl
-    s = sid()
-    finished_children(env, s, "M1", "orchestrator", "supreme-coder", ["G1"])
-    fd = os.open(str(state(env, s) / "supreme.mutex"), os.O_RDWR | os.O_CREAT, 0o600)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
-        p = run(dict(send(s, "G1", agent_id="M1"), agent_type="main-coder"), env)
-    finally:
-        os.close(fd)
-    assert decision(p) == "deny" and "stack guard error" in reason(p)
     assert leases(env, s, "M1") == []
 
 
@@ -2769,25 +2299,24 @@ def test_mcp_cap_counts_per_agent_and_denies_only_mcp(env, sess):
 
 
 def agent_turns(atype):
-    """maxTurns in the repo's agents/<type>.md (copies read their base's file)."""
-    base = atype[:-len("-copy")] if atype.endswith("-copy") else atype
-    text = (ROOT / "dot-claude" / "agents" / (base + ".md")).read_text()
+    """maxTurns in the repo's agents/<type>.md."""
+    text = (ROOT / "dot-claude" / "agents" / (atype + ".md")).read_text()
     return int(re.search(r"^maxTurns:\s*(\d+)\s*$", text, re.M).group(1))
 
 
 def test_mcp_cap_is_min_of_knob_and_max_turns(env, sess):
     """Default 64, lowered by a smaller frontmatter maxTurns (scout, oracle, explore); a larger one
-    (orchestrator, mcp-broker, coder-copy via coder) gets 64. The caps follow the agent files."""
+    (orchestrator, mcp-broker, coder) gets 64. The caps follow the agent files."""
     s, main, _ = sess
     for aid, atype in (("S1", "scout"), ("R1", "oracle"), ("B1", "mcp-broker"),
-                       ("O1", "orchestrator"), ("C1", "coder-copy"), ("E1", "explore")):
+                       ("O1", "orchestrator"), ("C1", "coder"), ("E1", "explore")):
         cap = min(64, agent_turns(atype))
         seed_mcp(env, s, aid, cap - 1)
         assert decision(budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)) == "allow"
         p = budget_run(mcp_ev(s, main, agent_id=aid, agent_type=atype), env)
         assert decision(p) == "deny", atype
         assert ("%d MCP tool calls" % cap) in reason(p), reason(p)
-        assert (("its turn budget turns.%s=%d" % (atype.replace("-copy", ""), cap)) in reason(p)) \
+        assert (("its turn budget turns.%s=%d" % (atype, cap)) in reason(p)) \
             == (cap < 64), reason(p)
 
 

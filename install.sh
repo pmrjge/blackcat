@@ -1667,75 +1667,16 @@ if magg_ok:
              ("kept your edited " + ", ".join(kept)) if kept else ""]
     print("  magg catalog: %s" % ("; ".join(x for x in parts if x) or "up to date"))
 
-# --- copy types: the only agents that may run copies of themselves get a rendered <type>-copy.md
-# (own name, short description, same tools/model/maxTurns/mcpServers and body; "May spawn" = the
-# base list minus the base type and every copy). The hook's POLICY lists <type>-copy in the base
-# row and never lets a copy spawn its base or a copy, so one generation is a static check.
-COPY_TYPES = ("researcher", "coder")
-
-
-def split_top_level(s):
-    parts, cur, depth = [], "", 0
-    for ch in s:
-        depth += (ch in "([") - (ch in ")]")
-        if ch == "," and depth == 0:
-            parts.append(cur.strip())
-            cur = ""
-        else:
-            cur += ch
-    return parts + ([cur.strip()] if cur.strip() else [])
-
-
-def make_copy(text, base):
-    """<base>.md -> <base>-copy.md (see COPY_TYPES)."""
-    name = base + "-copy"
-    out, n = re.subn(r"(?m)^name: %s$" % re.escape(base), "name: " + name, text, count=1)
-    if n != 1:
-        raise SystemExit("install.sh: agents/%s.md has no 'name: %s' line to copy" % (base, base))
-    out = re.sub(r"(?m)^description: .*$", lambda m: 'description: "Copy of %s for one independent part; '
-                 'spawned only by %s."' % (base, base), out, count=1)
-
-    def may_spawn(m):
-        keep = [t for t in split_top_level(m.group(1))
-                if not re.match(r"(%s|[A-Za-z0-9_-]+-copy)\b(?!-)" % re.escape(base), t)]
-        return "May spawn: %s." % ", ".join(keep) if keep else "Spawn nothing."
-    out, n = re.subn(r"May spawn:\s*([^.]*)\.", may_spawn, out, count=1)
-    if n != 1:
-        raise SystemExit("install.sh: agents/%s.md has no 'May spawn:' sentence to copy" % base)
-    head, sep, body = out.partition("\n---\n")
-    # The base body tells its agent when to spawn copies ("sub-tasks can go to coder-copy agents");
-    # a copy spawns none, so every sentence naming a <type>-copy agent goes, and a line (list item)
-    # left empty goes with it.
-    copy_name = re.compile(r"[A-Za-z0-9_]-copy\b")
-    lines = []
-    for line in body.split("\n"):
-        if not copy_name.search(line):
-            lines.append(line)
-            continue
-        m = re.match(r"(\s*(?:[-*+]|\d+[.)])\s+)?(.*)\Z", line, re.S)
-        sentences = re.split(r"(?<!\be\.g\.)(?<!\bi\.e\.)(?<=[.!?])\s+", m.group(2))
-        keep = [s for s in sentences if not copy_name.search(s)]
-        if keep:
-            lines.append((m.group(1) or "") + " ".join(keep))
-    body = "\n".join(lines)
-    note = ("You are a copy of %s, spawned by a %s for one independent part of its job. Do that part "
-            "yourself: a copy never spawns %s or another copy. Skip any Memory lines below: what memory "
-            "holds for your part is already in your brief, and you write nothing to memory yourself.\n\n"
-            % (base, base, base))
-    return head + sep + note + body
-
-
 # --- agents/*.md + rules/claude-agent-stack.md. Pruning (the default): a file that differs from
 # the render is replaced, whatever made it differ (the backup keeps it). --no-prune: manifest-guarded
 # as before — a file you edited since the last install is kept and the render goes next to it as
 # <name>.new (--force replaces it anyway). ---
-targets = [("agents/" + os.path.basename(p), p, None) for p in sorted(glob.glob(os.path.join(SRC, "agents", "*.md")))]
-targets += [("agents/%s-copy.md" % b, os.path.join(SRC, "agents", b + ".md"), b) for b in COPY_TYPES]
-targets.append(("rules/claude-agent-stack.md", os.path.join(SRC, "rules", "claude-agent-stack.md"), None))
+targets = [("agents/" + os.path.basename(p), p) for p in sorted(glob.glob(os.path.join(SRC, "agents", "*.md")))]
+targets.append(("rules/claude-agent-stack.md", os.path.join(SRC, "rules", "claude-agent-stack.md")))
 AE_BUILT = os.path.isfile(os.path.join(C, "mcp", "vendor", "after-effects-mcp", "build", "index.js"))
 
 installed_count = 0
-total_agents = sum(1 for rel, _, _ in targets if rel.startswith("agents/"))
+total_agents = sum(1 for rel, _ in targets if rel.startswith("agents/"))
 IN_SYNC = {"installed", "unchanged", "overwritten", "overwritten (legacy)", "overwritten (--force)", "replaced"}
 
 # Adobe servers exist only on macOS: elsewhere they are left out of the renders, so designer and
@@ -1790,16 +1731,14 @@ def mcp_cache_env(rendered):
     return "\n".join(out) + rendered[end + 1:]
 
 
-for rel, src_path, copy_of in targets:
+for rel, src_path in targets:
     text = open(src_path, encoding="utf-8").read()
-    if copy_of:
-        text = make_copy(text, copy_of)
     rendered = render(text)
     if sys.platform != "darwin" and rel.startswith("agents/"):
         rendered = drop_servers(rendered, MACOS_ONLY_SERVERS)
     elif rel == "agents/motion-designer.md" and not AE_BUILT:
         rendered = drop_servers(rendered, ("after-effects",))    # added once --with-adobe built it
-    if rel in ("agents/researcher.md", "agents/researcher-copy.md") and SPIDER_REWRITE:
+    if rel == "agents/researcher.md" and SPIDER_REWRITE:
         rendered = re.sub(r"mcpServers:\n  - spider:\n(?:      .*\n)+", "mcpServers:\n  - spider\n", rendered)
     if rel.startswith("agents/"):
         rendered = mcp_cache_env(rendered)
@@ -1862,7 +1801,7 @@ for rel, src_path, copy_of in targets:
 # leftover .new renders, and agents of your own or of other tools (the backup keeps them all; run
 # with --no-prune to keep them). --no-prune lists them instead.
 RENAMED = {"agents/senior-coder.md": "agents/main-coder.md", "agents/router.md": "agents/blackcat.md"}
-shipped = {rel for rel, _, _ in targets}
+shipped = {rel for rel, _ in targets}
 stale_kept = []
 
 
@@ -2353,13 +2292,13 @@ SET_IF_ABSENT = {"statusLine", "agent", "skillListingBudgetFraction", "skillList
                  "skillOverrides"}
 # env keys the stack re-asserts on every run; every other shipped env key is a default the user
 # may tune (README "knobs"): it follows stack upgrades only while the user has not changed it.
-# The spawn knobs are owned too: they are the stack's guarantees (BlackCat's step cap, fan-out and
-# copy caps, the per-agent MCP call cap), not preferences. The token budgets are learned limits
+# The spawn knobs are owned too: they are the stack's guarantees (BlackCat's step cap, fan-out
+# caps, the per-agent MCP call cap), not preferences. The token budgets are learned limits
 # (stack_limits.py), fixed per session by its snapshot, not env knobs the stack ships.
 OWNED_ENV = {"STACK_ENV_FILE", "CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH",
              "MCP_DISCOVERY_CACHE", "CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS",
              "BLACKCAT_MAX_STEPS", "BLACKCAT_MAX_DISPATCH", "STACK_MAX_FANOUT",
-             "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_SELF_FANOUT", "STACK_MAX_MCP_CALLS"}
+             "STACK_MAX_FANOUT_BY_TYPE", "STACK_MAX_MCP_CALLS"}
 # values shipped by stack versions whose manifest predates "settings_env"
 OLD_DEFAULTS = {"ROUTER_MAX_DISPATCH": {"1"}, "ANTHROPIC_DEFAULT_HAIKU_MODEL": {"claude-sonnet-5"}}
 # The main-thread agent "router" is now "blackcat": its "agent" value and its knobs follow the
@@ -2810,11 +2749,11 @@ else
     uv tool run --quiet --from mcp-for-blender==2.1.1 python -c pass >/dev/null 2>&1 </dev/null || true
     # proof-checker's Lean server: download only (starting it would start the Lean toolchain)
     uv tool run --quiet --from lean-lsp-mcp==0.30.0 python -c pass >/dev/null 2>&1 </dev/null || true
-    # db-engineer's Postgres server: download only (starting it needs DATABASE_URI)
+    # data-engineer's Postgres server: download only (starting it needs DATABASE_URI)
     uv tool run --quiet --from postgres-mcp==0.3.0 python -c pass >/dev/null 2>&1 </dev/null || true
     ! have npx || npx -y @playwright/mcp@0.0.82 --help >/dev/null 2>&1 </dev/null || true
     ! have npx || npx -y context-mode@1.0.169 --help >/dev/null 2>&1 </dev/null || true
-    # db-engineer's MongoDB and mobile-engineer's MobileBuildMCP servers: download only (fills npx's
+    # data-engineer's MongoDB and mobile-engineer's MobileBuildMCP servers: download only (fills npx's
     # cache with the package and its dependencies; runs only `node -e 0`)
     ! have npx || npm exec --yes --package=mongodb-mcp-server@3.0.5 -- node -e 0 >/dev/null 2>&1 </dev/null || true
     [ "$(uname -s)" != Darwin ] || ! have npx || npm exec --yes --package=mobilebuildmcp@2.7.1 -- node -e 0 >/dev/null 2>&1 </dev/null || true
@@ -3197,7 +3136,7 @@ elif [ "$DRY_RUN" = 1 ]; then
       fi
     fi
   done
-  for n in claude-ninja claude-supreme; do
+  for n in claude-ninja; do
     [ -e "$HOME/.local/bin/$n" ] || [ -L "$HOME/.local/bin/$n" ] || would "ln -s $C/bin/claude-ultracode $HOME/.local/bin/$n"
   done
 else
@@ -3256,10 +3195,10 @@ PY
       esac
     fi
   done
-  # claude-ninja / claude-supreme: ninja-coder or supreme-coder as the main thread at ultracode, the only
+  # claude-ninja: ninja-coder as the main thread at ultracode, the only
   # place ultracode runs (an agent file's effort reaches subagents only, and they can't run workflows).
   mkdir -p "$HOME/.local/bin"
-  for n in claude-ninja claude-supreme; do
+  for n in claude-ninja; do
     l="$HOME/.local/bin/$n"
     if [ "$(readlink "$l" 2>/dev/null)" = "$C/bin/claude-ultracode" ]; then
       note "= $n (ultracode launcher)"
@@ -3332,7 +3271,7 @@ cat <<EOF
      /mcp   (server status; no sign-in needed with keys)
      Once, in that first session: /effort medium — BlackCat runs at the session's level (saved
      for Sonnet 5.5); an agent file's effort applies only to subagents.
-     Hardest problems at ultracode, as a session of their own: claude-ninja, or claude-supreme
+     Hardest problems at ultracode, as a session of their own: claude-ninja
      (dispatched by BlackCat they run at max: ultracode exists only on a main thread).
 EOF
 cat <<EOF

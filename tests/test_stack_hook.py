@@ -86,7 +86,7 @@ def base_env(root):
     """A hook's environment: no stack knobs, its own state, home and config dirs, no bytecode writes
     (the hook env may carry PYTHONDONTWRITEBYTECODE=1)."""
     e = {k: v for k, v in os.environ.items()
-         if not k.startswith(("STACK_", "BLACKCAT_", "SUPREME_", "SCREEN_", "CLAUDE_CODE_MAX", "PYTHON",
+         if not k.startswith(("STACK_", "BLACKCAT_", "SCREEN_", "CLAUDE_CODE_MAX", "PYTHON",
                               "STRIP_AGENT_MODEL", "UV_", "CLAUDE_ENV_FILE", "CLAUDE_CONFIG_DIR",
                               "VIRTUAL_ENV", "CONDA_"))}
     for d in ("xdg", "home", "cfg"):

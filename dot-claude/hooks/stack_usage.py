@@ -935,7 +935,7 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
             fts, lts = vals["first_ts"], vals["last_ts"]
             span(vals)
             ro = "" if atype == UNKNOWN_TYPE else int(
-                (atype[:-5] if atype.endswith("-copy") else atype) in READONLY_TYPES
+                atype in READONLY_TYPES
                 and vals["files_written_repo"] + vals["git_commits"] > 0)
             win = max(0, bisect_right(humans, [fts, "￿"]) - 1) if humans and fts != "" else ""
             extra = dict(hit_cells(hits, aid, fts, lts, cover), ro_write=ro, parent=mt.get("parent", ""),

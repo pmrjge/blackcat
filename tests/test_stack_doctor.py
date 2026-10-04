@@ -45,3 +45,29 @@ def test_a_hung_check_is_stopped_and_reported(tmp_path):
     assert p.returncode == 2 and p.stdout == ""
     assert "FAIL  [Claude Code] doctor.sh did not finish (stopped after 3 s: a check hung)" in p.stderr
     assert p.stderr.splitlines()[-1].startswith("full report: bash ")
+
+
+def agent_files_block():
+    """doctor.sh's agent-files check: the python heredoc after `== Agents`."""
+    text = DOCTOR.read_text()
+    start = text.index("<<'PY'\n", text.index('echo "== Agents"')) + len("<<'PY'\n")
+    return text[start:text.index("\nPY\n", start)]
+
+
+def test_retired_agent_files_are_named_retired_not_your_own(tmp_path):
+    # install.sh --no-prune keeps the files of retired agent types: doctor names them retired
+    agents = tmp_path / "agents"
+    agents.mkdir()
+    for a in ("blackcat", "data-engineer", "db-engineer", "localizer", "supreme-coder", "coder-copy",
+              "mine"):
+        (agents / (a + ".md")).write_text("---\nname: %s\n---\n" % a)
+    policy = json.dumps({"agents": ["blackcat", "data-engineer"]})
+    p = subprocess.run(["/usr/bin/python3", "-", policy, str(agents)], input=agent_files_block(),
+                       capture_output=True, text=True, timeout=30)
+    assert p.returncode == 0, p.stderr
+    out = p.stdout
+    for a in ("db-engineer", "localizer", "supreme-coder", "coder-copy"):
+        assert "WARN  agents/%s.md is " % a in out
+    assert "data-engineer took its databases" in out and "coder (catalogs) and writer (prose)" in out
+    own = [l for l in out.splitlines() if "your own agents" in l]
+    assert len(own) == 1 and own[0].rstrip().endswith("mine — run one with `claude --agent <name>`")

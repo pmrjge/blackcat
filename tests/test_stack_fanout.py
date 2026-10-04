@@ -19,7 +19,7 @@ F = importlib.util.module_from_spec(spec)
 sys.modules["stack_fanout"] = F
 spec.loader.exec_module(F)
 
-ORCH_ROW = ["coder", "main-coder", "ninja-coder", "supreme-coder", "verifier", "python-engineer",
+ORCH_ROW = ["coder", "main-coder", "ninja-coder", "verifier", "python-engineer",
             "code-reviewer", "designer"]
 
 
@@ -41,12 +41,11 @@ def decide(k, plan, nodes, node_id, child="coder", n=0, c_ceil=32, **kw):
 
 
 # ---------------------------------------------------------------- D1: chain walk, aborted runs
-def test_chain_walk_allows_exactly_seven_runs_then_runs_used():
+def test_chain_walk_allows_exactly_six_runs_then_runs_used():
     k = knobs(STACK_FANOUT_DYN_ENFORCE="node,deps,conflict,budget,aimd")
     plan = plan_of([{"id": "T1", "a": "coder", "w": ["src/**"]}])
     st = F.nodes_new("j1")
-    walk = ["coder", "coder", "main-coder", "main-coder", "ninja-coder", "ninja-coder",
-            "supreme-coder"]
+    walk = ["coder", "coder", "main-coder", "main-coder", "ninja-coder", "ninja-coder"]
     for i, child in enumerate(walk):
         nid, why = F.node_of(plan, "T1 build parser", child)
         assert (nid, why) == ("T1", "planned")
@@ -60,16 +59,16 @@ def test_chain_walk_allows_exactly_seven_runs_then_runs_used():
         assert ok
         st, ok = F.end_run(st, "c%d" % i, 150.0 + i, "failed")
         assert ok
-    r = decide(k, plan, st, "T1", "supreme-coder")
+    r = decide(k, plan, st, "T1", "ninja-coder")
     assert not r["allow"] and r["code"] == "runs_used"
-    assert "7 runs" in r["reason"] and "STACK_FANOUT_DYN_NODE_RUNS" in r["reason"]
+    assert "6 runs" in r["reason"] and "STACK_FANOUT_DYN_NODE_RUNS" in r["reason"]
 
 
 def test_chain_types_and_unplanned_labels():
     plan = plan_of([{"id": "T1", "a": "main-coder"}, {"id": "T2", "a": "python-engineer",
                                                       "alt": "coder"},
                     {"id": "T3", "a": "verifier"}])
-    assert F.chain_types(plan["nodes"][0]) == ("main-coder", "ninja-coder", "supreme-coder")
+    assert F.chain_types(plan["nodes"][0]) == ("main-coder", "ninja-coder")
     assert F.node_of(plan, "T1: fix", "coder") == (None, "type_mismatch")   # not later on the chain
     assert F.node_of(plan, "T2 port", "main-coder") == ("T2", "planned")     # after its alt coder
     assert F.node_of(plan, "T3 verify", "main-coder") == (None, "type_mismatch")
@@ -99,12 +98,12 @@ def test_aborted_runs_are_not_live_and_not_counted():
 
 def test_remove_run_frees_the_node():
     k = knobs()
-    plan = plan_of([{"id": "T1", "a": "supreme-coder"}])
-    st = F.record_spawn(F.nodes_new("j1"), "T1", "tu1", "supreme-coder", 1.0)
-    assert decide(k, plan, st, "T1", "supreme-coder", live_tids={"tu1"})["code"] == "running"
-    st, found = F.remove_run(st, "tu1")       # a later gate (SUPREME_ONCE_REASON) denied the spawn
+    plan = plan_of([{"id": "T1", "a": "ninja-coder"}])
+    st = F.record_spawn(F.nodes_new("j1"), "T1", "tu1", "ninja-coder", 1.0)
+    assert decide(k, plan, st, "T1", "ninja-coder", live_tids={"tu1"})["code"] == "running"
+    st, found = F.remove_run(st, "tu1")       # a later gate (a taint mark it could not record) denied it
     assert found and st["runs"] == {}
-    assert decide(k, plan, st, "T1", "supreme-coder", live_tids={"tu1"})["allow"]
+    assert decide(k, plan, st, "T1", "ninja-coder", live_tids={"tu1"})["allow"]
 
 
 def test_dependencies_conflicts_and_exclusive_tags():
@@ -340,7 +339,7 @@ def test_new_job_resets_node_runs_but_keeps_the_breaker():
 
 def test_knob_names_are_fixed_guards():
     assert all(n.startswith("STACK_FANOUT_DYN") for n in F.KNOBS) and len(F.KNOBS) == 14
-    assert F.DEFAULT_KNOBS["node_runs"] == F._NODE_RUNS == 7
+    assert F.DEFAULT_KNOBS["node_runs"] == F._NODE_RUNS == 6
     assert F.DEFAULT_KNOBS["reserve_tok"] == F.RESERVE_TOK == 8000000
     assert F.DEFAULT_KNOBS["mode"] == "shadow" and F.DEFAULT_KNOBS["enforce"] == ("node", "deps")
     k, warnings = F.parse_knobs({"STACK_FANOUT_DYN_ENFORCE": "node,learn", "STACK_FANOUT_DYN_BETA_RL": "0"})
