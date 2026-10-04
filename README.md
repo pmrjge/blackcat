@@ -198,13 +198,12 @@ files to explore. Routing rules and the spawn table: [Roster](#roster) and [CONF
 How deep to go is a prompt rule; the hook enforces only the spawn lists, depth and caps. Depth is a ceiling,
 not a target: L1 fans out, L2 and L3 spawn only for a missing capability or a check, deeper layers only
 when their brief names the spawn. Caveats, failures and `ASK USER` travel up verbatim hop by hop, the
-user's answer goes to the agent that asked, and one integrator per job owns the final merge. Hops are
-for hand-backs, not routing: a message for another agent (a file's owner, a sibling, a named consumer of
-a final output) goes to it by SendMessage, found with one `stack-who` lookup, with a one-line note to
-the parent. Agents are told to strip credentials, logins and personal data from what they send, write or hand on
+user's answer comes back down the same chain, and one integrator per job owns the final merge. Agents
+never message peers: SendMessage goes parent to child only, results move as files the brief names, and
+the orchestrator owns the job's graph. Agents are told to strip credentials, logins and personal data from what they send, write or hand on
 unless the user's request names that use and recipient (a prompt rule; no hook scrubs messages, briefs
-or files). Subagents read the full rules before their first spawn
-or SendMessage: `dot-claude/skills/prompt-and-brief-design/references/delegation.md`.
+or files). Subagents read the full rules before their first spawn:
+`dot-claude/skills/prompt-and-brief-design/references/delegation.md`.
 
 ### Agent tiers and routing
 
@@ -284,7 +283,7 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 | `/stack-tree`, `/stack-tree table`, `/stack-tree static` | any session | This session's agent tree with each agent's commands; the same as a table; the designed hierarchy from the agent files |
 | `/override-agent <agent> <model>`, `list`, `reset` | any session, typed by you | Per-session model override for one delegated agent type; the effort is shown, not applied |
 | `stack-budget [--all]`, `plan GRAPH.json`, `agent TYPE`, `static` | `/usr/bin/python3 ~/.claude/bin/stack-budget` | Read-only view of this session's frozen limits and use, with three-way verdicts (fits, does not fit, uncertain); no slash command ([CONFIG.md](CONFIG.md) §5) |
-| `stack-who [KEYWORD …] [--running\|--finished] [--type T] [--id PREFIX] [--name N] [--json]` | `"__PYTHON3__" -B ~/.claude/bin/stack-who` (the installer's hook interpreter, `/usr/bin/python3` on a Mac with the Command Line Tools), agents whose Bash may run it (not the read-only reviewers) | Read-only lookup table of this session's agents, one line each (id, type, name, state, layer, parent, start, task), so a message goes straight to the right worker; redacted, at most 30 lines by default; prints "route through your parent" instead of failing |
+| `stack-who [KEYWORD …] [--running\|--finished] [--type T] [--id PREFIX] [--name N] [--json]` | `"__PYTHON3__" -B ~/.claude/bin/stack-who` (the installer's hook interpreter, `/usr/bin/python3` on a Mac with the Command Line Tools), agents whose Bash may run it (not the read-only reviewers) | Read-only view of who is running in this shell's session: one line per agent (id, type, name, state, layer, parent, start, task) for BlackCat, the coordinators and health checks; not a messaging directory; redacted, at most 30 lines by default; prints "no agent table" instead of failing |
 | `stack_limits.py show`, `history`, `stability`, `hold`, `freeze`, `rollback`, `propose`, … | `~/.claude/hooks/`, your terminal | Inspect or pin the learned limits; changes reach the next session's snapshot |
 | `stack_usage.py status`, `runs`, `refresh`, `propose` | `~/.claude/hooks/`, your terminal | Collector state, per-agent runs, a manual refit, drift report |
 | `stack_sched.py plan`, `next`, `replay` | `uv run --script dot-claude/hooks/stack_sched.py` | Scheduler advisor: waves for a task graph; a report tool that no hook reads |

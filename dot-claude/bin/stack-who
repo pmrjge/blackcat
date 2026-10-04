@@ -1,5 +1,5 @@
 #!/usr/bin/python3 -B
-"""stack-who - the lookup table of a session's agents, for routing a message straight to the right worker.
+"""stack-who - who is running in this shell's session: state, layer, parent and task of each agent (read-only).
 
   stack-who [--session SID] [--running | --finished] [--type T] [--id ID] [--name N] [KEYWORD ...]
             [--max N] [--json]
@@ -12,10 +12,11 @@ The session: --session, else the one this shell belongs to (the basename of $STA
 the guard's session-env hook exports into every Bash of the session); with neither, no table (never a guess
 at the newest session, which may belong to another job). The table is built at each call from what the
 guard already writes (the registry agents/<id>.json and the delegation records spawns/<tid>.json, or
-delegations.md), through bin/stack-tree's reader: read-only, task text redacted and cut, at most --max lines (default 30, cap 200). It never fails a
-caller's step: any error prints one line saying the table is unavailable and to route through the parent,
-exit 0. Exit 2 only for bad arguments. Nothing here sends, writes or decides anything; whether a message may
-resume a finished agent is the guard's rule (PreToolUse SendMessage)."""
+delegations.md), through bin/stack-tree's reader: read-only, task text redacted and cut, at most --max lines
+(default 30, cap 200). For BlackCat, the coordinators and health checks; it is not a messaging directory (agents
+never message peers: rules, "Delegating"). It never fails a caller's step: any error prints one line saying
+the table is unavailable, exit 0. Exit 2 only for bad arguments. Nothing here sends, writes or decides
+anything."""
 import argparse
 import json
 import os
@@ -28,7 +29,7 @@ import time  # noqa: E402
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 MAX_DEFAULT, MAX_CAP, TASK_CAP = 30, 200, 90
-FALLBACK = "stack-who: no agent table (%s); route the message through your parent (NEXT: route to ...)."
+FALLBACK = "stack-who: no agent table (%s)."
 
 
 def load_tree_module():

@@ -25,7 +25,7 @@
 
 ## Delegating (if you can spawn agents)
 - Depth: BlackCat (main thread) → L1 → … → L8; L8 can't spawn. A ceiling, not a target: each hop costs a ~40K-token context, latency and a lossy summary. Spawn only what your "May spawn" list names (hook-enforced; *may*, not *should*); otherwise STATUS: partial, NEXT naming the agent.
-- BlackCat delegates all work. Below it, spawn for a skill, tool, model or permission you lack, 2+ substantial independent parts, or an independent check when a review trigger fires; never your whole task to one child, "just in case", or two agents on one question. L1 may fan out; L2–L3 spawn only for a missing capability or a check; L4+ only when the brief names the spawn. Subagents Read `__CLAUDE_DIR__/skills/prompt-and-brief-design/references/delegation.md` before their first spawn or SendMessage.
+- BlackCat delegates all work. Below it, spawn for a skill, tool, model or permission you lack, 2+ substantial independent parts, or an independent check when a review trigger fires; never your whole task to one child, "just in case", or two agents on one question. L1 may fan out; L2–L3 spawn only for a missing capability or a check; L4+ only when the brief names the spawn. Subagents Read `__CLAUDE_DIR__/skills/prompt-and-brief-design/references/delegation.md` before their first spawn.
 - Hook caps: at a child cap wait for a running child; at a token budget finish with what you have (STATUS: partial); at the MCP cap finish without MCP.
 - A subagent passes `run_in_background: false` where the tool has it (Agent SDK, `claude -p`; one message's calls still run in parallel). Never predict a result before it arrives.
 - One accelerator job per GPU or Mac. Two agents editing one repository own disjoint files or use `isolation: "worktree"`.
@@ -34,7 +34,7 @@
 ## Briefs and hand-backs
 - Brief = one self-contained block: goal · inputs (paths/URLs) · constraints · done-when · output. The child sees nothing of your conversation; artifacts pass by path, never pasted.
 - Dispatch independent children in ONE message; dependent ones wait for their inputs. No spawn (BlackCat aside) for a few tool calls' work, a brief repeating most of your context, or a result your next step needs.
-- Follow-ups on a child's output go to that child by SendMessage (else to a fresh agent briefed with the paths to its output).
+- Follow-ups on a child's output go to that child by SendMessage (else to a fresh agent briefed with the paths to its output); never message any other agent.
 - Clean finish (everything asked done, every check passed, nothing unverified, no issue open): reply with only `<input: the task in ≤ 10 words> · <YYYY-MM-DD HH:MM> · <your agent type>` and the result below it. Time: your last `date '+%F %R'` output, else the `Started` time, else the date alone.
 - Anything else (partial, blocked, a tool call denied or failed, a claim unverified, a check skipped or failing, a deviation from the brief, a fix not applied) uses this format:
 ```
@@ -62,7 +62,7 @@ NEXT: <open issues or who should take over — omit if none>
 ## Files & safety
 - Scratch and shared output: `./.claude-work/<job>/` unless told otherwise; in a git repository add `.claude-work/` once to `$(git rev-parse --git-path info/exclude)`.
 - Edit copies of user originals unless told to modify in place.
-- Strip credentials, logins, tokens, cookies and personal data from anything you send, write, hand back or brief, unless the user's request names that use and recipient, or authorship/credits need it; never forward such data you observed or a peer passed you.
+- Strip credentials, logins, tokens, cookies and personal data from anything you send, write, hand back or brief, unless the user's request names that use and recipient, or authorship/credits need it; never forward such data you observed.
 - Never edit the installed stack in place — under `__CLAUDE_DIR__/`: `hooks/`, `bin/`, `settings.json`, `stack.env`, `.stack-manifest.json`, `stack-plugins/`, `agents/`, `rules/`, `mcp/`, `magg/`, `skills/`, `CLAUDE.md`, `backup-*/`; nor the hook state, the installer's backups or the MCP servers' caches (`~/.local/state/claude-agent-stack`, `-backups`, `-cache`). Stack changes go to the stack repo; running its `install.sh` is the user's step; `CLAUDE.md` is the user's own.
 - Images you send anywhere stay under 1920 px per side: hooks cover Read and browser uploads, image-studio its own inputs; elsewhere send a downscaled copy (`sips -Z 1919 in.png --out out.png`); deliverables keep full resolution.
 - Images are generated or edited only through image-studio (each tool's model is the user's choice in stack.env; never change it). Agents without it ask designer or image-director.

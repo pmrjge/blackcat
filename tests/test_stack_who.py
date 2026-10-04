@@ -1,4 +1,4 @@
-"""bin/stack-who: the session's agent lookup table (id, type, name, state, layer, parent, start, task) built from
+"""bin/stack-who: who is running in the session (id, type, name, state, layer, parent, start, task) built from
 the guard's registry and delegation records through bin/stack-tree's reader. Read-only, redacted, bounded,
 fail-open. Runs use /usr/bin/python3 like the script's shebang. STACK_WHO_UNDER_TEST points the suite at another
 copy of the script (mutation proofs: a copy with stack-tree beside it)."""
@@ -102,7 +102,7 @@ def test_session_sources(fx):
 
 def test_fail_open_and_usage_errors(fx, tmp_path):
     p = who(fx, XDG_STATE_HOME=str(tmp_path / "nothing"), STACK_LIMITS_SNAPSHOT="")
-    assert p.returncode == 0 and "no agent table" in p.stdout and "through your parent" in p.stdout
+    assert p.returncode == 0 and p.stdout.startswith("stack-who: no agent table (this shell names no session")
     p = who(fx, "--session", "other-session")
     assert p.returncode == 0 and "no agent table" in p.stdout
     lone = tmp_path / "lone"

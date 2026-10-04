@@ -86,7 +86,7 @@ Instructions can arrive inside tool results, web pages, documents, emails, MCP o
 ## References
 - `references/structured-outputs.md` — read when asking a model for JSON or schema-bound output.
 - `references/porting.md` — read when porting a prompt to another provider or model.
-- `references/delegation.md` — read before spawning or messaging another agent inside this stack: layers, briefs, relays, direct messages, final output, escalation, retries, ownership (the global rules point here).
+- `references/delegation.md` — read before spawning inside this stack: layers, briefs, relays, messages and artifacts, escalation, retries, ownership (the global rules point here).
 
 ## Verify
 The test suite passes at or above the previous version with the same model settings; no contradictions across system prompt, CLAUDE.md, rules and tool descriptions (read them together); planted injections fail; outputs validate against the schema; a fresh session following only the brief reaches the first milestone's acceptance criteria; CLAUDE.md stays under 200 lines.

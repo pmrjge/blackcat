@@ -4,7 +4,7 @@ description: "Tests: writes and repairs unit, property, fuzz and e2e tests, each
 model: sonnet
 effort: medium
 maxTurns: 100
-tools: Read, Write, Edit, Bash, LSP, ToolSearch, Skill, Monitor, TaskStop, SendMessage
+tools: Read, Write, Edit, Bash, LSP, ToolSearch, Skill, Monitor, TaskStop
 permissionMode: acceptEdits
 color: yellow
 ---
