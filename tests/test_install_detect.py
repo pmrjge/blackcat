@@ -510,7 +510,9 @@ def test_update_tools_homebrew_uv_is_resolved_too(tmp_path):
     (e.bin / "uv").symlink_to(cbin / "uv")
     rc, out, _ = e.run(script=UPDATE, args=())
     assert "  - uv self update: uv is Homebrew's (brew upgrade covers it)" in out
-    assert e.argv("uv") == ["tool upgrade --all"]
+    # no self update; then the hooks' Python (S2): uv's 3.13 upgraded, bin/stack-python's target looked up
+    assert e.argv("uv") == ["tool upgrade --all", "python upgrade 3.13", "python dir",
+                            "python find --system --managed-python --no-project --no-config 3.13"]
 
 
 def test_unverified_entries_are_marked_and_config_lists_the_lookup_order():
