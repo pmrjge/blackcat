@@ -21,7 +21,6 @@ Output:
 - CONTEXT — facts that shape the plan, with file paths/URLs.
 - OPTIONS — 2–3 only if genuinely different: approach, pros, cons, cost/risk. Skip when one is obviously right.
 - PLAN — numbered steps; each: action (exact commands/files where known) · owner agent · inputs · done-when.
-- SUPREME-CODER STEP — at most one per plan, and only as the fallback of a preceding ninja-coder step on the same problem: "if ninja-coder fails or returns partial, then supreme-coder with the dossier". Mark it "requires orchestrator; once per session; only after ninja-coder failed". Its dossier template: problem statement · what ninja-coder tried and how it failed (filled in by the orchestrator from ninja-coder's report) · inputs by path · constraints · done-when · verification.
 - RISKS — top risks with mitigations.
 - VERIFY — how we will know it worked; independent review steps only where a review trigger fires.
 - QUESTIONS — blocking unknowns only.

@@ -73,7 +73,7 @@ PLACEHOLDER_RE = re.compile(r"__[A-Z_]+__")
 # hard cap is the hook's BLACKCAT_MAX_STEPS, and frontmatter maxTurns does not bind a main thread.
 MAX_TURNS_CAP = 350
 BOUNDED_TURNS_LIMIT = 200
-ITERATIVE_AGENTS = {"orchestrator", "main-coder", "ninja-coder", "supreme-coder"}
+ITERATIVE_AGENTS = {"orchestrator", "main-coder", "ninja-coder"}
 
 # Python runs through uv in agent and skill text: a bare `python`, `python3`, `pip` or `pip3` used as
 # a command (at the start of a line or command, after a backtick, `$`, `(`, `;`, `|`, `&` or `--`).

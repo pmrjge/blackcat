@@ -50,7 +50,6 @@
   "frontend-engineer": {"sonnet": "high", "opus": "medium", "haiku": "low", "fable": "medium"},
   "game-engineer": {"sonnet": "xhigh", "opus": "high", "haiku": "medium", "fable": "high"},
   "go-engineer": {"sonnet": "xhigh", "opus": "high", "haiku": "medium", "fable": "high"},
-  "supreme-coder": {"sonnet": "max", "opus": "max", "haiku": "xhigh", "fable": "max"},
   "haskell-engineer": {"sonnet": "xhigh", "opus": "high", "haiku": "medium", "fable": "high"},
   "hpc-engineer": {"sonnet": "xhigh", "opus": "high", "haiku": "medium", "fable": "high"},
   "image-director": {"sonnet": "high", "opus": "medium", "haiku": "low", "fable": "medium"},

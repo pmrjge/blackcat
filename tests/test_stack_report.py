@@ -5,7 +5,7 @@ same final reply (stack_sdk.parse_report, stack-tree, stack_usage) and stack-tre
 
 Run: ~/.claude/venvs/tools/bin/python -m pytest -q -p no:cacheprovider tests/test_stack_report.py
 Hook processes run under /usr/bin/python3 (the hooks' interpreter, 3.9 on macOS); every state lives under
-tmp_path (XDG_STATE_HOME, HOME, cwd), STACK_/BLACKCAT_/SUPREME_/CLAUDE_ variables are stripped, no sleeps, no
+tmp_path (XDG_STATE_HOME, HOME, cwd), STACK_/BLACKCAT_/CLAUDE_ variables are stripped, no sleeps, no
 network. Fixtures: tests/fixtures/reports/*.txt (raw final replies) and expected.json (what each parser must
 read from them).
 
@@ -37,7 +37,7 @@ TREE = DOT / "bin" / "stack-tree"
 SDK = DOT / "bin" / "stack_sdk.py"
 FIX = ROOT / "tests" / "fixtures" / "reports"
 PY = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
-STRIP = ("STACK_", "BLACKCAT_", "SUPREME_", "SCREEN_", "STRIP_", "CLAUDE_")
+STRIP = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_")
 STARTED = 1790000000.5
 
 

@@ -22,7 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 DOT = ROOT / "dot-claude"
 GUARD = DOT / "hooks" / "agent_guard.py"
 HELPER = DOT / "bin" / "stack_sdk.py"
-PREFIXES = ("STACK_", "BLACKCAT_", "SUPREME_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
+PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 # What the Python SDK 0.2.163 adds to the CLI's environment (subprocess_cli.py), which every hook
 # inherits; CLAUDECODE is removed.
 SDK_ENV = {"CLAUDE_CODE_ENTRYPOINT": "sdk-py", "CLAUDE_AGENT_SDK_VERSION": "0.2.163"}

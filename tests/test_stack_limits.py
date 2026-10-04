@@ -258,7 +258,7 @@ def test_T1_fixed_guards_are_never_variables(st):
     s = L.load_seed()
     for v in s["vars"]:
         assert not L.is_fixed_guard(v) and not L.is_fixed_guard(L.env_var(v)), v
-    for name in sorted(L.FIXED_GUARDS) + ["SUPREME_ONCE_PER_SESSION", "STACK_IMAGE_MAX_PX", "READ_GATE_DATA_BYTES",
+    for name in sorted(L.FIXED_GUARDS) + ["BLACKCAT_MAX_READS", "STACK_IMAGE_MAX_PX", "READ_GATE_DATA_BYTES",
                                           "STACK_FANOUT_SESSION",
                                           "STACK_FANOUT_DYN", "STACK_FANOUT_DYN_ALPHA",
                                           "STACK_FANOUT_DYN_BETA_FAIL", "STACK_FANOUT_DYN_BETA_RL",
@@ -293,7 +293,7 @@ def test_T1_fixed_guards_are_never_variables(st):
                                    "upto": T0, "top": [5e7], "regime_ok": True}}
     doc = dict(props(ok), vars=dict(ok, BLACKCAT_MAX_DISPATCH=ok["soft.agent.coder"]))
     assert L.validate_proposals(doc, s) == (None, "fixed guard BLACKCAT_MAX_DISPATCH")
-    doc2 = dict(props(ok), pools={"SUPREME_SPAWNERS": ok["soft.agent.coder"]})
+    doc2 = dict(props(ok), pools={"BLACKCAT_MAX_READS": ok["soft.agent.coder"]})
     assert L.validate_proposals(doc2, s)[0] is None
     assert L.validate_proposals(props(ok), s)[0]["vars"]["soft.agent.coder"]["n"] == 6
     lim(st, "proposals.json").write_text(json.dumps(doc))

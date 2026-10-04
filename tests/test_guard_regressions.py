@@ -1,4 +1,4 @@
-"""Regression tests for the 2026-09-26 hook review (liveness, supreme-coder singleton, id joins).
+"""Regression tests for the 2026-09-26 hook review (liveness, id joins).
 Run: uv run --python 3.13 --with pytest pytest -q tests/test_guard_regressions.py
 GUARD=/path/to/agent_guard.py points them at another copy of the hook.
 """
@@ -9,80 +9,6 @@ import pytest
 
 from guard_harness import Env
 
-SUPREME = "supreme-coder"
-
-
-def spawn_supreme(e, cid="G1", caller=None, ctype=None, prompt="q1", **ti):
-    pre = e.pre_agent(SUPREME, agent_id=caller, agent_type=ctype or ("" if not caller else "orchestrator"),
-                      prompt=prompt, **ti)
-    r = e.run(pre)
-    if r.decision.startswith("allow"):
-        e.run(e.start(cid, SUPREME))
-        e.run(e.post_agent(pre, cid))
-    return r
-
-
-def test_f1_supreme_lock_kept_while_holder_waits_for_its_children():
-    e = Env()
-    spawn_supreme(e)
-    pre = e.pre_agent("main-coder", agent_id="G1", agent_type=SUPREME)
-    e.run(pre)
-    e.run(e.start("SC1", "main-coder"))
-    e.run(e.post_agent(pre, "SC1"))
-    e.sub_transcript("G1", age=960)
-    e.sub_transcript("SC1", age=5)
-    e.age_lock(960)
-    assert e.run(e.pre_agent(SUPREME, agent_id="SC1", agent_type="orchestrator")).decision == "deny"
-    assert e.lock()["holder"] == "G1"
-
-
-def test_f1_subagentstop_of_old_holder_does_not_free_other_callers_lease():
-    e = Env()
-    spawn_supreme(e)
-    e.sub_transcript("G1", age=901)
-    e.age_lock(901)
-    assert e.run(e.pre_agent(SUPREME, agent_id="SC", agent_type="orchestrator")).decision.startswith("allow")
-    e.run(e.stop("G1", SUPREME))
-    assert e.lock() and e.lock()["by"] == "SC"
-
-
-def test_f2_taskstop_releases_supreme_lock():
-    e = Env()
-    spawn_supreme(e)
-    e.run(e.base("PostToolUse", tool_name="TaskStop", tool_use_id="toolu_x",
-                 tool_input={"task_id": "G1"}, tool_response={"task_id": "G1", "task_type": "local_agent"}))
-    assert e.lock() is None
-
-
-def test_f2_stopfailure_releases_supreme_lock():
-    e = Env()
-    spawn_supreme(e)
-    e.run(e.base("StopFailure", agent_id="G1", agent_type=SUPREME, error="rate_limit"))
-    assert e.lock() is None
-
-
-def test_f3_refused_resume_expires_like_pending():
-    e = Env()
-    spawn_supreme(e, cid="GA")
-    e.run(e.stop("GA", SUPREME, transcript=e.sub_transcript("GA", age=0)))
-    assert e.run(e.send("GA")).decision.startswith("allow")
-    e.age_reg("GA", 700, keys=("spawned", "started", "stopped"))
-    e.sub_transcript("GA", age=700)
-    e.age_lock(121)
-    assert e.run(e.pre_agent(SUPREME, agent_id="SC", agent_type="orchestrator")).decision.startswith("allow")
-
-
-def test_f3_name_holder_expires():
-    e = Env()
-    pre = e.pre_agent(SUPREME, agent_type="", name="deep fix")
-    e.run(pre)
-    e.run(e.fail_agent(pre))
-    e.run(e.send("deep fix"))
-    assert e.lock()["holder"] == "name:deep-fix"
-    e.age_lock(121)
-    assert e.run(e.pre_agent(SUPREME, agent_id="SC", agent_type="orchestrator")).decision.startswith("allow")
-
-
 def test_f4_no_double_count_while_post_tool_use_runs():
     e = Env(STACK_MAX_FANOUT=2)
     pre = e.pre_agent("coder", agent_id="SC", agent_type="main-coder")
@@ -92,25 +18,6 @@ def test_f4_no_double_count_while_post_tool_use_runs():
     r = e.run(e.pre_agent("coder", agent_id="SC", agent_type="main-coder"))
     p.wait()
     assert r.decision.startswith("allow"), r
-
-
-def test_f5_no_running_lock_for_an_already_stopped_supreme_coder():
-    e = Env()
-    pre = e.pre_agent(SUPREME, agent_id="SC", agent_type="orchestrator")
-    e.run(pre)
-    e.run(e.start("G1", SUPREME))
-    p = e.spawn(e.post_agent(pre, "G1"), patch={"supreme_confirm": {"before": 1.0}})
-    time.sleep(0.4)
-    e.run(e.stop("G1", SUPREME, transcript=e.sub_transcript("G1", age=0)))
-    p.wait()
-    assert e.lock() is None
-
-
-@pytest.mark.parametrize("spelling", ["SupremeCoder", "supreme.coder", "supreme--coder", "SUPREME_CODER"])
-def test_f6_all_spellings_of_supreme_coder_take_the_lock(spelling):
-    e = Env()
-    spawn_supreme(e, caller="SC")
-    assert e.run(e.pre_agent(spelling)).decision == "deny"
 
 
 def test_f7_remote_isolation_denied():

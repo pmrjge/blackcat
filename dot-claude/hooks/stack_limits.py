@@ -13,7 +13,7 @@ that no evidence, file or command can cross):
                                raises it; prompt_soft_limit() applies the largest running one)
   soft.session, hard.session   per session (seed unset / 1.92B)
 blackcat has no per-agent variable. Fixed
-guards (depth, fan-out, BlackCat, supreme-coder, TTLs, MCP cap, images, policy, read gate, the scale
+guards (depth, fan-out, BlackCat, TTLs, MCP cap, images, policy, read gate, the scale
 and sched-policy knobs) are never variables: a fixed-guard name in live.json or proposals.json
 invalidates that file (FIXED_GUARDS).
 
@@ -155,8 +155,8 @@ FIXED_GUARDS = frozenset((
     "STACK_SOFT_LIMIT_SCALE", "STACK_SCHED_POLICY", "READ_GATE",
     "FLOOR", "CEILING", "FLOORS", "CEILINGS", "MAXTURNS", "MAX_TURNS",
 ))
-FIXED_PREFIXES = ("SUPREME_", "STACK_IMAGE_", "READ_GATE_", "EXA_MAX_", "JINA_MAX_", "SPIDER_MAX_",
-                  "STACK_FANOUT_", "BLACKCAT_")
+FIXED_PREFIXES = ("STACK_IMAGE_", "READ_GATE_", "EXA_MAX_", "JINA_MAX_", "SPIDER_MAX_", "STACK_FANOUT_",
+                  "BLACKCAT_")
 
 
 class SeedError(Exception):

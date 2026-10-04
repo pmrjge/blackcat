@@ -182,7 +182,7 @@ def test_c1_hook_state_dir_protected(installed, tmp_path):
     g, cfg, proj = installed
     st = tmp_path / "state" / "claude-agent-stack"
     assert g.state_root() == str(st)
-    for cmd in ["rm -rf %s/s1/blackcat" % st, "echo x > %s/s1/supreme.lock" % st, "rm -rf %s" % st,
+    for cmd in ["rm -rf %s/s1/blackcat" % st, "echo x > %s/s1/screen.lock" % st, "rm -rf %s" % st,
                 "mv %s/s1 /tmp/y" % st, "find %s -delete" % st.parent]:
         got = g.protected_write_in(cmd, {"cwd": str(proj)})
         assert got and got[0] == "protect", cmd
@@ -320,7 +320,7 @@ def test_state_locks_unreadable_in_the_sandbox():
     pats = [_sandbox_glob(p) for p in fs["denyRead"]]
     for path in ("limits/limits.lock", "limits/proposals.lock", "usage/runs2.lock", "usage/runs3.lock", "usage/refresh.lock",
                  "usage/sessions/abc-1/collector.lock", "abc-1/read-gate.json.lock", "abc-1/registry.mutex",
-                 "abc-1/supreme.mutex"):
+                 "abc-1/screen.mutex"):
         assert any(p.match("__STACK_STATE__/" + path) for p in pats), path
     for path in ("limits/live.json", "usage/runs2.csv", "usage/runs3.csv", "abc-1/budget.json"):    # readable as before
         assert not any(p.match("__STACK_STATE__/" + path) for p in pats), path
@@ -455,7 +455,7 @@ STATE_FORMS = ["$XDG_STATE_HOME/claude-agent-stack/{e}",
 def test_f1_state_and_backup_dirs_via_variables(shell_env, form):
     g, cfg, proj, home = shell_env                    # XDG_STATE_HOME is set by `installed`
     for tmpl in ["rm -rf {p}", "echo x > {p}", "mv {p} /tmp/y"]:
-        cmd = tmpl.format(p=form.format(e="s1/supreme-coder.lock"))
+        cmd = tmpl.format(p=form.format(e="s1/screen.lock"))
         if "$HOME/.local/state" in form and "XDG_STATE_HOME" not in form:
             continue                                  # HOME default: see the next test
         assert denied(g, proj, cmd), cmd
@@ -536,7 +536,7 @@ def test_f1_ordinary_unresolved_variables_allowed(shell_env, cmd):
     "rm -rf ~/.claude/*", "rm -rf $HOME/.claude/*", 'rm -rf "$HOME/.claude"/*',
     "rm ~/.claude/agents/*.md", "rm ~/.claude/agents/scout*", "rm ~/.claude/agents/?.md",
     "rm ~/.claude/agents/[a-c]*", "rm -rf ~/.local/state/claude-agent-stack/*",
-    "rm ~/.local/state/claude-agent-stack/*/supreme-coder.spawned", "rm ~/.claude/ag*",
+    "rm ~/.local/state/claude-agent-stack/*/screen.lock", "rm ~/.claude/ag*",
     "rm -rf ~/.claude/backup-2*", "rm ~/.claude/*", "mv ~/.claude/agents/* /tmp/x",
     "cp /tmp/a.md ~/.claude/agents/*", "rm ~/.claude/s*", "rm -rf ~/.claude/$X",
     "echo x > ~/.claude/agents/*", "chmod 000 ~/.claude/skills/*/SKILL.md",

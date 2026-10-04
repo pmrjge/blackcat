@@ -15,8 +15,8 @@ import pytest
 
 from guard_harness import GUARD, Env
 
-SHIPPED_BY_TYPE = ("orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,"
-                   "planner=8,plan-reviewer=8")
+SHIPPED_BY_TYPE = ("orchestrator=32,main-coder=6,ninja-coder=5,researcher=4,planner=8,"
+                   "plan-reviewer=8")
 DYN_FILES = ("fanout-dyn", "fanout-dyn.jsonl", "fanout-dyn-events.jsonl")
 
 
@@ -223,19 +223,22 @@ def load_guard():
 
 
 def test_a_spawn_a_later_gate_refuses_leaves_no_run_and_the_node_stays_free():
-    """SUPREME_ONCE_REASON after fanout_acquire recorded the run: rollback() removes it, so the
-    next spawn for the node is allowed by the fan-out layer."""
-    g = load_guard()
-    e = env("enforce", SUPREME_ONCE_PER_SESSION="1", SUPREME_AFTER_NINJA="0",
-            SUPREME_SPAWNERS="orchestrator")
+    """A gate after fanout_acquire recorded the run (here: the web-taint mark of a child of an
+    agent that read the web cannot be written) refuses the spawn: rollback() removes the run, so
+    the next spawn for the node is allowed by the fan-out layer."""
+    e = env("enforce")
     write_plan(e, {"job": "j", "nodes": [{"id": "S1", "a": "ninja-coder"}]})
-    os.makedirs(e.sdir(), exist_ok=True)
-    open(os.path.join(e.sdir(), g.SUPREME_ONCE), "w").write("toolu_earlier")
-    _, r = spawn(e, "supreme-coder", "S1 last resort")
-    assert r.decision == "deny" and r.reason == g.SUPREME_ONCE_REASON, r
+    e.run(e.base("PreToolUse", tool_name="WebFetch", tool_use_id="toolu_web1", agent_id="O1",
+                 agent_type="orchestrator", tool_input={"url": "https://example.org"}),
+          args=("budget",))
+    blocker = os.path.join(e.sdir(), "web-spawned")
+    open(blocker, "w").close()                          # a file where the marker dir goes
+    _, r = spawn(e, "ninja-coder", "S1 hard core")
+    assert r.decision == "deny" and "could not record whether web content reached" in r.reason, r
     assert log_lines(e)[-1]["allow"] is True                       # the fan-out layer allowed it
     assert (state(e, "O1", "nodes") or {}).get("runs", {}).get("S1") in (None, [])
     assert not os.listdir(os.path.join(e.sdir(), "fanout", "O1"))
+    os.remove(blocker)
     _, r = spawn(e, "ninja-coder", "S1 retry")
     assert allowed(r), r
     assert len(state(e, "O1", "nodes")["runs"]["S1"]) == 1

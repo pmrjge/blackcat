@@ -71,7 +71,7 @@ from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 # is a hook with side effects.
 READONLY_TYPES = {"code-reviewer", "security-auditor", "verifier", "plan-reviewer", "claude-code-guide",
                   "proof-checker"}
-DEFAULT_CAPS = {"fanout": 3, "fanout_by_type": {"orchestrator": 32, "supreme-coder": 6, "main-coder": 6,
+DEFAULT_CAPS = {"fanout": 3, "fanout_by_type": {"orchestrator": 32, "main-coder": 6,
                                                 "ninja-coder": 5, "researcher": 4, "planner": 8,
                                                 "plan-reviewer": 8},
                 "depth": 3, "blackcat": 8, "workflow": 16}
@@ -90,7 +90,7 @@ SHARED_DOCS = ("README.md", "CONFIG.md", "**/FINAL-REPORT.md", "FINAL-REPORT.md"
 SONNET_TYPES = {"blackcat", "browser-operator", "build-fixer", "claude-code-guide", "coder",
                 "data-engineer", "devops-engineer", "doc-specialist", "explore",
                 "mcp-broker", "scout", "test-engineer", "verifier"}
-ONE_HOUR_TTL = {"orchestrator", "researcher", "main-coder", "ninja-coder", "supreme-coder", "ml-engineer",
+ONE_HOUR_TTL = {"orchestrator", "researcher", "main-coder", "ninja-coder", "ml-engineer",
                 "dl-engineer", "llm-engineer", "quantum-engineer", "robotics-engineer", "data-scientist"}
 SOFT_POOLS = {"builder": 19000000, "analyst": 8700000, "lookup": 450000, "artifact": 3100000}
 SOFT_LIMITS = {"claude-code-engineer": 19000000, "scout": 390000, "claude-code-guide": 680000,

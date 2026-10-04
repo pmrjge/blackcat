@@ -19,7 +19,7 @@ import pytest
 ROOT = Path(__file__).resolve().parents[1]
 GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
 SKILLS = ROOT / "dot-claude" / "skills"
-PREFIXES = ("STACK_", "BLACKCAT_", "SUPREME_", "SCREEN_", "STRIP_", "CLAUDE_CODE_", "ANTHROPIC_DEFAULT_")
+PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_", "ANTHROPIC_DEFAULT_")
 
 _spec = importlib.util.spec_from_file_location("agent_guard_override", GUARD)
 G = importlib.util.module_from_spec(_spec)
@@ -348,8 +348,8 @@ def test_rewrite_applies_to_nested_spawns(env):
 
 def test_gates_still_refuse_with_an_override(env):
     s = sid()
-    command(s, "supreme-coder sonnet", env)
-    out = run(agent(s, "supreme-coder", by_type="blackcat"), env)
+    command(s, "orchestrator sonnet", env)
+    out = run(agent(s, "orchestrator", by_type="scout"), env)
     assert out["hookSpecificOutput"]["permissionDecision"] == "deny"
     assert "model" not in json.dumps(out["hookSpecificOutput"].get("updatedInput") or {})
 

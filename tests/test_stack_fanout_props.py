@@ -27,7 +27,7 @@ _spec = importlib.util.spec_from_file_location("stack_fanout_props_target", MOD)
 F = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(F)
 
-ROW = ["coder", "main-coder", "ninja-coder", "supreme-coder", "verifier", "code-reviewer", "python-engineer"]
+ROW = ["coder", "main-coder", "ninja-coder", "verifier", "code-reviewer", "python-engineer"]
 ALL_TERMS = "node,deps,conflict,budget,aimd"
 GARBAGE = [None, float("nan"), float("inf"), -float("inf"), -1, 0, 1, 2 ** 70, -2 ** 70, 1.5, "x", "",
            [], {}, True, False, b"b", (1,), object(), [[]], {"a": 1}]
@@ -161,7 +161,7 @@ def test_knob_names_and_plan_defaults():
     assert (k["mode"], k["enforce"], k["types"]) == ("shadow", ("node", "deps"), ("orchestrator",))
     assert (k["w0"], k["wmin"], k["alpha"]) == (8, 1, 1)
     assert (k["beta_rl"], k["beta_fail"], k["hold_s"]) == (0.5, 0.75, 60)
-    assert (k["reserve_tok"], k["slack"], k["node_runs"]) == (8_000_000, 2, 7)
+    assert (k["reserve_tok"], k["slack"], k["node_runs"]) == (8_000_000, 2, 6)
     assert (k["delay_ratio"], k["breaker"]) == (1.5, (5, 600))
 
 
@@ -178,7 +178,7 @@ def test_invalid_knob_value_takes_default_and_is_never_echoed(name):
     ({"STACK_FANOUT_DYN_BETA_RL": "1"}, "beta_rl", 1.0), ({"STACK_FANOUT_DYN_BETA_FAIL": "nan"}, "beta_fail", 0.75),
     ({"STACK_FANOUT_DYN_W0": "0"}, "w0", 8), ({"STACK_FANOUT_DYN_W0": "1025"}, "w0", 8),
     ({"STACK_FANOUT_DYN_W0": "8.0"}, "w0", 8), ({"STACK_FANOUT_DYN_W0": "12"}, "w0", 12),
-    ({"STACK_FANOUT_DYN_NODE_RUNS": "0"}, "node_runs", 7), ({"STACK_FANOUT_DYN_NODE_RUNS": "33"}, "node_runs", 7),
+    ({"STACK_FANOUT_DYN_NODE_RUNS": "0"}, "node_runs", 6), ({"STACK_FANOUT_DYN_NODE_RUNS": "33"}, "node_runs", 6),
     ({"STACK_FANOUT_DYN_NODE_RUNS": "32"}, "node_runs", 32),
     ({"STACK_FANOUT_DYN_ENFORCE": "node,bogus"}, "enforce", ("node", "deps")),
     ({"STACK_FANOUT_DYN_ENFORCE": "budget, aimd"}, "enforce", ("budget", "aimd")),
@@ -488,15 +488,15 @@ def test_hostile_plans_are_parsed_or_rejected_under_50ms():
 
 # ------------------------------------------------------------------ node_of and chain_types
 def test_chain_types_and_node_of():
-    assert F.chain_types({"a": "coder", "alt": None}) == ("coder", "main-coder", "ninja-coder", "supreme-coder")
-    assert F.chain_types({"a": "main-coder", "alt": None}) == ("main-coder", "ninja-coder", "supreme-coder")
-    assert F.chain_types({"a": "supreme-coder", "alt": None}) == ("supreme-coder",)
+    assert F.chain_types({"a": "coder", "alt": None}) == ("coder", "main-coder", "ninja-coder")
+    assert F.chain_types({"a": "main-coder", "alt": None}) == ("main-coder", "ninja-coder")
+    assert F.chain_types({"a": "ninja-coder", "alt": None}) == ("ninja-coder",)
     assert F.chain_types({"a": "verifier", "alt": None}) == ("verifier",)
-    assert F.chain_types({"a": "verifier", "alt": "main-coder"}) == ("verifier", "main-coder", "ninja-coder", "supreme-coder")
+    assert F.chain_types({"a": "verifier", "alt": "main-coder"}) == ("verifier", "main-coder", "ninja-coder")
     assert F.chain_types({"a": "ninja-coder", "alt": "coder"})[:2] == ("ninja-coder", "coder")
     p = mkplan([{"id": "T1", "a": "coder"}, {"id": "T2", "a": "verifier"}])
     assert F.node_of(p, "T1 build parser", "coder") == ("T1", "planned")
-    assert F.node_of(p, "T1: build parser", "supreme-coder") == ("T1", "planned")
+    assert F.node_of(p, "T1: build parser", "main-coder") == ("T1", "planned")
     assert F.node_of(p, "T1, x", "ninja-coder") == ("T1", "planned")
     assert F.node_of(p, "T2 verify", "coder") == (None, "type_mismatch")
     assert F.node_of(p, "T1 x", "verifier") == (None, "type_mismatch")
@@ -527,15 +527,14 @@ def _walk(k, plan, types, node="T1", now0=100.0):
     return out, st
 
 
-def test_chain_walk_seven_allowed_runs_then_denial():
+def test_chain_walk_six_allowed_runs_then_denial():
     plan = mkplan([{"id": "T1", "a": "coder"}])
-    types = ["coder", "coder", "main-coder", "main-coder", "ninja-coder", "ninja-coder", "supreme-coder",
-             "supreme-coder"]
+    types = ["coder", "coder", "main-coder", "main-coder", "ninja-coder", "ninja-coder", "ninja-coder"]
     out, st = _walk(kn(), plan, types)
-    assert [d["allow"] for d in out] == [True] * 7 + [False]
-    assert out[7]["code"] == "runs_used" and "7" in out[7]["reason"] and "T1" in out[7]["reason"]
+    assert [d["allow"] for d in out] == [True] * 6 + [False]
+    assert out[6]["code"] == "runs_used" and "6" in out[6]["reason"] and "T1" in out[6]["reason"]
     assert all(F.node_of(plan, "T1 x", t) == ("T1", "planned") for t in types)
-    assert len(st["runs"]["T1"]) == 7
+    assert len(st["runs"]["T1"]) == 6
 
 
 def test_chain_walk_honours_node_runs_knob_and_default_enforce_terms():
@@ -562,16 +561,16 @@ def test_aborted_runs_do_not_count_toward_node_runs_or_block():
     assert d["allow"] and d["code"] is None
     elig, blocked = F.ready_eligible(plan, st, set(), set(), k)
     assert elig == ["T1"] and blocked["T2"][0] == "deps"     # an aborted run is not an ended dependency
-    out, _ = _walk(k, plan, ["coder"] * 8)               # a fresh node: still 7
-    assert sum(d["allow"] for d in out) == 7
-    # 7 ended runs plus 20 aborted: runs used up, not blocked earlier
+    out, _ = _walk(k, plan, ["coder"] * 7)               # a fresh node: still 6
+    assert sum(d["allow"] for d in out) == 6
+    # 6 ended runs plus 30 aborted: runs used up, not blocked earlier
     st2 = st
-    for i in range(7):
+    for i in range(6):
         st2 = F.record_spawn(st2, "T1", "r%d" % i, "coder", 50.0 + i)
         st2, _ = F.bind_child(st2, "r%d" % i, "c%d" % i)
         assert dec(k, plan, st2, "T1", live_tids=set(), live_children={"c%d" % i})["code"] == "running"
     assert dec(k, plan, st2, "T1")["code"] == "runs_used"
-    assert F.node_block(plan, "T1", st2, set(), set(), k) == ("runs_used", 7)
+    assert F.node_block(plan, "T1", st2, set(), set(), k) == ("runs_used", 6)
 
 
 def test_run_status_live_aborted_ended():
