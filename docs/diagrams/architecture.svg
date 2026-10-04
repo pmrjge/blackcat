@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 950" width="1400" height="950" role="img" aria-labelledby="title desc">
   <title id="title">claude-agent-stack architecture</title>
-  <desc id="desc">The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 4. Hooks check every tool call of every agent.</desc>
+  <desc id="desc">The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 8. Hooks check every tool call of every agent.</desc>
   <style>
     .t { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; font-size: 22px; fill: #1b1236; }
     .s { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 500; font-size: 19px; fill: #1b1236; }

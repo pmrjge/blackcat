@@ -77,7 +77,7 @@ def test_concurrency_value_is_the_shipped_one_everywhere():
     assert "| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | %s | 20 |" % n in (ROOT / "CONFIG.md").read_text()
     readme = (ROOT / "README.md").read_text()
     assert "); %s subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`" % n in readme
-    assert "Depth 4, %s at once," % n in readme
+    assert "Depth 8, %s at once," % n in readme
     doctor = (ROOT / "dot-claude" / "bin" / "doctor.sh").read_text()
     assert doctor.count("conc >= %s else" % n) == 2 and "the stack ships %s (" % n in doctor
     assert not re.search(r"conc >= (?!%s )\d+" % n, doctor)

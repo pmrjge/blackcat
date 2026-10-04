@@ -14,7 +14,7 @@ guardrails, limits and tooling to run them safely.
 Created with [Claude Code](https://claude.com/claude-code): designed and directed by Pedro Miguel Rodrigues
 Jorge, written with Anthropic's Claude models ([Credits](#credits)).
 
-<p align="center"><img src="docs/diagrams/architecture.svg" alt="claude-agent-stack architecture. The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 4. Hooks check every tool call of every agent." width="100%"></p>
+<p align="center"><img src="docs/diagrams/architecture.svg" alt="claude-agent-stack architecture. The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 8. Hooks check every tool call of every agent." width="100%"></p>
 
 BlackCat delegates every job, hooks check every tool call at every level, and an agent at L8 cannot spawn.
 
@@ -27,7 +27,7 @@ from it by hand.
 %%{init: {'theme':'base','themeVariables': {'fontFamily':'-apple-system, Segoe UI, Helvetica, Arial, sans-serif','primaryTextColor':'#1b1236','primaryBorderColor':'#1b1236','lineColor':'#5b2a9e','clusterBkg':'#5b2a9e','clusterBorder':'#ffffff','titleColor':'#ffffff','edgeLabelBackground':'#ff7eb6'}}}%%
 flowchart TD
   accTitle: claude-agent-stack architecture
-  accDescr: The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 4. Hooks check every tool call of every agent.
+  accDescr: The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 8. Hooks check every tool call of every agent.
   U(["User"])
   subgraph T["Hooks check every tool call: agent_guard.py and the others"]
     B["BlackCat · main thread · delegates only"]
@@ -199,7 +199,8 @@ How deep to go is a prompt rule; the hook enforces only the spawn lists, depth, 
 not a target: L1 fans out, L2 and L3 spawn only for a missing capability or a check, deeper layers only
 when their brief names the spawn. Caveats, failures and `ASK USER` travel up verbatim hop by hop, the
 user's answer comes back down the same chain, and one integrator per job owns the final merge. Agents
-never message peers: SendMessage goes parent to child only, results move as files the brief names, and
+never message peers: a subagent's SendMessage reaches only its own child, `main`, or its parent while
+that parent runs, addressed by agent id (a name is refused); results move as files the brief names, and
 the orchestrator owns the job's graph. Agents are told to strip credentials, logins and personal data from what they send, write or hand on
 unless the user's request names that use and recipient (a prompt rule; no hook scrubs messages, briefs
 or files). Subagents read the full rules before their first spawn:
@@ -388,7 +389,7 @@ whether the difference is enforced and tested, or a design intent.
 | Area | Plain Claude Code | This stack | Status |
 |---|---|---|---|
 | Delegation | Built-in general-purpose, Explore and Plan subagents | 52 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
-| Nesting and concurrency | Depth 3, 20 subagents running at once | Depth 4, 128 at once, per-agent fan-out caps and spawn rows | Enforced: settings, guard |
+| Nesting and concurrency | Depth 3, 20 subagents running at once | Depth 8, 128 at once, per-agent fan-out caps and spawn rows | Enforced: settings, guard |
 | Push and forge writes | Governed by your permission rules | Refused for every agent, whatever the rules or `STACK_POLICY` | Enforced: `tests/test_no_push.py` |
 | Writes to config and state | Protected-path writes are not prompted in `bypassPermissions` (docs); per the guard's docstring, Claude Code's check does not cover Bash writes (unverified against the docs) | Bash-level writes refused too | Enforced: `tests/test_protected_paths.py` |
 | Bash sandbox | Off by default; falls back to unsandboxed commands when it cannot start | On, no unsandboxed fallback, exit if unavailable, credential paths denied | Configured, not live-verified |

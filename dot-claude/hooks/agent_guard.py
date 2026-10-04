@@ -6947,7 +6947,7 @@ def _r2_state(scan, path, rest):
         return None
     sub, a = (rest[0] if rest else ""), rest[1:]
     env = scan.__dict__.get("_r2_env") or {}
-    if sub == "" or sub in R2_STATE_READ or (sub == "legacy-backups" and a[2:3] == ["list"]):
+    if sub == "" or sub in R2_STATE_READ:
         return None
     if sub == "plan":
         return None if len(a) < 4 or (_r2_tmp_ok(a[3], env) and not scan.__dict__.get("_r2_links")) \
