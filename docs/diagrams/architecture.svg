@@ -1,0 +1,127 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 950" width="1400" height="950" role="img" aria-labelledby="title desc">
+  <title id="title">claude-agent-stack architecture</title>
+  <desc id="desc">The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 4. Hooks check every tool call of every agent.</desc>
+  <style>
+    .t { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; font-size: 22px; fill: #1b1236; }
+    .s { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 500; font-size: 19px; fill: #1b1236; }
+    .l { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; font-weight: 700; font-size: 18px; fill: #1b1236; }
+    .node { stroke: #1b1236; stroke-width: 2; }
+    .edge { fill: none; stroke-width: 5; stroke-linecap: round; }
+    .under { fill: none; stroke: #0b0630; stroke-opacity: 0.45; stroke-width: 9; stroke-linecap: round; }
+    .pill { stroke: #1b1236; stroke-width: 1.5; }
+  </style>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1b1464"/>
+      <stop offset="0.55" stop-color="#5b2a9e"/>
+      <stop offset="1" stop-color="#8e2a82"/>
+    </linearGradient>
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-30%" width="140%" height="170%">
+      <feDropShadow dx="0" dy="8" stdDeviation="8" flood-color="#0b0630" flood-opacity="0.55"/>
+    </filter>
+    <marker id="m-sky" viewBox="-1 -1 20 20" refX="4" refY="9" markerWidth="20" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L18,9 L0,18 Z" fill="#7cc4ff" stroke="#1b1236" stroke-width="1.5" stroke-linejoin="round"/>
+    </marker>
+    <marker id="m-pink" viewBox="-1 -1 20 20" refX="4" refY="9" markerWidth="20" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L18,9 L0,18 Z" fill="#ff7eb6" stroke="#1b1236" stroke-width="1.5" stroke-linejoin="round"/>
+    </marker>
+    <marker id="m-lemon" viewBox="-1 -1 20 20" refX="4" refY="9" markerWidth="20" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L18,9 L0,18 Z" fill="#ffe066" stroke="#1b1236" stroke-width="1.5" stroke-linejoin="round"/>
+    </marker>
+    <marker id="m-mint" viewBox="-1 -1 20 20" refX="4" refY="9" markerWidth="20" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L18,9 L0,18 Z" fill="#5eead4" stroke="#1b1236" stroke-width="1.5" stroke-linejoin="round"/>
+    </marker>
+    <marker id="m-peach" viewBox="-1 -1 20 20" refX="4" refY="9" markerWidth="20" markerHeight="20" markerUnits="userSpaceOnUse" orient="auto">
+      <path d="M0,0 L18,9 L0,18 Z" fill="#ffb38a" stroke="#1b1236" stroke-width="1.5" stroke-linejoin="round"/>
+    </marker>
+  </defs>
+
+  <!-- Page background: diagonal indigo -> violet -> plum -->
+  <rect x="0" y="0" width="1400" height="950" rx="36" fill="url(#bg)"/>
+  <g fill="#ffffff" fill-opacity="0.12">
+    <circle cx="140" cy="90" r="6"/>
+    <circle cx="1250" cy="70" r="9"/>
+    <circle cx="1320" cy="420" r="5"/>
+    <circle cx="40" cy="520" r="7"/>
+    <circle cx="1180" cy="925" r="6"/>
+    <circle cx="260" cy="928" r="4"/>
+  </g>
+
+  <!-- Container: hooks check every tool call (outline only) -->
+  <rect x="70" y="180" width="1260" height="730" rx="30" fill="none" stroke="#ffffff" stroke-opacity="0.85" stroke-width="3" stroke-dasharray="14 10"/>
+  <rect x="100" y="162" width="560" height="36" rx="18" fill="#ffffff" fill-opacity="0.92" class="pill"/>
+  <text x="380" y="186" text-anchor="middle" class="l">Hooks check every tool call: agent_guard.py and the others</text>
+
+  <!-- Edges: under-stroke first, then the edge in its source node's colour -->
+  <!-- e0 U -> B (sky) -->
+  <path class="under" d="M700,122 C700,160 700,190 700,222"/>
+  <path class="edge" stroke="#7cc4ff" marker-end="url(#m-sky)" d="M700,122 C700,160 700,190 700,222"/>
+  <!-- e1 B -> S1 (pink) -->
+  <path class="under" d="M620,332 C620,400 370,370 370,432"/>
+  <path class="edge" stroke="#ff7eb6" marker-end="url(#m-pink)" d="M620,332 C620,400 370,370 370,432"/>
+  <!-- e2 B -> O (pink) -->
+  <path class="under" d="M780,332 C780,400 1000,370 1000,432"/>
+  <path class="edge" stroke="#ff7eb6" marker-end="url(#m-pink)" d="M780,332 C780,400 1000,370 1000,432"/>
+  <!-- e3 O -> S2 (lemon) -->
+  <path class="under" d="M1000,542 C1000,565 1000,580 1000,604"/>
+  <path class="edge" stroke="#ffe066" marker-end="url(#m-lemon)" d="M1000,542 C1000,565 1000,580 1000,604"/>
+  <!-- e4 S1 -> H (mint) -->
+  <path class="under" d="M370,542 C370,680 620,660 620,772"/>
+  <path class="edge" stroke="#5eead4" marker-end="url(#m-mint)" d="M370,542 C370,680 620,660 620,772"/>
+  <!-- e5 S2 -> H (peach) -->
+  <path class="under" d="M1000,712 C1000,760 780,730 780,772"/>
+  <path class="edge" stroke="#ffb38a" marker-end="url(#m-peach)" d="M1000,712 C1000,760 780,730 780,772"/>
+
+  <!-- Edge labels: pills in the source node's colour -->
+  <rect x="310" y="368" width="370" height="34" rx="17" fill="#ff7eb6" class="pill" filter="url(#shadow)"/>
+  <text x="495" y="391" text-anchor="middle" class="l">one domain, or 2-3 independent asks</text>
+  <rect x="705" y="368" width="370" height="34" rx="17" fill="#ff7eb6" class="pill" filter="url(#shadow)"/>
+  <text x="890" y="391" text-anchor="middle" class="l">dependent steps, or more than 3 asks</text>
+
+  <!-- Nodes -->
+  <!-- U: User (sky) -->
+  <g>
+    <rect x="590" y="40" width="220" height="80" rx="22" fill="#7cc4ff" class="node" filter="url(#shadow)"/>
+    <rect x="596" y="44" width="208" height="34" rx="17" fill="url(#gloss)"/>
+    <text x="700" y="88" text-anchor="middle" class="t">User</text>
+  </g>
+  <!-- B: BlackCat (pink) -->
+  <g>
+    <rect x="540" y="240" width="320" height="90" rx="22" fill="#ff7eb6" class="node" filter="url(#shadow)"/>
+    <rect x="546" y="244" width="308" height="38" rx="18" fill="url(#gloss)"/>
+    <text x="700" y="281" text-anchor="middle" class="t">BlackCat</text>
+    <text x="700" y="307" text-anchor="middle" class="s">main thread · delegates only</text>
+  </g>
+  <!-- S1: Specialists L1 (mint) -->
+  <g>
+    <rect x="230" y="450" width="280" height="90" rx="22" fill="#5eead4" class="node" filter="url(#shadow)"/>
+    <rect x="236" y="454" width="268" height="38" rx="18" fill="url(#gloss)"/>
+    <text x="370" y="491" text-anchor="middle" class="t">Specialists</text>
+    <text x="370" y="517" text-anchor="middle" class="s">L1</text>
+  </g>
+  <!-- O: orchestrator (lemon) -->
+  <g>
+    <rect x="820" y="450" width="360" height="90" rx="22" fill="#ffe066" class="node" filter="url(#shadow)"/>
+    <rect x="826" y="454" width="348" height="38" rx="18" fill="url(#gloss)"/>
+    <text x="1000" y="491" text-anchor="middle" class="t">orchestrator</text>
+    <text x="1000" y="517" text-anchor="middle" class="s">L1 · up to 32 children</text>
+  </g>
+  <!-- S2: Specialists L2 (peach) -->
+  <g>
+    <rect x="860" y="620" width="280" height="90" rx="22" fill="#ffb38a" class="node" filter="url(#shadow)"/>
+    <rect x="866" y="624" width="268" height="38" rx="18" fill="url(#gloss)"/>
+    <text x="1000" y="661" text-anchor="middle" class="t">Specialists</text>
+    <text x="1000" y="687" text-anchor="middle" class="s">L2</text>
+  </g>
+  <!-- H: Helpers, checks, copies (lilac) -->
+  <g>
+    <rect x="520" y="790" width="360" height="90" rx="22" fill="#c4a1ff" class="node" filter="url(#shadow)"/>
+    <rect x="526" y="794" width="348" height="38" rx="18" fill="url(#gloss)"/>
+    <text x="700" y="831" text-anchor="middle" class="t">Helpers, checks, copies</text>
+    <text x="700" y="857" text-anchor="middle" class="s">L2 to L4</text>
+  </g>
+</svg>

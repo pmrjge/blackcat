@@ -6,13 +6,25 @@
 <p align="center"><sub>Hero image: photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper, <a href="lib/assets/README.md">CC BY 4.0</a></sub></p>
 
 A multi-agent configuration for Claude Code: BlackCat on the main thread, 55 specialists, 214 on-demand
-skills, and hooks that enforce the limits.
+skills, and hooks that enforce the limits. blackcat-agent-stack is the Swiss Army knife for all things
+agentic and a jack of all trades for AI workflows: one stack that routes any job (code, research, data, ML,
+design, documents, infrastructure, automation) to the cheapest capable specialist agent, with the
+guardrails, limits and tooling to run them safely.
 
 Created with [Claude Code](https://claude.com/claude-code): designed and directed by Pedro Miguel Rodrigues
 Jorge, written with Anthropic's Claude models ([Credits](#credits)).
 
+<p align="center"><img src="docs/diagrams/architecture.svg" alt="claude-agent-stack architecture. The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 4. Hooks check every tool call of every agent." width="100%"></p>
+
+BlackCat delegates every job, hooks check every tool call at every level, and an agent at L4 cannot spawn.
+
+<details><summary>Diagram source (Mermaid)</summary>
+
+The editable source is [docs/diagrams/architecture.mmd](docs/diagrams/architecture.mmd); the SVG above is drawn
+from it by hand.
+
 ```mermaid
-%%{init: {'theme':'base','themeVariables': {'primaryColor':'#e3e9f0','primaryTextColor':'#1f2933','primaryBorderColor':'#6b7f99','lineColor':'#6b7f99','secondaryColor':'#d5ebe8','tertiaryColor':'#f3f5f8','clusterBkg':'#f3f5f8','clusterBorder':'#b7791f','titleColor':'#1f2933','edgeLabelBackground':'#f3f5f8','background':'#f3f5f8'}}}%%
+%%{init: {'theme':'base','themeVariables': {'fontFamily':'-apple-system, Segoe UI, Helvetica, Arial, sans-serif','primaryTextColor':'#1b1236','primaryBorderColor':'#1b1236','lineColor':'#5b2a9e','clusterBkg':'#5b2a9e','clusterBorder':'#ffffff','titleColor':'#ffffff','edgeLabelBackground':'#ff7eb6'}}}%%
 flowchart TD
   accTitle: claude-agent-stack architecture
   accDescr: The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 4. Hooks check every tool call of every agent.
@@ -30,15 +42,26 @@ flowchart TD
   O --> S2
   S1 --> H
   S2 --> H
-  %% Palette, one colour per role: slate = agents and edges, teal = orchestration,
-  %% amber = guard and hooks, blue = user-facing. Same role, same colour in every diagram.
-  classDef orch fill:#d5ebe8,stroke:#2f7f78,stroke-width:2px,color:#1f2933
-  classDef user fill:#dce6f3,stroke:#3f6ea8,stroke-width:1px,color:#1f2933
-  class B,O orch
-  class U user
+  %% Candy palette, same as docs/diagrams/architecture.svg: one fill per node,
+  %% dark text #1b1236 on every fill, each edge in its source node's colour.
+  style U fill:#7cc4ff,stroke:#1b1236,stroke-width:2px,color:#1b1236
+  style B fill:#ff7eb6,stroke:#1b1236,stroke-width:2px,color:#1b1236
+  style S1 fill:#5eead4,stroke:#1b1236,stroke-width:2px,color:#1b1236
+  style O fill:#ffe066,stroke:#1b1236,stroke-width:2px,color:#1b1236
+  style S2 fill:#ffb38a,stroke:#1b1236,stroke-width:2px,color:#1b1236
+  style H fill:#c4a1ff,stroke:#1b1236,stroke-width:2px,color:#1b1236
+  style T fill:#5b2a9e,stroke:#ffffff,stroke-width:3px,stroke-dasharray:8 6,color:#ffffff
+  %% linkStyle index = edge order above: 0 U->B (sky), 1 B->S1 (pink),
+  %% 2 B->O (pink), 3 O->S2 (lemon), 4 S1->H (mint), 5 S2->H (peach)
+  linkStyle 0 stroke:#7cc4ff,stroke-width:5px
+  linkStyle 1 stroke:#ff7eb6,stroke-width:5px
+  linkStyle 2 stroke:#ff7eb6,stroke-width:5px
+  linkStyle 3 stroke:#ffe066,stroke-width:5px
+  linkStyle 4 stroke:#5eead4,stroke-width:5px
+  linkStyle 5 stroke:#ffb38a,stroke-width:5px
 ```
 
-BlackCat delegates every job, hooks check every tool call at every level, and an agent at L4 cannot spawn.
+</details>
 
 **claude-agent-stack** is this repository: the agent definitions, skills, hooks, settings, MCP servers
 and installer that turn `~/.claude/` into a coordinated team. **BlackCat** is the stack's main thread: the
