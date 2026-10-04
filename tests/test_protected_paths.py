@@ -824,6 +824,7 @@ R3_SUSPECT = [
     'read -r d < /tmp/p; rm -rf "$d/hooks"',
     'for d in $(cat /tmp/p); do rm -rf "$d/hooks"; done',
     'd=$(printf "%s/.%s" ~ claude); rm -rf "$d/hooks"',
+    'd=$(printf "%s/.%s" ~ claude); rm -rf "$d/plugins"',
     'while read -r d; do rm -rf "$d/hooks"; done < /tmp/p',
     'mapfile -t a < /tmp/p; rm -rf "${a[0]}/hooks"', 'printf -v d "%s" "$(cat /tmp/p)"; rm -rf "$d/hooks"',
     'declare d=$(cat /tmp/p); rm -rf "$d/hooks"', 'export d=`cat /tmp/p`; rm -rf "$d/hooks"',

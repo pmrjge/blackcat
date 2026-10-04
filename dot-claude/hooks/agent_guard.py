@@ -6306,7 +6306,7 @@ PROTECT_ALL_ARGS = {"rm", "unlink", "rmdir", "shred", "truncate", "ln", "chmod",
 # the stack's own files under the config dir (<config>/<entry>) and its hook state: protected even
 # if settings.json lost its deny rules (installed copies only; see protect_specs)
 PROTECTED_CONFIG = ("hooks", "bin", "settings.json", "agents", "rules", "mcp", "magg", "skills",
-                    "stack-plugins", "CLAUDE.md", "backup-*", "stack.env", ".stack-manifest.json",
+                    "stack-plugins", "plugins", "CLAUDE.md", "backup-*", "stack.env", ".stack-manifest.json",
                     ".credentials.json")
 # inline interpreter code (python -c, node -e, a heredoc into python -) that changes a file
 MUTATE_CODE_RE = re.compile(

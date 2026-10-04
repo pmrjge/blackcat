@@ -3152,7 +3152,8 @@ PY
   # mcp-server-dev builds MCP servers (it replaced the stack's mcp-server-craft), session-report
   # reports session usage, skill-creator runs skill evals, math-olympiad serves the mathematician.
   # Only their descriptions sit in context; a skill loads when a task matches (`plugin:skill`).
-  # Idempotent: an enabled one is left alone (no claude call); one you disabled stays off; one an
+  # Idempotent: an enabled one is left alone (no claude call); one you disabled stays off; one you
+  # uninstalled (plugins_installed names it, enabledPlugins no longer does) stays out; one an
   # earlier install disabled (plugins_deduped: mcp-server-dev while mcp-server-craft shipped) is
   # enabled again; one whose skill claude.ai syncs is skipped (one copy of each skill). The manifest
   # records plugins_installed and plugins_missing (a failed install: offline, or the marketplace
@@ -3161,6 +3162,11 @@ PY
 try: v = (json.load(open(sys.argv[1])).get("enabledPlugins") or {}).get(sys.argv[2])
 except (OSError, ValueError, AttributeError): v = None
 print("on" if v is True else "off" if v is False else "absent")' "$C/settings.json" "$1" 2>/dev/null || echo absent; }
+  # an id plugins_installed lists that settings.json no longer names: `claude plugin uninstall` removed it
+  installed_before(){ python3 -c 'import json, sys
+try: v = json.load(open(sys.argv[1])).get("plugins_installed")
+except (OSError, ValueError, AttributeError): v = None
+sys.exit(0 if isinstance(v, list) and sys.argv[2] in v else 1)' "$C/.stack-manifest.json" "$1" 2>/dev/null; }
   # plugins_record check|write set|keep INSTALLED MISSING: exit 0 when the manifest's plugins_installed
   # and plugins_missing differ from these (write: and records them); keep: plugins_installed unchanged
   plugins_record(){ python3 - "$C/.stack-manifest.json" "$@" <<'PY'
@@ -3202,7 +3208,9 @@ PY
             ap_missing="$ap_missing $id"
           fi ;;
         *)
-          if pcmd plugin install "$id" --scope user; then
+          if installed_before "$id"; then
+            ap_have="$ap_have $id"; note "= plugin $id: uninstalled by you, left out (claude plugin install $id --scope user)"
+          elif pcmd plugin install "$id" --scope user; then
             [ "$DRY_RUN" = 1 ] || { ap_have="$ap_have $id"; ap_added="$ap_added $p"; }
           else
             ap_missing="$ap_missing $id"

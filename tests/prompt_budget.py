@@ -109,11 +109,12 @@ RATIO = {"bodies": 0.867, "agent_listing": 0.97, "blackcat_listing": 0.96, "skil
 # (both estimated, lint NON_STACK) = 28,733. The fraction goes back from 0.0156 to 0.012: 36,000
 # chars, 7,267 (25%) above that total (the default 0.01 would leave 4.4%). It is a cost-only knob (how
 # many descriptions are kept; no permission, hook or sandbox changes).
-# 2026-10-04 (lazy listing, cap 250, 9 non-stack skills hidden): stack 5,433 (with separators) +
-# non-stack ~7,213 (lint NON_STACK) = 12,646 of 36,000. The fraction stays 0.012 as headroom: lowering it
-# saves nothing while the listing fits, and over the budget Claude Code drops descriptions by each
-# user's usage history, which is not deterministic.
-SKILL_BUDGET = {"fraction": 0.012, "budget": 36_000, "stack": 5_433, "non_stack": 7_213}
+# 2026-10-04 (lazy listing, cap 250, 9 non-stack skills hidden; install.sh ANTHROPIC_PLUGINS adds
+# mcp-server-dev and session-report): stack 5,433 (with separators) + non-stack ~8,249 (lint
+# NON_STACK_LISTING, which test_prompt_budget keeps equal) = 13,682 of 36,000. The fraction stays 0.012
+# as headroom: lowering it saves nothing while the listing fits, and over the budget Claude Code drops
+# descriptions by each user's usage history, which is not deterministic.
+SKILL_BUDGET = {"fraction": 0.012, "budget": 36_000, "stack": 5_433, "non_stack": 8_249}
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from lint_agents import skill_listing_entry, split_top_level, leading_name  # noqa: E402

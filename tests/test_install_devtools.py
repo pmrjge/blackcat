@@ -1438,7 +1438,7 @@ LSP_EXEMPT = {"sourcekit-lsp": "Xcode's Command Line Tools", "clangd": "Xcode's 
 
 def lsp_step():
     return INSTALL_TEXT[INSTALL_TEXT.index("# Code intelligence: a language server starts"):
-                        INSTALL_TEXT.index("# Optional Anthropic skill plugins")]
+                        INSTALL_TEXT.index("# Anthropic's skill plugins (ANTHROPIC_PLUGINS;")]
 
 
 def lsp_servers():

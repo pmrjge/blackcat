@@ -1064,19 +1064,23 @@ if "plugins_installed" not in m and "plugins_missing" not in m:
     sys.exit(0)
 on = s.get("enabledPlugins") if isinstance(s.get("enabledPlugins"), dict) else {}
 ids = lambda k: [x for x in (m.get(k) or []) if isinstance(x, str)]
-missing = ids("plugins_missing")
+# one you installed by hand since (/plugin install) is no longer missing
+missing = [x for x in ids("plugins_missing") if on.get(x) is not True]
+# `claude plugin uninstall` drops the enabledPlugins entry; install.sh then leaves the plugin out
 gone = [x for x in ids("plugins_installed") if x not in on]
 off = [x for x in ids("plugins_installed") if on.get(x) is False]
+ok = sorted({x for x in ids("plugins_installed") + ids("plugins_missing") if on.get(x) is True})
 if missing:
     print("  WARN  not installed: %s (the installer was offline or the install failed) — rerun ./install.sh, "
           "or inside claude: /plugin install <name>@claude-plugins-official" % " ".join(missing))
 if gone:
-    print("  WARN  installed by the stack, no longer in settings.json enabledPlugins: %s — rerun ./install.sh"
-          % " ".join(gone))
-ok = [x for x in ids("plugins_installed") if on.get(x) is True]
+    print("  ok    uninstalled by you (./install.sh leaves them out): %s — to add one back: "
+          "claude plugin install <id> --scope user" % " ".join(gone))
 if ok or off:
     print("  ok    enabled: %s%s" % (" ".join(ok) or "none",
                                      "; disabled by you: " + " ".join(off) if off else ""))
+if not (missing or gone or ok or off):
+    print("  ok    none recorded (installed with --no-anthropic-plugins)")
 PY
 
 echo "== User-scope MCP servers"

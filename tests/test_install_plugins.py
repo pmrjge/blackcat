@@ -72,6 +72,17 @@ def _settings(conf):
     return json.load(open(os.path.join(conf, "settings.json")))
 
 
+def _doctor(conf):
+    """stdout of the installed doctor.sh's "== Anthropic plugins" section (it reads only the manifest
+    and settings.json: no network, no claude call)."""
+    text = open(os.path.join(conf, "bin", "doctor.sh")).read()
+    snippet = re.search(r'echo "== Anthropic plugins"\n.*?\nPY\n', text, re.S).group(0)
+    p = subprocess.run(["/bin/bash", "-c", 'C="$1"; python3(){ command python3 -I "$@"; }\n' + snippet, "_", conf],
+                       capture_output=True, text=True, timeout=60)
+    assert p.returncode == 0 and not p.stderr, (p.stdout, p.stderr)
+    return p.stdout
+
+
 def _tree(root, skip=("tmp", "shim")):
     """{relative path: sha256 or 'dir' or 'link:<target>'} for everything below root."""
     out = {}
@@ -131,6 +142,8 @@ def test_no_anthropic_plugins_skips_the_step(repo, tmp_path):
     assert "Anthropic skill plugins skipped (--no-anthropic-plugins)" in out
     m = _manifest(conf)
     assert m["plugins_installed"] == [] and m["plugins_missing"] == []
+    # doctor's section says so instead of a bare header
+    assert _doctor(conf) == "== Anthropic plugins\n  ok    none recorded (installed with --no-anthropic-plugins)\n"
 
 
 def test_offline_notes_missing_and_doctor_warns(repo, tmp_path):
@@ -140,18 +153,19 @@ def test_offline_notes_missing_and_doctor_warns(repo, tmp_path):
         "%s@%s" % (p, OFFICIAL) for p in WANT) in out, out[-3000:]
     m = _manifest(conf)
     assert m["plugins_missing"] == IDS and m["plugins_installed"] == []
-    # doctor's section reads only the manifest and settings.json (no network, no claude call)
-    text = open(os.path.join(conf, "bin", "doctor.sh")).read()
-    snippet = re.search(r'echo "== Anthropic plugins"\n.*?\nPY\n', text, re.S).group(0)
-    p = subprocess.run(["/bin/bash", "-c", 'C="$1"; python3(){ command python3 -I "$@"; }\n' + snippet, "_", conf],
-                       capture_output=True, text=True, timeout=60)
-    assert "  WARN  not installed: " + " ".join(IDS) in p.stdout, (p.stdout, p.stderr)
+    assert "  WARN  not installed: " + " ".join(IDS) in _doctor(conf)
+    # you ran /plugin install for one, as the WARN says: it is no longer missing
+    s = _settings(conf)
+    s.setdefault("enabledPlugins", {})[IDS[0]] = True
+    json.dump(s, open(os.path.join(conf, "settings.json"), "w"))
+    out = _doctor(conf)
+    assert "  WARN  not installed: " + " ".join(IDS[1:]) + " (" in out, out
+    assert IDS[0] in out.split("ok    enabled: ")[1], out
     # back online: the next run installs them and doctor is satisfied
     _run(repo, home, conf)
     assert _manifest(conf)["plugins_missing"] == [] and _manifest(conf)["plugins_installed"] == IDS
-    p = subprocess.run(["/bin/bash", "-c", 'C="$1"; python3(){ command python3 -I "$@"; }\n' + snippet, "_", conf],
-                       capture_output=True, text=True, timeout=60)
-    assert "WARN" not in p.stdout and "  ok    enabled: " + " ".join(IDS) in p.stdout, p.stdout
+    out = _doctor(conf)
+    assert "WARN" not in out and "  ok    enabled: " + " ".join(IDS) in out, out
 
 
 def test_mcp_server_dev_reenabled_after_the_old_dedupe_user_disable_kept(repo, tmp_path):
@@ -174,6 +188,26 @@ def test_mcp_server_dev_reenabled_after_the_old_dedupe_user_disable_kept(repo, t
     assert "= plugin session-report@%s: disabled by you, left off" % OFFICIAL in out
     assert _manifest(conf)["plugins_deduped"] == []
     assert _settings(conf)["enabledPlugins"]["session-report@" + OFFICIAL] is False
+
+
+def test_plugin_you_uninstalled_is_not_reinstalled(repo, tmp_path):
+    """`claude plugin uninstall` drops the enabledPlugins entry; the next ./install.sh leaves that
+    plugin out (plugins_installed still names it) and doctor reports it without a WARN."""
+    home, conf = _home(tmp_path)
+    _run(repo, home, conf)
+    gone = "session-report@" + OFFICIAL
+    s = _settings(conf)
+    del s["enabledPlugins"][gone]
+    json.dump(s, open(os.path.join(conf, "settings.json"), "w"))
+    log = str(tmp_path / "c.log")
+    out = _run(repo, home, conf, log=log)
+    assert _plugin_calls(log, "install") == [] and _plugin_calls(log, "enable") == [], _calls(log)
+    assert "= plugin %s: uninstalled by you, left out" % gone in out, out[-3000:]
+    assert gone not in _settings(conf)["enabledPlugins"]
+    assert _manifest(conf)["plugins_installed"] == IDS
+    doc = _doctor(conf)
+    assert "WARN" not in doc and "  ok    uninstalled by you (./install.sh leaves them out): " + gone in doc, doc
+    assert "  ok    enabled: " + " ".join(i for i in IDS if i != gone) + "\n" in doc, doc
 
 
 def test_installed_settings_deny_edits_to_plugins(repo, tmp_path):

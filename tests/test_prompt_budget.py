@@ -62,6 +62,12 @@ def test_skill_listing_reads_skill_overrides():
     assert e("abc", 50, "on", 500, model_invocable=False) == 0
 
 
+def test_skill_budget_non_stack_is_lint_agents_non_stack():
+    """SKILL_BUDGET's non-stack share is the one lint_agents gates the listing with (NON_STACK)."""
+    import lint_agents
+    assert pb.SKILL_BUDGET["non_stack"] == lint_agents.NON_STACK_LISTING
+
+
 def _agent(desc, body, has_agent=False, per_spawn=1000):
     return {"description": desc, "body": body, "has_agent": has_agent, "per_spawn": per_spawn}
 

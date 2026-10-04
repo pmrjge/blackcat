@@ -666,8 +666,8 @@ every spawn). A new skill is name-only unless it joins `LISTED_CORE` (the test e
 **`skillListingBudgetFraction` 0.012.** Claude Code caps the skill listing at context window × 3
 chars per token × this fraction, and the cap is shared with plugin, bundled and claude.ai skills; over
 it, the least-used skills (by your own usage history, so not deterministic) silently lose their
-description. On the 1M-context 5.5 models 0.012 gives 36,000 characters: the stack's 5,433 plus ~7,213
-for the others (plugins 1,663 measured, bundled ~2,550 and claude.ai ~3,000 estimated). It is headroom
+description. On the 1M-context 5.5 models 0.012 gives 36,000 characters: the stack's 5,433 plus ~8,249
+for the others (plugins 2,699 measured, bundled ~2,550 and claude.ai ~3,000 estimated). It is headroom
 only (a 200K window gets a fifth); `tests/lint_agents.py` fails when the two pass it.
 
 **`skillListingMaxDescChars` 250** (Claude Code's default 1,536) cuts each description; the stack's are
