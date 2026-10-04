@@ -83,9 +83,12 @@ BlackCat → L1 orchestrator: "port the attention kernel to MLX, with tests and 
                                          consumer of the benchmark report: main
   L2 python-engineer, name mlxport-tests Why: independent part; owns tests/**; owner of src/kernels/**: mlxport-kernels
     L3 mathematician (from mlx-engineer)  Why: missing capability, fp16 error bound; ~1K chars back
-    L3 coder, name mlxport-fixtures (from python-engineer)  Why: independent part; owns tests/fixtures/**
-      coder → SendMessage mlxport-kernels: "coder mlxport-fixtures (job mlxport): tests/fixtures/attn.py needs the
-      kernel's input dtype, bf16 or fp16? Reply to mlxport-fixtures." Hand-back: "Routed: dtype → mlxport-kernels (file owner)"
+    L3 verifier (from python-engineer)    Why: independent check, the numerical core the tests don't pin down
+      verifier (no SendMessage) returns: "FAIL tests/test_attn.py: kernel takes bf16, tests feed fp16;
+      NEXT: route to the owner of src/kernels/**: confirm the input dtype"
+    python-engineer → SendMessage mlxport-kernels: "python-engineer mlxport-tests (job mlxport): verifier
+      found tests feed fp16, the kernel takes bf16 (output .claude-work/mlxport/verify.md). Which dtype is the
+      contract? Reply to mlxport-tests." Hand-back line: "Routed: dtype question → mlxport-kernels (file owner)"
 mlx-engineer SendMessages main the benchmark report's path and caveats, and tells the orchestrator only
 "delivered to main → .claude-work/mlxport/bench.md" plus "bound unverified below 1e-3" verbatim; the
 orchestrator merges both branches, runs the suite on main and reports one STATUS carrying every caveat.
