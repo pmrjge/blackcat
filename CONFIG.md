@@ -729,8 +729,9 @@ wrapper; set `kotlin.compiler.execution.strategy=in-process`; the JVM ignores `H
 ignores `npm_config_store_dir` (it reads `pnpm_config_store_dir` or `--store-dir`), and the Corepack
 shim fails behind the proxy unless `COREPACK_HOME` points at the Corepack home that already holds
 pnpm (`~/.cache/node/corepack`; the sandbox's `XDG_CACHE_HOME` moves Corepack's default away from
-it). Until the session-env hook exports them, pass `--store-dir ~/.cache/claude-sandbox/pnpm-store`
-and `COREPACK_HOME=~/.cache/node/corepack` on the command.
+it). The session-env hook exports both (`pnpm_config_store_dir`, `COREPACK_HOME`) for sandboxed Bash;
+outside the sandbox pass `--store-dir ~/.cache/claude-sandbox/pnpm-store` and
+`COREPACK_HOME=~/.cache/node/corepack` yourself.
 
 ### Sandbox and managed settings
 

@@ -1128,3 +1128,49 @@ def test_f4_the_no_sudo_check_sees_every_ordinary_form():
         assert re.search(r"\bsudo\b", shell_code(f)), f
     for quiet in ['  note "run: sudo launchctl bootstrap system /x"', "  # sudo in a comment", "  echo 'sudo x'"]:
         assert not re.search(r"\bsudo\b", shell_code(quiet)), quiet
+
+
+# ---------------------------------------------------------------- code review (items 1, 5, 7)
+def test_review1_path_after_step_2_finds_julia_and_cs(tmp_path):
+    block = INSTALL_TEXT[INSTALL_TEXT.index("for b in /opt/homebrew/bin /usr/local/bin"):INSTALL_TEXT.index("huetension_target(){")]
+    home = tmp_path / "home"
+    mkexe(home / ".juliaup" / "bin" / "julia", "exit 0")
+    mkexe(home / "Library" / "Application Support" / "Coursier" / "bin" / "cs", "exit 0")
+    script = tmp_path / "p.sh"
+    script.write_text("have(){ command -v \"$1\" >/dev/null 2>&1; }\n" + block + "\ncommand -v julia && command -v cs\n")
+    p = subprocess.run(["bash", str(script)], env={"HOME": str(home), "PATH": "/usr/bin:/bin"}, capture_output=True, text=True)
+    assert p.returncode == 0, p.stdout + p.stderr
+
+
+def test_review5_dry_run_and_report_write_nothing_through_brew_ghcup_or_the_profile(tmp_path):
+    """Homebrew off PATH (so the shellenv-line branch is reached), mongodb's tap missing, a ghcup whose
+    ormolu is broken and a working cabal ormolu: dry-run and report call brew only to list/inspect,
+    write no ~/.zprofile and never run `ghcup rm`."""
+    e = Env(tmp_path)
+    hb = tmp_path / "hb" / "bin" / "brew"
+    mkexe(hb, LOGGER + BREW_SHIM)
+    e.state.write_text("")
+    e.present("uv", "node", "npx")
+    e.shim("ghcup", 'case "$1 $2" in "whereis ormolu") echo /nonexistent/ormolu ;; esac; exit 0')
+    mkexe(e.home / ".cabal" / "bin" / "ormolu", "exit 0")
+    for mode in ("dry-run", "report"):
+        rc, out, err = e.run(*GROUPS, mode=mode, tty="1", DEVTOOLS_BREW_CANDIDATES=str(hb))
+        assert rc == 0, err
+        assert all(a.split()[0] in ("list", "info") or a == "tap" for a in e.argv("brew")), e.argv("brew")
+        assert not [a for a in e.argv("ghcup") if a.startswith("rm")], e.argv("ghcup")
+        assert not (e.home / ".zprofile").exists()
+        assert [c for c in e.calls() if not c.startswith(("brew ", "ghcup "))] == [], e.calls()
+
+
+def test_review7_another_low_daemon_gets_the_both_run_warning(tmp_path):
+    m = MF(tmp_path)
+    (m.dir / "limit.maxfiles.plist").write_text(
+        PLIST_SNAPSHOT.replace("ulimit.max-files", "limit.maxfiles").replace("65536", "64000"))
+    out = m.run(stdin="y\ny\n")
+    assert ("both daemons run at boot in no fixed order (the last one's limit wins): remove %s if you keep the stack's"
+            % (m.dir / "limit.maxfiles.plist")) in out
+
+
+def test_review8_9_stale_docs_are_gone():
+    assert "Until the session-env hook exports them" not in (ROOT / "CONFIG.md").read_text()
+    assert "You install it: elan" not in (ROOT / "lib" / "stack.env.example").read_text()

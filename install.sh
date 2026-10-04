@@ -833,6 +833,7 @@ maxfiles_step(){
     printf '%s\n' "$others" | while IFS= read -r o; do
       [ -n "$o" ] || continue
       note "$o also sets maxfiles; it stays (remove: sudo launchctl bootout system $o; sudo rm $o). diff: it -> the stack's:"
+      note "  both daemons run at boot in no fixed order (the last one's limit wins): remove $o if you keep the stack's"
       mf_diff "$o"
     done
     if [ "$want" = ask ] && ! mf_ask "  Write the stack's $MF_PLIST anyway$([ "$state" = different ] && echo ', replacing the one there')? [y/N] "; then
@@ -898,8 +899,9 @@ DEVTOOLS_TTY="$dt_tty" DEVTOOLS_LEAN_PROJECT="$lean_proj" DEVTOOLS_MODE="$DT_MOD
 [ "$dt_rc" = 0 ] || note "! lib/devtools.sh exited $dt_rc (see above); the install goes on"
 # what devtools.sh installed must be found below, also before your shell profile has its PATH line:
 # Homebrew's bin dir, nvm's node 24, rustup's, ghcup's and elan's bins; appended, so your own PATH order wins
-for b in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.elan/bin"; do
-  { [ -x "$b/brew" ] || [ -x "$b/cargo" ] || [ -x "$b/ghcup" ] || [ -x "$b/lake" ]; } || continue
+for b in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.elan/bin" "$HOME/.juliaup/bin" \
+         "$HOME/Library/Application Support/Coursier/bin"; do
+  { [ -x "$b/brew" ] || [ -x "$b/cargo" ] || [ -x "$b/ghcup" ] || [ -x "$b/lake" ] || [ -x "$b/julia" ] || [ -x "$b/cs" ]; } || continue
   case ":$PATH:" in *":$b:"*) ;; *) PATH="$PATH:$b"; export PATH ;; esac
 done
 if ! have node; then
