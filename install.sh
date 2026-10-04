@@ -1940,9 +1940,10 @@ if installed_count < total_agents:
     print("  ! %d agent file(s) kept with local edits: merge the .new renders (or rerun with --force)"
           % (total_agents - installed_count))
 
-# --- skills/: the stack owns this directory (claude.ai's synced/ aside, never staged). Pruning: every
-# shipped file matches its render (an edited one is replaced), and files and skills the stack doesn't
-# ship go (yours included: the backup keeps them). --no-prune: manifest-guarded — a file you edited
+# --- skills/: claude.ai's synced/ aside (never staged). Pruning: every shipped file matches its render
+# (an edited one is replaced; the backup keeps it); of what the stack doesn't ship, only files it
+# installed and nobody edited go (manifest hashes): skills and files of your own, and stack files you
+# edited, stay (named in the notes). --no-prune: manifest-guarded — a file you edited
 # since the last install, or a same-named file of your own, is kept with the render next to it as
 # <file>.new; an untracked file that is an older copy of the stack's is refreshed; nothing goes. ---
 def install_tracked(rel, dest, rendered):
@@ -2029,6 +2030,7 @@ for name in skill_names:
             if os.path.islink(op) or os.path.isdir(op):
                 (shutil.rmtree if os.path.isdir(op) and not os.path.islink(op) else os.unlink)(op)
             shutil.copy2(sp, op)
+            files_entry[rel] = sha256(op)       # tracked like a render: a later prune may drop it unedited
             continue
         state = install_tracked(rel, op, render(text))
         if state == "kept":
@@ -2037,33 +2039,78 @@ for name in skill_names:
             skills_refreshed.append(rel)
         elif state == "replaced":
             skills_replaced.append(rel)
-# what the stack doesn't ship: whole skills, and files inside shipped skills
+# what the stack doesn't ship: whole skills, and files inside shipped skills. The prune removes only
+# files the stack installed and nobody changed since (the manifest's hash still matches): a skill or
+# file of your own (untracked) and a stack file you edited stay, named in the run's notes.
+def stack_unedited(rel):
+    p = os.path.join(DEST, rel)
+    h = files_entry.get(rel)
+    return h is not None and not os.path.islink(p) and sha256(p) == h
+
+
+def entries_below(top):
+    """Files and links below DEST/top (a link to a directory is one entry, never followed)."""
+    out = []
+    for root, dirs, files in os.walk(os.path.join(DEST, top)):
+        out += [os.path.relpath(os.path.join(root, f), DEST) for f in files]
+        out += [os.path.relpath(os.path.join(root, d), DEST) for d in dirs if os.path.islink(os.path.join(root, d))]
+    return sorted(out)
+
+
+def kept_why(rel):
+    return "edited since the stack installed it" if rel in files_entry else "not installed by the stack (yours)"
+
+
+def drop_empty_dirs(top):
+    """Remove the directories below DEST/top (top included) that the removals left empty."""
+    t = os.path.join(DEST, top)
+    if os.path.islink(t) or not os.path.isdir(t):
+        return
+    for root, dirs, files in os.walk(t, topdown=False):
+        if not os.listdir(root):
+            os.rmdir(root)
+
+
 skills_root = os.path.join(DEST, "skills")
 for name in sorted(os.listdir(skills_root)):
     rel_dir = "skills/%s" % name
+    p_dir = os.path.join(skills_root, name)
+    is_dir = os.path.isdir(p_dir) and not os.path.islink(p_dir)
     if name not in skill_names:
-        tracked = any(r.startswith(rel_dir + "/") for r in list(files_entry) + list(offered))
-        why = "no longer shipped by the stack" if tracked else "not shipped by the stack: yours or another tool's"
-        if PRUNE:
-            drop(rel_dir + "/" if os.path.isdir(os.path.join(skills_root, name)) else rel_dir, why)
+        rels = entries_below(rel_dir) if is_dir else [rel_dir]
+        ours = [r for r in rels if stack_unedited(r)]
+        why = "no longer shipped by the stack"
+        if not PRUNE:
+            stale_kept.append((rel_dir + "/" * is_dir, why if any(r in files_entry for r in rels)
+                               else "not shipped by the stack: yours or another tool's"))
+        elif ours and len(ours) == len(rels):
+            drop(rel_dir + "/" * is_dir, why)                  # all the stack's, unedited: the whole skill
+        elif not any(r in files_entry for r in rels):
+            report["notes"].append("%s: not installed by the stack (yours or another tool's) — kept"
+                                   % (rel_dir + "/" * is_dir))
         else:
-            stale_kept.append((rel_dir + "/", why))
+            for rel in rels:
+                if rel in ours:
+                    drop(rel, why)
+                else:
+                    report["notes"].append("%s: %s — kept" % (rel, kept_why(rel)))
+            drop_empty_dirs(rel_dir)
         continue
-    for root, dirs, files in os.walk(os.path.join(skills_root, name)):
-        for fn in sorted(files) + sorted(d for d in dirs if os.path.islink(os.path.join(root, d))):
-            rel = os.path.relpath(os.path.join(root, fn), DEST)
-            if rel in skill_files:
-                continue
-            why = ("leftover render of a stack file" if rel.endswith(".new") and rel[:-4] in skill_files
-                   else "not part of the stack's %s skill" % name)
+    for rel in entries_below(rel_dir) if is_dir else []:
+        if rel in skill_files:
+            continue
+        if rel.endswith(".new") and rel[:-4] in skill_files:   # the stack's own leftover render
             if PRUNE:
-                drop(rel, why)
-            elif not why.startswith("leftover"):
-                stale_kept.append((rel, why))
-    if PRUNE:                                   # directories the removals left empty
-        for root, dirs, files in os.walk(os.path.join(skills_root, name), topdown=False):
-            if root != os.path.join(skills_root, name) and not os.listdir(root):
-                os.rmdir(root)
+                drop(rel, "leftover render of a stack file")
+        elif not PRUNE:
+            stale_kept.append((rel, "not part of the stack's %s skill" % name))
+        elif stack_unedited(rel):
+            drop(rel, "no longer part of the stack's %s skill" % name)
+        else:
+            report["notes"].append("%s: %s — kept" % (rel, kept_why(rel)))
+    if PRUNE and is_dir:                        # directories the removals left empty (not the skill's own)
+        for sub in sorted(os.listdir(p_dir)):
+            drop_empty_dirs(os.path.join(rel_dir, sub))
 for rel in [r for r in list(files_entry) + list(offered) if r.startswith("skills/")]:
     if rel not in skill_files and (PRUNE or not os.path.lexists(os.path.join(DEST, rel))):
         files_entry.pop(rel, None)
