@@ -575,9 +575,10 @@ parser):
 | Standalone | 92 | Neither hub nor module | ≤ 500 lines |
 | `references/*.md` | 185 files | Detail a skill links to and reads only when needed | must exist where named |
 
-- **Listed, not preloaded.** 128 skills (hubs, standalone skills, 15 modules) are listed with an
-  explanatory description that starts with its trigger ("Load before …", "Use when …") and names no
-  agent; 83 hub modules are `user-invocable-only` (below); `stack-doctor`, `stack-tree` and `override-agent` are user commands. No
+- **Listed lazily, not preloaded.** 128 skills (hubs, standalone skills, 15 modules) are listed: 32
+  cross-domain entries with their description, 96 by name only (below). Every description starts with
+  its trigger ("Load before …", "Use when …") and names no agent; 83 hub modules are
+  `user-invocable-only` (below); `stack-doctor`, `stack-tree` and `override-agent` are user commands. No
   `skills:` frontmatter preloads anything; a body enters context only when it is loaded.
 - **Pointers.** Agent bodies carry a `## Skills` section of one-line "load X when Y" pointers
   (rust-engineer: "Load `rust-engineering` first; async `rust-async`, …"). Every module is reachable
@@ -652,17 +653,37 @@ every agent carries, and the Skill tool refuses them, so an agent Reads
 `~/.claude/skills/<name>/SKILL.md` when its `## Skills` line (where they are marked `name`*) or the
 hub's table names one. That line (`## Skills, if needed`) is a lookup, not a checklist: a task that
 needs no skill reads none. Hubs, standalone skills and 15 entry-grade modules (database engines, cloud,
-k8s, obs, flutter, react-native, docs-sites, wasm, linux-nvidia-cuda) stay listed with their
-descriptions. Measured in a local evaluation (not in this repository): −8.7K characters per spawn.
+k8s, obs, flutter, react-native, docs-sites, wasm, linux-nvidia-cuda) stay listed. Measured in a local
+evaluation (not in this repository): −8.7K characters per spawn.
+
+**Lazy skill loading.** Only `LISTED_CORE` in `tests/test_skill_modules.py` (32 cross-domain entries:
+code-standards, review-protocol, claude-code-extensions, prompt-and-brief-design, secure-coding,
+shell-scripting, git, web research, tests, writing, diagrams, browser and screen, pt-PT, the main
+languages, PostgreSQL/MySQL/SQLite, db-design, OTel, containers, CI, images, ffmpeg, API and algorithm
+design) carries its description in the listing. The other 96 listed skills are `"name-only"` in
+`skillOverrides`: the listing shows `- <name>`, the skill stays invocable, and an agent finds it by its
+name or its `## Skills` line and calls the Skill tool by name; the description and body arrive with the
+call. Trade-off: an agent whose Skills line doesn't name a name-only skill has only the name to go on.
+Offline lookup evaluation (52 tasks, counting a name-only skill as found only when the agent's own line
+names it, so a lower bound): one-call reach 98.7% (misses: hf-hub for llm-engineer, category-theory for
+mathematician) for a listing of 5,306 characters instead of 14,437 (≈ 1,769 tokens instead of 4,813 on
+every spawn). A new skill is name-only unless it joins `LISTED_CORE` (the test enforces it).
 
 **`skillListingBudgetFraction` 0.012.** Claude Code caps the skill listing at context window × 3
 chars per token × this fraction, and the cap is shared with plugin, bundled and claude.ai skills; over
-it, the least-used skills silently lose their description. On the 1M-context 5.5 models 0.012 gives
-36,000 characters: the stack's 14,564 plus ~14,169 for the others (plugins 2,919 measured, bundled
-~3,950 and claude.ai ~7,300 estimated) with 25% to spare. `tests/lint_agents.py` fails when the listing
-plus that 14,169 passes the budget; a session with a 200K window gets a fifth of the space.
-`skillListingMaxDescChars` 500 cuts each description, and six user-run bundled commands are hidden
-from the model through `skillOverrides`.
+it, the least-used skills (by your own usage history, so not deterministic) silently lose their
+description. On the 1M-context 5.5 models 0.012 gives 36,000 characters: the stack's 5,433 plus ~7,213
+for the others (plugins 1,663 measured, bundled ~2,550 and claude.ai ~3,000 estimated). It is headroom
+only (a 200K window gets a fifth); `tests/lint_agents.py` fails when the two pass it.
+
+**`skillListingMaxDescChars` 250** (Claude Code's default 1,536) cuts each description; the stack's are
+≤ 140, so it trims only plugin, bundled and claude.ai text. **Hidden non-stack skills**
+(`user-invocable-only`, still `/name` commands): Claude Code's code-review, security-review, simplify,
+fewer-permission-prompts, keybindings-help, init and dataviz, and the claude.ai skills
+`anthropic-skills:` deep-research, morning, import-memory, consolidate-memory, setup-claude,
+explain-usage, google-workspace and schedule. The duplicate `schedule` is keyed by its full name only: a
+plain `"schedule"` would hide Claude Code's own cloud-routines `/schedule`. Plugin skills
+(document-skills, math-olympiad, skill-creator) ignore `skillOverrides` and stay listed at the cap.
 
 ### Guard hooks
 
@@ -998,7 +1019,8 @@ The counts in this README come from the files:
 ls dot-claude/agents/*.md | wc -l                             # 56 agents
 ls dot-claude/skills/*/SKILL.md | wc -l                       # 214 skills
 ls dot-claude/skills/*/references/*.md | wc -l                # 185 references
-jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 89 hidden: 83 hub modules + 6 bundled
+jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 98 hidden: 83 hub modules + 7 bundled + 8 claude.ai
+jq '[.skillOverrides[] | select(. == "name-only")] | length' dot-claude/settings.json   # 96 listed by name only
 jq '.servers | length' dot-claude/magg/config.json            # 23 catalog servers
 grep -h '^  - [a-z-]*:$' dot-claude/agents/*.md | sort -u | wc -l   # 17 inline servers
 uv run python -c "import sys; sys.path.insert(0, 'tests'); import test_skill_modules as t; h, m = t.hubs_and_modules(); print(len(h), len(m))"   # 24 hubs, 98 modules
