@@ -279,7 +279,6 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 | `agent_guard.py delegations [session] [--json]`, `--print-policy`, `--self-test` | `/usr/bin/python3 ~/.claude/hooks/agent_guard.py` | The delegation ledger; the spawn table; the guard's own checks |
 | `claude-ninja` (a link in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder (or any agent) as your main thread at ultracode, starting in Plan (`--permission-mode plan` unless you pass a mode) |
 | `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
-| `stack-update-tools [--dry-run]` | `~/.claude/bin/`, your terminal | Updates the installed toolchains together: `brew update && brew upgrade --formula`, `rustup update`, `juliaup update`, `ghcup upgrade`, `uv self update` + `uv tool upgrade --all`, `cs update`, `elan self update` + `elan update`; node and Homebrew casks (`brew upgrade --cask`: the pkg casks ask for your password) are printed as manual steps ([CONFIG.md](CONFIG.md) §7, "Prerequisites and toolchains") |
 
 ### Safety and guardrails
 
@@ -732,7 +731,28 @@ is skipped and never upgraded, replaced or removed (`skip <tool> (found: <path>,
 that fails `--version` gets a WARN with the fix to run yourself). Configuration (uv's Python pin, git
 lfs filters, profile lines) is set when missing. To see what it would install first:
 `./install.sh --dry-run` (the brew batches, the upstream installers and the pinned downloads, one line
-each); `~/.claude/bin/stack-update-tools` updates them together later.
+each). Updating them later is yours: [Updating the toolchains](#updating-the-toolchains).
+
+### Updating the toolchains
+
+`install.sh` never upgrades a tool it finds. To update them, run in your terminal (outside the
+sandbox), each only for a tool you have:
+
+| Tool | Command |
+|---|---|
+| Homebrew | `brew update && brew upgrade --formula`; casks: `brew upgrade --cask` (the pkg casks `oracle-jdk` and `mactex` ask for your password) |
+| rustup | `rustup update` |
+| juliaup | `juliaup update` |
+| ghcup | `ghcup upgrade` (ghcup itself; GHC, cabal and HLS versions: `ghcup tui`) |
+| uv | `uv self update` (not for Homebrew's uv: `brew upgrade` covers it), then `uv tool upgrade --all` (pre-commit, magg) |
+| The hooks' Python | `uv python upgrade 3.13`, then `./install.sh` from the stack repo: it re-points `bin/stack-python` and recompiles the hooks (a `STACK_PYTHON` of yours stays) |
+| coursier | `cs update` |
+| elan | `elan self update` (not for Homebrew's elan), then `elan update`; a project's `lean-toolchain` and Mathlib move only with `lake update` there |
+| node | `. ~/.nvm/nvm.sh && nvm install 24 --reinstall-packages-from=current` |
+| MacTeX, Go (pkg installs) | `tlmgr` / the Go installer |
+
+The pinned tools (Gradle, Playwright's browsers, hlint/ormolu, the stack's venvs) move when a newer
+`install.sh` pins newer versions: pull the stack repo and run `./install.sh`.
 
 ### Python: uv, never bare `python`
 

@@ -1,4 +1,4 @@
-"""lib/devtools.sh (install.sh step 2) and bin/stack-update-tools: one line per tool, a present tool
+"""lib/devtools.sh (install.sh step 2): one line per tool, a present tool
 is never touched, one brew batch per type with only the missing names, unresolved names dropped and
 reported, a failed batch retried name by name, casks and Homebrew's installer only on a terminal,
 the upstream installers fetched over HTTPS and run with their non-interactive flags, one group's
@@ -26,7 +26,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "lib" / "devtools.sh"
-UPDATE = ROOT / "dot-claude" / "bin" / "stack-update-tools"
 SRC = SCRIPT.read_text()
 PW_REV = re.search(r"^PLAYWRIGHT_CHROMIUM_REVISION=(\d+)", SRC, re.M).group(1)
 GRADLE_V = re.search(r"^GRADLE_VERSION=(\S+)", SRC, re.M).group(1)
@@ -567,24 +566,6 @@ def test_all_groups_off(tmp_path):
     assert [c for c in e.calls() if not c.startswith("brew list ")] == []
 
 
-# ---------------------------------------------------------------- stack-update-tools
-def test_update_tools_dry_run_and_failure_isolation(tmp_path):
-    e = Env(tmp_path)
-    e.brew()
-    e.shim("rustup", "exit 1")
-    e.shim("juliaup")
-    rc, out, _ = e.run(script=UPDATE, args=("--dry-run",))
-    assert rc == 0 and e.calls() == []
-    assert "would: homebrew: brew update && brew upgrade --formula" in out and "would: rustup: rustup update" in out
-    assert "- ghcup: absent" in out
-    rc, out, _ = e.run(script=UPDATE, args=())
-    assert rc == 1
-    assert re.search(r"^  ! rustup failed: rustup update \(log \S+\)", out, re.M), out
-    assert "ok  juliaup" in out and "ok  homebrew" in out
-    assert e.argv("brew") == ["update", "upgrade --formula"]          # never casks (sudo pkg installers)
-    assert "manual  casks: brew upgrade --cask (pkg casks ask for your password)" in out
-
-
 # ---------------------------------------------------------------- install.sh wiring
 def test_install_sh_wires_modes_and_stops_on_required():
     text = (ROOT / "install.sh").read_text()
@@ -594,10 +575,10 @@ def test_install_sh_wires_modes_and_stops_on_required():
     assert '[ "$dt_rc" = 3 ] && exit 1' in text
     # after the change-review question (R4), never before it
     assert text.index('say "2/11') < text.index('lib/devtools.sh" all')
-    assert "stack-update-tools stack-budget stack-tree; do stage_script 755" in text and '"bin/stack-update-tools",' in text
-    # no sudo call in the tool installer or the update command; every download HTTPS-only into a file
+    # the update command is gone (README lists the upgrade commands): not shipped, not staged
+    assert "stack-update-tools" not in text and not (ROOT / "dot-claude" / "bin" / "stack-update-tools").exists()
+    # no sudo call in the tool installer; every download HTTPS-only into a file
     assert not re.search(r"\bsudo\b", shell_code(SRC))
-    assert not re.search(r"\bsudo\b", shell_code(UPDATE.read_text()))
     code = "\n".join(l for l in SRC.splitlines() if not l.lstrip().startswith("#"))
     assert not re.search(r"curl[^\n|]*\|\s*(ba|z)?sh\b", code)
     for m in re.finditer(r"\bcurl --[^\n]*", code):
@@ -710,16 +691,6 @@ def test_mathlib_pin_mismatch_or_a_failed_cache_never_builds(tmp_path):
     shutil.rmtree(e.home / "lean")
     e.run("LEAN", tty="1", DEVTOOLS_NOFILE="65536", LAKE_TOOLCHAIN=LEAN_TOOLCHAIN, LAKE_REV="v4.34.1", LAKE_FAIL="cache")
     assert e.argv("lake") == ["+stable new stack_mathlib math", "exe cache get"]
-
-
-def test_update_tools_updates_elan(tmp_path):
-    e = Env(tmp_path)
-    e.shim("elan")
-    rc, out, _ = e.run(script=UPDATE, args=("--dry-run",))
-    assert "would: elan self update: elan self update" in out and "would: elan update: elan update" in out
-    rc, out, _ = e.run(script=UPDATE, args=())
-    assert e.argv("elan") == ["self update", "update"]
-    assert "ok  elan update" in out
 
 
 # ---------------------------------------------------------------- open-file limit (install.sh)
