@@ -2,6 +2,8 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = ["claude-agent-sdk==0.2.163"]
+# [tool.uv]
+# exclude-newer = "2026-10-04T00:00:00Z"
 # ///
 """claude-agent-stack for Agent SDK apps (optional; nothing loads it). options(): a plain ClaudeAgentOptions
 that loads the installed stack from its files; run(): one prompt -> one dict (report parsed without an

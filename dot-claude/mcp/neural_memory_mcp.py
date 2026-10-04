@@ -1,6 +1,8 @@
 # /// script
 # requires-python = ">=3.11"
 # dependencies = ["neural-memory==4.62.0"]
+# [tool.uv]
+# exclude-newer = "2026-09-27T00:00:00Z"
 # ///
 """neural-memory (associative long-term memory) as an MCP server for the stack's agents.
 

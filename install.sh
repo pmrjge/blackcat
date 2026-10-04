@@ -918,8 +918,12 @@ maxfiles_step
 mf_raise_ulimit
 
 say "2/11 Tools: prerequisites, dev tools, magg, huetension, serial-mcp, science and tools venvs"
-# Supply chain (C7): every download is pinned to a version and, where the project publishes one, a
-# checksum; the Python venvs install from hash-locked lockfiles (requirements/, 7-day cooldown).
+# Supply chain (C7, CONFIG.md §7 "Supply chain"): what the stack installs itself is pinned to a version
+# and, where the project publishes one, a checksum; the Python venvs install from hash-locked lockfiles
+# (requirements/, 7-day cooldown); the stack's PEP 723 scripts resolve as of their header's
+# exclude-newer date. NOT pinned beyond the top-level version: the uvx/npx MCP servers' dependencies
+# (resolved at first start), and the upstream managers' official "latest" installers (rustup, nvm,
+# ghcup, juliaup, coursier, elan, Homebrew: their URL and sha256 are logged, not checked).
 # Prerequisites and toolchains are lib/devtools.sh's (pins, routes and groups there; CONFIG.md §7):
 # Homebrew, one brew batch for every missing formula and one for every missing cask, the upstream
 # managers (uv, nvm, rustup, ghcup, juliaup, coursier, elan), then gitleaks, pre-commit, Gradle,

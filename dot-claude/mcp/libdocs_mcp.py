@@ -1,6 +1,8 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = ["mcp>=1.10,<2", "httpx>=0.27"]
+# [tool.uv]
+# exclude-newer = "2026-09-27T00:00:00Z"
 # ///
 """libdocs — up-to-date library documentation for coding agents (a Context7 replacement).
 

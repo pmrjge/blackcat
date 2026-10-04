@@ -155,6 +155,22 @@ def test_install_drops_the_sandbox_cache_variables(tmp_path):
     assert seen and "claude-sandbox" not in seen, seen
 
 
+# ---------------------------------------------------------------- MEDIUM: CWE-494 unpinned scripts
+def test_every_shipped_pep723_script_has_a_dependency_cutoff():
+    """The stack's own PEP 723 scripts (MCP servers holding API keys, the model refit, the SDK helper)
+    resolve their dependency ranges as of a fixed date: `[tool.uv] exclude-newer` in the header, which
+    `uv run --script` (the agents' mcpServers, the prefetch, the refit) honours."""
+    import re
+    found = {}
+    for sub in ("mcp", "hooks", "bin"):
+        for p in sorted(Path(ROOT, "dot-claude", sub).glob("*.py")):
+            m = re.search(r"(?m)^# /// script\n((?:#.*\n)*?)# ///$", p.read_text(encoding="utf-8"))
+            if m and re.search(r'dependencies = \[\s*"', m.group(1)):
+                found[p.name] = re.search(r'(?m)^# exclude-newer = "\d{4}-\d\d-\d\dT00:00:00Z"$', m.group(1)) is not None
+    assert {"image_studio_mcp.py", "libdocs_mcp.py", "neural_memory_mcp.py"} <= set(found)
+    assert [n for n, ok in found.items() if not ok] == []
+
+
 def _doctor_copy(tmp_path, with_guard_section=False):
     c = tmp_path / "conf"
     (c / "bin").mkdir(parents=True)
