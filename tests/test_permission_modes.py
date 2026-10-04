@@ -100,13 +100,14 @@ def test_shipped_agents_follow_the_rule():
 # silently). The user's decision, "All except DB and Chrome": every MCP server an agent names is
 # allowed whole, except mongodb and postgres (database writes) and claude-in-chrome (the user's
 # logged-in browser), which keep prompting and are denied in headless runs. magg and context-mode
-# are allowed or asked tool by tool (test_no_duplicates); conductor serves Conductor's AskUserQuestion.
+# are allowed or asked tool by tool (test_no_duplicates). No agent names conductor since BlackCat
+# dropped Conductor's AskUserQuestion (2026-10-04).
 ALLOWED_MCP_SERVERS = {
     "exa", "jina", "libdocs", "wolfram", "huggingface", "wandb", "spider", "image-studio", "huetension",
     "markitdown", "illustrator", "after-effects", "premiere", "blender", "playwright", "neural-memory",
     "computer-use", "lean", "mobilebuild"}
 PROMPTING_MCP_SERVERS = {"mongodb", "postgres", "claude-in-chrome"}
-PER_TOOL_MCP_SERVERS = {"magg", "context-mode", "conductor"}
+PER_TOOL_MCP_SERVERS = {"magg", "context-mode"}
 
 
 def mcp_rules(kind):
