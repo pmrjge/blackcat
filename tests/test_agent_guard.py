@@ -520,7 +520,7 @@ def test_depth_chain(env):
     p = run(pre_agent(s, "coder", parent="main-coder", agent_id="A2"), env,
             extra={"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "2"})
     assert decision(p) == "deny"
-    # the stack's depth 4 (settings.json): L3 may spawn an L4, and the L4 may not spawn
+    # an explicit depth 4: L3 may spawn an L4, and the L4 may not spawn
     four = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4"}
     assert decision(run(pre_agent(s, "coder-copy", parent="coder", agent_id="A3"), env,
                         extra=four)) == "allow"
@@ -528,6 +528,19 @@ def test_depth_chain(env):
     assert reg("A5")["depth"] == 4
     run(post_agent(s, "coder-copy", "A6", agent_id="A3", parent="coder"), env, extra=four)
     p = run(pre_agent(s, "scout", parent="coder-copy", agent_id="A6"), env, extra=four)
+    assert decision(p) == "deny" and "Depth limit" in reason(p)
+    # the stack's depth 8 (settings.json): the same L4 may spawn, an L7 may spawn an L8, the L8 not
+    eight = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "8"}
+    assert decision(run(pre_agent(s, "scout", parent="coder-copy", agent_id="A6"), env,
+                        extra=eight)) == "allow"
+    chain = [("A6", "coder-copy"), ("A7", "coder"), ("A8", "coder-copy"), ("A9", "coder"),
+             ("A10", "coder-copy")]
+    for (pid, ptype), (cid, ctype) in zip(chain, chain[1:]):
+        run(post_agent(s, ctype, cid, agent_id=pid, parent=ptype), env, extra=eight)
+    assert [reg(a)["depth"] for a, _ in chain] == [4, 5, 6, 7, 8]
+    assert decision(run(pre_agent(s, "scout", parent="coder", agent_id="A9"), env,
+                        extra=eight)) == "allow"
+    p = run(pre_agent(s, "scout", parent="coder-copy", agent_id="A10"), env, extra=eight)
     assert decision(p) == "deny" and "Depth limit" in reason(p)
 
 

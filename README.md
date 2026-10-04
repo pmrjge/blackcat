@@ -16,7 +16,7 @@ Jorge, written with Anthropic's Claude models ([Credits](#credits)).
 
 <p align="center"><img src="docs/diagrams/architecture.svg" alt="claude-agent-stack architecture. The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 4. Hooks check every tool call of every agent." width="100%"></p>
 
-BlackCat delegates every job, hooks check every tool call at every level, and an agent at L4 cannot spawn.
+BlackCat delegates every job, hooks check every tool call at every level, and an agent at L8 cannot spawn.
 
 <details><summary>Diagram source (Mermaid)</summary>
 
@@ -34,7 +34,7 @@ flowchart TD
     S1["Specialists · L1"]
     O["orchestrator · L1 · up to 32 children"]
     S2["Specialists · L2"]
-    H["Helpers, checks, copies · L2 to L4"]
+    H["Helpers, checks, copies · L2 to L8"]
   end
   U --> B
   B -->|"one domain, or 2-3 independent asks"| S1
@@ -176,14 +176,14 @@ with plain Claude Code on the same tasks ([Measured so far](#measured-so-far)).
 
 ### Architecture
 
-Three kinds of agent, four levels below the main thread, one policy hook; the diagram is at the
+Three kinds of agent, eight levels below the main thread, one policy hook; the diagram is at the
 [top of this page](#claude-agent-stack).
 
 | Level | Who runs there | Limit (enforced by) |
 |---|---|---|
 | Main thread | BlackCat (`dot-claude/agents/blackcat.md`; `"agent": "blackcat"` in `settings.json`) | 24 tool calls per prompt, at most 8 of them Agent calls within 120 s and at most 3 Read calls; no Bash, Write or Edit: it only delegates (`BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_DISPATCH_WINDOW_S`, `BLACKCAT_MAX_READS`, `BLACKCAT_MAX_OWN_STEPS` 0); its children always run in the background (`BLACKCAT_BACKGROUND`) |
-| L1 to L3 | Any agent whose `POLICY` row allows the spawn | 3 running children per agent by default, more for coordinators (`STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE`); 33 subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`; Claude Code's default is 20) |
-| L4 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4`) |
+| L1 to L7 | Any agent whose `POLICY` row allows the spawn | 3 running children per agent by default, more for coordinators (`STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE`); 33 subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`; Claude Code's default is 20) |
+| L8 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8`) |
 
 BlackCat's own tools, as `blackcat.md` lists them: an `Agent(...)` allowlist of 52 agent types (every
 specialist except supreme-coder, db-engineer and localizer), SendMessage, AskUserQuestion,
@@ -561,7 +561,7 @@ reads the ledger, dispatches every job (up to 8 children in one burst per prompt
 dependent multi-specialist work to the orchestrator. Code escalates coder → main-coder →
 ninja-coder → supreme-coder; language-heavy work goes to the language engineer, domain builds to the domain
 expert. The helpers are leaves (no Agent tool); db-engineer and localizer are reached through their
-family heads, not BlackCat. Depth is BlackCat → L1 → L2 → L3 → L4, and L4 cannot spawn.
+family heads, not BlackCat. Depth is BlackCat → L1 → … → L8, and L8 cannot spawn.
 
 ### Skills: hubs, modules, references
 
@@ -1074,7 +1074,7 @@ The stack's user commands (the model can't run them: `disable-model-invocation`)
 | `/stack-doctor` | Read-only health check (`bin/doctor.sh`) |
 | `/stack-tree [options]` | Read-only: this session's tree of agents and subagents (type, task, status, duration, tokens) with the commands each ran as leaves, collapsed (`git status ×3 [1 exit 1]`), Bash commands cut and secrets masked (`bin/stack-tree --hook`). `--depth N`, `--no-leaves`, `--leaves-only-failed`, `--max-leaves N`, `--session ID`, `--ascii`, `--json`, `--width W`; `--pending` keeps only agents still running, failed or blocked, or finished and not yet handled |
 | `/stack-tree table [--columns a,b\|all] [--csv\|--json]` | The same as a GitHub-flavored markdown table, one row per agent and per tool call: path, depth, level, parent, agent, kind (agent, bash, tool, mcp, skill), task, command, status, result (done/partial/blocked, ok/exit N/blocked/error), started, duration, tokens, calls, session; `all` adds id, tid, name, isolation, ended, output_tokens, transcript. A field nothing records reads `unrecorded` |
-| `/stack-tree static [table]` | The designed hierarchy from the agent files: BlackCat → L1 → … → L4, each agent expanded once at its shallowest level, its skills and BlackCat's commands as leaves; the table has agent, level, parent, model, effort, max_turns, may_spawn, tools, mcp, skills |
+| `/stack-tree static [table]` | The designed hierarchy from the agent files: BlackCat → L1 → … → L8, each agent expanded once at its shallowest level, its skills and BlackCat's commands as leaves; the table has agent, level, parent, model, effort, max_turns, may_spawn, tools, mcp, skills |
 | `/override-agent <agent> <model>` | This session only: every delegated `<agent>` runs on `<model>` (`sonnet`, `opus`, `haiku`, `fable`). The effort comes from the built-in table `hooks/agent_effort.json` (per agent and model, clamped to what the model accepts); it is shown but not applied (CONFIG.md §5, "Session model overrides") |
 | `/override-agent list` | Read-only: this session's overrides (agent, model, effort and its source) and every agent's default model/effort |
 | `/override-agent reset <agent\|all>` | Back to the agent definition's model and effort |
@@ -1226,7 +1226,7 @@ you may set yourself.
 | `STACK_IMAGE_MAX_PX` / `STACK_IMAGE_MAX_B64` | 1919 / 4500000 | Longest image side; most base64 chars per image | guard, image-studio, doctor |
 | `STACK_IMAGE_UPLOAD_TOOLS` | — | Regex of more MCP tools whose image arguments get downscaled copies | guard |
 | `STACK_ENV_FILE` ● | `~/.claude/stack.env` | Where the keys live | `mcp-headers`, `with-stack-env`, libdocs, image-studio, `read_gate.py`, `web_caps.py` |
-| `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` ● | 4 | Claude Code's nesting limit (its default is 3) | Claude Code, guard |
+| `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` ● | 8 | Claude Code's nesting limit (its default is 3) | Claude Code, guard |
 | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 33 | Subagents running in one session | Claude Code, guard |
 | `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` ○ | 1 | Built-in Explore and Plan off (the stack's `explore` replaces Explore) | Claude Code |
 | `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` ○ | 1 | Every built-in type off in `claude -p` | Claude Code |

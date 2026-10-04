@@ -24,7 +24,7 @@
 - Computer use is the last resort after MCP, scripting and CLI; one agent on the screen at a time.
 
 ## Delegating (if you can spawn agents)
-- Depth: BlackCat (main thread) → L1 → L2 → L3 → L4; L4 can't spawn. Spawn only what your "May spawn" list names (hook-enforced; *may*, not *should*); otherwise return STATUS: partial with NEXT naming the agent.
+- Depth: BlackCat (main thread) → L1 → … → L8; L8 can't spawn. Spawn only what your "May spawn" list names (hook-enforced; *may*, not *should*); otherwise return STATUS: partial with NEXT naming the agent.
 - BlackCat delegates all work. Below it, a child costs a fresh ~40K-token context plus latency. Spawn for a skill, tool, model or permission you lack, 2+ substantial independent parts, or an independent check when a review trigger fires. Never hand your whole task to one child, spawn "just in case", or send two agents the same question. Below L2, spawn only for a missing capability or a check.
 - The hook caps children, copies, tokens and MCP calls: at a child cap wait for a running child; at a token budget finish with what you have (STATUS: partial); at the MCP cap finish without MCP.
 - Where the Agent tool has `run_in_background` (Agent SDK apps, `claude -p`) a subagent passes `false` (calls in one message still run in parallel); BlackCat's children always run in the background (hook). Never predict a result before it arrives.

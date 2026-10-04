@@ -114,8 +114,8 @@ Reads the hook JSON on stdin.
                                     STACK_MODE_PROBE diagnostic, which with PreToolUse (`budget`
                                     mode) and SubagentStart logs each event's permission_mode
 
-Concurrency model (the user's spec): depth 4 below the main thread (blackcat -> L1 -> L2 -> L3 ->
-L4; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=4, and the fallback here stays at
+Concurrency model (the user's spec): depth 8 below the main thread (blackcat -> L1 -> ... ->
+L8; settings.json sets CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8, and the fallback here stays at
 Claude Code's own default of 3); any agent whose row allows it may launch several children in ONE
 message (they run concurrently); at most STACK_MAX_FANOUT running children per parent
 (STACK_MAX_FANOUT_BY_TYPE per type; BlackCat: BLACKCAT_MAX_DISPATCH per prompt instead). Copies:

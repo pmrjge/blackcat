@@ -39,7 +39,7 @@ from urllib.parse import urlsplit, urlunsplit
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 CONFIG = os.path.dirname(HERE)                      # <config> installed, dot-claude/ in the repo
-MAX_DEPTH = 4                                       # BlackCat -> L1 -> L2 -> L3 -> L4; L4 cannot spawn
+MAX_DEPTH = 8                                       # CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH in settings.json; L8 cannot spawn
 SID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
 MAX_JSON_BYTES = 4 << 20                            # one state record
@@ -1055,8 +1055,9 @@ def run_static(opts):
             return {"agent": n.type, "level": level(n.depth), "ref": n.ref, "leaves": n.leaves,
                     "children": [j(c) for c in n.children]}
         return [json.dumps({"static": True, "root": j(root), "unreachable": unreachable}, indent=1)], 0
-    out = ["stack-tree --static · %d agents in %s · BlackCat -> L1 -> L2 -> L3 -> L4 (L4 cannot spawn) · each "
-           "agent expands once, at its shallowest level" % (len(agents), clean(os.path.join(CONFIG, "agents")))]
+    out = ["stack-tree --static · %d agents in %s · BlackCat -> L1 -> ... -> L%d (L%d cannot spawn) · each "
+           "agent expands once, at its shallowest level"
+           % (len(agents), clean(os.path.join(CONFIG, "agents")), MAX_DEPTH, MAX_DEPTH)]
     out += render_tree(root, opts, static=True)
     if unreachable:
         out.append("not reachable from BlackCat: %s" % ", ".join(unreachable))

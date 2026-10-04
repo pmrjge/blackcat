@@ -427,7 +427,7 @@ def test_static_hierarchy_matches_the_agent_files_and_policy(tmp_path):
     l1 = {a for a, r in by.items() if r["level"] == "L1"}
     assert l1 == set(policy["blackcat"]) and by["blackcat"]["level"] == "main"
     assert by["supreme-coder"]["level"] == "L2" and by["supreme-coder"]["parent"] == "orchestrator"
-    assert all(r["level"] in ("main", "L1", "L2", "L3", "L4") for r in rows)
+    assert all(r["level"] in ["main"] + ["L%d" % d for d in range(1, 9)] for r in rows)
     assert by["python-engineer"]["skills"].startswith("python-engineering")
     assert "/stack-tree" in by["blackcat"]["skills"] and "/stack-doctor" in by["blackcat"]["skills"]
     tree = json.loads(f.run("--static", "--json").stdout)
@@ -435,7 +435,7 @@ def test_static_hierarchy_matches_the_agent_files_and_policy(tmp_path):
     def walk(n, depth):
         assert n["level"] == ("main" if depth == 0 else "L%d" % depth)
         if n["children"]:
-            assert depth < 4 and n["ref"] is None          # only a first occurrence below L4 expands
+            assert depth < 8 and n["ref"] is None          # only a first occurrence below L8 expands
         for c in n["children"]:
             walk(c, depth + 1)
     walk(tree["root"], 0)

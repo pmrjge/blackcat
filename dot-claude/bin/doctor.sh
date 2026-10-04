@@ -689,7 +689,7 @@ else:
 (ok if s.get("autoCompactEnabled", True) is True else fail)("autoCompactEnabled=%s" % s.get("autoCompactEnabled", "default(true)"))
 (ok if s.get("autoCompactWindow") == 629000 else warn)("autoCompactWindow=%s (stack: 629000)" % s.get("autoCompactWindow"))
 env = s.get("env", {})
-want = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4", "MCP_DISCOVERY_CACHE": "1"}
+want = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "8", "MCP_DISCOVERY_CACHE": "1"}
 for k, v in want.items():
     (ok if env.get(k) == v else warn)("%s=%s (stack: %s)" % (k, env.get(k), v))
 # Tool search (MCP schemas deferred until needed) is on by default on the Anthropic API and off
