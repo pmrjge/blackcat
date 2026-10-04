@@ -2973,8 +2973,10 @@ PY
   # --with-lsp installs the missing servers: jdtls in step 2 (lib/devtools.sh's LSP group, Homebrew's
   # formula), the others here, each by its language's own route. Each install's output goes to its
   # own log in a private dir under $TMPDIR (mktemp -d: 0700), kept when an install failed (the line
-  # names the log and shows its end), else removed. Why a server is still missing is recorded
-  # (lsp_why: "server|cause" lines) for the line that ends this step.
+  # names the log and shows its end), else removed. A run started from a Claude Code shell has its
+  # TMPDIR replaced by $WORK/tmp (above), so the log goes at exit and only its printed end remains.
+  # Why a server is still missing is recorded (lsp_why: "server|cause" lines) for the line that ends
+  # this step.
   lsp_why=""; lsp_logs=""; lsp_keep=0
   lsp_cause(){ lsp_why="$lsp_why$1|$2
 "; }
@@ -2995,7 +2997,8 @@ PY
     return 0
   }
   brew_q(){ HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 brew "$@"; }
-  # the skip rule: a server found outside this run's PATH (MacPorts, a nix profile, ...) is never installed again
+  # the skip rule: a server found outside this run's PATH (MacPorts, a nix profile, ...) is never
+  # installed again by the npm or Homebrew routes below
   lsp_off_path(){
     local w tab; tab="$(printf '\t')"
     w="$(tool_where "$1")" || return 1
@@ -3017,7 +3020,8 @@ PY
     pyright-langserver) echo "npm install -g --ignore-scripts $PYRIGHT_PIN" ;;
     typescript-language-server) echo "npm install -g --ignore-scripts $TSLS $TS_PIN" ;;
     rust-analyzer) echo "rustup component add rust-analyzer (no rustup: brew install rust-analyzer)" ;;
-    jdtls) echo "brew install jdtls in step 2's Homebrew batch (the LSP group; it brings Homebrew's openjdk and python@3.14)" ;;
+    jdtls) if [ "${STACK_INSTALL_LSP:-1}" = 0 ]; then echo "brew install jdtls (STACK_INSTALL_LSP=0 keeps it out of step 2)"
+           else echo "brew install jdtls in step 2's Homebrew batch (the LSP group; it brings Homebrew's openjdk and python@3.14)"; fi ;;
     kotlin-lsp) echo "brew install --cask kotlin-lsp" ;;
     haskell-language-server-wrapper) echo "ghcup install hls recommended (ghcup: step 2's HASKELL group)" ;;
     julia-languageserver) echo "LanguageServer.jl into the Julia environment @claude-lsp (julia: step 2's JULIA group)" ;;
@@ -3028,9 +3032,16 @@ PY
     *) echo "no install route in the stack" ;;
   esac; }
   if [ "$WITH_LSP" = 1 ] && [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 1 ]; then
-    # jdtls is in step 2's would: line (the brew batch)
+    # jdtls is in step 2's would: line (the brew batch). HLS, LanguageServer.jl and Metals only when
+    # their manager is here or step 2's group would install it, as in a real run.
     for s in pyright-langserver typescript-language-server rust-analyzer kotlin-lsp haskell-language-server-wrapper julia-languageserver metals; do
-      lsp_works "$s" || would "$s ← $(lsp_route "$s")"
+      lsp_works "$s" && continue
+      case "$s" in
+        haskell-language-server-wrapper) have ghcup || [ "${STACK_INSTALL_HASKELL:-1}" != 0 ] || continue ;;
+        julia-languageserver) have julia || [ "${STACK_INSTALL_JULIA:-1}" != 0 ] || continue ;;
+        metals) have cs || [ "${STACK_INSTALL_SCALA:-1}" != 0 ] || continue ;;
+      esac
+      would "$s ← $(lsp_route "$s")"
     done
   elif [ "$WITH_LSP" = 1 ] && [ "$NO_DEPS" = 0 ]; then
     # npm -g goes into Node's own prefix when that is writable and outlives Node upgrades (Homebrew);
@@ -3045,6 +3056,7 @@ PY
     }
     for s in pyright-langserver typescript-language-server; do
       lsp_works "$s" && continue
+      lsp_off_path "$s" && continue
       if ! have npm; then lsp_cause "$s" "no npm (node: step 2's NODE group), then $(lsp_route "$s")"
       elif [ "$s" = pyright-langserver ]; then lsp_get "$s" "$(lsp_route "$s")" npm_g "$PYRIGHT_PIN"
       else lsp_get "$s" "$(lsp_route "$s")" npm_g "$TSLS" "$TS_PIN"; fi

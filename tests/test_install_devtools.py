@@ -54,7 +54,9 @@ case "$1" in
     shift; t=formula; [ "$1" = --cask ] && { t=cask; shift; }
     [ $# -gt 1 ] && [ -n "${BREW_BATCH_FAIL:-}" ] && exit 1
     for n in "$@"; do case " ${BREW_FAIL:-} " in *" $n "*) exit 1 ;; esac; done
-    for n in "$@"; do echo "$t ${n##*/}" >>"$state"; done ;;
+    for n in "$@"; do echo "$t ${n##*/}" >>"$state"; done
+    # jdtls's dependency: Homebrew's keg-only openjdk, where jdk_at_least looks (BREW_OPENJDK_RELEASE)
+    case " $* " in *" jdtls "*) [ -z "${BREW_OPENJDK_RELEASE:-}" ] || { mkdir -p "${BREW_OPENJDK_RELEASE%/*}" && echo 'JAVA_VERSION="27.0.1"' >"$BREW_OPENJDK_RELEASE"; } ;; esac ;;
 esac
 exit 0
 '''
@@ -316,13 +318,16 @@ def test_a_present_jdtls_is_skipped(tmp_path):
 
 
 def test_fresh_machine_java_and_lsp_queue_the_jdk_cask_and_jdtls(tmp_path):
-    """No JDK anywhere: the JDK check runs before any install, so jdtls's Homebrew openjdk (formula
-    batch first) never stands in for the oracle-jdk cask in the same run."""
+    """No JDK anywhere: the JDK check runs before any install, so jdtls's Homebrew openjdk (the
+    formula batch, first; the shim drops its keg where jdk_at_least looks) never stands in for the
+    oracle-jdk cask in the same run."""
     e = Env(tmp_path)
     e.brew()
     e.present("uv", "node", "npx")
-    rc, out, err = e.run("JAVA", "LSP", tty="1")
+    keg = tmp_path / "opt" / "openjdk" / "libexec" / "openjdk.jdk" / "Contents" / "Home" / "release"   # $(brew)/../../opt
+    rc, out, err = e.run("JAVA", "LSP", tty="1", BREW_OPENJDK_RELEASE=str(keg))
     assert rc == 0, err
+    assert keg.is_file(), "the shim's openjdk keg was not created"
     f = e.argv("brew", "install")
     formulae = [a for a in f if not a.startswith("install --cask")]
     casks = [a for a in f if a.startswith("install --cask")]
@@ -1459,7 +1464,7 @@ def test_every_lsp_server_has_an_install_route_or_an_exemption():
             here |= set(m.group(1).split())
     batch = {p[4:] for _, _, _, probes in BREW_ITEMS for p in probes.split(",") if p.startswith("cmd:")}
     route_fn = step[step.index("lsp_route(){"):step.index("esac; }", step.index("lsp_route(){"))]
-    routes = {n for m in re.finditer(r"^\s+([a-z][\w|-]*)\) echo ", route_fn, re.M) for n in m.group(1).split("|")}
+    routes = {n for m in re.finditer(r"^\s+([a-z][\w|-]*)\) ", route_fn, re.M) for n in m.group(1).split("|")}
     for s in servers:
         assert s in here or s in batch or s in LSP_EXEMPT, "%s: no install route and no exemption" % s
         assert s in routes, "%s: no lsp_route line" % s

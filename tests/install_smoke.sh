@@ -2175,7 +2175,7 @@ chmod +x "$TW/stubs/brew"
 TW_PATH="$TW/brewbin:$TW/stubs:$HERE/tests/fake-claude:/usr/bin:/bin:/usr/sbin:/sbin"
 # wrun HOME LOG BREW_FAIL ARGS...: one install into a scratch HOME; brew's and claude's calls logged next to LOG
 wrun(){ local home="$1" log="$2" fail="$3"; shift 3; mkdir -p "$home"; rm -f "$TW/brewbin"/* "$TW/brewbin/.state"
-  env -u STACK_INSTALL_LSP HOME="$home" PATH="$TW_PATH" CLAUDE_CONFIG_DIR="$home/.claude" STACK_PYTHON="$PY313" \
+  env -u STACK_INSTALL_LSP ${LSP_SET:+STACK_INSTALL_LSP=$LSP_SET} HOME="$home" PATH="$TW_PATH" CLAUDE_CONFIG_DIR="$home/.claude" STACK_PYTHON="$PY313" \
     FAKE_CLAUDE_JSON="$TW/$log.json" STACK_CLAUDE_JSON="$TW/$log.json" FAKE_CLAUDE_LOG="$TW/$log.claude" \
     BREW_LOG="$TW/$log.brew" BREW_BIN="$TW/brewbin" BREW_FAIL="$fail" STACK_INSTALL_MAXFILES=0 \
     DEVTOOLS_BREW_CANDIDATES="" DEVTOOLS_SYSTEM_DIRS="" DEVTOOLS_PATH_HELPER="" DEVTOOLS_PKGUTIL="" DEVTOOLS_MDFIND="" \
@@ -2184,9 +2184,11 @@ wrun(){ local home="$1" log="$2" fail="$3"; shift 3; mkdir -p "$home"; rm -f "$T
     STACK_INSTALL_CXX=0 STACK_INSTALL_GO=0 STACK_INSTALL_LEAN=0 STACK_INSTALL_POSTGRES=0 STACK_INSTALL_MONGODB=0 \
     "$INSTALL" --no-mcp --no-profile "$@" </dev/null >"$TW/$log" 2>&1; }
 plugin_installed(){ grep -qF "[\"plugin\", \"install\", \"$1@claude-plugins-official\", \"--scope\", \"user\"]" "$2"; }
-echo '{}' > "$TW/r1.json"; echo '{}' > "$TW/r2.json"; echo '{}' > "$TW/r3.json"; echo '{}' > "$TW/r4.json"
+for r in r1 r2 r3 r4 r5; do echo '{}' > "$TW/$r.json"; done
 # r1: everything Homebrew has works except the kotlin-lsp cask
 wrun "$TW/h1" r1 "kotlin-lsp" --with-lsp; rc=$?
+# A kept log is gone after a run from a Claude Code shell (install.sh replaces that TMPDIR with its
+# work dir, removed at exit): the line naming it and the log's printed end are what is checked then.
 klog="$(sed -n 's/^  ! kotlin-lsp: brew install --cask kotlin-lsp failed (log \(.*\))$/\1/p' "$TW/r1" | head -n 1)"
 [ "$rc" = 0 ] && [ "$(grep -cx 'install jdtls' "$TW/r1.brew")" = 1 ] && grep -qF '+ jdtls (brew)' "$TW/r1" \
   && plugin_installed jdtls-lsp "$TW/r1.claude" \
@@ -2227,9 +2229,16 @@ wrun "$TW/h4" r4 "" --with-lsp --dry-run; rc=$?
   && grep -qF 'would: HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install jdtls' "$TW/r4" \
   && grep -qF 'would: rust-analyzer ← rustup component add rust-analyzer (no rustup: brew install rust-analyzer)' "$TW/r4" \
   && grep -qF 'would: kotlin-lsp ← brew install --cask kotlin-lsp' "$TW/r4" \
+  && ! grep -qF 'would: haskell-language-server-wrapper' "$TW/r4" && ! grep -qF 'would: metals' "$TW/r4" \
   && grep -q '^  - no language server for:.* (dry run: a real run tries the routes below)' "$TW/r4" \
   && pass "--dry-run --with-lsp: jdtls in the brew batch line, one would: line per server, nothing installed" \
   || { failed "--dry-run --with-lsp (rc=$rc): brew [$(tr '\n' '|' <"$TW/r4.brew")]"; grep -i 'would\|language server' "$TW/r4" | sed 's/^/    /'; }
+# r5: STACK_INSTALL_LSP=0 keeps jdtls out of a --with-lsp run; the closing line says so
+LSP_SET=0 wrun "$TW/h5" r5 "" --with-lsp --dry-run; rc=$?
+[ "$rc" = 0 ] && ! grep -q 'would: .*brew install.* jdtls' "$TW/r5" && grep -q '^  groups off:.* LSP' "$TW/r5" \
+  && grep -qF '    jdtls: brew install jdtls (STACK_INSTALL_LSP=0 keeps it out of step 2)' "$TW/r5" \
+  && pass "--with-lsp with STACK_INSTALL_LSP=0: no jdtls in step 2, the closing line names the knob" \
+  || { failed "STACK_INSTALL_LSP=0 (rc=$rc)"; grep -i 'jdtls\|groups off' "$TW/r5" | sed 's/^/    /'; }
 assert_unchanged_real_home
 drop_scratch "$TW"
 
