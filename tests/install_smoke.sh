@@ -445,7 +445,7 @@ for ev, gs in json.load(open(sys.argv[1])).get("hooks", {}).items():
   || { failed "hook commands duplicated after a re-run:"; printf '%s\n' "$dup_hooks" | sed 's/^/    /'; }
 assert_unchanged_real_home
 
-echo "== 3. An edited stack file: replaced by default (the backup keeps it); --no-prune keeps it with a .new"
+echo "== 3. An edited stack file: replaced (the backup keeps it); --no-prune and a bare --force are usage errors"
 printf '\n<!-- local edit -->\n' >> "$T1/agents/coder.md"
 CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T1/.install3.log" 2>&1
 B3="$(latest_backup "$T1")"
@@ -456,20 +456,17 @@ B3="$(latest_backup "$T1")"
   && pass "edited coder.md replaced, listed under 'replaced', the edit kept in the backup (0600)" \
   || failed "default run over an edited coder.md: $(grep -F 'coder.md' "$T1/.install3.log" | head -3)"
 printf '\n<!-- local edit -->\n' >> "$T1/agents/coder.md"
-edited_before="$(sha "$T1/agents/coder.md" | awk '{print $1}')"
-CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --no-prune >"$T1/.install3b.log" 2>&1
-edited_after="$(sha "$T1/agents/coder.md" | awk '{print $1}')"
-[ "$edited_before" = "$edited_after" ] && pass "--no-prune: edited coder.md kept as-is" || failed "--no-prune overwrote the edited coder.md"
-[ -f "$T1/agents/coder.md.new" ] && pass "--no-prune: .new copy of the rendered coder.md was written" || failed "no .new copy found for the modified coder.md"
-grep -qF "$T1/agents/coder.md.new" "$T1/.install3b.log" && pass "the final summary lists the pending coder.md.new" || failed "pending .new not listed at the end"
-CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --no-prune --force >"$T1/.install4.log" 2>&1
-edited_forced="$(sha "$T1/agents/coder.md" | awk '{print $1}')"
-if [ "$edited_forced" != "$edited_before" ] && ! grep -q '<!-- local edit -->' "$T1/agents/coder.md"; then
-  pass "--no-prune --force overwrote the modified coder.md"
-else
-  failed "--no-prune --force did not overwrite the modified coder.md"
-fi
-[ ! -f "$T1/agents/coder.md.new" ] && pass "stale coder.md.new removed once the file is back in sync" || failed "stale coder.md.new left behind"
+edited_before="$(sha "$T1/agents/coder.md" | awk '{print $1}')"; nb3="$(count_backups "$T1")"
+for opt in --no-prune --force; do
+  CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile "$opt" >"$T1/.install3b.log" 2>&1; rc=$?
+  case "$opt" in --no-prune) want='--no-prune was removed: the installer always prunes' ;; *) want='--force works only with --restore' ;; esac
+  [ "$rc" = 2 ] && grep -qF -- "$want" "$T1/.install3b.log" && [ "$(sha "$T1/agents/coder.md" | awk '{print $1}')" = "$edited_before" ] \
+    && [ ! -e "$T1/agents/coder.md.new" ] && [ "$(count_backups "$T1")" = "$nb3" ] \
+    && pass "$opt: a usage error (exit 2) that changes nothing" || failed "$opt (rc=$rc): $(tail -n 2 "$T1/.install3b.log")"
+done
+CLAUDE_CONFIG_DIR="$T1" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T1/.install4.log" 2>&1
+! grep -q '<!-- local edit -->' "$T1/agents/coder.md" && pass "the next plain run replaces the edited coder.md again" \
+  || failed "plain run after the usage errors kept the edit"
 assert_unchanged_real_home
 
 echo "== 4. Settings merge: pins, concurrency, compaction overrides; magg catalog merge"
@@ -1342,7 +1339,7 @@ fi
 assert_unchanged_real_home
 drop_scratch "$TC"
 
-echo "== 15. A drifted config: --dry-run, default prune, one backup that restores exactly, idempotence, --no-prune"
+echo "== 15. A drifted config: --dry-run, prune, one backup that restores exactly, idempotence"
 TX="$(scratch_dir)" || exit 1
 # one line per file or link under a config dir (relpath, kind, sha256, mode), Claude Code's own state
 # aside
@@ -1378,6 +1375,9 @@ make_dirty(){ # stale, modified and unknown files; duplicated hooks and rules; j
   printf '\n<!-- local edit -->\n' >> "$T/agents/coder.md"
   cp "$T/agents/coder.md" "$T/agents/coder.md.new"
   mkdir -p "$T/agents/team"; printf -- '---\nname: team-a\ndescription: x\n---\n' > "$T/agents/team/a.md"
+  # agents an earlier stack version installed (manifest hashes, written below): one unedited, one edited since
+  printf -- '---\nname: retired-agent\ndescription: old\n---\n' > "$T/agents/retired-agent.md"
+  printf -- '---\nname: retired-edited\ndescription: old, edited\n---\n' > "$T/agents/retired-edited.md"
   mkdir -p "$T/skills/old-skill"; printf -- '---\nname: old-skill\ndescription: old\n---\n' > "$T/skills/old-skill/SKILL.md"
   printf 'my notes\n' > "$T/skills/python-engineering/notes.md"
   printf '\nlocal tweak\n' >> "$T/skills/python-engineering/SKILL.md"
@@ -1393,7 +1393,6 @@ make_dirty(){ # stale, modified and unknown files; duplicated hooks and rules; j
   mkdir -p "$T/skills/synced/abc/docx"; printf -- '---\nname: docx\ndescription: synced\n---\n' > "$T/skills/synced/abc/docx/SKILL.md"
   printf '#!/bin/sh\necho mine\n' > "$T/hooks/my-hook.sh"; chmod +x "$T/hooks/my-hook.sh"
   printf '# My rule\n- be nice\n' > "$T/rules/my-rule.md"
-  cp "$T/rules/claude-agent-stack.md" "$T/rules/claude-agent-stack.md.new"
   printf '{}' > "$T/settings.json.tmp"
   chmod 644 "$T/stack.env"                       # world-readable keys: the plan repairs the mode
   python3 - "$T/settings.json" "$T/magg/config.json" "$T/.stack-manifest.json" <<'PY'
@@ -1421,9 +1420,10 @@ import hashlib, os
 c = os.path.dirname(man)
 h = lambda rel: hashlib.sha256(open(os.path.join(c, rel), "rb").read()).hexdigest()
 for rel in ("skills/retired-skill/SKILL.md", "skills/retired-skill/refs/a.md", "skills/python-engineering/old-ref.md",
-            "skills/retired-edited/ref.md"):
+            "skills/retired-edited/ref.md", "agents/retired-agent.md"):
     mf["files"][rel] = h(rel)                                   # installed by the stack, unedited
 mf["files"]["skills/retired-edited/SKILL.md"] = "0" * 64       # installed by the stack, edited since
+mf["files"]["agents/retired-edited.md"] = "0" * 64
 json.dump(mf, open(man, "w"), indent=2, sort_keys=True)
 PY
 }
@@ -1447,10 +1447,7 @@ while IFS= read -r want; do
     $want"
 done <<'EOF_WANT'
 removed: not part of the stack
-  - agents/coder.md.new  (leftover render of a stack file)
-  - agents/my-own.md  (not shipped by the stack: yours or another tool's)
-  - agents/team/  (not shipped by the stack: yours or another tool's)
-  - rules/claude-agent-stack.md.new  (leftover render of a stack file)
+  - agents/retired-agent.md  (no longer shipped by the stack)
   - settings.json.tmp  (leftover of an interrupted install)
   - skills/python-engineering/old-ref.md  (no longer part of the stack's python-engineering skill)
   - skills/retired-edited/ref.md  (no longer shipped by the stack)
@@ -1463,6 +1460,10 @@ removed: not part of the stack
   ~ agents/coder.md  (edited since the last install)
   ~ skills/python-engineering/SKILL.md  (edited since the last install)
   ~ magg catalog: docling  (differed from the stack's entry)
+  note: agents/coder.md.new: kept (not installed by the stack: yours)
+  note: agents/my-own.md: kept (not installed by the stack: yours)
+  note: agents/retired-edited.md: kept (edited since the stack installed it)
+  note: agents/team/a.md: kept (not installed by the stack: yours)
   note: skills/old-skill/: kept (not installed by the stack: yours or another tool's)
   note: skills/python-engineering/notes.md: kept (not installed by the stack: yours)
   note: skills/retired-edited/SKILL.md: kept (edited since the stack installed it)
@@ -1470,7 +1471,7 @@ removed: not part of the stack
 EOF_WANT
 [ -z "$missing" ] && pass "pruned and listed: stale, modified, unknown files, junk, magg entries, duplicate hooks and rules" \
   || { failed "listing is missing:$missing"; sed 's/^/    /' "$TX/list.real"; }
-python3 - "$TX/c" "$HERE" "$B15" "$BK_ROOT" "$EXPECTED_AGENTS" <<'PY' && pass "after the prune: only the stack's agents and skills, user hook/rule/magg entry kept, no duplicates, sandbox on, stack.env 0600, backup 0700/0600" || failed "post-prune state (see above)"
+python3 - "$TX/c" "$HERE" "$B15" "$BK_ROOT" "$EXPECTED_AGENTS" <<'PY' && pass "after the prune: the stack's agents and skills plus the user's own and edited ones, user hook/rule/magg entry kept, no duplicates, sandbox on, stack.env 0600, backup 0700/0600" || failed "post-prune state (see above)"
 import json, os, stat, sys
 c, here, b, bk, n_agents = sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4], int(sys.argv[5])
 bad = []
@@ -1479,7 +1480,9 @@ def check(ok, what):
         bad.append(what)
 mode = lambda p: stat.S_IMODE(os.lstat(p).st_mode)
 agents = sorted(os.listdir(os.path.join(c, "agents")))
-check(len(agents) == n_agents and all(a.endswith(".md") for a in agents), "agents/: %s" % agents[:5])
+extra = sorted(a for a in agents if not os.path.isfile(os.path.join(here, "dot-claude", "agents", a)))
+check(len(agents) == n_agents + 4 and extra == ["coder.md.new", "my-own.md", "retired-edited.md", "team"],
+      "agents/ beyond the stack's: %s" % extra)
 check("<!-- local edit -->" not in open(os.path.join(c, "agents", "coder.md")).read(), "coder.md edit kept")
 shipped = sorted(d for d in os.listdir(os.path.join(here, "dot-claude", "skills")) if os.path.isdir(os.path.join(here, "dot-claude", "skills", d)))
 check(sorted(os.listdir(os.path.join(c, "skills"))) == sorted(shipped + ["synced", "old-skill", "retired-edited"]),
@@ -1564,32 +1567,6 @@ touch "$TX/outside.txt"
 xrun "$TX/c" "$TX/evil.log" --restore "$BEVIL"; rc=$?
 [ "$rc" != 0 ] && [ -f "$TX/outside.txt" ] && grep -q 'outside the config scope' "$TX/evil.log" && cmp -s "$TX/fp.pruned" <(fp "$TX/c") \
   && pass "--restore refuses a backup.json naming paths outside the config scope" || failed "path traversal through backup.json (rc=$rc)"
-# --no-prune over the same drift: nothing of the user's goes, edits kept with a .new beside them
-xrun "$TX/n" "$TX/n0.log" && make_dirty "$TX/n"
-xrun "$TX/n" "$TX/n.log" --no-prune; rc=$?
-python3 - "$TX/n" <<'PY' && [ "$rc" = 0 ] && pass "--no-prune keeps old, unknown and edited files (edits get a .new), still removes duplicates and temp junk" || failed "--no-prune (rc=$rc; see above)"
-import json, os, sys
-n = sys.argv[1]
-keep = ["agents/my-own.md", "agents/team/a.md", "skills/old-skill/SKILL.md",
-        "skills/python-engineering/notes.md", "agents/coder.md.new", "skills/python-engineering/SKILL.md.new"]
-bad = [k for k in keep if not os.path.exists(os.path.join(n, k))]
-if "<!-- local edit -->" not in open(os.path.join(n, "agents", "coder.md")).read():
-    bad.append("coder.md edit lost")
-if os.path.exists(os.path.join(n, "settings.json.tmp")):
-    bad.append("settings.json.tmp kept")
-m = json.load(open(os.path.join(n, "magg", "config.json")))["servers"]
-if "oldsrv" not in m or m["docling"]["command"] != "my-docling":
-    bad.append("magg entries changed")
-s = json.load(open(os.path.join(n, "settings.json")))
-if len(s["permissions"]["allow"]) != len(set(s["permissions"]["allow"])):
-    bad.append("duplicate permissions kept")
-if bad:
-    print("    " + ", ".join(bad))
-sys.exit(1 if bad else 0)
-PY
-grep -qF 'note: agents/my-own.md: not shipped by the stack: yours or another tool'"'"'s — kept (--no-prune)' "$TX/n.log" \
-  && grep -qF 'note: magg catalog: oldsrv is no longer shipped (kept: --no-prune)' "$TX/n.log" \
-  && pass "--no-prune names what it kept" || failed "--no-prune notes: $(grep 'note:' "$TX/n.log" | head -5)"
 # a stack script symlinked out of the config dir (a dev checkout): never written through — not by
 # --dry-run, not by the real run, which replaces the link with the stack's file (the backup keeps it)
 mkdir -p "$TX/outside"; printf 'mine\n' > "$TX/outside/doctor.sh"; chmod 644 "$TX/outside/doctor.sh"
@@ -1612,9 +1589,10 @@ printf '%s' "$out" | python3 -c 'import json, sys; d = json.load(sys.stdin); sys
   && pass "--print-managed-settings: valid JSON on stdout, instructions on stderr, nothing written" \
   || failed "--print-managed-settings (rc=$rc): $(printf '%s' "$out" | head -c 200)"
 help="$("$INSTALL" --help)"
-for f in --dry-run --no-prune --restore --print-managed-settings --keep-plugin-duplicates --force; do
+for f in --dry-run --restore --print-managed-settings --keep-plugin-duplicates --force; do
   printf '%s\n' "$help" | grep -q -- "$f" || failed "--help does not mention $f"
 done
+printf '%s\n' "$help" | grep -q -- '--no-prune' && failed "--help still mentions the removed --no-prune"
 printf '%s\n' "$help" | grep -q 'removed: not part of the stack\|backed up' && pass "--help documents the new flags and the backup" \
   || failed "--help lacks the prune/backup paragraph"
 
@@ -1649,22 +1627,20 @@ xrun "$TX/v" "$TX/v2.log"; rc=$?; xrun "$TX/v" "$TX/v3.log" --dry-run; rc3=$?
   && [ -f "$TX/v/bin/doctor.sh" ] && [ -f "$TX/v/mcp/libdocs_mcp.py" ] \
   && pass "a manifest key naming a whole scope dir (bin, mcp) stops the install (and --dry-run); nothing is wiped" \
   || failed "bare scope-dir manifest keys (rc=$rc/$rc3): $(grep -i 'manifest\|refus' "$TX/v2.log" | head -3)"
-# a per-skill symlink (skills/ itself a real dir) is replaced by the stack's skill: default, --no-prune
-# and --dry-run agree; the link's target is never written (the backup keeps the link)
+# a per-skill symlink (skills/ itself a real dir) is replaced by the stack's skill: the run and
+# --dry-run agree; the link's target is never written (the backup keeps the link)
 xrun "$TX/k" "$TX/k0.log"
 mkdir -p "$TX/outK"; cp -R "$TX/k/skills/python-engineering/." "$TX/outK/"; printf '\nmine\n' >> "$TX/outK/SKILL.md"
 rm -rf "$TX/k/skills/python-engineering"; ln -s "$TX/outK" "$TX/k/skills/python-engineering"
 fp "$TX/outK" > "$TX/fp.k0"
 xrun "$TX/k" "$TX/k1.log" --dry-run; rcd=$?
-cp -R "$TX/k" "$TX/k2"; rm -rf "$TX/k2/skills/python-engineering"; ln -s "$TX/outK" "$TX/k2/skills/python-engineering"
-xrun "$TX/k2" "$TX/k3.log" --no-prune; rcn=$?
 xrun "$TX/k" "$TX/k2.log"; rc=$?
 BK="$(latest_backup "$TX/k")"
-[ "$rcd" = 0 ] && [ "$rc" = 0 ] && [ "$rcn" = 0 ] && cmp -s "$TX/fp.k0" <(fp "$TX/outK") \
+[ "$rcd" = 0 ] && [ "$rc" = 0 ] && cmp -s "$TX/fp.k0" <(fp "$TX/outK") \
   && [ -d "$TX/k/skills/python-engineering" ] && [ ! -L "$TX/k/skills/python-engineering" ] \
   && [ -f "$TX/k/skills/python-engineering/SKILL.md" ] && [ -L "$BK/files/skills/python-engineering" ] \
-  && pass "a per-skill symlink: the stack's skill replaces the link (default, --no-prune, --dry-run agree); its target is untouched" \
-  || failed "per-skill symlink (rc=$rc, dry=$rcd, no-prune=$rcn): $(grep -i 'refus' "$TX/k1.log" "$TX/k2.log" "$TX/k3.log" | head -3)"
+  && pass "a per-skill symlink: the stack's skill replaces the link (the run and --dry-run agree); its target is untouched" \
+  || failed "per-skill symlink (rc=$rc, dry=$rcd): $(grep -i 'refus' "$TX/k1.log" "$TX/k2.log" | head -3)"
 # N-SYMLINK: a symlinked skills/ (a dotfiles checkout) is never pruned; without --write-through-links the run stops
 xrun "$TX/y" "$TX/y0.log"
 mkdir -p "$TX/outS"; cp -R "$TX/y/skills/." "$TX/outS/"
@@ -1706,18 +1682,13 @@ xrun "$TX/y" "$TX/y6b.log" --write-through-links; rc=$?
   && grep -q 'agents/coder.md: kept (a link inside your symlinked agents/)' "$TX/y6b.log" \
   && pass "a file link inside a symlinked agents/: stays your link, its target never written (named in the notes)" \
   || failed "file link inside symlinked agents/ (rc=$rc): $(grep -i 'coder.md' "$TX/y6b.log" | head -3)"
-# --force alone no longer writes through a link; --no-prune --write-through-links keeps an edited stack file
+# --force without --restore is a usage error: it never writes through a link
 xrun "$TX/y" "$TX/y7.log" --force; rc=$?
-[ "$rc" != 0 ] && grep -q 'rerun with --write-through-links' "$TX/y7.log" \
-  && pass "a symlinked dir with --force alone still stops" || failed "symlinked dir with --force alone (rc=$rc)"
+[ "$rc" = 2 ] && grep -q -- '--force works only with --restore' "$TX/y7.log" \
+  && pass "a symlinked dir with --force alone stops (a usage error)" || failed "symlinked dir with --force alone (rc=$rc)"
 xrun "$TX/y" "$TX/y8.log" --write-through-links
 mkdir -p "$TX/outS2"; cp -R "$TX/y/skills/." "$TX/outS2/" 2>/dev/null
 rm -rf "$TX/y/skills"; ln -s "$TX/outS2" "$TX/y/skills"
-printf '\n<!-- kept edit -->\n' >> "$TX/outS2/python-engineering/SKILL.md"
-xrun "$TX/y" "$TX/y9.log" --no-prune --write-through-links; rc=$?
-[ "$rc" = 0 ] && grep -q 'kept edit' "$TX/outS2/python-engineering/SKILL.md" && [ -f "$TX/outS2/python-engineering/SKILL.md.new" ] \
-  && pass "--no-prune --write-through-links keeps the edited stack SKILL.md and drops a .new render next to it" \
-  || failed "--no-prune --write-through-links (rc=$rc): $(tail -3 "$TX/y9.log")"
 # a link inside the symlinked skills/ (skills/python-engineering -> pe-local, yours): never written
 # through (the file there would be unsaved), named in the notes; a restore of that run removes nothing of it
 rm -rf "$TX/outS2/pe-local"; mv "$TX/outS2/python-engineering" "$TX/outS2/pe-local"
@@ -1744,14 +1715,16 @@ XDG_STATE_HOME="$SCRATCH_ROOT/st-fresh" xrun "$TX/w" "$TX/w.log" --dry-run; rc=$
   && [ ! -e "$SCRATCH_ROOT/st-fresh/claude-agent-stack-backups" ] \
   && pass "the working copy lives in the private backup root; a --dry-run that created the root removes it" \
   || failed "work dir location / dry-run leftovers (rc=$rc): $(grep 'staged in' "$TX/w.log")"
-# L2: a saved symlink whose target leaves the config dir comes back only with --force
+# L2: a saved symlink whose target leaves the config dir comes back only with --force (a link where a
+# stack agent goes: the install replaces it, the backup keeps the link; a link of yours under another
+# name is never removed, so it never needs restoring)
 xrun "$TX/r" "$TX/r0.log"
-printf 'ext\n' > "$TX/ext-target.md"; ln -s "$TX/ext-target.md" "$TX/r/agents/ext.md"
+printf 'ext\n' > "$TX/ext-target.md"; rm -f "$TX/r/agents/coder.md"; ln -s "$TX/ext-target.md" "$TX/r/agents/coder.md"
 xrun "$TX/r" "$TX/r1.log"; BR="$(latest_backup "$TX/r")"
 xrun "$TX/r" "$TX/r2.log" --restore "$BR"; rc2=$?
-skipped=0; [ ! -e "$TX/r/agents/ext.md" ] && [ ! -L "$TX/r/agents/ext.md" ] && grep -q 'skipped agents/ext.md: it was a link to' "$TX/r2.log" && skipped=1
+skipped=0; [ -f "$TX/r/agents/coder.md" ] && [ ! -L "$TX/r/agents/coder.md" ] && grep -q 'skipped agents/coder.md: it was a link to' "$TX/r2.log" && skipped=1
 xrun "$TX/r" "$TX/r3.log" --restore "$BR" --force; rc3=$?
-[ "$rc2" = 0 ] && [ "$skipped" = 1 ] && [ "$rc3" = 0 ] && [ "$(readlink "$TX/r/agents/ext.md")" = "$TX/ext-target.md" ] \
+[ "$rc2" = 0 ] && [ "$skipped" = 1 ] && [ "$rc3" = 0 ] && [ "$(readlink "$TX/r/agents/coder.md")" = "$TX/ext-target.md" ] \
   && pass "restore: a link pointing outside the config dir is skipped (named), restored with --force" \
   || failed "restore of an outside link (rc=$rc2/$rc3, skipped=$skipped)"
 # N-SUPPLY: the manifest records the shipped commit; an older one shows the guard/settings changes since

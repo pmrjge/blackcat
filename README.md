@@ -893,9 +893,10 @@ servers it finds.
 ### Run the installer
 
 > [!WARNING]
-> **First install over an existing `~/.claude`: run `./install.sh --dry-run` first.** The default run
-> prunes: agents and skills that aren't the stack's current version are moved into a backup and
-> replaced. Keep your own with `--no-prune`; get them back with `--restore`.
+> **First install over an existing `~/.claude`: run `./install.sh --dry-run` first.** Every run
+> prunes (no opt-out): stack files you edited, and files of yours named like the stack's, are moved
+> into a backup and replaced; agents and skills of your own under other names stay. Get them back with
+> `--restore`.
 
 ```bash
 git clone <repository-url> claude-agent-stack && cd claude-agent-stack
@@ -950,7 +951,7 @@ steps, as the run prints them:
     `STACK_EXPORT` keys and adding `~/.local/bin` to `PATH` (`--no-profile` skips it), and the
     `claude-ninja` launcher link in `~/.local/bin`.
 
-Other flags: `--config-dir PATH`, `--no-prompt`, `--no-prune`, `--force`, `--write-through-links`,
+Other flags: `--config-dir PATH`, `--no-prompt`, `--restore [DIR] [--force]`, `--write-through-links`,
 `--no-mcp`, `--no-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
 `--print-managed-settings`. `./install.sh --help` prints them all; [CONFIG.md](CONFIG.md) §7 explains
 staging, pruning and the manifest.

@@ -440,7 +440,7 @@ def main(argv):
     for n in d.notes:
         print("note: %s" % n)
     print("summary: %d repo only, %d installed only, %d differ%s. Nothing was written; ./install.sh applies "
-          "the repo (installed-only stack files are pruned unless --no-prune)."
+          "the repo (it prunes installed-only stack files)."
           % (total["+"], total["-"], total["~"], (", %d unreadable" % total["?"]) if total["?"] else ""))
     return 0
 

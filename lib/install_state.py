@@ -730,8 +730,8 @@ def frontmatter_problems(path, want_name):
 
 def validate(s, python):
     """(problems, warnings). Problems — anything the stack itself wrote (a file whose hash is the
-    manifest's) — stop the install; the same checks on files the stack doesn't own (kept by
-    --no-prune: yours, or stack files you edited) only warn."""
+    manifest's) — stop the install; the same checks on files the stack doesn't own (yours, or
+    stack files you edited, that the prune keeps) only warn."""
     problems, warnings = [], []
     manifest = load_json(os.path.join(s, ".stack-manifest.json"), {})
     ours = manifest.get("files") or {}

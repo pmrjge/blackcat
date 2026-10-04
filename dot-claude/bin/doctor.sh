@@ -378,15 +378,6 @@ if missing:
 else:
     print("  ok    %d/%d agent files present (BlackCat + %d specialists)"
           % (len(agents), len(agents), len(agents) - 1))
-# agent types the stack retired (2026-10-04): install.sh --no-prune kept their files
-RETIRED = {"researcher-copy": "a retired copy type", "coder-copy": "a retired copy type",
-           "supreme-coder": "retired: ninja-coder is the top coding tier",
-           "db-engineer": "retired: data-engineer took its databases",
-           "localizer": "retired: coder (catalogs) and writer (prose)"}
-for a in [x for x in extra if x in RETIRED]:
-    extra.remove(a)
-    print("  WARN  agents/%s.md is %s (install.sh --no-prune kept it): delete it,"
-          " or rerun install.sh (the backup keeps it)" % (a, RETIRED[a]))
 if extra:
     print("  WARN  your own agents, unreachable from BlackCat and the stack's agents (the spawn policy"
           " lists only the stack's): %s — run one with `claude --agent <name>`" % " ".join(extra))
@@ -394,10 +385,6 @@ PY
 fi
 [ -f "$C/rules/claude-agent-stack.md" ] && ok "global rules: rules/claude-agent-stack.md" \
   || fail "rules/claude-agent-stack.md missing — the agents run without the stack's rules: rerun install.sh"
-# Files you edited are kept; the stack's newer render waits next to each as <file>.new.
-pending="$( (cd "$C" && find agents rules skills -name '*.new' -type f 2>/dev/null) | sort | tr '\n' ' ')"
-[ -z "$pending" ] && ok "no pending .new renders" \
-  || warn "pending .new renders (your edited files were kept; merge them, then delete the .new): $pending"
 
 echo "== Hooks"
 # The hooks' interpreter: every hook runs /bin/sh bin/stack-hook, which runs hooks/stack_hook.py on
