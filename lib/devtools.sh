@@ -32,12 +32,18 @@
 # there is used as it is. DEVTOOLS_NOFILE (tests): the open-file limit instead of `ulimit -Sn`.
 # DEVTOOLS_NO_PROFILE=1 (install.sh --no-profile): installers are told not to edit shell profiles
 # where they have a switch for it.
-# THE SKIP RULE: every command is looked up first, from any source (command -v; the managers' own
-# bin dirs ~/.local/bin ~/.cargo/bin ~/.ghcup/bin ~/.cabal/bin ~/.elan/bin ~/.juliaup/bin, Coursier's,
-# ~/.nvm/versions/node/*/bin, /opt/homebrew/bin, /usr/local/bin; brew list; the JDK, TeX and
-# Playwright paths). Found = "skip <tool> (found: <path>, from <source>)": never installed, upgraded,
-# replaced or removed. A found tool that fails `--version` gets a WARN line with the fix to run
-# yourself. A manager counts as found when a tool it provides is (rustup: cargo/rustc; ghcup: ghc;
+# THE SKIP RULE: every command is looked up first, from any source, in this order: PATH, plus the
+# system login PATH (`path_helper -s`: /etc/paths, /etc/paths.d/*, where the Go and MacTeX .pkgs
+# register /usr/local/go/bin and /Library/TeX/texbin; this process only, never your profile); the
+# known bin dirs (~/.local/bin ~/.cargo/bin ~/.ghcup/bin ~/.cabal/bin ~/.elan/bin ~/.juliaup/bin,
+# Coursier's, ~/go/bin, mise/asdf/nix shims, ~/.nvm/versions/node/*/bin, /opt/homebrew/bin
+# /usr/local/bin /opt/local/bin, /usr/local/go/bin, /Library/TeX/texbin, /usr/local/texlive/*/bin/*);
+# brew list; for the tools in DETECT_ROWS their apps (/Applications, ~/Applications,
+# /Applications/Utilities, then Spotlight by bundle id; CLIs inside the bundle) and their .pkg receipts
+# (`pkgutil --pkgs`, read once); the JDK, TeX and Playwright paths. Found = "skip <tool> (found:
+# <path>, from brew|app|pkg|<manager>|macOS|PATH)": never installed, upgraded, replaced or removed.
+# A found tool that fails `--version` (or a receipt whose files are gone) gets a WARN line with the
+# fix to run yourself. A manager counts as found when a tool it provides is (rustup: cargo/rustc; ghcup: ghc;
 # juliaup: julia; elan: lake/lean; nvm + node 24: any node). Configuration (uv's Python pin, git
 # lfs filters, the brew shellenv line) is not an install: "ok" when set, set when not. Other lines:
 # "+" installed, "!" missing or failed (with the log and the command); a summary line at the end.
@@ -127,8 +133,18 @@ LEAN_USER_PROJECT="${DEVTOOLS_LEAN_PROJECT:-${LEAN_PROJECT_PATH:-}}"
 LOCAL_BIN="$HOME/.local/bin"
 LOCAL_OPT="$HOME/.local/opt"
 NVM_DIR="${NVM_DIR:-$HOME/.nvm}"
-JVM_DIR="${DEVTOOLS_JVM_DIR:-/Library/Java/JavaVirtualMachines}"
-TEX_BIN="${DEVTOOLS_TEX_BIN:-/Library/TeX/texbin}"
+# System roots and the macOS lookup tools, overridable for the tests (a variable set to "" turns a
+# lookup tool off): DEVTOOLS_LIBRARY, DEVTOOLS_USR_LOCAL, DEVTOOLS_APPLICATIONS,
+# DEVTOOLS_PATH_HELPER, DEVTOOLS_PKGUTIL, DEVTOOLS_MDFIND.
+LIBRARY_ROOT="${DEVTOOLS_LIBRARY-/Library}"
+USR_LOCAL="${DEVTOOLS_USR_LOCAL-/usr/local}"
+APPS_ROOT="${DEVTOOLS_APPLICATIONS-/Applications}"
+PATH_HELPER="${DEVTOOLS_PATH_HELPER-/usr/libexec/path_helper}"
+PKGUTIL="${DEVTOOLS_PKGUTIL-/usr/sbin/pkgutil}"
+MDFIND="${DEVTOOLS_MDFIND-/usr/bin/mdfind}"
+JVM_DIR="${DEVTOOLS_JVM_DIR:-$LIBRARY_ROOT/Java/JavaVirtualMachines}"
+USER_JVM_DIR="$HOME/Library/Java/JavaVirtualMachines"   # JDKs IntelliJ and others download per user
+TEX_BIN="${DEVTOOLS_TEX_BIN:-$LIBRARY_ROOT/TeX/texbin}"
 
 have(){ command -v "$1" >/dev/null 2>&1; }
 line(){ printf '  %s\n' "$*"; }
@@ -136,16 +152,143 @@ sha256_ok(){ printf '%s  %s\n' "$1" "$2" | shasum -a 256 -c - >/dev/null 2>&1; }
 path_add(){ [ -d "$1" ] || return 0; case ":$PATH:" in *":$1:"*) ;; *) PATH="$PATH:$1"; export PATH ;; esac; }
 runs(){ ("$@" >/dev/null 2>&1 </dev/null; exit $?) 2>/dev/null; }   # run it; the subshell keeps a crash report quiet
 
+# The system login PATH (what /etc/paths and /etc/paths.d/* give every login shell: the Go .pkg adds
+# /usr/local/go/bin, MacTeX /Library/TeX/texbin, Postgres.app its bin dir) joins this process's PATH
+# at the end, so every lookup below sees what a new terminal would. Never written to a profile.
+# path_helper is run with an empty PATH so it prints only the system part.
+sys_path_dirs(){
+  [ -n "$PATH_HELPER" ] && [ -x "$PATH_HELPER" ] || return 0
+  PATH="" "$PATH_HELPER" -s 2>/dev/null </dev/null | sed -n 's/^PATH="\([^"]*\)"; export PATH;$/\1/p' | tr ':' '\n'
+}
+while IFS= read -r _d; do [ -n "$_d" ] && path_add "$_d"; done <<EOF_SYSPATH
+$(sys_path_dirs)
+EOF_SYSPATH
+
 # ---- the skip rule: a command found ANYWHERE is never installed, upgraded, replaced or removed ----
-# Found = on PATH (command -v), or in a manager's own bin dir while that is not on PATH yet.
-# DEVTOOLS_SYSTEM_DIRS (tests: "") replaces the Homebrew prefixes in that list.
+# Found = on PATH (command -v, the system login PATH included), or in a known bin dir while that is
+# not on PATH yet. DEVTOOLS_SYSTEM_DIRS (tests: "") replaces the system prefixes in that list.
 known_dirs(){
-  local d
+  local d IFS=$' \t\n'   # also when called under item_present's IFS=,
   printf '%s\n' "$HOME/.local/bin" "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.cabal/bin" "$HOME/.elan/bin" \
-    "$HOME/.juliaup/bin" "$HOME/Library/Application Support/Coursier/bin"
-  for d in ${DEVTOOLS_SYSTEM_DIRS-/opt/homebrew/bin /usr/local/bin}; do printf '%s\n' "$d"; done
-  for d in "${NVM_DIR:-$HOME/.nvm}"/versions/node/*/bin; do [ -d "$d" ] && printf '%s\n' "$d"; done
+    "$HOME/.juliaup/bin" "$HOME/Library/Application Support/Coursier/bin" "$HOME/go/bin" \
+    "$HOME/.local/share/mise/shims" "$HOME/.asdf/shims" "$HOME/.nix-profile/bin" \
+    "$USR_LOCAL/go/bin" "$TEX_BIN"
+  for d in ${DEVTOOLS_SYSTEM_DIRS-/opt/homebrew/bin /usr/local/bin /opt/local/bin /nix/var/nix/profiles/default/bin /run/current-system/sw/bin}; do
+    printf '%s\n' "$d"
+  done
+  for d in "${NVM_DIR:-$HOME/.nvm}"/versions/node/*/bin "$USR_LOCAL"/texlive/*/bin/*; do [ -d "$d" ] && printf '%s\n' "$d"; done
   return 0
+}
+
+# ---- tools installed some other way: .pkg receipts, apps (.dmg/.app), CLIs inside app bundles ----
+# One row per tool with evidence; '-' = none. Columns (comma lists; globs allowed):
+#   ROW | COMMANDS | RECEIPT IDS (pkgutil --pkgs) | PKG DIRS (where that pkg puts files)
+#       | BUNDLE IDS (mdfind) | APP BUNDLES (in /Applications, ~/Applications, /Applications/Utilities)
+#       | CLI DIRS inside the bundle (besides Contents/MacOS, Contents/Resources/bin,
+#         Contents/Versions/*/bin, Contents/Home/bin, always tried)
+# Evidence: go, mactex texlive, jdk com.oracle.jdk-27: this machine's `pkgutil --pkgs` (2026-10-04);
+# basictex, the other JDK ids, the app bundles and CLI dirs, Postgres.app's bundle id: the casks'
+# pkgutil/app/binary/quit stanzas (`brew info --cask --json=v2 mactex basictex oracle-jdk temurin zulu
+# corretto microsoft-openjdk cmake julia-app postgres-app`), not seen installed here.
+DETECT_ROWS="go|go,gofmt|org.golang.go|$USR_LOCAL/go|-|-|-
+mactex|pdflatex,tex|org.tug.mactex.texlive*,org.tug.mactex.basictex*|$LIBRARY_ROOT/TeX,$USR_LOCAL/texlive|-|-|-
+jdk|java|com.oracle.jdk-*,net.temurin.*.jdk,com.azulsystems.zulu.*,com.amazon.corretto.*,com.microsoft.*.jdk|$JVM_DIR|-|-|-
+cmake|cmake|-|-|-|CMake.app|Contents/bin
+julia|julia|-|-|-|Julia-*.app|Contents/Resources/julia/bin
+postgres|postgres,psql|-|-|com.postgresapp.Postgres2|Postgres.app|Contents/Versions/*/bin"
+ROW=""
+row(){ # row NAME: ROW = its line of DETECT_ROWS
+  ROW=""
+  local r
+  while IFS= read -r r; do case "$r" in "$1|"*) ROW="$r"; return 0 ;; esac; done <<EOF_ROWS
+$DETECT_ROWS
+EOF_ROWS
+  return 1
+}
+col(){ printf '%s' "$ROW" | cut -d'|' -f"$1"; }   # field N of ROW
+PKGS_LIST=""; PKGS_READ=0
+pkgs(){ # the receipts database, listed once per run
+  [ "$PKGS_READ" = 0 ] || return 0
+  PKGS_READ=1
+  if [ -n "$PKGUTIL" ] && [ -x "$PKGUTIL" ]; then PKGS_LIST="$("$PKGUTIL" --pkgs 2>/dev/null </dev/null)"; fi
+  return 0
+}
+RECEIPT=""
+receipt_of(){ # receipt_of ROWNAME: RECEIPT = the first of its receipt ids pkgutil lists
+  local g id globs
+  RECEIPT=""
+  row "$1" || return 1
+  globs="$(col 3)"; [ "$globs" = - ] && return 1
+  pkgs
+  set -f
+  local IFS=,
+  for g in $globs; do
+    while IFS= read -r id; do
+      # shellcheck disable=SC2254
+      case "$id" in $g) RECEIPT="$id"; set +f; return 0 ;; esac
+    done <<EOF_PKGS
+$PKGS_LIST
+EOF_PKGS
+  done
+  set +f
+  return 1
+}
+under(){ # under PATH DIR,DIR...: PATH lies in one of the dirs
+  local d IFS=,
+  for d in $2; do case "$1" in "$d"/*) return 0 ;; esac; done
+  return 1
+}
+resolve(){ # follow symlinks (no readlink -f on older macOS)
+  local p="$1" l n=0
+  while [ -L "$p" ] && [ "$n" -lt 20 ]; do
+    l="$(readlink "$p")"; case "$l" in /*) p="$l" ;; *) p="$(dirname "$p")/$l" ;; esac; n=$((n + 1))
+  done
+  printf '%s' "$p"
+}
+app_cli(){ # app_cli APP CLIDIRS NAME...: FOUND = NAME inside the bundle APP
+  local app="$1" subs="$2" s d n; shift 2
+  local IFS=$' \t\n'
+  for s in $(printf '%s' "$subs" | tr ',' ' ') Contents/MacOS Contents/Resources/bin 'Contents/Versions/*/bin' Contents/Home/bin; do
+    [ "$s" = - ] && continue
+    for d in "$app"/$s; do
+      for n in "$@"; do [ -x "$d/$n" ] && [ ! -d "$d/$n" ] && { FOUND="$d/$n"; return 0; }; done
+    done
+  done
+  return 1
+}
+find_app(){ # find_app ROWNAME: FOUND = one of its commands inside an app bundle
+  local apps subs ids cmds root a g id IFS=$' \t\n'
+  row "$1" || return 1
+  cmds="$(col 2 | tr ',' ' ')"; ids="$(col 5)"; apps="$(col 6)"; subs="$(col 7)"
+  if [ "$apps" != - ]; then
+    for root in "$APPS_ROOT" "$HOME/Applications" "$APPS_ROOT/Utilities"; do
+      [ -d "$root" ] || continue                                 # the cheap directory check first
+      for g in $(printf '%s' "$apps" | tr ',' ' '); do
+        for a in "$root"/$g; do
+          # shellcheck disable=SC2086
+          [ -d "$a" ] && app_cli "$a" "$subs" $cmds && return 0
+        done
+      done
+    done
+  fi
+  if [ "$ids" != - ] && [ -n "$MDFIND" ] && [ -x "$MDFIND" ]; then  # an app elsewhere (Spotlight; silent when off)
+    for id in $(printf '%s' "$ids" | tr ',' ' '); do
+      while IFS= read -r a; do
+        # shellcheck disable=SC2086
+        [ -n "$a" ] && [ -d "$a" ] && app_cli "$a" "$subs" $cmds && return 0
+      done <<EOF_MD
+$("$MDFIND" "kMDItemCFBundleIdentifier == '$id'" 2>/dev/null </dev/null)
+EOF_MD
+    done
+  fi
+  return 1
+}
+# find_tool ROWNAME: past PATH and the known dirs, the row's apps, then its receipt alone
+# (FOUND "pkg receipt ID": registered, but none of its commands is where the pkg puts them)
+find_tool(){
+  find_app "$1" && return 0
+  receipt_of "$1" && { FOUND="pkg receipt $RECEIPT"; return 0; }
+  return 1
 }
 FOUND=""
 # find_cmd NAME...: FOUND = the path of the first NAME found (PATH first, then known_dirs)
@@ -166,16 +309,41 @@ EOF_DIRS
   done
   return 1
 }
-source_of(){ case "$1" in
-  /opt/homebrew/*|/usr/local/Cellar/*|/usr/local/opt/*|"brew list"*) echo Homebrew ;;
+manager_of(){ case "$1" in
   "$HOME"/.cargo/*) echo "rustup/cargo" ;; "$HOME"/.ghcup/*) echo ghcup ;; "$HOME"/.cabal/*) echo cabal ;;
   "$HOME"/.elan/*) echo elan ;; "$HOME"/.juliaup/*) echo juliaup ;; "${NVM_DIR:-$HOME/.nvm}"/*) echo nvm ;;
-  "$HOME/Library/Application Support/Coursier"/*) echo coursier ;; "$HOME"/.local/*) echo "~/.local" ;;
-  "$HOME"/Library/Caches/*) echo "Playwright's cache" ;;
-  /usr/bin/*|/bin/*|/usr/sbin/*|/sbin/*) echo "macOS" ;; /Library/*|/Applications/*) echo "an installed app" ;;
-  *) echo "PATH" ;; esac; }
+  "$HOME/Library/Application Support/Coursier"/*) echo coursier ;; "$HOME"/.local/share/mise/*) echo mise ;;
+  "$HOME"/.asdf/*) echo asdf ;; "$HOME"/.nix-profile/*|/nix/*|/run/current-system/*) echo nix ;;
+  "$HOME"/go/*) echo "go install" ;; "$HOME"/.local/*) echo "~/.local" ;; "$HOME"/Library/Java/*) echo "~/Library/Java" ;;
+  "$HOME"/Library/Caches/*) echo "Playwright's cache" ;; /opt/local/*) echo MacPorts ;;
+  *) return 1 ;; esac; }
+SRC=""
+# src_of PATH: SRC = brew | app | pkg | <manager> | macOS | PATH (no subshell: the receipts list is
+# read once into this shell). A path is checked as given and with its symlinks followed.
+src_of(){
+  local p="$1" r n IFS=$' \t\n'
+  case "$p" in "brew list"*) SRC=brew; return 0 ;; "pkg receipt "*) SRC=pkg; return 0 ;; esac
+  SRC="$(manager_of "$p")" && return 0
+  r="$(resolve "$p")"
+  case "$r" in
+    */Cellar/*|*/Caskroom/*|/opt/homebrew/*|/usr/local/opt/*|/home/linuxbrew/*) SRC=brew; return 0 ;;
+    *.app/*) SRC=app; return 0 ;;
+  esac
+  for n in $(printf '%s\n' "$DETECT_ROWS" | cut -d'|' -f1); do
+    row "$n"; [ "$(col 4)" = - ] && continue
+    if { under "$p" "$(col 4)" || under "$r" "$(col 4)"; } && receipt_of "$n"; then SRC=pkg; return 0; fi
+  done
+  SRC="$(manager_of "$r")" && return 0
+  case "$r" in /usr/bin/*|/bin/*|/usr/sbin/*|/sbin/*|/System/*) SRC=macOS ;; *) SRC=PATH ;; esac
+}
 N_INST=0; N_SKIP=0; N_FAIL=0; N_WARN=0; N_WOULD=0; N_MISS=0
-skip_line(){ line "skip $1 (found: $2, from $(source_of "$2"))"; N_SKIP=$((N_SKIP + 1)); }
+skip_line(){
+  src_of "$2"
+  line "skip $1 (found: $2, from $SRC)"; N_SKIP=$((N_SKIP + 1))
+  case "$2" in "pkg receipt "*)       # registered, its files gone: reported, never reinstalled over
+    warn_line "$1: the receipt ${2#pkg receipt } is registered but its commands are not where the pkg puts them; the installer leaves it alone. Fix: reinstall it from its .pkg, or forget the receipt (sudo pkgutil --forget ${2#pkg receipt }) and rerun ./install.sh" ;;
+  esac
+}
 warn_line(){ line "WARN $*"; N_WARN=$((N_WARN + 1)); }
 # a found tool that doesn't run is reported with the fix, never removed or reinstalled
 VERSION_CHECKED=" uv rustup juliaup elan ghcup hlint ormolu pre-commit gradle "
@@ -311,8 +479,9 @@ homebrew_step(){
 }
 
 # ==== 2. Homebrew batch ==========================================================================
-# GROUP TYPE NAME PROBES: a probe is cmd:<binary> (on PATH, from any source), path:<file>,
-# jdk:<major> (a JDK >= major in /Library/Java/JavaVirtualMachines) or - (brew list only).
+# GROUP TYPE NAME PROBES: a probe is cmd:<binary> (PATH, the system login PATH, the known dirs),
+# path:<file>, tool:<row> (DETECT_ROWS: its apps, then its pkg receipt), jdk:<major> (a JDK >= major
+# in /Library/Java/JavaVirtualMachines) or - (brew list only).
 BREW_ITEMS="DEPS formula jq cmd:jq
 DEPS formula ripgrep cmd:rg
 DEPS formula gh cmd:gh
@@ -321,7 +490,7 @@ DEPS formula imagemagick cmd:magick
 DEPS formula librsvg cmd:rsvg-convert
 DEPS formula poppler cmd:pdftoppm
 DEVTOOLS formula gitleaks cmd:gitleaks
-CXX formula cmake cmd:cmake
+CXX formula cmake cmd:cmake,tool:cmake
 CXX formula cmake-docs -
 CXX formula ninja cmd:ninja
 CXX formula ffmpeg-full -
@@ -331,12 +500,12 @@ CXX formula tesseract cmd:tesseract
 CXX formula typst cmd:typst
 CXX formula shellcheck cmd:shellcheck
 CXX formula markdownlint-cli2 cmd:markdownlint-cli2
-GO formula go cmd:go
+GO formula go cmd:go,tool:go
 GO formula gopls cmd:gopls
 JAVA cask oracle-jdk jdk:$JAVA_MAJOR
 JAVA cask kotlin-lsp cmd:kotlin-lsp
-LATEX cask mactex cmd:pdflatex,path:$TEX_BIN/pdflatex
-POSTGRES formula postgresql@18 cmd:postgres,cmd:psql
+LATEX cask mactex cmd:pdflatex,path:$TEX_BIN/pdflatex,tool:mactex
+POSTGRES formula postgresql@18 cmd:postgres,cmd:psql,tool:postgres
 MONGODB formula mongodb/brew/mongodb-community cmd:mongod"
 
 jdk_at_least(){ # a JDK of major >= $1 under $JVM_DIR (its release file; java_home fails in the sandbox)
@@ -363,6 +532,7 @@ item_present(){ # TYPE NAME PROBES: ITEM_AT = where it was found (a path, or "br
     case "$p" in
       cmd:*) find_cmd "${p#cmd:}" && { ITEM_AT="$FOUND"; return 0; } ;;
       path:*) [ -e "${p#path:}" ] && { ITEM_AT="${p#path:}"; return 0; } ;;
+      tool:*) find_tool "${p#tool:}" && { ITEM_AT="$FOUND"; return 0; } ;;
       jdk:*) jdk_at_least "${p#jdk:}" && { ITEM_AT="$JDK_AT"; return 0; } ;;
     esac
   done
@@ -396,6 +566,33 @@ brew_batch(){
     else "$BREW" install "$n" >>"$log" 2>&1 </dev/null || true; fi
   done
 }
+# gopls next to a Go that is not Homebrew's (the official .pkg in /usr/local/go, say). The formula's
+# bottle needs no go (`brew deps gopls` is empty; go is a build-only dependency), so brew pours it and
+# your go stays the only one. Should the formula ever pull Homebrew's go in (a runtime dependency, or
+# no bottle for this macOS, which means a source build), gopls comes from
+# `go install golang.org/x/tools/gopls@v<the formula's version>` with your go instead.
+GOPLS_GO=""; GOPLS_VER=""
+gopls_route(){ # gopls_route GO
+  local info deps
+  info="$("$BREW" info --formula gopls 2>/dev/null </dev/null | head -n 1)"
+  deps="$("$BREW" deps gopls 2>/dev/null </dev/null)"
+  if printf '%s\n' "$deps" | grep -qx go || { [ -n "$info" ] && ! printf '%s' "$info" | grep -q '(bottled)'; }; then
+    GOPLS_GO="$1"
+    GOPLS_VER="$(printf '%s' "$info" | sed -n 's/^==> gopls: stable \([0-9][0-9A-Za-z.]*\).*/\1/p')"
+    line "gopls: Homebrew's formula would bring in Homebrew's go; gopls comes from go install with your go ($1)"
+  else
+    line "gopls: Homebrew's bottle (go is only a build dependency of the formula; your go at $1 stays the only go)"
+  fi
+}
+chk_gopls(){ find_cmd gopls; }
+inst_gopls_go(){
+  [ -n "$GOPLS_VER" ] || { echo "the gopls formula's version is unknown (brew info --formula gopls)"; return 1; }
+  "$GOPLS_GO" install "golang.org/x/tools/gopls@v$GOPLS_VER"   # into \$(go env GOPATH)/bin, ~/go/bin by default
+}
+gopls_step(){
+  [ -n "$GOPLS_GO" ] || return 0
+  ensure gopls 0 chk_gopls "$GOPLS_GO install golang.org/x/tools/gopls@v${GOPLS_VER:-?} (your go; the Go module proxy's checksum database verifies it)" inst_gopls_go
+}
 brew_step(){
   local skipped="" unresolved="" want_f="" want_c="" nobrew="" g type name probes t
   brew_lists
@@ -415,6 +612,12 @@ $BREW_ITEMS
 EOF_ITEMS
   [ -z "$unresolved" ] || line "! brew could not resolve:$unresolved (left out)"
   [ -z "$nobrew" ] || line "! no Homebrew, not installed:$nobrew (install Homebrew, then rerun; jq and gitleaks have pinned fallbacks below)"
+  case " $want_f " in *" gopls "*)
+    if find_cmd go; then src_of "$FOUND"; [ "$SRC" = brew ] || gopls_route "$FOUND"; fi ;;
+  esac
+  if [ -n "$GOPLS_GO" ]; then
+    t=""; for name in $want_f; do [ "$name" = gopls ] || t="$t $name"; done; want_f="$t"
+  fi
   [ -n "$want_f$want_c" ] || return 0
   case "$MODE" in
     report)
@@ -514,7 +717,7 @@ inst_hlint(){
 chk_ormolu(){ find_cmd ormolu; }
 inst_ormolu(){ cabal_u update && cabal_u install --ignore-project "ormolu-$ORMOLU_VERSION" --overwrite-policy=always; }
 
-chk_juliaup(){ find_cmd juliaup julia; }
+chk_juliaup(){ find_cmd juliaup julia || find_tool julia; }   # Julia.app (the julia cask, a .dmg) counts
 inst_juliaup(){
   if [ "$NO_PROFILE" = 1 ]; then remote_installer "$URL_JULIAUP" sh --yes --add-to-path=no
   else remote_installer "$URL_JULIAUP" sh --yes; fi
@@ -765,6 +968,7 @@ all(){
   [ -z "$off" ] || line "groups off:$off"
   homebrew_step
   brew_step
+  gopls_step
   upstream_step
   required_step || { summary; return 3; }
   rest_step
@@ -782,6 +986,6 @@ summary(){
 case "${1:-}" in
   all) all ;;
   # where NAME...: "PATH<tab>SOURCE" of the first one found (install.sh's own tools use the same rule)
-  where) shift; find_cmd "$@" || exit 1; printf '%s\t%s\n' "$FOUND" "$(source_of "$FOUND")" ;;
+  where) shift; find_cmd "$@" || exit 1; src_of "$FOUND"; printf '%s\t%s\n' "$FOUND" "$SRC" ;;
   *) echo "usage: devtools.sh all | where NAME..." >&2; exit 2 ;;
 esac

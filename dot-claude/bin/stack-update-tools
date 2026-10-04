@@ -55,6 +55,7 @@ if have brew; then
 else
   line "- homebrew: absent"
 fi
+if [ -d /Library/TeX/texbin ] || [ -d /usr/local/go/bin ]; then line "manual  mactex/go: installed by pkg, update with tlmgr / the Go installer"; fi
 if have rustup; then step rustup rustup update; else line "- rustup: absent"; fi
 if have juliaup; then step juliaup juliaup update; else line "- juliaup: absent"; fi
 if have ghcup; then step ghcup ghcup upgrade; else line "- ghcup: absent"; fi

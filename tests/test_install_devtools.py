@@ -133,7 +133,11 @@ class Env:
                "TMPDIR": str(self.tmp), "SERVE_DIR": str(self.serve), "BREW_STATE": str(self.state),
                "DEVTOOLS_BREW_CANDIDATES": "", "DEVTOOLS_JAVA_HOME_TOOL": "",
                "DEVTOOLS_JVM_DIR": str(self.jvm), "DEVTOOLS_TEX_BIN": str(self.t / "notex"),
-               "DEVTOOLS_MODE": mode, "DEVTOOLS_SYSTEM_DIRS": ""}
+               "DEVTOOLS_MODE": mode, "DEVTOOLS_SYSTEM_DIRS": "",
+               # no real system root, path_helper, receipts or Spotlight (tests/test_install_detect.py shims them)
+               "DEVTOOLS_LIBRARY": str(self.t / "sys" / "Library"), "DEVTOOLS_USR_LOCAL": str(self.t / "sys" / "usr-local"),
+               "DEVTOOLS_APPLICATIONS": str(self.t / "sys" / "Applications"),
+               "DEVTOOLS_PATH_HELPER": "", "DEVTOOLS_PKGUTIL": "", "DEVTOOLS_MDFIND": ""}
         for g in GROUPS:
             env["STACK_INSTALL_" + g] = "1" if g in groups else "0"
         if tty == "1":
@@ -185,7 +189,7 @@ def test_all_present_means_no_brew_install_and_no_download(tmp_path):
     assert rc == 0, err
     assert e.calls("brew", "install") == [] and e.calls("brew", "info") == []
     assert e.calls("curl") == [] and e.calls("uv") == [] and e.calls("npx") == []
-    assert "  skip gh (found: brew list --formula, from Homebrew)" in lines(out)
+    assert "  skip gh (found: brew list --formula, from brew)" in lines(out)
     assert "summary: 0 installed, " in out
     assert not [l for l in lines(out) if l.lstrip().startswith(("!", "+", "would"))], out
 
@@ -994,7 +998,7 @@ def run_install(repo, tmp_path, args, stdin="", **extra):
            "FAKE_CLAUDE_JSON": str(tmp_path / "cj.json"), "STACK_CLAUDE_JSON": str(tmp_path / "cj.json"),
            "DEVTOOLS_BREW_CANDIDATES": "", "DEVTOOLS_JAVA_HOME_TOOL": "", "DEVTOOLS_JVM_DIR": str(e.jvm),
            "DEVTOOLS_TEX_BIN": str(tmp_path / "notex"), "ULIMIT_MAX": "1048576", "BASH_FUNC_ulimit%%": ULIMIT_FN,
-           "SUDO_NO_COPY": "1"}
+           "SUDO_NO_COPY": "1", "DEVTOOLS_PATH_HELPER": "", "DEVTOOLS_PKGUTIL": "", "DEVTOOLS_MDFIND": ""}
     env.update(state)
     for g in GROUPS:
         env["STACK_INSTALL_" + g] = "0"

@@ -1,0 +1,268 @@
+"""lib/devtools.sh: tools installed any other way than the installer's routes are found and skipped.
+
+The system login PATH (path_helper), the known pkg dirs (/usr/local/go/bin, /Library/TeX/texbin,
+/usr/local/texlive), the receipts database (pkgutil --pkgs, read once), app bundles in /Applications,
+~/Applications, /Applications/Utilities and by Spotlight bundle id (mdfind), CLIs inside bundles and
+symlinks into a bundle; the source on the skip line (brew | app | pkg | <manager>); MacTeX and Go from
+their .pkg; gopls next to a non-Homebrew Go.
+
+Hermetic: reuses test_install_devtools' Env (PATH shims, temp HOME); the system roots, path_helper,
+pkgutil and mdfind are temp dirs and shims here.
+
+Run: uv run --no-project --python 3.13 --with-requirements requirements/tools.txt pytest -q tests/test_install_detect.py
+"""
+import os
+import re
+import subprocess
+import sys
+from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+from test_install_devtools import BREW_SHIM, SRC, UPDATE, Env, lines, mkexe  # noqa: E402
+
+GOPLS_INFO = "==> gopls: stable 0.23.0 (bottled), HEAD"
+BREW_EXTRA = r'''
+case "$1" in
+  deps) [ "$2" = gopls ] && [ -n "${BREW_GOPLS_DEPS:-}" ] && echo "$BREW_GOPLS_DEPS"; exit 0 ;;
+  info) [ "$3" = gopls ] && [ -n "${BREW_GOPLS_INFO:-}" ] && echo "$BREW_GOPLS_INFO"; exit 0 ;;
+esac
+'''
+
+
+class Sys:
+    """The temp system roots Env.run points devtools.sh at, plus shims for path_helper, pkgutil, mdfind."""
+
+    def __init__(self, e):
+        self.e = e
+        self.lib = e.t / "sys" / "Library"
+        self.usr_local = e.t / "sys" / "usr-local"
+        self.apps = e.t / "sys" / "Applications"
+        for d in (self.lib, self.usr_local, self.apps):
+            d.mkdir(parents=True, exist_ok=True)
+        self.tools = e.t / "systools"
+        self.tools.mkdir()
+        self.env = {}
+
+    def path_helper(self, *dirs):
+        p = self.e.shim("path_helper", 'echo "PATH=[$PATH]" >>"$SHIM_LOG.ph"; '
+                        'printf \'PATH="%s"; export PATH;\\n\' "' + ":".join(str(d) for d in dirs) + '"',
+                        where=self.tools)
+        self.env["DEVTOOLS_PATH_HELPER"] = str(p)
+
+    def receipts(self, *ids):
+        p = self.e.shim("pkgutil", '[ "$1" = --pkgs ] && printf "%s\\n" ' + " ".join(ids), where=self.tools)
+        self.env["DEVTOOLS_PKGUTIL"] = str(p)
+
+    def spotlight(self, bundle_id, app):
+        p = self.e.shim("mdfind", 'case "$1" in *"\'%s\'"*) echo "%s" ;; esac' % (bundle_id, app), where=self.tools)
+        self.env["DEVTOOLS_MDFIND"] = str(p)
+
+    def brew(self, installed=(), **env):
+        self.e.brew(installed=installed)
+        self.e.shim("brew", BREW_EXTRA + BREW_SHIM)
+        self.env.update(env)
+
+
+def skips(out):
+    return [l for l in lines(out) if l.startswith("  skip ")]
+
+
+def setup(tmp_path):
+    e = Env(tmp_path)
+    e.present("uv", "node", "npx")
+    return e, Sys(e)
+
+
+# ---------------------------------------------------------------- the system login PATH
+def test_path_helper_dirs_are_searched_and_never_written_to_a_profile(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    pathsd = tmp_path / "paths.d-dir"
+    go = mkexe(pathsd / "go", "exit 0")
+    s.path_helper(pathsd, tmp_path / "does-not-exist")
+    rc, out, err = e.run("GO", **s.env)
+    assert rc == 0, err
+    assert "  skip go (found: %s, from PATH)" % go in lines(out), out
+    assert [a.split()[1:] for a in e.argv("brew", "install")] == [["gopls"]]
+    assert Path(str(e.log) + ".ph").read_text() == "PATH=[]\n"       # run with an empty PATH: the system part only
+    assert not [p for p in e.home.iterdir() if p.name.startswith(".")]    # no profile written
+
+
+# ---------------------------------------------------------------- .pkg installs: Go, MacTeX
+def test_go_from_its_pkg_is_skipped_and_gopls_comes_from_the_bottle(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew(BREW_GOPLS_INFO=GOPLS_INFO)
+    go = mkexe(s.usr_local / "go" / "bin" / "go", 'echo "go $*" >>"$SHIM_LOG"')       # not on PATH
+    s.receipts("com.apple.pkg.Core", "org.golang.go")
+    rc, out, err = e.run("GO", **s.env)
+    assert rc == 0, err
+    assert "  skip go (found: %s, from pkg)" % go in lines(out), out
+    assert e.argv("brew", "install") == ["install gopls"]
+    assert "  gopls: Homebrew's bottle (go is only a build dependency of the formula; your go at %s stays the only go)" % go in out
+    assert e.argv("brew", "deps") == ["deps gopls"]
+
+
+def test_a_receipt_without_its_files_is_skipped_with_a_warning_never_reinstalled(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    s.receipts("org.golang.go")
+    rc, out, err = e.run("GO", **s.env)
+    assert rc == 0, err
+    assert "  skip go (found: pkg receipt org.golang.go, from pkg)" in lines(out), out
+    assert e.argv("brew", "install") == ["install gopls"]
+    assert re.search(r"^  WARN go: the receipt org\.golang\.go is registered .*\(sudo pkgutil --forget org\.golang\.go\) and rerun", out, re.M)
+
+
+def test_no_receipt_means_go_is_installed(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    s.receipts("org.tug.mactex.texlive2026", "com.oracle.jdk-27")
+    rc, out, _ = e.run("GO", **s.env)
+    assert e.argv("brew", "install") == ["install go gopls"], out
+
+
+def test_mactex_from_its_pkg_is_skipped(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    real = mkexe(s.usr_local / "texlive" / "2026" / "bin" / "universal-darwin" / "pdflatex", "exit 0")
+    texbin = s.lib / "TeX" / "texbin"
+    texbin.mkdir(parents=True)
+    (texbin / "pdflatex").symlink_to(real)
+    s.receipts("org.tug.mactex.gui2026", "org.tug.mactex.texlive2026")
+    rc, out, err = e.run("LATEX", tty="1", DEVTOOLS_TEX_BIN="", **s.env)
+    assert rc == 0, err
+    assert "  skip mactex (found: %s, from pkg)" % (texbin / "pdflatex") in lines(out), out
+    assert e.calls("brew", "install") == []
+
+
+def test_mactex_receipt_alone_still_means_no_cask(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    s.receipts("org.tug.mactex.basictex2026")
+    rc, out, _ = e.run("LATEX", tty="1", DEVTOOLS_TEX_BIN="", **s.env)
+    assert e.calls("brew", "install") == [], out
+    assert "  skip mactex (found: pkg receipt org.tug.mactex.basictex2026, from pkg)" in lines(out)
+
+
+def test_the_receipts_are_listed_once_per_run(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    mkexe(s.usr_local / "go" / "bin" / "go", "exit 0")
+    s.receipts("org.golang.go", "org.tug.mactex.texlive2026")
+    rc, out, _ = e.run("GO", "LATEX", "CXX", "POSTGRES", tty="1", DEVTOOLS_TEX_BIN="", **s.env)
+    assert rc == 0
+    assert e.argv("pkgutil") == ["--pkgs"], e.argv("pkgutil")
+
+
+# ---------------------------------------------------------------- apps (.dmg / .app)
+def test_clis_inside_app_bundles_are_found_in_all_three_app_dirs(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    psql = mkexe(s.apps / "Postgres.app" / "Contents" / "Versions" / "18" / "bin" / "psql", "exit 0")
+    julia = mkexe(e.home / "Applications" / "Julia-1.13.app" / "Contents" / "Resources" / "julia" / "bin" / "julia", "exit 0")
+    cmake = mkexe(s.apps / "Utilities" / "CMake.app" / "Contents" / "bin" / "cmake", "exit 0")
+    rc, out, err = e.run("POSTGRES", "JULIA", "CXX", **s.env)
+    assert rc == 0, err
+    got = lines(out)
+    assert "  skip postgresql@18 (found: %s, from app)" % psql in got, out
+    assert "  skip juliaup (found: %s, from app)" % julia in got                # the manager: a tool it provides
+    assert "  skip cmake (found: %s, from app)" % cmake in got
+    assert "postgresql@18" not in " ".join(e.argv("brew", "install")) and "cmake " not in " ".join(e.argv("brew", "install")) + " "
+    assert e.calls("curl") == []
+
+
+def test_an_app_elsewhere_is_found_by_its_bundle_id(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    app = tmp_path / "Volumes" / "Postgres.app"
+    psql = mkexe(app / "Contents" / "Versions" / "17" / "bin" / "postgres", "exit 0")
+    s.spotlight("com.postgresapp.Postgres2", app)
+    rc, out, err = e.run("POSTGRES", **s.env)
+    assert rc == 0, err
+    assert "  skip postgresql@18 (found: %s, from app)" % psql in lines(out), out
+    assert e.argv("mdfind") == ["kMDItemCFBundleIdentifier == 'com.postgresapp.Postgres2'"]
+    assert e.calls("brew", "install") == []
+
+
+def test_a_symlink_into_an_app_bundle_counts_as_the_app_and_a_cellar_link_as_brew(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    real = mkexe(tmp_path / "Somewhere" / "CMake.app" / "Contents" / "bin" / "cmake", "exit 0")
+    (e.bin / "cmake").symlink_to(real)
+    nin = mkexe(tmp_path / "Cellar" / "ninja" / "1.13" / "bin" / "ninja", "exit 0")
+    (e.bin / "ninja").symlink_to(nin)
+    rc, out, _ = e.run("CXX", **s.env)
+    assert "  skip cmake (found: %s/cmake, from app)" % e.bin in lines(out), out
+    assert "  skip ninja (found: %s/ninja, from brew)" % e.bin in lines(out), out
+
+
+def test_mdfind_failing_or_absent_is_silent(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    s.env["DEVTOOLS_MDFIND"] = str(e.shim("mdfind", "echo boom >&2; exit 1", where=s.tools))
+    rc, out, err = e.run("POSTGRES", **s.env)
+    assert rc == 0 and "boom" not in out + err
+    assert e.argv("brew", "install") == ["install postgresql@18"]
+
+
+def test_the_lookup_never_uses_system_profiler_or_lsregister():
+    code = "\n".join(l for l in SRC.splitlines() if not l.lstrip().startswith("#"))
+    assert "system_profiler" not in code and "lsregister" not in code
+
+
+# ---------------------------------------------------------------- gopls next to a non-Homebrew Go
+def go_pkg(e, s):
+    return mkexe(s.usr_local / "go" / "bin" / "go",
+                 'echo "go $*" >>"$SHIM_LOG"; [ "$1" = install ] || exit 0\n'
+                 'mkdir -p "$HOME/go/bin" && printf "#!/bin/sh\\n" >"$HOME/go/bin/gopls" && chmod +x "$HOME/go/bin/gopls"')
+
+
+def test_gopls_comes_from_go_install_when_the_formula_would_pull_in_homebrews_go(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew(BREW_GOPLS_INFO=GOPLS_INFO, BREW_GOPLS_DEPS="go")
+    go = go_pkg(e, s)
+    s.receipts("org.golang.go")
+    rc, out, err = e.run("GO", **s.env)
+    assert rc == 0, err
+    assert e.calls("brew", "install") == [], out
+    assert e.argv("go") == ["install golang.org/x/tools/gopls@v0.23.0"]
+    assert "  gopls: Homebrew's formula would bring in Homebrew's go; gopls comes from go install with your go (%s)" % go in out
+    assert re.search(r"^  \+ gopls \(%s install golang\.org/x/tools/gopls@v0\.23\.0 " % re.escape(str(go)), out, re.M), out
+
+
+def test_gopls_without_a_bottle_for_this_macos_also_goes_through_go_install(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew(BREW_GOPLS_INFO="==> gopls: stable 0.23.0, HEAD")
+    go_pkg(e, s)
+    rc, out, _ = e.run("GO", mode="dry-run", **s.env)
+    assert e.calls("go") == [] and e.calls("brew", "install") == []
+    assert "would: gopls ← %s install golang.org/x/tools/gopls@v0.23.0" % (s.usr_local / "go" / "bin" / "go") in out, out
+
+
+def test_homebrews_own_go_keeps_the_brew_gopls(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew(BREW_GOPLS_INFO="==> gopls: stable 0.23.0, HEAD", BREW_GOPLS_DEPS="go")
+    real = mkexe(tmp_path / "Cellar" / "go" / "1.26" / "bin" / "go", "exit 0")
+    (e.bin / "go").symlink_to(real)
+    rc, out, _ = e.run("GO", **s.env)
+    assert e.argv("brew", "install") == ["install gopls"] and e.calls("brew", "deps") == []
+
+
+# ---------------------------------------------------------------- stack-update-tools, docs
+def test_stack_update_tools_leaves_pkg_mactex_and_go_to_you():
+    t = UPDATE.read_text()
+    assert 'line "manual  mactex/go: installed by pkg, update with tlmgr / the Go installer"' in t
+    assert "sudo tlmgr" not in t and "tlmgr update" not in t                  # never runs tlmgr, let alone with sudo
+    if os.path.isdir("/Library/TeX/texbin") or os.path.isdir("/usr/local/go/bin"):
+        p = subprocess.run(["bash", str(UPDATE), "--dry-run"], capture_output=True, text=True, timeout=60,
+                           env={"PATH": "/usr/bin:/bin", "HOME": os.environ.get("TMPDIR", "/tmp"),
+                                "TMPDIR": os.environ.get("TMPDIR", "/tmp")})
+        assert "  manual  mactex/go: installed by pkg, update with tlmgr / the Go installer" in p.stdout, p.stdout
+
+
+def test_the_detection_table_names_only_evidenced_entries():
+    rows = re.search(r'^DETECT_ROWS="(.*?)"$', SRC, re.M | re.S).group(1).splitlines()
+    names = [r.split("|")[0] for r in rows]
+    assert names == ["go", "mactex", "jdk", "cmake", "julia", "postgres"]
+    assert all(len(r.split("|")) == 7 for r in rows)
+    assert "org.golang.go" in rows[0] and "org.tug.mactex.texlive*" in rows[1]
