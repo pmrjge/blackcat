@@ -9,9 +9,9 @@ started HH:MM · "<task>"`. KEYWORD words match the task (the Agent call's descr
 case-insensitively, all of them. --id matches a full id or a prefix of at least 6 characters.
 
 The session: --session, else the one this shell belongs to (the basename of $STACK_LIMITS_SNAPSHOT, which
-the guard's session-env hook exports into every Bash of the session), else the newest under the state root
-(marked "guessed"). The table is built at each call from what the guard already writes (the registry
-agents/<id>.json and the delegation records spawns/<tid>.json, or delegations.md), through bin/stack-tree's
+the guard's session-env hook exports into every Bash of the session); with neither, no table (never a guess
+at the newest session, which may belong to another job). The table is built at each call from what the
+guard already writes (the registry agents/<id>.json and the delegation records spawns/<tid>.json, or delegations.md), through bin/stack-tree's
 reader: read-only, task text redacted and cut, at most --max lines (default 30, cap 200). It never fails a
 caller's step: any error prints one line saying the table is unavailable and to route through the parent,
 exit 0. Exit 2 only for bad arguments. Nothing here sends, writes or decides anything; whether a message may
@@ -116,7 +116,7 @@ class Parser(argparse.ArgumentParser):
 def parser():
     p = Parser(prog="stack-who", description="Lookup table of this session's agents (read-only).")
     p.add_argument("keyword", nargs="*", help="words that must all appear in the task, type or name")
-    p.add_argument("--session", help="session id (default: this shell's session, else the newest)")
+    p.add_argument("--session", help="session id (default: this shell's session)")
     g = p.add_mutually_exclusive_group()
     g.add_argument("--running", action="store_true", help="running agents only")
     g.add_argument("--finished", action="store_true", help="finished, failed or stopped agents only")
@@ -139,11 +139,8 @@ def run(argv):
     sid, how = opts.session, "given"
     if sid is None:
         sid, how = own_session(st), "this shell's"
-    if sid is None:
-        found = st.session_dirs(root_dir)
-        if not found:
-            return [FALLBACK % "no session in the state dir"]
-        sid, how = found[-1], "newest, guessed"
+    if sid is None:                     # never a guess: the newest session may be another user's job
+        return [FALLBACK % "this shell names no session: $STACK_LIMITS_SNAPSHOT unset, no --session"]
     if not os.path.isdir(os.path.join(root_dir, sid)):
         return [FALLBACK % "no state for session %s" % sid]
     root, _source, _main = st.load_session(sid, root_dir)

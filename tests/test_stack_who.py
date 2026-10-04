@@ -93,8 +93,9 @@ def test_bounded_output(fx):
 
 
 def test_session_sources(fx):
-    head, _ = body(who(fx, STACK_LIMITS_SNAPSHOT=""))
-    assert "(newest, guessed)" in head
+    p = who(fx, STACK_LIMITS_SNAPSHOT="")          # no session named: no table, never the newest one
+    assert p.returncode == 0 and p.stdout.startswith("stack-who: no agent table (this shell names no session")
+    assert SID not in p.stdout
     head, _ = body(who(fx, "--session", SID, STACK_LIMITS_SNAPSHOT=""))
     assert "(given)" in head
 
