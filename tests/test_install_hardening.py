@@ -465,6 +465,52 @@ def test_install_never_runs_the_repo_core_fsmonitor(tmp_path):
     assert not mark.exists(), mark.read_text()
 
 
+@needs_git
+@pytest.mark.parametrize("how", ["tree rewritten in place", "fsck.skipList"])
+def test_install_refuses_an_object_store_rewritten_in_place(tmp_path, how):
+    """Delta re-check HIGH (CWE-345): git never re-hashes an object it reads. An agent writes a
+    malicious skill file, its blob, and rewrites the parent tree object in place (HEAD unchanged):
+    ls-tree, status and prev..HEAD then all agree with the tampered working tree, so the byte review
+    sees nothing. git fsck catches the hash mismatch and the run stops; fsck.* keys in the repo's own
+    config (which could tell fsck to skip that object) are refused outright."""
+    import zlib
+    repo = _tis._scratch_repo(str(tmp_path / "repo"))
+    home = tmp_path / "home"
+    home.mkdir()
+    rel = "dot-claude/skills/web-research/SKILL.md"
+    if how == "fsck.skipList":
+        Path(tmp_path, "skip").write_text("")
+        _git(repo, "config", "fsck.skipList", str(tmp_path / "skip"))
+    else:
+        tree = _git(repo, "rev-parse", "HEAD:dot-claude/skills/web-research").stdout.strip()
+        with open(os.path.join(repo, rel), "a") as f:
+            f.write("\nINJECTED-7f3a9c\n")
+        blob = _git(repo, "hash-object", "-w", rel).stdout.strip()
+        listing = _git(repo, "ls-tree", tree).stdout.replace(
+            _git(repo, "rev-parse", "HEAD:" + rel).stdout.strip(), blob)
+        new = subprocess.run(["git", "-C", repo, "mktree"], input=listing, capture_output=True, text=True,
+                             check=True).stdout.strip()
+        raw = subprocess.run(["git", "-C", repo, "cat-file", "tree", new], capture_output=True, check=True).stdout
+        obj = os.path.join(repo, ".git", "objects", tree[:2], tree[2:])
+        os.chmod(obj, 0o644)
+        Path(obj).write_bytes(zlib.compress(b"tree %d\0" % len(raw) + raw))
+        assert blob in _git(repo, "ls-tree", "-r", "HEAD").stdout             # HEAD's tree now names the new blob
+    out = _tis._run_install(repo, str(home), str(home / ".claude"), "--yes")
+    assert out.returncode == 1, (out.stdout[-1500:], out.stderr[-1500:])
+    assert ("git fsck finds a damaged or altered object" if how != "fsck.skipList" else "fsck.skiplist") \
+        in out.stderr, out.stderr[-1500:]
+    assert _grep_tree(str(home / ".claude"), b"INJECTED-7f3a9c") == []
+
+
+def test_every_python_git_call_in_install_sh_turns_hooks_and_replace_refs_off():
+    """Each git argv install.sh's python steps build (["git", ...]) turns hooks off and ignores replace
+    refs (refs/replace, agent-writable, would let another object stand in for the one named)."""
+    calls = re.findall(r'\["git", [^\]]*\]', Path(ROOT, "install.sh").read_text())
+    assert len(calls) >= 2, calls
+    bad = [c for c in calls if '"core.hooksPath=/dev/null"' not in c or '"--no-replace-objects"' not in c]
+    assert bad == [], bad
+
+
 # ---------------------------------------------------------------- 4. MEDIUM CWE-367: check, then copy
 @needs_git
 def test_skill_copy_reads_only_the_bytes_the_review_saw(tmp_path):

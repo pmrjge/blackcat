@@ -548,7 +548,7 @@ def die(msg):
 
 GIT = ["git", "--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false",
        "-c", "core.untrackedCache=false", "-c", "core.excludesFile=/dev/null", "-c", "core.sparseCheckout=false",
-       "-C", here]
+       "-c", "core.commitGraph=false", "-C", here]     # the commit-graph file could name another tree for HEAD
 ENV = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
 ENV.update(GIT_TERMINAL_PROMPT="0", GIT_OPTIONAL_LOCKS="0")
 
@@ -594,7 +594,22 @@ if hidden:
                      " --no-assume-unchanged --no-skip-worktree -- <file>...   (a sparse checkout: git -C '%s'"
                      " sparse-checkout disable)\n" % ("\n".join("    " + show(p) for p in hidden[:40]), here, here))
     die("the stack repo's index hides %d file(s) from the review" % len(hidden))
-fmt = git("rev-parse", "--show-object-format").decode().strip()
+# .git/objects is agent-writable too, and git never re-hashes an object it reads: a blob and its tree
+# chain rewritten in place (HEAD unchanged) would make ls-tree, status and prev..HEAD all agree with a
+# tampered working tree. git fsck re-hashes every object; fsck.* keys in the repo's own config (skip
+# lists, severities) could tell it to look away, so they are refused first.
+_cfg = subprocess.run(GIT + ["config", "--show-scope", "--get-regexp", r"^fsck\."], stdin=subprocess.DEVNULL,
+                      stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, env=ENV).stdout.decode("utf-8", "replace")
+_fsck_keys = [ln.split()[1] for ln in _cfg.splitlines() if len(ln.split()) > 1 and ln.split()[0] in ("local", "worktree")]
+if _fsck_keys:
+    die("the stack repo's git config sets %s, which tells git fsck what to skip: remove it (git -C '%s' config"
+        " --unset <key>)" % (", ".join(map(show, _fsck_keys[:5])), here))
+_fsck = subprocess.run(GIT + ["fsck", "--no-dangling", "--no-reflogs", "--no-progress"], stdin=subprocess.DEVNULL,
+                       stdout=subprocess.PIPE, stderr=subprocess.PIPE, env=ENV)
+if _fsck.returncode:
+    die("git fsck finds a damaged or altered object in %s, so HEAD cannot vouch for the review: %s"
+        % (here, show((_fsck.stderr or _fsck.stdout).decode("utf-8", "replace").strip()[:200])))
+fmt =git("rev-parse", "--show-object-format").decode().strip()
 fmt = fmt if fmt in ("sha1", "sha256") else "sha1"
 tree = {}
 for ent in git("ls-tree", "-r", "-z", "--full-tree", "HEAD").split(b"\0"):
@@ -2495,7 +2510,7 @@ def shipped_permission_scalars(commit):
     if not re.fullmatch(r"[0-9a-f]{7,64}", commit or ""):
         return None
     try:
-        out = subprocess.run(["git", "-C", os.environ.get("STACK_REPO") or ".", "show",
+        out = subprocess.run(["git", "--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-C", os.environ.get("STACK_REPO") or ".", "show",
                               commit + ":dot-claude/settings.json"],
                              stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20)
         doc = json.loads(out.stdout) if out.returncode == 0 else None
