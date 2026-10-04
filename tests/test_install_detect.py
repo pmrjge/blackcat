@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from test_install_devtools import BREW_SHIM, SRC, UPDATE, Env, lines, mkexe  # noqa: E402
+from test_install_devtools import BREW_SHIM, ROOT, SRC, Env, lines, mkexe  # noqa: E402
 
 GOPLS_INFO = "==> gopls: stable 0.23.0 (bottled), HEAD"
 BREW_EXTRA = r'''
@@ -290,22 +290,6 @@ def test_homebrews_own_go_keeps_the_brew_gopls(tmp_path):
     assert e.argv("brew", "install") == ["install gopls"] and e.calls("brew", "deps") == []
 
 
-# ---------------------------------------------------------------- stack-update-tools, docs
-def test_stack_update_tools_leaves_pkg_mactex_and_go_to_you(tmp_path):
-    t = UPDATE.read_text()
-    assert "sudo tlmgr" not in t and "tlmgr update" not in t                  # never runs tlmgr, let alone with sudo
-    want = "  manual  mactex/go: installed by pkg, update with tlmgr / the Go installer"
-    e, s = setup(tmp_path)
-    e.brew()
-    rc, out, _ = e.run(script=UPDATE, args=("--dry-run",))                   # temp roots: neither is there
-    assert want not in out, out
-    for d in (s.lib / "TeX" / "texbin", s.usr_local / "go" / "bin"):
-        d.mkdir(parents=True)
-        rc, out, _ = e.run(script=UPDATE, args=("--dry-run",))
-        assert want in lines(out), (d, out)
-        d.rmdir()
-
-
 def test_the_detection_table_names_only_evidenced_entries():
     rows = re.search(r'^DETECT_ROWS="(.*?)"$', SRC, re.M | re.S).group(1).splitlines()
     names = [r.split("|")[0] for r in rows]
@@ -470,51 +454,6 @@ def test_elan_init_dry_run_and_the_open_file_limit(tmp_path):
     assert e.calls("brew", "install") == [] and "! lean skipped: the open-file limit is 256" in out
 
 
-# ---------------------------------------------------------------- stack-update-tools: Homebrew's elan
-def brew_elan_link(e, prefix):
-    """PREFIX/bin/elan -> ../Cellar/elan-init/4.2.4/bin/elan -> elan-init, as the formula links it;
-    the shim dir's elan points at PREFIX/bin/elan (a second hop)."""
-    cbin = prefix / "Cellar" / "elan-init" / "4.2.4" / "bin"
-    e.shim("elan-init", where=cbin)
-    (cbin / "elan").symlink_to("elan-init")
-    (prefix / "bin").mkdir(parents=True)
-    (prefix / "bin" / "elan").symlink_to("../Cellar/elan-init/4.2.4/bin/elan")
-    (e.bin / "elan").symlink_to(prefix / "bin" / "elan")
-
-
-def test_update_tools_skips_self_update_for_homebrews_elan_on_both_prefixes(tmp_path):
-    for prefix in ("usr-local", "opt-homebrew"):                  # Intel /usr/local, Apple Silicon /opt/homebrew
-        (tmp_path / prefix).mkdir()
-        e = Env(tmp_path / prefix)
-        e.brew()                                                  # never the real brew on /opt/homebrew/bin
-        brew_elan_link(e, tmp_path / prefix / "root")
-        rc, out, err = e.run(script=UPDATE, args=())
-        assert "  - elan self update: elan is Homebrew's (brew upgrade covers it)" in out, (prefix, out)
-        assert e.argv("elan") == ["update"], (prefix, e.argv("elan"))     # the shim logs the name it was run as
-
-
-def test_update_tools_self_updates_an_elan_from_its_own_installer(tmp_path):
-    e = Env(tmp_path)
-    e.brew()
-    e.shim("elan", where=e.home / ".elan" / "bin")
-    rc, out, _ = e.run(script=UPDATE, args=())
-    assert e.argv("elan") == ["self update", "update"], out
-    assert "ok  elan self update" in out
-
-
-def test_update_tools_homebrew_uv_is_resolved_too(tmp_path):
-    e = Env(tmp_path)
-    e.brew()
-    cbin = tmp_path / "root" / "Cellar" / "uv" / "0.12.20" / "bin"
-    e.shim("uv", where=cbin)
-    (e.bin / "uv").symlink_to(cbin / "uv")
-    rc, out, _ = e.run(script=UPDATE, args=())
-    assert "  - uv self update: uv is Homebrew's (brew upgrade covers it)" in out
-    # no self update; then the hooks' Python (S2): uv's 3.13 upgraded, bin/stack-python's target looked up
-    assert e.argv("uv") == ["tool upgrade --all", "python upgrade 3.13", "python dir",
-                            "python find --system --managed-python --no-project --no-config 3.13"]
-
-
 def test_unverified_entries_are_marked_and_config_lists_the_lookup_order():
     note = SRC[SRC.index("# UNVERIFIED on a real install"):SRC.index('DETECT_ROWS="')]
     for x in ("org.tug.mactex.basictex*", "net.temurin.*.jdk", "com.postgresapp.Postgres2", "Julia-*.app"):
@@ -645,3 +584,14 @@ def test_a_link_into_the_go_pkg_dir_counts_as_pkg(tmp_path):
     s.receipts("org.golang.go")
     rc, out, _ = e.run("GO", **s.env)
     assert "  skip go (found: %s/go, from pkg)" % e.bin in lines(out), out
+
+
+def test_readme_lists_the_upgrade_commands_instead_of_an_update_script():
+    readme = (ROOT / "README.md").read_text()
+    sec = readme[readme.index("### Updating the toolchains"):]
+    sec = sec[:sec.index("\n### ", 1)]
+    for cmd in ("brew update && brew upgrade --formula", "brew upgrade --cask", "rustup update", "juliaup update",
+                "ghcup upgrade", "uv self update", "uv tool upgrade --all", "uv python upgrade 3.13", "./install.sh",
+                "cs update", "elan self update", "elan update", "nvm install 24 --reinstall-packages-from=current"):
+        assert cmd in sec, cmd
+    assert "stack-update-tools" not in readme and "~/.claude/bin/stack-update-tools" not in (ROOT / "CONFIG.md").read_text()

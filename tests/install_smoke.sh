@@ -34,6 +34,13 @@ SCRATCH_ROOT="$(scratch_dir)" || exit 1
 # guard its state next to it: every scratch install of this test writes both under the scratch root.
 REAL_BK_ROOT="${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack-backups"
 export XDG_STATE_HOME="$SCRATCH_ROOT/state"
+# Run from a sandboxed Claude Code shell, the cache variables name ~/.cache/claude-sandbox, which
+# install.sh drops (CWE-427); uv would then fall back to ~/.cache/uv, which the sandbox can't write.
+# The smoke drops them too and gives uv a scratch cache (a plain terminal run sets none of them).
+for v in $(compgen -e); do
+  [ "$v" = PATH ] || case "${!v}" in *"$HOME/.cache/claude-sandbox"*)
+    unset "$v"; [ "$v" = UV_CACHE_DIR ] && export UV_CACHE_DIR="$SCRATCH_ROOT/uv-cache" ;; esac
+done
 BK_ROOT="$XDG_STATE_HOME/claude-agent-stack-backups"
 HERE="$SCRATCH_ROOT/claude-agent-stack"
 python3 - "$SRC_REPO" "$HERE" <<'PY'
@@ -316,7 +323,7 @@ checks = {
     "caps and budgets": (env.get("STACK_MAX_FANOUT"), env.get("STACK_MAX_FANOUT_BY_TYPE"),
                          env.get("STACK_PROMPT_CTX_BUDGET"), env.get("STACK_SESSION_CTX_BUDGET"),
                          env.get("CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"), env.get("STACK_MAX_MCP_CALLS"))
-                        == ("3", "orchestrator=32,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", None, None, "33", "64"),
+                        == ("3", "orchestrator=32,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8", None, None, "128", "64"),
     "skill listing budget": s.get("skillListingBudgetFraction") == frac and 0.01 <= frac <= 0.02
                             and s.get("skillListingMaxDescChars") == 250
                             and s.get("skillOverrides", {}).get("code-review") == "user-invocable-only"
@@ -1218,6 +1225,13 @@ tgit -C "$R0/repo" checkout -q -- SMOKE_FEAT.txt
 run_from "$R0/wt-dirty" "$R0/ce" --mcp-plan >"$R0/e.log" 2>&1; rc=$?
 [ "$rc" = 1 ] && [ "$(main_sha)" = "$FEAT" ] && grep -q -- '--mcp-plan changes nothing' "$R0/e.log" \
   && pass "--mcp-plan off main: refused, main not moved" || { failed "--mcp-plan off main: rc=$rc"; tail -n 5 "$R0/e.log" | sed 's/^/    /'; }
+# e2) so do --print-managed-settings and --restore: main not moved, the branch checkout not switched
+for fl in --print-managed-settings --restore; do
+  run_from "$R0/wt-dirty" "$R0/ce" "$fl" >"$R0/e2.log" 2>&1; rc=$?
+  [ "$rc" = 1 ] && [ "$(main_sha)" = "$FEAT" ] && [ "$(git -C "$R0/wt-dirty" symbolic-ref --short HEAD)" = dirty ] \
+    && grep -q -- "$fl [a-z ]*nothing" "$R0/e2.log" \
+    && pass "$fl off main: refused, main not moved" || { failed "$fl off main: rc=$rc"; tail -n 5 "$R0/e2.log" | sed 's/^/    /'; }
+done
 # f) a clone whose only checkout is on a feature branch: it switches to main and fast-forwards
 tgit clone -q "$R0/remote.git" "$R0/solo" && tgit -C "$R0/solo" switch -q -c feat3
 echo f > "$R0/solo/SMOKE_F.txt"; tgit -C "$R0/solo" add SMOKE_F.txt; tgit -C "$R0/solo" commit -q -m f3
@@ -1562,6 +1576,15 @@ make_dirty(){ # stale, renamed, modified and unknown files; duplicated hooks and
   mkdir -p "$T/skills/old-skill"; printf -- '---\nname: old-skill\ndescription: old\n---\n' > "$T/skills/old-skill/SKILL.md"
   printf 'my notes\n' > "$T/skills/python-engineering/notes.md"
   printf '\nlocal tweak\n' >> "$T/skills/python-engineering/SKILL.md"
+  # skills an earlier stack version installed (manifest hashes, written below): one unedited, one
+  # edited since, and an unedited extra file inside a shipped skill
+  mkdir -p "$T/skills/retired-skill/refs" "$T/skills/retired-edited"
+  printf -- '---\nname: retired-skill\ndescription: old\n---\n' > "$T/skills/retired-skill/SKILL.md"
+  printf 'old ref\n' > "$T/skills/retired-skill/refs/a.md"
+  printf -- '---\nname: retired-edited\ndescription: old\n---\n' > "$T/skills/retired-edited/SKILL.md"
+  printf 'my own file\n' > "$T/skills/retired-edited/mine.md"
+  printf 'old ref\n' > "$T/skills/retired-edited/ref.md"
+  printf 'old reference\n' > "$T/skills/python-engineering/old-ref.md"
   mkdir -p "$T/skills/synced/abc/docx"; printf -- '---\nname: docx\ndescription: synced\n---\n' > "$T/skills/synced/abc/docx/SKILL.md"
   printf '#!/bin/sh\n' > "$T/hooks/router-guard.sh"
   printf '# old\n' > "$T/mcp/opper_image_mcp.py"
@@ -1593,6 +1616,13 @@ m["servers"]["oldsrv"] = {"source": "z", "command": "old"}
 json.dump(m, open(mp, "w"), indent=2)
 mf = json.load(open(man))
 mf.setdefault("magg_shipped", {})["oldsrv"] = "0000000000000000"
+import hashlib, os
+c = os.path.dirname(man)
+h = lambda rel: hashlib.sha256(open(os.path.join(c, rel), "rb").read()).hexdigest()
+for rel in ("skills/retired-skill/SKILL.md", "skills/retired-skill/refs/a.md", "skills/python-engineering/old-ref.md",
+            "skills/retired-edited/ref.md"):
+    mf["files"][rel] = h(rel)                                   # installed by the stack, unedited
+mf["files"]["skills/retired-edited/SKILL.md"] = "0" * 64       # installed by the stack, edited since
 json.dump(mf, open(man, "w"), indent=2, sort_keys=True)
 PY
 }
@@ -1624,8 +1654,9 @@ removed: not part of the stack
   - mcp/opper_image_mcp.py  (images come from image-studio now)
   - rules/claude-agent-stack.md.new  (leftover render of a stack file)
   - settings.json.tmp  (leftover of an interrupted install)
-  - skills/old-skill/  (not shipped by the stack: yours or another tool's)
-  - skills/python-engineering/notes.md  (not part of the stack's python-engineering skill)
+  - skills/python-engineering/old-ref.md  (no longer part of the stack's python-engineering skill)
+  - skills/retired-edited/ref.md  (no longer shipped by the stack)
+  - skills/retired-skill/  (no longer shipped by the stack)
   - magg catalog: oldsrv  (no longer shipped by the stack)
   - settings.json hooks.PreToolUse[Bash]: "/usr/bin/python3" "/old/config/hooks/agent_guard.py" no-push  (an earlier copy of the stack's guard hook; the current one replaces it)
   - settings.json hooks.Notification: "/usr/bin/python3" "/old/hooks/agent_guard.py"  (the stack's guard no longer runs on it)
@@ -1634,6 +1665,10 @@ removed: not part of the stack
   ~ agents/coder.md  (edited since the last install)
   ~ skills/python-engineering/SKILL.md  (edited since the last install)
   ~ magg catalog: docling  (differed from the stack's entry)
+  note: skills/old-skill/: kept (not installed by the stack: yours or another tool's)
+  note: skills/python-engineering/notes.md: kept (not installed by the stack: yours)
+  note: skills/retired-edited/SKILL.md: kept (edited since the stack installed it)
+  note: skills/retired-edited/mine.md: kept (not installed by the stack: yours)
 EOF_WANT
 [ -z "$missing" ] && pass "pruned and listed: stale, renamed, modified, unknown files, junk, magg entries, duplicate hooks and rules" \
   || { failed "listing is missing:$missing"; sed 's/^/    /' "$TX/list.real"; }
@@ -1649,9 +1684,14 @@ agents = sorted(os.listdir(os.path.join(c, "agents")))
 check(len(agents) == n_agents and all(a.endswith(".md") for a in agents), "agents/: %s" % agents[:5])
 check("<!-- local edit -->" not in open(os.path.join(c, "agents", "coder.md")).read(), "coder.md edit kept")
 shipped = sorted(d for d in os.listdir(os.path.join(here, "dot-claude", "skills")) if os.path.isdir(os.path.join(here, "dot-claude", "skills", d)))
-check(sorted(os.listdir(os.path.join(c, "skills"))) == sorted(shipped + ["synced"]), "skills/ != shipped + synced")
+check(sorted(os.listdir(os.path.join(c, "skills"))) == sorted(shipped + ["synced", "old-skill", "retired-edited"]),
+      "skills/ != shipped + synced + the user's two")
+check(os.path.isfile(os.path.join(c, "skills", "old-skill", "SKILL.md")), "an untracked skill of the user's removed")
+check(sorted(os.listdir(os.path.join(c, "skills", "retired-edited"))) == ["SKILL.md", "mine.md"], "retired-edited: %s"
+      % os.listdir(os.path.join(c, "skills", "retired-edited")))
+check(not os.path.exists(os.path.join(c, "skills", "python-engineering", "old-ref.md")), "an unedited stack leftover kept")
 check(os.path.isfile(os.path.join(c, "skills", "synced", "abc", "docx", "SKILL.md")), "synced skill touched")
-check(not os.path.exists(os.path.join(c, "skills", "python-engineering", "notes.md")), "extra skill file kept")
+check(open(os.path.join(c, "skills", "python-engineering", "notes.md")).read() == "my notes\n", "the user's file in a skill removed")
 check("local tweak" not in open(os.path.join(c, "skills", "python-engineering", "SKILL.md")).read(), "skill edit kept")
 check(os.path.isfile(os.path.join(c, "hooks", "my-hook.sh")) and os.path.isfile(os.path.join(c, "rules", "my-rule.md")),
       "the user's own hook or rule removed")
@@ -1705,6 +1745,17 @@ fp "$TX/c" > "$TX/fp.restored"
 xrun "$TX/c" "$TX/reprune.log"
 cmp -s "$TX/fp.pruned" <(fp "$TX/c") && pass "installing again after the restore gives the same pruned config" \
   || failed "re-install after restore differs: $(diff "$TX/fp.pruned" <(fp "$TX/c") | head -5)"
+# a replaced MCP entry whose `claude mcp remove` fails (already gone): the restore goes on (set -e)
+BM="$(latest_backup "$TX/c")"
+STACK_MCP_ENTRY='{"type": "http", "url": "https://example.invalid/mcp"}' \
+  python3 "$HERE/lib/install_state.py" record "$BM" mcp_replaced smoke-mcp
+python3 "$HERE/lib/install_state.py" record "$BM" plugins_disabled smoke-plugin@smoke
+FAKE_CLAUDE_FAIL_REMOVE=1 xrun "$TX/c" "$TX/rmcp.log" --restore "$BM"; rc=$?
+[ "$rc" = 0 ] && grep -q '+ put back MCP server smoke-mcp' "$TX/rmcp.log" && grep -q '+ re-enabled plugin smoke-plugin@smoke' "$TX/rmcp.log" \
+  && grep -q 'undo this restore:' "$TX/rmcp.log" \
+  && pass "--restore goes on when claude mcp remove fails: entry put back, plugin re-enabled, undo printed" \
+  || { failed "--restore stopped at a failing claude mcp remove (rc=$rc)"; tail -n 6 "$TX/rmcp.log" | sed 's/^/    /'; }
+xrun "$TX/c" "$TX/reprune2.log"
 # a backup.json that names paths outside the config scope is refused before anything changes
 BEVIL="$(latest_backup "$TX/c")"
 python3 - "$BEVIL/backup.json" <<'PY'

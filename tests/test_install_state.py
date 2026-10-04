@@ -454,9 +454,10 @@ def _install(repo, home, conf, *extra):
     return p.stdout + p.stderr
 
 
-def _run_install(repo, home, conf, *extra, env_extra=None):
+def _run_install(repo, home, conf, *extra, env_extra=None, cwd=None, argv=None):
     """install.sh --no-mcp --no-plugins --no-deps --no-profile into a scratch HOME and config dir;
-    env_extra: variables added last (STACK_PYTHON, UV_PYTHON_INSTALL_DIR, ...)."""
+    env_extra: variables added last (STACK_PYTHON, UV_PYTHON_INSTALL_DIR, ...); cwd: where it runs;
+    argv: the whole argument list instead (e.g. ["--diff"])."""
     import subprocess
     os.makedirs(os.path.join(home, "tmp"), exist_ok=True)
     # macOS mktemp without a template ignores TMPDIR (it asks for the per-user temp dir, which a
@@ -478,9 +479,9 @@ def _run_install(repo, home, conf, *extra, env_extra=None):
                STACK_CLAUDE_JSON=os.path.join(home, ".claude.json"),
                PATH=os.pathsep.join((os.path.join(repo, "tests", "fake-claude"), shim, env.get("PATH", ""))))
     env.update(env_extra or {})
-    return subprocess.run([os.path.join(repo, "install.sh"), "--no-mcp", "--no-plugins", "--no-deps",
-                           "--no-profile", *extra], env=env, stdin=subprocess.DEVNULL,
-                          capture_output=True, text=True, timeout=900, check=False)
+    args = list(argv) if argv is not None else ["--no-mcp", "--no-plugins", "--no-deps", "--no-profile", *extra]
+    return subprocess.run([os.path.join(repo, "install.sh"), *args], env=env, stdin=subprocess.DEVNULL,
+                          capture_output=True, text=True, timeout=900, check=False, cwd=cwd)
 
 
 @pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, ".git")) and not os.path.isfile(

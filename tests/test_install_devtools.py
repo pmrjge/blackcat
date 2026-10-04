@@ -1,4 +1,4 @@
-"""lib/devtools.sh (install.sh step 2) and bin/stack-update-tools: one line per tool, a present tool
+"""lib/devtools.sh (install.sh step 2): one line per tool, a present tool
 is never touched, one brew batch per type with only the missing names, unresolved names dropped and
 reported, a failed batch retried name by name, casks and Homebrew's installer only on a terminal,
 the upstream installers fetched over HTTPS and run with their non-interactive flags, one group's
@@ -26,7 +26,6 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "lib" / "devtools.sh"
-UPDATE = ROOT / "dot-claude" / "bin" / "stack-update-tools"
 SRC = SCRIPT.read_text()
 PW_REV = re.search(r"^PLAYWRIGHT_CHROMIUM_REVISION=(\d+)", SRC, re.M).group(1)
 GRADLE_V = re.search(r"^GRADLE_VERSION=(\S+)", SRC, re.M).group(1)
@@ -567,24 +566,6 @@ def test_all_groups_off(tmp_path):
     assert [c for c in e.calls() if not c.startswith("brew list ")] == []
 
 
-# ---------------------------------------------------------------- stack-update-tools
-def test_update_tools_dry_run_and_failure_isolation(tmp_path):
-    e = Env(tmp_path)
-    e.brew()
-    e.shim("rustup", "exit 1")
-    e.shim("juliaup")
-    rc, out, _ = e.run(script=UPDATE, args=("--dry-run",))
-    assert rc == 0 and e.calls() == []
-    assert "would: homebrew: brew update && brew upgrade --formula" in out and "would: rustup: rustup update" in out
-    assert "- ghcup: absent" in out
-    rc, out, _ = e.run(script=UPDATE, args=())
-    assert rc == 1
-    assert re.search(r"^  ! rustup failed: rustup update \(log \S+\)", out, re.M), out
-    assert "ok  juliaup" in out and "ok  homebrew" in out
-    assert e.argv("brew") == ["update", "upgrade --formula"]          # never casks (sudo pkg installers)
-    assert "manual  casks: brew upgrade --cask (pkg casks ask for your password)" in out
-
-
 # ---------------------------------------------------------------- install.sh wiring
 def test_install_sh_wires_modes_and_stops_on_required():
     text = (ROOT / "install.sh").read_text()
@@ -594,10 +575,10 @@ def test_install_sh_wires_modes_and_stops_on_required():
     assert '[ "$dt_rc" = 3 ] && exit 1' in text
     # after the change-review question (R4), never before it
     assert text.index('say "2/11') < text.index('lib/devtools.sh" all')
-    assert "stack-update-tools stack-budget stack-tree; do stage_script 755" in text and '"bin/stack-update-tools",' in text
-    # no sudo call in the tool installer or the update command; every download HTTPS-only into a file
+    # the update command is gone (README lists the upgrade commands): not shipped, not staged
+    assert "stack-update-tools" not in text and not (ROOT / "dot-claude" / "bin" / "stack-update-tools").exists()
+    # no sudo call in the tool installer; every download HTTPS-only into a file
     assert not re.search(r"\bsudo\b", shell_code(SRC))
-    assert not re.search(r"\bsudo\b", shell_code(UPDATE.read_text()))
     code = "\n".join(l for l in SRC.splitlines() if not l.lstrip().startswith("#"))
     assert not re.search(r"curl[^\n|]*\|\s*(ba|z)?sh\b", code)
     for m in re.finditer(r"\bcurl --[^\n]*", code):
@@ -710,16 +691,6 @@ def test_mathlib_pin_mismatch_or_a_failed_cache_never_builds(tmp_path):
     shutil.rmtree(e.home / "lean")
     e.run("LEAN", tty="1", DEVTOOLS_NOFILE="65536", LAKE_TOOLCHAIN=LEAN_TOOLCHAIN, LAKE_REV="v4.34.1", LAKE_FAIL="cache")
     assert e.argv("lake") == ["+stable new stack_mathlib math", "exe cache get"]
-
-
-def test_update_tools_updates_elan(tmp_path):
-    e = Env(tmp_path)
-    e.shim("elan")
-    rc, out, _ = e.run(script=UPDATE, args=("--dry-run",))
-    assert "would: elan self update: elan self update" in out and "would: elan update: elan update" in out
-    rc, out, _ = e.run(script=UPDATE, args=())
-    assert e.argv("elan") == ["self update", "update"]
-    assert "ok  elan update" in out
 
 
 # ---------------------------------------------------------------- open-file limit (install.sh)
@@ -880,6 +851,40 @@ def test_maxfiles_wrong_owner_stops_before_launchctl(tmp_path):
     assert not [c for c in m.e.calls("sudo") if "launchctl" in c]
 
 
+def test_maxfiles_swapped_temp_file_is_never_loaded(tmp_path):
+    """audit LOW (CWE-367): the temp file waits in TMPDIR during sudo's prompt; a swapped copy that
+    passes the owner/mode check must still not reach launchctl."""
+    m = MF(tmp_path)
+    m.e.shim("sudo", SUDO_SHIM.replace('cp "$src" "$dst"', 'sed s/524288/1/ "$src" >"$dst"'))
+    out = m.run(stdin="y\n")
+    assert "1</string>" in m.plist.read_text() and m.plist.read_text() != PLIST_SNAPSHOT
+    assert "! 2. %s differs from the template: not loaded" % m.plist in out
+    assert not [c for c in m.e.calls("sudo") if "launchctl" in c]
+    assert not [c for c in m.e.calls() if c.startswith("launchctl bootstrap")]
+
+
+def test_pypin_dry_run_and_report_read_the_pin_file_and_run_no_uv_pin(tmp_path):
+    """audit LOW: dry-run and report only read uv's global pin file; a real run asks uv."""
+    e = Env(tmp_path)
+    e.shim("uv", UV_PINNED)
+    for mode in ("dry-run", "report"):
+        e.log.write_text("")
+        rc, out, _ = e.run("UV", mode=mode)
+        assert rc == 0 and not [c for c in e.calls("uv") if c.startswith("uv python")], e.calls("uv")
+        assert "python 3.14 (uv global pin)" in out and "  ok  python 3.14" not in out
+    pin = e.home / ".config" / "uv" / ".python-version"
+    pin.parent.mkdir(parents=True)
+    pin.write_text("3.14\n")
+    for mode in ("dry-run", "report"):
+        e.log.write_text("")
+        rc, out, _ = e.run("UV", mode=mode)
+        assert "  ok  python 3.14 (uv global pin)" in lines(out) and not [c for c in e.calls("uv") if c.startswith("uv python")]
+    pin.unlink()
+    e.log.write_text("")
+    rc, out, _ = e.run("UV")
+    assert "  ok  python 3.14 (uv global pin)" in lines(out) and "uv python pin --global" in [c.partition(" | ")[0] for c in e.calls("uv")]
+
+
 def test_maxfiles_loaded_service_is_booted_out_first(tmp_path):
     m = MF(tmp_path)
     m.loaded.write_text("")
@@ -1025,7 +1030,15 @@ def test_install_sh_maxfiles_runs_before_any_install_call(scratch_repo, tmp_path
     first_root = next(i for i, c in enumerate(log) if c.startswith(("sudo ", "plutil ")))
     first_curl = next(i for i, c in enumerate(log) if c.startswith("curl "))
     assert first_root < first_curl, log
-    assert e.argv("sudo")[-1] == "launchctl bootstrap system /Library/LaunchDaemons/ulimit.max-files.plist"
+    real = "/Library/LaunchDaemons/ulimit.max-files.plist"
+    assert e.argv("sudo")[0].startswith("install -m 644 -o root -g wheel ")
+    # sudo copies nothing here, so the content check reads this machine's file: launchd loads it
+    # only when it is the template's exact bytes
+    same = os.path.isfile(real) and open(real, encoding="utf-8").read() == PLIST_SNAPSHOT
+    if same:
+        assert e.argv("sudo")[-1] == "launchctl bootstrap system " + real
+    else:
+        assert "differs from the template: not loaded" in out and "launchctl" not in " ".join(e.argv("sudo"))
     assert "required tools are missing" in p.stderr
 
 
@@ -1037,6 +1050,21 @@ def test_install_sh_dry_run_prints_the_maxfiles_step_first(scratch_repo, tmp_pat
     assert root_calls(e) == []
     assert "not installed (--dry-run)" in out and "<string>ulimit.max-files</string>" in out
     assert "sudo launchctl bootstrap system /Library/LaunchDaemons/ulimit.max-files.plist" in out
+
+
+@pytest.mark.parametrize("line", ["export LEAN_PROJECT_PATH='%s'", 'LEAN_PROJECT_PATH="%s"  # mine'])
+def test_install_sh_reads_lean_project_path_like_the_stack_env_parser(scratch_repo, tmp_path, line):
+    """review LOW: export and quoted forms reach devtools.sh (a sed missed them, and step 2 made
+    ~/lean/stack_mathlib, ~8 GB, although stack.env named a project)."""
+    proj = tmp_path / "my lean"
+    proj.mkdir()
+    cfg = tmp_path / "cfg"
+    cfg.mkdir()
+    (cfg / "settings.json").write_text("{}\n")
+    (cfg / "stack.env").write_text("# mine\n" + line % proj + "\n")
+    e, p = run_install(scratch_repo, tmp_path, ["--dry-run", "--no-profile"], STACK_INSTALL_LEAN="1")
+    assert p.returncode == 0, p.stdout[-3000:] + p.stderr[-3000:]
+    assert "LEAN_PROJECT_PATH=%s has no lakefile" % proj in p.stdout, p.stdout[-3000:]
 
 
 # ---------------------------------------------------------------- security review (F1-F5)
@@ -1312,3 +1340,20 @@ def test_sandbox_writable_dirs_never_count_as_found(tmp_path):
                          CARGO_HOME=str(sandbox / "cargo"), GOPATH=str(sandbox / "go"), XDG_CACHE_HOME=str(sandbox))
     assert rc == 1 and out == "", (rc, out, err)
     assert e.calls("gitleaks") == []
+
+
+def test_sandbox_cache_variables_never_reach_an_installer(tmp_path):
+    """Run from a Claude Code Bash command, the environment carries the sandbox's agent-writable cache
+    dirs (agent_guard SANDBOX_ENV): devtools.sh drops every exported variable naming
+    ~/.cache/claude-sandbox before anything runs; a cache dir of the user's own stays (security audit,
+    MEDIUM, CWE-427)."""
+    e = Env(tmp_path)
+    envlog = tmp_path / "env.log"
+    mkexe(e.bin / "uv", 'echo "UV_CACHE_DIR=${UV_CACHE_DIR-unset} CARGO_HOME=${CARGO_HOME-unset} '
+                        'GOMODCACHE=${GOMODCACHE-unset} PIP_CACHE_DIR=${PIP_CACHE_DIR-unset}" >>"%s"\nexit 0' % envlog)
+    sb = e.home / ".cache" / "claude-sandbox"
+    rc, out, err = e.run("UV", UV_CACHE_DIR=str(sb / "uv"), CARGO_HOME=str(sb / "cargo"),
+                         GOMODCACHE=str(sb / "go/mod"), PIP_CACHE_DIR=str(tmp_path / "mine"))
+    seen = envlog.read_text()
+    assert seen and "claude-sandbox" not in seen, (seen, out, err)
+    assert "UV_CACHE_DIR=unset CARGO_HOME=unset GOMODCACHE=unset PIP_CACHE_DIR=%s" % (tmp_path / "mine") in seen

@@ -166,7 +166,7 @@ def drifted(c, snap, rels=None):
 def linked_dirs(c):
     """{dir: resolved target} for the top-level scope dirs of C that are symlinks (a dotfiles
     checkout). Their contents are the user's: the installer never removes anything through them,
-    and install.sh writes the stack's files through them only with --force."""
+    and install.sh writes the stack's files through them only with --write-through-links."""
     out = {}
     for d in SCOPE_DIRS + ("magg",):
         p = os.path.join(c, d)
@@ -441,7 +441,7 @@ def placed_parent(c, rel, gone=()):
 def unsafe_paths(c, plan):
     """Plan paths that are not SCOPE paths, or that resolve (through a symlinked directory) out of
     C — except the stack's files written through a symlinked top-level dir, which install.sh
-    allows only with --force — and removals below such a dir unless the plan says it may."""
+    allows only with --write-through-links — and removals below such a dir unless the plan says it may."""
     real_c = os.path.realpath(c)
     linked = linked_dirs(c)
     # a symlink the plan removes (skills/x -> ~/dotfiles/x, replaced by the stack's skills/x/) is

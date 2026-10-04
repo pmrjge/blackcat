@@ -393,8 +393,13 @@ def main(argv):
         usage("--repo must name the stack checkout (with dot-claude/)")
     home = os.path.expanduser("~")
     # install.sh's own resolution (lexical: a symlinked ~/.claude keeps its name, as __CLAUDE_DIR__ does)
-    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-    import install_state as ist
+    # by file path, not through sys.path: lib/ is agent-writable, and a lib/<stdlib name>.py there
+    # must never shadow what install_state imports
+    import importlib.util
+    spec = importlib.util.spec_from_file_location(
+        "install_state", os.path.join(os.path.dirname(os.path.abspath(__file__)), "install_state.py"))
+    ist = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ist)
     try:
         raw, src = ist.choose_config_dir(cdir or "", cset, os.environ.get("CLAUDE_CONFIG_DIR", ""), home)
         c = ist.expand_path(raw, home, ist._cwd())

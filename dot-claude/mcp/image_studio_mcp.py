@@ -1,6 +1,8 @@
 # /// script
 # requires-python = ">=3.10"
 # dependencies = ["mcp>=1.10,<2", "httpx>=0.27", "pillow>=10"]
+# [tool.uv]
+# exclude-newer = "2026-09-27T00:00:00Z"
 # ///
 """image-studio — the stack's image tools: one job per tool, the model of each set in stack.env.
 

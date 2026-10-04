@@ -1,6 +1,8 @@
 # /// script
 # requires-python = ">=3.9"
 # dependencies = ["pandas>=2.2", "numpy>=1.26"]
+# [tool.uv]
+# exclude-newer = "2026-09-27T00:00:00Z"
 # ///
 """stack_sched_refresh.py - refits the scheduler's cost model from the usage collector's rows.
 

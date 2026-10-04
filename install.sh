@@ -103,7 +103,6 @@ while [ "$i" -lt "${#argv[@]}" ]; do
     --with-extra-plugins) WITH_EXTRA_PLUGINS=1 ;;
     --no-mcp) SKIP_MCP=1 ;;
     --no-plugins) SKIP_PLUGINS=1 ;;
-    --dedupe-plugins) DEDUPE_PLUGINS=1 ;;          # the default now; accepted for old scripts
     --keep-plugin-duplicates) DEDUPE_PLUGINS=0 ;;
     --replace-mcp) REPLACE_MCP=1 ;;
     --force) FORCE=1 ;;
@@ -131,6 +130,22 @@ while [ "$i" -lt "${#argv[@]}" ]; do
   esac
   i=$((i + 1))
 done
+# Every python3 this script starts is isolated (security audit, CWE-427): -I puts neither the script's
+# dir (lib/), the caller's cwd nor PYTHON* variables on sys.path, and -B with a pycache_prefix that
+# cannot exist means no __pycache__ (a planted .pyc in the agent-writable repo) is ever read or
+# written. Repo modules are loaded by file path (spec_from_file_location), never through sys.path.
+PY_ISOLATE="-I -B -X pycache_prefix=/dev/null/claude-agent-stack-no-bytecode"
+# shellcheck disable=SC2086
+python3(){ command python3 $PY_ISOLATE "$@"; }
+# Run from a Claude Code Bash command, the environment carries the sandbox's cache dirs (agent_guard
+# SANDBOX_ENV: CARGO_HOME, UV_CACHE_DIR, GOMODCACHE, npm_config_cache, ...), which sandboxed agents
+# can write: no installer, build or prefetch of this run may read from or write to them (security
+# audit, CWE-427). Every exported variable naming that dir is dropped (PATH aside).
+SANDBOX_DROPPED=""
+for v in $(compgen -e); do
+  [ "$v" = PATH ] || case "${!v}" in *"$HOME/.cache/claude-sandbox"*) unset "$v"; SANDBOX_DROPPED="$SANDBOX_DROPPED $v" ;; esac
+done
+[ -z "$SANDBOX_DROPPED" ] || printf 'install.sh: ignoring the sandbox cache variables of this shell:%s\n' "$SANDBOX_DROPPED" >&2
 # --print-managed-settings: the JSON is the only thing on stdout (fd 3); progress goes to stderr
 if [ "$PRINT_MANAGED" = 1 ]; then exec 3>&1 1>&2; fi
 # the plugin lists the installer manages (tests/test_no_duplicates.py reads these two lines)
@@ -158,9 +173,9 @@ STATE_PY="$HERE/lib/install_state.py"
 if [ "$DIFF" = 1 ]; then
   [ -z "$DIFF_CONFLICT" ] || { echo "--diff takes only --config-dir (got $DIFF_CONFLICT)" >&2; exit 2; }
   if [ "$CONFIG_DIR_SET" = 1 ]; then
-    exec python3 -B "$HERE/lib/stack_diff.py" --repo "$HERE" --config-dir "$CONFIG_DIR_ARG"
+    exec python3 $PY_ISOLATE "$HERE/lib/stack_diff.py" --repo "$HERE" --config-dir "$CONFIG_DIR_ARG"
   fi
-  exec python3 -B "$HERE/lib/stack_diff.py" --repo "$HERE"
+  exec python3 $PY_ISOLATE "$HERE/lib/stack_diff.py" --repo "$HERE"
 fi
 
 # ---- Main-branch rule (hard-coded; no flag or variable turns it off) ----------------------------
@@ -208,6 +223,10 @@ main_branch_rule(){
     "Run it from the checkout on $MAIN_BRANCH, or run ./install.sh here without --mcp-plan to fast-forward $MAIN_BRANCH first."
   [ "$DRY_RUN" != 1 ] || guard_fail "$HERE is on '$label', not $MAIN_BRANCH, and --dry-run changes nothing (so it does not merge)." \
     "Run it from the checkout on $MAIN_BRANCH, or run ./install.sh here without --dry-run to fast-forward $MAIN_BRANCH first."
+  [ "$PRINT_MANAGED" != 1 ] || guard_fail "$HERE is on '$label', not $MAIN_BRANCH, and --print-managed-settings changes nothing (so it does not merge)." \
+    "Run it from the checkout on $MAIN_BRANCH."
+  [ -z "$RESTORE" ] || guard_fail "$HERE is on '$label', not $MAIN_BRANCH, and --restore installs nothing from the repo (so it does not merge)." \
+    "Run it from the checkout on $MAIN_BRANCH."
 
   # 1. this checkout is clean: uncommitted or untracked files would not reach main
   dirty="$(repo_git -C "$HERE" status --porcelain --untracked-files=normal)"
@@ -306,6 +325,11 @@ esac
 
 main_branch_rule ${1+"$@"}
 unset STACK_TARGET_CONFIRMED
+# From here on nothing depends on the caller's directory (the stack repo, which sandboxed agents can
+# write): no tool this run starts reads a planted uv.toml, .npmrc, node_modules, rust-toolchain.toml
+# or module from it. A relative --restore DIR is made absolute first (the target already is).
+case "$RESTORE" in ""|latest|/*) ;; *) RESTORE="$PWD/$RESTORE" ;; esac
+cd / || exit 2
 
 SRC="$HERE/dot-claude"
 [ "$CD_SHOWN" = 1 ] || show_banner
@@ -347,6 +371,9 @@ print(top)' "$BACKUP_ROOT")"
 ROOT_STATE="$(python3 "$STATE_PY" private-root "$BACKUP_ROOT")" || exit 1
 find "$BACKUP_ROOT" -maxdepth 1 -name '.work.*' -type d -mtime +1 -exec rm -rf {} + 2>/dev/null || true
 WORK="$(mktemp -d "$BACKUP_ROOT/.work.XXXXXX")"
+# the rest runs in $WORK: private (agents can neither read nor write it), and where macOS's bash 3.2
+# falls back to for here-document temp files when /tmp is not writable (a sandboxed test run)
+cd "$WORK" || exit 2
 cleanup(){
   rm -rf "$WORK"
   if [ "$ROOT_STATE" = created ] && [ "$DRY_RUN$PRINT_MANAGED$MCP_PLAN" != 000 ]; then
@@ -423,7 +450,8 @@ PY
         if [ "$DRY_RUN" = 1 ]; then would "claude mcp add-json -s user $name <its entry in the backup>  (${kind#mcp_} by the install)"
         elif [ "$kind" = mcp_removed ] && claude mcp get "$name" >/dev/null 2>&1 </dev/null; then note "= MCP server $name exists — kept as is"
         else
-          [ "$kind" = mcp_replaced ] && claude mcp remove -s user "$name" >/dev/null 2>&1 </dev/null
+          # already gone is fine; under set -e a failing `[ ] && cmd` would end the restore here
+          if [ "$kind" = mcp_replaced ]; then claude mcp remove -s user "$name" >/dev/null 2>&1 </dev/null || true; fi
           if claude mcp add-json -s user "$name" "$(cat "$val")" >/dev/null 2>&1 </dev/null; then note "+ put back MCP server $name"
           else note "! put back MCP server $name yourself: claude mcp add-json -s user $name '<its entry in the backup.json>'"; fi
         fi ;;
@@ -643,10 +671,12 @@ fi
 # What changed in what this run installs since the last install (the manifest records the commit each
 # install shipped), and edits not committed yet: the whole shipped tree (agents and their MCP servers
 # and hooks, skills, rules, hooks, settings, bin, mcp, magg's catalog, the LSP marketplace), the
-# installer and its library, stack.env.example, the pinned requirements, the two tests/derive_*.py
-# scripts copied into hooks/ (not lib/assets/: README images, never installed). Read them before
+# installer and all of lib/ (a file added there shows as untracked), the pinned requirements,
+# tests/lint_agents.py (run in step 7) and the two tests/derive_*.py scripts copied into hooks/. Read them before
 # applying. On a terminal the run asks here, before step 2 changes anything (the venvs sync from requirements/) (--yes: don't).
-SUPPLY_PATHS="dot-claude install.sh lib/install_state.py lib/devtools.sh lib/stack.env.example requirements tests/derive_sched_model.py tests/derive_thresholds.py"
+# lib/assets (the README's images) is neither installed nor run: left out
+SUPPLY_PATHS="dot-claude install.sh lib requirements tests/lint_agents.py tests/derive_sched_model.py tests/derive_thresholds.py :(exclude)lib/assets"
+SUPPLY_SHOW="${SUPPLY_PATHS% *} ':(exclude)lib/assets'"     # the same, quoted for pasting into a shell
 SUPPLY_CHANGED=0
 prev_commit="$(python3 -c 'import json, re, sys
 try:
@@ -661,7 +691,7 @@ if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
     SUPPLY_CHANGED=1
     note "! uncommitted changes in the stack repo's shipped files or installer — this run installs them:"
     printf '%s\n' "$dirty" | head -n 40 | sed 's/^/      /'
-    [ "$(printf '%s\n' "$dirty" | wc -l)" -gt 40 ] && note "  ... and more: git -C $HERE status -- $SUPPLY_PATHS"
+    [ "$(printf '%s\n' "$dirty" | wc -l)" -gt 40 ] && note "  ... and more: git -C $HERE status -- $SUPPLY_SHOW"
   fi
   if [ -n "$prev_commit" ] && [ "$prev_commit" != "$STACK_COMMIT_FULL" ]; then
     # shellcheck disable=SC2086
@@ -676,7 +706,7 @@ if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
         else
           printf '%s\n' "$supply" | sed 's/^/      /'
         fi
-        note "review: git -C $HERE diff ${prev_commit:0:12} HEAD -- $SUPPLY_PATHS"
+        note "review: git -C $HERE diff ${prev_commit:0:12} HEAD -- $SUPPLY_SHOW"
       fi
     else
       SUPPLY_CHANGED=1
@@ -802,6 +832,9 @@ mf_install(){
   st="$(stat -f '%Su:%Sg %Lp' "$MF_PLIST" 2>/dev/null || true)"
   note "2. $MF_PLIST: $st"
   [ "$st" = "root:wheel 644" ] || { note "! 2. expected owner root:wheel and mode 644"; return 1; }
+  # the temp file sat in TMPDIR during sudo's password prompt: load only the template's exact bytes
+  [ "$(cat "$MF_PLIST" 2>/dev/null || true)" = "$(mf_plist)" ] \
+    || { note "! 2. $MF_PLIST differs from the template: not loaded (remove: sudo rm $MF_PLIST)"; return 1; }
   if mf_loaded; then
     sudo launchctl bootout system "$MF_PLIST" || { note "! 3. sudo launchctl bootout system $MF_PLIST failed"; return 1; }
   fi
@@ -894,8 +927,12 @@ maxfiles_step
 mf_raise_ulimit
 
 say "2/11 Tools: prerequisites, dev tools, magg, huetension, serial-mcp, science and tools venvs"
-# Supply chain (C7): every download is pinned to a version and, where the project publishes one, a
-# checksum; the Python venvs install from hash-locked lockfiles (requirements/, 7-day cooldown).
+# Supply chain (C7, CONFIG.md §7 "Supply chain"): what the stack installs itself is pinned to a version
+# and, where the project publishes one, a checksum; the Python venvs install from hash-locked lockfiles
+# (requirements/, 7-day cooldown); the stack's PEP 723 scripts resolve as of their header's
+# exclude-newer date. NOT pinned beyond the top-level version: the uvx/npx MCP servers' dependencies
+# (resolved at first start), and the upstream managers' official "latest" installers (rustup, nvm,
+# ghcup, juliaup, coursier, elan, Homebrew: their URL and sha256 are logged, not checked).
 # Prerequisites and toolchains are lib/devtools.sh's (pins, routes and groups there; CONFIG.md §7):
 # Homebrew, one brew batch for every missing formula and one for every missing cask, the upstream
 # managers (uv, nvm, rustup, ghcup, juliaup, coursier, elan), then gitleaks, pre-commit, Gradle,
@@ -910,8 +947,10 @@ HUETENSION_VERSION=0.3.0
 if [ "$NO_DEPS" = 1 ]; then DT_MODE=report; elif [ "$DRY_RUN" = 1 ]; then DT_MODE=dry-run; else DT_MODE=install; fi
 note "prerequisites and toolchains (lib/devtools.sh):"
 # the Lean group uses your LEAN_PROJECT_PATH (stack.env, else the environment) instead of making a project
-lean_proj="$(sed -n 's/^LEAN_PROJECT_PATH=//p' "$C/stack.env" 2>/dev/null | tail -n 1 || true)"
-lean_proj="${lean_proj%\"}"; lean_proj="${lean_proj#\"}"
+# (read by bin/mcp-headers' read_env_file, the stack's one stack.env parser: export, quotes, comments)
+lean_proj="$(python3 -c 'import runpy, sys; from pathlib import Path
+print(runpy.run_path(sys.argv[1], run_name="mcp_headers")["read_env_file"](Path(sys.argv[2])).get("LEAN_PROJECT_PATH", ""))' \
+  "$SRC/bin/mcp-headers" "$C/stack.env" 2>/dev/null || true)"
 [ -n "$lean_proj" ] || lean_proj="${LEAN_PROJECT_PATH:-}"
 dt_rc=0
 # --no-prompt: never ask, also not through Homebrew's installer or the pkg casks
@@ -1170,6 +1209,18 @@ note "staged in $S (prune: $([ "$PRUNE" = 1 ] && echo on || echo 'off (--no-prun
 legacy_b="$(python3 "$STATE_PY" legacy-backups "$C" "$BACKUP_ROOT" list)"
 
 say "6/11 Render (agents, rules, skills, scripts, settings.json)"
+# The stack ships no symlinks (security audit, CWE-59): a link under dot-claude/ (say a skill's
+# notes.log -> ~/.ssh/id_ed25519, a name .gitignore hides from the review above) would copy what it
+# points at into the config dir, where agents can read it. Any link stops the run here.
+python3 - "$SRC" "$C" <<'PY' || exit 1
+import os, sys
+src, c = sys.argv[1:3]
+links = [os.path.relpath(os.path.join(r, n), os.path.dirname(src))
+         for r, ds, fs in os.walk(src) for n in ds + fs if os.path.islink(os.path.join(r, n))]
+if links:
+    sys.exit("install.sh: %s is a symlink; the stack ships none — remove it (nothing in %s was changed)"
+             % (", ".join(sorted(links)[:5]), c))
+PY
 mkdir -p "$S"/{agents,skills,hooks,mcp,magg,bin,rules}
 # The stack's scripts replace whatever is staged there — a symlink too (removed first: a copy onto
 # it would write through the link, out of the staging dir; the backup keeps the link).
@@ -1199,7 +1250,7 @@ for f in stack_sched_refresh.py sched_model.json stack_limits_seed.json stack_fa
 for f in derive_sched_model.py derive_thresholds.py; do
   rm -rf "$S/hooks/$f" && cp "$HERE/tests/$f" "$S/hooks/$f" && chmod 644 "$S/hooks/$f"
 done
-for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-update-tools stack-budget stack-tree; do stage_script 755 "bin/$f"; done
+for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget stack-tree; do stage_script 755 "bin/$f"; done
 stage_script 755 "bin/stack-who"
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
 stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry reads it (--config)
@@ -1384,8 +1435,12 @@ def save_report():
         json.dump(report, rf, indent=2, sort_keys=True)
 
 
-sys.path.insert(0, os.path.join(REPO, "lib"))
-from install_state import SCOPE_DIRS, in_scope, within  # noqa: E402  (the backups' scope rule)
+import importlib.util  # noqa: E402
+# by file path, never through sys.path (lib/ is agent-writable: nothing there may shadow a stdlib module)
+_spec = importlib.util.spec_from_file_location("install_state", os.path.join(REPO, "lib", "install_state.py"))
+_ist = importlib.util.module_from_spec(_spec)
+_spec.loader.exec_module(_ist)
+SCOPE_DIRS, in_scope, within = _ist.SCOPE_DIRS, _ist.in_scope, _ist.within   # the backups' scope rule
 
 # a whole scope dir (bin/, mcp/, ...) is never removed by name; .stack-plugins.new is a leftover
 WHOLE_DIRS = tuple(d for d in SCOPE_DIRS if d != ".stack-plugins.new")
@@ -1888,9 +1943,10 @@ if installed_count < total_agents:
     print("  ! %d agent file(s) kept with local edits: merge the .new renders (or rerun with --force)"
           % (total_agents - installed_count))
 
-# --- skills/: the stack owns this directory (claude.ai's synced/ aside, never staged). Pruning: every
-# shipped file matches its render (an edited one is replaced), and files and skills the stack doesn't
-# ship go (yours included: the backup keeps them). --no-prune: manifest-guarded — a file you edited
+# --- skills/: claude.ai's synced/ aside (never staged). Pruning: every shipped file matches its render
+# (an edited one is replaced; the backup keeps it); of what the stack doesn't ship, only files it
+# installed and nobody edited go (manifest hashes): skills and files of your own, and stack files you
+# edited, stay (named in the notes). --no-prune: manifest-guarded — a file you edited
 # since the last install, or a same-named file of your own, is kept with the render next to it as
 # <file>.new; an untracked file that is an older copy of the stack's is refreshed; nothing goes. ---
 def install_tracked(rel, dest, rendered):
@@ -1928,7 +1984,28 @@ def install_tracked(rel, dest, rendered):
     return "kept"
 
 
-skill_names = sorted(os.path.basename(d) for d in glob.glob(os.path.join(SRC, "skills", "*")) if os.path.isdir(d))
+# Only the files git lists (tracked, or untracked and not ignored: what the review above showed) are
+# copied: an ignored file (*.log, build/, ...) planted in a skill never reaches the config dir. Each
+# must be a regular file inside dot-claude/skills (the symlink check before step 6 already ran).
+_ls = subprocess.run(["git", "-c", "core.hooksPath=/dev/null", "-C", REPO, "ls-files", "-z", "--cached",
+                      "--others", "--exclude-standard", "--", "dot-claude/skills"],
+                     stdout=subprocess.PIPE, stdin=subprocess.DEVNULL, check=False)
+if _ls.returncode != 0:
+    sys.exit("install.sh: git ls-files failed in %s — nothing in %s was changed" % (REPO, C))
+SKILLS_SRC = os.path.realpath(os.path.join(SRC, "skills"))
+listed = {}                                    # skill name -> [path relative to its dir]
+for _rel in sorted(filter(None, _ls.stdout.decode("utf-8", "surrogateescape").split("\0"))):
+    _sp = os.path.join(REPO, _rel)
+    _parts = os.path.relpath(_sp, os.path.join(SRC, "skills")).split(os.sep)
+    if not os.path.lexists(_sp) or len(_parts) < 2:
+        continue                               # deleted in the working tree; a file beside the skills
+    if os.path.islink(_sp) or not os.path.isfile(_sp) or not within(os.path.realpath(_sp), SKILLS_SRC):
+        sys.exit("install.sh: %s is not a regular file inside dot-claude/skills — nothing in %s was changed"
+                 % (_rel, C))
+    if _parts[-1].endswith((".pyc", ".new")) or _parts[-1] == ".DS_Store" or "__pycache__" in _parts:
+        continue
+    listed.setdefault(_parts[0], []).append(os.path.join(*_parts[1:]))
+skill_names = sorted(listed)
 skills_kept, skills_refreshed, skills_replaced = [], [], []
 skill_files = set()
 for name in skill_names:
@@ -1937,61 +2014,106 @@ for name in skill_names:
     if os.path.islink(ddir) or os.path.isfile(ddir):
         os.unlink(ddir)
         report["replaced"]["skills/%s" % name] = "not a directory"
-    for root, dirs, files in os.walk(sdir):
-        dirs[:] = [d for d in dirs if d != "__pycache__"]
-        rel_root = os.path.relpath(root, sdir)
-        out_root = ddir if rel_root == "." else os.path.join(ddir, rel_root)
-        if os.path.islink(out_root) or os.path.isfile(out_root):   # never write through a link
-            os.unlink(out_root)
+    for frel in listed[name]:
+        sp = os.path.join(sdir, frel)
+        op = os.path.join(ddir, frel)
+        out_root = os.path.dirname(op)
+        # never write through a link: a staged link or file where a directory goes is removed
+        _d = ddir
+        for _part in [""] + os.path.dirname(frel).split(os.sep):
+            _d = os.path.join(_d, _part) if _part else _d
+            if os.path.islink(_d) or os.path.isfile(_d):
+                os.unlink(_d)
         os.makedirs(out_root, exist_ok=True)
-        for fn in files:
-            if fn.endswith((".pyc", ".new")) or fn == ".DS_Store":
-                continue
-            sp = os.path.join(root, fn)
-            op = os.path.join(out_root, fn)
-            rel = os.path.relpath(op, DEST)
-            skill_files.add(rel)
-            try:
-                text = open(sp, encoding="utf-8").read()
-            except (UnicodeDecodeError, ValueError):
-                if os.path.islink(op) or os.path.isdir(op):
-                    (shutil.rmtree if os.path.isdir(op) and not os.path.islink(op) else os.unlink)(op)
-                shutil.copy2(sp, op)
-                continue
-            state = install_tracked(rel, op, render(text))
-            if state == "kept":
-                skills_kept.append(rel)
-            elif state == "refreshed":
-                skills_refreshed.append(rel)
-            elif state == "replaced":
-                skills_replaced.append(rel)
-# what the stack doesn't ship: whole skills, and files inside shipped skills
+        rel = os.path.relpath(op, DEST)
+        skill_files.add(rel)
+        try:
+            text = open(sp, encoding="utf-8").read()
+        except (UnicodeDecodeError, ValueError):
+            if os.path.islink(op) or os.path.isdir(op):
+                (shutil.rmtree if os.path.isdir(op) and not os.path.islink(op) else os.unlink)(op)
+            shutil.copy2(sp, op)
+            files_entry[rel] = sha256(op)       # tracked like a render: a later prune may drop it unedited
+            continue
+        state = install_tracked(rel, op, render(text))
+        if state == "kept":
+            skills_kept.append(rel)
+        elif state == "refreshed":
+            skills_refreshed.append(rel)
+        elif state == "replaced":
+            skills_replaced.append(rel)
+# what the stack doesn't ship: whole skills, and files inside shipped skills. The prune removes only
+# files the stack installed and nobody changed since (the manifest's hash still matches): a skill or
+# file of your own (untracked) and a stack file you edited stay, named in the run's notes.
+def stack_unedited(rel):
+    p = os.path.join(DEST, rel)
+    h = files_entry.get(rel)
+    return h is not None and not os.path.islink(p) and sha256(p) == h
+
+
+def entries_below(top):
+    """Files and links below DEST/top (a link to a directory is one entry, never followed)."""
+    out = []
+    for root, dirs, files in os.walk(os.path.join(DEST, top)):
+        out += [os.path.relpath(os.path.join(root, f), DEST) for f in files]
+        out += [os.path.relpath(os.path.join(root, d), DEST) for d in dirs if os.path.islink(os.path.join(root, d))]
+    return sorted(out)
+
+
+def kept_why(rel):
+    return "edited since the stack installed it" if rel in files_entry else "not installed by the stack: yours"
+
+
+def drop_empty_dirs(top):
+    """Remove the directories below DEST/top (top included) that the removals left empty."""
+    t = os.path.join(DEST, top)
+    if os.path.islink(t) or not os.path.isdir(t):
+        return
+    for root, dirs, files in os.walk(t, topdown=False):
+        if not os.listdir(root):
+            os.rmdir(root)
+
+
 skills_root = os.path.join(DEST, "skills")
 for name in sorted(os.listdir(skills_root)):
     rel_dir = "skills/%s" % name
+    p_dir = os.path.join(skills_root, name)
+    is_dir = os.path.isdir(p_dir) and not os.path.islink(p_dir)
     if name not in skill_names:
-        tracked = any(r.startswith(rel_dir + "/") for r in list(files_entry) + list(offered))
-        why = "no longer shipped by the stack" if tracked else "not shipped by the stack: yours or another tool's"
-        if PRUNE:
-            drop(rel_dir + "/" if os.path.isdir(os.path.join(skills_root, name)) else rel_dir, why)
+        rels = entries_below(rel_dir) if is_dir else [rel_dir]
+        ours = [r for r in rels if stack_unedited(r)]
+        why = "no longer shipped by the stack"
+        if not PRUNE:
+            stale_kept.append((rel_dir + "/" * is_dir, why if any(r in files_entry for r in rels)
+                               else "not shipped by the stack: yours or another tool's"))
+        elif ours and len(ours) == len(rels):
+            drop(rel_dir + "/" * is_dir, why)                  # all the stack's, unedited: the whole skill
+        elif not any(r in files_entry for r in rels):
+            report["notes"].append("%s: kept (not installed by the stack: yours or another tool's)"
+                                   % (rel_dir + "/" * is_dir))
         else:
-            stale_kept.append((rel_dir + "/", why))
+            for rel in rels:
+                if rel in ours:
+                    drop(rel, why)
+                else:
+                    report["notes"].append("%s: kept (%s)" % (rel, kept_why(rel)))
+            drop_empty_dirs(rel_dir)
         continue
-    for root, dirs, files in os.walk(os.path.join(skills_root, name)):
-        for fn in sorted(files) + sorted(d for d in dirs if os.path.islink(os.path.join(root, d))):
-            rel = os.path.relpath(os.path.join(root, fn), DEST)
-            if rel in skill_files:
-                continue
-            why = ("leftover render of a stack file" if rel.endswith(".new") and rel[:-4] in skill_files
-                   else "not part of the stack's %s skill" % name)
+    for rel in entries_below(rel_dir) if is_dir else []:
+        if rel in skill_files:
+            continue
+        if rel.endswith(".new") and rel[:-4] in skill_files:   # the stack's own leftover render
             if PRUNE:
-                drop(rel, why)
-            elif not why.startswith("leftover"):
-                stale_kept.append((rel, why))
-    if PRUNE:                                   # directories the removals left empty
-        for root, dirs, files in os.walk(os.path.join(skills_root, name), topdown=False):
-            if root != os.path.join(skills_root, name) and not os.listdir(root):
-                os.rmdir(root)
+                drop(rel, "leftover render of a stack file")
+        elif not PRUNE:
+            stale_kept.append((rel, "not part of the stack's %s skill" % name))
+        elif stack_unedited(rel):
+            drop(rel, "no longer part of the stack's %s skill" % name)
+        else:
+            report["notes"].append("%s: kept (%s)" % (rel, kept_why(rel)))
+    if PRUNE and is_dir:                        # directories the removals left empty (not the skill's own)
+        for sub in sorted(os.listdir(p_dir)):
+            drop_empty_dirs(os.path.join(rel_dir, sub))
 for rel in [r for r in list(files_entry) + list(offered) if r.startswith("skills/")]:
     if rel not in skill_files and (PRUNE or not os.path.lexists(os.path.join(DEST, rel))):
         files_entry.pop(rel, None)
@@ -2010,7 +2132,7 @@ STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook"
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json", "hooks/stack_fanout.py", "hooks/stack_fanout_wire.py",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
-                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-update-tools", "bin/stack-budget",
+                 "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
                  "bin/stack-tree",
                  "bin/stack-who",
                  "mcp/image_studio_mcp.py",
@@ -2658,8 +2780,10 @@ if ! ( if [ "$DRY_RUN" = 1 ]; then export XDG_STATE_HOME="$WORK/validate-state";
   exit 1
 fi
 note "validated: JSON, agent and skill frontmatter, placeholders, agent_guard.py --self-test"
-if have uv && [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
-  if (cd "$HERE" && uv run --quiet tests/lint_agents.py >"$WORK/lint.log" 2>&1); then note "lint: tests/lint_agents.py ok"
+if [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
+  # stdlib only, isolated python3 (no uv run: no environment or config is resolved from the repo);
+  # tests/lint_agents.py is in SUPPLY_PATHS, so a change to it was shown before this runs
+  if python3 "$HERE/tests/lint_agents.py" >"$WORK/lint.log" 2>&1; then note "lint: tests/lint_agents.py ok"
   else note "! tests/lint_agents.py reports problems in the stack repo (installing anyway):"; sed 's/^/      /' "$WORK/lint.log" | head -n 20; fi
 fi
 
