@@ -530,10 +530,15 @@ def test_a_ghc_without_ghcup_gets_the_hlint_command_not_a_failed_install(tmp_pat
 
 
 def test_rust_analyzer_hints_name_rustup_only_when_it_is_there():
+    """--with-lsp: rustup's component when rustup is here, else Homebrew's formula (no longer only a
+    hint), else a cause naming both; a found proxy that fails is left alone with the fix."""
     t = (Path(__file__).resolve().parent.parent / "install.sh").read_text()
-    block = t[t.index("# rustup's rust-analyzer proxy without the component"):t.index("# Servers for the stack's other languages")]
+    block = t[t.index("# rustup's rust-analyzer proxy without the component"):t.index("# kotlin-lsp: Homebrew's cask")]
     assert 'if have rustup; then ra_fix="rustup component add rust-analyzer"' in block
-    assert 'else note "! rust-analyzer: no rustup here (a Rust from Homebrew or elsewhere): brew install rust-analyzer"; fi' in block
+    order = ["elif have rust-analyzer; then", "elif have rustup; then lsp_get rust-analyzer",
+             "elif lsp_off_path rust-analyzer", "elif have brew; then lsp_get rust-analyzer \"brew install rust-analyzer\" brew_q install rust-analyzer",
+             'else lsp_cause rust-analyzer "no rustup and no Homebrew']
+    assert all(s in block for s in order) and [block.index(s) for s in order] == sorted(block.index(s) for s in order), block
 
 
 # ---------------------------------------------------------------- review: found-but-broken pnpm, no runs in dry-run

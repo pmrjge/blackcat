@@ -2150,6 +2150,89 @@ tg_run "$TG/c3.log" "$TG/my clone/install.sh" --config-dir "$TG/c3 target" --no-
 assert_unchanged_real_home
 drop_scratch "$TG"
 
+echo "== 20. --with-lsp: jdtls from step 2's brew batch (LSP group), rust-analyzer and kotlin-lsp from Homebrew, a log per failure, a cause per missing server"
+# Runs without --no-deps (as §18): brew is a fake that logs its arguments and "installs" each name as a
+# command in $TW/brewbin (a name in BREW_FAIL fails, with an error line); the other tools are stubs.
+# PATH is those, the fake claude and the system dirs: no real language server, brew, rustup or npm.
+# Every step-2 group is off; LSP is left unset, so --with-lsp decides it.
+TW="$(scratch_dir)" || exit 1
+mkdir -p "$TW/stubs" "$TW/brewbin"
+for b in uv uvx node npx npm magg huetension; do printf '#!/bin/sh\nexit 0\n' > "$TW/stubs/$b"; chmod +x "$TW/stubs/$b"; done
+cat > "$TW/stubs/brew" <<'SH'
+#!/bin/sh
+printf '%s\n' "$*" >> "$BREW_LOG"
+case "$1" in
+  list) t=formula; [ "$2" = --cask ] && t=cask; sed -n "s/^$t //p" "$BREW_BIN/.state" 2>/dev/null; exit 0 ;;
+  install) ;;
+  *) exit 0 ;;
+esac
+shift; t=formula; [ "$1" = --cask ] && { t=cask; shift; }
+for n in "$@"; do case " $BREW_FAIL " in *" $n "*) echo "Error: simulated failure installing $n"; exit 1 ;; esac; done
+for n in "$@"; do printf '#!/bin/sh\nexit 0\n' > "$BREW_BIN/$n" && chmod +x "$BREW_BIN/$n" && echo "$t $n" >> "$BREW_BIN/.state"; done
+SH
+chmod +x "$TW/stubs/brew"
+[ -n "${PY313:-}" ] || PY313="$(uv python find --system --managed-python --no-project --no-config 3.13 2>/dev/null </dev/null || true)"
+TW_PATH="$TW/brewbin:$TW/stubs:$HERE/tests/fake-claude:/usr/bin:/bin:/usr/sbin:/sbin"
+# wrun HOME LOG BREW_FAIL ARGS...: one install into a scratch HOME; brew's and claude's calls logged next to LOG
+wrun(){ local home="$1" log="$2" fail="$3"; shift 3; mkdir -p "$home"; rm -f "$TW/brewbin"/* "$TW/brewbin/.state"
+  env -u STACK_INSTALL_LSP HOME="$home" PATH="$TW_PATH" CLAUDE_CONFIG_DIR="$home/.claude" STACK_PYTHON="$PY313" \
+    FAKE_CLAUDE_JSON="$TW/$log.json" STACK_CLAUDE_JSON="$TW/$log.json" FAKE_CLAUDE_LOG="$TW/$log.claude" \
+    BREW_LOG="$TW/$log.brew" BREW_BIN="$TW/brewbin" BREW_FAIL="$fail" STACK_INSTALL_MAXFILES=0 \
+    DEVTOOLS_BREW_CANDIDATES="" DEVTOOLS_SYSTEM_DIRS="" DEVTOOLS_PATH_HELPER="" DEVTOOLS_PKGUTIL="" DEVTOOLS_MDFIND="" \
+    STACK_INSTALL_DEPS=0 STACK_INSTALL_DEVTOOLS=0 STACK_INSTALL_UV=0 STACK_INSTALL_NODE=0 STACK_INSTALL_RUST=0 \
+    STACK_INSTALL_HASKELL=0 STACK_INSTALL_JULIA=0 STACK_INSTALL_SCALA=0 STACK_INSTALL_JAVA=0 STACK_INSTALL_LATEX=0 \
+    STACK_INSTALL_CXX=0 STACK_INSTALL_GO=0 STACK_INSTALL_LEAN=0 STACK_INSTALL_POSTGRES=0 STACK_INSTALL_MONGODB=0 \
+    "$INSTALL" --no-mcp --no-profile "$@" </dev/null >"$TW/$log" 2>&1; }
+plugin_installed(){ grep -qF "[\"plugin\", \"install\", \"$1@claude-plugins-official\", \"--scope\", \"user\"]" "$2"; }
+echo '{}' > "$TW/r1.json"; echo '{}' > "$TW/r2.json"; echo '{}' > "$TW/r3.json"; echo '{}' > "$TW/r4.json"
+# r1: everything Homebrew has works except the kotlin-lsp cask
+wrun "$TW/h1" r1 "kotlin-lsp" --with-lsp; rc=$?
+klog="$(sed -n 's/^  ! kotlin-lsp: brew install --cask kotlin-lsp failed (log \(.*\))$/\1/p' "$TW/r1" | head -n 1)"
+[ "$rc" = 0 ] && [ "$(grep -cx 'install jdtls' "$TW/r1.brew")" = 1 ] && grep -qF '+ jdtls (brew)' "$TW/r1" \
+  && plugin_installed jdtls-lsp "$TW/r1.claude" \
+  && grep -qx 'install rust-analyzer' "$TW/r1.brew" && grep -qF '+ rust-analyzer (brew install rust-analyzer)' "$TW/r1" \
+  && plugin_installed rust-analyzer-lsp "$TW/r1.claude" \
+  && pass "--with-lsp: jdtls in step 2's batch (once), rust-analyzer from Homebrew without rustup, both plugins enabled" \
+  || { failed "--with-lsp routes (rc=$rc): brew [$(tr '\n' '|' <"$TW/r1.brew")]"; grep -i 'jdtls\|rust-analyzer\|language server' "$TW/r1" | sed 's/^/    /'; }
+[ -n "$klog" ] && { [ ! -e "$klog" ] || grep -q 'simulated failure installing kotlin-lsp' "$klog"; } && grep -qx 'install --cask kotlin-lsp' "$TW/r1.brew" \
+  && grep -qF "    kotlin-lsp: brew install --cask kotlin-lsp failed (log $klog)" "$TW/r1" \
+  && grep -qF '      Error: simulated failure installing kotlin-lsp' "$TW/r1" \
+  && ! plugin_installed kotlin-lsp "$TW/r1.claude" \
+  && pass "--with-lsp: a failed install names its kept log (and shows its end); the closing line repeats the cause" \
+  || { failed "kotlin-lsp failure line/log [$klog]"; grep -i 'kotlin' "$TW/r1" | sed 's/^/    /'; }
+grep -q '^  - no language server for:.* pyright-langserver' "$TW/r1" \
+  && grep -qF '    pyright-langserver: npm install -g --ignore-scripts pyright@1.1.414 ran, but pyright-langserver still does not run (log ' "$TW/r1" \
+  && grep -qF '    haskell-language-server-wrapper: no ghcup' "$TW/r1" && grep -qF '    lake: comes with elan' "$TW/r1" \
+  && ! grep -q 'install.sh --with-lsp' "$TW/r1" && ! grep -qi 'Java: brew install jdtls' "$TW/r1" \
+  && pass "--with-lsp: every missing server gets its own cause; no line says to use --with-lsp" \
+  || { failed "--with-lsp closing lines"; sed -n '/no language server for/,/^  [^ ]/p' "$TW/r1" | sed 's/^/    /'; grep -n 'with-lsp' "$TW/r1" | sed 's/^/    /'; }
+# r2: jdtls fails in step 2 (batch, then by name) and once more in step 10, which names its own log
+wrun "$TW/h2" r2 "jdtls" --with-lsp; rc=$?
+jlog="$(sed -n 's/^  ! jdtls: brew install jdtls failed (log \(.*\))$/\1/p' "$TW/r2" | head -n 1)"
+[ "$rc" = 0 ] && [ "$(grep -cx 'install jdtls' "$TW/r2.brew")" = 3 ] && grep -qF '! jdtls: brew install failed' "$TW/r2" \
+  && [ -n "$jlog" ] && { [ ! -e "$jlog" ] || grep -q 'simulated failure installing jdtls' "$jlog"; } \
+  && grep -qF '      Error: simulated failure installing jdtls' "$TW/r2" \
+  && grep -qF "    jdtls: brew install jdtls failed (log $jlog)" "$TW/r2" && ! plugin_installed jdtls-lsp "$TW/r2.claude" \
+  && pass "--with-lsp: jdtls failing in step 2 gets one more try in step 10; the cause names that log" \
+  || { failed "jdtls failure (rc=$rc): brew [$(tr '\n' '|' <"$TW/r2.brew")] log [$jlog]"; grep -i 'jdtls' "$TW/r2" | sed 's/^/    /'; }
+# r3: without --with-lsp the LSP group stays off and the closing line names --with-lsp (with jdtls)
+wrun "$TW/h3" r3 ""; rc=$?
+[ "$rc" = 0 ] && ! grep -q 'jdtls\|rust-analyzer\|kotlin-lsp' "$TW/r3.brew" && grep -q '^  groups off:.* LSP' "$TW/r3" \
+  && grep -q '^  - no language server for:.* jdtls.*(./install.sh --with-lsp installs pyright, typescript-language-server, rust-analyzer, jdtls and kotlin-lsp' "$TW/r3" \
+  && pass "without --with-lsp: no language server installed, LSP among the groups off, the hint names jdtls" \
+  || { failed "without --with-lsp (rc=$rc): brew [$(tr '\n' '|' <"$TW/r3.brew")]"; grep -i 'groups off\|language server' "$TW/r3" | sed 's/^/    /'; }
+# r4: --dry-run --with-lsp lists the routes and runs no install
+wrun "$TW/h4" r4 "" --with-lsp --dry-run; rc=$?
+[ "$rc" = 0 ] && ! grep -q '^install' "$TW/r4.brew" && [ -z "$(ls -A "$TW/brewbin")" ] \
+  && grep -qF 'would: HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 brew install jdtls' "$TW/r4" \
+  && grep -qF 'would: rust-analyzer ← rustup component add rust-analyzer (no rustup: brew install rust-analyzer)' "$TW/r4" \
+  && grep -qF 'would: kotlin-lsp ← brew install --cask kotlin-lsp' "$TW/r4" \
+  && grep -q '^  - no language server for:.* (dry run: a real run tries the routes below)' "$TW/r4" \
+  && pass "--dry-run --with-lsp: jdtls in the brew batch line, one would: line per server, nothing installed" \
+  || { failed "--dry-run --with-lsp (rc=$rc): brew [$(tr '\n' '|' <"$TW/r4.brew")]"; grep -i 'would\|language server' "$TW/r4" | sed 's/^/    /'; }
+assert_unchanged_real_home
+drop_scratch "$TW"
+
 echo
 echo "== Summary: $PASS passed, $FAIL failed"
 rm -rf "$T1" "$T2" "$T3"

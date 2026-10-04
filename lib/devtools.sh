@@ -27,6 +27,8 @@
 #                              open-file limit (ulimit -Sn, raised by install.sh first) is below 65536
 #   STACK_INSTALL_LEAN_MATHLIB  auto: the Mathlib project (about 8 GB) only on a terminal; 1 also
 #                              without one; 0 never (the commands are printed)
+#   STACK_INSTALL_LSP       0  jdtls (Homebrew's formula: it brings Homebrew's openjdk, keg-only, and
+#                              python@3.14); install.sh --with-lsp turns it on
 #   STACK_INSTALL_POSTGRES MONGODB                                     0 each
 # DEVTOOLS_MODE: install (default) | dry-run (print what a real run would do, run nothing) |
 # report (--no-deps: list what is missing, install nothing, never fail).
@@ -89,10 +91,10 @@ if [ "$MODE" != install ]; then
   [ -n "${HOMEBREW_LOGS:-}" ] || [ -d "$_bl" ] || { HOMEBREW_LOGS="$DT_CWD/brew-logs"; export HOMEBREW_LOGS; }
 fi
 
-GROUPS_ALL="DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO LEAN POSTGRES MONGODB"
-on(){ # on GROUP: its switch; POSTGRES and MONGODB default off
+GROUPS_ALL="DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO LEAN LSP POSTGRES MONGODB"
+on(){ # on GROUP: its switch; LSP, POSTGRES and MONGODB default off
   local v d=1
-  case "$1" in POSTGRES|MONGODB) d=0 ;; esac
+  case "$1" in POSTGRES|MONGODB|LSP) d=0 ;; esac
   eval "v=\${STACK_INSTALL_$1:-$d}"
   [ "$v" != 0 ]
 }
@@ -519,6 +521,8 @@ homebrew_step(){
 # one than JAVA_MAJOR gets a WARN, never the cask) or - (brew list only).
 # LEAN's elan-init is Homebrew's bottle of elan (sha256-pinned in the formula; elan, lake and lean are
 # its links; built without self-update); without Homebrew the official elan installer runs (step 3).
+# LSP's jdtls (the Java language server; install.sh --with-lsp) depends on Homebrew's openjdk (keg-only:
+# java_home doesn't see it, jdk_at_least does) and python@3.14 (links python3 into Homebrew's bin dir).
 BREW_ITEMS="DEPS formula jq cmd:jq
 DEPS formula ripgrep cmd:rg
 DEPS formula gh cmd:gh
@@ -541,6 +545,7 @@ GO formula go cmd:go,tool:go
 GO formula gopls cmd:gopls
 JAVA cask oracle-jdk jdk:1
 JAVA cask kotlin-lsp cmd:kotlin-lsp
+LSP formula jdtls cmd:jdtls
 LATEX cask mactex cmd:pdflatex,path:$TEX_BIN/pdflatex,tool:mactex
 POSTGRES formula postgresql@18 cmd:postgres,cmd:psql,tool:postgres
 MONGODB formula mongodb/brew/mongodb-community cmd:mongod

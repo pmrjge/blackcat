@@ -957,7 +957,7 @@ steps, as the run prints them:
 9. **User-scope MCP servers**: exa, jina, wolfram, huggingface, and wandb when a key exists; keys come
    through the `bin/mcp-headers` header helper, never `~/.claude.json`.
 10. **Plugins and code intelligence**: document-skills, LSP plugins for the servers it finds
-    (`--with-lsp` installs missing ones), `--with-extra-plugins`; duplicates of claude.ai-synced
+    (`--with-lsp` installs missing ones and names why any is still missing), `--with-extra-plugins`; duplicates of claude.ai-synced
     skills disabled.
 11. **Shell profile**: one line in `~/.zshrc` (and `~/.bashrc` if present) exporting the
     `STACK_EXPORT` keys and adding `~/.local/bin` to `PATH` (`--no-profile` skips it), and the
@@ -1243,6 +1243,7 @@ Set in `settings.json` → `env`. The table (defaults, ownership marks, why) is 
 | `STACK_INSTALL_DEPS`, `STACK_INSTALL_DEVTOOLS` | 1 | Step 2 groups: Homebrew + jq/rg/gh/media tools (and the no-Homebrew fallbacks); gitleaks, pre-commit, Gradle, Playwright's Chromium. `=0` skips the group; `--no-deps` skips every install |
 | `STACK_INSTALL_UV`, `STACK_INSTALL_NODE`, `STACK_INSTALL_RUST`, `STACK_INSTALL_HASKELL`, `STACK_INSTALL_JULIA`, `STACK_INSTALL_SCALA`, `STACK_INSTALL_JAVA`, `STACK_INSTALL_LATEX`, `STACK_INSTALL_CXX`, `STACK_INSTALL_GO` | 1 | One toolchain group each (uv + Python 3.14 pin; nvm + node 24 + pnpm; rustup; ghcup + hlint + ormolu; juliaup; coursier; a JDK (the 27 cask only when none is found) + kotlin-lsp; MacTeX; cmake, ninja, typst, shellcheck, …; go + gopls). `=0` skips it ([CONFIG.md](CONFIG.md) §7) |
 | `STACK_INSTALL_POSTGRES`, `STACK_INSTALL_MONGODB` | 0 | `=1` adds postgresql@18 / mongodb-community (Homebrew) |
+| `STACK_INSTALL_LSP` | 0 (`--with-lsp`: 1) | Step 2 group: jdtls, the Java language server (Homebrew formula; brings Homebrew's openjdk and python@3.14). `=0` keeps it out of a `--with-lsp` run |
 | `STACK_INSTALL_LEAN` | 1 | Step 2 group: elan (stable) and the Mathlib project (`~/lean/stack_mathlib`, unless `LEAN_PROJECT_PATH` names one); skipped while the open-file limit is below 65536 |
 | `STACK_INSTALL_LEAN_MATHLIB` | auto | The Mathlib project (about 8 GB): only on a terminal; `=1` also without one, `=0` never (the commands are printed) |
 | `STACK_INSTALL_MAXFILES` | ask | Before step 2: the `ulimit.max-files` LaunchDaemon (open-file limit 65536). `ask` asks on a terminal (default No); `=0` never, prints the commands; `=1` no question (still only on a terminal, never with `--dry-run`) ([CONFIG.md](CONFIG.md) §7) |
@@ -1255,7 +1256,7 @@ Set in `settings.json` → `env`. The table (defaults, ownership marks, why) is 
 
 | Plugin | Marketplace | State | How to enable |
 |---|---|---|---|
-| `pyright-lsp`, `typescript-lsp`, `rust-analyzer-lsp`, `clangd-lsp`, `gopls-lsp`, `swift-lsp`, `jdtls-lsp`, `kotlin-lsp` | `claude-plugins-official` | Enabled by the installer when the server binary is on `PATH` | `./install.sh --with-lsp` installs pyright, typescript-language-server and rust-analyzer (and kotlin-lsp with brew); the rest come from Xcode or brew |
+| `pyright-lsp`, `typescript-lsp`, `rust-analyzer-lsp`, `clangd-lsp`, `gopls-lsp`, `swift-lsp`, `jdtls-lsp`, `kotlin-lsp` | `claude-plugins-official` | Enabled by the installer when the server binary is on `PATH` | `./install.sh --with-lsp` installs pyright, typescript-language-server, rust-analyzer (rustup's component, else Homebrew), jdtls (Homebrew, in step 2) and kotlin-lsp (Homebrew cask), and ends by naming why any server is still missing; gopls comes with step 2's Go group, clangd and sourcekit-lsp with Xcode's Command Line Tools |
 | `haskell-lsp`, `julia-lsp`, `lean-lsp`, `metals-lsp` | `agent-stack` (`dot-claude/stack-plugins/`) | Enabled when `haskell-language-server-wrapper`, LanguageServer.jl, `lake` or `metals` exist | `--with-lsp` uses ghcup, julia or cs when present; Lean needs elan |
 | `document-skills` | `anthropic-agent-skills` | Installed; disabled where claude.ai already syncs docx/xlsx/pptx/pdf | `--keep-plugin-duplicates` keeps both |
 | `skill-creator`, `math-olympiad` | `claude-plugins-official` | Not installed by default | `./install.sh --with-extra-plugins`; skill-creator is disabled where claude.ai syncs it |

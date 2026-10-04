@@ -4,8 +4,10 @@
 #   ./install.sh --with-ml       also create the ML venv ($C/venvs/ml: PyTorch, Transformers, PEFT,
 #                                 scikit-learn/XGBoost/LightGBM, MLX + mlx-lm on Apple Silicon; several GB)
 #   ./install.sh --with-lsp      also install missing language servers (pyright, typescript-language-server,
-#                                 rust-analyzer; HLS, LanguageServer.jl, Metals, kotlin-lsp when ghcup,
-#                                 julia, cs, kotlin are present) before enabling the code-intelligence plugins
+#                                 rust-analyzer, kotlin-lsp; jdtls through step 2's LSP group; HLS,
+#                                 LanguageServer.jl, Metals when ghcup, julia, cs are present) before
+#                                 enabling the code-intelligence plugins; the end of step 10 says why
+#                                 any server is still missing
 #   ./install.sh --with-adobe    also build the After Effects MCP + install the Premiere connector (macOS)
 #   ./install.sh --with-extra-plugins  also install Anthropic's skill-creator and math-olympiad
 #                                 plugins (their skills load on demand)
@@ -72,7 +74,8 @@
 # Step 2 installs what is missing (lib/devtools.sh, CONFIG.md §7 "Prerequisites and toolchains"):
 # Homebrew, one brew batch per type, the upstream version managers, the dev tools; one line per
 # tool, a present one never touched. Groups: STACK_INSTALL_<GROUP>=0 skips one (DEPS DEVTOOLS UV
-# NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO LEAN, all on), =1 adds POSTGRES or MONGODB (off);
+# NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO LEAN, all on), =1 adds POSTGRES, MONGODB or LSP
+# (off; --with-lsp turns LSP, the jdtls formula, on unless STACK_INSTALL_LSP=0);
 # STACK_INSTALL_LEAN_MATHLIB=1 makes the Mathlib project also without a terminal (=0 never).
 # Before step 2: the open-file limit. On a terminal the run offers a LaunchDaemon
 # (/Library/LaunchDaemons/ulimit.max-files.plist: launchd soft 65536, hard 524288) and asks [y/N];
@@ -1117,7 +1120,8 @@ say "2/11 Tools: prerequisites, dev tools, magg, huetension, serial-mcp, science
 # only reported; a required one (uv, node) still missing stops the run here.
 #   --no-deps: no installs at all (missing tools are listed);
 #   STACK_INSTALL_<GROUP>=0 skips a group (DEPS DEVTOOLS UV NODE RUST HASKELL JULIA SCALA JAVA LATEX
-#   CXX GO LEAN), STACK_INSTALL_POSTGRES=1 / STACK_INSTALL_MONGODB=1 add those.
+#   CXX GO LEAN), STACK_INSTALL_POSTGRES=1 / STACK_INSTALL_MONGODB=1 add those; LSP (jdtls) follows
+#   --with-lsp unless STACK_INSTALL_LSP is set.
 MAGG_VERSION=1.2.1                         # 1.3.0 (2026-09-26) is inside the 7-day cooldown
 MAGG_EXCLUDE_NEWER=2026-09-22T00:00:00Z    # dependency cooldown for magg's own requirements
 HUETENSION_VERSION=0.3.0
@@ -1132,14 +1136,16 @@ print(runpy.run_path(sys.argv[1], run_name="mcp_headers")["read_env_file"](Path(
 dt_rc=0
 # --no-prompt: never ask, also not through Homebrew's installer or the pkg casks
 dt_tty="${DEVTOOLS_TTY:-}"; [ "$NO_PROMPT" = 1 ] && dt_tty=0
-DEVTOOLS_TTY="$dt_tty" DEVTOOLS_LEAN_PROJECT="$lean_proj" DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$SNAP_ROOT/lib/devtools.sh" all || dt_rc=$?
+STACK_INSTALL_LSP="${STACK_INSTALL_LSP:-$WITH_LSP}" DEVTOOLS_TTY="$dt_tty" DEVTOOLS_LEAN_PROJECT="$lean_proj" DEVTOOLS_MODE="$DT_MODE" DEVTOOLS_NO_PROFILE="$NO_PROFILE" bash "$SNAP_ROOT/lib/devtools.sh" all || dt_rc=$?
 # a required tool still missing: devtools.sh listed each with its command
 [ "$dt_rc" = 3 ] && exit 1
 [ "$dt_rc" = 0 ] || note "! lib/devtools.sh exited $dt_rc (see above); the install goes on"
 # what devtools.sh installed must be found below, also before your shell profile has its PATH line:
-# Homebrew's bin dir, nvm's node 24, rustup's, ghcup's and elan's bins; appended, so your own PATH order wins
-for b in /opt/homebrew/bin /usr/local/bin "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.elan/bin" "$HOME/.juliaup/bin" \
-         "$HOME/Library/Application Support/Coursier/bin"; do
+# Homebrew's bin dir, nvm's node 24, rustup's, ghcup's and elan's bins; appended, so your own PATH order wins.
+# DEVTOOLS_SYSTEM_DIRS (tests: "") replaces the Homebrew prefixes, as it does in devtools.sh's lookup.
+# shellcheck disable=SC2086
+for b in ${DEVTOOLS_SYSTEM_DIRS-/opt/homebrew/bin /usr/local/bin} "$HOME/.cargo/bin" "$HOME/.ghcup/bin" "$HOME/.elan/bin" \
+         "$HOME/.juliaup/bin" "$HOME/Library/Application Support/Coursier/bin"; do
   { [ -x "$b/brew" ] || [ -x "$b/cargo" ] || [ -x "$b/ghcup" ] || [ -x "$b/lake" ] || [ -x "$b/julia" ] || [ -x "$b/cs" ]; } || continue
   case ":$PATH:" in *":$b:"*) ;; *) PATH="$PATH:$b"; export PATH ;; esac
 done
@@ -2964,14 +2970,72 @@ PY
     else note "plugin $p overlaps the stack's mcp-server-craft skill (kept: --keep-plugin-duplicates)"; fi
   done
   # Code intelligence: a language server starts only when Claude edits a matching file (on demand).
+  # --with-lsp installs the missing servers: jdtls in step 2 (lib/devtools.sh's LSP group, Homebrew's
+  # formula), the others here, each by its language's own route. Each install's output goes to its
+  # own log in a private dir under $TMPDIR (mktemp -d: 0700), kept when an install failed (the line
+  # names the log and shows its end), else removed. Why a server is still missing is recorded
+  # (lsp_why: "server|cause" lines) for the line that ends this step.
+  lsp_why=""; lsp_logs=""; lsp_keep=0
+  lsp_cause(){ lsp_why="$lsp_why$1|$2
+"; }
+  lsp_cause_of(){ local l; while IFS= read -r l; do case "$l" in "$1|"*) printf '%s' "${l#*|}"; break ;; esac; done <<<"$lsp_why"; return 0; }
+  # lsp_get SERVER ROUTE CMD...: run CMD (ROUTE names it in the lines) into SERVER's log, then SERVER must run
+  lsp_get(){
+    local s="$1" route="$2" log rc=0 why; shift 2
+    if [ -z "$lsp_logs" ] && ! lsp_logs="$(mktemp -d "${TMPDIR:-/tmp}/stack-lsp.XXXXXX")"; then
+      lsp_logs=""; lsp_cause "$s" "not tried (no temp dir for its log): $route"; note "! $s: not tried (no temp dir for its log): $route"
+      return 0
+    fi
+    log="$lsp_logs/$s.log"
+    "$@" >"$log" 2>&1 </dev/null || rc=$?
+    if lsp_works "$s"; then note "+ $s ($route)"; return 0; fi
+    if [ "$rc" = 0 ]; then why="$route ran, but $s still does not run (log $log)"; else why="$route failed (log $log)"; fi
+    lsp_keep=1; lsp_cause "$s" "$why"; note "! $s: $why"
+    { tail -n 5 "$log" | sed 's/^/      /'; } 2>/dev/null || true
+    return 0
+  }
+  brew_q(){ HOMEBREW_NO_ANALYTICS=1 HOMEBREW_NO_AUTO_UPDATE=1 brew "$@"; }
+  # the skip rule: a server found outside this run's PATH (MacPorts, a nix profile, ...) is never installed again
+  lsp_off_path(){
+    local w tab; tab="$(printf '\t')"
+    w="$(tool_where "$1")" || return 1
+    lsp_cause "$1" "found at ${w%%"$tab"*} (from ${w#*"$tab"}), which is not on PATH: add its folder to PATH"
+  }
+  # Pinned versions, install scripts off (none of these packages needs one): what runs is what
+  # was reviewed (versions checked against the npm registry 2026-09-29).
+  PYRIGHT_PIN="pyright@1.1.414"
+  # typescript-language-server 6 needs Node >= 22.22.2; older Node gets the 5.x line. TypeScript 7
+  # (the native compiler) ships no tsserver, which the language server runs: 6.x it is.
+  TSLS="typescript-language-server@6.0.1"
+  TS_PIN="typescript@6.0.3"
+  if [ "$WITH_LSP" = 1 ]; then
+    node -e 'const [a,b,c]=process.versions.node.split(".").map(Number); process.exit(a>22||(a===22&&(b>22||(b===22&&c>=2)))?0:1)' 2>/dev/null \
+      || TSLS="typescript-language-server@5.3.0"
+  fi
+  # how each server comes: the dry-run lines, and the end of this step when nothing more is known
+  lsp_route(){ case "$1" in
+    pyright-langserver) echo "npm install -g --ignore-scripts $PYRIGHT_PIN" ;;
+    typescript-language-server) echo "npm install -g --ignore-scripts $TSLS $TS_PIN" ;;
+    rust-analyzer) echo "rustup component add rust-analyzer (no rustup: brew install rust-analyzer)" ;;
+    jdtls) echo "brew install jdtls in step 2's Homebrew batch (the LSP group; it brings Homebrew's openjdk and python@3.14)" ;;
+    kotlin-lsp) echo "brew install --cask kotlin-lsp" ;;
+    haskell-language-server-wrapper) echo "ghcup install hls recommended (ghcup: step 2's HASKELL group)" ;;
+    julia-languageserver) echo "LanguageServer.jl into the Julia environment @claude-lsp (julia: step 2's JULIA group)" ;;
+    metals) echo "cs install metals (Coursier: step 2's SCALA group)" ;;
+    lake) echo "comes with elan (step 2's LEAN group, skipped while the open-file limit is below 65536)" ;;
+    gopls) echo "brew install gopls (step 2's GO group)" ;;
+    sourcekit-lsp|clangd) echo "comes with Xcode's Command Line Tools: xcode-select --install" ;;
+    *) echo "no install route in the stack" ;;
+  esac; }
   if [ "$WITH_LSP" = 1 ] && [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 1 ]; then
-    would "install the missing language servers (pyright, typescript-language-server, rust-analyzer, ...)"
+    # jdtls is in step 2's would: line (the brew batch)
+    for s in pyright-langserver typescript-language-server rust-analyzer kotlin-lsp haskell-language-server-wrapper julia-languageserver metals; do
+      lsp_works "$s" || would "$s ← $(lsp_route "$s")"
+    done
   elif [ "$WITH_LSP" = 1 ] && [ "$NO_DEPS" = 0 ]; then
     # npm -g goes into Node's own prefix when that is writable and outlives Node upgrades (Homebrew);
     # a root-owned distro prefix (/usr: EACCES) or a version manager's per-version prefix under
     # $HOME (nvm, fnm, volta) gets ~/.local instead (bin/ there is on PATH via the profile line).
-    # Pinned versions, install scripts off (none of these packages needs one): what runs is what
-    # was reviewed (versions checked against the npm registry 2026-09-29).
     npm_g(){
       local pfx; pfx="$(npm prefix -g 2>/dev/null || true)"
       case "$pfx" in
@@ -2979,43 +3043,54 @@ PY
         *) if [ -w "$pfx/lib" ]; then npm install -g --ignore-scripts --silent "$@"; else npm install -g --ignore-scripts --prefix "$HOME/.local" --silent "$@"; fi ;;
       esac
     }
-    PYRIGHT_PIN="pyright@1.1.414"
-    have pyright-langserver || { have npm && npm_g "$PYRIGHT_PIN" >/dev/null 2>&1; } \
-      || note "! pyright install failed — npm install -g --ignore-scripts --prefix ~/.local $PYRIGHT_PIN"
-    # typescript-language-server 6 needs Node >= 22.22.2; older Node gets the 5.x line. TypeScript 7
-    # (the native compiler) ships no tsserver, which the language server runs: 6.x it is.
-    TSLS="typescript-language-server@6.0.1"
-    node -e 'const [a,b,c]=process.versions.node.split(".").map(Number); process.exit(a>22||(a===22&&(b>22||(b===22&&c>=2)))?0:1)' 2>/dev/null \
-      || TSLS="typescript-language-server@5.3.0"
-    TS_PIN="typescript@6.0.3"
-    have typescript-language-server || { have npm && npm_g "$TSLS" "$TS_PIN" >/dev/null 2>&1; } \
-      || note "! typescript-language-server install failed — npm install -g --ignore-scripts --prefix ~/.local $TSLS $TS_PIN"
+    for s in pyright-langserver typescript-language-server; do
+      lsp_works "$s" && continue
+      if ! have npm; then lsp_cause "$s" "no npm (node: step 2's NODE group), then $(lsp_route "$s")"
+      elif [ "$s" = pyright-langserver ]; then lsp_get "$s" "$(lsp_route "$s")" npm_g "$PYRIGHT_PIN"
+      else lsp_get "$s" "$(lsp_route "$s")" npm_g "$TSLS" "$TS_PIN"; fi
+    done
     # rustup's rust-analyzer proxy without the component is a found tool that doesn't run: WARN, not installed
     if lsp_works rust-analyzer; then :
     elif have rust-analyzer; then
       if have rustup; then ra_fix="rustup component add rust-analyzer"; else ra_fix="reinstall it the way you installed it (no rustup here)"; fi
       note "WARN rust-analyzer at $(command -v rust-analyzer) fails 'rust-analyzer --version'; left alone. Fix: $ra_fix"
-    elif have rustup; then rustup component add rust-analyzer >/dev/null 2>&1 || note "! rust-analyzer: rustup component add rust-analyzer"
-    else note "! rust-analyzer: no rustup here (a Rust from Homebrew or elsewhere): brew install rust-analyzer"; fi
+      lsp_cause rust-analyzer "$(command -v rust-analyzer) fails 'rust-analyzer --version' (left alone). Fix: $ra_fix"
+    elif have rustup; then lsp_get rust-analyzer "rustup component add rust-analyzer" rustup component add rust-analyzer
+    elif lsp_off_path rust-analyzer; then :
+    elif have brew; then lsp_get rust-analyzer "brew install rust-analyzer" brew_q install rust-analyzer
+    else lsp_cause rust-analyzer "no rustup and no Homebrew (rustup: step 2's RUST group, then rustup component add rust-analyzer)"; fi
+    # kotlin-lsp: Homebrew's cask (a plain binary, no installer that asks for a password), as in step 2's JAVA group
+    if ! lsp_works kotlin-lsp && ! lsp_off_path kotlin-lsp; then
+      if have brew; then lsp_get kotlin-lsp "brew install --cask kotlin-lsp" brew_q install --cask kotlin-lsp
+      else lsp_cause kotlin-lsp "no Homebrew (step 2 installs it on a terminal), then brew install --cask kotlin-lsp"; fi
+    fi
+    # jdtls comes from step 2's Homebrew batch (the LSP group); still missing here, that batch failed or
+    # left it out: one more try, with its own log for the lines below
+    if ! lsp_works jdtls && ! lsp_off_path jdtls; then
+      if [ "${STACK_INSTALL_LSP:-1}" = 0 ]; then lsp_cause jdtls "STACK_INSTALL_LSP=0 kept it out of step 2: brew install jdtls"
+      elif have brew; then lsp_get jdtls "brew install jdtls" brew_q install jdtls
+      else lsp_cause jdtls "no Homebrew (step 2 installs it on a terminal; then run the installer again), or brew install jdtls"; fi
+    fi
     # Servers for the stack's other languages come from each language's own toolchain manager, and
     # only when that manager is already here (step 2 installs GHCup, juliaup, elan and Coursier unless
     # their group is off). Lean needs nothing extra (elan's `lake serve` is the server).
-    if ! lsp_works haskell-language-server-wrapper && have ghcup; then
-      ghcup install hls recommended >/dev/null 2>&1 || true
-      lsp_works haskell-language-server-wrapper || note "! haskell-language-server: ghcup install hls recommended (then ghcup set hls recommended)"
+    if ! lsp_works haskell-language-server-wrapper; then
+      if have ghcup; then lsp_get haskell-language-server-wrapper "ghcup install hls recommended (then ghcup set hls recommended)" ghcup install hls recommended
+      else lsp_cause haskell-language-server-wrapper "no ghcup (step 2's HASKELL group installs it, with HLS)"; fi
     fi
-    if ! lsp_works julia-languageserver && have julia; then
-      note "  installing LanguageServer.jl into the Julia environment @claude-lsp (a few minutes the first time)"
-      julia --startup-file=no --history-file=no --project=@claude-lsp -e 'using Pkg; Pkg.add("LanguageServer")' >/dev/null 2>&1 \
-        || note "! LanguageServer.jl: julia --project=@claude-lsp -e 'using Pkg; Pkg.add(\"LanguageServer\")'"
+    if ! lsp_works julia-languageserver; then
+      if have julia; then
+        note "  installing LanguageServer.jl into the Julia environment @claude-lsp (a few minutes the first time)"
+        lsp_get julia-languageserver "julia --project=@claude-lsp -e 'using Pkg; Pkg.add(\"LanguageServer\")'" \
+          julia --startup-file=no --history-file=no --project=@claude-lsp -e 'using Pkg; Pkg.add("LanguageServer")'
+      else lsp_cause julia-languageserver "no julia (step 2's JULIA group installs juliaup)"; fi
     fi
-    if ! lsp_works metals && have cs; then
-      cs install metals >/dev/null 2>&1 || note "! metals: cs install metals"
-    fi
-    if ! lsp_works kotlin-lsp && { have kotlin || have kotlinc; } && have brew; then
-      brew install JetBrains/utils/kotlin-lsp >/dev/null 2>&1 || note "! kotlin-lsp: brew install JetBrains/utils/kotlin-lsp"
+    if ! lsp_works metals; then
+      if have cs; then lsp_get metals "cs install metals" cs install metals
+      else lsp_cause metals "no Coursier (step 2's SCALA group installs cs)"; fi
     fi
   fi
+  [ -z "$lsp_logs" ] || [ "$lsp_keep" = 1 ] || rm -rf "$lsp_logs"
   [ "$DRY_RUN" = 1 ] || claude plugin marketplace add anthropics/claude-plugins-official >/dev/null 2>&1 </dev/null || true
   lsp_added=""; lsp_failed=""; lsp_missing=""
   for pair in pyright-langserver:pyright-lsp typescript-language-server:typescript-lsp rust-analyzer:rust-analyzer-lsp sourcekit-lsp:swift-lsp clangd:clangd-lsp gopls:gopls-lsp jdtls:jdtls-lsp kotlin-lsp:kotlin-lsp; do
@@ -3048,7 +3123,20 @@ PY
   fi
   [ -n "$lsp_added" ] && [ "$DRY_RUN" = 0 ] && note "+ code intelligence:$lsp_added"
   [ -n "$lsp_failed" ] && note "! plugin install failed:$lsp_failed (inside claude: /plugin install <name>@claude-plugins-official, or <name>@agent-stack)"
-  [ -n "$lsp_missing" ] && note "- no language server for:$lsp_missing (./install.sh --with-lsp installs pyright, typescript-language-server, rust-analyzer, and HLS, LanguageServer.jl, Metals, kotlin-lsp through ghcup, julia, cs, brew when those are present; Java: brew install jdtls; Lean: elan)"
+  # Still missing: without --with-lsp, how to get them; with it, why each one is missing (what failed,
+  # with its log, or what it needs), never "use --with-lsp".
+  if [ -n "$lsp_missing" ] && [ "$WITH_LSP" = 0 ]; then
+    note "- no language server for:$lsp_missing (./install.sh --with-lsp installs pyright, typescript-language-server, rust-analyzer, jdtls and kotlin-lsp, and HLS, LanguageServer.jl, Metals through ghcup, julia, cs when those are present; sourcekit-lsp and clangd come with Xcode's Command Line Tools: xcode-select --install; lake with elan)"
+  elif [ -n "$lsp_missing" ]; then
+    lsp_tag=""
+    if [ "$NO_DEPS" = 1 ]; then lsp_tag=" (--no-deps: nothing was installed)"
+    elif [ "$DRY_RUN" = 1 ]; then lsp_tag=" (dry run: a real run tries the routes below)"; fi
+    note "- no language server for:$lsp_missing$lsp_tag"
+    for b in $lsp_missing; do
+      c="$(lsp_cause_of "$b")"; [ -n "$c" ] || c="$(lsp_route "$b")"
+      note "    $b: $c"
+    done
+  fi
   # Optional Anthropic skill plugins (skill-creator for claude-code-engineer, math-olympiad for the
   # mathematician). Only their descriptions sit in context; the skills load when a task matches. A
   # plugin whose skills claude.ai already syncs is skipped (one copy of each skill).

@@ -278,7 +278,63 @@ def test_mongodb_taps_first_and_postgres_mongodb_are_off_by_default(tmp_path):
     assert rc == 0
     assert e.argv("brew", "tap") == ["tap", "tap mongodb/brew"]
     assert e.argv("brew", "install") == ["install mongodb/brew/mongodb-community"]
-    assert 'case "$1" in POSTGRES|MONGODB) d=0 ;; esac' in SRC
+    assert 'case "$1" in POSTGRES|MONGODB|LSP) d=0 ;; esac' in SRC
+
+
+# ---------------------------------------------------------------- LSP group (jdtls, install.sh --with-lsp)
+def test_lsp_group_is_off_by_default(tmp_path):
+    """Unset (here: empty) STACK_INSTALL_LSP means off: no jdtls, LSP named among the groups off."""
+    e = Env(tmp_path)
+    e.brew()
+    e.present("uv", "node", "npx")
+    rc, out, err = e.run("GO", STACK_INSTALL_LSP="")
+    assert rc == 0, err
+    assert "jdtls" not in " ".join(e.argv("brew", "install")) and "jdtls" not in out, out
+    assert re.search(r"^  groups off: .*\bLSP\b", out, re.M), out
+    assert ("LSP", "formula", "jdtls", "cmd:jdtls") in [tuple(i) for i in BREW_ITEMS]
+
+
+def test_lsp_on_puts_jdtls_in_the_formula_batch(tmp_path):
+    e = Env(tmp_path)
+    e.brew()
+    e.present("uv", "node", "npx")
+    rc, out, err = e.run("LSP", "GO")
+    assert rc == 0, err
+    batch = [a for a in e.argv("brew", "install") if not a.startswith("install --cask")]
+    assert len(batch) == 1 and "jdtls" in batch[0].split()[1:], e.argv("brew", "install")
+    assert "+ jdtls (brew)" in out, out
+
+
+def test_a_present_jdtls_is_skipped(tmp_path):
+    e = Env(tmp_path)
+    e.brew()
+    e.present("uv", "node", "npx", "jdtls")
+    rc, out, err = e.run("LSP")
+    assert rc == 0, err
+    assert e.calls("brew", "install") == [] and e.calls("brew", "info") == []
+    assert "  skip jdtls (found: %s/jdtls, from PATH)" % e.bin in lines(out), out
+
+
+def test_fresh_machine_java_and_lsp_queue_the_jdk_cask_and_jdtls(tmp_path):
+    """No JDK anywhere: the JDK check runs before any install, so jdtls's Homebrew openjdk (formula
+    batch first) never stands in for the oracle-jdk cask in the same run."""
+    e = Env(tmp_path)
+    e.brew()
+    e.present("uv", "node", "npx")
+    rc, out, err = e.run("JAVA", "LSP", tty="1")
+    assert rc == 0, err
+    f = e.argv("brew", "install")
+    formulae = [a for a in f if not a.startswith("install --cask")]
+    casks = [a for a in f if a.startswith("install --cask")]
+    assert formulae == ["install jdtls"], f
+    assert len(casks) == 1 and "oracle-jdk" in casks[0].split()[2:], f
+    assert f.index(formulae[0]) < f.index(casks[0])
+
+
+def test_install_sh_turns_the_lsp_group_on_with_with_lsp():
+    """--with-lsp sets STACK_INSTALL_LSP for step 2 unless you set it yourself (=0 keeps jdtls out)."""
+    call = next(l for l in INSTALL_TEXT.splitlines() if 'lib/devtools.sh" all' in l and not l.lstrip().startswith("#"))
+    assert call.startswith('STACK_INSTALL_LSP="${STACK_INSTALL_LSP:-$WITH_LSP}" '), call
 
 
 # ---------------------------------------------------------------- Homebrew bootstrap
@@ -1203,7 +1259,7 @@ def test_f4_the_no_sudo_check_sees_every_ordinary_form():
 
 # ---------------------------------------------------------------- code review (items 1, 5, 7)
 def test_review1_path_after_step_2_finds_julia_and_cs(tmp_path):
-    block = INSTALL_TEXT[INSTALL_TEXT.index("for b in /opt/homebrew/bin /usr/local/bin"):INSTALL_TEXT.index("huetension_target(){")]
+    block = INSTALL_TEXT[INSTALL_TEXT.index("for b in ${DEVTOOLS_SYSTEM_DIRS-/opt/homebrew/bin /usr/local/bin}"):INSTALL_TEXT.index("huetension_target(){")]
     home = tmp_path / "home"
     mkexe(home / ".juliaup" / "bin" / "julia", "exit 0")
     mkexe(home / "Library" / "Application Support" / "Coursier" / "bin" / "cs", "exit 0")
@@ -1284,7 +1340,7 @@ def test_every_tool_present_anywhere_means_zero_install_calls(tmp_path):
     skips = [l for l in lines(out) if l.startswith("  skip ")]
     for tool in ("homebrew", "jq", "go", "gopls", "typst", "shellcheck", "oracle-jdk", "uv", "node", "pnpm (corepack)",
                  "rustup", "ghcup", "hlint", "ormolu", "juliaup", "coursier", "elan", "pre-commit", "gradle",
-                 "playwright browsers", "cmake-docs", "postgresql@18", "mongodb-community"):
+                 "playwright browsers", "cmake-docs", "postgresql@18", "mongodb-community", "jdtls"):
         assert any(l.startswith("  skip %s (found: " % tool) for l in skips), (tool, out)
     assert re.search(r"^  summary: 0 installed, %d skipped \(already there\), 0 failed, 0 not installed$" % len(skips), out, re.M), out
     # dry-run shows the same skip lines and runs nothing
@@ -1368,3 +1424,53 @@ def test_sandbox_cache_variables_never_reach_an_installer(tmp_path):
     seen = envlog.read_text()
     assert seen and "claude-sandbox" not in seen, (seen, out, err)
     assert "UV_CACHE_DIR=unset CARGO_HOME=unset GOMODCACHE=unset PIP_CACHE_DIR=%s" % (tmp_path / "mine") in seen
+
+
+# ---------------------------------------------------------------- step 10: every language server has a route
+# Servers no step installs, and why: the closing line names how to get them.
+LSP_EXEMPT = {"sourcekit-lsp": "Xcode's Command Line Tools", "clangd": "Xcode's Command Line Tools"}
+
+
+def lsp_step():
+    return INSTALL_TEXT[INSTALL_TEXT.index("# Code intelligence: a language server starts"):
+                        INSTALL_TEXT.index("# Optional Anthropic skill plugins")]
+
+
+def lsp_servers():
+    """The servers step 10 enables plugins for: the binaries of its two `for pair in` lists."""
+    out = []
+    for m in re.finditer(r"^\s*for pair in ((?:\S+:\S+ ?)+); do$", lsp_step(), re.M):
+        out += [p.split(":")[0] for p in m.group(1).split()]
+    return out
+
+
+def test_every_lsp_server_has_an_install_route_or_an_exemption():
+    """A server in the plugin lists is installed by step 10 (lsp_get), by step 2 (a cmd: probe of a
+    BREW_ITEMS row) or named in LSP_EXEMPT; each has an lsp_route line, so the end of step 10 can say
+    how to get it. A new server without a route fails here (jdtls had none before)."""
+    step = lsp_step()
+    servers = lsp_servers()
+    assert {"jdtls", "kotlin-lsp", "pyright-langserver", "lake", "metals", "julia-languageserver"} <= set(servers), servers
+    real = step[step.index('elif [ "$WITH_LSP" = 1 ] && [ "$NO_DEPS" = 0 ]; then'):step.index('[ -z "$lsp_logs" ] || [ "$lsp_keep" = 1 ]')]
+    here = set(re.findall(r"\blsp_get ([a-z][\w-]*) ", real))
+    for m in re.finditer(r"^\s*for s in ([\w -]+); do$", real, re.M):
+        body = real[m.end():real.index("done", m.end())]
+        if 'lsp_get "$s"' in body:
+            here |= set(m.group(1).split())
+    batch = {p[4:] for _, _, _, probes in BREW_ITEMS for p in probes.split(",") if p.startswith("cmd:")}
+    route_fn = step[step.index("lsp_route(){"):step.index("esac; }", step.index("lsp_route(){"))]
+    routes = {n for m in re.finditer(r"^\s+([a-z][\w|-]*)\) echo ", route_fn, re.M) for n in m.group(1).split("|")}
+    for s in servers:
+        assert s in here or s in batch or s in LSP_EXEMPT, "%s: no install route and no exemption" % s
+        assert s in routes, "%s: no lsp_route line" % s
+    assert {"jdtls", "kotlin-lsp", "rust-analyzer"} <= here, here      # the Homebrew routes of step 10
+
+
+def test_the_end_of_step_10_never_tells_a_with_lsp_run_to_use_with_lsp():
+    step = lsp_step()
+    tail = step[step.index('if [ -n "$lsp_missing" ] && [ "$WITH_LSP" = 0 ]; then'):]
+    without, with_lsp = tail.split('elif [ -n "$lsp_missing" ]; then', 1)
+    assert "./install.sh --with-lsp installs" in without and "jdtls" in without
+    assert "--with-lsp" not in "\n".join(l for l in with_lsp.splitlines() if not l.lstrip().startswith("#"))
+    assert 'c="$(lsp_cause_of "$b")"' in with_lsp                     # each server's own cause
+    assert "Java: brew install jdtls" not in INSTALL_TEXT
