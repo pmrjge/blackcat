@@ -182,7 +182,7 @@ Three kinds of agent, eight levels below the main thread, one policy hook; the d
 | Level | Who runs there | Limit (enforced by) |
 |---|---|---|
 | Main thread | BlackCat (`dot-claude/agents/blackcat.md`; `"agent": "blackcat"` in `settings.json`) | 24 tool calls per prompt, at most 8 of them Agent calls within 120 s and at most 3 Read calls; no Bash, Write or Edit: it only delegates (`BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_DISPATCH_WINDOW_S`, `BLACKCAT_MAX_READS`, `BLACKCAT_MAX_OWN_STEPS` 0); its children always run in the background (`BLACKCAT_BACKGROUND`) |
-| L1 to L7 | Any agent whose `POLICY` row allows the spawn | 3 running children per agent by default, more for coordinators (`STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE`); 33 subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`; Claude Code's default is 20) |
+| L1 to L7 | Any agent whose `POLICY` row allows the spawn | 3 running children per agent by default, more for coordinators (`STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE`); 128 subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`; Claude Code's default is 20) |
 | L8 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8`) |
 
 BlackCat's own tools, as `blackcat.md` lists them: an `Agent(...)` allowlist of 52 agent types (every
@@ -378,7 +378,7 @@ whether the difference is enforced and tested, or a design intent.
 | Area | Plain Claude Code | This stack | Status |
 |---|---|---|---|
 | Delegation | Built-in general-purpose, Explore and Plan subagents | 52 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
-| Nesting and concurrency | Depth 3, 20 subagents running at once | Depth 4, 33 at once, per-agent fan-out caps and spawn rows | Enforced: settings, guard |
+| Nesting and concurrency | Depth 3, 20 subagents running at once | Depth 4, 128 at once, per-agent fan-out caps and spawn rows | Enforced: settings, guard |
 | Push and forge writes | Governed by your permission rules | Refused for every agent, whatever the rules or `STACK_POLICY` | Enforced: `tests/test_no_push.py` |
 | Writes to config and state | Protected-path writes are not prompted in `bypassPermissions` (docs); per the guard's docstring, Claude Code's check does not cover Bash writes (unverified against the docs) | Bash-level writes refused too | Enforced: `tests/test_protected_paths.py` |
 | Bash sandbox | Off by default; falls back to unsandboxed commands when it cannot start | On, no unsandboxed fallback, exit if unavailable, credential paths denied | Configured, not live-verified |

@@ -23,7 +23,7 @@ Code 2.1.284. Turn counts were measured from this machine's transcripts.
 | 2 | BlackCat shows nothing in Desktop and never asks questions | The main thread was blocked on a foreground child (bug 1), and the prompt allowed silent turns. The main thread also ran at `low` effort, where it skips clarifying questions. | Every turn ends with a visible message. Rule 4 now asks via AskUserQuestion (1–4 questions) about format, scope, costly choices and destructive steps, and relays a child's open questions to the user. Recommended session effort is `medium`. |
 | 3 | Settings could silently disable background scheduling | `CLAUDE_CODE_DISABLE_BACKGROUND_TASKS` and `CLAUDE_CODE_FORK_SUBAGENT` in settings env | The installer removes both and warns. `/stack-doctor` warns about them and about `BLACKCAT_BACKGROUND=0`. |
 | 4 | BlackCat ran out of dispatches on large prompts | 6 dispatches, 8 steps and a 30 s dispatch window; eight long briefs in one message take longer than 30 s | 8 dispatches, 12 steps, 120 s window |
-| 5 | The session limit could throttle a full fan-out | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` was 20, below BlackCat 8 × orchestrator 10 | 32 |
+| 5 | The session limit could throttle a full fan-out | `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` was 20, below BlackCat 8 × orchestrator 10 | 128 (first 32, then 33) |
 | 6 | The top-tier coder's prompt (retired 2026-10-04) said it could not spawn at depth L3 | Wrong depth in the text (only L4 cannot spawn) | Corrected to L4 |
 | 7 | Mixed models (Fable on the top-tier coder) | Drift | Every agent names `opus` or `sonnet`; the IDs come from stack.env (section 2), enforced by lint |
 | 8 | `/stack-doctor` returned STATUS: blocked: its agent had no Bash | The skill forked `claude-code-guide` (`context: fork`). A forked skill's agent gets its `tools` only from the main conversation's tool pool, and BlackCat has no Bash, WebFetch or WebSearch, so it was left with Read, ToolSearch and Skill. Even with Bash, the guard holds claude-code-guide (and verifier) to read-only commands and refuses `bash doctor.sh`, and any agent's sandboxed Bash cannot read stack.env or `~/.claude.json` nor write the state dir, so doctor.sh reports false FAILs there | `/stack-doctor` is answered by a UserPromptExpansion hook (matcher `stack-doctor`, `bin/doctor.sh --hook`): it runs doctor.sh outside the sandbox and blocks the expansion with the FAIL lines, the WARN lines (each with its section) and the ok count; no model turn. The skill body is only the fallback when the hook did not run |
@@ -132,7 +132,7 @@ The stack's only knob table. Values in `dot-claude/settings.json` → `env` unle
 
 | Key | Value | Was | Why |
 |---|---|---|---|
-| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 33 | 20 | Room for an orchestrator's 32 running children plus the orchestrator itself without hitting the session limit |
+| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 128 | 20 | The user's value: four times an orchestrator's 32 running children, so a full fan-out beside other running agents meets the per-agent caps first; the guard counts slots against it (`STACK_FANOUT_SESSION`) |
 | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` ● | 8 | — | Eight layers below BlackCat |
 | `BLACKCAT_MAX_DISPATCH` ● | 8 | 6 | Enough to cover a multi-domain request in one burst |
 | `BLACKCAT_MAX_STEPS` ● | 24 | 12 | Dispatches plus relays, questions and reads within one prompt; 12 ran out on long prompts (the user, 2026-10-03) |
