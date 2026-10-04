@@ -175,3 +175,19 @@ def test_layer_from_registry_when_a_spawn_is_lost(fx):
     fx.agent("adrift00010", "verifier", parent="aorch000001", stopped=False, depth=2)
     row = body(who(fx, "--type", "verifier"))[1][0]
     assert " · verifier · running · L2 · parent aorch000001 · " in row
+
+
+def test_no_bytecode_written_without_dash_b(fx, tmp_path):
+    import shutil
+    import subprocess
+    b = tmp_path / "bin"
+    b.mkdir()
+    shutil.copy(WHO, b / "stack-who")
+    shutil.copy(WHO.parent / "stack-tree", b / "stack-tree")
+    p = subprocess.run([tt.PY, str(b / "stack-who")], capture_output=True, text=True, timeout=60,
+                       env=fx.env(STACK_LIMITS_SNAPSHOT=SNAP))
+    assert p.returncode == 0 and p.stdout.startswith("stack-who · session"), p.stdout + p.stderr
+    # Apple's python keeps stdlib bytecode under $HOME/Library/Caches (sys.pycache_prefix): not ours. The
+    # check is bin/ itself and any cache entry for the two scripts, wherever the prefix puts it.
+    assert not list(b.rglob("__pycache__")) and not list(b.rglob("*.pyc"))
+    assert not [x for x in tmp_path.rglob("*.pyc") if "stack" in x.name or "/bin/" in str(x)]

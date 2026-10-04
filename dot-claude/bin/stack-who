@@ -11,8 +11,8 @@ case-insensitively, all of them. --id matches a full id or a prefix of at least 
 The session: --session, else the one this shell belongs to (the basename of $STACK_LIMITS_SNAPSHOT, which
 the guard's session-env hook exports into every Bash of the session); with neither, no table (never a guess
 at the newest session, which may belong to another job). The table is built at each call from what the
-guard already writes (the registry agents/<id>.json and the delegation records spawns/<tid>.json, or delegations.md), through bin/stack-tree's
-reader: read-only, task text redacted and cut, at most --max lines (default 30, cap 200). It never fails a
+guard already writes (the registry agents/<id>.json and the delegation records spawns/<tid>.json, or
+delegations.md), through bin/stack-tree's reader: read-only, task text redacted and cut, at most --max lines (default 30, cap 200). It never fails a
 caller's step: any error prints one line saying the table is unavailable and to route through the parent,
 exit 0. Exit 2 only for bad arguments. Nothing here sends, writes or decides anything; whether a message may
 resume a finished agent is the guard's rule (PreToolUse SendMessage)."""
@@ -21,7 +21,10 @@ import json
 import os
 import re
 import sys
-import time
+
+sys.dont_write_bytecode = True     # also without -B: loading stack-tree must leave no __pycache__ in bin/
+
+import time  # noqa: E402
 
 HERE = os.path.dirname(os.path.realpath(__file__))
 MAX_DEFAULT, MAX_CAP, TASK_CAP = 30, 200, 90
