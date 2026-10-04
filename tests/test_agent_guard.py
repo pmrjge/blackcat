@@ -188,8 +188,8 @@ def test_print_policy_format(env):
     assert [k for k, v in d["policy"].items() if "supreme-coder" in v] == ["orchestrator"]
     assert {"ml-engineer", "dl-engineer", "llm-engineer", "ninja-coder"} <= set(
         d["policy"]["main-coder"])
-    # escalation chain coder < main-coder < ninja-coder < supreme-coder
-    assert "ninja-coder" not in d["policy"]["coder"] and "supreme-coder" not in d["policy"]["coder"]
+    # escalation chain coder < main-coder < ninja-coder < supreme-coder; coder is a leaf
+    assert d["policy"]["coder"] == [] and "coder" in d["leaves"]
     assert {"main-coder", "mathematician"} <= set(d["policy"]["ninja-coder"])
     assert {"main-coder", "ninja-coder"} <= set(d["policy"]["supreme-coder"])
     for eng in ("mlx-engineer", "cuda-engineer", "dl-engineer", "llm-engineer"):
@@ -209,7 +209,7 @@ def test_print_policy_format(env):
         assert parent not in row, parent                    # nobody spawns its own type
         assert not [c for c in row if c.endswith("-copy")], parent      # copy types retired
     assert d["policy"]["planner"]                           # planner keeps Agent
-    assert {"plan-reviewer", "image-director"} <= set(d["leaves"])
+    assert {"plan-reviewer", "image-director", "coder"} <= set(d["leaves"])
     assert {"Agent", "SendMessage", "Workflow", "CronCreate", "Skill", "Read"} <= set(
         d["blackcat_tools"])
     # no web tool on BlackCat (T1), no work tool (it only delegates), no search tool
@@ -262,6 +262,7 @@ def test_every_allowed_pair_allowed(env):
     ("orchestrator", "researcher-copy"), ("main-coder", "coder-copy"),
     ("writer", "researcher-copy"), ("researcher", "coder-copy"),
     ("plan-reviewer", "scout"), ("image-director", "scout"),        # leaves
+    ("coder", "explore"), ("coder", "scout"), ("coder", "test-engineer"), ("coder", "build-fixer"),
 ])
 def test_denied_pairs(env, parent, child):
     ev = (pre_agent(sid(), child, parent="blackcat") if parent == "blackcat" else
@@ -269,6 +270,20 @@ def test_denied_pairs(env, parent, child):
     p = run(ev, env)
     assert decision(p) == "deny"
     assert "Spawn policy" in reason(p)
+
+
+def test_coder_is_a_leaf(env):
+    """coder (decided 2026-10-04): no Agent or SendMessage on its tools line, an empty POLICY row,
+    and every spawn it attempts is refused."""
+    text = (ROOT / "dot-claude" / "agents" / "coder.md").read_text()
+    tools = {t.strip() for t in re.search(r"(?m)^tools:(.*)$", text).group(1).split(",")}
+    assert not {"Agent", "SendMessage"} & tools, tools
+    assert "May spawn:" not in text
+    pol = policy(env)
+    assert pol["policy"]["coder"] == [] and "coder" in pol["leaves"]
+    for child in sorted(set(pol["agents"]) - {"blackcat"}):
+        p = run(pre_agent(sid(), child, parent="coder", agent_id="id-coder"), env)
+        assert decision(p) == "deny" and "Spawn policy" in reason(p), child
 
 
 def test_missing_subagent_type_is_general_purpose(env):
@@ -376,7 +391,7 @@ def test_task_alias_reaches_the_spawn_gate(env):
     ev = pre_agent(sid(), "coder", parent="blackcat")
     ev["tool_name"] = "Task"
     assert decision(run(ev, env)) == "allow"
-    ev = pre_agent(sid(), "scout", parent="coder", agent_id="C1")
+    ev = pre_agent(sid(), "scout", parent="main-coder", agent_id="C1")
     ev["tool_name"] = "SubAgent"
     assert decision(run(ev, env)) == "allow"
 
@@ -1124,8 +1139,8 @@ def test_shipped_spawn_defaults(bare_env):
     for tool in ("Bash", "Write", "Edit"):
         assert decision(run(rg(s, tool, prompt="q2"), env, args=["blackcat-guard"])) == "deny"
     for parent, cap in (("orchestrator", 32), ("supreme-coder", 6), ("main-coder", 6),
-                        ("ninja-coder", 5), ("researcher", 4), ("coder", 3), ("designer", 3)):
-        s, child = sid(), ("scout" if parent in ("researcher", "coder", "designer") else "coder")
+                        ("ninja-coder", 5), ("researcher", 4), ("devops-engineer", 3), ("designer", 3)):
+        s, child = sid(), ("scout" if parent in ("researcher", "devops-engineer", "designer") else "coder")
         res = [decision(run(pre_agent(s, child, parent=parent, agent_id="P1"), env))
                for _ in range(cap + 1)]
         assert res == ["allow"] * cap + ["deny"], (parent, res)
@@ -1857,13 +1872,13 @@ def test_depth_from_spawn_meta_for_a_running_foreground_caller(env, tmp_path):
     sub.mkdir(parents=True)
     main = tmp_path / "p" / (s + ".jsonl")
     main.write_text("")
-    (sub / "agent-F1.meta.json").write_text(json.dumps({"agentType": "coder", "spawnDepth": 4}))
+    (sub / "agent-F1.meta.json").write_text(json.dumps({"agentType": "main-coder", "spawnDepth": 4}))
     four = {"CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH": "4"}
-    p = run(dict(pre_agent(s, "scout", parent="coder", agent_id="F1"), transcript_path=str(main)),
+    p = run(dict(pre_agent(s, "scout", parent="main-coder", agent_id="F1"), transcript_path=str(main)),
             env, extra=four)
     assert decision(p) == "deny" and "depth 4" in reason(p)
     assert reg_of(env, s, "F1")["depth"] == 4
-    p = run(dict(pre_agent(s, "scout", parent="coder", agent_id="F2"), transcript_path=str(main)),
+    p = run(dict(pre_agent(s, "scout", parent="main-coder", agent_id="F2"), transcript_path=str(main)),
             env, extra=four)
     assert decision(p) == "allow"                     # no meta file: depth unknown, native limit
 
@@ -2383,14 +2398,14 @@ def test_soft_limits_leave_the_hard_caps_alone(env, sess):
     main2.write_text("")
     (main.parent / s2 / "subagents").mkdir(parents=True)
     run(prompt_ev(s2, main2, "p1"), env)
-    run(pre_agent(s2, "coder", parent="main-coder", agent_id="M1"), env)
-    run(lifecycle(s2, "SubagentStart", "C1", "coder"), env)
-    run(post_agent(s2, "coder", "C1", agent_id="M1", parent="main-coder"), env)
+    run(pre_agent(s2, "ninja-coder", parent="main-coder", agent_id="M1"), env)
+    run(lifecycle(s2, "SubagentStart", "C1", "ninja-coder"), env)
+    run(post_agent(s2, "ninja-coder", "C1", agent_id="M1", parent="main-coder"), env)
     append(main.parent / s2 / "subagents" / "agent-C1.jsonl", call_line("m1", 20000))
-    ev = dict(pre_agent(s2, "explore", parent="coder", agent_id="C1"),
+    ev = dict(pre_agent(s2, "explore", parent="ninja-coder", agent_id="C1"),
               transcript_path=str(main2), cwd=str(main.parent))
     dec, ctx = soft_out(run(ev, env, extra={"STACK_SOFT_LIMIT_SCALE": "0.001"}))
-    assert dec == "allow" and "soft limit for coder: 19,000" in ctx
+    assert dec == "allow" and "soft limit for ninja-coder: 19,000" in ctx
 
 
 # ---------------------------------------------------------------- review 2026-09-28: resumes, leases

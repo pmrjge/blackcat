@@ -322,7 +322,7 @@ AGENTS = [
 BUILTINS = []
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
           "claude-code-guide", "browser-operator", "plan-reviewer", "image-director", "explore",
-          "proof-checker", "test-engineer", "build-fixer"]
+          "proof-checker", "test-engineer", "build-fixer", "coder"]
 # Generic agent types: Claude Code's catch-alls (general-purpose, claude, fork), the default
 # workflow stage ("workflow-subagent" in Claude Code 2.1.285), and the names a model or a host has
 # used for a generic spawn ("SubAgent": the label of an agent context without a type, e.g. a forked
@@ -382,7 +382,6 @@ POLICY = {
     "designer": ["image-director", "scout", "mcp-broker", "cg-artist"],
     "motion-designer": ["image-director", "designer", "scout", "mcp-broker", "cg-artist",
                         "vfx-td"],
-    "coder": ["explore", "scout", "test-engineer", "build-fixer"],
     "main-coder": ["coder", "explore", "scout", "verifier", "code-reviewer",
                    "security-auditor", "plan-reviewer", "mlx-engineer", "cuda-engineer",
                    "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker", "claude-code-guide",
@@ -458,8 +457,8 @@ POLICY = {
     "explore": [],
     # a referee (read-only Bash, Lean server inline): one bounded check, no delegation
     "proof-checker": [],
-    # bounded helpers (Sonnet): one test suite, one red build
-    "test-engineer": [], "build-fixer": [],
+    # bounded helpers (Sonnet): one test suite, one red build; coder (small code tasks, decided 2026-10-04)
+    "test-engineer": [], "build-fixer": [], "coder": [],
 }
 # The stack's agent types: the only ones that may be spawned (on_agent) or run a workflow stage
 # (on_workflow). blackcat is the main thread only.

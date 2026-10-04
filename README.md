@@ -208,7 +208,7 @@ job and escalates on failure or on a harder deliverable.
 | Language-heavy code | rust-, haskell-, julia-, go-, python-, jvm-, node-engineer (Opus · high · 170) | each self-checks with its toolchain |
 | Domain builds | 25 domain experts ([Roster](#roster)) | ML, GPU, HPC, robotics, design, 3D, video, documents, … |
 | Checks | code-reviewer, verifier, security-auditor, proof-checker, plan-reviewer | read-only (hook-enforced, below) |
-| Narrow jobs | test-engineer, build-fixer | leaves |
+| Narrow jobs | test-engineer, build-fixer | leaves (coder is one too) |
 
 Every agent names `opus` or `sonnet` (41 and 13; `tests/lint_agents.py` rejects anything else), and the
 IDs come from `stack.env`. That Sonnet on bounded work lowers cost without lowering quality is **by

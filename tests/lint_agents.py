@@ -449,6 +449,8 @@ def check_agent_file(path, policy_row, leaves, builtins, blackcat_tools=None):
     has_send = "SendMessage" in flat_tools
     if has_agent and not has_send:
         fail(f"{path.name}: has Agent in tools but no SendMessage")
+    if has_send and not has_agent and name_from_file != "blackcat":
+        fail(f"{path.name}: SendMessage without Agent: a leaf has no children to message")
 
     row = policy_row.get(name_from_file, [])
     if (name_from_file in leaves) != (not row and name_from_file != "blackcat"):
@@ -657,8 +659,9 @@ def main():
     expected_agents = policy_data.get("agents")
 
     check_no_self_spawn(policy_row)
-    # leaves by decision (a review or an image job is one bounded task); planner keeps delegation
-    for a in ("plan-reviewer", "image-director"):
+    # leaves by decision (a review, an image job or a small code task is one bounded task); planner
+    # keeps delegation
+    for a in ("plan-reviewer", "image-director", "coder"):
         if a not in leaves or policy_row.get(a):
             fail(f"{a} must be a leaf (empty POLICY row, in LEAVES)")
     if not policy_row.get("planner"):
