@@ -127,3 +127,18 @@ def test_installed_by_install_sh():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
     assert '\nstage_script 755 "bin/stack-who"\n' in text and '"bin/stack-who",' in text
     assert os.access(ROOT / "dot-claude" / "bin" / "stack-who", os.X_OK)
+
+
+def test_resumed_after_failure_is_running(fx):
+    # the first run's Agent call failed; a SendMessage resumed it later (resumed > stopped): running again,
+    # in stack-who and in stack-tree (one reader, bin/stack-tree ledger_state)
+    fx.spawn("t7", "aorch000001", "coder", "Retry the flaky fixture", child="acoder00007", ts=fx.t0 + 5,
+             status="failed")
+    fx.agent("acoder00007", "coder", parent="aorch000001", depth=2, resumed=fx.t0 + 400)
+    row = body(who(fx, "--type", "coder"))[1][0]
+    assert " · coder · running · L2 · " in row
+    assert [r.split(" ")[0] for r in body(who(fx, "--running"))[1]].count("acoder00007") == 1
+    assert "acoder00007" not in who(fx, "--finished").stdout
+    # an older resume (before the last stop) leaves the failure in place
+    fx.agent("acoder00007", "coder", parent="aorch000001", depth=2, resumed=fx.t0 + 10)
+    assert " · coder · failed · L2 · " in body(who(fx, "--type", "coder"))[1][0]

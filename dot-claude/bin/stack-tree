@@ -424,15 +424,16 @@ class Node(object):
 
 def ledger_state(rec, reg):
     """agent_guard.ledger_state (the state delegations.md shows), except that an agent resumed after its
-    last stop is running again."""
+    last stop is running again, even when the call that first ran it failed or was cancelled (the resume
+    is a new run; the spawn record keeps the first run's status)."""
     st = str(rec.get("status") or "").lower()
+    resumed, stopped = num(reg.get("resumed")), num(reg.get("stopped"))
+    if resumed and (stopped is None or resumed > stopped):
+        return "running"                      # resumed (SendMessage): its SubagentStart cleared `stopped`
     if st in ("failed", "error"):
         return "failed"
     if st in ("cancelled", "canceled", "killed"):
         return "stopped"
-    resumed, stopped = num(reg.get("resumed")), num(reg.get("stopped"))
-    if resumed and (stopped is None or resumed > stopped):
-        return "running"                      # resumed (SendMessage): its SubagentStart cleared `stopped`
     if reg.get("stopped") or st == "completed":
         return "finished"
     if reg or st in ("async_launched", "running"):
