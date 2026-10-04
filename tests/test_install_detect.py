@@ -11,9 +11,7 @@ pkgutil and mdfind are temp dirs and shims here.
 
 Run: uv run --no-project --python 3.13 --with-requirements requirements/tools.txt pytest -q tests/test_install_detect.py
 """
-import os
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -249,15 +247,19 @@ def test_homebrews_own_go_keeps_the_brew_gopls(tmp_path):
 
 
 # ---------------------------------------------------------------- stack-update-tools, docs
-def test_stack_update_tools_leaves_pkg_mactex_and_go_to_you():
+def test_stack_update_tools_leaves_pkg_mactex_and_go_to_you(tmp_path):
     t = UPDATE.read_text()
-    assert 'line "manual  mactex/go: installed by pkg, update with tlmgr / the Go installer"' in t
     assert "sudo tlmgr" not in t and "tlmgr update" not in t                  # never runs tlmgr, let alone with sudo
-    if os.path.isdir("/Library/TeX/texbin") or os.path.isdir("/usr/local/go/bin"):
-        p = subprocess.run(["bash", str(UPDATE), "--dry-run"], capture_output=True, text=True, timeout=60,
-                           env={"PATH": "/usr/bin:/bin", "HOME": os.environ.get("TMPDIR", "/tmp"),
-                                "TMPDIR": os.environ.get("TMPDIR", "/tmp")})
-        assert "  manual  mactex/go: installed by pkg, update with tlmgr / the Go installer" in p.stdout, p.stdout
+    want = "  manual  mactex/go: installed by pkg, update with tlmgr / the Go installer"
+    e, s = setup(tmp_path)
+    e.brew()
+    rc, out, _ = e.run(script=UPDATE, args=("--dry-run",))                   # temp roots: neither is there
+    assert want not in out, out
+    for d in (s.lib / "TeX" / "texbin", s.usr_local / "go" / "bin"):
+        d.mkdir(parents=True)
+        rc, out, _ = e.run(script=UPDATE, args=("--dry-run",))
+        assert want in lines(out), (d, out)
+        d.rmdir()
 
 
 def test_the_detection_table_names_only_evidenced_entries():
@@ -564,3 +566,26 @@ def test_dry_run_and_report_execute_no_found_tool(tmp_path):
         assert rc == 0, err
         ran = [c for c in e.calls() if c.split()[0] in FOUND_TOOLS]
         assert ran == [], (mode, ran)
+
+
+# ---------------------------------------------------------------- review: tests that pin the lookup itself
+def test_system_dirs_are_searched_from_a_brew_item(tmp_path):
+    """A brew item's cmd: probe runs under item_present's IFS=,: the system dirs must still split on spaces."""
+    e, s = setup(tmp_path)
+    s.brew()
+    a, b = tmp_path / "sysa", tmp_path / "sysb"
+    a.mkdir()
+    rg = mkexe(b / "rg", "exit 0")
+    rc, out, _ = e.run("DEPS", DEVTOOLS_SYSTEM_DIRS="%s %s" % (a, b), **s.env)
+    assert "  skip ripgrep (found: %s, from PATH)" % rg in lines(out), out
+    assert "ripgrep" not in " ".join(e.argv("brew", "install"))
+
+
+def test_a_link_into_the_go_pkg_dir_counts_as_pkg(tmp_path):
+    e, s = setup(tmp_path)
+    s.brew()
+    go = mkexe(s.usr_local / "go" / "bin" / "go", "exit 0")
+    (e.bin / "go").symlink_to(go)
+    s.receipts("org.golang.go")
+    rc, out, _ = e.run("GO", **s.env)
+    assert "  skip go (found: %s/go, from pkg)" % e.bin in lines(out), out
