@@ -2,6 +2,7 @@
 L2 restored links, L3 drift, L4 backup root). The end-to-end runs are in tests/install_smoke.sh."""
 import json
 import os
+import re
 import sys
 
 import pytest
@@ -517,7 +518,7 @@ def test_install_seeds_live_json_once_and_retracts_the_budget_env(tmp_path):
     assert e["STACK_SESSION_CTX_BUDGET"] == "777000000"
     assert "retracted stack env STACK_PROMPT_CTX_BUDGET=100000000" in log
     hooks = json.loads(_read(sp))["hooks"]
-    assert not any("stack_usage.py\" start" in h.get("command", "") for g in hooks["SessionStart"]
+    assert not any(re.search(r'stack_usage(\.py")? start', h.get("command", "")) for g in hooks["SessionStart"]
                    for h in g["hooks"])
     _install(new, home, conf)                                    # a plain re-run
     assert _read(live) == first

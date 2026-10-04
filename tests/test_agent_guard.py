@@ -927,19 +927,19 @@ def test_blackcat_guard_steps_concurrent(env):
 
 
 def test_blackcat_hook_command_as_rendered(env, tmp_path):
-    """blackcat.md's frontmatter hook runs the interpreter directly (no sh wrapper, no bare
-    python3 on PATH): render its command the way install.sh does and run it through a shell."""
+    """blackcat.md's frontmatter hook runs the guard through the launcher, fail-closed (S2): render
+    its command the way install.sh does and run it through a shell."""
     text = (ROOT / "dot-claude" / "agents" / "blackcat.md").read_text()
     m = re.search(r'(?m)^\s+command:\s*"(.*)"\s*$', text)
     assert m, "blackcat.md has no hook command"
     cmd = json.loads('"%s"' % m.group(1))
-    assert "__PYTHON3__" in cmd and cmd.rstrip().endswith("blackcat-guard")
-    cmd = cmd.replace("__PYTHON3__", sys.executable).replace(
-        "__CLAUDE_DIR__", str(ROOT / "dot-claude"))
+    assert cmd == '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" --fail-closed agent_guard blackcat-guard'
+    cmd = cmd.replace("__CLAUDE_DIR__", str(ROOT / "dot-claude"))
+    e = dict(env, STACK_PYTHON=sys.executable)
     s = sid()
-    p = run(rg(s, "WebFetch"), env, cmd=["sh", "-c", cmd])
+    p = run(rg(s, "WebFetch"), e, cmd=["sh", "-c", cmd])
     assert decision(p) == "deny"
-    p = run(rg(s, "SendMessage"), env, cmd=["sh", "-c", cmd])
+    p = run(rg(s, "SendMessage"), e, cmd=["sh", "-c", cmd])
     assert decision(p) == "allow"
 
 
@@ -2055,7 +2055,7 @@ def session_start(ev, env, extra=None):
         if m != "*" and not re.fullmatch(m, ev["source"]):
             continue
         for h in g["hooks"]:
-            if h["command"].endswith('agent_guard.py"'):
+            if h["command"].endswith('stack-hook" agent_guard'):
                 assert run(ev, env, extra=extra).returncode == 0
                 n += 1
     return n
@@ -2088,13 +2088,13 @@ def test_budget_catches_up_on_resume_and_forks_start_at_the_end(env, sess):
 def test_budget_hook_wired_for_every_tool():
     s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
     groups = [g for g in s["hooks"]["PreToolUse"]
-              if any(h["command"].endswith('agent_guard.py" budget') for h in g["hooks"])]
+              if any(h["command"].endswith('--fail-closed agent_guard budget') for h in g["hooks"])]
     assert len(groups) == 1 and groups[0]["matcher"] == "*"
     assert all("if" not in h for h in groups[0]["hooks"])
     # SessionStart reaches the guard for startup and resume (locks, leases, registry) and for fork
     # (a fork counts only what it adds; without the event it inherits its parent's history)
     starts = [g.get("matcher") or "*" for g in s["hooks"]["SessionStart"]
-              if any(h["command"].endswith('agent_guard.py"') for h in g["hooks"])]
+              if any(h["command"].endswith('stack-hook" agent_guard') for h in g["hooks"])]
     for source in ("startup", "resume", "fork"):
         assert any(m == "*" or re.fullmatch(m, source) for m in starts), (source, starts)
 

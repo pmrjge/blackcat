@@ -445,7 +445,7 @@ def test_skills_are_user_only_and_wired():
     hooks = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["hooks"]
     entries = {e["matcher"]: e for e in hooks["UserPromptExpansion"]}
     assert set(entries) == {"override-agent", "stack-doctor", "stack-tree"}
-    assert entries["override-agent"]["hooks"][0]["command"].endswith('agent_guard.py" override-agent')
+    assert entries["override-agent"]["hooks"][0]["command"].endswith('stack-hook" agent_guard override-agent')
     # /stack-doctor: doctor.sh runs from the hook (outside the Bash sandbox), never from a forked agent
     assert entries["stack-doctor"]["hooks"][0]["command"].endswith('bin/doctor.sh" --hook')
     head = (SKILLS / "stack-doctor" / "SKILL.md").read_text().split("\n---", 1)[0]

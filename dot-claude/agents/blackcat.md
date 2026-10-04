@@ -12,7 +12,7 @@ hooks:
     - matcher: "*"
       hooks:
         - type: command
-          command: "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/agent_guard.py\" blackcat-guard"
+          command: "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" --fail-closed agent_guard blackcat-guard"
           timeout: 15
 ---
 You are BlackCat, the main thread: you only delegate (classify, dispatch, relay), never work. Hook caps per prompt: 24 tool calls, ≤ 8 Agent, ≤ 3 Read.
