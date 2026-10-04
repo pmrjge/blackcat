@@ -363,20 +363,7 @@ How to run them: [Verify](#verify).
 
 ### Main knobs
 
-The full list is in [Knobs](#knobs) and [CONFIG.md](CONFIG.md) §5. The ones most often changed:
-
-| Knob | Default | Effect |
-|---|---|---|
-| `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` (in `stack.env`) | today's IDs | What the `opus` and `sonnet` aliases run; re-run the installer |
-| `STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE` | 3; orchestrator 32, main-/supreme-coder 6, ninja-coder 5, researcher 4, planner and plan-reviewer 8 | Running children per agent |
-| `BLACKCAT_MAX_DISPATCH`, `BLACKCAT_MAX_STEPS`, `BLACKCAT_MAX_READS`, `BLACKCAT_MAX_OWN_STEPS` | 8, 24, 3, 0 | BlackCat's Agent calls, all tool calls, Read calls and own Bash/Write/Edit calls (0: it only delegates) per prompt |
-| `STACK_PROMPT_CTX_BUDGET`, `STACK_SESSION_CTX_BUDGET` | learned (seeds 100,000,000 / 1,920,000,000) | Hard context budgets; a value you set pins them |
-| `STACK_SOFT_LIMIT_SCALE` | 1 | Multiplies every soft limit; `0` turns them off |
-| `STACK_MAX_MCP_CALLS` | 64 | MCP calls per subagent per prompt |
-| `READ_GATE` (in `stack.env` or the environment) | 1 | `0` turns the read gate off |
-| `STACK_POLICY` | `on` | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on. It also lifts blackcat-guard (BlackCat's step, dispatch and read caps and its tool allowlist): only BlackCat's tools line still keeps Bash, Write and Edit from it |
-| `autoCompactWindow` (settings key) | 629000 | Compaction at about 629K tokens on the 1M-context models |
-| `permissions.defaultMode` (settings key) | `plan` | The mode every session starts in; a mode you set is kept on upgrade ([Permission modes](#permission-modes)) |
+Every knob (environment variables and settings keys), its default, why it has that value and whether the installer owns it: [CONFIG.md](CONFIG.md) §5. The ones most often changed: `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` in `stack.env`, `STACK_MAX_FANOUT(_BY_TYPE)`, `BLACKCAT_MAX_*`, the context budgets, `STACK_SOFT_LIMIT_SCALE`, `READ_GATE`, `STACK_POLICY`, `autoCompactWindow` and `permissions.defaultMode`.
 
 ### Compared with plain Claude Code
 
@@ -1205,61 +1192,7 @@ The magg catalog keys reach mcp-broker's magg through `bin/with-stack-env --only
 
 ### Knobs
 
-Set in `settings.json` → `env`. ● = shipped in `dot-claude/settings.json` and owned by the stack
-(`OWNED_ENV` in `install.sh`): reset on every install, so change it in the repo and re-run the
-installer. ○ = shipped as a default: it follows stack upgrades while you leave it unchanged, and a value
-you change is kept (the installer prints `kept your env …`). The rest are defaults in `agent_guard.py`
-you may set yourself.
-
-<details>
-<summary>All knobs</summary>
-
-| Variable | Default | Purpose | Read by |
-|---|---|---|---|
-| `STACK_POLICY` | `on` | `off` lifts the spawn, budget, lock and read-only-Bash guards; the no-push hook's refusals (forge writes, protected-path writes, credential reads, `install.sh`) stay on. It also lifts blackcat-guard (BlackCat's step, dispatch and read caps and its tool allowlist): only BlackCat's tools line still keeps Bash, Write and Edit from it | guard |
-| `STACK_AGENT_LABEL` | `description` | Child label: `description` (`<type>: <task>`), `name` (`<type>-<n>`), `off` | guard |
-| `STACK_AGENT_STARTED` | `1` | SubagentStart gives a stack agent its start time (`0` = off) | guard |
-| `STACK_REPORT_FORMAT` | `observe` | `observe` (unset or any other value): SubagentStop checks and records each stack subagent's final reply and PreToolUse(Agent) the brief's size, never output, warned or blocked; `compact`: plus one restate per run on a hard violation (not the default, planned for Phase 2); `json`: every final report is one JSON line (SessionStart and SubagentStart add one line) plus a logged shape check, for Agent SDK apps; `off`: no check, no log ([CONFIG.md](CONFIG.md) §5, "Message protocol") | guard |
-| `BLACKCAT_MAX_DISPATCH` ● / `BLACKCAT_DISPATCH_WINDOW_S` ○ | 8 / 120 | BlackCat Agent calls per prompt, within this many seconds of the first | guard |
-| `BLACKCAT_MAX_STEPS` ● | 24 | BlackCat tool calls per prompt | guard |
-| `BLACKCAT_MAX_READS` | 3 | Of those, BlackCat's Read calls: the delegation ledger, a plan, a child's output file (8 dispatches always fit) | guard |
-| `BLACKCAT_MAX_OWN_STEPS` | 0 | Of those, BlackCat's own Bash/Write/Edit calls: 0, it only delegates. Its `tools` line lists none of them, so a value > 0 changes nothing in a normal session; any other agent started with `claude --agent <name>` (`claude --agent claude` for a plain session) is not restricted: the restriction belongs to BlackCat only, through its own tools line and its own guard | guard |
-| `BLACKCAT_BASH_TIMEOUT_MS` | 120000 | Longest timeout a BlackCat foreground Bash call may ask for, only with `BLACKCAT_MAX_OWN_STEPS` > 0 | guard |
-| `BLACKCAT_BACKGROUND` | 1 | Drop BlackCat's `run_in_background: false` | guard |
-| `STACK_MAX_FANOUT` ● | 3 | Running children per agent (0 = no cap) | guard |
-| `STACK_MAX_FANOUT_BY_TYPE` ● | `orchestrator=32,supreme-coder=6,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8` | Per-type overrides | guard |
-| `STACK_MAX_SELF_FANOUT` ● | 2 | Live copies per copy type | guard |
-| `STACK_MAX_DEPTH` | `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH`, else 3 | Deny Agent from callers at this depth | guard |
-| `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | learned (seed 100000000 / 1920000000) | Context tokens per prompt / per session, whole tree (0 = off); a value you set pins the learned limit | guard |
-| `STACK_MAX_MCP_CALLS` ● | 64 | MCP calls per subagent per prompt, lower if `maxTurns` is | guard |
-| `STACK_SOFT_LIMIT_SCALE` | unset = 1 | Multiplies the soft token limits (per agent run, 33M per human prompt, 80M with an orchestrator); `0` = off | guard |
-| `STACK_SCHED_POLICY` | `report` | `report`: the scheduler only reports; `fresh_fixer` (opt-in): `stack_sched.py next` also advises a fresh fixer after a long resume gap. Fixed per session (snapshot) | stack_sched |
-| `STACK_FANOUT_IDLE_S` ○ | 600 (code: 1800) | A silent background subtree stops counting | guard |
-| `STACK_FANOUT_SESSION` | `shadow` | Session slot guard against `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`, every caller: `shadow` logs the count (`fanout-session.jsonl`), `enforce` also refuses a spawn or resume with no free slot, `off` = none ([CONFIG.md](CONFIG.md) §5) | guard |
-| `STACK_FANOUT_DYN` | `shadow` | Dynamic fan-out cap for orchestrators (`stack_fanout.py`; never the main thread or BlackCat, never above the static cap): `shadow` (default; only for `STACK_FANOUT_DYN_TYPES` = orchestrator, never denies, 0600, 4 MiB cap) logs each decision from `plan.dag.json`, budget, AIMD window and K_sess to `fanout-dyn.jsonl`, `enforce` also refuses (`Dynamic fan-out (<term>): ...`) with the terms in `STACK_FANOUT_DYN_ENFORCE`; any error = static; `off` = nothing runs, no file, the rollback ([CONFIG.md](CONFIG.md), "Dynamic fan-out cap") | guard |
-| `STACK_FANOUT_DYN_{ENFORCE,TYPES,W0,WMIN,ALPHA,BETA_RL,BETA_FAIL,HOLD_S,RESERVE_TOK,SLACK,NODE_RUNS,DELAY_RATIO,BREAKER}` | `node,deps` / `orchestrator` / 8 / 1 / 1 / 0.5 / 0.75 / 60 / 8000000 / 2 / 7 / 1.5 / `5/600` | Its enforced terms, scope, AIMD window, token reserve, slack, runs per node, delay signal and breaker | guard |
-| `STACK_LEASE_TTL_S` / `STACK_RESUME_TTL_S` | 21600 / 120 | Ceilings on unreported leases and resume reservations | guard |
-| `SUPREME_SPAWNERS` / `SUPREME_ONCE_PER_SESSION` / `SUPREME_AFTER_NINJA` | `orchestrator` / 1 / 1 | Who spawns supreme-coder; once; after a finished ninja-coder | guard |
-| `SUPREME_IDLE_S` ○ / `SUPREME_PENDING_TTL_S` / `SUPREME_LOCK_TTL_S` | 1800 (code: 900) / 120 / 21600 | supreme-coder lock timers | guard |
-| `SCREEN_LOCK_TTL_S` | 900 | Screen lock expiry | guard |
-| `STRIP_AGENT_MODEL` | 1 | Remove per-call `model` | guard |
-| `STACK_GUARD_LOG` | 0 | 1 = log hook events (tool names and ids only in budget mode) | guard |
-| `STACK_MODE_PROBE` | 0 | 1 = diagnostic: log the permission mode each PreToolUse, PermissionRequest and SubagentStart event reports to `mode-probe.jsonl` in the state dir (no tool input; 0600; stops at 1 MB). Decides nothing ([CONFIG.md](CONFIG.md) §5, "Permission modes") | guard |
-| `STACK_IMAGE_MAX_PX` / `STACK_IMAGE_MAX_B64` | 1919 / 4500000 | Longest image side; most base64 chars per image | guard, image-studio, doctor |
-| `STACK_IMAGE_UPLOAD_TOOLS` | — | Regex of more MCP tools whose image arguments get downscaled copies | guard |
-| `STACK_ENV_FILE` ● | `~/.claude/stack.env` | Where the keys live | `mcp-headers`, `with-stack-env`, libdocs, image-studio, `read_gate.py`, `web_caps.py` |
-| `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` ● | 8 | Claude Code's nesting limit (its default is 3) | Claude Code, guard |
-| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | 33 | Subagents running in one session | Claude Code, guard |
-| `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` ○ | 1 | Built-in Explore and Plan off (the stack's `explore` replaces Explore) | Claude Code |
-| `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` ○ | 1 | Every built-in type off in `claude -p` | Claude Code |
-| `ANTHROPIC_DEFAULT_OPUS_MODEL` / `_SONNET_MODEL` / `_HAIKU_MODEL` | from `stack.env` | Not in `dot-claude/settings.json`: the installer copies them from `stack.env` (Keys and paths above) | Claude Code |
-| `CLAUDE_CODE_MAX_WEB_SEARCHES_PER_SESSION` ○ | 400 | WebSearch calls per session | Claude Code |
-| `MCP_DISCOVERY_CACHE` ● / `_TTL_S` ○ / `_MAX_STALE_S` ○ | 1 / 21600 / 604800 | MCP discovery cache (unverified: not on the docs page checked for this README) | Claude Code |
-| `MCP_TIMEOUT` ○ / `MAX_MCP_OUTPUT_TOKENS` ○ | 60000 / 25000 | MCP start-up timeout; tool output cap | Claude Code |
-
-</details>
-
-Don't set `CLAUDE_CODE_EFFORT_LEVEL`: it overrides every agent file's effort.
+Set in `settings.json` → `env`. The table (defaults, ownership marks, what reads each) is [CONFIG.md](CONFIG.md) §5.
 
 ### Installer and session environment
 
