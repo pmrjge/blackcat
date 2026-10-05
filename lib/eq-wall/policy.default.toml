@@ -35,7 +35,7 @@ fetch_command_sha256 = ""
 domains = []                     # exact lower-case host names
 
 [tools_manifest]
-path = "../eq-docker/TOOLS.toml" # relative to this file; missing + required = every missing-tool request refused
+path = "../eq-container/TOOLS.toml" # relative to this file; missing + required = every missing-tool request refused
 required = true
 
 # Example entry (commented out; every field is part of the class sha256 a verdict binds to):

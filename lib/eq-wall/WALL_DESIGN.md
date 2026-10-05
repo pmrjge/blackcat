@@ -1,5 +1,12 @@
 # WALL: the host-access broker and the ONE tunnel (SCOPE X6 + X7)
 
+> **Backend note (2026-10-05, USER decision):** the isolation backend is Apple `container` (CLI 1.5.0), not Docker. Read
+> "Docker" below as "the container backend": the tunnel (mechanism dir-v1) is the ONE read-write bind of a channel directory
+> at `/eq/tunnel` (`container run --mount type=bind,source=<channel>,target=/eq/tunnel`, carried into the container's VM by
+> virtiofs); every other mount is read-only and the container has no network (`--network none`). The unix-socket argument of §3
+> still holds (no socket is relied on; the probe's `host_socket_not_reached` row checks it). The repo copies live in
+> `lib/eq-wall` (this folder) and `lib/eq-container`; installer integration: `install.sh --with-eq-container` (CONFIG.md §7).
+
 Status 2026-10-05: built and tested with fakes only (no real host action, no daemon, no network). Default policy =
 deny everything. Reviewed statically by security-auditor (N23) and code-reviewer (N24), both "pass with fixes", no
 open High/Critical; the fixes are in (§12 item 10) and await the re-review the caller schedules. Until that re-review

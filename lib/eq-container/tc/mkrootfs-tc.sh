@@ -76,12 +76,26 @@ for t in $(tm_get image "$what" tools); do
   dest=$(g dest); prov=$(g provenance); msha=$(g sha256)
   case "$prov" in
     distro-package)
-      # only busybox is taken from a distro package in these images: the stage `busybox` of Dockerfile.toolchains verified it
-      [ "$t" = busybox ] || { echo "mkrootfs-tc: distro-package $t is not supported here" >&2; exit 2; }
-      [ "$msha" != PLACEHOLDER ] || { echo "mkrootfs-tc: busybox sha256 is PLACEHOLDER (build.sh --resolve-tools --write-pin)" >&2; exit 13; }
-      echo "$msha  /opt/busybox" | sha256sum -c - >&2
-      install -D -m 0755 /opt/busybox "$R/usr/bin/busybox"
-      applets=$(tm_get image "$what" applets);;
+      [ "$msha" != PLACEHOLDER ] || { echo "mkrootfs-tc: $t sha256 is PLACEHOLDER (build.sh --resolve-tools --write-pin)" >&2; exit 13; }
+      if [ "$t" = busybox ]; then
+        echo "$msha  /opt/busybox" | sha256sum -c - >&2
+        install -D -m 0755 /opt/busybox "$R/usr/bin/busybox"
+        applets=$(tm_get image "$what" applets)
+      else
+        # a Debian package closure recorded by tc/apt-closure.sh (USER decision 2026-10-05: cc in the Rust/Haskell images):
+        # every regular file and symlink of those packages except docs, man pages, info pages and locales
+        lst="/opt/eq-pkgs/$t.list"
+        [ -s "$lst" ] || { echo "mkrootfs-tc: $t: no package closure $lst (tc/apt-closure.sh did not run in this stage)" >&2; exit 2; }
+        f1=$(g files | cut -d' ' -f1)
+        echo "$msha  $(readlink -f "$f1")" | sha256sum -c - >&2 || { echo "mkrootfs-tc: $t: $f1 does not hash to the pinned sha256" >&2; exit 1; }
+        while read -r pkg; do
+          dpkg -L "$pkg" | while IFS= read -r f; do
+            case "$f" in /usr/share/doc/*|/usr/share/man/*|/usr/share/info/*|/usr/share/locale/*|/usr/share/lintian/*|/usr/share/bug/*) continue;; esac
+            if [ -L "$f" ] || [ -f "$f" ]; then add_file "$f"; is_elf "$f" && elf_closure "$f"; fi
+          done
+        done < "$lst"
+        if [ "$t" = cc ]; then ln -sf gcc "$R/usr/bin/cc"; fi
+      fi;;
     in-repo)
       for f in $(g files); do mkdir -p "$R$(dirname "$f")"; install -m 0755 "$f" "$R$f"; done;;
     *)

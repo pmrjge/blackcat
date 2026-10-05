@@ -3,10 +3,11 @@
 # probe_inner.sh: runs INSIDE the container (passed by probe.sh as `bash -c "$(cat probe_inner.sh)" probe ARGS`).
 # It only reads and tries benign writes/connects; each result line is  T|name|PASS/FAIL/INFO|detail
 # args: $1 canary that exists only OUTSIDE the mounts on the host, $2 canary in /work (control), $3 canary in a host env
-#       var, $4 expected pids.max, $5 expected memory.max (bytes), $6 expected cpu.max quota (us per 100000),
+#       var, $4 expected RLIMIT_NPROC (--ulimit nproc), $5 the VM memory (-m) in bytes, $6 expected CPU count (-c),
 #       $7 expected size of the tmpfs /work in bytes (empty: only report it)
+# Backend: Apple `container` (every container is its own Linux VM, so the limits are the VM's size and an rlimit, not cgroups).
 set -u
-out=$1; in=$2; envc=$3; want_pids=$4; want_mem=$5; want_cpu=$6; want_work=${7:-}
+out=$1; in=$2; envc=$3; want_nproc=$4; want_mem=$5; want_cpus=$6; want_work=${7:-}
 t() { echo "T|$1|$2|$3"; }
 
 # identity, capabilities, privilege escalation
@@ -15,7 +16,8 @@ if [ "$uid" != 0 ]; then t user_nonroot PASS "uid=$uid gid=$(id -g)"; else t use
 ce=$(awk '/^CapEff/{print $2}' /proc/self/status); cb=$(awk '/^CapBnd/{print $2}' /proc/self/status)
 if [ "$ce" = 0000000000000000 ] && [ "$cb" = 0000000000000000 ]; then t caps_dropped PASS "CapEff=$ce CapBnd=$cb"; else t caps_dropped FAIL "CapEff=$ce CapBnd=$cb"; fi
 nnp=$(awk '/^NoNewPrivs/{print $2}' /proc/self/status)
-if [ "$nnp" = 1 ]; then t no_new_privs PASS "NoNewPrivs=1"; else t no_new_privs FAIL "NoNewPrivs=$nnp"; fi
+# `container run` 1.5.0 has no no-new-privileges option: reported only; no_setuid_files (below) is the gating row instead
+t no_new_privs INFO "NoNewPrivs=${nnp:-unreadable} (no container option sets it; setuid files are refused instead)"
 sc=$(awk '/^Seccomp:/{print $2}' /proc/self/status)
 if [ "$sc" = 2 ]; then t seccomp_filter PASS "Seccomp=2 (filter)"; else t seccomp_filter INFO "Seccomp=$sc"; fi
 
@@ -62,7 +64,9 @@ for p in /Users /Volumes /host_mnt /mnt/host /private /oracle /grading_keys /.eq
 done
 if [ -z "$seen" ]; then t host_paths_absent PASS "no /Users /Volumes /oracle /grading_keys docker.sock ..."; else t host_paths_absent FAIL "exist:$seen"; fi
 if [ -z "$(ls -A /items 2>/dev/null)" ]; then t items_dir_empty PASS "/items empty (only mounted by selftest stages)"; else t items_dir_empty FAIL "/items not empty"; fi
-mt=$(awk '$3 ~ /^(virtiofs|fuse.*|9p|grpcfuse|fakeowner|ext4|btrfs|xfs|nfs.*|vboxsf)$/ {print $2}' /proc/mounts | sort -u | tr '\n' ' ')
+# host-backed mounts (virtiofs is what `container run --mount type=bind` uses); "/" is excluded: the container's root filesystem
+# is the image's own block device (ext4 in the VM), not a host directory
+mt=$(awk '$2 != "/" && $3 ~ /^(virtiofs|fuse.*|9p|grpcfuse|fakeowner|ext4|btrfs|xfs|nfs.*|vboxsf)$/ {print $2}' /proc/mounts | sort -u | tr '\n' ' ')
 bad=""
 for m in $mt; do case "$m" in /eqsrc/work|/fixture|/in|/eq/tunnel|/etc/resolv.conf|/etc/hostname|/etc/hosts) ;; *) bad="$bad $m";; esac; done
 if [ -z "$bad" ]; then t only_expected_host_mounts PASS "host-backed mounts: $mt"; else t only_expected_host_mounts FAIL "unexpected:$bad (all: $mt)"; fi
@@ -71,24 +75,28 @@ case ",$fro," in *,ro,*) t fixture_mounted_ro PASS "/fixture ro";; *) t fixture_
 
 # network: loopback only (pure bash /dev/tcp so it also runs in the FROM-scratch images that have no python)
 reach=""
-for hp in 1.1.1.1:443 8.8.8.8:53 172.17.0.1:80 192.168.65.254:80; do
+for hp in 1.1.1.1:443 8.8.8.8:53 192.168.64.1:80 172.17.0.1:80 192.168.65.254:80; do
   h=${hp%:*}; p=${hp#*:}
   err=$(timeout 3 bash -c "exec 3<>/dev/tcp/$h/$p" 2>&1); rc=$?
   if [ $rc = 0 ] || printf '%s' "$err" | grep -qi 'refused'; then reach="$reach $hp"; fi
 done
-if [ -z "$reach" ]; then t network_connect_fails PASS "4 external connects failed"; else t network_connect_fails FAIL "reachable:$reach"; fi
+if [ -z "$reach" ]; then t network_connect_fails PASS "5 connects failed (incl. the vmnet gateway 192.168.64.1)"; else t network_connect_fails FAIL "reachable:$reach"; fi
 err=$(timeout 3 bash -c 'exec 3<>/dev/tcp/example.com/443' 2>&1); rc=$?
 if [ $rc = 0 ]; then t dns_fails FAIL "example.com resolved and connected"; else t dns_fails PASS "$(printf '%s' "$err" | tr '\n' ' ' | cut -c1-80)"; fi
 ifs=$(ls /sys/class/net 2>/dev/null | tr '\n' ',' | sed 's/,$//')
 if [ "$ifs" = lo ]; then t only_loopback_interface PASS "interfaces: lo"; else t only_loopback_interface FAIL "interfaces: ${ifs:-unreadable}"; fi
 
-# cgroup limits actually applied (cgroup v2, as `docker info` reports)
-cg=/sys/fs/cgroup
-pm=$(cat $cg/pids.max 2>/dev/null); mm=$(cat $cg/memory.max 2>/dev/null); cm=$(cat $cg/cpu.max 2>/dev/null); sm=$(cat $cg/memory.swap.max 2>/dev/null)
-if [ "$pm" = "$want_pids" ]; then t pids_limit_set PASS "pids.max=$pm"; else t pids_limit_set FAIL "pids.max=$pm want $want_pids"; fi
-if [ "$mm" = "$want_mem" ]; then t memory_limit_set PASS "memory.max=$mm"; else t memory_limit_set FAIL "memory.max=$mm want $want_mem"; fi
-case "$cm" in "$want_cpu 100000") t cpu_limit_set PASS "cpu.max=$cm";; *) t cpu_limit_set FAIL "cpu.max=$cm want '$want_cpu 100000'";; esac
-if [ "$sm" = 0 ]; then t swap_disabled PASS "memory.swap.max=0"; else t swap_disabled INFO "memory.swap.max=${sm:-unreadable}"; fi
+# limits actually applied: the VM's memory (MemTotal; the guest kernel keeps part of -m for itself, so MemTotal must be <= -m and
+# above half of it), its CPU count (-c) and the process-count rlimit (--ulimit nproc)
+np=$(ulimit -u 2>/dev/null)
+if [ "$np" = "$want_nproc" ]; then t nproc_limit_set PASS "ulimit -u = $np"; else t nproc_limit_set FAIL "ulimit -u = ${np:-unreadable}, want $want_nproc"; fi
+mk=$(awk '/^MemTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
+if [ -n "$mk" ] && [ $((mk * 1024)) -le "$want_mem" ] && [ $((mk * 1024 * 2)) -gt "$want_mem" ]; then t memory_limit_set PASS "MemTotal=${mk} kB for -m $want_mem bytes"
+else t memory_limit_set FAIL "MemTotal=${mk:-unreadable} kB, want <= $want_mem bytes and > half of it"; fi
+nc=$(grep -c '^processor' /proc/cpuinfo 2>/dev/null)
+if [ "$nc" = "$want_cpus" ]; then t cpu_limit_set PASS "$nc CPUs"; else t cpu_limit_set FAIL "${nc:-unreadable} CPUs, want $want_cpus"; fi
+sw=$(awk '/^SwapTotal:/ {print $2}' /proc/meminfo 2>/dev/null)
+if [ "$sw" = 0 ]; then t swap_disabled PASS "SwapTotal=0"; else t swap_disabled INFO "SwapTotal=${sw:-unreadable} kB"; fi
 
 # X2 allowlist rows: no host PATH, no docker socket, no home mount, no route out, the tools are the manifest's and hash-verified, and
 # nothing that holds a tool is writable. (The image's PATH is fixed by its ENV; env_extra could only add to it, and these rows would see it.)
@@ -140,9 +148,9 @@ for m in $(awk '$2 ~ /^\/(eq\/tools|opt|usr)(\/|$)/ { print $2 }' /proc/mounts |
 done
 if [ -z "$tm" ]; then t tools_mount_readonly PASS "no writable mount under /opt, /usr or /eq/tools (tools are baked into the image or mounted read-only)"; else t tools_mount_readonly FAIL "writable:$tm"; fi
 socks=$(find / \( -path /proc -o -path /sys -o -path /dev \) -prune -o -type s ! -path '/eq/tunnel/*' -print 2>/dev/null | head -n 5 | tr '\n' ' ')
-case "$socks$(env | grep -E '^(DOCKER_HOST|DOCKER_CONFIG|DOCKER_CONTEXT)=' | tr '\n' ' ')" in
-  "") t no_docker_socket PASS "no unix socket outside /eq/tunnel, no DOCKER_* variable";;
-  *) t no_docker_socket FAIL "sockets or variables: $socks$(env | grep -E '^DOCKER_' | tr '\n' ' ')";;
+case "$socks$(env | grep -E '^(DOCKER_|CONTAINER_|SSH_AUTH_SOCK=)' | tr '\n' ' ')" in
+  "") t no_host_socket PASS "no unix socket outside /eq/tunnel, no DOCKER_*/CONTAINER_*/SSH_AUTH_SOCK variable";;
+  *) t no_host_socket FAIL "sockets or variables: $socks$(env | grep -E '^(DOCKER_|CONTAINER_|SSH_AUTH_SOCK=)' | cut -d= -f1 | tr '\n' ' ')";;
 esac
 hm=$(awk '$2 ~ /^\/(home|root|Users|host_mnt)(\/|$)/ { print $2 }' /proc/mounts | tr '\n' ' ')
 hf=$(awk -v h="${HOME:-/}" '$2 == h { print $3 }' /proc/mounts | head -n 1)
@@ -161,7 +169,7 @@ if [ -z "$badtool" ] && [ -n "$ran" ]; then t tools_run PASS "execute:$ran"; els
 
 # attack-surface inventory (INFO: compares the images; not a pass/fail criterion)
 suid=$(find / \( -path /proc -o -path /sys -o -path /dev \) -prune -o -type f \( -perm -4000 -o -perm -2000 \) -print 2>/dev/null | head -n 20 | tr '\n' ' ')
-t setuid_setgid_files INFO "${suid:-none}"
+if [ -z "$suid" ]; then t no_setuid_files PASS "no setuid/setgid file"; else t no_setuid_files FAIL "$suid"; fi
 tools=""
 for c in python3 perl awk sed find xargs git curl wget nc ssh gcc cc make apt apt-get dpkg pip busybox su sudo; do command -v "$c" >/dev/null 2>&1 && tools="$tools $c"; done
 t tools_on_path INFO "${tools:-none}"

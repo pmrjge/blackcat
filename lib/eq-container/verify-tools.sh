@@ -3,18 +3,19 @@
 # verify-tools.sh: check TOOLS.toml and the images built from it. Never builds, never writes outside $EQ_STATE_DIR. Bash 3.2 ok.
 #   ./verify-tools.sh [--file TOOLS.toml] [--profiles core,db | --select min-both,tc-go] [MODE...]
 #   --select     image names instead of profiles (build.sh checks exactly the images it is about to build)
-#   --manifest   (default) static checks of the manifest, no docker: structure and enumerations, unique names, class/profile
+#   --manifest   (default) static checks of the manifest, no container: structure and enumerations, unique names, class/profile
 #                allowlists of every image, https-only urls, in-repo files hash to their sha256, PINS agree for lean uv python
 #                busybox. A PLACEHOLDER in a selected profile's tools is "pending" (exit 13), never an invented value.
-#   --images     docker (read-only): per image of the profiles: build record, image ID, label eq.tools.sha256 equal to the hash of the
-#                CURRENT manifest entries (a changed entry = stale image), /opt/eq/TOOLS.lock read with `docker create` + `docker cp`
-#                (nothing is started) equal to the manifest (every listed tool, no undeclared one).
-#   --deep       with --images: also re-hash every installed tool file host-side (docker cp), so a tampered in-image sha256sum
-#                cannot lie. Run it before a run / a freeze; the per-container proof is the image ID the harness pins.
-#   --inspect    docker (no container started): unprivileged user, no EXPOSE/VOLUME/ENTRYPOINT/HEALTHCHECK, no secret-like ENV name, PATH in /opt,/usr
-#   --smoke      docker: run each tool's smoke argv in its image under the hardened flags (network none, read-only, ...).
+#   --images     container (read-only): per image of the profiles: build record, digest, label eq.tools.sha256 equal to the hash of
+#                the CURRENT manifest entries (a changed entry = stale image), /opt/eq/TOOLS.lock read from the image saved with
+#                `container image save` (nothing is started) equal to the manifest (every listed tool, no undeclared one).
+#   --deep       with --images: also re-hash every installed tool file from that saved image (host side), so a tampered in-image
+#                sha256sum cannot lie. Run it before a run / a freeze; the per-run proof is the digest the harness pins.
+#   --inspect    container (no container started): the saved image's config: unprivileged user, no EXPOSE/VOLUME/ENTRYPOINT/
+#                HEALTHCHECK, no secret-like ENV name, PATH in /opt,/usr
+#   --smoke      container: run each tool's smoke argv in its image under the hardened flags of lib.sh eq_run.
 #   --allow-placeholder   report pending values but exit 0 for them (listing mode)
-# Exit: 0 ok | 2 usage or invalid manifest | 10 docker missing/down | 11 an image is missing, stale or does not match | 13 pending value.
+# Exit: 0 ok | 2 usage or invalid manifest | 10 container missing/down | 11 an image is missing, stale or does not match | 13 pending.
 set -u
 here=$(cd "$(dirname "$0")" && pwd -P)
 # shellcheck disable=SC1091
@@ -120,7 +121,7 @@ check_manifest() {
     fi
   done
   for i in $(tm_names image); do
-    for k in dockerfile target kind base profile classes service tools; do
+    for k in dockerfile target kind base profile classes tools; do
       [ -n "$(tm_get image "$i" "$k")" ] || problem "image $i: missing key $k"
     done
     in_list "$(tm_get image "$i" kind)" "$KNOWN_KIND" || problem "image $i: kind must be one of: $KNOWN_KIND"
@@ -189,36 +190,68 @@ run_manifest() {
   return 0
 }
 
-# ------------------------------------------------------------------------------------------------------------------- docker
+# ---------------------------------------------------------------------------------------------------------------- container
+# Each image is saved ONCE per run (`container image save`, nothing started) into a private temp dir; the lock, the tool files and
+# the config are read from that archive by eqc_json.py (layers applied in order, whiteouts honoured, blobs re-hashed).
+SAVE_ROOT=""
+saved() { # tag -> path of the saved archive (cached); 1 when the save failed
+  local tag=$1 key d
+  [ -n "$SAVE_ROOT" ] || { SAVE_ROOT=$(mktemp -d "${TMPDIR:-/tmp}/eqc-save.XXXXXX") || return 1; chmod 700 "$SAVE_ROOT"; }
+  key=$(printf '%s' "$tag" | tm_sha256_stdin | cut -c1-16)
+  d="$SAVE_ROOT/$key"
+  if [ ! -s "$d/image.tar" ]; then mkdir -p "$d" && eq_save_image "$tag" "$d" >/dev/null || return 1; fi
+  echo "$d/image.tar"
+}
+cleanup_saves() { [ -z "$SAVE_ROOT" ] || rm -rf "$SAVE_ROOT"; }
+trap cleanup_saves EXIT
 fetch_lock() { # tag -> prints TOOLS.lock on stdout; returns 1 when the image has none
-  local tag=$1 cid out
-  cid=$(docker create --pull never --network none "$tag" /nonexistent 2>/dev/null) || return 1
-  out=$(docker cp "$cid:/opt/eq/TOOLS.lock" - 2>/dev/null | tar -xOf - 2>/dev/null) || out=""
-  docker rm "$cid" >/dev/null 2>&1 || true
+  local a out
+  a=$(saved "$1") || return 1
+  out=$(eqc_json oci-cat "$a" /opt/eq/TOOLS.lock 2>/dev/null) || out=""
   [ -n "$out" ] || return 1
   printf '%s\n' "$out"
 }
-hash_in_image() { # tag path -> sha256 of the file in the image (host-side; nothing is started)
-  local cid h
-  cid=$(docker create --pull never --network none "$1" /nonexistent 2>/dev/null) || return 1
-  h=$(docker cp -L "$cid:$2" - 2>/dev/null | tar -xOf - 2>/dev/null | tm_sha256_stdin) || h=""
-  docker rm "$cid" >/dev/null 2>&1 || true
-  printf '%s' "$h"
+hash_in_image() { # tag path -> sha256 of the file in the image (host side; nothing is started)
+  local a
+  a=$(saved "$1") || return 1
+  eqc_json oci-sha256 "$a" "$2" 2>/dev/null | cut -d' ' -f1
+}
+image_config() { # tag -> the image config JSON (User, Env, Entrypoint, ExposedPorts, Volumes, Labels, Healthcheck)
+  local a
+  a=$(saved "$1") || return 1
+  eqc_json oci-config "$a"
+}
+cfg_get() { # JSON KEY -> a one-line rendering of config[KEY] (labels: KEY=Labels.NAME)
+  printf '%s' "$1" | python3 -I -c '
+import json, sys
+c = json.load(sys.stdin); k = sys.argv[1]
+if k.startswith("Labels."):
+    print((c.get("Labels") or {}).get(k[7:], ""))
+elif k in ("ExposedPorts", "Volumes"):
+    print(len(c.get(k) or {}))
+elif k in ("Entrypoint",):
+    print(" ".join(c.get(k) or []))
+elif k == "Healthcheck":
+    print(" ".join((c.get(k) or {}).get("Test") or []))
+elif k == "Env":
+    print("\n".join(c.get(k) or []))
+else:
+    print(c.get(k) or "")' "$2"
 }
 
 run_images() {
-  local n tag rec id st why lock label want t row mver msha lsha f fh bad=0 listed extra nm
-  eq_need_docker
+  local n tag rec dig st why lock label want t row mver msha lsha f fh bad=0 listed extra nm cfg
+  eq_need_container
   for n in $SEL_IMAGES; do
-    tag=$(eq_img_tag "$n"); rec=$(eq_img_get "$n" EQ_IMAGE_ID)
-    id=$(docker image inspect --format '{{.Id}}' "$tag" 2>/dev/null || true)
+    tag=$(eq_img_tag "$n"); rec=$(eq_img_get "$n" EQ_IMAGE_DIGEST)
+    dig=$(eqc_image_digest "$tag" || true)
     st=ok; why=""
     if [ -z "$rec" ]; then st=MISSING; why="no build record for $n (never built here)"
-    elif [ -z "$id" ]; then st=MISSING; why="image $tag not present"
-    elif [ "$id" != "$rec" ]; then st=MISMATCH; why="image id $id differs from the record $rec"; fi
+    elif [ -z "$dig" ]; then st=MISSING; why="image $tag not present"
+    elif [ "$dig" != "$rec" ]; then st=MISMATCH; why="digest $dig differs from the record $rec"; fi
     if [ "$st" = ok ]; then
       want=$(tm_image_hash "$n")
-      label=$(docker image inspect --format '{{index .Config.Labels "eq.tools.sha256"}}' "$tag" 2>/dev/null || true)
+      if cfg=$(image_config "$tag"); then label=$(cfg_get "$cfg" Labels.eq.tools.sha256); else label=""; fi
       if [ "$label" != "$want" ]; then st=STALE; why="label eq.tools.sha256 '${label:-none}' is not the hash of the current manifest entries ($want): rebuild"; fi
     fi
     if [ "$st" = ok ]; then
@@ -250,7 +283,7 @@ run_images() {
 $lock
 EOF
     fi
-    printf 'IMAGE %-10s %-9s %s %s\n' "$n" "$st" "${id:-none}" "$why"
+    printf 'IMAGE %-10s %-9s %s %s\n' "$n" "$st" "${dig:-none}" "$why"
     [ "$st" = ok ] || bad=1
   done
   if [ "$bad" = 0 ]; then echo "TOOLS: images OK"; return 0; fi
@@ -258,23 +291,22 @@ EOF
   return 11
 }
 
-# --inspect: what `docker image inspect` says about each image, no container started, so it also covers the images that have no shell to
-# probe from inside: an unprivileged user, no EXPOSEd port, no VOLUME (an anonymous volume survives the container), no ENTRYPOINT or
-# HEALTHCHECK baked in, no secret-like variable name, PATH inside /opt and /usr only.
+# --inspect: the saved image's config, no container started, so it also covers the images that have no shell to probe from inside:
+# an unprivileged user, no EXPOSEd port, no VOLUME, no ENTRYPOINT or HEALTHCHECK baked in, no secret-like variable name, PATH inside
+# /opt and /usr only.
 run_inspect() {
-  local n tag v bad=0 st why
-  eq_need_docker
-  fmt() { docker image inspect --format "$1" "$tag" 2>/dev/null; }
+  local n tag v bad=0 st why cfg
+  eq_need_container
   for n in $SEL_IMAGES; do
     tag=$(eq_img_tag "$n")
-    docker image inspect "$tag" >/dev/null 2>&1 || { printf 'INSPECT %-10s MISSING image %s not present\n' "$n" "$tag"; bad=1; continue; }
+    cfg=$(image_config "$tag") || { printf 'INSPECT %-10s MISSING image %s not present or not saveable\n' "$n" "$tag"; bad=1; continue; }
     st=ok; why=""
-    v=$(fmt '{{.Config.User}}'); case "$v" in ""|0|0:*|root|root:*) st=FAIL; why="$why user '$v' is not unprivileged;";; esac
-    v=$(fmt '{{len .Config.ExposedPorts}}'); [ "${v:-0}" = 0 ] || { st=FAIL; why="$why $v EXPOSEd port(s);"; }
-    v=$(fmt '{{len .Config.Volumes}}'); [ "${v:-0}" = 0 ] || { st=FAIL; why="$why $v VOLUME(s);"; }
-    v=$(fmt '{{.Config.Entrypoint}}'); case "$v" in ""|"[]"|"<no value>") ;; *) st=FAIL; why="$why ENTRYPOINT $v baked in;";; esac
-    v=$(fmt '{{if .Config.Healthcheck}}{{.Config.Healthcheck.Test}}{{end}}'); case "$v" in ""|"<no value>") ;; *) st=FAIL; why="$why HEALTHCHECK baked in;";; esac
-    v=$(fmt '{{range .Config.Env}}{{println .}}{{end}}')
+    v=$(cfg_get "$cfg" User); case "$v" in ""|0|0:*|root|root:*) st=FAIL; why="$why user '$v' is not unprivileged;";; esac
+    v=$(cfg_get "$cfg" ExposedPorts); [ "${v:-0}" = 0 ] || { st=FAIL; why="$why $v EXPOSEd port(s);"; }
+    v=$(cfg_get "$cfg" Volumes); [ "${v:-0}" = 0 ] || { st=FAIL; why="$why $v VOLUME(s);"; }
+    v=$(cfg_get "$cfg" Entrypoint); [ -z "$v" ] || { st=FAIL; why="$why ENTRYPOINT $v baked in;"; }
+    v=$(cfg_get "$cfg" Healthcheck); [ -z "$v" ] || { st=FAIL; why="$why HEALTHCHECK baked in;"; }
+    v=$(cfg_get "$cfg" Env)
     if printf '%s\n' "$v" | cut -d= -f1 | grep -qiE 'token|secret|passw|credential|api_?key|anthropic|aws_|github'; then st=FAIL; why="$why secret-like variable name in ENV;"; fi
     case "$(printf '%s\n' "$v" | sed -n 's/^PATH=//p' | head -n 1)" in "") ;; *[!a-zA-Z0-9/_.:-]*) st=FAIL; why="$why odd characters in PATH;";; esac
     if printf '%s\n' "$v" | sed -n 's/^PATH=//p' | tr ':' '\n' | grep -vE '^/(opt|usr)(/|$)' | grep -q .; then st=FAIL; why="$why PATH leaves /opt and /usr;"; fi
@@ -287,12 +319,11 @@ run_inspect() {
 
 run_smoke() {
   local n tag t argv rc bad=0 any=0
-  eq_need_docker
-  trap 'eq_sweep' EXIT INT TERM
+  eq_need_container
+  trap 'eq_sweep; cleanup_saves' EXIT INT TERM
   for n in $SEL_IMAGES; do
     tag=$(eq_img_tag "$n")
-    eq_require_image "$tag"
-    EQ_RUN_MOUNTS=(); EQ_RUN_EXTRA=(); EQ_RUN_STDIN=""; EQ_RUN_IMAGE=$tag
+    EQ_RUN_MOUNTS=(); EQ_RUN_STDIN=""; EQ_RUN_IMAGE=$tag
     for t in $(tm_get image "$n" tools); do
       argv=$(tm_get tool "$t" smoke)
       [ -n "$argv" ] || continue
@@ -300,7 +331,7 @@ run_smoke() {
       # no globbing: a smoke argv may hold a java classpath wildcard (/opt/scala3/lib/*)
       set -f
       # shellcheck disable=SC2086
-      eq_run "eq-$EQ_RUN_ID-smoke-$n-$t" 120 $argv >/dev/null 2>&1; rc=$?
+      ( eq_run "eq-$EQ_RUN_ID-smoke-$n-$t" 120 $argv >/dev/null 2>&1 ); rc=$?
       set +f
       if [ "$rc" = 0 ]; then printf 'SMOKE %-10s %-12s PASS %s\n' "$n" "$t" "$argv"; else printf 'SMOKE %-10s %-12s FAIL rc=%s %s\n' "$n" "$t" "$rc" "$argv"; bad=1; fi
     done

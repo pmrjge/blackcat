@@ -2,7 +2,8 @@
 # shellcheck disable=SC2016,SC2015,SC2317,SC2329,SC3043,SC2034,SC2012
 # (SC2317/SC2329: cleanup runs from the trap; SC2012: /proc/$$/fd holds numeric names only)
 # (SC2034: EQ_RUN_* and EQ_*_REPORT are read by lib.sh's eq_run / eq_write_result)
-# probe.d/50-tunnel.sh — the WALL tunnel probe (SCOPE X7 "only path, proven"; ../../wall/WALL_DESIGN.md §3, §9).
+# probe.d/50-tunnel.sh — the WALL tunnel probe (SCOPE X7 "only path, proven"; lib/eq-wall/WALL_DESIGN.md §3, §9).
+# Backend: Apple `container` (each container is a Linux VM; the channel dir reaches it through a virtiofs bind).
 # Proves that a container given the ONE tunnel (a WALL channel directory bind-mounted at /eq/tunnel) has no other
 # path to the host: a second socket, an outbound connection, a host path and a signal to a host process are all
 # blocked; exactly one host-backed mount exists, at /eq/tunnel; no inherited fds; its own PID namespace.
@@ -22,8 +23,9 @@ probe_tunnel_inner() {
   hp=$1; hroot=$2; canary=$3; tun=${4:-/eq/tunnel}
   t() { echo "T|$1|$2|$3"; }
 
-  # 1. exactly one host-backed mount, at the tunnel (docker's own resolv.conf/hostname/hosts binds excepted)
-  mt=$(awk '$3 ~ /^(virtiofs|fuse|fuse\..*|9p|grpcfuse|fakeowner|ext4|btrfs|xfs|nfs.*|vboxsf)$/ {print $2}' /proc/mounts 2>/dev/null \
+  # 1. exactly one host-backed mount, at the tunnel (the runtime's resolv.conf/hostname/hosts binds excepted; "/" is the
+  #    image's own block device in the VM, not a host directory)
+  mt=$(awk '$2 != "/" && $3 ~ /^(virtiofs|fuse|fuse\..*|9p|grpcfuse|fakeowner|ext4|btrfs|xfs|nfs.*|vboxsf)$/ {print $2}' /proc/mounts 2>/dev/null \
        | sort -u | grep -v -e '^/etc/resolv.conf$' -e '^/etc/hostname$' -e '^/etc/hosts$' | tr '\n' ' ')
   if [ "$mt" = "$tun " ]; then t tunnel_single_host_mount PASS "host-backed mounts: $mt"
   else t tunnel_single_host_mount FAIL "host-backed mounts: '${mt:-none}' (want exactly $tun)"; fi
@@ -35,12 +37,12 @@ probe_tunnel_inner() {
   if ( printf 'probe\n' > "$tun/req-probe.json" ) 2>/dev/null; then t tunnel_writable PASS "wrote $tun/req-probe.json"
   else t tunnel_writable FAIL "cannot write $tun"; fi
 
-  # 3. a second socket: the docker socket and host-services are absent; a host socket inside the tunnel is unusable
+  # 3. a second socket: no docker/containerd/host-services socket; a host socket inside the tunnel is unusable
   seen=""
   for p in /var/run/docker.sock /run/docker.sock /run/host-services /var/run/host-services /run/containerd \
            /var/run/secrets; do [ -e "$p" ] && seen="$seen $p"; done
-  if [ -z "$seen" ]; then t no_docker_or_host_service_socket PASS "docker.sock, /run/host-services absent"
-  else t no_docker_or_host_service_socket FAIL "present:$seen"; fi
+  if [ -z "$seen" ]; then t no_host_service_socket PASS "docker.sock, containerd, /run/host-services absent"
+  else t no_host_service_socket FAIL "present:$seen"; fi
   if [ -e "$tun/host.sock" ]; then
     if command -v python3 >/dev/null 2>&1; then
       if python3 -c 'import socket,sys; s=socket.socket(socket.AF_UNIX); s.settimeout(3); s.connect(sys.argv[1])' \
@@ -51,7 +53,7 @@ probe_tunnel_inner() {
 
   # 4. outbound connections (pure bash /dev/tcp where bash exists; python3 otherwise)
   reach=""; tried=""
-  for hp2 in 1.1.1.1:443 8.8.8.8:53 192.168.65.254:80 172.17.0.1:80 host.docker.internal:80 gateway.docker.internal:80; do
+  for hp2 in 1.1.1.1:443 8.8.8.8:53 192.168.64.1:80 192.168.65.254:80 172.17.0.1:80 host.docker.internal:80; do
     h=${hp2%:*}; p=${hp2#*:}
     if command -v bash >/dev/null 2>&1; then
       tried=bash
@@ -88,7 +90,8 @@ probe_tunnel_inner() {
     t host_signal_blocked FAIL "pid $hp is signalable here: $(tr '\0' ' ' 2>/dev/null < "/proc/$hp/cmdline" | cut -c1-60)"
   else t host_signal_blocked PASS "kill -0 $hp refused (own PID namespace)"; fi
   p1=$( (tr '\0' ' ' < /proc/1/cmdline) 2>/dev/null)
-  case "$p1" in *init*|*tini*) t own_pid_namespace PASS "pid 1: $p1";; *) t own_pid_namespace FAIL "pid 1: '${p1:-unreadable}'";; esac
+  # the container is its own Linux VM: its pid 1 is the --init process (or the VM's init), never a host process
+  case "$p1" in "") t own_pid_namespace FAIL "pid 1 unreadable";; *) t own_pid_namespace PASS "pid 1: $p1 (guest kernel $(uname -r 2>/dev/null))";; esac
 
   # 7. no inherited file descriptors beyond stdio (255: bash's own script fd)
   fds=$(ls /proc/$$/fd 2>/dev/null | tr '\n' ' ')
@@ -127,16 +130,16 @@ iso=$(cd "$(dirname "$0")/.." && pwd -P)
 hook=${EQ_PROBE_HOOK:-}
 # shellcheck disable=SC1090,SC1091
 . "${EQ_PROBE_LIB:-$iso/lib.sh}"
-img=$EQ_IMAGE_TAG
+img=${EQ_PROBE_IMAGE:-$(eq_img_tag min-both)}
 [ -z "$hook" ] || img=${EQ_PROBE_IMAGE:?probe.sh sets EQ_PROBE_IMAGE for its hooks}
 early_fail() {  # a precondition failed before any container ran: still one FAIL row, never a silent exit
   if [ -n "$hook" ]; then echo "T|$1|FAIL|$2"; else echo "TUNNEL PROBE: FAIL: $2" >&2; fi
   exit 1
 }
-( eq_need_docker ) || early_fail tunnel_docker "docker CLI or daemon not usable (eq_need_docker)"
+( eq_need_container ) || early_fail tunnel_container "the container CLI or its services are not usable (eq_need_container)"
 ( eq_require_image "$img" ) || early_fail tunnel_image "image $img missing or not covered by a build record"
 eq_require_image "$img"
-EQ_RUN_IMAGE_REPORT=$img; EQ_IMAGE_ID_REPORT=$(eq_resolve_image "$img"); EQ_RUN_IMAGE=$img
+EQ_RUN_IMAGE_REPORT=${img%@*}; EQ_IMAGE_ID_REPORT=$EQ_IMAGE_DIGEST_NOW; EQ_RUN_IMAGE=$img
 
 rows=(); trows=(); fails=0
 row() {
@@ -172,8 +175,7 @@ sleep 300 & sleeper_pid=$!
 i=0; while [ ! -S "$chan/host.sock" ] && [ $i -lt 50 ]; do sleep 0.1; i=$((i + 1)); done
 [ -S "$chan/host.sock" ] || row host_listener_socket INFO "could not create the host listener: $(cat "$root/listener.out")"
 
-EQ_RUN_MOUNTS=(--mount "type=bind,source=$chan,target=/eq/tunnel")
-EQ_RUN_EXTRA=(); EQ_RUN_STDIN=""
+EQ_RUN_MOUNTS=(); EQ_RUN_STDIN=""; EQ_RUN_TUNNEL=$chan   # the ONE read-write host mount: the channel at /eq/tunnel
 res=$(eq_run "eq-$EQ_RUN_ID-tunnel" 120 /bin/sh -c "$(cat "$self")" probe-tunnel --inner "$sleeper_pid" "$root" "$canary" /eq/tunnel 2>&1)
 rc=$?
 while IFS='|' read -r tag name result detail; do
@@ -182,7 +184,7 @@ done <<EOF
 $(printf '%s\n' "$res" | grep '^T|')
 EOF
 printf '%s\n' "$res" | grep -q '^T|' || row container_tunnel_probe FAIL "rc $rc: $(printf '%s' "$res" | tr '\n' ' ' | cut -c1-200)"
-for need in tunnel_single_host_mount eq_namespace_single tunnel_writable no_docker_or_host_service_socket outbound_blocked \
+for need in tunnel_single_host_mount eq_namespace_single tunnel_writable no_host_service_socket outbound_blocked \
             host_paths_absent sibling_channels_invisible host_signal_blocked own_pid_namespace no_inherited_fds; do
   printf '%s\n' "$res" | grep -q "^T|$need|" || row "$need" FAIL "the in-container probe did not report this row"
 done

@@ -1,5 +1,10 @@
 # Installer integration spec: WALL + the ONE tunnel under `--with-eq-docker` (SCOPE X7)
 
+> **Superseded in part (2026-10-05):** the backend is Apple `container`; the option is `--with-eq-container`, the state dir of the
+> images `.../claude-agent-stack/eq-container`, the tunnel probe `lib/eq-container/probe.d/50-tunnel.sh` (results
+> `results/tunnel.*.env`, field `TUNNEL_IMAGE_DIGEST`). What is implemented is described in CONFIG.md §7 "Container isolation and
+> the WALL"; this spec is kept as the design record. Docker-only parts (compose, `--install-docker`) were dropped.
+
 For the integration agent working in the stack repo. M = `/Users/pmrj/ZDone/claude-agent-stack` (work in a worktree).
 EQ-T = this staging tree.
 

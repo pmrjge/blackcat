@@ -52,8 +52,10 @@ if [ -z "$EQ_CONTAINER_BIN" ]; then
   else EQ_CONTAINER_BIN=container; fi
 fi
 eqc() { "$EQ_CONTAINER_BIN" "$@"; }
+eqc_json() { python3 -I "$EQ_ISO_DIR/eqc_json.py" "$@"; }   # every JSON shape of the CLI is read there (and nowhere else)
 # eqc_state: sets EQC_OK=1/0 and EQC_WHY; never exits. `container system status` answers only while the services run
-# (`container system start`); nothing is started here.
+# (`container system start`); nothing is started here. An agent's Seatbelt sandbox gets "Operation not permitted" from every
+# command that talks to the services (observed 2026-10-05), so run this from a normal terminal.
 eqc_state() {
   EQC_OK=0; EQC_WHY=""
   if ! { [ -x "$EQ_CONTAINER_BIN" ] || eq_have "$EQ_CONTAINER_BIN"; }; then
@@ -66,58 +68,8 @@ eqc_state() {
   EQC_OK=1
 }
 eq_need_container() { eqc_state; [ "$EQC_OK" = 1 ] || { echo "$EQC_WHY" >&2; exit 10; }; }
-
-# eqc_image_digest REF: the image's digest as `container image inspect` reports it (ImageDetail.index.digest in CLI 1.5.0's
-# ClientImage.details(); the documented example wraps fields in "configuration": both shapes are read, exactly one must hold a
-# sha256:<64 hex>). Prints it; returns 1 when the image is absent or the output has no such field.
-eqc_inspect_py() { # MODE: digest | label KEY | config (prints User, Entrypoint, ExposedPorts, Volumes, Env lines)
-  python3 -I -c '
-import json, re, sys
-mode = sys.argv[1]
-try:
-    data = json.load(sys.stdin)
-except ValueError:
-    sys.exit(1)
-d = data[0] if isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict) else None
-if d is None:
-    sys.exit(1)
-cands = []
-for root in (d, d.get("configuration") if isinstance(d.get("configuration"), dict) else {}):
-    idx = root.get("index")
-    if isinstance(idx, dict) and isinstance(idx.get("digest"), str):
-        cands.append(idx["digest"])
-variants = d.get("variants") or (d.get("configuration") or {}).get("variants") or []
-cfgs = []
-for v in variants if isinstance(variants, list) else []:
-    p = v.get("platform") if isinstance(v, dict) else None
-    if isinstance(p, dict) and p.get("os") == "linux" and p.get("architecture") == "arm64":
-        c = (v.get("config") or {}).get("config")
-        if isinstance(c, dict):
-            cfgs.append(c)
-if mode == "digest":
-    ok = [c for c in cands if re.fullmatch(r"sha256:[0-9a-f]{64}", c)]
-    if len(set(ok)) != 1:
-        sys.exit(1)
-    print(ok[0])
-elif mode == "label":
-    if len(cfgs) != 1:
-        sys.exit(1)
-    v = (cfgs[0].get("Labels") or {}).get(sys.argv[2], "")
-    print(v if isinstance(v, str) else "")
-elif mode == "config":
-    if len(cfgs) != 1:
-        sys.exit(1)
-    c = cfgs[0]
-    print("User=%s" % (c.get("User") or ""))
-    print("Entrypoint=%s" % (" ".join(c.get("Entrypoint") or []) if isinstance(c.get("Entrypoint"), list) else ""))
-    print("ExposedPorts=%d" % len(c.get("ExposedPorts") or {}))
-    print("Volumes=%d" % len(c.get("Volumes") or {}))
-    for e in c.get("Env") or []:
-        print("Env=%s" % e)
-' "$@"
-}
-eqc_image_digest() { eqc image inspect "$1" 2>/dev/null | eqc_inspect_py digest; }
-eqc_image_label() { eqc image inspect "$1" 2>/dev/null | eqc_inspect_py label "$2"; }
+# the image digest as `container image inspect` reports it (path: eqc_json.py, UNVERIFIED there); 1 when absent or unreadable
+eqc_image_digest() { eqc image inspect "$1" 2>/dev/null | eqc_json digest; }
 
 # ---- limits and user (every run; the harness's flags.json `container_*` keys carry the same values) --------------------------------
 EQ_USER=${EQ_USER:-10001:10001}
@@ -177,14 +129,17 @@ eq_require_image() {
   done
 }
 
-# Flags every container gets (the harness's isolate() argv carries the same set). Only flags `container run` 1.5.0 lists
-# (docs/command-reference.md at tag 1.5.0): no network, read-only root, all capabilities dropped, an init process, a memory and
-# CPU size for the VM, a process-count limit, the unprivileged user, a capped tmpfs /tmp, the fixed environment (never a host
-# variable: every -e entry is KEY=VALUE, since `-e KEY` alone would inherit it from the host), labels for the sweep.
+# Flags every container gets (the harness's isolate() argv carries the same set). Only options `container run --help` (1.5.0)
+# lists: --rm, --network (the value none: the user's spike), --read-only, --cap-drop ALL, --init, -m, -c, --ulimit, --user,
+# --tmpfs, -e, --label, -w. No network, read-only root, no capabilities, an init process, a memory and CPU size for the VM, a
+# process-count limit, the unprivileged user, a capped tmpfs /tmp, the fixed environment (never a host variable: every -e entry
+# is KEY=VALUE; `-e KEY` alone would inherit it from the host), labels for the sweep. The tmpfs size= and mode= suboptions are
+# from docs/volumes.md at tag 1.5.0, not from the help text: probe.sh proves the caps (work_tmpfs_size, work_size_capped).
+# EQ_RUN_MEMORY / EQ_RUN_NPROC lower the memory size / process limit for one run (probe.sh's enforcement sub-probes only).
 eq_base_flags() {
   EQ_BASE_FLAGS=(
     --rm --network none --read-only --cap-drop ALL --init
-    -m "$EQ_MEMORY" -c "$EQ_CPUS" --ulimit "nproc=$EQ_NPROC"
+    -m "${EQ_RUN_MEMORY:-$EQ_MEMORY}" -c "$EQ_CPUS" --ulimit "nproc=${EQ_RUN_NPROC:-$EQ_NPROC}"
     --user "$EQ_USER" --tmpfs "/tmp:size=$EQ_TMP_SIZE,mode=1777"
     -e LANG=C.UTF-8 -e HOME=/tmp -e TMPDIR=/tmp -e UV_CACHE_DIR=/tmp/uv-cache -e UV_OFFLINE=1 -e UV_NO_CONFIG=1
     -e UV_PYTHON_DOWNLOADS=never
@@ -196,15 +151,16 @@ eq_base_flags
 
 # eq_run NAME TIMEOUT_S cmd...   uses EQ_RUN_MOUNTS (array of --mount args, each type=bind,source=..,target=..[,readonly]; a target
 # /work mount is the source copy, see the header; every other one must be readonly), EQ_RUN_STDIN (a file fed to the container,
-# with -i), EQ_RUN_IMAGE (a tag or TAG@sha256:..; default the lean image), EQ_RUN_WORK_SIZE (the /work tmpfs size; default
-# $EQ_WORK_SIZE), EQ_RUN_TUNNEL (a WALL channel dir, bound read-write at /eq/tunnel: the probe only).
-# Returns the container's exit code; 124 when the watchdog stopped it (container kill NAME) after TIMEOUT_S.
+# with -i), EQ_RUN_IMAGE (a tag or TAG@sha256:..; default the min-both image), EQ_RUN_WORK_SIZE (the /work tmpfs size; default
+# $EQ_WORK_SIZE), EQ_RUN_TUNNEL (a WALL channel dir, bound read-write at /eq/tunnel: the tunnel probe only), EQ_RUN_MEMORY,
+# EQ_RUN_NPROC. Returns the container's exit code; 124 when the watchdog stopped it (container kill NAME) after TIMEOUT_S.
 eq_run() {
   local name=$1 tmo=$2 rc wd flag img tag
   shift 2
   img=${EQ_RUN_IMAGE:-$(eq_img_tag min-both)}
   eq_require_image "$img"
   tag=${img%@*}
+  eq_base_flags
   flag="$EQ_WORK_ROOT/.timeout-$name"
   rm -f "$flag"
   local -a stdin_flag=() mv=(${EQ_RUN_MOUNTS[@]+"${EQ_RUN_MOUNTS[@]}"}) mounts=() prefix=()
@@ -243,22 +199,9 @@ eq_run() {
   return "$rc"
 }
 
-# eq_list_ids LABEL=VALUE: ids of every container (running or stopped) carrying that label (`container list --all --format json`:
-# configuration.id and configuration.labels; the JSON shape is the one the 1.5.0 docs show for container inspect)
-eq_list_ids() {
-  eqc list --all --format json 2>/dev/null | python3 -I -c '
-import json, sys
-k, _, v = sys.argv[1].partition("=")
-try:
-    rows = json.load(sys.stdin)
-except ValueError:
-    sys.exit(0)
-for r in rows if isinstance(rows, list) else []:
-    c = r.get("configuration") if isinstance(r, dict) else None
-    if isinstance(c, dict) and isinstance(c.get("labels"), dict) and c["labels"].get(k) == v and isinstance(c.get("id"), str):
-        print(c["id"])
-' "$1"
-}
+# ids of every container (running or stopped) carrying LABEL=VALUE; 0 when a container NAME exists (container list --all)
+eq_list_ids() { eqc list --all --format json 2>/dev/null | eqc_json ids "$1"; }
+eq_container_exists() { eqc list --all --format json 2>/dev/null | eqc_json exists "$1"; }
 # Kill and remove every container of this run (also from an EXIT/INT trap).
 eq_sweep() {
   local ids
@@ -271,6 +214,13 @@ eq_sweep() {
   fi
 }
 
+# eq_save_image TAG DIR: `container image save --output DIR/image.tar TAG` (read from outside the image: nothing is started)
+eq_save_image() {
+  local out="$2/image.tar"
+  rm -f "$out"
+  eqc image save --output "$out" "$1" >/dev/null 2>&1 && [ -s "$out" ] && echo "$out"
+}
+
 # eq_write_result KIND RESULT FAILS: $EQ_STATE_DIR/results/KIND.<image>.env, read by doctor.sh and the installer
 eq_write_result() {
   local kind=$1 result=$2 fails=${3:-0} san up
@@ -280,7 +230,7 @@ eq_write_result() {
     echo "${up}_RESULT=$result"
     echo "${up}_AT=$(date -u +%FT%TZ)"
     echo "${up}_IMAGE=$EQ_RUN_IMAGE_REPORT"
-    echo "${up}_IMAGE_ID=${EQ_IMAGE_ID_REPORT:-unknown}"
+    echo "${up}_IMAGE_DIGEST=${EQ_IMAGE_ID_REPORT:-unknown}"
     echo "${up}_FAILS=$fails"
     echo "${up}_BACKEND=container"
     echo "${up}_LIMITS=cpus=$EQ_CPUS memory=$EQ_MEMORY nproc=$EQ_NPROC user=$EQ_USER tmp=$EQ_TMP_SIZE work=$EQ_WORK_SIZE"
