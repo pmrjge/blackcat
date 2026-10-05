@@ -19,7 +19,7 @@
 #                          one), pre-commit, Gradle, Playwright's browsers, `git lfs install`
 #
 # Groups (environment; =0 skips one, =1 turns on an off-by-default one):
-#   STACK_INSTALL_DEPS      1  Homebrew itself; jq rg gh ffmpeg imagemagick librsvg poppler; the uv
+#   STACK_INSTALL_DEPS      1  Homebrew itself; jq rg gh ffmpeg imagemagick librsvg poppler just; the uv
 #                              tarball and jq/gitleaks binary fallbacks
 #   STACK_INSTALL_DEVTOOLS  1  gitleaks, pre-commit, Gradle, Playwright's Chromium
 #   STACK_INSTALL_UV NODE RUST HASKELL JULIA SCALA JAVA LATEX CXX GO  1 each
@@ -530,6 +530,7 @@ DEPS formula ffmpeg cmd:ffmpeg
 DEPS formula imagemagick cmd:magick
 DEPS formula librsvg cmd:rsvg-convert
 DEPS formula poppler cmd:pdftoppm
+DEPS formula just cmd:just
 DEVTOOLS formula gitleaks cmd:gitleaks
 CXX formula cmake cmd:cmake,tool:cmake
 CXX formula cmake-docs -
