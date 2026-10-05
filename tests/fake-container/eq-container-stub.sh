@@ -1,6 +1,6 @@
 #!/bin/bash
-# STUB lib/eq-container/eq-container.sh for the installer tests (tests/test_install_eq_container.py and
-# tests/install_smoke.sh section 21 commit it over the driver in their scratch repos): it writes what a run of the real
+# STUB lib/eq-container/eq-container.sh for the installer tests (tests/test_install_eq_container.py commits it over the
+# driver in its scratch repos): it writes what a run of the real
 # driver leaves behind (status.env, image.env, results/tunnel.*.env) and never calls a container CLI. Knobs:
 #   EQ_STUB_LOG          append "$0<0x1f>$*" per call
 #   EQ_STUB_RC           install's exit code (0 ok, 10 skipped, anything else failed); EQ_STUB_DRY_RC for --dry-run

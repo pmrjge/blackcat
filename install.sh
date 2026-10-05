@@ -3722,22 +3722,23 @@ eq_wall_step(){
       eq_wall_finish failed "a WALL path holds a quote, \$, \`, a backslash or a line break (stack.env cannot carry it): set XDG_CACHE_HOME / XDG_STATE_HOME or move the repo"
       return 0 ;;
   esac
-  eq_private_dir "$EQ_TUNNEL_ROOT" || { eq_wall_finish failed "tunnel root refused: $EQ_DIR_WHY"; return 0; }
-  eq_private_dir "$EQ_WALL_STATE" || { eq_wall_finish failed "state dir refused: $EQ_DIR_WHY"; return 0; }
-  # 2. roots, policy and the user's stores (verdicts.jsonl, consents.jsonl: never created or edited here)
-  rc=0; out="$("$sp" -I "$wd/eq_wall.py" check --tunnel-root "$EQ_TUNNEL_ROOT" --state "$EQ_WALL_STATE" --policy "$pol" \
-    --verdicts "$EQ_WALL_STATE/verdicts.jsonl" --consents "$EQ_WALL_STATE/consents.jsonl" 2>&1 </dev/null)" || rc=$?
-  if [ "$rc" != 0 ]; then
-    row="$(printf '%s\n' "$out" | awk '$2 == "FAIL" { print; exit }')"
-    eq_wall_finish failed "eq_wall.py check: ${row:-exit $rc}"; return 0
-  fi
-  # 3. the tunnel probe eq-container ran (probe.d/50-tunnel.sh): PASS for every image, tag and digest
+  # 2. the tunnel probe eq-container ran (probe.d/50-tunnel.sh): PASS for every image, tag and digest;
+  #    read before any directory is made, so a failed or missing probe leaves no tunnel root behind
   eq_tunnel_check
   case "$TUNNEL_STATE" in
     PASS) ;;
     FAIL) eq_wall_finish failed "tunnel probe FAIL ($TUNNEL_FAILS rows): $EQ_CONTAINER_STATE/logs/probe.log" tunnel_probe=FAIL; return 0 ;;
     *) eq_wall_finish failed "tunnel probe missing: run bash lib/eq-container/eq-container.sh install --force-verify, then ./install.sh --with-eq-container" tunnel_probe=none; return 0 ;;
   esac
+  eq_private_dir "$EQ_TUNNEL_ROOT" || { eq_wall_finish failed "tunnel root refused: $EQ_DIR_WHY"; return 0; }
+  eq_private_dir "$EQ_WALL_STATE" || { eq_wall_finish failed "state dir refused: $EQ_DIR_WHY"; return 0; }
+  # 3. roots, policy and the user's stores (verdicts.jsonl, consents.jsonl: never created or edited here)
+  rc=0; out="$("$sp" -I "$wd/eq_wall.py" check --tunnel-root "$EQ_TUNNEL_ROOT" --state "$EQ_WALL_STATE" --policy "$pol" \
+    --verdicts "$EQ_WALL_STATE/verdicts.jsonl" --consents "$EQ_WALL_STATE/consents.jsonl" 2>&1 </dev/null)" || rc=$?
+  if [ "$rc" != 0 ]; then
+    row="$(printf '%s\n' "$out" | awk '$2 == "FAIL" { print; exit }')"
+    eq_wall_finish failed "eq_wall.py check: ${row:-exit $rc}"; return 0
+  fi
   eq_wall_finish on "tunnel probe PASS ($TUNNEL_AT); policy: ${kinds}" config_sha256="$cfg_sha" policy_sha256="$pol_sha" \
     broker_sha256="$(eq_sha256 "$wd/eq_wall.py")" client_sha256="$(eq_sha256 "$wd/eq_wall_client.py")" tunnel_probe=PASS
 }

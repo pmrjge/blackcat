@@ -41,7 +41,7 @@ PY = "eq.invalid/eq-py-min:4.34.1-arm64"
 NOT_POSITIVE = "POSITIVE=0\nSECURITY_AUDITOR_REF=\nOPEN_HIGH_CRITICAL=\nCODE_REVIEWER_REF=\nTESTS_REF=\n"
 
 # what a run of lib/eq-container/eq-container.sh leaves behind, by knob (committed over the driver in the scratch
-# repo; install_smoke.sh section 21 uses the same file)
+# repo)
 STUB_DRIVER = (ROOT / "tests" / "fake-container" / "eq-container-stub.sh").read_text()
 
 
@@ -210,18 +210,22 @@ def test_help_lists_the_options():
                          env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent"}).stdout
     for opt in ("--with-eq-container", "--eq-container-profiles=LIST", "--no-eq-broker", "--with-eq-broker"):
         assert opt in out, opt
-    assert "docker" not in out.lower()
+    # no Docker backend left; ~/.docker stays in the --config-dir refusals (a credentials folder)
+    assert "docker" not in out.lower().replace("~/.docker", "")
 
 
+@needs_git
 def test_managed_settings_render_the_tunnel_root(tmp_path):
     """--print-managed-settings: the WALL's deny rules come out rendered (no __EQ_TUNNEL__ left), at the
-    XDG_CACHE_HOME tunnel root and at the ~/.cache default."""
+    XDG_CACHE_HOME tunnel root and at the ~/.cache default. From a scratch repo on main: the main-branch rule
+    refuses --print-managed-settings on any other branch."""
+    repo = Path(TS._scratch_repo(str(tmp_path / "repo")))
     home = tmp_path / "home"
     home.mkdir()
     cache = tmp_path / "xc"
     e = {"PATH": "/usr/bin:/bin", "HOME": str(home), "CLAUDE_CONFIG_DIR": str(home / ".claude"),
          "TMPDIR": str(tmp_path), "XDG_CACHE_HOME": str(cache), "XDG_STATE_HOME": str(tmp_path / "xs")}
-    p = subprocess.run([str(ROOT / "install.sh"), "--print-managed-settings"], env=e, stdin=subprocess.DEVNULL,
+    p = subprocess.run([str(repo / "install.sh"), "--print-managed-settings"], env=e, stdin=subprocess.DEVNULL,
                        capture_output=True, text=True, timeout=60, check=False)
     assert p.returncode == 0, p.stderr[-1000:]
     assert "__EQ_TUNNEL__" not in p.stdout and "__STACK_STATE__" not in p.stdout
