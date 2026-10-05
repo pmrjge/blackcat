@@ -15,13 +15,19 @@ Mode, STACK_OUTPUT_SHRINK (environment; settings.json `env`):
          summaries, tail, head, diff/heading structure), in their original order with the omitted
          line ranges marked. Read over its threshold (no offset/limit given): the result keeps a
          contiguous head (so Claude Code's line numbers stay true) and `additionalContext` gives
-         the outline of the hidden part and how to page it; the file itself is the full output.
+         the line numbers where definitions and headings start in the hidden part and how to page
+         it (offset/limit; never file text: hook context reaches the model as system text, so a
+         line of an untrusted file must not); the file itself is the full output.
   off    nothing runs, nothing is written.
 
 Never shrunk: a Read with offset or limit (the range was chosen), a Read of a prompt file (SKILL.md,
 CLAUDE.md, skills/, rules/, agents/), any Read or Bash that touches the spill directory (a re-read: logged),
-images, background and interrupted commands, and a call identical to one this agent already had cut
-in this session (asking twice returns the full output).
+images, background and interrupted commands, a Bash result Claude Code already persisted
+(`persistedOutputPath`, past its ~30,000-character inline limit: Claude gets a 2,000-character
+preview and the path of Claude Code's own full copy) or returned as `structuredContent`, and a Bash
+command identical to one this agent already had cut in this session (running it again returns the
+full output; a repeated Read of an unchanged file is answered by Claude Code itself, so a Read is
+paged with offset/limit instead).
 
 Thresholds (characters; env STACK_OUTPUT_SHRINK_BASH / _VIEW / _READ, clamped to 4000..200000), from
 the measured distribution (Stage 4 MEASURE.md, csv/h4_tool_sizes.csv, h4_bash_families.csv, 18,000
@@ -67,8 +73,7 @@ SWEEP_FLOOR = 4000          # digests are computed (and logged) above this size,
 LINE_MAX = 300              # one kept line, characters
 BUDGET = {"err": 1500, "sum": 500, "tail": 800, "head": 500, "struct": 500}   # Bash digest, characters
 READ_HEAD = 3000            # Read: contiguous head kept, characters
-OUTLINE_MAX = 1500          # Read: outline of the hidden part, characters
-OUTLINE_LINE = 160
+OUTLINE_MAX = 1500          # Read: line numbers of the hidden part's definitions and headings, characters
 LOG_MAX = 32 << 20
 SPILL_MAX = 4 << 20
 SPILL_DIR_MAX = 64 << 20
@@ -252,16 +257,17 @@ def read_head(content):
 
 
 def outline(lines, start_idx, first_no):
+    """Line numbers ("L<n>") of the definitions and headings from start_idx on. Numbers only: the
+    note goes to additionalContext, which reaches the model as system text, so no file text."""
     out, used = [], 0
     for i in range(start_idx, len(lines)):
-        s = lines[i]
-        if OUTLINE_RE.search(s):
-            row = "L%d: %s" % (first_no + i, s.strip()[:OUTLINE_LINE])
-            if used + len(row) + 1 > OUTLINE_MAX:
+        if OUTLINE_RE.search(lines[i]):
+            row = "L%d" % (first_no + i)
+            if used + len(row) + 2 > OUTLINE_MAX:
                 out.append("…")
                 break
             out.append(row)
-            used += len(row) + 1
+            used += len(row) + 2
     return out
 
 
@@ -490,12 +496,15 @@ def bash_header(text, lines, kept, path):
 
 def read_note(lines, text, first, k, first_cut, ol):
     last = first + k - 1
+    # a repeat of the same Read is answered by Claude Code's own dedup ("file unchanged"), so the way
+    # to the whole result is a ranged Read (never shrunk), not the same call again
     note = ("output-shrink: this Read returned %d lines (%d chars); only lines %d-%d are shown%s. The file "
-            "holds the rest: Read it again with offset=%d and a limit (the same call without offset/limit "
-            "returns it whole), or grep it." % (len(lines), len(text), first, last,
-                                                " (line %d cut)" % first if first_cut else "", last + 1))
+            "holds the rest: Read it again with offset=%d and a limit, or with offset=%d and limit=%d for the "
+            "whole result, or grep it." % (len(lines), len(text), first, last,
+                                           " (line %d cut)" % first if first_cut else "", last + 1, first,
+                                           len(lines)))
     if ol:
-        note += " Outline of the hidden lines:\n" + "\n".join(ol)
+        note += " Definitions and headings in the hidden lines start at: " + ", ".join(ol)
     return note
 
 
@@ -518,6 +527,8 @@ def decide(ev, md, thr, wfd, root, now):
             return None, row
         if SPILL_DIR_RE.search(cmd):
             row["skip"], row["refs"] = "reread", SPILL_REF_RE.findall(cmd)[:5]
+        elif resp.get("persistedOutputPath") or resp.get("structuredContent"):
+            row["skip"] = "persisted"    # Claude Code shows its own preview and keeps the full copy
         elif resp.get("isImage") or resp.get("interrupted") or resp.get("backgroundTaskId"):
             row["skip"] = "special"
         cls = "view" if row["fam"] in VIEW_FAMILIES else "bash"
