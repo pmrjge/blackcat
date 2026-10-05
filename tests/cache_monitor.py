@@ -59,6 +59,17 @@ def tier(model: str | None) -> str:
     return "sonnet" if model and "sonnet" in model else "opus"
 
 
+def as_dict(x: object) -> dict[str, object]:
+    """A transcript field that should be an object; anything else reads as {} (one malformed
+    record must not abort the report)."""
+    return x if isinstance(x, dict) else {}
+
+
+def tokens(x: object) -> int:
+    """A token count: ints only (bool, str, float and None read as 0)."""
+    return x if isinstance(x, int) and not isinstance(x, bool) else 0
+
+
 def ts(s: object) -> float | None:
     if not isinstance(s, str) or not s:
         return None
@@ -117,34 +128,42 @@ def parse_thread(path: Path, session: str, thread: str, agent_type: str) -> Thre
                 continue
             t = r.get("type")
             if t == "assistant":
-                m = r.get("message") or {}
-                if m.get("model") == "<synthetic>":
+                m = r.get("message", {})
+                if not isinstance(m, dict) or m.get("model") == "<synthetic>":
                     continue
+                # a request needs a string key: a record without one is skipped, never merged
+                # with the other key-less records under None
                 mid = m.get("id") or r.get("requestId") or r.get("uuid")
-                u = m.get("usage") or {}
+                if not isinstance(mid, str):
+                    continue
+                u = as_dict(m.get("usage"))
                 q = by_id.get(mid)
                 if q is None:
-                    q = Req(len(th.reqs), m.get("model"), ts(r.get("timestamp")), last_user, marks)
+                    model = m.get("model")
+                    q = Req(len(th.reqs), model if isinstance(model, str) else None,
+                            ts(r.get("timestamp")), last_user, marks)
                     marks = {}
                     by_id[mid] = q
                     th.reqs.append(q)
                 q.ts_last = ts(r.get("timestamp")) or q.ts_last
-                q.inp = max(q.inp, u.get("input_tokens") or 0)
-                q.cc = max(q.cc, u.get("cache_creation_input_tokens") or 0)
-                q.cc1h = max(q.cc1h, (u.get("cache_creation") or {}).get("ephemeral_1h_input_tokens") or 0)
-                q.cr = max(q.cr, u.get("cache_read_input_tokens") or 0)
-                q.out = max(q.out, u.get("output_tokens") or 0)
+                q.inp = max(q.inp, tokens(u.get("input_tokens")))
+                q.cc = max(q.cc, tokens(u.get("cache_creation_input_tokens")))
+                q.cc1h = max(q.cc1h, tokens(as_dict(u.get("cache_creation")).get("ephemeral_1h_input_tokens")))
+                q.cr = max(q.cr, tokens(u.get("cache_read_input_tokens")))
+                q.out = max(q.out, tokens(u.get("output_tokens")))
             elif t == "user":
                 last_user = ts(r.get("timestamp")) or last_user
             elif t == "system" and r.get("subtype") == "compact_boundary":
                 marks["compact"] = True
             elif t == "attachment":
-                a = r.get("attachment") or {}
+                a = as_dict(r.get("attachment"))
                 if a.get("type") == "thinking_drop":
-                    cc = a.get("clientChange") or {}
+                    cc = as_dict(a.get("clientChange"))
                     kinds = cc.get("kinds")
-                    kinds = kinds.split(",") if isinstance(kinds, str) else list(kinds or [])
-                    marks["drop"] = {"kinds": {x.strip() for x in kinds if x and x.strip() != "none"},
+                    if not isinstance(kinds, list):
+                        kinds = kinds.split(",") if isinstance(kinds, str) else []
+                    marks["drop"] = {"kinds": {x.strip() for x in kinds
+                                               if isinstance(x, str) and x.strip() not in ("", "none")},
                                      "baseline": cc.get("baseline")}
                 elif a.get("type") == "hook_success" and a.get("hookEvent") == "SubagentStart" and th.reqs:
                     marks["resume"] = True
