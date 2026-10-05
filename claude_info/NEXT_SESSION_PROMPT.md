@@ -50,7 +50,7 @@ warn when DESIGN.md §7 criteria are met (security review of the switch); c0 + D
 
 ## First action
 Spawn one verifier (read-only): main SHA and log -5; `git -C M worktree list`; `git -C M status --short`; R3b worktree
-status unchanged (13 modified + 2 untracked dirs); manifest commit in ~/.claude/.stack-manifest.json; whether
+status unchanged (24 lines: 13 modified + 11 untracked, nothing newer than 12:29); manifest commit in ~/.claude/.stack-manifest.json; whether
 M/claude_next_steps/work_carried/context-diet/arms/c0 exists. Then dispatch, in one message, the orchestrator (or a
 main-coder for R3 alone) with HANDOFF_FULL §7 as its plan, and ask the user the questions below in one AskUserQuestion round.
 
