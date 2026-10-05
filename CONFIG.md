@@ -154,6 +154,7 @@ The stack's only knob table. Values in `dot-claude/settings.json` → `env` unle
 | `STACK_PROMPT_CTX_BUDGET` / `STACK_SESSION_CTX_BUDGET` | learned (seed 100,000,000 / 1,920,000,000), not in settings.json since S6 | — | A value you set pins `hard.prompt` / `hard.session` (`/stack-doctor` lists it) (hard: refuses every call but reporting). Since 2026-10-02 the prompt window restarts only on a human prompt, not on a task notification's turn |
 | Soft token limits (code: `SOFT_LIMITS`, `SOFT_PROMPT_CTX`) | per type, below; 33,000,000 per human prompt (80,000,000 while an orchestrator runs: `SOFT_PROMPT_CTX_BY_TYPE`) | new | A wrap-up warning, never a refusal; see "Soft token limits" below |
 | `STACK_SOFT_LIMIT_SCALE` | unset = 1 (code) | new | Multiplies every soft limit; `0` turns them off. Not in settings.json, so a process environment value reaches the hooks (the benchmark sets it per run) |
+| `STACK_EARLY_STOP` | `observe` (code) | new | A subagent run's brief budget and early-stop signals (`hooks/stack_progress.py`, called by the budget gate once the S4 L5 `agent_guard.py` patch is applied): `observe` logs to `early-stop.jsonl`, `warn` also adds one note per signal, `off` reads nothing; never a refusal. `STACK_EARLY_STOP_ROUNDS` 8 and `STACK_EARLY_STOP_FAILS` 4 (code): the window and its failing rounds. See "Brief budgets and early stop" below |
 | `STACK_SCHED_POLICY` | `report` (code) | `fresh_fixer` | The user's decision (2026-10-03): the scheduler stays a report tool. `fresh_fixer` is opt-in: `stack_sched.py next` then also advises a fresh fixer on stderr for a resume after a gap of 270 s or more (stdout, the ready ids, is the same). Fixed knob, recorded in each session's snapshot and read from it |
 | `STACK_FANOUT_IDLE_S` ○ | 600 (code: 1800) | — | A silent background subtree stops counting against the caps |
 | `STACK_FANOUT_SESSION` | `shadow` (code) | new | Session slot guard for every caller, the main thread included: live spawn leases and resume reservations plus live background agents (idle ones too; a SubagentStart record alone never counts) against `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` (20 when unset), checked under the `fanout` mutex for each spawn and each resume of a finished agent. Claude Code refuses an Agent call past that limit without a retry and checks no resume. `shadow` logs each count to `fanout-session.jsonl` in the session's state dir and refuses nothing; `enforce` also refuses a spawn or resume with no free slot; `off` = no lock, no count. `STACK_POLICY=off` turns it off. Shadow by default: a background child whose stop event never arrives keeps counting until SessionStart. Not counted: agents Claude Code starts without an Agent call. Fixed knob (dynamic fan-out plan, step 3) |
@@ -211,6 +212,24 @@ From the dynamic fan-out plan (revision 2; steps 3-5b built, the shadow and enfo
 - **Knob:** `STACK_SOFT_LIMIT_SCALE` (float; `2` doubles every soft limit, `0` turns them off). A type the table does not name gets none (self-test: the table covers every type in `AGENTS`).
 - **Refresh:** `uv run --script tests/derive_thresholds.py` (pandas, read-only over `~/.claude/projects/`) rewrites `.claude-work/agents-usage/thresholds.md` and its CSVs (first run as `.claude-work/agents-usage/thresholds.py` in the phase-3 worktree); copy changed values into `SOFT_LIMITS` / `SOFT_PROMPT_CTX` by hand.
 - **Revisit** when the healthy segment count of a type, or the number of sessions, doubles, and after any major stack change (agent prompts, skill loading, models, maxTurns). Today's counts: orchestrator 46, claude-code-engineer 36, scout 24, claude-code-guide 7, coder 7, verifier 6, main-coder 6, code-reviewer 5, researcher 4, browser-operator 4, explore 3, planner 2, writer 2; sessions 2. All values except claude-code-engineer and scout are provisional.
+
+### Brief budgets and early stop (2026-10-05)
+
+`hooks/stack_progress.py` (stdlib) reads what the size limits above cannot see: the brief's own `budget:` line and the run's shape. The budget gate calls it for each subagent tool call it allows, passing its own count for the run, so tokens are never counted twice. It needs the S4 L5 patches to `agent_guard.py` (the call) and `install.sh` (staging), which are not applied yet.
+
+- **Brief budget:** the first `budget:` line of the message that opens the run (delegation.md §3: `budget: ~300K tokens, ≤ 3 children`; also `N calls`). Tokens are context tokens, this section's unit and `stack-budget`'s. The run's first API call fixes it. Children and searches on the line are ignored.
+- **Signals**, each at most once per run, logged to `<state>/<session>/early-stop.jsonl` (0600, numbers and ids only, 4 MB cap; not `limit-hits.jsonl`, so the learner is unchanged):
+
+| Signal | When | `warn` adds |
+|---|---|---|
+| `budget` | the run reached its brief's budget | "Brief budget reached …" |
+| `stall` | the last 8 tool rounds made no progress (no successful edit, write, commit, delegation or report) and at least 4 failed (an error result, or only repeats of earlier calls) | nothing |
+| `stop` | a stall while past the budget: the brief's, else the type's soft limit (`soft.agent.<type>`); the orchestrator has none | "Early-stop check … return STATUS: partial with the failing command …" |
+| `recovered` | a successful write or delegation after the stall | nothing |
+
+- **Why observe:** `tests/derive_early_stop.py` replays transcripts through the same parser. On the 5 frozen stage-4 sessions (521 runs), `stop` fired on 1 run. `stall` fired on 34 runs; 12 of those were successful runs that made progress afterwards (false stops), and 30 of the 34 recovered. Details: the stage-4 L5 design note.
+- **Campaign:** `stack_progress.py report [--session SID] [--json]` joins the log with `usage/reports.jsonl` to show the hand-back status of each firing. Switching to `warn` is the user's decision.
+- **State:** `<state>/<session>/progress/<agent_id>.json`, holding the offset, the round window and call signatures. It is replaced atomically under a non-blocking flock, so a parallel call skips its check. It fails open.
 
 ### `stack budget`: where the limits stand (2026-10-03)
 
@@ -894,6 +913,10 @@ outside the sandbox pass `--store-dir ~/.cache/claude-sandbox/pnpm-store` and
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-05 (brief budgets and early-stop signals, observe only)
+- New `hooks/stack_progress.py`, which tracks a subagent run's brief `budget:` line and logs the `budget`, `stall`, `stop` and `recovered` signals (`STACK_EARLY_STOP=observe`, the default). Also new: `tests/test_stack_progress.py` and `tests/derive_early_stop.py` (the replay).
+- Not active until the `agent_guard.py` and `install.sh` patches of S4 L5 are applied. `tests/redundancy_allowlist.json` lists the module until then. See "Brief budgets and early stop".
 
 ### 2026-10-05 (installer: `--with-eq-container`, the container isolation images and the WALL)
 - `lib/eq-container` (the equilibrium harness's isolation images, run with Apple `container` 1.5.0: driver, builds, probes, the JSON reader `eqc_json.py`) and `lib/eq-wall` (the default-deny host-access broker, its client, policy, design and tests) join the repo; `install.sh --with-eq-container` runs them as steps 10b and 10c, opt-in and never fatal (§7 "Container isolation and the WALL"). The WALL is on by default under `--with-eq-container` because `lib/eq-wall/REVIEW` records positive reviews of the shipped bytes and the policy is default-deny; `--no-eq-broker` opts out.
