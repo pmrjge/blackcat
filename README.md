@@ -271,6 +271,7 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 | `hooks/agent_guard.py` | every wired event except SessionEnd | Spawn policy, fan-out, BlackCat caps, no push, protected paths, read-only Bash, credential reads, token budgets, soft limits, MCP cap, web taint, image limit, the delegation ledger and its compaction snapshot, labels, the SubagentStop check of each final report (observe only: records, never blocks), `/override-agent`, the sandboxed Bash environment. Module docstring: the event-by-event table |
 | `hooks/read_gate.py` | PreToolUse `Read\|Grep\|Glob\|Bash` | Refuses the first read of build output, dependencies, large data, media or binaries with a cheaper alternative; the identical retry passes ([CONFIG.md](CONFIG.md) §5, "Read gate") |
 | `hooks/web_caps.py` | PreToolUse `^mcp__(exa\|jina\|spider)__` | Caps per call; refuses spider `cron`, `webhooks`, `run_in_background` |
+| `hooks/output_shrink.py` | PostToolUse `Bash\|Read` | Shadow mode by default: logs what it would cut from a large Bash or Read result and changes nothing. With `STACK_OUTPUT_SHRINK=on` it keeps the decisive lines and spills the full output, credentials masked, to `.claude-work/output-shrink/` ([CONFIG.md](CONFIG.md) §5, "Output shrink") |
 | `hooks/stack_usage.py` | SubagentStart, SessionEnd; started from the guard's SessionStart too | A background collector that writes rows per agent segment, per prompt window and per session to `usage/runs3.csv` (numbers, ids and a few plain words of the task; no prompt or transcript text) |
 | `hooks/stack_limits.py` | via the guard's SessionStart | Learned limits: freezes one snapshot per session from `live.json`, inside repo floors and ceilings |
 | `hooks/stack_sched_refresh.py` | at the collector's exit | Refits the scheduler's cost model, at most × 1.5 per refresh |
@@ -356,7 +357,7 @@ figures below. What the repo's tests prove is the machinery:
 | `tests/test_no_push.py`, `test_protected_paths.py`, `test_readonly_agents.py` | No push, protected paths, read-only Bash |
 | `tests/test_limits_guard.py`, `test_stack_limits.py`, `test_stack_usage.py`, `test_sched_snapshot.py`, `test_stack_sched.py` | Budgets, learned limits and snapshots, the collector, the scheduler |
 | `tests/test_stack_budget.py`, `test_stack_budget_security.py`, `test_stack_tree.py`, `test_stack_doctor.py`, `test_override_agent.py` | The user commands, including read-only behaviour and escaping of untrusted text |
-| `tests/test_read_gate.py`, `test_web_caps.py`, `test_image_limit.py`, `test_libdocs_mcp.py`, `test_image_studio_mcp.py`, `test_mcp_headers.py` | Gates, caps and the stack's MCP servers |
+| `tests/test_read_gate.py`, `test_web_caps.py`, `test_output_shrink.py`, `test_image_limit.py`, `test_libdocs_mcp.py`, `test_image_studio_mcp.py`, `test_mcp_headers.py` | Gates, caps, the output shrink and the stack's MCP servers |
 | `tests/lint_agents.py`, `tests/prompt_budget.py --check`, `test_skill_modules.py`, `test_no_duplicates.py`, `test_moved_paths.py` | Frontmatter, `POLICY` ↔ "May spawn", model aliases, skill layout, prompt sizes, no reference to a moved path |
 | `tests/install_smoke.sh`, `test_install_state.py`, `test_install_plugins.py` | Hermetic installer runs: dry run, restore round trips, pruning, symlinked dirs, the Anthropic skill plugins step |
 
