@@ -107,7 +107,14 @@ Copies of S's Stage-4 outputs: `claude_info/s4_outputs/` (this folder; caches ex
 | ONE_TREE.sh | deletes worktrees/branches: code-reviewer + verifier dry run before the user runs it |
 | EQ-T harness/wall/isolation (not in git) | reviewed through R2c/R2d; the repo-stage copy enters git only with R3 |
 
-L1 review (code-reviewer aa9eba703b28f7feb, PASS-WITH-FIXES, merged as reviewed; fixes are open follow-ups, not applied):
+L1 review (code-reviewer aa9eba703b28f7feb, PASS-WITH-FIXES, merged as reviewed). **The three follow-ups below are APPLIED
+in `69067f6`** (2026-10-05, python-engineer, own worktree): cache_monitor.py skips non-dict `message` and non-str request
+keys (no merge under None), reads non-dict usage/cache_creation/attachment/clientChange as `{}`, token counts as ints only
+(bool excluded), a non-str model as None and non-list `kinds` as `[]`; the lint's date pattern adds "Oct 2026",
+"October 2026", "Sept. 2026", "2026-10" (shipped prompt files still clean, 267 files); the stack_usage SubagentStart
+probe sends `SubagentStart`. Proof tests (`MALFORMED` fixture next to "not json", `test_malformed_record_*` x10,
+`test_non_string_model_reads_as_none`, `test_token_counts_are_ints_only`, the month-level `test_volatile_patterns_hit`
+rows, `test_silent_probes_send_their_own_event`) fail on 743a7e2's code and pass on 69067f6 [v]. Original findings:
 - MEDIUM `tests/cache_monitor.py:120-148`: field types inside a JSON line are not checked, so one malformed line aborts the
   report (`"message":"x"` -> AttributeError at :121; list `id` -> TypeError at :125; `"input_tokens":"5"` -> TypeError at
   :132; non-dict attachment/clientChange/cache_creation likewise; records without id/requestId/uuid merge under `None`).

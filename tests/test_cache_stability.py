@@ -44,6 +44,11 @@ def test_shipped_prompt_files_are_clean():
     ("as of 2026-10-05 the cap is", "date"),
     ("checked on Oct 5, 2026", "date"),
     ("checked 5 October 2026", "date"),
+    ("as of Oct 2026 the cap is", "date"),
+    ("as of October 2026 the cap is", "date"),
+    ("as of Sept. 2026 the cap is", "date"),
+    ("as of 2026-10 the cap is", "date"),
+    ("released 2026-10, see notes", "date"),
     ("at 2026-10-05T09:42Z", "iso-datetime"),
     ("ran at 09:42:17 local", "clock-time"),
     ("ts 1790000000 written", "epoch"),
@@ -71,6 +76,8 @@ def test_volatile_patterns_hit(text, kind):
     "`date '+%F %R'` at the end",
     "paths like a/1.2.3/b and lib.so.1",
     "budget 5,200 chars; 26/31 misses; 12.6%",
+    "the 2026-27 season, C++20, 2026-13 is no month, port 2020-8080",
+    "you may 2026 nothing, Octal 2026, Mayday 2026, March 26",
 ])
 def test_ordinary_text_passes(text):
     assert lint.scan_line(text) == []
@@ -102,6 +109,7 @@ def test_clean_seed_tree_passes(tmp_path):
     ("dot-claude/skills/s/SKILL.md", SKILL.replace("Use for s.", ">-\n  Use for s\n  at 12:00:01."), 5,
      "clock-time"),
     ("dot-claude/rules/r.md", "# rules\nsession 4e2da3ce-e2f4-4971-aac5-a67f2dcf252e\n", 2, "uuid"),
+    ("dot-claude/rules/r.md", "# rules\nPrices as of Oct 2026.\n", 2, "date"),
     ("dot-claude/CLAUDE.managed.md", "keep\n" + MODEL_VEC + "\n", 2, "model-id"),
 ])
 def test_seeded_volatile_text_is_reported_with_its_line(tmp_path, rel, text, line, kind):
@@ -203,12 +211,14 @@ def probe_guard_subagent_start():
             yield "SubagentStart", a, b
 
 
-def _silent(argv, extra):
+def _silent(argv, extra, event):
     def run(tmp):
         env = dict(os.environ, HOME=tmp, XDG_STATE_HOME=os.path.join(tmp, "state"),
                    CLAUDE_ENV_FILE=os.path.join(tmp, "env.sh"), **extra)
-        ev = {"session_id": "s-" + os.path.basename(tmp), "hook_event_name": "SessionStart",
-              "source": "startup", "agent_id": "a1", "agent_type": "coder"}
+        ev = {"session_id": "s-" + os.path.basename(tmp), "hook_event_name": event,
+              "agent_id": "a1", "agent_type": "coder"}
+        if event == "SessionStart":
+            ev["source"] = "startup"
         p = subprocess.run([sys.executable, *argv], input=json.dumps(ev), capture_output=True,
                            text=True, env=env, timeout=60, check=False)
         return context(p.stdout)
@@ -216,14 +226,14 @@ def _silent(argv, extra):
 
 
 def probe_guard_session_env(tmp_path):
-    run = _silent([str(HOOKS / "agent_guard.py"), "session-env"], {})   # writes the Bash env file only
+    run = _silent([str(HOOKS / "agent_guard.py"), "session-env"], {}, "SessionStart")   # Bash env file only
     yield "SessionStart", run(str(tmp_path / "a")), run(str(tmp_path / "b"))
 
 
 def probe_usage_start(tmp_path):
     # never prints (stack_usage.py main: "hooks: never fail, never print"); collection off so no
     # detached collector starts from a test
-    run = _silent([str(HOOKS / "stack_usage.py"), "start"], {"STACK_USAGE_COLLECT": "0"})
+    run = _silent([str(HOOKS / "stack_usage.py"), "start"], {"STACK_USAGE_COLLECT": "0"}, "SubagentStart")
     yield "SubagentStart", run(str(tmp_path / "a")), run(str(tmp_path / "b"))
 
 
@@ -233,6 +243,22 @@ PROBES = {
     ("SubagentStart", "agent_guard"): lambda tmp: probe_guard_subagent_start(),
     ("SubagentStart", "stack_usage start"): probe_usage_start,
 }
+
+
+def test_silent_probes_send_their_own_event(tmp_path, monkeypatch):
+    """Each subprocess probe feeds its hook the event it is filed under (a SubagentStart hook
+    gets hook_event_name SubagentStart)."""
+    sent = []
+
+    def fake_run(argv, input, **kw):
+        sent.append(json.loads(input)["hook_event_name"])
+        return subprocess.CompletedProcess(argv, 0, "", "")
+
+    monkeypatch.setattr(subprocess, "run", fake_run)
+    for key in (("SessionStart", "agent_guard session-env"), ("SubagentStart", "stack_usage start")):
+        sent.clear()
+        assert [ev for ev, _, _ in PROBES[key](tmp_path)] == [key[0]]
+        assert sent == [key[0]] * 2, key
 
 
 def test_every_early_hook_has_a_probe():
