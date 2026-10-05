@@ -87,7 +87,7 @@ def test_justfile_is_a_dispatcher_only():
     for h in headers:
         assert re.fullmatch(r"[a-z_][a-z-]*( \*args)?:", h), f"no dependencies, no named parameters: {h!r}"
     menu = "    @just --justfile {{quote(justfile())}} --list"
-    body_re = r'    @uv run --quiet --script \{\{quote\(justfile_directory\(\) / "bin" / "([a-z_]+\.py)"\)\}\} "\$@"'
+    body_re = r'    @uv run --quiet --no-config --script \{\{quote\(justfile_directory\(\) / "bin" / "([a-z_]+\.py)"\)\}\} "\$@"'
     for b in bodies:
         m = re.fullmatch(body_re, b)
         assert b == menu or (m and (ROOT / "bin" / m.group(1)).is_file()), b

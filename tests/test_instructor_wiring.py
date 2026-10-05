@@ -174,6 +174,27 @@ def test_ff_merge_through_just_moves_main_and_its_checkout(scratch):
 
 
 @needs_just
+@pytest.mark.parametrize("planted", [".python-version", "tools/.python-version", "uv.toml"])
+@pytest.mark.parametrize("recipe", RECIPES)
+def test_recipes_ignore_planted_uv_config(tmp_path, planted, recipe):
+    """uv looks for .python-version (and uv.toml, pyproject.toml) in the ancestors of the script's
+    directory, files outside tools/instructor/ that an agent can write; a planted interpreter path
+    there must never run (`uv run --no-config`)."""
+    proj = tmp_path / "proj"
+    shutil.copytree(JUSTFILE.parent, proj / "tools" / "instructor",
+                    ignore=shutil.ignore_patterns("__pycache__", ".claude-work"))
+    marker, fake = tmp_path / "ran", tmp_path / "fakepy"
+    fake.write_text(f'#!/bin/sh\ntouch {marker}\nexec /usr/bin/python3 "$@"\n')
+    fake.chmod(0o755)
+    text = f'python = "{fake}"\n' if planted == "uv.toml" else f"{fake}\n"
+    (proj / planted).write_text(text)
+    cp = subprocess.run([JUST, "-f", "tools/instructor/justfile", recipe, "--help"], cwd=proj, env=env(),
+                        text=True, capture_output=True, timeout=180, stdin=subprocess.DEVNULL, check=False)
+    assert cp.returncode == 0, cp.stderr
+    assert not marker.exists(), cp.stderr
+
+
+@needs_just
 @pytest.mark.parametrize("recipe,args", [
     ("ff-merge", ["--branch", "feat; touch {p}"]),
     ("ff-merge", ["--branch", "$(touch {p})"]),
