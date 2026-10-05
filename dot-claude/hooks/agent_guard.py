@@ -253,7 +253,8 @@ Knobs (env):
                           guard read from the environment (the snapshot records it)
   STACK_EARLY_STOP=observe  a subagent run's brief budget and early-stop signals, after the hard
                           budgets allowed the call (stack_progress.py): `observe` logs them,
-                          `warn` also adds one note per signal, `off` = not read; never a refusal
+                          `warn` also adds a note for the `budget` and `stop` signals, `off` = not
+                          read; never a refusal
   SCREEN_LOCK_TTL_S=900   screen lock expiry
   STRIP_AGENT_MODEL=1     remove per-call `model` from Agent input
   STACK_AGENT_LABEL=description  label of an allowed Agent call's child: `description` prefixes

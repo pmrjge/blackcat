@@ -133,6 +133,25 @@ def test_parse_budget_first_usable_line_and_scan_window():
     assert sp.parse_budget("x" * sp.BRIEF_SCAN + "\nbudget: 900K tokens\n") is None
 
 
+# the brief and the run's own text are model-written: each parse must stay linear (security review: three
+# patterns backtracked quadratically, 17-39 s per line, past the 15 s hook timeout, which lets the call through)
+@pytest.mark.parametrize("body", ["budget: 1" + " " * 60000 + "x", "budget: " + "1" * 16000,
+                                  "budget: " + "1" * 16000 + " calls", "budget: " + "1,000" * 12000,
+                                  "budget: 1" + " " * 30000 + "k" + " " * 30000 + "x"])
+def test_parse_budget_is_linear(body):
+    t0 = time.perf_counter()
+    sp.parse_budget("Goal: x\n" + body + "\n")
+    assert time.perf_counter() - t0 < 0.5
+
+
+@pytest.mark.parametrize("body", ["budget: " + "1" * 5000 + " calls", "budget: " + "9" * 400 + " tokens",
+                                  "budget: 1,000,000,000,000,000 tokens", "budget: 1" + "0" * 16 + " tokens"])
+def test_parse_budget_huge_numbers_are_no_budget(body):
+    """Past int()'s 4300-digit limit or float's range: no budget, never an exception (the run's state would
+    stop advancing at that line)."""
+    assert sp.parse_budget(body + "\n") is None
+
+
 # ---------------------------------------------------------------- classes
 @pytest.mark.parametrize("cmd", [
     "git -C /repo commit -m 'x'", "cd r && git merge --ff-only b", "mkdir -p out", "echo x > notes.md",
@@ -233,6 +252,23 @@ def test_final_status_is_tracked():
     assert st["status"] == "clean" and st["ended"] is True
     sp.feed(st, text(1, "STATUS: partial\nRESULT: x"))
     assert st["status"] == "partial"
+
+
+@pytest.mark.parametrize("body,want", [("**STATUS:** done", "done"), ("STATUS: **partial**", "partial"),
+                                       ("> STATUS:  `blocked`", "blocked"), ("STATUS: *_ failed", "failed"),
+                                       ("STATUS: ** ** done", "clean"), ("STATUSES: done", "clean")])
+def test_status_forms(body, want):
+    st = sp.new_state()
+    sp.feed(st, text(0, body))
+    assert st["status"] == want
+
+
+@pytest.mark.parametrize("body", ["STATUS:" + " " * 60000 + "x", "STATUS:" + " " * 30000 + "*" + " " * 30000 + "x"])
+def test_status_scan_is_linear(body):
+    st = sp.new_state()
+    t0 = time.perf_counter()
+    sp.feed(st, text(0, body))
+    assert time.perf_counter() - t0 < 0.5 and st["status"] == "clean"
 
 
 # ---------------------------------------------------------------- the rule
@@ -517,7 +553,8 @@ def test_the_budget_gate_calls_the_check():
     assert "def progress_check(" in src and body and "progress_check(" in body.group(0)
 
 
-def guard_session(tmp_path, how, extra=None, hooks=HOOKS, agent="A1", budget="5 calls", n=9):
+def guard_session(tmp_path, how, extra=None, hooks=HOOKS, agent="A1", budget="5 calls", n=9,
+                  strip_ids=False):
     """SessionStart, SubagentStart of a coder, its transcript (a brief with `budget`, n failing Bash
     rounds and an open one), then the `budget` PreToolUse hook of its next call (of the main thread
     when agent is None). (output, early-stop rows, session state dir, stderr)."""
@@ -550,6 +587,12 @@ def guard_session(tmp_path, how, extra=None, hooks=HOOKS, agent="A1", budget="5 
         for k in range(n):
             recs += [call(k, "Bash", {"command": "make t%d" % k}, ts=now), result(k, True)]
         recs.append(call(n, ts=now))
+        if strip_ids:   # the gate then keys calls by uuid (scan_transcript), stack_progress's own count by id
+            for j, r in enumerate(recs):
+                if r["type"] == "assistant":
+                    r.pop("requestId")
+                    r["message"].pop("id")
+                    r["uuid"] = "u%d" % j
         write_lines(subs / ("agent-%s.jsonl" % agent), recs, "w")
         ev.update(agent_id=agent, agent_type="coder")
     o, err = hook(ev, "budget")
@@ -578,13 +621,27 @@ def test_budget_gate_runs_the_check(tmp_path, how):
         assert rows[0]["ctx"] == 10000 and rows[0]["mode"] == ("warn" if how == "warn" else "observe")
 
 
-@pytest.mark.parametrize("softctx,want", [("2000", ["stall", "stop"]), ("0", ["stall"])])
-def test_the_soft_limit_is_the_default_gate(tmp_path, softctx, want):
-    """No brief budget: the gate is the type's soft limit of the session snapshot; none, no stop."""
-    o, rows, _d, _err = guard_session(tmp_path, "observe", {"STACK_SOFTCTX_CODER": softctx}, budget=None)
+@pytest.mark.parametrize("softctx,scale,want,gate", [("2000", None, ["stall", "stop"], 2000),
+                                                     ("0", None, ["stall"], None),
+                                                     ("20000", "0.1", ["stall", "stop"], 2000),
+                                                     ("2000", "0", ["stall"], None)])
+def test_the_soft_limit_is_the_default_gate(tmp_path, softctx, scale, want, gate):
+    """No brief budget: the gate is the type's soft limit in force (soft.agent.<type> of the session snapshot
+    x STACK_SOFT_LIMIT_SCALE); none, no stop."""
+    extra = dict({"STACK_SOFTCTX_CODER": softctx}, **({"STACK_SOFT_LIMIT_SCALE": scale} if scale else {}))
+    o, rows, _d, _err = guard_session(tmp_path, "observe", extra, budget=None)
     assert decision(o) is None and [r["signal"] for r in rows] == want
-    if softctx != "0":
-        assert rows[-1]["src"] == "soft" and rows[-1]["budget_tokens"] == int(softctx)
+    if gate:
+        assert rows[-1]["src"] == "soft" and rows[-1]["budget_tokens"] == gate
+
+
+def test_the_gate_passes_its_own_count_and_run_stamp(tmp_path):
+    """The usage and run logged are run_segment's: without message ids the gate counts 10 calls by uuid, the
+    module's own count only 1, so a check() that falls back to its own count logs no `budget`."""
+    _o, rows, d, _err = guard_session(tmp_path, "observe", strip_ids=True)
+    assert [r["signal"] for r in rows] == ["budget", "stall", "stop"]
+    assert rows[0]["calls"] == 10 and rows[0]["ctx"] == 10000
+    assert rows[0]["run"] == json.loads((d / "agents" / "A1.json").read_text())["started"]
 
 
 def test_a_hard_refusal_is_not_checked(tmp_path):

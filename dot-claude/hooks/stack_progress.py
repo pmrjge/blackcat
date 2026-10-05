@@ -30,8 +30,8 @@ RULE (replayed on the frozen sessions by tests/derive_early_stop.py, which repor
 
 Modes, STACK_EARLY_STOP: `observe` (the default; unset or unknown) logs each firing to
 <session>/early-stop.jsonl (numbers and ids only) and returns nothing; `warn` also returns one note per
-run and signal, which agent_guard adds to the call (additionalContext); `off` reads nothing.
-STACK_POLICY=off is off. No refusal mode: enforcement waits for the observe data (`report`).
+run for the budget and stop signals, which agent_guard adds to the call (additionalContext); `off` reads
+nothing. STACK_POLICY=off is off. No refusal mode: enforcement waits for the observe data (`report`).
 Fixed knobs, env only: STACK_EARLY_STOP_ROUNDS (3-64, default ROUNDS), STACK_EARLY_STOP_FAILS (0-ROUNDS).
 
 State: <session>/progress/<agent_id>.json (offset, run stamp, the round window, recent call signatures),
@@ -93,11 +93,15 @@ WRITE_CMD_RE = re.compile(
     r"|\b(?:uv|pip|npm|pnpm|yarn|cargo|go)\s+(?:add|install|remove|get)\b")
 
 BUDGET_LINE_RE = re.compile(r"(?im)^[ \t>*_`-]*budget[*_`]*[ \t]*:[ \t]*(.+)$")
-_NUM = r"(\d{1,3}(?:,\d{3})+|\d+(?:\.\d+)?)"
-TOKENS_RE = re.compile(_NUM + r"\s*([kmb])?\s*(?:context\s+|ctx\s+)?(?:tokens?|tok)\b", re.I)
-CALLS_RE = re.compile(r"(\d+)\s*(?:tool\s+|api\s+)?(?:calls?|turns?|rounds?)\b", re.I)
-STATUS_RE = re.compile(r"(?m)^[ \t>*_`]*STATUS[*_`]*[ \t]*:[ \t]*[*_`]*[ \t]*(done|partial|failed|blocked)\b",
-                       re.I)
+# Linear on any text (briefs and the run's own text are model-written; a parse past the hook timeout lets the
+# call through unchecked): no two adjacent quantifiers over the same characters, and a number starts only
+# where no digit (or separator) precedes it, so a run of digits is tried once. Bounded digit runs: a longer
+# number is no budget (past the ranges below) and never reaches int()/float() (the 4300-digit limit, inf).
+_NUM = r"(?<![\d.,])(\d{1,3}(?:,\d{3}){1,4}|\d{1,15}(?:\.\d{1,9})?)"
+TOKENS_RE = re.compile(_NUM + r"\s*(?:([kmb])\s*)?(?:context\s+|ctx\s+)?(?:tokens?|tok)\b", re.I)
+CALLS_RE = re.compile(r"(?<!\d)(\d{1,9})\s*(?:tool\s+|api\s+)?(?:calls?|turns?|rounds?)\b", re.I)
+STATUS_RE = re.compile(r"(?m)^[ \t>*_`]*STATUS[*_`]*[ \t]*:[ \t]*(?:[*_`]+[ \t]*)?"
+                       r"(done|partial|failed|blocked)\b", re.I)
 
 NOTE_BUDGET = ("Brief budget reached: this run has used {used} since you were started or resumed; your "
                "brief set {budget}. Finish the current step and return STATUS: partial with what is done "
