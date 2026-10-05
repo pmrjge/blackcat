@@ -28,8 +28,5 @@
     {"file": "skills/technical-writing/references/review-checklist.md", "ref": "technical-writing § 10",
      "reason": "TODO: technical-writing has no section 10 (its numbered headings are 1, 3 and 8)"}
   ],
-  "hooks": [
-    {"file": "stack_progress.py",
-     "reason": "TODO: staged by install.sh once .claude-work/s4-l5/install.patch (S4 L5) is applied, which also deletes this entry; until agent_guard.patch is applied nothing imports it"}
-  ]
+  "hooks": []
 }

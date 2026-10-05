@@ -409,7 +409,7 @@ import importlib.util, os, sys
 sys.pycache_prefix = None
 h, stale = sys.argv[1], []
 for m in ("agent_guard", "stack_hook", "stack_usage", "stack_limits", "stack_report", "read_gate", "web_caps",
-          "output_shrink"):
+          "output_shrink", "stack_progress"):
     src = os.path.join(h, m + ".py")
     if not os.path.isfile(src):
         continue

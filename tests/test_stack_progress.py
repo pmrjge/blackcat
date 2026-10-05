@@ -12,9 +12,13 @@ import importlib.machinery
 import importlib.util
 import json
 import os
+import re
+import shutil
 import stat
 import subprocess
 import sys
+import time
+import uuid
 from pathlib import Path
 
 import pytest
@@ -502,17 +506,21 @@ def test_replay_routes_agree_on_a_synthetic_root(tmp_path):
     assert grid[0].startswith("rounds,fails,gate,progress,runs,fired")
 
 
-# ---------------------------------------------------------------- through agent_guard (once wired)
+# ---------------------------------------------------------------- through agent_guard (the budget gate)
 GUARD = HOOKS / "agent_guard.py"
-WIRED = "def progress_check(" in GUARD.read_text()
 
 
-@pytest.mark.skipif(not WIRED, reason="agent_guard.py does not call stack_progress yet "
-                                      "(.claude-work/s4-l5/agent_guard.patch)")
-@pytest.mark.parametrize("how", ["observe", "warn", "off"])
-def test_budget_gate_runs_the_check(tmp_path, how):
-    import time
-    import uuid
+def test_the_budget_gate_calls_the_check():
+    """The guard tests below must not pass vacuously: budget_gate calls progress_check."""
+    src = GUARD.read_text()
+    body = re.search(r"(?ms)^def budget_gate\(.*?(?=^def )", src)
+    assert "def progress_check(" in src and body and "progress_check(" in body.group(0)
+
+
+def guard_session(tmp_path, how, extra=None, hooks=HOOKS, agent="A1", budget="5 calls", n=9):
+    """SessionStart, SubagentStart of a coder, its transcript (a brief with `budget`, n failing Bash
+    rounds and an open one), then the `budget` PreToolUse hook of its next call (of the main thread
+    when agent is None). (output, early-stop rows, session state dir, stderr)."""
     sid = "s-" + uuid.uuid4().hex[:12]
     proj = tmp_path / "projects" / "p"
     subs = proj / sid / "subagents"
@@ -521,35 +529,95 @@ def test_budget_gate_runs_the_check(tmp_path, how):
     main.write_text(json.dumps({"type": "user", "message": {"content": "hi"}}) + "\n")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("STACK_", "BLACKCAT_", "CLAUDE_"))}
     env.update(XDG_STATE_HOME=str(tmp_path / "xdg"), STACK_USAGE_COLLECT="0",
-               CLAUDE_CONFIG_DIR=str(tmp_path / "cfg"), STACK_EARLY_STOP=how)
+               CLAUDE_CONFIG_DIR=str(tmp_path / "cfg"), STACK_EARLY_STOP=how, **(extra or {}))
 
     def hook(ev, *args):
         base = {"session_id": sid, "transcript_path": str(main), "cwd": str(tmp_path)}
-        p = subprocess.run([PY, "-B", str(GUARD), *args], input=json.dumps(dict(base, **ev)),
-                           capture_output=True, text=True, env=env, timeout=60)
+        p = subprocess.run([PY, "-B", str(hooks / "agent_guard.py"), *args],
+                           input=json.dumps(dict(base, **ev)), capture_output=True, text=True, env=env,
+                           timeout=60)
         assert p.returncode == 0, p.stderr
-        return json.loads(p.stdout) if p.stdout.strip() else {}
+        return (json.loads(p.stdout) if p.stdout.strip() else {}), p.stderr
 
     hook({"hook_event_name": "SessionStart", "source": "startup"})
-    hook({"hook_event_name": "SubagentStart", "agent_id": "A1", "agent_type": "coder"})
-    time.sleep(0.01)
-    now = time.strftime("%Y-%m-%dT%H:%M:%S.999Z", time.gmtime(time.time() + 1))
-    recs = [brief("Goal: x\nbudget: 5 calls\n", ts=now)]
-    for k in range(9):
-        recs += [call(k, "Bash", {"command": "make t%d" % k}, ts=now), result(k, True)]
-    recs.append(call(9, ts=now))
-    write_lines(subs / "agent-A1.jsonl", recs, "w")
-    o = hook({"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_use_id": "tu-1", "prompt_id": "p1",
-              "agent_id": "A1", "agent_type": "coder", "tool_input": {"command": "make t9"}}, "budget")
-    ctx = (o.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    ev = {"hook_event_name": "PreToolUse", "tool_name": "Bash", "tool_use_id": "tu-1", "prompt_id": "p1",
+          "tool_input": {"command": "make t%d" % n}}
+    if agent:
+        hook({"hook_event_name": "SubagentStart", "agent_id": agent, "agent_type": "coder"})
+        time.sleep(0.01)
+        now = time.strftime("%Y-%m-%dT%H:%M:%S.999Z", time.gmtime(time.time() + 1))
+        recs = [brief("Goal: x\n" + ("budget: %s\n" % budget if budget else ""), ts=now)]
+        for k in range(n):
+            recs += [call(k, "Bash", {"command": "make t%d" % k}, ts=now), result(k, True)]
+        recs.append(call(n, ts=now))
+        write_lines(subs / ("agent-%s.jsonl" % agent), recs, "w")
+        ev.update(agent_id=agent, agent_type="coder")
+    o, err = hook(ev, "budget")
     d = tmp_path / "xdg" / "claude-agent-stack" / sid
+    return o, log_rows(d), d, err
+
+
+def decision(o):
+    return (o.get("hookSpecificOutput") or {}).get("permissionDecision")
+
+
+@pytest.mark.parametrize("how", ["observe", "warn", "off", "enforce"])
+def test_budget_gate_runs_the_check(tmp_path, how):
+    o, rows, d, _err = guard_session(tmp_path, how)
+    ctx = (o.get("hookSpecificOutput") or {}).get("additionalContext") or ""
+    assert decision(o) is None                       # never a refusal, in any mode
     if how == "warn":
         assert "Brief budget reached" in ctx and "Early-stop check" in ctx
-    else:
-        assert "Early-stop" not in ctx and "Brief budget" not in ctx
-    rows = log_rows(d)
+    else:                                            # observe (and an unknown value) and off: no output
+        assert o == {}
     if how == "off":
         assert rows == [] and not (d / sp.STATE_DIR).exists()
     else:
         assert [r["signal"] for r in rows] == ["budget", "stall", "stop"]
         assert rows[0]["calls"] == 10 and rows[0]["src"] == "brief" and rows[0]["type"] == "coder"
+        assert rows[0]["ctx"] == 10000 and rows[0]["mode"] == ("warn" if how == "warn" else "observe")
+
+
+@pytest.mark.parametrize("softctx,want", [("2000", ["stall", "stop"]), ("0", ["stall"])])
+def test_the_soft_limit_is_the_default_gate(tmp_path, softctx, want):
+    """No brief budget: the gate is the type's soft limit of the session snapshot; none, no stop."""
+    o, rows, _d, _err = guard_session(tmp_path, "observe", {"STACK_SOFTCTX_CODER": softctx}, budget=None)
+    assert decision(o) is None and [r["signal"] for r in rows] == want
+    if softctx != "0":
+        assert rows[-1]["src"] == "soft" and rows[-1]["budget_tokens"] == int(softctx)
+
+
+def test_a_hard_refusal_is_not_checked(tmp_path):
+    o, rows, d, _err = guard_session(tmp_path, "warn", {"STACK_MAXTURNS_CODER": "3"})
+    hso = o.get("hookSpecificOutput") or {}
+    assert hso.get("permissionDecision") == "deny" and "Turn budget reached" in hso["permissionDecisionReason"]
+    assert "Early-stop" not in hso["permissionDecisionReason"]
+    assert rows == [] and not (d / sp.STATE_DIR).exists()
+
+
+@pytest.mark.parametrize("extra,agent", [({}, None), ({"STACK_POLICY": "off"}, "A1")])
+def test_the_main_thread_and_policy_off_are_not_checked(tmp_path, extra, agent):
+    o, rows, d, _err = guard_session(tmp_path, "warn", extra, agent=agent)
+    assert o == {} and rows == [] and not (d / sp.STATE_DIR).exists()
+
+
+def test_a_broken_module_fails_open(tmp_path):
+    hooks = tmp_path / "hooks"
+    shutil.copytree(HOOKS, hooks, ignore=shutil.ignore_patterns("__pycache__"))
+    (hooks / "stack_progress.py").write_text("raise RuntimeError('seeded')\n")
+    o, rows, _d, err = guard_session(tmp_path, "warn", hooks=hooks)
+    assert decision(o) is None and "Early-stop" not in json.dumps(o) and rows == []
+    assert "early stop: not checked (RuntimeError)" in err
+
+
+# ---------------------------------------------------------------- the installer ships it
+def test_the_installer_stages_tracks_and_compiles_the_module():
+    text = (ROOT / "install.sh").read_text()
+    sd = load(ROOT / "lib" / "stack_diff.py", "l5_stack_diff")
+    assert sd.staged_files(text).get("hooks/stack_progress.py") == "dot-claude/hooks/stack_progress.py"
+    assert '"hooks/stack_progress.py"' in re.search(r"(?s)STACK_SCRIPTS = \[(.*?)\]", text).group(1)
+    mods = re.search(r'(?m)^\s*for m in ([^;\n]+); do\n\s*if \[ -f "\$C/hooks/\$m\.py" \]', text)
+    assert mods and "stack_progress" in mods.group(1).split()
+    assert '"stack_progress"' in (DOT / "bin" / "doctor.sh").read_text()
+    allow = json.loads((ROOT / "tests" / "redundancy_allowlist.json").read_text())
+    assert not [e for e in allow["hooks"] if e.get("file") == "stack_progress.py"]
