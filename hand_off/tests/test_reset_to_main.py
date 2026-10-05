@@ -104,9 +104,9 @@ class World:
             raise AssertionError(f"git {args} failed: {p.stderr}")
         return p
 
-    def run(self, *args: str, cwd: Path | None = None) -> subprocess.CompletedProcess:
+    def run(self, *args: str, cwd: Path | None = None, env: dict[str, str] | None = None) -> subprocess.CompletedProcess:
         return subprocess.run(
-            [BASH, str(SCRIPT), *args], cwd=cwd or self.m, env=self.env, capture_output=True, text=True
+            [BASH, str(SCRIPT), *args], cwd=cwd or self.m, env=env or self.env, capture_output=True, text=True
         )
 
     def common(self) -> list[str]:
@@ -659,3 +659,173 @@ def test_apply_restores_tracked_changes_with_git_apply(world: World) -> None:
     world.git("worktree", "add", "-q", "--detach", str(target), "dirty-br")
     world.git("apply", "--binary", str(diff), cwd=target)
     assert (target / "a.txt").read_text() == "dirty edit\n"
+
+
+# ------------------------------------------------------------------ review round 1: gates that must hold
+
+
+def _row_file(w: World, kind: str, source: Path) -> Path:
+    return w.archive / next(r[2] for r in manifest_rows(w.archive) if r[0] == kind and r[1] == str(source))
+
+
+def test_unborn_branch_and_partly_staged_changes_are_archived(tmp_path: Path) -> None:
+    """Staged content of an unborn branch, and the index version of a partly staged file, survive --force."""
+    w, _ = small_world(tmp_path)
+    orph = w.base / "orph"
+    w.git("worktree", "add", "-q", "--orphan", "-b", "orph", str(orph))
+    _write(orph / "precious.txt", "PRECIOUS\n")
+    w.git("add", "precious.txt", cwd=orph)
+    topic = w.wt["topic"]
+    _write(topic / "t.txt", "staged version\n")
+    w.git("add", "t.txt", cwd=topic)
+    _write(topic / "t.txt", "working version\n")  # MM: index and working tree differ
+    backdate(w.base)
+    p = w.run(*small_args(w), "--archive")
+    assert p.returncode == 0, p.stdout + p.stderr
+    orph_staged = _row_file(w, "wt-staged", orph)
+    orph_diff = _row_file(w, "wt-diff", orph)
+    topic_staged = _row_file(w, "wt-staged", topic)
+    topic_diff = _row_file(w, "wt-diff", topic)
+    assert "+PRECIOUS" in orph_staged.read_text() and "+PRECIOUS" in orph_diff.read_text()
+    assert "+staged version" in topic_staged.read_text() and "+working version" in topic_diff.read_text()
+    p = w.run(*small_args(w), "--apply")
+    assert p.returncode == 0, p.stdout + p.stderr
+    assert f"worktree remove --force {orph}" in p.stdout and not orph.exists()
+    # both versions come back with git apply
+    back = w.base / "orph-back"
+    w.git("worktree", "add", "-q", "--orphan", "-b", "orph-back", str(back))
+    w.git("apply", "--binary", str(orph_diff), cwd=back)
+    w.git("apply", "--cached", "--binary", str(orph_staged), cwd=back)
+    assert (back / "precious.txt").read_text() == "PRECIOUS\n"
+    assert w.git("show", ":precious.txt", cwd=back).stdout == "PRECIOUS\n"
+    back2 = w.base / "topic-back"
+    w.git("worktree", "add", "-q", "--detach", str(back2), _sha_of_topic(w))
+    w.git("apply", "--binary", str(topic_diff), cwd=back2)
+    w.git("apply", "--cached", "--binary", str(topic_staged), cwd=back2)
+    assert (back2 / "t.txt").read_text() == "working version\n"
+    assert w.git("show", ":t.txt", cwd=back2).stdout == "staged version\n"
+
+
+def _sha_of_topic(w: World) -> str:
+    """Tip of the topic bundle (the branch itself is gone after --apply)."""
+    row = next(r for r in manifest_rows(w.archive) if r[0] == "bundle" and r[1] == "refs/heads/topic")
+    return row[5]
+
+
+def test_gc_refused_while_a_stash_exists(tmp_path: Path) -> None:
+    w, sha = small_world(tmp_path)
+    _write(w.m / "a.txt", "stashed edit\n")
+    w.git("stash", "push", "-q", "-m", "keep me")
+    backdate(w.base)
+    assert w.run(*small_args(w), "--archive").returncode == 0
+    p = w.run(*small_args(w), "--apply", "--gc")
+    assert p.returncode == 5, p.stdout + p.stderr
+    assert "refs/stash exists" in parse_summary(p.stdout)[("step", "gc")][2]
+    assert "gc --prune=now" not in p.stdout
+    assert w.git("stash", "list").stdout.count("keep me") == 1
+    assert w.git("cat-file", "-e", sha["dropped"], check=False).returncode == 0
+
+
+def test_gc_refused_when_a_droppable_commit_is_not_archived(tmp_path: Path) -> None:
+    w, sha = small_world(tmp_path)
+    assert w.run(*small_args(w), "--archive").returncode == 0
+    tree = w.git("rev-parse", "main^{tree}").stdout.strip()
+    late = w.git("commit-tree", tree, "-p", "main", "-m", "dangling after the archive").stdout.strip()
+    p = w.run(*small_args(w), "--apply", "--gc")
+    assert p.returncode == 5, p.stdout + p.stderr
+    assert "in no archived pack or bundle" in parse_summary(p.stdout)[("step", "gc")][2]
+    assert "gc --prune=now" not in p.stdout
+    assert w.git("cat-file", "-e", late, check=False).returncode == 0
+    assert w.git("cat-file", "-e", sha["dropped"], check=False).returncode == 0
+
+
+def test_clean_and_gc_refused_while_m_is_live(tmp_path: Path) -> None:
+    w, _ = small_world(tmp_path)
+    assert w.run(*small_args(w), "--archive").returncode == 0
+    _write(w.m / ".claude-work/live.txt", "written now\n")  # fresh mtime: M is live
+    p = w.run(*small_args(w), "--apply", "--clean", "--gc")
+    assert p.returncode == 5, p.stdout + p.stderr
+    rows = parse_summary(p.stdout)
+    assert "M modified in the last" in rows[("step", "clean")][2]
+    assert "M(" in rows[("step", "gc")][2]
+    commands = [line for line in p.stdout.splitlines() if line.startswith("  $ git")]
+    assert not any("clean -fdx" in c or "gc --prune=now" in c for c in commands)
+    assert (w.m / ".claude-work/scratch/s.txt").is_file()
+
+
+def test_session_wt_m_blocks_clean_and_gc(tmp_path: Path) -> None:
+    w, _ = small_world(tmp_path)
+    args = [*small_args(w), "--live-minutes", "0"]
+    assert w.run(*args, "--archive").returncode == 0
+    p = w.run(*args, "--apply", "--clean", "--gc", "--session-wt", str(w.m))
+    assert p.returncode == 5, p.stdout + p.stderr
+    rows = parse_summary(p.stdout)
+    assert "running session" in rows[("step", "clean")][2] and "running session" in rows[("step", "gc")][2]
+    assert "gc --prune=now" not in p.stdout and (w.m / ".claude-work/scratch/s.txt").is_file()
+
+
+def test_clean_refused_when_m_changed_since_the_archive(tmp_path: Path) -> None:
+    w, _ = small_world(tmp_path)
+    assert w.run(*small_args(w), "--archive").returncode == 0
+    _write(w.m / ".claude-work/scratch/after.txt", "not archived\n")
+    backdate(w.m / ".claude-work/scratch/after.txt", w.m / ".claude-work/scratch")
+    p = w.run(*small_args(w), "--apply", "--clean")
+    assert p.returncode == 5, p.stdout + p.stderr
+    assert "new or changed since the archive" in parse_summary(p.stdout)[("step", "clean")][2]
+    assert (w.m / ".claude-work/scratch/after.txt").is_file() and (w.m / ".claude-work/scratch/s.txt").is_file()
+
+
+def test_worktree_turning_live_during_apply_is_skipped_and_blocks_gc(tmp_path: Path) -> None:
+    """A rebase starts in a worktree after the classification: fresh_ok skips it, gc re-checks and refuses."""
+    w, _ = small_world(tmp_path)
+    other = w.base / "other"
+    w.git("worktree", "add", "-q", "-b", "other-br", str(other))
+    backdate(w.base)
+    assert w.run(*small_args(w), "--archive").returncode == 0
+    gitdir = w.git("rev-parse", "--absolute-git-dir", cwd=other).stdout.strip()
+    real = shutil.which("git")
+    assert real
+    shim_dir = w.base / "shim"
+    shim_dir.mkdir()
+    shim = shim_dir / "git"
+    # the first `git bundle verify` (archive verification, after the classification) starts the "rebase"
+    shim.write_text(f'#!/bin/bash\ncase " $* " in *" bundle verify "*) mkdir -p "{gitdir}/rebase-merge" ;; esac\nexec "{real}" "$@"\n')
+    shim.chmod(0o755)
+    env = dict(w.env, PATH=f"{shim_dir}:{w.env['PATH']}")
+    p = w.run(*small_args(w), "--apply", "--gc", env=env)
+    assert p.returncode == 5, p.stdout + p.stderr
+    assert other.is_dir() and "other-br" in w.branches()
+    rows = parse_summary(p.stdout)
+    assert "rebase in progress" in rows[("worktree", str(other))][2]
+    assert "rebase in progress" in rows[("step", "gc")][2]
+    assert "gc --prune=now" not in p.stdout
+    assert not w.wt["topic"].exists(), "the unaffected worktree is still removed"
+
+
+def test_a_worktree_git_cannot_read_is_an_error_not_a_match(tmp_path: Path) -> None:
+    """A corrupt index makes status/diff fail: archive reports the item failed (rc 6), apply keeps the worktree."""
+    w, _ = small_world(tmp_path)
+    gitdir = Path(w.git("rev-parse", "--absolute-git-dir", cwd=w.wt["topic"]).stdout.strip())
+    (gitdir / "index").write_bytes(b"not an index")
+    backdate(w.base)
+    p = w.run(*small_args(w), "--archive")
+    assert p.returncode == 6, p.stdout + p.stderr
+    assert "FAILED" in p.stdout
+    p = w.run(*small_args(w), "--apply")
+    assert p.returncode == 5, p.stdout + p.stderr
+    assert w.wt["topic"].is_dir()
+    assert parse_summary(p.stdout)[("worktree", "M/.claude/worktrees/topic")][0] == "ERROR"
+
+
+def test_skipped_prune_is_not_reported_as_success(tmp_path: Path) -> None:
+    w, _ = small_world(tmp_path)
+    gone = w.base / "gone"
+    w.git("worktree", "add", "-q", "--detach", str(gone), "main")
+    w.git("commit", "-q", "--allow-empty", "-m", "unique on a detached HEAD", cwd=gone)
+    shutil.rmtree(gone)  # the directory vanishes: the entry turns prunable
+    backdate(w.base)
+    assert w.run(*small_args(w), "--archive").returncode == 0
+    p = w.run(*small_args(w), "--apply")
+    assert p.returncode == 5, p.stdout + p.stderr
+    assert "prunable" in w.git("worktree", "list", "--porcelain").stdout
+    assert parse_summary(p.stdout)[("step", "prune")][2].startswith("skipped")

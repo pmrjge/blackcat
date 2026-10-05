@@ -11,7 +11,7 @@
 #   --archive [DIR]  Stage 1 only: archive everything unique into DIR, then verify it: a full bundle
 #                    of main; a bundle per branch and per detached HEAD with commits not in main; a
 #                    pack of the commits only reflogs reach; per worktree (M included) its status,
-#                    HEAD + `git diff --binary HEAD`, the list and a tarball of its untracked and
+#                    HEAD, its staged and unstaged diffs, the list and a tarball of its untracked and
 #                    ignored files; named tarballs (EQ-T, its snapshot, c0 data, the transcripts,
 #                    work_carried, every claude_info dir); MANIFEST.tsv and MANIFEST.tsv.sha256.
 #                    Every file is mode 0600 in a 0700 DIR. Refuses a non-empty DIR unless --resume.
@@ -58,8 +58,9 @@
 #      empty without --resume, DIR inside a worktree, archive lock held
 #   4  archive verification failed: no MANIFEST.tsv, manifest or file sha256/size mismatch, a bundle
 #      fails `git bundle verify`, manifest of another repository; --apply then changes nothing
-#   5  apply finished, but worktrees or branches other than M, main and the caller's worktree remain
-#      (blockers, items missing from the archive or changed since)
+#   5  apply finished, but something is left undone: worktrees or branches other than M, main and
+#      the caller's worktree remain, or a stale entry was not pruned, or a requested --clean or --gc
+#      was skipped (blockers, items missing from the archive or changed since)
 #   6  an archive item or a git command of --apply failed (the log above the summary says which)
 # End of usage
 
@@ -331,16 +332,32 @@ coverage_of_list() { # stdin: escaped names relative to $1; stdout: size TAB mti
   (cd -- "$1" && "$PERL" -ne 'chomp; my $e = $_; (my $n = $e) =~ s/\\(\\|n)/$1 eq "n" ? "\n" : "\\"/ge;
     my @s = lstat($n); print "$s[7]\t$s[9]\t$e\n" if @s;') | sort || true
 }
-tracked_stream() { # HEAD, porcelain status of tracked files and `git diff --binary HEAD` of worktree $1
-  # ($2 = its git dir). git runs on a scratch copy of the index: `git diff` refreshes stat data and
-  # rewrites the index even with GIT_OPTIONAL_LOCKS=0, which would also make the worktree look live.
-  local h idx=$WORK/index
+tracked_stream() { # the tracked state of worktree $1 ($2 = its git dir; $3, optional: a file that
+  # receives the staged diff): HEAD, porcelain status of tracked files, the sha256 of
+  # `git diff --cached --binary BASE` (the index) and `git diff --binary BASE` (the working tree),
+  # BASE being HEAD or, for an unborn branch, the empty tree. Any git failure makes it fail: a
+  # signature must never match because the same error happened twice. git runs on a scratch copy
+  # of the index: `git diff` refreshes stat data and rewrites the index even with
+  # GIT_OPTIONAL_LOCKS=0, which would also make the worktree look live.
+  local h base idx=$WORK/index staged
   rm -f -- "$idx"
-  if [ -n "$2" ] && [ -f "$2/index" ]; then cp -p -- "$2/index" "$idx"; fi
-  h=$(git -C "$1" rev-parse -q --verify HEAD) || h=unborn
+  if [ -n "$2" ] && [ -f "$2/index" ]; then cp -p -- "$2/index" "$idx" || return 1; fi
+  if h=$(git -C "$1" rev-parse -q --verify HEAD); then
+    base=$h
+  else
+    h=unborn
+    base=$(git -C "$1" hash-object -t tree /dev/null) || return 1
+  fi
   printf 'HEAD %s\n' "$h"
-  GIT_INDEX_FILE=$idx git -C "$1" status --porcelain=v1 --untracked-files=no 2>/dev/null || printf 'STATUS FAILED\n'
-  GIT_INDEX_FILE=$idx git -C "$1" diff --binary HEAD 2>/dev/null || true
+  GIT_INDEX_FILE=$idx git -C "$1" status --porcelain=v1 --untracked-files=no || return 1
+  if [ -n "${3:-}" ]; then
+    GIT_INDEX_FILE=$idx git -C "$1" diff --cached --binary "$base" >"$3" || return 1
+    staged=$(sha_of "$3") || return 1
+  else
+    staged=$(GIT_INDEX_FILE=$idx git -C "$1" diff --cached --binary "$base" | sha_stdin) || return 1
+  fi
+  printf 'STAGED %s\n' "$staged" # before the patch: git apply skips these preamble lines
+  GIT_INDEX_FILE=$idx git -C "$1" diff --binary "$base" || return 1
 }
 reflog_only_commits() { # commits no ref reaches (only reflogs, or nothing): what --gc would drop
   local out
@@ -604,7 +621,7 @@ WORK="" LOCKED_DIR="" ITEM_FAILS=0 RUN=""
 cleanup() {
   local f
   if [ -n "$WORK" ] && [ -d "$WORK" ]; then
-    for f in list cov ilist icov extra tracked unreach covered err index; do
+    for f in list cov ilist icov extra tracked unreach covered err index staged; do
       if [ -e "$WORK/$f" ]; then rm -f -- "$WORK/$f"; fi
     done
     rmdir -- "$WORK" 2>/dev/null || true
@@ -665,10 +682,14 @@ archive_root() { # status, tracked stream, file list and data tarball of worktre
   coverage_of_list "$p" <"$WORK/list" >"$WORK/cov"
   csha=$(sha_of "$WORK/cov")
   nfiles=$(wc -l <"$WORK/cov" | tr -d ' ')
-  tracked_stream "$p" "${WT_GITDIR[i]}" >"$WORK/tracked"
+  if ! tracked_stream "$p" "${WT_GITDIR[i]}" "$WORK/staged" >"$WORK/tracked" 2>/dev/null; then
+    item_fail "$(disp "$p"): git status/diff of its tracked files failed"
+    return 0
+  fi
   sig=$(sha_of "$WORK/tracked")
   if row_current wt-diff "$p" "$sig" && row_current wt-files "$p" "$csha" &&
     [ "$(mf_find wt-status "$p")" -ge 0 ] && row_ok "$(mf_find wt-status "$p")" &&
+    [ "$(mf_find wt-staged "$p")" -ge 0 ] && row_ok "$(mf_find wt-staged "$p")" &&
     [ "$(mf_find wt-data "$p")" -ge 0 ] && row_ok "$(mf_find wt-data "$p")"; then
     keep_msg "$(disp "$p")"
     return 0
@@ -679,6 +700,7 @@ archive_root() { # status, tracked stream, file list and data tarball of worktre
     return 0
   fi
   cp -- "$WORK/tracked" "$stem.diff.part"
+  cp -- "$WORK/staged" "$stem.staged.diff.part"
   cp -- "$WORK/cov" "$stem.files.part"
   if ! err=$(cut -f3- "$WORK/cov" | dec_nul | tar -czf "$stem.data.tar.gz.part" -C "$p" -n --null -T - 2>&1); then
     item_fail "$(disp "$p"): tar: $err"
@@ -686,10 +708,12 @@ archive_root() { # status, tracked stream, file list and data tarball of worktre
   fi
   mv -f -- "$stem.status.part" "$stem.status"
   mv -f -- "$stem.diff.part" "$stem.diff"
+  mv -f -- "$stem.staged.diff.part" "$stem.staged.diff"
   mv -f -- "$stem.files.part" "$stem.files"
   mv -f -- "$stem.data.tar.gz.part" "$stem.data.tar.gz"
   mf_set wt-status "$p" "$stem.status" -
   mf_set wt-diff "$p" "$stem.diff" "$sig"
+  mf_set wt-staged "$p" "$stem.staged.diff" "$sig"
   mf_set wt-files "$p" "$stem.files" "$csha"
   mf_set wt-data "$p" "$stem.data.tar.gz" "$nfiles"
 }
@@ -730,8 +754,10 @@ write_restore() {
     say "Reflog-only commits: git -C repo index-pack --stdin < packs/reflog-only.<run>-<hash>.pack"
     say "           (the commit ids are in packs/reflog-only.<run>.txt)"
     say "Worktree:  git -C repo worktree add <path> <branch or sha>;"
-    say "           git -C <path> apply --binary worktrees/<id>.<run>.diff   (tracked changes; the"
-    say "           HEAD/status lines at its top are ignored by git apply);"
+    say "           git -C <path> apply --binary worktrees/<id>.<run>.diff   (working-tree changes against"
+    say "           HEAD, or the empty tree for an unborn branch; git apply skips the HEAD/status/STAGED"
+    say "           lines at its top); git -C <path> apply --cached --binary worktrees/<id>.<run>.staged.diff"
+    say "           (the index);"
     say "           tar -xzf worktrees/<id>.<run>.data.tar.gz -C <path>      (untracked + ignored files)"
     say "Item:      tar -xzf data/<name>.<run>.tar.gz -C <parent dir of the original path>"
     say "Every file here is mode 0600; secret-data rows (session transcripts) may hold secrets, and so"
@@ -799,7 +825,7 @@ archive_stage() {
 GATE_WHY=""
 gate_rows() { # worktree $1 has all four rows
   local k
-  for k in wt-status wt-diff wt-files wt-data; do
+  for k in wt-status wt-diff wt-staged wt-files wt-data; do
     if [ "$(mf_find "$k" "$1")" -lt 0 ]; then GATE_WHY="not in the archive (no $k row): run --archive --resume"; return 1; fi
   done
 }
@@ -817,10 +843,14 @@ gate_coverage() { # every untracked/ignored file of worktree $1 is in its archiv
   fi
 }
 gate_root() { # worktree index $1: rows, tracked state, files, detached HEAD bundle
-  local i=$1 p=${WT_CANON[$1]} r
+  local i=$1 p=${WT_CANON[$1]} r sig
   gate_rows "$p" || return 1
   r=$(mf_find wt-diff "$p")
-  if [ "$(tracked_stream "$p" "${WT_GITDIR[i]}" | sha_stdin)" != "${MF_STATE[r]}" ]; then
+  if ! sig=$(tracked_stream "$p" "${WT_GITDIR[i]}" 2>/dev/null | sha_stdin); then
+    GATE_WHY="git status/diff of its tracked files failed"
+    return 1
+  fi
+  if [ "$sig" != "${MF_STATE[r]}" ]; then
     GATE_WHY="HEAD or tracked changes differ from the archive: run --archive --resume"
     return 1
   fi
@@ -961,6 +991,7 @@ apply_branches() {
 }
 m_live_why() { # why M itself counts as live, if it does
   local op hit
+  if is_session "$M"; then printf 'M is a running session (--session-wt)'; return 0; fi
   op=$(op_in_progress "$COMMON")
   if [ -n "$op" ]; then printf '%s in progress in M' "$op"; return 0; fi
   if [ -e "$COMMON/index.lock" ]; then printf 'index.lock present in M'; return 0; fi
@@ -978,19 +1009,27 @@ apply_clean() {
   if run_git -C "$M" clean -fdx; then STEP_CLEAN="done: every deleted file was in the verified archive"
   else STEP_CLEAN="FAILED"; APPLY_FAILS=$((APPLY_FAILS + 1)); fi
 }
-gc_blockers() { # live or locked worktrees still registered (M and the caller excluded)
-  local path h b lk w pr x pc i out=""
+gc_blockers() { # what is live or locked right now: M, and every registered worktree but the caller's
+  # (and the one holding this script). Checked fresh, just before gc: a worktree may have turned
+  # live during --apply, or appeared after the classification.
+  local path h b lk w pr x pc g op hit out="" mw
+  mw=$(m_live_why)
+  if [ -n "$mw" ]; then out="M($mw)"; fi
   while IFS=$SEP read -r path h b lk w pr x; do
     if [ "$pr" = 1 ]; then continue; fi
     pc=$(canon "$path")
     if [ "$pc" = "$M" ]; then continue; fi
     if [ "$CALLER_IDX" -ge 0 ] && [ "$pc" = "${WT_CANON[CALLER_IDX]}" ]; then continue; fi
+    if [ "$SCRIPT_IDX" -ge 0 ] && [ "$pc" = "${WT_CANON[SCRIPT_IDX]}" ]; then continue; fi
     if [ "$lk" = 1 ]; then out="$out $(disp "$pc")(locked)"; continue; fi
-    for ((i = 0; i < NWT; i++)); do
-      if [ "${WT_CANON[i]}" = "$pc" ]; then
-        case ${WT_CLASS[i]} in LIVE | SESSION | IN-PROGRESS | ERROR) out="$out $(disp "$pc")(${WT_CLASS[i]})" ;; esac
-      fi
-    done
+    if is_session "$pc"; then out="$out $(disp "$pc")(session)"; continue; fi
+    g=$(wt_gitdir "$pc")
+    if [ -z "$g" ]; then out="$out $(disp "$pc")(no git dir)"; continue; fi
+    op=$(op_in_progress "$g")
+    if [ -n "$op" ]; then out="$out $(disp "$pc")($op in progress)"; continue; fi
+    if [ -e "$g/index.lock" ]; then out="$out $(disp "$pc")(index.lock)"; continue; fi
+    hit=$(recent_file "$pc" "$g")
+    if [ -n "$hit" ]; then out="$out $(disp "$pc")(modified in the last $LIVE_MIN min)"; fi
   done < <(read_worktrees)
   printf '%s' "${out# }"
 }
@@ -1184,14 +1223,21 @@ print_summary() {
   printf '%-8s  %-*s  %-*s  %-*s  %s\n' step "$w1" clean "$w2" - "$w3" - "$STEP_CLEAN"
   printf '%-8s  %-*s  %-*s  %-*s  %s\n' step "$w1" gc "$w2" - "$w3" - "$STEP_GC"
 }
-remaining_count() { # worktrees (not M, not the caller's) and branches (not main) still present after --apply
+remaining_count() { # what --apply left undone: worktrees (not M, not the caller's), branches (not
+  # main), a prune that did not run, a requested --clean or --gc that was skipped
   local i n=0
   for ((i = 1; i < NWT; i++)); do
-    case ${WT_ACTION[i]} in removed | prune) ;; *) if [ "${WT_CLASS[i]}" != CALLER ]; then n=$((n + 1)); fi ;; esac
+    case ${WT_ACTION[i]} in
+      removed) ;;
+      prune) if [ "$STEP_PRUNE" != pruned ]; then n=$((n + 1)); fi ;;
+      *) if [ "${WT_CLASS[i]}" != CALLER ]; then n=$((n + 1)); fi ;;
+    esac
   done
   for ((i = 0; i < NBR; i++)); do
     case ${BR_ACTION[i]} in keep | 'deleted (-d)' | 'deleted (-D)' | gone) ;; *) n=$((n + 1)) ;; esac
   done
+  case $STEP_CLEAN in skipped*) n=$((n + 1)) ;; esac
+  case $STEP_GC in skipped*) n=$((n + 1)) ;; esac
   printf '%s' "$n"
 }
 
@@ -1243,6 +1289,6 @@ case $MODE in
     else say "Archive written with $ITEM_FAILS failed item(s) (above); the manifest covers the rest. Re-run with --resume."; fi ;;
   apply)
     say ""
-    say "Apply finished: $APPLY_FAILS failure(s); $(remaining_count) worktree(s)/branch(es) other than M, $MAIN and the caller's remain." ;;
+    say "Apply finished: $APPLY_FAILS failure(s); $(remaining_count) item(s) left undone (worktrees or branches other than M, $MAIN and the caller's; a skipped prune, --clean or --gc)." ;;
 esac
 exit "$rc"
