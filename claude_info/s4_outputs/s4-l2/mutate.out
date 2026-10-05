@@ -1,0 +1,55 @@
+KILLED   test_shadow_never_changes_output_and_writes_no_spill           1 failed, 102 deselected in 0.26s
+KILLED   test_mode_defaults_to_shadow                                   1 failed, 98 deselected in 0.53s
+KILLED   test_off_writes_nothing                                        1 failed, 102 deselected in 0.09s
+KILLED   test_mode_value_is_case_and_space_tolerant                     1 failed, 102 deselected in 0.09s
+KILLED   test_on_keeps_errors_summary_head_tail_in_order                1 failed, 102 deselected in 0.12s
+KILLED   test_last_error_lines_win_when_errors_exceed_budget            1 failed, 102 deselected in 0.14s
+KILLED   test_npm_err_lines_count_as_errors                             1 failed, 102 deselected in 0.08s
+KILLED   test_stderr_is_merged_into_the_digest_and_other_fields_kept    1 failed, 102 deselected in 0.12s
+KILLED   test_render_marks_omitted_ranges_exactly                       1 failed, 102 deselected in 0.08s
+KILLED   test_long_lines_are_cut_in_the_digest                          1 failed, 102 deselected in 0.13s
+KILLED   test_digest_is_bounded_and_saves_a_quarter                     1 failed, 98 deselected in 0.12s
+KILLED   test_logged_kept_chars_is_the_real_digest_size                 1 failed, 102 deselected in 0.13s
+KILLED   test_shadow_logs_the_same_decision_as_on                       1 failed, 102 deselected in 0.14s
+KILLED   test_read_keeps_a_contiguous_head_and_pages_the_rest           1 failed, 102 deselected in 0.10s
+KILLED   test_read_first_line_too_long_is_cut_and_said                  1 failed, 102 deselected in 0.09s
+KILLED   test_prompt_files_never_shrunk                                 1 failed, 97 deselected in 0.09s
+KILLED   test_ranged_read_never_shrunk                                  1 failed, 1 passed, 100 deselected in 0.09s
+KILLED   test_non_text_read_untouched                                   1 failed, 1 passed, 101 deselected in 0.09s
+KILLED   test_bash_threshold_boundary                                   1 failed, 94 deselected in 0.09s
+KILLED   test_bash_threshold_boundary and sed                           1 failed, 102 deselected in 0.09s
+KILLED   test_read_threshold_boundary                                   1 failed, 102 deselected in 0.08s
+KILLED   test_threshold_env_override_clamped                            1 failed, 2 passed, 98 deselected in 0.12s
+KILLED   test_small_outputs_are_logged_without_a_digest                 1 failed, 102 deselected in 0.08s
+KILLED   test_same_call_again_returns_full_output                       1 failed, 102 deselected in 0.15s
+KILLED   test_reading_a_spill_is_never_shrunk                           1 failed, 102 deselected in 0.13s
+KILLED   test_grep_over_the_spill_directory_is_never_shrunk             1 failed, 102 deselected in 0.10s
+KILLED   test_special_bash_results_untouched                            1 failed, 2 passed, 100 deselected in 0.11s
+KILLED   test_spill_is_0600_in_0700_dirs_under_the_project              1 failed, 102 deselected in 0.12s
+KILLED   test_existing_wide_dirs_are_tightened                          1 failed, 102 deselected in 0.12s
+KILLED   test_hostile_tool_use_id_cannot_steer_the_spill_path           1 failed, 1 passed, 98 deselected in 0.16s
+KILLED   test_symlink_below_the_project_disables_writes                 1 failed, 100 deselected in 0.12s
+KILLED   test_symlinked_log_is_not_followed                             1 failed, 102 deselected in 0.12s
+KILLED   test_fifo_log_does_not_hang                                    1 failed, 102 deselected in 15.12s
+KILLED   test_refused_project_roots_write_nothing and home              1 failed, 102 deselected in 0.12s
+KILLED   test_refused_project_roots_write_nothing and config            1 failed, 102 deselected in 0.12s
+KILLED   test_unwritable_spill_dir_means_no_shrink                      1 failed, 102 deselected in 0.12s
+KILLED   test_prune_removes_only_own_old_files                          1 failed, 102 deselected in 0.12s
+KILLED   test_git_status_stays_clean                                    1 failed, 102 deselected in 0.16s
+KILLED   test_spill_masks_credentials_and_keeps_line_numbers            1 failed, 102 deselected in 0.10s
+KILLED   test_digest_only_holds_lines_of_the_original                   1 failed, 102 deselected in 0.12s
+KILLED   test_log_holds_no_output_command_or_path                       1 failed, 102 deselected in 0.13s
+KILLED   test_log_holds_no_output_command_or_path                       1 failed, 102 deselected in 0.13s
+KILLED   test_family                                                    1 failed, 5 passed, 96 deselected in 0.11s
+KILLED   test_no_credential_tables_means_no_spill_and_no_shrink         1 failed, 102 deselected in 0.09s
+KILLED   test_scrub_masks_a_whole_pem_block                             1 failed, 102 deselected in 0.09s
+KILLED   test_output_never_touches_the_input                            1 failed, 102 deselected in 0.13s
+KILLED   test_output_never_touches_the_input                            1 failed, 102 deselected in 0.12s
+KILLED   test_other_events_and_tools_ignored                            1 failed, 99 deselected in 0.10s
+KILLED   test_settings_registers_posttooluse_bash_read_only             1 failed, 102 deselected in 0.07s
+KILLED   test_settings_registers_posttooluse_bash_read_only             1 failed, 102 deselected in 0.07s
+KILLED   test_through_the_stack_hook_stub                               1 failed, 101 deselected in 0.11s
+KILLED   test_garbage_input_fails_open                                  1 failed, 1 passed, 99 deselected in 0.15s
+KILLED   test_self_test_passes                                          1 failed, 102 deselected in 0.18s
+KILLED   test_report_reads_the_log                                      1 failed, 102 deselected in 0.10s
+mutants 54, killed 54; tests 49, without a killed mutant: none; problems: none

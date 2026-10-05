@@ -1,0 +1,25 @@
+diff --git a/dot-claude/settings.json b/dot-claude/settings.json
+index 50ac806..82ad3a6 100644
+--- a/dot-claude/settings.json
++++ b/dot-claude/settings.json
+@@ -290,7 +290,11 @@
+       "mcp__context-mode__ctx_index",
+       "mcp__context-mode__ctx_search",
+       "mcp__context-mode__ctx_stats",
+-      "Skill"
++      "Skill",
++      "Bash(just -f tools/instructor/justfile check-suite *)",
++      "Bash(just -f tools/instructor/justfile ff-merge *)",
++      "Bash(just -f tools/instructor/justfile worktree-audit *)",
++      "Bash(just -f tools/instructor/justfile --list)"
+     ],
+     "deny": [
+       "Agent(blackcat)",
+@@ -361,6 +365,7 @@
+       "Edit(.claude/settings.json)",
+       "Edit(.claude/settings.local.json)",
+       "Edit(.claude/hooks/**)",
++      "Edit(**/tools/instructor/**)",
+       "Read(~/.ssh/**)",
+       "Read(~/.aws/**)",
+       "Read(~/.config/gh/hosts.yml)",

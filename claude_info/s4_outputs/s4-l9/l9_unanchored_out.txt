@@ -1,0 +1,8 @@
+Installed 5 packages in 48ms
+total usd (recorded output) 1250.7
+git_inspect                      n=183 sessions=5 usd2..n= 14.05 share=1.123%
+date_stamp                       n= 31 sessions=4 usd2..n=  5.11 share=0.409%
+date_stamp+git_inspect           n= 22 sessions=3 usd2..n=  3.44 share=0.275%
+git_inspect+stack_tool           n=  9 sessions=4 usd2..n=  0.93 share=0.074%
+stack_tool                       n=  7 sessions=3 usd2..n=  0.41 share=0.033%
+date_stamp+stack_tool            n=  1 sessions=1 usd2..n=  0.02 share=0.002%
