@@ -28,8 +28,9 @@ MOVES = {
 }
 FROZEN = {"PREVIOUS_GIT_COMMITS.md"}
 ROOT_DOCS = ("README.md", "NOTICE", "CONFIG.md")
-# separators a reference to a/b can use: / or \ (optionally around quotes), a quoted join, a quoted '+'
-_SEP = r"""(?:["']?\s*/\s*["']?|\\{1,2}|["']\s*,\s*["']|["']\s*\+\s*["']/?)"""
+# separators a reference to a/b can use: / or \ (optionally around quotes or after a call's ")"), a
+# quoted join, a quoted '+'
+_SEP = r"""(?:["']?\)?\s*/\s*["']?|\\{1,2}|["']\s*,\s*["']|/?["']\s*\+\s*["']/?)"""
 
 
 def old_path_re(old):
@@ -51,6 +52,9 @@ def ls_files(*paths):
     ('os.path.join(ROOT, "lib", "assets", "x.png")', True),
     ("ROOT / 'lib' / 'assets'", True),
     ('"$HERE/lib"/assets/x', True),
+    ('Path("lib") / "assets"', True),
+    ('ROOT.joinpath("lib") / "assets"', True),
+    ('"lib/" + "assets"', True),
     ("lib\\assets\\x", True),
     ('"lib" + "/assets"', True),
     ("assets/blackcat-hero.jpg", False),
@@ -91,7 +95,7 @@ def test_no_tracked_file_names_an_old_path():
 def test_links_into_the_new_dirs_resolve():
     bad = []
     for new, _names in MOVES.values():
-        ref = re.compile(r"(?<![\w./-])%s/[\w./-]*" % re.escape(new))
+        ref = re.compile(r"(?<![\w./-])(?:\./)?%s/[\w./-]*" % re.escape(new))     # assets/x or ./assets/x
         for doc in ROOT_DOCS:
             for n, line in enumerate((ROOT / doc).read_text(encoding="utf-8").splitlines(), 1):
                 for m in ref.finditer(line):
