@@ -723,7 +723,8 @@ def self_test():
             s = out["hookSpecificOutput"]["updatedToolOutput"]["stdout"]
             assert "Error: boom" in s and "1 failed" in s and len(s) < 5000, s[:200]
             spills = os.listdir(os.path.join(d, ".claude-work", DIRNAME, "spill"))
-            data = open(os.path.join(d, ".claude-work", DIRNAME, "spill", spills[0])).read()
+            with open(os.path.join(d, ".claude-work", DIRNAME, "spill", spills[0]), encoding="utf-8") as fh:
+                data = fh.read()
             assert fake not in data and "line 1999 ok" in data
             assert handle(ev) is None                     # the same call again: unshrunk
     finally:
