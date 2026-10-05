@@ -7,6 +7,13 @@ description: Load before designing UI screens or a component library — DTCG to
 ## Scope
 Visual design of app and web interfaces and the contract between designer and front-end engineer. Type choice and scales → `typography`; color science and contrast math → `color-management`; accessibility criteria → `web-accessibility`; brand marks → `brand-identity`; motion design → `motion-graphics`; implementing in React/Svelte/Tailwind → `frontend-frameworks`.
 
+## Modules
+| module | load when |
+|---|---|
+| `3d-ux-design`* | UX of 3D apps and spatial interfaces: viewport navigation, selection and manipulation, tool and panel layout, XR comfort and targets |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
+
 ## 1. Token architecture
 - Three tiers: **primitive** (raw palette and scales: `color.blue.600`, `space.4`) → **semantic** (role: `color.text.primary`, `color.surface.raised`, `color.border.focus`, `space.inset.md`) → **component** (only when a component needs to diverge: `button.primary.bg`). Components consume semantic tokens; themes swap semantic → primitive mappings.
 - Modes: light/dark (and high-contrast, density) as alternate semantic sets, never as separate component styles.

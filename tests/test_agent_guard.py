@@ -170,7 +170,7 @@ def test_print_policy_format(env):
     assert p.returncode == 0
     d = json.loads(p.stdout)
     assert list(d) == ["policy", "leaves", "agents", "builtins", "blackcat_tools"]
-    assert len(d["agents"]) == 53 and len(set(d["agents"])) == 53
+    assert len(d["agents"]) == 56 and len(set(d["agents"])) == 56
     assert d["builtins"] == [] and "explore" in d["agents"] and "explore" in d["leaves"]
     assert set(d["policy"]) == set(d["agents"])
     assert sorted(d["leaves"]) == sorted(k for k, v in d["policy"].items() if not v)
