@@ -3,7 +3,8 @@
 CLAUDE.md is the user's file: the installer owns only the lines from its begin marker line to its end
 marker line. Pinned here: every byte outside the block survives (prefix, suffix, CRLF, BOM, no final
 newline); a second run is byte-identical; a malformed, symlinked, non-regular or non-UTF-8 file is left
-as it is (a symlink's target is never written); removal undoes an append exactly; and, through real
+as it is (a symlink's target is never written, a directory named CLAUDE.md is never removed); removal
+undoes an append exactly when the user's text ended in a newline (or was empty); and, through real
 scratch-HOME installs (as tests/test_install_state.py runs them), --dry-run writes nothing, the
 manifest records the block, a block edited inside is replaced with the edit in the backup, --restore
 puts the file back byte for byte, and a stack that stops shipping the template retracts the block.
@@ -214,6 +215,23 @@ def test_stage_leaves_an_unusable_file_alone(tmp_path, kind):
         assert "without an end" in r["why"] and "./install.sh" in r["why"]
 
 
+def test_stage_skips_when_the_live_file_is_not_regular(tmp_path):
+    """install_state stages only files and links, so a directory (or FIFO) named CLAUDE.md in the
+    config dir is absent from the staged copy: stage() must look at the live path, or the plan would
+    "add" a file over it (place() would rmtree the directory, with no backup)."""
+    live = tmp_path / "live"
+    (live / "CLAUDE.md").mkdir(parents=True)
+    stage_dir = tmp_path / "stage"
+    stage_dir.mkdir()
+    prev = {"sha256": "abc", "created": False}
+    r = cmb.stage(str(stage_dir), BODY, prev, live=str(live / "CLAUDE.md"))
+    assert r["action"] == "skipped" and r["entry"] is prev and "not a regular file" in r["why"]
+    assert not os.path.lexists(_md(stage_dir))
+    os.mkfifo(str(live / "fifo"))
+    assert cmb.stage(str(stage_dir), BODY, None, live=str(live / "fifo"))["action"] == "skipped"
+    assert cmb.stage(str(stage_dir), BODY, None, live=str(live / "absent"))["action"] == "created"
+
+
 # ------------------------------------------------------------------------------- install.sh
 def _home(tmp_path):
     home = str(tmp_path / "home")
@@ -299,6 +317,7 @@ def test_fresh_install_creates_the_block_and_a_later_stack_without_it_retracts(t
         subprocess.run(git + args, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     log = _tis._install(repo, home, conf, "--yes")
     assert _actions(log) == ["removed"], log[-3000:]
+    assert "  - CLAUDE.md  (the stack no longer ships a CLAUDE.md block)" in log, log[-3000:]
     assert not os.path.lexists(_md(conf)) and "claude_md_block" not in _manifest(conf)
 
 
@@ -352,3 +371,21 @@ def test_diff_reports_the_block_and_never_the_users_text(tmp_path):
         f.write(b"mine\n<!-- claude-agent-stack: end -->\n")
     rows = area()
     assert rows[0] == "CLAUDE.md block: 1 unreadable" and "without a begin" in rows[1], rows
+    with open(_md(conf), "wb") as f:
+        f.write(b"\xff\xfe mine\n")                       # install.sh skips it: never "+ repo only"
+    rows = area()
+    assert rows[0] == "CLAUDE.md block: 1 unreadable" and "not UTF-8" in rows[1], rows
+
+
+@needs_git
+def test_install_leaves_a_directory_named_claude_md_alone(tmp_path):
+    home, conf = _home(tmp_path)
+    repo = _tis._scratch_repo(str(tmp_path / "repo"))
+    os.makedirs(os.path.join(conf, "CLAUDE.md"))
+    with open(os.path.join(conf, "CLAUDE.md", "notes.txt"), "wb") as f:
+        f.write(b"my notes\n")
+    log = _tis._install(repo, home, conf)
+    assert _actions(log) == ["skipped"], log[-3000:]
+    assert "note: CLAUDE.md: not a regular file" in log
+    assert _bytes(os.path.join(conf, "CLAUDE.md", "notes.txt")) == b"my notes\n"
+    assert "claude_md_block" not in _manifest(conf)

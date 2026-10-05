@@ -374,9 +374,13 @@ class Diff:
             return
         try:
             data = read(p) if os.path.lexists(p) else b""
+            data.decode("utf-8")
             span = cmb.find_block(data)
         except OSError as exc:
             self.add(area, "?", rel, f"unreadable: {exc.strerror}")
+            return
+        except UnicodeDecodeError:
+            self.add(area, "?", rel, "not UTF-8 text: install.sh leaves it alone")
             return
         except cmb.BlockError as exc:
             self.add(area, "?", rel, f"{exc}: install.sh leaves it alone")

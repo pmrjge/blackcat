@@ -92,10 +92,13 @@ def splice(data, block):
     return data + (b"\n" if data.endswith(b"\n") else b"\n\n") + block
 
 
-def stage(dest_dir, body, prev=None):
+def stage(dest_dir, body, prev=None, live=None):
     """Bring dest_dir/CLAUDE.md (the installer's staged copy of the config dir) in line with `body`
     (the rendered template; None when the stack ships no block). prev: the manifest's
-    claude_md_block entry from the last install, or None.
+    claude_md_block entry from the last install, or None. live: the config dir's own CLAUDE.md. The
+    staging copies only files and links, so a directory or FIFO there is missing from dest_dir and
+    only `live` shows it: without this check the plan would add a file over it, and the apply would
+    remove the directory with no backup.
 
     Returns {"action", "why", "entry"}. action: created (no file before), added (appended to your
     file), updated (an earlier version of the stack's block), replaced (a block that is not the one
@@ -104,6 +107,8 @@ def stage(dest_dir, body, prev=None):
     `why` says why). entry: the manifest entry to keep ({"sha256", "created"}), None to drop it; a
     skipped run keeps prev."""
     prev = prev if isinstance(prev, dict) else None       # a hand-edited manifest: start over
+    if live is not None and os.path.lexists(live) and not (os.path.islink(live) or os.path.isfile(live)):
+        return {"action": "skipped", "entry": prev, "why": "not a regular file: left as it is"}
     path = os.path.join(dest_dir, NAME)
     if os.path.islink(path):
         target = "".join(c if c.isprintable() else "?" for c in os.readlink(path))   # printed in a note

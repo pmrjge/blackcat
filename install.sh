@@ -1972,7 +1972,7 @@ _cmb = importlib.util.module_from_spec(_cmb_spec)
 _cmb_spec.loader.exec_module(_cmb)
 _cmb_tmpl = os.path.join(SRC, "CLAUDE.block.md")
 _cmb_body = render(open(_cmb_tmpl, encoding="utf-8").read()) if os.path.isfile(_cmb_tmpl) else None
-_cmb_res = _cmb.stage(DEST, _cmb_body, manifest.get("claude_md_block"))
+_cmb_res = _cmb.stage(DEST, _cmb_body, manifest.get("claude_md_block"), live=os.path.join(C, _cmb.NAME))
 if _cmb_res["entry"] is None:
     manifest.pop("claude_md_block", None)
 else:
@@ -1981,6 +1981,8 @@ if _cmb_res["action"] == "replaced":
     report["replaced"]["CLAUDE.md"] = _cmb_res["why"]
 elif _cmb_res["action"] == "skipped":
     report["notes"].append("CLAUDE.md: " + _cmb_res["why"])
+elif _cmb_res["action"] == "removed" and not os.path.lexists(os.path.join(DEST, _cmb.NAME)):
+    report["removed"]["CLAUDE.md"] = _cmb_res["why"]          # the plan's reason for the deleted file
 if _cmb_res["action"] != "absent":
     print("  %-34s %s" % ("CLAUDE.md (the stack's block)",
                           _cmb_res["action"] + (" (see the notes)" if _cmb_res["action"] == "skipped" else "")))

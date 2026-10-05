@@ -9,13 +9,13 @@ Usage:
     uv run --script tests/prompt_budget.py [--base REV] [--head REV] [--json] [--check] [--turns [GLOB]]
 
 Per agent: description chars, body chars, maxTurns, whether it has the Agent tool, omitClaudeMd.
-Shared: the rules file, the skill listing and the agent listings. The skill listing sums, over the
+Shared: the rules file, the CLAUDE.md block, the skill listing and the agent listings. The skill listing sums, over the
 shipped skills, what lint_agents.skill_listing_entry counts: name + 4 + min(description,
 skillListingMaxDescChars) for a listed skill, name + 2 for a skillOverrides "name-only" one, 0 for
 "user-invocable-only", "off" or disable-model-invocation. The agent listing a subagent with the Agent
 tool sees is the sum of name + description + tools line + 12 over every agent but blackcat; BlackCat's
 own listing (blackcat_listing) sums the same over the agents its `Agent(...)` allowlist names. Per
-spawn = body + rules (unless omitClaudeMd) + skill listing + agent listing (if the agent has Agent;
+spawn = body + rules + CLAUDE.md block (both unless omitClaudeMd) + skill listing + agent listing (if the agent has Agent;
 blackcat: blackcat_listing). Tokens ~ ceil(chars / 3).
 
 --base REV   compare the working tree (head) with REV (read through `git show`); a table with deltas.
