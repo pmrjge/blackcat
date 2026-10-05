@@ -32,7 +32,7 @@ Hub: `3d-animation` (animation, actions, export). bpy and headless runs: `blende
 - Corrective shapes: a shape key driven by the joint angle (a driver on the shape key's value reading the bone's rotation in its local space, or Blender's "Rotational Difference" variable between two bones).
 
 ## 5. Shape keys and faces
-- Shape keys are per mesh: one Basis plus relative keys; 5.0 added "Make Basis" and flipped the Join as Shapes direction; 5.1 added "Apply to Basis".
+- Shape keys are per mesh: one Basis plus relative keys; 5.0 added "Make Basis" and "Flipped" variants of Join as Shapes and Update from Objects (they swap .L/.R); 5.1 added "Apply to Basis".
 - Facial rigs combine jaw and eye bones with shape keys for lips, brows, cheeks and lids. For real-time faces driven by face tracking, the 52 ARKit blendshape names (`jawOpen`, `eyeBlinkLeft`, `mouthSmileLeft`, …) are the common contract; check the target's exact list.
 - Keep shape keys symmetric pairs (`_L`/`_R`) generated from one sculpted full shape with a vertex-group split (Blender: Shape Key → Mirror, or split with vertex groups and a script).
 - Modifiers that change vertex count (Subdivision, Mirror unapplied) and shape keys don't mix at export: apply them on a copy first (the exporters' handling when they must apply modifiers to a shape-keyed mesh is unverified here: read their warnings and re-import).

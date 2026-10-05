@@ -5,7 +5,7 @@
 
 <p align="center"><sub>Hero image: photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper, <a href="assets/README.md">CC BY 4.0</a></sub></p>
 
-A multi-agent configuration for Claude Code: BlackCat on the main thread, 52 specialists, 214 on-demand
+A multi-agent configuration for Claude Code: BlackCat on the main thread, 55 specialists, 220 on-demand
 skills, and hooks that enforce the limits. blackcat-agent-stack is the Swiss Army knife for all things
 agentic and a jack of all trades for AI workflows: one stack that routes any job (code, research, data, ML,
 design, documents, infrastructure, automation) to the cheapest capable specialist agent, with the
@@ -389,7 +389,7 @@ whether the difference is enforced and tested, or a design intent.
 
 | Area | Plain Claude Code | This stack | Status |
 |---|---|---|---|
-| Delegation | Built-in general-purpose, Explore and Plan subagents | 52 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
+| Delegation | Built-in general-purpose, Explore and Plan subagents | 55 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
 | Nesting and concurrency | Depth 3, 20 subagents running at once | Depth 8, 128 at once, per-agent fan-out caps and spawn rows | Enforced: settings, guard |
 | Push and forge writes | Governed by your permission rules | Refused for every agent, whatever the rules or `STACK_POLICY` | Enforced: `tests/test_no_push.py` |
 | Writes to config and state | Protected-path writes are not prompted in `bypassPermissions` (docs); per the guard's docstring, Claude Code's check does not cover Bash writes (unverified against the docs) | Bash-level writes refused too | Enforced: `tests/test_protected_paths.py` |
@@ -572,8 +572,8 @@ parser):
 | Standalone | 88 | Neither hub nor module | ≤ 500 lines |
 | `references/*.md` | 185 files | Detail a skill links to and reads only when needed | must exist where named |
 
-- **Listed lazily, not preloaded.** 129 skills (hubs, standalone skills, 15 modules) are listed: 32
-  cross-domain entries with their description, 97 by name only (below). Every description starts with
+- **Listed lazily, not preloaded.** 128 skills (hubs, standalone skills, 15 modules) are listed: 32
+  cross-domain entries with their description, 96 by name only (below). Every description starts with
   its trigger ("Load before …", "Use when …") and names no agent; 89 hub modules are
   `user-invocable-only` (below); `stack-doctor`, `stack-tree` and `override-agent` are user commands. No
   `skills:` frontmatter preloads anything; a body enters context only when it is loaded.
@@ -619,7 +619,7 @@ Summary of [CONFIG.md](CONFIG.md) §5 ("On demand and automatic"):
 
 | Kind | Automatic (the work needs it) | On demand | Idle cost |
 |---|---|---|---|
-| Skills (214; 128 listed) | Listed description, plus a "load X when Y" pointer in the agent or hub | Skill tool by name; hidden hub modules by Read | The listing, on every spawn |
+| Skills (220; 128 listed) | Listed description, plus a "load X when Y" pointer in the agent or hub | Skill tool by name; hidden hub modules by Read | The listing, on every spawn |
 | MCP, agent-scoped (17 servers) | Start and stop with the agent that declares them inline | Spawn that agent | 0 elsewhere; schemas deferred |
 | MCP, magg catalog (23 servers) | A one-line pointer in the agent with the gap ("cluster state → mcp-broker mounts `kubernetes`") | Ask mcp-broker | 0 until mounted |
 | MCP, user scope (5 remote) | Session-wide, tools deferred until tool search loads them | — | Tool names only |
@@ -644,7 +644,7 @@ of every agent, the rules file, the skill listing and the agent listings (tokens
 
 `--base REV` prints a delta table; `--turns` reads local transcripts for p50/p90/max turns per agent.
 
-**Hub modules are read by path.** The 83 modules named in a hub's table (`py-typing`, `rust-async`,
+**Hub modules are read by path.** The 89 modules named in a hub's table (`py-typing`, `rust-async`,
 `sec-web-vulns`, …) are `user-invocable-only` in `skillOverrides`: they stay out of the skill listing
 every agent carries, and the Skill tool refuses them, so an agent Reads
 `~/.claude/skills/<name>/SKILL.md` when its `## Skills` line (where they are marked `name`*) or the
@@ -1046,11 +1046,11 @@ The counts in this README come from the files:
 ls dot-claude/agents/*.md | wc -l                             # 56 agents
 ls dot-claude/skills/*/SKILL.md | wc -l                       # 220 skills
 ls dot-claude/skills/*/references/*.md | wc -l                # 185 references
-jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 98 hidden: 83 hub modules + 7 bundled + 8 claude.ai
+jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 104 hidden: 89 hub modules + 7 bundled + 8 claude.ai
 jq '[.skillOverrides[] | select(. == "name-only")] | length' dot-claude/settings.json   # 96 listed by name only
 jq '.servers | length' dot-claude/magg/config.json            # 23 catalog servers
 grep -h '^  - [a-z-]*:$' dot-claude/agents/*.md | sort -u | wc -l   # 17 inline servers
-uv run python -c "import sys; sys.path.insert(0, 'tests'); import test_skill_modules as t; h, m = t.hubs_and_modules(); print(len(h), len(m))"   # 24 hubs, 98 modules
+uv run python -c "import sys; sys.path.insert(0, 'tests'); import test_skill_modules as t; h, m = t.hubs_and_modules(); print(len(h), len(m))"   # 28 hubs, 104 modules
 ```
 
 ### Update

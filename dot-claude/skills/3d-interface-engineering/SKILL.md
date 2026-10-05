@@ -7,7 +7,7 @@ description: Use to build 3D app interfaces — three.js/WebGPU viewports, camer
 Hub: `game-graphics` (frame budgets, profiling, GPU APIs). Interaction design it implements: `3d-ux-design`. Web app around the canvas: `frontend-frameworks`, `typescript-engineering`. Shaders: `gfx-shaders`. Native Rust GUIs: `rust-native-gui`. Engine editors: `game-engines`.
 
 ## Versions (checked 2026-10-05)
-- three.js r186 (2026-09-08). `WebGPURenderer` is imported from `three/webgpu` (since r171) and falls back to WebGL 2 where WebGPU is missing; node materials are written in TSL (`three/tsl`). WebXR works on `WebGPURenderer` since r185. Pin the exact release in `package.json`; three.js has no semver, and APIs move between releases (read the migration guide on every bump).
+- three.js r186 (2026-09-24). `WebGPURenderer` is imported from `three/webgpu` (since r171) and falls back to WebGL 2 where WebGPU is missing; node materials are written in TSL (`three/tsl`). WebXR works on `WebGPURenderer` since r185. Pin the exact release in `package.json`; three.js has no semver, and APIs move between releases (read the migration guide on every bump).
 - Other stacks: Babylon.js (built-in GUI, gizmos, inspector), React Three Fiber with drei (React bindings), Godot (Control nodes, SubViewport, EditorPlugin gizmos), Unity (UI Toolkit, editor Handles), Unreal (UMG/Slate, Widget Components, Editor Utility Widgets), visionOS (SwiftUI + RealityKit `RealityView` with attachments). Library versions beyond three.js: unverified here, check before use.
 
 ## 1. Viewport architecture

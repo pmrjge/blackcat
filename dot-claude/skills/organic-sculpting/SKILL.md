@@ -8,7 +8,7 @@ Hub: `sculpting-texturing` (retopology, UVs, baking, PBR). Painting the result o
 
 ## Versions (checked 2026-10-05)
 - ZBrush 2026.2.1 (2026-06-17); 2026.0 added Python scripting, 2026.1 added Retopology brushes. Option names inside ZBrush menus vary by release: read them on screen, never from memory.
-- Blender 5.2 LTS (2026-07-14). 5.0: Multires "Conform Base"; brush size is now a **diameter** (halve old radius values in scripts and presets); radial symmetry is stored per mesh. 5.2: Scene Project brush, Add Primitive tools inside Sculpt Mode, the voxel remesher keeps (interpolates) attributes such as color and face sets.
+- Blender 5.2 LTS (2026-07-14). 5.0: Multires "Conform Base"; brush size is now a **diameter** (double old radius values in scripts and presets; property names on 5.x: check the API docs); radial symmetry is stored per mesh. 5.2: Scene Project brush, Add Primitive tools inside Sculpt Mode, the voxel remesher keeps (interpolates) attributes such as color and face sets.
 - 5.2 Python: automasking settings moved to `mesh_automasking_settings` on `Paint` and `Brush` (`brush.mesh_automasking_settings.use_automasking_topology`; numeric ones lose the prefix: `automasking_cavity_factor` → `mesh_automasking_settings.cavity_factor`).
 
 ## 1. Brief and reference
