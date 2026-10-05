@@ -30,7 +30,8 @@ part of the old plan is dropped (Apple `container` replaced Docker, HANDOFF_STAT
    some path; the installer always re-executes from the checkout where `main` lives, so that path was very probably
    `/Users/pmrj/ZDone/claude-agent-stack` [unverified]. Installing from the throwaway clone of section A therefore makes
    C2 of `c0_check.sh` FAIL (C3 will pass), and C2 failing is an arm stop (`COMPARE_c0.md` §7). Section B tells you what to
-   do; the way out is a dated §12 amendment that re-pins the digest, which is your decision, not a command here.
+   do; the way out is a dated §12 amendment that re-pins the digest: decided 2026-10-05 (keep the clone flow), commands
+   in section 12 below.
 4. `a22c5b4` is an ancestor of `7d12c58` and of main [v]. The installed manifest is `7d12c58` [r: HANDOFF_STATE §1; check
    in step 1.1]. Between `a22c5b4` and `7d12c58` 28 files under `dot-claude/` change (blackcat.md, agent_guard.py,
    stack_hook.py, stack_limits.py, stack_sched.py, settings.json, the `mcp-server-craft` skill comes back, ...) [v: `git
@@ -172,17 +173,17 @@ Must print `a22c5b4e5aa67d5d3c6bea977eda2de1800bfd5f`.
 jq -cS .files ~/.claude/.stack-manifest.json | shasum -a 256
 ```
 
-Must start `b6f957f39fee1b5579eac3b77308e6d04695c86372425efb77981038d4bfc886`. If the commit is right and this differs,
-look at whether it is the path effect of §0.3 (this lists the installed files that carry the clone path; expect exactly
-the three named there):
+Expected from the clone install: it differs from `b6f957f39fee1b5579eac3b77308e6d04695c86372425efb77981038d4bfc886`,
+for the path reason of §0.3 (settled: section 12 below re-pins it; do not stop). This lists the installed files that
+carry the clone path; expect exactly the three named in §0.3:
 
 ```sh
 grep -rl "$D" ~/.claude/agents ~/.claude/skills
 ```
 
-Three files and a differing digest: stop and tell the orchestrator (ASK USER: re-pin by a dated `COMPARE_c0.md` §12
-amendment, then new sidecar hashes via `freeze.sh`'s documented procedure). Do not edit the pins yourself, and do not
-dispatch.
+Three files and a differing digest: do section 12 now (re-pin, 2026-10-05), before the `CONFIG.txt` block below and
+before any dispatch. A different number of files, or a digest that fails the section 12 proof (step 12.2): stop, do not
+dispatch, tell the orchestrator.
 
 Record the configuration (`c0_check.sh` refuses to pass without it; `stack.env` is hashed, never copied):
 
@@ -345,8 +346,104 @@ rm -rf "$D"
 
 Fallback if something looks wrong: `cd $M && ./install.sh --restore` puts back the config as it was before the last install.
 
+## 12. Re-pin of the manifest files digest (2026-10-05)
+
+Decision (user, 2026-10-05): keep the throwaway-clone install of section A and re-pin C2's expected digest afterwards.
+
+Why the expected hash differs [v: `git show a22c5b4:install.sh`, `git grep __STACK_REPO__ a22c5b4 -- dot-claude`]. The
+installer renders `__STACK_REPO__` as the directory it runs from (`HERE`, passed to the renderer as `REPO`), and the
+manifest stores the sha256 of each rendered file (`files_entry[rel] = rendered_hash`). Exactly three shipped files
+contain the placeholder:
+
+- `agents/claude-code-engineer.md`
+- `agents/mcp-broker.md`
+- `skills/mcp-server-craft/references/from-mcp-broker.md`
+
+Installed from `$D` (`$HOME/c0-a22c5b4`) they contain `$D` where the pinned install (very probably `$M`, [unverified])
+had `/Users/pmrj/ZDone/claude-agent-stack`, so their three manifest hashes, and with them the `jq -cS .files` digest
+`b6f957f3...`, change. The other files do not depend on the repo path. C3 (installed files match the manifest) still
+passes. Where C2 reads the expected value: the line `PIN_FILES_DIGEST=` near the top of `$CD/c0_check.sh`. The copy in
+`hand_off/c0_support/c0_check.sh` keeps the old value on purpose: it is pinned byte for byte (`PINS.sha256`, step 1.4);
+only the `$CD` copy is amended, and `COMPARE_c0.sha256` (C4) is regenerated for it.
+
+Run after A3 and the §B commit check, before the `CONFIG.txt` block. Same terminal as section A (`$D`, `$M`, `$CD`, `$A`
+set).
+
+12.1 Record the new digest:
+
+```sh
+export NEWDIG=$(jq -cS .files ~/.claude/.stack-manifest.json | shasum -a 256 | awk '{print $1}'); echo $NEWDIG
+```
+
+12.2 Proof that only the path changed: re-hash the three files with `$D` replaced by `$M`, substitute those hashes into
+the manifest and digest it. The last command must print `b6f957f39fee1b5579eac3b77308e6d04695c86372425efb77981038d4bfc886`
+(if it prints anything else, stop: something other than the path changed, or the pinned install was not at `$M`):
+
+```sh
+cd ~/.claude && for f in agents/claude-code-engineer.md agents/mcp-broker.md skills/mcp-server-craft/references/from-mcp-broker.md; do printf '%s\t%s\n' "$f" "$(sed "s#$D#$M#g" "$f" | shasum -a 256 | awk '{print $1}')"; done > $TMPDIR/repin_m.tsv
+```
+
+```sh
+jq -cS --rawfile t $TMPDIR/repin_m.tsv '.files + ($t | split("\n") | map(select(length > 0) | split("\t") | {key: .[0], value: .[1]}) | from_entries)' ~/.claude/.stack-manifest.json | shasum -a 256 | awk '{print $1}'
+```
+
+12.3 Amend the `$CD` copies (they are read-only; this makes them writable, edits, restores). The first line shows the old
+pin, the last shows the new one:
+
+```sh
+grep -n '^PIN_FILES_DIGEST=' $CD/c0_check.sh
+```
+
+```sh
+chmod u+w $CD/c0_check.sh $CD/COMPARE_c0.md $CD/COMPARE_c0.sha256
+```
+
+```sh
+sed -i '' "s/^PIN_FILES_DIGEST=[0-9a-f]\{64\}/PIN_FILES_DIGEST=$NEWDIG/" $CD/c0_check.sh
+```
+
+```sh
+cat >> $CD/COMPARE_c0.md <<EOF
+- 2026-10-05 re-pin of the manifest files digest (§1 table, C2). Reason: c0 is installed from a throwaway clone at
+  \`$D\`, and the installer renders its own path into three files (\`agents/claude-code-engineer.md\`,
+  \`agents/mcp-broker.md\`, \`skills/mcp-server-craft/references/from-mcp-broker.md\`; \`__STACK_REPO__\`), so the
+  \`jq -cS .files\` digest differs from \`b6f957f39fee1b5579eac3b77308e6d04695c86372425efb77981038d4bfc886\`. Proof: with
+  the clone path replaced by \`$M\` in those three files the digest is again the old one. New expected digest:
+  \`$NEWDIG\` (\`PIN_FILES_DIGEST\` in \`c0_check.sh\`). Commit pin, C3 and every other pin are unchanged.
+EOF
+```
+
+```sh
+{ echo "# amended 2026-10-05: C2 files digest re-pinned (RUNBOOK_c0 section 12); COMPARE_c0.md and c0_check.sh hashes replaced"; (cd $CD && shasum -a 256 COMPARE_c0.md c0_check.sh freeze.sh); } > $CD/COMPARE_c0.sha256
+```
+
+```sh
+chmod a-w $CD/c0_check.sh $CD/COMPARE_c0.md $CD/COMPARE_c0.sha256
+```
+
+12.4 Verify and keep a record (C4 sidecar must say OK on all three; the pin line must show `$NEWDIG`):
+
+```sh
+cd $CD && shasum -a 256 -c COMPARE_c0.sha256
+```
+
+```sh
+grep -n '^PIN_FILES_DIGEST=' $CD/c0_check.sh
+```
+
+```sh
+mkdir -p $A && printf 'repinned_utc: %s\nold: b6f957f39fee1b5579eac3b77308e6d04695c86372425efb77981038d4bfc886\nnew: %s\nclone: %s\n' "$(date -u '+%FT%TZ')" "$NEWDIG" "$D" > $A/REPIN.txt
+```
+
+The `P90` dry run of the gate in section B must then show `PASS C2`. If you later redo A3 from a clone at another path,
+repeat section 12 with that path.
+
 ## Unverified
 
 - `freeze.sh` byte-exactness (no pin); the clone and `checkout -B` steps (agent sandbox refused git on another path); the
   install flags of your last install; whether the pinned files digest came from an install at `$M` (§0.3); the state of
   other Claude Code sessions and of `~/.claude` (not readable from the agent sandbox); `./install.sh --diff` output.
+- Section 12: the commands were not run (the install cannot be run by agents); the three placeholder files are verified
+  from `a22c5b4`'s tree, the 12.2 proof assumes the pinned install was at `$M` and that `sed` reproduces the rendered
+  bytes (the clone path appears in those files only through `__STACK_REPO__`); whether `shasum -c` accepts the `#` first
+  line of the sidecar is [unverified] (the original `freeze.sh` format had such lines).
