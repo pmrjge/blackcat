@@ -79,7 +79,8 @@ def test_fresh_install_diffs_clean_and_writes_nothing(installed):
     assert summary(p.stdout) == (1, 0, 0), p.stdout
     assert re.search(r"\+ repo only\s+stack-plugins/\s+\(whole folder, \d+ files; install.sh --no-plugins", p.stdout)
     assert "installed %s (CLAUDE_CONFIG_DIR)" % os.path.realpath(conf) in p.stdout
-    for area in ("agents", "rules", "skills", "hooks", "bin", "mcp", "magg", "magg catalog", "settings.json hooks"):
+    for area in ("agents", "rules", "skills", "hooks", "bin", "mcp", "magg", "magg catalog", "settings.json hooks",
+                 "CLAUDE.md block"):
         assert "\n%s: in sync" % area in p.stdout, (area, p.stdout)
     # --config-dir wins over CLAUDE_CONFIG_DIR, as in a real install
     p2 = diff(repo, home, conf, "--config-dir", conf, env_conf=False)

@@ -33,6 +33,7 @@ blackcat: blackcat_listing). Tokens ~ ceil(chars / 3).
 """
 import argparse
 import glob
+import importlib.util
 import json
 import math
 import os
@@ -44,6 +45,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DOT = "dot-claude"
 RULES = DOT + "/rules/claude-agent-stack.md"
+CLAUDE_MD_BLOCK = DOT + "/CLAUDE.block.md"   # the stack's block in CLAUDE.md (lib/claude_md_block.py)
 DEFAULT_BASE = "ad22962"   # phase-3 baseline (main after phase 2: 56 agents, 248 skills)
 BASE_FIXTURE = ROOT / "tests" / "fixtures" / "prompt_budget_base.json"   # DEFAULT_BASE measured, frozen
 DESC_MAX = 200
@@ -236,23 +238,36 @@ def measure(tree):
         skills += skill_listing_entry(parts[2], len(unquote(d.group(1))) if d else 0,
                                       overrides.get(parts[2], "on"), cap, invocable)
     rules = len(tree.read(RULES) or "")
+    block = claude_md_block_chars(tree.read(CLAUDE_MD_BLOCK))
     listing = sum(a["listing"] for n, a in agents.items() if n != "blackcat")
     bc = agents.get("blackcat")
     allow = set((bc or {}).get("allowlist") or [])
     bc_listing = sum(a["listing"] for n, a in agents.items() if n in allow and n != "blackcat")
     for n, a in agents.items():
         shown = bc_listing if n == "blackcat" else listing
-        a["per_spawn"] = (a["body"] + (0 if a["omit_claude_md"] else rules) + skills
+        a["per_spawn"] = (a["body"] + (0 if a["omit_claude_md"] else rules + block) + skills
                           + (shown if a["has_agent"] else 0))
     spawned = [a for n, a in agents.items() if n != "blackcat"]
     return {"agents": agents, "rules": rules, "skill_listing": skills, "agent_listing": listing,
-            "blackcat_listing": bc_listing,
+            "blackcat_listing": bc_listing, "claude_md_block": block,
             "bodies": sum(a["body"] for a in agents.values()),
             "descriptions": sum(a["description"] for a in agents.values()),
             "per_spawn": sum(a["per_spawn"] for a in agents.values()),
             "per_spawn_mean": mean(a["per_spawn"] for a in spawned),
             "per_spawn_mean_agent": mean(a["per_spawn"] for a in spawned if a["has_agent"]),
             "per_spawn_mean_leaf": mean(a["per_spawn"] for a in spawned if not a["has_agent"])}
+
+
+def claude_md_block_chars(template):
+    """The block install.sh writes into CLAUDE.md (marker lines around the template): it loads with
+    CLAUDE.md, so in every thread but an omitClaudeMd agent's. 0 when the tree ships no template.
+    The marker lines come from the working tree's lib/claude_md_block.py, whatever revision is measured."""
+    if template is None:
+        return 0
+    spec = importlib.util.spec_from_file_location("claude_md_block", ROOT / "lib" / "claude_md_block.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return len(mod.render_block(template).decode("utf-8"))
 
 
 def mean(xs):
@@ -308,7 +323,7 @@ def check(head, base):
 
 
 # ---------------------------------------------------------------- report
-TOTALS = ("descriptions", "bodies", "rules", "skill_listing", "agent_listing", "blackcat_listing",
+TOTALS = ("descriptions", "bodies", "rules", "claude_md_block", "skill_listing", "agent_listing", "blackcat_listing",
           "per_spawn", "per_spawn_mean", "per_spawn_mean_agent", "per_spawn_mean_leaf")
 
 
@@ -355,7 +370,7 @@ def table(head, base, rev):
     out.append("| total | base chars | head chars | Δ | head ≈ tokens |")
     out.append("|---|---:|---:|---:|---:|")
     for k in TOTALS:
-        out.append("| %s | %d | %d | %s | %d |" % (k, base[k], head[k], pct(base[k], head[k]), tok(head[k])))
+        out.append("| %s | %d | %d | %s | %d |" % (k, base.get(k, 0), head[k], pct(base.get(k, 0), head[k]), tok(head[k])))
     common = [n for n in base["agents"] if n in head["agents"]]
     b0 = sum(base["agents"][n]["body"] for n in common)
     b1 = sum(head["agents"][n]["body"] for n in common)
