@@ -1,0 +1,52 @@
+# WALL policy (eqwall.policy.v1): DEFAULT DENY. This file allows nothing; it only fixes the structure and the limits.
+# The broker refuses unknown keys, a [[tool]] whose command is a symlink, a shell, an interpreter, a network client or
+# a git/forge CLI, and any command whose sha256 differs from command_sha256. Its sha256 is frozen in flags.json
+# (wall.policy_sha256) with the pre-registration: editing it after the freeze makes the harness refuse to start a run.
+#
+# Approving anything needs ALL of:
+#   1. the kind in [kinds].allowed, and a [[tool]] entry (missing-tool / other) or a [web] domain (web-research);
+#   2. a security-auditor PASS verdict (no open High/Critical) recorded by the USER for the entry's class sha256
+#      (`eq_wall.py check-policy <this file>` prints them; `eq_wall.py verdict-add` records one, TTY only);
+#   3. for externally_visible / destructive entries and every kind "other": a single-use USER consent for the exact
+#      action sha256 in that run (`eq_wall.py consent-add`, TTY only). Agents and the broker can never grant it.
+# A missing-tool request for a tool listed in the TOOLS manifest is refused: add it to the manifest instead.
+
+schema = "eqwall.policy.v1"
+comment = "default deny: no kind allowed, no tool, no domain"
+
+[limits]
+max_request_bytes = 16384        # one request file
+max_requests_per_channel = 8     # per sandboxed member call (one channel)
+max_requests_per_run = 64        # whole run, all arms (equal for every arm: COMPARE amendment proposal)
+max_channels_per_run = 2048
+max_tunnel_bytes = 1048576       # container-written bytes in one channel dir; above it the channel is tripped
+max_tunnel_entries = 32
+exec_timeout_s = 60
+max_output_bytes = 262144
+summary_chars = 1500
+max_infile_bytes = 1048576
+
+[kinds]
+allowed = []                     # e.g. ["missing-tool"] — only after an entry below has a verdict
+
+[web]
+fetch_command = ""               # absolute path of a fixed fetcher (no redirects off-domain, https only); "" = none
+fetch_command_sha256 = ""
+domains = []                     # exact lower-case host names
+
+[tools_manifest]
+path = "../eq-container/TOOLS.toml" # relative to this file; missing + required = every missing-tool request refused
+required = true
+
+# Example entry (commented out; every field is part of the class sha256 a verdict binds to):
+# [[tool]]
+# name = "pdfinfo"
+# kind = "missing-tool"
+# command = "/opt/homebrew/Cellar/poppler/<version>/bin/pdfinfo"   # the real file, not a symlink
+# command_sha256 = "<64 hex>"
+# fixed_args = []
+# args = [ { name = "file", type = "infile" } ]
+# externally_visible = false
+# destructive = false
+# timeout_s = 30
+# max_output_bytes = 65536

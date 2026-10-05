@@ -816,6 +816,13 @@ def cache_root():
     return state_root() + "-cache"
 
 
+def eq_tunnel_root():
+    """The WALL's tunnel root (install.sh --with-eq-container; lib/eq-wall): every channel's token
+    lives there, and only the harness and the broker write it."""
+    base = os.environ.get("XDG_CACHE_HOME") or os.path.expanduser("~/.cache")
+    return os.path.join(base, "claude-agent-stack", "eq-tunnel")
+
+
 def sdir(session_id):
     d = os.path.join(state_root(), safe(session_id, "nosession"))
     os.makedirs(d, exist_ok=True)
@@ -4410,8 +4417,10 @@ def session_start_bookkeeping(ev, d):
     for s in os.listdir(root):
         p = os.path.join(root, s)
         # stack_usage.py's runs.csv and collectors, stack_limits.py's live values and snapshots
-        # (pruned by stack_limits itself after 30 days): kept across sessions
-        if s in ("usage", "limits"):
+        # (pruned by stack_limits itself after 30 days), eq-container/ (the equilibrium isolation's
+        # image records and verification results: recreated only by a rebuild) and eq-wall/ (the
+        # WALL's audit logs, the user's verdict and consent stores: evidence): kept across sessions
+        if s in ("usage", "limits", "eq-container", "eq-wall"):
             continue
         try:
             if os.path.isdir(p) and p != d and now - last_activity(p) > 3 * 86400:
@@ -7702,9 +7711,10 @@ def _heredoc_interpreter(owner):
 def builtin_protect_specs():
     """`//abs` deny specs for the stack's own files in an installed config dir (the hook lives in
     <config>/hooks/; the repo's dot-claude/ still holds __CLAUDE_DIR__ and is skipped), for the
-    hook state dir, install.sh's backups and the MCP servers' caches. Backs up the settings.json
-    deny rules the protect scan reads."""
-    specs = [("/" + os.path.join(r, "**"), ()) for r in (state_root(), backup_root(), cache_root())]
+    hook state dir, install.sh's backups, the MCP servers' caches and the WALL's tunnel root. Backs
+    up the settings.json deny rules the protect scan reads."""
+    specs = [("/" + os.path.join(r, "**"), ())
+             for r in (state_root(), backup_root(), cache_root(), eq_tunnel_root())]
     conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         with open(os.path.join(conf, "settings.json"), encoding="utf-8") as f:

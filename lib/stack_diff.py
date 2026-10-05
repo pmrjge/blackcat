@@ -412,7 +412,9 @@ def main(argv):
         usage("%s is not a folder" % c)
     state = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.join(home, ".local", "state"), "claude-agent-stack")
     subs = {"__CLAUDE_DIR__": c, "__HOME__": home, "__STACK_REPO__": repo, "__STACK_BACKUPS__": state + "-backups",
-            "__STACK_CACHE__": state + "-cache", "__STACK_STATE__": state}
+            "__STACK_CACHE__": state + "-cache", "__STACK_STATE__": state,
+            "__EQ_TUNNEL__": os.path.join(os.environ.get("XDG_CACHE_HOME") or os.path.join(home, ".cache"),
+                                          "claude-agent-stack", "eq-tunnel")}
     head = git_head(repo)
     print("stack diff (read-only): repo %s (commit %s) vs installed %s (%s)" % (repo, head, c, how))
     if not os.path.isdir(c):

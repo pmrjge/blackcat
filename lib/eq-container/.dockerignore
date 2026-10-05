@@ -1,0 +1,9 @@
+*
+!project
+!project/**
+!minimal
+!minimal/**
+!TOOLS.toml
+!tools.sh
+!tc
+!tc/**

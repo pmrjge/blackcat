@@ -409,12 +409,17 @@ def test_status_line(st, tmp_path):
 
 
 def test_guard_prune_keeps_usage(st, tmp_path):
-    """agent_guard.py's SessionStart prunes state folders idle for 3 days, never usage/."""
+    """agent_guard.py's SessionStart prunes state folders idle for 3 days, never usage/, limits/, nor
+    eq-container/ (image records, verification results) and eq-wall/ (audit logs, the user's verdicts and
+    consents: install.sh --with-eq-container); a folder merely named like them elsewhere is no exception."""
     old = time.time() - 5 * 86400
-    for name in ("usage", "old-session"):
+    for name in ("usage", "limits", "old-session", "eq-container", "eq-wall", "eq-container-old"):
         d = st / name
         d.mkdir(parents=True)
         (d / "f").write_text("x")
+        if name.startswith("eq-"):
+            (d / "status.env").write_text("x")
+            os.utime(d / "status.env", (old, old))
         os.utime(d / "f", (old, old))
         os.utime(d, (old, old))
     ev = {"session_id": "new-session", "hook_event_name": "SessionStart", "source": "startup", "cwd": str(tmp_path)}
@@ -422,6 +427,9 @@ def test_guard_prune_keeps_usage(st, tmp_path):
                        env=env_for(tmp_path, HOME=str(tmp_path)), timeout=60)
     assert p.returncode == 0, p.stderr
     assert (st / "usage" / "f").exists() and not (st / "old-session").exists()
+    assert (st / "limits" / "f").exists()
+    assert (st / "eq-container" / "status.env").exists() and (st / "eq-wall" / "status.env").exists()
+    assert not (st / "eq-container-old").exists()
 
 
 # ---------------------------------------------------------------- the active model

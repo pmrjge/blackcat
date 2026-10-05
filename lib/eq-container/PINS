@@ -1,0 +1,37 @@
+# PINS: every pinned input of the eq-container images, one KEY=VALUE per line (parsed by build.sh --check; do not add spaces
+# around '='). The same values are the ARG defaults in Dockerfile, Dockerfile.minimal and Dockerfile.toolchains; build.sh
+# --check fails (exit 11) when they differ. Looked up 2026-10-04 by an agent from the sources named in the comment above each line.
+#
+# Placeholder rule: a value that is UNSET or contains TODO is never invented. build.sh refuses to build an image that needs
+# it (exit 13) and prints the command that produces the value; whoever fills it commits the change.
+# Rule for a re-pin: change the value here AND in the Dockerfile ARG default (build.sh --check compares), rebuild, rerun
+# the probe (eq-container.sh install --force-verify) before freezing.
+
+# docker-library/repo-info repos/debian/remote/trixie-slim.md @0de62c7b (2026-09-19): INDEX digest of debian:trixie-slim built
+# 2026-09-18 (arm64 variant da496358bd69...). NOT read from the registry (the agent could not reach Docker Hub). The builder
+# (container build, BuildKit) verifies the digest when it pulls the base: a wrong one fails the build loudly. Re-pin: read the
+# index digest of debian:trixie-slim from Docker Hub (e.g. `container image pull debian:trixie-slim` then
+# `container image inspect debian:trixie-slim`), put it here and in the three Dockerfiles' ARG BASE_IMAGE.
+BASE_IMAGE=debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+# apt packages come from snapshot.debian.org at the base image's build date (apt verifies the signed InRelease)
+APT_SNAPSHOT=20260918T000000Z
+# Lean: GitHub release asset digest (api.github.com/repos/leanprover/lean4/releases/tags/v4.34.1) AND shasum of a full local
+# download of lean-4.34.1-linux_aarch64.tar.zst (581946052 bytes), equal.
+LEAN_VERSION=4.34.1
+LEAN_SHA256=fdb974c2cdb4627e090d5d4007b913e09d13c4868720fb5594e22808b3de9e37
+# uv: github.com/astral-sh/uv release 0.12.22, uv-aarch64-unknown-linux-gnu.tar.gz (asset digest)
+UV_VERSION=0.12.22
+UV_SHA256=6f66a14e8239871fb477f9746c941fedfa77e8fe28a8bc7c07e1dc7f53a66712
+# CPython: python-build-standalone release 20261001 SHA256SUMS, install_only_stripped, aarch64-unknown-linux-gnu; the host's
+# `uv run --no-project python` is 3.14.8 (the pools pin no Python: requires-python >=3.10 / >=3.11 only)
+PYTHON_VERSION=3.14.8
+PBS_TAG=20261001
+PYTHON_SHA256=4395ae16388f9d3409cba7e20161753ed3359b13d959345415029f874f675162
+# Mathlib: tag v4.34.1 = commit d13f23b7 (GitHub API git/ref/tags/v4.34.1); the lake-manifest.json in project/ pins the
+# 9 packages (project/SHA256SUMS covers the Lake files). The cache download is verified by lake/Mathlib's own hashes.
+MATHLIB_REV=d13f23b723b8a846827a245b89c10fc7d3f11612
+# busybox-static from the apt snapshot above (USER decision 2026-10-05: the Debian package). NOT looked up (Debian mirrors and
+# busybox.net unreachable from the agent): the sha256 of the arm64 binary is trust-on-first-use. Fill with:
+#   bash lib/eq-container/build.sh --resolve-tools --write-pin   then review the printed Debian package versions, and commit.
+# Needed only by the minimal images (the default `core` profile), so until it is filled `core` stops at exit 13.
+BUSYBOX_SHA256=UNSET

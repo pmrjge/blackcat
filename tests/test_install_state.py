@@ -602,3 +602,34 @@ def test_install_removes_a_script_the_stack_no_longer_ships(tmp_path):
     backups = os.path.join(home, ".local", "state", "claude-agent-stack-backups")
     saved = [os.path.join(r, n) for r, _ds, fs in os.walk(backups) for n in fs if n == "stack-update-tools"]
     assert saved and any(_read(p) == old for p in saved), saved
+
+
+@pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, ".git")) and not os.path.isfile(
+    os.path.join(ROOT, ".git")), reason="needs the stack's git checkout")
+def test_eq_manifest_keys_survive_a_later_plain_install(tmp_path):
+    """The manifest keys --with-eq-container writes (eq_container, eq_wall: lib/eq-container, lib/eq-wall)
+    are kept by a later install without --with-eq-container: install_state.py validates only "files",
+    and the plain run neither drops nor rewrites them, nor runs steps 10b/10c."""
+    home = str(tmp_path / "home")
+    os.makedirs(home)
+    conf = os.path.join(home, ".claude")
+    repo = _scratch_repo(str(tmp_path / "repo"))
+    first = _run_install(repo, home, conf, "--yes")
+    assert first.returncode == 0, (first.stdout[-1500:], first.stderr[-1500:])
+    mpath = os.path.join(conf, ".stack-manifest.json")
+    with open(mpath, encoding="utf-8") as f:
+        m = json.load(f)
+    ref = "eq.invalid/eq-min:4.34.1-arm64@sha256:" + "a" * 64
+    keys = {"eq_container": {"status": "ok", "at": "2026-10-05T00:00:00Z", "images": {"min_both": "sha256:" + "a" * 64},
+                             "image_refs": {"pf": ref, "cp": ref, "cr": ref}, "state_dir": "/x/eq-container",
+                             "env_image": ref},
+            "eq_wall": {"status": "on", "flag": "default", "env": {"EQ_WALL": "on"}, "tunnel_probe": "PASS"}}
+    m.update(keys)
+    with open(mpath, "w", encoding="utf-8") as f:
+        json.dump(m, f, indent=2)
+    out = _run_install(repo, home, conf, "--yes")
+    assert out.returncode == 0, (out.stdout[-1500:], out.stderr[-1500:])
+    assert "10b/11" not in out.stdout and "10c/11" not in out.stdout
+    with open(mpath, encoding="utf-8") as f:
+        after = json.load(f)
+    assert {k: after.get(k) for k in keys} == keys

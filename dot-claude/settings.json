@@ -392,6 +392,12 @@
       "Read(**/.env.stage)",
       "Read(**/.env.staging)",
       "Edit(/__STACK_STATE__/**)",
+      "Edit(/__STACK_STATE__/eq-wall/**)",
+      "Read(/__STACK_STATE__/eq-wall/**)",
+      "Edit(/__EQ_TUNNEL__/**)",
+      "Read(/__EQ_TUNNEL__/**)",
+      "Edit(~/.cache/claude-agent-stack/eq-tunnel/**)",
+      "Read(~/.cache/claude-agent-stack/eq-tunnel/**)",
       "mcp__context-mode__ctx_execute",
       "mcp__context-mode__ctx_execute_file",
       "mcp__context-mode__ctx_batch_execute",
@@ -413,6 +419,8 @@
         "__STACK_STATE__",
         "__STACK_BACKUPS__",
         "__STACK_CACHE__",
+        "__EQ_TUNNEL__",
+        "~/.cache/claude-agent-stack/eq-tunnel",
         "~/.cache/uv",
         "~/.cache/pre-commit",
         "~/.cache/ms-playwright",
@@ -735,6 +743,16 @@
             "type": "command",
             "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard image-limit",
             "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" output_shrink",
+            "timeout": 10
           }
         ]
       }

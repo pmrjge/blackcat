@@ -17,7 +17,8 @@ sys.pycache_prefix = None            # bytecode beside the source, in the protec
 sys.dont_write_bytecode = False      # a missing or stale pyc is rewritten once, not recompiled per call
 HOOKS = os.path.dirname(os.path.abspath(__file__))   # as invoked: __file__ and argv[0] as a direct run
 # hook module -> True: main(sys.argv), False: main(sys.argv[1:]), as in each module's __main__ block
-MODULES = {"agent_guard": True, "stack_usage": True, "read_gate": False, "web_caps": False}
+MODULES = {"agent_guard": True, "stack_usage": True, "read_gate": False, "web_caps": False,
+           "output_shrink": False}
 HINT = ("claude-agent-stack hook error (see above). If it persists: run ./install.sh from the stack "
         "repo, or set \"STACK_POLICY\": \"off\" in the env block of ~/.claude/settings.json to bypass "
         "the stack policy.")
