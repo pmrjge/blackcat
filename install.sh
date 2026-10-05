@@ -2298,7 +2298,7 @@ for key in ("config_removed", "config_replaced", "notes"):
 # install rendered), the usage collector, the web caps, the read gate, /stack-doctor's bin/doctor.sh --hook,
 # /stack-tree's bin/stack-tree --hook. Every hook script settings.json ships must match, or each re-run keeps
 # the installed copy as yours and appends the shipped one again (tests/test_install_state.py checks this)
-STACK_HOOK_RE = re.compile(r"/bin/stack-hook\b|agent_guard\.py|stack_usage\.py|web_caps\.py|read_gate\.py|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
+STACK_HOOK_RE = re.compile(r"/bin/stack-hook\b|agent_guard\.py|stack_usage\.py|web_caps\.py|read_gate\.py|output_shrink\.py|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
 
 
 def canon(x):

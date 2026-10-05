@@ -647,6 +647,8 @@ def test_installer_and_doctor_wire_the_hook():
     assert loop and "output_shrink" in loop.group(1).split()
     m = re.search(r'^STACK_HOOK_RE = re\.compile\(r"([^"]+)"\)$', inst, re.MULTILINE)
     assert m and re.search(m.group(1), '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" output_shrink')
+    # a direct-interpreter entry (the pre-launcher form) is the stack's too: replaced, never kept as yours
+    assert re.search(m.group(1), '"/usr/bin/python3" "/u/.claude/hooks/output_shrink.py"')
     doc = (ROOT / "dot-claude" / "bin" / "doctor.sh").read_text()
     fresh = re.search(r'^for m in \(([^)]*)\):\n    src = os\.path\.join\(h, m \+ "\.py"\)', doc, re.MULTILINE)
     assert fresh and '"output_shrink"' in fresh.group(1)
