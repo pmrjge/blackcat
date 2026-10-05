@@ -965,9 +965,34 @@ steps, as the run prints them:
     `STACK_EXPORT` keys and adding `~/.local/bin` to `PATH` (`--no-profile` skips it), and the
     `claude-ninja` launcher link in `~/.local/bin`.
 
+With `--with-eq-container` (off by default) two steps run between 10 and 11; neither can fail the install:
+
+- **10b Container isolation**: `lib/eq-container` builds and verifies the equilibrium harness's isolation
+  images locally with Apple `container` (CLI 1.5.0; every container is its own small Linux VM; 10-40 min
+  cold, several GB of disk, network for the build only), then runs the isolation probe; a second run with
+  unchanged images builds and verifies nothing. The CLI missing, its services not running (`container
+  system start`) or a non-arm64 Mac is a warning and a skip: the installer never installs `container` or
+  starts its services (get the signed package from https://github.com/apple/container/releases).
+  `--eq-container-profiles=LIST` adds toolchain images to the default `core`. Until the maintainer
+  resolves the placeholder pins (`lib/eq-container/PINS`, `TOOLS.toml`), `core` stops with a warning
+  ("a pin ... is still a placeholder"); `STACK_EQ_CONTAINER_SET=full` builds the full Debian image
+  instead. A verified install writes `EQ_ISOLATION=container` and
+  `EQ_IMAGE=eq.invalid/<name>:<tag>@sha256:<digest>` into `stack.env` (a value you set stays).
+- **10c WALL**: the default-deny host-access broker of `lib/eq-wall` and its one tunnel root
+  (`~/.cache/claude-agent-stack/eq-tunnel`, 0700, one channel per call). On by default once 10b is
+  verified, while `lib/eq-wall/REVIEW` records positive reviews of the shipped broker, client and policy
+  bytes and the policy is the default-deny one; `--no-eq-broker` leaves it off, `--with-eq-broker` sets
+  it up regardless. It writes `EQ_WALL` and the three paths into `stack.env`; it never creates your
+  verdict or consent stores.
+
+`/stack-doctor` has a section for each. `--restore` puts `stack.env` and the manifest back but leaves
+the images, eq-container's records and the WALL's state and audit logs alone, and names how to remove
+them ([CONFIG.md](CONFIG.md) §7 "Container isolation and the WALL").
+
 Other flags: `--config-dir PATH`, `--no-prompt`, `--restore [DIR] [--force]`, `--write-through-links`,
 `--no-mcp`, `--no-plugins`, `--no-anthropic-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
-`--print-managed-settings`. `./install.sh --help` prints them all; [CONFIG.md](CONFIG.md) §7 explains
+`--print-managed-settings`, `--with-eq-container` (with `--eq-container-profiles=LIST`, `--no-eq-broker`,
+`--with-eq-broker`). `./install.sh --help` prints them all; [CONFIG.md](CONFIG.md) §7 explains
 staging, pruning and the manifest.
 
 ### Choose the config folder

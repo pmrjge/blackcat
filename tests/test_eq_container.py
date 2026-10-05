@@ -17,7 +17,7 @@ from pathlib import Path
 
 import pytest
 
-from conftest import DIGEST_A, DIGEST_B, EQC_LIB, EQC_TAGS, san
+from conftest import DIGEST_A, DIGEST_B, EQC_LIB, EQC_TAGS
 
 MIN = EQC_TAGS["min-both"]
 
