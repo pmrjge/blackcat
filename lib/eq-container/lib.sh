@@ -150,6 +150,7 @@ eq_base_flags() {
 eq_base_flags
 # the copy-in prefix's script, byte-identical to the harness's COPY_IN: the paths are positional arguments (never spliced
 # into the script), `SRC DST` pairs up to `--`, then the command
+# shellcheck disable=SC2016  # expanded by the container's /bin/sh, never here
 EQ_COPY_IN='while [ "$1" != -- ]; do cp -R "$1"/. "$2"/ || exit 1; shift 2; done; shift; exec "$@"'
 
 # eq_run NAME TIMEOUT_S cmd...   uses EQ_RUN_MOUNTS (array of --mount args, each type=bind,source=..,target=..[,readonly]; a target
@@ -157,20 +158,33 @@ EQ_COPY_IN='while [ "$1" != -- ]; do cp -R "$1"/. "$2"/ || exit 1; shift 2; done
 # with -i), EQ_RUN_IMAGE (a tag or TAG@sha256:..; default the min-both image), EQ_RUN_WORK_SIZE (the /work tmpfs size; default
 # $EQ_WORK_SIZE), EQ_RUN_TUNNEL (a WALL channel dir, bound read-write at /eq/tunnel: the tunnel probe only), EQ_RUN_MEMORY,
 # EQ_RUN_NPROC. Returns the container's exit code; 124 when the watchdog stopped it (container kill NAME) after TIMEOUT_S.
+# Refused (exit 2, before anything runs): any other mount shape, a comma in a mount source or target, in EQ_RUN_TUNNEL or in
+# a tmpfs size (`--mount` and `--tmpfs` split their values at commas, so one would add or override keys).
 eq_run() {
   local name=$1 tmo=$2 rc wd flag img tag
   shift 2
   img=${EQ_RUN_IMAGE:-$(eq_img_tag min-both)}
   eq_require_image "$img"
   tag=${img%@*}
+  case "$EQ_TMP_SIZE:${EQ_RUN_WORK_SIZE:-$EQ_WORK_SIZE}" in
+    *,*) eq_die "eq_run: a tmpfs size holds a comma (it would add --tmpfs options)";;
+  esac
   eq_base_flags
   flag="$EQ_WORK_ROOT/.timeout-$name"
   rm -f "$flag"
   local -a stdin_flag=() mv=(${EQ_RUN_MOUNTS[@]+"${EQ_RUN_MOUNTS[@]}"}) mounts=() prefix=()
-  local i=0 m src
+  local i=0 m src commas
   while [ "$i" -lt "${#mv[@]}" ]; do
     if [ "${mv[$i]}" = --mount ] && [ $((i + 1)) -lt "${#mv[@]}" ]; then
       m=${mv[$((i + 1))]}
+      # `--mount` splits its value at every comma: a comma inside a source or target path would add or override keys
+      # (",readonly=false", a second target=...). The two accepted shapes have exactly 2 (/work copy) or 3 (read-only)
+      # commas, so with the patterns below neither path can hold one.
+      commas=$(printf '%s' "$m" | tr -cd ',')
+      case "${#commas}:$m" in
+        2:type=bind,source=?*,target=/work | 3:type=bind,source=?*,target=/?*,readonly) ;;
+        *) eq_die "eq_run: mount '$m' must be type=bind,source=PATH,target=/work or type=bind,source=PATH,target=/PATH,readonly (no comma in a path)";;
+      esac
       case "$m" in
         type=bind,source=*,target=/work)
           src=${m#type=bind,source=}; src=${src%,target=/work}
@@ -183,7 +197,14 @@ eq_run() {
     fi
     eq_die "eq_run: EQ_RUN_MOUNTS holds '${mv[$i]}' (only --mount pairs)"
   done
-  if [ -n "${EQ_RUN_TUNNEL:-}" ]; then mounts+=(--mount "type=bind,source=$EQ_RUN_TUNNEL,target=/eq/tunnel"); fi
+  if [ -n "${EQ_RUN_TUNNEL:-}" ]; then
+    case "$EQ_RUN_TUNNEL" in
+      *,*) eq_die "eq_run: EQ_RUN_TUNNEL '$EQ_RUN_TUNNEL' holds a comma (it would add --mount keys)";;
+      /?*) ;;
+      *) eq_die "eq_run: EQ_RUN_TUNNEL must be an absolute path";;
+    esac
+    mounts+=(--mount "type=bind,source=$EQ_RUN_TUNNEL,target=/eq/tunnel")
+  fi
   [ -n "${EQ_RUN_STDIN:-}" ] && stdin_flag=(-i)
   eqc run --name "$name" "${EQ_BASE_FLAGS[@]}" --tmpfs "/work:size=${EQ_RUN_WORK_SIZE:-$EQ_WORK_SIZE},mode=1777" \
     ${mounts[@]+"${mounts[@]}"} ${stdin_flag[@]+"${stdin_flag[@]}"} \

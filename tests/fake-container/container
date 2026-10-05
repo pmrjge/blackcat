@@ -21,6 +21,25 @@
 #                               the cwd, -e entries are the whole environment (plus PATH), stdin is inherited (-i).
 #                               EQ_FAKE_CONTAINER_RUN_RC set -> exits with it instead (and, with
 #                               EQ_FAKE_CONTAINER_DIE_ON_RUN=<file>, creates that file: the services "die" with the run).
+#
+# What this fake assumes about the real CLI. Verified (the user's `container run --help`, 1.5.0, and `container image inspect
+# alpine:latest`): the run options listed above exist; `--network none` works (the user's spike); `image inspect` prints a JSON
+# array whose element has exactly the keys configuration, id, variants. Everything marked [unverified] below is encoded here
+# from the 1.5.0 docs or source and must be checked against the real CLI before the fake is trusted further (lib/eq-container
+# README, "Unverified"):
+#   [unverified] `system status` exits non-zero while the services are down (the docs only say it "checks whether the
+#                services are running"); every skip path of lib.sh / eq-container.sh / doctor.sh rests on that exit code.
+#   [unverified] the image digest sits at .configuration.index.digest and/or .id, and the two agree when both are present
+#                (eqc_json.py digest, the harness's inspect_digest and doctor.sh read exactly these two paths).
+#   [unverified] `container list --all --format json` rows carry .configuration.id and .configuration.labels (docs:
+#                container-inspection.md); eq_sweep and the harness's reaper read only these.
+#   [unverified] `image save --output F REF` writes an OCI image layout (index.json + blobs/sha256) or a docker-save layout
+#                (manifest.json); eqc_json.py reads both, the fake copies a prepared archive.
+#   [unverified] `--tmpfs PATH:size=N,mode=M` is accepted with those sub-options and enforces the size (docs/volumes.md at
+#                1.5.0, not the help text); the fake ignores everything after the path. probe.sh proves the cap on a real host.
+#   [unverified] `--ulimit nproc=N` is enforced as RLIMIT_NPROC of the --user uid inside the VM (`container run` has no pids
+#                limit); the fake ignores it. probe.sh's nproc sub-probe proves it on a real host.
+#   [unverified] `kill` / `delete --force` exit 0 for ids that are already gone; the fake always exits 0.
 set -u
 if [ -n "${EQ_FAKE_CONTAINER_LOG:-}" ]; then
   (IFS=$'\x1f'; printf '%s\n' "$*") >> "$EQ_FAKE_CONTAINER_LOG"
