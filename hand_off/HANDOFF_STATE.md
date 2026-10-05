@@ -225,3 +225,11 @@ sandboxes write only their own worktree, `$TMPDIR` and M; no `claude` login insi
   cannot widen the list; `Skill` loads under `--strict-mcp-config`. All need the paid probe.
 - Cause of the T/S removal (some other session or a cleanup run): unknown.
 - The `explore` user-command list (aff29c92b53acef18) was not found in a file.
+
+## 8. Progress, session resume-770728
+
+Live plan: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/resume-770728/.claude-work/resume-1005/plan.md
+
+| item | result | branch@sha | C10 |
+|---|---|---|---|
+| 1 orch-bash | orchestrator holds Bash with the T1 web check (bash -c/eval/find -exec unwrapped, stdin-fed shells refused, linear -c regex); 1571 targeted tests pass | orch-bash@d534cd4 | C10 on main: see plan.md |
