@@ -13,8 +13,8 @@
 #   EQ_WORK_ROOT      where fresh check copies are made (default $EQ_STATE_DIR/work, 0700; refused when $HOME or /)
 #   EQ_ALLOW_UNRECORDED=1  eq_require_image accepts NAME:TAG@sha256:DIGEST that no build record covers (the digest is checked)
 # /work design (the same as the harness's isolate()): a mount whose target is /work in EQ_RUN_MOUNTS is a SOURCE COPY: eq_run
-# binds it read-only at /eqsrc/work and starts `/bin/sh -c 'cp -R /eqsrc/work/. /work/ && exec "$@"'` on a capped tmpfs /work,
-# so nothing the code writes reaches a host directory.
+# binds it read-only at /eqsrc/work and starts `/bin/sh -c "$EQ_COPY_IN" eq-run /eqsrc/work /work -- ARGV` on a capped tmpfs
+# /work, so nothing the code writes reaches a host directory.
 # Exit codes (all scripts): 0 ok | 1 verification failed | 2 usage or configuration error
 #   10 container CLI missing, its services not running, or not an arm64 host (the installer treats this as SKIP)
 #   11 image missing, stale or not matching its record | 12 image build failed | 13 a pin is an unresolved placeholder
@@ -148,6 +148,9 @@ eq_base_flags() {
   )
 }
 eq_base_flags
+# the copy-in prefix's script, byte-identical to the harness's COPY_IN: the paths are positional arguments (never spliced
+# into the script), `SRC DST` pairs up to `--`, then the command
+EQ_COPY_IN='while [ "$1" != -- ]; do cp -R "$1"/. "$2"/ || exit 1; shift 2; done; shift; exec "$@"'
 
 # eq_run NAME TIMEOUT_S cmd...   uses EQ_RUN_MOUNTS (array of --mount args, each type=bind,source=..,target=..[,readonly]; a target
 # /work mount is the source copy, see the header; every other one must be readonly), EQ_RUN_STDIN (a file fed to the container,
@@ -172,7 +175,7 @@ eq_run() {
         type=bind,source=*,target=/work)
           src=${m#type=bind,source=}; src=${src%,target=/work}
           mounts+=(--mount "type=bind,source=$src,target=/eqsrc/work,readonly")
-          prefix=(/bin/sh -c 'cp -R /eqsrc/work/. /work/ && exec "$@"' eq-run)
+          prefix=(/bin/sh -c "$EQ_COPY_IN" eq-run /eqsrc/work /work --)
           i=$((i + 2)); continue;;
         type=bind,source=*,target=*,readonly) mounts+=(--mount "$m"); i=$((i + 2)); continue;;
         *) eq_die "eq_run: mount '$m' is neither the /work source copy nor read-only";;
