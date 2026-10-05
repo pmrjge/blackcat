@@ -233,7 +233,7 @@ Each agent's `tools:` line is its whole tool set, so an agent cannot use a tool 
 | Class | Agents (examples) | Tools | What is withheld |
 |---|---|---|---|
 | Main thread | blackcat | Agent allowlist, SendMessage, AskUserQuestion, Read, … (above) | Bash, Write, Edit, web tools |
-| Coordinator | orchestrator | Agent, SendMessage, TaskStop, Read, Glob, Grep, Write, Edit, Skill, `mcp__neural-memory` | Bash, web |
+| Coordinator | orchestrator | Agent, SendMessage, TaskStop, Read, Write, Edit, Bash (checks, tests, fast-forward merges), Skill, `mcp__neural-memory` | web |
 | Knowledge without web | oracle | Read, Skill | everything else |
 | Codebase search | explore | Read, Grep, Glob, LSP, Skill | Bash, Write, Edit, web |
 | Read-only checks | code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide, proof-checker | Read, Bash (read-only commands only: `READONLY_TYPES` in `agent_guard.py`), web where needed | Write, Edit, Agent |

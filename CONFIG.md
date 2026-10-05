@@ -868,6 +868,9 @@ outside the sandbox pass `--store-dir ~/.cache/claude-sandbox/pnpm-store` and
 
 Entries name agents, knobs and files by their current names.
 
+### 2026-10-05 (orchestrator holds Bash)
+- The user: the orchestrator gets Bash. `orchestrator.md`'s tools line gains Bash and drops Glob and Grep (with Bash listed they never resolve on macOS/Linux; `rg`/`find` run through Bash, lint-checked). Its prompt keeps it a coordinator: Bash for checks (`git status`/`log`/`diff`, a build's test command) and integration only; as a plan's integrator it fast-forwards `main` and runs the tests there (a failed fast-forward still goes to main-coder), leaves worktrees and their branches in place (no `git worktree remove`) and never pushes. No settings or guard change: its Bash runs in the sandbox under the same no-push, protected-path and `install.sh` checks as every builder's, and `permissionMode: acceptEdits` plus the sandbox's auto-allow (default on) cover it as they cover coder's. Re-run `./install.sh` to install it.
+
 ### 2026-10-05 (README images at the repository root; the wiki stays out of git)
 - The README's images, with their licence text and provenance, moved from `lib/` to `assets/` at the repository root (`git mv`, bytes unchanged); `lib/` now holds only what the installer runs or reads. `install.sh`'s supply review needs no exclude any more: `SUPPLY_PATHS` covers all of `lib/` and nothing under `assets/`, so neither the review nor the install snapshot reads the images, as before. An upgrade from an install recorded before this change lists the images' removal from `lib/` in its diffstat.
 - `.gitignore` ignores `docs/wiki/`: the GitHub wiki is its own repository, never tracked here (not a submodule).
