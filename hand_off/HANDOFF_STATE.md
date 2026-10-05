@@ -234,3 +234,4 @@ Live plan: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/resume-77072
 |---|---|---|---|
 | 1 orch-bash | orchestrator holds Bash with the T1 web check (bash -c/eval/find -exec unwrapped, stdin-fed shells refused, linear -c regex); 1571 targeted tests pass | orch-bash@d534cd4 | C10 on main: see plan.md |
 | 11+12 handoff-docs | RUNBOOK_c0 (+§12 re-pin for clone install), A4_FOLD.md, a4_fold.py (8 tests pass), c0_support/ merged; reviewer not run (no spawn tool) | handoff-docs-2@dd8ceb6 | C10 on main: see plan.md |
+| 4 L2 output | output_shrink PostToolUse `Bash\|Read` hook in shadow mode (logs only; `STACK_OUTPUT_SHRINK=on` cuts), 3 patches unchanged + install/doctor wiring, docs, read_family, review fixes (persisted Bash skipped, Read note line numbers only, ranged-Read paging); 114 tests, 63/63 mutants; security-auditor + code-reviewer applied | l2-final@0b87cbd | C10 on main: see plan.md |
