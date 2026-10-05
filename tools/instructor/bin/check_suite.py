@@ -5,7 +5,7 @@
 """check-suite: the stack's C10 check suite in one checkout, one status line.
 
 Steps, in order: bash -n on every tracked *.sh, agent_guard --self-test, lint_agents,
-prompt_budget --check, pytest (tests/ plus tools/instructor/tests/), install_smoke (FAIL lines
+prompt_budget --check, pytest (tests/ and tools/instructor/tests/, one run each), install_smoke (FAIL lines
 other than the two known openpty cases count). The interpreter is fixed (the stack's tools venv),
 not an argument: a recipe argument must never choose what runs."""
 from __future__ import annotations
@@ -40,22 +40,24 @@ def build_plan(repo: Path, steps: tuple[str, ...]) -> list[tuple[str, list[str],
             plan.append((step, [py, "tests/lint_agents.py"], repo))
         elif step == "prompt-budget":
             plan.append((step, [py, "tests/prompt_budget.py", "--check"], repo))
-        elif step == "pytest":
-            dirs = [d for d in ("tests/", "tools/instructor/tests/") if (repo / d).is_dir()]
-            plan.append((step, [py, "-m", "pytest", "-q", *dirs], repo))
+        elif step == "pytest":  # one run per directory: each has its own conftest.py, imported by name
+            for d in ("tests/", "tools/instructor/tests/"):
+                if (repo / d).is_dir():
+                    plan.append((step, [py, "-m", "pytest", "-q", d], repo))
         elif step == "smoke":
             plan.append((step, ["/bin/bash", "tests/install_smoke.sh"], repo))
     return plan
 
 
 def judge(step: str, rc: int, out: str, kv: dict) -> bool:
-    """Whether a finished step passed; adds its counts to kv."""
+    """Whether a finished step passed; adds its counts to kv (summed over the pytest runs)."""
     if step == "pytest":
         tail = [ln for ln in out.splitlines() if _COUNT.search(ln) and " in " in ln]
         counts = {k.rstrip("s") if k.startswith("error") else k: int(n)
                   for n, k in _COUNT.findall(tail[-1] if tail else "")}
-        kv.update(pytest_passed=counts.get("passed", 0), pytest_failed=counts.get("failed", 0),
-                  pytest_errors=counts.get("error", 0), pytest_skipped=counts.get("skipped", 0))
+        for k in ("passed", "failed", "error", "skipped"):
+            name = "pytest_" + ("errors" if k == "error" else k)
+            kv[name] = kv.get(name, 0) + counts.get(k, 0)
         return rc == 0 and bool(tail)
     if step == "smoke":
         m = re.search(r"^== Summary: (\d+) passed, (\d+) failed", out, re.M)

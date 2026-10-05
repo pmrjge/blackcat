@@ -66,6 +66,20 @@ def test_a_failing_step_is_named(tmp_path, py, capsys, override, failed):
     assert (rc, st, kv["failed"]) == (1, "FAIL", failed)
 
 
+def test_pytest_runs_each_test_dir_with_its_own_conftest(tmp_path, py, capsys):
+    """tests/ and tools/instructor/tests/ each have a conftest.py and tests/ imports its own by name:
+    one pytest run per directory (in one process the last conftest loaded wins), counts summed."""
+    repo = fake_repo(tmp_path, **{
+        "tests/conftest.py": "MARK = 'stack'\n",
+        "tests/test_fake.py": "from conftest import MARK\n\ndef test_ok():\n    assert MARK == 'stack'\n",
+        "tools/instructor/tests/conftest.py": "import sys\n",
+        "tools/instructor/tests/test_i.py": "def test_i():\n    assert True\n\ndef test_j():\n    assert True\n"})
+    rc, (st, _, kv, log) = suite(repo, capsys, "--only", "pytest")
+    assert (rc, st, kv["steps"], kv["pytest_passed"], kv["pytest_failed"]) == (0, "OK", "2", "3", "0")
+    text = Path(log).read_text()
+    assert "-m pytest -q tests/\n" in text.replace("   (cwd", "\n") and "-m pytest -q tools/instructor/tests/" in text
+
+
 def test_known_openpty_smoke_failures_pass(tmp_path, py, capsys):
     repo = fake_repo(tmp_path, **{"tests/install_smoke.sh": SMOKE_KNOWN})
     rc, (st, _, kv, _) = suite(repo, capsys, "--only", "smoke")

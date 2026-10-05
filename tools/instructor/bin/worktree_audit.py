@@ -5,7 +5,7 @@
 """worktree-audit: report every worktree and local branch of a repository against main. Report only.
 
 Per worktree: branch, ahead/behind main, tracked changes, an operation in progress (merge, rebase,
-cherry-pick, revert, bisect), locked, prunable, and a verdict: main, prunable, busy, dirty,
+cherry-pick, revert, bisect), locked, prunable, and a verdict: main, bare, prunable, busy, dirty,
 merged-clean (fully in main and clean: removal is a user step), unmerged, detached. Per branch
 without a worktree: merged into main or not. Every git call is read-only (--no-optional-locks);
 the table goes to the log, the counts to the status line."""

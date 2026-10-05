@@ -2,11 +2,10 @@
 # requires-python = ">=3.11"
 # dependencies = []
 # ///
-"""Shared parts of the instructor scripts (imported, never a recipe): argument allowlist, detail log,
-list-form subprocess calls, the output contract: stdout is one line `OK|FAIL|NOOP <verb> key=value...
-log=<path>`, exit OK 0, FAIL 1, bad argument 2 (a FAIL line), NOOP 3; details in <checkout>/.claude-work/
-instr/. A Bash PreToolUse hook sees only `just ... <recipe> <args>`, never the commands run here, so every
-argument is checked here against its own allowlist."""
+"""Shared parts of the instructor scripts (imported, never a recipe): argument allowlist, detail log, list-form
+subprocess calls, the output contract: stdout is one line `OK|FAIL|NOOP <verb> key=value... log=<path>`, exit OK 0,
+FAIL 1, bad argument 2 (a FAIL line), NOOP 3; details in <checkout>/.claude-work/instr/. A Bash PreToolUse hook
+sees only `just ... <recipe> <args>`, never the commands run here, so each argument meets its own allowlist here."""
 from __future__ import annotations
 
 import argparse
@@ -97,7 +96,8 @@ class Run:
 
     def __init__(self, verb: str, checkout: Path):
         log_dir = checkout / ".claude-work" / "instr"
-        log_dir.mkdir(parents=True, exist_ok=True)
+        if not (log_dir.parent.is_symlink() or log_dir.is_symlink()):  # nothing is made through a link
+            log_dir.mkdir(parents=True, exist_ok=True)
         if log_dir.resolve() != checkout.resolve() / ".claude-work" / "instr":
             abort(verb, "log-dir-is-a-link")
         base, self.verb = f"{verb}-{time.strftime('%Y%m%d-%H%M%S')}-{os.getpid()}", verb

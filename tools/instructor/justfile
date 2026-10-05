@@ -23,7 +23,7 @@ _menu:
 check-suite *args:
     @uv run --quiet --script {{quote(justfile_directory() / "bin" / "check_suite.py")}} "$@"
 
-# Fast-forward local main to a branch (lockf + update-ref compare-and-swap), then C10 on main
+# Fast-forward local main to a branch (flock + update-ref compare-and-swap), then C10 on main
 [no-cd]
 ff-merge *args:
     @uv run --quiet --script {{quote(justfile_directory() / "bin" / "ff_merge.py")}} "$@"

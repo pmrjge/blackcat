@@ -62,3 +62,13 @@ def test_a_linked_log_dir_is_refused(tmp_path):
     cp = run_script("worktree_audit.py", cwd=m)
     assert (cp.returncode, status(cp.stdout)[2]["reason"]) == (1, "log-dir-is-a-link")
     assert not list(elsewhere.iterdir())
+
+
+def test_a_linked_claude_work_dir_is_refused_before_any_mkdir(tmp_path):
+    m, _ = scratch(tmp_path)
+    elsewhere = tmp_path / "elsewhere"
+    elsewhere.mkdir()
+    (m / ".claude-work").symlink_to(elsewhere)
+    cp = run_script("worktree_audit.py", cwd=m)
+    assert (cp.returncode, status(cp.stdout)[2]["reason"]) == (1, "log-dir-is-a-link")
+    assert not list(elsewhere.iterdir())                   # no instr/ made through the link

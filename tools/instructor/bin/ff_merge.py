@@ -4,18 +4,19 @@
 # ///
 """ff-merge: fast-forward local main to a branch, then run the C10 suite on main's checkout.
 
-Race-safe: one merge at a time per repository (/usr/bin/lockf on <git-common-dir>/instr-ff-merge.lock)
-and a compare-and-swap ref move (`git update-ref refs/heads/main <new> <old>`). main's checkout is
-moved with `git read-tree -m -u <old> <new>` after a dry run of the same; if that fails the ref is
-moved back (CAS again). Refuses a non-fast-forward, a dirty or busy main checkout and an
-overwritten untracked file; already merged is NOOP. Never stashes, resets or discards anything."""
+Race-safe: one merge at a time per repository (flock(2) on <git-common-dir>/instr-ff-merge.lock, the
+lock /usr/bin/lockf takes; no flag skips it) and a compare-and-swap ref move (`git update-ref
+refs/heads/main <new> <old>`). main's checkout is moved with `git read-tree -m -u <old> <new>` after a
+dry run of the same; if that fails the ref is moved back (CAS again). Refuses a non-fast-forward, a
+dirty, busy or missing main checkout and an overwritten untracked file; already merged is NOOP.
+Never stashes, resets or discards anything."""
 from __future__ import annotations
 
 import argparse
 import fcntl
 import os
-import subprocess
 import sys
+import time
 from pathlib import Path
 
 import check_suite
@@ -23,7 +24,6 @@ from instr_common import GIT, Parser, Run, abort, abs_path, bounded_int, branch_
 
 MAIN = "refs/heads/main"
 BUSY = ("MERGE_HEAD", "rebase-merge", "rebase-apply", "CHERRY_PICK_HEAD", "REVERT_HEAD", "BISECT_LOG")
-STATUS = ("OK ", "FAIL ", "NOOP ")
 
 
 def rev(ref: str, cwd: Path) -> str | None:
@@ -46,16 +46,20 @@ def main_checkout(cwd: Path) -> Path | None:
     return None
 
 
-def lock_held(lock: Path) -> bool:
-    """True when another open file (the parent lockf) holds the flock(2) lock on `lock`."""
-    fd = os.open(lock, os.O_RDONLY | os.O_CREAT, 0o644)
-    try:
-        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-        return False
-    except BlockingIOError:
-        return True
-    finally:
-        os.close(fd)
+def acquire(lock: Path, wait: int) -> int | None:
+    """The flock(2) lock on `lock` (never through a symlink), polled for `wait` seconds: its fd, or
+    None when another holder keeps it. Released when the fd closes or this process ends."""
+    fd = os.open(lock, os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW | os.O_CLOEXEC, 0o644)
+    deadline = time.monotonic() + wait
+    while True:
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            return fd
+        except BlockingIOError:
+            if time.monotonic() >= deadline:
+                os.close(fd)
+                return None
+            time.sleep(0.2)
 
 
 def merge(a: argparse.Namespace, run: Run, repo: Path) -> int:
@@ -70,6 +74,8 @@ def merge(a: argparse.Namespace, run: Run, repo: Path) -> int:
     if not is_ancestor(old, new, repo):
         return run.finish("FAIL", reason="not-fast-forward", **kv)
     wt = main_checkout(repo)
+    if wt is not None and not wt.is_dir():
+        return run.finish("FAIL", reason="main-checkout-missing", main=wt, **kv)
     if wt is None and a.suite != "none":
         return run.finish("FAIL", reason="main-not-checked-out", **kv)
     if wt is not None:
@@ -114,24 +120,21 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--wait", type=bounded_int(0, 600), default=5, help="seconds to wait for the lock")
     ap.add_argument("--timeout", type=bounded_int(1, 7200), default=3600, help="seconds per suite step")
     ap.add_argument("--dry-run", action="store_true", help="check and log the plan, change nothing")
-    ap.add_argument("--locked", action="store_true", help=argparse.SUPPRESS)
     a = ap.parse_args(argv)
     repo = toplevel(a.repo) or abort("ff-merge", "not-a-checkout")
     if a.dry_run:
         return merge(a, Run("ff-merge", repo), repo)
     lock = Path(git_out(["rev-parse", "--path-format=absolute", "--git-common-dir"], repo)[1]) / "instr-ff-merge.lock"
-    if a.locked:  # the re-run below, inside lockf
-        return merge(a, Run("ff-merge", repo), repo) if lock_held(lock) else abort("ff-merge", "lock-not-held")
-    me = [sys.executable, str(Path(__file__).resolve()), "--locked", *argv]
-    cp = subprocess.run(["/usr/bin/lockf", "-k", "-t", str(a.wait), str(lock), *me],
-                        stdin=subprocess.DEVNULL, stdout=subprocess.PIPE, text=True, errors="replace")
-    lines = [ln for ln in cp.stdout.splitlines() if ln.startswith(STATUS)]
-    if lines:
-        print(lines[-1])
-        return cp.returncode
-    reason = "locked" if cp.returncode == 75 else f"no-status-rc{cp.returncode}"  # 75: lockf -t expired
-    print(f"FAIL ff-merge reason={reason} branch={a.branch} log=none")
-    return 1
+    try:
+        fd = acquire(lock, a.wait)
+    except OSError:  # a symlink or something else that is not a plain lock file
+        abort("ff-merge", "lock-unavailable")
+    if fd is None:
+        abort("ff-merge", "locked")
+    try:
+        return merge(a, Run("ff-merge", repo), repo)
+    finally:
+        os.close(fd)
 
 
 if __name__ == "__main__":

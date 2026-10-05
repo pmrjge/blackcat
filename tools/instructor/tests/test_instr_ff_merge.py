@@ -4,6 +4,8 @@ Run: uv run --with pytest pytest -q tools/instructor/tests/"""
 from __future__ import annotations
 
 import argparse
+import fcntl
+import os
 import shutil
 import subprocess
 import sys
@@ -94,22 +96,64 @@ def test_other_bad_args(tmp_path, args):
     assert cp.returncode == 2 and status(cp.stdout)[2]["reason"] == "bad-arg"
 
 
-def test_lock_busy_and_forged_locked_flag(tmp_path):
+def _held(lock: Path) -> bool:
+    """True when another open file holds the flock(2) lock on `lock`."""
+    fd = os.open(lock, os.O_RDONLY)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return False
+    except BlockingIOError:
+        return True
+    finally:
+        os.close(fd)
+
+
+def test_lock_busy_and_no_forged_locked_flag(tmp_path):
+    """Another holder of the lock (here /usr/bin/lockf, the same flock(2)) makes a run FAIL locked;
+    there is no flag that skips the lock, so nothing merges while it is held."""
     m, _ = scratch(tmp_path)
     lock = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=m)) / "instr-ff-merge.lock"
     holder = subprocess.Popen(["/usr/bin/lockf", "-k", str(lock), "sleep", "30"])
     try:
         for _ in range(100):
-            if lock.exists() and ff_merge.lock_held(lock):
+            if lock.exists() and _held(lock):
                 break
             time.sleep(0.05)
         cp, (st, _, kv, _) = ff(m, "--branch", "feat", "--suite", "none", "--wait", "0")
         assert (cp.returncode, st, kv["reason"]) == (1, "FAIL", "locked")
+        cp, (st, _, kv, _) = ff(m, "--branch", "feat", "--suite", "none", "--wait", "1")
+        assert (cp.returncode, st, kv["reason"]) == (1, "FAIL", "locked")
+        cp, (st, _, kv, _) = ff(m, "--branch", "feat", "--suite", "none", "--locked")
+        assert (cp.returncode, st, kv["reason"]) == (2, "FAIL", "bad-arg")
+        assert not (m / "b.txt").exists() and sha(m, "main") != sha(m, "feat")
     finally:
         holder.kill()
         holder.wait()
-    cp, (st, _, kv, _) = ff(m, "--branch", "feat", "--suite", "none", "--locked")
-    assert (st, kv["reason"]) == ("FAIL", "lock-not-held") and not (m / "b.txt").exists()
+    cp, (st, _, kv, _) = ff(m, "--branch", "feat", "--suite", "none", "--wait", "0")
+    assert (cp.returncode, st) == (0, "OK") and not _held(lock)    # released after the run
+
+
+def test_a_linked_lock_file_is_refused(tmp_path):
+    m, _ = scratch(tmp_path)
+    lock = Path(git("rev-parse", "--path-format=absolute", "--git-common-dir", cwd=m)) / "instr-ff-merge.lock"
+    target = tmp_path / "planted"
+    lock.symlink_to(target)
+    cp, (st, _, kv, _) = ff(m, "--branch", "feat", "--suite", "none")
+    assert (cp.returncode, st, kv["reason"]) == (1, "FAIL", "lock-unavailable")
+    assert not target.exists() and sha(m, "main") != sha(m, "feat")
+
+
+@pytest.mark.parametrize("dry", [False, True])
+def test_a_removed_main_worktree_is_a_fail_line(tmp_path, dry):
+    """main checked out in a worktree whose directory is gone (prunable): one FAIL line, no traceback."""
+    m, _ = scratch(tmp_path)
+    git("switch", "-q", "-c", "elsewhere", cwd=m)
+    gone = tmp_path / "main-wt"
+    git("worktree", "add", "-q", str(gone), "main", cwd=m)
+    shutil.rmtree(gone)
+    cp, (st, _, kv, _) = ff(m, "--branch", "feat", "--suite", "none", *(["--dry-run"] if dry else []))
+    assert (cp.returncode, st, kv["reason"]) == (1, "FAIL", "main-checkout-missing"), cp.stderr
+    assert sha(m, "main") != sha(m, "feat")
 
 
 def _ns(**kw) -> argparse.Namespace:
