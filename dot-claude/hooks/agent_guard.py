@@ -152,6 +152,8 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
                           UserPromptSubmit hook has not recorded yet (budget_note_prompt)
   mcp-calls/<agent_id>.json  MCP tool calls of one subagent's current run {calls, run (its
                           registry `started` stamp), type, cap, ts}
+  progress/<agent_id>.json, early-stop.jsonl  STACK_EARLY_STOP (stack_progress.py, S4 L5): a run's
+                          brief budget and round window; one line per signal (numbers and ids only)
   blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
   screen.lock             JSON, replaced atomically; transitions under flock(*.mutex)
   ../mode-probe.jsonl     STACK_MODE_PROBE=1 only, beside the session dirs: one line per
@@ -249,6 +251,10 @@ Knobs (env):
                           carries a wrap-up warning, nothing is refused (0 = off; unset in
                           settings.json, so a process environment value reaches the hooks). A fixed
                           guard read from the environment (the snapshot records it)
+  STACK_EARLY_STOP=observe  a subagent run's brief budget and early-stop signals, after the hard
+                          budgets allowed the call (stack_progress.py): `observe` logs them,
+                          `warn` also adds a note for the `budget` and `stop` signals, `off` = not
+                          read; never a refusal
   SCREEN_LOCK_TTL_S=900   screen lock expiry
   STRIP_AGENT_MODEL=1     remove per-call `model` from Agent input
   STACK_AGENT_LABEL=description  label of an allowed Agent call's child: `description` prefixes
@@ -5200,6 +5206,35 @@ def budget_gate(ev, d):
                  f"({LIMITS_SHOW}).")
     if note and note[0]:     # a hard refusal above supersedes the soft warning
         _SOFT_NOTE[:] = [note[0]]
+    if seg:                  # every hard gate allowed the call: the early-stop signals (S4 L5)
+        pnote = progress_check(ev, d, lim, seg[0], files)
+        if pnote:
+            _SOFT_NOTE[:] = ["%s\n\n%s" % (_SOFT_NOTE[0], pnote)] if _SOFT_NOTE else [pnote]
+
+
+# ---------------------------------------------------------------- brief budgets and early stop (S4 L5)
+# hooks/stack_progress.py beside this file, imported only when STACK_EARLY_STOP is not `off`: a
+# subagent run's brief `budget:` line and its shape (tool rounds without progress), given this
+# gate's own count of the run (run_segment) and, as the default budget, the type's soft limit in
+# force. observe (default): early-stop.jsonl only, no output; warn: its note joins the soft note
+# (additionalContext). Never a refusal; any error only skips the check (fail open).
+_PROGRESS_MOD = []
+
+
+def progress_check(ev, d, lim, seg, files):
+    """The early-stop note for this subagent call (warn mode only), else None. Never raises."""
+    try:
+        if os.environ.get("STACK_EARLY_STOP", "").strip().lower() == "off":
+            return None
+        if not _PROGRESS_MOD:
+            _PROGRESS_MOD.append(__import__("stack_progress"))     # _HOOKS_DIR is on sys.path
+        aid, atype = ev.get("agent_id"), norm(ev.get("agent_type")) or "unknown"
+        tokens, calls, run = seg
+        return _PROGRESS_MOD[0].check(d, aid, atype, subagent_file(files, aid), run, tokens, calls,
+                                      soft_limit(atype, None, lim))
+    except Exception as exc:  # noqa: BLE001 - observe only: never costs the call
+        warn_once("early stop: not checked (%s)" % type(exc).__name__)
+        return None
 
 
 def fmt_int(n):
