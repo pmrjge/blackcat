@@ -65,8 +65,8 @@ flowchart TD
 
 **claude-agent-stack** is this repository: the agent definitions, skills, hooks, settings, MCP servers
 and installer that turn `~/.claude/` into a coordinated team. **BlackCat** is the stack's main thread: the
-agent you talk to when you run `claude`. It only delegates: it routes every job to one of 52 specialist
-agents (53 agent files). 214 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
+agent you talk to when you run `claude`. It only delegates: it routes every job to one of 55 specialist
+agents (56 agent files). 220 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
 Claude Code sandbox hold the limits, and MCP servers start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later**, macOS only (Apple Silicon). It runs in the terminal and in the apps
 that run Claude Code with your settings (see [Apps](#apps)).
@@ -148,7 +148,7 @@ are in [Measured so far](#measured-so-far).
 | LLMs | A minimal hybrid-retrieval RAG with citations and a retrieval eval (P55); a dataset curation script with PII scrubbing and MinHash dedup (P56) | llm-engineer |
 | Web front end | A React 19 modal with focus trap, checked with axe (P43); an accessible tagged PDF (P45) | frontend-engineer |
 | Infrastructure and security | OpenTofu for a private S3 bucket with `tofu validate` (P67); argon2id password storage with rotating session tokens (P70) | devops-engineer, security-engineer |
-| Design, 3D and video | Screen-print separations for a tee design (P61); a parametric enclosure for FDM printing (P58); a Houdini Vellum setup (P59) | designer, cg-artist, vfx-td |
+| Design, 3D and video | Screen-print separations for a tee design (P61); a parametric enclosure for FDM printing (P58); a Houdini Vellum setup (P59) | designer, cg-artist, rigger-animator, sculptor-painter, procedural-3d-ui, vfx-td |
 | Documents | Markdown with math and Mermaid to PDF and HTML through Pandoc (P65); a print-ready book skeleton (P66) | doc-specialist, writer |
 | Claude Code itself | "What is the difference between a skill, a subagent and an MCP server …?" (P21); a hook that blocks `rm -rf`, in a scratch config dir (P23) | claude-code-guide, claude-code-engineer |
 | Multi-part jobs | A Python package with tests, an English README and a pt-PT guide (P90); a seeded A/B test analysis with figures and a pt-PT summary (P91) | orchestrator |
@@ -185,7 +185,7 @@ Three kinds of agent, eight levels below the main thread, one policy hook; the d
 | L1 to L7 | Any agent whose `POLICY` row allows the spawn | 3 running children per agent by default, more for coordinators (`STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE`); 128 subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`; Claude Code's default is 20) |
 | L8 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8`) |
 
-BlackCat's own tools, as `blackcat.md` lists them: an `Agent(...)` allowlist of 52 agent types (every
+BlackCat's own tools, as `blackcat.md` lists them: an `Agent(...)` allowlist of 55 agent types (every
 specialist), SendMessage, AskUserQuestion, ExitPlanMode, TaskStop, ListAgents, ToolSearch, Skill,
 Workflow, the Cron and wake-up tools, RemoteTrigger, PushNotification, SendUserFile, and Read. It holds no
 Bash, Write, Edit, WebSearch or WebFetch, and blackcat-guard refuses any other tool call that still
@@ -218,7 +218,7 @@ job and escalates on failure or on a harder deliverable.
 | Code | coder (Sonnet · medium · 170, a leaf) < main-coder (Opus · xhigh · 350) < ninja-coder (Opus · max · 300) | ninja-coder is the top tier: a failure there ends in STATUS: partial with a dossier |
 | Codebase questions | explore (Sonnet · low · 40, read-only tools) | replaces the built-in Explore (`CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`) |
 | Language-heavy code | rust-, haskell-, julia-, go-, python-, jvm-, node-engineer (Opus · high · 170) | each self-checks with its toolchain |
-| Domain builds | 25 domain experts ([Roster](#roster)) | ML, GPU, HPC, robotics, design, 3D, video, documents, … |
+| Domain builds | 28 domain experts ([Roster](#roster)) | ML, GPU, HPC, robotics, design, 3D, video, documents, … |
 | Checks | code-reviewer, verifier, security-auditor, proof-checker, plan-reviewer | read-only (hook-enforced, below) |
 | Narrow jobs | test-engineer, build-fixer | leaves (coder is one too) |
 
@@ -254,8 +254,8 @@ clamps result counts, characters and crawl depth of every exa, jina and spider c
 
 ### Skills at a glance
 
-214 skills in three shapes (24 hubs, 98 modules, 92 standalone); none is preloaded, and a body enters
-context only when an agent loads it. The 83 hub modules are hidden from the listing every spawn carries
+220 skills in three shapes (28 hubs, 104 modules, 88 standalone); none is preloaded, and a body enters
+context only when an agent loads it. The 89 hub modules are hidden from the listing every spawn carries
 and are read by path. Detail: [Skills: hubs, modules, references](#skills-hubs-modules-references); the
 listing's size against its budget: [Prompt budget](#prompt-budget).
 
@@ -474,7 +474,7 @@ The tables are generated from `dot-claude/agents/*.md` frontmatter. "Does" is sh
 agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md](CONFIG.md) §4).
 
 <details>
-<summary>Roster tables: 53 agents by family (model, effort, maxTurns, inline MCP)</summary>
+<summary>Roster tables: 56 agents by family (model, effort, maxTurns, inline MCP)</summary>
 
 #### Role agents (20)
 
@@ -512,12 +512,12 @@ agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard
 | jvm-engineer | Opus 5.5 · high | 170 | libdocs | JVM expert, Java first, plus Kotlin and Scala |
 | node-engineer | Opus 5.5 · high | 170 | libdocs | Node.js and TypeScript backends and CLIs: pnpm, tsc |
 
-#### Domain experts (25)
+#### Domain experts (28)
 
 | Agent | Model · effort | maxTurns | Inline MCP | Does |
 |---|---|---|---|---|
 | biochem-engineer | Opus 5.5 · high | 170 | libdocs | Computational biology and chemistry |
-| cg-artist | Opus 5.5 · medium | 150 | libdocs, blender | 3D in Blender, ZBrush, Substance |
+| cg-artist | Opus 5.5 · medium | 150 | libdocs, blender | 3D generalist: Blender modeling, UVs, baking, texturing, rendering |
 | cuda-engineer | Opus 5.5 · high | 190 | libdocs | NVIDIA GPU systems: CUDA and Triton kernels |
 | data-engineer | Sonnet 5.5 · high | 150 | libdocs, postgres, mongodb | Data and databases: SQL, schemas, safe migrations, query plans |
 | data-scientist | Opus 5.5 · high | 150 | libdocs, neural-memory | Statistics for decisions |
@@ -536,8 +536,11 @@ agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard
 | mlx-engineer | Opus 5.5 · high | 190 | libdocs | Apple Silicon ML performance: MLX and mlx-lm internals |
 | mobile-engineer | Opus 5.5 · medium | 170 | libdocs, mobilebuild | Mobile apps: Swift/SwiftUI, Kotlin/Compose, Flutter |
 | motion-designer | Opus 5.5 · medium | 150 | after-effects, premiere | Motion graphics and video: After Effects, Premiere |
+| procedural-3d-ui | Opus 5.5 · high | 150 | libdocs, blender | Procedural 3D (Geometry Nodes, PCG) and 3D app UI/UX, viewports, XR |
 | quantum-engineer | Opus 5.5 · high | 160 | libdocs, neural-memory | Quantum computing and physics in code |
+| rigger-animator | Opus 5.5 · medium | 150 | libdocs, blender | Character rigging and 3D animation, engine export |
 | robotics-engineer | Opus 5.5 · high | 190 | libdocs, neural-memory | Robotics: ROS 2, Nav2, MoveIt 2, ros2_control |
+| sculptor-painter | Opus 5.5 · medium | 150 | libdocs, blender | Organic sculpting and UDIM texture painting |
 | security-engineer | Opus 5.5 · high | 150 | libdocs | Security builder: audit fixes with proofs, hardening, fuzzing |
 | vfx-td | Opus 5.5 · high | 170 | — | Houdini FX: VEX, HDAs, Pyro/FLIP/Vellum/RBD, Solaris/Karma |
 | writer | Opus 5.5 · medium | 80 | — | Writes and edits prose |
@@ -559,19 +562,19 @@ expert. The helpers are leaves (no Agent tool). Depth is BlackCat → L1 → …
 
 ### Skills: hubs, modules, references
 
-214 skills in `dot-claude/skills/`, in three shapes (counts from `tests/test_skill_modules.py`'s own
+220 skills in `dot-claude/skills/`, in three shapes (counts from `tests/test_skill_modules.py`'s own
 parser):
 
 | Shape | Count | What it is | Caps (`tests/test_skill_modules.py`) |
 |---|---:|---|---|
-| Hub | 24 | A `SKILL.md` with a `## Modules` table naming its modules | ≤ 80 lines |
-| Module | 98 | A skill named in a hub's table; 83 are read by path, 15 listed | ≤ 150 lines, description ≤ 140 chars |
-| Standalone | 92 | Neither hub nor module | ≤ 500 lines |
+| Hub | 28 | A `SKILL.md` with a `## Modules` table naming its modules | ≤ 80 lines |
+| Module | 104 | A skill named in a hub's table; 89 are read by path, 15 listed | ≤ 150 lines, description ≤ 140 chars |
+| Standalone | 88 | Neither hub nor module | ≤ 500 lines |
 | `references/*.md` | 185 files | Detail a skill links to and reads only when needed | must exist where named |
 
-- **Listed lazily, not preloaded.** 128 skills (hubs, standalone skills, 15 modules) are listed: 32
-  cross-domain entries with their description, 96 by name only (below). Every description starts with
-  its trigger ("Load before …", "Use when …") and names no agent; 83 hub modules are
+- **Listed lazily, not preloaded.** 129 skills (hubs, standalone skills, 15 modules) are listed: 32
+  cross-domain entries with their description, 97 by name only (below). Every description starts with
+  its trigger ("Load before …", "Use when …") and names no agent; 89 hub modules are
   `user-invocable-only` (below); `stack-doctor`, `stack-tree` and `override-agent` are user commands. No
   `skills:` frontmatter preloads anything; a body enters context only when it is loaded.
 - **Pointers.** Agent bodies carry a `## Skills` section of one-line "load X when Y" pointers
@@ -819,7 +822,7 @@ graded runs were "tool-absent" for exactly this reason (Miri, Gradle/kotlinc, Ha
 | JDK, Gradle or Maven | jvm-engineer | JVM builds; `/usr/bin/java` is only a stub without a JDK |
 | Xcode | mobile-engineer, `swift-lsp`, `sourcekit-lsp` | iOS builds and simulators |
 | elan, Lean 4, Mathlib | proof-checker, `lean-lsp` | machine-checked proofs |
-| Blender | cg-artist | headless renders and bpy scripts |
+| Blender | cg-artist, rigger-animator, sculptor-painter, procedural-3d-ui | headless renders and bpy scripts |
 | Houdini (hython, husk) | vfx-td | Houdini cooks and renders |
 | After Effects, Premiere | motion-designer (`--with-adobe`) | the Adobe MCP servers |
 | LaTeX or Typst | writer, doc-specialist (skills `latex-typesetting`, `book-production`) | PDF builds; which binaries a task needs is not checked by the stack |
@@ -836,7 +839,7 @@ Apple Silicon Mac. Install time is not recorded anywhere.
 
 ### macOS permissions
 
-- **Computer use** (cg-artist, designer, doc-specialist, game-engineer, motion-designer, vfx-td, verifier):
+- **Computer use** (cg-artist, rigger-animator, sculptor-painter, designer, doc-specialist, game-engineer, motion-designer, vfx-td, verifier):
   `/mcp` → computer-use → Enable, then grant Accessibility and Screen Recording.
 - **Illustrator** (designer): the macOS Automation grant.
 - **Full Disk Access:** nothing in the stack asks for it.
@@ -1040,8 +1043,8 @@ Claude Code sandbox refuses parts of it, so run it from your own terminal.
 The counts in this README come from the files:
 
 ```bash
-ls dot-claude/agents/*.md | wc -l                             # 53 agents
-ls dot-claude/skills/*/SKILL.md | wc -l                       # 214 skills
+ls dot-claude/agents/*.md | wc -l                             # 56 agents
+ls dot-claude/skills/*/SKILL.md | wc -l                       # 220 skills
 ls dot-claude/skills/*/references/*.md | wc -l                # 185 references
 jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 98 hidden: 83 hub modules + 7 bundled + 8 claude.ai
 jq '[.skillOverrides[] | select(. == "name-only")] | length' dot-claude/settings.json   # 96 listed by name only
@@ -1140,7 +1143,7 @@ apply in every mode.
 
 How the mode reaches the agents (Claude Code docs, 2026-10-03):
 
-| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 42 agents that write files (`permissionMode: acceptEdits`) |
+| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 45 agents that write files (`permissionMode: acceptEdits`) |
 |---|---|---|
 | `plan`, `default`, `dontAsk` | follow it | accept edits without prompts: the agent file wins |
 | `acceptEdits`, `auto`, `bypassPermissions` | follow it | follow it: the session's mode wins |
@@ -1287,7 +1290,7 @@ alternatives: [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers).
 | markitdown | `markitdown-mcp@0.0.1a7` | doc-specialist | — |
 | illustrator | `illustrator-mcp-server@1.10.3` | designer | macOS Automation grant |
 | huetension | `huetension` 0.3.0 | designer | — |
-| blender | `mcp-for-blender@2.1.1`, telemetry off | cg-artist | Blender running with the add-on |
+| blender | `mcp-for-blender@2.1.1`, telemetry off | cg-artist, rigger-animator, sculptor-painter, procedural-3d-ui | Blender running with the add-on |
 | after-effects | Dakkshin/after-effects-mcp at `88d5fbf0` | motion-designer | `--with-adobe` |
 | premiere | `premiere-pro-mcp@1.18.2` | motion-designer | `--with-adobe` |
 | lean | `lean-lsp-mcp@0.30.0` | proof-checker | `LEAN_PROJECT_PATH` |
@@ -1306,7 +1309,7 @@ alternatives: [CONFIG.md §10](CONFIG.md#10-apps-connectors-and-mcp-servers).
 | huggingface | researcher, data-scientist, ml-/dl-/llm-/robotics-engineer | `HF_TOKEN` optional |
 | wandb | ml-/dl-/llm-/robotics-engineer | `WANDB_API_KEY` |
 
-Built into Claude Code: `computer-use` (cg-artist, designer, doc-specialist, game-engineer,
+Built into Claude Code: `computer-use` (cg-artist, rigger-animator, sculptor-painter, designer, doc-specialist, game-engineer,
 motion-designer, vfx-td, verifier; `/mcp` → computer-use → Enable, then grant Accessibility and Screen
 Recording) and `claude-in-chrome` (browser-operator; start with `claude --chrome`).
 

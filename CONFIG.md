@@ -78,6 +78,9 @@ Column key:
 | motion-designer | Opus 5.5 | medium | 150 | 3 | high, 190 | GUI and tool loops, not deep reasoning |
 | cg-artist | Opus 5.5 | medium | 150 | 3 | high, 190 | Same reason: DCC tool loops |
 | vfx-td | Opus 5.5 | high | 170 | 3 | new | Houdini cook, sim and render loops (hython, husk) |
+| rigger-animator | Opus 5.5 | medium | 150 | 3 | new | DCC loops like cg-artist (Blender rigs, ROM renders, export checks) |
+| sculptor-painter | Opus 5.5 | medium | 150 | 3 | new | DCC loops like cg-artist (sculpt, bake, texture export) |
+| procedural-3d-ui | Opus 5.5 | high | 150 | 3 | new | Node-graph and 3D UI code with design judgement; no computer use |
 | writer | Opus 5.5 | medium | 80 | 3 | 130 | Prose; voice matters more than depth |
 | doc-specialist | Sonnet 5.5 | medium | 100 | 3 | Opus, 130 | Extraction and formatting work |
 | coder | Sonnet 5.5 | medium | 170 | leaf | — | Small and medium implementation; a leaf since 2026-10-04 (no Agent or SendMessage). 2026-10-02 data: p90 107 turns per segment (× 1.5 = 160), healthy max 169 |
@@ -200,10 +203,10 @@ From the dynamic fan-out plan (revision 2; steps 3-5b built, the shadow and enfo
 | 8,700,000 | code-reviewer | own runs (5) |
 | 680,000 | claude-code-guide | own runs (7) |
 | 390,000 | scout | own runs (24) |
-| 19,000,000 | coder, main-coder, ninja-coder, build-fixer, test-engineer, data-scientist, data-engineer, devops-engineer, frontend-engineer, the 7 language engineers, mobile-, game-, embedded-, hpc-, cuda-, mlx-, dl-, ml-, llm-, robotics-, quantum-, biochem-, security-engineer, vfx-td, mathematician | builder pool (49) |
+| 19,000,000 | coder, main-coder, ninja-coder, build-fixer, test-engineer, data-scientist, data-engineer, devops-engineer, frontend-engineer, the 7 language engineers, mobile-, game-, embedded-, hpc-, cuda-, mlx-, dl-, ml-, llm-, robotics-, quantum-, biochem-, security-engineer, vfx-td, mathematician, procedural-3d-ui | builder pool (50) |
 | 8,700,000 | planner, plan-reviewer, researcher, security-auditor, proof-checker | analyst pool (11) |
 | 450,000 | explore, oracle, mcp-broker | lookup pool (34) |
-| 3,100,000 | writer, browser-operator, doc-specialist, designer, image-director, motion-designer, cg-artist | artifact pool (6) |
+| 3,100,000 | writer, browser-operator, doc-specialist, designer, image-director, motion-designer, cg-artist, rigger-animator, sculptor-painter | artifact pool (9) |
 | none | orchestrator (short relays; two runs that differ ~2×), blackcat (the main thread: the prompt limit covers it) | — |
 
 - **Knob:** `STACK_SOFT_LIMIT_SCALE` (float; `2` doubles every soft limit, `0` turns them off). A type the table does not name gets none (self-test: the table covers every type in `AGENTS`).
@@ -867,6 +870,12 @@ outside the sandbox pass `--store-dir ~/.cache/claude-sandbox/pnpm-store` and
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-05 (3D specialists: rigger-animator, sculptor-painter, procedural-3d-ui)
+- The user asked for rigging, animation, organic sculpting, UDIM painting, procedural, 3D interface and 3D UI/UX experts with skills. Three agents (names start with a letter, as lint requires): rigger-animator (rigging and animation), sculptor-painter (organic sculpting and UDIM painting), procedural-3d-ui (procedural 3D, 3D interfaces and spatial UX). Same tools and inline servers (blender, libdocs) as cg-artist; procedural-3d-ui has no computer use and hands editor GUI work to game-engineer. No new MCP server.
+- `agent_guard.py`: AGENTS, BlackCat's row, new POLICY rows; cg-artist spawns all three, game-engineer and motion-designer spawn rigger-animator; soft limits (rigger-animator and sculptor-painter artifact pool, procedural-3d-ui builder pool), limits seed, effort table, `stack_sched`/`stack_fanout` artifact sets and `derive_thresholds` tiers follow. Not added to `READ_GATE_EXEMPT_VISUAL` (the gate stays as it is).
+- Skills: new hub `3d-animation` (module `character-rigging`); `sculpting-texturing` (`organic-sculpting`, `udim-texture-painting`), `blender-3d` (`procedural-3d-workflows`), `ui-design-systems` (`3d-ux-design`) become hubs and `game-graphics` gains `3d-interface-engineering`; modules are `user-invocable-only`, the hub `name-only`. `blender-3d` uses the 5.2 Geometry Nodes input API (`mod.properties.inputs.<identifier>.value`).
+- `tests/prompt_budget.py`: agent_listing and blackcat_listing gates raised to the new measurement x 1.02 (the user's choice over trimming descriptions or leaving the agents off BlackCat's row).
 
 ### 2026-10-05 (orchestrator holds Bash)
 - The user: the orchestrator gets Bash. `orchestrator.md`'s tools line gains Bash and drops Glob and Grep (with Bash listed they never resolve on macOS/Linux; `rg`/`find` run through Bash, lint-checked). Its prompt keeps it a coordinator: Bash for checks (`git status`/`log`/`diff`, a build's test command) and integration only; as a plan's integrator it fast-forwards `main` and runs the tests there (a failed fast-forward still goes to main-coder, briefed to leave the worktree and branch in place), leaves worktrees and their branches in place and lists them for the user (the user's decision: nobody but the user removes worktrees; no `git worktree remove`, no `git branch -d`), and never pushes. No settings change; one guard change: its Bash runs in the sandbox under the same no-push, protected-path and `install.sh` checks as every builder's, plus BlackCat's T1 web-command check (`blackcat_web_command`, applied by the no-push hook to every `BROWSER_SPAWNERS` type but blackcat): the orchestrator may spawn browser-operator, so it fetches no web content itself (best effort: `bash -c`, `eval` and `find -exec` are unwrapped, and a shell fed from stdin (`… | sh`, `bash -s`, `sh <<< …`) is refused whatever it runs; not seen: a script file, an alias, test output, a package runner (`uvx --from httpie http …`), an aliased library (`import requests as q; q.get(…)`), text assembled at run time (variables, globs, brace expansion, `$'\x63url'`), a redirection or an option's argument before the command word (`>f curl`, `env -u X curl`, `timeout -s KILL 9 curl`, `xargs -I % curl %`) and runners not unwrapped (`uv run`, `coproc`, `script`, `fd -x`); the sandbox allowlist, which includes raw.githubusercontent.com, is the hard limit), and `permissionMode: acceptEdits` plus the sandbox's auto-allow (default on) cover it as they cover coder's. Re-run `./install.sh` to install it.

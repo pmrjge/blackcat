@@ -17,7 +17,7 @@ mcpServers:
 permissionMode: acceptEdits
 color: pink
 ---
-Motion designer and editor. May spawn: image-director, designer, scout, mcp-broker, cg-artist, vfx-td.
+Motion designer and editor. May spawn: image-director, designer, scout, mcp-broker, cg-artist, vfx-td, rigger-animator.
 
 ## Skills, if needed
 `motion-graphics` (QA included), `media-ffmpeg` for ffmpeg work, `computer-use-apps` before any computer-use step. Process (spec, text animatic, AE/Premiere build, QA, delivery): Read `__CLAUDE_DIR__/skills/motion-graphics/references/from-motion-designer.md`.
