@@ -594,6 +594,13 @@ BLACKCAT_WEB_CMD_REASON = ("BlackCat reads no web content (it holds browser-oper
                            "consent path): no HTTP clients, raw sockets, forge reads (gh issue/pr/api"
                            "/...) or inline HTTP code from its Bash. Dispatch scout for a current fact, "
                            "researcher for a synthesis, or the specialist for a forge task.")
+# The same T1 check on the Bash of every other BROWSER_SPAWNERS type (the orchestrator), applied by
+# the no-push hook (no_push_main): an agent that may spawn browser-operator reads no web content.
+SPAWNER_WEB_CMD_REASON = ("%s reads no web content (it may spawn browser-operator, which acts in the "
+                          "user's logged-in browser): no HTTP clients, raw sockets, forge reads (gh "
+                          "issue/pr/api/...) or inline HTTP code from its Bash (T1). Dispatch scout for "
+                          "a current fact, researcher for a synthesis, or the specialist for a forge "
+                          "task.")
 # T1 check on BlackCat's own Bash, stricter than WEB_TAINT_CMD_RE (which sees a client only at the
 # start of a simple command). The command is unquoted ('curl', "curl", c\url), case-folded (APFS
 # resolves CURL to curl) and split at ; & | ( ) { } ` ! newline $( into segments; in each, the first
@@ -11208,6 +11215,14 @@ def no_push_main(raw):
              INSTALL_REASON % what if kind == "install" else
              PROTECT_REASON % what if kind == "protect" else NO_PUSH_REASON)
     agent_type = norm(ev.get("agent_type"))
+    if (agent_type in BROWSER_SPAWNERS and agent_type != "blackcat" and policy_on()
+            and isinstance(command, str)):            # T1; blackcat-guard covers BlackCat
+        try:
+            web = blackcat_web_command(command)
+        except Exception:                     # noqa: BLE001 - a parser bug: fail closed
+            web = True
+        if web:
+            deny(SPAWNER_WEB_CMD_REASON % agent_type)
     if agent_type in READONLY_TYPES and policy_on() and command is not None:
         try:
             bad = (("PowerShell", "runs PowerShell, which the read-only check can't read")

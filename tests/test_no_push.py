@@ -544,3 +544,37 @@ def test_hook_denies_index_blinding_even_with_policy_off(command):
 @pytest.mark.parametrize("command", ["git update-index --no-skip-worktree f", "git sparse-checkout list"])
 def test_hook_allows_index_clearing_and_listing(command):
     assert decision(run_hook(command)) is None
+
+
+def run_hook_as(command, agent_type, **env):
+    ev = {"session_id": "t", "hook_event_name": "PreToolUse", "tool_name": "Bash",
+          "agent_id": "a1", "agent_type": agent_type, "tool_input": {"command": command}}
+    return subprocess.run([sys.executable, str(GUARD), "no-push"], input=json.dumps(ev),
+                          capture_output=True, text=True, timeout=30, env=dict(os.environ, **env))
+
+
+@pytest.mark.parametrize("command", [
+    "curl -s https://raw.githubusercontent.com/a/b/main/README.md",
+    "timeout 9 wget -qO- https://github.com/a/b",
+    "gh issue view 1 -R a/b",
+    "python3 -c 'import urllib.request as u; u.urlopen(1)'",
+])
+def test_orchestrator_bash_reads_no_web(command):
+    """T1: the orchestrator may spawn browser-operator, so its own Bash fetches no web content."""
+    out = decision(run_hook_as(command, "orchestrator", STACK_POLICY="on"))
+    assert out is not None and out["permissionDecision"] == "deny", command
+    assert "browser-operator" in out["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("command", ["git -C . merge --ff-only orch-bash", "git status",
+                                     "git fetch origin", "uv run pytest -q", "rg -n TODO src"])
+def test_orchestrator_integration_commands_pass(command):
+    assert decision(run_hook_as(command, "orchestrator", STACK_POLICY="on")) is None
+
+
+def test_orchestrator_web_check_off_with_policy_off():
+    assert decision(run_hook_as("curl -s https://example.com", "orchestrator", STACK_POLICY="off")) is None
+
+
+def test_builder_web_command_unchanged():
+    assert decision(run_hook_as("curl -s https://pypi.org/simple/x/", "coder", STACK_POLICY="on")) is None
