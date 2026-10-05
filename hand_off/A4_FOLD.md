@@ -18,10 +18,11 @@ session ids and paths; do not paste them anywhere raw.
 ## 2. Fold (read-only; prints a Markdown block, writes nothing)
 
 `a4_fold.py` strips credentials, tokens, session ids, emails and home paths; extracts the init event (tools, model,
-permission mode, version, MCP servers), the result event (structured output, cost, turns, denials) and the tools the
-model called; prints a block for A4 item 4 and one verdict per open question (`confirmed`, `refuted`, `consistent`,
-or `unknown` when the output cannot show it). Tests: `uv run --with pytest pytest -q hand_off/tests/test_a4_fold.py`
-(8 pass; synthetic fixtures only, the real output format is [unverified]: field names follow the stream-json init and
+permission mode, version, MCP servers), the result event (structured output, cost, turns, denials), the tools the
+model called and the errors they returned (a Skill call that only errored gives `unknown`, not "never invoked");
+prints a block for A4 item 4 and one verdict per open question (`confirmed`, `refuted`, `consistent`, or `unknown`
+when the output cannot show it). Tests: `uv run --with pytest pytest -q hand_off/tests/test_a4_fold.py`
+(9 pass; synthetic fixtures only, the real output format is [unverified]: field names follow the stream-json init and
 result events and the parser tolerates missing ones).
 
 ```sh

@@ -32,11 +32,11 @@ part of the old plan is dropped (Apple `container` replaced Docker, HANDOFF_STAT
    C2 of `c0_check.sh` FAIL (C3 will pass), and C2 failing is an arm stop (`COMPARE_c0.md` §7). Section B tells you what to
    do; the way out is a dated §12 amendment that re-pins the digest: decided 2026-10-05 (keep the clone flow), commands
    in section 12 below.
-4. `a22c5b4` is an ancestor of `7d12c58` and of main [v]. The installed manifest is `7d12c58` [r: HANDOFF_STATE §1; check
-   in step 1.1]. Between `a22c5b4` and `7d12c58` 28 files under `dot-claude/` change (blackcat.md, agent_guard.py,
-   stack_hook.py, stack_limits.py, stack_sched.py, settings.json, the `mcp-server-craft` skill comes back, ...) [v: `git
-   diff --name-status a22c5b4 7d12c58 -- dot-claude`]. The installer backs up everything it changes or removes into
-   `~/.local/state/claude-agent-stack-backups/<timestamp>-*/`.
+4. `a22c5b4` is an ancestor of `7d12c58` and of main [v]. The installed manifest is `73eec41`, whose `dot-claude/`
+   equals `7d12c58`'s [v 2026-10-05; check in step 1.1]. Between `a22c5b4` and `7d12c58` 28 files under `dot-claude/`
+   change (blackcat.md, agent_guard.py, stack_hook.py, stack_limits.py, stack_sched.py, settings.json, the
+   `mcp-server-craft` skill comes back, ...) [v: `git diff --name-status a22c5b4 7d12c58 -- dot-claude`]. The
+   installer backs up everything it changes or removes into `~/.local/state/claude-agent-stack-backups/<timestamp>-*/`.
 5. Use a session for c0 only; quit every other Claude Code session before A3 (shared rate limits and hook state).
 6. The install flags you used last time are not recorded in the manifest [unverified]; add `--with-lsp` or others to the
    two `install.sh` lines of A and C only if you used them.
@@ -53,7 +53,9 @@ export M=/Users/pmrj/ZDone/claude-agent-stack W=/Users/pmrj/ZDone/claude-agent-s
 export CD=$W/context-diet A=$W/context-diet/arms/c0 SUP=$M/hand_off/c0_support X=$M/.claude-work/step6-data/stats_before_v1.1
 ```
 
-1.1 What is installed now (expect `7d12c58...`):
+1.1 What is installed now (expect `73eec41abab299278735f6ecbe9261d1f89bfb98` [v 2026-10-05, manifest at
+`~/.claude/.stack-manifest.json`], or any commit whose `dot-claude/` equals `7d12c58`'s: for that commit,
+`git -C $M diff --quiet 7d12c58 <commit> -- dot-claude` exits 0 [v for `73eec41`]):
 
 ```sh
 jq -r .commit ~/.claude/.stack-manifest.json
@@ -93,10 +95,12 @@ cp $X/tools/collect_b0v2.py $W/stats_before/tools/
 cd $W && shasum -a 256 -c $SUP/PINS.sha256
 ```
 
-1.5 Pre-registration sidecar (what `freeze.sh` default mode used to write; `c0_check.sh` C4 reads it) and read-only copies:
+1.5 Pre-registration sidecar and read-only copies. It follows the format `freeze.sh` default mode writes
+(`freeze.sh:160-165`): the `# frozen_at_local:` and `# frozen_at_utc:` header lines come first, because the proof of
+order reads `frozen_at_utc` from this file (`COMPARE_c0.md:7-9`, `:209`); `c0_check.sh` C4 checks the hash lines:
 
 ```sh
-cd $CD && shasum -a 256 COMPARE_c0.md c0_check.sh freeze.sh > COMPARE_c0.sha256
+cd $CD && { echo "# frozen_at_local: $(date '+%F %T %z')"; echo "# frozen_at_utc: $(date -u '+%FT%TZ')"; echo "# written by RUNBOOK_c0 step 1.5 (inputs recovered from transcripts; freeze.sh default mode not run). Amendments: append to COMPARE_c0.md §12, then add a '# amended <date>: <reason>' line here and replace the hash lines."; shasum -a 256 COMPARE_c0.md c0_check.sh freeze.sh; } > COMPARE_c0.sha256
 ```
 
 ```sh
@@ -387,8 +391,12 @@ cd ~/.claude && for f in agents/claude-code-engineer.md agents/mcp-broker.md ski
 jq -cS --rawfile t $TMPDIR/repin_m.tsv '.files + ($t | split("\n") | map(select(length > 0) | split("\t") | {key: .[0], value: .[1]}) | from_entries)' ~/.claude/.stack-manifest.json | shasum -a 256 | awk '{print $1}'
 ```
 
-12.3 Amend the `$CD` copies (they are read-only; this makes them writable, edits, restores). The first line shows the old
-pin, the last shows the new one:
+12.3 Amend the `$CD` copies (they are read-only; this makes them writable, edits, restores). The first command must
+print `GO` (it checks that 12.1 ran in this terminal); the second shows the old pin (12.4 shows the new one):
+
+```sh
+[ ${#NEWDIG} -eq 64 ] && [ -d "$D" ] && [ -n "$M" ] && echo GO || echo "STOP: run 12.1 in the section A terminal"
+```
 
 ```sh
 grep -n '^PIN_FILES_DIGEST=' $CD/c0_check.sh
@@ -413,18 +421,28 @@ cat >> $CD/COMPARE_c0.md <<EOF
 EOF
 ```
 
+Rewrite the sidecar: its `#` header lines (with `frozen_at_utc`) are kept, one `amended` line is added, the three hash
+lines are replaced:
+
 ```sh
-{ echo "# amended 2026-10-05: C2 files digest re-pinned (RUNBOOK_c0 section 12); COMPARE_c0.md and c0_check.sh hashes replaced"; (cd $CD && shasum -a 256 COMPARE_c0.md c0_check.sh freeze.sh); } > $CD/COMPARE_c0.sha256
+{ grep '^#' $CD/COMPARE_c0.sha256; echo "# amended 2026-10-05: C2 files digest re-pinned (RUNBOOK_c0 section 12); COMPARE_c0.md and c0_check.sh hashes replaced"; (cd $CD && shasum -a 256 COMPARE_c0.md c0_check.sh freeze.sh); } > $TMPDIR/COMPARE_c0.sha256.new && mv $TMPDIR/COMPARE_c0.sha256.new $CD/COMPARE_c0.sha256
 ```
 
 ```sh
 chmod a-w $CD/c0_check.sh $CD/COMPARE_c0.md $CD/COMPARE_c0.sha256
 ```
 
-12.4 Verify and keep a record (C4 sidecar must say OK on all three; the pin line must show `$NEWDIG`):
+12.4 Verify and keep a record (C4 sidecar must say OK on all three; the header must still hold exactly one
+`frozen_at_utc` line; the pin line must show `$NEWDIG`):
 
 ```sh
 cd $CD && shasum -a 256 -c COMPARE_c0.sha256
+```
+
+This must print `1`:
+
+```sh
+grep -c '^# frozen_at_utc' $CD/COMPARE_c0.sha256
 ```
 
 ```sh
@@ -445,5 +463,6 @@ repeat section 12 with that path.
   other Claude Code sessions and of `~/.claude` (not readable from the agent sandbox); `./install.sh --diff` output.
 - Section 12: the commands were not run (the install cannot be run by agents); the three placeholder files are verified
   from `a22c5b4`'s tree, the 12.2 proof assumes the pinned install was at `$M` and that `sed` reproduces the rendered
-  bytes (the clone path appears in those files only through `__STACK_REPO__`); whether `shasum -c` accepts the `#` first
-  line of the sidecar is [unverified] (the original `freeze.sh` format had such lines).
+  bytes (the clone path appears in those files only through `__STACK_REPO__`). `shasum -a 256 -c [--quiet]` accepts `#`
+  lines [v: steps 1.5, 12.3 and 12.4 run on scratch copies under bash and zsh, 2026-10-05: headers kept, rc 0,
+  `grep -c '^# frozen_at_utc'` printed 1].

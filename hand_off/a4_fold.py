@@ -81,7 +81,7 @@ def frontmatter_tools(path: Path) -> list[str] | None:
 
 
 def extract(events: list[dict]) -> dict:
-    info: dict = {"init": None, "result": None, "tool_uses": [], "tool_errors": [], "skill_ok": False}
+    info: dict = {"init": None, "result": None, "tool_uses": [], "tool_errors": [], "skill_ok": False, "skill_errors": []}
     skill_ids: set[str] = set()
     for ev in events:
         t = ev.get("type")
@@ -112,6 +112,8 @@ def extract(events: list[dict]) -> dict:
                 if isinstance(b, dict) and b.get("type") == "tool_result":
                     if b.get("is_error"):
                         info["tool_errors"].append(str(b.get("content"))[:200])
+                        if str(b.get("tool_use_id")) in skill_ids:
+                            info["skill_errors"].append(str(b.get("content"))[:200])
                     elif str(b.get("tool_use_id")) in skill_ids:
                         info["skill_ok"] = True
         elif t == "result":
@@ -182,6 +184,8 @@ def verdicts(info: dict, tools_flag: list[str], fm: list[str] | None) -> list[tu
         q4 = ("unknown", "no init event")
     elif info["skill_ok"]:
         q4 = ("confirmed", "a Skill tool_use returned a non-error result under --strict-mcp-config")
+    elif info["skill_errors"]:
+        q4 = ("unknown", f"Skill was invoked but every call returned an error (first: {info['skill_errors'][0]}): loading is not shown")
     elif "Skill" in observed:
         q4 = ("unknown", "Skill is in the init tool list (mcp_servers: %s) but the probe never invoked it: loading is not exercised" % (", ".join(init["mcp_servers"]) or "none"))
     else:
@@ -212,6 +216,8 @@ def render(info: dict, vs: list, err_lines: list[str], bad: int, date: str, tool
         L.append("  - No result event found in the output (the call may have failed; see the .err lines below).")
     uses = ", ".join(sorted(set(info["tool_uses"]))) or "none"
     L.append(f"  - Tools the model called: `{scrub(uses)}`.")
+    if info["tool_errors"]:
+        L.append(f"  - tool errors ({len(info['tool_errors'])}): `{scrub(' | '.join(info['tool_errors']))}`.")
     if bad:
         L.append(f"  - {bad} non-JSON line(s) in the stream were ignored.")
     if err_lines:

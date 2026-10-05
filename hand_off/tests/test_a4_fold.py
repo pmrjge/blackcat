@@ -68,6 +68,15 @@ def test_skill_invoked_confirms_load(tmp_path, capsys):
     assert verdict(capsys.readouterr().out, "`Skill` loads") == "confirmed"
 
 
+def test_skill_error_not_reported_as_never_invoked(tmp_path, capsys):
+    text = stream(skill_call=True).replace('"content": "ok"}', '"content": "Unknown skill: x", "is_error": true}')
+    assert '"is_error": true' in text
+    a4.main(run(tmp_path, text))
+    out = capsys.readouterr().out
+    assert "never invoked" not in out and "Unknown skill" in out
+    assert verdict(out, "`Skill` loads") == "unknown"
+
+
 def test_missing_structured_output_refutes(tmp_path, capsys):
     a4.main(run(tmp_path, stream(so=False)))
     assert verdict(capsys.readouterr().out, "`--json-schema`") == "refuted"
