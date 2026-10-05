@@ -61,3 +61,4 @@ docs/wiki/
 *.log
 *.bundle
 *.tar.gz
+.claude-work
