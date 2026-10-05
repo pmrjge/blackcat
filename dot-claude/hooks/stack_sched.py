@@ -102,7 +102,7 @@ SOFT_LIMITS = {"claude-code-engineer": 19000000, "scout": 390000, "claude-code-g
 ANALYST_TYPES = {"planner", "plan-reviewer", "researcher", "security-auditor", "proof-checker"}
 LOOKUP_TYPES = {"explore", "oracle", "mcp-broker", "scout", "claude-code-guide"}
 ARTIFACT_TYPES = {"writer", "browser-operator", "doc-specialist", "designer", "image-director",
-                  "motion-designer", "cg-artist"}
+                  "motion-designer", "cg-artist", "rigger-animator", "sculptor-painter"}
 
 # (b) provisional defaults: turns M/L, ctx a/b, sec_per_call p50/p90, static_cc. S = M/2 (heuristic
 # until the fit supplies p25). Types without a row use their pool's representative.

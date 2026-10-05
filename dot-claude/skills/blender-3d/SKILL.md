@@ -5,9 +5,16 @@ description: Use for Blender — headless bpy, bmesh, geometry nodes, Cycles/EEV
 # Blender
 
 ## Scope and baseline
-- Covers Blender as modeler, scripting host, renderer and exporter. Sculpting, retopology, UVs and texturing in `sculpting-texturing`; print preparation in `3d-printing`; Houdini in `houdini-fx`; texture files in `raster-imaging`.
+- Covers Blender as modeler, scripting host, renderer and exporter. Sculpting, retopology, UVs and texturing in `sculpting-texturing`; rigging and animation in `3d-animation`; print preparation in `3d-printing`; Houdini in `houdini-fx`; texture files in `raster-imaging`.
 - Versions (endoflife.date, Sep 2026): **5.2 LTS** (Jul 2026) is current, 5.1 and 5.0 before it, 4.5 the previous LTS. Python API details change between majors — `blender --version`, and read https://docs.blender.org/api/current/ (or the versioned API docs) for anything you haven't used on this version.
 - macOS binary: `/Applications/Blender.app/Contents/MacOS/Blender` (alias it as `blender`).
+
+## Modules
+| module | load when |
+|---|---|
+| `procedural-3d-workflows`* | Geometry Nodes systems, node-group interfaces, procedural assets and scattering, Unreal PCG, scripting and testing generators |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 
 ## Headless first (reproducible)
 ```bash
@@ -28,7 +35,7 @@ blender -b scene.blend -s 1 -e 120 -a                                      # ani
 
 ## Procedural modeling
 - Modifier stack order matters (Mirror → Subdivision → Bevel differs from Bevel → Subdivision); keep modifiers live until export.
-- Geometry Nodes for scatter, instancing, parametric assets; expose inputs on the node group (modifier inputs) so scripts can drive them: `mod["Socket_2"] = 0.5` (socket identifiers, not names — inspect `mod.node_group.interface.items_tree`).
+- Geometry Nodes for scatter, instancing, parametric assets (`procedural-3d-workflows`); expose inputs on the node group (modifier inputs) so scripts can drive them. Since 5.2 the inputs are RNA properties: `mod.properties.inputs.Socket_2.value = 0.5` (before 5.2: `mod["Socket_2"] = 0.5`); socket identifiers, not names — inspect `mod.node_group.interface.items_tree`.
 - Drivers and custom properties for parametric rigs; Python only for what nodes can't do.
 
 ## Materials and color

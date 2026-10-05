@@ -99,7 +99,12 @@ NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
 # skills became skillOverrides "name-only" (tests/test_skill_modules.py LISTED_CORE keeps 32 described).
 # Measured against ad22962: skill_listing 30,782 -> 5,306 (0.1724 x)   per_spawn_mean (base agents)
 # 55,155 -> 28,299 (0.5131 x). Each gate is that ratio x 1.02, rounded down to 0.001.
-RATIO = {"bodies": 0.867, "agent_listing": 0.97, "blackcat_listing": 0.96, "skill_listing": 0.175,
+# 3D specialists (2026-10-05, the user's decision, option a of three: raise the gates rather than trim
+# existing descriptions or keep the agents off BlackCat's row): rigger-animator, sculptor-painter and
+# procedural-3d-ui join every listing (56 agents). Measured against ad22962: agent_listing and
+# blackcat_listing 13,798 -> 14,740 (0.9615 x 15,330 and 1.0131 x 14,550). Each gate is that ratio
+# x 1.02, rounded down to 0.01: agent_listing 0.97 -> 0.98, blackcat_listing 0.96 -> 1.03.
+RATIO = {"bodies": 0.867, "agent_listing": 0.98, "blackcat_listing": 1.03, "skill_listing": 0.175,
          "rules": 0.95, "per_spawn_mean": 0.523}
 # SKILL_BUDGET: Claude Code's listing budget is context window x chars/token x
 # skillListingBudgetFraction = 1,000,000 x 3 x f for the 5.5 models (Claude Code 2.1.287), shared by the
