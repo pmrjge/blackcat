@@ -311,9 +311,11 @@ def test_parser_error_fails_closed(monkeypatch, capsys):
     assert G.no_push_main(json.dumps({"tool_name": "Bash", "tool_input": {"command": "npm test"}})) == 0
 
 
-def run_hook(command, tool="Bash", **env):
+def run_hook(command, tool="Bash", agent_type=None, **env):
     ev = {"session_id": "t", "hook_event_name": "PreToolUse", "tool_name": tool,
           "tool_input": {"command": command}}
+    if agent_type is not None:
+        ev.update(agent_id="a1", agent_type=agent_type)
     return subprocess.run([sys.executable, str(GUARD), "no-push"], input=json.dumps(ev),
                           capture_output=True, text=True, timeout=30, env=dict(os.environ, **env))
 
@@ -544,3 +546,90 @@ def test_hook_denies_index_blinding_even_with_policy_off(command):
 @pytest.mark.parametrize("command", ["git update-index --no-skip-worktree f", "git sparse-checkout list"])
 def test_hook_allows_index_clearing_and_listing(command):
     assert decision(run_hook(command)) is None
+
+
+
+@pytest.mark.parametrize("command", [
+    "curl -s https://raw.githubusercontent.com/a/b/main/README.md",
+    "timeout 9 wget -qO- https://github.com/a/b",
+    "gh issue view 1 -R a/b",
+    "python3 -c 'import urllib.request as u; u.urlopen(1)'",
+])
+def test_orchestrator_bash_reads_no_web(command):
+    """T1: the orchestrator may spawn browser-operator, so its own Bash fetches no web content."""
+    out = decision(run_hook(command, agent_type="orchestrator", STACK_POLICY="on"))
+    assert out is not None and out["permissionDecision"] == "deny", command
+    assert "browser-operator" in out["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("command", [
+    "bash -c 'curl -s https://raw.githubusercontent.com/a/b/main/README.md'",
+    'sh -ec "wget -qO- https://github.com/a/b"',
+    "bash -o pipefail -c 'curl -s https://x'",
+    "eval 'curl -s https://x'",
+    "find . -maxdepth 0 -exec curl -s https://x \\;",
+])
+def test_orchestrator_bash_reads_no_web_through_wrappers(command):
+    """bash -c, eval and find -exec are unwrapped: the wrapped command decides."""
+    out = decision(run_hook(command, agent_type="orchestrator", STACK_POLICY="on"))
+    assert out is not None and out["permissionDecision"] == "deny", command
+    assert "browser-operator" in out["permissionDecisionReason"]
+
+
+@pytest.mark.parametrize("command", ["git -C . merge --ff-only orch-bash", "git status",
+                                     "git fetch origin", "uv run pytest -q", "rg -n TODO src"])
+def test_orchestrator_integration_commands_pass(command):
+    assert decision(run_hook(command, agent_type="orchestrator", STACK_POLICY="on")) is None
+
+
+@pytest.mark.parametrize("command", ["sh -c 'git status'", "bash -lc 'uv run pytest -q'",
+                                     "find . -name '*.py' -exec rg -n TODO {} +", "bash x.sh"])
+def test_orchestrator_wrapped_checks_pass(command):
+    assert decision(run_hook(command, agent_type="orchestrator", STACK_POLICY="on")) is None
+
+
+@pytest.mark.parametrize("command", ["echo 'curl -s https://x' | sh",
+                                     "echo 'curl -s https://x' | bash -s",
+                                     "sh <<< 'curl -s https://x'",
+                                     "find . -exec ls {} + -exec curl -s https://x {} +"])
+def test_web_check_sees_stdin_shells_and_later_execs(command):
+    """A shell reading commands from stdin is refused; a second -exec after `{} +` still decides."""
+    assert G.blackcat_web_command(command) is True
+
+
+@pytest.mark.parametrize("command", ["find . -name '*.sh' -exec bash {} \\;", "ls *.sh | xargs bash",
+                                     "bash -o pipefail x.sh", "IFS=$'\\n' read -r x <<< \"$y\""])
+def test_web_check_leaves_script_runs_alone(command):
+    assert G.blackcat_web_command(command) is False
+
+
+def test_web_check_linear():
+    """The -c option regex has no quadratic backtracking; $'curl' is unquoted."""
+    start = time.perf_counter()
+    G.blackcat_web_command("bash -" + "c" * 19990 + "1")
+    assert time.perf_counter() - start < 0.1
+    assert G.blackcat_web_command("$'curl' -s https://x") is True
+
+
+def test_orchestrator_web_check_off_with_policy_off():
+    out = run_hook("curl -s https://example.com", agent_type="orchestrator", STACK_POLICY="off")
+    assert decision(out) is None
+
+
+def test_builder_web_command_unchanged():
+    out = run_hook("curl -s https://pypi.org/simple/x/", agent_type="coder", STACK_POLICY="on")
+    assert decision(out) is None
+
+
+def test_orchestrator_web_check_parser_error_fails_closed(monkeypatch, capsys):
+    def broken(command):
+        raise ZeroDivisionError("boom")
+    monkeypatch.setenv("STACK_POLICY", "on")
+    monkeypatch.setattr(G, "blackcat_web_command", broken)
+    ev = json.dumps({"tool_name": "Bash", "agent_type": "orchestrator",
+                     "tool_input": {"command": "git status"}})
+    with pytest.raises(SystemExit):
+        G.no_push_main(ev)
+    out = json.loads(capsys.readouterr().out)["hookSpecificOutput"]
+    assert out["permissionDecision"] == "deny"
+    assert "orchestrator reads no web content" in out["permissionDecisionReason"]

@@ -594,23 +594,44 @@ BLACKCAT_WEB_CMD_REASON = ("BlackCat reads no web content (it holds browser-oper
                            "consent path): no HTTP clients, raw sockets, forge reads (gh issue/pr/api"
                            "/...) or inline HTTP code from its Bash. Dispatch scout for a current fact, "
                            "researcher for a synthesis, or the specialist for a forge task.")
+# The same T1 check on the Bash of every other BROWSER_SPAWNERS type (the orchestrator), applied by
+# the no-push hook (no_push_main): an agent that may spawn browser-operator reads no web content.
+SPAWNER_WEB_CMD_REASON = ("%s reads no web content (it may spawn browser-operator, which acts in the "
+                          "user's logged-in browser): no HTTP clients, raw sockets, forge reads (gh "
+                          "issue/pr/api/...) or inline HTTP code from its Bash (T1). Dispatch scout for "
+                          "a current fact, researcher for a synthesis, or the specialist for a forge "
+                          "task; a false positive (a path or pattern naming a web library) -> have "
+                          "the builder run it.")
 # T1 check on BlackCat's own Bash, stricter than WEB_TAINT_CMD_RE (which sees a client only at the
-# start of a simple command). The command is unquoted ('curl', "curl", c\url), case-folded (APFS
-# resolves CURL to curl) and split at ; & | ( ) { } ` ! newline $( into segments; in each, the first
+# start of a simple command). The command is unquoted ('curl', "curl", $'curl', c\url), case-folded
+# (APFS resolves CURL to curl) and split at ; & | ( ) { } ` ! newline $( into segments; in each, the first
 # word after shell keywords and wrappers (if, then, do, time, env, timeout, nice, xargs, sudo,
 # nohup, exec, command, watch, stdbuf ...) and their options, numbers and VAR=x decides, with any
 # directory dropped (/usr/bin/curl): an HTTP client or raw socket tool, or gh followed by a forge
 # read (issue, pr, api, gist, ...), is refused; so is inline HTTP code (urllib, requests.get,
 # httpx, Net::HTTP, fetch( ...) anywhere, and a command too long to check. Linear time (no regex
 # backtracking over the command). A false positive (a commit message "fix; curl x") costs one
-# dispatch. Best effort: a script file, an alias or text assembled at run time is not seen; git
-# clone/fetch/pull stay allowed (repository files are read like any local file); the sandbox
-# network allowlist is the hard limit.
+# dispatch, as does a shell fed from stdin (`... | sh`, `bash -s`, `sh <<< ...`, refused whatever
+# it runs). Best effort, not seen: a script file; an alias; text assembled at run time (variables,
+# globs, brace expansion, `$'\x63url'`); a redirection or an option's argument before the command
+# word (`>f curl`, `env -u X curl`, `timeout -s KILL 9 curl`, `xargs -I % curl %`); runners not
+# unwrapped (uv run, coproc, script, fd -x). git clone/fetch/pull stay allowed (repository files
+# are read like any local file); the sandbox network allowlist is the hard limit.
 BLACKCAT_WEB_CLIENTS = {"curl", "wget", "xh", "xhs", "http", "https", "httpie", "lynx", "w3m", "links",
                         "elinks", "aria2c", "ncat", "nc", "netcat", "socat", "telnet"}
 BLACKCAT_CMD_PREFIXES = {"if", "then", "do", "else", "elif", "while", "until", "time", "exec",
                          "command", "builtin", "nohup", "sudo", "xargs", "env", "nice", "timeout",
-                         "gtimeout", "stdbuf", "watch", "caffeinate", "noglob"}
+                         "gtimeout", "stdbuf", "watch", "caffeinate", "noglob", "eval", "parallel"}
+# Wrappers that run another command later in the segment: for a shell the command after -c (-lc,
+# -ec, ...) decides, for find the one after -exec/-execdir/-ok/-okdir (a later `+ -exec` too); a
+# shell without -c runs a script file, which is not seen, unless it reads its commands from stdin
+# (no script operand, -s, or a <<< here-string): refused, since the piped text is not parsed
+# (false positive: an interactive shell, `bash x.sh <<< input`). A shell after xargs/parallel or
+# inside -exec/-c gets its script operand at run time and is left alone.
+BLACKCAT_SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "mksh", "fish"}
+BLACKCAT_SHELL_C_RE = re.compile(r"-[abd-z]*c[a-z]*\Z")     # linear: the first c is the split
+BLACKCAT_SHELL_ARG_OPTS = {"-o", "+o", "--rcfile", "--init-file"}
+BLACKCAT_FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 BLACKCAT_GH_READS = {"issue", "pr", "api", "gist", "release", "search", "repo", "browse", "run",
                      "discussion", "project", "label", "workflow", "cache", "ruleset", "attestation"}
 BLACKCAT_SEGMENT_SPLIT_RE = re.compile(r"[;&|(){}`!\n]|\$\(")
@@ -657,16 +678,38 @@ def blackcat_web_command(cmd):
     """True when BlackCat's Bash command would fetch web content, or is too long to check."""
     if len(cmd) > BLACKCAT_WEB_SCAN_MAX:
         return True
-    text = re.sub(r"['\"\\]", "", cmd).lower()
+    text = re.sub(r"\$?['\"]|\\", "", cmd).lower().replace("<<<", " <<< ")
     if BLACKCAT_INLINE_HTTP_RE.search(text):
         return True
     for segment in BLACKCAT_SEGMENT_SPLIT_RE.split(text):
         raw = segment.split()
         words = [w if BLACKCAT_ASSIGN_RE.match(w) else w.rsplit("/", 1)[-1] for w in raw]
+        skip = 0
         for i, word in enumerate(words):
+            if i < skip:
+                continue
             if word in ("command", "builtin") and words[i + 1:i + 2] in (["-v"], ["-V"]):
                 break                                  # `command -v curl` only looks it up
-            if (word in BLACKCAT_CMD_PREFIXES or word.startswith("-") or word[:1].isdigit()
+            if word in BLACKCAT_SHELLS or word == "find":
+                hit = next((k for k in range(i + 1, len(words))
+                            if (words[k] in BLACKCAT_FIND_EXEC if word == "find"
+                                else BLACKCAT_SHELL_C_RE.match(words[k]))), None)
+                if hit is not None:
+                    skip = hit + 1
+                    continue                           # the wrapped command decides
+                if word == "find":
+                    break
+                rest = words[i + 1:]
+                if "<<<" in rest:
+                    return True                        # sh <<< 'curl u': commands from a here-string
+                script = [w for j, w in enumerate(rest) if w[:1] not in "-+"
+                          and (j == 0 or rest[j - 1] not in BLACKCAT_SHELL_ARG_OPTS)]
+                if (skip == 0 and not {"xargs", "parallel"} & set(words[:i])
+                        and (not script
+                             or any(w[:1] == "-" and w[1:2] != "-" and "s" in w for w in rest))):
+                    return True                        # `... | sh`, `bash -s`: commands from stdin
+                break                                  # bash x.sh: a script file, not seen
+            if (word in BLACKCAT_CMD_PREFIXES or word[:1] in "-+" or word[:1].isdigit()
                     or BLACKCAT_ASSIGN_RE.match(word)):
                 continue
             if word in BLACKCAT_WEB_CLIENTS:
@@ -11208,6 +11251,14 @@ def no_push_main(raw):
              INSTALL_REASON % what if kind == "install" else
              PROTECT_REASON % what if kind == "protect" else NO_PUSH_REASON)
     agent_type = norm(ev.get("agent_type"))
+    if (agent_type in BROWSER_SPAWNERS and agent_type != "blackcat" and policy_on()
+            and isinstance(command, str)):            # T1; blackcat-guard covers BlackCat
+        try:
+            web = blackcat_web_command(command)
+        except Exception:                     # a parser bug: fail closed
+            web = True
+        if web:
+            deny(SPAWNER_WEB_CMD_REASON % agent_type)
     if agent_type in READONLY_TYPES and policy_on() and command is not None:
         try:
             bad = (("PowerShell", "runs PowerShell, which the read-only check can't read")
@@ -11304,7 +11355,14 @@ def self_test():
                         ("x" * 20001, True), ("git status", False), ("git clone https://h/r.git", False),
                         ("git commit -qm 'fix the http timeout and curl docs'", False),
                         ("gh auth status", False), ("ls links/", False),
-                        ("env -i PATH=/bin curl u", True), ("command -v curl", False)):
+                        ("env -i PATH=/bin curl u", True), ("command -v curl", False),
+                        ("bash -c 'curl u'", True), ("sh -ec \"wget u\"", True),
+                        ("bash -o pipefail -c 'curl u'", True), ("eval curl u", True),
+                        ("find . -exec curl u \\;", True), ("sh -c 'git status'", False),
+                        ("bash x.sh", False), ("find . -name x -exec rg -n TODO {} +", False),
+                        ("echo 'curl u' | sh", True), ("sh <<< 'curl u'", True), ("$'curl' u", True),
+                        ("find . -exec ls {} + -exec curl u {} +", True),
+                        ("bash -o pipefail x.sh", False), ("ls *.sh | xargs bash", False)):
         if blackcat_web_command(_cmd) != _want:
             problems.append("blackcat web-command check misjudges %r" % _cmd[:60])
     browsers = {p for p, row in POLICY.items() if "browser-operator" in row}

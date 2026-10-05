@@ -43,7 +43,10 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("date", re.compile(r"\b(?:19|20)\d\d-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])\b"
                         r"|\b(?:19|20)\d\d/(?:0[1-9]|1[0-2])/(?:0[1-9]|[12]\d|3[01])\b"
                         rf"|\b{_MONTHS}\.? [0-3]?\d(?:st|nd|rd|th)?,? (?:19|20)\d\d\b"
-                        rf"|\b[0-3]?\d {_MONTHS} (?:19|20)\d\d\b")),
+                        rf"|\b[0-3]?\d {_MONTHS} (?:19|20)\d\d\b"
+                        # month-level: "Oct 2026", "October 2026", "Sept. 2026", "2026-10"
+                        rf"|\b{_MONTHS}\.? (?:19|20)\d\d\b"
+                        r"|\b(?:19|20)\d\d-(?:0[1-9]|1[0-2])\b")),
     ("clock-time", re.compile(r"(?<![\d:.])(?:[01]\d|2[0-3]):[0-5]\d:[0-5]\d(?![\d:])")),
     ("epoch", re.compile(r"(?<![\w.])1[5-9]\d{8}(?:\d{3})?(?![\w.])")),
     ("agent-id", re.compile(r"\bagent-a[0-9a-f]{15,17}\b")),
