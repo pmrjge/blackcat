@@ -293,6 +293,7 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 | `agent_guard.py delegations [session] [--json]`, `--print-policy`, `--self-test` | `/usr/bin/python3 ~/.claude/hooks/agent_guard.py` | The delegation ledger; the spawn table; the guard's own checks |
 | `claude-ninja` (a link in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder (or any agent) as your main thread at ultracode, starting in Plan (`--permission-mode plan` unless you pass a mode) |
 | `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
+| `just -f tools/instructor/justfile --list`, `check-suite`, `ff-merge --branch B`, `worktree-audit` | the root of a checkout of this repository; agents run the three recipes without a prompt (one allow rule each) | The instructor: the C10 suite, a locked compare-and-swap fast-forward of local `main` followed by C10, a read-only worktree report; one status line each, details in `.claude-work/instr/` ([CONFIG.md](CONFIG.md) §5, "Instructor") |
 
 ### Safety and guardrails
 
@@ -310,6 +311,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | An agent that read web content, or is linked to one that did, cannot write the shared memory | web taint in the guard | `tests/test_guard_round2.py`, `tests/test_guard_round3.py` |
 | Mounting a magg server asks; calls run without a prompt only for the read-only or local catalog servers and ask at every call for the rest | `ask` rules in `settings.json` | `tests/test_no_duplicates.py` (exactly one allow or ask rule per catalog prefix) |
 | 19 MCP servers run without a prompt; `mongodb`, `postgres` and `claude-in-chrome` prompt at each call (denied in headless runs) | whole-server `allow` rules in `settings.json`, none for the three | `tests/test_permission_modes.py` (the exact allowed set, no allow or deny rule for the three, no shipped ask or deny rule on an allowed server, every agent's MCP server decided) |
+| The instructor's recipes and scripts (`tools/instructor/`) are not agent-writable in any checkout; only its three recipes and the `--list` menu are pre-approved, one exact-prefix rule each (no `Bash(just *)`), and each script checks its arguments against its own allowlist | `Edit(**/tools/instructor/**)` deny, the guard's protected-path spec, the `allow` rules | `tests/test_instructor_wiring.py`, `tests/test_protected_paths.py`, `tools/instructor/tests/` |
 | Images an agent sees or uploads stay ≤ 1919 px | `agent_guard.py image-limit` | `tests/test_image_limit.py` |
 | libdocs checks every fetch that is not a fixed API endpoint against SSRF | `mcp/libdocs_mcp.py` | `tests/test_libdocs_mcp.py` |
 | Bash runs sandboxed, no unsandboxed fallback, Claude Code exits if the sandbox cannot start | `sandbox.enabled`, `allowUnsandboxedCommands: false`, `failIfUnavailable: true` | configured, **not live-verified** ([Live checks](#live-checks)) |
@@ -732,6 +734,7 @@ places:
 | Homebrew | — | installed by step 2 when missing (its official installer, on a terminal only: it asks for your password) | optional; installs the plain programs below in one batch | `lib/devtools.sh` |
 | huetension | 0.3.0 | installed by `install.sh` | optional (designer's colour server) | `install.sh` |
 | ffmpeg, ImageMagick, librsvg, poppler | — | brew batch | optional (media, SVG and PDF work; `doctor.sh` warns) | `lib/devtools.sh`, `doctor.sh` |
+| just | — | brew batch | optional (the instructor's `tools/instructor/justfile`; without it, `uv run --script tools/instructor/bin/<script>.py`) | `lib/devtools.sh` |
 | jq, ripgrep, pandoc, gh (read-only) | — | brew batch (jq ships in `/usr/bin` on recent macOS) | optional; agents prefer them when present | global rules, [CLI tools agents rely on](#cli-tools-agents-rely-on) |
 | Google Chrome | — | — | optional (the playwright MCP drives it; `doctor.sh` warns) | `doctor.sh` |
 | pnpm | — | `corepack enable pnpm` on nvm's node 24 | optional (node-engineer's projects) | `lib/devtools.sh` |
@@ -894,6 +897,7 @@ The full list, with sources and the optional toolchains, is in [Requirements (ma
 | Homebrew | One batch for every missing formula, one for every missing cask | installed when missing (on a terminal) |
 | magg 1.2.1, huetension 0.3.0 | mcp-broker's catalog; designer's colour server | installed (pinned, checksummed) |
 | ffmpeg, ImageMagick, librsvg, poppler | Media and PDF work | brew batch, else warned |
+| just | The instructor's recipes (`tools/instructor/justfile`) | brew batch when missing |
 | The toolchain groups (Rust, Haskell, Julia, Scala, Java, LaTeX, C++ tools, Go, dev tools; PostgreSQL and MongoDB off) | The language and domain agents | installed when missing; `STACK_INSTALL_<GROUP>=0` skips one |
 | Google Chrome | playwright MCP | not checked |
 | Xcode | mobilebuild, `swift-lsp`, `sourcekit-lsp` | not checked |
