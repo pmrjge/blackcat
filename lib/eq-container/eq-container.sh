@@ -19,7 +19,7 @@
 #
 # State ($EQ_STATE_DIR, default ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/eq-container in the repo layout):
 #   image.env    KEY=VALUE: EQ_ISOLATION, EQ_IMAGE, EQ_CONTAINER_IMAGE_PF/CP/CR (TAG@sha256:...), per-image tag and digest
-#   status.env   EQ_CONTAINER_STATUS=ok|skipped|failed, _AT, _WHY, _SET, _PROFILES, _VERIFIED, _PINS_SHA256, _PROBE
+#   status.env   EQ_CONTAINER_STATUS=ok|skipped|failed, _AT, _WHY, _SET, _PROFILES, _VERIFIED, _PINS_SHA256, _CHECKS_SHA256, _PROBE
 #   images/NAME.env, results/{probe,tunnel}.*.env, logs/*.log
 # Exit codes: 0 ok | 2 usage | 10 skipped (CLI missing, services down, wrong architecture, no terminal for the build question,
 #   build declined) | 11 check not ok | 12 build failed | 13 unresolved pin (PINS or TOOLS.toml placeholder) | 15 probe failed
@@ -43,7 +43,7 @@ while [ $# -gt 0 ]; do
     --no-probe) NO_PROBE=1;;
     --force-verify) FORCE_VERIFY=1;;
     --purge) PURGE=1;;
-    -h|--help) sed -n '2,29p' "$0"; exit 0;;
+    -h|--help) sed -n '2,26p' "$0"; exit 0;;
     *) echo "eq-container: unknown option: $1" >&2; exit 2;;
   esac
   shift
@@ -71,6 +71,13 @@ warn() { printf 'eq-container: WARN %s\n' "$*" >&2; }
 now() { date -u +%FT%TZ; }
 env_get() { [ -f "$1" ] || return 0; sed -n "s/^$2=//p" "$1" | head -n 1; }
 pins_sha() { cat "$here/PINS" "$here/TOOLS.toml" 2>/dev/null | tm_sha256_stdin; }   # the pinned inputs: PINS and the tools manifest
+# the code that verifies and probes the images, and the CLI that runs them: unchanged images skip verification and probe only
+# while this is unchanged too (call it after ensure_container: it asks the CLI its version)
+checks_sha() {
+  { cat "$here/lib.sh" "$here/eqc_json.py" "$here/tools.sh" "$here/verify-tools.sh" "$here/probe.sh" "$here/probe_inner.sh" \
+      "$here"/probe.d/*.sh 2>/dev/null
+    printf 'CLI %s\n' "$("$EQ_CONTAINER_BIN" --version 2>/dev/null </dev/null | head -n 1)"; } | tm_sha256_stdin
+}
 profiles_csv() { printf '%s' "$PROFILES" | tr ' ' ','; }
 
 # write_status STATUS WHY [KEY=VALUE ...]: atomic, 0600, only in a real run
@@ -151,7 +158,8 @@ cmd_install() {
   fi
   say "building (${SET:-profiles $(profiles_csv)}) ... (a cold build takes 10-40 minutes and several GB of disk; an up-to-date image is skipped)"
   local rc=0
-  run_build > "$EQ_STATE_DIR/logs/build.log" 2>&1 || rc=$?
+  # stdin is /dev/null: build.sh would otherwise ask its own question on a terminal, into build.log (--no-prompt hung there)
+  run_build > "$EQ_STATE_DIR/logs/build.log" 2>&1 < /dev/null || rc=$?
   tail -n 12 "$EQ_STATE_DIR/logs/build.log"
   case "$rc" in
     0) ;;
@@ -160,12 +168,14 @@ cmd_install() {
     13) write_status failed "unresolved pin"; warn "a pin in PINS or TOOLS.toml is still a placeholder (see above): bash lib/eq-container/build.sh --resolve-tools --write-pin"; exit 13;;
     *) write_status failed "build failed (rc $rc)"; warn "build failed (rc $rc); log: $EQ_STATE_DIR/logs/build.log"; exit 12;;
   esac
-  local refs prev probe=skipped
+  local refs prev probe=skipped checks
   refs=$(verified_refs)
   [ -n "$refs" ] || { write_status failed "no image recorded after the build"; warn "no image recorded"; exit 12; }
   prev=$(env_get "$STATUS_FILE" EQ_CONTAINER_STATUS_VERIFIED)
+  checks=$(checks_sha)
   if [ "$FORCE_VERIFY" = 0 ] && [ "$(env_get "$STATUS_FILE" EQ_CONTAINER_STATUS)" = ok ] && [ "$prev" = "$refs" ] \
-     && [ "$(env_get "$STATUS_FILE" EQ_CONTAINER_STATUS_PINS_SHA256)" = "$(pins_sha)" ]; then
+     && [ "$(env_get "$STATUS_FILE" EQ_CONTAINER_STATUS_PINS_SHA256)" = "$(pins_sha)" ] \
+     && [ "$(env_get "$STATUS_FILE" EQ_CONTAINER_STATUS_CHECKS_SHA256)" = "$checks" ]; then
     say "images unchanged and already verified: verification and probe skipped (--force-verify runs them again)"
     exit 0
   fi
@@ -194,7 +204,8 @@ cmd_install() {
     else tail -n 25 "$EQ_STATE_DIR/logs/probe.log"; write_status failed "probe failed" "EQ_CONTAINER_STATUS_PROBE=FAIL"; warn "probe failed; log: $EQ_STATE_DIR/logs/probe.log"; exit 15; fi
     say "probe: PASS"
   fi
-  write_status ok "installed and verified" "EQ_CONTAINER_STATUS_VERIFIED=$refs" "EQ_CONTAINER_STATUS_PROBE=$probe"
+  write_status ok "installed and verified" "EQ_CONTAINER_STATUS_VERIFIED=$refs" "EQ_CONTAINER_STATUS_CHECKS_SHA256=$checks" \
+    "EQ_CONTAINER_STATUS_PROBE=$probe"
   say "done. image.env: $EQ_STATE_DIR/image.env"
   exit 0
 }
@@ -247,6 +258,6 @@ case "$CMD" in
   status) cmd_status; exit $?;;
   print-env) cmd_print_env;;
   uninstall) cmd_uninstall;;
-  ""|-h|--help|help) sed -n '2,29p' "$0"; exit 0;;
+  ""|-h|--help|help) sed -n '2,26p' "$0"; exit 0;;
   *) echo "eq-container: unknown command: $CMD (install, check, status, print-env, uninstall)" >&2; exit 2;;
 esac

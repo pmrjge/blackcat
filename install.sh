@@ -3722,6 +3722,13 @@ eq_wall_step(){
       eq_wall_finish failed "a WALL path holds a quote, \$, \`, a backslash or a line break (stack.env cannot carry it): set XDG_CACHE_HOME / XDG_STATE_HOME or move the repo"
       return 0 ;;
   esac
+  # the tunnel root is bind-mounted (`container run --mount type=bind,source=...`): the CLI splits that value at commas
+  # and cuts a path at an '=' (1.5.0 Parser.mount); the harness and lib.sh refuse such a path, a colon included
+  case "$EQ_TUNNEL_ROOT" in
+    *[,:=]*)
+      eq_wall_finish failed "the tunnel root $EQ_TUNNEL_ROOT holds a comma, colon or '=' (container --mount cannot carry it): set XDG_CACHE_HOME"
+      return 0 ;;
+  esac
   # 2. the tunnel probe eq-container ran (probe.d/50-tunnel.sh): PASS for every image, tag and digest;
   #    read before any directory is made, so a failed or missing probe leaves no tunnel root behind
   eq_tunnel_check

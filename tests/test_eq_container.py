@@ -9,17 +9,51 @@ flow against stub build/verify/probe scripts (the real ones need the real CLI: p
 What the fake assumes about the real CLI is listed, [unverified] where it is, in the fake's header.
 Run: /Users/pmrj/.claude/venvs/tools/bin/python -m pytest -q tests/test_eq_container.py
 """
+import hashlib
+import io
+import json
 import os
 import shutil
 import stat
+import subprocess
+import sys
+import tarfile
 import time
 from pathlib import Path
 
 import pytest
 
-from conftest import DIGEST_A, DIGEST_B, EQC_LIB, EQC_TAGS
+from conftest import DIGEST_A, DIGEST_B, EQC_LIB, EQC_TAGS, san
 
 MIN = EQC_TAGS["min-both"]
+
+
+def ej(*args, stdin: "str | None" = None):
+    """eqc_json.py MODE ARGS (stdin: the CLI's JSON)."""
+    return subprocess.run([sys.executable, "-I", str(EQC_LIB / "eqc_json.py"), *map(str, args)], input=stdin,
+                          capture_output=True, text=True, timeout=60, check=False)
+
+
+def _tar(members: dict) -> bytes:
+    buf = io.BytesIO()
+    with tarfile.open(fileobj=buf, mode="w") as t:
+        for name, data in members.items():
+            ti = tarfile.TarInfo(name)
+            ti.size = len(data)
+            t.addfile(ti, io.BytesIO(data))
+    return buf.getvalue()
+
+
+def save_archive(path: Path, layers: list, config: dict) -> Path:
+    """An `image save` archive in the docker-save layout (manifest.json, the config, one tar per layer); each layer maps
+    member names to file bytes."""
+    outer = {"config.json": json.dumps(config).encode()}
+    for i, members in enumerate(layers):
+        outer["layer%d.tar" % i] = _tar(members)
+    outer["manifest.json"] = json.dumps([{"Config": "config.json",
+                                          "Layers": ["layer%d.tar" % i for i in range(len(layers))]}]).encode()
+    path.write_bytes(_tar(outer))
+    return path
 
 
 def vals(argv, flag):
@@ -124,6 +158,12 @@ def test_tunnel_is_the_one_read_write_mount(eqc_env, tmp_path):
     "type=volume,source=v,target=/fixture,readonly",                  # not a bind
     "type=bind,source=,target=/fixture,readonly",                     # an empty source
     "type=bind,source=/tmp/a,target=fixture,readonly",                # a relative target
+    # `--mount` (1.5.0 Parser.mount) splits each key=value at '=' and drops empty pieces: an '=' inside a path is an
+    # error, a trailing one cuts the path (source=/tmp/a= mounts /tmp/a)
+    "type=bind,source=/tmp/a=b,target=/fixture,readonly",             # an '=' in a read-only source
+    "type=bind,source=/tmp/a=,target=/fixture,readonly",              # a trailing '=' in a source
+    "type=bind,source=/tmp/a=b,target=/work",                         # an '=' in the /work source
+    "type=bind,source=/tmp/a,target=/fix=ture,readonly",              # an '=' in a target
 ])
 def test_eq_run_refuses_bad_mounts(eqc_env, mount):
     eqc_env.record("min-both")
@@ -141,6 +181,8 @@ def test_eq_run_refuses_a_bare_word_in_mounts(eqc_env):
 
 @pytest.mark.parametrize("tunnel, why", [("/tmp/x,readonly=false", "holds a comma"),
                                          ("/tmp/c,target=/", "holds a comma"),
+                                         ("/tmp/x=y", "holds a comma or '='"),
+                                         ("/tmp/x/c=", "holds a comma or '='"),
                                          ("relative/chan", "absolute path")])
 def test_eq_run_refuses_a_bad_tunnel(eqc_env, tunnel, why):
     eqc_env.record("min-both")
@@ -158,8 +200,9 @@ def test_eq_run_refuses_a_comma_in_a_tmpfs_size(eqc_env, knob):
     assert eqc_env.runs() == []
 
 
-def test_work_root_with_a_comma_is_refused_at_source_time(eqc_env, tmp_path):
-    p = eqc_env.sh("echo sourced", EQ_WORK_ROOT=tmp_path / "w,x")
+@pytest.mark.parametrize("name", ["w,x", "w:x", "w=x"])
+def test_work_root_that_breaks_mount_is_refused_at_source_time(eqc_env, tmp_path, name):
+    p = eqc_env.sh("echo sourced", EQ_WORK_ROOT=tmp_path / name)
     assert p.returncode == 2 and "breaks --mount" in p.stderr and "sourced" not in p.stdout
 
 
@@ -192,14 +235,40 @@ def test_pin_that_contradicts_the_record_is_refused(eqc_env):
     assert p.returncode == 11 and "pins" in p.stderr and eqc_env.runs() == []
 
 
-@pytest.mark.parametrize("shape, ok", [("both", True), ("index", True), ("id", True), ("none", False),
+@pytest.mark.parametrize("shape, ok", [("both", True), ("descriptor", True), ("id", True), ("none", False),
                                        ("conflict", False)])
 def test_digest_shapes_fail_closed(eqc_env, shape, ok):
-    """[unverified] digest location: .configuration.index.digest and/or .id; both present must agree; neither = refused."""
+    """The digest: .configuration.descriptor.digest and/or .id (its hex); both present must agree; neither = refused."""
     eqc_env.record("min-both")
     p = eqc_env.sh("eq_run eq-t-14 30 /usr/bin/true", EQ_FAKE_CONTAINER_INSPECT=shape)
     assert (p.returncode == 0) is ok, (shape, p.returncode, p.stderr)
     assert len(eqc_env.runs()) == (1 if ok else 0)
+
+
+def inspect_1_5_0(digest: str, ref: str = MIN) -> dict:
+    """`container image inspect REF` as CLI 1.5.0 encodes it (Sources/ContainerResource/Image/ImageResource.swift at tag
+    1.5.0: ImageResource.encode writes id, configuration, variants; configuration is {creationDate, name, descriptor};
+    id is the hex part of configuration.descriptor.digest, without "sha256:")."""
+    return {"id": digest.split(":", 1)[1], "variants": [],
+            "configuration": {"creationDate": "2026-10-05T00:00:00Z", "name": ref,
+                              "descriptor": {"mediaType": "application/vnd.oci.image.index.v1+json", "digest": digest,
+                                             "size": 1}}}
+
+
+def test_digest_reads_the_1_5_0_image_resource_shape():
+    def digest_of(obj):
+        p = ej("digest", stdin=json.dumps([obj]))
+        assert p.returncode in (0, 1) and (p.returncode == 0) == bool(p.stdout), (p.returncode, p.stdout, p.stderr)
+        return p.stdout.strip() or None
+
+    good = inspect_1_5_0(DIGEST_A)
+    assert digest_of(good) == DIGEST_A
+    assert digest_of({**good, "id": DIGEST_B.split(":", 1)[1]}) is None   # descriptor and id disagree
+    assert digest_of({**good, "id": "A" * 64}) == DIGEST_A                # an id that is no digest is not read
+    no_alg = json.loads(json.dumps(good))
+    no_alg["configuration"]["descriptor"]["digest"] = "a" * 64            # the descriptor names its algorithm
+    del no_alg["id"]
+    assert digest_of(no_alg) is None
 
 
 # ------------------------------------------------------------------------------------------- watchdog, sweep, services
@@ -324,6 +393,7 @@ STUB_BUILD = r"""#!/bin/bash
 # stub build.sh (test): logs its argv; on a real run writes the records and image.env as build.sh does
 printf '%s\n' "$*" >> "$STUB_LOG.build"
 case " $* " in *" --dry-run "*) echo " build min-both (stub)"; exit 0;; esac
+cat > "$STUB_LOG.stdin"
 rc=${STUB_BUILD_RC:-0}; [ "$rc" = 0 ] || exit "$rc"
 mkdir -p "$EQ_STATE_DIR/images"
 d=${STUB_DIGEST:-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
@@ -399,6 +469,123 @@ def test_no_terminal_and_no_yes_never_builds(eqc_env, stub_lib, tmp_path):
     p = eqc_env.run("eq-container.sh", "install", lib=stub_lib, STUB_LOG=tmp_path / "stub", STUB_BUILD_RC="2")
     assert p.returncode == 10 and eqc_env.status() == "skipped", (p.stdout, p.stderr)
     assert "--yes" not in (tmp_path / "stub.build").read_text()
+
+
+@pytest.mark.parametrize("changed", ["probe_inner.sh", "probe.d/50-tunnel.sh", "lib.sh", "eqc_json.py",
+                                     "verify-tools.sh"])
+def test_install_verifies_again_after_the_checking_code_changed(eqc_env, stub_lib, tmp_path, changed):
+    """Unchanged images skip verification and probe only while the code that verified and probed them is unchanged too
+    (an edit to the probe or the verifier, or another CLI, must not reuse an old PASS)."""
+    knobs = dict(lib=stub_lib, STUB_LOG=tmp_path / "stub")
+    assert eqc_env.run("eq-container.sh", "install", "--yes", **knobs).returncode == 0
+    n = len(_stages(tmp_path))
+    with open(stub_lib / changed, "a") as f:
+        f.write("\n# changed\n")
+    p = eqc_env.run("eq-container.sh", "install", "--yes", **knobs)
+    assert p.returncode == 0 and "already verified" not in p.stdout, p.stdout
+    assert len(_stages(tmp_path)) > n
+
+
+def test_install_never_hands_its_stdin_to_build(eqc_env, stub_lib, tmp_path):
+    """build.sh asks its own question when its stdin is a terminal, but its output goes to build.log: from a terminal,
+    --no-prompt waited on a question nobody saw. The driver gives build.sh /dev/null (the stub stores what it read)."""
+    p = eqc_env.run("eq-container.sh", "install", "--no-prompt", lib=stub_lib, STUB_LOG=tmp_path / "stub",
+                    input="typed-by-the-caller\n")
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    assert (tmp_path / "stub.stdin").read_text() == ""
+
+
+@pytest.mark.parametrize("args", [("--help",), ("install", "--help")])
+def test_help_prints_the_header_only(eqc_env, args):
+    p = eqc_env.run("eq-container.sh", *args)
+    assert p.returncode == 0 and "eq-container.sh install" in p.stdout and "16 tools verification" in p.stdout
+    assert "set -u" not in p.stdout and "here=" not in p.stdout and eqc_env.calls() == []
+
+
+# ------------------------------------------------------------------------ eqc_json.py and verify-tools.sh on archives
+def test_root_level_whiteout_and_dotfiles_keep_their_names(tmp_path):
+    """Layer member names lose a leading "./" only: ".wh.opt" (a whiteout of /opt at the root) and ".profile" keep their
+    dot (str.lstrip("./") ate it: /opt stayed visible and /.profile vanished)."""
+    cfg = {"architecture": "arm64", "os": "linux", "config": {}}
+    a = save_archive(tmp_path / "img.tar", [{"opt/eq/TOOLS.lock": b"lock\n", ".profile": b"p\n", "./etc/x": b"x\n"},
+                                            {".wh.opt": b""}], cfg)
+    assert ej("oci-cat", a, "/opt/eq/TOOLS.lock").returncode == 1
+    p = ej("oci-cat", a, "/.profile")
+    assert p.returncode == 0 and p.stdout == "p\n"
+    p = ej("oci-cat", a, "/etc/x")
+    assert p.returncode == 0 and p.stdout == "x\n"
+
+
+def test_absolute_paths_are_found_in_the_image(tmp_path):
+    """verify-tools.sh asks for absolute paths (/opt/eq/TOOLS.lock, every tool file): resolve() made them "//opt/...",
+    which posixpath.normpath keeps, so no lock and no tool file was ever found (every --images run failed closed)."""
+    cfg = {"architecture": "arm64", "os": "linux", "config": {}}
+    a = save_archive(tmp_path / "img.tar", [{"opt/eq/TOOLS.lock": b"lock\n", "opt/bin/t": b"tool\n"}], cfg)
+    p = ej("oci-cat", a, "/opt/eq/TOOLS.lock")
+    assert p.returncode == 0 and p.stdout == "lock\n", (p.returncode, p.stdout)
+    p = ej("oci-sha256", a, "/opt/bin/t", "/opt/none")
+    want = ["%s  /opt/bin/t" % hashlib.sha256(b"tool\n").hexdigest(), "  /opt/none"]
+    assert p.returncode == 0 and p.stdout.splitlines() == want, p.stdout
+
+
+def test_verify_tools_saves_each_image_once_and_removes_it(eqc_env, tmp_path):
+    """--images and --inspect read one `container image save` archive per image and run; its temp dir goes at exit (the
+    cache lived in $(...) subshells: one multi-GB save per read, each left in TMPDIR)."""
+    eqc_env.record("min-py")
+    saves = tmp_path / "saves"
+    saves.mkdir()
+    cfg = {"architecture": "arm64", "os": "linux", "config": {"User": "10001", "Env": ["PATH=/opt/python/bin:/usr/bin"]}}
+    save_archive(saves / (san(EQC_TAGS["min-py"]) + ".tar"), [{"opt/eq/TOOLS.lock": b""}], cfg)
+    p = eqc_env.run("verify-tools.sh", "--select", "min-py", "--images", "--inspect", EQ_FAKE_CONTAINER_SAVE_DIR=saves)
+    assert "IMAGE min-py" in p.stdout and "INSPECT min-py" in p.stdout, (p.stdout, p.stderr)
+    assert len([c for c in eqc_env.calls() if c[:2] == ["image", "save"]]) == 1, eqc_env.calls()
+    assert list(eqc_env.tmpdir.glob("eqc-save.*")) == []
+
+
+# ---------------------------------------------------------------------------------- build.sh against the fake CLI
+@pytest.fixture
+def build_lib(tmp_path):
+    """A copy of the directory with the busybox pin resolved and a verify-tools.sh that passes (the manifest gate has
+    its own tests): build.sh then runs its whole build path against the fake CLI."""
+    lib = tmp_path / "eq-container-b"
+    shutil.copytree(EQC_LIB, lib, ignore=shutil.ignore_patterns(".state", "__pycache__"))
+    for f in ("PINS", "Dockerfile.minimal"):
+        t = (lib / f).read_text()
+        assert "BUSYBOX_SHA256=UNSET" in t
+        (lib / f).write_text(t.replace("BUSYBOX_SHA256=UNSET", "BUSYBOX_SHA256=" + "c" * 64))
+    (lib / "verify-tools.sh").write_text("#!/bin/bash\nexit 0\n")
+    return lib
+
+
+def _image_env(env) -> dict:
+    return dict(ln.split("=", 1) for ln in (env.state / "image.env").read_text().splitlines() if "=" in ln)
+
+
+def test_build_serves_pf_from_an_image_with_python_and_from_this_run(eqc_env, build_lib):
+    """The harness runs the PF oracle with `uv run` in the PF image: --set min serves PF from min-both (min-lean has no
+    Python), and a later --set full serves every class from the image it built, not from an older record."""
+    p = eqc_env.run("build.sh", "--set", "min", "--yes", lib=build_lib)
+    assert p.returncode == 0, (p.stdout[-2000:], p.stderr[-2000:])
+    ie = _image_env(eqc_env)
+    assert ie["EQ_SELECT_LEAN"] == "min-both" and ie["EQ_CONTAINER_IMAGE_PF"].startswith(EQC_TAGS["min-both"] + "@"), ie
+    assert ie["EQ_CONTAINER_IMAGE_CP"].startswith(EQC_TAGS["min-py"] + "@"), ie
+    p = eqc_env.run("build.sh", "--set", "full", "--yes", lib=build_lib)
+    assert p.returncode == 0, (p.stdout[-2000:], p.stderr[-2000:])
+    ie = _image_env(eqc_env)
+    for k in ("EQ_CONTAINER_IMAGE_PF", "EQ_CONTAINER_IMAGE_CP", "EQ_CONTAINER_IMAGE_CR"):
+        assert ie[k].startswith(EQC_TAGS["full"] + "@"), ie
+
+
+def test_keep_profile_build_replaces_the_one_record(eqc_env, build_lib):
+    """--keep-profile slim: the image's one record holds the -slim tag, so image.env, --check and verify-tools.sh all
+    see the image that was built (it wrote images/min-both-slim.env, which nothing reads)."""
+    p = eqc_env.run("build.sh", "--set", "min", "--yes", "--keep-profile", "slim", lib=build_lib)
+    assert p.returncode == 0, (p.stdout[-2000:], p.stderr[-2000:])
+    ie = _image_env(eqc_env)
+    assert ie.get("EQ_CONTAINER_IMAGE_PF", "").startswith(EQC_TAGS["min-both"] + "-slim@"), ie
+    assert sorted(f.name for f in (eqc_env.state / "images").iterdir()) == ["min-both.env", "min-lean.env", "min-py.env"]
+    p = eqc_env.run("build.sh", "--set", "min", "--check", lib=build_lib)
+    assert p.returncode == 0 and "CHECK: OK" in p.stdout, p.stdout
 
 
 def test_fake_cli_refuses_options_the_stack_does_not_use(eqc_env):

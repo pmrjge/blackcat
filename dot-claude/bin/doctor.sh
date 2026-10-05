@@ -1067,8 +1067,8 @@ envkv(){ [ -f "$C/stack.env" ] || return 0; awk -v k="$1" '
 eqc_bin=""
 if [ -n "${EQ_CONTAINER_BIN:-}" ]; then [ ! -x "$EQ_CONTAINER_BIN" ] || eqc_bin=$EQ_CONTAINER_BIN
 elif [ -x /usr/local/bin/container ]; then eqc_bin=/usr/local/bin/container; elif have container; then eqc_bin="$(command -v container)"; fi
-# the image digest in `container image inspect` JSON: .configuration.index.digest and/or .id, which must
-# agree (the same reading as lib/eq-container/eqc_json.py; which key 1.5.0 fills is unverified)
+# the image digest in `container image inspect` JSON: .configuration.descriptor.digest and/or .id (its hex,
+# without "sha256:"), which must agree (the same reading as lib/eq-container/eqc_json.py; CLI source at tag 1.5.0)
 eqc_digest(){ python3 -I -c 'import json, re, sys
 try:
     d = json.load(sys.stdin)
@@ -1077,8 +1077,11 @@ except ValueError:
 if not (isinstance(d, list) and len(d) == 1 and isinstance(d[0], dict)):
     sys.exit(1)
 c = d[0].get("configuration")
-idx = c.get("index") if isinstance(c, dict) else None
-vals = {v for v in ((idx or {}).get("digest") if isinstance(idx, dict) else None, d[0].get("id"))
+desc = c.get("descriptor") if isinstance(c, dict) else None
+i = d[0].get("id")
+if isinstance(i, str) and re.fullmatch(r"[0-9a-f]{64}", i):
+    i = "sha256:" + i
+vals = {v for v in (desc.get("digest") if isinstance(desc, dict) else None, i)
         if isinstance(v, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", v)}
 if len(vals) != 1:
     sys.exit(1)

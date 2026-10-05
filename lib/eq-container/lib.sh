@@ -39,7 +39,7 @@ else
   if [ "$EQ_WORK_ROOT" = "${HOME:-/}" ] || [ "$EQ_WORK_ROOT" = / ]; then echo "lib.sh: EQ_WORK_ROOT must not be \$HOME or /" >&2; exit 2; fi
   chmod 0700 "$EQ_STATE_DIR" "$EQ_WORK_ROOT" 2>/dev/null || true
 fi
-case "$EQ_WORK_ROOT" in *,*|*:*) echo "lib.sh: a comma or colon in $EQ_WORK_ROOT breaks --mount; use another path" >&2; exit 2;; esac
+case "$EQ_WORK_ROOT" in *,*|*:*|*=*) echo "lib.sh: a comma, colon or '=' in $EQ_WORK_ROOT breaks --mount; use another path" >&2; exit 2;; esac
 
 eq_die() { echo "error: $*" >&2; exit "${EQ_DIE_RC:-2}"; }
 eq_have() { command -v "$1" >/dev/null 2>&1; }
@@ -158,8 +158,10 @@ EQ_COPY_IN='while [ "$1" != -- ]; do cp -R "$1"/. "$2"/ || exit 1; shift 2; done
 # with -i), EQ_RUN_IMAGE (a tag or TAG@sha256:..; default the min-both image), EQ_RUN_WORK_SIZE (the /work tmpfs size; default
 # $EQ_WORK_SIZE), EQ_RUN_TUNNEL (a WALL channel dir, bound read-write at /eq/tunnel: the tunnel probe only), EQ_RUN_MEMORY,
 # EQ_RUN_NPROC. Returns the container's exit code; 124 when the watchdog stopped it (container kill NAME) after TIMEOUT_S.
-# Refused (exit 2, before anything runs): any other mount shape, a comma in a mount source or target, in EQ_RUN_TUNNEL or in
-# a tmpfs size (`--mount` and `--tmpfs` split their values at commas, so one would add or override keys).
+# Refused (exit 2, before anything runs): any other mount shape, a comma or '=' in a mount source or target or in
+# EQ_RUN_TUNNEL, a comma in a tmpfs size (`--mount` and `--tmpfs` split their values at commas, so one would add or override
+# keys; 1.5.0's Parser.mount splits each key=value at '=' and drops empty pieces: an inner '=' is an error, a trailing one
+# cuts the path).
 eq_run() {
   local name=$1 tmo=$2 rc wd flag img tag
   shift 2
@@ -173,17 +175,19 @@ eq_run() {
   flag="$EQ_WORK_ROOT/.timeout-$name"
   rm -f "$flag"
   local -a stdin_flag=() mv=(${EQ_RUN_MOUNTS[@]+"${EQ_RUN_MOUNTS[@]}"}) mounts=() prefix=()
-  local i=0 m src commas
+  local i=0 m src commas eqs
   while [ "$i" -lt "${#mv[@]}" ]; do
     if [ "${mv[$i]}" = --mount ] && [ $((i + 1)) -lt "${#mv[@]}" ]; then
       m=${mv[$((i + 1))]}
       # `--mount` splits its value at every comma: a comma inside a source or target path would add or override keys
       # (",readonly=false", a second target=...). The two accepted shapes have exactly 2 (/work copy) or 3 (read-only)
-      # commas, so with the patterns below neither path can hold one.
+      # commas and exactly 3 '=' (type=, source=, target=), so with the patterns below neither path can hold a comma or
+      # an '=' (which the CLI would reject or, trailing, cut off).
       commas=$(printf '%s' "$m" | tr -cd ',')
-      case "${#commas}:$m" in
-        2:type=bind,source=?*,target=/work | 3:type=bind,source=?*,target=/?*,readonly) ;;
-        *) eq_die "eq_run: mount '$m' must be type=bind,source=PATH,target=/work or type=bind,source=PATH,target=/PATH,readonly (no comma in a path)";;
+      eqs=$(printf '%s' "$m" | tr -cd '=')
+      case "${#commas}:${#eqs}:$m" in
+        2:3:type=bind,source=?*,target=/work | 3:3:type=bind,source=?*,target=/?*,readonly) ;;
+        *) eq_die "eq_run: mount '$m' must be type=bind,source=PATH,target=/work or type=bind,source=PATH,target=/PATH,readonly (no comma or '=' in a path)";;
       esac
       case "$m" in
         type=bind,source=*,target=/work)
@@ -199,7 +203,7 @@ eq_run() {
   done
   if [ -n "${EQ_RUN_TUNNEL:-}" ]; then
     case "$EQ_RUN_TUNNEL" in
-      *,*) eq_die "eq_run: EQ_RUN_TUNNEL '$EQ_RUN_TUNNEL' holds a comma (it would add --mount keys)";;
+      *,*|*=*) eq_die "eq_run: EQ_RUN_TUNNEL '$EQ_RUN_TUNNEL' holds a comma or '=' (it would add --mount keys or cut the path)";;
       /?*) ;;
       *) eq_die "eq_run: EQ_RUN_TUNNEL must be an absolute path";;
     esac

@@ -14,7 +14,7 @@ Docs are not behaviour: every item below stays [unverified] until its command pr
 
 | # | command | confirms when | code that depends on it |
 |---|---|---|---|
-| C1 | `container image inspect alpine:latest \| jq '.[0] \| {id, idx: .configuration.index.digest}'` | at least one of `id`/`idx` is `sha256:<64 hex>`; if both are, they are equal | `lib/eq-container/eqc_json.py` DIGEST_PATHS (`digest`), `lib.sh` eqc_image_digest/eq_require_image, `dot-claude/bin/doctor.sh` eqc_digest, harness `INSPECT_DIGEST_PATHS`/`inspect_digest`/`require_image`. If neither: every digest check fails closed (images "not present") |
+| C1 | `container image inspect alpine:latest \| jq '.[0] \| {id, d: .configuration.descriptor.digest}'` | `d` is `sha256:<64 hex>` and `id` is the same 64 hex without `sha256:` (the 1.5.0 source, ImageResource.swift; the earlier `.configuration.index.digest` guess was wrong and is no longer read) | `lib/eq-container/eqc_json.py` DIGEST_PATHS (`digest`), `lib.sh` eqc_image_digest/eq_require_image, `dot-claude/bin/doctor.sh` eqc_digest, harness `INSPECT_DIGEST_PATHS`/`inspect_digest`/`require_image`. If neither: every digest check fails closed (images "not present") |
 | C2 | `container system status; echo rc=$?` then `container system stop; container system status; echo rc=$?; container system start` (only with nothing running) | rc=0 while running, rc!=0 after stop | every skip path: `lib.sh` eqc_state (exit 10), `eq-container.sh` install skip, `doctor.sh` "services not running", harness `require_services` (run_abort) |
 | C3 | `container run -d --name eq-chk-1 --label eq-harness=1 --label eq-inv=x alpine:latest sleep 60; container list --all --format json \| jq '.[] \| {id: .configuration.id, labels: .configuration.labels}'; container delete --force eq-chk-1` | a row with `id == "eq-chk-1"` and `labels` an object holding `eq-harness: "1"`, `eq-inv: "x"` | `eqc_json.py` ids/exists, `lib.sh` eq_list_ids/eq_sweep, harness `list_rows`/`sweep` (orphan reaper; a different shape = nothing is ever swept) |
 | C4 | `container kill eq-none-404; echo rc=$?; container delete --force eq-none-404; echo rc=$?` | note the two rc values (the fake returns 0) | informational: `lib.sh` eq_sweep and the harness `kill`/`sweep` ignore these rc values |
@@ -30,3 +30,9 @@ Docs are not behaviour: every item below stays [unverified] until its command pr
 
 Already verified by you (HANDOFF_STATE §7): `container run --help` flags; `--network none` (spike); `image inspect` top-level
 keys `configuration`, `id`, `variants`.
+
+Read in the CLI source at tag 1.5.0 during the R3 review (source, not behaviour; the rows above still need running):
+C1's shape (Sources/ContainerResource/Image/ImageResource.swift, checked by the builder); `--mount` splits each key=value at
+`=` and drops empty pieces (Sources/Services/ContainerAPIService/Client/Parser.swift, checked by the builder: so lib.sh,
+the harness and install.sh refuse `=` in mounted paths, as they already refused `,`); C3's row shape (ManagedContainer.swift), `--ulimit
+nproc` accepted and tmpfs mounts applied before binds (Utility.swift): security-auditor's reading, not re-checked.

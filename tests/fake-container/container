@@ -7,7 +7,8 @@
 #                               object with exactly the keys configuration, id, variants (the shape the user verified);
 #                               the digest is REF's entry in EQ_FAKE_CONTAINER_DIGESTS (space-separated REF=sha256:..),
 #                               else EQ_FAKE_CONTAINER_DIGEST, else sha256:0{64}; EQ_FAKE_CONTAINER_INSPECT picks where it
-#                               sits: both (default: .configuration.index.digest and .id), index, id, none, conflict
+#                               sits: both (default, the 1.5.0 source's shape: .configuration.descriptor.digest and .id =
+#                               its hex), descriptor, id, none, conflict
 #   image save --output F REF -> copies $EQ_FAKE_CONTAINER_SAVE_DIR/<REF with :/@ as _>.tar to F, else rc 1
 #   image delete ... | kill ... | delete ...   -> rc 0
 #   build ... -t TAG ...     -> rc ${EQ_FAKE_CONTAINER_BUILD_RC:-0}
@@ -29,8 +30,9 @@
 # README, "Unverified"):
 #   [unverified] `system status` exits non-zero while the services are down (the docs only say it "checks whether the
 #                services are running"); every skip path of lib.sh / eq-container.sh / doctor.sh rests on that exit code.
-#   [unverified] the image digest sits at .configuration.index.digest and/or .id, and the two agree when both are present
-#                (eqc_json.py digest, the harness's inspect_digest and doctor.sh read exactly these two paths).
+#   [source-read, not run] the image digest sits at .configuration.descriptor.digest and .id holds its hex without
+#                "sha256:" (ImageResource.swift at tag 1.5.0); eqc_json.py digest, the harness's inspect_digest and
+#                doctor.sh read exactly these two paths and require agreement when both hold a digest.
 #   [unverified] `container list --all --format json` rows carry .configuration.id and .configuration.labels (docs:
 #                container-inspection.md); eq_sweep and the harness's reaper read only these.
 #   [unverified] `image save --output F REF` writes an OCI image layout (index.json + blobs/sha256) or a docker-save layout
@@ -58,13 +60,14 @@ case "${1:-} ${2:-}" in
     done
     d=${EQ_FAKE_CONTAINER_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
     for e in ${EQ_FAKE_CONTAINER_DIGESTS:-}; do [ "${e%%=*}" = "$ref" ] && d=${e#*=}; done
-    other=sha256:1111111111111111111111111111111111111111111111111111111111111111
+    other=1111111111111111111111111111111111111111111111111111111111111111
+    desc='"descriptor":{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"'"$d"'","size":1}'
     case "${EQ_FAKE_CONTAINER_INSPECT:-both}" in
-      both) printf '[{"configuration":{"name":"%s","index":{"digest":"%s","mediaType":"application/vnd.oci.image.index.v1+json","size":1}},"id":"%s","variants":[]}]\n' "$ref" "$d" "$d" ;;
-      index) printf '[{"configuration":{"name":"%s","index":{"digest":"%s"}},"id":"%s","variants":[]}]\n' "$ref" "$d" "$ref" ;;
-      id) printf '[{"configuration":{"name":"%s"},"id":"%s","variants":[]}]\n' "$ref" "$d" ;;
-      none) printf '[{"configuration":{"name":"%s"},"id":"%s","variants":[]}]\n' "$ref" "$ref" ;;
-      conflict) printf '[{"configuration":{"index":{"digest":"%s"}},"id":"%s","variants":[]}]\n' "$d" "$other" ;;
+      both) printf '[{"id":"%s","configuration":{"creationDate":"2026-10-05T00:00:00Z","name":"%s",%s},"variants":[]}]\n' "${d#sha256:}" "$ref" "$desc" ;;
+      descriptor) printf '[{"id":"%s","configuration":{"name":"%s",%s},"variants":[]}]\n' "$ref" "$ref" "$desc" ;;
+      id) printf '[{"id":"%s","configuration":{"name":"%s"},"variants":[]}]\n' "${d#sha256:}" "$ref" ;;
+      none) printf '[{"id":"%s","configuration":{"name":"%s"},"variants":[]}]\n' "$ref" "$ref" ;;
+      conflict) printf '[{"id":"%s","configuration":{"name":"%s",%s},"variants":[]}]\n' "$other" "$ref" "$desc" ;;
     esac
     exit 0 ;;
   "image save")

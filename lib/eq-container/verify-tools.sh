@@ -192,7 +192,9 @@ run_manifest() {
 
 # ---------------------------------------------------------------------------------------------------------------- container
 # Each image is saved ONCE per run (`container image save`, nothing started) into a private temp dir; the lock, the tool files and
-# the config are read from that archive by eqc_json.py (layers applied in order, whiteouts honoured, blobs re-hashed).
+# the config are read from that archive by eqc_json.py (layers applied in order, whiteouts honoured, blobs re-hashed). The readers
+# run inside $(...) subshells, which cannot set SAVE_ROOT here nor run this shell's EXIT trap: run_images and run_inspect call
+# `saved` once in this shell first (save_here), so every subshell finds the archive and the trap removes it.
 SAVE_ROOT=""
 saved() { # tag -> path of the saved archive (cached); 1 when the save failed
   local tag=$1 key d
@@ -204,6 +206,7 @@ saved() { # tag -> path of the saved archive (cached); 1 when the save failed
 }
 cleanup_saves() { [ -z "$SAVE_ROOT" ] || rm -rf "$SAVE_ROOT"; }
 trap cleanup_saves EXIT
+save_here() { saved "$1" >/dev/null 2>&1 || true; }   # tag: fill the cache in THIS shell (a failure is seen by the readers)
 fetch_lock() { # tag -> prints TOOLS.lock on stdout; returns 1 when the image has none
   local a out
   a=$(saved "$1") || return 1
@@ -250,6 +253,7 @@ run_images() {
     elif [ -z "$dig" ]; then st=MISSING; why="image $tag not present"
     elif [ "$dig" != "$rec" ]; then st=MISMATCH; why="digest $dig differs from the record $rec"; fi
     if [ "$st" = ok ]; then
+      save_here "$tag"
       want=$(tm_image_hash "$n")
       if cfg=$(image_config "$tag"); then label=$(cfg_get "$cfg" Labels.eq.tools.sha256); else label=""; fi
       if [ "$label" != "$want" ]; then st=STALE; why="label eq.tools.sha256 '${label:-none}' is not the hash of the current manifest entries ($want): rebuild"; fi
@@ -299,6 +303,7 @@ run_inspect() {
   eq_need_container
   for n in $SEL_IMAGES; do
     tag=$(eq_img_tag "$n")
+    save_here "$tag"
     cfg=$(image_config "$tag") || { printf 'INSPECT %-10s MISSING image %s not present or not saveable\n' "$n" "$tag"; bad=1; continue; }
     st=ok; why=""
     v=$(cfg_get "$cfg" User); case "$v" in ""|0|0:*|root|root:*) st=FAIL; why="$why user '$v' is not unprivileged;";; esac

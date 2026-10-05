@@ -74,7 +74,9 @@ case "$PROFILE" in
   *) echo "--keep-profile must be conservative, noprivate or slim" >&2; exit 2;;
 esac
 
-rn() { case "$1" in min-lean|min-both) echo "$1$SUFFIX";; *) echo "$1";; esac; }   # a keep-profile build gets its own record
+# the record of an image: ONE per image (images/NAME.env, read by image.env, --check, verify-tools.sh and lib.sh); a keep-profile
+# build replaces it, its tag carrying the suffix and its EQ_KEEP_SUFFIX/EQ_KEEP_EXTS the profile
+rn() { echo "$1"; }
 img_file() { case "$1" in full) echo Dockerfile;; tc-*) echo Dockerfile.toolchains;; *) echo Dockerfile.minimal;; esac; }
 img_target() {
   case "$1" in
@@ -306,12 +308,18 @@ for n in $NAMES; do
   echo "   digest $dig  build ${bsec}s"
 done
 
-# summary for the installer, doctor and the harness flags: which built image serves PF (lean; with --profiles min-both, since
-# the harness runs the PF oracle with uv and python in the PF image) and CP/CR (py). Values are TAG@sha256:DIGEST.
+# summary for the installer, doctor and the harness flags: which built image serves PF (Lean and, since the harness runs the PF
+# oracle with `uv run`, Python: min-both or full; min-lean, which has no Python, only as the last resort) and CP/CR (py).
+# The images this run built come first, then older records. Values are TAG@sha256:DIGEST.
+pick() { # candidates in order -> the first one this run built that has a record, else the first with a record
+  local c
+  for c in "$@"; do case " $NAMES " in *" $c "*) [ -f "$EQ_STATE_DIR/images/$c.env" ] && { echo "$c"; return 0; };; esac; done
+  for c in "$@"; do [ -f "$EQ_STATE_DIR/images/$c.env" ] && { echo "$c"; return 0; }; done
+  return 0
+}
 sel_lean=${EQ_SELECT_LEAN:-}; sel_py=${EQ_SELECT_PY:-}
-lean_cands="min-lean full"; [ -z "$PROFILES" ] || lean_cands="min-both min-lean full"
-if [ -z "$sel_lean" ]; then for c in $lean_cands; do [ -f "$EQ_STATE_DIR/images/$c.env" ] && { sel_lean=$c; break; }; done; fi
-if [ -z "$sel_py" ]; then for c in min-py full; do [ -f "$EQ_STATE_DIR/images/$c.env" ] && { sel_py=$c; break; }; done; fi
+[ -n "$sel_lean" ] || sel_lean=$(pick min-both full min-lean)
+[ -n "$sel_py" ] || sel_py=$(pick min-py full min-both)
 {
   echo "EQ_BACKEND=container"
   echo "EQ_ISOLATION=container"

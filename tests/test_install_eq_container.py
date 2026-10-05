@@ -482,6 +482,20 @@ def test_stack_env_is_not_clobbered_and_paths_are_quoted(tmp_path):
     assert b.env_line("EQ_WALL") == "off" and "WALL NOT set up" in p.stdout
 
 
+@needs_git
+def test_a_tunnel_root_container_cannot_mount_turns_the_wall_off(tmp_path):
+    """`container run --mount` splits its value at commas and cuts a path at an '=' (1.5.0 Parser.mount): a tunnel root
+    holding a comma, a colon or an '=' is refused before it is made (the harness and lib.sh refuse such a mount too)."""
+    b = Box(tmp_path)
+    for name in ("c=x", "c,x", "c:x"):
+        bad = tmp_path / name
+        p = b.install(*BASE, XDG_CACHE_HOME=bad)
+        w = b.wall()
+        assert w["status"] == "failed" and "container --mount cannot carry" in w["why"], (name, w)
+        assert not (bad / "claude-agent-stack" / "eq-tunnel").exists()
+        assert b.env_line("EQ_WALL") == "off" and "WALL NOT set up" in p.stdout
+
+
 # ----------------------------------------------------------------------------- the WALL: default and flags
 @needs_git
 def test_review_not_positive_and_the_flags(tmp_path):

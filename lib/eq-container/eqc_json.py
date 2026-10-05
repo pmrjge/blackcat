@@ -12,10 +12,12 @@ Run as `python3 -I eqc_json.py MODE ...` with the JSON on stdin (or an archive p
   oci-sha256 ARCHIVE PATH...   one `<sha256>  PATH` line per PATH (empty hash when the path is absent)
 
 Shapes. Verified by the user on this host (container 1.5.0, 2026-10-05): `container image inspect alpine:latest` is a JSON
-array whose element has exactly the keys configuration, id, variants. UNVERIFIED: where the digest lives inside it. The
-candidates read here are `.configuration.index.digest` (CLI 1.5.0 source: ClientImage.details() builds
-ImageDetail(name:, index: <OCI descriptor>, variants:); the 1.5.0 docs show the fields under "configuration") and `.id`;
-at least one must be sha256:<64 hex> and all that are must agree, else exit 1. The container list shape
+array whose element has exactly the keys configuration, id, variants. Where the digest lives, from the CLI source at tag
+1.5.0 (Sources/ContainerResource/Image/ImageResource.swift; ImageInspect renders [ImageResource]): ImageResource.encode
+writes id, configuration, variants; configuration is {creationDate, name, descriptor} with descriptor the image index's
+OCI descriptor; id is the hex part of configuration.descriptor.digest (no "sha256:"). Read here:
+`.configuration.descriptor.digest` (sha256:<64 hex>) and `.id` (64 hex, or sha256:<64 hex>); at least one must be a
+digest and all that are must agree, else exit 1. Source-read, not run: user checklist C1. The container list shape
 (`.[].configuration.id`, `.[].configuration.labels`) follows the 1.5.0 docs (container-inspection.md) and is UNVERIFIED.
 The `image save` archive is read as an OCI image layout (index.json + blobs/sha256/...) or a docker-save layout
 (manifest.json): which one 1.5.0 writes is UNVERIFIED.
@@ -33,7 +35,8 @@ import sys
 import tarfile
 
 SHA = re.compile(r"sha256:[0-9a-f]{64}")
-DIGEST_PATHS = (("configuration", "index", "digest"), ("id",))
+HEX = re.compile(r"[0-9a-f]{64}")
+DIGEST_PATHS = (("configuration", "descriptor", "digest"), ("id",))
 
 
 def die() -> None:
@@ -55,11 +58,20 @@ def dig(obj: object, path: tuple) -> object:
     return obj
 
 
+def as_digest(path: tuple, v: object) -> object:
+    """sha256:<64 hex>, or None; the id holds the hex alone (ImageResource.id), so it gets its algorithm back."""
+    if not isinstance(v, str):
+        return None
+    if SHA.fullmatch(v):
+        return v
+    return "sha256:" + v if path == ("id",) and HEX.fullmatch(v) else None
+
+
 def digest() -> None:
     data = load_stdin()
     if not (isinstance(data, list) and len(data) == 1 and isinstance(data[0], dict)):
         die()
-    found = {v for v in (dig(data[0], p) for p in DIGEST_PATHS) if isinstance(v, str) and SHA.fullmatch(v)}
+    found = {d for d in (as_digest(p, dig(data[0], p)) for p in DIGEST_PATHS) if d is not None}
     if len(found) != 1:
         die()
     print(found.pop())
@@ -83,10 +95,19 @@ def exists(cid: str) -> None:
 
 
 # ---- image archives ------------------------------------------------------------------------------------------------
+def norm(name: str) -> str:
+    """A tar member name without its leading "./" and "/" ("./a/b" -> "a/b", "." -> ""). Not str.lstrip("./"): that strips
+    a character set and turns a root-level whiteout ".wh.opt" into "wh.opt" (or ".profile" into "profile")."""
+    while name.startswith("./"):
+        name = name[2:]
+    name = name.lstrip("/")
+    return "" if name == "." else name
+
+
 class Archive:
     def __init__(self, path: str) -> None:
         self.tar = tarfile.open(path, "r:*")
-        self.names = {m.name.lstrip("./"): m for m in self.tar.getmembers()}
+        self.names = {norm(m.name): m for m in self.tar.getmembers()}
 
     def read(self, name: str) -> bytes:
         m = self.names.get(name)
@@ -142,7 +163,7 @@ def image_fs(archive: str) -> tuple:
     for data in layers:
         t = layer_tar(data)
         for m in t.getmembers():
-            p = "/" + m.name.lstrip("./").rstrip("/")
+            p = "/" + norm(m.name).rstrip("/")
             d, b = posixpath.split(p)
             if b == ".wh..wh..opq":
                 for k in [k for k in fs if k.startswith(d.rstrip("/") + "/")]:
@@ -158,7 +179,8 @@ def image_fs(archive: str) -> tuple:
 
 
 def resolve(fs: dict, path: str) -> tuple:
-    p = posixpath.normpath("/" + path)
+    # one leading slash: posixpath.normpath keeps exactly two ("//opt/x"), which is no key of fs
+    p = posixpath.normpath("/" + path.lstrip("/"))
     for _ in range(40):
         # follow symlinked parents too
         parts, cur = p.strip("/").split("/"), ""
