@@ -3714,6 +3714,14 @@ eq_wall_step(){
   case "$cfg_sha" in
     *[!0-9a-f]*|"") eq_wall_finish failed "eq_wall.py config-hash failed"; return 0 ;;
   esac
+  # the three paths go into stack.env, which cannot carry a quote, $, `, a backslash or a line break
+  # (eq_env_py refuses such a value): refused here, before any directory is made, rather than a WALL
+  # that is on without the stack.env lines the harness reads
+  case "$EQ_TUNNEL_ROOT|$EQ_WALL_STATE|$HERE/lib/eq-wall" in
+    *[\"\'\$\`\\]*|*$'\n'*|*$'\r'*)
+      eq_wall_finish failed "a WALL path holds a quote, \$, \`, a backslash or a line break (stack.env cannot carry it): set XDG_CACHE_HOME / XDG_STATE_HOME or move the repo"
+      return 0 ;;
+  esac
   eq_private_dir "$EQ_TUNNEL_ROOT" || { eq_wall_finish failed "tunnel root refused: $EQ_DIR_WHY"; return 0; }
   eq_private_dir "$EQ_WALL_STATE" || { eq_wall_finish failed "state dir refused: $EQ_DIR_WHY"; return 0; }
   # 2. roots, policy and the user's stores (verdicts.jsonl, consents.jsonl: never created or edited here)

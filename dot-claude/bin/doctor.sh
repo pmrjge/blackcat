@@ -1062,12 +1062,14 @@ envkv(){ [ -f "$C/stack.env" ] || return 0; awk -v k="$1" '
     if (v ~ /^".*"$/ || v ~ /^'\''.*'\''$/) v = substr(v, 2, length(v) - 2); else sub(/[ \t]+#.*$/, "", v)
     last = v }
   END { print last }' "$C/stack.env" 2>/dev/null; }
-# the signed .pkg installs the CLI at /usr/local/bin/container; PATH only when it is not there
+# the signed .pkg installs the CLI at /usr/local/bin/container; PATH only when it is not there.
+# EQ_CONTAINER_BIN (as lib/eq-container honours it) names another one; it is only asked read-only questions
 eqc_bin=""
-if [ -x /usr/local/bin/container ]; then eqc_bin=/usr/local/bin/container; elif have container; then eqc_bin="$(command -v container)"; fi
+if [ -n "${EQ_CONTAINER_BIN:-}" ]; then [ ! -x "$EQ_CONTAINER_BIN" ] || eqc_bin=$EQ_CONTAINER_BIN
+elif [ -x /usr/local/bin/container ]; then eqc_bin=/usr/local/bin/container; elif have container; then eqc_bin="$(command -v container)"; fi
 # the image digest in `container image inspect` JSON: .configuration.index.digest and/or .id, which must
 # agree (the same reading as lib/eq-container/eqc_json.py; which key 1.5.0 fills is unverified)
-eqc_digest(){ python3 -c 'import json, re, sys
+eqc_digest(){ python3 -I -c 'import json, re, sys
 try:
     d = json.load(sys.stdin)
 except ValueError:
@@ -1105,6 +1107,7 @@ else
       elif ! $T "$eqc_bin" system status >/dev/null 2>&1 </dev/null; then
         warn "eq-container: the container services are not running, images not checked (run: container system start)"
       else
+        set -f   # the refs are data: split on blanks, never globbed
         for eq_ref in $eq_refs; do
           eq_tag=${eq_ref%@*}; eq_dig=${eq_ref##*@}
           case "$eq_tag" in eq.invalid/*) ;; *) fail "eq-container: recorded image $eq_tag is not under eq.invalid/: rerun ./install.sh --with-eq-container"; continue ;; esac
@@ -1113,6 +1116,7 @@ else
           if [ -n "$eq_got" ] && [ "$eq_got" = "$eq_dig" ]; then ok "eq-container image $eq_tag ($eq_s) present"
           else fail "eq-container image $eq_tag is not the recorded $eq_s (missing, rebuilt or retagged): run ./install.sh --with-eq-container"; fi
         done
+        set +f
       fi ;;
     skipped)
       if [ "$eq_want" = 1 ]; then warn "eq-container: skipped at $eq_at ($eq_why), but EQ_ISOLATION=container is set in stack.env"
