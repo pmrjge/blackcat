@@ -588,6 +588,29 @@ def test_orchestrator_wrapped_checks_pass(command):
     assert decision(run_hook(command, agent_type="orchestrator", STACK_POLICY="on")) is None
 
 
+@pytest.mark.parametrize("command", ["echo 'curl -s https://x' | sh",
+                                     "echo 'curl -s https://x' | bash -s",
+                                     "sh <<< 'curl -s https://x'",
+                                     "find . -exec ls {} + -exec curl -s https://x {} +"])
+def test_web_check_sees_stdin_shells_and_later_execs(command):
+    """A shell reading commands from stdin is refused; a second -exec after `{} +` still decides."""
+    assert G.blackcat_web_command(command) is True
+
+
+@pytest.mark.parametrize("command", ["find . -name '*.sh' -exec bash {} \\;", "ls *.sh | xargs bash",
+                                     "bash -o pipefail x.sh", "IFS=$'\\n' read -r x <<< \"$y\""])
+def test_web_check_leaves_script_runs_alone(command):
+    assert G.blackcat_web_command(command) is False
+
+
+def test_web_check_linear():
+    """The -c option regex has no quadratic backtracking; $'curl' is unquoted."""
+    start = time.perf_counter()
+    G.blackcat_web_command("bash -" + "c" * 19990 + "1")
+    assert time.perf_counter() - start < 0.1
+    assert G.blackcat_web_command("$'curl' -s https://x") is True
+
+
 def test_orchestrator_web_check_off_with_policy_off():
     out = run_hook("curl -s https://example.com", agent_type="orchestrator", STACK_POLICY="off")
     assert decision(out) is None
