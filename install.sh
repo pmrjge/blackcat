@@ -541,9 +541,10 @@ note "hook interpreter: $STACK_PYTHON -> ${STACK_PYTHON_TARGET:-the uv-managed P
 # or skip-worktree stops the run, as does a symlink anywhere under dot-claude/.
 # What the review covers: the whole shipped tree, the installer and all of lib/ (a file added there
 # shows as untracked), the pinned requirements, tests/lint_agents.py (run in step 7) and the two
-# tests/derive_*.py scripts. lib/assets (the README's images) is neither installed nor run: left out.
-SUPPLY_PATHS="dot-claude install.sh lib requirements tests/lint_agents.py tests/derive_sched_model.py tests/derive_thresholds.py :(exclude)lib/assets"
-SUPPLY_SHOW="${SUPPLY_PATHS% *} ':(exclude)lib/assets'"     # the same, quoted for pasting into a shell
+# tests/derive_*.py scripts. The README's images (assets/ at the repository root) are neither
+# installed nor run, and no supply path covers them.
+SUPPLY_PATHS="dot-claude install.sh lib requirements tests/lint_agents.py tests/derive_sched_model.py tests/derive_thresholds.py"
+SUPPLY_SHOW="$SUPPLY_PATHS"     # the same, for pasting into a shell (no word needs quoting)
 SNAP_ROOT="$WORK/src"
 SUPPLY_LIST="$WORK/supply-review.txt"
 python3 - "$HERE" "$SNAP_ROOT" "$SUPPLY_LIST" "$C" "$SUPPLY_PATHS" <<'PY' || exit 1

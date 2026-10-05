@@ -1,9 +1,9 @@
 <!-- markdownlint-disable MD013 MD033 MD041 MD060 -->
 # claude-agent-stack
 
-<p align="center"><img src="lib/assets/blackcat-hero.jpg" alt="A giant black cat sits calmly licking its raised paw, its long tail stretched across the tiles of a colourful toy-block city where small white robots with antennae and visor eyes carry blocks past miniature terminals, floating code brackets, a glowing git-graph and circuit paths, in violet, turquoise and amber: BlackCat" width="480"></p>
+<p align="center"><img src="assets/blackcat-hero.jpg" alt="A giant black cat sits calmly licking its raised paw, its long tail stretched across the tiles of a colourful toy-block city where small white robots with antennae and visor eyes carry blocks past miniature terminals, floating code brackets, a glowing git-graph and circuit paths, in violet, turquoise and amber: BlackCat" width="480"></p>
 
-<p align="center"><sub>Hero image: photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper, <a href="lib/assets/README.md">CC BY 4.0</a></sub></p>
+<p align="center"><sub>Hero image: photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper, <a href="assets/README.md">CC BY 4.0</a></sub></p>
 
 A multi-agent configuration for Claude Code: BlackCat on the main thread, 52 specialists, 214 on-demand
 skills, and hooks that enforce the limits. blackcat-agent-stack is the Swiss Army knife for all things
@@ -357,7 +357,7 @@ figures below. What the repo's tests prove is the machinery:
 | `tests/test_limits_guard.py`, `test_stack_limits.py`, `test_stack_usage.py`, `test_sched_snapshot.py`, `test_stack_sched.py` | Budgets, learned limits and snapshots, the collector, the scheduler |
 | `tests/test_stack_budget.py`, `test_stack_budget_security.py`, `test_stack_tree.py`, `test_stack_doctor.py`, `test_override_agent.py` | The user commands, including read-only behaviour and escaping of untrusted text |
 | `tests/test_read_gate.py`, `test_web_caps.py`, `test_image_limit.py`, `test_libdocs_mcp.py`, `test_image_studio_mcp.py`, `test_mcp_headers.py` | Gates, caps and the stack's MCP servers |
-| `tests/lint_agents.py`, `tests/prompt_budget.py --check`, `test_skill_modules.py`, `test_no_duplicates.py` | Frontmatter, `POLICY` ↔ "May spawn", model aliases, skill layout, prompt sizes |
+| `tests/lint_agents.py`, `tests/prompt_budget.py --check`, `test_skill_modules.py`, `test_no_duplicates.py`, `test_moved_paths.py` | Frontmatter, `POLICY` ↔ "May spawn", model aliases, skill layout, prompt sizes, no reference to a moved path |
 | `tests/install_smoke.sh`, `test_install_state.py`, `test_install_plugins.py` | Hermetic installer runs: dry run, restore round trips, pruning, symlinked dirs, the Anthropic skill plugins step |
 
 How to run them: [Verify](#verify).
@@ -1513,7 +1513,7 @@ outside this repository).
   `Co-Authored-By: Claude <noreply@anthropic.com>` trailer; the model name may follow `Claude`, as in
   the history ([PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)).
 - **Licence:** Apache-2.0 for code, docs and prompts ([LICENSE](LICENSE), [NOTICE](NOTICE)); the images
-  in `lib/assets/` are under CC BY 4.0. Details: [License](#license).
+  in `assets/` are under CC BY 4.0. Details: [License](#license).
 
 ## Changelog
 
@@ -1534,12 +1534,12 @@ their changelog entries, are not shipped; see the commit history in
 
 ## License
 
-- **Code, docs and prompts** (everything outside `lib/assets/`: scripts, hooks, agents, skills, prompts,
+- **Code, docs and prompts** (everything outside `assets/`: scripts, hooks, agents, skills, prompts,
   docs): [Apache-2.0](LICENSE) (SPDX identifier `Apache-2.0`), copyright 2026 Pedro Miguel Rodrigues
   Jorge. The [NOTICE](NOTICE) file records that the project was created with Claude Code; Apache-2.0
   §4(d) requires redistributions to carry it.
-- **The images in `lib/assets/`** (hero, its unmodified original, social preview, avatar):
-  [CC BY 4.0](lib/assets/LICENSE-CC-BY-4.0.txt) (SPDX identifier `CC-BY-4.0`), with attribution to Pedro
+- **The images in `assets/`** (hero, its unmodified original, social preview, avatar):
+  [CC BY 4.0](assets/LICENSE-CC-BY-4.0.txt) (SPDX identifier `CC-BY-4.0`), with attribution to Pedro
   Miguel Rodrigues Jorge for the human contribution, his photograph of his cat: "Photo by Pedro Miguel
   Rodrigues Jorge, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper". The image was made from that
   photograph with OpenAI GPT Image 2.5 Sunburst (`openai/gpt-image-2.5-sunburst`) through Opper. Purely
@@ -1547,8 +1547,8 @@ their changelog entries, are not shipped; see the commit history in
   holds that copyright does not extend to them), so CC BY 4.0 applies to the extent rights exist.
   Trademarks are not licensed (CC BY 4.0 §2(b)(2)). `blackcat-hero-original.png` is the unmodified model
   output with its provenance metadata (C2PA); the resized copies carry none. Statement:
-  [lib/assets/README.md](lib/assets/README.md); provenance, prompts and hashes:
-  [lib/assets/PROVENANCE.md](lib/assets/PROVENANCE.md).
+  [assets/README.md](assets/README.md); provenance, prompts and hashes:
+  [assets/PROVENANCE.md](assets/PROVENANCE.md).
 - Third-party software the stack installs or calls (Claude Code, MCP servers, CLIs, the Python packages in
   `requirements/`) is not part of this repository and keeps its own licence.
 - This section is an engineering note on what was checked (2026-10-03), not legal advice.

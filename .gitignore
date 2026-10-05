@@ -54,6 +54,8 @@ claude-local-work/
 
 # local copy of the GitHub wiki: its own git repository, pushed separately to <repo>.wiki.git
 github-wiki/
+# the same wiki checked out under docs/: its own repository, never tracked here (not a submodule)
+docs/wiki/
 
 # --- logs and archives ---
 *.log

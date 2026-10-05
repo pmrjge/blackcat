@@ -1747,7 +1747,7 @@ PY
 blob="$(printf '# an earlier file\n' | tgit -C "$HERE" hash-object -w --stdin)"
 GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" read-tree HEAD
 for f in dot-claude/hooks/agent_guard.py dot-claude/agents/coder.md requirements/sci.in lib/stack.env.example \
-         lib/assets/blackcat-hero.jpg; do
+         assets/blackcat-hero.jpg; do
   GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" update-index --cacheinfo "100755,$blob,$f"
 done
 old_commit="$(tgit -C "$HERE" commit-tree "$(GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" write-tree)" -p HEAD -m earlier </dev/null)"
@@ -1758,7 +1758,7 @@ xrun "$TX/r" "$TX/s2.log" --dry-run
 grep -q "changes to the stack's shipped files and installer since the last install" "$TX/s1.log" \
   && grep -q 'dot-claude/hooks/agent_guard.py' "$TX/s1.log" && grep -q 'dot-claude/agents/coder.md' "$TX/s1.log" \
   && grep -q 'requirements/sci.in' "$TX/s1.log" && grep -q 'lib/stack.env.example' "$TX/s1.log" \
-  && ! grep -q 'lib/assets/' "$TX/s1.log" && grep -q "which this repo doesn't have" "$TX/s2.log" \
+  && ! grep -q 'blackcat-hero' "$TX/s1.log" && grep -q "which this repo doesn't have" "$TX/s2.log" \
   && pass "an install shows the diff of everything it ships since the recorded commit, not the README images (and warns on an unknown one)" \
   || failed "supply-chain diff: $(grep -i 'since the last install\|repo doesn' "$TX/s1.log" "$TX/s2.log" | head -3)"
 # on a terminal the run asks before applying those changes: "n" applies nothing, --yes doesn't ask
