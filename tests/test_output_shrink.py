@@ -550,6 +550,16 @@ def test_family(hk, cmd, fam):
     assert hk.mod.family(cmd) == fam
 
 
+@pytest.mark.parametrize("path,fam", [("/p/a.PY", ".py"), ("/p/a.tar.gz", ".gz"), ("/p/Makefile", "none"),
+                                      ("/p/.bashrc", "none"), ("/p/tok." + GHP, "other"),
+                                      ("/p/a.safetensors", "other"), ("/p/a.b c", "other")])
+def test_read_family_logs_only_a_plain_extension(hk, path, fam):
+    assert hk.mod.read_family(path) == fam
+    setmode(hk, "shadow")
+    hk.mod.handle(read_ev(hk, path, sized(30000)))
+    assert rows(hk)[-1]["fam"] == fam
+
+
 def test_no_credential_tables_means_no_spill_and_no_shrink(hk):
     c = install(hk.tmp / "C2", stack_tree=False)
     mod = load(c)

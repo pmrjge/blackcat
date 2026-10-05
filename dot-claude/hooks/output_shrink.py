@@ -32,8 +32,9 @@ commands (sed, cat, head, tail, nl, git show/diff/log/blame: output Claude asked
 Files, under the session's project (CLAUDE_PROJECT_DIR, else the event's cwd; never $HOME, `/` or a
 Claude config directory): `.claude-work/output-shrink/` (0700, with a `*` .gitignore) holding
 `log.jsonl` (one row per Bash/Read call: sizes, decision, kept line ranges, the exact digest size,
-command family (a plain lower-case command name and git/uv subcommand, else "other"), a hash of the
-command or path; never output text, commands or paths; 0600; rotated to log.1.jsonl at 32 MB)
+family (Bash: a plain lower-case command name and git/uv subcommand; Read: a plain extension; else
+"other"), a hash of the command or path; never output text, commands or paths; 0600; rotated to
+log.1.jsonl at 32 MB)
 and `spill/` (on mode: one 0600 file per cut, at most 4 MB each; files older than 7 days and the
 oldest past 64 MB in total are pruned, only names this hook writes). Every directory is opened with
 O_NOFOLLOW|O_DIRECTORY relative to its parent, every file with O_NOFOLLOW (spill files O_EXCL): a
@@ -80,6 +81,7 @@ SPILL_REF_RE = re.compile(r"\.claude-work/output-shrink/spill/([A-Za-z0-9._-]+)"
 SPILL_DIR_RE = re.compile(r"output-shrink/spill\b")         # any touch of the spill directory is a re-read
 FAM_RE = re.compile(r"^[a-z][a-z0-9_.+-]{0,23}$")           # a logged family: a plain command name only
 SUB_RE = re.compile(r"^[a-z][a-z0-9-]{0,23}$")
+EXT_RE = re.compile(r"^\.[a-z0-9]{1,10}$")                   # a logged Read family: a plain extension only
 GIT_ARG_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env"}   # take the next word
 VIEW_FAMILIES = {"sed", "cat", "head", "tail", "nl", "bat", "less", "more", "git show", "git diff",
                  "git log", "git blame"}
@@ -152,6 +154,13 @@ def family(cmd):
             return "uv " + toks[1] if SUB_RE.match(toks[1]) else "uv"
         return t0
     return "other"
+
+
+def read_family(path):
+    """A Read's logged family: a short plain extension (EXT_RE), "none" without one, else "other"
+    (an extension is part of the path, so nothing else of it is logged)."""
+    ext = os.path.splitext(path)[1].lower()
+    return ext if EXT_RE.match(ext) else ("other" if ext else "none")
 
 
 def prompt_file(path):
@@ -515,7 +524,7 @@ def decide(ev, md, thr, wfd, root, now):
     elif tool == "Read":
         path = inp.get("file_path") if isinstance(inp.get("file_path"), str) else ""
         row["key"] = h16(path)
-        row["fam"] = (os.path.splitext(path)[1].lower() or "none")[:12]
+        row["fam"] = read_family(path)
         f = resp.get("file") if isinstance(resp, dict) else None
         if not (isinstance(resp, dict) and resp.get("type") == "text" and isinstance(f, dict)
                 and isinstance(f.get("content"), str)):
