@@ -1412,6 +1412,9 @@ stage_script 644 hooks/agent_effort.json
 stage_script 755 hooks/web_caps.py
 # the token gate on reads of build output, dependencies, data, media and binaries (PreToolUse Read|Grep|Glob|Bash)
 stage_script 755 hooks/read_gate.py
+# the output shrink (PostToolUse Bash|Read; shadow mode by default: logs, never changes output): loads
+# bin/stack-tree's credential tables for its spill copies
+stage_script 755 hooks/output_shrink.py
 # the hand-back protocol's parser and checks (STACK_REPORT_FORMAT): imported by agent_guard.py, beside it
 stage_script 644 hooks/stack_report.py
 # the hooks' shared file helpers (read_json, atomic writes, timestamps): imported by agent_guard.py,
@@ -2018,7 +2021,7 @@ for rel in skills_replaced:
 
 # --- scripts the stack copies into hooks/, bin/ and mcp/ (step 6 put them in DEST): tracked in the
 # manifest, so a later version that stops shipping one removes it. Files of your own there stay. ---
-STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/stack_report.py", "hooks/stack_io.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
+STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/output_shrink.py", "hooks/stack_report.py", "hooks/stack_io.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json", "hooks/stack_fanout.py", "hooks/stack_fanout_wire.py",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
@@ -2650,7 +2653,7 @@ else
   # a restore or an edit never runs stale code), beside the sources in the protected
   # hooks/__pycache__ (no PYTHONPYCACHEPREFIX; SOURCE_DATE_EPOCH would switch to checked-hash)
   hook_mods=()
-  for m in agent_guard stack_io stack_usage stack_limits stack_report stack_fanout stack_fanout_wire read_gate web_caps stack_hook stack_sched; do
+  for m in agent_guard stack_io stack_usage stack_limits stack_report stack_fanout stack_fanout_wire read_gate web_caps output_shrink stack_hook stack_sched; do
     if [ -f "$C/hooks/$m.py" ]; then hook_mods+=("$C/hooks/$m.py"); fi
   done
   if (unset PYTHONPYCACHEPREFIX SOURCE_DATE_EPOCH

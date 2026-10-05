@@ -603,6 +603,21 @@ def test_settings_registers_posttooluse_bash_read_only():
     assert "STACK_OUTPUT_SHRINK" not in s.get("env", {})          # shipped in shadow mode (the default)
 
 
+def test_installer_and_doctor_wire_the_hook():
+    """install.sh stages, tracks and precompiles the module; the doctor checks its bytecode; the
+    installer's STACK_HOOK_RE claims its settings.json entry as the stack's."""
+    inst = (ROOT / "install.sh").read_text()
+    assert re.search(r"^stage_script 755 hooks/output_shrink\.py$", inst, re.MULTILINE)
+    assert '"hooks/output_shrink.py"' in inst.split("STACK_SCRIPTS = [", 1)[1].split("]", 1)[0]
+    loop = re.search(r"^\s*for m in ([a-z_ ]+); do\n\s*if \[ -f \"\$C/hooks/\$m\.py\" \]", inst, re.MULTILINE)
+    assert loop and "output_shrink" in loop.group(1).split()
+    m = re.search(r'^STACK_HOOK_RE = re\.compile\(r"([^"]+)"\)$', inst, re.MULTILINE)
+    assert m and re.search(m.group(1), '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" output_shrink')
+    doc = (ROOT / "dot-claude" / "bin" / "doctor.sh").read_text()
+    fresh = re.search(r'^for m in \(([^)]*)\):\n    src = os\.path\.join\(h, m \+ "\.py"\)', doc, re.MULTILINE)
+    assert fresh and '"output_shrink"' in fresh.group(1)
+
+
 # ---------------------------------------------------------------- entry points
 def stub_tree(tmp):
     c = tmp / "S"
