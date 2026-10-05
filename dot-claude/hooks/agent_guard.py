@@ -324,7 +324,7 @@ AGENTS = [
     "security-auditor", "mcp-broker", "claude-code-guide",
     "ml-engineer", "dl-engineer", "llm-engineer", "data-scientist", "browser-operator",
     "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist", "explore",
-    "proof-checker", "vfx-td",
+    "proof-checker", "vfx-td", "rigger-animator", "sculptor-painter", "procedural-3d-ui",
     "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
     "biochem-engineer", "test-engineer", "build-fixer",
     "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
@@ -365,7 +365,7 @@ _BLACKCAT_ROW = [
     "frontend-engineer", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
     "claude-code-guide", "ml-engineer", "dl-engineer", "llm-engineer", "data-scientist",
     "browser-operator", "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist",
-    "explore", "proof-checker", "vfx-td",
+    "explore", "proof-checker", "vfx-td", "rigger-animator", "sculptor-painter", "procedural-3d-ui",
     "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
     "biochem-engineer", "test-engineer", "build-fixer",
     "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
@@ -396,7 +396,7 @@ POLICY = {
     "doc-specialist": ["scout", "mcp-broker"],
     "designer": ["image-director", "scout", "mcp-broker", "cg-artist"],
     "motion-designer": ["image-director", "designer", "scout", "mcp-broker", "cg-artist",
-                        "vfx-td"],
+                        "vfx-td", "rigger-animator"],
     "main-coder": ["coder", "explore", "scout", "verifier", "code-reviewer",
                    "security-auditor", "plan-reviewer", "mlx-engineer", "cuda-engineer",
                    "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker", "claude-code-guide",
@@ -448,7 +448,8 @@ POLICY = {
     "mobile-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "designer",
                         "test-engineer", "build-fixer", "mcp-broker"],
     "game-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "cg-artist",
-                      "test-engineer", "build-fixer", "mcp-broker", "rust-engineer"],
+                      "test-engineer", "build-fixer", "mcp-broker", "rust-engineer",
+                      "rigger-animator"],
     "hpc-engineer": ["coder", "explore", "scout", "verifier", "mathematician", "ninja-coder",
                      "cuda-engineer", "build-fixer", "mcp-broker", "julia-engineer"],
     "biochem-engineer": ["coder", "explore", "scout", "researcher", "verifier", "data-scientist",
@@ -458,8 +459,15 @@ POLICY = {
     "python-engineer": _LANG_ROW + ["data-engineer"], "jvm-engineer": list(_LANG_ROW),
     "node-engineer": list(_LANG_ROW),
     # GUI agents (ZBrush, Substance; Houdini through computer use): one screen
-    "cg-artist": ["image-director", "coder", "scout", "verifier", "mcp-broker", "vfx-td"],
+    "cg-artist": ["image-director", "coder", "scout", "verifier", "mcp-broker", "vfx-td",
+                  "rigger-animator", "sculptor-painter", "procedural-3d-ui"],
     "vfx-td": ["coder", "scout", "verifier", "mcp-broker"],
+    # 3D specialists (2026-10-05): rigging/animation and sculpting/painting are GUI agents too (one
+    # screen); procedural-3d-ui has no computer use and hands editor GUI work to game-engineer
+    "rigger-animator": ["coder", "scout", "verifier", "mcp-broker", "cg-artist", "vfx-td"],
+    "sculptor-painter": ["image-director", "coder", "scout", "verifier", "mcp-broker", "cg-artist"],
+    "procedural-3d-ui": ["coder", "explore", "scout", "verifier", "code-reviewer", "mcp-broker",
+                         "vfx-td", "frontend-engineer", "game-engineer", "designer"],
     "oracle": [], "scout": [], "code-reviewer": [], "verifier": [], "security-auditor": [],
     "mcp-broker": [], "claude-code-guide": [], "browser-operator": [],
     # a review or an image job is one bounded task: no delegation (planner keeps Agent)
@@ -5261,7 +5269,7 @@ SOFT_LIMITS = {
     "ml-engineer": _SOFT_BUILDER, "llm-engineer": _SOFT_BUILDER,
     "robotics-engineer": _SOFT_BUILDER, "quantum-engineer": _SOFT_BUILDER,
     "biochem-engineer": _SOFT_BUILDER, "security-engineer": _SOFT_BUILDER,
-    "vfx-td": _SOFT_BUILDER, "mathematician": _SOFT_BUILDER,
+    "vfx-td": _SOFT_BUILDER, "mathematician": _SOFT_BUILDER, "procedural-3d-ui": _SOFT_BUILDER,
     # analyst pool
     "planner": _SOFT_ANALYST, "plan-reviewer": _SOFT_ANALYST, "researcher": _SOFT_ANALYST,
     "security-auditor": _SOFT_ANALYST, "proof-checker": _SOFT_ANALYST,
@@ -5272,6 +5280,7 @@ SOFT_LIMITS = {
     "doc-specialist": _SOFT_ARTIFACT, "designer": _SOFT_ARTIFACT,
     "image-director": _SOFT_ARTIFACT,
     "motion-designer": _SOFT_ARTIFACT, "cg-artist": _SOFT_ARTIFACT,
+    "rigger-animator": _SOFT_ARTIFACT, "sculptor-painter": _SOFT_ARTIFACT,
     # no per-agent limit
     "orchestrator": None, "blackcat": None,
 }
