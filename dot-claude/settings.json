@@ -730,6 +730,16 @@
             "timeout": 60
           }
         ]
+      },
+      {
+        "matcher": "Bash|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" output_shrink",
+            "timeout": 10
+          }
+        ]
       }
     ],
     "SubagentStart": [
