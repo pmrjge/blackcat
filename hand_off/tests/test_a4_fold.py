@@ -15,7 +15,7 @@ SID = "123e4567-e89b-12d3-a456-426614174000"
 def stream(tools=("Read", "Skill", "StructuredOutput"), so=True, skill_call=False, cost=0.04):
     ev = [
         {"type": "system", "subtype": "init", "cwd": "/Users/someone/tmp", "session_id": SID, "tools": list(tools),
-         "mcp_servers": [], "model": "claude-sonnet-5-5", "permissionMode": "acceptEdits",
+         "mcp_servers": [], "model": "test-model-7", "permissionMode": "acceptEdits",
          "claude_code_version": "2.1.287", "apiKeySource": "sk-ant-api03-ABCDEFGHIJKLMNOP", "skills": ["a", "b"],
          "slash_commands": ["x"]},
         {"type": "assistant", "message": {"content": [{"type": "tool_use", "id": "t1", "name": "StructuredOutput",
@@ -55,7 +55,7 @@ def test_happy_path_and_scrub(tmp_path, capsys):
     assert SID not in out and "sk-ant" not in out and "user@example.com" not in out
     assert "abc123SECRET" not in out and "/Users/someone" not in out
     assert "Read, Skill, StructuredOutput" in out
-    assert "claude-sonnet-5-5" in out and "$0.04" in out
+    assert "test-model-7" in out and "$0.04" in out
     assert verdict(out, "`--json-schema`") == "confirmed"
     assert verdict(out, "frontmatter tools combine") == "consistent"
     assert verdict(out, "`--settings`") == "unknown"
