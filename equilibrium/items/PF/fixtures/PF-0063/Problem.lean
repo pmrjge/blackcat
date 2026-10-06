@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0063 : ∀ n : ℤ, (30 : ℤ) ∣ n ^ 7 - n ^ 3 := by
+  sorry

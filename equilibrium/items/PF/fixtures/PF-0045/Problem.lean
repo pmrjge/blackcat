@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0045 : ∀ x y : ℤ, 2 * x ^ 2 + 3 * y ^ 2 ≠ 6 := by
+  sorry

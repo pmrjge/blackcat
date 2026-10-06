@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0207 : ∀ a : ℕ → ℚ, a 0 = 1 / 5 → (∀ n, a (n + 1) = a n / (1 + a n)) → ∀ n, a n = 1 / (n + 5) := by
+  sorry

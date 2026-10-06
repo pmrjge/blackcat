@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0031 : ∀ n : ℕ, Nat.gcd (9 * n + 2) (6 * n + 1) = 1 := by
+  sorry

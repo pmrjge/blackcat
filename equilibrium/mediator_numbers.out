@@ -1,0 +1,19 @@
+H4 alpha .05 delta=0.05 pi=0.75: min items 674; route1 power 0.800, route2 0.800
+H4 alpha .05 delta=0.05 pi=0.85: min items 333; route1 power 0.801, route2 0.801
+H4 alpha .05 delta=0.1 pi=0.75: min items 337; route1 power 0.801, route2 0.801
+H4 alpha .05 delta=0.1 pi=0.85: min items 166; route1 power 0.801, route2 0.801
+H4 alpha .05 delta=0.15 pi=0.75: min items 225; route1 power 0.802, route2 0.802
+H4 alpha .05 delta=0.15 pi=0.85: min items 111; route1 power 0.804, route2 0.804
+pilot E items (60) at delta .10 pi .75 power: 0.0995
+subsets per item N=5 (Shapley coalitions): 32 ; LOO reducer runs: 5 ; M1 subsets m=1..5: 31
+Shapley A,A,A,B,C (agreement game, lexicographic ties): [0.3333, 0.3333, 0.3333, 0.0, 0.0] sum 1.0 HHI 0.3333
+Borda full: (['y'], {'y': 3, 'x': 2, 'z': 1})  without z: (['x', 'y'], {'y': 1, 'x': 1})
+first reachable at alpha 0.0167: 7/7 p=0.0156
+H4 Holm1st/3 delta=0.1 pi=0.75: min items 430; route2 power 0.800
+H4 Holm1st/3 delta=0.1 pi=0.85: min items 217; route2 power 0.800
+H4 Holm1st/3 delta=0.15 pi=0.75: min items 287; route2 power 0.802
+H4 Holm1st/3 delta=0.15 pi=0.85: min items 145; route2 power 0.803
+power n=25 delta=0.15 pi=0.85 alpha .0167: r1 0.021 r2 0.021
+power n=25 delta=0.1 pi=0.75 alpha .0167: r1 0.001 r2 0.001
+power n=306 delta=0.1 pi=0.75 alpha .0167: r1 0.604 r2 0.604
+power n=306 delta=0.15 pi=0.85 alpha .0167: r1 0.995 r2 0.995

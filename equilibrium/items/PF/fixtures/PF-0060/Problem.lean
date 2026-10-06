@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0060 : ∀ n : ℤ, (6 : ℤ) ∣ n ^ 5 - n ^ 3 := by
+  sorry

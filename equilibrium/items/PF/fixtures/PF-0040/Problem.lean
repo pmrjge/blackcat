@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0040 : ∀ n : ℕ, Nat.gcd (16 * n + 3) (10 * n + 2) = 1 := by
+  sorry

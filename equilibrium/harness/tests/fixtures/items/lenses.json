@@ -1,0 +1,51 @@
+{
+ "PF": [
+  "PF lens 1",
+  "PF lens 2",
+  "PF lens 3",
+  "PF lens 4",
+  "PF lens 5"
+ ],
+ "CP": [
+  "CP lens 1",
+  "CP lens 2",
+  "CP lens 3",
+  "CP lens 4",
+  "CP lens 5"
+ ],
+ "CR": [
+  "CR lens 1",
+  "CR lens 2",
+  "CR lens 3",
+  "CR lens 4",
+  "CR lens 5"
+ ],
+ "RS": [
+  "RS lens 1",
+  "RS lens 2",
+  "RS lens 3",
+  "RS lens 4",
+  "RS lens 5"
+ ],
+ "ES": [
+  "ES lens 1",
+  "ES lens 2",
+  "ES lens 3",
+  "ES lens 4",
+  "ES lens 5"
+ ],
+ "DS": [
+  "DS lens 1",
+  "DS lens 2",
+  "DS lens 3",
+  "DS lens 4",
+  "DS lens 5"
+ ],
+ "OE": [
+  "OE lens 1",
+  "OE lens 2",
+  "OE lens 3",
+  "OE lens 4",
+  "OE lens 5"
+ ]
+}

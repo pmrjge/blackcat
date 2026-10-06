@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0071 : ∀ n : ℤ, (66 : ℤ) ∣ n ^ 12 - n ^ 2 := by
+  sorry

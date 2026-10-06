@@ -1,0 +1,301 @@
+{
+ "version": 1,
+ "comment": "Frozen harness parameters (PROPOSAL §2-§5, COMPARE_eq §1-§3). Fractions are of B per item-arm.",
+ "N": 5,
+ "tau": "0.6",
+ "finding_t": 2,
+ "stop_quorum_rule": "tau",
+ "finding_quorum_rule": "fixed_t",
+ "quorum_decision": "user decision 2026-10-04: keep the pre-registration (tau 0.6 = 3 of 5; finding-set t = 2)",
+ "model": "sonnet",
+ "model_decision": "user constraint 2026-10-04 (via orchestrator): every call runs --model sonnet",
+ "R_max": 1,
+ "R_max_ceiling": 2,
+ "perm_shift_rule": "floor",
+ "perm_shift_decision": "user decision 2026-10-04: floor(i*S/N), collision-free for N <= S (replaces i*ceil(S/N))",
+ "B_usd": {
+  "PF": "2.00",
+  "CP": "2.00",
+  "CR": "2.00",
+  "RS": "2.00",
+  "ES": "2.00",
+  "DS": "2.00",
+  "OE": "2.00"
+ },
+ "call_timeout_s": 3600,
+ "check_timeout_s": 600,
+ "common_flags": [
+  "--output-format",
+  "json",
+  "--permission-mode",
+  "acceptEdits",
+  "--disallowedTools",
+  "Agent",
+  "WebSearch",
+  "WebFetch",
+  "--strict-mcp-config"
+ ],
+ "allowed_tools": {
+  "PF": [
+   "Read",
+   "Write",
+   "Edit",
+   "Bash"
+  ],
+  "CP": [
+   "Read",
+   "Edit",
+   "Write",
+   "Bash",
+   "Glob",
+   "Grep"
+  ],
+  "CR": [
+   "Read",
+   "Glob",
+   "Grep",
+   "Bash"
+  ],
+  "RS": [
+   "Read",
+   "Grep",
+   "Glob"
+  ],
+  "ES": [
+   "Read"
+  ],
+  "DS": [],
+  "OE": []
+ },
+ "common_tools": [
+  "Skill"
+ ],
+ "common_tools_comment": "COMPARE_eq §12 A4: appended to every class's allowed_tools (pool-owned, unchanged) in member_tools, so every arm and role of a class gets the same list; build_argv passes it as --tools (restricts the built-in set) and --allowedTools (auto-approves)",
+ "view": {
+  "PF": "lens",
+  "CP": "perm",
+  "CR": "kcover",
+  "RS": "kcover",
+  "ES": "perm",
+  "DS": "perm",
+  "OE": "perm"
+ },
+ "s_star": {
+  "PF": "mathematician",
+  "CP": "python-engineer",
+  "CR": "code-reviewer",
+  "RS": "researcher",
+  "ES": "data-scientist",
+  "DS": "planner",
+  "OE": "writer"
+ },
+ "planner_type": "planner",
+ "selector_type": "plan-reviewer",
+ "single_verifier_type": "verifier",
+ "plan_owner_types": [
+  "biochem-engineer",
+  "code-reviewer",
+  "coder",
+  "data-engineer",
+  "data-scientist",
+  "doc-specialist",
+  "explore",
+  "main-coder",
+  "mathematician",
+  "ml-engineer",
+  "ninja-coder",
+  "oracle",
+  "plan-reviewer",
+  "planner",
+  "proof-checker",
+  "python-engineer",
+  "researcher",
+  "security-auditor",
+  "test-engineer",
+  "verifier",
+  "writer"
+ ],
+ "families": {
+  "discrete": {
+   "members": "0.70",
+   "reserve": "0.25",
+   "reserve_kind": "reconcile",
+   "slack": "0.05"
+  },
+  "numeric": {
+   "members": "0.70",
+   "reserve": "0.25",
+   "reserve_kind": "reconcile",
+   "slack": "0.05"
+  },
+  "checkable": {
+   "members": "0.80",
+   "reserve": "0.20",
+   "reserve_kind": "repair",
+   "slack": "0"
+  },
+  "finding_set": {
+   "members": "0.70",
+   "reserve": "0.25",
+   "reserve_kind": "verifier",
+   "slack": "0.05",
+   "max_verifier_calls": 5
+  },
+  "long_form": {
+   "members": "0.75",
+   "reserve": "0.20",
+   "reserve_kind": "selection",
+   "slack": "0.05",
+   "selection_calls": 2
+  }
+ },
+ "G": {
+  "planner": "0.15",
+  "nodes": "0.85",
+  "node_floor": "0.05",
+  "max_nodes": 8
+ },
+ "EG": {
+  "planner": "0.15",
+  "lens_planner": "0.075",
+  "lens_planners": 2,
+  "nodes": "0.70",
+  "node_floor": "0.05",
+  "enode_k": 3,
+  "enode_kinds": [
+   "checkable",
+   "finding-set"
+  ]
+ },
+ "finding_fields": {
+  "file": "file",
+  "line": "line",
+  "claim_class": null
+ },
+ "answer_key": {
+  "RS": {
+   "fields": [
+    "label"
+   ],
+   "when": [
+    {
+     "if": {
+      "label": "REFUTED"
+     },
+     "add": [
+      "value"
+     ]
+    }
+   ]
+  }
+ },
+ "workdir_answer_classes": [
+  "CP"
+ ],
+ "answer_file": {
+  "PF": "Answer.lean"
+ },
+ "check_owned_paths": {
+  "CP": [
+   "tests"
+  ],
+  "CR": [
+   "tests"
+  ]
+ },
+ "member_env_passthrough": [
+  "CLAUDE_CONFIG_DIR"
+ ],
+ "max_evidence_per_call": 8,
+ "finding_line_tol": 3,
+ "evidence_command_prefixes": {
+  "PF": [],
+  "CP": [],
+  "CR": [],
+  "RS": [],
+  "ES": [],
+  "DS": [],
+  "OE": []
+ },
+ "evidence_output_chars": 2000,
+ "mediator": {
+  "comment": "MEDIATOR.md / COMPARE_eq §12 A0: deterministic mediator; R0 decides live, R1-R3/ENS are logged counterfactuals; facts checked once per item-arm",
+  "fact_timeout_s": 60,
+  "fact_budget_s": 600,
+  "fact_kinds": {
+   "RS": [
+    "quote",
+    "file_line"
+   ],
+   "ES": [
+    "quote",
+    "file_line",
+    "command"
+   ],
+   "CR": [
+    "file_line",
+    "command",
+    "test"
+   ],
+   "CP": [
+    "command",
+    "test",
+    "file_line"
+   ],
+   "PF": [
+    "counterexample",
+    "command",
+    "test"
+   ],
+   "DS": [
+    "quote",
+    "file_line"
+   ],
+   "OE": [
+    "quote",
+    "file_line"
+   ]
+  }
+ },
+ "equivalence": {
+  "RS": {
+   "frac": "0.05",
+   "agent": "verifier",
+   "same_fields": [
+    "label"
+   ]
+  }
+ },
+ "isolation": "container",
+ "isolation_comment": "ISOLATION.md; user decision 2026-10-05: Apple container (CLI 1.5.0; replaces the Docker decision of 2026-10-04). One backend per run (recorded in run_start; a ledger never mixes two). 'off' runs model-written code unisolated: only by explicit choice",
+ "container_bin": "container",
+ "container_images": {
+  "PF": "",
+  "CP": "",
+  "CR": ""
+ },
+ "container_limits": {
+  "nproc": 512,
+  "memory": "8G",
+  "cpus": "2"
+ },
+ "container_tmp_size": "2G",
+ "container_work_size": "1G",
+ "container_user": "10001:10001",
+ "container_comment": "limits, tmpfs sizes and user = lib/eq-container/lib.sh defaults (probe.sh uses the same flags). Each container is its own VM: memory/cpus size it, nproc is an rlimit (no pids option). /work is a capped tmpfs (container_work_size) filled from a read-only bind of the host copy at /eqsrc/work; images are TAG@sha256:<digest>, the run names the TAG and its digest is re-checked before and after every run",
+ "container_kill_timeout_s": 30,
+ "container_orphan_grace_s": 300,
+ "oracle_isolated_classes": [
+  "PF",
+  "CP"
+ ],
+ "oracle_pool_extra": {
+  "CP": [
+   "oracle/items.json",
+   "oracle/hidden"
+  ]
+ },
+ "check_deadline_margin_s": 60,
+ "no_verdict_policy": "zero",
+ "no_verdict_policy_comment": "score: PF/CP oracle output without its one authenticated EQV1 line, or with one whose score is null (LEDGER_SCHEMA grading_results). 'zero' (default by the USER's decision of 2026-10-05, COMPARE_eq §12 amendment) = re-check isolation, re-run once, then score 0; 'unscored' = the originally pre-registered behaviour (score null) (N24#5)"
+}

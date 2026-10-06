@@ -1,0 +1,13 @@
+#!/bin/bash
+# eq-lake-shim: the minimal images ship no Lake (and no git). check_lean.sh needs exactly one thing from it:
+#   LP=$(cd "$proj" && lake env printenv LEAN_PATH)
+# The value was computed at BUILD time with the real `lake env printenv LEAN_PATH` (stored in /opt/eq/LEAN_PATH, the
+# original in /opt/eq/LEAN_PATH.real; the build asserts both resolve the same set of existing directories).
+# Anything else is refused loudly, so a changed check script cannot silently get a wrong answer.
+if [ "$#" = 3 ] && [ "$1" = env ] && [ "$2" = printenv ] && [ "$3" = LEAN_PATH ]; then
+  IFS= read -r lp < /opt/eq/LEAN_PATH || exit 2
+  printf '%s\n' "$lp"
+  exit 0
+fi
+echo "lake: not available in the minimal image (eq-lake-shim only answers: lake env printenv LEAN_PATH); got: $*" >&2
+exit 2

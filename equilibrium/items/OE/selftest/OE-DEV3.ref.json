@@ -1,0 +1,5 @@
+{
+ "answer": "1. **\"Always slower and should be avoided\"**: an overstatement (imprecision). Recursion has call\noverhead, but it is often clearer, and for tree-shaped problems the difference is usually small.\n2. **\"Without a base case it returns zero\"**: wrong. It never terminates; each call adds a stack frame until the stack\nis exhausted (Python raises RecursionError).\n3. **\"Python optimises tail calls, so deep recursion is safe\"**: wrong. CPython has no tail-call optimisation and\nlimits recursion to about 1000 frames by default.\n\nCorrect part: none of the three sentences is fully right, though recursion does cost more per step than a loop.\n\n**Corrected:** \"Recursion trades some call overhead for clarity and suits tree-shaped problems. A recursive function\nwithout a base case never stops and ends in a stack overflow (RecursionError in Python). Python does not optimise tail\ncalls, so very deep recursion must be rewritten as a loop.\"",
+ "evidence": [],
+ "confidence": 0.7
+}

@@ -1,0 +1,29 @@
+# compose.wall.yaml: the WALL override (X6, X7). eq-compose.sh adds `-f compose.wall.yaml` when `--tunnel CHANNEL_DIR` is given and passes
+# no other host path: this file adds the ONE tunnel mount `${EQ_TUNNEL_CHANNEL}` at /eq/tunnel to every service that runs model-written
+# code (never to the database servers). It adds nothing else: no docker socket, no host network, no extra bind, no volume. Compose merges
+# the `volumes` list of each service by target, so each service below ends with its own mounts plus this one.
+# The source is ONE channel directory (<tunnel_root>/<run_id>/c<32 hex>, created by eq_wall.open_channel for this call, 0700), never the
+# tunnel root: the root holds every channel's `.channel.json` token, and a container that saw them could post authenticated requests as
+# another item or arm (WALL_DESIGN.md section 3 and 12.8). eq-compose.sh requires the channel explicitly (no default, EQ_TUNNEL_DIR is
+# never read) and refuses anything that is not a channel directory. The mechanism (a request/response directory, `dir-v1`) is decided in
+# EQ-T/wall/WALL_DESIGN.md; it needs the container to write its requests, so `read_only: false` below is intended; change it here and in
+# the test that pins it (tests/test_eq_docker_compose.py) together. ISO/probe.d/50-tunnel.sh proves from inside the container that this
+# is the only way out.
+x-tunnel: &tunnel
+  type: bind
+  source: ${EQ_TUNNEL_CHANNEL:?set by eq-compose.sh --tunnel CHANNEL_DIR (ONE WALL channel directory, never the tunnel root)}
+  target: /eq/tunnel
+  read_only: false
+  bind: {create_host_path: false}
+
+services:
+  pf: {volumes: [*tunnel]}
+  cp: {volumes: [*tunnel]}
+  cr: {volumes: [*tunnel]}
+  cp-db: {volumes: [*tunnel]}
+  node: {volumes: [*tunnel]}
+  rust: {volumes: [*tunnel]}
+  go: {volumes: [*tunnel]}
+  julia: {volumes: [*tunnel]}
+  haskell: {volumes: [*tunnel]}
+  jvm: {volumes: [*tunnel]}

@@ -1,0 +1,15 @@
+import Mathlib
+
+theorem pf_0101 : ∀ x : ℝ, x ^ 3 - 4 * x ^ 2 - 20 * x + 48 = 0 → x = -4 ∨ x = 2 ∨ x = 6 := by
+  have eq_gap : ∀ x : ℝ, x ^ 3 - 4 * x ^ 2 - 20 * x + 48 = (x - (-4)) * (x ^ 2 + 8 * x + 12) := by
+    intro x; ring
+  intro x h
+  have h' : (x - (-4)) * ((x - 2) * (x - 6)) = 0 := by linear_combination h
+  rcases mul_eq_zero.mp h' with h1 | h23
+  · have hx : x = -4 := by linarith
+    rw [hx]; norm_num
+  · rcases mul_eq_zero.mp h23 with h2 | h3
+    · have hx : x = 2 := by linarith
+      rw [hx]; norm_num
+    · have hx : x = 6 := by linarith
+      rw [hx]; norm_num

@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0175 : ∀ x : ℝ, x ^ 4 + x ^ 2 - 6 * x + 5 > 0 := by
+  sorry

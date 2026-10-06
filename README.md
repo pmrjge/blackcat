@@ -1035,6 +1035,11 @@ With `--with-eq-container` (off by default) two steps run between 10 and 11; nei
 the images, eq-container's records and the WALL's state and audit logs alone, and names how to remove
 them ([CONFIG.md](CONFIG.md) §7 "Container isolation and the WALL").
 
+The harness these images isolate is tracked in [`equilibrium/`](equilibrium/README.md). It holds the agent-equilibrium
+experiment: design, pre-registration, the seven item pools with their oracles, and the harness with its tests. It is
+pre-freeze, and nothing in it has made a paid call. Its tests run in their own pytest process from a scratch copy, with
+`EQ_CONTAINER_DIR=<repo>/lib/eq-container` (`equilibrium/README.md`, Tests).
+
 Other flags: `--config-dir PATH`, `--no-prompt`, `--restore [DIR] [--force]`, `--write-through-links`,
 `--no-mcp`, `--no-plugins`, `--no-anthropic-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
 `--print-managed-settings`, `--with-eq-container` (with `--eq-container-profiles=LIST`, `--no-eq-broker`,
@@ -1592,7 +1597,8 @@ outside this repository).
 - **Keep the gates green** before a commit: `uv run tests/lint_agents.py`,
   `uv run --script tests/prompt_budget.py --check`, `/usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test`
   and the suite (`~/.claude/venvs/tools/bin/python -m pytest -q tests/`; `bash tests/install_smoke.sh`
-  from your own terminal). Details: [Verify](#verify). The collector upgrade tests in
+  from your own terminal), plus the equilibrium harness suite in its own pytest process from a scratch copy
+  ([equilibrium/README.md](equilibrium/README.md), Tests). Details: [Verify](#verify). The collector upgrade tests in
   `tests/test_stack_usage.py` read older commits: in a clone without them (or an export without `.git`)
   they are skipped with a note. `prompt_budget.py --check` then takes its base from
   `tests/fixtures/prompt_budget_base.json`.

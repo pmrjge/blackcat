@@ -1,0 +1,2 @@
+document 3
+the capital of X is Y3

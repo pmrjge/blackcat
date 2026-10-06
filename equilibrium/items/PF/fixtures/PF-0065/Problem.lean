@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0065 : ∀ n : ℤ, (42 : ℤ) ∣ n ^ 8 - n ^ 2 := by
+  sorry

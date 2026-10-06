@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0136 : ∃ x y : ℕ, x ^ 2 = 19 * y ^ 2 + 1 ∧ 3334 < y := by
+  sorry

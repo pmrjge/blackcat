@@ -46,7 +46,13 @@ MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(
 # the second: this regex's test vectors; the effort table records which model IDs take which
 # effort levels (Claude Code's own checks), and its test's vectors
 MODEL_ID_FILES = {"lib/stack.env.example", "tests/test_lint_skills.py", "dot-claude/hooks/agent_effort.json",
-                  "tests/test_override_agent.py", "PREVIOUS_GIT_COMMITS.md", "hand_off/c0_support/COMPARE_c0.md"}
+                  "tests/test_override_agent.py", "PREVIOUS_GIT_COMMITS.md", "hand_off/c0_support/COMPARE_c0.md",
+                  # the Equilibrium harness's "no haiku" vectors (a model ID it must refuse) and their mutation log
+                  "equilibrium/harness/tests/test_launch.py", "equilibrium/harness/tests/test_skill_tools_argv.py",
+                  "equilibrium/harness/tests/mutations.py", "equilibrium/harness/tests/mutations.out"}
+# the Equilibrium RS pool: the models of past graded runs are its recorded facts and answer keys, byte-pinned in
+# equilibrium/items/RS/pool.sha256 (a frozen pool, so it cannot be edited)
+MODEL_ID_DIRS = ("equilibrium/items/RS/",)
 # the usage/limits/budget tests: synthetic transcript model IDs and the model matcher's vectors, and
 # the cache-stability lint's model-ID vector, on
 # module-level constant lines only (NAME[, NAME...] = "...")
@@ -646,7 +652,7 @@ def check_model_ids(root=REPO_ROOT):
                  if p.is_file() and ".git" not in p.relative_to(root).parts]
     found = []
     for rel in filter(None, files):
-        if under_work_dir(rel, root) or rel in MODEL_ID_FILES:
+        if under_work_dir(rel, root) or rel in MODEL_ID_FILES or rel.startswith(MODEL_ID_DIRS):
             continue
         try:
             text = (root / rel).read_text(encoding="utf-8")

@@ -1,0 +1,2 @@
+document 2
+the capital of X is Y2

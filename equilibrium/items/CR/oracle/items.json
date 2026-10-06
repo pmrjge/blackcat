@@ -1,0 +1,6293 @@
+{
+ "CR-0001": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket.__init__`: off-by-one constant: `1` where `0` is required.",
+    "col": 23,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.__init__",
+    "kind": "num",
+    "line": 9,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        if capacity <= 0 or rate <= 0:",
+    "seeded_line": "        if capacity <= 1 or rate <= 0:"
+   }
+  ],
+  "files": [
+   "matrix",
+   "tokenbucket"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0002": {
+  "bugs": [
+   {
+    "claim": "In `justify`: off-by-one constant: `1` where `0` is required.",
+    "col": 54,
+    "file": "wrap.py",
+    "func": "justify",
+    "kind": "num",
+    "line": 47,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        out.append(\" \" * (base + (1 if i < extra else 0)))",
+    "seeded_line": "        out.append(\" \" * (base + (1 if i < extra else 1)))"
+   }
+  ],
+  "files": [
+   "wrap",
+   "textutil"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0003": {
+  "bugs": [
+   {
+    "claim": "In `satisfies`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 20,
+    "file": "semver.py",
+    "func": "satisfies",
+    "kind": "cmp",
+    "line": 58,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "            \"<=\": v <= bound,",
+    "seeded_line": "            \"<=\": v < bound,"
+   },
+   {
+    "claim": "In `latest`: off-by-one constant: `1` where `0` is required.",
+    "col": 70,
+    "file": "semver.py",
+    "func": "latest",
+    "kind": "num",
+    "line": 72,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        if satisfies(v, spec) and (best is None or compare(v, best) > 0):",
+    "seeded_line": "        if satisfies(v, spec) and (best is None or compare(v, best) > 1):"
+   }
+  ],
+  "files": [
+   "semver",
+   "numtheory"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0004": {
+  "bugs": [
+   {
+    "claim": "In `percentile`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "stats.py",
+    "func": "percentile",
+    "kind": "exc",
+    "line": 39,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"p out of range\")",
+    "seeded_line": "        raise KeyError(\"p out of range\")"
+   }
+  ],
+  "files": [
+   "rle",
+   "stats"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0005": {
+  "bugs": [
+   {
+    "claim": "In `primes_upto`: off-by-one constant: `1` where `0` is required.",
+    "col": 10,
+    "file": "numtheory.py",
+    "func": "primes_upto",
+    "kind": "num",
+    "line": 39,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    sieve[0] = sieve[1] = False",
+    "seeded_line": "    sieve[1] = sieve[1] = False"
+   }
+  ],
+  "files": [
+   "numtheory",
+   "bsearch"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0006": {
+  "bugs": [
+   {
+    "claim": "In `upper_bound`: off-by-one constant: `1` where `0` is required.",
+    "col": 13,
+    "file": "bsearch.py",
+    "func": "upper_bound",
+    "kind": "num",
+    "line": 18,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    lo, hi = 0, len(a)",
+    "seeded_line": "    lo, hi = 1, len(a)"
+   },
+   {
+    "claim": "In `justify`: off-by-one constant: `2` where `1` is required.",
+    "col": 34,
+    "file": "wrap.py",
+    "func": "justify",
+    "kind": "num",
+    "line": 47,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        out.append(\" \" * (base + (1 if i < extra else 0)))",
+    "seeded_line": "        out.append(\" \" * (base + (2 if i < extra else 0)))"
+   }
+  ],
+  "files": [
+   "bsearch",
+   "wrap"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0007": {
+  "bugs": [
+   {
+    "claim": "In `spiral`: off-by-one constant: `0` where `1` is required.",
+    "col": 15,
+    "file": "matrix.py",
+    "func": "spiral",
+    "kind": "num",
+    "line": 49,
+    "new": "0",
+    "old": "1",
+    "orig_line": "        top += 1",
+    "seeded_line": "        top += 0"
+   },
+   {
+    "claim": "In `LRUCache.delete`: inverted membership test: `in` where `not in` is required.",
+    "col": 15,
+    "file": "lru.py",
+    "func": "LRUCache.delete",
+    "kind": "in",
+    "line": 48,
+    "new": "in",
+    "old": "not in",
+    "orig_line": "        if key not in self._store:",
+    "seeded_line": "        if key in self._store:"
+   }
+  ],
+  "files": [
+   "matrix",
+   "lru"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0008": {
+  "bugs": [
+   {
+    "claim": "In `quote_field`: wrong boolean connective: `and` where `or` is required.",
+    "col": 20,
+    "file": "csvline.py",
+    "func": "quote_field",
+    "kind": "bool",
+    "line": 41,
+    "new": "and",
+    "old": "or",
+    "orig_line": "    if sep in field or '\"' in field or \"\\n\" in field:",
+    "seeded_line": "    if sep in field and '\"' in field or \"\\n\" in field:"
+   }
+  ],
+  "files": [
+   "inventory",
+   "csvline"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0009": {
+  "bugs": [
+   {
+    "claim": "In `page_bounds`: off-by-one constant: `0` where `1` is required.",
+    "col": 14,
+    "file": "pagination.py",
+    "func": "page_bounds",
+    "kind": "num",
+    "line": 21,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    if page < 1 or (page > pages and not (page == 1 and total == 0)):",
+    "seeded_line": "    if page < 0 or (page > pages and not (page == 1 and total == 0)):"
+   },
+   {
+    "claim": "In `next_page`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 16,
+    "file": "pagination.py",
+    "func": "next_page",
+    "kind": "arith",
+    "line": 46,
+    "new": "-",
+    "old": "+",
+    "orig_line": "    return page + 1",
+    "seeded_line": "    return page - 1"
+   }
+  ],
+  "files": [
+   "pagination",
+   "lru"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0010": {
+  "bugs": [
+   {
+    "claim": "In `Trie._count`: off-by-one constant: `2` where `1` is required.",
+    "col": 16,
+    "file": "trie.py",
+    "func": "Trie._count",
+    "kind": "num",
+    "line": 43,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        total = 1 if \"$\" in node else 0",
+    "seeded_line": "        total = 2 if \"$\" in node else 0"
+   },
+   {
+    "claim": "In `Trie.words`: inverted identity test: `is` where `is not` is required.",
+    "col": 16,
+    "file": "trie.py",
+    "func": "Trie.words",
+    "kind": "is",
+    "line": 53,
+    "new": "is",
+    "old": "is not",
+    "orig_line": "        if node is not None:",
+    "seeded_line": "        if node is None:"
+   }
+  ],
+  "files": [
+   "trie",
+   "validate"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0011": {
+  "bugs": [
+   {
+    "claim": "In `Trie._count`: off-by-one constant: `1` where `0` is required.",
+    "col": 38,
+    "file": "trie.py",
+    "func": "Trie._count",
+    "kind": "num",
+    "line": 43,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        total = 1 if \"$\" in node else 0",
+    "seeded_line": "        total = 1 if \"$\" in node else 1"
+   }
+  ],
+  "files": [
+   "csvline",
+   "trie"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0012": {
+  "bugs": [
+   {
+    "claim": "In `page_bounds`: wrong exception type raised: `ValueError` where `IndexError` is required.",
+    "col": 14,
+    "file": "pagination.py",
+    "func": "page_bounds",
+    "kind": "exc",
+    "line": 22,
+    "new": "ValueError",
+    "old": "IndexError",
+    "orig_line": "        raise IndexError(\"page out of range\")",
+    "seeded_line": "        raise ValueError(\"page out of range\")"
+   },
+   {
+    "claim": "In `next_page`: wrong boundary: `>` where `>=` is required (off-by-one at the boundary).",
+    "col": 12,
+    "file": "pagination.py",
+    "func": "next_page",
+    "kind": "cmp",
+    "line": 44,
+    "new": ">",
+    "old": ">=",
+    "orig_line": "    if page >= pages:",
+    "seeded_line": "    if page > pages:"
+   }
+  ],
+  "files": [
+   "pagination",
+   "trie"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0013": {
+  "bugs": [
+   {
+    "claim": "In `LRUCache.__contains__`: inverted membership test: `not in` where `in` is required.",
+    "col": 19,
+    "file": "lru.py",
+    "func": "LRUCache.__contains__",
+    "kind": "in",
+    "line": 21,
+    "new": "not in",
+    "old": "in",
+    "orig_line": "        return key in self._store",
+    "seeded_line": "        return key not in self._store"
+   },
+   {
+    "claim": "In `LRUCache.hit_ratio`: off-by-one constant: `1` where `0` is required.",
+    "col": 20,
+    "file": "lru.py",
+    "func": "LRUCache.hit_ratio",
+    "kind": "num",
+    "line": 60,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        if total == 0:",
+    "seeded_line": "        if total == 1:"
+   }
+  ],
+  "files": [
+   "inventory",
+   "lru"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0014": {
+  "bugs": [
+   {
+    "claim": "In `Trie.remove`: off-by-one constant: `0` where `1` is required.",
+    "col": 22,
+    "file": "trie.py",
+    "func": "Trie.remove",
+    "kind": "num",
+    "line": 69,
+    "new": "0",
+    "old": "1",
+    "orig_line": "        self._size -= 1",
+    "seeded_line": "        self._size -= 0"
+   }
+  ],
+  "files": [
+   "windows",
+   "trie"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0015": {
+  "bugs": [
+   {
+    "claim": "In `parse_line`: off-by-one constant: `0` where `1` is required.",
+    "col": 25,
+    "file": "csvline.py",
+    "func": "parse_line",
+    "kind": "num",
+    "line": 20,
+    "new": "0",
+    "old": "1",
+    "orig_line": "                    i += 1",
+    "seeded_line": "                    i += 0"
+   },
+   {
+    "claim": "In `topo_order`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "graphs.py",
+    "func": "topo_order",
+    "kind": "exc",
+    "line": 47,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"cycle detected\")",
+    "seeded_line": "        raise KeyError(\"cycle detected\")"
+   }
+  ],
+  "files": [
+   "csvline",
+   "graphs"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0016": {
+  "bugs": [
+   {
+    "claim": "In `collect_errors`: mutable default argument: `[]` default shared between calls where `None` is required.",
+    "col": 34,
+    "file": "validate.py",
+    "func": "collect_errors",
+    "kind": "mutdef",
+    "line": 62,
+    "new": "[]",
+    "old": "None",
+    "orig_line": "def collect_errors(checks, errors=None):",
+    "seeded_line": "def collect_errors(checks, errors=[]):"
+   }
+  ],
+  "files": [
+   "validate",
+   "rpn"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0017": {
+  "bugs": [
+   {
+    "claim": "In `RingBuffer.to_list`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 39,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.to_list",
+    "kind": "arith",
+    "line": 53,
+    "new": "-",
+    "old": "+",
+    "orig_line": "        return [self._data[(self._head + i) % self.capacity] for i in range(self._size)]",
+    "seeded_line": "        return [self._data[(self._head - i) % self.capacity] for i in range(self._size)]"
+   },
+   {
+    "claim": "In `topo_order`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "graphs.py",
+    "func": "topo_order",
+    "kind": "exc",
+    "line": 47,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"cycle detected\")",
+    "seeded_line": "        raise KeyError(\"cycle detected\")"
+   },
+   {
+    "claim": "In `reachable`: inverted membership test: `in` where `not in` is required.",
+    "col": 17,
+    "file": "graphs.py",
+    "func": "reachable",
+    "kind": "in",
+    "line": 88,
+    "new": "in",
+    "old": "not in",
+    "orig_line": "            if m not in seen:",
+    "seeded_line": "            if m in seen:"
+   }
+  ],
+  "files": [
+   "ringbuf",
+   "graphs"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0018": {
+  "bugs": [
+   {
+    "claim": "In `is_prime`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 9,
+    "file": "numtheory.py",
+    "func": "is_prime",
+    "kind": "cmp",
+    "line": 22,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if n < 4:",
+    "seeded_line": "    if n <= 4:"
+   },
+   {
+    "claim": "In `contains_point`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 22,
+    "file": "intervals.py",
+    "func": "contains_point",
+    "kind": "cmp",
+    "line": 61,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "        if start <= x < end:",
+    "seeded_line": "        if start <= x <= end:"
+   }
+  ],
+  "files": [
+   "numtheory",
+   "intervals"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0019": {
+  "bugs": [
+   {
+    "claim": "In `apply_percent`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 15,
+    "file": "money.py",
+    "func": "apply_percent",
+    "kind": "cmp",
+    "line": 17,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if percent < 0 or percent > 100:",
+    "seeded_line": "    if percent <= 0 or percent > 100:"
+   },
+   {
+    "claim": "In `add_tax`: wrong arithmetic operator: `/` where `//` is required.",
+    "col": 35,
+    "file": "money.py",
+    "func": "add_tax",
+    "kind": "arith",
+    "line": 53,
+    "new": "/",
+    "old": "//",
+    "orig_line": "    tax = (cents * rate_bp + 5000) // 10000",
+    "seeded_line": "    tax = (cents * rate_bp + 5000) / 10000"
+   }
+  ],
+  "files": [
+   "money",
+   "ledger"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0020": {
+  "bugs": [
+   {
+    "claim": "In `from_roman`: off-by-one constant: `99` where `100` is required.",
+    "col": 53,
+    "file": "roman.py",
+    "func": "from_roman",
+    "kind": "num",
+    "line": 26,
+    "new": "99",
+    "old": "100",
+    "orig_line": "    values = {\"I\": 1, \"V\": 5, \"X\": 10, \"L\": 50, \"C\": 100, \"D\": 500, \"M\": 1000}",
+    "seeded_line": "    values = {\"I\": 1, \"V\": 5, \"X\": 10, \"L\": 50, \"C\": 99, \"D\": 500, \"M\": 1000}"
+   },
+   {
+    "claim": "In `sliding_max`: off-by-one constant: `1` where `0` is required.",
+    "col": 29,
+    "file": "windows.py",
+    "func": "sliding_max",
+    "kind": "num",
+    "line": 47,
+    "new": "1",
+    "old": "0",
+    "orig_line": "            out.append(xs[dq[0]])",
+    "seeded_line": "            out.append(xs[dq[1]])"
+   }
+  ],
+  "files": [
+   "roman",
+   "windows"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0021": {
+  "bugs": [
+   {
+    "claim": "In `nearest`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 24,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "arith",
+    "line": 52,
+    "new": "+",
+    "old": "-",
+    "orig_line": "    before, after = a[i - 1], a[i]",
+    "seeded_line": "    before, after = a[i + 1], a[i]"
+   },
+   {
+    "claim": "In `apply_percent`: off-by-one constant: `1` where `2` is required.",
+    "col": 30,
+    "file": "money.py",
+    "func": "apply_percent",
+    "kind": "num",
+    "line": 19,
+    "new": "1",
+    "old": "2",
+    "orig_line": "    return (cents * percent * 2 + 100) // 200",
+    "seeded_line": "    return (cents * percent * 1 + 100) // 200"
+   }
+  ],
+  "files": [
+   "bsearch",
+   "money"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0022": {
+  "bugs": [
+   {
+    "claim": "In `check_username`: inverted equality test: `==` where `!=` is required.",
+    "col": 54,
+    "file": "validate.py",
+    "func": "check_username",
+    "kind": "eq",
+    "line": 42,
+    "new": "==",
+    "old": "!=",
+    "orig_line": "        if not (ch.isalnum() and ch.isascii()) and ch != \"_\":",
+    "seeded_line": "        if not (ch.isalnum() and ch.isascii()) and ch == \"_\":"
+   }
+  ],
+  "files": [
+   "inventory",
+   "validate"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0023": {
+  "bugs": [
+   {
+    "claim": "In `decode`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 22,
+    "file": "rle.py",
+    "func": "decode",
+    "kind": "exc",
+    "line": 34,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "                raise ValueError(\"zero count\")",
+    "seeded_line": "                raise KeyError(\"zero count\")"
+   },
+   {
+    "claim": "In `overlaps`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 32,
+    "file": "intervals.py",
+    "func": "overlaps",
+    "kind": "cmp",
+    "line": 17,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    return a[0] < b[1] and b[0] < a[1]",
+    "seeded_line": "    return a[0] < b[1] and b[0] <= a[1]"
+   }
+  ],
+  "files": [
+   "rle",
+   "intervals"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0024": {
+  "bugs": [
+   {
+    "claim": "In `percentile`: off-by-one constant: `99` where `100` is required.",
+    "col": 21,
+    "file": "stats.py",
+    "func": "percentile",
+    "kind": "num",
+    "line": 38,
+    "new": "99",
+    "old": "100",
+    "orig_line": "    if p <= 0 or p > 100:",
+    "seeded_line": "    if p <= 0 or p > 99:"
+   }
+  ],
+  "files": [
+   "csvline",
+   "stats"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0025": {
+  "bugs": [
+   {
+    "claim": "In `chunk`: off-by-one constant: `2` where `1` is required.",
+    "col": 11,
+    "file": "windows.py",
+    "func": "chunk",
+    "kind": "num",
+    "line": 8,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    if n < 1:",
+    "seeded_line": "    if n < 2:"
+   },
+   {
+    "claim": "In `windows`: off-by-one constant: `0` where `1` is required.",
+    "col": 11,
+    "file": "windows.py",
+    "func": "windows",
+    "kind": "num",
+    "line": 15,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    if k < 1 or step < 1:",
+    "seeded_line": "    if k < 0 or step < 1:"
+   },
+   {
+    "claim": "In `sliding_max`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 9,
+    "file": "windows.py",
+    "func": "sliding_max",
+    "kind": "cmp",
+    "line": 36,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if k < 1:",
+    "seeded_line": "    if k <= 1:"
+   }
+  ],
+  "files": [
+   "windows",
+   "rle"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0026": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.withdraw`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 43,
+    "file": "ledger.py",
+    "func": "Ledger.withdraw",
+    "kind": "arith",
+    "line": 38,
+    "new": "+",
+    "old": "-",
+    "orig_line": "        if self._balances[name] - amount < -self._limits[name]:",
+    "seeded_line": "        if self._balances[name] - amount < +self._limits[name]:"
+   }
+  ],
+  "files": [
+   "ledger",
+   "timeslots"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0027": {
+  "bugs": [
+   {
+    "claim": "In `topo_order`: off-by-one constant: `0` where `1` is required.",
+    "col": 24,
+    "file": "graphs.py",
+    "func": "topo_order",
+    "kind": "num",
+    "line": 35,
+    "new": "0",
+    "old": "1",
+    "orig_line": "            indeg[m] += 1",
+    "seeded_line": "            indeg[m] += 0"
+   },
+   {
+    "claim": "In `prev_page`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 16,
+    "file": "pagination.py",
+    "func": "prev_page",
+    "kind": "arith",
+    "line": 53,
+    "new": "+",
+    "old": "-",
+    "orig_line": "    return page - 1",
+    "seeded_line": "    return page + 1"
+   }
+  ],
+  "files": [
+   "graphs",
+   "pagination"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0028": {
+  "bugs": [
+   {
+    "claim": "In `diff_keys`: inverted equality test: `==` where `!=` is required.",
+    "col": 57,
+    "file": "confmerge.py",
+    "func": "diff_keys",
+    "kind": "eq",
+    "line": 62,
+    "new": "==",
+    "old": "!=",
+    "orig_line": "    return sorted(k for k in keys if fa.get(k, object()) != fb.get(k, object()))",
+    "seeded_line": "    return sorted(k for k in keys if fa.get(k, object()) == fb.get(k, object()))"
+   }
+  ],
+  "files": [
+   "confmerge",
+   "pagination"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0029": {
+  "bugs": [
+   {
+    "claim": "In `variance`: inverted boolean literal: `False` where `True` is required.",
+    "col": 24,
+    "file": "stats.py",
+    "func": "variance",
+    "kind": "lit",
+    "line": 23,
+    "new": "False",
+    "old": "True",
+    "orig_line": "def variance(xs, sample=True):",
+    "seeded_line": "def variance(xs, sample=False):"
+   },
+   {
+    "claim": "In `parse_bool`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 39,
+    "file": "validate.py",
+    "func": "parse_bool",
+    "kind": "arith",
+    "line": 17,
+    "new": "-",
+    "old": "+",
+    "orig_line": "    raise ValueError(\"not a boolean: \" + value)",
+    "seeded_line": "    raise ValueError(\"not a boolean: \" - value)"
+   }
+  ],
+  "files": [
+   "stats",
+   "validate"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0030": {
+  "bugs": [
+   {
+    "claim": "In `chunk`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "windows.py",
+    "func": "chunk",
+    "kind": "exc",
+    "line": 9,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"n must be positive\")",
+    "seeded_line": "        raise KeyError(\"n must be positive\")"
+   },
+   {
+    "claim": "In `moving_average`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 9,
+    "file": "windows.py",
+    "func": "moving_average",
+    "kind": "cmp",
+    "line": 24,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "    if k > len(xs):",
+    "seeded_line": "    if k >= len(xs):"
+   }
+  ],
+  "files": [
+   "numtheory",
+   "windows"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0031": {
+  "bugs": [
+   {
+    "claim": "In `satisfies`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 44,
+    "file": "semver.py",
+    "func": "satisfies",
+    "kind": "arith",
+    "line": 55,
+    "new": "-",
+    "old": "+",
+    "orig_line": "            raise ValueError(\"bad clause: \" + clause)",
+    "seeded_line": "            raise ValueError(\"bad clause: \" - clause)"
+   },
+   {
+    "claim": "In `satisfies`: missing negation: `not` was removed from the condition.",
+    "col": 11,
+    "file": "semver.py",
+    "func": "satisfies",
+    "kind": "not",
+    "line": 63,
+    "new": "",
+    "old": "not ",
+    "orig_line": "        if not ok:",
+    "seeded_line": "        if ok:"
+   }
+  ],
+  "files": [
+   "semver",
+   "bsearch"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0032": {
+  "bugs": [
+   {
+    "claim": "In `merge`: off-by-one constant: `0` where `1` is required.",
+    "col": 17,
+    "file": "intervals.py",
+    "func": "merge",
+    "kind": "num",
+    "line": 30,
+    "new": "0",
+    "old": "1",
+    "orig_line": "            out[-1] = (last_start, max(last_end, end))",
+    "seeded_line": "            out[-0] = (last_start, max(last_end, end))"
+   },
+   {
+    "claim": "In `LRUCache.hit_ratio`: inverted equality test: `!=` where `==` is required.",
+    "col": 17,
+    "file": "lru.py",
+    "func": "LRUCache.hit_ratio",
+    "kind": "eq",
+    "line": 60,
+    "new": "!=",
+    "old": "==",
+    "orig_line": "        if total == 0:",
+    "seeded_line": "        if total != 0:"
+   }
+  ],
+  "files": [
+   "intervals",
+   "lru"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0033": {
+  "bugs": [
+   {
+    "claim": "In `camel_to_snake`: off-by-one constant: `0` where `1` is required.",
+    "col": 56,
+    "file": "textutil.py",
+    "func": "camel_to_snake",
+    "kind": "num",
+    "line": 26,
+    "new": "0",
+    "old": "1",
+    "orig_line": "            next_lower = i + 1 < len(name) and name[i + 1].islower()",
+    "seeded_line": "            next_lower = i + 1 < len(name) and name[i + 0].islower()"
+   }
+  ],
+  "files": [
+   "textutil",
+   "rpn"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0034": {
+  "bugs": [
+   {
+    "claim": "In `has_cycle`: inverted boolean literal: `True` where `False` is required.",
+    "col": 11,
+    "file": "graphs.py",
+    "func": "has_cycle",
+    "kind": "lit",
+    "line": 100,
+    "new": "True",
+    "old": "False",
+    "orig_line": "    return False",
+    "seeded_line": "    return True"
+   }
+  ],
+  "files": [
+   "rpn",
+   "graphs"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0035": {
+  "bugs": [
+   {
+    "claim": "In `split_cents`: off-by-one constant: `2` where `1` is required.",
+    "col": 15,
+    "file": "money.py",
+    "func": "split_cents",
+    "kind": "num",
+    "line": 8,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    if parts < 1 or total < 0:",
+    "seeded_line": "    if parts < 2 or total < 0:"
+   },
+   {
+    "claim": "In `apply_percent`: off-by-one constant: `101` where `100` is required.",
+    "col": 32,
+    "file": "money.py",
+    "func": "apply_percent",
+    "kind": "num",
+    "line": 17,
+    "new": "101",
+    "old": "100",
+    "orig_line": "    if percent < 0 or percent > 100:",
+    "seeded_line": "    if percent < 0 or percent > 101:"
+   },
+   {
+    "claim": "In `encode`: wrong function/method: `all` where `any` is required.",
+    "col": 7,
+    "file": "rle.py",
+    "func": "encode",
+    "kind": "func",
+    "line": 17,
+    "new": "all",
+    "old": "any",
+    "orig_line": "    if any(ch.isdigit() for ch in text):",
+    "seeded_line": "    if all(ch.isdigit() for ch in text):"
+   }
+  ],
+  "files": [
+   "money",
+   "rle"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0036": {
+  "bugs": [
+   {
+    "claim": "In `bump`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 33,
+    "file": "semver.py",
+    "func": "bump",
+    "kind": "arith",
+    "line": 34,
+    "new": "-",
+    "old": "+",
+    "orig_line": "        return \"%d.0.0\" % (major + 1)",
+    "seeded_line": "        return \"%d.0.0\" % (major - 1)"
+   },
+   {
+    "claim": "In `wrap`: off-by-one constant: `0` where `1` is required.",
+    "col": 15,
+    "file": "wrap.py",
+    "func": "wrap",
+    "kind": "num",
+    "line": 8,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    if width < 1:",
+    "seeded_line": "    if width < 0:"
+   }
+  ],
+  "files": [
+   "semver",
+   "wrap"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0037": {
+  "bugs": [
+   {
+    "claim": "In `from_roman`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "roman.py",
+    "func": "from_roman",
+    "kind": "exc",
+    "line": 25,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"empty\")",
+    "seeded_line": "        raise KeyError(\"empty\")"
+   },
+   {
+    "claim": "In `is_valid`: inverted boolean literal: `False` where `True` is required.",
+    "col": 11,
+    "file": "roman.py",
+    "func": "is_valid",
+    "kind": "lit",
+    "line": 46,
+    "new": "False",
+    "old": "True",
+    "orig_line": "    return True",
+    "seeded_line": "    return False"
+   }
+  ],
+  "files": [
+   "roman",
+   "ringbuf"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0038": {
+  "bugs": [
+   {
+    "claim": "In `compare`: off-by-one constant: `2` where `1` is required.",
+    "col": 15,
+    "file": "semver.py",
+    "func": "compare",
+    "kind": "num",
+    "line": 26,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        return 1",
+    "seeded_line": "        return 2"
+   }
+  ],
+  "files": [
+   "inventory",
+   "semver"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0039": {
+  "bugs": [
+   {
+    "claim": "In `encode`: wrong function/method: `all` where `any` is required.",
+    "col": 7,
+    "file": "rle.py",
+    "func": "encode",
+    "kind": "func",
+    "line": 17,
+    "new": "all",
+    "old": "any",
+    "orig_line": "    if any(ch.isdigit() for ch in text):",
+    "seeded_line": "    if all(ch.isdigit() for ch in text):"
+   },
+   {
+    "claim": "In `Trie._count`: off-by-one constant: `2` where `1` is required.",
+    "col": 16,
+    "file": "trie.py",
+    "func": "Trie._count",
+    "kind": "num",
+    "line": 43,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        total = 1 if \"$\" in node else 0",
+    "seeded_line": "        total = 2 if \"$\" in node else 0"
+   }
+  ],
+  "files": [
+   "rle",
+   "trie"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0040": {
+  "bugs": [
+   {
+    "claim": "In `latest`: off-by-one constant: `1` where `0` is required.",
+    "col": 70,
+    "file": "semver.py",
+    "func": "latest",
+    "kind": "num",
+    "line": 72,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        if satisfies(v, spec) and (best is None or compare(v, best) > 0):",
+    "seeded_line": "        if satisfies(v, spec) and (best is None or compare(v, best) > 1):"
+   }
+  ],
+  "files": [
+   "semver",
+   "rpn"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0041": {
+  "bugs": [
+   {
+    "claim": "In `spiral`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 39,
+    "file": "matrix.py",
+    "func": "spiral",
+    "kind": "arith",
+    "line": 44,
+    "new": "+",
+    "old": "-",
+    "orig_line": "    top, bottom, left, right = 0, rows - 1, 0, cols - 1",
+    "seeded_line": "    top, bottom, left, right = 0, rows + 1, 0, cols - 1"
+   },
+   {
+    "claim": "In `is_prime`: inverted boolean literal: `True` where `False` is required.",
+    "col": 15,
+    "file": "numtheory.py",
+    "func": "is_prime",
+    "kind": "lit",
+    "line": 25,
+    "new": "True",
+    "old": "False",
+    "orig_line": "        return False",
+    "seeded_line": "        return True"
+   }
+  ],
+  "files": [
+   "matrix",
+   "numtheory"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0042": {
+  "bugs": [
+   {
+    "claim": "In `<module>`: off-by-one constant: `32` where `31` is required.",
+    "col": 25,
+    "file": "calendar_lite.py",
+    "func": "<module>",
+    "kind": "num",
+    "line": 3,
+    "new": "32",
+    "old": "31",
+    "orig_line": "_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]",
+    "seeded_line": "_DAYS = [31, 28, 31, 30, 32, 30, 31, 31, 30, 31, 30, 31]"
+   },
+   {
+    "claim": "In `day_of_year`: wrong arithmetic operator: `-=` where `+=` is required.",
+    "col": 14,
+    "file": "calendar_lite.py",
+    "func": "day_of_year",
+    "kind": "arith",
+    "line": 30,
+    "new": "-=",
+    "old": "+=",
+    "orig_line": "        total += days_in_month(year, m)",
+    "seeded_line": "        total -= days_in_month(year, m)"
+   },
+   {
+    "claim": "In `add_days`: off-by-one constant: `2` where `1` is required.",
+    "col": 16,
+    "file": "calendar_lite.py",
+    "func": "add_days",
+    "kind": "num",
+    "line": 58,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    while day < 1:",
+    "seeded_line": "    while day < 2:"
+   }
+  ],
+  "files": [
+   "calendar_lite",
+   "money"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0043": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.withdraw`: wrong arithmetic operator: `+=` where `-=` is required.",
+    "col": 29,
+    "file": "ledger.py",
+    "func": "Ledger.withdraw",
+    "kind": "arith",
+    "line": 40,
+    "new": "+=",
+    "old": "-=",
+    "orig_line": "        self._balances[name] -= amount",
+    "seeded_line": "        self._balances[name] += amount"
+   }
+  ],
+  "files": [
+   "ledger",
+   "ringbuf"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0044": {
+  "bugs": [
+   {
+    "claim": "In `count_words`: off-by-one constant: `0` where `1` is required.",
+    "col": 49,
+    "file": "textutil.py",
+    "func": "count_words",
+    "kind": "num",
+    "line": 52,
+    "new": "0",
+    "old": "1",
+    "orig_line": "            counts[word] = counts.get(word, 0) + 1",
+    "seeded_line": "            counts[word] = counts.get(word, 0) + 0"
+   },
+   {
+    "claim": "In `title_case`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 13,
+    "file": "textutil.py",
+    "func": "title_case",
+    "kind": "cmp",
+    "line": 63,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "        if i > 0 and low in small:",
+    "seeded_line": "        if i >= 0 and low in small:"
+   },
+   {
+    "claim": "In `set_path`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "confmerge.py",
+    "func": "set_path",
+    "kind": "exc",
+    "line": 38,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"not a mapping: \" + part)",
+    "seeded_line": "            raise KeyError(\"not a mapping: \" + part)"
+   }
+  ],
+  "files": [
+   "textutil",
+   "confmerge"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0045": {
+  "bugs": [
+   {
+    "claim": "In `sliding_max`: off-by-one constant: `0` where `1` is required.",
+    "col": 20,
+    "file": "windows.py",
+    "func": "sliding_max",
+    "kind": "num",
+    "line": 46,
+    "new": "0",
+    "old": "1",
+    "orig_line": "        if i >= k - 1:",
+    "seeded_line": "        if i >= k - 0:"
+   }
+  ],
+  "files": [
+   "windows",
+   "pagination"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0046": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket.wait_time`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 23,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.wait_time",
+    "kind": "arith",
+    "line": 44,
+    "new": "+",
+    "old": "-",
+    "orig_line": "        missing = cost - self.tokens",
+    "seeded_line": "        missing = cost + self.tokens"
+   },
+   {
+    "claim": "In `sliding_max`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "windows.py",
+    "func": "sliding_max",
+    "kind": "exc",
+    "line": 37,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"k must be positive\")",
+    "seeded_line": "        raise KeyError(\"k must be positive\")"
+   }
+  ],
+  "files": [
+   "tokenbucket",
+   "windows"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0047": {
+  "bugs": [
+   {
+    "claim": "In `LRUCache.delete`: inverted boolean literal: `True` where `False` is required.",
+    "col": 19,
+    "file": "lru.py",
+    "func": "LRUCache.delete",
+    "kind": "lit",
+    "line": 49,
+    "new": "True",
+    "old": "False",
+    "orig_line": "            return False",
+    "seeded_line": "            return True"
+   }
+  ],
+  "files": [
+   "lru",
+   "graphs"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0048": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket.wait_time`: off-by-one constant: `2` where `1` is required.",
+    "col": 34,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.wait_time",
+    "kind": "num",
+    "line": 38,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    def wait_time(self, now, cost=1):",
+    "seeded_line": "    def wait_time(self, now, cost=2):"
+   },
+   {
+    "claim": "In `Inventory.release`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 27,
+    "file": "inventory.py",
+    "func": "Inventory.release",
+    "kind": "cmp",
+    "line": 39,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "        if qty <= 0 or qty > held:",
+    "seeded_line": "        if qty <= 0 or qty >= held:"
+   }
+  ],
+  "files": [
+   "tokenbucket",
+   "inventory"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0049": {
+  "bugs": [
+   {
+    "claim": "In `spiral`: off-by-one constant: `2` where `1` is required.",
+    "col": 15,
+    "file": "matrix.py",
+    "func": "spiral",
+    "kind": "num",
+    "line": 49,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        top += 1",
+    "seeded_line": "        top += 2"
+   }
+  ],
+  "files": [
+   "matrix",
+   "stats"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0050": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.transfer`: inverted equality test: `!=` where `==` is required.",
+    "col": 15,
+    "file": "ledger.py",
+    "func": "Ledger.transfer",
+    "kind": "eq",
+    "line": 44,
+    "new": "!=",
+    "old": "==",
+    "orig_line": "        if src == dst:",
+    "seeded_line": "        if src != dst:"
+   },
+   {
+    "claim": "In `Ledger.overdrawn`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 64,
+    "file": "ledger.py",
+    "func": "Ledger.overdrawn",
+    "kind": "cmp",
+    "line": 58,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "        return sorted(n for n, b in self._balances.items() if b < 0)",
+    "seeded_line": "        return sorted(n for n, b in self._balances.items() if b <= 0)"
+   }
+  ],
+  "files": [
+   "ledger",
+   "stats"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0051": {
+  "bugs": [
+   {
+    "claim": "In `parse_line`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 21,
+    "file": "csvline.py",
+    "func": "parse_line",
+    "kind": "arith",
+    "line": 18,
+    "new": "-",
+    "old": "+",
+    "orig_line": "                if i + 1 < n and line[i + 1] == '\"':",
+    "seeded_line": "                if i - 1 < n and line[i + 1] == '\"':"
+   },
+   {
+    "claim": "In `parse_line`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "csvline.py",
+    "func": "parse_line",
+    "kind": "exc",
+    "line": 34,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"unterminated quote\")",
+    "seeded_line": "        raise KeyError(\"unterminated quote\")"
+   },
+   {
+    "claim": "In `header_map`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 50,
+    "file": "csvline.py",
+    "func": "header_map",
+    "kind": "arith",
+    "line": 61,
+    "new": "-",
+    "old": "+",
+    "orig_line": "            raise ValueError(\"duplicate column: \" + name)",
+    "seeded_line": "            raise ValueError(\"duplicate column: \" - name)"
+   }
+  ],
+  "files": [
+   "semver",
+   "csvline"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0052": {
+  "bugs": [
+   {
+    "claim": "In `quote_field`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 19,
+    "file": "csvline.py",
+    "func": "quote_field",
+    "kind": "arith",
+    "line": 42,
+    "new": "-",
+    "old": "+",
+    "orig_line": "        return '\"' + field.replace('\"', '\"\"') + '\"'",
+    "seeded_line": "        return '\"' - field.replace('\"', '\"\"') + '\"'"
+   },
+   {
+    "claim": "In `diff_keys`: inverted equality test: `==` where `!=` is required.",
+    "col": 57,
+    "file": "confmerge.py",
+    "func": "diff_keys",
+    "kind": "eq",
+    "line": 62,
+    "new": "==",
+    "old": "!=",
+    "orig_line": "    return sorted(k for k in keys if fa.get(k, object()) != fb.get(k, object()))",
+    "seeded_line": "    return sorted(k for k in keys if fa.get(k, object()) == fb.get(k, object()))"
+   }
+  ],
+  "files": [
+   "csvline",
+   "confmerge"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0053": {
+  "bugs": [
+   {
+    "claim": "In `page_count`: off-by-one constant: `0` where `1` is required.",
+    "col": 18,
+    "file": "pagination.py",
+    "func": "page_count",
+    "kind": "num",
+    "line": 9,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    if per_page < 1 or total < 0:",
+    "seeded_line": "    if per_page < 0 or total < 0:"
+   },
+   {
+    "claim": "In `TokenBucket.__init__`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.__init__",
+    "kind": "exc",
+    "line": 10,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"capacity and rate must be positive\")",
+    "seeded_line": "            raise KeyError(\"capacity and rate must be positive\")"
+   }
+  ],
+  "files": [
+   "pagination",
+   "tokenbucket"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0054": {
+  "bugs": [
+   {
+    "claim": "In `digit_sum`: off-by-one constant: `9` where `10` is required.",
+    "col": 22,
+    "file": "numtheory.py",
+    "func": "digit_sum",
+    "kind": "num",
+    "line": 90,
+    "new": "9",
+    "old": "10",
+    "orig_line": "def digit_sum(n, base=10):",
+    "seeded_line": "def digit_sum(n, base=9):"
+   },
+   {
+    "claim": "In `Trie.remove`: wrong arithmetic operator: `+=` where `-=` is required.",
+    "col": 19,
+    "file": "trie.py",
+    "func": "Trie.remove",
+    "kind": "arith",
+    "line": 69,
+    "new": "+=",
+    "old": "-=",
+    "orig_line": "        self._size -= 1",
+    "seeded_line": "        self._size += 1"
+   }
+  ],
+  "files": [
+   "numtheory",
+   "trie"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0055": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.withdraw`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 43,
+    "file": "ledger.py",
+    "func": "Ledger.withdraw",
+    "kind": "arith",
+    "line": 38,
+    "new": "+",
+    "old": "-",
+    "orig_line": "        if self._balances[name] - amount < -self._limits[name]:",
+    "seeded_line": "        if self._balances[name] - amount < +self._limits[name]:"
+   },
+   {
+    "claim": "In `Ledger.overdrawn`: off-by-one constant: `1` where `0` is required.",
+    "col": 66,
+    "file": "ledger.py",
+    "func": "Ledger.overdrawn",
+    "kind": "num",
+    "line": 58,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        return sorted(n for n, b in self._balances.items() if b < 0)",
+    "seeded_line": "        return sorted(n for n, b in self._balances.items() if b < 1)"
+   },
+   {
+    "claim": "In `justify`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 22,
+    "file": "wrap.py",
+    "func": "justify",
+    "kind": "arith",
+    "line": 41,
+    "new": "+",
+    "old": "-",
+    "orig_line": "    gaps = len(words) - 1",
+    "seeded_line": "    gaps = len(words) + 1"
+   }
+  ],
+  "files": [
+   "ledger",
+   "wrap"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0056": {
+  "bugs": [
+   {
+    "claim": "In `add_days`: off-by-one constant: `2` where `1` is required.",
+    "col": 20,
+    "file": "calendar_lite.py",
+    "func": "add_days",
+    "kind": "num",
+    "line": 57,
+    "new": "2",
+    "old": "1",
+    "orig_line": "            year += 1",
+    "seeded_line": "            year += 2"
+   },
+   {
+    "claim": "In `chunk`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 9,
+    "file": "windows.py",
+    "func": "chunk",
+    "kind": "cmp",
+    "line": 8,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if n < 1:",
+    "seeded_line": "    if n <= 1:"
+   }
+  ],
+  "files": [
+   "calendar_lite",
+   "windows"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0057": {
+  "bugs": [
+   {
+    "claim": "In `duration`: off-by-one constant: `23` where `24` is required.",
+    "col": 15,
+    "file": "timeslots.py",
+    "func": "duration",
+    "kind": "num",
+    "line": 29,
+    "new": "23",
+    "old": "24",
+    "orig_line": "    return e + 24 * 60 - s",
+    "seeded_line": "    return e + 23 * 60 - s"
+   },
+   {
+    "claim": "In `eval_postfix`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 27,
+    "file": "rpn.py",
+    "func": "eval_postfix",
+    "kind": "arith",
+    "line": 74,
+    "new": "+",
+    "old": "-",
+    "orig_line": "            stack.append(a - b)",
+    "seeded_line": "            stack.append(a + b)"
+   }
+  ],
+  "files": [
+   "timeslots",
+   "rpn"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0058": {
+  "bugs": [
+   {
+    "claim": "In `slots_overlap`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 26,
+    "file": "timeslots.py",
+    "func": "slots_overlap",
+    "kind": "cmp",
+    "line": 37,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    return a0 < b1 and b0 < a1",
+    "seeded_line": "    return a0 < b1 and b0 <= a1"
+   },
+   {
+    "claim": "In `truncate`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "textutil.py",
+    "func": "truncate",
+    "kind": "exc",
+    "line": 40,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"limit shorter than ellipsis\")",
+    "seeded_line": "        raise KeyError(\"limit shorter than ellipsis\")"
+   },
+   {
+    "claim": "In `title_case`: wrong boolean connective: `or` where `and` is required.",
+    "col": 17,
+    "file": "textutil.py",
+    "func": "title_case",
+    "kind": "bool",
+    "line": 63,
+    "new": "or",
+    "old": "and",
+    "orig_line": "        if i > 0 and low in small:",
+    "seeded_line": "        if i > 0 or low in small:"
+   }
+  ],
+  "files": [
+   "timeslots",
+   "textutil"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0059": {
+  "bugs": [
+   {
+    "claim": "In `is_prime`: off-by-one constant: `3` where `2` is required.",
+    "col": 13,
+    "file": "numtheory.py",
+    "func": "is_prime",
+    "kind": "num",
+    "line": 30,
+    "new": "3",
+    "old": "2",
+    "orig_line": "        i += 2",
+    "seeded_line": "        i += 3"
+   },
+   {
+    "claim": "In `factorize`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 16,
+    "file": "numtheory.py",
+    "func": "factorize",
+    "kind": "cmp",
+    "line": 67,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "    while d * d <= n:",
+    "seeded_line": "    while d * d < n:"
+   }
+  ],
+  "files": [
+   "numtheory",
+   "money"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0060": {
+  "bugs": [
+   {
+    "claim": "In `page_count`: off-by-one constant: `2` where `1` is required.",
+    "col": 18,
+    "file": "pagination.py",
+    "func": "page_count",
+    "kind": "num",
+    "line": 9,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    if per_page < 1 or total < 0:",
+    "seeded_line": "    if per_page < 2 or total < 0:"
+   },
+   {
+    "claim": "In `page_bounds`: off-by-one constant: `2` where `1` is required.",
+    "col": 50,
+    "file": "pagination.py",
+    "func": "page_bounds",
+    "kind": "num",
+    "line": 21,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    if page < 1 or (page > pages and not (page == 1 and total == 0)):",
+    "seeded_line": "    if page < 1 or (page > pages and not (page == 2 and total == 0)):"
+   },
+   {
+    "claim": "In `truncate`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 17,
+    "file": "textutil.py",
+    "func": "truncate",
+    "kind": "cmp",
+    "line": 41,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "    if len(text) <= limit:",
+    "seeded_line": "    if len(text) < limit:"
+   }
+  ],
+  "files": [
+   "pagination",
+   "textutil"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0061": {
+  "bugs": [
+   {
+    "claim": "In `windows`: off-by-one constant: `2` where `1` is required.",
+    "col": 11,
+    "file": "windows.py",
+    "func": "windows",
+    "kind": "num",
+    "line": 15,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    if k < 1 or step < 1:",
+    "seeded_line": "    if k < 2 or step < 1:"
+   },
+   {
+    "claim": "In `sliding_max`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 22,
+    "file": "windows.py",
+    "func": "sliding_max",
+    "kind": "arith",
+    "line": 44,
+    "new": "+",
+    "old": "-",
+    "orig_line": "        if dq[0] <= i - k:",
+    "seeded_line": "        if dq[0] <= i + k:"
+   }
+  ],
+  "files": [
+   "csvline",
+   "windows"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0062": {
+  "bugs": [
+   {
+    "claim": "In `LRUCache.__init__`: off-by-one constant: `1` where `0` is required.",
+    "col": 20,
+    "file": "lru.py",
+    "func": "LRUCache.__init__",
+    "kind": "num",
+    "line": 14,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        self.hits = 0",
+    "seeded_line": "        self.hits = 1"
+   },
+   {
+    "claim": "In `LRUCache.get`: off-by-one constant: `2` where `1` is required.",
+    "col": 25,
+    "file": "lru.py",
+    "func": "LRUCache.get",
+    "kind": "num",
+    "line": 30,
+    "new": "2",
+    "old": "1",
+    "orig_line": "            self.hits += 1",
+    "seeded_line": "            self.hits += 2"
+   },
+   {
+    "claim": "In `split_cents`: off-by-one constant: `1` where `0` is required.",
+    "col": 28,
+    "file": "money.py",
+    "func": "split_cents",
+    "kind": "num",
+    "line": 8,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    if parts < 1 or total < 0:",
+    "seeded_line": "    if parts < 1 or total < 1:"
+   }
+  ],
+  "files": [
+   "lru",
+   "money"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0063": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket.__init__`: wrong boolean connective: `and` where `or` is required.",
+    "col": 25,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.__init__",
+    "kind": "bool",
+    "line": 9,
+    "new": "and",
+    "old": "or",
+    "orig_line": "        if capacity <= 0 or rate <= 0:",
+    "seeded_line": "        if capacity <= 0 and rate <= 0:"
+   },
+   {
+    "claim": "In `TokenBucket.wait_time`: off-by-one constant: `1` where `0` is required.",
+    "col": 22,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.wait_time",
+    "kind": "num",
+    "line": 45,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        if missing <= 0:",
+    "seeded_line": "        if missing <= 1:"
+   }
+  ],
+  "files": [
+   "csvline",
+   "tokenbucket"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0064": {
+  "bugs": [
+   {
+    "claim": "In `spiral`: off-by-one constant: `0` where `1` is required.",
+    "col": 45,
+    "file": "matrix.py",
+    "func": "spiral",
+    "kind": "num",
+    "line": 54,
+    "new": "0",
+    "old": "1",
+    "orig_line": "            for c in range(right, left - 1, -1):",
+    "seeded_line": "            for c in range(right, left - 1, -0):"
+   }
+  ],
+  "files": [
+   "calendar_lite",
+   "matrix"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0065": {
+  "bugs": [
+   {
+    "claim": "In `<module>`: off-by-one constant: `31` where `30` is required.",
+    "col": 41,
+    "file": "calendar_lite.py",
+    "func": "<module>",
+    "kind": "num",
+    "line": 3,
+    "new": "31",
+    "old": "30",
+    "orig_line": "_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]",
+    "seeded_line": "_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 31, 31, 30, 31]"
+   },
+   {
+    "claim": "In `add_days`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 17,
+    "file": "calendar_lite.py",
+    "func": "add_days",
+    "kind": "cmp",
+    "line": 55,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "        if month > 12:",
+    "seeded_line": "        if month >= 12:"
+   },
+   {
+    "claim": "In `topo_order`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "graphs.py",
+    "func": "topo_order",
+    "kind": "exc",
+    "line": 47,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"cycle detected\")",
+    "seeded_line": "        raise KeyError(\"cycle detected\")"
+   }
+  ],
+  "files": [
+   "calendar_lite",
+   "graphs"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0066": {
+  "bugs": [
+   {
+    "claim": "In `parse_hhmm`: off-by-one constant: `22` where `23` is required.",
+    "col": 11,
+    "file": "timeslots.py",
+    "func": "parse_hhmm",
+    "kind": "num",
+    "line": 12,
+    "new": "22",
+    "old": "23",
+    "orig_line": "    if h > 23 or m > 59:",
+    "seeded_line": "    if h > 22 or m > 59:"
+   },
+   {
+    "claim": "In `slots_overlap`: off-by-one constant: `0` where `1` is required.",
+    "col": 44,
+    "file": "timeslots.py",
+    "func": "slots_overlap",
+    "kind": "num",
+    "line": 36,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    b0, b1 = parse_hhmm(b[0]), parse_hhmm(b[1])",
+    "seeded_line": "    b0, b1 = parse_hhmm(b[0]), parse_hhmm(b[0])"
+   }
+  ],
+  "files": [
+   "timeslots",
+   "graphs"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0067": {
+  "bugs": [
+   {
+    "claim": "In `truncate`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 13,
+    "file": "textutil.py",
+    "func": "truncate",
+    "kind": "cmp",
+    "line": 39,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if limit < len(ellipsis):",
+    "seeded_line": "    if limit <= len(ellipsis):"
+   },
+   {
+    "claim": "In `count_words`: off-by-one constant: `1` where `0` is required.",
+    "col": 44,
+    "file": "textutil.py",
+    "func": "count_words",
+    "kind": "num",
+    "line": 52,
+    "new": "1",
+    "old": "0",
+    "orig_line": "            counts[word] = counts.get(word, 0) + 1",
+    "seeded_line": "            counts[word] = counts.get(word, 1) + 1"
+   },
+   {
+    "claim": "In `RingBuffer.__init__`: off-by-one constant: `2` where `1` is required.",
+    "col": 22,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.__init__",
+    "kind": "num",
+    "line": 9,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        if capacity < 1:",
+    "seeded_line": "        if capacity < 2:"
+   }
+  ],
+  "files": [
+   "textutil",
+   "ringbuf"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0068": {
+  "bugs": [
+   {
+    "claim": "In `slots_overlap`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 14,
+    "file": "timeslots.py",
+    "func": "slots_overlap",
+    "kind": "cmp",
+    "line": 37,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    return a0 < b1 and b0 < a1",
+    "seeded_line": "    return a0 <= b1 and b0 < a1"
+   }
+  ],
+  "files": [
+   "bsearch",
+   "timeslots"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0069": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket.__init__`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 33,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.__init__",
+    "kind": "cmp",
+    "line": 9,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "        if capacity <= 0 or rate <= 0:",
+    "seeded_line": "        if capacity <= 0 or rate < 0:"
+   },
+   {
+    "claim": "In `TokenBucket.wait_time`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 23,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.wait_time",
+    "kind": "arith",
+    "line": 44,
+    "new": "+",
+    "old": "-",
+    "orig_line": "        missing = cost - self.tokens",
+    "seeded_line": "        missing = cost + self.tokens"
+   },
+   {
+    "claim": "In `digit_sum`: wrong arithmetic operator: `//` where `%` is required.",
+    "col": 19,
+    "file": "numtheory.py",
+    "func": "digit_sum",
+    "kind": "arith",
+    "line": 97,
+    "new": "//",
+    "old": "%",
+    "orig_line": "        total += n % base",
+    "seeded_line": "        total += n // base"
+   }
+  ],
+  "files": [
+   "tokenbucket",
+   "numtheory"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0070": {
+  "bugs": [
+   {
+    "claim": "In `Trie.remove`: inverted identity test: `is not` where `is` is required.",
+    "col": 16,
+    "file": "trie.py",
+    "func": "Trie.remove",
+    "kind": "is",
+    "line": 66,
+    "new": "is not",
+    "old": "is",
+    "orig_line": "        if node is None or \"$\" not in node:",
+    "seeded_line": "        if node is not None or \"$\" not in node:"
+   },
+   {
+    "claim": "In `index_of`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 9,
+    "file": "bsearch.py",
+    "func": "index_of",
+    "kind": "cmp",
+    "line": 31,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if i < len(a) and a[i] == x:",
+    "seeded_line": "    if i <= len(a) and a[i] == x:"
+   }
+  ],
+  "files": [
+   "trie",
+   "bsearch"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0071": {
+  "bugs": [
+   {
+    "claim": "In `to_roman`: off-by-one constant: `2` where `1` is required.",
+    "col": 11,
+    "file": "roman.py",
+    "func": "to_roman",
+    "kind": "num",
+    "line": 11,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    if n < 1 or n > 3999:",
+    "seeded_line": "    if n < 2 or n > 3999:"
+   },
+   {
+    "claim": "In `from_roman`: off-by-one constant: `2` where `1` is required.",
+    "col": 15,
+    "file": "roman.py",
+    "func": "from_roman",
+    "kind": "num",
+    "line": 32,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        if i + 1 < len(text) and values.get(text[i + 1], 0) > v:",
+    "seeded_line": "        if i + 2 < len(text) and values.get(text[i + 1], 0) > v:"
+   },
+   {
+    "claim": "In `is_valid`: inverted boolean literal: `False` where `True` is required.",
+    "col": 11,
+    "file": "roman.py",
+    "func": "is_valid",
+    "kind": "lit",
+    "line": 46,
+    "new": "False",
+    "old": "True",
+    "orig_line": "    return True",
+    "seeded_line": "    return False"
+   }
+  ],
+  "files": [
+   "roman",
+   "intervals"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0072": {
+  "bugs": [
+   {
+    "claim": "In `page_count`: off-by-one constant: `1` where `0` is required.",
+    "col": 31,
+    "file": "pagination.py",
+    "func": "page_count",
+    "kind": "num",
+    "line": 9,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    if per_page < 1 or total < 0:",
+    "seeded_line": "    if per_page < 1 or total < 1:"
+   }
+  ],
+  "files": [
+   "pagination",
+   "ringbuf"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0073": {
+  "bugs": [
+   {
+    "claim": "In `parse`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 46,
+    "file": "semver.py",
+    "func": "parse",
+    "kind": "arith",
+    "line": 15,
+    "new": "-",
+    "old": "+",
+    "orig_line": "            raise ValueError(\"not a number: \" + p)",
+    "seeded_line": "            raise ValueError(\"not a number: \" - p)"
+   },
+   {
+    "claim": "In `satisfies`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 20,
+    "file": "semver.py",
+    "func": "satisfies",
+    "kind": "cmp",
+    "line": 58,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "            \"<=\": v <= bound,",
+    "seeded_line": "            \"<=\": v < bound,"
+   }
+  ],
+  "files": [
+   "pagination",
+   "semver"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0074": {
+  "bugs": [
+   {
+    "claim": "In `overlaps`: off-by-one constant: `2` where `1` is required.",
+    "col": 36,
+    "file": "intervals.py",
+    "func": "overlaps",
+    "kind": "num",
+    "line": 17,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    return a[0] < b[1] and b[0] < a[1]",
+    "seeded_line": "    return a[0] < b[1] and b[0] < a[2]"
+   },
+   {
+    "claim": "In `gaps`: wrong function/method: `min` where `max` is required.",
+    "col": 17,
+    "file": "intervals.py",
+    "func": "gaps",
+    "kind": "func",
+    "line": 52,
+    "new": "min",
+    "old": "max",
+    "orig_line": "        cursor = max(cursor, end)",
+    "seeded_line": "        cursor = min(cursor, end)"
+   }
+  ],
+  "files": [
+   "intervals",
+   "wrap"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0075": {
+  "bugs": [
+   {
+    "claim": "In `encode`: wrong function/method: `all` where `any` is required.",
+    "col": 7,
+    "file": "rle.py",
+    "func": "encode",
+    "kind": "func",
+    "line": 17,
+    "new": "all",
+    "old": "any",
+    "orig_line": "    if any(ch.isdigit() for ch in text):",
+    "seeded_line": "    if all(ch.isdigit() for ch in text):"
+   },
+   {
+    "claim": "In `longest_run`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 29,
+    "file": "rle.py",
+    "func": "longest_run",
+    "kind": "cmp",
+    "line": 46,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "        if best is None or n > best[1]:",
+    "seeded_line": "        if best is None or n >= best[1]:"
+   }
+  ],
+  "files": [
+   "rpn",
+   "rle"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0076": {
+  "bugs": [
+   {
+    "claim": "In `bump`: wrong arithmetic operator: `//` where `%` is required.",
+    "col": 24,
+    "file": "semver.py",
+    "func": "bump",
+    "kind": "arith",
+    "line": 34,
+    "new": "//",
+    "old": "%",
+    "orig_line": "        return \"%d.0.0\" % (major + 1)",
+    "seeded_line": "        return \"%d.0.0\" // (major + 1)"
+   }
+  ],
+  "files": [
+   "semver",
+   "tokenbucket"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0077": {
+  "bugs": [
+   {
+    "claim": "In `<module>`: off-by-one constant: `32` where `31` is required.",
+    "col": 25,
+    "file": "calendar_lite.py",
+    "func": "<module>",
+    "kind": "num",
+    "line": 3,
+    "new": "32",
+    "old": "31",
+    "orig_line": "_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]",
+    "seeded_line": "_DAYS = [31, 28, 31, 30, 32, 30, 31, 31, 30, 31, 30, 31]"
+   },
+   {
+    "claim": "In `<module>`: off-by-one constant: `51` where `50` is required.",
+    "col": 5,
+    "file": "roman.py",
+    "func": "<module>",
+    "kind": "num",
+    "line": 5,
+    "new": "51",
+    "old": "50",
+    "orig_line": "    (50, \"L\"), (40, \"XL\"), (10, \"X\"), (9, \"IX\"), (5, \"V\"), (4, \"IV\"), (1, \"I\"),",
+    "seeded_line": "    (51, \"L\"), (40, \"XL\"), (10, \"X\"), (9, \"IX\"), (5, \"V\"), (4, \"IV\"), (1, \"I\"),"
+   },
+   {
+    "claim": "In `to_roman`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "roman.py",
+    "func": "to_roman",
+    "kind": "exc",
+    "line": 12,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"out of range\")",
+    "seeded_line": "        raise KeyError(\"out of range\")"
+   }
+  ],
+  "files": [
+   "calendar_lite",
+   "roman"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0078": {
+  "bugs": [
+   {
+    "claim": "In `Inventory.reserve`: off-by-one constant: `1` where `0` is required.",
+    "col": 18,
+    "file": "inventory.py",
+    "func": "Inventory.reserve",
+    "kind": "num",
+    "line": 30,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        if qty <= 0:",
+    "seeded_line": "        if qty <= 1:"
+   },
+   {
+    "claim": "In `Inventory.release`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 27,
+    "file": "inventory.py",
+    "func": "Inventory.release",
+    "kind": "cmp",
+    "line": 39,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "        if qty <= 0 or qty > held:",
+    "seeded_line": "        if qty <= 0 or qty >= held:"
+   }
+  ],
+  "files": [
+   "graphs",
+   "inventory"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0079": {
+  "bugs": [
+   {
+    "claim": "In `spiral`: off-by-one constant: `0` where `1` is required.",
+    "col": 37,
+    "file": "matrix.py",
+    "func": "spiral",
+    "kind": "num",
+    "line": 47,
+    "new": "0",
+    "old": "1",
+    "orig_line": "        for c in range(left, right + 1):",
+    "seeded_line": "        for c in range(left, right + 0):"
+   }
+  ],
+  "files": [
+   "matrix",
+   "wrap"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0080": {
+  "bugs": [
+   {
+    "claim": "In `Trie._count`: inverted equality test: `==` where `!=` is required.",
+    "col": 19,
+    "file": "trie.py",
+    "func": "Trie._count",
+    "kind": "eq",
+    "line": 45,
+    "new": "==",
+    "old": "!=",
+    "orig_line": "            if key != \"$\":",
+    "seeded_line": "            if key == \"$\":"
+   }
+  ],
+  "files": [
+   "ledger",
+   "trie"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0081": {
+  "bugs": [
+   {
+    "claim": "In `satisfies`: wrong boundary: `>` where `>=` is required (off-by-one at the boundary).",
+    "col": 20,
+    "file": "semver.py",
+    "func": "satisfies",
+    "kind": "cmp",
+    "line": 57,
+    "new": ">",
+    "old": ">=",
+    "orig_line": "            \">=\": v >= bound,",
+    "seeded_line": "            \">=\": v > bound,"
+   },
+   {
+    "claim": "In `Trie.longest_common_prefix`: inverted equality test: `==` where `!=` is required.",
+    "col": 44,
+    "file": "trie.py",
+    "func": "Trie.longest_common_prefix",
+    "kind": "eq",
+    "line": 77,
+    "new": "==",
+    "old": "!=",
+    "orig_line": "            key = next(k for k in node if k != \"$\")",
+    "seeded_line": "            key = next(k for k in node if k == \"$\")"
+   }
+  ],
+  "files": [
+   "semver",
+   "trie"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0082": {
+  "bugs": [
+   {
+    "claim": "In `median`: off-by-one constant: `1` where `2` is required.",
+    "col": 35,
+    "file": "stats.py",
+    "func": "median",
+    "kind": "num",
+    "line": 20,
+    "new": "1",
+    "old": "2",
+    "orig_line": "    return (s[mid - 1] + s[mid]) / 2",
+    "seeded_line": "    return (s[mid - 1] + s[mid]) / 1"
+   },
+   {
+    "claim": "In `percentile`: off-by-one constant: `101` where `100` is required.",
+    "col": 21,
+    "file": "stats.py",
+    "func": "percentile",
+    "kind": "num",
+    "line": 38,
+    "new": "101",
+    "old": "100",
+    "orig_line": "    if p <= 0 or p > 100:",
+    "seeded_line": "    if p <= 0 or p > 101:"
+   }
+  ],
+  "files": [
+   "stats",
+   "bsearch"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0083": {
+  "bugs": [
+   {
+    "claim": "In `is_leap`: off-by-one constant: `1` where `0` is required.",
+    "col": 21,
+    "file": "calendar_lite.py",
+    "func": "is_leap",
+    "kind": "num",
+    "line": 8,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    if year % 400 == 0:",
+    "seeded_line": "    if year % 400 == 1:"
+   }
+  ],
+  "files": [
+   "calendar_lite",
+   "trie"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0084": {
+  "bugs": [
+   {
+    "claim": "In `Trie.starts_with`: inverted identity test: `is not` where `is` is required.",
+    "col": 16,
+    "file": "trie.py",
+    "func": "Trie.starts_with",
+    "kind": "is",
+    "line": 38,
+    "new": "is not",
+    "old": "is",
+    "orig_line": "        if node is None:",
+    "seeded_line": "        if node is not None:"
+   }
+  ],
+  "files": [
+   "trie",
+   "stats"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0085": {
+  "bugs": [
+   {
+    "claim": "In `topo_order`: off-by-one constant: `0` where `1` is required.",
+    "col": 24,
+    "file": "graphs.py",
+    "func": "topo_order",
+    "kind": "num",
+    "line": 35,
+    "new": "0",
+    "old": "1",
+    "orig_line": "            indeg[m] += 1",
+    "seeded_line": "            indeg[m] += 0"
+   }
+  ],
+  "files": [
+   "graphs",
+   "windows"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0086": {
+  "bugs": [
+   {
+    "claim": "In `reachable`: inverted membership test: `in` where `not in` is required.",
+    "col": 17,
+    "file": "graphs.py",
+    "func": "reachable",
+    "kind": "in",
+    "line": 88,
+    "new": "in",
+    "old": "not in",
+    "orig_line": "            if m not in seen:",
+    "seeded_line": "            if m in seen:"
+   }
+  ],
+  "files": [
+   "validate",
+   "graphs"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0087": {
+  "bugs": [
+   {
+    "claim": "In `duration`: off-by-one constant: `23` where `24` is required.",
+    "col": 15,
+    "file": "timeslots.py",
+    "func": "duration",
+    "kind": "num",
+    "line": 29,
+    "new": "23",
+    "old": "24",
+    "orig_line": "    return e + 24 * 60 - s",
+    "seeded_line": "    return e + 23 * 60 - s"
+   }
+  ],
+  "files": [
+   "timeslots",
+   "pagination"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0088": {
+  "bugs": [
+   {
+    "claim": "In `LRUCache.get`: wrong arithmetic operator: `-=` where `+=` is required.",
+    "col": 20,
+    "file": "lru.py",
+    "func": "LRUCache.get",
+    "kind": "arith",
+    "line": 33,
+    "new": "-=",
+    "old": "+=",
+    "orig_line": "        self.misses += 1",
+    "seeded_line": "        self.misses -= 1"
+   }
+  ],
+  "files": [
+   "timeslots",
+   "lru"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0089": {
+  "bugs": [
+   {
+    "claim": "In `variance`: off-by-one constant: `1` where `2` is required.",
+    "col": 33,
+    "file": "stats.py",
+    "func": "variance",
+    "kind": "num",
+    "line": 27,
+    "new": "1",
+    "old": "2",
+    "orig_line": "    if n == 0 or (sample and n < 2):",
+    "seeded_line": "    if n == 0 or (sample and n < 1):"
+   },
+   {
+    "claim": "In `zscores`: inverted boolean literal: `True` where `False` is required.",
+    "col": 29,
+    "file": "stats.py",
+    "func": "zscores",
+    "kind": "lit",
+    "line": 60,
+    "new": "True",
+    "old": "False",
+    "orig_line": "    sd = variance(xs, sample=False) ** 0.5",
+    "seeded_line": "    sd = variance(xs, sample=True) ** 0.5"
+   },
+   {
+    "claim": "In `TokenBucket.wait_time`: off-by-one constant: `1` where `0` is required.",
+    "col": 22,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.wait_time",
+    "kind": "num",
+    "line": 45,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        if missing <= 0:",
+    "seeded_line": "        if missing <= 1:"
+   }
+  ],
+  "files": [
+   "stats",
+   "tokenbucket"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0090": {
+  "bugs": [
+   {
+    "claim": "In `check_email`: wrong boolean connective: `and` where `or` is required.",
+    "col": 17,
+    "file": "validate.py",
+    "func": "check_email",
+    "kind": "bool",
+    "line": 55,
+    "new": "and",
+    "old": "or",
+    "orig_line": "    if not local or \".\" not in domain:",
+    "seeded_line": "    if not local and \".\" not in domain:"
+   },
+   {
+    "claim": "In `longest_run`: inverted identity test: `is not` where `is` is required.",
+    "col": 16,
+    "file": "rle.py",
+    "func": "longest_run",
+    "kind": "is",
+    "line": 46,
+    "new": "is not",
+    "old": "is",
+    "orig_line": "        if best is None or n > best[1]:",
+    "seeded_line": "        if best is not None or n > best[1]:"
+   }
+  ],
+  "files": [
+   "validate",
+   "rle"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0091": {
+  "bugs": [
+   {
+    "claim": "In `from_roman`: off-by-one constant: `999` where `1000` is required.",
+    "col": 73,
+    "file": "roman.py",
+    "func": "from_roman",
+    "kind": "num",
+    "line": 26,
+    "new": "999",
+    "old": "1000",
+    "orig_line": "    values = {\"I\": 1, \"V\": 5, \"X\": 10, \"L\": 50, \"C\": 100, \"D\": 500, \"M\": 1000}",
+    "seeded_line": "    values = {\"I\": 1, \"V\": 5, \"X\": 10, \"L\": 50, \"C\": 100, \"D\": 500, \"M\": 999}"
+   }
+  ],
+  "files": [
+   "roman",
+   "csvline"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0092": {
+  "bugs": [
+   {
+    "claim": "In `LRUCache.hit_ratio`: off-by-one constant: `1` where `0` is required.",
+    "col": 20,
+    "file": "lru.py",
+    "func": "LRUCache.hit_ratio",
+    "kind": "num",
+    "line": 60,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        if total == 0:",
+    "seeded_line": "        if total == 1:"
+   },
+   {
+    "claim": "In `RingBuffer.__init__`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.__init__",
+    "kind": "exc",
+    "line": 10,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"capacity must be positive\")",
+    "seeded_line": "            raise KeyError(\"capacity must be positive\")"
+   },
+   {
+    "claim": "In `RingBuffer.pop`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 33,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.pop",
+    "kind": "arith",
+    "line": 41,
+    "new": "-",
+    "old": "+",
+    "orig_line": "        self._head = (self._head + 1) % self.capacity",
+    "seeded_line": "        self._head = (self._head - 1) % self.capacity"
+   }
+  ],
+  "files": [
+   "lru",
+   "ringbuf"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0093": {
+  "bugs": [
+   {
+    "claim": "In `nearest`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 18,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "cmp",
+    "line": 53,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "    if x - before <= after - x:",
+    "seeded_line": "    if x - before < after - x:"
+   },
+   {
+    "claim": "In `add_days`: wrong arithmetic operator: `+=` where `-=` is required.",
+    "col": 17,
+    "file": "calendar_lite.py",
+    "func": "add_days",
+    "kind": "arith",
+    "line": 62,
+    "new": "+=",
+    "old": "-=",
+    "orig_line": "            year -= 1",
+    "seeded_line": "            year += 1"
+   }
+  ],
+  "files": [
+   "bsearch",
+   "calendar_lite"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0094": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket._refill`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 22,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket._refill",
+    "kind": "arith",
+    "line": 19,
+    "new": "+",
+    "old": "-",
+    "orig_line": "        elapsed = now - self.updated",
+    "seeded_line": "        elapsed = now + self.updated"
+   }
+  ],
+  "files": [
+   "tokenbucket",
+   "graphs"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0095": {
+  "bugs": [
+   {
+    "claim": "In `compare`: off-by-one constant: `1` where `0` is required.",
+    "col": 11,
+    "file": "semver.py",
+    "func": "compare",
+    "kind": "num",
+    "line": 27,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    return 0",
+    "seeded_line": "    return 1"
+   },
+   {
+    "claim": "In `satisfies`: missing negation: `not` was removed from the condition.",
+    "col": 11,
+    "file": "semver.py",
+    "func": "satisfies",
+    "kind": "not",
+    "line": 48,
+    "new": "",
+    "old": "not ",
+    "orig_line": "        if not clause:",
+    "seeded_line": "        if clause:"
+   }
+  ],
+  "files": [
+   "semver",
+   "ringbuf"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0096": {
+  "bugs": [
+   {
+    "claim": "In `latest`: wrong boolean connective: `and` where `or` is required.",
+    "col": 48,
+    "file": "semver.py",
+    "func": "latest",
+    "kind": "bool",
+    "line": 72,
+    "new": "and",
+    "old": "or",
+    "orig_line": "        if satisfies(v, spec) and (best is None or compare(v, best) > 0):",
+    "seeded_line": "        if satisfies(v, spec) and (best is None and compare(v, best) > 0):"
+   },
+   {
+    "claim": "In `decode`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "rle.py",
+    "func": "decode",
+    "kind": "exc",
+    "line": 38,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"dangling count\")",
+    "seeded_line": "        raise KeyError(\"dangling count\")"
+   }
+  ],
+  "files": [
+   "semver",
+   "rle"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0097": {
+  "bugs": [
+   {
+    "claim": "In `encode`: wrong function/method: `all` where `any` is required.",
+    "col": 7,
+    "file": "rle.py",
+    "func": "encode",
+    "kind": "func",
+    "line": 17,
+    "new": "all",
+    "old": "any",
+    "orig_line": "    if any(ch.isdigit() for ch in text):",
+    "seeded_line": "    if all(ch.isdigit() for ch in text):"
+   },
+   {
+    "claim": "In `decode`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 22,
+    "file": "rle.py",
+    "func": "decode",
+    "kind": "exc",
+    "line": 34,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "                raise ValueError(\"zero count\")",
+    "seeded_line": "                raise KeyError(\"zero count\")"
+   },
+   {
+    "claim": "In `nearest`: off-by-one constant: `0` where `1` is required.",
+    "col": 18,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "num",
+    "line": 51,
+    "new": "0",
+    "old": "1",
+    "orig_line": "        return a[-1]",
+    "seeded_line": "        return a[-0]"
+   }
+  ],
+  "files": [
+   "rle",
+   "bsearch"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0098": {
+  "bugs": [
+   {
+    "claim": "In `set_path`: off-by-one constant: `2` where `1` is required.",
+    "col": 24,
+    "file": "confmerge.py",
+    "func": "set_path",
+    "kind": "num",
+    "line": 35,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    for part in parts[:-1]:",
+    "seeded_line": "    for part in parts[:-2]:"
+   }
+  ],
+  "files": [
+   "validate",
+   "confmerge"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0099": {
+  "bugs": [
+   {
+    "claim": "In `check_email`: missing negation: `not` was removed from the condition.",
+    "col": 7,
+    "file": "validate.py",
+    "func": "check_email",
+    "kind": "not",
+    "line": 55,
+    "new": "",
+    "old": "not ",
+    "orig_line": "    if not local or \".\" not in domain:",
+    "seeded_line": "    if local or \".\" not in domain:"
+   }
+  ],
+  "files": [
+   "pagination",
+   "validate"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0100": {
+  "bugs": [
+   {
+    "claim": "In `satisfies`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 19,
+    "file": "semver.py",
+    "func": "satisfies",
+    "kind": "cmp",
+    "line": 61,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "            \"<\": v < bound,",
+    "seeded_line": "            \"<\": v <= bound,"
+   },
+   {
+    "claim": "In `chunk`: off-by-one constant: `2` where `1` is required.",
+    "col": 11,
+    "file": "windows.py",
+    "func": "chunk",
+    "kind": "num",
+    "line": 8,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    if n < 1:",
+    "seeded_line": "    if n < 2:"
+   },
+   {
+    "claim": "In `windows`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 9,
+    "file": "windows.py",
+    "func": "windows",
+    "kind": "cmp",
+    "line": 15,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if k < 1 or step < 1:",
+    "seeded_line": "    if k <= 1 or step < 1:"
+   }
+  ],
+  "files": [
+   "semver",
+   "windows"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0101": {
+  "bugs": [
+   {
+    "claim": "In `eval_postfix`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 27,
+    "file": "rpn.py",
+    "func": "eval_postfix",
+    "kind": "arith",
+    "line": 74,
+    "new": "+",
+    "old": "-",
+    "orig_line": "            stack.append(a - b)",
+    "seeded_line": "            stack.append(a + b)"
+   }
+  ],
+  "files": [
+   "pagination",
+   "rpn"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0102": {
+  "bugs": [
+   {
+    "claim": "In `page_count`: off-by-one constant: `1` where `0` is required.",
+    "col": 31,
+    "file": "pagination.py",
+    "func": "page_count",
+    "kind": "num",
+    "line": 9,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    if per_page < 1 or total < 0:",
+    "seeded_line": "    if per_page < 1 or total < 1:"
+   },
+   {
+    "claim": "In `prev_page`: off-by-one constant: `2` where `1` is required.",
+    "col": 18,
+    "file": "pagination.py",
+    "func": "prev_page",
+    "kind": "num",
+    "line": 53,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    return page - 1",
+    "seeded_line": "    return page - 2"
+   }
+  ],
+  "files": [
+   "pagination",
+   "rle"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0103": {
+  "bugs": [
+   {
+    "claim": "In `to_postfix`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 22,
+    "file": "rpn.py",
+    "func": "to_postfix",
+    "kind": "exc",
+    "line": 47,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "                raise ValueError(\"unbalanced )\")",
+    "seeded_line": "                raise KeyError(\"unbalanced )\")"
+   },
+   {
+    "claim": "In `nearest`: off-by-one constant: `1` where `0` is required.",
+    "col": 17,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "num",
+    "line": 49,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        return a[0]",
+    "seeded_line": "        return a[1]"
+   }
+  ],
+  "files": [
+   "rpn",
+   "bsearch"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0104": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.transfer`: wrong arithmetic operator: `-=` where `+=` is required.",
+    "col": 28,
+    "file": "ledger.py",
+    "func": "Ledger.transfer",
+    "kind": "arith",
+    "line": 49,
+    "new": "-=",
+    "old": "+=",
+    "orig_line": "        self._balances[dst] += amount",
+    "seeded_line": "        self._balances[dst] -= amount"
+   },
+   {
+    "claim": "In `Ledger.overdrawn`: off-by-one constant: `1` where `0` is required.",
+    "col": 66,
+    "file": "ledger.py",
+    "func": "Ledger.overdrawn",
+    "kind": "num",
+    "line": 58,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        return sorted(n for n, b in self._balances.items() if b < 0)",
+    "seeded_line": "        return sorted(n for n, b in self._balances.items() if b < 1)"
+   },
+   {
+    "claim": "In `Inventory.release`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 27,
+    "file": "inventory.py",
+    "func": "Inventory.release",
+    "kind": "cmp",
+    "line": 39,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "        if qty <= 0 or qty > held:",
+    "seeded_line": "        if qty <= 0 or qty >= held:"
+   }
+  ],
+  "files": [
+   "ledger",
+   "inventory"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0105": {
+  "bugs": [
+   {
+    "claim": "In `next_page`: off-by-one constant: `0` where `1` is required.",
+    "col": 18,
+    "file": "pagination.py",
+    "func": "next_page",
+    "kind": "num",
+    "line": 46,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    return page + 1",
+    "seeded_line": "    return page + 0"
+   },
+   {
+    "claim": "In `nearest`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 18,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "cmp",
+    "line": 53,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "    if x - before <= after - x:",
+    "seeded_line": "    if x - before < after - x:"
+   }
+  ],
+  "files": [
+   "pagination",
+   "bsearch"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0106": {
+  "bugs": [
+   {
+    "claim": "In `justify`: off-by-one constant: `3` where `2` is required.",
+    "col": 20,
+    "file": "wrap.py",
+    "func": "justify",
+    "kind": "num",
+    "line": 39,
+    "new": "3",
+    "old": "2",
+    "orig_line": "    if len(words) < 2 or len(line) >= width:",
+    "seeded_line": "    if len(words) < 3 or len(line) >= width:"
+   }
+  ],
+  "files": [
+   "roman",
+   "wrap"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0107": {
+  "bugs": [
+   {
+    "claim": "In `lower_bound`: off-by-one constant: `1` where `0` is required.",
+    "col": 13,
+    "file": "bsearch.py",
+    "func": "lower_bound",
+    "kind": "num",
+    "line": 6,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    lo, hi = 0, len(a)",
+    "seeded_line": "    lo, hi = 1, len(a)"
+   },
+   {
+    "claim": "In `components`: inverted membership test: `not in` where `in` is required.",
+    "col": 17,
+    "file": "graphs.py",
+    "func": "components",
+    "kind": "in",
+    "line": 65,
+    "new": "not in",
+    "old": "in",
+    "orig_line": "        if start in seen:",
+    "seeded_line": "        if start not in seen:"
+   }
+  ],
+  "files": [
+   "bsearch",
+   "graphs"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0108": {
+  "bugs": [
+   {
+    "claim": "In `header_map`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "csvline.py",
+    "func": "header_map",
+    "kind": "exc",
+    "line": 61,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"duplicate column: \" + name)",
+    "seeded_line": "            raise KeyError(\"duplicate column: \" + name)"
+   }
+  ],
+  "files": [
+   "csvline",
+   "money"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0109": {
+  "bugs": [
+   {
+    "claim": "In `compress_ratio`: missing negation: `not` was removed from the condition.",
+    "col": 7,
+    "file": "rle.py",
+    "func": "compress_ratio",
+    "kind": "not",
+    "line": 53,
+    "new": "",
+    "old": "not ",
+    "orig_line": "    if not text:",
+    "seeded_line": "    if text:"
+   }
+  ],
+  "files": [
+   "numtheory",
+   "rle"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0110": {
+  "bugs": [
+   {
+    "claim": "In `slots_overlap`: wrong boolean connective: `or` where `and` is required.",
+    "col": 19,
+    "file": "timeslots.py",
+    "func": "slots_overlap",
+    "kind": "bool",
+    "line": 37,
+    "new": "or",
+    "old": "and",
+    "orig_line": "    return a0 < b1 and b0 < a1",
+    "seeded_line": "    return a0 < b1 or b0 < a1"
+   },
+   {
+    "claim": "In `sliding_max`: off-by-one constant: `0` where `1` is required.",
+    "col": 20,
+    "file": "windows.py",
+    "func": "sliding_max",
+    "kind": "num",
+    "line": 46,
+    "new": "0",
+    "old": "1",
+    "orig_line": "        if i >= k - 1:",
+    "seeded_line": "        if i >= k - 0:"
+   }
+  ],
+  "files": [
+   "timeslots",
+   "windows"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0111": {
+  "bugs": [
+   {
+    "claim": "In `Inventory.release`: wrong boolean connective: `and` where `or` is required.",
+    "col": 20,
+    "file": "inventory.py",
+    "func": "Inventory.release",
+    "kind": "bool",
+    "line": 39,
+    "new": "and",
+    "old": "or",
+    "orig_line": "        if qty <= 0 or qty > held:",
+    "seeded_line": "        if qty <= 0 and qty > held:"
+   },
+   {
+    "claim": "In `clamp_outliers`: wrong function/method: `min` where `max` is required.",
+    "col": 16,
+    "file": "stats.py",
+    "func": "clamp_outliers",
+    "kind": "func",
+    "line": 71,
+    "new": "min",
+    "old": "max",
+    "orig_line": "    return [min(max(x, lo), hi) for x in xs]",
+    "seeded_line": "    return [min(min(x, lo), hi) for x in xs]"
+   }
+  ],
+  "files": [
+   "inventory",
+   "stats"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0112": {
+  "bugs": [
+   {
+    "claim": "In `split_cents`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 26,
+    "file": "money.py",
+    "func": "split_cents",
+    "kind": "cmp",
+    "line": 8,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if parts < 1 or total < 0:",
+    "seeded_line": "    if parts < 1 or total <= 0:"
+   },
+   {
+    "claim": "In `parse_cents`: off-by-one constant: `0` where `1` is required.",
+    "col": 20,
+    "file": "money.py",
+    "func": "parse_cents",
+    "kind": "num",
+    "line": 41,
+    "new": "0",
+    "old": "1",
+    "orig_line": "        text = text[1:]",
+    "seeded_line": "        text = text[0:]"
+   },
+   {
+    "claim": "In `camel_to_snake`: wrong boolean connective: `or` where `and` is required.",
+    "col": 21,
+    "file": "textutil.py",
+    "func": "camel_to_snake",
+    "kind": "bool",
+    "line": 27,
+    "new": "or",
+    "old": "and",
+    "orig_line": "            if i > 0 and (prev_lower or (name[i - 1].isupper() and next_lower)):",
+    "seeded_line": "            if i > 0 or (prev_lower or (name[i - 1].isupper() and next_lower)):"
+   }
+  ],
+  "files": [
+   "money",
+   "textutil"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0113": {
+  "bugs": [
+   {
+    "claim": "In `title_case`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 13,
+    "file": "textutil.py",
+    "func": "title_case",
+    "kind": "cmp",
+    "line": 63,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "        if i > 0 and low in small:",
+    "seeded_line": "        if i >= 0 and low in small:"
+   }
+  ],
+  "files": [
+   "tokenbucket",
+   "textutil"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0114": {
+  "bugs": [
+   {
+    "claim": "In `merge`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 25,
+    "file": "intervals.py",
+    "func": "merge",
+    "kind": "cmp",
+    "line": 28,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "        if out and start <= out[-1][1]:",
+    "seeded_line": "        if out and start < out[-1][1]:"
+   },
+   {
+    "claim": "In `nearest`: inverted equality test: `!=` where `==` is required.",
+    "col": 9,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "eq",
+    "line": 50,
+    "new": "!=",
+    "old": "==",
+    "orig_line": "    if i == len(a):",
+    "seeded_line": "    if i != len(a):"
+   }
+  ],
+  "files": [
+   "intervals",
+   "bsearch"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0115": {
+  "bugs": [
+   {
+    "claim": "In `LRUCache.delete`: inverted boolean literal: `True` where `False` is required.",
+    "col": 19,
+    "file": "lru.py",
+    "func": "LRUCache.delete",
+    "kind": "lit",
+    "line": 49,
+    "new": "True",
+    "old": "False",
+    "orig_line": "            return False",
+    "seeded_line": "            return True"
+   },
+   {
+    "claim": "In `justify`: off-by-one constant: `1` where `0` is required.",
+    "col": 54,
+    "file": "wrap.py",
+    "func": "justify",
+    "kind": "num",
+    "line": 47,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        out.append(\" \" * (base + (1 if i < extra else 0)))",
+    "seeded_line": "        out.append(\" \" * (base + (1 if i < extra else 1)))"
+   }
+  ],
+  "files": [
+   "lru",
+   "wrap"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0116": {
+  "bugs": [
+   {
+    "claim": "In `get_path`: mutable default argument: `[]` default shared between calls where `None` is required.",
+    "col": 32,
+    "file": "confmerge.py",
+    "func": "get_path",
+    "kind": "mutdef",
+    "line": 20,
+    "new": "[]",
+    "old": "None",
+    "orig_line": "def get_path(cfg, path, default=None):",
+    "seeded_line": "def get_path(cfg, path, default=[]):"
+   }
+  ],
+  "files": [
+   "confmerge",
+   "rle"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0117": {
+  "bugs": [
+   {
+    "claim": "In `wrap`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 26,
+    "file": "wrap.py",
+    "func": "wrap",
+    "kind": "arith",
+    "line": 15,
+    "new": "-",
+    "old": "+",
+    "orig_line": "        elif len(current) + 1 + len(word) <= width:",
+    "seeded_line": "        elif len(current) - 1 + len(word) <= width:"
+   },
+   {
+    "claim": "In `RingBuffer.pop`: off-by-one constant: `2` where `1` is required.",
+    "col": 35,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.pop",
+    "kind": "num",
+    "line": 41,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        self._head = (self._head + 1) % self.capacity",
+    "seeded_line": "        self._head = (self._head + 2) % self.capacity"
+   },
+   {
+    "claim": "In `RingBuffer.peek`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 38,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.peek",
+    "kind": "arith",
+    "line": 49,
+    "new": "-",
+    "old": "+",
+    "orig_line": "        return self._data[(self._head + n) % self.capacity]",
+    "seeded_line": "        return self._data[(self._head - n) % self.capacity]"
+   }
+  ],
+  "files": [
+   "wrap",
+   "ringbuf"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0118": {
+  "bugs": [
+   {
+    "claim": "In `wrap`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 13,
+    "file": "wrap.py",
+    "func": "wrap",
+    "kind": "cmp",
+    "line": 8,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if width < 1:",
+    "seeded_line": "    if width <= 1:"
+   },
+   {
+    "claim": "In `longest_run`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 29,
+    "file": "rle.py",
+    "func": "longest_run",
+    "kind": "cmp",
+    "line": 46,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "        if best is None or n > best[1]:",
+    "seeded_line": "        if best is None or n >= best[1]:"
+   }
+  ],
+  "files": [
+   "wrap",
+   "rle"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0119": {
+  "bugs": [
+   {
+    "claim": "In `RingBuffer.__init__`: off-by-one constant: `2` where `1` is required.",
+    "col": 22,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.__init__",
+    "kind": "num",
+    "line": 9,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        if capacity < 1:",
+    "seeded_line": "        if capacity < 2:"
+   },
+   {
+    "claim": "In `RingBuffer.peek`: wrong arithmetic operator: `//` where `%` is required.",
+    "col": 43,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.peek",
+    "kind": "arith",
+    "line": 49,
+    "new": "//",
+    "old": "%",
+    "orig_line": "        return self._data[(self._head + n) % self.capacity]",
+    "seeded_line": "        return self._data[(self._head + n) // self.capacity]"
+   }
+  ],
+  "files": [
+   "ringbuf",
+   "stats"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0120": {
+  "bugs": [
+   {
+    "claim": "In `parse_bool`: wrong exception type raised: `ValueError` where `TypeError` is required.",
+    "col": 14,
+    "file": "validate.py",
+    "func": "parse_bool",
+    "kind": "exc",
+    "line": 11,
+    "new": "ValueError",
+    "old": "TypeError",
+    "orig_line": "        raise TypeError(\"expected bool or str\")",
+    "seeded_line": "        raise ValueError(\"expected bool or str\")"
+   }
+  ],
+  "files": [
+   "ledger",
+   "validate"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0121": {
+  "bugs": [
+   {
+    "claim": "In `parse_line`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 40,
+    "file": "csvline.py",
+    "func": "parse_line",
+    "kind": "arith",
+    "line": 18,
+    "new": "-",
+    "old": "+",
+    "orig_line": "                if i + 1 < n and line[i + 1] == '\"':",
+    "seeded_line": "                if i + 1 < n and line[i - 1] == '\"':"
+   }
+  ],
+  "files": [
+   "csvline",
+   "rpn"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0122": {
+  "bugs": [
+   {
+    "claim": "In `Inventory.ship`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 15,
+    "file": "inventory.py",
+    "func": "Inventory.ship",
+    "kind": "cmp",
+    "line": 46,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "        if qty <= 0 or qty > held:",
+    "seeded_line": "        if qty < 0 or qty > held:"
+   },
+   {
+    "claim": "In `moving_average`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 9,
+    "file": "windows.py",
+    "func": "moving_average",
+    "kind": "cmp",
+    "line": 24,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "    if k > len(xs):",
+    "seeded_line": "    if k >= len(xs):"
+   }
+  ],
+  "files": [
+   "inventory",
+   "windows"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0123": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket.__init__`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.__init__",
+    "kind": "exc",
+    "line": 10,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"capacity and rate must be positive\")",
+    "seeded_line": "            raise KeyError(\"capacity and rate must be positive\")"
+   },
+   {
+    "claim": "In `Trie._collect`: inverted membership test: `not in` where `in` is required.",
+    "col": 15,
+    "file": "trie.py",
+    "func": "Trie._collect",
+    "kind": "in",
+    "line": 58,
+    "new": "not in",
+    "old": "in",
+    "orig_line": "        if \"$\" in node:",
+    "seeded_line": "        if \"$\" not in node:"
+   },
+   {
+    "claim": "In `Trie.remove`: wrong arithmetic operator: `+=` where `-=` is required.",
+    "col": 19,
+    "file": "trie.py",
+    "func": "Trie.remove",
+    "kind": "arith",
+    "line": 69,
+    "new": "+=",
+    "old": "-=",
+    "orig_line": "        self._size -= 1",
+    "seeded_line": "        self._size += 1"
+   }
+  ],
+  "files": [
+   "tokenbucket",
+   "trie"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0124": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.withdraw`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 18,
+    "file": "ledger.py",
+    "func": "Ledger.withdraw",
+    "kind": "cmp",
+    "line": 36,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "        if amount <= 0:",
+    "seeded_line": "        if amount < 0:"
+   },
+   {
+    "claim": "In `Ledger.overdrawn`: off-by-one constant: `1` where `0` is required.",
+    "col": 66,
+    "file": "ledger.py",
+    "func": "Ledger.overdrawn",
+    "kind": "num",
+    "line": 58,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        return sorted(n for n, b in self._balances.items() if b < 0)",
+    "seeded_line": "        return sorted(n for n, b in self._balances.items() if b < 1)"
+   }
+  ],
+  "files": [
+   "ledger",
+   "pagination"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0125": {
+  "bugs": [
+   {
+    "claim": "In `overlaps`: wrong boolean connective: `or` where `and` is required.",
+    "col": 23,
+    "file": "intervals.py",
+    "func": "overlaps",
+    "kind": "bool",
+    "line": 17,
+    "new": "or",
+    "old": "and",
+    "orig_line": "    return a[0] < b[1] and b[0] < a[1]",
+    "seeded_line": "    return a[0] < b[1] or b[0] < a[1]"
+   }
+  ],
+  "files": [
+   "intervals",
+   "csvline"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0126": {
+  "bugs": [
+   {
+    "claim": "In `bump`: off-by-one constant: `2` where `1` is required.",
+    "col": 35,
+    "file": "semver.py",
+    "func": "bump",
+    "kind": "num",
+    "line": 34,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        return \"%d.0.0\" % (major + 1)",
+    "seeded_line": "        return \"%d.0.0\" % (major + 2)"
+   }
+  ],
+  "files": [
+   "semver",
+   "timeslots"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0127": {
+  "bugs": [
+   {
+    "claim": "In `longest_run`: off-by-one constant: `0` where `1` is required.",
+    "col": 36,
+    "file": "rle.py",
+    "func": "longest_run",
+    "kind": "num",
+    "line": 46,
+    "new": "0",
+    "old": "1",
+    "orig_line": "        if best is None or n > best[1]:",
+    "seeded_line": "        if best is None or n > best[0]:"
+   },
+   {
+    "claim": "In `TokenBucket.__init__`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 20,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.__init__",
+    "kind": "cmp",
+    "line": 9,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "        if capacity <= 0 or rate <= 0:",
+    "seeded_line": "        if capacity < 0 or rate <= 0:"
+   }
+  ],
+  "files": [
+   "rle",
+   "tokenbucket"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0128": {
+  "bugs": [
+   {
+    "claim": "In `Inventory.add`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 15,
+    "file": "inventory.py",
+    "func": "Inventory.add",
+    "kind": "cmp",
+    "line": 18,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "        if qty <= 0:",
+    "seeded_line": "        if qty < 0:"
+   },
+   {
+    "claim": "In `Inventory.ship`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "inventory.py",
+    "func": "Inventory.ship",
+    "kind": "exc",
+    "line": 47,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"bad ship\")",
+    "seeded_line": "            raise KeyError(\"bad ship\")"
+   },
+   {
+    "claim": "In `Trie._count`: off-by-one constant: `2` where `1` is required.",
+    "col": 16,
+    "file": "trie.py",
+    "func": "Trie._count",
+    "kind": "num",
+    "line": 43,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        total = 1 if \"$\" in node else 0",
+    "seeded_line": "        total = 2 if \"$\" in node else 0"
+   }
+  ],
+  "files": [
+   "inventory",
+   "trie"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0129": {
+  "bugs": [
+   {
+    "claim": "In `shape`: off-by-one constant: `1` where `0` is required.",
+    "col": 16,
+    "file": "matrix.py",
+    "func": "shape",
+    "kind": "num",
+    "line": 7,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        return (0, 0)",
+    "seeded_line": "        return (1, 0)"
+   },
+   {
+    "claim": "In `spiral`: off-by-one constant: `0` where `1` is required.",
+    "col": 41,
+    "file": "matrix.py",
+    "func": "spiral",
+    "kind": "num",
+    "line": 54,
+    "new": "0",
+    "old": "1",
+    "orig_line": "            for c in range(right, left - 1, -1):",
+    "seeded_line": "            for c in range(right, left - 0, -1):"
+   }
+  ],
+  "files": [
+   "ringbuf",
+   "matrix"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0130": {
+  "bugs": [
+   {
+    "claim": "In `sliding_max`: off-by-one constant: `2` where `1` is required.",
+    "col": 20,
+    "file": "windows.py",
+    "func": "sliding_max",
+    "kind": "num",
+    "line": 46,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        if i >= k - 1:",
+    "seeded_line": "        if i >= k - 2:"
+   }
+  ],
+  "files": [
+   "windows",
+   "ledger"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0131": {
+  "bugs": [
+   {
+    "claim": "In `shape`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "matrix.py",
+    "func": "shape",
+    "kind": "exc",
+    "line": 11,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"ragged matrix\")",
+    "seeded_line": "            raise KeyError(\"ragged matrix\")"
+   },
+   {
+    "claim": "In `spiral`: wrong boolean connective: `or` where `and` is required.",
+    "col": 24,
+    "file": "matrix.py",
+    "func": "spiral",
+    "kind": "bool",
+    "line": 46,
+    "new": "or",
+    "old": "and",
+    "orig_line": "    while top <= bottom and left <= right:",
+    "seeded_line": "    while top <= bottom or left <= right:"
+   }
+  ],
+  "files": [
+   "matrix",
+   "semver"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0132": {
+  "bugs": [
+   {
+    "claim": "In `Inventory.add`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "inventory.py",
+    "func": "Inventory.add",
+    "kind": "exc",
+    "line": 19,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"qty must be positive\")",
+    "seeded_line": "            raise KeyError(\"qty must be positive\")"
+   },
+   {
+    "claim": "In `Inventory.release`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 35,
+    "file": "inventory.py",
+    "func": "Inventory.release",
+    "kind": "arith",
+    "line": 41,
+    "new": "+",
+    "old": "-",
+    "orig_line": "        self._reserved[sku] = held - qty",
+    "seeded_line": "        self._reserved[sku] = held + qty"
+   }
+  ],
+  "files": [
+   "rle",
+   "inventory"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0133": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket.__init__`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 20,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.__init__",
+    "kind": "cmp",
+    "line": 9,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "        if capacity <= 0 or rate <= 0:",
+    "seeded_line": "        if capacity < 0 or rate <= 0:"
+   }
+  ],
+  "files": [
+   "tokenbucket",
+   "rpn"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0134": {
+  "bugs": [
+   {
+    "claim": "In `<module>`: off-by-one constant: `1` where `2` is required.",
+    "col": 51,
+    "file": "rpn.py",
+    "func": "<module>",
+    "kind": "num",
+    "line": 3,
+    "new": "1",
+    "old": "2",
+    "orig_line": "PRECEDENCE = {\"+\": 1, \"-\": 1, \"*\": 2, \"/\": 2, \"%\": 2}",
+    "seeded_line": "PRECEDENCE = {\"+\": 1, \"-\": 1, \"*\": 2, \"/\": 2, \"%\": 1}"
+   },
+   {
+    "claim": "In `eval_postfix`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "rpn.py",
+    "func": "eval_postfix",
+    "kind": "exc",
+    "line": 82,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"bad operator\")",
+    "seeded_line": "            raise KeyError(\"bad operator\")"
+   }
+  ],
+  "files": [
+   "rpn",
+   "calendar_lite"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0135": {
+  "bugs": [
+   {
+    "claim": "In `Inventory.add`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "inventory.py",
+    "func": "Inventory.add",
+    "kind": "exc",
+    "line": 19,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"qty must be positive\")",
+    "seeded_line": "            raise KeyError(\"qty must be positive\")"
+   },
+   {
+    "claim": "In `Inventory.reserve`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 15,
+    "file": "inventory.py",
+    "func": "Inventory.reserve",
+    "kind": "cmp",
+    "line": 30,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "        if qty <= 0:",
+    "seeded_line": "        if qty < 0:"
+   }
+  ],
+  "files": [
+   "inventory",
+   "confmerge"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0136": {
+  "bugs": [
+   {
+    "claim": "In `windows`: wrong boolean connective: `and` where `or` is required.",
+    "col": 13,
+    "file": "windows.py",
+    "func": "windows",
+    "kind": "bool",
+    "line": 15,
+    "new": "and",
+    "old": "or",
+    "orig_line": "    if k < 1 or step < 1:",
+    "seeded_line": "    if k < 1 and step < 1:"
+   },
+   {
+    "claim": "In `sliding_max`: off-by-one constant: `1` where `0` is required.",
+    "col": 29,
+    "file": "windows.py",
+    "func": "sliding_max",
+    "kind": "num",
+    "line": 47,
+    "new": "1",
+    "old": "0",
+    "orig_line": "            out.append(xs[dq[0]])",
+    "seeded_line": "            out.append(xs[dq[1]])"
+   },
+   {
+    "claim": "In `pairwise_diff`: off-by-one constant: `0` where `1` is required.",
+    "col": 55,
+    "file": "windows.py",
+    "func": "pairwise_diff",
+    "kind": "num",
+    "line": 61,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    return [xs[i + 1] - xs[i] for i in range(len(xs) - 1)]",
+    "seeded_line": "    return [xs[i + 1] - xs[i] for i in range(len(xs) - 0)]"
+   }
+  ],
+  "files": [
+   "matrix",
+   "windows"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0137": {
+  "bugs": [
+   {
+    "claim": "In `parse_bool`: wrong exception type raised: `ValueError` where `TypeError` is required.",
+    "col": 14,
+    "file": "validate.py",
+    "func": "parse_bool",
+    "kind": "exc",
+    "line": 11,
+    "new": "ValueError",
+    "old": "TypeError",
+    "orig_line": "        raise TypeError(\"expected bool or str\")",
+    "seeded_line": "        raise ValueError(\"expected bool or str\")"
+   },
+   {
+    "claim": "In `check_username`: missing negation: `not` was removed from the condition.",
+    "col": 11,
+    "file": "validate.py",
+    "func": "check_username",
+    "kind": "not",
+    "line": 42,
+    "new": "",
+    "old": "not ",
+    "orig_line": "        if not (ch.isalnum() and ch.isascii()) and ch != \"_\":",
+    "seeded_line": "        if (ch.isalnum() and ch.isascii()) and ch != \"_\":"
+   }
+  ],
+  "files": [
+   "validate",
+   "csvline"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0138": {
+  "bugs": [
+   {
+    "claim": "In `trace`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "matrix.py",
+    "func": "trace",
+    "kind": "exc",
+    "line": 68,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"not square\")",
+    "seeded_line": "        raise KeyError(\"not square\")"
+   },
+   {
+    "claim": "In `set_path`: off-by-one constant: `2` where `1` is required.",
+    "col": 16,
+    "file": "confmerge.py",
+    "func": "set_path",
+    "kind": "num",
+    "line": 40,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    node[parts[-1]] = value",
+    "seeded_line": "    node[parts[-2]] = value"
+   }
+  ],
+  "files": [
+   "matrix",
+   "confmerge"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0139": {
+  "bugs": [
+   {
+    "claim": "In `deep_merge`: wrong boolean connective: `or` where `and` is required.",
+    "col": 35,
+    "file": "confmerge.py",
+    "func": "deep_merge",
+    "kind": "bool",
+    "line": 11,
+    "new": "or",
+    "old": "and",
+    "orig_line": "        if isinstance(value, dict) and isinstance(out.get(key), dict):",
+    "seeded_line": "        if isinstance(value, dict) or isinstance(out.get(key), dict):"
+   },
+   {
+    "claim": "In `set_path`: missing negation: `not` was removed from the condition.",
+    "col": 11,
+    "file": "confmerge.py",
+    "func": "set_path",
+    "kind": "not",
+    "line": 37,
+    "new": "",
+    "old": "not ",
+    "orig_line": "        if not isinstance(child, dict):",
+    "seeded_line": "        if isinstance(child, dict):"
+   }
+  ],
+  "files": [
+   "wrap",
+   "confmerge"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0140": {
+  "bugs": [
+   {
+    "claim": "In `Trie.remove`: off-by-one constant: `2` where `1` is required.",
+    "col": 22,
+    "file": "trie.py",
+    "func": "Trie.remove",
+    "kind": "num",
+    "line": 69,
+    "new": "2",
+    "old": "1",
+    "orig_line": "        self._size -= 1",
+    "seeded_line": "        self._size -= 2"
+   },
+   {
+    "claim": "In `components`: inverted membership test: `not in` where `in` is required.",
+    "col": 17,
+    "file": "graphs.py",
+    "func": "components",
+    "kind": "in",
+    "line": 65,
+    "new": "not in",
+    "old": "in",
+    "orig_line": "        if start in seen:",
+    "seeded_line": "        if start not in seen:"
+   }
+  ],
+  "files": [
+   "trie",
+   "graphs"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0141": {
+  "bugs": [
+   {
+    "claim": "In `Trie._count`: wrong arithmetic operator: `-=` where `+=` is required.",
+    "col": 22,
+    "file": "trie.py",
+    "func": "Trie._count",
+    "kind": "arith",
+    "line": 46,
+    "new": "-=",
+    "old": "+=",
+    "orig_line": "                total += self._count(child)",
+    "seeded_line": "                total -= self._count(child)"
+   },
+   {
+    "claim": "In `set_path`: off-by-one constant: `2` where `1` is required.",
+    "col": 24,
+    "file": "confmerge.py",
+    "func": "set_path",
+    "kind": "num",
+    "line": 35,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    for part in parts[:-1]:",
+    "seeded_line": "    for part in parts[:-2]:"
+   }
+  ],
+  "files": [
+   "trie",
+   "confmerge"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0142": {
+  "bugs": [
+   {
+    "claim": "In `page_count`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "pagination.py",
+    "func": "page_count",
+    "kind": "exc",
+    "line": 10,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"bad pagination arguments\")",
+    "seeded_line": "        raise KeyError(\"bad pagination arguments\")"
+   }
+  ],
+  "files": [
+   "pagination",
+   "matrix"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0143": {
+  "bugs": [
+   {
+    "claim": "In `<module>`: off-by-one constant: `49` where `50` is required.",
+    "col": 5,
+    "file": "roman.py",
+    "func": "<module>",
+    "kind": "num",
+    "line": 5,
+    "new": "49",
+    "old": "50",
+    "orig_line": "    (50, \"L\"), (40, \"XL\"), (10, \"X\"), (9, \"IX\"), (5, \"V\"), (4, \"IV\"), (1, \"I\"),",
+    "seeded_line": "    (49, \"L\"), (40, \"XL\"), (10, \"X\"), (9, \"IX\"), (5, \"V\"), (4, \"IV\"), (1, \"I\"),"
+   },
+   {
+    "claim": "In `from_roman`: off-by-one constant: `501` where `500` is required.",
+    "col": 63,
+    "file": "roman.py",
+    "func": "from_roman",
+    "kind": "num",
+    "line": 26,
+    "new": "501",
+    "old": "500",
+    "orig_line": "    values = {\"I\": 1, \"V\": 5, \"X\": 10, \"L\": 50, \"C\": 100, \"D\": 500, \"M\": 1000}",
+    "seeded_line": "    values = {\"I\": 1, \"V\": 5, \"X\": 10, \"L\": 50, \"C\": 100, \"D\": 501, \"M\": 1000}"
+   },
+   {
+    "claim": "In `title_case`: off-by-one constant: `2` where `1` is required.",
+    "col": 45,
+    "file": "textutil.py",
+    "func": "title_case",
+    "kind": "num",
+    "line": 66,
+    "new": "2",
+    "old": "1",
+    "orig_line": "            out.append(low[:1].upper() + low[1:])",
+    "seeded_line": "            out.append(low[:1].upper() + low[2:])"
+   }
+  ],
+  "files": [
+   "roman",
+   "textutil"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0144": {
+  "bugs": [
+   {
+    "claim": "In `factorize`: off-by-one constant: `2` where `1` is required.",
+    "col": 11,
+    "file": "numtheory.py",
+    "func": "factorize",
+    "kind": "num",
+    "line": 72,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    if n > 1:",
+    "seeded_line": "    if n > 2:"
+   }
+  ],
+  "files": [
+   "numtheory",
+   "rpn"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0145": {
+  "bugs": [
+   {
+    "claim": "In `trace`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "matrix.py",
+    "func": "trace",
+    "kind": "exc",
+    "line": 68,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"not square\")",
+    "seeded_line": "        raise KeyError(\"not square\")"
+   },
+   {
+    "claim": "In `nearest`: off-by-one constant: `1` where `0` is required.",
+    "col": 12,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "num",
+    "line": 48,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    if i == 0:",
+    "seeded_line": "    if i == 1:"
+   }
+  ],
+  "files": [
+   "matrix",
+   "bsearch"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0146": {
+  "bugs": [
+   {
+    "claim": "In `justify`: off-by-one constant: `0` where `1` is required.",
+    "col": 37,
+    "file": "wrap.py",
+    "func": "justify",
+    "kind": "num",
+    "line": 45,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    for i, word in enumerate(words[:-1]):",
+    "seeded_line": "    for i, word in enumerate(words[:-0]):"
+   },
+   {
+    "claim": "In `zscores`: inverted equality test: `!=` where `==` is required.",
+    "col": 10,
+    "file": "stats.py",
+    "func": "zscores",
+    "kind": "eq",
+    "line": 61,
+    "new": "!=",
+    "old": "==",
+    "orig_line": "    if sd == 0:",
+    "seeded_line": "    if sd != 0:"
+   }
+  ],
+  "files": [
+   "wrap",
+   "stats"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0147": {
+  "bugs": [
+   {
+    "claim": "In `spiral`: wrong arithmetic operator: `-=` where `+=` is required.",
+    "col": 12,
+    "file": "matrix.py",
+    "func": "spiral",
+    "kind": "arith",
+    "line": 49,
+    "new": "-=",
+    "old": "+=",
+    "orig_line": "        top += 1",
+    "seeded_line": "        top -= 1"
+   }
+  ],
+  "files": [
+   "matrix",
+   "rpn"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0148": {
+  "bugs": [
+   {
+    "claim": "In `RingBuffer.push`: off-by-one constant: `2` where `1` is required.",
+    "col": 39,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.push",
+    "kind": "num",
+    "line": 29,
+    "new": "2",
+    "old": "1",
+    "orig_line": "            self._head = (self._head + 1) % self.capacity",
+    "seeded_line": "            self._head = (self._head + 2) % self.capacity"
+   },
+   {
+    "claim": "In `encode`: wrong function/method: `all` where `any` is required.",
+    "col": 7,
+    "file": "rle.py",
+    "func": "encode",
+    "kind": "func",
+    "line": 17,
+    "new": "all",
+    "old": "any",
+    "orig_line": "    if any(ch.isdigit() for ch in text):",
+    "seeded_line": "    if all(ch.isdigit() for ch in text):"
+   }
+  ],
+  "files": [
+   "ringbuf",
+   "rle"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0149": {
+  "bugs": [
+   {
+    "claim": "In `longest_run`: inverted identity test: `is not` where `is` is required.",
+    "col": 16,
+    "file": "rle.py",
+    "func": "longest_run",
+    "kind": "is",
+    "line": 46,
+    "new": "is not",
+    "old": "is",
+    "orig_line": "        if best is None or n > best[1]:",
+    "seeded_line": "        if best is not None or n > best[1]:"
+   }
+  ],
+  "files": [
+   "rle",
+   "matrix"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0150": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.transfer`: wrong exception type raised: `ValueError` where `KeyError` is required.",
+    "col": 18,
+    "file": "ledger.py",
+    "func": "Ledger.transfer",
+    "kind": "exc",
+    "line": 47,
+    "new": "ValueError",
+    "old": "KeyError",
+    "orig_line": "            raise KeyError(dst)",
+    "seeded_line": "            raise ValueError(dst)"
+   },
+   {
+    "claim": "In `overlaps`: off-by-one constant: `2` where `1` is required.",
+    "col": 20,
+    "file": "intervals.py",
+    "func": "overlaps",
+    "kind": "num",
+    "line": 17,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    return a[0] < b[1] and b[0] < a[1]",
+    "seeded_line": "    return a[0] < b[2] and b[0] < a[1]"
+   }
+  ],
+  "files": [
+   "ledger",
+   "intervals"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0151": {
+  "bugs": [
+   {
+    "claim": "In `nearest`: off-by-one constant: `2` where `1` is required.",
+    "col": 26,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "num",
+    "line": 52,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    before, after = a[i - 1], a[i]",
+    "seeded_line": "    before, after = a[i - 2], a[i]"
+   }
+  ],
+  "files": [
+   "bsearch",
+   "windows"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0152": {
+  "bugs": [
+   {
+    "claim": "In `gaps`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 17,
+    "file": "intervals.py",
+    "func": "gaps",
+    "kind": "cmp",
+    "line": 50,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "        if start > cursor:",
+    "seeded_line": "        if start >= cursor:"
+   },
+   {
+    "claim": "In `Trie.remove`: inverted boolean literal: `False` where `True` is required.",
+    "col": 15,
+    "file": "trie.py",
+    "func": "Trie.remove",
+    "kind": "lit",
+    "line": 70,
+    "new": "False",
+    "old": "True",
+    "orig_line": "        return True",
+    "seeded_line": "        return False"
+   }
+  ],
+  "files": [
+   "intervals",
+   "trie"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0153": {
+  "bugs": [
+   {
+    "claim": "In `Inventory.on_hand`: off-by-one constant: `1` where `0` is required.",
+    "col": 38,
+    "file": "inventory.py",
+    "func": "Inventory.on_hand",
+    "kind": "num",
+    "line": 23,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        return self._on_hand.get(sku, 0)",
+    "seeded_line": "        return self._on_hand.get(sku, 1)"
+   },
+   {
+    "claim": "In `Inventory.release`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "inventory.py",
+    "func": "Inventory.release",
+    "kind": "exc",
+    "line": 40,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"bad release\")",
+    "seeded_line": "            raise KeyError(\"bad release\")"
+   }
+  ],
+  "files": [
+   "inventory",
+   "numtheory"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0154": {
+  "bugs": [
+   {
+    "claim": "In `<module>`: off-by-one constant: `32` where `31` is required.",
+    "col": 53,
+    "file": "calendar_lite.py",
+    "func": "<module>",
+    "kind": "num",
+    "line": 3,
+    "new": "32",
+    "old": "31",
+    "orig_line": "_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31]",
+    "seeded_line": "_DAYS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 32]"
+   },
+   {
+    "claim": "In `days_in_month`: off-by-one constant: `13` where `12` is required.",
+    "col": 28,
+    "file": "calendar_lite.py",
+    "func": "days_in_month",
+    "kind": "num",
+    "line": 17,
+    "new": "13",
+    "old": "12",
+    "orig_line": "    if month < 1 or month > 12:",
+    "seeded_line": "    if month < 1 or month > 13:"
+   },
+   {
+    "claim": "In `day_of_year`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "calendar_lite.py",
+    "func": "day_of_year",
+    "kind": "exc",
+    "line": 27,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"day out of range\")",
+    "seeded_line": "        raise KeyError(\"day out of range\")"
+   }
+  ],
+  "files": [
+   "calendar_lite",
+   "inventory"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0155": {
+  "bugs": [
+   {
+    "claim": "In `longest_run`: wrong boolean connective: `and` where `or` is required.",
+    "col": 24,
+    "file": "rle.py",
+    "func": "longest_run",
+    "kind": "bool",
+    "line": 46,
+    "new": "and",
+    "old": "or",
+    "orig_line": "        if best is None or n > best[1]:",
+    "seeded_line": "        if best is None and n > best[1]:"
+   },
+   {
+    "claim": "In `compress_ratio`: missing negation: `not` was removed from the condition.",
+    "col": 7,
+    "file": "rle.py",
+    "func": "compress_ratio",
+    "kind": "not",
+    "line": 53,
+    "new": "",
+    "old": "not ",
+    "orig_line": "    if not text:",
+    "seeded_line": "    if text:"
+   }
+  ],
+  "files": [
+   "lru",
+   "rle"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0156": {
+  "bugs": [
+   {
+    "claim": "In `RingBuffer.__init__`: off-by-one constant: `1` where `0` is required.",
+    "col": 21,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.__init__",
+    "kind": "num",
+    "line": 13,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        self._head = 0",
+    "seeded_line": "        self._head = 1"
+   },
+   {
+    "claim": "In `RingBuffer.peek`: wrong exception type raised: `ValueError` where `IndexError` is required.",
+    "col": 18,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.peek",
+    "kind": "exc",
+    "line": 48,
+    "new": "ValueError",
+    "old": "IndexError",
+    "orig_line": "            raise IndexError(\"peek out of range\")",
+    "seeded_line": "            raise ValueError(\"peek out of range\")"
+   }
+  ],
+  "files": [
+   "inventory",
+   "ringbuf"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0157": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.open`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "ledger.py",
+    "func": "Ledger.open",
+    "kind": "exc",
+    "line": 22,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"negative overdraft\")",
+    "seeded_line": "            raise KeyError(\"negative overdraft\")"
+   }
+  ],
+  "files": [
+   "ledger",
+   "matrix"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0158": {
+  "bugs": [
+   {
+    "claim": "In `Trie.starts_with`: inverted identity test: `is not` where `is` is required.",
+    "col": 16,
+    "file": "trie.py",
+    "func": "Trie.starts_with",
+    "kind": "is",
+    "line": 38,
+    "new": "is not",
+    "old": "is",
+    "orig_line": "        if node is None:",
+    "seeded_line": "        if node is not None:"
+   },
+   {
+    "claim": "In `Trie.longest_common_prefix`: inverted equality test: `==` where `!=` is required.",
+    "col": 40,
+    "file": "trie.py",
+    "func": "Trie.longest_common_prefix",
+    "kind": "eq",
+    "line": 76,
+    "new": "==",
+    "old": "!=",
+    "orig_line": "        while len([k for k in node if k != \"$\"]) == 1 and \"$\" not in node:",
+    "seeded_line": "        while len([k for k in node if k == \"$\"]) == 1 and \"$\" not in node:"
+   }
+  ],
+  "files": [
+   "trie",
+   "matrix"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0159": {
+  "bugs": [
+   {
+    "claim": "In `window`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 24,
+    "file": "pagination.py",
+    "func": "window",
+    "kind": "arith",
+    "line": 37,
+    "new": "+",
+    "old": "-",
+    "orig_line": "    first = max(1, page - radius)",
+    "seeded_line": "    first = max(1, page + radius)"
+   }
+  ],
+  "files": [
+   "pagination",
+   "roman"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0160": {
+  "bugs": [
+   {
+    "claim": "In `Inventory.reserve`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 15,
+    "file": "inventory.py",
+    "func": "Inventory.reserve",
+    "kind": "cmp",
+    "line": 30,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "        if qty <= 0:",
+    "seeded_line": "        if qty < 0:"
+   },
+   {
+    "claim": "In `camel_to_snake`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 42,
+    "file": "textutil.py",
+    "func": "camel_to_snake",
+    "kind": "arith",
+    "line": 25,
+    "new": "+",
+    "old": "-",
+    "orig_line": "            prev_lower = i > 0 and name[i - 1].islower()",
+    "seeded_line": "            prev_lower = i > 0 and name[i + 1].islower()"
+   }
+  ],
+  "files": [
+   "inventory",
+   "textutil"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0161": {
+  "bugs": [
+   {
+    "claim": "In `RingBuffer.__init__`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 20,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.__init__",
+    "kind": "cmp",
+    "line": 9,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "        if capacity < 1:",
+    "seeded_line": "        if capacity <= 1:"
+   },
+   {
+    "claim": "In `RingBuffer.pop`: wrong arithmetic operator: `//` where `%` is required.",
+    "col": 38,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.pop",
+    "kind": "arith",
+    "line": 41,
+    "new": "//",
+    "old": "%",
+    "orig_line": "        self._head = (self._head + 1) % self.capacity",
+    "seeded_line": "        self._head = (self._head + 1) // self.capacity"
+   }
+  ],
+  "files": [
+   "bsearch",
+   "ringbuf"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0162": {
+  "bugs": [
+   {
+    "claim": "In `<module>`: off-by-one constant: `3` where `2` is required.",
+    "col": 51,
+    "file": "rpn.py",
+    "func": "<module>",
+    "kind": "num",
+    "line": 3,
+    "new": "3",
+    "old": "2",
+    "orig_line": "PRECEDENCE = {\"+\": 1, \"-\": 1, \"*\": 2, \"/\": 2, \"%\": 2}",
+    "seeded_line": "PRECEDENCE = {\"+\": 1, \"-\": 1, \"*\": 2, \"/\": 2, \"%\": 3}"
+   },
+   {
+    "claim": "In `eval_postfix`: off-by-one constant: `1` where `2` is required.",
+    "col": 24,
+    "file": "rpn.py",
+    "func": "eval_postfix",
+    "kind": "num",
+    "line": 67,
+    "new": "1",
+    "old": "2",
+    "orig_line": "        if len(stack) < 2:",
+    "seeded_line": "        if len(stack) < 1:"
+   }
+  ],
+  "files": [
+   "intervals",
+   "rpn"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0163": {
+  "bugs": [
+   {
+    "claim": "In `topo_order`: off-by-one constant: `0` where `1` is required.",
+    "col": 24,
+    "file": "graphs.py",
+    "func": "topo_order",
+    "kind": "num",
+    "line": 35,
+    "new": "0",
+    "old": "1",
+    "orig_line": "            indeg[m] += 1",
+    "seeded_line": "            indeg[m] += 0"
+   },
+   {
+    "claim": "In `has_cycle`: inverted boolean literal: `False` where `True` is required.",
+    "col": 15,
+    "file": "graphs.py",
+    "func": "has_cycle",
+    "kind": "lit",
+    "line": 99,
+    "new": "False",
+    "old": "True",
+    "orig_line": "        return True",
+    "seeded_line": "        return False"
+   }
+  ],
+  "files": [
+   "graphs",
+   "money"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0164": {
+  "bugs": [
+   {
+    "claim": "In `overlaps`: off-by-one constant: `2` where `1` is required.",
+    "col": 20,
+    "file": "intervals.py",
+    "func": "overlaps",
+    "kind": "num",
+    "line": 17,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    return a[0] < b[1] and b[0] < a[1]",
+    "seeded_line": "    return a[0] < b[2] and b[0] < a[1]"
+   }
+  ],
+  "files": [
+   "intervals",
+   "ringbuf"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0165": {
+  "bugs": [
+   {
+    "claim": "In `quote_field`: wrong boolean connective: `and` where `or` is required.",
+    "col": 36,
+    "file": "csvline.py",
+    "func": "quote_field",
+    "kind": "bool",
+    "line": 41,
+    "new": "and",
+    "old": "or",
+    "orig_line": "    if sep in field or '\"' in field or \"\\n\" in field:",
+    "seeded_line": "    if sep in field or '\"' in field and \"\\n\" in field:"
+   }
+  ],
+  "files": [
+   "csvline",
+   "timeslots"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0166": {
+  "bugs": [
+   {
+    "claim": "In `apply_percent`: wrong arithmetic operator: `/` where `//` is required.",
+    "col": 39,
+    "file": "money.py",
+    "func": "apply_percent",
+    "kind": "arith",
+    "line": 19,
+    "new": "/",
+    "old": "//",
+    "orig_line": "    return (cents * percent * 2 + 100) // 200",
+    "seeded_line": "    return (cents * percent * 2 + 100) / 200"
+   },
+   {
+    "claim": "In `median`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "stats.py",
+    "func": "median",
+    "kind": "exc",
+    "line": 14,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"empty data\")",
+    "seeded_line": "        raise KeyError(\"empty data\")"
+   }
+  ],
+  "files": [
+   "money",
+   "stats"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0167": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket.wait_time`: off-by-one constant: `1` where `0` is required.",
+    "col": 22,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.wait_time",
+    "kind": "num",
+    "line": 45,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        if missing <= 0:",
+    "seeded_line": "        if missing <= 1:"
+   },
+   {
+    "claim": "In `wrap`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 26,
+    "file": "wrap.py",
+    "func": "wrap",
+    "kind": "arith",
+    "line": 15,
+    "new": "-",
+    "old": "+",
+    "orig_line": "        elif len(current) + 1 + len(word) <= width:",
+    "seeded_line": "        elif len(current) - 1 + len(word) <= width:"
+   },
+   {
+    "claim": "In `justify`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 18,
+    "file": "wrap.py",
+    "func": "justify",
+    "kind": "cmp",
+    "line": 39,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if len(words) < 2 or len(line) >= width:",
+    "seeded_line": "    if len(words) <= 2 or len(line) >= width:"
+   }
+  ],
+  "files": [
+   "tokenbucket",
+   "wrap"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0168": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.open`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "ledger.py",
+    "func": "Ledger.open",
+    "kind": "exc",
+    "line": 22,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"negative overdraft\")",
+    "seeded_line": "            raise KeyError(\"negative overdraft\")"
+   },
+   {
+    "claim": "In `eval_postfix`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "rpn.py",
+    "func": "eval_postfix",
+    "kind": "exc",
+    "line": 68,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"missing operand\")",
+    "seeded_line": "            raise KeyError(\"missing operand\")"
+   }
+  ],
+  "files": [
+   "ledger",
+   "rpn"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0169": {
+  "bugs": [
+   {
+    "claim": "In `satisfies`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 44,
+    "file": "semver.py",
+    "func": "satisfies",
+    "kind": "arith",
+    "line": 55,
+    "new": "-",
+    "old": "+",
+    "orig_line": "            raise ValueError(\"bad clause: \" + clause)",
+    "seeded_line": "            raise ValueError(\"bad clause: \" - clause)"
+   },
+   {
+    "claim": "In `apply_percent`: off-by-one constant: `99` where `100` is required.",
+    "col": 34,
+    "file": "money.py",
+    "func": "apply_percent",
+    "kind": "num",
+    "line": 19,
+    "new": "99",
+    "old": "100",
+    "orig_line": "    return (cents * percent * 2 + 100) // 200",
+    "seeded_line": "    return (cents * percent * 2 + 99) // 200"
+   }
+  ],
+  "files": [
+   "semver",
+   "money"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0170": {
+  "bugs": [
+   {
+    "claim": "In `header_map`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "csvline.py",
+    "func": "header_map",
+    "kind": "exc",
+    "line": 61,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"duplicate column: \" + name)",
+    "seeded_line": "            raise KeyError(\"duplicate column: \" + name)"
+   },
+   {
+    "claim": "In `nearest`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 24,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "arith",
+    "line": 52,
+    "new": "+",
+    "old": "-",
+    "orig_line": "    before, after = a[i - 1], a[i]",
+    "seeded_line": "    before, after = a[i + 1], a[i]"
+   }
+  ],
+  "files": [
+   "csvline",
+   "bsearch"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0171": {
+  "bugs": [
+   {
+    "claim": "In `slots_overlap`: wrong boolean connective: `or` where `and` is required.",
+    "col": 19,
+    "file": "timeslots.py",
+    "func": "slots_overlap",
+    "kind": "bool",
+    "line": 37,
+    "new": "or",
+    "old": "and",
+    "orig_line": "    return a0 < b1 and b0 < a1",
+    "seeded_line": "    return a0 < b1 or b0 < a1"
+   },
+   {
+    "claim": "In `merge`: off-by-one constant: `0` where `1` is required.",
+    "col": 40,
+    "file": "intervals.py",
+    "func": "merge",
+    "kind": "num",
+    "line": 29,
+    "new": "0",
+    "old": "1",
+    "orig_line": "            last_start, last_end = out[-1]",
+    "seeded_line": "            last_start, last_end = out[-0]"
+   }
+  ],
+  "files": [
+   "timeslots",
+   "intervals"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0172": {
+  "bugs": [
+   {
+    "claim": "In `days_in_month`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "calendar_lite.py",
+    "func": "days_in_month",
+    "kind": "exc",
+    "line": 18,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"month out of range\")",
+    "seeded_line": "        raise KeyError(\"month out of range\")"
+   }
+  ],
+  "files": [
+   "ledger",
+   "calendar_lite"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0173": {
+  "bugs": [
+   {
+    "claim": "In `wrap`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 26,
+    "file": "wrap.py",
+    "func": "wrap",
+    "kind": "arith",
+    "line": 15,
+    "new": "-",
+    "old": "+",
+    "orig_line": "        elif len(current) + 1 + len(word) <= width:",
+    "seeded_line": "        elif len(current) - 1 + len(word) <= width:"
+   }
+  ],
+  "files": [
+   "wrap",
+   "numtheory"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0174": {
+  "bugs": [
+   {
+    "claim": "In `chunk`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "windows.py",
+    "func": "chunk",
+    "kind": "exc",
+    "line": 9,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"n must be positive\")",
+    "seeded_line": "        raise KeyError(\"n must be positive\")"
+   },
+   {
+    "claim": "In `<module>`: off-by-one constant: `1` where `2` is required.",
+    "col": 51,
+    "file": "rpn.py",
+    "func": "<module>",
+    "kind": "num",
+    "line": 3,
+    "new": "1",
+    "old": "2",
+    "orig_line": "PRECEDENCE = {\"+\": 1, \"-\": 1, \"*\": 2, \"/\": 2, \"%\": 2}",
+    "seeded_line": "PRECEDENCE = {\"+\": 1, \"-\": 1, \"*\": 2, \"/\": 2, \"%\": 1}"
+   },
+   {
+    "claim": "In `tokenize`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "rpn.py",
+    "func": "tokenize",
+    "kind": "exc",
+    "line": 25,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"bad character: \" + ch)",
+    "seeded_line": "            raise KeyError(\"bad character: \" + ch)"
+   }
+  ],
+  "files": [
+   "windows",
+   "rpn"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0175": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.transfer`: inverted membership test: `in` where `not in` is required.",
+    "col": 15,
+    "file": "ledger.py",
+    "func": "Ledger.transfer",
+    "kind": "in",
+    "line": 46,
+    "new": "in",
+    "old": "not in",
+    "orig_line": "        if dst not in self._balances:",
+    "seeded_line": "        if dst in self._balances:"
+   },
+   {
+    "claim": "In `from_roman`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 26,
+    "file": "roman.py",
+    "func": "from_roman",
+    "kind": "cmp",
+    "line": 36,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "    if total < 1 or total > 3999 or to_roman(total) != text:",
+    "seeded_line": "    if total < 1 or total >= 3999 or to_roman(total) != text:"
+   }
+  ],
+  "files": [
+   "ledger",
+   "roman"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0176": {
+  "bugs": [
+   {
+    "claim": "In `parse_cents`: wrong function/method: `endswith` where `startswith` is required.",
+    "col": 12,
+    "file": "money.py",
+    "func": "parse_cents",
+    "kind": "func",
+    "line": 39,
+    "new": "endswith",
+    "old": "startswith",
+    "orig_line": "    if text.startswith(\"-\"):",
+    "seeded_line": "    if text.endswith(\"-\"):"
+   }
+  ],
+  "files": [
+   "money",
+   "tokenbucket"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0177": {
+  "bugs": [
+   {
+    "claim": "In `sliding_max`: off-by-one constant: `0` where `1` is required.",
+    "col": 11,
+    "file": "windows.py",
+    "func": "sliding_max",
+    "kind": "num",
+    "line": 36,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    if k < 1:",
+    "seeded_line": "    if k < 0:"
+   },
+   {
+    "claim": "In `RingBuffer.peek`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 13,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.peek",
+    "kind": "cmp",
+    "line": 47,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "        if n < 0 or n >= self._size:",
+    "seeded_line": "        if n <= 0 or n >= self._size:"
+   }
+  ],
+  "files": [
+   "windows",
+   "ringbuf"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0178": {
+  "bugs": [
+   {
+    "claim": "In `get_path`: wrong boolean connective: `and` where `or` is required.",
+    "col": 38,
+    "file": "confmerge.py",
+    "func": "get_path",
+    "kind": "bool",
+    "line": 24,
+    "new": "and",
+    "old": "or",
+    "orig_line": "        if not isinstance(node, dict) or part not in node:",
+    "seeded_line": "        if not isinstance(node, dict) and part not in node:"
+   },
+   {
+    "claim": "In `components`: inverted membership test: `not in` where `in` is required.",
+    "col": 17,
+    "file": "graphs.py",
+    "func": "components",
+    "kind": "in",
+    "line": 65,
+    "new": "not in",
+    "old": "in",
+    "orig_line": "        if start in seen:",
+    "seeded_line": "        if start not in seen:"
+   },
+   {
+    "claim": "In `has_cycle`: inverted boolean literal: `True` where `False` is required.",
+    "col": 11,
+    "file": "graphs.py",
+    "func": "has_cycle",
+    "kind": "lit",
+    "line": 100,
+    "new": "True",
+    "old": "False",
+    "orig_line": "    return False",
+    "seeded_line": "    return True"
+   }
+  ],
+  "files": [
+   "confmerge",
+   "graphs"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0179": {
+  "bugs": [
+   {
+    "claim": "In `wrap`: off-by-one constant: `2` where `1` is required.",
+    "col": 15,
+    "file": "wrap.py",
+    "func": "wrap",
+    "kind": "num",
+    "line": 8,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    if width < 1:",
+    "seeded_line": "    if width < 2:"
+   },
+   {
+    "claim": "In `indent`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 28,
+    "file": "wrap.py",
+    "func": "indent",
+    "kind": "arith",
+    "line": 54,
+    "new": "-",
+    "old": "+",
+    "orig_line": "    return \"\\n\".join(prefix + ln if ln else ln for ln in text.split(\"\\n\"))",
+    "seeded_line": "    return \"\\n\".join(prefix - ln if ln else ln for ln in text.split(\"\\n\"))"
+   }
+  ],
+  "files": [
+   "wrap",
+   "trie"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0180": {
+  "bugs": [
+   {
+    "claim": "In `from_roman`: wrong boolean connective: `and` where `or` is required.",
+    "col": 33,
+    "file": "roman.py",
+    "func": "from_roman",
+    "kind": "bool",
+    "line": 36,
+    "new": "and",
+    "old": "or",
+    "orig_line": "    if total < 1 or total > 3999 or to_roman(total) != text:",
+    "seeded_line": "    if total < 1 or total > 3999 and to_roman(total) != text:"
+   }
+  ],
+  "files": [
+   "tokenbucket",
+   "roman"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0181": {
+  "bugs": [
+   {
+    "claim": "In `set_path`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "confmerge.py",
+    "func": "set_path",
+    "kind": "exc",
+    "line": 38,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"not a mapping: \" + part)",
+    "seeded_line": "            raise KeyError(\"not a mapping: \" + part)"
+   }
+  ],
+  "files": [
+   "confmerge",
+   "windows"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0182": {
+  "bugs": [
+   {
+    "claim": "In `days_in_month`: off-by-one constant: `11` where `12` is required.",
+    "col": 28,
+    "file": "calendar_lite.py",
+    "func": "days_in_month",
+    "kind": "num",
+    "line": 17,
+    "new": "11",
+    "old": "12",
+    "orig_line": "    if month < 1 or month > 12:",
+    "seeded_line": "    if month < 1 or month > 11:"
+   },
+   {
+    "claim": "In `justify`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 31,
+    "file": "wrap.py",
+    "func": "justify",
+    "kind": "arith",
+    "line": 47,
+    "new": "-",
+    "old": "+",
+    "orig_line": "        out.append(\" \" * (base + (1 if i < extra else 0)))",
+    "seeded_line": "        out.append(\" \" * (base - (1 if i < extra else 0)))"
+   }
+  ],
+  "files": [
+   "calendar_lite",
+   "wrap"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0183": {
+  "bugs": [
+   {
+    "claim": "In `shape`: off-by-one constant: `1` where `0` is required.",
+    "col": 19,
+    "file": "matrix.py",
+    "func": "shape",
+    "kind": "num",
+    "line": 7,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        return (0, 0)",
+    "seeded_line": "        return (0, 1)"
+   },
+   {
+    "claim": "In `camel_to_snake`: off-by-one constant: `2` where `1` is required.",
+    "col": 56,
+    "file": "textutil.py",
+    "func": "camel_to_snake",
+    "kind": "num",
+    "line": 26,
+    "new": "2",
+    "old": "1",
+    "orig_line": "            next_lower = i + 1 < len(name) and name[i + 1].islower()",
+    "seeded_line": "            next_lower = i + 1 < len(name) and name[i + 2].islower()"
+   }
+  ],
+  "files": [
+   "matrix",
+   "textutil"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0184": {
+  "bugs": [
+   {
+    "claim": "In `parse_port`: wrong boolean connective: `and` where `or` is required.",
+    "col": 16,
+    "file": "validate.py",
+    "func": "parse_port",
+    "kind": "bool",
+    "line": 28,
+    "new": "and",
+    "old": "or",
+    "orig_line": "    if port < 1 or port > 65535:",
+    "seeded_line": "    if port < 1 and port > 65535:"
+   },
+   {
+    "claim": "In `check_email`: inverted membership test: `in` where `not in` is required.",
+    "col": 24,
+    "file": "validate.py",
+    "func": "check_email",
+    "kind": "in",
+    "line": 55,
+    "new": "in",
+    "old": "not in",
+    "orig_line": "    if not local or \".\" not in domain:",
+    "seeded_line": "    if not local or \".\" in domain:"
+   }
+  ],
+  "files": [
+   "validate",
+   "roman"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0185": {
+  "bugs": [
+   {
+    "claim": "In `matmul`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "matrix.py",
+    "func": "matmul",
+    "kind": "exc",
+    "line": 25,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"dimension mismatch\")",
+    "seeded_line": "        raise KeyError(\"dimension mismatch\")"
+   },
+   {
+    "claim": "In `check_username`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "validate.py",
+    "func": "check_username",
+    "kind": "exc",
+    "line": 43,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"bad character\")",
+    "seeded_line": "            raise KeyError(\"bad character\")"
+   }
+  ],
+  "files": [
+   "matrix",
+   "validate"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0186": {
+  "bugs": [
+   {
+    "claim": "In `page_count`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 29,
+    "file": "pagination.py",
+    "func": "page_count",
+    "kind": "cmp",
+    "line": 9,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if per_page < 1 or total < 0:",
+    "seeded_line": "    if per_page < 1 or total <= 0:"
+   }
+  ],
+  "files": [
+   "stats",
+   "pagination"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0187": {
+  "bugs": [
+   {
+    "claim": "In `RingBuffer.push`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 27,
+    "file": "ringbuf.py",
+    "func": "RingBuffer.push",
+    "kind": "arith",
+    "line": 25,
+    "new": "-",
+    "old": "+",
+    "orig_line": "        tail = (self._head + self._size) % self.capacity",
+    "seeded_line": "        tail = (self._head - self._size) % self.capacity"
+   },
+   {
+    "claim": "In `discount`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 17,
+    "file": "money.py",
+    "func": "discount",
+    "kind": "arith",
+    "line": 24,
+    "new": "+",
+    "old": "-",
+    "orig_line": "    return cents - apply_percent(cents, percent)",
+    "seeded_line": "    return cents + apply_percent(cents, percent)"
+   }
+  ],
+  "files": [
+   "ringbuf",
+   "money"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0188": {
+  "bugs": [
+   {
+    "claim": "In `clamp`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "validate.py",
+    "func": "clamp",
+    "kind": "exc",
+    "line": 78,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"lo > hi\")",
+    "seeded_line": "        raise KeyError(\"lo > hi\")"
+   },
+   {
+    "claim": "In `parse`: wrong arithmetic operator: `-` where `+` is required.",
+    "col": 46,
+    "file": "semver.py",
+    "func": "parse",
+    "kind": "arith",
+    "line": 15,
+    "new": "-",
+    "old": "+",
+    "orig_line": "            raise ValueError(\"not a number: \" + p)",
+    "seeded_line": "            raise ValueError(\"not a number: \" - p)"
+   }
+  ],
+  "files": [
+   "validate",
+   "semver"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0189": {
+  "bugs": [
+   {
+    "claim": "In `contains_point`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 22,
+    "file": "intervals.py",
+    "func": "contains_point",
+    "kind": "cmp",
+    "line": 61,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "        if start <= x < end:",
+    "seeded_line": "        if start <= x <= end:"
+   }
+  ],
+  "files": [
+   "intervals",
+   "semver"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0190": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket.wait_time`: wrong arithmetic operator: `+` where `-` is required.",
+    "col": 23,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.wait_time",
+    "kind": "arith",
+    "line": 44,
+    "new": "+",
+    "old": "-",
+    "orig_line": "        missing = cost - self.tokens",
+    "seeded_line": "        missing = cost + self.tokens"
+   }
+  ],
+  "files": [
+   "lru",
+   "tokenbucket"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0191": {
+  "bugs": [
+   {
+    "claim": "In `Ledger.open`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "ledger.py",
+    "func": "Ledger.open",
+    "kind": "exc",
+    "line": 22,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"negative overdraft\")",
+    "seeded_line": "            raise KeyError(\"negative overdraft\")"
+   },
+   {
+    "claim": "In `Ledger.transfer`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "ledger.py",
+    "func": "Ledger.transfer",
+    "kind": "exc",
+    "line": 45,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"same account\")",
+    "seeded_line": "            raise KeyError(\"same account\")"
+   }
+  ],
+  "files": [
+   "ledger",
+   "semver"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0192": {
+  "bugs": [
+   {
+    "claim": "In `upper_bound`: off-by-one constant: `1` where `0` is required.",
+    "col": 13,
+    "file": "bsearch.py",
+    "func": "upper_bound",
+    "kind": "num",
+    "line": 18,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    lo, hi = 0, len(a)",
+    "seeded_line": "    lo, hi = 1, len(a)"
+   },
+   {
+    "claim": "In `nearest`: missing negation: `not` was removed from the condition.",
+    "col": 7,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "not",
+    "line": 45,
+    "new": "",
+    "old": "not ",
+    "orig_line": "    if not a:",
+    "seeded_line": "    if a:"
+   },
+   {
+    "claim": "In `Ledger.transfer`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "ledger.py",
+    "func": "Ledger.transfer",
+    "kind": "exc",
+    "line": 45,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"same account\")",
+    "seeded_line": "            raise KeyError(\"same account\")"
+   }
+  ],
+  "files": [
+   "bsearch",
+   "ledger"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0193": {
+  "bugs": [
+   {
+    "claim": "In `parse_hhmm`: wrong boolean connective: `and` where `or` is required.",
+    "col": 14,
+    "file": "timeslots.py",
+    "func": "parse_hhmm",
+    "kind": "bool",
+    "line": 12,
+    "new": "and",
+    "old": "or",
+    "orig_line": "    if h > 23 or m > 59:",
+    "seeded_line": "    if h > 23 and m > 59:"
+   }
+  ],
+  "files": [
+   "trie",
+   "timeslots"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0194": {
+  "bugs": [
+   {
+    "claim": "In `count_in_range`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 10,
+    "file": "bsearch.py",
+    "func": "count_in_range",
+    "kind": "cmp",
+    "line": 38,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "    if lo > hi:",
+    "seeded_line": "    if lo >= hi:"
+   },
+   {
+    "claim": "In `nearest`: off-by-one constant: `1` where `0` is required.",
+    "col": 17,
+    "file": "bsearch.py",
+    "func": "nearest",
+    "kind": "num",
+    "line": 49,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        return a[0]",
+    "seeded_line": "        return a[1]"
+   },
+   {
+    "claim": "In `TokenBucket.wait_time`: off-by-one constant: `1` where `0` is required.",
+    "col": 22,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.wait_time",
+    "kind": "num",
+    "line": 45,
+    "new": "1",
+    "old": "0",
+    "orig_line": "        if missing <= 0:",
+    "seeded_line": "        if missing <= 1:"
+   }
+  ],
+  "files": [
+   "bsearch",
+   "tokenbucket"
+  ],
+  "n_seeded": 3
+ },
+ "CR-0195": {
+  "bugs": [
+   {
+    "claim": "In `has_cycle`: inverted boolean literal: `False` where `True` is required.",
+    "col": 15,
+    "file": "graphs.py",
+    "func": "has_cycle",
+    "kind": "lit",
+    "line": 99,
+    "new": "False",
+    "old": "True",
+    "orig_line": "        return True",
+    "seeded_line": "        return False"
+   },
+   {
+    "claim": "In `encode`: wrong function/method: `all` where `any` is required.",
+    "col": 7,
+    "file": "rle.py",
+    "func": "encode",
+    "kind": "func",
+    "line": 17,
+    "new": "all",
+    "old": "any",
+    "orig_line": "    if any(ch.isdigit() for ch in text):",
+    "seeded_line": "    if all(ch.isdigit() for ch in text):"
+   }
+  ],
+  "files": [
+   "graphs",
+   "rle"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0196": {
+  "bugs": [
+   {
+    "claim": "In `binom`: off-by-one constant: `1` where `0` is required.",
+    "col": 20,
+    "file": "numtheory.py",
+    "func": "binom",
+    "kind": "num",
+    "line": 79,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    if n < 0 or k < 0:",
+    "seeded_line": "    if n < 0 or k < 1:"
+   },
+   {
+    "claim": "In `page_count`: wrong boolean connective: `and` where `or` is required.",
+    "col": 20,
+    "file": "pagination.py",
+    "func": "page_count",
+    "kind": "bool",
+    "line": 9,
+    "new": "and",
+    "old": "or",
+    "orig_line": "    if per_page < 1 or total < 0:",
+    "seeded_line": "    if per_page < 1 and total < 0:"
+   }
+  ],
+  "files": [
+   "numtheory",
+   "pagination"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0197": {
+  "bugs": [
+   {
+    "claim": "In `overlaps`: off-by-one constant: `1` where `0` is required.",
+    "col": 13,
+    "file": "intervals.py",
+    "func": "overlaps",
+    "kind": "num",
+    "line": 17,
+    "new": "1",
+    "old": "0",
+    "orig_line": "    return a[0] < b[1] and b[0] < a[1]",
+    "seeded_line": "    return a[1] < b[1] and b[0] < a[1]"
+   },
+   {
+    "claim": "In `merge`: off-by-one constant: `0` where `1` is required.",
+    "col": 17,
+    "file": "intervals.py",
+    "func": "merge",
+    "kind": "num",
+    "line": 30,
+    "new": "0",
+    "old": "1",
+    "orig_line": "            out[-1] = (last_start, max(last_end, end))",
+    "seeded_line": "            out[-0] = (last_start, max(last_end, end))"
+   }
+  ],
+  "files": [
+   "intervals",
+   "tokenbucket"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0198": {
+  "bugs": [
+   {
+    "claim": "In `to_roman`: off-by-one constant: `0` where `1` is required.",
+    "col": 11,
+    "file": "roman.py",
+    "func": "to_roman",
+    "kind": "num",
+    "line": 11,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    if n < 1 or n > 3999:",
+    "seeded_line": "    if n < 0 or n > 3999:"
+   },
+   {
+    "claim": "In `split_cents`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+    "col": 26,
+    "file": "money.py",
+    "func": "split_cents",
+    "kind": "cmp",
+    "line": 8,
+    "new": "<=",
+    "old": "<",
+    "orig_line": "    if parts < 1 or total < 0:",
+    "seeded_line": "    if parts < 1 or total <= 0:"
+   }
+  ],
+  "files": [
+   "roman",
+   "money"
+  ],
+  "n_seeded": 2
+ },
+ "CR-0199": {
+  "bugs": [
+   {
+    "claim": "In `components`: inverted membership test: `not in` where `in` is required.",
+    "col": 17,
+    "file": "graphs.py",
+    "func": "components",
+    "kind": "in",
+    "line": 65,
+    "new": "not in",
+    "old": "in",
+    "orig_line": "        if start in seen:",
+    "seeded_line": "        if start not in seen:"
+   }
+  ],
+  "files": [
+   "graphs",
+   "stats"
+  ],
+  "n_seeded": 1
+ },
+ "CR-0200": {
+  "bugs": [
+   {
+    "claim": "In `TokenBucket.allow`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+    "col": 16,
+    "file": "tokenbucket.py",
+    "func": "TokenBucket.allow",
+    "kind": "cmp",
+    "line": 27,
+    "new": ">=",
+    "old": ">",
+    "orig_line": "        if cost > self.capacity:",
+    "seeded_line": "        if cost >= self.capacity:"
+   }
+  ],
+  "files": [
+   "tokenbucket",
+   "calendar_lite"
+  ],
+  "n_seeded": 1
+ },
+ "CR-DEV1": {
+  "bugs": [
+   {
+    "claim": "In `overlaps`: off-by-one constant: `0` where `1` is required.",
+    "col": 36,
+    "file": "intervals.py",
+    "func": "overlaps",
+    "kind": "num",
+    "line": 17,
+    "new": "0",
+    "old": "1",
+    "orig_line": "    return a[0] < b[1] and b[0] < a[1]",
+    "seeded_line": "    return a[0] < b[1] and b[0] < a[0]"
+   },
+   {
+    "claim": "In `merge`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+    "col": 25,
+    "file": "intervals.py",
+    "func": "merge",
+    "kind": "cmp",
+    "line": 28,
+    "new": "<",
+    "old": "<=",
+    "orig_line": "        if out and start <= out[-1][1]:",
+    "seeded_line": "        if out and start < out[-1][1]:"
+   },
+   {
+    "claim": "In `gaps`: wrong function/method: `min` where `max` is required.",
+    "col": 17,
+    "file": "intervals.py",
+    "func": "gaps",
+    "kind": "func",
+    "line": 52,
+    "new": "min",
+    "old": "max",
+    "orig_line": "        cursor = max(cursor, end)",
+    "seeded_line": "        cursor = min(cursor, end)"
+   }
+  ],
+  "files": [
+   "windows",
+   "intervals"
+  ],
+  "n_seeded": 3
+ },
+ "CR-DEV2": {
+  "bugs": [
+   {
+    "claim": "In `tokenize`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 18,
+    "file": "rpn.py",
+    "func": "tokenize",
+    "kind": "exc",
+    "line": 25,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "            raise ValueError(\"bad character: \" + ch)",
+    "seeded_line": "            raise KeyError(\"bad character: \" + ch)"
+   },
+   {
+    "claim": "In `to_postfix`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 22,
+    "file": "rpn.py",
+    "func": "to_postfix",
+    "kind": "exc",
+    "line": 47,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "                raise ValueError(\"unbalanced )\")",
+    "seeded_line": "                raise KeyError(\"unbalanced )\")"
+   }
+  ],
+  "files": [
+   "confmerge",
+   "rpn"
+  ],
+  "n_seeded": 2
+ },
+ "CR-DEV3": {
+  "bugs": [
+   {
+    "claim": "In `rotate_cw`: off-by-one constant: `2` where `1` is required.",
+    "col": 22,
+    "file": "matrix.py",
+    "func": "rotate_cw",
+    "kind": "num",
+    "line": 38,
+    "new": "2",
+    "old": "1",
+    "orig_line": "    return [[m[rows - 1 - r][c] for r in range(rows)] for c in range(cols)]",
+    "seeded_line": "    return [[m[rows - 2 - r][c] for r in range(rows)] for c in range(cols)]"
+   },
+   {
+    "claim": "In `parse_line`: off-by-one constant: `2` where `1` is required.",
+    "col": 25,
+    "file": "csvline.py",
+    "func": "parse_line",
+    "kind": "num",
+    "line": 20,
+    "new": "2",
+    "old": "1",
+    "orig_line": "                    i += 1",
+    "seeded_line": "                    i += 2"
+   },
+   {
+    "claim": "In `parse_line`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+    "col": 14,
+    "file": "csvline.py",
+    "func": "parse_line",
+    "kind": "exc",
+    "line": 34,
+    "new": "KeyError",
+    "old": "ValueError",
+    "orig_line": "        raise ValueError(\"unterminated quote\")",
+    "seeded_line": "        raise KeyError(\"unterminated quote\")"
+   }
+  ],
+  "files": [
+   "matrix",
+   "csvline"
+  ],
+  "n_seeded": 3
+ }
+}

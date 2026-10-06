@@ -1,0 +1,213 @@
+# compose.yaml: the declarative front-end of the eq-docker images (X1, X3). UNVERIFIED: never run by the agent that wrote it; the user's first
+# command is `bash eq-compose.sh config` (RUNBOOK_MINIMAL.md "compose"), which runs `docker compose config` on it and the static checks.
+# Start it through eq-compose.sh, not by hand: the wrapper verifies the TOOLS.toml hashes and the image records first, sets the image
+# references, generates the per-run database credential, and removes the project (containers, network) when the run ends.
+#
+# Rules every service here keeps (tests/test_eq_docker_compose.py checks them statically, probe.sh checks them in a container):
+#  - read-only root filesystem, all capabilities dropped, no-new-privileges, init, pids/memory/cpu limits, an unprivileged user;
+#  - no network (network_mode: none) for every service that runs model-written code, EXCEPT the `*-db` solvers, which join the one
+#    internal-only network `eqdb` (internal: true: no gateway, nothing reaches out; no published ports anywhere, no host network);
+#  - host-side mounts: ONLY the per-run work directory (${EQ_WORK_DIR}) and, in compose.wall.yaml, the single WALL tunnel
+#    (${EQ_TUNNEL_CHANNEL}, ONE channel directory, at /eq/tunnel). No docker socket, no home, no host PATH, no tools volume: the tools are baked into the image
+#    (INSTALLER_SPEC.md section 12.2 gives the reasons); a host-side tools source would be a bind or volume mounted `read_only: true`;
+#  - bind mounts use the long syntax (type, source, target, read_only), the equivalent of `--mount type=bind,...,readonly`; tmpfs
+#    mounts use the service-level `tmpfs:` list because only that form can set nosuid, nodev and exec;
+#  - check services (pf, cp, cr, cp-db) copy the read-only source directory into a capped tmpfs /work exactly as the harness's
+#    isolate() does (nothing the code writes reaches the host); language services mount the work copy read-only at /work and write
+#    only to /tmp (their ENV points caches and build output there), because those images have no shell for the copy prefix.
+# Profiles (COMPOSE_PROFILES, set by eq-compose.sh from --profiles / --eq-docker-profiles): core = pf, cp, cr (the minimum the item
+# classes PF, CP, CR need; ES, RS, DS, OE run no model-written code); node, rust, go, julia, haskell, jvm = one language service each;
+# db = pg + cp-db; mongo = mongo + cp-db (opt-in: SSPL licence).
+name: eq
+
+x-hardened: &hardened
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  init: true
+  pull_policy: never
+  user: "10001:10001"
+  pids_limit: ${EQ_PIDS:-512}
+  mem_limit: ${EQ_MEMORY:-8g}
+  memswap_limit: ${EQ_MEMORY:-8g}
+  cpus: ${EQ_CPUS:-2}
+  stop_grace_period: 1s
+  logging:
+    driver: json-file
+    options: {max-size: 1m, max-file: "1"}
+  labels: {eq-compose: "1"}
+  tmpfs: ["/tmp:rw,nosuid,nodev,exec,size=2g"]
+
+# the fixed container environment of the harness's isolate() (CONTAINER_ENV), nothing from the host
+x-check-env: &check_env
+  LANG: C.UTF-8
+  HOME: /tmp
+  TMPDIR: /tmp
+  UV_CACHE_DIR: /tmp/uv-cache
+  UV_OFFLINE: "1"
+  UV_NO_CONFIG: "1"
+  UV_PYTHON_DOWNLOADS: never
+
+# a check service: the copy prefix of the harness (COPY_IN, identical text; $$ is compose's escape for $), then the command
+x-check: &check
+  <<: *hardened
+  working_dir: /work
+  environment: *check_env
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,exec,size=2g
+    - /work:rw,nosuid,nodev,exec,size=1g,mode=1777
+  volumes:
+    - type: bind
+      source: ${EQ_WORK_DIR:?set by eq-compose.sh --work DIR, the per-run copy of the files}
+      target: /eqsrc/work
+      read_only: true
+      bind: {create_host_path: false}
+  entrypoint:
+    - /bin/sh
+    - -c
+    - 'while [ "$$1" != -- ]; do cp -R "$$1"/. "$$2"/ || exit 1; shift 2; done; shift; exec "$$@"'
+    - eq-run
+    - /eqsrc/work
+    - /work
+    - --
+
+# an extension language service: no shell, the work copy read-only at /work, every output to /tmp (see the image ENV)
+x-lang: &lang
+  <<: *hardened
+  working_dir: /work
+  network_mode: none
+  volumes:
+    - type: bind
+      source: ${EQ_WORK_DIR:?set by eq-compose.sh --work DIR, the per-run copy of the files}
+      target: /work
+      read_only: true
+      bind: {create_host_path: false}
+
+services:
+  # ------------------------------------------------------------------------------------------------ core
+  pf:
+    <<: *check
+    image: ${EQ_IMAGE_PF:?run eq-compose.sh (it reads the verified image record)}
+    profiles: [core]
+    network_mode: none
+    command: [bash, check_lean.sh, Answer.lean]
+
+  cp:
+    <<: *check
+    image: ${EQ_IMAGE_CP:?run eq-compose.sh (it reads the verified image record)}
+    profiles: [core]
+    network_mode: none
+    command: [uv, run, --no-project, python, -m, unittest, discover, -s, tests, -t, ., -q]
+
+  cr:
+    <<: *check
+    image: ${EQ_IMAGE_CR:?run eq-compose.sh (it reads the verified image record)}
+    profiles: [core]
+    network_mode: none
+    command: [uv, run, --no-project, python, -m, unittest, discover, -s, tests, -t, ., -q]
+
+  # ------------------------------------------------------------------------------------------------ extension languages (opt-in)
+  node:
+    <<: *lang
+    image: ${EQ_IMAGE_NODE:?run eq-compose.sh}
+    profiles: [node]
+    command: [/opt/node/bin/node, --version]
+  rust:
+    <<: *lang
+    image: ${EQ_IMAGE_RUST:?run eq-compose.sh}
+    profiles: [rust]
+    command: [/opt/rust/bin/rustc, --version]
+  go:
+    <<: *lang
+    image: ${EQ_IMAGE_GO:?run eq-compose.sh}
+    profiles: [go]
+    command: [/opt/go/bin/go, version]
+  julia:
+    <<: *lang
+    image: ${EQ_IMAGE_JULIA:?run eq-compose.sh}
+    profiles: [julia]
+    command: [/opt/julia/bin/julia, --version]
+  haskell:
+    <<: *lang
+    image: ${EQ_IMAGE_HASKELL:?run eq-compose.sh}
+    profiles: [haskell]
+    command: [/opt/ghc/bin/ghc, --version]
+  jvm:
+    <<: *lang
+    image: ${EQ_IMAGE_JVM:?run eq-compose.sh}
+    profiles: [jvm]
+    command: [/opt/jdk/bin/java, -version]
+
+  # ------------------------------------------------------------------------------------------------ databases (internal network only)
+  # The password is generated for every run by eq-compose.sh and exists only in that process's environment: nothing here (and no file in
+  # the repository) holds it. It is handed to the server and to the solver of the same run; the project's network is removed at the end.
+  pg:
+    <<: *hardened
+    image: ${EQ_IMAGE_PG:?run eq-compose.sh}
+    profiles: [db]
+    user: "10002:10002"
+    networks: [eqdb]
+    pids_limit: 128
+    mem_limit: 1g
+    memswap_limit: 1g
+    environment:
+      EQ_DB_PASSWORD: ${EQ_DB_PASSWORD:?generated per run by eq-compose.sh}
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+      - /var/lib/eq-pg:rw,nosuid,nodev,noexec,size=512m,mode=1777
+      - /run/eq-pg:rw,nosuid,nodev,noexec,size=16m,mode=1777
+    command: [/opt/eq/entry-pg.sh]
+    healthcheck:
+      test: [CMD, pg_isready, -h, 127.0.0.1, -p, "5432", -U, eq]
+      interval: 2s
+      timeout: 3s
+      retries: 30
+      start_period: 3s
+
+  mongo:
+    <<: *hardened
+    image: ${EQ_IMAGE_MONGO:?run eq-compose.sh}
+    profiles: [mongo]
+    user: "10002:10002"
+    networks: [eqdb]
+    pids_limit: 256
+    mem_limit: 2g
+    memswap_limit: 2g
+    environment:
+      EQ_DB_PASSWORD: ${EQ_DB_PASSWORD:?generated per run by eq-compose.sh}
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,noexec,size=64m
+      - /var/lib/eq-mongo:rw,nosuid,nodev,noexec,size=1g,mode=1777
+      - /run/eq-mongo:rw,nosuid,nodev,noexec,size=16m,mode=1777
+    command: [/opt/eq/entry-mongo.sh]
+    healthcheck:
+      test: [CMD, mongosh, --quiet, --norc, --host, 127.0.0.1, --eval, "db.adminCommand({ping: 1}).ok"]
+      interval: 3s
+      timeout: 5s
+      retries: 30
+      start_period: 5s
+
+  # the python solver that may reach the database(s) of its run, by service name (pg, mongo) only
+  cp-db:
+    <<: *check
+    image: ${EQ_IMAGE_CP:?run eq-compose.sh (it reads the verified image record)}
+    profiles: [db, mongo]
+    networks: [eqdb]
+    environment:
+      <<: *check_env
+      EQ_PG_HOST: pg
+      EQ_MONGO_HOST: mongo
+      EQ_DB_USER: eq
+      EQ_DB_PASSWORD: ${EQ_DB_PASSWORD:?generated per run by eq-compose.sh}
+    depends_on:
+      pg: {condition: service_healthy, required: false}
+      mongo: {condition: service_healthy, required: false}
+    command: [uv, run, --no-project, python, -m, unittest, discover, -s, tests, -t, ., -q]
+
+networks:
+  eqdb:
+    driver: bridge
+    internal: true
+    attachable: false
+    enable_ipv6: false
+    labels: {eq-compose: "1"}

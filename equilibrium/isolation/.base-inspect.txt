@@ -1,0 +1,164 @@
+Name:      docker.io/library/debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+MediaType: application/vnd.oci.image.index.v1+json
+Digest:    sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+           
+Manifests: 
+  Name:        docker.io/library/debian:trixie-slim@sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/amd64
+  Annotations: 
+    org.opencontainers.image.revision:        8f962b15d7884a90e17876a9303cbac909d119aa
+    org.opencontainers.image.source:          https://github.com/debuerreotype/docker-debian-artifacts.git
+    org.opencontainers.image.url:             https://hub.docker.com/_/debian
+    org.opencontainers.image.version:         trixie-slim
+    com.docker.official-images.bashbrew.arch: amd64
+    org.opencontainers.image.base.name:       scratch
+    org.opencontainers.image.created:         2026-09-18T00:00:00Z
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:36f80776c6b21a4787d76d62caa5dc058a69a026760b0f03bf94e1bb8e6ace84
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Annotations: 
+    com.docker.official-images.bashbrew.arch: amd64
+    vnd.docker.reference.digest:              sha256:7792b1f7702a86946cd518db72b6a407302c3e9bc1635634368b878189e8221c
+    vnd.docker.reference.type:                attestation-manifest
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:3405f5ef07b562ef1977c29a729f4b800f5565c96c7c7593780ac3729029f9f8
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/arm/v5
+  Annotations: 
+    org.opencontainers.image.revision:        f5ef892bb78e9a96831ff72f8c6bdf7309fa0c73
+    org.opencontainers.image.source:          https://github.com/debuerreotype/docker-debian-artifacts.git
+    org.opencontainers.image.url:             https://hub.docker.com/_/debian
+    org.opencontainers.image.version:         trixie-slim
+    com.docker.official-images.bashbrew.arch: arm32v5
+    org.opencontainers.image.base.name:       scratch
+    org.opencontainers.image.created:         2026-09-18T00:00:00Z
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:cfe1b58cbddb806067e9a4a7e3776037ae093d05c4db708ecc92b2ead81384fd
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Annotations: 
+    com.docker.official-images.bashbrew.arch: arm32v5
+    vnd.docker.reference.digest:              sha256:3405f5ef07b562ef1977c29a729f4b800f5565c96c7c7593780ac3729029f9f8
+    vnd.docker.reference.type:                attestation-manifest
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:36fb0164b892c70d3f7e84d2650f0550276f6099381cce5f2d15de87271709f4
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/arm/v7
+  Annotations: 
+    org.opencontainers.image.source:          https://github.com/debuerreotype/docker-debian-artifacts.git
+    org.opencontainers.image.url:             https://hub.docker.com/_/debian
+    org.opencontainers.image.version:         trixie-slim
+    com.docker.official-images.bashbrew.arch: arm32v7
+    org.opencontainers.image.base.name:       scratch
+    org.opencontainers.image.created:         2026-09-18T00:00:00Z
+    org.opencontainers.image.revision:        9131b5bb4d0b0ea11c1339cabfbd09ce42769ebf
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:557256f6e3f6e4ad26b40a2e81df754d0bf8aceaa02e0a5effcd77663d139751
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Annotations: 
+    com.docker.official-images.bashbrew.arch: arm32v7
+    vnd.docker.reference.digest:              sha256:36fb0164b892c70d3f7e84d2650f0550276f6099381cce5f2d15de87271709f4
+    vnd.docker.reference.type:                attestation-manifest
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:da496358bd6934d2bd6a563a33176a2e50eff5490c54b4ac6fb051b69fef4071
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/arm64/v8
+  Annotations: 
+    org.opencontainers.image.created:         2026-09-18T00:00:00Z
+    org.opencontainers.image.revision:        ca011a8b1c3b259e4cbbf83bf6841f1fd5f497c1
+    org.opencontainers.image.source:          https://github.com/debuerreotype/docker-debian-artifacts.git
+    org.opencontainers.image.url:             https://hub.docker.com/_/debian
+    org.opencontainers.image.version:         trixie-slim
+    com.docker.official-images.bashbrew.arch: arm64v8
+    org.opencontainers.image.base.name:       scratch
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:dbdb878e91521ca173f68559b578045795d8ee0d29389ac8cf125664d12a11dc
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Annotations: 
+    com.docker.official-images.bashbrew.arch: arm64v8
+    vnd.docker.reference.digest:              sha256:da496358bd6934d2bd6a563a33176a2e50eff5490c54b4ac6fb051b69fef4071
+    vnd.docker.reference.type:                attestation-manifest
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:925b2e26c366e1666a32f47809d3428de3db478ea5ef6bcd73c3d54a415c9285
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/386
+  Annotations: 
+    org.opencontainers.image.version:         trixie-slim
+    com.docker.official-images.bashbrew.arch: i386
+    org.opencontainers.image.base.name:       scratch
+    org.opencontainers.image.created:         2026-09-18T00:00:00Z
+    org.opencontainers.image.revision:        443e9e66832067d6025580f2fd809e78b2b4351b
+    org.opencontainers.image.source:          https://github.com/debuerreotype/docker-debian-artifacts.git
+    org.opencontainers.image.url:             https://hub.docker.com/_/debian
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:ecc8a02c82555711128425404b7ff1b00207143295f6b0b892645e701d7c528a
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Annotations: 
+    com.docker.official-images.bashbrew.arch: i386
+    vnd.docker.reference.digest:              sha256:925b2e26c366e1666a32f47809d3428de3db478ea5ef6bcd73c3d54a415c9285
+    vnd.docker.reference.type:                attestation-manifest
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:d7dc605ae51866ab640be68806bb01896966ef6089ddf1861a1b758774903c7c
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/ppc64le
+  Annotations: 
+    org.opencontainers.image.revision:        0f5fbc5c51495d98b528e064efdfe02ad8dead05
+    org.opencontainers.image.source:          https://github.com/debuerreotype/docker-debian-artifacts.git
+    org.opencontainers.image.url:             https://hub.docker.com/_/debian
+    org.opencontainers.image.version:         trixie-slim
+    com.docker.official-images.bashbrew.arch: ppc64le
+    org.opencontainers.image.base.name:       scratch
+    org.opencontainers.image.created:         2026-09-18T00:00:00Z
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:2dbdc4b60f0e496f2709032674a72a4440c25d1f025f4d99f61c3a9e5cd432ea
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Annotations: 
+    com.docker.official-images.bashbrew.arch: ppc64le
+    vnd.docker.reference.digest:              sha256:d7dc605ae51866ab640be68806bb01896966ef6089ddf1861a1b758774903c7c
+    vnd.docker.reference.type:                attestation-manifest
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:e3b4cb1b0056896c4b43e17472b906b10007ab94bc533d37a47e9a5795eebbc0
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/riscv64
+  Annotations: 
+    com.docker.official-images.bashbrew.arch: riscv64
+    org.opencontainers.image.base.name:       scratch
+    org.opencontainers.image.created:         2026-09-18T00:00:00Z
+    org.opencontainers.image.revision:        53b98b5d28214ce21bc9801fd9c94101867d4517
+    org.opencontainers.image.source:          https://github.com/debuerreotype/docker-debian-artifacts.git
+    org.opencontainers.image.url:             https://hub.docker.com/_/debian
+    org.opencontainers.image.version:         trixie-slim
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:f67c5bb543541e6898a194eb440471e6b604eae0c4915392545a4e47d44d6452
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Annotations: 
+    com.docker.official-images.bashbrew.arch: riscv64
+    vnd.docker.reference.digest:              sha256:e3b4cb1b0056896c4b43e17472b906b10007ab94bc533d37a47e9a5795eebbc0
+    vnd.docker.reference.type:                attestation-manifest
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:c0519c2c1a61f37ec112cd0a4ee700071b1067b59c3b4409726975aeb5b9ebc9
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    linux/s390x
+  Annotations: 
+    org.opencontainers.image.revision:        cf12b9d8c02071eae77dec69abe1e6eb40d71032
+    org.opencontainers.image.source:          https://github.com/debuerreotype/docker-debian-artifacts.git
+    org.opencontainers.image.url:             https://hub.docker.com/_/debian
+    org.opencontainers.image.version:         trixie-slim
+    com.docker.official-images.bashbrew.arch: s390x
+    org.opencontainers.image.base.name:       scratch
+    org.opencontainers.image.created:         2026-09-18T00:00:00Z
+               
+  Name:        docker.io/library/debian:trixie-slim@sha256:933c136533bedb925fbb88b4685e670f42976e69f68c075c97edf16274175bd4
+  MediaType:   application/vnd.oci.image.manifest.v1+json
+  Platform:    unknown/unknown
+  Annotations: 
+    com.docker.official-images.bashbrew.arch: s390x
+    vnd.docker.reference.digest:              sha256:c0519c2c1a61f37ec112cd0a4ee700071b1067b59c3b4409726975aeb5b9ebc9
+    vnd.docker.reference.type:                attestation-manifest

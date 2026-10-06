@@ -1,0 +1,71 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "additionalProperties": false,
+ "properties": {
+  "answer": {
+   "items": {
+    "additionalProperties": false,
+    "properties": {
+     "claim": {
+      "type": "string"
+     },
+     "file": {
+      "type": "string"
+     },
+     "line": {
+      "minimum": 1,
+      "type": "integer"
+     }
+    },
+    "required": [
+     "file",
+     "line",
+     "claim"
+    ],
+    "type": "object"
+   },
+   "type": "array"
+  },
+  "confidence": {
+   "maximum": 1,
+   "minimum": 0,
+   "type": "number"
+  },
+  "evidence": {
+   "items": {
+    "additionalProperties": false,
+    "properties": {
+     "detail": {
+      "type": "string"
+     },
+     "kind": {
+      "enum": [
+       "command",
+       "file_line",
+       "quote",
+       "counterexample",
+       "test"
+      ]
+     },
+     "ref": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "ref",
+     "detail"
+    ],
+    "type": "object"
+   },
+   "type": "array"
+  }
+ },
+ "required": [
+  "answer",
+  "evidence",
+  "confidence"
+ ],
+ "title": "CR arm output",
+ "type": "object"
+}

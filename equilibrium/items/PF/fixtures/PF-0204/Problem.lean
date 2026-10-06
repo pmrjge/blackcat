@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0204 : ∀ a : ℕ → ℚ, a 0 = 1 → (∀ n, a (n + 1) = a n / (1 + 2 * a n)) → ∀ n, a n = 1 / (2 * n + 1) := by
+  sorry

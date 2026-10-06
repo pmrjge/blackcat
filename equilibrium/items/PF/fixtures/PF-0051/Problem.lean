@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0051 : ∀ x y : ℤ, x ^ 3 + 2 * y ^ 3 ≠ 4 := by
+  sorry
