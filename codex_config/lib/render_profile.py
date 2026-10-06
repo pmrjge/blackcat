@@ -32,8 +32,10 @@ Parts (all required, nothing else accepted): `blackcat` {model, effort, instruct
 same shape, config_file under `agents-astra/`; may be empty with no_astra_profile);
 `mcp_servers` {id: final [mcp_servers.<id>] table}; `permissions` (permissions.permission_profile);
 `hooks` (hook_defs.hooks_table, no `state`); `hooks_state` (the live profile files' [hooks.state],
-re-emitted verbatim; {} when none; merge_hooks_state() joins the codex and codex-astra files' tables,
-whose keys embed their source path, so each file keeps its own records); `skills_max_context_tokens`.
+re-emitted verbatim; {} when none; merge_hooks_state(*states, owners=(prefix, ...)) joins the codex
+and codex-astra files' tables, whose keys embed their source path: every written file carries the
+union, and when Codex later changes a key's record in one file only, the record from the file the key
+names wins; a differing key neither file owns is refused); `skills_max_context_tokens`.
 Opts (each a bool, absent = false, nothing else accepted): `legacy_sandbox` (sandbox_mode =
 "workspace-write" replaces default_permissions + [permissions.*], and features.network_proxy goes
 with them), `no_escalation` (approval_policy = "never"), `no_mcp` (no [mcp_servers]),
@@ -51,7 +53,8 @@ drop features.network_proxy from the template; keep default_permissions under le
 the carried-over hooks.state; drop shell_environment_policy; copy the astra profile shallowly (the
 codex profile's entries move too); put the BlackCat body before R; leave hooks.state in region B;
 keep hooks.state in the reference profile under ide_default; drop hooks.state from the ide-mode
-codex profile text, or from the ide-mode codex-astra overlay.
+codex profile text, or from the ide-mode codex-astra overlay; let a non-owning file's record win a
+hooks.state clash.
 """
 from __future__ import annotations
 
@@ -309,17 +312,28 @@ def load_template(path=TEMPLATE) -> dict:
     return base
 
 
-def merge_hooks_state(*states) -> dict:
-    """The union of several [hooks.state] tables (each from tomllib; None = no file). Trust keys
-    embed their source file path, so the codex and codex-astra files' records never collide; the
-    same key with two different records is refused."""
-    out = {}
-    for s in states:
+def merge_hooks_state(*states, owners=()) -> dict:
+    """The union of several [hooks.state] tables (each from tomllib; None = no file). owners[i], when
+    given, is the key prefix of states[i]'s own file (`"<codex_home>/<rel>:"`: a trust key embeds its
+    source path). Every written profile file carries the union, so Codex re-trusting or disabling a
+    key in one file only (U1) leaves two records of it: the record from the file the key names wins.
+    The same key with two different records and no owning file among them is refused."""
+    if len(owners) > len(states):
+        raise BuildError("merge_hooks_state: %d owners for %d states" % (len(owners), len(states)))
+    out, owned = {}, set()
+    for i, s in enumerate(states):
         if s is None:
             continue
+        prefix = owners[i] if i < len(owners) else None
         for k, v in _hooks_state(s).items():
+            mine = bool(prefix) and k.startswith(prefix)
             if k in out and out[k] != v:
-                raise BuildError("hooks.state[%r] differs between the live profile files" % k)
+                if k in owned and not mine:
+                    continue                      # the owner's record, already in
+                if not mine:
+                    raise BuildError("hooks.state[%r] differs between the live profile files" % k)
+            if mine:
+                owned.add(k)
             out[k] = copy.deepcopy(v)
     return out
 

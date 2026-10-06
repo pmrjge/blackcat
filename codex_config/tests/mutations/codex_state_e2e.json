@@ -17,7 +17,7 @@
   "file": "codex_config/lib/codex_state.py",
   "old": "return ist.restore(c, bdir, root, work, commit, home, dry, force)",
   "new": "return ist.restore(c, bdir, root, work, commit, home, dry, force or True)",
-  "tests": "codex_config/tests/test_installer_ide.py::test_restore_of_a_changed_config_needs_force_config_not_force",
+  "tests": "codex_config/tests/test_installer_e2e.py::test_restore_brings_a_saved_outside_link_back_only_with_force",
   "why": "the engine's force is always on (installer path)"
  }
 ]

@@ -192,6 +192,23 @@ def test_flagless_rerun_after_ide_default_plans_nothing(ide):
     assert "Nothing to change" in r.stdout
 
 
+def _next_steps(stdout):
+    assert "Next steps" in stdout, stdout
+    return stdout.split("Next steps", 1)[1]
+
+
+def test_next_steps_follow_the_resolved_mode_not_the_flag(ide):
+    """A flagless re-run keeps the regions (the mode the file shows), so its next steps are the
+    --ide-default ones: plain `codex` for /hooks, and the Astra profile as an overlay of config.toml."""
+    for args in ((), ("--ide-default",)):
+        steps = _next_steps(ide.run("--yes", *args, check=0).stdout)
+        assert "Run plain 'codex' (no profile), then /hooks" in steps, (args, steps)
+        assert "it overlays config.toml" in steps and "codex --profile codex   then" not in steps, (args, steps)
+    steps = _next_steps(ide.run("--no-ide-default", "--yes", check=0).stdout)
+    assert "Run: codex --profile codex   then /hooks" in steps and "plain 'codex'" not in steps, steps
+    assert "its own hooks need trust too" in steps, steps
+
+
 def test_flagless_rerun_after_no_ide_default_plans_nothing(ide):
     ide.run("--no-ide-default", "--yes", check=0)
     assert "Nothing to change" in ide.run("--yes", check=0).stdout

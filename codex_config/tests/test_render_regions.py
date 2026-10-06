@@ -88,6 +88,9 @@ def test_no_profile_file_carries_hooks_under_ide_default():
     (b'approval_policy = "never"\n', "approval_policy"),
     (b'[features]\nnetwork_proxy = false\n', "features.network_proxy"),
     (b'[agents.coder]\ndescription = "mine"\n', "agents.coder.description"),
+    # the schema forbids filters (region B) beside the legacy exclude / include_only arrays
+    (b'[shell_environment_policy]\nexclude = ["AWS_*"]\n', "shell_environment_policy.exclude"),
+    (b'[shell_environment_policy]\ninclude_only = ["PATH"]\n', "shell_environment_policy.include_only"),
 ])
 def test_conflict_stops_naming_the_key(user, key):
     env = env_with(user)

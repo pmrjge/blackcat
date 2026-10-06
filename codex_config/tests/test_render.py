@@ -396,6 +396,54 @@ def test_foreign_hooks_subtable_stops(tmp_path):
     assert rc == 1 and "hooks.mine" in err and "codex-astra.config.toml" in err
 
 
+@pytest.mark.parametrize("rel,text,named", [
+    ("codex.config.toml", '[mcp_servers.mine]\ncommand = "x"\n', "mcp_servers.mine"),
+    ("codex.config.toml", '[agents.my-role]\nconfig_file = "/x/agents/my-role.toml"\n', "agents.my-role"),
+    ("codex-astra.config.toml", '[permissions.x]\ndescription = "y"\n', "permissions.x"),
+    ("codex-astra.config.toml", '[mcp_servers.mine]\ncommand = "x"\n', "mcp_servers.mine"),
+])
+def test_foreign_table_under_a_stack_root_stops(tmp_path, rel, text, named):
+    """§7.4 below the root: a table of the user's under a root the stack writes is not dropped."""
+    env = Env(tmp_path)
+    (env.ch / rel).write_text(text)
+    env.new_stage()
+    rc, _, err = env.run()
+    assert rc == 1 and named in err and rel in err, err
+
+
+@pytest.mark.parametrize("ide", [False, True])
+def test_extra_hook_handler_in_a_stack_written_file_stops(tmp_path, ide):
+    """The stack's own file plus one more [[hooks.PreToolUse]] group: the extra group is named; a
+    changed value of a key the stack writes, or a stack table the ide form leaves out, is not foreign
+    (the install rewrites the file)."""
+    env = Env(tmp_path)
+    flags = ["--ide-default"] if ide else []
+    env.new_stage()
+    env.ok()
+    text = (env.stage / "codex.config.toml").read_text()
+    n = len(toml(env.stage / "codex.config.toml")["hooks"]["PreToolUse"])
+    (env.ch / "codex.config.toml").write_text(text.replace('model_reasoning_effort = "', 'model_reasoning_effort = "x', 1))
+    env.new_stage()
+    env.ok(*flags)                             # no old manifest, yet only stack paths: goes through
+    (env.ch / "codex.config.toml").write_text(
+        text + '\n[[hooks.PreToolUse]]\n[[hooks.PreToolUse.hooks]]\ntype = "command"\ncommand = "mine"\n')
+    env.new_stage()
+    rc, _, err = env.run(*flags)
+    assert rc == 1 and "hooks.PreToolUse[%d]" % n in err and "codex.config.toml" in err, err
+
+
+def test_last_installs_profile_files_never_count_as_foreign(tmp_path):
+    """A live profile file equal (minus hooks.state) to what the last install wrote is the stack's:
+    a run whose options drop some of its tables (--no-mcp, --legacy-sandbox) goes through."""
+    env = Env(tmp_path)
+    env.new_stage()
+    env.ok()
+    env.manifest()                             # the stage now stands for the installed CODEX_HOME
+    env.ok("--no-mcp", "--legacy-sandbox")
+    assert "mcp_servers" not in toml(env.stage / "codex.config.toml")
+    assert "permissions" not in toml(env.stage / "codex-astra.config.toml")
+
+
 def trust(ch, rel, event="pre_tool_use"):
     return {"%s/%s:%s:0:0" % (ch, rel, event): {"trusted_hash": "sha256:" + "b" * 64, "enabled": True}}
 
@@ -419,6 +467,27 @@ def test_hooks_state_carried_into_every_profile_file(tmp_path, ide):
         assert main == {"hooks": {"state": union}}
         assert set(astra["hooks"]) == {"state"}
         assert "state" not in toml(env.stage / "config.toml").get("hooks", {})
+
+
+@pytest.mark.parametrize("ide", [False, True])
+def test_one_files_retrust_of_a_shared_key_keeps_the_owners_record(tmp_path, ide):
+    """U1: both files carry the union, then Codex re-trusts a key in one file only. The record of the
+    file the key names wins (no "differs" stop: the user can always reinstall)."""
+    env = Env(tmp_path)
+    key = "%s/codex.config.toml:pre_tool_use:0:0" % env.ch
+    write_trust(env.ch / "codex.config.toml", {key: {"trusted_hash": "a"}})
+    write_trust(env.ch / "codex-astra.config.toml", {key: {"trusted_hash": "b"}})
+    env.new_stage()
+    env.ok(*(["--ide-default"] if ide else []))
+    for rel in PROFILES:
+        assert toml(env.stage / rel)["hooks"]["state"] == {key: {"trusted_hash": "a"}}, rel
+    # the astra file's own key: its record wins the other way round
+    akey = "%s/codex-astra.config.toml:session_end:0:0" % env.ch
+    write_trust(env.ch / "codex.config.toml", {akey: {"trusted_hash": "a"}})
+    write_trust(env.ch / "codex-astra.config.toml", {akey: {"trusted_hash": "b"}})
+    env.new_stage()
+    env.ok()
+    assert toml(env.stage / "codex.config.toml")["hooks"]["state"] == {akey: {"trusted_hash": "b"}}
 
 
 # ------------------------------------------------------------------------------------- execpolicy

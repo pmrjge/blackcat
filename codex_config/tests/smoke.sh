@@ -118,7 +118,7 @@ check "--ide-default without --yes is refused" test "$RC" != 0
 check "--ide-default refusal says it changes every session" out_has ide-refused 'EVERY Codex session'
 check "--ide-default refusal changes nothing" test "$B2" = "$(SCRATCH_STATE)"
 step ide-on 0 --ide-default --yes
-check "--ide-default: region A written" out_has ide-on 'ide-default'
+check "--ide-default: region A written first" grep -q '^# >>> claude-agent-stack: begin A' <(head -n 1 "$CH/config.toml")
 check "--ide-default: config.toml holds both regions" test "$(grep -c 'claude-agent-stack: \(begin\|end\) [AB]' "$CH/config.toml")" = 4
 step ide-off 0 --no-ide-default --yes
 check "--no-ide-default removes the regions" test -z "$(grep -s 'claude-agent-stack: \(begin\|end\) [AB]' "$CH/config.toml" || true)"
