@@ -25,7 +25,6 @@ INSTALLERS = ("brew", "uv", "npm", "pnpm", "cargo", "go")
 READ_SUBS = ("help", "status", "list", "pending", "manifest", "show", "vet")
 AGENT_SUBS = READ_SUBS + ("install", "upgrade", "uninstall", "request", "run")
 USER_SUBS = READ_SUBS + ("approve", "deny")
-MUTATING_SUBS = ("install", "upgrade", "uninstall", "run")
 HELP_ALIASES = ("-h", "--help")
 
 TICKET_TTL_S = 120            # the guard's ticket for one call: consumed by the executor within this

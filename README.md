@@ -76,6 +76,11 @@ with its reason; installer internals, backups, sandbox and residual risks; and, 
 [§10](CONFIG.md#10-apps-connectors-and-mcp-servers), apps and connectors for your Claude plan, vetted MCP
 servers, documented-only and rejected ones.
 
+A wiki walks through the same material by topic (install, architecture, agents, skills, hooks, security,
+toolsmith, operations and user steps): see the repository's Wiki tab on GitHub. Its pages are not tracked
+here: they are prepared in the git-ignored `github-wiki/` folder, a git repository of its own that is
+pushed to the GitHub wiki, and `tests/wiki_check.py` checks them.
+
 Earlier README revisions (the one before this reorganisation, and the long-form one with installer flags
 in full, the spawn table, sandbox internals and changelog entries) are not shipped; the commits that
 changed them are in the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
@@ -185,7 +190,7 @@ Three kinds of agent, eight levels below the main thread, one policy hook; the d
 | L1 to L7 | Any agent whose `POLICY` row allows the spawn | 3 running children per agent by default, more for coordinators (`STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE`); 128 subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`; Claude Code's default is 20) |
 | L8 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8`) |
 
-BlackCat's own tools, as `blackcat.md` lists them: an `Agent(...)` allowlist of 55 agent types (every
+BlackCat's own tools, as `blackcat.md` lists them: an `Agent(...)` allowlist of 56 agent types (every
 specialist), SendMessage, AskUserQuestion, ExitPlanMode, TaskStop, ListAgents, ToolSearch, Skill,
 Workflow, the Cron and wake-up tools, RemoteTrigger, PushNotification, SendUserFile, and Read. It holds no
 Bash, Write, Edit, WebSearch or WebFetch, and blackcat-guard refuses any other tool call that still
@@ -483,7 +488,7 @@ agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard
 <details>
 <summary>Roster tables: 57 agents by family (model, effort, maxTurns, inline MCP)</summary>
 
-#### Role agents (20)
+#### Role agents (19)
 
 | Agent | Model · effort | maxTurns | Inline MCP | Does |
 |---|---|---|---|---|
@@ -606,7 +611,7 @@ parser):
 | Hub | 28 | A `SKILL.md` with a `## Modules` table naming its modules | ≤ 80 lines |
 | Module | 104 | A skill named in a hub's table; 89 are read by path, 15 listed | ≤ 150 lines, description ≤ 140 chars |
 | Standalone | 88 | Neither hub nor module | ≤ 500 lines |
-| `references/*.md` | 185 files | Detail a skill links to and reads only when needed | must exist where named |
+| `references/*.md` | 182 files | Detail a skill links to and reads only when needed | must exist where named |
 
 - **Listed lazily, not preloaded.** 128 skills (hubs, standalone skills, 15 modules) are listed: 32
   cross-domain entries with their description, 96 by name only (below). Every description starts with
@@ -1122,7 +1127,7 @@ The counts in this README come from the files:
 ```bash
 ls dot-claude/agents/*.md | wc -l                             # 57 agents
 ls dot-claude/skills/*/SKILL.md | wc -l                       # 220 skills
-ls dot-claude/skills/*/references/*.md | wc -l                # 185 references
+ls dot-claude/skills/*/references/*.md | wc -l                # 182 references
 jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 104 hidden: 89 hub modules + 7 bundled + 8 claude.ai
 jq '[.skillOverrides[] | select(. == "name-only")] | length' dot-claude/settings.json   # 96 listed by name only
 jq '.servers | length' dot-claude/magg/config.json            # 23 catalog servers
@@ -1220,12 +1225,12 @@ apply in every mode.
 
 How the mode reaches the agents (Claude Code docs, 2026-10-03):
 
-| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 45 agents that write files (`permissionMode: acceptEdits`) |
+| Session mode | BlackCat and the 10 read-only agents (no `permissionMode`) | The 46 agents that write files (`permissionMode: acceptEdits`) |
 |---|---|---|
 | `plan`, `default`, `dontAsk` | follow it | accept edits without prompts: the agent file wins |
 | `acceptEdits`, `auto`, `bypassPermissions` | follow it | follow it: the session's mode wins |
 
-- The 42 are every agent with Write, Edit or NotebookEdit except BlackCat. The read-only ones are
+- The 46 are every agent with Write, Edit or NotebookEdit except BlackCat (45), plus toolsmith, which changes the machine through `bin/stack-install`. The read-only ones are
   claude-code-guide, code-reviewer, explore, oracle, plan-reviewer, planner, proof-checker, scout,
   security-auditor and verifier.
 - So a switch to Plan or Default does not make a dispatched builder read-only, while a switch to

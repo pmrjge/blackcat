@@ -689,9 +689,7 @@ def test_main_rows_windows_and_session_row(st, tmp_path):
 
 
 def test_hits_and_window_ctx_empty_until_the_guard_files_exist(st, tmp_path):
-    def human(k, pid):
-        return dict(user("prompt", k), promptId=pid)
-    write_main(tmp_path, [human(0, "pid-0"), call("m1", 1), human(10, "pid-1"), call("m2", 11)])
+    two_windows(tmp_path)
     write_agent(subdir(tmp_path), "h1", [user("go", 0), call("h1", 12, tool=False)])
     sub = str(subdir(tmp_path))
     rows, _ = U.scan({"v": 2, "agents": {}}, SID, sub, final=False)

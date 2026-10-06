@@ -131,7 +131,6 @@ VAR_RE = re.compile(r"^(?:(?:turns|soft\.agent|hard\.agent|soft\.prompt)\.[a-z0-
 TYPE_FAMILIES = ("turns", "soft.agent", "hard.agent")
 SCOPE = {"turns": "type", "soft.agent": "type", "hard.agent": "type", "soft.prompt": "prompt",
          "hard.prompt": "prompt", "soft.session": "session", "hard.session": "session"}
-ROW_SCOPE = {"type": "agent", "prompt": "main", "session": "session"}
 QUANTITY = {"turns": "api_calls", "soft.agent": "ctx", "hard.agent": "ctx", "soft.prompt": "window_ctx",
             "hard.prompt": "window_ctx", "soft.session": "ctx", "hard.session": "ctx"}
 # the hit columns of a variable's own kind (limit-hits.jsonl folded into runs2.csv by the collector)

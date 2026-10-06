@@ -96,7 +96,6 @@ from bisect import bisect_left, bisect_right
 from datetime import datetime, timezone
 
 SCHEMA_VERSION = 3
-V1_SCHEMA = 1
 COLUMNS_V1 = ["schema_version", "session", "id", "type", "seg", "status", "api_calls", "ctx", "input", "output",
               "cache_creation", "cache_read", "first_cc", "first_cr", "peak", "prev_peak", "gap_s", "first_ts",
               "last_ts", "wall_s", "compacted", "turn_limited", "after_limit"]
@@ -117,7 +116,6 @@ STRING_COLUMNS = ("session", "id", "type", "status", "parent", "node", "sess_src
                   "stack_commit", "src", "model")      # every other column is a number (or empty)
 REQUIRED_STRINGS = STRING_COLUMNS[:4]         # a row with an invalid one is neither written nor read
 OPTIONAL_STRINGS = STRING_COLUMNS[4:]         # validated; an invalid or unmeasurable value is an empty cell
-KEY = ("session", "id", "seg")
 TOOL_MAP = {"Read": "n_read", "Write": "n_write", "Edit": "n_edit", "MultiEdit": "n_edit",
             "NotebookEdit": "n_notebook", "Bash": "n_bash", "Grep": "n_grep", "Glob": "n_glob", "Agent": "n_agent",
             "Task": "n_agent", "SendMessage": "n_send", "Skill": "n_skill", "ToolSearch": "n_toolsearch",
@@ -1270,9 +1268,6 @@ def read_rows(paths=None, schemas=None, strict=False):
                 if strict:
                     raise Unreadable(p) from exc
     return out
-
-
-read_rows_v2 = read_rows
 
 
 def runs_view(rows, session=None):
