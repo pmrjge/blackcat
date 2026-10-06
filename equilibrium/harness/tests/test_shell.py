@@ -262,6 +262,33 @@ def test_freeze_installs_and_writes_sidecar(staged: dict[str, Path]) -> None:
     assert cp4.returncode == 1 and "already collected" in cp4.stderr
 
 
+@pytest.mark.parametrize("where", ["raw", "root"])
+def test_collect_refuses_destinations_git_does_not_ignore(staged: dict[str, Path], where: str) -> None:
+    """--collect copies transcripts to $R/<stage>/transcripts and inputs to $EQ/runs/<stage>/inputs: either inside a
+    git work tree must be git-ignored there, whatever EQ_RAW / EQ_ROOT say (not only $M/.claude-work)."""
+    env = freeze_env(staged)
+    assert sh([str(HARNESS / "eq_freeze.sh")], env).returncode == 0
+    subprocess.run(["git", "init", "-q", str(staged["m"])], check=True)
+    (staged["m"] / ".gitignore").write_text(".claude-work/\nclaude_next_steps/\n")
+    (staged["eq"] / "runs" / "p").mkdir(parents=True)
+    (staged["eq"] / "runs" / "p" / "ledger.jsonl").write_text("")
+    other = staged["tmp"] / "other"
+    subprocess.run(["git", "init", "-q", str(other)], check=True)
+    if where == "raw":
+        env["EQ_RAW"] = str(other / "out")
+        bad = other / "out" / "p" / "transcripts"
+    else:  # inputs: point EQ_ROOT's runs/ at a tracked place by symlinking it into the other work tree
+        (other / "runs").mkdir()
+        shutil.rmtree(staged["eq"] / "runs")
+        (staged["eq"] / "runs").symlink_to(other / "runs")
+        (other / "runs" / "p").mkdir()
+        (other / "runs" / "p" / "ledger.jsonl").write_text("")
+        bad = staged["eq"] / "runs" / "p" / "inputs"
+    cp = sh([str(HARNESS / "eq_freeze.sh"), "--collect", "p"], env)
+    assert cp.returncode == 1 and f"{bad} is not git-ignored" in cp.stderr, cp.stderr
+    assert not (other / "out").exists()
+
+
 def test_freeze_refuses_a_broken_pool(staged: dict[str, Path]) -> None:
     (staged["stage"] / "items" / "RS" / "manifest.jsonl").write_text("tampered\n")
     cp = sh([str(HARNESS / "eq_freeze.sh")], freeze_env(staged))

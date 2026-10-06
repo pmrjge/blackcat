@@ -32,7 +32,7 @@ first image (`eq-lean:4.34.1-arm64`, ID in `.image.env`) is still accepted throu
 exists. Estimate: minutes when BuildKit's cache holds the earlier stages, up to the 10-40 min of a cold build (RUNBOOK.md step 4). Network: github.com, snapshot.debian.org, the Mathlib cache host.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build.sh --yes
 ```
 
@@ -43,11 +43,11 @@ binary from the pinned Debian snapshot and, with `--write-pin`, writes it into `
 package version, then keep the change). Estimate: a few minutes.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build.sh --resolve-busybox --write-pin
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 grep -n '^BUSYBOX_SHA256=' PINS; grep -n '^ARG BUSYBOX_SHA256=' Dockerfile.minimal
 ```
 The two values must be equal 64-hex strings (build.sh refuses to build when they differ or either is a placeholder: exit 13).
@@ -58,7 +58,7 @@ Builds `eq-lean-min`, `eq-py-min`, `eq-min` (conservative keep profile). Each im
 hash than the full image, on a missing `/bin/sh` or a failing `cp -R`. Estimate: 10-40 min cold; the first stages are shared with section 1's cache.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build-minimal.sh scratch --yes
 ```
 
@@ -68,11 +68,11 @@ Skip unless you want the measurement. Look up the digest (read-only), then put i
 `ARG DISTROLESS_BASE=` line of `Dockerfile.distroless`, and note the date and source next to it in `PINS`; `bash build.sh --check --set dl` compares the two.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 docker buildx imagetools inspect gcr.io/distroless/cc-debian13:nonroot
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build-minimal.sh distroless --yes
 ```
 UNVERIFIED: that `COPY --from=rootfs / /` over the distroless base's own `/bin` and `/lib` works; if it stops there, drop this candidate.
@@ -84,18 +84,18 @@ network (apt installs `strace`; the snapshot host must be reachable). It is a di
 extension) and `opened.txt`. Coverage caveat: a trace shows what THESE answers read; `.ir` files are read lazily, other tactics may read more. Estimate: 5-10 min.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash trace-reads.sh
 ```
 Then build the profiles the trace allows. If `.olean.private` shows 0 files read, build `noprivate`; if `.olean.server` and `.ir.sig` are also unread, `slim` is plausible. Each build adds
 its own records (`min-lean-noprivate`, ...) next to the default ones and its own tags (`...-noprivate`, `...-slim`); `eq-py-min` is unaffected.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build-minimal.sh scratch --keep-profile noprivate --yes
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build-minimal.sh scratch --keep-profile slim --yes
 ```
 
@@ -107,49 +107,49 @@ python checks run too (`EQ_IMAGE` alone names a lean-only candidate). Estimates:
 Baseline first (it also proves the new `/eqsrc/work` design on the Debian image):
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash spike.sh
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash probe.sh
 ```
 FROM-scratch conservative (probe.sh probes the lean image and then the python image):
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-lean-min:4.34.1-arm64 EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 bash spike.sh
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-lean-min:4.34.1-arm64 EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 bash probe.sh
 ```
 Keep-profile candidates (only those built in section 5):
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-lean-min:4.34.1-arm64-noprivate EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 bash spike.sh
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-lean-min:4.34.1-arm64-noprivate EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 bash probe.sh
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-lean-min:4.34.1-arm64-slim EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 bash spike.sh
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-lean-min:4.34.1-arm64-slim EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 bash probe.sh
 ```
 Distroless (only if built in section 4):
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-lean-dl:4.34.1-arm64 EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 bash spike.sh
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-lean-dl:4.34.1-arm64 EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 bash probe.sh
 ```
 A spike FAIL in `import Mathlib` for a keep profile means a module file the check needs was dropped: that profile is out. On a FAIL at the `/work` copy step, see RUNBOOK.md step 5.
@@ -162,7 +162,7 @@ PF-0001 and PF-DEV1 (reference 1, wrong answer 0, identical to the baseline), in
 `eq-py-min`, and reads the spike/probe results of section 6. Estimate: 15-30 min with 4-5 candidates (dominated by the timing rounds and the exports).
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash compare-images.sh --cand scratch-noprivate=eq-lean-min:4.34.1-arm64-noprivate --cand scratch-slim=eq-lean-min:4.34.1-arm64-slim --both-min eq-min:4.34.1-arm64
 ```
 (Leave out the `--cand` options for profiles you did not build. `--runs N`, `--tol PCT`, `--items "PF-0001 PF-DEV1"`, `--time-item`, `--skip-inventory`, `--skip-cp` exist; `-h` prints them.)
@@ -188,7 +188,7 @@ Trial first (two items, about 2 min estimated), with the picked lean image (repl
 and `--stages pf` just states it.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-lean-min:4.34.1-arm64 caffeinate -i bash reverify.sh --only PF-DEV1,PF-0001 --stages pf
 ```
 Then the full run (resumable: after Ctrl-C, a Docker restart or a reboot run the same command; finished items are kept in `.state/reverify-out/pf/`). The lean image serves PF, the python image the CP/CR/ES stages and the `prove_pool.py` runs,
@@ -196,7 +196,7 @@ and the `both` image the PF dev selftest (39 sequential checks); for a keep-prof
 (RUNBOOK.md, "Time estimate": unverified until the trial prints seconds per check).
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-lean-min:4.34.1-arm64 EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 EQ_IMAGE_BOTH=eq-min:4.34.1-arm64 caffeinate -i bash reverify.sh
 ```
 Success: `REVERIFY: PASS`, exit 0 (218/218 references 1, 218/218 wrong answers 0, all equal to `items/PF/oracle/build/final_check.tsv`, the CP/CR/ES selftests, the two `prove_pool.py` proofs and the PF dev selftest pass).
@@ -208,30 +208,30 @@ with the baseline (`bash reverify.sh`, no variables) is what RUNBOOK.md step 7 d
 The harness takes image IDs (or `name@sha256:` digests), never tags. `image.env` lists them; refresh it for the pick (a run with nothing to build only rewrites the summary files). Conservative scratch pick:
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build.sh --set min --yes && grep '^EQ_DOCKER_IMAGE_' .state/image.env
 ```
 Keep-profile pick (example `noprivate`; use the record name `min-lean-noprivate` or `min-lean-slim`):
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_SELECT_LEAN=min-lean-noprivate bash build.sh --set min --keep-profile noprivate --yes && grep '^EQ_DOCKER_IMAGE_' .state/image.env
 ```
 Baseline pick (no candidate eligible):
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_SELECT_LEAN=full EQ_SELECT_PY=full bash build.sh --yes && grep '^EQ_DOCKER_IMAGE_' .state/image.env
 ```
 Then, from the equilibrium directory (the parent of `isolation/`), write the flags with the three IDs printed above (`EQ_DOCKER_IMAGE_PF`, `_CP`, `_CR`; CP and CR use the same python image). This rewrites `harness/flags.json`
 (its `docker_images`) and takes `allowed_tools` from the pools; do it only once the pools are final. Alternative with the same effect: `--docker-images-env isolation/.state/image.env` instead of the three `--docker-image` options.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium
+cd equilibrium
 uv run --script harness/eq_harness.py flags --items items --docker-image PF=<EQ_DOCKER_IMAGE_PF> --docker-image CP=<EQ_DOCKER_IMAGE_CP> --docker-image CR=<EQ_DOCKER_IMAGE_CR>
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium
+cd equilibrium
 uv run --script harness/eq_harness.py isolation-probe
 ```
 `isolation-probe` builds its containers with the harness's own `isolate()` argv (so it probes what the checks really run with) and runs `isolation/probe.sh` with `EQ_IMAGE` = the PF image and `EQ_IMAGE_PY` = the CP image; if CR differs
@@ -253,11 +253,11 @@ no binary was downloaded by that pass, so the first build verifies each hash: a 
 `TOOLS.toml` (and `BUSYBOX_SHA256` into `PINS` and `Dockerfile.minimal`; it replaces section 2's `--resolve-busybox`). Review the printed package versions, then keep the change. Estimate: a few minutes.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build.sh --resolve-tools --write-pin
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash verify-tools.sh --manifest --profiles core
 ```
 Expected: `TOOLS: manifest OK (images: min-both min-py)`. Still pending after this step, by design (nothing is invented): `scala3` (profile `jvm`: no Scala 3 distribution url or checksum was read; pending your Scala decision) and `mongosh`
@@ -272,11 +272,11 @@ selected profiles, the build record, the image ID, the label `eq.tools.sha256` (
 Run it after section 14 (the images must exist):
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash verify-tools.sh --images --deep --inspect --smoke --profiles core
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash verify-tools.sh --images --deep --inspect --smoke --profiles node,rust,go,julia,haskell,jvm,db
 ```
 Add `mongo` to the list only if you decided to accept the SSPL (INSTALLER_SPEC.md 12.5). A STALE row means the manifest changed after the build: rebuild that profile (section 14). UNVERIFIED until it passes: that the scripts' `docker create`/`docker cp` calls work on your
@@ -290,19 +290,19 @@ tool is unpinned. Estimates (not measured): core 10-40 min cold (the Mathlib cac
 `grep -H 'EQ_IMAGE_BYTES\|EQ_BUILD_SECONDS' .state/images/*.env`.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build.sh --profiles core --dry-run
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build.sh --profiles core --yes
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash build.sh --profiles core,node,rust,go,julia,haskell,db --yes
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 grep -H 'EQ_IMAGE_BYTES\|EQ_BUILD_SECONDS\|EQ_TOOLS_SHA256' .state/images/*.env
 ```
 `jvm` needs the Scala 3 values (section 12 lists what is pending) and `mongo` your SSPL decision plus the `mongosh` entry; both stop with exit 13 until then. The images are built locally (nothing is pulled): the digests that are verified are the base image's (PINS), every tool archive's
@@ -314,11 +314,11 @@ The core images have a shell, so section 6's spike and probe apply to them; `pro
 (`host_path_not_inherited`, `path_dirs_readonly`, `path_executables_allowlisted`, `tools_hash_verified`, `tools_mount_readonly`, `no_docker_socket`, `no_home_mount`, `no_default_route`). Every row must PASS.
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-min:4.34.1-arm64 EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 bash spike.sh
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 EQ_IMAGE=eq-min:4.34.1-arm64 EQ_IMAGE_PY=eq-py-min:4.34.1-arm64 bash probe.sh
 ```
 The extension images (`eq-node:arm64`, `eq-rust:arm64`, `eq-go:arm64`, `eq-julia:arm64`, `eq-haskell:arm64`, `eq-jvm:arm64`, `eq-pg:arm64`, `eq-mongo:arm64`) have no shell by design, and `probe.sh`'s main container needs `bash`, so it is not run on them.
@@ -332,24 +332,24 @@ Always start it through `eq-compose.sh`: it verifies the manifest hashes and the
 (held only in that process's environment), and removes the containers and the network when the run ends. `config` validates the compose files and starts nothing:
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash eq-compose.sh config
 ```
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash eq-compose.sh --profiles node,go,db config
 ```
 One language run (the work directory must be an absolute plain directory under a path Docker Desktop shares, not a symlink and not `$HOME`; it is mounted read-only at `/work`):
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 mkdir -p .state/work/compose-demo && printf 'console.log("hello from a read-only, network-less container")\n' > .state/work/compose-demo/hello.js
 bash eq-compose.sh --profiles node --work "$PWD/.state/work/compose-demo" run node /opt/node/bin/node hello.js
 ```
 The database check (PostgreSQL on the internal-only network; the script only opens TCP connections: the database by service name must answer, an outside address must not):
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 mkdir -p .state/work/compose-db && printf 'import socket\nfor h, p in (("pg", 5432), ("1.1.1.1", 443)):\n    s = socket.socket(); s.settimeout(3)\n    try:\n        s.connect((h, p)); print(h, "REACHABLE")\n    except OSError as e:\n        print(h, "unreachable:", e)\n' > .state/work/compose-db/net.py
 bash eq-compose.sh --profiles db --work "$PWD/.state/work/compose-db" run cp-db python3 net.py
 ```
@@ -359,7 +359,7 @@ Expected: `pg REACHABLE` and `1.1.1.1 unreachable`. UNVERIFIED until it prints t
 ## 17. Rollback and cleanup of sections 12-16
 
 ```bash
-cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation
+cd equilibrium/isolation
 bash eq-compose.sh --profiles all,mongo down; bash build.sh --profiles all,mongo --uninstall --yes
 ```
 Images are removed with their records (`--prune-cache` also runs `docker builder prune`, which prunes ALL unused cache of the current builder). `rm -rf .state/work/compose-demo .state/work/compose-db` removes the demo directories. `git checkout TOOLS.toml PINS Dockerfile.minimal` (or your own diff review) undoes section 12's pins.

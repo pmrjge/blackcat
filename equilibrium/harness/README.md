@@ -194,7 +194,7 @@ or WALL only without member sandboxing. It has not been reviewed yet, so it is o
   - Every request, decision and result is in a hash-chained audit log (`EQ_WALL_STATE_DIR`, host-only), copied into
     the ledger as `wall` records.
 - **Enable (USER, before the freeze).** `uv run --script harness/eq_harness.py flags --items items
-  --container-image PF=… --container-image CP=… --container-image CR=… --wall-policy wall/policy.default.toml
+  --container-image PF=… --container-image CP=… --container-image CR=… --wall-policy ../lib/eq-wall/policy.default.toml
   --member-exec sandbox`. This writes `wall` (`config_sha256` + the policy, broker and client sha256) and
   `member_exec`. Then `uv run --script harness/eq_harness.py isolation-probe` from a normal terminal. It runs
   `$EQ_CONTAINER_DIR/probe.d/50-tunnel.sh --inner` in a container built by `isolate()` with the tunnel as its only extra
@@ -219,7 +219,7 @@ or WALL only without member sandboxing. It has not been reviewed yet, so it is o
     check-policy> --tool <name> --verdict pass --review-ref <review> --open-high-critical 0`
   - `uv run --script wall/eq_wall.py consent-add …`
 - **Replay.** After a run: `uv run --script wall/eq_wall.py replay --state $EQ_WALL_STATE_DIR --run-id <wall_run_id>
-  --policy wall/policy.default.toml --verdicts … --consents …` must print `REPLAY OK`.
+  --policy ../lib/eq-wall/policy.default.toml --verdicts … --consents …` must print `REPLAY OK`.
 - **Tests.**
   - `uv run --no-project --with pytest pytest -q -p no:cacheprovider wall/tests`
   - `uv run --script wall/tests/mutations.py` (W01-W52)

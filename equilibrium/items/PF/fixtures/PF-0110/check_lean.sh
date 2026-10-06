@@ -14,7 +14,7 @@
 #     imports plus EqStmt (the replay code of core leanchecker), then checks that the answer's constant <name> has
 #     exactly the pristine statement as its type (alpha-equivalence, else kernel defeq) and that its transitive axioms
 #     are among propext, Classical.choice, Quot.sound.
-# Lean project with Mathlib: $EQ_LEAN_PROJECT (default /Users/pmrj/lean/stack_mathlib, Lean 4.34.1, Mathlib v4.34.1).
+# Lean project with Mathlib: $EQ_LEAN_PROJECT (default $HOME/lean/stack_mathlib, Lean 4.34.1, Mathlib v4.34.1).
 # Time limits: each Lean run gets min($EQ_LEAN_TIMEOUT (default 300), time left before the total deadline
 # $EQ_LEAN_TOTAL seconds (default 540, below the harness kill at 600 s)). Timeout, crash or signal = FAIL.
 # EQ_LEAN_VERBOSE=1 copies the verifier's INFO lines (how the statement matched) to stderr.
@@ -25,7 +25,7 @@ ans=${1:-}
 here=$(cd "$(dirname "$0")" && pwd)
 stmt_file=${2:-$here/statement.txt}
 verifier=$here/EqVerify.lean
-proj=${EQ_LEAN_PROJECT:-/Users/pmrj/lean/stack_mathlib}
+proj=${EQ_LEAN_PROJECT:-${HOME:-}/lean/stack_mathlib}
 tlimit=${EQ_LEAN_TIMEOUT:-300}
 deadline=$(( $(date +%s) + ${EQ_LEAN_TOTAL:-540} ))
 if [ -z "$ans" ] || [ ! -f "$ans" ] || [ ! -f "$stmt_file" ] || [ ! -f "$verifier" ] || [ ! -d "$proj" ]; then

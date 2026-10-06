@@ -28,7 +28,7 @@ unverified. Supersedes the Docker-only draft name (ISOLATION_DOCKER.md).
   `~/.docker/config.json`. The user must run `docker info` (and `docker context use desktop-linux` if needed) in their
   own terminal. The harness must therefore be started from a normal terminal, not from inside an agent sandbox.
 - Not installed (`command -v` empty): podman, colima, orb, container (Apple), tart, limactl, vfkit, utm. Homebrew exists.
-- Lean artefacts on the host (verified): `/Users/pmrj/lean/stack_mathlib` (Lean 4.34.1, Mathlib v4.34.1 rev d13f23b7),
+- Lean artefacts on the host (verified): `$HOME/lean/stack_mathlib` (Lean 4.34.1, Mathlib v4.34.1 rev d13f23b7),
   `.lake` 7.6 GB, of which `.olean` 8930 files = 1.92 GB, `.ilean` 0.29 GB, `.c/.o/.a/.dylib` 0.49 GB, the rest build
   traces/IR; toolchain `~/.elan/toolchains/leanprover--lean4---v4.34.1` 2.7 GB, Mach-O arm64 (useless in Linux).
 

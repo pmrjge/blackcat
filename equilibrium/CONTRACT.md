@@ -1,5 +1,5 @@
 # Item-pool / harness interface contract (L1 coordinator, 2026-10-04; binding for E1-E8)
-STAGE=/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium
+STAGE=equilibrium
 Design: STAGE/PROPOSAL.md; measurement: STAGE/COMPARE_eq.md (wins over PROPOSAL). Classes CLS in {PF, CP, CR, RS, ES, DS, OE}.
 
 ## Per class folder STAGE/items/<CLS>/

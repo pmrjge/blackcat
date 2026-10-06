@@ -8,13 +8,13 @@
 # Mathlib/Batteries/Aesop, no set_option debug.*/bootstrap.*/compiler.*/interpreter.*); (2) the answer compiles as module EqAnswer;
 # (3) a separate module importing EqAnswer elaborates `theorem eq_statement_check : <statement> := <name>`;
 # (4) `#print axioms eq_statement_check` lists only propext, Classical.choice, Quot.sound.
-# Lean project with Mathlib: $EQ_LEAN_PROJECT (default /Users/pmrj/lean/stack_mathlib, Lean 4.34.1, Mathlib v4.34.1).
+# Lean project with Mathlib: $EQ_LEAN_PROJECT (default $HOME/lean/stack_mathlib, Lean 4.34.1, Mathlib v4.34.1).
 # Time limit per Lean run: $EQ_LEAN_TIMEOUT seconds (default 300).
 set -u
 ans=${1:-}
 here=$(cd "$(dirname "$0")" && pwd)
 stmt_file=${2:-$here/statement.txt}
-proj=${EQ_LEAN_PROJECT:-/Users/pmrj/lean/stack_mathlib}
+proj=${EQ_LEAN_PROJECT:-${HOME:-}/lean/stack_mathlib}
 tlimit=${EQ_LEAN_TIMEOUT:-300}
 if [ -z "$ans" ] || [ ! -f "$ans" ] || [ ! -f "$stmt_file" ] || [ ! -d "$proj" ]; then
   echo "usage: check_lean.sh ANSWER.lean [STATEMENT.txt]  (answer, statement or Lean project missing)" >&2

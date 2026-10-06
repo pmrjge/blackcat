@@ -10,8 +10,10 @@ has made a paid call. The tests run `harness/stub_claude` as `claude`.
 This tree is the working tree that lived untracked at `.claude-work/worktrees/eq-t-1005/.claude-work/equilibrium`
 (EQ-T, as of 2026-10-06). It is tracked here with all its features: the harness with the Apple `container` backend (the
 R3 port), the T1b A4 edits, the seven item pools with their oracles, the probes and the derivation scripts with their
-outputs. Absolute paths inside the documents (`/Users/pmrj/...`, `STAGE=`, `DEFAULT_M` in `harness/eq_harness.py`)
-record where the work was done. They are left as written; for runs, use `EQ_ROOT`/`EQ_RAW` or `--eq-root`/`--raw-root`.
+outputs. Paths are relative to the repository root. The former STAGE is `equilibrium`, and the former main checkout M
+is `.`. Where a script needs a path, it derives it from its own location. The one exception is the host Lean project,
+`$HOME/lean/stack_mathlib`, which lies outside the repository. This is amendment A5 in `COMPARE_eq.md`, with the
+per-file record in [`PATH_RELATIVISATION.md`](PATH_RELATIVISATION.md).
 
 ## Layout
 

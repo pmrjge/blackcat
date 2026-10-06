@@ -14,7 +14,8 @@ import hashlib
 import re
 from pathlib import Path
 
-CAMPAIGN = Path("/Users/pmrj/ZDone/claude-agent-stack/claude-local-work/campaign/agents-baseline")
+CAMPAIGN_REL = Path("claude-local-work/campaign/agents-baseline")  # relative to the repository root
+CAMPAIGN = Path(__file__).resolve().parents[4] / CAMPAIGN_REL
 SRC = Path(__file__).resolve().parent / "src"
 INJECTION = re.compile(r"NOTE TO AI ASSISTANTS:.*?system prompt\.", re.S)
 SENSITIVE = re.compile(r"/Users/|@[a-z0-9-]+\.[a-z]{2,}|\b[0-9a-f]{8}-[0-9a-f]{4}-|\ba[0-9a-f]{16}\b|sk-[A-Za-z0-9]{8}")
@@ -53,7 +54,7 @@ def main():
     runs = [r for r in read("runs.csv") if r["kind"] == "prompt"]
     write("runs.csv", runs, ["prompt_id", "is_root", "depth", "agent_type", "model", "turns", "tool_calls",
                              "spawn_count", "child_types", "tokens_total", "final_status", "wall_s"])
-    lines = [f"{hashlib.sha256((CAMPAIGN / n).read_bytes()).hexdigest()}  {CAMPAIGN / n}"
+    lines = [f"{hashlib.sha256((CAMPAIGN / n).read_bytes()).hexdigest()}  {CAMPAIGN_REL / n}"
              for n in ("prompts.csv", "grades.csv", "grades_T8b.csv", "grades_b0v2.csv", "runs.csv")]
     (SRC / "SOURCES.sha256").write_text("\n".join(lines) + "\n")
     print(len(prompts), len(grades), len(runs))

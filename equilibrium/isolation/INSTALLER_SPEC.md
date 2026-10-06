@@ -1,6 +1,6 @@
 # Installer integration spec: `--with-eq-docker`
 
-For the integration agent that works in `M = /Users/pmrj/ZDone/claude-agent-stack` (the stack repo). Everything described here is
+For the integration agent that works in `M = .` (the stack repo). Everything described here is
 staged and tested in `ISO/repo-stage/` (ISO = `.../next-steps-7c1c7f/.claude-work/equilibrium/isolation`). Nothing in M was
 changed by the staging. Conventions were read from `M/install.sh` (option block lines 95-140, `say`/`note`/`would` helpers at 409-411,
 steps `1/11` .. `11/11`, step 10 ends at line 3169 before `say "11/11 Shell profile"`), `M/dot-claude/bin/doctor.sh`

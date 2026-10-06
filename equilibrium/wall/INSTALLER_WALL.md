@@ -1,6 +1,6 @@
 # Installer integration spec: WALL + the ONE tunnel under `--with-eq-docker` (SCOPE X7)
 
-For the integration agent working in the stack repo. M = `/Users/pmrj/ZDone/claude-agent-stack` (work in a worktree).
+For the integration agent working in the stack repo. M = `.` (work in a worktree).
 EQ-T = this staging tree.
 
 This spec extends `EQ-T/isolation/INSTALLER_SPEC.md`: step 10b `eq_docker_step`, the non-clobbering `stack.env`

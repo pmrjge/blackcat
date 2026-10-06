@@ -35,7 +35,7 @@
               "vcs:localdir:context": ".claude-work/equilibrium/isolation",
               "vcs:localdir:dockerfile": ".claude-work/equilibrium/isolation",
               "vcs:revision": "a22c5b4e5aa67d5d3c6bea977eda2de1800bfd5f",
-              "vcs:source": "git@github.com:pmrjge/blackcat_v1.git"
+              "vcs:source": "git@github.com:pmrjge/blackcat.git"
             }
           }
         },

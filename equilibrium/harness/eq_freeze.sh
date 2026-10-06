@@ -14,10 +14,10 @@
 # Exit 0 = done; 1 = refused or failed.
 set -euo pipefail
 
-M=${EQ_M:-/Users/pmrj/ZDone/claude-agent-stack}
+M=${EQ_M:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || { cd "$(dirname "$0")/../.." && pwd; })}
 W=$M/claude_next_steps/work_carried
 EQ=${EQ_ROOT:-$W/equilibrium}
-STAGE=${EQ_STAGE_DIR:-/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium}
+STAGE=${EQ_STAGE_DIR:-$(cd "$(dirname "$0")/.." && pwd)}
 R=${EQ_RAW:-$M/.claude-work/equilibrium/runs}
 H=${EQ_HOME:-$HOME}
 C0=$W/context-diet/arms/c0/inputs
@@ -94,10 +94,14 @@ STATE=$H/.local/state/claude-agent-stack
 [ -f "$EQ/COMPARE_eq.sha256" ] || die "the package is not frozen ($EQ/COMPARE_eq.sha256 missing)"
 [ -f "$LEDGER" ] || die "missing $LEDGER"
 [ ! -e "$IN/FROZEN_AT.txt" ] && [ ! -e "$IN/MANIFEST.sha256" ] || die "already collected: $IN/FROZEN_AT.txt or MANIFEST.sha256 exists"
-if [ -d "$M/.git" ]; then
-  git -C "$M" check-ignore -q ".claude-work/equilibrium/runs/x" || die "$M/.claude-work is not git-ignored: refusing to copy transcripts there"
-else die "$M is not a git checkout"; fi
 T=$R/$ST/transcripts
+# every destination (transcripts, inputs) that lies inside a git work tree must be git-ignored there
+for d in "$T" "$IN"; do
+  p=$(dirname "$d"); while [ ! -d "$p" ]; do p=$(dirname "$p"); done
+  if git -C "$p" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    git -C "$p" check-ignore -q --no-index "${d#"$p"/}/x" || die "$d is not git-ignored: refusing to copy transcripts there"
+  fi
+done
 if [ -d "$T" ] && [ -n "$(ls -A "$T" 2>/dev/null)" ]; then die "$T is not empty: inspect it, then move it aside yourself"; fi
 mkdir -p "$IN/raw" "$T"
 sids=$(jq -r 'select(.record=="call") | .session_id // empty' "$LEDGER" | sort -u)

@@ -70,7 +70,8 @@ STUB_MARKER = b"EQ_STUB_CLAUDE"
 MICRO = 1_000_000
 LEDGER_SCHEMA_VERSION = 1
 
-DEFAULT_M = Path("/Users/pmrj/ZDone/claude-agent-stack")
+DEFAULT_M = next((p for p in Path(__file__).resolve().parents if (p / ".git").exists()),
+                 Path(__file__).resolve().parents[2])  # the checkout holding this script: the repository root
 HERE = Path(__file__).resolve().parent
 
 
@@ -2002,9 +2003,11 @@ def wall_enabled(flags: Mapping[str, Any]) -> bool:
 
 
 def wall_dir_candidates() -> list[Path]:
-    """$EQ_WALL_DIR, then the staging layouts (harness/wall, ../wall) and the repo layout (../lib/eq-wall)."""
+    """$EQ_WALL_DIR, then the stack repo's reviewed copy (../../lib/eq-wall from equilibrium/harness), then the staging
+    layouts (harness/wall, ../wall) and the staging repo layout (../lib/eq-wall)."""
     dirs = [Path(os.environ["EQ_WALL_DIR"])] if os.environ.get("EQ_WALL_DIR") else []
-    return [*dirs, HERE / "wall", HERE.parent / "wall", HERE.parent / "lib" / "eq-wall"]
+    return [*dirs, HERE.parents[1] / "lib" / "eq-wall", HERE / "wall", HERE.parent / "wall",
+            HERE.parent / "lib" / "eq-wall"]
 
 
 def wall_paths() -> tuple[Path, Path]:
@@ -2048,7 +2051,8 @@ class Wall:
                 raise IsolationError(f"flags.json wall.{k} missing or malformed (eq_harness.py flags --wall-policy)")
         found = next((d for d in wall_dir_candidates() if (d / "eq_wall.py").is_file()), None)
         if found is None:
-            raise IsolationError("eq_wall.py not found ($EQ_WALL_DIR, harness/wall, ../wall, ../lib/eq-wall)")
+            raise IsolationError("eq_wall.py not found ($EQ_WALL_DIR, ../../lib/eq-wall, harness/wall, ../wall, "
+                                 "../lib/eq-wall)")
         self.ew = load_wall_module(found / "eq_wall.py", cfg["broker_sha256"])
         self.client_bytes = (found / "eq_wall_client.py").read_bytes()  # checked here, copied into every channel
         if hashlib.sha256(self.client_bytes).hexdigest() != cfg["client_sha256"]:

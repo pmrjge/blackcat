@@ -5,8 +5,8 @@ item; pilot only first; blinded pairwise grading for design and open-ended).** S
 installed or dispatched. The measurement that decides whether any of it ships is pre-registered in `COMPARE_eq.md`
 (same folder); where the two differ, `COMPARE_eq.md` wins.
 
-Paths: `M=/Users/pmrj/ZDone/claude-agent-stack`, `W=$M/claude_next_steps/work_carried`, `EQ=$W/equilibrium` (the frozen
-package, written by the user's freeze step), `STAGE=/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium`
+Paths: `M=.`, `W=$M/claude_next_steps/work_carried`, `EQ=$W/equilibrium` (the frozen
+package, written by the user's freeze step), `STAGE=equilibrium`
 (this draft), `R=$M/.claude-work/equilibrium/runs` (run data and transcripts, git-ignored, mode 0700).
 
 ## 1. Hypothesis

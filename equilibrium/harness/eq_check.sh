@@ -9,7 +9,7 @@
 # .claude/ and .local/state/ are read). `claude` and `pgrep` are taken from PATH.
 set -u
 
-M=${EQ_M:-/Users/pmrj/ZDone/claude-agent-stack}
+M=${EQ_M:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || { cd "$(dirname "$0")/../.." && pwd; })}
 W=$M/claude_next_steps/work_carried
 EQ=${EQ_ROOT:-$W/equilibrium}
 H=${EQ_HOME:-$HOME}

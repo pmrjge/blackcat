@@ -11,7 +11,7 @@ the grader briefs and the item-pool manifests into `$EQ`, and writes their sha25
 in the harness ledger; `shasum -a 256 -c COMPARE_eq.sha256` prints OK at every analysis. Any change after the freeze is
 an amendment: append it to §12 with date and reason, never edit §0-§11, and add a dated `# amended` line to the sidecar.
 
-Paths: `M=/Users/pmrj/ZDone/claude-agent-stack`, `W=$M/claude_next_steps/work_carried`, `EQ=$W/equilibrium`,
+Paths: `M=.`, `W=$M/claude_next_steps/work_carried`, `EQ=$W/equilibrium`,
 `R=$M/.claude-work/equilibrium/runs` (fixture copies, raw JSON, transcript copies; git-ignored, mode 0700/0600).
 
 ## 0. What this builds on, and what it keeps
@@ -465,3 +465,44 @@ n_d = 46. Hence the added "powered effect excluded" reading.
   5. **Effect on the design.** Members can now load skills (more capability, more tokens per call, inside the same
      caps). Tools outside the list, which were previously only unapproved, are now withheld. Arms, caps, families,
      statistics and stop rules are unchanged. Any pilot run made before A4 is not comparable with one made after it.
+- **A5. 2026-10-06, PRE-FREEZE. Path relativisation, pins re-derived, harness fixes from the security review.**
+  Written before `eq_freeze.sh` and before any eq call: no `COMPARE_eq.sha256` sidecar and no `runs/` exist.
+  The USER decided it, relayed by the coordinator. A0-A4 stand. Arms, items, caps, flags, statistics and stop rules
+  are unchanged.
+  1. **2026-10-06 path relativisation.** File bytes changed only in absolute-path references, and the pins were
+     re-derived. The list of files with their old→new digests is in `equilibrium/PATH_RELATIVISATION.md`.
+     - Every reference to the author's home directory is now relative to the repository root that holds
+       `equilibrium/`. The former STAGE is now `equilibrium`, and the former M is now `.`.
+     - The one exception is the host Lean project outside the repository, which is now `$HOME`-relative
+       (`$HOME/lean/stack_mathlib`; in `check_lean.sh` `${HOME:-}`, in `gen/gen_pf.py` `os.path.expanduser`).
+     - Where a script needs a path, it now derives it at run time from its own location:
+       - `harness/eq_check.sh` and `harness/eq_freeze.sh`: M is the git checkout that holds the script, else
+         `../..`, and the staged package is the script's `..`;
+       - `harness/eq_harness.py` `DEFAULT_M`: the nearest ancestor holding `.git`, so a frozen copy under
+         `claude_next_steps/` still finds M;
+       - `items/RS/gen/extract_src.py`: the repository root, four levels up. It now also writes
+         `gen/src/SOURCES.sha256` with paths relative to that root.
+     - `isolation/build-metadata.json` `vcs:source` now names the repository by its current name,
+       `git@github.com:pmrjge/blackcat.git`.
+  2. **Pins.** They were re-derived in the same pass. Every 12-to-64-hex string in the tracked tree was checked: no
+     other file pins a changed file.
+     - `items/PF/pool.sha256`: the 219 `check_lean.sh` entries and `gen/gen_pf.py`. PF was rewritten textually with
+       the same rule and not regenerated, because `gen/gen_pf.py` needs the Lean project. The 218 fixture copies
+       stay byte-identical to `items/PF/check_lean.sh`, which `gen_pf.py` copies.
+     - `items/RS/pool.sha256`: `gen/extract_src.py` and `gen/src/SOURCES.sha256`. RS was regenerated with
+       `gen/gen_rs.py`; the manifest, keys, corpus and selftest files came out byte-identical.
+     - The derivation `.out` files and the dry-run records hold no absolute path, so they are unchanged.
+  3. **Proof.** `tests/test_equilibrium_paths.py` (rules and checker in `tests/equilibrium_paths.py`) does three
+     things:
+     - it reverses each substitution recorded in `equilibrium/PATH_RELATIVISATION.json` and requires every changed
+       file to hash to its old digest, so only path text changed;
+     - it re-runs the forward pass on the result and requires the tracked bytes;
+     - it requires that no file under `equilibrium/` names the old home directory.
+  4. **Also pre-freeze, not path-only: the security review of 2026-10-06.**
+     - `eq_freeze.sh --collect` now refuses a transcripts or inputs destination that lies inside a git work tree and
+       is not ignored there. Before, it checked a fixed `.claude-work` path.
+     - `wall_dir_candidates()` now takes the repository's REVIEW-pinned `lib/eq-wall` before the staging copy
+       `wall/`, and `harness/README.md` freezes `../lib/eq-wall/policy.default.toml`.
+     - The `lib/eq-container` lookup now also searches the repository layout.
+     - Tests: `harness/tests/test_shell.py::test_collect_refuses_destinations_git_does_not_ignore` and
+       `harness/tests/test_repo_layout.py`.

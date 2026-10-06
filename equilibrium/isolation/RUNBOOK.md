@@ -15,7 +15,7 @@ lean-toolchain, StackMathlib sources; `project/SHA256SUMS`), `lib.sh`, `build.sh
 
 ## Steps, in order
 
-1. `cd /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/next-steps-7c1c7f/.claude-work/equilibrium/isolation`
+1. `cd equilibrium/isolation`
 2. `docker info` (you did: Docker Desktop 29.8.1, aarch64, daemon up). If `Server:` is missing: `docker context use desktop-linux`.
    Check Settings > Resources: the virtual disk limit must leave >= 40 GB free (`docker system df` shows current use).
 3. Optional base-digest check: `docker buildx imagetools inspect debian:trixie-slim` and compare the top-level `Digest:` with

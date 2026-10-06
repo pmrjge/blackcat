@@ -9,7 +9,7 @@ residue/modulus, sign or index slip, wrong witness, Fermat misused at p | n, fal
 its index (`oracle/items_meta.jsonl` has it as a Lean Prop). Answer = the complete Lean file.
 
 **Oracle:** `check_lean.sh ANSWER.lean [statement.txt]` (Lean 4.34.1, Mathlib v4.34.1 at `$EQ_LEAN_PROJECT`, default
-`/Users/pmrj/lean/stack_mathlib`), Lean tooling only, no text screening: (1) `EqStmt.lean` = `import Mathlib` +
+`$HOME/lean/stack_mathlib`), Lean tooling only, no text screening: (1) `EqStmt.lean` = `import Mathlib` +
 `def eq_pristine_stmt : Prop := <statement>` from statement.txt alone, compiled concurrently with (2) the answer as
 module EqAnswer; (4) trusted `EqVerify.lean` (`lean --run`) replays the answer's constants through the kernel on its
 imports plus EqStmt (`Kernel.Environment.replay`, leanchecker's code), requires `<name>` declared by the answer with

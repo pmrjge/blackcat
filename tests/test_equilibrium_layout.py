@@ -6,8 +6,9 @@ checks hold before and after a commit and follow .gitignore. The suite fails whe
 - a pool file differs from its pool.sha256 entry, or a pool holds a file its pool.sha256 does not list (README.md and
   proof_report.txt aside);
 - a file is over 1 MiB, except items/RS/manifest.jsonl (2.8 MB, pinned by RS/pool.sha256; git stores it compressed);
-- run outputs, logs or caches would be tracked (runs/ at the top, *.log, __pycache__, .ruff_cache, .pytest_cache,
-  .eq_deps), or a fixture .gitignore would drop (the PF oracle's build/ records, the RS corpus runs/ fixture);
+- run outputs, logs or caches would be tracked (any runs/ but the RS corpus fixture, *.log, __pycache__,
+  .ruff_cache, .pytest_cache, .eq_deps), or a fixture .gitignore would drop (the PF oracle's build/ records, the RS
+  corpus runs/ fixture);
 - a script lost its executable bit.
 The harness's own suite (equilibrium/harness/tests, 443 tests) runs as a separate C10 step (CONFIG.md, C10).
 
@@ -29,6 +30,7 @@ TOP = {
     "derive_numbers.py", "derive_numbers.out", "mediator_numbers.py", "mediator_numbers.out", "r3_check.py",
     "r3_check.out", "refute_check.py", "refute_check.out", "seeds.out", "shift_check.py", "shift_check.out",
     "analysis-r1", "analysis-r2", "harness", "isolation", "items", "proof-check", "wall",
+    "PATH_RELATIVISATION.md", "PATH_RELATIVISATION.json",  # COMPARE_eq.md A5 (tests/equilibrium_paths.py)
 }
 HARNESS = (
     "eq_harness.py", "eq_mediator.py", "eq_analyse.py", "eq_route2.py", "eq_route2.sql", "eq_check.sh",
@@ -42,6 +44,7 @@ EXECUTABLE = (
     "isolation/probe.sh", "isolation/build.sh", "isolation/lib.sh",
     *(f"items/{c}/selftest.sh" for c in ("CP", "CR", "RS", "DS", "OE")),
 )
+RS_RUNS = f"{EQ}/items/RS/fixtures/corpus/runs/"  # a tracked fixture, not run output
 NEVER = ("/__pycache__/", "/.ruff_cache/", "/.pytest_cache/", "/.eq_deps/", "/.DS_Store")
 
 
@@ -54,8 +57,7 @@ def git(*args: str) -> str:
 def files() -> list[str]:
     out = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", EQ)
     found = sorted({p for p in out.split("\0") if p and (ROOT / p).is_file()})
-    if not found:
-        pytest.skip("equilibrium/ is not in this checkout")
+    assert found, "equilibrium/ is missing from this checkout (tracked since bd3a182)"
     return found
 
 
@@ -98,17 +100,19 @@ def test_size_cap(files: list[str]) -> None:
 
 
 def test_no_run_outputs_logs_or_caches(files: list[str]) -> None:
-    bad = [p for p in files if p.startswith(f"{EQ}/runs/") or p.endswith(".log") or any(n in f"/{p}" for n in NEVER)]
+    bad = [p for p in files if ("/runs/" in p and not p.startswith(RS_RUNS)) or p.endswith(".log")
+           or any(n in f"/{p}" for n in NEVER)]
     assert not bad
 
 
 def test_fixtures_the_blanket_ignores_would_drop_are_tracked(files: list[str]) -> None:
     assert {"final_check.tsv", "selftest.out", "verify_results.jsonl"} <= rel(files, f"{EQ}/items/PF/oracle/build/")
-    assert len(rel(files, f"{EQ}/items/RS/fixtures/corpus/runs/")) == 40
+    assert len(rel(files, RS_RUNS)) == 40
 
 
 def test_run_outputs_are_ignored() -> None:
-    for p in (f"{EQ}/runs/p/ledger.jsonl", f"{EQ}/harness/.eq_deps/n1.json", f"{EQ}/isolation/build.log"):
+    for p in (f"{EQ}/runs/p/ledger.jsonl", f"{EQ}/harness/runs/d/ledger.jsonl", f"{EQ}/x/raw/runs/p/a.json",
+              f"{EQ}/harness/.eq_deps/n1.json", f"{EQ}/isolation/build.log"):
         assert subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", "--no-index", p]).returncode == 0, p
     for p in (f"{EQ}/items/PF/oracle/build/selftest.out", f"{EQ}/items/RS/fixtures/corpus/runs/P03.md"):
         assert subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", "--no-index", p]).returncode == 1, p
