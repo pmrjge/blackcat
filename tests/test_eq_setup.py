@@ -327,6 +327,22 @@ def test_upgrade_stops_the_running_service_first(env):
 
 
 @needs_shasum
+def test_failed_upgrade_starts_again_the_service_it_stopped(env):
+    """An upgrade stops the running service first; when the install then fails, the service it stopped runs again (its
+    kernel is there: --disable-kernel-install, nothing downloaded), or the run says it is still stopped."""
+    env.give_cli("1.4.1")
+    p = env.run("--install-container", EQ_FAKE_SUDO_RC="1")
+    calls = env.cli_calls()
+    assert p.returncode == 17 and ("system", "stop") in calls, p.stdout
+    assert calls.index(("system", "stop")) < calls.index(("system", "start", "--disable-kernel-install")), calls
+    assert not env.svc.exists() and "service this run stopped for the upgrade is running again" in p.stdout, p.stdout
+    assert ("system", "start", "--enable-kernel-install") not in calls and env.stub_calls() == []
+    p = env.run("--install-container", EQ_FAKE_SUDO_RC="1", EQ_FAKE_SVC_START_RC="1")
+    assert p.returncode == 17 and env.svc.exists(), p.stdout
+    assert "! the container service this run stopped for the upgrade is still stopped: container system start" in p.stdout
+
+
+@needs_shasum
 def test_newer_or_foreign_cli_is_left_alone(env):
     env.give_cli("1.6.0")
     p = env.run("--setup-container")
@@ -441,6 +457,20 @@ def test_service_start_failure_stops_the_flow(env):
     assert env.stub_calls() == [] and env.kv("setup.env")["EQ_SETUP_STEP"] == "service"
 
 
+@needs_shasum
+def test_the_drivers_own_skip_is_not_relabelled_as_a_step_1_stop(env):
+    """A step 1 that could not run (13) is the outcome only when the driver then skipped for want of a CLI or a running
+    service; with both there, the driver's own skip (here: a due build without consent) is the outcome."""
+    env.give_cli("1.4.1")                                            # older than the pin, at the package path, running
+    set_pins(env.lib, CONTAINER_PKG_SIGNER="UNSET")                  # so step 1 cannot be offered (13)
+    p = env.run(EQ_STUB_BUILD_DUE=0)
+    assert p.returncode == 10 and env.kv("setup.env")["EQ_SETUP_STEP"] == "build", p.stdout
+    assert env.stub_calls()[-1] == "install --profiles core --no-build --no-prompt"
+    env.svc.write_text("")                                           # the service down: the driver skips for want of it
+    p = env.run(EQ_STUB_BUILD_DUE=0)
+    assert p.returncode == 13 and env.kv("setup.env")["EQ_SETUP_STEP"] == "cli", p.stdout
+
+
 # ------------------------------------------------------------------------------------------------- platform and agents
 @needs_shasum
 @pytest.mark.parametrize("knob, want", [({"EQ_FAKE_MACOS": "15.6"}, "macOS 15.6 is older than 26"),
@@ -487,6 +517,19 @@ def test_removal_prints_apples_commands_and_removes_nothing(env):
     assert env.cli.exists() and len(env.calls()) == n                # printed, nothing run
     (env.state / "cli.env").write_text("EQ_CLI_INSTALLED_BY=preexisting\n")
     assert "installed before the stack: left alone" in env.run(cmd="removal").stdout
+
+
+def test_a_refused_state_dir_gets_no_record(env):
+    """A state dir refused as a symlink gets no setup.env written through the link (standalone runs; install.sh refuses
+    such a dir before setup.sh runs)."""
+    env.give_cli()
+    real = env.t / "elsewhere"
+    real.mkdir()
+    link = env.t / "statelink"
+    link.symlink_to(real)
+    p = env.run("--no-prompt", EQ_STATE_DIR=link)
+    assert p.returncode == 10 and "is a symlink or not a directory: refused" in p.stdout, p.stdout
+    assert list(real.iterdir()) == [] and env.stub_calls() == []
 
 
 @pytest.mark.parametrize("args, want", [

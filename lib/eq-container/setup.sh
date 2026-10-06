@@ -23,7 +23,7 @@
 # Exit codes (run): the driver's (0 ok, 10 skipped, 12/15/16 failed, 13 an image pin is a placeholder), except: a failed step
 # 1 or 2 stops the flow (the driver does not run): 14 the package failed a check (size, sha256, signature; nothing installed)
 # | 17 the download or the install failed | 18 the service did not start; a step 1 that could not be offered, when the
-# driver then skips: 13 a CLI pin is a placeholder (nothing downloaded), 2 a malformed one. 2 also for usage errors.
+# driver then skips for want of the CLI or its service: 13 a CLI pin is a placeholder, 2 a malformed one. 2: usage errors.
 set -u
 
 # Absolute paths, never PATH: a sudo, installer, pkgutil or curl planted earlier in PATH never runs, and nothing in the
@@ -203,7 +203,8 @@ show_cli() {
   note "  checks   GitHub's release hosts only (https), then size $PSIZE, sha256 $PSHA and the signer"
   note "           \"$PSIGNER\" (/usr/sbin/pkgutil --check-signature); any difference: nothing is installed"
   if [ "$CLI_ST" = old ] && [ "$SVC" = running ]; then
-    note "  first    $CLI system stop (Apple's rule for an upgrade: the running $CLI_V service stops)"
+    note "  first    $CLI system stop (Apple's rule for an upgrade: the running $CLI_V service stops; if the install then"
+    note "           fails, it is started again with --disable-kernel-install)"
   fi
   note "  runs     /usr/bin/sudo /usr/sbin/installer -pkg <the checked file> -target /   (sudo asks for your password itself)"
   note "  writes   /usr/local/bin/{container,container-apiserver,update-container.sh,uninstall-container.sh} and"
@@ -226,11 +227,12 @@ show_build() {
 }
 
 # ---- step 1: the CLI ------------------------------------------------------------------------------------------------------------
-TMPD=""
+TMPD=""; STOPPED=0   # STOPPED 1: this run stopped the old CLI's running service for an upgrade that has not run yet
 cleanup() { [ -z "$TMPD" ] || rm -rf "$TMPD"; TMPD=""; }
+on_signal() { cleanup; [ "$STOPPED" = 0 ] || note "! the container service this run stopped for the upgrade is still stopped: container system start"; exit "$1"; }
 trap cleanup EXIT
-trap 'cleanup; exit 130' INT
-trap 'cleanup; exit 143' TERM
+trap 'on_signal 130' INT
+trap 'on_signal 143' TERM
 url_host() { # URL: its host when URL is https://HOST/... with a plain lower-case host (no user, no port)
   local r=${1#https://}
   [ "$r" != "$1" ] || return 1
@@ -285,15 +287,17 @@ install_cli() {
   verify_pkg "$f" || { v=$?; cleanup; pin_check_hint; return "$v"; }
   if [ "$CLI_ST" = old ] && [ "$SVC" = running ]; then
     "$CLI" system stop </dev/null || { cleanup; note "! $CLI system stop failed: nothing installed; stop it yourself, then retry"; return 17; }
-    SVC=stopped
+    SVC=stopped; STOPPED=1
   fi
   note "4. /usr/bin/sudo /usr/sbin/installer -pkg $f -target /"
   if ! "$EQS_SUDO" "$EQS_INSTALLER" -pkg "$f" -target /; then
     cleanup
     note "! sudo installer failed; retry: ./install.sh --with-eq-container --install-container (or install the signed package yourself)"
+    restart_old_svc
     return 17
   fi
   cleanup
+  STOPPED=0   # installed: the old service is not started again (the new CLI's service is step 2, with its own consent)
   CLI_V_BEFORE=$CLI_V; INSTALLED=1
   cli_state
   v=$(cli_version "$EQS_CLI")
@@ -304,6 +308,17 @@ install_cli() {
   fi
   note "5. $EQS_CLI --version: $v; receipt $PID: $rv"
   return 0
+}
+# the upgrade failed before the install ran: the service this run stopped runs again (its kernel is there already, so
+# --disable-kernel-install downloads nothing); a failed start is named, never retried
+restart_old_svc() {
+  [ "$STOPPED" = 1 ] || return 0
+  STOPPED=0
+  if "$CLI" system start --disable-kernel-install </dev/null >/dev/null 2>&1 && "$CLI" system status >/dev/null 2>&1 </dev/null; then
+    SVC=running; note "  the container $CLI_V service this run stopped for the upgrade is running again"
+  else
+    note "! the container service this run stopped for the upgrade is still stopped: container system start"
+  fi
 }
 pin_check_hint() {
   note "  check it yourself (no sudo): shasum -a 256 <the .pkg>; /usr/sbin/pkgutil --check-signature <the .pkg>; if Apple"
@@ -392,7 +407,7 @@ cmd_run() {
     prev=$a
   done
   [ -n "$SEL" ] || SEL="profiles core"
-  [ "$DRY" = 1 ] || state_dir || finish 10
+  [ "$DRY" = 1 ] || state_dir || exit 10   # a refused state dir gets no record (finish would write through the link)
   pins_state; cli_state; svc_state; tty_in
 
   # what is there
@@ -536,7 +551,8 @@ cmd_run() {
   fi
   rc=0
   EQ_CONTAINER_BIN=$CLI PATH=$ORIG_PATH "$BASH" "$here/eq-container.sh" "${DRV[@]}" "$bflag" --no-prompt </dev/null || rc=$?
-  if [ "$rc" = 10 ] && [ "$STOP_RC" != 0 ]; then rc=$STOP_RC
+  # a stop of step 1 or 2 is the outcome only when the driver skipped for want of the CLI or its running service
+  if [ "$rc" = 10 ] && [ "$STOP_RC" != 0 ] && ! { cli_usable && [ "$SVC" = running ]; }; then rc=$STOP_RC
   else SETUP_STEP=build; SETUP_WHY=""; [ "$rc" = 0 ] || SETUP_WHY="eq-container exit $rc"; fi
   finish "$rc"
 }
