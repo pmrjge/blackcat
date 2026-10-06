@@ -53,8 +53,9 @@ claude-local-work/
 .playwright-mcp/
 
 # local copy of the GitHub wiki: its own git repository, pushed separately to <repo>.wiki.git
-# (the wiki's source is docs/wiki/, tracked here and copied into that checkout by hand)
 github-wiki/
+# the same wiki checked out under docs/: its own repository, never tracked here (not a submodule)
+docs/wiki/
 
 # --- logs and archives ---
 *.log

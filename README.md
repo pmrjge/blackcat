@@ -77,7 +77,9 @@ with its reason; installer internals, backups, sandbox and residual risks; and, 
 servers, documented-only and rejected ones.
 
 A wiki walks through the same material by topic (install, architecture, agents, skills, hooks, security,
-toolsmith, operations and user steps): [docs/wiki/](docs/wiki/Home.md).
+toolsmith, operations and user steps): see the repository's Wiki tab on GitHub. Its pages are not tracked
+here: they are prepared in the git-ignored `github-wiki/` folder, a git repository of its own that is
+pushed to the GitHub wiki, and `tests/wiki_check.py` checks them.
 
 Earlier README revisions (the one before this reorganisation, and the long-form one with installer flags
 in full, the spawn table, sandbox internals and changelog entries) are not shipped; the commits that
