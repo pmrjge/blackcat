@@ -83,6 +83,7 @@ TAIL_BYTES = 65536
 CHECK_TRAILER = "EQCHECK "
 
 RUN_RE = re.compile(r"[0-9a-f]{8}\Z")
+SESSION_RE = re.compile(r"[A-Za-z0-9_-]{1,128}\Z")
 HEX64_RE = re.compile(r"[0-9a-f]{64}\Z")
 MODEL_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{2,99}\Z")
 TYPE_RE = re.compile(r"[a-z][a-z0-9-]{1,40}\Z")
@@ -645,11 +646,12 @@ def write_json_atomic(path, obj):
 # ---------------------------------------------------------------- the executor's grammar
 def parse_cli(args):
     """stack-eq's argv (without the program) as {"sub", "run", "round", "headless", "consent_file",
-    "args"}; PolicyError otherwise. Grammar:
+    "session", "brief_file", "args"}; PolicyError otherwise. Grammar:
         help
         plan|start|result|cleanup|status --run R
         prepare-check|check-container|reduce --run R --round r       (view: r >= 1)
         start --run R --headless --consent-file /abs/path
+        plan --run R --headless --session S --brief-file /abs/path   (contracts.md 11)
     Every option once, as separate words, in any order; nothing else."""
     if not isinstance(args, (list, tuple)) or not all(isinstance(a, str) for a in args):
         raise PolicyError("argv must be a list of strings")
@@ -659,7 +661,8 @@ def parse_cli(args):
     sub, rest = args[0], args[1:]
     if sub not in CLI_SUBCOMMANDS:
         raise PolicyError("unknown subcommand %r: %s" % (sub[:40], ", ".join(CLI_SUBCOMMANDS)))
-    p = {"sub": sub, "run": None, "round": None, "headless": False, "consent_file": None, "args": list(args)}
+    p = {"sub": sub, "run": None, "round": None, "headless": False, "consent_file": None, "session": None,
+         "brief_file": None, "args": list(args)}
     if sub == "help":
         if rest:
             raise PolicyError("help takes no arguments")
@@ -680,14 +683,20 @@ def parse_cli(args):
                 raise PolicyError("--round needs a round number 0-9")
             p["round"] = int(rest[k + 1])
             k += 2
-        elif w == "--headless" and sub == "start":
+        elif w == "--headless" and sub in ("start", "plan"):
             p["headless"] = True
             k += 1
-        elif w == "--consent-file" and sub == "start":
+        elif (w == "--consent-file" and sub == "start") or (w == "--brief-file" and sub == "plan"):
             v = rest[k + 1] if k + 1 < len(rest) else ""
             if not v.startswith("/") or len(v) > 4096 or any(ch in v for ch in "\0\n\r"):
-                raise PolicyError("--consent-file needs an absolute path")
-            p["consent_file"] = v
+                raise PolicyError("%s needs an absolute path" % w)
+            p["consent_file" if sub == "start" else "brief_file"] = v
+            k += 2
+        elif w == "--session" and sub == "plan":
+            v = rest[k + 1] if k + 1 < len(rest) else ""
+            if not SESSION_RE.match(v):
+                raise PolicyError("--session needs the session id (1-128 of A-Z a-z 0-9 _ -)")
+            p["session"] = v
             k += 2
         else:
             raise PolicyError("unexpected argument %r for %s" % (w[:40], sub))
@@ -697,9 +706,16 @@ def parse_cli(args):
         raise PolicyError("%s needs --round r" % sub)
     if sub == "view" and p["round"] < 1:
         raise PolicyError("view renders reconcile rounds: --round >= 1")
-    if p["headless"] != (p["consent_file"] is not None):
+    if sub == "start" and p["headless"] != (p["consent_file"] is not None):
         raise PolicyError("start --headless needs --consent-file and the reverse")
+    if sub == "plan" and not (p["headless"] == (p["session"] is not None) == (p["brief_file"] is not None)):
+        raise PolicyError("plan --headless needs --session S and --brief-file F, and the reverse")
     return p
+
+
+def headless_run(session):
+    """The run id of a headless E_rt run of session S (contracts.md 11): sha256("S|headless")[:8]."""
+    return hashlib.sha256(("%s|headless" % session).encode("utf-8")).hexdigest()[:8]
 
 
 def parse_check_cli(args):

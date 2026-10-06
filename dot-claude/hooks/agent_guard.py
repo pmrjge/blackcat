@@ -1706,6 +1706,7 @@ def on_agent(ev, d):
     # BlackCat's dispatches are bounded by its step cap alone (BLACKCAT_MAX_DISPATCH was retired
     # 2026-10-04); the dispatch markers stay for the dispatch window, at most one per step
     max_steps = knob_int("BLACKCAT_MAX_STEPS", 24)
+    eqd = None
 
     if policy_on():
         is_blackcat = not aid and parent == "blackcat"
@@ -1720,6 +1721,8 @@ def on_agent(ev, d):
                                         ti.get("subagent_type"))
         if type_why:
             deny(type_why)
+        # the equilibrium rules (their writes wait for step 3)
+        eqd = eq_hook("agent_pre", ev, d, ti) if eq_maybe(ev, d) else None
         why = name_takeover(d, ti)
         if why:
             deny(why)
@@ -1770,6 +1773,8 @@ def on_agent(ev, d):
             rollback()
             raise
     else:
+        # STACK_POLICY=off: the equilibrium rules still hold (they refuse every eq spawn)
+        eqd = eq_hook("agent_pre", ev, d, ti) if eq_maybe(ev, d) else None
         record_name(d, ti, child, caller, tid)
     mode = report_mode()
     brief = ledger_safe(brief_note, ti) if mode != "off" else None
@@ -1799,13 +1804,16 @@ def on_agent(ev, d):
     new_input.update(label)
     if label.get("name"):
         ledger_safe(record_name, d, label, child, caller, tid)
+    if eqd:     # equilibrium: the stored brief (or `eq-run: R`) and the plan's model, written last
+        eq_hook("agent_commit", ev, eqd)
+        new_input.update({k: v for k, v in eqd["patch"].items() if v is not None})
     extra = {"systemMessage": note} if note else {}
     if why:
         emit(dict({"hookSpecificOutput": dict({"hookEventName": "PreToolUse",
                                                "permissionDecision": "allow",
                                                "permissionDecisionReason": "; ".join(why),
                                                "updatedInput": new_input}, **ctx)}, **extra))
-    if label or forced:
+    if label or forced or eqd:
         # silent, and no permissionDecision: the relabelled input goes through the normal
         # permission evaluation (hooks.md, PreToolUse updatedInput), so a label loosens nothing
         emit(dict({"hookSpecificOutput": dict({"hookEventName": "PreToolUse",
@@ -3297,6 +3305,7 @@ def on_send(ev, d):
         deny(STEP_LIMIT_REASON % max_steps)
     target_id, ttype, _ = resolve_target(d, to) if to else (None, None, None)
     by_id = bool(target_id) and reg_get(d, ident(to)) is not None      # not through names/
+    eqs = eq_hook("send_pre", ev, d, ti, target_id) if eq_maybe(ev, d) else None    # equilibrium
     why = user_relay_violation(d, ev, ti, target_id, by_id) \
         or routing_violation(d, ev, to, target_id, by_id) \
         or send_policy_violation(d, ev, target_id, ttype)
@@ -3325,6 +3334,10 @@ def on_send(ev, d):
         rollback()
         raise
     note_relay(ev, d, target_id)
+    if eqs:     # equilibrium: the stored view replaces the token, behind an agent stamp (never USER's)
+        eq_hook("send_commit", ev, eqs)
+        emit({"hookSpecificOutput": {"hookEventName": "PreToolUse",
+                                     "updatedInput": dict(ti, message=eqs["stamp"] + eqs["message"])}})
     stamp_sender(ev, d, ti)
 
 
@@ -3991,6 +4004,8 @@ def on_agent_done(ev, d):
         write_json_atomic(names_path(d, name), {"type": child, "id": child_id,
                                                 "by": ev.get("agent_id") or "main",
                                                 "ts": time.time()})
+    if eq_maybe(ev, d):
+        eq_hook("agent_post", ev, d, child_id, status)
     ledger_safe(ledger_done, d, ev, ti, child, child_id, status, totals)
     if not bg:              # a foreground child is done: the end of its node run (its stop came first)
         dyn_child_end(d, ev, child_id,
@@ -4037,6 +4052,8 @@ def on_subagent_start(ev, d):
             drop()
     else:
         start()
+    if eq_maybe(ev, d):
+        eq_hook("subagent_start", ev, d)
     ledger_safe(ledger_link_start, d, ev, aid)
     started_context(atype, now)
 
@@ -4097,11 +4114,18 @@ def on_subagent_stop(ev, d):
     if not aid:
         return
     atype = norm(ev.get("agent_type"))
+    # equilibrium: a member's reply is captured into the store (never reports/), the leader's checked
+    eq = eq_hook("subagent_stop", ev, d) if eq_maybe(ev, d) else None
+    if eq and eq.get("block"):
+        emit({"decision": "block", "reason": eq["block"]})
+    member = (eq or {}).get("member") or (eq is None and (reg_get(d, aid) or {}).get("eq_role") == "member")
     try:
-        reason = report_stop(ev, d, aid, atype)
+        reason = None if member else report_stop(ev, d, aid, atype)
     except Exception as exc:  # noqa: BLE001 - fail open: no decision, the stop is recorded below
         warn("hand-back check: %s: %s" % (type(exc).__name__, exc))
         reason = None
+    if eq and eq.get("leader"):
+        reason = None           # the leader's reply is stack-eq's result block, checked above
     if reason:
         # compact mode, once per run: the agent keeps running to rewrite its reply, so it is not
         # stopped (its locks, leases and fan-out slot stay); the next SubagentStop records the stop
@@ -4331,6 +4355,8 @@ def on_task_stop(ev, d):
     aid, atype, _ = resolve_target(d, str(target))
     if aid:
         mark_stopped(d, aid, atype, ev=ev)
+    if eq_maybe(ev, d):
+        eq_hook("task_stop_post", ev, d)
 
 
 def on_stop_failure(ev, d):
@@ -4346,6 +4372,8 @@ def on_agent_failed(ev, d):
     fanout_release(d, aid or "main", ev.get("tool_use_id"))
     dyn_spawn_failed(d, ev, aid or "main", ev.get("tool_use_id"))
     ledger_safe(ledger_failed, d, ev)
+    if eq_maybe(ev, d):
+        eq_hook("agent_failed", ev, d)
     if not aid and norm(ev.get("agent_type")) == "blackcat":
         drop_highest_marker(d, "dispatch", prompt_key(ev), knob_int("BLACKCAT_MAX_STEPS", 24))
 
@@ -4462,6 +4490,10 @@ def session_start_bookkeeping(ev, d):
                 shutil.rmtree(p, ignore_errors=True)
         except OSError as exc:
             warn("prune %s: %s" % (p, exc))
+    try:            # equilibrium stores live for their session only (spec 6.4)
+        eq_guard().prune(root, d, now)
+    except Exception as exc:  # noqa: BLE001 - never block a session
+        warn("equilibrium prune: %s: %s" % (type(exc).__name__, exc))
 
 
 # ---------------------------------------------------------------- SessionStart: sandboxed Bash env
@@ -5013,6 +5045,7 @@ def scan_transcript(path, fst, deadline, stats, run_of=None):
                     fst["seg"] = int(fst.get("seg") or 0) + max(tokens, 0)
                     fst["seg_calls"] = int(fst.get("seg_calls") or 0) + 1
     fst["off"], fst["keys"] = off, keys
+    fst["tot"] = int(fst.get("tot") or 0) + added      # this transcript's total (the eq run cap)
     return added
 
 
@@ -5166,7 +5199,9 @@ def budget_gate(ev, d):
         return
     lim = session_limits(ev, d)
     prompt_cap, session_cap = budget_caps(lim)
-    if budgets_off(lim) or budget_exempt(ev):
+    # an equilibrium member: min(type caps, the plan's member caps), and its run's token cap
+    eqcaps = eq_hook("member_caps", ev, d) if ev.get("agent_id") and eq_maybe(ev, d) else None
+    if (budgets_off(lim) and not eqcaps) or budget_exempt(ev):
         return
     note, seg = [], []
     aid = ev.get("agent_id")
@@ -5190,6 +5225,10 @@ def budget_gate(ev, d):
         warn("token budget not checked (%s: %s); the call is allowed" % (type(exc).__name__, exc))
         return
     run = seg[0][2] if seg else None
+    if eqcaps:
+        why = eq_hook("member_run_budget", ev, d, st)
+        if why:
+            deny(why)
     if session_cap > 0 and total >= session_cap:
         note_limit_hit(d, ev, "hard_session", total, session_cap, lim, run)
         deny(budget_reason("Session", "in this session", total, "hard.session", session_cap,
@@ -5209,7 +5248,7 @@ def budget_gate(ev, d):
     if seg:
         atype = norm(ev.get("agent_type")) or "unknown"
         tokens, calls, run = seg[0]
-        cap = lim.typed("hard.agent", atype)
+        cap = eq_min(lim.typed("hard.agent", atype), (eqcaps or {}).get("tokens"))
         if cap and tokens >= cap:
             var = lim.key("hard.agent", atype)
             note_limit_hit(d, ev, "hard_agent", tokens, cap, lim, run)
@@ -5220,7 +5259,7 @@ def budget_gate(ev, d):
                  f"claude-agent-stack: a {atype} reached its per-run token cap ({fmt_int(tokens)} "
                  f"of {fmt_int(cap)} context tokens; {var}, {lim.where(var)}). Limits change only "
                  f"when a session starts ({LIMITS_SHOW}).")
-        turns = lim.typed("turns", atype)
+        turns = eq_min(lim.typed("turns", atype), (eqcaps or {}).get("turns"))
         # the T-th call is allowed (as Claude Code's own maxTurns lets the last turn run): the
         # gate refuses from call T + 1, a call the frontmatter ceiling may still allow
         if turns and calls > turns:
@@ -5554,6 +5593,8 @@ def budget_main(raw):
     why = generic_agent_reason(ev)
     if why:
         deny(why)
+    if eq_maybe(ev):            # the equilibrium tool allowlists and member paths: fail closed
+        eq_hook("pre_tool", ev, sdir(ev.get("session_id")))
     if pre_handler(canonical_tool(ev.get("tool_name"))) is not None:
         return 0
     if ev.get("agent_id"):
@@ -6435,7 +6476,10 @@ PROTECT_ALL_ARGS = {"rm", "unlink", "rmdir", "shred", "truncate", "ln", "chmod",
 # if settings.json lost its deny rules (installed copies only; see protect_specs)
 PROTECTED_CONFIG = ("hooks", "bin", "settings.json", "agents", "rules", "mcp", "magg", "skills",
                     "stack-plugins", "plugins", "CLAUDE.md", "backup-*", "stack.env", ".stack-manifest.json",
-                    ".credentials.json")
+                    ".credentials.json",
+                    # the equilibrium runtime's executor, rules and calibration pin (spec 6.4), named on
+                    # their own should hooks/ or bin/ ever leave this list
+                    "bin/stack-eq*", "hooks/eq_*.py", "hooks/eq_*.json")
 # inline interpreter code (python -c, node -e, a heredoc into python -) that changes a file
 MUTATE_CODE_RE = re.compile(
     r"\b(?:remove|removedirs|unlink|unlinkSync|rmtree|rmdir|rmdirSync|rmSync|rename|renames|"
@@ -11466,6 +11510,88 @@ def toolsmith_gate(ev, command, tool):
     return None
 
 
+# ---------------------------------------------------------------- equilibrium: the eq rules
+# hooks/eq_guard.py (beside this file, loaded once like toolsmith_policy.py) holds the runtime
+# Equilibrium's rules (docs-design/RUNTIME_EQUILIBRIUM.md 2.3, 6.1, 8.2, 8.3); the call sites only route
+# events to it. eq_maybe() keeps every other call free of the import. For a call it flags, a module
+# that cannot load or a rule that raises denies (PreToolUse) or warns (other events): fail closed.
+# EQ_TYPES: the leader types (bin/stack-eq through Bash alone, like INSTALLER_TYPES; tests/lint_agents).
+EQ_TYPES = frozenset(("equilibrium",))
+EQ_FAIL_REASON = ("Blocked by the stack's equilibrium rules: they could not be checked (%s); nothing "
+                  "was done. Report it as STATUS: blocked with the error.")
+_EQ_GUARD = []
+
+
+def eq_guard():
+    """hooks/eq_guard.py beside this file, loaded once and bound to this module; raises when it cannot
+    be loaded (eq_hook fails closed)."""
+    if not _EQ_GUARD:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location("eq_guard", os.path.join(_HOOKS_DIR, "eq_guard.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        mod.bind(sys.modules[__name__])
+        _EQ_GUARD.append(mod)
+    return _EQ_GUARD[0]
+
+
+def eq_maybe(ev, d=None):
+    """True when a call may concern an equilibrium run (no module load): an equilibrium caller or
+    child, a session that has eq runs, a command naming stack-eq, a text naming an eq token."""
+    try:
+        if norm(ev.get("agent_type")) in EQ_TYPES:
+            return True
+        ti = ev.get("tool_input") if isinstance(ev.get("tool_input"), dict) else {}
+        tool = canonical_tool(ev.get("tool_name"))
+        if tool == "Agent" and norm(ti.get("subagent_type")) in EQ_TYPES:
+            return True
+        text = ti.get({"Agent": "prompt", "SendMessage": "message"}.get(tool, "command"))
+        if any("stack-eq" in s or "eq:" in s for s in strings_in(text)):
+            return True
+        base = d or os.path.join(state_root(), safe(ev.get("session_id"), "nosession"))
+        return os.path.isdir(os.path.join(base, "eq"))
+    except Exception:  # noqa: BLE001 - let the rules decide
+        return True
+
+
+def eq_hook(fn, ev, *args):
+    """eq_guard.<fn>(ev, *args); a load failure or an error denies a PreToolUse call, else warns."""
+    try:
+        return getattr(eq_guard(), fn)(ev, *args)
+    except SystemExit:
+        raise
+    except Exception as exc:  # noqa: BLE001
+        if ev.get("hook_event_name") == "PreToolUse":
+            deny(EQ_FAIL_REASON % ("%s: %s" % (type(exc).__name__, exc))[:200])
+        warn("equilibrium %s: %s: %s" % (fn, type(exc).__name__, exc))
+        return None
+
+
+def eq_min(a, b):
+    """The smaller of two positive caps (None/0 = none)."""
+    vals = [v for v in (a, b) if isinstance(v, int) and not isinstance(v, bool) and v > 0]
+    return min(vals) if vals else a
+
+
+def eq_self_test():
+    try:
+        return eq_guard().self_test()
+    except Exception as exc:  # noqa: BLE001
+        return ["eq_guard.py not loadable (%s: %s)" % (type(exc).__name__, exc)]
+
+
+def on_bash_done(ev, d):
+    """PostToolUse / PostToolUseFailure Bash: the verdict of an equilibrium leader's stack-eq-check."""
+    if eq_maybe(ev, d):
+        eq_hook("bash_post", ev, d)
+
+
+def on_ask_done(ev, d):
+    """Main-thread PostToolUse AskUserQuestion: the equilibrium consent record (E4)."""
+    if not ev.get("agent_id") and "eq:" in json.dumps([ev.get("tool_response"), ev.get("tool_input")]):
+        eq_hook("ask_post", ev, d)
+
+
 def no_push_main(raw):
     try:
         ev = json.loads(raw)
@@ -11517,6 +11643,8 @@ def no_push_main(raw):
                else None)
     if why:
         deny(why)
+    if eq_maybe(ev):                          # the equilibrium rules: absolute, fail closed
+        eq_hook("bash_pre", ev, command, tool)
     agent_type = norm(ev.get("agent_type"))
     if (agent_type in BROWSER_SPAWNERS and agent_type != "blackcat" and policy_on()
             and isinstance(command, str)):            # T1; blackcat-guard covers BlackCat
@@ -11542,7 +11670,8 @@ def print_policy():
     sys.stdout.write(json.dumps({"policy": POLICY, "leaves": LEAVES, "agents": AGENTS,
                                  "builtins": BUILTINS,
                                  "blackcat_tools": sorted(BLACKCAT_TOOLS),
-                                 "installer_types": sorted(INSTALLER_TYPES)}) + "\n")
+                                 "installer_types": sorted(INSTALLER_TYPES),
+                                 "eq_types": sorted(EQ_TYPES)}) + "\n")
     return 0
 
 
@@ -11634,6 +11763,7 @@ def self_test():
         if blackcat_web_command(_cmd) != _want:
             problems.append("blackcat web-command check misjudges %r" % _cmd[:60])
     problems += toolsmith_self_test()
+    problems += eq_self_test()
     browsers = {p for p, row in POLICY.items() if "browser-operator" in row}
     if browsers != BROWSER_SPAWNERS:
         problems.append("only %s may list browser-operator, not %s"
@@ -12254,6 +12384,9 @@ HANDLERS = {
     ("PreToolUse", "SendMessage"): on_send,
     ("PostToolUse", "Agent"): on_agent_done,
     ("PostToolUse", "TaskStop"): on_task_stop,
+    ("PostToolUse", "Bash"): on_bash_done,              # equilibrium check verdicts
+    ("PostToolUseFailure", "Bash"): on_bash_done,
+    ("PostToolUse", "AskUserQuestion"): on_ask_done,    # equilibrium consent records
     ("PostToolUseFailure", "Agent"): on_agent_failed,
     ("PermissionDenied", "Agent"): on_agent_failed,
 }
