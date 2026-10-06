@@ -43,8 +43,9 @@ def test_astra_copy_is_independent():
 def test_ide_overlay_holds_only_the_six_entries():
     out = rp.build(parts(hooks_state=TRUST), {"ide_default": True})
     ov = out["codex_astra_ide"]
-    assert ov == {"agents": {n: {"config_file": "%s/agents-astra/%s.toml" % (STACK, n)} for n in ASTRA}}
-    assert "hooks" not in ov
+    assert ov == {"agents": {n: {"config_file": "%s/agents-astra/%s.toml" % (STACK, n)} for n in ASTRA},
+                  "hooks": {"state": TRUST}}      # the carried-over trust only (U1), no handler
+    assert rp.build(parts(), {"ide_default": True})["codex_astra_ide"] == {"agents": ov["agents"]}
 
 
 @pytest.mark.parametrize("ide", [False, True])

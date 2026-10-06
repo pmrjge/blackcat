@@ -61,5 +61,19 @@
   "new": "    if False:\n        raise BuildError(\"untranslatable",
   "tests": "codex_config/tests/test_convert_agents.py::test_untranslatable_text_fails_with_file_and_line",
   "why": "translate problems ignored"
+ },
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "    rows = USER_SCOPE + ((WANDB,) if with_wandb else ())\n",
+  "new": "    rows = USER_SCOPE + (WANDB,)\n",
+  "tests": "codex_config/tests/test_convert_agents.py::test_user_scope_servers",
+  "why": "wandb emitted without with_wandb"
+ },
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "        if keyed:\n",
+  "new": "        if keyed and sid == \"exa\":\n",
+  "tests": "codex_config/tests/test_convert_agents.py::test_user_scope_servers",
+  "why": "a keyed user-scope server loses its http_headers_helper"
  }
 ]

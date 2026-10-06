@@ -75,5 +75,19 @@
   "new": "    if p[\"hooks_state\"]:\n",
   "tests": "codex_config/tests/test_render_profile.py::test_ide_union_of_regions_is_the_profile",
   "why": "ide mode keeps hooks.state in the reference profile"
+ },
+ {
+  "file": "codex_config/lib/render_profile.py",
+  "old": "        codex_ide = IDE_PROFILE_TEXT + (\"\\n\" + _toml.dumps(state) if state else \"\")\n",
+  "new": "        codex_ide = IDE_PROFILE_TEXT\n",
+  "tests": "codex_config/tests/test_render_profile.py::test_ide_profile_files_carry_the_hooks_state",
+  "why": "the ide-mode codex profile text drops the carried-over hooks.state (U1)"
+ },
+ {
+  "file": "codex_config/lib/render_profile.py",
+  "old": "                codex_astra_ide[\"hooks\"] = copy.deepcopy(state[\"hooks\"])\n",
+  "new": "                pass\n",
+  "tests": "codex_config/tests/test_astra_profile.py::test_ide_overlay_holds_only_the_six_entries",
+  "why": "the ide-mode codex-astra overlay drops the carried-over hooks.state (U1)"
  }
 ]

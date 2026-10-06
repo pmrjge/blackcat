@@ -5,6 +5,7 @@ Stdlib only, Python >= 3.11 (tomllib). DESIGN.md §2, §2.1, §8.1; INTERFACES.m
     load_models(path=None) -> dict            models.toml, validated (validate_models)
     codex_effort(alias, effort, models) -> str   the stack's effort on a tier -> the Codex effort
     convert(src, ctx, models, rules_text=None, blackcat_text=None) -> dict
+    user_scope_servers(ctx, with_wandb) -> {id: table}   exa, jina, wolfram, huggingface (+ wandb)
 
 `src` is the snapshot root (holds dot-claude/). `ctx` needs `codex_home` and `stack`
 (= `<codex_home>/stack`, both absolute); `home`, `uv`, `uvx`, `npx`, `node`, `magg`, `huetension`,
@@ -63,7 +64,12 @@ ported as the guard) are dropped and reported; any other key stops the build.
 Seeded-bug proofs (tests/mutations/convert_agents.json, models.json; each turns its named test red):
 drop the Luna +1; apply the +1 to Sol; cap Luna at xhigh; start the scale at none (models.toml);
 add a seventh Astra agent (models.toml); read the opus column instead of fable; flip readonly in the
-policy; let an MCP conflict pass.
+policy; let an MCP conflict pass; emit wandb from user_scope_servers without with_wandb; drop the
+headers helper from a keyed user-scope server.
+
+User-scope servers: convert()'s mcp_servers holds the agents' frontmatter servers only; the HTTP
+servers the Claude installer registers at user scope come from user_scope_servers(), which render.py
+merges in (the same id twice stops the render).
 """
 from __future__ import annotations
 
@@ -74,7 +80,8 @@ import re
 import tomllib
 
 __all__ = ["BuildError", "load_models", "validate_models", "codex_effort", "convert", "role_name",
-           "parse_frontmatter", "MODELS_TOML", "WEB_INGESTING", "BUILTIN_TYPES"]
+           "parse_frontmatter", "user_scope_servers", "MODELS_TOML", "WEB_INGESTING", "BUILTIN_TYPES",
+           "EXA_URL", "USER_SCOPE"]
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
 CODEX_CONFIG = os.path.dirname(_HERE)
@@ -543,6 +550,38 @@ def _mcp_table(sid, spec, ctx, where):
     else:
         raise BuildError("%s: unmapped transport type %r" % (w, typ))
     return table, [k for k in MCP_DROPPED if k in spec]
+
+
+# The user-scope HTTP servers the Claude installer registers (install.sh: EXA_URL and its `rows`;
+# wandb only when WANDB_API_KEY is set). (id, url, has a key header). Pinned to install.sh by
+# tests/test_convert_agents.py::test_user_scope_servers_match_install_sh.
+EXA_URL = "https://mcp.exa.ai/mcp?tools=web_search_exa,web_fetch_exa,web_search_advanced_exa"
+USER_SCOPE = (
+    ("exa", EXA_URL, True),
+    ("jina", "https://mcp.jina.ai/v1?exclude_tools=search_jina_blog", True),
+    ("wolfram", "https://agenttools.wolfram.com/mcp", False),
+    ("huggingface", "https://huggingface.co/mcp", True),
+)
+WANDB = ("wandb", "https://mcp.withwandb.com/mcp", True)
+
+
+def user_scope_servers(ctx: dict, with_wandb: bool) -> dict:
+    """{id: [mcp_servers.<id>] table} for the user-scope HTTP servers (INTERFACES §3 B): url, plus
+    http_headers_helper = "<codex_home>/stack/bin/codex-mcp-headers <id>" where the server takes a
+    key. wandb only when with_wandb (it has no anonymous access)."""
+    _check_ctx(ctx)
+    if not isinstance(with_wandb, bool):
+        raise BuildError("with_wandb must be a bool, got %r" % (with_wandb,))
+    helper = ctx["codex_home"].rstrip("/") + "/stack/bin/codex-mcp-headers"
+    if not _SAFE_PATH.match(helper):
+        raise BuildError("CODEX_HOME %r holds characters unsafe in a helper command" % ctx["codex_home"])
+    rows = USER_SCOPE + ((WANDB,) if with_wandb else ())
+    out = {}
+    for sid, url, keyed in rows:
+        out[sid] = {"url": url}
+        if keyed:
+            out[sid]["http_headers_helper"] = "%s %s" % (helper, sid)
+    return out
 
 
 # ---------------------------------------------------------------- convert

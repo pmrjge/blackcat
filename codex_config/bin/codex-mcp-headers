@@ -14,10 +14,13 @@ this script, i.e. <CODEX_HOME>/stack.env), then the process environment; for hug
 ~/.cache/huggingface/token), as the original does. No key -> {} (the server runs anonymously, or
 fails to authenticate). An unknown <server-id> exits 2.
 
-Fails closed (stderr reason, exit 1, nothing on stdout) when stack.env is a symlink, not a regular
-file, not owned by the caller, or readable or writable by group or others (chmod 600 fixes it), or
-not UTF-8: a key file anyone else can edit could steer the headers. The original reads it without
-these checks. A missing stack.env is no error (no keys).
+Fails closed (stderr reason, exit 1, nothing on stdout) when stack.env is not a regular file, not
+owned by the caller, or readable or writable by group or others (chmod 600 fixes it), or not UTF-8:
+a key file anyone else can edit could steer the headers. A symlinked stack.env (a dotfiles link: the
+installer writes stack.env through links, WRITE_THROUGH) is followed, and the file it resolves to
+must pass the same checks (they run on the opened descriptor, so they hold for the bytes read); a
+dangling link is refused. The original reads it without these checks. A missing stack.env is no
+error (no keys).
 
 Unlike the original, a server id on the command line is NOT redacted: that is how Codex invokes the
 helper. Pass --redact to look at the output by hand without exposing the key.
@@ -30,8 +33,10 @@ like Claude Code's headersHelper). This prints Claude Code's format. Probe line 
        with EXA_API_KEY in stack.env; `codex --profile codex` lists exa's tools and a call succeeds ->
        Codex accepts a JSON object on stdout; a 401 or a helper error -> the format differs.
 
-Seeded-bug proof (tests/mutations/codex_mcp_headers.json; turns tests/test_convert_agents.py red):
-print every key of stack.env instead of the one header.
+Seeded-bug proofs (tests/mutations/codex_mcp_headers.json; each turns tests/test_convert_agents.py
+red): print every key of stack.env instead of the one header; read a group/other-readable file;
+read a symlink's group-readable target; treat a dangling link as no file; read a symlink to a
+directory.
 """
 import errno
 import json
@@ -60,25 +65,42 @@ def default_env_file():
     return os.path.join(os.path.dirname(os.path.dirname(here)), "stack.env")
 
 
+def _open_link(path):
+    """An fd on the file a symlinked stack.env resolves to (the checks then run on that fd, so they
+    hold for the bytes read). A dangling link or an unreadable target is refused."""
+    try:
+        return os.open(path, os.O_RDONLY | getattr(os, "O_NONBLOCK", 0))
+    except FileNotFoundError:
+        raise Refused("%s is a dangling symlink" % path)
+    except OSError as exc:
+        raise Refused("%s (a symlink): %s" % (path, exc.strerror))
+
+
 def read_text_checked(path):
-    """stack.env's text, or None when it does not exist. Raises Refused on a symlink, a non-regular
-    file, another owner, a group/other mode bit, or text that is not UTF-8."""
+    """stack.env's text, or None when it does not exist. A symlink (a dotfiles link: stack.env is
+    WRITE_THROUGH) is followed and its target checked like the file itself. Raises Refused on a
+    dangling link, a non-regular file, another owner, a group/other mode bit, or text that is not
+    UTF-8."""
+    what = path
     try:
         fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | getattr(os, "O_NONBLOCK", 0))
     except FileNotFoundError:
         return None
     except OSError as exc:
         if exc.errno == errno.ELOOP or os.path.islink(path):
-            raise Refused("%s is a symlink; refusing to read keys through it" % path)
-        raise Refused("%s: %s" % (path, exc.strerror))
+            fd = _open_link(path)
+            what = "%s (a symlink to %s)" % (path, os.path.realpath(path))
+        else:
+            raise Refused("%s: %s" % (path, exc.strerror))
     try:
         st = os.fstat(fd)
         if not stat.S_ISREG(st.st_mode):
-            raise Refused("%s is not a regular file" % path)
+            raise Refused("%s is not a regular file" % what)
         if st.st_uid != os.getuid():
-            raise Refused("%s is not owned by you" % path)
+            raise Refused("%s is not owned by you" % what)
         if st.st_mode & 0o077:
-            raise Refused("%s has mode %04o; run: chmod 600 %s" % (path, stat.S_IMODE(st.st_mode), path))
+            raise Refused("%s has mode %04o; run: chmod 600 %s" % (what, stat.S_IMODE(st.st_mode),
+                                                                   os.path.realpath(path)))
         chunks = []
         while True:
             b = os.read(fd, 65536)

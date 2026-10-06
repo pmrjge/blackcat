@@ -232,9 +232,21 @@ def test_ide_regions_split_root_keys_and_tables():
 def test_ide_union_of_regions_is_the_profile():
     out = build({"ide_default": True}, hooks_state=TRUST)
     assert cr.merge(out["region_a"], out["region_b"]) == out["codex"]
-    assert tomllib.loads(out["codex_ide"]) == {}
-    assert out["codex_ide"].strip() and all(
-        ln.startswith("#") for ln in out["codex_ide"].splitlines() if ln.strip())
+    assert tomllib.loads(out["codex_ide"]) == {"hooks": {"state": TRUST}}
+    assert out["codex_ide"].startswith(rp.IDE_PROFILE_TEXT)
+    head = out["codex_ide"].split("\n[", 1)[0]
+    assert all(ln.startswith("#") for ln in head.splitlines() if ln.strip())
+
+
+def test_ide_profile_files_carry_the_hooks_state():
+    """U1: Codex may write /hooks trust into the active profile file, so the comment-only codex
+    profile and the codex-astra overlay keep the carried-over [hooks.state] (and nothing else)."""
+    out = build({"ide_default": True}, hooks_state=TRUST)
+    assert tomllib.loads(out["codex_ide"]) == {"hooks": {"state": TRUST}}
+    assert out["codex_astra_ide"]["hooks"] == {"state": TRUST}
+    empty = build({"ide_default": True})
+    assert empty["codex_ide"] == rp.IDE_PROFILE_TEXT and tomllib.loads(empty["codex_ide"]) == {}
+    assert set(empty["codex_astra_ide"]) == {"agents"}
 
 
 def test_regions_without_ide_default_are_the_profile_minus_its_state():
@@ -246,10 +258,12 @@ def test_regions_without_ide_default_are_the_profile_minus_its_state():
 
 
 def test_ide_no_profile_carries_hooks():
-    out = build({"ide_default": True}, hooks_state=TRUST)
-    assert "hooks" not in tomllib.loads(out["codex_ide"])
-    assert "hooks" not in out["codex_astra_ide"]
-    assert set(out["codex_astra_ide"]) == {"agents"}
+    """No written profile file holds a hook handler under ide_default (only the trust records)."""
+    for state in ({}, TRUST):
+        out = build({"ide_default": True}, hooks_state=state)
+        assert set(tomllib.loads(out["codex_ide"]).get("hooks", {})) <= {"state"}
+        assert set(out["codex_astra_ide"].get("hooks", {})) <= {"state"}
+        assert set(out["codex_astra_ide"]) <= {"agents", "hooks"}
 
 
 @pytest.mark.parametrize("user", [b"", b'model_provider = "openai"\n',
