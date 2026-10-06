@@ -281,3 +281,12 @@ def test_headers_usage_and_missing_file(scratch_home):
     assert run_headers(scratch_home).returncode == 2
     r = run_headers(scratch_home, "exa", env_file=scratch_home["codex_home"] / "absent.env")
     assert r.returncode == 0 and json.loads(r.stdout) == {}
+
+
+def test_skill_modules_classified_from_the_source_when_ctx_lacks_them(tmp_path):
+    """Six bodies name `__CLAUDE_DIR__/skills/<x>`: without ctx["skill_modules"] convert() classifies
+    the snapshot's skills itself (convert_skills.classify), never guessing skills/ vs skill-modules/."""
+    ctx = ctx_for(tmp_path)
+    del ctx["skill_modules"]
+    out = ca.convert(str(REPO), ctx, models())
+    assert ctx["stack"] + "/skills/linux-workstation" in out["roles"]["cuda-engineer"]["developer_instructions"]

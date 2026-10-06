@@ -563,6 +563,14 @@ def convert(src: str, ctx: dict, models: dict, rules_text: str | None = None,
             blackcat_text: str | None = None) -> dict:
     _check_ctx(ctx)
     validate_models(models)
+    if "skill_modules" not in ctx:
+        # translate needs the hub-module names to place `__CLAUDE_DIR__/skills/<x>` paths
+        # (skills/ vs skill-modules/); the classification is convert_skills', never a guess.
+        cs = _load("codex_config_convert_skills_for_agents", os.path.join(_HERE, "convert_skills.py"))
+        try:
+            ctx = dict(ctx, skill_modules=frozenset(cs.classify(src)["modules"]))
+        except cs.BuildError as exc:
+            raise BuildError(str(exc)) from None
     style = models["roles"]["name_style"]
     codex_home = ctx["codex_home"].rstrip("/")
     adir = os.path.join(src, "dot-claude", "agents")

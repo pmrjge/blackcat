@@ -17,6 +17,8 @@ from pathlib import Path
 from conftest import CODEX_CONFIG, REPO, VENDOR, load_lib
 
 ca = load_lib("convert_agents")
+# Hub-module names for translate (the full-repo classification; scratch sources carry no skills/).
+SKILL_MODULES = frozenset(load_lib("convert_skills").classify(str(REPO))["modules"])
 AGENTS_DIR = REPO / "dot-claude" / "agents"
 EFFORT_JSON = REPO / "dot-claude" / "hooks" / "agent_effort.json"
 AGENT_GUARD = REPO / "dot-claude" / "hooks" / "agent_guard.py"
@@ -35,7 +37,8 @@ def ctx_for(root: Path) -> dict:
     return {"codex_home": str(ch), "home": str(home), "stack": str(ch / "stack"),
             "state_dir": str(home / ".local" / "state" / "codex-agent-stack"), "profile_name": "codex",
             "uv": str(home / ".local" / "bin" / "uv"), "skills_root": str(home / ".agents" / "skills"),
-            "npx": "/opt/node/bin/npx", "stack_repo": "/r"}
+            "npx": "/opt/node/bin/npx", "stack_repo": "/r",
+            "skill_modules": SKILL_MODULES}
 
 
 def models(**edits) -> dict:
