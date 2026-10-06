@@ -1,0 +1,58 @@
+[
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "_FILES = (\"codex.config.toml\", \"codex-astra.config.toml\", \"config.toml\", ",
+  "new": "_FILES = (\"codex.config.toml\", \"codex-astra.config.toml\", ",
+  "tests": "codex_config/tests/test_codex_state.py",
+  "why": "leave config.toml out of SCOPE_FILES"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "    if not touches or force_config:\n        return\n",
+  "new": "    return\n",
+  "tests": "codex_config/tests/test_codex_state.py",
+  "why": "skip the --force-config check"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "return ist.restore(c, bdir, root, work, commit, home, dry, force)",
+  "new": "return ist.restore(c, bdir, root, work, commit, home, dry, force or force_config)",
+  "tests": "codex_config/tests/test_codex_state.py",
+  "why": "pass the engine's force on --force-config"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "        os.chmod(env, 0o600)",
+  "new": "        pass",
+  "tests": "codex_config/tests/test_codex_state.py",
+  "why": "stop setting the staged stack.env to 0600"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "    view[\"changed\"] = [(\"agents/\" + r) if r.startswith(SUMMARIZED) else r for r in plan[\"changed\"]]\n",
+  "new": "",
+  "tests": "codex_config/tests/test_codex_state.py",
+  "why": "list stack/agents/ and stack/skills/ entries one by one"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "    (re.compile(r\"\\(set CLAUDE_CONFIG_DIR\\)\"), \"(pass --codex-home or set CODEX_HOME)\"),\n    (re.compile(r\"CLAUDE_CONFIG_DIR\"), \"CODEX_HOME\"),\n",
+  "new": "",
+  "tests": "codex_config/tests/test_codex_state.py",
+  "why": "keep the engine's CLAUDE_CONFIG_DIR wording"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "if before.get(k) != fp]",
+  "new": "if k not in before]",
+  "tests": "codex_config/tests/test_codex_state.py",
+  "why": "retrust ignores a changed hook fingerprint"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "engine.SCOPE_DIRS = SCOPE_DIRS",
+  "new": "engine.SCOPE_DIRS = SCOPE_DIRS + (\"agents\",)",
+  "tests": "codex_config/tests/test_codex_state.py",
+  "why": "widen the scope to agents/ (Codex's own folder)"
+ }
+]
