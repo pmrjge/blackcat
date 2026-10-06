@@ -62,7 +62,11 @@ BAD_NAME = re.compile(r'[\\/:*?"<>|\s]')
 
 _FENCE = re.compile(r"^ {0,3}(`{3,}|~{3,})")
 _CODE_SPAN = re.compile(r"(?<!`)(`+)(?!`)(.+?)(?<!`)\1(?!`)")
-_MD_LINK = re.compile(r"(!?)\[([^\]]*)\]\(\s*<?([^)\s>]+)>?(?:\s+\"[^\"]*\")?\s*\)")
+_TITLE = r"""(?:\s+(?:"[^"]*"|'[^']*'|\([^)]*\)))?"""
+_IMAGE = re.compile(r"!\[([^\]]*)\]\(\s*(?:<([^>]*)>|([^)\s]+))" + _TITLE + r"\s*\)")
+_MD_LINK = re.compile(r"\[([^\]]*)\]\(\s*(?:<([^>]*)>|([^)\s]+))" + _TITLE + r"\s*\)")
+_REF_DEF = re.compile(r"^ {0,3}\[[^\]]+\]:\s*(?:<([^>]*)>|(\S+))")
+_TABLE_DELIM = re.compile(r"^\s*\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*$")
 _WIKILINK = re.compile(r"\[\[([^\[\]]+)\]\]")
 _HTML_TAG = re.compile(r"<(img|a)\b([^>]*)>", re.I)
 _HTML_ID = re.compile(r"""<[a-z][^>]*\s(?:id|name)\s*=\s*["']([^"']+)["']""", re.I)
@@ -127,8 +131,15 @@ def refs(text):
                 found.append((n, "image", first, alt.group(1).strip() if alt else None, "wiki"))
             else:
                 found.append((n, "link", parts[1] if len(parts) > 1 else first, None, "wiki"))
-        for m in _MD_LINK.finditer(_WIKILINK.sub(lambda w: " " * len(w.group(0)), line)):
-            found.append((n, "image" if m.group(1) else "link", m.group(3), m.group(2), "md"))
+        rest = _WIKILINK.sub(lambda w: " " * len(w.group(0)), line)
+        for m in _IMAGE.finditer(rest):
+            found.append((n, "image", m.group(2) if m.group(2) is not None else m.group(3), m.group(1), "md"))
+        rest = _IMAGE.sub(lambda i: "x" * len(i.group(0)), rest)      # a linked image keeps its outer link
+        for m in _MD_LINK.finditer(rest):
+            found.append((n, "link", m.group(2) if m.group(2) is not None else m.group(3), None, "md"))
+        d = _REF_DEF.match(rest)
+        if d:                                                        # [label]: target
+            found.append((n, "link", d.group(1) if d.group(1) is not None else d.group(2), None, "md"))
         # attributes are read from the raw line: the blanking of code spans must not hide an alt
         for m in _HTML_TAG.finditer(raw[n]):
             if m.start() < len(line) and line[m.start()] != "<":
@@ -260,8 +271,13 @@ def check(root):
                             "use [[text|%s]]: %s renders on every page" % (target, page)))
         if page == "_Sidebar.md":
             sidebar_links = linked
+        in_table = False                          # a GFM table runs from its delimiter row to a blank line
         for n, line in prose_lines(text):
-            if line.lstrip().startswith("|") and any("|" in w for w in _WIKILINK.findall(line)):
+            if not line.strip():
+                in_table = False
+            elif "|" in line and _TABLE_DELIM.match(line):
+                in_table = True
+            if (in_table or line.lstrip().startswith("|")) and any("|" in w for w in _WIKILINK.findall(line)):
                 bad.append(((page, n), "wikilink-in-table", "a [[text|Page]] pipe splits the table cell"))
         for m in re.finditer(r"^```mermaid\n(.*?)^```", text, re.M | re.S):
             if "accTitle:" not in m.group(1) or "accDescr:" not in m.group(1):

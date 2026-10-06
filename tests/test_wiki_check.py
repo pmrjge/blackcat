@@ -138,6 +138,15 @@ SEEDS = {
     "raw wiki URL to a missing image": (
         lambda r: append(r, "Home.md", "\n![G](https://raw.githubusercontent.com/wiki/o/r/assets/gone.png)\n"),
         {"missing-file"}),
+    "outer link of a linked image": (lambda r: append(r, "Home.md", "\n[![Logo](assets/logo.png)](No-Such-Page)\n"),
+                                     {"missing-page"}),
+    "link with a single-quoted title": (lambda r: append(r, "Home.md", "\n[x](No-Such-Page 'title')\n"),
+                                        {"missing-page"}),
+    "angle-bracket target": (lambda r: append(r, "Home.md", "\n[x](<No Such Page>)\n"), {"missing-page"}),
+    "reference definition with .md": (lambda r: append(r, "Home.md", "\n[x][r]\n\n[r]: Page-One.md\n"),
+                                      {"md-suffix"}),
+    "wikilink pipe in a table without outer pipes": (
+        lambda r: append(r, "Home.md", "\na | b\n--- | ---\none | [[x|Page-One]]\n"), {"wikilink-in-table"}),
     "wiki URL to a missing page": (lambda r: append(r, "Home.md", "\n[x](https://github.com/o/r/wiki/Nope)\n"),
                                    {"missing-page"}),
 }
