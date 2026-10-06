@@ -3,26 +3,29 @@
 # Apple `container`). install.sh runs it as `bash lib/eq-container/eq-container.sh install ...` for --with-eq-container; you can run
 # it yourself from a normal terminal. Bash 3.2 (macOS) compatible.
 #
-#   eq-container.sh install   [--yes] [--no-prompt] [--dry-run] [--set min|full | --profiles core,jvm|all]
+#   eq-container.sh install   [--yes] [--no-prompt] [--dry-run] [--set min | --profiles core,jvm|all]
 #                             [--keep-profile conservative|noprivate|slim] [--no-probe] [--force-verify]
-#   eq-container.sh check     [--set .. | --profiles ..]   images, records and pins still match (exit 0 ok, 11 not ok, 10 no container)
+#   eq-container.sh check     [--set min | --profiles ..]   images, records and pins still match (exit 0 ok, 11 not ok, 10 no
+#                             container; default: the profile core)
 #   eq-container.sh status                        what is installed and verified (reads the state files; no container call)
 #   eq-container.sh print-env                     EQ_ISOLATION= and EQ_IMAGE= lines for stack.env (exit 1 unless the install is verified)
 #   eq-container.sh uninstall [--yes] [--dry-run] [--purge]   remove the images and records (--purge: the state dir too)
 #
-# install = [the container CLI and its services present] -> build.sh (idempotent; TOOLS.toml pins checked, digests of the base image
-# and every tool archive verified in the builder) -> verify-tools.sh (labels, locks, re-hash of every tool file from the saved image;
+# install = [the container CLI and its services present] -> build.sh (idempotent; TOOLS.toml pins checked, digests of the base images
+# and every tool archive verified in the builder, each image's check stage first) -> verify-tools.sh (labels, locks, re-hash of every tool file from the saved image;
 # smoke test of the extension images) -> probe.sh (isolation rows, the image works under the flags, probe.d hooks incl. the WALL
 # tunnel) -> state files. Nothing here pushes anything, runs sudo, installs software or starts the container services for you: the
 # CLI missing, its services not running (`container system start`) or a non-arm64 host is a WARNING and a skip (exit 10), never a
-# failed install. --yes answers the build question only. Without --profiles and --set, the profile `core` is built.
+# failed install. --yes answers the build question only. Without --profiles and --set, the profile `core` is built. Images
+# (USER decision 2026-10-06): FROM the pinned distroless cc image or FROM scratch; the Debian image of the former `--set full` is
+# gone (refused: exit 2), and the deferred profiles rust and haskell are skipped (exit 10, status skipped, the reason in WHY).
 #
 # State ($EQ_STATE_DIR, default ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/eq-container in the repo layout):
 #   image.env    KEY=VALUE: EQ_ISOLATION, EQ_IMAGE, EQ_CONTAINER_IMAGE_PF/CP/CR (TAG@sha256:...), per-image tag and digest
 #   status.env   EQ_CONTAINER_STATUS=ok|skipped|failed, _AT, _WHY, _SET, _PROFILES, _VERIFIED, _PINS_SHA256, _CHECKS_SHA256, _PROBE
 #   images/NAME.env, results/{probe,tunnel}.*.env, logs/*.log
 # Exit codes: 0 ok | 2 usage | 10 skipped (CLI missing, services down, wrong architecture, no terminal for the build question,
-#   build declined) | 11 check not ok | 12 build failed | 13 unresolved pin (PINS or TOOLS.toml placeholder) | 15 probe failed
+#   build declined, a deferred profile) | 11 check not ok | 12 build failed | 13 unresolved pin (PINS or TOOLS.toml placeholder) | 15 probe failed
 #   16 tools verification failed (verify-tools.sh: stale label, lock mismatch, a tool file that does not hash, a smoke test)
 set -u
 here=$(cd "$(dirname "$0")" && pwd -P)
@@ -43,12 +46,16 @@ while [ $# -gt 0 ]; do
     --no-probe) NO_PROBE=1;;
     --force-verify) FORCE_VERIFY=1;;
     --purge) PURGE=1;;
-    -h|--help) sed -n '2,26p' "$0"; exit 0;;
+    -h|--help) sed -n '2,30p' "$0"; exit 0;;
     *) echo "eq-container: unknown option: $1" >&2; exit 2;;
   esac
   shift
 done
-case "$SET" in ""|min|full) ;; *) echo "eq-container: --set must be min or full" >&2; exit 2;; esac
+case "$SET" in
+  ""|min) ;;
+  full) echo "eq-container: --set full was removed: the Debian image 'full' is gone (USER decision 2026-10-06, lib/eq-container/DESIGN_DISTROLESS.md); use --profiles core (the default) or --set min" >&2; exit 2;;
+  *) echo "eq-container: --set must be min (full was removed)" >&2; exit 2;;
+esac
 if [ -n "$PROFILES" ] && [ -n "$SET" ]; then echo "eq-container: --set and --profiles exclude each other" >&2; exit 2; fi
 # shellcheck disable=SC1091
 . "$here/tools.sh"
@@ -100,6 +107,10 @@ skip() { # WHY [advice]: a warning and exit 10; the install of everything else g
   write_status skipped "$1"
   exit 10
 }
+# a deferred profile (TOOLS.toml `deferred`: rust, haskell have no image) is a skip with its reason, never a failed install
+if [ "$CMD" = install ] && [ -n "$PROFILES" ]; then
+  dwhy=$(tm_refuse_deferred "$PROFILES" 2>&1) || skip "$(printf '%s' "$dwhy" | tr '\n' ' ' | sed 's/ *$//')"
+fi
 
 # the container CLI, its services and the architecture (the same test as lib.sh eqc_state, without sourcing lib.sh)
 EQ_CONTAINER_BIN=${EQ_CONTAINER_BIN:-$(command -v container 2>/dev/null || echo /usr/local/bin/container)}
@@ -165,7 +176,7 @@ cmd_install() {
     0) ;;
     2) skip "the build was not started (no terminal to ask on and no --yes, or an options/pins mismatch: see $EQ_STATE_DIR/logs/build.log)" "re-run with --yes";;
     10) skip "the container services became unavailable during the build";;
-    13) write_status failed "unresolved pin"; warn "a pin in PINS or TOOLS.toml is still a placeholder (see above): bash lib/eq-container/distro-pins.sh from a normal terminal prints the verified values (README.md)"; exit 13;;
+    13) write_status failed "unresolved pin"; warn "a pin in PINS or TOOLS.toml is still a placeholder (see above): the bash pins come from bash lib/eq-container/build.sh --resolve-tools (GPG-checked; review, then --write-pin) run from a normal terminal (README.md, checklist D2)"; exit 13;;
     *) write_status failed "build failed (rc $rc)"; warn "build failed (rc $rc); log: $EQ_STATE_DIR/logs/build.log"; exit 12;;
   esac
   local refs prev probe=skipped checks
@@ -211,7 +222,8 @@ cmd_install() {
 }
 
 cmd_check() {
-  local sel=(--set "${SET:-full}")
+  local sel=(--profiles core)
+  [ -z "$SET" ] || sel=(--set "$SET")
   [ -z "$PROFILES" ] || sel=(--profiles "$(profiles_csv)")
   EQ_NO_STATE_WRITE=1 bash "$here/build.sh" "${sel[@]}" --check
 }
@@ -258,6 +270,6 @@ case "$CMD" in
   status) cmd_status; exit $?;;
   print-env) cmd_print_env;;
   uninstall) cmd_uninstall;;
-  ""|-h|--help|help) sed -n '2,26p' "$0"; exit 0;;
+  ""|-h|--help|help) sed -n '2,30p' "$0"; exit 0;;
   *) echo "eq-container: unknown command: $CMD (install, check, status, print-env, uninstall)" >&2; exit 2;;
 esac

@@ -10,6 +10,13 @@ Run as `python3 -I eqc_json.py MODE ...` with the JSON on stdin (or an archive p
                          Labels) of an archive written by `container image save --output ARCHIVE REF`, as JSON
   oci-cat ARCHIVE PATH   the bytes of PATH in that image (layers applied in order, whiteouts honoured, symlinks followed)
   oci-sha256 ARCHIVE PATH...   one `<sha256>  PATH` line per PATH (empty hash when the path is absent)
+  oci-layers ARCHIVE     the linux/arm64 image's layer digests, bottom first, one per line (OCI layout: the manifest's
+                         descriptors; docker-save layout: sha256 of each stored layer file)
+  base-verify INDEX MANIFEST INDEX_DIGEST ARM64_DIGEST   offline check of the pinned distroless base (verify-tools.sh,
+                         base-pins.sh): INDEX's bytes hash to INDEX_DIGEST, MANIFEST's to ARM64_DIGEST, the index lists exactly
+                         one linux/arm64 manifest and it is ARM64_DIGEST with MANIFEST's size, the manifest is an image manifest
+                         with layers; prints the manifest's layer digests, bottom first. Consistency only: authenticity is the
+                         cosign signature (base-pins.sh) and the builder's own digest check when it pulls.
 
 Shapes. Verified by the user on this host (container 1.5.0, 2026-10-05): `container image inspect alpine:latest` is a JSON
 array whose element has exactly the keys configuration, id, variants. Where the digest lives, from the CLI source at tag
@@ -124,22 +131,43 @@ class Archive:
             die()  # a blob that does not hash to its name is never used
         return data
 
+    def image_manifest(self) -> dict:
+        """The linux/arm64 image manifest of an OCI image layout (index -> nested index -> manifest)."""
+        desc = json.loads(self.read("index.json"))
+        for _ in range(4):
+            ms = [m for m in desc.get("manifests", []) if isinstance(m, dict)]
+            plat = [m for m in ms if (m.get("platform") or {}).get("architecture") == "arm64"
+                    and (m.get("platform") or {}).get("os") == "linux"]
+            pick = plat or ms
+            if len(pick) != 1:
+                die()
+            desc = json.loads(self.blob(pick[0].get("digest", "")))
+            if "layers" in desc:
+                return desc
+        die()
+        raise AssertionError
+
+    def layer_digests(self) -> list:
+        """Layer digests of the linux/arm64 image, bottom first."""
+        if "index.json" in self.names:
+            out = [layer.get("digest", "") for layer in self.image_manifest().get("layers", [])]
+            if not out or not all(SHA.fullmatch(d) for d in out):
+                die()
+            return out
+        if "manifest.json" in self.names:
+            man = json.loads(self.read("manifest.json"))
+            if not (isinstance(man, list) and len(man) == 1):
+                die()
+            return ["sha256:" + hashlib.sha256(self.read(layer)).hexdigest() for layer in man[0]["Layers"]]
+        die()
+        raise AssertionError
+
     def manifest(self) -> tuple:
         """(config dict, [layer bytes]) of the linux/arm64 image."""
         if "index.json" in self.names:
-            desc = json.loads(self.read("index.json"))
-            for _ in range(4):  # index -> (nested index) -> manifest
-                ms = [m for m in desc.get("manifests", []) if isinstance(m, dict)]
-                plat = [m for m in ms if (m.get("platform") or {}).get("architecture") == "arm64"
-                        and (m.get("platform") or {}).get("os") == "linux"]
-                pick = plat or ms
-                if len(pick) != 1:
-                    die()
-                desc = json.loads(self.blob(pick[0].get("digest", "")))
-                if "layers" in desc:
-                    cfg = json.loads(self.blob(desc["config"]["digest"]))
-                    return cfg, [self.blob(layer["digest"]) for layer in desc["layers"]]
-            die()
+            desc = self.image_manifest()
+            cfg = json.loads(self.blob(desc["config"]["digest"]))
+            return cfg, [self.blob(layer["digest"]) for layer in desc["layers"]]
         if "manifest.json" in self.names:
             man = json.loads(self.read("manifest.json"))
             if not (isinstance(man, list) and len(man) == 1):
@@ -222,6 +250,41 @@ def oci_read(archive: str, paths: list, mode: str) -> None:
             print("%s  %s" % (hashlib.sha256(data).hexdigest() if data is not None else "", p))
 
 
+def oci_layers(archive: str) -> None:
+    for d in Archive(archive).layer_digests():
+        print(d)
+
+
+def base_verify(index_path: str, manifest_path: str, index_digest: str, arm64_digest: str) -> None:
+    if not (SHA.fullmatch(index_digest) and SHA.fullmatch(arm64_digest)):
+        die()
+    with open(index_path, "rb") as f:
+        index_bytes = f.read()
+    with open(manifest_path, "rb") as f:
+        man_bytes = f.read()
+    if "sha256:" + hashlib.sha256(index_bytes).hexdigest() != index_digest:
+        die()
+    if "sha256:" + hashlib.sha256(man_bytes).hexdigest() != arm64_digest:
+        die()
+    index = json.loads(index_bytes)
+    ms = index.get("manifests") if isinstance(index, dict) else None
+    if not isinstance(ms, list):
+        die()
+    arm = [m for m in ms if isinstance(m, dict) and isinstance(m.get("platform"), dict)
+           and m["platform"].get("os") == "linux" and m["platform"].get("architecture") == "arm64"]
+    if len(arm) != 1 or arm[0].get("digest") != arm64_digest or arm[0].get("size") != len(man_bytes):
+        die()
+    man = json.loads(man_bytes)
+    layers = man.get("layers") if isinstance(man, dict) else None
+    if not (isinstance(layers, list) and layers and isinstance(man.get("config"), dict)):
+        die()
+    digests = [layer.get("digest") if isinstance(layer, dict) else None for layer in layers]
+    if not all(isinstance(d, str) and SHA.fullmatch(d) for d in digests):
+        die()
+    for d in digests:
+        print(d)
+
+
 def main(argv: list) -> None:
     if not argv:
         die()
@@ -238,6 +301,10 @@ def main(argv: list) -> None:
         oci_read(rest[0], rest[1:], "cat")
     elif m == "oci-sha256" and len(rest) >= 2:
         oci_read(rest[0], rest[1:], "sha256")
+    elif m == "oci-layers" and len(rest) == 1:
+        oci_layers(rest[0])
+    elif m == "base-verify" and len(rest) == 4:
+        base_verify(*rest)
     else:
         die()
 

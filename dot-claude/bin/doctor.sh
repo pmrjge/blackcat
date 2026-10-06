@@ -1157,6 +1157,8 @@ else
       ok "eq-container: verified $eq_at (set $(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_SET), probe $(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_PROBE))"
       eq_prof=$(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_PROFILES)
       [ -n "$eq_prof" ] && ok "eq-container profiles: $eq_prof"
+      # the Debian image of the former set `full` was removed (lib/eq-container/DESIGN_DISTROLESS.md, 2026-10-06)
+      [ "$(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_SET)" = full ] && warn "eq-container: installed with the removed set full (a Debian image): rerun ./install.sh --with-eq-container (profile core, distroless images)"
       [ -n "$(eqkv "$EQS/image.env" EQ_CONTAINER_IMAGE_PF)" ] || warn "eq-container: image.env has no EQ_CONTAINER_IMAGE_PF (rerun the install)"
       # every distinct recorded ref: the PF/CP/CR refs and each image's EQ_<NAME>_TAG + EQ_<NAME>_DIGEST
       eq_refs=$(awk -F= '

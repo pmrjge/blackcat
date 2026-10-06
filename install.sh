@@ -3573,8 +3573,11 @@ eq_container_step(){
   if [ ! -f "$drv" ]; then
     note "! $HERE/lib/eq-container/eq-container.sh missing: container isolation skipped"; EQ_CONTAINER_RC=missing; return 0
   fi
-  case "${STACK_EQ_CONTAINER_SET:-}" in ""|min|full) ;; *)
-    note "! STACK_EQ_CONTAINER_SET must be min or full: container isolation skipped"; EQ_CONTAINER_RC=usage; return 0 ;;
+  case "${STACK_EQ_CONTAINER_SET:-}" in
+    ""|min) ;;
+    full) note "! STACK_EQ_CONTAINER_SET=full was removed (the Debian image is gone: lib/eq-container/DESIGN_DISTROLESS.md); unset it or use min: container isolation skipped"
+          EQ_CONTAINER_RC=usage; return 0 ;;
+    *) note "! STACK_EQ_CONTAINER_SET must be min: container isolation skipped"; EQ_CONTAINER_RC=usage; return 0 ;;
   esac
   case "${STACK_EQ_CONTAINER_PROFILES:-}" in *[!a-z0-9,-]*)
     note "! STACK_EQ_CONTAINER_PROFILES must be a comma list of lib/eq-container/TOOLS.toml profiles: container isolation skipped"
@@ -3607,7 +3610,7 @@ EOF_EQARGS
   case "$rc" in
     0)  note "+ container isolation verified: EQ_IMAGE=$(eq_kv "$EQ_CONTAINER_STATE/image.env" EQ_IMAGE)  (state: $EQ_CONTAINER_STATE)" ;;
     10) note "! container isolation skipped (not an error): see the eq-container lines above; install Apple container yourself (https://github.com/apple/container/releases), run: container system start, then re-run ./install.sh --with-eq-container" ;;
-    13) note "! container isolation NOT installed: a pin in lib/eq-container (PINS or TOOLS.toml) is still a placeholder, a maintainer step (lib/eq-container/README.md); STACK_EQ_CONTAINER_SET=full builds the full Debian image instead. The rest of the install is unaffected" ;;
+    13) note "! container isolation NOT installed: a pin in lib/eq-container (PINS or TOOLS.toml) is still a placeholder, a maintainer step: from a normal terminal, bash lib/eq-container/build.sh --resolve-tools, review, then --write-pin (lib/eq-container/README.md). The rest of the install is unaffected" ;;
     *)  note "! container isolation NOT installed (eq-container exit $rc): $EQ_CONTAINER_STATE/logs/ ; the rest of the install is unaffected" ;;
   esac
 }

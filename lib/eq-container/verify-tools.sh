@@ -5,15 +5,23 @@
 #   --select     image names instead of profiles (build.sh checks exactly the images it is about to build)
 #   --manifest   (default) static checks of the manifest, no container: structure and enumerations, unique names, class/profile
 #                allowlists of every image, https-only urls, in-repo files hash to their sha256, PINS agree for lean uv python
-#                busybox. A PLACEHOLDER in a selected profile's tools (version url sha256 checksum_source linkage provenance
-#                archive: a pin is resolved only with its source) is "pending" (exit 13), never an invented value.
+#                busybox jq bash. Bases (USER decision 2026-10-06, DESIGN_DISTROLESS.md): an image's base is scratch or
+#                distroless-cc; a scratch image's tools must be static; no tool may be a distribution package (apt: urls and
+#                provenance distro-package are refused); built-from-source needs file_sha256 (the output pin). The distroless
+#                base is re-checked offline: base/*.json hash to DISTROLESS_CC and DISTROLESS_CC_ARM64, and the index lists that
+#                linux/arm64 manifest (consistency; authenticity is base-pins.sh's cosign check). A PLACEHOLDER in a selected
+#                profile's tools (version url sha256 file_sha256 checksum_source linkage provenance archive: a pin is resolved
+#                only with its source) is "pending" (exit 13), never an invented value.
 #   --images     container (read-only): per image of the profiles: build record, digest, label eq.tools.sha256 equal to the hash of
 #                the CURRENT manifest entries (a changed entry = stale image), /opt/eq/TOOLS.lock read from the image saved with
 #                `container image save` (nothing is started) equal to the manifest (every listed tool, no undeclared one).
 #   --deep       with --images: also re-hash every installed tool file from that saved image (host side), so a tampered in-image
 #                sha256sum cannot lie. Run it before a run / a freeze; the per-run proof is the digest the harness pins.
 #   --inspect    container (no container started): the saved image's config: unprivileged user, no EXPOSE/VOLUME/ENTRYPOINT/
-#                HEALTHCHECK, no secret-like ENV name, PATH in /opt,/usr
+#                HEALTHCHECK, no secret-like ENV name, PATH in /opt,/usr; its layers: a distroless-cc image's bottom layers are
+#                exactly the pinned base manifest's (base/*.arm64.manifest.json), a scratch image has at most 3 layers
+#                ([unverified] that `container image save` keeps the base's compressed blobs: checklist D5)
+#   --deep       also re-hashes /opt/eq/BASE_EXECUTABLES.txt (the base's executables, recorded by the assemble stage)
 #   --smoke      container: run each tool's smoke argv in its image under the hardened flags of lib.sh eq_run.
 #   --allow-placeholder   report pending values but exit 0 for them (listing mode)
 # Exit: 0 ok | 2 usage or invalid manifest | 10 container missing/down | 11 an image is missing, stale or does not match | 13 pending.
@@ -34,7 +42,7 @@ while [ $# -gt 0 ]; do
     --inspect) M_INSPECT=1;;
     --deep) M_DEEP=1;;
     --allow-placeholder) ALLOWPH=1;;
-    -h|--help) sed -n '2,20p' "$0"; exit 0;;
+    -h|--help) sed -n '2,28p' "$0"; exit 0;;
     *) echo "verify-tools: unknown argument: $1" >&2; exit 2;;
   esac
   shift
@@ -55,7 +63,10 @@ in_list() { case " $2 " in *" $1 "*) return 0;; esac; return 1; }   # word list 
 
 KNOWN_CLASSES="PF CP CR ES RS DS OE EXT"
 KNOWN_LINKAGE="static dynamic"
-KNOWN_PROV="prebuilt-upstream built-from-source distro-package in-repo"
+KNOWN_PROV="prebuilt-upstream built-from-source in-repo"
+KNOWN_BASE="scratch distroless-cc"
+BASE_INDEX=base/distroless-cc-debian13-nonroot.index.json
+BASE_MANIFEST=base/distroless-cc-debian13-nonroot.arm64.manifest.json
 KNOWN_ROLE="runtime probe selftest server build-only"
 KNOWN_KIND="check lang server"
 KNOWN_ARCHIVE="tar.gz tar.xz tar.bz2 tar.zst zip binary"
@@ -73,7 +84,8 @@ check_manifest() {
       [ -n "$(tm_get tool "$t" "$k")" ] || problem "tool $t: missing key $k"
     done
     v=$(tm_get tool "$t" provenance)
-    [ "$v" = PLACEHOLDER ] || in_list "$v" "$KNOWN_PROV" || problem "tool $t: provenance '$v' is not one of: $KNOWN_PROV"
+    if [ "$v" = distro-package ]; then problem "tool $t: provenance distro-package is refused (no distribution package in any image: USER decision 2026-10-06)"
+    else [ "$v" = PLACEHOLDER ] || in_list "$v" "$KNOWN_PROV" || problem "tool $t: provenance '$v' is not one of: $KNOWN_PROV"; fi
     v=$(tm_get tool "$t" linkage)
     [ "$v" = PLACEHOLDER ] || in_list "$v" "$KNOWN_LINKAGE" || problem "tool $t: linkage '$v' is not static or dynamic"
     v=$(tm_get tool "$t" role)
@@ -86,15 +98,23 @@ check_manifest() {
       n/a) [ "$(tm_get tool "$t" role)" = build-only ] || problem "tool $t: sha256 n/a is only for role build-only";;
       *) is_hex64 "$s" || problem "tool $t: sha256 is not 64 lowercase hex, PLACEHOLDER or n/a";;
     esac
+    s=$(tm_get tool "$t" file_sha256)
+    case "$s" in
+      ""|PLACEHOLDER) ;;
+      *) is_hex64 "$s" || problem "tool $t: file_sha256 is not 64 lowercase hex or PLACEHOLDER";;
+    esac
+    if [ "$(tm_get tool "$t" provenance)" = built-from-source ] && [ -z "$s" ]; then
+      problem "tool $t: built-from-source needs file_sha256 (the built output is what is pinned: the builder's compiler floats)"
+    fi
     v=$(tm_get tool "$t" url)
     case "$v" in
-      PLACEHOLDER|https://*|apt:*|file:*) ;;
-      *) problem "tool $t: url must be https://, apt:<package>, file:<path> or PLACEHOLDER (got '$v')";;
+      PLACEHOLDER|https://*|file:*) ;;
+      apt:*) problem "tool $t: an apt: url (a distribution package) is refused (USER decision 2026-10-06)";;
+      *) problem "tool $t: url must be https://, file:<path> or PLACEHOLDER (got '$v')";;
     esac
     case "$v" in https://*@*) problem "tool $t: credentials in url";; esac
     case "$v" in
       https://*) case "$(tm_get tool "$t" provenance)" in prebuilt-upstream|built-from-source|PLACEHOLDER) ;; *) problem "tool $t: an https url needs provenance prebuilt-upstream or built-from-source";; esac;;
-      apt:*) [ "$(tm_get tool "$t" provenance)" = distro-package ] || problem "tool $t: an apt: url needs provenance distro-package";;
       file:*)
         [ "$(tm_get tool "$t" provenance)" = in-repo ] || problem "tool $t: a file: url needs provenance in-repo"
         if [ -f "$FILE_DIR/${v#file:}" ]; then
@@ -126,11 +146,15 @@ check_manifest() {
       [ -n "$(tm_get image "$i" "$k")" ] || problem "image $i: missing key $k"
     done
     in_list "$(tm_get image "$i" kind)" "$KNOWN_KIND" || problem "image $i: kind must be one of: $KNOWN_KIND"
+    in_list "$(tm_get image "$i" base)" "$KNOWN_BASE" || problem "image $i: base '$(tm_get image "$i" base)' is not one of: $KNOWN_BASE"
     tm_has profile "$(tm_get image "$i" profile)" || problem "image $i: unknown profile $(tm_get image "$i" profile)"
     for c in $(tm_get image "$i" classes); do in_list "$c" "$KNOWN_CLASSES" || problem "image $i: unknown class $c"; done
     for t in $(tm_get image "$i" tools); do
       if ! tm_has tool "$t"; then problem "image $i: lists unknown tool $t"; continue; fi
       [ "$(tm_get tool "$t" role)" != build-only ] || problem "image $i: lists build-only tool $t (builder stages only)"
+      if [ "$(tm_get image "$i" base)" = scratch ] && [ "$(tm_get tool "$t" linkage)" != static ]; then
+        problem "image $i: tool $t is not static (linkage '$(tm_get tool "$t" linkage)') but the image is FROM scratch (no loader, no libraries)"
+      fi
       in_list "$(tm_get image "$i" profile)" "$(tm_get tool "$t" profiles)" || problem "image $i: tool $t is not allowed in profile $(tm_get image "$i" profile)"
       for c in $(tm_get image "$i" classes); do
         in_list "$c" "$(tm_get tool "$t" classes)" || problem "image $i: class $c may not have tool $t (tool classes: $(tm_get tool "$t" classes))"
@@ -139,23 +163,40 @@ check_manifest() {
   done
   for p in $(tm_names profile); do
     for i in $(tm_get profile "$p" images); do tm_has image "$i" || problem "profile $p: unknown image $i"; done
+    if [ -n "$(tm_get profile "$p" deferred)" ] && [ -n "$(tm_get profile "$p" images)" ]; then problem "profile $p: deferred but lists images"; fi
+    if [ -z "$(tm_get profile "$p" deferred)" ] && [ -z "$(tm_get profile "$p" images)" ]; then problem "profile $p: no images and no deferred reason"; fi
   done
   # PINS (when beside the manifest) must say the same as the manifest for the four tools both describe
   if [ -f "$FILE_DIR/PINS" ]; then
     pin() { sed -n "s/^$1=//p" "$FILE_DIR/PINS" | head -n 1; }
+    ph() { case "$1" in ""|UNSET|*TODO*) echo PLACEHOLDER;; *) echo "$1";; esac; }   # PINS placeholder = manifest PLACEHOLDER
     pair() { # tool KEY-version KEY-sha [KEY-tag]
       local mv ms pvv pvs
       tm_has tool "$1" || return 0
       mv=$(tm_get tool "$1" version); ms=$(tm_get tool "$1" sha256)
       if [ -n "$2" ]; then pvv=$(pin "$2"); [ "$mv" = "$pvv" ] || problem "tool $1: version $mv differs from PINS $2=$pvv"; fi
-      pvs=$(pin "$3"); [ "$pvs" != UNSET ] || pvs=PLACEHOLDER
+      pvs=$(ph "$(pin "$3")")
       [ "$ms" = "$pvs" ] || problem "tool $1: sha256 differs from PINS $3 (manifest $ms, PINS $pvs)"
       if [ -n "${4:-}" ]; then [ "$(tm_get tool "$1" tag)" = "$(pin "$4")" ] || problem "tool $1: tag differs from PINS $4"; fi
+    }
+    pair_file() { # tool KEY: the installed-file pin
+      local mf pf
+      tm_has tool "$1" || return 0
+      mf=$(tm_get tool "$1" file_sha256); pf=$(ph "$(pin "$2")")
+      [ "$mf" = "$pf" ] || problem "tool $1: file_sha256 differs from PINS $2 (manifest ${mf:-absent}, PINS $pf)"
     }
     pair lean LEAN_VERSION LEAN_SHA256
     pair uv UV_VERSION UV_SHA256
     pair python PYTHON_VERSION PYTHON_SHA256 PBS_TAG
-    pair busybox "" BUSYBOX_SHA256
+    pair busybox "" BUSYBOX_ROOTFS_SHA256
+    pair_file busybox BUSYBOX_SHA256
+    if tm_has tool busybox && [ "$(tm_get tool busybox url)" != "$(pin BUSYBOX_ROOTFS_URL)" ]; then problem "tool busybox: url differs from PINS BUSYBOX_ROOTFS_URL"; fi
+    pair jq JQ_VERSION JQ_SHA256
+    pair bash "" BASH_SRC_SHA256
+    pair_file bash BASH_BIN_SHA256
+    if tm_has tool bash && [ "$(tm_get tool bash version)" != "$(pin BASH_BASELINE).$(pin BASH_PATCHLEVEL)" ]; then
+      problem "tool bash: version $(tm_get tool bash version) differs from PINS BASH_BASELINE.BASH_PATCHLEVEL=$(pin BASH_BASELINE).$(pin BASH_PATCHLEVEL)"
+    fi
   fi
   # pending values in the selected scope
   if [ -n "$SELECT" ]; then
@@ -170,13 +211,30 @@ check_manifest() {
   for t in $sel_tools; do
     case " $names " in *" $t "*) continue;; esac
     names="$names $t"
-    for k in version url sha256 checksum_source linkage provenance archive; do
+    for k in version url sha256 file_sha256 checksum_source linkage provenance archive; do
       pv=$(tm_get tool "$t" "$k")
-      [ "$pv" != PLACEHOLDER ] || pending "tool $t: $k is PLACEHOLDER (pending TOOLCHAINS.md; a distro package: distro-pins.sh for busybox bash perl jq, else build.sh --resolve-tools --write-pin)"
+      if [ "$pv" = PLACEHOLDER ]; then
+        if [ "$t" = bash ]; then pending "tool $t: $k is PLACEHOLDER (from a normal terminal: bash lib/eq-container/build.sh --resolve-tools, review, then --write-pin)"
+        else pending "tool $t: $k is PLACEHOLDER (pending its upstream checksum file: TOOLS.toml header)"; fi
+      fi
     done
     [ "$(tm_get tool "$t" licence)" != PLACEHOLDER ] || note "tool $t: licence not recorded yet"
   done
   SEL_IMAGES=$sel_images
+  # the distroless base (offline): the kept index and arm64 manifest hash to the pins, and the index lists that manifest
+  BASE_LAYERS=""
+  for i in $sel_images; do
+    [ "$(tm_get image "$i" base)" = distroless-cc ] || continue
+    if [ ! -f "$FILE_DIR/PINS" ]; then note "no PINS beside the manifest: the distroless base is not checked"; break; fi
+    if BASE_LAYERS=$(python3 -I "$here/eqc_json.py" base-verify "$FILE_DIR/$BASE_INDEX" "$FILE_DIR/$BASE_MANIFEST" \
+                      "$(pin DISTROLESS_CC | sed 's/^.*@//')" "$(pin DISTROLESS_CC_ARM64)" 2>/dev/null) && [ -n "$BASE_LAYERS" ]; then
+      note "distroless base: $BASE_INDEX and $BASE_MANIFEST hash to DISTROLESS_CC and DISTROLESS_CC_ARM64, $(printf '%s\n' "$BASE_LAYERS" | wc -l | tr -d ' ') layers"
+    else
+      BASE_LAYERS=""
+      problem "distroless base: $BASE_INDEX / $BASE_MANIFEST do not hash to DISTROLESS_CC / DISTROLESS_CC_ARM64 in PINS, or the index does not list that linux/arm64 manifest (re-pin both together: README.md)"
+    fi
+    break
+  done
 }
 
 run_manifest() {
@@ -215,11 +273,6 @@ fetch_lock() { # tag -> prints TOOLS.lock on stdout; returns 1 when the image ha
   [ -n "$out" ] || return 1
   printf '%s\n' "$out"
 }
-hash_in_image() { # tag path -> sha256 of the file in the image (host side; nothing is started)
-  local a
-  a=$(saved "$1") || return 1
-  eqc_json oci-sha256 "$a" "$2" 2>/dev/null | cut -d' ' -f1
-}
 image_config() { # tag -> the image config JSON (User, Env, Entrypoint, ExposedPorts, Volumes, Labels, Healthcheck)
   local a
   a=$(saved "$1") || return 1
@@ -244,7 +297,8 @@ else:
 }
 
 run_images() {
-  local n tag rec dig st why lock label want t row mver msha lsha f fh bad=0 listed extra nm cfg
+  local n tag rec dig st why lock label want t row mver msha lsha f bad=0 listed extra nm cfg a bex got diffs
+  local -a paths
   eq_need_container
   for n in $SEL_IMAGES; do
     tag=$(eq_img_tag "$n"); rec=$(eq_img_get "$n" EQ_IMAGE_DIGEST)
@@ -281,12 +335,23 @@ run_images() {
       [ -z "$extra" ] || { st=UNDECLARED; why="the lock lists tools the manifest does not give this image: $extra"; }
     fi
     if [ "$st" = ok ] && [ "$M_DEEP" = 1 ]; then
-      while IFS="$(printf '\t')" read -r _ _ _ f fh; do
-        [ -n "$f" ] || continue
-        if [ "$(hash_in_image "$tag" "$f")" != "$fh" ]; then st=DEEP; why="$why $f differs from the lock;"; fi
-      done <<EOF
-$lock
+      # one pass over the saved image: every tool file of the lock, and (distroless images) every base executable the assemble
+      # stage recorded in /opt/eq/BASE_EXECUTABLES.txt, re-hashed host side and compared with the recorded `<sha256>  <path>`
+      want=$(printf '%s\n' "$lock" | awk -F'\t' 'NF >= 5 && $4 != "" { print $5 "  " $4 }')
+      a=$(saved "$tag") || a=""
+      if [ "$(tm_get image "$n" base)" = distroless-cc ]; then
+        if [ -n "$a" ] && bex=$(eqc_json oci-cat "$a" /opt/eq/BASE_EXECUTABLES.txt 2>/dev/null); then
+          [ -z "$bex" ] || want=$(printf '%s\n%s\n' "$want" "$bex")
+        else st=DEEP; why="$why no /opt/eq/BASE_EXECUTABLES.txt in the image;"; fi
+      fi
+      paths=()
+      while read -r _ f; do [ -n "$f" ] && paths[${#paths[@]}]=$f; done <<EOF
+$want
 EOF
+      got=""
+      [ -z "$a" ] || [ "${#paths[@]}" = 0 ] || got=$(eqc_json oci-sha256 "$a" "${paths[@]}" 2>/dev/null) || got=""
+      diffs=$(LC_ALL=C comm -23 <(printf '%s\n' "$want" | sed '/^$/d' | LC_ALL=C sort -u) <(printf '%s\n' "$got" | LC_ALL=C sort -u) | awk '{ print $2 }' | tr '\n' ' ')
+      [ -z "$diffs" ] || { st=DEEP; why="$why files differ from the lock or BASE_EXECUTABLES.txt: $diffs;"; }
     fi
     printf 'IMAGE %-10s %-9s %s %s\n' "$n" "$st" "${dig:-none}" "$why"
     [ "$st" = ok ] || bad=1
@@ -300,7 +365,7 @@ EOF
 # an unprivileged user, no EXPOSEd port, no VOLUME, no ENTRYPOINT or HEALTHCHECK baked in, no secret-like variable name, PATH inside
 # /opt and /usr only.
 run_inspect() {
-  local n tag v bad=0 st why cfg pth
+  local n tag v bad=0 st why cfg pth layers nl nb
   eq_need_container
   for n in $SEL_IMAGES; do
     tag=$(eq_img_tag "$n")
@@ -317,6 +382,21 @@ run_inspect() {
     pth=$(printf '%s\n' "$v" | sed -n 's/^PATH=//p' | head -n 1)
     [ -z "$pth" ] || tm_only "$pth" "$TM_LOWER$TM_UPPER$TM_DIGITS/_.:-" || { st=FAIL; why="$why odd characters in PATH;"; }
     if printf '%s\n' "$v" | sed -n 's/^PATH=//p' | tr ':' '\n' | grep -vE '^/(opt|usr)(/|$)' | grep -q .; then st=FAIL; why="$why PATH leaves /opt and /usr;"; fi
+    # the layers: a distroless image starts with exactly the pinned base manifest's layers; a scratch image is our layer(s) only
+    if layers=$(eqc_json oci-layers "$(saved "$tag")" 2>/dev/null) && [ -n "$layers" ]; then
+      nl=$(printf '%s\n' "$layers" | wc -l | tr -d ' ')
+      case "$(tm_get image "$n" base)" in
+        distroless-cc)
+          if [ -z "$BASE_LAYERS" ]; then st=FAIL; why="$why the pinned base layers are unknown (manifest check failed);"
+          else
+            nb=$(printf '%s\n' "$BASE_LAYERS" | wc -l | tr -d ' ')
+            if [ "$(printf '%s\n' "$layers" | head -n "$nb")" != "$BASE_LAYERS" ]; then st=FAIL; why="$why the bottom $nb layers are not the pinned distroless base's;"
+            elif [ "$nl" -le "$nb" ]; then st=FAIL; why="$why no layer above the base;"; fi
+          fi;;
+        scratch) [ "$nl" -le 3 ] || { st=FAIL; why="$why $nl layers on a scratch image (want at most 3);"; };;
+        *) st=FAIL; why="$why unknown base;";;
+      esac
+    else st=FAIL; why="$why the layer list is unreadable;"; fi
     printf 'INSPECT %-10s %-7s %s\n' "$n" "$st" "$why"
     [ "$st" = ok ] || bad=1
   done

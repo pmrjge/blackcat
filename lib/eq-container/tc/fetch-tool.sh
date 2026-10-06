@@ -9,7 +9,7 @@
 #   built-from-source   the SOURCE tarball at url (sha256 pinned), then the in-repo recipe tc/build-<name>.sh (its own sha256
 #                       pinned in the manifest as recipe_sha256) installs into dest; only dest is copied to the final image
 #   in-repo             a file of this repository (hash checked by verify-tools.sh and again here)
-#   distro-package      not handled here: minimal/mkrootfs.sh and the busybox stage take it from the pinned Debian snapshot
+#   (distro-package is refused everywhere: USER decision 2026-10-06, no distribution package in any image)
 # Env: EQ_TOOLS_DIR (default /opt/eq-tools: TOOLS.toml, tools.sh and the tc/ scripts).
 set -euo pipefail
 name=${1:?tool name}
@@ -29,7 +29,7 @@ dl=$(mktemp -d "${TMPDIR:-/tmp}/eqfetch.XXXXXX"); trap 'rm -rf "$dl"' EXIT
 case "$prov" in
   prebuilt-upstream|built-from-source)
     case "$url" in https://*) ;; *) echo "fetch-tool: $name: url must be https" >&2; exit 2;; esac
-    curl --proto '=https' --tlsv1.2 -fsSL --retry 5 -o "$dl/archive" "$url"
+    curl --proto '=https' --proto-redir '=https' --tlsv1.2 -fsSL --retry 5 -o "$dl/archive" "$url"
     echo "$sha  $dl/archive" | sha256sum -c - >&2 || { echo "fetch-tool: $name: sha256 of $url differs from TOOLS.toml" >&2; exit 1; }
     target=$dl/x
     recipe=$(g recipe)

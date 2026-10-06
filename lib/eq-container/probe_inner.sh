@@ -73,7 +73,15 @@ if [ -z "$bad" ]; then t only_expected_host_mounts PASS "host-backed mounts: $mt
 fro=$(awk '$2=="/fixture"{print $4}' /proc/mounts | head -n 1)
 case ",$fro," in *,ro,*) t fixture_mounted_ro PASS "/fixture ro";; *) t fixture_mounted_ro FAIL "/fixture options: $fro";; esac
 
-# network: loopback only (pure bash /dev/tcp so it also runs in the FROM-scratch images that have no python)
+# network: loopback only (pure bash /dev/tcp so it also runs in the images that have no python). The positive control first: the
+# same primitive against a closed loopback port must report "refused" (or "unreachable"), so a bash without /dev/tcp (or no bash)
+# makes every row below a FAIL, never a vacuous PASS
+err=$(timeout 3 bash -c 'exec 3<>/dev/tcp/127.0.0.1/1' 2>&1); rc=$?
+case "$rc:$err" in
+  0:*) t network_probe_control FAIL "a connect to 127.0.0.1:1 succeeded: the control port is not closed";;
+  *[Rr]efused*|*[Uu]nreachable*) t network_probe_control PASS "bash /dev/tcp works: 127.0.0.1:1 $(printf '%s' "$err" | tr '\n' ' ' | sed 's/.*: //' | cut -c1-40)";;
+  *) t network_probe_control FAIL "bash /dev/tcp gave no connect error (rc $rc): $(printf '%s' "$err" | tr '\n' ' ' | cut -c1-80): the network rows would pass vacuously";;
+esac
 reach=""
 for hp in 1.1.1.1:443 8.8.8.8:53 192.168.64.1:80 172.17.0.1:80 192.168.65.254:80; do
   h=${hp%:*}; p=${hp#*:}
@@ -173,4 +181,9 @@ if [ -z "$suid" ]; then t no_setuid_files PASS "no setuid/setgid file"; else t n
 tools=""
 for c in python3 perl awk sed find xargs git curl wget nc ssh gcc cc make apt apt-get dpkg pip busybox su sudo; do command -v "$c" >/dev/null 2>&1 && tools="$tools $c"; done
 t tools_on_path INFO "${tools:-none}"
-t image_kind INFO "$(cat /opt/eq/IMAGE_KIND 2>/dev/null || echo full-debian)"
+# distroless/scratch rule (USER decision 2026-10-06): no debug shell of a distroless :debug image, no package manager anywhere
+if [ ! -e /busybox ]; then t no_debug_shell PASS "no /busybox"; else t no_debug_shell FAIL "/busybox exists (a distroless debug image)"; fi
+pm=$(find / \( -path /proc -o -path /sys -o -path /dev \) -prune -o -type f \( -name apt -o -name apt-get -o -name dpkg -o -name apk -o -name rpm -o -name yum -o -name dnf \) \
+       \( -perm -u+x -o -perm -g+x -o -perm -o+x \) -print 2>/dev/null | head -n 5 | tr '\n' ' ')
+if [ -z "$pm" ]; then t no_package_manager PASS "no apt apt-get dpkg apk rpm yum dnf executable"; else t no_package_manager FAIL "$pm"; fi
+t image_kind INFO "$(cat /opt/eq/IMAGE_KIND 2>/dev/null || echo unknown)"
