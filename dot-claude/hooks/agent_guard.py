@@ -6476,10 +6476,10 @@ PROTECT_ALL_ARGS = {"rm", "unlink", "rmdir", "shred", "truncate", "ln", "chmod",
 # if settings.json lost its deny rules (installed copies only; see protect_specs)
 PROTECTED_CONFIG = ("hooks", "bin", "settings.json", "agents", "rules", "mcp", "magg", "skills",
                     "stack-plugins", "plugins", "CLAUDE.md", "backup-*", "stack.env", ".stack-manifest.json",
-                    ".credentials.json",
-                    # the equilibrium runtime's executor, rules and calibration pin (spec 6.4), named on
-                    # their own should hooks/ or bin/ ever leave this list
-                    "bin/stack-eq*", "hooks/eq_*.py", "hooks/eq_*.json")
+                    ".credentials.json")
+# the equilibrium runtime's executor, rules and calibration pin (spec 6.4): inside hooks/ and bin/
+# already, named on their own should those ever leave PROTECTED_CONFIG
+EQ_PROTECTED = ("bin/stack-eq*", "hooks/eq_*.py", "hooks/eq_*.json")
 # inline interpreter code (python -c, node -e, a heredoc into python -) that changes a file
 MUTATE_CODE_RE = re.compile(
     r"\b(?:remove|removedirs|unlink|unlinkSync|rmtree|rmdir|rmdirSync|rmSync|rename|renames|"
@@ -7832,7 +7832,7 @@ def builtin_protect_specs():
     except OSError:
         installed = False
     if installed:
-        for rel in PROTECTED_CONFIG:
+        for rel in PROTECTED_CONFIG + EQ_PROTECTED:
             specs.append(("/" + os.path.join(conf, rel), ()))
     return specs
 

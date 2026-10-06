@@ -1747,6 +1747,8 @@ def self_test():
             problems.append("eq: member path rule misjudges %s" % path)
     if P.member_path_denied(root, recursive=True, **kw) is None:
         problems.append("eq: a search from the project root passes its eq work area")
+    if sys.version_info < (3, 13):          # hooks run on >= 3.13 (bin/stack-hook); eq_core needs it
+        return problems
     try:
         c = core()
         schemas = c.load_schemas(os.path.join(HERE, "eq_schemas.json"))
