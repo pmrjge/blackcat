@@ -448,4 +448,8 @@ if [ -n "$OVR" ]; then
 elif [ "$NO_AGENTS_MD" = 0 ] && [ -e "$CH/AGENTS.override.md" ]; then
   say "  ! $CH/AGENTS.override.md exists and shadows AGENTS.md: the stack's global rules block is NOT read until you remove or merge it."
 fi
-say "The guard is INACTIVE until you trust its hooks: run \`codex --profile $PROFILE_NAME\`, then \`/hooks\`."
+if [ "$IDE_MODE" = yes ]; then
+  say "The guard is INACTIVE until you trust its hooks: run plain \`codex\` (no profile), then \`/hooks\`."
+else
+  say "The guard is INACTIVE until you trust its hooks: run \`codex --profile $PROFILE_NAME\`, then \`/hooks\`."
+fi

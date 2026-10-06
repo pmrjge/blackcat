@@ -143,10 +143,16 @@ P4/U2). Policy keys are always the canonical hyphenated names; the guard canonic
   `convert_agents.user_scope_servers(ctx, with_wandb: bool) -> {id: table}` (url +
   `http_headers_helper = "<stack>/bin/codex-mcp-headers <id>"` where a key exists), pinned to
   install.sh's URLs by a contract test; render merges both (same id twice → BuildError).
-- `render_profile.merge_hooks_state(*tables) -> dict`: the union of the live `[hooks.state]` tables
-  of `codex.config.toml` and `codex-astra.config.toml` (each key embeds its own file's path). It is
+- `render_profile.merge_hooks_state(*tables, owners=()) -> dict`: the union of the live
+  `[hooks.state]` tables of `codex.config.toml` and `codex-astra.config.toml` (each key embeds its own
+  file's path). `owners` pairs each table with its file's key prefix `"<codex_home>/<rel>:"`: on a
+  clash the record from the file the key names wins; a clash no file owns stops the build. It is
   carried into every written profile file, including the comment-only `codex_ide` form (U1: Codex may
   write trust into the active profile file).
+- render's foreign check (§7.4) is deep: any dotted path under a stack-written root of a live profile
+  file (e.g. `mcp_servers.mine`, `hooks.PreToolUse[2]`) that this run would drop stops the build,
+  naming it; `hooks.state` is exempt; a file whose semantic digest equals the old manifest's
+  `options.profile_digests[rel]` (exactly what the last install wrote) is never foreign.
 - `convert_agents.convert(src: str, ctx: dict, models: dict) -> dict` with keys `roles`
   (`{role: role_toml_dict}`), `astra_roles`, `agents_entries` (`{role: {"description",
   "config_file"}}`), `astra_entries`, `policy` (agents.json, §4), `mcp_servers` (`{id: table}` merged

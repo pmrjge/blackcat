@@ -450,7 +450,7 @@ codex_config/
 
 - `codex.config.toml` is owned whole.
 - The render carries over each live profile file's `[hooks.state]` table, parsed with tomllib and re-emitted, in case `/hooks` writes trust there (U1). It is carried into every profile file, including the comment-only `codex.config.toml` and the six-entry `codex-astra.config.toml` of `--ide-default` mode (their keys embed the source path, so each file keeps its own records). `--doctor` reads `hooks.state` from `config.toml` and both profile files. Stale hashes then show as "Modified" in `/hooks`, which is correct.
-- Any other foreign table found in the live file stops the run, naming the table. The user's own settings belong in `config.toml`.
+- Any other foreign table found in the live file stops the run, naming the table. The check is deep: a key or table the user added under a stack-written root (`[mcp_servers.mine]`, an extra `[[hooks.PreToolUse]]` handler) also stops it, naming its dotted path. When Codex re-trusts a key in only one profile file, the record of the file the key names wins. The user's own settings belong in `config.toml`.
 
 ### 7.5 Writing TOML
 
@@ -490,6 +490,7 @@ The IDE and the desktop app read `config.toml` and cannot select a profile (F19)
   - Bytes outside the regions are never changed.
 - **Conflict check.** Before apply, `tomllib.loads(result)` must equal `merge(tomllib.loads(user part), stack part)`, with no key defined on both sides.
   - Any overlap (a user `model`, `approval_policy`, `[features]` or `[agents]`) stops the run and names the keys.
+  - So do keys the vendored schema forbids together: a user `shell_environment_policy.exclude` or `include_only` against region B's `shell_environment_policy.filters`.
   - The installer never edits the user's keys.
 - **Drift.** The manifest stores each region's sha256.
   - A region that changed since install stops the run with a diff; `--force` overwrites it. Typical causes: Codex's `/model` or the IDE settings panel writing `model` in place, or a hand edit.
