@@ -98,7 +98,7 @@ def test_help_lists_every_flag(env):
 
 @pytest.mark.parametrize("args", [
     ["--bogus"], ["--ide-default", "--no-ide-default"], ["--force-config"], ["--skills-root", "rel/path"],
-    ["--profile-name", "bad name"], ["--profile-name", "-x"], ["--codex-home"], ["--codex-home="],
+    ["--profile-name", "bad name"], ["--profile-name", "mine"], ["--profile-name=work"], ["--profile-name", "-x"], ["--codex-home"], ["--codex-home="],
     ["--diff", "--restore"], ["--doctor", "--print-requirements"], ["--restore", "--doctor"],
     ["--no-ide-default", "--ide-default"], ["--profile-name"]])
 def test_bad_usage_exits_2_with_usage(env, args):
@@ -107,6 +107,13 @@ def test_bad_usage_exits_2_with_usage(env, args):
     assert r.returncode == 2, r.stderr
     assert "usage: codex_config/install.sh" in r.stderr
     assert codex_home_state(env) == before and not env["log"].exists()
+
+
+def test_other_profile_names_are_refused_with_the_reason(env):
+    r = run(env, "--profile-name", "mine")
+    assert r.returncode == 2 and not env["log"].exists()
+    assert "only `codex` is supported in this version" in r.stderr and "codex.config.toml" in r.stderr
+    assert run(env, "--dry-run", "--profile-name=codex").returncode != 2
 
 
 def test_never_passes_allow_dirty(env):
@@ -171,7 +178,7 @@ def test_restore_without_a_backup_refuses(env):
 
 # ---- the argv handed to render ---------------------------------------------------------------------
 def test_render_gets_the_mapped_flags(env):
-    r = run(env, "--dry-run", "--profile-name", "mine", "--skills-root", "none", "--no-agents-md", "--no-mcp",
+    r = run(env, "--dry-run", "--profile-name", "codex", "--skills-root", "none", "--no-agents-md", "--no-mcp",
             "--legacy-sandbox", "--git-allow-rules", "--no-escalation", "--with-rollout-budget",
             "--ide-default", "--no-astra-profile", "--force")
     assert r.returncode == 1 and "render failed" in r.stderr and "Nothing was changed" in r.stderr
@@ -180,7 +187,7 @@ def test_render_gets_the_mapped_flags(env):
                  "--with-rollout-budget", "--ide-default", "--no-astra-profile", "--force"):
         assert flag in a, flag
     assert "--no-ide-default" not in a and "--with-wandb" not in a
-    assert a[a.index("--profile-name") + 1] == "mine" and a[a.index("--skills-root") + 1] == "none"
+    assert a[a.index("--profile-name") + 1] == "codex" and a[a.index("--skills-root") + 1] == "none"
     assert a[a.index("--codex-home") + 1] == str(env["codex_home"]) and a[a.index("--home") + 1] == str(env["home"])
     assert a[a.index("--codex") + 1] == str(FAKE_CODEX_DIR / "codex")
     src = a[a.index("--src") + 1]

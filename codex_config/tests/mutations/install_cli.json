@@ -1,0 +1,9 @@
+[
+ {
+  "file": "codex_config/install.sh",
+  "old": "[ \"$PROFILE_NAME\" = codex ] || usage_err",
+  "new": "[ -n \"$PROFILE_NAME\" ] || usage_err",
+  "tests": "codex_config/tests/test_install_cli.py",
+  "why": "a profile name other than codex is accepted"
+ }
+]
