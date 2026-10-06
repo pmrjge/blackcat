@@ -9,7 +9,7 @@ fails when
   pre-publication commit messages, whose paths are records, not references;
 - a root document (README.md, NOTICE, CONFIG.md) or a document inside a new directory links to a
   file there that does not exist;
-- docs/wiki (the GitHub wiki, its own repository) is tracked or not ignored.
+- docs/wiki (the wiki's source, tracked here since 2026-10-06) is not tracked or is ignored.
 
 Run: uv run --with pytest pytest -q tests/test_moved_paths.py
 """
@@ -111,7 +111,11 @@ def test_links_into_the_new_dirs_resolve():
     assert not bad, "dangling links:\n" + "\n".join(bad)
 
 
-def test_wiki_is_its_own_repository():
-    assert ls_files("docs/wiki") == []
-    rc = subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", "docs/wiki/Home.md"]).returncode
-    assert rc == 0, "docs/wiki/ must be git-ignored"
+def test_wiki_source_is_tracked_here():
+    # user decision 2026-10-06: the wiki's pages live in docs/wiki/ of this repository (git-ignored before);
+    # github-wiki/, a local checkout of the GitHub wiki they are copied into, stays ignored
+    assert "docs/wiki/Home.md" in ls_files("docs/wiki")
+    rc = subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", "--no-index", "docs/wiki/Home.md"]).returncode
+    assert rc == 1, "docs/wiki/ must not be git-ignored"
+    rc = subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", "--no-index", "github-wiki/Home.md"]).returncode
+    assert rc == 0, "github-wiki/ must stay git-ignored"
