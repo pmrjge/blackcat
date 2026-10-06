@@ -7,7 +7,9 @@ where, what each hook enforces, and what is only observed.
 
 ## How a hook starts
 
-Every Python hook in `settings.json` runs `/bin/sh "<config>/bin/stack-hook" [--fail-closed] <module> [mode]`.
+Every hook module under `hooks/` (agent_guard, read_gate, web_caps, output_shrink, stack_usage) runs
+`/bin/sh "<config>/bin/stack-hook" [--fail-closed] <module> [mode]`; `/stack-doctor` and `/stack-tree` run their
+scripts directly.
 
 ```mermaid
 flowchart LR
@@ -26,8 +28,8 @@ flowchart LR
   `read_gate`, `web_caps` and `output_shrink` fail open by design, and so do the token budgets when a transcript
   cannot be read.
 - **Recovery:** run `./install.sh` from the stack repo; it repairs the link and the bytecode. `STACK_POLICY=off`
-  lets the fail-closed entries through while the hook cannot start, except `agent_guard no-push`, which is never
-  lifted.
+  lets the fail-closed entries through while the hook cannot start, except `agent_guard no-push` (never lifted)
+  and BlackCat's frontmatter `blackcat-guard`, which only `STACK_BLACKCAT_DELEGATE_ONLY=0` lifts.
 
 ## Wiring
 

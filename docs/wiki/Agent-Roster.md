@@ -1,5 +1,5 @@
 <!-- markdownlint-disable MD013 MD033 MD060 -->
-# Agents
+# Agent roster
 
 57 agent files in `dot-claude/agents/`: BlackCat, the main thread, and 56 specialists. The tables below were
 generated from each file's frontmatter (`model`, `effort`, `maxTurns`, `tools`, `mcpServers`, `description`) and

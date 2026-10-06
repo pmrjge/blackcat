@@ -12,7 +12,7 @@ the project's GitHub wiki. Start at [Home](Home.md).
 | [Home](Home.md) | what the stack is, numbers, status, the planned Codex port |
 | [Getting started](Getting-Started.md) | requirements, `install.sh` steps and options, dry run, diff, backups, restore, manifest, update, uninstall |
 | [Architecture](Architecture.md) | BlackCat, layers L1–L8, spawn policy, fan-out, messages, the delegation ledger, hand-backs, models, MCP scopes |
-| [Agents](Agents.md) | the 57 agents by family: model, effort, turns, tools, MCP servers, spawn rows, fan-out |
+| [Agent roster](Agent-Roster.md) | the 57 agents by family: model, effort, turns, tools, MCP servers, spawn rows, fan-out |
 | [Skills](Skills.md) | hubs, modules and standalone skills, the listing states, the full catalogue |
 | [Hooks and the guard](Hooks-and-Guard.md) | the hook launcher, wiring, what is enforced, what is only observed, knobs |
 | [Security model](Security-Model.md) | assets and threats, layers, sandbox, permission rules, supply chain, residual risks, what is unverified |
@@ -33,7 +33,7 @@ the project's GitHub wiki. Start at [Home](Home.md).
 
 Every fact was read from the repository on `main` at `6ecb003` (2026-10-06); each page ends with its sources.
 `README.md` and `CONFIG.md` stay the reference: where this wiki and they disagree, they win, and the wiki needs a
-fix. Counts come from commands (each page names them), not from memory. The roster tables on [Agents](Agents.md)
+fix. Counts come from commands (each page names them), not from memory. The roster tables on [Agent roster](Agent-Roster.md)
 and the catalogue on [Skills](Skills.md) were generated from the agent and skill files and the guard's
 `--print-policy` output: regenerate them rather than editing them by hand.
 

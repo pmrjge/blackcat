@@ -20,7 +20,7 @@ it was taken from.
 |---|---|
 | Install, update, back up or remove the stack | [Getting started](Getting-Started.md) |
 | Understand how a prompt becomes work | [Architecture](Architecture.md) |
-| See who does what | [Agents](Agents.md) · [Skills](Skills.md) |
+| See who does what | [Agent roster](Agent-Roster.md) · [Skills](Skills.md) |
 | Know what is enforced, and by what | [Hooks and the guard](Hooks-and-Guard.md) · [Security model](Security-Model.md) |
 | Let agents install tools | [Toolsmith](Toolsmith.md) |
 | Run checks and merges with fixed recipes | [Instructor](Instructor.md) · [Testing and C10](Testing-and-C10.md) |

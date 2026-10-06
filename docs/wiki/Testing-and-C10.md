@@ -35,7 +35,7 @@ see them pass.
 | `test_four_tools_and_three_model_settings` in `tests/test_image_studio_mcp.py` | the sandbox denies reading `~/.claude/stack.env` | README "Known limits" |
 | one `f4` case in `tests/test_protected_paths.py` | pytest's temp dir sits under `/tmp/claude-501` inside a session | README "Known limits" |
 | two cases of `test_three_way_verdict_on_the_soft_limit` | fail when `STACK_LIMITS_SNAPSHOT` is set (C10 unsets it) | README "Known limits" |
-| the collector upgrade tests in `tests/test_stack_usage.py` | read older commits; skipped with a note in a clone without them | README "Contributing and safety" |
+| the collector upgrade tests in `tests/test_stack_usage.py` | skipped (not failed) with a note in a clone or export without the older commits | README "Contributing and safety" |
 | `install_smoke.sh` as a whole | the Claude Code sandbox refuses parts of it | README "Verify": run it from your own terminal |
 
 `tests/prompt_budget.py --check` compares with its base revision through git; in a clone without that commit it

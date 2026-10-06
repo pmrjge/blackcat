@@ -73,7 +73,7 @@ Any other agent started as the main thread (`claude --agent claude`, `claude --a
   in the caller's row. Generic and built-in types (`general-purpose`, `claude`, `fork`, `Plan`), missing and
   unknown types are refused for every caller; `settings.json` also denies `Agent(general-purpose)`,
   `Agent(claude)`, `Agent(fork)` and `Agent(blackcat)`. Each agent's "May spawn" sentence must match its row
-  (`tests/lint_agents.py`). The rows are on the [Agents](Agents.md) page.
+  (`tests/lint_agents.py`). The rows are on the [Agent roster](Agent-Roster.md) page.
 - **Depth is a ceiling, not a target** (a prompt rule): L1 fans out; L2 and L3 spawn only for a missing capability
   or a check; L4 to L7 only when their brief names the spawn. Briefs below L1 carry `Layer: L<n>`, `Why:`, the
   files the child owns, its artifact paths and its integrator. The full rules are in

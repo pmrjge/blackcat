@@ -108,6 +108,9 @@ def problems(page):
         if not dest.is_file():
             bad.append("%s: missing target: %s" % (where, target))
             continue
+        if dest.name not in {p.name for p in dest.parent.iterdir()}:
+            bad.append("%s: case differs from the file name: %s" % (where, target))
+            continue
         if frag and dest.suffix == ".md" and frag not in anchors(dest.read_text(encoding="utf-8")):
             bad.append("%s: no heading for #%s in %s" % (where, frag, dest.name))
     return bad
@@ -128,6 +131,13 @@ def test_mermaid_blocks_have_a_title(page):
 def test_the_wiki_has_its_entry_pages():
     for name in ("Home.md", "_Sidebar.md", "_Footer.md", "README.md"):
         assert (WIKI / name).is_file(), name
+
+
+def test_no_page_shadows_an_instruction_file():
+    # on case-insensitive APFS a page named agents.md or claude.md is AGENTS.md / CLAUDE.md, which harnesses
+    # (Claude Code, Codex) load as instructions when a session starts in or below docs/wiki/
+    clash = [p.name for p in WIKI.rglob("*") if p.name.upper() in {"AGENTS.MD", "CLAUDE.MD"}]
+    assert not clash, "wiki file names that read as instruction files: %s" % clash
 
 
 def test_sidebar_lists_every_page():
@@ -164,7 +174,8 @@ def test_checker_catches_seeded_breakage(tmp_path, monkeypatch):
     page.write_text(
         "# B\n[ok](A.md#real-heading) [gone](Missing.md) [anchor](A.md#nope)\n"
         "![](A.md) [out](../../README.md) <img src=\"A.md\">\n"
-        "`[in a span](Missing.md)`\n```\n[in a fence](Missing.md)\n```\n[web](https://example.com/x)\n",
+        "`[in a span](Missing.md)`\n```\n[in a fence](Missing.md)\n```\n[web](https://example.com/x)\n"
+        "[case](a.md)\n",
         encoding="utf-8")
     monkeypatch.setattr(sys.modules[__name__], "WIKI", wiki)
     bad = problems(page)
@@ -172,4 +183,5 @@ def test_checker_catches_seeded_breakage(tmp_path, monkeypatch):
     assert any("no heading for #nope" in b for b in bad)
     assert sum("without alt text" in b for b in bad) == 2
     assert any("leaves docs/wiki" in b for b in bad)
-    assert len(bad) == 5, bad
+    assert any("a.md" in b for b in bad)          # wrong case: resolves on case-insensitive APFS only
+    assert len(bad) == 6, bad

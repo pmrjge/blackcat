@@ -6,7 +6,7 @@
 - [Home](Home.md)
 - [Getting started](Getting-Started.md)
 - [Architecture](Architecture.md)
-- [Agents](Agents.md)
+- [Agent roster](Agent-Roster.md)
 - [Skills](Skills.md)
 - [Hooks and the guard](Hooks-and-Guard.md)
 - [Security model](Security-Model.md)
