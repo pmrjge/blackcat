@@ -35,7 +35,10 @@ def sh(cmd, cwd=None, env=None, check=True):
 
 
 class World:
-    def __init__(self, tmp, core="fake"):
+    """guard=True also installs the whole hooks dir (agent_guard.py and eq_guard.py from HOOKS_SRC) so the
+    guard runs as installed: <config> = home/.claude, state = home/.local/state (no XDG_STATE_HOME)."""
+
+    def __init__(self, tmp, core="fake", guard=False):
         self.t = Path(os.path.realpath(tmp))
         self.home = self.t / "home"
         self.home.mkdir()
@@ -46,6 +49,12 @@ class World:
         self.bin = self.cfg / "bin"
         self.hooks.mkdir(parents=True)
         self.bin.mkdir()
+        if guard:
+            for f in REAL_HOOKS.iterdir():
+                if f.is_file() and f.suffix in (".py", ".json") and f.name != "eq_core.py":
+                    shutil.copy(f, self.hooks / f.name)
+            for f in ("agent_guard.py", "eq_guard.py"):
+                shutil.copy(HOOKS_SRC / f, self.hooks / f)
         for f in ("eq_policy.py", "eq_cli.py", "eq_isolation.py"):
             shutil.copy(HOOKS_SRC / f, self.hooks / f)
         if core == "fake":
@@ -68,6 +77,12 @@ class World:
         self.set_params(self.params())
         self.state = self.home / ".local" / "state" / "claude-agent-stack"
         self.proj = None
+        # Claude Code's session transcript and subagents folder for SID (under <config>/projects)
+        self.tx = self.cfg / "projects" / "p" / (SID + ".jsonl")
+        self.subagents = self.tx.parent / SID / "subagents"
+        if guard:
+            self.subagents.mkdir(parents=True)
+            self.tx.write_text("")
 
     # -------------------------------------------------- config
     def params(self):
@@ -145,6 +160,25 @@ class World:
             self.ticket(args, **tk)
         return subprocess.run([str(self.bin / "stack-eq"), *args], env=env or self.env(), capture_output=True,
                               text=True, cwd=str(self.proj or self.home))
+
+    def guard(self, ev, mode=None, env=None, **kw):
+        """One hook process of the installed guard (agent_guard.py [mode]) on event ev."""
+        argv = [sys.executable, str(self.hooks / "agent_guard.py")] + ([mode] if mode else [])
+        e = env or self.env(STACK_USAGE_COLLECT="0", **kw)
+        return subprocess.run(argv, input=json.dumps(ev), capture_output=True, text=True, env=e, timeout=60)
+
+    def meta(self, aid, tool_use_id, agent_type, parent=None):
+        """Claude Code's subagents/agent-<id>.meta.json (toolUseId: the spawning Agent call)."""
+        m = {"agentType": agent_type, "toolUseId": tool_use_id, "spawnDepth": 1 if parent is None else 2}
+        if parent:
+            m["parentAgentId"] = parent
+        (self.subagents / ("agent-%s.meta.json" % aid)).write_text(json.dumps(m))
+
+    def transcript(self, aid, lines):
+        """subagents/agent-<id>.jsonl with these records (dicts)."""
+        with open(self.subagents / ("agent-%s.jsonl" % aid), "a") as f:
+            for rec in lines:
+                f.write(json.dumps(rec) + "\n")
 
     def check(self, run, cand, env=None):
         return subprocess.run([str(self.bin / "stack-eq-check"), "--run", run, "--cand", str(cand)],

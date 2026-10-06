@@ -105,9 +105,11 @@ def test_ticket_single_use(w):
     assert not list((w.state / "eq-tickets").glob("*.json"))
 
 
-@pytest.mark.parametrize("kw", [{"ts": time.time() - 200}, {"ts": time.time() + 60}, {"run": "ffffffff"},
+@pytest.mark.parametrize("kw", [{"ts": -200}, {"ts": 60}, {"run": "ffffffff"},
                                 {"argv": ["status", "--run", "ffffffff"]}])
 def test_ticket_stale_or_foreign(w, kw):
+    if "ts" in kw:
+        kw = {"ts": time.time() + kw["ts"]}        # relative to now, not to collection time
     w.project()
     w.brief(CP_HEADER)
     p = w.eq("status", "--run", R, **kw)
@@ -379,6 +381,77 @@ def test_reduce_refuses_missing_verdict(w):
     w.verdict(0, 1, c.stdout, c.returncode, policy=P)
     p = w.eq("reduce", "--run", R, "--round", "0")
     assert p.returncode == 4 and "c2's check verdict" in p.stderr
+
+
+def test_reduce_all_abstain_is_partial(w):
+    cp_run(w)
+    w.members({str(i): {"agent_id": "m%d" % i, "worktree": None, "status": "stopped", "rounds": {"0": "invalid"}}
+               for i in (1, 2)})
+    for i in (1, 2):
+        w.capture(0, i, None, status="abstain")
+    p = w.eq("reduce", "--run", R, "--round", "0")             # no candidate: no checks to wait for
+    assert p.returncode == 0, p.stderr
+    red = json.loads((w.store() / "r0" / "reduce.json").read_text())["result"]
+    assert red["partial"] is True and red["answer"] is None and red["selected"] is None
+    assert "partial" in p.stdout
+    p = w.eq("result", "--run", R)
+    assert p.returncode == 0, p.stderr
+    assert json.loads((w.store() / "result.json").read_text())["answer"] is None
+
+
+def test_reduce_stopped_member_needs_its_round_record(w):
+    cp_run(w)
+    two_candidates(w)
+    recs = json.loads((w.store() / "members.json").read_text())
+    recs["2"]["rounds"] = {}                                    # finished (stopped) but nothing recorded
+    w.members(recs)
+    (w.store() / "r0" / "m2.json").unlink()
+    assert w.eq("prepare-check", "--run", R, "--round", "0").returncode == 0
+    c = w.check(R, 1)
+    w.verdict(0, 1, c.stdout, c.returncode, policy=P)
+    p = w.eq("reduce", "--run", R, "--round", "0")
+    assert p.returncode == 4 and "m2 not captured" in p.stderr
+    recs["2"]["status"] = "abstain"                             # TaskStop'd: abstains, the round completes
+    w.members(recs)
+    assert w.eq("reduce", "--run", R, "--round", "0").returncode == 0
+
+
+def test_result_text_is_stored(w):
+    cp_run(w)
+    two_candidates(w)
+    checks_and_verdicts(w)
+    assert w.eq("reduce", "--run", R, "--round", "0").returncode == 0
+    p = w.eq("result", "--run", R)
+    assert p.returncode == 0, p.stderr
+    assert (w.store() / "result.txt").read_text() == p.stdout and mode(w.store() / "result.txt") == 0o600
+
+
+def test_headless_plan(w):
+    w.project()
+    s = "sess-h"
+    run = P.headless_run(s)
+    bf = w.t / "brief.txt"
+    bf.write_text("eq-run: %s\neq-class: CP\neq-mode: manual\neq-check: /bin/sh check.sh\n---\nMake it 42.\n" % run)
+    args = ("plan", "--run", run, "--headless", "--session", s, "--brief-file", str(bf))
+    p = w.eq(*args, ticket=False, env=w.env(STACK_EQ_N="2"))
+    assert p.returncode == 0, p.stderr
+    d = w.state / s / "eq" / run
+    b = json.loads((d / "brief.json").read_text())
+    assert b["caller_type"] == "headless" and b["session"] == s and b["cwd"] == str(w.proj)
+    assert json.loads((d / "plan.json").read_text())["N"] == 2 and mode(d) == 0o700
+    assert w.eq(*args, ticket=False).returncode == 4                         # the store exists
+    p = w.eq("plan", "--run", P.headless_run("other"), "--headless", "--session", "other", "--brief-file", str(bf),
+             ticket=False)
+    assert p.returncode == 4 and "eq-run" in p.stderr                        # the brief names another run
+    assert not (w.state / "other" / "eq" / P.headless_run("other")).exists()
+    p = w.eq("plan", "--run", P.headless_run("s3"), "--headless", "--session", "s3", "--brief-file", str(bf),
+             ticket=False, env=w.env(STACK_EQ="0"))
+    assert p.returncode == 4 and "STACK_EQ=0" in p.stderr
+    bf.write_text("eq-class: CP\neq-mode: manual\neq-check: no-such-program-eq\n---\nMake it 42.\n")
+    p = w.eq("plan", "--run", P.headless_run("s4"), "--headless", "--session", "s4", "--brief-file", str(bf),
+             ticket=False)
+    assert p.returncode == 4 and "does not resolve" in p.stderr
+    assert not (w.state / "s4" / "eq" / P.headless_run("s4")).exists()      # a refused plan leaves no store
 
 
 def test_reduce_requires_checks_phase(w):
