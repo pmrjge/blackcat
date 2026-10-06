@@ -44,7 +44,7 @@ RULES: list[tuple[str, bytes, bytes]] = [
     # scripts derive M (the checkout) and the staged package from their own location at run time
     ("m-sh-default", b"M=${EQ_M:-" + OLD_M + b"}",
      b'M=${EQ_M:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null'
-     b' || { cd "$(dirname "$0")/../.." && pwd; })}'),
+     b' || (cd "$(dirname "$0")/../.." && pwd))}'),  # a subshell: a brace group's `}` would end the ${...}
     ("stage-sh-default", b"STAGE=${EQ_STAGE_DIR:-" + OLD_STAGE + b"}",
      b'STAGE=${EQ_STAGE_DIR:-$(cd "$(dirname "$0")/.." && pwd)}'),
     ("m-py-default", b'DEFAULT_M = Path("' + OLD_M + b'")',
