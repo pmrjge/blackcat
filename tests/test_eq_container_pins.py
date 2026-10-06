@@ -1653,3 +1653,15 @@ def test_manifest_notices_an_in_repo_file_edited_without_repinning(pins_lib):
     set_tool(pins_lib, "perl-shim", "sha256", "9" * 64)
     p = vt(pins_lib, "--profiles", "core")
     assert p.returncode == 2 and "PROBLEM tool perl-shim: minimal/perl-shim does not hash to the sha256" in p.stdout, p.stdout
+
+
+@pytest.mark.parametrize("value", ["c" * 63, "C" * 64, "TODO"])
+def test_manifest_file_sha256_format_on_a_tool_without_a_pins_pair(pins_lib, value):
+    """file_sha256 on a tool PINS does not describe (node): only the format check can refuse a malformed value (exit 2)."""
+    t = (pins_lib / "TOOLS.toml").read_text()
+    t2 = t.replace('name = "node"\n', 'name = "node"\nfile_sha256 = "%s"\n' % value, 1)
+    assert t2 != t
+    (pins_lib / "TOOLS.toml").write_text(t2)
+    p = vt(pins_lib, "--profiles", "node")
+    assert p.returncode == 2 and "PROBLEM tool node: file_sha256 is not 64 lowercase hex" in p.stdout, p.stdout
+

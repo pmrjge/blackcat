@@ -1363,3 +1363,15 @@ def test_fake_cli_copies_are_identical():
     f = Path(__file__).resolve().parent / "fake-container" / "container"
     assert os.access(f, os.X_OK) and f.read_bytes().startswith(b"#!/bin/bash\n")
     assert b"[unverified]" in f.read_bytes()
+
+
+def test_probe_requires_and_emits_the_distroless_rows():
+    """probe.sh fails a probe that does not report no_debug_shell, no_package_manager and network_probe_control (a truncated
+    probe_inner.sh is never a pass), and probe_inner.sh emits each of them with both a PASS and a FAIL branch."""
+    probe = (EQC_LIB / "probe.sh").read_text()
+    need = re.search(r"for need in (.*?); do", probe, re.S).group(1).replace("\\\n", " ").split()
+    inner = (EQC_LIB / "probe_inner.sh").read_text()
+    for row in ("no_debug_shell", "no_package_manager", "network_probe_control"):
+        assert row in need, row
+        assert re.search(r"\bt %s PASS\b" % row, inner) and re.search(r"\bt %s FAIL\b" % row, inner), row
+
