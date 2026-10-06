@@ -161,9 +161,12 @@ def test_installer_env_is_an_allowlist():
         for k in ("CARGO_HOME", "UV_INDEX_URL", "HOMEBREW_GITHUB_API_TOKEN", "GITHUB_TOKEN", "PYTHONPATH",
                   "XDG_CACHE_HOME"):
             assert k not in env, (inst, k)
-        if inst in ("npm", "pnpm"):
+        if inst == "npm":
             assert env["npm_config_registry"] == "https://registry.npmjs.org/"
             assert env["npm_config_ignore_scripts"] == "true"
+        if inst == "pnpm":                       # pnpm 12 reads PNPM_CONFIG_*, not npm_config_*
+            assert env["PNPM_CONFIG_REGISTRY"] == "https://registry.npmjs.org/"
+            assert env["PNPM_CONFIG_IGNORE_SCRIPTS"] == "true"
         if inst == "go":
             assert env["GOFLAGS"] == "" and env["GONOSUMDB"] == "" and env["GOPROXY"] == "https://proxy.golang.org"
             assert env["GOSUMDB"] == "sum.golang.org" and env["GOTOOLCHAIN"] == "local"
@@ -396,7 +399,7 @@ def test_toolsmith_reason_keeps_the_policy_switch_out():
 
 
 # ---------------------------------------------------------------- the executor, in-process with fakes
-def registry(now, **over):
+def registry(now, extra_urls=None, **over):
     """fetch_json for the fixture registry: url -> document (404 -> None). `over` replaces documents
     by key (brew, pypi_v, pypi_p, npm, npm_dl, crate_v, crate, go)."""
     docs = {
@@ -428,6 +431,8 @@ def registry(now, **over):
 
     def fetch(url, *a, **k):
         seen.append(url)
+        if extra_urls and url in extra_urls:
+            return extra_urls[url]
         doc = docs.get(urls.get(url))
         if isinstance(doc, Exception):
             raise doc
@@ -440,7 +445,7 @@ class Exe(object):
     """bin/stack-install loaded from `path`, run in a scratch world: fake installers on PATH, a temp
     HOME, project and XDG state, hostile variables in the environment, a fixture registry."""
 
-    def __init__(self, tmp, monkeypatch, path=EXE, **reg):
+    def __init__(self, tmp, monkeypatch, path=EXE, extra_urls=None, **reg):
         self.tmp = Path(tmp)
         self.si = load("stack_install", path)
         self.bin = self.tmp / "fakebin"
@@ -463,7 +468,7 @@ class Exe(object):
         monkeypatch.setattr(self.si.P, "SYSTEM_DIRS", ())
         monkeypatch.setattr(self.si.P, "unsafe_roots", lambda environ, cwd: [os.path.realpath(cwd)])
         monkeypatch.setattr(self.si, "on_terminal", lambda: False)
-        self.fetch = registry(time.time(), **reg)
+        self.fetch = registry(time.time(), extra_urls, **reg)
         monkeypatch.setattr(self.si, "fetch_json", self.fetch)
         self.state = self.xdg / "claude-agent-stack" / "toolsmith"
 
@@ -559,7 +564,7 @@ def test_install_npm_flags(exe):
     assert a[:6] == ["install", "--global", "--registry=https://registry.npmjs.org/", "--no-audit", "--no-fund",
                      "--ignore-scripts"]
     assert [x for x in a if x.startswith("--before=")] and a[-1] == "semver@7.6.3"
-    assert {"--allow-git=none", "--allow-remote=none", "--allow-file=none"} <= set(a)
+    assert {"--allow-git=none", "--allow-remote=none", "--allow-file=none", "--allow-directory=none"} <= set(a)
     assert call["env"]["npm_config_registry"] == "https://registry.npmjs.org/"
     assert call["env"]["npm_config_ignore_scripts"] == "true"
     assert exe.ledger()[-1]["uninstall"] == ["npm", "uninstall", "--global", "semver"]
@@ -760,8 +765,8 @@ def test_list_manifest_pending_show(exe, capsys):
     capsys.readouterr()
     assert exe.run("manifest") == 0
     lines = [x for x in capsys.readouterr().out.splitlines() if not x.startswith("#")]
-    assert lines == ['stack-install install brew jq --why "parse JSON"',
-                     'stack-install install npm semver@7.6.3 --why "semver checks"']
+    assert lines == ["stack-install install brew jq --why 'parse JSON'",
+                     "stack-install install npm semver@7.6.3 --why 'semver checks'"]
     for line in lines:
         P.parse(__import__("shlex").split(line)[1:])                   # replayable through the grammar
     assert exe.run("list") == 0 and "semver" in capsys.readouterr().out
@@ -830,6 +835,204 @@ def test_prune_keeps_the_toolsmith_state():
     assert '"eq-wall", "toolsmith"):' in GUARD.read_text()
 
 
+# ---------------------------------------------------------------- review fixes (2026-10-06): one proof each
+def test_go_package_inside_a_module_is_vetted_at_its_module(tmp_path, monkeypatch):
+    """code review HIGH: the proxy serves module paths only (404/410 for a package path)."""
+    root = "https://proxy.golang.org/golang.org/x/tools/@v/v0.25.0.info"
+    exe = Exe(tmp_path, monkeypatch, extra_urls={root: {"Version": "v0.25.0", "Time": iso(time.time() - 60 * DAY)}})
+    assert exe.run("install", "go", "golang.org/x/tools/cmd/goimports@v0.25.0", "--why", "format imports") == 0
+    assert exe.ledger()[-1]["bins"] == [str(exe.bin / "gobin" / "goimports")]
+    assert exe.fetch.seen[0].endswith("/golang.org/x/tools/cmd/goimports/@v/v0.25.0.info")
+    assert exe.fetch.seen[-1] == root
+
+
+def test_busy_lock_keeps_the_approval(exe, monkeypatch):
+    """code review MEDIUM: `run` used the approval up before taking the lock."""
+    assert exe.run("request", "--why", "a GUI app the user asked for", "--", "brew", "install", "--cask",
+                   "firefox") == 3
+    (rq,) = exe.requests()
+    assert approve(exe, rq, monkeypatch) == 0
+    fd = os.open(str(exe.state / "install.lock"), os.O_RDWR | os.O_CREAT, 0o600)
+    fcntl.flock(fd, fcntl.LOCK_EX)
+    try:
+        monkeypatch.setattr(exe.si, "LOCK_WAIT_S", 0.3)
+        assert exe.run("run", rq) == 6
+    finally:
+        os.close(fd)
+    assert exe.run("run", rq) == 0
+
+
+def test_a_users_install_becomes_an_approvable_request(exe, monkeypatch):
+    """code review MEDIUM: the skip-rule and upgrade checks run before any request is recorded."""
+    (exe.bin / "installed").mkdir()
+    (exe.bin / "installed" / "npm-semver").write_text("7.0.0")
+    assert exe.run("upgrade", "npm", "semver@7.6.3", "--why", "security fix") == 4
+    assert exe.requests() == [] and exe.fetch.seen == []
+    assert exe.run("install", "npm", "semver@7.6.3", "--why", "semver checks") == 3
+    (rq,) = exe.requests()
+    assert "user-installed" in json.loads((exe.state / "requests" / (rq + ".json")).read_text())["relaxed"]
+    assert approve(exe, rq, monkeypatch) == 0 and exe.run("run", rq) == 0
+    assert (exe.bin / "installed" / "npm-semver").read_text() == "7.6.3"
+
+
+def test_uv_names_are_normalized(tmp_path, monkeypatch):
+    """code review MEDIUM: uv lists PEP 503 names, so zope.interface is the user's zope-interface."""
+    now = time.time()
+    v = {"info": {"version": "7.1.0"},
+         "urls": [{"packagetype": "bdist_wheel", "upload_time_iso_8601": iso(now - 30 * DAY)}]}
+    p = {"info": {"version": "7.1.0"}, "releases": {"1": [{"upload_time_iso_8601": iso(now - 900 * DAY)}]}}
+    urls = {}
+    for n in ("zope.interface", "zope-interface"):
+        urls["https://pypi.org/pypi/%s/7.1.0/json" % n] = v
+        urls["https://pypi.org/pypi/%s/json" % n] = p
+    exe = Exe(tmp_path, monkeypatch, extra_urls=urls)
+    (exe.bin / "installed").mkdir()
+    (exe.bin / "installed" / "uv-zope-interface").write_text("6.0")
+    assert exe.run("install", "uv", "zope.interface==7.1.0", "--why", "zope for the build") == 3
+    assert exe.installs() == []
+    assert P.parse(["install", "uv", "Zope.Interface==7.1.0", "--why", "abc"])["name"] == "zope-interface"
+
+
+def test_an_expired_approval_can_be_renewed(exe, monkeypatch, capsys):
+    """code review MEDIUM: approve crashed on the old approval file; pending said pending."""
+    assert exe.run("request", "--why", "a ruby tool", "--", "gem", "install", "rubocop") == 3
+    (rq,) = exe.requests()
+    assert approve(exe, rq, monkeypatch) == 0
+    appr = exe.state / "approved" / (rq + ".json")
+    a = json.loads(appr.read_text())
+    a["expires"] = time.time() - 1
+    appr.write_text(json.dumps(a))
+    capsys.readouterr()
+    assert exe.run("pending") == 0 and "expired" in capsys.readouterr().out
+    assert approve(exe, rq, monkeypatch) == 0
+    assert exe.run("run", rq) == 0
+
+
+def test_errors_are_exit_5_not_a_traceback(exe, monkeypatch, capsys):
+    def boom(*a, **k):
+        raise OSError(28, "No space left on device")
+    monkeypatch.setattr(exe.si, "run_logged", boom)
+    assert exe.run("install", "brew", "jq", "--why", "need jq") == 5
+    assert "No space left" in capsys.readouterr().err
+
+
+def test_manifest_keeps_the_options(exe, capsys):
+    assert exe.run("install", "cargo", "ripgrep@14.1.1", "--why", "fast search", "--features", "pcre2") == 0
+    capsys.readouterr()
+    assert exe.run("manifest") == 0
+    (line,) = [x for x in capsys.readouterr().out.splitlines() if not x.startswith("#")]
+    assert "--features pcre2" in line and line.startswith("stack-install install cargo ripgrep@14.1.1")
+
+
+def test_an_approved_uninstall_request_updates_the_ledger(exe, monkeypatch):
+    assert exe.run("request", "--why", "a GUI app the user asked for", "--", "brew", "install", "--cask",
+                   "firefox") == 3
+    (rq,) = exe.requests()
+    assert approve(exe, rq, monkeypatch) == 0 and exe.run("run", rq) == 0
+    assert exe.run("request", "--why", "remove the GUI app", "--", "brew", "uninstall", "--cask", "firefox") == 3
+    (rq2,) = exe.requests()
+    assert approve(exe, rq2, monkeypatch) == 0 and exe.run("run", rq2) == 0
+    assert P.fold(exe.ledger()) == {}
+
+
+def test_reserved_and_shadowing_binaries_ask(tmp_path, monkeypatch):
+    """security audit HIGH F1: a package must not put `git`, `brew`, ... first on PATH."""
+    now = 2e9
+    full = {"versions": {"1.0.0": {"bin": {"git": "x.js"}}},
+            "time": {"1.0.0": iso(now - 30 * DAY), "created": iso(now - 400 * DAY)}}
+    assert P.vet_npm(full, {"downloads": 5000}, "x", "1.0.0", now, 7).verdict != "pass"
+    full["versions"]["1.0.0"]["bin"] = {"../x": "x.js"}
+    assert P.vet_npm(full, {"downloads": 5000}, "x", "1.0.0", now, 7).verdict == "refuse"
+    vc = {"version": {"num": "1.0.0", "created_at": iso(now - 30 * DAY), "bin_names": ["brew"]}}
+    cc = {"crate": {"created_at": iso(now - 900 * DAY), "recent_downloads": 50000}}
+    assert P.vet_cargo(vc, cc, "x", "1.0.0", now, 7).verdict != "pass"
+    go = {"Version": "v1.0.0", "Time": iso(now - 30 * DAY)}
+    assert P.vet_go(go, "a.com/b/git", "v1.0.0", now, 7).verdict != "pass"
+    # a uv tool's console scripts are known only after the install: undone and asked
+    exe = Exe(tmp_path, monkeypatch)
+    (exe.bin / "uv-bins-ruff").write_text("brew")
+    assert exe.run("install", "uv", "ruff==0.6.9", "--why", "python linter") == 3
+    assert not (exe.bin / "uvbin" / "brew").exists() and len(exe.requests()) == 1
+    assert [e["event"] for e in exe.ledger()][-1] == "removed"
+
+
+def test_an_installer_never_resolves_into_an_installed_tool(tmp_path, monkeypatch):
+    home = tmp_path / "h"
+    tool = home / ".local" / "share" / "uv" / "tools" / "evil" / "bin"
+    tool.mkdir(parents=True)
+    (tool / "brew").write_text("#!/bin/sh\n")
+    (tool / "brew").chmod(0o755)
+    lb = home / ".local" / "bin"
+    lb.mkdir(parents=True)
+    (lb / "brew").symlink_to(tool / "brew")
+    monkeypatch.setattr(P, "unsafe_roots", lambda e, c: [])
+    monkeypatch.setattr(P, "SYSTEM_DIRS", ())
+    assert P.resolve_program("brew", {"HOME": str(home), "PATH": str(lb)}, "/") is None
+    nm = home / "n" / "lib" / "node_modules" / "evil" / "bin"
+    nm.mkdir(parents=True)
+    (nm / "go").write_text("#!/bin/sh\n")
+    (nm / "go").chmod(0o755)
+    (home / "n" / "bin").mkdir()
+    (home / "n" / "bin" / "go").symlink_to(nm / "go")
+    assert P.resolve_program("go", {"HOME": str(home), "PATH": str(home / "n" / "bin")}, "/") is None
+
+
+def test_registry_text_carries_no_terminal_controls():
+    """security audit MEDIUM F2: an escape sequence could repaint the approval screen."""
+    now = 2e9
+    full = {"versions": {"1.0.0": {"deprecated": "\x1b[3A\x1b[Jok‮"}},
+            "time": {"1.0.0": iso(now - 30 * DAY), "created": iso(now - 400 * DAY)}}
+    r = P.vet_npm(full, {"downloads": 5000}, "x", "1.0.0", now, 7)
+    assert not any("\x1b" in c["detail"] or "‮" in c["detail"] for c in r.checks)
+    assert P.clean_text("a\x1b[2Jb\x07​c") == "a?[2Jb??c"
+
+
+def test_npm_without_source_refusals_asks(exe):
+    """security audit MEDIUM F3: no --allow-git/remote/file/directory=none, no automatic install."""
+    (exe.bin / "nohelp").write_text("")
+    assert exe.run("install", "npm", "semver@7.6.3", "--why", "semver checks") == 3
+    assert exe.installs() == [] and len(exe.requests()) == 1
+
+
+def test_pnpm_and_go_environment_hardening():
+    """security audit MEDIUM F4 (pnpm 12 reads PNPM_CONFIG_*, not npm_config_*: probed with pnpm 12.8.1
+    `pnpm config get`) and LOW F5 (Go falls back to its env file for an empty variable)."""
+    env = P.installer_env({}, "pnpm", [], "/t", age_days=7)
+    assert env["PNPM_CONFIG_MINIMUM_RELEASE_AGE"] == "10080" and env["PNPM_CONFIG_IGNORE_SCRIPTS"] == "true"
+    assert env["PNPM_CONFIG_REGISTRY"] == "https://registry.npmjs.org/"
+    assert "PNPM_CONFIG_MINIMUM_RELEASE_AGE" not in P.installer_env({}, "pnpm", [], "/t", age_days=0)
+    assert P.installer_env({}, "pnpm", [], "/t", allow_scripts=True)["PNPM_CONFIG_IGNORE_SCRIPTS"] == "false"
+    assert P.installer_env({}, "go", [], "/t")["GOENV"] == "off"
+
+
+@pytest.mark.parametrize("command", [["arch", "-arm64", "/bin/sh", "-c", "id"], ["xcrun", "python3", "-m", "pip"],
+                                     ["gem", "install", "x", "/bin/bash"], ["brew", "install", "pip3"],
+                                     ["nix-env", "-i", "x"]])
+def test_request_commands_are_installers_only(command):
+    """security audit LOW F7: wrappers and interpreters later in the argv."""
+    with pytest.raises(P.PolicyError):
+        P.check_request_command(command)
+
+
+@pytest.mark.parametrize("command", [
+    "NODE_ENV=\"a b\" %s list" % WRAPPER, "timeout -s KILL 30 %s list" % WRAPPER, "stdbuf -o L %s list" % WRAPPER,
+    "%s\\\ninstall list" % WRAPPER[:-7], "nice -n 5 %s list" % WRAPPER, "env -u X %s list" % WRAPPER])
+def test_more_spellings_of_a_call_are_refused_to_others(command, state):
+    """security audit LOW F6."""
+    out = decision(run_hook(command, "coder", XDG_STATE_HOME=str(state)))
+    assert out and out["permissionDecision"] == "deny", command
+
+
+def test_a_commit_message_naming_the_executor_is_allowed(state):
+    """code review MEDIUM: heredoc bodies are data, not commands (a body fed to a shell stays sandboxed)."""
+    cmd = "git commit -q -F - <<'EOF'\ntoolsmith: review fixes\n\n- stack-install now refuses taps\nEOF"
+    assert decision(run_hook(cmd, "main-coder", XDG_STATE_HOME=str(state))) is None
+
+
+def test_ticket_lifetime_is_short():
+    assert P.TICKET_TTL_S == 120
+
+
 # ---------------------------------------------------------------- seeded bugs: each rule's test has teeth
 GUARD_MUTANTS = [
     # (what breaks, guard edit or None, policy edit or None, command, agent type, tool)
@@ -856,8 +1059,11 @@ GUARD_MUTANTS = [
      [('"npm": re.compile(r"(%s)@(%s)\\Z" % (NPM_NAME, SEMVER)),',
        '"npm": re.compile(r"(%s)@([\\^~]?%s)\\Z" % (NPM_NAME, SEMVER)),')],
      "%s install npm semver@^7.6.3 --why abcd", "toolsmith", "Bash"),
-    ("sudo passes a request", None, [("sudo doas su pkexec", "doas su pkexec")],
-     "%s request --why abcd -- sudo gem install x", "toolsmith", "Bash"),
+    ("a later sudo passes a request", None, [('        if w.lower() in ("sudo", "doas") or re.match(',
+                                              '        if re.match(')],
+     "%s request --why abcd -- gem install sudo", "toolsmith", "Bash"),
+    ("any program passes a request", None, [("    if base not in REQUEST_PROGRAMS:", "    if False:")],
+     "%s request --why abcd -- nix-env -i x", "toolsmith", "Bash"),
     ("taps pass the grammar", None, [('BREW_NAME = r"[a-z0-9][a-z0-9+_.@-]{0,99}"',
                                       'BREW_NAME = r"[a-z0-9][a-z0-9+_.@/-]{0,99}"'),
                                      ('        if "/" in spec or not NAME_RE["brew"].match(spec):',
@@ -893,8 +1099,8 @@ EXE_MUTANTS = [
      "    owned = P.fold(ledger_read(d)).get((inst, name)) or {\"uninstall\": P.uninstall_argv(inst, name)}\n"
      "    if not owned:",
      lambda e: e.run("uninstall", "brew", "jq", "--why", "not needed"), 0),
-    ("relaxers install directly", "    if not approved and (report.verdict == \"ask\" or relaxed):",
-     "    if not approved and report.verdict == \"ask\":",
+    ("relaxers install directly", "        elif report.verdict == \"ask\" or p.get(\"relax\") or ask:",
+     "        elif report.verdict == \"ask\" or ask:",
      lambda e: e.run("install", "npm", "semver@7.6.3", "--why", "needs scripts", "--allow-scripts"), 0),
 ]
 

@@ -11333,16 +11333,49 @@ def toolsmith_policy():
     return _TS_POLICY[0]
 
 
+TOOLSMITH_HEREDOC_RE = re.compile(r"<<-?[ \t]*(['\"]?)([A-Za-z0-9_][\w.-]*)\1[^\n]*\n(.*?)(?:\n[ \t]*\2[ \t]*(?=\n|\Z)|\Z)",
+                                  re.S)
+# wrapper options that take a value (timeout -s KILL 30, stdbuf -o L, nice -n 5, env -u X), per wrapper
+TOOLSMITH_VALUE_OPTS = {"timeout": {"-s", "-k", "--signal", "--kill-after"},
+                        "gtimeout": {"-s", "-k", "--signal", "--kill-after"},
+                        "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+                        "nice": {"-n", "--adjustment"}, "env": {"-u", "--unset", "-C", "--chdir", "-P"},
+                        "sudo": {"-u", "-g", "-C", "-h", "-p", "-U"}, "exec": {"-a"}}
+
+
 def wrapper_invoked(command):
-    """True when a simple command of `command` has stack-install as its command word."""
-    text = re.sub(r"['\"\\]", "", str(command or ""))
-    if "stack-install" not in text.lower():
+    """True when a simple command of `command` has stack-install as its command word. Heredoc bodies
+    are data (a commit message naming the executor); a body fed to a shell runs sandboxed anyway,
+    since only a call whose every command starts with the executor's path leaves the sandbox. A
+    segment the shell lexer cannot read counts when it names stack-install."""
+    import shlex
+    text = re.sub(r"\\\r?\n", "", str(command or ""))
+    if "stack-install" not in re.sub(r"['\"\\]", "", text).lower():
         return False
+    text = TOOLSMITH_HEREDOC_RE.sub("<<x\n", text)
     for seg in TOOLSMITH_SEG_RE.split(text):
-        for w in seg.split():
-            low = w.lower()
+        try:
+            words = shlex.split(seg, comments=False)
+        except ValueError:
+            if "stack-install" in re.sub(r"['\"\\]", "", seg).lower():
+                return True
+            continue
+        k, wrapper = 0, None
+        while k < len(words):
+            low = words[k].lower()
+            if wrapper == "env" and low in ("-s", "--split-string") and k + 1 < len(words):
+                if "stack-install" in words[k + 1].lower():
+                    return True                 # env -S 'stack-install ...': one string, split by env
+                k += 2
+                continue
+            if wrapper and low in TOOLSMITH_VALUE_OPTS.get(wrapper, ()):
+                k += 2
+                continue
+            if low in TOOLSMITH_PREFIX_WORDS:
+                wrapper = low
             if low in TOOLSMITH_PREFIX_WORDS or low[:1] in "-+" or low[:1].isdigit() or \
                     re.match(r"[a-z_][a-z0-9_]*\+?=", low):
+                k += 1
                 continue
             if low.rstrip("/").rsplit("/", 1)[-1] == "stack-install":
                 return True

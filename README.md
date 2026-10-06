@@ -581,8 +581,9 @@ sandbox (`sandbox.excludedCommands`, by absolute path) and pre-approves (`permis
   pinned version from the official registry, never a tap, URL, git or path source, `sudo`, a shell or a
   download piped to one. Vetting reads the registry: the version is at least 7 days old, the package at
   least 90 days, popular enough (npm, crates, Homebrew), not yanked or disabled; install scripts never
-  run (`--ignore-scripts`, `uv --no-build`) and are reported. The installers get a clean environment
-  (no tokens, no sandbox caches, no project config).
+  run (`--ignore-scripts`, `uv --no-build`) and are reported; a package may not put a reserved name
+  (an installer, git, sudo, a shell, python, …) or a command already on PATH there without you. The
+  installers get a clean environment (no tokens, no sandbox caches, no project config).
 - **What asks you:** a failed check, a relaxed rule (`--allow-scripts`, `--allow-build`), any other
   installer (a cask, gem, pipx, …) and anything you installed yourself (it is never upgraded or removed
   for you). toolsmith returns `NEXT: ASK USER` with a request id; BlackCat asks you; you decide in a
@@ -1482,10 +1483,16 @@ Only you can run these.
 6. **Ask rules:** an ask rule prompts in every mode, `bypassPermissions` included (start one session with
    `claude --permission-mode bypassPermissions`; for example a magg `duckdb_*` call).
 7. **Credentials:** `bash ~/.claude/bin/doctor.sh`, section "GitHub credentials agents could use".
-8. **toolsmith:** `/sandbox` lists `~/.claude/bin/stack-install *` (expanded) under excluded commands;
-   ask BlackCat to install a small tool (say, `jq` with Homebrew): toolsmith runs without a prompt and
-   `~/.claude/bin/stack-install list` (your terminal) shows it with its uninstall command; a coder told
-   to run `~/.claude/bin/stack-install list` is refused by the guard.
+8. **toolsmith:** `/sandbox` lists `~/.claude/bin/stack-install *` (expanded) under excluded commands.
+   With the main thread in Plan (the default), then in auto and in bypassPermissions mode, ask BlackCat
+   to install a small tool (say, `jq` with Homebrew): toolsmith, a background subagent, runs without a
+   prompt, the formula lands in `/opt/homebrew` (so the call ran unsandboxed), and
+   `~/.claude/bin/stack-install list` (your terminal) shows it with its uninstall command. A coder told
+   to run `~/.claude/bin/stack-install list`, `FOO=1 ~/.claude/bin/stack-install list` or
+   `timeout -s KILL 30 ~/.claude/bin/stack-install list` is refused by the guard; toolsmith told to run
+   `stack-install approve <id>` is refused; `script -q /dev/null ~/.claude/bin/stack-install approve <id>`
+   from a coder writes no approval (it runs sandboxed: the state dir is denyWrite). The docs do not settle auto
+   mode, plan mode or the matcher's handling of leading variables (CONFIG.md §7, Residual risks).
 
 ## Apps
 

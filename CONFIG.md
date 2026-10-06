@@ -916,14 +916,17 @@ are hook- and code-enforced; every install is ledgered with its uninstall comman
   caller.
 - **The guard** (`agent_guard.py` no-push mode, `toolsmith_gate`; absolute: also with `STACK_POLICY=off`;
   an error refuses). Every agent type but `INSTALLER_TYPES` and the main thread: any simple command whose
-  command word is stack-install is refused (after quotes, `VAR=` words and wrappers such as env, exec,
-  timeout, xargs; `git log -- …/stack-install`, `cat` and `python3 <copy>` stay allowed). toolsmith: its
+  command word is stack-install is refused (after quotes, `\`-newline joins, `VAR=` words and wrappers
+  such as env, exec, timeout, stdbuf, nice, xargs with their value options; `env -S` strings; a segment
+  the shell lexer cannot read counts when it names stack-install; heredoc bodies are data, so a commit
+  message naming the executor passes, and `git log -- …/stack-install`, `cat` and `python3 <copy>` stay
+  allowed: only a call whose every command starts with the path leaves the sandbox). toolsmith: its
   Bash runs only that absolute path, alone, without shell syntax (`; & | < > ( ) $ \` * ? [ ] { } ~ ! #`,
   backslash, newline, tab); no PowerShell or Monitor; the arguments must parse with the executor's own
   grammar, `--for` must name a stack agent, and `run <rq-id>` needs the user's approval on record. Then
   the hook writes the call's one-use ticket, `<state>/toolsmith/tickets/<sha256 of the argv>.json` (argv,
   time, session, agent and parent ids and types); a ticket it cannot write refuses the call.
-- **The executor** runs an agent's call only with that ticket, claimed atomically within 600 s (no hooks,
+- **The executor** runs an agent's call only with that ticket, claimed atomically within 120 s (no hooks,
   no run), and the user's own `approve`, `deny`, `list`, `pending`, `manifest`, `show` only on a real
   terminal (stdin and stdout ttys, `/dev/tty` opens). Subcommands: `help`, `status`, `list [--all]`,
   `pending`, `manifest`, `show <id>`, `vet <installer> <spec>`, `install|upgrade <installer> <spec> --why
@@ -934,10 +937,18 @@ are hook- and code-enforced; every install is ledgered with its uninstall comman
   `brew install --formula`; `uv tool install --no-config --no-sources --default-index https://pypi.org/simple
   --no-build --exclude-newer <now − age>`; `npm install --global --registry=https://registry.npmjs.org/
   --ignore-scripts --before=<now − age>` plus `--allow-git|remote|file|directory=none` when that npm lists
-  them; `pnpm add --global --registry=… --ignore-scripts`; `cargo install --locked`; `go install` with
-  `GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS= GONOSUMDB= GOPRIVATE= GOINSECURE=
-  GOTOOLCHAIN=local GOWORK=off`. A request's command is argv (never a shell): no sudo/doas/su, shells,
-  code runners, downloaders, pip (Python only through uv) or file tools, even with approval.
+  them (an npm without all four asks: it would fetch git, URL and file dependencies); `pnpm add --global
+  --registry=… --ignore-scripts` with `PNPM_CONFIG_MINIMUM_RELEASE_AGE` = the age in minutes (pnpm 12
+  reads `PNPM_CONFIG_*`, not `npm_config_*`; strict once set); `cargo install --locked`; `go install`
+  with `GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS= GONOSUMDB= GOPRIVATE=
+  GOINSECURE= GOTOOLCHAIN=local GOWORK=off GOENV=off` (Go falls back to its env file for an empty
+  variable; with GOENV=off a `go env -w GOBIN` of yours is not read either: binaries go to `$GOPATH/bin`).
+  A request's command is argv (never a shell) whose program is an installer (`REQUEST_PROGRAMS`: brew,
+  gem, pipx, mas, port, rustup, cargo, go, npm, pnpm, yarn, bun, deno, uv, conda, mamba, micromamba,
+  pixi, opam, ghcup, cabal, stack, juliaup, elan, composer, luarocks, cpanm, dotnet, sdkmanager, gcloud)
+  and whose words name no sudo, pip, Python interpreter or, by path, shell or other refused program,
+  even with approval. Installs hold one lock (`install.lock`, 300 s wait: under the 10-minute Bash
+  timeout); `run` takes it before it uses the approval.
 - **Environment.** The installer gets an allowlist (HOME, USER, LOGNAME, LANG, LC_*, TERM, SHELL, TZ,
   SSL_CERT_*, NODE_EXTRA_CA_CERTS; PNPM_HOME for pnpm), a PATH of its own directory and the system ones,
   a private TMPDIR and working directory under `<state>/toolsmith/work/` (so no project `.npmrc`,
@@ -945,15 +956,25 @@ are hook- and code-enforced; every install is ledgered with its uninstall comman
   answered), and the installer's hardening variables. Nothing of the Bash environment's sandbox caches,
   tokens or installer configuration (`HOMEBREW_*`, `npm_config_*`, `UV_*`, `CARGO_*`, `GO*`, `PIP_*`)
   passes. Programs are resolved on PATH outside agent-writable roots (the working directory, the temp
-  roots, `~/.cache/claude-sandbox`, the project dir).
+  roots, `~/.cache/claude-sandbox`, the project dir) and never inside a package's own tree (a uv tool's
+  environment, an npm package other than npm, pnpm, corepack and yarn) or at a path the ledger says
+  toolsmith installed.
 - **Vetting** (registry metadata over https from formulae.brew.sh, pypi.org, registry.npmjs.org,
   api.npmjs.org, crates.io and proxy.golang.org only, redirects included). Refused outright: not found,
-  yanked, a disabled formula, a tap other than homebrew/core, a crate without binaries. A request for
+  yanked, a disabled formula, a tap other than homebrew/core, a crate without binaries, an executable
+  name that is not a plain file name. A request for
   the user (exit 3): the version younger than `STACK_TOOLSMITH_MIN_AGE_DAYS` (7); the package first
   published less than 90 days ago (PyPI, npm, crates); popularity under npm 1,000 downloads last week,
   crates.io 10,000 in 90 days or Homebrew 1,000 installs on request in a year; a deprecated formula or
   npm version; a PyPI release without a wheel; metadata that cannot be fetched; `--allow-scripts` or
-  `--allow-build`. Reported, not blocking: install scripts present and not run, a formula's post_install
+  `--allow-build`; an executable the package puts on PATH that is reserved (`RESERVED_BINS`: the
+  installers, git, ssh, sudo, shells, python, pip, node, claude, gh, curl, core file tools, …) or that
+  a command already on PATH answers to (npm `bin`, crates.io `bin_names`, the go binary before the
+  install; a uv tool's console scripts after it: the install is undone, `removed` in the ledger, and
+  asked; nothing of it has run, wheels run no code at install). Go packages inside a module are vetted
+  at the longest module path the proxy serves (it answers 404/410 for a package path). Registry text
+  is shown with control, bidi and zero-width characters replaced (`clean_text`), so it cannot repaint
+  the approval screen. Reported, not blocking: install scripts present and not run, a formula's post_install
   step and caveats, cargo's build scripts. Integrity is the installers' own (bottle sha256, PyPI hashes,
   npm `dist.integrity`, cargo `--locked` and crates.io checksums, Go's checksum database).
 - **Requests and approvals.** `<state>/toolsmith/requests/<rq-id>.json` holds the exact argv or command,
@@ -962,15 +983,18 @@ are hook- and code-enforced; every install is ledgered with its uninstall comman
   <rq-id>` in a terminal, sees the command, reasons and checks, and types the id (`deny` the same way). The
   approval (`approved/`, a digest of the request) is valid 24 hours and used once (`run` moves it to
   `done/`); a request changed after its approval is refused. An approved install skips the checks it
-  failed, not the hard rules.
+  failed, not the hard rules; one it does not cover (the situation changed) records a new request. An
+  expired approval is shown as `expired` by `pending` and renewed by `approve`. An approved command
+  that is the recorded uninstall of a request's package (a cask, a gem) marks it `removed`.
 - **Ledger and management.** `<state>/toolsmith/ledger.jsonl` (0600, appended under flock), one JSON event
   per line: `attempt` (written before the installer runs: no line, no install), `installed`, `removed`,
   `failed`, `ran`, with id, time, installer, package, version, source, why, for, requested_by (session,
   agent and parent from the ticket), argv, the uninstall argv, the vetting report, the approval id, exit
   code and a log path (`logs/`). `list` folds it into what toolsmith installed; `manifest` prints one
-  `stack-install install …` line per package (a Brewfile-style file that replays through the same
-  vetting); `upgrade` and `uninstall` act only on ledger-owned packages (a program the user installed is
-  never upgraded or removed: the skip rule; an install over it asks). One lock (`install.lock`) serialises
+  `stack-install install …` line per package with its recorded options (a Brewfile-style file that
+  replays through the same vetting); `upgrade` and `uninstall` act only on ledger-owned packages (a program the user installed is
+  never upgraded or removed: the skip rule, checked before any registry call; an install over it
+  records a request for the user). One lock (`install.lock`) serialises
   installs. The SessionStart prune keeps `toolsmith/`; the state dir is sandbox `denyWrite`,
   `Edit(/__STACK_STATE__/**)` and protected-path denied, 0700, files 0600.
 - **doctor.sh** section "toolsmith": the executor and its rules installed, the `excludedCommands` entry
@@ -983,8 +1007,8 @@ are hook- and code-enforced; every install is ledgered with its uninstall comman
 
 ### Residual risks
 
-- **toolsmith's installs run code as you, unsandboxed.** A vetted package is still third-party code: Homebrew post_install steps, cargo build scripts and proc macros, and the installed program itself run with your full access. The vetting (official registry, pinned version, age, popularity, no install scripts) lowers the odds of a fresh or typosquatted compromise; it does not review code. A popular package compromised for longer than the age window passes. `brew` installs the formula's current version (no pin); pnpm has no flag for the dependency tree's age (npm's `--before` and uv's `--exclude-newer` cover theirs); go has no popularity source. The policy is ours, so a package the registries vouch for poorly (no metadata) asks instead of installing.
-- **toolsmith's triggers and the live checks.** That Claude Code runs the `excludedCommands` entry unsandboxed and the allow rule removes its prompt is configured, not live-verified (README, Live checks 8). If either does not hold, installs fail (sandboxed: unwritable prefixes, no ticket claimed) or prompt; they do not widen. The executor trusts `/usr/bin/python3` and the installers found outside agent-writable directories; a Homebrew or npm prefix you made writable to everyone is not detected. Approvals need a terminal you control: anything running as you outside the sandbox could type them.
+- **toolsmith's installs run code as you, unsandboxed.** A vetted package is still third-party code: Homebrew post_install steps, cargo build scripts and proc macros, and the installed program itself run with your full access. The vetting (official registry, pinned version, age, popularity, no install scripts) lowers the odds of a fresh or typosquatted compromise; it does not review code. A popular package compromised for longer than the age window passes. `brew` installs the formula's current version (no pin); cargo's and go's dependency trees have no age cutoff (npm's `--before`, uv's `--exclude-newer` and pnpm's `minimumReleaseAge` cover theirs), so a transitive crate or module published minutes ago builds (crates.io and sumdb checksums still apply); go has no popularity source; PyPI has no popularity source either (project age stands in). A package with an unusual executable name that is neither reserved nor already on PATH gets on PATH without a question. The policy is ours, so a package the registries vouch for poorly (no metadata) asks instead of installing.
+- **toolsmith's triggers and the live checks.** That Claude Code runs the `excludedCommands` entry unsandboxed and the allow rule removes its prompt is configured, not live-verified (README, Live checks 8). If either does not hold, installs fail (sandboxed: unwritable prefixes, no ticket claimed) or prompt; they do not widen. The docs (fetched 2026-10-06, security audit) say an excluded command runs unsandboxed in strict mode and that allow rules cover it in default and acceptEdits; they do not say whether auto mode drops this allow rule as a broad one, how plan mode treats it, or whether excludedCommands matching strips leading variables, wrappers or `\`-newlines as Bash permission rules do: the guard refuses those spellings to other agents anyway, and the executor needs a ticket. A mod that handles `tool.check` can override a block from a hook in user settings. The executor trusts `/usr/bin/python3` and the installers found outside agent-writable directories; a Homebrew or npm prefix you made writable to everyone is not detected. Approvals need a terminal you control: anything running as you outside the sandbox could type them.
 - **The shell parsing is a heuristic.** The read-only reviewer allowlist, the protected-path scan and no-push all parse shell text. The sandbox, and managed settings once you install them, are the real boundary; without the sandbox a determined interpreter one-liner can still slip past the parser.
 - **`gh` can still use a keychain token.** `hosts.yml` is unreadable in the sandbox now, but `gh` (and git's `osxkeychain` helper run directly) can still reach a token stored in the macOS keychain from code the guard doesn't recognise. The guard refuses the commands that print it and the no-push hook refuses forge writes (`gh`, `git push`, `curl`/`wget`/`httpie` writes to forge hosts); arbitrary code that talks to the keychain or sends the token itself isn't caught by either. Mitigation: the least-privilege GitHub setup above; `doctor.sh` reports what an agent could find. The keychain service name `gh:github.com` is unverified.
 - **Language servers run outside the sandbox on files the sandbox can write.** rust-analyzer runs build scripts and proc macros, Metals/Gradle, HLS and `lake serve` run build code, and LanguageServer.jl loads packages: a sandboxed command that edits a project's build files (`build.rs`, `build.sbt`, `lakefile`, ...) gets that code run unsandboxed the next time the language server starts. Accepted: the project is writable by design; round 3 removed the shared caches, so this is now the project's own files only. Disable the LSP plugins for untrusted work.
@@ -1019,6 +1043,7 @@ Entries name agents, knobs and files by their current names.
 
 ### 2026-10-06 (toolsmith: the dependency installer)
 - New agent `toolsmith` (Sonnet, leaf, Read/Bash/Skill, acceptEdits, 60 turns; lookup pool) and its executor `bin/stack-install` with `hooks/toolsmith_policy.py`: Homebrew formulae, uv tools, npm/pnpm globals, cargo and go installs without the user within the vetting, everything else on the user's terminal approval; ledger with the uninstall command (§7, "Dependency installer: toolsmith").
+- Review fixes (security-auditor, code-reviewer; 25 proof tests failed before, pass after): executables a package puts on PATH (reserved names, shadowing), installers never resolved inside a package's tree, registry text sanitized, npm without its source refusals asks, pnpm age via `PNPM_CONFIG_MINIMUM_RELEASE_AGE`, `GOENV=off`, request programs an allowlist, more spellings refused to other agents, heredoc bodies ignored, tickets 120 s; go packages inside modules, `run` under the lock before the approval is used, the skip rule before any request, uv names normalized, expired approvals renewable, OSError exit 5, manifest keeps options, approved uninstalls update the ledger, lock wait 300 s.
 - `settings.json`: `sandbox.excludedCommands` = the executor only, `permissions.allow` `Bash(__CLAUDE_DIR__/bin/stack-install *)`. Guard: `toolsmith_gate` in no-push mode (absolute), one-use tickets, `INSTALLER_TYPES` in `--print-policy`, the prune keeps `toolsmith/`, self-test. Spawned by BlackCat (route line "Dependencies"), the orchestrator, main-coder, ninja-coder and devops-engineer. Lint: acceptEdits allowed on `INSTALLER_TYPES`. Limits seed, effort table, pools, doctor section, install.sh staging and bytecode. New knob `STACK_TOOLSMITH_MIN_AGE_DAYS` (7). Re-run `./install.sh` to install it.
 
 ### 2026-10-05 (brief budgets and early-stop signals, observe only)

@@ -28,7 +28,7 @@ USER_SUBS = READ_SUBS + ("approve", "deny")
 MUTATING_SUBS = ("install", "upgrade", "uninstall", "run")
 HELP_ALIASES = ("-h", "--help")
 
-TICKET_TTL_S = 600            # the guard's ticket for one call: consumed by the executor within this
+TICKET_TTL_S = 120            # the guard's ticket for one call: consumed by the executor within this
 APPROVAL_TTL_S = 86400        # a user approval: used once within this
 MIN_AGE_DAYS = 7              # default of STACK_TOOLSMITH_MIN_AGE_DAYS: a version this old at least
 PROJECT_MIN_AGE_DAYS = 90     # a package (project, crate) first published at least this long ago
@@ -216,9 +216,23 @@ def parse(args, user=False):
         opts, relax = _opts(inst, left[2:])
         if sub == "vet" and relax:
             raise PolicyError("vet takes no %s" % relax[0])
+    if inst == "uv":
+        name = py_normalize(name)             # what uv, PyPI and the ledger call it (PEP 503)
     p.update(installer=inst, name=name, version=version, opts=opts, relax=relax, why=why,
              req_for=req)
     return p
+
+
+def py_normalize(name):
+    return re.sub(r"[-_.]+", "-", name).lower()
+
+
+# installers a request may name (any other installer, with the user's approval); the rest of the
+# argv may not name pip, a Python interpreter or, by path, a refused program (`arch /bin/sh -c id`)
+REQUEST_PROGRAMS = frozenset("""
+brew gem pipx mas port rustup cargo go npm pnpm yarn bun deno uv conda mamba micromamba pixi opam ghcup
+cabal stack juliaup elan composer luarocks cpanm dotnet sdkmanager gcloud
+""".split())
 
 
 def check_request_command(words):
@@ -235,11 +249,17 @@ def check_request_command(words):
         raise PolicyError("request: `%s` is never run by the installer (privilege, shells, code "
                           "runners, downloaders, pip and file tools are refused even with "
                           "approval; Python goes through uv)" % base)
+    if base not in REQUEST_PROGRAMS:
+        raise PolicyError("request: `%s` is not an installer this executor runs (%s); the user can "
+                          "run it themselves" % (base, ", ".join(sorted(REQUEST_PROGRAMS))))
     for w in words[1:]:
         if not REQ_WORD_RE.match(w):
             raise PolicyError("request: argument %r is not a plain token" % w[:40])
-        if w.lower() in ("sudo", "doas"):
-            raise PolicyError("request: no sudo")
+        wbase = w.rsplit("/", 1)[-1]
+        if w.lower() in ("sudo", "doas") or re.match(r"(?:python|pip|pypy)[\d.]*\Z", wbase) or \
+                ("/" in w and wbase in DENIED_PROGRAMS):
+            raise PolicyError("request: argument %r names a refused program (sudo, pip, Python, a "
+                              "shell or tool by path)" % w[:40])
     return list(words)
 
 
@@ -356,20 +376,23 @@ INSTALLER_ENV = {
     "uv": {"UV_NO_CONFIG": "1", "UV_NO_PROGRESS": "1"},
     "npm": {"npm_config_registry": NPM_REGISTRY, "npm_config_audit": "false", "npm_config_fund": "false",
             "npm_config_update_notifier": "false", "npm_config_color": "false"},
-    "pnpm": {"npm_config_registry": NPM_REGISTRY, "npm_config_update_notifier": "false"},
+    # pnpm 12 reads PNPM_CONFIG_*, not npm_config_* (probed: `PNPM_CONFIG_REGISTRY=x pnpm config get
+    # registry` prints x, `npm_config_minimum_release_age=1 ...` prints undefined; pnpm 12.8.1)
+    "pnpm": {"PNPM_CONFIG_REGISTRY": NPM_REGISTRY, "PNPM_CONFIG_UPDATE_NOTIFIER": "false"},
     "cargo": {"CARGO_TERM_COLOR": "never", "CARGO_TERM_PROGRESS_WHEN": "never"},
     "go": {"GOPROXY": GO_PROXY, "GOSUMDB": GO_SUMDB, "GOFLAGS": "", "GONOSUMDB": "", "GONOSUMCHECK": "",
            "GONOPROXY": "", "GOPRIVATE": "", "GOINSECURE": "", "GOTOOLCHAIN": "local", "GOWORK": "off",
-           "GO111MODULE": "on"},
+           "GO111MODULE": "on", "GOENV": "off"},     # GOENV=off: an empty variable falls back to the env file
 }
 # per installer: user variables that locate its own install (not code it loads from the project)
 ENV_KEEP_BY = {"pnpm": ("PNPM_HOME",)}
 
 
-def installer_env(environ, installer, path_dirs, tmpdir, allow_scripts=False):
+def installer_env(environ, installer, path_dirs, tmpdir, allow_scripts=False, age_days=0):
     """The installer's whole environment: ENV_KEEP from `environ`, a fixed PATH, a private TMPDIR
     and the installer's hardening variables; npm/pnpm never run install scripts unless the user
-    approved them (allow_scripts)."""
+    approved them (allow_scripts); pnpm resolves no dependency younger than age_days (npm and uv
+    get --before / --exclude-newer instead)."""
     env = {k: environ[k] for k in ENV_KEEP if environ.get(k)}
     for k in ENV_KEEP_BY.get(installer, ()):
         if environ.get(k):
@@ -377,8 +400,12 @@ def installer_env(environ, installer, path_dirs, tmpdir, allow_scripts=False):
     env["PATH"] = os.pathsep.join(path_dirs)
     env["TMPDIR"] = tmpdir
     env.update(INSTALLER_ENV.get(installer, {}))
-    if installer in ("npm", "pnpm"):
+    if installer == "npm":
         env["npm_config_ignore_scripts"] = "false" if allow_scripts else "true"
+    if installer == "pnpm":
+        env["PNPM_CONFIG_IGNORE_SCRIPTS"] = "false" if allow_scripts else "true"
+        if age_days:
+            env["PNPM_CONFIG_MINIMUM_RELEASE_AGE"] = str(int(age_days) * 1440)    # minutes, strict
     return env
 
 
@@ -402,9 +429,15 @@ def _under(path, roots):
     return any(path == r or path.startswith(r.rstrip("/") + "/") for r in roots)
 
 
+INSTALLER_PACKAGES = ("npm", "pnpm", "corepack", "yarn")
+TOOL_HOME_RE = re.compile(r"/\.local/share/uv/tools/|/lib/node_modules/(?!(?:%s)/)" % "|".join(INSTALLER_PACKAGES))
+
+
 def resolve_program(name, environ, cwd, extra_dirs=()):
     """Absolute path of program `name`: the first executable on PATH (absolute entries only) or in
-    extra_dirs whose real path lies outside every unsafe root; None if there is none."""
+    extra_dirs whose real path lies outside every unsafe root and is not a program some package
+    installed (a uv tool's or an npm package's own bin: a package named its script `brew`); None if
+    there is none."""
     bad = unsafe_roots(environ, cwd)
     dirs = [d for d in (environ.get("PATH") or "").split(os.pathsep) if os.path.isabs(d)]
     dirs += [d for d in list(extra_dirs) + list(SYSTEM_DIRS) if d not in dirs]
@@ -412,7 +445,8 @@ def resolve_program(name, environ, cwd, extra_dirs=()):
         cand = os.path.join(d, name)
         if os.path.isfile(cand) and os.access(cand, os.X_OK):
             real = os.path.realpath(cand)
-            if not _under(real, bad) and not _under(os.path.realpath(d), bad):
+            if not _under(real, bad) and not _under(os.path.realpath(d), bad) and \
+                    not TOOL_HOME_RE.search(real):
                 return cand
     return None
 
@@ -478,6 +512,40 @@ def parse_time(s):
         return None
 
 
+# C0/C1 controls, bidi and zero-width characters: registry text (a deprecation note, a version) is
+# shown on the user's approval screen, where an escape sequence could repaint it
+_CONTROL_RE = re.compile("[\x00-\x1f\x7f-\x9f\u200b-\u200f\u202a-\u202e\u2060-\u2069\ufeff]")
+
+
+def clean_text(value, limit=300):
+    return _CONTROL_RE.sub("?", str(value))[:limit]
+
+
+# programs a package may not put on PATH without the user: the installers and the commands the
+# stack, the hooks and the user run unsandboxed (a uv tool's `brew` script would run on the next
+# `stack-install install brew ...`)
+RESERVED_BINS = frozenset(INSTALLERS + (
+    "uvx", "npx", "pnpx", "corepack", "node", "nodejs", "rustup", "rustc", "git", "ssh", "scp", "sudo",
+    "su", "doas", "login", "sh", "bash", "zsh", "dash", "fish", "env", "python", "python3", "pip", "pip3",
+    "claude", "gh", "curl", "wget", "security", "open", "osascript", "make", "cc", "clang", "gcc", "ld",
+    "xcrun", "ls", "cat", "rm", "cp", "mv", "ln", "chmod", "install", "launchctl", "defaults", "codesign",
+    "stack-install", "awk", "sed", "grep", "find", "xargs", "tar"))
+BIN_NAME_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._+-]{0,99}\Z")
+
+
+def check_bins(report, names):
+    """The executables a package puts on PATH: a path-like name is refused, a reserved one asks."""
+    names = [str(n) for n in names]
+    bad = [n for n in names if not BIN_NAME_RE.match(n) or ".." in n]
+    report.check("bin-names", not bad, "unsafe executable names: %s" % ", ".join(bad) if bad
+                 else "executables: %s" % (", ".join(names) or "none"), hard=True)
+    if not bad:
+        res = sorted(n for n in names if n in RESERVED_BINS)
+        report.check("bin-reserved", not res, "would put %s on PATH (reserved: installers and system "
+                     "commands)" % ", ".join(res) if res else "no reserved name")
+    report.info["bins"] = names
+
+
 class Report(object):
     """A vetting result: hard checks refuse, soft checks ask the user, `surfaced` is shown."""
 
@@ -486,7 +554,10 @@ class Report(object):
         self.checks, self.surfaced, self.info = [], [], {}
 
     def check(self, name, ok, detail, hard=False):
-        self.checks.append({"check": name, "ok": bool(ok), "hard": bool(hard), "detail": detail})
+        self.checks.append({"check": name, "ok": bool(ok), "hard": bool(hard), "detail": clean_text(detail)})
+
+    def surface(self, text):
+        self.surfaced.append(clean_text(text))
 
     @property
     def verdict(self):
@@ -531,9 +602,9 @@ def vet_brew(meta, name, now):
     r.check("popularity", isinstance(n, int) and n >= BREW_MIN_INSTALLS,
             "%s installs on request in 365 days (minimum %d)" % (n, BREW_MIN_INSTALLS))
     if meta.get("post_install_defined"):
-        r.surfaced.append("the formula runs a post_install step (homebrew/core code)")
+        r.surface("the formula runs a post_install step (homebrew/core code)")
     if meta.get("caveats"):
-        r.surfaced.append("the formula has caveats: see `brew info %s`" % name)
+        r.surface("the formula has caveats: see `brew info %s`" % name)
     deps = meta.get("dependencies") or []
     r.info.update(source="homebrew/core", dependencies=len(deps) if isinstance(deps, list) else None)
     return r
@@ -604,11 +675,13 @@ def vet_npm(full, downloads, name, version, now, age_days, installer="npm", allo
         hooks = hooks or ["install (node-gyp)"]
     if hooks:
         if allow_scripts:
-            r.surfaced.append("install scripts WILL run (approved): %s" % ", ".join(hooks))
+            r.surface("install scripts WILL run (approved): %s" % ", ".join(hooks))
         else:
-            r.surfaced.append("install scripts present and NOT run (--ignore-scripts): %s; if the "
+            r.surface("install scripts present and NOT run (--ignore-scripts): %s; if the "
                               "tool needs them, request --allow-scripts" % ", ".join(hooks))
-    r.info.update(source=NPM_REGISTRY, integrity=((man.get("dist") or {}).get("integrity") or "")[:24],
+    b = man.get("bin")
+    check_bins(r, sorted(b) if isinstance(b, dict) else [name.rsplit("/", 1)[-1]] if b else [])
+    r.info.update(source=NPM_REGISTRY, integrity=clean_text(((man.get("dist") or {}).get("integrity") or ""))[:24],
                   install_scripts=hooks)
     return r
 
@@ -637,20 +710,31 @@ def vet_cargo(vmeta, cmeta, name, version, now, age_days):
     n = c.get("recent_downloads")
     r.check("popularity", isinstance(n, int) and n >= CRATES_MIN_RECENT,
             "%s downloads in 90 days (minimum %d)" % (n, CRATES_MIN_RECENT))
-    r.surfaced.append("cargo builds from source: the crate's and its dependencies' build scripts run")
-    r.info.update(source="crates.io", checksum=(v.get("checksum") or "")[:16], bins=bins)
+    r.surface("cargo builds from source: the crate's and its dependencies' build scripts run")
+    if bins:
+        check_bins(r, bins)
+    r.info.update(source="crates.io", checksum=clean_text(v.get("checksum") or "")[:16], bins=bins)
     return r
 
 
-def vet_go(info, path, version, now, age_days):
+def vet_go(info, path, version, now, age_days, module=None):
+    """`info`: the proxy's .info of the module that holds package `path` (`module`, default path)."""
     r = Report("go", path, version)
     if not isinstance(info, dict) or info.get("Version") != version:
         r.check("exists", False, "no %s@%s on proxy.golang.org" % (path, version), hard=True)
         return r
-    r.check("exists", True, "proxy.golang.org (checksums from %s)" % GO_SUMDB, hard=True)
+    r.check("exists", True, "proxy.golang.org, module %s (checksums from %s)" % (module or path, GO_SUMDB),
+            hard=True)
     _age(r, "age", info.get("Time"), now, age_days)
-    r.info.update(source=GO_PROXY, binary=go_binary(path))
+    check_bins(r, [go_binary(path)])
+    r.info.update(source=GO_PROXY, binary=go_binary(path), module=module or path)
     return r
+
+
+def go_module_candidates(path):
+    """Module paths that may hold package `path`, longest first (the proxy serves modules only)."""
+    elems = path.split("/")
+    return ["/".join(elems[:k]) for k in range(len(elems), 1, -1)]
 
 
 def go_escape(path):

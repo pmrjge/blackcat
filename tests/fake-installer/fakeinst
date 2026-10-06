@@ -5,6 +5,8 @@ Copied into a test's bin dir under each installer's name. State lives beside the
   calls.jsonl         one line per call: {"prog", "argv", "cwd", "env"} (the whole environment)
   installed/<prog>-<name>   the "installed" packages (file content: the version)
   fail                when present, every install/uninstall exits 1
+  uv-bins-<name>      for uv: extra console-script names its install links into uvbin/ (comma list)
+  nohelp              when present, `npm install --help` fails (no --allow-* flags seen)
 Answers the read-only queries bin/stack-install makes (brew list --versions, uv tool list, npm/pnpm ls
 --global --json, cargo install --list, go env GOBIN GOPATH, npm install --help).
 """
@@ -65,21 +67,37 @@ if prog == "brew":
     elif args[:1] == ["--version"]:
         print("Homebrew 7.0.8 (fake)")
 elif prog == "uv":
-    if args[:2] == ["tool", "list"]:
+    uvbin = os.path.join(here, "uvbin")
+    if args[:2] == ["tool", "list"]:              # uv prints the normalized name
         for n, v in all_of():
-            print("%s v%s" % (n, v))
+            print("%s v%s" % (re.sub(r"[-_.]+", "-", n).lower(), v))
             print("- %s" % n)
+    elif args[:2] == ["tool", "dir"]:
+        print(uvbin)
     elif args[:2] == ["tool", "install"]:
         n, v = pos[-1].split("==")
         put(n, v)
+        os.makedirs(uvbin, exist_ok=True)
+        extra = os.path.join(here, "uv-bins-" + n)
+        names = [n] + (open(extra).read().strip().split(",") if os.path.isfile(extra) else [])
+        for b in names:
+            with open(os.path.join(uvbin, b), "w") as f:
+                f.write("#!/bin/sh\n")
     elif args[:2] == ["tool", "uninstall"]:
         drop(pos[-1])
+        extra = os.path.join(here, "uv-bins-" + pos[-1])
+        for b in [pos[-1]] + (open(extra).read().strip().split(",") if os.path.isfile(extra) else []):
+            if os.path.exists(os.path.join(uvbin, b)):
+                os.unlink(os.path.join(uvbin, b))
 elif prog in ("npm", "pnpm"):
     if args[:1] == ["ls"]:
         doc = {"dependencies": {n: {"version": v} for n, v in all_of()}}
         print(json.dumps([doc] if prog == "pnpm" else doc))
     elif args[:2] == ["install", "--help"]:
-        print("[--allow-git <all|none|root>] [--allow-remote <all|none|root>] [--allow-file <all|none|root>]")
+        if os.path.exists(os.path.join(here, "nohelp")):
+            sys.exit(1)
+        print("[--allow-directory <all|none|root>] [--allow-file <all|none|root>] [--allow-git <all|none|root>]")
+        print("[--allow-remote <all|none|root>]")
     elif args[:1] in (["install"], ["add"]):
         spec = pos[-1]
         n, v = spec.rsplit("@", 1)
