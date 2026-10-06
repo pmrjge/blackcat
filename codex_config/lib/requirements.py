@@ -25,7 +25,9 @@ Writes:
   file named in SRC/codex_config/hooks/SUPPORT_FILES (a missing file is an error), plus guard.json
   for the global scope (C's templates/guard.base.json + the paths of this machine).
 
-Prints the MACHINE-WIDE warning and the root commands of DESIGN §9 step 6 for the user to run. If
+Prints the MACHINE-WIDE warning and the root commands of DESIGN §9 step 6 for the user to run,
+including a `/usr/bin/python3 -I` py_compile of the installed managed hooks (the copy ships no
+__pycache__). If
 <etc-dir>/requirements.toml already exists it is never replaced: a unified diff and the merge
 instruction are printed instead of the install command for that file. Never runs sudo, never
 writes outside DIR, never writes /etc (an --out inside /etc, the etc dir or the managed dir is
@@ -204,6 +206,12 @@ def guard_files(src):
     return files
 
 
+# the managed-hooks/ copy ships no __pycache__: compiled once as root, for the interpreter the managed
+# hooks run on (the stub's /usr/bin/python3), with the command INTERFACES §2 gives for the stack's own
+PRECOMPILE = ("import py_compile,sys; [py_compile.compile(f, doraise=True, "
+              "invalidation_mode=py_compile.PycInvalidationMode.CHECKED_HASH) for f in sys.argv[1:]]")
+
+
 def run(argv, out_stream=sys.stdout):
     ap = argparse.ArgumentParser(prog="requirements.py", description=__doc__.split("\n")[0])
     ap.add_argument("--codex-home", required=True)
@@ -269,6 +277,7 @@ def run(argv, out_stream=sys.stdout):
     p("To install, run as root (review the files first):")
     p("  sudo install -d -o root -g wheel -m 0755 %s %s" % (q(a.etc_dir), q(a.managed_dir)))
     p("  sudo install -o root -g wheel -m 0755 %s/* %s" % (q(mh), q(a.managed_dir.rstrip("/") + "/")))
+    p("  sudo /usr/bin/python3 -I -c %s %s/*.py" % (q(PRECOMPILE), q(a.managed_dir.rstrip("/"))))
     if os.path.lexists(etc_file):
         try:
             old = _read_nofollow(etc_file).decode("utf-8", "replace")

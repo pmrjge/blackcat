@@ -132,13 +132,25 @@ def test_git_env_variables_ignored(repo, tmp_path):
 
 def test_changes_since(repo):
     first = git(repo, "rev-parse", "HEAD").stdout.strip()
-    assert ss.changes_since(str(repo), first) == ""
+    assert ss.changes_since(str(repo), first, first) == ""
     with open(repo / "lib" / "install_state.py", "a") as f:
         f.write("# v2\n")
     git(repo, "commit", "-q", "-am", "v2")
-    assert "lib/install_state.py" in ss.changes_since(str(repo), first)
-    assert ss.changes_since(str(repo), "0" * 40) is None
-    assert ss.changes_since(str(repo), "HEAD; rm -rf /") is None
+    second = git(repo, "rev-parse", "HEAD").stdout.strip()
+    assert "lib/install_state.py" in ss.changes_since(str(repo), first, second)
+    assert ss.changes_since(str(repo), "0" * 40, second) is None
+    assert ss.changes_since(str(repo), first, "0" * 40) is None
+    assert ss.changes_since(str(repo), "HEAD; rm -rf /", second) is None
+    assert ss.changes_since(str(repo), first, "HEAD") is None
+
+
+def test_changes_since_ignores_commits_after_the_snapshot(repo):
+    """The review lists what the snapshot installs: a commit made after it (HEAD moved) is not in it."""
+    first = git(repo, "rev-parse", "HEAD").stdout.strip()
+    with open(repo / "lib" / "claude_md_block.py", "a") as f:
+        f.write("# later\n")
+    git(repo, "commit", "-q", "-am", "later")
+    assert ss.changes_since(str(repo), first, first) == ""
 
 
 def test_usage():
