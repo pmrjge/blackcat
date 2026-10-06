@@ -1,0 +1,18 @@
+#!/bin/sh
+# Fake `codex` CLI for codex_config/tests: never a real Codex.
+# --version            prints "codex-cli ${FAKE_CODEX_VERSION:-0.160.1}"
+# execpolicy check ... runs the in-repo prefix-rule mirror (execpolicy_mirror.py) when it exists
+# anything else        exits 97, so no test can reach a real Codex by accident.
+# FAKE_CODEX_LOG, when set, gets one line per call (the argv) for tests that assert what was run.
+here=$(cd "$(dirname "$0")" && pwd)
+[ -n "$FAKE_CODEX_LOG" ] && printf '%s\n' "$*" >> "$FAKE_CODEX_LOG"
+case "$1" in
+  --version) printf 'codex-cli %s\n' "${FAKE_CODEX_VERSION:-0.160.1}"; exit 0 ;;
+  execpolicy)
+    if [ "$2" = check ] && [ -f "$here/execpolicy_mirror.py" ]; then
+      shift 2
+      exec "${FAKE_CODEX_PYTHON:-python3}" "$here/execpolicy_mirror.py" "$@"
+    fi ;;
+esac
+echo "fake codex: unsupported invocation: $*" >&2
+exit 97
