@@ -1264,6 +1264,13 @@ def test_strip1(name, want):
     assert load_untar().strip1(name) == want
 
 
+@pytest.mark.parametrize("name, want", [("/x", True), ("/", True), (".//x", True), ("top//x", True), ("./top//x", True),
+                                        ("top/x", False), ("top", False), ("top/", False), ("./top/.hidden", False),
+                                        ("top/a//b", False), ("", False)])
+def test_untar_absolute(name, want):
+    assert load_untar().absolute(name) is want
+
+
 def test_untar_strips_the_top_directory(untar, tmp_path):
     a = make_tgz(tmp_path / "x.tgz", [("lean-4.34.1-linux_aarch64", "dir", None), ("lean-4.34.1-linux_aarch64/bin", "dir", None),
                                       ("lean-4.34.1-linux_aarch64/bin/lean", "file", b"LEAN"),
@@ -1293,12 +1300,31 @@ def test_untar_refuses_a_path_that_climbs_out(untar, tmp_path):
     assert not (tmp_path / "evil").exists() and not (tmp_path / "sub" / "evil").exists()
 
 
-def test_untar_keeps_an_absolute_member_name_inside_dest(untar, tmp_path):
-    """`top//abs/x` strips to `/abs/x`: the data filter drops the leading slash, so it lands below DEST (never at /abs)."""
-    a = make_tgz(tmp_path / "x.tgz", [("top/ok", "file", b"1"), ("top//eqc-abs-test/x", "file", b"A")])
+@pytest.mark.parametrize("member", [("top//eqc-abs-test/x", "file", b"A"), ("/eqc-abs-test/x", "file", b"A"),
+                                    (".//eqc-abs-test/x", "file", b"A"), ("/top/eqc-abs-test", "file", b"A"),
+                                    ("top/eqc-abs-test", "hard", "/top/ok"), ("top/eqc-abs-test", "hard", "top//ok")])
+def test_untar_refuses_an_absolute_member_name_or_hard_link_target(untar, tmp_path, member):
+    """The data filter would only drop the leading '/' (re-rooting the member below DEST): untar.py refuses it instead,
+    before anything is written (`top/ok` comes first and is not extracted either)."""
+    a = make_tgz(tmp_path / "x.tgz", [("top/ok", "file", b"1"), member])
     dest = tmp_path / "out"
-    untar.main(str(a), str(dest))
-    assert (dest / "eqc-abs-test" / "x").read_bytes() == b"A" and not Path("/eqc-abs-test").exists()
+    with pytest.raises(ValueError, match="absolute member name or hard-link target refused"):
+        untar.main(str(a), str(dest))
+    assert not dest.exists() and not Path("/eqc-abs-test").exists()
+
+
+def test_untar_cli_refuses_an_absolute_member_name(tmp_path):
+    """The CLI path: exit 1 with the refusal on stderr (gzip archive: tarfile.open is not patched in a subprocess, so the
+    module is driven through runpy with the zstd mode swapped for gzip)."""
+    a = make_tgz(tmp_path / "x.tgz", [("top/ok", "file", b"1"), ("top//eqc-abs-test/x", "file", b"A")])
+    code = ("import runpy, sys, tarfile; real = tarfile.open\n"
+            "tarfile.open = lambda n, mode='r', **kw: real(n, 'r:gz' if mode == 'r:zst' else mode, **kw)\n"
+            "sys.argv = ['untar.py', sys.argv[1], sys.argv[2]]; runpy.run_path(%r, run_name='__main__')\n"
+            % str(EQC_LIB / "minimal" / "untar.py"))
+    p = subprocess.run([sys.executable, "-c", code, str(a), str(tmp_path / "out")], capture_output=True, text=True, check=False,
+                       timeout=60)
+    assert p.returncode == 1 and "absolute member name or hard-link target refused" in p.stderr, p.stderr
+    assert not (tmp_path / "out").exists()
 
 
 @pytest.mark.parametrize("link", ["/etc/passwd", "../../outside"])

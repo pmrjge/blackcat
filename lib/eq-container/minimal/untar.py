@@ -1,8 +1,10 @@
 """untar.py ARCHIVE.tar.zst DEST: unpack a zstd tarball into DEST with its first path component stripped (what
 `tar --zstd -xf ARCHIVE -C DEST --strip-components=1` does). Runs in the fetch stage of Dockerfile.minimal on the
 sha256-verified Lean archive, with the pinned python-build-standalone CPython 3.14 (tarfile reads zstd since 3.14): the
-builder image (buildpack-deps) has no zstd. tarfile's "data" filter refuses absolute paths, links that leave DEST, device
-files, and clears setuid/setgid bits. Exit 1 (nothing partial is kept by the caller: the stage fails) on any error.
+builder image (buildpack-deps) has no zstd. untar.py refuses an absolute member name or hard-link target ('/x', './/x', or
+'top//x', which strips to '/x') before anything is written: tarfile's "data" filter would only drop the leading '/'. The data
+filter then refuses links that leave DEST and device files, and clears setuid/setgid bits. Exit 1 (nothing partial is kept by
+the caller: the stage fails) on any error.
 """
 
 from __future__ import annotations
@@ -19,10 +21,19 @@ def strip1(name: str) -> str:
     return parts[1] if len(parts) == 2 else ""
 
 
+def absolute(name: str) -> bool:
+    """True for a name that is absolute as given ('/x', './/x') or once its top component is stripped ('top//x')."""
+    while name.startswith("./"):
+        name = name[2:]
+    return name.startswith("/") or strip1(name).startswith("/")
+
+
 def main(src: str, dest: str) -> None:
     with tarfile.open(src, "r:zst") as t:
         members = []
         for m in t.getmembers():
+            if absolute(m.name) or (m.islnk() and absolute(m.linkname)):
+                raise ValueError("%s: absolute member name or hard-link target refused: %r" % (src, m.name))
             name = strip1(m.name)
             if not name.strip("/"):
                 continue
