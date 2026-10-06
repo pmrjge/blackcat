@@ -1020,9 +1020,9 @@ With `--with-eq-container` (off by default) two steps run between 10 and 11; nei
   system start`) or a non-arm64 Mac is a warning and a skip: the installer never installs `container` or
   starts its services (get the signed package from https://github.com/apple/container/releases).
   `--eq-container-profiles=LIST` adds toolchain images to the default `core`. Until the maintainer
-  resolves the placeholder pins (`lib/eq-container/PINS`, `TOOLS.toml`), `core` stops with a warning
-  ("a pin ... is still a placeholder"); `STACK_EQ_CONTAINER_SET=full` builds the full Debian image
-  instead. A verified install writes `EQ_ISOLATION=container` and
+  resolves the last placeholder pins (busybox and jq: `bash lib/eq-container/distro-pins.sh` prints
+  their verified values), `core` stops with a warning ("a pin ... is still a placeholder");
+  `STACK_EQ_CONTAINER_SET=full` builds the full Debian image instead. A verified install writes `EQ_ISOLATION=container` and
   `EQ_IMAGE=eq.invalid/<name>:<tag>@sha256:<digest>` into `stack.env` (a value you set stays).
 - **10c WALL**: the default-deny host-access broker of `lib/eq-wall` and its one tunnel root
   (`~/.cache/claude-agent-stack/eq-tunnel`, 0700, one channel per call). On by default once 10b is

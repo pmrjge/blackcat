@@ -5,7 +5,8 @@
 #   --select     image names instead of profiles (build.sh checks exactly the images it is about to build)
 #   --manifest   (default) static checks of the manifest, no container: structure and enumerations, unique names, class/profile
 #                allowlists of every image, https-only urls, in-repo files hash to their sha256, PINS agree for lean uv python
-#                busybox. A PLACEHOLDER in a selected profile's tools is "pending" (exit 13), never an invented value.
+#                busybox. A PLACEHOLDER in a selected profile's tools (version url sha256 checksum_source linkage provenance
+#                archive: a pin is resolved only with its source) is "pending" (exit 13), never an invented value.
 #   --images     container (read-only): per image of the profiles: build record, digest, label eq.tools.sha256 equal to the hash of
 #                the CURRENT manifest entries (a changed entry = stale image), /opt/eq/TOOLS.lock read from the image saved with
 #                `container image save` (nothing is started) equal to the manifest (every listed tool, no undeclared one).
@@ -169,9 +170,9 @@ check_manifest() {
   for t in $sel_tools; do
     case " $names " in *" $t "*) continue;; esac
     names="$names $t"
-    for k in version url sha256 linkage provenance archive; do
+    for k in version url sha256 checksum_source linkage provenance archive; do
       pv=$(tm_get tool "$t" "$k")
-      [ "$pv" != PLACEHOLDER ] || pending "tool $t: $k is PLACEHOLDER (pending TOOLCHAINS.md or a resolve step: build.sh --resolve-tools --write-pin)"
+      [ "$pv" != PLACEHOLDER ] || pending "tool $t: $k is PLACEHOLDER (pending TOOLCHAINS.md; a distro package: distro-pins.sh for busybox bash perl jq, else build.sh --resolve-tools --write-pin)"
     done
     [ "$(tm_get tool "$t" licence)" != PLACEHOLDER ] || note "tool $t: licence not recorded yet"
   done

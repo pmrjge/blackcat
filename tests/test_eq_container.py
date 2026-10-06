@@ -13,6 +13,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import shutil
 import stat
 import subprocess
@@ -550,9 +551,9 @@ def build_lib(tmp_path):
     lib = tmp_path / "eq-container-b"
     shutil.copytree(EQC_LIB, lib, ignore=shutil.ignore_patterns(".state", "__pycache__"))
     for f in ("PINS", "Dockerfile.minimal"):
-        t = (lib / f).read_text()
-        assert "BUSYBOX_SHA256=UNSET" in t
-        (lib / f).write_text(t.replace("BUSYBOX_SHA256=UNSET", "BUSYBOX_SHA256=" + "c" * 64))
+        t, n = re.subn(r"^((?:ARG )?BUSYBOX_SHA256=).*$", r"\g<1>" + "c" * 64, (lib / f).read_text(), flags=re.M)
+        assert n == 1, f
+        (lib / f).write_text(t)
     (lib / "verify-tools.sh").write_text("#!/bin/bash\nexit 0\n")
     return lib
 

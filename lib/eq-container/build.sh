@@ -9,7 +9,8 @@
 #   ./build.sh --uninstall [--set ..|--profiles ..] [--yes]   container image delete the recorded tags, drop their records
 #   ./build.sh --resolve-tools [--write-pin]      print (and optionally pin in TOOLS.toml/PINS) version + sha256 of the distro-package
 #                                                 tools (busybox, bash, perl, jq; cc and ghc-link-libs for the toolchain images) from the
-#                                                 pinned Debian snapshot (trust on first use)
+#                                                 pinned Debian snapshot (trust on first use; distro-pins.sh derives the
+#                                                 core four on the host with every hash checked)
 # Sets: full = ./Dockerfile (Debian slim, eq-lean) | min = ./Dockerfile.minimal FROM scratch (min-lean min-py min-both) | all.
 # Identity: each image's record holds its tag (under eq.invalid/, which no registry resolves) and the digest `container image
 # inspect` reports right after the build; every run re-checks that digest (lib.sh eq_require_image).
@@ -45,7 +46,7 @@ while [ $# -gt 0 ]; do
     --uninstall) ACTION=uninstall;;
     --resolve-tools) ACTION=tools;;
     --write-pin) WRITEPIN=1;;
-    -h|--help) sed -n '2,24p' "$0"; exit 0;;
+    -h|--help) sed -n '2,21p' "$0"; exit 0;;
     *) echo "build.sh: unknown argument: $1" >&2; exit 2;;
   esac
   shift
@@ -101,6 +102,17 @@ inputs_hash() { # name
   } | tm_sha256_stdin
 }
 pin_value() { sed -n "s/^$1=//p" PINS | head -n 1; }
+hexn() { case "$1" in *[!0-9a-f]*|"") return 1;; esac; [ "${#1}" = "$2" ]; }
+pin_format() { # KEY VALUE: 0 when VALUE has the shape KEY needs (a malformed pin is refused before any build, never passed on)
+  case "$1" in
+    BASE_IMAGE) case "${2%%@sha256:*}" in ""|*[!a-z0-9./:_-]*) return 1;; esac
+                case "$2" in *@sha256:*) hexn "${2#*@sha256:}" 64;; *) return 1;; esac;;
+    *_SHA256) hexn "$2" 64;;
+    MATHLIB_REV) hexn "$2" 40;;
+    APT_SNAPSHOT) case "$2" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;; *) return 1;; esac;;
+    *) case "$2" in *[!A-Za-z0-9.+~_-]*) return 1;; esac;;
+  esac
+}
 needed_pins() {
   local k="BASE_IMAGE APT_SNAPSHOT LEAN_VERSION LEAN_SHA256 UV_VERSION UV_SHA256 PYTHON_VERSION PBS_TAG PYTHON_SHA256 MATHLIB_REV"
   case "$1" in full) echo "$k";; tc-*) echo "BASE_IMAGE APT_SNAPSHOT";; *) echo "$k BUSYBOX_SHA256";; esac
@@ -112,6 +124,7 @@ pins_check() { # NAME: one line per problem; 0 when PINS and the Dockerfile agre
   for k in $(needed_pins "$name"); do
     pv=$(pin_value "$k")
     case "$pv" in ""|UNSET|*TODO*) echo "pin $k is a placeholder in PINS"; PIN_PLACEHOLDER=1; bad=1; continue;; esac
+    pin_format "$k" "$pv" || { echo "pin $k is malformed in PINS: $pv"; bad=1; continue; }
     dv=$(sed -n "s/^ARG $k=//p" "$df" | head -n 1)
     case "$dv" in UNSET|*TODO*) echo "pin $k is a placeholder in $df"; PIN_PLACEHOLDER=1; bad=1; continue;; esac
     [ "$pv" = "$dv" ] || { echo "pin $k differs: PINS=$pv $df=$dv"; bad=1; }
@@ -237,15 +250,15 @@ for n in $NAMES; do
     echo "$msg" >&2
     case "$msg" in *placeholder*) PIN_PLACEHOLDER=1;; esac
     if [ "$PIN_PLACEHOLDER" = 1 ]; then
-      echo "unresolved pin: for BUSYBOX_SHA256 run bash lib/eq-container/build.sh --resolve-tools --write-pin (trust on first use; review the versions); other keys: see PINS" >&2
+      echo "unresolved pin: for BUSYBOX_SHA256 run bash lib/eq-container/distro-pins.sh from a normal terminal and pin the verified values it prints (or build.sh --resolve-tools --write-pin: trust on first use); other keys: see PINS" >&2
       [ "$DRY" = 1 ] && continue
       exit 13
     fi
-    [ "$DRY" = 1 ] || { echo "PINS and the Dockerfile disagree; fix before building" >&2; exit 2; }
+    [ "$DRY" = 1 ] || { echo "PINS and the Dockerfile ARGs must be well-formed and agree; fix before building" >&2; exit 2; }
   fi
   mrc=0; manifest_check "$n" >&2 || mrc=$?
   if [ "$mrc" = 13 ]; then
-    echo "unresolved tool pin in TOOLS.toml for $n: distro packages: bash lib/eq-container/build.sh --resolve-tools --write-pin; other tools: their upstream checksum file (TOOLS.toml header)" >&2
+    echo "unresolved tool pin in TOOLS.toml for $n: busybox bash perl jq: bash lib/eq-container/distro-pins.sh (verified); other distro packages: build.sh --resolve-tools --write-pin; other tools: their upstream checksum file (TOOLS.toml header)" >&2
     [ "$DRY" = 1 ] && continue
     exit 13
   elif [ "$mrc" != 0 ]; then
