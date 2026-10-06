@@ -135,8 +135,18 @@ DEFAULT_FLAGS: dict[str, Any] = {
     "stop_quorum_rule": "tau",
     "finding_quorum_rule": "fixed_t",
     "quorum_decision": "user decision 2026-10-04: keep the pre-registration (tau 0.6 = 3 of 5; finding-set t = 2)",
-    "model": "sonnet",
-    "model_decision": "user constraint 2026-10-04 (via orchestrator): every call runs --model sonnet",
+    "model": {
+        "biochem-engineer": "opus", "code-reviewer": "opus", "coder": "sonnet", "data-engineer": "sonnet",
+        "data-scientist": "opus", "doc-specialist": "sonnet", "equilibrium": "sonnet", "explore": "sonnet",
+        "main-coder": "opus", "mathematician": "opus", "ml-engineer": "opus", "ninja-coder": "opus", "oracle": "opus",
+        "plan-reviewer": "opus", "planner": "opus", "proof-checker": "opus", "python-engineer": "opus",
+        "researcher": "opus", "security-auditor": "opus", "test-engineer": "sonnet", "verifier": "sonnet",
+        "writer": "opus",
+    },
+    "model_decision": "D3, user 2026-10-06 (COMPARE_eq §12 A6.2): each call runs its agent's own frontmatter model "
+                      "(dot-claude/agents/<type>.md `model:`, pinned here per type; a drift test keeps the map equal "
+                      "to the frontmatter); supersedes the 2026-10-04 `--model sonnet` constraint; the one-family "
+                      "refusal of build_argv stays",
     "R_max": 1,
     "R_max_ceiling": 2,
     "perm_shift_rule": "floor",
@@ -204,6 +214,16 @@ DEFAULT_FLAGS: dict[str, Any] = {
                        "OE": ["quote", "file_line"]},
     },
     "equivalence": {"RS": {"frac": "0.05", "agent": "verifier", "same_fields": ["label"]}},
+    "cells": {
+        "comment": "COMPARE_eq §12 A6.3 calibration cells (labels p6, p7; stage p only). p6: per item 9 round-0 "
+                   "members of the S* type with the N = 9 view design, each at the family's N = 5 per-member cap; "
+                   "public checks once per candidate, CR single-support clusters of the 9-set to the verifier "
+                   "(<= max_verifier_calls, each at the N = 5 verifier cap), RS equivalence once on the 9-set. p7: "
+                   "from p3's pristine round-0 sessions, one forked branch per LOO variant, each forced through "
+                   "`rounds` reconcile rounds at reserve / (N * rounds) per member-round",
+        "p6": {"classes": ["PF", "CP", "CR", "ES", "RS"], "N": 9, "max_verifier_calls": 10},
+        "p7": {"classes": ["RS", "ES"], "branches": ["none", "rotation", "random", "leader"], "rounds": 2},
+    },
     "isolation": "container",
     "isolation_comment": "ISOLATION.md; user decision 2026-10-05: Apple container (CLI 1.5.0; replaces the Docker "
                          "decision of 2026-10-04). One backend per run (recorded in run_start; a ledger never mixes "
@@ -789,9 +809,17 @@ def positive_number(x: Any) -> float | None:
         return None
     try:
         v = float(x)
-    except (TypeError, ValueError):
+    except (TypeError, ValueError, OverflowError):  # OverflowError: a JSON integer beyond the float range
         return None
     return v if math.isfinite(v) and v > 0 else None
+
+
+def abs_ln_ratio(a: float, b: float) -> float:
+    """|ln(a / b)| for positive finite a, b. Where the ratio underflows to 0 (e.g. 1e-300 against 1e300) the log of
+    the ratio would raise ValueError, so that case uses |ln a - ln b| (the semantics of eq_core.py's port; COMPARE_eq
+    §12 A6 implementation note). An overflowing ratio is +inf, whose log is +inf: far, as it should be."""
+    r = a / b
+    return abs(math.log(r)) if r > 0 else abs(math.log(a) - math.log(b))
 
 
 def median_ln(values: Sequence[Any]) -> float | None:
@@ -812,7 +840,7 @@ def kappa_numeric(values: Sequence[Any], n: int | None = None) -> float:
     if med is None or n == 0:
         return 0.0
     within = sum(1 for v in (positive_number(x) for x in values)
-                 if v is not None and abs(math.log(v / med)) <= math.log(2) + 1e-12)
+                 if v is not None and abs_ln_ratio(v, med) <= math.log(2) + 1e-12)
     return within / n
 
 
@@ -821,7 +849,7 @@ def numeric_top(values: Sequence[Any]) -> int:
     if med is None:
         return 0
     return sum(1 for v in (positive_number(x) for x in values)
-               if v is not None and abs(math.log(v / med)) <= math.log(2) + 1e-12)
+               if v is not None and abs_ln_ratio(v, med) <= math.log(2) + 1e-12)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -1150,7 +1178,7 @@ def same_numeric(a: Any, b: Any) -> bool:
     va, vb = positive_number(a), positive_number(b)
     if va is None or vb is None:
         return va is None and vb is None
-    return abs(math.log(va / vb)) <= 1e-9
+    return abs_ln_ratio(va, vb) <= 1e-9
 
 
 def minimal_env(**extra: str) -> dict[str, str]:
@@ -1220,24 +1248,46 @@ def read_ledger(path: Path) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------------------------------------------------
 
 
-def build_argv(claude_bin: str, agent: str, cap_micro: int, schema: Mapping[str, Any], allowed_tools: Sequence[str],
-               flags: Mapping[str, Any], resume: str | None = None) -> list[str]:
-    """PROPOSAL §5 flags. The prompt is NOT in argv: it goes on stdin (variadic tool options would swallow a
-    trailing positional prompt)."""
-    argv = [claude_bin, "-p", "--agent", agent]
+def model_for(agent: str, flags: Mapping[str, Any]) -> str | None:
+    """The `--model` value of one call. flags.json `model` is a map {agent type: alias} (D3, COMPARE_eq §12 A6.2: each
+    agent's own frontmatter model); a type missing from the map is refused (fail closed: it would silently run the
+    session default). A plain string (flags frozen before A6) applies to every call; empty/absent = no --model. No
+    haiku in any value (user constraint 2026-10-04, kept by D3)."""
     model = flags.get("model")
+    if isinstance(model, Mapping):
+        if any("haiku" in str(v).casefold() for v in model.values()):
+            raise ValueError("haiku is not allowed (user constraint 2026-10-04, kept by D3)")
+        if agent not in model:
+            raise ValueError(f"flags.json model has no entry for agent {agent!r} (D3: one per agent type)")
+        model = model[agent]
+    if not model:
+        return None
+    if "haiku" in str(model).casefold():
+        raise ValueError("haiku is not allowed (user constraint 2026-10-04)")
+    return str(model)
+
+
+def build_argv(claude_bin: str, agent: str, cap_micro: int, schema: Mapping[str, Any], allowed_tools: Sequence[str],
+               flags: Mapping[str, Any], resume: str | None = None, fork: bool = False) -> list[str]:
+    """PROPOSAL §5 flags. The prompt is NOT in argv: it goes on stdin (variadic tool options would swallow a
+    trailing positional prompt). `fork` (E2, COMPARE_eq §12 A6.1): the resumed session is forked
+    (`--resume <id> --fork-session`), so the resumed session itself stays pristine."""
+    argv = [claude_bin, "-p", "--agent", agent]
+    model = model_for(agent, flags)
     if model:
-        if "haiku" in str(model).casefold():
-            raise ValueError("haiku is not allowed (user constraint 2026-10-04)")
-        argv += ["--model", str(model)]
+        argv += ["--model", model]
     argv += ["--max-budget-usd", micro_to_str(cap_micro),
              "--json-schema", json.dumps(schema, sort_keys=True, separators=(",", ":"))]
     argv += [str(x) for x in flags["common_flags"]]
     argv += ["--tools", tools_value(allowed_tools)]
     if allowed_tools:
         argv += ["--allowedTools", *[str(t) for t in allowed_tools]]
+    if fork and not resume:
+        raise ValueError("--fork-session needs a session to resume")
     if resume:
         argv += ["--resume", resume]
+        if fork:
+            argv += ["--fork-session"]
     return argv
 
 
@@ -1287,6 +1337,12 @@ class CallResult:
     raw_dir: Path
     started_utc: str
     ended_utc: str
+    branch_workdir: Path | None = None  # forked call of a workdir class: the branch's saved copy (plan decision 1)
+
+    @property
+    def state_dir(self) -> Path:
+        """The directory holding this call's resulting working state (the branch copy of a forked workdir call)."""
+        return self.branch_workdir or self.workdir
 
     @property
     def answer(self) -> Any:
@@ -1333,6 +1389,19 @@ def parse_claude_output(stdout: str, schema: Mapping[str, Any]) -> tuple[dict[st
     return env, so, True
 
 
+def model_ids_of(env: Mapping[str, Any]) -> tuple[list[str], str | None]:
+    """D3 (COMPARE_eq §12 A6.2): the concrete model ids one call ran on = the sorted keys of the result envelope's
+    `modelUsage`. Missing -> ([], the reason), never a guess."""
+    if not env:
+        return [], "no result envelope (stdout is not one JSON object)"
+    mu = env.get("modelUsage")
+    if mu is None:
+        return [], "no modelUsage in the result envelope"
+    if not isinstance(mu, Mapping) or not mu:
+        return [], "modelUsage is not a non-empty object"
+    return sorted(str(k) for k in mu), None
+
+
 def ignore_specials(dirpath: str, names: list[str]) -> set[str]:
     """copytree ignore: everything that is not a directory, regular file or symlink (FIFOs, sockets, devices)."""
     out = set()
@@ -1361,6 +1430,61 @@ def copy_tree_writable(src: Path | None, dest: Path) -> None:
             if not q.is_symlink():
                 q.chmod(q.stat().st_mode | stat.S_IWUSR | (stat.S_IXUSR if q.is_dir() else 0))
     dest.chmod(dest.stat().st_mode | stat.S_IWUSR | stat.S_IXUSR)
+
+
+def _clear_dir(d: Path) -> None:
+    """Remove everything inside d (d itself stays: a resumed session's cwd is its path). Links are removed, never
+    followed; a member-made unreadable directory is made user-accessible first."""
+    for e in list(os.scandir(d)):
+        p = Path(e.path)
+        if e.is_dir(follow_symlinks=False):
+            for dirpath, dirnames, _ in os.walk(p):
+                for name in [".", *dirnames]:
+                    q = Path(dirpath) / name
+                    if not q.is_symlink():
+                        with contextlib.suppress(OSError):
+                            q.chmod(q.stat().st_mode | stat.S_IRWXU)
+            shutil.rmtree(p)
+        else:
+            p.unlink()
+
+
+def replace_tree(src: Path, dest: Path) -> None:
+    """dest's contents := src's contents (links copied as links, FIFOs/sockets/devices skipped); dest's inode kept."""
+    _clear_dir(dest)
+    shutil.copytree(src, dest, symlinks=True, ignore=ignore_specials, dirs_exist_ok=True)
+
+
+def fork_copy_paths(wd: Path, branch: str) -> tuple[Path, Path]:
+    """(round-0 snapshot, branch copy) of a member's working directory: `<wd>.r0`, `<wd>.<branch>` (plan decision 1)."""
+    if not re.fullmatch(r"[a-z][a-z0-9_-]{0,31}", branch) or branch == "r0":
+        raise ValueError(f"bad branch name {branch!r}")
+    return wd.with_name(f"{wd.name}.r0"), wd.with_name(f"{wd.name}.{branch}")
+
+
+@contextlib.contextmanager
+def fork_workdir(wd: Path, branch: str, lock: threading.Lock) -> Iterator[Path]:
+    """Workdir classes (CP; E2 / plan decision 1). A forked call must run in the member's ORIGINAL path (a resumed
+    session needs its cwd), but every branch needs its own state. Under the member's lock: snapshot the round-0 copy to
+    `<wd>.r0` once; restore this branch's state into `wd` (`<wd>.<branch>` if the branch ran before, else the round-0
+    snapshot); run the call; save `wd` to `<wd>.<branch>`; restore the round-0 bytes into `wd`. Yields the branch copy
+    path (written when the block exits, also on an exception)."""
+    snap, saved = fork_copy_paths(wd, branch)
+    with lock:
+        if not snap.exists():
+            shutil.copytree(wd, snap, symlinks=True, ignore=ignore_specials)
+        replace_tree(saved if saved.exists() else snap, wd)
+        try:
+            yield saved
+        finally:
+            tmp = saved.with_name(saved.name + ".tmp")
+            if tmp.exists():
+                shutil.rmtree(tmp)
+            shutil.copytree(wd, tmp, symlinks=True, ignore=ignore_specials)
+            if saved.exists():
+                shutil.rmtree(saved)
+            tmp.rename(saved)
+            replace_tree(snap, wd)
 
 
 def tree_digest(root: Path | None) -> dict[str, str]:
@@ -2451,6 +2575,14 @@ def copy_fixture(item: Item, dest: Path, hide_paths: Iterable[str] = (), source:
             p.unlink()
 
 
+def reconcile_prompt(item: Item, label: str, rnd: int, summary: str) -> str:
+    """The reconcile re-ask of round rnd (role r<rnd>), around the mediator's summary text."""
+    return (f"{item.id} {label} r{rnd}\nReconcile round {rnd}. {summary}\n"
+            "You may keep or change your answer. A change counts only if you cite NEW evidence the "
+            "harness can verify (a command it can re-run, a file:line containing your quote, a "
+            "counterexample, a corpus quote). Reply with one JSON object matching the schema.\n")
+
+
 def segments_block(item: Item, order: Sequence[int]) -> str:
     seg_lines = ["", "Segments, in this order:"]
     for k in order:
@@ -2647,6 +2779,13 @@ class Runner:
         self._clock = threading.Lock()
         self.iso = Isolation(cfg.flags, cfg.eq_root, cfg.items_dir)
         self.wall: Wall | None = None  # set by cmd_run when flags.json wall is enabled
+        self._wd_locks: dict[Path, threading.Lock] = {}  # per member workdir: its forked branches run one at a time
+        self.e_arm = "harness"  # "runtime": the E arm is E_rt (COMPARE_eq §12 A6.5); set by cmd_run
+        self.new_session_id: Callable[[], str] = lambda: str(uuid.uuid4())  # E_rt's session uuid S (tests pin it)
+
+    def wd_lock(self, wd: Path) -> threading.Lock:
+        with self._clock:
+            return self._wd_locks.setdefault(wd, threading.Lock())
 
     def arm_dir(self, item: Item, label: str) -> Path:
         """Raw data of one item-arm in this invocation (a restart never reuses a directory)."""
@@ -2661,7 +2800,14 @@ class Runner:
     def call(self, item: Item, label: str, arm: str, role: str, agent: str, cap: int, prompt: str,
              schema: Mapping[str, Any], *, view: View | None = None, member: int | None = None,
              node: str | None = None, rnd: int = 0, workdir: Path | None = None, hide: Iterable[str] = (),
-             resume: str | None = None, charged_to: Sequence[str] | None = None) -> CallResult:
+             resume: str | None = None, charged_to: Sequence[str] | None = None, fork: bool = False,
+             cell: str | None = None, branch: str | None = None, argv: list[str] | None = None,
+             extra_fields: Mapping[str, Any] | None = None, launch_env: Mapping[str, str] | None = None
+             ) -> CallResult:
+        """One `claude -p` launch and its `call` record. `fork` (E2): `--resume <resume> --fork-session`, recorded as
+        `parent_session_id`; for workdir classes (flags `workdir_answer_classes`, CP) the call runs under
+        fork_workdir (branch `branch`, else `live`). `argv` (E_rt only) replaces the built argv and the item-head
+        rule (the runtime leader's prompt starts with `eq-run: R`)."""
         cid = f"{self._next_id():05d}_{role.replace('/', 'of')}"
         base = self.arm_dir(item, label)
         raw_dir = base / "calls" / cid
@@ -2669,11 +2815,48 @@ class Runner:
         if workdir is None:
             workdir = base / "work" / cid
             copy_fixture(item, workdir, hide)
-        tools, boxed = member_tools(self.flags, item.cls)
-        argv = build_argv(self.cfg.claude_bin, agent, cap, schema, tools, self.flags, resume)
-        if not prompt.startswith(f"{item.id} {label} {role}\n"):
-            raise ValueError("prompt must start with the item head")
+        if argv is None:
+            tools, boxed = member_tools(self.flags, item.cls)
+            argv = build_argv(self.cfg.claude_bin, agent, cap, schema, tools, self.flags, resume, fork)
+            if not prompt.startswith(f"{item.id} {label} {role}\n"):
+                raise ValueError("prompt must start with the item head")
+        else:
+            boxed = False
         (raw_dir / "prompt.txt").write_text(prompt)
+        fork_ctx: contextlib.AbstractContextManager[Path | None] = contextlib.nullcontext(None)
+        if fork and item.cls in self.flags.get("workdir_answer_classes", []):
+            fork_ctx = fork_workdir(workdir, branch or "live", self.wd_lock(workdir))
+        with fork_ctx as branch_wd:
+            res, fields = self._launch(item, label, cid, raw_dir, argv, prompt, workdir, schema, boxed, launch_env)
+        res.branch_workdir = branch_wd
+        argv_logged = [a if i == 0 or argv[i - 1] != "--json-schema" else f"<schema sha256 {sha256_text(a)}>"
+                       for i, a in enumerate(argv)]
+        self.ledger.append(
+            "call", call_id=cid, run_tag=self.run_tag, stage=self.cfg.stage, item=item.id, cls=item.cls,
+            label=label, arm=arm,
+            charged_to=list(charged_to) if charged_to else [label], role=role, agent=agent, member=member, node=node,
+            round=rnd, cap_usd=micro_to_str(cap), argv=argv_logged, prompt_sha256=sha256_text(prompt),
+            prompt_path=str(raw_dir / "prompt.txt"), raw_path=str(raw_dir / "stdout.json"), cwd=str(workdir),
+            resume=resume, parent_session_id=resume if fork else None,
+            branch_workdir=None if branch_wd is None else str(branch_wd), cell=cell, branch=branch,
+            view=None if view is None else dataclasses.asdict(view), started_utc=res.started_utc,
+            ended_utc=res.ended_utc, exit_code=res.exit_code, session_id=res.session_id,
+            total_cost_usd=res.total_cost_usd, usage=res.usage, is_error=res.is_error, subtype=res.subtype,
+            cap_stop=res.cap_stop, schema_valid=res.schema_valid,
+            answer=res.answer, answer_sha256=None if res.answer is None else sha256_text(json.dumps(res.answer,
+                                                                                                 sort_keys=True)),
+            confidence=(res.structured or {}).get("confidence") if res.schema_valid else None,
+            evidence_kinds=[str(e.get("kind")) for e in res.evidence], evidence_n=len(res.evidence_all),
+            decisive_seen=None if view is None or item.decisive_segment is None
+            else item.decisive_segment in view.order, **fields, **(extra_fields or {}),
+        )
+        return res
+
+    def _launch(self, item: Item, label: str, cid: str, raw_dir: Path, argv: list[str], prompt: str, workdir: Path,
+                schema: Mapping[str, Any], boxed: bool, launch_env: Mapping[str, str] | None = None
+                ) -> tuple[CallResult, dict[str, Any]]:
+        """Run one launch (argv, stdin prompt, cwd = workdir) and parse its envelope; returns the result and the
+        record fields that depend on the launch (sandboxed-call fields, model_ids)."""
         boxed_fields: dict[str, Any] = {}
         channel = None
         if boxed:  # member_exec 'sandbox': Bash replaced by the sandbox tool (AMENDMENT_PROPOSAL.md)
@@ -2699,7 +2882,7 @@ class Runner:
         try:
             cp = subprocess.run(argv, input=prompt, cwd=workdir, capture_output=True, text=True, check=False,
                                 timeout=int(self.flags["call_timeout_s"]), shell=False,
-                                env=member_env(self.flags, self.stub))
+                                env=dict(launch_env) if launch_env is not None else member_env(self.flags, self.stub))
             stdout, stderr, exit_code = cp.stdout, cp.stderr, cp.returncode
         except subprocess.TimeoutExpired as e:
             stdout = e.stdout.decode() if isinstance(e.stdout, bytes) else (e.stdout or "")
@@ -2722,25 +2905,8 @@ class Runner:
         res = CallResult(cid, env.get("session_id") if isinstance(env.get("session_id"), str) else None, exit_code,
                          float(cost) if isinstance(cost, int | float) else None, usage, so, valid,
                          bool(env.get("is_error", exit_code != 0)), subtype, cap_stop, workdir, raw_dir, started, ended)
-        argv_logged = [a if i == 0 or argv[i - 1] != "--json-schema" else f"<schema sha256 {sha256_text(a)}>"
-                       for i, a in enumerate(argv)]
-        self.ledger.append(
-            "call", call_id=cid, run_tag=self.run_tag, stage=self.cfg.stage, item=item.id, cls=item.cls,
-            label=label, arm=arm,
-            charged_to=list(charged_to) if charged_to else [label], role=role, agent=agent, member=member, node=node,
-            round=rnd, cap_usd=micro_to_str(cap), argv=argv_logged, prompt_sha256=sha256_text(prompt),
-            prompt_path=str(raw_dir / "prompt.txt"), raw_path=str(raw_dir / "stdout.json"), cwd=str(workdir),
-            resume=resume, view=None if view is None else dataclasses.asdict(view), started_utc=started,
-            ended_utc=ended, exit_code=exit_code, session_id=res.session_id, total_cost_usd=res.total_cost_usd,
-            usage=usage, is_error=res.is_error, subtype=subtype, cap_stop=cap_stop, schema_valid=valid,
-            answer=res.answer, answer_sha256=None if res.answer is None else sha256_text(json.dumps(res.answer,
-                                                                                                 sort_keys=True)),
-            confidence=(res.structured or {}).get("confidence") if res.schema_valid else None,
-            evidence_kinds=[str(e.get("kind")) for e in res.evidence], evidence_n=len(res.evidence_all),
-            decisive_seen=None if view is None or item.decisive_segment is None
-            else item.decisive_segment in view.order, **boxed_fields,
-        )
-        return res
+        mids, why = model_ids_of(env)
+        return res, {**boxed_fields, "model_ids": mids, "model_ids_reason": why}
 
     # -- helpers ---------------------------------------------------------------------------------------------------
     def b_micro(self, item: Item) -> int:
@@ -3041,8 +3207,6 @@ class Runner:
                                                       node, med, key)
         elif family == "checkable":
             ans, more, extra = self._reduce_checkable(item, label, arm, agent, res, plan, seed_key, node, med)
-            sel = extra.get("selected_member")
-            extra["answer_workdir"] = None if sel is None else str(res[sel - 1].workdir)
         elif family == "finding_set":
             ans, more, extra = self._reduce_findings(item, label, arm, res, plan, n, seed_key, node, med)
         else:
@@ -3129,6 +3293,7 @@ class Runner:
         more: list[str] = []
         rcaps = plan.calls.get("reconcile", [])
         rnd = 0
+        chain = [r.session_id for r in res]  # E2: each member's latest session (round 0's, then its last fork)
         while top < q and rnd < r_max and ans is not None:
             rnd += 1
             seed = derive_seed(SEED_RECONCILE, f"{seed_key}|r{rnd}")
@@ -3137,22 +3302,20 @@ class Runner:
 
             def rec(i: int, rnd: int = rnd, summary: str = summary) -> tuple[int, CallResult | None]:
                 r = res[i]
-                if r.session_id is None:
+                if chain[i] is None:
                     return i, None
-                role = f"r{rnd}"
-                prompt = (f"{item.id} {label} {role}\nReconcile round {rnd}. {summary}\n"
-                          "You may keep or change your answer. A change counts only if you cite NEW evidence the "
-                          "harness can verify (a command it can re-run, a file:line containing your quote, a "
-                          "counterexample, a corpus quote). Reply with one JSON object matching the schema.\n")
                 cap = rcaps[(rnd - 1) * n + i] if rcaps else 0
-                return i, self.call(item, label, arm, role, agent, cap, prompt, self.schema(item), member=i + 1,
-                                    node=node, rnd=rnd, workdir=r.workdir, resume=r.session_id)
+                return i, self.call(item, label, arm, f"r{rnd}", agent, cap, reconcile_prompt(item, label, rnd, summary),
+                                    self.schema(item), member=i + 1, node=node, rnd=rnd, workdir=r.workdir,
+                                    resume=chain[i], fork=True)
 
             with cf.ThreadPoolExecutor(max_workers=n) as ex:
                 outs = list(ex.map(rec, range(n)))
             for i, rr in outs:
                 if rr is None:
                     continue
+                if rr.session_id is not None:
+                    chain[i] = rr.session_id
                 more.append(rr.call_id)
                 conf = (rr.structured or {}).get("confidence") if rr.schema_valid else None
                 med.claim(i + 1, rnd, rr.answer, rr.evidence, conf)
@@ -3184,6 +3347,7 @@ class Runner:
                           seed_key: str, node: str | None, med: Any) -> tuple[Any, list[str], dict[str, Any]]:
         seed = derive_seed(SEED_TIES, f"{seed_key}|select")
         answers = [r.answer for r in res]
+        wds = {i: r.workdir for i, r in enumerate(res)}  # each candidate's state (a repair: its branch copy, E2)
         outputs: dict[int, str] = {}
         passed: dict[int, bool] = {}
         for i, r in enumerate(res):
@@ -3212,7 +3376,7 @@ class Runner:
                           "Fix your candidate and reply with one JSON object matching the schema.\n")
                 return i, self.call(item, label, arm, "r1", agent, rcaps[i] if rcaps else 0, prompt,
                                     self.schema(item), member=i + 1, node=node, rnd=1, workdir=r.workdir,
-                                    resume=r.session_id)
+                                    resume=r.session_id, fork=True)
 
             with cf.ThreadPoolExecutor(max_workers=max(1, len(passed))) as ex:
                 outs = list(ex.map(rep, sorted(passed)))
@@ -3222,10 +3386,12 @@ class Runner:
                     continue
                 more.append(rr.call_id)
                 if rr.answer is not None:
-                    ok, out = self.run_check(item, label, rr.workdir, rr.answer)
+                    # the repair's working state: the branch copy of a workdir class (E2), else the member's copy
+                    ok, out = self.run_check(item, label, rr.state_dir, rr.answer)
                     passed2[i] = ok
                     if ok:
                         answers[i] = rr.answer
+                        wds[i] = rr.state_dir
                     self.ledger.append("check", stage=self.cfg.stage, item=item.id, label=label, arm=arm,
                                        node=node, member=i + 1, round=1, passed=ok, output_tail=out[-500:],
                                        **self.iso.tag(item.cls))
@@ -3242,7 +3408,8 @@ class Runner:
         self.ledger.append("reduce", stage=self.cfg.stage, item=item.id, label=label, arm=arm, node=node,
                            reducer="verify_then_select", selected_member=None if sel is None else sel + 1,
                            repaired=repaired, answer=ans, select_seed=seed)
-        return ans, more, {"selected_member": None if sel is None else sel + 1, "repaired": repaired}
+        return ans, more, {"selected_member": None if sel is None else sel + 1, "repaired": repaired,
+                           "answer_workdir": None if sel is None else str(wds[sel])}
 
     def _reduce_findings(self, item: Item, label: str, arm: str, res: list[CallResult], plan: CapPlan, n: int,
                          seed_key: str, node: str | None, med: Any) -> tuple[Any, list[str], dict[str, Any]]:
