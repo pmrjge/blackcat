@@ -28,7 +28,8 @@ RECIPES = ["check-suite", "ff-merge", "worktree-audit"]
 MENU_RULE = f"Bash({PREFIX} --list)"
 INSTR_DENY = "Edit(//**/tools/instructor/**)"       # absolute: every tools/instructor on the machine
 # the only other Bash allow rule settings.json has: toolsmith's executor (tests/test_toolsmith.py pins it)
-OTHER_BASH = ["Bash(__CLAUDE_DIR__/bin/stack-install *)"]
+OTHER_BASH = ["Bash(__CLAUDE_DIR__/bin/stack-install *)", "Bash(__CLAUDE_DIR__/bin/stack-eq *)",
+              "Bash(__CLAUDE_DIR__/bin/stack-eq-check *)"]
 JUST = shutil.which("just")
 STATUS_RE = re.compile(r"^(OK|FAIL|NOOP) ([a-z-]+)((?: [a-z_]+=\S+)*) log=(\S+)$")
 

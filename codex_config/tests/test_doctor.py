@@ -52,7 +52,7 @@ def test_fresh_install_is_untrusted(installed):
     assert rc == 1
     assert "0 of 16 stack hook keys trusted" in out and "untrusted (no record)" in out
     assert "files: no drift" in out and "INACTIVE" in out
-    assert "skill links: 0 of 127 ok" in out          # nothing applied the links in this fixture
+    assert "skill links: 0 of 128 ok" in out          # nothing applied the links in this fixture
 
 
 def test_trusted_in_the_profile_files_and_codex_trust_writes_are_not_drift(installed, tmp_path):

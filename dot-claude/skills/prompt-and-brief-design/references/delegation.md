@@ -15,7 +15,7 @@ Read from the rules ("Delegating") before your first spawn as a subagent; once p
 |---|---|---|
 | BlackCat | routes; delegates every job | L1 owners, ≤ 8 per prompt (hook) |
 | L1 | owner of the job (orchestrator or the specialist BlackCat chose); integrates | independent parts, missing capabilities, checks |
-| L2–L3 | specialists and helpers | only for a missing capability or a fired review trigger |
+| L2–L3 | specialists and helpers | only for a missing capability or a fired review trigger (exception: an `equilibrium` run's members, spawned only by that agent at any layer) |
 | L4–L7 | deep specialists | leaves, unless their brief names the spawn (type and why) |
 | L8 | leaves by position | cannot spawn (hook) |
 

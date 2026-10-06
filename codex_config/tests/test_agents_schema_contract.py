@@ -31,13 +31,16 @@ def ag():
 def test_policy_spawn_rows_equal_agent_guard_policy(converted, ag):
     _ctx, out = converted
     rows = out["policy"]["agents"]
-    assert set(rows) == set(ag.AGENTS) - {"blackcat"} == set(ag.POLICY) - {"blackcat"}
+    # `equilibrium` is not ported (convert_agents.NOT_PORTED): no role, and no spawn list names it
+    np_ = {"equilibrium"}
+    assert set(rows) == set(ag.AGENTS) - {"blackcat"} - np_ == set(ag.POLICY) - {"blackcat"} - np_
     for name, row in rows.items():
-        assert sorted(row["spawn"]) == sorted(ag.POLICY[name]), name
+        want = [c for c in ag.POLICY[name] if c not in np_]
+        assert sorted(row["spawn"]) == sorted(want), name
         assert len(set(row["spawn"])) == len(row["spawn"])
-        assert row["spawn_tool"] == bool(ag.POLICY[name])
+        assert row["spawn_tool"] == bool(want)
     assert {n for n, r in rows.items() if r["spawn"] == []} == set(ag.LEAVES)
-    assert sorted(out["policy"]["blackcat"]["spawn"]) == sorted(ag.POLICY["blackcat"])
+    assert sorted(out["policy"]["blackcat"]["spawn"]) == sorted(c for c in ag.POLICY["blackcat"] if c not in np_)
 
 
 def test_policy_flags_equal_agent_guard_tables(converted, ag):

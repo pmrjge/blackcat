@@ -794,7 +794,8 @@ def test_hook_ticket_lets_the_executor_run(tmp_path, monkeypatch):
 # ---------------------------------------------------------------- wiring: settings, agent, installer
 def test_settings_exclude_and_allow_only_the_executor():
     s = json.loads((DOT / "settings.json").read_text())
-    assert s["sandbox"]["excludedCommands"] == ["__CLAUDE_DIR__/bin/stack-install *"]
+    assert s["sandbox"]["excludedCommands"] == [
+        "__CLAUDE_DIR__/bin/stack-install *", "__CLAUDE_DIR__/bin/stack-eq *"]   # stack-eq: the equilibrium executor
     assert s["sandbox"]["allowUnsandboxedCommands"] is False
     allow = s["permissions"]["allow"]
     assert "Bash(__CLAUDE_DIR__/bin/stack-install *)" in allow
@@ -802,7 +803,8 @@ def test_settings_exclude_and_allow_only_the_executor():
     instructor = ["Bash(just -f tools/instructor/justfile %s)" % r
                   for r in ("check-suite *", "ff-merge *", "worktree-audit *", "--list")]
     assert sorted(r for r in allow if r.startswith("Bash(")) == sorted(
-        ["Bash(__CLAUDE_DIR__/bin/stack-install *)"] + instructor)
+        ["Bash(__CLAUDE_DIR__/bin/stack-install *)", "Bash(__CLAUDE_DIR__/bin/stack-eq *)",
+         "Bash(__CLAUDE_DIR__/bin/stack-eq-check *)"] + instructor)
     assert "__STACK_STATE__" in s["sandbox"]["filesystem"]["denyWrite"]
     assert "Edit(/__STACK_STATE__/**)" in s["permissions"]["deny"]
     assert "Edit(/__CLAUDE_DIR__/bin/**)" in s["permissions"]["deny"]

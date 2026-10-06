@@ -254,6 +254,9 @@ EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 # checks against --print-policy): toolsmith runs bin/stack-install, outside the sandbox, so as a
 # subagent inheriting Plan it could never install; it carries acceptEdits without Write/Edit
 INSTALLER_TYPES = {"toolsmith"}
+# the equilibrium leader runs bin/stack-eq (outside the sandbox, ticketed) and bin/stack-eq-check through
+# Bash alone, as toolsmith does: same exception (docs-design/RUNTIME_EQUILIBRIUM.md §2.1)
+EQ_TYPES = {"equilibrium"}
 
 
 def permission_mode_problem(data):
@@ -268,7 +271,7 @@ def permission_mode_problem(data):
     mode = (get_inline(data, "permissionMode") or "").strip("\"'")
     flat, _ = get_tools(data)
     can_edit = not flat or bool(EDIT_TOOLS & set(flat))      # no tools: line = every tool
-    if (get_inline(data, "name") or "").strip("\"'") in INSTALLER_TYPES and "Bash" in flat:
+    if (get_inline(data, "name") or "").strip("\"'") in INSTALLER_TYPES | EQ_TYPES and "Bash" in flat:
         can_edit = True                                       # it installs software through Bash
     if mode == "acceptEdits":
         return None if can_edit else (
@@ -734,6 +737,9 @@ def main():
     expected_agents = policy_data.get("agents")
 
     check_no_self_spawn(policy_row)
+    if "eq_types" in policy_data and set(policy_data["eq_types"]) != EQ_TYPES:
+        fail("lint_agents EQ_TYPES %s != agent_guard EQ_TYPES %s"
+             % (sorted(EQ_TYPES), sorted(policy_data["eq_types"])))
     if "installer_types" in policy_data and set(policy_data["installer_types"]) != INSTALLER_TYPES:
         fail("lint_agents INSTALLER_TYPES %s != agent_guard INSTALLER_TYPES %s"
              % (sorted(INSTALLER_TYPES), sorted(policy_data["installer_types"])))

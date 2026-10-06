@@ -105,6 +105,10 @@ class BuildError(Exception):
 
 
 BLACKCAT = "blackcat"
+# Claude agents with no Codex role: `equilibrium` (docs-design/RUNTIME_EQUILIBRIUM.md §6.4) runs members
+# on calibrated, model-specific parameters and needs the eq guard rules, which codex_guard.py lacks;
+# every Codex class would be unvalidated until a Codex calibration. Spawn lists drop the name.
+NOT_PORTED = ("equilibrium",)
 NEVER_EFFORTS = ("none", "minimal", "ultra")
 MAPPED_KEYS = ("name", "description", "model", "effort", "maxTurns", "tools", "mcpServers")
 DROPPED_KEYS = ("permissionMode", "color", "memory", "experimental", "omitClaudeMd", "hooks")
@@ -617,6 +621,7 @@ def convert(src: str, ctx: dict, models: dict, rules_text: str | None = None,
         files = sorted(f for f in os.listdir(adir) if f.endswith(".md"))
     except OSError as exc:
         raise BuildError("%s: %s" % (adir, exc.strerror)) from None
+    files = [f for f in files if f[:-3] not in NOT_PORTED]
     if not files:
         raise BuildError("%s: no agents" % adir)
     rules = _read(os.path.join(TEMPLATES, "rules.md")) if rules_text is None else rules_text
@@ -663,7 +668,7 @@ def convert(src: str, ctx: dict, models: dict, rules_text: str | None = None,
         if "Agent" in tools:
             if not may:
                 raise BuildError("%s: holds Agent but its body has no \"May spawn:\" list" % a["label"])
-            spawn = may
+            spawn = [c for c in may if c not in NOT_PORTED]
         else:
             if may:
                 raise BuildError("%s: a \"May spawn:\" list without the Agent tool" % a["label"])
@@ -689,11 +694,12 @@ def convert(src: str, ctx: dict, models: dict, rules_text: str | None = None,
     bc = agents[BLACKCAT]
     if not bc["children"]:
         raise BuildError("%s: tools: must list Agent(<the agents it may spawn>)" % bc["label"])
-    for c in bc["children"]:
+    bc_children = [c for c in bc["children"] if c not in NOT_PORTED]
+    for c in bc_children:
         if c not in names or c == BLACKCAT:
             raise BuildError("%s: Agent(...) names %r, not a spawnable stack agent" % (bc["label"], c))
     policy = {"schema": 1, "agents": policy_rows,
-              "blackcat": {"spawn": list(bc["children"]),
+              "blackcat": {"spawn": bc_children,
                            "mcp": [t[5:] for t in bc["tools"] if t.startswith("mcp__")],
                            "max_shell_reads_per_prompt": BLACKCAT_SHELL_READS},
               "builtin_types": list(BUILTIN_TYPES)}
