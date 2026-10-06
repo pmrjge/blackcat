@@ -1,0 +1,51 @@
+{
+  "PF": [
+    "Lens: prove it directly; unfold the definitions and chain known lemmas from the hypotheses to the goal.",
+    "Lens: look for an induction, on a natural number, a list or the structure of a term, and state the induction hypothesis exactly before you use it.",
+    "Lens: assume the negation of the goal, or prove the contrapositive, and derive a contradiction.",
+    "Lens: first try to break the statement by checking small and edge cases for a counterexample; only then prove what survives.",
+    "Lens: prove a more general statement first (strengthen the hypothesis or abstract the structure), then specialise it to the goal."
+  ],
+  "CP": [
+    "Lens: read the tests and the specification first, and write down the exact required behaviour before you touch the code.",
+    "Lens: run the code and the public tests first, and work from the actual errors and failing outputs.",
+    "Lens: make the smallest change that makes the required behaviour correct, and touch nothing else.",
+    "Lens: state the invariants the code must keep and list the edge cases (empty, boundary, duplicate, very large) before you change it.",
+    "Lens: act as an adversarial reviewer of your own change and try to find an input that breaks it before you finish."
+  ],
+  "CR": [
+    "Lens: read the tests and the specification first, then look for code that violates them.",
+    "Lens: run the code and its tests first, and start from what actually fails or behaves oddly.",
+    "Lens: for every suspected defect, find the minimal input or the minimal change that demonstrates or fixes it, and report only defects you can pin to a line.",
+    "Lens: check invariants and edge cases systematically: empty input, boundaries, overflow, error paths and concurrency.",
+    "Lens: review as an adversary: for each function, try to construct an input that makes it fail or misbehave."
+  ],
+  "RS": [
+    "Lens: go to the primary record first, the file that directly records the fact, and decide from it before reading anything else.",
+    "Lens: be a sceptic: look for records that contradict or qualify the claim (another batch, variant or run) before you accept it.",
+    "Lens: order the relevant records in time (first runs, later re-runs and gradings) and decide which one the claim refers to.",
+    "Lens: focus on the numbers: extract every quantity the claim states and check each one exactly against the records.",
+    "Lens: pin down what each term of the claim means in this corpus (batch, variant, result, session) before you check it."
+  ],
+  "ES": [
+    "Lens: start from a known total and divide it down to the quantity asked.",
+    "Lens: build the estimate from its components: count the units and multiply by per-unit values.",
+    "Lens: find a reference class of similar quantities whose values are known, and adjust from its typical value.",
+    "Lens: start from whatever hard data you have or can derive, and let it anchor the estimate before any assumption.",
+    "Lens: establish a defensible lower bound and upper bound, then take their geometric mean."
+  ],
+  "DS": [
+    "Lens: design from the consumer's side, the user or client developer, and what they need to do easily and safely.",
+    "Lens: design as the operator on call: what fails, how you notice, and how you recover.",
+    "Lens: choose the simplest design that meets every requirement, and justify every component you add.",
+    "Lens: design for the likely next requirements, where the system must change within a year, without building them now.",
+    "Lens: design for cost: compute and storage at the stated scale, and the cheapest design that meets the requirements."
+  ],
+  "OE": [
+    "Lens: write as a domain expert: precise, correct and complete on the essentials.",
+    "Lens: write for a novice reader: make every step understandable without background the audience lacks.",
+    "Lens: write as a critic: look for what is wrong, overstated or missing before you write.",
+    "Lens: write as a synthesiser: connect the ideas into one coherent picture with a clear structure.",
+    "Lens: write as a contrarian: test the usual view against the strongest opposite case before you settle."
+  ]
+}

@@ -1,0 +1,424 @@
+{
+ "comment": "the 7 class answer schemas of equilibrium/items/<K>/schema.json (sources: sha256 of each file's bytes); tests/test_eq_core.py checks both",
+ "schemas": {
+  "CP": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "additionalProperties": false,
+   "properties": {
+    "answer": {
+     "description": "one-sentence description of the fix; the patch itself is the edited working directory",
+     "type": "string"
+    },
+    "confidence": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "evidence": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "detail": {
+        "type": "string"
+       },
+       "kind": {
+        "enum": [
+         "command",
+         "file_line",
+         "quote",
+         "counterexample",
+         "test"
+        ]
+       },
+       "ref": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "kind",
+       "ref",
+       "detail"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "answer",
+    "evidence",
+    "confidence"
+   ],
+   "title": "CP arm output",
+   "type": "object"
+  },
+  "CR": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "additionalProperties": false,
+   "properties": {
+    "answer": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "claim": {
+        "type": "string"
+       },
+       "file": {
+        "type": "string"
+       },
+       "line": {
+        "minimum": 1,
+        "type": "integer"
+       }
+      },
+      "required": [
+       "file",
+       "line",
+       "claim"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    },
+    "confidence": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "evidence": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "detail": {
+        "type": "string"
+       },
+       "kind": {
+        "enum": [
+         "command",
+         "file_line",
+         "quote",
+         "counterexample",
+         "test"
+        ]
+       },
+       "ref": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "kind",
+       "ref",
+       "detail"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "answer",
+    "evidence",
+    "confidence"
+   ],
+   "title": "CR arm output",
+   "type": "object"
+  },
+  "DS": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "additionalProperties": false,
+   "properties": {
+    "answer": {
+     "description": "the whole design as Markdown, at most 900 words",
+     "maxLength": 12000,
+     "minLength": 1,
+     "type": "string"
+    },
+    "confidence": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "evidence": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "detail": {
+        "type": "string"
+       },
+       "kind": {
+        "enum": [
+         "command",
+         "file_line",
+         "quote",
+         "counterexample",
+         "test"
+        ],
+        "type": "string"
+       },
+       "ref": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "kind",
+       "ref",
+       "detail"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "answer",
+    "evidence",
+    "confidence"
+   ],
+   "title": "eq DS arm output",
+   "type": "object"
+  },
+  "ES": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "additionalProperties": false,
+   "properties": {
+    "answer": {
+     "description": "One positive point estimate in the unit named in the prompt (plain number, no range).",
+     "type": "number"
+    },
+    "confidence": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "evidence": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "detail": {
+        "type": "string"
+       },
+       "kind": {
+        "enum": [
+         "command",
+         "file_line",
+         "quote",
+         "counterexample",
+         "test"
+        ]
+       },
+       "ref": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "kind",
+       "ref",
+       "detail"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "answer",
+    "evidence",
+    "confidence"
+   ],
+   "title": "ES arm output (estimation, numeric)",
+   "type": "object"
+  },
+  "OE": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "additionalProperties": false,
+   "properties": {
+    "answer": {
+     "description": "the whole text as Markdown, within the item word limit",
+     "maxLength": 7000,
+     "minLength": 1,
+     "type": "string"
+    },
+    "confidence": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "evidence": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "detail": {
+        "type": "string"
+       },
+       "kind": {
+        "enum": [
+         "command",
+         "file_line",
+         "quote",
+         "counterexample",
+         "test"
+        ],
+        "type": "string"
+       },
+       "ref": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "kind",
+       "ref",
+       "detail"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "answer",
+    "evidence",
+    "confidence"
+   ],
+   "title": "eq OE arm output",
+   "type": "object"
+  },
+  "PF": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "additionalProperties": false,
+   "properties": {
+    "answer": {
+     "description": "The complete Lean 4 source file: starts with `import Mathlib` and proves a top-level theorem with the item's exact name and statement; no sorry/admit/axiom/native_decide.",
+     "minLength": 1,
+     "type": "string"
+    },
+    "confidence": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "evidence": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "detail": {
+        "type": "string"
+       },
+       "kind": {
+        "enum": [
+         "command",
+         "file_line",
+         "quote",
+         "counterexample",
+         "test"
+        ]
+       },
+       "ref": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "kind",
+       "ref",
+       "detail"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "answer",
+    "evidence",
+    "confidence"
+   ],
+   "title": "PF arm output (proofs, checkable)",
+   "type": "object"
+  },
+  "RS": {
+   "$schema": "https://json-schema.org/draft/2020-12/schema",
+   "additionalProperties": false,
+   "properties": {
+    "answer": {
+     "additionalProperties": false,
+     "properties": {
+      "label": {
+       "enum": [
+        "SUPPORTED",
+        "REFUTED",
+        "NOT_IN_CORPUS"
+       ],
+       "type": "string"
+      },
+      "rationale": {
+       "description": "at most three sentences naming the deciding record",
+       "maxLength": 1200,
+       "type": "string"
+      },
+      "value": {
+       "description": "REFUTED: the correct value stated by the deciding record; otherwise empty",
+       "maxLength": 200,
+       "type": "string"
+      }
+     },
+     "required": [
+      "label",
+      "value",
+      "rationale"
+     ],
+     "type": "object"
+    },
+    "confidence": {
+     "maximum": 1,
+     "minimum": 0,
+     "type": "number"
+    },
+    "evidence": {
+     "items": {
+      "additionalProperties": false,
+      "properties": {
+       "detail": {
+        "type": "string"
+       },
+       "kind": {
+        "enum": [
+         "command",
+         "file_line",
+         "quote",
+         "counterexample",
+         "test"
+        ],
+        "type": "string"
+       },
+       "ref": {
+        "type": "string"
+       }
+      },
+      "required": [
+       "kind",
+       "ref",
+       "detail"
+      ],
+      "type": "object"
+     },
+     "type": "array"
+    }
+   },
+   "required": [
+    "answer",
+    "evidence",
+    "confidence"
+   ],
+   "title": "eq RS arm output",
+   "type": "object"
+  }
+ },
+ "sources": {
+  "CP": "443eff1ba0473dd0b54b2381a801d7caec5eebd58abd59fba242e1dc2b47154b",
+  "CR": "98a5ce740fe93e86f204706c793353c0a727bb12c658c39be6434038b8bf45bd",
+  "DS": "8e83605b1a557ba455e5484e00e68229016feb92fc6ce33ac23a6a15c4257238",
+  "ES": "a83e38fa5b11c20d768aabd085aad037ad1aaae36979f592240faadde0f42e90",
+  "OE": "e1abbf7265e6a4fc8741cf99d02f76151dc936ecfbf6bd45279628d405fac309",
+  "PF": "2e0be839f54ee488661f169ee3d4795f1ec8b9bfa5af78bb851da1a107c46001",
+  "RS": "3ca4b4bcbc8dd8fd63763f271e6bee15e90fdad83db028332cea0816c7baf75b"
+ }
+}
