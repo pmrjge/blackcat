@@ -102,6 +102,7 @@ Column key:
 | security-auditor | Opus 5.5 | xhigh | 100 | leaf | 150 | Finding exploit paths needs depth |
 | browser-operator | Sonnet 5.5 | medium | 120 | leaf | 160 | Browser loops. It has come close to the 64-per-prompt MCP cap (62 calls in one run). |
 | mcp-broker | Sonnet 5.5 | medium | 60 | leaf | 80 | Mounts, calls and unmounts MCP servers |
+| toolsmith | Sonnet 5.5 | medium | 60 | leaf | new | Installs and manages programs and packages through `bin/stack-install` only; short tool loops like mcp-broker's (lookup pool) |
 | claude-code-engineer | Opus 5.5 | high | 150 | 3 | 150 | Validation-heavy. 2026-10-02 data: p90 83 turns per segment (× 1.5 = 125), healthy max 147 |
 | claude-code-guide | Sonnet 5.5 | low | 30 | leaf | 40 | Documentation lookups |
 
@@ -125,7 +126,8 @@ maxTurns:
 - **BlackCat:** may dispatch every specialist. Only agents on its row are reachable at any depth, so `BLACKCAT_VIA_HEADS` (types reached only through a family head) is empty: db-engineer and localizer, the two it held, failed every spawn and were retired on 2026-10-04 (db-engineer into data-engineer; localizer into coder for catalogs and code, writer for prose). A job of a few tool calls (a look, a small edit, one command, git inspection) it does itself with Read, Bash, Write and Edit, under the same hooks, deny rules and sandbox as any agent; anything needing a skill, specialist judgement, tests or review is dispatched (§9, 2026-10-03 "BlackCat does small jobs itself").
 - **Language agents** (rust-, haskell-, julia-, go-, python-, jvm-, node-engineer) share one row (`_LANG_ROW`: coder, explore, scout, verifier, code-reviewer, test-engineer, build-fixer, mcp-broker; python-engineer adds data-engineer). BlackCat, the orchestrator and main- and ninja-coder spawn them; domain experts spawn the one that fits (embedded- and game-engineer → rust, hpc → julia, biochem → python, frontend → node).
 - **Top coding tier:** coder < main-coder < ninja-coder. ninja-coder is the last rung (since 2026-10-04): an agent that cannot spawn it returns `STATUS: partial` with `NEXT: ninja-coder` and a dossier; ninja-coder failing twice ends in `STATUS: partial` with its dossier. No plan step goes past it.
-- **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker, claude-code-guide, browser-operator, plan-reviewer, image-director, explore, proof-checker, test-engineer, build-fixer, coder.
+- **Leaves** (no Agent tool): oracle, scout, code-reviewer, verifier, security-auditor, mcp-broker, claude-code-guide, browser-operator, plan-reviewer, image-director, explore, proof-checker, test-engineer, build-fixer, coder, toolsmith.
+- **toolsmith** (the dependency installer, 2026-10-06): spawned by BlackCat, the orchestrator, main-coder, ninja-coder and devops-engineer (the user's decision); every other agent returns `NEXT: toolsmith` with the package, installer and version it needs. Web readers (researcher, scout, browser-operator) never reach it (the guard's self-test). See §7, "Dependency installer: toolsmith".
 - **No generic agents:** `subagent_type` must name a stack agent in the caller's row: a missing type, `general-purpose`, `claude`, `fork`, `Plan`, `statusline-setup`, host-defined types such as `SubAgent` and plugin agents are refused for every caller (BlackCat's row is its own list; a caller without a row may spawn every stack agent on a main thread and nothing as a subagent; an agent context of no known type keeps BlackCat's row), also through the tool's `Task`/`SubAgent` aliases. A generic agent started outside the Agent tool (a skill with `context: fork` and no `agent:`, a workflow stage without `agentType`) has every tool call refused. Each workflow `agent()` names a stack `agentType` the caller may spawn, with no `model`; bundled and plugin workflows (`/deep-research`) are refused. settings.json: `Agent(general-purpose)`, `Agent(claude)`, `Agent(fork)` deny rules, `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS=1`, `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS=1` (`claude -p` and Agent SDK apps).
 - **No copies:** no agent spawns its own type; the copy types (`researcher-copy`, `coder-copy`) were retired 2026-10-04.
 - **Layer rules** (prompt, not hook): depth is a ceiling, not a target. L1 fans out; L2–L3 spawn only for a missing capability or a fired review trigger; L4–L7 only when their brief names the spawn; L8 cannot spawn. Every brief below L1 carries `Layer: L<n>`, `Why:`, the files the child owns, the artifact paths it reads and writes, and its integrator; a child's caveats, failures and `ASK USER` go up verbatim hop by hop and the user's answer comes back down the same chain; one retry, at the spawning layer, only with new evidence; one integrator per job merges. No peer-to-peer messaging (the user, 2026-10-04): a subagent messages only `main`, its own child, or its own parent while that parent runs (it never resumes a finished parent: that starts new work upward); results and questions go up in hand-backs, results move as files the brief names, and the orchestrator owns the job's graph. `bin/stack-who` is a read-only view of who is running (id, type, name, state, layer, parent, start, task): built at each call from the registry and the delegation records through stack-tree's reader (no new hook state), for the shell's session only (`$STACK_LIMITS_SNAPSHOT` or `--session`, never a guess), redacted, ≤ 30 lines by default, one "no agent table" line on any error (exit 0); `tests/test_stack_who.py`. Credentials and personal data (rules: Files & safety; reference §5a) are stripped from everything an agent sends or hands on unless the user's request names that use and recipient: a prompt rule, not hook-enforced. Text: `dot-claude/skills/prompt-and-brief-design/references/delegation.md`, which the rules ("Delegating") tell subagents to read before their first spawn.
@@ -170,6 +172,7 @@ The stack's only knob table. Values in `dot-claude/settings.json` → `env` unle
 | `READ_GATE` | 1 (`stack.env` or the environment) | — | `0` turns the read gate off ("Read gate" below) |
 | `STACK_OUTPUT_SHRINK` | `shadow` (code; unset or any other value) | new | `on` cuts a Bash or Read result over its threshold to its decisive lines (Bash: the full output, credentials masked, goes to a 0600 spill file under `.claude-work/output-shrink/`); `shadow` only logs that decision; `off` does nothing ("Output shrink" below) |
 | `STACK_OUTPUT_SHRINK_BASH` / `_VIEW` / `_READ` | 8000 / 20000 / 20000 (code) | new | The output shrink's thresholds in characters, clamped to 4000..200000 |
+| `STACK_TOOLSMITH_MIN_AGE_DAYS` | 7 (code, `hooks/toolsmith_policy.py` `MIN_AGE_DAYS`) | new | Days a package version must have been published before toolsmith installs it without asking (0 = no age check; digits up to 365, anything else = 7). Read by `bin/stack-install` from the environment of the Claude Code process (settings `env` or your shell): agents cannot set it for the executor (the guard refuses `VAR=` prefixes). The other thresholds are code constants (§7, "Dependency installer: toolsmith") |
 | `STACK_ENV_FILE` ● | `~/.claude/stack.env` | — | Where the keys live; read by `mcp-headers`, `with-stack-env`, libdocs, image-studio, `read_gate.py`, `web_caps.py` |
 | `CLAUDE_CODE_DISABLE_EXPLORE_PLAN_AGENTS` ○ | 1 | — | Built-in Explore and Plan off (the stack's `explore` replaces Explore) |
 | `CLAUDE_AGENT_SDK_DISABLE_BUILTIN_AGENTS` ○ | 1 | — | Every built-in agent type off in `claude -p` |
@@ -372,7 +375,7 @@ Per-agent plugin enabling does not exist: plugins are session-wide (user, projec
 
 - **Default:** `permissions.defaultMode: "plan"` in the user `settings.json` (was `bypassPermissions`). User scope accepts every mode; project and local settings ignore `auto` and `bypassPermissions` there; `claude --permission-mode` beats the settings file; Claude Code's own terminal default is `auto` (2.1.283+), so the setting matters. A once-only prompt may offer Pro/Max/Team users a switch to `auto`; declining keeps Plan. No project or managed settings file sets the mode, and only the launchers pass the flag (below).
 - **Inheritance** (sub-agents.md, permission-modes.md, as reported by claude-code-guide, 2026-10-03): an agent without `permissionMode` inherits the main conversation's mode. A parent in `bypassPermissions`, `acceptEdits` or `auto` wins over the agent file; a parent in `plan`, `default` or `dontAsk` loses to it (`bypassPermissions` in a file excepted). A subagent in plan is read-only, and ExitPlanMode is removed from subagents not in plan. Approving a plan switches the session's mode, and new subagents inherit the new one.
-- **The stack's agents:** 43 carry `permissionMode: acceptEdits`, every agent with Write, Edit or NotebookEdit except BlackCat, so their subagent runs never stop at an edit prompt (the user: subagents must not bloat their context or wait on prompts). The other 11 carry none: blackcat (the main thread follows the session's mode) and the read-only claude-code-guide, code-reviewer, explore, oracle, plan-reviewer, planner, proof-checker, scout, security-auditor and verifier. `tests/lint_agents.py` (`permission_mode_problem`) allows `acceptEdits` only on agents that write files and `plan` only on read-only ones; `default`, `auto`, `dontAsk` and `bypassPermissions` fail. Consequence: a switch to Plan or Default does not make a dispatched builder read-only. BlackCat's rule 5 sends builders only after the plan is approved; that is a prompt rule. A guard check that would make Plan bind builders waits for the probe below.
+- **The stack's agents:** 46 carry `permissionMode: acceptEdits`, every agent with Write, Edit or NotebookEdit except BlackCat, plus toolsmith (no Write or Edit: it changes the machine through `bin/stack-install`, and as a subagent inheriting Plan it could never install; lint's `INSTALLER_TYPES`, checked against the guard's), so their subagent runs never stop at an edit prompt (the user: subagents must not bloat their context or wait on prompts). The other 11 carry none: blackcat (the main thread follows the session's mode) and the read-only claude-code-guide, code-reviewer, explore, oracle, plan-reviewer, planner, proof-checker, scout, security-auditor and verifier. `tests/lint_agents.py` (`permission_mode_problem`) allows `acceptEdits` only on agents that write files (and on `INSTALLER_TYPES` with Bash) and `plan` only on read-only ones; `default`, `auto`, `dontAsk` and `bypassPermissions` fail. Consequence: a switch to Plan or Default does not make a dispatched builder read-only. BlackCat's rule 5 sends builders only after the plan is approved; that is a prompt rule. A guard check that would make Plan bind builders waits for the probe below.
 - **Main thread:** `bin/claude-ultracode` (claude-ninja, `claude-ultracode <agent>`) adds `--permission-mode plan` unless the arguments already hold `--permission-mode[=…]` or `--dangerously-skip-permissions` (scanned up to `--`). Whether Claude Code applies a main-thread agent's `permissionMode` is not documented, so a builder started by hand (`claude --agent main-coder`) may start in `acceptEdits`; the probe's last step checks it.
 - **Headless:** with `claude -p`, scheduled or background jobs under Plan, the main thread's edits are never auto-approved, and a call that would ask is denied when no host answers. A script whose main thread must edit passes `--permission-mode acceptEdits`. Making such runs wait for an approval is queued, not built.
 - **MCP tools:** in `plan`, `default` and `acceptEdits` an MCP tool with no allow rule prompts, in subagents too (acceptEdits approves edits only). `permissions.allow` names 19 servers whole (`mcp__<server>`, the docs' form for every tool of a server): exa, jina, libdocs, wolfram, huggingface, wandb, spider, image-studio, huetension, markitdown, illustrator, after-effects, premiere, blender, computer-use, lean, mobilebuild, playwright, neural-memory. `mongodb`, `postgres` and `claude-in-chrome` have no rule, so they prompt and are denied headless; magg and context-mode are ruled tool by tool. Deny, then ask, then allow: the first match wins, so a user's ask or deny rule on an allowed server keeps it prompting or blocked. `tests/test_permission_modes.py` pins the set and fails on a new agent MCP server without a decision.
@@ -858,7 +861,7 @@ outside the sandbox pass `--store-dir ~/.cache/claude-sandbox/pnpm-store` and
 ### Sandbox and managed settings
 
 - **Status: configured, not live-verified.** The settings, the guard and the tests are checked; that Claude Code's sandbox enforces them as configured is not, until the user runs the live checks (README → Security model → Live checks). Until then the guard and the deny rules are the tested layers.
-- `settings.json` turns the sandbox on with `allowUnsandboxedCommands: false`:
+- `settings.json` turns the sandbox on with `allowUnsandboxedCommands: false`, and `excludedCommands` names one program, `__CLAUDE_DIR__/bin/stack-install *` (toolsmith's executor; "Dependency installer: toolsmith" below):
   - **filesystem:** `denyWrite` covers the config dir, the guard state dir (`__STACK_STATE__`), the backups (`__STACK_BACKUPS__`) and the MCP servers' cache (`__STACK_CACHE__`), all rendered from `${XDG_STATE_HOME:-~/.local/state}` at install time (changing `XDG_STATE_HOME` later needs a reinstall), the WALL's tunnel root (`__EQ_TUNNEL__`, rendered from `${XDG_CACHE_HOME:-~/.cache}`, and its default `~/.cache/claude-agent-stack/eq-tunnel`), plus `~/.cache/uv`, `~/.cache/pre-commit`, the Playwright browser caches, `~/Library/Caches/Coursier` and the Hugging Face token file. `denyRead` covers `stack.env`, the state dir's `*.lock` and `*.mutex` files (a flock taken from a read-only fd would stall the collector, the limits commands or the guard), `backup-*`, the backups, `.credentials.json`, `~/.config/gh/hosts.yml`, `~/.git-credentials` and `~/.config/git/credentials`. `allowWrite` is only `~/.cache/claude-sandbox`.
   - **network:** a strict allowlist of package registries, forges, Hugging Face, W&B and arXiv.
   - **credentials:** forge tokens (`GITHUB_TOKEN`, `GH_TOKEN`, GitHub Enterprise, GitLab/Gitea/Forgejo/Codeberg), `HF_TOKEN`, `HUGGING_FACE_HUB_TOKEN`, `WANDB_API_KEY` and `JUPYTER_TOKEN` are denied to sandboxed commands.
@@ -886,8 +889,102 @@ outside the sandbox pass `--store-dir ~/.cache/claude-sandbox/pnpm-store` and
   3. Add `"allowManagedHooksOnly": true` (managed-only key): user, project, local, plugin and agent-frontmatter hooks stop running. BlackCat's frontmatter wiring then no longer runs, so the settings-level `blackcat-guard --settings` hook must be in the managed file.
   4. Re-copy the hook after every install that changes it.
 
+### Dependency installer: toolsmith (2026-10-06)
+
+The user's request: one agent that installs dependencies (command-line programs, language packages,
+toolchains) and manages them without the user. Decisions (the user, 2026-10-06): Homebrew, uv/uvx, npm/pnpm,
+cargo and go install run without asking, only within the vetting below; any other installer, every
+Homebrew cask, a failed check and a relaxed rule need the user's approval on a terminal; the guardrails
+are hook- and code-enforced; every install is ledgered with its uninstall command. Design:
+`.claude-work/toolsmith/DESIGN.md` of the build worktree (not shipped).
+
+- **Parts.** `agents/toolsmith.md` (Sonnet, leaf, tools Read, Bash, Skill, `permissionMode: acceptEdits`,
+  maxTurns 60); `bin/stack-install`, the executor (Python 3.8+, stdlib, `#!/usr/bin/python3 -IB`);
+  `hooks/toolsmith_policy.py`, its rules (pure: grammar, installer argv and environment, vetting verdicts,
+  ledger fold), loaded by the executor from beside it (never from an environment path) and by the guard.
+- **Out of the sandbox, one program.** brew, uv, npm/pnpm, cargo and go write outside what the sandbox
+  allows (`/opt/homebrew`, `~/.local`, the npm prefix, `~/.cargo`, `~/go`). An `allowWrite` for those
+  prefixes, or `excludedCommands` for the installers, would be global: every agent's Bash could then
+  rewrite programs the user runs unsandboxed later, or run `cargo build`/`npm run` unsandboxed. Instead
+  `sandbox.excludedCommands` names only `__CLAUDE_DIR__/bin/stack-install *`, by absolute path: Claude Code
+  matches the call's text and every command of the call must match, and a redirect, `cd` or `$(...)`
+  keeps the call sandboxed (docs: sandboxing, "Run commands outside the sandbox with excludedCommands"),
+  so a copy, a relative path or `python3 stack-install` stays sandboxed. The file is under the config dir
+  (sandbox `denyWrite`, `Edit(/__CLAUDE_DIR__/bin/**)`, the protected-path scan). `permissions.allow`
+  holds `Bash(__CLAUDE_DIR__/bin/stack-install *)`: an excluded command goes through the permission flow,
+  and a background subagent's prompt would stall it; the guard's refusal comes first for every other
+  caller.
+- **The guard** (`agent_guard.py` no-push mode, `toolsmith_gate`; absolute: also with `STACK_POLICY=off`;
+  an error refuses). Every agent type but `INSTALLER_TYPES` and the main thread: any simple command whose
+  command word is stack-install is refused (after quotes, `VAR=` words and wrappers such as env, exec,
+  timeout, xargs; `git log -- …/stack-install`, `cat` and `python3 <copy>` stay allowed). toolsmith: its
+  Bash runs only that absolute path, alone, without shell syntax (`; & | < > ( ) $ \` * ? [ ] { } ~ ! #`,
+  backslash, newline, tab); no PowerShell or Monitor; the arguments must parse with the executor's own
+  grammar, `--for` must name a stack agent, and `run <rq-id>` needs the user's approval on record. Then
+  the hook writes the call's one-use ticket, `<state>/toolsmith/tickets/<sha256 of the argv>.json` (argv,
+  time, session, agent and parent ids and types); a ticket it cannot write refuses the call.
+- **The executor** runs an agent's call only with that ticket, claimed atomically within 600 s (no hooks,
+  no run), and the user's own `approve`, `deny`, `list`, `pending`, `manifest`, `show` only on a real
+  terminal (stdin and stdout ttys, `/dev/tty` opens). Subcommands: `help`, `status`, `list [--all]`,
+  `pending`, `manifest`, `show <id>`, `vet <installer> <spec>`, `install|upgrade <installer> <spec> --why
+  "<reason>" [--for <agent>]`, `uninstall <installer> <name> --why …`, `request --why … -- <program>
+  <args>`, `run <rq-id>`. Specs: brew `<formula>` (homebrew/core; no `/`: no tap, path or URL), uv
+  `<name>==<version>`, npm/pnpm `<name>@<x.y.z>`, cargo `<crate>@<x.y.z>`, go `<host.tld/path>@v<x.y.z>`;
+  no ranges, tags, `latest`, git, URL, path or file sources. The installer commands are fixed in the policy:
+  `brew install --formula`; `uv tool install --no-config --no-sources --default-index https://pypi.org/simple
+  --no-build --exclude-newer <now − age>`; `npm install --global --registry=https://registry.npmjs.org/
+  --ignore-scripts --before=<now − age>` plus `--allow-git|remote|file|directory=none` when that npm lists
+  them; `pnpm add --global --registry=… --ignore-scripts`; `cargo install --locked`; `go install` with
+  `GOPROXY=https://proxy.golang.org GOSUMDB=sum.golang.org GOFLAGS= GONOSUMDB= GOPRIVATE= GOINSECURE=
+  GOTOOLCHAIN=local GOWORK=off`. A request's command is argv (never a shell): no sudo/doas/su, shells,
+  code runners, downloaders, pip (Python only through uv) or file tools, even with approval.
+- **Environment.** The installer gets an allowlist (HOME, USER, LOGNAME, LANG, LC_*, TERM, SHELL, TZ,
+  SSL_CERT_*, NODE_EXTRA_CA_CERTS; PNPM_HOME for pnpm), a PATH of its own directory and the system ones,
+  a private TMPDIR and working directory under `<state>/toolsmith/work/` (so no project `.npmrc`,
+  `uv.toml`, `.cargo/config.toml` or `go.work` is read), stdin `/dev/null` (no password prompt can be
+  answered), and the installer's hardening variables. Nothing of the Bash environment's sandbox caches,
+  tokens or installer configuration (`HOMEBREW_*`, `npm_config_*`, `UV_*`, `CARGO_*`, `GO*`, `PIP_*`)
+  passes. Programs are resolved on PATH outside agent-writable roots (the working directory, the temp
+  roots, `~/.cache/claude-sandbox`, the project dir).
+- **Vetting** (registry metadata over https from formulae.brew.sh, pypi.org, registry.npmjs.org,
+  api.npmjs.org, crates.io and proxy.golang.org only, redirects included). Refused outright: not found,
+  yanked, a disabled formula, a tap other than homebrew/core, a crate without binaries. A request for
+  the user (exit 3): the version younger than `STACK_TOOLSMITH_MIN_AGE_DAYS` (7); the package first
+  published less than 90 days ago (PyPI, npm, crates); popularity under npm 1,000 downloads last week,
+  crates.io 10,000 in 90 days or Homebrew 1,000 installs on request in a year; a deprecated formula or
+  npm version; a PyPI release without a wheel; metadata that cannot be fetched; `--allow-scripts` or
+  `--allow-build`. Reported, not blocking: install scripts present and not run, a formula's post_install
+  step and caveats, cargo's build scripts. Integrity is the installers' own (bottle sha256, PyPI hashes,
+  npm `dist.integrity`, cargo `--locked` and crates.io checksums, Go's checksum database).
+- **Requests and approvals.** `<state>/toolsmith/requests/<rq-id>.json` holds the exact argv or command,
+  why, the requester (from the ticket) and the vetting report. toolsmith returns `STATUS: blocked` with
+  the printed lines as `NEXT: ASK USER`; BlackCat asks; the user runs `~/.claude/bin/stack-install approve
+  <rq-id>` in a terminal, sees the command, reasons and checks, and types the id (`deny` the same way). The
+  approval (`approved/`, a digest of the request) is valid 24 hours and used once (`run` moves it to
+  `done/`); a request changed after its approval is refused. An approved install skips the checks it
+  failed, not the hard rules.
+- **Ledger and management.** `<state>/toolsmith/ledger.jsonl` (0600, appended under flock), one JSON event
+  per line: `attempt` (written before the installer runs: no line, no install), `installed`, `removed`,
+  `failed`, `ran`, with id, time, installer, package, version, source, why, for, requested_by (session,
+  agent and parent from the ticket), argv, the uninstall argv, the vetting report, the approval id, exit
+  code and a log path (`logs/`). `list` folds it into what toolsmith installed; `manifest` prints one
+  `stack-install install …` line per package (a Brewfile-style file that replays through the same
+  vetting); `upgrade` and `uninstall` act only on ledger-owned packages (a program the user installed is
+  never upgraded or removed: the skip rule; an install over it asks). One lock (`install.lock`) serialises
+  installs. The SessionStart prune keeps `toolsmith/`; the state dir is sandbox `denyWrite`,
+  `Edit(/__STACK_STATE__/**)` and protected-path denied, 0700, files 0600.
+- **doctor.sh** section "toolsmith": the executor and its rules installed, the `excludedCommands` entry
+  (and any other entry, which would be global), the allow rule, the state dir's mode and owner, the
+  ledger's package count and the requests waiting for the user.
+- **Tests:** `tests/test_toolsmith.py` (grammar, argv and environment, vetting verdicts, the guard at hook
+  level for every caller and shape, the executor in-process against `tests/fake-installer/fakeinst` and a
+  fixture registry, hook → ticket → executor end to end, the settings and installer wiring, and seeded
+  bugs: each mutant of the guard, the policy or the executor flips its probe).
+
 ### Residual risks
 
+- **toolsmith's installs run code as you, unsandboxed.** A vetted package is still third-party code: Homebrew post_install steps, cargo build scripts and proc macros, and the installed program itself run with your full access. The vetting (official registry, pinned version, age, popularity, no install scripts) lowers the odds of a fresh or typosquatted compromise; it does not review code. A popular package compromised for longer than the age window passes. `brew` installs the formula's current version (no pin); pnpm has no flag for the dependency tree's age (npm's `--before` and uv's `--exclude-newer` cover theirs); go has no popularity source. The policy is ours, so a package the registries vouch for poorly (no metadata) asks instead of installing.
+- **toolsmith's triggers and the live checks.** That Claude Code runs the `excludedCommands` entry unsandboxed and the allow rule removes its prompt is configured, not live-verified (README, Live checks 8). If either does not hold, installs fail (sandboxed: unwritable prefixes, no ticket claimed) or prompt; they do not widen. The executor trusts `/usr/bin/python3` and the installers found outside agent-writable directories; a Homebrew or npm prefix you made writable to everyone is not detected. Approvals need a terminal you control: anything running as you outside the sandbox could type them.
 - **The shell parsing is a heuristic.** The read-only reviewer allowlist, the protected-path scan and no-push all parse shell text. The sandbox, and managed settings once you install them, are the real boundary; without the sandbox a determined interpreter one-liner can still slip past the parser.
 - **`gh` can still use a keychain token.** `hosts.yml` is unreadable in the sandbox now, but `gh` (and git's `osxkeychain` helper run directly) can still reach a token stored in the macOS keychain from code the guard doesn't recognise. The guard refuses the commands that print it and the no-push hook refuses forge writes (`gh`, `git push`, `curl`/`wget`/`httpie` writes to forge hosts); arbitrary code that talks to the keychain or sends the token itself isn't caught by either. Mitigation: the least-privilege GitHub setup above; `doctor.sh` reports what an agent could find. The keychain service name `gh:github.com` is unverified.
 - **Language servers run outside the sandbox on files the sandbox can write.** rust-analyzer runs build scripts and proc macros, Metals/Gradle, HLS and `lake serve` run build code, and LanguageServer.jl loads packages: a sandboxed command that edits a project's build files (`build.rs`, `build.sbt`, `lakefile`, ...) gets that code run unsandboxed the next time the language server starts. Accepted: the project is writable by design; round 3 removed the shared caches, so this is now the project's own files only. Disable the LSP plugins for untrusted work.
@@ -919,6 +1016,10 @@ outside the sandbox pass `--store-dir ~/.cache/claude-sandbox/pnpm-store` and
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-06 (toolsmith: the dependency installer)
+- New agent `toolsmith` (Sonnet, leaf, Read/Bash/Skill, acceptEdits, 60 turns; lookup pool) and its executor `bin/stack-install` with `hooks/toolsmith_policy.py`: Homebrew formulae, uv tools, npm/pnpm globals, cargo and go installs without the user within the vetting, everything else on the user's terminal approval; ledger with the uninstall command (§7, "Dependency installer: toolsmith").
+- `settings.json`: `sandbox.excludedCommands` = the executor only, `permissions.allow` `Bash(__CLAUDE_DIR__/bin/stack-install *)`. Guard: `toolsmith_gate` in no-push mode (absolute), one-use tickets, `INSTALLER_TYPES` in `--print-policy`, the prune keeps `toolsmith/`, self-test. Spawned by BlackCat (route line "Dependencies"), the orchestrator, main-coder, ninja-coder and devops-engineer. Lint: acceptEdits allowed on `INSTALLER_TYPES`. Limits seed, effort table, pools, doctor section, install.sh staging and bytecode. New knob `STACK_TOOLSMITH_MIN_AGE_DAYS` (7). Re-run `./install.sh` to install it.
 
 ### 2026-10-05 (brief budgets and early-stop signals, observe only)
 - New `hooks/stack_progress.py`, which tracks a subagent run's brief `budget:` line and logs the `budget`, `stall`, `stop` and `recovered` signals (`STACK_EARLY_STOP=observe`, the default). Also new: `tests/test_stack_progress.py` and `tests/derive_early_stop.py` (the replay).
