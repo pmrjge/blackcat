@@ -5,12 +5,16 @@
 # in-image lock (/opt/eq/TOOLS.lock) before a run. The format is a TOML subset read by tools.sh (see its header): the first key of
 # a table is `name`; values are one-line strings or one-line arrays of space-free strings.
 #
+# Bases (USER decision 2026-10-06, DESIGN_DISTROLESS.md): every final image is `scratch` or Google's distroless cc image pinned
+# by digest (PINS DISTROLESS_CC); no distribution shell, coreutils, interpreter, compiler or package manager is in any image, no
+# apt/dpkg/snapshot is on the build path, and no tool is a distribution package.
+#
 # EXTENSION PROCEDURE (new tool or new version):
 #   1. add or edit the [[tool]] entry (url, sha256 of the ARCHIVE the url returns, linkage, provenance, role, classes, profiles,
 #      files, smoke) and list it in the [[image]] that gets it (or add an [[image]] and a [[profile]]);
 #   2. bash verify-tools.sh --manifest --profiles <p>      (static checks; exit 13 while a selected value is PLACEHOLDER);
 #   3. rebuild: bash build.sh --profiles <p> --yes          (the manifest hash is part of every affected image's inputs hash);
-#   4. re-verify: bash verify-tools.sh --images --smoke --deep --profiles <p>, then probe.sh for a check image.
+#   4. re-verify: bash verify-tools.sh --images --smoke --deep --inspect --profiles <p>, then probe.sh for a check image.
 #   The security-auditor verdict for the tool (WALL policy) is bound to the sha256 of its entry (tm_image_hash), so a changed
 #   entry invalidates an earlier verdict.
 #
@@ -18,20 +22,23 @@
 #   version      upstream version; {version} in url. PLACEHOLDER = not looked up yet (never invented).
 #   tag          second version-like token some URLs need (python-build-standalone release tag, the Temurin build number), else absent.
 #   url          https download of the archive (http, credentials and non-https redirects are refused), or file:<path in this
-#                directory> for an in-repo script, or apt:<package> for a distro-package copied out of a discarded builder stage.
-#   sha256       64 hex of the archive the url returns (prebuilt-upstream, built-from-source: of the source tarball); of the
-#                installed file for distro-package (derived with every hash checked by distro-pins.sh; build.sh --resolve-tools
-#                --write-pin is the trust-on-first-use alternative); of the file for in-repo (verify-tools.sh recomputes it);
-#                "n/a" only for role build-only.
+#                directory> for an in-repo script. apt:<package> (a distribution package) is refused (verify-tools.sh).
+#   sha256       64 hex of the archive the url returns (prebuilt-upstream; built-from-source: of the source tarball); of the
+#                file for in-repo (verify-tools.sh recomputes it).
+#   file_sha256  64 hex of the INSTALLED file (the first of `files`) when it is not the archive itself: the busybox binary taken
+#                out of its rootfs tarball, the bash binary built from source (required for built-from-source: the builder's
+#                compiler floats, so the output is what is pinned). mkrootfs.sh refuses an installed file that differs; for
+#                archive = binary and in-repo tools the installed file must hash to sha256 itself.
 #   checksum_source  where the hash was checked against upstream (checksum file, signature, release API) or PLACEHOLDER.
-#   linkage      static | dynamic (dynamic: ldd-resolved libraries are copied by mkrootfs; the build fails on an unresolved one).
-#                Where upstream does not say which, the entry says dynamic (the conservative choice: a static binary just has an
-#                empty closure) and `notes` records that the linkage is unverified.
-#   provenance   prebuilt-upstream | built-from-source (discarded builder stage, pinned source tarball, recipe in tc/) |
-#                distro-package (DEVIATION from X4, see INSTALLER_SPEC.md section 12) | in-repo.
-#   recipe, recipe_sha256   tc/<file>.sh run by tc/fetch-tool.sh in the discarded builder stage with SRC (extracted archive) and DEST
-#                (install prefix), and its pinned sha256. Required by built-from-source; also used by prebuilt-upstream tarballs that
-#                are installer trees (rust, ghc). verify-tools.sh recomputes the hash.
+#   linkage      static | dynamic. A dynamic tool's libraries must resolve from the image base (distroless cc: glibc, libstdc++,
+#                libgcc_s, libgomp, libssl, libzstd, zlib) or from the tool's own /opt tree; nothing else is ever copied (no
+#                third source of shared objects): the assemble stage fails naming the library. A tool of a scratch image must
+#                be static. Where upstream does not say which, `notes` records that the linkage is unverified.
+#   provenance   prebuilt-upstream | built-from-source (discarded builder stage, pinned and signature-checked source, recipe in
+#                tc/, output pinned by file_sha256) | in-repo. distro-package is refused.
+#   recipe, recipe_sha256   tc/<file>.sh and its pinned sha256 (verify-tools.sh recomputes it). built-from-source: the build recipe
+#                (tc/build-bash.sh runs in the Alpine stage of Dockerfile.minimal); prebuilt-upstream installer trees (rust, ghc):
+#                run by tc/fetch-tool.sh with SRC (extracted archive) and DEST (install prefix).
 #   role         runtime (a check or a solver runs it) | probe (needed by probe/selftest scripts only) | selftest | server |
 #                build-only (exists only in a discarded builder stage; never in a final image).
 #   classes      item classes allowed to have it in their image: PF CP CR ES RS DS OE, EXT = extension languages no pool uses today.
@@ -41,14 +48,15 @@
 #                relative to dest, installed files hashed into the lock, ENV entries (K=V, no spaces), argv of the smoke test.
 #   licence      SPDX id as published by upstream, or PLACEHOLDER (not verified; the candidate is then in `notes`).
 #   notes        free text (no double quotes): what is unverified, newer upstream versions, the built-from-source alternative.
-# [[image]] keys: dockerfile, target, kind, base, profile, classes, tools, applets (busybox applet links the
-#   image gets; only for images whose entry script needs a shell, see INSTALLER_SPEC.md section 12).
+# [[image]] keys: dockerfile, target (the final stage; its check stage check-<target> is built first), kind, base (scratch |
+#   distroless-cc: the final stage's FROM, a test compares them), profile, classes, tools.
+# [[profile]] keys: images, explicit (yes: never part of `all`), deferred (a reason: the profile has no image and is refused
+#   with exit 10, the skip code; `all` leaves it out).
 #
-# Values below were read from upstream on 2026-10-05 by the researcher and recorded in TOOLCHAINS.md (eq-toolchains/); each entry's
-# checksum_source says which upstream file the sha256 came from. No binary was downloaded by that pass, so every pin below is a hash
-# of a file nobody here has built into an image yet: the first build verifies it (a mismatch stops the build). The core entries (lean,
-# uv, python, lake-shim) keep the values PINS records (dated there), which PINS and build.sh --check keep in agreement. bash and perl
-# (2026-10-06) were hashed from the downloaded base-image layer itself (checksum_source); busybox and jq wait for distro-pins.sh.
+# Values: the extension entries were read from upstream on 2026-10-05 by the researcher (TOOLCHAINS.md in eq-toolchains/); the
+# core entries on 2026-10-06 (DESIGN_DISTROLESS.md section 4; busybox, jq and uv re-downloaded and recomputed by the implementing
+# agent). Each entry's checksum_source says which upstream file the hash came from; the core entries agree with PINS (build.sh
+# --check and verify-tools.sh compare them). The bash pins wait for the signature-checked first build: build.sh --resolve-tools.
 
 # ===================================================================================================== core tools
 [[tool]]
@@ -63,7 +71,7 @@ role = "runtime"
 classes = ["PF"]
 profiles = ["core"]
 licence = "Apache-2.0"
-notes = "TOOLCHAINS.md: glibc floor 2.27 on aarch64; libc++, GMP, libuv and OpenSSL are linked statically, so only glibc is expected at run time (inference: confirm with ldd, mkrootfs fails on an unresolved library)"
+notes = "glibc only (no musl or static build upstream; the bundled glibc is for linking only): hence the distroless cc base. TOOLCHAINS.md: glibc floor 2.27 on aarch64; libc++, GMP, libuv and OpenSSL are linked statically, so only glibc is expected at run time (inference: the assemble stage checks it with ld.so --list against the base). Unpacked by minimal/untar.py (the builder has no zstd)"
 dest = "/opt/lean"
 archive = "tar.zst"
 strip = "1"
@@ -73,16 +81,16 @@ smoke = ["lean", "--version"]
 [[tool]]
 name = "uv"
 version = "0.12.22"
-url = "https://github.com/astral-sh/uv/releases/download/{version}/uv-aarch64-unknown-linux-gnu.tar.gz"
-sha256 = "6f66a14e8239871fb477f9746c941fedfa77e8fe28a8bc7c07e1dc7f53a66712"
-checksum_source = "GitHub release asset digest (PINS, 2026-10-04); upstream also publishes a .sha256 per file and GitHub Artifact Attestations"
-linkage = "dynamic"
+url = "https://github.com/astral-sh/uv/releases/download/{version}/uv-aarch64-unknown-linux-musl.tar.gz"
+sha256 = "228bd32c180421a94eef91378a92b2dd63c768bd278430e833250524c4a13382"
+checksum_source = "the .sha256 asset beside the tarball and the GitHub release asset digest, equal; downloaded and recomputed 2026-10-06 (uv and uvx statically linked, checked with file)"
+linkage = "static"
 provenance = "prebuilt-upstream"
 role = "runtime"
 classes = ["PF", "CP", "CR"]
 profiles = ["core"]
 licence = "MIT OR Apache-2.0"
-notes = "pinned by PINS; upstream 0.12.23 (2026-10-03) exists, gnu sha256 6524bd338177ed50d035d39354e12545e993bbeba2ecbddf0480c5b3a81d313f from its .sha256 file (TOOLCHAINS.md): a re-pin is PINS + Dockerfile ARGs + rebuild. glibc floor 2.28"
+notes = "the musl build is fully static, so it needs nothing from the base (it replaced the gnu build, 6f66a14e..., 2026-10-06). Upstream 0.12.23 (2026-10-03) exists: a re-pin is PINS + the Dockerfile ARG + rebuild. GitHub Artifact Attestations exist (not verified here)"
 dest = "/opt/uv"
 archive = "tar.gz"
 strip = "1"
@@ -102,7 +110,7 @@ role = "runtime"
 classes = ["PF", "CP", "CR"]
 profiles = ["core"]
 licence = "PLACEHOLDER"
-notes = "python.org ships no Linux binary; python-build-standalone is published by Astral. Build system MPL-2.0, CPython PSF-2.0 (unverified), bundled libraries under their own licences. Newer: PBS release 20261003 (3.14.8 gnu install_only_stripped sha256 ece2bf3d4b47c80c2403c5f32fa51a9458abaee93c10def8acafb5f45163e77d from its SHA256SUMS, TOOLCHAINS.md); pinned by PINS"
+notes = "the glibc build on the distroless cc base for PF, CP and CR (USER decision 3a, 2026-10-06: one interpreter for the three classes, as before). python.org ships no Linux binary; python-build-standalone is published by Astral. Build system MPL-2.0, CPython PSF-2.0 (unverified), bundled libraries under their own licences. Newer: PBS release 20261003 (3.14.8 gnu install_only_stripped sha256 ece2bf3d4b47c80c2403c5f32fa51a9458abaee93c10def8acafb5f45163e77d from its SHA256SUMS, TOOLCHAINS.md); pinned by PINS"
 dest = "/opt/python"
 archive = "tar.gz"
 strip = "1"
@@ -111,74 +119,77 @@ smoke = ["python3", "--version"]
 
 [[tool]]
 name = "busybox"
-version = "PLACEHOLDER"
-url = "apt:busybox-static"
-sha256 = "PLACEHOLDER"
-checksum_source = "PLACEHOLDER"
+version = "1.38.0"
+url = "https://raw.githubusercontent.com/docker-library/busybox/b6edf7d5c5200d629d7c3f7758293a3675471dde/latest/musl/arm64v8/rootfs.tar.gz"
+sha256 = "7e75e6d7d7c97e99528d165ddae068049dfd29846f693e5b35feba66c0e78912"
+file_sha256 = "4ab4ce065532286051cf7f3ca9d142a115b98da96016fb8be378008fedd70bda"
+checksum_source = "docker-library/busybox (the Docker Official Image; distroless's own debug images take busybox from it) branch dist-arm64v8 commit b6edf7d5, latest/musl/arm64v8: rootfs.tar.gz hashes to the one layer digest of the same commit's image-manifest.json; bin/busybox (a hard link to bin/[ in that tarball) hashed after extraction. Downloaded and recomputed 2026-10-06 by the implementing agent. Upstream builds it from busybox-1.38.0.tar.bz2 after a GPG check against C9E9416F76E610DBD09D040F47B70C55ACC9965B (latest/musl/Dockerfile.builder on master)"
 linkage = "static"
-provenance = "distro-package"
+provenance = "prebuilt-upstream"
 role = "runtime"
 classes = ["PF", "CP", "CR"]
 profiles = ["core"]
 licence = "PLACEHOLDER"
-notes = "USER decision 2026-10-05: the Debian package from the pinned snapshot (distro-package). Not derived yet: snapshot.debian.org is outside the agent sandbox (2026-10-06); its pool lists busybox-static_1.37.0-6+b9_arm64.deb, unverified as the trixie version until bash distro-pins.sh derives it (with BUSYBOX_SHA256 in PINS). busybox.net has no current official arm64 binary (newest official binaries 1.35.0 i686 and x86_64 musl; the 2019 multiarch set has only busybox-armv8l, the 32-bit userland name). Built-from-source alternative: https://busybox.net/downloads/busybox-1.38.0.tar.bz2 (1.38.0 is listed unstable, 1.36.1 is the newest stable), checksum or signature file not read, so PLACEHOLDER. GPL-2.0-only (unverified)"
-dest = "/usr/bin"
-archive = "binary"
-files = ["/usr/bin/busybox"]
+notes = "BusyBox 1.38.0 (musl), built on Alpine 3.23.6 (image-config.json of the same commit), static-pie aarch64 (file). busybox.net labels 1.38.0 unstable and publishes no current arm64 binary; the built-from-source alternative is the signed busybox-1.38.0.tar.bz2 with docker-library's recipe. The applet links an image gets are listed in minimal/mkrootfs.sh (the build fails on a missing applet). GPL-2.0-only (unverified)"
+dest = "/opt/eq/bin"
+archive = "tar.gz"
+files = ["/opt/eq/bin/busybox"]
 smoke = ["busybox", "true"]
 
 [[tool]]
 name = "bash"
-version = "5.2.37-2+b10"
-url = "apt:bash"
-sha256 = "ccbd5106945d1095474e5ee47317266f5918aa37fc671829192a007918b1413a"
-checksum_source = "/usr/bin/bash of the arm64 layer sha256:bd36565c0fdebaf0f3af5c3b4ce610ca085ced32e9e9da850d95912f5f18f47b of BASE_IMAGE (PINS BASE_LAYER_URL: debuerreotype docker-debian-artifacts ca011a8b, trixie/slim/oci/blobs/rootfs.tar.gz; layer and manifest da496358 hashes recomputed), version from its var/lib/dpkg/status, md5 equal to its dpkg bash.md5sums; read 2026-10-06 by an agent; distro-pins.sh re-derives it"
-linkage = "dynamic"
-provenance = "distro-package"
+version = "5.3.20"
+url = "https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz"
+sha256 = "PLACEHOLDER"
+file_sha256 = "PLACEHOLDER"
+checksum_source = "PLACEHOLDER"
+linkage = "static"
+provenance = "built-from-source"
+recipe = "tc/build-bash.sh"
+recipe_sha256 = "ac1c2aba72ac882410b30125cab3b8ec4d1fe33e93a70dc236294ba1c39ce15c"
 role = "runtime"
 classes = ["PF", "CP", "CR"]
 profiles = ["core"]
 licence = "GPL-3.0-or-later"
-notes = "USER decision 2026-10-05: the Debian package (distro-package). The builder takes bash from the base image (Debian 13.7, built from the snapshot of APT_SNAPSHOT plus trixie-updates and trixie-security), not from an apt install, so the pin is the base image's file. check_lean.sh (hash-frozen) needs bash. Licence: Files: * of /usr/share/doc/bash/copyright in the same layer (GPL-3+). GNU publishes no binary. Built-from-source alternative: https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz plus patches bash53-001 to bash53-020 (https://ftp.gnu.org/gnu/bash/bash-5.3-patches/), GPG .sig per file and no sha256 file"
-dest = "/usr/bin"
-archive = "binary"
-files = ["/usr/bin/bash"]
+notes = "USER decision 1 (2026-10-06): static GNU bash 5.3 with the official patches bash53-001 to bash53-020 (020 dated 2026-09-14, the last one listed on ftp.gnu.org/gnu/bash/bash-5.3-patches/ read 2026-10-06; the official bash image builds 5.3.20 too), built against musl in the Alpine stage of Dockerfile.minimal by tc/build-bash.sh after the tarball and every patch verify with GPG against the primary key 7C0135FB088AAF6C66C650B9BB5869F064EA74AB (Chet Ramey; the key docker-library's bash image verifies with). sha256 = BASH_SRC_SHA256 (the tarball), file_sha256 = BASH_BIN_SHA256 (the built binary); BASH_PATCHES_SHA256 is in PINS. Not derived yet: ftp.gnu.org and the keyservers are outside the agent sandbox; from a normal terminal: bash lib/eq-container/build.sh --resolve-tools, review, then --write-pin. check_lean.sh (hash-frozen) is run as bash check_lean.sh; the probes use bash -c, /dev/tcp and ulimit -u"
+dest = "/opt/eq/bin"
+archive = "tar.gz"
+files = ["/opt/eq/bin/bash"]
 smoke = ["bash", "--version"]
 
 [[tool]]
-name = "perl"
-version = "5.40.1-6+deb13u1"
-url = "apt:perl-base"
-sha256 = "b37d5994e1790b1901d23e3939278de303de0eec57b181da0d1ff3f5ca54f3bb"
-checksum_source = "/usr/bin/perl of the arm64 layer sha256:bd36565c0fdebaf0f3af5c3b4ce610ca085ced32e9e9da850d95912f5f18f47b of BASE_IMAGE (PINS BASE_LAYER_URL: debuerreotype docker-debian-artifacts ca011a8b, trixie/slim/oci/blobs/rootfs.tar.gz; layer and manifest da496358 hashes recomputed), version from its var/lib/dpkg/status, md5 equal to its dpkg perl-base.md5sums; read 2026-10-06 by an agent; distro-pins.sh re-derives it"
-linkage = "dynamic"
-provenance = "distro-package"
+name = "perl-shim"
+version = "1"
+url = "file:minimal/perl-shim"
+sha256 = "e8c631f4d141a6503c429afa9012998805fd88427b39a704767767c02b9d99c6"
+checksum_source = "in-repo file; verify-tools.sh recomputes it"
+linkage = "static"
+provenance = "in-repo"
 role = "runtime"
 classes = ["PF"]
 profiles = ["core"]
-licence = "Artistic-1.0-Perl OR GPL-1.0-or-later"
-notes = "USER decision 2026-10-05: the Debian package (distro-package). The builder takes perl (perl-base) from the base image, not from an apt install, so the pin is the base image's file (/usr/bin/perl5.40.1 is a hard link to it). check_lean.sh needs perl. cpan.org publishes no binary. Built-from-source alternative: https://www.cpan.org/src/5.0/perl-5.44.0.tar.gz, sha256 3b855066b92491cb40e86affb1ca57d1a388aa43e51b91c7806a32c2f65f96c3 from perl-5.44.0.tar.gz.sha256.txt (read 2026-10-05). The licence is upstream's; the Debian perl-base package is not separately checked"
-dest = "/usr/bin"
+licence = "PLACEHOLDER"
+notes = "USER decision 2 (2026-10-06): no perl in any image. Installed as /opt/eq/bin/perl, it answers only the timeout wrapper of the hash-frozen check_lean.sh (lines 44-53, compared byte for byte) and refuses anything else with exit 2; tests/test_eq_container_pins.py runs it against the real perl. A WALL missing-tool request for perl is no longer refused by the tools_manifest rule (no tool is named perl): it falls to the policy, deny-all by default"
+dest = "/opt/eq/bin"
 archive = "binary"
-files = ["/usr/bin/perl"]
-smoke = ["perl", "-e", "exit"]
+files = ["/opt/eq/bin/perl"]
 
 [[tool]]
 name = "jq"
-version = "PLACEHOLDER"
-url = "apt:jq"
-sha256 = "PLACEHOLDER"
-checksum_source = "PLACEHOLDER"
-linkage = "dynamic"
-provenance = "distro-package"
+version = "1.8.2"
+url = "https://github.com/jqlang/jq/releases/download/jq-{version}/jq-linux-arm64"
+sha256 = "8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309"
+checksum_source = "jq-1.8.2 release sha256sum.txt and the GitHub release asset digest, equal; downloaded and recomputed 2026-10-06 (statically linked, checked with file)"
+linkage = "static"
+provenance = "prebuilt-upstream"
 role = "selftest"
 classes = ["PF", "CP", "CR"]
 profiles = ["core"]
 licence = "MIT"
-notes = "USER decision 2026-10-05: the Debian package from the pinned snapshot (distro-package). Not derived yet: snapshot.debian.org is outside the agent sandbox (2026-10-06); its pool lists jq_1.7.1-6+deb13u3_arm64.deb, unverified as the trixie version until bash distro-pins.sh derives it. An official STATIC arm64 binary exists (TOOLCHAINS.md): https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-arm64 sha256 8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309 from sha256sum.txt (jq 1.8.2, 2026-06-20). Switching to it means prebuilt-upstream, archive binary, linkage static and a path in minimal/mkrootfs.sh that installs it instead of the Debian jq; not done here because it changes the check images and needs a build to verify"
-dest = "/usr/bin"
+notes = "USER decision 6 (2026-10-06): the official static jq 1.8.2 (2026-06-20). No in-container consumer today (the selftests that use jq run on the host); kept for the sandboxed members' toolbox"
+dest = "/opt/eq/bin"
 archive = "binary"
-files = ["/usr/bin/jq"]
+files = ["/opt/eq/bin/jq"]
 smoke = ["jq", "--version"]
 
 [[tool]]
@@ -193,28 +204,16 @@ role = "runtime"
 classes = ["PF"]
 profiles = ["core"]
 licence = "PLACEHOLDER"
-dest = "/usr/local/bin"
+dest = "/opt/eq/bin"
 archive = "binary"
-files = ["/usr/local/bin/lake"]
+files = ["/opt/eq/bin/lake"]
 smoke = ["lake", "env", "printenv", "LEAN_PATH"]
-
-[[tool]]
-name = "git"
-version = "PLACEHOLDER"
-url = "apt:git"
-sha256 = "n/a"
-checksum_source = "n/a: exists only in a discarded builder stage (lake exe cache get clones the pinned packages)"
-linkage = "dynamic"
-provenance = "distro-package"
-role = "build-only"
-classes = ["PF"]
-profiles = ["core"]
-licence = "GPL-2.0-only"
-notes = "builder stage only, never in a final image. No official arm64 Linux binary (git-scm.com points to distro packages or source). Built-from-source alternative: https://mirrors.edge.kernel.org/pub/software/scm/git/git-2.56.0.tar.xz sha256 26c56c296b38c0695b26fa95f475f1d01704d2d38e73465ca30b0b2f5dc789d3 from the PGP-signed sha256sums.asc (read 2026-10-05)"
 
 # ============================================================================== extension toolchains (X3), all opt-in
 # classes = EXT because no item pool needs these languages today. Every value is from TOOLCHAINS.md (2026-10-05); a value the
-# researcher did not read is PLACEHOLDER, and the build stops (exit 13) naming it.
+# researcher did not read is PLACEHOLDER, and the build stops (exit 13) naming it. rust, ghc and cabal stay pinned for later, but
+# their profiles are DEFERRED (USER decision 5, 2026-10-06): rustc and GHC call a C linker, and no distroless image supplies one.
+
 [[tool]]
 name = "node"
 version = "24.21.0"
@@ -227,7 +226,7 @@ role = "runtime"
 classes = ["EXT"]
 profiles = ["node"]
 licence = "MIT"
-notes = "24.21.0 is the LTS (Krypton, 2026-09-08); Current is 26.10.0, sha256 7a6353f63eb3d04765004b4adf172616243e4522434635cb1d26288658b04ab5 (same SHASUMS256.txt family). glibc 2.28 or newer, no arm64 musl build upstream. SPDX id inferred from the LICENSE header. npm and corepack are pruned (X4: no package manager). Archive layout and prune paths UNVERIFIED until a build passes"
+notes = "24.21.0 is the LTS (Krypton, 2026-09-08); Current is 26.10.0, sha256 7a6353f63eb3d04765004b4adf172616243e4522434635cb1d26288658b04ab5 (same SHASUMS256.txt family). glibc 2.28 or newer, no arm64 musl build upstream: on the distroless cc base (libstdc++ and libgcc_s come from it). SPDX id inferred from the LICENSE header. npm and corepack are pruned (X4: no package manager). Archive layout and prune paths UNVERIFIED until a build passes"
 dest = "/opt/node"
 archive = "tar.xz"
 strip = "1"
@@ -250,7 +249,7 @@ role = "runtime"
 classes = ["EXT"]
 profiles = ["rust"]
 licence = "MIT OR Apache-2.0"
-notes = "glibc 2.17 or newer. The standalone tarball is an installer tree, hence the recipe. USER decision 2026-10-05 (conflict C6): the image also gets the cc linker (tool cc: Debian gcc + libc6-dev), so rustc can link; the smoke test still only runs rustc --version. The -musl host tarball (xz_hash 7559507ec98f044718ab6a786e26ecfd09764b5af29e0f0c075eb8e738c3214d) is the alternative. Component names in the recipe UNVERIFIED"
+notes = "DEFERRED (USER decision 5, 2026-10-06): rustc links through a cc driver and crt objects, which no distroless image supplies; the profile rust has no image and is refused (exit 10). The former Debian gcc closure is gone. Possible later without a distribution: the -musl host tarball (xz_hash 7559507ec98f044718ab6a786e26ecfd09764b5af29e0f0c075eb8e738c3214d) with its self-contained crt and rust-lld (UNVERIFIED). glibc 2.17 or newer. The standalone tarball is an installer tree, hence the recipe. Component names in the recipe UNVERIFIED"
 dest = "/opt/rust"
 archive = "tar.xz"
 strip = "1"
@@ -266,13 +265,13 @@ version = "1.27.1"
 url = "https://go.dev/dl/go{version}.linux-arm64.tar.gz"
 sha256 = "3450b45a3f9ee8568792736a5c5e70a1f2e9b36c35a8f74958c03e51d7d92bec"
 checksum_source = "go.dev/dl/?mode=json sha256 field (read 2026-10-05)"
-linkage = "dynamic"
+linkage = "static"
 provenance = "prebuilt-upstream"
 role = "runtime"
 classes = ["EXT"]
 profiles = ["go"]
 licence = "BSD-3-Clause"
-notes = "Upstream does not say whether the toolchain binaries are static (UNVERIFIED; mkrootfs-tc.sh copies an ldd closure, empty for a static binary). Kernel 3.2 or newer. The standard library sources under src/ stay (the compiler reads them: conflict C4). CGO_ENABLED=0 so no C toolchain is needed. Prune paths UNVERIFIED"
+notes = "the image is FROM scratch: Go 1.21 and newer toolchains are built with cgo disabled (go.dev/blog/rebuild), so go and its tools are expected static; UNVERIFIED for 1.27.1 until tc/mkrootfs-tc.sh's static check passes (it fails on any ELF that needs an interpreter or a shared library). Kernel 3.2 or newer. The standard library sources under src/ stay (the compiler reads them: conflict C4). CGO_ENABLED=0 so no C toolchain is needed. Prune paths UNVERIFIED"
 dest = "/opt/go"
 archive = "tar.gz"
 strip = "1"
@@ -294,7 +293,7 @@ role = "runtime"
 classes = ["EXT"]
 profiles = ["julia"]
 licence = "MIT"
-notes = "Linux aarch64 glibc is Tier 2 upstream (ARMv8 64-bit); there is no aarch64 musl build. glibc floor not stated upstream (UNVERIFIED). The version in the url path (1.13) must be edited together with version. Prune paths UNVERIFIED"
+notes = "Linux aarch64 glibc is Tier 2 upstream (ARMv8 64-bit); there is no aarch64 musl build: on the distroless cc base. glibc floor not stated upstream (UNVERIFIED). The version in the url path (1.13) must be edited together with version. Prune paths UNVERIFIED"
 dest = "/opt/julia"
 archive = "tar.gz"
 strip = "1"
@@ -318,7 +317,7 @@ role = "runtime"
 classes = ["EXT"]
 profiles = ["haskell"]
 licence = "PLACEHOLDER"
-notes = "9.14.1 (2025-12-18) is GHCup Latest and Recommended. The deb12 aarch64 bindist is glibc based; deb10 and alpine3_22 variants exist with their own sha256 in the same SHA256SUMS. The bindist installs with ./configure and make install (recipe, builder stage with a C toolchain). GHC calls a C compiler and linker when it compiles: USER decision 2026-10-05 (conflict C6), the image gets the tools cc and ghc-link-libs (Debian gcc, libc6-dev, libgmp-dev, libffi-dev); the smoke test only runs ghc --version. Licence is BSD-style, SPDX id unverified. Runtime libraries (gmp, ffi, ncurses, tinfo) come from the ldd closure"
+notes = "DEFERRED (USER decision 5, 2026-10-06): GHC always calls a C compiler, assembler and linker and links libgmp, none of which a distroless image supplies; the profile haskell has no image and is refused (exit 10). The former Debian gcc/libgmp-dev closure is gone. 9.14.1 (2025-12-18) is GHCup Latest and Recommended. The deb12 aarch64 bindist is glibc based; deb10 and alpine3_22 variants exist with their own sha256 in the same SHA256SUMS. Licence is BSD-style, SPDX id unverified"
 dest = "/opt/ghc"
 archive = "tar.xz"
 strip = "1"
@@ -339,7 +338,7 @@ role = "runtime"
 classes = ["EXT"]
 profiles = ["haskell"]
 licence = "PLACEHOLDER"
-notes = "3.18.1.0 is GHCup Latest, 3.16.1.0 is Recommended (aarch64 deb11 tarball sha256 6c5b74781d64266fa060099502d33b1f8297f269a5f71eda871b7db7fb3bf8e4, same metadata). The unknown flavour's linkage is not stated (UNVERIFIED). Licence BSD-3-Clause is unverified (only the copyright line was read). One binary at the archive root (strip 0)"
+notes = "DEFERRED with ghc (USER decision 5, 2026-10-06). 3.18.1.0 is GHCup Latest, 3.16.1.0 is Recommended (aarch64 deb11 tarball sha256 6c5b74781d64266fa060099502d33b1f8297f269a5f71eda871b7db7fb3bf8e4, same metadata). The unknown flavour's linkage is not stated (UNVERIFIED). Licence BSD-3-Clause is unverified (only the copyright line was read). One binary at the archive root (strip 0)"
 dest = "/opt/cabal"
 archive = "tar.xz"
 strip = "0"
@@ -361,7 +360,7 @@ role = "runtime"
 classes = ["EXT"]
 profiles = ["jvm"]
 licence = "PLACEHOLDER"
-notes = "Eclipse Temurin 25.0.4.1+1 LTS (2026-08-21); the newest feature release is 27 (jdk-27+35), its sha256 was not read. Candidate licence GPL-2.0-only WITH Classpath-exception-2.0 (unverified). glibc floor and zlib linkage unverified. Prune: docs, jmods, src.zip and the AWT/X11 libraries a headless build never loads (they would make the ldd closure fail on libX11, freetype and similar); paths UNVERIFIED, the build names any unresolved library"
+notes = "Eclipse Temurin 25.0.4.1+1 LTS (2026-08-21); the newest feature release is 27 (jdk-27+35), its sha256 was not read. Candidate licence GPL-2.0-only WITH Classpath-exception-2.0 (unverified). On the distroless cc base (zlib comes from it; whether Temurin links the system zlib is unverified). Prune: docs, jmods, src.zip and the AWT/X11 libraries a headless build never loads (they would fail the library check on libX11, freetype and similar); paths UNVERIFIED, the build names any unresolved library"
 dest = "/opt/jdk"
 archive = "tar.gz"
 strip = "1"
@@ -391,62 +390,25 @@ bins = ["bin"]
 files = ["/opt/scala3/bin/scalac"]
 smoke = ["java", "-cp", "/opt/scala3/lib/*", "dotty.tools.MainGenericCompiler", "-version"]
 
-[[tool]]
-name = "cc"
-version = "PLACEHOLDER"
-url = "apt:gcc"
-sha256 = "PLACEHOLDER"
-checksum_source = "PLACEHOLDER"
-linkage = "dynamic"
-provenance = "distro-package"
-role = "runtime"
-classes = ["EXT"]
-profiles = ["rust", "haskell"]
-licence = "GPL-3.0-or-later"
-notes = "USER decision 2026-10-05 (INSTALLER_SPEC.md 12.6 conflict C6): a cc linker driver IN the Rust and Haskell images. Debian gcc and libc6-dev from the pinned snapshot; tc/apt-closure.sh records the package closure the install adds and mkrootfs-tc.sh copies those packages' files (no docs, man pages or locales); /usr/bin/cc links to gcc. version and sha256 (of the gcc driver, trust on first use) come from build.sh --resolve-tools --write-pin (Dockerfile.toolchains stage tc-tools-report). Licence of gcc per Debian copyright (unverified). Never built: UNVERIFIED until a build passes"
-dest = "/usr"
-archive = "binary"
-bins = ["bin"]
-files = ["/usr/bin/aarch64-linux-gnu-gcc-14"]
-smoke = ["cc", "--version"]
-
-[[tool]]
-name = "ghc-link-libs"
-version = "PLACEHOLDER"
-url = "apt:libgmp-dev"
-sha256 = "PLACEHOLDER"
-checksum_source = "PLACEHOLDER"
-linkage = "dynamic"
-provenance = "distro-package"
-role = "runtime"
-classes = ["EXT"]
-profiles = ["haskell"]
-licence = "LGPL-3.0-or-later OR GPL-2.0-or-later"
-notes = "USER decision 2026-10-05 (C6): the libraries GHC links a program against (Debian libgmp-dev and libffi-dev from the pinned snapshot; package closure via tc/apt-closure.sh). sha256 is of the libgmp.so link target (trust on first use: build.sh --resolve-tools --write-pin). Whether the 9.14.1 bindist links the system libffi is UNVERIFIED (it may bundle its own). Never built: UNVERIFIED"
-dest = "/usr"
-archive = "binary"
-files = ["/usr/lib/aarch64-linux-gnu/libgmp.so"]
-
 # ===================================================================================================== images
-# kind: check = the harness runs model-written code in it (needs /bin/sh + cp for the COPY_IN prefix: busybox, see INSTALLER_SPEC.md
-# section 12) | lang = an extension toolchain, no shell | server = a database. base: eq-base (shared glibc closure + /etc/passwd,group,
-# FROM scratch, stage of Dockerfile.toolchains) or scratch (Dockerfile.minimal assembles its own rootfs).
+# kind: check = the harness runs model-written code in it (needs /bin/sh + cp for the COPY_IN prefix: busybox and bash) |
+# lang = an extension toolchain, no shell | server = a database. base: distroless-cc (PINS DISTROLESS_CC, by digest) or scratch.
 [[image]]
 name = "min-both"
 dockerfile = "Dockerfile.minimal"
 target = "eq-min"
 kind = "check"
-base = "scratch"
+base = "distroless-cc"
 profile = "core"
 classes = ["PF"]
-tools = ["lean", "uv", "python", "busybox", "bash", "perl", "jq", "lake-shim"]
+tools = ["lean", "uv", "python", "busybox", "bash", "perl-shim", "jq", "lake-shim"]
 
 [[image]]
 name = "min-py"
 dockerfile = "Dockerfile.minimal"
 target = "eq-py-min"
 kind = "check"
-base = "scratch"
+base = "distroless-cc"
 profile = "core"
 classes = ["CP", "CR"]
 tools = ["uv", "python", "busybox", "bash", "jq"]
@@ -456,37 +418,27 @@ name = "min-lean"
 dockerfile = "Dockerfile.minimal"
 target = "eq-lean-min"
 kind = "check"
-base = "scratch"
+base = "distroless-cc"
 profile = "core"
 classes = ["PF"]
-tools = ["lean", "busybox", "bash", "perl", "lake-shim"]
+tools = ["lean", "busybox", "bash", "perl-shim", "lake-shim"]
 
 [[image]]
 name = "tc-node"
 dockerfile = "Dockerfile.toolchains"
 target = "eq-node"
 kind = "lang"
-base = "eq-base"
+base = "distroless-cc"
 profile = "node"
 classes = ["EXT"]
 tools = ["node"]
-
-[[image]]
-name = "tc-rust"
-dockerfile = "Dockerfile.toolchains"
-target = "eq-rust"
-kind = "lang"
-base = "eq-base"
-profile = "rust"
-classes = ["EXT"]
-tools = ["rust", "cc"]
 
 [[image]]
 name = "tc-go"
 dockerfile = "Dockerfile.toolchains"
 target = "eq-go"
 kind = "lang"
-base = "eq-base"
+base = "scratch"
 profile = "go"
 classes = ["EXT"]
 tools = ["go"]
@@ -496,27 +448,17 @@ name = "tc-julia"
 dockerfile = "Dockerfile.toolchains"
 target = "eq-julia"
 kind = "lang"
-base = "eq-base"
+base = "distroless-cc"
 profile = "julia"
 classes = ["EXT"]
 tools = ["julia"]
-
-[[image]]
-name = "tc-haskell"
-dockerfile = "Dockerfile.toolchains"
-target = "eq-haskell"
-kind = "lang"
-base = "eq-base"
-profile = "haskell"
-classes = ["EXT"]
-tools = ["ghc", "cabal", "cc", "ghc-link-libs"]
 
 [[image]]
 name = "tc-jvm"
 dockerfile = "Dockerfile.toolchains"
 target = "eq-jvm"
 kind = "lang"
-base = "eq-base"
+base = "distroless-cc"
 profile = "jvm"
 classes = ["EXT"]
 tools = ["jdk", "scala3"]
@@ -524,6 +466,7 @@ tools = ["jdk", "scala3"]
 # ===================================================================================================== profiles
 # core is the installer default: the minimum the item classes PF, CP, CR need (ES, RS, DS, OE run no model-written code: their
 # oracles run on the host, eq_harness.py:3265). explicit = "yes": never part of `all`, only when named (licence or measurement).
+# deferred: the profile has no image (USER decision 5, 2026-10-06); naming it is refused with exit 10 (the skip code).
 [[profile]]
 name = "core"
 images = ["min-both", "min-py"]
@@ -536,8 +479,9 @@ explicit = "no"
 
 [[profile]]
 name = "rust"
-images = ["tc-rust"]
+images = []
 explicit = "no"
+deferred = "needs a linker (rustc calls cc; no distroless image supplies one), see lib/eq-container/DESIGN_DISTROLESS.md section 3"
 
 [[profile]]
 name = "go"
@@ -551,8 +495,9 @@ explicit = "no"
 
 [[profile]]
 name = "haskell"
-images = ["tc-haskell"]
+images = []
 explicit = "no"
+deferred = "needs a linker (GHC calls cc and links libgmp; no distroless image supplies them), see lib/eq-container/DESIGN_DISTROLESS.md section 3"
 
 [[profile]]
 name = "jvm"
