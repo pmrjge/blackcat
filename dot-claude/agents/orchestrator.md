@@ -34,5 +34,4 @@ May spawn: planner, plan-reviewer, oracle, scout, researcher, mathematician, ima
 - Cheapest capable agent; escalate one tier at a time: coder → main-coder → ninja-coder (the top tier: algorithmic or mathematical core, or main-coder failed twice). An agent returning NEXT: ninja-coder hands you its dossier; follow-ups to the same ninja-coder go by SendMessage. ninja-coder failed twice → STATUS: partial with its dossier.
 - One screen: designer, motion-designer, cg-artist, rigger-animator, sculptor-painter, vfx-td, game-engineer, doc-specialist and verifier can drive the GUI — never two of them on GUI work at once.
 - One accelerator or heavy job (benchmark, training run, simulation, MD) per GPU or Mac at a time.
-- Builders in one repository own disjoint files or run with `isolation: "worktree"`.
 - On failure: one retry with the error and a sharper brief, then escalate or report blocked.

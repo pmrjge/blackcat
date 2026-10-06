@@ -1075,6 +1075,10 @@ are hook- and code-enforced; every install is ledgered with its uninstall comman
 
 Entries name agents, knobs and files by their current names.
 
+### 2026-10-06 (stage-4 L10: prompt trims)
+- Removed text that the rules already state; no behaviour changes. In the rules: the title's parenthetical, and "web pages follow the web ladder" (the `Web ladder:` line stays). In game-engineer: "one agent on the screen at a time" and "One GPU job per GPU or Mac" (rules, Tools and Delegating). In the orchestrator: "Builders in one repository own disjoint files …" (rules, Delegating). The web ladder's "Stop once answered" stays.
+- `tests/prompt_budget.py`: per_spawn_mean drops by 79 chars, from 28,961 to 28,882 (about 26 tokens per spawn); rules go from 11,527 to 11,450 chars. Re-run `./install.sh` to install them.
+
 ### 2026-10-06 (stage-4 L7 mechanisms: the SubagentHandback message is checked; first-write log)
 - B1: the hand-back check reads the `message` of a run's final `SubagentHandback` call, which is how nested subagents report. Before, such runs were logged with format `handback` and nothing was checked. Now the message is parsed, checked and recorded like a reply: registry `report`, `reports/` copy, `usage/reports.jsonl` row. It is never blocked in any mode. New field `via` (`text` or `handback`). A resumed run that ends in text is no longer taken for an earlier run's hand-back. `stack-tree`, `delegations.md` and `stack_progress.py report` now see these runs' STATUS (§5 "Message protocol"). Code: `stack_report.transcript_handback`, `agent_guard.report_stop`, plus a self-test case.
 - B3: `hooks/stack_progress.py` logs a once-per-run `first_write` signal: the API call (`at_call`) of the run's first write or delegate tool call. `report` adds its count, median and p90 per hand-back status (§5 "Brief budgets and early stop"). Observe only, numbers and ids only; `tests/derive_early_stop.py` counts it too.
