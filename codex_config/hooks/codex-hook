@@ -1,0 +1,51 @@
+#!/bin/sh
+# codex-hook <mode> [--scope global]: the claude-agent-stack guard's launcher for Codex hooks.
+# Codex runs it as `/bin/sh '<CODEX_HOME>/stack/bin/codex-hook' <mode>` (the managed tier: from a
+# flat directory beside codex_guard.py). POSIX sh only; reads nothing from the environment.
+#
+# Python: <this dir>/stack-python (the installer's link), else /usr/bin/python3. The guard is
+# <this dir>/codex_guard.py (flat managed layout), else <this dir>/../hooks/codex_guard.py. It is
+# loaded by path under `python -I` (no PYTHON* variables, no user site, no cwd on sys.path), so its
+# bytecode can be cached; the event JSON passes through on stdin.
+#
+# Fail closed: for the gating modes (pre_tool_use, permission_request) a missing Python, a missing
+# guard or a guard that dies (any status but 0) exits 2, which Codex treats as a deny. The other
+# modes only observe: they never block, so the same failures exit 0 with the reason on stderr.
+mode=${1:-}
+case $mode in
+  pre_tool_use|permission_request) fail=2 ;;
+  *) fail=0 ;;
+esac
+dir=$(CDPATH= cd -- "$(dirname -- "$0")" 2>/dev/null && pwd -P) || {
+  echo "codex-hook: cannot resolve the hook directory; refusing" >&2
+  exit "$fail"
+}
+py=
+if [ -x "$dir/stack-python" ]; then
+  py=$dir/stack-python
+elif [ -x /usr/bin/python3 ]; then
+  py=/usr/bin/python3
+fi
+if [ -z "$py" ]; then
+  echo "codex-hook: no Python ($dir/stack-python, /usr/bin/python3): the stack's guard cannot run; refusing" >&2
+  exit "$fail"
+fi
+if [ -f "$dir/codex_guard.py" ]; then
+  guard=$dir/codex_guard.py
+elif [ -f "$dir/../hooks/codex_guard.py" ]; then
+  guard=$dir/../hooks/codex_guard.py
+else
+  echo "codex-hook: codex_guard.py not found beside $dir; refusing" >&2
+  exit "$fail"
+fi
+"$py" -I -c 'import importlib.util as u, sys
+s = u.spec_from_file_location("codex_guard", sys.argv[1])
+m = u.module_from_spec(s)
+s.loader.exec_module(m)
+sys.exit(m.run(sys.argv[2:], sys.stdin.buffer, sys.stdout))' "$guard" "$@"
+rc=$?
+if [ "$rc" -ne 0 ]; then
+  echo "codex-hook: the guard exited $rc" >&2
+  exit "$fail"
+fi
+exit 0
