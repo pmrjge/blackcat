@@ -6,8 +6,11 @@ Run: uv run --no-project --with pytest pytest -q tests/test_equilibrium_paths.py
 """
 import hashlib
 import json
+import subprocess
 import sys
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import equilibrium_paths as ep  # noqa: E402
@@ -66,3 +69,20 @@ def test_check_catches_a_missed_or_new_home_path(tmp_path):
     assert ep.check(tmp_path) == ["equilibrium/y.md: names the old home directory"]
     f.write_bytes(f.read_bytes() + b"# " + ep.OLD_M + b"\n")
     assert "equilibrium/x.sh: tracked bytes differ from the recorded new digest" in ep.check(tmp_path)
+
+
+PRE_A5 = "bd3a182"  # the tracked tree just before A5 (equilibrium/ as copied from EQ-T)
+OLD_HAS_NON_PATH_EDIT = {"equilibrium/COMPARE_eq.md", "equilibrium/harness/eq_freeze.sh",
+                         "equilibrium/harness/eq_harness.py"}  # equilibrium/README.md, "Differences from EQ-T"
+
+
+def test_old_digests_are_the_pre_a5_tree():
+    """Anchor the record: each recorded old digest is the file as tracked in PRE_A5, except the three files whose
+    pre-pass version already carried A5's non-path edits (so a re-pinned record cannot hide a non-path edit)."""
+    g = ["git", "-C", str(ep.ROOT)]
+    if subprocess.run([*g, "cat-file", "-e", PRE_A5 + "^{commit}"], capture_output=True).returncode:
+        pytest.skip(f"{PRE_A5} not in this clone")
+    rec = json.loads((ep.ROOT / ep.RECORD).read_text())["files"]
+    off = {rel for rel, f in rec.items() if hashlib.sha256(subprocess.run(
+        [*g, "show", f"{PRE_A5}:{rel}"], capture_output=True, check=True).stdout).hexdigest() != f["old_sha256"]}
+    assert off == OLD_HAS_NON_PATH_EDIT
