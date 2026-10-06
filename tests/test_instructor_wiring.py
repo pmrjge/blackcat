@@ -27,6 +27,8 @@ PREFIX = "just -f tools/instructor/justfile"
 RECIPES = ["check-suite", "ff-merge", "worktree-audit"]
 MENU_RULE = f"Bash({PREFIX} --list)"
 INSTR_DENY = "Edit(//**/tools/instructor/**)"       # absolute: every tools/instructor on the machine
+# the only other Bash allow rule settings.json has: toolsmith's executor (tests/test_toolsmith.py pins it)
+OTHER_BASH = ["Bash(__CLAUDE_DIR__/bin/stack-install *)"]
 JUST = shutil.which("just")
 STATUS_RE = re.compile(r"^(OK|FAIL|NOOP) ([a-z-]+)((?: [a-z_]+=\S+)*) log=(\S+)$")
 
@@ -52,13 +54,13 @@ def test_one_allow_rule_per_recipe_plus_the_exact_menu_rule():
     allow = perms()["allow"]
     bash = [r for r in allow if r.startswith("Bash(")]
     assert len(bash) == len(set(bash)), bash
-    assert sorted(bash) == sorted([f"Bash({PREFIX} {r} *)" for r in RECIPES] + [MENU_RULE])
+    assert sorted(bash) == sorted([f"Bash({PREFIX} {r} *)" for r in RECIPES] + [MENU_RULE] + OTHER_BASH)
 
 
 def test_no_wildcard_before_the_recipe_name():
     """The only `*` in an instructor rule is the trailing argument wildcard after the recipe name."""
     for rule in perms()["allow"]:
-        if not rule.startswith("Bash("):
+        if not rule.startswith("Bash(") or rule in OTHER_BASH:
             continue
         head = rule[len("Bash("):-1]
         if rule == MENU_RULE:

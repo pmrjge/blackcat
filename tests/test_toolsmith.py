@@ -798,7 +798,11 @@ def test_settings_exclude_and_allow_only_the_executor():
     assert s["sandbox"]["allowUnsandboxedCommands"] is False
     allow = s["permissions"]["allow"]
     assert "Bash(__CLAUDE_DIR__/bin/stack-install *)" in allow
-    assert [r for r in allow if r.startswith("Bash(")] == ["Bash(__CLAUDE_DIR__/bin/stack-install *)"]
+    # the only other Bash allow rules: the instructor's recipes (tests/test_instructor_wiring.py pins them)
+    instructor = ["Bash(just -f tools/instructor/justfile %s)" % r
+                  for r in ("check-suite *", "ff-merge *", "worktree-audit *", "--list")]
+    assert sorted(r for r in allow if r.startswith("Bash(")) == sorted(
+        ["Bash(__CLAUDE_DIR__/bin/stack-install *)"] + instructor)
     assert "__STACK_STATE__" in s["sandbox"]["filesystem"]["denyWrite"]
     assert "Edit(/__STACK_STATE__/**)" in s["permissions"]["deny"]
     assert "Edit(/__CLAUDE_DIR__/bin/**)" in s["permissions"]["deny"]
