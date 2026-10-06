@@ -1,0 +1,36 @@
+#!/bin/bash
+# Fake Apple `container` CLI for the set-up tests (tests/test_eq_setup.py, tests/test_install_eq_container.py): it answers
+# --version and `system status|start|stop` itself and hands every other command to the shared fake named by
+# EQ_FAKE_CONTAINER_CORE (tests/fake-container/container, which stays byte-identical with the harness's copy). Never the
+# real services. Calls it answers are logged like the shared fake's: the arguments joined by 0x1f, to $EQ_FAKE_CONTAINER_LOG.
+#   --version      "container CLI version V (build: release, commit: fake)" (the 1.5.0 format), V = the content of the file
+#                  "$0.version" (the fake installer writes it), else EQ_FAKE_CLI_VERSION, else 1.5.0; V "none": no output
+#   system status  rc 1 while the file $EQ_FAKE_SVC_DOWN exists (when that variable is set); else the shared fake decides
+#   system start   removes that file; EQ_FAKE_SVC_START_RC set: exits with it instead (the file stays)
+#   system stop    creates that file
+set -u
+log() { [ -z "${EQ_FAKE_CONTAINER_LOG:-}" ] || (IFS=$'\x1f'; printf '%s\n' "$*") >> "$EQ_FAKE_CONTAINER_LOG"; }
+case "${1:-} ${2:-}" in
+  "--version "*)
+    log "$@"
+    v=${EQ_FAKE_CLI_VERSION:-1.5.0}
+    [ ! -f "$0.version" ] || v=$(cat "$0.version")
+    [ "$v" = none ] || echo "container CLI version $v (build: release, commit: fake)"
+    exit 0 ;;
+  "system status")
+    if [ -n "${EQ_FAKE_SVC_DOWN:-}" ]; then
+      log "$@"
+      if [ -e "$EQ_FAKE_SVC_DOWN" ]; then echo "Error: XPC connection error (fake)" >&2; exit 1; fi
+      echo "apiserver is running"; exit 0
+    fi ;;
+  "system start")
+    log "$@"
+    [ -z "${EQ_FAKE_SVC_START_RC:-}" ] || exit "$EQ_FAKE_SVC_START_RC"
+    [ -z "${EQ_FAKE_SVC_DOWN:-}" ] || rm -f "$EQ_FAKE_SVC_DOWN"
+    echo "Verifying apiserver is running... (fake)"; exit 0 ;;
+  "system stop")
+    log "$@"
+    [ -z "${EQ_FAKE_SVC_DOWN:-}" ] || : > "$EQ_FAKE_SVC_DOWN"
+    exit 0 ;;
+esac
+exec "${EQ_FAKE_CONTAINER_CORE:?the shared fake container}" "$@"

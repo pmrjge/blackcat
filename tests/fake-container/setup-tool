@@ -1,0 +1,60 @@
+#!/bin/bash
+# Fake curl, pkgutil, installer, sudo and sw_vers for lib/eq-container/setup.sh (tests/test_eq_setup.py): copied under each
+# name; the test rewrites setup.sh's absolute-path constants to these copies. Never a network, never root. Each call appends
+# "NAME ARGS" to $EQ_FAKE_SETUP_LOG and prints "FAKE NAME" on stderr (the tests merge it into stdout to check the order).
+#   curl       -o OUT -w FMT URL: github.com answers 302 to $EQ_FAKE_REDIRECT (default a release-assets URL); any other host
+#              answers 200 with the bytes of $EQ_FAKE_PKG; EQ_FAKE_CURL_RC: exit with it
+#   pkgutil    --check-signature F: $EQ_FAKE_SIG_FILE's text (default: a valid chain for $EQ_FAKE_SIGNER), exit
+#              ${EQ_FAKE_SIG_RC:-0}; --pkg-info ID: the version the fake installer recorded
+#   installer  -pkg F -target /: refuses (rc 9) a file whose bytes differ from $EQ_FAKE_PKG; else "installs" the fake CLI
+#              ($EQ_FAKE_CLI_SRC) at $EQ_FAKE_CLI_PATH with version ${EQ_FAKE_PKG_VERSION:-1.5.0}; EQ_FAKE_INSTALLER_RC: exit
+#   sudo       runs its arguments (as you); EQ_FAKE_SUDO_RC: exit with it instead
+#   sw_vers    -productVersion: ${EQ_FAKE_MACOS:-26.0}
+set -u
+me=$(basename "$0")
+printf '%s %s\n' "$me" "$*" >> "${EQ_FAKE_SETUP_LOG:-/dev/null}"
+echo "FAKE $me" >&2
+case "$me" in
+  curl)
+    out=""; fmt=""; url=""
+    while [ $# -gt 0 ]; do case "$1" in -o) out=$2; shift;; -w) fmt=$2; shift;; https://*|http://*) url=$1;; esac; shift; done
+    [ -z "${EQ_FAKE_CURL_RC:-}" ] || exit "$EQ_FAKE_CURL_RC"
+    host=${url#*://}; host=${host%%/*}
+    if [ "$host" = github.com ]; then
+      printf 'redirect' > "$out"
+      [ -z "$fmt" ] || printf '302 %s' "${EQ_FAKE_REDIRECT-https://release-assets.githubusercontent.com/github-production-release-asset/1/x?sig=a}"
+    else
+      cp "$EQ_FAKE_PKG" "$out"
+      [ -z "$fmt" ] || printf '200 '
+    fi
+    exit 0 ;;
+  pkgutil)
+    case "${1:-}" in
+      --check-signature)
+        if [ -n "${EQ_FAKE_SIG_FILE:-}" ]; then cat "$EQ_FAKE_SIG_FILE"
+        else printf 'Package "%s":\n   Status: signed by a developer certificate issued by Apple for distribution\n   Certificate Chain:\n    1. %s\n       Expires: 2030-01-01\n    2. Developer ID Certification Authority\n    3. Apple Root CA\n' \
+               "$(basename "${2:-}")" "${EQ_FAKE_SIGNER:-Developer ID Installer: Fake Apple (FAKE000000)}"; fi
+        exit "${EQ_FAKE_SIG_RC:-0}" ;;
+      --pkg-info)
+        [ -f "$EQ_FAKE_CLI_PATH.version" ] || exit 1
+        printf 'package-id: %s\nversion: %s\nvolume: /\nlocation: usr/local\n' "${2:-}" "$(cat "$EQ_FAKE_CLI_PATH.version")"
+        exit 0 ;;
+    esac
+    exit 2 ;;
+  installer)
+    [ -z "${EQ_FAKE_INSTALLER_RC:-}" ] || exit "$EQ_FAKE_INSTALLER_RC"
+    pkg=""; while [ $# -gt 0 ]; do case "$1" in -pkg) pkg=$2; shift;; esac; shift; done
+    cmp -s "$pkg" "$EQ_FAKE_PKG" || { echo "installer: not the served package (fake)" >&2; exit 9; }
+    mkdir -p "$(dirname "$EQ_FAKE_CLI_PATH")"
+    cp "$EQ_FAKE_CLI_SRC" "$EQ_FAKE_CLI_PATH" && chmod 755 "$EQ_FAKE_CLI_PATH"
+    echo "${EQ_FAKE_PKG_VERSION:-1.5.0}" > "$EQ_FAKE_CLI_PATH.version"
+    echo "installer: The install was successful. (fake)"
+    exit 0 ;;
+  sudo)
+    [ -z "${EQ_FAKE_SUDO_RC:-}" ] || exit "$EQ_FAKE_SUDO_RC"
+    exec "$@" ;;
+  sw_vers)
+    echo "${EQ_FAKE_MACOS:-26.0}"; exit 0 ;;
+esac
+echo "fake setup-tool: unknown name $me" >&2
+exit 2

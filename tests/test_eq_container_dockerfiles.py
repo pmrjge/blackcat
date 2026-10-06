@@ -540,8 +540,12 @@ def test_the_targets_of_tools_toml_are_the_stages_of_the_dockerfiles():
 def test_pins_hold_every_global_arg_of_the_minimal_dockerfile_once():
     pins = pins_of(EQC_LIB)
     assert all(len(v) == 1 for v in pins.values())
-    assert set(pins) == set(Dockerfile(real(M)).globals)
-    assert set(Dockerfile(real(T)).globals) <= set(pins)
+    # the CONTAINER_* block (the Apple container CLI package, read by setup.sh only) is the last block and no image's input
+    keys = list(pins)
+    cli = [k for k in keys if k.startswith("CONTAINER_")]
+    assert cli and keys[-len(cli):] == cli, keys
+    assert set(pins) - set(cli) == set(Dockerfile(real(M)).globals)
+    assert set(Dockerfile(real(T)).globals) <= set(pins) - set(cli)
 
 
 def test_the_debian_image_and_its_helpers_are_gone():

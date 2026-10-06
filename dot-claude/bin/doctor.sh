@@ -1148,6 +1148,24 @@ print(vals.pop())'; }
 eq_want=0; [ "$(envkv EQ_ISOLATION)" = container ] && eq_want=1
 eq_st=$(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS); eq_at=$(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_AT)
 eq_why=$(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_WHY)
+# once eq-container was set up: the CLI's version against the pin setup.sh recorded (cli.env EQ_CLI_PIN), and its service
+eq_svc=""
+if [ -f "$EQS/status.env" ] || [ -f "$EQS/cli.env" ]; then
+  eq_pin=$(eqkv "$EQS/cli.env" EQ_CLI_PIN)
+  if [ -z "$eqc_bin" ]; then
+    [ "$eq_st" = ok ] || warn "container CLI not installed (./install.sh --with-eq-container installs it with your consent)"
+  else
+    eq_cv=$($T "$eqc_bin" --version 2>/dev/null </dev/null | awk '$1 == "container" && $2 == "CLI" && $3 == "version" { print $4; exit }')
+    eq_cv=${eq_cv%%[!0-9.]*}
+    if [ -z "$eq_cv" ]; then warn "container CLI $eqc_bin names no version (container --version)"
+    elif [ -z "$eq_pin" ] || [ "$eq_cv" = "$eq_pin" ]; then ok "container CLI $eq_cv ($eqc_bin)${eq_pin:+, pinned $eq_pin}"
+    elif [ "$(printf '%s\n%s\n' "$eq_cv" "$eq_pin" | sort -t. -k1,1n -k2,2n -k3,3n | head -n1)" = "$eq_cv" ]; then
+      warn "container CLI $eq_cv is older than the pinned $eq_pin: ./install.sh --with-eq-container --install-container (or answer on a terminal)"
+    else ok "container CLI $eq_cv ($eqc_bin), newer than the pinned $eq_pin"; fi
+    if $T "$eqc_bin" system status >/dev/null 2>&1 </dev/null; then eq_svc=1; ok "container service running"
+    else eq_svc=0; [ "$eq_st" = ok ] || warn "container service not running (run: container system start)"; fi
+  fi
+fi
 if [ ! -f "$EQS/status.env" ]; then
   ok "eq-container: not installed (optional: ./install.sh --with-eq-container)"
   [ "$eq_want" = 1 ] && warn "EQ_ISOLATION=container is set in stack.env but eq-container is not installed"
@@ -1168,7 +1186,7 @@ else
         END { for (k in t) if (k in d) r[t[k] "@" d[k]] = 1; for (x in r) print x }' "$EQS/image.env" 2>/dev/null | LC_ALL=C sort -u)
       if [ -z "$eqc_bin" ]; then
         warn "eq-container: the container CLI is not installed, images not checked (Apple container: https://github.com/apple/container/releases)"
-      elif ! $T "$eqc_bin" system status >/dev/null 2>&1 </dev/null; then
+      elif [ "$eq_svc" != 1 ]; then
         warn "eq-container: the container services are not running, images not checked (run: container system start)"
       else
         set -f   # the refs are data: split on blanks, never globbed

@@ -56,7 +56,9 @@ for rel in filter(None, out.split("\0")):
     os.makedirs(os.path.dirname(d), exist_ok=True)
     shutil.copy2(s, d, follow_symlinks=False)
 PY
-tgit -C "$HERE" init -q && tgit -C "$HERE" add -A && tgit -C "$HERE" commit -q -m "smoke snapshot" \
+# gc.auto 0, maintenance.auto false: no detached auto maintenance packs the loose objects while install.sh's git fsck reads them
+tgit -C "$HERE" init -q && tgit -C "$HERE" config gc.auto 0 && tgit -C "$HERE" config maintenance.auto false \
+  && tgit -C "$HERE" add -A && tgit -C "$HERE" commit -q -m "smoke snapshot" \
   || { echo "could not build the scratch stack repository"; exit 1; }
 INSTALL="$HERE/install.sh"
 # The installer links uv's managed Python 3.13 as bin/stack-python (S2); the cases that run it with a

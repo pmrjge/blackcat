@@ -63,13 +63,21 @@
 #   ./install.sh --no-prompt     never ask on the terminal: the target question is skipped (the run
 #                                 proceeds, a foreign non-empty target stops it) and a changed stack
 #                                 stops the run unless --yes is given
-#   ./install.sh --with-eq-container  also build and verify the isolation images of the equilibrium
-#                                 harness with Apple `container` (lib/eq-container; off by default;
-#                                 10-40 min cold, several GB of disk, network for the build only). The
-#                                 container CLI missing, its services not running (container system
-#                                 start) or a non-arm64 Mac is a warning and a skip, never a failed
-#                                 install; the installer never installs `container` or starts its
-#                                 services; --yes answers the build question only
+#   ./install.sh --with-eq-container  also set up the equilibrium harness's container isolation
+#                                 (lib/eq-container/setup.sh; off by default), each step only with your
+#                                 consent and skipped when already done: 1. install Apple's `container`
+#                                 CLI (its signed .pkg, pinned in lib/eq-container/PINS, checked, then
+#                                 sudo installer: your administrator password), 2. start its service,
+#                                 3. build and verify the isolation images (10-40 min cold, several GB
+#                                 of disk), then the probe, stack.env and the WALL (10c). On a terminal
+#                                 it lists the steps and asks: all, step (a typed yes per step) or no.
+#                                 --yes and --no-prompt never ask and are never consent. A step without
+#                                 consent, or a Mac that is not Apple silicon on macOS 26+, is a warning
+#                                 and a skip, never a failed install
+#   ./install.sh --with-eq-container --install-container  consent to step 1 without a question
+#                                 (--start-container-service: step 2, --build-container-images: step 3,
+#                                 --setup-container: all three); --no-install-container never offers
+#                                 step 1. None of them is implied by --yes
 #   ./install.sh --with-eq-container --eq-container-profiles=LIST  lib/eq-container/TOOLS.toml
 #                                 profiles to build (comma list: node rust go julia haskell jvm, or
 #                                 all; core, the minimum, is always built and is the default)
@@ -115,6 +123,7 @@ WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; ANTHROPIC_PLUGINS_ON=1; SKIP_MCP=0; SKIP_PL
 NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; RESTORE=""; PRINT_MANAGED=0; ASSUME_YES=0; ORIG_ARGS="$*"
 NO_PROMPT=0; CONFIG_DIR_SET=0; CONFIG_DIR_ARG=""; DIFF=0; DIFF_CONFLICT=""
 WITH_EQ_CONTAINER=0; EQ_CONTAINER_PROFILES=""; EQ_PROFILES_SET=0; EQ_BROKER=default; EQ_BROKER_FLAGS=""
+EQ_SETUP_FLAGS=""   # step 10b's consent flags, passed to lib/eq-container/setup.sh as given
 i=0; argv=("$@")
 while [ "$i" -lt "${#argv[@]}" ]; do
   a="${argv[$i]}"
@@ -158,6 +167,8 @@ while [ "$i" -lt "${#argv[@]}" ]; do
     --eq-container-profiles=*) EQ_CONTAINER_PROFILES="${a#--eq-container-profiles=}"; EQ_PROFILES_SET=1 ;;
     --no-eq-broker) EQ_BROKER=off; EQ_BROKER_FLAGS="$EQ_BROKER_FLAGS off" ;;
     --with-eq-broker) EQ_BROKER=on; EQ_BROKER_FLAGS="$EQ_BROKER_FLAGS on" ;;
+    --install-container|--no-install-container|--start-container-service|--build-container-images|--setup-container)
+      case " $EQ_SETUP_FLAGS " in *" $a "*) ;; *) EQ_SETUP_FLAGS="$EQ_SETUP_FLAGS $a" ;; esac ;;
     -h|--help) sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown option: $a"; exit 2 ;;
   esac
@@ -170,7 +181,12 @@ fi
 if [ "$WITH_EQ_CONTAINER" = 0 ]; then
   if [ "$EQ_PROFILES_SET" = 1 ]; then echo "--eq-container-profiles works only with --with-eq-container"; exit 2; fi
   if [ -n "$EQ_BROKER_FLAGS" ]; then echo "--no-eq-broker/--with-eq-broker work only with --with-eq-container"; exit 2; fi
+  if [ -n "$EQ_SETUP_FLAGS" ]; then echo "${EQ_SETUP_FLAGS# } works only with --with-eq-container"; exit 2; fi
 fi
+case " $EQ_SETUP_FLAGS " in *" --no-install-container "*)
+  case " $EQ_SETUP_FLAGS " in *" --install-container "*|*" --setup-container "*)
+    echo "--no-install-container contradicts --install-container/--setup-container"; exit 2 ;; esac ;;
+esac
 case "$EQ_BROKER_FLAGS" in *on*off*|*off*on*) echo "--no-eq-broker and --with-eq-broker contradict each other"; exit 2 ;; esac
 if [ "$EQ_PROFILES_SET" = 1 ]; then
   case "$EQ_CONTAINER_PROFILES" in
@@ -489,13 +505,18 @@ if [ -n "$RESTORE" ]; then
   # --with-eq-container's images and records and the WALL's state live outside the config dir: the
   # restore puts stack.env and the manifest back (their eq_container / eq_wall keys with them) and
   # leaves those alone
-  EQ_RESTORE_KEYS="$(python3 -c 'import json, sys
+  EQ_RESTORE_KEYS="$(python3 -c 'import json, re, sys
 try:
     m = json.load(open(sys.argv[1]))
 except Exception:
     m = {}
-print(" ".join(k for k in ("eq_container", "eq_wall") if isinstance(m, dict) and isinstance(m.get(k), dict)))' \
+print(" ".join(k for k in ("eq_container", "eq_wall") if isinstance(m, dict) and isinstance(m.get(k), dict)))
+c = m.get("eq_container", {}).get("cli") if isinstance(m, dict) and isinstance(m.get("eq_container"), dict) else None
+v = c.get("version") if isinstance(c, dict) and c.get("installed_by") == "stack" else ""
+print(v if isinstance(v, str) and re.fullmatch(r"[0-9]+(\.[0-9]+)*", v) else "")' \
     "$C/.stack-manifest.json" 2>/dev/null || true)"
+  # Apple container, when step 10b installed it: line 2 is its version (digits and dots only)
+  EQ_RESTORE_CLI="$(printf '%s\n' "$EQ_RESTORE_KEYS" | sed -n 2p)"; EQ_RESTORE_KEYS="$(printf '%s\n' "$EQ_RESTORE_KEYS" | sed -n 1p)"
   if [ "$DRY_RUN" = 1 ]; then
     python3 "$STATE_PY" restore "$C" "$RESTORE" "$BACKUP_ROOT" "$WORK" "$STACK_COMMIT" "$HOME" --dry-run $RFLAGS || exit 1
   else
@@ -540,6 +561,7 @@ PY
   case " $EQ_RESTORE_KEYS " in *" eq_container "*)
     note "= not restored: the container isolation images and eq-container's records ($STACK_STATE/eq-container) stay; remove them with: bash $HERE/lib/eq-container/eq-container.sh uninstall --yes [--purge]" ;;
   esac
+  [ -z "$EQ_RESTORE_CLI" ] || note "= not removed: Apple container $EQ_RESTORE_CLI, which ./install.sh --with-eq-container installed system-wide; to remove it, from a normal terminal: container system stop; /usr/local/bin/uninstall-container.sh -k   (-d also deletes your container data)"
   case " $EQ_RESTORE_KEYS " in *" eq_wall "*)
     note "= not restored: the WALL's state ($STACK_STATE/eq-wall: audit logs, your verdicts and consents) and its tunnel root ($EQ_TUNNEL_ROOT) stay, as evidence; remove them yourself if you want them gone" ;;
   esac
@@ -3336,7 +3358,8 @@ fi
 # after the review never runs); stack.env and the manifest name the repo paths the harness reads
 # ($HERE/lib/eq-wall). The state lives under $STACK_STATE (agent_guard keeps eq-container/ and
 # eq-wall/; sandboxed Bash cannot write there), the tunnel root is $EQ_TUNNEL_ROOT (set at the top).
-# This installer never installs Apple `container` and never starts its services.
+# Apple `container` is installed and its service started only by lib/eq-container/setup.sh (10b), each
+# step only with the user's consent (a typed answer on the terminal or its own flag; never --yes).
 EQ_CONTAINER_STATE="$STACK_STATE/eq-container"
 EQ_WALL_STATE="$STACK_STATE/eq-wall"
 EQ_CONTAINER_RC=""; EQ_ENV_IMAGE=""
@@ -3519,19 +3542,25 @@ eq_private_dir(){  # DIR: a real directory owned by you, not your home folder, m
 }
 
 # ---- 10b: the isolation images (lib/eq-container/eq-container.sh install) ---------------------------
-eq_container_args(){  # the eq-container.sh install arguments, one per line (validated: none holds a newline)
-  printf '%s\n' install
+eq_container_args(){  # setup.sh's arguments, one per line (validated: none holds a newline): run, the consent
+  local f             # flags as given, --no-prompt for --yes or --no-prompt (never consent), -- and the driver's
+  printf '%s\n' run
+  for f in $EQ_SETUP_FLAGS; do printf '%s\n' "$f"; done
+  if [ "$ASSUME_YES$NO_PROMPT" != 00 ]; then printf '%s\n' --no-prompt; fi
+  printf '%s\n' -- install
   if [ -n "$EQ_CONTAINER_PROFILES" ]; then printf '%s\n' --profiles "$EQ_CONTAINER_PROFILES"
   elif [ -n "${STACK_EQ_CONTAINER_PROFILES:-}" ]; then printf '%s\n' --profiles "$STACK_EQ_CONTAINER_PROFILES"
   elif [ -n "${STACK_EQ_CONTAINER_SET:-}" ]; then printf '%s\n' --set "$STACK_EQ_CONTAINER_SET"
   else printf '%s\n' --profiles core; fi           # the minimum the item classes PF, CP and CR need
-  if [ "$ASSUME_YES" = 1 ]; then printf '%s\n' --yes; fi          # answers the build question only
-  if [ "$NO_PROMPT" = 1 ]; then printf '%s\n' --no-prompt; fi
 }
 eq_container_manifest(){  # RC: the manifest's eq_container record after every real run of the step
   local rc=$1 sf="$EQ_CONTAINER_STATE/status.env" imf="$EQ_CONTAINER_STATE/image.env" want why at
+  local cf="$EQ_CONTAINER_STATE/cli.env" uf="$EQ_CONTAINER_STATE/setup.env"
   case "$rc" in 0) want=ok ;; 10) want=skipped ;; *) want=failed ;; esac
-  if [ "$(eq_kv "$sf" EQ_CONTAINER_STATUS)" = "$want" ]; then
+  # setup.sh stopped at the CLI or its service: its own reason (the driver's status.env says less, or is older)
+  if [ "$(eq_kv "$uf" EQ_SETUP_RC)" = "$rc" ] && [ "$(eq_kv "$uf" EQ_SETUP_STEP)" != build ] && [ -n "$(eq_kv "$uf" EQ_SETUP_WHY)" ]; then
+    why="$(eq_kv "$uf" EQ_SETUP_WHY)"; at="$(eq_kv "$uf" EQ_SETUP_AT)"
+  elif [ "$(eq_kv "$sf" EQ_CONTAINER_STATUS)" = "$want" ]; then
     why="$(eq_kv "$sf" EQ_CONTAINER_STATUS_WHY)"; at="$(eq_kv "$sf" EQ_CONTAINER_STATUS_AT)"
   else
     why="eq-container exit $rc"; at="$(eq_now)"
@@ -3541,7 +3570,9 @@ eq_container_manifest(){  # RC: the manifest's eq_container record after every r
     probe="$(eq_kv "$sf" EQ_CONTAINER_STATUS_PROBE)" \
     image_refs.pf="$(eq_kv "$imf" EQ_CONTAINER_IMAGE_PF)" image_refs.cp="$(eq_kv "$imf" EQ_CONTAINER_IMAGE_CP)" \
     image_refs.cr="$(eq_kv "$imf" EQ_CONTAINER_IMAGE_CR)" "images@=$imf" state_dir="$EQ_CONTAINER_STATE" \
-    env_image="$EQ_ENV_IMAGE" \
+    env_image="$EQ_ENV_IMAGE" cli.path="$(eq_kv "$cf" EQ_CLI_PATH)" cli.version="$(eq_kv "$cf" EQ_CLI_VERSION)" \
+    cli.pin="$(eq_kv "$cf" EQ_CLI_PIN)" cli.installed_by="$(eq_kv "$cf" EQ_CLI_INSTALLED_BY)" \
+    cli.previous="$(eq_kv "$cf" EQ_CLI_PREVIOUS)" cli.pkg_sha256="$(eq_kv "$cf" EQ_CLI_PKG_SHA256)" \
     || note "! could not record eq_container in $C/.stack-manifest.json"
 }
 eq_image_ref_ok(){  # REF: eq.invalid/NAME:TAG@sha256:<64 hex>, nothing else (it goes into stack.env)
@@ -3568,10 +3599,10 @@ eq_container_env_set(){  # DRIVER: after a verified install only: EQ_ISOLATION a
 }
 eq_container_step(){
   say "10b/11 Container isolation (--with-eq-container)"
-  local drv="$SNAP_ROOT/lib/eq-container/eq-container.sh" a rc=0 out
+  local drv="$SNAP_ROOT/lib/eq-container/eq-container.sh" setup="$SNAP_ROOT/lib/eq-container/setup.sh" a rc=0 out
   local args=()
-  if [ ! -f "$drv" ]; then
-    note "! $HERE/lib/eq-container/eq-container.sh missing: container isolation skipped"; EQ_CONTAINER_RC=missing; return 0
+  if [ ! -f "$drv" ] || [ ! -f "$setup" ]; then
+    note "! $HERE/lib/eq-container/eq-container.sh or setup.sh missing: container isolation skipped"; EQ_CONTAINER_RC=missing; return 0
   fi
   case "${STACK_EQ_CONTAINER_SET:-}" in
     ""|min) ;;
@@ -3587,12 +3618,12 @@ eq_container_step(){
 $(eq_container_args)
 EOF_EQARGS
   if [ "$DRY_RUN" = 1 ]; then
-    would "bash lib/eq-container/eq-container.sh ${args[*]}   (state $EQ_CONTAINER_STATE; the dry run below asks the container services for image digests only and creates nothing)"
-    out="$(EQ_STATE_DIR="$EQ_CONTAINER_STATE" bash "$drv" "${args[@]}" --dry-run 2>&1 </dev/null)" || rc=$?
+    would "bash lib/eq-container/setup.sh ${args[*]}   (state $EQ_CONTAINER_STATE; the dry run below asks nothing, downloads, installs and starts nothing; it asks the CLI its version and the container services for image digests only)"
+    out="$(EQ_STATE_DIR="$EQ_CONTAINER_STATE" bash "$setup" run --dry-run "${args[@]:1}" 2>&1 </dev/null)" || rc=$?
     [ -z "$out" ] || printf '%s\n' "$out" | sed 's/^/    /'
     case "$rc" in
       0) ;;
-      10) note "container isolation would be skipped (the container CLI, its services or the architecture: see above)" ;;
+      10) note "container isolation would be skipped (a step without consent, the container CLI, its services or this Mac: see above)" ;;
       *) note "! the eq-container dry run exited $rc" ;;
     esac
     return 0
@@ -3601,16 +3632,19 @@ EOF_EQARGS
     note "! container isolation skipped: its state dir was refused ($EQ_DIR_WHY)"; EQ_CONTAINER_RC=refused; return 0
   fi
   EQ_ENV_IMAGE="$(eq_manifest_get eq_container env_image)"
-  note "builds locally from lib/eq-container with Apple container (10-40 min cold, several GB of disk, network for the build only); Ctrl-C is safe"
-  # stdin stays this run's: eq-container asks its build question on a terminal, never in a pipe
-  EQ_STATE_DIR="$EQ_CONTAINER_STATE" bash "$drv" "${args[@]}" || rc=$?
+  note "lib/eq-container/setup.sh: the container CLI, its service, then the images built locally (each step with your consent; Ctrl-C is safe)"
+  # stdin stays this run's: setup.sh asks on a terminal (else /dev/tty), never in a pipe; sudo asks for the password itself
+  EQ_STATE_DIR="$EQ_CONTAINER_STATE" bash "$setup" "${args[@]}" || rc=$?
   EQ_CONTAINER_RC=$rc
   [ "$rc" != 0 ] || eq_container_env_set "$drv"
   eq_container_manifest "$rc"
   case "$rc" in
     0)  note "+ container isolation verified: EQ_IMAGE=$(eq_kv "$EQ_CONTAINER_STATE/image.env" EQ_IMAGE)  (state: $EQ_CONTAINER_STATE)" ;;
-    10) note "! container isolation skipped (not an error): see the eq-container lines above; install Apple container yourself (https://github.com/apple/container/releases), run: container system start, then re-run ./install.sh --with-eq-container" ;;
-    13) note "! container isolation NOT installed: a pin in lib/eq-container (PINS or TOOLS.toml) is still a placeholder, a maintainer step: from a normal terminal, bash lib/eq-container/build.sh --resolve-tools, review, then --write-pin (lib/eq-container/README.md). The rest of the install is unaffected" ;;
+    10) note "! container isolation skipped (not an error): a step had no consent, or the CLI, its service or this Mac stopped it (the lines above say which); ./install.sh --with-eq-container on a terminal asks, --setup-container consents to all three steps" ;;
+    13) note "! container isolation NOT installed: a pin in lib/eq-container (PINS or TOOLS.toml) is still a placeholder, a maintainer step (the lines above name it and the command that prints its value; lib/eq-container/README.md): for the image's bash pins, from a normal terminal, bash lib/eq-container/build.sh --resolve-tools, review, then --write-pin. The rest of the install is unaffected" ;;
+    14) note "! container isolation NOT installed: Apple's container package did not match its pins (size, sha256 or signer), so nothing was installed (the lines above); the rest of the install is unaffected" ;;
+    17) note "! container isolation NOT installed: the container CLI download or install failed (the lines above name the retry); the rest of the install is unaffected" ;;
+    18) note "! container isolation NOT installed: the container service did not start (retry: container system start, then ./install.sh --with-eq-container); the rest of the install is unaffected" ;;
     *)  note "! container isolation NOT installed (eq-container exit $rc): $EQ_CONTAINER_STATE/logs/ ; the rest of the install is unaffected" ;;
   esac
 }

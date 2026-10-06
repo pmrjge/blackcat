@@ -5,12 +5,14 @@ container is its own lightweight Linux VM. Images: Lean 4.34.1 + Mathlib v4.34.1
 checks), built locally with `container build`, run with `--network none --read-only --cap-drop ALL --init`, a VM size (`-m`, `-c`),
 a process-count limit (`--ulimit nproc`), the unprivileged user 10001, no host environment, ONLY the staged check inputs mounted
 read-only and a capped tmpfs `/work` filled from them. Oracles, credentials and the home folder are never mounted. Optional:
-`install.sh --with-eq-container` runs `eq-container.sh install` (off by default). This replaces the Docker backend (`lib/eq-docker`,
-never merged); Seatbelt/sandbox-exec and App Sandbox were rejected (USER, 2026-10-05).
+`install.sh --with-eq-container` runs `setup.sh run` (off by default): with your consent it installs the `container` CLI (Apple's
+signed .pkg, pinned in `PINS`), starts its service and runs `eq-container.sh install` (CONFIG.md §7). This replaces the Docker
+backend (`lib/eq-docker`, never merged); Seatbelt/sandbox-exec and App Sandbox were rejected (USER, 2026-10-05).
 
 | file | role |
 |---|---|
-| `eq-container.sh` | the driver: `install`, `check`, `status`, `print-env`, `uninstall`; never installs `container` or starts its services |
+| `eq-container.sh` | the driver: `install` (`--no-build`: a due build is a skip), `build-due`, `check`, `status`, `print-env`, `uninstall`; never installs `container` or starts its services |
+| `setup.sh` | the guided set-up (`run`, `state`, `removal`): 1. the CLI (download from GitHub's release hosts, size/sha256/signer against `PINS` `CONTAINER_PKG_*`, `sudo installer`: the one sudo), 2. `container system start`, 3. the driver; each step only with consent (a typed answer or its flag), skipped when done; records `cli.env`, `setup.env` |
 | `lib.sh` | shared helpers: state dir, image records, `eq_require_image` (the digest `container image inspect` reports must equal the record before every run), `eq_run` (the one place that builds a `container run`) |
 | `eqc_json.py` | the one reader of the CLI's JSON (`image inspect`, `list --format json`) and of `image save` archives |
 | `TOOLS.toml`, `tools.sh` | the declarative tool manifest (every tool, url, sha256, provenance, allowlists per image class, images, profiles) and its reader |
