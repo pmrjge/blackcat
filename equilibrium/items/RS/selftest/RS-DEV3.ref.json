@@ -1,0 +1,15 @@
+{
+ "answer": {
+  "label": "NOT_IN_CORPUS",
+  "value": "",
+  "rationale": "Deciding record: none. no grade record and no run record exists for P50; only prompts/P50.md mentions it."
+ },
+ "evidence": [
+  {
+   "kind": "file_line",
+   "ref": "-",
+   "detail": "deciding record"
+  }
+ ],
+ "confidence": 0.8
+}

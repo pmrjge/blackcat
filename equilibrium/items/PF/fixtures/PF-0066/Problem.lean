@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0066 : ∀ n : ℤ, (42 : ℤ) ∣ n ^ 9 - n ^ 3 := by
+  sorry

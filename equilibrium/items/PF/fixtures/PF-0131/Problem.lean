@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0131 : ∃ x y : ℕ, x ^ 2 = 13 * y ^ 2 + 1 ∧ 58500 < y := by
+  sorry

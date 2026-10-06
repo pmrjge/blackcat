@@ -1,0 +1,5 @@
+{
+ "answer": "**Criteria:** depth limits, clarity, memory, control over traversal order.\n\n**Recursion** is the most readable for trees: one function, the call stack does the bookkeeping. But CPython's default\nlimit is about 1000 frames, ten times below the 10,000 levels required here, and raising it risks crashing the\ninterpreter (the C stack is finite).\n\n**Iteration with an explicit stack** keeps pending directories in a list on the heap, so depth is limited only by\nmemory (10,000 entries is trivial). It also allows breadth-first order by swapping the stack for a queue, and makes\nit easy to skip symlink loops.\n\n**When each wins:** recursion for shallow, well-bounded trees and quick scripts; explicit stack for untrusted or very\ndeep structures.\n\n**Recommendation:** explicit stack (or `os.walk`, which is iterative). I would switch to recursion only if depth were\nguaranteed below a few hundred levels and readability mattered most.",
+ "evidence": [],
+ "confidence": 0.7
+}

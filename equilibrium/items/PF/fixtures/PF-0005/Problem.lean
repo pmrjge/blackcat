@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0005 : ∀ f : ℕ → ℤ, f 0 = 1 → f 1 = 7 → (∀ n, f (n + 2) = 8 * f (n + 1) - 15 * f n) → ∀ n, f n = -3 ^ n + 2 * 5 ^ n := by
+  sorry

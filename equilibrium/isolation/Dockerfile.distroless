@@ -1,0 +1,35 @@
+# Dockerfile.distroless: the DISTROLESS CANDIDATE of the lean check image (eq-lean-dl). Built only by
+#   ./build-minimal.sh distroless      (which first builds eq-lean-min, the rootfs this file layers onto the distroless base)
+# It is a measurement candidate, not a recommendation (see RUNBOOK_MINIMAL.md section 2): distroless supplies glibc,
+# libstdc++, libgcc, tzdata, ca-certificates and /etc files; it supplies NO bash, perl, busybox, jq, python or uv, and the
+# PF checker (`bash check_lean.sh`, `perl -e <alarm wrapper>`) needs bash and perl, so everything eq-lean-min copies is
+# copied again here. The rootfs of eq-lean-min wins on every path both have (COPY overwrites), so the glibc the checks run on
+# is the ldd-resolved one from the pinned Debian trixie snapshot, never a mix with the distroless one.
+# For CP/CR there is no distroless candidate: gcr.io/distroless/python3-debian13 carries the distribution's Python, no uv and
+# no shell, while the pools run `uv run` PEP 723 scripts under python-build-standalone 3.14.8 (unverified: its Python version).
+#
+# Pin: DISTROLESS_BASE in ./PINS. UNSET until you fill it from a read-only registry lookup (build.sh refuses, exit 13):
+#   docker buildx imagetools inspect gcr.io/distroless/cc-debian13:nonroot      (copy the top-level Digest:)
+#   then  DISTROLESS_BASE=gcr.io/distroless/cc-debian13@sha256:<digest>  in PINS and the ARG below (build.sh --check compares).
+# The image name cc-debian13 is from https://github.com/GoogleContainerTools/distroless (README, read 2026-10-04); that the
+# digest resolves for linux/arm64 is checked by build.sh before the build.
+# UNVERIFIED: that COPY of eq-lean-min's `/bin -> usr/bin` and `/lib -> usr/lib` symlinks over the base's own directories
+# works; if the base has real /bin or /lib directories the build stops there, loudly, and this candidate is dropped.
+
+ARG ROOTFS_IMAGE=eq-lean-min:4.34.1-arm64
+ARG DISTROLESS_BASE=UNSET
+
+FROM ${ROOTFS_IMAGE} AS rootfs
+
+FROM ${DISTROLESS_BASE} AS eq-lean-dl
+COPY --from=rootfs / /
+# F4: mount point of the read-only source copy of a check (copied into the tmpfs /work by /bin/sh -c cp -R; /bin/sh is bash,
+# copied from the rootfs above)
+WORKDIR /eqsrc/work
+ENV PATH=/usr/local/bin:/usr/bin:/opt/lean/bin HOME=/tmp TMPDIR=/tmp LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    EQ_LEAN_PROJECT=/opt/eq/stack_mathlib
+LABEL org.opencontainers.image.title="eq-lean-dl" \
+      org.opencontainers.image.description="Equilibrium PF checks: Lean 4.34.1 + Mathlib v4.34.1 on a distroless cc base (arm64), candidate"
+USER 10001:10001
+WORKDIR /work
+CMD ["/usr/bin/bash"]

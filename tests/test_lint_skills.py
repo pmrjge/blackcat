@@ -91,6 +91,18 @@ def test_model_ids_only_in_the_allowed_places(tmp_path):
     assert sorted(lint_agents.check_model_ids(tmp_path)) == ["README.md:1", "install.sh:2"]
 
 
+def test_model_ids_equilibrium_exemption_is_narrow(tmp_path):
+    """Only the frozen RS pool and the harness's named test-vector files are exempt, not the rest of equilibrium/."""
+    for rel in ("equilibrium/items/RS/oracle/keys.jsonl", "equilibrium/harness/tests/test_launch.py",
+                "equilibrium/items/PF/manifest.jsonl", "equilibrium/harness/eq_harness.py", "equilibrium/items/RSX/a.md",
+                "equilibrium/harness/tests/test_other.py"):
+        (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
+        (tmp_path / rel).write_text("model claude-sonnet-5-5\n")
+    assert sorted(lint_agents.check_model_ids(tmp_path)) == [
+        "equilibrium/harness/eq_harness.py:1", "equilibrium/harness/tests/test_other.py:1",
+        "equilibrium/items/PF/manifest.jsonl:1", "equilibrium/items/RSX/a.md:1"]
+
+
 BAD = "model: claude-opus-5-5\n"           # a specific model ID: the model-ID check's finding
 
 

@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0030 : ∀ n : ℕ, Nat.gcd (15 * n + 2) (10 * n + 1) = 1 := by
+  sorry

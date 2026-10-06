@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0155 : ∀ f : ℤ → ℤ, (∀ x y, f (x + y) = f x + f y + 6 * x * y) → f 1 = 1 → ∀ n, 2 * f n = 6 * n * (n - 1) + 2 * n := by
+  sorry

@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0183 : ∀ x : ℝ, x ^ 4 - 8 * x + 10 > 0 := by
+  sorry

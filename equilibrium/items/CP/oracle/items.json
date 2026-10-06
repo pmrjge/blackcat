@@ -1,0 +1,2844 @@
+{
+ "CP-0001": {
+  "hidden_count": 8,
+  "module": "matrix",
+  "mutation": {
+   "claim": "In `shape`: inverted equality test: `==` where `!=` is required.",
+   "col": 20,
+   "end": 22,
+   "func": "shape",
+   "kind": "eq",
+   "line": 10,
+   "new": "==",
+   "old": "!="
+  }
+ },
+ "CP-0002": {
+  "hidden_count": 10,
+  "module": "lru",
+  "mutation": {
+   "claim": "In `LRUCache.put`: wrong boundary: `>` where `>=` is required (off-by-one at the boundary).",
+   "col": 55,
+   "end": 57,
+   "func": "LRUCache.put",
+   "kind": "cmp",
+   "line": 39,
+   "new": ">",
+   "old": ">="
+  }
+ },
+ "CP-0003": {
+  "hidden_count": 8,
+  "module": "trie",
+  "mutation": {
+   "claim": "In `Trie.__contains__`: wrong boolean connective: `or` where `and` is required.",
+   "col": 32,
+   "end": 35,
+   "func": "Trie.__contains__",
+   "kind": "bool",
+   "line": 33,
+   "new": "or",
+   "old": "and"
+  }
+ },
+ "CP-0004": {
+  "hidden_count": 10,
+  "module": "rpn",
+  "mutation": {
+   "claim": "In `<module>`: off-by-one constant: `1` where `2` is required.",
+   "col": 35,
+   "end": 36,
+   "func": "<module>",
+   "kind": "num",
+   "line": 3,
+   "new": "1",
+   "old": "2"
+  }
+ },
+ "CP-0005": {
+  "hidden_count": 8,
+  "module": "roman",
+  "mutation": {
+   "claim": "In `from_roman`: off-by-one constant: `2` where `1` is required.",
+   "col": 19,
+   "end": 20,
+   "func": "from_roman",
+   "kind": "num",
+   "line": 26,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0006": {
+  "hidden_count": 10,
+  "module": "ledger",
+  "mutation": {
+   "claim": "In `Ledger.withdraw`: wrong arithmetic operator: `+` where `-` is required.",
+   "col": 32,
+   "end": 33,
+   "func": "Ledger.withdraw",
+   "kind": "arith",
+   "line": 38,
+   "new": "+",
+   "old": "-"
+  }
+ },
+ "CP-0007": {
+  "hidden_count": 8,
+  "module": "bsearch",
+  "mutation": {
+   "claim": "In `lower_bound`: off-by-one constant: `2` where `1` is required.",
+   "col": 23,
+   "end": 24,
+   "func": "lower_bound",
+   "kind": "num",
+   "line": 10,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0008": {
+  "hidden_count": 12,
+  "module": "intervals",
+  "mutation": {
+   "claim": "In `merge`: off-by-one constant: `2` where `1` is required.",
+   "col": 17,
+   "end": 18,
+   "func": "merge",
+   "kind": "num",
+   "line": 30,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0009": {
+  "hidden_count": 10,
+  "module": "tokenbucket",
+  "mutation": {
+   "claim": "In `TokenBucket.allow`: off-by-one constant: `2` where `1` is required.",
+   "col": 30,
+   "end": 31,
+   "func": "TokenBucket.allow",
+   "kind": "num",
+   "line": 23,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0010": {
+  "hidden_count": 8,
+  "module": "textutil",
+  "mutation": {
+   "claim": "In `camel_to_snake`: wrong boolean connective: `and` where `or` is required.",
+   "col": 37,
+   "end": 39,
+   "func": "camel_to_snake",
+   "kind": "bool",
+   "line": 27,
+   "new": "and",
+   "old": "or"
+  }
+ },
+ "CP-0011": {
+  "hidden_count": 8,
+  "module": "calendar_lite",
+  "mutation": {
+   "claim": "In `is_leap`: off-by-one constant: `5` where `4` is required.",
+   "col": 18,
+   "end": 19,
+   "func": "is_leap",
+   "kind": "num",
+   "line": 12,
+   "new": "5",
+   "old": "4"
+  }
+ },
+ "CP-0012": {
+  "hidden_count": 10,
+  "module": "ledger",
+  "mutation": {
+   "claim": "In `Ledger.deposit`: wrong arithmetic operator: `-=` where `+=` is required.",
+   "col": 29,
+   "end": 31,
+   "func": "Ledger.deposit",
+   "kind": "arith",
+   "line": 32,
+   "new": "-=",
+   "old": "+="
+  }
+ },
+ "CP-0013": {
+  "hidden_count": 8,
+  "module": "wrap",
+  "mutation": {
+   "claim": "In `center`: wrong arithmetic operator: `+` where `-` is required.",
+   "col": 16,
+   "end": 17,
+   "func": "center",
+   "kind": "arith",
+   "line": 29,
+   "new": "+",
+   "old": "-"
+  }
+ },
+ "CP-0014": {
+  "hidden_count": 8,
+  "module": "matrix",
+  "mutation": {
+   "claim": "In `identity`: off-by-one constant: `0` where `1` is required.",
+   "col": 13,
+   "end": 14,
+   "func": "identity",
+   "kind": "num",
+   "line": 73,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0015": {
+  "hidden_count": 8,
+  "module": "wrap",
+  "mutation": {
+   "claim": "In `wrap`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 30,
+   "end": 31,
+   "func": "wrap",
+   "kind": "arith",
+   "line": 15,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0016": {
+  "hidden_count": 8,
+  "module": "roman",
+  "mutation": {
+   "claim": "In `from_roman`: wrong boundary: `>=` where `>` is required (off-by-one at the boundary).",
+   "col": 60,
+   "end": 61,
+   "func": "from_roman",
+   "kind": "cmp",
+   "line": 32,
+   "new": ">=",
+   "old": ">"
+  }
+ },
+ "CP-0017": {
+  "hidden_count": 10,
+  "module": "numtheory",
+  "mutation": {
+   "claim": "In `is_prime`: off-by-one constant: `1` where `0` is required.",
+   "col": 20,
+   "end": 21,
+   "func": "is_prime",
+   "kind": "num",
+   "line": 28,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0018": {
+  "hidden_count": 9,
+  "module": "timeslots",
+  "mutation": {
+   "claim": "In `parse_hhmm`: off-by-one constant: `3` where `2` is required.",
+   "col": 30,
+   "end": 31,
+   "func": "parse_hhmm",
+   "kind": "num",
+   "line": 6,
+   "new": "3",
+   "old": "2"
+  }
+ },
+ "CP-0019": {
+  "hidden_count": 9,
+  "module": "ringbuf",
+  "mutation": {
+   "claim": "In `RingBuffer.pop`: wrong arithmetic operator: `+=` where `-=` is required.",
+   "col": 19,
+   "end": 21,
+   "func": "RingBuffer.pop",
+   "kind": "arith",
+   "line": 42,
+   "new": "+=",
+   "old": "-="
+  }
+ },
+ "CP-0020": {
+  "hidden_count": 8,
+  "module": "textutil",
+  "mutation": {
+   "claim": "In `truncate`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 41,
+   "end": 42,
+   "func": "truncate",
+   "kind": "arith",
+   "line": 43,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0021": {
+  "hidden_count": 10,
+  "module": "numtheory",
+  "mutation": {
+   "claim": "In `is_prime`: off-by-one constant: `2` where `3` is required.",
+   "col": 8,
+   "end": 9,
+   "func": "is_prime",
+   "kind": "num",
+   "line": 26,
+   "new": "2",
+   "old": "3"
+  }
+ },
+ "CP-0022": {
+  "hidden_count": 8,
+  "module": "semver",
+  "mutation": {
+   "claim": "In `bump`: off-by-one constant: `0` where `1` is required.",
+   "col": 51,
+   "end": 52,
+   "func": "bump",
+   "kind": "num",
+   "line": 38,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0023": {
+  "hidden_count": 11,
+  "module": "csvline",
+  "mutation": {
+   "claim": "In `parse_line`: off-by-one constant: `1` where `0` is required.",
+   "col": 8,
+   "end": 9,
+   "func": "parse_line",
+   "kind": "num",
+   "line": 12,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0024": {
+  "hidden_count": 10,
+  "module": "confmerge",
+  "mutation": {
+   "claim": "In `flatten`: mutable default argument: `[]` default shared between calls where `None` is required.",
+   "col": 32,
+   "end": 36,
+   "func": "flatten",
+   "kind": "mutdef",
+   "line": 44,
+   "new": "[]",
+   "old": "None"
+  }
+ },
+ "CP-0025": {
+  "hidden_count": 8,
+  "module": "pagination",
+  "mutation": {
+   "claim": "In `page_count`: wrong arithmetic operator: `+` where `-` is required.",
+   "col": 29,
+   "end": 30,
+   "func": "page_count",
+   "kind": "arith",
+   "line": 11,
+   "new": "+",
+   "old": "-"
+  }
+ },
+ "CP-0026": {
+  "hidden_count": 10,
+  "module": "tokenbucket",
+  "mutation": {
+   "claim": "In `TokenBucket.allow`: inverted boolean literal: `True` where `False` is required.",
+   "col": 15,
+   "end": 20,
+   "func": "TokenBucket.allow",
+   "kind": "lit",
+   "line": 32,
+   "new": "True",
+   "old": "False"
+  }
+ },
+ "CP-0027": {
+  "hidden_count": 8,
+  "module": "pagination",
+  "mutation": {
+   "claim": "In `page_bounds`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+   "col": 12,
+   "end": 13,
+   "func": "page_bounds",
+   "kind": "cmp",
+   "line": 21,
+   "new": "<=",
+   "old": "<"
+  }
+ },
+ "CP-0028": {
+  "hidden_count": 8,
+  "module": "calendar_lite",
+  "mutation": {
+   "claim": "In `weekday`: wrong arithmetic operator: `//` where `%` is required.",
+   "col": 10,
+   "end": 11,
+   "func": "weekday",
+   "kind": "arith",
+   "line": 42,
+   "new": "//",
+   "old": "%"
+  }
+ },
+ "CP-0029": {
+  "hidden_count": 8,
+  "module": "calendar_lite",
+  "mutation": {
+   "claim": "In `<module>`: off-by-one constant: `32` where `31` is required.",
+   "col": 9,
+   "end": 11,
+   "func": "<module>",
+   "kind": "num",
+   "line": 3,
+   "new": "32",
+   "old": "31"
+  }
+ },
+ "CP-0030": {
+  "hidden_count": 10,
+  "module": "validate",
+  "mutation": {
+   "claim": "In `parse_bool`: inverted boolean literal: `True` where `False` is required.",
+   "col": 15,
+   "end": 20,
+   "func": "parse_bool",
+   "kind": "lit",
+   "line": 16,
+   "new": "True",
+   "old": "False"
+  }
+ },
+ "CP-0031": {
+  "hidden_count": 8,
+  "module": "matrix",
+  "mutation": {
+   "claim": "In `matmul`: inverted equality test: `==` where `!=` is required.",
+   "col": 10,
+   "end": 12,
+   "func": "matmul",
+   "kind": "eq",
+   "line": 24,
+   "new": "==",
+   "old": "!="
+  }
+ },
+ "CP-0032": {
+  "hidden_count": 10,
+  "module": "confmerge",
+  "mutation": {
+   "claim": "In `get_path`: missing negation: `not` was removed from the condition.",
+   "col": 11,
+   "end": 15,
+   "func": "get_path",
+   "kind": "not",
+   "line": 24,
+   "new": "",
+   "old": "not "
+  }
+ },
+ "CP-0033": {
+  "hidden_count": 8,
+  "module": "textutil",
+  "mutation": {
+   "claim": "In `truncate`: wrong arithmetic operator: `+` where `-` is required.",
+   "col": 24,
+   "end": 25,
+   "func": "truncate",
+   "kind": "arith",
+   "line": 43,
+   "new": "+",
+   "old": "-"
+  }
+ },
+ "CP-0034": {
+  "hidden_count": 8,
+  "module": "windows",
+  "mutation": {
+   "claim": "In `windows`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 62,
+   "end": 63,
+   "func": "windows",
+   "kind": "arith",
+   "line": 17,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0035": {
+  "hidden_count": 9,
+  "module": "inventory",
+  "mutation": {
+   "claim": "In `Inventory.add`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 55,
+   "end": 56,
+   "func": "Inventory.add",
+   "kind": "arith",
+   "line": 20,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0036": {
+  "hidden_count": 10,
+  "module": "money",
+  "mutation": {
+   "claim": "In `parse_cents`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 43,
+   "end": 44,
+   "func": "parse_cents",
+   "kind": "arith",
+   "line": 48,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0037": {
+  "hidden_count": 8,
+  "module": "semver",
+  "mutation": {
+   "claim": "In `bump`: inverted equality test: `!=` where `==` is required.",
+   "col": 12,
+   "end": 14,
+   "func": "bump",
+   "kind": "eq",
+   "line": 33,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0038": {
+  "hidden_count": 10,
+  "module": "money",
+  "mutation": {
+   "claim": "In `parse_cents`: off-by-one constant: `99` where `100` is required.",
+   "col": 39,
+   "end": 42,
+   "func": "parse_cents",
+   "kind": "num",
+   "line": 48,
+   "new": "99",
+   "old": "100"
+  }
+ },
+ "CP-0039": {
+  "hidden_count": 8,
+  "module": "trie",
+  "mutation": {
+   "claim": "In `Trie.__contains__`: inverted membership test: `not in` where `in` is required.",
+   "col": 40,
+   "end": 42,
+   "func": "Trie.__contains__",
+   "kind": "in",
+   "line": 33,
+   "new": "not in",
+   "old": "in"
+  }
+ },
+ "CP-0040": {
+  "hidden_count": 11,
+  "module": "csvline",
+  "mutation": {
+   "claim": "In `parse_line`: inverted boolean literal: `True` where `False` is required.",
+   "col": 32,
+   "end": 37,
+   "func": "parse_line",
+   "kind": "lit",
+   "line": 22,
+   "new": "True",
+   "old": "False"
+  }
+ },
+ "CP-0041": {
+  "hidden_count": 8,
+  "module": "trie",
+  "mutation": {
+   "claim": "In `Trie.insert`: off-by-one constant: `2` where `1` is required.",
+   "col": 22,
+   "end": 23,
+   "func": "Trie.insert",
+   "kind": "num",
+   "line": 20,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0042": {
+  "hidden_count": 8,
+  "module": "semver",
+  "mutation": {
+   "claim": "In `compare`: off-by-one constant: `0` where `1` is required.",
+   "col": 16,
+   "end": 17,
+   "func": "compare",
+   "kind": "num",
+   "line": 24,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0043": {
+  "hidden_count": 9,
+  "module": "timeslots",
+  "mutation": {
+   "claim": "In `parse_hhmm`: off-by-one constant: `4` where `5` is required.",
+   "col": 20,
+   "end": 21,
+   "func": "parse_hhmm",
+   "kind": "num",
+   "line": 6,
+   "new": "4",
+   "old": "5"
+  }
+ },
+ "CP-0044": {
+  "hidden_count": 10,
+  "module": "confmerge",
+  "mutation": {
+   "claim": "In `flatten`: inverted identity test: `is not` where `is` is required.",
+   "col": 11,
+   "end": 13,
+   "func": "flatten",
+   "kind": "is",
+   "line": 46,
+   "new": "is not",
+   "old": "is"
+  }
+ },
+ "CP-0045": {
+  "hidden_count": 9,
+  "module": "inventory",
+  "mutation": {
+   "claim": "In `Inventory.reserve`: off-by-one constant: `1` where `0` is required.",
+   "col": 54,
+   "end": 55,
+   "func": "Inventory.reserve",
+   "kind": "num",
+   "line": 34,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0046": {
+  "hidden_count": 10,
+  "module": "numtheory",
+  "mutation": {
+   "claim": "In `is_prime`: off-by-one constant: `1` where `2` is required.",
+   "col": 11,
+   "end": 12,
+   "func": "is_prime",
+   "kind": "num",
+   "line": 24,
+   "new": "1",
+   "old": "2"
+  }
+ },
+ "CP-0047": {
+  "hidden_count": 8,
+  "module": "roman",
+  "mutation": {
+   "claim": "In `<module>`: off-by-one constant: `89` where `90` is required.",
+   "col": 68,
+   "end": 70,
+   "func": "<module>",
+   "kind": "num",
+   "line": 4,
+   "new": "89",
+   "old": "90"
+  }
+ },
+ "CP-0048": {
+  "hidden_count": 10,
+  "module": "money",
+  "mutation": {
+   "claim": "In `format_cents`: off-by-one constant: `99` where `100` is required.",
+   "col": 37,
+   "end": 40,
+   "func": "format_cents",
+   "kind": "num",
+   "line": 30,
+   "new": "99",
+   "old": "100"
+  }
+ },
+ "CP-0049": {
+  "hidden_count": 9,
+  "module": "graphs",
+  "mutation": {
+   "claim": "In `shortest_path`: off-by-one constant: `2` where `1` is required.",
+   "col": 46,
+   "end": 47,
+   "func": "shortest_path",
+   "kind": "num",
+   "line": 21,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0050": {
+  "hidden_count": 12,
+  "module": "intervals",
+  "mutation": {
+   "claim": "In `merge`: wrong boolean connective: `or` where `and` is required.",
+   "col": 15,
+   "end": 18,
+   "func": "merge",
+   "kind": "bool",
+   "line": 28,
+   "new": "or",
+   "old": "and"
+  }
+ },
+ "CP-0051": {
+  "hidden_count": 9,
+  "module": "timeslots",
+  "mutation": {
+   "claim": "In `format_hhmm`: wrong arithmetic operator: `//` where `%` is required.",
+   "col": 23,
+   "end": 24,
+   "func": "format_hhmm",
+   "kind": "arith",
+   "line": 20,
+   "new": "//",
+   "old": "%"
+  }
+ },
+ "CP-0052": {
+  "hidden_count": 12,
+  "module": "intervals",
+  "mutation": {
+   "claim": "In `total_length`: wrong arithmetic operator: `+` where `-` is required.",
+   "col": 19,
+   "end": 20,
+   "func": "total_length",
+   "kind": "arith",
+   "line": 38,
+   "new": "+",
+   "old": "-"
+  }
+ },
+ "CP-0053": {
+  "hidden_count": 10,
+  "module": "numtheory",
+  "mutation": {
+   "claim": "In `is_prime`: inverted boolean literal: `True` where `False` is required.",
+   "col": 19,
+   "end": 24,
+   "func": "is_prime",
+   "kind": "lit",
+   "line": 29,
+   "new": "True",
+   "old": "False"
+  }
+ },
+ "CP-0054": {
+  "hidden_count": 10,
+  "module": "rpn",
+  "mutation": {
+   "claim": "In `eval_postfix`: off-by-one constant: `1` where `0` is required.",
+   "col": 17,
+   "end": 18,
+   "func": "eval_postfix",
+   "kind": "num",
+   "line": 85,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0055": {
+  "hidden_count": 10,
+  "module": "lru",
+  "mutation": {
+   "claim": "In `LRUCache._touch`: inverted membership test: `not in` where `in` is required.",
+   "col": 15,
+   "end": 17,
+   "func": "LRUCache._touch",
+   "kind": "in",
+   "line": 24,
+   "new": "not in",
+   "old": "in"
+  }
+ },
+ "CP-0056": {
+  "hidden_count": 11,
+  "module": "csvline",
+  "mutation": {
+   "claim": "In `parse_line`: inverted equality test: `!=` where `==` is required.",
+   "col": 16,
+   "end": 18,
+   "func": "parse_line",
+   "kind": "eq",
+   "line": 27,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0057": {
+  "hidden_count": 8,
+  "module": "pagination",
+  "mutation": {
+   "claim": "In `page_bounds`: wrong function/method: `max` where `min` is required.",
+   "col": 11,
+   "end": 14,
+   "func": "page_bounds",
+   "kind": "func",
+   "line": 24,
+   "new": "max",
+   "old": "min"
+  }
+ },
+ "CP-0058": {
+  "hidden_count": 10,
+  "module": "money",
+  "mutation": {
+   "claim": "In `parse_cents`: off-by-one constant: `1` where `2` is required.",
+   "col": 26,
+   "end": 27,
+   "func": "parse_cents",
+   "kind": "num",
+   "line": 47,
+   "new": "1",
+   "old": "2"
+  }
+ },
+ "CP-0059": {
+  "hidden_count": 10,
+  "module": "numtheory",
+  "mutation": {
+   "claim": "In `is_prime`: inverted boolean literal: `False` where `True` is required.",
+   "col": 11,
+   "end": 15,
+   "func": "is_prime",
+   "kind": "lit",
+   "line": 31,
+   "new": "False",
+   "old": "True"
+  }
+ },
+ "CP-0060": {
+  "hidden_count": 8,
+  "module": "wrap",
+  "mutation": {
+   "claim": "In `wrap`: missing negation: `not` was removed from the condition.",
+   "col": 11,
+   "end": 15,
+   "func": "wrap",
+   "kind": "not",
+   "line": 13,
+   "new": "",
+   "old": "not "
+  }
+ },
+ "CP-0061": {
+  "hidden_count": 8,
+  "module": "rle",
+  "mutation": {
+   "claim": "In `encode`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 26,
+   "end": 27,
+   "func": "encode",
+   "kind": "arith",
+   "line": 19,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0062": {
+  "hidden_count": 8,
+  "module": "pagination",
+  "mutation": {
+   "claim": "In `page_bounds`: off-by-one constant: `0` where `1` is required.",
+   "col": 20,
+   "end": 21,
+   "func": "page_bounds",
+   "kind": "num",
+   "line": 23,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0063": {
+  "hidden_count": 10,
+  "module": "ledger",
+  "mutation": {
+   "claim": "In `Ledger.withdraw`: off-by-one constant: `1` where `0` is required.",
+   "col": 21,
+   "end": 22,
+   "func": "Ledger.withdraw",
+   "kind": "num",
+   "line": 36,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0064": {
+  "hidden_count": 10,
+  "module": "money",
+  "mutation": {
+   "claim": "In `parse_cents`: missing negation: `not` was removed from the condition.",
+   "col": 24,
+   "end": 28,
+   "func": "parse_cents",
+   "kind": "not",
+   "line": 45,
+   "new": "",
+   "old": "not "
+  }
+ },
+ "CP-0065": {
+  "hidden_count": 9,
+  "module": "ringbuf",
+  "mutation": {
+   "claim": "In `RingBuffer.push`: wrong arithmetic operator: `//` where `%` is required.",
+   "col": 41,
+   "end": 42,
+   "func": "RingBuffer.push",
+   "kind": "arith",
+   "line": 25,
+   "new": "//",
+   "old": "%"
+  }
+ },
+ "CP-0066": {
+  "hidden_count": 10,
+  "module": "validate",
+  "mutation": {
+   "claim": "In `parse_bool`: inverted membership test: `not in` where `in` is required.",
+   "col": 12,
+   "end": 14,
+   "func": "parse_bool",
+   "kind": "in",
+   "line": 15,
+   "new": "not in",
+   "old": "in"
+  }
+ },
+ "CP-0067": {
+  "hidden_count": 8,
+  "module": "matrix",
+  "mutation": {
+   "claim": "In `identity`: inverted equality test: `!=` where `==` is required.",
+   "col": 20,
+   "end": 22,
+   "func": "identity",
+   "kind": "eq",
+   "line": 73,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0068": {
+  "hidden_count": 10,
+  "module": "tokenbucket",
+  "mutation": {
+   "claim": "In `TokenBucket.__init__`: off-by-one constant: `1` where `0` is required.",
+   "col": 36,
+   "end": 37,
+   "func": "TokenBucket.__init__",
+   "kind": "num",
+   "line": 9,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0069": {
+  "hidden_count": 10,
+  "module": "money",
+  "mutation": {
+   "claim": "In `format_cents`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 29,
+   "end": 30,
+   "func": "format_cents",
+   "kind": "arith",
+   "line": 31,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0070": {
+  "hidden_count": 10,
+  "module": "stats",
+  "mutation": {
+   "claim": "In `mode`: inverted equality test: `!=` where `==` is required.",
+   "col": 49,
+   "end": 51,
+   "func": "mode",
+   "kind": "eq",
+   "line": 53,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0071": {
+  "hidden_count": 8,
+  "module": "pagination",
+  "mutation": {
+   "claim": "In `page_bounds`: off-by-one constant: `2` where `1` is required.",
+   "col": 20,
+   "end": 21,
+   "func": "page_bounds",
+   "kind": "num",
+   "line": 23,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0072": {
+  "hidden_count": 10,
+  "module": "numtheory",
+  "mutation": {
+   "claim": "In `gcd`: wrong arithmetic operator: `//` where `%` is required.",
+   "col": 20,
+   "end": 21,
+   "func": "gcd",
+   "kind": "arith",
+   "line": 8,
+   "new": "//",
+   "old": "%"
+  }
+ },
+ "CP-0073": {
+  "hidden_count": 10,
+  "module": "ledger",
+  "mutation": {
+   "claim": "In `Ledger.open`: inverted membership test: `not in` where `in` is required.",
+   "col": 16,
+   "end": 18,
+   "func": "Ledger.open",
+   "kind": "in",
+   "line": 19,
+   "new": "not in",
+   "old": "in"
+  }
+ },
+ "CP-0074": {
+  "hidden_count": 9,
+  "module": "graphs",
+  "mutation": {
+   "claim": "In `shortest_path`: off-by-one constant: `2` where `1` is required.",
+   "col": 31,
+   "end": 32,
+   "func": "shortest_path",
+   "kind": "num",
+   "line": 22,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0075": {
+  "hidden_count": 10,
+  "module": "numtheory",
+  "mutation": {
+   "claim": "In `is_prime`: off-by-one constant: `1` where `0` is required.",
+   "col": 16,
+   "end": 17,
+   "func": "is_prime",
+   "kind": "num",
+   "line": 24,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0076": {
+  "hidden_count": 10,
+  "module": "stats",
+  "mutation": {
+   "claim": "In `median`: wrong arithmetic operator: `/` where `//` is required.",
+   "col": 12,
+   "end": 14,
+   "func": "median",
+   "kind": "arith",
+   "line": 17,
+   "new": "/",
+   "old": "//"
+  }
+ },
+ "CP-0077": {
+  "hidden_count": 9,
+  "module": "ringbuf",
+  "mutation": {
+   "claim": "In `RingBuffer.push`: off-by-one constant: `0` where `1` is required.",
+   "col": 26,
+   "end": 27,
+   "func": "RingBuffer.push",
+   "kind": "num",
+   "line": 32,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0078": {
+  "hidden_count": 8,
+  "module": "wrap",
+  "mutation": {
+   "claim": "In `wrap`: wrong boundary: `<` where `<=` is required (off-by-one at the boundary).",
+   "col": 42,
+   "end": 44,
+   "func": "wrap",
+   "kind": "cmp",
+   "line": 15,
+   "new": "<",
+   "old": "<="
+  }
+ },
+ "CP-0079": {
+  "hidden_count": 11,
+  "module": "csvline",
+  "mutation": {
+   "claim": "In `parse_line`: inverted equality test: `!=` where `==` is required.",
+   "col": 16,
+   "end": 18,
+   "func": "parse_line",
+   "kind": "eq",
+   "line": 25,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0080": {
+  "hidden_count": 11,
+  "module": "csvline",
+  "mutation": {
+   "claim": "In `quote_field`: inverted membership test: `not in` where `in` is required.",
+   "col": 11,
+   "end": 13,
+   "func": "quote_field",
+   "kind": "in",
+   "line": 41,
+   "new": "not in",
+   "old": "in"
+  }
+ },
+ "CP-0081": {
+  "hidden_count": 10,
+  "module": "ledger",
+  "mutation": {
+   "claim": "In `Ledger.open`: off-by-one constant: `1` where `0` is required.",
+   "col": 31,
+   "end": 32,
+   "func": "Ledger.open",
+   "kind": "num",
+   "line": 23,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0082": {
+  "hidden_count": 8,
+  "module": "textutil",
+  "mutation": {
+   "claim": "In `camel_to_snake`: off-by-one constant: `0` where `1` is required.",
+   "col": 44,
+   "end": 45,
+   "func": "camel_to_snake",
+   "kind": "num",
+   "line": 25,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0083": {
+  "hidden_count": 8,
+  "module": "pagination",
+  "mutation": {
+   "claim": "In `page_bounds`: off-by-one constant: `2` where `1` is required.",
+   "col": 14,
+   "end": 15,
+   "func": "page_bounds",
+   "kind": "num",
+   "line": 21,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0084": {
+  "hidden_count": 8,
+  "module": "windows",
+  "mutation": {
+   "claim": "In `windows`: off-by-one constant: `0` where `1` is required.",
+   "col": 64,
+   "end": 65,
+   "func": "windows",
+   "kind": "num",
+   "line": 17,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0085": {
+  "hidden_count": 8,
+  "module": "windows",
+  "mutation": {
+   "claim": "In `windows`: wrong arithmetic operator: `+` where `-` is required.",
+   "col": 58,
+   "end": 59,
+   "func": "windows",
+   "kind": "arith",
+   "line": 17,
+   "new": "+",
+   "old": "-"
+  }
+ },
+ "CP-0086": {
+  "hidden_count": 9,
+  "module": "graphs",
+  "mutation": {
+   "claim": "In `shortest_path`: off-by-one constant: `2` where `1` is required.",
+   "col": 36,
+   "end": 37,
+   "func": "shortest_path",
+   "kind": "num",
+   "line": 20,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0087": {
+  "hidden_count": 8,
+  "module": "trie",
+  "mutation": {
+   "claim": "In `Trie.insert`: off-by-one constant: `0` where `1` is required.",
+   "col": 22,
+   "end": 23,
+   "func": "Trie.insert",
+   "kind": "num",
+   "line": 20,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0088": {
+  "hidden_count": 9,
+  "module": "graphs",
+  "mutation": {
+   "claim": "In `topo_order`: off-by-one constant: `2` where `1` is required.",
+   "col": 24,
+   "end": 25,
+   "func": "topo_order",
+   "kind": "num",
+   "line": 35,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0089": {
+  "hidden_count": 8,
+  "module": "trie",
+  "mutation": {
+   "claim": "In `Trie.__contains__`: inverted identity test: `is` where `is not` is required.",
+   "col": 20,
+   "end": 26,
+   "func": "Trie.__contains__",
+   "kind": "is",
+   "line": 33,
+   "new": "is",
+   "old": "is not"
+  }
+ },
+ "CP-0090": {
+  "hidden_count": 9,
+  "module": "inventory",
+  "mutation": {
+   "claim": "In `Inventory.available`: wrong arithmetic operator: `+` where `-` is required.",
+   "col": 41,
+   "end": 42,
+   "func": "Inventory.available",
+   "kind": "arith",
+   "line": 26,
+   "new": "+",
+   "old": "-"
+  }
+ },
+ "CP-0091": {
+  "hidden_count": 12,
+  "module": "intervals",
+  "mutation": {
+   "claim": "In `merge`: wrong function/method: `min` where `max` is required.",
+   "col": 35,
+   "end": 38,
+   "func": "merge",
+   "kind": "func",
+   "line": 30,
+   "new": "min",
+   "old": "max"
+  }
+ },
+ "CP-0092": {
+  "hidden_count": 8,
+  "module": "rle",
+  "mutation": {
+   "claim": "In `decode`: inverted equality test: `!=` where `==` is required.",
+   "col": 17,
+   "end": 19,
+   "func": "decode",
+   "kind": "eq",
+   "line": 33,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0093": {
+  "hidden_count": 12,
+  "module": "intervals",
+  "mutation": {
+   "claim": "In `merge`: off-by-one constant: `2` where `1` is required.",
+   "col": 36,
+   "end": 37,
+   "func": "merge",
+   "kind": "num",
+   "line": 28,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0094": {
+  "hidden_count": 8,
+  "module": "roman",
+  "mutation": {
+   "claim": "In `from_roman`: off-by-one constant: `11` where `10` is required.",
+   "col": 35,
+   "end": 37,
+   "func": "from_roman",
+   "kind": "num",
+   "line": 26,
+   "new": "11",
+   "old": "10"
+  }
+ },
+ "CP-0095": {
+  "hidden_count": 10,
+  "module": "numtheory",
+  "mutation": {
+   "claim": "In `is_prime`: off-by-one constant: `4` where `3` is required.",
+   "col": 8,
+   "end": 9,
+   "func": "is_prime",
+   "kind": "num",
+   "line": 26,
+   "new": "4",
+   "old": "3"
+  }
+ },
+ "CP-0096": {
+  "hidden_count": 10,
+  "module": "ledger",
+  "mutation": {
+   "claim": "In `Ledger.open`: off-by-one constant: `1` where `0` is required.",
+   "col": 23,
+   "end": 24,
+   "func": "Ledger.open",
+   "kind": "num",
+   "line": 21,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0097": {
+  "hidden_count": 8,
+  "module": "bsearch",
+  "mutation": {
+   "claim": "In `lower_bound`: wrong arithmetic operator: `/` where `//` is required.",
+   "col": 24,
+   "end": 26,
+   "func": "lower_bound",
+   "kind": "arith",
+   "line": 8,
+   "new": "/",
+   "old": "//"
+  }
+ },
+ "CP-0098": {
+  "hidden_count": 10,
+  "module": "tokenbucket",
+  "mutation": {
+   "claim": "In `TokenBucket._refill`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 53,
+   "end": 54,
+   "func": "TokenBucket._refill",
+   "kind": "arith",
+   "line": 20,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0099": {
+  "hidden_count": 10,
+  "module": "lru",
+  "mutation": {
+   "claim": "In `LRUCache.put`: wrong boolean connective: `or` where `and` is required.",
+   "col": 34,
+   "end": 37,
+   "func": "LRUCache.put",
+   "kind": "bool",
+   "line": 39,
+   "new": "or",
+   "old": "and"
+  }
+ },
+ "CP-0100": {
+  "hidden_count": 9,
+  "module": "timeslots",
+  "mutation": {
+   "claim": "In `format_hhmm`: off-by-one constant: `59` where `60` is required.",
+   "col": 51,
+   "end": 53,
+   "func": "format_hhmm",
+   "kind": "num",
+   "line": 20,
+   "new": "59",
+   "old": "60"
+  }
+ },
+ "CP-0101": {
+  "hidden_count": 8,
+  "module": "calendar_lite",
+  "mutation": {
+   "claim": "In `weekday`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 57,
+   "end": 58,
+   "func": "weekday",
+   "kind": "arith",
+   "line": 44,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0102": {
+  "hidden_count": 8,
+  "module": "semver",
+  "mutation": {
+   "claim": "In `bump`: inverted equality test: `!=` where `==` is required.",
+   "col": 12,
+   "end": 14,
+   "func": "bump",
+   "kind": "eq",
+   "line": 35,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0103": {
+  "hidden_count": 9,
+  "module": "graphs",
+  "mutation": {
+   "claim": "In `shortest_path`: off-by-one constant: `0` where `1` is required.",
+   "col": 31,
+   "end": 32,
+   "func": "shortest_path",
+   "kind": "num",
+   "line": 22,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0104": {
+  "hidden_count": 10,
+  "module": "validate",
+  "mutation": {
+   "claim": "In `parse_bool`: inverted boolean literal: `False` where `True` is required.",
+   "col": 15,
+   "end": 19,
+   "func": "parse_bool",
+   "kind": "lit",
+   "line": 14,
+   "new": "False",
+   "old": "True"
+  }
+ },
+ "CP-0105": {
+  "hidden_count": 10,
+  "module": "rpn",
+  "mutation": {
+   "claim": "In `eval_postfix`: off-by-one constant: `3` where `2` is required.",
+   "col": 24,
+   "end": 25,
+   "func": "eval_postfix",
+   "kind": "num",
+   "line": 67,
+   "new": "3",
+   "old": "2"
+  }
+ },
+ "CP-0106": {
+  "hidden_count": 9,
+  "module": "ringbuf",
+  "mutation": {
+   "claim": "In `RingBuffer.push`: wrong arithmetic operator: `-=` where `+=` is required.",
+   "col": 23,
+   "end": 25,
+   "func": "RingBuffer.push",
+   "kind": "arith",
+   "line": 32,
+   "new": "-=",
+   "old": "+="
+  }
+ },
+ "CP-0107": {
+  "hidden_count": 10,
+  "module": "stats",
+  "mutation": {
+   "claim": "In `mode`: off-by-one constant: `0` where `1` is required.",
+   "col": 39,
+   "end": 40,
+   "func": "mode",
+   "kind": "num",
+   "line": 51,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0108": {
+  "hidden_count": 9,
+  "module": "ringbuf",
+  "mutation": {
+   "claim": "In `RingBuffer.push`: off-by-one constant: `2` where `1` is required.",
+   "col": 26,
+   "end": 27,
+   "func": "RingBuffer.push",
+   "kind": "num",
+   "line": 32,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0109": {
+  "hidden_count": 10,
+  "module": "rpn",
+  "mutation": {
+   "claim": "In `eval_postfix`: off-by-one constant: `0` where `1` is required.",
+   "col": 21,
+   "end": 22,
+   "func": "eval_postfix",
+   "kind": "num",
+   "line": 83,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0110": {
+  "hidden_count": 10,
+  "module": "stats",
+  "mutation": {
+   "claim": "In `median`: off-by-one constant: `2` where `1` is required.",
+   "col": 16,
+   "end": 17,
+   "func": "median",
+   "kind": "num",
+   "line": 18,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0111": {
+  "hidden_count": 9,
+  "module": "inventory",
+  "mutation": {
+   "claim": "In `Inventory.reserve`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 57,
+   "end": 58,
+   "func": "Inventory.reserve",
+   "kind": "arith",
+   "line": 34,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0112": {
+  "hidden_count": 8,
+  "module": "calendar_lite",
+  "mutation": {
+   "claim": "In `is_leap`: off-by-one constant: `1` where `0` is required.",
+   "col": 23,
+   "end": 24,
+   "func": "is_leap",
+   "kind": "num",
+   "line": 12,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0113": {
+  "hidden_count": 8,
+  "module": "rle",
+  "mutation": {
+   "claim": "In `runs`: off-by-one constant: `0` where `1` is required.",
+   "col": 34,
+   "end": 35,
+   "func": "runs",
+   "kind": "num",
+   "line": 9,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0114": {
+  "hidden_count": 8,
+  "module": "windows",
+  "mutation": {
+   "claim": "In `moving_average`: wrong arithmetic operator: `+` where `-` is required.",
+   "col": 30,
+   "end": 31,
+   "func": "moving_average",
+   "kind": "arith",
+   "line": 29,
+   "new": "+",
+   "old": "-"
+  }
+ },
+ "CP-0115": {
+  "hidden_count": 9,
+  "module": "ringbuf",
+  "mutation": {
+   "claim": "In `RingBuffer.pop`: off-by-one constant: `1` where `0` is required.",
+   "col": 25,
+   "end": 26,
+   "func": "RingBuffer.pop",
+   "kind": "num",
+   "line": 37,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0116": {
+  "hidden_count": 11,
+  "module": "csvline",
+  "mutation": {
+   "claim": "In `parse_line`: inverted boolean literal: `True` where `False` is required.",
+   "col": 16,
+   "end": 21,
+   "func": "parse_line",
+   "kind": "lit",
+   "line": 11,
+   "new": "True",
+   "old": "False"
+  }
+ },
+ "CP-0117": {
+  "hidden_count": 9,
+  "module": "inventory",
+  "mutation": {
+   "claim": "In `Inventory.available`: off-by-one constant: `1` where `0` is required.",
+   "col": 67,
+   "end": 68,
+   "func": "Inventory.available",
+   "kind": "num",
+   "line": 26,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0118": {
+  "hidden_count": 8,
+  "module": "wrap",
+  "mutation": {
+   "claim": "In `center`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 22,
+   "end": 23,
+   "func": "center",
+   "kind": "arith",
+   "line": 31,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0119": {
+  "hidden_count": 9,
+  "module": "inventory",
+  "mutation": {
+   "claim": "In `Inventory.add`: off-by-one constant: `1` where `0` is required.",
+   "col": 52,
+   "end": 53,
+   "func": "Inventory.add",
+   "kind": "num",
+   "line": 20,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0120": {
+  "hidden_count": 8,
+  "module": "windows",
+  "mutation": {
+   "claim": "In `windows`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 25,
+   "end": 26,
+   "func": "windows",
+   "kind": "arith",
+   "line": 17,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0121": {
+  "hidden_count": 10,
+  "module": "stats",
+  "mutation": {
+   "claim": "In `median`: missing negation: `not` was removed from the condition.",
+   "col": 7,
+   "end": 11,
+   "func": "median",
+   "kind": "not",
+   "line": 13,
+   "new": "",
+   "old": "not "
+  }
+ },
+ "CP-0122": {
+  "hidden_count": 9,
+  "module": "timeslots",
+  "mutation": {
+   "claim": "In `parse_hhmm`: off-by-one constant: `4` where `3` is required.",
+   "col": 28,
+   "end": 29,
+   "func": "parse_hhmm",
+   "kind": "num",
+   "line": 8,
+   "new": "4",
+   "old": "3"
+  }
+ },
+ "CP-0123": {
+  "hidden_count": 10,
+  "module": "validate",
+  "mutation": {
+   "claim": "In `parse_bool`: inverted membership test: `not in` where `in` is required.",
+   "col": 12,
+   "end": 14,
+   "func": "parse_bool",
+   "kind": "in",
+   "line": 13,
+   "new": "not in",
+   "old": "in"
+  }
+ },
+ "CP-0124": {
+  "hidden_count": 8,
+  "module": "calendar_lite",
+  "mutation": {
+   "claim": "In `is_leap`: inverted equality test: `!=` where `==` is required.",
+   "col": 18,
+   "end": 20,
+   "func": "is_leap",
+   "kind": "eq",
+   "line": 8,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0125": {
+  "hidden_count": 10,
+  "module": "confmerge",
+  "mutation": {
+   "claim": "In `flatten`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 32,
+   "end": 33,
+   "func": "flatten",
+   "kind": "arith",
+   "line": 51,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0126": {
+  "hidden_count": 8,
+  "module": "wrap",
+  "mutation": {
+   "claim": "In `wrap`: off-by-one constant: `2` where `1` is required.",
+   "col": 28,
+   "end": 29,
+   "func": "wrap",
+   "kind": "num",
+   "line": 15,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0127": {
+  "hidden_count": 8,
+  "module": "windows",
+  "mutation": {
+   "claim": "In `chunk`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 25,
+   "end": 26,
+   "func": "chunk",
+   "kind": "arith",
+   "line": 10,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0128": {
+  "hidden_count": 8,
+  "module": "roman",
+  "mutation": {
+   "claim": "In `from_roman`: off-by-one constant: `0` where `1` is required.",
+   "col": 53,
+   "end": 54,
+   "func": "from_roman",
+   "kind": "num",
+   "line": 32,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0129": {
+  "hidden_count": 8,
+  "module": "wrap",
+  "mutation": {
+   "claim": "In `center`: wrong arithmetic operator: `+` where `-` is required.",
+   "col": 42,
+   "end": 43,
+   "func": "center",
+   "kind": "arith",
+   "line": 31,
+   "new": "+",
+   "old": "-"
+  }
+ },
+ "CP-0130": {
+  "hidden_count": 10,
+  "module": "money",
+  "mutation": {
+   "claim": "In `parse_cents`: off-by-one constant: `3` where `2` is required.",
+   "col": 26,
+   "end": 27,
+   "func": "parse_cents",
+   "kind": "num",
+   "line": 47,
+   "new": "3",
+   "old": "2"
+  }
+ },
+ "CP-0131": {
+  "hidden_count": 8,
+  "module": "pagination",
+  "mutation": {
+   "claim": "In `page_count`: wrong arithmetic operator: `/` where `//` is required.",
+   "col": 34,
+   "end": 36,
+   "func": "page_count",
+   "kind": "arith",
+   "line": 11,
+   "new": "/",
+   "old": "//"
+  }
+ },
+ "CP-0132": {
+  "hidden_count": 8,
+  "module": "rle",
+  "mutation": {
+   "claim": "In `decode`: missing negation: `not` was removed from the condition.",
+   "col": 15,
+   "end": 19,
+   "func": "decode",
+   "kind": "not",
+   "line": 30,
+   "new": "",
+   "old": "not "
+  }
+ },
+ "CP-0133": {
+  "hidden_count": 10,
+  "module": "stats",
+  "mutation": {
+   "claim": "In `mode`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 37,
+   "end": 38,
+   "func": "mode",
+   "kind": "arith",
+   "line": 51,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0134": {
+  "hidden_count": 8,
+  "module": "semver",
+  "mutation": {
+   "claim": "In `parse`: off-by-one constant: `2` where `3` is required.",
+   "col": 21,
+   "end": 22,
+   "func": "parse",
+   "kind": "num",
+   "line": 10,
+   "new": "2",
+   "old": "3"
+  }
+ },
+ "CP-0135": {
+  "hidden_count": 8,
+  "module": "matrix",
+  "mutation": {
+   "claim": "In `identity`: off-by-one constant: `2` where `1` is required.",
+   "col": 13,
+   "end": 14,
+   "func": "identity",
+   "kind": "num",
+   "line": 73,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0136": {
+  "hidden_count": 9,
+  "module": "ringbuf",
+  "mutation": {
+   "claim": "In `RingBuffer.push`: inverted equality test: `!=` where `==` is required.",
+   "col": 22,
+   "end": 24,
+   "func": "RingBuffer.push",
+   "kind": "eq",
+   "line": 26,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0137": {
+  "hidden_count": 10,
+  "module": "confmerge",
+  "mutation": {
+   "claim": "In `flatten`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 22,
+   "end": 23,
+   "func": "flatten",
+   "kind": "arith",
+   "line": 49,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0138": {
+  "hidden_count": 10,
+  "module": "rpn",
+  "mutation": {
+   "claim": "In `to_postfix`: off-by-one constant: `2` where `1` is required.",
+   "col": 67,
+   "end": 68,
+   "func": "to_postfix",
+   "kind": "num",
+   "line": 38,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0139": {
+  "hidden_count": 10,
+  "module": "money",
+  "mutation": {
+   "claim": "In `parse_cents`: wrong boolean connective: `and` where `or` is required.",
+   "col": 29,
+   "end": 31,
+   "func": "parse_cents",
+   "kind": "bool",
+   "line": 48,
+   "new": "and",
+   "old": "or"
+  }
+ },
+ "CP-0140": {
+  "hidden_count": 10,
+  "module": "rpn",
+  "mutation": {
+   "claim": "In `eval_postfix`: off-by-one constant: `2` where `1` is required.",
+   "col": 21,
+   "end": 22,
+   "func": "eval_postfix",
+   "kind": "num",
+   "line": 83,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0141": {
+  "hidden_count": 8,
+  "module": "matrix",
+  "mutation": {
+   "claim": "In `shape`: missing negation: `not` was removed from the condition.",
+   "col": 7,
+   "end": 11,
+   "func": "shape",
+   "kind": "not",
+   "line": 6,
+   "new": "",
+   "old": "not "
+  }
+ },
+ "CP-0142": {
+  "hidden_count": 9,
+  "module": "timeslots",
+  "mutation": {
+   "claim": "In `parse_hhmm`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 18,
+   "end": 19,
+   "func": "parse_hhmm",
+   "kind": "arith",
+   "line": 14,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0143": {
+  "hidden_count": 10,
+  "module": "validate",
+  "mutation": {
+   "claim": "In `parse_bool`: missing negation: `not` was removed from the condition.",
+   "col": 7,
+   "end": 11,
+   "func": "parse_bool",
+   "kind": "not",
+   "line": 10,
+   "new": "",
+   "old": "not "
+  }
+ },
+ "CP-0144": {
+  "hidden_count": 10,
+  "module": "tokenbucket",
+  "mutation": {
+   "claim": "In `TokenBucket.allow`: off-by-one constant: `0` where `1` is required.",
+   "col": 30,
+   "end": 31,
+   "func": "TokenBucket.allow",
+   "kind": "num",
+   "line": 23,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0145": {
+  "hidden_count": 10,
+  "module": "lru",
+  "mutation": {
+   "claim": "In `LRUCache.get`: inverted membership test: `not in` where `in` is required.",
+   "col": 15,
+   "end": 17,
+   "func": "LRUCache.get",
+   "kind": "in",
+   "line": 29,
+   "new": "not in",
+   "old": "in"
+  }
+ },
+ "CP-0146": {
+  "hidden_count": 8,
+  "module": "trie",
+  "mutation": {
+   "claim": "In `Trie.insert`: wrong arithmetic operator: `-=` where `+=` is required.",
+   "col": 19,
+   "end": 21,
+   "func": "Trie.insert",
+   "kind": "arith",
+   "line": 20,
+   "new": "-=",
+   "old": "+="
+  }
+ },
+ "CP-0147": {
+  "hidden_count": 10,
+  "module": "lru",
+  "mutation": {
+   "claim": "In `LRUCache.put`: off-by-one constant: `1` where `0` is required.",
+   "col": 38,
+   "end": 39,
+   "func": "LRUCache.put",
+   "kind": "num",
+   "line": 40,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0148": {
+  "hidden_count": 11,
+  "module": "csvline",
+  "mutation": {
+   "claim": "In `quote_field`: inverted membership test: `not in` where `in` is required.",
+   "col": 44,
+   "end": 46,
+   "func": "quote_field",
+   "kind": "in",
+   "line": 41,
+   "new": "not in",
+   "old": "in"
+  }
+ },
+ "CP-0149": {
+  "hidden_count": 8,
+  "module": "roman",
+  "mutation": {
+   "claim": "In `from_roman`: inverted equality test: `==` where `!=` is required.",
+   "col": 52,
+   "end": 54,
+   "func": "from_roman",
+   "kind": "eq",
+   "line": 36,
+   "new": "==",
+   "old": "!="
+  }
+ },
+ "CP-0150": {
+  "hidden_count": 12,
+  "module": "intervals",
+  "mutation": {
+   "claim": "In `merge`: off-by-one constant: `2` where `1` is required.",
+   "col": 40,
+   "end": 41,
+   "func": "merge",
+   "kind": "num",
+   "line": 29,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0151": {
+  "hidden_count": 9,
+  "module": "graphs",
+  "mutation": {
+   "claim": "In `topo_order`: inverted equality test: `!=` where `==` is required.",
+   "col": 24,
+   "end": 26,
+   "func": "topo_order",
+   "kind": "eq",
+   "line": 43,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0152": {
+  "hidden_count": 10,
+  "module": "stats",
+  "mutation": {
+   "claim": "In `mode`: wrong function/method: `min` where `max` is required.",
+   "col": 11,
+   "end": 14,
+   "func": "mode",
+   "kind": "func",
+   "line": 52,
+   "new": "min",
+   "old": "max"
+  }
+ },
+ "CP-0153": {
+  "hidden_count": 8,
+  "module": "windows",
+  "mutation": {
+   "claim": "In `chunk`: off-by-one constant: `1` where `0` is required.",
+   "col": 46,
+   "end": 47,
+   "func": "chunk",
+   "kind": "num",
+   "line": 10,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0154": {
+  "hidden_count": 9,
+  "module": "ringbuf",
+  "mutation": {
+   "claim": "In `RingBuffer.pop`: off-by-one constant: `2` where `1` is required.",
+   "col": 22,
+   "end": 23,
+   "func": "RingBuffer.pop",
+   "kind": "num",
+   "line": 42,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0155": {
+  "hidden_count": 10,
+  "module": "ledger",
+  "mutation": {
+   "claim": "In `Ledger.open`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+   "col": 21,
+   "end": 22,
+   "func": "Ledger.open",
+   "kind": "cmp",
+   "line": 21,
+   "new": "<=",
+   "old": "<"
+  }
+ },
+ "CP-0156": {
+  "hidden_count": 8,
+  "module": "bsearch",
+  "mutation": {
+   "claim": "In `upper_bound`: off-by-one constant: `1` where `2` is required.",
+   "col": 27,
+   "end": 28,
+   "func": "upper_bound",
+   "kind": "num",
+   "line": 20,
+   "new": "1",
+   "old": "2"
+  }
+ },
+ "CP-0157": {
+  "hidden_count": 12,
+  "module": "intervals",
+  "mutation": {
+   "claim": "In `merge`: off-by-one constant: `0` where `1` is required.",
+   "col": 36,
+   "end": 37,
+   "func": "merge",
+   "kind": "num",
+   "line": 28,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0158": {
+  "hidden_count": 12,
+  "module": "intervals",
+  "mutation": {
+   "claim": "In `normalize`: wrong exception type raised: `KeyError` where `ValueError` is required.",
+   "col": 14,
+   "end": 24,
+   "func": "normalize",
+   "kind": "exc",
+   "line": 11,
+   "new": "KeyError",
+   "old": "ValueError"
+  }
+ },
+ "CP-0159": {
+  "hidden_count": 8,
+  "module": "roman",
+  "mutation": {
+   "claim": "In `from_roman`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 13,
+   "end": 14,
+   "func": "from_roman",
+   "kind": "arith",
+   "line": 32,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0160": {
+  "hidden_count": 10,
+  "module": "validate",
+  "mutation": {
+   "claim": "In `parse_port`: missing negation: `not` was removed from the condition.",
+   "col": 34,
+   "end": 38,
+   "func": "parse_port",
+   "kind": "not",
+   "line": 22,
+   "new": "",
+   "old": "not "
+  }
+ },
+ "CP-0161": {
+  "hidden_count": 8,
+  "module": "rle",
+  "mutation": {
+   "claim": "In `runs`: off-by-one constant: `2` where `1` is required.",
+   "col": 42,
+   "end": 43,
+   "func": "runs",
+   "kind": "num",
+   "line": 9,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0162": {
+  "hidden_count": 8,
+  "module": "windows",
+  "mutation": {
+   "claim": "In `windows`: off-by-one constant: `0` where `1` is required.",
+   "col": 25,
+   "end": 26,
+   "func": "windows",
+   "kind": "num",
+   "line": 13,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0163": {
+  "hidden_count": 11,
+  "module": "csvline",
+  "mutation": {
+   "claim": "In `parse_line`: off-by-one constant: `0` where `1` is required.",
+   "col": 42,
+   "end": 43,
+   "func": "parse_line",
+   "kind": "num",
+   "line": 18,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0164": {
+  "hidden_count": 10,
+  "module": "numtheory",
+  "mutation": {
+   "claim": "In `is_prime`: wrong arithmetic operator: `-=` where `+=` is required.",
+   "col": 10,
+   "end": 12,
+   "func": "is_prime",
+   "kind": "arith",
+   "line": 30,
+   "new": "-=",
+   "old": "+="
+  }
+ },
+ "CP-0165": {
+  "hidden_count": 9,
+  "module": "graphs",
+  "mutation": {
+   "claim": "In `topo_order`: wrong arithmetic operator: `-=` where `+=` is required.",
+   "col": 21,
+   "end": 23,
+   "func": "topo_order",
+   "kind": "arith",
+   "line": 35,
+   "new": "-=",
+   "old": "+="
+  }
+ },
+ "CP-0166": {
+  "hidden_count": 9,
+  "module": "graphs",
+  "mutation": {
+   "claim": "In `topo_order`: off-by-one constant: `1` where `0` is required.",
+   "col": 51,
+   "end": 52,
+   "func": "topo_order",
+   "kind": "num",
+   "line": 36,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0167": {
+  "hidden_count": 8,
+  "module": "bsearch",
+  "mutation": {
+   "claim": "In `lower_bound`: off-by-one constant: `1` where `2` is required.",
+   "col": 27,
+   "end": 28,
+   "func": "lower_bound",
+   "kind": "num",
+   "line": 8,
+   "new": "1",
+   "old": "2"
+  }
+ },
+ "CP-0168": {
+  "hidden_count": 10,
+  "module": "confmerge",
+  "mutation": {
+   "claim": "In `get_path`: inverted membership test: `in` where `not in` is required.",
+   "col": 46,
+   "end": 52,
+   "func": "get_path",
+   "kind": "in",
+   "line": 24,
+   "new": "in",
+   "old": "not in"
+  }
+ },
+ "CP-0169": {
+  "hidden_count": 9,
+  "module": "timeslots",
+  "mutation": {
+   "claim": "In `format_hhmm`: wrong arithmetic operator: `//` where `%` is required.",
+   "col": 49,
+   "end": 50,
+   "func": "format_hhmm",
+   "kind": "arith",
+   "line": 20,
+   "new": "//",
+   "old": "%"
+  }
+ },
+ "CP-0170": {
+  "hidden_count": 10,
+  "module": "tokenbucket",
+  "mutation": {
+   "claim": "In `TokenBucket.allow`: wrong boundary: `>` where `>=` is required (off-by-one at the boundary).",
+   "col": 23,
+   "end": 25,
+   "func": "TokenBucket.allow",
+   "kind": "cmp",
+   "line": 29,
+   "new": ">",
+   "old": ">="
+  }
+ },
+ "CP-0171": {
+  "hidden_count": 9,
+  "module": "graphs",
+  "mutation": {
+   "claim": "In `shortest_path`: inverted equality test: `!=` where `==` is required.",
+   "col": 19,
+   "end": 21,
+   "func": "shortest_path",
+   "kind": "eq",
+   "line": 18,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0172": {
+  "hidden_count": 10,
+  "module": "tokenbucket",
+  "mutation": {
+   "claim": "In `TokenBucket.allow`: wrong arithmetic operator: `+=` where `-=` is required.",
+   "col": 24,
+   "end": 26,
+   "func": "TokenBucket.allow",
+   "kind": "arith",
+   "line": 30,
+   "new": "+=",
+   "old": "-="
+  }
+ },
+ "CP-0173": {
+  "hidden_count": 9,
+  "module": "timeslots",
+  "mutation": {
+   "claim": "In `parse_hhmm`: off-by-one constant: `59` where `60` is required.",
+   "col": 15,
+   "end": 17,
+   "func": "parse_hhmm",
+   "kind": "num",
+   "line": 14,
+   "new": "59",
+   "old": "60"
+  }
+ },
+ "CP-0174": {
+  "hidden_count": 8,
+  "module": "matrix",
+  "mutation": {
+   "claim": "In `identity`: off-by-one constant: `1` where `0` is required.",
+   "col": 30,
+   "end": 31,
+   "func": "identity",
+   "kind": "num",
+   "line": 73,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0175": {
+  "hidden_count": 10,
+  "module": "stats",
+  "mutation": {
+   "claim": "In `median`: off-by-one constant: `1` where `2` is required.",
+   "col": 15,
+   "end": 16,
+   "func": "median",
+   "kind": "num",
+   "line": 17,
+   "new": "1",
+   "old": "2"
+  }
+ },
+ "CP-0176": {
+  "hidden_count": 8,
+  "module": "semver",
+  "mutation": {
+   "claim": "In `bump`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 49,
+   "end": 50,
+   "func": "bump",
+   "kind": "arith",
+   "line": 38,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0177": {
+  "hidden_count": 8,
+  "module": "pagination",
+  "mutation": {
+   "claim": "In `page_bounds`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 21,
+   "end": 22,
+   "func": "page_bounds",
+   "kind": "arith",
+   "line": 24,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-0178": {
+  "hidden_count": 10,
+  "module": "ledger",
+  "mutation": {
+   "claim": "In `Ledger.open`: off-by-one constant: `1` where `0` is required.",
+   "col": 35,
+   "end": 36,
+   "func": "Ledger.open",
+   "kind": "num",
+   "line": 18,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0179": {
+  "hidden_count": 8,
+  "module": "trie",
+  "mutation": {
+   "claim": "In `Trie._find`: inverted membership test: `in` where `not in` is required.",
+   "col": 18,
+   "end": 24,
+   "func": "Trie._find",
+   "kind": "in",
+   "line": 26,
+   "new": "in",
+   "old": "not in"
+  }
+ },
+ "CP-0180": {
+  "hidden_count": 8,
+  "module": "roman",
+  "mutation": {
+   "claim": "In `from_roman`: off-by-one constant: `0` where `1` is required.",
+   "col": 15,
+   "end": 16,
+   "func": "from_roman",
+   "kind": "num",
+   "line": 32,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0181": {
+  "hidden_count": 8,
+  "module": "semver",
+  "mutation": {
+   "claim": "In `bump`: inverted equality test: `!=` where `==` is required.",
+   "col": 12,
+   "end": 14,
+   "func": "bump",
+   "kind": "eq",
+   "line": 37,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0182": {
+  "hidden_count": 8,
+  "module": "bsearch",
+  "mutation": {
+   "claim": "In `lower_bound`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+   "col": 18,
+   "end": 19,
+   "func": "lower_bound",
+   "kind": "cmp",
+   "line": 9,
+   "new": "<=",
+   "old": "<"
+  }
+ },
+ "CP-0183": {
+  "hidden_count": 8,
+  "module": "semver",
+  "mutation": {
+   "claim": "In `parse`: off-by-one constant: `4` where `3` is required.",
+   "col": 21,
+   "end": 22,
+   "func": "parse",
+   "kind": "num",
+   "line": 10,
+   "new": "4",
+   "old": "3"
+  }
+ },
+ "CP-0184": {
+  "hidden_count": 8,
+  "module": "bsearch",
+  "mutation": {
+   "claim": "In `upper_bound`: wrong arithmetic operator: `/` where `//` is required.",
+   "col": 24,
+   "end": 26,
+   "func": "upper_bound",
+   "kind": "arith",
+   "line": 20,
+   "new": "/",
+   "old": "//"
+  }
+ },
+ "CP-0185": {
+  "hidden_count": 8,
+  "module": "rle",
+  "mutation": {
+   "claim": "In `runs`: off-by-one constant: `0` where `1` is required.",
+   "col": 30,
+   "end": 31,
+   "func": "runs",
+   "kind": "num",
+   "line": 11,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0186": {
+  "hidden_count": 8,
+  "module": "bsearch",
+  "mutation": {
+   "claim": "In `index_of`: off-by-one constant: `0` where `1` is required.",
+   "col": 12,
+   "end": 13,
+   "func": "index_of",
+   "kind": "num",
+   "line": 33,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0187": {
+  "hidden_count": 10,
+  "module": "rpn",
+  "mutation": {
+   "claim": "In `tokenize`: off-by-one constant: `2` where `1` is required.",
+   "col": 17,
+   "end": 18,
+   "func": "tokenize",
+   "kind": "num",
+   "line": 23,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0188": {
+  "hidden_count": 10,
+  "module": "rpn",
+  "mutation": {
+   "claim": "In `to_postfix`: off-by-one constant: `0` where `1` is required.",
+   "col": 35,
+   "end": 36,
+   "func": "to_postfix",
+   "kind": "num",
+   "line": 44,
+   "new": "0",
+   "old": "1"
+  }
+ },
+ "CP-0189": {
+  "hidden_count": 8,
+  "module": "calendar_lite",
+  "mutation": {
+   "claim": "In `weekday`: off-by-one constant: `6` where `5` is required.",
+   "col": 16,
+   "end": 17,
+   "func": "weekday",
+   "kind": "num",
+   "line": 45,
+   "new": "6",
+   "old": "5"
+  }
+ },
+ "CP-0190": {
+  "hidden_count": 8,
+  "module": "rle",
+  "mutation": {
+   "claim": "In `runs`: off-by-one constant: `2` where `1` is required.",
+   "col": 30,
+   "end": 31,
+   "func": "runs",
+   "kind": "num",
+   "line": 11,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0191": {
+  "hidden_count": 10,
+  "module": "tokenbucket",
+  "mutation": {
+   "claim": "In `TokenBucket.allow`: inverted boolean literal: `False` where `True` is required.",
+   "col": 19,
+   "end": 23,
+   "func": "TokenBucket.allow",
+   "kind": "lit",
+   "line": 31,
+   "new": "False",
+   "old": "True"
+  }
+ },
+ "CP-0192": {
+  "hidden_count": 8,
+  "module": "bsearch",
+  "mutation": {
+   "claim": "In `index_of`: inverted equality test: `!=` where `==` is required.",
+   "col": 27,
+   "end": 29,
+   "func": "index_of",
+   "kind": "eq",
+   "line": 31,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0193": {
+  "hidden_count": 8,
+  "module": "wrap",
+  "mutation": {
+   "claim": "In `center`: off-by-one constant: `1` where `2` is required.",
+   "col": 18,
+   "end": 19,
+   "func": "center",
+   "kind": "num",
+   "line": 30,
+   "new": "1",
+   "old": "2"
+  }
+ },
+ "CP-0194": {
+  "hidden_count": 8,
+  "module": "calendar_lite",
+  "mutation": {
+   "claim": "In `days_in_month`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+   "col": 13,
+   "end": 14,
+   "func": "days_in_month",
+   "kind": "cmp",
+   "line": 17,
+   "new": "<=",
+   "old": "<"
+  }
+ },
+ "CP-0195": {
+  "hidden_count": 8,
+  "module": "rle",
+  "mutation": {
+   "claim": "In `runs`: off-by-one constant: `2` where `1` is required.",
+   "col": 17,
+   "end": 18,
+   "func": "runs",
+   "kind": "num",
+   "line": 9,
+   "new": "2",
+   "old": "1"
+  }
+ },
+ "CP-0196": {
+  "hidden_count": 8,
+  "module": "windows",
+  "mutation": {
+   "claim": "In `moving_average`: wrong arithmetic operator: `-=` where `+=` is required.",
+   "col": 14,
+   "end": 16,
+   "func": "moving_average",
+   "kind": "arith",
+   "line": 29,
+   "new": "-=",
+   "old": "+="
+  }
+ },
+ "CP-0197": {
+  "hidden_count": 8,
+  "module": "trie",
+  "mutation": {
+   "claim": "In `Trie.__init__`: off-by-one constant: `1` where `0` is required.",
+   "col": 21,
+   "end": 22,
+   "func": "Trie.__init__",
+   "kind": "num",
+   "line": 7,
+   "new": "1",
+   "old": "0"
+  }
+ },
+ "CP-0198": {
+  "hidden_count": 8,
+  "module": "roman",
+  "mutation": {
+   "claim": "In `from_roman`: wrong boundary: `<=` where `<` is required (off-by-one at the boundary).",
+   "col": 17,
+   "end": 18,
+   "func": "from_roman",
+   "kind": "cmp",
+   "line": 32,
+   "new": "<=",
+   "old": "<"
+  }
+ },
+ "CP-0199": {
+  "hidden_count": 11,
+  "module": "csvline",
+  "mutation": {
+   "claim": "In `parse_line`: inverted equality test: `!=` where `==` is required.",
+   "col": 18,
+   "end": 20,
+   "func": "parse_line",
+   "kind": "eq",
+   "line": 17,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-0200": {
+  "hidden_count": 10,
+  "module": "lru",
+  "mutation": {
+   "claim": "In `LRUCache.put`: inverted membership test: `in` where `not in` is required.",
+   "col": 15,
+   "end": 21,
+   "func": "LRUCache.put",
+   "kind": "in",
+   "line": 39,
+   "new": "in",
+   "old": "not in"
+  }
+ },
+ "CP-DEV1": {
+  "hidden_count": 10,
+  "module": "stats",
+  "mutation": {
+   "claim": "In `median`: inverted equality test: `!=` where `==` is required.",
+   "col": 13,
+   "end": 15,
+   "func": "median",
+   "kind": "eq",
+   "line": 18,
+   "new": "!=",
+   "old": "=="
+  }
+ },
+ "CP-DEV2": {
+  "hidden_count": 8,
+  "module": "pagination",
+  "mutation": {
+   "claim": "In `page_count`: wrong arithmetic operator: `-` where `+` is required.",
+   "col": 18,
+   "end": 19,
+   "func": "page_count",
+   "kind": "arith",
+   "line": 11,
+   "new": "-",
+   "old": "+"
+  }
+ },
+ "CP-DEV3": {
+  "hidden_count": 8,
+  "module": "rle",
+  "mutation": {
+   "claim": "In `runs`: off-by-one constant: `2` where `1` is required.",
+   "col": 24,
+   "end": 25,
+   "func": "runs",
+   "kind": "num",
+   "line": 8,
+   "new": "2",
+   "old": "1"
+  }
+ }
+}

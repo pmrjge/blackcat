@@ -1,0 +1,80 @@
+== 1. Critical counts, exact two-sided sign test (route1 | route2) ==
+alpha 0.05: 5:-  6:6  7:7  8:8  9:8  10:9  12:10  15:12  20:15  25:18  30:21  40:27
+alpha 0.025 (Holm 1st of 2): 5:-  6:-  7:7  8:8  9:9  10:9  12:11  15:13  20:16  25:19  30:22  40:28
+alpha 0.0125 (Holm 1st of 4): 5:-  6:-  7:-  8:8  9:9  10:10  12:11  15:13  20:16  25:20  30:23  40:29
+alpha 0.05/6=0.00833 (Bonferroni/Holm 1st of 6): 5:-  6:-  7:-  8:8  9:9  10:10  12:11  15:13  20:17  25:20  30:23  40:29
+smallest n with any reachable result:
+  alpha 0.05: n=6 needs 6/6, p=0.03125
+  alpha 0.025 (Holm 1st of 2): n=7 needs 7/7, p=0.01562
+  alpha 0.0125 (Holm 1st of 4): n=8 needs 8/8, p=0.00781
+  alpha 0.05/6=0.00833 (Bonferroni/Holm 1st of 6): n=8 needs 8/8, p=0.00781
+planner claims:
+  6/6: p=0.03125 (scipy 0.03125) <= 0.05000? True; minimal k? True
+  9/10: p=0.02148 (scipy 0.02148) <= 0.05000? True; minimal k? True
+  15/20: p=0.04139 (scipy 0.04139) <= 0.05000? True; minimal k? True
+  21/30: p=0.04277 (scipy 0.04277) <= 0.05000? True; minimal k? True
+  7/7: p=0.01562 (scipy 0.01562) <= 0.02500? True; minimal k? True
+  8/8: p=0.00781 (scipy 0.00781) <= 0.00833? True; minimal k? True
+  10/10: p=0.00195 (scipy 0.00195) <= 0.00833? True; minimal k? True
+  11/12: p=0.00635 (scipy 0.00635) <= 0.00833? True; minimal k? True
+  17/20: p=0.00258 (scipy 0.00258) <= 0.00833? True; minimal k? True
+
+== 2. Normal-approximation n_d (pi=0.75, power 0.8) and exact conditional power ==
+  alpha 0.05: normal n_d=28.92 -> 29; exact power at 29 = 0.713; exact stable n_d = 35
+  alpha 0.025 (Holm 1st of 2): normal n_d=35.29 -> 36; exact power at 36 = 0.725; exact stable n_d = 42
+  alpha 0.0125 (Holm 1st of 4): normal n_d=41.64 -> 42; exact power at 42 = 0.766; exact stable n_d = 46
+  alpha 0.05/6=0.00833 (Bonferroni/Holm 1st of 6): normal n_d=45.35 -> 46; exact power at 46 = 0.757; exact stable n_d = 50
+
+== 3. Items per class per contrast (pi=0.75, power 0.8), unconditional exact ==
+  delta=0.2 alpha 0.05: n_d/delta = 29/0.2 = 145; exact unconditional min items = 168 (power there 0.801)
+  delta=0.2 alpha 0.025 (Holm 1st of 2): n_d/delta = 36/0.2 = 180; exact unconditional min items = 196 (power there 0.801)
+  delta=0.2 alpha 0.0125 (Holm 1st of 4): n_d/delta = 42/0.2 = 210; exact unconditional min items = 229 (power there 0.800)
+  delta=0.2 alpha 0.05/6=0.00833 (Bonferroni/Holm 1st of 6): n_d/delta = 46/0.2 = 230; exact unconditional min items = 246 (power there 0.801)
+  delta=0.3 alpha 0.05: n_d/delta = 29/0.3 = 97; exact unconditional min items = 112 (power there 0.802)
+  delta=0.3 alpha 0.025 (Holm 1st of 2): n_d/delta = 36/0.3 = 120; exact unconditional min items = 131 (power there 0.803)
+  delta=0.3 alpha 0.0125 (Holm 1st of 4): n_d/delta = 42/0.3 = 140; exact unconditional min items = 153 (power there 0.803)
+  delta=0.3 alpha 0.05/6=0.00833 (Bonferroni/Holm 1st of 6): n_d/delta = 46/0.3 = 154; exact unconditional min items = 164 (power there 0.803)
+  delta=0.4 alpha 0.05: n_d/delta = 29/0.4 = 73; exact unconditional min items = 84 (power there 0.803)
+  delta=0.4 alpha 0.025 (Holm 1st of 2): n_d/delta = 36/0.4 = 90; exact unconditional min items = 98 (power there 0.803)
+  delta=0.4 alpha 0.0125 (Holm 1st of 4): n_d/delta = 42/0.4 = 105; exact unconditional min items = 114 (power there 0.800)
+  delta=0.4 alpha 0.05/6=0.00833 (Bonferroni/Holm 1st of 6): n_d/delta = 46/0.4 = 115; exact unconditional min items = 123 (power there 0.804)
+
+== 3b. Monte-Carlo second route at the delta=0.3 exact minima (reps 20000) ==
+  alpha 0.05: n=112: exact 0.802, MC 0.806
+  alpha 0.025 (Holm 1st of 2): n=131: exact 0.803, MC 0.803
+  alpha 0.0125 (Holm 1st of 4): n=153: exact 0.803, MC 0.800
+  alpha 0.05/6=0.00833 (Bonferroni/Holm 1st of 6): n=164: exact 0.803, MC 0.803
+
+== 4. Pilot reach: 10 items, delta 0.3, pi 0.75, alpha 0.05 ==
+  unconditional power = 0.0079
+  P(D>=6 | n=10, delta=0.3) = 0.0473
+
+== 5. Refutation bound: CP 95% upper limit of pi < 0.6 needs ==
+  n_d=10: k <= 2 (upper at that k = 0.556)
+  n_d=20: k <= 7 (upper at that k = 0.592)
+  n_d=30: k <= 12 (upper at that k = 0.594)
+  n_d=40: k <= 17 (upper at that k = 0.591)
+  n_d=50: k <= 22 (upper at that k = 0.587)
+  n_d=60: k <= 27 (upper at that k = 0.584)
+
+== 6. tau and kappa at small N ==
+  N=3: kappa>=0.6 <=> top cluster >= 2/3
+  N=5: kappa>=0.6 <=> top cluster >= 3/5
+  N=7: kappa>=0.6 <=> top cluster >= 5/7
+  N=9: kappa>=0.6 <=> top cluster >= 6/9
+
+== 7. Seeds (SEED ^ int(sha256(tag)[:8],16)) ==
+  'eq|order': 3167602700
+  'eq|items': 3725927731
+  'eq|views': 2742449181
+  'eq|grader': 3808915453
+  'eq|ties': 366605965
+  'eq|S*|P1': 3581870898
+  'eq|G|P1': 670107570
+  'eq|E|P1': 2084056725
+  'eq|EG|P1': 2983272109
+  'eq|S*|P4': 3158145659
+  'eq|G|P4': 2693651559
+  'eq|E|P4': 1744103182
+  'eq|EG|P4': 632651631
+  'eq|derive|mc': 408995365

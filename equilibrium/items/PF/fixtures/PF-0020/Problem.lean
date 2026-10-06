@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0020 : ∀ a b : ℝ, a + b = 2 → a * b = -5 → a ^ 3 + b ^ 3 = 38 := by
+  sorry

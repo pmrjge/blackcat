@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0038 : ∀ n : ℕ, Nat.gcd (18 * n + 2) (12 * n + 1) = 1 := by
+  sorry

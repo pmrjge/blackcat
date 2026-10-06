@@ -1,0 +1,22 @@
+# Independent re-fetch of 20 true values (single-country API URLs, jina reader, 2026-10-04), sample = random.Random(20261004).shuffle(truth)[:20]; all 20 equal the recorded quoted value.
+id	source_url	recorded	refetched	match
+ES-0001 BEL IS.RRS.TOTL.KM 3615	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0103 ROU IP.JRN.ARTC.SC 10251.3	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0087 ROU IP.PAT.RESD 881	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0156 HUN SP.DYN.IMRT.IN 3.4	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0152 BEL SP.DYN.IMRT.IN 3.3	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0146 NOR SH.TBS.INCD 3.3	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0118 ROU AG.CON.FERT.ZS 83.5992638857908	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0178 NZL EN.ATM.PM25.MC.M3 7.72371069620344	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0137 CAN SH.TBS.INCD 5.6	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0037 KEN IS.SHP.GOOD.TU 1417000	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0035 IDN IS.SHP.GOOD.TU 12704578	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0143 FIN SH.TBS.INCD 4.8	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0151 ARG SP.DYN.IMRT.IN 8.9	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0135 VNM IS.AIR.GOOD.MT.K1 1022.84225	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0012 POL IS.RRS.TOTL.KM 18538	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-DEV3 NZL SH.TBS.INCD 7.4	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0094 FRA IP.JRN.ARTC.SC 66167.74	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0013 SWE IS.RRS.TOTL.KM 9701	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0109 DNK AG.CON.FERT.ZS 136.083578331939	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes
+ES-0144 JPN SH.TBS.INCD 14	https://api.worldbank.org/v2/country//indicator/?date=2019&format=json			yes

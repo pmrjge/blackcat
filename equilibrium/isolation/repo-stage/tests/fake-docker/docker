@@ -1,0 +1,231 @@
+#!/bin/bash
+# A fake `docker` for the eq-docker tests (hermetic: it only reads and writes $FAKE_DOCKER_STATE, never talks to a daemon).
+# Install as <shimdir>/docker with the execute bit and put <shimdir> first on PATH. Every call is logged to $FAKE_DOCKER_STATE/log
+# (arguments joined by a space) and to $FAKE_DOCKER_STATE/argv.log (joined by the unit separator 0x1f, one line per call).
+# State: $S/images = tab-separated "tag<TAB>id<TAB>size" lines; tests may seed it.
+# Knobs (environment): FAKE_DOCKER_DOWN=1   `docker info` fails (daemon down)
+#                      FAKE_DOCKER_ARCH=x86_64   `docker info --format '{{.Architecture}}'` answer (default aarch64)
+#                      FAKE_BUILD_FAIL=1    `docker buildx build` fails      FAKE_BASE_MISSING=1  `buildx imagetools inspect` fails
+#                      FAKE_BUILD_SALT=x    changes the image IDs a build produces (a "rebuilt" image)
+#                      FAKE_RUN_FAIL=1      `docker run` fails (as the spike/probe containers would)
+#                      FAKE_LEAN_RC=1       the spike's Mathlib import container reports lean_rc=1 (spike FAIL)
+#                      FAKE_NO_CAP=1        the /work size-cap container writes 16 MiB without ENOSPC (probe FAIL)
+#                      FAKE_IN_WRITABLE=1   the /in container can write (probe FAIL)
+#                      FAKE_PROBE_OMIT="a b"  rows the main in-container probe does not report
+#                      FAKE_PROBE_FAIL="a b"  rows the main in-container probe reports as FAIL
+#                      FAKE_DOCKER_UP_AFTER=N  `docker info` fails for its first N calls, then answers (a daemon that is still starting)
+#                      FAKE_SMOKE_FAIL=str  a `docker run` whose argv contains str exits 1 (a failing smoke test)
+#                      FAKE_NETWORK_FAIL=1  `docker network create` fails
+#                      FAKE_INT_ROUTE=1 FAKE_INT_REACH=1 FAKE_INT_DNS=1   the internal-network probe container finds a default route,
+#                                           reaches an outside address, resolves a name (probe.d/30-internal-net.sh FAIL rows)
+#                      FAKE_COMPOSE_FAIL=1  `docker compose ... config|run|up` fails      FAKE_NO_COMPOSE=1  no compose plugin
+# Per-image state files in $S (tests write them; <san> = the tag with : / @ turned into _): label.<san> (k=v lines, filled from
+# `buildx build --label`), user.<san>, env.<san> (one NAME=value per line), expose.<san>, volumes.<san>, entrypoint.<san>,
+# healthcheck.<san> (the answer of `image inspect --format` for Config.User/Env/ExposedPorts/Volumes/Entrypoint/Healthcheck),
+# tree.<san>/ (what `docker export` and `docker cp` read: a directory tree, e.g. opt/eq/TOOLS.lock).
+# `docker compose ...` is logged; the variables eq-compose.sh sets are written to $S/compose.<n>.env (the password only as its length).
+#                      FAKE_TOOLS_REPORT="TOOL name version sha256<NL>..."  what the tools-report build stage prints (build.sh --resolve-tools)
+# Emulated (as a container would): the main probe container creates eq_probe_write in the host source of a WRITABLE bind mount
+# whose target is /work (a read-only /eqsrc/work mount, the tmpfs design, leaves the host untouched).
+# shellcheck disable=SC2012
+S=${FAKE_DOCKER_STATE:?FAKE_DOCKER_STATE is not set}
+mkdir -p "$S"; touch "$S/images"
+printf '%s\n' "$*" >> "$S/log"
+(IFS=$'\x1f'; printf '%s\n' "$*") >> "$S/argv.log"
+sha() { if command -v shasum >/dev/null 2>&1; then shasum -a 256 | cut -c1-64; else sha256sum | cut -c1-64; fi; }
+find_image() { awk -F'\t' -v t="$1" '$1 == t || $2 == t { print; exit }' "$S/images"; }
+san_of() { printf '%s' "$1" | tr ':/@' '___'; }
+case "${1:-}" in
+  info)
+    if [ -n "${FAKE_DOCKER_DOWN:-}" ]; then echo "Cannot connect to the Docker daemon at unix:///fake.sock" >&2; exit 1; fi
+    if [ -n "${FAKE_DOCKER_UP_AFTER:-}" ]; then
+      n=$(cat "$S/info.count" 2>/dev/null || echo 0); echo $((n + 1)) > "$S/info.count"
+      if [ "$n" -lt "$FAKE_DOCKER_UP_AFTER" ]; then echo "Cannot connect to the Docker daemon (still starting)" >&2; exit 1; fi
+    fi
+    case "$*" in
+      *Architecture*) echo "${FAKE_DOCKER_ARCH:-aarch64}";;
+      *ServerVersion*) echo "29.0.0-fake";;
+      *) echo "Server: fake";;
+    esac
+    exit 0;;
+  version) echo "29.0.0-fake"; exit 0;;
+  buildx)
+    shift
+    case "${1:-}" in
+      imagetools)
+        if [ -n "${FAKE_BASE_MISSING:-}" ]; then echo "ERROR: not found" >&2; exit 1; fi
+        printf 'Name:      fake\nMediaType: application/vnd.oci.image.index.v1+json\nManifests:\n  Platform:    linux/arm64\n'; exit 0;;
+      build)
+        shift; tag=""; md=""; labels=""; target=""
+        while [ $# -gt 0 ]; do
+          case "$1" in -t) tag=$2; shift;; --metadata-file) md=$2; shift;; --label) labels="$labels$2"$'\n'; shift;; --target) target=$2; shift;; esac
+          shift
+        done
+        if [ -n "${FAKE_BUILD_FAIL:-}" ]; then echo "#9 ERROR: fake build failure" >&2; exit 1; fi
+        # the diagnostic stage of `build.sh --resolve-tools`: its log carries the TOOL lines (FAKE_TOOLS_REPORT, one per line)
+        if [ "$target" = tools-report ]; then printf '%s\n' "${FAKE_TOOLS_REPORT:-}"; exit 0; fi
+        printf '%s' "$labels" > "$S/label.$(san_of "$tag")"
+        id="sha256:$(printf '%s%s' "$tag" "${FAKE_BUILD_SALT:-}" | sha)"
+        grep -v -F "$(printf '%s\t' "$tag")" "$S/images" > "$S/images.new" || true
+        printf '%s\t%s\t%s\n' "$tag" "$id" 12345 >> "$S/images.new"; mv "$S/images.new" "$S/images"
+        [ -z "$md" ] || printf '{"containerimage.digest": "%s"}\n' "$id" > "$md"
+        echo "#1 fake build of $tag done"; exit 0;;
+    esac
+    exit 0;;
+  image)
+    shift
+    if [ "${1:-}" = inspect ]; then
+      shift; fmt=""; tag=""
+      while [ $# -gt 0 ]; do case "$1" in --format) fmt=$2; shift;; *) tag=$1;; esac; shift; done
+      line=$(find_image "$tag")
+      if [ -z "$line" ]; then echo "Error: No such image: $tag" >&2; exit 1; fi
+      sn=$(san_of "$(printf '%s' "$line" | cut -f1)")
+      case "$fmt" in
+        '{{.Id}}') printf '%s\n' "$(printf '%s' "$line" | cut -f2)";;
+        '{{.Size}}') printf '%s\n' "$(printf '%s' "$line" | cut -f3)";;
+        '{{index .Config.Labels "'*'"}}')   # one label: the key between the quotes
+          k=${fmt#*'Labels "'}; k=${k%'"}}'}
+          sed -n "s/^$k=//p" "$S/label.$sn" 2>/dev/null | head -n 1;;
+        '{{.Config.User}}') cat "$S/user.$sn" 2>/dev/null || echo 10001:10001;;
+        '{{len .Config.ExposedPorts}}') cat "$S/expose.$sn" 2>/dev/null || echo 0;;
+        '{{len .Config.Volumes}}') cat "$S/volumes.$sn" 2>/dev/null || echo 0;;
+        '{{.Config.Entrypoint}}') cat "$S/entrypoint.$sn" 2>/dev/null || echo '[]';;
+        '{{if .Config.Healthcheck}}{{.Config.Healthcheck.Test}}{{end}}') cat "$S/healthcheck.$sn" 2>/dev/null || true;;
+        '{{range .Config.Env}}{{println .}}{{end}}') cat "$S/env.$sn" 2>/dev/null || printf 'PATH=/usr/local/bin:/usr/bin:/opt/uv\nLANG=C.UTF-8\n';;
+        *) printf '[{"Id":"%s"}]\n' "$(printf '%s' "$line" | cut -f2)";;
+      esac
+      exit 0
+    fi
+    exit 0;;
+  run)
+    if [ -n "${FAKE_RUN_FAIL:-}" ]; then echo "fake docker run failure" >&2; exit 125; fi
+    if [ -n "${FAKE_SMOKE_FAIL:-}" ]; then case "$*" in *"$FAKE_SMOKE_FAIL"*) echo "fake smoke failure" >&2; exit 1;; esac; fi
+    # parse the flags a container would act on: --name, and the bind mounts (source, target, readonly)
+    cname=""; msrc=(); mtgt=(); mro=()
+    args=("$@"); i=0
+    while [ "$i" -lt "${#args[@]}" ]; do
+      case "${args[$i]}" in
+        --name) cname=${args[$((i + 1))]};;
+        --mount)
+          spec=${args[$((i + 1))]}; s=""; t=""; r=0
+          oldifs=$IFS; IFS=,
+          for kv in $spec; do case "$kv" in source=*) s=${kv#source=};; target=*) t=${kv#target=};; readonly|ro|readonly=true) r=1;; esac; done
+          IFS=$oldifs
+          msrc[${#msrc[@]}]=$s; mtgt[${#mtgt[@]}]=$t; mro[${#mro[@]}]=$r;;
+      esac
+      i=$((i + 1))
+    done
+    [ -z "$cname" ] || rm -f "$S/killed.$cname"   # a fresh container of that name has not been killed yet
+    j=0; while [ "$j" -lt "${#msrc[@]}" ]; do   # permission string of every bind-mounted host directory, for the F10 test
+      if [ -d "${msrc[$j]}" ]; then printf '%s %s\n' "$(ls -ld "${msrc[$j]}" | cut -c1-10)" "${mtgt[$j]}" >> "$S/modes.log"; fi
+      j=$((j + 1))
+    done
+    case "$*" in
+      *INT_IF=*)   # probe.d/30-internal-net.sh: a container on the --internal network (an interface, no route, no egress)
+        echo "INT_IF=eth0,"
+        if [ -n "${FAKE_INT_ROUTE:-}" ]; then echo "INT_ROUTE=0201A8C0"; else echo "INT_ROUTE="; fi
+        if [ -n "${FAKE_INT_REACH:-}" ]; then echo "INT_REACH= 1.1.1.1:443"; else echo "INT_REACH="; fi
+        if [ -n "${FAKE_INT_DNS:-}" ]; then echo "INT_DNS=resolved"; else echo "INT_DNS=none"; fi
+        exit 0;;
+      *"cat /opt/eq/PROVENANCE.txt"*) printf 'lean: Lean (version 4.34.1)\nmathlib_rev: fake\nolean_files: 8926\nolean_tree_sha256: %064d\n' "${FAKE_OLEAN_SEED:-7}"; exit 0;;
+      *"cat /opt/eq/MANIFEST.root"*) printf '%064d\n' 9; exit 0;;
+      *"check_lean.sh"*)   # a PF check: PASS for a reference answer, FAIL for a wrong one (kind taken from the container name)
+        img=""; for a in "$@"; do if [ -n "$(find_image "$a")" ]; then img=$a; break; fi; done
+        san=$(printf '%s' "$img" | tr ':/@' '___'); sl=$(cat "$S/sleep.$san" 2>/dev/null || echo "${FAKE_PF_SLEEP:-0}")
+        sleep "$sl"
+        case "$*" in *"-wrong-"*) echo "FAIL: fake gap"; exit 1;; *) echo PASS; exit 0;; esac;;
+      *"t user_nonroot"*)   # the main in-container probe (probe_inner.sh)
+        j=0; while [ "$j" -lt "${#mtgt[@]}" ]; do
+          if [ "${mtgt[$j]}" = /work ] && [ "${mro[$j]}" = 0 ]; then echo ok > "${msrc[$j]}/eq_probe_write"; fi
+          j=$((j + 1))
+        done
+        for r in user_nonroot caps_dropped no_new_privs seccomp_filter rootfs_readonly write_outside_copy no_writable_dirs_elsewhere \
+                 work_writable tmp_writable tmp_is_tmpfs work_is_tmpfs work_tmpfs_size eqsrc_mounted_ro bin_sh_present \
+                 planted_secret_invisible host_env_not_passed env_names_clean host_paths_absent items_dir_empty \
+                 only_expected_host_mounts fixture_mounted_ro network_connect_fails dns_fails only_loopback_interface \
+                 pids_limit_set memory_limit_set cpu_limit_set swap_disabled tools_run \
+                 host_path_not_inherited path_dirs_readonly path_executables_allowlisted tools_hash_verified tools_mount_readonly \
+                 no_docker_socket no_home_mount no_default_route; do
+          case " ${FAKE_PROBE_OMIT:-} " in *" $r "*) continue;; esac
+          res=PASS; case " ${FAKE_PROBE_FAIL:-} " in *" $r "*) res=FAIL;; esac
+          echo "T|$r|$res|fake"
+        done
+        exit 0;;
+      *eq_cap_probe*)   # the /work size-cap container: ENOSPC at the 8 MiB cap
+        if [ -n "${FAKE_NO_CAP:-}" ]; then printf 'cap_rc=0\ncap_size=16777216\n'; else printf 'cap_rc=1\ncap_size=8388608\nhead: write error: No space left on device\n'; fi
+        exit 0;;
+      *"/in/answer.json"*)
+        if [ -n "${FAKE_IN_WRITABLE:-}" ]; then echo IN_WRITABLE; else echo IN_RO; fi
+        echo staged-oracle-input; exit 0;;
+      *"fork failed after"*) echo "fork failed after 63 children"; exit 0;;
+      *1610612736*) exit 137;;
+      *"eq_probe_marker /work/eq_probe_write"*)
+        echo "ls: cannot access '/tmp/eq_probe_marker': No such file or directory ls: cannot access '/work/eq_probe_write': No such file or directory 3"; exit 0;;
+      *"sleep 120")   # the watchdog test: runs until `docker kill <name>` is called
+        n=0; while [ ! -e "$S/killed.$cname" ] && [ "$n" -lt 100 ]; do sleep 0.2; n=$((n + 1)); done
+        exit 137;;
+      *HAS_LEAN*) printf 'uid=10001 gid=10001\nHAS_LEAN=1\nLean (version 4.34.1, aarch64-unknown-linux-gnu)\nkind=fake\nproject=/opt/eq/stack_mathlib\n/opt/eq/stack_mathlib/.lake/packages/mathlib/.lake/build/lib/lean\n'; exit 0;;
+      *lean_rc*) echo "lean_rc=${FAKE_LEAN_RC:-0}"; exit "${FAKE_LEAN_RC:-0}";;
+      *py_rc*) printf '3.14.8\npy_rc=0\n'; exit 0;;
+    esac
+    exit 0;;
+  create)   # docker create [--pull never] [--network none] IMAGE cmd: a container id remembering the image
+    shift; img=""
+    while [ $# -gt 0 ]; do
+      case "$1" in --pull|--network|--name|--user|--entrypoint|--platform) shift;; -*) ;; *) img=$1; break;; esac
+      shift
+    done
+    [ -n "$(find_image "$img")" ] || { echo "Error: No such image: $img" >&2; exit 1; }
+    cid="cid$(date +%s)$$$RANDOM"; printf '%s\n' "$img" > "$S/$cid"; echo "$cid"; exit 0;;
+  cp)   # docker cp [-L] CID:/path - : a tar stream of that path of the image's tree ($S/tree.<san>), no fallback tree
+    shift; while [ "${1:-}" = -L ] || [ "${1:-}" = -a ]; do shift; done
+    src=${1:-}; cid=${src%%:*}; path=${src#*:}
+    img=$(cat "$S/$cid" 2>/dev/null); line=$(find_image "$img")
+    sn=$(san_of "$(printf '%s' "$line" | cut -f1)"); d="$S/tree.$sn"
+    if [ -z "$img" ] || [ ! -e "$d$path" ]; then echo "Error: No such container:path: $src" >&2; exit 1; fi
+    tar -cf - -C "$(dirname "$d$path")" "$(basename "$path")"; exit 0;;
+  network)
+    case "${2:-}" in
+      create) if [ -n "${FAKE_NETWORK_FAIL:-}" ]; then echo "Error: network create failed" >&2; exit 1; fi; echo "netid-$3$4$5"; exit 0;;
+      *) exit 0;;
+    esac;;
+  compose)
+    shift
+    # the project-level flags (-f FILE, -p NAME) come first; the action is the first word after them
+    act=""; a=("$@"); i=0
+    while [ "$i" -lt "${#a[@]}" ]; do
+      case "${a[$i]}" in -f|-p|--profile) i=$((i + 1));; version|config|run|up|down|ps|logs) act=${a[$i]}; break;; esac
+      i=$((i + 1))
+    done
+    if [ "$act" = version ]; then
+      [ -z "${FAKE_NO_COMPOSE:-}" ] || { echo "docker: 'compose' is not a docker command." >&2; exit 1; }
+      echo "Docker Compose version v2.fake"; exit 0
+    fi
+    n=$(cat "$S/compose.count" 2>/dev/null || echo 0); n=$((n + 1)); echo "$n" > "$S/compose.count"
+    { for v in COMPOSE_PROFILES EQ_WORK_DIR EQ_TUNNEL_DIR EQ_TUNNEL_CHANNEL EQ_IMAGE_PF EQ_IMAGE_CP EQ_IMAGE_CR EQ_IMAGE_NODE EQ_IMAGE_RUST EQ_IMAGE_GO \
+               EQ_IMAGE_JULIA EQ_IMAGE_HASKELL EQ_IMAGE_JVM EQ_IMAGE_PG EQ_IMAGE_MONGO; do
+        printf '%s=%s\n' "$v" "${!v:-}"
+      done
+      printf 'act=%s\nEQ_DB_PASSWORD_LEN=%s\nEQ_DB_PASSWORD_SHA256=%s\n' "$act" "${#EQ_DB_PASSWORD}" "$(printf '%s' "${EQ_DB_PASSWORD:-}" | sha)"; } > "$S/compose.$n.env"
+    case "$act" in config|run|up) [ -z "${FAKE_COMPOSE_FAIL:-}" ] || { echo "fake compose failure" >&2; exit 1; };; esac
+    exit 0;;
+  export)   # a small tar: the image's own tree is $S/tree.<sanitized tag> when present, else a built-in sample
+    shift; img=$(cat "$S/$1" 2>/dev/null); san=$(printf '%s' "$img" | tr ':/@' '___'); d="$S/tree.$san"
+    if [ ! -d "$d" ]; then
+      d="$S/tree.default"; rm -rf "$d"; mkdir -p "$d/usr/bin" "$d/opt/eq"
+      echo '#!/bin/sh' > "$d/usr/bin/bash"; chmod 755 "$d/usr/bin/bash"; ln -s bash "$d/usr/bin/sh"
+      head -c 100000 /dev/zero > "$d/opt/eq/Init.olean"
+    fi
+    tar -cf - -C "$d" .; exit 0;;
+  kill) shift; for n in "$@"; do touch "$S/killed.$n"; done; exit 0;;
+  builder|ps) exit 0;;
+  rm) exit 0;;
+  rmi)
+    shift; for t in "$@"; do
+      case "$t" in -*) continue;; esac
+      if [ -n "$(find_image "$t")" ]; then grep -v -F "$(printf '%s\t' "$t")" "$S/images" > "$S/images.new" || true; mv "$S/images.new" "$S/images"; echo "Untagged: $t"
+      else echo "Error: No such image: $t" >&2; exit 1; fi
+    done; exit 0;;
+esac
+echo "fake docker: unhandled: $*" >&2
+exit 1

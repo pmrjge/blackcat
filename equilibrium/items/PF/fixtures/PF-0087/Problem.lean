@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0087 : ∀ n : ℕ, 9 ≤ n → 4 ^ n < Nat.factorial n := by
+  sorry

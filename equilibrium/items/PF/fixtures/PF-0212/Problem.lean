@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0212 : ∀ a : ℕ → ℤ, a 0 = -1 → (∀ n, a (n + 1) = 4 * a n + 6) → ∀ n, a n = 4 ^ n - 2 := by
+  sorry

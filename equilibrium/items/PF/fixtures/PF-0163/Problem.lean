@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0163 : ∀ n : ℕ, 7 ∣ 3 ^ (3 * n) + 6 ^ (n + 1) := by
+  sorry

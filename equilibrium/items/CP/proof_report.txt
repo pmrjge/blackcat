@@ -1,0 +1,4 @@
+non-dev proven: 200 / 200
+dev proven: 3 / 3
+modules: 26, items per module min/max: 4/9
+regeneration identical to frozen pool: True

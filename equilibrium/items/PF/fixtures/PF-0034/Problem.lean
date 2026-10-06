@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0034 : ∀ n : ℕ, Nat.gcd (8 * n + 3) (5 * n + 2) = 1 := by
+  sorry

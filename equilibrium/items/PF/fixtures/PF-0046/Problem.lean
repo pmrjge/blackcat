@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0046 : ∀ x y : ℤ, x ^ 2 - 3 * y ^ 2 ≠ 10 := by
+  sorry

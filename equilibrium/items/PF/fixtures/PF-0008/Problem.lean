@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0008 : ∀ f : ℕ → ℤ, f 0 = -2 → f 1 = -13 → (∀ n, f (n + 2) = 7 * f (n + 1) - 10 * f n) → ∀ n, f n = 2 ^ n - 3 * 5 ^ n := by
+  sorry

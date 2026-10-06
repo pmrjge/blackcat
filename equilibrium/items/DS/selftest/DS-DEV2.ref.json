@@ -1,0 +1,5 @@
+{
+ "answer": "## Tables\n- `users(id pk)`; `lists(id pk, owner_id fk, title, deleted_at null, version bigint)`.\n- `list_shares(list_id fk, user_id fk, role check in ('view','edit'), pk(list_id, user_id))`.\n- `items(id pk, list_id fk, body, done bool, position numeric, version bigint, updated_at, deleted_at null)`;\n  a trigger bumps `version` and appends to `changes`.\n- `changes(seq bigserial pk, list_id, item_id null, op, at)` feeds offline sync cursors.\n## Indexes (by query)\n- `items(list_id, position) where deleted_at is null`: render a list.\n- `changes(list_id, seq)`: `sync since cursor` per list.\n- `list_shares(user_id)`: lists shared with me.\n## Integrity\nThe 2,000-item cap is enforced by a statement trigger counting live items. Concurrent edits use `version` compare-and-\nset (`update ... where id = $1 and version = $2`).\n## Retention\nSoft delete via `deleted_at`; a nightly job purges rows older than 30 days, and `changes` older than 35 days.\n## Migration (add item due dates)\nAdd a nullable `due_at`, deploy readers, backfill nothing, then add an index concurrently.",
+ "evidence": [],
+ "confidence": 0.7
+}

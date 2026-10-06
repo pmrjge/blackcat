@@ -1,0 +1,11 @@
+29 k<= 11 P(refute|pi=.5)=0.132 P(refute|pi=.6)=0.013
+35 k<= 14 P(refute|pi=.5)=0.155 P(refute|pi=.6)=0.013
+42 k<= 18 P(refute|pi=.5)=0.220 P(refute|pi=.6)=0.018
+46 k<= 20 P(refute|pi=.5)=0.231 P(refute|pi=.6)=0.017
+50 k<= 22 P(refute|pi=.5)=0.240 P(refute|pi=.6)=0.016
+-- excluding the powered effect: CP two-sided 95% upper < 0.75 --
+29 k<= 16 P(excl|pi=.5)=0.771 P(excl|pi=.6)=0.363 P(excl|pi=.75)=0.016
+35 k<= 20 P(excl|pi=.5)=0.845 P(excl|pi=.6)=0.427 P(excl|pi=.75)=0.016
+42 k<= 25 P(excl|pi=.5)=0.918 P(excl|pi=.6)=0.533 P(excl|pi=.75)=0.020
+46 k<= 28 P(excl|pi=.5)=0.948 P(excl|pi=.6)=0.603 P(excl|pi=.75)=0.024
+50 k<= 30 P(excl|pi=.5)=0.941 P(excl|pi=.6)=0.554 P(excl|pi=.75)=0.014

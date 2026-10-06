@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0154 : ∀ f : ℤ → ℤ, (∀ x y, f (x + y) = f x + f y + 2 * x * y) → f 1 = 5 → ∀ n, 2 * f n = 2 * n * (n - 1) + 10 * n := by
+  sorry

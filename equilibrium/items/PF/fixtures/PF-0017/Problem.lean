@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0017 : ∀ a b : ℝ, a + b = 4 → a * b = 1 → a ^ 5 + b ^ 5 = 724 := by
+  sorry

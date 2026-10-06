@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0083 : ∀ n : ℕ, 8 ≤ n → n ^ 6 < 5 ^ n := by
+  sorry

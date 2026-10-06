@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0214 : ∀ a : ℕ → ℤ, a 0 = 0 → (∀ n, a (n + 1) = 3 * a n - 2) → ∀ n, a n = -3 ^ n + 1 := by
+  sorry

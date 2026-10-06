@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0111 : ∀ x : ℝ, 0 < x → x ^ 2 + 16 / x ≥ 12 := by
+  sorry

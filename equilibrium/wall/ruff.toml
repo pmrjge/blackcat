@@ -1,0 +1,10 @@
+line-length = 120
+target-version = "py311"
+include = ["*.py", "tests/*.py"]
+
+[lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM", "RUF", "S"]
+ignore = ["S101", "S603", "S607", "S311", "RUF001", "RUF002", "RUF003"]
+
+[lint.isort]
+known-first-party = ["eq_wall", "eq_wall_client", "conftest"]

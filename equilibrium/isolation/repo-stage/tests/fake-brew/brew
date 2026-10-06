@@ -1,0 +1,35 @@
+#!/bin/bash
+# A fake `brew` for the eq-docker tests (hermetic: no network, no Homebrew). Install as <shimdir>/brew with the execute bit.
+# Every call is appended to $FAKE_BREW_LOG (arguments joined by a space). State: $FAKE_BREW_STATE, lines "formula NAME" / "cask NAME".
+# Knobs: FAKE_BREW_UNKNOWN="a b"  names `brew info` does not know (exit 1)
+#        FAKE_BREW_FAIL=1         `brew install` fails (exit 1) without installing anything
+#        FAKE_BREW_DOCKER_DIR=D   after a successful install, create an executable D/docker that fails `docker info`
+#                                 (a freshly installed Docker whose daemon is not running yet)
+log=${FAKE_BREW_LOG:?FAKE_BREW_LOG is not set}
+state=${FAKE_BREW_STATE:-/dev/null}
+printf '%s\n' "$*" >> "$log"
+case "${1:-}" in
+  --version) echo "Homebrew 7.0.7-fake"; exit 0;;
+  --prefix) echo "/opt/fake"; exit 0;;
+  info)
+    shift; names=()
+    for a in "$@"; do case "$a" in -*) ;; *) names[${#names[@]}]=$a;; esac; done
+    for n in "${names[@]}"; do case " ${FAKE_BREW_UNKNOWN:-} " in *" $n "*) echo "Error: No available formula or cask with the name \"$n\"" >&2; exit 1;; esac; done
+    exit 0;;
+  list) exit 0;;
+  install)
+    shift
+    if [ -n "${FAKE_BREW_FAIL:-}" ]; then echo "Error: fake brew install failure" >&2; exit 1; fi
+    kind=formula
+    for a in "$@"; do
+      case "$a" in --cask) kind=cask;; --formula) kind=formula;; -*) ;; *) [ "$state" = /dev/null ] || echo "$kind $a" >> "$state";; esac
+    done
+    if [ -n "${FAKE_BREW_DOCKER_DIR:-}" ]; then
+      mkdir -p "$FAKE_BREW_DOCKER_DIR"
+      printf '#!/bin/bash\necho "Cannot connect to the Docker daemon (fake: not started yet)" >&2\nexit 1\n' > "$FAKE_BREW_DOCKER_DIR/docker"
+      chmod 755 "$FAKE_BREW_DOCKER_DIR/docker"
+    fi
+    exit 0;;
+esac
+echo "fake brew: unhandled: $*" >&2
+exit 1

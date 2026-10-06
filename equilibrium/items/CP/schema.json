@@ -1,0 +1,51 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "additionalProperties": false,
+ "properties": {
+  "answer": {
+   "description": "one-sentence description of the fix; the patch itself is the edited working directory",
+   "type": "string"
+  },
+  "confidence": {
+   "maximum": 1,
+   "minimum": 0,
+   "type": "number"
+  },
+  "evidence": {
+   "items": {
+    "additionalProperties": false,
+    "properties": {
+     "detail": {
+      "type": "string"
+     },
+     "kind": {
+      "enum": [
+       "command",
+       "file_line",
+       "quote",
+       "counterexample",
+       "test"
+      ]
+     },
+     "ref": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "kind",
+     "ref",
+     "detail"
+    ],
+    "type": "object"
+   },
+   "type": "array"
+  }
+ },
+ "required": [
+  "answer",
+  "evidence",
+  "confidence"
+ ],
+ "title": "CP arm output",
+ "type": "object"
+}

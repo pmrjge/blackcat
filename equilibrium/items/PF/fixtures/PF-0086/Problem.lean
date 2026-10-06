@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0086 : ∀ n : ℕ, 7 ≤ n → 3 ^ n < Nat.factorial n := by
+  sorry
