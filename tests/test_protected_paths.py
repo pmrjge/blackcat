@@ -970,3 +970,21 @@ def test_r3_root_text_regex(installed):
         assert g.ROOT_TEXT_RE.search(t), t
     for t in miss:
         assert not g.ROOT_TEXT_RE.search(t), t
+
+
+def test_instructor_files_denied_tree_commands_not(installed):
+    """tools/instructor/ (the just recipes and their uv scripts) is not agent-writable in any checkout:
+    a Bash hook sees only `just ... <recipe>`, never what a recipe runs. git commands that rewrite
+    the work tree, reads and the recipes themselves still pass."""
+    g, cfg, proj = installed
+    (proj / "tools" / "instructor" / "bin").mkdir(parents=True)
+    ev = {"cwd": str(proj)}
+    for cmd in ["echo x > tools/instructor/justfile", "cp evil.py tools/instructor/bin/ff_merge.py",
+                "sed -i '' s/a/b/ tools/instructor/bin/check_suite.py", "rm -rf tools/instructor",
+                "bash -c 'echo x >> tools/instructor/bin/instr_common.py'",
+                "echo x > %s/tools/instructor/bin/x.py" % proj]:
+        got = g.protected_write_in(cmd, ev)
+        assert got and got[0] == "protect", cmd
+    for cmd in ["git merge --ff-only feat", "git checkout main", "git switch -c x", "cat tools/instructor/justfile",
+                "just -f tools/instructor/justfile ff-merge --branch feat", "echo x > tools/other.py"]:
+        assert not g.protected_write_in(cmd, ev), cmd

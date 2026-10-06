@@ -298,7 +298,11 @@
       "mcp__context-mode__ctx_search",
       "mcp__context-mode__ctx_stats",
       "Skill",
-      "Bash(__CLAUDE_DIR__/bin/stack-install *)"
+      "Bash(__CLAUDE_DIR__/bin/stack-install *)",
+      "Bash(just -f tools/instructor/justfile check-suite *)",
+      "Bash(just -f tools/instructor/justfile ff-merge *)",
+      "Bash(just -f tools/instructor/justfile worktree-audit *)",
+      "Bash(just -f tools/instructor/justfile --list)"
     ],
     "deny": [
       "Agent(blackcat)",
@@ -369,6 +373,7 @@
       "Edit(.claude/settings.json)",
       "Edit(.claude/settings.local.json)",
       "Edit(.claude/hooks/**)",
+      "Edit(//**/tools/instructor/**)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
       "Read(~/.config/gh/hosts.yml)",

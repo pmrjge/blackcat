@@ -7763,10 +7763,14 @@ def _heredoc_interpreter(owner):
 def builtin_protect_specs():
     """`//abs` deny specs for the stack's own files in an installed config dir (the hook lives in
     <config>/hooks/; the repo's dot-claude/ still holds __CLAUDE_DIR__ and is skipped), for the
-    hook state dir, install.sh's backups, the MCP servers' caches and the WALL's tunnel root. Backs
-    up the settings.json deny rules the protect scan reads."""
+    hook state dir, install.sh's backups, the MCP servers' caches and the WALL's tunnel root, plus
+    one relative spec, `tools/instructor` (matched at any depth, so in every checkout). Backs up the
+    settings.json deny rules the protect scan reads."""
     specs = [("/" + os.path.join(r, "**"), ())
              for r in (state_root(), backup_root(), cache_root(), eq_tunnel_root())]
+    # the deterministic instructor (just + uv scripts): a hook sees only `just ... <recipe>`, never
+    # what a recipe runs, so its recipes and scripts are not agent-writable in any checkout
+    specs.append(("tools/instructor", ()))      # the directory and everything below it
     conf = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     try:
         with open(os.path.join(conf, "settings.json"), encoding="utf-8") as f:

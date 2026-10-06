@@ -250,6 +250,26 @@ def test_missing_names_go_in_one_formula_and_one_cask_batch(tmp_path):
     assert all(l.endswith("ANALYTICS=1") for l in e.calls("brew"))   # HOMEBREW_NO_ANALYTICS on every call
 
 
+def test_deps_batch_offers_just_and_skips_a_present_one(tmp_path):
+    """`just` (the instructor's tools/instructor/justfile) joins the DEPS brew batch; one already on
+    PATH is skipped, never reinstalled."""
+    e = Env(tmp_path)
+    e.brew()
+    e.present("uv", "node", "npx", "jq", "rg", "gh", "ffmpeg", "magick", "rsvg-convert", "pdftoppm")
+    rc, out, err = e.run("DEPS", tty="1")
+    assert rc == 0, err
+    assert e.argv("brew", "install") == ["install just"], out
+    assert "+ just (brew)" in out
+    (tmp_path / "again").mkdir()
+    e2 = Env(tmp_path / "again")
+    e2.brew()
+    e2.present("uv", "node", "npx", "jq", "rg", "gh", "ffmpeg", "magick", "rsvg-convert", "pdftoppm", "just")
+    rc, out, err = e2.run("DEPS", tty="1")
+    assert rc == 0, err
+    assert e2.calls("brew", "install") == [], out
+    assert any(ln.startswith("  skip just (found: ") for ln in lines(out)), out
+
+
 def test_failed_batch_is_retried_name_by_name(tmp_path):
     e = Env(tmp_path)
     e.brew()
@@ -359,7 +379,7 @@ def test_homebrew_needs_a_terminal(tmp_path):
 
 def test_homebrew_bootstrap_on_a_terminal_and_one_shellenv_line(tmp_path):
     e = Env(tmp_path)
-    e.present("uv", "node", "npx", "jq", "rg", "gh", "ffmpeg", "magick", "rsvg-convert", "pdftoppm")
+    e.present("uv", "node", "npx", "jq", "rg", "gh", "ffmpeg", "magick", "rsvg-convert", "pdftoppm", "just")
     hb = tmp_path / "hb" / "bin" / "brew"
     e.shim("fake-brew", BREW_SHIM, where=tmp_path)
     e.serve_file(url("HOMEBREW"), "mkdir -p %s; cp %s %s; chmod +x %s\n" % (hb.parent, tmp_path / "fake-brew", hb, hb))
