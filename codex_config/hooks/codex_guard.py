@@ -171,8 +171,10 @@ SECRETS_REASON = ("Blocked by the stack's secret-hardening rule: `%s` would put 
                   "<server>` and `with-stack-env --print-env` show redacted forms. If a real value "
                   "must be checked, stop and ask the user.")
 CODEX_FLAG_REASON = ("Blocked by the stack's self-protection rule: `%s` starts Codex with a "
-                     "configuration override (-c/--config) or a --dangerously-* flag. Agents never "
-                     "relaunch Codex with changed settings: ask the user.")
+                     "configuration override (-c/--config, --profile, --enable/--disable, "
+                     "--add-dir), a sandbox or approval policy that turns its guards off, or a "
+                     "--dangerously-* flag. Agents never relaunch Codex with changed settings: "
+                     "ask the user.")
 GITESC_REASON = ("Blocked by the stack's git rule: `%s` lets git read a file or run code outside the "
                  "sandbox (-C, -F/--file, --exec-path, -c alias.*). Run plain git inside the working "
                  "tree, without those options.")
@@ -270,7 +272,7 @@ GIT_EXEC_KEY_RE = re.compile(
     r"diff\.external|diff\..+\.(?:command|textconv)|difftool\..+\.cmd|mergetool\..+\.cmd|"
     r"merge\..+\.driver|filter\..+\.(?:clean|smudge|process)|interactive\.difffilter|"
     r"gpg\.program|gpg\..+\.program|credential\.helper|credential\..+\.helper|"
-    r"uploadpack\.packobjectshook|sendemail\..+)\Z", re.I)
+    r"uploadpack\.packobjectshook|sendemail\..+|remote\..+\.uploadpack|core\.gitproxy)\Z", re.I)
 # Index blinding (CWE-345): install.sh reviews the checkout with `git status`/`git diff`; these
 # make git skip a file's working-tree content, so an edited file would be installed unseen.
 # update-index options are matched by any prefix (git accepts unique abbreviations); the
@@ -1608,6 +1610,10 @@ class _Scan(object):
                 found = found or (self.scan(code, depth + 1) if code else None)
         elif sub == "bisect" and args[:1] == ["run"]:
             found = self.scan(" ".join(args[1:]), depth + 1)
+        for code in _git_command_values(sub, args):
+            found = found or self.scan(code, depth + 1)
+        if not found and any(a.lower().startswith("ext::") for a in args):
+            found = self.hit("opaque", "git %s ext::... (a command run as a transport)" % sub)
         if found:
             return found
         if OPAQUE_SUB_RE.search(sub):
@@ -1848,7 +1854,7 @@ RO_OUT_OPTS = {"-o", "--output", "--output-file", "--out", "--outdir", "--out-di
                "--build-dir", "--output-dir", "--log-file", "--result-log",
                "--test-reporter-destination", "--text-output", "--junit-xml-output",
                "--gitlab-sast-output", "--gitlab-secrets-output", "--vim-output",
-               "--emacs-output"}
+               "--emacs-output", "--report-file", "--sql"}
 RO_TOOL_OUTS = {"pytest": RO_OUT_OPTS - {"-o"}, "py.test": RO_OUT_OPTS - {"-o"},
                 "grype": {"--file"}, "syft": {"--file"}, "gitleaks": RO_OUT_OPTS | {"-r"}}
 # `python -m X`: modules that only check, test or print
@@ -1934,7 +1940,9 @@ RO_EXEC_VAR_RE = re.compile(
     # C compilers: where they find the programs they run, edits to their command line, dep files
     r"COMPILER_PATH|GCC_EXEC_PREFIX|CCC_OVERRIDE_OPTIONS|DEPENDENCIES_OUTPUT|SUNPRO_DEPENDENCIES|"
     # TeX (kpathsea reads any texmf.cnf variable, also as NAME_progname, from the environment)
-    r"openout_any\w*|openin_any\w*|shell_escape\w*|TEXMFCNF\w*|TEXMFOUTPUT\w*)\Z")
+    r"openout_any\w*|openin_any\w*|shell_escape\w*|TEXMFCNF\w*|TEXMFOUTPUT\w*|"
+    # allowlisted readers that take options (a pager, a preprocessor) from a config file or var
+    r"RIPGREP_CONFIG_PATH|BAT_\w+|DELTA_\w+|ACK_\w+|ACKRC|GOFLAGS)\Z")
 RO_SAFE_VARS = {"GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS", "GIT_LITERAL_PATHSPECS",
                 "GIT_NO_REPLACE_OBJECTS", "UV_NO_SYNC", "UV_FROZEN", "UV_OFFLINE", "UV_PYTHON",
                 "UV_NO_PROGRESS", "UV_LOCKED", "PIP_DISABLE_PIP_VERSION_CHECK"}
@@ -1954,6 +1962,15 @@ RO_CODE_BAD_RE = re.compile(
     r"\bENV\b|\bgetenv\b|\bsignal\.|\bshutil\b|\.(?:unlink|rmdir|rename|replace|mkdir|touch|"
     r"symlink_to|hardlink_to|chmod)\s*\(", re.I)
 RO_SHELL_NAMES = {"sh", "bash", "zsh", "dash", "ksh", "ksh93", "mksh", "ash", "rbash"}
+# a command word naming its program by path counts as the named tool only in these directories
+# (and never when the directory or the file resolves into scratch)
+RO_SYSTEM_BIN = {"/bin", "/sbin", "/usr/bin", "/usr/sbin", "/usr/local/bin", "/opt/homebrew/bin",
+                 "/opt/local/bin", "/Library/Developer/CommandLineTools/usr/bin"}
+RO_VENV_BIN_RE = re.compile(r"/(?:\.?venv|venvs/[^/]+|\.tox/[^/]+)/bin\Z|/node_modules/\.bin\Z")
+# plain commands whose option runs another program
+RO_PAGER_HEADS = {"bat", "delta", "ack", "difft"}
+# options of uniq/xxd that take a value (their second operand is an output file)
+RO_OPERAND_VALUE_OPTS = {"uniq": {"-f", "-s", "-w"}, "xxd": {"-c", "-g", "-l", "-s", "-o", "-n", "-R"}}
 
 
 def _heredoc_interpreter(owner):
@@ -2067,7 +2084,11 @@ def wrapper_invoked(command):
 CODEX_TRIGGER_RE = re.compile(r"codex", re.I)
 # codex flags an agent never passes (DESIGN 4.2 c): overrides, the bypass flags, another profile
 # (a profile without the stack's hooks)
-CODEX_BAD_LONG = ("--config", "--profile", "--yolo")
+CODEX_BAD_LONG = ("--config", "--profile", "--yolo", "--enable", "--disable", "--add-dir",
+                  "--dangerously-bypass-approvals-and-sandbox")
+# (short, long, the values that keep the sandbox and approvals on): anything else is a hit
+CODEX_POLICY_OPTS = (("-s", "--sandbox", ("read-only", "workspace-write")),
+                     ("-a", "--ask-for-approval", ("untrusted", "on-request", "on-failure")))
 # git options that read a file of the caller's choosing (DESIGN 4.3): long names, matched by any
 # prefix of two or more letters (parse-options takes unique abbreviations: --fil, --pathspec-from),
 # and per subcommand the short options that take a value (a cluster ends at the first of them,
@@ -2097,14 +2118,68 @@ HOOKS_PATH_RE = re.compile(r"core\.hookspath\s*=\s*/dev/null", re.I)   # the --g
 
 
 def _codex_flags(scan, words, start, end, restore):
-    """`codex ... -c k=v`, `--config`, `--profile`/`-p`, `--yolo`, `--dangerously-*`: a hit."""
+    """A hit for a codex launch that changes its own settings: `-c k=v`/`--config`, `--profile`/
+    `-p`, `--yolo`, `--dangerously-*`, the feature toggles `--enable`/`--disable`, `--add-dir`,
+    and a sandbox (-s/--sandbox) or approval policy (-a/--ask-for-approval) other than the
+    literal safe values (so danger-full-access, never, or a value decided at run time). Separate,
+    `=` and attached values count, and long options by any prefix of four or more characters."""
     for k in range(start, end):
         a = restore(words[k])
-        name = a.partition("=")[0]
-        if name in CODEX_BAD_LONG or a.startswith("--dangerously") or a in ("-c", "-p") or (
-                a[:2] in ("-c", "-p") and a[:2] != "--" and len(a) > 2):
+        name, eq, val = a.partition("=")
+        if a[:2] == "--" and len(name) >= 4 and (
+                any(o.startswith(name) for o in CODEX_BAD_LONG) or name.startswith("--dang")):
             return scan.hit("codex", "codex " + name[:40])
+        if a in ("-c", "-p") or (a[:2] in ("-c", "-p") and len(a) > 2):
+            return scan.hit("codex", "codex " + name[:40])
+        for short, long_, safe in CODEX_POLICY_OPTS:
+            if a[:2] == short or (a[:2] == "--" and len(name) >= 4 and long_.startswith(name)):
+                if a[:2] == short:
+                    value = a[2:].lstrip("=") if len(a) > 2 else None
+                else:
+                    value = val if eq else None
+                if value is None:
+                    value = restore(words[k + 1]) if k + 1 < end else ""
+                if value not in safe:
+                    return scan.hit("codex", "codex %s %s" % (short if a[:2] == short else long_,
+                                                              value[:40]))
     return None
+
+
+# git options whose value git hands to the shell as a command, per subcommand: (short options,
+# long options). The long names are matched by any unique prefix (git's parse-options).
+GIT_COMMAND_OPTS = {
+    "fetch": ("", ("--upload-pack",)), "pull": ("", ("--upload-pack",)),
+    "clone": ("u", ("--upload-pack",)), "ls-remote": ("u", ("--upload-pack", "--exec")),
+    "fetch-pack": ("", ("--upload-pack", "--exec")), "archive": ("", ("--exec",)),
+    "difftool": ("x", ("--extcmd",)),
+    "filter-branch": ("", ("--env-filter", "--tree-filter", "--index-filter", "--parent-filter",
+                           "--msg-filter", "--commit-filter", "--tag-name-filter", "--setup")),
+}
+
+
+def _git_command_values(sub, args):
+    """The command strings `git <sub> args` runs through the shell (upload-pack programs,
+    filter-branch filters, difftool -x), for the push scan."""
+    if sub not in GIT_COMMAND_OPTS:
+        return []
+    shorts, longs = GIT_COMMAND_OPTS[sub]
+    out, k = [], 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a == "--":
+            break
+        name, eq, val = a.partition("=")
+        if a[:2] == "--" and len(name) >= 4 and any(o.startswith(name) for o in longs):
+            if not eq:
+                val, k = (args[k] if k < len(args) else ""), k + 1
+            out.append(val)
+        elif a[:1] == "-" and a[:2] != "--" and len(a) >= 2 and a[1] in shorts:
+            val = a[2:]
+            if not val:
+                val, k = (args[k] if k < len(args) else ""), k + 1
+            out.append(val)
+    return out
 
 
 def _git_file_values(sub, args):
@@ -2306,6 +2381,17 @@ class Paths(object):
         cred_paths = [os.path.join(self.codex_home, "auth.json"),
                       os.path.join(self.codex_home, "stack.env")] + list(creds.get("paths") or [])
         self.creds = self._expand(cred_paths)
+        # the directories that hold a credential (strict ancestors of a listed path): a recursive
+        # reader handed one of them reads the credential. $HOME and / are left out (a search of
+        # the whole home is not refused); the glob credentials (**/.env) have no fixed holder.
+        skip = set(_variants(self.home)) | {"/"}
+        self.holders = []
+        for c in self.creds:
+            d = os.path.dirname(c)
+            while d and d != "/":
+                if d not in skip and d not in self.holders:
+                    self.holders.append(d)
+                d = os.path.dirname(d)
         self.globs = [g for g in (creds.get("globs") or []) if isinstance(g, str) and g]
         self.vars = {"HOME": self.home, "CODEX_HOME": self.codex_home}
         wrapper = guard.get("toolsmith_wrapper")
@@ -2332,6 +2418,16 @@ class Paths(object):
             if any(fnmatch.fnmatchcase(v, g) for g in self.globs):
                 return True
         return False
+
+    def holds_credential(self, path, budget=None):
+        """`path` is a directory holding a listed credential (not $HOME or /)."""
+        return any(v in self.holders for v in _variants(path, budget))
+
+    def glob_credential(self, pattern, holders=False):
+        """A shell glob (`~/.codex/*.json`, `~/.*`) that expands to a listed credential, or with
+        holders=True to a directory holding one."""
+        targets = self.creds + (self.holders if holders else [])
+        return any(_glob_match(os.path.normpath(pattern), t) for t in targets)
 
     def expand(self, token, bases, assigns=None):
         """Absolute candidates for a path-like token: ~, $HOME, $CODEX_HOME, $TMPDIR and NAME=value
@@ -2363,6 +2459,64 @@ class Paths(object):
         if os.path.isabs(t):
             return [t]
         return [os.path.join(b, t) for b in bases if b]
+
+
+GLOB_CHARS_RE = re.compile(r"[*?\[]")
+
+
+def _glob_match(pattern, path):
+    """The shell's pathname expansion of `pattern` would produce `path`: component by component,
+    and a leading dot only matched by a pattern component that starts with a dot."""
+    pp, tp = pattern.split("/"), path.split("/")
+    if len(pp) != len(tp):
+        return False
+    for p, t in zip(pp, tp):
+        if t[:1] == "." and p[:1] != "." and GLOB_CHARS_RE.search(p):
+            return False
+        if not fnmatch.fnmatchcase(t, p):
+            return False
+    return True
+
+
+# Recursive readers (DESIGN 4.2 f): handed a directory, these read the files under it, so a
+# directory that holds a credential (CODEX_HOME, ~/.ssh, ~/.aws, ...) counts as the credential.
+# Always recursive: the recursive greps (rg, ag, ack, ugrep), archivers and copiers (tar, zip -r,
+# rsync, ditto, cpio, pax, 7z, scp, rclone), difftastic. Recursive with a flag: grep -r/-R/
+# --recursive/-d recurse, cp -r/-R/-a, diff -r, zip -r. find counts when it runs a command
+# (-exec, -ok, ...) or pipes into xargs; fd with -x/-X; git with --no-index. Listings (ls -R,
+# find without -exec, tree, du, stat) name files and stay allowed. Not covered: a copy read later
+# (`cp -r` is itself refused), interpreters walking a tree.
+RECURSIVE_ALWAYS = {"rg", "ag", "ack", "ack-grep", "ugrep", "ug", "pt", "sift", "tar", "gtar",
+                    "bsdtar", "ditto", "rsync", "cpio", "pax", "7z", "7za", "7zz", "scp", "rclone",
+                    "difft"}
+RECURSIVE_FLAG = {"grep": "rR", "egrep": "rR", "fgrep": "rR", "zgrep": "rR", "ggrep": "rR",
+                  "cp": "rRa", "gcp": "rRa", "diff": "rR", "colordiff": "rR", "zip": "rR"}
+RECURSIVE_LONG = ("--recursive", "--dereference-recursive", "--archive", "--recurse-paths",
+                  "--directories=recurse")
+XARGS_PIPE_RE = re.compile(r"\|\s*(?:\S*/)?xargs\b")
+
+
+def _recursive_read(words, text):
+    """The simple command (dequoted words) reads every file under a directory operand."""
+    for j, w in enumerate(words):
+        b, rest = _base(w), words[j + 1:]
+        if b in RECURSIVE_ALWAYS:
+            return True
+        if b in RECURSIVE_FLAG:
+            letters = RECURSIVE_FLAG[b]
+            for k, a in enumerate(rest):
+                if a in RECURSIVE_LONG or (a == "-d" and rest[k + 1:k + 2] == ["recurse"]) or (
+                        a[:1] == "-" and a[:2] != "--" and any(c in a[1:] for c in letters)):
+                    return True
+        if b == "find" and (any(a in EXEC_OPTS or a.startswith("-fprint") or a == "-fls"
+                                for a in rest) or XARGS_PIPE_RE.search(text)):
+            return True
+        if b in ("fd", "fdfind") and any(a in ("-x", "-X", "--exec", "--exec-batch")
+                                         or a.startswith("--exec") for a in rest):
+            return True
+        if b == "git" and "--no-index" in rest:
+            return True
+    return False
 
 
 def _dequote(text):
@@ -2463,13 +2617,17 @@ def shell_path_violation(command, cwd, paths, escalation=False):
     codex_named = ".codex" in text or "CODEX_HOME" in text or paths.codex_home in text
     all_write = escalation or _code_writes(text)
 
-    def check(token, write, where=None):
+    def check(token, write, where=None, recursive=False):
         cands = paths.expand(token, where or bases, assigns)
         base = os.path.basename(token.rstrip("/"))
         if base in CRED_NAMES or (base == "auth.json" and codex_named):
             return ("cred", token)
         for c in cands:
             if paths.credential(c, budget):
+                return ("cred", token)
+            if GLOB_CHARS_RE.search(c) and paths.glob_credential(c, recursive):
+                return ("cred", token)
+            if recursive and paths.holds_credential(c, budget):
                 return ("cred", token)
         if write and (PROTECTED_TEXT_RE.search(token) or any(paths.protected(c, budget)
                                                             for c in cands)):
@@ -2496,12 +2654,18 @@ def shell_path_violation(command, cwd, paths, escalation=False):
                 if found:
                     return found
         writes = all_write or _segment_writes(words)
+        recursive = _recursive_read(words, text)
+        if recursive:                          # `cd ~/.codex && rg x`: the cwd is an operand
+            for b in where:
+                if paths.holds_credential(b, budget):
+                    return ("cred", b)
         found = _git_dir_violation(words, check, in_root)
         if found:
             return found
         for w in words:
-            if in_root or _path_like(w) or (writes and PROTECTED_TEXT_RE.search(w)):
-                found = check(w, writes, where)
+            if in_root or _path_like(w) or (writes and PROTECTED_TEXT_RE.search(w)) or (
+                    recursive and w[:1] != "-"):
+                found = check(w, writes, where, recursive)
                 if found:
                     return found
     return None
@@ -2750,14 +2914,153 @@ def _real_roots(paths):
     return out
 
 
-def _ro_outputs(rest, names, cwd):
-    """An output option (--output FILE, -o FILE, --output=FILE) whose value is not scratch."""
+def _ro_outputs(rest, names, cwd, getopt=False):
+    """An output option whose value is not scratch: --output FILE, --output=FILE, -o FILE and the
+    attached short form -oFILE. getopt=True (the GNU-style plain tools: sort, shuf, iconv, tree,
+    ...) also reads -o inside a short cluster (-ro FILE, -roFILE) and any unique abbreviation of
+    --output (--out, --outp=FILE)."""
     for k, a in enumerate(rest):
         name, eq, val = a.partition("=")
-        if name in names:
-            value = val if eq else (rest[k + 1] if k + 1 < len(rest) else "")
-            if not _scratch(value, cwd):
-                return (a, "writes outside the scratch dirs")
+        nxt = rest[k + 1] if k + 1 < len(rest) else ""
+        value = None
+        if name in names or (getopt and _long_abbrev(name, "--output")):
+            value = val if eq else nxt
+        elif a[:1] == "-" and a[:2] != "--" and len(a) > 2:
+            if a[:2] in names:
+                value = a[2:]
+            elif getopt and "-o" in names and "o" in a[1:]:
+                value = a[a.index("o", 1) + 1:] or nxt
+        if value is not None and not _scratch(value, cwd):
+            return (a, "writes outside the scratch dirs")
+    return None
+
+
+def _long_abbrev(name, option, minimum=3):
+    """`name` is `option` or a getopt_long abbreviation of it (at least `minimum` characters)."""
+    return name[:2] == "--" and len(name) >= minimum and option.startswith(name)
+
+
+def _ro_by_path(word, cwd):
+    """A command word naming its program by path ("/" in it) is the named tool only in a system
+    bin dir or a project virtualenv/node_modules bin that is not scratch; anything else runs
+    whatever was written there (a scratch copy of /bin/sh named cat)."""
+    if re.search(r"[$`*?\[\]{}~\x00]", word):
+        return (word[:80], "names its program through a variable, ~ or a glob")
+    if not os.path.isabs(word) and not cwd:
+        return (word[:80], "runs a program by a relative path")
+    p = os.path.normpath(os.path.join(cwd or "/", word))
+    d = os.path.dirname(p)
+    if not (d in RO_SYSTEM_BIN or RO_VENV_BIN_RE.search(d)) or _scratch(d, cwd) \
+            or _scratch(real_path(d), cwd) or _scratch(real_path(p), cwd):
+        return (word[:80], "runs a program by path (only system and project tool dirs are "
+                           "allowed; run tools by name)")
+    return None
+
+
+def _ro_var_name(word):
+    """The variable a read/printf -v/declare name argument binds (PATH[0], 'PATH?prompt')."""
+    return re.split(r"[\[?]", word, maxsplit=1)[0]
+
+
+def _ro_binds(head, rest):
+    """hash -p, read, printf -v and declare -n bind a variable or a command path without an
+    assignment word: refused for the exec-relevant variables (and hash -p, declare -n always)."""
+    names = []
+    if head == "hash":
+        if any(a[:1] == "-" and a[:2] != "--" and "p" in a for a in rest):
+            return ("hash -p", "binds a command name to a program path")
+        return None
+    if head in ("declare", "typeset", "local") and any(
+            a[:1] == "-" and a[:2] != "--" and "n" in a for a in rest):
+        return ("%s -n" % head, "makes a name reference (it can set any variable)")
+    if head == "read":
+        for a in rest:
+            names.append(a[2:] if a[:1] == "-" and len(a) > 2 else a)
+    elif head == "printf":
+        for k, a in enumerate(rest):
+            if a == "-v" and k + 1 < len(rest):
+                names.append(rest[k + 1])
+            elif a.startswith("-v") and len(a) > 2:
+                names.append(a[2:])
+    for n in names:
+        name = _ro_var_name(n)
+        if RO_EXEC_VAR_RE.match(name) and name not in RO_SAFE_VARS:
+            return ("%s %s" % (head, n)[:80], "sets %s, which changes what programs run or load"
+                    % name)
+    return None
+
+
+def _ro_plain(head, word0, rest, cwd, depth):
+    """The plain readers' special cases: what runs code (trap, rg --pre, sort --compress-program,
+    a pager option), what writes (an output operand or option, mktemp outside scratch) and what
+    prints the whole environment (bare set)."""
+    bad = _ro_binds(head, rest)
+    if bad:
+        return bad
+    if head == "trap":
+        args = rest[1:] if rest[:1] == ["--"] else rest
+        code = args[0] if args and args[0] not in ("-", "-l", "-p") else ""
+        return readonly_violation(code, cwd, depth + 1) if code.strip() else None
+    if head == "set":
+        return None if rest and rest[0][:1] in "-+" else (
+            word0, "prints every shell variable (they can hold keys)")
+    if head == "sysctl" and any(a == "-w" or "=" in a for a in rest):
+        return (word0, "changes a kernel setting")
+    if head == "sort" and any(a.startswith("--co") for a in rest):
+        return ("sort --compress-program", "runs a compression program")
+    if head == "rg" and any(a.partition("=")[0] == "--pre" for a in rest):
+        return ("rg --pre", "runs a preprocessor command")
+    if head in RO_PAGER_HEADS and any(a.partition("=")[0] == "--pager" for a in rest):
+        return ("%s --pager" % word0, "runs a pager command")
+    if head == "mktemp":
+        return _ro_mktemp(rest, cwd)
+    if head in RO_OPERAND_VALUE_OPTS:
+        ops, k, opts = [], 0, RO_OPERAND_VALUE_OPTS[head]
+        while k < len(rest):
+            a = rest[k]
+            if a in opts:
+                k += 2
+                continue
+            if a[:1] != "-" or a == "-":
+                ops.append(a)
+            k += 1
+        if len(ops) >= 2 and not _scratch(ops[1], cwd):
+            return ("%s %s" % (word0, ops[1])[:80], "writes outside the scratch dirs")
+    if head in RO_OUT_OPTS_PLAIN:
+        return _ro_outputs(rest, RO_OUT_OPTS, cwd, getopt=True)
+    return None
+
+
+def _ro_mktemp(rest, cwd):
+    """mktemp creates its file in scratch only: no -p/--tmpdir outside scratch, and a template
+    holding "/" (or any template without -t/-p/--tmpdir, which is relative to cwd) is scratch."""
+    tdir, implied, temps, k = None, False, [], 0
+    while k < len(rest):
+        a = rest[k]
+        if a == "-p":
+            tdir, k = (rest[k + 1] if k + 1 < len(rest) else ""), k + 2
+            continue
+        if a.startswith("--tmpdir"):
+            tdir = a.partition("=")[2] or "$TMPDIR"
+        elif a[:1] == "-" and a[:2] != "--" and len(a) > 1:
+            if "t" in a:
+                implied = True
+            if "p" in a:
+                tail = a[a.index("p") + 1:]
+                if tail:
+                    tdir = tail
+                else:
+                    tdir, k = (rest[k + 1] if k + 1 < len(rest) else ""), k + 1
+        elif a[:1] != "-":
+            temps.append(a)
+        k += 1
+    if tdir is not None and not _scratch(tdir, cwd):
+        return ("mktemp " + tdir[:70], "creates a file outside the scratch dirs")
+    for t in temps:
+        if (implied or tdir is not None) and "/" not in t:
+            continue
+        if implied or not _scratch(t, cwd):    # -t TEMPLATE is relative to $TMPDIR: no "/"
+            return ("mktemp " + t[:70], "creates a file outside the scratch dirs")
     return None
 
 
@@ -2791,9 +3094,11 @@ def _ro_redirections(words, cwd):
     return out, None
 
 
-def _ro_unwrap(args):
+def _ro_unwrap(args, cwd=None):
     """Drop assignments, keywords and wrappers (time, nice, timeout, env, command, ...) in front of
-    a command: (the command words, None) or (None, violation)."""
+    a command: (the command words, None) or (None, violation). A wrapper named by path is checked
+    like any program by path; time's output file must be scratch; env with no command prints the
+    environment, and env -S runs a string the check does not split."""
     while args:
         w = args[0]
         if ASSIGN_RE.match(w):
@@ -2809,14 +3114,31 @@ def _ro_unwrap(args):
             return [], None                    # for/case/select headers: their words are data
         b = _base(w)
         if b in RO_WRAPPERS:
+            if "/" in w:
+                bad = _ro_by_path(w, cwd)
+                if bad:
+                    return None, bad
             opts, k = RO_WRAPPERS[b], 1
             while k < len(args) and (args[k][:1] == "-" or ASSIGN_RE.match(args[k])
                                      or (b in ("timeout", "gtimeout") and _duration(args[k]))):
-                if ASSIGN_RE.match(args[k]):
-                    bad = _ro_assign(args[k])
+                a = args[k]
+                if ASSIGN_RE.match(a):
+                    bad = _ro_assign(a)
                     if bad:
                         return None, bad
-                k += 2 if args[k] in opts else 1
+                name = a.partition("=")[0]
+                if b == "env" and (a.startswith("-S") or _long_abbrev(name, "--split-string")):
+                    return None, ("env " + a[:60], "runs a string the read-only check does "
+                                                   "not split (env -S)")
+                if b == "time" and (a.startswith("-o") or _long_abbrev(name, "--output")):
+                    val = a.partition("=")[2] if "=" in a else (
+                        a[2:] if a[:2] == "-o" and len(a) > 2 else
+                        (args[k + 1] if k + 1 < len(args) else ""))
+                    if not _scratch(val, cwd):
+                        return None, ("time " + a[:60], "writes outside the scratch dirs")
+                k += 2 if a in opts else 1
+            if b == "env" and k >= len(args):
+                return None, ("env", "prints the environment (it can hold keys)")
             args = args[k:]
             continue
         return args, None
@@ -2865,23 +3187,32 @@ def _ro_simple(words, cwd, depth):
     args, bad = _ro_redirections(words, cwd)
     if bad:
         return bad
-    args, bad = _ro_unwrap(args)
+    args, bad = _ro_unwrap(args, cwd)
     if bad or not args:
         return bad
     return _ro_command(_base(args[0]), args[0], args[1:], cwd, depth)
 
 
 def _ro_command(head, word0, rest, cwd, depth):
+    if "/" in word0:                           # every head: plain, find -exec, xargs, uv run, uvx
+        bad = _ro_by_path(word0, cwd)
+        if bad:
+            return bad
     if len(rest) == 1 and rest[0] in RO_VERSION_FLAGS:
         return None
     if head in RO_EXPORTS:
+        bad = _ro_binds(head, rest)
+        if bad:
+            return bad
+        if not [a for a in rest if a[:1] != "-"]:
+            return (word0, "prints variables (they can hold keys)") if head != "local" else None
         for a in rest:
             bad = _ro_assign(a) if ASSIGN_RE.match(a) else None
             if bad:
                 return bad
         return None
     if head in RO_PLAIN:
-        return _ro_outputs(rest, RO_OUT_OPTS, cwd) if head in RO_OUT_OPTS_PLAIN else None
+        return _ro_plain(head, word0, rest, cwd, depth)
     if head in RO_WRITERS:
         return _ro_writer(head, word0, rest, cwd)
     handler = RO_HANDLERS.get(head)
@@ -3045,9 +3376,19 @@ def _ro_git(head, word0, rest, cwd, depth):
     sub, args = rest[k], rest[k + 1:]
     if sub in RO_GIT_READ:
         for a in args:
-            if a == "-O" or a.startswith("--open-files-in-pager") or a.startswith("--ext-diff"):
-                return ("git %s %s" % (sub, a), "runs another program")
-        return _ro_outputs(args, {"--output"}, cwd)
+            # -O<cmd> attached, --open-files-in-pager / --ext-diff by any abbreviation (git takes
+            # unique prefixes), ls-remote's --upload-pack/--exec/-u<cmd>
+            if a.startswith("-O") or a.startswith("--op") or a.startswith("--ext") or (
+                    sub == "ls-remote" and (a.startswith("-u") or a.startswith("--up")
+                                            or a.startswith("--exe"))):
+                return ("git %s %s" % (sub, a[:60]), "runs another program")
+        for k, a in enumerate(args):
+            name, eq, val = a.partition("=")
+            if _long_abbrev(name, "--output", 4):
+                value = val if eq else (args[k + 1] if k + 1 < len(args) else "")
+                if not _scratch(value, cwd):
+                    return ("git %s %s" % (sub, a[:60]), "writes outside the scratch dirs")
+        return None
     if sub in RO_FIRST_WORD:
         if not args:
             return None if sub in RO_GIT_BARE_OK else ("git " + sub, "changes the repository")
