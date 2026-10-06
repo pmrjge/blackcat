@@ -22,6 +22,9 @@ An agent row whose `model` (v3) is set and is not its type's frontmatter model (
 /override-agent run, which is that session's only) is no evidence for the type, its pool or the
 prompt windows it ran in; v1/v2 rows and an empty model (unknown) count as before. Rows are never
 rewritten: the filter is at read time, and proposals.json counts the rows it skipped.
+An agent row with `eq_run` (the collector copies it from the guard's registry record of an
+equilibrium leader or member: they run with a brief shape and caps no ordinary run has) is no
+evidence either, counted apart (eq_run).
 
 Files under ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/limits/ (0700):
   live.json                    learned values, replaced atomically; written only by
@@ -118,6 +121,7 @@ STATUSES = ("supported", "provisional", "pooled", "unset")
 ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}\Z")
 TYPE_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:-]{0,79}\Z")
 HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
+EQ_RUN_RE = re.compile(r"^[0-9a-f]{8}\Z")                                  # stack_usage.EQ_RUN_RE
 HEX64_RE = re.compile(r"^[0-9a-f]{64}\Z")
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 MODEL_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.:@/\[\]-]{0,127}\Z")     # stack_usage.MODEL_RE
@@ -705,6 +709,8 @@ def parse_row(r):
     row["src"] = "seed_v1" if sv == "1" else (src if src in ("measured", "seed_v1") else "measured")
     mdl = (r.get("model") or "").strip() if sv == "3" else ""
     row["model"] = mdl if MODEL_RE.match(mdl) else None      # None: unknown (v1/v2, unmeasured, invalid)
+    eqr = (r.get("eq_run") or "").strip() if sv == "3" else ""
+    row["eq_run"] = eqr if EQ_RUN_RE.match(eqr) else None   # None: not an equilibrium agent's row
     if aid == "session":
         row["scope"], row["type"] = "session", "blackcat"
     elif aid == "main" or row["is_main"] == 1:
@@ -756,7 +762,7 @@ def read_rows(paths=None, models=None):
     (an older collector stopped mid-session by the upgrade hand-off, or a resumed session whose last
     collector idled out) and its ctx is no whole session's."""
     rows, stats = {}, {"read": 0, "dropped": 0, "truncated": False, "errors": 0, "model_mismatch": 0,
-                       "stale_session": 0}
+                       "eq_run": 0, "stale_session": 0}
     for p in csv_paths() if paths is None else paths:
         try:
             with open(p, encoding="utf-8", errors="replace", newline="") as fh:
@@ -779,6 +785,9 @@ def read_rows(paths=None, models=None):
     models = agent_models() if models is None else models
     out = [r for r in rows.values() if r["scope"] != "agent" or not model_mismatch(models, r["type"], r["model"])]
     stats["model_mismatch"] = len(rows) - len(out)
+    n = len(out)
+    out = [r for r in out if r["scope"] != "agent" or r["eq_run"] is None]      # equilibrium runs: no evidence
+    stats["eq_run"] = n - len(out)
     newest = {}
     for r in rows.values():
         if r["scope"] != "session":
@@ -937,7 +946,7 @@ def build_proposals(seed, paths=None, regime=None, live=None, now=None, models=N
     return {"schema_version": SCHEMA, "generated": iso(now), "evidence_id": eid,
             "rows_upto": max([r["ts"] for r in rows] or [0]), "rows": len(rows),
             "dropped": stats["dropped"], "model_mismatch": stats["model_mismatch"],
-            "stale_session": stats["stale_session"], "truncated": stats["truncated"], "regime": regime,
+            "eq_run": stats["eq_run"], "stale_session": stats["stale_session"], "truncated": stats["truncated"], "regime": regime,
             "fingerprint": fingerprint(paths), "vars": V, "pools": P}
 
 

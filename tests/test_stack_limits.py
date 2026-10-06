@@ -1426,3 +1426,26 @@ def test_id_regexes_reject_a_trailing_newline():
     for rx, ok in good:
         assert rx.match(ok), rx.pattern
         assert not rx.match(ok + "\n"), rx.pattern
+
+
+def test_eq_run_rows_are_no_evidence_while_identical_ordinary_rows_are(st):
+    """An equilibrium leader or member row (eq_run, copied by the collector) is skipped like an
+    overridden run's, for its type and for the prompt windows it ran in; an identical row without it counts."""
+    v3 = V2_COLUMNS + ["model", "eq_run", "eq_role"]
+    r3 = (lambda *a, **kw: dict(row(*a, regime="", **kw), schema_version=3))
+    rows = [r3(f"s{i}", f"plain{i}", typ="scout", ctx=3.3e5 + 1e4 * i) for i in range(4)] + [
+            r3("s1", "lead", typ="scout", ctx=9e6, eq_run="0a1b2c3d", eq_role="leader"),
+            r3("s1", "mem", typ="scout", ctx=9e6, eq_run="0a1b2c3d", eq_role="member"),
+            r3("s1", "bad", typ="scout", ctx=3.4e5, eq_run="nothex!!", eq_role="member"),   # invalid: ordinary
+            r3("s1", "main", typ="blackcat", seg=0, ctx="", window_ctx=5e7, is_main=1, eq_run="0a1b2c3d")]
+    write_csv(st / "usage" / "runs3.csv", rows, v3)
+    got, stats = L.read_rows()
+    assert {r["id"] for r in got} == {"plain0", "plain1", "plain2", "plain3", "bad", "main"} and stats["eq_run"] == 2
+    assert stats["model_mismatch"] == 0
+    doc = L.build_proposals(L.load_seed())
+    assert doc["eq_run"] == 2 and doc["vars"]["soft.agent.scout"]["n"] == 5
+    assert max(doc["vars"]["soft.agent.scout"]["x"]) < 1e6
+                                                                       # a file without the column: all count
+    write_csv(st / "usage" / "runs3.csv", rows, V2_COLUMNS + ["model"])
+    got, stats = L.read_rows()
+    assert len(got) == 8 and stats["eq_run"] == 0

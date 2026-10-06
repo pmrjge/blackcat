@@ -110,10 +110,11 @@ COLUMNS_V2 = (COLUMNS_V1
               + ["status_code"] + HIT_COLS + ["sess_src", "snap", "regime", "is_main", "window_ctx"]   # S6
               + ["task", "stack_commit", "src"])                                                 # U
 COLUMNS_V3 = COLUMNS_V2 + ["model"]
-COLUMNS = COLUMNS_V3
+EQ_COLS = ["eq_run", "eq_role"]     # an equilibrium agent's run and role (guard registry): schema 3 stays, the
+COLUMNS = COLUMNS_V3 + EQ_COLS      # two cells are empty for every other agent and in rows written before them
 EMPTY_ROW = {c: "" for c in COLUMNS}         # an unmeasured field is an empty cell, never 0
 STRING_COLUMNS = ("session", "id", "type", "status", "parent", "node", "sess_src", "snap", "regime", "task",
-                  "stack_commit", "src", "model")      # every other column is a number (or empty)
+                  "stack_commit", "src", "model", "eq_run", "eq_role")      # every other column is a number (or empty)
 REQUIRED_STRINGS = STRING_COLUMNS[:4]         # a row with an invalid one is neither written nor read
 OPTIONAL_STRINGS = STRING_COLUMNS[4:]         # validated; an invalid or unmeasurable value is an empty cell
 TOOL_MAP = {"Read": "n_read", "Write": "n_write", "Edit": "n_edit", "MultiEdit": "n_edit",
@@ -150,6 +151,8 @@ NODE_RE = re.compile(r"^[A-Z]{1,3}[0-9]{1,3}[a-z]?\Z")
 # or the end: "P10 v2 run", "P10: run" (the reference collector's ^\s*(P\d{2,3})\b, for every node id)
 NODE_HEAD_RE = re.compile(r"^\s*([A-Z]{1,3}[0-9]{1,3}[a-z]?)(?![A-Za-z0-9_])")
 HEX16_RE = re.compile(r"^[0-9a-f]{16}\Z")
+EQ_RUN_RE = re.compile(r"^[0-9a-f]{8}\Z")
+EQ_ROLES = ("leader", "member")
 COMMIT_HEX_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 TASK_RE = re.compile(r"^[A-Za-z][A-Za-z -]{0,59}\Z")
 TASK_WORD_RE = re.compile(r"[A-Za-z][A-Za-z-]{0,23}\Z")
@@ -668,6 +671,17 @@ def load_windows(gdir):
     return out
 
 
+def eq_cells(gdir, aid):
+    """{eq_run, eq_role} from the guard's registry record of the agent (<gdir>/agents/<id>.json), empty
+    cells for any other agent, a missing record or an invalid value."""
+    rec = read_json(os.path.join(gdir, "agents", re.sub(r"[^A-Za-z0-9_-]", "_", aid)[:128] + ".json"))
+    run = rec.get("eq_run") if isinstance(rec, dict) else None
+    if not (isinstance(run, str) and EQ_RUN_RE.match(run)):
+        return {"eq_run": "", "eq_role": ""}
+    role = rec.get("eq_role")
+    return {"eq_run": run, "eq_role": role if role in EQ_ROLES else ""}
+
+
 def hit_cover(sid, hits):
     """The epoch from which the session's limit firings are on record, or None (nothing measured).
     The guard that writes limit-hits.jsonl is the one that creates the session's limits snapshot (at
@@ -916,6 +930,7 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
             out.append(cr)
         atype = a["type"] or UNKNOWN_TYPE
         mt = a["meta"] or {}
+        eq = eq_cells(gdir, aid)
         for vals in out:
             fts, lts = vals["first_ts"], vals["last_ts"]
             span(vals)
@@ -924,7 +939,7 @@ def scan(st, sid, folder, final=False, now=None, commit=None):
                 and vals["files_written_repo"] + vals["git_commits"] > 0)
             win = max(0, bisect_right(humans, [fts, "￿"]) - 1) if humans and fts != "" else ""
             extra = dict(hit_cells(hits, aid, fts, lts, cover), ro_write=ro, parent=mt.get("parent", ""),
-                         depth=mt.get("depth", ""), node=mt.get("node", ""), task=mt.get("task", ""), window=win)
+                         depth=mt.get("depth", ""), node=mt.get("node", ""), task=mt.get("task", ""), window=win, **eq)
             emit(a, aid, atype, vals, extra)
         trim(a)
 
@@ -1035,12 +1050,22 @@ def file_schemas(path):
 
 
 def _header_ok(path):
-    """Whether the file's first line is COLUMNS' header (bytes: a bad byte further down is no error)."""
+    """Whether the file's first line is COLUMNS' header or the one before the eq_* columns (bytes: a
+    bad byte further down is no error)."""
+    return _header_of(path) in (COLUMNS, COLUMNS_V3)
+
+
+def _header_of(path):
+    """The file's header as COLUMNS or COLUMNS_V3 when it is one of them, else None (also unreadable)."""
     try:
         with open(path, "rb") as fh:
-            return fh.readline(1 << 16).rstrip(b"\r\n") == ",".join(COLUMNS).encode("ascii")
+            line = fh.readline(1 << 16).rstrip(b"\r\n")
     except OSError:
-        return False
+        return None
+    for cols in (COLUMNS, COLUMNS_V3):
+        if line == ",".join(cols).encode("ascii"):
+            return cols
+    return None
 
 
 ARCHIVE_FACTOR = 4        # runs3.1.csv keeps at most this many times STACK_USAGE_MAX_BYTES
@@ -1086,7 +1111,8 @@ def _rotate_if_needed(cur, old):
     if size and not _header_ok(cur):
         _set_aside(cur)
         return
-    if cap <= 0 or size <= cap:
+    legacy = size and _header_of(cur) == COLUMNS_V3      # no eq_* columns: merged now, the new file has them
+    if cap <= 0 or (size <= cap and not legacy):
         return
     if os.path.lexists(old) and not _header_ok(old):
         _set_aside(old, "unreadable")    # its rows would read as none: never replace it by runs3.csv's
@@ -1149,6 +1175,10 @@ def valid_cell(col, v):
         return bool(TASK_RE.match(v))
     if col == "model":
         return bool(MODEL_RE.match(v))
+    if col == "eq_run":
+        return bool(EQ_RUN_RE.match(v))
+    if col == "eq_role":
+        return v in EQ_ROLES
     return True
 
 
@@ -1167,7 +1197,8 @@ def append_rows(rows):
         _rotate_if_needed(cur, old)
         new = not os.path.exists(cur) or os.path.getsize(cur) == 0
         buf = io.StringIO()
-        w = csv.DictWriter(buf, fieldnames=COLUMNS, extrasaction="ignore", lineterminator="\n")
+        cols = COLUMNS if new else (_header_of(cur) or COLUMNS)    # a legacy file kept by cap <= 0 stays legacy
+        w = csv.DictWriter(buf, fieldnames=cols, extrasaction="ignore", lineterminator="\n")
         if new:
             w.writeheader()
         for r in rows:
