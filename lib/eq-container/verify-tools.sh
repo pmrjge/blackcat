@@ -5,7 +5,8 @@
 #   --select     image names instead of profiles (build.sh checks exactly the images it is about to build)
 #   --manifest   (default) static checks of the manifest, no container: structure and enumerations, unique names, class/profile
 #                allowlists of every image, https-only urls, in-repo files hash to their sha256, PINS agree for lean uv python
-#                busybox. A PLACEHOLDER in a selected profile's tools is "pending" (exit 13), never an invented value.
+#                busybox. A PLACEHOLDER in a selected profile's tools (version url sha256 checksum_source linkage provenance
+#                archive: a pin is resolved only with its source) is "pending" (exit 13), never an invented value.
 #   --images     container (read-only): per image of the profiles: build record, digest, label eq.tools.sha256 equal to the hash of
 #                the CURRENT manifest entries (a changed entry = stale image), /opt/eq/TOOLS.lock read from the image saved with
 #                `container image save` (nothing is started) equal to the manifest (every listed tool, no undeclared one).
@@ -49,7 +50,7 @@ PROBLEMS=0; PENDING=0
 problem() { echo "PROBLEM $*"; PROBLEMS=$((PROBLEMS + 1)); }
 pending() { echo "PENDING $*"; PENDING=$((PENDING + 1)); }
 note() { echo "NOTE $*"; }
-is_hex64() { case "$1" in *[!0-9a-f]*|"") return 1;; esac; [ ${#1} = 64 ]; }
+is_hex64() { tm_is_hex64 "$1"; }   # tools.sh: literal character lists, never a locale-dependent range
 in_list() { case " $2 " in *" $1 "*) return 0;; esac; return 1; }   # word list membership
 
 KNOWN_CLASSES="PF CP CR ES RS DS OE EXT"
@@ -169,9 +170,9 @@ check_manifest() {
   for t in $sel_tools; do
     case " $names " in *" $t "*) continue;; esac
     names="$names $t"
-    for k in version url sha256 linkage provenance archive; do
+    for k in version url sha256 checksum_source linkage provenance archive; do
       pv=$(tm_get tool "$t" "$k")
-      [ "$pv" != PLACEHOLDER ] || pending "tool $t: $k is PLACEHOLDER (pending TOOLCHAINS.md or a resolve step: build.sh --resolve-tools --write-pin)"
+      [ "$pv" != PLACEHOLDER ] || pending "tool $t: $k is PLACEHOLDER (pending TOOLCHAINS.md; a distro package: distro-pins.sh for busybox bash perl jq, else build.sh --resolve-tools --write-pin)"
     done
     [ "$(tm_get tool "$t" licence)" != PLACEHOLDER ] || note "tool $t: licence not recorded yet"
   done
@@ -299,7 +300,7 @@ EOF
 # an unprivileged user, no EXPOSEd port, no VOLUME, no ENTRYPOINT or HEALTHCHECK baked in, no secret-like variable name, PATH inside
 # /opt and /usr only.
 run_inspect() {
-  local n tag v bad=0 st why cfg
+  local n tag v bad=0 st why cfg pth
   eq_need_container
   for n in $SEL_IMAGES; do
     tag=$(eq_img_tag "$n")
@@ -313,7 +314,8 @@ run_inspect() {
     v=$(cfg_get "$cfg" Healthcheck); [ -z "$v" ] || { st=FAIL; why="$why HEALTHCHECK baked in;"; }
     v=$(cfg_get "$cfg" Env)
     if printf '%s\n' "$v" | cut -d= -f1 | grep -qiE 'token|secret|passw|credential|api_?key|anthropic|aws_|github'; then st=FAIL; why="$why secret-like variable name in ENV;"; fi
-    case "$(printf '%s\n' "$v" | sed -n 's/^PATH=//p' | head -n 1)" in "") ;; *[!a-zA-Z0-9/_.:-]*) st=FAIL; why="$why odd characters in PATH;";; esac
+    pth=$(printf '%s\n' "$v" | sed -n 's/^PATH=//p' | head -n 1)
+    [ -z "$pth" ] || tm_only "$pth" "$TM_LOWER$TM_UPPER$TM_DIGITS/_.:-" || { st=FAIL; why="$why odd characters in PATH;"; }
     if printf '%s\n' "$v" | sed -n 's/^PATH=//p' | tr ':' '\n' | grep -vE '^/(opt|usr)(/|$)' | grep -q .; then st=FAIL; why="$why PATH leaves /opt and /usr;"; fi
     printf 'INSPECT %-10s %-7s %s\n' "$n" "$st" "$why"
     [ "$st" = ok ] || bad=1

@@ -165,7 +165,7 @@ cmd_install() {
     0) ;;
     2) skip "the build was not started (no terminal to ask on and no --yes, or an options/pins mismatch: see $EQ_STATE_DIR/logs/build.log)" "re-run with --yes";;
     10) skip "the container services became unavailable during the build";;
-    13) write_status failed "unresolved pin"; warn "a pin in PINS or TOOLS.toml is still a placeholder (see above): bash lib/eq-container/build.sh --resolve-tools --write-pin"; exit 13;;
+    13) write_status failed "unresolved pin"; warn "a pin in PINS or TOOLS.toml is still a placeholder (see above): bash lib/eq-container/distro-pins.sh from a normal terminal prints the verified values (README.md)"; exit 13;;
     *) write_status failed "build failed (rc $rc)"; warn "build failed (rc $rc); log: $EQ_STATE_DIR/logs/build.log"; exit 12;;
   esac
   local refs prev probe=skipped checks

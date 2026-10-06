@@ -20,6 +20,15 @@
 #   tm_image_hash IMAGE               sha256 of the canonical text of the image row and of every tool row it lists (the label
 #                                     eq.tools.sha256 build.sh puts on the image; verify-tools.sh compares it)
 #   tm_sha256_stdin                   sha256 of stdin
+#   tm_only STRING SET                0 when STRING is non-empty and every character is in SET, a literal list (no ], \ or !).
+#                                     Never a range: bash 3.2 matches [a-f] by the locale's collation, so under en_US.UTF-8
+#                                     `*[!0-9a-f]*` let A-E through. TM_HEX, TM_DIGITS, TM_LOWER, TM_UPPER are such lists.
+#   tm_is_hex64 STRING                64 lowercase hex digits
+# shellcheck disable=SC2034  # read by the scripts that source this file
+TM_HEX=0123456789abcdef
+TM_DIGITS=0123456789
+TM_LOWER=abcdefghijklmnopqrstuvwxyz
+TM_UPPER=ABCDEFGHIJKLMNOPQRSTUVWXYZ
 TM_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd -P)
 TM_FILE=""
 TM_TSV=""
@@ -29,6 +38,9 @@ tm_sha256_stdin() {
   elif command -v sha256sum >/dev/null 2>&1; then sha256sum | cut -d' ' -f1
   else echo "tools.sh: neither shasum nor sha256sum found" >&2; return 1; fi
 }
+
+tm_only() { case "$1" in ""|*[!"$2"]*) return 1;; esac; }
+tm_is_hex64() { tm_only "$1" "$TM_HEX" && [ "${#1}" = 64 ]; }
 
 tm_awk_program() {
   cat <<'AWK'

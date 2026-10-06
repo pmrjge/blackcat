@@ -15,6 +15,16 @@
 BASE_IMAGE=debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
 # apt packages come from snapshot.debian.org at the base image's build date (apt verifies the signed InRelease)
 APT_SNAPSHOT=20260918T000000Z
+# The arm64 layer of BASE_IMAGE, read by distro-pins.sh only (bash and perl come from it; so does the Debian archive keyring that
+# verifies the snapshot's InRelease); no build reads these two keys. Chain, read and recomputed 2026-10-06 by an agent:
+# repo-info (above) lists for the index a99cfc51... the arm64 v8 manifest da496358bd69... with ONE layer sha256:bd36565c... of
+# 30189691 bytes, built 2026-09-18 by `debian.sh --arch 'arm64' out/ 'trixie' '@1789689600'` (= 20260918T000000Z, the snapshot
+# above); docker-library/official-images c7e58ea9 library/debian (2026-09-18, tags trixie-slim, trixie-20260918-slim, 13.7-slim)
+# builds arm64v8 from debuerreotype/docker-debian-artifacts commit ca011a8b1c3b259e4cbbf83bf6841f1fd5f497c1, trixie/slim/oci;
+# there, blobs/image-manifest.json hashes to da496358bd69... and blobs/rootfs.tar.gz (the URL below) to the layer digest below.
+# Re-pin together with BASE_IMAGE: the same three sources at the new image's date.
+BASE_LAYER_URL=https://raw.githubusercontent.com/debuerreotype/docker-debian-artifacts/ca011a8b1c3b259e4cbbf83bf6841f1fd5f497c1/trixie/slim/oci/blobs/rootfs.tar.gz
+BASE_LAYER_SHA256=bd36565c0fdebaf0f3af5c3b4ce610ca085ced32e9e9da850d95912f5f18f47b
 # Lean: GitHub release asset digest (api.github.com/repos/leanprover/lean4/releases/tags/v4.34.1) AND shasum of a full local
 # download of lean-4.34.1-linux_aarch64.tar.zst (581946052 bytes), equal.
 LEAN_VERSION=4.34.1
@@ -30,8 +40,10 @@ PYTHON_SHA256=4395ae16388f9d3409cba7e20161753ed3359b13d959345415029f874f675162
 # Mathlib: tag v4.34.1 = commit d13f23b7 (GitHub API git/ref/tags/v4.34.1); the lake-manifest.json in project/ pins the
 # 9 packages (project/SHA256SUMS covers the Lake files). The cache download is verified by lake/Mathlib's own hashes.
 MATHLIB_REV=d13f23b723b8a846827a245b89c10fc7d3f11612
-# busybox-static from the apt snapshot above (USER decision 2026-10-05: the Debian package). NOT looked up (Debian mirrors and
-# busybox.net unreachable from the agent): the sha256 of the arm64 binary is trust-on-first-use. Fill with:
-#   bash lib/eq-container/build.sh --resolve-tools --write-pin   then review the printed Debian package versions, and commit.
+# busybox-static from the apt snapshot above (USER decision 2026-10-05: the Debian package): the sha256 of the installed
+# /usr/bin/busybox (equal to TOOLS.toml busybox sha256). NOT filled: snapshot.debian.org is outside the agent's sandbox
+# (2026-10-06; the snapshot pool lists busybox-static_1.37.0-6+b9_arm64.deb, the trixie version, unverified until derived).
+# Fill with the verified value from a normal terminal:   bash lib/eq-container/distro-pins.sh   (InRelease signature, index and
+# .deb hashes checked; see its header), cross-checked by   bash lib/eq-container/build.sh --resolve-tools   (the builder's apt).
 # Needed only by the minimal images (the default `core` profile), so until it is filled `core` stops at exit 13.
 BUSYBOX_SHA256=UNSET

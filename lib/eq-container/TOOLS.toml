@@ -20,8 +20,9 @@
 #   url          https download of the archive (http, credentials and non-https redirects are refused), or file:<path in this
 #                directory> for an in-repo script, or apt:<package> for a distro-package copied out of a discarded builder stage.
 #   sha256       64 hex of the archive the url returns (prebuilt-upstream, built-from-source: of the source tarball); of the
-#                installed file for distro-package (trust on first use: build.sh --resolve-tools --write-pin); of the file for
-#                in-repo (verify-tools.sh recomputes it); "n/a" only for role build-only.
+#                installed file for distro-package (derived with every hash checked by distro-pins.sh; build.sh --resolve-tools
+#                --write-pin is the trust-on-first-use alternative); of the file for in-repo (verify-tools.sh recomputes it);
+#                "n/a" only for role build-only.
 #   checksum_source  where the hash was checked against upstream (checksum file, signature, release API) or PLACEHOLDER.
 #   linkage      static | dynamic (dynamic: ldd-resolved libraries are copied by mkrootfs; the build fails on an unresolved one).
 #                Where upstream does not say which, the entry says dynamic (the conservative choice: a static binary just has an
@@ -46,7 +47,8 @@
 # Values below were read from upstream on 2026-10-05 by the researcher and recorded in TOOLCHAINS.md (eq-toolchains/); each entry's
 # checksum_source says which upstream file the sha256 came from. No binary was downloaded by that pass, so every pin below is a hash
 # of a file nobody here has built into an image yet: the first build verifies it (a mismatch stops the build). The core entries (lean,
-# uv, python, lake-shim) keep the values PINS records (dated there), which PINS and build.sh --check keep in agreement.
+# uv, python, lake-shim) keep the values PINS records (dated there), which PINS and build.sh --check keep in agreement. bash and perl
+# (2026-10-06) were hashed from the downloaded base-image layer itself (checksum_source); busybox and jq wait for distro-pins.sh.
 
 # ===================================================================================================== core tools
 [[tool]]
@@ -119,7 +121,7 @@ role = "runtime"
 classes = ["PF", "CP", "CR"]
 profiles = ["core"]
 licence = "PLACEHOLDER"
-notes = "USER decision 2026-10-05: the Debian package from the pinned snapshot (distro-package; sha256 trust on first use: build.sh --resolve-tools --write-pin). busybox.net has no current official arm64 binary (newest official binaries 1.35.0 i686 and x86_64 musl; the 2019 multiarch set has only busybox-armv8l, the 32-bit userland name). Built-from-source alternative: https://busybox.net/downloads/busybox-1.38.0.tar.bz2 (1.38.0 is listed unstable, 1.36.1 is the newest stable), checksum or signature file not read, so PLACEHOLDER. GPL-2.0-only (unverified)"
+notes = "USER decision 2026-10-05: the Debian package from the pinned snapshot (distro-package). Not derived yet: snapshot.debian.org is outside the agent sandbox (2026-10-06); its pool lists busybox-static_1.37.0-6+b9_arm64.deb, unverified as the trixie version until bash distro-pins.sh derives it (with BUSYBOX_SHA256 in PINS). busybox.net has no current official arm64 binary (newest official binaries 1.35.0 i686 and x86_64 musl; the 2019 multiarch set has only busybox-armv8l, the 32-bit userland name). Built-from-source alternative: https://busybox.net/downloads/busybox-1.38.0.tar.bz2 (1.38.0 is listed unstable, 1.36.1 is the newest stable), checksum or signature file not read, so PLACEHOLDER. GPL-2.0-only (unverified)"
 dest = "/usr/bin"
 archive = "binary"
 files = ["/usr/bin/busybox"]
@@ -127,17 +129,17 @@ smoke = ["busybox", "true"]
 
 [[tool]]
 name = "bash"
-version = "PLACEHOLDER"
+version = "5.2.37-2+b10"
 url = "apt:bash"
-sha256 = "PLACEHOLDER"
-checksum_source = "PLACEHOLDER"
+sha256 = "ccbd5106945d1095474e5ee47317266f5918aa37fc671829192a007918b1413a"
+checksum_source = "/usr/bin/bash of the arm64 layer sha256:bd36565c0fdebaf0f3af5c3b4ce610ca085ced32e9e9da850d95912f5f18f47b of BASE_IMAGE (PINS BASE_LAYER_URL: debuerreotype docker-debian-artifacts ca011a8b, trixie/slim/oci/blobs/rootfs.tar.gz; layer and manifest da496358 hashes recomputed), version from its var/lib/dpkg/status, md5 equal to its dpkg bash.md5sums; read 2026-10-06 by an agent; distro-pins.sh re-derives it"
 linkage = "dynamic"
 provenance = "distro-package"
 role = "runtime"
 classes = ["PF", "CP", "CR"]
 profiles = ["core"]
-licence = "PLACEHOLDER"
-notes = "USER decision 2026-10-05: the Debian package from the pinned snapshot (distro-package; sha256 trust on first use: build.sh --resolve-tools --write-pin). check_lean.sh (hash-frozen) needs bash. GNU publishes no binary. Built-from-source alternative: https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz plus patches bash53-001 to bash53-020 (https://ftp.gnu.org/gnu/bash/bash-5.3-patches/), GPG .sig per file and no sha256 file, so PLACEHOLDER. GPL-3.0-or-later (unverified)"
+licence = "GPL-3.0-or-later"
+notes = "USER decision 2026-10-05: the Debian package (distro-package). The builder takes bash from the base image (Debian 13.7, built from the snapshot of APT_SNAPSHOT plus trixie-updates and trixie-security), not from an apt install, so the pin is the base image's file. check_lean.sh (hash-frozen) needs bash. Licence: Files: * of /usr/share/doc/bash/copyright in the same layer (GPL-3+). GNU publishes no binary. Built-from-source alternative: https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz plus patches bash53-001 to bash53-020 (https://ftp.gnu.org/gnu/bash/bash-5.3-patches/), GPG .sig per file and no sha256 file"
 dest = "/usr/bin"
 archive = "binary"
 files = ["/usr/bin/bash"]
@@ -145,17 +147,17 @@ smoke = ["bash", "--version"]
 
 [[tool]]
 name = "perl"
-version = "PLACEHOLDER"
+version = "5.40.1-6+deb13u1"
 url = "apt:perl-base"
-sha256 = "PLACEHOLDER"
-checksum_source = "PLACEHOLDER"
+sha256 = "b37d5994e1790b1901d23e3939278de303de0eec57b181da0d1ff3f5ca54f3bb"
+checksum_source = "/usr/bin/perl of the arm64 layer sha256:bd36565c0fdebaf0f3af5c3b4ce610ca085ced32e9e9da850d95912f5f18f47b of BASE_IMAGE (PINS BASE_LAYER_URL: debuerreotype docker-debian-artifacts ca011a8b, trixie/slim/oci/blobs/rootfs.tar.gz; layer and manifest da496358 hashes recomputed), version from its var/lib/dpkg/status, md5 equal to its dpkg perl-base.md5sums; read 2026-10-06 by an agent; distro-pins.sh re-derives it"
 linkage = "dynamic"
 provenance = "distro-package"
 role = "runtime"
 classes = ["PF"]
 profiles = ["core"]
 licence = "Artistic-1.0-Perl OR GPL-1.0-or-later"
-notes = "USER decision 2026-10-05: the Debian package from the pinned snapshot (distro-package; sha256 trust on first use: build.sh --resolve-tools --write-pin). check_lean.sh needs perl. cpan.org publishes no binary. Built-from-source alternative: https://www.cpan.org/src/5.0/perl-5.44.0.tar.gz, sha256 3b855066b92491cb40e86affb1ca57d1a388aa43e51b91c7806a32c2f65f96c3 from perl-5.44.0.tar.gz.sha256.txt (read 2026-10-05). The licence is upstream's; the Debian perl-base package is not separately checked"
+notes = "USER decision 2026-10-05: the Debian package (distro-package). The builder takes perl (perl-base) from the base image, not from an apt install, so the pin is the base image's file (/usr/bin/perl5.40.1 is a hard link to it). check_lean.sh needs perl. cpan.org publishes no binary. Built-from-source alternative: https://www.cpan.org/src/5.0/perl-5.44.0.tar.gz, sha256 3b855066b92491cb40e86affb1ca57d1a388aa43e51b91c7806a32c2f65f96c3 from perl-5.44.0.tar.gz.sha256.txt (read 2026-10-05). The licence is upstream's; the Debian perl-base package is not separately checked"
 dest = "/usr/bin"
 archive = "binary"
 files = ["/usr/bin/perl"]
@@ -173,7 +175,7 @@ role = "selftest"
 classes = ["PF", "CP", "CR"]
 profiles = ["core"]
 licence = "MIT"
-notes = "USER decision 2026-10-05: the Debian package from the pinned snapshot (distro-package; sha256 trust on first use: build.sh --resolve-tools --write-pin). An official STATIC arm64 binary exists (TOOLCHAINS.md): https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-arm64 sha256 8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309 from sha256sum.txt (jq 1.8.2, 2026-06-20). Switching to it means prebuilt-upstream, archive binary, linkage static and a path in minimal/mkrootfs.sh that installs it instead of the Debian jq; not done here because it changes the check images and needs a build to verify"
+notes = "USER decision 2026-10-05: the Debian package from the pinned snapshot (distro-package). Not derived yet: snapshot.debian.org is outside the agent sandbox (2026-10-06); its pool lists jq_1.7.1-6+deb13u3_arm64.deb, unverified as the trixie version until bash distro-pins.sh derives it. An official STATIC arm64 binary exists (TOOLCHAINS.md): https://github.com/jqlang/jq/releases/download/jq-1.8.2/jq-linux-arm64 sha256 8b85c817833814ddca00a144c33705546355afccf0cf39b188f3cdb48b852309 from sha256sum.txt (jq 1.8.2, 2026-06-20). Switching to it means prebuilt-upstream, archive binary, linkage static and a path in minimal/mkrootfs.sh that installs it instead of the Debian jq; not done here because it changes the check images and needs a build to verify"
 dest = "/usr/bin"
 archive = "binary"
 files = ["/usr/bin/jq"]

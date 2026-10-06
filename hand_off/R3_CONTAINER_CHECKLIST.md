@@ -28,6 +28,20 @@ Docs are not behaviour: every item below stays [unverified] until its command pr
 | C12 | `container run --rm eq.invalid/none:x true; echo rc=$?` | rc!=0 quickly, an image-not-found/resolve error, no pull from a registry | the `eq.invalid/` image names (`lib.sh`, `install.sh` eq_image_ref_ok) |
 | C13 | `container --version \| head -n 1` | one line naming 1.5.0 | `build.sh` EQ_CONTAINER_VERSION record (informational) |
 
+## Pins and real image builds (branch `eq-pins`, 2026-10-06)
+
+The agent pinned bash and perl from the downloaded base-image layer. busybox (`BUSYBOX_SHA256`) and jq still hold placeholders:
+snapshot.debian.org is outside the agent's sandbox. Run these from the repository root in a normal terminal, in order. C14 needs
+curl, gpgv, xz and ar (`brew install gnupg xz`; `ar` comes with the Xcode command line tools) and no container. C15-C17 need
+`container system start` and download several GB. Nothing here pushes, and the builds write only `~/.local/state/claude-agent-stack/eq-container`.
+
+| # | command | confirms when | code that depends on it |
+|---|---|---|---|
+| C14 | `bash lib/eq-container/distro-pins.sh; echo rc=$?` | rc=13. Four `TOOL` lines. bash `5.2.37-2+b10 ccbd5106…413a` and perl `5.40.1-6+deb13u1 b37d5994…f3bb` say `pinned: same`. busybox and jq say `pinned: PLACEHOLDER`, with the versions the snapshot pool lists, `1:1.37.0-6+b9` and `1.7.1-6+deb13u3` (unverified). `gpgv=OK` appears. Give the whole output to the pins owner. Its busybox and jq values go into TOOLS.toml (version, sha256, checksum_source) and into `BUSYBOX_SHA256` (PINS, `ARG` in Dockerfile.minimal); then the same command prints rc=0 and `DISTRO-PINS: OK`. A `FAILED:` line: give it to the pins owner, and do not pin anything | `TOOLS.toml` bash/perl/jq/busybox, `PINS` `BUSYBOX_SHA256`/`BASE_LAYER_*`, `distro-pins.sh` |
+| C15 | `bash lib/eq-container/build.sh --resolve-tools` | the builder's own apt, which checks the signed index inside the base image, prints `TOOL busybox …`, `TOOL bash …`, `TOOL perl …` and `TOOL jq …` lines equal to C14's four (it also prints `cc` and `ghc-link-libs`: not pinned here). Do not pass `--write-pin` | `Dockerfile.minimal` `tools-report`, `Dockerfile.toolchains` `tc-tools-report` |
+| C16 | after the pins land: `bash lib/eq-container/verify-tools.sh --manifest --profiles core; bash lib/eq-container/build.sh --profiles core --yes; echo rc=$?` | `TOOLS: manifest OK`, then rc=0, and min-both and min-py are built. mkrootfs.sh's lock step refuses an installed bash, perl, jq or busybox that does not hash to its pin, so a wrong pin is a failed build (rc 12), never a wrong image | `minimal/mkrootfs.sh` TOOLS.lock, `Dockerfile.minimal` busybox stage |
+| C17 | `bash lib/eq-container/verify-tools.sh --images --deep --inspect --smoke --profiles core; bash lib/eq-container/eq-container.sh install` | `TOOLS: images OK`, `inspect OK`, `smoke OK`; the install ends with status ok and the probe passes. Then `./install.sh --with-eq-container` reaches step 10c and does not skip the WALL | `verify-tools.sh`, `probe.sh`, `install.sh` 10b/10c |
+
 Already verified by you (HANDOFF_STATE §7): `container run --help` flags; `--network none` (spike); `image inspect` top-level
 keys `configuration`, `id`, `variants`.
 
