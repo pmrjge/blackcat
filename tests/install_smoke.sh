@@ -993,6 +993,13 @@ mkdir -p "$R0/shim"
 printf '#!/bin/sh\nprintf "%%s\\n" "$*" >> "%s/git-calls.log"\nexec "%s" "$@"\n' "$R0" "$REAL_GIT" > "$R0/shim/git"
 chmod +x "$R0/shim/git"
 tgit clone -q --bare "$HERE" "$R0/remote.git" && tgit clone -q "$R0/remote.git" "$R0/repo" || failed "scratch clone"
+# A clone copies no repo config, but it does take $HERE's loose objects (gc.auto 0 there keeps them loose): turn
+# automatic gc and maintenance off in every clone too, or a commit there (or install.sh's own switch and merge)
+# starts a detached repack while install.sh's git fsck reads the objects ("unable to mmap ... No such file").
+no_auto_gc(){ local r; for r in "$@"; do tgit -C "$r" config gc.auto 0 && tgit -C "$r" config maintenance.auto false || return 1; done; }
+auto_gc_off(){ local r; for r in "$@"; do
+  [ "$(git -C "$r" config gc.auto)" = 0 ] && [ "$(git -C "$r" config maintenance.auto)" = false ] || return 1; done; }
+no_auto_gc "$R0/remote.git" "$R0/repo" || failed "scratch clone: could not turn automatic gc off"
 remote_refs(){ git -C "$R0/remote.git" for-each-ref --format='%(refname) %(objectname)' | sha | awk '{print $1}'; }
 REMOTE_BEFORE="$(remote_refs)"
 run_from(){ # run_from <checkout> <config dir> [flags...]
@@ -1047,7 +1054,10 @@ for fl in --print-managed-settings --restore; do
     && pass "$fl off main: refused, main not moved" || { failed "$fl off main: rc=$rc"; tail -n 5 "$R0/e2.log" | sed 's/^/    /'; }
 done
 # f) a clone whose only checkout is on a feature branch: it switches to main and fast-forwards
-tgit clone -q "$R0/remote.git" "$R0/solo" && tgit -C "$R0/solo" switch -q -c feat3
+tgit clone -q "$R0/remote.git" "$R0/solo" && no_auto_gc "$R0/solo" && tgit -C "$R0/solo" switch -q -c feat3
+auto_gc_off "$R0/remote.git" "$R0/repo" "$R0/solo" \
+  && pass "scratch clones: automatic gc and maintenance off (no detached repack races install.sh's git fsck)" \
+  || failed "scratch clones: automatic gc or maintenance left on"
 echo f > "$R0/solo/SMOKE_F.txt"; tgit -C "$R0/solo" add SMOKE_F.txt; tgit -C "$R0/solo" commit -q -m f3
 F3="$(git -C "$R0/solo" rev-parse HEAD)"
 run_from "$R0/solo" "$R0/cf" >"$R0/f.log" 2>&1; rc=$?
