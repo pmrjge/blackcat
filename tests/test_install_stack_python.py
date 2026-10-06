@@ -17,7 +17,7 @@ import sys
 import pytest
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from test_install_state import ROOT, _run_install, _scratch_repo, _uv_python_dir  # noqa: E402
+from test_install_state import ROOT, _run_install, _scratch_repo  # noqa: E402
 
 sys.path.insert(0, os.path.join(ROOT, "lib"))
 import install_state as st  # noqa: E402

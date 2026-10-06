@@ -54,8 +54,7 @@ COMPACT_RE = re.compile(r"^This session is being continued from a previous conve
 TURN_LIMIT_RE = re.compile(r"turn limit", re.I)
 LIVE_S = 600
 SEED = 20261002
-M_GRID = (1.25, 1.3, 1.35, 1.4, 1.45, 1.5)
-FT_OK, FT_REJECT = 0.05, 0.10
+FT_REJECT = 0.10
 UNIT = "ctx"
 THIS_SESSION = "4e2da3ce-e2f4-4971-aac5-a67f2dcf252e"   # --session: the session reported on
 BENCH_EST = 51_124_527   # agents-bench/dry-run-output.txt, both arms, 102 `claude -p` sessions
@@ -410,7 +409,6 @@ def report(seg, run, sess, pw, mt):
       "Problem segments caught = problem segments of that type above the soft limit. p90 CI = bootstrap 90% "
       "(4,000 resamples).\n")
     rows, derived, uncapped = [], {}, []
-    types = sorted(set(fin.type) | set(mt))
     def own_ok(t):
         h = H[H.type == t]
         return len(h) >= 5 and h.id.nunique() >= 3

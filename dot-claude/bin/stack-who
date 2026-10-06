@@ -20,7 +20,6 @@ anything."""
 import argparse
 import json
 import os
-import re
 import sys
 
 sys.dont_write_bytecode = True     # also without -B: loading stack-tree must leave no __pycache__ in bin/

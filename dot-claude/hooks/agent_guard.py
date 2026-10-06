@@ -6404,8 +6404,8 @@ PROTECT_WRITE_CMDS = {"cp", "mv", "install", "rsync", "ditto", "tee", "dd", "sed
                       "rm", "unlink", "rmdir", "shred", "truncate", "ln", "chmod", "chown",
                       "chflags", "touch", "find", "tar", "unzip"}
 # programs outside PROTECT_WRITE_CMDS whose own options or program text name a file they write
-# (protect_output_targets); kept apart so `find -exec sort` is not counted as a writer
-PROTECT_OUTPUT_CMDS = {"curl", "wget", "sort", "patch", "sponge", "awk", "gawk", "mawk"}
+# (curl, wget, sort, patch, sponge, awk, gawk, mawk) are handled by protect_output_targets; kept
+# apart so `find -exec sort` is not counted as a writer.
 # programs whose `-o` is not an output file: a match flag, an ssh option, a listing column, ...
 NO_OUTPUT_OPT_CMDS = {"grep", "egrep", "fgrep", "rg", "ag", "ack", "ssh", "scp", "sftp", "ps",
                       "ls", "mount", "rsync", "tar", "git", "xargs", "find", "man", "diff",
@@ -7105,9 +7105,6 @@ def _r2_install(scan, target, rest):
 
 R2_PY_RE = re.compile(r"(?:python[\d.]*|pypy[\d.]*|uv|uvx|pipx)\Z")
 R2_STATE_READ = {"latest", "validate", "linked"}
-# programs that copy, link or print a file: the stack's install.sh used as data
-R2_DATA_CMDS = {"cp", "mv", "ln", "install", "rsync", "cat", "tac", "head", "tail", "sed", "awk",
-                "gawk", "cut", "nl", "tee", "dd", "grep", "egrep", "fgrep", "rg", "tr", "base64"}
 
 
 def _r2_state(scan, path, rest):
