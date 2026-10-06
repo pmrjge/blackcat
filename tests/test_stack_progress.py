@@ -92,9 +92,6 @@ def rounds(st, seq, start=0):
     return start + len(seq)
 
 
-FAIL = ("Bash", {"command": "make test"}, True)
-
-
 def failing(n, start=0):
     return [("Bash", {"command": "make test %d" % (start + i)}, True) for i in range(n)]
 

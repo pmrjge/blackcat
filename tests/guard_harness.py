@@ -40,24 +40,6 @@ class Env:
     def sdir(self):
         return os.path.join(self.env["XDG_STATE_HOME"], "claude-agent-stack", self.sid)
 
-    def sub_transcript(self, aid, age=0.0):
-        """Create the documented subagent transcript file with an mtime `age` seconds old."""
-        p = os.path.join(self.proj, self.sid, "subagents", "agent-%s.jsonl" % aid)
-        open(p, "a").write("{}\n")
-        t = time.time() - age
-        os.utime(p, (t, t))
-        return p
-
-    def lock(self, name="screen.lock"):
-        p = os.path.join(self.sdir(), name)
-        return json.load(open(p)) if os.path.exists(p) else None
-
-    def age_lock(self, seconds, name="screen.lock"):
-        p = os.path.join(self.sdir(), name)
-        obj = json.load(open(p))
-        obj["ts"] = time.time() - seconds
-        json.dump(obj, open(p, "w"))
-
     def reg(self, aid):
         p = os.path.join(self.sdir(), "agents", aid + ".json")
         return json.load(open(p)) if os.path.exists(p) else None
@@ -108,11 +90,6 @@ class Env:
 
     def prompt(self, pid):
         return self.base("UserPromptSubmit", prompt_id=pid, prompt="hi")
-
-    def screen(self, agent_id=None, agent_type=None):
-        return self.base("PreToolUse", tool_name="mcp__computer-use__screenshot",
-                         tool_use_id="toolu_" + uuid.uuid4().hex[:12], agent_id=agent_id,
-                         agent_type=agent_type, tool_input={})
 
     # ------------------------------------------------------------------ running
     def _argv(self, args, patch):
@@ -173,7 +150,3 @@ class Result:
     def __repr__(self):
         r = self.reason
         return "%s%s" % (self.decision, (" | " + r[:150]) if r else "")
-
-
-def show(label, value):
-    print("  %-58s %s" % (label, value))

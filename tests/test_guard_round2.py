@@ -3,7 +3,6 @@ forge writes through curl/wget/httpie (P2), the stack's installer (N-SUPPLY) and
 
 Run: uv run --with pytest pytest -q tests/test_guard_round2.py
 """
-import json
 import os
 import sys
 import uuid
