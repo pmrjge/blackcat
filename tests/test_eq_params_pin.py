@@ -104,6 +104,7 @@ def test_schema_requires_every_key_but_certainty_when_validated(key):
     p = json.loads((CAL / "params.v0.json").read_text(encoding="utf-8"))
     full = validated_entry()
     v = jsonschema.Draft202012Validator(schema())
+    p["version"] = 1  # version 0 admits only not_run classes (test_schema_version_zero_is_all_not_run)
     p["classes"]["RS"] = full
     v.validate(p)
     p["classes"]["RS"] = full | {key: None}
@@ -126,7 +127,35 @@ def test_schema_refuses_an_extra_or_missing_class_key_and_n_one_validated():
     del bad["classes"]["OE"]
     assert not v.is_valid(bad)
     bad = json.loads(json.dumps(p))
+    bad["version"] = 1
     bad["classes"]["CP"] = validated_entry()
     assert v.is_valid(bad)
     bad["classes"]["CP"]["N"] = 1  # N* = 1: not eligible, never validated
     assert not v.is_valid(bad)
+
+
+@pytest.mark.parametrize("status", ["validated", "not_established", "refuted"])
+def test_schema_version_zero_is_all_not_run(status):
+    """Version 0 (no calibration) is valid only when every class is not_run; the shipped files are version 0."""
+    v = jsonschema.Draft202012Validator(schema())
+    p = json.loads((CAL / "params.v0.json").read_text(encoding="utf-8"))
+    assert p["version"] == 0 and v.is_valid(p)
+    for shipped in (CAL / "params.json", HOOK):
+        assert v.is_valid(json.loads(shipped.read_text(encoding="utf-8")))
+    for cls in CLASSES:
+        bad = json.loads(json.dumps(p))
+        bad["classes"][cls] = validated_entry() | {"status": status}
+        assert not v.is_valid(bad), (cls, status)
+        bad["version"] = 1  # the same entry in a calibrated version is accepted
+        assert v.is_valid(bad), (cls, status)
+    # a not_run class that differs from the all-null shape is still version-0 valid (status is the only rule here)
+    ok = json.loads(json.dumps(p))
+    ok["classes"]["RS"]["status"] = "not_run"
+    assert v.is_valid(ok)
+
+
+def test_schema_version_zero_refuses_a_null_status():
+    v = jsonschema.Draft202012Validator(schema())
+    p = json.loads((CAL / "params.v0.json").read_text(encoding="utf-8"))
+    p["classes"]["DS"]["status"] = None
+    assert not v.is_valid(p)
