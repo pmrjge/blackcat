@@ -606,7 +606,7 @@ def _rank_toc(toc, topic, skip, k):
     return [(label, u) for s, _, label, u in scored[:k] if s > 0 or not terms]
 
 
-async def _fetch_pages(c, lib_id, items, via_note) -> list[str]:
+async def _fetch_pages(c, lib_id, items) -> list[str]:
     """items: [(label, url)] — .md/.txt fetched directly (free), others through Jina."""
     sem, done = asyncio.Semaphore(5), []
 
@@ -637,7 +637,7 @@ async def _seed(c, lib: dict, topic: str) -> list[str]:
         if url.endswith("llms.txt"):
             toc = _toc(text, url)
             _kv_put("toc:" + lib["id"], toc)
-            vias = await _fetch_pages(c, lib["id"], _rank_toc(toc, topic, set(), 4), "toc")
+            vias = await _fetch_pages(c, lib["id"], _rank_toc(toc, topic, set(), 4))
             if vias:
                 notes.append(f"{len(vias)} pages from llms.txt")
     rd = await _readme(c, lib.get("repo"))
@@ -657,7 +657,7 @@ async def _augment(c, lib: dict, topic: str, version: str) -> list[str]:
     toc = [(lb, u) for lb, u in _kv_get("toc:" + lib["id"], TTL) or []
            if lib.get("docs") and _origin(u) == _origin(lib["docs"])]
     if toc:
-        vias = await _fetch_pages(c, lib["id"], _rank_toc(toc, topic, have, 4), "toc")
+        vias = await _fetch_pages(c, lib["id"], _rank_toc(toc, topic, have, 4))
         if vias:
             notes.append(f"{len(vias)} more llms.txt pages")
             hits = _search(lib["id"], topic)
@@ -687,7 +687,7 @@ async def _augment(c, lib: dict, topic: str, version: str) -> list[str]:
     if results:
         notes.append(f"{src}: {len(results)} pages" + (f" (${cost:.3f})" if cost else ""))
     if thin:
-        vias = await _fetch_pages(c, lib["id"], thin[:3], "jina")
+        vias = await _fetch_pages(c, lib["id"], thin[:3])
         if vias:
             notes.append(f"jina: {len(vias)} pages")
     return notes
@@ -810,7 +810,7 @@ async def index_library_docs(library: str, start_url: str = "", path_prefix: str
                 return f"No SPIDER_API_KEY; indexed {got[0]} ({chunks} sections) instead."
             return "No SPIDER_API_KEY and no llms.txt on this site; nothing to crawl."
         toc = [(lb, x) for lb, x in _toc(got[1], got[0]) if x.startswith(prefix)][:limit]
-        vias = await _fetch_pages(c, lib["id"], toc, "toc")
+        vias = await _fetch_pages(c, lib["id"], toc)
         return f"No SPIDER_API_KEY; indexed {len(vias)} pages listed in {got[0]}."
 
 
