@@ -50,7 +50,7 @@ PROBLEMS=0; PENDING=0
 problem() { echo "PROBLEM $*"; PROBLEMS=$((PROBLEMS + 1)); }
 pending() { echo "PENDING $*"; PENDING=$((PENDING + 1)); }
 note() { echo "NOTE $*"; }
-is_hex64() { case "$1" in *[!0-9a-f]*|"") return 1;; esac; [ ${#1} = 64 ]; }
+is_hex64() { tm_is_hex64 "$1"; }   # tools.sh: literal character lists, never a locale-dependent range
 in_list() { case " $2 " in *" $1 "*) return 0;; esac; return 1; }   # word list membership
 
 KNOWN_CLASSES="PF CP CR ES RS DS OE EXT"
@@ -300,7 +300,7 @@ EOF
 # an unprivileged user, no EXPOSEd port, no VOLUME, no ENTRYPOINT or HEALTHCHECK baked in, no secret-like variable name, PATH inside
 # /opt and /usr only.
 run_inspect() {
-  local n tag v bad=0 st why cfg
+  local n tag v bad=0 st why cfg pth
   eq_need_container
   for n in $SEL_IMAGES; do
     tag=$(eq_img_tag "$n")
@@ -314,7 +314,8 @@ run_inspect() {
     v=$(cfg_get "$cfg" Healthcheck); [ -z "$v" ] || { st=FAIL; why="$why HEALTHCHECK baked in;"; }
     v=$(cfg_get "$cfg" Env)
     if printf '%s\n' "$v" | cut -d= -f1 | grep -qiE 'token|secret|passw|credential|api_?key|anthropic|aws_|github'; then st=FAIL; why="$why secret-like variable name in ENV;"; fi
-    case "$(printf '%s\n' "$v" | sed -n 's/^PATH=//p' | head -n 1)" in "") ;; *[!a-zA-Z0-9/_.:-]*) st=FAIL; why="$why odd characters in PATH;";; esac
+    pth=$(printf '%s\n' "$v" | sed -n 's/^PATH=//p' | head -n 1)
+    [ -z "$pth" ] || tm_only "$pth" "$TM_LOWER$TM_UPPER$TM_DIGITS/_.:-" || { st=FAIL; why="$why odd characters in PATH;"; }
     if printf '%s\n' "$v" | sed -n 's/^PATH=//p' | tr ':' '\n' | grep -vE '^/(opt|usr)(/|$)' | grep -q .; then st=FAIL; why="$why PATH leaves /opt and /usr;"; fi
     printf 'INSPECT %-10s %-7s %s\n' "$n" "$st" "$why"
     [ "$st" = ok ] || bad=1

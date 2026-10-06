@@ -102,15 +102,16 @@ inputs_hash() { # name
   } | tm_sha256_stdin
 }
 pin_value() { sed -n "s/^$1=//p" PINS | head -n 1; }
-hexn() { case "$1" in *[!0-9a-f]*|"") return 1;; esac; [ "${#1}" = "$2" ]; }
-pin_format() { # KEY VALUE: 0 when VALUE has the shape KEY needs (a malformed pin is refused before any build, never passed on)
+hexn() { tm_only "$1" "$TM_HEX" && [ "${#1}" = "$2" ]; }
+pin_format() { # KEY VALUE: 0 when VALUE has the shape KEY needs (a malformed pin is refused before any build, never passed on).
+  # Literal character lists only (tools.sh tm_only): a bracket range follows the locale's collation in bash 3.2.
   case "$1" in
-    BASE_IMAGE) case "${2%%@sha256:*}" in ""|*[!a-z0-9./:_-]*) return 1;; esac
+    BASE_IMAGE) tm_only "${2%%@sha256:*}" "$TM_LOWER$TM_DIGITS./:_-" || return 1
                 case "$2" in *@sha256:*) hexn "${2#*@sha256:}" 64;; *) return 1;; esac;;
     *_SHA256) hexn "$2" 64;;
     MATHLIB_REV) hexn "$2" 40;;
-    APT_SNAPSHOT) case "$2" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;; *) return 1;; esac;;
-    *) case "$2" in *[!A-Za-z0-9.+~_-]*) return 1;; esac;;
+    APT_SNAPSHOT) [ "${#2}" = 16 ] && [ "${2:8:1}" = T ] && [ "${2:15:1}" = Z ] && tm_only "${2:0:8}${2:9:6}" "$TM_DIGITS";;
+    *) tm_only "$2" "$TM_LOWER$TM_UPPER$TM_DIGITS.+~_-";;
   esac
 }
 needed_pins() {
@@ -148,7 +149,7 @@ if [ "$ACTION" = tools ]; then
       -f "${spec%%:*}" --target "${spec#*:}" -t "eq.invalid/eq-report:$$" . >> "$log" 2>&1 || { tail -n 20 "$log" >&2; exit 12; }
     eqc image delete "eq.invalid/eq-report:$$" >/dev/null 2>&1 || true
   done
-  lines=$(grep -o 'TOOL [a-z0-9-]* [^ ]* [0-9a-f]\{64\}' "$log" | LC_ALL=C sort -u || true)
+  lines=$(LC_ALL=C grep -o 'TOOL [a-z0-9-]* [^ ]* [0-9a-f]\{64\}' "$log" | LC_ALL=C sort -u || true)
   [ -n "$lines" ] || { echo "could not read the tool hashes from $log" >&2; exit 12; }
   snap=$(pin_value APT_SNAPSHOT)
   printf '%s\n' "$lines"

@@ -39,19 +39,24 @@ SNAP_TOOLS="busybox:busybox-static:usr/bin/busybox jq:jq:usr/bin/jq"
 die() { echo "distro-pins.sh: FAILED: $*" >&2; exit 1; }
 bad_pin() { echo "distro-pins.sh: PINS: $*" >&2; exit 2; }
 pin() { sed -n "s/^$1=//p" "$here/PINS" | head -n 1; }
-is_hex64() { case "$1" in *[!0-9a-f]*|"") return 1;; esac; [ ${#1} = 64 ]; }
-is_num() { case "$1" in *[!0-9]*|"") return 1;; esac; }
-is_debver() { case "$1" in *[!A-Za-z0-9.+~:-]*|"") return 1;; esac; }
+# literal character lists (tools.sh tm_only), never a bracket range: bash 3.2 ranges follow the locale's collation
+is_hex64() { tm_is_hex64 "$1"; }
+is_num() { tm_only "$1" "$TM_DIGITS"; }
+is_debver() { tm_only "$1" "$TM_LOWER$TM_UPPER$TM_DIGITS.+~:-"; }
 file_sha() { tm_sha256_stdin < "$1"; }
 file_size() { wc -c < "$1" | tr -d ' '; }
 regular() { [ -f "$1" ] && [ ! -L "$1" ]; }
 
 tm_load "$here/TOOLS.toml" || exit 2
 SNAP=$(pin APT_SNAPSHOT); LAYER_URL=$(pin BASE_LAYER_URL); LAYER_SHA=$(pin BASE_LAYER_SHA256)
-case "$SNAP" in [0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]T[0-9][0-9][0-9][0-9][0-9][0-9]Z) ;; *) bad_pin "APT_SNAPSHOT '$SNAP' is not YYYYMMDDTHHMMSSZ";; esac
+{ [ "${#SNAP}" = 16 ] && [ "${SNAP:8:1}" = T ] && [ "${SNAP:15:1}" = Z ] && is_num "${SNAP:0:8}${SNAP:9:6}"; } \
+  || bad_pin "APT_SNAPSHOT '$SNAP' is not YYYYMMDDTHHMMSSZ"
 is_hex64 "$LAYER_SHA" || bad_pin "BASE_LAYER_SHA256 is not 64 lowercase hex"
 case "$LAYER_URL" in https://*) ;; *) bad_pin "BASE_LAYER_URL must be an https:// URL";; esac
-case "$LAYER_URL" in *[!A-Za-z0-9._~:/%+-]*|https://*@*) bad_pin "BASE_LAYER_URL holds characters or credentials it may not";; esac
+case "$LAYER_URL" in https://*@*) bad_pin "BASE_LAYER_URL holds credentials";; esac
+tm_only "$LAYER_URL" "$TM_LOWER$TM_UPPER$TM_DIGITS._~:/%+-" || bad_pin "BASE_LAYER_URL holds characters it may not"
+BB_PIN=$(pin BUSYBOX_SHA256)
+case "$BB_PIN" in ""|UNSET|*TODO*) ;; *) is_hex64 "$BB_PIN" || bad_pin "BUSYBOX_SHA256 is neither a placeholder nor 64 lowercase hex";; esac
 for c in curl gpgv xz ar tar; do
   command -v "$c" >/dev/null 2>&1 || die "$c not found (macOS: brew install gnupg xz; ar comes with the Xcode command line tools)"
 done
@@ -91,7 +96,8 @@ KEYRING=usr/share/keyrings/debian-archive-keyring.pgp
 tar -xzf "$W/layer.tar.gz" -C "$W/layer" usr/bin/bash usr/bin/perl var/lib/dpkg/status etc/debian_version "$KEYRING" \
   || die "the base layer lacks a file this script reads"
 DEBIAN_VERSION=$(head -n 1 "$W/layer/etc/debian_version")
-case "$DEBIAN_VERSION" in [0-9]*.[0-9]*) ;; *) die "etc/debian_version of the layer is '$DEBIAN_VERSION'";; esac
+case "$DEBIAN_VERSION" in *.*) ;; *) die "etc/debian_version of the layer is '$DEBIAN_VERSION'";; esac
+tm_only "$DEBIAN_VERSION" "$TM_DIGITS." || die "etc/debian_version of the layer is '$DEBIAN_VERSION'"
 OUT=""
 for spec in $BASE_TOOLS; do
   t=${spec%%:*}; rest=${spec#*:}; pkg=${rest%%:*}; path=${rest#*:}
@@ -131,7 +137,8 @@ EOF
   is_debver "$v" || die "$pkg: malformed Version '$v'"
   { is_hex64 "$dsha" && is_num "$sz"; } || die "$pkg: malformed SHA256 or Size"
   case "$fn" in pool/"$COMPONENT"/*/*/*_"$ARCH".deb) ;; *) die "$pkg: unexpected Filename '$fn'";; esac
-  case "$fn" in *..*|*[!A-Za-z0-9._+~/-]*) die "$pkg: unexpected Filename '$fn'";; esac
+  case "$fn" in *..*) die "$pkg: unexpected Filename '$fn'";; esac
+  tm_only "$fn" "$TM_LOWER$TM_UPPER$TM_DIGITS._+~/-" || die "$pkg: unexpected Filename '$fn'"
   fetch "$SNAPURL/$fn" "$t.deb"
   { [ "$(file_sha "$W/$t.deb")" = "$dsha" ] && [ "$(file_size "$W/$t.deb")" = "$sz" ]; } || die "$fn does not match its Packages SHA256 and Size"
   m=$(cd "$W" && ar t "$t.deb" | grep -E '^data\.tar(\.(xz|gz|zst|bz2))?$') || die "$fn has no data tarball"
@@ -152,7 +159,7 @@ rc=0
 while read -r t v s; do
   [ -n "$t" ] || continue
   mv=$(tm_get tool "$t" version); ms=$(tm_get tool "$t" sha256); extra=""
-  if [ "$t" = busybox ]; then extra=$(pin BUSYBOX_SHA256); case "$extra" in ""|UNSET|*TODO*) extra=PLACEHOLDER;; esac; fi
+  if [ "$t" = busybox ]; then extra=$BB_PIN; case "$extra" in ""|UNSET|*TODO*) extra=PLACEHOLDER;; esac; fi
   if [ "$mv" = "$v" ] && [ "$ms" = "$s" ] && { [ "$t" != busybox ] || [ "$extra" = "$s" ]; }; then st="pinned: same"
   elif [ "$mv" = PLACEHOLDER ] || [ "$ms" = PLACEHOLDER ] || [ "$extra" = PLACEHOLDER ]; then
     st="pinned: PLACEHOLDER"; [ "$rc" = 1 ] || rc=13

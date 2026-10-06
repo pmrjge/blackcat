@@ -24,6 +24,11 @@ import pytest
 from conftest import BASH, EQC_LIB
 
 SNAP = "20260918T000000Z"
+# bash 3.2 matches a bracket range ([a-f]) by the locale's collation: under a UTF-8 locale `*[!0-9a-f]*` let A-E through, so the
+# format gates are also run under one (skipped where the machine has none)
+UTF8 = next((loc for loc in ("en_US.UTF-8", "C.UTF-8", "pt_PT.UTF-8")
+             if loc in subprocess.run(["locale", "-a"], capture_output=True, text=True, check=False).stdout.split()), None)
+needs_utf8 = pytest.mark.skipif(UTF8 is None, reason="no UTF-8 locale on this machine")
 SNAPDIR = "snapshot.debian.org/archive/debian/" + SNAP
 LAYER_URL = "https://raw.example.test/artifacts/rootfs.tar.gz"
 KEY = "KEY-trixie-1"
@@ -203,9 +208,9 @@ class World:
         for f in self.after:
             f(self)
 
-    def run(self, *args):
+    def run(self, *args, locale: str = "C"):
         env = {"PATH": "%s:%s:/usr/bin:/bin" % (self.shims, Path(shutil.which("xz")).parent), "HOME": str(self.t),
-               "TMPDIR": str(self.tmpdir), "LC_ALL": "C", "FAKE_WEB": str(self.web),
+               "TMPDIR": str(self.tmpdir), "LC_ALL": locale, "FAKE_WEB": str(self.web),
                "FAKE_CURL_LOG": str(self.t / "curl.log"), "FAKE_GPGV_LOG": str(self.t / "gpgv.log")}
         return subprocess.run([BASH, str(self.lib / "distro-pins.sh"), *args], env=env, capture_output=True, text=True,
                               timeout=120, check=False)
@@ -367,6 +372,21 @@ def test_distro_pins_malformed_pins_are_usage_errors(world, key, value):
     assert world.log("curl.log") == []          # refused before any download
 
 
+@needs_tools
+@needs_utf8
+@pytest.mark.parametrize("key, value", [
+    ("BASE_LAYER_SHA256", "AB" * 32), ("BUSYBOX_SHA256", "C" * 64), ("BUSYBOX_SHA256", "xyz"),
+    ("APT_SNAPSHOT", "2026O918T000000Z"),
+])
+def test_distro_pins_malformed_pins_under_a_utf8_locale(world, key, value):
+    """Uppercase hex and letters for digits pass a collation range under a UTF-8 locale; the literal lists refuse them."""
+    world.build()
+    set_pin(world.lib, key, value)
+    p = world.run(locale=UTF8)
+    assert p.returncode == 2 and "TOOL " not in p.stdout, (p.stdout, p.stderr)
+    assert world.log("curl.log") == []
+
+
 # --------------------------------------------------------------------------------- build.sh: placeholder 13, malformed 2
 @pytest.fixture
 def pins_lib(tmp_path):
@@ -423,6 +443,22 @@ def test_build_refuses_a_malformed_pin_before_building(eqc_env, pins_lib, key, v
     assert "pin %s is malformed in PINS" % key in p.stderr and _no_build(eqc_env), p.stderr
 
 
+@needs_utf8
+@pytest.mark.parametrize("key, value, sel", [
+    ("LEAN_SHA256", "A" * 64, "full"), ("BASE_IMAGE", "Debian:trixie-slim@sha256:" + "a" * 64, "full"),
+    ("BASE_IMAGE", "debian:trixie-slim@sha256:" + "B" * 64, "full"), ("BUSYBOX_SHA256", "C" * 64, "min"),
+    ("APT_SNAPSHOT", "2026O918T000000Z", "full"), ("LEAN_VERSION", "4.34.1Ä", "full"),
+])
+def test_build_refuses_a_malformed_pin_under_a_utf8_locale(eqc_env, pins_lib, key, value, sel):
+    """The installer runs build.sh in the user's locale: a range such as [0-9a-f] matched A-E there (bash 3.2 collation)."""
+    set_pin(pins_lib, "BUSYBOX_SHA256", "c" * 64, files=("PINS", "Dockerfile.minimal"))
+    files = ["PINS"] + [f for f in DOCKERFILES if re.search(r"^ARG %s=" % key, (pins_lib / f).read_text(), re.MULTILINE)]
+    set_pin(pins_lib, key, value, files=files)
+    p = eqc_env.run("build.sh", "--set", sel, "--yes", lib=pins_lib, LC_ALL=UTF8)
+    assert p.returncode == 2, (p.stdout, p.stderr)
+    assert "pin %s is malformed in PINS" % key in p.stderr and _no_build(eqc_env), p.stderr
+
+
 def test_build_check_reports_a_malformed_pin(eqc_env, pins_lib):
     set_pin(pins_lib, "LEAN_SHA256", "f" * 63, files=("PINS", "Dockerfile"))
     eqc_env.record("full", EQ_INPUTS_SHA256="x")
@@ -431,9 +467,9 @@ def test_build_check_reports_a_malformed_pin(eqc_env, pins_lib):
 
 
 # ------------------------------------------------------------------------------------------- verify-tools.sh --manifest
-def vt(lib: Path, *args):
+def vt(lib: Path, *args, locale: str = "C"):
     return subprocess.run([BASH, str(lib / "verify-tools.sh"), "--manifest", *args], capture_output=True, text=True,
-                          timeout=120, check=False, env={"PATH": "/usr/bin:/bin", "LC_ALL": "C"})
+                          timeout=120, check=False, env={"PATH": "/usr/bin:/bin", "LC_ALL": locale})
 
 
 DEBVER = re.compile(r"^(\d+:)?[0-9][A-Za-z0-9.+~-]*$")
@@ -468,6 +504,14 @@ def test_manifest_seeded_pin_faults(pins_lib, tool, key, value, rc):
     assert p.returncode == rc, (p.stdout, p.stderr)
     want = ("PENDING tool %s: %s is PLACEHOLDER" if rc == 13 else "PROBLEM tool %s: %s") % (tool, key)
     assert want in p.stdout, p.stdout
+
+
+@needs_utf8
+@pytest.mark.parametrize("value", ["C" * 64, "Ab" * 32])
+def test_manifest_uppercase_sha256_is_invalid_under_a_utf8_locale(pins_lib, value):
+    set_tool(pins_lib, "bash", "sha256", value)
+    p = vt(pins_lib, "--profiles", "core", locale=UTF8)
+    assert p.returncode == 2 and "PROBLEM tool bash: sha256" in p.stdout, p.stdout
 
 
 def test_manifest_half_applied_busybox_pin_is_invalid(pins_lib):
