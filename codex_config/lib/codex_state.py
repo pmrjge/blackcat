@@ -77,7 +77,11 @@ WRITE_THROUGH = ("stack.env",)
 OWNED_FILES = ("codex.config.toml", "codex-astra.config.toml", "rules/claude-agent-stack.rules")
 # summarized per directory in a printed plan, like the engine's agents/ and skills/
 SUMMARIZED = ("stack/agents/", "stack/agents-astra/", "stack/skills/", "stack/skill-modules/")
-REQUIRED_ROLE_KEYS = ("name", "description", "model", "model_reasoning_effort", "developer_instructions")
+# a role file is a ConfigToml layer (additionalProperties false; role.rs applies bounded keys, DESIGN F6):
+# no name or description (those are the profile's [agents.<role>] entry)
+REQUIRED_ROLE_KEYS = ("model", "model_reasoning_effort", "developer_instructions")
+# the vendored Codex config schema (rust-v0.160.1): a role key outside ConfigToml's properties is refused
+CONFIG_SCHEMA = os.path.join(os.path.dirname(_HERE), "tests", "fixtures", "vendor", "config.schema.json")
 MANIFEST_FORMAT = 1
 
 
@@ -331,9 +335,18 @@ def _check_guard_json(doc):
 
 
 def validate(s) -> list:
-    """Problems in a rendered stage: TOML that does not parse, role files without a required key (or
-    named unlike their file), unresolved placeholders, policy JSON off its schema (INTERFACES §4, §5)."""
+    """Problems in a rendered stage: TOML that does not parse, role files without a required key or with
+    a key outside the vendored schema's ConfigToml properties, unresolved placeholders, policy JSON off
+    its schema (INTERFACES §4, §5).
+
+    Seeded-bug proofs of the role-key part (tests/mutations/codex_state_validate.json): require name
+    again; stop reporting a role key outside ConfigToml."""
     problems = []
+    try:
+        role_keys = frozenset(json.loads(_read(CONFIG_SCHEMA).decode("utf-8"))["properties"])
+    except (OSError, ValueError, KeyError, TypeError) as exc:
+        role_keys = None
+        problems.append("%s: unreadable, role keys not checked (%s)" % (CONFIG_SCHEMA, exc))
     tomls = [r for r in ("codex.config.toml", "codex-astra.config.toml", "config.toml")
              if os.path.isfile(os.path.join(s, r)) and not os.path.islink(os.path.join(s, r))]
     tomls += [os.path.relpath(p, s) for p in _walk_files(os.path.join(s, "stack")) if p.endswith(".toml")]
@@ -348,8 +361,8 @@ def validate(s) -> list:
             for k in REQUIRED_ROLE_KEYS:
                 if not (isinstance(doc.get(k), str) and doc[k].strip()):
                     problems.append("%s: no %s" % (rel, k))
-            if isinstance(doc.get("name"), str) and doc["name"] != os.path.basename(rel)[:-5]:
-                problems.append("%s: name %r should be %r" % (rel, doc["name"], os.path.basename(rel)[:-5]))
+            for k in sorted(set(doc) - (role_keys or set(doc))):
+                problems.append("%s: key %s is not a Codex config key (ConfigToml)" % (rel, k))
     strict = [r for r in tomls if r != "config.toml"] + [
         r for r in ("rules/claude-agent-stack.rules", "stack/policy/agents.json", "stack/policy/guard.json")
         if os.path.isfile(os.path.join(s, r))]

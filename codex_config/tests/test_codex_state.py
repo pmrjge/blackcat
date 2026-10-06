@@ -20,8 +20,9 @@ STATE_PY = LIB / "codex_state.py"
 
 A = 'model = "gpt-6-luna"\nmodel_reasoning_effort = "high"\n'
 B = '[features]\nmulti_agent_v2 = false\n'
-ROLE = ('name = "{n}"\ndescription = "d"\nmodel = "gpt-6.1-sol"\nmodel_reasoning_effort = "high"\n'
-        'developer_instructions = """x"""\n')
+# a role file holds only ConfigToml keys: no name or description ({n} keeps the call sites uniform)
+ROLE = ('model = "gpt-6.1-sol"\nmodel_reasoning_effort = "high"\n'
+        'developer_instructions = """x{n}"""\n')
 AGENTS_JSON = {"schema": 1, "agents": {"coder": {
     "spawn": [], "apply_patch": True, "shell": True, "spawn_tool": False, "mcp": [], "readonly": False,
     "web_ingesting": False, "installer": False, "max_tool_calls": None}},
@@ -316,7 +317,14 @@ def test_validate_good_stage(tmp_path):
 @pytest.mark.parametrize("breakage,needle", [
     (lambda s: write(s / "codex.config.toml", "x = = 1\n"), "codex.config.toml: does not parse"),
     (lambda s: write(s / "stack/agents/coder.toml", 'name = "coder"\n'), "stack/agents/coder.toml: no model"),
-    (lambda s: write(s / "stack/agents/coder.toml", ROLE.format(n="other")), "name 'other' should be 'coder'"),
+    (lambda s: write(s / "stack/agents/coder.toml", ROLE.format(n="") + 'name = "coder"\n'),
+     "stack/agents/coder.toml: key name is not a Codex config key"),
+    (lambda s: write(s / "stack/agents/coder.toml", ROLE.format(n="") + 'description = "d"\n'),
+     "stack/agents/coder.toml: key description is not a Codex config key"),
+    (lambda s: write(s / "stack/agents-astra/coder.toml", ROLE.format(n="") + 'sandbox_modes = "x"\n'),
+     "stack/agents-astra/coder.toml: key sandbox_modes is not a Codex config key"),
+    (lambda s: write(s / "stack/agents/coder.toml", 'model = "m"\ndeveloper_instructions = "x"\n'),
+     "stack/agents/coder.toml: no model_reasoning_effort"),
     (lambda s: write(s / "rules/claude-agent-stack.rules", "x __UV__\n"), "placeholder __UV__"),
     (lambda s: write(s / "codex.config.toml", 'x = "{{model}}"\n'), "placeholder {{model}}"),
     (lambda s: write(s / "stack/skills/s1/SKILL.md", "__CLAUDE_DIR__/x\n"), "s1/SKILL.md: unresolved placeholder"),
@@ -330,6 +338,24 @@ def test_validate_finds_problems(tmp_path, breakage, needle):
     breakage(s)
     problems = cs.validate(str(s))
     assert any(needle in p for p in problems), problems
+
+
+def test_validate_role_keys_are_the_three_codex_keys(tmp_path):
+    """Required: model, model_reasoning_effort, developer_instructions; never name or description
+    (the vendored ConfigToml has neither, and additionalProperties is false)."""
+    schema = json.loads((Path(cs.CONFIG_SCHEMA)).read_text())
+    assert schema["additionalProperties"] is False
+    assert set(cs.REQUIRED_ROLE_KEYS) == {"model", "model_reasoning_effort", "developer_instructions"}
+    assert set(cs.REQUIRED_ROLE_KEYS) <= set(schema["properties"])
+    assert not {"name", "description"} & set(schema["properties"])
+    s = good_stage(tmp_path)
+    write(s / "stack/agents-astra/coder.toml", ROLE.format(n="a"))
+    assert cs.validate(str(s)) == []
+
+
+def test_validate_fails_closed_without_the_schema(tmp_path, monkeypatch):
+    monkeypatch.setattr(cs, "CONFIG_SCHEMA", str(tmp_path / "missing.json"))
+    assert any("role keys not checked" in p for p in cs.validate(str(good_stage(tmp_path))))
 
 
 def test_validate_ignores_code_samples_in_skills_and_user_config(tmp_path):

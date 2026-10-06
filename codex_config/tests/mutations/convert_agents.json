@@ -1,0 +1,65 @@
+[
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "    step = offset if alias == \"sonnet\" else 0\n",
+  "new": "    step = 0\n",
+  "tests": "codex_config/tests/test_models_effort.py::test_design_table_reproduced_from_frontmatter",
+  "why": "drop the Luna +1"
+ },
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "    step = offset if alias == \"sonnet\" else 0\n",
+  "new": "    step = offset\n",
+  "tests": "codex_config/tests/test_models_effort.py::test_design_table_reproduced_from_frontmatter",
+  "why": "apply the +1 to Sol too"
+ },
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "    top = levels.index(\"max\")\n",
+  "new": "    top = levels.index(\"xhigh\")\n",
+  "tests": "codex_config/tests/test_models_effort.py::test_luna_max_stays_max_and_xhigh_reaches_max",
+  "why": "cap Luna at xhigh instead of max"
+ },
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "fable = row.get(\"fable\") if isinstance(row, dict) else None",
+  "new": "fable = row.get(\"opus\") if isinstance(row, dict) else None",
+  "tests": "codex_config/tests/test_astra_roles.py::test_fable_not_opus_column_is_read",
+  "why": "Astra effort read from the opus column instead of fable"
+ },
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "\"mcp\": mcp, \"readonly\": readonly,",
+  "new": "\"mcp\": mcp, \"readonly\": not readonly,",
+  "tests": "codex_config/tests/test_agents_schema_contract.py::test_policy_flags_equal_agent_guard_tables",
+  "why": "readonly flipped in the policy"
+ },
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "            if sid in servers and servers[sid] != table:\n",
+  "new": "            if False:\n",
+  "tests": "codex_config/tests/test_convert_agents.py::test_mcp_conflict_stops_the_build",
+  "why": "an MCP id defined differently by two agents is not detected"
+ },
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "        if table[\"command\"] == ctx[\"stack\"] + \"/bin/with-stack-env\":\n",
+  "new": "        if True:\n",
+  "tests": "codex_config/tests/test_convert_agents.py::test_with_stack_env_only_where_already_used",
+  "why": "STACK_ENV_FILE added to servers that do not use with-stack-env"
+ },
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "    unknown = sorted(set(fields) - set(MAPPED_KEYS) - set(DROPPED_KEYS))\n",
+  "new": "    unknown = []\n",
+  "tests": "codex_config/tests/test_convert_agents.py::test_unknown_frontmatter_key_fails",
+  "why": "an unmapped frontmatter key passes silently"
+ },
+ {
+  "file": "codex_config/lib/convert_agents.py",
+  "old": "    if problems:\n        raise BuildError(\"untranslatable",
+  "new": "    if False:\n        raise BuildError(\"untranslatable",
+  "tests": "codex_config/tests/test_convert_agents.py::test_untranslatable_text_fails_with_file_and_line",
+  "why": "translate problems ignored"
+ }
+]
