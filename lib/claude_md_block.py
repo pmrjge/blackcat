@@ -16,6 +16,7 @@ from __future__ import annotations
 import hashlib
 import os
 import re
+import stat
 
 NAME = "CLAUDE.md"
 BEGIN = "<!-- claude-agent-stack: begin (install.sh rewrites this block; your own text goes outside it) -->"
@@ -135,6 +136,10 @@ def stage(dest_dir, body, prev=None, live=None):
         return {"action": "skipped", "entry": prev,
                 "why": f"left as it is: {exc}; leave one begin and one end marker line of the stack's "
                        "block (or none), then run ./install.sh again"}
+    if data is not None and new != data and not os.stat(path).st_mode & stat.S_IWUSR:
+        # the staged copy keeps your mode: a write-protected file is yours to keep as it is
+        return {"action": "skipped", "entry": prev,
+                "why": "read-only: left as it is (make it writable, then run ./install.sh again)"}
     created = prev is not None and prev.get("created") is True
     if block is None:
         if span is None:

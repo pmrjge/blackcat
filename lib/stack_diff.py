@@ -25,6 +25,7 @@ import importlib.util
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 
@@ -386,7 +387,9 @@ class Diff:
             self.add(area, "?", rel, f"{exc}: install.sh leaves it alone")
             return
         have = data[span[0]:span[1]] if span else None
-        if have is None and want is not None:
+        if have != want and os.path.lexists(p) and not os.stat(p).st_mode & stat.S_IWUSR:
+            self.add(area, "?", rel, "read-only: install.sh leaves it alone")
+        elif have is None and want is not None:
             self.add(area, "+", rel, "the stack's block")
         elif have is not None and want is None:
             self.add(area, "-", rel, "the stack's block: no longer shipped")

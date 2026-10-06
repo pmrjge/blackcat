@@ -2,8 +2,9 @@
 
 CLAUDE.md is the user's file: the installer owns only the lines from its begin marker line to its end
 marker line. Pinned here: every byte outside the block survives (prefix, suffix, CRLF, BOM, no final
-newline); a second run is byte-identical; a malformed, symlinked, non-regular or non-UTF-8 file is left
-as it is (a symlink's target is never written, a directory named CLAUDE.md is never removed); removal
+newline); a second run is byte-identical; a malformed, symlinked, non-regular, read-only or non-UTF-8
+file is left as it is (a symlink's target is never written, a directory named CLAUDE.md is never
+removed, by install or --restore); removal
 undoes an append exactly when the user's text ended in a newline (or was empty); and, through real
 scratch-HOME installs (as tests/test_install_state.py runs them), --dry-run writes nothing, the
 manifest records the block, a block edited inside is replaced with the edit in the backup, --restore
@@ -15,6 +16,7 @@ import importlib.util
 import json
 import os
 import random
+import stat
 import subprocess
 
 import pytest
@@ -232,6 +234,28 @@ def test_stage_skips_when_the_live_file_is_not_regular(tmp_path):
     assert cmb.stage(str(stage_dir), BODY, None, live=str(live / "absent"))["action"] == "created"
 
 
+def test_stage_leaves_a_read_only_file_alone(tmp_path):
+    """The staging copy keeps the file's mode (copy2): a write-protected CLAUDE.md made stage() die
+    with PermissionError, which stopped the whole install. It is left alone instead, whatever the
+    change (append, update, retraction); an unchanged one stays "unchanged"."""
+    p = _md(tmp_path)
+    block = cmb.render_block(BODY)
+    prev = {"sha256": cmb.sha256(block), "created": True}
+    for data, body in ((b"mine\n", BODY), (block, None), (b"mine\n\n" + block, BODY + "more\n")):
+        with open(p, "wb") as f:
+            f.write(data)
+        os.chmod(p, 0o444)
+        r = cmb.stage(str(tmp_path), body, prev)
+        assert r["action"] == "skipped" and r["entry"] is prev and "read-only" in r["why"], r
+        assert _bytes(p) == data and stat.S_IMODE(os.stat(p).st_mode) == 0o444
+        os.chmod(p, 0o644)
+        os.unlink(p)
+    with open(p, "wb") as f:
+        f.write(b"mine\n\n" + block)
+    os.chmod(p, 0o444)
+    assert cmb.stage(str(tmp_path), BODY, prev)["action"] == "unchanged"
+
+
 # ------------------------------------------------------------------------------- install.sh
 def _home(tmp_path):
     home = str(tmp_path / "home")
@@ -389,3 +413,47 @@ def test_install_leaves_a_directory_named_claude_md_alone(tmp_path):
     assert "note: CLAUDE.md: not a regular file" in log
     assert _bytes(os.path.join(conf, "CLAUDE.md", "notes.txt")) == b"my notes\n"
     assert "claude_md_block" not in _manifest(conf)
+
+
+@needs_git
+def test_install_leaves_a_read_only_claude_md_alone(tmp_path):
+    """A write-protected CLAUDE.md is skipped with a note (it used to stop the install with a
+    PermissionError at staging); --diff says install.sh leaves it alone."""
+    _tid = _load("_tid_cmb_ro", os.path.join(HERE, "test_install_diff.py"))
+    home, conf = _home(tmp_path)
+    repo = _tis._scratch_repo(str(tmp_path / "repo"))
+    os.makedirs(conf)
+    with open(_md(conf), "wb") as f:
+        f.write(b"mine\n")
+    os.chmod(_md(conf), 0o444)
+    log = _tis._install(repo, home, conf)
+    assert _actions(log) == ["skipped"], log[-3000:]
+    assert "note: CLAUDE.md: read-only" in log
+    assert _bytes(_md(conf)) == b"mine\n" and stat.S_IMODE(os.stat(_md(conf)).st_mode) == 0o444
+    assert "claude_md_block" not in _manifest(conf)
+    p = _tid.diff(repo, home, conf)
+    rows = [ln for ln in p.stdout.splitlines() if ln.startswith("CLAUDE.md block:") or "CLAUDE.md  (" in ln]
+    assert p.returncode == 0 and rows[0] == "CLAUDE.md block: 1 unreadable" and "read-only" in rows[1], rows
+
+
+@needs_git
+def test_restore_leaves_a_directory_named_claude_md_alone(tmp_path):
+    """The backup holds the CLAUDE.md the install appended to; turned into a directory since, it is
+    skipped by --restore with a note naming the saved copy (the plan used to rmtree it, unbacked:
+    the staging copies only files and links, so the directory's files were in no backup)."""
+    home, conf = _home(tmp_path)
+    repo = _tis._scratch_repo(str(tmp_path / "repo"))
+    os.makedirs(conf)
+    with open(_md(conf), "wb") as f:
+        f.write(b"mine\n")
+    _tis._install(repo, home, conf)
+    first = _backups(home)[0]
+    os.unlink(_md(conf))
+    os.makedirs(_md(conf))
+    with open(os.path.join(_md(conf), "notes.txt"), "wb") as f:
+        f.write(b"n\n")
+    p = _tis._run_install(repo, home, conf, argv=["--restore", first])
+    assert p.returncode == 0, (p.stdout[-2000:], p.stderr[-2000:])
+    assert _bytes(os.path.join(_md(conf), "notes.txt")) == b"n\n"
+    assert "! skipped CLAUDE.md: not a regular file now" in p.stdout, p.stdout[-2000:]
+    assert os.path.join(first, "files", "CLAUDE.md") in p.stdout
