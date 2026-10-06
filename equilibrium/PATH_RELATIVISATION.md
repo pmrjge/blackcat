@@ -45,6 +45,14 @@ For these files, "old" is the branch's version just before the pass, not EQ-T's 
 | `harness/eq_freeze.sh` | `d925234f4cab40b1e69c0d465320a63ca4548d163e4316b6075aa55631b66d0a` | the `--collect` destination check (A5 item 4) |
 | `harness/eq_harness.py` | `57efa9232d5a976c4e19bd177fc8aef8659e481b489f1885d44394cea5f2fa1e` | the `lib/eq-container` and `lib/eq-wall` lookups (A5 item 4) |
 
+## Later amendments (A6 onwards)
+
+A recorded file that a later dated amendment of `COMPARE_eq.md` §12 edits is re-pinned, not re-recorded: `python3
+tests/equilibrium_paths.py amend --amendment A<n> FILE...` adds it under the record's `later` key with the git blob id of
+its A5 bytes (taken from `d28d9ee`, verified against the recorded new digest) and its current digest. `check` then
+requires the current digest, the amendment's name in §12, and runs the A5 proof on the A5 blob, so an amendment can
+change a file without weakening the proof that A5 itself changed only path text. The `files` table below never changes.
+
 ## Files (236)
 
 | file | substitutions | old sha256 | new sha256 |

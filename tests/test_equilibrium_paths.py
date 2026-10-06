@@ -86,3 +86,48 @@ def test_old_digests_are_the_pre_a5_tree():
     off = {rel for rel, f in rec.items() if hashlib.sha256(subprocess.run(
         [*g, "show", f"{PRE_A5}:{rel}"], capture_output=True, check=True).stdout).hexdigest() != f["old_sha256"]}
     assert off == OLD_HAS_NON_PATH_EDIT
+
+
+def _git(root: Path, *args: str) -> str:
+    return subprocess.run(["git", "-C", str(root), *args], capture_output=True, text=True, check=True).stdout.strip()
+
+
+def _amendable_tree(root: Path) -> Path:
+    """A git repository holding an A5-relativised file and a COMPARE_eq.md whose section 12 names A6."""
+    f = _tree(root, SAMPLE)
+    (root / ep.COMPARE).write_text("# x\n\n## 12. Amendments (dated; append only)\n\n- **A6. 2026-10-06.** test\n")
+    _git(root, "init", "-q")
+    _git(root, "add", "-A")
+    _git(root, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-qm", "a5")
+    return f
+
+
+def test_amend_repins_a_later_edit_and_keeps_the_a5_proof(tmp_path):
+    f = _amendable_tree(tmp_path)
+    f.write_bytes(f.read_bytes().replace(b"set -u", b"set -eu"))  # a dated amendment's behaviour change
+    assert ep.check(tmp_path) == ["equilibrium/x.sh: tracked bytes differ from the recorded new digest"]
+    assert ep.amend(tmp_path, "A6", ["equilibrium/x.sh"], a5_rev="HEAD") == 0
+    assert ep.check(tmp_path) == []
+    later = json.loads((tmp_path / ep.RECORD).read_text())["later"]["equilibrium/x.sh"]
+    assert later["amendments"] == ["A6"] and later["a5_blob"] == _git(tmp_path, "rev-parse", "HEAD:equilibrium/x.sh")
+    f.write_bytes(f.read_bytes() + b"# more\n")  # edited again without a re-pin
+    assert ep.check(tmp_path) == ["equilibrium/x.sh: tracked bytes differ from the recorded amended digest"]
+
+
+def test_amend_needs_the_amendment_in_section_12(tmp_path):
+    f = _amendable_tree(tmp_path)
+    f.write_bytes(f.read_bytes() + b"# A7 change\n")
+    assert ep.amend(tmp_path, "A7", ["equilibrium/x.sh"], a5_rev="HEAD") == 0
+    assert ep.check(tmp_path) == ["equilibrium/x.sh: amendment ['A7'] not named in equilibrium/COMPARE_eq.md section 12"]
+
+
+def test_amend_cannot_launder_a_non_path_edit_into_the_a5_bytes(tmp_path):
+    f = _amendable_tree(tmp_path)
+    f.write_bytes(f.read_bytes().replace(b"set -u", b"set -e"))
+    _git(tmp_path, "commit", "-qam", "edit hidden as A5")  # a later commit's blob is not the A5 bytes
+    assert ep.amend(tmp_path, "A6", ["equilibrium/x.sh"], a5_rev="HEAD") == 1
+    rec = json.loads((tmp_path / ep.RECORD).read_text())
+    rec["later"] = {"equilibrium/x.sh": {"amendments": ["A6"], "sha256": hashlib.sha256(f.read_bytes()).hexdigest(),
+                                         "a5_blob": _git(tmp_path, "rev-parse", "HEAD:equilibrium/x.sh")}}
+    (tmp_path / ep.RECORD).write_text(json.dumps(rec))  # a hand-written record pointing at the edited blob
+    assert ep.check(tmp_path) == ["equilibrium/x.sh: the A5 blob does not hash to the recorded new digest"]
