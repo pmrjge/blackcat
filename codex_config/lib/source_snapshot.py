@@ -26,8 +26,9 @@ Differences from HEAD (" M" edited, " D" deleted) stop the run (exit 1, the snap
 --allow-dirty, which copies the edited bytes as install.sh does and lists them on stderr. Files not
 in HEAD (staged only, untracked) are never copied; they are listed on stderr ("A ", "??").
 
-changes_since(repo, commit) gives the `git diff --stat` of SNAPSHOT_PATHS since an earlier install's
-commit, for the installer's supply review.
+changes_since(repo, prev_commit, commit) gives the `git diff --stat` of SNAPSHOT_PATHS from an earlier
+install's commit to the SNAPSHOT's commit (the SHA this module printed, never HEAD: a commit made
+after the snapshot is not what the run installs), for the installer's supply review.
 
 Seeded-bug proofs (tests/mutations/source_snapshot.json; each turns tests/test_source_snapshot.py
 red): link the snapshot files to the repository instead of copying the bytes read; follow a link on
@@ -199,12 +200,12 @@ def snapshot(repo, dest, allow_dirty=False):
     return commit, review
 
 
-def changes_since(repo, prev_commit):
-    """`git diff --stat` of SNAPSHOT_PATHS from prev_commit to HEAD ("" when none); None when
-    prev_commit is not a SHA this repo has (review everything then)."""
-    if not isinstance(prev_commit, str) or not _SHA.match(prev_commit):
+def changes_since(repo, prev_commit, commit):
+    """`git diff --stat` of SNAPSHOT_PATHS from prev_commit to `commit` (the snapshot's SHA, not HEAD;
+    "" when none); None when either is not a SHA this repo has (review everything then)."""
+    if not all(isinstance(c, str) and _SHA.match(c) for c in (prev_commit, commit)):
         return None
-    p = _git(os.path.abspath(repo), "diff", "--no-ext-diff", "--no-textconv", "--stat", prev_commit, "HEAD",
+    p = _git(os.path.abspath(repo), "diff", "--no-ext-diff", "--no-textconv", "--stat", prev_commit, commit,
              "--", *SNAPSHOT_PATHS, check=False)
     return p.stdout.decode("utf-8", "replace") if p.returncode == 0 else None
 

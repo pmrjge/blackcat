@@ -40,5 +40,12 @@
   "new": "    env = dict(os.environ)\n",
   "tests": "codex_config/tests/test_source_snapshot.py",
   "why": "keep GIT_* variables from the environment"
+ },
+ {
+  "file": "codex_config/lib/source_snapshot.py",
+  "old": "\"--stat\", prev_commit, commit,",
+  "new": "\"--stat\", prev_commit, \"HEAD\",",
+  "tests": "codex_config/tests/test_source_snapshot.py",
+  "why": "the supply review diffs against HEAD, not the snapshot's commit"
  }
 ]

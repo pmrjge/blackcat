@@ -111,10 +111,13 @@ def test_prints_root_commands_and_warning(env):
     text = run(env["argv"])
     assert text.startswith("MACHINE-WIDE")
     cmds = [line.strip() for line in text.splitlines() if line.strip().startswith("sudo ")]
-    assert len(cmds) == 3
+    assert len(cmds) == 4
     assert cmds[0].startswith("sudo install -d -o root -g wheel -m 0755 ")
     assert "'%s'" % env["managed"] in cmds[0]          # the space in the path is quoted
-    assert cmds[2].endswith("%s %s" % (env["out"] / "requirements.toml",
+    # the managed hooks ship no __pycache__: compiled once as root with the stub's interpreter
+    assert cmds[2].startswith("sudo /usr/bin/python3 -I -c ") and "CHECKED_HASH" in cmds[2]
+    assert cmds[2].endswith("'%s'/*.py" % env["managed"])
+    assert cmds[3].endswith("%s %s" % (env["out"] / "requirements.toml",
                                        env["etc"] / "requirements.toml"))
 
 
