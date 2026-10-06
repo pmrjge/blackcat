@@ -1,0 +1,9 @@
+[
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "    listed = [n for n in shipped if n not in modules and n not in EXCLUDED_SKILLS]",
+  "new": "    listed = [n for n in shipped if n not in modules]",
+  "tests": "codex_config/tests/test_installer_e2e.py::test_excluded_skills_are_never_linked_or_installed",
+  "why": "an excluded skill is linked by the real install"
+ }
+]
