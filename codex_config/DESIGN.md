@@ -15,10 +15,14 @@ User decisions applied:
 3. A dedicated profile, `codex --profile codex`.
 4. Model tiers are Opus → GPT-6.1 Sol and Sonnet → GPT-6.1 Luna, with Astra only where justified.
 5. Port all 57 agents and all 220 skills.
+6. Answers to Q1–Q3 (2026-10-06):
+   - **Q1.** Sonnet → `gpt-6-luna` and Opus → `gpt-6.1-sol`. No agent uses Astra by default; an opt-in `codex-astra` profile is provided (§2.1).
+   - **Q2.** `--ide-default` writes an installer-owned region in `config.toml`. It is off unless the flag is passed (§7.6).
+   - **Q3.** Luna agents run one effort level above the stack's value; Sol keeps the same names (§2).
 
 Two decisions had to change because the facts differ. Both are listed below and in §10.
 - **Profiles are files, not tables.** "In Codex 0.134.0 and later, `--profile` no longer reads `[profiles.profile-name]` from `config.toml`" [docs config-advanced]. The profile is therefore the file `$CODEX_HOME/codex.config.toml`.
-- **Model names.** "GPT-6.1 Luna" and "GPT-6.1 Astra" do not exist (§2).
+- **Model names.** "GPT-6.1 Luna" and "GPT-6.1 Astra" do not exist (§2). The user chose `gpt-6-luna` and `gpt-6.1-sol` (Q1).
 
 ## 1. Verified Codex facts, conflicts, and what stays unverified
 
@@ -105,7 +109,7 @@ Two decisions had to change because the facts differ. Both are listed below and 
   - `web_search = disabled|cached|indexed|live`.
   - `features.rollout_budget {limit_tokens, reminder_at_remaining_tokens, …}` is UnderDevelopment and off.
   - `allow_symlinked_codex_home` is read only from the host's base user config.
-- **F19 [docs ide-settings].** The IDE extension reads `config.toml`. Its documented editor settings have **no profile selector**, and profiles are described as a CLI feature [docs config-advanced]. So `--profile codex` does not reach the IDE (§10, Q2).
+- **F19 [docs ide-settings].** The IDE extension reads `config.toml`. Its documented editor settings have **no profile selector**, and profiles are described as a CLI feature [docs config-advanced]. So `--profile codex` does not reach the IDE. Hence `--ide-default` (§7.6).
 - **F20 [docs managed].** Requirements are applied in this order: `/etc/codex/requirements.toml`, then cloud, then legacy `managed_config.toml`, then MDM.
   - Supported keys: `allowed_approval_policies`, `allowed_sandbox_modes`/`allowed_permission_profiles` (0.138+), `[features]` pins, `[rules] prefix_rules` (prompt or forbidden), `[hooks] managed_dir` plus managed hooks, `allow_managed_hooks_only`, and an MCP allowlist.
   - Requirements are **machine-wide**: they apply to every session and every profile.
@@ -131,10 +135,11 @@ Each item is resolved by a Phase 0 probe (§9) or stays documented as such.
 - U6. Whether a permission profile can grant `.git` write inside the sandbox (P7b, which decides the git policy in §4.3).
 - U7. Whether `omit_tools_from=["direct"]` defers MCP tools to tool search as its schema text says.
 - U8. Whether the global AGENTS.md counts toward `project_doc_max_bytes`. The global block is kept under 2 KiB anyway.
-- U9. Whether the IDE extension honours a `CODEX_HOME` set in the editor's environment (Q2c).
+- U9. Whether the IDE extension reads `hooks.state` trust records written from the CLI's `/hooks`, and whether it shows its own hook-review prompt. Its config is the same `config.toml` (F19), so sharing is expected (§7.6).
 - U10. Whether `matcher = ".*"` matches every tool name (regex semantics are inferred from the docs' examples).
 - U11. Which "specialized tool paths" opt out of hooks [docs hooks].
 - U12. The MCP hook `tool_name` format `mcp__<server>__<tool>`. The docs' examples lost their underscores in extraction; a contract test pins the format.
+- U13. Whether Codex's own `config.toml` writes (`/hooks` trust, `/model`, project trust) keep comment lines and append outside the stack's marked regions. Probe P12 checks this; the drift check in §7.6 covers either outcome.
 
 ## 2. Models and reasoning effort (verified 2026-10-06)
 
@@ -150,27 +155,43 @@ Notes on the models:
   - Astra costs 5× Sol, so it maps to the stack's `fable` column in `agent_effort.json` (above Opus).
   - No agent defaults to fable today.
   - Haiku is banned in the stack. The cheapest OpenAI tier, Luna, already fills the Sonnet slot, so nothing maps below Luna.
-  - Recommendation: no agent defaults to Astra. The only candidate is `ninja-coder`, the rare top escalation tier on hard research-level code ("Astra still scores highest on scientific research tasks"). That choice is the user's (Q1).
+  - Decision (Q1): no agent defaults to Astra. It is opt-in through the `codex-astra` profile (§2.1).
 
-**Mapping (default, pending Q1).**
-- The `opus` tier maps to `gpt-6.1-sol` and the `sonnet` tier to `gpt-6-luna`. Effort maps one to one: `low`, `medium`, `high`, `xhigh`, `max` are the same names in both, and both models accept all five.
-- The tier table is one file, `codex_config/models.toml` (`opus`, `sonnet`, `fable` → id). Changing it means editing one line and re-running the installer.
+**Mapping (decided: Q1 and Q3).**
+- The `opus` tier maps to `gpt-6.1-sol` and the `sonnet` tier to `gpt-6-luna`.
+- **Sol** keeps the stack's effort name one-to-one: `low`, `medium`, `high`, `xhigh`, `max` are all accepted.
+- **Luna** runs one level higher: `low`→`medium`, `medium`→`high`, `high`→`xhigh`, `xhigh`→`max`, `max`→`max`. The rule is `luna_effort(e) = LEVELS[min(i(e)+1, i(max))]`, so it never goes above the highest level Luna accepts. This follows OpenAI's "Start with High for Luna" and the stack's rule v1, which raises the effort one level when an agent runs on a weaker model.
+- **`none` is never emitted.** Luna also accepts `none`, but the stack has no level below `low` (its scale is `low…max`) and the rule only ever raises the level. Sol rejects `none` and `minimal`; Astra's lowest level is `low`.
+- **Validation.** An effort a model does not accept stops the build. The accepted sets live in `models.toml`, copied from the API pages in §11.
+- **Single source.** `codex_config/models.toml` holds tier → id, the accepted effort sets, the Luna offset (`luna_effort_offset = 1`) and the Astra list (§2.1). Changing one line and re-running the installer is enough.
 
-| Codex model | Effort | Agents |
+| Codex model | Effort | Agents (stack effort → Codex effort) |
 |---|---|---|
 | gpt-6.1-sol | max | ninja-coder |
 | gpt-6.1-sol | xhigh | main-coder, mathematician, planner, proof-checker, security-auditor |
 | gpt-6.1-sol | high | biochem-engineer, claude-code-engineer, code-reviewer, cuda-engineer, data-scientist, designer, dl-engineer, embedded-engineer, game-engineer, go-engineer, haskell-engineer, hpc-engineer, julia-engineer, jvm-engineer, llm-engineer, ml-engineer, mlx-engineer, node-engineer, orchestrator, plan-reviewer, procedural-3d-ui, python-engineer, quantum-engineer, researcher, robotics-engineer, rust-engineer, security-engineer, vfx-td (28) |
 | gpt-6.1-sol | medium | cg-artist, frontend-engineer, image-director, mobile-engineer, motion-designer, rigger-animator, sculptor-painter, writer |
 | gpt-6.1-sol | low | oracle |
-| gpt-6-luna | high | data-engineer, devops-engineer, verifier |
-| gpt-6-luna | medium | **blackcat (main thread: the profile's `model` and `model_reasoning_effort`)**, browser-operator, coder, doc-specialist, mcp-broker, test-engineer, toolsmith |
-| gpt-6-luna | low | build-fixer, claude-code-guide, explore, scout |
+| gpt-6-luna | xhigh | data-engineer, devops-engineer, verifier (high → xhigh) |
+| gpt-6-luna | high | **blackcat (main thread: the profile's `model` and `model_reasoning_effort`)**, browser-operator, coder, doc-specialist, mcp-broker, test-engineer, toolsmith (medium → high) |
+| gpt-6-luna | medium | build-fixer, claude-code-guide, explore, scout (low → medium) |
 
-Total: 43 Sol and 14 Luna, 57 agents. Other settings:
-- `agents.default_subagent_model = "gpt-6-luna"` with `default_subagent_reasoning_effort = "medium"` covers only built-in roles, which the guard refuses anyway.
-- OpenAI advises "Start with High for Luna". The stack's own effort rule v1 raises a model weaker than the agent's own by one level. Q3 asks whether to apply +1 to the Luna rows; the default keeps the names unchanged.
-- `/override-agent` (per-session model override) has no Codex hook event, so it is dropped. Its replacement is an optional second profile `codex-astra` (Q1c).
+Total: 43 Sol and 14 Luna, 57 agents.
+- No Luna agent reaches `max`: the stack's highest Sonnet-tier effort is `high`.
+- `agents.default_subagent_model = "gpt-6-luna"` with `default_subagent_reasoning_effort = "high"` covers only built-in roles, which the guard refuses anyway.
+- `/override-agent` (per-session model override) has no Codex hook event, so it is dropped. Its replacement is the `codex-astra` profile.
+
+### 2.1 Opt-in `codex-astra` profile
+
+Selected with `codex --profile codex-astra`; the file is `$CODEX_HOME/codex-astra.config.toml`.
+- **What changes.** It maps the stack's top tier to `gpt-6-astra`: ninja-coder, the only `max` agent, and the five agents at `xhigh` on Opus (main-coder, mathematician, planner, proof-checker, security-auditor). The list is `models.toml` `astra.agents`.
+- **Effort.** It comes from the `fable` column of `agent_effort.json` (the stack's tier above Opus: ninja-coder `max`, the other five `xhigh`), restricted to Astra's accepted `low…max`.
+- **What stays.** Every other agent and BlackCat keep their `codex` settings (Sol or Luna as above).
+- **Role files.** The swapped roles are `stack/agents-astra/<name>.toml`, which differ from `stack/agents/` only in `model` and effort.
+- **Content of the profile file.** Profiles overlay `config.toml`, not each other (F1). So `codex-astra.config.toml` is a full copy of the `codex` profile with those six `[agents.<name>].config_file` entries pointed at `agents-astra`. Under `--ide-default` it holds only those six entries (§7.6).
+- **Cost.** Astra is $10 input / $50 output per 1M tokens, 5× Sol ($2 / $10) and 100× Luna [api-astra]. The installer prints this when it writes the profile.
+- **Off by default.** The file is installed (`--no-astra-profile` skips it), but nothing uses Astra unless the user starts a session with this profile.
+- **Hook trust.** Trust keys include the source file's path (F11), so this profile's inline hooks are trusted separately: run `/hooks` once under `codex --profile codex-astra`.
 
 ## 3. What lives where
 
@@ -180,6 +201,8 @@ Total: 43 Sol and 14 Luna, 57 agents. Other settings:
 |---|---|---|---|
 | Profile: `model`, `model_reasoning_effort` (BlackCat), `approval_policy="on-request"`, `default_permissions` + `[permissions.claude-agent-stack]`, `[features]`, `[agents]` limits + 56 `[agents.<name>] {description, config_file}`, `[mcp_servers.*]`, inline `[hooks]` (guard), `developer_instructions` (rules R + BlackCat body), `web_search="disabled"`, `skills.max_context_tokens`, `tool_output_token_limit` | `codex.config.toml` | **profile only** | owned whole file; `hooks.state` carried over (§7.4) |
 | 56 role files (BlackCat is the main thread, not a role) | `stack/agents/<name>.toml` | profile, through `config_file` | **not** in `agents/`, so roles do not leak into other sessions |
+| `codex-astra` profile + 6 Astra role files | `codex-astra.config.toml`, `stack/agents-astra/` | profile `codex-astra` only | opt-in (§2.1) |
+| `--ide-default` regions (off by default) | two marked regions in `config.toml` | **every session** (CLI, IDE, desktop app) | §7.6; removed by `--no-ide-default` or `--restore` |
 | Guard: `codex-hook` stub, `codex_guard.py`, a copy of `stack_io.py`, `toolsmith_policy.py`, policy JSON, `stack-python` link | `stack/bin/`, `stack/hooks/`, `stack/policy/` | used by profile hooks | |
 | Listed skills (131: hubs and standalones) | real files in `stack/skills/<n>/`, one symlink each in `$HOME/.agents/skills/<n>` | **global**: every Codex session and other `.agents` readers | no per-profile skill root exists (F5) |
 | Hub modules (89) | `stack/skill-modules/<n>/SKILL.md` | never listed; read by absolute path from the hub's table | the analogue of `user-invocable-only` |
@@ -187,7 +210,7 @@ Total: 43 Sol and 14 Luna, 57 agents. Other settings:
 | Global rules block G (about 1.5 KiB) | managed block in `AGENTS.md` | **global** | warns when `AGENTS.override.md` shadows it |
 | Keys file | `stack/stack.env` (0600; seeded only if missing) or `--stack-env PATH` | read by MCP wrapper | denied to the sandbox (F15) |
 | Manifest | `.stack-manifest.json` | — | sha256 per owned file, hook-definition fingerprints, link list |
-| `config.toml`, `hooks.json`, `agents/`, `rules/default.rules` | — | — | **never touched** (except under Q2b) |
+| `hooks.json`, `agents/`, `rules/default.rules`; `config.toml` outside the regions | — | — | **never touched** |
 
 ## 4. Enforcement architecture
 
@@ -239,7 +262,7 @@ Local files are user-writable. This design enforces against the **sandboxed agen
 3. **Repository content.** A *trusted* project's `.codex/config.toml` or `.codex/rules` can relax the sandbox, approvals or `features.hooks`. The agent cannot write that file (protected path), but a repository can ship it.
 4. **Hook failure.** A hook timeout or crash fails open (F12). The `sh` stub exits 2 if Python is missing, and the guard's catch-all denies on internal errors, but a timeout cannot be caught.
 5. **Unhooked tools.** Hosted tools, mitigated by `web_search="disabled"`, and tool paths that opt out of hooks (U11).
-6. **Outside the profile.** Sessions without `--profile codex`, including the IDE, have only L1 defaults, L2 rules and the AGENTS block (Q2).
+6. **Outside the profile.** Sessions without `--profile codex` have only L1 defaults, L2 rules and the AGENTS block. `--ide-default` closes this for every session (§7.6).
 
 **Optional hardened tier (`--print-requirements`).** It writes `codex_config/build/requirements.toml` and a `managed-hooks/` copy of the guard, then prints the root commands. It never writes `/etc` and never runs sudo. The file contains:
 - `allowed_sandbox_modes=["read-only","workspace-write"]` (or `allowed_permission_profiles`) and `allowed_approval_policies=["on-request","never"]`, which forbid `danger-full-access`.
@@ -355,7 +378,7 @@ codex_config/
   - `--restore [DIR|latest] [--force]`, `--yes`, `--no-prompt`;
   - `--codex-home PATH`, `--skills-root PATH|none`, `--profile-name NAME` (default `codex`);
   - `--no-agents-md`, `--no-mcp`, `--legacy-sandbox`, `--git-allow-rules`, `--no-escalation`, `--with-rollout-budget`;
-  - `--print-requirements`, `--doctor`, and `--ide-default` (only if Q2b is chosen).
+  - `--print-requirements`, `--doctor`, `--ide-default` / `--no-ide-default` (§7.6), `--no-astra-profile`.
 - **Python.** Steps run under the same interpreter resolution as `stack-hook` (`$STACK_PYTHON`, else `uv python find … 3.13`), because `tomllib` needs Python 3.11 or later. Stdlib only. `codex_guard.py` itself stays Python 3.9-compatible, because managed hooks use `/usr/bin/python3`.
 - **Flow.** Each step runs only if the previous one succeeded.
   1. Snapshot the sources.
@@ -386,6 +409,56 @@ stdlib has no TOML writer, and `tomli_w` would add a runtime dependency to a std
 - `developer_instructions` is written as a `'''…'''` literal string when the text contains no `'''` or control characters, and as an escaped basic string otherwise.
 - It refuses floats NaN/inf, datetimes and None.
 - It is proven by round-trip tests (`tomllib.loads(emit(x)) == x`) over a seeded random corpus.
+
+### 7.6 `--ide-default`: a stack region in `config.toml` (opt-in, Q2)
+
+The IDE and the desktop app read `config.toml` and cannot select a profile (F19). `--ide-default` therefore writes the profile's content into `config.toml`. It is off unless the flag is passed.
+
+**What lands there.** TOML cannot return to the root table after a table header, so there are two marked regions:
+- **Region A**, at the very start of the file, holds root keys only:
+  - `model` and `model_reasoning_effort` (BlackCat: `gpt-6-luna`, `high`);
+  - `approval_policy`;
+  - `default_permissions` (or `sandbox_mode` under `--legacy-sandbox`);
+  - `developer_instructions` (R plus BlackCat);
+  - `web_search`, `tool_output_token_limit`.
+- **Region B**, at the end of the file, holds tables only:
+  - `[features]`;
+  - `[agents]` and the 56 `[agents.<name>]` entries;
+  - `[mcp_servers.<id>]`;
+  - `[permissions.claude-agent-stack…]`;
+  - `[skills]` `max_context_tokens`;
+  - the guard's `[[hooks.<Event>]]` groups.
+- **Already global, so not in the regions:** the rules file, the AGENTS block and the skill links (§3).
+- **The profiles shrink in this mode.**
+  - `codex.config.toml` becomes a comment-only file, so `--profile codex` still works.
+  - `codex-astra.config.toml` holds only its six `config_file` overrides.
+  - Neither carries `[hooks]`: hooks load from every layer (F3), so the guard would otherwise run twice.
+
+**Mechanics** (`lib/config_region.py`, patterned on `claude_md_block`):
+- **Markers.** Whole-line comments `# >>> claude-agent-stack: begin A|B (install.sh --ide-default rewrites this region) >>>` and `# <<< claude-agent-stack: end A|B <<<`.
+  - Exactly one pair per region must exist. Otherwise the run stops and the file is untouched.
+  - Bytes outside the regions are never changed.
+- **Conflict check.** Before apply, `tomllib.loads(result)` must equal `merge(tomllib.loads(user part), stack part)`, with no key defined on both sides.
+  - Any overlap (a user `model`, `approval_policy`, `[features]` or `[agents]`) stops the run and names the keys.
+  - The installer never edits the user's keys.
+- **Drift.** The manifest stores each region's sha256.
+  - A region that changed since install stops the run with a diff; `--force` overwrites it. Typical causes: Codex's `/model` or the IDE settings panel writing `model` in place, or a hand edit.
+  - Codex rewrites `config.toml` itself (`[hooks.state]` trust, `[projects.*]`, `/model`). Whether those writes keep comment markers and where they insert keys is U13.
+- **Backup.** `config.toml` joins the engine's `SCOPE_FILES` only while the flag is on or a region exists. The engine backs up the whole file before apply.
+- **Removal.**
+  - `--no-ide-default` cuts both regions out exactly, keeping every later edit by the user or Codex, and restores the full profile files.
+  - `--restore` puts back the pre-install bytes if the file is unchanged since install. Otherwise it refuses without `--force` (the engine's drift rule) and names `--no-ide-default` as the safe alternative.
+
+**Trust.**
+- The region's hook keys are `<CODEX_HOME>/config.toml:<event>:<g>:<h>`. Trust them once from plain `codex` → `/hooks`.
+- The IDE shares `config.toml`, and therefore `hooks.state`; whether it also shows its own review prompt is U9.
+- Until the hooks are trusted, the guard does not run in any session. The region's other keys (sandbox, approvals, model) and the global rules still apply.
+
+**Risk.** The flag changes **every Codex session on this machine**: the CLI without a profile, the IDE extension, and the ChatGPT desktop app, which all share `config.toml` [docs models]. The installer states this and requires `--yes` or an interactive "y". In practice:
+- each session starts as BlackCat, delegate-only, so quick IDE edits are delegated to a subagent;
+- the stack's MCP servers start in each session, which adds startup time and needs the `stack.env` keys;
+- web search is off and the stack's model and effort defaults apply;
+- a trusted project's `.codex/config.toml` can still override the region's keys, because the project layer ranks above the user layer (F1).
 
 ## 8. Converter specs
 
@@ -456,24 +529,33 @@ Tokens with no mapping fail the build with file:line. Sentences that claim "hook
 
 | Phase | Work | Owner | Done when |
 |---|---|---|---|
-| 0 | Probe kit `probes/run.sh` (scratch `CODEX_HOME`, user logs in there). The user runs it and pastes the JSON report. Probes:<br>P1 profile hooks fire only with `--profile`<br>P2 where `/hooks` writes trust (U1)<br>P3 `agent_type` in a subagent's PreToolUse<br>P4 hyphenated roles<br>P5 roles via `[agents.x].config_file`<br>P6 profile MCP servers<br>P7 permission profile from the profile file, CODEX_HOME read-only<br>P7b `.git` write grant<br>P8 `forbidden` blocks an in-sandbox `git push`<br>P9 hooks unsandboxed<br>P10 symlinked skills listed<br>P11 IDE ignores the profile; IDE with `CODEX_HOME` | main-coder (kit); **user** (run) | report committed; §1.3 updated |
-| 1 | This design | main-coder | plan-reviewer PASS; Q1–Q3 answered |
-| 2 | `toml_emit`, `codex_home`, `codex_state` (engine by path), `skill_links` | python-engineer; tests by test-engineer | 40 tests green |
-| 3 | `convert_agents`, `convert_skills`, `convert_rules`, `render_profile`, `translate`; prompt rewrites of R, G, BlackCat and flagged sentences in 57 bodies and up to 83 skill files | python-engineer; **writer** (texts) | build report: 0 unmapped; 30 tests |
+| 0 | Probe kit `probes/run.sh` (scratch `CODEX_HOME`, user logs in there). The user runs it and pastes the JSON report. Probes:<br>P1 profile hooks fire only with `--profile`<br>P2 where `/hooks` writes trust (U1)<br>P3 `agent_type` in a subagent's PreToolUse<br>P4 hyphenated roles<br>P5 roles via `[agents.x].config_file`<br>P6 profile MCP servers<br>P7 permission profile from the profile file, CODEX_HOME read-only<br>P7b `.git` write grant<br>P8 `forbidden` blocks an in-sandbox `git push`<br>P9 hooks unsandboxed<br>P10 symlinked skills listed<br>P11 IDE ignores the profile and reads `hooks.state` from the CLI's trust (U9)<br>P12 `/hooks`, `/model` and project-trust writes against a file with stack regions (U13) | main-coder (kit); **user** (run) | report committed; §1.3 updated |
+| 1 | This design | main-coder | Q1–Q3 answered (2026-10-06); plan-reviewer PASS |
+| 2 | `toml_emit`, `codex_home`, `codex_state` (engine by path), `skill_links`, `config_region` (§7.6) | python-engineer; tests by test-engineer | 52 tests green |
+| 3 | `convert_agents` (+ effort map, `agents-astra`), `convert_skills`, `convert_rules`, `render_profile` (`codex`, `codex-astra`, region body), `translate`; prompt rewrites of R, G, BlackCat and flagged sentences in 57 bodies and up to 83 skill files | python-engineer; **writer** (texts) | build report: 0 unmapped; 40 tests |
 | 4 | `codex_guard.py` + stub; 4b spawn tree, taint propagation, `send_input` routing | python-engineer; **security-auditor** review | 30 tests; seeded-bug proofs |
-| 5 | `codex_config/install.sh`, `--doctor`, `--print-requirements`, `smoke.sh` | main-coder (core) + coder (flags, messages); security-auditor | smoke green; real `~/.codex` and `~/.agents` hashes unchanged |
+| 5 | `codex_config/install.sh`, `--doctor`, `--print-requirements`, `--ide-default`, `smoke.sh` | main-coder (core) + coder (flags, messages); security-auditor | smoke green; real `~/.codex` and `~/.agents` hashes unchanged |
 | 6 | `codex_config/README.md` (what is enforced vs advisory, user steps) | writer | review PASS |
 | 7 | Install | **user** | — |
 
-**Tests: about 110 in total, all on scratch `HOME` and scratch `CODEX_HOME`.**
+**Tests: about 135 in total, all on scratch `HOME` and scratch `CODEX_HOME`.**
 - **Count by area:**
   - emitter 12, including the round-trip property test;
   - converters 24: 57 roles parse; policy equals agent_guard.POLICY; unmapped token fails; skills 131/89 split; hub paths; budget;
+  - effort and models 8: the §2 table reproduced exactly from the frontmatter (43 Sol, same names; 14 Luna, one level up); Luna `max` stays `max`; `none` and `minimal` never emitted; an effort outside a model's accepted set stops the build; BlackCat's profile effort is `high`;
+  - `codex-astra` 6: only the six `astra.agents` move to `gpt-6-astra` with fable-column effort; other roles byte-equal to `codex`; full-copy form equals the `codex` profile except 6 `config_file` values; overlay form under `--ide-default` holds only those 6 entries and no `[hooks]`; `--no-astra-profile` prunes the file and `agents-astra/`; cost notice printed;
   - rules 10: Claude `allow` never becomes `allow`; examples; fake and optional live execpolicy;
   - guard 30: no-push corpus; `apply_patch` paths; CODEX_HOME; caller rows; built-ins; BlackCat gate; read-only roles; MCP allowlist; taint; caps under concurrent processes; stub without Python exits 2; catch-all deny; PermissionRequest; p95 < 100 ms;
   - installer 24: dry-run writes nothing; diff; apply, backup, restore round trip; drift abort; refusal list including `~/.claude`; foreign skill entry; `hooks.state` carry-over; AGENTS splice and override warning; re-trust detection; idempotent second run; requirements generator never touches `/etc`;
+  - `--ide-default` region 12:
+    - off by default (`config.toml` bytes unchanged); splice into an empty file, a root-keys-only file and a file with tables, with `tomllib(result) == merge(user, stack)` and the user's bytes outside the regions unchanged; a user root key is never captured by a region;
+    - conflict with a user key or table stops the run, naming it; idempotent second run; an edited region (e.g. `/model`) stops with a diff unless `--force`; Codex-style `[hooks.state.*]` and `[projects.*]` tables appended outside the regions survive a re-run;
+    - `--no-ide-default` removes exactly the regions; `--restore` round-trips an unchanged file and needs `--force` otherwise; no profile carries `[hooks]` in this mode (each hook runs once); re-trust is reported for the region's hook keys;
   - contracts 6: install_state and claude_md_block signatures; agent_guard POLICY; schema snapshot of every emitted key (vendored `config.schema.json` at the pinned tag); hook-input fixture from `hooks/src/schema.rs`.
-- **Seeded-bug proofs.** At least one mutation per file, kept in the docstring. Examples: flip a `forbidden` to `allow`; drop CODEX_HOME from the protected roots; remove `"` escaping in the emitter; let the BlackCat gate pass a shell write. Each must turn a test red.
+- **Seeded-bug proofs.** At least one mutation per file, kept in the docstring; each must turn a test red. Examples:
+  - flip a `forbidden` to `allow`; drop CODEX_HOME from the protected roots; remove `"` escaping in the emitter; let the BlackCat gate pass a shell write;
+  - **effort:** drop the Luna +1, apply +1 to Sol, cap Luna at `xhigh` instead of `max`, start the scale at `none`; **Astra:** add a seventh agent, or read the opus column instead of fable;
+  - **region:** write region A after the user's first table; skip the conflict check; let `--no-ide-default` remove one line past the end marker; keep `[hooks]` in the profile under `--ide-default`.
 - **Fake `codex`.** `tests/fake-codex/codex` answers only `--version` (configurable) and `execpolicy check` (backed by an in-repo prefix-rule mirror). Any other subcommand exits 97, so no test can reach a real Codex.
 - **Isolation.** `smoke.sh` hashes the real `~/.codex` and `~/.agents` before and after, as `install_smoke.sh` does for `~/.claude`.
 
@@ -491,7 +573,13 @@ Tokens with no mapping fail the build with file:line. Sentences that claim "hook
 1. Phase 0 probes.
 2. `codex_config/install.sh --dry-run`, then `codex_config/install.sh`.
 3. `codex --profile codex`, then `/hooks` → trust 8 hooks. Repeat whenever the installer says "re-trust".
-4. Optional: `codex_config/install.sh --print-requirements`, then:
+4. Optional Astra: `codex --profile codex-astra`, then `/hooks` → trust its 8 hooks. Each session started this way bills the six top-tier agents at Astra rates ($10/$50 per 1M tokens).
+5. Optional IDE and every-session mode:
+   - `codex_config/install.sh --ide-default --dry-run` to review the region diff, then the same without `--dry-run`.
+   - Plain `codex` (no profile), then `/hooks` → trust the 8 hooks whose source is `config.toml`.
+   - Restart the IDE (and the desktop app, if used).
+   - Undo with `codex_config/install.sh --no-ide-default` or `--restore`.
+6. Optional: `codex_config/install.sh --print-requirements`, then:
    ```
    sudo install -d -o root -g wheel -m 0755 /etc/codex "/Library/Application Support/claude-agent-stack/codex-hooks"
    sudo install -o root -g wheel -m 0755 codex_config/build/managed-hooks/* "/Library/Application Support/claude-agent-stack/codex-hooks/"
@@ -499,20 +587,14 @@ Tokens with no mapping fail the build with file:line. Sentences that claim "hook
    ```
    Then check `/debug-config` in `codex --profile codex`. An existing `/etc/codex/requirements.toml` is never replaced: the installer prints a diff for the user to merge.
 
-## 10. Open questions (the user decides) and risks
+## 10. Decisions taken and risks
 
-- **Q1 Models.** GPT-6.1 Luna and GPT-6.1 Astra do not exist.
-  - Sonnet tier: (a) `gpt-6-luna` [recommended], or (b) `gpt-6.1-sol` (20× Luna's price, closer to Sonnet's capability).
-  - Astra, which is the most expensive flagship, not a cheap tier:
-    - (a) no default; only an optional `codex-astra` profile with Astra role files [recommended];
-    - (b) `ninja-coder` on `gpt-6-astra`;
-    - (c) never.
-- **Q2 IDE.** The extension cannot select a profile (F19).
-  - (a) The IDE gets only the global layer: rules, AGENTS block, skills.
-  - (b) `--ide-default`: an installer-owned marked region in `config.toml` carrying the profile's content. It would then apply to all sessions; the region is conflict-checked against the user's keys [recommended if IDE parity matters].
-  - (c) A separate `CODEX_HOME` (`~/.codex-stack`) used as the stack's base, with the IDE started with that environment. This depends on U9 and needs a separate login.
-- **Q3 Luna effort.** (a) Identity [default], or (b) +1 level for the Luna rows (OpenAI's "Start with High for Luna").
+- **Q1 (decided 2026-10-06).** Sonnet → `gpt-6-luna` (14 agents) and Opus → `gpt-6.1-sol` (43 agents). No agent uses Astra by default; `codex-astra` is opt-in (§2.1).
+- **Q2 (decided).** `--ide-default` is an opt-in `config.toml` region (§7.6). Without it the IDE gets only the global layer.
+- **Q3 (decided).** Luna runs one effort level above the stack's value, capped at `max`; Sol keeps the same names; `none` is never used (§2).
+- **Open:** none for Phase 2. U1–U13 are settled by the Phase 0 probes.
 - **Risks:**
+  - `--ide-default` changes every Codex session on the machine: CLI, IDE and desktop app (§7.6).
   - Undocumented `agent_type` (F9): pinned by the version check and the contract fixture; fails closed.
   - Beta permission profiles and experimental rules.
   - Near-daily releases: pin ≥ 0.160.1 and re-run the probes on upgrade.
