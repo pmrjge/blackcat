@@ -1335,7 +1335,7 @@ def test_schema3_reads_the_v1_and_v2_files_and_never_writes_them(st, tmp_path, m
         assert r[(SID, k, 0)]["schema_version"] == "2" and r[(SID, k, 0)]["model"] == ""
     assert r[(SID, "dup", 0)]["api_calls"] == "7" and r[(SID, "dup", 0)]["model"] == SONNET   # v3 read last
     assert r[(SID, "n1", 0)]["schema_version"] == "3"          # the writer writes its own schema only
-    assert (u / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS) and U.COLUMNS[-1] == "model"
+    assert (u / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS) and U.COLUMNS_V3[-1] == "model" and U.COLUMNS[-2:] == U.EQ_COLS
     monkeypatch.setenv("STACK_USAGE_MAX_BYTES", "400")          # rotation: runs3*.csv only
     for i in range(20):
         U.append_rows([row3(id=f"big{i}", last_ts=T0 + i)])
@@ -1682,3 +1682,43 @@ def test_session_end_without_a_collector_runs_the_final_scan(st, tmp_path, reap)
     assert wait(lambda: not lock_held(st))
     assert rows_by_key()[(SID, "session", 0)]["ctx"] == str(3 * 21003)
     assert U.hook_end({"session_id": SID}) == "marked"         # no transcript_path: nothing to scan
+
+
+def reg(st, aid, **rec):
+    d = st / SID / "agents"
+    d.mkdir(parents=True, exist_ok=True)
+    (d / (aid + ".json")).write_text(json.dumps(dict({"type": "scout", "depth": 1}, **rec)))
+
+
+def test_eq_run_and_role_are_copied_from_the_registry_record(st, tmp_path):
+    for aid in ("q1", "q2", "q3", "q4", "q5"):
+        write_agent(subdir(tmp_path), aid, [user("go", 0), call(aid, 1, tool=False)])
+    reg(st, "q1", eq_run="0a1b2c3d", eq_role="leader")
+    reg(st, "q2", eq_run="0a1b2c3d", eq_role="member", eq_member=2)
+    reg(st, "q3")                                          # an ordinary agent
+    reg(st, "q4", eq_run="../../x", eq_role="boss")        # invalid: empty cells, never copied
+    reg(st, "q5", eq_run="0a1b2c3d", eq_role="boss")       # a run with an invalid role: the run is kept
+    r = scan_final(tmp_path)
+    got = {a: (r[(SID, a, 0)]["eq_run"], r[(SID, a, 0)]["eq_role"]) for a in ("q1", "q2", "q3", "q4", "q5")}
+    assert got == {"q1": ("0a1b2c3d", "leader"), "q2": ("0a1b2c3d", "member"), "q3": ("", ""),
+                   "q4": ("", ""), "q5": ("0a1b2c3d", "")}
+
+
+def test_eq_columns_need_a_valid_value_and_an_old_runs3_header_is_merged_not_set_aside(st, tmp_path):
+    U.append_rows([row3(id="e1", eq_run="0a1b2c3d", eq_role="member"), row3(id="e2", eq_run="xyz", eq_role="x")])
+    r = U.read_rows()
+    assert (r[(SID, "e1", 0)]["eq_run"], r[(SID, "e1", 0)]["eq_role"]) == ("0a1b2c3d", "member")
+    assert (r[(SID, "e2", 0)]["eq_run"], r[(SID, "e2", 0)]["eq_role"]) == ("", "")
+    # a runs3.csv written before the columns existed: its rows survive, the next append starts a new file
+    u = st / "usage"
+    (u / "runs3.csv").unlink()
+    buf = io.StringIO()
+    w = csv.DictWriter(buf, fieldnames=U.COLUMNS_V3, extrasaction="ignore", lineterminator="\n")
+    w.writeheader()
+    w.writerow(row3(id="old1", api_calls=4))
+    (u / "runs3.csv").write_text(buf.getvalue())
+    U.append_rows([row3(id="new1", eq_run="0a1b2c3d", eq_role="leader")])
+    assert not list(u.glob("runs3.old-schema*"))
+    assert (u / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
+    r = U.read_rows()
+    assert r[(SID, "old1", 0)]["api_calls"] == "4" and r[(SID, "new1", 0)]["eq_run"] == "0a1b2c3d"

@@ -46,6 +46,7 @@
   "dl-engineer": {"sonnet": "xhigh", "opus": "high", "fable": "high"},
   "doc-specialist": {"sonnet": "medium", "opus": "medium", "fable": "medium"},
   "embedded-engineer": {"sonnet": "xhigh", "opus": "high", "fable": "high"},
+  "equilibrium": {"sonnet": "medium", "opus": "medium", "fable": "medium"},
   "explore": {"sonnet": "low", "opus": "low", "fable": "low"},
   "frontend-engineer": {"sonnet": "high", "opus": "medium", "fable": "medium"},
   "game-engineer": {"sonnet": "xhigh", "opus": "high", "fable": "high"},
