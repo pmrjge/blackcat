@@ -1,0 +1,558 @@
+# codex_config: design (Phase 1, no installer code)
+
+Status: design for review, 2026-10-06. Branch `codex-design`, based on `main` at `6ecb003`.
+Inputs: the researcher's mapping in `.claude-work/codex-feasibility.md`. This repo: `install.sh`, `lib/install_state.py`, `lib/claude_md_block.py`, `lib/stack_diff.py`, `dot-claude/`.
+Fact tags used below:
+- **[docs]**: the official Codex or OpenAI pages listed in §11.
+- **[src]**: openai/codex source at tag `rust-v0.160.1`, the latest release, published 2026-10-05.
+- **[src-main]**: the same repo's `main` branch on 2026-10-06.
+- **[schema]**: `codex-rs/core/config.schema.json` at that tag.
+- **unverified**: everything else, and so stated where it appears.
+
+User decisions applied:
+1. Target the Codex CLI and the IDE extension.
+2. Amended 2026-10-06. Enforcement lives locally in `CODEX_HOME`. `/etc/codex/requirements.toml` becomes an optional hardened tier: generated, off by default, installed by the user.
+3. A dedicated profile, `codex --profile codex`.
+4. Model tiers are Opus → GPT-6.1 Sol and Sonnet → GPT-6.1 Luna, with Astra only where justified.
+5. Port all 57 agents and all 220 skills.
+
+Two decisions had to change because the facts differ. Both are listed below and in §10.
+- **Profiles are files, not tables.** "In Codex 0.134.0 and later, `--profile` no longer reads `[profiles.profile-name]` from `config.toml`" [docs config-advanced]. The profile is therefore the file `$CODEX_HOME/codex.config.toml`.
+- **Model names.** "GPT-6.1 Luna" and "GPT-6.1 Astra" do not exist (§2).
+
+## 1. Verified Codex facts, conflicts, and what stays unverified
+
+### 1.1 Facts this design relies on
+
+**Profiles**
+- **F1 [docs config-advanced].** `--profile NAME` loads `~/.codex/config.toml`, then overlays `~/.codex/NAME.config.toml`.
+  - Profile files use top-level keys.
+  - Precedence: CLI/`-c` > project > profile > user > system.
+  - The `features` subcommand doesn't accept `--profile` [docs dev-cmds].
+- **F2 [src] `config_layer_source.rs`.** A profile is a `User { file, profile: Some(_) }` layer. Its config folder is CODEX_HOME, the same folder as the base user layer.
+- **F3 [src] `hooks/engine/discovery.rs`.** Hooks are discovered as follows:
+  - Inline `[hooks]` load from every config layer, the profile file included (`load_toml_hooks_from_layer`).
+  - `hooks.json` loads once per config folder.
+  - Consequence: hooks inline in `codex.config.toml` are **profile-scoped**, and `$CODEX_HOME/hooks.json` is **global**.
+  - Hooks from the System layer (`/etc/codex/config.toml`) count as managed.
+- **F4 [src] `exec_policy.rs` `load_exec_policy`.** Rules load from `<config folder>/rules/*.rules` for every layer. User and profile layers share CODEX_HOME, so **rules are global**, never profile-scoped.
+- **F5 [src] `ext/skills/src/host_roots.rs`.** User skill roots are `$HOME/.agents/skills` and `$CODEX_HOME/skills`, the latter commented in the source as "Deprecated user skills location … kept for backward compatibility".
+  - No skill root is per profile. Symlinked skill folders are followed [docs skills].
+  - Conflict 1 in §1.2 is resolved here: use the documented `$HOME/.agents/skills`.
+
+**Agents (roles)**
+- **F6 [src] `core/src/agent/role.rs` (PR #39299, 2026-08-18).** An agent TOML can apply only these keys:
+  - `developer_instructions`, `model`, `model_reasoning_effort`, `model_reasoning_summary`, `model_verbosity`, `personality`, `service_tier`;
+  - `features` (disable-only, and only `shell_tool`, `apps`, `plugins`, `memory_tool`, `request_permissions_tool`);
+  - `skills` (disable-only).
+  - Quote: "Roles may customize the child or reduce its capabilities, but never replace the parent session's authority."
+  - Consequence: **`sandbox_mode` and `mcp_servers` in an agent file are ignored.** This conflicts with [docs subagents]; see conflict 2.
+- **F7 [docs subagents].** Role resolution and limits:
+  - The role file's `model` and `model_reasoning_effort` override both spawn values and `[agents]` defaults.
+  - A custom agent whose name equals a built-in (`default`, `worker`, `explorer`) shadows it.
+  - Live `/permissions` and `--yolo` are reapplied to children.
+  - `[agents]` keys [schema]: `enabled`, `max_depth` ("Ignored by V2"), `max_concurrent_threads_per_session`, `default_subagent_model`, `default_subagent_reasoning_effort`, `interrupt_message`.
+  - `[agents.<name>]` keys [schema]: `description`, `config_file`, `nickname_candidates`. `config_file` paths resolve relative to the declaring file [docs config-ref].
+- **F8 [src] `features/src/lib.rs`.** `multi_agent` is Stable and on by default. `multi_agent_v2` is Stable and **off** by default, so V1 is the default and `max_depth` applies.
+
+**Hooks: payload and trust**
+- **F9 [src] `hooks/src/schema.rs` and `core/src/hook_runtime.rs`.** `PreToolUseCommandInput` and `PermissionRequestCommandInput` carry optional `agent_id` and `agent_type`.
+  - They are set only for thread-spawned subagents (`thread_spawn_subagent_hook_context`; a subagent with no role gets `"default"`).
+  - They are absent on the main thread.
+  - **Undocumented:** [docs hooks] lists them only for SubagentStart and SubagentStop.
+  - This field is what makes per-caller policy enforceable (§4).
+- **F10 [src-main] `multi_agents_spec.rs`.** `spawn_agent` input has `agent_type` (exposed when roles are configured), `message`/`items`, `fork_context` (V1), `model` and `reasoning_effort`.
+  - The hook `tool_name` is `spawn_agent`, matcher alias `Agent`. `apply_patch` has aliases `Edit|Write` [src-main `hook_names.rs`].
+  - `Bash` and `apply_patch` pass `tool_input.command` [docs hooks].
+- **F11 [docs hooks; src `discovery.rs`, `config_rules.rs`; src-main `tui/src/hooks_rpc.rs`].** Hook trust:
+  - Non-managed hooks run only after `/hooks` trust.
+  - Trust is stored as `[hooks.state."<source-path>:<event>:<group>:<handler>"] trusted_hash`, read from user and profile layers. `/hooks` writes it through `config/batchWrite` (key `hooks.state`, no explicit file).
+  - The hash covers the **normalized definition** (event, matcher, handler: command, timeout, …), **not the script's bytes**.
+  - A changed definition is "Modified" and is skipped until it is trusted again.
+- **F12 [docs hooks].** Hook behaviour and coverage:
+  - Multiple matching hooks run concurrently.
+  - Deny is `permissionDecision:"deny"` or exit 2.
+  - `updatedInput` is allowed only together with `allow`.
+  - "a `PreToolUse` callback error, timeout, or malformed response can fail the hook without blocking the tool". This means fail-open.
+  - Hosted tools such as WebSearch are not hookable.
+  - "Treat tool hooks as a useful guardrail, not a complete enforcement boundary."
+  - PermissionRequest can deny an escalation ("any `deny` wins").
+
+**Rules, sandbox and permissions**
+- **F13 [docs rules; src `exec_policy.rs`].** `prefix_rule` decisions:
+  - `forbidden` maps to `ExecApprovalRequirement::Forbidden`, and that mapping does not depend on the sandbox. The call site was not traced, so whether every in-sandbox command is evaluated is **unverified** (probe P8).
+  - `allow` means "Run the command outside the sandbox without prompting".
+  - Allow rules are dropped for "cyber" models, while forbidden rules always apply [src `exec_policy/model_policy.rs`].
+  - The TUI writes approvals to `~/.codex/rules/default.rules`.
+  - Linear `&&`/`;`/`|` scripts are split. Scripts with substitutions or redirection are not.
+- **F14 [docs security].** Sandbox defaults and protected paths:
+  - `workspace-write` makes cwd plus `/tmp` and `$TMPDIR` writable.
+  - `<root>/.git`, `<root>/.agents` and `<root>/.codex` are read-only inside any writable root.
+  - [src `sandboxing/src/seatbelt.rs`] has **no** CODEX_HOME-specific rule. CODEX_HOME is read-only to the agent only because it is outside the writable roots (or, when cwd is `$HOME`, because `.codex` is protected).
+- **F15 [docs permissions] (beta).** `[permissions.<name>]` permission profiles:
+  - Keys: `extends` (`:workspace`/`:read-only`), `filesystem` path or glob → `read|write|deny` (special keys `:root`, `:minimal`, `:tmpdir`, `:workspace_roots`), `network.domains` (needs `features.network_proxy`).
+  - Selected with `default_permissions`.
+  - Prefer them over `sandbox_mode` from 0.138.0 [docs managed].
+
+**Instructions, skills, MCP, models, managed tier**
+- **F16 [docs agents-md].** A global `$CODEX_HOME/AGENTS.override.md` wins over `AGENTS.md` (first non-empty). The combined chain is capped by `project_doc_max_bytes` (32 KiB). No includes.
+- **F17 [docs skills; schema].** The skills list uses at most 2% of the context window (8,000 characters if unknown). Codex shortens descriptions first, then omits skills.
+  - `skills.max_context_tokens` sets the budget, "capped at 10000 tokens".
+  - `[[skills.config]] {path, enabled, name}`.
+  - Per-skill `agents/openai.yaml` with `policy.allow_implicit_invocation`.
+- **F18 [schema].** MCP servers and tools:
+  - `mcp_servers.<id>` keys include `http_headers_helper` (resolves the feasibility report's unverified "header helper"), `env_vars`, `bearer_token_env_var`, `enabled_tools`, `disabled_tools`, `default_tools_approval_mode` (`auto|prompt|writes|approve`), `omit_tools_from` (`direct|deferred|code_mode`).
+  - `web_search = disabled|cached|indexed|live`.
+  - `features.rollout_budget {limit_tokens, reminder_at_remaining_tokens, …}` is UnderDevelopment and off.
+  - `allow_symlinked_codex_home` is read only from the host's base user config.
+- **F19 [docs ide-settings].** The IDE extension reads `config.toml`. Its documented editor settings have **no profile selector**, and profiles are described as a CLI feature [docs config-advanced]. So `--profile codex` does not reach the IDE (§10, Q2).
+- **F20 [docs managed].** Requirements are applied in this order: `/etc/codex/requirements.toml`, then cloud, then legacy `managed_config.toml`, then MDM.
+  - Supported keys: `allowed_approval_policies`, `allowed_sandbox_modes`/`allowed_permission_profiles` (0.138+), `[features]` pins, `[rules] prefix_rules` (prompt or forbidden), `[hooks] managed_dir` plus managed hooks, `allow_managed_hooks_only`, and an MCP allowlist.
+  - Requirements are **machine-wide**: they apply to every session and every profile.
+- **F21 [docs dev-cmds].** `codex execpolicy check --rules F … -- cmd` emits JSON (preview). `/debug-config` shows layers and policy sources (TUI only).
+
+### 1.2 Conflicts between docs and source
+
+The source at the release tag wins.
+1. **Skills location.** The env-var page says CODEX_HOME holds "skills". In the source that path is deprecated (F5). Decision: install listed skills under `$HOME/.agents/skills`.
+2. **Agent-file keys.** [docs subagents] allows `sandbox_mode` and `mcp_servers` in agent files. The source drops them (F6).
+   - Decision: read-only and per-agent MCP limits are enforced by the guard hook using `agent_type` (F9), not by agent files.
+   - Every MCP server is declared once, in the profile.
+3. **PreToolUse caller fields.** They are present in the source (F9) but undocumented. Decision: rely on them, pin the minimum Codex version, and add a contract fixture (§9).
+
+### 1.3 Still unverified
+
+Each item is resolved by a Phase 0 probe (§9) or stays documented as such.
+- U1. Whether `/hooks` trust writes go to `config.toml` or to the active profile file (F11 names no file).
+- U2. Whether hyphenated role names (`main-coder`) are accepted as `agent_type`. Fallback: map `-` to `_` everywhere.
+- U3. Whether hooks run unsandboxed, which matters for the guard's state directory.
+- U4. Whether a hook `command` is run through a shell or split into argv. The design uses `/bin/sh '<abs path>' <mode>`, which works either way.
+- U5. Whether permission profiles from a profile layer apply, and whether an explicit `"<CODEX_HOME>" = "read"` entry outranks a `:workspace_roots` write.
+- U6. Whether a permission profile can grant `.git` write inside the sandbox (P7b, which decides the git policy in §4.3).
+- U7. Whether `omit_tools_from=["direct"]` defers MCP tools to tool search as its schema text says.
+- U8. Whether the global AGENTS.md counts toward `project_doc_max_bytes`. The global block is kept under 2 KiB anyway.
+- U9. Whether the IDE extension honours a `CODEX_HOME` set in the editor's environment (Q2c).
+- U10. Whether `matcher = ".*"` matches every tool name (regex semantics are inferred from the docs' examples).
+- U11. Which "specialized tool paths" opt out of hooks [docs hooks].
+- U12. The MCP hook `tool_name` format `mcp__<server>__<tool>`. The docs' examples lost their underscores in extraction; a contract test pins the format.
+
+## 2. Models and reasoning effort (verified 2026-10-06)
+
+| User's name | Verified identifier | Status | Effort values (`model_reasoning_effort`) | API price per 1M tokens, in/out |
+|---|---|---|---|---|
+| GPT-6.1 Sol | **`gpt-6.1-sol`** | exists: CLI, IDE, API [docs models; api-sol] | `low`, `medium` (default), `high`, `xhigh`, `max`; no `none` or `minimal` | $2 / $10 |
+| GPT-6.1 Luna | **does not exist**. The API URL falls back to the models index; the current Luna is **`gpt-6-luna`** [api-luna] | name unverifiable | `gpt-6-luna`: `none`, `low`, `medium` (default), `high`, `xhigh`, `max` | $0.10 / $0.50 |
+| GPT-6.1 Astra | **withheld**. OpenAI said it would not release it (Gizmodo, 2026-09-29, secondary source). No API page; the current Astra is **`gpt-6-astra`** [api-astra] | name unverifiable | `gpt-6-astra`: `low` … `max` | $10 / $50 |
+
+Notes on the models:
+- `ultra` exists as a Codex value, but only as a mode that adds proactive subagents ("Ultra uses subagents…") [docs models; config-ref]. It is never used: the stack does its own delegation.
+- **Astra is the flagship and the most expensive model, not a cheap tier.**
+  - Astra costs 5× Sol, so it maps to the stack's `fable` column in `agent_effort.json` (above Opus).
+  - No agent defaults to fable today.
+  - Haiku is banned in the stack. The cheapest OpenAI tier, Luna, already fills the Sonnet slot, so nothing maps below Luna.
+  - Recommendation: no agent defaults to Astra. The only candidate is `ninja-coder`, the rare top escalation tier on hard research-level code ("Astra still scores highest on scientific research tasks"). That choice is the user's (Q1).
+
+**Mapping (default, pending Q1).**
+- The `opus` tier maps to `gpt-6.1-sol` and the `sonnet` tier to `gpt-6-luna`. Effort maps one to one: `low`, `medium`, `high`, `xhigh`, `max` are the same names in both, and both models accept all five.
+- The tier table is one file, `codex_config/models.toml` (`opus`, `sonnet`, `fable` → id). Changing it means editing one line and re-running the installer.
+
+| Codex model | Effort | Agents |
+|---|---|---|
+| gpt-6.1-sol | max | ninja-coder |
+| gpt-6.1-sol | xhigh | main-coder, mathematician, planner, proof-checker, security-auditor |
+| gpt-6.1-sol | high | biochem-engineer, claude-code-engineer, code-reviewer, cuda-engineer, data-scientist, designer, dl-engineer, embedded-engineer, game-engineer, go-engineer, haskell-engineer, hpc-engineer, julia-engineer, jvm-engineer, llm-engineer, ml-engineer, mlx-engineer, node-engineer, orchestrator, plan-reviewer, procedural-3d-ui, python-engineer, quantum-engineer, researcher, robotics-engineer, rust-engineer, security-engineer, vfx-td (28) |
+| gpt-6.1-sol | medium | cg-artist, frontend-engineer, image-director, mobile-engineer, motion-designer, rigger-animator, sculptor-painter, writer |
+| gpt-6.1-sol | low | oracle |
+| gpt-6-luna | high | data-engineer, devops-engineer, verifier |
+| gpt-6-luna | medium | **blackcat (main thread: the profile's `model` and `model_reasoning_effort`)**, browser-operator, coder, doc-specialist, mcp-broker, test-engineer, toolsmith |
+| gpt-6-luna | low | build-fixer, claude-code-guide, explore, scout |
+
+Total: 43 Sol and 14 Luna, 57 agents. Other settings:
+- `agents.default_subagent_model = "gpt-6-luna"` with `default_subagent_reasoning_effort = "medium"` covers only built-in roles, which the guard refuses anyway.
+- OpenAI advises "Start with High for Luna". The stack's own effort rule v1 raises a model weaker than the agent's own by one level. Q3 asks whether to apply +1 to the Luna rows; the default keeps the names unchanged.
+- `/override-agent` (per-session model override) has no Codex hook event, so it is dropped. Its replacement is an optional second profile `codex-astra` (Q1c).
+
+## 3. What lives where
+
+`$CODEX_HOME` is resolved as `--codex-home`, else `$CODEX_HOME`, else `~/.codex`. Profile `codex` means the file `$CODEX_HOME/codex.config.toml`.
+
+| Item | Path | Scope | Notes |
+|---|---|---|---|
+| Profile: `model`, `model_reasoning_effort` (BlackCat), `approval_policy="on-request"`, `default_permissions` + `[permissions.claude-agent-stack]`, `[features]`, `[agents]` limits + 56 `[agents.<name>] {description, config_file}`, `[mcp_servers.*]`, inline `[hooks]` (guard), `developer_instructions` (rules R + BlackCat body), `web_search="disabled"`, `skills.max_context_tokens`, `tool_output_token_limit` | `codex.config.toml` | **profile only** | owned whole file; `hooks.state` carried over (§7.4) |
+| 56 role files (BlackCat is the main thread, not a role) | `stack/agents/<name>.toml` | profile, through `config_file` | **not** in `agents/`, so roles do not leak into other sessions |
+| Guard: `codex-hook` stub, `codex_guard.py`, a copy of `stack_io.py`, `toolsmith_policy.py`, policy JSON, `stack-python` link | `stack/bin/`, `stack/hooks/`, `stack/policy/` | used by profile hooks | |
+| Listed skills (131: hubs and standalones) | real files in `stack/skills/<n>/`, one symlink each in `$HOME/.agents/skills/<n>` | **global**: every Codex session and other `.agents` readers | no per-profile skill root exists (F5) |
+| Hub modules (89) | `stack/skill-modules/<n>/SKILL.md` | never listed; read by absolute path from the hub's table | the analogue of `user-invocable-only` |
+| Rules | `rules/claude-agent-stack.rules` | **global** (F4) | only `forbidden`/`prompt` (§4.3); never `default.rules` |
+| Global rules block G (about 1.5 KiB) | managed block in `AGENTS.md` | **global** | warns when `AGENTS.override.md` shadows it |
+| Keys file | `stack/stack.env` (0600; seeded only if missing) or `--stack-env PATH` | read by MCP wrapper | denied to the sandbox (F15) |
+| Manifest | `.stack-manifest.json` | — | sha256 per owned file, hook-definition fingerprints, link list |
+| `config.toml`, `hooks.json`, `agents/`, `rules/default.rules` | — | — | **never touched** (except under Q2b) |
+
+## 4. Enforcement architecture
+
+### 4.1 Layers
+
+The local CODEX_HOME layer is the primary enforcement. Each later layer adds to the ones before.
+- **L1 Sandbox.** Workspace-write through the beta permission profile, or `--legacy-sandbox`, which uses `sandbox_mode="workspace-write"`.
+  - The profile has `extends=":workspace"`, explicit `"<CODEX_HOME>"="read"` and `"$HOME/.agents"="read"`, `deny` for the credential set (the port of `settings.json` `sandbox.filesystem.denyRead`/`denyWrite` and the 33 `Read(...)` and 28 `Edit(...)` denies), and `network.domains` from the 49 allowed domains with `features.network_proxy=true`.
+- **L2 Rules (global).** `forbidden` for the 34 `Bash(...)` denies (push, send-pack, `gh pr create|merge|review|comment`, `gh release …`, …). `prompt` for risky-but-legitimate commands.
+  - Claude `allow` rules are **not** converted to Codex `allow`. Claude's allow means "no prompt, still sandboxed"; Codex's allow means "unsandboxed".
+- **L3 Guard hook (profile).** `codex_guard.py` on PreToolUse, PermissionRequest, PostToolUse, SubagentStart, SubagentStop, UserPromptSubmit, SessionStart and SessionEnd. It enforces per-caller policy through `agent_type` (F9); see §5.
+- **L4 Approval.** `on-request`. Every escalation goes through PermissionRequest, where the guard can deny before the user sees a prompt. `never` is offered as `--no-escalation`, the strongest mode, which breaks unsandboxed git (§4.3).
+- **L5 Prompts.** Developer instructions, AGENTS block G and skills. Advisory only.
+- **Optional managed tier (§4.5).** Root-owned, machine-wide; off by default.
+
+### 4.2 Agent self-protection: the agent must not edit its own rules, hooks or config
+
+- **Default protection.** CODEX_HOME is outside the writable roots, so `apply_patch` and shell writes there fail in the sandbox. When cwd is `$HOME`, `.codex` and `.agents` are protected paths (F14).
+- **What the design adds:**
+  - (a) The permission profile marks CODEX_HOME, `~/.agents` and the guard state directory `read` explicitly (U5).
+  - (b) The guard denies any `apply_patch` whose `*** Add/Update/Delete File:` or `*** Move to:` path resolves (against `cwd`, symlinks resolved) under a protected root.
+  - (c) The guard denies shell commands that write, rename, chmod or delete a protected path (the port of agent_guard's Bash-level protected-path check), and any `-c`/`--config` or `--dangerously-*` passed to `codex` by the agent.
+  - (d) PermissionRequest denies any escalation whose command touches a protected root or is a forge write.
+  - (e) The installer refuses a CODEX_HOME that is inside the user's usual working trees (§7.2), and the README says not to start Codex with cwd inside CODEX_HOME. In that case CODEX_HOME *is* the writable root.
+- **What trust protects.** Trust is keyed on the hook *definition* (F11). Editing `codex_guard.py` would change behaviour without a re-trust prompt, so the script stays under the protection of L1 and L3 (b–d) like the rest of CODEX_HOME. The trust records (`hooks.state`) sit in the same protected files.
+
+### 4.3 Git without weakening the sandbox
+
+`.git` is read-only in workspace-write (F14), so `git commit`, `merge --ff-only` and `worktree` need escalation. Codex `allow` rules are global (F4) and run unsandboxed, without the profile's guard in other sessions.
+- **Default.** `prompt` rules for git write subcommands: the user approves.
+- **`--git-allow-rules`.** Adds `allow` only for hook-free forms such as `git -c core.hooksPath=/dev/null commit …`. The guard additionally denies `-F/--file`, `-C`, `--exec-path` and `-c alias.*` arguments that would let an unsandboxed git read secrets or run code.
+- **Preferred if probe P7b passes.** A permission-profile write grant on `.git` keeps git inside the sandbox and scoped to the profile.
+
+The same reasoning puts `stack-install` (toolsmith) on `prompt`, not `allow`. The guard further restricts it to `agent_type == "toolsmith"` with `toolsmith_policy.py` checking the argv.
+
+### 4.4 Hook trust: what the installer records and what the user does
+
+- **Install step.** The installer writes the hooks inline in `codex.config.toml`. It stores a canonical fingerprint of each hook definition in the manifest, and prints the list of hook keys (`<abs path>:pre_tool_use:0:0`, …).
+- **After install (user).** Run `codex --profile codex`. Codex warns that hooks need review; open `/hooks` and trust the stack's 8 entries.
+- **Re-install.** When any fingerprint changed (command, path, timeout, matcher), the installer says "re-trust N hooks". When only script bytes changed, no re-trust is needed (F11), and the installer says so.
+- **`--doctor`.** Reads `hooks.state` from `config.toml` and the profile file (tomllib, read-only) and reports keys with no trust record.
+- **Not done.** The installer never writes `trusted_hash`. Doing so would replicate Codex's private hash and bypass the user's review. `--dangerously-bypass-hook-trust` is not recommended.
+
+### 4.5 What the same-user agent can still bypass, and the optional managed tier
+
+Local files are user-writable. This design enforces against the **sandboxed agent**, not against the user or other processes running as the user. Residual bypasses of the local tier:
+1. **Code the guard cannot see.** A user-approved escalation that runs opaque code (`python x.py`); the MCP servers and `allow`-rule commands, which run unsandboxed.
+2. **The user widens permissions.** `--yolo`, `danger-full-access`, a wider `/permissions`, or `writable_roots` covering CODEX_HOME. Children inherit these (F7).
+3. **Repository content.** A *trusted* project's `.codex/config.toml` or `.codex/rules` can relax the sandbox, approvals or `features.hooks`. The agent cannot write that file (protected path), but a repository can ship it.
+4. **Hook failure.** A hook timeout or crash fails open (F12). The `sh` stub exits 2 if Python is missing, and the guard's catch-all denies on internal errors, but a timeout cannot be caught.
+5. **Unhooked tools.** Hosted tools, mitigated by `web_search="disabled"`, and tool paths that opt out of hooks (U11).
+6. **Outside the profile.** Sessions without `--profile codex`, including the IDE, have only L1 defaults, L2 rules and the AGENTS block (Q2).
+
+**Optional hardened tier (`--print-requirements`).** It writes `codex_config/build/requirements.toml` and a `managed-hooks/` copy of the guard, then prints the root commands. It never writes `/etc` and never runs sudo. The file contains:
+- `allowed_sandbox_modes=["read-only","workspace-write"]` (or `allowed_permission_profiles`) and `allowed_approval_policies=["on-request","never"]`, which forbid `danger-full-access`.
+- `[features] hooks=true`.
+- `[rules] prefix_rules` with the forbidden push and forge set.
+- Managed `PreToolUse`/`PermissionRequest` hooks running the guard in `--scope global` mode: no-push, self-protection and credential paths only. A managed hook cannot tell which profile is active, so it carries no stack policy.
+- `allow_managed_hooks_only=false`, which keeps the profile's hooks working.
+
+The tier closes bypasses 2, 3 and 6 for those checks, machine-wide. Bypasses 1, 4 and 5 remain: the user owns the machine and root can always undo it.
+
+## 5. Guard capability mapping (Claude guard → strongest Codex mechanism)
+
+Status values:
+- **E**: enforced locally.
+- **E\***: enforced through the undocumented `agent_type` (F9).
+- **P**: partial.
+- **A**: advisory (prompt text only).
+- **X**: lost.
+- **M**: what the optional managed tier adds.
+
+| Capability | Codex mechanism | Status | Residual (local) | M |
+|---|---|---|---|---|
+| No push / forge writes (all forms) | L2 `forbidden` (global) + guard Bash parser (port of agent_guard no-push: `bash -c`, `eval`, `$(…)`; `tests/test_no_push.py` corpus is the oracle) + PermissionRequest deny + sandbox network allowlist | E | opaque scripts, unsandboxed MCP; guard absent outside profile (rules still apply) | rules + managed hook |
+| Self-protection of CODEX_HOME, `~/.agents`, state | §4.2 | E | §4.5 items 1–4 | pins sandbox, hooks |
+| Credential and protected-path reads (`~/.ssh`, `~/.aws`, keychains, `.env`, stack.env) | permission profile `deny` (Seatbelt, beta) + guard path checks on Bash, `apply_patch`, local-file MCP args | E (beta); P with `--legacy-sandbox` (reads unrestricted) | unsandboxed MCP and `allow` commands | managed hook |
+| Spawn policy per caller (POLICY rows, leaves, no self-spawn) | guard on `spawn_agent`: caller `agent_type` (absent = main = blackcat row) × `tool_input.agent_type` | E\* | field removal makes all calls look main-thread, so the BlackCat gate denies them: **fails closed** | — |
+| No generic or built-in agents | guard denies missing `agent_type`, `default`, `worker`, `explorer` | E | — | — |
+| Model or effort escalation at spawn | role file's `model`/effort override spawn values (F7); guard also strips `model` and `reasoning_effort` (`updatedInput`) | E | — | — |
+| Depth ≤ 8 | `agents.max_depth=8`, `features.multi_agent_v2=false` | E (native) | the user enabling V2 | pin feature |
+| Fan-out and concurrency caps | `max_concurrent_threads_per_session` + guard spawn count per caller per prompt | E (approximate) | — | — |
+| BlackCat delegate-only (main thread) | guard: no `agent_type` → only `spawn_agent`, `send_input`, `resume_agent`, `wait`, `close_agent`, `update_plan`, `request_user_input`; at most 3 read-only shell calls per prompt (reset at UserPromptSubmit) | E\* | outside the profile, by design | — |
+| Read-only roles (code-reviewer, security-auditor, verifier, plan-reviewer, claude-code-guide, proof-checker) | guard: deny `apply_patch`; shell limited to a read-only allowlist (port of `_ReadOnly`) | E\* (agent files cannot set `sandbox_mode`, F6) | shell classification is heuristic, as in Claude | — |
+| Per-agent tool sets (`tools:` lines) | guard: no Write/Edit → deny `apply_patch`; no Bash → deny shell; no Agent → deny spawn; per-server MCP allowlist | E\* | every MCP schema is visible to all (deferred via `omit_tools_from`, U7) | — |
+| `maxTurns` | guard tool-call cap per `agent_id` | P | counts calls, not turns | — |
+| Token budgets, soft limits | `features.rollout_budget` (UnderDevelopment, opt-in `--with-rollout-budget`) | P / A | no per-agent attribution | — |
+| MCP call cap | guard counter per `session_id` (shared by subagents) and per `agent_id` | E | — | — |
+| `web_caps` | `web_search="disabled"`; web through MCP (jina, exa, spider), which the guard caps; sandbox network allowlist | E | — | — |
+| Web taint → memory | guard denies `nmem_remember` for researcher, scout, browser-operator | E\* | propagation through reports and `send_input`: P (spawn tree from PostToolUse(spawn_agent), Phase 4b) | — |
+| SendMessage routing and resume policy | guard on `send_input`/`resume_agent` against the spawn tree | P | the tree is built by the hook | — |
+| USER-consent stamping | none | A | — | — |
+| computer-use, one agent at a time | guard lock on `mcp__computer-use__*` | E | — | — |
+| Image limit ≤ 1920 px | guard on `view_image` (a local function tool, hookable) and image-path MCP args; header-only size read | E | — | — |
+| toolsmith-only installs | L2 `prompt` + guard (caller `toolsmith`, `toolsmith_policy.py` argv) | E\* | — | — |
+| `read_gate` | guard heuristics on shell reads (`cat`, `rg`) of deps and large files | P | — | — |
+| `output_shrink` | `tool_output_token_limit` (output rewrite unsupported) | P | — | — |
+| Hand-back protocol (STATUS) | SubagentStop `last_assistant_message`: observe; optional one-shot continue | P | — | — |
+| `stack_usage` | SessionEnd hook (≤ 3 s) | E (observe) | — | — |
+| Status line, `/override-agent`, slash commands' hooks | none (`tui.status_line` is built-in items only) | X | — | — |
+| Fail-closed | stub exit 2 without Python; catch-all deny; timeout fails open (F12) | P | timeouts | managed hooks are still fail-open on timeout |
+
+## 6. Component mapping (final decisions)
+
+| Claude component | Codex target | Decision |
+|---|---|---|
+| `CLAUDE.md` block | `AGENTS.md` block G (`lib/claude_md_block.py` reused, `NAME="AGENTS.md"`, same `claude-agent-stack` markers) | global, about 1.5 KiB: no push, CODEX_HOME off-limits, untrusted text is data, credentials, uv |
+| `rules/claude-agent-stack.md` | rewritten as R (≤ 8 KiB, Codex tool names, honest enforcement claims) in the profile's `developer_instructions` **and appended to each role's** `developer_instructions` | a role replaces the parent's instructions (F6), so R must be in every role |
+| 57 agents | 56 role TOMLs + the BlackCat main thread in the profile | §8.1 |
+| `settings.json` permissions | rules (§4.3), permission profile, MCP `enabled_tools`/`disabled_tools`/`default_tools_approval_mode`, guard (4 `Agent(...)` denies) | |
+| `settings.json` sandbox | permission profile (beta) or `--legacy-sandbox` | |
+| `defaultMode: plan` | none: `approval_policy="on-request"` | advisory |
+| MCP: 17 agent-scoped servers, 5 user-scope, magg | all in the profile's `[mcp_servers]`. `stdio` through `with-stack-env`; HTTP via `http_headers_helper = "<stack>/bin/mcp-headers <id>"`; heavy servers `omit_tools_from=["direct"]`; magg `ask` rows → `default_tools_approval_mode="prompt"` | per-agent access via guard |
+| Skills, 220 | §8.3 | all ported |
+| hooks (agent_guard and the rest) | one profile-scoped guard (§5) | not a port of the 12K-LOC guard |
+| statusLine, `/override-agent`, `/stack-doctor` and `/stack-tree` hooks | dropped. `--doctor` is an installer flag | |
+| `stack.env`, `with-stack-env`, `mcp-headers` | reused, installed under `stack/bin` | |
+| Managed settings (`--print-managed-settings`) | `--print-requirements` (§4.5) | off by default |
+| Agent SDK app | out of scope | |
+
+## 7. Installer architecture
+
+### 7.1 Files
+
+The installer must not change the shipped Claude installer: zero edits to `install.sh`, `lib/`, `dot-claude/` or `tests/`.
+
+```
+codex_config/
+  install.sh            bash 3.2; flags §7.3; orchestration only (~600–800 lines)
+  models.toml           tier → model id (§2)
+  templates/            AGENTS.block.md (G), rules.md (R), blackcat.md, profile.base.toml, permissions.toml
+  lib/codex_state.py    loads ../../lib/install_state.py BY PATH and sets its module constants (§7.2)
+  lib/codex_home.py     CODEX_HOME resolution and refusal list
+  lib/toml_emit.py      minimal TOML emitter (§7.5)
+  lib/convert_agents.py lib/convert_skills.py lib/convert_rules.py lib/render_profile.py
+  lib/skill_links.py    the $HOME/.agents/skills symlink manager (second root)
+  lib/translate.py      Claude tool-name table (§8.2); unmapped → error, never a guess
+  hooks/codex_guard.py hooks/codex-hook (POSIX sh stub)
+  probes/               Phase 0 probe kit, run by the user (§9)
+  tests/                pytest + fake codex + smoke.sh (§9)
+```
+
+### 7.2 Reusing `lib/install_state.py`: copy or generalize
+
+- **Measured blast radius.** The engine functions are generic apart from module-level constants: `SCOPE_DIRS`, `SCOPE_FILES`, `EXCLUDED`, `WRITE_THROUGH`. The engine covers stage, `make_plan`, `print_plan`, `apply_plan` (drift check, O_NOFOLLOW backups), `restore`, `ensure_root` and `new_backup_dir`. The config-dir resolver (`resolve_config_dir`, `.claude.json`, `CLAUDE_CONFIG_DIR`) and `validate()` are Claude-specific.
+- **Decision: reuse by path, with no edits.** `codex_state.py` imports the file with `importlib.util.spec_from_file_location`, as install_state already does for `stack_io.py` to avoid the CWE-427 `sys.path` issue. It runs in its own process and assigns:
+  - `SCOPE_DIRS=("stack",)`;
+  - `SCOPE_FILES=("codex.config.toml","rules/claude-agent-stack.rules","AGENTS.md",".stack-manifest.json", the matching ".tmp" names)`;
+  - `EXCLUDED=("stack/hooks/__pycache__","stack/bin/stack-python","stack/state")`;
+  - `WRITE_THROUGH=()`.
+- **What codex_state provides itself:** `validate()` (TOML parses, required role keys, no placeholders, policy JSON schema) and `resolve_codex_home()`. The latter reuses the module's `HOME_INSIDE`, `SYSTEM_INSIDE`, `HOME_EQUAL` and `_inside`.
+  - It refuses `/`, `$HOME`, system directories, anything inside `~/.claude` or the repository, the backup roots, and paths with `BAD_PATH_CHARS` or `'`.
+  - CODEX_HOME must exist when it is set explicitly (Codex's own rule). The default `~/.codex` is created with mode 0700.
+- **Backups.** They go to `${XDG_STATE_HOME:-~/.local/state}/codex-agent-stack-backups`, separate from the Claude installer's.
+- **Contract tests.** They pin every engine name and signature used (`inspect.signature`), so a future Claude-side refactor that breaks this coupling fails in `codex_config/tests`. Both suites run in CI.
+- **Rejected options:**
+  - (a) A shared generalization through a target descriptor: it re-opens the C7/CWE review and risks the 281 Claude tests. Revisit only after both installers are stable.
+  - (b) A copy: two security-reviewed engines would drift apart.
+- **Source snapshot.** The O_NOFOLLOW read of HEAD-tracked files lives inline in `install.sh`. It is re-implemented (about 60 lines) for `codex_config/` plus the `dot-claude/` inputs, and goes to security review.
+
+### 7.3 Flags and flow
+
+- **Flags:**
+  - `--dry-run` and `--diff` (a codex area list for `stack_diff`-style read-only comparison);
+  - `--restore [DIR|latest] [--force]`, `--yes`, `--no-prompt`;
+  - `--codex-home PATH`, `--skills-root PATH|none`, `--profile-name NAME` (default `codex`);
+  - `--no-agents-md`, `--no-mcp`, `--legacy-sandbox`, `--git-allow-rules`, `--no-escalation`, `--with-rollout-budget`;
+  - `--print-requirements`, `--doctor`, and `--ide-default` (only if Q2b is chosen).
+- **Python.** Steps run under the same interpreter resolution as `stack-hook` (`$STACK_PYTHON`, else `uv python find … 3.13`), because `tomllib` needs Python 3.11 or later. Stdlib only. `codex_guard.py` itself stays Python 3.9-compatible, because managed hooks use `/usr/bin/python3`.
+- **Flow.** Each step runs only if the previous one succeeded.
+  1. Snapshot the sources.
+  2. Resolve and check CODEX_HOME, then check `codex --version` ≥ 0.160.1 when Codex is on PATH (otherwise warn and skip the Codex checks).
+  3. Stage CODEX_HOME.
+  4. Render: models, roles, skills, rules, profile, guard and AGENTS block.
+  5. Validate:
+     - TOML via tomllib;
+     - `codex execpolicy check` on every rule's `match`/`not_match` examples;
+     - guard self-test: pipe synthetic PreToolUse JSON through the stub; a push must be denied and a read allowed;
+     - skills-listing budget estimate.
+  6. Plan; stop here under `--dry-run`.
+  7. Back up and apply through the engine.
+  8. Apply the skill-link plan, recording old targets in the same backup directory as `skill-links.json`.
+  9. Print the user steps: `/hooks` trust, `codex --profile codex`, the AGENTS.override warning.
+- **Restore** undoes the links first, then calls the engine's restore.
+
+### 7.4 Owned-file merges
+
+- `codex.config.toml` is owned whole.
+- The render carries over the live file's `[hooks.state]` table, parsed with tomllib and re-emitted, in case `/hooks` writes trust there (U1). Stale hashes then show as "Modified" in `/hooks`, which is correct.
+- Any other foreign table found in the live file stops the run, naming the table. The user's own settings belong in `config.toml`.
+
+### 7.5 Writing TOML
+
+stdlib has no TOML writer, and `tomli_w` would add a runtime dependency to a stdlib-only installer, so the emitter is in-repo: `lib/toml_emit.py`, about 150 lines.
+- It handles str, int, bool, lists of scalars, tables and arrays of tables, with deterministic key order and quoted keys where needed.
+- `developer_instructions` is written as a `'''…'''` literal string when the text contains no `'''` or control characters, and as an escaped basic string otherwise.
+- It refuses floats NaN/inf, datetimes and None.
+- It is proven by round-trip tests (`tomllib.loads(emit(x)) == x`) over a seeded random corpus.
+
+## 8. Converter specs
+
+### 8.1 Agent `.md` → role `.toml`
+
+| Frontmatter or part | Codex |
+|---|---|
+| `name` | `name` (kept; hyphens pending U2) + profile `[agents.<name>] description, config_file="stack/agents/<name>.toml"` |
+| `description` | `description` |
+| `model` (`opus`/`sonnet`) | `model` from `models.toml` (§2) |
+| `effort` | `model_reasoning_effort` (identity; clamped to the model's accepted set) |
+| `maxTurns` | `policy.json` per-agent tool-call cap (§5) |
+| `tools` | Write/Edit/Bash/Agent and `mcp__<srv>` → `policy.json` (tool classes, MCP allowlist); Agent targets come from the body's "May spawn:" line (blackcat: its `Agent(...)` list); prompts translated (§8.2) |
+| `mcpServers` | merged into the profile's `[mcp_servers]` (`__UV__`/`__CLAUDE_DIR__` rendered to `stack/mcp` paths); the same id with different settings stops the build |
+| `permissionMode`, `color`, `memory`, `experimental`, `omitClaudeMd` | dropped (recorded in the build report) |
+| `hooks` (blackcat) | → the guard's BlackCat main-thread gate |
+| body | `developer_instructions` = translated body + `\n\n` + R |
+
+The spawn policy is derived from the same sources that `tests/lint_agents.py` checks against `agent_guard.POLICY`. A test imports `agent_guard.py` by path and asserts that the derived JSON equals POLICY, LEAVES and READONLY_TYPES. That keeps one source of truth without executing agent_guard at install time.
+
+### 8.2 Claude tool names in prompts and skills (`lib/translate.py`)
+
+| Claude | Codex text |
+|---|---|
+| Read, Grep, Glob | shell `sed -n`, `cat`, `rg`, `rg --files` |
+| Write, Edit, NotebookEdit | `apply_patch` |
+| Bash, Monitor | shell; long runs with background exec and polling |
+| Agent (`subagent_type`) | `spawn_agent` (`agent_type`, `message`) |
+| SendMessage | `send_input` / `resume_agent` |
+| TaskStop | `close_agent` |
+| SubagentHandback | "end your turn with the report" |
+| Skill | "open the skill's SKILL.md (path in the skills list)" |
+| WebSearch, WebFetch | `mcp__jina__search_web`, `mcp__exa__web_search_exa`, `mcp__jina__read_url` |
+| EnterWorktree, ExitWorktree | `git worktree add` / `remove` |
+| AskUserQuestion | `request_user_input` if enabled (experimental), else ask in the reply |
+| ToolSearch, LSP, Artifact, Workflow, Cron\*, ScheduleWakeup, RemoteTrigger, PushNotification, SendUserFile, ListAgents, ExitPlanMode | dropped; the sentence is rewritten |
+| `~/.claude/...`, `__CLAUDE_DIR__` | `<CODEX_HOME>/stack/...` |
+
+Tokens with no mapping fail the build with file:line. Sentences that claim "hook-enforced" are rewritten to match §5's status column. That rewrite is writer work, checked by a lint for forbidden phrases.
+
+### 8.3 Skills: hub/module convention and the listing budget
+
+- **Listed set (131).** Everything that is not a hub module, from the same classification as `settings.json` `skillOverrides` and `tests/test_skill_modules.py`.
+  - The 32 `LISTED_CORE` skills keep their full description (frontmatter line ≤ 148 characters today).
+  - The other 99 get a ≤ 60-character description generated from the first clause, mirroring Claude's `name-only`.
+  - Estimated listing: 32×(110+60) + 99×(60+60) ≈ 17 K characters ≈ 4.3 K tokens, with paths. The profile sets `skills.max_context_tokens = 6000`, under the 10 K cap.
+- **Hub modules (89).** Installed to `stack/skill-modules/`, never in a scanned root. Hub tables are rewritten to absolute paths. `tests/test_skill_modules.py`'s reachability check is mirrored on the output.
+- **Frontmatter.** `name` and `description` are kept. `disable-model-invocation: true` (3 skills) → `agents/openai.yaml` with `policy.allow_implicit_invocation: false`. `argument-hint` is dropped.
+- **Text.** The text pass (§8.2) covers 38 files that name Claude tools and 45 that reference `~/.claude`.
+- **Links.** One symlink per listed skill in `$HOME/.agents/skills`. An existing entry that is not ours (not in the manifest, or not a link into `stack/skills`) stops the run with its name. The run never overwrites or prunes foreign entries.
+
+### 8.4 Rules → AGENTS block, developer instructions, `prefix_rule`
+
+- G and R are rendered from `templates/`. R is about 8 KiB; it is the original 11.5 KiB minus Claude mechanics (BlackCat hook caps, SubagentHandback, `mcp__` routing through mcp-broker as written for Claude).
+- `rules/claude-agent-stack.rules`:
+  - one `prefix_rule(pattern, decision="forbidden", justification, match, not_match)` per converted `Bash(...)` deny, with `*` globs expanded into union tokens where finite;
+  - `prompt` rules for git writes and `stack-install` (§4.3).
+- `codex execpolicy check` must agree with every `match` and `not_match` example at install time.
+
+### 8.5 Guard (`hooks/codex_guard.py`, a few hundred lines, stdlib, Python ≥ 3.9)
+
+- **Hook commands.** `"/bin/sh '<CODEX_HOME>/stack/bin/codex-hook' <mode>"`, one matcher group `".*"` per event, timeout 10 s (SessionEnd 3 s).
+- **State.** Kept under `~/.local/state/codex-agent-stack/<session_id>/`, outside CODEX_HOME. Writes use `fcntl.flock` and the atomic writes of the installed `stack_io.py` copy, because hooks run concurrently (F12).
+- **No-push reuse.** If agent_guard's no-push predicate is a pure function, it is imported by path. Otherwise it is ported, with `tests/test_no_push.py`'s corpus as the oracle.
+- **Global mode.** `--scope global` runs only the profile-neutral checks, for the managed tier.
+
+## 9. Phased build plan, tests, reviews, user steps
+
+| Phase | Work | Owner | Done when |
+|---|---|---|---|
+| 0 | Probe kit `probes/run.sh` (scratch `CODEX_HOME`, user logs in there). The user runs it and pastes the JSON report. Probes:<br>P1 profile hooks fire only with `--profile`<br>P2 where `/hooks` writes trust (U1)<br>P3 `agent_type` in a subagent's PreToolUse<br>P4 hyphenated roles<br>P5 roles via `[agents.x].config_file`<br>P6 profile MCP servers<br>P7 permission profile from the profile file, CODEX_HOME read-only<br>P7b `.git` write grant<br>P8 `forbidden` blocks an in-sandbox `git push`<br>P9 hooks unsandboxed<br>P10 symlinked skills listed<br>P11 IDE ignores the profile; IDE with `CODEX_HOME` | main-coder (kit); **user** (run) | report committed; §1.3 updated |
+| 1 | This design | main-coder | plan-reviewer PASS; Q1–Q3 answered |
+| 2 | `toml_emit`, `codex_home`, `codex_state` (engine by path), `skill_links` | python-engineer; tests by test-engineer | 40 tests green |
+| 3 | `convert_agents`, `convert_skills`, `convert_rules`, `render_profile`, `translate`; prompt rewrites of R, G, BlackCat and flagged sentences in 57 bodies and up to 83 skill files | python-engineer; **writer** (texts) | build report: 0 unmapped; 30 tests |
+| 4 | `codex_guard.py` + stub; 4b spawn tree, taint propagation, `send_input` routing | python-engineer; **security-auditor** review | 30 tests; seeded-bug proofs |
+| 5 | `codex_config/install.sh`, `--doctor`, `--print-requirements`, `smoke.sh` | main-coder (core) + coder (flags, messages); security-auditor | smoke green; real `~/.codex` and `~/.agents` hashes unchanged |
+| 6 | `codex_config/README.md` (what is enforced vs advisory, user steps) | writer | review PASS |
+| 7 | Install | **user** | — |
+
+**Tests: about 110 in total, all on scratch `HOME` and scratch `CODEX_HOME`.**
+- **Count by area:**
+  - emitter 12, including the round-trip property test;
+  - converters 24: 57 roles parse; policy equals agent_guard.POLICY; unmapped token fails; skills 131/89 split; hub paths; budget;
+  - rules 10: Claude `allow` never becomes `allow`; examples; fake and optional live execpolicy;
+  - guard 30: no-push corpus; `apply_patch` paths; CODEX_HOME; caller rows; built-ins; BlackCat gate; read-only roles; MCP allowlist; taint; caps under concurrent processes; stub without Python exits 2; catch-all deny; PermissionRequest; p95 < 100 ms;
+  - installer 24: dry-run writes nothing; diff; apply, backup, restore round trip; drift abort; refusal list including `~/.claude`; foreign skill entry; `hooks.state` carry-over; AGENTS splice and override warning; re-trust detection; idempotent second run; requirements generator never touches `/etc`;
+  - contracts 6: install_state and claude_md_block signatures; agent_guard POLICY; schema snapshot of every emitted key (vendored `config.schema.json` at the pinned tag); hook-input fixture from `hooks/src/schema.rs`.
+- **Seeded-bug proofs.** At least one mutation per file, kept in the docstring. Examples: flip a `forbidden` to `allow`; drop CODEX_HOME from the protected roots; remove `"` escaping in the emitter; let the BlackCat gate pass a shell write. Each must turn a test red.
+- **Fake `codex`.** `tests/fake-codex/codex` answers only `--version` (configurable) and `execpolicy check` (backed by an in-repo prefix-rule mirror). Any other subcommand exits 97, so no test can reach a real Codex.
+- **Isolation.** `smoke.sh` hashes the real `~/.codex` and `~/.agents` before and after, as `install_smoke.sh` does for `~/.claude`.
+
+**Review triggers (one reviewer per class):**
+- security-auditor:
+  - the guard and stub;
+  - the rules and `allow` forms;
+  - the permission profile;
+  - the requirements generator and its printed root commands;
+  - `install.sh`/lib paths, symlinks and O_NOFOLLOW.
+- code-reviewer: converters and emitter (diff over 300 lines).
+- plan-reviewer: this design, before Phase 2.
+
+**User-run steps** (agents never run these):
+1. Phase 0 probes.
+2. `codex_config/install.sh --dry-run`, then `codex_config/install.sh`.
+3. `codex --profile codex`, then `/hooks` → trust 8 hooks. Repeat whenever the installer says "re-trust".
+4. Optional: `codex_config/install.sh --print-requirements`, then:
+   ```
+   sudo install -d -o root -g wheel -m 0755 /etc/codex "/Library/Application Support/claude-agent-stack/codex-hooks"
+   sudo install -o root -g wheel -m 0755 codex_config/build/managed-hooks/* "/Library/Application Support/claude-agent-stack/codex-hooks/"
+   sudo install -o root -g wheel -m 0644 codex_config/build/requirements.toml /etc/codex/requirements.toml
+   ```
+   Then check `/debug-config` in `codex --profile codex`. An existing `/etc/codex/requirements.toml` is never replaced: the installer prints a diff for the user to merge.
+
+## 10. Open questions (the user decides) and risks
+
+- **Q1 Models.** GPT-6.1 Luna and GPT-6.1 Astra do not exist.
+  - Sonnet tier: (a) `gpt-6-luna` [recommended], or (b) `gpt-6.1-sol` (20× Luna's price, closer to Sonnet's capability).
+  - Astra, which is the most expensive flagship, not a cheap tier:
+    - (a) no default; only an optional `codex-astra` profile with Astra role files [recommended];
+    - (b) `ninja-coder` on `gpt-6-astra`;
+    - (c) never.
+- **Q2 IDE.** The extension cannot select a profile (F19).
+  - (a) The IDE gets only the global layer: rules, AGENTS block, skills.
+  - (b) `--ide-default`: an installer-owned marked region in `config.toml` carrying the profile's content. It would then apply to all sessions; the region is conflict-checked against the user's keys [recommended if IDE parity matters].
+  - (c) A separate `CODEX_HOME` (`~/.codex-stack`) used as the stack's base, with the IDE started with that environment. This depends on U9 and needs a separate login.
+- **Q3 Luna effort.** (a) Identity [default], or (b) +1 level for the Luna rows (OpenAI's "Start with High for Luna").
+- **Risks:**
+  - Undocumented `agent_type` (F9): pinned by the version check and the contract fixture; fails closed.
+  - Beta permission profiles and experimental rules.
+  - Near-daily releases: pin ≥ 0.160.1 and re-run the probes on upgrade.
+  - Global leakage of skills, rules and AGENTS into non-profile sessions.
+  - Prompt fidelity of 57 rewritten bodies.
+
+## 11. Sources (read 2026-10-06)
+
+- models — https://learn.chatgpt.com/docs/models.md
+- api-sol — https://developers.openai.com/api/docs/models/gpt-6.1-sol
+- api-luna — https://developers.openai.com/api/docs/models/gpt-6-luna
+- api-astra — https://developers.openai.com/api/docs/models/gpt-6-astra
+- `…/gpt-6.1-luna` and `…/gpt-6.1-astra` both fall back to https://developers.openai.com/api/docs/models
+- Gizmodo, 2026-09-29 — https://gizmodo.com/with-no-astra-to-release-openai-pivots-to-new-gpt-6-1-sol-model-2000819044
+- config-ref — https://learn.chatgpt.com/docs/config-file/config-reference.md
+- config-advanced — https://learn.chatgpt.com/docs/config-file/config-advanced.md
+- hooks — https://learn.chatgpt.com/docs/hooks.md
+- subagents — https://learn.chatgpt.com/docs/agent-configuration/subagents.md
+- skills — https://learn.chatgpt.com/docs/build-skills.md
+- rules — https://learn.chatgpt.com/docs/agent-configuration/rules.md
+- security — https://learn.chatgpt.com/docs/agent-approvals-security.md
+- permissions — https://learn.chatgpt.com/docs/permissions.md
+- managed — https://learn.chatgpt.com/docs/enterprise/managed-configuration.md
+- agents-md — https://learn.chatgpt.com/docs/agent-configuration/agents-md.md
+- ide-settings — https://learn.chatgpt.com/docs/developer-settings.md?surface=ide
+- dev-cmds — https://learn.chatgpt.com/docs/developer-commands.md?surface=cli
+- Source, tag `rust-v0.160.1` (https://github.com/openai/codex/tree/rust-v0.160.1/codex-rs):
+  - `core/src/agent/role.rs`
+  - `core/src/hook_runtime.rs`
+  - `hooks/src/schema.rs`
+  - `hooks/src/engine/discovery.rs`
+  - `hooks/src/config_rules.rs`
+  - `ext/skills/src/host_roots.rs`
+  - `core/src/exec_policy.rs` and `core/src/exec_policy/model_policy.rs`
+  - `features/src/lib.rs`
+  - `sandboxing/src/seatbelt.rs`
+  - `core/config.schema.json`
+- Source, `main` on 2026-10-06:
+  - `core/src/tools/handlers/multi_agents_spec.rs`
+  - `core/src/tools/hook_names.rs`
+  - `tui/src/hooks_rpc.rs`
+  - `config/src/config_layer_source.rs`
+- PR #39299 (commit `1a6e07a4`, 2026-08-18): "Restrict agent roles to bounded configuration overrides"
