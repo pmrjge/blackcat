@@ -1,0 +1,11 @@
+# Profile `probe-perm`: permission profile (U5). approval_policy never: no escalation can mask a sandbox denial.
+approval_policy = "never"
+default_permissions = "probe-perm"
+
+[permissions.probe-perm]
+extends = ":workspace"
+
+[permissions.probe-perm.filesystem]
+"@CODEX_HOME@" = "read"
+"@CODEX_HOME@/auth.json" = "deny"
+

@@ -1,0 +1,46 @@
+# Logging hooks (probe kit). Same command shape as the design's guard: `/bin/sh <abs path> <arg>`.
+# $PROBE_U4 is set in the codex environment: a shell expands it (arg2=expanded), an argv split leaves it literal.
+[[hooks.PreToolUse]]
+matcher = ".*"
+[[hooks.PreToolUse.hooks]]
+type = "command"
+command = "/bin/sh @ROOT@/bin/hooklog.sh PreToolUse $PROBE_U4"
+timeout = 15
+
+[[hooks.PermissionRequest]]
+matcher = ".*"
+[[hooks.PermissionRequest.hooks]]
+type = "command"
+command = "/bin/sh @ROOT@/bin/hooklog.sh PermissionRequest $PROBE_U4"
+timeout = 15
+
+[[hooks.PostToolUse]]
+matcher = ".*"
+[[hooks.PostToolUse.hooks]]
+type = "command"
+command = "/bin/sh @ROOT@/bin/hooklog.sh PostToolUse $PROBE_U4"
+timeout = 15
+
+[[hooks.SubagentStart]]
+[[hooks.SubagentStart.hooks]]
+type = "command"
+command = "/bin/sh @ROOT@/bin/hooklog.sh SubagentStart $PROBE_U4"
+timeout = 15
+
+[[hooks.SubagentStop]]
+[[hooks.SubagentStop.hooks]]
+type = "command"
+command = "/bin/sh @ROOT@/bin/hooklog.sh SubagentStop $PROBE_U4"
+timeout = 15
+
+[[hooks.UserPromptSubmit]]
+[[hooks.UserPromptSubmit.hooks]]
+type = "command"
+command = "/bin/sh @ROOT@/bin/hooklog.sh UserPromptSubmit $PROBE_U4"
+timeout = 15
+
+[[hooks.SessionStart]]
+[[hooks.SessionStart.hooks]]
+type = "command"
+command = "/bin/sh @ROOT@/bin/hooklog.sh SessionStart $PROBE_U4"
+timeout = 15

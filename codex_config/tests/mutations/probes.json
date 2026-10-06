@@ -1,0 +1,30 @@
+[
+ {
+  "file": "codex_config/probes/run.sh",
+  "old": "     || inside \"$c\" \"$REAL_HOME/.codex\" || inside \"$c\" \"$REAL_HOME/.agents\" \\\n",
+  "new": "     || inside \"$c\" \"$REAL_HOME/.agents\" \\\n",
+  "tests": "codex_config/tests/test_probes.py",
+  "why": "drop the ~/.codex refusal"
+ },
+ {
+  "file": "codex_config/probes/run.sh",
+  "old": "  if [ -e \"$c\" ] && { [ ! -d \"$c\" ] || [ -n \"$(ls -A \"$c\" 2>/dev/null)\" ]; }; then",
+  "new": "  if false; then",
+  "tests": "codex_config/tests/test_probes.py",
+  "why": "accept a pre-existing non-empty CODEX_HOME"
+ },
+ {
+  "file": "codex_config/probes/run.sh",
+  "old": "  trap 'rm -rf \"$ROOT\"' EXIT\n",
+  "new": "",
+  "tests": "codex_config/tests/test_probes.py",
+  "why": "dry run leaves its temp dir behind"
+ },
+ {
+  "file": "codex_config/probes/run.sh",
+  "old": "[ \"$marks\" = 4 ] && [ \"$comm\" = 3 ] && ",
+  "new": "",
+  "tests": "codex_config/tests/test_probes.py",
+  "why": "P12 ignores lost markers and comments"
+ }
+]
