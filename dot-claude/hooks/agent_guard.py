@@ -5347,7 +5347,7 @@ SOFT_LIMITS = {
     "motion-designer": _SOFT_ARTIFACT, "cg-artist": _SOFT_ARTIFACT,
     "rigger-animator": _SOFT_ARTIFACT, "sculptor-painter": _SOFT_ARTIFACT,
     # no per-agent limit
-    "orchestrator": None, "blackcat": None,
+    "orchestrator": None, "blackcat": None, "equilibrium": None,
 }
 _SOFT_NOTE = []     # the warning queued for this process's PreToolUse output (emit, soft_flush)
 SOFT_WRAP_UP = ("Wrap up: finish the current step, return STATUS: partial with what is done and "
@@ -12055,9 +12055,9 @@ def soft_self_test():
     if set(SOFT_LIMITS) != set(AGENTS):
         problems.append("SOFT_LIMITS != AGENTS: %s" % sorted(set(SOFT_LIMITS) ^ set(AGENTS)))
     unlimited = sorted(t for t, v in SOFT_LIMITS.items() if v is None)
-    if unlimited != ["blackcat", "orchestrator"] or any(
+    if unlimited != ["blackcat", "equilibrium", "orchestrator"] or any(  # coordinators: no per-agent limit
             v is not None and (not isinstance(v, int) or v <= 0) for v in SOFT_LIMITS.values()):
-        problems.append("SOFT_LIMITS: only blackcat and orchestrator may be unlimited (%s)"
+        problems.append("SOFT_LIMITS: only blackcat, equilibrium and orchestrator may be unlimited (%s)"
                         % unlimited)
     saved = os.environ.get("STACK_SOFT_LIMIT_SCALE")
     tmp = tempfile.mkdtemp(prefix="agent-guard-soft-")

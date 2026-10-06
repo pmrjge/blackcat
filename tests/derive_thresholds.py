@@ -64,7 +64,7 @@ TIER = {
     "lookup": "scout oracle claude-code-guide explore mcp-broker toolsmith",
     "analyst": "planner plan-reviewer code-reviewer security-auditor researcher proof-checker",
     "verifier": "verifier",
-    "coordinator": "orchestrator",
+    "coordinator": "orchestrator equilibrium",
     "artifact": ("writer browser-operator doc-specialist designer image-director motion-designer cg-artist "
                  "rigger-animator sculptor-painter"),
     "builder": ("claude-code-engineer coder main-coder ninja-coder build-fixer test-engineer "

@@ -437,7 +437,7 @@ def test_full_cp_run_patch_applies_and_cleanup(w):
 def test_result_flags_model_drift_for_validated(w):
     params = w.params()
     params["classes"]["CP"] = {
-        "status": "validated", "member_type": "python-engineer", "member_model_id": "claude-opus-4-1-20250805",
+        "status": "validated", "member_type": "python-engineer", "member_model_id": "claude-opus-test-a",
         "agent_file_sha256": "a" * 64, "N": 2, "rounds": 1, "view": "perm", "loo_view": "rotation", "reducer": "R0",
         "tau": 0.6, "t": 2, "caps": {"member_tokens": 1000, "member_turns": 10, "run_tokens": 4000},
         "usd_per_mtok": 3.0, "cost_ratio": {"median": 1.2, "ci95": [1.0, 1.5]}, "effect": {}, "certainty": None,
@@ -447,12 +447,12 @@ def test_result_flags_model_drift_for_validated(w):
     w.brief(dict(CP_HEADER, mode="auto"))
     assert w.eq("plan", "--run", R).returncode == 0
     plan = json.loads((w.store() / "plan.json").read_text())
-    assert plan["validated"] is True and plan["member_model_id"] == "claude-opus-4-1-20250805"
+    assert plan["validated"] is True and plan["member_model_id"] == "claude-opus-test-a"
     w.consent()
     assert w.eq("start", "--run", R).returncode == 0
     two_candidates(w)
-    w.capture(0, 2, {"answer": "1"}, model="claude-sonnet-4-5")
-    w.capture(0, 1, {"answer": "42"}, model="claude-opus-4-1-20250805")
+    w.capture(0, 2, {"answer": "1"}, model="claude-sonnet-test-b")
+    w.capture(0, 1, {"answer": "42"}, model="claude-opus-test-a")
     checks_and_verdicts(w)
     assert w.eq("reduce", "--run", R, "--round", "0").returncode == 0
     p = w.eq("result", "--run", R)

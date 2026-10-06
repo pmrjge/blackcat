@@ -141,7 +141,7 @@ def entry(status="not_run", **kw):
 
 
 def validated_entry(**kw):
-    e = entry("validated", member_type="mathematician", member_model_id="claude-opus-4-1-20250805",
+    e = entry("validated", member_type="mathematician", member_model_id="claude-opus-test-a",
               agent_file_sha256="a" * 64, N=5, rounds=1, view="lens", loo_view="rotation", reducer="R0", tau=0.6,
               t=2, caps={"member_tokens": 100000, "member_turns": 50, "run_tokens": 1000000},
               usd_per_mtok=3.0, cost_ratio={"median": 1.5, "ci95": [1.1, 1.9]},
@@ -265,7 +265,7 @@ def test_validated_auto_bundle_is_exact():
     p = params(PF=validated_entry())
     b = P.resolve("PF", p, P.knobs({}), mode="auto")
     assert b["validated"] is True and b["status_reason"] is None
-    assert b["member_model_id"] == "claude-opus-4-1-20250805" and b["member_model"] == "opus"
+    assert b["member_model_id"] == "claude-opus-test-a" and b["member_model"] == "opus"
     assert b["caps"]["run_tokens"] == 1000000 and b["N"] == 5
     assert b["estimate"]["usd_worst"] == 3.0 and b["consent_required"] is True   # CONFIRM=always
 
