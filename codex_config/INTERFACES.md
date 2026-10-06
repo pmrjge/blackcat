@@ -8,7 +8,9 @@ contract here is made by the build lead, never by one module alone.
 Conventions for every module:
 - Stdlib only, Python ≥ 3.11 for the installer side (tomllib); the guard (`hooks/`) stays 3.9-compatible.
 - Loaded **by path** (`importlib.util.spec_from_file_location`), never via `sys.path` (CWE-427).
-  A module that needs a sibling loads it by path relative to its own `__file__`.
+  A module that needs a sibling loads it by path relative to its own `__file__`. The guard and its
+  stub use `importlib.machinery.SourceFileLoader` (still by path): `importlib.util` pulls in
+  `typing`, about 15 ms per hook call on Python 3.9.
 - Paths written into generated files are absolute target paths (`<CODEX_HOME>/stack/...`), never
   stage paths. `ctx` below is a dict: `codex_home`, `home`, `stack` (= `<codex_home>/stack`),
   `state_dir` (guard state, default `${XDG_STATE_HOME:-$HOME/.local/state}/codex-agent-stack`),
@@ -53,15 +55,23 @@ stack.env                         seeded 0600 from lib/stack.env.example only wh
 .stack-manifest.json              written by `codex_state.py manifest`
 stack/agents/<role>.toml          one per agent but blackcat
 stack/agents-astra/<role>.toml    the models.toml astra.agents roles
-stack/skills/<skill>/...          listed skills (real files)
+stack/skills/<skill>/...          listed skills (real files); never the 4 EXCLUDED_SKILLS (B2)
 stack/skill-modules/<module>/...  hub modules (never in a scanned root)
 stack/hooks/codex_guard.py        + the dot-claude/hooks files named in hooks/SUPPORT_FILES
 stack/bin/codex-hook              POSIX sh stub; stack/bin/stack-python is a link made after apply
 stack/bin/with-stack-env, stack/bin/mcp-headers   adapted from dot-claude/bin
-stack/mcp/...                     MCP server scripts from dot-claude/mcp (and magg config if used)
+stack/bin/codex-mcp-headers       codex_config/bin/codex-mcp-headers (Codex http_headers_helper)
+stack/bin/magg-private, stack/magg/config.json    from dot-claude (the magg server's table uses them)
+stack/mcp/...                     MCP server scripts from dot-claude/mcp
 stack/policy/agents.json          §4 (B)
 stack/policy/guard.json           §5 (render, from C's template + F's credential set)
 ```
+After apply (install.sh, outside the engine's scope): `stack/bin/stack-python` links to a REAL
+interpreter binary (the uv-managed 3.13's realpath, or `sys.executable` of `/usr/bin/python3`; never
+the `/usr/bin/python3` shim itself: it dispatches on argv[0] and exits 72, which denies every gated
+call), then the guard and its support files are precompiled into `stack/hooks/__pycache__` once per
+interpreter (stack-python, `/usr/bin/python3` when present):
+`<py> -I -c 'import py_compile,sys; [py_compile.compile(f, doraise=True, invalidation_mode=py_compile.PycInvalidationMode.CHECKED_HASH) for f in sys.argv[1:]]' <stack>/hooks/*.py`.
 
 Role file names and `[agents.<role>]` keys use the agent's name. `models.toml` `[roles] name_style`
 is `"hyphen"` (default) or `"underscore"` (`-` → `_` in role names, files and spawn text, for probe
@@ -118,8 +128,25 @@ P4/U2). Policy keys are always the canonical hyphenated names; the guard canonic
   = 1`, `levels = ["low","medium","high","xhigh","max"]`; `[accepted] "<model>" = [...]` (from the
   vendored catalog, `ultra` removed); `[astra] model = "gpt-6-astra"`, `agents = [...]` (six);
   `[blackcat] ...` if needed; `[roles] name_style = "hyphen"`.
-- `translate.translate_text(text: str, label: str, ctx: dict) -> tuple[str, list[str]]` → the
-  translated text and problems (`"<label>:<line>: <token>"`); empty problems = clean.
+- `translate.translate_text(text: str, label: str, ctx: dict, stats=None) -> tuple[str, list[str]]`
+  → the translated text and problems (`"<label>:<line>: <token>"`); empty problems = clean. Extra ctx
+  keys: `skill_modules` (frozenset of hub-module names; required when a text names
+  `__CLAUDE_DIR__/skills/<x>`; convert_agents derives it from `convert_skills.classify(src)` when
+  absent), `stack_repo` (optional; else "the claude-agent-stack repository"). No Codex text names the
+  Claude stack's venvs (USER decision: `uv run --with ...` instead).
+- `convert_skills.EXCLUDED_SKILLS` = claude-code-extensions, override-agent, stack-doctor, stack-tree
+  (subject: Claude Code itself; USER decision): never staged, linked or listed. 127 listed, 89 modules.
+  `convert_skills.SKILLS_MAX_CONTEXT_TOKENS` (6000) = the profile's `skills.max_context_tokens`.
+- `convert_agents.convert(...)["mcp_servers"]` holds the agents' frontmatter servers only; the
+  user-scope HTTP servers the Claude installer registers (exa, jina, wolfram, huggingface; wandb only
+  when `WANDB_API_KEY` is set; `install.sh` `EXA_URL`/rows) are added by
+  `convert_agents.user_scope_servers(ctx, with_wandb: bool) -> {id: table}` (url +
+  `http_headers_helper = "<stack>/bin/codex-mcp-headers <id>"` where a key exists), pinned to
+  install.sh's URLs by a contract test; render merges both (same id twice → BuildError).
+- `render_profile.merge_hooks_state(*tables) -> dict`: the union of the live `[hooks.state]` tables
+  of `codex.config.toml` and `codex-astra.config.toml` (each key embeds its own file's path). It is
+  carried into every written profile file, including the comment-only `codex_ide` form (U1: Codex may
+  write trust into the active profile file).
 - `convert_agents.convert(src: str, ctx: dict, models: dict) -> dict` with keys `roles`
   (`{role: role_toml_dict}`), `astra_roles`, `agents_entries` (`{role: {"description",
   "config_file"}}`), `astra_entries`, `policy` (agents.json, §4), `mcp_servers` (`{id: table}` merged
@@ -171,13 +198,22 @@ P4/U2). Policy keys are always the canonical hyphenated names; the guard canonic
 
 ### wave 2
 - `render.py --src SRC --stage STAGE --work WORK --codex-home CH --home H [--state-dir D]
-  [--profile-name N] [--skills-root P|none] [--uv PATH] [--no-agents-md] [--no-mcp]
-  [--legacy-sandbox] [--git-allow-rules] [--no-escalation] [--with-rollout-budget]
-  [--ide-default|--no-ide-default] [--no-astra-profile] [--force]` → writes the stage (§2) and
-  `WORK/{build-report.json,links.json,hook-keys.json,regions.json,options.json}`; exit 1 on any
-  build error (unmapped token, conflict, foreign profile table).
+  [--profile-name N] [--skills-root P|none] [--uv PATH] [--codex PATH|none] [--with-wandb]
+  [--no-agents-md] [--no-mcp] [--legacy-sandbox] [--git-allow-rules] [--no-escalation]
+  [--with-rollout-budget] [--ide-default|--no-ide-default] [--no-astra-profile] [--force]` → runs
+  on a stage already made by `codex_state.py stage` (the live CODEX_HOME's in-scope files copied);
+  clears and rewrites `STAGE/stack/`, writes the owned files (§2), seeds `stack.env` 0600 from
+  `SRC/lib/stack.env.example` only when the stage has none, splices or removes the `config.toml`
+  regions (refuses `--ide-default` on a symlinked `config.toml`; a region whose sha differs from the
+  old manifest's stops the run with a diff unless `--force`; conflict check of DESIGN §7.6), carries
+  `[hooks.state]` over and stops on any other foreign table in the live profile files (§7.4), runs
+  `convert_rules.check_examples` with `--codex` (skipped with a warning under `none`), and writes
+  `WORK/{build-report.json,links.json,hook-keys.json,regions.json,options.json}`. Exit 1 on any
+  build error, 2 on usage. Never writes outside STAGE and WORK.
 - `doctor.py --codex-home CH [--home H]` → hook trust state from `config.toml` and the profile files
   (tomllib, read-only), manifest hash drift, links; exit 1 if any stack hook key is untrusted.
+- `install.sh` never passes `source_snapshot.py --allow-dirty`; `changes_since` diffs against the
+  snapshot's commit, not `HEAD`.
 
 ## 4. `stack/policy/agents.json` (B writes, C reads)
 
@@ -213,13 +249,18 @@ agent_guard's tables (imported by path in the test only).
 {
   "schema": 1,
   "codex_home": "/abs", "home": "/abs", "state_dir": "/abs", "stack": "/abs/stack",
-  "protected_roots": ["<codex_home>", "<home>/.agents", "<state_dir>"],
+  "protected_roots": ["<codex_home>", "<home>/.agents", "<state_dir>", "<backup_root>"],
   "credentials": {"paths": [], "globs": []},
   "toolsmith_wrapper": "<stack>/bin/stack-install",
   "caps": {"...": "C's template keys and defaults"},
-  "image_max_px": 1920
+  "image_max_px": 1920,
+  "non_web_mcp_servers": [], "memory_write_tools": [], "computer_use_server": "..."
 }
 ```
+`<backup_root>` = `${XDG_STATE_HOME:-$HOME/.local/state}/codex-agent-stack-backups` (security review:
+a forged `skill-links.json` there could plant links on restore). render emits exactly the template's
+keys (`templates/guard.base.json`) plus the ctx and credential keys above. In `--scope global` the guard reads the `guard.json` beside
+itself first and never `agents.json`.
 
 ## 6. Work files and the manifest
 
