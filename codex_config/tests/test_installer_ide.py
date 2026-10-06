@@ -187,16 +187,11 @@ def test_second_run_with_the_flag_changes_nothing(ide):
     assert "no changes" in ide.run("--ide-default", "--dry-run", check=0).stdout
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: a flagless re-run after `--ide-default` plans a manifest-only update "
-                   "(options.ide_default_source flag -> kept, render.py options.json), so the second run is not "
-                   "idempotent and writes a backup")
 def test_flagless_rerun_after_ide_default_plans_nothing(ide):
     r = ide.run("--yes", check=0)
     assert "Nothing to change" in r.stdout
 
 
-@pytest.mark.xfail(strict=True, reason="BUG: a flagless re-run after `--no-ide-default` plans a manifest-only update "
-                   "(options.ide_default_source flag -> default), so it is not idempotent and writes a backup")
 def test_flagless_rerun_after_no_ide_default_plans_nothing(ide):
     ide.run("--no-ide-default", "--yes", check=0)
     assert "Nothing to change" in ide.run("--yes", check=0).stdout

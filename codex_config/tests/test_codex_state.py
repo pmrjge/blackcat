@@ -468,3 +468,13 @@ def test_cli_usage_errors():
     assert run_py(STATE_PY, "plan", "x").returncode == 2
     assert run_py(STATE_PY, "nope").returncode == 2
     assert run_py(STATE_PY, "restore", "a", "b", "c", "d", "e", "f", "--bogus").returncode == 2
+
+
+def test_manifest_options_leave_out_how_the_run_was_invoked():
+    """A flagless re-run after --ide-default/--no-ide-default (or a --force run) installs the same bytes:
+    its manifest must be byte-equal, so ide_default_source and the run-only flags stay out."""
+    opts = {"profile_name": "codex", "ide_default": True, "ide_default_source": "flag",
+            "flags": {"ide_default": True, "no_ide_default": False, "force": True, "no_mcp": False}}
+    kept = dict(opts, ide_default_source="kept", flags=dict(opts["flags"], ide_default=False, force=False))
+    assert cs.manifest_options(opts) == cs.manifest_options(kept)
+    assert cs.manifest_options(opts) == {"profile_name": "codex", "ide_default": True, "flags": {"no_mcp": False}}

@@ -54,5 +54,19 @@
   "new": "engine.SCOPE_DIRS = SCOPE_DIRS + (\"agents\",)",
   "tests": "codex_config/tests/test_codex_state.py",
   "why": "widen the scope to agents/ (Codex's own folder)"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "        \"options\": manifest_options(options),\n",
+  "new": "        \"options\": options,\n",
+  "tests": "codex_config/tests/test_installer_ide.py::test_flagless_rerun_after_ide_default_plans_nothing",
+  "why": "the run's invocation (ide_default_source, run-only flags) recorded in the manifest"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "RUN_ONLY_FLAGS = (\"ide_default\", \"no_ide_default\", \"force\")",
+  "new": "RUN_ONLY_FLAGS = (\"ide_default\", \"no_ide_default\")",
+  "tests": "codex_config/tests/test_codex_state.py::test_manifest_options_leave_out_how_the_run_was_invoked",
+  "why": "--force kept in the manifest's flags"
  }
 ]

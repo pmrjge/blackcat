@@ -418,7 +418,11 @@ else
 fi
 say "  2. Run: $0 --doctor   (exit 0 only when every stack hook is trusted; repeat after every 're-trust' above)."
 if [ -f "$S/codex-astra.config.toml" ]; then
-  say "  3. Optional Astra: codex --profile codex-astra, then /hooks (its own hooks need trust too)."
+  if [ "$IDE" = yes ]; then
+    say "  3. Optional Astra: codex --profile codex-astra (it overlays config.toml, whose trusted hooks it uses)."
+  else
+    say "  3. Optional Astra: codex --profile codex-astra, then /hooks (its own hooks need trust too)."
+  fi
   say "     COST: each session started with it bills the six top-tier agents at Astra rates (\$10 / \$50 per 1M tokens)."
 fi
 OVR=$("$PY" -I -c 'import json, sys

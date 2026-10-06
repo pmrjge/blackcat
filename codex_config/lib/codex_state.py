@@ -461,8 +461,21 @@ def build_manifest(s, commit, work) -> dict:
         "config_toml_sha256": sha256_or_none(cfg),
         "profile_name": options.get("profile_name") or "codex",
         "astra": os.path.isfile(os.path.join(s, "codex-astra.config.toml")),
-        "options": options,
+        "options": manifest_options(options),
     }
+
+
+# How a run was invoked, not what it installed: kept out of the manifest, so a re-run that installs the
+# same bytes (e.g. a flagless run after --ide-default, which keeps the regions) plans nothing.
+RUN_ONLY_OPTIONS = ("ide_default_source",)
+RUN_ONLY_FLAGS = ("ide_default", "no_ide_default", "force")
+
+
+def manifest_options(options: dict) -> dict:
+    out = {k: v for k, v in options.items() if k not in RUN_ONLY_OPTIONS}
+    if isinstance(out.get("flags"), dict):
+        out["flags"] = {k: v for k, v in out["flags"].items() if k not in RUN_ONLY_FLAGS}
+    return out
 
 
 def write_manifest(s, commit, work) -> dict:
