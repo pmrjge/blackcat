@@ -1498,6 +1498,11 @@ done
 for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget stack-tree; do stage_script 755 "bin/$f"; done
 stage_script 755 "bin/stack-who"
 stage_script 755 "bin/stack-install"
+# the runtime Equilibrium (docs-design/RUNTIME_EQUILIBRIUM.md): its policy, core, CLI, isolation and guard
+# modules (agent_guard.py loads eq_guard.py like toolsmith_policy.py), the params file (pinned by sha256 in
+# the manifest's eq_runtime key), the lenses and schemas, and the two programs settings.json names
+for f in eq_core.py eq_policy.py eq_cli.py eq_isolation.py eq_guard.py eq_params.json eq_lenses.json eq_schemas.json; do stage_script 644 "hooks/$f"; done
+for f in stack-eq stack-eq-check; do stage_script 755 "bin/$f"; done
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
 stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry reads it (--config)
 # The stack's local LSP marketplace (step 10 registers it): replaced as a whole.
@@ -2122,6 +2127,8 @@ STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook"
                  "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
                  "bin/stack-tree",
                  "bin/stack-who", "bin/stack-install", "hooks/toolsmith_policy.py",
+                 "hooks/eq_core.py", "hooks/eq_policy.py", "hooks/eq_cli.py", "hooks/eq_isolation.py", "hooks/eq_guard.py",
+                 "hooks/eq_params.json", "hooks/eq_lenses.json", "hooks/eq_schemas.json", "bin/stack-eq", "bin/stack-eq-check",
                  "mcp/image_studio_mcp.py",
                  "mcp/libdocs_mcp.py", "mcp/neural_memory_mcp.py"]
 _missing = [rel for rel in STACK_SCRIPTS if not os.path.isfile(os.path.join(DEST, rel))]
@@ -2130,6 +2137,16 @@ if _missing:
              "was changed" % (", ".join(_missing), C))
 for rel in STACK_SCRIPTS:
     files_entry[rel] = sha256(os.path.join(DEST, rel))
+# the runtime Equilibrium's params pin: eq_policy.load_params accepts hooks/eq_params.json only when its
+# sha256 equals eq_runtime.params_sha256 (any other file: every class is not_run); "validated" lists the
+# classes the shipped file marks validated (read-only information for doctor)
+_eq_raw = open(os.path.join(DEST, "hooks/eq_params.json"), "rb").read()
+try:
+    _eq_cls = json.loads(_eq_raw.decode("utf-8")).get("classes") or {}
+    _eq_val = sorted(k for k, v in _eq_cls.items() if isinstance(v, dict) and v.get("status") == "validated")
+except (ValueError, AttributeError):
+    _eq_val = []
+manifest["eq_runtime"] = {"params_sha256": hashlib.sha256(_eq_raw).hexdigest(), "validated": _eq_val}
 stale_scripts = {r: "no longer shipped by the stack" for r in files_entry
                  if r.split("/")[0] in ("hooks", "bin", "mcp") and r not in STACK_SCRIPTS}
 for rel, why in sorted(stale_scripts.items()):
@@ -2747,7 +2764,7 @@ else
   # a restore or an edit never runs stale code), beside the sources in the protected
   # hooks/__pycache__ (no PYTHONPYCACHEPREFIX; SOURCE_DATE_EPOCH would switch to checked-hash)
   hook_mods=()
-  for m in agent_guard stack_io stack_usage stack_limits stack_report stack_progress stack_fanout stack_fanout_wire read_gate web_caps output_shrink stack_hook stack_sched toolsmith_policy; do
+  for m in agent_guard stack_io stack_usage stack_limits stack_report stack_progress stack_fanout stack_fanout_wire read_gate web_caps output_shrink stack_hook stack_sched toolsmith_policy eq_core eq_policy eq_cli eq_isolation eq_guard; do
     if [ -f "$C/hooks/$m.py" ]; then hook_mods+=("$C/hooks/$m.py"); fi
   done
   if (unset PYTHONPYCACHEPREFIX SOURCE_DATE_EPOCH

@@ -301,6 +301,7 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 | `claude-ninja` (a link in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder (or any agent) as your main thread at ultracode, starting in Plan (`--permission-mode plan` unless you pass a mode) |
 | `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
 | `stack-install pending`, `approve <rq-id>`, `deny <rq-id>`, `list`, `manifest` | `~/.claude/bin/stack-install`, your terminal | toolsmith's requests waiting for you, your decision (a typed confirmation), and what toolsmith installed ([toolsmith](#toolsmith-the-dependency-installer)) |
+| `stack-eq plan|start|reduce|view|result|cleanup|status --run R` | `~/.claude/bin/stack-eq` (the equilibrium leader's one program outside the sandbox; the guard issues a ticket per call); `help` lists the grammar | The runtime Equilibrium's executor ([Equilibrium runtime](#equilibrium-runtime-independent-members-one-reduced-answer)); you run it yourself only for a headless calibration step (`hand_off/EQ_CALIBRATION_RUN_PLAN.md`) |
 | `just -f tools/instructor/justfile --list`, `check-suite`, `ff-merge --branch B`, `worktree-audit` | the root of a checkout of this repository; agents run the three recipes without a prompt (one allow rule each) | The instructor: the C10 suite, a locked compare-and-swap fast-forward of local `main` followed by C10, a read-only worktree report; one status line each, details in `.claude-work/instr/` ([CONFIG.md](CONFIG.md) §5, "Instructor") |
 
 ### Safety and guardrails
@@ -314,6 +315,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | No Bash write, delete or rename of the installed stack, the backups or the hook state; no `install.sh` run except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs | the guard's protected-path scan, on top of the Edit/Write deny rules | `tests/test_protected_paths.py`, `tests/test_guard_round2.py` |
 | Six review and check types run read-only Bash only; their scratch code is content-checked | `READONLY_TYPES` | `tests/test_readonly_agents.py` |
 | Only toolsmith runs `bin/stack-install`, the one program outside the sandbox, and toolsmith runs nothing else: one plain command, its argv checked, a one-use ticket per call; installs only vetted, pinned registry packages, ledgered with their uninstall command; anything else waits for your `approve` on a terminal | `agent_guard.py no-push` (`toolsmith_gate`, also with `STACK_POLICY=off`), `hooks/toolsmith_policy.py`, `bin/stack-install` | `tests/test_toolsmith.py` (seeded-bug tests included) |
+| Only the equilibrium leader runs `bin/stack-eq` (one plain command, a one-use ticket) and `bin/stack-eq-check` (sandboxed, only when the plan lists a check); eq members get the class's tool list and read-only git, no messages; a run starts only after your `Run eq:<run8>` answer; a params file that does not match the manifest's pin counts as no calibration | `agent_guard.py` with `hooks/eq_guard.py`, `hooks/eq_policy.py`, `bin/stack-eq`, the manifest's `eq_runtime` | `tests/test_install_eq_runtime.py` (pin, staging, doctor, settings), `tests/test_eq_policy.py`, `tests/test_eq_guard.py`; **guard rules not live-verified** ([Live checks](#live-checks) 9) |
 | Only stack agents in the caller's row may be spawned (a main thread without a row: any stack agent); `general-purpose`, `claude`, `fork`, `Plan` and unknown types are refused | `POLICY`, deny rules `Agent(general-purpose)`, `Agent(claude)`, `Agent(fork)` | `tests/test_agent_guard.py`; `tests/lint_agents.py` checks each "May spawn" sentence against `POLICY` |
 | BlackCat only delegates (any other agent on the main thread keeps its tools): its tools line holds no Bash, Write or Edit, and a call that still reaches it (an SDK app's tool list, an `--agents` redefinition) is refused, also with `STACK_POLICY=off` (only `STACK_BLACKCAT_DELEGATE_ONLY=0` lifts it); with that and `BLACKCAT_MAX_OWN_STEPS` > 0 its Bash gets the same hooks, sandbox and deny rules and is refused HTTP clients, raw sockets and gh reads (best effort; the sandbox allowlist is the hard limit) | tools line, `blackcat-guard`, `no-push` | `tests/test_blackcat_tools.py`, `tests/lint_agents.py` |
 | No credential reads (`gh auth token`, `git credential fill`, keychain dumps); token variables and credential files denied to sandboxed Bash | guard, sandbox `denyRead`, credential deny list | `tests/test_guard_round2.py` |
@@ -600,6 +602,17 @@ sandbox (`sandbox.excludedCommands`, by absolute path) and pre-approves (`permis
   `manifest` (a Brewfile-style list that replays through the same vetting) and `pending`.
 
 Details and residual risks: [CONFIG.md](CONFIG.md) §7, "Dependency installer: toolsmith".
+
+### Equilibrium runtime: independent members, one reduced answer
+
+The `equilibrium` agent (spec: `docs-design/RUNTIME_EQUILIBRIUM.md` rev 2) runs N independent members (2 to 9) on one hard question and combines their answers with a deterministic reducer, then reports a leave-one-out certainty signal. It is for questions where one more opinion is worth the cost: proofs and checkable fixes (PF, CP), code review (CR), discrete and numeric answers (RS, ES), long-form drafts (DS, OE). `bin/stack-eq` (outside the sandbox, ticketed, like `stack-install`) plans, reduces and cleans up; `bin/stack-eq-check` runs a candidate's check inside the sandbox.
+
+- **Calibration decides what runs by itself.** `hooks/eq_params.json` ships with every class `not_run`: no auto-routing, every run is manual and asks you first (`Run eq:<run8>` through BlackCat's question). A class becomes `validated` only after the paid calibration (`hand_off/EQ_CALIBRATION_RUN_PLAN.md`, yours to run) and a reinstall: the installer pins the params file's sha256 in the manifest (`eq_runtime`), and a file that does not match is ignored (every class `not_run`).
+- **Knobs** ([CONFIG.md](CONFIG.md) §5): `STACK_EQ` (0 switches it off), `STACK_EQ_MAX_N` 9, `STACK_EQ_MAX_ROUNDS` 2, `STACK_EQ_MAX_CONCURRENT_RUNS` 1, `STACK_EQ_CONFIRM` `always`, `STACK_EQ_SESSION_RUNS` 3, `STACK_EQ_WALL` `auto`; `STACK_EQ_N` and `STACK_EQ_ROUNDS` override the calibrated size and make a run manual-only.
+- **Guard rules** (spec §2.3; built alongside the installer, **not live-verified**): members see only the class's tool list, read-only git and no messages; one run per session; member `model` set from the params; token caps per member and per run; consent only from your answer in the main thread.
+- **Check it:** `bash ~/.claude/bin/doctor.sh`, section "Equilibrium runtime" (params pin, validated classes, drift, knobs, the W3 level: `container` only with a verified eq-container install and a passing probe receipt, else `sandbox`).
+
+Details: [CONFIG.md](CONFIG.md) §7, "Equilibrium runtime".
 
 ### Skills: hubs, modules, references
 
@@ -1525,6 +1538,39 @@ Only you can run these.
    `stack-install approve <id>` is refused; `script -q /dev/null ~/.claude/bin/stack-install approve <id>`
    from a coder writes no approval (it runs sandboxed: the state dir is denyWrite). The docs do not settle auto
    mode, plan mode or the matcher's handling of leading variables (CONFIG.md §7, Residual risks).
+9. **Equilibrium runtime** (spec §13; every item is unverified until you run it; none can make a run unsafe,
+   each fails closed as stated). Run `bash ~/.claude/bin/doctor.sh` first: the "Equilibrium runtime" section
+   shows the files, the params pin and the knobs. Then, in a throwaway project with the main thread on Plan,
+   ask BlackCat for a manual equilibrium run on a small checkable problem (N 3, `STACK_EQ_N=3` in the
+   environment, so the run is `override`), and read `~/.local/state/claude-agent-stack/<session>/eq/<run8>/`:
+   - **Unsandboxed `stack-eq`:** `/sandbox` lists `~/.claude/bin/stack-eq *` (expanded) under excluded
+     commands, and `plan.json` appears in the store while a coder told to run `stack-eq status` is refused.
+     If the call runs sandboxed, the store write fails and the run stops at `plan`: no run, nothing spent.
+   - **Bash exit status in PostToolUse:** after a checkable run, `r0/check-c1.json` has `exit_source`
+     `tool_response`. If it says `trailer` or `none`, the verdict is `unverifiable` and the result says
+     `checks: unverifiable at level 1`: no candidate is ever marked passing from its own output.
+   - **AskUserQuestion record:** after you answer the consent question, `eq/consent/<run8>.json` exists with
+     `source: ask`. If it does not, the guard refuses the `Run eq:<run8>` relay and `stack-eq start` refuses:
+     the run does not start.
+   - **Resumed member keeps its worktree:** in a CP or CR run with a reconcile round, `members.json` shows the
+     same `worktree` for round 1 as for round 0. If not, the round is refused and the run reports the members'
+     round-0 answers only.
+   - **Full model id through the spawn gate:** `r0/m1.json` has `model` equal to the plan's `member_model_id`
+     and `model_drift: false`. If the id is not passed through, the alias is used and `model_drift: true` is
+     recorded (the result is labelled, never counted as validated).
+   - **Token substitution:** the leader's transcript under `~/.claude/projects/**/subagents/` shows whether
+     it holds `eq <run8> m1/3` or the substituted brief; the answer decides which copy a reviewer must read
+     (nothing changes in a run).
+   - **Member worktree path:** `members.json` has a `cwd` for each CP or CR member. If it is empty the plan
+     falls back to the member reporting `pwd`, cross-checked against `.claude/worktrees/`.
+   - **Headless and fork checks (paid, part of the calibration smoke):** background resumes completing inside
+     `claude -p --agent equilibrium`, hooks firing there, `--fork-session` branches in parallel without
+     interference, and `--max-budget-usd` counting subagent spend. They run only from
+     `hand_off/EQ_CALIBRATION_RUN_PLAN.md` (the smoke step, before q): the headless leader mode (the
+     confirmation arm) stays unused until they pass; the interactive runtime does not depend on them.
+   - **Level 2 (container):** the container CLI facts and the probe receipt are
+     `hand_off/R3_CONTAINER_CHECKLIST.md` C14-C17; without them `STACK_EQ_WALL=auto` runs at Level 1 and
+     `required` refuses runs with a check.
 
 ## Apps
 
