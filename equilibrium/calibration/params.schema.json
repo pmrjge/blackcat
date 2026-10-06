@@ -1,0 +1,196 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "$id": "eqparams.v1",
+ "title": "eqparams.v1: the equilibrium runtime's calibration pin (RUNTIME_EQUILIBRIUM.md §7.5; COMPARE_eq.md §12 A6)",
+ "description": "Written only by equilibrium/harness/eq_calibrate.py (params.v<k>.json; params.json = the latest; version 0 = no calibration, every class not_run). The runtime treats a file whose sha256 differs from the manifest's, or that fails this schema, as every class not_run. A class entry always has every key; when status is not 'validated' every key but status may be null; when 'validated' every key but certainty is required non-null.",
+ "type": "object",
+ "required": ["schema", "version", "created_utc", "provenance", "classes"],
+ "additionalProperties": false,
+ "properties": {
+  "schema": {"const": "eqparams.v1"},
+  "version": {"type": "integer", "minimum": 0},
+  "created_utc": {"$ref": "#/$defs/utc"},
+  "provenance": {"$ref": "#/$defs/provenance"},
+  "classes": {
+   "type": "object",
+   "required": ["PF", "CP", "CR", "RS", "ES", "DS", "OE"],
+   "additionalProperties": false,
+   "properties": {
+    "PF": {"$ref": "#/$defs/class"},
+    "CP": {"$ref": "#/$defs/class"},
+    "CR": {"$ref": "#/$defs/class"},
+    "RS": {"$ref": "#/$defs/class"},
+    "ES": {"$ref": "#/$defs/class"},
+    "DS": {"$ref": "#/$defs/class"},
+    "OE": {"$ref": "#/$defs/class"}
+   }
+  }
+ },
+ "$defs": {
+  "utc": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"},
+  "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+  "interval": {
+   "type": "array",
+   "minItems": 2,
+   "maxItems": 2,
+   "items": {"type": "number"}
+  },
+  "provenance": {
+   "description": "§7.5 provenance. Version 0 has every key null except created_utc, note and stages ([]).",
+   "type": "object",
+   "required": ["created_utc", "note", "stages", "harness_commit", "sha256", "amendments", "pool_sha256",
+                "stage_ledgers", "config_sha256", "claude_code_version", "stack_commit", "model_ids",
+                "grader_kappa", "route2", "report"],
+   "additionalProperties": false,
+   "properties": {
+    "created_utc": {"$ref": "#/$defs/utc"},
+    "note": {"type": ["string", "null"]},
+    "stages": {"type": "array", "items": {"enum": ["p", "q"]}, "uniqueItems": true},
+    "harness_commit": {"type": ["string", "null"]},
+    "sha256": {
+     "description": "eq_harness.py, eq_mediator.py, eq_calibrate.py, eq_analyse.py, flags.json, schedule.tsv, COMPARE_eq.sha256",
+     "type": ["object", "null"],
+     "additionalProperties": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]}
+    },
+    "amendments": {"type": ["array", "null"], "items": {"type": "string"}},
+    "pool_sha256": {
+     "type": ["object", "null"],
+     "additionalProperties": {"$ref": "#/$defs/sha256"}
+    },
+    "stage_ledgers": {
+     "description": "per stage: ledger_sha256, manifest_sha256, frozen_at_utc, run_tags, inputs (file -> sha256)",
+     "type": ["object", "null"],
+     "propertyNames": {"enum": ["p", "q"]}
+    },
+    "config_sha256": {"type": ["object", "null"], "propertyNames": {"enum": ["p", "q"]}},
+    "claude_code_version": {"type": ["string", "null"]},
+    "stack_commit": {"type": ["string", "null"]},
+    "model_ids": {"type": ["array", "null"], "items": {"type": "string"}},
+    "grader_kappa": {"type": ["object", "null"]},
+    "route2": {"type": ["object", "null"]},
+    "report": {
+     "anyOf": [
+      {"type": "null"},
+      {"type": "object", "required": ["path", "sha256"], "additionalProperties": false,
+       "properties": {"path": {"type": "string", "pattern": "^report\\.v[0-9]+\\.json$"},
+                      "sha256": {"$ref": "#/$defs/sha256"}}}
+     ]
+    }
+   }
+  },
+  "caps": {
+   "type": "object",
+   "required": ["member_tokens", "member_turns", "run_tokens"],
+   "additionalProperties": false,
+   "properties": {
+    "member_tokens": {"type": "integer", "minimum": 1, "description": "context tokens per member segment: ceil2(q90 x 1.25)"},
+    "member_turns": {"type": "integer", "minimum": 1, "description": "API calls per member segment: ceil(q90 x 1.25)"},
+    "run_tokens": {"type": "integer", "minimum": 1, "description": "N x member_tokens x (1 + rounds) + verifier/judge caps"}
+   }
+  },
+  "cost_ratio": {
+   "type": "object",
+   "required": ["median", "ci95"],
+   "additionalProperties": false,
+   "properties": {
+    "median": {"type": "number", "exclusiveMinimum": 0, "description": "2^(median P1 log2 ratio, E over the contrast arm)"},
+    "ci95": {"$ref": "#/$defs/interval"}
+   }
+  },
+  "effect": {
+   "type": "object",
+   "required": ["wins", "losses", "ties", "pi_hat", "ci95", "p_holm"],
+   "additionalProperties": false,
+   "properties": {
+    "wins": {"type": "integer", "minimum": 0},
+    "losses": {"type": "integer", "minimum": 0},
+    "ties": {"type": "integer", "minimum": 0},
+    "pi_hat": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "ci95": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/interval"}]},
+    "p_holm": {"type": ["number", "null"], "minimum": 0, "maximum": 1}
+   }
+  },
+  "bin": {
+   "description": "a signal value s is in this bin iff (lo is null or s >= lo) and (hi is null or s < hi)",
+   "type": "object",
+   "required": ["lo", "hi", "n", "correct", "p_correct", "ci95"],
+   "additionalProperties": false,
+   "properties": {
+    "lo": {"type": ["number", "null"]},
+    "hi": {"type": ["number", "null"]},
+    "n": {"type": "integer", "minimum": 0},
+    "correct": {"type": "integer", "minimum": 0},
+    "p_correct": {"type": ["number", "null"], "minimum": 0, "maximum": 1},
+    "ci95": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/interval"}]}
+   }
+  },
+  "certainty": {
+   "type": "object",
+   "required": ["signal", "auroc", "ci95", "n", "estimated_on", "bins"],
+   "additionalProperties": false,
+   "properties": {
+    "signal": {"enum": ["1-kappa0", "1-lambda0", "1-lambda_final", "m15", "check_fail0"]},
+    "auroc": {"type": "number", "minimum": 0, "maximum": 1},
+    "ci95": {"$ref": "#/$defs/interval"},
+    "n": {"type": "integer", "minimum": 1},
+    "estimated_on": {"enum": ["p", "q"]},
+    "bins": {"type": "array", "minItems": 1, "maxItems": 3, "items": {"$ref": "#/$defs/bin"}}
+   }
+  },
+  "pool": {
+   "type": "object",
+   "required": ["name", "sha256", "description"],
+   "additionalProperties": false,
+   "properties": {
+    "name": {"type": "string", "minLength": 1},
+    "sha256": {"$ref": "#/$defs/sha256"},
+    "description": {"type": "string"}
+   }
+  },
+  "class": {
+   "type": "object",
+   "required": ["status", "member_type", "member_model_id", "agent_file_sha256", "N", "rounds", "view", "loo_view",
+                "reducer", "tau", "t", "caps", "usd_per_mtok", "cost_ratio", "effect", "certainty", "pool"],
+   "additionalProperties": false,
+   "properties": {
+    "status": {"enum": ["validated", "not_established", "not_run", "refuted"]},
+    "member_type": {"type": ["string", "null"], "minLength": 1},
+    "member_model_id": {"type": ["string", "null"], "minLength": 1, "description": "the full model id (modelUsage key)"},
+    "agent_file_sha256": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
+    "N": {"enum": [1, 3, 5, 7, 9, null]},
+    "rounds": {"enum": [0, 1, 2, null]},
+    "view": {"enum": ["lens", "perm", "kcover", null]},
+    "loo_view": {"enum": ["none", "rotation", "random", "leader", null]},
+    "reducer": {"enum": ["R0", "R1", "R3", "ENS", null]},
+    "tau": {"type": ["number", "null"], "exclusiveMinimum": 0, "maximum": 1},
+    "t": {"type": ["integer", "null"], "minimum": 1},
+    "caps": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/caps"}]},
+    "usd_per_mtok": {"type": ["number", "null"], "exclusiveMinimum": 0},
+    "cost_ratio": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/cost_ratio"}]},
+    "effect": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/effect"}]},
+    "certainty": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/certainty"}]},
+    "pool": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/pool"}]}
+   },
+   "if": {"properties": {"status": {"const": "validated"}}, "required": ["status"]},
+   "then": {
+    "properties": {
+     "member_type": {"type": "string"},
+     "member_model_id": {"type": "string"},
+     "agent_file_sha256": {"type": "string"},
+     "N": {"type": "integer", "minimum": 3, "description": "N* = 1 is not eligible"},
+     "rounds": {"type": "integer"},
+     "view": {"type": "string"},
+     "loo_view": {"type": "string"},
+     "reducer": {"type": "string"},
+     "tau": {"type": "number"},
+     "t": {"type": "integer"},
+     "caps": {"type": "object"},
+     "usd_per_mtok": {"type": "number"},
+     "cost_ratio": {"type": "object"},
+     "effect": {"type": "object"},
+     "pool": {"type": "object"}
+    }
+   }
+  }
+ }
+}
