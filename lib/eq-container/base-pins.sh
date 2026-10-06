@@ -25,7 +25,7 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 
 case "${1:-}" in
   "") ;;
-  -h|--help) sed -n '2,25p' "$0"; exit 0;;
+  -h|--help) awk 'NR == 1 { next } /^#/ { print; next } { exit }' "$0"; exit 0;;
   *) echo "base-pins.sh: unknown argument: $1" >&2; exit 2;;
 esac
 

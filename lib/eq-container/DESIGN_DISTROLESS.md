@@ -1,7 +1,9 @@
 # eq-container on distroless or scratch bases: design (no code)
 
-Status: DESIGN ONLY, 2026-10-06, branch `eq-distroless-design` (from `main` 0781a15, which already contains the `eq-pins`
-branch: `main` = `eq-pins` = 0781a15). Nothing here was built or run; no `container` command was executed. Every line marked
+Status: implemented on branch eq-distroless (2026-10-06); user decisions recorded in hand_off/HANDOFF_STATE.md §6; remaining user
+steps D1-D6 (hand_off/R3_CONTAINER_CHECKLIST.md). The design below is from branch `eq-distroless-design` (from `main` 0781a15, which
+already contains the `eq-pins` branch: `main` = `eq-pins` = 0781a15); when it was written nothing was built or run and no `container`
+command was executed. Every line marked
 **[unverified]** needs a real build or a user-run command. Line numbers are of this commit unless a path says otherwise; `EQ-T`
 is the equilibrium working copy `M/.claude-work/worktrees/eq-t-1005/.claude-work/equilibrium` (git-ignored, read as found).
 

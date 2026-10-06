@@ -192,6 +192,8 @@ def _bare(tmp_path, *args, **env):
     (["--with-eq-container", "--eq-container-profiles", "--yes"], {}, "--eq-container-profiles needs a comma list"),
     (["--with-eq-container", "--eq-container-profiles=node"], {"STACK_EQ_CONTAINER_SET": "full"},
      "--eq-container-profiles and STACK_EQ_CONTAINER_SET exclude each other"),
+    (["--with-eq-container", "--eq-container-profiles=node"], {"STACK_EQ_CONTAINER_SET": "min"},
+     "--eq-container-profiles and STACK_EQ_CONTAINER_SET exclude each other"),
     (["--no-eq-broker"], {}, "--no-eq-broker/--with-eq-broker work only with --with-eq-container"),
     (["--with-eq-broker"], {}, "--no-eq-broker/--with-eq-broker work only with --with-eq-container"),
     (["--with-eq-container", "--no-eq-broker", "--with-eq-broker"], {}, "--no-eq-broker and --with-eq-broker contradict"),
@@ -239,6 +241,29 @@ def test_managed_settings_render_the_tunnel_root(tmp_path):
 
 # ------------------------------------------------------------------------------------------ the dry run
 @needs_git
+@pytest.mark.parametrize("value, note", [("full", "! STACK_EQ_CONTAINER_SET=full was removed"),
+                                         ("huge", "! STACK_EQ_CONTAINER_SET must be min: container isolation skipped")])
+def test_a_bad_set_skips_the_container_step_without_running_the_driver(tmp_path, value, note):
+    """Not a dry run: the installer goes on (exit 0), says why, and never starts eq-container.sh (no state, no manifest entry)."""
+    b = Box(tmp_path)
+    b.install("--yes")
+    p = b.install(*BASE, STACK_EQ_CONTAINER_SET=value)
+    assert note in p.stdout, p.stdout[-3000:]
+    assert b.stub_calls() == [] and not b.eqs.exists() and "eq_container" not in b.manifest()
+    assert "container isolation verified" not in p.stdout
+
+
+@needs_git
+def test_set_min_reaches_the_driver(tmp_path):
+    b = Box(tmp_path)
+    b.install("--yes")
+    p = b.install(*BASE, STACK_EQ_CONTAINER_SET="min")
+    assert "+ container isolation verified" in p.stdout, p.stdout[-3000:]
+    (call,) = [c for c in b.stub_calls() if c[1].startswith("install")]
+    assert call[1] == "install --set min --yes"
+
+
+@needs_git
 def test_dry_run_prints_would_and_creates_nothing(tmp_path):
     b = Box(tmp_path)
     b.install("--yes")                                     # a first install: the config dir exists
@@ -253,14 +278,19 @@ def test_dry_run_prints_would_and_creates_nothing(tmp_path):
     p = b.install("--dry-run", *BASE, "--eq-container-profiles=core,node", "--no-eq-broker")
     assert "would: bash lib/eq-container/eq-container.sh install --profiles core,node --yes" in p.stdout
     assert "would: WALL off (--no-eq-broker; default: on" in p.stdout
-    p = b.install("--dry-run", *BASE, STACK_EQ_CONTAINER_SET="full")
-    assert "would: bash lib/eq-container/eq-container.sh install --set full --yes" in p.stdout
+    p = b.install("--dry-run", *BASE, STACK_EQ_CONTAINER_SET="min")
+    assert "would: bash lib/eq-container/eq-container.sh install --set min --yes" in p.stdout
+    assert b.stub_calls()[-1][1] == "install --set min --yes --dry-run"
     p = b.install("--dry-run", *BASE, EQ_STUB_DRY_RC=10)
     assert "container isolation would be skipped" in p.stdout
     # bad knobs: the step stops before the driver
     n = len(b.stub_calls())
+    p = b.install("--dry-run", *BASE, STACK_EQ_CONTAINER_SET="full")
+    assert "! STACK_EQ_CONTAINER_SET=full was removed" in p.stdout and "unset it or use min: container isolation skipped" in p.stdout
+    assert "would: bash lib/eq-container/eq-container.sh install --set full" not in p.stdout
     p = b.install("--dry-run", *BASE, STACK_EQ_CONTAINER_SET="huge")
-    assert "! STACK_EQ_CONTAINER_SET must be min or full: container isolation skipped" in p.stdout
+    assert "! STACK_EQ_CONTAINER_SET must be min: container isolation skipped" in p.stdout
+    assert "must be min or full" not in p.stdout
     p = b.install("--dry-run", *BASE, STACK_EQ_CONTAINER_PROFILES="core;touch x")
     assert "! STACK_EQ_CONTAINER_PROFILES must be a comma list" in p.stdout
     assert len(b.stub_calls()) == n

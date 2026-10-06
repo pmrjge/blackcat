@@ -52,7 +52,7 @@ while [ $# -gt 0 ]; do
     --uninstall) ACTION=uninstall;;
     --resolve-tools) ACTION=tools;;
     --write-pin) WRITEPIN=1;;
-    -h|--help) sed -n '2,29p' "$0"; exit 0;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { print; next } { exit }' "$0"; exit 0;;
     *) echo "build.sh: unknown argument: $1" >&2; exit 2;;
   esac
   shift

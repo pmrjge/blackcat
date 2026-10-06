@@ -42,7 +42,7 @@ while [ $# -gt 0 ]; do
     --inspect) M_INSPECT=1;;
     --deep) M_DEEP=1;;
     --allow-placeholder) ALLOWPH=1;;
-    -h|--help) sed -n '2,28p' "$0"; exit 0;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { print; next } { exit }' "$0"; exit 0;;
     *) echo "verify-tools: unknown argument: $1" >&2; exit 2;;
   esac
   shift
@@ -73,7 +73,7 @@ KNOWN_ARCHIVE="tar.gz tar.xz tar.bz2 tar.zst zip binary"
 
 # ---------------------------------------------------------------------------------------------------------------- manifest
 check_manifest() {
-  local t k v p c i s dup sel_images sel_tools pv names=""
+  local t k v p c i s fs dup sel_images sel_tools pv names=""
   # unique names are guaranteed per table by the reader (duplicate key = error is per name, so check duplicates of name itself)
   for k in tool image profile; do
     dup=$(tm_names "$k" | sort | uniq -d | head -n 1)
@@ -98,12 +98,12 @@ check_manifest() {
       n/a) [ "$(tm_get tool "$t" role)" = build-only ] || problem "tool $t: sha256 n/a is only for role build-only";;
       *) is_hex64 "$s" || problem "tool $t: sha256 is not 64 lowercase hex, PLACEHOLDER or n/a";;
     esac
-    s=$(tm_get tool "$t" file_sha256)
-    case "$s" in
+    fs=$(tm_get tool "$t" file_sha256)
+    case "$fs" in
       ""|PLACEHOLDER) ;;
-      *) is_hex64 "$s" || problem "tool $t: file_sha256 is not 64 lowercase hex or PLACEHOLDER";;
+      *) is_hex64 "$fs" || problem "tool $t: file_sha256 is not 64 lowercase hex or PLACEHOLDER";;
     esac
-    if [ "$(tm_get tool "$t" provenance)" = built-from-source ] && [ -z "$s" ]; then
+    if [ "$(tm_get tool "$t" provenance)" = built-from-source ] && [ -z "$fs" ]; then
       problem "tool $t: built-from-source needs file_sha256 (the built output is what is pinned: the builder's compiler floats)"
     fi
     v=$(tm_get tool "$t" url)

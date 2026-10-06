@@ -23,10 +23,15 @@ BASH = "/bin/bash"
 DIGEST_A = "sha256:" + "a" * 64
 DIGEST_B = "sha256:" + "b" * 64
 # lib.sh eq_img_default_tag: the images are named under the reserved TLD .invalid
+# (full, tc-rust, tc-haskell are the legacy names lib.sh EQ_LEGACY_IMAGE_NAMES still knows: only --uninstall --set all uses them)
 EQC_TAGS = {
     "full": "eq.invalid/eq-lean:4.34.1-arm64", "min-lean": "eq.invalid/eq-lean-min:4.34.1-arm64",
     "min-py": "eq.invalid/eq-py-min:4.34.1-arm64", "min-both": "eq.invalid/eq-min:4.34.1-arm64",
+    "tc-rust": "eq.invalid/eq-rust:arm64", "tc-haskell": "eq.invalid/eq-haskell:arm64", "tc-go": "eq.invalid/eq-go:arm64",
+    "tc-node": "eq.invalid/eq-node:arm64", "tc-julia": "eq.invalid/eq-julia:arm64", "tc-jvm": "eq.invalid/eq-jvm:arm64",
 }
+# the three bash pins that PINS keeps UNSET until `build.sh --resolve-tools --write-pin`; what the tests fill in a lib copy
+BASH_PIN_VALUES = {"BASH_SRC_SHA256": "1" * 64, "BASH_PATCHES_SHA256": "2" * 64, "BASH_BIN_SHA256": "3" * 64}
 
 
 def _exe(dst: Path, src: Path) -> Path:
@@ -39,6 +44,52 @@ def _exe(dst: Path, src: Path) -> Path:
 def san(tag: str) -> str:
     """lib.sh's file-name form of a tag (and the fake's `image save` archive name)."""
     return re.sub(r"[:/@]", "_", tag)
+
+
+def set_pin(lib: Path, key: str, value: str, files=("PINS",)):
+    """KEY=VALUE of PINS and/or `ARG KEY=VALUE` of a Dockerfile in a lib copy (exactly one line per file)."""
+    for f in files:
+        p = lib / f
+        t, n = re.subn(r"^((?:ARG )?%s=).*$" % re.escape(key), lambda m: m.group(1) + value, p.read_text(), flags=re.MULTILINE)
+        assert n == 1, (f, key)
+        p.write_text(t)
+
+
+def set_key(lib: Path, table: str, name: str, key: str, value: str, raw: bool = False, delete: bool = False):
+    """One key of one [[TABLE]] entry of lib/TOOLS.toml (what tools.sh tm_set does); raw=True writes VALUE as the TOML text
+    (an array), delete=True removes the line."""
+    p = lib / "TOOLS.toml"
+    cur, cur_name, out, hit = None, None, [], 0
+    for ln in p.read_text().splitlines(keepends=True):
+        m = re.match(r"\[\[([a-z]+)\]\]$", ln.rstrip("\n"))
+        if m:
+            cur, cur_name = m.group(1), None
+        m = re.match(r'name = "(.*)"$', ln.rstrip("\n"))
+        if m and cur_name is None:
+            cur_name = m.group(1)
+        if cur == table and cur_name == name and ln.startswith(key + " = "):
+            hit += 1
+            if delete:
+                continue
+            ln = "%s = %s\n" % (key, value if raw else '"%s"' % value)
+        out.append(ln)
+    assert hit == 1, (table, name, key)
+    p.write_text("".join(out))
+
+
+def set_tool(lib: Path, tool: str, key: str, value: str):
+    set_key(lib, "tool", tool, key, value)
+
+
+def fill_bash_pins(lib: Path, values: dict = None):
+    """Resolve the three bash pins in a lib copy the way --write-pin would: PINS, the Dockerfile.minimal ARGs, and the bash entry
+    of TOOLS.toml (sha256 = BASH_SRC_SHA256, file_sha256 = BASH_BIN_SHA256, a checksum_source)."""
+    v = values or BASH_PIN_VALUES
+    for k, val in v.items():
+        set_pin(lib, k, val, files=("PINS", "Dockerfile.minimal"))
+    set_tool(lib, "bash", "sha256", v["BASH_SRC_SHA256"])
+    set_tool(lib, "bash", "file_sha256", v["BASH_BIN_SHA256"])
+    set_tool(lib, "bash", "checksum_source", "test: filled by the tests")
 
 
 class EqcEnv:

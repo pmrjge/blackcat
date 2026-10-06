@@ -185,8 +185,17 @@ archived (§4 item 10); `agent-afb29c2…` is merged and clean (locked). Nobody 
 
 1. Isolation backend: Apple `container` 1.5.0; Docker dropped. c0 and the Docker runbook: the user runs c0 (stated
    this session; whether it was run: unverified, `RUNBOOK_c0.md` is lost, item 11); the Docker part is dropped.
-2. Image choices: Debian packages for bash/perl/jq/busybox; Scala 3 release tarball; MongoDB out (PostgreSQL profile also
-   dropped by R3: its only runner was compose); `cc` linker in the Rust/Haskell images.
+2. Image choices. SUPERSEDED 2026-10-06 by the distroless decisions below: ~~Debian packages for bash/perl/jq/busybox; Scala 3
+   release tarball; MongoDB out (PostgreSQL profile also dropped by R3: its only runner was compose); `cc` linker in the
+   Rust/Haskell images.~~ (Scala 3 from the release tarball and MongoDB/PostgreSQL out still stand.)
+   2026-10-06 (USER; implemented on branch `eq-distroless`, `lib/eq-container/DESIGN_DISTROLESS.md`): (1) bash: static GNU bash
+   5.3 + patches 001-020 built from the GPG-signed source in a pinned Alpine builder stage (`tc/build-bash.sh`, key
+   7C0135FB088AAF6C66C650B9BB5869F064EA74AB enforced), output pinned. (2) perl: none; the in-repo `minimal/perl-shim` answers only
+   `check_lean.sh`'s timeout wrapper (`check_lean.sh` and the PF pool unchanged). (3) CP/CR: distroless cc + the glibc
+   python-build-standalone Python. (4) The Debian `full` image and `STACK_EQ_CONTAINER_SET=full`: removed. (5) Rust and Haskell
+   deferred (profiles exit 10 with a reason); node, julia, jvm on distroless cc, go on scratch. (6) jq: the official static jq
+   1.8.2; busybox: docker-library's musl build; uv: static musl 0.12.22. No Debian, apt or dpkg in any final image or in the
+   build path; every final image is FROM the digest-pinned `gcr.io/distroless/cc-debian13` or scratch.
 3. Oracle residuals (§6.1) deferred; §6.10 deferred.
 4. `mcp-server-craft` stays retired (`e045482`); do not restore.
 5. Plugin autoUpdate for claude-plugins-official: keep on.

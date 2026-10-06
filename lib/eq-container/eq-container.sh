@@ -46,7 +46,7 @@ while [ $# -gt 0 ]; do
     --no-probe) NO_PROBE=1;;
     --force-verify) FORCE_VERIFY=1;;
     --purge) PURGE=1;;
-    -h|--help) sed -n '2,30p' "$0"; exit 0;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { print; next } { exit }' "$0"; exit 0;;
     *) echo "eq-container: unknown option: $1" >&2; exit 2;;
   esac
   shift
@@ -270,6 +270,6 @@ case "$CMD" in
   status) cmd_status; exit $?;;
   print-env) cmd_print_env;;
   uninstall) cmd_uninstall;;
-  ""|-h|--help|help) sed -n '2,30p' "$0"; exit 0;;
+  ""|-h|--help|help) awk 'NR == 1 { next } /^#/ { print; next } { exit }' "$0"; exit 0;;
   *) echo "eq-container: unknown command: $CMD (install, check, status, print-env, uninstall)" >&2; exit 2;;
 esac

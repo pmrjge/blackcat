@@ -11,7 +11,10 @@
 #                               its hex), descriptor, id, none, conflict
 #   image save --output F REF -> copies $EQ_FAKE_CONTAINER_SAVE_DIR/<REF with :/@ as _>.tar to F, else rc 1
 #   image delete ... | kill ... | delete ...   -> rc 0
-#   build ... -t TAG ...     -> rc ${EQ_FAKE_CONTAINER_BUILD_RC:-0}
+#   build ... -t TAG ...     -> rc ${EQ_FAKE_CONTAINER_BUILD_RC:-0}, except a build whose `--target T` has T in the space-separated
+#                               EQ_FAKE_CONTAINER_FAIL_TARGETS (e.g. "check-eq-min"): rc ${EQ_FAKE_CONTAINER_FAIL_RC:-1}; a build
+#                               of `--target bash-report` first prints EQ_FAKE_CONTAINER_REPORT on stdout and
+#                               EQ_FAKE_CONTAINER_REPORT_ERR on stderr (what build.sh --resolve-tools reads from the build log)
 #   list --all --format json -> a JSON array: EQ_FAKE_CONTAINER_LABELLED entries id:inv:started[:arm] (labels eq-harness=1,
 #                               eq-inv, eq-started, eq-arm when non-empty) and EQ_FAKE_CONTAINER_LIST_JSON (raw JSON array,
 #                               appended as is); every row is {"configuration": {"id", "labels"}, "status": "running"}
@@ -83,6 +86,15 @@ case "${1:-}" in
   kill | delete)
     exit 0 ;;
   build)
+    tgt=""; prev=""
+    for a in "$@"; do [ "$prev" != --target ] || tgt=$a; prev=$a; done
+    if [ "$tgt" = bash-report ]; then
+      [ -z "${EQ_FAKE_CONTAINER_REPORT:-}" ] || printf '%s\n' "$EQ_FAKE_CONTAINER_REPORT"
+      [ -z "${EQ_FAKE_CONTAINER_REPORT_ERR:-}" ] || printf '%s\n' "$EQ_FAKE_CONTAINER_REPORT_ERR" >&2
+    fi
+    for f in ${EQ_FAKE_CONTAINER_FAIL_TARGETS:-}; do
+      [ "$f" != "$tgt" ] || { echo "Error: fake build of target $tgt failed" >&2; exit "${EQ_FAKE_CONTAINER_FAIL_RC:-1}"; }
+    done
     exit "${EQ_FAKE_CONTAINER_BUILD_RC:-0}" ;;
   list)
     rows=""

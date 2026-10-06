@@ -1019,10 +1019,12 @@ With `--with-eq-container` (off by default) two steps run between 10 and 11; nei
   unchanged images builds and verifies nothing. The CLI missing, its services not running (`container
   system start`) or a non-arm64 Mac is a warning and a skip: the installer never installs `container` or
   starts its services (get the signed package from https://github.com/apple/container/releases).
-  `--eq-container-profiles=LIST` adds toolchain images to the default `core`. Until the maintainer
-  resolves the last placeholder pins (busybox and jq: `bash lib/eq-container/distro-pins.sh` prints
-  their verified values), `core` stops with a warning ("a pin ... is still a placeholder");
-  `STACK_EQ_CONTAINER_SET=full` builds the full Debian image instead. A verified install writes `EQ_ISOLATION=container` and
+  `--eq-container-profiles=LIST` adds toolchain images to the default `core` (`rust` and `haskell` are deferred and refused). Every
+  image is built on the digest-pinned distroless `cc` base or `scratch`, with no Debian runtime, apt or package manager inside
+  (static bash, jq and busybox; no perl). Until the maintainer resolves the last placeholder pins (the three bash hashes:
+  `bash lib/eq-container/build.sh --resolve-tools` prints them, then `--resolve-tools --write-pin`), `core` stops with a warning
+  ("a pin ... is still a placeholder"). `STACK_EQ_CONTAINER_SET=full` (the former Debian image) was removed and skips the step
+  with a note. A verified install writes `EQ_ISOLATION=container` and
   `EQ_IMAGE=eq.invalid/<name>:<tag>@sha256:<digest>` into `stack.env` (a value you set stays).
 - **10c WALL**: the default-deny host-access broker of `lib/eq-wall` and its one tunnel root
   (`~/.cache/claude-agent-stack/eq-tunnel`, 0700, one channel per call). On by default once 10b is
