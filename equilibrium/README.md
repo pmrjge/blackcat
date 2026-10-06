@@ -50,12 +50,15 @@ T=$(mktemp -d) && rsync -a equilibrium/ "$T/equilibrium/" && cd "$T/equilibrium"
 ```
 
 Expected on 2026-10-06:
-- From the copy with `EQ_CONTAINER_DIR`: 442 passed, 1 skipped (the in-place layout check).
-- From the copy without it: 438 passed, 5 skipped (the 4 tests that need `lib/eq-container`, plus that check).
-- In place (`cd equilibrium` in a checkout, no `EQ_CONTAINER_DIR`): 443 passed.
+- From the copy with `EQ_CONTAINER_DIR`: 451 passed, 1 skipped (the in-place layout check).
+- From the copy without it: 447 passed, 5 skipped (the 4 tests that need `lib/eq-container`, plus that check).
+- In place (`cd equilibrium` in a checkout, no `EQ_CONTAINER_DIR`): 452 passed.
+
+The other suites, from the same copy: `wall/tests` 100 passed, 2 skipped. The selftests all pass: CP 6, CR 15,
+RS 24, DS 33, OE 33, ES 24, and PF 39 (PF with Lean at `$HOME/lean/stack_mathlib`).
 
 The WALL suite runs separately (`uv run --no-project --with pytest pytest -q -p no:cacheprovider wall/tests`), and so
-does each pool's `items/<CLS>/selftest.sh`. PF's selftest needs Lean.
+does each pool's `items/<CLS>/selftest.sh` (`bash selftest.sh` inside the pool). PF's selftest needs Lean.
 
 Lookups from the script's own location (A5): `eq_check.sh`/`eq_freeze.sh` take M to be the git checkout that holds
 them, and `eq_harness.py` takes `DEFAULT_M` to be the nearest ancestor holding `.git`. Either way the default

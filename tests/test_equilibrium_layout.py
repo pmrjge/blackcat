@@ -10,7 +10,7 @@ checks hold before and after a commit and follow .gitignore. The suite fails whe
   .ruff_cache, .pytest_cache, .eq_deps), or a fixture .gitignore would drop (the PF oracle's build/ records, the RS
   corpus runs/ fixture);
 - a script lost its executable bit.
-The harness's own suite (equilibrium/harness/tests, 443 tests) runs as a separate C10 step (CONFIG.md, C10).
+The harness's own suite (equilibrium/harness/tests, 452 tests) runs as a separate C10 step (CONFIG.md, C10).
 
 Run: uv run --no-project --with pytest pytest -q tests/test_equilibrium_layout.py
 """
