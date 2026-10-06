@@ -196,6 +196,24 @@ def run_stub(stack, mode, ev, scope=None, env=None, stub=None, timeout=30):
     return p.returncode, (json.loads(out) if out else None), p.stderr.decode()
 
 
+# What the installer runs after apply, once per target interpreter (stack-python, /usr/bin/python3):
+# `-I` keeps sys.pycache_prefix unset (Apple's site sets it to ~/Library/Caches/com.apple.python),
+# so the pyc lands in <guard dir>/__pycache__ where the stub's `python -I` loader looks; checked-hash
+# pycs stay valid whatever the copy did to the files' mtimes.
+PRECOMPILE = ("import py_compile, sys\n"
+              "for f in sys.argv[1:]:\n"
+              "    print(py_compile.compile(f, doraise=True, "
+              "invalidation_mode=py_compile.PycInvalidationMode.CHECKED_HASH))")
+
+
+def precompile(stack, python):
+    """Precompile every .py of the stack's guard dir with `python`; the pyc paths."""
+    files = sorted(str(p) for p in stack.hooks_dir.glob("*.py"))
+    p = subprocess.run([python, "-I", "-c", PRECOMPILE] + files, capture_output=True, text=True,
+                       env=stack.env(), timeout=120, check=True)
+    return [line for line in p.stdout.splitlines() if line.strip()]
+
+
 def interpreter():
     """The real interpreter behind sys.executable (a uv venv's python is a link to it)."""
     return os.path.realpath(sys.executable)

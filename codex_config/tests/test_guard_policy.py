@@ -4,13 +4,18 @@ roles, tool classes, the spawn rule, MCP allowlists, toolsmith, images, and the 
 dropping all of it."""
 from __future__ import annotations
 
+import io
 import json
+import os
 import struct
+import sys
 import zlib
 
 import pytest
 
-from _guard_helpers import Guard, Stack, bash, decision, event, perm_denied, pre, reason
+from _guard_helpers import (REPO, Guard, Stack, bash, decision, event, interpreter, perm_denied,
+                            pre, reason, run_stub)
+from conftest import load_lib
 
 
 @pytest.fixture
@@ -94,6 +99,19 @@ def test_generic_and_unknown_types_run_nothing(guard, agent_type, tool, ti):
     assert decision(out) == "deny" and "not a stack agent" in reason(out)
 
 
+def test_builtin_type_names_win_over_a_colliding_row(tmp_path, monkeypatch):
+    """A row named like a Codex built-in (explorer) never makes the built-in a stack agent."""
+    stack = Stack(tmp_path)
+    stack.agents["agents"]["explorer"] = dict(stack.agents["agents"]["coder"])
+    stack.agents["agents"]["python-engineer"]["spawn"].append("explorer")
+    stack.write_policy()
+    guard = Guard(stack, monkeypatch)
+    out = guard.pre(bash("ls", agent_type="explorer"))
+    assert decision(out) == "deny" and "not a stack agent" in reason(out)
+    out = guard.pre(pre("spawn_agent", {"agent_type": "explorer"}, agent_type="python-engineer"))
+    assert decision(out) == "deny" and "naming a stack agent" in reason(out)
+
+
 def test_agent_type_is_canonicalised(guard):
     assert guard.pre(bash("ls", agent_type="Python_Engineer")) is None
     assert guard.pre(bash("ls", agent_type="CODER")) is None
@@ -162,6 +180,39 @@ def test_readonly_allowlist_passes_reads(guard, command):
 def test_readonly_allowlist_refuses_writes(guard, command):
     out = guard.pre(bash(command, agent_type="code-reviewer"))
     assert decision(out) == "deny" and ("read-only" in reason(out) or "never" in reason(out)), command
+
+
+@pytest.mark.parametrize("command", [
+    "git -c alias.l=log l", "git -c alias.x='!rm -rf src' x", "git -c Alias.L=log L",
+    "git --exec-path=/tmp/x log", "git --config-env=core.pager=P log",
+    "git -C sub -c alias.l=log l", "git -C $D diff --output=out.patch",
+    "git -C sub commit -F msg", "git commit -F msg", "git add --pathspec-from-file=list",
+    "git commit -t tmpl", "git config --file /tmp/c alias.l log"])
+@pytest.mark.parametrize("agent", ["code-reviewer", None])
+def test_readonly_allowlist_refuses_git_flag_forms(guard, command, agent):
+    out = guard.pre(bash(command, agent_type=agent))
+    assert decision(out) == "deny" and ("read-only" in reason(out) or "never" in reason(out)), command
+
+
+@pytest.mark.parametrize("command", ["git --exec-path", "git --exec-path /tmp/x log",
+                                     "git -C sub log -1", "git -Csub status",
+                                     "git -C sub diff --output=$TMPDIR/x.patch",
+                                     "git -C sub log --pathspec-from-file=list"])
+def test_readonly_allowlist_passes_git_flag_reads(guard, command):
+    assert guard.pre(bash(command, agent_type="code-reviewer")) is None, command
+
+
+def test_readonly_git_output_resolves_against_dash_c(guard, stack):
+    """git -C DIR writes a relative --output under DIR: from a temp cwd, `out.patch` is scratch, but
+    `-C <project>` puts it in the project."""
+    tmp = stack.root / "tmp"
+    ev = lambda cmd: bash(cmd, agent_type="code-reviewer", cwd=str(tmp))
+    assert guard.pre(ev("git diff --output=out.patch")) is None
+    out = guard.pre(ev("git -C %s diff --output=out.patch" % stack.project))
+    assert decision(out) == "deny" and "scratch" in reason(out)
+    out = guard.pre(ev("git -C%s/src diff --output out.patch" % stack.project))
+    assert decision(out) == "deny"
+    assert guard.pre(ev("git -C %s diff --output=%s/o.patch" % (stack.project, tmp))) is None
 
 
 def test_readonly_escalation_refused(guard):
@@ -296,6 +347,101 @@ def test_global_scope_has_no_caller_policy(guard):
     for ev in (bash("npm install", agent_type="default"), main("apply_patch", {"command": ""}),
                pre("mcp__exa__x", {}, agent_type="verifier"), bash("rm -rf build", agent_type=None)):
         assert guard.pre(ev, scope="global") is None
+
+
+def managed_dir(tmp_path, stack):
+    """The managed tier's flat directory exactly as requirements.py writes it (codex-hook, the guard,
+    the SUPPORT_FILES and guard.json; no agents.json), plus a stack-python link for speed."""
+    req = load_lib("requirements")
+    out = tmp_path / "build"
+    req.run(["--codex-home", str(stack.codex_home), "--home", str(stack.home), "--src", str(REPO),
+             "--out", str(out), "--managed-dir", str(tmp_path / "managed-target"),
+             "--etc-dir", str(tmp_path / "etc"), "--state-dir", str(stack.state)],
+            out_stream=io.StringIO())
+    mh = out / "managed-hooks"
+    os.symlink(interpreter(), mh / "stack-python")
+    return mh
+
+
+@pytest.mark.skipif(sys.version_info < (3, 11), reason="requirements.py (installer side) needs 3.11")
+def test_global_scope_runs_from_the_managed_dir_without_agents_json(tmp_path):
+    stack = Stack(tmp_path)
+    mh = managed_dir(tmp_path, stack)
+    assert sorted(p.name for p in mh.iterdir()) == ["codex-hook", "codex_guard.py", "guard.json",
+                                                    "stack-python", "stack_io.py",
+                                                    "toolsmith_policy.py"]
+    stub = mh / "codex-hook"
+    ch = stack.codex_home
+    denied = [bash("git push origin main", agent_type="default"),
+              bash("bash -c 'gh pr merge 1'", agent_type=None),
+              bash("cat %s/auth.json" % ch), bash("rm -rf %s/stack" % ch, agent_type=None),
+              bash("git commit -F ~/.codex/auth.json", agent_type="code-reviewer"),
+              pre("apply_patch", {"command": "*** Begin Patch\n*** Add File: %s/x\n+x\n*** End Patch\n"
+                                  % ch}, agent_type=None),
+              pre("mcp__fs__read_file", {"path": "%s/stack.env" % ch}, agent_type="no-such-agent")]
+    for ev in denied:
+        rc, out, err = run_stub(stack, "pre_tool_use", ev, scope="global", stub=stub)
+        assert rc == 0 and decision(out) == "deny", (ev["tool_input"], err)
+    rc, out, err = run_stub(stack, "permission_request",
+                            event("permission_request", tool_input={"command": "git -C /x commit"}),
+                            scope="global", stub=stub)
+    assert rc == 0 and perm_denied(out), err
+    # the profile's policy is off: built-in types, BlackCat's gate, read-only roles, MCP rows
+    allowed = [bash("npm install", agent_type="default"), bash("rm -rf build", agent_type="verifier"),
+               main("apply_patch", {"command": "*** Begin Patch\n*** Add File: src/x.py\n+x\n"
+                                               "*** End Patch\n"}),
+               main("web_search", {"query": "x"}), pre("mcp__exa__web_search_exa", {"q": "x"},
+                                                       agent_type="python-engineer")]
+    for ev in allowed:
+        rc, out, err = run_stub(stack, "pre_tool_use", ev, scope="global", stub=stub)
+        assert rc == 0 and out is None, (ev["tool_name"], out, err)
+    for mode in ("post_tool_use", "subagent_start", "user_prompt_submit", "session_end"):
+        assert run_stub(stack, mode, event(mode), scope="global", stub=stub)[:2] == (0, None)
+    assert not (stack.state / "sessions").exists()     # the global scope keeps no state
+
+
+def test_global_scope_never_reads_agents_json(tmp_path, monkeypatch):
+    stack = Stack(tmp_path, layout="flat")
+    (stack.policy_dir / "agents.json").write_text("{broken")
+    guard = Guard(stack, monkeypatch)
+    assert decision(guard.pre(bash("git push"), scope="global")) == "deny"
+    assert guard.pre(bash("npm install", agent_type="default"), scope="global") is None
+    assert "policy cannot be read" in reason(guard.pre(bash("ls")))           # profile: closed
+
+
+def test_global_scope_prefers_the_guard_json_beside_it(tmp_path, monkeypatch):
+    """A managed (flat) guard reads its own guard.json, not a policy/ dir next to its parent."""
+    stack = Stack(tmp_path, layout="flat")
+    decoy = tmp_path / "policy"
+    decoy.mkdir()
+    (decoy / "guard.json").write_text(json.dumps(dict(stack.guard, codex_home=str(tmp_path / "d"),
+                                                      credentials={"paths": [], "globs": []})))
+    guard = Guard(stack, monkeypatch)
+    out = guard.pre(bash("cat %s/.ssh/id_ed25519" % stack.home), scope="global")
+    assert decision(out) == "deny" and "credential" in reason(out)
+
+
+@pytest.mark.parametrize("damage", ["missing", "unreadable", "malformed", "not-an-object"])
+def test_profile_scope_without_a_readable_agents_json_fails_closed(tmp_path, monkeypatch, damage):
+    stack = Stack(tmp_path)
+    f = stack.policy_dir / "agents.json"
+    if damage == "missing":
+        f.unlink()
+    elif damage == "unreadable":
+        f.chmod(0)
+    else:
+        f.write_text("{x" if damage == "malformed" else "[1]")
+    guard = Guard(stack, monkeypatch)
+    try:
+        for ev in (bash("ls"), bash("ls", agent_type=None), pre("update_plan", {}, agent_type=None)):
+            out = guard.pre(ev)
+            assert decision(out) == "deny" and "policy cannot be read" in reason(out), damage
+        assert perm_denied(guard.perm(event("permission_request")))
+        for mode in ("post_tool_use", "subagent_stop", "user_prompt_submit"):
+            assert guard.run(mode, event(mode)) == (0, None)
+        assert guard.pre(bash("ls"), scope="global") is None                  # global: no agents.json
+    finally:
+        f.exists() and f.chmod(0o600)
 
 
 def test_global_scope_without_any_policy_file(tmp_path, monkeypatch):

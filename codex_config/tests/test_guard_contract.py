@@ -131,6 +131,15 @@ def test_guard_template_equals_built_in_defaults():
                           credentials={"paths": [], "globs": []}))
 
 
+def test_support_modules_load_by_path(tmp_path, monkeypatch):
+    stack = Stack(tmp_path)
+    guard = Guard(stack, monkeypatch)
+    io_mod = guard.mod.support_module("stack_io")
+    assert io_mod.__file__ == str(stack.hooks_dir / "stack_io.py") and callable(io_mod.write_json_atomic)
+    assert guard.mod.support_module("stack_io") is io_mod                    # loaded once
+    assert "codex_guard_stack_io" not in __import__("sys").modules           # never registered
+
+
 def test_support_files_exist_and_are_loaded_by_path():
     names = support_files()
     assert names == ["dot-claude/hooks/stack_io.py", "dot-claude/hooks/toolsmith_policy.py"]
@@ -138,7 +147,13 @@ def test_support_files_exist_and_are_loaded_by_path():
         assert (REPO / rel).is_file()
     src = (HOOKS_SRC / "codex_guard.py").read_text()
     assert not re.search(r"sys\.path\.(?:insert|append|extend)|sys\.path\s*[+=]", src)
-    assert "spec_from_file_location" in src
+    # by path, through SourceFileLoader; never importlib.util (typing: ~20 ms per call on 3.9)
+    assert "loader = SourceFileLoader(name, path)" in src and "load_by_path(\"codex_guard_\" + name" in src
+    assert not re.search(r"^\s*(?:import importlib\.util|from importlib(?:\.util)? import util)", src,
+                         re.M)
+    stub = (HOOKS_SRC / "codex-hook").read_text()
+    assert '"$py" -I -c ' in stub and "SourceFileLoader(\"codex_guard\", sys.argv[1])" in stub
+    assert "importlib.util" not in stub
 
 
 def test_guard_is_stdlib_only_and_py39_syntax():

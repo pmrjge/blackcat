@@ -24,9 +24,20 @@ on stdin (Codex rust-v0.160.1, hooks/src/schema.rs). Modes and what each does (D
                       (argv checked by toolsmith_policy.py), and the caps (MCP calls per session and per
                       agent, spawns per caller per prompt, tool calls per agent).
   permission_request  denies an escalation that pushes, writes a forge, touches a protected root or a
-                      credential, relaunches codex with overrides, uses git -C/-F/--file/--exec-path/
-                      -c alias.*, or comes from a caller that may not escalate (built-ins, the main
-                      thread, read-only roles; stack-install from anyone but toolsmith).
+                      credential, relaunches codex with overrides, gives git a place to read a file or
+                      run code from (-C, --exec-path=, --git-dir, --work-tree, --config-env, -c with
+                      an alias, command, include or hooks-path key, -F/--file, -t/--template,
+                      --pathspec-from-file in any abbreviation or short cluster, GIT_* or EDITOR in
+                      its environment; the --git-allow-rules form is held to the same in PreToolUse),
+                      or comes from a caller that may not escalate (built-ins, the main thread,
+                      read-only roles; stack-install from anyone but toolsmith).
+  git options         everywhere: -c alias.<x>=, GIT_CONFIG_KEY_<n>/VALUE_<n> and
+                      GIT_CONFIG_PARAMETERS are read like aliases (a hidden push or `!cmd` is found,
+                      alias names case-insensitive, a value decided at run time is opaque); -C and
+                      --exec-path never hide the subcommand; a credential named by a file-reading
+                      option (git commit -F <codex_home>/auth.json, -t~/.ssh/x, --pathspec-from=)
+                      is resolved against the -C directories and denied; the read-only allowlist
+                      refuses -c/--exec-path=/--config-env and resolves --output against -C.
   post_tool_use, subagent_start, subagent_stop, user_prompt_submit, session_start, session_end
                       observe only, never block: they build the spawn tree (PostToolUse(spawn_agent)
                       parsed defensively, SubagentStart matched to the pending spawn), propagate taint,
@@ -35,9 +46,19 @@ on stdin (Codex rust-v0.160.1, hooks/src/schema.rs). Modes and what each does (D
   --self-test         a push is denied, a read allowed, a read of auth.json denied (exit 0/1).
 
 Layout: the policy is <guard dir>/../policy/{agents,guard}.json (the installed stack/ tree), else
-<guard dir>/{agents,guard}.json (a flat managed copy). stack_io.py and toolsmith_policy.py (named in
-hooks/SUPPORT_FILES) sit beside this file and are loaded by path, never through sys.path. State lives in
+<guard dir>/{agents,guard}.json (a flat copy). `--scope global` (the managed tier: requirements.py's
+flat managed-hooks/ holds guard.json and no agents.json) reads the guard.json beside itself first,
+never reads agents.json and keeps no state; without any guard.json it takes HOME/CODEX_HOME defaults.
+The profile scope fails closed (every gated call denied) when agents.json or guard.json is missing,
+unreadable or malformed. stack_io.py and toolsmith_policy.py (named in hooks/SUPPORT_FILES) sit
+beside this file and are loaded by path (SourceFileLoader), never through sys.path. State lives in
 guard.json's state_dir: sessions/<session_id>/state.json under an fcntl.flock, written atomically.
+
+Bytecode: the stub loads this file by path under `python -I`, so <guard dir>/__pycache__ is used; the
+installer precompiles it after apply with each target interpreter (stack-python, /usr/bin/python3):
+`<python> -I -c 'import py_compile, sys; [py_compile.compile(f, doraise=True,
+invalidation_mode=py_compile.PycInvalidationMode.CHECKED_HASH) for f in sys.argv[1:]]' <hooks>/*.py`
+(Apple's 3.9 under -I never writes bytecode itself). Measured p95 per hook call: test_guard_perf.py.
 
 Fail closed: any internal error in pre_tool_use or permission_request is a deny with the reason; an
 unreadable event or policy is a deny; the stub exits 2 when no Python is found. Observe-only modes
@@ -46,25 +67,46 @@ swallow errors and print nothing. Output follows the hooks_schema.rs wire struct
 or {hookEventName, permissionDecision: "allow", updatedInput}; PermissionRequest {hookEventName,
 decision: {behavior: "deny", message}}. Allowed calls print nothing.
 
-Seeded-bug proofs (tests/mutations/codex_guard.json, each caught by the named tests):
-  - drop CODEX_HOME from the protected roots              -> test_guard_protect.py
-  - let the BlackCat gate pass a shell write              -> test_guard_policy.py
-  - flip the push deny to allow                           -> test_guard_nopush.py
-  - accept an unknown multi_agent_v1 tool                 -> test_guard_policy.py
-  - and further rows listed in that file (taint, routing, caps, apply_patch, catch-all, images).
+Seeded-bug proofs (tests/mutations/codex_guard.json, 34 rows, each caught by the named test):
+  nopush     git push let through; alias names case-sensitive; GIT_CONFIG_* pager/editor/alias
+             not read; abbreviated --fil/--te/--pathspec-from and short -F/-t clusters not file
+             options; escalated -c core.editor/include.path/hooksPath pass; GIT_EXEC_PATH before
+             an unsandboxed git passes
+  protect    CODEX_HOME dropped from the roots; apply_patch into a root allowed; auth.json via
+             shell, apply_patch, MCP path args; git file-option credentials unchecked; -C ignored
+             for them; PermissionRequest checked like a sandboxed call
+  policy     BlackCat refuses multi_agent_v1wait_agent; unknown multi_agent_v1* or plain names
+             accepted; the BlackCat gate passes a shell write; spawn rows ignored; a row named like
+             a built-in runs it; unknown types fall back to the BlackCat row; read-only roles write;
+             MCP allowlist dropped; PermissionRequest lets BlackCat escalate; git --output not
+             resolved against -C; the managed guard reads ../policy first; global scope needs
+             agents.json; profile scope runs on an empty policy without agents.json
+  state      send_input routed to any agent; taint lost on a child's report or on send_input; the
+             state lock never taken (caps under 24 concurrent processes); the catch-all lets an
+             internal error through
 """
 import contextlib
 import fcntl
 import fnmatch
-import hashlib
-import importlib.util
 import json
 import os
 import re
 import sys
 import time
+from importlib.machinery import SourceFileLoader
 
 GUARD_DIR = os.path.dirname(os.path.abspath(__file__))
+
+
+def load_by_path(name, path):
+    """The module at `path`, loaded by path (never through sys.path, CWE-427). SourceFileLoader
+    rather than importlib.util: on Python 3.9 importlib.util pulls in typing, about 20 ms of
+    compiling per hook call under Apple's `python3 -I`, which caches no stdlib bytecode."""
+    loader = SourceFileLoader(name, path)
+    mod = type(sys)(name)
+    mod.__file__, mod.__loader__ = path, loader
+    loader.exec_module(mod)
+    return mod
 
 # ---------------------------------------------------------------- modes, tools and wire names
 MODES = ("pre_tool_use", "permission_request", "post_tool_use", "subagent_start", "subagent_stop",
@@ -1294,6 +1336,7 @@ class _Scan(object):
             ends[k] = k if SEP_RE.match(words[k]) else ends[k + 1]
         covered = stdin_done = stmt_start = 0  # covered, stdin_done: words already re-scanned
         cmd_pos, xargs_seen, head = True, False, None   # head: this simple command's program
+        env_cfg = None                         # git config from the environment (_env_config)
         for i, w in enumerate(words):
             if not i % 512 and time.monotonic() > self.deadline:
                 return self.hit("opaque", "a command too large to check in time")
@@ -1322,10 +1365,19 @@ class _Scan(object):
                 if not found and INDEX_BLIND_ENV_RE.match(w) and INDEX_BLIND_TEXT_RE.search(w):
                     found = self.hit("index", w.split("=", 1)[0] + "=" + "core.sparseCheckout/"
                                      "ignoreStat")       # GIT_CONFIG_KEY_0=core.sparseCheckout
+                if not found and GIT_ENV_CONFIG_RE.match(w):
+                    if env_cfg is None:
+                        env_cfg = _env_config(words, restore)
+                    found = self.env_config(env_cfg, depth)
+                if not found and "gitesc" in self.want:
+                    found = _gitesc_env(w, words, restore)
+                    found = found and self.hit("gitesc", found)
             elif base in PUSH_PROGRAMS and here_cmd:
                 found = self.hit("push", base)       # not `ls .../git-push`
             elif base == "git":
-                found = self.git(words, i, end, xargs_seen, depth, restore)
+                if env_cfg is None:
+                    env_cfg = _env_config(words, restore)
+                found = self.git(words, i, end, xargs_seen, depth, restore, env_cfg)
             elif w in PUSH_SUBCOMMANDS and i > 0 and _expansion(words[i - 1]) \
                     and self.was_command(words, i - 1):
                 found = self.hit("opaque", "%s %s" % (restore(words[i - 1]), w))
@@ -1482,8 +1534,11 @@ class _Scan(object):
         return _after_pipe(words, i) or first.startswith("<") or \
             first in ("/dev/stdin", "/dev/fd/0", "-")
 
-    def git(self, words, i, end, xargs_seen, depth, restore):
-        k, aliases, gopts = i + 1, {}, []
+    def git(self, words, i, end, xargs_seen, depth, restore, env_cfg=()):
+        k, aliases = i + 1, {}
+        for key, value in env_cfg:             # GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=push
+            if value is not None and key.lower().startswith("alias."):
+                aliases[key[6:].lower()] = value
         while True:                            # global options (and redirections among them)
             k = _skip_redirections(words, k, end)
             if k >= end or not words[k].startswith("-"):
@@ -1495,13 +1550,10 @@ class _Scan(object):
                 opt, _, val = opt.partition("=")
                 k += 1
             key, _, value = restore(val).partition("=")
-            if opt in ("-C", "--work-tree", "--git-dir"):
-                gopts.append((opt, restore(val)))
-            elif opt[:2] == "-C" and len(opt) > 2:
-                gopts.append(("-C", restore(opt[2:])))      # git -C~/dir
-            if "gitesc" in self.want and (opt in ("-C", "--exec-path") or opt[:2] == "-C" or (
-                    opt == "-c" and key.lower().startswith("alias."))):
-                return self.hit("gitesc", "git %s" % (opt if opt != "-c" else "-c " + key))
+            if "gitesc" in self.want:
+                found = _gitesc_global(opt, key, value)
+                if found:
+                    return self.hit("gitesc", found)
             if opt == "--config-env" and GIT_EXEC_KEY_RE.match(key):
                 return self.hit("opaque", "git --config-env " + restore(val))
             if opt in ("-c", "--config-env") and (key.lower() in INDEX_BLIND_KEYS
@@ -1514,13 +1566,13 @@ class _Scan(object):
                 if found:
                     return found
                 if key.lower().startswith("alias."):
-                    aliases[key[6:]] = value
+                    aliases[key[6:].lower()] = value       # alias names are case-insensitive
         if k >= end:
             return self.hit("opaque", "xargs git (the subcommand comes from stdin)") \
                 if xargs_seen else None
         sub = words[k]
-        if sub in aliases:                     # -c alias.p='!sh' p -c 'git push': with its args
-            body = aliases[sub]
+        if sub.lower() in aliases:             # -c alias.p='!sh' p -c 'git push': with its args
+            body = aliases[sub.lower()]
             import shlex
             tail = " ".join(shlex.quote(restore(x)) for x in words[k + 1:min(end, k + 257)])
             found = self.scan((body[1:] if body.startswith("!") else "git " + body) + " " + tail,
@@ -1533,7 +1585,8 @@ class _Scan(object):
             return self.hit("push", "git %s %s" % (sub, "/".join(sorted(PUSH_UNDER[sub]))))
         args = [restore(x) for x in words[k + 1:min(end, k + 257)]]
         if "gitesc" in self.want:
-            found = _git_file_option(sub, args)
+            found = next(("git %s %s %s" % (sub, flag, v) for flag, v in _git_file_values(sub, args)
+                          if v != "-"), None)
             if found:
                 return self.hit("gitesc", found)
         found = self.git_index_blind(sub, args)
@@ -1559,6 +1612,19 @@ class _Scan(object):
             return found
         if OPAQUE_SUB_RE.search(sub):
             return self.hit("opaque", "git " + restore(sub))
+        return None
+
+    def env_config(self, pairs, depth):
+        """git configuration set through the environment (GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n>,
+        GIT_CONFIG_PARAMETERS) is read like `git -c`: an alias or command value is scanned; a key or
+        value the shell decides at run time, or an exec key without its value, is opaque."""
+        for key, value in pairs:
+            if key is None or _expansion(key) or (value is None and GIT_EXEC_KEY_RE.match(key)):
+                return self.hit("opaque", "git configuration from the environment (%s)"
+                                % (key or "GIT_CONFIG_PARAMETERS"))
+            found = self.git_config_value(key, value, depth) if value is not None else None
+            if found:
+                return found
         return None
 
     def git_config_value(self, key, value, depth):
@@ -2002,7 +2068,29 @@ CODEX_TRIGGER_RE = re.compile(r"codex", re.I)
 # codex flags an agent never passes (DESIGN 4.2 c): overrides, the bypass flags, another profile
 # (a profile without the stack's hooks)
 CODEX_BAD_LONG = ("--config", "--profile", "--yolo")
-GIT_FILE_SUBS = {"commit", "tag", "merge", "notes"}   # -F FILE: the message from a file
+# git options that read a file of the caller's choosing (DESIGN 4.3): long names, matched by any
+# prefix of two or more letters (parse-options takes unique abbreviations: --fil, --pathspec-from),
+# and per subcommand the short options that take a value (a cluster ends at the first of them,
+# whose value is the rest of the word or the next word) and which of those name a file
+GIT_FILE_LONG = ("file", "template", "pathspec-from-file")
+GIT_SHORT_VALUE = {"commit": "mFcCt", "tag": "mFu", "merge": "mFsX", "notes": "mFcC"}
+# short options whose value is optional and attached only (-S<keyid>, -u<mode>, -n<num>)
+GIT_SHORT_OPTIONAL = {"commit": "Su", "tag": "n", "merge": "S"}
+GIT_SHORT_FILE = {"commit": "Ft", "tag": "F", "merge": "F", "notes": "F"}
+# what an escalated (or --git-allow-rules) git may not carry: global options that move the
+# repository, its config or its programs, -c keys whose value git runs or that load more config
+GITESC_GLOBAL = ("-C", "--exec-path", "--git-dir", "--work-tree", "--config-env")
+GITESC_KEY_RE = re.compile(r"(?:include\.path|includeif\..+\.path|core\.(?:hookspath|gitproxy|worktree)|"
+                           r"remote\..+\.(?:uploadpack|receivepack)|protocol\.(?:.+\.)?allow)\Z",
+                           re.I)
+GITESC_SAFE_ENV = {"GIT_TERMINAL_PROMPT", "GIT_OPTIONAL_LOCKS", "GIT_LITERAL_PATHSPECS",
+                   "GIT_NO_REPLACE_OBJECTS", "GIT_AUTHOR_NAME", "GIT_AUTHOR_EMAIL",
+                   "GIT_AUTHOR_DATE", "GIT_COMMITTER_NAME", "GIT_COMMITTER_EMAIL",
+                   "GIT_COMMITTER_DATE"}
+GITESC_ENV_RE = re.compile(r"(?:GIT_\w+|EDITOR|VISUAL|PAGER|SSH_ASKPASS)\+?=")
+GIT_WORD_RE = re.compile(r"(?<![A-Za-z0-9_.-])git(?![A-Za-z0-9_.-])")
+GIT_ENV_CONFIG_RE = re.compile(r"(?:GIT_CONFIG_KEY_\d+|GIT_CONFIG_PARAMETERS)\+?=")
+GIT_CONFIG_KEY_RE = re.compile(r"GIT_CONFIG_KEY_(\d+)\Z")
 NO_PUSH_KINDS = ("push", "forge", "opaque", "index")
 SHELL_KINDS = NO_PUSH_KINDS + ("secrets", "codex")
 HOOKS_PATH_RE = re.compile(r"core\.hookspath\s*=\s*/dev/null", re.I)   # the --git-allow-rules form
@@ -2019,25 +2107,102 @@ def _codex_flags(scan, words, start, end, restore):
     return None
 
 
-def _git_file_option(sub, args):
-    """`git commit|tag|merge|notes -F FILE` or any `--file FILE` (git config --file too): git reads
-    (or writes) a file of the caller's choosing; `-F -` (stdin) is fine. The hit text, or None."""
-    for k, a in enumerate(args):
+def _git_file_values(sub, args):
+    """[(option, value)] for the options of `git <sub> args` that read (or write) a file of the
+    caller's choosing: -F/--file (commit, tag, merge, notes; any --file, git config's too),
+    -t/--template (commit; init and clone take a template directory), --pathspec-from-file (add,
+    checkout, commit, reset, restore, rm, stash). Abbreviated long options and short clusters
+    (`-aF msg`, `-qFmsg`) count. A value of `-` is stdin."""
+    out, k = [], 0
+    value_short, file_short = GIT_SHORT_VALUE.get(sub, ""), GIT_SHORT_FILE.get(sub, "")
+    optional = GIT_SHORT_OPTIONAL.get(sub, "")
+    while k < len(args):
+        a = args[k]
+        k += 1
         if a == "--":
             break
-        name, eq, val = a.partition("=")
-        short = a[:2] == "-F" and a[:2] != "--" and sub in GIT_FILE_SUBS
-        if name != "--file" and not short:
+        if a[:2] == "--":
+            name, eq, val = a[2:].partition("=")
+            if len(name) >= 2 and any(o.startswith(name) for o in GIT_FILE_LONG):
+                if not eq:
+                    val, k = (args[k] if k < len(args) else ""), k + 1
+                out.append(("--" + name, val))
             continue
-        if eq and name == "--file":
-            value = val
-        elif short and len(a) > 2:
-            value = a[2:]
-        else:
-            value = args[k + 1] if k + 1 < len(args) else ""
-        if value != "-":
-            return "git %s %s" % (sub, "--file" if name == "--file" else "-F")
+        if a[:1] != "-" or len(a) < 2 or not value_short:
+            continue
+        for pos, c in enumerate(a[1:], 1):
+            if c in optional:
+                break                          # its value, if any, is the rest of the word
+            if c in value_short:
+                val = a[pos + 1:]
+                if not val:
+                    val, k = (args[k] if k < len(args) else ""), k + 1
+                if c in file_short:
+                    out.append(("-" + c, val))
+                break
+    return out
+
+
+def _gitesc_global(opt, key, value):
+    """The hit text when an escalated git global option is one of GITESC_GLOBAL (also -C<dir>) or a
+    `-c` key whose value runs code or loads config (alias.*, core.editor, include.path, a hooks
+    path other than /dev/null, ...); else None."""
+    if opt in GITESC_GLOBAL or (opt[:2] == "-C" and len(opt) > 2):
+        return "git " + opt
+    if opt != "-c":
+        return None
+    low = key.lower()
+    if low == "core.hookspath" and value == "/dev/null":
+        return None                            # the --git-allow-rules hook-free form
+    if GIT_EXEC_KEY_RE.match(key) or GITESC_KEY_RE.match(key) or _expansion(key):
+        return "git -c " + key
     return None
+
+
+def _gitesc_env(word, words, restore):
+    """The hit text for an environment assignment that changes what an escalated git runs or reads
+    (GIT_EXEC_PATH, GIT_DIR, GIT_CONFIG_*, GIT_SSH_COMMAND, EDITOR, ...) when the command runs git;
+    the identity and lock variables (GITESC_SAFE_ENV) and PAGER=cat pass."""
+    if not GITESC_ENV_RE.match(word):
+        return None
+    name, _, value = word.partition("=")
+    name = name.rstrip("+")
+    if name in GITESC_SAFE_ENV or (name in ("PAGER", "GIT_PAGER") and restore(value) == "cat"):
+        return None
+    if not any(GIT_WORD_RE.search(restore(x)) for x in words):
+        return None
+    return "%s=... (git run outside the sandbox)" % name
+
+
+def _config_parameters(value):
+    """(key, value) pairs of a GIT_CONFIG_PARAMETERS value (`'k'='v' 'k2'='v2'`, or `'k=v'`), None
+    when it does not split."""
+    import shlex
+    try:
+        items = shlex.split(value)
+    except ValueError:
+        return None
+    return [(k, v if eq else "true") for k, eq, v in (x.partition("=") for x in items)]
+
+
+def _env_config(words, restore):
+    """git configuration the environment of this command sets: [(key, value)] from
+    GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n> (value None when no GIT_CONFIG_VALUE_<n> is set) and
+    from GIT_CONFIG_PARAMETERS ([(None, None)] when it does not split)."""
+    assigns = {}
+    for w in words:
+        if ASSIGN_RE.match(w):
+            name, _, val = w.partition("=")
+            assigns.setdefault(name.rstrip("+"), restore(val))
+    out = []
+    for name in sorted(assigns):
+        m = GIT_CONFIG_KEY_RE.match(name)
+        if m:
+            out.append((assigns[name], assigns.get("GIT_CONFIG_VALUE_" + m.group(1))))
+    if "GIT_CONFIG_PARAMETERS" in assigns:
+        pairs = _config_parameters(assigns["GIT_CONFIG_PARAMETERS"])
+        out.extend(pairs if pairs is not None else [(None, None)])
+    return out
 
 
 R2_KINDS = {"secrets", "forge"}
@@ -2298,8 +2463,8 @@ def shell_path_violation(command, cwd, paths, escalation=False):
     codex_named = ".codex" in text or "CODEX_HOME" in text or paths.codex_home in text
     all_write = escalation or _code_writes(text)
 
-    def check(token, write):
-        cands = paths.expand(token, bases, assigns)
+    def check(token, write, where=None):
+        cands = paths.expand(token, where or bases, assigns)
         base = os.path.basename(token.rstrip("/"))
         if base in CRED_NAMES or (base == "auth.json" and codex_named):
             return ("cred", token)
@@ -2322,16 +2487,61 @@ def shell_path_violation(command, cwd, paths, escalation=False):
         if not n % 64 and time.monotonic() > deadline:
             return ("protect", "(a command too large to check in time)")
         words = TOKEN_RE.findall(seg)
+        where = bases
+        if "git" in seg:                       # git -C DIR ... -F FILE: FILE is read from DIR
+            dirs, files = _git_reads(seg.split())
+            where = _git_bases(dirs, bases, paths, assigns)
+            for f in files:
+                found = check(f, False, where)
+                if found:
+                    return found
         writes = all_write or _segment_writes(words)
         found = _git_dir_violation(words, check, in_root)
         if found:
             return found
         for w in words:
             if in_root or _path_like(w) or (writes and PROTECTED_TEXT_RE.search(w)):
-                found = check(w, writes)
+                found = check(w, writes, where)
                 if found:
                     return found
     return None
+
+
+def _git_reads(words):
+    """([-C dirs], [file values]) of the git commands among `words` (dequoted, whitespace-split):
+    the -C directories in order, and the values of git's file-reading options (_git_file_values)
+    other than `-` (stdin)."""
+    dirs, files = [], []
+    for k, w in enumerate(words):
+        if _base(w) != "git":
+            continue
+        j = k + 1
+        while j < len(words) and words[j][:1] == "-":
+            o = words[j]
+            if o == "-C":
+                dirs.append(words[j + 1] if j + 1 < len(words) else "")
+                j += 2
+            elif o[:2] == "-C":
+                dirs.append(o[2:])
+                j += 1
+            else:
+                j += 2 if o in GIT_OPTS_WITH_VALUE else 1
+        if j < len(words):
+            files += [v for _, v in _git_file_values(words[j], words[j + 1:j + 257]) if v and v != "-"]
+    return dirs, files
+
+
+def _git_bases(dirs, bases, paths, assigns):
+    """The bases plus the directories `git -C a -C b` runs in (a, then a/b, against every base);
+    an unresolvable -C value adds nothing (its files are still checked against the bases)."""
+    out, cur = list(bases), list(bases)
+    for d in dirs[:8]:
+        nxt = [os.path.normpath(c) for c in paths.expand(d, cur or ["/"], assigns)]
+        if not nxt:
+            break
+        cur = nxt[:16]
+        out += [c for c in cur if c not in out]
+    return out[:32]
 
 
 GIT_DIR_OPTS = ("-C", "--git-dir", "--work-tree")
@@ -2803,21 +3013,33 @@ def _ro_xargs(head, word0, rest, cwd, depth):
     return _ro_command(_base(inner[0]), inner[0], inner[1:], cwd, depth + 1)
 
 
+def _git_cwd(cwd, d):
+    """The directory `git -C d` runs in, from `cwd`; None when the shell decides it at run time
+    (then a relative output path is never scratch)."""
+    if cwd is None or not d or re.search(r"[$`*?\[\]{}~]", d):
+        return None
+    return os.path.normpath(os.path.join(cwd, d))
+
+
 def _ro_git(head, word0, rest, cwd, depth):
     k = 0
     while k < len(rest) and rest[k][:1] == "-":
         o = rest[k]
+        if o == "-C" or (o[:2] == "-C" and len(o) > 2):
+            # git -C DIR: relative paths (an --output file) are DIR's, not the caller's cwd
+            cwd = _git_cwd(cwd, rest[k + 1] if o == "-C" and k + 1 < len(rest) else o[2:])
+            k += 2 if o == "-C" else 1
+            continue
         if o in RO_GIT_OPTS_VALUE:
             k += 2
             continue
-        if o in RO_GIT_OPTS_FLAG or (o[:2] == "-C" and len(o) > 2) or \
-                o.partition("=")[0] in RO_GIT_OPTS_VALUE:
+        if o in RO_GIT_OPTS_FLAG or o.partition("=")[0] in RO_GIT_OPTS_VALUE:
             k += 1
             continue
-        if o in ("--version", "--help", "-h"):
-            return None
-        return ("git " + o, "sets a git option the read-only check refuses (-c, --exec-path, "
-                            "--config-env)")
+        if o in ("--version", "--help", "-h", "--exec-path"):
+            return None                        # bare --exec-path prints the path and exits
+        return ("git " + o, "sets a git option the read-only check refuses (-c, which can define "
+                            "an alias or a command, --exec-path=DIR, --config-env)")
     if k >= len(rest):
         return None
     sub, args = rest[k], rest[k + 1:]
@@ -3025,13 +3247,7 @@ def support_module(name):
     """hooks/<name>.py beside this file, loaded by path once (raises when missing: callers fail
     closed)."""
     if name not in _SUPPORT:
-        path = os.path.join(GUARD_DIR, name + ".py")
-        spec = importlib.util.spec_from_file_location("codex_guard_" + name, path)
-        if spec is None or spec.loader is None:
-            raise ImportError("cannot load %s" % path)
-        mod = importlib.util.module_from_spec(spec)
-        spec.loader.exec_module(mod)
-        _SUPPORT[name] = mod
+        _SUPPORT[name] = load_by_path("codex_guard_" + name, os.path.join(GUARD_DIR, name + ".py"))
     return _SUPPORT[name]
 
 
@@ -3124,8 +3340,14 @@ def read_json_file(path, limit=4 * 1024 * 1024):
     return obj
 
 
-def policy_dir():
-    for d in (os.path.join(os.path.dirname(GUARD_DIR), "policy"), GUARD_DIR):
+def policy_dir(scope="profile"):
+    """The directory holding guard.json: the installed stack/policy, else the guard's own (flat)
+    directory. The global scope (the managed tier's flat, root-owned copy) looks beside itself
+    first, so a policy dir next to the managed dir's parent never replaces it."""
+    dirs = [os.path.join(os.path.dirname(GUARD_DIR), "policy"), GUARD_DIR]
+    if scope == "global":
+        dirs.reverse()
+    for d in dirs:
         if os.path.isfile(os.path.join(d, "guard.json")):
             return d
     return None
@@ -3196,8 +3418,12 @@ def validate_agents(a):
 
 
 def load_policy(scope):
-    """(guard, agents): agents is None in global scope."""
-    d = policy_dir()
+    """(guard, agents). The global scope (the managed tier: requirements.py's flat managed-hooks/
+    copy holds guard.json and no agents.json) never reads agents.json, so agents is None and only
+    the profile-neutral checks run; without any guard.json it uses default_guard(). The profile
+    scope needs both files: a missing, unreadable or malformed one is a PolicyError, which the
+    gating modes turn into a deny (fail closed)."""
+    d = policy_dir(scope)
     if d is None:
         if scope == "global":
             return validate_guard(default_guard()), None
@@ -3219,6 +3445,7 @@ MAX_AGENTS, MAX_PENDING, PENDING_TTL_S = 4096, 256, 3600
 def safe_id(value):
     if isinstance(value, str) and ID_RE.match(value) and value not in (".", ".."):
         return value
+    import hashlib
     return "h-" + hashlib.sha256(repr(value).encode("utf-8", "replace")).hexdigest()[:32]
 
 

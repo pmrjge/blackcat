@@ -126,27 +126,99 @@ def test_codex_plain_use_passes(command):
     assert G.shell_rule_hit(command) is None, command
 
 
+# ---------------------------------------------------------------- git flags (DESIGN 4.3; F's review)
 @pytest.mark.parametrize("command", [
-    "git -C /x commit -m m", "git --exec-path=/tmp/x status", "git -c alias.x=log x",
-    "git commit -F /etc/x", "git commit --file=/tmp/m", "git tag -a v1 -F msg",
-    "git config --file /tmp/c user.name x", "bash -c 'git -C .. status'"])
+    # an inline alias hides push or a `!command`, under any spelling of its name
+    "git -c alias.p=push p", "git -c alias.x='!git push' x", "git -c Alias.P=push p",
+    "git -c alias.P='!sh' p -c 'git push'", "git -c alias.p='!f() { git push; }; f' p",
+    "git -c alias.a=b -c alias.b='send-pack x' a",
+    # -C and --exec-path never hide the subcommand
+    "git -C /tmp/r push", "git -C/tmp/r push origin main", "git -C a -C b push",
+    "git --exec-path=/tmp/x push origin main", "git --exec-path /tmp/x push",
+    "git --exec-path=/tmp/x -C r -c alias.p=push p",
+    # git configuration through the environment is read like -c
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=push git p",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0='!git push' git p",
+    "GIT_CONFIG_PARAMETERS=\"'alias.p'='push'\" git p",
+    "export GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=push; git p",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.P GIT_CONFIG_VALUE_0='!sh' git p -c 'git push'",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.pager GIT_CONFIG_VALUE_0='git push' git log",
+    "GIT_CONFIG_PARAMETERS=\"'core.editor'='git push'\" git commit"])
+def test_git_flag_evasions_are_pushes(command):
+    assert G.remote_write_in(command)[0] == "push", command
+
+
+@pytest.mark.parametrize("command", [
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p git p",          # the value is set elsewhere
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=$K GIT_CONFIG_VALUE_0=push git p",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=$V git p",
+    "GIT_CONFIG_PARAMETERS=\"'alias.p\" git p", "git --config-env alias.p=PUSHCMD p"])
+def test_git_config_decided_at_run_time_is_opaque(command):
+    assert G.remote_write_in(command)[0] == "opaque", command
+
+
+@pytest.mark.parametrize("command", [
+    "git -c alias.st=status st -s", "git --exec-path", "git -C repo log -1",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=x git commit -m x",
+    "GIT_CONFIG_PARAMETERS=\"'color.ui'='never'\" git log", "git commit -F msg.txt",
+    "git -c core.editor=true commit"])
+def test_git_flag_plain_forms_pass(command):
+    assert G.remote_write_in(command) is None, command
+
+
+@pytest.mark.parametrize("command", [
+    "git -C /x commit -m m", "git -C~/.codex status", "git --exec-path=/tmp/x status",
+    "git --exec-path", "git --git-dir=/tmp/r.git commit -m m", "git --work-tree=/ add .",
+    "git --config-env=core.pager=P log", "git -c alias.x=log x", "git -c alias.p=push p",
+    "git -c core.editor=/tmp/x commit", "git -c core.fsmonitor=/tmp/x status",
+    "git -c core.hooksPath=/tmp/h commit -m m", "git -c include.path=/tmp/c commit -m m",
+    "git -c includeIf.gitdir:/x/.path=/tmp/c log", "git -c $K=v commit -m m",
+    "git -c remote.origin.uploadpack=/tmp/x fetch",
+    "git commit -F /etc/x", "git commit -aF /tmp/m", "git commit -qF/tmp/m", "git commit --file=/tmp/m",
+    "git commit --fil=/tmp/m", "git commit --file /tmp/m", "git tag -a v1 -F msg",
+    "git tag -u key -F msg v1", "git merge -F msg topic", "git notes add -F /tmp/n",
+    "git commit -t /tmp/t", "git commit -at/tmp/t", "git commit --template=/tmp/t",
+    "git commit --te=/tmp/t", "git init --template=/tmp/t r", "git clone --template /tmp/t u d",
+    "git add --pathspec-from-file=/tmp/list", "git add --pathspec-from=/tmp/list",
+    "git reset --pathspec-from-file /tmp/l", "git config --file /tmp/c user.name x",
+    "GIT_EXEC_PATH=/tmp/x git commit -m m", "GIT_DIR=/tmp/r.git git commit -m m",
+    "GIT_TEMPLATE_DIR=/tmp/t git init r", "GIT_SSH_COMMAND='sh /tmp/x' git fetch",
+    "GIT_CONFIG_PARAMETERS=\"'core.pager=sh'\" git log", "EDITOR=/tmp/x git commit",
+    "export GIT_EXEC_PATH=/tmp/x; git status", "bash -c 'git -C .. status'"])
 def test_git_escalation_options_refused(command):
     assert G.shell_rule_hit(command, escalation=True)[0] == "gitesc", command
-    assert G.shell_rule_hit(command, escalation=False) is None or \
-        G.shell_rule_hit(command)[0] != "gitesc"
+    found = G.shell_rule_hit(command, escalation=False)
+    assert found is None or found[0] != "gitesc", command
 
 
-@pytest.mark.parametrize("command", ["git commit -F - <<EOF\nmsg\nEOF", "git grep -F needle",
-                                     "git -c core.hooksPath=/dev/null commit -m m",
-                                     "git log -n 3"])
+@pytest.mark.parametrize("command", [
+    "git commit -F - <<EOF\nmsg\nEOF", "git grep -F needle", "git log -F --grep x",
+    "git -c core.hooksPath=/dev/null commit -m m", "git -c user.name=x commit -m m",
+    "git log -n 3", "git commit -m 'read it with -F file'", "git commit -nm msg",
+    "git commit -S -m m", "git commit -uno -m m", "git commit -C HEAD --reset-author",
+    "git log --first-parent", "git add --patch", "GIT_AUTHOR_NAME=x git commit -m m",
+    "GIT_TERMINAL_PROMPT=0 git fetch", "PAGER=cat git log", "EDITOR=vi make",
+    "git --no-pager log", "git add --pathspec-from-file=- < list"])
 def test_git_escalation_plain_forms_pass(command):
     assert G.shell_rule_hit(command, escalation=True) is None, command
 
 
-def test_allow_rule_form_is_checked_in_pretooluse():
+@pytest.mark.parametrize("command", [
+    "git -c core.hooksPath=/dev/null -C /etc commit -m m",
+    "git -c core.hooksPath=/dev/null commit -F /tmp/x",
+    "git -c core.hooksPath=/dev/null commit -aF /tmp/x",
+    "git -c core.hooksPath=/dev/null commit --templ=/tmp/t",
+    "git -c core.hooksPath=/dev/null add --pathspec-from=/tmp/list",
+    "git -c core.hooksPath=/dev/null -c alias.c='!sh /tmp/x' c",
+    "GIT_EXEC_PATH=/tmp/x git -c core.hooksPath=/dev/null commit -m m"])
+def test_allow_rule_form_is_checked_in_pretooluse(command):
     # the --git-allow-rules form runs unsandboxed without a PermissionRequest: PreToolUse checks it
-    assert G.shell_rule_hit("git -c core.hooksPath=/dev/null -C /etc commit -m m")[0] == "gitesc"
-    assert G.shell_rule_hit("git -c core.hooksPath=/dev/null commit -F /tmp/x")[0] == "gitesc"
+    assert G.shell_rule_hit(command)[0] == "gitesc", command
+
+
+def test_allow_rule_plain_form_passes():
+    assert G.shell_rule_hit("git -c core.hooksPath=/dev/null commit -m 'x'") is None
+    assert G.shell_rule_hit("git -c core.hooksPath=/dev/null merge --ff-only topic") is None
 
 
 # ---------------------------------------------------------------- through the hook
@@ -159,6 +231,15 @@ def guard(tmp_path, monkeypatch):
 def test_hook_denies_push_for_every_caller(guard, agent):
     out = guard.pre(bash("git -C . push origin main", agent_type=agent))
     assert decision(out) == "deny" and "never push" in reason(out)
+
+
+@pytest.mark.parametrize("scope", [None, "global"])
+@pytest.mark.parametrize("command", ["git -c alias.p=push p", "git -c alias.x='!git push' x",
+                                     "git --exec-path=/tmp/x push", "git -C/tmp/r push",
+                                     "GIT_CONFIG_PARAMETERS=\"'alias.p'='push'\" git p"])
+def test_hook_denies_git_flag_evasions(guard, command, scope):
+    out = guard.pre(bash(command, agent_type="python-engineer"), scope=scope)
+    assert decision(out) == "deny" and "never push" in reason(out), command
 
 
 @pytest.mark.parametrize("command", ["bash -c 'git push origin main'", "eval 'git push'",
