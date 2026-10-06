@@ -1167,6 +1167,10 @@ puts back files, `~/.zshrc`/`~/.bashrc`, MCP entries and plugins the install dis
 added and puts back what it replaced), delete the line ending in `# claude-agent-stack` from your shell
 rc, and `claude mcp remove -s user exa` (and `jina`, `wolfram`, `huggingface`, `wandb`).
 
+### Codex CLI
+
+`codex_config/` is a separate installer that ports the stack to the OpenAI Codex CLI (profile `codex`, an optional IDE mode and an optional machine-wide tier). It leaves this installer and `~/.claude` untouched, and installing it is your step. What it installs, the user steps, every flag, and what is enforced and what is advisory: [codex_config/README.md](codex_config/README.md); the design: [codex_config/DESIGN.md](codex_config/DESIGN.md).
+
 ## Usage
 
 ### First run

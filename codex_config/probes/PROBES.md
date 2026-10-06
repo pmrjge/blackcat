@@ -1,6 +1,6 @@
 # Codex Phase 0 probes
 
-You run these (agents never do). They settle the unverified Codex facts in `codex_config/DESIGN.md` section 1.3 (U1 to U13) before Phase 2 builds on them. Everything runs in a scratch `CODEX_HOME` and a scratch `HOME` under `${TMPDIR:-/tmp}`; `~/.codex`, `~/.agents` and `/etc` are never touched and auth files are never copied.
+You run these (agents never do). They settle the unverified Codex facts in `codex_config/DESIGN.md` section 1.3 (U1 to U13, and the entries added by the build: see "Probes added after the build" below). Everything runs in a scratch `CODEX_HOME` and a scratch `HOME` under `${TMPDIR:-/tmp}`; `~/.codex`, `~/.agents` and `/etc` are never touched and auth files are never copied.
 
 ## Run
 
@@ -106,6 +106,125 @@ Each hook writes a `#meta` line (event, argument 2, and whether the hook could w
 - Question: which `tool_name` do PreToolUse hooks see for `spawn_agent`, `send_input`, `wait_agent`, `resume_agent`, `close_agent` (any `multi_agent_v1` prefix shows here), `update_plan`, `request_user_input`, `view_image`?
 - Why: the BlackCat delegate-only allowlist and `MA_TOOLS` matching (section 5, F10). The matcher is `.*`, so a tool absent from the log while the model called it opts out of hooks (U11) and `.*` matching everything is tested too (U10).
 - Read: `evidence` lists the names seen and the names missing. `request_user_input` is experimental and may be disabled in `exec`: a missing one is not necessarily a hook gap (check `<scratch>/logs/P13.out`).
+
+## Probes added after the build
+
+These settle the facts the built installer still assumes. They are **manual** and are not in `run.sh` (`--list` shows the 14 above): you run them against a stack installed into a scratch `CODEX_HOME`, never `~/.codex`. Their ids follow `codex_config/DESIGN.md` §1.3 ("Added by the build"). Results go back as a line per probe: pass, fail or unknown, with the evidence named under Read.
+
+Everything above stays out of `/etc`; the managed-hooks entry below is the one exception, and only if you choose to install the machine-wide tier (you run its `sudo` lines).
+
+Common setup (a scratch root, a scratch `HOME`, a new empty `CODEX_HOME`; log in there as for the probes above):
+
+```
+S=$(mktemp -d "${TMPDIR:-/tmp}/codex-probe.XXXXXX"); mkdir -p "$S/home" "$S/codex"
+CODEX_HOME="$S/codex" codex login
+STACK_PYTHON=$(uv python find 3.13) env HOME="$S/home" codex_config/install.sh --codex-home "$S/codex" --skills-root none --yes
+```
+
+Run Codex as `env HOME="$S/home" CODEX_HOME="$S/codex" codex --profile codex`. The installer needs a committed checkout. Delete `$S` afterwards.
+
+### P6b `http_headers_helper` output format
+- Question: does Codex accept the JSON object that `<stack>/bin/codex-mcp-headers <id>` prints (`{"<header>": "<value>"}`, or `{}` without a key), and how does it run the command?
+- Why: the schema types `http_headers_helper` as a string only; the helper's output format and invocation are unverified. `fail`: change the helper's output (and the build's test) to the format Codex expects.
+- Steps: in the scratch profile file, `[mcp_servers.exa]` has `url=...` and `http_headers_helper="<stack>/bin/codex-mcp-headers exa"`. Put a real Exa key in `$S/codex/stack.env` (mode 0600) and start `codex --profile codex`; run `/mcp`; ask for one `mcp__exa__` search.
+- Expected (pass): the server's tools are listed and the call succeeds, so the JSON object was accepted. A 401 or a helper error means the format differs.
+- Read: the `/mcp` listing and the call result. Use `codex-mcp-headers --redact exa` by hand to see the output without the key.
+
+### P2/U1 where `/hooks` writes trust
+- Question: after trusting the 8 hooks in `codex --profile codex`, which file holds `[hooks.state."<key>"]`?
+- Why: `--doctor` reads `config.toml`, `codex.config.toml` and `codex-astra.config.toml`; the render carries `[hooks.state]` over per file. This is P2 against the installed stack instead of the probe kit.
+- Steps: `codex --profile codex`, `/hooks`, trust all, quit; then `grep -n 'hooks.state' "$S/codex/config.toml" "$S/codex/codex.config.toml"`.
+- Expected: either location is a determined answer; record which. `install.sh --doctor` should then exit 0 (`--codex-home "$S/codex"`, `HOME="$S/home"`).
+- Read: the grep output; the key format `<abs path>:pre_tool_use:0:0`.
+
+### U1b `trusted_hash` against a changed definition
+- Question: after a definition changes (for example a re-install after the stack's timeout changed), does `/hooks` show that hook as "Modified" while the record is still present?
+- Why: `--doctor` counts a record with a non-empty `trusted_hash` as trusted and cannot compare it (the hash is Codex's own); the installer's "re-trust N hook(s)" line is the only signal. `fail` (no "Modified"): the guard would run on a stale trust, and DESIGN §4.4 must say so.
+- Steps: after the P2/U1 trust, edit `timeout` of one hook handler in `$S/codex/codex.config.toml` by hand (scratch only), start `codex --profile codex`, open `/hooks`.
+- Expected (pass): that hook is listed as Modified and does not run until trusted again.
+- Read: the `/hooks` screen; `install.sh --doctor` output for the same state.
+
+### P12/U13 (extension) region markers and append position
+- Question: with `--ide-default` installed in the scratch home, do the region markers survive `/model` and `/hooks` writes, and does Codex append its own keys after region B?
+- Why: the kit's P12 uses a synthetic file; this runs against the installer's real regions. `fail`: expect "region edited" stops and `--force`/`--no-ide-default` after Codex writes.
+- Steps: `install.sh --ide-default --yes` (setup env), plain `codex`, `/hooks` trust, `/model` change, quit; compare `$S/codex/config.toml` with its content right after the install.
+- Expected: four marker lines intact; new keys outside both regions; `install.sh --no-ide-default --yes` still cuts exactly the two regions.
+- Read: the marker count, the keys outside the regions, the installer's message on the next run.
+
+### P-B3a `shell_environment_policy.filters` against a user `exclude`
+- Question: with the profile's `[shell_environment_policy.filters]` and a user `config.toml` holding `shell_environment_policy.exclude = [...]`, which applies (merge, profile wins, or an error)?
+- Why: the schema forbids the keyed form and the legacy list together inside one table; across layers it is unverified.
+- Steps: add `[shell_environment_policy]` with `exclude = ["FOO_*"]` to `$S/codex/config.toml`; `export FOO_X=1 GITHUB_TOKEN=x` before starting; in a session run `env | grep -E 'FOO_X|GITHUB_TOKEN'` through the agent.
+- Expected: neither variable is visible (merge), or only one rule applies: record which.
+- Read: the printed environment and any config error at start.
+
+### P-B3b exact names in `filters` remove the variables
+- Question: do the 12 exact names under `filters` (value `"exclude"`) remove those variables from the agent's shell?
+- Why: the profile relies on it for `GITHUB_TOKEN`, `GH_TOKEN`, `HF_TOKEN`, `WANDB_API_KEY` and the rest.
+- Steps: start Codex with `GITHUB_TOKEN=probe-not-a-secret WANDB_API_KEY=probe-not-a-secret` exported (fake values) and ask for `env | grep -c probe-not-a-secret`.
+- Expected (pass): `0`.
+- Read: the count.
+
+### P-B3c `features.rollout_budget = true` without `limit_tokens`
+- Question: does Codex start with `features.rollout_budget = true` and no `limit_tokens`, and does it enforce anything?
+- Why: `--with-rollout-budget` writes only the switch. `fail`: the flag needs values (DESIGN §3).
+- Steps: `install.sh --with-rollout-budget --yes` (setup env), start `codex --profile codex`.
+- Expected: it starts without a config error; record any reminder or limit it shows.
+- Read: the start-up output and `/debug-config`.
+
+### P-B3d is `features.hooks = true` needed
+- Question: do the inline hooks run when `features.hooks` is absent from the profile?
+- Why: the profile sets it defensively; if hooks are on by default the key is redundant, and if it is required the managed tier's pin matters.
+- Steps: remove the key from the scratch profile file by hand, re-trust, run a prompt that calls a shell command, and look for guard activity (a state file under `$S/home/.local/state/codex-agent-stack/sessions/`).
+- Expected: record whether the guard ran.
+- Read: the sessions folder.
+
+### P5 (extension) role files without `name` and `description`
+- Question: does Codex accept a role file that has only `model`, `model_reasoning_effort` and `developer_instructions`, reached through `[agents.<name>].config_file` (absolute path) with the description in the profile?
+- Why: the build's role files have no `name` or `description` (the vendored schema has none). `fail`: the role is rejected or ignored; add the keys back and relax `codex_state validate`.
+- Steps: in the installed stack, ask BlackCat to spawn `coder` with a trivial message; check the spawn succeeds and that the subagent follows the role's instructions.
+- Expected (pass): the subagent starts as role `coder` and `agent_type` is `coder` in the hook log (guard state or the spawn tree under the sessions folder).
+- Read: the spawn result and the tree.
+
+### Managed hooks from the managed directory
+- Question: do the hooks in `[hooks] managed_dir` run from that directory with the command as written in `requirements.toml`?
+- Why: `--print-requirements` writes `/bin/sh '<managed-dir>/codex-hook' <mode> --scope global`; whether Codex runs managed hooks from there is unverified. This probe needs the machine-wide tier: do it only if you intend to install it, and run the printed `sudo` lines yourself.
+- Steps: after installing the tier, start `codex --profile codex` and run `/debug-config` and a prompt that tries `git push` in a scratch repository with a local bare remote.
+- Expected: the managed hook denies the push (or the rule does; read which from the message), and `/hooks` lists them as managed.
+- Read: `/debug-config`, the denial text.
+
+### JSON deny with exit 0 for PermissionRequest
+- Question: does a PermissionRequest hook that prints `{"hookEventName":"PermissionRequest","decision":{"behavior":"deny","message":"..."}}` and exits 0 deny the escalation?
+- Why: that is the guard's wire format (it never uses exit 2 for a deny of this event). `fail`: the guard must also exit 2 for PermissionRequest.
+- Steps: with the stack trusted, make the main thread (which may not escalate) or a read-only role such as `verifier` ask for a command that needs escalation (a write outside the sandbox roots into a scratch directory). If PreToolUse denies it first, pick a command that passes the read-only allowlist but needs the network.
+- Expected (pass): the escalation request is refused with the guard's message and the command does not run.
+- Read: the denial text and whether it names PermissionRequest; the hook log if you keep one.
+
+### `spawn_agent` `tool_response` shape
+- Question: what does PostToolUse carry in `tool_response` for `spawn_agent`?
+- Why: the guard builds the spawn tree from it and parses it defensively; the keys it looks for are unverified. `fail`: the tree is empty and `send_input`/`resume_agent` routing is refused.
+- Steps: spawn one subagent, then read `$S/home/.local/state/codex-agent-stack/sessions/<session_id>/state.json`.
+- Expected: the spawned agent's id appears in the tree under the main thread.
+- Read: `state.json` (the guard's tree) and, for the raw shape, a PostToolUse line if you log hook stdin as P13 does.
+
+### Id keys of `send_input`, `wait_agent` and `close_agent`
+- Question: which `tool_input` keys carry the target agent id for `multi_agent_v1send_input`, `multi_agent_v1wait_agent` and `multi_agent_v1close_agent`?
+- Why: routing against the spawn tree needs the key names. `fail`: a call with an unrecognised key is refused (fail closed), so BlackCat could not message its agents.
+- Steps: spawn an agent, `send_input` to it, wait for it, close it.
+- Expected: all three succeed through the guard; none is denied for an unknown target.
+- Read: the tool results and any guard denial text.
+
+### Guard latency outside the sandbox
+- Question: is the p95 of one hook call below 100 ms with `/usr/bin/python3` as the fallback interpreter?
+- Why: it could not be timed inside the build sandbox (`xcrun` cannot write its cache there); the 3.13 and Apple 3.9 numbers are in the docstring of `tests/test_guard_perf.py`.
+- Steps, from the repository root, outside any sandbox:
+
+```
+CODEX_GUARD_PERF_SHIM=1 uv run --no-project --python 3.13 --with pytest python -m pytest -q -s -p no:cacheprovider codex_config/tests/test_guard_perf.py
+```
+
+- Expected (pass): the shim test passes (p95 below 100 ms).
+- Read: the printed percentiles and `<tmp>/p95.json`.
 
 ## Not observable here
 U7 (`omit_tools_from` deferring MCP tools) and U8 (AGENTS.md byte budget) need the stack's real config; Phase 5's smoke covers them.
