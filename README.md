@@ -76,6 +76,9 @@ with its reason; installer internals, backups, sandbox and residual risks; and, 
 [§10](CONFIG.md#10-apps-connectors-and-mcp-servers), apps and connectors for your Claude plan, vetted MCP
 servers, documented-only and rejected ones.
 
+A wiki walks through the same material by topic (install, architecture, agents, skills, hooks, security,
+toolsmith, operations and user steps): [docs/wiki/](docs/wiki/Home.md).
+
 Earlier README revisions (the one before this reorganisation, and the long-form one with installer flags
 in full, the spawn table, sandbox internals and changelog entries) are not shipped; the commits that
 changed them are in the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).

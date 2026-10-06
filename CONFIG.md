@@ -1075,6 +1075,10 @@ are hook- and code-enforced; every install is ledgered with its uninstall comman
 
 Entries name agents, knobs and files by their current names.
 
+### 2026-10-06 (wiki pages tracked in `docs/wiki/`)
+- The user's decision: the wiki's pages live in `docs/wiki/` of this repository (Markdown, GitHub-wiki names and relative links, so they can be copied into the GitHub wiki). This reverses the 2026-10-05 line below: `.gitignore` no longer ignores `docs/wiki/` (`github-wiki/`, a local checkout of the GitHub wiki, stays ignored), and `tests/test_moved_paths.py` now requires the pages to be tracked. The README links to `docs/wiki/Home.md`.
+- New `tests/test_wiki_links.py` (stdlib): every relative link and image in `docs/wiki/` resolves inside it, anchors name a heading, images carry alt text, Mermaid blocks carry `accTitle`/`accDescr`, the sidebar lists every page and every file in `docs/wiki/assets/` is used; seeded cases prove the checker. Nothing installed changes: no rerun needed.
+
 ### 2026-10-06 (stage-4 L10: prompt trims)
 - Removed text that the rules already state; no behaviour changes. In the rules: the title's parenthetical, and "web pages follow the web ladder" (the `Web ladder:` line stays). In game-engineer: "one agent on the screen at a time" and "One GPU job per GPU or Mac" (rules, Tools and Delegating). In the orchestrator: "Builders in one repository own disjoint files …" (rules, Delegating). The web ladder's "Stop once answered" stays.
 - `tests/prompt_budget.py`: per_spawn_mean drops by 79 chars, from 28,961 to 28,882 (about 26 tokens per spawn); rules go from 11,527 to 11,450 chars. Re-run `./install.sh` to install them.
