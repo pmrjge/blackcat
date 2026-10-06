@@ -16,7 +16,7 @@
 
 ## Tools
 - Cheapest path first: an installed CLI (jq, git, rg, ffmpeg, magick, pandoc, read-only gh) before MCP or a spawn. Keep results small: `rg -l`/`-c` first, big files via `sed -n`; read deps, data, media only if needed.
-- Python runs through uv (`uv run`/`uv add`, `uv run --script`, `uvx`); no bare `python`/`python3`/`pip`, no venv outside uv. Exceptions: `{{STACK}}/venvs/<name>/bin/python`; a project pinned to poetry, conda or pixi.
+- Python runs through uv (`uv run`/`uv add`, `uv run --script`, ad hoc `uv run --with <pkg> python`, `uvx`); no bare `python`/`python3`/`pip`, no venv outside uv. Exception: a project pinned to poetry, conda or pixi.
 - Skills: open one only when the step needs it (path in the skills list); hub modules at `{{STACK}}/skill-modules/<name>/SKILL.md`.
 - Web: `mcp__jina__search_web` / `mcp__exa__web_search_exa` -> `mcp__jina__read_url` -> spider crawl (researcher only). MCP calls are capped per session; a role sees only its granted servers (guard); others via mcp-broker.
 - Computer use: last resort; one agent at a time (guard).
