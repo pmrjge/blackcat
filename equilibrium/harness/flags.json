@@ -34,6 +34,8 @@
  "model_decision": "D3, user 2026-10-06 (COMPARE_eq §12 A6.2): each call runs its agent's own frontmatter model (dot-claude/agents/<type>.md `model:`, pinned here per type; a drift test keeps the map equal to the frontmatter); supersedes the 2026-10-04 `--model sonnet` constraint; the one-family refusal of build_argv stays",
  "R_max": 1,
  "R_max_ceiling": 2,
+ "loo_view": "none",
+ "loo_view_comment": "A6 (RUNTIME_EQUILIBRIUM §4.2): the E arm's reconcile/repair view, `none` = the pre-registered shared summary (byte-identical); the p7 branches run none/rotation/random/leader (cells.p7)",
  "perm_shift_rule": "floor",
  "perm_shift_decision": "user decision 2026-10-04: floor(i*S/N), collision-free for N <= S (replaces i*ceil(S/N))",
  "B_usd": {

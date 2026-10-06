@@ -34,7 +34,7 @@ def test_mediator_numeric_clusters_survive_underflow() -> None:
 
 def test_calibrate_ratio_sites_survive_underflow_and_overflow() -> None:
     assert math.isclose(cal.abs_ln_ratio(TINY, HUGE), GAP) and math.isclose(cal.abs_ln_ratio(HUGE, TINY), GAP)
-    assert HUGE / TINY == math.inf  # overflow: exact here too (a score, not a threshold)
+    assert math.isinf(HUGE / TINY)  # overflow: exact here too (a score, not a threshold)
     assert math.isclose(cal.abs_ln_ratio(3.0, 1.5), math.log(2))
     assert math.isclose(cal.es_error(eh, [TINY], HUGE), GAP)
     me = SimpleNamespace(eh=eh)

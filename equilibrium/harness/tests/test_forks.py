@@ -72,7 +72,7 @@ def test_stub_writes_scripted_files_inside_the_cwd_only(tmp_path: Path) -> None:
     wd.mkdir()
     rc, _ = stub(tmp_path, cwd=wd, script={"XX-1|p3|m1/5": {"write": {"a/b.txt": "hi"}}})
     assert rc == 0 and (wd / "a" / "b.txt").read_text() == "hi"
-    for bad in ("../x.txt", "/tmp/x.txt"):
+    for bad in ("../x.txt", str(tmp_path / "x.txt")):
         rc, _ = stub(tmp_path, cwd=wd, script={"XX-1|p3|m1/5": {"write": {bad: "no"}}})
         assert rc == 1
     assert not (tmp_path / "x.txt").exists()

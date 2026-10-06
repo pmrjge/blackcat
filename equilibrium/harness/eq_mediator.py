@@ -32,6 +32,7 @@ import sys
 import tempfile
 import threading
 import time
+from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from fractions import Fraction
 from pathlib import Path
@@ -951,6 +952,37 @@ class LiveMediator:
         cur = [o for m, o in self.current.items() if m != exclude]
         return summary({o.member: o.answer for o in cur}, cluster(cur, self.ctx), self.member_facts,
                        self.checker.facts, seed, self.ctx, exclude=exclude)
+
+    def top_members(self) -> list[int]:
+        """The current top cluster's members (1-based; the leader LOO variant's pool, spec §4.2): the largest cluster
+        of the current answers (numeric: `near`, within a factor 2 of the median), ties by the keyed order of the
+        cluster id; [] when every member abstains or the family has no clusters."""
+        if self.ctx.family not in ("discrete", "numeric"):
+            return []
+        cl = self.clusters()
+        sizes = Counter(c for c in cl.values() if c is not None)
+        if not sizes:
+            return []
+        if self.ctx.family == "numeric":
+            return sorted(m for m, c in cl.items() if c == "near")
+        top = max(sizes.values())
+        win = keyed_tie_break([c for c, k in sizes.items() if k == top], self.ctx.tie_seed)
+        return sorted(m for m, c in cl.items() if c == win)
+
+    def round_attribution(self, rnd: int, seed_r: int, *, outs: Sequence[MemberOut] | None = None,
+                          opts: LooOpts | None = None, **extra: Any) -> dict[str, Any] | None:
+        """Spec §4.1 in the live run: the reducer-side jackknife of round `rnd` (round_loo, answer-keyed tie seed
+        `seed_r`) on the members' current answers (or `outs`, e.g. checkable candidates after repair), written as an
+        `attribution` record {round, loo: {m<i>: {answer, selected, same, stable}}, lambda, pivotal: [m<i>], seed}
+        (the end-of-node attribution has no `round`). None (nothing written) without members."""
+        cur = list(outs) if outs is not None else [self.current[m] for m in sorted(self.current)]
+        if not cur:
+            return None
+        res = round_loo(cur, self.ctx, seed_r, opts=opts)
+        self.ledger.write("attribution", **self.base, round=rnd, loo={f"m{i}": v for i, v in res["loo"].items()},
+                          pivotal=[f"m{i}" for i in res["pivotal"]], seed=seed_r,
+                          **{"lambda": res["lambda"]}, **extra)
+        return res
 
     def change(self, member: int, rnd: int, prev: Any, new: Any, new_evidence: Sequence[Mapping[str, Any]],
                accepted: bool) -> None:
