@@ -37,15 +37,16 @@ VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 STACK_MODELS = {"opus", "sonnet"}
 # A specific Claude model ID (claude-<family>-<version>[-<date>]). Allowed only in the
 # places below: lib/stack.env.example (the single source), PREVIOUS_GIT_COMMITS.md (the pre-publication
-# history, quoted as committed) and the record of the models the token limits were measured on
-# (doctor.sh's MEASURED_MODELS line). Untracked files and anything
+# history, quoted as committed), hand_off/c0_support/COMPARE_c0.md (a frozen pre-registration, byte-pinned
+# in hand_off/c0_support/PINS.sha256, so it cannot be edited) and the record of the models the token limits
+# were measured on (doctor.sh's MEASURED_MODELS line). Untracked files and anything
 # under .claude-work/ (agents' scratch, some of it force-committed) are not scanned.
 # new style (claude-<family>-<n>...) and old style (claude-<n>[-<n>]-<family>-<date or latest>)
 MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(?:opus|sonnet|haiku))")
 # the second: this regex's test vectors; the effort table records which model IDs take which
 # effort levels (Claude Code's own checks), and its test's vectors
 MODEL_ID_FILES = {"lib/stack.env.example", "tests/test_lint_skills.py", "dot-claude/hooks/agent_effort.json",
-                  "tests/test_override_agent.py", "PREVIOUS_GIT_COMMITS.md"}
+                  "tests/test_override_agent.py", "PREVIOUS_GIT_COMMITS.md", "hand_off/c0_support/COMPARE_c0.md"}
 # the usage/limits/budget tests: synthetic transcript model IDs and the model matcher's vectors, and
 # the cache-stability lint's model-ID vector, on
 # module-level constant lines only (NAME[, NAME...] = "...")
@@ -243,6 +244,10 @@ def get_tools(data):
 
 
 EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+# agents that change the machine through Bash alone (agent_guard.py INSTALLER_TYPES, which main()
+# checks against --print-policy): toolsmith runs bin/stack-install, outside the sandbox, so as a
+# subagent inheriting Plan it could never install; it carries acceptEdits without Write/Edit
+INSTALLER_TYPES = {"toolsmith"}
 
 
 def permission_mode_problem(data):
@@ -257,6 +262,8 @@ def permission_mode_problem(data):
     mode = (get_inline(data, "permissionMode") or "").strip("\"'")
     flat, _ = get_tools(data)
     can_edit = not flat or bool(EDIT_TOOLS & set(flat))      # no tools: line = every tool
+    if (get_inline(data, "name") or "").strip("\"'") in INSTALLER_TYPES and "Bash" in flat:
+        can_edit = True                                       # it installs software through Bash
     if mode == "acceptEdits":
         return None if can_edit else (
             "permissionMode: acceptEdits on an agent without Write/Edit/NotebookEdit: a read-only agent "
@@ -721,6 +728,9 @@ def main():
     expected_agents = policy_data.get("agents")
 
     check_no_self_spawn(policy_row)
+    if "installer_types" in policy_data and set(policy_data["installer_types"]) != INSTALLER_TYPES:
+        fail("lint_agents INSTALLER_TYPES %s != agent_guard INSTALLER_TYPES %s"
+             % (sorted(INSTALLER_TYPES), sorted(policy_data["installer_types"])))
     # leaves by decision (a review, an image job or a small code task is one bounded task); planner
     # keeps delegation
     for a in ("plan-reviewer", "image-director", "coder"):

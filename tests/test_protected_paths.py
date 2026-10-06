@@ -205,6 +205,45 @@ def test_installer_backups_protected(installed, tmp_path):
     assert "__STACK_BACKUPS__" in fs["denyRead"] and "__STACK_BACKUPS__" in fs["denyWrite"]
 
 
+EQ_TUNNEL_DEFAULT = "~/.cache/claude-agent-stack/eq-tunnel"
+
+
+def test_wall_tunnel_root_and_state_protected(installed, tmp_path, monkeypatch):
+    """The WALL (install.sh --with-eq-container): its tunnel root holds every channel's token and its
+    state dir the audit logs and the user's verdict and consent stores. Agents can neither change
+    either through Bash (the guard's built-in specs, without the rendered deny rules) nor read or
+    edit them through the file tools (Read() and Edit() rules: Write() rules are never consulted);
+    sandboxed Bash cannot write the tunnel root (it is not under __STACK_CACHE__), both at the
+    rendered __EQ_TUNNEL__ and at the default ~/.cache path the harness falls back to."""
+    g, cfg, proj = installed
+    monkeypatch.setenv("XDG_CACHE_HOME", str(tmp_path / "cache"))
+    tun = tmp_path / "cache" / "claude-agent-stack" / "eq-tunnel"
+    assert g.eq_tunnel_root() == str(tun)
+    run = "%s/%s/c%s" % (tun, "a" * 32, "b" * 32)
+    for cmd in ["rm -rf %s" % tun, "echo x > %s/req-x.json" % run, "cp req.json %s/" % run,
+                "mv %s /tmp/y" % run, "chmod -R 777 %s" % tun, "find %s -delete" % tun.parent,
+                "ln -sf /etc/passwd %s/resp-x.json" % run, "touch %s/.token" % run]:
+        got = g.protected_write_in(cmd, {"cwd": str(proj)})
+        assert got and got[0] == "protect", cmd
+    wst = tmp_path / "state" / "claude-agent-stack" / "eq-wall"
+    for cmd in ["echo x >> %s/verdicts.jsonl" % wst, "rm -rf %s/audit" % wst,
+                "cp /dev/null %s/consents.jsonl" % wst]:
+        got = g.protected_write_in(cmd, {"cwd": str(proj)})
+        assert got and got[0] == "protect", cmd
+    s = json.loads(SRC_SETTINGS.read_text())
+    deny = set(s["permissions"]["deny"])
+    for root in ("/__EQ_TUNNEL__", "/__STACK_STATE__/eq-wall", EQ_TUNNEL_DEFAULT):
+        assert {"Read(%s/**)" % root, "Edit(%s/**)" % root} <= deny, root
+    assert not [r for r in deny if r.startswith("Write(") and "eq-" in r]
+    dw = s["sandbox"]["filesystem"]["denyWrite"]
+    assert "__EQ_TUNNEL__" in dw and EQ_TUNNEL_DEFAULT in dw and "__STACK_STATE__" in dw
+    # the guard's default and the installer's agree with the harness's (XDG_CACHE_HOME unset: ~/.cache)
+    monkeypatch.delenv("XDG_CACHE_HOME")
+    assert g.eq_tunnel_root() == os.path.expanduser(EQ_TUNNEL_DEFAULT)
+    inst = (ROOT / "install.sh").read_text()
+    assert 'EQ_TUNNEL_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/claude-agent-stack/eq-tunnel"' in inst
+
+
 def run_hook(installed_hook_path, command, **env):
     ev = {"session_id": "t", "hook_event_name": "PreToolUse", "tool_name": "Bash",
           "tool_input": {"command": command}, "cwd": env.pop("cwd", None)}
@@ -279,7 +318,7 @@ def test_settings_sandbox_block():
         assert len(fs[lst]) == len(set(fs[lst])), lst
         for p in fs[lst]:
             assert p.startswith(("~/", "__CLAUDE_DIR__", "__STACK_BACKUPS__", "__STACK_CACHE__",
-                                 "__STACK_STATE__")), p
+                                 "__STACK_STATE__", "__EQ_TUNNEL__")), p
     net = sb["network"]
     assert net["strictAllowlist"] is True
     doms = net["allowedDomains"]
@@ -931,3 +970,21 @@ def test_r3_root_text_regex(installed):
         assert g.ROOT_TEXT_RE.search(t), t
     for t in miss:
         assert not g.ROOT_TEXT_RE.search(t), t
+
+
+def test_instructor_files_denied_tree_commands_not(installed):
+    """tools/instructor/ (the just recipes and their uv scripts) is not agent-writable in any checkout:
+    a Bash hook sees only `just ... <recipe>`, never what a recipe runs. git commands that rewrite
+    the work tree, reads and the recipes themselves still pass."""
+    g, cfg, proj = installed
+    (proj / "tools" / "instructor" / "bin").mkdir(parents=True)
+    ev = {"cwd": str(proj)}
+    for cmd in ["echo x > tools/instructor/justfile", "cp evil.py tools/instructor/bin/ff_merge.py",
+                "sed -i '' s/a/b/ tools/instructor/bin/check_suite.py", "rm -rf tools/instructor",
+                "bash -c 'echo x >> tools/instructor/bin/instr_common.py'",
+                "echo x > %s/tools/instructor/bin/x.py" % proj]:
+        got = g.protected_write_in(cmd, ev)
+        assert got and got[0] == "protect", cmd
+    for cmd in ["git merge --ff-only feat", "git checkout main", "git switch -c x", "cat tools/instructor/justfile",
+                "just -f tools/instructor/justfile ff-merge --branch feat", "echo x > tools/other.py"]:
+        assert not g.protected_write_in(cmd, ev), cmd

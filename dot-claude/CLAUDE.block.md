@@ -1,0 +1,1 @@
+This config folder runs claude-agent-stack: its global rules are `rules/claude-agent-stack.md` here; the stack changes in its repo, `__STACK_REPO__`, and reaches this folder only through `./install.sh` there.

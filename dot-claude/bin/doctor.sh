@@ -344,6 +344,64 @@ if wide:
           % ", ".join(wide))
 PY
 
+# The dependency installer (toolsmith, CONFIG.md "toolsmith"): bin/stack-install is the one program the
+# stack takes out of the Bash sandbox (sandbox.excludedCommands) and pre-approves (permissions.allow);
+# the guard lets only toolsmith run it. Its ledger and the requests waiting for the user live in the
+# state dir.
+python3 - "$C/settings.json" "$C" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
+import importlib.util, json, os, stat, sys
+try:
+    s = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    s = {}
+c = sys.argv[2]
+exe = os.path.join(c, "bin", "stack-install")
+want = exe + " *"
+if os.path.isfile(exe) and os.access(exe, os.X_OK) and os.path.isfile(os.path.join(c, "hooks", "toolsmith_policy.py")):
+    print("ok toolsmith executor: %s" % exe)
+else:
+    print("toolsmith executor or hooks/toolsmith_policy.py missing: toolsmith cannot install (rerun ./install.sh)")
+ex = (s.get("sandbox") or {}).get("excludedCommands") or []
+if want in ex:
+    print("ok sandbox.excludedCommands names the executor (and toolsmith alone may run it: guard)")
+else:
+    print("sandbox.excludedCommands lacks %r: toolsmith's installs fail in the sandbox (rerun ./install.sh)" % want)
+other = [e for e in ex if e != want]
+if other:
+    print("sandbox.excludedCommands also takes %s out of the sandbox for every agent (not the stack's)"
+          % ", ".join(repr(e) for e in other[:5]))
+if "Bash(%s)" % want in ((s.get("permissions") or {}).get("allow") or []):
+    print("ok permissions.allow pre-approves the executor (no prompt that would stall a subagent)")
+else:
+    print("permissions.allow lacks Bash(%s): each toolsmith install would prompt (rerun ./install.sh)" % want)
+root = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+                    "claude-agent-stack", "toolsmith")
+if os.path.isdir(root):
+    st = os.lstat(root)
+    if stat.S_ISLNK(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+        print("toolsmith state dir %s is a link, not yours, or open to others (want 0700)" % root)
+    try:
+        spec = importlib.util.spec_from_file_location("toolsmith_policy", os.path.join(c, "hooks", "toolsmith_policy.py"))
+        pol = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pol)
+        rows = []
+        try:
+            with open(os.path.join(root, "ledger.jsonl")) as f:
+                rows = [json.loads(x) for x in f if x.strip()]
+        except (OSError, ValueError):
+            pass
+        pend = [f for f in os.listdir(os.path.join(root, "requests")) if f.endswith(".json")] \
+            if os.path.isdir(os.path.join(root, "requests")) else []
+        print("ok toolsmith ledger: %d packages installed by toolsmith (%s list)" % (len(pol.fold(rows)), exe))
+        if pend:
+            print("%d toolsmith request(s) wait for your decision: %s pending, then approve <id> or deny <id> in a terminal"
+                  % (len(pend), exe))
+    except Exception as exc:  # noqa: BLE001
+        print("couldn't read the toolsmith ledger (%s)" % type(exc).__name__)
+else:
+    print("ok toolsmith: nothing installed yet")
+PY
+
 echo "== Image models (image-studio; set in $C/stack.env)"
 # The server's own check: each tool's model looked up in its provider's catalog (no paid call).
 uvb=$(command -v uv 2>/dev/null || { [ -x "$HOME/.local/bin/uv" ] && echo "$HOME/.local/bin/uv"; })
@@ -408,7 +466,8 @@ fi
 import importlib.util, os, sys
 sys.pycache_prefix = None
 h, stale = sys.argv[1], []
-for m in ("agent_guard", "stack_hook", "stack_usage", "stack_limits", "stack_report", "read_gate", "web_caps"):
+for m in ("agent_guard", "stack_hook", "stack_usage", "stack_limits", "stack_report", "read_gate", "web_caps",
+          "output_shrink", "stack_progress", "toolsmith_policy"):
     src = os.path.join(h, m + ".py")
     if not os.path.isfile(src):
         continue
@@ -1045,6 +1104,217 @@ done
 # The Playwright MCP (browser-operator, frontend-engineer, verifier) drives Google Chrome by default.
 [ -d "/Applications/Google Chrome.app" ] && ok "Google Chrome found (Playwright MCP)" \
   || warn "Google Chrome not found — the Playwright MCP of browser-operator, frontend-engineer and verifier drives it: npx @playwright/mcp@0.0.82 install-browser chrome"
+
+echo "== Container isolation (eq-container)"
+# install.sh --with-eq-container (lib/eq-container, Apple container): the state files are read line by
+# line (never sourced) and the container CLI is asked only for the recorded images' digests (bounded by
+# $T). No code from the repo runs here: the digest is read from `container image inspect` inline.
+EQS="${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack/eq-container"
+eqkv(){ [ -f "$1" ] || return 0; awk -v k="$2=" 'index($0, k) == 1 { print substr($0, length(k) + 1); exit }' "$1" 2>/dev/null; }
+# envkv KEY: the value in force in stack.env (the last uncommented KEY=, unquoted; empty when none)
+envkv(){ [ -f "$C/stack.env" ] || return 0; awk -v k="$1" '
+  { l = $0; sub(/^[ \t]+/, "", l); sub(/^export[ \t]+/, "", l)
+    if (substr(l, 1, length(k)) != k) next
+    r = substr(l, length(k) + 1); sub(/^[ \t]*/, "", r)
+    if (substr(r, 1, 1) != "=") next
+    v = substr(r, 2); sub(/^[ \t]+/, "", v); sub(/[ \t]+$/, "", v)
+    if (v ~ /^".*"$/ || v ~ /^'\''.*'\''$/) v = substr(v, 2, length(v) - 2); else sub(/[ \t]+#.*$/, "", v)
+    last = v }
+  END { print last }' "$C/stack.env" 2>/dev/null; }
+# the signed .pkg installs the CLI at /usr/local/bin/container; PATH only when it is not there.
+# EQ_CONTAINER_BIN (as lib/eq-container honours it) names another one; it is only asked read-only questions
+eqc_bin=""
+if [ -n "${EQ_CONTAINER_BIN:-}" ]; then [ ! -x "$EQ_CONTAINER_BIN" ] || eqc_bin=$EQ_CONTAINER_BIN
+elif [ -x /usr/local/bin/container ]; then eqc_bin=/usr/local/bin/container; elif have container; then eqc_bin="$(command -v container)"; fi
+# the image digest in `container image inspect` JSON: .configuration.descriptor.digest and/or .id (its hex,
+# without "sha256:"), which must agree (the same reading as lib/eq-container/eqc_json.py; CLI source at tag 1.5.0)
+eqc_digest(){ python3 -I -c 'import json, re, sys
+try:
+    d = json.load(sys.stdin)
+except ValueError:
+    sys.exit(1)
+if not (isinstance(d, list) and len(d) == 1 and isinstance(d[0], dict)):
+    sys.exit(1)
+c = d[0].get("configuration")
+desc = c.get("descriptor") if isinstance(c, dict) else None
+i = d[0].get("id")
+if isinstance(i, str) and re.fullmatch(r"[0-9a-f]{64}", i):
+    i = "sha256:" + i
+vals = {v for v in (desc.get("digest") if isinstance(desc, dict) else None, i)
+        if isinstance(v, str) and re.fullmatch(r"sha256:[0-9a-f]{64}", v)}
+if len(vals) != 1:
+    sys.exit(1)
+print(vals.pop())'; }
+eq_want=0; [ "$(envkv EQ_ISOLATION)" = container ] && eq_want=1
+eq_st=$(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS); eq_at=$(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_AT)
+eq_why=$(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_WHY)
+if [ ! -f "$EQS/status.env" ]; then
+  ok "eq-container: not installed (optional: ./install.sh --with-eq-container)"
+  [ "$eq_want" = 1 ] && warn "EQ_ISOLATION=container is set in stack.env but eq-container is not installed"
+else
+  case "$eq_st" in
+    ok)
+      ok "eq-container: verified $eq_at (set $(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_SET), probe $(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_PROBE))"
+      eq_prof=$(eqkv "$EQS/status.env" EQ_CONTAINER_STATUS_PROFILES)
+      [ -n "$eq_prof" ] && ok "eq-container profiles: $eq_prof"
+      [ -n "$(eqkv "$EQS/image.env" EQ_CONTAINER_IMAGE_PF)" ] || warn "eq-container: image.env has no EQ_CONTAINER_IMAGE_PF (rerun the install)"
+      # every distinct recorded ref: the PF/CP/CR refs and each image's EQ_<NAME>_TAG + EQ_<NAME>_DIGEST
+      eq_refs=$(awk -F= '
+        $1 ~ /^EQ_CONTAINER_IMAGE_(PF|CP|CR)$/ { r[$2] = 1; next }
+        $1 ~ /^EQ_[A-Z0-9_]+_TAG$/ { t[substr($1, 1, length($1) - 4)] = $2; next }
+        $1 ~ /^EQ_[A-Z0-9_]+_DIGEST$/ { d[substr($1, 1, length($1) - 7)] = $2 }
+        END { for (k in t) if (k in d) r[t[k] "@" d[k]] = 1; for (x in r) print x }' "$EQS/image.env" 2>/dev/null | LC_ALL=C sort -u)
+      if [ -z "$eqc_bin" ]; then
+        warn "eq-container: the container CLI is not installed, images not checked (Apple container: https://github.com/apple/container/releases)"
+      elif ! $T "$eqc_bin" system status >/dev/null 2>&1 </dev/null; then
+        warn "eq-container: the container services are not running, images not checked (run: container system start)"
+      else
+        set -f   # the refs are data: split on blanks, never globbed
+        for eq_ref in $eq_refs; do
+          eq_tag=${eq_ref%@*}; eq_dig=${eq_ref##*@}
+          case "$eq_tag" in eq.invalid/*) ;; *) fail "eq-container: recorded image $eq_tag is not under eq.invalid/: rerun ./install.sh --with-eq-container"; continue ;; esac
+          eq_got=$($T "$eqc_bin" image inspect "$eq_tag" 2>/dev/null </dev/null | eqc_digest)
+          eq_s=${eq_dig#sha256:}; eq_s=${eq_s%"${eq_s#????????????}"}
+          if [ -n "$eq_got" ] && [ "$eq_got" = "$eq_dig" ]; then ok "eq-container image $eq_tag ($eq_s) present"
+          else fail "eq-container image $eq_tag is not the recorded $eq_s (missing, rebuilt or retagged): run ./install.sh --with-eq-container"; fi
+        done
+        set +f
+      fi ;;
+    skipped)
+      if [ "$eq_want" = 1 ]; then warn "eq-container: skipped at $eq_at ($eq_why), but EQ_ISOLATION=container is set in stack.env"
+      else ok "eq-container: skipped at $eq_at ($eq_why)"; fi ;;
+    failed) warn "eq-container: install failed at $eq_at: $eq_why (logs: $EQS/logs)" ;;
+    *) warn "eq-container: $EQS/status.env holds no known EQ_CONTAINER_STATUS: rerun ./install.sh --with-eq-container" ;;
+  esac
+  for eq_f in "$EQS"/results/probe.*.env "$EQS"/results/tunnel.*.env; do
+    [ -f "$eq_f" ] || continue
+    eq_k=$(basename "$eq_f"); eq_k=${eq_k%%.*}; eq_K=$(printf '%s' "$eq_k" | tr '[:lower:]' '[:upper:]')
+    [ "$(eqkv "$eq_f" "${eq_K}_RESULT")" = FAIL ] || continue
+    warn "eq-container: $eq_k FAIL at $(eqkv "$eq_f" "${eq_K}_AT") ($(eqkv "$eq_f" "${eq_K}_FAILS") rows) for $(eqkv "$eq_f" "${eq_K}_IMAGE"): see $EQS/logs/probe.log"
+  done
+fi
+
+echo "== WALL (eq-wall)"
+# install.sh --with-eq-container's step 10c (lib/eq-wall): the host-access broker's state dir and its ONE
+# tunnel root. The broker's own checks run on bin/stack-python (never python3 from PATH: it needs 3.11+),
+# and only on the bytes of eq_wall.py the install recorded (.stack-manifest.json eq_wall.broker_sha256):
+# the repo is writable by agents, so the file is read once, hash-checked and run from that read.
+WS="$(envkv EQ_WALL_STATE_DIR)"; [ -n "$WS" ] || WS="${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack/eq-wall"
+WT="$(envkv EQ_TUNNEL_DIR)"; [ -n "$WT" ] || WT="${XDG_CACHE_HOME:-$HOME/.cache}/claude-agent-stack/eq-tunnel"
+w_st=$(eqkv "$WS/status.env" EQ_WALL_STATUS); w_at=$(eqkv "$WS/status.env" EQ_WALL_STATUS_AT)
+w_why=$(eqkv "$WS/status.env" EQ_WALL_STATUS_WHY)
+if [ ! -f "$WS/status.env" ]; then
+  ok "WALL: not set up (optional: ./install.sh --with-eq-container [--with-eq-broker])"
+else
+  case "$w_st" in
+    off) ok "WALL: off ($w_why)" ;;
+    skipped) ok "WALL: skipped at $w_at ($w_why)" ;;
+    failed) warn "WALL: setup failed at $w_at: $w_why" ;;
+    on)
+      for w_d in "$WT:tunnel root" "$WS:state dir"; do
+        w_p=${w_d%%:*}; w_n=${w_d#*:}
+        w_m=$(ls -ld "$w_p" 2>/dev/null | cut -c1-10)
+        if [ -L "$w_p" ]; then fail "WALL $w_n $w_p is a symlink: remove it (install.sh makes a real 0700 directory)"
+        elif [ ! -d "$w_p" ]; then fail "WALL $w_n $w_p is missing: rerun ./install.sh --with-eq-container"
+        elif [ ! -O "$w_p" ]; then fail "WALL $w_n $w_p is not owned by you: remove it"
+        elif [ "$w_m" != drwx------ ]; then fail "WALL $w_n $w_p is $w_m: chmod 700 or remove it"
+        else ok "WALL $w_n $w_p 0700"; fi
+      done
+      w_bad=$(find "$WT" "$WS" -type f ! -perm 600 2>/dev/null | head -n 3 | tr '\n' ' ')
+      [ -z "$w_bad" ] && ok "WALL files 0600" || fail "WALL files not 0600: $w_bad"
+      w_sp=$(find "$WT" ! -type d ! -type f 2>/dev/null | head -n 5 | tr '\n' ' ')
+      [ -z "$w_sp" ] && ok "WALL tunnel holds no special files" \
+        || warn "stale special file(s) in the tunnel: $w_sp(the broker removes them unread; remove stale run dirs by hand)"
+      # the broker, from the bytes the install recorded
+      W_PY="$C/bin/stack-python"
+      w_dir="$(envkv EQ_WALL_DIR)"
+      w_meta=$(python3 -c 'import json, sys
+try:
+    r = json.load(open(sys.argv[1])).get("eq_wall") or {}
+except Exception:
+    r = {}
+for k in ("broker_sha256", "wall_dir"):
+    v = r.get(k) if isinstance(r, dict) else ""
+    print(v if isinstance(v, str) and v.isprintable() else "")' "$C/.stack-manifest.json" 2>/dev/null)
+      w_sha=$(printf '%s\n' "$w_meta" | sed -n 1p); [ -n "$w_dir" ] || w_dir=$(printf '%s\n' "$w_meta" | sed -n 2p)
+      w_pol="$(envkv EQ_WALL_POLICY)"; [ -n "$w_pol" ] || w_pol="$w_dir/policy.default.toml"
+      wall_py(){ "$W_PY" -I -c 'import hashlib, sys, types
+p, want = sys.argv[1], sys.argv[2]
+src = open(p, "rb").read()
+got = hashlib.sha256(src).hexdigest()
+if got != want:
+    print("eq_wall.py differs from the installed bytes (sha256 %s..., recorded %s...)" % (got[:12], want[:12]))
+    sys.exit(97)
+mod = types.ModuleType("eq_wall")
+mod.__file__ = p
+sys.modules["eq_wall"] = mod
+exec(compile(src, p, "exec"), mod.__dict__)
+sys.exit(mod.main(sys.argv[3:]))' "$w_dir/eq_wall.py" "$w_sha" "$@" </dev/null 2>&1; }
+      if ! "$W_PY" -I -c 'import tomllib' >/dev/null 2>&1 </dev/null; then
+        warn "WALL checks skipped: $W_PY cannot import tomllib (the broker needs Python 3.11+): rerun ./install.sh"
+      elif [ -z "$w_sha" ] || [ ! -f "$w_dir/eq_wall.py" ]; then
+        warn "WALL checks skipped: no recorded broker (.stack-manifest.json eq_wall) or no $w_dir/eq_wall.py: rerun ./install.sh --with-eq-container"
+      else
+        w_rc=0; w_out=$(wall_py check --tunnel-root "$WT" --state "$WS" --policy "$w_pol" --verdicts "$WS/verdicts.jsonl" \
+          --consents "$WS/consents.jsonl") || w_rc=$?
+        if [ "$w_rc" = 97 ]; then
+          warn "WALL config changed since install (policy or broker edited): re-run ./install.sh --with-eq-container; a frozen flags.json will refuse runs ($w_out)"
+        else
+          if [ "$w_rc" = 0 ]; then
+            w_k=$(printf '%s\n' "$w_out" | sed -n 's/^policy  *PASS .*; kinds \(.*\)$/\1/p')
+            case "$w_k" in none|"") w_k="default deny" ;; esac
+            ok "WALL up: roots, policy ($w_k), stores intact"
+          else
+            fail "WALL check: $(printf '%s\n' "$w_out" | awk '$2 == "FAIL" { print; exit }' | tr -s ' ' | cut -c1-200)"
+          fi
+          w_cfg=$(wall_py config-hash --policy "$w_pol"); w_want=$(eqkv "$WS/status.env" EQ_WALL_CONFIG_SHA256)
+          if [ -n "$w_want" ] && [ "$w_cfg" = "$w_want" ]; then ok "WALL config $(printf '%s' "$w_cfg" | cut -c1-12)"
+          else warn "WALL config changed since install (policy or broker edited): re-run ./install.sh --with-eq-container; a frozen flags.json will refuse runs"; fi
+        fi
+      fi
+      # the harness's own receipt (eq_harness.py isolation-probe), else the install-time probe of eq-container
+      w_r=$(python3 -c 'import json, sys
+try:
+    r = json.load(open(sys.argv[1]))
+except Exception:
+    sys.exit(0)
+v, a = r.get("result"), r.get("at_utc")
+print("%s %s" % (v if v in ("PASS", "FAIL") else "?", a if isinstance(a, str) and a.isprintable() else "?"))' "$WS/tunnel_probe.json" 2>/dev/null)
+      w_i=""; for eq_f in "$EQS"/results/tunnel.*.env; do
+        [ -f "$eq_f" ] || continue
+        case "$(eqkv "$eq_f" TUNNEL_RESULT)" in PASS) [ -n "$w_i" ] || w_i="PASS $(eqkv "$eq_f" TUNNEL_AT)" ;; *) w_i="FAIL $(eqkv "$eq_f" TUNNEL_AT)" ;; esac
+      done
+      case "$w_r" in
+        "PASS "*) ok "WALL tunnel probe PASS (${w_r#PASS })" ;;
+        "") case "$w_i" in
+              "PASS "*) ok "WALL tunnel probe PASS at install (${w_i#PASS }); the harness writes its own receipt: eq_harness.py isolation-probe" ;;
+              *) warn "WALL tunnel probe FAIL or missing: eq_harness.py isolation-probe" ;;
+            esac ;;
+        *) warn "WALL tunnel probe FAIL or missing: eq_harness.py isolation-probe" ;;
+      esac
+      # a broker left running with no harness run
+      if have pgrep && w_pid=$(pgrep -f "eq_wall.py serve" 2>/dev/null | head -n 1) && [ -n "$w_pid" ] \
+         && ! pgrep -f "eq_harness.py" >/dev/null 2>&1; then
+        warn "WALL broker still running: pid $w_pid"
+      fi
+      # Claude's file tools are kept out of the stores, the receipt and the audit logs (settings.json deny)
+      w_root="${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack"
+      if grep -qF "\"Read(/$w_root/eq-wall/**)\"" "$C/settings.json" 2>/dev/null \
+         && grep -qF "\"Edit(/$w_root/eq-wall/**)\"" "$C/settings.json" 2>/dev/null; then
+        ok "WALL stores denied to agent file tools"
+      else
+        warn "WALL stores not denied to agent file tools (settings.json permissions.deny Read/Edit($w_root/eq-wall/**)): rerun ./install.sh"
+      fi
+      # ... and out of the tunnel root (each channel's token); a root moved by EQ_TUNNEL_DIR is not covered
+      if grep -qF "\"Read(/$WT/**)\"" "$C/settings.json" 2>/dev/null \
+         && grep -qF "\"Edit(/$WT/**)\"" "$C/settings.json" 2>/dev/null; then
+        ok "WALL tunnel root denied to agent file tools"
+      else
+        warn "WALL tunnel root $WT not denied to agent file tools (the settings.json deny rules name ${XDG_CACHE_HOME:-$HOME/.cache}/claude-agent-stack/eq-tunnel only): rerun ./install.sh, or keep EQ_TUNNEL_DIR at that default"
+      fi ;;
+    *) warn "WALL: $WS/status.env holds no known EQ_WALL_STATUS: rerun ./install.sh --with-eq-container" ;;
+  esac
+fi
 
 echo "== Anthropic plugins"
 # install.sh step 10 records the Anthropic skill plugins it installed or found (plugins_installed) and

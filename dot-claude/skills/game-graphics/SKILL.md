@@ -14,6 +14,7 @@ Gameplay code, engine work and real-time rendering. 3D assets (modeling, texturi
 | `gfx-apis`* | Vulkan, Metal, Direct3D 12, WebGPU/wgpu: resources, sync, pipelines, debugging layers, frame capture |
 | `gfx-shaders`* | HLSL, GLSL, MSL, WGSL, Slang; PBR, shader compilation and cross-compilation, shader debugging |
 | `game-netcode`* | multiplayer: authority, prediction, rollback, interpolation, transports, lag testing |
+| `3d-interface-engineering`* | 3D app viewports: three.js/WebGPU, cameras and navigation, picking, gizmos, in-scene and XR UI, editor tooling |
 
 `*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
 

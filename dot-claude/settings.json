@@ -21,6 +21,8 @@
     "anthropic-skills:explain-usage": "user-invocable-only",
     "anthropic-skills:google-workspace": "user-invocable-only",
     "anthropic-skills:schedule": "user-invocable-only",
+    "3d-interface-engineering": "user-invocable-only",
+    "3d-ux-design": "user-invocable-only",
     "a11y-aria-patterns": "user-invocable-only",
     "a11y-audit": "user-invocable-only",
     "a11y-docs-pdf": "user-invocable-only",
@@ -31,6 +33,7 @@
     "bio-pipelines": "user-invocable-only",
     "bio-single-cell": "user-invocable-only",
     "bio-structures": "user-invocable-only",
+    "character-rigging": "user-invocable-only",
     "chem-informatics": "user-invocable-only",
     "chem-md": "user-invocable-only",
     "chem-qm": "user-invocable-only",
@@ -65,10 +68,12 @@
     "ops-systemd-caddy": "user-invocable-only",
     "ops-tailscale": "user-invocable-only",
     "opt-modeling": "user-invocable-only",
+    "organic-sculpting": "user-invocable-only",
     "pcb-kicad": "user-invocable-only",
     "perf-load-testing": "user-invocable-only",
     "perf-memory": "user-invocable-only",
     "perf-profilers": "user-invocable-only",
+    "procedural-3d-workflows": "user-invocable-only",
     "py-async": "user-invocable-only",
     "py-perf": "user-invocable-only",
     "py-testing": "user-invocable-only",
@@ -102,8 +107,10 @@
     "ts-tooling": "user-invocable-only",
     "ts-types-validation": "user-invocable-only",
     "typst": "user-invocable-only",
+    "udim-texture-painting": "user-invocable-only",
     "viz-dashboards": "user-invocable-only",
     "viz-matplotlib": "user-invocable-only",
+    "3d-animation": "name-only",
     "3d-printing": "name-only",
     "accelerator-perf": "name-only",
     "adobe-creative-cloud": "name-only",
@@ -290,7 +297,12 @@
       "mcp__context-mode__ctx_index",
       "mcp__context-mode__ctx_search",
       "mcp__context-mode__ctx_stats",
-      "Skill"
+      "Skill",
+      "Bash(__CLAUDE_DIR__/bin/stack-install *)",
+      "Bash(just -f tools/instructor/justfile check-suite *)",
+      "Bash(just -f tools/instructor/justfile ff-merge *)",
+      "Bash(just -f tools/instructor/justfile worktree-audit *)",
+      "Bash(just -f tools/instructor/justfile --list)"
     ],
     "deny": [
       "Agent(blackcat)",
@@ -361,6 +373,7 @@
       "Edit(.claude/settings.json)",
       "Edit(.claude/settings.local.json)",
       "Edit(.claude/hooks/**)",
+      "Edit(//**/tools/instructor/**)",
       "Read(~/.ssh/**)",
       "Read(~/.aws/**)",
       "Read(~/.config/gh/hosts.yml)",
@@ -385,6 +398,12 @@
       "Read(**/.env.stage)",
       "Read(**/.env.staging)",
       "Edit(/__STACK_STATE__/**)",
+      "Edit(/__STACK_STATE__/eq-wall/**)",
+      "Read(/__STACK_STATE__/eq-wall/**)",
+      "Edit(/__EQ_TUNNEL__/**)",
+      "Read(/__EQ_TUNNEL__/**)",
+      "Edit(~/.cache/claude-agent-stack/eq-tunnel/**)",
+      "Read(~/.cache/claude-agent-stack/eq-tunnel/**)",
       "mcp__context-mode__ctx_execute",
       "mcp__context-mode__ctx_execute_file",
       "mcp__context-mode__ctx_batch_execute",
@@ -397,6 +416,9 @@
     "enabled": true,
     "failIfUnavailable": true,
     "allowUnsandboxedCommands": false,
+    "excludedCommands": [
+      "__CLAUDE_DIR__/bin/stack-install *"
+    ],
     "filesystem": {
       "allowWrite": [
         "~/.cache/claude-sandbox"
@@ -406,6 +428,8 @@
         "__STACK_STATE__",
         "__STACK_BACKUPS__",
         "__STACK_CACHE__",
+        "__EQ_TUNNEL__",
+        "~/.cache/claude-agent-stack/eq-tunnel",
         "~/.cache/uv",
         "~/.cache/pre-commit",
         "~/.cache/ms-playwright",
@@ -728,6 +752,16 @@
             "type": "command",
             "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard image-limit",
             "timeout": 60
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" output_shrink",
+            "timeout": 10
           }
         ]
       }

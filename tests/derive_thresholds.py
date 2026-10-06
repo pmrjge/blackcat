@@ -62,17 +62,18 @@ BENCH_EST = 51_124_527   # agents-bench/dry-run-output.txt, both arms, 102 `clau
 
 # comparable-type pools for types with too few runs (judgement: same role, tools and maxTurns band)
 TIER = {
-    "lookup": "scout oracle claude-code-guide explore mcp-broker",
+    "lookup": "scout oracle claude-code-guide explore mcp-broker toolsmith",
     "analyst": "planner plan-reviewer code-reviewer security-auditor researcher proof-checker",
     "verifier": "verifier",
     "coordinator": "orchestrator",
-    "artifact": "writer browser-operator doc-specialist designer image-director motion-designer cg-artist",
+    "artifact": ("writer browser-operator doc-specialist designer image-director motion-designer cg-artist "
+                 "rigger-animator sculptor-painter"),
     "builder": ("claude-code-engineer coder main-coder ninja-coder build-fixer test-engineer "
                 "data-scientist data-engineer devops-engineer frontend-engineer python-engineer "
                 "rust-engineer go-engineer node-engineer jvm-engineer julia-engineer haskell-engineer "
                 "mobile-engineer game-engineer embedded-engineer hpc-engineer cuda-engineer mlx-engineer "
                 "dl-engineer ml-engineer llm-engineer robotics-engineer quantum-engineer biochem-engineer "
-                "security-engineer vfx-td mathematician"),
+                "security-engineer vfx-td mathematician procedural-3d-ui"),
 }
 TIER_OF = {t: k for k, v in TIER.items() for t in v.split()}
 

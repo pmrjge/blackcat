@@ -1,0 +1,21 @@
+# The WALL's review status: a maintainer fact, read by install.sh with sed (never sourced). The WALL
+# (host-access broker + its ONE tunnel) is set up by default with --with-eq-container only when every line
+# below holds: POSITIVE=1, OPEN_HIGH_CRITICAL=0, every *_REF non-empty and, when given, each *_SHA256
+# equal to the sha256 of that file in lib/eq-wall (the reviewed bytes). Otherwise it is opt-in
+# (--with-eq-broker). Change these lines in the same commit as the review they record.
+POSITIVE=1
+# security-auditor: N23 a5246cf7e9dedc6ff (static, pass with fixes) and the re-audit R2c a5c0126bf1914acb0
+# (pass with fixes; X7 met for the default-deny policy only); fixes applied by R2d a379497803f07e6dd
+SECURITY_AUDITOR_REF=N23 a5246cf7e9dedc6ff + R2c a5c0126bf1914acb0 (fixes: R2d a379497803f07e6dd)
+OPEN_HIGH_CRITICAL=0
+# code-reviewer: N24 ad1555f7300ffeb4f, then the re-pass R2b a348180276c7a4f89 ("nothing blocks WALL default-on")
+CODE_REVIEWER_REF=N24 ad1555f7300ffeb4f + R2b a348180276c7a4f89
+# R2d: lib/eq-wall/tests 100 passed, 2 skipped (AF_UNIX binds denied by the agent sandbox); mutations.py 52/52
+# killed (mutations.out, not shipped); WALL_DESIGN.md section 13
+TESTS_REF=R2d: pytest lib/eq-wall/tests 100 passed 2 skipped; mutations.py 52/52 killed
+# the reviewed bytes (the positive review covers the default-deny policy only). The policy differs from the reviewed EQ-T bytes
+# in ONE line, its [tools_manifest] path (../isolation/TOOLS.toml -> ../eq-container/TOOLS.toml, the repo layout of the
+# container backend, 2026-10-05); broker and client are byte-identical to the reviewed EQ-T files. The R3 review re-confirms it.
+POLICY_SHA256=c0ca1aaa35e4d9239b41442e60542c257a1ab617552aa31eca8df9c62f61b087
+BROKER_SHA256=bf73be2b5893eb877049fd4f98cb18c03e7de34b61d04db011e86d989e70eda7
+CLIENT_SHA256=c5b456f3bbf85b629e0d20d1a853aabaa427751fbceff035120a6b7a85fe9792

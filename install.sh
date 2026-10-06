@@ -63,6 +63,21 @@
 #   ./install.sh --no-prompt     never ask on the terminal: the target question is skipped (the run
 #                                 proceeds, a foreign non-empty target stops it) and a changed stack
 #                                 stops the run unless --yes is given
+#   ./install.sh --with-eq-container  also build and verify the isolation images of the equilibrium
+#                                 harness with Apple `container` (lib/eq-container; off by default;
+#                                 10-40 min cold, several GB of disk, network for the build only). The
+#                                 container CLI missing, its services not running (container system
+#                                 start) or a non-arm64 Mac is a warning and a skip, never a failed
+#                                 install; the installer never installs `container` or starts its
+#                                 services; --yes answers the build question only
+#   ./install.sh --with-eq-container --eq-container-profiles=LIST  lib/eq-container/TOOLS.toml
+#                                 profiles to build (comma list: node rust go julia haskell jvm, or
+#                                 all; core, the minimum, is always built and is the default)
+#   ./install.sh --with-eq-container --no-eq-broker  leave the WALL (host-access broker + its tunnel,
+#                                 lib/eq-wall) off; it is on by default with a verified
+#                                 --with-eq-container while lib/eq-wall/REVIEW is positive for the
+#                                 shipped default-deny policy. --with-eq-broker sets it up although
+#                                 REVIEW is not positive or the policy allows something
 # Pruning (always on): in agents/ and skills/ every shipped file matches the stack's (an edited one is
 # replaced), and of the rest only files the stack installed and nobody edited go (agents, skills and
 # files of yours, and stack files you edited, stay); stack config the
@@ -73,6 +88,10 @@
 # read it), and the run prints the list and the restore command. A run that changes nothing makes
 # no backup. Never touched: credentials, ~/.claude.json (MCP changes go through `claude mcp`),
 # the claude.ai-synced skills, plugins' own files, projects and sessions.
+# CLAUDE.md is yours: the stack owns one block in it, from its begin marker line to its end marker
+# line (lib/claude_md_block.py, body dot-claude/CLAUDE.block.md), created with the file when there is
+# none, appended after your text otherwise, rewritten in place later; no byte outside it changes. A
+# symlinked, non-UTF-8 or malformed CLAUDE.md is left alone (a note says why).
 # Step 2 installs what is missing (lib/devtools.sh, CONFIG.md §7 "Prerequisites and toolchains"):
 # Homebrew, one brew batch per type, the upstream version managers, the dev tools; one line per
 # tool, a present one never touched. Groups: STACK_INSTALL_<GROUP>=0 skips one (DEPS DEVTOOLS UV
@@ -95,6 +114,7 @@ set -euo pipefail
 WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; ANTHROPIC_PLUGINS_ON=1; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
 NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; RESTORE=""; PRINT_MANAGED=0; ASSUME_YES=0; ORIG_ARGS="$*"
 NO_PROMPT=0; CONFIG_DIR_SET=0; CONFIG_DIR_ARG=""; DIFF=0; DIFF_CONFLICT=""
+WITH_EQ_CONTAINER=0; EQ_CONTAINER_PROFILES=""; EQ_PROFILES_SET=0; EQ_BROKER=default; EQ_BROKER_FLAGS=""
 i=0; argv=("$@")
 while [ "$i" -lt "${#argv[@]}" ]; do
   a="${argv[$i]}"
@@ -131,6 +151,13 @@ while [ "$i" -lt "${#argv[@]}" ]; do
       nxt="${argv[$((i + 1))]:-}"
       case "$nxt" in ""|-*) RESTORE=latest ;; *) RESTORE="$nxt"; i=$((i + 1)) ;; esac ;;
     --restore=*) RESTORE="${a#--restore=}" ;;
+    --with-eq-container) WITH_EQ_CONTAINER=1 ;;
+    --eq-container-profiles)
+      case "${argv[$((i + 1))]:-}" in ""|-*) echo "--eq-container-profiles needs a comma list of lib/eq-container/TOOLS.toml profiles (core,node,rust,go,julia,haskell,jvm or all)"; exit 2 ;; esac
+      EQ_CONTAINER_PROFILES="${argv[$((i + 1))]}"; EQ_PROFILES_SET=1; i=$((i + 1)) ;;
+    --eq-container-profiles=*) EQ_CONTAINER_PROFILES="${a#--eq-container-profiles=}"; EQ_PROFILES_SET=1 ;;
+    --no-eq-broker) EQ_BROKER=off; EQ_BROKER_FLAGS="$EQ_BROKER_FLAGS off" ;;
+    --with-eq-broker) EQ_BROKER=on; EQ_BROKER_FLAGS="$EQ_BROKER_FLAGS on" ;;
     -h|--help) sed -n '2,/^set -euo pipefail$/p' "$0" | sed '$d'; exit 0 ;;
     *) echo "unknown option: $a"; exit 2 ;;
   esac
@@ -138,6 +165,18 @@ while [ "$i" -lt "${#argv[@]}" ]; do
 done
 if [ "$FORCE" = 1 ] && [ -z "$RESTORE" ]; then
   echo "--force works only with --restore (it puts back saved symlinks that point outside the config dir)"; exit 2
+fi
+# --with-eq-container's companions (steps 10b/10c): usage errors stop here, before anything is written
+if [ "$WITH_EQ_CONTAINER" = 0 ]; then
+  if [ "$EQ_PROFILES_SET" = 1 ]; then echo "--eq-container-profiles works only with --with-eq-container"; exit 2; fi
+  if [ -n "$EQ_BROKER_FLAGS" ]; then echo "--no-eq-broker/--with-eq-broker work only with --with-eq-container"; exit 2; fi
+fi
+case "$EQ_BROKER_FLAGS" in *on*off*|*off*on*) echo "--no-eq-broker and --with-eq-broker contradict each other"; exit 2 ;; esac
+if [ "$EQ_PROFILES_SET" = 1 ]; then
+  case "$EQ_CONTAINER_PROFILES" in
+    ""|*[!a-z0-9,-]*) echo "--eq-container-profiles needs a comma list of lib/eq-container/TOOLS.toml profiles (core,node,rust,go,julia,haskell,jvm or all; got: $EQ_CONTAINER_PROFILES)"; exit 2 ;;
+  esac
+  if [ -n "${STACK_EQ_CONTAINER_SET:-}" ]; then echo "--eq-container-profiles and STACK_EQ_CONTAINER_SET exclude each other (unset STACK_EQ_CONTAINER_SET)"; exit 2; fi
 fi
 # Every python3 this script starts is isolated (security audit, CWE-427): -I puts neither the script's
 # dir (lib/), the caller's cwd nor PYTHON* variables on sys.path, and -B with a pycache_prefix that
@@ -369,6 +408,10 @@ STACK_STATE="${XDG_STATE_HOME:-$HOME/.local/state}/claude-agent-stack"
 BACKUP_ROOT="${STACK_STATE}-backups"
 # The local MCP servers' own uv/npm caches (sandbox denyWrite: sandboxed commands can't plant code there)
 STACK_CACHE="${STACK_STATE}-cache"
+# The WALL's ONE tunnel root (--with-eq-container, step 10c; the harness's own default path): it holds
+# each channel's token, so agents are kept out of it like the state dir (settings.json __EQ_TUNNEL__ deny
+# rules and sandbox denyWrite, the guard's protected paths), whether or not the WALL is set up
+EQ_TUNNEL_ROOT="${XDG_CACHE_HOME:-$HOME/.cache}/claude-agent-stack/eq-tunnel"
 STATE_PY="$HERE/lib/install_state.py"
 STACK_COMMIT="$(git -C "$HERE" rev-parse --short HEAD 2>/dev/null || echo unknown)"
 STACK_COMMIT_FULL="$(git -C "$HERE" rev-parse HEAD 2>/dev/null || echo unknown)"
@@ -443,6 +486,16 @@ MIN_CLAUDE=2.1.271
 if [ -n "$RESTORE" ]; then
   say "Restore ($C)"
   RFLAGS=""; [ "$FORCE" = 1 ] && RFLAGS="--force"
+  # --with-eq-container's images and records and the WALL's state live outside the config dir: the
+  # restore puts stack.env and the manifest back (their eq_container / eq_wall keys with them) and
+  # leaves those alone
+  EQ_RESTORE_KEYS="$(python3 -c 'import json, sys
+try:
+    m = json.load(open(sys.argv[1]))
+except Exception:
+    m = {}
+print(" ".join(k for k in ("eq_container", "eq_wall") if isinstance(m, dict) and isinstance(m.get(k), dict)))' \
+    "$C/.stack-manifest.json" 2>/dev/null || true)"
   if [ "$DRY_RUN" = 1 ]; then
     python3 "$STATE_PY" restore "$C" "$RESTORE" "$BACKUP_ROOT" "$WORK" "$STACK_COMMIT" "$HOME" --dry-run $RFLAGS || exit 1
   else
@@ -484,6 +537,12 @@ PY
       undo) [ -n "$name" ] && note "undo this restore: $0 --restore $name" ;;
     esac
   done <"$WORK/restore.tsv"
+  case " $EQ_RESTORE_KEYS " in *" eq_container "*)
+    note "= not restored: the container isolation images and eq-container's records ($STACK_STATE/eq-container) stay; remove them with: bash $HERE/lib/eq-container/eq-container.sh uninstall --yes [--purge]" ;;
+  esac
+  case " $EQ_RESTORE_KEYS " in *" eq_wall "*)
+    note "= not restored: the WALL's state ($STACK_STATE/eq-wall: audit logs, your verdicts and consents) and its tunnel root ($EQ_TUNNEL_ROOT) stay, as evidence; remove them yourself if you want them gone" ;;
+  esac
   [ "$DRY_RUN" = 1 ] && say "Dry run done: nothing was restored."
   exit 0
 fi
@@ -696,12 +755,13 @@ STATE_PY="$SNAP_ROOT/lib/install_state.py"
 # sandbox, so editing ~/.claude/settings.json can no longer switch them off. JSON on stdout,
 # instructions on stderr: ./install.sh --print-managed-settings > managed-settings.json
 if [ "$PRINT_MANAGED" = 1 ]; then
-  python3 - "$SRC/settings.json" "$C" "$STACK_PYTHON" "$BACKUP_ROOT" "$STACK_CACHE" "$HOME" "$STACK_STATE" <<'PY' >&3
+  python3 - "$SRC/settings.json" "$C" "$STACK_PYTHON" "$BACKUP_ROOT" "$STACK_CACHE" "$HOME" "$STACK_STATE" "$EQ_TUNNEL_ROOT" <<'PY' >&3
 import json, sys
-src, c, py, backups, cache, home, state = sys.argv[1:8]
+src, c, py, backups, cache, home, state, tunnel = sys.argv[1:9]
 text = open(src, encoding="utf-8").read()
 for k, v in (("__CLAUDE_DIR__", c), ("__PYTHON3__", py), ("__STACK_BACKUPS__", backups),
-             ("__STACK_CACHE__", cache), ("__HOME__", home), ("__STACK_STATE__", state)):
+             ("__STACK_CACHE__", cache), ("__HOME__", home), ("__STACK_STATE__", state),
+             ("__EQ_TUNNEL__", tunnel)):
     text = text.replace(k, json.dumps(v)[1:-1])
 s = json.loads(text)
 deny = [r for r in s["permissions"]["deny"]
@@ -1412,11 +1472,20 @@ stage_script 644 hooks/agent_effort.json
 stage_script 755 hooks/web_caps.py
 # the token gate on reads of build output, dependencies, data, media and binaries (PreToolUse Read|Grep|Glob|Bash)
 stage_script 755 hooks/read_gate.py
+# the output shrink (PostToolUse Bash|Read; shadow mode by default: logs, never changes output): loads
+# bin/stack-tree's credential tables for its spill copies
+stage_script 755 hooks/output_shrink.py
 # the hand-back protocol's parser and checks (STACK_REPORT_FORMAT): imported by agent_guard.py, beside it
 stage_script 644 hooks/stack_report.py
+# brief budgets and early-stop signals (STACK_EARLY_STOP, observe by default; S4 L5): imported by
+# agent_guard.py's budget gate, beside it
+stage_script 644 hooks/stack_progress.py
 # the hooks' shared file helpers (read_json, atomic writes, timestamps): imported by agent_guard.py,
 # stack_usage.py, stack_limits.py, stack_fanout.py and stack_sched_refresh.py, beside them
 stage_script 644 hooks/stack_io.py
+# the dependency installer's rules (toolsmith): imported by agent_guard.py's no-push mode and by
+# bin/stack-install, the one program settings.json's sandbox.excludedCommands names
+stage_script 644 hooks/toolsmith_policy.py
 # the usage collector (SubagentStart/SessionEnd hooks; agent_guard.py starts it at SessionStart), the
 # scheduler advisor, its shipped cost model and the refit (stack_sched_refresh.py imports fit() from the
 # two tests/ scripts beside it), and the learned limits (stack_limits.py: per-session snapshots the
@@ -1428,6 +1497,7 @@ for f in derive_sched_model.py derive_thresholds.py; do
 done
 for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget stack-tree; do stage_script 755 "bin/$f"; done
 stage_script 755 "bin/stack-who"
+stage_script 755 "bin/stack-install"
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
 stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry reads it (--config)
 # The stack's local LSP marketplace (step 10 registers it): replaced as a whole.
@@ -1535,7 +1605,7 @@ elif [ "$SKIP_MCP" = 0 ] && [ "$MCP_PLAN" = 0 ] && claude mcp get spider >/dev/n
 RENDERED_SETTINGS="$WORK/settings.rendered.json"
 
 SPIDER_REWRITE="$SPIDER_REWRITE" RENDERED_SETTINGS="$RENDERED_SETTINGS" DEST="$S" \
-REPORT="$REPORT" STACK_BACKUPS="$BACKUP_ROOT" STACK_CACHE="$STACK_CACHE" STACK_STATE="$STACK_STATE" STACK_COMMIT_FULL="$STACK_COMMIT_FULL" python3 - "$SRC" "$C" "$HERE" <<'PY'
+REPORT="$REPORT" STACK_BACKUPS="$BACKUP_ROOT" STACK_CACHE="$STACK_CACHE" STACK_STATE="$STACK_STATE" EQ_TUNNEL="$EQ_TUNNEL_ROOT" STACK_COMMIT_FULL="$STACK_COMMIT_FULL" python3 - "$SRC" "$C" "$HERE" <<'PY'
 import glob, hashlib, json, os, re, shutil, subprocess, sys
 
 # C is where the files will live (every rendered path names it); DEST is the staged copy of C
@@ -1620,6 +1690,7 @@ SUBS = {
     "__STACK_BACKUPS__": os.environ["STACK_BACKUPS"],
     "__STACK_CACHE__": os.environ["STACK_CACHE"],
     "__STACK_STATE__": os.environ["STACK_STATE"],
+    "__EQ_TUNNEL__": os.environ["EQ_TUNNEL"],
 }
 
 
@@ -1897,6 +1968,32 @@ for fn in sorted(os.listdir(os.path.join(DEST, "rules"))):
         drop(rel, "no longer shipped by the stack")
         files_entry.pop(rel, None)
 
+# --- CLAUDE.md is yours: the stack owns only its block, the lines from its begin marker line to its end
+# marker line (lib/claude_md_block.py; body dot-claude/CLAUDE.block.md). Every byte outside the block
+# stays; a block edited by hand is replaced (the backup keeps the whole file, --restore puts it back);
+# a symlinked, non-UTF-8 or malformed file is left as it is and named in the notes. The manifest keeps
+# the block's hash (claude_md_block), never a whole-file hash: the file is not the stack's. ---
+_cmb_spec = importlib.util.spec_from_file_location(
+    "claude_md_block", os.path.join(os.path.dirname(SRC), "lib", "claude_md_block.py"))   # the snapshot
+_cmb = importlib.util.module_from_spec(_cmb_spec)
+_cmb_spec.loader.exec_module(_cmb)
+_cmb_tmpl = os.path.join(SRC, "CLAUDE.block.md")
+_cmb_body = render(open(_cmb_tmpl, encoding="utf-8").read()) if os.path.isfile(_cmb_tmpl) else None
+_cmb_res = _cmb.stage(DEST, _cmb_body, manifest.get("claude_md_block"), live=os.path.join(C, _cmb.NAME))
+if _cmb_res["entry"] is None:
+    manifest.pop("claude_md_block", None)
+else:
+    manifest["claude_md_block"] = _cmb_res["entry"]
+if _cmb_res["action"] == "replaced":
+    report["replaced"]["CLAUDE.md"] = _cmb_res["why"]
+elif _cmb_res["action"] == "skipped":
+    report["notes"].append("CLAUDE.md: " + _cmb_res["why"])
+elif _cmb_res["action"] == "removed" and not os.path.lexists(os.path.join(DEST, _cmb.NAME)):
+    report["removed"]["CLAUDE.md"] = _cmb_res["why"]          # the plan's reason for the deleted file
+if _cmb_res["action"] != "absent":
+    print("  %-34s %s" % ("CLAUDE.md (the stack's block)",
+                          _cmb_res["action"] + (" (see the notes)" if _cmb_res["action"] == "skipped" else "")))
+
 save_manifest()
 print("  %d/%d agents installed" % (total_agents, total_agents))
 
@@ -2018,13 +2115,13 @@ for rel in skills_replaced:
 
 # --- scripts the stack copies into hooks/, bin/ and mcp/ (step 6 put them in DEST): tracked in the
 # manifest, so a later version that stops shipping one removes it. Files of your own there stay. ---
-STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/stack_report.py", "hooks/stack_io.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
+STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook", "hooks/agent_effort.json", "hooks/web_caps.py", "hooks/read_gate.py", "hooks/output_shrink.py", "hooks/stack_report.py", "hooks/stack_progress.py", "hooks/stack_io.py", "hooks/stack_usage.py", "hooks/stack_sched.py",
                  "hooks/stack_sched_refresh.py", "hooks/sched_model.json", "hooks/derive_sched_model.py",
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json", "hooks/stack_fanout.py", "hooks/stack_fanout_wire.py",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
                  "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
                  "bin/stack-tree",
-                 "bin/stack-who",
+                 "bin/stack-who", "bin/stack-install", "hooks/toolsmith_policy.py",
                  "mcp/image_studio_mcp.py",
                  "mcp/libdocs_mcp.py", "mcp/neural_memory_mcp.py"]
 _missing = [rel for rel in STACK_SCRIPTS if not os.path.isfile(os.path.join(DEST, rel))]
@@ -2295,7 +2392,7 @@ for key in ("config_removed", "config_replaced", "notes"):
 # install rendered), the usage collector, the web caps, the read gate, /stack-doctor's bin/doctor.sh --hook,
 # /stack-tree's bin/stack-tree --hook. Every hook script settings.json ships must match, or each re-run keeps
 # the installed copy as yours and appends the shipped one again (tests/test_install_state.py checks this)
-STACK_HOOK_RE = re.compile(r"/bin/stack-hook\b|agent_guard\.py|stack_usage\.py|web_caps\.py|read_gate\.py|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
+STACK_HOOK_RE = re.compile(r"/bin/stack-hook\b|agent_guard\.py|stack_usage\.py|web_caps\.py|read_gate\.py|output_shrink\.py|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
 
 
 def canon(x):
@@ -2650,7 +2747,7 @@ else
   # a restore or an edit never runs stale code), beside the sources in the protected
   # hooks/__pycache__ (no PYTHONPYCACHEPREFIX; SOURCE_DATE_EPOCH would switch to checked-hash)
   hook_mods=()
-  for m in agent_guard stack_io stack_usage stack_limits stack_report stack_fanout stack_fanout_wire read_gate web_caps stack_hook stack_sched; do
+  for m in agent_guard stack_io stack_usage stack_limits stack_report stack_progress stack_fanout stack_fanout_wire read_gate web_caps output_shrink stack_hook stack_sched toolsmith_policy; do
     if [ -f "$C/hooks/$m.py" ]; then hook_mods+=("$C/hooks/$m.py"); fi
   done
   if (unset PYTHONPYCACHEPREFIX SOURCE_DATE_EPOCH
@@ -3231,6 +3328,473 @@ else
   note "plugins skipped"
 fi
 
+# ==== 10b/10c: equilibrium container isolation and the WALL (--with-eq-container, opt-in) ===========
+# lib/eq-container (the isolation images, run with Apple `container`: lib/eq-container/README.md) and
+# lib/eq-wall (the default-deny host-access broker and its ONE tunnel: lib/eq-wall/INSTALLER_WALL.md).
+# Optional and never fatal: a failure is a "! ..." note and leaves this run's exit status alone. Both
+# run from the reviewed source snapshot ($SNAP_ROOT/lib, as devtools.sh: a file swapped in the repo
+# after the review never runs); stack.env and the manifest name the repo paths the harness reads
+# ($HERE/lib/eq-wall). The state lives under $STACK_STATE (agent_guard keeps eq-container/ and
+# eq-wall/; sandboxed Bash cannot write there), the tunnel root is $EQ_TUNNEL_ROOT (set at the top).
+# This installer never installs Apple `container` and never starts its services.
+EQ_CONTAINER_STATE="$STACK_STATE/eq-container"
+EQ_WALL_STATE="$STACK_STATE/eq-wall"
+EQ_CONTAINER_RC=""; EQ_ENV_IMAGE=""
+# KEY=VALUE files (status.env, image.env, results/*.env): read line by line, never sourced
+eq_kv(){ [ -f "$1" ] || return 0; awk -v k="$2=" 'index($0, k) == 1 { print substr($0, length(k) + 1); exit }' "$1" 2>/dev/null || true; }
+# lib/eq-wall/REVIEW: the same, without a trailing "# comment" and blanks
+eq_review_kv(){ eq_kv "$1" "$2" | sed 's/[[:space:]]*#.*$//; s/[[:space:]]*$//'; }
+eq_sha256(){ { if have shasum; then shasum -a 256 "$1"; else sha256sum "$1"; fi; } 2>/dev/null | awk '{ print $1 }' || true; }
+eq_now(){ date -u +%FT%TZ; }
+
+# eq_env_py check|write|get ...: stack.env, non-clobbering. check/write take KEY VALUE PREV triples: a
+# non-empty value of yours stays (one note) unless it is PREV, the value this installer wrote last time;
+# an empty KEY= (the effective one) or else the first commented #KEY= line is filled in place, else the
+# line is appended. A value with blanks or # is written in double quotes; one holding a quote, $, `,
+# a backslash or a line break is never written (with-stack-env could not read it back). check: exit 0
+# when a line would change, 3 when none does, 4 when a value is refused. get KEY: the value in force.
+eq_env_py(){ python3 - "$C/stack.env" "$@" <<'PY'
+import os, re, sys
+path, mode = os.path.realpath(sys.argv[1]), sys.argv[2]
+try:
+    text = open(path, encoding="utf-8", errors="surrogateescape").read()
+except FileNotFoundError:
+    text = ""
+lines = text.splitlines(keepends=True)
+
+
+def value(raw):
+    v = raw.strip()
+    if len(v) >= 2 and v[0] == v[-1] and v[0] in "\"'":
+        return v[1:-1]
+    return re.split(r"\s+#", v, 1)[0].strip()
+
+
+def live(key):
+    return re.compile(r"^\s*(?:export\s+)?%s\s*=(.*)$" % re.escape(key))
+
+
+def in_force(key):
+    last = None
+    for i, line in enumerate(lines):
+        m = live(key).match(line.rstrip("\r\n"))
+        if m:
+            last = (i, value(m.group(1)))
+    return last
+
+
+def shown(val):
+    if re.search(r"[\"'$`\\\r\n\0]", val):
+        return None
+    return '"%s"' % val if re.search(r"[\s#]", val) else val
+
+
+if mode == "get":
+    got = in_force(sys.argv[3])
+    print(got[1] if got else "")
+    sys.exit(0)
+args = sys.argv[3:]
+changed, notes = [], []
+for key, val, prev in zip(args[0::3], args[1::3], args[2::3]):
+    if shown(val) is None:
+        print("  ! stack.env: %s not written (its value holds a quote, $, `, a backslash or a line break)" % key)
+        sys.exit(4)
+    got = in_force(key)
+    new = "%s=%s\n" % (key, shown(val))
+    if got and got[1]:
+        if got[1] == val:
+            continue
+        if prev and got[1] == prev:
+            lines[got[0]] = new
+            changed.append("%s=%s" % (key, val))
+        else:
+            notes.append("= stack.env keeps your %s=%s" % (key, got[1][:100]))
+        continue
+    at = got[0] if got else next((i for i, line in enumerate(lines)
+                                  if re.match(r"^\s*#\s*(?:export\s+)?%s\s*=" % re.escape(key), line)), None)
+    if at is None:
+        if lines and not lines[-1].endswith("\n"):
+            lines[-1] += "\n"
+        lines.append(new)
+    else:
+        lines[at] = new
+    changed.append("%s=%s" % (key, val))
+if mode == "check":
+    for n in notes:
+        print("  " + n)
+    sys.exit(0 if changed else 3)
+if changed:
+    tmp = path + ".tmp"
+    fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+    with os.fdopen(fd, "w", encoding="utf-8", errors="surrogateescape") as f:
+        f.write("".join(lines))
+    os.chmod(tmp, 0o600)
+    os.replace(tmp, path)
+    for c in changed:
+        print("  + stack.env: " + c)
+PY
+}
+eq_env_set(){  # KEY VALUE PREV ...: stack.env backed up (once per run) before a line changes
+  local st=0
+  eq_env_py check "$@" || st=$?
+  case "$st" in
+    3) return 0 ;;
+    0) ensure_backup && python3 "$STATE_PY" record "$B" file stack.env && eq_env_py write "$@" ;;
+    *) return 1 ;;
+  esac
+}
+eq_env_get(){ eq_env_py get "$1" 2>/dev/null || true; }
+
+# eq_manifest_py check|write KEY FIELD=VALUE ... | get KEY FIELD: the manifest's KEY record (other keys
+# kept). FIELD a.b nests; FIELD images@=PATH reads the EQ_<NAME>_DIGEST lines of an image.env. A record
+# that differs only in "at" is left as it is (exit 3), so an unchanged rerun changes and backs up nothing.
+eq_manifest_py(){ python3 - "$C/.stack-manifest.json" "$@" <<'PY'
+import json, os, re, sys
+p, mode, key = sys.argv[1:4]
+try:
+    m = json.load(open(p))
+except (OSError, ValueError):
+    m = {}
+if not isinstance(m, dict):
+    m = {}
+old = m.get(key) if isinstance(m.get(key), dict) else {}
+if mode == "get":
+    v = old.get(sys.argv[4])
+    print(v if isinstance(v, str) else json.dumps(v) if isinstance(v, dict) else "")
+    sys.exit(0)
+new = {}
+for pair in sys.argv[4:]:
+    field, _, val = pair.partition("=")
+    if field == "images@":
+        imgs = {}
+        try:
+            for line in open(val, encoding="utf-8", errors="replace"):
+                mm = re.match(r"^EQ_([A-Z0-9_]+)_DIGEST=(sha256:[0-9a-f]{64})$", line.strip())
+                if mm:
+                    imgs[mm.group(1).lower()] = mm.group(2)
+        except OSError:
+            pass
+        new["images"] = imgs
+        continue
+    d = new
+    parts = field.split(".")
+    for part in parts[:-1]:
+        d = d.setdefault(part, {})
+    d[parts[-1]] = val
+strip = lambda r: {k: v for k, v in r.items() if k != "at"}
+if strip(old) == strip(new):
+    sys.exit(3)
+if mode == "write":
+    m[key] = new
+    with open(p + ".tmp", "w") as f:
+        json.dump(m, f, indent=2, sort_keys=True)
+    os.replace(p + ".tmp", p)
+PY
+}
+eq_manifest_set(){  # KEY FIELD=VALUE ...: backed up first, written only when it changed
+  local st=0
+  eq_manifest_py check "$@" || st=$?
+  case "$st" in
+    3) return 0 ;;
+    0) ensure_backup && python3 "$STATE_PY" record "$B" file .stack-manifest.json && eq_manifest_py write "$@" ;;
+    *) return 1 ;;
+  esac
+}
+eq_manifest_get(){ eq_manifest_py get "$1" "$2" 2>/dev/null || true; }
+EQ_DIR_WHY=""
+eq_private_dir(){  # DIR: a real directory owned by you, not your home folder, mode 0700 (created so);
+  local d=$1 hp         # else 1 with EQ_DIR_WHY, and nothing is written through a symlink
+  EQ_DIR_WHY=""
+  if [ -L "$d" ]; then EQ_DIR_WHY="$d is a symlink"; return 1; fi
+  if [ -e "$d" ] && [ ! -d "$d" ]; then EQ_DIR_WHY="$d is not a directory"; return 1; fi
+  if [ ! -d "$d" ]; then
+    mkdir -p "$(dirname "$d")" 2>/dev/null || true
+    mkdir -m 700 "$d" 2>/dev/null || true
+  fi
+  if [ -L "$d" ] || [ ! -d "$d" ]; then EQ_DIR_WHY="cannot create $d"; return 1; fi
+  if [ ! -O "$d" ]; then EQ_DIR_WHY="$d is not owned by you"; return 1; fi
+  hp="$(cd "$HOME" 2>/dev/null && pwd -P || true)"
+  if [ "$(cd "$d" && pwd -P)" = "$hp" ]; then EQ_DIR_WHY="$d is your home folder"; return 1; fi
+  chmod 700 "$d" 2>/dev/null || { EQ_DIR_WHY="cannot chmod 700 $d"; return 1; }
+}
+
+# ---- 10b: the isolation images (lib/eq-container/eq-container.sh install) ---------------------------
+eq_container_args(){  # the eq-container.sh install arguments, one per line (validated: none holds a newline)
+  printf '%s\n' install
+  if [ -n "$EQ_CONTAINER_PROFILES" ]; then printf '%s\n' --profiles "$EQ_CONTAINER_PROFILES"
+  elif [ -n "${STACK_EQ_CONTAINER_PROFILES:-}" ]; then printf '%s\n' --profiles "$STACK_EQ_CONTAINER_PROFILES"
+  elif [ -n "${STACK_EQ_CONTAINER_SET:-}" ]; then printf '%s\n' --set "$STACK_EQ_CONTAINER_SET"
+  else printf '%s\n' --profiles core; fi           # the minimum the item classes PF, CP and CR need
+  if [ "$ASSUME_YES" = 1 ]; then printf '%s\n' --yes; fi          # answers the build question only
+  if [ "$NO_PROMPT" = 1 ]; then printf '%s\n' --no-prompt; fi
+}
+eq_container_manifest(){  # RC: the manifest's eq_container record after every real run of the step
+  local rc=$1 sf="$EQ_CONTAINER_STATE/status.env" imf="$EQ_CONTAINER_STATE/image.env" want why at
+  case "$rc" in 0) want=ok ;; 10) want=skipped ;; *) want=failed ;; esac
+  if [ "$(eq_kv "$sf" EQ_CONTAINER_STATUS)" = "$want" ]; then
+    why="$(eq_kv "$sf" EQ_CONTAINER_STATUS_WHY)"; at="$(eq_kv "$sf" EQ_CONTAINER_STATUS_AT)"
+  else
+    why="eq-container exit $rc"; at="$(eq_now)"
+  fi
+  eq_manifest_set eq_container status="$want" at="$at" why="$why" set="$(eq_kv "$sf" EQ_CONTAINER_STATUS_SET)" \
+    profiles="$(eq_kv "$sf" EQ_CONTAINER_STATUS_PROFILES)" pins_sha256="$(eq_kv "$sf" EQ_CONTAINER_STATUS_PINS_SHA256)" \
+    probe="$(eq_kv "$sf" EQ_CONTAINER_STATUS_PROBE)" \
+    image_refs.pf="$(eq_kv "$imf" EQ_CONTAINER_IMAGE_PF)" image_refs.cp="$(eq_kv "$imf" EQ_CONTAINER_IMAGE_CP)" \
+    image_refs.cr="$(eq_kv "$imf" EQ_CONTAINER_IMAGE_CR)" "images@=$imf" state_dir="$EQ_CONTAINER_STATE" \
+    env_image="$EQ_ENV_IMAGE" \
+    || note "! could not record eq_container in $C/.stack-manifest.json"
+}
+eq_image_ref_ok(){  # REF: eq.invalid/NAME:TAG@sha256:<64 hex>, nothing else (it goes into stack.env)
+  local d="${1##*@sha256:}" t="${1%@sha256:*}"
+  case "$1" in eq.invalid/*:*@sha256:*) ;; *) return 1 ;; esac
+  case "$d" in ""|*[!0-9a-f]*) return 1 ;; esac
+  [ "${#d}" = 64 ] || return 1
+  case "$t" in *[!A-Za-z0-9._/:-]*) return 1 ;; esac
+}
+eq_container_env_set(){  # DRIVER: after a verified install only: EQ_ISOLATION and EQ_IMAGE (print-env) into stack.env
+  local out iso img
+  out="$(EQ_STATE_DIR="$EQ_CONTAINER_STATE" bash "$1" print-env 2>/dev/null </dev/null)" \
+    || { note "! eq-container print-env failed: stack.env not changed"; return 0; }
+  iso="$(printf '%s\n' "$out" | sed -n 's/^EQ_ISOLATION=//p')"
+  img="$(printf '%s\n' "$out" | sed -n 's/^EQ_IMAGE=//p')"
+  if [ "$iso" != container ] || ! eq_image_ref_ok "$img"; then
+    note "! eq-container print-env gave no EQ_ISOLATION=container / EQ_IMAGE=eq.invalid/NAME:TAG@sha256:<64 hex>: stack.env not changed"
+    return 0
+  fi
+  # EQ_IMAGE is rewritten only while it holds what this installer wrote last time (a value you set is yours)
+  eq_env_set EQ_ISOLATION container "" EQ_IMAGE "$img" "$EQ_ENV_IMAGE" \
+    || { note "! could not update $C/stack.env: add EQ_ISOLATION=container and EQ_IMAGE=$img yourself"; return 0; }
+  if [ "$(eq_env_get EQ_IMAGE)" = "$img" ]; then EQ_ENV_IMAGE="$img"; else EQ_ENV_IMAGE=""; fi
+}
+eq_container_step(){
+  say "10b/11 Container isolation (--with-eq-container)"
+  local drv="$SNAP_ROOT/lib/eq-container/eq-container.sh" a rc=0 out
+  local args=()
+  if [ ! -f "$drv" ]; then
+    note "! $HERE/lib/eq-container/eq-container.sh missing: container isolation skipped"; EQ_CONTAINER_RC=missing; return 0
+  fi
+  case "${STACK_EQ_CONTAINER_SET:-}" in ""|min|full) ;; *)
+    note "! STACK_EQ_CONTAINER_SET must be min or full: container isolation skipped"; EQ_CONTAINER_RC=usage; return 0 ;;
+  esac
+  case "${STACK_EQ_CONTAINER_PROFILES:-}" in *[!a-z0-9,-]*)
+    note "! STACK_EQ_CONTAINER_PROFILES must be a comma list of lib/eq-container/TOOLS.toml profiles: container isolation skipped"
+    EQ_CONTAINER_RC=usage; return 0 ;;
+  esac
+  while IFS= read -r a; do args[${#args[@]}]="$a"; done <<EOF_EQARGS
+$(eq_container_args)
+EOF_EQARGS
+  if [ "$DRY_RUN" = 1 ]; then
+    would "bash lib/eq-container/eq-container.sh ${args[*]}   (state $EQ_CONTAINER_STATE; the dry run below asks the container services for image digests only and creates nothing)"
+    out="$(EQ_STATE_DIR="$EQ_CONTAINER_STATE" bash "$drv" "${args[@]}" --dry-run 2>&1 </dev/null)" || rc=$?
+    [ -z "$out" ] || printf '%s\n' "$out" | sed 's/^/    /'
+    case "$rc" in
+      0) ;;
+      10) note "container isolation would be skipped (the container CLI, its services or the architecture: see above)" ;;
+      *) note "! the eq-container dry run exited $rc" ;;
+    esac
+    return 0
+  fi
+  if ! eq_private_dir "$EQ_CONTAINER_STATE"; then
+    note "! container isolation skipped: its state dir was refused ($EQ_DIR_WHY)"; EQ_CONTAINER_RC=refused; return 0
+  fi
+  EQ_ENV_IMAGE="$(eq_manifest_get eq_container env_image)"
+  note "builds locally from lib/eq-container with Apple container (10-40 min cold, several GB of disk, network for the build only); Ctrl-C is safe"
+  # stdin stays this run's: eq-container asks its build question on a terminal, never in a pipe
+  EQ_STATE_DIR="$EQ_CONTAINER_STATE" bash "$drv" "${args[@]}" || rc=$?
+  EQ_CONTAINER_RC=$rc
+  [ "$rc" != 0 ] || eq_container_env_set "$drv"
+  eq_container_manifest "$rc"
+  case "$rc" in
+    0)  note "+ container isolation verified: EQ_IMAGE=$(eq_kv "$EQ_CONTAINER_STATE/image.env" EQ_IMAGE)  (state: $EQ_CONTAINER_STATE)" ;;
+    10) note "! container isolation skipped (not an error): see the eq-container lines above; install Apple container yourself (https://github.com/apple/container/releases), run: container system start, then re-run ./install.sh --with-eq-container" ;;
+    13) note "! container isolation NOT installed: a pin in lib/eq-container (PINS or TOOLS.toml) is still a placeholder, a maintainer step (lib/eq-container/README.md); STACK_EQ_CONTAINER_SET=full builds the full Debian image instead. The rest of the install is unaffected" ;;
+    *)  note "! container isolation NOT installed (eq-container exit $rc): $EQ_CONTAINER_STATE/logs/ ; the rest of the install is unaffected" ;;
+  esac
+}
+
+# ---- 10c: the WALL (lib/eq-wall: default-deny broker, ONE tunnel) -----------------------------------
+# X7: on by default with --with-eq-container only while lib/eq-wall/REVIEW (a maintainer fact: positive
+# reviews and fake tests at the reviewed bytes) holds AND the policy is the default-deny one (no kind
+# allowed: the positive review covers that policy only); --no-eq-broker turns it off, --with-eq-broker
+# on regardless.
+WALL_DEFAULT=off; WALL_DEFAULT_WHY=""; WALL_WANT=off; WALL_WHY=""
+eq_wall_review(){  # sets WALL_DEFAULT on|off and WALL_DEFAULT_WHY; a missing or malformed REVIEW is off
+  local f="$SNAP_ROOT/lib/eq-wall/REVIEW" k v
+  WALL_DEFAULT=off; WALL_DEFAULT_WHY="review not positive (opt-in: --with-eq-broker)"
+  [ -f "$f" ] || return 0
+  [ "$(eq_review_kv "$f" POSITIVE)" = 1 ] || return 0
+  [ "$(eq_review_kv "$f" OPEN_HIGH_CRITICAL)" = 0 ] || return 0
+  for k in SECURITY_AUDITOR_REF CODE_REVIEWER_REF TESTS_REF $(sed -n 's/^\([A-Z0-9_]*_REF\)=.*/\1/p' "$f"); do
+    [ -n "$(eq_review_kv "$f" "$k")" ] || return 0
+  done
+  # the reviewed bytes, when REVIEW names them: an edited policy or broker is not what was reviewed
+  for k in POLICY:policy.default.toml BROKER:eq_wall.py CLIENT:eq_wall_client.py; do
+    v="$(eq_review_kv "$f" "${k%%:*}_SHA256")"
+    if [ -n "$v" ] && [ "$v" != "$(eq_sha256 "$SNAP_ROOT/lib/eq-wall/${k#*:}")" ]; then
+      WALL_DEFAULT_WHY="review not positive for these bytes: lib/eq-wall/${k#*:} changed since the review (opt-in: --with-eq-broker)"
+      return 0
+    fi
+  done
+  WALL_DEFAULT=on; WALL_DEFAULT_WHY="lib/eq-wall/REVIEW positive"
+}
+eq_wall_decide(){  # sets WALL_WANT on|off and WALL_WHY from --no-eq-broker / --with-eq-broker and the default
+  eq_wall_review
+  case "$EQ_BROKER" in
+    on)  WALL_WANT=on; WALL_WHY="--with-eq-broker (default: $WALL_DEFAULT)" ;;
+    off) WALL_WANT=off; WALL_WHY="--no-eq-broker" ;;
+    *)   WALL_WANT="$WALL_DEFAULT"; WALL_WHY="$WALL_DEFAULT_WHY" ;;
+  esac
+}
+TUNNEL_STATE=none; TUNNEL_FAILS=0; TUNNEL_AT=""
+eq_tunnel_check(){  # TUNNEL_STATE PASS|FAIL|none over eq-container's results/tunnel.*.env (probe.d/50-tunnel.sh):
+  # PASS: one per image of the PF/CP/CR refs (TAG@sha256:DIGEST), matching both its tag and its digest
+  local imf="$EQ_CONTAINER_STATE/image.env" ref tag dig f ok n seen=" " any=0 miss=0 bad=0
+  TUNNEL_STATE=none; TUNNEL_FAILS=0; TUNNEL_AT=""
+  for ref in $(eq_kv "$imf" EQ_CONTAINER_IMAGE_PF) $(eq_kv "$imf" EQ_CONTAINER_IMAGE_CP) $(eq_kv "$imf" EQ_CONTAINER_IMAGE_CR); do
+    case "$seen" in *" $ref "*) continue ;; esac
+    seen="$seen$ref "; any=1; ok=none; tag="${ref%@*}"; dig="${ref##*@}"
+    for f in "$EQ_CONTAINER_STATE"/results/tunnel.*.env; do
+      [ -f "$f" ] && [ "$(eq_kv "$f" TUNNEL_IMAGE)" = "$tag" ] && [ "$(eq_kv "$f" TUNNEL_IMAGE_DIGEST)" = "$dig" ] || continue
+      if [ "$(eq_kv "$f" TUNNEL_RESULT)" = PASS ]; then
+        [ "$ok" = FAIL ] || ok=PASS; TUNNEL_AT="$(eq_kv "$f" TUNNEL_AT)"
+      else
+        ok=FAIL; n="$(eq_kv "$f" TUNNEL_FAILS)"; case "$n" in ''|*[!0-9]*) n=1 ;; esac
+        TUNNEL_FAILS=$((TUNNEL_FAILS + n))
+      fi
+    done
+    case "$ok" in FAIL) bad=1 ;; none) miss=1 ;; esac
+  done
+  if [ "$bad" = 1 ]; then TUNNEL_STATE=FAIL
+  elif [ "$any" = 1 ] && [ "$miss" = 0 ]; then TUNNEL_STATE=PASS
+  else TUNNEL_STATE=none; fi
+}
+# eq_wall_finish STATUS WHY [FIELD=VALUE ...]: status.env, stack.env, the manifest's eq_wall record, one note
+eq_wall_finish(){
+  local st=$1 why=$2 sf="$EQ_WALL_STATE/status.env" cfg="" pair prev w
+  shift 2
+  for pair in "$@"; do case "$pair" in config_sha256=*) cfg="${pair#config_sha256=}" ;; esac; done
+  # status.env (0600; rewritten only when status, reason or config change), never through a symlink
+  if eq_private_dir "$EQ_WALL_STATE"; then
+    if [ "$(eq_kv "$sf" EQ_WALL_STATUS)" != "$st" ] || [ "$(eq_kv "$sf" EQ_WALL_STATUS_WHY)" != "$why" ] \
+       || [ "$(eq_kv "$sf" EQ_WALL_CONFIG_SHA256)" != "$cfg" ]; then
+      ( umask 077; printf 'EQ_WALL_STATUS=%s\nEQ_WALL_STATUS_AT=%s\nEQ_WALL_STATUS_WHY=%s\nEQ_WALL_CONFIG_SHA256=%s\n' \
+          "$st" "$(eq_now)" "$why" "$cfg" > "$sf.tmp.$$" && chmod 600 "$sf.tmp.$$" && mv -f "$sf.tmp.$$" "$sf" ) \
+        || note "! could not write $sf"
+    fi
+  else
+    note "! WALL state dir refused ($EQ_DIR_WHY): no status file written"
+  fi
+  # stack.env: on = the four keys; off and failed = EQ_WALL=off; skipped = unchanged. A value you set
+  # stays, unless it is the one this installer wrote last time (the manifest's eq_wall.env)
+  pw(){ eq_manifest_py get eq_wall env 2>/dev/null | python3 -c 'import json, sys
+try:
+    print((json.load(sys.stdin) or {}).get(sys.argv[1], ""))
+except ValueError:
+    print("")' "$1" 2>/dev/null || true; }
+  case "$st" in
+    on)  eq_env_set EQ_WALL on "$(pw EQ_WALL)" EQ_TUNNEL_DIR "$EQ_TUNNEL_ROOT" "$(pw EQ_TUNNEL_DIR)" \
+           EQ_WALL_STATE_DIR "$EQ_WALL_STATE" "$(pw EQ_WALL_STATE_DIR)" EQ_WALL_DIR "$HERE/lib/eq-wall" "$(pw EQ_WALL_DIR)" \
+           || note "! could not update $C/stack.env (EQ_WALL=on and its paths)" ;;
+    off|failed) eq_env_set EQ_WALL off "$(pw EQ_WALL)" || note "! could not update $C/stack.env (EQ_WALL=off)" ;;
+  esac
+  # the env values this installer owns now: the ones stack.env holds that it set
+  set -- "$@" status="$st" at="$(eq_kv "$sf" EQ_WALL_STATUS_AT)" why="$why" default="$WALL_DEFAULT" flag="$EQ_BROKER" \
+    tunnel_dir="$EQ_TUNNEL_ROOT" state_dir="$EQ_WALL_STATE" wall_dir="$HERE/lib/eq-wall"
+  for w in EQ_WALL EQ_TUNNEL_DIR EQ_WALL_STATE_DIR EQ_WALL_DIR; do
+    case "$st:$w" in
+      on:*|off:EQ_WALL|failed:EQ_WALL) set -- "$@" "env.$w=$(eq_env_get "$w")" ;;
+      *) prev="$(pw "$w")"; [ -z "$prev" ] || set -- "$@" "env.$w=$prev" ;;
+    esac
+  done
+  eq_manifest_set eq_wall "$@" || note "! could not record eq_wall in $C/.stack-manifest.json"
+  case "$st" in
+    on) note "+ WALL on: tunnel root $EQ_TUNNEL_ROOT (0700, one channel per call), state $EQ_WALL_STATE, policy $HERE/lib/eq-wall/policy.default.toml ($why)" ;;
+    off) note "WALL off ($why)" ;;
+    skipped) note "WALL skipped: $why" ;;
+    *) note "! WALL NOT set up ($why); the rest of the install is unaffected" ;;
+  esac
+}
+eq_wall_step(){
+  say "10c/11 WALL (host-access broker + tunnel)"
+  local wd="$SNAP_ROOT/lib/eq-wall" sp="$C/bin/stack-python" pol out rc pol_sha cfg_sha row kinds
+  pol="$wd/policy.default.toml"
+  eq_wall_decide
+  if [ "$DRY_RUN" = 1 ]; then
+    would "WALL $WALL_WANT ($WALL_WHY; default: $WALL_DEFAULT, on only for the default-deny policy; --no-eq-broker / --with-eq-broker), once the container isolation above is verified: tunnel root $EQ_TUNNEL_ROOT (0700), state $EQ_WALL_STATE (0700), policy $HERE/lib/eq-wall/policy.default.toml"
+    return 0
+  fi
+  if [ "$EQ_CONTAINER_RC" != 0 ] || [ "$(eq_kv "$EQ_CONTAINER_STATE/status.env" EQ_CONTAINER_STATUS)" != ok ]; then
+    if [ "$WALL_WANT" = on ]; then eq_tunnel_check; fi
+    if [ "$WALL_WANT" = on ] && [ "$TUNNEL_STATE" = FAIL ]; then
+      eq_wall_finish failed "tunnel probe FAIL ($TUNNEL_FAILS rows): $EQ_CONTAINER_STATE/logs/probe.log" tunnel_probe=FAIL
+    else
+      eq_wall_finish skipped "eq-container is not installed"
+    fi
+    return 0
+  fi
+  if [ "$WALL_WANT" != on ]; then eq_wall_finish off "$WALL_WHY"; return 0; fi
+  # the stack's own Python 3.13 (eq_wall.py needs 3.11+: tomllib), never python3 from PATH
+  if ! "$sp" -I -c 'import tomllib' >/dev/null 2>&1 </dev/null; then
+    eq_wall_finish failed "stack-python unusable ($sp cannot import tomllib)"; return 0
+  fi
+  # 1. the policy, its kinds and the configuration hash the harness freezes (flags --wall-policy);
+  #    before any directory is made, so a policy outside the default's reach leaves nothing behind
+  rc=0; out="$("$sp" -I "$wd/eq_wall.py" check-policy "$pol" 2>&1 </dev/null)" || rc=$?
+  pol_sha="$(printf '%s\n' "$out" | sed -n '1s/^policy .* sha256 \([0-9a-f]\{64\}\)$/\1/p')"
+  if [ "$rc" != 0 ] || [ -z "$pol_sha" ]; then
+    eq_wall_finish failed "eq_wall.py check-policy: $(printf '%s' "$out" | tr '\n' ' ' | cut -c1-200)"; return 0
+  fi
+  kinds="$(printf '%s\n' "$out" | sed -n 's/^kinds allowed: //p' | head -n 1)"
+  if [ "$EQ_BROKER" != on ] && [ "$kinds" != "none (deny all)" ]; then
+    # X7: the positive review covers the default-deny policy only; anything else is the user's opt-in
+    eq_wall_finish off "the policy allows ${kinds:-?}: default-on covers the default-deny policy only (opt-in: --with-eq-broker)"
+    return 0
+  fi
+  cfg_sha="$("$sp" -I "$wd/eq_wall.py" config-hash --policy "$pol" 2>/dev/null </dev/null || true)"
+  case "$cfg_sha" in
+    *[!0-9a-f]*|"") eq_wall_finish failed "eq_wall.py config-hash failed"; return 0 ;;
+  esac
+  # the three paths go into stack.env, which cannot carry a quote, $, `, a backslash or a line break
+  # (eq_env_py refuses such a value): refused here, before any directory is made, rather than a WALL
+  # that is on without the stack.env lines the harness reads
+  case "$EQ_TUNNEL_ROOT|$EQ_WALL_STATE|$HERE/lib/eq-wall" in
+    *[\"\'\$\`\\]*|*$'\n'*|*$'\r'*)
+      eq_wall_finish failed "a WALL path holds a quote, \$, \`, a backslash or a line break (stack.env cannot carry it): set XDG_CACHE_HOME / XDG_STATE_HOME or move the repo"
+      return 0 ;;
+  esac
+  # the tunnel root is bind-mounted (`container run --mount type=bind,source=...`): the CLI splits that value at commas
+  # and cuts a path at an '=' (1.5.0 Parser.mount); the harness and lib.sh refuse such a path, a colon included
+  case "$EQ_TUNNEL_ROOT" in
+    *[,:=]*)
+      eq_wall_finish failed "the tunnel root $EQ_TUNNEL_ROOT holds a comma, colon or '=' (container --mount cannot carry it): set XDG_CACHE_HOME"
+      return 0 ;;
+  esac
+  # 2. the tunnel probe eq-container ran (probe.d/50-tunnel.sh): PASS for every image, tag and digest;
+  #    read before any directory is made, so a failed or missing probe leaves no tunnel root behind
+  eq_tunnel_check
+  case "$TUNNEL_STATE" in
+    PASS) ;;
+    FAIL) eq_wall_finish failed "tunnel probe FAIL ($TUNNEL_FAILS rows): $EQ_CONTAINER_STATE/logs/probe.log" tunnel_probe=FAIL; return 0 ;;
+    *) eq_wall_finish failed "tunnel probe missing: run bash lib/eq-container/eq-container.sh install --force-verify, then ./install.sh --with-eq-container" tunnel_probe=none; return 0 ;;
+  esac
+  eq_private_dir "$EQ_TUNNEL_ROOT" || { eq_wall_finish failed "tunnel root refused: $EQ_DIR_WHY"; return 0; }
+  eq_private_dir "$EQ_WALL_STATE" || { eq_wall_finish failed "state dir refused: $EQ_DIR_WHY"; return 0; }
+  # 3. roots, policy and the user's stores (verdicts.jsonl, consents.jsonl: never created or edited here)
+  rc=0; out="$("$sp" -I "$wd/eq_wall.py" check --tunnel-root "$EQ_TUNNEL_ROOT" --state "$EQ_WALL_STATE" --policy "$pol" \
+    --verdicts "$EQ_WALL_STATE/verdicts.jsonl" --consents "$EQ_WALL_STATE/consents.jsonl" 2>&1 </dev/null)" || rc=$?
+  if [ "$rc" != 0 ]; then
+    row="$(printf '%s\n' "$out" | awk '$2 == "FAIL" { print; exit }')"
+    eq_wall_finish failed "eq_wall.py check: ${row:-exit $rc}"; return 0
+  fi
+  eq_wall_finish on "tunnel probe PASS ($TUNNEL_AT); policy: ${kinds}" config_sha256="$cfg_sha" policy_sha256="$pol_sha" \
+    broker_sha256="$(eq_sha256 "$wd/eq_wall.py")" client_sha256="$(eq_sha256 "$wd/eq_wall_client.py")" tunnel_probe=PASS
+}
+if [ "$WITH_EQ_CONTAINER" = 1 ]; then
+  eq_container_step || note "! the container isolation step stopped early (the rest of the install is unaffected)"
+  eq_wall_step || note "! the WALL step stopped early (the rest of the install is unaffected)"
+fi
+# ==== 10b/10c: END ======================================================================================
+
 say "11/11 Shell profile"
 PROFILE_NOTE=""
 if [ "$NO_PROFILE" = 1 ]; then
@@ -3383,4 +3947,10 @@ cat <<EOF
   4. Browser agent with your logins: start with  claude --chrome  (or /chrome → Enabled by default).
   5. Optional: ./install.sh --with-ml (shared ML venv) · --with-lsp (language servers) · --with-adobe
      · --no-anthropic-plugins (skips mcp-server-dev, session-report, skill-creator, math-olympiad)
+     · --with-eq-container (Apple container isolation images for the equilibrium harness, and its WALL)
 EOF
+if [ "$WITH_EQ_CONTAINER" = 1 ] && [ "$DRY_RUN" = 0 ]; then
+  case "$(eq_kv "$EQ_WALL_STATE/status.env" EQ_WALL_STATUS)" in
+    on|off) note "· WALL $(eq_kv "$EQ_WALL_STATE/status.env" EQ_WALL_STATUS): freeze it with eq_harness.py flags --wall-policy $HERE/lib/eq-wall/policy.default.toml; grants are yours only: eq_wall.py verdict-add / consent-add (on a terminal)" ;;
+  esac
+fi

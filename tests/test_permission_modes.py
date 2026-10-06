@@ -77,19 +77,30 @@ def test_notebook_edit_counts_as_editing(tmp_path, monkeypatch):
     assert mode_errors(fixture(tmp_path, "Read, NotebookEdit, Skill", "acceptEdits"), monkeypatch) == []
 
 
+def test_installer_type_carries_accept_edits_without_edit_tools(tmp_path, monkeypatch):
+    """toolsmith installs through Bash alone (bin/stack-install): acceptEdits keeps it working under a
+    Plan parent; plan would make it read-only; another Bash-only agent still may not carry it."""
+    ok = fixture(tmp_path, "Read, Bash, Skill", "acceptEdits", name="toolsmith")
+    assert mode_errors(ok, monkeypatch) == []
+    assert mode_errors(fixture(tmp_path, "Read, Bash, Skill", "plan", name="toolsmith"), monkeypatch)
+    assert mode_errors(fixture(tmp_path, "Read, Skill", "acceptEdits", name="toolsmith"), monkeypatch)
+    assert mode_errors(fixture(tmp_path, "Read, Bash, Skill", "acceptEdits", name="bash-only"), monkeypatch)
+
+
 def test_shipped_agents_follow_the_rule():
-    """Every agent that can write files carries acceptEdits for its subagent runs (42); BlackCat,
-    the main thread, follows the session's mode (Plan) and the read-only agents carry none."""
+    """Every agent that can write files carries acceptEdits for its subagent runs (45, plus toolsmith,
+    which installs software through Bash: 46); BlackCat, the main thread, follows the session's mode
+    (Plan) and the read-only agents carry none."""
     modes, writers = {}, set()
     for f in sorted(AGENTS.glob("*.md")):
         data, _ = lint_agents.parse_frontmatter(f.read_text())
         assert lint_agents.permission_mode_problem(data) is None, f.name
-        if lint_agents.EDIT_TOOLS & set(lint_agents.get_tools(data)[0]):
+        if lint_agents.EDIT_TOOLS & set(lint_agents.get_tools(data)[0]) or f.stem in lint_agents.INSTALLER_TYPES:
             writers.add(f.stem)
         if "permissionMode" in data:
             modes[f.stem] = lint_agents.get_inline(data, "permissionMode")
     assert set(modes.values()) == {"acceptEdits"}
-    assert set(modes) == writers - {"blackcat"} and len(modes) == 42
+    assert set(modes) == writers - {"blackcat"} and len(modes) == 46
     assert {f.stem for f in AGENTS.glob("*.md")} - set(modes) == {
         "blackcat", "claude-code-guide", "code-reviewer", "explore", "oracle", "plan-reviewer", "planner",
         "proof-checker", "scout", "security-auditor", "verifier"}

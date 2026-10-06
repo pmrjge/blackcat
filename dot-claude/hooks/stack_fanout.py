@@ -749,9 +749,9 @@ _SPC = {"claude-code-engineer": (14, 29), "planner": (34, 40), "code-reviewer": 
 _POOL_REP = {"builder": "claude-code-engineer", "analyst": "researcher", "lookup": "explore",
              "verifier": "verifier", "artifact": "writer", "reviewer": "code-reviewer"}
 _ANALYST = frozenset(("planner", "plan-reviewer", "researcher", "security-auditor", "proof-checker"))
-_LOOKUP = frozenset(("explore", "oracle", "mcp-broker", "scout", "claude-code-guide"))
+_LOOKUP = frozenset(("explore", "oracle", "mcp-broker", "scout", "claude-code-guide", "toolsmith"))
 _ARTIFACT = frozenset(("writer", "browser-operator", "doc-specialist", "designer", "image-director",
-                       "motion-designer", "cg-artist"))
+                       "motion-designer", "cg-artist", "rigger-animator", "sculptor-painter"))
 UNVERIFIED_W = 1.0
 MODEL_MAX_BYTES = 4 << 20
 

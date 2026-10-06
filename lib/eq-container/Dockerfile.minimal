@@ -1,0 +1,200 @@
+# Dockerfile.minimal: FROM-scratch variants of the equilibrium check image (no distribution, no package manager, no apt/dpkg,
+# no docs/man/locale, no setuid files). Targets (build with bash build.sh --set min, or container build --target ...):
+#   eq-lean-min   PF checks: Lean 4.34.1 + Mathlib module files + bash + perl + busybox + the lake shim
+#   eq-py-min     CP/CR/ES: CPython 3.14.8 (pruned stdlib) + uv + jq + bash + busybox
+#   eq-min        both in one image (also runs the PF dev selftest, which needs python + jq + lean)
+#   tools-report (diagnostic) prints version and sha256 of busybox, bash, perl, jq (build.sh --resolve-tools; see PINS)
+# The first four stages (base .. mathlib) are byte-identical to ./Dockerfile so BuildKit reuses their cache when the full
+# image was built first (expected, not verified).
+# What the checks execute is copied explicitly by minimal/mkrootfs.sh: shared libraries resolved with ldd in the builder
+# stage, the dynamic loader at its exact path, minimal /etc/passwd + /etc/group. Real bash and perl are required
+# (harness argv `bash check_lean.sh Answer.lean`; check_lean.sh runs `perl -e <alarm wrapper>`, frozen by pool.sha256); all
+# other tools are one static busybox pinned by sha256. Lake is NOT shipped: minimal/lake-shim answers the one call
+# check_lean.sh makes (`lake env printenv LEAN_PATH`) from a value computed by the real lake at build time.
+# Pins: see ./PINS. Placeholder rule: a pin whose value is UNSET makes the build stop with the command that fills it.
+#
+# Scratch vs distroless: a distroless final stage would add only glibc, libstdc++, libgcc, tzdata, ca-certificates and
+# /etc files, all of which the ldd closure here already copies where the checks need them; it does NOT supply bash, perl,
+# busybox, jq, python or uv, so the same explicit copies stay (the distroless candidate was dropped with the Docker backend).
+# Mount points (the read-only rootfs of `container run --read-only`): /work /fixture /in /eq/tunnel /eqsrc/work exist in
+# the rootfs (minimal/mkrootfs.sh), so no mount needs the runtime to create a directory.
+# Every RUN below starts the script through `bash`, so the files need no execute bit in the checkout.
+
+ARG BASE_IMAGE=debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+
+# ---------------------------------------------------------------- base: apt pinned by snapshot date
+FROM ${BASE_IMAGE} AS base
+ARG APT_SNAPSHOT=20260918T000000Z
+ENV DEBIAN_FRONTEND=noninteractive
+# The slim base has no ca-certificates, so the snapshot is read over http; apt still verifies the signed InRelease.
+RUN set -eu; \
+    if [ -n "${APT_SNAPSHOT}" ]; then \
+      rm -f /etc/apt/sources.list.d/debian.sources /etc/apt/sources.list; \
+      echo "deb http://snapshot.debian.org/archive/debian/${APT_SNAPSHOT}/ trixie main" > /etc/apt/sources.list; \
+      echo 'Acquire::Check-Valid-Until "false"; Acquire::Retries "5";' > /etc/apt/apt.conf.d/99snapshot; \
+    fi
+
+# ---------------------------------------------------------------- tools: build-time only, not in the final image
+FROM base AS tools
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends ca-certificates curl git zstd xz-utils \
+ && rm -rf /var/lib/apt/lists/*
+
+# ---------------------------------------------------------------- fetch: pinned binaries, checksum verified
+FROM tools AS fetch
+ARG LEAN_VERSION=4.34.1
+ARG LEAN_SHA256=fdb974c2cdb4627e090d5d4007b913e09d13c4868720fb5594e22808b3de9e37
+ARG UV_VERSION=0.12.22
+ARG UV_SHA256=6f66a14e8239871fb477f9746c941fedfa77e8fe28a8bc7c07e1dc7f53a66712
+ARG PYTHON_VERSION=3.14.8
+ARG PBS_TAG=20261001
+ARG PYTHON_SHA256=4395ae16388f9d3409cba7e20161753ed3359b13d959345415029f874f675162
+WORKDIR /tmp/dl
+RUN set -eux; \
+    curl --proto '=https' --tlsv1.2 -fsSL --retry 5 -o lean.tar.zst \
+      "https://github.com/leanprover/lean4/releases/download/v${LEAN_VERSION}/lean-${LEAN_VERSION}-linux_aarch64.tar.zst"; \
+    echo "${LEAN_SHA256}  lean.tar.zst" | sha256sum -c -; \
+    mkdir -p /opt/lean; tar --zstd -xf lean.tar.zst -C /opt/lean --strip-components=1; \
+    /opt/lean/bin/lean --version | grep -F "version ${LEAN_VERSION}"; \
+    curl --proto '=https' --tlsv1.2 -fsSL --retry 5 -o uv.tar.gz \
+      "https://github.com/astral-sh/uv/releases/download/${UV_VERSION}/uv-aarch64-unknown-linux-gnu.tar.gz"; \
+    echo "${UV_SHA256}  uv.tar.gz" | sha256sum -c -; \
+    mkdir -p /opt/uv; tar -xzf uv.tar.gz -C /opt/uv --strip-components=1; \
+    /opt/uv/uv --version | grep -F "${UV_VERSION}"; \
+    curl --proto '=https' --tlsv1.2 -fsSL --retry 5 -o py.tar.gz \
+      "https://github.com/astral-sh/python-build-standalone/releases/download/${PBS_TAG}/cpython-${PYTHON_VERSION}%2B${PBS_TAG}-aarch64-unknown-linux-gnu-install_only_stripped.tar.gz"; \
+    echo "${PYTHON_SHA256}  py.tar.gz" | sha256sum -c -; \
+    mkdir -p /opt/python; tar -xzf py.tar.gz -C /opt/python --strip-components=1; \
+    [ -e /opt/python/bin/python ] || ln -s python3 /opt/python/bin/python; \
+    /opt/python/bin/python3 --version | grep -F "${PYTHON_VERSION}"; \
+    rm -rf /tmp/dl
+
+# ---------------------------------------------------------------- mathlib: clone the pinned deps, fetch the olean cache
+FROM tools AS mathlib
+ENV PATH=/opt/lean/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin HOME=/root LANG=C.UTF-8
+COPY --from=fetch /opt/lean /opt/lean
+COPY project/ /opt/eq/stack_mathlib/
+WORKDIR /opt/eq/stack_mathlib
+ARG MATHLIB_REV=d13f23b723b8a846827a245b89c10fc7d3f11612
+RUN set -eux; \
+    sha256sum -c SHA256SUMS; \
+    grep -F "\"rev\": \"${MATHLIB_REV}\"" lake-manifest.json; \
+    grep -Fx 'leanprover/lean4:v4.34.1' lean-toolchain
+# Network (build time only): github.com (git clones of the 9 locked packages), the Mathlib cache host
+# (lakecache.blob.core.windows.net) and, if the toolchain asks for it, github.com release downloads of leantar.
+RUN lake exe cache get
+RUN set -eux; \
+    printf 'import Mathlib\nexample : (2:Nat) + 2 = 4 := by norm_num\n#eval Lean.versionString\n' > /tmp/smoke.lean; \
+    LP=$(lake env printenv LEAN_PATH); echo "LEAN_PATH=$LP"; \
+    LEAN_PATH="$LP" lean /tmp/smoke.lean; \
+    rm -f /tmp/smoke.lean
+RUN set -eux; \
+    cd /opt/eq/stack_mathlib/.lake/packages; \
+    n=$(find . -name '*.olean' | wc -l); \
+    h=$(find . -name '*.olean' | LC_ALL=C sort | xargs sha256sum | sha256sum | cut -d' ' -f1); \
+    { echo "lean: $(lean --version)"; \
+      echo "mathlib_rev: ${MATHLIB_REV}"; \
+      echo "olean_files: $n"; \
+      echo "olean_tree_sha256: $h"; \
+      echo "olean_tree_recipe: cd .lake/packages && find . -name '*.olean' | LC_ALL=C sort | xargs sha256sum | sha256sum"; \
+      echo "project_sha256sums:"; sed 's/^/  /' /opt/eq/stack_mathlib/SHA256SUMS; \
+    } > /opt/eq/PROVENANCE.txt; \
+    cat /opt/eq/PROVENANCE.txt; \
+    rm -rf /root/.cache
+
+
+# ---------------------------------------------------------------- the real lake's LEAN_PATH, computed once at build time
+FROM mathlib AS leanpath
+RUN set -eux; cd /opt/eq/stack_mathlib && lake env printenv LEAN_PATH > /opt/eq/LEAN_PATH.real; cat /opt/eq/LEAN_PATH.real
+
+# ---------------------------------------------------------------- static busybox from the snapshot, pinned by sha256
+FROM base AS busybox-fetch
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends busybox-static \
+ && rm -rf /var/lib/apt/lists/* \
+ && install -D -m 0755 "$(dpkg -L busybox-static | grep -E '/bin/busybox$' | head -n 1)" /opt/busybox
+
+# diagnostic: version and sha256 of every distro-package tool (busybox, bash, perl, jq) from the pinned snapshot, for
+# `build.sh --resolve-tools [--write-pin]` (trust on first use: review the printed package versions, then keep the change)
+FROM busybox-fetch AS tools-report
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends jq \
+ && rm -rf /var/lib/apt/lists/*
+RUN set -eu; \
+    rep() { echo "TOOL $1 $(dpkg-query -W -f='${Version}' "$2") $(sha256sum "$3" | cut -d' ' -f1)"; }; \
+    rep busybox busybox-static /opt/busybox; rep bash bash /usr/bin/bash; rep perl perl-base /usr/bin/perl; rep jq jq /usr/bin/jq
+
+FROM busybox-fetch AS busybox
+ARG BUSYBOX_SHA256=UNSET
+RUN set -eu; \
+    case "${BUSYBOX_SHA256}" in UNSET|""|*TODO*) \
+      echo "BUSYBOX_SHA256 is not pinned. Run: bash build.sh --resolve-tools   (prints the value; --write-pin writes it into PINS, this file and TOOLS.toml)" >&2; exit 1;; esac; \
+    echo "${BUSYBOX_SHA256}  /opt/busybox" | sha256sum -c -
+
+# ---------------------------------------------------------------- prep: everything the assemble stages copy from
+FROM base AS prep
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends jq libstdc++6 \
+ && rm -rf /var/lib/apt/lists/*
+COPY --from=fetch /opt/lean /opt/lean
+COPY --from=fetch /opt/uv /opt/uv
+COPY --from=fetch /opt/python /opt/python
+COPY --from=mathlib /opt/eq /opt/eq
+COPY --from=leanpath /opt/eq/LEAN_PATH.real /opt/eq/LEAN_PATH.real
+COPY --from=busybox /opt/busybox /opt/busybox
+COPY minimal/ /opt/eq-min/
+# the tools manifest: mkrootfs.sh writes /opt/eq/TOOLS.lock from it and refuses an unpinned or mismatching distro-package tool
+COPY TOOLS.toml tools.sh /opt/eq-min/
+
+# Module files kept in the image (KEEP_EXTS): conservative default keeps every kind Lean 4.34's module system writes.
+# .olean.private is ~60% of the bytes; whether `lean` reads it at check time is not measured for this backend yet (the
+# Docker-era trace-reads.sh/reverify.sh were dropped): keep the default (profiles: --keep-profile noprivate | slim in build.sh).
+FROM prep AS assemble-lean
+ARG KEEP_EXTS="olean olean.private olean.server ir ir.sig"
+RUN bash /opt/eq-min/mkrootfs.sh lean
+
+FROM prep AS assemble-py
+RUN bash /opt/eq-min/mkrootfs.sh py
+
+FROM prep AS assemble-both
+ARG KEEP_EXTS="olean olean.private olean.server ir ir.sig"
+RUN bash /opt/eq-min/mkrootfs.sh both
+
+# ---------------------------------------------------------------- finals: FROM scratch
+FROM scratch AS eq-lean-min
+COPY --from=assemble-lean /rootfs/ /
+# F4: the read-only source copy of a check is mounted at /eqsrc/work and copied into the tmpfs /work by `/bin/sh -c cp -R`
+# (mkrootfs.sh also creates it; /bin/sh is bash in every variant); this makes sure the mount point exists
+WORKDIR /eqsrc/work
+ENV PATH=/usr/local/bin:/usr/bin:/opt/lean/bin HOME=/tmp TMPDIR=/tmp LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    EQ_LEAN_PROJECT=/opt/eq/stack_mathlib
+LABEL org.opencontainers.image.title="eq-lean-min" \
+      org.opencontainers.image.description="Equilibrium PF checks: Lean 4.34.1 + Mathlib v4.34.1, FROM scratch (arm64)"
+USER 10001:10001
+WORKDIR /work
+CMD ["/usr/bin/bash"]
+
+FROM scratch AS eq-py-min
+COPY --from=assemble-py /rootfs/ /
+WORKDIR /eqsrc/work
+ENV PATH=/usr/local/bin:/usr/bin:/opt/uv:/opt/python/bin HOME=/tmp TMPDIR=/tmp LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    UV_PYTHON=/opt/python/bin/python3 UV_PYTHON_DOWNLOADS=never UV_OFFLINE=1 UV_NO_CONFIG=1 UV_NO_PROGRESS=1 \
+    UV_CACHE_DIR=/tmp/uv-cache PYTHONDONTWRITEBYTECODE=1
+LABEL org.opencontainers.image.title="eq-py-min" \
+      org.opencontainers.image.description="Equilibrium CP/CR/ES checks: CPython 3.14.8 + uv, FROM scratch (arm64)"
+USER 10001:10001
+WORKDIR /work
+CMD ["/usr/bin/bash"]
+
+FROM scratch AS eq-min
+COPY --from=assemble-both /rootfs/ /
+WORKDIR /eqsrc/work
+ENV PATH=/usr/local/bin:/usr/bin:/opt/lean/bin:/opt/uv:/opt/python/bin HOME=/tmp TMPDIR=/tmp LANG=C.UTF-8 LC_ALL=C.UTF-8 \
+    EQ_LEAN_PROJECT=/opt/eq/stack_mathlib \
+    UV_PYTHON=/opt/python/bin/python3 UV_PYTHON_DOWNLOADS=never UV_OFFLINE=1 UV_NO_CONFIG=1 UV_NO_PROGRESS=1 \
+    UV_CACHE_DIR=/tmp/uv-cache PYTHONDONTWRITEBYTECODE=1
+LABEL org.opencontainers.image.title="eq-min" \
+      org.opencontainers.image.description="Equilibrium checks, all classes: Lean + Mathlib, CPython + uv, FROM scratch (arm64)"
+USER 10001:10001
+WORKDIR /work
+CMD ["/usr/bin/bash"]

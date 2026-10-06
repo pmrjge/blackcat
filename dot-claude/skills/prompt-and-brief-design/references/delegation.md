@@ -25,7 +25,7 @@ Read from the rules ("Delegating") before your first spawn as a subagent; once p
 
 ## 3. Briefs down
 - The rules' brief block plus: `Layer`, `Why`, the files the child owns (globs) or `isolation: "worktree"`, its integrator (`integrator: you` or `integrator: <your type>`), its share of the budget (`budget: ~N K tokens, ≤ k children`), the facts already found (paths, `USER:` answers, neural-memory hits) so no layer looks them up again, and the artifact paths it reads from earlier steps and writes for later ones (§5).
-- Split your remaining budget across children and keep a share for integration. A child at its share stops and reports STATUS: partial; the hook enforces only prompt and session totals.
+- Split your remaining budget across children and keep a share for integration. A child at its share stops and reports STATUS: partial; the hook enforces only prompt and session totals and measures the share in context tokens (`stack-budget`'s unit) or `N calls`.
 - Give the child its part, never your whole task; repeat nothing its own body or the rules already say.
 
 ## 4. Hand-backs up

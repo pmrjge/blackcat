@@ -8,6 +8,14 @@ description: Load before sculpting, retopology, UVs, baking or texture painting 
 - From blockout to textured, export-ready asset. Blender mechanics in `blender-3d`; printing sculptures in `3d-printing`; texture file handling in `raster-imaging`; color targets in `color-management`.
 - Apps: ZBrush (Maxon; desktop and iPad), Blender sculpt and texture paint, Substance 3D Painter (Adobe), with Instant Meshes, RizomUV or Blender for retopology and UVs. ZBrush and Painter have no MCP server: drive them through computer use (load `computer-use-apps` first) and keep every hand-off file-based (OBJ/FBX in, maps out).
 
+## Modules
+| module | load when |
+|---|---|
+| `organic-sculpting`* | characters, creatures, anatomy, faces, cloth folds; ZBrush and Blender sculpt detail passes, displacement extraction |
+| `udim-texture-painting`* | UDIM layouts and tile numbering; painting across tiles in Substance 3D Painter, Mari or Blender; UDIM export to engines and USD |
+
+`*` = not in the skill listing: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool won't load it).
+
 ## Sculpting workflow
 1. Blockout: primitives, ZSpheres or DynaMesh/voxel remesh at low resolution; get proportions and silhouette right from several angles before any detail.
 2. Primary → secondary → tertiary forms. Work at the lowest subdivision that can hold the form; step up only for detail.
@@ -24,7 +32,7 @@ description: Load before sculpting, retopology, UVs, baking or texture painting 
 
 ## UVs
 - Seams in low-visibility places and along hard edges; straighten shells where textures have direction; consistent **texel density** across the asset (e.g. 10.24 px/cm for a 1K-per-meter target) unless an area deserves more.
-- Pack with 8–16 px padding at the target resolution (mip bleeding), avoid overlaps except intentional mirrored shells (offset one by 1 UV unit when baking). UDIMs for film-resolution assets.
+- Pack with 8–16 px padding at the target resolution (mip bleeding), avoid overlaps except intentional mirrored shells (offset one by 1 UV unit when baking). UDIMs for film-resolution assets (`udim-texture-painting`).
 - Tools: Blender (Unwrap, Smart UV Project for hard surface quick jobs, UV Packmaster add-on), RizomUV, ZBrush UV Master.
 
 ## Baking (high → low)
