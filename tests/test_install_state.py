@@ -427,7 +427,11 @@ def _scratch_repo(dst, settings_env=None):
     git = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c",
            "init.defaultBranch=main", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
            "-C", dst]
-    for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "snapshot"]):
+    # no automatic gc/maintenance: git's detached `maintenance run --auto` after the commit packs and prunes the
+    # loose objects while install.sh's `git fsck` reads them ("unable to mmap .git/objects/..."), as the
+    # codex_config test helpers already do
+    for args in (["init", "-q"], ["config", "gc.auto", "0"], ["config", "maintenance.auto", "false"], ["add", "-A"],
+                 ["commit", "-q", "-m", "snapshot"]):
         subprocess.run(git + args, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     return dst
 

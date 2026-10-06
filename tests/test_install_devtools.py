@@ -1085,6 +1085,8 @@ def scratch_repo(tmp_path_factory):
         (d / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(s, d / rel, follow_symlinks=False)
     _git("init", "-q", cwd=d)
+    _git("config", "gc.auto", "0", cwd=d)                 # no detached auto maintenance racing install.sh's git fsck
+    _git("config", "maintenance.auto", "false", cwd=d)
     _git("add", "-A", cwd=d)
     _git("commit", "-q", "-m", "snapshot", cwd=d)
     return d
