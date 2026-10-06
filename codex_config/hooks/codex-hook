@@ -5,12 +5,19 @@
 #
 # Python: <this dir>/stack-python (the installer's link), else /usr/bin/python3. The guard is
 # <this dir>/codex_guard.py (flat managed layout), else <this dir>/../hooks/codex_guard.py. It is
-# loaded by path under `python -I` (no PYTHON* variables, no user site, no cwd on sys.path), so its
-# bytecode can be cached; the event JSON passes through on stdin.
+# loaded by path (SourceFileLoader, not a script: __main__ is never byte-cached) under `python -I`
+# (no PYTHON* variables, no user site, no cwd on sys.path, sys.pycache_prefix unset), so the
+# bytecode the installer precompiles into <guard dir>/__pycache__ is used; the event JSON passes
+# through on stdin. stack-python must be a real interpreter: /usr/bin/python3 is an xcrun shim that
+# dispatches on its argv[0] and fails under any other name.
 #
 # Fail closed: for the gating modes (pre_tool_use, permission_request) a missing Python, a missing
 # guard or a guard that dies (any status but 0) exits 2, which Codex treats as a deny. The other
 # modes only observe: they never block, so the same failures exit 0 with the reason on stderr.
+#
+# Seeded-bug proofs (tests/mutations/codex_hook_stub.json, each caught by test_stub.py): gating modes
+# exit 0 without Python; observe modes exit 2 without Python; a dying guard ignored; python without
+# -I; the guard compiled from source on every call; the stack layout's guard not found.
 mode=${1:-}
 case $mode in
   pre_tool_use|permission_request) fail=2 ;;
@@ -38,10 +45,12 @@ else
   echo "codex-hook: codex_guard.py not found beside $dir; refusing" >&2
   exit "$fail"
 fi
-"$py" -I -c 'import importlib.util as u, sys
-s = u.spec_from_file_location("codex_guard", sys.argv[1])
-m = u.module_from_spec(s)
-s.loader.exec_module(m)
+"$py" -I -c 'import sys
+from importlib.machinery import SourceFileLoader
+l = SourceFileLoader("codex_guard", sys.argv[1])
+m = type(sys)("codex_guard")
+m.__file__, m.__loader__ = sys.argv[1], l
+l.exec_module(m)
 sys.exit(m.run(sys.argv[2:], sys.stdin.buffer, sys.stdout))' "$guard" "$@"
 rc=$?
 if [ "$rc" -ne 0 ]; then

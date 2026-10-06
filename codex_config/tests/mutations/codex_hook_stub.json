@@ -1,0 +1,44 @@
+[
+ {
+  "file": "codex_config/hooks/codex-hook",
+  "old": "  pre_tool_use|permission_request) fail=2 ;;",
+  "new": "  pre_tool_use|permission_request) fail=0 ;;",
+  "tests": "codex_config/tests/test_stub.py::test_no_python_exits_2_for_gating_modes",
+  "why": "gating modes exit 0 without Python"
+ },
+ {
+  "file": "codex_config/hooks/codex-hook",
+  "old": "  *) fail=0 ;;",
+  "new": "  *) fail=2 ;;",
+  "tests": "codex_config/tests/test_stub.py::test_no_python_never_blocks_observe_modes",
+  "why": "observe modes block without Python"
+ },
+ {
+  "file": "codex_config/hooks/codex-hook",
+  "old": "if [ \"$rc\" -ne 0 ]; then",
+  "new": "if false; then",
+  "tests": "codex_config/tests/test_stub.py::test_a_dying_guard_is_a_deny_for_gating_modes_only",
+  "why": "a dying guard is ignored"
+ },
+ {
+  "file": "codex_config/hooks/codex-hook",
+  "old": "\"$py\" -I -c",
+  "new": "\"$py\" -c",
+  "tests": "codex_config/tests/test_stub.py::test_python_environment_variables_are_ignored",
+  "why": "python without -I: PYTHONPATH and the cwd reach the hook"
+ },
+ {
+  "file": "codex_config/hooks/codex-hook",
+  "old": "l.exec_module(m)",
+  "new": "exec(compile(open(sys.argv[1]).read(), sys.argv[1], \"exec\"), m.__dict__)",
+  "tests": "codex_config/tests/test_stub.py::test_stub_loads_the_bytecode_beside_the_guard",
+  "why": "the guard compiled from source on every call (no bytecode)"
+ },
+ {
+  "file": "codex_config/hooks/codex-hook",
+  "old": "elif [ -f \"$dir/../hooks/codex_guard.py\" ]; then",
+  "new": "elif false; then",
+  "tests": "codex_config/tests/test_stub.py::test_stub_runs_the_guard_in_the_stack_layout",
+  "why": "the stack layout's guard not found"
+ }
+]

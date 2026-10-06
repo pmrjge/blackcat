@@ -6,11 +6,12 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 
 import pytest
 
-from _guard_helpers import (HOOKS_SRC, Stack, bash, decision, event, interpreter, reason,
-                            run_stub)
+from _guard_helpers import (HOOKS_SRC, Stack, bash, decision, event, interpreter, precompile,
+                            reason, run_stub)
 
 STUB = HOOKS_SRC / "codex-hook"
 
@@ -104,6 +105,37 @@ def test_python_environment_variables_are_ignored(tmp_path):
     rc, out, err = run_stub(stack, "pre_tool_use", bash("git push"), env=env)
     assert rc == 0 and decision(out) == "deny", err
     assert not marker.exists()
+
+
+def test_stub_loads_the_bytecode_beside_the_guard(tmp_path):
+    """The stub's `python -I` loader reads <guard dir>/__pycache__ (sys.pycache_prefix unset), where
+    the installer precompiles: an unchecked-hash pyc of a variant guard is what runs."""
+    stack = Stack(tmp_path, python=interpreter())
+    variant = tmp_path / "variant" / "codex_guard.py"
+    variant.parent.mkdir()
+    head = "def run(argv, stdin, stdout):\n"
+    src = stack.guard_py.read_text()
+    assert src.count(head) == 1
+    variant.write_text(src.replace(head, head + "    stdout.write('{\"from\": \"pyc\"}\\n')\n"
+                                                "    return 0\n"))
+    cfile = stack.hooks_dir / "__pycache__" / ("codex_guard.%s.pyc" % sys.implementation.cache_tag)
+    subprocess.run([interpreter(), "-I", "-c", "import py_compile, sys; py_compile.compile("
+                    "sys.argv[1], cfile=sys.argv[2], doraise=True, invalidation_mode="
+                    "py_compile.PycInvalidationMode.UNCHECKED_HASH)", str(variant), str(cfile)],
+                   check=True)
+    rc, out, err = run_stub(stack, "pre_tool_use", bash("git push"))
+    assert rc == 0 and out == {"from": "pyc"}, err
+
+
+def test_precompiled_guard_runs_unchanged(tmp_path):
+    """The installer's precompile step (checked-hash pycs) leaves the verdicts as they are."""
+    stack = Stack(tmp_path, python=interpreter())
+    pycs = precompile(stack, interpreter())
+    assert len(pycs) == len(list(stack.hooks_dir.glob("*.py")))
+    rc, out, err = run_stub(stack, "pre_tool_use", bash("git push origin main"))
+    assert rc == 0 and decision(out) == "deny", err
+    rc, out, err = run_stub(stack, "pre_tool_use", bash("ls"))
+    assert rc == 0 and out is None, err
 
 
 def test_stub_falls_back_to_usr_bin_python3(tmp_path):

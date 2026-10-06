@@ -10,9 +10,10 @@ hook_keys(source_file, table) -> [{"key", "event", "fingerprint"}]: the key Code
 canonical JSON of {event, matcher, handler}: it changes exactly when the definition Codex hashes
 changes (command, timeout, matcher, ...), never with the script's bytes (DESIGN §4.4).
 
-Stdlib only; Python >= 3.9 (it never imports tomllib). Seeded-bug proofs (tests/mutations/hook_defs.json):
-SessionEnd's timeout set to 10, the matcher dropped from PreToolUse, the stub path left unquoted,
-the fingerprint ignoring the matcher, a CamelCase event in the key, `--scope global` dropped.
+Stdlib only; Python >= 3.9 (it never imports tomllib). Seeded-bug proofs (tests/mutations/hook_defs.json,
+each caught by test_hook_defs.py): SessionEnd's timeout set to 10; the matcher dropped from PreToolUse
+and PermissionRequest; the matcher "*" instead of ".*"; the stub path left unquoted; `--scope global`
+dropped; the fingerprint ignoring the matcher, or the handler's timeout; a CamelCase event in the key.
 """
 import hashlib
 import json

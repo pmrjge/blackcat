@@ -122,6 +122,35 @@ def test_credentials_through_shell_denied(guard, stack, command, scope):
     assert decision(out) == "deny" and "credential" in reason(out), cmd
 
 
+@pytest.mark.parametrize("command", [
+    # git's file-reading options name a credential: denied like any credential read (DESIGN 4.3)
+    "git commit -F {ch}/auth.json", "git commit -F~/.codex/auth.json",
+    "git commit --file=$CODEX_HOME/auth.json", "git commit -aF ~/.ssh/id_ed25519",
+    "git notes add -F ~/.codex/stack.env", "git tag -a v1 -F {home}/.aws/credentials",
+    # attached, abbreviated or -C-relative forms the plain path scan cannot resolve
+    "git commit -t~/.ssh/config", "git commit -at~/.ssh/config", "git commit -qF.env",
+    "git commit --templ ~/.ssh/config", "git add --pathspec-from-file=~/.ssh/id_ed25519",
+    "git add --pathspec-from {home}/.aws/credentials", "git -C {home} commit -F .ssh/id_ed25519",
+    "git -C {home} -C .ssh commit -Fid_ed25519", "git -C~/.ssh commit -F id_ed25519",
+    "git -C {home} add --pathspec-from-file .aws/credentials", "git init --template=~/.ssh r",
+    "bash -c 'git -C ~ commit -F .ssh/id_ed25519'"])
+@pytest.mark.parametrize("scope", [None, "global"])
+def test_credentials_through_git_file_options_denied(guard, stack, command, scope):
+    cmd = command.format(ch=stack.codex_home, home=stack.home)
+    out = guard.pre(bash(cmd), scope=scope)
+    assert decision(out) == "deny" and "credential" in reason(out), (cmd, out)
+    assert perm_denied(guard.perm(event("permission_request", tool_input={"command": cmd})))
+
+
+@pytest.mark.parametrize("command", [
+    "git commit -F msg.txt", "git -C {home} commit -F notes/msg.txt", "git commit -t .gitmessage",
+    "git add --pathspec-from-file=files.txt", "git -C sub log --grep ssh",
+    "git commit -m 'pass it with -F msg'", "git grep -F id_ed25519"])
+def test_git_file_options_elsewhere_pass(guard, stack, command):
+    cmd = command.format(home=stack.home)
+    assert guard.pre(bash(cmd, agent_type="python-engineer")) is None, cmd
+
+
 def test_auth_json_elsewhere_is_not_a_credential(guard):
     assert guard.pre(bash("cat package/auth.json")) is None
 
