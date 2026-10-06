@@ -236,5 +236,75 @@
   "new": "    a = os.path.join(d, \"agents.json\")\n    return guard, validate_agents(read_json_file(a) if os.path.exists(a) else {\"schema\": 1, \"agents\": {}, \"blackcat\": {}})",
   "tests": "codex_config/tests/test_guard_policy.py::test_profile_scope_without_a_readable_agents_json_fails_closed",
   "why": "profile scope runs on an empty policy when agents.json is missing"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "    if \"/\" in word0:                           # every head: plain, find -exec, xargs, uv run, uvx\n        bad = _ro_by_path(word0, cwd)",
+  "new": "    if False:\n        bad = _ro_by_path(word0, cwd)",
+  "tests": "codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
+  "why": "finding 1: a program run by path is reduced to its basename again"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "        code = args[0] if args and args[0] not in (\"-\", \"-l\", \"-p\") else \"\"",
+  "new": "        code = \"\"",
+  "tests": "codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
+  "why": "finding 1: trap code is no longer checked"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "            elif getopt and \"-o\" in names and \"o\" in a[1:]:",
+  "new": "            elif False:",
+  "tests": "codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
+  "why": "finding 1: sort -ro<file> cluster output passes"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "        if RO_EXEC_VAR_RE.match(name) and name not in RO_SAFE_VARS:\n            return (\"%s %s\" % (head, n)[:80]",
+  "new": "        if False:\n            return (\"%s %s\" % (head, n)[:80]",
+  "tests": "codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
+  "why": "finding 1: read/printf -v PATH passes"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "            if b == \"env\" and k >= len(args):",
+  "new": "            if False:",
+  "tests": "codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
+  "why": "finding 1: bare env prints the environment"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "            if recursive and paths.holds_credential(c, budget):\n                return (\"cred\", token)",
+  "new": "            if False:\n                return (\"cred\", token)",
+  "tests": "codex_config/tests/test_guard_audit.py::test_recursive_reads_of_a_credential_holder_denied",
+  "why": "finding 2: grep -r on CODEX_HOME passes"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "            if GLOB_CHARS_RE.search(c) and paths.glob_credential(c, recursive):",
+  "new": "            if False:",
+  "tests": "codex_config/tests/test_guard_audit.py::test_recursive_reads_of_a_credential_holder_denied",
+  "why": "finding 2: a glob matching auth.json passes"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "                if value not in safe:",
+  "new": "                if False:",
+  "tests": "codex_config/tests/test_guard_audit.py::test_codex_sandbox_and_approval_bypasses_refused",
+  "why": "finding 3: codex -s danger-full-access passes"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "        for code in _git_command_values(sub, args):\n            found = found or self.scan(code, depth + 1)",
+  "new": "        for code in []:\n            found = found or self.scan(code, depth + 1)",
+  "tests": "codex_config/tests/test_guard_audit.py::test_git_command_options_are_scanned_for_pushes",
+  "why": "item 4: --upload-pack/filter-branch values are not scanned"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "        if not found and any(a.lower().startswith(\"ext::\") for a in args):",
+  "new": "        if False:",
+  "tests": "codex_config/tests/test_guard_audit.py::test_git_ext_transport_is_opaque",
+  "why": "item 4: an ext:: transport passes"
  }
 ]
