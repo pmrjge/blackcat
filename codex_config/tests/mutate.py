@@ -39,7 +39,13 @@ def run(muts):
             target.write_text(text.replace(m["old"], m["new"]))
             r = subprocess.run([sys.executable, "-m", "pytest", "-q", "-x", "-p", "no:cacheprovider",
                                 m["tests"]], cwd=root, capture_output=True, text=True)
-            caught = r.returncode != 0
+            # pytest exit 1 = tests ran and failed. 2-5 (interrupted, internal error, usage error, no tests
+            # collected: e.g. a mistyped node id) prove nothing: reported BAD, never counted as caught.
+            if r.returncode not in (0, 1):
+                print("BAD  #%d %s: pytest exit %d (no test verdict): %s" % (i, m["file"], r.returncode, m["tests"]))
+                bad += 1
+                continue
+            caught = r.returncode == 1
             print("%s #%d %s: %s" % ("ok  " if caught else "MISS", i, m["file"], m.get("why", "")))
             bad += 0 if caught else 1
     return bad

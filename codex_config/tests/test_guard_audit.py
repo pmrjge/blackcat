@@ -223,3 +223,11 @@ def test_git_command_options_without_push_pass(command):
 def test_git_command_option_pushes_denied_by_the_hook(guard, command):
     out = guard.pre(bash(command, agent_type="python-engineer"))
     assert decision(out) == "deny" and "never push" in reason(out), reason(out)
+
+
+@pytest.mark.parametrize("ws", ["\x0b", "\x0c", "\xa0", "\x85", "\u2003", " \t\x0c"])
+def test_patch_header_after_unicode_whitespace_is_seen(ws):
+    """Final security review: Codex trims a patch header line with str::trim(), so a header after a
+    form feed, vertical tab, NBSP, NEL or a Unicode space is a real hunk and must be checked."""
+    text = "*** Begin Patch\n%s*** Add File: ../../.codex/config.toml  %s\n+x\n*** End Patch" % (ws, ws)
+    assert G.PATCH_HEADER_RE.findall(text) == ["../../.codex/config.toml"]

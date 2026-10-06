@@ -2738,7 +2738,9 @@ def path_reason(found, label):
 
 
 # ---------------------------------------------------------------- apply_patch
-PATCH_HEADER_RE = re.compile(r"^[ \t]*\*\*\* (?:Add File|Update File|Delete File|Move to):[ \t]*(.*?)[ \t]*$",
+# Codex's apply_patch parser trims each header line with Rust str::trim() (every Unicode White_Space,
+# e.g. \x0b \x0c \xa0 \x85), so the guard accepts any whitespace but a newline around a header.
+PATCH_HEADER_RE = re.compile(r"^[^\S\n]*\*\*\* (?:Add File|Update File|Delete File|Move to):[^\S\n]*(.*?)[^\S\n]*$",
                              re.M)
 
 

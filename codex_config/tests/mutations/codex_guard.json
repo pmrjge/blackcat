@@ -306,5 +306,12 @@
   "new": "        if False:",
   "tests": "codex_config/tests/test_guard_audit.py::test_git_ext_transport_is_opaque",
   "why": "item 4: an ext:: transport passes"
+ },
+ {
+  "file": "codex_config/hooks/codex_guard.py",
+  "old": "re.compile(r\"^[^\\S\\n]*\\*\\*\\* (?:Add File",
+  "new": "re.compile(r\"^[ \\t]*\\*\\*\\* (?:Add File",
+  "tests": "codex_config/tests/test_guard_audit.py::test_patch_header_after_unicode_whitespace_is_seen",
+  "why": "a patch header after a form feed/NBSP is invisible to the guard"
  }
 ]
