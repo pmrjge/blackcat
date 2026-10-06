@@ -49,16 +49,72 @@ def test_layout_is_interfaces_section_2(base):
     for rel in ("codex.config.toml", "codex-astra.config.toml", "rules/claude-agent-stack.rules", "AGENTS.md",
                 "stack.env", "stack/hooks/codex_guard.py", "stack/hooks/stack_io.py",
                 "stack/hooks/toolsmith_policy.py", "stack/bin/codex-hook", "stack/bin/with-stack-env",
-                "stack/bin/mcp-headers", "stack/bin/codex-mcp-headers", "stack/bin/magg-private",
+                "stack/bin/mcp-headers", "stack/bin/codex-mcp-headers", "stack/bin/magg-private", "stack/bin/stack-install",
                 "stack/magg/config.json", "stack/magg/k8s-mcp.toml", "stack/mcp/libdocs_mcp.py",
                 "stack/policy/agents.json", "stack/policy/guard.json"):
         assert rel in snap, rel
     assert "config.toml" not in snap                      # off by default: never created
     assert {p.split("/")[1] for p in rels(snap, "stack/")} == {
         "agents", "agents-astra", "skills", "skill-modules", "hooks", "bin", "mcp", "magg", "policy"}
-    for name in ("codex-hook", "with-stack-env", "mcp-headers", "codex-mcp-headers", "magg-private"):
+    for name in ("codex-hook", "with-stack-env", "mcp-headers", "codex-mcp-headers", "magg-private", "stack-install"):
         assert os.stat(env.stage / "stack" / "bin" / name).st_mode & 0o111 == 0o111, name
     assert not os.stat(env.stage / "stack" / "hooks" / "codex_guard.py").st_mode & 0o111
+
+
+def test_toolsmith_wrapper_is_shipped_and_guard_paths_exist(base):
+    env = base["env"]
+    wrapper = env.stage / "stack" / "bin" / "stack-install"
+    assert wrapper.read_bytes() == (REPO / "dot-claude" / "bin" / "stack-install").read_bytes()
+    assert os.stat(wrapper).st_mode & 0o777 == 0o755
+    guard = json.loads((env.stage / "stack" / "policy" / "guard.json").read_text())
+    assert guard["toolsmith_wrapper"].endswith("/stack/bin/stack-install")
+    prefix = guard["stack"] + "/"
+    named = [v for v in _strings(guard) if v.startswith(prefix)]
+    assert guard["toolsmith_wrapper"] in named
+    for v in named:
+        assert (env.stage / "stack" / v[len(prefix):]).exists(), v
+    # the wrapper finds its policy beside it (../hooks/) in the staged layout
+    assert (env.stage / "stack" / "hooks" / "toolsmith_policy.py").is_file()
+
+
+def _strings(o):
+    if isinstance(o, str):
+        yield o
+    elif isinstance(o, list):
+        for v in o:
+            yield from _strings(v)
+    elif isinstance(o, dict):
+        for v in o.values():
+            yield from _strings(v)
+
+
+# no Claude install dependency: nothing staged for the servers or wrappers names the Claude config
+CLAUDE_MARKERS = ("~/.claude/stack.env", ".claude/stack.env", "CLAUDE_CONFIG_DIR")
+# {relative staged path: reason}
+CLAUDE_ALLOW = {"bin/with-stack-env": "a shell comment (\"works under any CLAUDE_CONFIG_DIR\"); the path is resolved from $0"}
+
+
+def test_no_claude_config_dependency_in_staged_scripts(base):
+    stack = base["env"].stage / "stack"
+    hits = []
+    for sub in ("mcp", "bin", "hooks"):
+        for f in sorted((stack / sub).rglob("*")):
+            if f.is_file():
+                text = f.read_text(errors="replace")
+                rel = str(f.relative_to(stack))
+                hits += ["%s: %s" % (rel, m) for m in CLAUDE_MARKERS if m in text and (rel, m) != ("bin/with-stack-env", "CLAUDE_CONFIG_DIR")]
+    assert hits == []
+
+
+def test_staged_servers_read_codex_home_stack_env(base):
+    stack = base["env"].stage / "stack"
+    for name in ("libdocs_mcp.py", "image_studio_mcp.py"):
+        text = (stack / "mcp" / name).read_text()
+        assert 'Path(__file__).resolve().parent.parent.parent / "stack.env"' in text, name
+        assert "<CODEX_HOME>/stack.env" in text or name == "libdocs_mcp.py"
+        assert text.count("cands.append(") == 2, name            # STACK_ENV_FILE and <CH>/stack.env only
+    img = (stack / "mcp" / "image_studio_mcp.py").read_text()
+    assert 'os.environ.get("CODEX_HOME") or home / ".codex"' in img
 
 
 def test_roles_56_and_astra_6(base):

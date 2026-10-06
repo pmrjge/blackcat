@@ -26,7 +26,7 @@ usage: codex_config/install.sh [options]
   --no-prompt                never ask: a run that needs an answer stops unless --yes is given
   --codex-home PATH          CODEX_HOME (default: $CODEX_HOME, else ~/.codex)
   --skills-root PATH|none    where the skill links go (default: ~/.agents/skills; none: no links)
-  --profile-name NAME        profile name (default: codex)
+  --profile-name NAME        profile name (only: codex)
   --no-agents-md             do not write the stack's block into AGENTS.md
   --no-mcp                   write no MCP servers
   --legacy-sandbox           sandbox_mode instead of the stack's permission profile
@@ -94,6 +94,7 @@ case "$PROFILE_NAME" in
   [A-Za-z0-9]*) case "$PROFILE_NAME" in *[!A-Za-z0-9_-]*) usage_err "--profile-name: letters, digits, - and _ only" ;; esac ;;
   *) usage_err "--profile-name: letters, digits, - and _ only, starting with a letter or digit" ;;
 esac
+[ "$PROFILE_NAME" = codex ] || usage_err "--profile-name: only \`codex\` is supported in this version: the engine's scope names codex.config.toml"
 case "$SKILLS_ROOT" in ""|none|/*) ;; *) usage_err "--skills-root takes an absolute path or none" ;; esac
 case "$RESTORE" in ""|latest|/*) ;; *) RESTORE="$PWD/$RESTORE" ;; esac
 [ "$(( (${#RESTORE} > 0 ? 1 : 0) + PRINT_REQ + DOCTOR ))" -le 1 ] || usage_err "--restore, --print-requirements and --doctor are separate runs"
