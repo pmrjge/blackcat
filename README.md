@@ -928,8 +928,8 @@ $EDITOR ~/.claude/stack.env       # keys: read at connect time; Claude model IDs
 ```
 
 `./install.sh --diff` lists, from any branch and without writing anything, what separates this checkout
-from the installed config dir: agents, skills, rules, hook scripts and wiring, `bin/`, `mcp/` and magg
-entries that only the repo has, only the install has, or that differ (details: [CONFIG.md](CONFIG.md)
+from the installed config dir: agents, skills, rules, hook scripts and wiring, `bin/`, `mcp/`, magg
+entries and the stack's block in `CLAUDE.md` that only the repo has, only the install has, or that differ (details: [CONFIG.md](CONFIG.md)
 §7, "Repo vs install: `--diff`").
 
 The clone can live anywhere (a path with spaces, a symlinked directory, or a symlink to `install.sh`
@@ -960,7 +960,7 @@ steps, as the run prints them:
 3. **ML venv** (`--with-ml`): `~/.claude/venvs/ml` from `requirements/ml.txt`, several GB.
 4. **Adobe** (`--with-adobe`): the After Effects MCP at a pinned commit, the Premiere connector.
 5. **Stage**: copy the stack's part of the config dir to a private staging dir.
-6. **Render**: agents, rules, skills, scripts, `settings.json`.
+6. **Render**: agents, rules, skills, scripts, `settings.json`, and the stack's block in `CLAUDE.md` ([Your `CLAUDE.md`](#your-claudemd)).
 7. **Merge, validate, apply**: JSON, frontmatter, placeholders and the staged guard's `--self-test`;
    the plan; one backup; apply; then `tests/lint_agents.py` on the repo (warns only).
 8. **MCP dependency prefetch** into the private `STACK_CACHE`.
@@ -1003,6 +1003,20 @@ Other flags: `--config-dir PATH`, `--no-prompt`, `--restore [DIR] [--force]`, `-
 `--print-managed-settings`, `--with-eq-container` (with `--eq-container-profiles=LIST`, `--no-eq-broker`,
 `--with-eq-broker`). `./install.sh --help` prints them all; [CONFIG.md](CONFIG.md) §7 explains
 staging, pruning and the manifest.
+
+### Your `CLAUDE.md`
+
+`~/.claude/CLAUDE.md` stays yours. The installer owns one block in it, from the line
+`<!-- claude-agent-stack: begin ... -->` to `<!-- claude-agent-stack: end -->`: one line naming the
+stack's global rules (`rules/claude-agent-stack.md`) and the repo that installs them
+(`dot-claude/CLAUDE.block.md`). With no `CLAUDE.md` the run creates one holding only the block;
+otherwise the block goes after your text, one blank line between, and later runs rewrite it in place.
+Every byte outside the two marker lines stays as it is: write your own instructions there. An edit
+inside the block is replaced (listed under `replaced:`; the backup keeps your version). A symlinked or
+non-UTF-8 `CLAUDE.md`, or one whose marker lines are not exactly one begin and one end line, is left
+alone and named in a `note:`. `--dry-run` prints the line `CLAUDE.md (the stack's block)` with what the
+run would do, `--diff` compares the block, and `--restore` puts the whole file back as it was before
+that install ([CONFIG.md](CONFIG.md) §7 "The `CLAUDE.md` block").
 
 ### Choose the config folder
 

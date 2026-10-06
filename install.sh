@@ -88,6 +88,10 @@
 # read it), and the run prints the list and the restore command. A run that changes nothing makes
 # no backup. Never touched: credentials, ~/.claude.json (MCP changes go through `claude mcp`),
 # the claude.ai-synced skills, plugins' own files, projects and sessions.
+# CLAUDE.md is yours: the stack owns one block in it, from its begin marker line to its end marker
+# line (lib/claude_md_block.py, body dot-claude/CLAUDE.block.md), created with the file when there is
+# none, appended after your text otherwise, rewritten in place later; no byte outside it changes. A
+# symlinked, non-UTF-8 or malformed CLAUDE.md is left alone (a note says why).
 # Step 2 installs what is missing (lib/devtools.sh, CONFIG.md §7 "Prerequisites and toolchains"):
 # Homebrew, one brew batch per type, the upstream version managers, the dev tools; one line per
 # tool, a present one never touched. Groups: STACK_INSTALL_<GROUP>=0 skips one (DEPS DEVTOOLS UV
@@ -1959,6 +1963,32 @@ for fn in sorted(os.listdir(os.path.join(DEST, "rules"))):
     if rel not in shipped and rel in files_entry:
         drop(rel, "no longer shipped by the stack")
         files_entry.pop(rel, None)
+
+# --- CLAUDE.md is yours: the stack owns only its block, the lines from its begin marker line to its end
+# marker line (lib/claude_md_block.py; body dot-claude/CLAUDE.block.md). Every byte outside the block
+# stays; a block edited by hand is replaced (the backup keeps the whole file, --restore puts it back);
+# a symlinked, non-UTF-8 or malformed file is left as it is and named in the notes. The manifest keeps
+# the block's hash (claude_md_block), never a whole-file hash: the file is not the stack's. ---
+_cmb_spec = importlib.util.spec_from_file_location(
+    "claude_md_block", os.path.join(os.path.dirname(SRC), "lib", "claude_md_block.py"))   # the snapshot
+_cmb = importlib.util.module_from_spec(_cmb_spec)
+_cmb_spec.loader.exec_module(_cmb)
+_cmb_tmpl = os.path.join(SRC, "CLAUDE.block.md")
+_cmb_body = render(open(_cmb_tmpl, encoding="utf-8").read()) if os.path.isfile(_cmb_tmpl) else None
+_cmb_res = _cmb.stage(DEST, _cmb_body, manifest.get("claude_md_block"), live=os.path.join(C, _cmb.NAME))
+if _cmb_res["entry"] is None:
+    manifest.pop("claude_md_block", None)
+else:
+    manifest["claude_md_block"] = _cmb_res["entry"]
+if _cmb_res["action"] == "replaced":
+    report["replaced"]["CLAUDE.md"] = _cmb_res["why"]
+elif _cmb_res["action"] == "skipped":
+    report["notes"].append("CLAUDE.md: " + _cmb_res["why"])
+elif _cmb_res["action"] == "removed" and not os.path.lexists(os.path.join(DEST, _cmb.NAME)):
+    report["removed"]["CLAUDE.md"] = _cmb_res["why"]          # the plan's reason for the deleted file
+if _cmb_res["action"] != "absent":
+    print("  %-34s %s" % ("CLAUDE.md (the stack's block)",
+                          _cmb_res["action"] + (" (see the notes)" if _cmb_res["action"] == "skipped" else "")))
 
 save_manifest()
 print("  %d/%d agents installed" % (total_agents, total_agents))
