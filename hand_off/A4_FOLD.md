@@ -2,14 +2,14 @@
 
 One paid call (consent given, hard cap $0.25), user-run from a normal logged-in terminal (agent sandboxes have no
 `claude` login). Nothing here was run by the author. Source of the probe: `HANDOFF_STATE.md` §5; the only change is
-`P=`, because EQ-T moved to `/Users/pmrj/ZDone/claude-agent-stack/.claude-work/worktrees/eq-t-1005/.claude-work/equilibrium`
-[v: `COMPARE_eq.md` A4 is readable there]. Run it with the stack as installed now (it uses `~/.claude/agents/writer.md`),
+`P=`: the output goes to `equilibrium/runs/probes/` in the repository, which `.gitignore` keeps out of git
+(`/equilibrium/**/runs/`), so the raw output (session ids, paths) is never tracked. Run it with the stack as installed now (it uses `~/.claude/agents/writer.md`),
 not in the middle of the c0 arm (`RUNBOOK_c0.md`: no `claude` calls besides the arm session between A and C).
 
 ## 1. The probe (corrected `P=`)
 
 ```sh
-P=/Users/pmrj/ZDone/claude-agent-stack/.claude-work/worktrees/eq-t-1005/.claude-work/equilibrium/probes; mkdir -p "$P"; TS=$(date -u +%Y%m%dT%H%M%SZ); cd "$(mktemp -d)" && printf 'List the exact names of every tool you can call, then return them.\n' | claude -p --agent writer --model sonnet --max-budget-usd 0.25 --json-schema '{"type":"object","properties":{"tools":{"type":"array","items":{"type":"string"}}},"required":["tools"],"additionalProperties":false}' --output-format stream-json --verbose --permission-mode acceptEdits --disallowedTools Agent WebSearch WebFetch --strict-mcp-config --tools Read,Skill,StructuredOutput --allowedTools Read Skill > "$P/a4-probe-$TS.json" 2> "$P/a4-probe-$TS.err"; echo "exit=$?" >> "$P/a4-probe-$TS.err"
+P=/Users/pmrj/ZDone/claude-agent-stack/equilibrium/runs/probes; mkdir -p "$P"; TS=$(date -u +%Y%m%dT%H%M%SZ); cd "$(mktemp -d)" && printf 'List the exact names of every tool you can call, then return them.\n' | claude -p --agent writer --model sonnet --max-budget-usd 0.25 --json-schema '{"type":"object","properties":{"tools":{"type":"array","items":{"type":"string"}}},"required":["tools"],"additionalProperties":false}' --output-format stream-json --verbose --permission-mode acceptEdits --disallowedTools Agent WebSearch WebFetch --strict-mcp-config --tools Read,Skill,StructuredOutput --allowedTools Read Skill > "$P/a4-probe-$TS.json" 2> "$P/a4-probe-$TS.err"; echo "exit=$?" >> "$P/a4-probe-$TS.err"
 ```
 
 Outputs: `$P/a4-probe-<TS>.json` (stream-json) and `$P/a4-probe-<TS>.err` (stderr plus `exit=`). Both can hold
@@ -26,7 +26,7 @@ when the output cannot show it). Tests: `uv run --with pytest pytest -q hand_off
 result events and the parser tolerates missing ones).
 
 ```sh
-P=/Users/pmrj/ZDone/claude-agent-stack/.claude-work/worktrees/eq-t-1005/.claude-work/equilibrium/probes; F=$(ls -t "$P"/a4-probe-*.json | head -1); uv run --script /Users/pmrj/ZDone/claude-agent-stack/hand_off/a4_fold.py "$F" --err "${F%.json}.err" --agent-file ~/.claude/agents/writer.md --out "${F%.json}.fold.md"
+P=/Users/pmrj/ZDone/claude-agent-stack/equilibrium/runs/probes; F=$(ls -t "$P"/a4-probe-*.json | head -1); uv run --script /Users/pmrj/ZDone/claude-agent-stack/hand_off/a4_fold.py "$F" --err "${F%.json}.err" --agent-file ~/.claude/agents/writer.md --out "${F%.json}.fold.md"
 ```
 
 The block is also saved as `a4-probe-<TS>.fold.md` next to the probe. Expected limits of this one probe, so no
