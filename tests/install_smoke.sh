@@ -176,8 +176,13 @@ else
   pass "no unresolved placeholders"
 fi
 [ -f "$T1/magg/k8s-mcp.toml" ] && pass "magg/k8s-mcp.toml installed" || failed "magg/k8s-mcp.toml not installed"
-[ -f "$T1/rules/claude-agent-stack.md" ] && [ ! -e "$T1/CLAUDE.md" ] && pass "global rules installed as rules/claude-agent-stack.md (CLAUDE.md left to you)" \
-  || failed "rules/claude-agent-stack.md missing, or a CLAUDE.md was written"
+# a fresh install creates CLAUDE.md holding only the stack's block (lib/claude_md_block.py): one begin
+# and one end marker line around the rendered dot-claude/CLAUDE.block.md, nothing else
+[ -f "$T1/rules/claude-agent-stack.md" ] && [ "$(grep -c '^<!-- claude-agent-stack: begin ' "$T1/CLAUDE.md" 2>/dev/null)" = 1 ] \
+  && [ "$(sed -n '$p' "$T1/CLAUDE.md")" = '<!-- claude-agent-stack: end -->' ] && grep -qF "$HERE" "$T1/CLAUDE.md" \
+  && ! grep -qE '__[A-Z_]+__' "$T1/CLAUDE.md" && grep -qE '^  CLAUDE.md \(the stack.s block\) +created$' "$T1/.install.log" \
+  && pass "global rules installed as rules/claude-agent-stack.md; CLAUDE.md created with only the stack's block" \
+  || failed "rules/claude-agent-stack.md missing, or CLAUDE.md is not exactly the stack's block"
 grep -qF "$HERE" "$T1/agents/claude-code-engineer.md" && grep -qF "\"repo\": \"$HERE\"" "$T1/.stack-manifest.json" \
   && pass "stack repo path rendered into agents and recorded in the manifest" || failed "stack repo path not rendered/recorded"
 
@@ -949,8 +954,12 @@ T6="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"; printf '# my
 mkdir -p "$T6/skills/data-analysis"
 printf -- '---\nname: data-analysis\ndescription: my own steps\n---\nMy own analysis steps.\n' > "$T6/skills/data-analysis/SKILL.md"
 CLAUDE_CONFIG_DIR="$T6" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T6/.log" 2>&1
-grep -q 192.168.1.20 "$T6/CLAUDE.md" && [ ! -e "$T6/CLAUDE.md.new" ] && [ -f "$T6/rules/claude-agent-stack.md" ] \
-  && pass "user's own CLAUDE.md untouched; the stack's rules load from rules/claude-agent-stack.md" || failed "user's own CLAUDE.md changed, or rules missing"
+# the stack's block is appended after one blank line; the user's lines stay byte for byte before it
+head -c "$(printf '# my rules\n- my NAS is 192.168.1.20\n\n' | wc -c)" "$T6/CLAUDE.md" | cmp -s - <(printf '# my rules\n- my NAS is 192.168.1.20\n\n') \
+  && [ "$(sed -n '4p' "$T6/CLAUDE.md" | cut -c1-31)" = '<!-- claude-agent-stack: begin ' ] && [ ! -e "$T6/CLAUDE.md.new" ] \
+  && [ -f "$T6/rules/claude-agent-stack.md" ] && grep -qE '^  CLAUDE.md \(the stack.s block\) +added$' "$T6/.log" \
+  && pass "user's own CLAUDE.md kept byte for byte, the stack's block appended; rules from rules/claude-agent-stack.md" \
+  || failed "user's own CLAUDE.md changed outside the block, the block missing, or rules missing"
 B6="$(latest_backup "$T6")"
 ! grep -q 'My own analysis steps' "$T6/skills/data-analysis/SKILL.md" && [ ! -e "$T6/skills/data-analysis/SKILL.md.new" ] \
   && grep -q 'My own analysis steps' "$B6/files/skills/data-analysis/SKILL.md" \

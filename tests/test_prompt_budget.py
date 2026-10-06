@@ -44,10 +44,11 @@ def test_per_spawn_composition():
     m = pb.measure(pb.Tree())
     for name, a in m["agents"].items():
         shown = m["blackcat_listing"] if name == "blackcat" else m["agent_listing"]
-        want = (a["body"] + (0 if a["omit_claude_md"] else m["rules"]) + m["skill_listing"]
+        want = (a["body"] + (0 if a["omit_claude_md"] else m["rules"] + m["claude_md_block"]) + m["skill_listing"]
                 + (shown if a["has_agent"] else 0))
         assert a["per_spawn"] == want, name
     assert "blackcat" in m["agents"] and m["agent_listing"] > 0 and m["skill_listing"] > 0
+    assert m["claude_md_block"] > len((pb.ROOT / pb.CLAUDE_MD_BLOCK).read_text(encoding="utf-8"))
     allow = set(m["agents"]["blackcat"]["allowlist"])
     assert m["blackcat_listing"] == sum(a["listing"] for n, a in m["agents"].items()
                                         if n in allow and n != "blackcat")

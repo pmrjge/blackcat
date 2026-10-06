@@ -5,8 +5,9 @@
 Target: --config-dir > CLAUDE_CONFIG_DIR > ~/.claude (as install.sh, without its safety checks: nothing
 is written). Compared, per area: agents/, rules/, skills/ (claude.ai's
 synced/ aside), the hooks/, bin/ (the stack-python link aside), mcp/ (vendor/ aside) and magg/ files
-install.sh stages, stack-plugins/, settings.json's hook wiring (event, matcher, command) and magg's
-catalog entries (minus enabled/kits).
+install.sh stages, stack-plugins/, settings.json's hook wiring (event, matcher, command), magg's
+catalog entries (minus enabled/kits) and the stack's block in CLAUDE.md (lib/claude_md_block.py; the
+rest of that file is yours and never compared).
 
 Text is compared after the installer's own render: __CLAUDE_DIR__, __HOME__, __STACK_*__ are filled in;
 tool paths it found at install time (__UV__, __PYTHON3__, ...) match any path, consistently within a
@@ -20,9 +21,11 @@ from __future__ import annotations
 
 import difflib
 import hashlib
+import importlib.util
 import json
 import os
 import re
+import stat
 import subprocess
 import sys
 
@@ -356,6 +359,46 @@ class Diff:
             if not self.m.same(core(repo[k]), core(inst[k])):
                 self.add("magg catalog", "~", k, "entry differs")
 
+    def claude_md(self):
+        """The stack's block in CLAUDE.md against the repo's dot-claude/CLAUDE.block.md, as
+        lib/claude_md_block.py finds and renders it (loaded by path, like install_state)."""
+        area, rel = "CLAUDE.md block", "CLAUDE.md"
+        spec = importlib.util.spec_from_file_location(
+            "claude_md_block", os.path.join(os.path.dirname(os.path.abspath(__file__)), "claude_md_block.py"))
+        cmb = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(cmb)
+        tmpl = os.path.join(self.repo, "dot-claude", "CLAUDE.block.md")
+        want = cmb.render_block(self.m.render(read(tmpl).decode("utf-8"))) if os.path.isfile(tmpl) else None
+        p = os.path.join(self.c, rel)
+        if os.path.islink(p) or (os.path.lexists(p) and not os.path.isfile(p)):
+            self.add(area, "?", rel, "not a regular file: install.sh leaves it alone")
+            return
+        try:
+            data = read(p) if os.path.lexists(p) else b""
+            data.decode("utf-8")
+            span = cmb.find_block(data)
+        except OSError as exc:
+            self.add(area, "?", rel, f"unreadable: {exc.strerror}")
+            return
+        except UnicodeDecodeError:
+            self.add(area, "?", rel, "not UTF-8 text: install.sh leaves it alone")
+            return
+        except cmb.BlockError as exc:
+            self.add(area, "?", rel, f"{exc}: install.sh leaves it alone")
+            return
+        have = data[span[0]:span[1]] if span else None
+        if have != want and os.path.lexists(p) and not os.stat(p).st_mode & stat.S_IWUSR:
+            self.add(area, "?", rel, "read-only: install.sh leaves it alone")
+        elif have is None and want is not None:
+            self.add(area, "+", rel, "the stack's block")
+        elif have is not None and want is None:
+            self.add(area, "-", rel, "the stack's block: no longer shipped")
+        elif have is not None and have != want:
+            rec = self.manifest.get("claude_md_block")
+            rec = rec.get("sha256") if isinstance(rec, dict) else None
+            edited = rec is not None and rec != hashlib.sha256(have).hexdigest()
+            self.add(area, "~", rel, "the stack's block" + ("; edited since the last install" if edited else ""))
+
     def run(self):
         dot = os.path.join(self.repo, "dot-claude")
         steps = (("agents", self.agents),
@@ -363,7 +406,8 @@ class Diff:
                  ("skills", self.skills), ("hooks, bin, mcp, magg", self.staged),
                  ("stack-plugins", lambda: self.tree("stack-plugins", os.path.join(dot, "stack-plugins"),
                                                      "stack-plugins", False)),
-                 ("settings.json hooks", self.settings_hooks), ("magg catalog", self.magg_catalog))
+                 ("settings.json hooks", self.settings_hooks), ("magg catalog", self.magg_catalog),
+                 ("CLAUDE.md block", self.claude_md))
         for area, step in steps:
             try:
                 step()
@@ -431,7 +475,7 @@ def main(argv):
     total = {"+": 0, "-": 0, "~": 0, "?": 0}
     label = {"+": "repo only", "-": "installed only", "~": "differs", "?": "unreadable"}
     for area in ("agents", "rules", "skills", "hooks", "bin", "mcp", "magg", "magg catalog",
-                 "stack-plugins", "settings.json hooks"):
+                 "stack-plugins", "settings.json hooks", "CLAUDE.md block"):
         rows = d.rows.get(area, [])
         if not rows:
             print("%s: in sync" % area)

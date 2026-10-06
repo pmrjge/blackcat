@@ -5,6 +5,7 @@
   "agent_listing": 15330,
   "blackcat_listing": 14550,
   "bodies": 93839,
+  "claude_md_block": 0,
   "descriptions": 7325,
   "per_spawn": 3100941,
   "per_spawn_mean": 55240,

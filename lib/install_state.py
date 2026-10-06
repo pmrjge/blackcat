@@ -629,6 +629,16 @@ def restore(c, which, root, work, commit, home, dry=False, force=False):
                   "(restore it with --force, or: ln -s '%s' '%s')"
                   % (rel, target, c, target, os.path.join(c, rel)))
             skipped.append(rel)
+    # a scope file that is now a directory (or FIFO) of yours: scan() and the staging see only files
+    # and links, so its contents are in no backup and the plan would rmtree it: it stays
+    for rel, e in entries.items():
+        p = os.path.join(c, rel)
+        if rel in SCOPE_FILES and rel not in skipped and os.path.lexists(p) and not (
+                os.path.islink(p) or os.path.isfile(p)):
+            saved = ("a link to %s" % e.get("target")) if e.get("type") == "l" else os.path.join(bdir, "files", rel)
+            print("  ! skipped %s: not a regular file now (a directory?); it stays as it is (the saved "
+                  "copy: %s)" % (rel, saved))
+            skipped.append(rel)
 
     def kept(rel):
         return any(rel == k or rel.startswith(k + "/") for k in skipped)
