@@ -5,8 +5,6 @@ GUARD=/path/to/agent_guard.py points them at another copy of the hook.
 import os
 import time
 
-import pytest
-
 from guard_harness import Env
 
 def test_f4_no_double_count_while_post_tool_use_runs():

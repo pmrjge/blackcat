@@ -1,6 +1,6 @@
 # Technical writing review checklist
 
-Read when reviewing a draft before delivery (from `technical-writing` §10).
+Read when reviewing a draft before delivery (from `technical-writing` § Verify).
 
 - [ ] Reader, purpose and one-sentence claim are explicit; the opening states the claim.
 - [ ] Structure matches the genre; documentation pages each have a single Diátaxis type.

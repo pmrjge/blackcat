@@ -18,7 +18,7 @@ Hub: `secure-coding`. Hardening limits the blast radius of a bug the code review
 | Target | Skill and section |
 |---|---|
 | Container images and `docker run` flags (`--read-only`, `--cap-drop ALL`, `--security-opt no-new-privileges`, non-root `USER`, no Docker socket) | `container-images` § Runtime hardening |
-| systemd services (`DynamicUser=`, `ProtectSystem=strict`, `NoNewPrivileges=`, `SystemCallFilter=@system-service`, `systemd-analyze security`) | `self-hosting-ops` § systemd |
+| systemd services (`DynamicUser=`, `ProtectSystem=strict`, `NoNewPrivileges=`, `SystemCallFilter=@system-service`, `systemd-analyze security`) | `ops-systemd-caddy`* § systemd |
 | Exposure over Tailscale, reverse proxy, published ports | `self-hosting-ops` |
 | CI runners and workflow tokens | `ci-cd-pipelines` |
 | Kubernetes, cloud IAM | `terraform-opentofu` for IaC; cluster specifics unverified here |

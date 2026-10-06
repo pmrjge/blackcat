@@ -22,11 +22,7 @@
     {"file": "skills/claude-code-extensions/references/skills.md", "ref": "name",
      "reason": "placeholder in the explanation of the `name`* module mark"},
     {"file": "skills/image-prompting/SKILL.md", "ref": "notes",
-     "reason": "'see `notes`' names image-studio's response field, not a skill"},
-    {"file": "skills/sec-hardening/SKILL.md", "ref": "self-hosting-ops § systemd",
-     "reason": "TODO: self-hosting-ops has no systemd heading (its module ops-systemd-caddy covers it)"},
-    {"file": "skills/technical-writing/references/review-checklist.md", "ref": "technical-writing § 10",
-     "reason": "TODO: technical-writing has no section 10 (its numbered headings are 1, 3 and 8)"}
+     "reason": "'see `notes`' names image-studio's response field, not a skill"}
   ],
   "hooks": []
 }

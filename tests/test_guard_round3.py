@@ -306,7 +306,7 @@ def test_session_env_quotes_an_odd_home_and_never_blocks(tmp_path):
     assert r.returncode == 2 and "NOT set for this session (FileNotFoundError" in r.stderr
 
 
-def statusline(sid, state_home, now_offset=0):
+def statusline(sid, state_home):
     import subprocess
     env = dict(os.environ, XDG_STATE_HOME=str(state_home), NO_COLOR="1")
     data = json.dumps({"session_id": sid, "model": {"display_name": "M"}})
