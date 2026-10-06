@@ -144,6 +144,23 @@ def test_descriptions_core_full_rest_short_modules_full(real):
             assert src.startswith(got.rstrip("…")), (n, got)
 
 
+@pytest.mark.parametrize("desc", ["Use for X.\n? name", "Use for X\u0085? name", "Use for X more",
+                                  "del\x7fx", "a\n---\nbody", "tab\tand\rcr"])
+def test_skill_md_description_stays_one_yaml_line(desc):
+    """A description holding a line break or a control character (C0, DEL, C1 with NEL, LS, PS, BOM)
+    is written double-quoted with every such character escaped: emitted plain it added YAML
+    structure (a `? name` key, a `---` that closes the frontmatter early, a parse error)."""
+    text = "---\nname: demo\ndescription: %s\n---\nbody\n" % json.dumps(desc)
+    md, got = CS._skill_md(text, "demo", "skills/demo/SKILL.md", short=False)
+    assert got == desc
+    assert md.startswith("---\n") and md.endswith("\n---\nbody\n"), repr(md)
+    lines = md[len("---\n"):-len("\n---\nbody\n")].split("\n")
+    assert [ln.split(":", 1)[0] for ln in lines] == ["name", "description"], lines
+    raw = re.compile("[\\x00-\\x1f\\x7f-\\x9f\\u2028\\u2029\\ufeff]")
+    assert not any(raw.search(ln) for ln in lines), lines
+    assert json.loads(lines[1][len("description: "):]) == desc
+
+
 def test_short_description_unit():
     assert CS.short_description("Use for any Go work — modules, errors.") == "Use for any Go work"
     long_ = "Load before sculpting, retopology, UVs, baking or texture painting — ZBrush"

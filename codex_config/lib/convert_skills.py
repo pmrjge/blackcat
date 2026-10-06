@@ -60,6 +60,11 @@ FRONTMATTER_KEEP = ("name", "description")
 FRONTMATTER_DROP = {"argument-hint"}           # a Claude slash-command hint: no Codex counterpart
 ROW_RE = re.compile(r"^(\|\s*`([a-z0-9-]+)`)\*", re.M)
 _FENCE = re.compile(r"^\s*(```|~~~)")
+# never written raw in a frontmatter value: C0 and C1 controls, DEL, NEL (U+0085, in \x7f-\x9f), LS,
+# PS, BOM. A line break there would add YAML structure (a key, a `---` that ends the frontmatter).
+_YAML_CTRL = re.compile("[\\x00-\\x1f\\x7f-\\x9f\\u2028\\u2029\\ufeff]")
+# what json.dumps(ensure_ascii=False) leaves raw of those (it escapes the C0 range itself)
+_YAML_RAW = re.compile("[\\x7f-\\x9f\\u2028\\u2029\\ufeff]")
 
 
 # ---------------------------------------------------------------- source tree (lstat, no follow)
@@ -167,11 +172,13 @@ def _unquote(raw: str, where: str) -> str:
 
 
 def _yaml_scalar(v: str) -> str:
-    """v as a YAML scalar: plain when that is safe, else double-quoted (JSON escapes are valid YAML)."""
-    if v and not re.search(r":\s|\s#|:\Z|\A[\s\-?:,\[\]{}#&*!|>'\"%@`]|\s\Z", v) and v.lower() not in (
+    """v as a one-line YAML scalar: plain when that is safe, else double-quoted (JSON escapes are valid
+    YAML), with every control character, DEL, C1 (NEL included), LS, PS and BOM escaped as \\uXXXX."""
+    if v and not _YAML_CTRL.search(v) and not re.search(
+            r":\s|\s#|:\Z|\A[\s\-?:,\[\]{}#&*!|>'\"%@`]|\s\Z", v) and v.lower() not in (
             "true", "false", "yes", "no", "on", "off", "null", "~"):
         return v
-    return json.dumps(v, ensure_ascii=False)
+    return _YAML_RAW.sub(lambda m: "\\u%04x" % ord(m.group()), json.dumps(v, ensure_ascii=False))
 
 
 def short_description(desc: str) -> str:

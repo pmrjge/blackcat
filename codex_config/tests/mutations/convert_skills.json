@@ -54,5 +54,19 @@
   "new": "    if False:\n        raise BuildError(\"untranslatable",
   "tests": "codex_config/tests/test_convert_skills.py::test_translate_problem_names_file_and_line",
   "why": "translate problems ignored"
+ },
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "if v and not _YAML_CTRL.search(v) and not re.search(",
+  "new": "if v and not re.search(",
+  "tests": "codex_config/tests/test_convert_skills.py::test_skill_md_description_stays_one_yaml_line",
+  "why": "a description with a line break or control character emitted as a plain YAML scalar"
+ },
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "return _YAML_RAW.sub(lambda m: \"\\\\u%04x\" % ord(m.group()), json.dumps(v, ensure_ascii=False))",
+  "new": "return json.dumps(v, ensure_ascii=False)",
+  "tests": "codex_config/tests/test_convert_skills.py::test_skill_md_description_stays_one_yaml_line",
+  "why": "DEL, C1 (NEL), LS, PS or BOM left raw inside the double-quoted description"
  }
 ]
