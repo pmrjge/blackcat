@@ -369,6 +369,9 @@ def test_w3_level():
     (["view", "--run", R, "--round", "1"], {"sub": "view", "round": 1}),
     (["start", "--run", R, "--headless", "--consent-file", "/tmp/c.json"],
      {"sub": "start", "headless": True, "consent_file": "/tmp/c.json"}),
+    (["plan", "--run", R, "--headless", "--session", "s-1_A", "--brief-file", "/tmp/b.txt"],
+     {"sub": "plan", "headless": True, "session": "s-1_A", "brief_file": "/tmp/b.txt"}),
+    (["plan", "--brief-file", "/b", "--session", "s", "--headless", "--run", R], {"sub": "plan", "session": "s"}),
 ])
 def test_parse_cli_ok(args, want):
     p = P.parse_cli(args)
@@ -383,10 +386,22 @@ def test_parse_cli_ok(args, want):
     ["start", "--run", R, "--headless", "--consent-file", "rel.json"], ["help", "plan"],
     ["result", "--run", R, "--", "x"], ["prepare-check", "--run", R, "--round", "10"],
     ["status", "--run", R, "--headless"], [1, 2],
+    ["plan", "--run", R, "--headless"], ["plan", "--run", R, "--session", "s", "--brief-file", "/b"],
+    ["plan", "--run", R, "--headless", "--session", "s"], ["plan", "--run", R, "--headless", "--brief-file", "/b"],
+    ["plan", "--run", R, "--headless", "--session", "a/b", "--brief-file", "/b"],
+    ["plan", "--run", R, "--headless", "--session", "s", "--brief-file", "rel.txt"],
+    ["plan", "--run", R, "--headless", "--session", "s", "--consent-file", "/c"],
+    ["start", "--run", R, "--headless", "--session", "s", "--consent-file", "/c"],
 ])
 def test_parse_cli_refusals(args):
     with pytest.raises(P.PolicyError):
         P.parse_cli(args)
+
+
+def test_headless_run_id():
+    import hashlib
+    assert P.headless_run("sess-1") == hashlib.sha256(b"sess-1|headless").hexdigest()[:8]
+    assert P.RUN_RE.match(P.headless_run("x"))
 
 
 def test_parse_check_cli():

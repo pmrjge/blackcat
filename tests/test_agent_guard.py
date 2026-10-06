@@ -169,9 +169,9 @@ def test_print_policy_format(env):
     p = run("", env, args=["--print-policy"])
     assert p.returncode == 0
     d = json.loads(p.stdout)
-    assert list(d) == ["policy", "leaves", "agents", "builtins", "blackcat_tools", "installer_types"]
+    assert list(d) == ["policy", "leaves", "agents", "builtins", "blackcat_tools", "installer_types", "eq_types"]
     assert len(d["agents"]) == 58 and len(set(d["agents"])) == 58
-    assert d["installer_types"] == ["toolsmith"]
+    assert d["installer_types"] == ["toolsmith"] and d["eq_types"] == ["equilibrium"]
     assert d["builtins"] == [] and "explore" in d["agents"] and "explore" in d["leaves"]
     assert set(d["policy"]) == set(d["agents"])
     assert sorted(d["leaves"]) == sorted(k for k, v in d["policy"].items() if not v)
@@ -227,6 +227,8 @@ def test_every_allowed_pair_allowed(env):
     pol = policy(env)["policy"]
     for parent, row in pol.items():
         for child in row:
+            if "equilibrium" in (parent, child):
+                continue        # eq spawns need an eq header / a bound run: tests/test_eq_guard.py
             ev = (pre_agent(sid(), child, parent="blackcat") if parent == "blackcat" else
                   pre_agent(sid(), child, parent=parent, agent_id="id-" + parent))
             assert decision(run(ev, env)) == "allow", (parent, child)
@@ -345,7 +347,7 @@ def test_rowless_main_thread_spawns_every_stack_agent(env, parent):
     row (typeless, `claude --agent claude`, a foreign agent) may spawn every stack agent, the
     orchestrator included; generic and built-in types and blackcat stay refused."""
     g = _guard_module()
-    for child in [a for a in g.AGENTS if a != "blackcat"]:
+    for child in [a for a in g.AGENTS if a not in ("blackcat", "equilibrium")]:     # eq: test_eq_guard.py
         assert decision(run(pre_agent(sid(), child, parent=parent), env)) == "allow", child
     for child in ("blackcat", "general-purpose", "claude", "fork", "Plan", "statusline-setup",
                   "my-plugin:helper", "coder-copy"):

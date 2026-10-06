@@ -3,6 +3,7 @@
   stack-eq help
   stack-eq plan --run R              validate the problem, resolve the parameters, render the member briefs,
                                      make the work dirs, print the estimate and the consent token
+  stack-eq plan --run R --headless --session S --brief-file /abs/brief.txt   (a terminal, CLAUDECODE unset)
   stack-eq start --run R             the consent record (when the plan needs one), then the member tokens
   stack-eq start --run R --headless --consent-file /abs/consent.json      (a terminal, CLAUDECODE unset)
   stack-eq prepare-check --run R --round r     one check copy per candidate (harness overlay rules)
@@ -797,6 +798,54 @@ def cmd_plan(r, ticket):
 
 
 # ---------------------------------------------------------------- start
+def headless_plan(p):
+    """plan --run R --headless --session S --brief-file F (contracts.md 11): from a terminal only; R must be
+    sha256("S|headless")[:8] and have no store; brief.json (caller_type headless) from the file's header after
+    the spawn gate's checks, then the usual plan. A refused plan leaves no store behind."""
+    if os.environ.get("CLAUDECODE"):
+        raise Refused(EXIT_REFUSED, "plan --headless runs from a terminal (CLAUDECODE is set): refused")
+    sid, run = p["session"], p["run"]
+    if P.headless_run(sid) != run:
+        raise Refused(EXIT_REFUSED, "--run %s is not sha256(\"%s|headless\")[:8]" % (run, sid))
+    if not P.knobs(os.environ)["STACK_EQ"]:
+        raise Refused(EXIT_REFUSED, "STACK_EQ=0: equilibrium runs are off")
+    try:
+        text = P.read_bytes_nofollow(p["brief_file"], 4 * P.MAX_PROBLEM_CHARS + 65536).decode("utf-8")
+        h = P.parse_header(text)
+    except (OSError, UnicodeDecodeError) as exc:
+        raise Refused(EXIT_REFUSED, "brief file %s unreadable (a regular UTF-8 file, not a link): %s"
+                      % (p["brief_file"], exc))
+    except P.PolicyError as exc:
+        raise Refused(EXIT_REFUSED, "brief file: %s" % exc)
+    if h["run"] not in (None, run):
+        raise Refused(EXIT_REFUSED, "the brief's eq-run %s is not %s" % (h["run"], run))
+    st = state_tree()
+    try:
+        P.find_run(os.environ, run)
+        raise Refused(EXIT_REFUSED, "run eq:%s already has a store" % run)
+    except P.PolicyError:
+        pass
+    parts = store_parts(sid, run)
+    with st.dir(parts[:-1], create=True) as dfd:
+        try:
+            os.mkdir(run, 0o700, dir_fd=dfd)
+        except FileExistsError:
+            raise Refused(EXIT_REFUSED, "run eq:%s already has a store" % run)
+    st.write_json(parts, "brief.json", {
+        "schema": P.SCHEMA_BRIEF, "run": run, "session": sid, "tool_use_id": "headless", "caller_type": "headless",
+        "caller_id": None, "cwd": os.path.realpath(os.getcwd()), "created": now(),
+        "header": {"class": h["class"], "mode": h["mode"], "type": h["type"], "check": h["check"],
+                   "segments": h["segments"]}, "problem": h["problem"]})
+    r = Run(sid, run)
+    r.lock()
+    try:
+        return cmd_plan(r, None)
+    except BaseException:
+        with contextlib.suppress(OSError, Refused):
+            st.rmtree(parts[:-1], run)
+        raise
+
+
 def cmd_start(r, p, plan):
     st = r.state()
     if st.get("phase") != "planned":
@@ -1010,8 +1059,8 @@ def _round_complete(r, plan, rnd):
         if state == "captured":
             if r.capture(rnd, i) is None:
                 missing.append("m%d's capture file" % i)
-        elif state in ("abstain", "invalid") or rec.get("status") in ("stopped", "abstain"):
-            continue
+        elif state in ("abstain", "invalid") or rec.get("status") == "abstain":
+            continue                  # abstain: TaskStop'd (the guard); a finished member needs its round's record
         else:
             missing.append("m%d not captured" % i)
     if plan["kind"] == "checkable" and plan.get("check"):
@@ -1044,19 +1093,34 @@ def _verdicts(r, plan, rnd):
 REDUCE_KEYS = ("answer", "partial", "kappa", "clusters", "selected", "loo", "lambda", "pivotal")
 
 
+def all_abstained(plan, seed):
+    """The round result when every member abstained (eq_core.reduce_round raises ValueError): partial."""
+    return {"schema": "eqreduce.v1", "class": plan["class"], "kind": plan["kind"], "n": 0, "answer": None,
+            "partial": True, "kappa": None, "clusters": {}, "histogram": {}, "selected": None, "top_members": [],
+            "tied": [], "loo": {}, "lambda": None, "pivotal": [], "seed": seed, "all_abstained": True}
+
+
 def cmd_reduce(r, rnd, plan):
     st = r.state()
     if st.get("round") != rnd or st.get("phase") not in ("started", "viewed", "checks"):
         raise Refused(EXIT_REFUSED, "reduce --round %d: the run is %s round %s" % (rnd, st.get("phase"), st.get("round")))
-    if plan["kind"] == "checkable" and plan.get("check") and st.get("phase") != "checks":
+    if plan["kind"] == "checkable" and plan.get("check") and st.get("phase") != "checks" and \
+            _candidates(r, plan, rnd):
         raise Refused(EXIT_REFUSED, "reduce --round %d: prepare and run the checks first" % rnd)
     missing = _round_complete(r, plan, rnd)
     if missing:
         raise Refused(EXIT_REFUSED, "round %d is incomplete: %s" % (rnd, "; ".join(missing[:10])))
     answers = _answers(r, plan, rnd)
     seed_r = seed_of("eq|ties", r.run, rnd)
-    res = call_core("reduce_round", plan["class"], answers, seed=seed_r, tau=plan["tau"], t=plan["t"],
-                    verdicts=_verdicts(r, plan, rnd), facts=None)
+    try:
+        res = core().reduce_round(plan["class"], answers, seed=seed_r, tau=plan["tau"], t=plan["t"],
+                                  verdicts=_verdicts(r, plan, rnd), facts=None)
+    except ValueError as exc:
+        if any(a is not None for a in answers.values()):
+            raise Refused(EXIT_FAILED, "eq_core.reduce_round refused its input (%s)" % exc)
+        res = all_abstained(plan, seed_r)          # every member abstained: a partial round, not a failure
+    except (TypeError, AttributeError) as exc:
+        raise Refused(EXIT_FAILED, "eq_core.reduce_round: API mismatch with contracts.md 8 (%s)" % exc)
     if not isinstance(res, dict) or not all(k in res for k in REDUCE_KEYS):
         raise Refused(EXIT_FAILED, "eq_core.reduce_round must return %s" % ", ".join(REDUCE_KEYS))
     r.put("r%d" % rnd, "reduce.json", obj={"round": rnd, "seed": seed_r, "result": res,
@@ -1195,19 +1259,19 @@ def cmd_result(r, plan, params_ok=True):
     obj.setdefault("agreement", {})
     if isinstance(obj["agreement"], dict):
         obj["agreement"]["label"] = "agreement, not probability"
-    r.put("result.json", obj=obj)
     copied = False
     if _all_stopped(r, plan):
         with Tree(root) as proj:
             proj.write_json(proj_parts(r.run), "result.json", obj)
         copied = True
-    r.set_state("result", final)
-    out(prose)
-    out(json.dumps(obj, indent=1, sort_keys=True))
-    for line in nxt:
-        out(line)
+    lines = [prose, json.dumps(obj, indent=1, sort_keys=True)] + list(nxt)
     if not copied:
-        out("note: result.json goes to ./.claude-work/eq/%s/ once every member has stopped" % r.run)
+        lines.append("note: result.json goes to ./.claude-work/eq/%s/ once every member has stopped" % r.run)
+    block = "\n".join(lines) + "\n"
+    r.put("result.txt", text=block)          # the leader's final reply must equal it (the guard checks)
+    r.put("result.json", obj=obj)
+    r.set_state("result", final)
+    sys.stdout.write(block)
     return EXIT_OK
 
 
@@ -1270,6 +1334,8 @@ def executor(args):
         if p["sub"] == "help":
             out(HELP)
             return EXIT_OK
+        if p["headless"] and p["sub"] == "plan":
+            return headless_plan(p)
         if p["headless"]:
             try:
                 store = P.find_run(os.environ, p["run"])

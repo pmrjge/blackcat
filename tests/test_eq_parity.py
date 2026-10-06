@@ -326,6 +326,65 @@ def test_summary() -> None:
     assert exact >= 50
 
 
+# --- leave-one-out (spec §4): loo_exclude, reduce_round's jackknife, summary(exclude=) -----------------------------
+
+
+def test_loo_exclude() -> None:
+    v = vec("loo_exclude")
+    assert len(v) > 1000
+    for variant, i, r, n, seed, top, want in v:
+        assert ec.loo_exclude(variant, i, r, n, seed=seed, top=top) == want, (variant, i, r, n, seed, top)
+    assert {x[0] for x in v} == set(ec.LOO_VARIANTS)
+    assert {x[6] is None for x in v if x[0] in ("random", "leader") and 1 <= x[2] < x[3]} == {False}
+
+
+def test_round_loo() -> None:
+    """eq_core.reduce_round's loo / lambda / pivotal equal the harness's round_loo exactly: both break every tie by
+    the answer key (sha256(f"{seed_r}|{key}")), so no vector needs the tied-set relaxation."""
+    seen: dict[str, int] = {}
+    ties = 0
+    for c in vec("round_loo"):
+        answers = {int(m): a for m, a in c["answers"]}
+        if c["family"] == "discrete":
+            ties += len(ec.plurality(list(answers.values()), 0, RS_KEY).tied) > 1
+        got = ec.reduce_round(c["cls"], answers, seed=c["seed"], t=c["t"],
+                              verdicts={int(m): x for m, x in c["verdicts"]}, rankings=c["rankings"],
+                              verified_singles=c["verified_singles"],
+                              cand_keys=None if c["cand_keys"] is None else {int(m): k for m, k in c["cand_keys"]})
+        assert json.loads(json.dumps([[i, r] for i, r in got["loo"].items()])) == c["loo"], c
+        assert got["lambda"] == c["lambda"] and got["pivotal"] == c["pivotal"], c
+        seen[c["family"]] = seen.get(c["family"], 0) + (0 < c["lambda"] < 1)
+    assert set(seen) == {"discrete", "numeric", "finding_set", "checkable", "long_form"}
+    assert all(k >= 15 for k in seen.values()), seen  # every family has rounds with pivotal and stable members
+    assert ties >= 30  # tied full sets were compared exactly too
+
+
+def test_summary_exclude() -> None:
+    exact = 0
+    for c in vec("summary_exclude"):
+        ctx = ec.Ctx(family=c["family"], key=ec.normalise_answer)
+        answers = {int(k): v for k, v in c["answers"]}
+        j = c["exclude"]
+        outs = [ec.MemberOut(k, v) for k, v in answers.items() if not c["recluster"] or k != j]
+        cl = ec.cluster(outs, ctx)
+        mf = {int(k): v for k, v in c["member_facts"]}
+        facts = {k: ec.Fact(k, f["kind"], f["ref"], f["detail"], f["status"]) for k, f in c["facts"].items()}
+        got = ec.summary(answers, cl, mf, facts, c["seed"], ctx, exclude=j)
+        if not c["tie"]:
+            exact += 1
+            assert got == c["text"], c
+        elif c["max_verified"] <= 2:
+            assert _blocks(got) == _blocks(c["text"]), c
+        else:
+
+            def strip(t: str) -> tuple[list[str], list[list[str]]]:
+                head, blocks = _blocks(t)
+                return head, sorted(sorted(ln if "verified fact:" not in ln else "V" for ln in b) for b in blocks)
+
+            assert strip(got) == strip(c["text"]), c
+    assert exact >= 50
+
+
 # --- schema validator vs jsonschema --------------------------------------------------------------------------------
 
 SCHEMAS = {k: json.loads((ITEMS / k / "schema.json").read_text()) for k in CLASSES}

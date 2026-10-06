@@ -366,7 +366,8 @@ if want in ex:
     print("ok sandbox.excludedCommands names the executor (and toolsmith alone may run it: guard)")
 else:
     print("sandbox.excludedCommands lacks %r: toolsmith's installs fail in the sandbox (rerun ./install.sh)" % want)
-other = [e for e in ex if e != want]
+eqwant = os.path.join(c, "bin", "stack-eq") + " *"       # the runtime Equilibrium's executor (below)
+other = [e for e in ex if e not in (want, eqwant)]
 if other:
     print("sandbox.excludedCommands also takes %s out of the sandbox for every agent (not the stack's)"
           % ", ".join(repr(e) for e in other[:5]))
@@ -400,6 +401,154 @@ if os.path.isdir(root):
         print("couldn't read the toolsmith ledger (%s)" % type(exc).__name__)
 else:
     print("ok toolsmith: nothing installed yet")
+PY
+
+echo "== Equilibrium runtime"
+# The runtime Equilibrium (docs-design/RUNTIME_EQUILIBRIUM.md; CONFIG.md "Equilibrium runtime"): read-only,
+# no network, no model call. hooks/eq_params.json counts only when its sha256 equals the manifest's
+# eq_runtime.params_sha256 (eq_policy.load_params): else every class is not_run. A class's calibrated
+# agent file or the Claude Code version differing from the params' provenance is a drift note, not an
+# invalidation.
+python3 - "$C" "${v:-}" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
+import hashlib, importlib.util, json, os, stat, sys
+c, cc_version = sys.argv[1], sys.argv[2]
+def load(p):
+    try:
+        with open(p) as f:
+            return json.load(f)
+    except (OSError, ValueError):
+        return {}
+s, man = load(os.path.join(c, "settings.json")), load(os.path.join(c, ".stack-manifest.json"))
+hooks = os.path.join(c, "hooks")
+pol = None
+try:
+    spec = importlib.util.spec_from_file_location("eq_policy", os.path.join(hooks, "eq_policy.py"))
+    pol = importlib.util.module_from_spec(spec)
+    sys.modules["eq_policy"] = pol
+    spec.loader.exec_module(pol)
+except Exception as exc:  # noqa: BLE001
+    pol = None
+    print("couldn't load hooks/eq_policy.py (%s): runs are refused" % type(exc).__name__)
+need = [os.path.join("hooks", f) for f in ("eq_core.py", "eq_policy.py", "eq_cli.py", "eq_isolation.py", "eq_guard.py",
+        "eq_params.json", "eq_lenses.json", "eq_schemas.json")] + [os.path.join("bin", "stack-eq"), os.path.join("bin", "stack-eq-check")]
+miss = [f for f in need if not os.path.isfile(os.path.join(c, f))]
+if miss:
+    print("equilibrium runtime files missing (%s): runs are refused (rerun ./install.sh)" % ", ".join(miss))
+else:
+    print("ok equilibrium runtime files installed (%d)" % len(need))
+bad = [f for f in ("stack-eq", "stack-eq-check") if os.path.isfile(os.path.join(c, "bin", f)) and not os.access(os.path.join(c, "bin", f), os.X_OK)]
+if bad:
+    print("bin/%s not executable (rerun ./install.sh)" % ", bin/".join(bad))
+# params pin
+params_path = os.path.join(hooks, "eq_params.json")
+want = (man.get("eq_runtime") or {}).get("params_sha256") if isinstance(man.get("eq_runtime"), dict) else None
+params = None
+try:
+    raw = open(params_path, "rb").read()
+    got = hashlib.sha256(raw).hexdigest()
+except OSError:
+    raw, got = None, None
+if got is None:
+    print("hooks/eq_params.json unreadable: every class not_run")
+elif not isinstance(want, str):
+    print("manifest has no eq_runtime.params_sha256: every class not_run (rerun ./install.sh)")
+elif got != want:
+    print("hooks/eq_params.json sha256 %s... differs from the manifest's %s...: every class not_run (rerun ./install.sh, or the file was edited)" % (got[:12], want[:12]))
+else:
+    try:
+        params = json.loads(raw.decode("utf-8"))
+        errs = pol.validate_params(params) if pol is not None else []
+        if errs:
+            print("hooks/eq_params.json matches the manifest but fails its schema (%s): every class not_run" % "; ".join(errs[:3]))
+            params = None
+        else:
+            print("ok params pin matches the manifest (sha256 %s...)" % got[:12])
+    except ValueError:
+        print("hooks/eq_params.json is not JSON: every class not_run")
+classes = (params or {}).get("classes") if isinstance(params, dict) else None
+if isinstance(classes, dict):
+    val = sorted(k for k, e in classes.items() if isinstance(e, dict) and e.get("status") == "validated")
+    if val:
+        print("ok validated classes: %s" % ", ".join(val))
+    else:
+        print("ok no class is validated yet: every run is manual, with your consent (calibration: hand_off/EQ_CALIBRATION_RUN_PLAN.md)")
+    for k in val:
+        e = classes[k]
+        mt = e.get("member_type")
+        pin = e.get("agent_file_sha256")
+        if isinstance(mt, str) and mt.replace("-", "").replace("_", "").isalnum() and isinstance(pin, str):
+            try:
+                have_sha = hashlib.sha256(open(os.path.join(c, "agents", mt + ".md"), "rb").read()).hexdigest()
+            except OSError:
+                have_sha = None
+            if have_sha != pin:
+                print("drift: class %s was calibrated on agents/%s.md sha256 %s..., the installed file is %s: re-calibrate (the result notes the drift)"
+                      % (k, mt, pin[:12], (have_sha or "missing")[:12]))
+    prov = (params.get("provenance") or {}) if isinstance(params.get("provenance"), dict) else {}
+    pv = prov.get("claude_code_version")
+    if val and isinstance(pv, str) and cc_version and pv != cc_version:
+        print("drift: calibrated on Claude Code %s, running %s (a drift note in each result, not an invalidation)" % (pv, cc_version))
+# the settings entries
+exe = os.path.join(c, "bin", "stack-eq")
+ex = (s.get("sandbox") or {}).get("excludedCommands") or []
+if exe + " *" in ex:
+    print("ok sandbox.excludedCommands names bin/stack-eq (the guard lets only an allowed equilibrium leader run it)")
+else:
+    print("sandbox.excludedCommands lacks %r: stack-eq cannot reach the store outside the sandbox (rerun ./install.sh)" % (exe + " *"))
+allow = (s.get("permissions") or {}).get("allow") or []
+for f in ("stack-eq", "stack-eq-check"):
+    if "Bash(%s *)" % os.path.join(c, "bin", f) not in allow:
+        print("permissions.allow lacks Bash(%s *): each call would prompt (rerun ./install.sh)" % os.path.join(c, "bin", f))
+# knobs in force: settings.json env, then this environment
+env = dict((s.get("env") or {}))
+env.update({k: v for k, v in os.environ.items() if k.startswith("STACK_EQ")})
+try:
+    k = pol.knobs(env)
+    print("ok knobs: " + " ".join("%s=%s" % (n, k.get(n)) for n in ("STACK_EQ", "STACK_EQ_MAX_N", "STACK_EQ_MAX_ROUNDS",
+          "STACK_EQ_MAX_CONCURRENT_RUNS", "STACK_EQ_N", "STACK_EQ_ROUNDS", "STACK_EQ_CONFIRM", "STACK_EQ_SESSION_RUNS", "STACK_EQ_WALL")))
+    for e in k.get("errors") or []:
+        print("knob: %s" % e)
+except Exception as exc:  # noqa: BLE001
+    print("couldn't read the knobs through hooks/eq_policy.py (%s)" % type(exc).__name__)
+fan = str(env.get("STACK_MAX_FANOUT_BY_TYPE", ""))
+if "equilibrium=" not in fan:
+    print("STACK_MAX_FANOUT_BY_TYPE has no equilibrium= entry: the leader gets the default fan-out, not 9 (rerun ./install.sh)")
+# store dirs
+root = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "claude-agent-stack")
+dirs = [os.path.join(root, "eq-tickets")]
+if os.path.isdir(root):
+    for sid in sorted(os.listdir(root)):
+        d = os.path.join(root, sid, "eq")
+        if os.path.isdir(d) or os.path.islink(d):
+            dirs.append(d)
+badd = []
+for d in dirs:
+    if not os.path.lexists(d):
+        continue
+    st = os.lstat(d)
+    if stat.S_ISLNK(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+        badd.append(d)
+if badd:
+    print("eq store dir(s) a link, not yours, or open to others (want 0700): %s" % ", ".join(badd[:5]))
+elif any(os.path.lexists(d) for d in dirs):
+    print("ok eq store dirs are 0700")
+# the W3 level available
+eqs = os.path.join(root, "eq-container")
+def kv(p, key):
+    try:
+        for line in open(p, errors="replace"):
+            if line.startswith(key + "="):
+                return line[len(key) + 1:].strip()
+    except OSError:
+        pass
+    return ""
+level = "sandbox"
+if kv(os.path.join(eqs, "status.env"), "EQ_CONTAINER_STATUS") == "verified":
+    rd = os.path.join(eqs, "results")
+    if os.path.isdir(rd) and any(f.startswith("probe.") and kv(os.path.join(rd, f), "PROBE_RESULT") == "PASS" for f in os.listdir(rd)):
+        level = "container"
+print("ok W3 level available: %s (%s)" % (level, "eq-container verified with a passing probe receipt" if level == "container"
+      else "Level 1 Seatbelt; the container level needs ./install.sh --with-eq-container"))
 PY
 
 echo "== Image models (image-studio; set in $C/stack.env)"
@@ -467,7 +616,7 @@ import importlib.util, os, sys
 sys.pycache_prefix = None
 h, stale = sys.argv[1], []
 for m in ("agent_guard", "stack_hook", "stack_usage", "stack_limits", "stack_report", "read_gate", "web_caps",
-          "output_shrink", "stack_progress", "toolsmith_policy"):
+          "output_shrink", "stack_progress", "toolsmith_policy", "eq_core", "eq_policy", "eq_cli", "eq_isolation", "eq_guard"):
     src = os.path.join(h, m + ".py")
     if not os.path.isfile(src):
         continue
