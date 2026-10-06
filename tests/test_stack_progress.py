@@ -329,7 +329,55 @@ def test_recovered_counts_work_not_the_report():
     assert sp.evaluate(st, 0, 10, None) == []
     k = rounds(st, [("Edit", {"file_path": "fix"}, False)], 200)
     sp.feed(st, call(k))
-    assert [s for s, _b, _n in sp.evaluate(st, 0, 11, None)] == ["recovered"]
+    assert [s for s, _b, _n in sp.evaluate(st, 0, 11, None)] == ["recovered", "first_write"]
+
+
+# ---------------------------------------------------------------- B3 (S4 L7): calls before the first write
+def signals(st, calls=1):
+    return [s for s, _b, _n in sp.evaluate(st, 0, calls, None)]
+
+
+def test_first_write_is_the_index_of_the_api_call_that_first_writes():
+    st = sp.new_state()
+    k = rounds(st, [("Read", {"file_path": "a"}, False), ("Grep", {"pattern": "x"}, False),
+                    ("Bash", {"command": "git -C /r commit -m x"}, False),       # a shell write: not counted
+                    ("Bash", {"command": "mkdir -p .claude-work/x"}, False),
+                    ("SubagentHandback", {"message": "STATUS: partial"}, False),  # a report: not counted
+                    ("TaskStop", {"task_id": "t"}, False)])
+    assert st["first_write"] is None and signals(st, k) == []
+    k = rounds(st, [("Edit", {"file_path": "a"}, True)], k)                     # an attempt counts, failed or not
+    assert st["first_write"] == 7 and st["calls"] == 7
+    assert signals(st, k) == ["first_write"] and signals(st, k) == []          # once per run
+    rounds(st, [("Write", {"file_path": "b"}, False), ("Agent", {"prompt": "p"}, False)], k)
+    assert st["first_write"] == 7 and signals(st, k + 2) == []
+
+
+@pytest.mark.parametrize("name", ["Edit", "Write", "NotebookEdit", "MultiEdit", "Agent", "Task", "SendMessage"])
+def test_first_write_tools(name):
+    st = sp.new_state()
+    rounds(st, [("Read", {"file_path": "a"}, False), (name, {"x": 1}, False)])
+    assert st["first_write"] == 2
+
+
+def test_first_write_in_a_parallel_round_and_a_split_record():
+    st = sp.new_state()
+    sp.feed(st, call(0, "Read", {"file_path": "a"}, extra_uses=[("Edit", {"file_path": "a"})]))
+    assert st["first_write"] == 1
+    st = sp.new_state()                                     # one API call written as two records (text, tool_use)
+    sp.feed(st, text(0, "looking"))
+    sp.feed(st, text(1, "planning"))
+    rec = call(1, "Write", {"file_path": "b"})
+    sp.feed(st, rec)
+    assert st["calls"] == 2 and st["first_write"] == 2
+
+
+def test_first_write_ignores_an_earlier_run():
+    st = sp.new_state(RUN)
+    sp.feed(st, call(0, "Edit", {"file_path": "old"}, ts=BEFORE), SINCE_TS)
+    assert st["first_write"] is None and st["calls"] == 0
+    sp.feed(st, call(1, "Read", {"file_path": "a"}), SINCE_TS)
+    sp.feed(st, call(2, "Edit", {"file_path": "a"}), SINCE_TS)
+    assert st["first_write"] == 2
 
 
 def test_params_knobs(monkeypatch):
@@ -490,6 +538,35 @@ def test_the_log_stops_at_its_cap(env, tmp_path, monkeypatch):
     assert (env / sp.LOG).read_text() == "x" * 11
 
 
+def write_transcript(path, n_reads):
+    recs = [brief("Goal: x")]
+    for k in range(n_reads):
+        recs += [call(k, "Read", {"file_path": "f%d" % k}), result(k)]
+    recs += [call(n_reads, "Edit", {"file_path": "f"}), result(n_reads), call(n_reads + 1)]
+    write_lines(path, recs, "w")
+
+
+@pytest.mark.parametrize("how", ["observe", "warn"])
+def test_check_logs_the_first_write_once_and_says_nothing(env, tmp_path, monkeypatch, how):
+    monkeypatch.setenv("STACK_EARLY_STOP", how)
+    t = tmp_path / "agent-w1.jsonl"
+    write_transcript(t, 5)
+    assert sp.check(str(env), "w1", "coder", str(t), RUN, 50, 7, default_tokens=None) is None
+    (row,) = log_rows(env)
+    assert row["signal"] == "first_write" and row["at_call"] == 6 and row["calls"] == 7
+    assert row["mode"] == how and row["type"] == "coder" and row["run"] == RUN
+    assert set(row) == {"v", "ts", "agent_id", "type", "run", "signal", "mode", "calls", "ctx", "budget_tokens",
+                        "budget_calls", "src", "rounds", "fails", "at_call"}
+    write_lines(t, [call(9, "Write", {"file_path": "g"})])
+    assert sp.check(str(env), "w1", "coder", str(t), RUN, 60, 8, default_tokens=None) is None
+    assert len(log_rows(env)) == 1                                              # once per run
+    write_lines(t, [brief("follow-up"), call(20, "Read", ts="2026-09-21T14:30:00.000Z"),
+                    call(21, "Edit", {"file_path": "h"}, ts="2026-09-21T14:30:01.000Z")])
+    sp.check(str(env), "w1", "coder", str(t), RUN + 600, 70, 2, default_tokens=None)
+    rows = log_rows(env)                                                        # a resume is a new run
+    assert len(rows) == 2 and rows[1]["at_call"] == 2 and rows[1]["run"] == RUN + 600
+
+
 # ---------------------------------------------------------------- report and CLI
 def test_report_joins_the_hand_back_status(env, tmp_path):
     t = tmp_path / "agent-b1.jsonl"
@@ -503,6 +580,21 @@ def test_report_joins_the_hand_back_status(env, tmp_path):
     assert r["sessions"] == 1 and r["signals"] == {"stall": {"partial": 1}, "stop": {"partial": 1}}
     assert r["types"] == {"coder": {"stall": 1, "stop": 1}}
     assert sp.report("other")["signals"] == {}
+
+
+def test_report_sums_up_the_first_write_by_outcome(env, tmp_path):
+    reps = []
+    for j, (n, status) in enumerate([(1, "done"), (3, "done"), (9, "done"), (4, "partial")]):
+        t = tmp_path / ("agent-f%d.jsonl" % j)
+        write_transcript(t, n)
+        sp.check(str(env), "f%d" % j, "coder", str(t), RUN, 10, n + 2, default_tokens=None)
+        reps.append({"session": "sess-1", "agent_id": "f%d" % j, "run": str(RUN), "status": status})
+    (env.parent / "usage").mkdir()
+    write_lines(env.parent / "usage" / "reports.jsonl", reps, "w")
+    r = sp.report()
+    assert r["signals"] == {"first_write": {"done": 3, "partial": 1}}
+    assert r["first_write"] == {"done": {"n": 3, "median": 4, "p90": 10},
+                                "partial": {"n": 1, "median": 5, "p90": 5}}
 
 
 def test_cli_self_test_and_report(env):
@@ -538,6 +630,7 @@ def test_replay_routes_agree_on_a_synthetic_root(tmp_path):
     s = json.loads((out / "summary.json").read_text())
     assert s["runs"] == 2 and s["outcomes"] == {"partial": 1, "clean": 1} and s["routes_agree"] is True
     assert s["shipped"]["stall"] == {"fired": 1, "success": 0, "other": 1}
+    assert s["shipped"]["first_write"] == {"fired": 1, "success": 1, "other": 0}     # c2's Edit, c1 never writes
     grid = (out / "grid.csv").read_text().splitlines()
     assert grid[0].startswith("rounds,fails,gate,progress,runs,fired")
 

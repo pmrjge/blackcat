@@ -15,6 +15,10 @@ of turns.<type> and soft/hard.agent.<type>). Signals, each at most once per run 
              (soft.agent.<type> of the session snapshot, passed by the caller; a type with none, the
              orchestrator, is never past it). The early-stop note in warn mode.
   recovered  a successful write or delegation after the stall: logged only, the false-stop evidence.
+  first_write  S4 L7 B3, logged only: the run's first call of a write or delegate tool by name
+             (FIRST_WRITE_TOOLS; attempted, failed or not; shell commands do not count), with `at_call`,
+             the 1-based index of the API call that made it (calls before it = at_call - 1): how long a
+             run explores before it acts, measured as the Stage-4 ttp.py baseline measured it.
 
 No limit is duplicated: the turn gate, soft/hard.agent, the prompt and session budgets and the MCP cap
 stay in agent_guard.py and stack_limits.py, and the usage is the budget gate's. New here: the brief's
@@ -82,6 +86,7 @@ REPORT_TOOLS = ("SubagentHandback", "TaskStop", "AskUserQuestion")
 SHELL_TOOLS = ("Bash", "PowerShell")
 PROGRESS = ("write", "delegate", "report")
 WORK = ("write", "delegate")    # progress that is more than the report: "recovered" counts these
+FIRST_WRITE_TOOLS = WRITE_TOOLS + DELEGATE_TOOLS    # B3: by tool name only
 # a shell command that changes files or history; a false match only counts as progress (fewer firings)
 _SEP = r"(?:^|[\s;&|(`]|\$\()"
 WRITE_CMD_RE = re.compile(
@@ -207,6 +212,7 @@ def new_state(run=None):
             "cur": None,        # the open round {"id": message id, "uses": {tool_use_id: [class, repeat, ok]}}
             "seen": [], "win": [],          # closed rounds, oldest first: [progress 0/1, failing 0/1]
             "nround": 0, "nwork": 0,        # closed rounds, and those with a successful write/delegate
+            "first_write": None,            # B3: the API call (1-based) of the first write/delegate call
             "status": None, "ended": False, "fired": {}}
 
 
@@ -276,6 +282,8 @@ def feed(st, e, since=None):
                 if st["cur"] is None:
                     st["cur"] = {"id": mid, "uses": {}}
                 st["cur"]["uses"][b["id"]] = [classify(name, b.get("input")), int(sig in st["seen"]), None]
+                if name in FIRST_WRITE_TOOLS and st.get("first_write") is None:
+                    st["first_write"] = st["calls"]
                 if sig not in st["seen"]:
                     st["seen"] = (st["seen"] + [sig])[-SEEN_KEPT:]
             elif b.get("type") == "text" and isinstance(b.get("text"), str) and b["text"].strip():
@@ -331,6 +339,7 @@ def evaluate(st, used_tokens, used_calls, default_tokens, rounds=ROUNDS, fails=F
                  limit (the early-stop note in warn mode)
       recovered  a round with a successful write or delegation closed after the stall fired (logged
                  only: the false-stop evidence)
+      first_write  the run called a write or delegate tool (logged only; B3, st["first_write"])
     st["fired"][signal] = [closed rounds, work rounds, API calls] when it fired."""
     out, fired = [], st["fired"]
     mark = [int(st.get("nround") or 0), int(st.get("nwork") or 0), int(used_calls)]
@@ -348,6 +357,9 @@ def evaluate(st, used_tokens, used_calls, default_tokens, rounds=ROUNDS, fails=F
     if "stall" in fired and "recovered" not in fired and mark[1] > fired["stall"][1]:
         fired["recovered"] = mark
         out.append(("recovered", budget, 0))
+    if st.get("first_write") is not None and "first_write" not in fired:
+        fired["first_write"] = mark
+        out.append(("first_write", budget, 0))
     return out
 
 
@@ -446,10 +458,13 @@ def check(d, aid, atype, path, run, used_tokens=None, used_calls=None, default_t
     notes = []
     for sig, budget, n in fired:
         b = budget or {}
-        log_row(d, {"v": 1, "ts": round(time.time(), 3), "agent_id": aid, "type": str(atype)[:80],
-                    "run": run, "signal": sig, "mode": how, "calls": calls, "ctx": tokens,
-                    "budget_tokens": b.get("tokens"), "budget_calls": b.get("calls"), "src": b.get("src"),
-                    "rounds": rounds, "fails": n})
+        row = {"v": 1, "ts": round(time.time(), 3), "agent_id": aid, "type": str(atype)[:80],
+               "run": run, "signal": sig, "mode": how, "calls": calls, "ctx": tokens,
+               "budget_tokens": b.get("tokens"), "budget_calls": b.get("calls"), "src": b.get("src"),
+               "rounds": rounds, "fails": n}
+        if sig == "first_write":
+            row["at_call"] = st.get("first_write")
+        log_row(d, row)
         if sig == "budget":
             used = "{:,} context tokens in {} API calls".format(tokens, calls)
             notes.append(NOTE_BUDGET.format(used=used, budget=budget_text(b)))
@@ -485,7 +500,8 @@ def report(session=None):
     """early-stop.jsonl of every session (or one) joined to usage/reports.jsonl by (session, agent id,
     run stamp): {"sessions", "signals": {signal: {outcome: n}}, "types": {type: {signal: n}}}. The
     outcome is the hand-back's STATUS (done, partial, failed, blocked), `handback` for a report made
-    through the SubagentHandback tool, `no-report` when none was logged."""
+    through the SubagentHandback tool, `no-report` when none was logged. "first_write": per outcome, n,
+    median and p90 of the first_write rows' at_call (B3)."""
     root = state_root()
     outcome = {}
     for r in _jsonl(os.path.join(root, "usage", "reports.jsonl")):
@@ -498,7 +514,8 @@ def report(session=None):
             sessions = sorted(s for s in os.listdir(root) if os.path.isfile(os.path.join(root, s, LOG)))
         except OSError:
             sessions = []
-    out = {"sessions": 0, "signals": {}, "types": {}}
+    out = {"sessions": 0, "signals": {}, "types": {}, "first_write": {}}
+    at = {}
     for s in sessions:
         if not isinstance(s, str) or not ID_RE.match(s):
             continue
@@ -511,6 +528,13 @@ def report(session=None):
             by[got] = by.get(got, 0) + 1
             t = out["types"].setdefault(str(r.get("type")), {})
             t[sig] = t.get(sig, 0) + 1
+            if sig == "first_write" and _num(r.get("at_call")) is not None:
+                at.setdefault(got, []).append(r["at_call"])
+    for got, xs in at.items():
+        xs.sort()
+        n = len(xs)
+        out["first_write"][got] = {"n": n, "median": xs[n // 2] if n % 2 else (xs[n // 2 - 1] + xs[n // 2]) / 2,
+                                   "p90": xs[min(n - 1, int(0.9 * n))]}
     return out
 
 
@@ -547,8 +571,11 @@ def self_test():
         problems.append("stall and stop do not fire exactly once")
     _call(st, 10, "Edit", {"file_path": "x"}, error=False)
     _call(st, 11)
-    if stalled(st, 8, 4)[0] or [s for s, _b, _n in evaluate(st, 10 ** 9, 12, 1000)] != ["recovered"]:
-        problems.append("a successful edit is not progress, or no recovery is logged")
+    if stalled(st, 8, 4)[0] or [s for s, _b, _n in evaluate(st, 10 ** 9, 12, 1000)] != ["recovered",
+                                                                                         "first_write"]:
+        problems.append("a successful edit is not progress, or no recovery or first write is logged")
+    if st["first_write"] != 11 or new_state()["first_write"] is not None:
+        problems.append("the first write is not the 11th API call (B3)")
     for p in problems:
         sys.stderr.write("stack_progress self-test: %s\n" % p)
     print("stack_progress self-test: %s" % ("FAIL" if problems else "ok"))
@@ -573,6 +600,8 @@ def main(argv):
             print("  %-8s %s" % (sig, ", ".join("%s %d" % kv for kv in sorted(by.items()))))
         for t, by in sorted(r["types"].items()):
             print("  %-22s %s" % (t, ", ".join("%s %d" % kv for kv in sorted(by.items()))))
+        for got, s in sorted(r["first_write"].items()):
+            print("  first write at API call, %s: n %d, median %s, p90 %s" % (got, s["n"], s["median"], s["p90"]))
         return 0
     sys.stderr.write("usage: stack_progress.py report [--session SID] [--json] | --self-test\n")
     return 2

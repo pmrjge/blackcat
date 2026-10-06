@@ -234,9 +234,11 @@ From the dynamic fan-out plan (revision 2; steps 3-5b built, the shadow and enfo
 | `stall` | the last 8 tool rounds made no progress (no successful edit, write, commit, delegation or report) and at least 4 failed (an error result, or only repeats of earlier calls) | nothing |
 | `stop` | a stall while past the budget: the brief's, else the type's soft limit (`soft.agent.<type>` × `STACK_SOFT_LIMIT_SCALE`; `0` = none); the orchestrator has none | "Early-stop check … return STATUS: partial with the failing command …" |
 | `recovered` | a successful write or delegation after the stall | nothing |
+| `first_write` | the run's first call of Edit, Write, NotebookEdit, MultiEdit, Agent, Task or SendMessage (by tool name, failed or not; shell commands do not count); the row adds `at_call`, the API call that made it (1 = the first), so `at_call - 1` calls explored before the run acted | nothing |
 
 - **Why observe:** `tests/derive_early_stop.py` replays transcripts through the same parser. On the 5 frozen stage-4 sessions (521 runs), `stop` fired on 1 run. `stall` fired on 34 runs; 12 of those were successful runs that made progress afterwards (false stops), and 30 of the 34 recovered. Details: the stage-4 L5 design note.
-- **Campaign:** `stack_progress.py report [--session SID] [--json]` joins the log with `usage/reports.jsonl` to show the hand-back status of each firing. Switching to `warn` is the user's decision.
+- **Campaign:** `stack_progress.py report [--session SID] [--json]` joins the log with `usage/reports.jsonl` to show the hand-back status of each firing, and the count, median and p90 of `first_write`'s `at_call` per hand-back status. Switching to `warn` is the user's decision.
+- **Why `first_write`** (stage-4 lever L7, mechanism B3): L7 targets runs that explore longer than the task needs. It is measured, not prompted: the user kept the L7 prompt wording out and ruled out a paid A/B, so this log is how a later change can be judged. It uses the same definition as the stage-4 offline measurement (API calls to the first write or delegate call, by tool name). A run that never writes has no row; filter by `type` for builders.
 - **State:** `<state>/<session>/progress/<agent_id>.json`, holding the offset, the round window and call signatures. It is replaced atomically under a non-blocking flock, so a parallel call skips its check. It fails open.
 - **Tests:** `stack_progress.py --self-test`; `uv run --python 3.12 --with pytest pytest -q -p no:cacheprovider tests/test_stack_progress.py` (unit, the guard end to end in every mode, the installer's staging).
 
@@ -437,7 +439,8 @@ Phase 1 of the hand-back protocol is behaviour-neutral: in the default mode `obs
 | `json` | today's JSON report line (now with `failed` and `eflag`) plus a shape check, logged, never blocks | SessionStart and SubagentStart add the JSON-line request |
 | `off` | no check, no log | nothing recorded |
 
-- **Who is checked:** an agent_type in the stack's spawnable types (never `blackcat`: Claude Code runs prompt suggestions and `/btw` as the session's agent) that was spawned by an Agent call the guard allowed (registry `spawned`; for a foreground child still in its call, Claude Code's `meta.json` naming an Agent call in the ledger). `meta.json` is undocumented, so such a child may go unchecked. Skipped: an empty reply, and a run whose transcript's last tool_use is `SubagentHandback` (logged with format `handback`).
+- **Who is checked:** an agent_type in the stack's spawnable types (never `blackcat`: Claude Code runs prompt suggestions and `/btw` as the session's agent) that was spawned by an Agent call the guard allowed (registry `spawned`; for a foreground child still in its call, Claude Code's `meta.json` naming an Agent call in the ledger). `meta.json` is undocumented, so such a child may go unchecked. Skipped: an empty reply.
+- **SubagentHandback** (stage-4 L7, mechanism B1; 2026-10-06): when the newest assistant record in the transcript's last 256 KiB calls `SubagentHandback`, that call's `message` is the report, and it is parsed, checked and recorded exactly like a reply (registry, copy, row with `via: handback`). It is never blocked in any mode: the parent already has the message, and the stage-4 measurement found a restate nets -0.81%. The reply text is not used, even when empty. Only the newest assistant record counts, so a resumed run that ends in text is checked as text, never as an earlier run's hand-back. If the message cannot be read (not a string, blank, or a line longer than the tail), the run keeps the old row: format `handback`, common fields only, no copy, no registry `report`.
 - **Grammar** (written by the model, the existing STATUS prefix): `STATUS: done|partial|failed|blocked [· E:look|E:drop]`, `RESULT:`, `FILES:` (one `path — purpose` per line, purpose `deleted` allowed; the older comma list still parses), `EVIDENCE:` (at most 5 lines, or `→ path[:a-b]`), `NEXT:`.
 - **Wrapped replies:** a reply wrapped whole in one code fence (the first non-empty line opens a ``` or ~~~ fence with the STATUS line inside) is unwrapped before the STATUS and blob checks (8 of the 80 frozen hand-backs were wrapped so: markup, not content). `wrapped` is recorded; the size still counts the reply as sent.
 - **Hard violations** (compact only can restate): no or invalid STATUS; a non-done report without EVIDENCE or NEXT; a blob (10+ Read-output lines, a code fence over 15 lines or 1,500 chars, a base64 or hex run of 200+, control characters, a line over 2,000 chars); a size above 1.5x the class cap. **Soft** (logged only): size within 1.5x, an implied E flag, `suspect` (done, no E flag, RESULT says skipped, unverified or not run), missing files (`missing: [...]`, never a block). In the review and plan classes blob and size are soft too.
@@ -458,9 +461,9 @@ Phase 1 of the hand-back protocol is behaviour-neutral: in the default mode `obs
 
 **Where it is recorded** (no report text outside the first two):
 
-- Registry `agents/<id>.json` gains `report`: run, stops, status, eflag, format, class, cap, chars, counted, hard, soft, blob, verdict, counts, mode, restated, blocked, restate_key, path, `files` (`[{path, state, size, mtime, sha8}]`) and missing.
+- Registry `agents/<id>.json` gains `report`: run, stops, status, eflag, format, class, cap, chars, counted, hard, soft, blob, verdict, counts, mode, via, restated, blocked, restate_key, path, `files` (`[{path, state, size, mtime, sha8}]`) and missing.
 - `reports/<agent_id>.<int(started)>.<n>.md` in the session's state folder: the full reply copy (n=1 first, 2 restated), created O_EXCL, mode 0600 in a 0700 folder, cut at 2 MiB, pruned with the session folder.
-- `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/usage/reports.jsonl`, beside `runs3.csv`: one JSON line per check, no report text; it rotates to `reports.jsonl.1` past 16 MiB. A `handback` row has only the common fields.
+- `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/usage/reports.jsonl`, beside `runs3.csv`: one JSON line per check, no report text; it rotates to `reports.jsonl.1` past 16 MiB. A row with format `handback` (a message that could not be read) has only the common fields.
 
   | field | meaning |
   |---|---|
@@ -470,7 +473,8 @@ Phase 1 of the hand-back protocol is behaviour-neutral: in the default mode `obs
   | `agent_id` | the agent's id |
   | `run` | the registry `started` stamp as a string; a restate's rows share session, agent_id and run, and the last row of a run is the final report |
   | `type`, `class`, `mode` | agent type, size class, `STACK_REPORT_FORMAT` mode |
-  | `format` | `status`, `clean`, `text`, `json` or `handback` |
+  | `format` | `status`, `clean`, `text`, `json`, or `handback` (a SubagentHandback message that could not be read) |
+  | `via` | `text` (the final reply) or `handback` (the SubagentHandback message) |
   | `wrapped` | the reply came in one code fence |
   | `status`, `status_raw` | the parsed STATUS word (done, partial, failed, blocked or null); the first word when it is not one of those |
   | `eflag` | `look`, `drop` or none |
@@ -1070,6 +1074,11 @@ are hook- and code-enforced; every install is ledgered with its uninstall comman
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-06 (stage-4 L7 mechanisms: the SubagentHandback message is checked; first-write log)
+- B1: the hand-back check reads the `message` of a run's final `SubagentHandback` call, which is how nested subagents report. Before, such runs were logged with format `handback` and nothing was checked. Now the message is parsed, checked and recorded like a reply: registry `report`, `reports/` copy, `usage/reports.jsonl` row. It is never blocked in any mode. New field `via` (`text` or `handback`). A resumed run that ends in text is no longer taken for an earlier run's hand-back. `stack-tree`, `delegations.md` and `stack_progress.py report` now see these runs' STATUS (§5 "Message protocol"). Code: `stack_report.transcript_handback`, `agent_guard.report_stop`, plus a self-test case.
+- B3: `hooks/stack_progress.py` logs a once-per-run `first_write` signal: the API call (`at_call`) of the run's first write or delegate tool call. `report` adds its count, median and p90 per hand-back status (§5 "Brief budgets and early stop"). Observe only, numbers and ids only; `tests/derive_early_stop.py` counts it too.
+- No new knob and no settings change. Re-run `./install.sh` to install the hooks.
 
 ### 2026-10-06 (toolsmith: the dependency installer)
 - New agent `toolsmith` (Sonnet, leaf, Read/Bash/Skill, acceptEdits, 60 turns; lookup pool) and its executor `bin/stack-install` with `hooks/toolsmith_policy.py`: Homebrew formulae, uv tools, npm/pnpm globals, cargo and go installs without the user within the vetting, everything else on the user's terminal approval; ledger with the uninstall command (§7, "Dependency installer: toolsmith").

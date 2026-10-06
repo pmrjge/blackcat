@@ -940,17 +940,147 @@ def transcript_with_last_tool(path, name):
 
 
 def test_subagent_handback_is_logged_not_blocked(rig, tmp_path):
+    """A SubagentHandback whose input has no readable `message` keeps the common row (format handback)."""
     t = transcript_with_last_tool(tmp_path / "agent-hb1.jsonl", "SubagentHandback")
     rig.seed("hb1", "coder")
     r = rig.run(rig.stop("hb1", "coder", BAD, transcript=t))
     assert r.rc == 0 and r.stdout == ""
     (row,) = rig.rows()
-    assert row["format"] == "handback" and row["report_chars"] == len(BAD) and "blocked" not in row
+    assert row["format"] == "handback" and row["via"] == "handback" and "blocked" not in row
+    assert row["report_chars"] == len(BAD)
     assert rig.copies() == [] and "report" not in rig.reg("hb1") and rig.reg("hb1").get("stopped")
     # control: another last tool is checked as usual
     t2 = transcript_with_last_tool(tmp_path / "agent-hb2.jsonl", "Bash")
     rig.seed("hb2", "coder")
     assert blocked(rig.run(rig.stop("hb2", "coder", BAD, transcript=t2)))
+    assert rig.rows()[-1]["via"] == "text"
+
+
+# B1 (S4 L7): the hand-back message is the report: parsed, checked and recorded like a text reply, never blocked
+HB_MSG = ("STATUS: partial · E:look\nRESULT: half of it\nFILES:\n- a.py — parser\n"
+          "EVIDENCE: pytest -q → 1 failed\nNEXT: main-coder: finish b.py")
+
+
+def handback_transcript(path, message, before=(), after=(), key="message"):
+    """A subagent transcript: `before` records, an API call with text + a SubagentHandback tool_use (input
+    {key: message}), its tool_result, then `after` records."""
+    lines = list(before) + [
+        {"type": "user", "message": {"content": "go"}},
+        {"type": "assistant", "message": {"id": "m1", "content": [
+            {"type": "tool_use", "id": "tu1", "name": "Bash", "input": {"command": "ls"}}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "tu1"}]}},
+        {"type": "assistant", "message": {"id": "m2", "content": [
+            {"type": "text", "text": "Reporting."},
+            {"type": "tool_use", "id": "tu2", "name": "SubagentHandback", "input": {key: message}}]}},
+        {"type": "user", "message": {"content": [{"type": "tool_result", "tool_use_id": "tu2"}]}},
+    ] + list(after)
+    path.write_text("".join(json.dumps(x) + "\n" for x in lines))
+    return str(path)
+
+
+def test_handback_message_is_checked_and_recorded(tmp_path):
+    rig = Rig(tmp_path, STACK_REPORT_FORMAT="observe")
+    (rig.cwd / "a.py").write_text("x = 1\n")
+    t = handback_transcript(tmp_path / "agent-hm1.jsonl", HB_MSG)
+    rig.seed("hm1", "coder")
+    r = rig.run(rig.stop("hm1", "coder", "Reporting.", transcript=t))
+    assert r.rc == 0 and r.stdout == ""
+    (row,) = rig.rows()
+    parsed = sr.parse(HB_MSG)
+    assert row["via"] == "handback" and row["format"] == "status" and row["status"] == "partial"
+    assert row["eflag"] == "look" and row["class"] == "builder" and row["blocked"] is False
+    assert row["report_chars"] == len(HB_MSG) and row["report_tokens_est"] == math.ceil(len(HB_MSG) / 3)
+    assert row["counted_chars"] == sr.check(parsed, "coder", HB_MSG)["counted"]
+    assert row["files"] == 1 and row["missing"] == 0 and row["hard"] == []
+    raw = json.dumps(row, ensure_ascii=False)
+    assert "half of it" not in raw and "finish b.py" not in raw            # no report text in the row
+    rep = rig.reg("hm1")["report"]
+    assert rep["via"] == "handback" and rep["status"] == "partial" and rep["blocked"] is False
+    assert rep["files"][0]["state"] == "ok" and rig.reg("hm1").get("stopped")
+    (name,) = rig.copies()
+    assert (rig.state / "reports" / name).read_text() == HB_MSG
+    assert stat.S_IMODE((rig.state / "reports" / name).stat().st_mode) == 0o600
+
+
+def test_handback_is_never_blocked_even_in_compact(rig, tmp_path):
+    t = handback_transcript(tmp_path / "agent-hm2.jsonl", BAD)
+    rig.seed("hm2", "coder")
+    for _ in range(2):
+        r = rig.run(rig.stop("hm2", "coder", BAD, transcript=t))
+        assert r.rc == 0 and r.stdout == ""
+    rows = rig.rows()
+    assert [x["hard"] for x in rows] == [["no_status"], ["no_status"]]
+    assert all(x["via"] == "handback" and x["blocked"] is False and x["restated"] is False for x in rows)
+    rep = rig.reg("hm2")["report"]
+    assert rep["blocked"] is False and "restate_key" not in rep and rig.reg("hm2").get("stopped")
+
+
+def test_handback_with_an_empty_reply_is_still_checked(rig, tmp_path):
+    t = handback_transcript(tmp_path / "agent-hm3.jsonl", HB_MSG)
+    rig.seed("hm3", "coder")
+    r = rig.run(rig.stop("hm3", "coder", "", transcript=t))
+    assert r.rc == 0 and r.stdout == ""
+    (row,) = rig.rows()
+    assert row["via"] == "handback" and row["status"] == "partial" and row["report_chars"] == len(HB_MSG)
+    # no message and no reply: the common row only
+    t2 = handback_transcript(tmp_path / "agent-hm4.jsonl", HB_MSG, key="report")
+    rig.seed("hm4", "coder")
+    assert rig.run(rig.stop("hm4", "coder", "", transcript=t2)).stdout == ""
+    row = rig.rows()[-1]
+    assert row["format"] == "handback" and row["report_chars"] == 0 and "status" not in row
+
+
+def test_a_resumed_run_ending_in_text_is_no_handback(rig, tmp_path):
+    """The newest assistant record decides: a resume that answers in plain text after an earlier run's
+    SubagentHandback is checked as text (compact restates it), never as the old message."""
+    after = [{"type": "user", "message": {"content": "one more thing"}},
+             {"type": "assistant", "message": {"id": "m3", "content": [{"type": "text", "text": BAD}]}}]
+    t = handback_transcript(tmp_path / "agent-hm5.jsonl", HB_MSG, after=after)
+    rig.seed("hm5", "coder")
+    assert blocked(rig.run(rig.stop("hm5", "coder", BAD, transcript=t)))
+    (row,) = rig.rows()
+    assert row["via"] == "text" and row["hard"] == ["no_status"] and row["report_chars"] == len(BAD)
+
+
+@pytest.mark.parametrize("value", [None, 7, ["STATUS: done"], {"m": 1}])
+def test_a_non_string_message_is_no_report(rig, tmp_path, value):
+    t = handback_transcript(tmp_path / "agent-hm6.jsonl", value)
+    rig.seed("hm6", "coder")
+    assert rig.run(rig.stop("hm6", "coder", BAD, transcript=t)).stdout == ""
+    (row,) = rig.rows()
+    assert row["format"] == "handback" and "status" not in row and rig.copies() == []
+
+
+def test_transcript_handback_reads_the_newest_assistant_record_only(tmp_path):
+    p = tmp_path / "t.jsonl"
+    assert sr.transcript_handback(handback_transcript(p, HB_MSG)) == HB_MSG
+    assert sr.transcript_handback(handback_transcript(p, HB_MSG, key="report")) == ""
+    assert sr.transcript_handback(handback_transcript(p, 5)) == ""
+    after = [{"type": "assistant", "message": {"id": "m3", "content": [{"type": "text", "text": "later"}]}},
+             {"type": "user", "message": {"content": "a user line naming \"assistant\" and SubagentHandback"}}]
+    assert sr.transcript_handback(handback_transcript(p, HB_MSG, after=after)) is None
+    # the hand-back after another tool_use in the same API call; a later system record is skipped
+    rec = {"type": "assistant", "message": {"id": "m9", "content": [
+        {"type": "tool_use", "id": "a", "name": "Read", "input": {}},
+        {"type": "tool_use", "id": "b", "name": "SubagentHandback", "input": {"message": "STATUS: done"}}]}}
+    p.write_text(json.dumps(rec) + "\n" + json.dumps({"type": "system", "content": "x"}) + "\n")
+    assert sr.transcript_handback(str(p)) == "STATUS: done"
+    big = handback_transcript(p, "STATUS: done\nRESULT: " + "y" * 600)
+    assert sr.transcript_handback(big, cap=300) is None                     # the tail is all that is read
+    assert sr.transcript_handback(str(tmp_path / "missing.jsonl")) is None
+    assert sr.transcript_handback("relative.jsonl") is None and sr.transcript_handback(None) is None
+    link = tmp_path / "link.jsonl"
+    link.symlink_to(p)
+    assert sr.transcript_handback(str(link)) is None                         # O_NOFOLLOW
+    fifo = tmp_path / "fifo"
+    os.mkfifo(str(fifo))
+    fd = os.open(str(fifo), os.O_RDWR | os.O_NONBLOCK)                       # a FIFO holding a hand-back: not read
+    try:
+        os.write(fd, (json.dumps(rec) + "\n").encode())
+        got, done = bounded(lambda: sr.transcript_handback(str(fifo)))
+        assert done and got is None
+    finally:
+        os.close(fd)
 
 
 def test_transcript_last_tool_is_bounded_and_regular_only(tmp_path):
@@ -977,6 +1107,14 @@ def test_transcript_last_tool_is_bounded_and_regular_only(tmp_path):
         assert done and got is None
     finally:
         os.close(fd)
+
+
+def test_transcript_tail_never_reads_a_device(monkeypatch):
+    """A character device is opened but never read (S_ISREG first): /dev/zero would hand back 256 KiB."""
+    reads, real = [], os.read
+    monkeypatch.setattr(os, "read", lambda fd, n: reads.append(n) or real(fd, n))
+    assert sr.transcript_handback("/dev/zero") is None and sr.transcript_last_tool("/dev/zero") is None
+    assert reads == []
 
 
 # ================================================================ 16. modes off and json

@@ -3,7 +3,8 @@
 Imported by agent_guard.py: its SubagentStop handler validates a stack subagent's final reply, its
 PreToolUse(Agent) handler measures the brief (STACK_REPORT_FORMAT, see agent_guard.py and CONFIG.md
 "Message protocol"). Everything here is pure text work except file_meta (stat and hash of the paths a
-report names, under the safety rules below) and transcript_last_tool (a bounded tail read).
+report names, under the safety rules below) and transcript_last_tool / transcript_handback (a bounded
+tail read; the latter returns the SubagentHandback message that is the report of such a run, S4 L7 B1).
 
 The model-written report (rules "Briefs and hand-backs"; the STATUS prefix and keys every existing parser
 reads):
@@ -579,8 +580,9 @@ def file_meta(files, cwd, project_dir=None, budget=META_BUDGET_S):
     return out
 
 
-def transcript_last_tool(path, cap=TAIL_MAX):
-    """Name of the last tool_use in a transcript's tail (bounded read; regular files only), or None."""
+def _tail(path, cap):
+    """The last `cap` bytes of a transcript (an absolute path to a regular file, no symlink followed), or
+    None."""
     if not (isinstance(path, str) and os.path.isabs(os.path.expanduser(path))):
         return None
     try:
@@ -593,11 +595,45 @@ def transcript_last_tool(path, cap=TAIL_MAX):
         if not stat.S_ISREG(st.st_mode):
             return None
         os.lseek(fd, max(st.st_size - cap, 0), os.SEEK_SET)
-        data = os.read(fd, cap)
+        return os.read(fd, cap)
     except OSError:
         return None
     finally:
         os.close(fd)
+
+
+def transcript_handback(path, cap=TAIL_MAX):
+    """S4 L7 B1: the SubagentHandback message that ended a run. Only the NEWEST assistant record of the
+    transcript's tail counts (a resumed run that answers in text is no hand-back, whatever an earlier run
+    called): its last SubagentHandback tool_use's input `message`, "" when that is missing or not a
+    string; None when the newest assistant record holds no SubagentHandback (or none is in the tail)."""
+    data = _tail(path, cap)
+    for line in reversed(data.split(b"\n") if data else []):
+        if b'"assistant"' not in line:
+            continue
+        try:
+            rec = json.loads(line.decode("utf-8", "replace"))
+        except (ValueError, RecursionError):
+            continue
+        if not isinstance(rec, dict) or rec.get("type") != "assistant":
+            continue
+        msg = rec.get("message")
+        content = msg.get("content") if isinstance(msg, dict) else None
+        uses = [b for b in content if isinstance(b, dict) and b.get("type") == "tool_use"
+                and b.get("name") == "SubagentHandback"] if isinstance(content, list) else []
+        if not uses:
+            return None
+        tin = uses[-1].get("input")
+        text = tin.get("message") if isinstance(tin, dict) else None
+        return text if isinstance(text, str) else ""
+    return None
+
+
+def transcript_last_tool(path, cap=TAIL_MAX):
+    """Name of the last tool_use in a transcript's tail (bounded read; regular files only), or None."""
+    data = _tail(path, cap)
+    if data is None:
+        return None
     for line in reversed(data.split(b"\n")):
         if b'"tool_use"' not in line:
             continue

@@ -88,7 +88,8 @@ Reads the hook JSON on stdin.
                                     as additionalContext (STACK_AGENT_STARTED), plus the JSON
                                     report line when STACK_REPORT_FORMAT=json
   SubagentStop                      the hand-back check (report_stop, stack_report.py): a spawned
-                                    stack subagent's final reply is parsed and checked, recorded
+                                    stack subagent's final reply (or its SubagentHandback message,
+                                    never blocked) is parsed and checked, recorded
                                     (registry `report`, reports/, usage/reports.jsonl) and, in
                                     STACK_REPORT_FORMAT=compact only, blocked ONCE per run on a hard
                                     violation (the agent rewrites it; not marked stopped meanwhile);
@@ -134,7 +135,7 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
                           stopped, transcript, bg, tool_use_id, resumed, report}; report = the
                           last hand-back check of the current run {run, stops, status, eflag,
                           format, class, cap, chars, counted, hard, soft, blob, verdict, counts,
-                          mode, restated, blocked, restate_key, path, files [{path, state, size,
+                          mode, via, restated, blocked, restate_key, path, files [{path, state, size,
                           mtime, sha8}], missing}
   reports/<agent_id>.<started>.<n>.md  the full final reply of a run (n = 1 the first, 2 the
                           restated one), O_EXCL, 0600
@@ -158,7 +159,8 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
   mcp-calls/<agent_id>.json  MCP tool calls of one subagent's current run {calls, run (its
                           registry `started` stamp), type, cap, ts}
   progress/<agent_id>.json, early-stop.jsonl  STACK_EARLY_STOP (stack_progress.py, S4 L5): a run's
-                          brief budget and round window; one line per signal (numbers and ids only)
+                          brief budget and round window; one line per signal (numbers and ids only;
+                          first_write: the API call of the run's first write, S4 L7 B3)
   blackcat/dispatch.<prompt>.<k>, blackcat/step.<prompt>.<k>   O_EXCL markers
   screen.lock             JSON, replaced atomically; transitions under flock(*.mutex)
   ../mode-probe.jsonl     STACK_MODE_PROBE=1 only, beside the session dirs: one line per
@@ -4212,11 +4214,13 @@ def report_stop(ev, d, aid, atype):
     """SubagentStop: check and record a spawned stack subagent's final reply; the block reason when
     compact mode restates it (the caller then skips mark_stopped), else None. Skipped: mode off,
     types outside SPAWNABLE (blackcat: the session's own agent, which Claude Code's prompt
-    suggestions and /btw run as), agents no allowed Agent call spawned (stack_spawned), an empty
-    reply, and a run whose last tool call is SubagentHandback (the report is in that tool's input:
-    logged as format handback). Order: the text checks; the restate decision, a check-and-set of
-    restate_key = the run's `started` stamp under ONE registry lock (reg_update); the report copy;
-    file metadata (not on a block, and it never decides one); the registry and usage logs."""
+    suggestions and /btw run as), agents no allowed Agent call spawned (stack_spawned), and an empty
+    reply. A run whose newest assistant record calls SubagentHandback (S4 L7 B1) is checked on that
+    tool's `message` instead of the reply and is never blocked (`via` handback; a message that cannot
+    be read: the common row, format handback). Order: the text checks; the restate decision, a
+    check-and-set of restate_key = the run's `started` stamp under ONE registry lock (reg_update); the
+    report copy; file metadata (not on a block, and it never decides one); the registry and usage
+    logs."""
     mode = report_mode()
     if mode == "off" or atype not in SPAWNABLE:
         return None
@@ -4224,9 +4228,13 @@ def report_stop(ev, d, aid, atype):
     if not rec or not stack_spawned(d, ev, aid, atype, rec):
         return None
     text = ev.get("last_assistant_message")
-    if not isinstance(text, str) or not text.strip():
-        return None
+    text = text if isinstance(text, str) else ""
     sr = report_module()
+    hb = sr.transcript_handback(ev.get("agent_transcript_path"))
+    via = "text" if hb is None else "handback"
+    if hb is None and not text.strip():
+        return None
+    text = hb if hb and hb.strip() else text
     now = time.time()
     tid = spawn_tid(ev, aid, rec)
     brief = (read_json(ledger_rec_path(d, tid)) or {}).get("brief_chars") if tid else None
@@ -4236,8 +4244,8 @@ def report_stop(ev, d, aid, atype):
            "agent_id": safe(aid), "run": key, "type": atype, "mode": mode, "report_chars": len(text),
            "report_tokens_est": sr.est_tokens(len(text)), "brief_chars": brief,
            "brief_tokens_est": sr.est_tokens(brief) if brief else None,
-           "est": "ceil(chars/3): an estimate, not a token count"}
-    if sr.transcript_last_tool(ev.get("agent_transcript_path")) == "SubagentHandback":
+           "est": "ceil(chars/3): an estimate, not a token count", "via": via}
+    if hb is not None and not hb.strip():
         report_safe(report_log, dict(row, format="handback"))
         return None
     parsed = sr.parse_json(text) if mode == "json" else None
@@ -4246,7 +4254,8 @@ def report_stop(ev, d, aid, atype):
     if mode == "json" and parsed["format"] != "json":
         chk["soft"].append("json_shape")
     active = stop_hook_active(ev)
-    want = mode == "compact" and bool(chk["hard"]) and not active
+    # a hand-back is already delivered: observe only (restating nets -0.81%, S4 L7)
+    want = mode == "compact" and bool(chk["hard"]) and not active and via == "text"
 
     def decide(cur):
         old = cur.get("report") if isinstance(cur.get("report"), dict) else {}
@@ -4260,7 +4269,7 @@ def report_stop(ev, d, aid, atype):
                "class": chk["class"], "cap": chk["cap"], "chars": chk["chars"],
                "counted": chk["counted"], "hard": chk["hard"], "soft": chk["soft"],
                "blob": chk["blob"], "verdict": parsed["verdict"], "counts": parsed["counts"],
-               "mode": mode, "restated": restated, "blocked": block, "ts": round(now, 3)}
+               "mode": mode, "via": via, "restated": restated, "blocked": block, "ts": round(now, 3)}
         if restated or block:
             new["restate_key"] = key
         cur["report"] = new
@@ -11880,6 +11889,16 @@ def report_self_test():
         os.environ["STACK_REPORT_FORMAT"] = "off"
         if report_stop(ev, d, "r1", "coder") is not None or len(os.listdir(os.path.join(d, REPORTS_DIR))) != 3:
             problems.append("hand-back: mode off still checks")
+        os.environ["STACK_REPORT_FORMAT"] = "compact"     # S4 L7 B1: checked on the message, never blocked
+        tpath = os.path.join(tmp, "hb.jsonl")
+        with open(tpath, "w") as f:
+            f.write(json.dumps({"type": "assistant", "message": {"content": [
+                {"type": "tool_use", "name": "SubagentHandback", "input": {"message": "ok"}}]}}) + "\n")
+        write_json_atomic(reg_path(d, "r2"), {"type": "coder", "spawned": 1.0, "started": 3.0})
+        hb_ev = dict(ev, agent_id="r2", agent_transcript_path=tpath, last_assistant_message="")
+        hb_rep = report_stop(hb_ev, d, "r2", "coder"), (reg_get(d, "r2") or {}).get("report") or {}
+        if hb_rep[0] is not None or hb_rep[1].get("via") != "handback" or hb_rep[1].get("hard") != ["no_status"]:
+            problems.append("hand-back: a SubagentHandback report was blocked or not checked")
         meta = sr.file_meta([{"path": "~/.ssh/id_ed25519"}, {"path": "/etc/hosts"}], tmp)
         if [m.get("state") for m in meta] != ["outside", "outside"] or any(len(m) != 2 for m in meta):
             problems.append("hand-back: a path outside the roots was looked at: %s" % meta)

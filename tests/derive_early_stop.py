@@ -237,7 +237,8 @@ def proxy(runs):
 def shipped(runs):
     """The shipped rule's own signals (stack_progress.evaluate at the default knobs, the type's soft seed
     as the gate), by outcome: the second route to the grid's (ROUNDS, FAILS, none|soft, write) rows."""
-    out = {s: {"fired": 0, "success": 0, "other": 0} for s in ("budget", "stall", "stop", "recovered")}
+    out = {s: {"fired": 0, "success": 0, "other": 0}
+           for s in ("budget", "stall", "stop", "recovered", "first_write")}
     for r in runs:
         for sig in r["signals"]:
             out[sig]["fired"] += 1
