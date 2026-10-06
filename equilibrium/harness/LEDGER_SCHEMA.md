@@ -69,8 +69,12 @@ REFUTED fact.
 | `argv` | list[str] | exact argv; the `--json-schema` value is replaced by `<schema sha256 …>`. The prompt is on stdin, not in argv |
 | `prompt_sha256`, `prompt_path` | str | prompt hash and file (first line `<ITEM> <label> <role>`) |
 | `raw_path` | str | the call's stdout (the `--output-format json` envelope); `stderr.txt` beside it |
-| `cwd` | str | the call's working directory: a fresh fixture copy, except `r<k>` calls, which resume in the member's own copy |
+| `cwd` | str | the call's working directory: a fresh fixture copy, except `r<k>` calls, which resume in the member's own copy (a resumed session needs its cwd) |
 | `resume` | str or null | session id passed to `--resume` |
+| `parent_session_id` | str or null | (E2, COMPARE_eq §12 A6.1) the session a reconcile or repair call forked (`--resume <it> --fork-session`; the call's own `session_id` is the new fork): the member's LATEST session, i.e. round 0's for round 1, the member's round-(k-1) fork for round k (A6 implementation note, USER decision (a) of 2026-10-06), so every round-0 session stays pristine for the p7 branches; null for unforked calls |
+| `branch_workdir` | str or null | (forked calls of `workdir_answer_classes`, CP) the branch's saved copy `<cwd>.<branch>` (`live` for the E arm's own repair, else the p7 branch): the call runs in `cwd` (restored to that branch's state under a per-member lock; `<cwd>.r0` keeps the round-0 bytes, which `cwd` holds again afterwards), and its resulting state is saved here; checks and `answer_workdir` use it |
+| `cell`, `branch` | str or null | (A6.3) `p6` / `p7` for calibration-cell calls (own labels), null otherwise; `branch`: the p7 LOO variant (`none`, `rotation`, `random`, `leader`), null otherwise |
+| `model_ids`, `model_ids_reason` | list[str], str or null | (D3, A6.2) the sorted keys of the envelope's `modelUsage` (the concrete model ids the call ran on); `[]` with the reason (`no result envelope …`, `no modelUsage in the result envelope`, `modelUsage is not a non-empty object`) when missing, never a guess |
 | `view` | object or null | see *view* below; null for planner nodes, judges, verifiers, resumed calls |
 | `decisive_seen` | bool or null | whether the item's decisive segment is in this call's view (null: no view or no annotation) |
 | `started_utc`, `ended_utc` | str | harness clock around the subprocess |

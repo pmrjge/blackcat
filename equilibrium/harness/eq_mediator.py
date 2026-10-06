@@ -320,7 +320,7 @@ def cluster(outs: Sequence[MemberOut], ctx: Ctx, final: Any = None) -> dict[int,
         for o in outs:
             v = eh.positive_number(o.answer)
             out[o.member] = None if v is None or med is None else (
-                "near" if abs(math.log(v / med)) <= math.log(2) + 1e-12 else "far")
+                "near" if eh.abs_ln_ratio(v, med) <= math.log(2) + 1e-12 else "far")  # v / med can underflow
         return out
     return {o.member: normalise(o.answer, ctx) for o in outs}
 

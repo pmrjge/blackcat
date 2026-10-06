@@ -16,7 +16,8 @@ from conftest import FIXT_FLAGS, HARNESS, STAGE, ledger
 
 DISK_FLAGS: dict[str, Any] = json.loads((HARNESS / "flags.json").read_text())
 SCHEMA = {"type": "object"}
-HEAD = ["/x/claude", "-p", "--agent", "writer", "--model", "sonnet", "--max-budget-usd", "0.280000",
+# D3 (COMPARE_eq §12 A6.2): the writer runs its own frontmatter model, opus
+HEAD = ["/x/claude", "-p", "--agent", "writer", "--model", "opus", "--max-budget-usd", "0.280000",
         "--json-schema", '{"type":"object"}', "--output-format", "json", "--permission-mode", "acceptEdits",
         "--disallowedTools", "Agent", "WebSearch", "WebFetch", "--strict-mcp-config"]
 # the frozen pool lists (flags.json allowed_tools, owned by the pools) + Skill; StructuredOutput is --tools only
@@ -103,7 +104,7 @@ def test_boxed_member_keeps_mcp_out_of_tools() -> None:
     f["member_exec"] = "sandbox"
     tools, boxed = eh.member_tools(f, "PF")
     assert boxed and tools == ["Read", "Write", "Edit", eh.MEMBER_EXEC_TOOL, "Skill"]
-    argv = eh.build_argv("c", "a", 1, SCHEMA, tools, f)
+    argv = eh.build_argv("c", "verifier", 1, SCHEMA, tools, f)
     assert argv[argv.index("--tools") + 1] == "Read,Write,Edit,Skill,StructuredOutput"  # Bash withheld, no mcp__
     assert _opt_list(argv, "--allowedTools") == tools
 

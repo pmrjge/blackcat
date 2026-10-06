@@ -7,8 +7,31 @@
  "stop_quorum_rule": "tau",
  "finding_quorum_rule": "fixed_t",
  "quorum_decision": "user decision 2026-10-04: keep the pre-registration (tau 0.6 = 3 of 5; finding-set t = 2)",
- "model": "sonnet",
- "model_decision": "user constraint 2026-10-04 (via orchestrator): every call runs --model sonnet",
+ "model": {
+  "biochem-engineer": "opus",
+  "code-reviewer": "opus",
+  "coder": "sonnet",
+  "data-engineer": "sonnet",
+  "data-scientist": "opus",
+  "doc-specialist": "sonnet",
+  "equilibrium": "sonnet",
+  "explore": "sonnet",
+  "main-coder": "opus",
+  "mathematician": "opus",
+  "ml-engineer": "opus",
+  "ninja-coder": "opus",
+  "oracle": "opus",
+  "plan-reviewer": "opus",
+  "planner": "opus",
+  "proof-checker": "opus",
+  "python-engineer": "opus",
+  "researcher": "opus",
+  "security-auditor": "opus",
+  "test-engineer": "sonnet",
+  "verifier": "sonnet",
+  "writer": "opus"
+ },
+ "model_decision": "D3, user 2026-10-06 (COMPARE_eq §12 A6.2): each call runs its agent's own frontmatter model (dot-claude/agents/<type>.md `model:`, pinned here per type; a drift test keeps the map equal to the frontmatter); supersedes the 2026-10-04 `--model sonnet` constraint; the one-family refusal of build_argv stays",
  "R_max": 1,
  "R_max_ceiling": 2,
  "perm_shift_rule": "floor",
@@ -264,6 +287,33 @@
    "same_fields": [
     "label"
    ]
+  }
+ },
+ "cells": {
+  "comment": "COMPARE_eq §12 A6.3 calibration cells (labels p6, p7; stage p only). p6: per item 9 round-0 members of the S* type with the N = 9 view design, each at the family's N = 5 per-member cap; public checks once per candidate, CR single-support clusters of the 9-set to the verifier (<= max_verifier_calls, each at the N = 5 verifier cap), RS equivalence once on the 9-set. p7: from p3's pristine round-0 sessions, one forked branch per LOO variant, each forced through `rounds` reconcile rounds at reserve / (N * rounds) per member-round",
+  "p6": {
+   "classes": [
+    "PF",
+    "CP",
+    "CR",
+    "ES",
+    "RS"
+   ],
+   "N": 9,
+   "max_verifier_calls": 10
+  },
+  "p7": {
+   "classes": [
+    "RS",
+    "ES"
+   ],
+   "branches": [
+    "none",
+    "rotation",
+    "random",
+    "leader"
+   ],
+   "rounds": 2
   }
  },
  "isolation": "container",

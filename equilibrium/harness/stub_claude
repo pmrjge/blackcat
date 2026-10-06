@@ -13,8 +13,17 @@ Env:
   EQ_STUB_SCRIPT  JSON file {"<key>": {"structured_output": {...}, "cost": 0.01, "subtype": "...", "exit": 0}}
                   keys tried in order: "<ITEM>|<label>|<role>", "<ITEM>|<label>|<orig role>><role>" (resumed calls),
                   "<ITEM>|<role>", "<ITEM>|*", "*". Without a hit the answer is generated from --json-schema.
-  EQ_STUB_LOG     JSONL file: one line per invocation (argv, cwd, head, session_id).
-  EQ_STUB_STATE   directory for session state (default: $TMPDIR/eq_stub_state).
+                  An entry may also hold "write": {"<relative path>": "<text>"}: files written into the cwd (a member
+                  editing its working copy; paths are relative, never absolute, never `..`).
+  EQ_STUB_LOG     JSONL file: one line per invocation (argv, cwd, head, session_id, parent_session_id).
+  EQ_STUB_STATE   directory for session state (default: $TMPDIR/eq_stub_state): one `<session id>.json` per session
+                  {"role", "head", "parent", "cwd", "turns": [head, ...]}, the session's turn log.
+
+Sessions (COMPARE_eq §12 A6.1, E2): a new call gets a session id (`--session-id S` if given: S, refused when S already
+exists; else a uuid5 of head and cwd). `--resume X` continues X in place (its turn log grows); `--resume X
+--fork-session` copies X's turn log into a NEW session id (uuid4) and leaves X untouched; resuming an unknown session
+fails (exit 1, as claude does). The envelope carries `modelUsage` keyed by the concrete model id (`--model` alias
+opus/sonnet -> claude-<alias>-stub; a full id is kept), as claude -p does.
 """
 
 from __future__ import annotations
@@ -28,6 +37,13 @@ from pathlib import Path
 from typing import Any
 
 MODEL = "claude-sonnet-stub"  # never a haiku id (user constraint 2026-10-04)
+
+
+def model_id(alias: str | None) -> str:
+    """The concrete id a `--model` value runs on (an alias -> the stub id of that family; a full id as given)."""
+    if not alias:
+        return MODEL
+    return f"claude-{alias}-stub" if alias in ("opus", "sonnet") else alias
 
 
 def opt(argv: list[str], name: str) -> str | None:
@@ -99,6 +115,17 @@ def special(role: str, schema: dict[str, Any], prompt: str, seed: int) -> dict[s
     return None
 
 
+def fail(msg: str, sid: str | None = None) -> int:
+    print(json.dumps({"type": "result", "subtype": "error_during_execution", "is_error": True, "result": msg,
+                      "session_id": sid}))
+    return 1
+
+
+def safe_rel(rel: str) -> Path | None:
+    p = Path(rel)
+    return None if p.is_absolute() or ".." in p.parts or not p.parts else p
+
+
 def main() -> int:
     argv = sys.argv[1:]
     if "--version" in argv:
@@ -110,18 +137,35 @@ def main() -> int:
     item, label, role = [*parts, "?", "?", "?"][:3]
     schema = json.loads(opt(argv, "--json-schema") or "{}")
     cap = float(opt(argv, "--max-budget-usd") or "0")
-    model = opt(argv, "--model") or MODEL
+    model = model_id(opt(argv, "--model"))
     state = Path(os.environ.get("EQ_STUB_STATE", os.path.join(os.environ.get("TMPDIR", "."), "eq_stub_state")))
     state.mkdir(parents=True, exist_ok=True)
     resume = opt(argv, "--resume")
+    fork = "--fork-session" in argv
+    want = opt(argv, "--session-id")
     orig_role = None
+    parent = None
+    turns: list[str] = []
+    if fork and not resume:
+        return fail("--fork-session needs --resume")
     if resume:
-        sid = resume
-        f = state / f"{sid}.json"
-        orig_role = json.loads(f.read_text())["role"] if f.exists() else None
+        f = state / f"{resume}.json"
+        if not f.exists():
+            return fail(f"No conversation found with session ID: {resume}")
+        prev = json.loads(f.read_text())
+        orig_role = prev["role"]
+        turns = list(prev.get("turns", []))
+        if fork:
+            parent = resume
+            sid = want or str(uuid.uuid4())
+        else:
+            sid = resume
     else:
-        sid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{head}|{os.getcwd()}"))
-        (state / f"{sid}.json").write_text(json.dumps({"role": role, "head": head}))
+        sid = want or str(uuid.uuid5(uuid.NAMESPACE_URL, f"{head}|{os.getcwd()}"))
+        if want and (state / f"{sid}.json").exists():
+            return fail(f"Session ID {sid} is already in use.")
+    rec = {"role": orig_role or role, "head": head, "parent": parent, "cwd": os.getcwd(), "turns": [*turns, head]}
+    (state / f"{sid}.json").write_text(json.dumps(rec))
     script: dict[str, Any] = {}
     if os.environ.get("EQ_STUB_SCRIPT"):
         script = json.loads(Path(os.environ["EQ_STUB_SCRIPT"]).read_text())
@@ -130,22 +174,31 @@ def main() -> int:
         keys.append(f"{item}|{label}|{orig_role}>{role}")
     keys += [f"{item}|{role}", f"{item}|*", "*"]
     entry = next((script[k] for k in keys if k in script), {})
+    for rel, text in (entry.get("write") or {}).items():
+        p = safe_rel(rel)
+        if p is None:
+            return fail(f"refusing to write {rel!r}", sid)
+        (Path.cwd() / p).parent.mkdir(parents=True, exist_ok=True)
+        (Path.cwd() / p).write_text(str(text))
     seed = h(head + "|" + (orig_role or ""))
     so = entry.get("structured_output")
     if so is None:
         so = special(role, schema, prompt, seed) or instance(schema, seed)
     cost = float(entry.get("cost", min(cap, 0.001 + (seed % 100) / 10000.0)))
+    usage = {"input_tokens": 100 + seed % 50, "cache_creation_input_tokens": 10, "cache_read_input_tokens": 20,
+             "output_tokens": 30 + seed % 7}
     out = {
         "type": "result", "subtype": entry.get("subtype", "success"), "is_error": False, "duration_ms": 5,
         "num_turns": 1, "result": json.dumps(so), "structured_output": so, "session_id": sid,
-        "total_cost_usd": cost, "model": model,
-        "usage": {"input_tokens": 100 + seed % 50, "cache_creation_input_tokens": 10, "cache_read_input_tokens": 20,
-                  "output_tokens": 30 + seed % 7},
+        "total_cost_usd": cost, "model": model, "usage": usage,
+        "modelUsage": {model: {"inputTokens": usage["input_tokens"], "outputTokens": usage["output_tokens"],
+                               "cacheReadInputTokens": usage["cache_read_input_tokens"],
+                               "cacheCreationInputTokens": usage["cache_creation_input_tokens"], "costUSD": cost}},
     }
     if os.environ.get("EQ_STUB_LOG"):
         with open(os.environ["EQ_STUB_LOG"], "a") as f:
             f.write(json.dumps({"argv": argv, "cwd": os.getcwd(), "head": head, "session_id": sid,
-                                "stdin_first_line": head}) + "\n")
+                                "parent_session_id": parent, "stdin_first_line": head}) + "\n")
     print(json.dumps(out))
     return int(entry.get("exit", 0))
 

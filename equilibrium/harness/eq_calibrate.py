@@ -511,9 +511,17 @@ def checkable_expected(passed: Sequence[bool], hidden: Sequence[float]) -> float
     return math.fsum(vals) / len(vals) if vals else 0.0
 
 
+def abs_ln_ratio(a: float, b: float) -> float:
+    """|ln(a / b)| for positive finite a, b, exact where the ratio leaves the float range: a / b underflows to 0
+    (1e-300 against 1e300: log would raise) or overflows to inf, so those cases use |ln a - ln b| (A6 implementation
+    note, as eq_harness.abs_ln_ratio, which only needs the underflow case for its threshold tests)."""
+    r = a / b
+    return abs(math.log(r)) if 0 < r < math.inf else abs(math.log(a) - math.log(b))
+
+
 def es_error(eh: ModuleType, values: Sequence[Any], true: float) -> float:
     med = eh.median_ln(list(values))
-    return math.inf if med is None else abs(math.log(med / true))
+    return math.inf if med is None else abs_ln_ratio(med, true)
 
 
 def es_score(e: float) -> float:
@@ -1047,7 +1055,7 @@ class Cal:
             if full is None or r is None:
                 same += full is None and r is None
             else:
-                same += abs(math.log(r / full)) <= LN_1_1 + 1e-12
+                same += abs_ln_ratio(r, full) <= LN_1_1 + 1e-12
         return same / len(vals)
 
     def choose_certainty(self) -> dict[str, Any]:
@@ -1228,7 +1236,7 @@ class Cal:
         if cls == "ES":
             true = self.st.truth.get(item)
             v = self.eh.positive_number(ans)
-            return None if true is None else (math.inf if v is None else abs(math.log(v / true)))
+            return None if true is None else (math.inf if v is None else abs_ln_ratio(v, true))
         if cls == "RS":  # the mediator stores the representative raw answer
             mp = self.rs_mapping((item, label))
             k = self.rs_key(ans, mp)
