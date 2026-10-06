@@ -722,7 +722,7 @@ def inspect_world(eqc_env, tmp_path):
 
 
 def _rows3(out: str, kind: str) -> dict:
-    """KIND NAME STATUS REASON rows; [ \t] (never \s, which spans the newline after a row with an empty reason)."""
+    r"""KIND NAME STATUS REASON rows; [ \t] (never \s, which spans the newline after a row with an empty reason)."""
     return {m.group(1): (m.group(2), m.group(3)) for m in re.finditer(r"^%s (\S+)[ \t]+(\S+)[ \t]*(.*)$" % kind, out, re.M)}
 
 
