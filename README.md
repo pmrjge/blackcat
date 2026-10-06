@@ -1013,13 +1013,26 @@ steps, as the run prints them:
 
 With `--with-eq-container` (off by default) two steps run between 10 and 11; neither can fail the install:
 
-- **10b Container isolation**: `lib/eq-container` builds and verifies the equilibrium harness's isolation
-  images locally with Apple `container` (CLI 1.5.0; every container is its own small Linux VM; 10-40 min
-  cold, several GB of disk, network for the build only), then runs the isolation probe; a second run with
-  unchanged images builds and verifies nothing. The CLI missing, its services not running (`container
-  system start`) or a non-arm64 Mac is a warning and a skip: the installer never installs `container` or
-  starts its services (get the signed package from https://github.com/apple/container/releases).
-  `--eq-container-profiles=LIST` adds toolchain images to the default `core`. Until the maintainer
+- **10b Container isolation**: `lib/eq-container/setup.sh` sets up the equilibrium harness's container
+  environment in three steps, each only with your consent and skipped when it is already done:
+  1. install Apple's `container` CLI (1.5.0, every container is its own small Linux VM): its signed
+     `.pkg` from GitHub, checked against the size, sha256 and signer pinned in `lib/eq-container/PINS`,
+     then `sudo installer` (your administrator password; system-wide, under `/usr/local`);
+  2. start its service (`container system start`, which on its first start also installs Apple's
+     recommended Linux kernel);
+  3. build the isolation images locally (10-40 min cold, several GB of disk, network for the build only),
+     verify them and run the isolation probe.
+
+  On a terminal it lists the steps still needed and asks once: `all`, `step` (each step shown in full,
+  then a typed `yes`) or `no`. Without a terminal, or with `--yes` or `--no-prompt`, it asks nothing and
+  a step runs only with its own flag: `--install-container`, `--start-container-service`,
+  `--build-container-images`, or `--setup-container` for all three. `--yes` is never consent to them, and
+  `--no-install-container` never offers step 1. A step without consent, a Mac that is not Apple silicon on
+  macOS 26 or later, or a check that fails is a warning and a skip, never a failed install; the line names
+  the flag or the command to retry. Nothing is downloaded, run with sudo, started or built without consent,
+  and the CLI is never removed for you (`--restore` prints Apple's uninstall commands).
+  Until `CONTAINER_PKG_SIGNER` in `lib/eq-container/PINS` holds the signer read from the real package, step 1
+  refuses and prints the commands that produce it. `--eq-container-profiles=LIST` adds toolchain images to the default `core`. Until the maintainer
   resolves the last placeholder pins (busybox and jq: `bash lib/eq-container/distro-pins.sh` prints
   their verified values), `core` stops with a warning ("a pin ... is still a placeholder");
   `STACK_EQ_CONTAINER_SET=full` builds the full Debian image instead. A verified install writes `EQ_ISOLATION=container` and
@@ -1038,7 +1051,8 @@ them ([CONFIG.md](CONFIG.md) §7 "Container isolation and the WALL").
 Other flags: `--config-dir PATH`, `--no-prompt`, `--restore [DIR] [--force]`, `--write-through-links`,
 `--no-mcp`, `--no-plugins`, `--no-anthropic-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
 `--print-managed-settings`, `--with-eq-container` (with `--eq-container-profiles=LIST`, `--no-eq-broker`,
-`--with-eq-broker`). `./install.sh --help` prints them all; [CONFIG.md](CONFIG.md) §7 explains
+`--with-eq-broker`, `--install-container`, `--start-container-service`, `--build-container-images`,
+`--setup-container`, `--no-install-container`). `./install.sh --help` prints them all; [CONFIG.md](CONFIG.md) §7 explains
 staging, pruning and the manifest.
 
 ### Your `CLAUDE.md`

@@ -393,7 +393,7 @@ def test_status_reads_state_files_only(eqc_env):
 STUB_BUILD = r"""#!/bin/bash
 # stub build.sh (test): logs its argv; on a real run writes the records and image.env as build.sh does
 printf '%s\n' "$*" >> "$STUB_LOG.build"
-case " $* " in *" --dry-run "*) echo " build min-both (stub)"; exit 0;; esac
+case " $* " in *" --dry-run "*) echo " ${STUB_PLAN:-build} min-both (stub)"; exit 0;; esac
 cat > "$STUB_LOG.stdin"
 rc=${STUB_BUILD_RC:-0}; [ "$rc" = 0 ] || exit "$rc"
 mkdir -p "$EQ_STATE_DIR/images"
@@ -494,6 +494,29 @@ def test_install_never_hands_its_stdin_to_build(eqc_env, stub_lib, tmp_path):
                     input="typed-by-the-caller\n")
     assert p.returncode == 0, (p.stdout, p.stderr)
     assert (tmp_path / "stub.stdin").read_text() == ""
+
+
+def test_no_build_skips_a_due_build_and_build_due_reports_it(eqc_env, stub_lib, tmp_path):
+    """--no-build (lib/eq-container/setup.sh without your consent to build): a due build is a skip (exit 10, "not consented"),
+    never a question and never a build; with every image up to date the install goes on (verification, probe).
+    build-due: 0 when build.sh's dry-run plan names a build, 1 when not, 10 without the CLI; it writes nothing."""
+    knobs = dict(lib=stub_lib, STUB_LOG=tmp_path / "stub")
+    assert eqc_env.run("eq-container.sh", "build-due", **knobs).returncode == 0
+    assert eqc_env.run("eq-container.sh", "build-due", STUB_PLAN="skip", **knobs).returncode == 1
+    p = eqc_env.run("eq-container.sh", "build-due", EQ_CONTAINER_BIN="/nonexistent/container", **knobs)
+    assert p.returncode == 10 and not eqc_env.state.exists()
+    assert set((tmp_path / "stub.build").read_text().splitlines()) == {"--profiles core --dry-run"}
+    p = eqc_env.run("eq-container.sh", "install", "--no-build", **knobs, input="y\n")
+    assert p.returncode == 10 and eqc_env.status() == "skipped", (p.stdout, p.stderr)
+    assert eqc_env.status("EQ_CONTAINER_STATUS_WHY").startswith("the image build was not consented")
+    assert "--build-container-images" in p.stderr and "build the images now?" not in p.stdout
+    assert set((tmp_path / "stub.build").read_text().splitlines()) == {"--profiles core --dry-run"}       # never built
+    p = eqc_env.run("eq-container.sh", "install", "--no-build", STUB_PLAN="skip", **knobs)
+    assert p.returncode == 0 and eqc_env.status() == "ok", (p.stdout, p.stderr)
+    assert (tmp_path / "stub.build").read_text().splitlines()[-1] == "--profiles core"               # no --yes
+    # --yes wins over --no-build (consent given)
+    p = eqc_env.run("eq-container.sh", "install", "--no-build", "--yes", STUB_DIGEST=DIGEST_B, **knobs)
+    assert p.returncode == 0 and (tmp_path / "stub.build").read_text().splitlines()[-1] == "--profiles core --yes"
 
 
 @pytest.mark.parametrize("args", [("--help",), ("install", "--help")])

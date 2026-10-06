@@ -47,3 +47,20 @@ MATHLIB_REV=d13f23b723b8a846827a245b89c10fc7d3f11612
 # .deb hashes checked; see its header), cross-checked by   bash lib/eq-container/build.sh --resolve-tools   (the builder's apt).
 # Needed only by the minimal images (the default `core` profile), so until it is filled `core` stops at exit 13.
 BUSYBOX_SHA256=UNSET
+
+# ---- the Apple container CLI (read by setup.sh only: install.sh --with-eq-container's step 1; no image build reads these) ----
+# Release 1.5.0 (published 2026-09-29), its signed installer package. URL, size and sha256: GitHub's own asset record
+# (api.github.com/repos/apple/container/releases/tags/1.5.0, fields browser_download_url, size, digest), read 2026-10-06 by
+# an agent; NOT a hash of a local download (agents may not download it): the user's checklist (hand_off/R3_CONTAINER_CHECKLIST.md
+# C18) compares `shasum -a 256` of the real file. CONTAINER_PKG_ID: the receipt of the 1.5.0 installed on the user's Mac
+# (`pkgutil --pkgs`). CONTAINER_MIN_MACOS: README.md at tag 1.5.0 ("container is supported on macOS 26").
+# CONTAINER_PKG_SIGNER (entry 1 of the Certificate Chain that /usr/sbin/pkgutil --check-signature prints for the package) is
+# UNSET: it can only be read from the downloaded file. Until it is pinned, setup.sh refuses to install the CLI (exit 13,
+# nothing downloaded) and prints the commands that produce the value (the same as C18). Placeholder rule as above.
+CONTAINER_PKG_VERSION=1.5.0
+CONTAINER_PKG_URL=https://github.com/apple/container/releases/download/1.5.0/container-1.5.0-installer-signed.pkg
+CONTAINER_PKG_SIZE=118045087
+CONTAINER_PKG_SHA256=a24808cb202318fa1c3bbee0c6c6887fe1225fe899d7b687a0ddd939bd6573f8
+CONTAINER_PKG_SIGNER=UNSET
+CONTAINER_PKG_ID=com.apple.container-installer
+CONTAINER_MIN_MACOS=26

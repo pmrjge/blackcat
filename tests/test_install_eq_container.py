@@ -3,14 +3,17 @@
 the dry run, stack.env (non-clobbering; values quoted or refused), the manifest keys eq_container and eq_wall, the X7
 default (on only for a positive lib/eq-wall/REVIEW of these bytes AND the default-deny policy, checked before any
 directory is made), the WALL's directories and refusals, idempotency, --restore, the rendered deny rules, and the
-doctor.sh sections "Container isolation (eq-container)" and "WALL (eq-wall)".
+doctor.sh sections "Container isolation (eq-container)" and "WALL (eq-wall)". Step 10b runs lib/eq-container/setup.sh
+(tests/test_eq_setup.py covers it in depth): here its consent flags, --yes never being consent, the manifest's cli record,
+the --restore note and doctor's CLI rows, with setup.sh's tools rewritten to fakes in the scratch repo (Box(setup_fakes=True)).
 
 Hermetic: install.sh runs from a scratch copy of the repo (test_install_state._scratch_repo) into a scratch HOME,
 XDG_STATE_HOME, XDG_CACHE_HOME and config dir, with --no-mcp --no-plugins --no-deps --no-profile, on a PATH without
 /usr/local/bin (where the real `container` lives). The driver is a STUB committed into the scratch repo (it writes what
 a run of eq-container.sh leaves behind: status.env, image.env, results/tunnel.*.env, by knob); one case runs the real
-driver against the fake CLI (tests/fake-container/container) with its services down. EQ_CONTAINER_BIN always names
-the fake (or nothing), so neither the driver nor doctor.sh can reach the real CLI. The broker runs only its own
+driver against the fake CLI (tests/fake-container/container-cli over tests/fake-container/container) with its services
+down. EQ_CONTAINER_BIN always names the fake (or nothing), so neither setup.sh, the driver nor doctor.sh can reach the
+real CLI. Every install runs in a new session (no controlling terminal: nothing can ask on /dev/tty), without CLAUDECODE. The broker runs only its own
 checks (check-policy, config-hash, check) on the stack's Python.
 
 Run: /Users/pmrj/.claude/venvs/tools/bin/python -m pytest -q tests/test_install_eq_container.py
@@ -29,9 +32,11 @@ import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import test_install_state as TS  # noqa: E402  (_scratch_repo, _run_install)
+import test_eq_setup as SETUP_T  # noqa: E402  (rewrite, the fake package and its pins)
 
 ROOT = Path(TS.ROOT)
 FAKE_CONTAINER = ROOT / "tests" / "fake-container" / "container"
+FAKE_CLI = ROOT / "tests" / "fake-container" / "container-cli"          # --version, system start/stop; the rest: FAKE_CONTAINER
 needs_git = pytest.mark.skipif(not (ROOT / ".git").exists(), reason="needs the stack's git checkout")
 BASE = ("--yes", "--with-eq-container")
 DA = "sha256:" + "a" * 64
@@ -79,7 +84,7 @@ class Box:
     """One scratch install target: HOME (XDG state and cache under it), config dir, the fakes, a scratch repo whose
     lib/eq-container/eq-container.sh is the stub (stub=False keeps the real driver)."""
 
-    def __init__(self, tmp: Path, stub=True, cache: Path = None):
+    def __init__(self, tmp: Path, stub=True, cache: Path = None, setup_fakes=False):
         self.t = Path(tmp)
         self.home = self.t / "home"
         self.home.mkdir(parents=True, exist_ok=True)
@@ -90,8 +95,27 @@ class Box:
             commit(self.repo, "lib/eq-container/eq-container.sh", STUB_DRIVER)
         self.fakes = self.t / "fakes"
         self.fakes.mkdir(exist_ok=True)
-        shutil.copyfile(FAKE_CONTAINER, self.fakes / "container")
-        (self.fakes / "container").chmod(0o755)
+        for src, name in ((FAKE_CONTAINER, "container-core"), (FAKE_CLI, "container")):
+            shutil.copyfile(src, self.fakes / name)
+            (self.fakes / name).chmod(0o755)
+        self.cli = self.fakes / "container"
+        self.setup_fakes = setup_fakes
+        self.flog = self.t / "setup-tools.log"
+        if setup_fakes:      # setup.sh's sudo, installer, pkgutil, curl, sw_vers and pkg path -> fakes (tests/test_eq_setup.py)
+            self.cli = self.t / "usr-local" / "bin" / "container"
+            tools = self.t / "setup-tools"
+            tools.mkdir()
+            for n in ("curl", "pkgutil", "installer", "sudo", "sw_vers"):
+                shutil.copyfile(ROOT / "tests" / "fake-container" / "setup-tool", tools / n)
+                (tools / n).chmod(0o755)
+            commit(self.repo, "lib/eq-container/setup.sh", SETUP_T.rewrite(SETUP_T.SETUP, tools, self.cli))
+            pins = (self.repo / "lib" / "eq-container" / "PINS").read_text()
+            for k, v in (("CONTAINER_PKG_SIZE", len(SETUP_T.PKG)), ("CONTAINER_PKG_SHA256", SETUP_T.PKG_SHA),
+                         ("CONTAINER_PKG_SIGNER", SETUP_T.SIGNER)):
+                pins = re.sub(r"^%s=.*$" % k, "%s=%s" % (k, v), pins, flags=re.M)
+            commit(self.repo, "lib/eq-container/PINS", pins)
+            self.pkg = self.t / "served.pkg"
+            self.pkg.write_bytes(SETUP_T.PKG)
         self.tools = self.t / "tools"            # uv only: the installer links uv's Python 3.13 as stack-python
         self.tools.mkdir(exist_ok=True)
         uv = shutil.which("uv")
@@ -121,14 +145,19 @@ class Box:
         shim = self.home / "shim"   # _run_install's mktemp shim
         path = os.pathsep.join(map(str, (self.fakes, self.repo / "tests" / "fake-claude", shim, self.tools,
                                          "/usr/bin", "/bin", "/usr/sbin", "/sbin")))
-        e = {"PATH": path, "XDG_CACHE_HOME": str(self.cache), "EQ_CONTAINER_BIN": str(self.fakes / "container"),
+        e = {"PATH": path, "XDG_CACHE_HOME": str(self.cache), "EQ_CONTAINER_BIN": str(self.cli),
              "EQ_FAKE_CONTAINER_LOG": str(self.clog), "EQ_FAKE_CONTAINER_DIGEST": DA, "EQ_HOST_ARCH": "arm64",
-             "EQ_STUB_LOG": str(self.slog), "LC_ALL": "C"}
+             "EQ_STUB_LOG": str(self.slog), "LC_ALL": "C", "CLAUDECODE": "",
+             "EQ_FAKE_CONTAINER_CORE": str(self.fakes / "container-core")}
+        if self.setup_fakes:      # and the stub skips as the driver does when the CLI or its services are missing
+            e.update(EQ_FAKE_SETUP_LOG=str(self.flog), EQ_FAKE_PKG=str(self.pkg), EQ_FAKE_CLI_SRC=str(FAKE_CLI),
+                     EQ_FAKE_CLI_PATH=str(self.cli), EQ_FAKE_SIGNER=SETUP_T.SIGNER, EQ_STUB_REAL_SKIPS="1")
         e.update({k: (None if v is None else str(v)) for k, v in extra.items()})
         return {k: v for k, v in e.items() if v is not None}
 
     def install(self, *extra, ok=True, argv=None, **env):
-        p = TS._run_install(str(self.repo), str(self.home), str(self.conf), *extra, env_extra=self.env(**env), argv=argv)
+        p = TS._run_install(str(self.repo), str(self.home), str(self.conf), *extra, env_extra=self.env(**env), argv=argv,
+                            new_session=True)
         if ok:
             assert p.returncode == 0, (p.stdout[-4000:], p.stderr[-3000:])
         return p
@@ -196,6 +225,13 @@ def _bare(tmp_path, *args, **env):
     (["--with-eq-broker"], {}, "--no-eq-broker/--with-eq-broker work only with --with-eq-container"),
     (["--with-eq-container", "--no-eq-broker", "--with-eq-broker"], {}, "--no-eq-broker and --with-eq-broker contradict"),
     (["--with-eq-container", "--with-eq-broker", "--no-eq-broker"], {}, "--no-eq-broker and --with-eq-broker contradict"),
+    (["--install-container"], {}, "--install-container works only with --with-eq-container"),
+    (["--setup-container", "--yes"], {}, "--setup-container works only with --with-eq-container"),
+    (["--start-container-service", "--build-container-images"], {},
+     "--start-container-service --build-container-images works only with --with-eq-container"),
+    (["--no-install-container"], {}, "--no-install-container works only with --with-eq-container"),
+    (["--with-eq-container", "--no-install-container", "--install-container"], {}, "--no-install-container contradicts"),
+    (["--with-eq-container", "--setup-container", "--no-install-container"], {}, "--no-install-container contradicts"),
 ])
 def test_option_errors(tmp_path, args, env, want):
     p, home = _bare(tmp_path, *args, **env)
@@ -208,7 +244,9 @@ def test_option_errors(tmp_path, args, env, want):
 def test_help_lists_the_options():
     out = subprocess.run([str(ROOT / "install.sh"), "--help"], capture_output=True, text=True, timeout=60,
                          env={"PATH": "/usr/bin:/bin", "HOME": "/nonexistent"}).stdout
-    for opt in ("--with-eq-container", "--eq-container-profiles=LIST", "--no-eq-broker", "--with-eq-broker"):
+    for opt in ("--with-eq-container", "--eq-container-profiles=LIST", "--no-eq-broker", "--with-eq-broker",
+                "--install-container", "--start-container-service", "--build-container-images", "--setup-container",
+                "--no-install-container"):
         assert opt in out, opt
     # no Docker backend left; ~/.docker stays in the --config-dir refusals (a credentials folder)
     assert "docker" not in out.lower().replace("~/.docker", "")
@@ -246,15 +284,18 @@ def test_dry_run_prints_would_and_creates_nothing(tmp_path):
     env0, man0 = b.stack_env(), (b.conf / ".stack-manifest.json").read_bytes()
     p = b.install("--dry-run", *BASE)
     out = p.stdout
-    assert "would: bash lib/eq-container/eq-container.sh install --profiles core --yes" in out, out[-3000:]
+    # --yes is never consent: it only means "ask nothing" (--no-prompt)
+    assert "would: bash lib/eq-container/setup.sh run --no-prompt -- install --profiles core   (state" in out, out[-3000:]
+    assert "would: bash lib/eq-container/eq-container.sh install --profiles core --no-build --no-prompt" in out
     assert "eq-container: dry run (stub)" in out
     assert "would: WALL on (lib/eq-wall/REVIEW positive; default: on" in out
-    assert [c[1] for c in b.stub_calls()] == ["install --profiles core --yes --dry-run"]
-    p = b.install("--dry-run", *BASE, "--eq-container-profiles=core,node", "--no-eq-broker")
-    assert "would: bash lib/eq-container/eq-container.sh install --profiles core,node --yes" in p.stdout
+    assert [c[1] for c in b.stub_calls()] == ["install --profiles core --no-build --no-prompt --dry-run"]
+    p = b.install("--dry-run", *BASE, "--eq-container-profiles=core,node", "--no-eq-broker", "--build-container-images")
+    assert "would: bash lib/eq-container/setup.sh run --build-container-images --no-prompt -- install --profiles core,node" in p.stdout
+    assert "would: bash lib/eq-container/eq-container.sh install --profiles core,node --yes --no-prompt" in p.stdout
     assert "would: WALL off (--no-eq-broker; default: on" in p.stdout
     p = b.install("--dry-run", *BASE, STACK_EQ_CONTAINER_SET="full")
-    assert "would: bash lib/eq-container/eq-container.sh install --set full --yes" in p.stdout
+    assert "would: bash lib/eq-container/setup.sh run --no-prompt -- install --set full" in p.stdout
     p = b.install("--dry-run", *BASE, EQ_STUB_DRY_RC=10)
     assert "container isolation would be skipped" in p.stdout
     # bad knobs: the step stops before the driver
@@ -288,7 +329,7 @@ def test_happy_container_step(happy):
     assert "+ container isolation verified: EQ_IMAGE=%s@%s" % (PF, DA) in b.out, b.out[-3000:]
     # the driver ran once from the reviewed snapshot (not the repo), with the state dir the installer made 0700
     (call,) = [c for c in b.stub_calls() if c[1].startswith("install")]
-    assert call[1] == "install --profiles core --yes"
+    assert call[1] == "install --profiles core --no-build --no-prompt"          # --yes alone: no consent to build
     assert not call[0].startswith(str(b.repo)), call[0]
     assert [c[1] for c in b.stub_calls() if c[1] == "print-env"] == ["print-env"]
     assert mode(b.eqs) == 0o700
@@ -354,9 +395,10 @@ def test_happy_doctor(happy):
                 "ok    WALL stores denied to agent file tools", "ok    WALL tunnel root denied to agent file tools"):
         assert row in w, (row, w)
     assert "FAIL" not in w and "WARN" not in w, w
-    # the CLI asked only read-only questions
+    assert "ok    container CLI 1.5.0 (%s), pinned 1.5.0" % b.cli in d and "ok    container service running" in d, d
+    # the CLI was asked only read-only questions (setup.sh and doctor: its version and status; doctor: the digests)
     calls = [ln.split("\x1f")[:2] for ln in b.clog.read_text().splitlines()]
-    assert {tuple(c) for c in calls} <= {("system", "status"), ("image", "inspect")}, calls
+    assert {tuple(c) for c in calls} <= {("system", "status"), ("image", "inspect"), ("--version",)}, calls
 
 
 def test_happy_doctor_digest_mismatch_and_services_down(happy):
@@ -431,7 +473,8 @@ def test_real_driver_with_services_down_is_a_skip(tmp_path):
     assert m["status"] == "skipped" and "services" in m["why"], m
     assert kv(b.eqs / "status.env")["EQ_CONTAINER_STATUS"] == "skipped"
     calls = [ln.split("\x1f") for ln in b.clog.read_text().splitlines()]
-    assert calls and all(c[:2] == ["system", "status"] for c in calls), calls
+    assert calls and all(c[:2] == ["system", "status"] or c == ["--version"] for c in calls), calls
+    assert "! not started: the container service (no consent)" in p.stdout     # --yes is not consent to start it
     assert b.wall()["status"] == "skipped" and not b.tun.exists()
 
 
@@ -636,3 +679,62 @@ def test_doctor_not_set_up_and_states(tmp_path):
     assert "WARN  eq-container: install failed at T0: w (logs: %s/logs)" % b.eqs in d, d
     assert "WARN  eq-container: probe FAIL at T1 (2 rows) for %s" % PF in d, d
     assert not (tmp_path / "sourced").exists()                          # state files are data, never sourced
+
+
+# ------------------------------------------------------------------------- step 10b's consent (setup.sh's tools faked)
+def _tools(b):
+    return [c.split(" ", 1)[0] for c in (b.flog.read_text().splitlines() if b.flog.exists() else [])]
+
+
+@needs_git
+def test_yes_alone_installs_no_container_cli(tmp_path):
+    """--yes never consents to system software: with the CLI missing, a non-interactive run downloads nothing and runs no
+    sudo; the step is a skip naming the flags, and the rest of the install goes on."""
+    b = Box(tmp_path, setup_fakes=True)
+    p = b.install(*BASE)
+    assert not set(_tools(b)) & {"curl", "sudo", "installer"}, _tools(b)
+    assert "! not installed: Apple container 1.5.0 (no consent)" in p.stdout and "--setup-container" in p.stdout
+    assert "! container isolation skipped (not an error)" in p.stdout and "Done. Next:" in p.stdout
+    m = b.manifest()["eq_container"]
+    assert m["status"] == "skipped" and m["why"] == "no consent to install the container CLI", m
+    assert m["cli"]["installed_by"] == "" and not b.cli.exists()
+    assert b.wall()["status"] == "skipped" and b.env_line("EQ_ISOLATION") is None
+    p = b.install(*BASE, "--no-install-container")
+    assert "--no-install-container: Apple container is not offered" in p.stdout and not set(_tools(b)) & {"curl", "sudo"}
+
+
+@needs_git
+def test_dry_run_with_consent_flags_touches_nothing(tmp_path):
+    b = Box(tmp_path, setup_fakes=True)
+    b.install("--yes")
+    p = b.install("--dry-run", *BASE, "--setup-container")
+    assert "would: Step: install Apple container 1.5.0" in p.stdout and "(consent: --install-container)" in p.stdout, p.stdout[-3000:]
+    assert _tools(b) == ["sw_vers"] and not b.eqs.exists() and not b.cli.exists()
+
+
+@needs_git
+def test_setup_container_installs_records_and_restore_names_the_removal(tmp_path):
+    """--setup-container: the CLI is fetched, checked and installed (fakes), its service started, the images built and
+    verified (stub), the WALL set up; the manifest records who installed the CLI; a rerun repeats nothing; doctor compares
+    the CLI with the pin; --restore leaves the CLI and prints Apple's removal commands."""
+    b = Box(tmp_path, setup_fakes=True)
+    b.install("--yes")
+    p = b.install(*BASE, "--setup-container")
+    out = p.stdout
+    assert _tools(b) == ["sw_vers", "curl", "curl", "pkgutil", "sudo", "installer", "pkgutil"], _tools(b)
+    assert "+ container isolation verified" in out and "+ WALL on" in out, out[-3000:]
+    m = b.manifest()["eq_container"]
+    assert m["status"] == "ok" and m["cli"] == {"path": str(b.cli), "version": "1.5.0", "pin": "1.5.0", "installed_by": "stack",
+                                                "previous": "none", "pkg_sha256": SETUP_T.PKG_SHA}, m
+    assert [c[1] for c in b.stub_calls() if c[1].startswith("install")] == ["install --profiles core --yes --no-prompt"]
+    n, man, env0 = len(_tools(b)), b.manifest(), b.stack_env()
+    b.install(*BASE, "--setup-container")
+    assert len(_tools(b)) == n and b.manifest() == man and b.stack_env() == env0
+    d = section(b.doctor(), "Container isolation (eq-container)")
+    assert "ok    container CLI 1.5.0 (%s), pinned 1.5.0" % b.cli in d and "WARN" not in d, d
+    Path(str(b.cli) + ".version").write_text("1.4.1\n")
+    d = section(b.doctor(), "Container isolation (eq-container)")
+    assert "WARN  container CLI 1.4.1 is older than the pinned 1.5.0" in d, d
+    p = b.install(argv=["--restore"])
+    assert "= not removed: Apple container 1.5.0, which ./install.sh --with-eq-container installed system-wide" in p.stdout
+    assert "container system stop; /usr/local/bin/uninstall-container.sh -k" in p.stdout and b.cli.exists()
