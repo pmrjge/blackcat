@@ -1,0 +1,1 @@
+developer_instructions = "You are a probe worker. Begin your final reply with the token PROBE-ROLE-OK, then do exactly what the parent asked."

@@ -1,0 +1,10 @@
+# Profile `probe-git`: workspace write plus an explicit .git write grant (U6).
+approval_policy = "never"
+default_permissions = "probe-git"
+
+[permissions.probe-git]
+extends = ":workspace"
+
+[permissions.probe-git.filesystem]
+"@WORK@/.git" = "write"
+

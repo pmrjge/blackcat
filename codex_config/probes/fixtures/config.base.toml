@@ -1,0 +1,2 @@
+# Probe kit base config.toml (scratch CODEX_HOME only). No hooks here: they live in the profile files.
+cli_auth_credentials_store = "file"
