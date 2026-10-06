@@ -10,11 +10,12 @@
 #                BASE_LAYER_URL and refused unless it hashes to BASE_LAYER_SHA256 (PINS: the layer digest of BASE_IMAGE's
 #                arm64 manifest). Versions from the layer's var/lib/dpkg/status.
 #   busybox, jq  apt installs them from APT_SNAPSHOT (suite trixie, component main, arm64). InRelease must verify with gpgv
-#                against the Debian archive keyring OF THAT LAYER (the keyring apt uses in the builder), and only gpgv's
-#                output (the signed text) is read: Codename trixie, Version equal to the layer's etc/debian_version (no
-#                other point release is accepted), one SHA256 line for Packages.xz, which must match it; one arm64 stanza
-#                per package, whose .deb must match its SHA256 and Size; the installed file (usr/bin/busybox, usr/bin/jq)
-#                is read from the .deb's data tarball and must be a regular file.
+#                against the Debian archive keyring OF THAT LAYER (the keyring apt uses in the builder; gpgv must exit 0, so
+#                a signature by a key that keyring lacks fails closed), and only gpgv's output (the signed text) is read:
+#                Codename trixie, Version equal to the layer's etc/debian_version (no other point release is accepted),
+#                one SHA256 line for Packages.xz, which must match it; one arm64 stanza per package, whose .deb must match
+#                its SHA256 and Size; the installed file (usr/bin/busybox, usr/bin/jq) is read from the .deb's data tarball
+#                and must be a regular file.
 # Output: one `TOOL name version sha256` line per tool (build.sh --resolve-tools' format) with the pinned value beside it,
 # then PROVENANCE lines (URLs, hashes, the InRelease date). Nothing is printed on stdout before every check has passed.
 # Exit: 0 all four derived and equal to the pins | 1 a check failed, or a pin differs from the derived value | 2 usage or a
@@ -27,7 +28,7 @@ here=$(cd "$(dirname "$0")" && pwd -P)
 
 case "${1:-}" in
   "") ;;
-  -h|--help) sed -n '2,22p' "$0"; exit 0;;
+  -h|--help) sed -n '2,23p' "$0"; exit 0;;
   *) echo "distro-pins.sh: unknown argument: $1" >&2; exit 2;;
 esac
 
