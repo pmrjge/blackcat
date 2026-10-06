@@ -1,6 +1,7 @@
 """The deterministic instructor (tools/instructor/) as the stack wires it: the settings.json permission
-rules (exactly one allow rule per public recipe, the exact menu rule, an Edit deny on the directory),
-the installer's `just` formula, and the recipes run through a real `just` (skipped without one).
+rules (exactly one allow rule per public recipe, the exact menu rule, an absolute Edit deny on the
+directory), the installer's `just` formula, and the recipes run through a real `just` (skipped
+without one).
 
 Why one rule per recipe: `just` options before the recipe name (`--command`, `--shell`, `--shell-arg`,
 `--set`, `--justfile`) choose what runs, so `Bash(just -f tools/instructor/justfile *)` would approve
@@ -25,6 +26,7 @@ DEVTOOLS = ROOT / "lib" / "devtools.sh"
 PREFIX = "just -f tools/instructor/justfile"
 RECIPES = ["check-suite", "ff-merge", "worktree-audit"]
 MENU_RULE = f"Bash({PREFIX} --list)"
+INSTR_DENY = "Edit(//**/tools/instructor/**)"       # absolute: every tools/instructor on the machine
 JUST = shutil.which("just")
 STATUS_RE = re.compile(r"^(OK|FAIL|NOOP) ([a-z-]+)((?: [a-z_]+=\S+)*) log=(\S+)$")
 
@@ -75,9 +77,16 @@ def test_no_other_rule_names_just():
     assert not other, other
 
 
-def test_the_instructor_directory_is_edit_denied():
+def test_the_instructor_directory_is_edit_denied_machine_wide():
+    """One deny rule, anchored at the filesystem root (`//`, as in the permissions docs' `Read(//**/.env)`):
+    the relative `Edit(**/tools/instructor/**)` covered only the session's own tree, so a worktree session
+    with the main checkout as an additional directory could Write `<main>/tools/instructor/justfile`, which
+    the allow rules run. Edit rules cover every built-in file-editing tool (Write, NotebookEdit); a
+    `Write(...)` path rule is never consulted, so none may stand in for it."""
     p = perms()
-    assert "Edit(**/tools/instructor/**)" in p["deny"]
+    instr = [r for r in p["deny"] if "tools/instructor" in r]
+    assert instr == [INSTR_DENY], instr
+    assert "Edit(**/tools/instructor/**)" not in p["deny"]
     assert not [r for k in ("allow", "ask") for r in p.get(k, []) if "tools/instructor" in r and
                 not r.startswith(f"Bash({PREFIX} ")]
 
