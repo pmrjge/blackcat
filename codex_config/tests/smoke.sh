@@ -49,6 +49,11 @@ real_prints() {
 }
 REAL_BEFORE=$(real_prints)
 
+# The installer's Python, resolved with the REAL HOME: under the scratch HOME uv sees no managed
+# interpreters (they live under the real ~/.local/share/uv), so it is handed over as STACK_PYTHON.
+SMOKE_PY=${STACK_PYTHON:-$(uv python find 3.13 2>/dev/null || true)}
+[ -n "$SMOKE_PY" ] && [ -x "$SMOKE_PY" ] || { echo "smoke: no Python 3.13 (uv python install 3.13, or set STACK_PYTHON)" >&2; exit 1; }
+
 # ---- scratch environment ----------------------------------------------------------------------------
 SCR=$(mktemp -d "${TMPDIR:-/tmp}/codex-smoke.XXXXXX")
 cleanup() { if [ "${SMOKE_KEEP:-0}" = 1 ]; then echo "scratch kept: $SCR"; else rm -rf -- "$SCR"; fi; }
@@ -63,7 +68,7 @@ run() {   # run <name> args...: install.sh in the scratch environment; output in
   local name=$1; shift
   RC=0
   env -u CLAUDE_CONFIG_DIR HOME="$SHOME" CODEX_HOME="$CH" XDG_STATE_HOME="$SHOME/.local/state" TMPDIR="$SCR/tmp" \
-    PATH="$HERE/fake-codex:$PATH" bash "$INSTALL" --codex-home "$CH" "$@" </dev/null >"$SCR/$name.out" 2>&1 || RC=$?
+    STACK_PYTHON="$SMOKE_PY" PATH="$HERE/fake-codex:$PATH" bash "$INSTALL" --codex-home "$CH" "$@" </dev/null >"$SCR/$name.out" 2>&1 || RC=$?
 }
 out_has() { grep -Eq -- "$2" "$SCR/$1.out"; }
 out_lacks() { ! grep -Eq -- "$2" "$SCR/$1.out"; }
