@@ -147,6 +147,7 @@
     "embedded-firmware": "name-only",
     "flutter": "name-only",
     "formal-methods": "name-only",
+    "equilibrium": "name-only",
     "frontend-frameworks": "name-only",
     "game-graphics": "name-only",
     "geospatial": "name-only",
@@ -224,10 +225,17 @@
     "BLACKCAT_MAX_STEPS": "24",
     "BLACKCAT_DISPATCH_WINDOW_S": "120",
     "STACK_MAX_FANOUT": "3",
-    "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=32,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8",
+    "STACK_MAX_FANOUT_BY_TYPE": "orchestrator=32,main-coder=6,ninja-coder=5,researcher=4,planner=8,plan-reviewer=8,equilibrium=9",
     "STACK_MAX_MCP_CALLS": "64",
     "STACK_ENV_FILE": "__CLAUDE_DIR__/stack.env",
-    "STACK_FANOUT_IDLE_S": "600"
+    "STACK_FANOUT_IDLE_S": "600",
+    "STACK_EQ": "1",
+    "STACK_EQ_MAX_N": "9",
+    "STACK_EQ_MAX_ROUNDS": "2",
+    "STACK_EQ_MAX_CONCURRENT_RUNS": "1",
+    "STACK_EQ_CONFIRM": "always",
+    "STACK_EQ_SESSION_RUNS": "3",
+    "STACK_EQ_WALL": "auto"
   },
   "permissions": {
     "defaultMode": "plan",
@@ -299,6 +307,8 @@
       "mcp__context-mode__ctx_stats",
       "Skill",
       "Bash(__CLAUDE_DIR__/bin/stack-install *)",
+      "Bash(__CLAUDE_DIR__/bin/stack-eq *)",
+      "Bash(__CLAUDE_DIR__/bin/stack-eq-check *)",
       "Bash(just -f tools/instructor/justfile check-suite *)",
       "Bash(just -f tools/instructor/justfile ff-merge *)",
       "Bash(just -f tools/instructor/justfile worktree-audit *)",
@@ -417,7 +427,8 @@
     "failIfUnavailable": true,
     "allowUnsandboxedCommands": false,
     "excludedCommands": [
-      "__CLAUDE_DIR__/bin/stack-install *"
+      "__CLAUDE_DIR__/bin/stack-install *",
+      "__CLAUDE_DIR__/bin/stack-eq *"
     ],
     "filesystem": {
       "allowWrite": [

@@ -88,19 +88,19 @@ def test_installer_type_carries_accept_edits_without_edit_tools(tmp_path, monkey
 
 
 def test_shipped_agents_follow_the_rule():
-    """Every agent that can write files carries acceptEdits for its subagent runs (45, plus toolsmith,
-    which installs software through Bash: 46); BlackCat, the main thread, follows the session's mode
+    """Every agent that can write files carries acceptEdits for its subagent runs (45, plus toolsmith and
+    equilibrium, which run their executors through Bash: 47); BlackCat, the main thread, follows the session's mode
     (Plan) and the read-only agents carry none."""
     modes, writers = {}, set()
     for f in sorted(AGENTS.glob("*.md")):
         data, _ = lint_agents.parse_frontmatter(f.read_text())
         assert lint_agents.permission_mode_problem(data) is None, f.name
-        if lint_agents.EDIT_TOOLS & set(lint_agents.get_tools(data)[0]) or f.stem in lint_agents.INSTALLER_TYPES:
+        if lint_agents.EDIT_TOOLS & set(lint_agents.get_tools(data)[0]) or f.stem in lint_agents.INSTALLER_TYPES | lint_agents.EQ_TYPES:
             writers.add(f.stem)
         if "permissionMode" in data:
             modes[f.stem] = lint_agents.get_inline(data, "permissionMode")
     assert set(modes.values()) == {"acceptEdits"}
-    assert set(modes) == writers - {"blackcat"} and len(modes) == 46
+    assert set(modes) == writers - {"blackcat"} and len(modes) == 47
     assert {f.stem for f in AGENTS.glob("*.md")} - set(modes) == {
         "blackcat", "claude-code-guide", "code-reviewer", "explore", "oracle", "plan-reviewer", "planner",
         "proof-checker", "scout", "security-auditor", "verifier"}

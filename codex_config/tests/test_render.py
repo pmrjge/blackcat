@@ -125,13 +125,13 @@ def test_roles_56_and_astra_6(base):
     prof = toml(base["env"].stage / "codex.config.toml")
     assert len([k for k, v in prof["agents"].items() if isinstance(v, dict)]) == 56
     c = base["report"]["counts"]
-    assert (c["roles"], c["astra_roles"], c["skills_listed"], c["skill_modules"]) == (56, 6, 127, 89)
+    assert (c["roles"], c["astra_roles"], c["skills_listed"], c["skill_modules"]) == (56, 6, 128, 89)
 
 
 def test_excluded_skills_absent(base):
     names = {p.split("/")[2] for p in rels(base["snap"], "stack/skills/")}
     modules = {p.split("/")[2] for p in rels(base["snap"], "stack/skill-modules/")}
-    assert len(names) == 127 and len(modules) == 89
+    assert len(names) == 128 and len(modules) == 89
     for x in EXCLUDED:
         assert x not in names and x not in modules
         assert x not in base["env"].work_json("links.json")["links"]
@@ -349,7 +349,7 @@ def test_skills_root_none(tmp_path):
     env.new_stage()
     env.ok("--skills-root", "none")
     assert env.work_json("links.json") == {"root": None, "links": {}}
-    assert len(list((env.stage / "stack" / "skills").iterdir())) == 127
+    assert len(list((env.stage / "stack" / "skills").iterdir())) == 128
 
 
 def test_profile_name(tmp_path):

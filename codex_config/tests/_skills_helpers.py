@@ -46,6 +46,8 @@ def agent_bodies() -> dict:
     """{"agents/<n>.md": body} with the frontmatter blanked (line numbers kept), as B1 passes them."""
     out = {}
     for p in sorted(AGENTS.glob("*.md")):
+        if p.stem in ("equilibrium",):                  # convert_agents.NOT_PORTED
+            continue
         text = p.read_text(encoding="utf-8")
         _, fm, body = text.split("---", 2)
         out["agents/" + p.name] = "\n" * (fm.count("\n")) + body

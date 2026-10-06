@@ -89,7 +89,7 @@ def frontmatter(name: str) -> dict:
 
 
 def agent_names() -> list:
-    return sorted(p.stem for p in AGENTS_DIR.glob("*.md"))
+    return sorted(p.stem for p in AGENTS_DIR.glob("*.md") if p.stem != "equilibrium")   # NOT_PORTED
 
 
 def walk_strings(obj):

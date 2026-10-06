@@ -24,7 +24,7 @@ STUB = STACK + "/bin/codex-hook"
 def role_names() -> list:
     """The 56 roles: every dot-claude agent but the main thread."""
     names = sorted(p.stem for p in (REPO / "dot-claude" / "agents").glob("*.md"))
-    return [n for n in names if n != "blackcat"]
+    return [n for n in names if n not in ("blackcat", "equilibrium")]   # equilibrium: convert_agents.NOT_PORTED
 
 
 def parts(**over) -> dict:

@@ -121,4 +121,4 @@ def test_concurrency_value_is_the_shipped_one_everywhere():
     doctor = (ROOT / "dot-claude" / "bin" / "doctor.sh").read_text()
     assert doctor.count("conc >= %s else" % n) == 2 and "the stack ships %s (" % n in doctor
     assert not re.search(r"conc >= (?!%s )\d+" % n, doctor)
-    assert 'plan-reviewer=8", None, None, "%s", "64")' % n in (ROOT / "tests" / "install_smoke.sh").read_text()
+    assert 'plan-reviewer=8,equilibrium=9", None, None, "%s", "64")' % n in (ROOT / "tests" / "install_smoke.sh").read_text()

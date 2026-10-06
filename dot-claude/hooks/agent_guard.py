@@ -343,7 +343,7 @@ AGENTS = [
     "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist", "explore",
     "proof-checker", "vfx-td", "rigger-animator", "sculptor-painter", "procedural-3d-ui",
     "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
-    "biochem-engineer", "test-engineer", "build-fixer", "toolsmith",
+    "biochem-engineer", "test-engineer", "build-fixer", "toolsmith", "equilibrium",
     "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
     "jvm-engineer", "node-engineer",
 ]
@@ -384,7 +384,7 @@ _BLACKCAT_ROW = [
     "browser-operator", "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist",
     "explore", "proof-checker", "vfx-td", "rigger-animator", "sculptor-painter", "procedural-3d-ui",
     "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
-    "biochem-engineer", "test-engineer", "build-fixer", "toolsmith",
+    "biochem-engineer", "test-engineer", "build-fixer", "toolsmith", "equilibrium",
     "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
     "jvm-engineer", "node-engineer",
 ]
@@ -500,6 +500,10 @@ POLICY = {
     # only bin/stack-install (no-push hook, toolsmith_command). Spawned by blackcat, orchestrator,
     # main-coder, ninja-coder and devops-engineer; web readers never reach it
     "toolsmith": [],
+    # the equilibrium leader (2026-10-06): spawns the members of its run, one calibrated type
+    "equilibrium": ["mathematician", "proof-checker", "main-coder", "coder",
+                    "code-reviewer", "security-auditor", "researcher", "oracle", "data-scientist",
+                    "planner", "writer", "verifier", "plan-reviewer"] + _LANG,
 }
 # The stack's agent types: the only ones that may be spawned (on_agent) or run a workflow stage
 # (on_workflow). blackcat is the main thread only.

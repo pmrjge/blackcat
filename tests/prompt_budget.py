@@ -104,8 +104,19 @@ NEW_CAPS = {True: (160, 2400), False: (120, 1400)}
 # procedural-3d-ui join every listing (56 agents). Measured against ad22962: agent_listing and
 # blackcat_listing 13,798 -> 14,740 (0.9615 x 15,330 and 1.0131 x 14,550). Each gate is that ratio
 # x 1.02, rounded down to 0.01: agent_listing 0.97 -> 0.98, blackcat_listing 0.96 -> 1.03.
-RATIO = {"bodies": 0.867, "agent_listing": 0.98, "blackcat_listing": 1.03, "skill_listing": 0.175,
-         "rules": 0.95, "per_spawn_mean": 0.523}
+# 2026-10-06 equilibrium agent + skill (USER D8: raise by the x 1.02 rule, as for the 3D specialists): the
+# equilibrium leader (description 137 chars, body ~2,350, an Agent-tool agent) joins every listing (57
+# agents), its skill is a name-only entry, BlackCat gained one Route line, the rules one exception clause.
+# Measured against ad22962: agent_listing 15,330 -> 15,098 (0.9849 x), blackcat_listing 14,550 -> 15,098
+# (1.0377 x), per_spawn_mean (base agents) 55,586 -> 29,069 (0.5230 x; it passed by 2 chars), rules
+# 12,198 -> 11,535 (0.9456 x), bodies (base agents) 90,352 -> 75,837 (0.8394 x), skill_listing
+# 30,782 -> 5,315 (0.1727 x). Each gate is that ratio x 1.02: agent_listing 1.0046 -> 1.00 (0.98 -> 1.00),
+# blackcat_listing 1.0584 -> 1.05 (1.03 -> 1.05), per_spawn_mean 0.5334 -> 0.533 (to 0.001, as the skill
+# listing; 0.523 -> 0.533). rules (0.9646) and bodies (0.8562) come out below their gates, and
+# skill_listing (0.1761 -> 0.176) keeps 71 chars of headroom at 0.175: those three are not raised, as in
+# the 3D precedent (only the gates that fail move).
+RATIO = {"bodies": 0.867, "agent_listing": 1.00, "blackcat_listing": 1.05, "skill_listing": 0.175,
+         "rules": 0.95, "per_spawn_mean": 0.533}
 # SKILL_BUDGET: Claude Code's listing budget is context window x chars/token x
 # skillListingBudgetFraction = 1,000,000 x 3 x f for the 5.5 models (Claude Code 2.1.287), shared by the
 # stack's skills and every plugin, bundled and claude.ai skill; over it, the least-used skills lose

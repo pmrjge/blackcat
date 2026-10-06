@@ -35,7 +35,7 @@ class Env:
 
     The machine lives in a SHORT directory under $TMPDIR (removed when the object goes), not in
     pytest's tmp_path: the skills listing budget counts each skill's path (convert_skills), and
-    pytest's long per-test paths alone push the 127 listed skills past skills.max_context_tokens."""
+    pytest's long per-test paths alone push the 128 listed skills past skills.max_context_tokens."""
 
     def __init__(self, _tmp_path=None):
         self.root = Path(tempfile.mkdtemp(prefix="cr-"))
