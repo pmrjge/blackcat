@@ -1,0 +1,18 @@
+#!/bin/sh
+# stack-eq-check --run R --cand i: run the plan's public check (plan.json, written by stack-eq) in the
+# prepared copy .claude-work/eq/R/checks/c<i>/ (hooks/eq_cli.py --eq-check-runner). NOT excluded from the
+# Bash sandbox: Seatbelt applies, at the members' own trust level. Minimal environment, stdin /dev/null,
+# its own process group killed on the timeout; the check's output is never printed raw: stdout is exactly
+# one line `EQCHECK {json}` (the guard's PostToolUse reads it), the exit status is the check's (124 on
+# timeout). Run by its real path; the interpreter is the stack-python beside this launcher.
+case $0 in
+  */*) here=${0%/*} ;;
+  *) here=. ;;
+esac
+py=$here/stack-python
+cli=$here/../hooks/eq_cli.py
+if [ ! -x "$py" ] || [ ! -f "$cli" ]; then
+  echo "stack-eq-check: $py or $cli is missing; run ./install.sh from the claude-agent-stack repo" >&2
+  exit 4
+fi
+exec "$py" -I "$cli" --eq-check-runner "$@"

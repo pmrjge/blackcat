@@ -1,0 +1,18 @@
+#!/bin/sh
+# stack-eq: the runtime Equilibrium's executor (hooks/eq_cli.py --eq-executor) on the stack's Python.
+# It runs OUTSIDE the Bash sandbox (settings.json sandbox.excludedCommands names this file's absolute path),
+# so it trusts nothing it is given: every call needs the guard's one-use ticket for its exact argv (the
+# equilibrium agent only), and it never executes candidate or member text nor any eq-check argv
+# (Level 1 checks run through bin/stack-eq-check, sandboxed). The interpreter and the program are the ones
+# beside this launcher only: never $STACK_PYTHON, PATH or a project venv. Run by its real path.
+case $0 in
+  */*) here=${0%/*} ;;
+  *) here=. ;;
+esac
+py=$here/stack-python
+cli=$here/../hooks/eq_cli.py
+if [ ! -x "$py" ] || [ ! -f "$cli" ]; then
+  echo "stack-eq: $py or $cli is missing; run ./install.sh from the claude-agent-stack repo" >&2
+  exit 4
+fi
+exec "$py" -I "$cli" --eq-executor "$@"
