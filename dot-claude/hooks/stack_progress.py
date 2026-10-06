@@ -499,8 +499,8 @@ def _jsonl(path, limit=64 << 20):
 def report(session=None):
     """early-stop.jsonl of every session (or one) joined to usage/reports.jsonl by (session, agent id,
     run stamp): {"sessions", "signals": {signal: {outcome: n}}, "types": {type: {signal: n}}}. The
-    outcome is the hand-back's STATUS (done, partial, failed, blocked), `handback` for a report made
-    through the SubagentHandback tool, `no-report` when none was logged. "first_write": per outcome, n,
+    outcome is the hand-back's STATUS (done, partial, failed, blocked), `handback` for a SubagentHandback
+    whose message could not be read, `no-report` when none was logged. "first_write": per outcome, n,
     median and p90 of the first_write rows' at_call (B3)."""
     root = state_root()
     outcome = {}

@@ -1042,6 +1042,26 @@ def test_a_resumed_run_ending_in_text_is_no_handback(rig, tmp_path):
     assert row["via"] == "text" and row["hard"] == ["no_status"] and row["report_chars"] == len(BAD)
 
 
+def test_a_long_handback_is_still_a_handback(rig, tmp_path):
+    """Review fix (security-auditor, code-reviewer): Claude Code stores a tool input twice per record
+    (message.content and wireToolInputs), so a ~145k-char message makes a ~290 KiB record, past the 256 KiB
+    tail that transcript_last_tool reads; the hand-back reader's own tail (HANDBACK_TAIL_MAX) still sees it."""
+    msg = "STATUS: done\nRESULT: ok\n" + "- row 0123456789\n" * 8500
+    rec = {"type": "assistant", "message": {"id": "m2", "content": [
+        {"type": "text", "text": "Reporting."},
+        {"type": "tool_use", "id": "tu2", "name": "SubagentHandback", "input": {"message": msg}}]},
+        "wireToolInputs": {"tu2": {"message": msg}}}
+    t = tmp_path / "agent-hm7.jsonl"
+    t.write_text(json.dumps(rec) + "\n" + json.dumps({"type": "user", "message": {"content": [
+        {"type": "tool_result", "tool_use_id": "tu2"}]}}) + "\n")
+    assert t.stat().st_size > sr.TAIL_MAX
+    rig.seed("hm7", "coder")
+    r = rig.run(rig.stop("hm7", "coder", "Reporting.", transcript=str(t)))
+    assert r.rc == 0 and not blocked(r)
+    row = rig.rows()[-1]
+    assert row["via"] == "handback" and row["status"] == "done" and row["report_chars"] == len(msg)
+
+
 @pytest.mark.parametrize("value", [None, 7, ["STATUS: done"], {"m": 1}])
 def test_a_non_string_message_is_no_report(rig, tmp_path, value):
     t = handback_transcript(tmp_path / "agent-hm6.jsonl", value)

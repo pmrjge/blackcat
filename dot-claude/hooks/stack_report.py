@@ -74,6 +74,10 @@ FILES_MAX = 20                # paths file_meta looks at
 HASH_MAX = 8 << 20            # bytes hashed per file (larger: size and mtime only)
 META_BUDGET_S = 2.0           # seconds the hash thread is waited for, all files together
 TAIL_MAX = 256 << 10          # bytes of a transcript tail transcript_last_tool reads
+# transcript_handback: Claude Code stores a tool input twice per record (message.content, wireToolInputs),
+# JSON-escaped (a newline 2 bytes, a control char 6), so the hand-back record needs a longer tail: a record
+# past it is not seen (the run is then checked on its reply)
+HANDBACK_TAIL_MAX = 4 << 20
 REASON_MAX = 400
 SF_DATALESS = 0x40000000      # macOS st_flags: an iCloud placeholder (a read would download it)
 
@@ -602,7 +606,7 @@ def _tail(path, cap):
         os.close(fd)
 
 
-def transcript_handback(path, cap=TAIL_MAX):
+def transcript_handback(path, cap=HANDBACK_TAIL_MAX):
     """S4 L7 B1: the SubagentHandback message that ended a run. Only the NEWEST assistant record of the
     transcript's tail counts (a resumed run that answers in text is no hand-back, whatever an earlier run
     called): its last SubagentHandback tool_use's input `message`, "" when that is missing or not a
