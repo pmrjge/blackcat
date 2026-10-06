@@ -135,6 +135,11 @@ SEEDS = {
     "mermaid without a title": (lambda r: append(r, "Home.md", "\n```mermaid\nflowchart LR\n  a --> b\n```\n"),
                                 {"mermaid"}),
     "missing footer": (lambda r: (r / "_Footer.md").unlink(), {"entry"}),
+    "raw wiki URL to a missing image": (
+        lambda r: append(r, "Home.md", "\n![G](https://raw.githubusercontent.com/wiki/o/r/assets/gone.png)\n"),
+        {"missing-file"}),
+    "wiki URL to a missing page": (lambda r: append(r, "Home.md", "\n[x](https://github.com/o/r/wiki/Nope)\n"),
+                                   {"missing-page"}),
 }
 
 
@@ -144,6 +149,16 @@ def test_seeded_breakage_raises_its_rule(wiki, name):
     seed(wiki)
     write_sums(wiki)
     assert rules(wiki) == expected, wc.check(wiki)
+
+
+def test_absolute_wiki_urls_count_as_uses(wiki):
+    # the fallback when relative images do not render at the bare /wiki URL: raw.githubusercontent.com/wiki URLs
+    raw = 'src="https://raw.githubusercontent.com/wiki/owner/repo/assets/'
+    for name in ("Home.md", "_Sidebar.md"):
+        p = wiki / name
+        p.write_text(p.read_text(encoding="utf-8").replace('src="assets/', raw), encoding="utf-8")
+    append(wiki, "Home.md", "\n[Page one](https://github.com/owner/repo/wiki/Page-One#a-section)\n")
+    assert wc.check(wiki) == []
 
 
 def test_a_changed_asset_fails_its_checksum(wiki):

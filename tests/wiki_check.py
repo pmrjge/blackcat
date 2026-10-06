@@ -37,7 +37,9 @@ GitHub-wiki link rules, as checked on 2026-10-06 against docs.github.com and liv
 (#anchor kept); `[text](Page-Name)` stays relative, which resolves on /wiki/<Page> URLs, and on Home,
 served at the bare /wiki URL, GitHub rewrites it to wiki/Page-Name; /wiki/<path> of a non-page file
 redirects to raw.githubusercontent.com/wiki/<owner>/<repo>/<path>. Links inside code spans and fenced
-blocks are not links. External links (a scheme or //) are not fetched.
+blocks are not links. External links (a scheme or //) are not fetched; an absolute URL into a wiki
+(https://raw.githubusercontent.com/wiki/<owner>/<repo>/<path> or https://github.com/<owner>/<repo>/wiki/<path>)
+is checked as the relative <path> it names, whatever the owner and repository.
 
 Run: uv run tests/wiki_check.py [WIKI_DIR]     (default: github-wiki/ at the repository root)
 Exit: 0 clean or skipped, 1 problems found, 2 WIKI_DIR is not a directory.
@@ -67,6 +69,8 @@ _HTML_ID = re.compile(r"""<[a-z][^>]*\s(?:id|name)\s*=\s*["']([^"']+)["']""", re
 _ATTR = re.compile(r"""(\w+)\s*=\s*("([^"]*)"|'([^']*)')""")
 _HEADING = re.compile(r"^ {0,3}(#{1,6})\s+(.*?)\s*#*\s*$")
 _EXTERNAL = re.compile(r"^(?:[a-z][a-z0-9+.-]*:|//)", re.I)
+# an absolute URL into a GitHub wiki: checked like the relative path it names
+_WIKI_URL = re.compile(r"^https://(?:raw\.githubusercontent\.com/wiki/[^/]+/[^/]+|github\.com/[^/]+/[^/]+/wiki)/([^?]+)$")
 
 
 def prose_lines(text):
@@ -182,6 +186,9 @@ def _check_ref(wiki, page, n, kind, target, alt, form, used, linked):
     bad = []
     if kind == "image" and not (alt or "").strip():
         bad.append((where, "alt", "image without alt text: %s" % target))
+    absolute = _WIKI_URL.match(target or "")
+    if absolute:
+        target = absolute.group(1)
     if not target or _EXTERNAL.match(target):
         return bad
     if target.startswith("/"):
