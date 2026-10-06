@@ -16,12 +16,12 @@
 #                the CURRENT manifest entries (a changed entry = stale image), /opt/eq/TOOLS.lock read from the image saved with
 #                `container image save` (nothing is started) equal to the manifest (every listed tool, no undeclared one).
 #   --deep       with --images: also re-hash every installed tool file from that saved image (host side), so a tampered in-image
-#                sha256sum cannot lie. Run it before a run / a freeze; the per-run proof is the digest the harness pins.
+#                sha256sum cannot lie; for distroless-cc images also every base executable listed in /opt/eq/BASE_EXECUTABLES.txt
+#                (recorded by the assemble stage). Run it before a run / a freeze; the per-run proof is the digest the harness pins.
 #   --inspect    container (no container started): the saved image's config: unprivileged user, no EXPOSE/VOLUME/ENTRYPOINT/
 #                HEALTHCHECK, no secret-like ENV name, PATH in /opt,/usr; its layers: a distroless-cc image's bottom layers are
 #                exactly the pinned base manifest's (base/*.arm64.manifest.json), a scratch image has at most 3 layers
 #                ([unverified] that `container image save` keeps the base's compressed blobs: checklist D5)
-#   --deep       also re-hashes /opt/eq/BASE_EXECUTABLES.txt (the base's executables, recorded by the assemble stage)
 #   --smoke      container: run each tool's smoke argv in its image under the hardened flags of lib.sh eq_run.
 #   --allow-placeholder   report pending values but exit 0 for them (listing mode)
 # Exit: 0 ok | 2 usage or invalid manifest | 10 container missing/down | 11 an image is missing, stale or does not match | 13 pending.

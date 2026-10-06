@@ -97,6 +97,12 @@ looks beside the harness (`../lib/eq-container`, the staging layout) and then at
   - `harness/README.md`: the frozen WALL policy is `../lib/eq-wall/policy.default.toml`;
   - `harness/tests/test_shell.py`: the `--collect` refusal test.
 - **New:** this README, `PATH_RELATIVISATION.md` and `.json`, and `harness/tests/test_repo_layout.py`.
+- **After that count (2026-10-06, branch `eq-distroless`), two more non-path edits:** `harness/tests/fake_container` is
+  re-synced byte-identical with the repo's `tests/fake-container/container` (`test_argv_agrees_with_lib_sh` compares
+  them), which gained `EQ_FAKE_CONTAINER_FAIL_TARGETS`/`_FAIL_RC` (a build whose `--target` is listed fails) and
+  `EQ_FAKE_CONTAINER_REPORT`/`_REPORT_ERR` (a `bash-report` build prints them); `harness/tests/conftest.py` clears the
+  four new knobs. Neither file is in `PATH_RELATIVISATION.json`, so the A5 record is unchanged. EQ-T's own copy of
+  the fake CLI (outside this repository) is now one version behind.
 - **Not copied:** `isolation/build.log`.
 
 Kept as written: `/home/<user>` in `isolation/probe_inner.sh` and `isolation/repo-stage/lib/eq-docker/probe_inner.sh`.

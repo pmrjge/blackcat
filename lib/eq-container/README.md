@@ -18,7 +18,7 @@ never merged); Seatbelt/sandbox-exec and App Sandbox were rejected (USER, 2026-1
 | `build.sh` | idempotent builds from `Dockerfile.minimal` (core, candidates) and `Dockerfile.toolchains` (extension images); `--profiles core,jvm`; a `check-<target>` stage is built first (a failure is exit 12); refuses a placeholder (13), a malformed pin (2) and a deferred profile (10); `--set full` is exit 2; `--resolve-tools [--write-pin]` prints (and writes) the three bash pins after the source signatures verified |
 | `base-pins.sh`, `base/` | host-side, no container: checks the pinned distroless base (format, the bytes in `base/` against the pins, `cosign verify` with the Google identity); edits nothing. `base/` keeps the index and arm64 manifest bytes the pins were read from |
 | `probe.sh`, `probe_inner.sh`, `probe.d/50-tunnel.sh` | the isolation proof (in-container rows, limit sub-probes, the image works under the flags) and the WALL tunnel probe |
-| `minimal/`, `tc/` | `mkrootfs.sh` (ldd-resolved layer of the distroless-cc images, only libraries the base lacks), `check.sh` (the `check-<target>` stage, run in the final filesystem as user 10001), `perl-shim`, `lake-shim`, `untar.py`; the toolchain recipes `fetch-tool.sh`, `mkrootfs-tc.sh`, `tc/build-bash.sh` (static bash from the GPG-signed source); `install-rust.sh` and `install-ghc.sh` stay for the deferred profiles |
+| `minimal/`, `tc/` | `mkrootfs.sh` (the one layer of the distroless-cc images: no shared object copied, every dynamic ELF must resolve against base + layer via the loader's `--list` in a chroot), `check.sh` (the `check-<target>` stage, run in the final filesystem as user 10001), `perl-shim`, `lake-shim`, `untar.py`; the toolchain recipes `fetch-tool.sh`, `mkrootfs-tc.sh`, `tc/build-bash.sh` (static bash from the GPG-signed source); `install-rust.sh` and `install-ghc.sh` stay for the deferred profiles |
 | `project/` | the Lake project (lakefile, manifest, toolchain) the Mathlib cache is fetched for |
 | `LAYOUT` | the word `repo`: state defaults to `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/eq-container` (without it, `./.state`) |
 
@@ -43,7 +43,7 @@ and a connect to a closed port is refused, so the network rows cannot pass vacuo
 Pins still open: `BASH_SRC_SHA256`, `BASH_PATCHES_SHA256` and `BASH_BIN_SHA256` (`PINS`, `TOOLS.toml`). Until they are set, `core`
 stops with exit 13. Run `bash lib/eq-container/build.sh --resolve-tools` from a normal terminal: it prints the three values after
 "SIGNATURES OK"; review them, then run `--resolve-tools --write-pin` (writes `PINS`, the `Dockerfile.minimal` ARGs and `TOOLS.toml`;
-trust on first use after the signature check). `bash lib/eq-container/base-pins.sh` checks the base's authenticity (needs cosign).
+trust on first use after the signature check: a set source or patch pin that differs is refused, exit 12). `bash lib/eq-container/base-pins.sh` checks the base's authenticity (needs cosign).
 Re-pin of the distroless base (it is rebuilt often): fetch the new index and linux/arm64 manifest bytes into `base/`, change
 `DISTROLESS_CC` and `DISTROLESS_CC_ARM64` in `PINS` and the ARG defaults of both Dockerfiles together, run `base-pins.sh`, rebuild.
 

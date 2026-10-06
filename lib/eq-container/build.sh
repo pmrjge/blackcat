@@ -12,7 +12,8 @@
 #   ./build.sh --resolve-tools [--write-pin]      build the bash-report stage (--no-cache): GNU bash's tarball and patches are
 #                                                 GPG-verified against BASH_GPG_FPR, then their hashes and the built binary's are
 #                                                 printed (`PIN KEY VALUE pinned: ...`); --write-pin writes them into PINS, the
-#                                                 Dockerfile.minimal ARGs and TOOLS.toml (trust on first use AFTER the signature check)
+#                                                 Dockerfile.minimal ARGs and TOOLS.toml (trust on first use AFTER the signature check:
+#                                                 a set BASH_SRC_SHA256 or BASH_PATCHES_SHA256 that DIFFERS is refused, exit 12)
 # Bases (USER decision 2026-10-06, DESIGN_DISTROLESS.md): final images FROM the pinned distroless cc image or FROM scratch; the
 # builders are pinned by digest; no Debian snapshot, apt or dpkg (the former --set full and --no-snapshot are refused: exit 2).
 # Every image's check stage (check-<target>: minimal/check.sh, or the tool's version for the toolchains) is built first, from
@@ -226,6 +227,12 @@ if [ "$ACTION" = tools ]; then
   echo "$sig"
   printf '%s\n' "$lines"
   if [ "$WRITEPIN" = 1 ]; then
+    # trust on first use: a GNU release file never changes, so a set source or patch pin that DIFFERS means a substituted (even
+    # if signed, e.g. an older release under the pinned name) file: refuse; BASH_BIN_SHA256 may drift with the builder's toolchain
+    if printf '%s\n' "$lines" | LC_ALL=C grep -Eq '^PIN BASH_(SRC|PATCHES)_SHA256 [0-9a-f]{64} pinned: DIFFERS'; then
+      echo "a GNU source pin (BASH_SRC_SHA256 or BASH_PATCHES_SHA256) differs from PINS: released files never change, nothing is pinned; after a deliberate BASH_BASELINE or BASH_PATCHLEVEL change, set each changed pin to UNSET in PINS and in its Dockerfile.minimal ARG, then re-run" >&2
+      exit 12
+    fi
     for k in $BASH_PINS; do
       v=$(printf '%s\n' "$lines" | awk -v k="$k" '$2 == k { print $3 }')
       tm_is_hex64 "$v" || { echo "the value for $k is not 64 lowercase hex: nothing more is pinned" >&2; exit 12; }

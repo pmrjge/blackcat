@@ -641,6 +641,31 @@ def test_resolve_tools_reports_same_and_differs(eqc_env, filled):
     assert p.returncode == 0 and p.stdout.count("pinned: same") == 3, p.stdout
 
 
+@pytest.mark.parametrize("key", ["BASH_SRC_SHA256", "BASH_PATCHES_SHA256"])
+def test_write_pin_refuses_a_differing_source_pin(eqc_env, filled, key):
+    """Trust on first use: a GNU release file never changes, so a set source/patch pin that DIFFERS (a substituted file, even a
+    signed one such as an older release under the pinned name) is refused, exit 12, nothing written."""
+    lines = report(st="same").splitlines()
+    i = 1 if key == "BASH_SRC_SHA256" else 2
+    lines[i] = "PIN %s %s pinned: DIFFERS (%s)" % (key, "8" * 64, lines[i].split()[2])
+    before = lib_digest(filled)
+    p = resolve(eqc_env, filled, "--write-pin", rep="\n".join(lines))
+    assert p.returncode == 12 and "a GNU source pin (BASH_SRC_SHA256 or BASH_PATCHES_SHA256) differs from PINS" in p.stderr, \
+        (p.returncode, p.stdout, p.stderr)
+    assert lib_digest(filled) == before
+    q = resolve(eqc_env, filled, rep="\n".join(lines))                    # without --write-pin: printed, rc 0, nothing written
+    assert q.returncode == 0 and "pinned: DIFFERS" in q.stdout and lib_digest(filled) == before, (q.stdout, q.stderr)
+
+
+def test_write_pin_accepts_a_differing_binary_pin(eqc_env, filled):
+    """BASH_BIN_SHA256 may drift with the builder's toolchain (the sources are the same): --write-pin re-pins it."""
+    lines = report(st="same").splitlines()
+    lines[3] = "PIN BASH_BIN_SHA256 %s pinned: DIFFERS (%s)" % ("8" * 64, lines[3].split()[2])
+    p = resolve(eqc_env, filled, "--write-pin", rep="\n".join(lines))
+    assert p.returncode == 0, (p.stdout, p.stderr)
+    assert "BASH_BIN_SHA256=" + "8" * 64 in (filled / "PINS").read_text().splitlines()
+
+
 def test_write_pin_pins_everything_and_the_core_gates_then_pass(eqc_env, pins_lib):
     unset_bash(pins_lib)
     p = resolve(eqc_env, pins_lib, "--write-pin")

@@ -8,8 +8,8 @@
 #                  ERROR naming it, never a copy ("no third source of shared objects"); /etc/passwd,group = the base's + eq
 #   scratch        nothing below the layer: every AArch64 ELF must be static (no interpreter, no NEEDED); the layer gets
 #                  /etc/passwd,group (root, eq 10001), /tmp (1777) and the mount points
-# The layer holds the tool trees tc/fetch-tool.sh installed (pruned per TOOLS.toml), /opt/eq/TOOLS.lock (+ .sha256), IMAGE_KIND
-# and PROVENANCE-tc.txt; no shell, package manager, docs, man pages or headers. A foreign-architecture ELF inside a tool tree (Go's
+# The layer holds the tool trees tc/fetch-tool.sh installed (pruned per TOOLS.toml), /opt/eq/TOOLS.lock (+ .sha256), IMAGE_KIND,
+# PROVENANCE-tc.txt and (distroless-cc) BASE_EXECUTABLES.txt; no shell, package manager, docs, man pages or headers. A foreign-architecture ELF inside a tool tree (Go's
 # testdata, for one) is reported as a NOTE and skipped; any setuid/setgid file fails. UNVERIFIED until a build passes.
 set -euo pipefail
 what=${1:?image name}
@@ -69,6 +69,12 @@ printf '%s %s\n' "$what" "$base" > "$R/opt/eq/IMAGE_KIND"
 { echo "image_kind: $what ($base)"
   [ "$base" = scratch ] || echo "base: $DISTROLESS_CC (linux/arm64 $DISTROLESS_CC_ARM64)"
   echo "manifest_image_sha256: $(tm_image_hash "$what")"; echo "tools: $(tm_get image "$what" tools)"; } > "$R/opt/eq/PROVENANCE-tc.txt"
+if [ "$base" = distroless-cc ]; then
+  # the base's executables (outside /opt), for verify-tools.sh --deep (it requires this file in every distroless-cc image);
+  # the same recipe as minimal/mkrootfs.sh (tests/test_eq_container_dockerfiles.py compares the two)
+  ( cd "$B" && find . -path ./opt -prune -o -type f \( -perm -u+x -o -perm -g+x -o -perm -o+x \) -print | LC_ALL=C sort \
+      | while read -r f; do printf '%s  %s\n' "$(sha256sum "$f" | cut -d' ' -f1)" "${f#.}"; done ) > "$R/opt/eq/BASE_EXECUTABLES.txt"
+fi
 chmod -R a+rX "$R/opt"
 chmod -R go-w "$R/opt" "$R/etc"
 

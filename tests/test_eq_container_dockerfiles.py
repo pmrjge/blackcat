@@ -584,6 +584,38 @@ def test_a_distribution_tool_in_an_assemble_script_is_caught(seed):
     assert needle in rule_script_no_distro(transform((EQC_LIB / rel).read_text())), seed[0]
 
 
+BEX_OUT = '> "$R/opt/eq/BASE_EXECUTABLES.txt"'
+
+
+def bex_recipe(text: str) -> str:
+    """The two-line recipe that writes /opt/eq/BASE_EXECUTABLES.txt (the `( cd "$B" && find ...` line and its continuation),
+    whitespace-normalised; '' when the script does not write the file."""
+    lines = code_of(text).split("\n")
+    for i, ln in enumerate(lines):
+        if ln.rstrip().endswith(BEX_OUT) and i > 0:
+            return " ".join(" ".join((lines[i - 1].rstrip().rstrip("\\"), ln)).split())
+    return ""
+
+
+def test_every_distroless_image_records_its_base_executables():
+    """verify-tools.sh --deep needs /opt/eq/BASE_EXECUTABLES.txt in every distroless-cc image (DEEP otherwise, install exit 16):
+    the assemble script of each such [[image]] writes it with the same recipe as minimal/mkrootfs.sh, for the distroless base
+    only (tc/mkrootfs-tc.sh also assembles the scratch image tc-go)."""
+    want = bex_recipe((EQC_LIB / "minimal/mkrootfs.sh").read_text())
+    assert want.startswith('( cd "$B" && find . -path ./opt -prune') and want.endswith(BEX_OUT), want
+    images = tomllib.loads((EQC_LIB / "TOOLS.toml").read_text())["image"]
+    script = {"Dockerfile.minimal": "minimal/mkrootfs.sh", "Dockerfile.toolchains": "tc/mkrootfs-tc.sh"}
+    seen = set()
+    for img in images:
+        if img["base"] == "distroless-cc":
+            assert bex_recipe((EQC_LIB / script[img["dockerfile"]]).read_text()) == want, img["name"]
+            seen.add(img["dockerfile"])
+    assert seen == set(script), seen                              # both assemble scripts serve a distroless image today
+    tc = (EQC_LIB / "tc/mkrootfs-tc.sh").read_text()
+    block = tc[tc.index('if [ "$base" = distroless-cc ]; then\n  # the base\'s executables'):]
+    assert block.index(BEX_OUT) < block.index("\nfi\n"), "the tc recipe must run for distroless-cc only (scratch has no $B)"
+
+
 def test_comments_and_the_package_manager_deny_list_are_not_calls():
     t = "# ldd is not used\nfind / -type f \\( -name apt -o -name apt-get -o -name dpkg \\) -print\n"
     assert rule_script_no_distro(t) == []

@@ -282,7 +282,7 @@ policy (deny-all by default).
 `verify-tools.sh`: `pair busybox` compares `BUSYBOX_SHA256`; new pairs for jq, uv musl, bash; `--images --inspect` gains a base
 check: the saved image's bottom layers must equal the layer list of `DISTROLESS_CC_ARM64` (21 layers today) for distroless
 images, and there must be exactly our layers for scratch images (`eqc_json.py` gets an `oci-layers` reader); `--deep` also re-hashes
-`/opt/eq/BASE_EXECUTABLES.txt` (inventory written by the check stage: every executable file outside `/opt`, with sha256; any
+`/opt/eq/BASE_EXECUTABLES.txt` (inventory written by the assemble stage: every executable file outside `/opt`, with sha256; any
 setuid/setgid file fails the build).
 
 `distro-pins.sh` is deleted; its replacement `base-pins.sh` (host-side, read-only, user-run like today) verifies each distroless
