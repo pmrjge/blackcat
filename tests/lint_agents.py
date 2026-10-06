@@ -244,6 +244,10 @@ def get_tools(data):
 
 
 EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
+# agents that change the machine through Bash alone (agent_guard.py INSTALLER_TYPES, which main()
+# checks against --print-policy): toolsmith runs bin/stack-install, outside the sandbox, so as a
+# subagent inheriting Plan it could never install; it carries acceptEdits without Write/Edit
+INSTALLER_TYPES = {"toolsmith"}
 
 
 def permission_mode_problem(data):
@@ -258,6 +262,8 @@ def permission_mode_problem(data):
     mode = (get_inline(data, "permissionMode") or "").strip("\"'")
     flat, _ = get_tools(data)
     can_edit = not flat or bool(EDIT_TOOLS & set(flat))      # no tools: line = every tool
+    if (get_inline(data, "name") or "").strip("\"'") in INSTALLER_TYPES and "Bash" in flat:
+        can_edit = True                                       # it installs software through Bash
     if mode == "acceptEdits":
         return None if can_edit else (
             "permissionMode: acceptEdits on an agent without Write/Edit/NotebookEdit: a read-only agent "
@@ -722,6 +728,9 @@ def main():
     expected_agents = policy_data.get("agents")
 
     check_no_self_spawn(policy_row)
+    if "installer_types" in policy_data and set(policy_data["installer_types"]) != INSTALLER_TYPES:
+        fail("lint_agents INSTALLER_TYPES %s != agent_guard INSTALLER_TYPES %s"
+             % (sorted(INSTALLER_TYPES), sorted(policy_data["installer_types"])))
     # leaves by decision (a review, an image job or a small code task is one bounded task); planner
     # keeps delegation
     for a in ("plan-reviewer", "image-director", "coder"):

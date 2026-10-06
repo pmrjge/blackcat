@@ -1479,6 +1479,9 @@ stage_script 644 hooks/stack_progress.py
 # the hooks' shared file helpers (read_json, atomic writes, timestamps): imported by agent_guard.py,
 # stack_usage.py, stack_limits.py, stack_fanout.py and stack_sched_refresh.py, beside them
 stage_script 644 hooks/stack_io.py
+# the dependency installer's rules (toolsmith): imported by agent_guard.py's no-push mode and by
+# bin/stack-install, the one program settings.json's sandbox.excludedCommands names
+stage_script 644 hooks/toolsmith_policy.py
 # the usage collector (SubagentStart/SessionEnd hooks; agent_guard.py starts it at SessionStart), the
 # scheduler advisor, its shipped cost model and the refit (stack_sched_refresh.py imports fit() from the
 # two tests/ scripts beside it), and the learned limits (stack_limits.py: per-session snapshots the
@@ -1490,6 +1493,7 @@ for f in derive_sched_model.py derive_thresholds.py; do
 done
 for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget stack-tree; do stage_script 755 "bin/$f"; done
 stage_script 755 "bin/stack-who"
+stage_script 755 "bin/stack-install"
 for f in image_studio_mcp.py libdocs_mcp.py neural_memory_mcp.py; do stage_script 644 "mcp/$f"; done
 stage_script 644 magg/k8s-mcp.toml    # the magg catalog's kubernetes entry reads it (--config)
 # The stack's local LSP marketplace (step 10 registers it): replaced as a whole.
@@ -2087,7 +2091,7 @@ STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook"
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
                  "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
                  "bin/stack-tree",
-                 "bin/stack-who",
+                 "bin/stack-who", "bin/stack-install", "hooks/toolsmith_policy.py",
                  "mcp/image_studio_mcp.py",
                  "mcp/libdocs_mcp.py", "mcp/neural_memory_mcp.py"]
 _missing = [rel for rel in STACK_SCRIPTS if not os.path.isfile(os.path.join(DEST, rel))]
@@ -2713,7 +2717,7 @@ else
   # a restore or an edit never runs stale code), beside the sources in the protected
   # hooks/__pycache__ (no PYTHONPYCACHEPREFIX; SOURCE_DATE_EPOCH would switch to checked-hash)
   hook_mods=()
-  for m in agent_guard stack_io stack_usage stack_limits stack_report stack_progress stack_fanout stack_fanout_wire read_gate web_caps output_shrink stack_hook stack_sched; do
+  for m in agent_guard stack_io stack_usage stack_limits stack_report stack_progress stack_fanout stack_fanout_wire read_gate web_caps output_shrink stack_hook stack_sched toolsmith_policy; do
     if [ -f "$C/hooks/$m.py" ]; then hook_mods+=("$C/hooks/$m.py"); fi
   done
   if (unset PYTHONPYCACHEPREFIX SOURCE_DATE_EPOCH

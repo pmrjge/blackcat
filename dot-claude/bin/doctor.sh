@@ -344,6 +344,64 @@ if wide:
           % ", ".join(wide))
 PY
 
+# The dependency installer (toolsmith, CONFIG.md "toolsmith"): bin/stack-install is the one program the
+# stack takes out of the Bash sandbox (sandbox.excludedCommands) and pre-approves (permissions.allow);
+# the guard lets only toolsmith run it. Its ledger and the requests waiting for the user live in the
+# state dir.
+python3 - "$C/settings.json" "$C" <<'PY' | while IFS= read -r l; do case "$l" in "ok "*) ok "${l#ok }" ;; *) warn "$l" ;; esac; done
+import importlib.util, json, os, stat, sys
+try:
+    s = json.load(open(sys.argv[1]))
+except (OSError, ValueError):
+    s = {}
+c = sys.argv[2]
+exe = os.path.join(c, "bin", "stack-install")
+want = exe + " *"
+if os.path.isfile(exe) and os.access(exe, os.X_OK) and os.path.isfile(os.path.join(c, "hooks", "toolsmith_policy.py")):
+    print("ok toolsmith executor: %s" % exe)
+else:
+    print("toolsmith executor or hooks/toolsmith_policy.py missing: toolsmith cannot install (rerun ./install.sh)")
+ex = (s.get("sandbox") or {}).get("excludedCommands") or []
+if want in ex:
+    print("ok sandbox.excludedCommands names the executor (and toolsmith alone may run it: guard)")
+else:
+    print("sandbox.excludedCommands lacks %r: toolsmith's installs fail in the sandbox (rerun ./install.sh)" % want)
+other = [e for e in ex if e != want]
+if other:
+    print("sandbox.excludedCommands also takes %s out of the sandbox for every agent (not the stack's)"
+          % ", ".join(repr(e) for e in other[:5]))
+if "Bash(%s)" % want in ((s.get("permissions") or {}).get("allow") or []):
+    print("ok permissions.allow pre-approves the executor (no prompt that would stall a subagent)")
+else:
+    print("permissions.allow lacks Bash(%s): each toolsmith install would prompt (rerun ./install.sh)" % want)
+root = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
+                    "claude-agent-stack", "toolsmith")
+if os.path.isdir(root):
+    st = os.lstat(root)
+    if stat.S_ISLNK(st.st_mode) or st.st_uid != os.getuid() or st.st_mode & 0o077:
+        print("toolsmith state dir %s is a link, not yours, or open to others (want 0700)" % root)
+    try:
+        spec = importlib.util.spec_from_file_location("toolsmith_policy", os.path.join(c, "hooks", "toolsmith_policy.py"))
+        pol = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(pol)
+        rows = []
+        try:
+            with open(os.path.join(root, "ledger.jsonl")) as f:
+                rows = [json.loads(x) for x in f if x.strip()]
+        except (OSError, ValueError):
+            pass
+        pend = [f for f in os.listdir(os.path.join(root, "requests")) if f.endswith(".json")] \
+            if os.path.isdir(os.path.join(root, "requests")) else []
+        print("ok toolsmith ledger: %d packages installed by toolsmith (%s list)" % (len(pol.fold(rows)), exe))
+        if pend:
+            print("%d toolsmith request(s) wait for your decision: %s pending, then approve <id> or deny <id> in a terminal"
+                  % (len(pend), exe))
+    except Exception as exc:  # noqa: BLE001
+        print("couldn't read the toolsmith ledger (%s)" % type(exc).__name__)
+else:
+    print("ok toolsmith: nothing installed yet")
+PY
+
 echo "== Image models (image-studio; set in $C/stack.env)"
 # The server's own check: each tool's model looked up in its provider's catalog (no paid call).
 uvb=$(command -v uv 2>/dev/null || { [ -x "$HOME/.local/bin/uv" ] && echo "$HOME/.local/bin/uv"; })
@@ -409,7 +467,7 @@ import importlib.util, os, sys
 sys.pycache_prefix = None
 h, stale = sys.argv[1], []
 for m in ("agent_guard", "stack_hook", "stack_usage", "stack_limits", "stack_report", "read_gate", "web_caps",
-          "output_shrink", "stack_progress"):
+          "output_shrink", "stack_progress", "toolsmith_policy"):
     src = os.path.join(h, m + ".py")
     if not os.path.isfile(src):
         continue

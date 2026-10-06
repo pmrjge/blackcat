@@ -53,7 +53,12 @@ Reads the hook JSON on stdin.
                                     already denied to Read/Edit/Write or of the hook state dir —
                                     the replacement for Claude Code's own protected-path check,
                                     which covers only Edit/Write and is skipped entirely in
-                                    bypassPermissions mode; for code-reviewer, security-auditor,
+                                    bypassPermissions mode; the installer rule (toolsmith_gate):
+                                    only toolsmith runs bin/stack-install (unsandboxed through
+                                    sandbox.excludedCommands), and toolsmith runs nothing else, one
+                                    plain command per call, its argv checked by
+                                    hooks/toolsmith_policy.py, a one-use ticket written for the
+                                    executor; for code-reviewer, security-auditor,
                                     verifier, plan-reviewer, claude-code-guide and proof-checker
                                     it also holds Bash to read-only commands (READONLY_TYPES,
                                     _ReadOnly)
@@ -158,6 +163,9 @@ State: ${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/<session_id>/
   screen.lock             JSON, replaced atomically; transitions under flock(*.mutex)
   ../mode-probe.jsonl     STACK_MODE_PROBE=1 only, beside the session dirs: one line per
                           PreToolUse, PermissionRequest and SubagentStart event (mode_probe)
+  ../toolsmith/           the installer's state (bin/stack-install; kept by the prune): ledger.jsonl,
+                          requests/, approved/, done/, logs/, work/, and tickets/<sha256>.json,
+                          the one-use ticket this hook writes for each allowed toolsmith call
   ../usage/reports.jsonl  one line per checked hand-back (no text: sizes, the estimate
                           ceil(chars/3), class, mode, status, E flag, restated, blob, missing count)
   compact/state.json      {compactions: [{pre, trigger, snapshot, post}]} (last 20); compact/pre-<epoch>.md
@@ -188,7 +196,8 @@ thread, log only), `budget` (PreToolUse hook on every
 tool: token budgets and the MCP call cap), `image-limit` (PreToolUse/PostToolUse hook that keeps images under
 STACK_IMAGE_MAX_PX), `no-push` (PreToolUse Bash/Monitor/PowerShell hook that denies any git push or
 forge write, a --reveal key print, `-x` tracing of install.sh/doctor.sh, a write to a protected
-path, and for the read-only agent types any command outside the read-only allowlist), no argument
+path, stack-install run by anyone but toolsmith or toolsmith running anything else, and for the
+read-only agent types any command outside the read-only allowlist), no argument
 = event.
 
 Knobs (env):
@@ -332,7 +341,7 @@ AGENTS = [
     "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist", "explore",
     "proof-checker", "vfx-td", "rigger-animator", "sculptor-painter", "procedural-3d-ui",
     "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
-    "biochem-engineer", "test-engineer", "build-fixer",
+    "biochem-engineer", "test-engineer", "build-fixer", "toolsmith",
     "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
     "jvm-engineer", "node-engineer",
 ]
@@ -344,7 +353,7 @@ AGENTS = [
 BUILTINS = []
 LEAVES = ["oracle", "scout", "code-reviewer", "verifier", "security-auditor", "mcp-broker",
           "claude-code-guide", "browser-operator", "plan-reviewer", "image-director", "explore",
-          "proof-checker", "test-engineer", "build-fixer", "coder"]
+          "proof-checker", "test-engineer", "build-fixer", "coder", "toolsmith"]
 # Generic agent types: Claude Code's catch-alls (general-purpose, claude, fork), the default
 # workflow stage ("workflow-subagent" in Claude Code 2.1.285), and the names a model or a host has
 # used for a generic spawn ("SubAgent": the label of an agent context without a type, e.g. a forked
@@ -373,7 +382,7 @@ _BLACKCAT_ROW = [
     "browser-operator", "claude-code-engineer", "quantum-engineer", "robotics-engineer", "cg-artist",
     "explore", "proof-checker", "vfx-td", "rigger-animator", "sculptor-painter", "procedural-3d-ui",
     "security-engineer", "embedded-engineer", "mobile-engineer", "game-engineer", "hpc-engineer",
-    "biochem-engineer", "test-engineer", "build-fixer",
+    "biochem-engineer", "test-engineer", "build-fixer", "toolsmith",
     "rust-engineer", "haskell-engineer", "julia-engineer", "go-engineer", "python-engineer",
     "jvm-engineer", "node-engineer",
 ]
@@ -406,19 +415,20 @@ POLICY = {
     "main-coder": ["coder", "explore", "scout", "verifier", "code-reviewer",
                    "security-auditor", "plan-reviewer", "mlx-engineer", "cuda-engineer",
                    "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker", "claude-code-guide",
-                   "ninja-coder", "test-engineer", "build-fixer", "security-engineer"]
+                   "ninja-coder", "test-engineer", "build-fixer", "security-engineer", "toolsmith"]
                   + _LANG,
     "ninja-coder": ["main-coder", "coder", "mathematician", "explore", "scout",
                     "verifier", "code-reviewer", "security-auditor", "researcher", "mlx-engineer",
                     "cuda-engineer", "ml-engineer", "dl-engineer", "llm-engineer", "mcp-broker",
-                    "quantum-engineer", "proof-checker", "test-engineer", "build-fixer"] + _LANG,
+                    "quantum-engineer", "proof-checker", "test-engineer", "build-fixer",
+                    "toolsmith"] + _LANG,
     "mlx-engineer": list(_ACCEL_ROW),
     # browser-only ML environments (Kaggle notebooks, cloud GPU consoles) go through BlackCat or the
     # orchestrator, which keep browser-operator; these engineers read the web themselves (T1)
     "cuda-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "mathematician",
                       "mcp-broker", "ninja-coder"],
     "devops-engineer": ["coder", "explore", "scout", "verifier", "security-auditor", "mcp-broker",
-                        "security-engineer", "build-fixer"],
+                        "security-engineer", "build-fixer", "toolsmith"],
     "data-engineer": ["coder", "explore", "scout", "verifier", "mathematician",
                       "data-scientist", "doc-specialist", "mcp-broker", "test-engineer"],
     "frontend-engineer": ["coder", "explore", "scout", "verifier", "code-reviewer", "designer",
@@ -484,6 +494,10 @@ POLICY = {
     "proof-checker": [],
     # bounded helpers (Sonnet): one test suite, one red build; coder (small code tasks, decided 2026-10-04)
     "test-engineer": [], "build-fixer": [], "coder": [],
+    # the dependency installer (2026-10-06): one bounded install job, no delegation; its Bash runs
+    # only bin/stack-install (no-push hook, toolsmith_command). Spawned by blackcat, orchestrator,
+    # main-coder, ninja-coder and devops-engineer; web readers never reach it
+    "toolsmith": [],
 }
 # The stack's agent types: the only ones that may be spawned (on_agent) or run a workflow stage
 # (on_workflow). blackcat is the main thread only.
@@ -4425,8 +4439,10 @@ def session_start_bookkeeping(ev, d):
         # stack_usage.py's runs.csv and collectors, stack_limits.py's live values and snapshots
         # (pruned by stack_limits itself after 30 days), eq-container/ (the equilibrium isolation's
         # image records and verification results: recreated only by a rebuild) and eq-wall/ (the
-        # WALL's audit logs, the user's verdict and consent stores: evidence): kept across sessions
-        if s in ("usage", "limits", "eq-container", "eq-wall"):
+        # WALL's audit logs, the user's verdict and consent stores: evidence) and toolsmith/ (the
+        # installer's ledger, requests and approvals: what is on this machine and why): kept across
+        # sessions
+        if s in ("usage", "limits", "eq-container", "eq-wall", "toolsmith"):
             continue
         try:
             if os.path.isdir(p) and p != d and now - last_activity(p) > 3 * 86400:
@@ -5310,6 +5326,7 @@ SOFT_LIMITS = {
     "security-auditor": _SOFT_ANALYST, "proof-checker": _SOFT_ANALYST,
     # lookup pool
     "explore": _SOFT_LOOKUP, "oracle": _SOFT_LOOKUP, "mcp-broker": _SOFT_LOOKUP,
+    "toolsmith": _SOFT_LOOKUP,
     # artifact pool
     "writer": _SOFT_ARTIFACT, "browser-operator": _SOFT_ARTIFACT,
     "doc-specialist": _SOFT_ARTIFACT, "designer": _SOFT_ARTIFACT,
@@ -11261,6 +11278,147 @@ def protected_write_in(command, ev):
     return _Scan(("protect",), ev=ev).scan(command)
 
 
+# ---------------------------------------------------------------- toolsmith: the dependency installer
+# bin/stack-install runs OUTSIDE the Bash sandbox: settings.json's sandbox.excludedCommands names its
+# absolute path (`__CLAUDE_DIR__/bin/stack-install *`) and permissions.allow spares it the prompt a
+# background subagent would stall on. Claude Code matches that pattern against the call's text, and
+# every command of the call must match (a redirect, cd or $(...) keeps it sandboxed), so only the
+# literal absolute path, alone, leaves the sandbox. This hook (no-push mode: absolute, also with
+# STACK_POLICY=off, fail closed) decides who runs it and how:
+# - every agent type but INSTALLER_TYPES, and the main thread, is refused any simple command whose
+#   command word is stack-install (wrapper_invoked: after quotes, VAR=value words and wrappers such
+#   as env, exec, timeout N, xargs; a copy run through its interpreter stays sandboxed and is left
+#   alone, as is `git log -- .../stack-install`);
+# - toolsmith runs nothing else: one plain command whose first word is exactly TOOLSMITH_WRAPPER,
+#   without shell syntax (TOOLSMITH_META_RE), whose arguments hooks/toolsmith_policy.py parses
+#   (the executor's own grammar), `--for` naming a stack agent; `run <rq-id>` only once the user
+#   approved the request on a terminal. Then the hook writes the call's one-use ticket
+#   (<state>/toolsmith/tickets/<sha256(argv)>.json: argv, time, session, agent and parent ids and
+#   types), which the executor claims within TICKET_TTL_S: no ticket, no run, so a session whose
+#   hooks do not run cannot use the exclusion either. A ticket that cannot be written refuses.
+INSTALLER_TYPES = frozenset(("toolsmith",))
+TOOLSMITH_WRAPPER = os.path.join(os.path.dirname(_HOOKS_DIR), "bin", "stack-install")
+TOOLSMITH_META_RE = re.compile(r"[;&|<>()$`*?\[\]{}~!#\\\r\n\t]")
+TOOLSMITH_SEG_RE = re.compile(r"\$\(|[;&|()`{}\n]")
+TOOLSMITH_PREFIX_WORDS = {"env", "command", "builtin", "exec", "nohup", "time", "nice", "timeout",
+                          "gtimeout", "sudo", "doas", "xargs", "noglob", "stdbuf", "caffeinate",
+                          "then", "do", "else", "elif", "if", "while", "until", "!", "watch",
+                          "parallel", "flock", "chronic"}
+TOOLSMITH_ONLY_REASON = (
+    "Blocked by the stack's installer rule: only the toolsmith agent runs stack-install (it runs "
+    "outside the Bash sandbox). Return STATUS: partial with NEXT: toolsmith naming the program or "
+    "package, its installer and the pinned version you need. To test a repository copy, run it "
+    "through its interpreter (python3 <path>): that stays sandboxed.")
+TOOLSMITH_SHAPE_REASON = (
+    "Blocked by the stack's installer rule: toolsmith's Bash runs only `%s <subcommand> ...` as one "
+    "plain command (%s). No other program, no ; && | redirection $(...) globs or ~, the absolute "
+    "path exactly as written; quote --why's text with \" \". `%s help` lists the subcommands.")
+TOOLSMITH_ARGV_REASON = ("Blocked by the stack's installer rule: `stack-install %s` is refused: %s. "
+                         "`%s help` lists what is allowed.")
+TOOLSMITH_FAIL_REASON = ("Blocked: the stack's installer rule could not check or record this call "
+                         "(%s); nothing was run. Report it as STATUS: blocked with the error.")
+_TS_POLICY = []
+
+
+def toolsmith_policy():
+    """hooks/toolsmith_policy.py beside this file, loaded once; raises when it cannot be loaded (the
+    callers fail closed)."""
+    if not _TS_POLICY:
+        import importlib.util
+        spec = importlib.util.spec_from_file_location(
+            "toolsmith_policy", os.path.join(_HOOKS_DIR, "toolsmith_policy.py"))
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        _TS_POLICY.append(mod)
+    return _TS_POLICY[0]
+
+
+def wrapper_invoked(command):
+    """True when a simple command of `command` has stack-install as its command word."""
+    text = re.sub(r"['\"\\]", "", str(command or ""))
+    if "stack-install" not in text.lower():
+        return False
+    for seg in TOOLSMITH_SEG_RE.split(text):
+        for w in seg.split():
+            low = w.lower()
+            if low in TOOLSMITH_PREFIX_WORDS or low[:1] in "-+" or low[:1].isdigit() or \
+                    re.match(r"[a-z_][a-z0-9_]*\+?=", low):
+                continue
+            if low.rstrip("/").rsplit("/", 1)[-1] == "stack-install":
+                return True
+            break
+    return False
+
+
+def toolsmith_ticket(ev, policy, args):
+    """Write the one-use ticket the executor claims for exactly `args` (raises on failure)."""
+    sid, aid = ev.get("session_id"), ev.get("agent_id")
+    parent = parent_type = None
+    if aid:
+        try:
+            rec = reg_get(sdir(sid), ident(aid)) or {}
+            parent, parent_type = rec.get("parent"), rec.get("parent_type")
+        except Exception:  # noqa: BLE001 - attribution only; the ticket itself must be written
+            pass
+    folder = os.path.join(policy.state_dir(os.environ), "tickets")
+    for d in (os.path.dirname(os.path.dirname(folder)), os.path.dirname(folder), folder):
+        os.makedirs(d, mode=0o700, exist_ok=True)
+    write_json_atomic(os.path.join(folder, policy.ticket_name(args)),
+                      {"argv": list(args), "ts": time.time(), "session": safe(sid, None),
+                       "agent_id": aid and ident(aid), "agent_type": norm(ev.get("agent_type")),
+                       "parent_id": parent, "parent_type": parent_type})
+
+
+def toolsmith_command(command, ev, tool="Bash"):
+    """The deny reason for a toolsmith shell call, or None once it is allowed and its ticket is
+    written. Pure but for the approval look-up and the ticket write."""
+    import shlex
+    wrapper = TOOLSMITH_WRAPPER
+    if tool != "Bash" or not isinstance(command, str) or not command.strip():
+        return TOOLSMITH_SHAPE_REASON % (wrapper, "%s is not its tool" % tool if tool != "Bash"
+                                         else "an empty command", wrapper)
+    text = command.strip()
+    bad = TOOLSMITH_META_RE.search(text)
+    if bad:
+        return TOOLSMITH_SHAPE_REASON % (wrapper, "%r is shell syntax" % bad.group(0), wrapper)
+    try:
+        words = shlex.split(text)
+    except ValueError as exc:
+        return TOOLSMITH_SHAPE_REASON % (wrapper, "unbalanced quotes (%s)" % exc, wrapper)
+    if not words or words[0] != wrapper:
+        return TOOLSMITH_SHAPE_REASON % (wrapper, "the first word is %r" % (words[0][:80] if words else ""),
+                                         wrapper)
+    args = words[1:]
+    policy = toolsmith_policy()
+    try:
+        p = policy.parse(args)
+    except policy.PolicyError as exc:
+        return TOOLSMITH_ARGV_REASON % (" ".join(args)[:160], str(exc)[:300], wrapper)
+    who = p.get("req_for")
+    if who and who not in STACK_TYPES and who != "user":
+        return TOOLSMITH_ARGV_REASON % (" ".join(args)[:160], "--for %r is not an agent of this stack"
+                                        % who, wrapper)
+    if p["sub"] == "run":
+        approved = os.path.join(policy.state_dir(os.environ), "approved", p["id"] + ".json")
+        if not os.path.isfile(approved):
+            return TOOLSMITH_ARGV_REASON % (" ".join(args)[:160], "%s is not approved: the user runs "
+                                            "`%s approve %s` in a terminal first; put the request in "
+                                            "your hand-back as NEXT: ASK USER" % (p["id"], wrapper,
+                                                                                 p["id"]), wrapper)
+    toolsmith_ticket(ev, policy, args)
+    return None
+
+
+def toolsmith_gate(ev, command, tool):
+    """No-push mode's installer rule (absolute): the deny reason, or None."""
+    agent_type = norm(ev.get("agent_type"))
+    if agent_type in INSTALLER_TYPES:
+        return toolsmith_command(command, ev, tool)
+    if isinstance(command, str) and wrapper_invoked(command):
+        return TOOLSMITH_ONLY_REASON
+    return None
+
+
 def no_push_main(raw):
     try:
         ev = json.loads(raw)
@@ -11304,6 +11462,14 @@ def no_push_main(raw):
              SECRETS_REASON % what if kind == "secrets" else
              INSTALL_REASON % what if kind == "install" else
              PROTECT_REASON % what if kind == "protect" else NO_PUSH_REASON)
+    try:                                      # the installer rule: absolute, fail closed
+        why = toolsmith_gate(ev, command, tool)
+    except Exception as exc:  # noqa: BLE001
+        why = (TOOLSMITH_FAIL_REASON % ("%s: %s" % (type(exc).__name__, exc))[:200]
+               if norm(ev.get("agent_type")) in INSTALLER_TYPES or "stack-install" in text.lower()
+               else None)
+    if why:
+        deny(why)
     agent_type = norm(ev.get("agent_type"))
     if (agent_type in BROWSER_SPAWNERS and agent_type != "blackcat" and policy_on()
             and isinstance(command, str)):            # T1; blackcat-guard covers BlackCat
@@ -11328,7 +11494,8 @@ def no_push_main(raw):
 def print_policy():
     sys.stdout.write(json.dumps({"policy": POLICY, "leaves": LEAVES, "agents": AGENTS,
                                  "builtins": BUILTINS,
-                                 "blackcat_tools": sorted(BLACKCAT_TOOLS)}) + "\n")
+                                 "blackcat_tools": sorted(BLACKCAT_TOOLS),
+                                 "installer_types": sorted(INSTALLER_TYPES)}) + "\n")
     return 0
 
 
@@ -11419,6 +11586,7 @@ def self_test():
                         ("bash -o pipefail x.sh", False), ("ls *.sh | xargs bash", False)):
         if blackcat_web_command(_cmd) != _want:
             problems.append("blackcat web-command check misjudges %r" % _cmd[:60])
+    problems += toolsmith_self_test()
     browsers = {p for p, row in POLICY.items() if "browser-operator" in row}
     if browsers != BROWSER_SPAWNERS:
         problems.append("only %s may list browser-operator, not %s"
@@ -11478,6 +11646,42 @@ def self_test():
         return 1
     sys.stdout.write("agent_guard self-test: ok\n")
     return 0
+
+
+def toolsmith_self_test():
+    """The installer rule: toolsmith is a stack leaf no web reader reaches; the executor's grammar
+    loads; the shape and caller checks judge their probes right (no ticket is written here)."""
+    problems = []
+    for t in INSTALLER_TYPES:
+        if t not in AGENTS or POLICY.get(t) != [] or t not in LEAVES:
+            problems.append("installer type %s must be a stack leaf" % t)
+        for reader in WEB_INGESTING_TYPES | {"browser-operator"}:
+            if t in POLICY.get(reader, []):
+                problems.append("web reader %s may spawn installer %s" % (reader, t))
+    try:
+        pol = toolsmith_policy()
+        pol.parse(["install", "npm", "semver@7.6.3", "--why", "self test"])
+        for bad in (["install", "npm", "semver@^7", "--why", "x y z"], ["approve", "rq-0123456789ab"],
+                    ["install", "brew", "user/tap/x", "--why", "abc"],
+                    ["request", "--why", "abc", "--", "sudo", "x"]):
+            try:
+                pol.parse(bad)
+                problems.append("toolsmith policy accepts %r" % bad)
+            except pol.PolicyError:
+                pass
+    except Exception as exc:  # noqa: BLE001
+        problems.append("toolsmith_policy.py not loadable (%s: %s)" % (type(exc).__name__, exc))
+        return problems
+    w = TOOLSMITH_WRAPPER
+    for cmd, want in (("%s list; rm -rf ~" % w, True), ("%s list | sh" % w, True), ("brew install jq", True),
+                      ("%s install npm left-pad@^1 --why abc" % w, True), ("bash -c '%s list'" % w, True)):
+        if (toolsmith_command(cmd, {"agent_type": "toolsmith"}) is not None) != want:
+            problems.append("toolsmith shape check misjudges %r" % cmd[:60])
+    for cmd, want in (("%s list" % w, True), ("FOO=1 %s list" % w, True), ("timeout 9 stack-install x", True),
+                      ("git log -- %s" % w, False), ("python3 dot-claude/bin/stack-install help", False)):
+        if wrapper_invoked(cmd) != want:
+            problems.append("stack-install caller check misjudges %r" % cmd[:60])
+    return problems
 
 
 def generic_agent_self_test(conf):

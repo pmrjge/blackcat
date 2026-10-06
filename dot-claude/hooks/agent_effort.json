@@ -82,6 +82,7 @@
   "security-auditor": {"sonnet": "xhigh", "opus": "xhigh", "fable": "xhigh"},
   "security-engineer": {"sonnet": "xhigh", "opus": "high", "fable": "high"},
   "test-engineer": {"sonnet": "medium", "opus": "medium", "fable": "medium"},
+  "toolsmith": {"sonnet": "medium", "opus": "medium", "fable": "medium"},
   "verifier": {"sonnet": "high", "opus": "high", "fable": "high"},
   "vfx-td": {"sonnet": "xhigh", "opus": "high", "fable": "high"},
   "writer": {"sonnet": "high", "opus": "medium", "fable": "medium"}

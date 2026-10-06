@@ -5,7 +5,7 @@
   "artifact": ["browser-operator", "cg-artist", "designer", "doc-specialist", "image-director", "motion-designer", "rigger-animator", "sculptor-painter", "writer"],
   "builder": ["biochem-engineer", "build-fixer", "claude-code-engineer", "coder", "cuda-engineer", "data-engineer", "data-scientist", "devops-engineer", "dl-engineer", "embedded-engineer", "frontend-engineer", "game-engineer", "go-engineer", "haskell-engineer", "hpc-engineer", "julia-engineer", "jvm-engineer", "llm-engineer", "main-coder", "mathematician", "ml-engineer", "mlx-engineer", "mobile-engineer", "ninja-coder", "node-engineer", "procedural-3d-ui", "python-engineer", "quantum-engineer", "robotics-engineer", "rust-engineer", "security-engineer", "test-engineer", "vfx-td"],
   "coordinator": ["orchestrator"],
-  "lookup": ["claude-code-guide", "explore", "mcp-broker", "oracle", "scout"],
+  "lookup": ["claude-code-guide", "explore", "mcp-broker", "oracle", "scout", "toolsmith"],
   "verifier": ["verifier"]
  },
  "vars": {
@@ -61,6 +61,7 @@
   "hard.agent.security-auditor": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.security-engineer": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.test-engineer": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
+  "hard.agent.toolsmith": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.verifier": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.vfx-td": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
   "hard.agent.writer": {"ceiling": 200000000, "floor": 2000000, "kind": "hard", "seed": null, "unit": "ctx"},
@@ -118,6 +119,7 @@
   "soft.agent.security-auditor": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 8700000, "unit": "ctx"},
   "soft.agent.security-engineer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},
   "soft.agent.test-engineer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},
+  "soft.agent.toolsmith": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 450000, "unit": "ctx"},
   "soft.agent.verifier": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 26000000, "unit": "ctx"},
   "soft.agent.vfx-td": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 19000000, "unit": "ctx"},
   "soft.agent.writer": {"ceiling": 100000000, "floor": 100000, "kind": "soft", "seed": 3100000, "unit": "ctx"},
@@ -176,6 +178,7 @@
   "turns.security-auditor": {"ceiling": 100, "floor": 25, "kind": "hard", "seed": 100, "unit": "turns"},
   "turns.security-engineer": {"ceiling": 150, "floor": 38, "kind": "hard", "seed": 150, "unit": "turns"},
   "turns.test-engineer": {"ceiling": 100, "floor": 25, "kind": "hard", "seed": 100, "unit": "turns"},
+  "turns.toolsmith": {"ceiling": 60, "floor": 15, "kind": "hard", "seed": 60, "unit": "turns"},
   "turns.verifier": {"ceiling": 140, "floor": 35, "kind": "hard", "seed": 140, "unit": "turns"},
   "turns.vfx-td": {"ceiling": 170, "floor": 43, "kind": "hard", "seed": 170, "unit": "turns"},
   "turns.writer": {"ceiling": 80, "floor": 20, "kind": "hard", "seed": 80, "unit": "turns"}

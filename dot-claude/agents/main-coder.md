@@ -19,7 +19,7 @@ experimental:
   cacheTtl: 1h
 color: green
 ---
-Staff-level engineer for systems, backend and data-intensive code. May spawn: coder, explore, scout, verifier, code-reviewer, security-auditor, plan-reviewer, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, claude-code-guide, ninja-coder, test-engineer, build-fixer, security-engineer, rust-engineer, haskell-engineer, julia-engineer, go-engineer, python-engineer, jvm-engineer, node-engineer.
+Staff-level engineer for systems, backend and data-intensive code. May spawn: coder, explore, scout, verifier, code-reviewer, security-auditor, plan-reviewer, mlx-engineer, cuda-engineer, ml-engineer, dl-engineer, llm-engineer, mcp-broker, claude-code-guide, ninja-coder, test-engineer, build-fixer, security-engineer, toolsmith, rust-engineer, haskell-engineer, julia-engineer, go-engineer, python-engineer, jvm-engineer, node-engineer.
 
 ## Approach
 1. Map before changing: architecture, data flow, invariants, build and test commands; big repos → explore agents on separate areas in parallel.

@@ -1,0 +1,846 @@
+#!/usr/bin/python3 -IB
+"""stack-install - the stack's dependency installer: the toolsmith agent's one command.
+
+  stack-install help | status | list [--all] | pending | manifest | show <id>
+  stack-install vet <installer> <spec>                          registry checks only, no change
+  stack-install install <installer> <spec> --why "<reason>" [--for <agent>] [options]
+  stack-install upgrade <installer> <spec> --why "<reason>" [--for <agent>]   (ledger-owned only)
+  stack-install uninstall <installer> <name> --why "<reason>" [--for <agent>] (ledger-owned only)
+  stack-install request --why "<reason>" [--for <agent>] -- <program> <args...>   any other installer
+  stack-install run <rq-id>                                     a request the user approved
+  stack-install approve <rq-id> | deny <rq-id>                  the user, on a terminal
+
+Runs outside the Bash sandbox (settings.json sandbox.excludedCommands names exactly this file), so it
+trusts nothing it is given: the argv grammar, the installers' flags and environment and the vetting
+rules are hooks/toolsmith_policy.py's, shared with the guard; an agent's call runs only with the
+guard's one-use ticket for its exact argv (agent_guard.py no-push mode, toolsmith only); approve and
+deny need a real terminal and a typed confirmation. State: ${XDG_STATE_HOME:-~/.local/state}/
+claude-agent-stack/toolsmith/ (ledger.jsonl, requests/, approved/, done/, tickets/, logs/, work/).
+Exit: 0 done, 2 usage, 3 needs the user (usually a request is recorded), 4 refused, 5 installer failed or
+missing, 6 busy (another install holds the lock). Python 3.8+, stdlib only.
+"""
+import sys
+
+sys.dont_write_bytecode = True      # the policy module loads from <config>/hooks: no __pycache__ there
+import contextlib  # noqa: E402
+import errno  # noqa: E402
+import fcntl  # noqa: E402
+import hashlib  # noqa: E402
+import importlib.util  # noqa: E402
+import json  # noqa: E402
+import os  # noqa: E402
+import secrets  # noqa: E402
+import shutil  # noqa: E402
+import stat  # noqa: E402
+import subprocess  # noqa: E402
+import tempfile  # noqa: E402
+import time  # noqa: E402
+
+HERE = os.path.dirname(os.path.realpath(__file__))
+# never an environment override: this file runs unsandboxed, so the rules come from beside it only
+POLICY_PATH = os.path.join(os.path.dirname(HERE), "hooks", "toolsmith_policy.py")
+WRAPPER = os.path.abspath(__file__)
+EXIT_OK, EXIT_USAGE, EXIT_ASK, EXIT_REFUSED, EXIT_FAILED, EXIT_BUSY = 0, 2, 3, 4, 5, 6
+LOCK_WAIT_S = 900
+INSTALL_TIMEOUT_S = 3600
+QUERY_TIMEOUT_S = 120
+FETCH_LIMIT = 64 << 20
+ALLOWED_HOSTS = frozenset(("formulae.brew.sh", "pypi.org", "registry.npmjs.org", "api.npmjs.org",
+                           "crates.io", "proxy.golang.org"))
+USER_AGENT = "claude-agent-stack-toolsmith/1 (vetting; https://github.com/pmrjge/claude-agent-stack)"
+PROGRAM = {"brew": "brew", "uv": "uv", "npm": "npm", "pnpm": "pnpm", "cargo": "cargo", "go": "go"}
+
+
+def _load_policy():
+    spec = importlib.util.spec_from_file_location("toolsmith_policy", POLICY_PATH)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+try:
+    P = _load_policy()
+except Exception as _exc:  # noqa: BLE001 - nothing runs without the rules
+    sys.stderr.write("stack-install: cannot load %s (%s: %s); nothing done\n"
+                     % (POLICY_PATH, type(_exc).__name__, _exc))
+    sys.exit(EXIT_REFUSED)
+
+
+class Refused(Exception):
+    """A refusal: (exit code, message)."""
+
+    def __init__(self, code, msg):
+        Exception.__init__(self, msg)
+        self.code = code
+
+
+def out(line=""):
+    sys.stdout.write(line + "\n")
+
+
+def now():
+    return time.time()
+
+
+# ---------------------------------------------------------------- state
+def sdir():
+    """The state dir and its parts: real directories of this user, 0700 (a link or another owner is
+    refused: nothing is written through it)."""
+    d = P.state_dir(os.environ)
+    for sub in ("", "requests", "approved", "done", "tickets", "logs", "work"):
+        path = os.path.join(d, sub) if sub else d
+        try:
+            os.makedirs(path, mode=0o700, exist_ok=True)
+            st = os.lstat(path)
+        except OSError as exc:
+            raise Refused(EXIT_REFUSED, "state dir %s unusable (%s): nothing done" % (path, exc))
+        if not stat.S_ISDIR(st.st_mode) or st.st_uid != os.getuid():
+            raise Refused(EXIT_REFUSED, "state dir %s is not a directory of yours: nothing done" % path)
+        if st.st_mode & 0o077:
+            os.chmod(path, 0o700)
+    return d
+
+
+def read_json_file(path, limit=4 << 20):
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK)
+    except OSError:
+        return None
+    try:
+        if not stat.S_ISREG(os.fstat(fd).st_mode):
+            return None
+        chunks, size = [], 0
+        while True:
+            b = os.read(fd, 65536)
+            if not b:
+                break
+            chunks.append(b)
+            size += len(b)
+            if size > limit:
+                return None
+        return json.loads(b"".join(chunks).decode("utf-8"))
+    except (OSError, ValueError):
+        return None
+    finally:
+        os.close(fd)
+
+
+def write_json_excl(path, obj):
+    fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "w") as f:
+        json.dump(obj, f, indent=1, sort_keys=True)
+        f.write("\n")
+
+
+def new_id(prefix):
+    return "%s-%s" % (prefix, secrets.token_hex(6))
+
+
+def consume_ticket(d, args):
+    """The guard's ticket for exactly this argv, claimed atomically (rename) and removed: None if
+    there is none, it is stale, or another run claimed it first."""
+    path = os.path.join(d, "tickets", P.ticket_name(args))
+    claimed = "%s.%s.claimed" % (path, secrets.token_hex(4))
+    try:
+        os.rename(path, claimed)
+    except OSError:
+        return None
+    try:
+        data = read_json_file(claimed, 1 << 20)
+    finally:
+        with contextlib.suppress(OSError):
+            os.unlink(claimed)
+    if not isinstance(data, dict) or data.get("argv") != list(args):
+        return None
+    age = now() - float(data.get("ts") or 0)
+    return data if 0 <= age <= P.TICKET_TTL_S else None
+
+
+@contextlib.contextmanager
+def global_lock(d, wait=None):
+    wait = LOCK_WAIT_S if wait is None else wait
+    fd = os.open(os.path.join(d, "install.lock"), os.O_RDWR | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+    try:
+        deadline = now() + wait
+        while True:
+            try:
+                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                break
+            except OSError as exc:
+                if exc.errno not in (errno.EAGAIN, errno.EACCES) or now() > deadline:
+                    raise Refused(EXIT_BUSY, "another install holds the lock for over %d s: try again "
+                                  "later" % wait)
+                time.sleep(0.5)
+        yield
+    finally:
+        os.close(fd)
+
+
+def ledger_path(d):
+    return os.path.join(d, "ledger.jsonl")
+
+
+def ledger_append(d, rec):
+    """Append one event (0600, under flock). Raises Refused when it cannot be written."""
+    row = {"v": P.SCHEMA, "ts": P.iso_utc(now())}
+    row.update(rec)
+    data = (json.dumps(row, sort_keys=True, ensure_ascii=True) + "\n").encode("utf-8")
+    try:
+        fd = os.open(ledger_path(d), os.O_WRONLY | os.O_APPEND | os.O_CREAT | os.O_NOFOLLOW, 0o600)
+        try:
+            if not stat.S_ISREG(os.fstat(fd).st_mode):
+                raise OSError("not a regular file")
+            fcntl.flock(fd, fcntl.LOCK_EX)
+            os.write(fd, data)
+        finally:
+            os.close(fd)
+    except OSError as exc:
+        raise Refused(EXIT_REFUSED, "ledger %s not writable (%s)" % (ledger_path(d), exc))
+
+
+def ledger_read(d):
+    rows = []
+    try:
+        with open(ledger_path(d), "rb") as f:
+            for line in f:
+                try:
+                    row = json.loads(line.decode("utf-8"))
+                except ValueError:
+                    continue
+                if isinstance(row, dict):
+                    rows.append(row)
+    except OSError:
+        pass
+    return rows
+
+
+def requested_by(ticket):
+    t = ticket or {}
+    return {k: t.get(k) for k in ("session", "agent_id", "agent_type", "parent_id", "parent_type")}
+
+
+# ---------------------------------------------------------------- registry metadata
+class FetchError(Exception):
+    pass
+
+
+def _https_only(url):
+    import urllib.parse
+    u = urllib.parse.urlsplit(url)
+    if u.scheme != "https" or u.hostname not in ALLOWED_HOSTS:
+        raise FetchError("host not allowed: %s" % (u.hostname or url)[:80])
+
+
+def fetch_json(url, limit=FETCH_LIMIT, timeout=20):
+    """GET one registry document: https on ALLOWED_HOSTS only (redirects too). None on 404."""
+    import urllib.error
+    import urllib.request
+    _https_only(url)
+
+    class Redirect(urllib.request.HTTPRedirectHandler):
+        def redirect_request(self, req, fp, code, msg, headers, newurl):
+            _https_only(newurl)
+            return urllib.request.HTTPRedirectHandler.redirect_request(
+                self, req, fp, code, msg, headers, newurl)
+
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept": "application/json"})
+    try:
+        with urllib.request.build_opener(Redirect).open(req, timeout=timeout) as r:
+            body = r.read(limit + 1)
+    except urllib.error.HTTPError as exc:
+        if exc.code == 404:
+            return None
+        raise FetchError("HTTP %s from %s" % (exc.code, url[:120]))
+    except (urllib.error.URLError, OSError, ValueError) as exc:
+        raise FetchError("%s: %s" % (type(exc).__name__, str(exc)[:120]))
+    if len(body) > limit:
+        raise FetchError("document over %d bytes" % limit)
+    try:
+        return json.loads(body.decode("utf-8"))
+    except ValueError as exc:
+        raise FetchError("not JSON (%s)" % exc)
+
+
+def _q(s, safe=""):
+    import urllib.parse
+    return urllib.parse.quote(s, safe=safe)
+
+
+def vet(p, t, age_days):
+    """A vetting Report for parse() dict p (a missing version: the registry's latest)."""
+    inst, name, ver = p["installer"], p["name"], p.get("version")
+    try:
+        if inst == "brew":
+            return P.vet_brew(fetch_json("https://formulae.brew.sh/api/formula/%s.json" % _q(name)),
+                              name, t)
+        if inst == "uv":
+            proj = fetch_json("https://pypi.org/pypi/%s/json" % _q(name))
+            if ver is None:
+                ver = ((proj or {}).get("info") or {}).get("version")
+            vm = fetch_json("https://pypi.org/pypi/%s/%s/json" % (_q(name), _q(ver))) if ver else None
+            return P.vet_pypi(vm, proj, name, ver, t, age_days, "--allow-build" in p.get("opts", {}))
+        if inst in ("npm", "pnpm"):
+            full = fetch_json("https://registry.npmjs.org/%s" % _q(name, safe="@"))
+            if ver is None:
+                ver = ((full or {}).get("dist-tags") or {}).get("latest")
+            dl = fetch_json("https://api.npmjs.org/downloads/point/last-week/%s" % _q(name, safe="@/"))
+            return P.vet_npm(full, dl, name, ver, t, age_days, inst, "--allow-scripts" in p.get("opts", {}))
+        if inst == "cargo":
+            crate = fetch_json("https://crates.io/api/v1/crates/%s" % _q(name))
+            if ver is None:
+                ver = ((crate or {}).get("crate") or {}).get("max_stable_version")
+            vm = fetch_json("https://crates.io/api/v1/crates/%s/%s" % (_q(name), _q(ver))) if ver else None
+            return P.vet_cargo(vm, crate, name, ver, t, age_days)
+        if inst == "go":
+            esc = P.go_escape(name)
+            if ver is None:
+                info = fetch_json("%s/%s/@latest" % (P.GO_PROXY, esc))
+                ver = (info or {}).get("Version")
+            else:
+                info = fetch_json("%s/%s/@v/%s.info" % (P.GO_PROXY, esc, P.go_escape(ver)))
+            return P.vet_go(info, name, ver, t, age_days)
+    except FetchError as exc:
+        r = P.Report(inst, name, ver)
+        r.check("metadata", False, "registry metadata unavailable (%s): not vetted" % exc)
+        return r
+    raise Refused(EXIT_USAGE, "unknown installer %r" % inst)
+
+
+def print_report(r):
+    d = r.as_dict()
+    out("vetting %s %s %s: %s" % (d["installer"], d["package"], d["version"] or "?", d["verdict"].upper()))
+    for c in d["checks"]:
+        out("  %-4s %-12s %s%s" % ("ok" if c["ok"] else "FAIL", c["check"], c["detail"],
+                                   " (hard)" if c["hard"] and not c["ok"] else ""))
+    for s in d["surfaced"]:
+        out("  note %s" % s)
+
+
+# ---------------------------------------------------------------- running installers
+def resolve(name):
+    prog = P.resolve_program(name, os.environ, os.getcwd())
+    if not prog:
+        raise Refused(EXIT_FAILED, "`%s` not found outside agent-writable directories. Install it first "
+                      "(e.g. `stack-install install brew %s`) or ask the user" % (name, {
+                          "uv": "uv", "npm": "node", "pnpm": "pnpm", "cargo": "rust", "go": "go"}.get(name, name)))
+    return prog
+
+
+def env_for(installer, prog, tmp, allow_scripts=False):
+    return P.installer_env(os.environ, installer, P.safe_path_dirs(prog, os.environ, os.getcwd()), tmp,
+                           allow_scripts)
+
+
+@contextlib.contextmanager
+def workdir(d):
+    w = tempfile.mkdtemp(prefix="run-", dir=os.path.join(d, "work"))
+    try:
+        yield w
+    finally:
+        shutil.rmtree(w, ignore_errors=True)
+
+
+def query(argv, env, cwd):
+    """A read-only installer query: (exit code, stdout text)."""
+    try:
+        r = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                           stderr=subprocess.DEVNULL, env=env, cwd=cwd, timeout=QUERY_TIMEOUT_S)
+        return r.returncode, r.stdout.decode("utf-8", "replace")
+    except (OSError, subprocess.SubprocessError):
+        return 127, ""
+
+
+def run_logged(argv, env, cwd, log_path):
+    fd = os.open(log_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
+    with os.fdopen(fd, "wb") as log:
+        log.write(("$ %s\n" % " ".join(argv)).encode("utf-8"))
+        log.flush()
+        try:
+            rc = subprocess.run(argv, stdin=subprocess.DEVNULL, stdout=log, stderr=subprocess.STDOUT,
+                                env=env, cwd=cwd, timeout=INSTALL_TIMEOUT_S).returncode
+        except subprocess.TimeoutExpired:
+            rc = 124
+        except OSError as exc:
+            log.write(("cannot run: %s\n" % exc).encode("utf-8"))
+            rc = 127
+    try:
+        with open(log_path, "rb") as f:
+            tail = f.read()[-4000:].decode("utf-8", "replace").splitlines()[-15:]
+    except OSError:
+        tail = []
+    return rc, tail
+
+
+def installed_version(inst, name, prog, env, cwd, gobin=None):
+    """What is on the machine now: a version string, "present", or None."""
+    if inst == "brew":
+        rc, txt = query([prog, "list", "--versions", "--formula", name], env, cwd)
+        parts = txt.split()
+        return parts[-1] if rc == 0 and len(parts) > 1 and parts[0] == name else None
+    if inst == "uv":
+        rc, txt = query([prog, "tool", "list"], env, cwd)
+        for line in txt.splitlines():
+            bits = line.split()
+            if len(bits) >= 2 and bits[0].lower() == name.lower() and bits[1].startswith("v"):
+                return bits[1][1:]
+        return None
+    if inst in ("npm", "pnpm"):
+        rc, txt = query([prog, "ls", "--global", "--depth=0", "--json"], env, cwd)
+        try:
+            data = json.loads(txt or "null")
+        except ValueError:
+            return None
+        for doc in (data if isinstance(data, list) else [data]):
+            dep = ((doc or {}).get("dependencies") or {}).get(name) if isinstance(doc, dict) else None
+            if isinstance(dep, dict):
+                return dep.get("version") or "present"
+        return None
+    if inst == "cargo":
+        rc, txt = query([prog, "install", "--list"], env, cwd)
+        for line in txt.splitlines():
+            bits = line.split()
+            if len(bits) >= 2 and bits[0] == name and bits[1].startswith("v"):
+                return bits[1][1:].rstrip(":")
+        return None
+    if inst == "go" and gobin:
+        return "present" if os.path.isfile(os.path.join(gobin, P.go_binary(name))) else None
+    return None
+
+
+def go_bin_dir(prog, env, cwd):
+    rc, txt = query([prog, "env", "GOBIN", "GOPATH"], env, cwd)
+    lines = txt.splitlines() + ["", ""]
+    gobin, gopath = lines[0].strip(), lines[1].strip()
+    if gobin:
+        return gobin
+    first = gopath.split(os.pathsep)[0] if gopath else os.path.join(env.get("HOME", ""), "go")
+    return os.path.join(first, "bin")
+
+
+def npm_source_flags(prog, env, cwd):
+    """npm's own refusals of non-registry sources, when this npm has them (feature-detected)."""
+    rc, txt = query([prog, "install", "--help"], env, cwd)
+    flags = []
+    for kind in ("git", "remote", "file", "directory"):
+        if "--allow-%s" % kind in txt:
+            flags.append("--allow-%s=none" % kind)
+    return flags
+
+
+# ---------------------------------------------------------------- requests
+def ask_lines(rq, what):
+    return ["ASK USER: %s" % what,
+            "  request %s recorded (%s/requests/%s.json)." % (rq, P.state_dir(os.environ), rq),
+            "  The user approves it in a terminal: %s approve %s" % (WRAPPER, rq),
+            "  then toolsmith runs: %s run %s   (approval valid %d h, used once)"
+            % (WRAPPER, rq, P.APPROVAL_TTL_S // 3600)]
+
+
+def record_request(d, rec):
+    rq = new_id("rq")
+    rec = dict(rec, id=rq, created=P.iso_utc(now()), v=P.SCHEMA)
+    try:
+        write_json_excl(os.path.join(d, "requests", rq + ".json"), rec)
+    except OSError as exc:
+        raise Refused(EXIT_REFUSED, "request not recorded (%s): nothing done" % exc)
+    return rq
+
+
+def request_digest(req):
+    keep = {k: req.get(k) for k in ("id", "kind", "args", "command", "why", "for")}
+    return hashlib.sha256(json.dumps(keep, sort_keys=True).encode("utf-8")).hexdigest()
+
+
+# ---------------------------------------------------------------- subcommands
+def cmd_install(p, d, ticket, approved=None):
+    inst, name, ver, sub = p["installer"], p["name"], p.get("version"), p["sub"]
+    prog = resolve(PROGRAM[inst])
+    t = now()
+    age = P.min_age_days(os.environ)
+    report = vet(p, t, age)
+    print_report(report)
+    if report.verdict == "refuse":
+        raise Refused(EXIT_REFUSED, "refused: %s (a hard rule; not approvable)" % ", ".join(report.failed(True)))
+    relaxed = list(p.get("relax") or [])
+    if not approved and (report.verdict == "ask" or relaxed):
+        why = ", ".join(report.failed(False) + relaxed)
+        rq = record_request(d, {"kind": "install", "args": p["args"], "why": p.get("why"),
+                                "for": p.get("req_for"), "requested_by": requested_by(ticket),
+                                "report": report.as_dict(), "relaxed": report.failed(False) + relaxed})
+        for line in ask_lines(rq, "`%s` needs approval (%s)" % (" ".join(["stack-install"] + p["args"]), why)):
+            out(line)
+        return EXIT_ASK
+    if inst == "brew":
+        ver = report.version
+    age_used = 0 if approved and "age" in (approved.get("relaxed") or []) else age
+    with workdir(d) as w:
+        env = env_for(inst, prog, w, "--allow-scripts" in p["opts"])
+        gobin = go_bin_dir(prog, env, w) if inst == "go" else None
+        owned = P.fold(ledger_read(d)).get((inst, name))
+        current = installed_version(inst, name, prog, env, w, gobin)
+        if sub == "install" and current is not None:
+            if owned or current == ver or inst in ("brew", "go"):
+                out("present: %s %s %s is already on this machine (%s); nothing done"
+                    % (inst, name, current, "ledger %s" % owned.get("id") if owned
+                       else "not installed by toolsmith: left alone"))
+                if owned and ver and current != ver and inst not in ("brew", "go"):
+                    out("  to move it to %s: stack-install upgrade %s %s --why ..." % (ver, inst, p["args"][2]))
+                return EXIT_OK
+            raise Refused(EXIT_ASK, "ASK USER: %s %s %s is installed on this machine, not by toolsmith; "
+                          "replacing it with %s is the user's decision (the skip rule)" % (inst, name, current, ver))
+        if sub == "upgrade" and not owned:
+            raise Refused(EXIT_REFUSED, "%s %s was not installed by toolsmith (no ledger record): never "
+                          "upgraded here (the skip rule); ASK USER" % (inst, name))
+        extra = npm_source_flags(prog, env, w) if inst == "npm" else []
+        argv = P.install_argv(p, prog, t, age_used, extra)
+        rid = new_id("ts")
+        base = {"id": rid, "installer": inst, "package": name, "version": ver, "why": p.get("why"),
+                "for": p.get("req_for"), "requested_by": requested_by(ticket), "argv": argv,
+                "approval": (approved or {}).get("id"), "action": sub}
+        ledger_append(d, dict(base, event="attempt"))        # no attempt line, no install
+        log = os.path.join(d, "logs", rid + ".log")
+        rc, tail = run_logged(argv, env, w, log)
+        after = installed_version(inst, name, prog, env, w, gobin)
+    if rc != 0:
+        ledger_append(d, dict(base, event="failed", exit=rc, log=log))
+        out("FAILED: %s exited %d; log %s" % (os.path.basename(prog), rc, log))
+        for line in tail:
+            out("  | " + line)
+        return EXIT_FAILED
+    bins, un = None, P.uninstall_argv(inst, name)
+    if inst == "go":
+        binpath = os.path.join(gobin, P.go_binary(name))
+        bins, un = [binpath], P.uninstall_argv("go", name, binpath)
+        base["gobin"] = gobin
+    elif inst == "cargo":
+        bins = report.info.get("bins")
+    ledger_append(d, dict(base, event="installed", version=after if after not in (None, "present") else ver,
+                          source=report.info.get("source"), vetting=report.as_dict(), uninstall=un,
+                          bins=bins, exit=0, log=log))
+    out("INSTALLED: %s %s %s (ledger %s)" % (inst, name, after or ver, rid))
+    out("  uninstall: %s" % (" ".join(un) if un else "(none recorded)"))
+    for s in report.surfaced:
+        out("  note: %s" % s)
+    return EXIT_OK
+
+
+def cmd_uninstall(p, d, ticket):
+    inst, name = p["installer"], p["name"]
+    owned = P.fold(ledger_read(d)).get((inst, name))
+    if not owned:
+        raise Refused(EXIT_REFUSED, "%s %s was not installed by toolsmith (no ledger record): never removed "
+                      "here (the skip rule); ASK USER" % (inst, name))
+    un = owned.get("uninstall") or []
+    rid = new_id("ts")
+    base = {"id": rid, "installer": inst, "package": name, "version": owned.get("version"),
+            "why": p.get("why"), "for": p.get("req_for"), "requested_by": requested_by(ticket),
+            "action": "uninstall", "of": owned.get("id")}
+    if inst == "go":
+        path, gobin = (owned.get("bins") or [None])[0], owned.get("gobin")
+        ok = (isinstance(path, str) and isinstance(gobin, str) and os.path.isabs(path)
+              and os.path.normpath(os.path.dirname(path)) == os.path.normpath(gobin)
+              and os.path.realpath(os.path.dirname(path)) == os.path.realpath(gobin))
+        st = os.lstat(path) if ok and os.path.lexists(path) else None
+        if not ok or (st is not None and not stat.S_ISREG(st.st_mode)):
+            raise Refused(EXIT_REFUSED, "go binary %r is not a regular file in its recorded GOBIN: not removed"
+                          % path)
+        ledger_append(d, dict(base, event="attempt", argv=["rm", path]))
+        if st is not None:
+            os.unlink(path)
+        ledger_append(d, dict(base, event="removed", argv=["rm", path], exit=0))
+        out("REMOVED: go %s (%s)" % (name, path))
+        return EXIT_OK
+    if not un:
+        raise Refused(EXIT_REFUSED, "no uninstall command recorded for %s %s" % (inst, name))
+    prog = resolve(un[0])
+    argv = [prog] + un[1:]
+    with workdir(d) as w:
+        env = env_for(inst, prog, w)
+        ledger_append(d, dict(base, event="attempt", argv=argv))
+        log = os.path.join(d, "logs", rid + ".log")
+        rc, tail = run_logged(argv, env, w, log)
+    if rc != 0:
+        ledger_append(d, dict(base, event="failed", argv=argv, exit=rc, log=log))
+        out("FAILED: %s exited %d; log %s" % (" ".join(un), rc, log))
+        for line in tail:
+            out("  | " + line)
+        return EXIT_FAILED
+    ledger_append(d, dict(base, event="removed", argv=argv, exit=0, log=log))
+    out("REMOVED: %s %s (ledger %s)" % (inst, name, rid))
+    return EXIT_OK
+
+
+def cmd_request(p, d, ticket):
+    rq = record_request(d, {"kind": "command", "command": p["command"], "why": p.get("why"),
+                            "for": p.get("req_for"), "requested_by": requested_by(ticket)})
+    for line in ask_lines(rq, "run `%s` (%s)" % (" ".join(p["command"]), p.get("why"))):
+        out(line)
+    return EXIT_ASK
+
+
+def cmd_run(p, d, ticket):
+    rq = p["id"]
+    req = read_json_file(os.path.join(d, "requests", rq + ".json"))
+    appr = read_json_file(os.path.join(d, "approved", rq + ".json"))
+    if not isinstance(req, dict) or not isinstance(appr, dict):
+        raise Refused(EXIT_REFUSED, "%s is not an approved request (stack-install pending): the user "
+                      "approves it with `%s approve %s` in a terminal" % (rq, WRAPPER, rq))
+    if appr.get("digest") != request_digest(req) or now() > float(appr.get("expires") or 0):
+        raise Refused(EXIT_REFUSED, "the approval of %s is expired or does not match the request" % rq)
+    try:                                   # used once: the first run claims it
+        os.rename(os.path.join(d, "approved", rq + ".json"), os.path.join(d, "done", rq + ".approved.json"))
+    except OSError:
+        raise Refused(EXIT_REFUSED, "the approval of %s was already used" % rq)
+    with contextlib.suppress(OSError):
+        os.rename(os.path.join(d, "requests", rq + ".json"), os.path.join(d, "done", rq + ".json"))
+    if req.get("kind") == "install":
+        q = P.parse(req.get("args") or [])
+        with global_lock(d):
+            return cmd_install(q, d, ticket, approved=dict(req, id=rq))
+    command = P.check_request_command(req.get("command") or [])
+    prog = command[0]
+    if os.path.isabs(prog):
+        real = os.path.realpath(prog)
+        if not os.path.isfile(real) or any(real == r or real.startswith(r + "/")
+                                           for r in P.unsafe_roots(os.environ, os.getcwd())):
+            raise Refused(EXIT_REFUSED, "%s is missing or in an agent-writable directory" % prog)
+    else:
+        prog = resolve(prog)
+    base_name = os.path.basename(prog)
+    inst = base_name if base_name in P.INSTALLER_ENV else None
+    argv = [prog] + command[1:]
+    rid = new_id("ts")
+    base = {"id": rid, "installer": base_name, "package": " ".join(command[1:])[:160],
+            "why": req.get("why"), "for": req.get("for"), "requested_by": requested_by(ticket),
+            "argv": argv, "approval": rq, "action": "run"}
+    with global_lock(d), workdir(d) as w:
+        env = P.installer_env(os.environ, inst, P.safe_path_dirs(prog, os.environ, os.getcwd()), w)
+        ledger_append(d, dict(base, event="attempt"))
+        log = os.path.join(d, "logs", rid + ".log")
+        rc, tail = run_logged(argv, env, w, log)
+    if rc != 0:
+        ledger_append(d, dict(base, event="failed", exit=rc, log=log))
+        out("FAILED: %s exited %d; log %s" % (base_name, rc, log))
+        for line in tail:
+            out("  | " + line)
+        return EXIT_FAILED
+    known = P.request_package(command)       # (label, package, uninstall argv) of a known install
+    if known:
+        ledger_append(d, dict(base, event="installed", installer=known[0], package=known[1],
+                              uninstall=known[2], exit=0, log=log))
+    else:
+        ledger_append(d, dict(base, event="ran", exit=0, log=log))
+    out("DONE: %s (ledger %s, approved %s)" % (" ".join(command), rid, rq))
+    out("  uninstall: %s" % (" ".join(known[2]) if known else "(not known for this command: see its docs)"))
+    return EXIT_OK
+
+
+def tty_confirm(prompt):
+    try:
+        with open("/dev/tty", "r+") as tty:
+            tty.write(prompt)
+            tty.flush()
+            return tty.readline().strip()
+    except OSError:
+        return None
+
+
+def cmd_approve(p, d, deny=False):
+    rq = p["id"]
+    path = os.path.join(d, "requests", rq + ".json")
+    req = read_json_file(path)
+    if not isinstance(req, dict) or req.get("id") != rq:
+        raise Refused(EXIT_REFUSED, "no pending request %s (stack-install pending)" % rq)
+    out("request %s (%s), created %s" % (rq, req.get("kind"), req.get("created")))
+    out("  command: stack-install %s" % " ".join(req["args"]) if req.get("kind") == "install"
+        else "  command: %s" % " ".join(req.get("command") or []))
+    out("  why: %s   for: %s   asked by: %s" % (req.get("why"), req.get("for"),
+                                                (req.get("requested_by") or {}).get("parent_type")))
+    for c in ((req.get("report") or {}).get("checks") or []):
+        out("  %-4s %-12s %s" % ("ok" if c.get("ok") else "FAIL", c.get("check"), c.get("detail")))
+    for s in ((req.get("report") or {}).get("surfaced") or []):
+        out("  note %s" % s)
+    verb = "deny" if deny else "approve"
+    if tty_confirm("Type %s to %s it (anything else cancels): " % (rq, verb)) != rq:
+        out("cancelled: nothing changed")
+        return EXIT_REFUSED
+    if deny:
+        os.rename(path, os.path.join(d, "done", rq + ".denied.json"))
+        out("denied: %s" % rq)
+        return EXIT_OK
+    t = now()
+    write_json_excl(os.path.join(d, "approved", rq + ".json"),
+                    {"id": rq, "digest": request_digest(req), "approved": P.iso_utc(t),
+                     "expires": t + P.APPROVAL_TTL_S, "by": "terminal", "user": os.environ.get("USER")})
+    out("approved: %s. Tell BlackCat (or the agent that asked) \"approved %s\"; toolsmith then runs "
+        "`%s run %s` (valid %d h, once)." % (rq, rq, WRAPPER, rq, P.APPROVAL_TTL_S // 3600))
+    return EXIT_OK
+
+
+def cmd_pending(d):
+    rows = []
+    for f in sorted(os.listdir(os.path.join(d, "requests"))):
+        if not f.endswith(".json"):
+            continue
+        req = read_json_file(os.path.join(d, "requests", f)) or {}
+        rq = f[:-5]
+        appr = read_json_file(os.path.join(d, "approved", f))
+        state = "approved" if isinstance(appr, dict) and now() <= float(appr.get("expires") or 0) else "pending"
+        what = ("stack-install " + " ".join(req.get("args") or [])) if req.get("kind") == "install" \
+            else " ".join(req.get("command") or [])
+        rows.append("%s  %-8s %s  %s  (why: %s)" % (rq, state, req.get("created"), what[:120], req.get("why")))
+    out("\n".join(rows) if rows else "no requests")
+    return EXIT_OK
+
+
+def cmd_list(d, everything):
+    rows = ledger_read(d)
+    if everything:
+        for r in rows:
+            out("%s %s %-9s %s %s %s%s" % (r.get("ts"), r.get("id"), r.get("event"), r.get("installer"),
+                                           r.get("package"), r.get("version") or "",
+                                           "  exit %s" % r["exit"] if "exit" in r else ""))
+        return EXIT_OK
+    active = P.fold(rows)
+    if not active:
+        out("no packages installed by toolsmith")
+    for (inst, name), r in sorted(active.items()):
+        out("%-6s %-40s %-14s %s %s  for %s: %s" % (inst, name, r.get("version"), r.get("id"),
+                                                    (r.get("ts") or "")[:10], r.get("for"), r.get("why")))
+    return EXIT_OK
+
+
+def cmd_manifest(d):
+    out("# toolsmith manifest %s: replay each line through the same vetting" % P.iso_utc(now()))
+    for (inst, name), r in sorted(P.fold(ledger_read(d)).items()):
+        if inst not in P.INSTALLERS or r.get("action") == "run":
+            out("# %s %s (approved request %s; not replayable without approval)" % (inst, name, r.get("approval")))
+            continue
+        spec = name if inst == "brew" else "%s%s%s" % (name, "==" if inst == "uv" else "@", r.get("version"))
+        why = (r.get("why") or "manifest").replace('"', "'")
+        out('stack-install install %s %s --why "%s"' % (inst, spec, why))
+    return EXIT_OK
+
+
+def cmd_show(d, ident):
+    hits = [r for r in ledger_read(d) if r.get("id") == ident]
+    for sub in ("requests", "approved", "done"):
+        for f in (ident + ".json", ident + ".approved.json", ident + ".denied.json"):
+            doc = read_json_file(os.path.join(d, sub, f))
+            if doc is not None:
+                hits.append({"file": "%s/%s" % (sub, f), "content": doc})
+    if not hits:
+        raise Refused(EXIT_REFUSED, "nothing recorded under %s" % ident)
+    for h in hits:
+        out(json.dumps(h, sort_keys=True))
+    return EXIT_OK
+
+
+def cmd_status(d):
+    out("stack-install %s" % WRAPPER)
+    out("state %s (ledger events %d, active packages %d)" % (
+        d, len(ledger_read(d)), len(P.fold(ledger_read(d)))))
+    out("min version age %d days (STACK_TOOLSMITH_MIN_AGE_DAYS)" % P.min_age_days(os.environ))
+    for inst in P.INSTALLERS:
+        prog = P.resolve_program(PROGRAM[inst], os.environ, os.getcwd())
+        ver = ""
+        if prog:
+            with workdir(d) as w:
+                rc, txt = query([prog, "version" if inst == "go" else "--version"],
+                                env_for(inst, prog, w), w)
+            ver = (txt.strip().splitlines() or [""])[0][:80]
+        out("%-6s %s %s" % (inst, prog or "(not found)", ver))
+    return EXIT_OK
+
+
+HELP = """stack-install: the toolsmith agent's one command (run it by this absolute path, as one plain command).
+  status | list [--all] | pending | manifest | show <id> | help
+  vet <installer> <spec>                       registry checks only; a spec without a version shows the latest
+  install <installer> <spec> --why "<reason>" [--for <agent>] [options]
+  upgrade <installer> <spec> --why "<reason>" [--for <agent>]     only what the ledger says toolsmith installed
+  uninstall <installer> <name> --why "<reason>" [--for <agent>]   only what the ledger says toolsmith installed
+  request --why "<reason>" [--for <agent>] -- <program> <args>    any other installer: recorded for the user
+  run <rq-id>                                  a request the user approved (once, within 24 h)
+Installers and specs: brew <formula> (homebrew/core) | uv <name>==<version> (--python X.Y, --allow-build)
+  | npm <name>@<x.y.z> (--allow-scripts) | pnpm <name>@<x.y.z> (--allow-scripts) | cargo <crate>@<x.y.z>
+  (--bin, --features, --no-default-features) | go <module/path>@v<x.y.z>
+Vetting: official registry, pinned version, not yanked/disabled; version >= %d days old; project >= %d days;
+  popularity (npm %d/week, crates %d/90 days, brew %d/year); install scripts never run unless approved.
+Exit 3 = the user must decide: put the printed ASK USER lines in your hand-back as NEXT: ASK USER.
+Exit 4 = refused (fix the argv or report); 5 = the installer failed (log path printed); 6 = busy, retry.
+Never touched: anything the ledger does not say toolsmith installed (the skip rule). The ledger records
+what, version, source, why, who asked, when and the exact uninstall command."""
+
+
+def main(argv):
+    args = list(argv[1:])
+    user = on_terminal()
+    try:
+        try:
+            p = P.parse(args, user=user)
+        except P.PolicyError as exc:
+            raise Refused(EXIT_USAGE, "usage: %s (stack-install help)" % exc)
+        d = sdir()
+        ticket = None
+        if not user:
+            ticket = consume_ticket(d, args)
+            if ticket is None:
+                raise Refused(EXIT_REFUSED, "no guard ticket for this call: stack-install runs only for the "
+                              "toolsmith agent, through the stack's hook, as one plain command by its "
+                              "absolute path (%s)" % WRAPPER)
+        sub = p["sub"]
+        if sub == "help":
+            out(HELP % (P.min_age_days(os.environ), P.PROJECT_MIN_AGE_DAYS, P.NPM_MIN_WEEKLY,
+                        P.CRATES_MIN_RECENT, P.BREW_MIN_INSTALLS))
+            return EXIT_OK
+        if sub == "status":
+            return cmd_status(d)
+        if sub == "list":
+            return cmd_list(d, p.get("all"))
+        if sub == "pending":
+            return cmd_pending(d)
+        if sub == "manifest":
+            return cmd_manifest(d)
+        if sub == "show":
+            return cmd_show(d, p["id"])
+        if sub == "vet":
+            r = vet(p, now(), P.min_age_days(os.environ))
+            print_report(r)
+            return EXIT_OK if r.verdict == "pass" else EXIT_ASK if r.verdict == "ask" else EXIT_REFUSED
+        if sub in ("approve", "deny"):
+            return cmd_approve(p, d, deny=sub == "deny")
+        if sub == "request":
+            return cmd_request(p, d, ticket)
+        if sub == "run":
+            return cmd_run(p, d, ticket)
+        with global_lock(d):
+            if sub in ("install", "upgrade"):
+                return cmd_install(p, d, ticket)
+            if sub == "uninstall":
+                return cmd_uninstall(p, d, ticket)
+        raise Refused(EXIT_USAGE, "unhandled subcommand %s" % sub)
+    except Refused as exc:
+        sys.stdout.flush()
+        sys.stderr.write("stack-install: %s\n" % exc)
+        return exc.code
+    except KeyboardInterrupt:
+        return EXIT_REFUSED
+
+
+def on_terminal():
+    """The user at a real terminal: stdin and stdout are ttys and /dev/tty opens. An agent's Bash
+    has no controlling terminal."""
+    return os.isatty(0) and os.isatty(1) and tty_ok()
+
+
+def tty_ok():
+    try:
+        fd = os.open("/dev/tty", os.O_RDWR)
+    except OSError:
+        return False
+    os.close(fd)
+    return True
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv))

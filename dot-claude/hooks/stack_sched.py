@@ -91,7 +91,7 @@ SHARED_DOCS = ("README.md", "CONFIG.md", "**/FINAL-REPORT.md", "FINAL-REPORT.md"
                "stack.env.example", "lib/stack.env.example", "install.sh")
 SONNET_TYPES = {"blackcat", "browser-operator", "build-fixer", "claude-code-guide", "coder",
                 "data-engineer", "devops-engineer", "doc-specialist", "explore",
-                "mcp-broker", "scout", "test-engineer", "verifier"}
+                "mcp-broker", "scout", "test-engineer", "toolsmith", "verifier"}
 ONE_HOUR_TTL = {"orchestrator", "researcher", "main-coder", "ninja-coder", "ml-engineer",
                 "dl-engineer", "llm-engineer", "quantum-engineer", "robotics-engineer", "data-scientist"}
 SOFT_POOLS = {"builder": 19000000, "analyst": 8700000, "lookup": 450000, "artifact": 3100000}
@@ -100,7 +100,7 @@ SOFT_LIMITS = {"claude-code-engineer": 19000000, "scout": 390000, "claude-code-g
                "planner": 8700000, "researcher": 8700000, "explore": 450000, "writer": 3100000,
                "browser-operator": 3100000}
 ANALYST_TYPES = {"planner", "plan-reviewer", "researcher", "security-auditor", "proof-checker"}
-LOOKUP_TYPES = {"explore", "oracle", "mcp-broker", "scout", "claude-code-guide"}
+LOOKUP_TYPES = {"explore", "oracle", "mcp-broker", "scout", "claude-code-guide", "toolsmith"}
 ARTIFACT_TYPES = {"writer", "browser-operator", "doc-specialist", "designer", "image-director",
                   "motion-designer", "cg-artist", "rigger-animator", "sculptor-painter"}
 

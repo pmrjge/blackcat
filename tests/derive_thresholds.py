@@ -62,7 +62,7 @@ BENCH_EST = 51_124_527   # agents-bench/dry-run-output.txt, both arms, 102 `clau
 
 # comparable-type pools for types with too few runs (judgement: same role, tools and maxTurns band)
 TIER = {
-    "lookup": "scout oracle claude-code-guide explore mcp-broker",
+    "lookup": "scout oracle claude-code-guide explore mcp-broker toolsmith",
     "analyst": "planner plan-reviewer code-reviewer security-auditor researcher proof-checker",
     "verifier": "verifier",
     "coordinator": "orchestrator",

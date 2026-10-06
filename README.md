@@ -5,7 +5,7 @@
 
 <p align="center"><sub>Hero image: photo by the author, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper, <a href="assets/README.md">CC BY 4.0</a></sub></p>
 
-A multi-agent configuration for Claude Code: BlackCat on the main thread, 55 specialists, 220 on-demand
+A multi-agent configuration for Claude Code: BlackCat on the main thread, 56 specialists, 220 on-demand
 skills, and hooks that enforce the limits. blackcat-agent-stack is the Swiss Army knife for all things
 agentic and a jack of all trades for AI workflows: one stack that routes any job (code, research, data, ML,
 design, documents, infrastructure, automation) to the cheapest capable specialist agent, with the
@@ -65,8 +65,8 @@ flowchart TD
 
 **claude-agent-stack** is this repository: the agent definitions, skills, hooks, settings, MCP servers
 and installer that turn `~/.claude/` into a coordinated team. **BlackCat** is the stack's main thread: the
-agent you talk to when you run `claude`. It only delegates: it routes every job to one of 55 specialist
-agents (56 agent files). 220 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
+agent you talk to when you run `claude`. It only delegates: it routes every job to one of 56 specialist
+agents (57 agent files). 220 skills load on demand. One policy hook (`agent_guard.py`), deny rules and the
 Claude Code sandbox hold the limits, and MCP servers start and stop with the agents that use them. Built
 for Claude Code **2.1.271 or later**, macOS only (Apple Silicon). It runs in the terminal and in the apps
 that run Claude Code with your settings (see [Apps](#apps)).
@@ -221,8 +221,9 @@ job and escalates on failure or on a harder deliverable.
 | Domain builds | 28 domain experts ([Roster](#roster)) | ML, GPU, HPC, robotics, design, 3D, video, documents, … |
 | Checks | code-reviewer, verifier, security-auditor, proof-checker, plan-reviewer | read-only (hook-enforced, below) |
 | Narrow jobs | test-engineer, build-fixer | leaves (coder is one too) |
+| Dependencies | toolsmith (Sonnet · medium · 60, a leaf) | installs, upgrades and removes programs and packages through `bin/stack-install` only: vetted, pinned, ledgered; anything else asks you ([toolsmith](#toolsmith-the-dependency-installer)) |
 
-Every agent names `opus` or `sonnet` (40 and 13; `tests/lint_agents.py` rejects anything else), and the
+Every agent names `opus` or `sonnet` (43 and 14; `tests/lint_agents.py` rejects anything else), and the
 IDs come from `stack.env`. That Sonnet on bounded work lowers cost without lowering quality is **by
 design, not measured**: no cost is recorded for any run (baseline, §10).
 
@@ -268,7 +269,7 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 
 | Script | Events | Does |
 |---|---|---|
-| `hooks/agent_guard.py` | every wired event except SessionEnd | Spawn policy, fan-out, BlackCat caps, no push, protected paths, read-only Bash, credential reads, token budgets, soft limits, MCP cap, web taint, image limit, the delegation ledger and its compaction snapshot, labels, the SubagentStop check of each final report (observe only: records, never blocks), `/override-agent`, the sandboxed Bash environment. Module docstring: the event-by-event table |
+| `hooks/agent_guard.py` | every wired event except SessionEnd | Spawn policy, fan-out, BlackCat caps, no push, protected paths, read-only Bash, the installer rule (only toolsmith runs `bin/stack-install`, and nothing else), credential reads, token budgets, soft limits, MCP cap, web taint, image limit, the delegation ledger and its compaction snapshot, labels, the SubagentStop check of each final report (observe only: records, never blocks), `/override-agent`, the sandboxed Bash environment. Module docstring: the event-by-event table |
 | `hooks/read_gate.py` | PreToolUse `Read\|Grep\|Glob\|Bash` | Refuses the first read of build output, dependencies, large data, media or binaries with a cheaper alternative; the identical retry passes ([CONFIG.md](CONFIG.md) §5, "Read gate") |
 | `hooks/web_caps.py` | PreToolUse `^mcp__(exa\|jina\|spider)__` | Caps per call; refuses spider `cron`, `webhooks`, `run_in_background` |
 | `hooks/output_shrink.py` | PostToolUse `Bash\|Read` | Shadow mode by default: logs what it would cut from a large Bash or Read result and changes nothing. With `STACK_OUTPUT_SHRINK=on` it keeps the decisive lines and spills the full output, credentials masked, to `.claude-work/output-shrink/` ([CONFIG.md](CONFIG.md) §5, "Output shrink") |
@@ -294,6 +295,7 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 | `agent_guard.py delegations [session] [--json]`, `--print-policy`, `--self-test` | `/usr/bin/python3 ~/.claude/hooks/agent_guard.py` | The delegation ledger; the spawn table; the guard's own checks |
 | `claude-ninja` (a link in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder (or any agent) as your main thread at ultracode, starting in Plan (`--permission-mode plan` unless you pass a mode) |
 | `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
+| `stack-install pending`, `approve <rq-id>`, `deny <rq-id>`, `list`, `manifest` | `~/.claude/bin/stack-install`, your terminal | toolsmith's requests waiting for you, your decision (a typed confirmation), and what toolsmith installed ([toolsmith](#toolsmith-the-dependency-installer)) |
 
 ### Safety and guardrails
 
@@ -305,6 +307,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 | Agents never push and never write to a forge (`gh`/`tea`/`fj`, `gh api`, curl/wget/httpie to forge hosts), also inside `bash -c`, `eval`, `$(...)` | `agent_guard.py no-push`; `STACK_POLICY=off` does not lift it | `tests/test_no_push.py` |
 | No Bash write, delete or rename of the installed stack, the backups or the hook state; no `install.sh` run except `--help`, `--dry-run`, `--print-managed-settings` and scratch installs | the guard's protected-path scan, on top of the Edit/Write deny rules | `tests/test_protected_paths.py`, `tests/test_guard_round2.py` |
 | Six review and check types run read-only Bash only; their scratch code is content-checked | `READONLY_TYPES` | `tests/test_readonly_agents.py` |
+| Only toolsmith runs `bin/stack-install`, the one program outside the sandbox, and toolsmith runs nothing else: one plain command, its argv checked, a one-use ticket per call; installs only vetted, pinned registry packages, ledgered with their uninstall command; anything else waits for your `approve` on a terminal | `agent_guard.py no-push` (`toolsmith_gate`, also with `STACK_POLICY=off`), `hooks/toolsmith_policy.py`, `bin/stack-install` | `tests/test_toolsmith.py` (seeded-bug tests included) |
 | Only stack agents in the caller's row may be spawned (a main thread without a row: any stack agent); `general-purpose`, `claude`, `fork`, `Plan` and unknown types are refused | `POLICY`, deny rules `Agent(general-purpose)`, `Agent(claude)`, `Agent(fork)` | `tests/test_agent_guard.py`; `tests/lint_agents.py` checks each "May spawn" sentence against `POLICY` |
 | BlackCat only delegates (any other agent on the main thread keeps its tools): its tools line holds no Bash, Write or Edit, and a call that still reaches it (an SDK app's tool list, an `--agents` redefinition) is refused, also with `STACK_POLICY=off` (only `STACK_BLACKCAT_DELEGATE_ONLY=0` lifts it); with that and `BLACKCAT_MAX_OWN_STEPS` > 0 its Bash gets the same hooks, sandbox and deny rules and is refused HTTP clients, raw sockets and gh reads (best effort; the sandbox allowlist is the hard limit) | tools line, `blackcat-guard`, `no-push` | `tests/test_blackcat_tools.py`, `tests/lint_agents.py` |
 | No credential reads (`gh auth token`, `git credential fill`, keychain dumps); token variables and credential files denied to sandboxed Bash | guard, sandbox `denyRead`, credential deny list | `tests/test_guard_round2.py` |
@@ -391,7 +394,7 @@ whether the difference is enforced and tested, or a design intent.
 
 | Area | Plain Claude Code | This stack | Status |
 |---|---|---|---|
-| Delegation | Built-in general-purpose, Explore and Plan subagents | 55 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
+| Delegation | Built-in general-purpose, Explore and Plan subagents | 56 specialists with per-agent tools, models and turn caps; generic types refused | Enforced: `POLICY`, `tests/test_agent_guard.py` |
 | Nesting and concurrency | Depth 3, 20 subagents running at once | Depth 8, 128 at once, per-agent fan-out caps and spawn rows | Enforced: settings, guard |
 | Push and forge writes | Governed by your permission rules | Refused for every agent, whatever the rules or `STACK_POLICY` | Enforced: `tests/test_no_push.py` |
 | Writes to config and state | Protected-path writes are not prompted in `bypassPermissions` (docs); per the guard's docstring, Claude Code's check does not cover Bash writes (unverified against the docs) | Bash-level writes refused too | Enforced: `tests/test_protected_paths.py` |
@@ -467,7 +470,7 @@ Not on `main`; listed so nobody mistakes them for features:
 ### Roster
 
 Every agent names one of two model aliases: `opus` where judgment is the product, `sonnet` for bounded
-execution, lookups and tool loops (40 Opus, 13 Sonnet; `tests/lint_agents.py` rejects any other value
+execution, lookups and tool loops (43 Opus, 14 Sonnet; `tests/lint_agents.py` rejects any other value
 and the hook strips a per-call `model`). The alias is the reference; it resolves to
 `ANTHROPIC_DEFAULT_<FAMILY>_MODEL`, which `stack.env` sets and the installer copies into
 `settings.json` (CONFIG.md section 2). An agent file's `effort` applies only when the
@@ -476,7 +479,7 @@ The tables are generated from `dot-claude/agents/*.md` frontmatter. "Does" is sh
 agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md](CONFIG.md) §4).
 
 <details>
-<summary>Roster tables: 56 agents by family (model, effort, maxTurns, inline MCP)</summary>
+<summary>Roster tables: 57 agents by family (model, effort, maxTurns, inline MCP)</summary>
 
 #### Role agents (20)
 
@@ -547,12 +550,13 @@ agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard
 | vfx-td | Opus 5.5 · high | 170 | — | Houdini FX: VEX, HDAs, Pyro/FLIP/Vellum/RBD, Solaris/Karma |
 | writer | Opus 5.5 · medium | 80 | — | Writes and edits prose |
 
-#### Helpers (2)
+#### Helpers (3)
 
 | Agent | Model · effort | maxTurns | Inline MCP | Does |
 |---|---|---|---|---|
 | test-engineer | Sonnet 5.5 · medium | 100 | — | Writes and repairs tests (unit, property, fuzz, e2e) |
 | build-fixer | Sonnet 5.5 · low | 60 | — | Makes a red build green |
+| toolsmith | Sonnet 5.5 · medium | 60 | — | Installs and manages CLI tools and packages for other agents: vetted, pinned, ledgered |
 
 </details>
 
@@ -561,6 +565,33 @@ reads the ledger, dispatches every job (one burst per prompt, within its 24 tool
 dependent multi-specialist work to the orchestrator. Code escalates coder → main-coder →
 ninja-coder (the top tier); language-heavy work goes to the language engineer, domain builds to the domain
 expert. The helpers are leaves (no Agent tool). Depth is BlackCat → L1 → … → L8, and L8 cannot spawn.
+
+### toolsmith: the dependency installer
+
+toolsmith installs what other agents need (command-line programs, language packages, toolchains) without
+you, through one executor, `~/.claude/bin/stack-install`, the only program the stack takes out of the Bash
+sandbox (`sandbox.excludedCommands`, by absolute path) and pre-approves (`permissions.allow`).
+
+- **Who runs it:** only toolsmith (the guard refuses every other agent and the main thread, also with
+  `STACK_POLICY=off`), and toolsmith runs nothing else: one plain command per call, its arguments checked
+  against the executor's own grammar, and a one-use ticket for that exact call that the executor needs.
+  BlackCat, the orchestrator, main-coder, ninja-coder and devops-engineer spawn it; others ask for it.
+- **What it installs by itself:** Homebrew formulae (homebrew/core), uv tools (Python only through uv;
+  pip is refused), npm and pnpm globals, `cargo install --locked`, `go install path@vX.Y.Z`; always a
+  pinned version from the official registry, never a tap, URL, git or path source, `sudo`, a shell or a
+  download piped to one. Vetting reads the registry: the version is at least 7 days old, the package at
+  least 90 days, popular enough (npm, crates, Homebrew), not yanked or disabled; install scripts never
+  run (`--ignore-scripts`, `uv --no-build`) and are reported. The installers get a clean environment
+  (no tokens, no sandbox caches, no project config).
+- **What asks you:** a failed check, a relaxed rule (`--allow-scripts`, `--allow-build`), any other
+  installer (a cask, gem, pipx, …) and anything you installed yourself (it is never upgraded or removed
+  for you). toolsmith returns `NEXT: ASK USER` with a request id; BlackCat asks you; you decide in a
+  terminal with `~/.claude/bin/stack-install approve <rq-id>` (or `deny`); toolsmith then runs it once.
+- **The ledger:** `${XDG_STATE_HOME:-~/.local/state}/claude-agent-stack/toolsmith/ledger.jsonl` records
+  what, version, source, why, who asked, when and the exact uninstall command; `stack-install list`,
+  `manifest` (a Brewfile-style list that replays through the same vetting) and `pending`.
+
+Details and residual risks: [CONFIG.md](CONFIG.md) §7, "Dependency installer: toolsmith".
 
 ### Skills: hubs, modules, references
 
@@ -1070,7 +1101,7 @@ Claude Code sandbox refuses parts of it, so run it from your own terminal.
 The counts in this README come from the files:
 
 ```bash
-ls dot-claude/agents/*.md | wc -l                             # 56 agents
+ls dot-claude/agents/*.md | wc -l                             # 57 agents
 ls dot-claude/skills/*/SKILL.md | wc -l                       # 220 skills
 ls dot-claude/skills/*/references/*.md | wc -l                # 185 references
 jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 104 hidden: 89 hub modules + 7 bundled + 8 claude.ai
@@ -1414,7 +1445,8 @@ embedded-debugger-mcp, slurm-mcp-server, lara-mcp, houdini-mcp, `gopls mcp`. The
 | `pandoc` | Document conversion | not checked |
 | `claude-ninja` | ninja-coder as your main thread at ultracode | installed in `~/.local/bin` |
 | Scanners: `gitleaks`, `trufflehog`, `semgrep`, `osv-scanner`, `pip-audit`, `npm audit`, `cargo audit`/`deny`, `trivy` | The read-only reviewers' allowlist | not installed; used when present |
-| Language toolchains (cargo, ghcup, juliaup, go, Gradle/Maven, elan) | The language engineers | not installed; installing a toolchain from a session fails by design (sandbox) |
+| Language toolchains (cargo, ghcup, juliaup, go, Gradle/Maven, elan) | The language engineers | not installed; installing one from an agent's sandboxed Bash fails by design: ask for toolsmith (Homebrew formulae, uv tools, npm/pnpm globals, cargo, go install) |
+| `~/.claude/bin/stack-install` | toolsmith's one command (runs outside the sandbox) | installed; doctor checks its settings entries |
 
 ## Security model
 
@@ -1450,6 +1482,10 @@ Only you can run these.
 6. **Ask rules:** an ask rule prompts in every mode, `bypassPermissions` included (start one session with
    `claude --permission-mode bypassPermissions`; for example a magg `duckdb_*` call).
 7. **Credentials:** `bash ~/.claude/bin/doctor.sh`, section "GitHub credentials agents could use".
+8. **toolsmith:** `/sandbox` lists `~/.claude/bin/stack-install *` (expanded) under excluded commands;
+   ask BlackCat to install a small tool (say, `jq` with Homebrew): toolsmith runs without a prompt and
+   `~/.claude/bin/stack-install list` (your terminal) shows it with its uninstall command; a coder told
+   to run `~/.claude/bin/stack-install list` is refused by the guard.
 
 ## Apps
 
