@@ -181,6 +181,40 @@ archived (§4 item 10); `agent-afb29c2…` is merged and clean (locked). Nobody 
 
 `protocol-p1` worktree (in W, rebase stopped on a CONFIG.md conflict): continue, abort or archive: your call (HANDOFF_FULL §2 R5).
 
+### Runtime Equilibrium: your checks (eq-runtime; nothing here is live-verified)
+
+After the integrator merges eq-runtime and C10 passes on main (quit every Claude Code session first):
+
+```bash
+./install.sh --dry-run
+```
+
+```bash
+./install.sh --yes
+```
+
+```bash
+bash ~/.claude/bin/doctor.sh
+```
+
+Read the section "Equilibrium runtime": files installed (10), params pin matches the manifest, no class validated yet, knobs, W3 level `sandbox`. Then the live checks, one row each in README "Live checks" 9 (how to run it, what you should see, and what happens if it fails: every one fails closed):
+
+| # | check (spec §13) | if it fails |
+|---|---|---|
+| 1 | the sandbox runs `stack-eq` unsandboxed (`/sandbox` lists `stack-eq *`) | the store write fails at `plan`: no run, no spend |
+| 2 | Bash exit status is in PostToolUse `tool_response` (`exit_source` in `check-c<i>.json`) | Level 1 verdicts become `unverifiable`: no candidate marked passing |
+| 3 | the AskUserQuestion result shape on the main thread (`consent/<run8>.json`, `source: ask`) | the relay and `stack-eq start` are refused: the run does not start |
+| 4 | a resumed member keeps its worktree cwd (`members.json`) | reconcile and repair rounds refused: round-0 answers only |
+| 5 | a full model id passes through the spawn gate (`r0/m<i>.json` `model`, `model_drift`) | the alias is used and `model_drift` recorded: labelled, never validated |
+| 6 | the leader's transcript token (`eq <run8> m1/N` or the substituted text) | no behaviour change; decides which copy a reviewer reads |
+| 7 | the member worktree path in SubagentStop (`members.json` `cwd`) | the member reports `pwd`, cross-checked against `.claude/worktrees/` |
+| 8 | headless leader (background resumes, hooks, `--fork-session`, `--max-budget-usd`) | paid smoke in `EQ_CALIBRATION_RUN_PLAN.md`; headless mode stays unused |
+| 9 | Level 2: `R3_CONTAINER_CHECKLIST.md` C14-C17 | `STACK_EQ_WALL=auto` stays at Level 1; `required` refuses runs with a check |
+
+Paid calibration (not started; needs your approval of every step and a hard ceiling): `hand_off/EQ_CALIBRATION_RUN_PLAN.md`. A class turns `validated` only when the committed `eq_params.json` carries it and you reinstall.
+
+Undo: `./install.sh --restore` (the manifest's `eq_runtime` and the staged files go back together).
+
 ## 6. DECISIONS made this session (USER; do not re-ask)
 
 1. Isolation backend: Apple `container` 1.5.0; Docker dropped. c0 and the Docker runbook: the user runs c0 (stated
@@ -248,3 +282,4 @@ Live plan: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/resume-77072
 | Codex installer (codex_config/) | `codex_config/`: a Codex profile installer for this stack (`codex_config/install.sh`: snapshot of HEAD, staged render of the profile, agents, rules, skills (216 SKILL.md frontmatters converted), hooks and the codex guard, `--dry-run`, `--diff`, `--doctor`, `--ide-default`, `--restore`; installing is the user's step). The Claude installer and its tests are untouched (`git diff main...codex-build -- install.sh lib dot-claude tests requirements` empty); README/CONFIG get a pointer and a §9 entry. Early audit, final security-auditor and code-reviewer fixes in the branch; the last auditor MEDIUM (CWE-116: a SKILL.md description with a line break or control character emitted as a plain YAML scalar) fixed in `cab4daf` with `test_skill_md_description_stays_one_yaml_line` (6 cases failed before, pass after), the real corpus converting byte-identically (393 staged files, `diff -r` empty) and 2 mutation rows (convert_skills.json 10/10 caught). Branch already held main `5d3ecad`: `codex_config/tests` 2068 passed 1 skipped (own process; the two conftests collide with tests/), `codex_config/tests/smoke.sh` all checks passed (real ~/.codex, ~/.agents unchanged), lint_agents, prompt_budget --check, guard and stack_progress self-tests ok, bash -n 27 ok, shellcheck codex_config/install.sh clean, ruff E9,F clean on all 194 tracked .py, doc-gate tests 167 passed | codex-build@cfad7fa via codex-integ | C10 on main: see plan.md |
 | eq-container pins | `lib/eq-container/TOOLS.toml` pins bash `5.2.37-2+b10` and perl (perl-base) `5.40.1-6+deb13u1`. The builder takes both from the base image, so each sha256 is of the file in BASE_IMAGE's arm64 layer `sha256:bd36565c…`, downloaded from debuerreotype docker-debian-artifacts `ca011a8b`; the layer and manifest hashes were recomputed and the md5 equals the layer's dpkg md5sums. busybox (`BUSYBOX_SHA256`) and jq stay PLACEHOLDER: snapshot.debian.org is outside the agent sandbox. So the default `core` still exits 13 and the WALL is still skipped until the user runs `hand_off/R3_CONTAINER_CHECKLIST.md` C14 (`bash lib/eq-container/distro-pins.sh`) and its values are pinned (C15-C17 then build and verify). Also new: `distro-pins.sh` (host-side derivation with every link checked; prints only, never edits) and the PINS keys `BASE_LAYER_URL` and `BASE_LAYER_SHA256`. `build.sh` refuses a malformed pin (exit 2; BASE_IMAGE needs its digest); `verify-tools.sh` counts a PLACEHOLDER `checksum_source` as pending. Format checks use literal character lists (`tools.sh` `tm_only`): bash 3.2's collation ranges let uppercase hex through under a UTF-8 locale. security-auditor PASS (optional hardening, not done: pin the snapshot InRelease sha256 in the Dockerfiles, so jq's libraries libjq1 and libonig5 are pinned too). code-reviewer pass-with-fixes: the MEDIUM (locale) and the LOW (a malformed BUSYBOX_SHA256 in distro-pins.sh) were fixed in `6adc499`; 10 of the 12 new proofs fail on `0da7eaf`. Tests: `tests/test_eq_container_pins.py` 60 passed, 23/23 seeded mutants killed (`.claude-work/eq-pins/mutants.py`); `test_eq_container` + `test_install_eq_container` 121 passed; repo suite from a clean detached worktree on `ebe4985`: tests/ 5224 passed 2 skipped, 7 failed (the known environment set: test_limits_guard T10, test_stack_tree ×3, test_stack_usage ×3), tools/instructor/tests 77 passed, lib/eq-wall/tests 100 passed 2 skipped; lint_agents, prompt_budget --check, guard self-test, bash -n, shellcheck, ruff E9,F ok | eq-pins (READY; `core` still waits on C14) | C10 on main: the integrator |
 | Equilibrium harness tracked | EQ-T is tracked as `equilibrium/` with all features (USER: top level, not archived). The source was `.claude-work/worktrees/eq-t-1005/.claude-work/equilibrium`, untracked. The tree holds the pre-registration (COMPARE_eq A4, plus the new **A5**), CONTRACT, the harness with the `container` backend and the A4 Skill edits, the pools PF/CP/CR/RS/ES/DS/OE with oracles and `pool.sha256`, the WALL and Docker staging copies, and the derivations: 3,860 files. Excluded: `isolation/build.log` and caches, which stay in EQ-T. **A5 (USER)**: path relativisation, 236 files and 504 substitutions, so no `/Users/...` path remains. Scripts derive M, STAGE and `DEFAULT_M` from their own location, Lean is `$HOME/lean/stack_mathlib`, and `vcs:source` is `blackcat.git`. The pins were re-derived: PF `pool.sha256` (220 entries) and RS (2). `tests/test_equilibrium_paths.py` proves only path text changed (record: `equilibrium/PATH_RELATIVISATION.json`). The security-auditor's 3 fixes are in: the `--collect` destination check, the WALL lookup preferring `lib/eq-wall`, and `runs/` ignored at any depth. So is the code-reviewer's fix: the layout test fails when the tree is missing. Harness suite: 451 passed + 1 skip with `EQ_CONTAINER_DIR`, 447 + 5 skips without it, 452 in place; selftests all pass (PF 39 with Lean). Also new: `tests/test_equilibrium_layout.py`, `lint_agents` `MODEL_ID_DIRS`, the `.gitignore` rules, and the harness suite as a by-hand C10 step (CONFIG §5 Instructor). | eq-track (see the merge report) | C10 on main after the ff-merge (integrator) |
+| eq-runtime (part F: installer, doctor, docs) | `install.sh` stages the 8 `hooks/eq_*` files and `bin/stack-eq`, `stack-eq-check` (modes 644/755), tracks them in the manifest, byte-compiles the 5 modules and writes the manifest key `eq_runtime` = `{params_sha256, validated}` (what `eq_policy.load_params` reads; a different params file means every class `not_run`). `doctor.sh` section "Equilibrium runtime" (files, params pin, validated classes, drift, `excludedCommands`/allow entries, knobs, store modes, W3 level); its toolsmith check accepts `bin/stack-eq *`. Settings merge and retraction proven for the eq entries. `tests/test_install_eq_runtime.py`; README, CONFIG §5/§7/§9. Open: the shipped `eq_params.json` is `version 0` and `validate_params` needs >= 1 (one `xfail(strict)` test names it). Guard rules (part D) and every spec §13 check are not live-verified. **The user runs:** `./install.sh --dry-run` then `./install.sh` after the integrator merges eq-runtime into main, then the README live checks 9 (spec §13) and, much later, `hand_off/EQ_CALIBRATION_RUN_PLAN.md` (paid) | eqr-install (see the report) | C10 on main: the integrator |
