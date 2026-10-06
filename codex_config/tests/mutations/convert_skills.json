@@ -1,0 +1,58 @@
+[
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "    listed = [n for n in shipped if n not in modules and n not in EXCLUDED_SKILLS]",
+  "new": "    listed = [n for n in shipped if n not in modules]",
+  "tests": "codex_config/tests/test_convert_skills.py::test_classify_matches_skill_overrides",
+  "why": "an excluded skill re-included in the listed set"
+ },
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "    listed = [n for n in shipped if n not in modules and n not in EXCLUDED_SKILLS]",
+  "new": "    listed = [n for n in shipped if n not in EXCLUDED_SKILLS]",
+  "tests": "codex_config/tests/test_convert_skills.py::test_classify_matches_skill_overrides",
+  "why": "hub modules installed into skills/ (listed)"
+ },
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "m.group(1), stack, m.group(2), line[m.end():])",
+  "new": "m.group(1), \"..\", m.group(2), line[m.end():])",
+  "tests": "codex_config/tests/test_convert_skills.py::test_link_rows_unit",
+  "why": "a hub row's module path left relative"
+ },
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "short=(kind == \"skills\" and n not in core)",
+  "new": "short=False",
+  "tests": "codex_config/tests/test_convert_skills.py::test_fixture_descriptions",
+  "why": "a name-only skill's description not shortened"
+ },
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "out_mode = 0o755 if mode & 0o111 else 0o644",
+  "new": "out_mode = 0o644",
+  "tests": "codex_config/tests/test_convert_skills.py::test_fixture_bytes_modes_and_layout",
+  "why": "the exec bit lost"
+ },
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "        if e.is_symlink():\n            raise BuildError(\"symlink in the skill source tree (refused, never followed): %s\"\n                             % os.path.join(root, r))\n        if e.is_dir(follow_symlinks=False):\n            out += _walk(root, r)\n        elif e.is_file(follow_symlinks=False):",
+  "new": "        if e.is_dir():\n            out += _walk(root, r)\n        elif e.is_file():",
+  "tests": "codex_config/tests/test_convert_skills.py::test_symlink_in_source_is_refused",
+  "why": "a symlink in the source tree followed instead of refused"
+ },
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "    if budget_tokens > SKILLS_MAX_CONTEXT_TOKENS:",
+  "new": "    if False:",
+  "tests": "codex_config/tests/test_convert_skills.py::test_budget_over_the_cap_is_an_error",
+  "why": "a listing over skills.max_context_tokens accepted"
+ },
+ {
+  "file": "codex_config/lib/convert_skills.py",
+  "old": "    if problems:\n        raise BuildError(\"untranslatable",
+  "new": "    if False:\n        raise BuildError(\"untranslatable",
+  "tests": "codex_config/tests/test_convert_skills.py::test_translate_problem_names_file_and_line",
+  "why": "translate problems ignored"
+ }
+]

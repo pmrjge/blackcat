@@ -24,29 +24,58 @@ What counts as a Claude tool reference (outside fenced code blocks unless noted)
   Plain English at a sentence or cell start ("Read the file", "Monitor progress", "Workflow"
   headings, "LSP spec 3.18") is no reference and is left alone.
 
-Order of the pass, per line: placeholders and `~/.claude` paths (everywhere, code included) →
-PHRASES (explicit sentence rewrites: hook-enforcement claims to DESIGN §5's status column, dropped
-tools, idioms) → token mapping (TOOL_MAP) → the forbidden-phrase lint (FORBIDDEN). A dropped tool
-(DROPPED: ToolSearch, LSP, Artifact, Workflow, Cron*, …) has no token mapping: a sentence naming it
-must be rewritten by PHRASES, else it is reported. Files under `verbatim=True` (skills whose subject
-is Claude Code itself) get only the placeholder pass, with `__CLAUDE_DIR__` → `~/.claude` (the Claude
-install they describe).
+Order of the pass. Whole text first (a rewrite there may join a sentence that wraps onto the next
+line; problems still name the source line): EXCLUDED_PHRASES (sentences that send the reader to an
+EXCLUDED_SKILLS skill) → VENV_PHRASES (prose about the Claude stack's shared venvs) → venv paths
+(`__CLAUDE_DIR__/venvs/<v>/bin/python` → `uv run --with <pkg>… python`, code included) →
+placeholders and `~/.claude` paths (code included). Then per line, outside fenced code: PHRASES
+(explicit sentence rewrites: hook-enforcement claims to DESIGN §5's status column, dropped tools,
+idioms) → token mapping (TOOL_MAP) → the lints: FORBIDDEN phrases, venv prose; on every line, code
+included: a surviving `venvs/` path, a named excluded skill, an unknown `__PLACEHOLDER__`. A dropped
+tool (DROPPED: ToolSearch, LSP, Artifact, Workflow, Cron*, …) has no token mapping: a sentence naming
+it must be rewritten by PHRASES, else it is reported.
+
+Venv rule (the user's decision, 2026-10-06): no Codex text names the Claude stack's venvs. A venv
+path becomes `uv run --with <p> … python` with the packages the sentence names: a parenthesized list
+right after the path, a "has <list>" after it, "<pkg> in <path>" before it, else the venv's packages
+named earlier in the same clause, else VENV_DEFAULT; in fenced code, the packages the block imports
+(a non-stdlib import outside VENV_PACKAGES is a problem). VENV_PACKAGES is a fixed copy of
+requirements/{sci,ml,tools}.in (the install snapshot does not carry requirements/).
 
 Seeded-bug proofs (tests/test_translate.py; tests/mutations/translate.json): an unmapped token
 silently passed (the problem append dropped); fenced code no longer skipped; the article-aware
 "shell" form dropped; a forbidden phrase not reported; `__CLAUDE_DIR__/skills/<module>` sent to
-skills/ instead of skill-modules/.
+skills/ instead of skill-modules/; a venv path passed through (no uv rewrite); a surviving `venvs/`
+path not reported; an excluded skill not reported; the old Monitor rule ("a polling loop on a
+background job on the log"); the old `__STACK_REPO__` fallback (prose inside a code span); a joined
+line shifting the source line numbers of later problems.
 """
 from __future__ import annotations
 
 import re
+import sys
 
 __all__ = ["BuildError", "translate_text", "render_placeholders", "TOOL_MAP", "DISTINCT", "COMMON",
-           "DROPPED", "PHRASES", "FORBIDDEN", "Stats"]
+           "DROPPED", "PHRASES", "FORBIDDEN", "Stats", "EXCLUDED_SKILLS", "VENV_PACKAGES",
+           "VENV_DEFAULT", "excluded_refs"]
 
 
 class BuildError(Exception):
     """An input the converter cannot translate (the build stops)."""
+
+
+# Skills not installed for Codex (the user's decision, 2026-10-06): their subject is Claude Code
+# itself (its config formats, and three user commands answered by Claude hooks: /override-agent,
+# /stack-doctor, /stack-tree), so nothing in them applies to a Codex session. convert_skills skips
+# them (and any hub module reachable only from them); no installed text may name one (lint below).
+EXCLUDED_SKILLS = ("claude-code-extensions", "override-agent", "stack-doctor", "stack-tree")
+_EXCLUDED_RE = re.compile(r"(?<![\w-])(%s)(?![\w-])" % "|".join(EXCLUDED_SKILLS))
+
+
+def excluded_refs(text: str) -> list[tuple[int, str]]:
+    """(line, name) for every whole-word mention of an excluded skill (code included)."""
+    return [(i + 1, m.group(1)) for i, line in enumerate(text.split("\n"))
+            for m in _EXCLUDED_RE.finditer(line)]
 
 
 # ---------------------------------------------------------------- vocabulary
@@ -150,8 +179,9 @@ PHRASES = [
     (r" An Artifact only when the user asks for a shareable page\.", ""),
     (r"Glob for file names, Grep for symbols and strings",
      "`rg --files` for file names, `rg` for symbols and strings"),
-    # idioms
-    (r"(?:on |with )?a Monitor until-loop", "with a polling loop on a background job"),
+    # idioms ("on a Monitor until-loop" → "with a polling loop": the clause may go on, "… on the log")
+    (r"(?:on |with )a Monitor until-loop", "with a polling loop"),
+    (r"a Monitor until-loop", "a polling loop"),
     (r"watched with Monitor", "watched by polling"),
     (r"watch them with Monitor", "watch them by polling"),
     (r"\(Monitor\)", "(background exec, polled)"),
@@ -213,6 +243,70 @@ FORBIDDEN = [re.compile(p) for p in (
     r"(?i)the guard refuses", r"(?i)hook-checked", r"SubagentHandback", r"the Skill tool",
 )]
 
+# ---------------------------------------------------------------- excluded skills (whole text, prose)
+# Sentences or list items that send the reader to an EXCLUDED_SKILLS skill: dropped (the pointer has
+# no target in a Codex install). Whatever these miss is reported by the excluded-skill lint.
+EXCLUDED_PHRASES = [(re.compile(p), r) for p, r in (
+    (r" Claude Code file formats \(agent frontmatter, skills, settings\) → `claude-code-extensions`\.", ""),
+    (r" \(`claude-code-extensions` has the shapes\)", ""),
+    (r", `claude-code-extensions` \([^()\n]*\)", ""),
+    (r"Load `claude-code-extensions` before writing any configuration, and ", "Load "),
+    (r", `claude-code-extensions` for the stack's MCP lifecycle; vetting, permanent edits and audits: "
+     r"Read `[^`\n]*/skills/claude-code-extensions/references/mcp-broker\.md`\.", "."),
+    (r",? per the reference(?=[;.])", ""),     # mcp-broker: "the reference" was that excluded file
+    (r" /stack-doctor shows the models\n[ \t]*in use and checks each in its provider's catalog\.", ""),
+)]
+
+# ---------------------------------------------------------------- the Claude stack's venvs
+# Package names per venv: a fixed copy of requirements/{sci,ml,tools}.in (2026-10-06), plus pillow
+# for sci and ml (a matplotlib dependency the skills import as PIL). Used only to read package names
+# out of sentences and imports, never to install anything.
+VENV_PACKAGES = {
+    "sci": ("sympy", "numpy", "scipy", "mpmath", "pandas", "polars", "duckdb", "pyarrow", "matplotlib",
+            "seaborn", "networkx", "pint", "statsmodels", "scikit-learn", "pdfplumber", "pypdf",
+            "openpyxl", "python-docx", "python-pptx", "nbformat", "nbclient", "ipykernel", "z3-solver",
+            "hypothesis", "pillow"),
+    "ml": ("numpy", "scipy", "pandas", "polars", "pyarrow", "scikit-learn", "statsmodels", "xgboost",
+           "lightgbm", "matplotlib", "seaborn", "torch", "transformers", "datasets", "accelerate", "peft",
+           "safetensors", "huggingface_hub", "evaluate", "sentencepiece", "ipykernel", "nbclient", "mlx",
+           "mlx-lm", "pillow"),
+    "tools": ("pytest", "numpy", "pandas", "httpx", "mcp", "pillow", "neural-memory"),
+}
+# A path no sentence or import qualifies: the venv's core libraries.
+VENV_DEFAULT = {"sci": ("numpy", "scipy"), "ml": ("torch",), "tools": ("pytest",)}
+# Spellings in prose → package name (keys lowercase).
+PACKAGE_ALIASES = {"pytorch": "torch", "z3": "z3-solver", "pil": "pillow", "sklearn": "scikit-learn",
+                   "huggingface-hub": "huggingface_hub"}
+# Import name → package name where they differ.
+MODULE_PACKAGES = {"PIL": "pillow", "z3": "z3-solver", "sklearn": "scikit-learn", "docx": "python-docx",
+                   "pptx": "python-pptx", "mlx_lm": "mlx-lm", "neural_memory": "neural-memory"}
+
+_VENV_ROOT = r"(?:__CLAUDE_DIR__|~/\.claude|\$HOME/\.claude|\$\{HOME\}/\.claude|\{\{STACK\}\})"
+_VENV_PATH = _VENV_ROOT + r"/venvs/[\w-]+/bin/python3?"
+# Prose about the venvs (outside fenced code), rewritten before the paths are.
+VENV_PHRASES = [(re.compile(p), r) for p, r in (
+    (r" \(from `\./install\.sh --with-ml`\)", ""),
+    (r"The shared venvs \(`%s`, `%s`\) are for ad-hoc analysis — never install project dependencies "
+     r"into them\." % (_VENV_PATH, _VENV_PATH),
+     "Ad-hoc analysis outside a project runs as `uv run --with <package> python` (a cached throwaway "
+     "environment); never add its packages to a project."),
+    (r"the (?:sci|science) venv (?=`%s`)" % _VENV_PATH, ""),
+    (r" is in the sci venv: (?=`%s`)" % _VENV_PATH, " runs with "),
+    (r" \((?:the )?(?:sci|science) venv\)", ""),
+    (r"not in the (?:sci|science) venv(?: —|;) ", ""),
+    (r" \(not in the venvs\)", ""),
+    (r" \(the shared sci venv has no quantum libraries\)", ""),
+    (r"the sci venv has no quantum libraries\. Make", "make"),
+    (r"\(([\w-]+) is also in the science venv\)", r"(\1: `uv run --with \1`)"),
+    (r"(?:sci|science) venv has [^;)\n]*; ", ""),
+    (r"runs in the (?:sci|science) venv", "runs with `uv run --with <package>`"),
+)]
+_VENV_RE = re.compile(
+    r"(?P<pre>(?P<pkg>[A-Za-z][\w-]*) in )?(?P<tick>`?)" + _VENV_ROOT + r"/venvs/(?P<venv>[\w-]+)/bin/python3?"
+    r"(?P=tick)(?P<post>\s*\((?P<paren>[^()`]*)\)| has (?P<has>[^;.\n]*))?")
+_VENV_LEFT = re.compile(r"\S*venvs/\S*")
+_VENV_PROSE = re.compile(r"(?i)\b(?:sci|science|shared|ml|tools) venvs?\b|\bthe venvs\b")
+
 _PLACEHOLDER = re.compile(r"__[A-Z][A-Z0-9_]*__")
 _FENCE = re.compile(r"^\s*(```|~~~)")
 _CODE_SPAN = re.compile(r"`[^`\n]*`")
@@ -224,7 +318,11 @@ _LIST_SEP = re.compile(r"\s*(?:,\s*(?:and\s+|or\s+)?|/|\s+(?:and|or)\s+)\s*\Z")
 _LIST_SEP_FWD = re.compile(r"\A\s*(?:,\s*(?:and\s+|or\s+)?|/|\s+(?:and|or)\s+)\s*")
 _DETERMINER = re.compile(r"(?i)(?:^|[\s(])(a|an|the|each|every|one|your|its|no|any|this|that)\s+\Z")
 _LOWER_WORD = re.compile(r"(?<![\w-])[a-z][\w']*[,;]?\s+\Z")
-_ARTICLE = re.compile(r"(?i)(?:^|[\s(])(a|an|each|every|one|your|its|no|any|this|that)\s+\Z")
+# A determiner, maybe one or two adjectives, then the token: "a separate Bash call", "the Bash tool",
+# "your own Bash calls" take the bare form ("a separate shell call"), never "a separate the shell".
+_ARTICLE = re.compile(r"(?i)(?:^|[\s(])(?:a|an|the|each|every|one|your|its|their|our|no|any|this|that|another)\s+"
+                      r"(?:(?:separate|own|single|new|long|short|plain|same|next|first|other|later|fresh|"
+                      r"extra)\s+){0,2}\Z")
 _CALL_SUFFIX = re.compile(r"\A(?:'s)?\s+(?:tools?|calls?)\b")
 
 
@@ -236,48 +334,61 @@ class Stats(dict):
 
 
 # ---------------------------------------------------------------- placeholders and paths
+_UNCLASSIFIED = "__UNCLASSIFIED_SKILL__:"
+_UNCLASSIFIED_RE = re.compile(r"__UNCLASSIFIED_SKILL__:([\w-]+)")
+
+
 def _skill_target(name: str, ctx: dict) -> str:
+    """Absolute Codex directory of skill `name` (a module → skill-modules/). Without
+    ctx["skill_modules"] a named skill cannot be classified: the marker is reported, never guessed."""
     stack = ctx["stack"]
-    modules = ctx.get("skill_modules") or ()
-    if name == "<name>" or name in modules:
+    if name == "<name>":
+        return "%s/skill-modules/<name>" % stack
+    if "skill_modules" not in ctx:
+        return _UNCLASSIFIED + name
+    if name in ctx["skill_modules"]:
         return "%s/skill-modules/%s" % (stack, name)
     return "%s/skills/%s" % (stack, name)
 
 
-def render_placeholders(text: str, ctx: dict, verbatim: bool = False):
-    """Placeholders and ~/.claude paths → absolute Codex paths (ctx). Returns (text, n, unknown)."""
+def render_placeholders(text: str, ctx: dict):
+    """Placeholders and ~/.claude paths → absolute Codex paths (ctx). Returns (text, n, unknown).
+    ctx keys read: stack, codex_home, home, state_dir, uv, skill_modules (the hub-module names; needed
+    as soon as the text names `__CLAUDE_DIR__/skills/<skill>`), optional stack_repo, uvx, npx, node,
+    magg, huetension, python3."""
     n = [0]
-    if verbatim:
-        claude = "~/.claude"
-        out = text.replace("__CLAUDE_DIR__", claude)
-        n[0] += text.count("__CLAUDE_DIR__")
-    else:
-        stack, codex_home = ctx["stack"], ctx["codex_home"]
+    stack, codex_home = ctx["stack"], ctx["codex_home"]
 
-        def skills(m):
-            n[0] += 1
-            return _skill_target(m.group(2), ctx) + m.group(3)
+    def skills(m):
+        n[0] += 1
+        return _skill_target(m.group(2), ctx) + m.group(3)
 
-        out = re.sub(r"(__CLAUDE_DIR__|~/\.claude|\$HOME/\.claude|\$\{HOME\}/\.claude)/skills/"
-                     r"(<name>|[a-z0-9][a-z0-9-]*)(/|\b)", skills, text)
+    out = re.sub(r"(__CLAUDE_DIR__|~/\.claude|\$HOME/\.claude|\$\{HOME\}/\.claude)/skills/"
+                 r"(<name>|[a-z0-9][a-z0-9-]*)(/|\b)", skills, text)
 
-        def env(m):
-            n[0] += 1
-            return codex_home + "/stack.env"
-        out = re.sub(r"(__CLAUDE_DIR__|~/\.claude)/stack\.env", env, out)
+    def env(m):
+        n[0] += 1
+        return codex_home + "/stack.env"
+    out = re.sub(r"(__CLAUDE_DIR__|~/\.claude)/stack\.env", env, out)
 
-        def other(m):
-            n[0] += 1
-            return stack + m.group(2)
-        out = re.sub(r"(__CLAUDE_DIR__|~/\.claude(?![\w.-])|\$HOME/\.claude(?![\w.-])|\$\{HOME\}/\.claude(?![\w.-]))(/?)",
-                     other, out)
+    def other(m):
+        n[0] += 1
+        return stack + m.group(2)
+    out = re.sub(r"(__CLAUDE_DIR__|~/\.claude(?![\w.-])|\$HOME/\.claude(?![\w.-])|\$\{HOME\}/\.claude(?![\w.-]))(/?)",
+                 other, out)
+    if not ctx.get("stack_repo"):
+        # No repository path known: name it in words, outside code spans, and drop a parenthesis that
+        # only held the path ("Edit the stack repo (`__STACK_REPO__`), …" → "Edit the stack repo, …").
+        k = out.count("__STACK_REPO__")
+        out = re.sub(r"(?<=repo) \(`__STACK_REPO__`\)", "", out)
+        out = re.sub(r"`__STACK_REPO__`|__STACK_REPO__", "the claude-agent-stack repository", out)
+        n[0] += k
     simple = {
         "__HOME__": ctx.get("home"), "__STACK_STATE__": ctx.get("state_dir"),
         "__UV__": ctx.get("uv") or "uv", "__UVX__": ctx.get("uvx") or _sibling(ctx.get("uv"), "uvx"),
         "__NPX__": ctx.get("npx") or "npx", "__NODE__": ctx.get("node") or "node",
         "__MAGG__": ctx.get("magg") or "magg", "__HUETENSION__": ctx.get("huetension") or "huetension",
-        "__PYTHON3__": ctx.get("python3") or "python3",
-        "__STACK_REPO__": ctx.get("stack_repo") or "the claude-agent-stack repository",
+        "__PYTHON3__": ctx.get("python3") or "python3", "__STACK_REPO__": ctx.get("stack_repo"),
     }
     unknown = []
     for m in _PLACEHOLDER.finditer(out):
@@ -408,24 +519,192 @@ def _call_text(tok: str, raw: str):
     return entry["tool"] if entry else None
 
 
+# ---------------------------------------------------------------- whole-text passes
+def _resub(text: str, src: list, rx, fn):
+    """rx.sub(fn) over the whole text, keeping `src` (the source line of each line) aligned. fn returns
+    the replacement or None (match left alone); a replacement may join lines, never add one."""
+    pieces, out_src, line, last = [], [src[0]], 0, 0
+    for m in rx.finditer(text):
+        rep = fn(m)
+        if rep is None:
+            continue
+        if "\n" in rep:
+            raise ValueError("a rewrite may not add a line: %r" % rep)
+        seg = text[last:m.start()]
+        for _ in range(seg.count("\n")):
+            line += 1
+            out_src.append(src[line])
+        pieces += [seg, rep]
+        line += m.group().count("\n")
+        last = m.end()
+    seg = text[last:]
+    for _ in range(seg.count("\n")):
+        line += 1
+        out_src.append(src[line])
+    pieces.append(seg)
+    return "".join(pieces), out_src
+
+
+def _fences(text: str) -> list[tuple[int, int]]:
+    """(start, end) offsets of the fenced code blocks, fence lines included."""
+    spans, pos, start = [], 0, None
+    for line in text.split("\n"):
+        if _FENCE.match(line):
+            if start is None:
+                start = pos
+            else:
+                spans.append((start, pos + len(line)))
+                start = None
+        pos += len(line) + 1
+    if start is not None:
+        spans.append((start, len(text)))
+    return spans
+
+
+def _in(spans, at):
+    for a, b in spans:
+        if a <= at < b:
+            return (a, b)
+    return None
+
+
+def _prose_sub(text, src, rx, rep):
+    """A PHRASES-style rewrite over the whole text, outside fenced code."""
+    spans = _fences(text)
+    return _resub(text, src, rx, lambda m: None if _in(spans, m.start()) else m.expand(rep))
+
+
+def _package_list(items: str, venv: str):
+    """Package names of a list ("sympy, mpmath, numpy/scipy", "a and b"), or None when any item is
+    not a package of `venv` (then the list is prose and stays)."""
+    out = []
+    for it in re.split(r"[,;/]|\band\b", items):
+        it = it.strip()
+        if not it:
+            continue
+        p = PACKAGE_ALIASES.get(it.lower(), it.lower())
+        if p not in VENV_PACKAGES[venv]:
+            return None
+        if p not in out:
+            out.append(p)
+    return out or None
+
+
+def _named_packages(segment: str, venv: str) -> list:
+    """Packages of `venv` named as words in `segment` (lowercase as written, or a known alias)."""
+    out = []
+    for m in re.finditer(r"(?<![\w-])[A-Za-z][\w-]*(?![\w-])", segment):
+        w = m.group()
+        p = PACKAGE_ALIASES.get(w.lower()) or (w if w in VENV_PACKAGES[venv] else None)
+        if p and p in VENV_PACKAGES[venv] and p not in out:
+            out.append(p)
+    return out
+
+
+_NAMES = r"[\w.*]+(?:\s+as\s+\w+)?(?:\s*,\s*[\w.]+(?:\s+as\s+\w+)?)*"
+_FROM_IMPORT = re.compile(r"(?:^|(?<=[\s;'\"]))from\s+([\w.]+)\s+import\s+" + _NAMES, re.M)
+_IMPORT = re.compile(r"(?:^|(?<=[\s;'\"]))import\s+(" + _NAMES + ")", re.M)
+
+
+def _imported_packages(block: str, venv: str):
+    """(packages, unmapped modules) a fenced block imports, stdlib skipped."""
+    found = [(m.start(), m.group(1)) for m in _FROM_IMPORT.finditer(block)]
+    for m in _IMPORT.finditer(_FROM_IMPORT.sub(lambda f: " " * len(f.group()), block)):
+        found += [(m.start(), part.split()[0]) for part in m.group(1).split(",")]
+    mods = [mod for _, mod in sorted(found, key=lambda x: x[0])]
+    pk, bad = [], []
+    for mod in mods:
+        top = mod.split(".")[0]
+        if top in sys.stdlib_module_names:
+            continue
+        p = MODULE_PACKAGES.get(top, top.replace("_", "-"))
+        if p in VENV_PACKAGES[venv] or top in VENV_PACKAGES[venv]:
+            p = p if p in VENV_PACKAGES[venv] else top
+            if p not in pk:
+                pk.append(p)
+        elif top not in bad:
+            bad.append(top)
+    return pk, bad
+
+
+def _uv_python(pkgs) -> str:
+    return "uv run %s python" % " ".join("--with " + p for p in pkgs)
+
+
+def _venv_pass(text: str, src: list, label: str, problems: list):
+    """Venv prose and venv paths → uv forms (module docstring, "Venv rule")."""
+    for rx, rep in VENV_PHRASES:
+        text, src = _prose_sub(text, src, rx, rep)
+    spans = _fences(text)
+    prev_end = [0]
+
+    def lineno(at):
+        return src[text.count("\n", 0, at)]
+
+    def fn(m):
+        venv = m.group("venv")
+        if venv not in VENV_PACKAGES:
+            problems.append("%s:%d: unknown venv %s" % (label, lineno(m.start("venv")), m.group()))
+            return None
+        fence = _in(spans, m.start())
+        pre, post, pkgs = m.group("pre") or "", m.group("post") or "", None
+        if fence:
+            pkgs, bad = _imported_packages(text[fence[0]:fence[1]], venv)
+            for mod in bad:
+                problems.append("%s:%d: import %s (no package mapping for the %s venv)"
+                                % (label, lineno(m.start()), mod, venv))
+            tail = post
+        else:
+            if m.group("paren") is not None:
+                pkgs = _package_list(m.group("paren"), venv)
+            elif m.group("has") is not None:
+                pkgs = _package_list(m.group("has"), venv)
+            tail = "" if pkgs else post
+            if pre and not pkgs:
+                pkgs = _package_list(m.group("pkg"), venv)
+                pre = "" if pkgs else pre
+            if not pkgs:
+                line_start = text.rfind("\n", 0, m.start("tick")) + 1
+                seg = text[max(line_start, prev_end[0]):m.start("tick")]
+                seg = re.split(r"[.;:]\s", seg)[-1]
+                pkgs = _named_packages(seg, venv)
+        prev_end[0] = m.end()
+        tick = m.group("tick")
+        return "%s%s%s%s%s" % (pre, tick, _uv_python(pkgs or VENV_DEFAULT[venv]), tick, tail)
+
+    return _resub(text, src, _VENV_RE, fn)
+
+
 # ---------------------------------------------------------------- the pass
-def translate_text(text: str, label: str, ctx: dict, verbatim: bool = False, stats: Stats | None = None):
-    """Translate one file's text. Returns (text, problems). `stats` (a Stats) is filled when given."""
+def translate_text(text: str, label: str, ctx: dict, stats: Stats | None = None):
+    """Translate one file's text. Returns (text, problems); problems name `label`:<source line>.
+    `stats` (a Stats) is filled when given."""
     st = stats if stats is not None else Stats()
     problems = []
-    rendered, npaths, unknown = render_placeholders(text, ctx, verbatim=verbatim)
+    src = list(range(1, text.count("\n") + 2))
+    for rx, rep in EXCLUDED_PHRASES:
+        text, src = _prose_sub(text, src, rx, rep)
+    text, src = _venv_pass(text, src, label, problems)
+    rendered, npaths, unknown = render_placeholders(text, ctx)
     st["paths"] += npaths
     lines = rendered.split("\n")
     in_fence = False
     for i, line in enumerate(lines):
-        lineno = i + 1
+        lineno = src[i]
         for u in _PLACEHOLDER.findall(line):
-            if u in unknown:
+            if u in unknown and u != "__UNCLASSIFIED_SKILL__":
                 problems.append("%s:%d: %s" % (label, lineno, u))
+        for m in _UNCLASSIFIED_RE.finditer(line):
+            problems.append("%s:%d: skills/%s (ctx has no skill_modules to classify it)"
+                            % (label, lineno, m.group(1)))
+        for m in _VENV_LEFT.finditer(line):
+            problems.append("%s:%d: %s (a Claude stack venv)" % (label, lineno, m.group()))
+        for m in _EXCLUDED_RE.finditer(line):
+            problems.append("%s:%d: %s (a skill not installed for Codex)" % (label, lineno, m.group()))
         if _FENCE.match(line):
             in_fence = not in_fence
             continue
-        if in_fence or verbatim:
+        if in_fence:
             continue
         for rx, rep in PHRASES:
             line, k = rx.subn(rep, line)
@@ -440,7 +719,7 @@ def translate_text(text: str, label: str, ctx: dict, verbatim: bool = False, sta
                 continue
             st["mapped"][tok] = st["mapped"].get(tok, 0) + 1
             line = line[:s] + new + line[e:]
-        for rx in FORBIDDEN:
+        for rx in FORBIDDEN + [_VENV_PROSE]:
             for m in rx.finditer(line):
                 problems.append("%s:%d: %s" % (label, lineno, m.group()))
         lines[i] = line
