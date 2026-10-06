@@ -1,0 +1,37 @@
+[
+ {
+  "file": "codex_config/lib/codex_home.py",
+  "old": "              + [(c, \"the Claude config folder\") for c in claude]\n",
+  "new": "",
+  "tests": "codex_config/tests/test_codex_home.py",
+  "why": "drop the ~/.claude refusal"
+ },
+ {
+  "file": "codex_config/lib/codex_home.py",
+  "old": "return \"'\" in p or bool(",
+  "new": "return bool(",
+  "tests": "codex_config/tests/test_codex_home.py",
+  "why": "accept a ' in the path"
+ },
+ {
+  "file": "codex_config/lib/codex_home.py",
+  "old": "        if source != \"default\":\n            raise CodexHomeError(\"%s does not exist",
+  "new": "        if False:\n            raise CodexHomeError(\"%s does not exist",
+  "tests": "codex_config/tests/test_codex_home.py",
+  "why": "create an explicit CODEX_HOME that does not exist"
+ },
+ {
+  "file": "codex_config/lib/codex_home.py",
+  "old": "for n in STATE_NAMES]",
+  "new": "for n in ()]",
+  "tests": "codex_config/tests/test_codex_home.py",
+  "why": "drop the backup/state-root refusal"
+ },
+ {
+  "file": "codex_config/lib/codex_home.py",
+  "old": "            os.mkdir(path, 0o700)\n            os.chmod(path, 0o700)\n",
+  "new": "            os.mkdir(path)\n",
+  "tests": "codex_config/tests/test_codex_home.py",
+  "why": "create ~/.codex with the umask's mode"
+ }
+]
