@@ -14,15 +14,18 @@ Entry point (INTERFACES.md §3-B): build(parts, opts) -> dict with keys
   root keys only, B = its tables only (`hooks.state` excluded: Codex keeps config.toml's own).
   They are ALWAYS computed, so --diff can show them; the installer writes them only when
   opts["ide_default"] is true. In that mode merge(region_a, region_b) == codex exactly.
-- `codex_ide`: the comment-only text of codex.config.toml under --ide-default (so `--profile codex`
-  still works); None without ide_default.
+- `codex_ide`: the text of codex.config.toml under --ide-default (so `--profile codex` still
+  works): comments, then the carried-over `[hooks.state]` tables when there are any (U1: Codex may
+  write trust into the active profile file); None without ide_default.
 - `codex_astra_ide`: the codex-astra overlay under --ide-default, only the six
-  `[agents.<role>] config_file` entries; None without ide_default or with no_astra_profile.
+  `[agents.<role>] config_file` entries plus the carried-over `hooks.state` (if any); None without
+  ide_default or with no_astra_profile.
 
 What the installer writes: without ide_default, `codex` and `codex_astra` (whole files); with it,
 `codex_ide`, `codex_astra_ide` and the two regions. `codex`/`codex_astra` are still returned in
 ide mode, as the reference the regions were cut from; neither carries `hooks.state` then, and no
-written profile carries `[hooks]` (hooks load from every layer, F3: the guard would run twice).
+written profile carries a hook handler (hooks load from every layer, F3: the guard would run twice);
+the written ones carry only `hooks.state`.
 
 Parts (all required, nothing else accepted): `blackcat` {model, effort, instructions};
 `rules_text` (R); `agents_entries` {role: {description, config_file}}; `astra_entries` (the six,
@@ -47,14 +50,28 @@ in the codex-astra overlay under ide_default; let region A hold a table; accept 
 drop features.network_proxy from the template; keep default_permissions under legacy_sandbox; drop
 the carried-over hooks.state; drop shell_environment_policy; copy the astra profile shallowly (the
 codex profile's entries move too); put the BlackCat body before R; leave hooks.state in region B;
-keep hooks.state in the reference profile under ide_default.
+keep hooks.state in the reference profile under ide_default; drop hooks.state from the ide-mode
+codex profile text, or from the ide-mode codex-astra overlay.
 """
 from __future__ import annotations
 
 import copy
+import importlib.util
 import re
 import tomllib
 from pathlib import Path
+
+
+def _load(name):
+    """A sibling module loaded by file path (CWE-427: never through sys.path)."""
+    path = Path(__file__).resolve().parent / ("%s.py" % name)
+    spec = importlib.util.spec_from_file_location("codex_config_%s_for_profile" % name, path)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+_toml = _load("toml_emit")
 
 __all__ = ["BuildError", "build", "load_template", "merge_hooks_state", "TEMPLATE", "PARTS", "OPTS",
            "PERMISSION_PROFILE", "ASTRA_COUNT", "TEMPLATE_KEYS", "IDE_PROFILE_TEXT"]
@@ -365,8 +382,13 @@ def build(parts: dict, opts: dict) -> dict:
 
     codex_ide = codex_astra_ide = None
     if o["ide_default"]:
-        codex_ide = IDE_PROFILE_TEXT
+        # U1: Codex may write /hooks trust into the active profile file, so the carried-over
+        # [hooks.state] stays in both written profile files (state only, never a handler)
+        state = {"hooks": {"state": copy.deepcopy(p["hooks_state"])}} if p["hooks_state"] else None
+        codex_ide = IDE_PROFILE_TEXT + ("\n" + _toml.dumps(state) if state else "")
         if astra is not None:
             codex_astra_ide = {"agents": {n: {"config_file": path} for n, path in astra.items()}}
+            if state:
+                codex_astra_ide["hooks"] = copy.deepcopy(state["hooks"])
     return {"codex": codex, "codex_astra": codex_astra, "region_a": region_a, "region_b": region_b,
             "codex_ide": codex_ide, "codex_astra_ide": codex_astra_ide}

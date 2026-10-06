@@ -1,0 +1,44 @@
+[
+ {
+  "file": "codex_config/lib/doctor.py",
+  "old": "    if not records:\n        return \"no record\"\n",
+  "new": "    if not records:\n        return \"trusted\"\n",
+  "tests": "codex_config/tests/test_doctor.py::test_untrusted_key_fails",
+  "why": "a key without a trust record counts as trusted"
+ },
+ {
+  "file": "codex_config/lib/doctor.py",
+  "old": "    if any(rec.get(\"enabled\") is False for _, rec in records):\n",
+  "new": "    if False:\n",
+  "tests": "codex_config/tests/test_doctor.py::test_untrusted_key_fails",
+  "why": "a disabled trust record counts as trusted"
+ },
+ {
+  "file": "codex_config/lib/doctor.py",
+  "old": "                out.append(\"%s: changed since the install\" % rel)\n",
+  "new": "                pass\n",
+  "tests": "codex_config/tests/test_doctor.py::test_drift_of_a_stack_file_and_of_the_profile",
+  "why": "file hash drift is ignored"
+ },
+ {
+  "file": "codex_config/lib/doctor.py",
+  "old": "                if r in now and now[r] != regions.get(r):\n",
+  "new": "                if False:\n",
+  "tests": "codex_config/tests/test_doctor.py::test_ide_default_keys_trusted_in_config_toml_and_region_drift",
+  "why": "region drift is ignored"
+ },
+ {
+  "file": "codex_config/lib/doctor.py",
+  "old": "    return [\"config.toml\", name + \".config.toml\", name + \"-astra.config.toml\"]\n",
+  "new": "    return [\"config.toml\"]\n",
+  "tests": "codex_config/tests/test_doctor.py::test_trusted_in_the_profile_files_and_codex_trust_writes_are_not_drift",
+  "why": "the profile files are not read for trust records (U1)"
+ },
+ {
+  "file": "codex_config/lib/doctor.py",
+  "old": "    if isinstance(hooks, dict) and \"state\" in hooks:\n",
+  "new": "    if False:\n",
+  "tests": "codex_config/tests/test_doctor.py::test_trusted_in_the_profile_files_and_codex_trust_writes_are_not_drift",
+  "why": "Codex's own trust writes count as profile drift"
+ }
+]

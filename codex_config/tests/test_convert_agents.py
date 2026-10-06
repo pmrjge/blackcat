@@ -210,6 +210,44 @@ def test_http_server_gets_the_headers_helper(tmp_path):
         "http_headers_helper": "%s/stack/bin/codex-mcp-headers exa" % ctx["codex_home"]}
 
 
+INSTALL_SH = REPO / "install.sh"
+_ROW = re.compile(r'\("([a-z]+)", "[^"]*", \{"type": "http", "url": (EXA_URL|"[^"]*")\s*'
+                  r'(,\s*"headersHelper": helper_cmd)?\}\)')
+
+
+def test_user_scope_servers(tmp_path):
+    ctx = ctx_for(tmp_path)
+    helper = ctx["codex_home"] + "/stack/bin/codex-mcp-headers"
+    out = ca.user_scope_servers(ctx, False)
+    assert list(out) == ["exa", "jina", "wolfram", "huggingface"]
+    assert out["wolfram"] == {"url": "https://agenttools.wolfram.com/mcp"}
+    for sid in ("exa", "jina", "huggingface"):
+        assert out[sid]["http_headers_helper"] == "%s %s" % (helper, sid)
+    wb = ca.user_scope_servers(ctx, True)
+    assert list(wb) == list(out) + ["wandb"]
+    assert wb["wandb"] == {"url": "https://mcp.withwandb.com/mcp", "http_headers_helper": helper + " wandb"}
+    with pytest.raises(ca.BuildError, match="with_wandb"):
+        ca.user_scope_servers(ctx, "yes")
+    with pytest.raises(ca.BuildError, match="ctx"):
+        ca.user_scope_servers(dict(ctx, codex_home="rel"), False)
+
+
+def test_user_scope_servers_match_install_sh(tmp_path):
+    """The Claude installer's user-scope rows (install.sh EXA_URL and `rows`, wandb only under
+    WANDB_API_KEY) are the contract: same ids, URLs and which servers take a key header."""
+    if not INSTALL_SH.is_file():
+        pytest.skip("install.sh is not in this tree (mutation runs copy codex_config/, lib/, dot-claude/)")
+    text = INSTALL_SH.read_text()
+    exa = re.search(r'^EXA_URL = "([^"]+)"$', text, re.M)
+    assert exa and exa.group(1) == ca.EXA_URL
+    rows = {m.group(1): (exa.group(1) if m.group(2) == "EXA_URL" else m.group(2).strip('"'), bool(m.group(3)))
+            for m in _ROW.finditer(text)}
+    assert set(rows) == {"exa", "jina", "wolfram", "huggingface", "wandb"}
+    assert re.search(r'if e\("WANDB_API_KEY"\):\n    rows\.append\(\("wandb"', text)
+    got = ca.user_scope_servers(ctx_for(tmp_path), True)
+    assert {sid: (t["url"], "http_headers_helper" in t) for sid, t in got.items()} == rows
+
+
 def test_ctx_must_be_absolute_and_consistent(tmp_path):
     ctx = ctx_for(tmp_path)
     for bad in (dict(ctx, codex_home="rel"), dict(ctx, stack="/elsewhere/stack")):
@@ -260,19 +298,56 @@ def test_headers_default_path_in_the_installed_layout(scratch_home):
     assert json.loads(r.stdout) == {"x-api-key": "exa-key-123"}
 
 
-@pytest.mark.parametrize("kind", ["0644", "symlink", "0640"])
-def test_headers_refuse_an_unsafe_stack_env(scratch_home, kind):
-    if kind == "symlink":
-        real = scratch_home["home"] / "dotfiles.env"
-        real.write_text(SECRETS)
-        real.chmod(0o600)
-        p = scratch_home["codex_home"] / "stack.env"
+def dotfiles_link(scratch_home, mode=0o600, chain=False):
+    """<codex_home>/stack.env as a symlink (a dotfiles checkout) to a file of the given mode; with
+    chain, through a second link."""
+    real = scratch_home["home"] / "dotfiles" / "stack.env"
+    real.parent.mkdir(exist_ok=True)
+    real.write_text(SECRETS)
+    real.chmod(mode)
+    p = scratch_home["codex_home"] / "stack.env"
+    if chain:
+        mid = scratch_home["home"] / "mid.env"
+        mid.symlink_to(real)
+        p.symlink_to(mid)
+    else:
         p.symlink_to(real)
+    return p
+
+
+@pytest.mark.parametrize("chain", [False, True])
+def test_headers_follow_a_safe_symlinked_stack_env(scratch_home, chain):
+    """stack.env is WRITE_THROUGH: a dotfiles link to a 0600 file of yours is read."""
+    p = dotfiles_link(scratch_home, chain=chain)
+    for r in (run_headers(scratch_home, "exa", env_file=p), run_headers(scratch_home, "--env-file", str(p), "exa")):
+        assert r.returncode == 0, r.stderr
+        assert json.loads(r.stdout) == {"x-api-key": "exa-key-123"}
+    bindir = scratch_home["codex_home"] / "stack" / "bin"
+    bindir.mkdir(parents=True)
+    shutil.copy2(HEADERS_BIN, bindir / "codex-mcp-headers")
+    r = run_headers(scratch_home, "exa", script=bindir / "codex-mcp-headers")
+    assert json.loads(r.stdout) == {"x-api-key": "exa-key-123"}
+
+
+@pytest.mark.parametrize("kind", ["0644", "0640", "link-0644", "link-0604", "dangling", "link-dir"])
+def test_headers_refuse_an_unsafe_stack_env(scratch_home, kind):
+    p = scratch_home["codex_home"] / "stack.env"
+    if kind.startswith("link-0"):
+        p = dotfiles_link(scratch_home, mode=int(kind[5:], 8))
+    elif kind == "dangling":
+        p.symlink_to(scratch_home["home"] / "gone.env")
+    elif kind == "link-dir":
+        d = scratch_home["home"] / "envdir"
+        d.mkdir(mode=0o700)
+        p.symlink_to(d)
     else:
         p = stack_env(scratch_home, mode=int(kind, 8))
     r = run_headers(scratch_home, "exa", env_file=p)
     assert r.returncode == 1 and r.stdout == ""
-    assert ("symlink" if kind == "symlink" else "chmod 600") in r.stderr
+    want = {"dangling": "dangling symlink", "link-dir": "not a regular file"}.get(kind, "chmod 600")
+    assert want in r.stderr
+    if kind.startswith("link"):
+        assert "a symlink to" in r.stderr
     assert "exa-key-123" not in r.stderr
 
 

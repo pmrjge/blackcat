@@ -15,9 +15,30 @@
  },
  {
   "file": "codex_config/bin/codex-mcp-headers",
-  "old": "os.O_RDONLY | os.O_NOFOLLOW | ",
-  "new": "os.O_RDONLY | ",
+  "old": "        if st.st_mode & 0o077:\n",
+  "new": "        if st.st_mode & 0o077 and what == path:\n",
   "tests": "codex_config/tests/test_convert_agents.py::test_headers_refuse_an_unsafe_stack_env",
-  "why": "a symlinked stack.env is followed"
+  "why": "a symlink's group-readable target is read (only the link path itself is checked)"
+ },
+ {
+  "file": "codex_config/bin/codex-mcp-headers",
+  "old": "        raise Refused(\"%s is a dangling symlink\" % path)\n",
+  "new": "        return os.open(os.devnull, os.O_RDONLY)\n",
+  "tests": "codex_config/tests/test_convert_agents.py::test_headers_refuse_an_unsafe_stack_env",
+  "why": "a dangling stack.env link is read as no keys instead of refused"
+ },
+ {
+  "file": "codex_config/bin/codex-mcp-headers",
+  "old": "        if not stat.S_ISREG(st.st_mode):\n",
+  "new": "        if False:\n",
+  "tests": "codex_config/tests/test_convert_agents.py::test_headers_refuse_an_unsafe_stack_env",
+  "why": "a symlink to a directory (not a regular file) is read"
+ },
+ {
+  "file": "codex_config/bin/codex-mcp-headers",
+  "old": "            fd = _open_link(path)\n",
+  "new": "            raise Refused(\"%s is a symlink; refusing to read keys through it\" % path)\n",
+  "tests": "codex_config/tests/test_convert_agents.py::test_headers_follow_a_safe_symlinked_stack_env",
+  "why": "a dotfiles-linked stack.env (WRITE_THROUGH) is refused"
  }
 ]
