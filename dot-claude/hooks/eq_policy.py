@@ -325,8 +325,16 @@ def validate_params(obj):
         errs.append("top-level keys must be exactly %s" % ", ".join(TOP_KEYS))
     if obj.get("schema") != SCHEMA_PARAMS:
         errs.append("schema must be %s" % SCHEMA_PARAMS)
-    if not (_is_int(obj.get("version")) and obj.get("version") >= 1):
-        errs.append("version must be an integer >= 1")
+    ver = obj.get("version")
+    if not _is_int(ver):
+        errs.append("version must be an integer >= 1 (0 only for the all-not_run placeholder)")
+    elif ver == 0:
+        cl = obj.get("classes")
+        if not (isinstance(cl, dict) and cl and all(
+                isinstance(e, dict) and e.get("status") == "not_run" for e in cl.values())):
+            errs.append("version 0 is the all-not_run placeholder: every class status must be not_run")
+    elif ver < 1:
+        errs.append("version must be an integer >= 1 (0 only for the all-not_run placeholder)")
     if not isinstance(obj.get("created_utc"), str):
         errs.append("created_utc must be a string")
     if not isinstance(obj.get("provenance"), dict):

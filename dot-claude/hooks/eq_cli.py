@@ -1188,6 +1188,9 @@ def _all_stopped(r, plan):
                for i in range(1, plan["N"] + 1))
 
 
+TRAILER_ONLY_NOTE = "level-1 trailer verdict (exit status not in payload)"
+
+
 def cmd_result(r, plan, params_ok=True):
     st = r.state()
     if st.get("phase") not in ("reduced", "result"):
@@ -1239,6 +1242,10 @@ def cmd_result(r, plan, params_ok=True):
                 if isinstance(v, dict):
                     checks["candidates"]["r%d/c%d" % (rnd, i)] = {"verdict": v.get("verdict"),
                                                                   "exit_source": v.get("exit_source")}
+        trailer_only = sorted(k for k, v in checks["candidates"].items() if v["exit_source"] == "trailer")
+        if trailer_only:               # a pass kept from the EQCHECK trailer alone (the payload had no exit status)
+            checks["trailer_only"] = trailer_only
+            checks["note"] = TRAILER_ONLY_NOTE
     fields = {"run": r.run, "class": plan["class"], "validated": validated, "status_reason": reason,
               "validated_on": plan.get("validated_on") if validated else None,
               "params_sha256": plan.get("params_sha256"), "checks": checks,
@@ -1265,6 +1272,8 @@ def cmd_result(r, plan, params_ok=True):
             proj.write_json(proj_parts(r.run), "result.json", obj)
         copied = True
     lines = [prose, json.dumps(obj, indent=1, sort_keys=True)] + list(nxt)
+    if checks and checks.get("trailer_only"):
+        lines.insert(1, "checks: %s: %s" % (TRAILER_ONLY_NOTE, ", ".join(checks["trailer_only"])))
     if not copied:
         lines.append("note: result.json goes to ./.claude-work/eq/%s/ once every member has stopped" % r.run)
     block = "\n".join(lines) + "\n"

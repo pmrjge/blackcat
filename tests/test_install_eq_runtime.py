@@ -57,8 +57,8 @@ class Box:
         self.home.mkdir(parents=True, exist_ok=True)
         self.conf = self.home / ".claude"
         self.repo = Path(TS._scratch_repo(str(self.t / "repo")))
-        # the shipped params file is version 0, which eq_policy.validate_params refuses (see the xfail test
-        # below): the scratch repo ships a valid one, so these tests pin the installer, not that file
+        # the shipped params file is the version-0 placeholder (valid, all not_run): these tests tamper with
+        # and compare against a `"version": 1` file, so the scratch repo ships the version-1 form of it
         pp = self.repo / "dot-claude" / "hooks" / "eq_params.json"
         commit(self.repo, "dot-claude/hooks/eq_params.json", pp.read_text().replace('"version": 0', '"version": 1'))
 
@@ -111,8 +111,17 @@ def mode(p):
     return stat.S_IMODE(os.stat(p).st_mode)
 
 
-@pytest.mark.xfail(strict=True, reason="dot-claude/hooks/eq_params.json ships version 0; eq_policy.validate_params "
-                   "requires >= 1, so the shipped pair is refused (every class not_run) until one of them changes")
+def test_settings_wires_the_guard_for_check_verdicts_and_consent_records():
+    """Without these two groups agent_guard never sees a Bash result or an AskUserQuestion answer: no
+    check verdicts (PostToolUse Bash, PostToolUseFailure Bash) and no consent records (AskUserQuestion)."""
+    hooks = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["hooks"]
+    want = '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" agent_guard'
+    for event, matcher in (("PostToolUse", "Bash|AskUserQuestion"), ("PostToolUseFailure", "Bash")):
+        groups = [g for g in hooks[event] if g.get("matcher") == matcher]
+        assert len(groups) == 1, (event, matcher)
+        assert [h["command"] for h in groups[0]["hooks"]] == [want], (event, matcher)
+
+
 def test_the_shipped_params_file_validates():
     pol = TS_policy()
     obj = json.loads((ROOT / "dot-claude" / "hooks" / "eq_params.json").read_text())

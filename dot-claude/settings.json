@@ -747,6 +747,16 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "Bash|AskUserQuestion",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
+            "timeout": 15
+          }
+        ]
+      },
+      {
         "matcher": "Agent|Task|SubAgent|TaskStop",
         "hooks": [
           {
@@ -809,6 +819,16 @@
       }
     ],
     "PostToolUseFailure": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/bin/sh \"__CLAUDE_DIR__/bin/stack-hook\" agent_guard",
+            "timeout": 15
+          }
+        ]
+      },
       {
         "matcher": "Agent|Task|SubAgent",
         "hooks": [
