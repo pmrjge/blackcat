@@ -1,0 +1,80 @@
+{
+ "$schema": "https://json-schema.org/draft/2020-12/schema",
+ "type": "object",
+ "required": [
+  "answer",
+  "evidence",
+  "confidence"
+ ],
+ "properties": {
+  "answer": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "file",
+     "line",
+     "claim_class",
+     "claim"
+    ],
+    "properties": {
+     "file": {
+      "type": "string",
+      "enum": [
+       "f1.py",
+       "f2.py"
+      ]
+     },
+     "line": {
+      "type": "integer",
+      "minimum": 1
+     },
+     "claim_class": {
+      "type": "string",
+      "enum": [
+       "off-by-one",
+       "null-deref"
+      ]
+     },
+     "claim": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "evidence": {
+   "type": "array",
+   "items": {
+    "type": "object",
+    "required": [
+     "kind",
+     "ref",
+     "detail"
+    ],
+    "properties": {
+     "kind": {
+      "type": "string",
+      "enum": [
+       "command",
+       "file_line",
+       "quote",
+       "counterexample",
+       "test"
+      ]
+     },
+     "ref": {
+      "type": "string"
+     },
+     "detail": {
+      "type": "string"
+     }
+    }
+   }
+  },
+  "confidence": {
+   "type": "number",
+   "minimum": 0,
+   "maximum": 1
+  }
+ }
+}

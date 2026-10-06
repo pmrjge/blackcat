@@ -1,0 +1,5 @@
+old scores: {'A': 3, 'B': 1} -> A wins by padding
+new keys m1: {('f.py', 11, '2361da78')} (3 citations -> 1 canonical key)
+new R3: ('B', {'A': 1, 'B': 2})
+tie -> plain votes: ('B', {'A': 1, 'B': 1})
+no verified member -> ('R0', {})

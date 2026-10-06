@@ -1,0 +1,16 @@
+# Stub fixture built 2026-10-04 by make_fixture.py into /tmp/claude-501/eq_r1_fixture (the agent sandbox denies Bash
+# writes under EQ-T, so the data live there; rebuild anywhere with: uv run --script analysis-r1/fixture/make_fixture.py --out <dir>).
+# Check from /tmp/claude-501/eq_r1_fixture:  shasum -a 256 -c <this file>
+# run/ = the run dir; out/ = route 1 on it (uv run --script harness/eq_analyse.py --ledger <...>/run --out <...>/out).
+# A rebuild changes ledger bytes (timestamps, run_tag, paths) and P4 values, not the other quantities.
+e94524ca0cda94c0e267256706e4174bc0db654b48c2169f128557898885a38b  run/ledger.jsonl
+981e3520ec2f2df792ab17bfb3e5a5a96609a596982faf83dc25aa168ba65758  run/grading_results/CP.jsonl
+abcbeeb13e7826650ba58c0a22875810d18ae4ea8f74034830f28a6156a9b10a  run/grading_results/CR.jsonl
+b9f4641ebdeca367325883e295d043856fd48c152558c4f66e03e0a2a8e90ca6  run/grading_results/ES.jsonl
+2b16e0b39744e77642915643afabdbf2b4ab4aac9a13607c97811f8d69421e7f  run/grading_results/PF.jsonl
+9968d883db386f4497afd29062bd22a92a9d6600b05eb222c2c95e231cc3c400  partial/ledger.jsonl
+e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855  empty/ledger.jsonl
+9538ccd77850203bae20c5b59701ba825b5fd81f38667f41d52b61c348790084  out/results.csv
+f069e99efa15f2943cc85c5b379108ba1c0f21246eebadbd59bce05073369a38  out/quantities.txt
+0b1258fb76c41d2ea1384425be9c5ad9a8db69824671607e457e54de77354aa9  out/item_arms.csv
+185285567d7f19ee68105bacca4469a60089502541bf4458c8399031570b903e  out/meta.json

@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0112 : ∀ x : ℝ, 0 < x → x ^ 2 + 54 / x ≥ 27 := by
+  sorry

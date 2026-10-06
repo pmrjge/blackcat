@@ -62,3 +62,11 @@ docs/wiki/
 *.bundle
 *.tar.gz
 .claude-work
+
+# --- equilibrium/: the Equilibrium experiment, tracked (equilibrium/README.md) ---
+# the PF pool's oracle build records are part of the pool (pool.sha256); the blanket build/ rule above would drop them
+!equilibrium/items/PF/oracle/build/
+# run outputs, never tracked: a stage's runs/ when EQ_ROOT points here (only the top-level one: the RS pool's
+# fixtures/corpus/runs/ is a tracked fixture), and the harness's per-node .eq_deps/ work files
+/equilibrium/runs/
+/equilibrium/**/.eq_deps/

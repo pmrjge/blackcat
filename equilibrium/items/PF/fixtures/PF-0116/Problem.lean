@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0116 : ∀ x : ℝ, 0 < x → 2 * x ^ 2 + 108 / x ≥ 54 := by
+  sorry

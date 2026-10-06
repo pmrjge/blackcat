@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0097 : ∀ x : ℝ, x ^ 3 - 5 * x ^ 2 + 7 * x - 3 = 0 → x = 1 ∨ x = 3 := by
+  sorry

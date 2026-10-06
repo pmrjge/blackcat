@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0171 : ∀ n : ℕ, 5 ∣ 4 ^ (n + 1) + 2 ^ (2 * n) := by
+  sorry

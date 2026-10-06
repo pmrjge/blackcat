@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0113 : ∀ x : ℝ, 0 < x → 2 * x ^ 2 + 4 / x ≥ 6 := by
+  sorry

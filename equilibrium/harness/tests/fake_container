@@ -1,0 +1,169 @@
+#!/bin/bash
+# Fake Apple `container` CLI (1.5.0 shapes) for the tests; never the real services. One copy serves the repo tests
+# (tests/fake-container/container) and the harness tests (harness/tests/fake_container): keep them byte-identical.
+# Each invocation appends one line to $EQ_FAKE_CONTAINER_LOG: the arguments joined by the unit separator (0x1f).
+#   system status            -> rc 1 if EQ_FAKE_CONTAINER_DOWN=1 or the file EQ_FAKE_CONTAINER_DIE_ON_RUN exists
+#   image inspect REF        -> rc 1 if REF is in EQ_FAKE_CONTAINER_MISSING (space-separated); else a JSON array of one
+#                               object with exactly the keys configuration, id, variants (the shape the user verified);
+#                               the digest is REF's entry in EQ_FAKE_CONTAINER_DIGESTS (space-separated REF=sha256:..),
+#                               else EQ_FAKE_CONTAINER_DIGEST, else sha256:0{64}; EQ_FAKE_CONTAINER_INSPECT picks where it
+#                               sits: both (default, the 1.5.0 source's shape: .configuration.descriptor.digest and .id =
+#                               its hex), descriptor, id, none, conflict
+#   image save --output F REF -> copies $EQ_FAKE_CONTAINER_SAVE_DIR/<REF with :/@ as _>.tar to F, else rc 1
+#   image delete ... | kill ... | delete ...   -> rc 0
+#   build ... -t TAG ...     -> rc ${EQ_FAKE_CONTAINER_BUILD_RC:-0}
+#   list --all --format json -> a JSON array: EQ_FAKE_CONTAINER_LABELLED entries id:inv:started[:arm] (labels eq-harness=1,
+#                               eq-inv, eq-started, eq-arm when non-empty) and EQ_FAKE_CONTAINER_LIST_JSON (raw JSON array,
+#                               appended as is); every row is {"configuration": {"id", "labels"}, "status": "running"}
+#   run [opts] IMAGE ARGV    -> only the options `container run --help` (1.5.0) lists that the stack uses are accepted (any
+#                               other: rc 2); runs ARGV on the host: container paths of the --mount binds and of the
+#                               --tmpfs mounts (a fresh empty host dir each; /tmp included) are mapped back to host paths
+#                               (longest container prefix wins; a bind under a tmpfs appears there as a symlink), -w is
+#                               the cwd, -e entries are the whole environment (plus PATH), stdin is inherited (-i).
+#                               EQ_FAKE_CONTAINER_RUN_RC set -> exits with it instead (and, with
+#                               EQ_FAKE_CONTAINER_DIE_ON_RUN=<file>, creates that file: the services "die" with the run).
+#
+# What this fake assumes about the real CLI. Verified (the user's `container run --help`, 1.5.0, and `container image inspect
+# alpine:latest`): the run options listed above exist; `--network none` works (the user's spike); `image inspect` prints a JSON
+# array whose element has exactly the keys configuration, id, variants. Everything marked [unverified] below is encoded here
+# from the 1.5.0 docs or source and must be checked against the real CLI before the fake is trusted further (lib/eq-container
+# README, "Unverified"):
+#   [unverified] `system status` exits non-zero while the services are down (the docs only say it "checks whether the
+#                services are running"); every skip path of lib.sh / eq-container.sh / doctor.sh rests on that exit code.
+#   [source-read, not run] the image digest sits at .configuration.descriptor.digest and .id holds its hex without
+#                "sha256:" (ImageResource.swift at tag 1.5.0); eqc_json.py digest, the harness's inspect_digest and
+#                doctor.sh read exactly these two paths and require agreement when both hold a digest.
+#   [unverified] `container list --all --format json` rows carry .configuration.id and .configuration.labels (docs:
+#                container-inspection.md); eq_sweep and the harness's reaper read only these.
+#   [unverified] `image save --output F REF` writes an OCI image layout (index.json + blobs/sha256) or a docker-save layout
+#                (manifest.json); eqc_json.py reads both, the fake copies a prepared archive.
+#   [unverified] `--tmpfs PATH:size=N,mode=M` is accepted with those sub-options and enforces the size (docs/volumes.md at
+#                1.5.0, not the help text); the fake ignores everything after the path. probe.sh proves the cap on a real host.
+#   [unverified] `--ulimit nproc=N` is enforced as RLIMIT_NPROC of the --user uid inside the VM (`container run` has no pids
+#                limit); the fake ignores it. probe.sh's nproc sub-probe proves it on a real host.
+#   [unverified] `kill` / `delete --force` exit 0 for ids that are already gone; the fake always exits 0.
+set -u
+if [ -n "${EQ_FAKE_CONTAINER_LOG:-}" ]; then
+  (IFS=$'\x1f'; printf '%s\n' "$*") >> "$EQ_FAKE_CONTAINER_LOG"
+fi
+down() { [ "${EQ_FAKE_CONTAINER_DOWN:-0}" = 1 ] || { [ -n "${EQ_FAKE_CONTAINER_DIE_ON_RUN:-}" ] && [ -e "$EQ_FAKE_CONTAINER_DIE_ON_RUN" ]; }; }
+case "${1:-} ${2:-}" in
+  "system status")
+    if down; then echo "Error: XPC connection error: Connection invalid (fake)" >&2; exit 1; fi
+    echo "apiserver is running"
+    exit 0 ;;
+  "image inspect")
+    down && { echo "Error: XPC connection error (fake)" >&2; exit 1; }
+    ref="${!#}"
+    for m in ${EQ_FAKE_CONTAINER_MISSING:-}; do
+      if [ "$m" = "$ref" ]; then echo "Error: notFound: \"image $ref\"" >&2; exit 1; fi
+    done
+    d=${EQ_FAKE_CONTAINER_DIGEST:-sha256:0000000000000000000000000000000000000000000000000000000000000000}
+    for e in ${EQ_FAKE_CONTAINER_DIGESTS:-}; do [ "${e%%=*}" = "$ref" ] && d=${e#*=}; done
+    other=1111111111111111111111111111111111111111111111111111111111111111
+    desc='"descriptor":{"mediaType":"application/vnd.oci.image.index.v1+json","digest":"'"$d"'","size":1}'
+    case "${EQ_FAKE_CONTAINER_INSPECT:-both}" in
+      both) printf '[{"id":"%s","configuration":{"creationDate":"2026-10-05T00:00:00Z","name":"%s",%s},"variants":[]}]\n' "${d#sha256:}" "$ref" "$desc" ;;
+      descriptor) printf '[{"id":"%s","configuration":{"name":"%s",%s},"variants":[]}]\n' "$ref" "$ref" "$desc" ;;
+      id) printf '[{"id":"%s","configuration":{"name":"%s"},"variants":[]}]\n' "${d#sha256:}" "$ref" ;;
+      none) printf '[{"id":"%s","configuration":{"name":"%s"},"variants":[]}]\n' "$ref" "$ref" ;;
+      conflict) printf '[{"id":"%s","configuration":{"name":"%s",%s},"variants":[]}]\n' "$other" "$ref" "$desc" ;;
+    esac
+    exit 0 ;;
+  "image save")
+    shift 2; out=""
+    while [ $# -gt 1 ]; do case "$1" in --output|-o) out=$2; shift 2;; *) shift;; esac; done
+    src="${EQ_FAKE_CONTAINER_SAVE_DIR:-/nonexistent}/$(printf '%s' "${1:-}" | tr ':/@' '___').tar"
+    [ -n "$out" ] && [ -f "$src" ] && cp "$src" "$out" && exit 0
+    echo "Error: fake save: no archive $src" >&2; exit 1 ;;
+  "image delete")
+    exit 0 ;;
+esac
+case "${1:-}" in
+  kill | delete)
+    exit 0 ;;
+  build)
+    exit "${EQ_FAKE_CONTAINER_BUILD_RC:-0}" ;;
+  list)
+    rows=""
+    for o in ${EQ_FAKE_CONTAINER_LABELLED:-}; do
+      IFS=: read -r i v s a <<< "$o"
+      lab="\"eq-harness\":\"1\""
+      [ -n "$v" ] && lab="$lab,\"eq-inv\":\"$v\""
+      [ -n "$s" ] && lab="$lab,\"eq-started\":\"$s\""
+      [ -n "${a:-}" ] && lab="$lab,\"eq-arm\":\"$a\""
+      rows="$rows${rows:+,}{\"configuration\":{\"id\":\"$i\",\"labels\":{$lab}},\"status\":\"running\"}"
+    done
+    extra=${EQ_FAKE_CONTAINER_LIST_JSON:-[]}
+    extra=${extra#[}; extra=${extra%]}
+    [ -n "$extra" ] && rows="$rows${rows:+,}$extra"
+    printf '[%s]\n' "$rows"
+    exit 0 ;;
+  run) shift ;;
+  *) echo "fake container: unsupported command ${1:-}" >&2; exit 2 ;;
+esac
+if [ -n "${EQ_FAKE_CONTAINER_RUN_RC:-}" ]; then
+  [ -z "${EQ_FAKE_CONTAINER_DIE_ON_RUN:-}" ] || : > "$EQ_FAKE_CONTAINER_DIE_ON_RUN"
+  exit "$EQ_FAKE_CONTAINER_RUN_RC"
+fi
+ftmp=$(mktemp -d "${TMPDIR:-/tmp}/fakecontainer.XXXXXX")
+trap 'rm -rf "$ftmp"' EXIT
+ctrs=()
+hosts=()
+tmpfs_ctrs=()
+envs=()
+wdir=/
+add() { ctrs+=("$1"); hosts+=("$2"); }
+while [ $# -gt 0 ]; do
+  case "$1" in
+    --rm | --read-only | --init | -i | --no-dns) shift ;;
+    --mount)
+      src=""; dst=""
+      IFS=, read -r -a kvs <<< "$2"
+      for kv in "${kvs[@]}"; do
+        case "$kv" in source=*) src="${kv#*=}" ;; target=*) dst="${kv#*=}" ;; esac
+      done
+      add "$dst" "$src"; shift 2 ;;
+    --tmpfs)
+      c="${2%%:*}"
+      if [ "$c" != /tmp ]; then
+        d=$(mktemp -d "$ftmp/tmpfs.XXXXXX"); add "$c" "$d"; tmpfs_ctrs+=("$c")
+      fi
+      shift 2 ;;
+    -w) wdir="$2"; shift 2 ;;
+    -e) envs+=("$2"); shift 2 ;;
+    --name | --label | -l | --network | --cap-drop | --cap-add | -m | --memory | -c | --cpus | --ulimit | --user | -u \
+      | --uid | --gid) shift 2 ;;
+    -*) echo "fake container: run option $1 is not one the stack uses from \`container run --help\` (1.5.0)" >&2; exit 2 ;;
+    *) break ;;
+  esac
+done
+shift  # the image
+mkdir -p "$ftmp/tmp"
+add /tmp "$ftmp/tmp"
+map() {  # longest container prefix wins
+  local a="$1" i best=-1 blen=-1
+  for i in "${!ctrs[@]}"; do
+    local c="${ctrs[$i]}"
+    if [ "$a" = "$c" ] || [ "${a#"$c"/}" != "$a" ]; then
+      if [ "${#c}" -gt "$blen" ]; then best=$i; blen=${#c}; fi
+    fi
+  done
+  if [ "$best" -ge 0 ]; then printf '%s' "${hosts[$best]}${a#"${ctrs[$best]}"}"; else printf '%s' "$a"; fi
+}
+# a bind mounted under a tmpfs (e.g. read-only /work/tests over the /work tmpfs): a symlink inside the tmpfs dir
+for i in "${!ctrs[@]}"; do
+  for t in "${tmpfs_ctrs[@]+"${tmpfs_ctrs[@]}"}"; do
+    c="${ctrs[$i]}"
+    if [ "${c#"$t"/}" != "$c" ]; then
+      link="$(map "$t")/${c#"$t"/}"
+      mkdir -p "$(dirname "$link")" && ln -s "${hosts[$i]}" "$link"
+    fi
+  done
+done
+args=()
+for a in "$@"; do args+=("$(map "$a")"); done
+menv=("PATH=$PATH")
+for e in "${envs[@]+"${envs[@]}"}"; do menv+=("${e%%=*}=$(map "${e#*=}")"); done
+cd "$(map "$wdir")" || exit 125
+env -i "${menv[@]}" "${args[@]}"

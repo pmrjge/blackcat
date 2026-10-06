@@ -1,0 +1,15 @@
+{
+ "answer": {
+  "label": "REFUTED",
+  "value": "pass",
+  "rationale": "Deciding record: grades/b0v2/P36-v2.md. grades/b0v2/P36-v2.md records check_result: pass."
+ },
+ "evidence": [
+  {
+   "kind": "file_line",
+   "ref": "grades/b0v2/P36-v2.md",
+   "detail": "deciding record"
+  }
+ ],
+ "confidence": 0.8
+}

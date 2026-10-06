@@ -1,0 +1,62 @@
+{
+  "buildx.build.provenance": {
+    "builder": {
+      "id": ""
+    },
+    "buildType": "https://mobyproject.org/buildkit@v1",
+    "materials": [
+      {
+        "uri": "pkg:docker/debian@trixie-slim?digest=sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a\u0026platform=linux%2Farm64",
+        "digest": {
+          "sha256": "a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a"
+        }
+      }
+    ],
+    "invocation": {
+      "configSource": {
+        "entryPoint": "Dockerfile"
+      },
+      "parameters": {
+        "frontend": "dockerfile.v0",
+        "locals": [
+          {
+            "name": "context"
+          },
+          {
+            "name": "dockerfile"
+          }
+        ],
+        "root": {
+          "configSource": {
+            "path": "Dockerfile"
+          },
+          "request": {
+            "args": {
+              "vcs:localdir:context": ".claude-work/equilibrium/isolation",
+              "vcs:localdir:dockerfile": ".claude-work/equilibrium/isolation",
+              "vcs:revision": "a22c5b4e5aa67d5d3c6bea977eda2de1800bfd5f",
+              "vcs:source": "git@github.com:pmrjge/blackcat_v1.git"
+            }
+          }
+        },
+        "compatibilityVersion": 30
+      },
+      "environment": {
+        "dockerfileVersion": "1.27.0",
+        "platform": "linux/arm64"
+      }
+    }
+  },
+  "buildx.build.ref": "desktop-linux/desktop-linux/imp2slbzrz05bz7q3ssbssjxj",
+  "containerimage.descriptor": {
+    "mediaType": "application/vnd.oci.image.manifest.v1+json",
+    "digest": "sha256:a330847fe18bae3ab46721c5fd459e1b99c412141d01284038b017c93a9fafb9",
+    "size": 2020,
+    "platform": {
+      "architecture": "arm64",
+      "os": "linux"
+    }
+  },
+  "containerimage.digest": "sha256:a330847fe18bae3ab46721c5fd459e1b99c412141d01284038b017c93a9fafb9",
+  "image.name": "docker.io/library/eq-lean:4.34.1-arm64"
+}

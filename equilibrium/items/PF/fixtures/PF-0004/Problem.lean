@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0004 : ∀ f : ℕ → ℤ, f 0 = -1 → f 1 = 2 → (∀ n, f (n + 2) = 5 * f (n + 1) - 4 * f n) → ∀ n, f n = 4 ^ n - 2 * 1 ^ n := by
+  sorry

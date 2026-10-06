@@ -1,0 +1,4 @@
+non-dev proven: 200 / 200
+dev proven: 3 / 3
+seeded bugs per item: {1: 68, 2: 101, 3: 34}; bug kinds: {'arith': 53, 'bool': 20, 'cmp': 53, 'eq': 10, 'exc': 52, 'func': 10, 'in': 11, 'is': 6, 'lit': 12, 'mutdef': 2, 'not': 8, 'num': 135}
+regeneration identical to frozen pool: True

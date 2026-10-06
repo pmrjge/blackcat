@@ -1,0 +1,5 @@
+{
+ "answer": "Recursion means a function solves a problem by calling itself on a smaller piece of the same problem,\nuntil it reaches a case small enough to answer directly (the base case).\n\n**Example.** Counting files in a folder: `count(folder)` = number of files directly inside + `count(sub)` for each\nsub-folder. A folder with no sub-folders is the base case: just count its files.\n\n**How it runs.** Each call gets its own frame on the call stack holding its local variables. When `count(a)` calls\n`count(a/b)`, the frame for `a` waits; when `a/b` returns, its frame is popped and `a` continues. The stack is what\nremembers \"where we were\".\n\n**Misconception.** \"Recursion is always slow and should be avoided.\" Not so: it is often the clearest way to write tree\nand divide-and-conquer code. Its real limits are call overhead and stack depth: Python stops at about 1000 nested\ncalls (RecursionError) and does not optimise tail calls, so very deep trees need a loop with an explicit stack.\n\n**Takeaway:** recursion = base case + smaller self-call, with the call stack keeping track; mind the depth limit.",
+ "evidence": [],
+ "confidence": 0.7
+}

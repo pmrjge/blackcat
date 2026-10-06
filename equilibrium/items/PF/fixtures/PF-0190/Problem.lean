@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0190 : ∀ n : ℕ, 3 * ∑ i ∈ Finset.range (n + 1), i * (i + 1) = n * (n + 1) * (n + 2) := by
+  sorry

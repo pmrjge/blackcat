@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0095 : ∀ x : ℝ, x ^ 3 - 19 * x - 30 = 0 → x = -2 ∨ x = -3 ∨ x = 5 := by
+  sorry

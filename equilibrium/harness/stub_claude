@@ -1,0 +1,154 @@
+#!/usr/bin/env -S uv run --script --quiet
+# /// script
+# requires-python = ">=3.11"
+# dependencies = []
+# ///
+"""EQ_STUB_CLAUDE: a fake `claude` for the harness tests and the zero-spend dry run (PLAN step 3).
+
+Put a symlink named `claude` to this file first on PATH. It never contacts any API. It reads the prompt on stdin
+(first line `<ITEM> <label> <role>`), and prints a `--output-format json` envelope with a schema-valid
+`structured_output`, a fake `total_cost_usd` (<= the --max-budget-usd cap) and fake `usage`.
+
+Env:
+  EQ_STUB_SCRIPT  JSON file {"<key>": {"structured_output": {...}, "cost": 0.01, "subtype": "...", "exit": 0}}
+                  keys tried in order: "<ITEM>|<label>|<role>", "<ITEM>|<label>|<orig role>><role>" (resumed calls),
+                  "<ITEM>|<role>", "<ITEM>|*", "*". Without a hit the answer is generated from --json-schema.
+  EQ_STUB_LOG     JSONL file: one line per invocation (argv, cwd, head, session_id).
+  EQ_STUB_STATE   directory for session state (default: $TMPDIR/eq_stub_state).
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import os
+import sys
+import uuid
+from pathlib import Path
+from typing import Any
+
+MODEL = "claude-sonnet-stub"  # never a haiku id (user constraint 2026-10-04)
+
+
+def opt(argv: list[str], name: str) -> str | None:
+    if name in argv:
+        i = argv.index(name)
+        if i + 1 < len(argv):
+            return argv[i + 1]
+    return None
+
+
+def h(text: str) -> int:
+    return int(hashlib.sha256(text.encode()).hexdigest()[:8], 16)
+
+
+def instance(schema: dict[str, Any], seed: int, path: str = "") -> Any:
+    """A minimal valid instance of a JSON Schema subset (object, array, string, number, integer, boolean, enum)."""
+    if "const" in schema:
+        return schema["const"]
+    if "enum" in schema:
+        return schema["enum"][seed % len(schema["enum"])]
+    for key in ("oneOf", "anyOf"):
+        if key in schema:
+            return instance(schema[key][0], seed, path)
+    t = schema.get("type", "object")
+    if isinstance(t, list):
+        t = next((x for x in t if x != "null"), "null")
+    if t == "object":
+        props = schema.get("properties", {})
+        req = schema.get("required", list(props))
+        return {k: instance(props.get(k, {"type": "string"}), seed + i, f"{path}.{k}") for i, k in enumerate(req)}
+    if t == "array":
+        k = max(int(schema.get("minItems", 0)), 1 if schema.get("items") else 0)
+        return [instance(schema.get("items", {"type": "string"}), seed + j, f"{path}[{j}]") for j in range(k)]
+    if t == "string":
+        s = ["alpha", "beta"][seed % 2]
+        return s + "x" * max(0, int(schema.get("minLength", 0)) - len(s))
+    if t == "integer":
+        return max(int(schema.get("minimum", 0)), 1 + seed % 3)
+    if t == "number":
+        lo = float(schema.get("minimum", 0.0))
+        hi = float(schema.get("maximum", 1e9))
+        if path.endswith("confidence"):
+            return 0.5
+        return min(max(100.0 * (1 + seed % 3), lo), hi)
+    if t == "boolean":
+        return bool(seed % 2)
+    return None
+
+
+def special(role: str, schema: dict[str, Any], prompt: str, seed: int) -> dict[str, Any] | None:
+    props = schema.get("properties", {})
+    if "nodes" in props:  # a planner call
+        kind = "other"
+        for ln in prompt.splitlines():
+            if ln.startswith("answer_kind: "):
+                kind = {"checkable": "checkable", "finding_set": "finding-set", "numeric": "numeric",
+                        "long_form": "long-form"}.get(ln.split(": ", 1)[1].strip(), "other")
+        return {"nodes": [
+            {"id": "a", "owner": "coder", "brief": "gather", "deps": [], "kind": "other", "weight": 1},
+            {"id": "b", "owner": "verifier", "brief": "answer", "deps": ["a"], "kind": kind, "weight": 2 + seed % 2},
+        ]}
+    ans = props.get("answer", {})
+    if "ranking" in ans.get("properties", {}):
+        n = 0
+        for ln in prompt.splitlines():
+            if ln.startswith("CANDIDATES "):
+                n = int(ln.split()[1])
+        return {"answer": {"ranking": list(range(n))}, "evidence": [], "confidence": 0.5}
+    return None
+
+
+def main() -> int:
+    argv = sys.argv[1:]
+    if "--version" in argv:
+        print("0.0.0-stub (Claude Code) EQ_STUB_CLAUDE")
+        return 0
+    prompt = sys.stdin.read()
+    head = prompt.splitlines()[0] if prompt else ""
+    parts = head.split()
+    item, label, role = [*parts, "?", "?", "?"][:3]
+    schema = json.loads(opt(argv, "--json-schema") or "{}")
+    cap = float(opt(argv, "--max-budget-usd") or "0")
+    model = opt(argv, "--model") or MODEL
+    state = Path(os.environ.get("EQ_STUB_STATE", os.path.join(os.environ.get("TMPDIR", "."), "eq_stub_state")))
+    state.mkdir(parents=True, exist_ok=True)
+    resume = opt(argv, "--resume")
+    orig_role = None
+    if resume:
+        sid = resume
+        f = state / f"{sid}.json"
+        orig_role = json.loads(f.read_text())["role"] if f.exists() else None
+    else:
+        sid = str(uuid.uuid5(uuid.NAMESPACE_URL, f"{head}|{os.getcwd()}"))
+        (state / f"{sid}.json").write_text(json.dumps({"role": role, "head": head}))
+    script: dict[str, Any] = {}
+    if os.environ.get("EQ_STUB_SCRIPT"):
+        script = json.loads(Path(os.environ["EQ_STUB_SCRIPT"]).read_text())
+    keys = [f"{item}|{label}|{role}"]
+    if orig_role:
+        keys.append(f"{item}|{label}|{orig_role}>{role}")
+    keys += [f"{item}|{role}", f"{item}|*", "*"]
+    entry = next((script[k] for k in keys if k in script), {})
+    seed = h(head + "|" + (orig_role or ""))
+    so = entry.get("structured_output")
+    if so is None:
+        so = special(role, schema, prompt, seed) or instance(schema, seed)
+    cost = float(entry.get("cost", min(cap, 0.001 + (seed % 100) / 10000.0)))
+    out = {
+        "type": "result", "subtype": entry.get("subtype", "success"), "is_error": False, "duration_ms": 5,
+        "num_turns": 1, "result": json.dumps(so), "structured_output": so, "session_id": sid,
+        "total_cost_usd": cost, "model": model,
+        "usage": {"input_tokens": 100 + seed % 50, "cache_creation_input_tokens": 10, "cache_read_input_tokens": 20,
+                  "output_tokens": 30 + seed % 7},
+    }
+    if os.environ.get("EQ_STUB_LOG"):
+        with open(os.environ["EQ_STUB_LOG"], "a") as f:
+            f.write(json.dumps({"argv": argv, "cwd": os.getcwd(), "head": head, "session_id": sid,
+                                "stdin_first_line": head}) + "\n")
+    print(json.dumps(out))
+    return int(entry.get("exit", 0))
+
+
+if __name__ == "__main__":
+    sys.exit(main())

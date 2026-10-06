@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0121 : ∀ n : ℕ, ∑ i ∈ Finset.range n, (1 : ℚ) / (((i : ℚ) + 3) * ((i : ℚ) + 4)) = n / (3 * (n + 3)) := by
+  sorry

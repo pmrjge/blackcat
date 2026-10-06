@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0122 : ∀ n : ℕ, ∑ i ∈ Finset.range n, (5 : ℚ) / (((i : ℚ) + 1) * ((i : ℚ) + 2)) = 5 * n / (n + 1) := by
+  sorry

@@ -1,0 +1,5 @@
+{
+ "answer": "The best approach is microservices on Kubernetes with an event bus. Use a NoSQL database because it scales. Add caching everywhere. Security is handled by HTTPS.",
+ "evidence": [],
+ "confidence": 0.9
+}

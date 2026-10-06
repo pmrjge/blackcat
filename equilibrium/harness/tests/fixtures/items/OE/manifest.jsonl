@@ -1,0 +1,3 @@
+{"id":"OE-DEV1","class":"OE","dev":true,"answer_kind":"long_form","prompt":"Fake OE task 1.","segments":[],"decisive_segment":null,"fixture":null,"public_check":null,"allowed_tools":[]}
+{"id":"OE-DEV2","class":"OE","dev":true,"answer_kind":"long_form","prompt":"Fake OE task 2.","segments":[],"decisive_segment":null,"fixture":null,"public_check":null,"allowed_tools":[]}
+{"id":"OE-DEV3","class":"OE","dev":true,"answer_kind":"long_form","prompt":"Fake OE task 3.","segments":[],"decisive_segment":null,"fixture":null,"public_check":null,"allowed_tools":[]}

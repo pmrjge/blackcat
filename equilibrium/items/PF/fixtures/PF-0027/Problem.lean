@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0027 : ∀ a b : ℝ, a + b = 6 → a * b = 7 → a ^ 3 + b ^ 3 = 90 := by
+  sorry

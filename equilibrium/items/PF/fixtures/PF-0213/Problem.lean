@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0213 : ∀ a : ℕ → ℤ, a 0 = 3 → (∀ n, a (n + 1) = 5 * a n - 8) → ∀ n, a n = 5 ^ n + 2 := by
+  sorry

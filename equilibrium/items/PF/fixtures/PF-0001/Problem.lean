@@ -1,0 +1,4 @@
+import Mathlib
+
+theorem pf_0001 : ∀ f : ℕ → ℤ, f 0 = 2 → f 1 = 5 → (∀ n, f (n + 2) = 5 * f (n + 1) - 6 * f n) → ∀ n, f n = 2 ^ n + 3 ^ n := by
+  sorry

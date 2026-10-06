@@ -1,0 +1,2 @@
+document 4
+the capital of X is Y4
