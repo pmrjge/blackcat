@@ -506,3 +506,96 @@ n_d = 46. Hence the added "powered effect excluded" reading.
      - The `lib/eq-container` lookup now also searches the repository layout.
      - Tests: `harness/tests/test_shell.py::test_collect_refuses_destinations_git_does_not_ignore` and
        `harness/tests/test_repo_layout.py`.
+- **A6. 2026-10-06, PRE-FREEZE, proposed. Calibration cells, selection rules and the runtime arm (runtime
+  equilibrium, `docs-design/RUNTIME_EQUILIBRIUM.md` §7).** Written before `eq_freeze.sh` and before any eq call: no
+  `COMPARE_eq.sha256` sidecar and no `runs/` exist. The USER decided D1 (option B), D2, D3, D4, D10 and D11, relayed by
+  the coordinator; this text takes effect only if it is in the frozen package. A0-A5 stand. The pilot still tests
+  nothing; every claim is a q test.
+  1. **E2: forked reconcile and repair calls, before p3.** Every reconcile and repair call runs
+     `--resume <round-0 session> --fork-session` instead of resuming in place, and its `call` record carries
+     `parent_session_id`. Workdir classes (CP) copy the member's workdir per branch. The member's context is the same
+     (a fork copies the history), so p3's procedure is unchanged in substance; round-0 sessions stay pristine and can
+     be branched (p7). Cost $0 (code and stub tests).
+  2. **D3: models.** `flags.model` becomes per agent: each call runs its agent's own frontmatter model (Opus for every
+     S* type), superseding the 2026-10-04 `--model sonnet` constraint; no haiku anywhere stays. Each `call` record
+     carries `model_ids` (the sorted `modelUsage` keys of its result); the calibration takes each class's member model
+     id from the members' transcripts (`message.model`), cross-checked against `model_ids`.
+  3. **Cells.** New `call` fields: `cell` (`p6`, `p7` or null) and `branch` (`none`, `rotation`, `random`, `leader` or
+     null); p6 and p7 calls carry their own labels.
+     - **p6, nested N sweep (option B), classes PF, CP, CR, ES, RS (D2), on their pilot items (40).** Per item, 9
+       round-0 members of the class's S* type with the N = 9 view design, each at the family's N = 5 per-member cap
+       (0.14 B discrete, numeric and finding set; 0.16 B checkable). Public checks run once per candidate; CR
+       single-support clusters of the 9-set go once to the verifier (<= 10 calls per item) and the verdicts are reused
+       by every subset; RS answer equivalence runs once on the 9-set. DS and OE are not swept.
+     - **p7, rounds and LOO views, classes RS and ES (20 items).** From p3's pristine round-0 sessions, four forked
+       branches (`none`, `rotation`, `random`, `leader`, `RUNTIME_EQUILIBRIUM.md` §4.2; seeds `eq|loo` 568287631 and
+       `eq|loo|leader` 1446025924), each forced through R = 2 rounds at 0.025 B per member-round (the κ stop is
+       ignored live and simulated in the analysis). Every variant makes the same calls under the same caps.
+     - **Member-level grades.** p6, p3 and p7 member answers are graded like item-arm answers, blinded and in batches:
+       `grading_results/members/<CLS>.jsonl` (`item, label, member, round, branch, score`; PF and CP by the hidden
+       tests on each member's copy, RS by the rubric grader) and `grading_results/members/CR_findings.jsonl` (per
+       finding: the seeded bug it matches or null, the verdict, `n_seeded`). ES needs none (the frozen truth file).
+  4. **Selection rules on p (applied mechanically by `harness/eq_calibrate.py --stage p`; nothing is tested).** One
+     `numpy.random.default_rng(seed)` per (rule, class); B = 10,000 draws; seeds by the §8.4 derivation.
+     - **Class score** used by every rule: PF, CP, RS the binary score; CR the §2 score; ES s = −min(e, ln 10) (an
+       abstention, e = ∞, counts as ln 10).
+     - **score(m), m ∈ {1, 3, 5, 7, 9}:** the mean over all C(9, m) member subsets of the class score of the shipped
+       reducer (τ = 0.6, t = 2 at every m, not M1's t(m)) on the stored round-0 answers. Seeded tie-breaks are
+       replaced by their expectation (the mean score over the tied answers; verify-then-select: the mean hidden score
+       over the subset's passers, 0 with none). CR: clusters of the subset's findings, accepted at support >= 2 or as
+       a single finding the 9-set verifier confirmed.
+     - **N\*** = the smallest m whose mean score is within one bootstrap SE of the best m's (first maximum), the SE
+       being that of the paired difference best − m over a paired item bootstrap; seed `eq|nstar` = 4122099631.
+       N\* = 1 → the class is not eligible for q.
+     - **LOO variant**, pooled over RS and ES: per item, the stop-rule score at R_max = 2 of each variant vs `none`
+       (§2 win rule; ES with the ln 1.1 band); the variant with the largest wins − losses if > 0; ties at the top →
+       `rotation` if tied, else `random`, then `leader`; no variant > 0 → `none`. Checkable repair rounds take the
+       pooled choice; CR has no re-ask round (`none`).
+     - **rounds\* ∈ {0, 1, 2}** (RS, ES), on the chosen variant's branch: the one-SE rule above over r on the
+       stop-rule score (stop at round k when the top cluster reaches ⌈τn⌉ or round k accepted no change; items with
+       κ0 >= τ keep round 0); seed `eq|rounds` = 3549083166. Checkable repair ∈ {0, 1} from p3 by the same rule and seed
+       (score without repair = 0 on items that needed it). CR: 0.
+     - **Certainty signal** (PF, CP, RS, ES; CR and long-form: none), on p3's E item-arms plus p6's 9-member round-0
+       units (error: E's score 0, ES e > ln 2; p6: the 9-member reducer's expected score < 0.5): among 1 − κ0 (M5),
+       1 − λ0 and 1 − λ_final (M19), M15 reducer disagreement (discrete, numeric) and the round-0 public-check failure
+       share (checkable), the highest AUROC whose 95 % percentile-bootstrap lower bound (seed `eq|auroc` = 3066176665)
+       is > 0.5; none → no certainty. Its map: isotonic in the signal (equal values pooled, adjacent violators pooled,
+       equal fitted rates joined), merged to <= 3 bins (smallest rate gap first), cut points at block midpoints;
+       accuracy per bin with Wilson 95 % intervals.
+     - **Member caps** from the round-0 member calls (q's when the E arm has harness member calls, else p's):
+       context tokens (input + cache creation + cache read) ceil2(p90 × 1.25), turns ceil(p90 × 1.25), p90 linear;
+       per run N\* × member cap × (1 + rounds\*) + the verifier/equivalence calls (CR 5, RS 1) at their own p90 rule.
+     - **USD conversion** per member model: Σ `total_cost_usd` / Σ context tokens of those calls (a blended estimate).
+     - **Route 2** for every member call these use: the transcript's distinct assistant messages (a fork's messages
+       copied from its parent excluded) must give the ledger's context tokens within 1 %, else nothing is written.
+     - **S\***: the a-priori type (p5 is not funded; a stage with p5 calls is refused).
+  5. **Confirmation q.** Primary classes are named in the q amendment (<= 2, each with N\* >= 3). Arms S\*, G, E, EG
+     (D11). **E is the runtime itself (E_rt, D4):** `claude -p --agent equilibrium` in headless leader mode with the
+     selected bundle (`RUNTIME_EQUILIBRIUM.md` §2.5), its consent file written by the harness before the call.
+     **Equal USD restored (B_k(q)):** every arm of class k gets B_k(q) = c_k · N\*_k / f_members, with c_k the
+     per-member cap at N = 5 and f_members the family's member fraction, i.e. (N\*/5) · B (N\* = 9: 1.8 B), so members
+     keep the calibrated cap; rule 3 of §7.3 (B doubled when S\* hits its cap in > 30 % of pilot items) applies on top.
+     - Status per primary class: **validated** iff H1_k or H2_k is confirmed by Holm (§7.1) in E's favour AND
+       2^(median P1 log2 ratio of E over that beaten arm) <= m, m = 2 (D10; H1 checked first); **refuted** iff both
+       tests are refuted by the §7.1 rule; else **not_established**. Non-primary classes: **not_run**.
+     - H4 (A0.6) sets the reducer: an alternative confirmed by Holm over 3 in its favour (smallest adjusted p, then
+       R1, R3, ENS), else R0.
+     - **H5 (new secondary family):** the chosen LOO variant vs a forked `none` branch, paired sign test on the items
+       where reconcile (or repair) ran, Holm over the primary classes; reported, it changes no parameter.
+     - The certainty signal is not re-chosen on q: its AUROC CI (seed `eq|auroc`) and its bin accuracies (p's cut
+       points, Wilson) are re-estimated on q's E item-arms.
+  6. **New metrics (descriptive):** M19 AUROC of 1 − λ0 and 1 − λ_final, λ the LOO stability of
+     `RUNTIME_EQUILIBRIUM.md` §4.1 (mediator `attribution` records per round: `round`, `loo`, `lambda`, `pivotal`);
+     M20 conformity rate per LOO variant (M4 split by branch); M21 score(m) and cost(m) curves with their bootstrap
+     SEs; M22 score per round per variant.
+  7. **Multiplicity.** p selects (N\*, rounds\*, the LOO variant, the certainty signal and its bins, caps) and tests
+     nothing (§7.4); every claim is a q test on items disjoint from p (§3 draw order). The primary family stays
+     {H1_k, H2_k}, Holm over <= 4 tests; H3, H4 and H5 are separate secondary families. Selection on p and testing on q
+     keep these forking paths out of the error rate.
+  8. **Output.** `harness/eq_calibrate.py` refuses an unfrozen or inconsistent stage, then writes
+     `calibration/params.v<k>.json` (`eqparams.v1`, schema `calibration/params.schema.json`), `params.json`, its
+     sha256 sidecar, one `params.history.jsonl` line and `report.v<k>.json`. A rerun or a new pool is a new version and
+     a new dated §12 amendment; nothing is edited in place. Version 0 (no calibration, every class `not_run`) ships
+     now as `dot-claude/hooks/eq_params.json`.
+  9. Arms S\*, G and EG, items, oracles, the pilot's p1-p4, the primary family's tests, §8 and the stop rules are
+     unchanged. Paid steps and their caps: `hand_off/EQ_CALIBRATION_RUN_PLAN.md`; only the USER runs them.

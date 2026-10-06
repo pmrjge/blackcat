@@ -3435,6 +3435,15 @@
    ]
   }
  },
+ "later": {
+  "equilibrium/COMPARE_eq.md": {
+   "a5_blob": "1a6d00467ae57e904172f68ec353530a930e50c6",
+   "amendments": [
+    "A6"
+   ],
+   "sha256": "da8d30c080710b920f12b25ff0f5cd49569c951035ef7e857d3ab280434b6bbd"
+  }
+ },
  "rules": [
   "lean-sh-default",
   "lean-py-default",
