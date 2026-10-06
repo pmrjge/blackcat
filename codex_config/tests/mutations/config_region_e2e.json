@@ -1,0 +1,23 @@
+[
+ {
+  "file": "codex_config/lib/config_region.py",
+  "old": "    result = a_block + user + b_block\n",
+  "new": "    i = user.find(b\"\\n[\") + 1 if b\"\\n[\" in user else 0\n    result = user[:i] + a_block + user[i:] + b_block\n",
+  "tests": "codex_config/tests/test_installer_ide.py::test_user_root_keys_stay_at_the_root_outside_the_regions",
+  "why": "region A after the user's first table (installer path)"
+ },
+ {
+  "file": "codex_config/lib/config_region.py",
+  "old": "    if found:\n        raise RegionConflict(found)\n",
+  "new": "    if found and False:\n        raise RegionConflict(found)\n",
+  "tests": "codex_config/tests/test_installer_ide.py::test_a_conflicting_user_key_or_table_stops_the_run_naming_it",
+  "why": "conflict check skipped (installer path)"
+ },
+ {
+  "file": "codex_config/lib/config_region.py",
+  "old": "        out = out[:s] + out[e:]\n",
+  "new": "        nxt = out.find(b\"\\n\", e)\n        out = out[:s] + out[(nxt + 1 if nxt >= 0 else len(out)):]\n",
+  "tests": "codex_config/tests/test_installer_ide.py::test_no_ide_default_removes_exactly_the_regions",
+  "why": "--no-ide-default cuts one line too many (installer path)"
+ }
+]

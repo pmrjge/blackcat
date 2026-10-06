@@ -1,0 +1,23 @@
+[
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "    if not touches or force_config:\n        return\n",
+  "new": "    return\n",
+  "tests": "codex_config/tests/test_installer_e2e.py::test_restore_after_a_codex_style_append_refuses_without_force_config",
+  "why": "the restore never refuses a changed config.toml (installer path)"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "    if want is None or live != want:\n",
+  "new": "    if True:\n",
+  "tests": "codex_config/tests/test_installer_ide.py::test_restore_of_an_unchanged_config_round_trips",
+  "why": "the restore refuses even an unchanged config.toml (installer path)"
+ },
+ {
+  "file": "codex_config/lib/codex_state.py",
+  "old": "return ist.restore(c, bdir, root, work, commit, home, dry, force)",
+  "new": "return ist.restore(c, bdir, root, work, commit, home, dry, force or True)",
+  "tests": "codex_config/tests/test_installer_ide.py::test_restore_of_a_changed_config_needs_force_config_not_force",
+  "why": "the engine's force is always on (installer path)"
+ }
+]

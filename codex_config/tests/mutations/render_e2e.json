@@ -1,0 +1,16 @@
+[
+ {
+  "file": "codex_config/lib/render.py",
+  "old": "        _write(os.path.join(stage, main_rel), out[\"codex_ide\"])\n",
+  "new": "        _write(os.path.join(stage, main_rel), toml_emit.dumps(out[\"codex\"]))\n",
+  "tests": "codex_config/tests/test_installer_ide.py::test_no_profile_carries_hooks_in_this_mode_so_each_hook_runs_once",
+  "why": "the profile keeps [hooks] under --ide-default (installer path)"
+ },
+ {
+  "file": "codex_config/lib/render.py",
+  "old": "        if _sha(mine) == old.get(r) or mine == theirs:\n",
+  "new": "        if True:\n",
+  "tests": "codex_config/tests/test_installer_ide.py::test_an_edited_region_stops_with_a_diff_unless_force",
+  "why": "region drift ignored (installer path)"
+ }
+]
