@@ -27,8 +27,13 @@ stage path):
   shares the guard's ticket folder (both use toolsmith_policy.state_dir).
 - Profile files. --profile-name N (default codex) writes `<N>.config.toml` and
   `<N>-astra.config.toml` (Codex reads profile N from $CODEX_HOME/N.config.toml, DESIGN §3); the
-  live files of those names are the ones whose [hooks.state] is carried over (§7.4). Any other
-  table or key the stack does not write in a live profile file stops the run, naming it.
+  live files of those names are the ones whose [hooks.state] is carried over (§7.4; a key whose
+  records differ between the files takes the record of the file the key names). Any other table or
+  key the stack does not write in a live profile file stops the run, naming it: a foreign root key
+  before anything is written; below a stack root (`mcp_servers.mine`, `agents.my-role`, an extra
+  `hooks.PreToolUse[3]` group) every path that neither the file this run writes nor this run's full
+  profile holds, unless the live file's doctor.semantic_digest equals the old manifest's
+  options.profile_digests[rel] (exactly what the last install wrote).
   --no-astra-profile removes the staged astra file. Under --ide-default the codex file is the
   comment-only form and the astra file the six-entry overlay, both with the carried trust records.
 - rules/claude-agent-stack.rules (convert_rules), then `codex execpolicy check` on every example
@@ -60,7 +65,8 @@ stage path):
   Codex's own [hooks.state] writes from drift).
 
 Seeded-bug proofs (tests/mutations/render.json; each turns its named test red): a stage path leaked
-into a profile (the hook stub); a foreign profile table accepted; the conflict check skipped; region
+into a profile (the hook stub); a foreign profile table accepted (at the root, or below a stack root);
+the last install's own profile file taken for foreign; the conflict check skipped; region
 drift ignored; region A written after the user's first table (config_region); the backups root
 missing from protected_roots; stack.env overwritten when present; wandb emitted without
 --with-wandb; an execpolicy disagreement ignored; the astra file kept under --no-astra-profile;
@@ -244,7 +250,14 @@ def _sha(data):
 
 
 def _dotted(path):
-    return ".".join(k if _BARE.match(k) else json.dumps(k, ensure_ascii=False) for k in path)
+    """a.b."c d"[2].e: string keys dotted (quoted where needed), list indexes in brackets."""
+    out = ""
+    for k in path:
+        if isinstance(k, int):
+            out += "[%d]" % k
+        else:
+            out += ("." if out else "") + (k if _BARE.match(k) else json.dumps(k, ensure_ascii=False))
+    return out
 
 
 # ------------------------------------------------------------------------------------- args
@@ -334,11 +347,19 @@ def foreign_keys(doc):
     return out
 
 
-def live_hooks_state(stage, names, warnings):
-    """The merged [hooks.state] of the live profile files (§7.4); a foreign table stops the run."""
-    states = []
+def _foreign(rel, bad):
+    return RenderError("%s holds settings the stack does not write: %s. The installer owns this file "
+                       "whole; move your settings to config.toml, then run it again" % (rel, ", ".join(bad)))
+
+
+def live_profiles(stage, names, codex_home, warnings):
+    """(merged [hooks.state], {rel: live doc}) of the live profile files (§7.4). A root key the stack
+    never writes stops the run here, before anything is written; deeper foreign paths are found by
+    foreign_paths() once this run's profile is built."""
+    states, docs = [], {}
     for rel in names:
         p = os.path.join(stage, rel)
+        states.append(None)
         if os.path.islink(p):
             warnings.append("%s is a symlink: it is replaced by the stack's file (the backup keeps "
                             "it); trust records in its target are not carried over" % rel)
@@ -353,14 +374,52 @@ def live_hooks_state(stage, names, warnings):
                               "again" % (rel, exc)) from None
         bad = foreign_keys(doc)
         if bad:
-            raise RenderError("%s holds settings the stack does not write: %s. The installer owns this "
-                              "file whole; move your settings to config.toml, then run it again"
-                              % (rel, ", ".join(bad)))
-        states.append((doc.get("hooks") or {}).get("state"))
+            raise _foreign(rel, bad)
+        states[-1] = (doc.get("hooks") or {}).get("state")
+        docs[rel] = doc
     try:
-        return render_profile.merge_hooks_state(*states)
+        state = render_profile.merge_hooks_state(
+            *states, owners=tuple("%s/%s:" % (codex_home, rel) for rel in names))
     except render_profile.BuildError as exc:
         raise RenderError(str(exc)) from None
+    return state, docs
+
+
+def _missing(live, refs, path=()):
+    """Paths of `live` that none of the documents `refs` holds: the first missing level of a table,
+    an array-of-tables element past every ref's length; scalars and arrays of scalars are leaves (a
+    changed value of a stack key is the stack's to rewrite, not foreign)."""
+    out = []
+    for k, v in live.items():
+        if path == ("hooks",) and k == "state":
+            continue                              # Codex's trust records: carried over (§7.4)
+        sub = [r[k] for r in refs if isinstance(r, dict) and k in r]
+        if not sub:
+            out.append(path + (k,))
+        elif isinstance(v, dict):
+            out += _missing(v, [s for s in sub if isinstance(s, dict)], path + (k,)) if any(
+                isinstance(s, dict) for s in sub) else [path + (k,)]
+        elif isinstance(v, list) and v and all(isinstance(x, dict) for x in v):
+            lists = [s for s in sub if isinstance(s, list)]
+            for i, item in enumerate(v):
+                there = [s[i] for s in lists if i < len(s) and isinstance(s[i], dict)]
+                out += _missing(item, there, path + (k, i)) if there else [path + (k, i)]
+    return out
+
+
+def foreign_paths(live_docs, new_docs, digests):
+    """{rel: [dotted path]} of the live profile files' settings this run would drop (§7.4). A file
+    whose doctor.semantic_digest equals the old manifest's profile_digests[rel] is exactly what the
+    last install wrote (Codex's [hooks.state] writes aside): skipped. new_docs[rel] lists the
+    documents the stack writes for rel in this run (the written form and the full reference profile)."""
+    out = {}
+    for rel, doc in live_docs.items():
+        if isinstance(digests.get(rel), str) and doctor.semantic_digest(doc) == digests[rel]:
+            continue
+        bad = _missing(doc, new_docs.get(rel) or [])
+        if bad:
+            out[rel] = [_dotted(p) for p in bad]
+    return out
 
 
 # ------------------------------------------------------------------------------------- stack/
@@ -582,7 +641,7 @@ def render(a):
     warnings = []
     names = profile_files(ctx["profile_name"])
     old_manifest = _old_manifest(stage, warnings)
-    hooks_state = live_hooks_state(stage, names, warnings)
+    hooks_state, live_docs = live_profiles(stage, names, ctx["codex_home"], warnings)
     mode, source = ide_mode(a, stage)
     try:
         settings = json.loads(_need(os.path.join(src, "dot-claude", "settings.json")).decode("utf-8"))
@@ -645,6 +704,14 @@ def render(a):
     except render_profile.BuildError as exc:
         raise RenderError(str(exc)) from None
     main_rel, astra_rel = names
+    old_opts = (old_manifest or {}).get("options")
+    old_digests = old_opts.get("profile_digests") if isinstance(old_opts, dict) else None
+    ref_astra = out["codex_astra"] or out["codex"]
+    new_docs = {main_rel: [tomllib.loads(out["codex_ide"]) if mode else out["codex"], out["codex"]],
+                astra_rel: [out["codex_astra_ide"] if mode else out["codex_astra"], ref_astra]}
+    bad = foreign_paths(live_docs, new_docs, old_digests if isinstance(old_digests, dict) else {})
+    if bad:
+        raise RenderError("\n".join(str(_foreign(rel, bad[rel])) for rel in sorted(bad)))
     written = [main_rel]
     if mode:
         _write(os.path.join(stage, main_rel), out["codex_ide"])

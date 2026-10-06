@@ -140,6 +140,17 @@ def test_conflicts_function_dotted_and_quoted():
     assert cr.conflicts({"m": {"k": 1}}, {"m": {"j": 1}}) == []
 
 
+def test_conflicts_mutually_exclusive_keys():
+    """ShellEnvironmentPolicyToml: `filters` may not sit beside `exclude` or `include_only`."""
+    stack = {"shell_environment_policy": {"filters": {"GH_TOKEN": "exclude"}}}
+    for legacy in ("exclude", "include_only"):
+        user = {"shell_environment_policy": {legacy: ["X"]}}
+        assert cr.conflicts(user, stack) == ["shell_environment_policy." + legacy]
+    assert cr.conflicts({"shell_environment_policy": {"inherit": "core"}}, stack) == []
+    assert cr.conflicts({"shell_environment_policy": {"exclude": ["X"]}},
+                        {"shell_environment_policy": {"inherit": "all"}}) == []
+
+
 @pytest.mark.parametrize("bad", [
     cr.BEGIN_A.encode() + b"\n" + cr.BEGIN_A.encode() + b"\n" + cr.END_A.encode() + b"\n",
     cr.BEGIN_A.encode() + b"\nx = 1\n",

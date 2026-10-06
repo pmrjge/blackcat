@@ -241,7 +241,21 @@
   "file": "codex_config/install.sh",
   "old": "print(0 if (p[\"added\"] or p[\"changed\"] or p[\"removed\"]) else 1)",
   "new": "print(0)",
-  "tests": "codex_config/tests/test_installer_ide.py::test_second_run_changes_nothing_with_or_without_the_flag",
+  "tests": "codex_config/tests/test_installer_ide.py::test_second_run_with_the_flag_changes_nothing",
   "why": "an empty plan is applied anyway"
+ },
+ {
+  "file": "codex_config/install.sh",
+  "old": "if [ \"$IDE_MODE\" = yes ]; then\n  say \"  1. Run plain",
+  "new": "if [ \"$IDE\" = yes ]; then\n  say \"  1. Run plain",
+  "tests": "codex_config/tests/test_installer_ide.py::test_next_steps_follow_the_resolved_mode_not_the_flag",
+  "why": "the step-1 next step follows the flag, not the resolved mode (a flagless re-run after --ide-default)"
+ },
+ {
+  "file": "codex_config/install.sh",
+  "old": "  if [ \"$IDE_MODE\" = yes ]; then\n    say \"  3. Optional Astra",
+  "new": "  if [ \"$IDE\" = yes ]; then\n    say \"  3. Optional Astra",
+  "tests": "codex_config/tests/test_installer_ide.py::test_next_steps_follow_the_resolved_mode_not_the_flag",
+  "why": "the Astra next step follows the flag, not the resolved mode"
  }
 ]

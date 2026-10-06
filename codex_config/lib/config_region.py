@@ -16,7 +16,9 @@ Rules:
   one (in the file's own style) before region B is appended, so that B starts on its own line;
   remove() keeps that newline.
 - Conflict check: no key may be defined both by the user's part and by the stack's regions
-  (conflicts() names the dotted keys), and tomllib.loads(result) must equal merge(user, stack).
+  (conflicts() names the dotted keys), no user key the schema forbids beside a stack key (EXCLUSIVE:
+  shell_environment_policy.exclude / include_only beside the stack's .filters), and
+  tomllib.loads(result) must equal merge(user, stack).
   splice() raises RegionConflict (a RegionError with .keys) when either fails.
 - Line endings: the user's bytes keep theirs (CRLF stays CRLF). The regions are always written with
   LF: mixed line endings are valid TOML, and the region bytes (hence region_sha) do not depend on
@@ -30,7 +32,8 @@ conflicts(user_doc, stack_doc) -> [dotted key]; merge(a, b) -> dict; BEGIN_A, EN
 
 Seeded-bug proofs (tests/mutations/config_region.json; each turns tests/test_config_region.py red):
 write region A after the user's first table; skip the conflict check; let remove() cut one line
-past the end marker; accept a second begin marker; let B hold a root key (drop the tables-only check).
+past the end marker; accept a second begin marker; let B hold a root key (drop the tables-only check);
+let the user's shell_environment_policy.exclude sit beside the stack's filters.
 """
 from __future__ import annotations
 
@@ -47,6 +50,9 @@ END_A = "# <<< claude-agent-stack: end A <<<"
 BEGIN_B = "# >>> claude-agent-stack: begin B (install.sh --ide-default rewrites this region) >>>"
 END_B = "# <<< claude-agent-stack: end B <<<"
 REGIONS = ("A", "B")
+# a stack key -> the user keys that may not sit beside it in the same table (config.schema.json
+# ShellEnvironmentPolicyToml: allOf not-required [exclude, filters] / [filters, include_only])
+EXCLUSIVE = {("shell_environment_policy", "filters"): ("exclude", "include_only")}
 
 # any line that looks like one of the stack's markers; each must then be a begin or an end below
 _ANY = re.compile(rb"^[ \t]*#[ \t]*(?:>>>|<<<)[ \t]*claude-agent-stack\b[^\n]*$", re.MULTILINE)
@@ -130,9 +136,11 @@ def _dotted(path) -> str:
 def conflicts(user_doc: dict, stack_doc: dict, _path=()) -> list:
     """Dotted keys defined on both sides. Two tables of the same name are not a conflict by
     themselves (a user [mcp_servers.mine] beside the stack's [mcp_servers.jina]); their keys are
-    compared one level down."""
+    compared one level down. A user key the schema forbids beside a stack key (EXCLUSIVE) is one
+    too, named by the user's key."""
     out = []
     for k, s in stack_doc.items():
+        out += [_dotted(_path + (x,)) for x in EXCLUSIVE.get(_path + (k,), ()) if x in user_doc]
         if k not in user_doc:
             continue
         u = user_doc[k]

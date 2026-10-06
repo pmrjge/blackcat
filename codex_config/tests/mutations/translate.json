@@ -75,5 +75,19 @@
   "new": "",
   "tests": "codex_config/tests/test_translate.py::test_multiline_package_list_joins_and_keeps_source_lines",
   "why": "a joined line shifts the source line numbers of later problems"
+ },
+ {
+  "file": "codex_config/lib/translate.py",
+  "old": "_LOWER_WORD = re.compile(r\"(?<![\\w-])[a-z][\\w']*[,;:]?\\s+\\Z\")",
+  "new": "_LOWER_WORD = re.compile(r\"(?<![\\w-])[a-z][\\w']*[,;]?\\s+\\Z\")",
+  "tests": "codex_config/tests/test_translate.py::test_corpus_has_no_claude_only_leftovers",
+  "why": "a COMMON tool name after \"word:\" stays untranslated (orchestrator: \"design: Bash is for checks\")"
+ },
+ {
+  "file": "codex_config/lib/translate.py",
+  "old": "    (r\" \\(Claude Code's `dataviz` is a user-run `/dataviz` command here(?:, hidden from the model)?\\)\", \"\"),\n",
+  "new": "",
+  "tests": "codex_config/tests/test_translate.py::test_corpus_has_no_claude_only_leftovers",
+  "why": "the skills keep claiming a /dataviz user command exists"
  }
 ]

@@ -266,6 +266,9 @@ fi
 [ "$NO_ASTRA" = 0 ] || RARGS+=(--no-astra-profile)
 [ "$FORCE" = 0 ] || RARGS+=(--force)
 "$PY" -I "$CL/render.py" "${RARGS[@]}" || fail "render failed (above). Nothing was changed."
+# the mode this run resolved (the flag, else the one config.toml shows: a flagless re-run keeps it)
+IDE_MODE=$("$PY" -I -c 'import json, sys; print("yes" if json.load(open(sys.argv[1])).get("ide_default") is True else "no")' "$WORK/options.json") \
+  || fail "render wrote no readable options.json. Nothing was changed."
 
 # ---- step 5: validate the stage -------------------------------------------------------------------
 say "Validate:"
@@ -410,7 +413,7 @@ print_retrust "re-trust:"
 # ---- user steps ----------------------------------------------------------------------------------
 echo
 say "Next steps (yours; the installer never trusts hooks or logs in for you):"
-if [ "$IDE" = yes ]; then
+if [ "$IDE_MODE" = yes ]; then
   say "  1. Run plain 'codex' (no profile), then /hooks and trust the stack's hooks whose source is config.toml."
   say "     Restart the IDE (and the desktop app, if you use it)."
 else
@@ -418,7 +421,7 @@ else
 fi
 say "  2. Run: $0 --doctor   (exit 0 only when every stack hook is trusted; repeat after every 're-trust' above)."
 if [ -f "$S/codex-astra.config.toml" ]; then
-  if [ "$IDE" = yes ]; then
+  if [ "$IDE_MODE" = yes ]; then
     say "  3. Optional Astra: codex --profile codex-astra (it overlays config.toml, whose trusted hooks it uses)."
   else
     say "  3. Optional Astra: codex --profile codex-astra, then /hooks (its own hooks need trust too)."

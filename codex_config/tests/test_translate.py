@@ -53,6 +53,23 @@ def test_corpus_wording_bugs_gone(corpus):
         assert wrong not in outs, wrong
 
 
+def test_corpus_has_no_claude_only_leftovers(corpus):
+    """A COMMON tool name after "word:" is prose too (orchestrator: "design: Bash is for checks"), and
+    no text claims a Claude Code user command exists here (data-visualization's /dataviz)."""
+    outs = "\n".join(out for _, out, _ in corpus.values())
+    for wrong in ("design: Bash is for checks", "/dataviz", "`dataviz`"):
+        assert wrong not in outs, wrong
+    assert "design: the shell is for checks and integration" in outs
+
+
+@pytest.mark.parametrize("src, want", [
+    ("no design: Bash is for checks.", "no design: the shell is for checks."),
+    ("one rule: Read it first.", "one rule: read it first."),
+])
+def test_common_name_after_a_colon_is_prose(src, want):
+    assert tr(src) == (want, [])
+
+
 # ---------------------------------------------------------------- the three wording bugs
 @pytest.mark.parametrize("src, want", [
     ("run them in a separate Bash call;", "run them in a separate shell call;"),

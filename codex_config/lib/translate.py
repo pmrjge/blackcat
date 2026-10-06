@@ -231,6 +231,8 @@ PHRASES = [
     (r"^- `stack-who` \(.*it is not a directory for messaging\.$",
      "- No live agent-tree view is ported to Codex; the job's `plan.md` is the record of who runs what."),
     (r"Charts built as Artifacts, React/HTML pages", "Charts built as React/HTML pages"),
+    # a Claude Code user command: Codex has no /dataviz
+    (r" \(Claude Code's `dataviz` is a user-run `/dataviz` command here(?:, hidden from the model)?\)", ""),
     (r"Charts as Claude Artifacts or chat-surface dashboards", "Charts as chat-surface dashboards"),
     (r"hand-drawn inline-SVG diagrams inside Artifacts → the built-in `artifact-diagramming` skill",
      "hand-drawn inline-SVG diagrams are out of scope here"),
@@ -317,7 +319,7 @@ _TOOL_ANY = set(DISTINCT) | set(COMMON) | {"Cron*"}
 _LIST_SEP = re.compile(r"\s*(?:,\s*(?:and\s+|or\s+)?|/|\s+(?:and|or)\s+)\s*\Z")
 _LIST_SEP_FWD = re.compile(r"\A\s*(?:,\s*(?:and\s+|or\s+)?|/|\s+(?:and|or)\s+)\s*")
 _DETERMINER = re.compile(r"(?i)(?:^|[\s(])(a|an|the|each|every|one|your|its|no|any|this|that)\s+\Z")
-_LOWER_WORD = re.compile(r"(?<![\w-])[a-z][\w']*[,;]?\s+\Z")
+_LOWER_WORD = re.compile(r"(?<![\w-])[a-z][\w']*[,;:]?\s+\Z")
 # A determiner, maybe one or two adjectives, then the token: "a separate Bash call", "the Bash tool",
 # "your own Bash calls" take the bare form ("a separate shell call"), never "a separate the shell".
 _ARTICLE = re.compile(r"(?i)(?:^|[\s(])(?:a|an|the|each|every|one|your|its|their|our|no|any|this|that|another)\s+"

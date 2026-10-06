@@ -19,5 +19,12 @@
   "new": "        nxt = out.find(b\"\\n\", e)\n        out = out[:s] + out[(nxt + 1 if nxt >= 0 else len(out)):]\n",
   "tests": "codex_config/tests/test_installer_ide.py::test_no_ide_default_removes_exactly_the_regions",
   "why": "--no-ide-default cuts one line too many (installer path)"
+ },
+ {
+  "file": "codex_config/lib/config_region.py",
+  "old": "        out += [_dotted(_path + (x,)) for x in EXCLUSIVE.get(_path + (k,), ()) if x in user_doc]\n",
+  "new": "",
+  "tests": "codex_config/tests/test_render_regions.py::test_conflict_stops_naming_the_key",
+  "why": "the user's shell_environment_policy.exclude passes beside the stack's filters (render path)"
  }
 ]

@@ -210,6 +210,26 @@ def test_merge_hooks_state():
         rp.merge_hooks_state({"k": "not a table"})
 
 
+def test_merge_hooks_state_owner_wins_a_clash():
+    """Each state paired with its file's key prefix: on a clash the record of the file the key names
+    wins, in either order; a clash neither file owns is refused."""
+    ch = "/scratch/home/.codex/"
+    own = (ch + "codex.config.toml:", ch + "codex-astra.config.toml:")
+    k = ch + "codex.config.toml:pre_tool_use:0:0"
+    a, b = {k: {"trusted_hash": "a"}}, {k: {"trusted_hash": "b"}}
+    assert rp.merge_hooks_state(a, b, owners=own) == a
+    assert rp.merge_hooks_state(b, a, owners=own[::-1]) == a
+    ak = ch + "codex-astra.config.toml:stop:0:0"
+    assert rp.merge_hooks_state({ak: {"enabled": True}}, {ak: {"enabled": False}}, owners=own) == {
+        ak: {"enabled": False}}
+    assert rp.merge_hooks_state(a, None, owners=own) == a
+    foreign = {ch + "config.toml:stop:0:0": {"trusted_hash": "a"}}
+    with pytest.raises(rp.BuildError, match="differs"):
+        rp.merge_hooks_state(foreign, {ch + "config.toml:stop:0:0": {"trusted_hash": "b"}}, owners=own)
+    with pytest.raises(rp.BuildError):
+        rp.merge_hooks_state(a, owners=own[:1] * 3)        # more owners than states: a caller bug
+
+
 @pytest.mark.parametrize("bad", [[], {"k": 1}, {"k": {"trusted_hash": 5}}, {"k": {"enabled": "y"}}])
 def test_bad_hooks_state(bad):
     with pytest.raises(rp.BuildError):

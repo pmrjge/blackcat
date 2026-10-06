@@ -160,7 +160,9 @@ def test_live_owned_file_edited_while_the_installer_runs_aborts(installed):
     n = len(installed.backups())
     r = installed.run("--yes", extra=installed.hook_env("echo '# edited meanwhile' >> '%s'" % rules))
     assert r.returncode != 0
-    assert "changed while the installer ran" in r.stderr and "claude-agent-stack.rules" in r.stderr
+    # the drift check names exactly the file edited meanwhile (an empty snapshot would name them all)
+    moved = re.search(r"install\.sh: (.*) changed while the installer ran", r.stderr)
+    assert moved and moved.group(1) == "rules/claude-agent-stack.rules", r.stderr
     assert rules.read_text() == base + "# edited meanwhile\n"
     assert (installed.ch / "stack" / "policy" / "guard.json").read_text() == "{}\n"
     assert len(installed.backups()) == n
@@ -308,6 +310,8 @@ def test_agents_override_md_warning_is_printed(fresh):
     lines = [ln for ln in r.stdout.splitlines() if "AGENTS.override.md" in ln]
     assert lines and all(ln.lstrip().startswith("!") for ln in lines), r.stdout
     assert "shadows AGENTS.md" in " ".join(lines)
+    # repeated after the next steps, where the user reads last (the render's warning scrolls away)
+    assert "AGENTS.override.md" in r.stdout.split("Next steps", 1)[1], r.stdout
     assert (fresh.ch / "AGENTS.override.md").read_text() == "override\n"
     quiet = fresh.run("--yes", "--no-agents-md", check=0)
     assert quiet.returncode == 0
@@ -412,6 +416,24 @@ def test_restore_force_config_puts_the_saved_config_back(fresh):
     cfg.write_text(cfg.read_text() + '\n[projects."/work/x"]\ntrust_level = "trusted"\n')
     fresh.run("--restore", "latest", "--yes", "--force-config", check=0)
     assert cfg.read_text() == 'my_setting = "mine"\n' and _links(fresh) == []
+
+
+def test_restore_brings_a_saved_outside_link_back_only_with_force(fresh):
+    """A profile file that was a link out of CODEX_HOME (a dotfiles checkout) is saved as a link; the
+    restore leaves the stack's file in place unless --force, which puts the link back."""
+    dot = fresh.home / "dotfiles"
+    dot.mkdir(exist_ok=True)
+    (dot / "codex.config.toml").write_text('model = "mine"\n')
+    link = fresh.ch / "codex.config.toml"
+    link.symlink_to(dot / "codex.config.toml")
+    fresh.run("--yes", check=0)
+    assert not link.is_symlink() and link.is_file()
+    r = fresh.run("--restore", "latest", "--yes", check=0)
+    assert "skipped codex.config.toml" in r.stdout and "--force" in r.stdout, r.stdout
+    assert not link.is_symlink() and link.is_file()
+    fresh.run("--restore", "latest", "--yes", "--force", check=0)     # the same install backup
+    assert link.is_symlink() and os.readlink(link) == str(dot / "codex.config.toml")
+    assert (dot / "codex.config.toml").read_text() == 'model = "mine"\n'
 
 
 # ---- --print-requirements ----------------------------------------------------------------------------------------

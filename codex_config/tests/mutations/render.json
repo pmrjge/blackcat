@@ -85,7 +85,7 @@
  },
  {
   "file": "codex_config/lib/render.py",
-  "old": "        states.append((doc.get(\"hooks\") or {}).get(\"state\"))\n",
+  "old": "        states[-1] = (doc.get(\"hooks\") or {}).get(\"state\")\n",
   "new": "        pass\n",
   "tests": "codex_config/tests/test_render.py::test_hooks_state_carried_into_every_profile_file",
   "why": "the live profile files' hooks.state is dropped"
@@ -110,5 +110,33 @@
   "new": "     'Path(os.environ.get(\"CLAUDE_CONFIG_DIR\") or home / \".claude\")'),",
   "tests": "codex_config/tests/test_render.py::test_staged_servers_read_codex_home_stack_env",
   "why": "image-studio keeps the Claude config dir"
+ },
+ {
+  "file": "codex_config/lib/render.py",
+  "old": "    bad = foreign_paths(live_docs, new_docs, old_digests if isinstance(old_digests, dict) else {})\n",
+  "new": "    bad = {}\n",
+  "tests": "codex_config/tests/test_render.py::test_foreign_table_under_a_stack_root_stops",
+  "why": "a foreign table below a stack root ([mcp_servers.mine]) is silently dropped"
+ },
+ {
+  "file": "codex_config/lib/render.py",
+  "old": "        if isinstance(digests.get(rel), str) and doctor.semantic_digest(doc) == digests[rel]:\n",
+  "new": "        if False:\n",
+  "tests": "codex_config/tests/test_render.py::test_last_installs_profile_files_never_count_as_foreign",
+  "why": "the last install's own profile file is taken for foreign (no digest skip)"
+ },
+ {
+  "file": "codex_config/lib/render.py",
+  "old": "                out += _missing(item, there, path + (k, i)) if there else [path + (k, i)]\n",
+  "new": "                out += _missing(item, there, path + (k, i)) if there else []\n",
+  "tests": "codex_config/tests/test_render.py::test_extra_hook_handler_in_a_stack_written_file_stops",
+  "why": "an extra [[hooks.PreToolUse]] group in a live profile file is dropped"
+ },
+ {
+  "file": "codex_config/lib/render.py",
+  "old": "            *states, owners=tuple(\"%s/%s:\" % (codex_home, rel) for rel in names))\n",
+  "new": "            *states)\n",
+  "tests": "codex_config/tests/test_render.py::test_one_files_retrust_of_a_shared_key_keeps_the_owners_record",
+  "why": "a key re-trusted in one profile file only stops every later install"
  }
 ]

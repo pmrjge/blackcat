@@ -33,5 +33,12 @@
   "new": "    if False:\n",
   "tests": "codex_config/tests/test_config_region.py",
   "why": "let region B hold a root key"
+ },
+ {
+  "file": "codex_config/lib/config_region.py",
+  "old": "        out += [_dotted(_path + (x,)) for x in EXCLUSIVE.get(_path + (k,), ()) if x in user_doc]\n",
+  "new": "",
+  "tests": "codex_config/tests/test_config_region.py::test_conflicts_mutually_exclusive_keys",
+  "why": "the user's shell_environment_policy.exclude passes beside the stack's filters"
  }
 ]

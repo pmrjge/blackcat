@@ -89,5 +89,12 @@
   "new": "                pass\n",
   "tests": "codex_config/tests/test_astra_profile.py::test_ide_overlay_holds_only_the_six_entries",
   "why": "the ide-mode codex-astra overlay drops the carried-over hooks.state (U1)"
+ },
+ {
+  "file": "codex_config/lib/render_profile.py",
+  "old": "                if k in owned and not mine:\n                    continue",
+  "new": "                if k in owned and not mine:\n                    out[k] = copy.deepcopy(v)\n                    continue",
+  "tests": "codex_config/tests/test_render_profile.py::test_merge_hooks_state_owner_wins_a_clash",
+  "why": "a non-owning file's record wins a hooks.state clash"
  }
 ]
