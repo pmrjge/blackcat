@@ -221,8 +221,8 @@ def test_candidate_contract_is_one_rule_set():
 
 @pytest.mark.parametrize("case", [
     {}, {"version": 0}, *({"null": k} for k in sorted(CLASS_KEYS - {"status"})),
-    *({"member_model_id": m} for m in ("claude-opus-4-6[1m]", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "X",
-                                       "ab", "Claude-Opus", "claude-sonnet-4-5-20250929", "claude-opus-4.6"))],
+    *({"member_model_id": m} for m in ("claude-x-4-6[1m]", "us.anthropic.claude-x-4-5-20250929-v1:0", "X",
+                                       "ab", "Claude-Opus", "claude-x-4-5-20250929", "claude-x-4.6"))],
     ids=lambda c: ",".join(f"{k}={v}" for k, v in c.items()) or "base")
 def test_candidate_entry_schema_valid_iff_runtime_valid(case):
     """For candidate entries the schema and eq_policy.validate_params agree: on the required keys (null), on version 0

@@ -73,6 +73,6 @@ def test_model_for_rules() -> None:
     assert eh.model_for("x", {}) is None and eh.model_for("x", {"model": ""}) is None
     with pytest.raises(ValueError, match="no entry"):
         eh.model_for("x", {"model": {"y": "opus"}})
-    for bad in ({"model": {"x": "claude-haiku-4-5"}}, {"model": {"y": "Haiku"}}, {"model": "haiku"}):
+    for bad in ({"model": {"x": "claude-haiku-x"}}, {"model": {"y": "Haiku"}}, {"model": "haiku"}):
         with pytest.raises(ValueError, match="haiku"):
             eh.model_for("x", bad)

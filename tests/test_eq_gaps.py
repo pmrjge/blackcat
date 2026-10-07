@@ -945,7 +945,7 @@ def test_capture_details(w):
     # a model alias in the plan: drift unless the model name holds it
     plan_edit(w, run, member_model="opus", member_model_id=None)
     tg.reply(w, 1, json.dumps({"answer": "42"}), wts[1], model="claude-sonnet-x")
-    tg.reply(w, 2, json.dumps({"answer": "42"}), wts[2], model="claude-opus-9")
+    tg.reply(w, 2, json.dumps({"answer": "42"}), wts[2], model="claude-opus-x9")
     assert jload(store(w, run) / "r0" / "m1.json")["model_drift"] is True
     assert jload(store(w, run) / "r0" / "m2.json")["model_drift"] is False
     reg = jload(w.state / SID / "agents" / "mem1.json")["report"]

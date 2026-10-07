@@ -1068,7 +1068,7 @@ def test_model_id_is_null_when_members_ran_on_two_models(fxp: Fx):
     assert mid is None and all_m == sorted([MODEL, "claude-sonnet-other"])
 
 
-@pytest.mark.parametrize("bad", ["claude-opus-4-6[1m]", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "Claude-X"])
+@pytest.mark.parametrize("bad", ["claude-x-4-6[1m]", "us.anthropic.claude-x-4-5-20250929-v1:0", "Claude-X"])
 def test_model_id_the_runtime_refuses_is_null(fxp: Fx, bad: str):
     """One model, but an id eq_policy.MODEL_ID_RE refuses: member_model_id null (so no candidate), with a warning; a
     params file holding it would be refused WHOLE by the runtime (every class not_run)."""
@@ -1163,7 +1163,7 @@ def test_schema_candidate_rules():
         assert list(v.iter_errors(bad)), k
     v0c = json.loads(json.dumps(good)) | {"version": 0}
     assert list(v.iter_errors(v0c))  # a candidate in version 0 is refused
-    for mid in ("claude-opus-4-6[1m]", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", "X"):  # = eq_policy.MODEL_ID_RE
+    for mid in ("claude-x-4-6[1m]", "us.anthropic.claude-x-4-5-20250929-v1:0", "X"):  # = eq_policy.MODEL_ID_RE
         bad = json.loads(json.dumps(good))
         bad["classes"]["RS"]["member_model_id"] = mid
         assert list(v.iter_errors(bad)), mid
