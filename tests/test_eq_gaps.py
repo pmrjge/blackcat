@@ -86,6 +86,13 @@ def test_split_segments(eg, text, want):
     (["nohup", "time", "git", "log"], ["git", "log"]),
     (["xargs", "-n", "1", "git", "show"], ["git", "show"]),
     (["env"], []),
+    (["env", "-C", ".", "git", "status"], ["git", "status"]),                   # case-sensitive value options
+    (["env", "-c", "git", "status"], ["git", "status"]),                        # -c is not -C: no value
+    (["xargs", "-tI", "X", "git", "show"], ["git", "show"]),                    # a cluster ending in one
+    (["nice", "-n5", "git", "log"], ["git", "log"]),                            # an attached value
+    (["/usr/bin/env", "git", "status"], ["git", "status"]),                     # a wrapper's path
+    (["flock", "-n", "/tmp/l", "git", "status"], ["git", "status"]),            # flock's lock file
+    (["sudo", "-h", "git", "status"], ["git", "status"]),                       # sudo's -h takes no separate value
 ])
 def test_command_words(eg, words, want):
     assert eg.command_words(words) == want
@@ -104,6 +111,12 @@ def test_command_words(eg, words, want):
     (["find", ".", "-okdir", "git", "stash", ";"], ["git stash"]),
     (["echo", "-c", "git stash"], []),
     (["ls"], []),
+    (["env", "-iS", "git stash"], ["git stash"]),                               # -S in a cluster
+    (["env", "-Sgit stash"], ["git stash"]),                                    # attached
+    (["env", "--split-string=git stash"], ["git stash"]),
+    (["flock", "/tmp/l", "-c", "git stash"], ["git stash"]),                    # flock -c TEXT
+    (["watch", "-n", "1", "git", "stash"], ["git stash"]),                      # watch runs sh -c ARGS
+    (["echo", "env", "-S", "git stash"], []),                                   # env only as a wrapper
 ])
 def test_nested_texts(eg, words, want):
     assert eg.nested_texts(words) == want
@@ -131,6 +144,7 @@ def test_invokes(eg, command, want):
 
 @pytest.mark.parametrize("command, refused", [
     ("git 'x", True),                                       # unreadable text naming git
+    ("GIT 'x", True),                                       # in any case (a case-insensitive file system)
     ("/usr/bin/git commit -m x", True),                     # a path to git is git
     ("gi\\\nt commit", True),                               # continuation
     ("git-lfs 'x", False),                                  # git-lfs is not git
@@ -161,14 +175,41 @@ def test_glob_base(eg, pattern, want):
     assert eg._glob_base(pattern) == want
 
 
-# the member git rule reads the command word through wrappers' value options; VALUE_OPTS holds `-C`, `-I`, `-E`... in
-# upper case but command_words compares the lower-cased word, so those options never take their value and the
-# value is read as the command word: `env -C . git commit` passes as a command named `.` (eq_guard.py:978, 90-93)
-@pytest.mark.xfail(strict=True, reason="product bug: upper-case wrapper value options (env -C, xargs -I/-E) hide git")
-@pytest.mark.parametrize("command", ["env -C . git commit -m x", "xargs -I X git commit -m x",
-                                     "xargs -E eof git commit -m x"])
-def test_git_rule_sees_through_uppercase_value_options(eg, command):
-    assert eg.git_rule(command) is not None
+# the member git rule reads the command word through wrappers' value options. Fixed product bug (b595c3c): VALUE_OPTS
+# held `-C`, `-I`, `-E`... in upper case but command_words compared the lower-cased word, so those options never took
+# their value and the value was read as the command word (`env -C . git commit` passed as a command named `.`), while
+# `sudo -H` / `sudo -P` (no value) matched `-h` / `-p` and swallowed `git`. Same family: wrappers named by a path
+# (/usr/bin/env), option clusters (`-tI X`), attached values (`-S'git ..'`), flock's lock-file operand and -c text,
+# watch's shell text, value options missing from the table, and git named in another case (GIT on a
+# case-insensitive file system). Every command below passed the rule at b595c3c.
+@pytest.mark.parametrize("command", [
+    "env -C . git commit -m x", "xargs -I X git commit -m x", "xargs -E eof git commit -m x",
+    "Env -C . git commit -m x",                                     # the wrapper name is case-insensitive
+    "sudo -H git commit -m x", "sudo -P git commit -m x",           # -H/-P take no value (not -h/-p)
+    "xargs -tI X git commit -m x",                                  # a cluster ending in a value option
+    "xargs -J % git commit -m x", "xargs -S 255 -I X git commit", "xargs -a f git commit -m x",
+    "env -P /usr/bin git commit -m x", "time -f %e git commit -m x", "doas -u root git commit -m x",
+    "sudo -D /x git commit -m x", "sudo --user root git commit -m x",
+    "env -S'git commit -m x'", "env -i -S 'git commit -m x'", "env --split-string='git commit -m x'",
+    "flock /tmp/l git commit -m x", "flock -w 5 /tmp/l git commit -m x", "flock -c 'git commit -m x' /tmp/l",
+    "flock /tmp/l -c 'git commit -m x'", "watch 'git commit -m x'",
+    "/usr/bin/env git commit -m x",                                 # a wrapper named by its path
+    "GIT commit -m x", "/usr/bin/Git stash",                        # git in another case
+])
+def test_git_rule_sees_through_wrapper_value_options(eg, command):
+    assert eg.git_rule(command) is not None, command
+
+
+@pytest.mark.parametrize("command", ["env -C . git status", "xargs -I X git status", "nice -n5 git log -1",
+                                     "flock /tmp/l git status", "sudo -H git diff", "env -U u git ls-files"])
+def test_git_rule_wrapped_read_only_git_still_passes(eg, command):
+    assert eg.git_rule(command) is None, command
+
+
+@pytest.mark.parametrize("command", ["Stack-EQ plan --run 0123abcd", "/usr/bin/env stack-eq plan",
+                                     "env -C . stack-eq-check --run x", "STACK-EQ 'x"])
+def test_invokes_reads_case_and_wrapper_paths(eg, command):
+    assert eg.invokes(command, ("stack-eq", "stack-eq-check")) is True, command
 
 
 # ---------------------------------------------------------------- the path scan of a member's Bash (member_bash)

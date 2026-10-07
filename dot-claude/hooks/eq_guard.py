@@ -87,10 +87,29 @@ SHELLS = frozenset(("sh", "bash", "zsh", "dash", "ksh", "mksh", "fish"))
 WRAPPERS = frozenset(("env", "command", "builtin", "exec", "nohup", "time", "nice", "timeout", "gtimeout",
                       "stdbuf", "xargs", "sudo", "doas", "noglob", "caffeinate", "then", "do", "else",
                       "elif", "if", "while", "until", "!", "watch", "flock", "chronic", "nocorrect"))
-VALUE_OPTS = {"timeout": {"-s", "-k", "--signal", "--kill-after"}, "gtimeout": {"-s", "-k", "--signal"},
-              "stdbuf": {"-i", "-o", "-e"}, "nice": {"-n", "--adjustment"}, "env": {"-u", "--unset", "-C", "--chdir"},
-              "sudo": {"-u", "-g", "-C", "-h", "-p", "-U"}, "exec": {"-a"}, "xargs": {"-I", "-n", "-P", "-L", "-s",
-                                                                                      "-d", "-E"}}
+# wrapper options whose value is the next word (GNU and BSD/macOS spellings). Options are case-sensitive and
+# matched exactly (`-C`, `-I`, `-E` are not `-c`, `-i`, `-e`); a short-option cluster ending in one (`-tI X`)
+# takes the next word too. The wrapper NAME is matched lower-cased on its basename (case-insensitive file systems
+# run /usr/bin/ENV as env).
+VALUE_OPTS = {"timeout": {"-s", "-k", "--signal", "--kill-after"},
+              "gtimeout": {"-s", "-k", "--signal", "--kill-after"},
+              "stdbuf": {"-i", "-o", "-e", "--input", "--output", "--error"},
+              "nice": {"-n", "--adjustment"},
+              "env": {"-u", "--unset", "-C", "--chdir", "-S", "--split-string", "-a", "--argv0", "-L", "-P", "-U"},
+              "sudo": {"-u", "-g", "-C", "-p", "-U", "-D", "-R", "-r", "-t", "-T", "--user", "--group",
+                       "--close-from", "--prompt", "--other-user", "--chdir", "--chroot", "--role", "--type",
+                       "--command-timeout"},
+              "doas": {"-u", "-C"}, "exec": {"-a"}, "time": {"-f", "-o", "--format", "--output"},
+              "xargs": {"-a", "-d", "-E", "-I", "-J", "-L", "-n", "-P", "-R", "-s", "-S", "--arg-file", "--delimiter",
+                        "--max-args", "--max-procs", "--max-chars", "--process-slot-var"},
+              "flock": {"-w", "-E", "-c", "--wait", "--timeout", "--conflict-exit-code", "--command"},
+              "watch": {"-n", "--interval"}, "caffeinate": {"-t", "-w"}}
+# wrappers whose first operand(s) are not the command: flock's lock file (`flock /tmp/l git commit`)
+WRAPPER_OPERANDS = {"flock": 1}
+# wrappers that run their arguments as one shell text (`watch 'git commit'` is sh -c 'git commit')
+SHELL_TEXT_WRAPPERS = frozenset(("watch",))
+# wrapper options whose value is a command text (env -S splits it, flock -c runs it with sh -c)
+TEXT_OPTS = {"env": {"-S", "--split-string"}, "flock": {"-c", "--command"}}
 # text no member command needs: the state root's and transcripts' markers (the path check resolves the rest)
 BASH_MARKERS = re.compile(r"\.claude/projects|/subagents/|\.local/state/|XDG_STATE_HOME|CLAUDE_CONFIG_DIR|"
                           r"eq-tickets|\bagent-[0-9a-f]{6,}\.jsonl")
@@ -969,33 +988,79 @@ def split_segments(text):
     return segs
 
 
-def command_words(words):
-    """The words from the command word on (assignments, wrappers and their options skipped)."""
-    k, wrapper = 0, None
+def _value_opt(wrapper, word):
+    """(option, attached value) when `word` is an option of `wrapper` that takes a value, else None. The value
+    is "" when it is the next word: `-C`, `--chdir`, `-tI` (a cluster ending in a value option) -> ("-C", ""),
+    ("--chdir", ""), ("-I", ""); `-Sgit x`, `-n5`, `--split-string=git x` -> ("-S", "git x"), ("-n", "5"),
+    ("--split-string", "git x"). Case-sensitive: `-c` is not `-C`."""
+    opts = VALUE_OPTS.get(wrapper, ())
+    if word in opts:
+        return word, ""
+    if word.startswith("--"):
+        name, eq, rest = word.partition("=")
+        return (name, rest) if eq and name in opts else None
+    if word.startswith("-") and len(word) > 2:
+        for i in range(1, len(word)):
+            if "-" + word[i] in opts:
+                return "-" + word[i], word[i + 1:]
+    return None
+
+
+def _scan(words):
+    """(k, spans): words[k] is the command word (k == len(words): none); spans = [(wrapper, [(option, value)])]
+    for every wrapper before it, in order: each value-taking option with its value (attached or the next word).
+    Assignments, wrappers, their options and option values and their non-command operands (flock's lock file)
+    are skipped."""
+    k, wrapper, spans, operands = 0, None, [], 0
     while k < len(words):
         w_ = words[k]
-        low = w_.lower()
-        if wrapper and low in VALUE_OPTS.get(wrapper, ()):
-            k += 2
-            continue
-        if low in WRAPPERS:
-            wrapper = low
+        if wrapper:
+            hit = _value_opt(wrapper, w_)
+            if hit is not None:
+                opt, val = hit
+                if val == "" and k + 1 < len(words):
+                    val = words[k + 1]
+                    k += 1
+                spans[-1][1].append((opt, val))
+                k += 1
+                continue
+        name = os.path.basename(w_).lower()
+        if name in WRAPPERS:
+            wrapper, operands = name, WRAPPER_OPERANDS.get(name, 0)
+            spans.append((name, []))
             k += 1
             continue
-        if wrapper and (low[:1] in "-+" or low[:1].isdigit()):
+        if wrapper and (w_[:1] in "-+" or w_[:1].isdigit()):
             k += 1
             continue
         if re.match(r"[A-Za-z_][A-Za-z0-9_]*\+?=", w_):
             k += 1
             continue
-        return words[k:]
-    return []
+        if operands:
+            operands -= 1
+            k += 1
+            continue
+        return k, spans
+    return len(words), spans
+
+
+def command_words(words):
+    """The words from the command word on (assignments, wrappers, their options and operands skipped)."""
+    return words[_scan(words)[0]:]
 
 
 def nested_texts(words):
-    """Command texts a command runs itself: sh/bash -c TEXT, eval ..., env -S TEXT, find -exec ... ;"""
+    """Command texts a command runs itself: sh/bash -c TEXT, eval ..., env -S TEXT, flock -c TEXT, watch ARGS,
+    find -exec ... ;"""
     out = []
-    cw = command_words(words)
+    k, spans = _scan(words)
+    cw = words[k:]
+    for wrapper, opts in spans:
+        for opt, val in opts:
+            if opt in TEXT_OPTS.get(wrapper, ()):
+                out.append(val)
+        if wrapper in SHELL_TEXT_WRAPPERS and cw:
+            out.append(" ".join(cw))
     if not cw:
         return out
     base = os.path.basename(cw[0]).lower()
@@ -1007,9 +1072,6 @@ def nested_texts(words):
                 break
     if base == "eval" and len(cw) > 1:
         out.append(" ".join(cw[1:]))
-    for j, a in enumerate(words):
-        if a.lower() in ("-s", "--split-string") and j and words[j - 1].lower() == "env" and j + 1 < len(words):
-            out.append(words[j + 1])
     for j, a in enumerate(cw):
         if a in ("-exec", "-execdir", "-ok", "-okdir"):
             rest = []
@@ -1039,35 +1101,37 @@ def simple_commands(text, depth=0):
 
 
 def invokes(command, names):
-    """True when a simple command of `command` has one of `names` as its command word."""
+    """True when a simple command of `command` has one of `names` (lower case) as its command word, compared
+    lower-cased (a case-insensitive file system runs Stack-EQ as stack-eq)."""
     text = re.sub(r"\\\r?\n", "", str(command or ""))
-    if not any(nm in text for nm in names):
+    if not any(nm in text.lower() for nm in names):
         return False
     for words, seg in simple_commands(text):
         if words is None:
-            if any(nm in seg for nm in names):
+            if any(nm in seg.lower() for nm in names):
                 return True
             continue
         cw = command_words(words)
-        if cw and os.path.basename(cw[0]) in names:
+        if cw and os.path.basename(cw[0]).lower() in names:
             return True
     return False
 
 
-GIT_WORD_RE = re.compile(r"(?<![\w./-])git(?![\w.-])")
+GIT_WORD_RE = re.compile(r"(?<![\w./-])git(?![\w.-])", re.I)
 
 
 def git_rule(command):
     """The deny reason for an eq member's git use (eq_policy.member_git_allowed on every command word git,
-    wrappers and nested shells included), else None."""
+    wrappers and nested shells included; the name compared lower-cased: /usr/bin/GIT is git on a case-insensitive
+    file system), else None."""
     for words, seg in simple_commands(re.sub(r"\\\r?\n", "", command)):
         if words is None:
             if GIT_WORD_RE.search(seg):
                 return "a command this check cannot read names git"
             continue
         cw = command_words(words)
-        if cw and os.path.basename(cw[0]) == "git":
-            bad = P.member_git_allowed(cw)
+        if cw and os.path.basename(cw[0]).lower() == "git":
+            bad = P.member_git_allowed(["git"] + cw[1:])
             if bad:
                 return bad
     return None
@@ -1720,7 +1784,9 @@ def self_test():
                     ("git show HEAD:README.md", True), ("git commit -qm x", False), ("git stash", False),
                     ("git log --all", False), ("git diff main", False), ("git -C ../x status", False),
                     ("env git worktree list", False), ("sh -c 'git merge x'", False), ("x=$(git branch -a)", False),
-                    ("xargs git checkout", False), ("echo ok", True)):
+                    ("xargs git checkout", False), ("echo ok", True), ("env -C . git commit -qm x", False),
+                    ("xargs -I X git stash", False), ("/usr/bin/env git stash", False), ("GIT stash", False),
+                    ("env -C . git status", True)):
         if (git_rule(cmd) is None) != ok:
             problems.append("eq: member git rule misjudges %r" % cmd)
     for cmd, want in (("%s help" % exe, True), ("FOO=1 stack-eq-check --run x", True), ("git log -- %s" % exe, False),
