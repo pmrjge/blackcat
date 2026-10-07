@@ -7,7 +7,7 @@ suite fails when
   or pathlib chain ("lib", "assets" / "lib" / "assets"), a shell split ("$X/lib"/assets) or a '+'
   concatenation. Git history keeps the old paths; no tracked file is exempt (this file aside);
 - a root document (README.md, NOTICE, CONFIG.md) or a document inside a new directory links to a
-  file there that does not exist (a git-ignored path, such as docs/wiki/, is not a link into it);
+  file there that does not exist (a mention of the git-ignored wiki checkout docs/wiki/ is not a link);
 - docs/wiki (the GitHub wiki, its own repository) is tracked or not ignored.
 
 Run: uv run --with pytest pytest -q tests/test_moved_paths.py
@@ -46,8 +46,13 @@ def ls_files(*paths):
     return sorted(p for p in git("ls-files", "-z", "--", *paths).decode("utf-8", "surrogateescape").split("\0") if p)
 
 
+WIKI = "docs/wiki/"     # the GitHub wiki's local checkout: git-ignored, absent in a fresh clone
+
+
 def ignored(rel):
-    return subprocess.run(["git", "-C", str(ROOT), "check-ignore", "-q", "--", rel]).returncode == 0
+    """A mention of the ignored wiki checkout, not a link into a moved dir (test_wiki_is_its_own_repository
+    proves the ignore). Only this prefix: a check-ignore lookup would also honour local excludes."""
+    return rel == WIKI or rel.startswith(WIKI)
 
 
 @pytest.mark.parametrize("old,text,hit", [
