@@ -362,6 +362,69 @@ def test_consent_over_per_run_cap(run_tokens, over):
     assert any("above the per-run cap" in w for w in b["warnings"]) is over
 
 
+# ---------------------------------------------------------------- `candidate`: the p-selected bundle (E_rt)
+def candidate_entry(**kw):
+    e = validated_entry(status="candidate", usd_per_mtok=None, cost_ratio=None, effect=None, pool=None,
+                        agent_file_sha256=None)
+    e.update(kw)
+    return e
+
+
+def test_candidate_entry_validates_with_its_bundle_and_nulls_elsewhere():
+    assert "candidate" in P.STATUSES and "candidate" in P.STATUS_REASONS
+    assert P.validate_params(params(CP=candidate_entry())) == []
+    assert P.validate_params(params(CP=candidate_entry(usd_per_mtok=2.0, pool=validated_entry()["pool"]))) == []
+    for key in P.CLASS_KEYS:
+        bad = params(CP=candidate_entry())
+        if key == "status":
+            continue
+        bad["classes"]["CP"][key] = None
+        errs = P.validate_params(bad)
+        if key in P.CANDIDATE_REQUIRED:
+            assert any("%s is null in a candidate entry" % key in e for e in errs), key
+        else:
+            assert errs == [], key
+
+
+def test_candidate_needs_version_1():
+    # version 0 stays the all-not_run placeholder only
+    errs = P.validate_params({**params(CP=candidate_entry()), "version": 0})
+    assert any("version 0 is the all-not_run placeholder" in e for e in errs)
+    assert P.validate_params({**params(CP=candidate_entry()), "version": 1}) == []
+
+
+def test_candidate_manual_takes_the_bundle_labelled_unvalidated():
+    p = params(PF=candidate_entry(N=7, rounds=2, view="perm", loo_view="leader", reducer="R1", tau=0.7, t=3,
+                                  caps={"member_tokens": 1000, "member_turns": 9, "run_tokens": 21000}))
+    b = P.resolve("PF", p, P.knobs({"STACK_EQ_CONFIRM": "over-cap"}), mode="manual")
+    assert (b["N"], b["rounds"], b["view"], b["loo_view"], b["reducer"], b["tau"], b["t"]) == \
+        (7, 2, "perm", "leader", "R1", 0.7, 3)
+    assert b["member_type"] == "mathematician" and b["member_model_id"] == "claude-opus-test-a"
+    assert b["member_model"] == "opus"
+    assert b["caps"] == {"member_tokens": 1000, "member_turns": 9, "run_tokens": 21000}   # the candidate's own cap
+    assert b["validated"] is False and b["status_reason"] == "candidate"
+    assert b["status_reasons"] == ["candidate", "manual"]
+    assert b["auto_allowed"] is False and b["consent_required"] is True                  # unvalidated: always asks
+    assert b["estimate"]["usd_worst"] is None
+    assert P.final_label(b["validated"], b["status_reason"], b["member_model_id"],
+                         ["claude-opus-test-a"]) == (False, "candidate")
+
+
+def test_candidate_auto_is_refused():
+    with pytest.raises(P.PolicyError, match=r"eq-mode: auto needs a validated class.*candidate"):
+        P.resolve("PF", params(PF=candidate_entry()), P.knobs({"STACK_EQ_CONFIRM": "over-cap"}), mode="auto")
+
+
+def test_candidate_overrides_and_caps_apply_like_a_validated_bundle():
+    p = params(PF=candidate_entry())
+    b = P.resolve("PF", p, P.knobs({"STACK_EQ_MAX_N": "3"}), mode="manual")
+    assert b["N"] == 3 and b["status_reasons"] == ["candidate", "n_or_rounds_capped", "manual"]
+    assert b["caps"]["run_tokens"] == 100000 * 3 * 2                    # recomputed for the capped N
+    b = P.resolve("PF", p, P.knobs({}), mode="manual", eq_type="proof-checker")
+    assert b["member_type"] == "proof-checker" and b["member_model_id"] is None
+    assert b["status_reasons"] == ["candidate", "override", "manual"]
+
+
 def test_unvalidated_always_consents_even_over_cap_mode():
     b = P.resolve("CP", params(), P.knobs({"STACK_EQ_CONFIRM": "over-cap"}), mode="manual")
     assert b["consent_required"] is True

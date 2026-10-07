@@ -71,9 +71,14 @@ FALLBACK_MEMBER_CAPS = {"member_tokens": 19_000_000, "member_turns": 170}
 VIEWS = ("lens", "perm", "kcover")
 LOO_VIEWS = ("none", "rotation", "random", "leader")
 REDUCERS = ("R0", "R1", "R2", "R3", "ENS")
-STATUSES = ("validated", "not_established", "not_run", "refuted")
-STATUS_REASONS = ("no_calibration", "class_not_validated", "model_drift", "n_or_rounds_capped", "override",
-                  "manual")
+STATUSES = ("validated", "candidate", "not_established", "not_run", "refuted")
+STATUS_REASONS = ("no_calibration", "class_not_validated", "candidate", "model_drift", "n_or_rounds_capped",
+                  "override", "manual")
+# `candidate` (E_rt, USER decision 2026-10-07): the p-selected bundle of a class not (yet) validated on q. Honoured
+# only in manual mode, always labelled unvalidated (status_reason `candidate`); auto stays refused. These keys must
+# be non-null in a candidate entry (the bundle resolve takes); the rest may be null.
+CANDIDATE_REQUIRED = ("member_type", "member_model_id", "N", "rounds", "view", "loo_view", "reducer", "tau", "t",
+                      "caps")
 HARD_MAX_N = 9
 HARD_MAX_ROUNDS = 2
 
@@ -317,7 +322,9 @@ def _check_field(key, v):
 def validate_params(obj):
     """The reasons an object is not a valid eqparams.v1 file (empty list = valid). Top level exactly
     {schema, version, created_utc, provenance, classes{PF..OE}}; every class entry has every spec 7.5
-    key; all but `status` may be null unless status == validated, then all non-null but `certainty`."""
+    key; all but `status` may be null unless status == validated, then all non-null but `certainty`, or
+    status == candidate, then the CANDIDATE_REQUIRED bundle keys non-null. Version 0 is valid only as the
+    all-not_run placeholder (so a candidate or validated entry needs version >= 1)."""
     errs = []
     if not isinstance(obj, dict):
         return ["params is not a JSON object"]
@@ -356,6 +363,8 @@ def validate_params(obj):
             if v is None:
                 if e["status"] == "validated" and key != "certainty":
                     errs.append("%s: %s is null in a validated entry" % (cls, key))
+                elif e["status"] == "candidate" and key in CANDIDATE_REQUIRED:
+                    errs.append("%s: %s is null in a candidate entry" % (cls, key))
                 continue
             why = _check_field(key, v)
             if why:
@@ -424,11 +433,13 @@ def resolve(cls, params, knobs_, *, mode, eq_type=None, session_runs=0, fallback
     consent_required, auto_allowed, predicted_neutral, warnings.
 
     validated only when the class entry is `validated` in verified params and the run uses its exact
-    bundle; else status_reason is the first of no_calibration, class_not_validated, n_or_rounds_capped,
-    override, manual (model_drift is applied after capture: final_label). `eq-mode: auto` is refused
-    (PolicyError) unless validated. consent_required: always unless validated, auto, STACK_EQ_CONFIRM
-    over-cap, not over_cap and under STACK_EQ_SESSION_RUNS. over_cap: the members' caps allow more than the
-    per-run cap (N x member_tokens x (1 + rounds) > caps.run_tokens: estimate's tokens_uncapped)."""
+    bundle; else status_reason is the first of no_calibration, class_not_validated, candidate,
+    n_or_rounds_capped, override, manual (model_drift is applied after capture: final_label). A `candidate`
+    entry's bundle (the p-selected one) is used like a validated one's, but the run is unvalidated
+    (status_reason `candidate`), so manual only. `eq-mode: auto` is refused (PolicyError) unless validated.
+    over_cap: the members' caps allow more than the per-run cap (N x member_tokens x (1 + rounds) >
+    caps.run_tokens: estimate's tokens_uncapped). consent_required: always unless validated, auto,
+    STACK_EQ_CONFIRM over-cap, not over_cap and under STACK_EQ_SESSION_RUNS."""
     if cls not in CLASSES:
         raise PolicyError("unknown class %r" % (cls,))
     if mode not in ("auto", "manual"):
@@ -442,9 +453,11 @@ def resolve(cls, params, knobs_, *, mode, eq_type=None, session_runs=0, fallback
     if not isinstance(entry, dict):
         reasons.append("no_calibration")
         entry = None
+    elif entry.get("status") == "candidate":
+        reasons.append("candidate")
     elif entry.get("status") != "validated":
         reasons.append("class_not_validated")
-    calibrated = entry is not None and entry.get("status") == "validated"
+    calibrated = entry is not None and entry.get("status") in ("validated", "candidate")
     if calibrated:
         b = {"member_type": entry["member_type"], "member_model_id": entry["member_model_id"],
              "N": entry["N"], "rounds": entry["rounds"], "view": entry["view"], "loo_view": entry["loo_view"],

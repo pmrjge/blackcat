@@ -518,7 +518,7 @@ never run any of these steps.
 - Schema (`eqparams.v1`): `provenance` {harness commit, sha256 of `eq_harness.py`, `eq_mediator.py`, `eq_calibrate.py`,
   `flags.json`, `schedule.tsv`, `COMPARE_eq.sha256` sidecar, amendments, pool sha256 per class, stage ledgers' run uuids,
   `CONFIG.txt` sha256 (Claude Code version, model ids, stack commit), grader κ, created_utc}; `classes.<K>` {status ∈
-  `validated|not_established|not_run|refuted`, member_type, member_model_id (full id), agent_file_sha256, N, rounds, view,
+  `validated|candidate|not_established|not_run|refuted`, member_type, member_model_id (full id), agent_file_sha256, N, rounds, view,
   loo_view, reducer, tau, t, caps {member_tokens, member_turns, run_tokens}, usd_per_mtok, cost_ratio {median, ci95},
   effect {wins, losses, ties, pi_hat, ci95, p_holm}, certainty {signal, auroc, ci95, bins[]} | null, pool {name, sha256,
   description}}.
@@ -528,6 +528,16 @@ never run any of these steps.
   (an override may raise N up to `STACK_EQ_MAX_N`, never beyond, and only manually). A changed member agent file
   (`agent_file_sha256`) or Claude Code version is a drift note in the result and in doctor, not an invalidation (the
   decision to tighten is the user's).
+- Status `candidate` (E_rt bundle policy, the user's decision of 2026-10-07): a class entry carrying the bundle the pilot
+  p selected but q has not validated. Its bundle keys (member_type, member_model_id, N, rounds, view, loo_view, reducer,
+  tau, t, caps) are required non-null, every other key may be null; a file holding one needs `version` >= 1 (version 0
+  is the all-`not_run` placeholder only). `eq_policy.resolve` uses the candidate bundle like a validated one (caps,
+  clamps and overrides apply alike) but the run is unvalidated: `status_reason: candidate` (status_reasons
+  `[candidate, …, manual]`), consent always, `eq-mode: auto` refused; `stack-eq plan` prints the label and a
+  candidate note, and the result block carries `validated: false, status_reason: candidate`.
+- Over the per-run cap (§8.3): `over_cap` holds when the members' caps allow more than the per-run cap,
+  N × member_tokens × (1 + rounds) (`estimate.tokens_uncapped`) > `caps.run_tokens`; `estimate.tokens_worst` stays
+  the per-run cap (the guard stops the run there). An over-cap validated auto run always asks, and the plan warns.
 
 ### 7.6 Until a calibration exists
 

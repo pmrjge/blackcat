@@ -566,6 +566,38 @@ def test_result_flags_model_drift_for_validated(w):
     assert res["validated"] is False and res["status_reason"] == "model_drift", p.stdout
 
 
+def _candidate_cp(w):
+    params = w.params()
+    params["classes"]["CP"] = dict(
+        {k: None for k in params["classes"]["CP"]}, status="candidate", member_type="python-engineer",
+        member_model_id="claude-opus-test-a", N=2, rounds=1, view="perm", loo_view="rotation", reducer="R0", tau=0.6,
+        t=2, caps={"member_tokens": 1000, "member_turns": 10, "run_tokens": 4000})
+    w.set_params(params)
+    w.project()
+
+
+def test_plan_candidate_bundle_is_manual_and_unvalidated(w):
+    # E_rt (2026-10-07): a `candidate` class entry's p-selected bundle is honoured in manual mode, labelled unvalidated
+    _candidate_cp(w)
+    w.brief(CP_HEADER)
+    p = w.eq("plan", "--run", R)
+    assert p.returncode == 0, p.stderr
+    plan = json.loads((w.store() / "plan.json").read_text())
+    assert plan["validated"] is False and plan["status_reason"] == "candidate"
+    assert plan["status_reasons"] == ["candidate", "manual"]
+    assert plan["member_model_id"] == "claude-opus-test-a" and plan["N"] == 2 and plan["caps"]["run_tokens"] == 4000
+    assert plan["consent"]["required"] is True and "validated_on" not in plan
+    assert "label: unvalidated (candidate, manual)" in p.stdout
+    assert "note: the class's candidate bundle" in p.stdout and "ASK USER: Run eq:%s" % R in p.stdout
+
+
+def test_plan_candidate_auto_refused(w):
+    _candidate_cp(w)
+    w.brief(dict(CP_HEADER, mode="auto"))
+    p = w.eq("plan", "--run", R, env=w.env(STACK_EQ_CONFIRM="over-cap"))
+    assert p.returncode == 4 and "eq-mode: auto needs a validated class" in p.stderr and "candidate" in p.stderr
+
+
 def test_view_round_loo(w):
     files = {"a.md": "a\n", "b.md": "b\n"}
     w.project(files)

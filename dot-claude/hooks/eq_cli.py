@@ -784,6 +784,9 @@ def cmd_plan(r, ticket):
     out("eq:%s planned: class %s, %d x %s, %d reconcile round(s), view %s, LOO %s, W3 %s" % (
         r.run, cls, n, b["member_type"], b["rounds"], b["view"], b["loo_view"], w3))
     out("label: %s" % ("validated" if b["validated"] else "unvalidated (%s)" % ", ".join(b["status_reasons"])))
+    if "candidate" in b["status_reasons"]:
+        out("note: the class's candidate bundle (selected on the calibration pilot p, not validated on q): "
+            "unvalidated, manual only")
     for w in b["warnings"]:
         out("warning: %s" % w)
     out("estimate: tokens %d expected, %d worst; %s" % (e["tokens_expected"], e["tokens_worst"], usd))
