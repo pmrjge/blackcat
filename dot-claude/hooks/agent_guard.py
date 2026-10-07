@@ -642,25 +642,43 @@ SPAWNER_WEB_CMD_REASON = ("%s reads no web content (it may spawn browser-operato
 # httpx, Net::HTTP, fetch( ...) anywhere, and a command too long to check. Linear time (no regex
 # backtracking over the command). A false positive (a commit message "fix; curl x") costs one
 # dispatch, as does a shell fed from stdin (`... | sh`, `bash -s`, `sh <<< ...`, refused whatever
-# it runs). Best effort, not seen: a script file; an alias; text assembled at run time (variables,
-# globs, brace expansion, `$'\x63url'`); a redirection or an option's argument before the command
-# word (`>f curl`, `env -u X curl`, `timeout -s KILL 9 curl`, `xargs -I % curl %`); runners not
-# unwrapped (uv run, coproc, script, fd -x). git clone/fetch/pull stay allowed (repository files
-# are read like any local file); the sandbox network allowlist is the hard limit.
+# it runs). Also refused: a bash /dev/tcp or /dev/udp socket anywhere, and inline code (python -c,
+# perl -e, ruby -e, node -e, php -r, osascript -e, ...) that names an HTTP client or socket tool
+# anywhere after it (false positive: `perl -e 'print 1' && rg wget src`). A backslash-newline
+# inside a word (`cu\<newline>rl`) is read both joined and split. Best effort, not seen: a script
+# file; an alias; text assembled at run time (variables, globs, brace expansion, `$'\x63url'`, a
+# shell reading a process substitution: `bash <(echo curl u)`); a redirection or an option's
+# argument before the command word (`>f curl`, `env -u X curl`, `timeout -s KILL 9 curl`,
+# `xargs -I % curl %`); runners not unwrapped (uv run, uvx, coproc, script, fd -x, ssh's remote
+# command). git clone/fetch/pull stay allowed (repository files are read like any local file);
+# the sandbox network allowlist is the hard limit.
 BLACKCAT_WEB_CLIENTS = {"curl", "wget", "xh", "xhs", "http", "https", "httpie", "lynx", "w3m", "links",
-                        "elinks", "aria2c", "ncat", "nc", "netcat", "socat", "telnet"}
+                        "elinks", "aria2c", "ncat", "nc", "netcat", "socat", "telnet", "ztcp"}
 BLACKCAT_CMD_PREFIXES = {"if", "then", "do", "else", "elif", "while", "until", "time", "exec",
                          "command", "builtin", "nohup", "sudo", "xargs", "env", "nice", "timeout",
-                         "gtimeout", "stdbuf", "watch", "caffeinate", "noglob", "eval", "parallel"}
+                         "gtimeout", "stdbuf", "watch", "caffeinate", "noglob", "eval", "parallel",
+                         "arch", "taskpolicy", "doas", "busybox"}
 # Wrappers that run another command later in the segment: for a shell the command after -c (-lc,
 # -ec, ...) decides, for find the one after -exec/-execdir/-ok/-okdir (a later `+ -exec` too); a
 # shell without -c runs a script file, which is not seen, unless it reads its commands from stdin
 # (no script operand, -s, or a <<< here-string): refused, since the piped text is not parsed
-# (false positive: an interactive shell, `bash x.sh <<< input`). A shell after xargs/parallel or
-# inside -exec/-c gets its script operand at run time and is left alone.
-BLACKCAT_SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "mksh", "fish"}
+# (false positive: an interactive shell, `bash x.sh <<< input`), or from /dev/stdin (`bash
+# /dev/stdin`, `source /dev/stdin`). Only the shell's own options count: they end at `--` or the
+# script operand (`bash -s -- -c` reads stdin). `xargs sh -c` with no command string runs what
+# stdin holds. A shell after xargs/parallel or run by find -exec gets its script operand at run
+# time and is left alone; a shell inside -c is not (`... | bash -c sh` reads stdin).
+BLACKCAT_SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "mksh", "fish", "csh", "tcsh", "yash",
+                   "posh", "oksh"}
 BLACKCAT_SHELL_C_RE = re.compile(r"-[abd-z]*c[a-z]*\Z")     # linear: the first c is the split
 BLACKCAT_SHELL_ARG_OPTS = {"-o", "+o", "--rcfile", "--init-file"}
+BLACKCAT_STDIN_SCRIPTS = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
+# interpreters run with inline code (-c, -e, -r, --eval ...): the code may start a client
+BLACKCAT_INLINE_INTERP_RE = re.compile(
+    r"(?:python[0-9.]*|pypy3?|perl[0-9.]*|ruby|node|nodejs|deno|bun|php[0-9.]*|osascript|lua[0-9.]*|"
+    r"tclsh[0-9.]*|jshell|julia|rscript)\Z")
+BLACKCAT_INLINE_FLAG_RE = re.compile(r"-[a-z]*[cer]\Z|--(?:eval|command|print)\Z|eval\Z")
+BLACKCAT_INLINE_CLIENT_RE = re.compile(
+    r"\b(?:curl|wget|xh|xhs|httpie|lynx|w3m|elinks|aria2c|ncat|nc|netcat|socat|telnet)\b")
 BLACKCAT_FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 BLACKCAT_GH_READS = {"issue", "pr", "api", "gist", "release", "search", "repo", "browse", "run",
                      "discussion", "project", "label", "workflow", "cache", "ruleset", "attestation"}
@@ -668,7 +686,8 @@ BLACKCAT_SEGMENT_SPLIT_RE = re.compile(r"[;&|(){}`!\n]|\$\(")
 BLACKCAT_ASSIGN_RE = re.compile(r"[a-z_]\w*=")
 BLACKCAT_INLINE_HTTP_RE = re.compile(
     r"\b(?:urllib|urlopen|requests\.(?:get|post|put|patch|head|request|session)|httpx|aiohttp|"
-    r"http\.client|net::http|lwp::|open-uri|urlsession|xmlhttprequest)|\bfetch\s*\(")
+    r"http\.client|net::http|lwp::|open-uri|urlsession|xmlhttprequest|curl_(?:init|exec)|socket\.create_connection)|"
+    r"\bfetch\s*\(|\b(?:file_get_contents|fopen|readfile)\s*\(\s*(?:https?|ftp)://|/dev/(?:tcp|udp)/")
 BLACKCAT_WEB_SCAN_MAX = 20000
 # BlackCat does no work itself (fixed guards, env only, never learned):
 # - BLACKCAT_MAX_OWN_STEPS (0): Bash/Write/Edit calls per prompt; 0 refuses each with OWN_DENY_REASON,
@@ -708,37 +727,61 @@ def blackcat_web_command(cmd):
     """True when BlackCat's Bash command would fetch web content, or is too long to check."""
     if len(cmd) > BLACKCAT_WEB_SCAN_MAX:
         return True
+    # a backslash-newline joins a word (cu\<newline>rl) unless the backslash is itself escaped:
+    # read both ways (two linear passes)
+    texts = [cmd] + ([cmd.replace("\\\n", "")] if "\\\n" in cmd else [])
+    return any(_blackcat_web_text(t) for t in texts)
+
+
+def _blackcat_web_text(cmd):
     text = re.sub(r"\$?['\"]|\\", "", cmd).lower().replace("<<<", " <<< ")
+    text = text.replace("--command=", "--command ")         # fish --command='curl u'
     if BLACKCAT_INLINE_HTTP_RE.search(text):
         return True
-    for segment in BLACKCAT_SEGMENT_SPLIT_RE.split(text):
+    inline_checked = False
+    for seg_start, segment in _blackcat_segments(text):
         raw = segment.split()
         words = [w if BLACKCAT_ASSIGN_RE.match(w) else w.rsplit("/", 1)[-1] for w in raw]
-        skip = 0
+        skip, via_find = 0, False
         for i, word in enumerate(words):
             if i < skip:
                 continue
             if word in ("command", "builtin") and words[i + 1:i + 2] in (["-v"], ["-V"]):
                 break                                  # `command -v curl` only looks it up
-            if word in BLACKCAT_SHELLS or word == "find":
-                hit = next((k for k in range(i + 1, len(words))
-                            if (words[k] in BLACKCAT_FIND_EXEC if word == "find"
-                                else BLACKCAT_SHELL_C_RE.match(words[k]))), None)
-                if hit is not None:
-                    skip = hit + 1
-                    continue                           # the wrapped command decides
-                if word == "find":
+            if word == "find":
+                hit = next((k for k in range(i + 1, len(words)) if words[k] in BLACKCAT_FIND_EXEC),
+                           None)
+                if hit is None:
                     break
+                skip, via_find = hit + 1, True
+                continue                               # the command -exec runs decides
+            if word in BLACKCAT_SHELLS:
+                k, hit = i + 1, None                   # the shell's options: up to `--` or a script
+                while k < len(words) and words[k] != "--" and words[k][:1] in ("-", "+"):
+                    if BLACKCAT_SHELL_C_RE.match(words[k]) or words[k] == "--command":
+                        hit = k
+                        break
+                    k += 2 if words[k] in BLACKCAT_SHELL_ARG_OPTS else 1
+                if hit is not None:
+                    if hit == len(words) - 1 and {"xargs", "parallel"} & set(words[:i]):
+                        return True                    # xargs sh -c: stdin becomes the command string
+                    skip, via_find = hit + 1, False
+                    continue                           # the wrapped command decides
                 rest = words[i + 1:]
                 if "<<<" in rest:
                     return True                        # sh <<< 'curl u': commands from a here-string
+                operand = k + 1 if k < len(words) and words[k] == "--" else k
+                if raw[operand:operand + 1] and raw[operand] in BLACKCAT_STDIN_SCRIPTS:
+                    return True                        # bash /dev/stdin
                 script = [w for j, w in enumerate(rest) if w[:1] not in "-+"
                           and (j == 0 or rest[j - 1] not in BLACKCAT_SHELL_ARG_OPTS)]
-                if (skip == 0 and not {"xargs", "parallel"} & set(words[:i])
+                if (not via_find and not {"xargs", "parallel"} & set(words[:i])
                         and (not script
                              or any(w[:1] == "-" and w[1:2] != "-" and "s" in w for w in rest))):
                     return True                        # `... | sh`, `bash -s`: commands from stdin
                 break                                  # bash x.sh: a script file, not seen
+            if word in ("source", ".") and raw[i + 1:i + 2] and raw[i + 1] in BLACKCAT_STDIN_SCRIPTS:
+                return True                            # source /dev/stdin
             if (word in BLACKCAT_CMD_PREFIXES or word[:1] in "-+" or word[:1].isdigit()
                     or BLACKCAT_ASSIGN_RE.match(word)):
                 continue
@@ -746,8 +789,22 @@ def blackcat_web_command(cmd):
                 return True
             if word == "gh" and BLACKCAT_GH_READS & set(words[i + 1:i + 5]):
                 return True
+            if (not inline_checked and BLACKCAT_INLINE_INTERP_RE.match(word)
+                    and any(BLACKCAT_INLINE_FLAG_RE.match(w) for w in words[i + 1:i + 5])):
+                inline_checked = True                  # python3 -c "...run(['curl', u])": once, to the end
+                if BLACKCAT_INLINE_CLIENT_RE.search(text, seg_start):
+                    return True
             break                                      # the segment's command word decides
     return False
+
+
+def _blackcat_segments(text):
+    """(start offset, text) of each segment of `text` between BLACKCAT_SEGMENT_SPLIT_RE matches."""
+    pos = 0
+    for m in BLACKCAT_SEGMENT_SPLIT_RE.finditer(text):
+        yield pos, text[pos:m.start()]
+        pos = m.end()
+    yield pos, text[pos:]
 
 
 # Reviewers, guides and proof-checker are read-only by role but hold Bash: their Bash runs

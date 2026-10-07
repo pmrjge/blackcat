@@ -677,6 +677,88 @@ def test_web_check_linear():
     assert G.blackcat_web_command("$'curl' -s https://x") is True
 
 
+# T15 F3 (audit 73eec41..main): a shell after `-c` that reads its commands from stdin is refused
+# like any other; only the command find -exec runs (whose `{}` operand is split off) is exempt.
+@pytest.mark.parametrize("command", ["echo 'curl -s https://x' | bash -c sh",
+                                     "echo curl u | bash -c 'exec sh'", "echo 'curl u' | sh -c 'sh -s'",
+                                     "echo 'curl u' | find . -maxdepth 0 -exec sh -c bash \\;"])
+def test_web_check_sees_stdin_shells_inside_c(command):
+    assert G.blackcat_web_command(command) is True
+
+
+@pytest.mark.parametrize("command", ["bash -c 'sh x.sh'", "sh -c 'git status'",
+                                     "find . -name '*.sh' -exec sudo bash {} \\;",
+                                     "find . -exec sh -c 'bash \"$0\"' {} \\;"])
+def test_web_check_script_runs_inside_c_pass(command):
+    assert G.blackcat_web_command(command) is False
+
+
+# T15 item 7: in-policy forms the T1 check missed (the reviewer's 65-string probe): -c spelled
+# --command, csh/tcsh, options after `--` or a script operand are not the shell's, `xargs sh -c`
+# with no command string runs stdin, a script read from /dev/stdin, `source /dev/stdin`, a line
+# continuation inside a word, /dev/tcp sockets, inline code that runs an HTTP client, PHP's URL
+# reads, and the arch/taskpolicy wrappers.
+WEB_CHECK_CLOSED = [
+    "fish --command 'curl https://x'", "fish --command='curl https://x'",
+    "csh -c 'curl https://x'", "tcsh -c 'curl https://x'", "/bin/tcsh -fc 'curl https://x'",
+    "echo 'curl https://x' | bash -s -- -c", "echo 'curl https://x' | sh -s -- -lc",
+    "bash -s -- -c <<< 'curl https://x'", "sh -s -- -xc < cmds.txt",
+    "echo 'curl https://x' | xargs -0 sh -c", "echo 'curl https://x' | xargs -0 bash -c",
+    "echo 'curl https://x' | bash /dev/stdin", "echo 'curl https://x' | sh -- /dev/fd/0",
+    "echo 'curl https://x' | csh", "echo 'curl https://x' | tcsh",
+    "echo 'curl https://x' | source /dev/stdin", "echo 'curl https://x' | . /dev/stdin",
+    "cu\\\nrl https://x", "w\\\nget -qO- https://x", "echo \\\\\ncurl https://x",
+    "exec 3<>/dev/tcp/example.com/80", "cat < /dev/tcp/example.com/80",
+    "bash -c 'cat </dev/tcp/example.com/80'", "zmodload zsh/net/tcp; ztcp example.com 80",
+    "python3 -c \"import subprocess; subprocess.run(['curl','https://x'])\"",
+    "perl -e 'exec \"curl\", \"https://x\"'", "ruby -e 'system(\"wget\", \"-q\", \"u\")'",
+    "php -r 'echo file_get_contents(\"https://x\");'", "php -r '$c = curl_init(\"u\");'",
+    "arch -arm64 curl https://x", "arch curl https://x", "taskpolicy -b curl https://x",
+    "doas curl https://x", "busybox wget https://x",
+    "python3 -c \"import socket; socket.create_connection(('x', 80))\"",
+]
+
+
+@pytest.mark.parametrize("command", WEB_CHECK_CLOSED)
+def test_web_check_closed_probe_gaps(command):
+    assert G.blackcat_web_command(command) is True, command
+
+
+@pytest.mark.parametrize("command", [
+    "git status", "bash x.sh", "rg -n curl src", "command -v curl", "bash x.sh -c y",
+    "bash -o pipefail -c 'git log'", "python3 -c 'print(1)'", "python3 tools/use_curl.py",
+    "php -r 'echo file_get_contents(\"a.txt\");'", "rg -n wget src && perl -e 'print 1'",
+    "arch -arm64 uv run pytest -q", "echo a \\\n  b", "ls /dev/fd/0", "xargs sh -c 'echo \"$0\"' < f"])
+def test_web_check_closed_probe_controls(command):
+    assert G.blackcat_web_command(command) is False, command
+
+
+def test_web_check_inline_scan_reads_to_the_end():
+    """Inline code is not delimited after unquoting: a client named anywhere after it is refused
+    (the documented false positive, one dispatch)."""
+    assert G.blackcat_web_command("perl -e 'print 1' && rg -n wget src/README") is True
+
+
+# Design limit (documented at BLACKCAT_WEB_CLIENTS): runners not unwrapped stay unseen.
+@pytest.mark.parametrize("command", ["script -q /dev/null curl https://x", "uv run curl https://x",
+                                     "bash <(echo curl https://x)", "ssh h curl https://x"])
+def test_web_check_documented_limits(command):
+    assert G.blackcat_web_command(command) is False
+
+
+@pytest.mark.parametrize("unit", ["bash ", "bash -o x ", "find . -exec ", "xargs ", "sh -c ",
+                                  "python3 -c x; ", "cu\\\n", "-", "--command=", "a=b ", "/dev/stdin ",
+                                  "bash -s -- ", "arch -x "])
+def test_web_check_stays_linear(unit):
+    """Inputs up to the scan window, built from one repeated unit, are checked in linear time
+    (a quadratic word loop over ~4000 words takes seconds)."""
+    cmd = (unit * (G.BLACKCAT_WEB_SCAN_MAX // len(unit)))[:G.BLACKCAT_WEB_SCAN_MAX]
+    start = time.perf_counter()
+    G.blackcat_web_command(cmd)
+    G.BLACKCAT_SHELL_C_RE.match("-" + "a" * G.BLACKCAT_WEB_SCAN_MAX)
+    assert time.perf_counter() - start < 0.25, unit
+
+
 def test_orchestrator_web_check_off_with_policy_off():
     out = run_hook("curl -s https://example.com", agent_type="orchestrator", STACK_POLICY="off")
     assert decision(out) is None
