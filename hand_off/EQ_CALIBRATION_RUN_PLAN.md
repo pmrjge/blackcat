@@ -45,7 +45,7 @@ checked before every item by E11 (ledger Σ `total_cost_usd` + 4B ≤ ceiling).
 | 2. Smoke 5a: 1 dev item × 4 arms at B = $0.50 | §2 below | ≤ 0.50 (E members 0.07) | 2.00 | flags, caps and overshoot (M10), transcript paths, `runs3.csv`, `claude -p` authenticates; Opus ids in `model_ids` |
 | 3. p6/p7 smoke: 1 RS dev item at B = $0.50 | §2 below (after step 2's arm rows: eq_check E7's cell rule, COMPARE_eq §12 A8) | 0.07 member, 0.0125 branch call, 0.025 equivalence | 1.155 | forks of one session run in parallel without interference; every `parent_session_id` points to the right session; `eq_calibrate.py --stage p --dry-run` reads the smoke stage |
 | 4. Pilot p1-p4 (60 items × 4 arms) | `uv run --script "$H" run --stage p --spend-ok` | S* 2.00; E member 0.28 (0.32 PF/CP), reconcile 0.10; G/EG planner 0.30, nodes by weight | 480.00 (4B rule; exact cap sum 457.50) | no stage stop (E1-E11); environment failures declared as p9 |
-| 5. p6 nested sweep, PF CP CR ES RS, 40 items | `uv run --script "$H" run --stage p --cells p6,p7 --spend-ok`: one pass over the frozen schedule's cell rows only (in the schedule since 0.5; arm rows skipped), p7 after the item's p3 of step 4; eq_check E7 lets the pass start only when every arm row of step 4 is done, then takes the cell rows in schedule order (COMPARE_eq §12 A8) | 0.28 member (0.32 PF/CP); 0.10 equivalence; 0.10 verifier | 112.20 | every p6 item has 9 members, checks and verdicts |
+| 5. p6 nested sweep, PF CP CR ES RS, 40 items | `uv run --script "$H" run --stage p --cells p6,p7 --spend-ok`: one pass over the frozen schedule's cell rows only (in the schedule since 0.5; arm rows skipped), p7 after the item's p3 of step 4; eq_check E7 lets the pass start once step 4's arm pass is over (every item arm-checked, the last one with no arm row left to run), then walks the items in schedule order like the arm pass; a cell row that started and never finished holds only its item (COMPARE_eq §12 A8) | 0.28 member (0.32 PF/CP); 0.10 equivalence; 0.10 verifier | 112.20 | every p6 item has 9 members, checks and verdicts |
 | 6. p7 branches, RS ES, 20 items | step 5's pass (`--cells p6,p7` runs both cells' rows) | 0.05 per member-round | 40.00 | four branches × 2 rounds per item |
 | 7. Pilot grading (RS rubric, CR claim match, DS/OE pairwise) | §3 below | 0.50 per grader call | 82.00 (164 calls); ceiling kept at 100 | grader κ ≥ 0.6, else the flag |
 | 8. Calibration grading (member-level RS answers, CR findings) | §3 below | 0.50 | ≤ 5.00 (≤ 10 calls) | every key and finding the rules need is graded (`report.v<k>.json` `skipped` is empty) |
@@ -90,7 +90,7 @@ unset EQ_M EQ_ROOT                             # before any real step
 # test_shell.py::test_cell_pass_runs_through_eq_check_after_the_arm_pass).
 
 # the pilot (step 4: arm rows only; cell rows are skipped without --cells), then its cells (steps 5-6, one pass over
-# the cell rows only, which eq_check E7 lets start once every arm row is done: A8)
+# the cell rows only, which eq_check E7 lets start once the arm pass is over: A8)
 uv run --script "$H" run --stage p --spend-ok
 uv run --script "$H" run --stage p --cells p6,p7 --spend-ok
 ```
@@ -216,7 +216,8 @@ installer work); the guard and `stack-eq` then route only the classes whose entr
   and `subagents/`).
 - Hooks and background resumes in a headless `claude -p --agent equilibrium` session: step 9.
 - Settled 2026-10-07 (USER decisions): H5 removed from the pre-registration (COMPARE_eq §12 A7), so q no longer waits
-  for a `none` fork. eq_check.sh E7 has a rule for the cell pass (A8): `run --cells` passes `<cells>`, and E7 then
-  needs every arm row done in the ledger, takes the first item in schedule order with a not-done cell row, and
-  refuses a cell row whose calls started. Steps 3, 5 and 6 can run after their arm pass: stub proof
+  for a `none` fork. eq_check.sh E7 has a rule for the cell pass (A8): `run --cells` passes `<cells>`, which the
+  log's `cells` column records. E7 then starts once the arm pass is over and walks the items like the arm pass, on
+  the cell checks' own PASS lines. It refuses an item whose not-done cell row has a started call, and that item holds
+  only itself. Steps 3, 5 and 6 can run after their arm pass: stub proof
   `harness/tests/test_shell.py::test_cell_pass_runs_through_eq_check_after_the_arm_pass`.

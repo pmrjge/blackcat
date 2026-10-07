@@ -3443,14 +3443,14 @@
     "A7",
     "A8"
    ],
-   "sha256": "081013ea8573e7c838995315e0f6ee45e30f96b9ceda981e8921c741fbb9983c"
+   "sha256": "4cc5603cfb974576b8579998304802c0e30efb885e675733b8afb40caeb8050a"
   },
   "equilibrium/harness/eq_check.sh": {
    "a5_blob": "a4e329ce2f3dc6fde99e59bed042691476685123",
    "amendments": [
     "A8"
    ],
-   "sha256": "5f69d4336e003125a2146264f7c69e32f81672df2f0b2718a02684b2a0c31cf0"
+   "sha256": "7493498f0b59357fa17165d7bfa3998120c3fa1d0196cb6ad394786d1fb0d019"
   },
   "equilibrium/harness/eq_harness.py": {
    "a5_blob": "c667636e7f62e4ea140f4361a1a3ff93a25a3937",

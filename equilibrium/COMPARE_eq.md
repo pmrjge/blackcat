@@ -660,18 +660,28 @@ n_d = 46. Hence the added "powered effect excluded" reading.
      re-check of the last PASS whose calls have not started". A6.3's cells run as a second walk,
      `run --stage p --cells p6,p7` after the arm rows. Every item of that walk already has a PASS line and started
      calls, so E7 refused the first item of every cell pass (stub check, 2026-10-07): no p6 or p7 row could run.
-  2. **Rule.** `eq_check.sh <ITEM> <stage> [<cells>]`. `run` passes `<cells>` (`p6`, `p7` or `p6,p7`) on a cell pass
-     only. Any other value, and any `<cells>` at stage q, is a usage error (exit 2, nothing logged).
+  2. **Rule.** Revised the same day after review, still before any eq call: the first version held a whole cell pass
+     at any row that had started and never finished, cell or arm. `eq_check.sh <ITEM> <stage> [<cells>]`. `run`
+     passes `<cells>` (`p6`, `p7`, `p6,p7` or `p7,p6`) on a cell pass only. Any other value, and any `<cells>` at
+     stage q, is a usage error (exit 2, nothing logged).
+     - Every check appends its PASS or FAIL line to `DISPATCH_LOG.tsv` with a new last column, `cells`: empty for an
+       arm check, `<cells>` for a cell check.
      - Without `<cells>`, E7 is §5's rule, unchanged.
-     - With `<cells>`, E7 reads the pass's progress from the stage ledger, not from `DISPATCH_LOG.tsv`. A row is done
-       when the ledger holds its `item_arm` record; a cell row has started when a `call` record of that item carries
-       its `cell`. E7 passes iff (a) every arm row of `schedule.tsv` is done: a cell pass follows the arm pass, so
-       the arm rule, which reads PASS lines, never meets a cell check's line before an arm row it still has to run;
-       (b) the item is the first, in `schedule.tsv` item order, with a not-done row of `<cells>`; and (c) none of the
-       item's not-done `<cells>` rows has started (a started row is not run again: §10). A ledger E7 cannot read
-       fails E7.
-     - Every check still appends its PASS or FAIL line to `DISPATCH_LOG.tsv`.
-  3. **Effect.** Each p6 and p7 row runs at most once, in schedule order, after every arm row. A p7 row skipped because
-     its item's p3 round 0 is missing stays not done, so E7 refuses every later item of the pass until that row has
-     run. E1-E6 and E8-E12 are unchanged. Code: `harness/eq_check.sh`, and `run --cells` in `harness/eq_harness.py`,
-     which passes `<cells>`.
+     - With `<cells>`, the cell pass is a second walk by §5's rule, kept apart from the arm pass by that column. A cell
+       PASS line counts for each cell it names. A row is done when the ledger holds its `item_arm` record; a cell row
+       has started when a `call` record of that item carries its `cell`. E7 passes iff:
+       (a) the arm pass is over: every item has an arm-check PASS line, and the last arm-checked item has no arm row
+       left to run (all done, or an arm call started: a §10 environment failure, which is not run again);
+       (b) the item has a not-done `<cells>` row, and none of its not-done `<cells>` rows has started (a started row
+       is not run again: §10);
+       (c) the item is next: the first in `schedule.tsv` item order with a not-done `<cells>` row that no cell PASS
+       line of the item covers yet, skipping items that (b) holds; or the item of the last cell PASS line naming one
+       of these cells (a re-check).
+       A ledger or log that E7 cannot read fails E7.
+  3. **Effect.** Each p6 and p7 row runs at most once, in schedule order, after the arm pass, as the arm rows do. A
+     row that started and never finished holds only its own item: E7 refuses that item and the pass goes on with the
+     next. The harness stops at a refused item as in the arm pass, and `run --only` continues past it. A row that was
+     checked but did not run (a p7 row skipped because its item's p3 round 0 is missing) is checked again only as a
+     re-check of the last cell PASS line, as in the arm pass. E1-E6 and E8-E12 are unchanged. Code:
+     `harness/eq_check.sh`, and `run --cells` in `harness/eq_harness.py`, which passes `<cells>` and refuses a
+     repeated cell.

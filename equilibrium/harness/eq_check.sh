@@ -1,10 +1,11 @@
 #!/bin/bash
 # eq_check.sh: pre-item checks of the agent-equilibrium experiment (COMPARE_eq.md §5 step 3, E1-E11).
 # Run by `eq_harness.py run` before every item (or by hand):
-#     bash eq_check.sh <ITEM> [<stage: p|q|d> [<cells: p6|p7|p6,p7>]]   (stage defaults to p)
+#     bash eq_check.sh <ITEM> [<stage: p|q|d> [<cells: p6|p7|p6,p7|p7,p6>]]   (stage defaults to p)
 # <cells> marks a cell pass (`run --cells`, stage p or d; COMPARE_eq §12 A8): it changes E7 only.
 # Exit 0 = the item may start. Exit 1 = do not start it. Exit 2 = usage.
-# Every call appends one line to $EQ/runs/<stage>/DISPATCH_LOG.tsv (PASS or FAIL): the audit trail.
+# Every call appends one line to $EQ/runs/<stage>/DISPATCH_LOG.tsv (PASS or FAIL): the audit trail. Its last column,
+# `cells`, is empty for an arm check and holds <cells> for a cell check.
 # Read-only except that log. Never calls the API (`claude --version` only).
 # Env overrides (tests and the dry run only): EQ_M (main checkout), EQ_ROOT (the frozen package), EQ_HOME (home whose
 # .claude/ and .local/state/ are read). `claude` and `pgrep` are taken from PATH.
@@ -23,7 +24,7 @@ if [ -z "$ITEM" ]; then echo "usage: bash eq_check.sh <ITEM> [<stage> [<cells>]]
 case "$ITEM" in [A-Z][A-Z]-[A-Z0-9]*) ;; *) echo "bad item id: $ITEM" >&2; exit 2 ;; esac
 case "$ITEM" in *[!A-Z0-9-]*) echo "bad item id: $ITEM" >&2; exit 2 ;; esac
 case "$STAGE" in p|q|d) ;; *) echo "bad stage: $STAGE" >&2; exit 2 ;; esac
-case "$CELLS" in ""|p6|p7|p6,p7|p7,p6) ;; *) echo "bad cells: $CELLS (p6, p7 or p6,p7)" >&2; exit 2 ;; esac
+case "$CELLS" in ""|p6|p7|p6,p7|p7,p6) ;; *) echo "bad cells: $CELLS (p6, p7, p6,p7 or p7,p6)" >&2; exit 2 ;; esac
 if [ -n "$CELLS" ] && [ "$STAGE" = q ]; then echo "cells $CELLS: the calibration cells are stage p's (A6.3)" >&2; exit 2; fi
 for t in jq shasum awk; do
   command -v "$t" >/dev/null 2>&1 || { echo "FAIL missing command: $t" >&2; exit 1; }
@@ -34,7 +35,7 @@ LOG="$RUNS/DISPATCH_LOG.tsv"
 LEDGER="$RUNS/ledger.jsonl"
 CONFIG="$RUNS/CONFIG.txt"
 SCHED="$EQ/schedule.tsv"
-[ -f "$LOG" ] || printf 'utc\titem\tverdict\tstack_commit\tclaude_version\tfailed_checks\n' > "$LOG"
+[ -f "$LOG" ] || printf 'utc\titem\tverdict\tstack_commit\tclaude_version\tfailed_checks\tcells\n' > "$LOG"
 
 fails=""
 ok()  { printf 'PASS %s\n' "$1"; }
@@ -80,39 +81,58 @@ done
 if [ -z "$open_arms" ]; then ok "E6 no open measurement arm"; else bad "E6 open arm(s):$open_arms" E6; fi
 
 # E7 the item is the next one in schedule.tsv, or a re-check of the last PASS whose calls have not started.
-# A cell pass (<cells>, COMPARE_eq §12 A8) walks the schedule a second time, so it reads its progress from the ledger
-# (item_arm = a row done, a call's `cell` = that cell's row started), not from this log: every arm row is done (a cell
-# pass follows the arm pass), the item is the first in schedule order with a not-done row of <cells>, and no call of
-# its not-done <cells> rows has started (a started row is not run again, §10).
+# A cell pass (<cells>, COMPARE_eq §12 A8) is a second walk over the schedule by the same rule, on its own PASS lines
+# (the log's `cells` column; a line counts for each cell it names), with done (item_arm) and started (a call's `cell`)
+# read per row from the ledger. It starts once the arm pass is over: every item has an arm-check PASS line and the
+# last arm-checked item has no arm row left to run (all done, or an arm call started: §10). The item then has a
+# not-done <cells> row, none of whose calls has started (a started row is not run again, §10; it holds only its own
+# item), and is the next one: the first in schedule order with a not-done <cells> row its cell checks have not
+# covered (held items skipped), or the item of the last cell PASS line, a re-check.
 if [ ! -f "$SCHED" ]; then bad "E7 $SCHED missing" E7
 elif [ -n "$CELLS" ]; then
   led="$LEDGER"; [ -f "$led" ] || led=/dev/null
-  # schedule columns: seq item_seq item class arm label; a cell row has arm = label = its cell
-  e7="$(jq -nr --rawfile s "$SCHED" --arg c "$CELLS" --arg i "$ITEM" '
-    [$s | split("\n") | .[1:][] | select(length > 0) | split("\t")] as $rows
+  # schedule: seq item_seq item class arm label (a cell row: arm = label = its cell); log: utc item verdict ... cells
+  e7="$(jq -nr --rawfile s "$SCHED" --rawfile g "$LOG" --arg c "$CELLS" --arg i "$ITEM" '
+    def tsv: split("\n") | .[1:][] | select(length > 0) | split("\t");
+    def mine($C): .[4] as $a | any($C[]; . == $a);
+    ($c | split(",")) as $C
+    | [$s | tsv] as $rows
+    | [$g | tsv | select(.[2] == "PASS")] as $pass
     | [inputs] as $L
-    | ($c | split(",")) as $C
     | (reduce ($L[] | select(.record == "item_arm")) as $r ({}; .["\($r.item)\t\($r.label)"] = true)) as $done
     | (reduce ($L[] | select(.record == "call" and .cell != null)) as $r ({}; .["\($r.item)\t\($r.cell)"] = true))
       as $started
-    | [$rows[] | select(.[4] != "p6" and .[4] != "p7") | select($done[.[2] + "\t" + .[5]] | not)] as $arms_left
-    | [$rows[] | select(.[4] as $a | any($C[]; . == $a))] as $mine
-    | [$mine[] | select($done[.[2] + "\t" + .[5]] | not)] as $todo
+    | (reduce ($L[] | select(.record == "call" and .cell == null)) as $r ({}; .["\($r.item)"] = true)) as $armcall
     | (reduce $rows[] as $r ({o: [], s: {}}; if .s[$r[2]] then . else .o += [$r[2]] | .s[$r[2]] = true end) | .o)
       as $order
-    | ([$order[] as $x | select(any($todo[]; .[2] == $x)) | $x] | first) as $next
-    | if any($mine[]; .[2] == $i) | not then "norow"
-      elif ($arms_left | length) > 0 then "arms \($arms_left | length)"
-      elif $next != $i then "next \($next // "none (all done)")"
-      elif any($todo[]; .[2] == $i and $started[.[2] + "\t" + .[4]]) then "started"
-      else "ok" end' "$led" 2>/dev/null)" || e7="unreadable"
+    | [$pass[] | select((.[6] // "") == "") | .[1]] as $armpass
+    | ($armpass | last) as $lastarm
+    | [$order[] as $x | select(any($armpass[]; . == $x) | not) | $x] as $unchecked
+    | (reduce ($pass[] | select((.[6] // "") != "")) as $p ({};
+        reduce ($p[6] | split(",")[]) as $k (.; .["\($p[1])\t\($k)"] = true))) as $checked
+    | ([$pass[] | select((.[6] // "") | split(",") | any(.[]; . as $k | any($C[]; . == $k)))] | last | .[1])
+      as $lastcell
+    | [$rows[] | select(mine($C)) | select($done[.[2] + "\t" + .[5]] | not)] as $todo
+    | (reduce ($todo[] | select($started[.[2] + "\t" + .[4]])) as $r ({}; .[$r[2]] = true)) as $held
+    | ([$order[] as $x | select(($held[$x] | not) and any($todo[]; .[2] == $x
+        and ($checked[$x + "\t" + .[4]] | not))) | $x] | first) as $next
+    | if any($rows[]; .[2] == $i and mine($C)) | not then "norow"
+      elif ($unchecked | length) > 0 then "unchecked \($unchecked | length)"
+      elif ($armcall[$lastarm // ""] | not) and any($rows[]; .[2] == $lastarm and .[4] != "p6" and .[4] != "p7"
+        and ($done[.[2] + "\t" + .[5]] | not)) then "armlast \($lastarm)"
+      elif any($todo[]; .[2] == $i) | not then "done"
+      elif $held[$i] then "started"
+      elif $i == $next or $i == $lastcell then "ok"
+      else "next \($next // "none (all done)")" end' "$led" 2>/dev/null)" || e7="unreadable"
   case "$e7" in
-    ok) ok "E7 $ITEM is next in the $CELLS pass (arm rows done, its $CELLS rows not started)" ;;
+    ok) ok "E7 $ITEM is next in the $CELLS pass, or its re-check (none of its $CELLS calls started)" ;;
     norow) bad "E7 $ITEM has no $CELLS row in $SCHED" E7 ;;
-    arms\ *) bad "E7 a $CELLS pass follows the arm pass: ${e7#arms } arm row(s) not done in the ledger" E7 ;;
-    next\ *) bad "E7 $CELLS pass: expected ${e7#next }, got $ITEM" E7 ;;
+    unchecked\ *) bad "E7 a $CELLS pass follows the arm pass: ${e7#unchecked } item(s) have no arm-check PASS line" E7 ;;
+    armlast\ *) bad "E7 a $CELLS pass follows the arm pass: ${e7#armlast } (last arm-checked) still has arm rows to run" E7 ;;
+    done) bad "E7 $ITEM: its $CELLS rows are done" E7 ;;
     started) bad "E7 $ITEM: a call of its not-done $CELLS row(s) has started (not run again, COMPARE_eq §10)" E7 ;;
-    *) bad "E7 the ledger or $SCHED cannot be read for the $CELLS pass" E7 ;;
+    next\ *) bad "E7 $CELLS pass: expected ${e7#next }, got $ITEM" E7 ;;
+    *) bad "E7 the ledger, $LOG or $SCHED cannot be read for the $CELLS pass" E7 ;;
   esac
 else
   items="$(awk -F'\t' 'NR>1 && !seen[$3]++ {print $3}' "$SCHED")"
@@ -176,7 +196,8 @@ else
 fi
 
 verdict=PASS; [ -n "$fails" ] && verdict=FAIL
-printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u '+%FT%TZ')" "$ITEM" "$verdict" "${commit:0:7}" "$ver" "${fails# }" >> "$LOG"
+printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$(date -u '+%FT%TZ')" "$ITEM" "$verdict" "${commit:0:7}" "$ver" "${fails# }" \
+  "$CELLS" >> "$LOG"
 if [ "$verdict" = FAIL ]; then echo "VERDICT: FAIL ($fails ). Do not start $ITEM (COMPARE_eq §10)."; exit 1; fi
 echo "VERDICT: PASS $ITEM"
 exit 0
