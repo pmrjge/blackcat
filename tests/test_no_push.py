@@ -312,6 +312,16 @@ GIT_COMMAND_VALUES = [
     "git -c trailer.x.cmd='git push origin main' commit --trailer x=y -m m",
     "git -c trailer.x.command='git push' interpret-trailers",
     "git -c alias.P='!sh' p -c 'git push'",                            # alias names fold case
+    # S2b review fix 2: more keys whose value git runs (git-config(1): "command", "evaluated in shell")
+    "git -c hook.h.command='git push origin main' -c hook.h.event=pre-commit commit -m m",
+    "git config hook.h.command 'git push origin main'",
+    "git -c gpg.format=ssh -c gpg.ssh.defaultKeyCommand='git push origin main' commit -S -m m",
+    "git -c imap.tunnel='git push origin main' imap-send",
+    "git -c man.viewer=v -c man.v.cmd='git push origin main' help -m git",
+    "git -c browser.b.cmd='git push origin main' web--browse --browser=b u",
+    "git -c guitool.t.cmd='git push origin main' gui",
+    "git -c submodule.s.update='!git push origin main' submodule update s",
+    "git -c instaweb.httpd='git push origin main' instaweb",
     "GIT_SSH_COMMAND='git push' git fetch",
 ]
 
@@ -329,6 +339,8 @@ GIT_COMMAND_VALUES_SAFE = [
     "git -c protocol.ext.allow=never fetch o", "GIT_ALLOW_PROTOCOL=https:ssh git fetch o",
     "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=x git commit -m m",
     "git -c trailer.x.key=Signed git commit -m m",
+    "git -c submodule.s.update=rebase submodule update s", "git -c man.viewer=less help -m git",
+    "git -c help.browser=firefox help -w git", "git -c hook.h.event=pre-commit commit -m m",
 ]
 
 

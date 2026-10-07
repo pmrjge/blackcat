@@ -273,7 +273,11 @@ GIT_EXEC_KEY_RE = re.compile(
     r"merge\..+\.driver|filter\..+\.(?:clean|smudge|process)|interactive\.difffilter|"
     r"gpg\.program|gpg\..+\.program|credential\.helper|credential\..+\.helper|"
     r"uploadpack\.packobjectshook|sendemail\..+|remote\..+\.uploadpack|core\.gitproxy|"
-    r"core\.alternaterefscommand|trailer\..+\.(?:cmd|command))\Z", re.I)
+    r"core\.alternaterefscommand|trailer\..+\.(?:cmd|command)|gpg\.ssh\.defaultkeycommand|imap\.tunnel|"
+    r"man\..+\.cmd|browser\..+\.cmd|guitool\..+\.cmd|hook\..+\.command|submodule\..+\.update|"
+    r"instaweb\.httpd)\Z", re.I)
+# not here: help.browser, web.browser (a browser name, run through browser.<tool>.cmd/.path), browser.<tool>.path
+# and man.<tool>.path (one program path that must exist, not a command line)
 # Index blinding (CWE-345): install.sh reviews the checkout with `git status`/`git diff`; these
 # make git skip a file's working-tree content, so an edited file would be installed unseen.
 # update-index options are matched by any prefix (git accepts unique abbreviations); the
