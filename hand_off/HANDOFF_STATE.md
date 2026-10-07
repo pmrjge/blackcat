@@ -23,58 +23,43 @@ Key: **[v]** read in a file or git this session · **[r]** from an agent's repor
 
 ## 1. DONE / merged
 
+State as of 2026-10-07, verified against git (main `9852e87`, M clean) [v]. Everything below that this section calls merged is an
+ancestor of main.
+
 | item | state |
 |---|---|
-| `main` | the commit that adds `hand_off/`; below it `7ea9590` ("Main", 16:42, committed in M after the stop: adds `.claude-work` to `.gitignore`), `2aff512` (claude_info: L1 follow-ups noted), `69067f6` (L1 review follow-ups), `743a7e2` (claude_info R3b correction), `ff48d70` (session-stop handoff), `d955bef` (L1) [v: `git log`, 16:47] |
-| L1 review follow-ups (T2) | **Merged** by fast-forward: branch `worktree-agent-afb29c2edb383d1dc` @ `2aff512` is an ancestor of main; its worktree `WT/agent-afb29c2edb383d1dc` is clean and locked [v]. Files: `tests/cache_monitor.py`, `tests/cache_stability_lint.py`, `tests/test_cache_monitor.py`, `tests/test_cache_stability.py`, `claude_info/HANDOFF_FULL.md` [v: `git diff --stat 743a7e2 2aff512`]. **C10 on main @ `2aff512`: NOT confirmed.** The INTEG run (runner `H/.claude-work/resume-1005/c10-main-2aff512.sh`) started 16:31:27 and stopped in pytest at ~8 % when the user stopped the agents; the log stopped growing at 16:37:22 and no step result was written (`c10-main-2aff512.summary` holds only the start line) [v] |
-| Installed manifest | `7d12c58` [r]. Install HELD; it ends when the user reinstalls main (§5) |
-| T0 isolation backend | Decided: Apple `container` 1.5.0 replaces Docker. Spike passed: `--network none`, `--read-only`, 0.62 s cold start [r]. Seatbelt/`sandbox-exec` and App Sandbox rejected (researcher aa86e636efb18156d: no per-path denies, Keychain IPC reachable, no fork/memory caps; scout a30dd79402430c2dc: `sandbox-exec` deprecated, no removal notice found) [r] |
-| T1g docs check (claude-code-guide ac12a2c909bccbe01) | `--agent` tools apply to the main thread (`-p` unverified); `--settings` arrays merge, precedence managed > `--settings` > local > project > user; `--tools` restricts built-ins, `--allowedTools` only auto-approves; only `Read()`/`Edit()` path rules are consulted, `Write()` rules never [r] |
-| T1b skill amendment A4 (python-engineer a8f4c248dfa20814e) | `--tools` (built-ins + `Skill` + `StructuredOutput`) plus `--allowedTools` kept; `common_tools = ["Skill"]` in flags.json, fails closed without it; test `harness/tests/test_skill_tools_argv.py`; COMPARE_eq A4 written [v: COMPARE_eq.md:424-467]. 416 harness tests pass [r] |
-| T1x EQ-T restore | EQ-T restored as worktree `WT/eq-t-1005` from branch `golden/next-steps-7c1c7f`, snapshot copied in, `diff -r` vs snapshot clean, 416 passed [r; both re-checked at 16:41, §2: v]. **EQ-T is not in git.** Sole other copy: `H/.claude-work/t1b/equilibrium-snapshot-1611/` (read-only; pre-edit harness `t1b/eq_harness.py.pre-t1b`, diffs `t1b/eq_harness.t1b.diff`, `t1b/t1b-all.diff`) [v: files exist] |
-| Worktree audit | `H/.claude-work/resume-1005/worktree-cleanup.md` (verifier a752e2c18d6e1139d, 16:02): commands by class, nothing removed [v] |
-| Loss assessment | `H/.claude-work/resume-1005/t-loss.md` (verifier a402ed933d056b18e, 16:19) [v] |
-| User-run command list | explore aff29c92b53acef18 [r; output not in a file found] |
+| `main` | `9852e87` (M clean). `hand_off/` is committed on it; the session-stop commits `7ea9590`, `2aff512`, `69067f6`, `743a7e2`, `ff48d70`, `d955bef` are all below it [v] |
+| Installed manifest | commit `73eec41`, an ancestor of main and **172 commits behind** it. The installed `~/.claude/agents/orchestrator.md` `tools:` line has no `Bash`; M's has `Bash` [v]. Install stays held until the user reinstalls (§5) |
+| `orch-bash` | **Merged.** Tip `f5de4f6` is an ancestor of main (§8 lists the older `d534cd4`, also an ancestor). The old WIP state (branch @ `743a7e2`, no commits, main without Bash) is obsolete [v] |
+| Other merged branches (all ancestors of main) | `worktree-agent-afb29c2edb383d1dc` @ `2aff512` (L1 follow-ups), `wiki-main-fixes` @ `5be6ab7`, `eq-pins` @ `0781a15`, `eq-track` @ `c0b2d8d` (EQ-T tracked as `equilibrium/`), `eq-cli-install` @ `321f037`, `eq-distroless` @ `fd0a2a3`, `handoff-docs-2` @ `a3653dd`, `l2-final` @ `7c7137d`; R3 is merged as `r3-ready` @ `84ba493`. All 16 SHAs in §8 are ancestors of main [v] |
+| R3 old branch | `worktree-agent-a5a3114a94bceb867` @ `60dd3ad` (2 dirty lines) is merged and superseded by `r3-ready` @ `84ba493`; its `STATE.md` "Remaining" list is obsolete [v] |
+| C10 on main | **Not confirmed.** The earlier run on `fd0a2a3` is incomplete. Passed there: lint_agents, prompt_budget, guard self-test, stack_progress self-test, bash -n 311/311, image_studio 125, instructor 77, eq-wall 100. Not finished: full pytest (stalled under load), install_smoke, hand_off tests, codex_config, the harness suite. A full C10 on main HEAD is §4 item 0 [r: `NEXT_SESSION_PROMPT.md`] |
+| EQ-T | Now at `M/.claude-work/worktrees/eq-t-1005`; main tracks `equilibrium/` (`eq-track`). The user-side move command is done [v] |
+| T0 isolation backend | Apple `container` 1.5.0 replaces Docker; R3 and the distroless images are merged (§8). Seatbelt/`sandbox-exec` and App Sandbox rejected (researcher aa86e636efb18156d; scout a30dd79402430c2dc) [r] |
+| T1g docs check / T1b A4 | `--agent` tools apply to the main thread (`-p` unverified); `--tools` restricts built-ins, `--allowedTools` only auto-approves; only `Read()`/`Edit()` path rules are consulted. A4 amendment in COMPARE_eq (`common_tools = ["Skill"]`, `harness/tests/test_skill_tools_argv.py`) [r] |
+| Reset directory | `M/.claude-work/resume-1005/reset` is absent; the reset script was built instead as `hand_off/RESET_TO_MAIN.sh` (§8 item 10) [v] |
+| Audit files | `R/.claude-work/resume-1005/worktree-cleanup.md`, `t-loss.md`, `unused-folders.md` (read-only inventories; their T and S rows are obsolete) [v: R = `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/resume-770728`] |
 
-## 2. STOPPED by the user's order (~16:37; were running; all agent ids die with the session)
+## 2. NOT merged / still open (the 2026-10-05 stop is over; the old agent ids are dead)
 
-State read at ~16:40 with git and the files named [v], unless marked. Nobody resumes these agents; the next session
-briefs fresh builders from the files.
+State read 2026-10-07 with git [v]. R = `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/resume-770728`. Nobody resumes
+old agents; the next builders get fresh briefs from the files named here.
 
-| agent | id | work | state at stop |
+| branch | tip | ahead of main | state |
 |---|---|---|---|
-| orchestrator | aeb982e2417df4dd0 | coordinated resume-1005 (job plan `H/.claude-work/resume-1005/plan.md`, last checkpoint 16:34) | stopped; no own branch |
-| main-coder (R3) | a5a3114a94bceb867 | Port R3 to `container` in worktree `WT/agent-a5a3114a94bceb867`, branch `worktree-agent-a5a3114a94bceb867`, base `743a7e2` | stopped. Branch @ `60dd3ad`, 2 WIP commits ahead of main: `5bb86bf` (lib/eq-container + lib/eq-wall copy) and `60dd3ad` (driver `eq-container.sh`, `probe.sh`, `verify-tools.sh`, `eqc_json.py`, WALL policy path + REVIEW re-hash). **Uncommitted:** `lib/eq-container/lib.sh` (+6/-3) and untracked `tests/fake-container/container` (16:35). Not wired into the installer, no tests run, not reviewed. Harness work was in its own copy `WT/agent-a5a3114a94bceb867/.claude-work/r3/eqt/equilibrium/harness/eq_harness.py` (baseline `.claude-work/r3/eqt-base/`), mid-port; EQ-T itself was not touched (see EQ-T below) |
-| main-coder (L1 INTEG) | a7fae00afc61465ac | Fast-forward the L1 fixes into main, C10 on main | stopped during C10: the merge is on main (§1), C10 not confirmed |
-| python-engineer (L1 fixes, T2) | afb29c2edb383d1dc | L1 review follow-ups (HANDOFF_FULL §4) | done and merged (§1); branch and worktree kept (locked, clean) |
-| claude-code-engineer | a7ed898c01c4f5a2d | Add `Bash` to the orchestrator, worktree `M/.claude-work/worktrees/orch-bash`, branch `orch-bash` | stopped. Branch @ `743a7e2`, **no commits**; uncommitted edits to `CONFIG.md` (+3), `README.md` (1 line), `dot-claude/agents/orchestrator.md` (tools line becomes `Agent, SendMessage, TaskStop, Read, Write, Edit, Bash, Skill, mcp__neural-memory`: adds Bash, drops Glob and Grep; body step 8 "integrate: fast-forward main with Bash, no worktree removal, never push"). Not reviewed. Main's `dot-claude/agents/orchestrator.md:7` still has no Bash. `H/.claude-work/resume-1005/orch-bash.md` does not exist |
-| main-coder (R3s reset script) | acddf3f1fa0c498d5 | `RESET_TO_MAIN.sh` (archive, then dry-run reset to main only) with throwaway-repo tests in `M/.claude-work/resume-1005/reset/` | stopped. **No files found:** `M/.claude-work/resume-1005/reset/` does not exist; nothing reset-related under `M/.claude-work`, `H/.claude-work` or `hand_off/`; the archive dir `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/_archive_stack_1005/` does not exist; nothing committed. Treat as not started (§4) |
+| `eq-runtime` | `b595c3c` | 24 | settings hooks, decisions b-e; not merged, not finished (§4 item 11) |
+| `eqr-hdocs` | `7c1702d` | 28 | schema v0, docs; not merged |
+| `eqr-harness` | `61f82b4` | 28 | not green: p6/p7, E_rt and LOO wiring untested; not merged |
+| `eqr-mut` | `b4df8df` | 23 | dirty: untracked `tests/test_eq_gaps.py` (plus scratch `.claude-work/mut/`: gen.py, runner_head.py, runner_tail.py, disc*.jsonl) |
 
-EQ-T (`WT/eq-t-1005`, branch `golden/next-steps-7c1c7f` @ `a22c5b4`, already in main): `diff -rq` against the snapshot
-`H/.claude-work/t1b/equilibrium-snapshot-1611/` is clean at 16:40, so it holds the T1b A4 edits and none of R3's harness
-work. Harness suite on a scratch copy of EQ-T (16:41, `uv run --no-project --with pytest --with duckdb
---with-requirements harness/eq_harness.py pytest -q -p no:cacheprovider harness/tests`): **416 passed** in 97 s [v].
-EQ-T is consistent; no half-applied edit in it.
+The worktrees `eq-runtime`, `eqr-harness`, `eqr-hdocs`, `eqr-mut` live under R, with `smokegc-fix`, `eqcli-integ` and
+`wiki-main-fixes/github-wiki`. Known product bugs, unfixed: `eq_guard.py:978` (`VALUE_OPTS` holds upper-case options but
+`command_words` compares the lower-cased word, so `env -C . git commit -m x` and `xargs -I X git commit ...` pass for an eq
+member; a strict xfail test sits in `test_eq_gaps.py`) and `eq_policy.py` `resolve` (`over_cap` is always False, so the
+over-cap confirm mode never fires). Settled decisions: `hand_off/NEXT_SESSION_PROMPT.md`.
 
-Not started, unchanged by the stop: Stage 4 items after L1 (L2 branch `s4-l2-output` @ `b6e05d6` and L5 branch
-`s4-l5-budget` @ `2ebc26f`, both unmerged [v]; CLAUDE.md block, instructor, L7 B1/B3 + L10), Stage 3, the c0 runbook,
-ONE_TREE/RESET (§4 items 4-11).
-
-R3 remaining (from `WT/agent-a5a3114a94bceb867/.claude-work/r3/STATE.md` at 16:32; its "Progress" line says all
-lib/eq-container scripts and the lib/eq-wall policy path are ported in the WIP commits, so items 1-2 need only a check,
-the exec bits and README; the harness copy is part-ported; next were flags.json, README, harness tests, then the installer):
-1. lib/eq-container: check the ported scripts against STATE.md "Remaining" item 1; exec bits (100755 for `*.sh`,
-   `minimal/lake-shim`, `tests/fake-container/container`); README; commit the uncommitted `lib.sh` edit and the fake CLI.
-2. lib/eq-wall: docs docker -> container (`WALL_DESIGN.md`/`INSTALLER_WALL.md` were touched in `60dd3ad`; check).
-3. Installer wiring: `--with-eq-container`, `--eq-container-profiles`, `--no-eq-broker`/`--with-eq-broker`; steps 10b/10c;
-   `__EQ_TUNNEL__` render; manifest keys `eq_container`/`eq_wall`; stack.env, `stack_diff.py`, agent_guard keep-list +
-   `eq_tunnel_root()`, doctor.sh; settings.json deny rules as **Read+Edit** on `~/.cache/claude-agent-stack/eq-tunnel/**`,
-   `/__EQ_TUNNEL__/**`, `/__STACK_STATE__/eq-wall/**` plus sandbox denyWrite (Write rules are never consulted).
-4. Tests: `tests/fake-container/container`, conftest, `test_eq_container.py`, install tests, smoke cases.
-5. Harness backend `container`: finish the port in R3's copy `.claude-work/r3/eqt/` (diff against `eqt-base/`), then
-   apply it to EQ-T (outside the A4 argv block); flags.json, README, harness tests with fake_container, run from a /tmp copy.
-6. Docs; C10 (the runner `S/.claude-work/wrapup/c10.sh` is lost: recreate as `.claude-work/r3/c10.sh` in its worktree);
-   squash the WIP; security-auditor + code-reviewer; fixes; INTEG (merges main into its branch first; one INTEG at a time).
+Gone from the first write of this file (obsolete): the stopped agents (orchestrator, R3, L1 INTEG, `orch-bash`, reset-script
+writer), R3's WIP list, and EQ-T's pre-move location. Their results are in §1 and §8.
 
 ## 3. MISSING / LOST
 
@@ -100,28 +85,37 @@ MECHANISMS, s4-l9), `M/claude_next_steps/work_carried/context-diet/`, git commit
 
 ## 4. LEFT TO DO (in order; serialized merges, C10 on main after each; one INTEG at a time)
 
-| # | task | owner agent type |
+| # | task | state / owner |
 |---|---|---|
-| 0 | Verify state (first actions of the next-session prompt), then **C10 on main** at its current HEAD: the run on `2aff512` was interrupted (§1); runner to adapt: `H/.claude-work/resume-1005/c10-main-2aff512.sh` (full C10 ~21 min) | verifier |
-| 1 | `orch-bash`: commit the uncommitted edits in its worktree (§2), security-auditor review, fixes, INTEG; then the user reinstalls (§5) | claude-code-engineer, security-auditor |
-| 2 | L1 follow-ups: **merged** (`69067f6`, `2aff512`); only the C10 of item 0 is left | (none) |
-| 3 | R3 `container` port: commit the uncommitted WIP, finish the §2 list; security-auditor + code-reviewer; fixes; INTEG | main-coder, security-auditor, code-reviewer |
-| 4 | L2 `s4-l2-output` `b6e05d6` + 3 patches from `claude_info/s4_outputs/s4-l2/` in an own worktree; reviews; merge after R3 (settings.json serialized) | main-coder, security-auditor, code-reviewer |
-| 5 | Installer-managed `~/.claude/CLAUDE.md` block (spec lost with STAGE4.md: re-derive from HANDOFF_FULL + brief) | main-coder |
-| 6 | Instructor: re-commit `deea4d5`'s tree from its own worktree (plumbing commit breaks the own-worktree rule), apply its 3 patches; one allow rule per recipe; `just` 1.58.0 installed [r]; reviews; merge | main-coder, security-auditor, code-reviewer |
-| 7 | L5 `2ebc26f` observe-only: re-derive the 2 lost patches; reviews; merge | main-coder, security-auditor |
-| 8 | L7 mechanisms B1 + B3 (agent_guard.py, serialized) + L10 trims as a side commit (user said yes; -26 tokens/spawn [r]); MECHANISMS re-derived, ASK USER if the outline is insufficient | main-coder, security-auditor |
-| 9 | Stage 3 quality pass: re-map with explore, ≤ 2 coders in disjoint worktrees, behaviour-neutral; behaviour changes listed for approval | explore, coder |
-| 10 | ONE_TREE / RESET (user order: reset the repo to "only main" after the live work lands; the orchestrator folded ONE_TREE into it). Not started (§2). Write `RESET_TO_MAIN.sh` with throwaway-repo tests: stage 1 archives everything unique to `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/_archive_stack_1005/` (a bundle per branch; tarballs for untracked/ignored data: EQ-T + snapshot, c0 data, dirty worktrees, `claude_next_steps/work_carried`, `M/.claude-work/context-diet/transcripts` (may hold secrets), `claude_info`; manifest + sha256); then dry-run by default, `--apply` explicit; never `rm -rf` a worktree; `worktree remove --force` only after the archive is verified; `branch -D` only for a branch in a verified bundle; `git clean -ndx` shown before `-fdx`; reflog expire/gc behind a separate flag; live or locked worktrees are blockers. Re-take the audit after all merges; code-reviewer, then a verifier dry run; the archive dir is outside the agents' sandbox and `--apply` is the user's. After the user's archive is verified: `git rm -r claude_info/` on main (`hand_off/` replaces it). H is removed last | main-coder, code-reviewer, verifier |
-| 11 | c0 runbook re-derived with exact commands, handed to the user (c0 collection is user-run and paid) | main-coder or verifier |
-| 12 | After the user's paid probe: fold the result into COMPARE_eq A4 item 4 | python-engineer |
+| 0 | Full C10 on main HEAD (`9852e87` or later). The run on `fd0a2a3` was incomplete (§1) | **pending**; verifier |
+| 1 | `orch-bash` post-merge audit | folded into item 15 (user's choice) |
+| 2 | L1 follow-ups | done: `worktree-agent-afb29c2edb383d1dc`@`2aff512` (§1) |
+| 3 | R3 `container` port | done: `r3-ready`@`84ba493` via r3-merge (§8) |
+| 4 | L2 output | done: `l2-final`@`7c7137d` (§8) |
+| 5 | Installer-managed CLAUDE.md block | done: `claude-md-block`@`485b855` via cmb-integ (§8) |
+| 6 | Instructor | done: `s4-instructor`@`cf8cf68` via instr-integ (§8) |
+| 7 | L5 observe-only | done: `l5-land`@`6d9713a` via l5-integ (§8) |
+| 8 | L7 B1 + B3, L10 | done: `l7-mech`@`a05d508` via l7-integ (§8) |
+| 9 | Stage 3 quality pass | done: `s3-integ`@`b1a0703` via s3-ff; deferred D1-D5 need the user's approval (§8) |
+| 10 | `RESET_TO_MAIN.sh` | built: `reset-to-main`@`76e1cd4` via rtm-integ (§8); only a dry run is left (item 16) |
+| 11 | Finish `eq-runtime` per `M/hand_off/NEXT_SESSION_PROMPT.md` step 2: harness tests for p6/p7 and the CLI, grade files, E_rt with `bundle_mismatch` and `candidate`, wiring tests; `eq_calibrate` `read_stage` skips records with a branch; merge `eqr-hdocs` into `eqr-harness`, `test_calibrate`, `equilibrium_paths.py amend --amendment A6`; finish the mutation runner on `eqr-mut` (keep only gap tests that kill something); fix the two product bugs (`eq_guard.py:978`, `eq_policy.py` `over_cap`), each with a test; security-auditor + code-reviewer on `main...eq-runtime`, one fix round; merge main into `eq-runtime`; report READY. Private `UV_CACHE_DIR` (the shared one is corrupt) | main-coder lead |
+| 12 | `eq-runtime` INTEG: `git -C M merge --ff-only eq-runtime`, then full C10 on main | integrator |
+| 13 | Codex pages into `R/wiki-main-fixes/github-wiki` (nested repo; the user pushes): re-measure counts, run the wiki checker, review | main-coder |
+| 14 | Final handoff update (A4_FOLD.md §3 path; `R/.claude-work/resume-1005/FINAL_REPORT.md`) | main-coder |
+| 15 | Main-only audit `73eec41..main`: security-auditor + code-reviewer, includes the `orch-bash` Bash/git-guard gaps; then full C10; one fix round | security-auditor, code-reviewer |
+| 16 | `RESET_TO_MAIN.sh` dry run only (`--archive` and `--apply` are the user's) | verifier |
+| 17 | Closing report; the reinstall notice goes here only (the user runs `install.sh`) | main-coder |
+| 18 | A4 fold into COMPARE_eq A4 item 4, after the user's paid probe (§5) | python-engineer |
 
-Deferred: oracle residuals (HANDOFF_FULL §6.1), §6.10 items.
+Deferred: oracle residuals (HANDOFF_FULL §6.1), §6.10 items, Stage 3 D1-D5.
 
 ## 5. USER STEPS
 
-Reinstall (gives the orchestrator `Bash`, ends the install hold). Only after `orch-bash` is merged into main and C10
-passes on main: installing main before that installs an orchestrator without Bash. Quit every Claude Code session first.
+Reinstall (ends the install hold; the installed manifest `73eec41` is 172 commits behind main and its orchestrator has no
+`Bash`). Conditions: full C10 passes on main (§4 items 0, 12, 15) and the closing report (§4 item 17) says so. `orch-bash` is
+already merged. `eq-runtime` adds settings hooks, so after it merges a **second reinstall** follows. The `tools/instructor`
+deny rule (`Edit(//**/tools/instructor/**)`, also joined to the sandbox denyWrite on macOS) makes sandboxed git writes to a
+`tools/instructor` path fail after a reinstall. Agents never run `install.sh`. Quit every Claude Code session first.
 
 ```bash
 git -C /Users/pmrj/ZDone/claude-agent-stack log --oneline -3
@@ -154,30 +148,22 @@ Undo (backups in `~/.local/state/claude-agent-stack-backups`):
 ```
 
 Paid probe for A4 (consent given: one call, hard cap $0.25). Run it yourself from a normal logged-in terminal (agent
-sandboxes have no `claude` login). Not run yet. The T1b python-engineer (a8f4c248dfa20814e) is gone with the session:
-afterwards brief a fresh python-engineer with the output file path and COMPARE_eq A4; it strips credentials and folds
-the result into A4 item 4 (§4 item 12). If you move EQ-T first (below), change `P=` to the new path.
+sandboxes have no `claude` login). Not run yet. Afterwards brief a fresh python-engineer with the output file path and
+COMPARE_eq A4; it strips credentials and folds the result into A4 item 4 (§4 item 18). EQ-T is at
+`M/.claude-work/worktrees/eq-t-1005`.
 
 ```bash
-P=/Users/pmrj/ZDone/claude-agent-stack/.claude/worktrees/eq-t-1005/.claude-work/equilibrium/probes; mkdir -p "$P"; TS=$(date -u +%Y%m%dT%H%M%SZ); cd "$(mktemp -d)" && printf 'List the exact names of every tool you can call, then return them.\n' | claude -p --agent writer --model sonnet --max-budget-usd 0.25 --json-schema '{"type":"object","properties":{"tools":{"type":"array","items":{"type":"string"}}},"required":["tools"],"additionalProperties":false}' --output-format stream-json --verbose --permission-mode acceptEdits --disallowedTools Agent WebSearch WebFetch --strict-mcp-config --tools Read,Skill,StructuredOutput --allowedTools Read Skill > "$P/a4-probe-$TS.json" 2> "$P/a4-probe-$TS.err"; echo "exit=$?" >> "$P/a4-probe-$TS.err"
+P=/Users/pmrj/ZDone/claude-agent-stack/.claude-work/worktrees/eq-t-1005/.claude-work/equilibrium/probes; mkdir -p "$P"; TS=$(date -u +%Y%m%dT%H%M%SZ); cd "$(mktemp -d)" && printf 'List the exact names of every tool you can call, then return them.\n' | claude -p --agent writer --model sonnet --max-budget-usd 0.25 --json-schema '{"type":"object","properties":{"tools":{"type":"array","items":{"type":"string"}}},"required":["tools"],"additionalProperties":false}' --output-format stream-json --verbose --permission-mode acceptEdits --disallowedTools Agent WebSearch WebFetch --strict-mcp-config --tools Read,Skill,StructuredOutput --allowedTools Read Skill > "$P/a4-probe-$TS.json" 2> "$P/a4-probe-$TS.err"; echo "exit=$?" >> "$P/a4-probe-$TS.err"
 ```
 
-`container` flags: done. You ran `container run --help` and `container image inspect alpine:latest | jq '.[0] | keys'`,
-and the output was relayed to R3 (a5a3114a94bceb867).
+Container steps (C14-C23, D1-D9) are in `hand_off/R3_CONTAINER_CHECKLIST.md`; the default `core` set still stops at exit 13
+until the placeholder pins are filled.
 
-Move EQ-T to the agreed worktree location. R3 and T1b are stopped, so it can run before the next session; then give
-the builders the new path (R3's STATE.md still names the old one):
-
-```bash
-git -C /Users/pmrj/ZDone/claude-agent-stack worktree move /Users/pmrj/ZDone/claude-agent-stack/.claude/worktrees/eq-t-1005 /Users/pmrj/ZDone/claude-agent-stack/.claude-work/worktrees/eq-t-1005
-```
-
-Worktree cleanup: commands in `H/.claude-work/resume-1005/worktree-cleanup.md`. Class 1a and 1c are safe now; 1b only
-after the sessions using them are closed and the builds are done; class 2 (`--force`) only after its backup commands;
-class 4 (`branch -D`) optional. Its rows for T and S are obsolete (both gone), and its 1b "copy S to T" step can no
-longer run. Keep `agent-a5a3114…` (R3 WIP, partly uncommitted), `M/.claude-work/worktrees/orch-bash` (all of its work
-is uncommitted), `eq-t-1005` (EQ-T, not in git), `agent-ac1227df…` (R3b reference) and H until their work is merged or
-archived (§4 item 10); `agent-afb29c2…` is merged and clean (locked). Nobody but you removes worktrees.
+Worktrees: agents create theirs directly under R (`/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/resume-770728`)
+or H's `.claude-work`; worktrees under `M/.claude-work` are refused by the Edit hook (`R/.claude-work/resume-1005/COMMON.md:15`).
+Cleanup commands: `R/.claude-work/resume-1005/worktree-cleanup.md` (its T and S rows are obsolete). Keep the four unmerged
+`eq*` worktrees (§2), EQ-T and H until their work is merged or archived (§4 item 16); the merged `afb29c2…` and `a5a3114…`
+worktrees are safe to remove, by you. Nobody but you removes worktrees.
 
 `protocol-p1` worktree (in W, rebase stopped on a CONFIG.md conflict): continue, abort or archive: your call (HANDOFF_FULL §2 R5).
 
@@ -219,8 +205,17 @@ Undo: `./install.sh --restore` (the manifest's `eq_runtime` and the staged files
 
 1. Isolation backend: Apple `container` 1.5.0; Docker dropped. c0 and the Docker runbook: the user runs c0 (stated
    this session; whether it was run: unverified, `RUNBOOK_c0.md` is lost, item 11); the Docker part is dropped.
-2. Image choices: Debian packages for bash/perl/jq/busybox; Scala 3 release tarball; MongoDB out (PostgreSQL profile also
-   dropped by R3: its only runner was compose); `cc` linker in the Rust/Haskell images.
+2. Image choices. SUPERSEDED 2026-10-06 by the distroless decisions below: ~~Debian packages for bash/perl/jq/busybox; Scala 3
+   release tarball; MongoDB out (PostgreSQL profile also dropped by R3: its only runner was compose); `cc` linker in the
+   Rust/Haskell images.~~ (Scala 3 from the release tarball and MongoDB/PostgreSQL out still stand.)
+   2026-10-06 (USER; implemented on branch `eq-distroless`, `lib/eq-container/DESIGN_DISTROLESS.md`): (1) bash: static GNU bash
+   5.3 + patches 001-020 built from the GPG-signed source in a pinned Alpine builder stage (`tc/build-bash.sh`, key
+   7C0135FB088AAF6C66C650B9BB5869F064EA74AB enforced), output pinned. (2) perl: none; the in-repo `minimal/perl-shim` answers only
+   `check_lean.sh`'s timeout wrapper (`check_lean.sh` and the PF pool unchanged). (3) CP/CR: distroless cc + the glibc
+   python-build-standalone Python. (4) The Debian `full` image and `STACK_EQ_CONTAINER_SET=full`: removed. (5) Rust and Haskell
+   deferred (profiles exit 10 with a reason); node, julia, jvm on distroless cc, go on scratch. (6) jq: the official static jq
+   1.8.2; busybox: docker-library's musl build; uv: static musl 0.12.22. No Debian, apt or dpkg in any final image or in the
+   build path; every final image is FROM the digest-pinned `gcr.io/distroless/cc-debian13` or scratch.
 3. Oracle residuals (§6.1) deferred; §6.10 deferred.
 4. `mcp-server-craft` stays retired (`e045482`); do not restore.
 5. Plugin autoUpdate for claude-plugins-official: keep on.
@@ -264,11 +259,13 @@ sandboxes write only their own worktree, `$TMPDIR` and M; no `claude` login insi
 
 Live plan: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/resume-770728/.claude-work/resume-1005/plan.md
 
+Status 2026-10-07 [v: git]: all 16 branch@sha cells below are ancestors of main `9852e87`; tips newer than the SHA first listed are named in the cell. "C10 on main: see plan.md" and "READY" are the state at each merge; the full C10 on main HEAD is still pending (§4 item 0). Not merged: `eq-runtime` `b595c3c`, `eqr-hdocs` `7c1702d`, `eqr-harness` `61f82b4`, `eqr-mut` `b4df8df` (§2).
+
 | item | result | branch@sha | C10 |
 |---|---|---|---|
-| 1 orch-bash | orchestrator holds Bash with the T1 web check (bash -c/eval/find -exec unwrapped, stdin-fed shells refused, linear -c regex); 1571 targeted tests pass | orch-bash@d534cd4 | C10 on main: see plan.md |
-| 11+12 handoff-docs | RUNBOOK_c0 (+§12 re-pin for clone install), A4_FOLD.md, a4_fold.py (8 tests pass), c0_support/ merged; reviewer not run (no spawn tool) | handoff-docs-2@dd8ceb6 | C10 on main: see plan.md |
-| 4 L2 output | output_shrink PostToolUse `Bash\|Read` hook in shadow mode (logs only; `STACK_OUTPUT_SHRINK=on` cuts), 3 patches unchanged + install/doctor wiring, docs, read_family, review fixes (persisted Bash skipped, Read note line numbers only, ranged-Read paging); 114 tests, 63/63 mutants; security-auditor + code-reviewer applied | l2-final@0b87cbd | C10 on main: see plan.md |
+| 1 orch-bash | orchestrator holds Bash with the T1 web check (bash -c/eval/find -exec unwrapped, stdin-fed shells refused, linear -c regex); 1571 targeted tests pass | orch-bash@f5de4f6 (merged; d534cd4 is an older ancestor) | C10 on main: see plan.md |
+| 11+12 handoff-docs | RUNBOOK_c0 (+§12 re-pin for clone install), A4_FOLD.md, a4_fold.py (8 tests pass), c0_support/ merged; reviewer not run (no spawn tool) | handoff-docs-2@a3653dd (merged; dd8ceb6 is an older ancestor) | C10 on main: see plan.md |
+| 4 L2 output | output_shrink PostToolUse `Bash\|Read` hook in shadow mode (logs only; `STACK_OUTPUT_SHRINK=on` cuts), 3 patches unchanged + install/doctor wiring, docs, read_family, review fixes (persisted Bash skipped, Read note line numbers only, ranged-Read paging); 114 tests, 63/63 mutants; security-auditor + code-reviewer applied | l2-final@7c7137d (merged; 0b87cbd is an older ancestor) | C10 on main: see plan.md |
 | 3 R3 container | Apple `container` 1.5.0 port: `lib/eq-container` (driver, builds, probes, `eqc_json.py`) + `lib/eq-wall`; `install.sh --with-eq-container` (steps 10b/10c, opt-in, never fatal); WALL deny rules and protected paths on every install; docs; `R3_CONTAINER_CHECKLIST` (C1-C13, user-run); security-auditor (S1-S3) + code-reviewer (R1-R6) fixes applied in `84ba493`. After merging main `7c7137d` (conflict: CONFIG.md §9 changelog, both entries kept): 7 targeted test files 939 passed, `lib/eq-wall/tests` 100 passed 2 skipped, EQ-T harness from a `$TMPDIR` copy 435 passed 4 skipped and 439 passed with `EQ_CONTAINER_DIR` (EQ-T unchanged) | r3-ready@84ba493 via r3-merge | C10 on main: see plan.md |
 | 3D agents/skills | rigger-animator, sculptor-painter, procedural-3d-ui (cg-artist's tools; not in `READ_GATE_EXEMPT_VISUAL`) + 7 skills (hub `3d-animation`; modules `character-rigging`, `organic-sculpting`, `udim-texture-painting`, `procedural-3d-workflows`, `3d-ux-design`, `3d-interface-engineering`); guard rosters; prompt_budget gates agent_listing 0.98, blackcat_listing 1.03 (re-measured after merging main 55ab160: 14,740 chars = 0.9615 / 1.0131 of base, gates kept). code-reviewer (5 fixes) + security-auditor (static PASS). After merging main (conflict: CONFIG.md §9 changelog, both entries kept): lint_agents ok, prompt_budget --check ok, guard self-test ok, 6 targeted test files 365 passed, 11 roster-adjacent files 1340 passed, ruff E9,F clean on the changed files bar a pre-existing F841 in `tests/derive_thresholds.py:413` (also on main) | 3d-agents@41e2aae via 3d-merge | C10 on main: see plan.md |
 | 7 L5 observe-only | `hooks/stack_progress.py` (port of `2ebc26f`): a subagent brief's `budget:` line and its run shape give signals budget, stall, stop, recovered in `<session>/early-stop.jsonl`; `STACK_EARLY_STOP=observe` (default) \| warn \| off; never a refusal. The 2 lost patches re-derived: `agent_guard.py` `progress_check()` at the end of `budget_gate()` for subagent calls after every hard gate (soft limit as the default budget; errors fail open), `install.sh` stages/tracks/precompiles it, `doctor.sh` checks its bytecode. security-auditor: CRITICAL ReDoS (TOKENS_RE, CALLS_RE, STATUS_RE, 17-39 s per line) fixed by linear parsing and bounded digit runs, 7 linearity proofs; code-reviewer fixes applied (`d4d391a`). After merging main `2750bca` (conflict: CONFIG.md §9 changelog, both entries kept): `tests/test_stack_progress.py` 104 passed, `stack_progress.py --self-test` ok | l5-land@6d9713a via l5-integ | C10 on main: see plan.md |
@@ -283,3 +280,5 @@ Live plan: /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/resume-77072
 | eq-container pins | `lib/eq-container/TOOLS.toml` pins bash `5.2.37-2+b10` and perl (perl-base) `5.40.1-6+deb13u1`. The builder takes both from the base image, so each sha256 is of the file in BASE_IMAGE's arm64 layer `sha256:bd36565c…`, downloaded from debuerreotype docker-debian-artifacts `ca011a8b`; the layer and manifest hashes were recomputed and the md5 equals the layer's dpkg md5sums. busybox (`BUSYBOX_SHA256`) and jq stay PLACEHOLDER: snapshot.debian.org is outside the agent sandbox. So the default `core` still exits 13 and the WALL is still skipped until the user runs `hand_off/R3_CONTAINER_CHECKLIST.md` C14 (`bash lib/eq-container/distro-pins.sh`) and its values are pinned (C15-C17 then build and verify). Also new: `distro-pins.sh` (host-side derivation with every link checked; prints only, never edits) and the PINS keys `BASE_LAYER_URL` and `BASE_LAYER_SHA256`. `build.sh` refuses a malformed pin (exit 2; BASE_IMAGE needs its digest); `verify-tools.sh` counts a PLACEHOLDER `checksum_source` as pending. Format checks use literal character lists (`tools.sh` `tm_only`): bash 3.2's collation ranges let uppercase hex through under a UTF-8 locale. security-auditor PASS (optional hardening, not done: pin the snapshot InRelease sha256 in the Dockerfiles, so jq's libraries libjq1 and libonig5 are pinned too). code-reviewer pass-with-fixes: the MEDIUM (locale) and the LOW (a malformed BUSYBOX_SHA256 in distro-pins.sh) were fixed in `6adc499`; 10 of the 12 new proofs fail on `0da7eaf`. Tests: `tests/test_eq_container_pins.py` 60 passed, 23/23 seeded mutants killed (`.claude-work/eq-pins/mutants.py`); `test_eq_container` + `test_install_eq_container` 121 passed; repo suite from a clean detached worktree on `ebe4985`: tests/ 5224 passed 2 skipped, 7 failed (the known environment set: test_limits_guard T10, test_stack_tree ×3, test_stack_usage ×3), tools/instructor/tests 77 passed, lib/eq-wall/tests 100 passed 2 skipped; lint_agents, prompt_budget --check, guard self-test, bash -n, shellcheck, ruff E9,F ok | eq-pins (READY; `core` still waits on C14) | C10 on main: the integrator |
 | Equilibrium harness tracked | EQ-T is tracked as `equilibrium/` with all features (USER: top level, not archived). The source was `.claude-work/worktrees/eq-t-1005/.claude-work/equilibrium`, untracked. The tree holds the pre-registration (COMPARE_eq A4, plus the new **A5**), CONTRACT, the harness with the `container` backend and the A4 Skill edits, the pools PF/CP/CR/RS/ES/DS/OE with oracles and `pool.sha256`, the WALL and Docker staging copies, and the derivations: 3,860 files. Excluded: `isolation/build.log` and caches, which stay in EQ-T. **A5 (USER)**: path relativisation, 236 files and 504 substitutions, so no `/Users/...` path remains. Scripts derive M, STAGE and `DEFAULT_M` from their own location, Lean is `$HOME/lean/stack_mathlib`, and `vcs:source` is `blackcat.git`. The pins were re-derived: PF `pool.sha256` (220 entries) and RS (2). `tests/test_equilibrium_paths.py` proves only path text changed (record: `equilibrium/PATH_RELATIVISATION.json`). The security-auditor's 3 fixes are in: the `--collect` destination check, the WALL lookup preferring `lib/eq-wall`, and `runs/` ignored at any depth. So is the code-reviewer's fix: the layout test fails when the tree is missing. Harness suite: 451 passed + 1 skip with `EQ_CONTAINER_DIR`, 447 + 5 skips without it, 452 in place; selftests all pass (PF 39 with Lean). Also new: `tests/test_equilibrium_layout.py`, `lint_agents` `MODEL_ID_DIRS`, the `.gitignore` rules, and the harness suite as a by-hand C10 step (CONFIG §5 Instructor). | eq-track (see the merge report) | C10 on main after the ff-merge (integrator) |
 | eq-runtime (part F: installer, doctor, docs) | `install.sh` stages the 8 `hooks/eq_*` files and `bin/stack-eq`, `stack-eq-check` (modes 644/755), tracks them in the manifest, byte-compiles the 5 modules and writes the manifest key `eq_runtime` = `{params_sha256, validated}` (what `eq_policy.load_params` reads; a different params file means every class `not_run`). `doctor.sh` section "Equilibrium runtime" (files, params pin, validated classes, drift, `excludedCommands`/allow entries, knobs, store modes, W3 level); its toolsmith check accepts `bin/stack-eq *`. Settings merge and retraction proven for the eq entries. `tests/test_install_eq_runtime.py`; README, CONFIG §5/§7/§9. Open: the shipped `eq_params.json` is `version 0` and `validate_params` needs >= 1 (one `xfail(strict)` test names it). Guard rules (part D) and every spec §13 check are not live-verified. **The user runs:** `./install.sh --dry-run` then `./install.sh` after the integrator merges eq-runtime into main, then the README live checks 9 (spec §13) and, much later, `hand_off/EQ_CALIBRATION_RUN_PLAN.md` (paid) | eqr-install (see the report) | C10 on main: the integrator |
+| eq-cli-install | `install.sh --with-eq-container` sets up Apple `container` end to end, asking permission (USER decision). Step 10b runs `lib/eq-container/setup.sh`, 3 steps, each skipped when done: (1) the CLI from Apple's signed .pkg (GitHub release hosts only, no automatic redirects, size cap; size, sha256 and signer pinned in `PINS` `CONTAINER_PKG_*`, a self-contained block at the END of PINS; `/usr/bin/sudo /usr/sbin/installer -pkg <file> -target /` in the foreground; version and receipt checked), (2) `container system start --enable-kernel-install`, (3) `eq-container.sh install` (`--yes` only with build consent, else `--no-build`; build.sh unchanged). Consent: typed `all` / `step` (+ `yes`) / `no` on a terminal, or `--install-container`, `--start-container-service`, `--build-container-images`, `--setup-container`; `--no-install-container`; `--yes`/`--no-prompt` are never consent; steps 1-2 refused under CLAUDECODE. Exits: 13 CLI pin placeholder (`CONTAINER_PKG_SIGNER=UNSET` until checklist C18), 2 malformed, 14 package check, 17 download/install, 18 service. `cli.env`/`setup.env`, manifest `eq_container.cli`, doctor (version vs pin, service), `--restore` and uninstall print Apple's removal commands (the CLI is never removed). Merged main 35b2377 (fb8e10b: CONFIG §9 keeps both entries). security-auditor PASS WITH FIXES (MEDIUM CWE-755: a failed upgrade left the service it stopped down; LOW CWE-59: `setup.env` written through a refused symlinked state dir); code-reviewer PASS WITH FIXES (the same MEDIUM; MEDIUM: a driver's own skip relabelled as the step-1 code 13; LOW: C21 text). All fixed in b0c59d9; the 3 new proofs fail on fb8e10b and pass after. Found by the suite: git 2.54's detached auto maintenance packed the scratch repos' ~4,265 loose objects (equilibrium/) while install.sh's `git fsck` read them ("unable to mmap"), failing full installs in tests/; the scratch repos now set `gc.auto 0`/`maintenance.auto false` (76b6952; main's C10 needs it too). Tests: test_eq_setup 90 passed; on e2519d4 test_eq_container 84 and test_install_eq_container 47 passed; suite on 76b6952 from a clean detached worktree: tests/ 5346 passed 2 skipped, 7 failed (the known xcrun_db set: test_limits_guard T10, test_stack_tree ×3, test_stack_usage ×3), tools/instructor/tests 77 passed, lib/eq-wall/tests 100 passed 2 skipped, codex_config/tests 2068 passed 1 skipped, equilibrium harness 451 passed 1 skipped; lint_agents, prompt_budget --check, guard self-test, bash -n, shellcheck (no new findings), ruff E9,F ok. Not run: `tests/install_smoke.sh` (your terminal). Your steps: `hand_off/R3_CONTAINER_CHECKLIST.md` C18-C23 (C18 derives `CONTAINER_PKG_SIGNER`). | eq-cli-install@321f037 (merged; 76b6952 is an older ancestor) + this row (READY; rescue ref eq-cli-install-pre-merge = e2519d4) | C10 on main after the ff-merge (integrator) |
+| eq-container distroless | Every final image is FROM the digest-pinned `gcr.io/distroless/cc-debian13:nonroot` (index e792ab3d, arm64 manifest 2f0295ce; the bytes kept in `lib/eq-container/base/`, base-verify 21 layers) or `scratch` (tc-go): one COPY, no RUN, USER 10001:10001, a `check-<target>` stage built first (failure: 12). Static GNU bash 5.3 + patches 001-020 from the GPG-signed source (`tc/build-bash.sh`, keyring = exactly `7C0135FB…`, VALIDSIG), the perl shim, jq 1.8.2 static, busybox musl, uv musl 0.12.22; no Debian, apt or dpkg; `Dockerfile`, `distro-pins.sh`, `tc/apt-closure.sh` deleted; `base-pins.sh` (cosign identity and issuer) new. `--set full` and `STACK_EQ_CONTAINER_SET=full` refused, rust and haskell deferred (10). PLACEHOLDER until D2: `BASH_SRC_SHA256`, `BASH_PATCHES_SHA256`, `BASH_BIN_SHA256` (core stops at 13). Reviews: security-auditor and code-reviewer pass with fixes, fixed in 99fad19; `untar.py` refuses absolute names (253d3f6). Merged main twice: 321f037 (eq-cli-install) in ac53e32, where PINS keeps the `CONTAINER_PKG_*` block last, 10b refuses `SET=full` before setup.sh asks anything and then runs setup.sh's consent flow (`--yes` is never consent: the driver gets `--yes` only with build consent, else `--no-build`), and eq-container.sh takes the union (`build-due`, `--no-build`, `--set min` only); expectations changed by the merge: the `SET=min` driver argv is `install --set min --no-build --no-prompt`, and the PINS/Dockerfile ARG test leaves out the `CONTAINER_*` block and requires it last; then b99516f in 870b80e (clean). Tests after the merge: pins 402 passed 1 skipped, dockerfiles 120, test_eq_container 192, test_install_eq_container 51, test_eq_setup 90, lib/eq-wall 100 passed 2 skipped (no eq-wall file edited); seeds: install-full-accepted and both eq-container.sh seeds KILLED again (35/35); equilibrium harness from a copy with EQ_CONTAINER_DIR 451 passed 1 skipped (fake CLI byte-identical); codex_config 2068 passed 1 skipped; suite on 870b80e from a clean detached worktree: tests/ 5930 collected in four parts (the 2 h background limit and a load average near 31: the full run was stopped after 2103 results, all files up to test_install_diff and 38 of test_install_eq_container, 2101 passed 2 skipped; then the other 13 of that file 13 passed, the install files up to test_installer_config_dir 172 passed, and the tail from test_instructor_wiring 3634 passed 1 skipped 7 failed): 5920 passed, 3 skipped, 7 failed, the 7 known env failures only (xcrun_db stderr: test_limits_guard T10, test_stack_tree ×3, test_stack_usage ×3; the 5 git-fsck races are gone), instructor 77, bash -n 311 ok, guard self-test ok, lint_agents ok, prompt_budget --check ok; shellcheck no new findings, ruff E9,F clean. Not run: `tests/install_smoke.sh` (your terminal). Unverified without the real CLI and network: your steps are `hand_off/R3_CONTAINER_CHECKLIST.md` D1-D9 (with C18-C23 from eq-cli-install). | eq-distroless@fd0a2a3 (merged; 870b80e is an older ancestor) + this row (READY; rescue refs rescue/eq-distroless-7f4b50b, rescue/eq-distroless-8297a8e) | C10 on main after the ff-merge (integrator) |

@@ -82,7 +82,7 @@ for need in user_nonroot caps_dropped rootfs_readonly write_outside_copy work_wr
             bin_sh_present planted_secret_invisible host_env_not_passed network_connect_fails only_loopback_interface \
             only_expected_host_mounts nproc_limit_set memory_limit_set cpu_limit_set host_path_not_inherited path_dirs_readonly \
             path_executables_allowlisted tools_hash_verified tools_mount_readonly no_host_socket no_home_mount no_default_route \
-            no_setuid_files tools_run; do
+            no_setuid_files tools_run no_debug_shell no_package_manager network_probe_control; do
   case "$seen" in *" $need "*) ;; *) row "$need" FAIL "the in-container probe did not report this row";; esac
 done
 if [ ! -e "$root/copy/eq_probe_write" ]; then row work_write_stays_off_host PASS "the /work write is not in the host copy (tmpfs copy)"

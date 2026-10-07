@@ -1,0 +1,58 @@
+#!/bin/bash
+# shellcheck disable=SC2016
+# eq-perl-shim: the eq-container check images ship no perl (distroless/scratch rule, DESIGN_DISTROLESS.md section 4.3,
+# USER decision 2026-10-06). The hash-frozen PF checker check_lean.sh (items/PF/pool.sha256: e740de46...) needs exactly one
+# thing from perl, its wall-clock wrapper around each Lean run (check_lean.sh lines 44-53):
+#   perl -e '<WRAPPER>' T CMD [ARG...]
+# This shim answers that call and nothing else: the script argument must be byte-identical to the wrapper text below (the
+# text bash passes from check_lean.sh), T must be decimal digits, and a command must follow. Anything else exits 2 with a
+# refusal, so a changed check script cannot silently get a different timeout. What the wrapper does, and what this does:
+#   fork + exec CMD (PATH search, no shell): the command gets this process's stdin, stdout, stderr, signal dispositions and
+#     process group; a command that cannot be found or executed: exit 127, nothing printed (perl's `exec @ARGV or exit 127`)
+#   alarm T (T = 0: no limit): after T seconds the command gets SIGKILL, "eqlean: timeout" goes to stderr, exit 124
+#   the command killed by signal N: "eqlean: killed by signal N" on stderr, exit 128+N; else the command's exit code
+#   (perl's 125 is a fork failure; here: no temp dir for the alarm's pid file, or bash's own fork error)
+# Known difference (bash cannot tell them apart): a command that EXITS with a code of 129 or more is reported as killed by
+# signal code-128 (same exit code, one extra stderr line). lean and leanchecker exit 0 or 1; check_lean.sh's verdicts depend on
+# the exit code only, so they are unchanged. The command's environment also carries bash's own SHLVL and _ updates.
+# tests/test_eq_container_pins.py runs this shim against the real perl (exit codes, messages, stdin, signals).
+W='my $t = shift; my $pid = fork(); defined $pid or exit 125; if ($pid == 0) { exec @ARGV or exit 127 }
+           local $SIG{ALRM} = sub { kill "KILL", $pid; print STDERR "eqlean: timeout\n"; exit 124 };
+           alarm $t; waitpid($pid, 0); alarm 0;
+           if ($? & 127) { print STDERR "eqlean: killed by signal ", ($? & 127), "\n"; exit(128 + ($? & 127)) }
+           exit($? >> 8)'
+refuse() {
+  echo "perl: not available in this image (eq perl-shim runs only check_lean.sh's timeout wrapper: perl -e <wrapper> SECONDS CMD...)" >&2
+  exit 2
+}
+[ "$#" -ge 4 ] && [ "$1" = -e ] && [ "$2" = "$W" ] || refuse
+case "$3" in ""|*[!0123456789]*) refuse;; esac
+[ "${#3}" -le 9 ] || refuse
+t=$((10#$3))
+shift 3
+# exec's PATH search without builtins or functions (perl execs a program); a miss is the child's silent exit 127
+type -P -- "$1" >/dev/null 2>&1 || exit 127
+d=$(mktemp -d "${TMPDIR:-/tmp}/eqperl.XXXXXX") || exit 125
+trap 'rm -rf "$d"' EXIT
+tpid=""
+if [ "$t" -gt 0 ]; then
+  # the alarm: after T seconds mark the timeout, then SIGKILL the command (its pid is written by the command itself, below)
+  ( trap 'kill "$s" 2>/dev/null; exit 0' TERM
+    sleep "$t" & s=$!; wait "$s" || exit 0
+    : > "$d/fired"
+    pid=""; n=0
+    while [ -z "$pid" ] && [ "$n" -lt 10 ]; do read -r pid < "$d/pid" || sleep 1; n=$((n + 1)); done
+    [ -z "$pid" ] || kill -KILL "$pid" ) </dev/null >/dev/null 2>&1 &
+  tpid=$!
+fi
+# The command runs in the FOREGROUND, so it inherits this process's signal dispositions, process group, stdin, stdout and
+# stderr exactly as perl's forked child does (an asynchronous list would read /dev/null and ignore SIGINT and SIGQUIT). A
+# POSIX-mode bash (BASH_ENV is not read) writes its own pid for the alarm and execs the command in place (same pid). fd 9
+# carries the caller's stderr to the command while this shell's own stderr is /dev/null for the duration, which silences
+# bash's "Killed"/"Terminated" job report (perl prints none); the command does not inherit fd 9.
+{ "$BASH" --posix -c 'echo "$$" > "$1"; shift; exec "$@"' eq-perl-shim "$d/pid" "$@" 2>&9 9>&-; } 9>&2 2>/dev/null
+st=$?
+if [ -n "$tpid" ]; then kill -TERM "$tpid" 2>/dev/null; wait "$tpid" 2>/dev/null; fi
+if [ -e "$d/fired" ]; then echo "eqlean: timeout" >&2; exit 124; fi
+if [ "$st" -gt 128 ]; then echo "eqlean: killed by signal $((st - 128))" >&2; fi
+exit "$st"

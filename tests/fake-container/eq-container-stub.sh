@@ -7,15 +7,24 @@
 #   EQ_STUB_DIGEST       the images' digest (default sha256:a{64})
 #   EQ_STUB_TUNNEL       PASS (default), FAIL, or none (no tunnel result is written)
 #   EQ_STUB_ISOLATION, EQ_STUB_PRINT_IMAGE   what print-env prints (default: container, the PF ref)
+#   EQ_STUB_BUILD_DUE    0: a build is due (build-due exits 0; install --no-build is a skip, exit 10), else none is (exit 1)
+#   EQ_STUB_REAL_SKIPS=1 install skips (exit 10) as the driver does when $EQ_CONTAINER_BIN is not executable or its
+#                        `system status` fails (the only CLI call the stub makes, and only with this knob)
 set -u
 printf '%s\x1f%s\n' "$0" "$*" >> "${EQ_STUB_LOG:-/dev/null}"
 cmd=${1:-}; [ $# -eq 0 ] || shift
 d=${EQ_STUB_DIGEST:-sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa}
 pf=eq.invalid/eq-min:4.34.1-arm64; py=eq.invalid/eq-py-min:4.34.1-arm64
 case "$cmd" in
+  build-due) exit "${EQ_STUB_BUILD_DUE:-1}" ;;
   install)
     case " $* " in *" --dry-run "*) echo "eq-container: dry run (stub)"; exit "${EQ_STUB_DRY_RC:-0}";; esac
     rc=${EQ_STUB_RC:-0}
+    case " $* " in *" --no-build "*) [ "${EQ_STUB_BUILD_DUE:-1}" != 0 ] || rc=10;; esac
+    if [ "${EQ_STUB_REAL_SKIPS:-}" = 1 ]; then
+      if [ ! -x "${EQ_CONTAINER_BIN:-/nonexistent}" ]; then rc=10; echo "eq-container: WARN the container CLI is not installed (stub)" >&2
+      elif ! "$EQ_CONTAINER_BIN" system status >/dev/null 2>&1; then rc=10; echo "eq-container: WARN the container services are not running (stub)" >&2; fi
+    fi
     case "$rc" in 0) st=ok;; 10) st=skipped;; *) st=failed;; esac
     mkdir -p "$EQ_STATE_DIR/results"
     { echo "EQ_CONTAINER_STATUS=$st"; echo "EQ_CONTAINER_STATUS_AT=2026-10-05T00:00:00Z"; echo "EQ_CONTAINER_STATUS_WHY=stub $st"

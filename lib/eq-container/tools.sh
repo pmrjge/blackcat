@@ -15,7 +15,10 @@
 #   tm_has TABLE NAME                 exit 0 when the table exists
 #   tm_keys TABLE NAME                keys of one table
 #   tm_profile_images "p1 p2"         image names of the profiles, union, order of the profile list then of the images
-#   tm_expand_profiles "a,b all"      validated profile names (`all` = every profile not marked explicit = "yes"), once each
+#   tm_expand_profiles "a,b all"      validated profile names (`all` = every profile neither marked explicit = "yes" nor
+#                                     deferred), once each
+#   tm_refuse_deferred "p1 p2"        0 when no profile of the list has a `deferred` key; else one message per deferred profile
+#                                     on stderr and return 10 (the skip code: such a profile has no image, nothing is built)
 #   tm_set FILE TABLE NAME KEY VALUE  rewrite one string value in place (build.sh --resolve-tools --write-pin uses it)
 #   tm_image_hash IMAGE               sha256 of the canonical text of the image row and of every tool row it lists (the label
 #                                     eq.tools.sha256 build.sh puts on the image; verify-tools.sh compares it)
@@ -129,11 +132,13 @@ tm_profile_images() {
   printf '%s\n' $out
 }
 
-tm_expand_profiles() { # "core,db all" -> profile names, once each; `all` = every profile whose explicit key is not "yes"
+tm_expand_profiles() { # "core,db all" -> profile names, once each; `all` = every profile neither explicit = "yes" nor deferred
   local out="" p q res=""
   for p in $(printf '%s' "$1" | tr ',' ' '); do
     if [ "$p" = all ]; then
-      for q in $(tm_names profile); do [ "$(tm_get profile "$q" explicit)" = yes ] || out="$out $q"; done
+      for q in $(tm_names profile); do
+        [ "$(tm_get profile "$q" explicit)" = yes ] || [ -n "$(tm_get profile "$q" deferred)" ] || out="$out $q"
+      done
     else
       tm_has profile "$p" || { echo "unknown profile: $p (known: $(tm_names profile | tr '\n' ' ')and all)" >&2; return 2; }
       out="$out $p"
@@ -142,6 +147,17 @@ tm_expand_profiles() { # "core,db all" -> profile names, once each; `all` = ever
   for p in $out; do case " $res " in *" $p "*) ;; *) res="$res $p";; esac; done
   # shellcheck disable=SC2086
   printf '%s\n' $res
+}
+
+tm_refuse_deferred() { # "p1 p2": 10 (with a message per profile) when one of them is deferred (no image: see its deferred key)
+  local p why rc=0
+  for p in $1; do
+    why=$(tm_get profile "$p" deferred)
+    [ -n "$why" ] || continue
+    echo "profile $p is deferred: $why. Nothing is built for it; drop it from the profile list." >&2
+    rc=10
+  done
+  return "$rc"
 }
 
 tm_set() { # FILE TABLE NAME KEY VALUE: rewrite one string value of one table in place (temp file + rename); 1 when the key is absent

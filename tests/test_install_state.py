@@ -430,7 +430,11 @@ def _scratch_repo(dst, settings_env=None):
     git = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c",
            "init.defaultBranch=main", "-c", "user.name=t", "-c", "user.email=t@example.invalid",
            "-C", dst]
-    for args in (["init", "-q"], ["add", "-A"], ["commit", "-q", "-m", "snapshot"]):
+    # no automatic gc/maintenance: git's detached `maintenance run --auto` after the commit packs and prunes the
+    # loose objects while install.sh's `git fsck` reads them ("unable to mmap .git/objects/..."), as the
+    # codex_config test helpers already do
+    for args in (["init", "-q"], ["config", "gc.auto", "0"], ["config", "maintenance.auto", "false"], ["add", "-A"],
+                 ["commit", "-q", "-m", "snapshot"]):
         subprocess.run(git + args, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)
     return dst
 
@@ -457,10 +461,11 @@ def _install(repo, home, conf, *extra):
     return p.stdout + p.stderr
 
 
-def _run_install(repo, home, conf, *extra, env_extra=None, cwd=None, argv=None):
+def _run_install(repo, home, conf, *extra, env_extra=None, cwd=None, argv=None, new_session=False):
     """install.sh --no-mcp --no-plugins --no-deps --no-profile into a scratch HOME and config dir;
     env_extra: variables added last (STACK_PYTHON, UV_PYTHON_INSTALL_DIR, ...); cwd: where it runs;
-    argv: the whole argument list instead (e.g. ["--diff"])."""
+    argv: the whole argument list instead (e.g. ["--diff"]); new_session: no controlling terminal
+    (nothing can ask on /dev/tty)."""
     import subprocess
     os.makedirs(os.path.join(home, "tmp"), exist_ok=True)
     # macOS mktemp without a template ignores TMPDIR (it asks for the per-user temp dir, which a
@@ -484,7 +489,8 @@ def _run_install(repo, home, conf, *extra, env_extra=None, cwd=None, argv=None):
     env.update(env_extra or {})
     args = list(argv) if argv is not None else ["--no-mcp", "--no-plugins", "--no-deps", "--no-profile", *extra]
     return subprocess.run([os.path.join(repo, "install.sh"), *args], env=env, stdin=subprocess.DEVNULL,
-                          capture_output=True, text=True, timeout=900, check=False, cwd=cwd)
+                          capture_output=True, text=True, timeout=900, check=False, cwd=cwd,
+                          start_new_session=new_session)
 
 
 @pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, ".git")) and not os.path.isfile(

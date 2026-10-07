@@ -84,7 +84,11 @@ EQ_RUN_ID=${EQ_RUN_ID:-$(date +%y%m%d%H%M%S)-$$}
 # ---- image registry: $EQ_STATE_DIR/images/<name>.env (KEY=VALUE, written by build.sh) ------------------------------------------
 # Every image is named under the reserved top-level domain .invalid (RFC 6761): a reference that is not present locally can never
 # be pulled from a registry by `container run`, it fails to resolve.
-EQ_IMAGE_NAMES="full min-lean min-py min-both tc-node tc-rust tc-go tc-julia tc-haskell tc-jvm"
+# The images (TOOLS.toml [[image]]); the legacy names are images this directory no longer builds (the Debian `full` image and the
+# deferred Rust/Haskell images, USER decision 2026-10-06): their tags stay known so that `build.sh --uninstall --set all` (and
+# eq-container.sh uninstall) still removes what an earlier install built.
+EQ_IMAGE_NAMES="min-lean min-py min-both tc-node tc-go tc-julia tc-jvm"
+EQ_LEGACY_IMAGE_NAMES="full tc-rust tc-haskell"
 eq_img_default_tag() {
   case "$1" in
     full) echo "eq.invalid/eq-lean:4.34.1-arm64";; min-lean) echo "eq.invalid/eq-lean-min:4.34.1-arm64";;
