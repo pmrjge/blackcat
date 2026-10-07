@@ -37,26 +37,32 @@ is listed but never invoked (verdict `unknown`). Closing (c) and (d) needs a sec
 
 ## 3. Brief for a fresh python-engineer (apply the block to COMPARE_eq)
 
-Hand the engineer the text below verbatim, with `<FOLD>` replaced by the path of `a4-probe-<TS>.fold.md`.
+Hand the engineer the text below verbatim, with `<FOLD>` replaced by the path of `a4-probe-<TS>.fold.md`. EQ-T is
+tracked in the repository as `equilibrium/` (eq-track), so the file to edit is `equilibrium/COMPARE_eq.md` on a branch,
+and git replaces the old tarball archive.
 
 ```
-Goal: replace the "Still unverified" list of A4 item 4 in COMPARE_eq.md with the probe outcome.
+Goal: replace the "Still unverified" list of A4 item 4 in equilibrium/COMPARE_eq.md with the probe outcome.
 Inputs: <FOLD> (scrubbed Markdown block, already folded; do not read the raw a4-probe-*.json or .err);
-COMPARE_eq.md at /Users/pmrj/ZDone/claude-agent-stack/.claude-work/worktrees/eq-t-1005/.claude-work/equilibrium/COMPARE_eq.md
-(A4 item 4 is at about lines 457-464); the earlier A4 text in the same file.
-Constraints: EQ-T is not in git. FIRST archive it: tar -czf <your worktree>/.claude-work/eq-t-before-a4-fold.tgz of
-the whole equilibrium/ folder and record the path and `shasum -a 256` of the tarball; also copy COMPARE_eq.md to
-COMPARE_eq.md.pre-a4-fold beside the tarball. Edit only COMPARE_eq.md, only A4 item 4 (and, if a verdict contradicts item
-2 or 5, add one dated sentence there; change nothing else). A4 is a PRE-FREEZE amendment: if COMPARE_eq.sha256 or runs/
-now exist, stop and report STATUS: blocked instead. Keep the file's style (no emojis; item numbering 1-5 unchanged).
-Do not run claude, install.sh, or any paid call; do not push; python only via uv.
+equilibrium/COMPARE_eq.md in the repository M = /Users/pmrj/ZDone/claude-agent-stack (tracked on main; A4 item 4 is the
+"Still unverified" list in section 12 A4, at about lines 457-464); the earlier A4 text in the same file.
+Constraints: work on a new branch from M's main in your own worktree (where the session's rules put worktrees); git is
+the archive. Edit only equilibrium/COMPARE_eq.md, only A4 item 4 (and, if a verdict contradicts item 2 or 5, add one
+dated sentence there; change nothing else), plus the pin record below. A4 is a PRE-FREEZE amendment: if
+equilibrium/COMPARE_eq.sha256 (the freeze sidecar) or a runs/ folder under equilibrium/ other than runs/probes/ (the
+probe's output) and the tracked items/RS/fixtures/corpus/runs/ now exists, stop and report STATUS: blocked instead.
+COMPARE_eq.md is digest-pinned (tests/equilibrium_paths.py): re-pin it with
+`uv run --no-project python tests/equilibrium_paths.py amend --amendment A4 equilibrium/COMPARE_eq.md` (the amend
+subcommand comes with eq-runtime; if it is missing, stop and report STATUS: blocked). Keep the file's style (no emojis;
+item numbering 1-5 unchanged). Do not run claude, install.sh, or any paid call; do not push or merge; python only via uv.
 Do: (1) paste the block from <FOLD> as the new content of item 4, keeping each verdict word exactly (confirmed, refuted,
 consistent, unknown); for every "unknown" keep the sentence "settled only by a live call" with the reason from the block;
 (2) if a verdict is "refuted", state the consequence for A4 items 2 and 5 in one sentence and list the harness code that
-would change (harness/eq_harness.py build_argv, flags.json common_tools) WITHOUT editing it; (3) run the harness tests from a /tmp
-copy: uv run --no-project --with pytest --with duckdb --with-requirements harness/eq_harness.py pytest -q -p no:cacheprovider harness/tests
-(expected 416 passed); (4) git is not involved (EQ-T has no repo): report the tarball path, the diff (diff -u pre-fold new),
-and the test result.
-Done when: item 4 holds the probe outcome with four verdicts, tests unchanged, archive recorded.
-Output: STATUS block, at most 1500 chars, plus the diff path.
+would change (equilibrium/harness/eq_harness.py build_argv, flags.json common_tools) WITHOUT editing it; (3) re-pin, then
+run `uv run --no-project python tests/equilibrium_paths.py check`, `tests/test_equilibrium_paths.py`, and the harness
+suite from a $TMPDIR copy as CONFIG.md section 5 ("Extra C10 step") gives it: 0 failed, the same counts as on main
+before the edit; any pin test that fails: stop, STATUS: blocked with its output; (4) commit on your branch (the merge is
+the integrator's) and report the branch, the commit, `git diff main --stat` and the test results.
+Done when: item 4 holds the probe outcome with four verdicts, the pin check and the tests pass, the commit exists.
+Output: STATUS block, at most 1500 chars.
 ```

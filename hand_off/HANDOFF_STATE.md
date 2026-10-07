@@ -1,5 +1,10 @@
 # HANDOFF_STATE: claude-agent-stack, session 8ad965da (2026-10-05, written ~16:30, updated ~16:45 after the stop)
 
+**Current state (2026-10-07, job resume-1007):** main is `8912496` (full C10 green, §4 item 0). Items 11 and 15 are done on
+the branches `eq-runtime-2` and `audit-fixes` and wait for your merges (§4, §5 first block); your open questions are at the
+top of §7; the closing report is `H/.claude-work/resume-1005/FINAL_REPORT.md`. The stopped-state paragraph below is the
+2026-10-05 history.
+
 **STOPPED STATE.** At ~16:37 the user ordered every running task stopped except the commit of `hand_off/` to main.
 Stopped: the orchestrator (aeb982e2417df4dd0), R3 (main-coder a5a3114a94bceb867), the L1 INTEG (main-coder
 a7fae00afc61465ac, mid-C10), `orch-bash` (claude-code-engineer a7ed898c01c4f5a2d) and the reset-script writer (main-coder
@@ -87,7 +92,7 @@ MECHANISMS, s4-l9), `M/claude_next_steps/work_carried/context-diet/`, git commit
 
 | # | task | state / owner |
 |---|---|---|
-| 0 | Full C10 on main HEAD (`9852e87` or later). The run on `fd0a2a3` was incomplete (§1) | **pending**; verifier |
+| 0 | Full C10 on main HEAD (`9852e87` or later). The run on `fd0a2a3` was incomplete (§1) | **done** on `8912496` (2026-10-07): pytest failures = the 7 known environment ids only, install_smoke 280 passed 2 failed (the known openpty pair), image_studio 125, instructor 77, eq-wall 100 + 2 skipped, hand_off 40, codex_config 2068 + 1 skipped, equilibrium harness 451 + 1 skipped (`H/.claude-work/c10/c10-main-8912496.summary`) [v] |
 | 1 | `orch-bash` post-merge audit | folded into item 15 (user's choice) |
 | 2 | L1 follow-ups | done: `worktree-agent-afb29c2edb383d1dc`@`2aff512` (§1) |
 | 3 | R3 `container` port | done: `r3-ready`@`84ba493` via r3-merge (§8) |
@@ -98,18 +103,69 @@ MECHANISMS, s4-l9), `M/claude_next_steps/work_carried/context-diet/`, git commit
 | 8 | L7 B1 + B3, L10 | done: `l7-mech`@`a05d508` via l7-integ (§8) |
 | 9 | Stage 3 quality pass | done: `s3-integ`@`b1a0703` via s3-ff; deferred D1-D5 need the user's approval (§8) |
 | 10 | `RESET_TO_MAIN.sh` | built: `reset-to-main`@`76e1cd4` via rtm-integ (§8); only a dry run is left (item 16) |
-| 11 | Finish `eq-runtime` per `M/hand_off/NEXT_SESSION_PROMPT.md` step 2: harness tests for p6/p7 and the CLI, grade files, E_rt with `bundle_mismatch` and `candidate`, wiring tests; `eq_calibrate` `read_stage` skips records with a branch; merge `eqr-hdocs` into `eqr-harness`, `test_calibrate`, `equilibrium_paths.py amend --amendment A6`; finish the mutation runner on `eqr-mut` (keep only gap tests that kill something); fix the two product bugs (`eq_guard.py:978`, `eq_policy.py` `over_cap`), each with a test; security-auditor + code-reviewer on `main...eq-runtime`, one fix round; merge main into `eq-runtime`; report READY. Private `UV_CACHE_DIR` (the shared one is corrupt) | main-coder lead |
-| 12 | `eq-runtime` INTEG: `git -C M merge --ff-only eq-runtime`, then full C10 on main | integrator |
-| 13 | Codex pages into `R/wiki-main-fixes/github-wiki` (nested repo; the user pushes): re-measure counts, run the wiki checker, review | main-coder |
-| 14 | Final handoff update (A4_FOLD.md §3 path; `R/.claude-work/resume-1005/FINAL_REPORT.md`) | main-coder |
-| 15 | Main-only audit `73eec41..main`: security-auditor + code-reviewer, includes the `orch-bash` Bash/git-guard gaps; then full C10; one fix round | security-auditor, code-reviewer |
-| 16 | `RESET_TO_MAIN.sh` dry run only (`--archive` and `--apply` are the user's) | verifier |
-| 17 | Closing report; the reinstall notice goes here only (the user runs `install.sh`) | main-coder |
+| 11 | Finish `eq-runtime` per `M/hand_off/NEXT_SESSION_PROMPT.md` step 2: harness tests for p6/p7 and the CLI, grade files, E_rt with `bundle_mismatch` and `candidate`, wiring tests; `eq_calibrate` `read_stage` skips records with a branch; merge `eqr-hdocs` into `eqr-harness`, `test_calibrate`, `equilibrium_paths.py amend --amendment A6`; finish the mutation runner on `eqr-mut` (keep only gap tests that kill something); fix the two product bugs (`eq_guard.py:978`, `eq_policy.py` `over_cap`), each with a test; security-auditor + code-reviewer on `main...eq-runtime`, one fix round; merge main into `eq-runtime`; report READY. Private `UV_CACHE_DIR` (the shared one is corrupt) | **ready, not merged:** `eq-runtime-2`@`1876a6b` (base main `8912496`; built from `eq-runtime` `b595c3c` with `eqr-harness-2`@`1d99b44` and `eqr-mut-2`@`6880fc7`): harness p6/p7/CLI/E_rt/wiring tests, both product bugs fixed with tests, the 792-mutant runner, A6 (`64e2c44`), run plan (`3a85b08`); security-auditor PASS, code-reviewer pass-with-fixes, fixed in `9c870d7`; phase B: harness 622 passed 2 skipped, harness mutants 168/168, calibrate mutants 56/56, `tests/eq_mutations.py` 792/792 killed. Its full C10 is pending. Blocked on your merges (§5) and §7 questions 1-2; `audit-fixes` is not merged into it [v: git; r: resume-1007 plan] |
+| 12 | `eq-runtime` INTEG: `git -C M merge --ff-only eq-runtime`, then full C10 on main | **pending, yours** (§5 step 2, branch `eq-runtime-2`): agents' merges are refused by the auto-mode classifier ("Modify Shared Resources"); then a full C10 on main |
+| 13 | Codex pages into `R/wiki-main-fixes/github-wiki` (nested repo; the user pushes): re-measure counts, run the wiki checker, review | **staged for you** (R is read-only to agents): 21 pages, `wiki.patch` 14 files (12 changed, 2 new), counts re-measured on main `8912496`, `wiki_check` 0 problems, code-reviewer accuracy pass-with-fixes (fixed); `H/.claude-work/resume-1005/resume-1007/T13` with `APPLY.md` (§5 step 3) [r] |
+| 14 | Final handoff update (A4_FOLD.md §3 path; `H/.claude-work/resume-1005/FINAL_REPORT.md`) | **done** on `audit-fixes` (the commit after `962b4b5c`): §4, §5, §7; A4_FOLD.md §3 now points at the tracked `equilibrium/COMPARE_eq.md` |
+| 15 | Main-only audit `73eec41..main`: security-auditor + code-reviewer, includes the `orch-bash` Bash/git-guard gaps; then full C10; one fix round | **done, not merged:** `audit-fixes`@`962b4b5c` (base `8912496`; fixes `1416bcb`..`a10ef8e4`, §8 row 15): no-push git gaps in both guards (`ext::`, command-running option values, `--shallow-file`, bundled short options, clone `-c`), web check, STACK_HOOK_RE, deferred profile, dead code, option case; three review rounds (security-auditor + code-reviewer), the last round's findings fixed with proofs. C10 on the tip in a detached worktree: every suite as on main (codex_config 2171 + 1 skipped, harness 451 + 1 skipped), pytest 139 failed = the 7 known + 132 attributed to the `.claude-work` path (129 `test_readonly_agents`, 3 `test_agent_guard` lake_env); the same-path check on `8912496` was still running at this write. Waits for your ff (§5 step 1) [v: git; r: C10 logs `H/.claude-work/c10/`] |
+| 16 | `RESET_TO_MAIN.sh` dry run only (`--archive` and `--apply` are the user's) | **done** on main `8912496` (by a coder: the verifier's read-only hook refused the script): rc 0, worktrees, branches, stash and status identical before and after; plan 114 worktrees (108 remove, 5 skip, 1 keep), 147 branches (142 delete), bundles for the unmerged ones; `H/.claude-work/resume-1005/resume-1007/T16/dryrun.txt`. Run it again after the merges [r] |
+| 17 | Closing report; the reinstall notice goes here only (the user runs `install.sh`) | **draft** at `H/.claude-work/resume-1005/FINAL_REPORT.md`; final once the C10 of `eq-runtime-2` is in |
 | 18 | A4 fold into COMPARE_eq A4 item 4, after the user's paid probe (§5) | python-engineer |
 
 Deferred: oracle residuals (HANDOFF_FULL §6.1), §6.10 items, Stage 3 D1-D5.
 
 ## 5. USER STEPS
+
+### Merges and closing steps (job resume-1007, 2026-10-07; in this order)
+
+Every `git merge` an agent tried this job (the ff of main, and a merge inside a `.claude-work` worktree) was refused by
+the auto-mode classifier ("Modify Shared Resources"), so the merges are yours. main is `8912496`; M must be clean.
+Agents can still commit, test and review between your steps.
+
+1. Fast-forward main to the audit fix round (§4 item 15). Its C10 ran on `962b4b5c` (§4); the one commit after it
+   changes `hand_off/` docs only.
+
+```bash
+git -C /Users/pmrj/ZDone/claude-agent-stack merge --ff-only audit-fixes
+```
+
+2. eq-runtime (§4 items 11-12), after you answer §7 questions 1-2 (if E7 is fixed now, the fix lands on `eq-runtime-2`
+   first). Bring the new main into the branch:
+
+```bash
+git -C /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/claude-info-handoff-setup-05c3bb/.claude-work/eq-runtime-2 merge main
+```
+
+   Since `8912496` both branches change `dot-claude/hooks/agent_guard.py`, `install.sh`, `hand_off/HANDOFF_STATE.md`,
+   `tests/test_install_state.py` and `tests/test_toolsmith.py`, so the merge may conflict [unverified: nobody attempted
+   it]. On a conflict run the same command with `merge --abort`, or let a main-coder resolve it; a conflict resolved in
+   `agent_guard.py` or `install.sh` is a security-surface change (security-auditor + code-reviewer before the ff). Then a
+   main-coder runs the targeted tests and commits the item 11 row in §8 on the branch, and a coder runs its full C10.
+   Then:
+
+```bash
+git -C /Users/pmrj/ZDone/claude-agent-stack merge --ff-only eq-runtime-2
+```
+
+   A full C10 on main follows (a coder; template `H/.claude-work/c10/c10-af-962b4b5.sh`).
+
+3. Wiki (§4 item 13): apply the staged pages as `H/.claude-work/resume-1005/resume-1007/T13/APPLY.md` says (check,
+   copy, check, commit in the nested wiki repository under R; pushing is yours).
+
+4. Stop the orphan `disc3.py` from the old `eqr-mut` mutation run (agent sandboxes cannot run `pgrep` or `pkill`):
+
+```bash
+pgrep -fl disc3.py
+```
+
+```bash
+pkill -f disc3.py
+```
+
+5. After the merges, run the `hand_off/RESET_TO_MAIN.sh` dry run again (§4 item 16); `--archive` and `--apply` stay
+   yours. The worktrees and branches this job created are listed in `H/.claude-work/resume-1005/FINAL_REPORT.md`.
+
+### Earlier steps (2026-10-05/06)
 
 Reinstall (ends the install hold; the installed manifest `73eec41` is 172 commits behind main and its orchestrator has no
 `Bash`). Conditions: full C10 passes on main (§4 items 0, 12, 15) and the closing report (§4 item 17) says so. `orch-bash` is
@@ -203,6 +259,26 @@ agent_guard.py / settings.json / install.sh / blackcat.md; uv for Python; C10 on
 sandboxes write only their own worktree, `$TMPDIR` and M; no `claude` login inside them.
 
 ## 7. OPEN questions / unverified
+
+Open for you (job resume-1007, 2026-10-07; details `H/.claude-work/resume-1005/resume-1007/plan.md`, "Session 2"):
+
+1. **H5's forked `none` branch at stage q.** Your decision (a) was: replace it with the correct branch, else ask. No
+   correct branch exists: E_rt has no fork code, p7 is the only `none` fork and is refused at q, and reusing stage-p data
+   is ruled out by `equilibrium/COMPARE_eq.md` §12 A6 item 7 on `eq-runtime-2` (every q claim is tested on items
+   disjoint from p). q is blocked until this is settled
+   (`hand_off/EQ_CALIBRATION_RUN_PLAN.md` on `eq-runtime-2`, "Open, blocks q"). Options: (a) remove H5's `none` branch from
+   the pre-registration by a new dated §12 amendment (agents never remove it on their own); (b) keep H5 and have a q
+   `none` fork built first (new harness and E_rt work, its own review).
+2. **`eq_check.sh` E7 refuses every stage-p cell pass** (`run --stage p --cells p6,p7`): it blocks run plan steps 3, 5
+   and 6 (proof: `H/.claude-work/resume-1005/resume-1007/S2a/test_s2a_probe.py`). The fix is scoped: an optional `cells`
+   argument passed from `eq_harness.py` (its `eq_check.sh` call, line 4618 on `eq-runtime-2`), the started-calls test counting only
+   calls with no cell, `test_shell` cases, a new mutant, path-pin regeneration, and a new dated §12 amendment because the
+   frozen §5 wording of E7 changes (`COMPARE_eq.md` line 135; the run plan reserves A7 and A8 for pilot and
+   confirmation, so the id is yours to set). Options: (a) fix it now on `eq-runtime-2`, before step 2 of §5; (b) merge
+   `eq-runtime-2` as it is and fix it later (steps 3, 5 and 6 stay blocked; nothing paid runs before them).
+3. **The merges** (§5 steps 1-2): (a) you run the commands; (b) you let an agent run them in a session whose
+   permissions allow it.
+4. **`disc3.py`** (§5 step 4): (a) `pkill -f disc3.py`; (b) leave it running (it adds load to every C10).
 
 - `container` flags: VERIFIED by the user's `container run --help` output (relayed to R3). Present: `--rm --read-only
   --cap-drop --init --user --uid --gid -m -c --ulimit --tmpfs <path> --mount ...,readonly -w --name --network`. Absent:
