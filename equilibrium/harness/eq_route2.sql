@@ -397,7 +397,7 @@ SELECT item, label, node, rec FROM (
 CREATE OR REPLACE TABLE m_attr AS
 SELECT item, label, node, rec FROM (
   SELECT item, label, node, rec, row_number() OVER (PARTITION BY item, label, coalesce(node, '') ORDER BY ts DESC, ord DESC) AS rn
-  FROM m_all WHERE rtype = 'attribution'
+  FROM m_all WHERE rtype = 'attribution' AND (rec->>'round') IS NULL  -- per-round jackknife lines (A6) are not nodes
 ) WHERE rn = 1;
 
 CREATE OR REPLACE TABLE m_change AS

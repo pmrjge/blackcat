@@ -2,7 +2,7 @@
  "$schema": "https://json-schema.org/draft/2020-12/schema",
  "$id": "eqparams.v1",
  "title": "eqparams.v1: the equilibrium runtime's calibration pin (RUNTIME_EQUILIBRIUM.md §7.5; COMPARE_eq.md §12 A6)",
- "description": "Written only by equilibrium/harness/eq_calibrate.py (params.v<k>.json; params.json = the latest; version 0 = no calibration, every class not_run). The runtime treats a file whose sha256 differs from the manifest's, or that fails this schema, as every class not_run. A class entry always has every key; when status is not 'validated' every key but status may be null; when 'validated' every key but certainty is required non-null.",
+ "description": "Written only by equilibrium/harness/eq_calibrate.py (params.v<k>.json; params.json = the latest; version 0 = no calibration, every class not_run: a version 0 file with any other class status is refused). The runtime treats a file whose sha256 differs from the manifest's, or that fails this schema, as every class not_run. A class entry always has every key; when status is not 'validated' every key but status may be null; when 'validated' every key but certainty is required non-null.",
  "type": "object",
  "required": ["schema", "version", "created_utc", "provenance", "classes"],
  "additionalProperties": false,
@@ -26,7 +26,25 @@
    }
   }
  },
+ "if": {"properties": {"version": {"const": 0}}, "required": ["version"]},
+ "then": {
+  "description": "version 0 = no calibration: every class is not_run (USER decision 2026-10-06, COMPARE_eq.md §12 A6). A calibrated version is >= 1.",
+  "properties": {
+   "classes": {
+    "properties": {
+     "PF": {"$ref": "#/$defs/class_not_run"},
+     "CP": {"$ref": "#/$defs/class_not_run"},
+     "CR": {"$ref": "#/$defs/class_not_run"},
+     "RS": {"$ref": "#/$defs/class_not_run"},
+     "ES": {"$ref": "#/$defs/class_not_run"},
+     "DS": {"$ref": "#/$defs/class_not_run"},
+     "OE": {"$ref": "#/$defs/class_not_run"}
+    }
+   }
+  }
+ },
  "$defs": {
+  "class_not_run": {"type": "object", "required": ["status"], "properties": {"status": {"const": "not_run"}}},
   "utc": {"type": "string", "pattern": "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]+)?Z$"},
   "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
   "interval": {

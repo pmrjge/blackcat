@@ -432,6 +432,29 @@ def test_mediator_m11_m12_m13(tmp_path: Path) -> None:
     assert val(res, "M18", "PF", "E", "cpu_s_median") == pytest.approx(1.0)
 
 
+def test_m_attr_skips_per_round_attribution_lines(tmp_path: Path) -> None:
+    """A6: the per-round jackknife lines (`round`, `loo`, `lambda`, `pivotal`; no shapley/hhi/loo_final) are not
+    nodes: even written after the node's end-of-node attribution they must not replace it in M11 and M13."""
+    led = Ledger()
+    led.start()
+    led.call("PF-1", "PF", "E")
+    led.item_arm("PF-1", "PF", "E", answer="a")
+    led.end()
+
+    def m(rec: str, **kw: Any) -> dict[str, Any]:
+        return {"schema_version": 1, "seq": 1, "ts_utc": "2026-10-05T12:00:01.000000Z", "record": rec, "stage": "p",
+                "item": "PF-1", "label": "p3", "arm": "E", "node": None, **kw}
+
+    half = {"num": 1, "den": 2, "float": 0.5}
+    recs = [m("attribution", hhi=half, shapley={"m1": half, "m2": half}, loo_final={"1": 3, "2": 3}),
+            m("result", answer=3, reducers={"R0": 3}),
+            m("attribution", ts_utc="2026-10-05T12:00:09.000000Z", round=1, loo={"m1": {"answer": 3}},
+              **{"lambda": 1.0}, pivotal=[], seed=7)]
+    res = analyse(tmp_path, led, mediator=recs)
+    assert (val(res, "M11", "PF", "E", "n"), val(res, "M11", "PF", "E", "mean_hhi")) == (1, 0.5)
+    assert val(res, "M13", "PF", "E", "estimate") == 1.0
+
+
 # ----------------------------------------------------------------------------------------------- bootstrap, seeds
 def test_seeds_match_the_published_ones() -> None:
     for tag, published in r2.PUBLISHED_SEEDS.items():

@@ -599,3 +599,18 @@ n_d = 46. Hence the added "powered effect excluded" reading.
      now as `dot-claude/hooks/eq_params.json`.
   9. Arms S\*, G and EG, items, oracles, the pilot's p1-p4, the primary family's tests, §8 and the stop rules are
      unchanged. Paid steps and their caps: `hand_off/EQ_CALIBRATION_RUN_PLAN.md`; only the USER runs them.
+  10. **Implementation note, 2026-10-06 (written while building the harness; still pre-freeze; no pre-registered
+      number changes).** (a) **USER decision: round k forks the member's LATEST session.** Item 1 said every reconcile
+      and repair call forks "the round-0 session". Built as: round 1 forks the member's round-0 session, round 2 forks
+      round 1's fork (`parent_session_id` of an `r<k>` call = the member's previous session), so a member's round-2
+      context contains its round-1 exchange (forking round 0 again would drop round 1) and every round-0 session stays
+      pristine for the p7 branches. `eq_calibrate.py`'s p7 check accepts either parent. (b) **Ratio underflow
+      guards.** `|ln(a / b)|` on positive finite numeric answers raised when `a / b` underflowed to 0 (1e-300 against
+      1e300); every such site (κ, top cluster and numeric LOO λ in the harness and mediator; ES error and the numeric
+      grade in the calibration) now takes `|ln a − ln b|` where the ratio leaves the float range. Values inside the
+      range are unchanged. (c) **The E arm's `loo_view` default is `none`:** flags.json `loo_view` = `none` is the
+      pre-registered shared summary (rendered byte-identically to the code before LOO views existed); `rotation`,
+      `random`, `leader` run only as p7 branches until a q amendment picks one. (d) **E_rt runs with `eq-mode:
+      manual`** (q runs before any class is validated) and the harness records `bundle_mismatch` (both bundles, no
+      call, excluded from q, reported only) when the runtime's resolved bundle (`plan.json`) is not the q cell's
+      selected bundle. Ledger fields: `harness/LEDGER_SCHEMA.md`; commands: `harness/README.md`.
