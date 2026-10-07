@@ -128,6 +128,5 @@ def test_reconcile_end_to_end(stub_bin: Path, tmp_path: Path) -> None:
     res = next(r for r in m if r["record"] == "result")
     assert res["answer"] == "Y1" and res["kappa"]["label"] == "agreement, not probability"
     assert res["reducers"]["R3"] == "Y2" and res["reducers"]["R1"] == res["reducers"]["R0"]  # m3's verified quote
-    att = next(r for r in m if r["record"] == "attribution")
-    tot = sum(v["num"] / v["den"] for v in att["shapley"].values())
+    tot = sum(v["num"] / v["den"] for v in att[-1]["shapley"].values())  # the end-of-node record holds shapley
     assert abs(tot - 1.0) < 1e-12  # v(N) - v(empty) = 1 - 0
