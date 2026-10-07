@@ -426,6 +426,39 @@ def test_result_text_is_stored(w):
     assert (w.store() / "result.txt").read_text() == p.stdout and mode(w.store() / "result.txt") == 0o600
 
 
+def _result_with_sources(w, sources):
+    cp_run(w)
+    two_candidates(w)
+    checks_and_verdicts(w)
+    for i, src in sources.items():
+        f = w.store() / "r0" / ("check-c%d.json" % i)
+        rec = json.loads(f.read_text())
+        rec["exit_source"] = src
+        f.write_text(json.dumps(rec))
+    assert w.eq("reduce", "--run", R, "--round", "0").returncode == 0
+    p = w.eq("result", "--run", R)
+    assert p.returncode == 0, p.stderr
+    return p, json.loads((w.store() / "result.json").read_text())
+
+
+NOTE = "level-1 trailer verdict (exit status not in payload)"
+
+
+def test_result_labels_trailer_only_check_verdicts(w):
+    p, res = _result_with_sources(w, {1: "trailer", 2: "tool_response"})
+    assert res["checks"]["trailer_only"] == ["r0/c1"] and res["checks"]["note"] == NOTE
+    lines = p.stdout.splitlines()
+    assert lines[1] == "checks: %s: r0/c1" % NOTE                   # right after the prose line
+    assert (w.store() / "result.txt").read_text() == p.stdout       # the leader's verbatim reply
+
+
+def test_result_without_trailer_only_candidates_has_no_label(w):
+    p, res = _result_with_sources(w, {})
+    assert "trailer_only" not in res["checks"] and "note" not in res["checks"]
+    assert "level-1 trailer verdict" not in p.stdout
+    assert (w.store() / "result.txt").read_text() == p.stdout
+
+
 def test_headless_plan(w):
     w.project()
     s = "sess-h"

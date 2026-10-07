@@ -29,7 +29,7 @@ TOP = {
     "README.md", "CONTRACT.md", "COMPARE_eq.md", "ISOLATION.md", "MEDIATOR.md", "PROPOSAL.md",
     "derive_numbers.py", "derive_numbers.out", "mediator_numbers.py", "mediator_numbers.out", "r3_check.py",
     "r3_check.out", "refute_check.py", "refute_check.out", "seeds.out", "shift_check.py", "shift_check.out",
-    "analysis-r1", "analysis-r2", "harness", "isolation", "items", "proof-check", "wall",
+    "analysis-r1", "analysis-r2", "calibration", "harness", "isolation", "items", "proof-check", "wall",
     "PATH_RELATIVISATION.md", "PATH_RELATIVISATION.json",  # COMPARE_eq.md A5 (tests/equilibrium_paths.py)
 }
 HARNESS = (

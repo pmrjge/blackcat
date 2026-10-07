@@ -397,6 +397,10 @@ writable check copy before the tests run; Level 2 mounts them read-only). `STACK
 Level 2 when it is installed and its probe receipt passes, else Level 1, and records which in `wall.w3`; `required`
 refuses checkable runs without Level 2 (D6).
 
+*2026-10-06, USER decision:* a `pass` from the `EQCHECK` trailer alone (a PostToolUse payload without an exit
+status) is kept, labelled `exit_source: trailer`, and the result block says `level-1 trailer verdict (exit status not
+in payload)` (a `checks:` line after the prose line, and `checks.trailer_only` / `checks.note` in the JSON).
+
 ### 6.4 Composition
 
 - **Sandbox**: a second `excludedCommands` entry (`__CLAUDE_DIR__/bin/stack-eq *`) beside stack-install
@@ -460,6 +464,9 @@ classes); M19-M22 are descriptive.
   exists in Claude Code 2.1.287, `claude --help`) and records `parent_session_id`; workdir classes (CP) copy the member's
   workdir per branch. The member's context is identical (a fork copies the history), so p3's procedure is unchanged in
   substance; it is listed in A6. $0 (code and stub tests only).
+  *2026-10-06, USER decision:* implementation: round k forks the member's latest session (r1 forks r0, r2 forks r1's
+  fork), not round 0, so the round-0 sessions stay pristine for the p7 branches (forking r0 at r2 would drop round 1
+  from the member's context); recorded in `equilibrium/COMPARE_eq.md` A6.
 - **p7, rounds and LOO views (forked branches)**: from p3's pristine round-0 sessions, four branches (`none`, `rotation`,
   `random`, `leader`), each forced through R = 2 rounds (κ stop ignored, then simulated), each at the reconcile reserve
   0.25 B (0.025 B per member-round). Classes: RS and ES (the only discrete/numeric pools). Every variant is cost-equal by
@@ -527,6 +534,10 @@ never run any of these steps.
 `eq_params.json` ships with every class `not_run`. With `STACK_EQ=1`: no auto-routing (the spawn gate refuses
 `eq-mode: auto`); a manual run (`/equilibrium`, or "use equilibrium" in the prompt) always asks for cost consent and is
 labelled `unvalidated`.
+
+*2026-10-06, USER decision:* the shipped params are `version` 0, the all-`not_run` placeholder; the validator and
+`params.schema.json` accept version 0 only when every class is `not_run` and refuse anything else (a validated file
+has `version` >= 1).
 
 ### 7.7 Conservative fallbacks for unvalidated runs (and why)
 

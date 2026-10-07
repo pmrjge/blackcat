@@ -295,6 +295,9 @@ def test_tools_venv_lock_covers_the_stack_imports():
     files = [os.path.join(ROOT, d, f) for d in dirs for f in sorted(os.listdir(os.path.join(ROOT, d)))
              if f.endswith(".py")]
     local = {os.path.basename(f)[:-3] for f in files}
+    for sub in ("equilibrium/harness", "tests/fixtures"):     # repo-local modules the tests import, not dependencies
+        for dp, _dn, fn in os.walk(os.path.join(ROOT, sub)):
+            local |= {f[:-3] for f in fn if f.endswith(".py")}
     need = {}
     for f in files:
         for n in ast.walk(ast.parse(open(f, encoding="utf-8").read())):

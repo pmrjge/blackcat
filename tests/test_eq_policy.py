@@ -172,8 +172,13 @@ def test_params_shipped_shape_validates():
 @pytest.mark.parametrize("mutate, why", [
     (lambda o: o.update(extra=1), "top-level"),
     (lambda o: o.update(schema="eqparams.v2"), "schema"),
-    (lambda o: o.update(version=0), "version"),
     (lambda o: o.update(version=True), "version"),
+    (lambda o: o.update(version="0"), "version"),
+    (lambda o: o.update(version=-1), "version"),
+    (lambda o: o.update(version=0, classes={**o["classes"], "PF": validated_entry()}),
+     "version 0 is the all-not_run placeholder"),
+    (lambda o: o.update(version=0, classes={**o["classes"], "PF": entry("not_established")}),
+     "version 0 is the all-not_run placeholder"),
     (lambda o: o["classes"].pop("OE"), "classes"),
     (lambda o: o["classes"]["PF"].pop("pool"), "keys"),
     (lambda o: o["classes"]["PF"].update(status="maybe"), "status"),
@@ -192,6 +197,24 @@ def test_params_schema_refusals(mutate, why):
     mutate(o)
     errs = P.validate_params(o)
     assert errs and any(why in e for e in errs), errs
+
+
+def test_version_0_is_only_the_all_not_run_placeholder():
+    assert P.validate_params({**params(), "version": 0}) == []
+    assert P.validate_params({**params(PF=validated_entry()), "version": 1}) == []
+
+
+def test_the_shipped_params_file_is_the_placeholder(tmp_path):
+    shipped = MOD_PATH.parent / "eq_params.json"
+    raw = shipped.read_bytes()
+    obj = json.loads(raw)
+    assert obj["version"] == 0 and P.validate_params(obj) == []
+    pp, mp = write_pinned(tmp_path, None, raw=raw)
+    got, _sha, why = P.load_params(pp, mp)
+    assert why is None and got == obj
+    for cls in P.CLASSES:
+        b = P.resolve(cls, got, P.knobs({}), mode="manual")
+        assert b["validated"] is False and b["status_reason"] == "class_not_validated", cls
 
 
 def test_validated_entry_needs_every_field_but_certainty():

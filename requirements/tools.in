@@ -7,3 +7,4 @@ httpx>=0.27                 # mcp/libdocs_mcp.py, mcp/image_studio_mcp.py and th
 mcp>=1.10,<2                # mcp/libdocs_mcp.py, mcp/image_studio_mcp.py
 pillow>=10                  # mcp/image_studio_mcp.py, test_image_limit.py, test_image_studio_mcp.py
 neural-memory==4.62.0       # mcp/neural_memory_mcp.py
+jsonschema                  # tests/test_eq_params_pin.py, test_eq_parity.py (also a dependency of mcp)
