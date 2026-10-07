@@ -1,5 +1,5 @@
 """bin/stack-eq (hooks/eq_cli.py --eq-executor): tickets, the store, plan refusals, check copies, reduce,
-result patches, cleanup and Level 2 (docs-design/RUNTIME_EQUILIBRIUM.md 2.2, 6.2, 10.3; contracts.md 2-6).
+result patches, cleanup and Level 2 (docs/RUNTIME_EQUILIBRIUM.md 2.2, 6.2, 10.3; contracts.md 2-6).
 
 Hermetic: a scratch HOME holding the config dir (hooks under test + a FAKE eq_core.py with the contract 8
 API), the state root and a git project; the guard's records (brief, tickets, members, captures, consent,

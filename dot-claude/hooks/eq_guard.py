@@ -1,4 +1,4 @@
-"""eq_guard - the runtime Equilibrium's guard rules (docs-design/RUNTIME_EQUILIBRIUM.md rev 2: 2.2-2.5, 4.2,
+"""eq_guard - the runtime Equilibrium's guard rules (docs/RUNTIME_EQUILIBRIUM.md rev 2: 2.2-2.5, 4.2,
 6.1-6.4, 8.2, 8.3; .claude-work/eq-runtime/contracts.md 1-7, 10, 11).
 
 agent_guard.py loads this file from beside itself once per process (agent_guard.eq_guard(), like

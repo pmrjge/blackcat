@@ -4,7 +4,7 @@ header, one argv and one path the same way (the toolsmith_policy.py pattern).
 
 Pure and stdlib-only (Python 3.13) except for file READS (params, manifest, JSON records) and
 write_json_atomic (the one writer helper the contract asks for). What is here
-(docs-design/RUNTIME_EQUILIBRIUM.md; contracts.md section 3):
+(docs/RUNTIME_EQUILIBRIUM.md; contracts.md section 3):
   - the class table (CLASSES, KIND, MEMBER_TOOLS, WORKDIR, FALLBACK, PREDICTED_NEUTRAL, MEMBER_TYPES);
   - the leader's header grammar (parse_header) and the member/reconcile tokens;
   - the knobs (knobs: invalid values fail closed to the stricter value);

@@ -12,7 +12,7 @@ Finish every remaining step of hand_off/HANDOFF_STATE.md, then report once. Only
 - M = /Users/pmrj/ZDone/claude-agent-stack (main checkout, main at fd0a2a3 or later)
 - WT = /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/resume-770728 (worktrees: eq-runtime, eqr-harness, eqr-hdocs, eqr-mut, smokegc-fix, eqcli-integ, wiki-main-fixes/github-wiki)
 - Logs: WT/.claude-work/c10/ (c10-eqcli-321f037.failed_ids = the 7 known environment failures)
-- Design: M/docs-design/RUNTIME_EQUILIBRIUM.md; plan checkpoint: WT/eqr-harness/.claude-work/eqr-harness/plan.md
+- Design: M/docs/RUNTIME_EQUILIBRIUM.md; plan checkpoint: WT/eqr-harness/.claude-work/eqr-harness/plan.md
 - Delegation ledger of the old session: /Users/pmrj/.local/state/claude-agent-stack/e78878a2-2ab1-4e57-9b93-1bc5dcfe521a/delegations.md
 
 ## Read first

@@ -1,4 +1,4 @@
-"""install.sh and doctor.sh for the runtime Equilibrium (docs-design/RUNTIME_EQUILIBRIUM.md part F): the files
+"""install.sh and doctor.sh for the runtime Equilibrium (docs/RUNTIME_EQUILIBRIUM.md part F): the files
 it stages and their modes, the manifest's eq_runtime pin (what eq_policy.load_params accepts), the doctor.sh
 section "Equilibrium runtime", settings.json's merge of the eq knobs, allow rules and excludedCommands entry,
 their retraction, and --restore.

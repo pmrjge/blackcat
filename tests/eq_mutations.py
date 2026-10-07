@@ -4,7 +4,7 @@
 # ///
 """Seeded-mutation proof for the runtime Equilibrium: the guard's rules (dot-claude/hooks/eq_guard.py and its call
 sites in agent_guard.py), the executor and check runner (eq_cli.py) and the policy (eq_policy.py).
-docs-design/RUNTIME_EQUILIBRIUM.md 10.3: "mutants in tests/eq_mutations.py, every one must be killed".
+docs/RUNTIME_EQUILIBRIUM.md 10.3: "mutants in tests/eq_mutations.py, every one must be killed".
 
 Each mutant is one edit (a few: two) of a product file in a scratch copy of dot-claude/hooks under $TMPDIR (the
 checkout is never written); the tests named for it run against that copy (EQ_HOOKS_SRC / EQ_POLICY, as

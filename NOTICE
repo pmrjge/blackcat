@@ -4,4 +4,5 @@ Copyright 2026 Pedro Miguel Rodrigues Jorge
 This product was created with Claude Code (https://claude.com/claude-code) using Anthropic's Claude
 models, under the author's direction.
 
-The images in assets/ are licensed under CC BY 4.0 (see assets/README.md).
+The images in assets/ are licensed under CC BY 4.0 (see assets/README.md), except the architecture
+diagram in assets/diagrams/, which is under the Apache License 2.0 like the rest of the project.

@@ -14,13 +14,13 @@ guardrails, limits and tooling to run them safely.
 Created with [Claude Code](https://claude.com/claude-code): designed and directed by Pedro Miguel Rodrigues
 Jorge, written with Anthropic's Claude models ([Credits](#credits)).
 
-<p align="center"><img src="docs/diagrams/architecture.svg" alt="claude-agent-stack architecture. The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 8. Hooks check every tool call of every agent." width="100%"></p>
+<p align="center"><img src="assets/diagrams/architecture.svg" alt="claude-agent-stack architecture. The user talks to BlackCat, which delegates each job to specialists or to the orchestrator. Specialists spawn helpers down to level 8. Hooks check every tool call of every agent." width="100%"></p>
 
 BlackCat delegates every job, hooks check every tool call at every level, and an agent at L8 cannot spawn.
 
 <details><summary>Diagram source (Mermaid)</summary>
 
-The editable source is [docs/diagrams/architecture.mmd](docs/diagrams/architecture.mmd); the SVG above is drawn
+The editable source is [assets/diagrams/architecture.mmd](assets/diagrams/architecture.mmd); the SVG above is drawn
 from it by hand.
 
 ```mermaid
@@ -42,7 +42,7 @@ flowchart TD
   O --> S2
   S1 --> H
   S2 --> H
-  %% Candy palette, same as docs/diagrams/architecture.svg: one fill per node,
+  %% Candy palette, same as assets/diagrams/architecture.svg: one fill per node,
   %% dark text #1b1236 on every fill, each edge in its source node's colour.
   style U fill:#7cc4ff,stroke:#1b1236,stroke-width:2px,color:#1b1236
   style B fill:#ff7eb6,stroke:#1b1236,stroke-width:2px,color:#1b1236
@@ -83,7 +83,7 @@ pushed to the GitHub wiki, and `tests/wiki_check.py` checks them.
 
 Earlier README revisions (the one before this reorganisation, and the long-form one with installer flags
 in full, the spawn table, sandbox internals and changelog entries) are not shipped; the commits that
-changed them are in the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
+changed them are in the commit history (`git log -- README.md`).
 
 ## Quick start
 
@@ -332,7 +332,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 
 | Mechanism | What it does | Evidence |
 |---|---|---|
-| Static prompt budget | `tests/prompt_budget.py --check` fails when descriptions, bodies, rules or listings grow past gates set against revision `ad22962` | Measured (static characters, 2026-10-03, the revision that gave BlackCat its own tools vs `ad22962`; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)): skill listing 30,782 → 14,437 chars (−53.1 %), mostly because the 83 hub modules are no longer listed and the skill count went from 248 to 214; mean per-spawn prompt 55,240 → 37,527 chars (−32.1 %). Both revisions are this stack, so this is not a comparison with plain Claude Code, and whether skill discovery or answer quality changed is not measured |
+| Static prompt budget | `tests/prompt_budget.py --check` fails when descriptions, bodies, rules or listings grow past gates set against revision `ad22962` | Measured (static characters, 2026-10-03, the revision that gave BlackCat its own tools vs `ad22962`; see the commit history, `git log`): skill listing 30,782 → 14,437 chars (−53.1 %), mostly because the 83 hub modules are no longer listed and the skill count went from 248 to 214; mean per-spawn prompt 55,240 → 37,527 chars (−32.1 %). Both revisions are this stack, so this is not a comparison with plain Claude Code, and whether skill discovery or answer quality changed is not measured |
 | Delegate-only BlackCat | BlackCat runs no commands and edits nothing (no Bash/Write/Edit on its tools line; blackcat-guard refuses them); every job, however small, goes to a specialist | **enforced by tools line and hook; the cost of spawning for small jobs is not measured** |
 | Output economy | Global rules: answer first, no preamble or closing summary, big artifacts to files, a clean finish in one line | **by design, not measured** |
 | Read gate | First read of build output, dependencies, big data, media or binaries is refused with a cheaper alternative | **by design, not measured** (no token saving recorded) |
@@ -436,7 +436,7 @@ graded; install, agent type and model changed together; some graders could not r
 read-only guard; one grader per batch with known rubric ambiguity; cost was not recorded for any run.
 Both installs predate BlackCat's own tools. The revisions (the newer install is the 2026-10-03 RESUME.md
 hand-off commit; BlackCat got its tools in "BlackCat does small jobs itself") are in the commit history
-in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
+(`git log`).
 
 ### Known limits
 
@@ -451,8 +451,8 @@ in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
   segments.
 - **Test failures inside the Claude Code sandbox** (full suite on 2026-10-03 after the `/stack-tree`
   review fixes: 3119 passed, 2 failed, 1 skipped; run by the author, not reproducible from the repo;
-  3188 tests were collected after the 2026-10-03 rename review fixes; see the commit history in
-  [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)): `test_four_tools_and_three_model_settings` in `tests/test_image_studio_mcp.py`
+  3188 tests were collected after the 2026-10-03 rename review fixes; see the commit history,
+  `git log`): `test_four_tools_and_three_model_settings` in `tests/test_image_studio_mcp.py`
   (the sandbox denies reading `~/.claude/stack.env`) and one `f4` case in `tests/test_protected_paths.py`
   (pytest's temp dir sits under `/tmp/claude-501`). Two cases of `test_three_way_verdict_on_the_soft_limit`
   fail when `STACK_LIMITS_SNAPSHOT` is set.
@@ -605,7 +605,7 @@ Details and residual risks: [CONFIG.md](CONFIG.md) §7, "Dependency installer: t
 
 ### Equilibrium runtime: independent members, one reduced answer
 
-The `equilibrium` agent (spec: `docs-design/RUNTIME_EQUILIBRIUM.md` rev 2) runs N independent members (2 to 9) on one hard question and combines their answers with a deterministic reducer, then reports a leave-one-out certainty signal. It is for questions where one more opinion is worth the cost: proofs and checkable fixes (PF, CP), code review (CR), discrete and numeric answers (RS, ES), long-form drafts (DS, OE). `bin/stack-eq` (outside the sandbox, ticketed, like `stack-install`) plans, reduces and cleans up; `bin/stack-eq-check` runs a candidate's check inside the sandbox.
+The `equilibrium` agent (spec: `docs/RUNTIME_EQUILIBRIUM.md` rev 2) runs N independent members (2 to 9) on one hard question and combines their answers with a deterministic reducer, then reports a leave-one-out certainty signal. It is for questions where one more opinion is worth the cost: proofs and checkable fixes (PF, CP), code review (CR), discrete and numeric answers (RS, ES), long-form drafts (DS, OE). `bin/stack-eq` (outside the sandbox, ticketed, like `stack-install`) plans, reduces and cleans up; `bin/stack-eq-check` runs a candidate's check inside the sandbox.
 
 - **Calibration decides what runs by itself.** `hooks/eq_params.json` ships with every class `not_run`: no auto-routing, every run is manual and asks you first (`Run eq:<run8>` through BlackCat's question). A class becomes `validated` only after the paid calibration (`hand_off/EQ_CALIBRATION_RUN_PLAN.md`, yours to run) and a reinstall: the installer pins the params file's sha256 in the manifest (`eq_runtime`), and a file that does not match is ignored (every class `not_run`).
 - **Knobs** ([CONFIG.md](CONFIG.md) §5): `STACK_EQ` (0 switches it off), `STACK_EQ_MAX_N` 9, `STACK_EQ_MAX_ROUNDS` 2, `STACK_EQ_MAX_CONCURRENT_RUNS` 1, `STACK_EQ_CONFIRM` `always`, `STACK_EQ_SESSION_RUNS` 3, `STACK_EQ_WALL` `auto`; `STACK_EQ_N` and `STACK_EQ_ROUNDS` override the calibrated size and make a run manual-only.
@@ -1680,16 +1680,15 @@ outside this repository).
   `claude-local-work/` at the repository root (git-ignored); the agents' scratch stays in `.claude-work/`.
 - **Keep the Claude attribution.** Commits made with Claude Code end with a
   `Co-Authored-By: Claude <noreply@anthropic.com>` trailer; the model name may follow `Claude`, as in
-  the history ([PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)).
-- **Licence:** Apache-2.0 for code, docs and prompts ([LICENSE](LICENSE), [NOTICE](NOTICE)); the images
-  in `assets/` are under CC BY 4.0. Details: [License](#license).
+  the history (`git log`).
+- **Licence:** Apache-2.0 for code, docs, diagrams and prompts ([LICENSE](LICENSE), [NOTICE](NOTICE)); the
+  images in `assets/` (outside `assets/diagrams/`) are under CC BY 4.0. Details: [License](#license).
 
 ## Changelog
 
 Per-revision parameters and their reasons: [CONFIG.md](CONFIG.md) §9. Earlier README revisions, with
-their changelog entries, are not shipped; see the commit history in
-[PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md) (the last long-form README is the 2026-10-02 commit
-"Skills listed, not name-only").
+their changelog entries, are not shipped; see the commit history (`git log -- README.md`; the last
+long-form README is the 2026-10-02 commit "Skills listed, not name-only").
 
 ## Credits
 
@@ -1697,17 +1696,17 @@ their changelog entries, are not shipped; see the commit history in
 - **Implementation:** the whole repository (agents, skills, hooks, installer, tests, docs) was created
   with [Claude Code](https://claude.com/claude-code) by Anthropic's Claude models, under the author's
   direction: Claude Opus 5.5, Claude Sonnet 5.5 and Claude Sonnet 5, as the commit trailers name them.
-- **History:** [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md) holds the history from before
-  publication. Commits made with Claude Code carry a `Co-Authored-By: Claude …` trailer naming the model.
+- **History:** the git history (`git log`) holds every commit, those from before publication included.
+  Commits made with Claude Code carry a `Co-Authored-By: Claude …` trailer naming the model.
 - Attribution is credit, not ownership: the copyright stays with the author ([NOTICE](NOTICE)).
 
 ## License
 
 - **Code, docs and prompts** (everything outside `assets/`: scripts, hooks, agents, skills, prompts,
-  docs): [Apache-2.0](LICENSE) (SPDX identifier `Apache-2.0`), copyright 2026 Pedro Miguel Rodrigues
+  docs; and the architecture diagram in `assets/diagrams/`): [Apache-2.0](LICENSE) (SPDX identifier `Apache-2.0`), copyright 2026 Pedro Miguel Rodrigues
   Jorge. The [NOTICE](NOTICE) file records that the project was created with Claude Code; Apache-2.0
   §4(d) requires redistributions to carry it.
-- **The images in `assets/`** (hero, its unmodified original, social preview, avatar):
+- **The images in `assets/`** (hero, its unmodified original, social preview, avatar; not `assets/diagrams/`):
   [CC BY 4.0](assets/LICENSE-CC-BY-4.0.txt) (SPDX identifier `CC-BY-4.0`), with attribution to Pedro
   Miguel Rodrigues Jorge for the human contribution, his photograph of his cat: "Photo by Pedro Miguel
   Rodrigues Jorge, AI-edited with OpenAI GPT Image 2.5 Sunburst via Opper". The image was made from that

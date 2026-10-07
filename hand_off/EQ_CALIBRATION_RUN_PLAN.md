@@ -1,6 +1,6 @@
 # EQ calibration run plan (Phase 4): for the USER's approval
 
-Drafted 2026-10-06 (branch `eqr-calib`), from `docs-design/RUNTIME_EQUILIBRIUM.md` §7 and §11 and `equilibrium/COMPARE_eq.md`
+Drafted 2026-10-06 (branch `eqr-calib`), from `docs/RUNTIME_EQUILIBRIUM.md` §7 and §11 and `equilibrium/COMPARE_eq.md`
 §12 A6. **No agent runs any step of this plan.** Every paid step is the USER's, from a logged-in terminal, after the
 consent asked at that time. Agents build and test the code at $0 and analyse the frozen data afterwards.
 

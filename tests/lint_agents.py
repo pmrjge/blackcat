@@ -36,9 +36,9 @@ VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
 # install.sh copies from stack.env into settings.json's env. Two families: no Haiku in the stack.
 STACK_MODELS = {"opus", "sonnet"}
 # A specific Claude model ID (claude-<family>-<version>[-<date>]). Allowed only in the
-# places below: lib/stack.env.example (the single source), PREVIOUS_GIT_COMMITS.md (the pre-publication
-# history, quoted as committed), hand_off/c0_support/COMPARE_c0.md (a frozen pre-registration, byte-pinned
-# in hand_off/c0_support/PINS.sha256, so it cannot be edited) and the record of the models the token limits
+# places below: lib/stack.env.example (the single source), hand_off/c0_support/COMPARE_c0.md (a frozen
+# pre-registration, byte-pinned in hand_off/c0_support/PINS.sha256, so it cannot be edited) and the record of
+# the models the token limits
 # were measured on (doctor.sh's MEASURED_MODELS line). Untracked files and anything
 # under .claude-work/ (agents' scratch, some of it force-committed) are not scanned.
 # new style (claude-<family>-<n>...) and old style (claude-<n>[-<n>]-<family>-<date or latest>)
@@ -46,7 +46,7 @@ MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(
 # the second: this regex's test vectors; the effort table records which model IDs take which
 # effort levels (Claude Code's own checks), and its test's vectors
 MODEL_ID_FILES = {"lib/stack.env.example", "tests/test_lint_skills.py", "dot-claude/hooks/agent_effort.json",
-                  "tests/test_override_agent.py", "PREVIOUS_GIT_COMMITS.md", "hand_off/c0_support/COMPARE_c0.md",
+                  "tests/test_override_agent.py", "hand_off/c0_support/COMPARE_c0.md",
                   # the Equilibrium harness's "no haiku" vectors (a model ID it must refuse) and their mutation log
                   "equilibrium/harness/tests/test_launch.py", "equilibrium/harness/tests/test_skill_tools_argv.py",
                   "equilibrium/harness/tests/mutations.py", "equilibrium/harness/tests/mutations.out"}
@@ -255,7 +255,7 @@ EDIT_TOOLS = {"Write", "Edit", "MultiEdit", "NotebookEdit"}
 # subagent inheriting Plan it could never install; it carries acceptEdits without Write/Edit
 INSTALLER_TYPES = {"toolsmith"}
 # the equilibrium leader runs bin/stack-eq (outside the sandbox, ticketed) and bin/stack-eq-check through
-# Bash alone, as toolsmith does: same exception (docs-design/RUNTIME_EQUILIBRIUM.md §2.1)
+# Bash alone, as toolsmith does: same exception (docs/RUNTIME_EQUILIBRIUM.md §2.1)
 EQ_TYPES = {"equilibrium"}
 
 

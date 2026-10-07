@@ -1,5 +1,5 @@
 """bin/stack-eq-check (hooks/eq_cli.py --eq-check-runner): the Level 1 check runner (contracts.md 6;
-docs-design/RUNTIME_EQUILIBRIUM.md 6.1 W3, 10.3). Minimal environment, cwd = the prepared copy, stdin
+docs/RUNTIME_EQUILIBRIUM.md 6.1 W3, 10.3). Minimal environment, cwd = the prepared copy, stdin
 /dev/null, the process group killed on the timeout, and stdout exactly one EQCHECK line that the check's
 own output cannot forge.
 

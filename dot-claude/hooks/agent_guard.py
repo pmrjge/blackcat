@@ -11754,7 +11754,7 @@ def toolsmith_gate(ev, command, tool):
 
 # ---------------------------------------------------------------- equilibrium: the eq rules
 # hooks/eq_guard.py (beside this file, loaded once like toolsmith_policy.py) holds the runtime
-# Equilibrium's rules (docs-design/RUNTIME_EQUILIBRIUM.md 2.3, 6.1, 8.2, 8.3); the call sites only route
+# Equilibrium's rules (docs/RUNTIME_EQUILIBRIUM.md 2.3, 6.1, 8.2, 8.3); the call sites only route
 # events to it. eq_maybe() keeps every other call free of the import. For a call it flags, a module
 # that cannot load or a rule that raises denies (PreToolUse) or warns (other events): fail closed.
 # EQ_TYPES: the leader types (bin/stack-eq through Bash alone, like INSTALLER_TYPES; tests/lint_agents).

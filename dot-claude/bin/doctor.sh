@@ -404,7 +404,7 @@ else:
 PY
 
 echo "== Equilibrium runtime"
-# The runtime Equilibrium (docs-design/RUNTIME_EQUILIBRIUM.md; CONFIG.md "Equilibrium runtime"): read-only,
+# The runtime Equilibrium (docs/RUNTIME_EQUILIBRIUM.md; CONFIG.md "Equilibrium runtime"): read-only,
 # no network, no model call. hooks/eq_params.json counts only when its sha256 equals the manifest's
 # eq_runtime.params_sha256 (eq_policy.load_params): else every class is not_run. A class's calibrated
 # agent file or the Claude Code version differing from the params' provenance is a drift note, not an

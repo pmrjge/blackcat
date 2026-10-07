@@ -1520,7 +1520,7 @@ done
 for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget stack-tree; do stage_script 755 "bin/$f"; done
 stage_script 755 "bin/stack-who"
 stage_script 755 "bin/stack-install"
-# the runtime Equilibrium (docs-design/RUNTIME_EQUILIBRIUM.md): its policy, core, CLI, isolation and guard
+# the runtime Equilibrium (docs/RUNTIME_EQUILIBRIUM.md): its policy, core, CLI, isolation and guard
 # modules (agent_guard.py loads eq_guard.py like toolsmith_policy.py), the params file (pinned by sha256 in
 # the manifest's eq_runtime key), the lenses and schemas, and the two programs settings.json names
 for f in eq_core.py eq_policy.py eq_cli.py eq_isolation.py eq_guard.py eq_params.json eq_lenses.json eq_schemas.json; do stage_script 644 "hooks/$f"; done

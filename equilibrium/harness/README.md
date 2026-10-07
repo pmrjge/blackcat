@@ -228,7 +228,7 @@ or WALL only without member sandboxing. It has not been reviewed yet, so it is o
 - **Residuals.** `WALL_DESIGN.md` §12: no host-side disk quota on the tunnel; the stores and the receipt are files
   of the user's uid; member Read/Edit stay on the host.
 
-## Calibration cells, stage q and the runtime arm E_rt (COMPARE_eq §12 A6; `../../docs-design/RUNTIME_EQUILIBRIUM.md` §7)
+## Calibration cells, stage q and the runtime arm E_rt (COMPARE_eq §12 A6; `../../docs/RUNTIME_EQUILIBRIUM.md` §7)
 
 Every `run` below with the real `claude` is PAID and the USER's step in a normal terminal, after the freeze; agents
 and tests use the stub only. Arguments are those of `eq_harness.py --help` (argparse is the authority).

@@ -1,6 +1,6 @@
 """eq_core: stdlib port of the equilibrium harness's pure reducer, mediator and view code.
 
-Spec: docs-design/RUNTIME_EQUILIBRIUM.md §2.4 (briefs, views), §3 (what is ported), §4 (leave-one-out), §5 (result).
+Spec: docs/RUNTIME_EQUILIBRIUM.md §2.4 (briefs, views), §3 (what is ported), §4 (leave-one-out), §5 (result).
 Sources: equilibrium/harness/eq_harness.py and eq_mediator.py; pinned to them by tests/test_eq_parity.py.
 Imported by path (importlib.util.spec_from_file_location) by the guard and `stack-eq` on the stack's Python 3.13 with
 `-I`: standard library only, no package context, no side effects at import.

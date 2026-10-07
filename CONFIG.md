@@ -57,7 +57,7 @@ Column key:
 - **Effort** binds only when the agent runs as a subagent. The main thread uses the session level.
 - **Children**: how many of its own subagents may run at once, enforced by the hook. "leaf" = no Agent tool.
 - **Was**: the value at the 2026-09-28 commit "Guard: session context budget 666M; README caps
-  consolidated" (see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)), shown
+  consolidated" (see the commit history, `git log`), shown
   only where it changed.
 
 | Agent | Model | Effort | maxTurns | Children | Was | Why |
@@ -162,7 +162,7 @@ The stack's only knob table. Values in `dot-claude/settings.json` → `env` unle
 | `STACK_EARLY_STOP` | `observe` (code) | new | A subagent run's brief budget and early-stop signals (`hooks/stack_progress.py`, called by the guard's budget gate after the hard budgets allowed a subagent's call): `observe` logs to `early-stop.jsonl`, `warn` also adds a note for the `budget` and `stop` signals, `off` reads nothing; never a refusal. `STACK_EARLY_STOP_ROUNDS` 8 and `STACK_EARLY_STOP_FAILS` 4 (code): the window and its failing rounds. See "Brief budgets and early stop" below |
 | `STACK_SCHED_POLICY` | `report` (code) | `fresh_fixer` | The user's decision (2026-10-03): the scheduler stays a report tool. `fresh_fixer` is opt-in: `stack_sched.py next` then also advises a fresh fixer on stderr for a resume after a gap of 270 s or more (stdout, the ready ids, is the same). Fixed knob, recorded in each session's snapshot and read from it |
 | `STACK_FANOUT_IDLE_S` ○ | 600 (code: 1800) | — | A silent background subtree stops counting against the caps |
-| `STACK_EQ` ○ | 1 | new | Runtime Equilibrium (`docs-design/RUNTIME_EQUILIBRIUM.md` §8.1; the user's decisions 2026-10-06: on by default, ask before every run). `0` refuses every `equilibrium` spawn. An invalid value reads as `0` (fail closed) and doctor names it |
+| `STACK_EQ` ○ | 1 | new | Runtime Equilibrium (`docs/RUNTIME_EQUILIBRIUM.md` §8.1; the user's decisions 2026-10-06: on by default, ask before every run). `0` refuses every `equilibrium` spawn. An invalid value reads as `0` (fail closed) and doctor names it |
 | `STACK_EQ_MAX_N` ○ | 9 | new | Hard cap on members per run (1-9); the user may lower it. A plan's N above it is capped and the run becomes `n_or_rounds_capped` (manual only) |
 | `STACK_EQ_MAX_ROUNDS` ○ | 2 | new | Hard cap on reconcile and repair rounds (0-2); the user may lower it |
 | `STACK_EQ_MAX_CONCURRENT_RUNS` ○ | 1 | new | Live eq runs per session; a second leader spawn waits (one heavy job per Mac) |
@@ -284,7 +284,7 @@ Every command takes `--json`. Verdicts are three-way: fits (the interval's upper
 
 | Kind | Automatic (the situation needs it) | On demand (asked for) | Idle cost, before → after |
 |---|---|---|---|
-| Skills (220: 128 listed, 32 of them described, 96 name-only; 89 hub modules hidden) | Described skills: their description; name-only skills: their name; both plus a one-line pointer "load X when Y" in the agent or hub that needs it. Hub modules (`user-invocable-only`): the hub's table or the agent's `## Skills` line (marked `name`*) names them, and the agent Reads `~/.claude/skills/<name>/SKILL.md` (the Skill tool refuses them) | the Skill tool by name; hidden modules by Read | Listing on every spawn: 17,647 chars at the phase-2 base (2026-10-02; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)) → 30,782 at ad22962 (all described) → 14,437 (hubs, standalones and 15 entry-grade modules described) → 5,306 now (2026-10-04: 32 described, 96 name-only) |
+| Skills (220: 128 listed, 32 of them described, 96 name-only; 89 hub modules hidden) | Described skills: their description; name-only skills: their name; both plus a one-line pointer "load X when Y" in the agent or hub that needs it. Hub modules (`user-invocable-only`): the hub's table or the agent's `## Skills` line (marked `name`*) names them, and the agent Reads `~/.claude/skills/<name>/SKILL.md` (the Skill tool refuses them) | the Skill tool by name; hidden modules by Read | Listing on every spawn: 17,647 chars at the phase-2 base (2026-10-02; see the commit history, `git log`) → 30,782 at ad22962 (all described) → 14,437 (hubs, standalones and 15 entry-grade modules described) → 5,306 now (2026-10-04: 32 described, 96 name-only) |
 | MCP, agent-scoped | The agent's inline `mcpServers` plus its `tools:` line: the server starts and stops with that agent | spawn that agent | 0 in other agents (unchanged); tool schemas deferred until tool search loads them |
 | MCP, magg catalog (23 servers, all disabled) | A one-line pointer in the agent that has the gap: "X → mcp-broker mounts `<server>`" (devops → `kubernetes`/`grafana`, data-scientist → `sec-edgar`/`gis`/`jupyter`, doc-specialist → `docling`/`docspace`, llm-engineer → `mlflow`, researcher → `arxiv`, game → `godot`, biochem → `biomcp`/`pubchem`, mobile → `mobile`/`android`, embedded → `serial`, frontend → `chrome-devtools`, robotics → `ros`, quantum → `qiskit-runtime`) | ask mcp-broker | 0 until mounted (unchanged); the pointers add ~430 chars to four agent bodies |
 | MCP, user scope (exa, jina, wolfram, huggingface, wandb) | session-wide, tools deferred | — | unchanged; nothing new added to user scope |
@@ -1058,7 +1058,7 @@ are hook- and code-enforced; every install is ledgered with its uninstall comman
 
 ### Equilibrium runtime (2026-10-06)
 
-The runtime Equilibrium (`docs-design/RUNTIME_EQUILIBRIUM.md` rev 2): the `equilibrium` agent runs N independent members on one hard question and reduces their answers deterministically, with a leave-one-out certainty signal. Which classes it may run on its own comes from a calibration (`hand_off/EQ_CALIBRATION_RUN_PLAN.md`, paid, yours); until then no class is validated and every run is manual, with your consent. Not live-verified: see README "Live checks" 9.
+The runtime Equilibrium (`docs/RUNTIME_EQUILIBRIUM.md` rev 2): the `equilibrium` agent runs N independent members on one hard question and reduces their answers deterministically, with a leave-one-out certainty signal. Which classes it may run on its own comes from a calibration (`hand_off/EQ_CALIBRATION_RUN_PLAN.md`, paid, yours); until then no class is validated and every run is manual, with your consent. Not live-verified: see README "Live checks" 9.
 
 - **Files the installer stages** (all tracked in the manifest, so a later version that stops shipping one removes it): `hooks/eq_core.py`, `eq_policy.py`, `eq_cli.py`, `eq_isolation.py`, `eq_guard.py` (644; `agent_guard.py` loads `eq_guard.py` like `toolsmith_policy.py`, and a load failure denies every eq-relevant call), `hooks/eq_params.json`, `eq_lenses.json`, `eq_schemas.json` (644), `bin/stack-eq` and `bin/stack-eq-check` (755). The hook modules are byte-compiled with the others.
 - **The params pin.** `hooks/eq_params.json` (schema `eqparams.v1`) holds the calibration per class. The manifest's `eq_runtime` = `{"params_sha256": <sha256 of the installed file>, "validated": [classes whose status is validated]}`, written at every install and restored with the files by `--restore`. `eq_policy.load_params` accepts the file only when its sha256 equals the manifest value and its schema validates; anything else (edited file, missing key, bad schema) makes every class `not_run`. So a calibration takes effect only through `./install.sh`, never by editing the installed file.
@@ -1096,13 +1096,19 @@ The runtime Equilibrium (`docs-design/RUNTIME_EQUILIBRIUM.md` rev 2): the `equil
 | `/usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test` | ok |
 | `uv run tests/lint_agents.py` | ok |
 | `uv run tests/redundancy_lint.py` | ok (2026-10-04): no long sentence in 3+ agent/skill files, no dangling `see`/`load`/`name`*/§ skill reference, no hook file outside settings.json or install.sh's staging, beyond `tests/redundancy_allowlist.json` (justified repeats and placeholders; `TODO:` entries are the baseline to fix; `--strict` lists stale entries) |
-| `uv run --with pytest --with httpx --with pillow --with "mcp>=1.10,<2" pytest -q tests/` | 2401 passed at the R4-2 session-env commit (2400 at the credential-store review commit before it, also from a snapshot under `/private/tmp`, where 118 had failed before R3-INFO; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)) |
+| `uv run --with pytest --with httpx --with pillow --with "mcp>=1.10,<2" pytest -q tests/` | 2401 passed at the R4-2 session-env commit (2400 at the credential-store review commit before it, also from a snapshot under `/private/tmp`, where 118 had failed before R3-INFO; see the commit history, `git log`) |
 | `bash tests/install_smoke.sh` | 244 passed, 0 failed at the R4-2 session-env commit (scratch HOME only; re-runs itself without a controlling terminal, so no install in it can wait on yours; includes a drifted config, dry-run, restore round trips, `--no-prune`, symlinked scope dirs with dir and file links, manifest traversal) |
 | `jq empty dot-claude/settings.json` | ok |
 
 ## 9. Changelog
 
 Entries name agents, knobs and files by their current names.
+
+### 2026-10-07 (repository layout: the diagram in `assets/diagrams/`, the Equilibrium spec in `docs/`)
+- The README's architecture diagram (`architecture.mmd` and the SVG drawn from it) moved from `docs/` to `assets/diagrams/`, next to the README's other images (`git mv`, bytes unchanged). Its licence stays Apache-2.0, like the code and docs: the CC BY 4.0 statements (NOTICE, README "License", `assets/README.md`) now leave `assets/diagrams/` out.
+- The runtime Equilibrium spec moved from its one-file design folder to `docs/RUNTIME_EQUILIBRIUM.md` (`git mv`, bytes unchanged, same depth, so its relative links hold). Every reference names the new path, amendment A6's heading in `equilibrium/COMPARE_eq.md` included (pre-freeze, path only), re-pinned with `tests/equilibrium_paths.py amend --amendment A6`. The hooks, `doctor.sh` and `install.sh` change only in comments that name the spec: the installed copies differ from the repository in those comments until the next `./install.sh`.
+- `PREVIOUS_GIT_COMMITS.md` is removed: the git history holds every commit from before publication (the 239 commits up to `14ee3ad`), so references point to `git log`, and the model-ID lint no longer exempts the file.
+- `tests/test_moved_paths.py` covers both moves (old paths neither tracked nor named in any tracked file; links into `assets/diagrams/` and `docs/` resolve; a git-ignored path such as `docs/wiki/` is not a dangling link) and exempts no file.
 
 ### 2026-10-06 (the runtime Equilibrium: installer, doctor, docs)
 - `install.sh` stages `hooks/eq_core.py`, `eq_policy.py`, `eq_cli.py`, `eq_isolation.py`, `eq_guard.py`, `eq_params.json`, `eq_lenses.json`, `eq_schemas.json` and `bin/stack-eq`, `stack-eq-check`, tracks them in the manifest and byte-compiles the five modules; the manifest key `eq_runtime` pins the params file's sha256 (`eq_policy.load_params` refuses any other file). `doctor.sh` gets the section "Equilibrium runtime" and its toolsmith check accepts the `stack-eq` entry. `tests/test_install_eq_runtime.py`. See §7 "Equilibrium runtime". Rerun `./install.sh` to stage it. Nothing is live-verified; the calibration (paid) is yours (`hand_off/EQ_CALIBRATION_RUN_PLAN.md`).
@@ -1200,7 +1206,7 @@ Entries name agents, knobs and files by their current names.
 ### 2026-10-05 (README images at the repository root; the wiki stays out of git)
 - The README's images, with their licence text and provenance, moved from `lib/` to `assets/` at the repository root (`git mv`, bytes unchanged); `lib/` now holds only what the installer runs or reads. `install.sh`'s supply review needs no exclude any more: `SUPPLY_PATHS` covers all of `lib/` and nothing under `assets/`, so neither the review nor the install snapshot reads the images, as before. An upgrade from an install recorded before this change lists the images' removal from `lib/` in its diffstat.
 - `.gitignore` ignores `docs/wiki/`: the GitHub wiki is its own repository, never tracked here (not a submodule).
-- `tests/test_moved_paths.py` fails when a moved path reappears anywhere in the tracked tree (the frozen `PREVIOUS_GIT_COMMITS.md` aside) and when a root-doc link into `assets/` dangles. Nothing installed changes: no rerun needed.
+- `tests/test_moved_paths.py` fails when a moved path reappears anywhere in the tracked tree (the frozen pre-publication commit archive aside, removed on 2026-10-07) and when a root-doc link into `assets/` dangles. Nothing installed changes: no rerun needed.
 
 ### 2026-10-04 (simplification phase 0: what Claude Code already does)
 - The guard's depth deny is gone (`max_depth`, `meta_depth`, the `STACK_MAX_DEPTH` knob, also dropped from `stack_limits.FIXED_GUARDS`): Claude Code withholds the Agent tool at `CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH` (sub-agents.md, "Let subagents spawn their own subagents"), which `settings.json` still sets to 8. The registry keeps recording each child's depth from its caller's entry; a child of a still-running foreground caller (formerly backfilled from meta.json spawnDepth) now gets depth null, and stack-who falls back to the tree depth.
@@ -1357,7 +1363,7 @@ Entries name agents, knobs and files by their current names.
 
 ### 2026-10-03 (legacy/be5b940 removed)
 
-- The repo no longer ships `legacy/be5b940/` (old `CLAUDE.md`, `agents/senior-coder.md`, seven skills); it stays in the history from before publication (the 2026-10-03 commit "Remove legacy/be5b940; smoke tests take old-release files from tests/fixtures"; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)). install.sh keeps its generic `legacy/<version>/<rel>` recognition (`legacy_renders`, `template_copy`), which finds nothing while `legacy/` is absent, and the model-ID lint keeps its `legacy/` exception. Upgrade effect, only for an install whose files the manifest does not track (pre-manifest): an unedited untracked `CLAUDE.md` of that release (and a leftover `CLAUDE.md.new`) is now kept instead of moved to the backup, without the "kept" advice (its line similarity to today's rules, 0.385, is under `similar()`'s 0.4), and an untracked old skill file under `--no-prune` is kept with a `.new` render instead of refreshed (with pruning it is replaced and listed). Tracked files, and `senior-coder.md` (removed by name as renamed), behave as before. `tests/install_smoke.sh` takes its old-release files from `tests/fixtures/legacy-release/` and puts them under the scratch repo's `legacy/` only for the CLAUDE.md migration cases; a new case checks an unrecognised old `CLAUDE.md` is kept. Nothing to rerun.
+- The repo no longer ships `legacy/be5b940/` (old `CLAUDE.md`, `agents/senior-coder.md`, seven skills); it stays in the history from before publication (the 2026-10-03 commit "Remove legacy/be5b940; smoke tests take old-release files from tests/fixtures"; see the commit history, `git log`). install.sh keeps its generic `legacy/<version>/<rel>` recognition (`legacy_renders`, `template_copy`), which finds nothing while `legacy/` is absent, and the model-ID lint keeps its `legacy/` exception. Upgrade effect, only for an install whose files the manifest does not track (pre-manifest): an unedited untracked `CLAUDE.md` of that release (and a leftover `CLAUDE.md.new`) is now kept instead of moved to the backup, without the "kept" advice (its line similarity to today's rules, 0.385, is under `similar()`'s 0.4), and an untracked old skill file under `--no-prune` is kept with a `.new` render instead of refreshed (with pruning it is replaced and listed). Tracked files, and `senior-coder.md` (removed by name as renamed), behave as before. `tests/install_smoke.sh` takes its old-release files from `tests/fixtures/legacy-release/` and puts them under the scratch repo's `legacy/` only for the CLAUDE.md migration cases; a new case checks an unrecognised old `CLAUDE.md` is kept. Nothing to rerun.
 
 ### 2026-10-03 (top-tier coder agent renamed to supreme-coder)
 
@@ -1383,7 +1389,7 @@ Entries name agents, knobs and files by their current names.
 
 ### 2026-10-03 (override runs are no longer learned from)
 
-- Security audit of the first `/override-agent` commit (2026-10-03, "/agent-override and /agent-reset: per-session model override for delegated agent types"; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)), MEDIUM: an `/override-agent` run (e.g. scout on haiku) fed `soft.agent.scout`, `turns.scout`, the pool proposals and the scheduler refit that later sessions on scout's own model use, against the "this session only" scope. The collector now writes schema 3 rows to `usage/runs3.csv` with the segment's `model`; `stack_limits.py`, `stack_sched_refresh.py` and `stack budget` skip an agent row whose model is not its frontmatter one and count what they skipped (§5, "Session model overrides" and "Usage collector"). `runs*.csv` and `runs2*.csv` are read as before and never written again. Rerun install.sh; a session collected by the old code is read again from the start the next time its collector runs.
+- Security audit of the first `/override-agent` commit (2026-10-03, "/agent-override and /agent-reset: per-session model override for delegated agent types"; see the commit history, `git log`), MEDIUM: an `/override-agent` run (e.g. scout on haiku) fed `soft.agent.scout`, `turns.scout`, the pool proposals and the scheduler refit that later sessions on scout's own model use, against the "this session only" scope. The collector now writes schema 3 rows to `usage/runs3.csv` with the segment's `model`; `stack_limits.py`, `stack_sched_refresh.py` and `stack budget` skip an agent row whose model is not its frontmatter one and count what they skipped (§5, "Session model overrides" and "Usage collector"). `runs*.csv` and `runs2*.csv` are read as before and never written again. Rerun install.sh; a session collected by the old code is read again from the start the next time its collector runs.
 - Audit follow-up, MEDIUM: a collector started before the install kept the old code and wrote model-less rows for override runs typed after it. The next SessionStart or SubagentStart now stops a running older-schema collector (SIGTERM after the checks in §5, "Upgrade hand-off") and a successor reads the session again as schema 3 (tests: `test_upgrade_hands_off_from_an_older_collector` runs the real schema 2 collector from `6a736c6`; `test_handoff_signals_only_a_running_older_collector_of_this_session`; `test_a_successor_waits_for_the_lock_and_then_runs`). Its audit (MEDIUM): the stopped collector's mid-session session row stood as a whole session when the successor idled out; such stale session rows are now left out (`test_a_handoff_session_row_is_not_learned_as_a_whole_session`, `test_a_session_row_older_than_its_sessions_rows_is_not_learned`). The model IDs of the usage, limits and budget tests sit on module-level constant lines, which `tests/lint_agents.py` allows (`MODEL_ID_CONST`).
 
 ### 2026-10-03 (scheduler policy back to report)
@@ -1441,7 +1447,7 @@ Entries name agents, knobs and files by their current names.
 
 ### 2026-09-29 (security rounds 3 and 4, supreme-coder plan flow)
 
-The 2026-09-29 commits of security rounds 3 and 4, two for magg, one for the docs and the one that added this entry; see the commit history in [PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md).
+The 2026-09-29 commits of security rounds 3 and 4, two for magg, one for the docs and the one that added this entry; see the commit history, `git log`.
 
 - Without a terminal on stdin/stderr the supply question goes to `/dev/tty`; with no terminal at all a changed stack stops with exit 1 unless `--yes` (R4-1).
 - A failed session-env hook exits 2 with a hook error, is recorded in `session-env.json`, and shows in the status line and `doctor.sh` (R4-2).
@@ -1497,8 +1503,7 @@ The 2026-09-29 commits of security rounds 3 and 4, two for magg, one for the doc
   - the mechanics tests pin their former caps as a baseline.
 
 The full entry was in the Changelog section of the README as of the 2026-10-02 commit "Skills listed, not
-name-only" (that README revision is not shipped; see the commit history in
-[PREVIOUS_GIT_COMMITS.md](PREVIOUS_GIT_COMMITS.md)).
+name-only" (that README revision is not shipped; see the commit history, `git log -- README.md`).
 
 ## 10. Apps, connectors and MCP servers
 

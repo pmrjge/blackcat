@@ -1,5 +1,5 @@
 """dot-claude/hooks/eq_policy.py: the runtime Equilibrium's shared grammar, params pin, run bundle and
-eq-member predicates (docs-design/RUNTIME_EQUILIBRIUM.md 2.1-2.5, 5, 6.1, 7.5-7.7, 8; contracts.md 3).
+eq-member predicates (docs/RUNTIME_EQUILIBRIUM.md 2.1-2.5, 5, 6.1, 7.5-7.7, 8; contracts.md 3).
 
 Hermetic: pure functions, plus files under tmp_path (params, manifest, symlinks). EQ_POLICY overrides the
 module under test (a seeded-bug copy)."""

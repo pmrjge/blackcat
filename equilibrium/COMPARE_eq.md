@@ -507,7 +507,7 @@ n_d = 46. Hence the added "powered effect excluded" reading.
      - Tests: `harness/tests/test_shell.py::test_collect_refuses_destinations_git_does_not_ignore` and
        `harness/tests/test_repo_layout.py`.
 - **A6. 2026-10-06, PRE-FREEZE, proposed. Calibration cells, selection rules and the runtime arm (runtime
-  equilibrium, `docs-design/RUNTIME_EQUILIBRIUM.md` §7).** Written before `eq_freeze.sh` and before any eq call: no
+  equilibrium, `docs/RUNTIME_EQUILIBRIUM.md` §7).** Written before `eq_freeze.sh` and before any eq call: no
   `COMPARE_eq.sha256` sidecar and no `runs/` exist. The USER decided D1 (option B), D2, D3, D4, D10 and D11, relayed by
   the coordinator; this text takes effect only if it is in the frozen package. A0-A5 stand. The pilot still tests
   nothing; every claim is a q test.

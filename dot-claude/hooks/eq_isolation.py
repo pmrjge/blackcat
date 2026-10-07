@@ -1,4 +1,4 @@
-"""eq_isolation - W3 Level 2 for the runtime Equilibrium (docs-design/RUNTIME_EQUILIBRIUM.md 6.1 W3, 6.2):
+"""eq_isolation - W3 Level 2 for the runtime Equilibrium (docs/RUNTIME_EQUILIBRIUM.md 6.1 W3, 6.2):
 public checks in Apple `container` VMs plus one lib/eq-wall broker per run under the reviewed default-deny
 policy. Driven only by stack-eq (unsandboxed: Seatbelt cannot reach the container services).
 

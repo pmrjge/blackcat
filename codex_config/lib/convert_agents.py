@@ -105,7 +105,7 @@ class BuildError(Exception):
 
 
 BLACKCAT = "blackcat"
-# Claude agents with no Codex role: `equilibrium` (docs-design/RUNTIME_EQUILIBRIUM.md §6.4) runs members
+# Claude agents with no Codex role: `equilibrium` (docs/RUNTIME_EQUILIBRIUM.md §6.4) runs members
 # on calibrated, model-specific parameters and needs the eq guard rules, which codex_guard.py lacks;
 # every Codex class would be unvalidated until a Codex calibration. Spawn lists drop the name.
 NOT_PORTED = ("equilibrium",)
