@@ -1,16 +1,16 @@
 [
  {
-  "file": "codex_config/lib/codex_state.py",
+  "file": "dot-config/dot-codex_config/lib/codex_state.py",
   "old": "REQUIRED_ROLE_KEYS = (\"model\", ",
   "new": "REQUIRED_ROLE_KEYS = (\"name\", \"model\", ",
-  "tests": "codex_config/tests/test_codex_state.py::test_validate_good_stage",
+  "tests": "dot-config/dot-codex_config/tests/test_codex_state.py::test_validate_good_stage",
   "why": "validate requires name again"
  },
  {
-  "file": "codex_config/lib/codex_state.py",
+  "file": "dot-config/dot-codex_config/lib/codex_state.py",
   "old": "            for k in sorted(set(doc) - (role_keys or set(doc))):\n",
   "new": "            for k in []:\n",
-  "tests": "codex_config/tests/test_codex_state.py::test_validate_finds_problems",
+  "tests": "dot-config/dot-codex_config/tests/test_codex_state.py::test_validate_finds_problems",
   "why": "a role key outside ConfigToml is not reported"
  }
 ]

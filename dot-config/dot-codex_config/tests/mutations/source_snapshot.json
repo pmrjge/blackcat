@@ -1,51 +1,65 @@
 [
  {
-  "file": "codex_config/lib/source_snapshot.py",
+  "file": "dot-config/dot-codex_config/lib/source_snapshot.py",
   "old": "    _copy(dest, rel, data, exe)\n",
   "new": "    os.makedirs(os.path.dirname(os.path.join(dest, rel)), exist_ok=True)\n            os.symlink(os.path.join(repo, rel), os.path.join(dest, rel))\n",
-  "tests": "codex_config/tests/test_source_snapshot.py::test_edit_after_snapshot_is_never_executed",
+  "tests": "dot-config/dot-codex_config/tests/test_source_snapshot.py::test_edit_after_snapshot_is_never_executed",
   "why": "link the snapshot files to the repository instead of copying the bytes read"
  },
  {
-  "file": "codex_config/lib/source_snapshot.py",
+  "file": "dot-config/dot-codex_config/lib/source_snapshot.py",
   "old": "return os.open(parts[-1], os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK, dir_fd=d)",
   "new": "return os.open(parts[-1], os.O_RDONLY | os.O_NONBLOCK, dir_fd=d)",
-  "tests": "codex_config/tests/test_source_snapshot.py",
+  "tests": "dot-config/dot-codex_config/tests/test_source_snapshot.py",
   "why": "follow a link on the last path component"
  },
  {
-  "file": "codex_config/lib/source_snapshot.py",
+  "file": "dot-config/dot-codex_config/lib/source_snapshot.py",
   "old": "    hidden = sorted(p for t, p in index if t.islower() or t == \"S\")\n",
   "new": "    hidden = []\n",
-  "tests": "codex_config/tests/test_source_snapshot.py",
+  "tests": "dot-config/dot-codex_config/tests/test_source_snapshot.py",
   "why": "drop the assume-unchanged/skip-worktree check"
  },
  {
-  "file": "codex_config/lib/source_snapshot.py",
+  "file": "dot-config/dot-codex_config/lib/source_snapshot.py",
   "old": "if h.hexdigest() != oid or exe != (mode == \"100755\"):",
   "new": "if False:",
-  "tests": "codex_config/tests/test_source_snapshot.py",
+  "tests": "dot-config/dot-codex_config/tests/test_source_snapshot.py",
   "why": "never compare the bytes read with HEAD's blob"
  },
  {
-  "file": "codex_config/lib/source_snapshot.py",
+  "file": "dot-config/dot-codex_config/lib/source_snapshot.py",
   "old": "    if keys:\n        raise SnapshotError(\"the repo's git config sets",
   "new": "    if False:\n        raise SnapshotError(\"the repo's git config sets",
-  "tests": "codex_config/tests/test_source_snapshot.py",
+  "tests": "dot-config/dot-codex_config/tests/test_source_snapshot.py",
   "why": "skip the fsck config check"
  },
  {
-  "file": "codex_config/lib/source_snapshot.py",
+  "file": "dot-config/dot-codex_config/lib/source_snapshot.py",
   "old": "    env = {k: v for k, v in os.environ.items() if not k.startswith(\"GIT_\")}\n",
   "new": "    env = dict(os.environ)\n",
-  "tests": "codex_config/tests/test_source_snapshot.py",
+  "tests": "dot-config/dot-codex_config/tests/test_source_snapshot.py",
   "why": "keep GIT_* variables from the environment"
  },
  {
-  "file": "codex_config/lib/source_snapshot.py",
-  "old": "\"--stat\", prev_commit, commit,",
-  "new": "\"--stat\", prev_commit, \"HEAD\",",
-  "tests": "codex_config/tests/test_source_snapshot.py",
+  "file": "dot-config/dot-codex_config/lib/source_snapshot.py",
+  "old": "\"--stat\", *renames, prev_commit,\n             commit,",
+  "new": "\"--stat\", *renames, prev_commit,\n             \"HEAD\",",
+  "tests": "dot-config/dot-codex_config/tests/test_source_snapshot.py",
   "why": "the supply review diffs against HEAD, not the snapshot's commit"
+ },
+ {
+  "file": "dot-config/dot-codex_config/lib/source_snapshot.py",
+  "old": "return SNAPSHOT_PATHS + (LEGACY_PATHS if p.returncode else ())",
+  "new": "return SNAPSHOT_PATHS",
+  "tests": "dot-config/dot-codex_config/tests/test_source_snapshot.py::test_changes_since_a_pre_move_commit_covers_the_old_paths",
+  "why": "a supply review from a pre-move install omits the old paths (every file shows as added)"
+ },
+ {
+  "file": "dot-config/dot-codex_config/lib/source_snapshot.py",
+  "old": "    links = [t for t in tops if os.path.islink(os.path.join(repo, t))]\n",
+  "new": "    links = []\n",
+  "tests": "dot-config/dot-codex_config/tests/test_source_snapshot.py::test_a_shipped_directory_swapped_for_a_symlink_is_refused",
+  "why": "dot-config/ or a shipped tree replaced by a directory link is not named and refused up front"
  }
 ]

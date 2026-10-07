@@ -1,9 +1,9 @@
-# codex_config: design (Phase 1, no installer code)
+# dot-config/dot-codex_config (codex_config): design (Phase 1, no installer code)
 
 Updated 2026-10-06 after the build: statements that the build changed are corrected below; install, flags and user steps are in [README.md](README.md).
 
 Status: design for review, 2026-10-06. Branch `codex-design`, based on `main` at `6ecb003`.
-Inputs: the researcher's mapping in `.claude-work/codex-feasibility.md`. This repo: `install.sh`, `lib/install_state.py`, `lib/claude_md_block.py`, `lib/stack_diff.py`, `dot-claude/`.
+Inputs: the researcher's mapping in `.claude-work/codex-feasibility.md`. This repo: `install.sh`, `lib/install_state.py`, `lib/claude_md_block.py`, `lib/stack_diff.py`, `dot-config/dot-claude/`.
 Fact tags used below:
 - **[docs]**: the official Codex or OpenAI pages listed in §11.
 - **[src]**: openai/codex source at tag `rust-v0.160.1`, the latest release, published 2026-10-05.
@@ -181,7 +181,7 @@ Notes on the models:
 - **Luna** runs one level higher: `low`→`medium`, `medium`→`high`, `high`→`xhigh`, `xhigh`→`max`, `max`→`max`. The rule is `luna_effort(e) = LEVELS[min(i(e)+1, i(max))]`, so it never goes above the highest level Luna accepts. This is the user's Q3 decision, consistent with OpenAI's "Start with High for Luna". It is not `agent_effort.json` rule v1: that rule caps at `xhigh` and applies only when an agent runs on a model weaker than its own.
 - **`none` is never emitted.** The API accepts `none` for Luna, but Codex's catalog does not list it, and the stack has no level below `low` (its scale is `low…max`). The rule only ever raises the level. Sol rejects `none` and `minimal`; Astra's lowest level is `low`.
 - **Validation.** An effort a model does not accept stops the build. The accepted sets are copied into `models.toml` from `models-manager/models.json` at the pinned tag, with `ultra` removed. A contract test compares them with a vendored copy of that file.
-- **Single source.** `codex_config/models.toml` holds tier → id, the accepted effort sets, the Luna offset (`luna_effort_offset = 1`) and the Astra list (§2.1). Changing one line and re-running the installer is enough.
+- **Single source.** `dot-config/dot-codex_config/models.toml` holds tier → id, the accepted effort sets, the Luna offset (`luna_effort_offset = 1`) and the Astra list (§2.1). Changing one line and re-running the installer is enough.
 
 | Codex model | Effort | Agents (stack effort → Codex effort) |
 |---|---|---|
@@ -301,7 +301,7 @@ Local files are user-writable. This design enforces against the **sandboxed agen
 6. **Outside the profile.** Sessions without `--profile codex` have only L1 defaults, L2 rules and the AGENTS block. `--ide-default` closes this for every session (§7.6).
 
 **Optional hardened tier (`--print-requirements`). OFF BY DEFAULT. MACHINE-WIDE: it changes EVERY Codex session on this machine, not just the stack's profile.**
-- It writes `codex_config/build/requirements.toml` and a `managed-hooks/` copy of the guard, then prints the root commands. It never writes `/etc` and never runs sudo. The user accepted the machine-wide effect of the following keys (answer b, 2026-10-06).
+- It writes `dot-config/dot-codex_config/build/requirements.toml` and a `managed-hooks/` copy of the guard, then prints the root commands. It never writes `/etc` and never runs sudo. The user accepted the machine-wide effect of the following keys (answer b, 2026-10-06).
 
 The file contains:
 - `allowed_sandbox_modes=["read-only","workspace-write"]` and the map `allowed_permission_profiles = { "claude-agent-stack" = true, ":workspace" = true, ":read-only" = true }`. Omitted profiles are denied. The built-in key spelling follows the permissions page and is unverified. Together with `allowed_approval_policies=["on-request","never"]` this forbids `danger-full-access`.
@@ -376,10 +376,10 @@ Status values:
 
 ### 7.1 Files
 
-The installer must not change the shipped Claude installer: zero edits to `install.sh`, `lib/`, `dot-claude/` or `tests/`.
+The installer must not change the shipped Claude installer: zero edits to `install.sh`, `lib/`, `dot-config/dot-claude/` or `tests/`.
 
 ```
-codex_config/
+dot-config/dot-codex_config/
   install.sh            bash 3.2; flags §7.3; orchestration only (~600–800 lines)
   models.toml           tier → model id (§2)
   templates/            AGENTS.block.md (G), rules.md (R), blackcat.md, profile.base.toml, guard.base.json
@@ -410,12 +410,12 @@ codex_config/
   - CODEX_HOME must exist when it is set explicitly (Codex's own rule). The default `~/.codex` is created with mode 0700.
 - **Backups.** They go to `${XDG_STATE_HOME:-~/.local/state}/codex-agent-stack-backups`, separate from the Claude installer's.
 - **Engine output is worded for Claude.** `codex_state` wraps `print_plan`: it passes a plan copy whose `changed` list leaves out the `stack/agents/` and `stack/skills/` entries, the analogue of the engine's `agents/`/`skills/` summary. It also maps engine `SystemExit` texts (`install.sh --restore: …`, `set CLAUDE_CONFIG_DIR`) to Codex wording.
-- **Contract tests.** They pin every engine name and signature used (`inspect.signature`), so a future Claude-side refactor that breaks this coupling fails in `codex_config/tests`. There is no CI in this repo. Both suites are run by `codex_config/tests/run.sh` and are part of Phase 5's done-when.
+- **Contract tests.** They pin every engine name and signature used (`inspect.signature`), so a future Claude-side refactor that breaks this coupling fails in `dot-config/dot-codex_config/tests`. There is no CI in this repo. Both suites are run by `dot-config/dot-codex_config/tests/run.sh` and are part of Phase 5's done-when.
 - **Rejected options:**
   - (a) A shared generalization through a target descriptor: it re-opens the C7/CWE review and risks the 281 Claude tests. Revisit only after both installers are stable.
   - (b) A copy: two security-reviewed engines would drift apart.
 - **Source snapshot (`lib/source_snapshot.py`, about 140 lines; a port of `install.sh`'s snapshot block).**
-  - It does one O_NOFOLLOW read of the HEAD-tracked files that the run reads or executes, into `$WORK/src`: `codex_config/`, `lib/install_state.py`, `lib/claude_md_block.py`, and `dot-claude/` (including `hooks/stack_io.py`, `hooks/toolsmith_policy.py`, `hooks/agent_effort.json`, agents, skills and rules).
+  - It does one O_NOFOLLOW read of the HEAD-tracked files that the run reads or executes, into `$WORK/src`: `dot-config/dot-codex_config/`, `lib/install_state.py`, `lib/claude_md_block.py`, and `dot-config/dot-claude/` (including `hooks/stack_io.py`, `hooks/toolsmith_policy.py`, `hooks/agent_effort.json`, agents, skills and rules).
   - It uses the same git hardening and supply review as the Claude installer.
   - Every later step, including `codex_state`'s by-path import of `install_state.py`, reads the copy, never the repository.
   - Security review is required. Proof test: an edit to `lib/install_state.py` made after the snapshot point is never executed.
@@ -592,11 +592,11 @@ Tokens with no mapping fail the build with file:line. Sentences that claim "hook
 | 2 | `toml_emit`, `codex_home`, `source_snapshot`, `codex_state` (engine by path, plan/restore wording), `skill_links`, `config_region` (§7.6) | python-engineer; tests by test-engineer; **security-auditor** (`source_snapshot`) | 55 tests green |
 | 3 | `convert_agents` (+ effort map, `agents-astra`), `convert_skills`, `convert_rules`, `render_profile` (`codex`, `codex-astra`, region body), `translate`; prompt rewrites of R, G, BlackCat and flagged sentences in 57 bodies and up to 83 skill files | python-engineer; **writer** (texts) | build report: 0 unmapped; 40 tests |
 | 4 | `codex_guard.py` + stub; 4b spawn tree, taint propagation, `send_input` routing | python-engineer; **security-auditor** review | 33 tests; seeded-bug proofs |
-| 5 | `codex_config/install.sh`, `--doctor`, `--print-requirements`, `--ide-default`, `smoke.sh` | main-coder (core) + coder (flags, messages); security-auditor | smoke green; real `~/.codex` and `~/.agents` hashes unchanged |
-| 6 | `codex_config/README.md` (what is enforced vs advisory, user steps) | writer | review PASS |
+| 5 | `dot-config/dot-codex_config/install.sh`, `--doctor`, `--print-requirements`, `--ide-default`, `smoke.sh` | main-coder (core) + coder (flags, messages); security-auditor | smoke green; real `~/.codex` and `~/.agents` hashes unchanged |
+| 6 | `dot-config/dot-codex_config/README.md` (what is enforced vs advisory, user steps) | writer | review PASS |
 | 7 | Install | **user** | — |
 
-**Tests: all on scratch `HOME` and scratch `CODEX_HOME`.** The design planned about 142; the built suite (`codex_config/tests/run.sh`) was 1953 passed, 1 skipped on 2026-10-06 (the skipped one is the `/usr/bin/python3` shim timing, run only with `CODEX_GUARD_PERF_SHIM=1`, outside the sandbox).
+**Tests: all on scratch `HOME` and scratch `CODEX_HOME`.** The design planned about 142; the built suite (`dot-config/dot-codex_config/tests/run.sh`) was 1953 passed, 1 skipped on 2026-10-06 (the skipped one is the `/usr/bin/python3` shim timing, run only with `CODEX_GUARD_PERF_SHIM=1`, outside the sandbox).
 - **Planned count by area** (as designed):
   - emitter 12, including the round-trip property test;
   - converters 24: 57 roles parse; policy equals agent_guard.POLICY; unmapped token fails; skills 127/89 split and 4 excluded; hub paths; budget;
@@ -629,19 +629,19 @@ Tokens with no mapping fail the build with file:line. Sentences that claim "hook
 
 **User-run steps** (agents never run these):
 1. Phase 0 probes (P1–P13; P7 checks the `auth.json` deny, P13 the hook tool names). Paste the JSON report back.
-2. `codex_config/install.sh --dry-run`, then `codex_config/install.sh`.
-3. `codex --profile codex`, then `/hooks` → trust 8 hooks. Until then the guard does not run at all. Then run `codex_config/install.sh --doctor`, which exits 0 only when every stack hook is trusted. Repeat both whenever the installer says "re-trust".
+2. `./install.sh --codex --dry-run`, then `./install.sh --codex`.
+3. `codex --profile codex`, then `/hooks` → trust 8 hooks. Until then the guard does not run at all. Then run `./install.sh --codex --doctor`, which exits 0 only when every stack hook is trusted. Repeat both whenever the installer says "re-trust".
 4. Optional Astra: `codex --profile codex-astra`, then `/hooks` → trust its 8 hooks. Each session started this way bills the six top-tier agents at Astra rates ($10/$50 per 1M tokens).
 5. Optional IDE and every-session mode:
-   - `codex_config/install.sh --ide-default --dry-run` to review the region diff, then the same without `--dry-run`.
+   - `./install.sh --codex --ide-default --dry-run` to review the region diff, then the same without `--dry-run`.
    - Plain `codex` (no profile), then `/hooks` → trust the 8 hooks whose source is `config.toml`.
    - Restart the IDE (and the desktop app, if used).
-   - Undo with `codex_config/install.sh --no-ide-default` or `--restore`.
-6. Optional: `codex_config/install.sh --print-requirements`, then:
+   - Undo with `./install.sh --codex --no-ide-default` or `--restore`.
+6. Optional: `./install.sh --codex --print-requirements`, then:
    ```
    sudo install -d -o root -g wheel -m 0755 /etc/codex "/Library/Application Support/claude-agent-stack/codex-hooks"
-   sudo install -o root -g wheel -m 0755 codex_config/build/managed-hooks/* "/Library/Application Support/claude-agent-stack/codex-hooks/"
-   sudo install -o root -g wheel -m 0644 codex_config/build/requirements.toml /etc/codex/requirements.toml
+   sudo install -o root -g wheel -m 0755 dot-config/dot-codex_config/build/managed-hooks/* "/Library/Application Support/claude-agent-stack/codex-hooks/"
+   sudo install -o root -g wheel -m 0644 dot-config/dot-codex_config/build/requirements.toml /etc/codex/requirements.toml
    ```
    Then check `/debug-config` in `codex --profile codex`. An existing `/etc/codex/requirements.toml` is never replaced: the installer prints a diff for the user to merge.
 

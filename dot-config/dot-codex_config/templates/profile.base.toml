@@ -16,7 +16,7 @@ default_permissions = "claude-agent-stack"
 web_search = "disabled"
 
 # output_shrink's partial port (DESIGN §5). DESIGN gives no value; this is the stack's own token
-# cap on one tool output (dot-claude/settings.json env MAX_MCP_OUTPUT_TOKENS = 25000).
+# cap on one tool output (dot-config/dot-claude/settings.json env MAX_MCP_OUTPUT_TOKENS = 25000).
 tool_output_token_limit = 25000
 
 [features]
@@ -37,7 +37,7 @@ max_concurrent_threads_per_session = 128
 default_subagent_model = "gpt-6-luna"
 default_subagent_reasoning_effort = "high"
 
-# dot-claude/settings.json sandbox.credentials.envVars (mode "deny"): never passed to the shell.
+# dot-config/dot-claude/settings.json sandbox.credentials.envVars (mode "deny"): never passed to the shell.
 # The canonical keyed form (`filters`), not the legacy `exclude` list; the schema forbids both
 # together. tests/test_render_profile.py pins this list to settings.json.
 [shell_environment_policy.filters]

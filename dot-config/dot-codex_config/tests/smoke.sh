@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# codex_config/tests/smoke.sh: the Codex installer end to end, on a scratch HOME and CODEX_HOME.
+# dot-config/dot-codex_config/tests/smoke.sh: the Codex installer end to end, on a scratch HOME and CODEX_HOME.
 #
-#   codex_config/tests/smoke.sh        (from a clean, committed checkout: the installer snapshots HEAD)
+#   dot-config/dot-codex_config/tests/smoke.sh   (from a clean, committed checkout: the installer snapshots HEAD)
 #
+# Every run goes through the only entry point, `bash install.sh --codex ...` from the repository root.
 # Runs: --dry-run (writes nothing), --diff, apply with --yes, a second run (nothing to change), --diff and
 # --dry-run after it (no differences), --doctor (exit 1: the hooks are untrusted), --ide-default without an
 # answer (refused), --ide-default --yes, --no-ide-default --yes, --restore latest --yes. Only the fake
@@ -13,8 +14,7 @@ set -euo pipefail
 umask 077
 
 HERE=$(cd "$(dirname "$0")" && pwd -P)
-REPO=$(cd "$HERE/../.." && pwd -P)
-INSTALL="$REPO/codex_config/install.sh"
+REPO=$(cd "$HERE/../../.." && pwd -P)
 REAL_HOME=${HOME:?HOME is not set}
 REAL_CODEX_HOME=${CODEX_HOME:-$REAL_HOME/.codex}
 REAL_STATE=${XDG_STATE_HOME:-$REAL_HOME/.local/state}
@@ -64,11 +64,12 @@ mkdir -p "$CH" "$SHOME/.agents/skills" "$SHOME/.local/state" "$SCR/tmp"
 chmod 700 "$CH"
 [ "$SHOME" != "$REAL_HOME" ] && [ "$CH" != "$REAL_CODEX_HOME" ] || { echo "smoke: scratch HOME equals the real one" >&2; exit 1; }
 
-run() {   # run <name> args...: install.sh in the scratch environment; output in $SCR/<name>.out, status in RC
+run() {   # run <name> args...: ./install.sh --codex in the scratch environment; output in $SCR/<name>.out, status in RC
   local name=$1; shift
   RC=0
-  env -u CLAUDE_CONFIG_DIR HOME="$SHOME" CODEX_HOME="$CH" XDG_STATE_HOME="$SHOME/.local/state" TMPDIR="$SCR/tmp" \
-    STACK_PYTHON="$SMOKE_PY" PATH="$HERE/fake-codex:$PATH" bash "$INSTALL" --codex-home "$CH" "$@" </dev/null >"$SCR/$name.out" 2>&1 || RC=$?
+  ( cd "$REPO" && env -u CLAUDE_CONFIG_DIR -u STACK_CODEX_VIA_TOP HOME="$SHOME" CODEX_HOME="$CH" \
+      XDG_STATE_HOME="$SHOME/.local/state" TMPDIR="$SCR/tmp" STACK_PYTHON="$SMOKE_PY" PATH="$HERE/fake-codex:$PATH" \
+      bash install.sh --codex --codex-home "$CH" "$@" ) </dev/null >"$SCR/$name.out" 2>&1 || RC=$?
 }
 out_has() { grep -Eq -- "$2" "$SCR/$1.out"; }
 out_lacks() { ! grep -Eq -- "$2" "$SCR/$1.out"; }

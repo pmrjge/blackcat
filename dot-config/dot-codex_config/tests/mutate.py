@@ -1,13 +1,13 @@
 """Seeded-bug proof runner: each mutation must turn the named tests red.
 
 Usage (from the repository root):
-    uv run --no-project --python 3.13 --with pytest python codex_config/tests/mutate.py MUTATIONS.json
+    uv run --no-project --python 3.13 --with pytest python dot-config/dot-codex_config/tests/mutate.py MUTATIONS.json
 
-MUTATIONS.json is a list of {"file": "codex_config/lib/x.py", "old": "...", "new": "...",
-"tests": "codex_config/tests/test_x.py[::name]", "why": "..."}. For each one the script copies the
-repository's codex_config/ and lib/ into a temporary tree, replaces exactly one occurrence of `old`
-(it must occur exactly once, else the mutation is reported as BAD), runs pytest on `tests` there and
-expects a failure. Exit 0 only when every mutation was caught. Never touches the working tree.
+MUTATIONS.json is a list of {"file": "dot-config/dot-codex_config/lib/x.py", "old": "...", "new": "...",
+"tests": "dot-config/dot-codex_config/tests/test_x.py[::name]", "why": "..."}. For each one the script
+copies the repository's dot-config/dot-codex_config/, dot-config/dot-claude/, lib/ and tests/ into a
+temporary tree (same relative paths), replaces exactly one occurrence of `old` (it must occur exactly
+once, else the mutation is reported as BAD), runs pytest on `tests` there and expects a failure. Exit 0 only when every mutation was caught. Never touches the working tree.
 """
 from __future__ import annotations
 
@@ -18,7 +18,7 @@ import sys
 import tempfile
 from pathlib import Path
 
-REPO = Path(__file__).resolve().parents[2]
+REPO = Path(__file__).resolve().parents[3]   # <repo>/dot-config/dot-codex_config/tests/mutate.py
 
 
 def run(muts):
@@ -26,7 +26,7 @@ def run(muts):
     for i, m in enumerate(muts):
         with tempfile.TemporaryDirectory(prefix="cc-mut-") as td:
             root = Path(td)
-            for d in ("codex_config", "lib", "dot-claude", "tests"):
+            for d in ("dot-config/dot-codex_config", "lib", "dot-config/dot-claude", "tests"):
                 if (REPO / d).exists():
                     shutil.copytree(REPO / d, root / d, symlinks=True,
                                     ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache", "build"))

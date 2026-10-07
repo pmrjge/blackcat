@@ -15,7 +15,7 @@ Entry points (INTERFACES.md §3-F):
 - network_domains(settings) -> {"<domain>": "allow"} from sandbox.network.allowedDomains.
 - report(settings, ctx) -> notes on what was translated, covered or left to the guard.
 
-Sources (dot-claude/settings.json): `Read(...)` denies and `sandbox.filesystem.denyRead` become
+Sources (dot-config/dot-claude/settings.json): `Read(...)` denies and `sandbox.filesystem.denyRead` become
 read denials (Codex `deny` = no read, no write); `Edit(...)`/`Write(...)` denies and
 `sandbox.filesystem.denyWrite` become write protection (Codex `read`), because a Claude Edit deny
 still lets the agent read the file. Placeholders are rendered for this machine twice where the

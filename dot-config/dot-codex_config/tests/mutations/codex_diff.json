@@ -1,23 +1,23 @@
 [
  {
-  "file": "codex_config/lib/codex_diff.py",
+  "file": "dot-config/dot-codex_config/lib/codex_diff.py",
   "old": "        if a == b:\n            continue",
   "new": "        if True:\n            continue",
-  "tests": "codex_config/tests/test_install_cli.py",
+  "tests": "dot-config/dot-codex_config/tests/test_install_cli.py",
   "why": "a changed config.toml region is never reported"
  },
  {
-  "file": "codex_config/lib/codex_diff.py",
+  "file": "dot-config/dot-codex_config/lib/codex_diff.py",
   "old": "rem = sorted(r for r in la if r not in sb)",
   "new": "rem = []",
-  "tests": "codex_config/tests/test_install_cli.py",
+  "tests": "dot-config/dot-codex_config/tests/test_install_cli.py",
   "why": "live files the install removes are left out of a directory area"
  },
  {
-  "file": "codex_config/lib/codex_diff.py",
+  "file": "dot-config/dot-codex_config/lib/codex_diff.py",
   "old": "os.O_RDONLY | os.O_NOFOLLOW | os.O_NONBLOCK",
   "new": "os.O_RDONLY | os.O_NONBLOCK",
-  "tests": "codex_config/tests/test_install_cli.py",
+  "tests": "dot-config/dot-codex_config/tests/test_install_cli.py",
   "why": "a live file is read through a symlink"
  }
 ]

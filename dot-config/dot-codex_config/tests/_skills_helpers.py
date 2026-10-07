@@ -12,10 +12,10 @@ from conftest import REPO, load_lib
 translate = load_lib("translate")
 convert_skills = load_lib("convert_skills")
 
-AGENTS = REPO / "dot-claude" / "agents"
-SKILLS = REPO / "dot-claude" / "skills"
-SETTINGS = REPO / "dot-claude" / "settings.json"
-RULES_TEMPLATE = REPO / "codex_config" / "templates" / "rules.md"
+AGENTS = REPO / "dot-config" / "dot-claude" / "agents"
+SKILLS = REPO / "dot-config" / "dot-claude" / "skills"
+SETTINGS = REPO / "dot-config" / "dot-claude" / "settings.json"
+RULES_TEMPLATE = REPO / "dot-config" / "dot-codex_config" / "templates" / "rules.md"
 REQUIREMENTS = REPO / "requirements"
 
 # A realistic target: listing paths have the length of a real home (the budget counts them).
@@ -70,9 +70,9 @@ def skill_md(name: str, desc: str, body: str = "", **extra) -> str:
 
 
 def make_src(root: Path, skills: dict, so: dict) -> Path:
-    """A snapshot root: root/dot-claude/skills/<n>/<rel> from {n: {rel: str|bytes|(bytes, mode)}}
+    """A snapshot root: root/dot-config/dot-claude/skills/<n>/<rel> from {n: {rel: str|bytes|(bytes, mode)}}
     and settings.json with skillOverrides `so`."""
-    sk = root / "dot-claude" / "skills"
+    sk = root / "dot-config" / "dot-claude" / "skills"
     sk.mkdir(parents=True)
     for n, files in skills.items():
         for rel, content in files.items():
@@ -86,7 +86,7 @@ def make_src(root: Path, skills: dict, so: dict) -> Path:
             else:
                 p.write_bytes(content)
             p.chmod(mode)
-    (root / "dot-claude" / "settings.json").write_text(json.dumps({"skillOverrides": so}))
+    (root / "dot-config" / "dot-claude" / "settings.json").write_text(json.dumps({"skillOverrides": so}))
     return root
 
 

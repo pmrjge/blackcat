@@ -1,22 +1,31 @@
 #!/usr/bin/env bash
-# codex_config/install.sh: the Codex port of the claude-agent-stack installer (DESIGN.md §7.3).
+# dot-config/dot-codex_config/install.sh: the Codex port of the claude-agent-stack installer (DESIGN.md §7.3).
+# Not an entry point: the repository's ./install.sh --codex runs it (with STACK_CODEX_VIA_TOP=1).
 # Orchestration only (bash 3.2): every conversion, merge and comparison is a Python module of
-# codex_config/lib, run as `$PY -I <path in the private source snapshot>`.
+# dot-config/dot-codex_config/lib, run as `$PY -I <path in the private source snapshot>`.
 #
-#   codex_config/install.sh --dry-run          show the plan, change nothing
-#   codex_config/install.sh --diff             compare the rendered stack with the live CODEX_HOME, by area
-#   codex_config/install.sh [--yes]            install (asks first unless --yes)
-#   codex_config/install.sh --restore [DIR|latest] [--force] [--force-config] [--dry-run] [--yes]
-#   codex_config/install.sh --print-requirements   write the optional machine-wide tier into
-#                                              codex_config/build/ and print the root commands (never runs them)
-#   codex_config/install.sh --doctor           hook trust, manifest drift, skill links (exit 1: untrusted hooks)
+#   ./install.sh --codex --dry-run          show the plan, change nothing
+#   ./install.sh --codex --diff             compare the rendered stack with the live CODEX_HOME, by area
+#   ./install.sh --codex [--yes]            install (asks first unless --yes)
+#   ./install.sh --codex --restore [DIR|latest] [--force] [--force-config] [--dry-run] [--yes]
+#   ./install.sh --codex --print-requirements   write the optional machine-wide tier into
+#                                   dot-config/dot-codex_config/build/ and print the root commands (never runs them)
+#   ./install.sh --codex --doctor           hook trust, manifest drift, skill links (exit 1: untrusted hooks)
 # Options: see usage() below. Never pushes, never runs sudo, never writes /etc.
 set -euo pipefail
 umask 077
 
+# the only entry point is the repository's ./install.sh --codex, which sets STACK_CODEX_VIA_TOP=1
+if [ "${STACK_CODEX_VIA_TOP:-}" != 1 ]; then
+  echo "use ./install.sh --codex [options] from the repository root: dot-config/dot-codex_config/install.sh is not an entry point" >&2
+  exit 2
+fi
+unset STACK_CODEX_VIA_TOP
+ENTRY="./install.sh --codex"
+
 usage() {
   cat <<'EOF'
-usage: codex_config/install.sh [options]
+usage: ./install.sh --codex [options]   (from the repository root)
   --dry-run                  plan only: nothing is written (CODEX_HOME is only created when it is ~/.codex)
   --diff                     compare the rendered stack with the live CODEX_HOME, by area; change nothing
   --restore [DIR|latest]     put CODEX_HOME and the skill links back as before an install (default: latest)
@@ -38,14 +47,14 @@ usage: codex_config/install.sh [options]
   --no-ide-default           remove those regions again
   --no-astra-profile         do not write the codex-astra profile
   --force                    overwrite a config.toml region edited since the install (restore: see above)
-  --print-requirements       write codex_config/build/requirements.toml + managed-hooks/ and print the
-                             root commands for the optional machine-wide tier (never runs them)
+  --print-requirements       write dot-config/dot-codex_config/build/requirements.toml + managed-hooks/
+                             and print the root commands for the optional machine-wide tier (never runs them)
   --doctor                   check hook trust, manifest drift and links; exit 1 if a stack hook is untrusted
   -h, --help                 this text
 EOF
 }
-usage_err() { echo "codex_config/install.sh: $1" >&2; usage >&2; exit 2; }
-fail() { echo "codex_config/install.sh: $1" >&2; exit "${2:-1}"; }
+usage_err() { echo "$ENTRY: $1" >&2; usage >&2; exit 2; }
+fail() { echo "$ENTRY: $1" >&2; exit "${2:-1}"; }
 say() { printf '%s\n' "$*"; }
 note() { printf '  %s\n' "$*"; }
 
@@ -118,7 +127,7 @@ if [ -z "$PY" ] || ! "$PY" -I -c 'import sys; sys.exit(sys.version_info < (3, 11
 fi
 
 HERE=$(cd "$(dirname "$0")" && pwd -P)
-REPO=$(cd "$HERE/.." && pwd -P)
+REPO=$(cd "$HERE/../.." && pwd -P)
 WORK=$(mktemp -d "${TMPDIR:-/tmp}/codex-install.XXXXXX") || fail "cannot create a work folder under ${TMPDIR:-/tmp}"
 cleanup() { if [ -n "${WORK:-}" ] && [ -d "$WORK" ]; then rm -rf -- "$WORK"; fi; }
 trap cleanup EXIT
@@ -131,7 +140,7 @@ if ! COMMIT=$("$PY" -I "$HERE/lib/source_snapshot.py" "$REPO" "$WORK/src"); then
   fail "stopped at the source snapshot (above). Nothing was changed."
 fi
 SRC="$WORK/src"
-CL="$SRC/codex_config/lib"
+CL="$SRC/dot-config/dot-codex_config/lib"
 STATE_PY="$CL/codex_state.py"
 cs() { "$PY" -I "$STATE_PY" "$@"; }
 
@@ -142,7 +151,7 @@ BACKUP_ROOT="$STATE_ROOT/codex-agent-stack-backups"
 
 # ---- step 2: CODEX_HOME (refusals exit 2 with the reason) ---------------------------------------
 repos=("$REPO")
-LOGICAL=$(cd "$(dirname "$0")/.." && pwd) && [ "$LOGICAL" = "$REPO" ] || repos+=("$LOGICAL")
+LOGICAL=$(cd "$(dirname "$0")/../.." && pwd) && [ "$LOGICAL" = "$REPO" ] || repos+=("$LOGICAL")
 rc=0
 if [ "$CH_SET" = 1 ]; then HOME_OUT=$(cs home 1 "$CH_ARG" "${repos[@]}") || rc=$?
 else HOME_OUT=$(cs home 0 "" "${repos[@]}") || rc=$?; fi
@@ -151,7 +160,7 @@ CH=""; CH_SOURCE=""; CH_CREATED=0
 while IFS=$'\t' read -r k v; do
   case "$k" in
     path) CH=$v ;; source) CH_SOURCE=$v ;; created) CH_CREATED=$v ;;
-    warn) echo "codex_config/install.sh: warning: $v" >&2 ;;
+    warn) echo "$ENTRY: warning: $v" >&2 ;;
   esac
 done <<<"$HOME_OUT"
 [ -n "$CH" ] || fail "codex_state home returned no path"
@@ -166,9 +175,9 @@ if [ "$DOCTOR" = 1 ]; then
 fi
 
 if [ "$PRINT_REQ" = 1 ]; then
-  # writes only into codex_config/build (git-ignored); the root commands are printed, never run
+  # writes only into dot-config/dot-codex_config/build (git-ignored); the root commands are printed, never run
   "$PY" -I "$CL/requirements.py" --codex-home "$CH" --home "$H" --src "$SRC" \
-    --out "$REPO/codex_config/build" --state-dir "$STATE_DIR"
+    --out "$REPO/dot-config/dot-codex_config/build" --state-dir "$STATE_DIR"
   exit 0
 fi
 
@@ -176,11 +185,11 @@ fi
 # stderr, or the controlling terminal); with none the run stops (never proceed unasked)
 ask() {
   [ "$ASSUME_YES" = 0 ] || return 0
-  if [ "$NO_PROMPT" = 1 ]; then echo "codex_config/install.sh: $1 --no-prompt forbids asking: rerun with --yes." >&2; return 1; fi
+  if [ "$NO_PROMPT" = 1 ]; then echo "$ENTRY: $1 --no-prompt forbids asking: rerun with --yes." >&2; return 1; fi
   local ans=""
   if [ -t 0 ] && [ -t 2 ]; then printf '%s [y/N] ' "$1" >&2; read -r ans || true
   elif { : </dev/tty; } 2>/dev/null && { : >/dev/tty; } 2>/dev/null; then printf '%s [y/N] ' "$1" >/dev/tty; read -r ans </dev/tty || true
-  else echo "codex_config/install.sh: $1 There is no terminal to ask: rerun with --yes." >&2; return 1; fi
+  else echo "$ENTRY: $1 There is no terminal to ask: rerun with --yes." >&2; return 1; fi
   case "$ans" in y|Y|yes|YES|Yes) return 0 ;; *) return 1 ;; esac
 }
 
@@ -211,7 +220,7 @@ if [ -n "$RESTORE" ]; then
   fi
   UNDO=$("$PY" -I -c 'import json,sys; print(json.load(open(sys.argv[1])).get("undo") or "")' "$WORK/r2/restore.json" 2>/dev/null || true)
   say "Restored from $BDIR."
-  [ -z "$UNDO" ] || note "undo this restore: $0 --restore $UNDO"
+  [ -z "$UNDO" ] || note "undo this restore: $ENTRY --restore $UNDO"
   exit 0
 fi
 
@@ -229,7 +238,7 @@ CODEX_BIN=$(command -v codex 2>/dev/null || true)
 if [ -n "$CODEX_BIN" ]; then
   cv=$("$CODEX_BIN" --version </dev/null 2>/dev/null | sed -n 's/.*\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\).*/\1/p' | head -n 1 || true)
   if [ -z "$cv" ]; then
-    echo "codex_config/install.sh: warning: could not read the version of $CODEX_BIN; the Codex checks are skipped" >&2
+    echo "$ENTRY: warning: could not read the version of $CODEX_BIN; the Codex checks are skipped" >&2
     CODEX_BIN=""
   elif ! ver_ge "$cv" "$MIN_CODEX"; then
     fail "codex $cv is older than $MIN_CODEX, the version this stack was verified against: update Codex (npm i -g @openai/codex, or brew upgrade codex). Nothing was changed."
@@ -237,7 +246,7 @@ if [ -n "$CODEX_BIN" ]; then
     note "codex $cv ($CODEX_BIN)"
   fi
 else
-  echo "codex_config/install.sh: warning: no codex on PATH; the rule examples are not checked against it" >&2
+  echo "$ENTRY: warning: no codex on PATH; the rule examples are not checked against it" >&2
 fi
 
 # ---- step 3: stage the live CODEX_HOME ------------------------------------------------------------
@@ -311,21 +320,28 @@ print(v if re.fullmatch(r"[0-9a-f]{7,64}", str(v)) else "")' "$OLDMF" 2>/dev/nul
 fi
 if [ -n "$prev" ] && [ "$prev" != "$COMMIT" ]; then
   # against the snapshot's commit, never HEAD
+  # first line: the paths to review (a pre-move commit adds the old ones); then the diff --stat
   SUP=$("$PY" -I - "$CL/source_snapshot.py" "$REPO" "$prev" "$COMMIT" <<'PY' || true
 import importlib.util, sys
 spec = importlib.util.spec_from_file_location("ss", sys.argv[1])
 ss = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ss)
 r = ss.changes_since(sys.argv[2], sys.argv[3], sys.argv[4])
-print("?" if r is None else r.rstrip("\n"))
+if r is None:
+    print("?")
+else:
+    print(" ".join(dict.fromkeys("lib" if p.startswith("lib/") else p for p in ss.review_paths(sys.argv[2], sys.argv[3]))))
+    print(r.rstrip("\n"))
 PY
 )
+  SUP_PATHS=${SUP%%$'\n'*}
+  [ "$SUP" = "?" ] || { SUP=${SUP#"$SUP_PATHS"}; SUP=${SUP#$'\n'}; }
   if [ "$SUP" = "?" ]; then
     note "! the last install shipped commit ${prev:0:12}, which this repository does not have: review the stack's files before applying"
   elif [ -n "$SUP" ]; then
     say "Changes to the stack's files since the last install (${prev:0:12}..${COMMIT:0:12}):"
     printf '%s\n' "$SUP" | head -n 40 | sed 's/^/      /'
-    note "review: git -C '$REPO' diff ${prev:0:12} ${COMMIT:0:12} -- codex_config lib dot-claude"
+    note "review: git -C '$REPO' diff ${prev:0:12} ${COMMIT:0:12} -- $SUP_PATHS"
   fi
 fi
 
@@ -363,7 +379,7 @@ else
   if [ "$IDE" = yes ]; then
     say "! --ide-default writes the profile into $CH/config.toml: it changes EVERY Codex session on this machine"
     say "  (the CLI without a profile, the IDE extension and the ChatGPT desktop app), not only 'codex --profile $PROFILE_NAME'."
-    say "  Undo: $0 --no-ide-default, or $0 --restore."
+    say "  Undo: $ENTRY --no-ide-default, or $ENTRY --restore."
     ask "Apply the plan above, including --ide-default?" || fail "stopped before changing anything. Nothing in $CH was changed."
   else
     ask "Apply the plan above to $CH?" || fail "stopped before changing anything. Nothing in $CH was changed."
@@ -376,10 +392,10 @@ else
   if [ "$LINKS_EMPTY" = 0 ]; then
     [ -n "$B" ] || B=$(cs new-backup "$CH" "$BACKUP_ROOT" "$COMMIT")
     if ! "$PY" -I "$SL" apply "$WORK/links.json" "$OLDMF" "$B"; then
-      fail "the skill links failed (above) after CODEX_HOME was updated; fix that and rerun, or undo with: $0 --restore $B"
+      fail "the skill links failed (above) after CODEX_HOME was updated; fix that and rerun, or undo with: $ENTRY --restore $B"
     fi
   fi
-  [ -z "$B" ] || say "Backup: $B   (undo: $0 --restore $B)"
+  [ -z "$B" ] || say "Backup: $B   (undo: $ENTRY --restore $B)"
 fi
 
 # ---- step 9: stack-python, bytecode, hook trust --------------------------------------------------
@@ -419,7 +435,7 @@ if [ "$IDE_MODE" = yes ]; then
 else
   say "  1. Run: codex --profile $PROFILE_NAME   then /hooks and trust the stack's hooks."
 fi
-say "  2. Run: $0 --doctor   (exit 0 only when every stack hook is trusted; repeat after every 're-trust' above)."
+say "  2. Run: $ENTRY --doctor   (exit 0 only when every stack hook is trusted; repeat after every 're-trust' above)."
 if [ -f "$S/codex-astra.config.toml" ]; then
   if [ "$IDE_MODE" = yes ]; then
     say "  3. Optional Astra: codex --profile codex-astra (it overlays config.toml, whose trusted hooks it uses)."

@@ -14,9 +14,9 @@ from pathlib import Path
 
 from conftest import CODEX_CONFIG, REPO
 
-# the files a snapshot needs to run codex_state.py (the engine loads dot-claude/hooks/stack_io.py)
+# the files a snapshot needs to run codex_state.py (the engine loads dot-config/dot-claude/hooks/stack_io.py)
 MINI_REPO_FILES = ("lib/install_state.py", "lib/claude_md_block.py", "lib/stack.env.example",
-                   "dot-claude/hooks/stack_io.py")
+                   "dot-config/dot-claude/hooks/stack_io.py")
 
 
 def git_env(extra=None):
@@ -35,14 +35,14 @@ def git(repo, *args, check=True):
 
 
 def make_repo(root: Path) -> Path:
-    """A git repository at root holding codex_config/lib (this checkout's) and the engine files, with
+    """A git repository at root holding dot-config/dot-codex_config/lib (this checkout's) and the engine files, with
     one commit."""
     root.mkdir(parents=True)
     for rel in MINI_REPO_FILES:
         dst = root / rel
         dst.parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO / rel, dst)
-    shutil.copytree(CODEX_CONFIG / "lib", root / "codex_config" / "lib",
+    shutil.copytree(CODEX_CONFIG / "lib", root / "dot-config" / "dot-codex_config" / "lib",
                     ignore=shutil.ignore_patterns("__pycache__"))
     git(root, "init", "-q", "-b", "main")
     git(root, "add", "-A")

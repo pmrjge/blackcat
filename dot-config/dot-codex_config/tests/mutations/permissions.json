@@ -1,44 +1,44 @@
 [
  {
-  "file": "codex_config/lib/permissions.py",
+  "file": "dot-config/dot-codex_config/lib/permissions.py",
   "old": "    fixed = [os.path.join(P[\"codex_home\"], \"auth.json\"), ",
   "new": "    fixed = [",
-  "tests": "codex_config/tests/test_permissions.py",
+  "tests": "dot-config/dot-codex_config/tests/test_permissions.py",
   "why": "drop auth.json from the credential set"
  },
  {
-  "file": "codex_config/lib/permissions.py",
+  "file": "dot-config/dot-codex_config/lib/permissions.py",
   "old": "\"deny\" if m.group(1) == \"Read\" else \"read\"",
   "new": "\"deny\" if True else \"read\"",
-  "tests": "codex_config/tests/test_permissions.py",
+  "tests": "dot-config/dot-codex_config/tests/test_permissions.py",
   "why": "Claude Edit denies become read denials (deny) instead of write protection (read)"
  },
  {
-  "file": "codex_config/lib/permissions.py",
+  "file": "dot-config/dot-codex_config/lib/permissions.py",
   "old": "    read_roots = [P[\"codex_home\"], ",
   "new": "    read_roots = [",
-  "tests": "codex_config/tests/test_permissions.py",
+  "tests": "dot-config/dot-codex_config/tests/test_permissions.py",
   "why": "no explicit CODEX_HOME read entry"
  },
  {
-  "file": "codex_config/lib/permissions.py",
+  "file": "dot-config/dot-codex_config/lib/permissions.py",
   "old": "                ws[key] = \"deny\"",
   "new": "                pass",
-  "tests": "codex_config/tests/test_permissions.py",
+  "tests": "dot-config/dot-codex_config/tests/test_permissions.py",
   "why": "project-relative denies (**/.env) dropped from :workspace_roots"
  },
  {
-  "file": "codex_config/lib/permissions.py",
+  "file": "dot-config/dot-codex_config/lib/permissions.py",
   "old": "\"domains\": network_domains(settings)",
   "new": "\"domains\": {}",
-  "tests": "codex_config/tests/test_permissions.py",
+  "tests": "dot-config/dot-codex_config/tests/test_permissions.py",
   "why": "network allowlist dropped"
  },
  {
-  "file": "codex_config/lib/permissions.py",
+  "file": "dot-config/dot-codex_config/lib/permissions.py",
   "old": "            if mode == \"deny\":\n                add(cred_globs, base if base.startswith(\"**/\") else \"**/\" + base)",
   "new": "            if mode == \"deny\":\n                pass",
-  "tests": "codex_config/tests/test_permissions.py",
+  "tests": "dot-config/dot-codex_config/tests/test_permissions.py",
   "why": "project-relative denies missing from the credential set (guard)"
  }
 ]

@@ -24,7 +24,7 @@ levels = ["low", "medium", "high", "xhigh", "max"]
 "gpt-6-luna" = ["low", "medium", "high", "xhigh", "max"]
 
 # Opt-in `codex-astra` profile: these roles move to the Astra model, effort from the `fable` column of
-# dot-claude/hooks/agent_effort.json (DESIGN §2.1). Nothing uses Astra by default.
+# dot-config/dot-claude/hooks/agent_effort.json (DESIGN §2.1). Nothing uses Astra by default.
 [astra]
 model = "gpt-6-astra"
 agents = ["ninja-coder", "main-coder", "mathematician", "planner", "proof-checker", "security-auditor"]

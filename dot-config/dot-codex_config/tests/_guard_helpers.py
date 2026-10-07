@@ -16,9 +16,9 @@ from pathlib import Path
 
 TESTS = Path(__file__).resolve().parent
 CODEX_CONFIG = TESTS.parent
-REPO = CODEX_CONFIG.parent
+REPO = CODEX_CONFIG.parent.parent   # <repo>/dot-config/dot-codex_config
 HOOKS_SRC = CODEX_CONFIG / "hooks"
-DOT_HOOKS = REPO / "dot-claude" / "hooks"
+DOT_HOOKS = REPO / "dot-config" / "dot-claude" / "hooks"
 FIXTURES = TESTS / "fixtures" / "guard"
 VENDOR = TESTS / "fixtures" / "vendor"
 GUARD_TEMPLATE = CODEX_CONFIG / "templates" / "guard.base.json"

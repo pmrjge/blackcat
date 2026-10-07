@@ -3,7 +3,7 @@
     convert(src, stage_stack, ctx) -> {"listed", "modules", "budget_chars", "budget_tokens", "report", "links"}
     classify(src) -> {"listed", "modules", "core", "excluded", "excluded_modules"}
 
-`src` is the snapshot root (holds dot-claude/). Classification is settings.json `skillOverrides`, the
+`src` is the snapshot root (holds dot-config/dot-claude/). Classification is settings.json `skillOverrides`, the
 same as tests/test_skill_modules.py: `user-invocable-only`/`off` = hub module, everything else
 listed; a listed skill whose override is `on` or absent keeps its full description (LISTED_CORE),
 the rest (`name-only`) get a ≤ 60-character description cut from the first clause. EXCLUDED_SKILLS
@@ -110,8 +110,8 @@ def _read(path: str) -> tuple[bytes, int]:
 
 
 def _skills_dir(src: str) -> str:
-    d = os.path.join(src, "dot-claude", "skills")
-    for p in (os.path.join(src, "dot-claude"), d):
+    d = os.path.join(src, "dot-config", "dot-claude", "skills")
+    for p in (os.path.join(src, "dot-config", "dot-claude"), d):
         try:
             st = os.lstat(p)
         except OSError as e:
@@ -194,7 +194,7 @@ def short_description(desc: str) -> str:
 
 # ---------------------------------------------------------------- classification
 def _overrides(src: str) -> dict:
-    p = os.path.join(src, "dot-claude", "settings.json")
+    p = os.path.join(src, "dot-config", "dot-claude", "settings.json")
     data, _ = _read(p)
     try:
         so = json.loads(_text(data, p)).get("skillOverrides")

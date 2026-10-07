@@ -1,4 +1,4 @@
-"""Claude agents (dot-claude/agents/*.md) -> Codex roles, profile entries, policy and MCP servers.
+"""Claude agents (dot-config/dot-claude/agents/*.md) -> Codex roles, profile entries, policy and MCP servers.
 
 Stdlib only, Python >= 3.11 (tomllib). DESIGN.md §2, §2.1, §8.1; INTERFACES.md §3, §4.
 
@@ -7,7 +7,7 @@ Stdlib only, Python >= 3.11 (tomllib). DESIGN.md §2, §2.1, §8.1; INTERFACES.m
     convert(src, ctx, models, rules_text=None, blackcat_text=None) -> dict
     user_scope_servers(ctx, with_wandb) -> {id: table}   exa, jina, wolfram, huggingface (+ wandb)
 
-`src` is the snapshot root (holds dot-claude/). `ctx` needs `codex_home` and `stack`
+`src` is the snapshot root (holds dot-config/dot-claude/). `ctx` needs `codex_home` and `stack`
 (= `<codex_home>/stack`, both absolute); `home`, `uv`, `uvx`, `npx`, `node`, `magg`, `huetension`,
 `python3` render the MCP command placeholders (a missing tool path falls back to its bare name, as
 in translate.py); other keys are accepted and ignored. convert() returns:
@@ -33,7 +33,7 @@ of the .md file).
 Effort (DESIGN §2): Sol keeps the stack's level; the sonnet tier (Luna) runs luna_effort_offset
 levels higher, capped at "max"; none, minimal and ultra are never on the scale; an effort outside
 the model's accepted set stops the build. Astra roles take the `fable` column of
-dot-claude/hooks/agent_effort.json, which must be in Astra's accepted set.
+dot-config/dot-claude/hooks/agent_effort.json, which must be in Astra's accepted set.
 
 Policy (INTERFACES §4): apply_patch = Write, Edit, MultiEdit or NotebookEdit in tools; shell = Bash;
 spawn_tool = Agent; mcp = the `mcp__<server>` tools in order; spawn = the body's "May spawn:" list
@@ -616,7 +616,7 @@ def convert(src: str, ctx: dict, models: dict, rules_text: str | None = None,
             raise BuildError(str(exc)) from None
     style = models["roles"]["name_style"]
     codex_home = ctx["codex_home"].rstrip("/")
-    adir = os.path.join(src, "dot-claude", "agents")
+    adir = os.path.join(src, "dot-config", "dot-claude", "agents")
     try:
         files = sorted(f for f in os.listdir(adir) if f.endswith(".md"))
     except OSError as exc:
@@ -629,18 +629,19 @@ def convert(src: str, ctx: dict, models: dict, rules_text: str | None = None,
     rules = _template(rules, ctx, "rules_text")
     bc_text = _template(bc_text, ctx, "blackcat_text")
     try:
-        effort_table = json.loads(_read(os.path.join(src, "dot-claude", "hooks", "agent_effort.json")))["agents"]
+        effort_table = json.loads(_read(os.path.join(src, "dot-config", "dot-claude", "hooks",
+                                                     "agent_effort.json")))["agents"]
     except (OSError, ValueError, KeyError, TypeError) as exc:
-        raise BuildError("dot-claude/hooks/agent_effort.json: %s" % exc) from None
+        raise BuildError("dot-config/dot-claude/hooks/agent_effort.json: %s" % exc) from None
 
     agents = {}
     for f in files:
-        a = _parse_agent(os.path.join(adir, f), "dot-claude/agents/" + f)
+        a = _parse_agent(os.path.join(adir, f), "dot-config/dot-claude/agents/" + f)
         if a["model"] not in models["tiers"]:
             raise BuildError("%s: model %r has no [tiers] entry in models.toml" % (a["label"], a["model"]))
         agents[a["name"]] = a
     if BLACKCAT not in agents:
-        raise BuildError("dot-claude/agents/blackcat.md: missing (the main thread)")
+        raise BuildError("dot-config/dot-claude/agents/blackcat.md: missing (the main thread)")
     names = set(agents)
     rename = _renamer(names, style)
 

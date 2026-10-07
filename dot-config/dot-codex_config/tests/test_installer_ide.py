@@ -1,4 +1,4 @@
-"""codex_config/install.sh --ide-default end to end (DESIGN section 9 "--ide-default region 12", 7.6).
+"""./install.sh --codex --ide-default end to end (DESIGN section 9 "--ide-default region 12", 7.6).
 
 The real installer on a scratch HOME / CODEX_HOME with a pre-seeded config.toml (see
 _installer_helpers.Sandbox for the scratch tree and its archives). The renderer's own region tests are
@@ -253,7 +253,7 @@ def test_codex_style_tables_outside_the_regions_survive_a_rerun(args, ide):
     cfg = ide.ch / "config.toml"
     cfg.write_bytes(cfg.read_bytes() + CODEX_TAIL.encode())
     tail_doc = tomllib.loads(CODEX_TAIL)
-    ide.edit_repo("codex_config/lib/hook_defs.py", "TIMEOUT_S, SESSION_END_TIMEOUT_S = 10, 3",
+    ide.edit_repo("dot-config/dot-codex_config/lib/hook_defs.py", "TIMEOUT_S, SESSION_END_TIMEOUT_S = 10, 3",
                   "TIMEOUT_S, SESSION_END_TIMEOUT_S = 11, 3")
     r = ide.run(*args, check=0)
     assert "Backup:" in r.stdout            # the region really was rewritten
@@ -351,7 +351,7 @@ def test_re_trust_is_reported_for_the_regions_hook_keys(fresh):
 
 def test_a_changed_hook_definition_is_re_trusted_under_the_regions_keys(ide):
     assert "no hook definition changed" in ide.run("--ide-default", "--dry-run", check=0).stdout
-    ide.edit_repo("codex_config/lib/hook_defs.py", "TIMEOUT_S, SESSION_END_TIMEOUT_S = 10, 3",
+    ide.edit_repo("dot-config/dot-codex_config/lib/hook_defs.py", "TIMEOUT_S, SESSION_END_TIMEOUT_S = 10, 3",
                   "TIMEOUT_S, SESSION_END_TIMEOUT_S = 11, 3")
     r = ide.run("--ide-default", "--yes", check=0)
     keys = re.search(r"re-trust: re-trust (\d+) hook\(s\) in /hooks:\n((?:      .*\n)+)", r.stdout).group(2).split()

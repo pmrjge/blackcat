@@ -1,7 +1,7 @@
 # Vendored Codex contract fixtures
 
 Read-only copies from [openai/codex](https://github.com/openai/codex) at tag `rust-v0.160.1`
-(fetched 2026-10-06), used only by the contract tests in `codex_config/tests`. They pin the facts
+(fetched 2026-10-06), used only by the contract tests in `dot-config/dot-codex_config/tests`. They pin the facts
 DESIGN.md §1 relies on; when the pinned Codex version moves, re-fetch them and re-run the probes.
 
 | File | Upstream path | sha256 of the upstream file |

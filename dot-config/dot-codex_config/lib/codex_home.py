@@ -15,7 +15,7 @@ created, for:
 - a folder that is not writable by this user.
 The default ~/.codex is created with mode 0700 when missing (created=True); an explicit path never is.
 
-install_state.py (the Claude installer's engine) is loaded by file path from ../../lib, relative to
+install_state.py (the Claude installer's engine) is loaded by file path from ../../../lib, relative to
 this file, never through sys.path; its HOME_INSIDE, SYSTEM_INSIDE, HOME_EQUAL, SYSTEM_EQUAL,
 BAD_PATH_CHARS, expand_path, absolute_path, _inside and _same are reused unchanged. codex_state.py
 hands over its own engine instance with use_engine().
@@ -29,8 +29,10 @@ from __future__ import annotations
 import importlib.util
 import os
 
-ENGINE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))),
-                           "lib", "install_state.py")
+# <repo>/dot-config/dot-codex_config/lib/codex_home.py -> <repo>/lib/install_state.py
+ENGINE_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))),
+    "lib", "install_state.py")
 STATE_NAMES = ("codex-agent-stack", "codex-agent-stack-backups", "claude-agent-stack",
                "claude-agent-stack-backups", "claude-agent-stack-cache")
 _engine = None

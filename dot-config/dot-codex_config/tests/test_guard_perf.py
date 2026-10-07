@@ -108,7 +108,7 @@ def test_p95_under_100ms(tmp_path):
 @pytest.mark.skipif(os.environ.get("CODEX_GUARD_PERF_SHIM") != "1",
                     reason="user-run, outside the sandbox: CODEX_GUARD_PERF_SHIM=1 uv run --no-project "
                            "--python 3.13 --with pytest python -m pytest -q -s -p no:cacheprovider "
-                           "codex_config/tests/test_guard_perf.py")
+                           "dot-config/dot-codex_config/tests/test_guard_perf.py")
 def test_p95_usr_bin_python3_fallback(tmp_path):
     """The stub's fallback and the managed tier's interpreter: /usr/bin/python3 (on macOS the xcrun
     shim), with its own cpython-39 pyc precompiled."""

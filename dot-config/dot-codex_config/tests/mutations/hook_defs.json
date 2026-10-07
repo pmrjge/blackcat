@@ -1,58 +1,58 @@
 [
  {
-  "file": "codex_config/lib/hook_defs.py",
+  "file": "dot-config/dot-codex_config/lib/hook_defs.py",
   "old": "\"timeout\": SESSION_END_TIMEOUT_S if event == \"SessionEnd\" else TIMEOUT_S}",
   "new": "\"timeout\": TIMEOUT_S}",
-  "tests": "codex_config/tests/test_hook_defs.py::test_one_group_per_event_with_the_stub_command",
+  "tests": "dot-config/dot-codex_config/tests/test_hook_defs.py::test_one_group_per_event_with_the_stub_command",
   "why": "SessionEnd's timeout set to 10"
  },
  {
-  "file": "codex_config/lib/hook_defs.py",
+  "file": "dot-config/dot-codex_config/lib/hook_defs.py",
   "old": "        if event in TOOL_EVENTS:\n            group = {\"matcher\": MATCH_ALL, \"hooks\": [handler]}",
   "new": "        if event == \"PostToolUse\":\n            group = {\"matcher\": MATCH_ALL, \"hooks\": [handler]}",
-  "tests": "codex_config/tests/test_hook_defs.py::test_one_group_per_event_with_the_stub_command",
+  "tests": "dot-config/dot-codex_config/tests/test_hook_defs.py::test_one_group_per_event_with_the_stub_command",
   "why": "the matcher dropped from PreToolUse and PermissionRequest"
  },
  {
-  "file": "codex_config/lib/hook_defs.py",
+  "file": "dot-config/dot-codex_config/lib/hook_defs.py",
   "old": "MATCH_ALL = \".*\"",
   "new": "MATCH_ALL = \"*\"",
-  "tests": "codex_config/tests/test_hook_defs.py::test_one_group_per_event_with_the_stub_command",
+  "tests": "dot-config/dot-codex_config/tests/test_hook_defs.py::test_one_group_per_event_with_the_stub_command",
   "why": "the matcher is not the regex .*"
  },
  {
-  "file": "codex_config/lib/hook_defs.py",
+  "file": "dot-config/dot-codex_config/lib/hook_defs.py",
   "old": "    cmd = \"/bin/sh '%s' %s\" % (stub, snake(event))",
   "new": "    cmd = \"/bin/sh %s %s\" % (stub, snake(event))",
-  "tests": "codex_config/tests/test_hook_defs.py::test_one_group_per_event_with_the_stub_command",
+  "tests": "dot-config/dot-codex_config/tests/test_hook_defs.py::test_one_group_per_event_with_the_stub_command",
   "why": "the stub path left unquoted"
  },
  {
-  "file": "codex_config/lib/hook_defs.py",
+  "file": "dot-config/dot-codex_config/lib/hook_defs.py",
   "old": "    return cmd + \" --scope global\" if scope == \"global\" else cmd",
   "new": "    return cmd",
-  "tests": "codex_config/tests/test_hook_defs.py::test_global_scope_suffix",
+  "tests": "dot-config/dot-codex_config/tests/test_hook_defs.py::test_global_scope_suffix",
   "why": "--scope global dropped"
  },
  {
-  "file": "codex_config/lib/hook_defs.py",
+  "file": "dot-config/dot-codex_config/lib/hook_defs.py",
   "old": "{\"event\": event, \"matcher\": matcher, \"handler\": handler}",
   "new": "{\"event\": event, \"handler\": handler}",
-  "tests": "codex_config/tests/test_hook_defs.py::test_fingerprint_tracks_the_definition_only",
+  "tests": "dot-config/dot-codex_config/tests/test_hook_defs.py::test_fingerprint_tracks_the_definition_only",
   "why": "the fingerprint ignores the matcher"
  },
  {
-  "file": "codex_config/lib/hook_defs.py",
+  "file": "dot-config/dot-codex_config/lib/hook_defs.py",
   "old": "{\"event\": event, \"matcher\": matcher, \"handler\": handler}",
   "new": "{\"event\": event, \"matcher\": matcher, \"handler\": handler.get(\"command\")}",
-  "tests": "codex_config/tests/test_hook_defs.py::test_fingerprint_tracks_the_definition_only",
+  "tests": "dot-config/dot-codex_config/tests/test_hook_defs.py::test_fingerprint_tracks_the_definition_only",
   "why": "the fingerprint ignores the handler's timeout (changes with the handler)"
  },
  {
-  "file": "codex_config/lib/hook_defs.py",
+  "file": "dot-config/dot-codex_config/lib/hook_defs.py",
   "old": "\"%s:%s:%d:%d\" % (source_file, snake(event), g, h)",
   "new": "\"%s:%s:%d:%d\" % (source_file, event, g, h)",
-  "tests": "codex_config/tests/test_hook_defs.py::test_keys_and_fingerprints",
+  "tests": "dot-config/dot-codex_config/tests/test_hook_defs.py::test_keys_and_fingerprints",
   "why": "a CamelCase event in the trust key"
  }
 ]

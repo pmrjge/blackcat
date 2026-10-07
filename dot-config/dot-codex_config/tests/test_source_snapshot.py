@@ -1,11 +1,12 @@
 """lib/source_snapshot.py: the private source snapshot (DESIGN.md §7.2; install.sh's block ported).
 
-Each test builds its own scratch git repository (copies of this checkout's codex_config/lib and the
-engine files), so the real repository is only read.
+Each test builds its own scratch git repository (copies of this checkout's dot-config/dot-codex_config/lib
+and the engine files), so the real repository is only read.
 """
 from __future__ import annotations
 
 import os
+import shutil
 import stat
 
 import pytest
@@ -15,6 +16,7 @@ from _foundation_helpers import git, make_repo, run_py
 
 ss = load_lib("source_snapshot")
 SS_PY = LIB / "source_snapshot.py"
+CODEX_STATE = "dot-config/dot-codex_config/lib/codex_state.py"
 
 
 @pytest.fixture
@@ -33,7 +35,7 @@ def test_clean_snapshot_copies_head_files(repo, tmp_path):
     assert r.stdout.strip() == git(repo, "rev-parse", "HEAD").stdout.strip()
     assert stat.S_IMODE(dest.stat().st_mode) == 0o700
     for rel in ("lib/install_state.py", "lib/claude_md_block.py", "lib/stack.env.example",
-                "dot-claude/hooks/stack_io.py", "codex_config/lib/codex_state.py"):
+                "dot-config/dot-claude/hooks/stack_io.py", "dot-config/dot-codex_config/lib/codex_state.py"):
         assert (dest / rel).read_bytes() == (repo / rel).read_bytes(), rel
         assert not (dest / rel).is_symlink()
 
@@ -47,11 +49,11 @@ def test_edit_after_snapshot_is_never_executed(repo, tmp_path, scratch_home):
         f.write("\nopen(os.environ['TAMPER_SENTINEL'], 'w').write('ran')\n")
     env = dict(os.environ, TAMPER_SENTINEL=str(sentinel))
     ch = scratch_home["codex_home"]
-    r = run_py(dest / "codex_config" / "lib" / "codex_state.py", "stage", ch, tmp_path / "stage", env=env)
+    r = run_py(dest / CODEX_STATE, "stage", ch, tmp_path / "stage", env=env)
     assert r.returncode == 0, r.stderr
     assert not sentinel.exists()
     # control: the same edit does run from the repository, so the check above can fail
-    r = run_py(repo / "codex_config" / "lib" / "codex_state.py", "stage", ch, tmp_path / "stage2", env=env)
+    r = run_py(repo / CODEX_STATE, "stage", ch, tmp_path / "stage2", env=env)
     assert sentinel.read_text() == "ran"
 
 
@@ -73,20 +75,32 @@ def test_deleted_file_is_dirty(repo, tmp_path):
 
 
 def test_untracked_and_staged_files_never_copied(repo, tmp_path):
-    (repo / "codex_config" / "lib" / "extra.py").write_text("x = 1\n")
-    (repo / "codex_config" / "lib" / "staged.py").write_text("y = 1\n")
-    git(repo, "add", "codex_config/lib/staged.py")
+    (repo / "dot-config" / "dot-codex_config" / "lib" / "extra.py").write_text("x = 1\n")
+    (repo / "dot-config" / "dot-codex_config" / "lib" / "staged.py").write_text("y = 1\n")
+    git(repo, "add", "dot-config/dot-codex_config/lib/staged.py")
     r = snap(repo, tmp_path / "s")
     assert r.returncode == 0, r.stderr
-    assert "?? codex_config/lib/extra.py" in r.stderr and "A  codex_config/lib/staged.py" in r.stderr
-    assert not (tmp_path / "s" / "codex_config" / "lib" / "extra.py").exists()
-    assert not (tmp_path / "s" / "codex_config" / "lib" / "staged.py").exists()
+    assert "?? dot-config/dot-codex_config/lib/extra.py" in r.stderr
+    assert "A  dot-config/dot-codex_config/lib/staged.py" in r.stderr
+    assert not (tmp_path / "s" / "dot-config" / "dot-codex_config" / "lib" / "extra.py").exists()
+    assert not (tmp_path / "s" / "dot-config" / "dot-codex_config" / "lib" / "staged.py").exists()
 
 
 def test_symlink_under_shipped_tree_refused(repo, tmp_path):
-    (repo / "dot-claude" / "hooks" / "notes.log").symlink_to(tmp_path)
+    (repo / "dot-config" / "dot-claude" / "hooks" / "notes.log").symlink_to(tmp_path)
     r = snap(repo, tmp_path / "s")
     assert r.returncode == 1 and "symlink" in r.stderr and not (tmp_path / "s").exists()
+
+
+@pytest.mark.parametrize("top", ["dot-config", "dot-config/dot-claude", "dot-config/dot-codex_config"])
+def test_a_shipped_directory_swapped_for_a_symlink_is_refused(repo, tmp_path, top):
+    """Same bytes behind a directory link (dot-config/ itself or one of the shipped trees): named and refused."""
+    real = tmp_path / "elsewhere"
+    shutil.move(str(repo / top), str(real))
+    (repo / top).symlink_to(real, target_is_directory=True)
+    r = snap(repo, tmp_path / "s")
+    assert r.returncode == 1 and "%s is a symlink" % top in r.stderr, r.stderr
+    assert not (tmp_path / "s").exists()
 
 
 def test_tracked_file_swapped_for_symlink_refused(repo, tmp_path):
@@ -142,6 +156,29 @@ def test_changes_since(repo):
     assert ss.changes_since(str(repo), first, "0" * 40) is None
     assert ss.changes_since(str(repo), "HEAD; rm -rf /", second) is None
     assert ss.changes_since(str(repo), first, "HEAD") is None
+
+
+def test_changes_since_a_pre_move_commit_covers_the_old_paths(repo):
+    """An install made before the move under dot-config/ recorded a commit whose files live at codex_config/
+    and dot-claude/: the review covers both layouts and shows the move as renames, not as every file added."""
+    moved = git(repo, "rev-parse", "HEAD").stdout.strip()
+    git(repo, "mv", "dot-config/dot-codex_config", "codex_config")
+    git(repo, "mv", "dot-config/dot-claude", "dot-claude")
+    git(repo, "commit", "-q", "-m", "the layout before the move")
+    old = git(repo, "rev-parse", "HEAD").stdout.strip()
+    (repo / "dot-config").mkdir(exist_ok=True)
+    git(repo, "mv", "codex_config", "dot-config/dot-codex_config")
+    git(repo, "mv", "dot-claude", "dot-config/dot-claude")
+    with open(repo / "dot-config" / "dot-codex_config" / "lib" / "codex_state.py", "a") as f:
+        f.write("# moved and edited\n")
+    git(repo, "commit", "-q", "-am", "the move, one edit")
+    new = git(repo, "rev-parse", "HEAD").stdout.strip()
+    assert ss.review_paths(str(repo), old) == ss.SNAPSHOT_PATHS + ss.LEGACY_PATHS
+    assert ss.review_paths(str(repo), moved) == ss.SNAPSHOT_PATHS
+    assert ss.review_paths(str(repo), "not a sha") == ss.SNAPSHOT_PATHS
+    stat = ss.changes_since(str(repo), old, new)
+    assert "=>" in stat and stat.rstrip().endswith("1 insertion(+)"), stat
+    assert "=>" not in ss.changes_since(str(repo), moved, new)
 
 
 def test_changes_since_ignores_commits_after_the_snapshot(repo):

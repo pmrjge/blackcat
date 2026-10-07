@@ -1,7 +1,7 @@
-"""CODEX_HOME state for codex_config/install.sh: stage, plan, apply, restore, validate, manifest.
+"""CODEX_HOME state for ./install.sh --codex: stage, plan, apply, restore, validate, manifest.
 
 Stdlib only, Python >= 3.11. One process per call. The engine is the Claude installer's
-lib/install_state.py, loaded BY FILE PATH from ../../lib relative to this file (in a real run: the
+lib/install_state.py, loaded BY FILE PATH from ../../../lib relative to this file (in a real run: the
 private source snapshot, never the repository) and used unchanged: this module only sets its
 module constants (DESIGN.md §7.2) and rewords its Claude-specific messages.
 
@@ -50,8 +50,9 @@ import sys
 import tomllib
 
 _HERE = os.path.dirname(os.path.abspath(__file__))
-ENGINE_PATH = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "lib", "install_state.py")
-CLAUDE_MD_BLOCK_PATH = os.path.join(os.path.dirname(os.path.dirname(_HERE)), "lib", "claude_md_block.py")
+ENGINE_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(_HERE))), "lib", "install_state.py")
+CLAUDE_MD_BLOCK_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(_HERE))), "lib",
+                                    "claude_md_block.py")
 
 
 def _load(name, path):
@@ -98,7 +99,7 @@ configure(ist)
 _WORDING = (
     (re.compile(r"\(set CLAUDE_CONFIG_DIR\)"), "(pass --codex-home or set CODEX_HOME)"),
     (re.compile(r"CLAUDE_CONFIG_DIR"), "CODEX_HOME"),
-    (re.compile(r"(?<![\w/.-])install\.sh\b"), "codex_config/install.sh"),
+    (re.compile(r"(?<![\w/.-])install\.sh\b"), "./install.sh --codex"),
     (re.compile(r"\binstall_state:"), "codex_state:"),
     (re.compile(r"\bthe config scope\b"), "the stack's part of CODEX_HOME"),
     (re.compile(r"\b(?:the )?config dir\b"), "CODEX_HOME"),
@@ -191,7 +192,7 @@ def plan(c, s, report_path, plan_path, snap_path=None) -> int:
     if snap_path:
         moved = ist.drifted(c, ist.load_json(snap_path, {}))
         if moved:
-            sys.stderr.write("codex_config/install.sh: %s changed while the installer ran — nothing was "
+            sys.stderr.write("./install.sh --codex: %s changed while the installer ran — nothing was "
                              "changed; run it again\n" % ", ".join(moved[:5]))
             return 1
     p = ist.make_plan(c, s, report_path)
@@ -199,7 +200,7 @@ def plan(c, s, report_path, plan_path, snap_path=None) -> int:
     print_plan(p)
     bad = ist.unsafe_paths(c, p)
     if bad:
-        sys.stderr.write("codex_config/install.sh: refusing paths outside CODEX_HOME: %s — nothing was "
+        sys.stderr.write("./install.sh --codex: refusing paths outside CODEX_HOME: %s — nothing was "
                          "changed\n" % ", ".join(map(repr, bad[:5])))
         return 1
     return 0
@@ -246,7 +247,7 @@ def config_toml_guard(c, bdir, force_config=False):
     live = sha256_or_none(os.path.join(c, "config.toml"))
     if want is None or live != want:
         raise SystemExit(
-            "codex_config/install.sh --restore: %s changed since the install (Codex writes /hooks trust, "
+            "./install.sh --codex --restore: %s changed since the install (Codex writes /hooks trust, "
             "[projects.*] and /model there%s): restoring the backup would lose those edits. Nothing was "
             "changed. Use --no-ide-default to remove only the stack's regions (every later edit stays), "
             "or add --force-config to put the saved config.toml back anyway."
@@ -519,7 +520,7 @@ def main(argv) -> int:
             try:
                 r = codex_home.resolve(a[1] if a[0] == "1" else None, env, home, ist._cwd(), a[2:])
             except codex_home.CodexHomeError as exc:
-                sys.stderr.write("codex_config/install.sh: %s. Nothing was changed.\n" % exc)
+                sys.stderr.write("./install.sh --codex: %s. Nothing was changed.\n" % exc)
                 return 2
             for k in ("path", "real", "source"):
                 _emit(k, r[k])

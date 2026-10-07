@@ -1,51 +1,51 @@
 [
  {
-  "file": "codex_config/lib/requirements.py",
+  "file": "dot-config/dot-codex_config/lib/requirements.py",
   "old": "req_path = os.path.join(out, \"requirements.toml\")",
   "new": "req_path = os.path.join(a.etc_dir, \"requirements.toml\"); os.makedirs(a.etc_dir, exist_ok=True)",
-  "tests": "codex_config/tests/test_requirements.py",
+  "tests": "dot-config/dot-codex_config/tests/test_requirements.py",
   "why": "requirements.toml written into the etc dir"
  },
  {
-  "file": "codex_config/lib/requirements.py",
+  "file": "dot-config/dot-codex_config/lib/requirements.py",
   "old": "for p in cred[\"paths\"] + cred[\"globs\"]:",
   "new": "for p in cred[\"paths\"][1:] + cred[\"globs\"]:",
-  "tests": "codex_config/tests/test_requirements.py",
+  "tests": "dot-config/dot-codex_config/tests/test_requirements.py",
   "why": "auth.json dropped from deny_read"
  },
  {
-  "file": "codex_config/lib/requirements.py",
+  "file": "dot-config/dot-codex_config/lib/requirements.py",
   "old": "if os.path.lexists(etc_file):",
   "new": "if False:",
-  "tests": "codex_config/tests/test_requirements.py",
+  "tests": "dot-config/dot-codex_config/tests/test_requirements.py",
   "why": "an existing /etc file gets the replace command instead of a diff"
  },
  {
-  "file": "codex_config/lib/requirements.py",
+  "file": "dot-config/dot-codex_config/lib/requirements.py",
   "old": "\"allow_managed_hooks_only\": False,",
   "new": "\"allow_managed_hooks_only\": True,",
-  "tests": "codex_config/tests/test_requirements.py",
+  "tests": "dot-config/dot-codex_config/tests/test_requirements.py",
   "why": "managed-only hooks would disable the profile's guard"
  },
  {
-  "file": "codex_config/lib/requirements.py",
+  "file": "dot-config/dot-codex_config/lib/requirements.py",
   "old": "%s --scope global\" % (os.path.join(managed_dir, \"codex-hook\"), mode)",
   "new": "%s\" % (os.path.join(managed_dir, \"codex-hook\"), mode)",
-  "tests": "codex_config/tests/test_requirements.py",
+  "tests": "dot-config/dot-codex_config/tests/test_requirements.py",
   "why": "managed hook without --scope global"
  },
  {
-  "file": "codex_config/lib/requirements.py",
+  "file": "dot-config/dot-codex_config/lib/requirements.py",
   "old": "    for root in SYSTEM + (a.etc_dir, a.managed_dir):",
   "new": "    for root in ():",
-  "tests": "codex_config/tests/test_requirements.py",
+  "tests": "dot-config/dot-codex_config/tests/test_requirements.py",
   "why": "--out inside the etc dir is no longer refused"
  },
  {
-  "file": "codex_config/lib/requirements.py",
+  "file": "dot-config/dot-codex_config/lib/requirements.py",
   "old": "        \"allowed_permission_profiles\": {perms.PROFILE_NAME: True, \":workspace\": True,",
   "new": "        \"allowed_permission_profiles\": {perms.PROFILE_NAME: True, \":danger-full-access\": True, \":workspace\": True,",
-  "tests": "codex_config/tests/test_requirements.py",
+  "tests": "dot-config/dot-codex_config/tests/test_requirements.py",
   "why": "danger-full-access allowed"
  }
 ]

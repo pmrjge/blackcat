@@ -1,44 +1,44 @@
 [
  {
-  "file": "codex_config/lib/toml_emit.py",
+  "file": "dot-config/dot-codex_config/lib/toml_emit.py",
   "old": "_NEEDS_ESC = re.compile(r'[\\x00-\\x1f\\x7f\"\\\\]')",
   "new": "_NEEDS_ESC = re.compile(r'[\\x00-\\x1f\\x7f\\\\]')",
-  "tests": "codex_config/tests/test_toml_emit.py",
+  "tests": "dot-config/dot-codex_config/tests/test_toml_emit.py",
   "why": "drop the \" escape"
  },
  {
-  "file": "codex_config/lib/toml_emit.py",
+  "file": "dot-config/dot-codex_config/lib/toml_emit.py",
   "old": "\"'''\" not in s and ",
   "new": "",
-  "tests": "codex_config/tests/test_toml_emit.py",
+  "tests": "dot-config/dot-codex_config/tests/test_toml_emit.py",
   "why": "multi-line literal even when the text holds '''"
  },
  {
-  "file": "codex_config/lib/toml_emit.py",
+  "file": "dot-config/dot-codex_config/lib/toml_emit.py",
   "old": "    for k, v in scalars:\n        out.append(\"%s = %s\" % (quote_key(k), dumps_value(v, _path(path + [k]))))\n    for k, v in subs:\n",
   "new": "    for k, v in scalars[:0]:\n        pass\n    for k, v in subs:\n",
-  "tests": "codex_config/tests/test_toml_emit.py",
+  "tests": "dot-config/dot-codex_config/tests/test_toml_emit.py",
   "why": "scalars not written before sub-tables (dropped)"
  },
  {
-  "file": "codex_config/lib/toml_emit.py",
+  "file": "dot-config/dot-codex_config/lib/toml_emit.py",
   "old": "if math.isnan(v) or math.isinf(v):",
   "new": "if False:",
-  "tests": "codex_config/tests/test_toml_emit.py",
+  "tests": "dot-config/dot-codex_config/tests/test_toml_emit.py",
   "why": "accept NaN/inf"
  },
  {
-  "file": "codex_config/lib/toml_emit.py",
+  "file": "dot-config/dot-codex_config/lib/toml_emit.py",
   "old": "if isinstance(v, bool):",
   "new": "if isinstance(v, bool) and False:",
-  "tests": "codex_config/tests/test_toml_emit.py",
+  "tests": "dot-config/dot-codex_config/tests/test_toml_emit.py",
   "why": "bool written as int"
  },
  {
-  "file": "codex_config/lib/toml_emit.py",
+  "file": "dot-config/dot-codex_config/lib/toml_emit.py",
   "old": "return k if _BARE_KEY.match(k) else _basic(k)",
   "new": "return k",
-  "tests": "codex_config/tests/test_toml_emit.py",
+  "tests": "dot-config/dot-codex_config/tests/test_toml_emit.py",
   "why": "keys never quoted"
  }
 ]

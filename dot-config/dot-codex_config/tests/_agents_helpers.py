@@ -1,7 +1,7 @@
 """Shared helpers for the agent-converter tests (part B1: convert_agents, models.toml, codex-mcp-headers).
 
 Nothing here touches the real ~/.codex, ~/.agents or ~/.claude: contexts point at scratch paths under
-pytest's tmp dirs, the converter only reads the repository's dot-claude/agents and agent_effort.json
+pytest's tmp dirs, the converter only reads the repository's dot-config/dot-claude/agents and agent_effort.json
 (or a scratch copy), and agent_guard.py is imported by path for its tables only.
 """
 from __future__ import annotations
@@ -19,9 +19,9 @@ from conftest import CODEX_CONFIG, REPO, VENDOR, load_lib
 ca = load_lib("convert_agents")
 # Hub-module names for translate (the full-repo classification; scratch sources carry no skills/).
 SKILL_MODULES = frozenset(load_lib("convert_skills").classify(str(REPO))["modules"])
-AGENTS_DIR = REPO / "dot-claude" / "agents"
-EFFORT_JSON = REPO / "dot-claude" / "hooks" / "agent_effort.json"
-AGENT_GUARD = REPO / "dot-claude" / "hooks" / "agent_guard.py"
+AGENTS_DIR = REPO / "dot-config" / "dot-claude" / "agents"
+EFFORT_JSON = REPO / "dot-config" / "dot-claude" / "hooks" / "agent_effort.json"
+AGENT_GUARD = REPO / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
 MODELS_TOML = CODEX_CONFIG / "models.toml"
 HEADERS_BIN = CODEX_CONFIG / "bin" / "codex-mcp-headers"
 RULES_MD = CODEX_CONFIG / "templates" / "rules.md"
@@ -57,10 +57,10 @@ def raw_models() -> dict:
 
 def scratch_src(root: Path, agent_edits: dict | None = None, effort_edits: dict | None = None,
                 extra_agents: dict | None = None) -> Path:
-    """A scratch snapshot root: dot-claude/agents (copied, each edit a callable text -> text or a
-    (old, new) pair applied once) and dot-claude/hooks/agent_effort.json (rows merged)."""
+    """A scratch snapshot root: dot-config/dot-claude/agents (copied, each edit a callable text -> text or a
+    (old, new) pair applied once) and dot-config/dot-claude/hooks/agent_effort.json (rows merged)."""
     src = Path(root) / "src"
-    adir = src / "dot-claude" / "agents"
+    adir = src / "dot-config" / "dot-claude" / "agents"
     shutil.copytree(AGENTS_DIR, adir)
     for name, edit in (agent_edits or {}).items():
         p = adir / ("%s.md" % name)
@@ -77,7 +77,7 @@ def scratch_src(root: Path, agent_edits: dict | None = None, effort_edits: dict 
     eff = json.loads(EFFORT_JSON.read_text())
     for name, row in (effort_edits or {}).items():
         eff["agents"].setdefault(name, {}).update(row)
-    hooks = src / "dot-claude" / "hooks"
+    hooks = src / "dot-config" / "dot-claude" / "hooks"
     hooks.mkdir(parents=True)
     (hooks / "agent_effort.json").write_text(json.dumps(eff))
     return src
@@ -105,7 +105,7 @@ def walk_strings(obj):
 
 
 def load_agent_guard():
-    """dot-claude/hooks/agent_guard.py imported by file path (tables only; nothing is run)."""
+    """dot-config/dot-claude/hooks/agent_guard.py imported by file path (tables only; nothing is run)."""
     spec = importlib.util.spec_from_file_location("agent_guard_for_codex_contract", AGENT_GUARD)
     mod = importlib.util.module_from_spec(spec)
     sys.modules[spec.name] = mod

@@ -1,4 +1,4 @@
-"""Shared fixtures for codex_config/tests. Owned by the build lead: children add helpers in their own
+"""Shared fixtures for dot-config/dot-codex_config/tests. Owned by the build lead: children add helpers in their own
 test modules (or tests/_<area>_helpers.py), never here.
 
 Every test runs against a scratch HOME and a scratch CODEX_HOME under tmp_path: nothing here may
@@ -16,7 +16,7 @@ import pytest
 
 TESTS = Path(__file__).resolve().parent
 CODEX_CONFIG = TESTS.parent
-REPO = CODEX_CONFIG.parent
+REPO = CODEX_CONFIG.parent.parent   # <repo>/dot-config/dot-codex_config
 LIB = CODEX_CONFIG / "lib"
 FAKE_CODEX_DIR = TESTS / "fake-codex"
 VENDOR = TESTS / "fixtures" / "vendor"
@@ -25,7 +25,7 @@ sys.path.insert(0, str(TESTS))   # test helper modules (tests/_*_helpers.py)
 
 
 def load_lib(name: str, path: Path | None = None):
-    """Import codex_config/lib/<name>.py (or `path`) by file path, the way the installer does."""
+    """Import dot-config/dot-codex_config/lib/<name>.py (or `path`) by file path, the way the installer does."""
     p = Path(path) if path else LIB / ("%s.py" % name)
     spec = importlib.util.spec_from_file_location("codex_config_" + name, p)
     mod = importlib.util.module_from_spec(spec)

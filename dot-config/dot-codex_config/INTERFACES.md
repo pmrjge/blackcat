@@ -1,4 +1,4 @@
-# codex_config: internal interfaces
+# dot-config/dot-codex_config (codex_config): internal interfaces
 
 The contracts between the installer's modules: who writes which file, the staged CODEX_HOME layout,
 each module's entry points, and the JSON files that pass between them. DESIGN.md is the spec; this
@@ -21,13 +21,13 @@ Conventions for every module:
   Unmapped or unknown input is an error, never a guess.
 - Every module's docstring lists its seeded-bug proofs; `tests/mutations/<module>.json` holds them
   in the format of `tests/mutate.py`.
-- Tests live in `codex_config/tests/test_<module>.py` and use `conftest.py` (owned by the lead:
+- Tests live in `dot-config/dot-codex_config/tests/test_<module>.py` and use `conftest.py` (owned by the lead:
   `load_lib`, `scratch_home`, the fake `codex` first on PATH). Shared helpers of one area go in
   `tests/_<area>_helpers.py`.
 
 ## 1. Files and owners
 
-| Path under `codex_config/` | Owner (build part) |
+| Path under `dot-config/dot-codex_config/` | Owner (build part) |
 |---|---|
 | `lib/toml_emit.py`, `tests/conftest.py`, `tests/mutate.py`, `tests/run.sh`, `tests/fake-codex/codex`, `tests/fixtures/vendor/`, this file | lead (done) |
 | `lib/codex_home.py`, `lib/codex_state.py`, `lib/source_snapshot.py`, `lib/skill_links.py`, `lib/config_region.py` | A foundation |
@@ -40,8 +40,8 @@ Conventions for every module:
 | `install.sh`, `tests/smoke.sh` | wave 2 (installer) |
 | `README.md`, repository `README.md`/`CONFIG.md` pointers | wave 3 |
 
-Nothing outside `codex_config/` changes, except the docs pointers in wave 3 and `.gitignore` if
-needed. `install.sh`, `lib/`, `dot-claude/` and `tests/` of the Claude installer are read-only inputs.
+Nothing outside `dot-config/dot-codex_config/` changes, except the docs pointers in wave 3 and `.gitignore` if
+needed. `install.sh`, `lib/`, `dot-config/dot-claude/` and `tests/` of the Claude installer are read-only inputs.
 
 ## 2. Staged CODEX_HOME (what one install produces)
 
@@ -57,12 +57,12 @@ stack/agents/<role>.toml          one per agent but blackcat
 stack/agents-astra/<role>.toml    the models.toml astra.agents roles
 stack/skills/<skill>/...          listed skills (real files); never the 4 EXCLUDED_SKILLS (B2)
 stack/skill-modules/<module>/...  hub modules (never in a scanned root)
-stack/hooks/codex_guard.py        + the dot-claude/hooks files named in hooks/SUPPORT_FILES
+stack/hooks/codex_guard.py        + the dot-config/dot-claude/hooks files named in hooks/SUPPORT_FILES
 stack/bin/codex-hook              POSIX sh stub; stack/bin/stack-python is a link made after apply
-stack/bin/with-stack-env, stack/bin/mcp-headers   adapted from dot-claude/bin
-stack/bin/codex-mcp-headers       codex_config/bin/codex-mcp-headers (Codex http_headers_helper)
-stack/bin/magg-private, stack/magg/config.json    from dot-claude (the magg server's table uses them)
-stack/mcp/...                     MCP server scripts from dot-claude/mcp
+stack/bin/with-stack-env, stack/bin/mcp-headers   adapted from dot-config/dot-claude/bin
+stack/bin/codex-mcp-headers       dot-config/dot-codex_config/bin/codex-mcp-headers (Codex http_headers_helper)
+stack/bin/magg-private, stack/magg/config.json    from dot-config/dot-claude (the magg
+stack/mcp/...                     MCP server scripts from dot-config/dot-claude/mcp
 stack/policy/agents.json          §4 (B)
 stack/policy/guard.json           §5 (render, from C's template + F's credential set)
 ```
@@ -106,8 +106,8 @@ P4/U2). Policy keys are always the canonical hyphenated names; the guard canonic
   - `retrust <old-manifest|-> <new-manifest>` prints one changed or new hook key per line (exit 0)
   - `latest <codex_home> <backup_root>`, `new-backup <codex_home> <backup_root> <commit>`
   - backup root: `${XDG_STATE_HOME:-$HOME/.local/state}/codex-agent-stack-backups`
-- `source_snapshot.py <repo> <dest>` → copies the HEAD-tracked files of `codex_config/`,
-  `lib/install_state.py`, `lib/claude_md_block.py`, `lib/stack.env.example`, `dot-claude/` into
+- `source_snapshot.py <repo> <dest>` → copies the HEAD-tracked files of `dot-config/dot-codex_config/`,
+  `lib/install_state.py`, `lib/claude_md_block.py`, `lib/stack.env.example`, `dot-config/dot-claude/` into
   `<dest>` (O_NOFOLLOW reads, the Claude installer's git hardening); prints the commit SHA. Exit 1 on
   a dirty or unreadable tracked file the same way `install.sh` does.
 - `skill_links.py`:
@@ -157,7 +157,7 @@ P4/U2). Policy keys are always the canonical hyphenated names; the guard canonic
   (`{role: role_toml_dict}`), `astra_roles`, `agents_entries` (`{role: {"description",
   "config_file"}}`), `astra_entries`, `policy` (agents.json, §4), `mcp_servers` (`{id: table}` merged
   from frontmatter; `__UV__`/`__CLAUDE_DIR__` rendered from `ctx`), `blackcat` (`{"model", "effort",
-  "instructions"}`), `report`. `src` is the snapshot root (holds `dot-claude/`).
+  "instructions"}`), `report`. `src` is the snapshot root (holds `dot-config/dot-claude/`).
 - `convert_skills.convert(src: str, stage_stack: str, ctx: dict) -> dict` writes
   `stage_stack/skills/` and `stage_stack/skill-modules/`; returns `listed`, `modules`,
   `budget_chars`, `budget_tokens`, `report`, `links` (`{skill: "<codex_home>/stack/skills/<skill>"}`).
@@ -178,7 +178,7 @@ P4/U2). Policy keys are always the canonical hyphenated names; the guard canonic
   `session_end`; `codex_guard.py --self-test` (exit 0/1). Reads the event JSON on stdin; reads
   `<guard dir>/../policy/{agents,guard}.json` or, flat, `<guard dir>/{agents,guard}.json`. Output
   exactly per the vendored `hooks_schema.rs` wire structs (`deny_unknown_fields`).
-- `hooks/SUPPORT_FILES`: one `dot-claude/hooks/<name>` per line that render copies next to the guard.
+- `hooks/SUPPORT_FILES`: one `dot-config/dot-claude/hooks/<name>` per line that render copies next to the guard.
 - `hook_defs.hooks_table(stub: str, scope: str = "profile") -> dict` → the `hooks` table (no
   `state`): one group per event (`PreToolUse`, `PermissionRequest`, `PostToolUse`, `SubagentStart`,
   `SubagentStop`, `UserPromptSubmit`, `SessionStart`, `SessionEnd`); command

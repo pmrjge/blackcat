@@ -2,7 +2,8 @@
 
 `Sandbox` owns one fixed scratch tree per test module:
 
-    <root>/repo   a committed git copy of the tree this test file lives in (codex_config, dot-claude,
+    <root>/repo   a committed git copy of the tree this test file lives in (dot-config/dot-codex_config,
+                  dot-config/dot-claude,
                   the engine files of lib/), so the tests work from mutate.py's temporary copy too
     <root>/home   scratch HOME (with ~/.codex, ~/.agents/skills, ~/.local/state)
     <root>/tmp    scratch TMPDIR
@@ -32,7 +33,7 @@ from _foundation_helpers import git
 from conftest import CODEX_CONFIG, FAKE_CODEX_DIR, REPO
 
 ENGINE_FILES = ("lib/install_state.py", "lib/claude_md_block.py", "lib/stack.env.example")
-INSTALL = "codex_config/install.sh"
+INSTALL = "dot-config/dot-codex_config/install.sh"
 BEGIN_A = "# >>> claude-agent-stack: begin A"
 BEGIN_B = "# >>> claude-agent-stack: begin B"
 END_A = "# <<< claude-agent-stack: end A <<<"
@@ -86,8 +87,8 @@ class Sandbox:
             (self.repo / rel).parent.mkdir(parents=True, exist_ok=True)
             shutil.copy2(REPO / rel, self.repo / rel)
         ign = shutil.ignore_patterns("__pycache__", "build", ".pytest_cache")
-        shutil.copytree(CODEX_CONFIG, self.repo / "codex_config", ignore=ign)
-        shutil.copytree(REPO / "dot-claude", self.repo / "dot-claude", ignore=ign)
+        shutil.copytree(CODEX_CONFIG, self.repo / "dot-config" / "dot-codex_config", ignore=ign)
+        shutil.copytree(REPO / "dot-config" / "dot-claude", self.repo / "dot-config" / "dot-claude", ignore=ign)
         git(self.repo, "init", "-q", "-b", "main")
         git(self.repo, "config", "gc.auto", "0")
         git(self.repo, "config", "maintenance.auto", "false")
@@ -116,7 +117,7 @@ class Sandbox:
         e = {k: v for k, v in os.environ.items()
              if not k.startswith(("CLAUDE", "CODEX", "STACK_", "GIT_", "FAKE_CODEX"))}
         e.update(HOME=str(self.home), CODEX_HOME=str(self.ch), XDG_STATE_HOME=str(self.state),
-                 TMPDIR=str(self.tmp), STACK_PYTHON=installer_python(),
+                 TMPDIR=str(self.tmp), STACK_PYTHON=installer_python(), STACK_CODEX_VIA_TOP="1",
                  PATH=str(FAKE_CODEX_DIR) + os.pathsep + os.environ.get("PATH", ""))
         e.update(extra or {})
         return e

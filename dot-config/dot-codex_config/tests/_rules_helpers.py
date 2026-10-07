@@ -1,7 +1,7 @@
 """Shared helpers for the rules, permissions, requirements and execpolicy-mirror tests (part F).
 
 Nothing here touches the real ~/.codex, ~/.agents, ~/.claude or /etc: contexts point at scratch
-paths, and the only repository file read is dot-claude/settings.json (read-only input).
+paths, and the only repository file read is dot-config/dot-claude/settings.json (read-only input).
 """
 from __future__ import annotations
 
@@ -16,7 +16,7 @@ from conftest import FAKE_CODEX_DIR, REPO, VENDOR
 
 FIXTURES = Path(__file__).resolve().parent / "fixtures" / "rules"
 FAKE_CODEX = FAKE_CODEX_DIR / "codex"
-SETTINGS = REPO / "dot-claude" / "settings.json"
+SETTINGS = REPO / "dot-config" / "dot-claude" / "settings.json"
 SCHEMA = json.loads((VENDOR / "config.schema.json").read_text())
 
 
@@ -135,23 +135,24 @@ def vendored(name: str) -> str:
 # ------------------------------------------------------------------ requirements source fixture
 
 
-def make_src(root: Path, support=("stack_io.py", "dot-claude/hooks/toolsmith_policy.py"),
+def make_src(root: Path, support=("stack_io.py", "dot-config/dot-claude/hooks/toolsmith_policy.py"),
              template=None) -> Path:
     """A minimal snapshot tree for requirements.py: settings.json (the repository's), the guard
     files (fixture bytes) and C's guard template."""
     src = Path(root)
-    (src / "dot-claude" / "hooks").mkdir(parents=True)
-    (src / "codex_config" / "hooks").mkdir(parents=True)
-    (src / "codex_config" / "templates").mkdir(parents=True)
-    (src / "dot-claude" / "settings.json").write_text(SETTINGS.read_text())
-    (src / "codex_config" / "hooks" / "codex-hook").write_text("#!/bin/sh\n# fixture stub\nexit 0\n")
-    (src / "codex_config" / "hooks" / "codex_guard.py").write_text("# fixture guard\n")
-    (src / "codex_config" / "hooks" / "SUPPORT_FILES").write_text(
+    (src / "dot-config" / "dot-claude" / "hooks").mkdir(parents=True)
+    (src / "dot-config" / "dot-codex_config" / "hooks").mkdir(parents=True)
+    (src / "dot-config" / "dot-codex_config" / "templates").mkdir(parents=True)
+    (src / "dot-config" / "dot-claude" / "settings.json").write_text(SETTINGS.read_text())
+    (src / "dot-config" / "dot-codex_config" / "hooks" / "codex-hook").write_text(
+        "#!/bin/sh\n# fixture stub\nexit 0\n")
+    (src / "dot-config" / "dot-codex_config" / "hooks" / "codex_guard.py").write_text("# fixture guard\n")
+    (src / "dot-config" / "dot-codex_config" / "hooks" / "SUPPORT_FILES").write_text(
         "# support files\n" + "".join(s + "\n" for s in support))
     for s in support:
         name = s.rsplit("/", 1)[-1]
-        (src / "dot-claude" / "hooks" / name).write_text("# fixture %s\n" % name)
-    (src / "codex_config" / "templates" / "guard.base.json").write_text(
+        (src / "dot-config" / "dot-claude" / "hooks" / name).write_text("# fixture %s\n" % name)
+    (src / "dot-config" / "dot-codex_config" / "templates" / "guard.base.json").write_text(
         json.dumps(template if template is not None else {"caps": {"max_spawns": 8}}))
     return src
 

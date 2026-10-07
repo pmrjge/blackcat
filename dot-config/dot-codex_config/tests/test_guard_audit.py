@@ -18,7 +18,7 @@ import pytest
 
 from _guard_helpers import REPO, Guard, Stack, bash, decision, load_by_path, reason
 
-G = load_by_path("codex_guard_audit", REPO / "codex_config" / "hooks" / "codex_guard.py")
+G = load_by_path("codex_guard_audit", REPO / "dot-config" / "dot-codex_config" / "hooks" / "codex_guard.py")
 
 
 @pytest.fixture

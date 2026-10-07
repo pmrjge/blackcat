@@ -112,7 +112,7 @@ IDE_PROFILE_TEXT = (
     "# The stack's settings live in the two marked regions of config.toml, so every Codex session\n"
     "# (CLI, IDE, desktop app) uses them; this file only keeps `codex --profile codex` working.\n"
     "# It holds no [hooks]: hooks load from every config layer, so the guard would run twice.\n"
-    "# Owned by codex_config/install.sh: edits are overwritten; your settings go in config.toml.\n"
+    "# Owned by ./install.sh --codex: edits are overwritten; your settings go in config.toml.\n"
 )
 
 _ROLE = re.compile(r"[a-z0-9][a-z0-9_-]*\Z")

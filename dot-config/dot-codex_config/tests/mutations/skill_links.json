@@ -1,37 +1,37 @@
 [
  {
-  "file": "codex_config/lib/skill_links.py",
+  "file": "dot-config/dot-codex_config/lib/skill_links.py",
   "old": "return (cur[\"type\"] == \"link\" and name in old_links and cur[\"target\"] == old_links[name]\n                    and stack_target(name, cur[\"target\"]))",
   "new": "return (cur[\"type\"] == \"link\" and stack_target(name, cur[\"target\"]))",
-  "tests": "codex_config/tests/test_skill_links.py",
+  "tests": "dot-config/dot-codex_config/tests/test_skill_links.py",
   "why": "treat any link into stack/skills as the stack's without the old manifest"
  },
  {
-  "file": "codex_config/lib/skill_links.py",
+  "file": "dot-config/dot-codex_config/lib/skill_links.py",
   "old": "                if ours(cur, name):\n                    ops.append({\"op\": \"remove\"",
   "new": "                if True:\n                    ops.append({\"op\": \"remove\"",
-  "tests": "codex_config/tests/test_skill_links.py",
+  "tests": "dot-config/dot-codex_config/tests/test_skill_links.py",
   "why": "prune a foreign entry under a name no longer shipped"
  },
  {
-  "file": "codex_config/lib/skill_links.py",
+  "file": "dot-config/dot-codex_config/lib/skill_links.py",
   "old": "            if cur != e[\"after\"] or fd is None:",
   "new": "            if fd is None:",
-  "tests": "codex_config/tests/test_skill_links.py",
+  "tests": "dot-config/dot-codex_config/tests/test_skill_links.py",
   "why": "restore without checking the entry's current state"
  },
  {
-  "file": "codex_config/lib/skill_links.py",
+  "file": "dot-config/dot-codex_config/lib/skill_links.py",
   "old": "fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)",
   "new": "fd = os.open(root, os.O_RDONLY | os.O_DIRECTORY)",
-  "tests": "codex_config/tests/test_skill_links.py",
+  "tests": "dot-config/dot-codex_config/tests/test_skill_links.py",
   "why": "open the root following a symlink"
  },
  {
-  "file": "codex_config/lib/skill_links.py",
+  "file": "dot-config/dot-codex_config/lib/skill_links.py",
   "old": "    _write_record(bdir, {\"format\": FORMAT, \"entries\": entries})\n    print_plan(p, out)\n    if new_root is not None and any(e[\"root\"] == new_root for e in entries):\n        fd = open_root(new_root, create=True)          # a missing root is created (0755), never a link\n        os.close(fd)\n    for e in entries:\n        fd = open_root(e[\"root\"])\n        try:\n            if fd is None or state(fd, e[\"name\"]) != e[\"before\"]:\n                raise LinkError(\"%s changed while the installer ran: stopped (the links changed so far are \"\n                                \"in %s; restore undoes them)\" % (os.path.join(e[\"root\"], e[\"name\"]),\n                                                                  os.path.join(bdir, RECORD)))\n            _change(fd, e[\"name\"], e[\"before\"], e[\"after\"])\n        finally:\n            if fd is not None:\n                os.close(fd)\n",
   "new": "    print_plan(p, out)\n    if new_root is not None and any(e[\"root\"] == new_root for e in entries):\n        fd = open_root(new_root, create=True)          # a missing root is created (0755), never a link\n        os.close(fd)\n    for e in entries:\n        fd = open_root(e[\"root\"])\n        try:\n            if fd is None or state(fd, e[\"name\"]) != e[\"before\"]:\n                raise LinkError(\"%s changed while the installer ran: stopped (the links changed so far are \"\n                                \"in %s; restore undoes them)\" % (os.path.join(e[\"root\"], e[\"name\"]),\n                                                                  os.path.join(bdir, RECORD)))\n            _change(fd, e[\"name\"], e[\"before\"], e[\"after\"])\n        finally:\n            if fd is not None:\n                os.close(fd)\n    _write_record(bdir, {\"format\": FORMAT, \"entries\": entries})\n",
-  "tests": "codex_config/tests/test_skill_links.py",
+  "tests": "dot-config/dot-codex_config/tests/test_skill_links.py",
   "why": "write the record after the changes"
  }
 ]

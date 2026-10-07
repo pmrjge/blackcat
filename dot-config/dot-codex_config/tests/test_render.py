@@ -64,7 +64,7 @@ def test_layout_is_interfaces_section_2(base):
 def test_toolsmith_wrapper_is_shipped_and_guard_paths_exist(base):
     env = base["env"]
     wrapper = env.stage / "stack" / "bin" / "stack-install"
-    assert wrapper.read_bytes() == (REPO / "dot-claude" / "bin" / "stack-install").read_bytes()
+    assert wrapper.read_bytes() == (REPO / "dot-config" / "dot-claude" / "bin" / "stack-install").read_bytes()
     assert os.stat(wrapper).st_mode & 0o777 == 0o755
     guard = json.loads((env.stage / "stack" / "policy" / "guard.json").read_text())
     assert guard["toolsmith_wrapper"].endswith("/stack/bin/stack-install")
@@ -254,7 +254,7 @@ def test_adapted_stack_env_paths(base):
     assert '"$(dirname -- "$0")/../.." && pwd)/stack.env' in (stack / "bin" / "with-stack-env").read_text()
     assert "parent.parent.parent / \"stack.env\"" in (stack / "bin" / "mcp-headers").read_text()
     assert "parent.parent.parent / \"stack.env\"" in (stack / "mcp" / "libdocs_mcp.py").read_text()
-    src = (REPO / "dot-claude" / "bin" / "with-stack-env").read_bytes()
+    src = (REPO / "dot-config" / "dot-claude" / "bin" / "with-stack-env").read_bytes()
     assert len((stack / "bin" / "with-stack-env").read_bytes()) == len(src) + 3
 
 

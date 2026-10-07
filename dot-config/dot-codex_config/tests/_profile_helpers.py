@@ -2,7 +2,7 @@
 a strict checker against the vendored config.schema.json, and key-path utilities.
 
 Nothing here touches the real ~/.codex, ~/.agents, ~/.claude or /etc: paths are scratch strings, the
-only repository files read are dot-claude/settings.json and the agent file names (read-only inputs).
+only repository files read are dot-config/dot-claude/settings.json and the agent file names (read-only inputs).
 """
 from __future__ import annotations
 
@@ -14,7 +14,7 @@ from conftest import REPO, VENDOR, load_lib
 
 SCHEMA = json.loads((VENDOR / "config.schema.json").read_text())
 DEFS = SCHEMA["definitions"]
-SETTINGS = json.loads((REPO / "dot-claude" / "settings.json").read_text())
+SETTINGS = json.loads((REPO / "dot-config" / "dot-claude" / "settings.json").read_text())
 ASTRA = ("ninja-coder", "main-coder", "mathematician", "planner", "proof-checker", "security-auditor")
 CODEX_HOME = "/scratch/home/.codex"
 STACK = CODEX_HOME + "/stack"
@@ -22,8 +22,8 @@ STUB = STACK + "/bin/codex-hook"
 
 
 def role_names() -> list:
-    """The 56 roles: every dot-claude agent but the main thread."""
-    names = sorted(p.stem for p in (REPO / "dot-claude" / "agents").glob("*.md"))
+    """The 56 roles: every dot-config/dot-claude agent but the main thread."""
+    names = sorted(p.stem for p in (REPO / "dot-config" / "dot-claude" / "agents").glob("*.md"))
     return [n for n in names if n not in ("blackcat", "equilibrium")]   # equilibrium: convert_agents.NOT_PORTED
 
 

@@ -1,4 +1,4 @@
-"""Private source snapshot for codex_config/install.sh (DESIGN.md §7.2; port of install.sh's block).
+"""Private source snapshot for ./install.sh --codex (DESIGN.md §7.2; port of install.sh's block).
 
 Stdlib only, Python >= 3.11. Security-relevant (CWE-829, CWE-345, CWE-367): keep it small.
 
@@ -12,8 +12,8 @@ after this point (lib/install_state.py, the guard, a skill) is never run or inst
 What it checks, as install.sh does:
 - every file is opened without following a link on any path component (O_NOFOLLOW per component,
   from an O_DIRECTORY fd of the repo) and must be a regular file; HEAD entries must be modes
-  100644/100755 (no symlinks, no submodules); any symlink under dot-claude/ or codex_config/,
-  tracked or not, stops the run;
+  100644/100755 (no symlinks, no submodules); any symlink under dot-config/dot-claude/ or
+  dot-config/dot-codex_config/ (or in place of one of their directories), tracked or not, stops the run;
 - the bytes read are hashed as git blobs and compared with HEAD's object ids (not with git's
   index, whose stat cache and flags an agent can write); a file the index marks assume-unchanged or
   skip-worktree stops the run; git fsck re-hashes the objects, and fsck.* keys in the repo's own
@@ -28,7 +28,9 @@ in HEAD (staged only, untracked) are never copied; they are listed on stderr ("A
 
 changes_since(repo, prev_commit, commit) gives the `git diff --stat` of SNAPSHOT_PATHS from an earlier
 install's commit to the SNAPSHOT's commit (the SHA this module printed, never HEAD: a commit made
-after the snapshot is not what the run installs), for the installer's supply review.
+after the snapshot is not what the run installs), for the installer's supply review. An earlier
+commit from before the move under dot-config/ (it has no dot-config/dot-codex_config) is reviewed over
+LEGACY_PATHS too, with renames shown as renames (review_paths).
 
 Seeded-bug proofs (tests/mutations/source_snapshot.json; each turns tests/test_source_snapshot.py
 red): link the snapshot files to the repository instead of copying the bytes read; follow a link on
@@ -46,9 +48,12 @@ import stat
 import subprocess
 import sys
 
-SNAPSHOT_PATHS = ("codex_config", "lib/install_state.py", "lib/claude_md_block.py", "lib/stack.env.example",
-                  "dot-claude")
-NO_LINKS = ("dot-claude", "codex_config")
+SNAPSHOT_PATHS = ("dot-config/dot-codex_config", "lib/install_state.py", "lib/claude_md_block.py",
+                  "lib/stack.env.example", "dot-config/dot-claude")
+NO_LINKS = ("dot-config/dot-claude", "dot-config/dot-codex_config")
+# where SNAPSHOT_PATHS' two folders lived before the repository move (2026-10-07): a supply review from
+# an install of an older commit covers them too
+LEGACY_PATHS = ("codex_config", "dot-claude")
 _SHA = re.compile(r"[0-9a-f]{7,64}\Z")
 
 
@@ -106,9 +111,12 @@ def open_nofollow(repo, rel):
 
 
 def _check_repo(repo):
-    links = sorted(os.path.relpath(os.path.join(r, n), repo)
-                   for top in NO_LINKS for r, ds, fs in os.walk(os.path.join(repo, top))
-                   for n in ds + fs if os.path.islink(os.path.join(r, n)))
+    # NO_LINKS' own directories (dot-config, dot-config/dot-claude, ...) and everything under them
+    tops = sorted({"/".join(t.split("/")[:i]) for t in NO_LINKS for i in range(1, t.count("/") + 2)})
+    links = [t for t in tops if os.path.islink(os.path.join(repo, t))]
+    links += sorted(os.path.relpath(os.path.join(r, n), repo)
+                    for top in NO_LINKS for r, ds, fs in os.walk(os.path.join(repo, top))
+                    for n in ds + fs if os.path.islink(os.path.join(r, n)))
     if links:
         raise SnapshotError("%s is a symlink; the stack ships none — remove it" % ", ".join(map(show, links[:5])))
     index = [(e[0], e[2:]) for e in _paths(_git(repo, "ls-files", "-v", "-z", "--", *SNAPSHOT_PATHS).stdout)]
@@ -200,13 +208,23 @@ def snapshot(repo, dest, allow_dirty=False):
     return commit, review
 
 
+def review_paths(repo, prev_commit):
+    """SNAPSHOT_PATHS, plus LEGACY_PATHS when prev_commit predates the move (it has no SNAPSHOT_PATHS[0])."""
+    if not (isinstance(prev_commit, str) and _SHA.match(prev_commit)):
+        return SNAPSHOT_PATHS
+    p = _git(os.path.abspath(repo), "cat-file", "-e", "%s:%s" % (prev_commit, SNAPSHOT_PATHS[0]), check=False)
+    return SNAPSHOT_PATHS + (LEGACY_PATHS if p.returncode else ())
+
+
 def changes_since(repo, prev_commit, commit):
-    """`git diff --stat` of SNAPSHOT_PATHS from prev_commit to `commit` (the snapshot's SHA, not HEAD;
+    """`git diff --stat` of review_paths() from prev_commit to `commit` (the snapshot's SHA, not HEAD;
     "" when none); None when either is not a SHA this repo has (review everything then)."""
     if not all(isinstance(c, str) and _SHA.match(c) for c in (prev_commit, commit)):
         return None
-    p = _git(os.path.abspath(repo), "diff", "--no-ext-diff", "--no-textconv", "--stat", prev_commit, commit,
-             "--", *SNAPSHOT_PATHS, check=False)
+    paths = review_paths(repo, prev_commit)
+    renames = ["-M"] if paths != SNAPSHOT_PATHS else []
+    p = _git(os.path.abspath(repo), "diff", "--no-ext-diff", "--no-textconv", "--stat", *renames, prev_commit,
+             commit, "--", *paths, check=False)
     return p.stdout.decode("utf-8", "replace") if p.returncode == 0 else None
 
 
@@ -220,7 +238,7 @@ def main(argv):
     try:
         commit, review = snapshot(a[0], a[1], allow)
     except (SnapshotError, OSError) as exc:
-        sys.stderr.write("codex_config/install.sh: source snapshot: %s — nothing was installed\n" % exc)
+        sys.stderr.write("./install.sh --codex: source snapshot: %s — nothing was installed\n" % exc)
         return 1
     for line in review:
         sys.stderr.write("note: %s\n" % line)

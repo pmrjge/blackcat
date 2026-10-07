@@ -26,7 +26,7 @@ doctor = load_lib("doctor")
 hook_defs = load_lib("hook_defs")
 FAKE_CODEX = FAKE_CODEX_DIR / "codex"
 EXAMPLE_ENV = REPO / "lib" / "stack.env.example"
-GUARD_BASE = REPO / "codex_config" / "templates" / "guard.base.json"
+GUARD_BASE = REPO / "dot-config" / "dot-codex_config" / "templates" / "guard.base.json"
 USER_SCOPE = ("exa", "jina", "wolfram", "huggingface")
 
 

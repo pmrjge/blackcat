@@ -1,14 +1,14 @@
 # Codex Phase 0 probes
 
-You run these (agents never do). They settle the unverified Codex facts in `codex_config/DESIGN.md` section 1.3 (U1 to U13, and the entries added by the build: see "Probes added after the build" below). Everything runs in a scratch `CODEX_HOME` and a scratch `HOME` under `${TMPDIR:-/tmp}`; `~/.codex`, `~/.agents` and `/etc` are never touched and auth files are never copied.
+You run these (agents never do). They settle the unverified Codex facts in `dot-config/dot-codex_config/DESIGN.md` section 1.3 (U1 to U13, and the entries added by the build: see "Probes added after the build" below). Everything runs in a scratch `CODEX_HOME` and a scratch `HOME` under `${TMPDIR:-/tmp}`; `~/.codex`, `~/.agents` and `/etc` are never touched and auth files are never copied.
 
 ## Run
 
 ```
-codex_config/probes/run.sh --list            # the 14 probes
-codex_config/probes/run.sh --dry-run         # every file it would write, every command you would run; no prompts
-codex_config/probes/run.sh                   # all probes (P2 first: it trusts the hooks the others need)
-codex_config/probes/run.sh --probe P7b       # one probe
+dot-config/dot-codex_config/probes/run.sh --list            # the 14 probes
+dot-config/dot-codex_config/probes/run.sh --dry-run         # every file it would write, every command you would run; no prompts
+dot-config/dot-codex_config/probes/run.sh                   # all probes (P2 first: it trusts the hooks the others need)
+dot-config/dot-codex_config/probes/run.sh --probe P7b       # one probe
 ```
 
 1. Start it. It prints the scratch root and `CODEX_HOME=<scratch> codex login`: run that once (a separate terminal is easiest), then press Enter.
@@ -109,7 +109,7 @@ Each hook writes a `#meta` line (event, argument 2, and whether the hook could w
 
 ## Probes added after the build
 
-These settle the facts the built installer still assumes. They are **manual** and are not in `run.sh` (`--list` shows the 14 above): you run them against a stack installed into a scratch `CODEX_HOME`, never `~/.codex`. Their ids follow `codex_config/DESIGN.md` §1.3 ("Added by the build"). Results go back as a line per probe: pass, fail or unknown, with the evidence named under Read.
+These settle the facts the built installer still assumes. They are **manual** and are not in `run.sh` (`--list` shows the 14 above): you run them against a stack installed into a scratch `CODEX_HOME`, never `~/.codex`. Their ids follow `dot-config/dot-codex_config/DESIGN.md` §1.3 ("Added by the build"). Results go back as a line per probe: pass, fail or unknown, with the evidence named under Read.
 
 Everything above stays out of `/etc`; the managed-hooks entry below is the one exception, and only if you choose to install the machine-wide tier (you run its `sudo` lines).
 
@@ -118,7 +118,7 @@ Common setup (a scratch root, a scratch `HOME`, a new empty `CODEX_HOME`; log in
 ```
 S=$(mktemp -d "${TMPDIR:-/tmp}/codex-probe.XXXXXX"); mkdir -p "$S/home" "$S/codex"
 CODEX_HOME="$S/codex" codex login
-STACK_PYTHON=$(uv python find 3.13) env HOME="$S/home" codex_config/install.sh --codex-home "$S/codex" --skills-root none --yes
+STACK_PYTHON=$(uv python find 3.13) env HOME="$S/home" ./install.sh --codex --codex-home "$S/codex" --skills-root none --yes
 ```
 
 Run Codex as `env HOME="$S/home" CODEX_HOME="$S/codex" codex --profile codex`. The installer needs a committed checkout. Delete `$S` afterwards.
@@ -220,7 +220,7 @@ Run Codex as `env HOME="$S/home" CODEX_HOME="$S/codex" codex --profile codex`. T
 - Steps, from the repository root, outside any sandbox:
 
 ```
-CODEX_GUARD_PERF_SHIM=1 uv run --no-project --python 3.13 --with pytest python -m pytest -q -s -p no:cacheprovider codex_config/tests/test_guard_perf.py
+CODEX_GUARD_PERF_SHIM=1 uv run --no-project --python 3.13 --with pytest python -m pytest -q -s -p no:cacheprovider dot-config/dot-codex_config/tests/test_guard_perf.py
 ```
 
 - Expected (pass): the shim test passes (p95 below 100 ms).

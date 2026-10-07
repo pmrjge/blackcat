@@ -1,7 +1,7 @@
 """Contracts the guard relies on (DESIGN.md §9 contracts): the hook tool-name table (F10, F22; probe
 P13 updates it), the hook input fixtures against hooks_schema.rs field names, the output against
 the deny_unknown_fields wire structs, guard.base.json against the guard's built-in defaults, and
-SUPPORT_FILES naming real dot-claude/hooks files."""
+SUPPORT_FILES naming real dot-config/dot-claude/hooks files."""
 from __future__ import annotations
 
 import json
@@ -142,7 +142,7 @@ def test_support_modules_load_by_path(tmp_path, monkeypatch):
 
 def test_support_files_exist_and_are_loaded_by_path():
     names = support_files()
-    assert names == ["dot-claude/hooks/stack_io.py", "dot-claude/hooks/toolsmith_policy.py"]
+    assert names == ["dot-config/dot-claude/hooks/stack_io.py", "dot-config/dot-claude/hooks/toolsmith_policy.py"]
     for rel in names:
         assert (REPO / rel).is_file()
     src = (HOOKS_SRC / "codex_guard.py").read_text()

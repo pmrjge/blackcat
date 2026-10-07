@@ -1,2 +1,2 @@
-dot-claude/hooks/stack_io.py
-dot-claude/hooks/toolsmith_policy.py
+dot-config/dot-claude/hooks/stack_io.py
+dot-config/dot-claude/hooks/toolsmith_policy.py

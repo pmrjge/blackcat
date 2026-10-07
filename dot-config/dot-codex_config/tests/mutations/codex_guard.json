@@ -1,317 +1,317 @@
 [
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        if sub in PUSH_SUBCOMMANDS:\n            return self.hit(\"push\", \"git \" + sub)",
   "new": "        if sub in PUSH_SUBCOMMANDS:\n            return None",
-  "tests": "codex_config/tests/test_guard_nopush.py::test_push_detected",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_nopush.py::test_push_detected",
   "why": "a no-push variant passes: git push is let through"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        base = [self.codex_home, os.path.join(self.home, \".agents\"), self.state_dir]",
   "new": "        base = [os.path.join(self.home, \".agents\"), self.state_dir]",
-  "tests": "codex_config/tests/test_guard_protect.py::test_codex_home_is_protected_even_when_the_list_omits_it",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_protect.py::test_codex_home_is_protected_even_when_the_list_omits_it",
   "why": "drop CODEX_HOME from the protected roots"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            if paths.protected(p):\n                return (\"protect\", m.group(1))",
   "new": "            if False:\n                return (\"protect\", m.group(1))",
-  "tests": "codex_config/tests/test_guard_protect.py::test_apply_patch_into_protected_roots_denied",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_protect.py::test_apply_patch_into_protected_roots_denied",
   "why": "apply_patch into CODEX_HOME allowed"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        found = shell_path_violation(cmd, ctx.cwd or os.getcwd(), ctx.paths, escalation)",
   "new": "        found = None",
-  "tests": "codex_config/tests/test_guard_protect.py::test_credentials_through_shell_denied",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_protect.py::test_credentials_through_shell_denied",
   "why": "auth.json through the shell: the shell path check dropped"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            if paths.credential(p):\n                return (\"cred\", m.group(1))",
   "new": "            if False:\n                return (\"cred\", m.group(1))",
-  "tests": "codex_config/tests/test_guard_protect.py::test_apply_patch_credentials_denied",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_protect.py::test_apply_patch_credentials_denied",
   "why": "auth.json through apply_patch: the patch credential check dropped"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        if ctx.paths.credential(c):\n            return CRED_REASON",
   "new": "        if False:\n            return CRED_REASON",
-  "tests": "codex_config/tests/test_guard_protect.py::test_credentials_through_mcp_path_args_denied",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_protect.py::test_credentials_through_mcp_path_args_denied",
   "why": "auth.json through MCP path arguments: the input credential check dropped"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "MAIN_CLASSES = (\"spawn\", \"ma\", \"plan\", \"ask\")",
   "new": "MAIN_CLASSES = (\"spawn\", \"plan\", \"ask\")",
-  "tests": "codex_config/tests/test_guard_policy.py::test_blackcat_wait_agent_allowed",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_blackcat_wait_agent_allowed",
   "why": "BlackCat gate refuses the namespaced multi_agent_v1wait_agent"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    cls = TOOL_CLASSES.get(tool)\n",
   "new": "    cls = \"ma\" if tool.startswith(MA_PREFIX) else TOOL_CLASSES.get(tool)\n",
-  "tests": "codex_config/tests/test_guard_policy.py::test_blackcat_refuses_plain_and_unknown_multi_agent_names",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_blackcat_refuses_plain_and_unknown_multi_agent_names",
   "why": "accept an unknown multi_agent_v1 tool"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    TOOL_CLASSES[MA_PREFIX + _t] = \"ma\"",
   "new": "    TOOL_CLASSES[_t] = TOOL_CLASSES[MA_PREFIX + _t] = \"ma\"",
-  "tests": "codex_config/tests/test_guard_policy.py::test_blackcat_refuses_plain_and_unknown_multi_agent_names",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_blackcat_refuses_plain_and_unknown_multi_agent_names",
   "why": "accept the plain (unprefixed) wait_agent/send_input names"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        bad = readonly_violation(shell_command(ctx.raw_input), ctx.cwd)\n        if bad:\n            return (DENY, READONLY_REASON % (ctx.label(), bad[0][:160], bad[1][:300]))\n        with session_state(ctx) as st:",
   "new": "        bad = None\n        if bad:\n            return (DENY, READONLY_REASON % (ctx.label(), bad[0][:160], bad[1][:300]))\n        with session_state(ctx) as st:",
-  "tests": "codex_config/tests/test_guard_policy.py::test_blackcat_gate_refuses_shell_writes",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_blackcat_gate_refuses_shell_writes",
   "why": "let the BlackCat gate pass a shell write"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    ok = rec is not None and (rec.get(\"parent\") == ctx.key or (",
   "new": "    ok = rec is not None or (rec.get(\"parent\") == ctx.key or (",
-  "tests": "codex_config/tests/test_guard_state.py::test_send_input_routed_against_the_spawn_tree",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_state.py::test_send_input_routed_against_the_spawn_tree",
   "why": "send_input routed to any known agent, not only child/parent"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    if target not in allowed:\n        return (DENY, SPAWN_ROW_REASON",
   "new": "    if False:\n        return (DENY, SPAWN_ROW_REASON",
-  "tests": "codex_config/tests/test_guard_policy.py::test_spawn_target_must_be_in_the_callers_row",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_spawn_target_must_be_in_the_callers_row",
   "why": "caller spawn rows ignored"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        if not self.caller or self.caller in self.agents.get(\"builtin_types\", []):",
   "new": "        if not self.caller:",
-  "tests": "codex_config/tests/test_guard_policy.py::test_builtin_type_names_win_over_a_colliding_row",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_builtin_type_names_win_over_a_colliding_row",
   "why": "built-in types run when a row carries their name"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        return self.agents[\"agents\"].get(self.caller)\n",
   "new": "        return self.agents[\"agents\"].get(self.caller) or self.agents[\"blackcat\"]\n",
-  "tests": "codex_config/tests/test_guard_policy.py::test_generic_and_unknown_types_run_nothing",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_generic_and_unknown_types_run_nothing",
   "why": "generic and unknown agent types fall back to the BlackCat row"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    if row.get(\"readonly\"):\n        bad = readonly_violation(cmd, ctx.cwd)",
   "new": "    if False:\n        bad = readonly_violation(cmd, ctx.cwd)",
-  "tests": "codex_config/tests/test_guard_policy.py::test_readonly_allowlist_refuses_writes",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_readonly_allowlist_refuses_writes",
   "why": "read-only roles write through the shell"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        if cls[1] not in row.get(\"mcp\", []):",
   "new": "        if False:",
-  "tests": "codex_config/tests/test_guard_policy.py::test_mcp_server_allowlist",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_mcp_server_allowlist",
   "why": "MCP server allowlist dropped"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            if rec.get(\"tainted\") and rec.get(\"parent\"):\n                taint(st, rec[\"parent\"])",
   "new": "            if False:\n                taint(st, rec[\"parent\"])",
-  "tests": "codex_config/tests/test_guard_state.py::test_taint_flows_from_a_child_report_and_into_spawns",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_state.py::test_taint_flows_from_a_child_report_and_into_spawns",
   "why": "taint does not flow from a tainted child's report to its parent"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    if is_tainted(ctx, st):\n        taint(st, tkey)",
   "new": "    if False:\n        taint(st, tkey)",
-  "tests": "codex_config/tests/test_guard_state.py::test_taint_flows_both_ways_along_send_input",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_state.py::test_taint_flows_both_ways_along_send_input",
   "why": "taint does not flow along send_input"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "                fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)\n                break",
   "new": "                pass\n                break",
-  "tests": "codex_config/tests/test_guard_state.py::test_caps_hold_under_concurrent_processes",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_state.py::test_caps_hold_under_concurrent_processes",
   "why": "caps under concurrent processes: the state lock is never taken"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            out = deny_output(mode, INTERNAL_REASON % (\"%s: %s\" % (type(exc).__name__, exc))[:200])",
   "new": "            out = None",
-  "tests": "codex_config/tests/test_guard_state.py::test_internal_error_is_a_deny",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_state.py::test_internal_error_is_a_deny",
   "why": "catch-all lets an internal error through"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    if ctx.is_main or ctx.row.get(\"readonly\"):\n        return (DENY, ESCALATE_REASON % ctx.label())",
   "new": "    if False:\n        return (DENY, ESCALATE_REASON % ctx.label())",
-  "tests": "codex_config/tests/test_guard_policy.py::test_readonly_escalation_refused",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_readonly_escalation_refused",
   "why": "PermissionRequest lets BlackCat and read-only roles escalate"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    why = universal_pre(ctx, cls, escalation=True)",
   "new": "    why = universal_pre(ctx, cls, escalation=False)",
-  "tests": "codex_config/tests/test_guard_protect.py::test_escalation_touching_protected_roots_denied",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_protect.py::test_escalation_touching_protected_roots_denied",
   "why": "PermissionRequest checks an escalation like a sandboxed call"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "                    aliases[key[6:].lower()] = value       # alias names are case-insensitive",
   "new": "                    aliases[key[6:]] = value",
-  "tests": "codex_config/tests/test_guard_nopush.py::test_git_flag_evasions_are_pushes",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_nopush.py::test_git_flag_evasions_are_pushes",
   "why": "-c alias.P='!sh' p -c 'git push': alias lookup case-sensitive"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "                    found = self.env_config(env_cfg, depth)",
   "new": "                    found = None",
-  "tests": "codex_config/tests/test_guard_nopush.py::test_git_flag_evasions_are_pushes",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_nopush.py::test_git_flag_evasions_are_pushes",
   "why": "a pager, editor or alias set through GIT_CONFIG_KEY_n/GIT_CONFIG_PARAMETERS is not read"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            if len(name) >= 2 and any(o.startswith(name) for o in GIT_FILE_LONG):",
   "new": "            if name in GIT_FILE_LONG:",
-  "tests": "codex_config/tests/test_guard_nopush.py::test_git_escalation_options_refused",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_nopush.py::test_git_escalation_options_refused",
   "why": "abbreviated --fil/--te/--pathspec-from are not file options"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "                if c in file_short:\n                    out.append((\"-\" + c, val))",
   "new": "                if False:\n                    out.append((\"-\" + c, val))",
-  "tests": "codex_config/tests/test_guard_nopush.py::test_git_escalation_options_refused",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_nopush.py::test_git_escalation_options_refused",
   "why": "short -F/-t (and clusters like -aF) are not file options"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    if GIT_EXEC_KEY_RE.match(key) or GITESC_KEY_RE.match(key) or _expansion(key):\n        return \"git -c \" + key",
   "new": "    if key.lower().startswith(\"alias.\"):\n        return \"git -c \" + key",
-  "tests": "codex_config/tests/test_guard_nopush.py::test_git_escalation_options_refused",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_nopush.py::test_git_escalation_options_refused",
   "why": "escalated git -c core.editor/include.path/hooksPath pass"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "                    found = _gitesc_env(w, words, restore)",
   "new": "                    found = None",
-  "tests": "codex_config/tests/test_guard_nopush.py::test_allow_rule_form_is_checked_in_pretooluse",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_nopush.py::test_allow_rule_form_is_checked_in_pretooluse",
   "why": "GIT_EXEC_PATH=... before an unsandboxed git passes"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            for f in files:\n                found = check(f, False, where)",
   "new": "            for f in []:\n                found = check(f, False, where)",
-  "tests": "codex_config/tests/test_guard_protect.py::test_credentials_through_git_file_options_denied",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_protect.py::test_credentials_through_git_file_options_denied",
   "why": "credential named by git -t/-F/--pathspec-from-file values not checked"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            where = _git_bases(dirs, bases, paths, assigns)",
   "new": "            where = bases",
-  "tests": "codex_config/tests/test_guard_protect.py::test_credentials_through_git_file_options_denied",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_protect.py::test_credentials_through_git_file_options_denied",
   "why": "git -C DIR ignored when resolving a file option"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            cwd = _git_cwd(cwd, rest[k + 1] if o == \"-C\" and k + 1 < len(rest) else o[2:])",
   "new": "            cwd = cwd",
-  "tests": "codex_config/tests/test_guard_policy.py::test_readonly_git_output_resolves_against_dash_c",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_readonly_git_output_resolves_against_dash_c",
   "why": "read-only check resolves git --output against the caller's cwd, not -C"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    if scope == \"global\":\n        dirs.reverse()",
   "new": "    if False:\n        dirs.reverse()",
-  "tests": "codex_config/tests/test_guard_policy.py::test_global_scope_prefers_the_guard_json_beside_it",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_global_scope_prefers_the_guard_json_beside_it",
   "why": "the managed guard reads a policy/ dir next to its parent first"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    if scope == \"global\":\n        return guard, None\n    return guard, validate_agents(",
   "new": "    return guard, validate_agents(",
-  "tests": "codex_config/tests/test_guard_policy.py::test_global_scope_never_reads_agents_json",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_global_scope_never_reads_agents_json",
   "why": "the global scope needs agents.json"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    return guard, validate_agents(read_json_file(os.path.join(d, \"agents.json\")))",
   "new": "    a = os.path.join(d, \"agents.json\")\n    return guard, validate_agents(read_json_file(a) if os.path.exists(a) else {\"schema\": 1, \"agents\": {}, \"blackcat\": {}})",
-  "tests": "codex_config/tests/test_guard_policy.py::test_profile_scope_without_a_readable_agents_json_fails_closed",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_policy.py::test_profile_scope_without_a_readable_agents_json_fails_closed",
   "why": "profile scope runs on an empty policy when agents.json is missing"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "    if \"/\" in word0:                           # every head: plain, find -exec, xargs, uv run, uvx\n        bad = _ro_by_path(word0, cwd)",
   "new": "    if False:\n        bad = _ro_by_path(word0, cwd)",
-  "tests": "codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
   "why": "finding 1: a program run by path is reduced to its basename again"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        code = args[0] if args and args[0] not in (\"-\", \"-l\", \"-p\") else \"\"",
   "new": "        code = \"\"",
-  "tests": "codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
   "why": "finding 1: trap code is no longer checked"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            elif getopt and \"-o\" in names and \"o\" in a[1:]:",
   "new": "            elif False:",
-  "tests": "codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
   "why": "finding 1: sort -ro<file> cluster output passes"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        if RO_EXEC_VAR_RE.match(name) and name not in RO_SAFE_VARS:\n            return (\"%s %s\" % (head, n)[:80]",
   "new": "        if False:\n            return (\"%s %s\" % (head, n)[:80]",
-  "tests": "codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
   "why": "finding 1: read/printf -v PATH passes"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            if b == \"env\" and k >= len(args):",
   "new": "            if False:",
-  "tests": "codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_readonly_bypasses_refused",
   "why": "finding 1: bare env prints the environment"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            if recursive and paths.holds_credential(c, budget):\n                return (\"cred\", token)",
   "new": "            if False:\n                return (\"cred\", token)",
-  "tests": "codex_config/tests/test_guard_audit.py::test_recursive_reads_of_a_credential_holder_denied",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_recursive_reads_of_a_credential_holder_denied",
   "why": "finding 2: grep -r on CODEX_HOME passes"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "            if GLOB_CHARS_RE.search(c) and paths.glob_credential(c, recursive):",
   "new": "            if False:",
-  "tests": "codex_config/tests/test_guard_audit.py::test_recursive_reads_of_a_credential_holder_denied",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_recursive_reads_of_a_credential_holder_denied",
   "why": "finding 2: a glob matching auth.json passes"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "                if value not in safe:",
   "new": "                if False:",
-  "tests": "codex_config/tests/test_guard_audit.py::test_codex_sandbox_and_approval_bypasses_refused",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_codex_sandbox_and_approval_bypasses_refused",
   "why": "finding 3: codex -s danger-full-access passes"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "        for code in _git_command_values(sub, args):\n            found = found or self.scan(code, depth + 1)",
   "new": "        for code in []:\n            found = found or self.scan(code, depth + 1)",
-  "tests": "codex_config/tests/test_guard_audit.py::test_git_command_options_are_scanned_for_pushes",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_git_command_options_are_scanned_for_pushes",
   "why": "item 4: --upload-pack/filter-branch values are not scanned"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
-  "old": "        if not found and any(a.lower().startswith(\"ext::\") for a in args):",
-  "new": "        if False:",
-  "tests": "codex_config/tests/test_guard_audit.py::test_git_ext_transport_is_opaque",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
+  "old": "        if not found and sub not in GIT_NO_URL_SUBS and any(\n                a.lower().startswith(\"ext::\") or \"=ext::\" in a.lower()",
+  "new": "        if False and any(\n                False",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_git_ext_transport_is_opaque",
   "why": "item 4: an ext:: transport passes"
  },
  {
-  "file": "codex_config/hooks/codex_guard.py",
+  "file": "dot-config/dot-codex_config/hooks/codex_guard.py",
   "old": "re.compile(r\"^[^\\S\\n]*\\*\\*\\* (?:Add File",
   "new": "re.compile(r\"^[ \\t]*\\*\\*\\* (?:Add File",
-  "tests": "codex_config/tests/test_guard_audit.py::test_patch_header_after_unicode_whitespace_is_seen",
+  "tests": "dot-config/dot-codex_config/tests/test_guard_audit.py::test_patch_header_after_unicode_whitespace_is_seen",
   "why": "a patch header after a form feed/NBSP is invisible to the guard"
  }
 ]

@@ -1,6 +1,6 @@
-# codex_config: the claude-agent-stack for the Codex CLI
+# dot-config/dot-codex_config: the claude-agent-stack for the Codex CLI
 
-`codex_config/install.sh` ports the stack to the OpenAI Codex CLI (and, optionally, the IDE extension). It does not change the Claude installer (`install.sh`, `lib/`, `dot-claude/`, `tests/` are untouched); it reads the same agent, skill, rule and settings sources and renders Codex equivalents into `CODEX_HOME`.
+`./install.sh --codex` (run from the repository root; it runs `dot-config/dot-codex_config/install.sh`, which is not an entry point by itself) ports the stack to the OpenAI Codex CLI (and, optionally, the IDE extension). It does not change what the Claude installer installs (`lib/`, `dot-config/dot-claude/`, `tests/` are untouched; `install.sh` only hands `--codex` runs over); it reads the same agent, skill, rule and settings sources and renders Codex equivalents into `CODEX_HOME`.
 
 The design, with the Codex facts it relies on and the reasons for each choice, is in [DESIGN.md](DESIGN.md). Module contracts are in [INTERFACES.md](INTERFACES.md). Codex behaviour that was read from docs or source but never run is listed in [probes/PROBES.md](probes/PROBES.md): treat every statement below that touches Codex's own behaviour as depending on those probes.
 
@@ -40,18 +40,18 @@ Never touched: `hooks.json`, `agents/`, `rules/default.rules`, and everything in
 1. Review the plan, then install:
 
    ```
-   codex_config/install.sh --dry-run
-   codex_config/install.sh
+   ./install.sh --codex --dry-run
+   ./install.sh --codex
    ```
 
    The installer prints the plan, asks before applying (`--yes` skips the question), makes one backup of everything it changes, and prints the restore command.
 2. Trust the hooks. Run `codex --profile codex`, open `/hooks`, and trust the 8 hooks of the stack. **Until you do, the guard does not run at all**, and nothing in a session says so. Codex runs a non-managed hook only after trust, and the trust record covers the hook's definition (event, matcher, command, timeout), not the script's bytes.
-3. Check: `codex_config/install.sh --doctor`. It exits 0 only when every stack hook has a trust record and no owned file has drifted; 1 otherwise. After a re-install that prints "re-trust N hook(s)", repeat steps 2 and 3. When only script bytes changed, the installer says no re-trust is needed.
+3. Check: `./install.sh --codex --doctor`. It exits 0 only when every stack hook has a trust record and no owned file has drifted; 1 otherwise. After a re-install that prints "re-trust N hook(s)", repeat steps 2 and 3. When only script bytes changed, the installer says no re-trust is needed.
 4. Optional, Astra: `codex --profile codex-astra`, then `/hooks` (its hooks are keyed by that file's path and need their own trust). Every session started with this profile runs the six top-tier agents (ninja-coder, main-coder, mathematician, planner, proof-checker, security-auditor) on `gpt-6-astra`, at **$10 input / $50 output per 1M tokens** (Sol: $2 / $10). `--no-astra-profile` skips the file.
-5. Optional, `--ide-default`. The IDE extension and the desktop app cannot select a profile, so this flag writes the profile's content into two marked regions of `config.toml`. **It changes every Codex session on the machine**: the CLI without a profile, the IDE and the desktop app. Each session then starts as BlackCat (delegate-only), starts the stack's MCP servers, has web search off, and uses the stack's model defaults; a trusted project's `.codex/config.toml` can still override the region's keys. Review with `codex_config/install.sh --ide-default --dry-run`, apply with `--ide-default --yes` or an interactive `y`, run plain `codex` and trust the hooks whose source is `config.toml`, then restart the IDE. Undo: `codex_config/install.sh --no-ide-default` (cuts exactly the two regions and keeps every other edit in the file) or `--restore`. A re-run without either flag keeps the mode of the last install.
-6. Optional, the managed tier. `codex_config/install.sh --print-requirements` writes `codex_config/build/requirements.toml` and a `managed-hooks/` copy of the guard, and prints the `sudo install` commands. **You** run those lines; the installer never runs sudo and never writes `/etc`. The tier is machine-wide: it changes every Codex session and profile on the machine (allowed sandbox modes and permission profiles, web search `disabled`, `deny_read` of the credential set, the forbidden push and forge rules, managed hooks in `--scope global` mode). An existing `/etc/codex/requirements.toml` is never replaced; a diff is printed for you to merge. Afterwards check `/debug-config` in `codex --profile codex`.
+5. Optional, `--ide-default`. The IDE extension and the desktop app cannot select a profile, so this flag writes the profile's content into two marked regions of `config.toml`. **It changes every Codex session on the machine**: the CLI without a profile, the IDE and the desktop app. Each session then starts as BlackCat (delegate-only), starts the stack's MCP servers, has web search off, and uses the stack's model defaults; a trusted project's `.codex/config.toml` can still override the region's keys. Review with `./install.sh --codex --ide-default --dry-run`, apply with `--ide-default --yes` or an interactive `y`, run plain `codex` and trust the hooks whose source is `config.toml`, then restart the IDE. Undo: `./install.sh --codex --no-ide-default` (cuts exactly the two regions and keeps every other edit in the file) or `--restore`. A re-run without either flag keeps the mode of the last install.
+6. Optional, the managed tier. `./install.sh --codex --print-requirements` writes `dot-config/dot-codex_config/build/requirements.toml` and a `managed-hooks/` copy of the guard, and prints the `sudo install` commands. **You** run those lines; the installer never runs sudo and never writes `/etc`. The tier is machine-wide: it changes every Codex session and profile on the machine (allowed sandbox modes and permission profiles, web search `disabled`, `deny_read` of the credential set, the forbidden push and forge rules, managed hooks in `--scope global` mode). An existing `/etc/codex/requirements.toml` is never replaced; a diff is printed for you to merge. Afterwards check `/debug-config` in `codex --profile codex`.
 
-## `install.sh` options
+## `./install.sh --codex` options
 
 | Option | Effect |
 |---|---|
@@ -113,9 +113,9 @@ Do not start Codex with its working directory inside `CODEX_HOME`: that makes it
 Every run that changes something saves what it changes into one backup under `${XDG_STATE_HOME:-~/.local/state}/codex-agent-stack-backups/<timestamp>-<random>/` and prints the restore command; a run that changes nothing makes none, and none is ever deleted.
 
 ```
-codex_config/install.sh --restore --dry-run     # what a restore would do
-codex_config/install.sh --restore               # undo the latest install
-codex_config/install.sh --restore <backup-dir>  # undo a given one
+./install.sh --codex --restore --dry-run      # what a restore would do
+./install.sh --codex --restore                # undo the latest install
+./install.sh --codex --restore <backup-dir>   # undo a given one
 ```
 
 A restore undoes the skill links first, then `CODEX_HOME`, and prints how to undo itself. If `config.toml` changed since the install (Codex writes trust records, `[projects.*]` and `/model` there), the restore refuses unless `--force-config` is given; `--no-ide-default` is the safe way to remove the regions. After a restore that removed the stack, the interpreter link and the bytecode the install made outside the engine's scope are removed too.
@@ -136,14 +136,14 @@ A restore undoes the skill links first, then `CODEX_HOME`, and prints how to und
 Target: p95 of one hook call below 100 ms, measured as Codex runs it (`/bin/sh <stub> <mode>`, a fresh interpreter per call, precompiled bytecode). Measured 2026-10-06 on macOS arm64 inside the Claude sandbox, n = 96 per run: uv CPython 3.13 about 38-41 ms, Apple's 3.9.6 82-87 ms (97-106 ms without precompiled bytecode). The `/usr/bin/python3` xcrun shim, which the stub falls back to and the managed tier uses, cannot be timed in that sandbox. Time it yourself, outside any sandbox:
 
 ```
-CODEX_GUARD_PERF_SHIM=1 uv run --no-project --python 3.13 --with pytest python -m pytest -q -s -p no:cacheprovider codex_config/tests/test_guard_perf.py
+CODEX_GUARD_PERF_SHIM=1 uv run --no-project --python 3.13 --with pytest python -m pytest -q -s -p no:cacheprovider dot-config/dot-codex_config/tests/test_guard_perf.py
 ```
 
 ## Tests
 
 ```
-codex_config/tests/run.sh     # the Codex suite, then the Claude installer's own install tests
-codex_config/tests/smoke.sh   # the installer end to end on a scratch HOME and CODEX_HOME (from a committed checkout)
+dot-config/dot-codex_config/tests/run.sh     # the Codex suite, then the Claude installer's own install tests
+dot-config/dot-codex_config/tests/smoke.sh   # the installer end to end on a scratch HOME and CODEX_HOME (from a committed checkout)
 ```
 
-Both run on a scratch `HOME` and `CODEX_HOME` with a fake `codex` that answers only `--version` and `execpolicy check`; no test reaches a real Codex. `smoke.sh` fingerprints the real `~/.codex`, `~/.agents` and the Codex state folders before and after and fails if any changed. Codex's own behaviour is checked only by the probes you run: `codex_config/probes/run.sh --list`.
+Both run on a scratch `HOME` and `CODEX_HOME` with a fake `codex` that answers only `--version` and `execpolicy check`; no test reaches a real Codex. `smoke.sh` fingerprints the real `~/.codex`, `~/.agents` and the Codex state folders before and after and fails if any changed. Codex's own behaviour is checked only by the probes you run: `dot-config/dot-codex_config/probes/run.sh --list`.

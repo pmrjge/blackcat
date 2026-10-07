@@ -199,7 +199,7 @@ def test_fixture_bytes_modes_and_layout(tmp_path):
     r = CS.convert(str(src), str(stage), CTX)
     assert (r["listed"], r["modules"]) == (["core-one", "hub"], ["mod-a"])
     blob = stage / "skills" / "hub" / "data" / "blob.bin"
-    assert blob.read_bytes() == (src / "dot-claude/skills/hub/data/blob.bin").read_bytes()
+    assert blob.read_bytes() == (src / "dot-config/dot-claude/skills/hub/data/blob.bin").read_bytes()
     run = stage / "skills" / "hub" / "scripts" / "run.sh"
     assert run.read_bytes() == b"#!/bin/sh\necho hi\n"
     assert stat.S_IMODE(run.stat().st_mode) == 0o755
@@ -225,9 +225,9 @@ def test_fixture_excluded_skill_and_its_only_module(tmp_path):
                       stack_tree={"SKILL.md": skill_md("stack-tree", "Claude-only.", hub_body("lone-mod"),
                                                        **{"disable-model-invocation": "true"})},
                       lone_mod={"SKILL.md": skill_md("lone-mod", "Only the excluded hub reaches me.")})
-    so = json.loads((src / "dot-claude/settings.json").read_text())["skillOverrides"]
+    so = json.loads((src / "dot-config/dot-claude/settings.json").read_text())["skillOverrides"]
     so["lone-mod"] = "user-invocable-only"
-    (src / "dot-claude/settings.json").write_text(json.dumps({"skillOverrides": so}))
+    (src / "dot-config/dot-claude/settings.json").write_text(json.dumps({"skillOverrides": so}))
     cls = CS.classify(str(src))
     assert cls["excluded"] == ["stack-tree"] and cls["excluded_modules"] == ["lone-mod"]
     assert "stack-tree" not in cls["listed"] and "lone-mod" not in cls["modules"]
@@ -243,7 +243,7 @@ def test_symlink_in_source_is_refused(tmp_path, where):
     src = fixture_src(tmp_path)
     secret = tmp_path / "secret.txt"
     secret.write_text("SECRET")
-    sk = src / "dot-claude" / "skills"
+    sk = src / "dot-config" / "dot-claude" / "skills"
     if where == "file":
         (sk / "hub" / "data" / "link.txt").symlink_to(secret)
     else:
@@ -259,7 +259,7 @@ def test_symlinked_skill_dir_is_refused(tmp_path):
     real_dir = tmp_path / "elsewhere"
     real_dir.mkdir()
     (real_dir / "SKILL.md").write_text(skill_md("evil", "x"))
-    (src / "dot-claude" / "skills" / "evil").symlink_to(real_dir)
+    (src / "dot-config" / "dot-claude" / "skills" / "evil").symlink_to(real_dir)
     with pytest.raises(CS.BuildError, match="symlink in the skill source tree"):
         CS.classify(str(src))
 
@@ -282,9 +282,9 @@ def test_frontmatter_argument_hint_dropped_unknown_key_refused(tmp_path):
 
 def test_unreachable_module_and_nonempty_stage_refused(tmp_path):
     src = fixture_src(tmp_path, orphan={"SKILL.md": skill_md("orphan", "Nobody links me.")})
-    so = json.loads((src / "dot-claude/settings.json").read_text())["skillOverrides"]
+    so = json.loads((src / "dot-config/dot-claude/settings.json").read_text())["skillOverrides"]
     so["orphan"] = "user-invocable-only"
-    (src / "dot-claude/settings.json").write_text(json.dumps({"skillOverrides": so}))
+    (src / "dot-config/dot-claude/settings.json").write_text(json.dumps({"skillOverrides": so}))
     with pytest.raises(CS.BuildError, match="orphan"):
         CS.classify(str(src))
     src2 = fixture_src(tmp_path / "b")

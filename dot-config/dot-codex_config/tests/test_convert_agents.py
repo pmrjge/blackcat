@@ -123,8 +123,8 @@ def test_untranslatable_text_fails_with_file_and_line(tmp_path):
     with pytest.raises(ca.BuildError) as ei:
         ca.convert(str(src), ctx_for(tmp_path), models())
     msg = str(ei.value)
-    assert "dot-claude/agents/coder.md:%d: __BOGUS__" % body_line in msg
-    assert "dot-claude/agents/coder.md:%d: __BOGUS_D__" % desc_line in msg
+    assert "dot-config/dot-claude/agents/coder.md:%d: __BOGUS__" % body_line in msg
+    assert "dot-config/dot-claude/agents/coder.md:%d: __BOGUS_D__" % desc_line in msg
 
 
 def test_spawn_list_needs_agent_and_names_stack_agents(tmp_path):
@@ -236,7 +236,8 @@ def test_user_scope_servers_match_install_sh(tmp_path):
     """The Claude installer's user-scope rows (install.sh EXA_URL and `rows`, wandb only under
     WANDB_API_KEY) are the contract: same ids, URLs and which servers take a key header."""
     if not INSTALL_SH.is_file():
-        pytest.skip("install.sh is not in this tree (mutation runs copy codex_config/, lib/, dot-claude/)")
+        pytest.skip("install.sh is not in this tree (mutation runs copy dot-config/dot-codex_config/, lib/, "
+                    "dot-config/dot-claude/ and tests/)")
     text = INSTALL_SH.read_text()
     exa = re.search(r'^EXA_URL = "([^"]+)"$', text, re.M)
     assert exa and exa.group(1) == ca.EXA_URL

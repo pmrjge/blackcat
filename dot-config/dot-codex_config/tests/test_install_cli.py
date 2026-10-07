@@ -1,8 +1,9 @@
-"""codex_config/install.sh (flags, usage, refusals, the steps before render) and lib/codex_diff.py.
+"""dot-config/dot-codex_config/install.sh (./install.sh --codex: flags, usage, refusals, the steps before render)
+and lib/codex_diff.py.
 
-Light CLI tests: every run uses a scratch git repository (copies of this checkout's codex_config, the
-engine files and dot-claude, committed), a scratch HOME and CODEX_HOME, and the fake codex first on
-PATH. render.py and doctor.py are replaced by recording stubs in that repository, so the argv the
+Light CLI tests: every run uses a scratch git repository (copies of this checkout's
+dot-config/dot-codex_config, the engine files and dot-config/dot-claude, committed), a scratch HOME and
+CODEX_HOME, and the fake codex first on PATH. render.py and doctor.py are replaced by recording stubs in that repository, so the argv the
 installer builds for them is pinned here; the whole flow with the real render is smoke.sh's job.
 Nothing here reads or writes the real ~/.codex, ~/.agents, ~/.claude or /etc.
 """
@@ -20,7 +21,7 @@ from _foundation_helpers import git, write
 from conftest import CODEX_CONFIG, FAKE_CODEX_DIR, REPO, load_lib
 
 dg = load_lib("codex_diff")
-INSTALL = "codex_config/install.sh"
+INSTALL = "dot-config/dot-codex_config/install.sh"
 ENGINE_FILES = ("lib/install_state.py", "lib/claude_md_block.py", "lib/stack.env.example")
 
 STUB_RENDER = ("import json, os, sys\n"
@@ -41,10 +42,10 @@ def template(tmp_path_factory):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         shutil.copy2(REPO / rel, root / rel)
     ign = shutil.ignore_patterns("__pycache__", "build", ".pytest_cache")
-    shutil.copytree(CODEX_CONFIG, root / "codex_config", ignore=ign)
-    shutil.copytree(REPO / "dot-claude", root / "dot-claude", ignore=ign)
-    (root / "codex_config" / "lib" / "render.py").write_text(STUB_RENDER)
-    (root / "codex_config" / "lib" / "doctor.py").write_text(STUB_DOCTOR)
+    shutil.copytree(CODEX_CONFIG, root / "dot-config" / "dot-codex_config", ignore=ign)
+    shutil.copytree(REPO / "dot-config" / "dot-claude", root / "dot-config" / "dot-claude", ignore=ign)
+    (root / "dot-config" / "dot-codex_config" / "lib" / "render.py").write_text(STUB_RENDER)
+    (root / "dot-config" / "dot-codex_config" / "lib" / "doctor.py").write_text(STUB_DOCTOR)
     git(root, "init", "-q", "-b", "main")
     git(root, "config", "gc.auto", "0")             # no background repack while the tests copy the objects
     git(root, "config", "maintenance.auto", "false")
@@ -68,7 +69,7 @@ def env(template, tmp_path, scratch_home, monkeypatch):
 
 
 def run(env, *args, path=None, extra=None, stdin=""):
-    e = dict(os.environ, **(extra or {}))
+    e = dict(os.environ, STACK_CODEX_VIA_TOP="1", **(extra or {}))   # as ./install.sh --codex runs it
     if path is not None:
         e["PATH"] = path
     return subprocess.run(["bash", str(env["repo"] / INSTALL), *map(str, args)], capture_output=True, text=True,
@@ -85,6 +86,21 @@ def codex_home_state(env):
 
 
 # ---- usage and refusals ------------------------------------------------------------------------
+@pytest.mark.parametrize("via", [None, "", "0", "yes"])
+def test_direct_run_is_refused_without_the_top_level_entry(env, via):
+    """The only entry point is ./install.sh --codex (it sets STACK_CODEX_VIA_TOP=1): run directly, the script
+    says so and stops before anything else (no work folder, no snapshot, no CODEX_HOME), even for --help."""
+    e = {k: v for k, v in os.environ.items() if k != "STACK_CODEX_VIA_TOP"}
+    if via is not None:
+        e["STACK_CODEX_VIA_TOP"] = via
+    before = codex_home_state(env)
+    for args in ([], ["--help"], ["--dry-run"], ["--doctor"]):
+        r = subprocess.run(["bash", str(env["repo"] / INSTALL), *args], capture_output=True, text=True, env=e,
+                           cwd=str(env["tmp"]))
+        assert r.returncode == 2 and "use ./install.sh --codex" in r.stderr and r.stdout == "", (args, r.stderr)
+    assert codex_home_state(env) == before and not env["log"].exists() and list(env["tmp"].iterdir()) == []
+
+
 def test_help_lists_every_flag(env):
     r = run(env, "--help")
     assert r.returncode == 0 and r.stderr == ""
@@ -105,7 +121,7 @@ def test_bad_usage_exits_2_with_usage(env, args):
     before = codex_home_state(env)
     r = run(env, *args)
     assert r.returncode == 2, r.stderr
-    assert "usage: codex_config/install.sh" in r.stderr
+    assert "usage: ./install.sh --codex" in r.stderr
     assert codex_home_state(env) == before and not env["log"].exists()
 
 
@@ -130,7 +146,7 @@ def test_python_below_3_11_or_missing_is_a_clear_error(env, tmp_path):
 
 
 def test_dirty_repository_stops_at_the_snapshot(env):
-    with open(env["repo"] / "codex_config" / "models.toml", "a") as f:
+    with open(env["repo"] / "dot-config" / "dot-codex_config" / "models.toml", "a") as f:
         f.write("# edited, not committed\n")
     before = codex_home_state(env)
     r = run(env, "--dry-run")
@@ -142,7 +158,7 @@ def test_refused_codex_homes_exit_2(env, tmp_path):
     home = env["home"]
     (home / ".claude").mkdir()
     for args, extra in ((["--codex-home", str(home)], None), (["--codex-home", str(home / ".claude")], None),
-                        (["--codex-home", str(env["repo"] / "codex_config")], None),
+                        (["--codex-home", str(env["repo"] / "dot-config" / "dot-codex_config")], None),
                         (["--codex-home", str(tmp_path / "missing")], None), ([], {"CODEX_HOME": "/"}),
                         (["--codex-home", "/etc"], None)):
         r = run(env, "--dry-run", *args, extra=extra)
@@ -155,7 +171,7 @@ def test_refused_codex_homes_exit_2(env, tmp_path):
 def test_print_requirements_writes_only_the_build_dir_and_prints_root_steps(env):
     r = run(env, "--print-requirements")
     assert r.returncode == 0, r.stderr
-    build = env["repo"] / "codex_config" / "build"
+    build = env["repo"] / "dot-config" / "dot-codex_config" / "build"
     assert (build / "requirements.toml").is_file() and (build / "managed-hooks" / "codex-hook").is_file()
     steps = [ln.strip() for ln in r.stdout.splitlines() if ln.strip().startswith("sudo ")]
     assert any("/usr/bin/python3 -I -c" in s and "CHECKED_HASH" in s for s in steps)

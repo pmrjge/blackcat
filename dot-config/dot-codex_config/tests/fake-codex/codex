@@ -1,5 +1,5 @@
 #!/bin/sh
-# Fake `codex` CLI for codex_config/tests: never a real Codex.
+# Fake `codex` CLI for dot-config/dot-codex_config/tests: never a real Codex.
 # --version            prints "codex-cli ${FAKE_CODEX_VERSION:-0.160.1}"
 # execpolicy check ... runs the in-repo prefix-rule mirror (execpolicy_mirror.py) when it exists
 # anything else        exits 97, so no test can reach a real Codex by accident.

@@ -1,79 +1,79 @@
 [
  {
-  "file": "codex_config/lib/convert_rules.py",
+  "file": "dot-config/dot-codex_config/lib/convert_rules.py",
   "old": "rules.append(_rule(pattern, \"forbidden\", _category(pattern), \"settings.json deny \" + entry))",
   "new": "rules.append(_rule(pattern, \"allow\", _category(pattern), \"settings.json deny \" + entry))",
-  "tests": "codex_config/tests/test_convert_rules.py",
+  "tests": "dot-config/dot-codex_config/tests/test_convert_rules.py",
   "why": "flip a forbidden (converted Bash deny) to allow"
  },
  {
-  "file": "codex_config/lib/convert_rules.py",
+  "file": "dot-config/dot-codex_config/lib/convert_rules.py",
   "old": "            report.append(\"dropped Claude allow (Codex runs unmatched commands sandboxed; a Codex \"",
   "new": "            rules.append(_rule(pattern, \"allow\", \"git-allow\", entry))\n            report.append(\"dropped Claude allow (Codex runs unmatched commands sandboxed; a Codex \"",
-  "tests": "codex_config/tests/test_convert_rules.py",
+  "tests": "dot-config/dot-codex_config/tests/test_convert_rules.py",
   "why": "a Claude allow becomes a Codex allow"
  },
  {
-  "file": "codex_config/lib/convert_rules.py",
+  "file": "dot-config/dot-codex_config/lib/convert_rules.py",
   "old": "    rules.append(_rule([installer], \"prompt\", \"installer\"",
   "new": "    rules.append(_rule([installer], \"allow\", \"installer\"",
-  "tests": "codex_config/tests/test_convert_rules.py",
+  "tests": "dot-config/dot-codex_config/tests/test_convert_rules.py",
   "why": "stack-install (a Claude allow) becomes a Codex allow instead of prompt"
  },
  {
-  "file": "codex_config/lib/convert_rules.py",
+  "file": "dot-config/dot-codex_config/lib/convert_rules.py",
   "old": "while words and words[-1] == \"*\":",
   "new": "while words and words[-1] == \"**\":",
-  "tests": "codex_config/tests/test_convert_rules.py",
+  "tests": "dot-config/dot-codex_config/tests/test_convert_rules.py",
   "why": "trailing * not stripped (no prefix form for any deny)"
  },
  {
-  "file": "codex_config/lib/convert_rules.py",
+  "file": "dot-config/dot-codex_config/lib/convert_rules.py",
   "old": "    if opts.get(\"git_allow_rules\"):\n        other = ",
   "new": "    if True:\n        other = ",
-  "tests": "codex_config/tests/test_convert_rules.py",
+  "tests": "dot-config/dot-codex_config/tests/test_convert_rules.py",
   "why": "git allow forms emitted without --git-allow-rules"
  },
  {
-  "file": "codex_config/lib/convert_rules.py",
+  "file": "dot-config/dot-codex_config/lib/convert_rules.py",
   "old": "        if not _GLOB.search(w):",
   "new": "        if True:",
-  "tests": "codex_config/tests/test_convert_rules.py",
+  "tests": "dot-config/dot-codex_config/tests/test_convert_rules.py",
   "why": "a non-finite glob passes through as a literal token"
  },
  {
-  "file": "codex_config/lib/convert_rules.py",
+  "file": "dot-config/dot-codex_config/lib/convert_rules.py",
   "old": "if res.get(\"decision\") != rule[\"decision\"]:",
   "new": "if False:",
-  "tests": "codex_config/tests/test_convert_rules.py",
+  "tests": "dot-config/dot-codex_config/tests/test_convert_rules.py",
   "why": "check_examples ignores a decision mismatch"
  },
  {
-  "file": "codex_config/lib/convert_rules.py",
+  "file": "dot-config/dot-codex_config/lib/convert_rules.py",
   "old": "\"--resolve-host-executables\", \"--\"]",
   "new": "\"--\"]",
-  "tests": "codex_config/tests/test_convert_rules.py",
+  "tests": "dot-config/dot-codex_config/tests/test_convert_rules.py",
   "why": "check_examples without basename resolution (runtime resolves /usr/bin/git)"
  },
  {
-  "file": "codex_config/tests/fake-codex/execpolicy_mirror.py",
+  "file": "dot-config/dot-codex_config/tests/fake-codex/execpolicy_mirror.py",
   "old": "            if local.matches(ex, True):",
   "new": "            if False:",
-  "tests": "codex_config/tests/test_execpolicy_mirror.py",
+  "tests": "dot-config/dot-codex_config/tests/test_execpolicy_mirror.py",
   "why": "mirror: not_match examples not validated at load"
  },
  {
-  "file": "codex_config/tests/fake-codex/execpolicy_mirror.py",
+  "file": "dot-config/dot-codex_config/tests/fake-codex/execpolicy_mirror.py",
   "old": "        if found or not resolve:",
   "new": "        if True:",
-  "tests": "codex_config/tests/test_execpolicy_mirror.py",
+  "tests": "dot-config/dot-codex_config/tests/test_execpolicy_mirror.py",
   "why": "mirror: no basename fallback for absolute programs"
  },
  {
-  "file": "codex_config/tests/fake-codex/execpolicy_mirror.py",
+  "file": "dot-config/dot-codex_config/tests/fake-codex/execpolicy_mirror.py",
   "old": "        out[\"decision\"] = max(",
   "new": "        out[\"decision\"] = min(",
-  "tests": "codex_config/tests/test_execpolicy_mirror.py",
+  "tests": "dot-config/dot-codex_config/tests/test_execpolicy_mirror.py",
   "why": "mirror: least strict decision wins"
  }
 ]

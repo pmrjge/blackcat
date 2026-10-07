@@ -1,5 +1,5 @@
 #!/bin/bash
-# Phase 0 probe kit (codex_config/DESIGN.md section 9). The USER runs this with Codex installed.
+# Phase 0 probe kit (dot-config/dot-codex_config/DESIGN.md section 9). The USER runs this with Codex installed.
 # Everything happens in a scratch CODEX_HOME and scratch HOME under ${TMPDIR:-/tmp}; the real ~/.codex,
 # ~/.agents and /etc are never written, and auth files are never copied (you log in inside the scratch home).
 # This script itself never starts Codex except `codex --version`; it prints the commands YOU run.

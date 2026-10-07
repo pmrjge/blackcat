@@ -11,7 +11,7 @@ import pytest
 from _guard_helpers import (REPO, Guard, Stack, bash, decision, event, load_by_path, perm_denied,
                             reason)
 
-G = load_by_path("codex_guard_nopush", REPO / "codex_config" / "hooks" / "codex_guard.py")
+G = load_by_path("codex_guard_nopush", REPO / "dot-config" / "dot-codex_config" / "hooks" / "codex_guard.py")
 ORACLE = REPO / "tests" / "test_no_push.py"
 
 
@@ -101,7 +101,7 @@ def test_deep_nesting_is_refused_not_ignored():
 
 def test_same_verdicts_as_agent_guard():
     """Differential: the port and the original agree on every corpus command."""
-    ag = load_by_path("agent_guard_oracle", REPO / "dot-claude" / "hooks" / "agent_guard.py")
+    ag = load_by_path("agent_guard_oracle", REPO / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py")
     cmds = PUSHES + C["OPAQUE"] + C["FORGE_WRITES"] + ALLOWED + C["INDEX_BLINDS"] + \
         [c for c, _ in C["REVIEW_REGRESSIONS"]] + C["GIT_COMMAND_VALUES"] + C["GIT_COMMAND_VALUES_SAFE"]
     diff = [c for c in cmds if (G.remote_write_in(c) or (None,))[0] !=
@@ -131,7 +131,7 @@ def test_codex_overrides_refused(command):
 
 
 @pytest.mark.parametrize("command", ["codex --version", "codex exec 'summarize -c flags'",
-                                     "rg codex -c", "codex_config/tests/run.sh",
+                                     "rg codex -c", "dot-config/dot-codex_config/tests/run.sh",
                                      "echo codex -c x"])
 def test_codex_plain_use_passes(command):
     assert G.shell_rule_hit(command) is None, command

@@ -3,7 +3,7 @@
 
 Installed as <CODEX_HOME>/stack/bin/codex-mcp-headers; the profile sets, per server,
     http_headers_helper = "<CODEX_HOME>/stack/bin/codex-mcp-headers <id>"
-Adapted from dot-claude/bin/mcp-headers (the Claude Code headersHelper). Stdlib only, Python >= 3.9.
+Adapted from dot-config/dot-claude/bin/mcp-headers (the Claude Code headersHelper). Stdlib only, Python >= 3.9.
 
     codex-mcp-headers [--env-file PATH] [--redact] <server-id>
 

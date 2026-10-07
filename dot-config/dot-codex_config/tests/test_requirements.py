@@ -96,7 +96,8 @@ def test_managed_hooks_folder_is_a_flat_copy(env):
     mh = env["out"] / "managed-hooks"
     assert sorted(os.listdir(mh)) == ["codex-hook", "codex_guard.py", "guard.json", "stack_io.py",
                                       "toolsmith_policy.py"]
-    assert (mh / "codex-hook").read_bytes() == (env["src"] / "codex_config/hooks/codex-hook").read_bytes()
+    stub = env["src"] / "dot-config/dot-codex_config/hooks/codex-hook"
+    assert (mh / "codex-hook").read_bytes() == stub.read_bytes()
     assert os.stat(mh / "codex-hook").st_mode & 0o777 == 0o755
     g = json.loads((mh / "guard.json").read_text())
     ch = str(env["home"] / ".codex")
@@ -137,15 +138,15 @@ def test_existing_etc_file_is_never_replaced(env):
 
 
 def test_missing_guard_file_is_an_error(env):
-    os.unlink(env["src"] / "dot-claude" / "hooks" / "stack_io.py")
+    os.unlink(env["src"] / "dot-config" / "dot-claude" / "hooks" / "stack_io.py")
     with pytest.raises(rq.BuildError):
         run(env["argv"])
     assert not env["out"].exists()            # nothing written before the inputs are complete
 
 
-@pytest.mark.parametrize("bad", ["../x.py", "/etc/passwd", "dot-claude/other/x.py"])
+@pytest.mark.parametrize("bad", ["../x.py", "/etc/passwd", "dot-config/dot-claude/other/x.py"])
 def test_support_files_must_name_dot_claude_hooks(env, bad):
-    (env["src"] / "codex_config/hooks/SUPPORT_FILES").write_text(bad + "\n")
+    (env["src"] / "dot-config/dot-codex_config/hooks/SUPPORT_FILES").write_text(bad + "\n")
     with pytest.raises(rq.BuildError):
         run(env["argv"])
 
@@ -168,7 +169,7 @@ def test_cli_exit_codes(env):
     bad = list(env["argv"])
     bad[bad.index("--managed-dir") + 1] = "/Library/it's"
     assert subprocess.run([sys.executable, script] + bad, capture_output=True).returncode == 2
-    os.unlink(env["src"] / "codex_config" / "templates" / "guard.base.json")
+    os.unlink(env["src"] / "dot-config" / "dot-codex_config" / "templates" / "guard.base.json")
     miss = subprocess.run([sys.executable, script] + env["argv"], capture_output=True, text=True)
     assert miss.returncode == 1 and "guard.base.json" in miss.stderr
 

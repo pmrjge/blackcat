@@ -190,7 +190,7 @@ def test_drift_between_plan_and_apply_aborts_in_codex_wording(env, tmp_path):
         f.write('\n[projects."/new"]\ntrust_level = "trusted"\n')
     with pytest.raises(SystemExit) as ei:
         cs.apply(ch, str(s), str(tmp_path / "p.json"), str(env["root"]), "c", str(tmp_path / "o"), str(snap))
-    assert "codex_config/install.sh: config.toml changed while the installer ran" in str(ei.value.code)
+    assert "./install.sh --codex: config.toml changed while the installer ran" in str(ei.value.code)
 
 
 def test_stale_tmp_leftovers_are_removed(env, tmp_path):
@@ -224,13 +224,13 @@ def test_print_plan_hides_changed_role_files(capsys):
 
 @pytest.mark.parametrize("msg,want", [
     ("install.sh --restore: /b backs up /x, not /y (set CLAUDE_CONFIG_DIR)",
-     "codex_config/install.sh --restore: /b backs up /x, not /y (pass --codex-home or set CODEX_HOME)"),
+     "./install.sh --codex --restore: /b backs up /x, not /y (pass --codex-home or set CODEX_HOME)"),
     ("install_state: refusing paths outside the config dir: 'x'", "codex_state: refusing paths outside CODEX_HOME: 'x'"),
     ("install.sh --restore: /b names paths outside the config scope (x)",
-     "codex_config/install.sh --restore: /b names paths outside the stack's part of CODEX_HOME (x)"),
+     "./install.sh --codex --restore: /b names paths outside the stack's part of CODEX_HOME (x)"),
     ("  no changes: the config dir already matches this stack version",
      "  no changes: CODEX_HOME already matches this stack version"),
-    ("codex_config/install.sh: x", "codex_config/install.sh: x"),
+    ("./install.sh --codex: x", "./install.sh --codex: x"),
 ])
 def test_wording(msg, want):
     assert cs.wording(msg) == want
@@ -246,7 +246,7 @@ def test_restore_of_another_home_in_codex_wording(env, tmp_path):
     with pytest.raises(SystemExit) as ei:
         cs.restore(str(other), bdir, str(env["root"]), str(work), "c", str(env["home"]))
     msg = str(ei.value.code)
-    assert "CLAUDE_CONFIG_DIR" not in msg and "set CODEX_HOME" in msg and msg.startswith("codex_config/install.sh")
+    assert "CLAUDE_CONFIG_DIR" not in msg and "set CODEX_HOME" in msg and msg.startswith("./install.sh --codex")
 
 
 # ---------------------------------------------------------------------------------------- restore guard

@@ -1,5 +1,6 @@
-"""codex_config/install.sh end to end (DESIGN section 9, "installer 27"): the real installer, real render, real
-engine, on a scratch HOME / CODEX_HOME / XDG_STATE_HOME / TMPDIR, the fake codex first on PATH.
+"""dot-config/dot-codex_config/install.sh (./install.sh --codex) end to end (DESIGN section 9, "installer 27"):
+the real installer, real render, real engine, on a scratch HOME / CODEX_HOME / XDG_STATE_HOME / TMPDIR,
+the fake codex first on PATH.
 
 Each test starts from an archived scratch tree ("fresh" = before any install, "installed" = after one
 `install.sh --yes`; see _installer_helpers.Sandbox), so a test costs a few install runs, not a whole build.
@@ -17,6 +18,7 @@ named test) and tests/mutations/*_e2e.json (lib mutants the existing rows alread
 # ruff: noqa: F401, F811  (fixtures imported by name, used as arguments)
 from __future__ import annotations
 
+import json
 import os
 import re
 import stat
@@ -26,7 +28,8 @@ from pathlib import Path
 
 import pytest
 
-from _installer_helpers import (EXCLUDED_SKILLS, Sandbox, _sandbox, fresh, installed, out,  # noqa: F401
+from _foundation_helpers import git
+from _installer_helpers import (EXCLUDED_SKILLS, INSTALL, Sandbox, _sandbox, fresh, installed, out,  # noqa: F401
                                 tree_hash)
 
 AGENTS_BEGIN = "claude-agent-stack"
@@ -45,7 +48,8 @@ def test_edit_after_the_snapshot_is_never_executed(fresh):
     """An edit of the engine (and of installer modules) made after the snapshot point is not run: every
     later step reads $WORK/src."""
     marker = fresh.root / "engine-ran"
-    targets = ("lib/install_state.py", "codex_config/lib/codex_state.py", "codex_config/lib/skill_links.py")
+    targets = ("lib/install_state.py", "dot-config/dot-codex_config/lib/codex_state.py",
+               "dot-config/dot-codex_config/lib/skill_links.py")
     cmd = "; ".join("printf '\\nopen(%%s, \"w\").write(\"x\")\\n' %s >> '%s'" % (
         repr(str(marker)).replace("'", "'\"'\"'"), fresh.repo / t) for t in targets)
     r = fresh.run("--yes", extra=fresh.hook_env(cmd), check=0)
@@ -118,6 +122,38 @@ def test_second_run_plans_nothing_and_writes_nothing(installed):
     assert "no changes" in d.stdout and "no hook definition changed" in d.stdout
 
 
+def test_supply_review_names_what_changed_since_the_last_install(installed):
+    prev = installed.manifest()["commit"]
+    head = installed.edit_repo("dot-config/dot-codex_config/lib/hook_defs.py",
+                               "TIMEOUT_S, SESSION_END_TIMEOUT_S = 10, 3", "TIMEOUT_S, SESSION_END_TIMEOUT_S = 11, 3")
+    r = installed.run("--dry-run", check=0)
+    assert "Changes to the stack's files since the last install (%s..%s)" % (prev[:12], head[:12]) in r.stdout
+    assert "hook_defs.py" in r.stdout
+    assert ("review: git -C '%s' diff %s %s -- dot-config/dot-codex_config lib dot-config/dot-claude\n"
+            % (os.path.realpath(installed.repo), prev[:12], head[:12])) in r.stdout, out(r)
+
+
+def test_supply_review_from_a_pre_move_install_covers_the_old_paths(installed):
+    """A manifest from an install made before the move under dot-config/ names a commit whose files live at
+    codex_config/ and dot-claude/: the review lists the move as renames and names both layouts."""
+    git(installed.repo, "mv", "dot-config/dot-codex_config", "codex_config")
+    git(installed.repo, "mv", "dot-config/dot-claude", "dot-claude")
+    prev = installed.commit("the layout before the move")
+    (installed.repo / "dot-config").mkdir(exist_ok=True)
+    git(installed.repo, "mv", "codex_config", "dot-config/dot-codex_config")
+    git(installed.repo, "mv", "dot-claude", "dot-config/dot-claude")
+    head = installed.commit("the move")
+    mf = installed.ch / ".stack-manifest.json"
+    m = installed.manifest()
+    m["commit"] = prev
+    mf.write_text(json.dumps(m))
+    r = installed.run("--dry-run", check=0)
+    assert "Changes to the stack's files since the last install (%s..%s)" % (prev[:12], head[:12]) in r.stdout
+    assert "=>" in r.stdout, out(r)
+    assert ("-- dot-config/dot-codex_config lib dot-config/dot-claude codex_config dot-claude\n"
+            in r.stdout), out(r)
+
+
 def test_apply_then_restore_gives_back_every_original_byte(fresh):
     ch = fresh.ch
     (ch / "AGENTS.md").write_text("# my notes\nkeep me\n")
@@ -161,7 +197,7 @@ def test_live_owned_file_edited_while_the_installer_runs_aborts(installed):
     r = installed.run("--yes", extra=installed.hook_env("echo '# edited meanwhile' >> '%s'" % rules))
     assert r.returncode != 0
     # the drift check names exactly the file edited meanwhile (an empty snapshot would name them all)
-    moved = re.search(r"install\.sh: (.*) changed while the installer ran", r.stderr)
+    moved = re.search(r"install\.sh --codex: (.*) changed while the installer ran", r.stderr)
     assert moved and moved.group(1) == "rules/claude-agent-stack.rules", r.stderr
     assert rules.read_text() == base + "# edited meanwhile\n"
     assert (installed.ch / "stack" / "policy" / "guard.json").read_text() == "{}\n"
@@ -200,7 +236,7 @@ def _refusal_dirs(sbx):
         "root": Path("/"),
         "system dir": Path("/etc"),
         "the repository": sbx.repo,
-        "inside the repository": sbx.repo / "codex_config",
+        "inside the repository": sbx.repo / "dot-config" / "dot-codex_config",
         "the backups root": sbx.state / "codex-agent-stack-backups",
     }
 
@@ -211,7 +247,7 @@ def test_refused_codex_homes_exit_2_and_touch_nothing(which, fresh):
     d = _refusal_dirs(fresh)[which]
     d.mkdir(parents=True, exist_ok=True)
     before = (fresh.fingerprint(), tree_hash(fresh.repo))
-    r = subprocess.run(["bash", str(fresh.repo / "codex_config/install.sh"), "--codex-home", str(d), "--yes"],
+    r = subprocess.run(["bash", str(fresh.repo / INSTALL), "--codex-home", str(d), "--yes"],
                        capture_output=True, text=True, env=fresh.env(), cwd=str(fresh.tmp),
                        start_new_session=True)
     assert r.returncode == 2, out(r)
@@ -257,7 +293,7 @@ def test_hooks_state_survives_a_rerun_in_both_profiles(installed):
         p = installed.ch / name
         p.write_text(p.read_text() + HS_APPEND.replace("/some/where/" + "codex.config", "/some/where/" + name[:-5]))
     # a changed stack definition so the re-run really rewrites the profile files
-    installed.edit_repo("codex_config/lib/hook_defs.py", "TIMEOUT_S, SESSION_END_TIMEOUT_S = 10, 3",
+    installed.edit_repo("dot-config/dot-codex_config/lib/hook_defs.py", "TIMEOUT_S, SESSION_END_TIMEOUT_S = 10, 3",
                         "TIMEOUT_S, SESSION_END_TIMEOUT_S = 11, 3")
     installed.run("--yes", check=0)
     for name in ("codex.config.toml", "codex-astra.config.toml"):
@@ -295,8 +331,8 @@ def test_agents_md_block_follows_a_template_change_and_keeps_user_text(fresh):
     agents.write_text("# Mine\nuser line\n")
     fresh.run("--yes", check=0)
     first = agents.read_text()
-    tpl = (fresh.repo / "codex_config" / "templates" / "AGENTS.block.md").read_text()
-    fresh.edit_repo("codex_config/templates/AGENTS.block.md", tpl.splitlines()[0],
+    tpl = (fresh.repo / "dot-config" / "dot-codex_config" / "templates" / "AGENTS.block.md").read_text()
+    fresh.edit_repo("dot-config/dot-codex_config/templates/AGENTS.block.md", tpl.splitlines()[0],
                     tpl.splitlines()[0] + " SPLICE-PROBE")
     fresh.run("--yes", check=0)
     second = agents.read_text()
@@ -336,7 +372,7 @@ def test_first_install_lists_every_hook_for_trust(fresh):
 def test_a_changed_hook_definition_is_listed_for_re_trust(installed):
     quiet = installed.run("--dry-run", check=0)
     assert "no hook definition changed" in quiet.stdout
-    installed.edit_repo("codex_config/lib/hook_defs.py", "TIMEOUT_S, SESSION_END_TIMEOUT_S = 10, 3",
+    installed.edit_repo("dot-config/dot-codex_config/lib/hook_defs.py", "TIMEOUT_S, SESSION_END_TIMEOUT_S = 10, 3",
                         "TIMEOUT_S, SESSION_END_TIMEOUT_S = 11, 3")
     r = installed.run("--yes", check=0)
     assert "no hook definition changed" not in r.stdout
@@ -454,7 +490,7 @@ def test_print_requirements_writes_only_under_its_out_dir_and_never_runs_sudo(fr
     assert not sudo_log.exists(), "sudo was run"
     assert fresh.fingerprint() == before_home
     new = {p.relative_to(fresh.repo) for p in fresh.repo.rglob("*") if ".git" not in p.parts} - before_repo
-    build = Path("codex_config") / "build"
+    build = Path("dot-config") / "dot-codex_config" / "build"
     assert new and all(p == build or build in p.parents for p in new), sorted(map(str, new))
     assert (fresh.repo / build / "requirements.toml").is_file() and (fresh.repo / build / "managed-hooks").is_dir()
     assert (etc.exists(), etc.stat().st_mtime_ns if etc.exists() else None) == etc_before

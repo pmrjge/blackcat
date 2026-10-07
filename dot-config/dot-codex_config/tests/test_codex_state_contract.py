@@ -2,7 +2,7 @@
 
 codex_state.py and codex_home.py reuse these by file path, unchanged (DESIGN.md §7.2). Every name
 and signature they use is pinned here, so a Claude-side refactor that breaks the coupling fails in
-codex_config/tests instead of at install time.
+dot-config/dot-codex_config/tests instead of at install time.
 """
 from __future__ import annotations
 
@@ -115,9 +115,9 @@ def test_make_plan_result_keys(tmp_path):
 
 
 def test_engine_loads_stack_io_relative_to_its_file():
-    """The snapshot must hold dot-claude/hooks/stack_io.py next to lib/ (source_snapshot copies it)."""
+    """The snapshot must hold dot-config/dot-claude/hooks/stack_io.py next to lib/ (source_snapshot copies it)."""
     src = (REPO / "lib" / "install_state.py").read_text()
-    assert '"dot-claude", "hooks", "stack_io.py"' in src
+    assert '"dot-config", "dot-claude", "hooks", "stack_io.py"' in src
     assert "spec_from_file_location" in src
 
 

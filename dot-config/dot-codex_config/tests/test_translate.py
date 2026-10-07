@@ -101,10 +101,11 @@ def test_monitor_until_loop(src, want):
 
 def test_stack_repo_without_a_path():
     out, probs = tr("Edit the stack repo (`__STACK_REPO__`), never installed copies.\n"
-                    "files change in its repo, `__STACK_REPO__` (its `dot-claude/`)")
+                    "files change in its repo, `__STACK_REPO__` (its `dot-config/dot-claude/`)")
     assert probs == []
     assert out.split("\n") == ["Edit the stack repo, never installed copies.",
-                               "files change in its repo, the claude-agent-stack repository (its `dot-claude/`)"]
+                               "files change in its repo, the claude-agent-stack repository "
+                               "(its `dot-config/dot-claude/`)"]
 
 
 def test_stack_repo_with_a_path():

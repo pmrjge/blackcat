@@ -1,30 +1,30 @@
 [
  {
-  "file": "codex_config/models.toml",
+  "file": "dot-config/dot-codex_config/models.toml",
   "old": "levels = [\"low\", ",
   "new": "levels = [\"none\", \"low\", ",
-  "tests": "codex_config/tests/test_models_effort.py::test_models_toml_scale_tiers_and_offset",
+  "tests": "dot-config/dot-codex_config/tests/test_models_effort.py::test_models_toml_scale_tiers_and_offset",
   "why": "the effort scale starts at none"
  },
  {
-  "file": "codex_config/models.toml",
+  "file": "dot-config/dot-codex_config/models.toml",
   "old": "agents = [\"ninja-coder\", ",
   "new": "agents = [\"orchestrator\", \"ninja-coder\", ",
-  "tests": "codex_config/tests/test_astra_roles.py::test_only_the_six_move",
+  "tests": "dot-config/dot-codex_config/tests/test_astra_roles.py::test_only_the_six_move",
   "why": "a seventh Astra agent"
  },
  {
-  "file": "codex_config/models.toml",
+  "file": "dot-config/dot-codex_config/models.toml",
   "old": "luna_effort_offset = 1\n",
   "new": "luna_effort_offset = 0\n",
-  "tests": "codex_config/tests/test_models_effort.py::test_design_table_reproduced_from_frontmatter",
+  "tests": "dot-config/dot-codex_config/tests/test_models_effort.py::test_design_table_reproduced_from_frontmatter",
   "why": "the Luna offset dropped in models.toml"
  },
  {
-  "file": "codex_config/models.toml",
+  "file": "dot-config/dot-codex_config/models.toml",
   "old": "\"gpt-6-astra\" = [\"low\", \"medium\", \"high\", \"xhigh\", \"max\"]",
   "new": "\"gpt-6-astra\" = [\"low\", \"medium\", \"high\", \"xhigh\"]",
-  "tests": "codex_config/tests/test_models_effort.py::test_accepted_sets_equal_vendored_catalog_minus_ultra",
+  "tests": "dot-config/dot-codex_config/tests/test_models_effort.py::test_accepted_sets_equal_vendored_catalog_minus_ultra",
   "why": "an accepted set drifts from the vendored catalog"
  }
 ]

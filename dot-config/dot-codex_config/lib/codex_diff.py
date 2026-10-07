@@ -146,7 +146,7 @@ def _regions(live, stage, out):
 
 
 def _agents_block(live, stage, out):
-    cmb = _load("codex_diff_block", os.path.join(os.path.dirname(os.path.dirname(_HERE)), "lib",
+    cmb = _load("codex_diff_block", os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(_HERE))), "lib",
                                                  "claude_md_block.py"))
     got = {}
     for tag, root in (("live", live), ("new", stage)):
