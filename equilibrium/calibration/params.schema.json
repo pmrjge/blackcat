@@ -173,7 +173,8 @@
    "properties": {
     "status": {"enum": ["validated", "candidate", "not_established", "not_run", "refuted"]},
     "member_type": {"type": ["string", "null"], "minLength": 1},
-    "member_model_id": {"type": ["string", "null"], "minLength": 1, "description": "the full model id (modelUsage key)"},
+    "member_model_id": {"type": ["string", "null"], "minLength": 1, "pattern": "^[a-z0-9][a-z0-9._-]{2,99}$",
+                        "description": "the full model id (modelUsage key); the pattern is eq_policy.MODEL_ID_RE: the runtime refuses the whole file over any other id"},
     "agent_file_sha256": {"anyOf": [{"type": "null"}, {"$ref": "#/$defs/sha256"}]},
     "N": {"enum": [1, 3, 5, 7, 9, null]},
     "rounds": {"enum": [0, 1, 2, null]},

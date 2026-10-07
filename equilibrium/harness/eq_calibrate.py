@@ -92,7 +92,9 @@ SIGNALS_BY_FAMILY = {"discrete": ("1-kappa0", "1-lambda0", "1-lambda_final", "m1
                      "checkable": ("1-lambda0", "1-lambda_final", "check_fail0")}
 CLASS_KEYS = ("status", "member_type", "member_model_id", "agent_file_sha256", "N", "rounds", "view", "loo_view",
               "reducer", "tau", "t", "caps", "usd_per_mtok", "cost_ratio", "effect", "certainty", "pool")
-PROV_KEYS = ("created_utc", "note", "stages", "harness_commit", "sha256", "amendments", "pool_sha256",
+# = dot-claude/hooks/eq_policy.py MODEL_ID_RE and params.schema.json member_model_id `pattern` (tests/test_eq_params_pin.py)
+RUNTIME_MODEL_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{2,99}\Z")
+PROV_KEYS =("created_utc", "note", "stages", "harness_commit", "sha256", "amendments", "pool_sha256",
              "stage_ledgers", "config_sha256", "claude_code_version", "stack_commit", "model_ids", "grader_kappa",
              "route2", "report")
 SEED_BASE = 20261004
@@ -1171,7 +1173,15 @@ class Cal:
         return {m: v[0] / v[1] * 1e6 for m, v in sorted(acc.items()) if v[1] > 0}
 
     def model_of(self, cls: str) -> tuple[str | None, list[str]]:
+        """(the class's member model id, every model seen): the id is None unless the members ran on exactly one
+        model whose id the runtime accepts (RUNTIME_MODEL_ID_RE): eq_policy.validate_params refuses the WHOLE params
+        file over one bad id (e.g. a `[1m]` or `:0` suffix), so such a class stays without a model (never a
+        candidate) and the others keep theirs."""
         ms = sorted({m for m in (self.resolved_model(c) for c in self.cap_calls(cls)) if m is not None})
+        if len(ms) == 1 and not RUNTIME_MODEL_ID_RE.match(ms[0]):
+            self.w.append(f"{cls}: model id {ms[0]!r} is not a runtime model id (eq_policy.MODEL_ID_RE): "
+                          "member_model_id null")
+            return None, ms
         return (ms[0] if len(ms) == 1 else None), ms
 
     # -- q tests --------------------------------------------------------------------------------------------------
