@@ -342,23 +342,24 @@ def test_consent_matrix_validated_auto(confirm, runs, session_runs, want):
     assert b["consent_required"] is want
 
 
-def test_consent_over_per_run_cap():
-    # worst case above the calibrated per-run cap (run_tokens smaller than one round at the member cap)
-    p = params(PF=validated_entry(caps={"member_tokens": 100000, "member_turns": 5, "run_tokens": 10}))
+@pytest.mark.parametrize("run_tokens, over", [
+    (10, True),                     # smaller than one member at its cap
+    (999_999, True),                # one token below N x member_tokens x (1 + rounds) = 5 x 100000 x 2
+    (1_000_000, False),             # exactly the members' caps: within
+    (2_000_000, False),
+])
+def test_consent_over_per_run_cap(run_tokens, over):
+    # Fixed product bug (b595c3c): over_cap compared estimate()'s tokens_worst, which IS caps.run_tokens, with
+    # caps.run_tokens, so it was always False and STACK_EQ_CONFIRM=over-cap never asked for a validated auto run
+    # whose members may spend more than its per-run cap (spec 8.3 "validated class above its per-run cap: always").
+    p = params(PF=validated_entry(caps={"member_tokens": 100000, "member_turns": 5, "run_tokens": run_tokens}))
     b = P.resolve("PF", p, P.knobs({"STACK_EQ_CONFIRM": "over-cap"}), mode="auto")
     assert b["validated"] is True
-    b2 = dict(b)
-    est = P.estimate(b2)
-    assert est["tokens_worst"] == 10
-    # the estimate equals the cap here, so no consent; a cap the estimate exceeds asks
-    assert b["consent_required"] is False
-    orig = P.estimate
-    try:
-        P.estimate = lambda bb: dict(orig(bb), tokens_worst=bb["caps"]["run_tokens"] + 1)
-        b = P.resolve("PF", p, P.knobs({"STACK_EQ_CONFIRM": "over-cap"}), mode="auto")
-        assert b["consent_required"] is True
-    finally:
-        P.estimate = orig
+    assert b["estimate"]["tokens_worst"] == run_tokens                 # the guard stops the run at the cap
+    assert b["estimate"]["tokens_uncapped"] == 100000 * 5 * 2
+    assert b["over_cap"] is over
+    assert b["consent_required"] is over
+    assert any("above the per-run cap" in w for w in b["warnings"]) is over
 
 
 def test_unvalidated_always_consents_even_over_cap_mode():

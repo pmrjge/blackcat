@@ -427,7 +427,8 @@ def resolve(cls, params, knobs_, *, mode, eq_type=None, session_runs=0, fallback
     bundle; else status_reason is the first of no_calibration, class_not_validated, n_or_rounds_capped,
     override, manual (model_drift is applied after capture: final_label). `eq-mode: auto` is refused
     (PolicyError) unless validated. consent_required: always unless validated, auto, STACK_EQ_CONFIRM
-    over-cap, within the per-run cap and under STACK_EQ_SESSION_RUNS."""
+    over-cap, not over_cap and under STACK_EQ_SESSION_RUNS. over_cap: the members' caps allow more than the
+    per-run cap (N x member_tokens x (1 + rounds) > caps.run_tokens: estimate's tokens_uncapped)."""
     if cls not in CLASSES:
         raise PolicyError("unknown class %r" % (cls,))
     if mode not in ("auto", "manual"):
@@ -489,7 +490,10 @@ def resolve(cls, params, knobs_, *, mode, eq_type=None, session_runs=0, fallback
         reasons.append("manual")
     validated = not reasons
     est = estimate(b)
-    over_cap = est["tokens_worst"] > b["caps"]["run_tokens"]
+    over_cap = est["tokens_uncapped"] > b["caps"]["run_tokens"]
+    if over_cap:
+        warnings.append("the members' caps allow %d tokens (N x member_tokens x (1 + rounds)), above the per-run "
+                        "cap %d: the run stops at the cap" % (est["tokens_uncapped"], b["caps"]["run_tokens"]))
     past_allowance = session_runs >= k["STACK_EQ_SESSION_RUNS"]
     consent = not (validated and mode == "auto" and k["STACK_EQ_CONFIRM"] == "over-cap" and not over_cap
                    and not past_allowance)
@@ -497,22 +501,26 @@ def resolve(cls, params, knobs_, *, mode, eq_type=None, session_runs=0, fallback
         warnings.append("predicted neutral or worse for %s (PROPOSAL.md:133-137)" % cls)
     b.update(validated=validated, status_reason=None if validated else reasons[0], status_reasons=reasons,
              consent_required=consent, auto_allowed=validated_bundle, predicted_neutral=cls in PREDICTED_NEUTRAL,
-             warnings=warnings, estimate=est)
+             warnings=warnings, estimate=est, over_cap=over_cap)
     return b
 
 
 def estimate(bundle):
-    """Tokens and USD-equivalent of a run: worst = the per-run cap; expected = round 0 only (N members at
-    their cap; reconcile rounds run only when kappa < tau). USD only from calibrated params."""
+    """Tokens and USD-equivalent of a run: worst = the per-run cap (the guard stops the run there); expected =
+    round 0 only (N members at their cap; reconcile rounds run only when kappa < tau); uncapped = every member at
+    its cap in every round, N x member_tokens x (1 + rounds), what the run could use without the per-run cap
+    (resolve's over_cap compares it with the cap). USD only from calibrated params."""
     caps = bundle["caps"]
     worst = int(caps["run_tokens"])
+    uncapped = int(caps["member_tokens"]) * int(bundle["N"]) * (1 + int(bundle.get("rounds") or 0))
     expected = min(worst, int(caps["member_tokens"]) * int(bundle["N"]))
     rate = bundle.get("usd_per_mtok")
     if _is_num(rate):
-        return {"tokens_expected": expected, "tokens_worst": worst, "usd_expected": round(expected * rate / 1e6, 2),
-                "usd_worst": round(worst * rate / 1e6, 2), "usd_source": "params usd_per_mtok (calibration ledger)"}
-    return {"tokens_expected": expected, "tokens_worst": worst, "usd_expected": None, "usd_worst": None,
-            "usd_source": "none: no calibrated USD conversion"}
+        return {"tokens_expected": expected, "tokens_worst": worst, "tokens_uncapped": uncapped,
+                "usd_expected": round(expected * rate / 1e6, 2), "usd_worst": round(worst * rate / 1e6, 2),
+                "usd_source": "params usd_per_mtok (calibration ledger)"}
+    return {"tokens_expected": expected, "tokens_worst": worst, "tokens_uncapped": uncapped, "usd_expected": None,
+            "usd_worst": None, "usd_source": "none: no calibrated USD conversion"}
 
 
 def final_label(validated, status_reason, model_id, captured_models):
