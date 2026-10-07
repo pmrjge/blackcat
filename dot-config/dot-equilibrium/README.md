@@ -69,12 +69,13 @@ Lookups from the script's own location (A5): `eq_check.sh`/`eq_freeze.sh` take M
 them, and `eq_harness.py` takes `DEFAULT_M` to be the nearest ancestor holding `.git`. Either way the default
 `EQ_ROOT` (`claude_next_steps/work_carried/equilibrium`) and `EQ_RAW` (`.claude-work/equilibrium/runs`) land in
 git-ignored places of the checkout. The WALL is `$EQ_WALL_DIR`, else `<repo>/lib/eq-wall`, else the staging `wall/`.
-`<repo>` is the git top level of the checkout holding the harness, else three levels up from `harness/` (A9).
+`<repo>` is three levels up from `harness/`, then the git top level of the checkout holding the harness (A9;
+depth first, so a `.git` planted inside the tree never outranks `<repo>/lib`).
 
 Isolation backend `container`: Apple `container` 1.5.0 through the repo's [`lib/eq-container`](../../lib/eq-container/)
 (images, `probe.sh`, `lib.sh`, `eqc_json.py`). The harness finds it through `$EQ_CONTAINER_DIR`. Failing that, it
-takes the repo layout, `<repo>/lib/eq-container` (the git top level, else `../../../lib/eq-container` from
-`dot-config/dot-equilibrium/harness`), and only then a `lib/eq-container` beside the harness (the old staging
+takes the repo layout, `<repo>/lib/eq-container` (`../../../lib/eq-container` from
+`dot-config/dot-equilibrium/harness`, then the git top level), and only then a `lib/eq-container` beside the harness (the old staging
 layout; A9 put the repo's copy first). The tests use the same order (`harness/tests/conftest.py` `container_dir()`). The tests drive a fake `container` CLI
 (`harness/tests/fake_container`). Building the real images and running `isolation-probe` is the user's step
 (`harness/README.md`, Commands).

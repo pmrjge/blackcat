@@ -26,12 +26,12 @@ TUNNEL_SH = "../lib/eq-container/probe.d/50-tunnel.sh"
 
 
 def container_dir() -> Path | None:
-    """The repo's lib/eq-container ($EQ_CONTAINER_DIR, else <repo>/lib/eq-container: the git top level, then
-    STAGE/../.., then beside the stage), as conftest.container_dir()."""
+    """The repo's lib/eq-container ($EQ_CONTAINER_DIR, else <repo>/lib/eq-container: STAGE/../.., then the git top
+    level, then beside the stage), as conftest.container_dir()."""
     top = next((p for p in (STAGE, *STAGE.parents) if (p / ".git").exists()), None)
     repo = [] if top is None else [top / "lib" / "eq-container"]
-    for d in ([Path(os.environ["EQ_CONTAINER_DIR"])] if os.environ.get("EQ_CONTAINER_DIR") else []) + repo + \
-            [STAGE.parents[1] / "lib" / "eq-container", STAGE / "lib" / "eq-container"]:
+    for d in ([Path(os.environ["EQ_CONTAINER_DIR"])] if os.environ.get("EQ_CONTAINER_DIR") else []) + \
+            [STAGE.parents[1] / "lib" / "eq-container", *repo, STAGE / "lib" / "eq-container"]:
         if (d / "lib.sh").is_file():
             return d
     return None

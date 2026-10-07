@@ -2,7 +2,7 @@
 <repo>/lib/eq-wall (COMPARE_eq.md §12 A9, 2026-10-07: the tree moved from <repo>/equilibrium; lib/ did not move).
 
 The harness (probe_script_candidates) and the tests (conftest.container_dir) find lib/eq-container there without
-EQ_CONTAINER_DIR (eq_harness.repo_lib_dirs: the git top level, then three levels up); EQ_CONTAINER_DIR, when set,
+EQ_CONTAINER_DIR (eq_harness.repo_lib_dirs: three levels up, then the git top level); EQ_CONTAINER_DIR, when set,
 still comes first; the staging layout (../lib beside the harness) comes after the repo's copy. A copy outside the repo
 (C10 runs this suite from a $TMPDIR copy) needs EQ_CONTAINER_DIR. The WALL lookup (wall_dir_candidates) takes the
 REVIEW-pinned <repo>/lib/eq-wall before the staging copy dot-config/dot-equilibrium/wall.
@@ -42,7 +42,7 @@ def test_probe_script_found_in_the_repo_layout(tmp_path: Path, monkeypatch: pyte
     monkeypatch.delenv("EQ_CONTAINER_DIR", raising=False)
     assert [c for c in eh.probe_script_candidates() if c.is_file()] == [repo_lib / "probe.sh"]  # by depth
     (tmp_path / "repo" / ".git").mkdir()
-    assert [c for c in eh.probe_script_candidates() if c.is_file()] == [repo_lib / "probe.sh"]  # the git top level
+    assert [c for c in eh.probe_script_candidates() if c.is_file()] == [repo_lib / "probe.sh"]  # with .git
     env_lib = _container(tmp_path / "env")
     monkeypatch.setenv("EQ_CONTAINER_DIR", str(env_lib))
     assert [c for c in eh.probe_script_candidates() if c.is_file()] == [env_lib / "probe.sh", repo_lib / "probe.sh"]
@@ -110,6 +110,27 @@ def test_the_real_lookups_resolve_lib_never_the_staging_copy(tmp_path: Path, mon
     found = next(d for d in mod.wall_dir_candidates() if (d / "eq_wall.py").is_file())
     assert found / "eq_wall.py" == (wall / "eq_wall.py").resolve()  # the loaded module's HERE is resolved
     assert next(c for c in mod.probe_script_candidates() if c.is_file()) == (container / "probe.sh").resolve()
+
+
+def test_a_planted_git_beside_the_harness_never_outranks_lib(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Security review (2026-10-07): an untracked `.git` (an empty file is enough, and `git status` never lists it)
+    planted in dot-config/dot-equilibrium, with a planted dot-config/dot-equilibrium/lib/eq-wall beside it, does not
+    become the WALL: <repo>/lib/eq-wall, found by depth, comes before any git top level (A9)."""
+    monkeypatch.delenv("EQ_WALL_DIR", raising=False)
+    monkeypatch.delenv("EQ_CONTAINER_DIR", raising=False)
+    root = tmp_path / "repo"
+    harness, wall, container = _repo_with_staging_copies(root)
+    (root / EQ_REL / ".git").write_text("")
+    assert eh.repo_lib_dirs("eq-wall", harness)[0] == root / "lib" / "eq-wall"
+    mod = _load(harness / "eq_harness.py", "eq_harness_planted_git")
+    found = next(d for d in mod.wall_dir_candidates() if (d / "eq_wall.py").is_file())
+    assert found / "eq_wall.py" == (wall / "eq_wall.py").resolve()
+    assert next(c for c in mod.probe_script_candidates() if c.is_file()) == (container / "probe.sh").resolve()
+    # the frozen copy is three below the root too; a copy at another depth still reaches the git top level
+    (root / EQ_REL / ".git").unlink()
+    frozen = root / "claude_next_steps" / "work_carried" / "equilibrium"
+    assert eh.repo_lib_dirs("eq-wall", frozen) == [root / "lib" / "eq-wall"]
+    assert eh.repo_lib_dirs("eq-wall", root / "x" / "harness") == [tmp_path / "lib" / "eq-wall", root / "lib" / "eq-wall"]
 
 
 def test_in_place_run_inside_the_repo_finds_its_lib(monkeypatch: pytest.MonkeyPatch) -> None:
