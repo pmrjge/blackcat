@@ -1120,9 +1120,11 @@ def test_a_q_rerun_resets_classes_outside_its_primary(fx: Fx):
 def test_candidate_needs_every_runtime_bundle_key() -> None:
     """eq_policy.CANDIDATE_REQUIRED (the runtime's contract, T11b) is a subset of the calibration's: a p bundle with a
     null member_model_id (no model observed) stays not_run, never a candidate the runtime would refuse."""
-    e = {k: "x" for k in cal.CANDIDATE_REQUIRED} | {"N": 3}
+    runtime = ("member_type", "member_model_id", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps")
+    assert set(runtime) <= set(cal.CANDIDATE_REQUIRED)  # eq_policy.CANDIDATE_REQUIRED, pinned literally (eqr-mut-2)
+    e = {k: "x" for k in (*runtime, "pool")} | {"N": 3}
     assert cal.candidate_ok(e)
-    for k in cal.CANDIDATE_REQUIRED:
+    for k in (*runtime, "pool"):
         assert not cal.candidate_ok(e | {k: None}), k
     assert not cal.candidate_ok(e | {"N": 1})
 

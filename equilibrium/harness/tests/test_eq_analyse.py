@@ -691,6 +691,22 @@ def test_round_attribution_lines_and_e_rt_records_are_not_m11_nodes(tmp_path: Pa
     assert any("p6" in w and "p6/p7" in w for w in ws)
 
 
+def test_bundle_mismatch_e_rt_arm_leaves_route_1(tmp_path: Path) -> None:
+    """Route 1 alone (no duckdb; the guard of the eq_analyse bundle_mismatch mutant): the same E_rt item-arm without
+    `bundle_mismatch` stays a unit, with it the item leaves the comparison and is listed."""
+    run = cross_fixture(tmp_path)
+    for tag, extra in (("ok", {}), ("bm", {"bundle_mismatch": {"plan_bundle": {"N": 3}, "expected_bundle": {"N": 5}}})):
+        set_item_arm(run, "ES-1", "E", status="partial", answer=None, e_arm="runtime", **extra)
+        assert ea.main(["--ledger", str(run), "--out", str(tmp_path / tag)]) == 0
+        n = rows(tmp_path / tag)[("H1", "ES", "E-S*", "n")]
+        listed = json.loads((tmp_path / tag / "meta.json").read_text())["lists"]["excluded_listed"]
+        mark = {"item": "ES-1", "arm": "E", "reason": "bundle_mismatch"}
+        if tag == "ok":
+            assert n == "2" and mark not in listed and ("ES-1", "E") in item_arms(tmp_path / tag)
+        else:
+            assert n == "1" and mark in listed and ("ES-1", "E") not in item_arms(tmp_path / tag)
+
+
 def test_bundle_mismatch_e_rt_arm_leaves_both_routes(tmp_path: Path) -> None:
     """A6 note (d): an E_rt item-arm whose plan.json bundle was not q's candidate bundle (`bundle_mismatch`, status
     partial, no answer) is reported only: it is not a unit (no 0 score against S*), it is listed as excluded, and

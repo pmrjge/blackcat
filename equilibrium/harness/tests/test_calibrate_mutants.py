@@ -1,8 +1,9 @@
 """Seeded bugs of eq_calibrate.py: each mutation, applied to a temp copy, must make its guarding tests fail.
 
 Kept here (not in tests/mutations.py, whose single shared list other parts edit). Always on: every anchor occurs
-exactly once in eq_calibrate.py. Opt-in (minutes): EQ_CALIBRATE_MUTANTS=1 runs every mutant in a fresh copy of
-equilibrium/{harness,calibration} with the same interpreter and requires a non-zero pytest exit.
+exactly once in eq_calibrate.py. Opt-in (minutes): EQ_CALIBRATE_MUTANTS=1 runs every mutant (EQ_CALIBRATE_MUTANTS_ONLY=
+C53,C54: those only) in a fresh copy of equilibrium/{harness,calibration} with the same interpreter and requires a
+non-zero pytest exit.
 """
 
 from __future__ import annotations
@@ -142,6 +143,20 @@ MUTANTS: list[tuple[str, str, str, str, list[str]]] = [
      '        classes[c]["status"] = classes[c]["status"]', [T + "test_a_q_rerun_resets_classes_outside_its_primary"]),
     ("C52", "p5 screening refused", 'if any(c.label == "p5" and c.cls == cls for c in st.calls):', "if False:",
      [T + "test_p5_calls_are_refused"]),
+    # COMPARE_eq §12 A6 (2026-10-07): p7 branch lines, the candidate status, ratio underflow
+    ("C53", "read_stage: p7 branch mediator lines never stand for the arm's own",
+     'if r.get("node") is not None or r.get("branch") is not None:', 'if r.get("node") is not None:',
+     [T + "test_adapter_skips_mediator_records_of_a_branch"]),
+    ("C54", "candidate: member_model_id required (eq_policy.CANDIDATE_REQUIRED)",
+     'CANDIDATE_REQUIRED = ("member_type", "member_model_id", "N",', 'CANDIDATE_REQUIRED = ("member_type", "N",',
+     [T + "test_candidate_needs_every_runtime_bundle_key"]),
+    ("C55", "candidate: N* >= 3 only",
+     'return all(e.get(k) is not None for k in CANDIDATE_REQUIRED) and int(e["N"]) >= 3',
+     "return all(e.get(k) is not None for k in CANDIDATE_REQUIRED)",
+     [T + "test_candidate_needs_every_runtime_bundle_key"]),
+    ("C56", "underflow: |ln a - ln b| where the ratio leaves the float range",
+     "return abs(math.log(r)) if 0 < r < math.inf else abs(math.log(a) - math.log(b))", "return abs(math.log(r))",
+     ["test_underflow.py::test_calibrate_ratio_sites_survive_underflow_and_overflow"]),
 ]
 
 
@@ -155,7 +170,11 @@ def test_every_anchor_occurs_once():
 @pytest.mark.skipif(os.environ.get("EQ_CALIBRATE_MUTANTS") != "1", reason="opt-in: EQ_CALIBRATE_MUTANTS=1")
 def test_every_mutant_is_killed(tmp_path: Path):
     survived = []
+    only = [x for x in os.environ.get("EQ_CALIBRATE_MUTANTS_ONLY", "").split(",") if x]  # e.g. C53,C54: a subset
+    assert set(only) <= {m[0] for m in MUTANTS}, only
     for mid, what, old, new, sel in MUTANTS:
+        if only and mid not in only:
+            continue
         root = tmp_path / mid / "equilibrium"
         root.mkdir(parents=True)
         shutil.copytree(HARNESS, root / "harness", ignore=shutil.ignore_patterns("__pycache__", ".pytest_cache"))
