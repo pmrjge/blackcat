@@ -653,3 +653,25 @@ n_d = 46. Hence the added "powered effect excluded" reading.
   4. **Code.** `harness/eq_calibrate.py --stage q` no longer computes or reports H5: `report.v<k>.json` has no `h5`
      key. E_rt's `item_arm` records no longer carry the `h5` note (`harness/LEDGER_SCHEMA.md`). p7's RS member-0 lines
      (a branch's reduced answer, `grading_results/members/RS.jsonl`) are still graded, but no rule reads them now.
+- **A8. 2026-10-07, PRE-FREEZE. E7 for a cell pass.** Written before `eq_freeze.sh` and before any eq call: no
+  `COMPARE_eq.sha256` sidecar and no `runs/` exist. The USER decided it (2026-10-07), relayed by the coordinator.
+  A0-A7 stand. No hypothesis, arm, item, oracle, cap, seed, statistic or stop rule changes.
+  1. **Why.** §5 step 3 states E7 for one walk over `schedule.tsv`: "the item is the next one in `schedule.tsv`, or a
+     re-check of the last PASS whose calls have not started". A6.3's cells run as a second walk,
+     `run --stage p --cells p6,p7` after the arm rows. Every item of that walk already has a PASS line and started
+     calls, so E7 refused the first item of every cell pass (stub check, 2026-10-07): no p6 or p7 row could run.
+  2. **Rule.** `eq_check.sh <ITEM> <stage> [<cells>]`. `run` passes `<cells>` (`p6`, `p7` or `p6,p7`) on a cell pass
+     only. Any other value, and any `<cells>` at stage q, is a usage error (exit 2, nothing logged).
+     - Without `<cells>`, E7 is §5's rule, unchanged.
+     - With `<cells>`, E7 reads the pass's progress from the stage ledger, not from `DISPATCH_LOG.tsv`. A row is done
+       when the ledger holds its `item_arm` record; a cell row has started when a `call` record of that item carries
+       its `cell`. E7 passes iff (a) every arm row of `schedule.tsv` is done: a cell pass follows the arm pass, so
+       the arm rule, which reads PASS lines, never meets a cell check's line before an arm row it still has to run;
+       (b) the item is the first, in `schedule.tsv` item order, with a not-done row of `<cells>`; and (c) none of the
+       item's not-done `<cells>` rows has started (a started row is not run again: §10). A ledger E7 cannot read
+       fails E7.
+     - Every check still appends its PASS or FAIL line to `DISPATCH_LOG.tsv`.
+  3. **Effect.** Each p6 and p7 row runs at most once, in schedule order, after every arm row. A p7 row skipped because
+     its item's p3 round 0 is missing stays not done, so E7 refuses every later item of the pass until that row has
+     run. E1-E6 and E8-E12 are unchanged. Code: `harness/eq_check.sh`, and `run --cells` in `harness/eq_harness.py`,
+     which passes `<cells>`.

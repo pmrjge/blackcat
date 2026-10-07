@@ -74,8 +74,11 @@ def check_env(wd: dict[str, Path], **extra: str) -> dict[str, str]:
     return env
 
 
-def run_check(wd: dict[str, Path], item: str | None = None, **extra: str) -> subprocess.CompletedProcess[str]:
-    return sh([str(HARNESS / "eq_check.sh"), item or str(wd["first"]), "p"], check_env(wd, **extra))
+def run_check(wd: dict[str, Path], item: str | None = None, cells: str | None = None,
+              **extra: str) -> subprocess.CompletedProcess[str]:
+    """eq_check.sh <item> p [<cells>]: without cells an arm-pass check, with them a cell-pass check (`run --cells`)."""
+    return sh([str(HARNESS / "eq_check.sh"), item or str(wd["first"]), "p", *([cells] if cells else [])],
+              check_env(wd, **extra))
 
 
 def failed(cp: subprocess.CompletedProcess[str]) -> set[str]:
@@ -174,6 +177,94 @@ def test_check_started_item_is_not_rechecked(world: dict[str, Path]) -> None:
     write_ledger(world["runs"] / "ledger.jsonl", [{"record": "call", "item": str(world["first"]), "session_id": SID,
                                                    "total_cost_usd": 0.1}])
     assert failed(run_check(world)) == {"E7"}
+
+
+def cell_world(world: dict[str, Path]) -> tuple[list[eh.ScheduleRow], list[dict[str, object]]]:
+    """A stage-p schedule with the p6 and p7 rows appended (PF: p6; RS, ES: p6 and p7; DS: none) and its arm pass
+    done: each item checked in schedule order (each check must PASS), a call started and every arm row's item_arm
+    recorded. Returns the rows and the ledger records (written)."""
+    rows = eh.build_schedule(["RS-0001", "ES-0001", "PF-0001", "DS-0001"], "p")
+    rows += eh.cell_rows(rows, ["p6", "p7"], eh.load_flags(None))
+    eh.write_schedule(rows, world["eq"] / "schedule.tsv")
+    recs: list[dict[str, object]] = []
+    for it in dict.fromkeys(r.item for r in rows):
+        cp = run_check(world, it)
+        assert cp.returncode == 0, cp.stdout
+        recs.append({"record": "call", "item": it, "session_id": SID, "total_cost_usd": 0.01, "cell": None})
+        recs += [{"record": "item_arm", "item": it, "label": r.label, "arm": r.arm}
+                 for r in rows if r.item == it and r.arm not in eh.CELLS]
+        write_ledger(world["runs"] / "ledger.jsonl", recs)
+    return rows, recs
+
+
+def cell_arms(rows: list[eh.ScheduleRow], item: str) -> list[str]:
+    return [r.arm for r in rows if r.item == item and r.arm in eh.CELLS]
+
+
+def test_check_cell_pass_after_the_arm_pass(world: dict[str, Path]) -> None:
+    """COMPARE_eq §12 A8: a cell pass (`run --cells p6,p7`) after the arm pass. The arm rule of E7 refused its first
+    item (every item already has a PASS line and started calls); the cell pass reads its progress from the ledger:
+    the first item in schedule order with a not-done cell row is next, and a row whose calls started is not re-run."""
+    rows, recs = cell_world(world)
+    led = world["runs"] / "ledger.jsonl"
+    order = list(dict.fromkeys(r.item for r in rows if r.arm in eh.CELLS))
+    assert cell_arms(rows, "DS-0001") == [] and "DS-0001" not in order
+    a, b = order[0], order[1]
+    assert failed(run_check(world, a)) == {"E7"}  # the arm rule: no arm row is left to check
+    cp = run_check(world, a, cells="p6,p7")
+    assert cp.returncode == 0 and f"PASS E7 {a} is next in the p6,p7 pass" in cp.stdout, cp.stdout
+    assert run_check(world, a, cells="p7,p6").returncode == 0  # the order inside <cells> does not matter
+    assert failed(run_check(world, b, cells="p6,p7")) == {"E7"}  # b is not next while a has a row to do
+    assert run_check(world, a, cells="p6,p7").returncode == 0  # a re-check: no cell call of a has started
+    two = next(it for it in order if cell_arms(rows, it) == ["p6", "p7"])
+    for it in order[:order.index(two)]:  # every cell row before `two` done
+        recs.append({"record": "call", "item": it, "session_id": SID, "total_cost_usd": 0.01, "cell": "p6"})
+        recs += [{"record": "item_arm", "item": it, "label": c, "arm": "E", "cell": c} for c in cell_arms(rows, it)]
+    recs.append({"record": "call", "item": two, "session_id": SID, "total_cost_usd": 0.01, "cell": "p6"})
+    write_ledger(led, recs)
+    cp = run_check(world, two, cells="p6,p7")  # its p6 row started and is not done: not run again (§10)
+    assert failed(cp) == {"E7"} and "has started" in cp.stdout, cp.stdout
+    recs.append({"record": "item_arm", "item": two, "label": "p6", "arm": "E", "cell": "p6"})
+    write_ledger(led, recs)
+    assert run_check(world, two, cells="p6,p7").returncode == 0  # p6 done, p7 not started: its p7 row may run
+    assert run_check(world, two, cells="p7").returncode == 0  # a p7-only pass: `two` holds its first p7 row to do
+    recs.append({"record": "call", "item": two, "session_id": SID, "total_cost_usd": 0.01, "cell": "p7"})
+    write_ledger(led, recs)
+    assert failed(run_check(world, two, cells="p6,p7")) == {"E7"}
+    recs.append({"record": "item_arm", "item": two, "label": "p7", "arm": "E", "cell": "p7"})
+    write_ledger(led, recs)
+    rest = order[order.index(two) + 1:]
+    if rest:
+        assert run_check(world, rest[0], cells="p6,p7").returncode == 0
+    assert failed(run_check(world, two, cells="p6,p7")) == {"E7"}  # done: not checked again
+    cp = run_check(world, "DS-0001", cells="p6,p7")
+    assert failed(cp) == {"E7"} and "has no p6,p7 row" in cp.stdout, cp.stdout
+
+
+def test_check_cell_pass_waits_for_the_arm_rows(world: dict[str, Path]) -> None:
+    """A8: a cell pass runs after the arm pass. With one arm row not done (no item_arm) the cell pass's first item
+    fails E7, so no cell check's PASS line precedes an arm check (the arm rule reads DISPATCH_LOG's PASS lines)."""
+    rows, recs = cell_world(world)
+    first = next(r.item for r in rows if r.arm in eh.CELLS)
+    last = next(r for r in reversed(rows) if r.arm not in eh.CELLS)
+    keep = [r for r in recs if not (r["record"] == "item_arm" and (r["item"], r["label"]) == (last.item, last.label))]
+    write_ledger(world["runs"] / "ledger.jsonl", keep)
+    cp = run_check(world, first, cells="p6,p7")
+    assert failed(cp) == {"E7"} and "1 arm row(s) not done" in cp.stdout, cp.stdout
+    write_ledger(world["runs"] / "ledger.jsonl", recs)
+    assert run_check(world, first, cells="p6,p7").returncode == 0
+    led = world["runs"] / "ledger.jsonl"
+    led.write_bytes(led.read_bytes()[:-9])  # a torn last line: the cell rule cannot read the ledger and fails closed
+    cp = run_check(world, first, cells="p6,p7")
+    assert failed(cp) == {"E7", "E11", "E12"} and "cannot be read" in cp.stdout, cp.stdout
+
+
+@pytest.mark.parametrize(("stage", "cells"), [("p", "p8"), ("p", "p6,p6"), ("p", "p6,"), ("p", "p*"), ("q", "p6"),
+                                              ("q", "p6,p7")])
+def test_check_refuses_a_bad_cells_argument(world: dict[str, Path], stage: str, cells: str) -> None:
+    cp = sh([str(HARNESS / "eq_check.sh"), str(world["first"]), stage, cells], check_env(world))
+    assert cp.returncode == 2 and "cells" in cp.stderr, (cp.stdout, cp.stderr)
+    assert not (world["eq"] / "runs" / stage / "DISPATCH_LOG.tsv").exists()  # a usage error logs nothing
 
 
 # ---- eq_freeze.sh ---------------------------------------------------------------------------------------------------

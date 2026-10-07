@@ -1,7 +1,8 @@
 #!/bin/bash
 # eq_check.sh: pre-item checks of the agent-equilibrium experiment (COMPARE_eq.md §5 step 3, E1-E11).
 # Run by `eq_harness.py run` before every item (or by hand):
-#     bash eq_check.sh <ITEM> [<stage: p|q|d>]          (stage defaults to p)
+#     bash eq_check.sh <ITEM> [<stage: p|q|d> [<cells: p6|p7|p6,p7>]]   (stage defaults to p)
+# <cells> marks a cell pass (`run --cells`, stage p or d; COMPARE_eq §12 A8): it changes E7 only.
 # Exit 0 = the item may start. Exit 1 = do not start it. Exit 2 = usage.
 # Every call appends one line to $EQ/runs/<stage>/DISPATCH_LOG.tsv (PASS or FAIL): the audit trail.
 # Read-only except that log. Never calls the API (`claude --version` only).
@@ -17,11 +18,13 @@ MAN="$H/.claude/.stack-manifest.json"
 STATE="$H/.local/state/claude-agent-stack"
 ACTIVE_S=900
 
-ITEM="${1:-}"; STAGE="${2:-p}"
-if [ -z "$ITEM" ]; then echo "usage: bash eq_check.sh <ITEM> [<stage>]" >&2; exit 2; fi
+ITEM="${1:-}"; STAGE="${2:-p}"; CELLS="${3:-}"
+if [ -z "$ITEM" ]; then echo "usage: bash eq_check.sh <ITEM> [<stage> [<cells>]]" >&2; exit 2; fi
 case "$ITEM" in [A-Z][A-Z]-[A-Z0-9]*) ;; *) echo "bad item id: $ITEM" >&2; exit 2 ;; esac
 case "$ITEM" in *[!A-Z0-9-]*) echo "bad item id: $ITEM" >&2; exit 2 ;; esac
 case "$STAGE" in p|q|d) ;; *) echo "bad stage: $STAGE" >&2; exit 2 ;; esac
+case "$CELLS" in ""|p6|p7|p6,p7|p7,p6) ;; *) echo "bad cells: $CELLS (p6, p7 or p6,p7)" >&2; exit 2 ;; esac
+if [ -n "$CELLS" ] && [ "$STAGE" = q ]; then echo "cells $CELLS: the calibration cells are stage p's (A6.3)" >&2; exit 2; fi
 for t in jq shasum awk; do
   command -v "$t" >/dev/null 2>&1 || { echo "FAIL missing command: $t" >&2; exit 1; }
 done
@@ -76,8 +79,41 @@ for lg in "$W"/*/arms/*/DISPATCH_LOG.tsv; do
 done
 if [ -z "$open_arms" ]; then ok "E6 no open measurement arm"; else bad "E6 open arm(s):$open_arms" E6; fi
 
-# E7 the item is the next one in schedule.tsv, or a re-check of the last PASS whose calls have not started
+# E7 the item is the next one in schedule.tsv, or a re-check of the last PASS whose calls have not started.
+# A cell pass (<cells>, COMPARE_eq §12 A8) walks the schedule a second time, so it reads its progress from the ledger
+# (item_arm = a row done, a call's `cell` = that cell's row started), not from this log: every arm row is done (a cell
+# pass follows the arm pass), the item is the first in schedule order with a not-done row of <cells>, and no call of
+# its not-done <cells> rows has started (a started row is not run again, §10).
 if [ ! -f "$SCHED" ]; then bad "E7 $SCHED missing" E7
+elif [ -n "$CELLS" ]; then
+  led="$LEDGER"; [ -f "$led" ] || led=/dev/null
+  # schedule columns: seq item_seq item class arm label; a cell row has arm = label = its cell
+  e7="$(jq -nr --rawfile s "$SCHED" --arg c "$CELLS" --arg i "$ITEM" '
+    [$s | split("\n") | .[1:][] | select(length > 0) | split("\t")] as $rows
+    | [inputs] as $L
+    | ($c | split(",")) as $C
+    | (reduce ($L[] | select(.record == "item_arm")) as $r ({}; .["\($r.item)\t\($r.label)"] = true)) as $done
+    | (reduce ($L[] | select(.record == "call" and .cell != null)) as $r ({}; .["\($r.item)\t\($r.cell)"] = true))
+      as $started
+    | [$rows[] | select(.[4] != "p6" and .[4] != "p7") | select($done[.[2] + "\t" + .[5]] | not)] as $arms_left
+    | [$rows[] | select(.[4] as $a | any($C[]; . == $a))] as $mine
+    | [$mine[] | select($done[.[2] + "\t" + .[5]] | not)] as $todo
+    | (reduce $rows[] as $r ({o: [], s: {}}; if .s[$r[2]] then . else .o += [$r[2]] | .s[$r[2]] = true end) | .o)
+      as $order
+    | ([$order[] as $x | select(any($todo[]; .[2] == $x)) | $x] | first) as $next
+    | if any($mine[]; .[2] == $i) | not then "norow"
+      elif ($arms_left | length) > 0 then "arms \($arms_left | length)"
+      elif $next != $i then "next \($next // "none (all done)")"
+      elif any($todo[]; .[2] == $i and $started[.[2] + "\t" + .[4]]) then "started"
+      else "ok" end' "$led" 2>/dev/null)" || e7="unreadable"
+  case "$e7" in
+    ok) ok "E7 $ITEM is next in the $CELLS pass (arm rows done, its $CELLS rows not started)" ;;
+    norow) bad "E7 $ITEM has no $CELLS row in $SCHED" E7 ;;
+    arms\ *) bad "E7 a $CELLS pass follows the arm pass: ${e7#arms } arm row(s) not done in the ledger" E7 ;;
+    next\ *) bad "E7 $CELLS pass: expected ${e7#next }, got $ITEM" E7 ;;
+    started) bad "E7 $ITEM: a call of its not-done $CELLS row(s) has started (not run again, COMPARE_eq §10)" E7 ;;
+    *) bad "E7 the ledger or $SCHED cannot be read for the $CELLS pass" E7 ;;
+  esac
 else
   items="$(awk -F'\t' 'NR>1 && !seen[$3]++ {print $3}' "$SCHED")"
   expected=""
