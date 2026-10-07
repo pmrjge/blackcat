@@ -1,4 +1,5 @@
-"""install.sh --diff: what differs between the repo's dot-claude/ and an installed config dir. Read-only.
+"""install.sh --diff: what differs between the repo's dot-config/dot-claude/ and an installed config dir.
+Read-only.
 
   stack_diff.py --repo REPO [--config-dir PATH]
 
@@ -29,6 +30,7 @@ import stat
 import subprocess
 import sys
 
+DOT = "dot-config/dot-claude"      # the shipped tree, relative to the repo
 KNOWN_DIRS = ("hooks", "bin", "mcp", "magg")
 TOOL_PLACEHOLDERS = ("__PYTHON3__", "__UV__", "__UVX__", "__NPX__", "__NODE__", "__MAGG__", "__HUETENSION__")
 PLACEHOLDER_RE = re.compile(r"__[A-Z][A-Z0-9_]*__")
@@ -69,11 +71,11 @@ def staged_files(install_text):
     lines, `for f in ...` loops, and the copies it takes from tests/)."""
     out = {}
     for d, f in re.findall(r"stage_script\s+\d+\s+\"?(%s)/([A-Za-z0-9_.-]+)" % "|".join(KNOWN_DIRS), install_text):
-        out["%s/%s" % (d, f)] = "dot-claude/%s/%s" % (d, f)
+        out["%s/%s" % (d, f)] = "%s/%s/%s" % (DOT, d, f)
     for names, d in re.findall(r"(?m)^\s*for f in ([^;\n]+); do[^\n]*stage_script\s+\d+\s+\"(%s)/\$f\""
                                % "|".join(KNOWN_DIRS), install_text):
         for f in names.split():
-            out["%s/%s" % (d, f)] = "dot-claude/%s/%s" % (d, f)
+            out["%s/%s" % (d, f)] = "%s/%s/%s" % (DOT, d, f)
     for names, d, src in re.findall(r"(?m)^for f in ([^;\n]+); do\n\s*rm -rf \"\$S/(\w+)/\$f\" && "
                                     r"cp \"\$(?:HERE|SNAP_ROOT)/([\w-]+)/\$f\"", install_text):  # SNAP_ROOT: the repo's layout
         for f in names.split():
@@ -223,7 +225,7 @@ class Diff:
             self.compare(area, "%s/%s" % (inst_rel, p), read(os.path.join(repo_base, p)), render)
 
     def agents(self):
-        src = os.path.join(self.repo, "dot-claude", "agents")
+        src = os.path.join(self.repo, DOT, "agents")
         targets = {f for f in sorted(os.listdir(src)) if f.endswith(".md")} if os.path.isdir(src) else set()
         inst = {p for p in walk(os.path.join(self.c, "agents")) if "/" not in p}
         for f in sorted(targets - inst):
@@ -254,7 +256,7 @@ class Diff:
             self.compare("agents", rel, read(os.path.join(src, f)), True, transform)
 
     def skills(self):
-        src = os.path.join(self.repo, "dot-claude", "skills")
+        src = os.path.join(self.repo, DOT, "skills")
         rnames = {d for d in os.listdir(src) if os.path.isdir(os.path.join(src, d))} if os.path.isdir(src) else set()
         ib = os.path.join(self.c, "skills")
         inames = {d for d in os.listdir(ib) if d not in SKIP_NAMES and d != "synced"} if os.path.isdir(ib) else set()
@@ -289,11 +291,11 @@ class Diff:
                     continue
                 self.compare(area, rel, data, False)
             # repo files in these dirs that install.sh does not stage: informational
-            repo_dir = os.path.join(self.repo, "dot-claude", d)
+            repo_dir = os.path.join(self.repo, DOT, d)
             for p in sorted(walk(repo_dir)):
                 rel = "%s/%s" % (d, p)
                 if rel not in mine and not (d == "magg" and p == "config.json"):
-                    self.notes.append("dot-claude/%s is not installed by install.sh (not staged)" % rel)
+                    self.notes.append("%s/%s is not installed by install.sh (not staged)" % (DOT, rel))
 
     def settings_hooks(self):
         def wiring(data):
@@ -308,7 +310,7 @@ class Diff:
                             out.append((ev, g.get("matcher") or "", h["command"]))
             return out
         try:
-            repo = wiring(json.loads(read(os.path.join(self.repo, "dot-claude", "settings.json"))))
+            repo = wiring(json.loads(read(os.path.join(self.repo, DOT, "settings.json"))))
         except (OSError, ValueError) as exc:
             self.notes.append("repo settings.json unreadable: %s" % exc)
             return
@@ -336,7 +338,7 @@ class Diff:
 
     def magg_catalog(self):
         try:
-            repo = json.loads(read(os.path.join(self.repo, "dot-claude", "magg", "config.json"))).get("servers") or {}
+            repo = json.loads(read(os.path.join(self.repo, DOT, "magg", "config.json"))).get("servers") or {}
         except (OSError, ValueError, AttributeError):
             return
         p = os.path.join(self.c, "magg", "config.json")
@@ -360,14 +362,14 @@ class Diff:
                 self.add("magg catalog", "~", k, "entry differs")
 
     def claude_md(self):
-        """The stack's block in CLAUDE.md against the repo's dot-claude/CLAUDE.block.md, as
+        """The stack's block in CLAUDE.md against the repo's dot-config/dot-claude/CLAUDE.block.md, as
         lib/claude_md_block.py finds and renders it (loaded by path, like install_state)."""
         area, rel = "CLAUDE.md block", "CLAUDE.md"
         spec = importlib.util.spec_from_file_location(
             "claude_md_block", os.path.join(os.path.dirname(os.path.abspath(__file__)), "claude_md_block.py"))
         cmb = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(cmb)
-        tmpl = os.path.join(self.repo, "dot-claude", "CLAUDE.block.md")
+        tmpl = os.path.join(self.repo, DOT, "CLAUDE.block.md")
         want = cmb.render_block(self.m.render(read(tmpl).decode("utf-8"))) if os.path.isfile(tmpl) else None
         p = os.path.join(self.c, rel)
         if os.path.islink(p) or (os.path.lexists(p) and not os.path.isfile(p)):
@@ -400,7 +402,7 @@ class Diff:
             self.add(area, "~", rel, "the stack's block" + ("; edited since the last install" if edited else ""))
 
     def run(self):
-        dot = os.path.join(self.repo, "dot-claude")
+        dot = os.path.join(self.repo, DOT)
         steps = (("agents", self.agents),
                  ("rules", lambda: self.tree("rules", os.path.join(dot, "rules"), "rules", True)),
                  ("skills", self.skills), ("hooks, bin, mcp, magg", self.staged),
@@ -435,8 +437,8 @@ def main(argv):
             cdir, cset, i = argv[i + 1], True, i + 2
         else:
             usage("unknown argument %r" % a)
-    if not repo or not os.path.isdir(os.path.join(repo, "dot-claude")):
-        usage("--repo must name the stack checkout (with dot-claude/)")
+    if not repo or not os.path.isdir(os.path.join(repo, DOT)):
+        usage("--repo must name the stack checkout (with %s/)" % DOT)
     home = os.path.expanduser("~")
     # install.sh's own resolution (lexical: a symlinked ~/.claude keeps its name, as __CLAUDE_DIR__ does)
     # by file path, not through sys.path: lib/ is agent-writable, and a lib/<stdlib name>.py there

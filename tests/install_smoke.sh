@@ -152,8 +152,8 @@ count_backups(){ python3 -B -c 'import sys; sys.path.insert(0, sys.argv[1]); imp
 print(len(st.backups_of(sys.argv[2], sys.argv[3])))' "$HERE/lib" "$1" "$BK_ROOT"; }
 fmode(){ python3 -c 'import os, sys; print(oct(os.lstat(sys.argv[1]).st_mode & 0o777))' "$1"; }
 
-EXPECTED_AGENTS=$(ls "$HERE"/dot-claude/agents/*.md | wc -l | tr -d ' ')
-EXPECTED_SKILLS=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
+EXPECTED_AGENTS=$(ls "$HERE"/dot-config/dot-claude/agents/*.md | wc -l | tr -d ' ')
+EXPECTED_SKILLS=$(ls -d "$HERE"/dot-config/dot-claude/skills/*/ | wc -l | tr -d ' ')
 
 echo "== 1. Fresh install into a scratch CLAUDE_CONFIG_DIR"
 T1="$(cd "$(mktemp -d "${TMPDIR:-/tmp}/smoke.XXXXXX")" && pwd -P)"
@@ -179,7 +179,7 @@ else
 fi
 [ -f "$T1/magg/k8s-mcp.toml" ] && pass "magg/k8s-mcp.toml installed" || failed "magg/k8s-mcp.toml not installed"
 # a fresh install creates CLAUDE.md holding only the stack's block (lib/claude_md_block.py): one begin
-# and one end marker line around the rendered dot-claude/CLAUDE.block.md, nothing else
+# and one end marker line around the rendered dot-config/dot-claude/CLAUDE.block.md, nothing else
 [ -f "$T1/rules/claude-agent-stack.md" ] && [ "$(grep -c '^<!-- claude-agent-stack: begin ' "$T1/CLAUDE.md" 2>/dev/null)" = 1 ] \
   && [ "$(sed -n '$p' "$T1/CLAUDE.md")" = '<!-- claude-agent-stack: end -->' ] && grep -qF "$HERE" "$T1/CLAUDE.md" \
   && ! grep -qE '__[A-Z_]+__' "$T1/CLAUDE.md" && grep -qE '^  CLAUDE.md \(the stack.s block\) +created$' "$T1/.install.log" \
@@ -309,7 +309,7 @@ out=$(XDG_STATE_HOME="$T1/state" "$T1/bin/magg-private" /bin/echo --env-pass --c
 priv=$(printf '%s\n' "$out" | sed -n 's/^--env-pass --config \(.*\) serve$/\1/p')
 [ -n "$priv" ] && [ "$priv" != "$T1/magg/config.json" ] && cmp -s "$priv" "$T1/magg/config.json" \
   && pass "magg-private runs magg on a private copy of the catalog" || failed "magg-private: [$out]"
-python3 - "$T1/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "settings: autocompact on at the shipped window, depth 8, default tool search, lazy MCP, blackcat, shipped skill-listing budget, 500-char cut, 6 user-only bundled skills, hidden hub modules, Plan by default" || failed "settings.json values (see above)"
+python3 - "$T1/settings.json" "$HERE/dot-config/dot-claude/settings.json" <<'PY' && pass "settings: autocompact on at the shipped window, depth 8, default tool search, lazy MCP, blackcat, shipped skill-listing budget, 500-char cut, 6 user-only bundled skills, hidden hub modules, Plan by default" || failed "settings.json values (see above)"
 import json, os, re, sys
 def stack_models(p):
     """stack.env.example's Claude model IDs (the single source)."""
@@ -317,7 +317,9 @@ def stack_models(p):
 s = json.load(open(sys.argv[1]))
 frac = json.load(open(sys.argv[2]))["skillListingBudgetFraction"]
 env = s["env"]
-example_models = stack_models(os.path.join(os.path.dirname(os.path.dirname(sys.argv[2])), "lib", "stack.env.example"))
+# sys.argv[2] is <repo>/dot-config/dot-claude/settings.json
+example_models = stack_models(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(sys.argv[2]))), "lib",
+                                           "stack.env.example"))
 checks = {
     "agent": s.get("agent") == "blackcat",
     "autoCompactEnabled": s.get("autoCompactEnabled") is True,
@@ -509,7 +511,7 @@ s["permissions"]["ask"].append("mcp__mobilebuild") # the user's own rule: keep p
 json.dump(s, open(p, "w"), indent=2)
 PY
 CLAUDE_CONFIG_DIR="$T2" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile >"$T2/.install2.log" 2>&1
-python3 - "$T2/settings.json" "$HERE/dot-claude/settings.json" "$T2/magg/config.json" <<'PY'
+python3 - "$T2/settings.json" "$HERE/dot-config/dot-claude/settings.json" "$T2/magg/config.json" <<'PY'
 import json, os, re, sys
 def example_models(p):
     """stack.env.example's Claude model IDs (the single source)."""
@@ -523,7 +525,8 @@ def check(cond, good, bad):
     global ok
     print("  %s  %s" % ("PASS" if cond else "FAIL", good if cond else bad))
     ok = ok and cond
-models = example_models(os.path.join(os.path.dirname(os.path.dirname(shipped_path)), "lib", "stack.env.example"))
+models = example_models(os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(shipped_path))), "lib",  # <repo>/dot-config/dot-claude/settings.json
+                                      "stack.env.example"))
 check(env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL") == models["ANTHROPIC_DEFAULT_HAIKU_MODEL"],
       "a Haiku pin is replaced by stack.env's haiku slot (the stack runs no Haiku)",
       "ANTHROPIC_DEFAULT_HAIKU_MODEL=%r" % env.get("ANTHROPIC_DEFAULT_HAIKU_MODEL"))
@@ -647,7 +650,7 @@ fi
 # FAIL, and names the pinned install command from its catalog notes
 SERIAL_V=$(python3 -c 'import json, re, sys
 n = json.load(open(sys.argv[1]))["servers"]["serial"]["notes"]
-print(re.search(r"cargo install serial-mcp@(\S+) --locked", n).group(1))' "$HERE/dot-claude/magg/config.json")
+print(re.search(r"cargo install serial-mcp@(\S+) --locked", n).group(1))' "$HERE/dot-config/dot-claude/magg/config.json")
 if [ -x "$HOME/.cargo/bin/serial-mcp" ] \
    || printf '%s\n' "$out" | grep 'WARN  .*/serial-mcp missing — MCP server of magg catalog: serial' \
         | grep -qF "rerun ./install.sh with cargo on PATH, or run: cargo install serial-mcp@$SERIAL_V --locked)"; then
@@ -669,12 +672,12 @@ printf '%s\n' "$out" | grep -q "agent files present" && pass "doctor.sh: agent f
   && printf '%s\n' "$out" | grep -q 'ok    settings.json PreToolUse(Bash) read-only reviewers enforces the policy'; } \
   && pass "doctor.sh: blackcat-guard (frontmatter and settings wiring) and read-only reviewer probes deny" \
   || failed "doctor.sh: blackcat-guard/read-only probe lines: $(printf '%s\n' "$out" | grep -i 'blackcat-guard\|read-only')"
-nsk=$(ls -d "$HERE"/dot-claude/skills/*/ | wc -l | tr -d ' ')
+nsk=$(ls -d "$HERE"/dot-config/dot-claude/skills/*/ | wc -l | tr -d ' ')
 # hub modules hidden by skillOverrides (user-invocable-only or off) are not listed
-nhid=$(python3 -c 'import json, os, sys; so = json.load(open(sys.argv[1])).get("skillOverrides", {}); print(sum(1 for k, v in so.items() if v in ("user-invocable-only", "off") and os.path.isdir(os.path.join(sys.argv[2], k))))' "$HERE/dot-claude/settings.json" "$HERE/dot-claude/skills")
-budget=$(python3 -c 'import json, sys; print(int(1000000 * 3 * json.load(open(sys.argv[1]))["skillListingBudgetFraction"]))' "$HERE/dot-claude/settings.json")
+nhid=$(python3 -c 'import json, os, sys; so = json.load(open(sys.argv[1])).get("skillOverrides", {}); print(sum(1 for k, v in so.items() if v in ("user-invocable-only", "off") and os.path.isdir(os.path.join(sys.argv[2], k))))' "$HERE/dot-config/dot-claude/settings.json" "$HERE/dot-config/dot-claude/skills")
+budget=$(python3 -c 'import json, sys; print(int(1000000 * 3 * json.load(open(sys.argv[1]))["skillListingBudgetFraction"]))' "$HERE/dot-config/dot-claude/settings.json")
 # user commands (disable-model-invocation: true) are not listed either
-ncmd=$(grep -l '^disable-model-invocation: *true' "$HERE"/dot-claude/skills/*/SKILL.md | wc -l | tr -d ' ')
+ncmd=$(grep -l '^disable-model-invocation: *true' "$HERE"/dot-config/dot-claude/skills/*/SKILL.md | wc -l | tr -d ' ')
 printf '%s\n' "$out" | grep -qE "ok    skill listing: $((nsk - ncmd - nhid)) skills, ~[0-9]+ of $budget characters" \
   && pass "doctor.sh: skill listing within its budget" || failed "doctor.sh: skill listing line: $(printf '%s\n' "$out" | grep 'skill listing')"
 printf '%s\n' "$out" | grep -q "exa-from-stack-env" && failed "doctor.sh printed a key value" || pass "doctor.sh never prints key values"
@@ -810,7 +813,7 @@ PY
 mv "$T4/.claude/settings.json" "$T4/dotfiles/settings.json"; ln -s "$T4/dotfiles/settings.json" "$T4/.claude/settings.json"
 HOME="$T4" CLAUDE_CONFIG_DIR="$T4/.claude" "$INSTALL" --no-mcp --no-plugins --no-deps >"$T4/.install2.log" 2>&1
 [ -L "$T4/.claude/settings.json" ] && pass "symlinked settings.json stays a symlink" || failed "settings.json symlink replaced"
-python3 - "$T4/.claude/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "user hook in the stack's group, tuned knobs and own main agent kept" || failed "settings merge dropped user changes"
+python3 - "$T4/.claude/settings.json" "$HERE/dot-config/dot-claude/settings.json" <<'PY' && pass "user hook in the stack's group, tuned knobs and own main agent kept" || failed "settings merge dropped user changes"
 import json, sys
 s = json.load(open(sys.argv[1]))
 shipped = sum("agent_guard" in json.dumps(g) for g in json.load(open(sys.argv[2]))["hooks"]["PreToolUse"])
@@ -1079,7 +1082,7 @@ if bad:
     print("\n".join("    " + b for b in bad))
 sys.exit(1 if bad else 0)
 PY
-python3 - "$HERE/install.sh" "$HERE/dot-claude/hooks" <<'PY' && pass "install.sh contains no git push" || failed "install.sh contains a git push"
+python3 - "$HERE/install.sh" "$HERE/dot-config/dot-claude/hooks" <<'PY' && pass "install.sh contains no git push" || failed "install.sh contains a git push"
 import sys
 sys.path.insert(0, sys.argv[2])
 import agent_guard as G
@@ -1115,7 +1118,7 @@ for b in haskell-language-server-wrapper lake metals julia; do printf '#!/bin/sh
 lsp_run(){ PATH="$TL/bin:$PATH" FAKE_CLAUDE_LOG="$TL/calls.log" CLAUDE_CONFIG_DIR="$TL/c" \
   "$INSTALL" --no-mcp --no-deps --no-profile >"$TL/$1" 2>&1; }
 lsp_run a.log
-if diff -rq "$HERE/dot-claude/stack-plugins" "$TL/c/stack-plugins" >/dev/null 2>&1 \
+if diff -rq "$HERE/dot-config/dot-claude/stack-plugins" "$TL/c/stack-plugins" >/dev/null 2>&1 \
    && grep -qF "[\"plugin\", \"marketplace\", \"add\", \"$TL/c/stack-plugins\"]" "$TL/calls.log"; then
   pass "stack-plugins copied to the config dir and registered as a directory marketplace"
 else
@@ -1129,13 +1132,13 @@ done
 # a local edit of the installed marketplace is backed up and replaced by the next run
 echo '{}' > "$TL/c/stack-plugins/plugins/lean-lsp/.claude-plugin/plugin.json"
 lsp_run b.log
-if diff -rq "$HERE/dot-claude/stack-plugins" "$TL/c/stack-plugins" >/dev/null 2>&1 \
+if diff -rq "$HERE/dot-config/dot-claude/stack-plugins" "$TL/c/stack-plugins" >/dev/null 2>&1 \
    && grep -qx '{}' "$(latest_backup "$TL/c")/files/stack-plugins/plugins/lean-lsp/.claude-plugin/plugin.json" 2>/dev/null; then
   pass "re-run restores stack-plugins and keeps the edited copy in the backup"
 else
   failed "stack-plugins not restored or not backed up"
 fi
-python3 - "$HERE/dot-claude/stack-plugins" <<'PY' && pass "every marketplace entry has a plugin.json with a strict-valid lspServers config" \
+python3 - "$HERE/dot-config/dot-claude/stack-plugins" <<'PY' && pass "every marketplace entry has a plugin.json with a strict-valid lspServers config" \
   || failed "stack-plugins manifests"
 import json, os, sys
 root = sys.argv[1]
@@ -1216,7 +1219,7 @@ PY
 # the rollback: a stack repository whose settings.json is the older one (no listing cut, no
 # overrides, no budget knobs, the old caps), committed on main as install.sh requires
 cp -R "$HERE" "$TR/repo"
-python3 - "$TR/repo/dot-claude/settings.json" <<'PY'
+python3 - "$TR/repo/dot-config/dot-claude/settings.json" <<'PY'
 import json, sys
 p = sys.argv[1]; s = json.load(open(p))
 for k in ("skillListingMaxDescChars", "skillOverrides"):
@@ -1254,7 +1257,7 @@ echo "== 13b. skillOverrides entries an earlier version shipped are retracted pe
 TN="$(scratch_dir)" || exit 1
 # the earlier version: the current settings plus two "name-only" entries (as phase 2 once shipped)
 cp -R "$HERE" "$TN/repo"
-python3 - "$TN/repo/dot-claude/settings.json" <<'PY'
+python3 - "$TN/repo/dot-config/dot-claude/settings.json" <<'PY'
 import json, sys
 p = sys.argv[1]; s = json.load(open(p))
 s["skillOverrides"].update({"postgresql": "name-only", "mongodb": "name-only"})
@@ -1269,7 +1272,7 @@ s["skillOverrides"]["mongodb"] = "off"          # the user changed a stack entry
 json.dump(s, open(p, "w"), indent=2)
 PY
 CLAUDE_CONFIG_DIR="$TN/c" "$INSTALL" --no-mcp --no-plugins --no-deps --no-profile --yes >"$TN/r.log" 2>&1
-python3 - "$TN/c/settings.json" "$HERE/dot-claude/settings.json" <<'PY' && pass "name-only entries no longer shipped are retracted; a changed one and the shipped ones stay" || { failed "per-skill skillOverrides retraction"; grep -i 'retract\|kept' "$TN/r.log" | sed 's/^/    /'; }
+python3 - "$TN/c/settings.json" "$HERE/dot-config/dot-claude/settings.json" <<'PY' && pass "name-only entries no longer shipped are retracted; a changed one and the shipped ones stay" || { failed "per-skill skillOverrides retraction"; grep -i 'retract\|kept' "$TN/r.log" | sed 's/^/    /'; }
 import json, sys
 so = json.load(open(sys.argv[1])).get("skillOverrides", {})
 want = dict(json.load(open(sys.argv[2])).get("skillOverrides", {}), mongodb="off")
@@ -1286,7 +1289,7 @@ echo "== 13c. permissions.defaultMode: plan shipped; the earlier shipped bypassP
 TP="$(scratch_dir)" || exit 1
 # the earlier version shipped bypassPermissions, and its installer overwrote the mode on every run
 cp -R "$HERE" "$TP/repo"
-python3 - "$TP/repo/dot-claude/settings.json" <<'PY'
+python3 - "$TP/repo/dot-config/dot-claude/settings.json" <<'PY'
 import json, sys
 p = sys.argv[1]; s = json.load(open(p))
 s["permissions"]["defaultMode"] = "bypassPermissions"
@@ -1309,7 +1312,7 @@ p = os.path.join(sys.argv[1], "mine", "settings.json"); s = json.load(open(p))
 s["permissions"]["defaultMode"] = "acceptEdits"; json.dump(s, open(p, "w"), indent=2)
 PY
 # the upgrade: the same repository moves on to plan; the bypassPermissions commit stays in its history
-tgit -C "$TP/repo" checkout -q HEAD~1 -- dot-claude/settings.json && tgit -C "$TP/repo" commit -qam "plan era" \
+tgit -C "$TP/repo" checkout -q HEAD~1 -- dot-config/dot-claude/settings.json && tgit -C "$TP/repo" commit -qam "plan era" \
   || failed "could not commit the plan-era repository"
 for c in old mine fresh; do
   CLAUDE_CONFIG_DIR="$TP/$c" "$TP/repo/install.sh" --no-mcp --no-plugins --no-deps --no-profile --yes >"$TP/$c.log" 2>&1
@@ -1507,11 +1510,11 @@ def check(ok, what):
         bad.append(what)
 mode = lambda p: stat.S_IMODE(os.lstat(p).st_mode)
 agents = sorted(os.listdir(os.path.join(c, "agents")))
-extra = sorted(a for a in agents if not os.path.isfile(os.path.join(here, "dot-claude", "agents", a)))
+extra = sorted(a for a in agents if not os.path.isfile(os.path.join(here, "dot-config", "dot-claude", "agents", a)))
 check(len(agents) == n_agents + 4 and extra == ["coder.md.new", "my-own.md", "retired-edited.md", "team"],
       "agents/ beyond the stack's: %s" % extra)
 check("<!-- local edit -->" not in open(os.path.join(c, "agents", "coder.md")).read(), "coder.md edit kept")
-shipped = sorted(d for d in os.listdir(os.path.join(here, "dot-claude", "skills")) if os.path.isdir(os.path.join(here, "dot-claude", "skills", d)))
+shipped = sorted(d for d in os.listdir(os.path.join(here, "dot-config", "dot-claude", "skills")) if os.path.isdir(os.path.join(here, "dot-config", "dot-claude", "skills", d)))
 check(sorted(os.listdir(os.path.join(c, "skills"))) == sorted(shipped + ["synced", "old-skill", "retired-edited"]),
       "skills/ != shipped + synced + the user's two")
 check(os.path.isfile(os.path.join(c, "skills", "old-skill", "SKILL.md")), "an untracked skill of the user's removed")
@@ -1767,7 +1770,7 @@ PY
 # differ from HEAD's (R3-SUPPLY: the whole shipped tree counts, not only the guard and settings)
 blob="$(printf '# an earlier file\n' | tgit -C "$HERE" hash-object -w --stdin)"
 GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" read-tree HEAD
-for f in dot-claude/hooks/agent_guard.py dot-claude/agents/coder.md requirements/sci.in lib/stack.env.example \
+for f in dot-config/dot-claude/hooks/agent_guard.py dot-config/dot-claude/agents/coder.md requirements/sci.in lib/stack.env.example \
          assets/blackcat-hero.jpg; do
   GIT_INDEX_FILE="$TX/idx" tgit -C "$HERE" update-index --cacheinfo "100755,$blob,$f"
 done
@@ -1777,7 +1780,7 @@ xrun "$TX/r" "$TX/s1.log" --dry-run
 set_commit "0123456789abcdef0123456789abcdef01234567"
 xrun "$TX/r" "$TX/s2.log" --dry-run
 grep -q "changes to the stack's shipped files and installer since the last install" "$TX/s1.log" \
-  && grep -q 'dot-claude/hooks/agent_guard.py' "$TX/s1.log" && grep -q 'dot-claude/agents/coder.md' "$TX/s1.log" \
+  && grep -q 'dot-config/dot-claude/hooks/agent_guard.py' "$TX/s1.log" && grep -q 'dot-config/dot-claude/agents/coder.md' "$TX/s1.log" \
   && grep -q 'requirements/sci.in' "$TX/s1.log" && grep -q 'lib/stack.env.example' "$TX/s1.log" \
   && ! grep -q 'blackcat-hero' "$TX/s1.log" && grep -q "which this repo doesn't have" "$TX/s2.log" \
   && pass "an install shows the diff of everything it ships since the recorded commit, not the README images (and warns on an unknown one)" \
@@ -1882,7 +1885,7 @@ drop_scratch "$TX"
 echo "== 17. Sandboxed Bash env: cache dirs and git credential reset leave settings env (upgrade retracts them)"
 TB="$(scratch_dir)" || exit 1
 cp -R "$HERE" "$TB/repo"
-python3 - "$TB/repo/dot-claude/settings.json" <<'PY'
+python3 - "$TB/repo/dot-config/dot-claude/settings.json" <<'PY'
 import json, sys
 p = sys.argv[1]; s = json.load(open(p))           # the settings an earlier version shipped
 s["env"].update({"UV_CACHE_DIR": "__HOME__/.cache/claude-sandbox/uv",
@@ -2082,10 +2085,10 @@ tg_run "$TG/p4.log" env -u CLAUDE_CONFIG_DIR "$INSTALL" --dry-run --no-mcp --no-
 ! grep -q 'Install into' "$TG/p1.log" "$TG/p3.log" && pass "no terminal: no question, the run proceeds with the banner" \
   || failed "a run without a terminal asked about the target"
 # refusals: exit 2, nothing created
-mkdir -p "$TG/ro" && chmod 500 "$TG/ro"; echo x > "$TG/afile"; ln -s "$HERE/dot-claude" "$TG/into-repo"
+mkdir -p "$TG/ro" && chmod 500 "$TG/ro"; echo x > "$TG/afile"; ln -s "$HERE/dot-config/dot-claude" "$TG/into-repo"
 mkdir -p "$TG/foreign" && echo x > "$TG/foreign/photo.jpg"; mkdir -p "$TG/real/inner" && ln -s "$TG/real/inner" "$TG/lnk"
 bad=""
-for t in / "$TG/home" "$TG/home/.ssh" "$HERE" "$HERE/dot-claude" "$TG/into-repo" "$TG/afile" "$TG/ro" \
+for t in / "$TG/home" "$TG/home/.ssh" "$HERE" "$HERE/dot-config/dot-claude" "$TG/into-repo" "$TG/afile" "$TG/ro" \
          "$TG/ro/sub" "$TG/lnk/../x" "$(printf '%s/new\nline' "$TG")" "$TG/a\$b"; do
   tg_run "$TG/r.log" "$INSTALL" --config-dir "$t" --no-mcp --no-plugins --no-deps --no-profile; rc=$?
   { [ "$rc" = 2 ] && grep -q 'refusing\|control character\|symlink before' "$TG/r.log"; } || bad="$bad [$t rc=$rc]"

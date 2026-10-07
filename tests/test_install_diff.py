@@ -1,4 +1,4 @@
-"""install.sh --diff (lib/stack_diff.py): read-only comparison of the repo's dot-claude/ with an installed
+"""install.sh --diff (lib/stack_diff.py): read-only comparison of the repo's dot-config/dot-claude/ with an installed
 config dir.
 
 A real scratch install (fresh HOME, fake `claude`, as tests/test_install_state.py runs it) must diff
@@ -112,10 +112,10 @@ def test_seeded_drift_is_listed(installed):
     m["servers"]["mine"] = {"command": "x"}
     json.dump(m, open(os.path.join(conf, "magg", "config.json"), "w"), indent=2)
     # repo side
-    shutil.copy(os.path.join(repo, "dot-claude", "agents", "oracle.md"), os.path.join(repo, "dot-claude", "agents", "zz-new.md"))
-    with open(os.path.join(repo, "dot-claude", "rules", "claude-agent-stack.md"), "a") as f:
+    shutil.copy(os.path.join(repo, "dot-config", "dot-claude", "agents", "oracle.md"), os.path.join(repo, "dot-config", "dot-claude", "agents", "zz-new.md"))
+    with open(os.path.join(repo, "dot-config", "dot-claude", "rules", "claude-agent-stack.md"), "a") as f:
         f.write("- a new rule line\n")
-    shutil.rmtree(os.path.join(repo, "dot-claude", "skills", "typography"))   # a stack skill retired: pruned
+    shutil.rmtree(os.path.join(repo, "dot-config", "dot-claude", "skills", "typography"))   # a stack skill retired: pruned
 
     before = fingerprint(home)
     p = diff(repo, home, conf)
@@ -158,12 +158,12 @@ def test_usage_errors_and_missing_target(tmp_path):
 def test_staged_files_follow_install_sh():
     text = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
     staged = stack_diff.staged_files(text)
-    assert staged["hooks/agent_guard.py"] == "dot-claude/hooks/agent_guard.py"
-    assert staged["hooks/stack_fanout_wire.py"] == "dot-claude/hooks/stack_fanout_wire.py"
+    assert staged["hooks/agent_guard.py"] == "dot-config/dot-claude/hooks/agent_guard.py"
+    assert staged["hooks/stack_fanout_wire.py"] == "dot-config/dot-claude/hooks/stack_fanout_wire.py"
     assert staged["hooks/derive_thresholds.py"] == "tests/derive_thresholds.py"
-    assert staged["bin/statusline.py"] == "dot-claude/bin/statusline.py"
-    assert staged["mcp/libdocs_mcp.py"] == "dot-claude/mcp/libdocs_mcp.py"
-    assert staged["magg/k8s-mcp.toml"] == "dot-claude/magg/k8s-mcp.toml"
+    assert staged["bin/statusline.py"] == "dot-config/dot-claude/bin/statusline.py"
+    assert staged["mcp/libdocs_mcp.py"] == "dot-config/dot-claude/mcp/libdocs_mcp.py"
+    assert staged["magg/k8s-mcp.toml"] == "dot-config/dot-claude/magg/k8s-mcp.toml"
     for rel, src in staged.items():
         assert os.path.isfile(os.path.join(ROOT, src)), (rel, src)
     code = stack_diff.installer_code(text, {"__STACK_CACHE__": "/c"})

@@ -658,7 +658,7 @@ def test_install_sh_wires_modes_and_stops_on_required():
     # after the change-review question (R4), never before it
     assert text.index('say "2/11') < text.index('lib/devtools.sh" all')
     # the update command is gone (README lists the upgrade commands): not shipped, not staged
-    assert "stack-update-tools" not in text and not (ROOT / "dot-claude" / "bin" / "stack-update-tools").exists()
+    assert "stack-update-tools" not in text and not (ROOT / "dot-config" / "dot-claude" / "bin" / "stack-update-tools").exists()
     # no sudo call in the tool installer; every download HTTPS-only into a file
     assert not re.search(r"\bsudo\b", shell_code(SRC))
     code = "\n".join(l for l in SRC.splitlines() if not l.lstrip().startswith("#"))

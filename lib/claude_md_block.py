@@ -7,9 +7,9 @@ on the staged copy of the config dir; install_state.py then backs up, applies an
 as a whole file, like any other file of the stack's scope. lib/stack_diff.py (install.sh --diff)
 reads the installed block through find_block().
 
-The block's body is dot-claude/CLAUDE.block.md (rendered by install.sh); the marker lines are this
-module's, so a template edit can never break them. A marker line of any stack version is recognised
-by its fixed prefix, so a later version can reword the rest of the line.
+The block's body is dot-config/dot-claude/CLAUDE.block.md (rendered by install.sh); the marker lines
+are this module's, so a template edit can never break them. A marker line of any stack version is
+recognised by its fixed prefix, so a later version can reword the rest of the line.
 """
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""The stack's block in CLAUDE.md (lib/claude_md_block.py, dot-claude/CLAUDE.block.md, install.sh).
+"""The stack's block in CLAUDE.md (lib/claude_md_block.py, dot-config/dot-claude/CLAUDE.block.md, install.sh).
 
 CLAUDE.md is the user's file: the installer owns only the lines from its begin marker line to its end
 marker line. Pinned here: every byte outside the block survives (prefix, suffix, CRLF, BOM, no final
@@ -55,7 +55,7 @@ def test_render_block_refuses_a_body_that_would_break_the_block(body):
 
 
 def test_shipped_template_renders_and_holds_no_marker_or_volatile_text():
-    with open(os.path.join(ROOT, "dot-claude", "CLAUDE.block.md"), encoding="utf-8") as f:
+    with open(os.path.join(ROOT, "dot-config", "dot-claude", "CLAUDE.block.md"), encoding="utf-8") as f:
         text = f.read()
     block = cmb.render_block(text)
     assert cmb.find_block(block) == (0, len(block))
@@ -269,7 +269,7 @@ def _manifest(conf):
 
 
 def _expected_block(repo):
-    with open(os.path.join(repo, "dot-claude", "CLAUDE.block.md"), encoding="utf-8") as f:
+    with open(os.path.join(repo, "dot-config", "dot-claude", "CLAUDE.block.md"), encoding="utf-8") as f:
         return cmb.render_block(f.read().replace("__STACK_REPO__", repo))
 
 
@@ -334,7 +334,7 @@ def test_fresh_install_creates_the_block_and_a_later_stack_without_it_retracts(t
     assert _actions(log) == ["created"] and _bytes(_md(conf)) == want
     assert _manifest(conf)["claude_md_block"]["created"] is True
 
-    os.unlink(os.path.join(repo, "dot-claude", "CLAUDE.block.md"))
+    os.unlink(os.path.join(repo, "dot-config", "dot-claude", "CLAUDE.block.md"))
     git = ["git", "-c", "core.hooksPath=/dev/null", "-c", "commit.gpgsign=false", "-c", "user.name=t",
            "-c", "user.email=t@example.invalid", "-C", repo]
     for args in (["add", "-A"], ["commit", "-q", "-m", "no block"]):

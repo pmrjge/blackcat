@@ -59,8 +59,8 @@ class Box:
         self.repo = Path(TS._scratch_repo(str(self.t / "repo")))
         # the shipped params file is the version-0 placeholder (valid, all not_run): these tests tamper with
         # and compare against a `"version": 1` file, so the scratch repo ships the version-1 form of it
-        pp = self.repo / "dot-claude" / "hooks" / "eq_params.json"
-        commit(self.repo, "dot-claude/hooks/eq_params.json", pp.read_text().replace('"version": 0', '"version": 1'))
+        pp = self.repo / "dot-config" / "dot-claude" / "hooks" / "eq_params.json"
+        commit(self.repo, "dot-config/dot-claude/hooks/eq_params.json", pp.read_text().replace('"version": 0', '"version": 1'))
 
     @property
     def state(self):
@@ -114,7 +114,7 @@ def mode(p):
 def test_settings_wires_the_guard_for_check_verdicts_and_consent_records():
     """Without these two groups agent_guard never sees a Bash result or an AskUserQuestion answer: no
     check verdicts (PostToolUse Bash, PostToolUseFailure Bash) and no consent records (AskUserQuestion)."""
-    hooks = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["hooks"]
+    hooks = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())["hooks"]
     want = '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" agent_guard'
     for event, matcher in (("PostToolUse", "Bash|AskUserQuestion"), ("PostToolUseFailure", "Bash")):
         groups = [g for g in hooks[event] if g.get("matcher") == matcher]
@@ -124,12 +124,12 @@ def test_settings_wires_the_guard_for_check_verdicts_and_consent_records():
 
 def test_the_shipped_params_file_validates():
     pol = TS_policy()
-    obj = json.loads((ROOT / "dot-claude" / "hooks" / "eq_params.json").read_text())
+    obj = json.loads((ROOT / "dot-config" / "dot-claude" / "hooks" / "eq_params.json").read_text())
     assert pol.validate_params(obj) == []
 
 
 def TS_policy():
-    spec = importlib.util.spec_from_file_location("eq_policy_repo", ROOT / "dot-claude" / "hooks" / "eq_policy.py")
+    spec = importlib.util.spec_from_file_location("eq_policy_repo", ROOT / "dot-config" / "dot-claude" / "hooks" / "eq_policy.py")
     mod = importlib.util.module_from_spec(spec)
     sys.modules["eq_policy_repo"] = mod
     spec.loader.exec_module(mod)
@@ -140,11 +140,11 @@ def test_stages_the_files_with_their_modes(box):
     for f in HOOKS + DATA:
         p = box.conf / "hooks" / f
         assert p.is_file() and mode(p) == 0o644, (f, p.exists() and oct(mode(p)))
-        assert p.read_bytes() == (box.repo / "dot-claude" / "hooks" / f).read_bytes(), f
+        assert p.read_bytes() == (box.repo / "dot-config" / "dot-claude" / "hooks" / f).read_bytes(), f
     for f in BINS:
         p = box.conf / "bin" / f
         assert p.is_file() and mode(p) == 0o755, (f, p.exists() and oct(mode(p)))
-        assert p.read_bytes() == (ROOT / "dot-claude" / "bin" / f).read_bytes(), f
+        assert p.read_bytes() == (ROOT / "dot-config" / "dot-claude" / "bin" / f).read_bytes(), f
 
 
 def test_manifest_tracks_the_files_and_pins_the_params(box):
@@ -155,7 +155,7 @@ def test_manifest_tracks_the_files_and_pins_the_params(box):
         assert m["files"][rel] == hashlib.sha256((box.conf / rel).read_bytes()).hexdigest(), rel
     eq = m["eq_runtime"]
     assert eq["params_sha256"] == hashlib.sha256((box.conf / "hooks" / "eq_params.json").read_bytes()).hexdigest()
-    shipped = json.loads((box.repo / "dot-claude" / "hooks" / "eq_params.json").read_text())["classes"]
+    shipped = json.loads((box.repo / "dot-config" / "dot-claude" / "hooks" / "eq_params.json").read_text())["classes"]
     assert eq["validated"] == sorted(k for k, v in shipped.items() if v["status"] == "validated")
 
 
@@ -304,11 +304,11 @@ def test_retraction_removes_what_the_stack_stopped_shipping_and_keeps_yours(tmp_
     s["permissions"]["allow"].append("Bash(/opt/mine/bin/tool *)")
     s["env"]["STACK_EQ_MAX_N"] = "4"           # yours: a value you changed is never rewritten back
     b.write_settings(s)
-    sp = b.repo / "dot-claude" / "settings.json"
+    sp = b.repo / "dot-config" / "dot-claude" / "settings.json"
     shipped = json.loads(sp.read_text())
     shipped["sandbox"]["excludedCommands"] = [e for e in shipped["sandbox"]["excludedCommands"] if "stack-eq" not in e]
     shipped["permissions"]["allow"] = [a for a in shipped["permissions"]["allow"] if "stack-eq" not in a]
-    commit(b.repo, "dot-claude/settings.json", json.dumps(shipped, indent=2))
+    commit(b.repo, "dot-config/dot-claude/settings.json", json.dumps(shipped, indent=2))
     b.install("--yes")
     s = b.settings()
     cd = str(b.conf)
@@ -326,9 +326,9 @@ def test_a_new_params_file_is_pinned_again_and_restore_brings_the_old_pin_back(t
     b = Box(tmp_path)
     b.install()
     old = b.manifest()["eq_runtime"]["params_sha256"]
-    pp = b.repo / "dot-claude" / "hooks" / "eq_params.json"
+    pp = b.repo / "dot-config" / "dot-claude" / "hooks" / "eq_params.json"
     new_text = pp.read_text().replace('"version": 1', '"version": 2')
-    commit(b.repo, "dot-claude/hooks/eq_params.json", new_text)
+    commit(b.repo, "dot-config/dot-claude/hooks/eq_params.json", new_text)
     b.install("--yes")
     new = b.manifest()["eq_runtime"]["params_sha256"]
     assert new != old and new == hashlib.sha256(new_text.encode()).hexdigest()

@@ -291,11 +291,11 @@ def test_tools_venv_lock_covers_the_stack_imports():
     norm = lambda n: re.sub(r"[-_.]+", "-", n).lower()  # noqa: E731
     dist = {"PIL": "pillow"}
     left_out = {"claude-agent-sdk"}       # inside the cooldown at the last lock (requirements/README.md)
-    dirs = ["dot-claude/bin", "dot-claude/mcp", "dot-claude/hooks", "lib", "tests"]
+    dirs = ["dot-config/dot-claude/bin", "dot-config/dot-claude/mcp", "dot-config/dot-claude/hooks", "lib", "tests"]
     files = [os.path.join(ROOT, d, f) for d in dirs for f in sorted(os.listdir(os.path.join(ROOT, d)))
              if f.endswith(".py")]
     local = {os.path.basename(f)[:-3] for f in files}
-    for sub in ("equilibrium/harness", "tests/fixtures"):     # repo-local modules the tests import, not dependencies
+    for sub in ("dot-config/dot-equilibrium/harness", "tests/fixtures"):     # repo-local modules the tests import, not dependencies
         for dp, _dn, fn in os.walk(os.path.join(ROOT, sub)):
             local |= {f[:-3] for f in fn if f.endswith(".py")}
     need = {}
@@ -327,7 +327,7 @@ def test_tools_venv_lock_covers_the_stack_imports():
     assert 'TOOLS_REQS="$SNAP_ROOT/requirements/tools.txt"' in inst
     assert 'venv_sync tools "$TOOLS_REQS" --only-binary :all:' in inst
     imports = re.search(r"TOOLS_IMPORTS='([^']+)'", inst).group(1)
-    doctor = open(os.path.join(ROOT, "dot-claude", "bin", "doctor.sh"), encoding="utf-8").read()
+    doctor = open(os.path.join(ROOT, "dot-config", "dot-claude", "bin", "doctor.sh"), encoding="utf-8").read()
     assert f'"$C/venvs/tools/bin/python" -c \'{imports}\'' in doctor
 
 
@@ -396,7 +396,7 @@ def test_every_shipped_hook_script_matches_stack_hook_re():
     m = re.search(r'^STACK_HOOK_RE = re\.compile\(r"([^"]+)"\)$', src, re.M)
     assert m, "STACK_HOOK_RE not found in install.sh"
     stack_re = re.compile(m.group(1))
-    settings = json.load(open(os.path.join(ROOT, "dot-claude", "settings.json"), encoding="utf-8"))
+    settings = json.load(open(os.path.join(ROOT, "dot-config", "dot-claude", "settings.json"), encoding="utf-8"))
     cmds = [x.get("command", "") for groups in settings.get("hooks", {}).values() for g in groups
             for x in g.get("hooks", [])]
     assert cmds
@@ -430,7 +430,7 @@ def test_stack_hook_re_leaves_a_hook_of_yours_that_only_contains_a_script_name()
 def _scratch_repo(dst, settings_env=None):
     """The working tree (tracked and untracked files) as a scratch repository on main, as
     tests/install_smoke.sh builds it (install.sh runs only from main). settings_env: env entries
-    put back into its dot-claude/settings.json (an older stack version)."""
+    put back into its dot-config/dot-claude/settings.json (an older stack version)."""
     import shutil
     import subprocess
     out = subprocess.run(["git", "-C", ROOT, "ls-files", "-z", "--cached", "--others",
@@ -443,7 +443,7 @@ def _scratch_repo(dst, settings_env=None):
         os.makedirs(os.path.dirname(d), exist_ok=True)
         shutil.copy2(s, d, follow_symlinks=False)
     if settings_env:
-        p = os.path.join(dst, "dot-claude", "settings.json")
+        p = os.path.join(dst, "dot-config", "dot-claude", "settings.json")
         with open(p, encoding="utf-8") as f:
             s = json.load(f)
         s["env"].update(settings_env)
@@ -454,7 +454,7 @@ def _scratch_repo(dst, settings_env=None):
            "-C", dst]
     # no automatic gc/maintenance: git's detached `maintenance run --auto` after the commit packs and prunes the
     # loose objects while install.sh's `git fsck` reads them ("unable to mmap .git/objects/..."), as the
-    # codex_config test helpers already do
+    # dot-config/dot-codex_config test helpers already do
     for args in (["init", "-q"], ["config", "gc.auto", "0"], ["config", "maintenance.auto", "false"], ["add", "-A"],
                  ["commit", "-q", "-m", "snapshot"]):
         subprocess.run(git + args, check=True, stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL)

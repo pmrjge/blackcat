@@ -61,12 +61,12 @@ def test_install_never_imports_a_module_planted_in_the_repo_or_cwd(tmp_path):
     out = _tis._run_install(repo, str(home), str(home / ".claude"), "--dry-run", cwd=repo)
     assert out.returncode == 0, (out.stdout[-2000:], out.stderr[-2000:])
     assert [m.name for m in marks if m.exists()] == [], out.stdout[-2000:]
-    # install_state.py loads stack_io.py by file path: the repo's dot-claude/hooks (agent-writable,
+    # install_state.py loads stack_io.py by file path: the repo's dot-config/dot-claude/hooks (agent-writable,
     # ignored *.pyc there never shown) is never put on sys.path, where it would shadow later imports
     p = subprocess.run([shutil.which("python3"), "-I", "-B", "-c",
                         "import importlib.util, sys; s = importlib.util.spec_from_file_location('install_state', sys.argv[1]); "
                         "m = importlib.util.module_from_spec(s); s.loader.exec_module(m); "
-                        "print(m.load_json is not None, [p for p in sys.path if 'dot-claude' in p])",
+                        "print(m.load_json is not None, [p for p in sys.path if 'dot-config/dot-claude' in p])",
                         os.path.join(repo, "lib", "install_state.py")], capture_output=True, text=True, cwd=str(tmp_path))
     assert p.stdout.strip() == "True []", (p.stdout, p.stderr[-800:])
 
@@ -122,7 +122,7 @@ def _grep_tree(root, needle):
 
 
 @needs_git
-@pytest.mark.parametrize("where", ["dot-claude/skills/web-research/notes.log", "dot-claude/agents/zz-link.md"])
+@pytest.mark.parametrize("where", ["dot-config/dot-claude/skills/web-research/notes.log", "dot-config/dot-claude/agents/zz-link.md"])
 def test_install_refuses_a_symlink_under_dot_claude(tmp_path, where):
     """A link planted in the repo (a name .gitignore hides from the review, or any untracked one)
     stops the install before anything is copied: the secret it points at never reaches the config
@@ -194,7 +194,7 @@ def test_every_shipped_pep723_script_has_a_dependency_cutoff():
     import re
     found = {}
     for sub in ("mcp", "hooks", "bin"):
-        for p in sorted(Path(ROOT, "dot-claude", sub).glob("*.py")):
+        for p in sorted(Path(ROOT, "dot-config", "dot-claude", sub).glob("*.py")):
             m = re.search(r"(?m)^# /// script\n((?:#.*\n)*?)# ///$", p.read_text(encoding="utf-8"))
             if m and re.search(r'dependencies = \[\s*"', m.group(1)):
                 found[p.name] = re.search(r'(?m)^# exclude-newer = "\d{4}-\d\d-\d\dT00:00:00Z"$', m.group(1)) is not None
@@ -205,7 +205,7 @@ def test_every_shipped_pep723_script_has_a_dependency_cutoff():
 def _doctor_copy(tmp_path, with_guard_section=False):
     c = tmp_path / "conf"
     (c / "bin").mkdir(parents=True)
-    shutil.copy(os.path.join(ROOT, "dot-claude", "bin", "doctor.sh"), c / "bin" / "doctor.sh")
+    shutil.copy(os.path.join(ROOT, "dot-config", "dot-claude", "bin", "doctor.sh"), c / "bin" / "doctor.sh")
     if with_guard_section:          # the guard-probe section runs only when both exist
         (c / "settings.json").write_text(json.dumps({"hooks": {}}))
         (c / "hooks").mkdir()
@@ -247,12 +247,12 @@ PY3 = shutil.which("python3")
 
 
 def _plant_pyc(repo, marker):
-    """Two payloads in the repo's dot-claude/hooks that git status never shows: a sourceless
+    """Two payloads in the repo's dot-config/dot-claude/hooks that git status never shows: a sourceless
     json.pyc for the python3 on PATH (`*.py[cod]` is ignored; it runs when the guard starts
     without -I, its dir then sys.path[0]) and a stack_io/ package (hidden by .git/info/exclude; a
     package dir beats stack_io.py, which the guard imports after putting its own dir first on
     sys.path, so it runs even under -I)."""
-    hooks = Path(repo, "dot-claude", "hooks")
+    hooks = Path(repo, "dot-config", "dot-claude", "hooks")
     src = hooks / "payload_src.py"
     _marker_module(src, marker)
     subprocess.run([PY3, "-c", "import py_compile, sys; py_compile.compile(sys.argv[1], cfile=sys.argv[2], doraise=True)",
@@ -261,7 +261,7 @@ def _plant_pyc(repo, marker):
     (hooks / "stack_io").mkdir()
     _marker_module(hooks / "stack_io" / "__init__.py", marker)
     with open(os.path.join(repo, ".git", "info", "exclude"), "a") as f:
-        f.write("dot-claude/hooks/stack_io/\n")
+        f.write("dot-config/dot-claude/hooks/stack_io/\n")
 
 
 # ---------------------------------------------------------------- 1. CRITICAL CWE-427: the lint step
@@ -276,7 +276,7 @@ def test_lint_agents_never_imports_bytecode_planted_in_repo_hooks(tmp_path):
     assert _git(repo, "status", "--porcelain").stdout == ""          # the review shows nothing
     p = subprocess.run([PY3, "-I", "-B", os.path.join(repo, "tests", "lint_agents.py")], cwd=str(tmp_path),
                        capture_output=True, text=True, timeout=120, stdin=subprocess.DEVNULL)
-    assert not mark.exists(), "lint_agents.py ran bytecode planted (ignored) in dot-claude/hooks"
+    assert not mark.exists(), "lint_agents.py ran bytecode planted (ignored) in dot-config/dot-claude/hooks"
     assert p.returncode == 1 and "json.pyc" in p.stderr, p.stderr[-800:]
 
 
@@ -291,14 +291,14 @@ def _lint_block():
 @needs_git
 def test_install_lint_step_runs_nothing_from_the_repo_hooks(tmp_path):
     """The step-7 block, run as install.sh runs it, takes the policy from the STAGED guard ($S/hooks,
-    private) and passes it with --policy-json: the json.pyc planted in the repo's dot-claude/hooks
+    private) and passes it with --policy-json: the json.pyc planted in the repo's dot-config/dot-claude/hooks
     never runs, even with the same interpreter, and the lint passes."""
     repo = _tis._scratch_repo(str(tmp_path / "repo"))
     mark = tmp_path / "pwned"
     _plant_pyc(repo, mark)
     stage, work = tmp_path / "stage", tmp_path / "work"
     work.mkdir()
-    shutil.copytree(os.path.join(ROOT, "dot-claude", "hooks"), stage / "hooks",
+    shutil.copytree(os.path.join(ROOT, "dot-config", "dot-claude", "hooks"), stage / "hooks",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
     script = "\n".join([
         "set -euo pipefail",
@@ -309,7 +309,7 @@ def test_install_lint_step_runs_nothing_from_the_repo_hooks(tmp_path):
         _lint_block(), ""])
     p = subprocess.run(["/bin/bash", "-c", script], cwd=str(work), capture_output=True, text=True, timeout=180,
                        stdin=subprocess.DEVNULL)
-    assert not mark.exists(), "the lint step ran bytecode planted in the repo's dot-claude/hooks"
+    assert not mark.exists(), "the lint step ran bytecode planted in the repo's dot-config/dot-claude/hooks"
     assert "lint: tests/lint_agents.py ok" in p.stdout, (p.stdout[-1500:], p.stderr[-800:])
 
 
@@ -356,7 +356,7 @@ def test_install_never_ships_a_plugin_hooks_file_a_gitignore_hides(tmp_path):
     repo = _tis._scratch_repo(str(tmp_path / "repo"))
     home = tmp_path / "home"
     home.mkdir()
-    hooks = Path(repo, "dot-claude", "stack-plugins", "plugins", "lean-lsp", "hooks")
+    hooks = Path(repo, "dot-config", "dot-claude", "stack-plugins", "plugins", "lean-lsp", "hooks")
     hooks.mkdir()
     (hooks / ".gitignore").write_text("*\n")
     (hooks / "hooks.json").write_text(json.dumps({"hooks": {"SessionStart": [{"hooks": [
@@ -378,12 +378,12 @@ def test_install_never_ships_an_agent_the_repo_hides(tmp_path, hide):
     repo = _tis._scratch_repo(str(tmp_path / "repo"))
     home = tmp_path / "home"
     home.mkdir()
-    agents = Path(repo, "dot-claude", "agents")
+    agents = Path(repo, "dot-config", "dot-claude", "agents")
     text = (agents / "browser-operator.md").read_text().replace("name: browser-operator", "name: zz-hidden", 1)
     (agents / "zz-hidden.md").write_text(text)
     if hide == "info/exclude":
         with open(os.path.join(repo, ".git", "info", "exclude"), "a") as f:
-            f.write("dot-claude/agents/zz-hidden.md\n")
+            f.write("dot-config/dot-claude/agents/zz-hidden.md\n")
     elif hide == "core.excludesFile":
         Path(tmp_path, "ignore").write_text("zz-hidden.md\n")
         _git(repo, "config", "core.excludesFile", str(tmp_path / "ignore"))
@@ -394,7 +394,7 @@ def test_install_never_ships_an_agent_the_repo_hides(tmp_path, hide):
     assert out.returncode == 0, (out.stdout[-1500:], out.stderr[-1500:])
     assert not (home / ".claude" / "agents" / "zz-hidden.md").exists()
     if hide != "info/exclude":          # your global excludes file and status.* never hide a file from the review
-        assert "?? dot-claude/agents/zz-hidden.md  (untracked: not installed)" in out.stdout, out.stdout[-2000:]
+        assert "?? dot-config/dot-claude/agents/zz-hidden.md  (untracked: not installed)" in out.stdout, out.stdout[-2000:]
 
 
 @needs_git
@@ -406,9 +406,9 @@ def test_install_copies_only_the_skill_files_head_tracks(tmp_path):
     repo = _tis._scratch_repo(str(tmp_path / "repo"))
     home = tmp_path / "home"
     home.mkdir()
-    sk = Path(repo, "dot-claude", "skills", "web-research")
+    sk = Path(repo, "dot-config", "dot-claude", "skills", "web-research")
     (sk / "committed.md").write_text("a committed note\n")
-    _git(repo, "add", "dot-claude/skills/web-research/committed.md")
+    _git(repo, "add", "dot-config/dot-claude/skills/web-research/committed.md")
     _git(repo, "commit", "-q", "-m", "note")
     (sk / "notes.log").write_text("SECRET-7f3a9c\n")
     (sk / "extra.md").write_text("an untracked note\n")
@@ -416,8 +416,8 @@ def test_install_copies_only_the_skill_files_head_tracks(tmp_path):
         f.write("\nEDITED-4d1e\n")
     out = _tis._run_install(repo, str(home), str(home / ".claude"), "--yes")
     assert out.returncode == 0, (out.stdout[-1500:], out.stderr[-1500:])
-    assert "?? dot-claude/skills/web-research/extra.md  (untracked: not installed)" in out.stdout
-    assert " M dot-claude/skills/web-research/SKILL.md" in out.stdout
+    assert "?? dot-config/dot-claude/skills/web-research/extra.md  (untracked: not installed)" in out.stdout
+    assert " M dot-config/dot-claude/skills/web-research/SKILL.md" in out.stdout
     skill = home / ".claude" / "skills" / "web-research"
     assert b"EDITED-4d1e" in (skill / "SKILL.md").read_bytes() and (skill / "committed.md").is_file()
     assert not (skill / "extra.md").exists()
@@ -433,7 +433,7 @@ def test_install_refuses_an_index_flag_that_hides_an_edit(tmp_path, flag):
     repo = _tis._scratch_repo(str(tmp_path / "repo"))
     home = tmp_path / "home"
     home.mkdir()
-    rel = "dot-claude/skills/web-research/SKILL.md"
+    rel = "dot-config/dot-claude/skills/web-research/SKILL.md"
     _git(repo, "update-index", flag, rel)
     with open(os.path.join(repo, rel), "a") as f:
         f.write("\nINJECTED-7f3a9c\n")
@@ -452,7 +452,7 @@ def test_install_review_compares_bytes_not_the_stat_cache(tmp_path):
     repo = _tis._scratch_repo(str(tmp_path / "repo"))
     home = tmp_path / "home"
     home.mkdir()
-    rel = "dot-claude/agents/browser-operator.md"
+    rel = "dot-config/dot-claude/agents/browser-operator.md"
     p = Path(repo, rel)
     st = p.stat()
     time.sleep(1.1)                                          # the index is now newer than the file: not racy
@@ -498,12 +498,12 @@ def test_install_refuses_an_object_store_rewritten_in_place(tmp_path, how):
     repo = _tis._scratch_repo(str(tmp_path / "repo"))
     home = tmp_path / "home"
     home.mkdir()
-    rel = "dot-claude/skills/web-research/SKILL.md"
+    rel = "dot-config/dot-claude/skills/web-research/SKILL.md"
     if how == "fsck.skipList":
         Path(tmp_path, "skip").write_text("")
         _git(repo, "config", "fsck.skipList", str(tmp_path / "skip"))
     else:
-        tree = _git(repo, "rev-parse", "HEAD:dot-claude/skills/web-research").stdout.strip()
+        tree = _git(repo, "rev-parse", "HEAD:dot-config/dot-claude/skills/web-research").stdout.strip()
         with open(os.path.join(repo, rel), "a") as f:
             f.write("\nINJECTED-7f3a9c\n")
         blob = _git(repo, "hash-object", "-w", rel).stdout.strip()
@@ -542,9 +542,9 @@ def test_skill_copy_reads_only_the_bytes_the_review_saw(tmp_path):
     home = tmp_path / "home"
     home.mkdir()
     secret = _secret_tree(tmp_path)
-    skills = sorted(d for d in os.listdir(os.path.join(repo, "dot-claude", "skills"))
-                    if os.path.isdir(os.path.join(repo, "dot-claude", "skills", d)))
-    target = Path(repo, "dot-claude", "skills", "typography", "references", "web-fonts.md")
+    skills = sorted(d for d in os.listdir(os.path.join(repo, "dot-config", "dot-claude", "skills"))
+                    if os.path.isdir(os.path.join(repo, "dot-config", "dot-claude", "skills", d)))
+    target = Path(repo, "dot-config", "dot-claude", "skills", "typography", "references", "web-fonts.md")
     assert target.is_file()
     pat = str(home / ".local" / "state" / "claude-agent-stack-backups" / ".work.*" / "stage" / "skills" / skills[0])
     swapped, stop = [], threading.Event()
@@ -617,7 +617,7 @@ def test_snapshot_refuses_a_link_on_a_directory_component(tmp_path):
     repo = _tis._scratch_repo(str(tmp_path / "repo"))
     home = tmp_path / "home"
     home.mkdir()
-    refs = Path(repo, "dot-claude", "skills", "typography", "references")
+    refs = Path(repo, "dot-config", "dot-claude", "skills", "typography", "references")
     elsewhere = tmp_path / "elsewhere"
     shutil.copytree(refs, elsewhere)
     (elsewhere / "web-fonts.md").write_text("SECRET-7f3a9c\n")
@@ -631,7 +631,7 @@ def test_snapshot_refuses_a_link_on_a_directory_component(tmp_path):
 @needs_git
 @pytest.mark.parametrize("link", ["tests/derive_thresholds.py", "requirements"])
 def test_snapshot_follows_no_link_on_any_component(tmp_path, link):
-    """Outside dot-claude/ (no sweep there) the snapshot's O_NOFOLLOW open, component by component,
+    """Outside dot-config/dot-claude/ (no sweep there) the snapshot's O_NOFOLLOW open, component by component,
     refuses a tracked file or a directory on its path that is now a link."""
     repo = _tis._scratch_repo(str(tmp_path / "repo"))
     home = tmp_path / "home"
@@ -677,5 +677,5 @@ def test_install_moves_a_sandbox_tmpdir_to_its_private_work_dir(tmp_path):
 # ---------------------------------------------------------------- 5. stack-update-tools: gone
 def test_stack_update_tools_is_not_shipped():
     """The audit's MEDIUM on bin/stack-update-tools is moot: the script is deleted and nothing names it."""
-    assert not os.path.exists(os.path.join(ROOT, "dot-claude", "bin", "stack-update-tools"))
+    assert not os.path.exists(os.path.join(ROOT, "dot-config", "dot-claude", "bin", "stack-update-tools"))
     assert "stack-update-tools" not in Path(ROOT, "install.sh").read_text()

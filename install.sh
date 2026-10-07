@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Claude Code multi-agent stack — installer for macOS (Apple Silicon first).
 #   ./install.sh                 core install
+#   ./install.sh --codex [ARGS]  install the Codex port (dot-config/dot-codex_config) instead: its only
+#                                 entry point. Seen anywhere among the arguments, it is taken first:
+#                                 nothing below runs (no macOS check, snapshot or question here), and
+#                                 every other argument goes to the Codex installer as given; its options
+#                                 are its own (./install.sh --codex --help lists them)
 #   ./install.sh --with-ml       also create the ML venv ($C/venvs/ml: PyTorch, Transformers, PEFT,
 #                                 scikit-learn/XGBoost/LightGBM, MLX + mlx-lm on Apple Silicon; several GB)
 #   ./install.sh --with-lsp      also install missing language servers (pyright, typescript-language-server,
@@ -32,10 +37,11 @@
 #   ./install.sh --print-managed-settings  print an optional managed-settings.json that pins the
 #                                 stack's guards against edits (you install it; see CONFIG.md)
 #   ./install.sh --mcp-plan      print the MCP server add/migrate/replace/keep plan and make no changes
-#   ./install.sh --diff          list what differs between this repo's dot-claude/ and the installed
-#                                 config dir (repo-only, installed-only and changed agents, skills,
-#                                 rules, hooks, scripts, hook wiring, magg entries); writes nothing,
-#                                 runs from any branch, exit 0 (2: usage error). Takes only --config-dir
+#   ./install.sh --diff          list what differs between this repo's dot-config/dot-claude/ and the
+#                                 installed config dir (repo-only, installed-only and changed agents,
+#                                 skills, rules, hooks, scripts, hook wiring, magg entries); writes
+#                                 nothing, runs from any branch, exit 0 (2: usage error). Takes only
+#                                 --config-dir
 #   ./install.sh --yes           install without asking when the stack's files changed since the last
 #                                 install (asked on the terminal; with no terminal, e.g. in CI, the
 #                                 run stops unless --yes is given), and without the target question
@@ -97,9 +103,9 @@
 # no backup. Never touched: credentials, ~/.claude.json (MCP changes go through `claude mcp`),
 # the claude.ai-synced skills, plugins' own files, projects and sessions.
 # CLAUDE.md is yours: the stack owns one block in it, from its begin marker line to its end marker
-# line (lib/claude_md_block.py, body dot-claude/CLAUDE.block.md), created with the file when there is
-# none, appended after your text otherwise, rewritten in place later; no byte outside it changes. A
-# symlinked, non-UTF-8 or malformed CLAUDE.md is left alone (a note says why).
+# line (lib/claude_md_block.py, body dot-config/dot-claude/CLAUDE.block.md), created with the file
+# when there is none, appended after your text otherwise, rewritten in place later; no byte outside it
+# changes. A symlinked, non-UTF-8 or malformed CLAUDE.md is left alone (a note says why).
 # Step 2 installs what is missing (lib/devtools.sh, CONFIG.md §7 "Prerequisites and toolchains"):
 # Homebrew, one brew batch per type, the upstream version managers, the dev tools; one line per
 # tool, a present one never touched. Groups: STACK_INSTALL_<GROUP>=0 skips one (DEPS DEVTOOLS UV
@@ -118,6 +124,41 @@
 # through `claude mcp`, run with CLAUDE_CONFIG_DIR pointing at the target.
 # Runs from any clone location (also through a symlink to this script), with bash 3.2 or later.
 set -euo pipefail
+
+# The repo is wherever this script really lives: follow a symlink to the script itself (a link in
+# ~/bin, say) to the clone; a symlinked clone directory keeps its logical path. Spaces are fine.
+self="${BASH_SOURCE[0]}"
+while [ -L "$self" ]; do
+  link="$(readlink "$self")"
+  case "$link" in /*) self="$link" ;; *) self="$(dirname "$self")/$link" ;; esac
+done
+HERE="$(cd "$(dirname "$self")" && pwd)"
+unset self link
+# Run from a Claude Code Bash command, the environment carries the sandbox's cache dirs (agent_guard
+# SANDBOX_ENV: CARGO_HOME, UV_CACHE_DIR, GOMODCACHE, npm_config_cache, ...), which sandboxed agents
+# can write: no installer, build or prefetch of this run may read from or write to them (security
+# audit, CWE-427). Every exported variable naming that dir is dropped (PATH aside).
+SANDBOX_DROPPED=""
+for v in $(compgen -e); do
+  [ "$v" = PATH ] || case "${!v}" in *"$HOME/.cache/claude-sandbox"*) unset "$v"; SANDBOX_DROPPED="$SANDBOX_DROPPED $v" ;; esac
+done
+[ -z "$SANDBOX_DROPPED" ] || printf 'install.sh: ignoring the sandbox cache variables of this shell:%s\n' "$SANDBOX_DROPPED" >&2
+# ---- --codex: the Codex port's installer (dot-config/dot-codex_config/install.sh), its only entry
+# point. Taken before anything Claude-side (option checks, the macOS check, the main-branch rule, the
+# source snapshot, any question); only the sandbox cache variables above are dropped first. Every
+# other argument goes to it unchanged and in order; STACK_CODEX_VIA_TOP=1 tells it this script
+# started it (run directly, it names ./install.sh --codex and stops).
+CODEX=0; CODEX_ARGS=()
+for a in ${1+"$@"}; do
+  if [ "$a" = --codex ]; then CODEX=1; else CODEX_ARGS+=("$a"); fi
+done
+if [ "$CODEX" = 1 ]; then
+  CODEX_INSTALL="$HERE/dot-config/dot-codex_config/install.sh"
+  [ -f "$CODEX_INSTALL" ] || { echo "install.sh: --codex: $CODEX_INSTALL is missing" >&2; exit 2; }
+  export STACK_CODEX_VIA_TOP=1
+  exec bash "$CODEX_INSTALL" ${CODEX_ARGS[@]+"${CODEX_ARGS[@]}"}
+fi
+unset CODEX CODEX_ARGS a
 
 WITH_ADOBE=0; WITH_ML=0; WITH_LSP=0; ANTHROPIC_PLUGINS_ON=1; SKIP_MCP=0; SKIP_PLUGINS=0; REPLACE_MCP=0; FORCE=0; WRITE_LINKS=0; NO_DEPS=0
 NO_PROFILE=0; MCP_PLAN=0; DEDUPE_PLUGINS=1; DRY_RUN=0; RESTORE=""; PRINT_MANAGED=0; ASSUME_YES=0; ORIG_ARGS="$*"
@@ -201,15 +242,6 @@ fi
 PY_ISOLATE="-I -B -X pycache_prefix=/dev/null/claude-agent-stack-no-bytecode"
 # shellcheck disable=SC2086
 python3(){ command python3 $PY_ISOLATE "$@"; }
-# Run from a Claude Code Bash command, the environment carries the sandbox's cache dirs (agent_guard
-# SANDBOX_ENV: CARGO_HOME, UV_CACHE_DIR, GOMODCACHE, npm_config_cache, ...), which sandboxed agents
-# can write: no installer, build or prefetch of this run may read from or write to them (security
-# audit, CWE-427). Every exported variable naming that dir is dropped (PATH aside).
-SANDBOX_DROPPED=""
-for v in $(compgen -e); do
-  [ "$v" = PATH ] || case "${!v}" in *"$HOME/.cache/claude-sandbox"*) unset "$v"; SANDBOX_DROPPED="$SANDBOX_DROPPED $v" ;; esac
-done
-[ -z "$SANDBOX_DROPPED" ] || printf 'install.sh: ignoring the sandbox cache variables of this shell:%s\n' "$SANDBOX_DROPPED" >&2
 # --print-managed-settings: the JSON is the only thing on stdout (fd 3); progress goes to stderr
 if [ "$PRINT_MANAGED" = 1 ]; then exec 3>&1 1>&2; fi
 # Anthropic's skill plugins (claude-plugins-official) the stack uses instead of its own copies: step 10
@@ -221,16 +253,6 @@ if [ "$(uname)" != "Darwin" ] && [ "${STACK_ALLOW_NON_MACOS:-0}" != 1 ]; then
   echo "claude-agent-stack installs on macOS only (this is $(uname))."
   exit 1
 fi
-
-# The repo is wherever this script really lives: follow a symlink to the script itself (a link in
-# ~/bin, say) to the clone; a symlinked clone directory keeps its logical path. Spaces are fine.
-self="${BASH_SOURCE[0]}"
-while [ -L "$self" ]; do
-  link="$(readlink "$self")"
-  case "$link" in /*) self="$link" ;; *) self="$(dirname "$self")/$link" ;; esac
-done
-HERE="$(cd "$(dirname "$self")" && pwd)"
-unset self link
 STATE_PY="$HERE/lib/install_state.py"
 
 # --diff: read-only comparison (lib/stack_diff.py), before anything that could write, merge or ask
@@ -400,7 +422,7 @@ unset STACK_TARGET_CONFIRMED
 case "$RESTORE" in ""|latest|/*) ;; *) RESTORE="$PWD/$RESTORE" ;; esac
 cd / || exit 2
 
-SRC="$HERE/dot-claude"
+SRC="$HERE/dot-config/dot-claude"
 [ "$CD_SHOWN" = 1 ] || show_banner
 # the claude commands this run starts (mcp, plugin) act on the target, as Claude Code will
 case "$CD_EXPORT" in
@@ -609,22 +631,22 @@ note "hook interpreter: $STACK_PYTHON -> ${STACK_PYTHON_TARGET:-the uv-managed P
 # ==== stack-python: END ===========================================================================
 
 # ==== source snapshot (security re-check 2026-10-04: CWE-829, CWE-345, CWE-367) ==================
-# This run installs exactly the files HEAD tracks under dot-claude/ (and the two tests/derive_*.py
-# scripts copied into hooks/), read ONCE from the working tree into $WORK/src (private: agents can
-# neither read nor write it); every later step reads that copy, never the repo, so a file swapped in
-# the repo after this point never reaches $C. Each file is opened without following a link on any
-# path component (O_NOFOLLOW) and must be a regular file. The supply review below compares those
-# bytes, not git's index, with HEAD: the index (stat cache, assume-unchanged and skip-worktree bits,
-# fsmonitor and untracked-cache data), .gitignore, .git/info/exclude and the repo's git config are all
-# writable by an agent, so none of them can hide an edit; git runs with hooks, fsmonitor, the
-# untracked cache, replace refs and your global excludes file off. Untracked and staged-only files
-# are listed and never copied (commit a file to ship it); a file git's index marks assume-unchanged
-# or skip-worktree stops the run, as does a symlink anywhere under dot-claude/.
+# This run installs exactly the files HEAD tracks under dot-config/dot-claude/ (and the two
+# tests/derive_*.py scripts copied into hooks/), read ONCE from the working tree into $WORK/src
+# (private: agents can neither read nor write it); every later step reads that copy, never the repo, so
+# a file swapped in the repo after this point never reaches $C. Each file is opened without following a
+# link on any path component (O_NOFOLLOW) and must be a regular file. The supply review below compares
+# those bytes, not git's index, with HEAD: the index (stat cache, assume-unchanged and skip-worktree
+# bits, fsmonitor and untracked-cache data), .gitignore, .git/info/exclude and the repo's git config are
+# all writable by an agent, so none of them can hide an edit; git runs with hooks, fsmonitor, the
+# untracked cache, replace refs and your global excludes file off. Untracked and staged-only files are
+# listed and never copied (commit a file to ship it); a file git's index marks assume-unchanged or
+# skip-worktree stops the run, as does a symlink anywhere under dot-config/dot-claude/.
 # What the review covers: the whole shipped tree, the installer and all of lib/ (a file added there
 # shows as untracked), the pinned requirements, tests/lint_agents.py (run in step 7) and the two
-# tests/derive_*.py scripts. The README's images (assets/ at the repository root) are neither
-# installed nor run, and no supply path covers them.
-SUPPLY_PATHS="dot-claude install.sh lib requirements tests/lint_agents.py tests/derive_sched_model.py tests/derive_thresholds.py"
+# tests/derive_*.py scripts. The README's images (assets/ at the repository root) are neither installed
+# nor run, and no supply path covers them.
+SUPPLY_PATHS="dot-config/dot-claude install.sh lib requirements tests/lint_agents.py tests/derive_sched_model.py tests/derive_thresholds.py"
 SUPPLY_SHOW="$SUPPLY_PATHS"     # the same, for pasting into a shell (no word needs quoting)
 SNAP_ROOT="$WORK/src"
 SUPPLY_LIST="$WORK/supply-review.txt"
@@ -671,11 +693,12 @@ def under(p, xs):
 
 # everything a later step reads or runs: the shipped tree, the derive scripts copied into hooks/, lib/
 # (install_state.py, devtools.sh, stack.env.example), the pinned requirements and the lint script
-COPY = ["dot-claude", "tests/derive_sched_model.py", "tests/derive_thresholds.py", "lib", "requirements",
-        "tests/lint_agents.py"]
-# a link anywhere under dot-claude/, tracked or not (a skill's notes.log -> ~/.ssh/id_ed25519, which
-# .gitignore hides from the review): the stack ships none
-links = sorted(os.path.relpath(os.path.join(r, n), here) for r, ds, fs in os.walk(os.path.join(here, "dot-claude"))
+COPY = ["dot-config/dot-claude", "tests/derive_sched_model.py", "tests/derive_thresholds.py", "lib",
+        "requirements", "tests/lint_agents.py"]
+# a link anywhere under dot-config/dot-claude/, tracked or not (a skill's notes.log -> ~/.ssh/id_ed25519,
+# which .gitignore hides from the review): the stack ships none
+links = sorted(os.path.relpath(os.path.join(r, n), here)
+               for r, ds, fs in os.walk(os.path.join(here, "dot-config", "dot-claude"))
                for n in ds + fs if os.path.islink(os.path.join(r, n)))
 if links:
     sys.exit("install.sh: %s is a symlink; the stack ships none — remove it (nothing in %s was changed)"
@@ -767,7 +790,7 @@ changed += ["?? %s  (untracked: not installed)" % show(p)
 with open(out, "w", encoding="utf-8", errors="surrogateescape") as f:
     f.write("".join(line + "\n" for line in changed))
 PY
-SRC="$SNAP_ROOT/dot-claude"
+SRC="$SNAP_ROOT/dot-config/dot-claude"
 # lib/, the requirements and the lint script are run and read from the snapshot from here on (a file
 # swapped in the repo after the review never runs); bash re-reading install.sh itself is inherent.
 STATE_PY="$SNAP_ROOT/lib/install_state.py"
@@ -953,9 +976,17 @@ if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
     [ "${n_new:-0}" -le 40 ] || note "  ... and $((n_new - 40)) more file(s) not in HEAD (not installed)"
   fi
   if [ -n "$prev_commit" ] && [ "$prev_commit" != "$STACK_COMMIT_FULL" ]; then
+    # a commit from before the dot-config/ move (2026-10-07) holds the shipped tree at dot-claude/: the
+    # review then covers that path too, and -M pairs each moved file with its new path (only what
+    # changed counts, instead of the whole tree listed as new)
+    prev_paths="$SUPPLY_PATHS" prev_show="$SUPPLY_SHOW"
+    if ! git --no-replace-objects -c core.hooksPath=/dev/null -C "$HERE" cat-file -e "$prev_commit:dot-config/dot-claude" 2>/dev/null \
+       && git --no-replace-objects -c core.hooksPath=/dev/null -C "$HERE" cat-file -e "$prev_commit:dot-claude" 2>/dev/null; then
+      prev_paths="$SUPPLY_PATHS dot-claude" prev_show="$SUPPLY_SHOW dot-claude"
+    fi
     # shellcheck disable=SC2086
     if supply="$(git --no-replace-objects -c core.hooksPath=/dev/null -c core.fsmonitor=false -c core.quotePath=true \
-                 -C "$HERE" diff --no-ext-diff --no-textconv --stat "$prev_commit" HEAD -- $SUPPLY_PATHS 2>/dev/null)"; then
+                 -C "$HERE" diff --no-ext-diff --no-textconv -M --stat "$prev_commit" HEAD -- $prev_paths 2>/dev/null)"; then
       if [ -n "$supply" ]; then
         SUPPLY_CHANGED=1
         note "changes to the stack's shipped files and installer since the last install (${prev_commit:0:12}..$STACK_COMMIT):"
@@ -966,7 +997,7 @@ if git -C "$HERE" rev-parse -q --verify HEAD >/dev/null 2>&1; then
         else
           printf '%s\n' "$supply" | sed 's/^/      /'
         fi
-        note "review: git -C $HERE diff ${prev_commit:0:12} HEAD -- $SUPPLY_SHOW"
+        note "review: git -C $HERE diff -M ${prev_commit:0:12} HEAD -- $prev_show"
       fi
     else
       SUPPLY_CHANGED=1
@@ -1303,7 +1334,7 @@ serial_mcp_current(){
 }
 serial_mcp_step(){  # serial_mcp_step install|plan (plan: --dry-run, lists the build)
   if [ -z "$SERIAL_MCP_VERSION" ]; then
-    note "! serial-mcp: no pinned version in the serial entry of $HERE/dot-claude/magg/config.json — skipped"; return 0
+    note "! serial-mcp: no pinned version in the serial entry of $HERE/dot-config/dot-claude/magg/config.json — skipped"; return 0
   fi
   if serial_mcp_current; then note "skip serial-mcp (found: $SERIAL_MCP_BIN, from rustup/cargo)"; return 0; fi
   local cargo; cargo="$(cargo_bin)"
@@ -1478,7 +1509,8 @@ note "staged in $S"
 
 say "6/11 Render (agents, rules, skills, scripts, settings.json)"
 # Everything below reads $SRC, the private source snapshot (regular files HEAD tracks, no links: a
-# link under dot-claude/ already stopped the run there), never the repo (security audit, CWE-59/367).
+# link under dot-config/dot-claude/ already stopped the run there), never the repo (security audit,
+# CWE-59/367).
 mkdir -p "$S"/{agents,skills,hooks,mcp,magg,bin,rules}
 # The stack's scripts replace whatever is staged there — a symlink too (removed first: a copy onto
 # it would write through the link, out of the staging dir; the backup keeps the link).
@@ -1638,6 +1670,7 @@ import glob, hashlib, json, os, re, shutil, subprocess, sys
 # C is where the files will live (every rendered path names it); DEST is the staged copy of C
 # they are written to (install_state.py compares it with C afterwards and applies the difference).
 SRC, C, REPO = sys.argv[1], sys.argv[2], sys.argv[3]
+SNAP_ROOT = os.path.dirname(os.path.dirname(SRC))   # the source snapshot (SRC is its dot-config/dot-claude)
 DEST = os.environ["DEST"]
 report = {"removed": {}, "replaced": {}, "config_removed": [], "config_replaced": [], "notes": []}
 
@@ -1649,7 +1682,7 @@ def save_report():
 
 import importlib.util  # noqa: E402
 # by file path, never through sys.path (lib/ is agent-writable: nothing there may shadow a stdlib module)
-_spec = importlib.util.spec_from_file_location("install_state", os.path.join(os.path.dirname(SRC), "lib", "install_state.py"))   # the snapshot
+_spec = importlib.util.spec_from_file_location("install_state", os.path.join(SNAP_ROOT, "lib", "install_state.py"))
 _ist = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(_ist)
 SCOPE_DIRS, in_scope, within = _ist.SCOPE_DIRS, _ist.in_scope, _ist.within   # the backups' scope rule
@@ -1996,12 +2029,12 @@ for fn in sorted(os.listdir(os.path.join(DEST, "rules"))):
         files_entry.pop(rel, None)
 
 # --- CLAUDE.md is yours: the stack owns only its block, the lines from its begin marker line to its end
-# marker line (lib/claude_md_block.py; body dot-claude/CLAUDE.block.md). Every byte outside the block
-# stays; a block edited by hand is replaced (the backup keeps the whole file, --restore puts it back);
-# a symlinked, non-UTF-8 or malformed file is left as it is and named in the notes. The manifest keeps
-# the block's hash (claude_md_block), never a whole-file hash: the file is not the stack's. ---
+# marker line (lib/claude_md_block.py; body dot-config/dot-claude/CLAUDE.block.md). Every byte outside
+# the block stays; a block edited by hand is replaced (the backup keeps the whole file, --restore puts it
+# back); a symlinked, non-UTF-8 or malformed file is left as it is and named in the notes. The manifest
+# keeps the block's hash (claude_md_block), never a whole-file hash: the file is not the stack's. ---
 _cmb_spec = importlib.util.spec_from_file_location(
-    "claude_md_block", os.path.join(os.path.dirname(SRC), "lib", "claude_md_block.py"))   # the snapshot
+    "claude_md_block", os.path.join(SNAP_ROOT, "lib", "claude_md_block.py"))
 _cmb = importlib.util.module_from_spec(_cmb_spec)
 _cmb_spec.loader.exec_module(_cmb)
 _cmb_tmpl = os.path.join(SRC, "CLAUDE.block.md")
@@ -2050,18 +2083,18 @@ def install_tracked(rel, dest, rendered):
 # SRC is the private source snapshot: only the files HEAD tracks (what the review above showed), read
 # once from the repo; an ignored or untracked file planted in a skill never reaches the config dir,
 # and nothing swapped in the repo after the snapshot does either. Each must be a regular file inside
-# dot-claude/skills.
+# dot-config/dot-claude/skills.
 SKILLS_SRC = os.path.realpath(os.path.join(SRC, "skills"))
 listed = {}                                    # skill name -> [path relative to its dir]
-for _rel in sorted(os.path.relpath(os.path.join(_r, _n), os.path.dirname(SRC))
+for _rel in sorted(os.path.relpath(os.path.join(_r, _n), SNAP_ROOT)
                    for _r, _ds, _fs in os.walk(os.path.join(SRC, "skills")) for _n in _fs):
-    _sp = os.path.join(os.path.dirname(SRC), _rel)
+    _sp = os.path.join(SNAP_ROOT, _rel)
     _parts = os.path.relpath(_sp, os.path.join(SRC, "skills")).split(os.sep)
     if not os.path.lexists(_sp) or len(_parts) < 2:
         continue                               # deleted in the working tree; a file beside the skills
     if os.path.islink(_sp) or not os.path.isfile(_sp) or not within(os.path.realpath(_sp), SKILLS_SRC):
-        sys.exit("install.sh: %s is not a regular file inside dot-claude/skills — nothing in %s was changed"
-                 % (_rel, C))
+        sys.exit("install.sh: %s is not a regular file inside dot-config/dot-claude/skills — nothing in %s was"
+                 " changed" % (_rel, C))
     if _parts[-1].endswith((".pyc", ".new")) or _parts[-1] == ".DS_Store" or "__pycache__" in _parts:
         continue
     listed.setdefault(_parts[0], []).append(os.path.join(*_parts[1:]))
@@ -2361,13 +2394,17 @@ prev_owned = manifest.get("settings_set_if_absent") or {}
 
 def shipped_permission_scalars(commit):
     """The scalar permissions keys (defaultMode) the stack's settings.json held at `commit`, read
-    from this repo; None when that can't be told (no commit, or one this repo doesn't have)."""
+    from this repo; None when that can't be told (no commit, or one this repo doesn't have). A commit
+    from before the dot-config/ move (2026-10-07) holds it at dot-claude/settings.json."""
     if not re.fullmatch(r"[0-9a-f]{7,64}", commit or ""):
         return None
     try:
-        out = subprocess.run(["git", "--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-C", os.environ.get("STACK_REPO") or ".", "show",
-                              commit + ":dot-claude/settings.json"],
-                             stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20)
+        for rel in ("dot-config/dot-claude/settings.json", "dot-claude/settings.json"):
+            out = subprocess.run(["git", "--no-replace-objects", "-c", "core.hooksPath=/dev/null", "-C",
+                                  os.environ.get("STACK_REPO") or ".", "show", commit + ":" + rel],
+                                 stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, timeout=20)
+            if out.returncode == 0:
+                break
         doc = json.loads(out.stdout) if out.returncode == 0 else None
     except (OSError, ValueError, subprocess.SubprocessError):
         return None
@@ -2753,8 +2790,8 @@ if [ "$NO_DEPS" = 0 ] && [ "$DRY_RUN" = 0 ]; then
   # stdlib only, isolated python3 (no uv run: no environment or config is resolved from the repo);
   # tests/lint_agents.py is in SUPPLY_PATHS, so a change to it was shown before this runs. The policy
   # comes from the STAGED guard (security re-check, CWE-427): agent_guard.py puts its own dir first on
-  # sys.path, and the repo's dot-claude/hooks may hold an ignored json.pyc that git never shows;
-  # nothing in the repo's dot-claude/ is ever executed.
+  # sys.path, and the repo's dot-config/dot-claude/hooks may hold an ignored json.pyc that git never
+  # shows; nothing in the repo's dot-config/dot-claude/ is ever executed.
   # shellcheck disable=SC2086
   if "$RUN_PY" $PY_ISOLATE "$S/hooks/agent_guard.py" --print-policy >"$WORK/policy.json" 2>"$WORK/lint.log" </dev/null \
      && python3 "$SNAP_ROOT/tests/lint_agents.py" --policy-json "$WORK/policy.json" >>"$WORK/lint.log" 2>&1; then note "lint: tests/lint_agents.py ok"

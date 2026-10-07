@@ -23,8 +23,8 @@ sys.path.insert(0, os.path.join(ROOT, "lib"))
 import install_state as st  # noqa: E402
 
 needs_git = pytest.mark.skipif(not os.path.exists(os.path.join(ROOT, ".git")), reason="needs the stack's git checkout")
-SETTINGS = os.path.join(ROOT, "dot-claude", "settings.json")
-BLACKCAT = os.path.join(ROOT, "dot-claude", "agents", "blackcat.md")
+SETTINGS = os.path.join(ROOT, "dot-config", "dot-claude", "settings.json")
+BLACKCAT = os.path.join(ROOT, "dot-config", "dot-claude", "agents", "blackcat.md")
 LAUNCH = '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" '
 
 
