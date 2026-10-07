@@ -1625,6 +1625,11 @@ class _Scan(object):
                 found = found or (self.scan(code, depth + 1) if code else None)
         elif sub == "bisect" and args[:1] == ["run"]:
             found = self.scan(" ".join(args[1:]), depth + 1)
+        if sub == "clone":                     # clone -c/--config KEY=VALUE: the clone runs with it
+            for key, value in _clone_config(args):
+                found = found or (self.hit("opaque", "git clone -c %s (ext:: runs a command as a "
+                                                     "transport)" % key[:80]) if _ext_config(key, value)
+                                  else self.git_config_value(key, value, depth))
         for code in _git_command_values(sub, args):
             found = found or self.scan(code, depth + 1)
         if not found and any(a.lower().startswith("ext::") or "=ext::" in a.lower()
@@ -2196,7 +2201,7 @@ def _git_command_values(sub, args):
         if a == "--":
             break
         name, eq, val = a.partition("=")
-        if a[:2] == "--" and len(name) >= 4 and any(o.startswith(name) for o in longs):
+        if a[:2] == "--" and len(name) >= 3 and any(o.startswith(name) for o in longs):
             if not eq:
                 val, k = (args[k] if k < len(args) else ""), k + 1
             out.append(val)
@@ -2273,6 +2278,30 @@ def _gitesc_env(word, words, restore):
     if not any(GIT_WORD_RE.search(restore(x)) for x in words):
         return None
     return "%s=... (git run outside the sandbox)" % name
+
+
+def _clone_config(args):
+    """(key, value) pairs of `git clone -c/--config KEY=VALUE` (also -cKEY=VALUE and a unique prefix of
+    --config): configuration the new repository already runs with while it fetches."""
+    out, k = [], 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a == "--":
+            break
+        name, eq, val = a.partition("=")
+        if a[:2] == "--" and len(name) >= 3 and "--config".startswith(name):
+            if not eq:
+                val, k = (args[k] if k < len(args) else ""), k + 1
+        elif a[:2] == "-c":
+            val = a[2:]
+            if not val:
+                val, k = (args[k] if k < len(args) else ""), k + 1
+        else:
+            continue
+        key, _, value = val.partition("=")
+        out.append((key, value))
+    return out
 
 
 def _config_parameters(value):

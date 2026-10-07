@@ -322,6 +322,14 @@ GIT_COMMAND_VALUES = [
     "git -c guitool.t.cmd='git push origin main' gui",
     "git -c submodule.s.update='!git push origin main' submodule update s",
     "git -c instaweb.httpd='git push origin main' instaweb",
+    # S2b review (probe S2f): clone's own -c/--config is config the clone runs with; `--u` is a unique prefix
+    "git clone -c core.sshCommand='git push origin main' ssh://h/r d",
+    "git clone -ccore.sshCommand='git push' ssh://h/r d",
+    "git clone --config=remote.origin.uploadpack='git push origin main' file:///r d",
+    "git clone --config remote.origin.uploadpack='git push' file:///r d",
+    "git clone --conf=core.sshCommand='git push' ssh://h/r d",
+    "git clone -c url.ext::sh.insteadOf=x: -c protocol.ext.allow=always x:y d",
+    "git ls-remote --u='git push origin main' .",
     "GIT_SSH_COMMAND='git push' git fetch",
 ]
 
@@ -341,6 +349,8 @@ GIT_COMMAND_VALUES_SAFE = [
     "git -c trailer.x.key=Signed git commit -m m",
     "git -c submodule.s.update=rebase submodule update s", "git -c man.viewer=less help -m git",
     "git -c help.browser=firefox help -w git", "git -c hook.h.event=pre-commit commit -m m",
+    "git clone -c core.autocrlf=false https://github.com/a/b d", "git clone --config user.name=x https://h/r d",
+    "git clone -c core.sshCommand='ssh -i k' ssh://h/r d",
 ]
 
 
