@@ -3,7 +3,7 @@ public checks in Apple `container` VMs plus one lib/eq-wall broker per run under
 policy. Driven only by stack-eq (unsandboxed: Seatbelt cannot reach the container services).
 
 A stdlib port of the harness's Isolation argv builder / run / kill / sweep
-(equilibrium/harness/eq_harness.py:1606-2000) and Wall lifecycle (:2039-2275); lib/eq-wall/eq_wall.py runs as
+(dot-config/dot-equilibrium/harness/eq_harness.py:1606-2000) and Wall lifecycle (:2039-2275); lib/eq-wall/eq_wall.py runs as
 is (its bytes are REVIEW-pinned, never edited). Fail closed everywhere: Level 2 is used only when the
 installer recorded a verified --with-eq-container install (manifest `eq_container.status == ok`, a
 digest-pinned image for the class, a PASSing tunnel probe for that image), the WALL is on (manifest

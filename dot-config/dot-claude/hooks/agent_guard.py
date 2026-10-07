@@ -8007,7 +8007,7 @@ def _heredoc_interpreter(owner):
 
 def builtin_protect_specs():
     """`//abs` deny specs for the stack's own files in an installed config dir (the hook lives in
-    <config>/hooks/; the repo's dot-claude/ still holds __CLAUDE_DIR__ and is skipped), for the
+    <config>/hooks/; the repo's dot-config/dot-claude/ still holds __CLAUDE_DIR__ and is skipped), for the
     hook state dir, install.sh's backups, the MCP servers' caches and the WALL's tunnel root, plus
     one relative spec, `tools/instructor` (matched at any depth, so in every checkout). Backs up the
     settings.json deny rules the protect scan reads."""
@@ -12097,7 +12097,7 @@ def toolsmith_self_test():
         if (toolsmith_command(cmd, {"agent_type": "toolsmith"}) is not None) != want:
             problems.append("toolsmith shape check misjudges %r" % cmd[:60])
     for cmd, want in (("%s list" % w, True), ("FOO=1 %s list" % w, True), ("timeout 9 stack-install x", True),
-                      ("git log -- %s" % w, False), ("python3 dot-claude/bin/stack-install help", False)):
+                      ("git log -- %s" % w, False), ("python3 dot-config/dot-claude/bin/stack-install help", False)):
         if wrapper_invoked(cmd) != want:
             problems.append("stack-install caller check misjudges %r" % cmd[:60])
     return problems

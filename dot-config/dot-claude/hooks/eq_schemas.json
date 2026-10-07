@@ -1,5 +1,5 @@
 {
- "comment": "the 7 class answer schemas of equilibrium/items/<K>/schema.json (sources: sha256 of each file's bytes); tests/test_eq_core.py checks both",
+ "comment": "the 7 class answer schemas of dot-config/dot-equilibrium/items/<K>/schema.json (sources: sha256 of each file's bytes); tests/test_eq_core.py checks both",
  "schemas": {
   "CP": {
    "$schema": "https://json-schema.org/draft/2020-12/schema",

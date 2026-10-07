@@ -48,7 +48,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # installed: derive_sched_model.py and derive_thresholds.py beside this file; in the repo: tests/
-sys.path[:0] = [HERE, os.path.join(os.path.dirname(os.path.dirname(HERE)), "tests")]
+# (<repo>/dot-config/dot-claude/hooks -> <repo>/tests)
+sys.path[:0] = [HERE, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "tests")]
 
 import pandas as pd  # noqa: E402
 

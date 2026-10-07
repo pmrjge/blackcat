@@ -13,12 +13,12 @@ J = T_w + lambda * W (T_w weighted tokens, W makespan in seconds) with T_w <= (1
 Exact search up to 14 nodes, list scheduling above (or when the search budget runs out; a warning
 says so).
 
-  uv run --script dot-claude/hooks/stack_sched.py plan graph.json [--mode barrier|release]
+  uv run --script dot-config/dot-claude/hooks/stack_sched.py plan graph.json [--mode barrier|release]
                                                    [--speed frugal|balanced|fast] [--json]
-  uv run --script dot-claude/hooks/stack_sched.py next graph.json state.json
-  uv run --script dot-claude/hooks/stack_sched.py replay --session ID --graph F
+  uv run --script dot-config/dot-claude/hooks/stack_sched.py next graph.json state.json
+  uv run --script dot-config/dot-claude/hooks/stack_sched.py replay --session ID --graph F
                                                    [--segments F --ledger F --prompts F --out F]
-  uv run --script dot-claude/hooks/stack_sched.py emit-workflow      (disabled until the probe)
+  uv run --script dot-config/dot-claude/hooks/stack_sched.py emit-workflow      (disabled until the probe)
 
 Exit codes: 0 ok, 1 invalid graph, 2 usage error.
 

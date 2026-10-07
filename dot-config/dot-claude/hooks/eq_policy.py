@@ -35,7 +35,7 @@ SCHEMA_BRIEF = "eqbrief.v1"
 CLASSES = ("PF", "CP", "CR", "RS", "ES", "DS", "OE")
 KIND = {"PF": "checkable", "CP": "checkable", "CR": "finding_set", "RS": "discrete", "ES": "numeric",
         "DS": "long_form", "OE": "long_form"}
-# spec 2.3 "eq member tool use": the harness's per-class allowed_tools (equilibrium/harness/eq_harness.py
+# spec 2.3 "eq member tool use": the harness's per-class allowed_tools (dot-config/dot-equilibrium/harness/eq_harness.py
 # DEFAULT_FLAGS: PF and CP _BUILD, CR read + Bash, RS read, ES Read, DS/OE none) + Skill (amendment A4).
 # The calibration validates exactly these lists, so they win over the spec row's shorthand for PF.
 _READ = ("Read", "Glob", "Grep")
@@ -45,7 +45,7 @@ MEMBER_TOOLS = {"PF": _BUILD + ("Skill",), "CP": _BUILD + ("Skill",), "CR": _REA
 # CP/CR: Agent isolation "worktree"; the others get <project>/.claude-work/eq/<R>/m<i>/ when their
 # segments are files (workdir()), else nothing
 WORKDIR = {"PF": "dir", "CP": "worktree", "CR": "worktree", "RS": "dir", "ES": "dir", "DS": "dir", "OE": "dir"}
-# the pre-registered view scheme per class (equilibrium/harness/flags.json `view`)
+# the pre-registered view scheme per class (dot-config/dot-equilibrium/harness/flags.json `view`)
 VIEW = {"PF": "lens", "CP": "perm", "CR": "kcover", "RS": "kcover", "ES": "perm", "DS": "perm", "OE": "perm"}
 # the a-priori S* type per class (PROPOSAL.md:125-131; flags.json s_star)
 S_STAR = {"PF": "mathematician", "CP": "python-engineer", "CR": "code-reviewer", "RS": "researcher",

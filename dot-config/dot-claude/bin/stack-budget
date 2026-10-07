@@ -404,10 +404,10 @@ def cmd_plan(a):
 
 # ---------------------------------------------------------------- static
 def cmd_static(a):
-    root = os.path.dirname(os.path.dirname(HERE))
-    if HERE != os.path.join(root, "dot-claude", "bin") or not os.path.isfile(os.path.join(root, "install.sh")):
-        print("stack-budget: static budgets are measured in the stack repo (run its dot-claude/bin/stack-budget)",
-              file=sys.stderr)                     # an installed copy's root is $(dirname <config dir>), e.g. $HOME
+    root = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))   # <repo>/dot-config/dot-claude/bin
+    if HERE != os.path.join(root, "dot-config", "dot-claude", "bin") or not os.path.isfile(os.path.join(root, "install.sh")):
+        print("stack-budget: static budgets are measured in the stack repo (run its dot-config/dot-claude/bin/stack-budget)",
+              file=sys.stderr)                     # an installed copy's root is $(dirname $(dirname <config dir>))
         return 1
     pb = os.path.join(root, "tests", "prompt_budget.py")
     if not os.path.exists(pb):

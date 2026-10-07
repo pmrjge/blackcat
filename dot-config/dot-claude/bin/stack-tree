@@ -38,7 +38,7 @@ import unicodedata
 from urllib.parse import urlsplit, urlunsplit
 
 HERE = os.path.dirname(os.path.realpath(__file__))
-CONFIG = os.path.dirname(HERE)                      # <config> installed, dot-claude/ in the repo
+CONFIG = os.path.dirname(HERE)                      # <config> installed, dot-config/dot-claude/ in the repo
 MAX_DEPTH = 8                                       # CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH in settings.json; L8 cannot spawn
 SID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_.-]{0,127}$")
 ID_RE = re.compile(r"^[A-Za-z0-9_-]{1,128}$")
