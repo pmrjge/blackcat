@@ -50,10 +50,10 @@ checked before every item by E11 (ledger Σ `total_cost_usd` + 4B ≤ ceiling).
 | 8. Calibration grading (member-level RS answers, CR findings) | §3 below | 0.50 | ≤ 5.00 (≤ 10 calls) | every key and finding the rules need is graded (`report.v<k>.json` `skipped` is empty) |
 | **pilot + calibration** | | | **740.61** (exact cap sum 700.11) | **G1: `eq_calibrate.py --stage p` (§4), then the USER's go for q** |
 | 9. E_rt smoke: 1 dev item, headless leader | `claude -p --agent equilibrium --max-budget-usd 0.50 …` through the harness's E_rt arm (§5) | 0.50 | 0.50 | hooks fire in headless `--agent` mode; background resumes complete; the consent file is honoured; whether `--max-budget-usd` counts subagents |
-| 10. Confirmation q, per primary class (153 items × 4 arms) | `uv run --script "$H" run --stage q --spend-ok` | B_k(q) = (N\*/5) × $2 per item-arm | 1,224.00 per class at N\* = 5 (4B rule; exact 1,178.10); see §6 for N\* and rule 3 | stop rules of §10; no interim look |
-| 11. H5 `none` branch, per reconcile class (RS, ES) | the q `none` branch cell **[the harness part; see §8 for E_rt]** | 0.25 B_k(q) per item | 76.50 per class at N\* = 5 | — |
+| 10. Confirmation q, per primary class (153 items × 4 arms) | `uv run --script "$H" run --stage q --e-arm runtime --params equilibrium/calibration/params.json --spend-ok` (§5: p's params installed first) | B_k(q) = (N\*/5) × $2 per item-arm | 1,224.00 per class at N\* = 5 (4B rule; exact 1,178.10); see §6 for N\* and rule 3 | stop rules of §10; no interim look |
+| 11. H5 `none` branch, per reconcile class (RS, ES) | **not run until a q `none` fork exists or an amendment drops H5 (A6 (h); §5 Open)** | 0.25 B_k(q) per item | (76.50 per class at N\* = 5, if run) | — |
 | 12. q grading | §3 below on stage q | 0.50 | ≈ 7.50 per RS or CR class (≈ 15 calls); PF CP ES $0 | κ ≥ 0.6 |
-| **confirmation, 2 classes** | | | **2,448.00** at N\* = 5, B = $2 (+ 153.00 H5, + ≈ 15 grading) | **G2: `eq_calibrate.py --stage q`, then Phase 5** |
+| **confirmation, 2 classes** | | | **2,448.00** at N\* = 5, B = $2 (+ 153.00 H5 only if a q `none` fork exists, A6 (h); + ≈ 15 grading) | **G2: `eq_calibrate.py --stage q`, then Phase 5** |
 
 ## 2. Commands: configuration, smokes, pilot
 
@@ -105,17 +105,24 @@ uv run --script equilibrium/harness/eq_calibrate.py --stage p --eq-root "$EQ" \
 It refuses (exit 2, nothing written) an unfrozen or altered stage: the sidecar and every `pool.sha256` must verify,
 `FROZEN_AT.txt` must name this sidecar, `MANIFEST.sha256` and `TRANSCRIPTS.sha256` must verify, the live ledger must
 equal its frozen copy, and route 2 (transcripts) must agree within 1 % on every member call used. It writes
-`equilibrium/calibration/params.v1.json`, `params.json`, the sidecar, a history line and `report.v1.json`. Every class
-stays `not_run` (p tests nothing); the version holds N\*, rounds\*, the LOO variant, the certainty signal, caps, model
-ids and the USD conversion. The data-scientist then writes the pilot amendment (A7: S\*, N\*, B per class, primary
+`equilibrium/calibration/params.v1.json`, `params.json`, the sidecar, a history line and `report.v1.json`. A class
+whose p bundle is complete and eligible (N\* >= 3) gets status `candidate` (manual only, unvalidated; COMPARE_eq §12
+A6 (e)); every other class stays `not_run`. p tests nothing; the version holds N\*, rounds\*, the LOO variant, the
+certainty signal, caps, model ids and the USD conversion. The data-scientist then writes the pilot amendment (A7: S\*, N\*, B per class, primary
 classes by §7.3 rule 4, B_k(q), the ceiling) and **the USER decides whether q runs** (go/no-go G1): a class with
 N\* = 1 is not eligible; at most 2 primary classes.
 
 ## 5. Confirmation q (after G1 and Phase 2)
 
 ```sh
+# before q: the runtime must resolve p's candidate bundles (else every E_rt item-arm is bundle_mismatch, recorded as done)
+cp equilibrium/calibration/params.json dot-claude/hooks/eq_params.json
+~/.claude/venvs/tools/bin/python -m pytest -q tests/test_eq_params_pin.py
+git add dot-claude/hooks/eq_params.json && git commit   # a coder or the USER; never pushed
+./install.sh                                            # the USER; doctor: params pin ok, classes candidate
 uv run --script "$H" config --stage q --ceiling <q ceiling from §6>   # then the same agent_sha256_* lines
-uv run --script "$H" run --stage q --spend-ok                           # S*, G, E_rt, EG; the H5 none branch
+uv run --script "$H" schedule --items "$EQ/items" --stage q --primary <K1[,K2]> --n <n> --out <q>/schedule.tsv
+uv run --script "$H" run --stage q --e-arm runtime --params equilibrium/calibration/params.json --spend-ok  # S*, G, E_rt, EG
 bash "$EQ/eq_freeze.sh" --collect q                                      # then §3 on stage q
 uv run --script equilibrium/harness/eq_calibrate.py --stage q --primary <K1[,K2]> --eq-root "$EQ" \
   --amendment A8 --reason "confirmation"
@@ -123,8 +130,12 @@ uv run --script equilibrium/harness/eq_calibrate.py --stage q --primary <K1[,K2]
 
 The E_rt arm (D4) runs `claude -p --agent equilibrium --max-budget-usd <B_k(q)>` with the bundle of `params.json`,
 after the harness writes the consent file (`stack-eq start --headless --consent-file`, `RUNTIME_EQUILIBRIUM.md` §2.5).
-The q schedule (`schedule --stage q`) and the E_rt arm are the harness part's work **[pending: today `schedule` takes
-`p` and `d` only]**.
+`--params` names p's params (status `candidate`): an E_rt item-arm whose plan bundle differs from its class's entry is
+recorded `partial`, reason `bundle_mismatch`, before any consent or call, and leaves both analysis routes.
+
+**Open, blocks q:** H5 (the forked `none` branch) does not run on stage q: the harness's E arm runs no `none` fork
+and E_rt has no forked-branch mode (COMPARE_eq §12 A6 (h)); eq_calibrate reports H5 as "no graded none-branch
+result". Before q, either a q `none` fork is built or an amendment drops H5.
 
 Status per primary class (A6.5): `validated` iff H1 or H2 is confirmed by Holm in E's favour and 2^(median P1 log2
 ratio) ≤ 2; `refuted` per §7.1; else `not_established`; every other class `not_run`. A validated class must have
@@ -155,8 +166,8 @@ EG; EG lens planners 2 × 0.075B.
 - **Confirmation, per primary class:** 153 items × 4 arms × B_k(q). At N\* = 5, B_k(q) = $2: **$1,224.00** (4B rule;
   exact 153 × 3.85B = $1,178.10); two classes **$2,448.00** (design: confirmed). B_k(q) = (N\*/5) × $2 for every arm:
   N\* = 3 → $734.40, N\* = 7 → $1,713.60, N\* = 9 → **$2,203.20** per class (two: $4,406.40). Rule 3 (S\* cap-hit
-  > 30 %) doubles B on top: up to **$8,812.80** for two classes at N\* = 9. H5 `none` branch: 153 × 0.25 × B_k(q) =
-  $76.50 per reconcile class at N\* = 5 ($137.70 at N\* = 9). q grading ≈ $7.50 per RS or CR class; a DS or OE
+  > 30 %) doubles B on top: up to **$8,812.80** for two classes at N\* = 9. H5 `none` branch (not run until a q `none` fork exists
+  or an amendment drops H5, A6 (h)): 153 × 0.25 × B_k(q) = $76.50 per reconcile class at N\* = 5 ($137.70 at N\* = 9). q grading ≈ $7.50 per RS or CR class; a DS or OE
   primary class would add 153 × 4 pairs × 2 orders × $0.50 = $612 (none is calibrated, D2).
 
 Corrections to the design's figures: none to the totals; the exact cap sums are lower (pilot arms $457.50 vs $480,
@@ -184,6 +195,7 @@ installer work); the guard and `stack-eq` then route only the classes whose entr
   members' tokens (P1 of the ship rule): step 9; otherwise P1 for E_rt must come from its transcripts (the leader's
   and `subagents/`).
 - Hooks and background resumes in a headless `claude -p --agent equilibrium` session: step 9.
-- The H5 `none` branch under E_rt: the runtime has no forked-branch mode yet; until the harness part adds one, H5 is
-  reported as not computable and changes nothing.
+- **Open, blocks q:** the H5 `none` branch: no code runs it on stage q (the harness's E arm runs no `none` fork, E_rt
+  has no forked-branch mode; COMPARE_eq §12 A6 (h)); eq_calibrate reports "no graded none-branch result". Before q,
+  a q `none` fork is built or an amendment drops H5.
 - The exact smoke and cell commands (`--cell`, a dev item under stage p, `schedule --stage q`): the harness part's CLI.

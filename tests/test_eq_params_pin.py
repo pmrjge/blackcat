@@ -214,7 +214,9 @@ def test_candidate_contract_is_one_rule_set():
     c = _consts(HARNESS / "eq_calibrate.py")
     assert c["CANDIDATE_REQUIRED"] == (*P.CANDIDATE_REQUIRED, "pool")
     assert c["RUNTIME_MODEL_ID_RE"] == ("re", P.MODEL_ID_RE.pattern)
-    assert cls_def["properties"]["member_model_id"]["pattern"] == "^" + P.MODEL_ID_RE.pattern.removesuffix(r"\Z") + "$"
+    # ECMA/Python `$` also matches before a final newline; Python's `\Z` does not: `(?!\n)$` is the same anchor
+    pattern = cls_def["properties"]["member_model_id"]["pattern"]
+    assert pattern == "^" + P.MODEL_ID_RE.pattern.removesuffix(r"\Z") + r"(?!\n)$"
     flags = json.loads((HARNESS / "flags.json").read_text(encoding="utf-8"))
     assert flags["s_star"] == P.S_STAR and set(P.S_STAR.values()) <= set(P.MEMBER_TYPES)  # calibrate's member_type
 
@@ -222,7 +224,8 @@ def test_candidate_contract_is_one_rule_set():
 @pytest.mark.parametrize("case", [
     {}, {"version": 0}, *({"null": k} for k in sorted(CLASS_KEYS - {"status"})),
     *({"member_model_id": m} for m in ("claude-x-4-6[1m]", "us.anthropic.claude-x-4-5-20250929-v1:0", "X",
-                                       "ab", "Claude-Opus", "claude-x-4-5-20250929", "claude-x-4.6"))],
+                                       "ab", "Claude-Opus", "claude-x-4-5-20250929", "claude-x-4.6",
+                                       "claude-x-4-6\n"))],  # Python `$` matches before a final newline
     ids=lambda c: ",".join(f"{k}={v}" for k, v in c.items()) or "base")
 def test_candidate_entry_schema_valid_iff_runtime_valid(case):
     """For candidate entries the schema and eq_policy.validate_params agree: on the required keys (null), on version 0
