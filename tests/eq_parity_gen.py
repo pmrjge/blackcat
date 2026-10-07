@@ -154,6 +154,44 @@ def gen_views() -> dict[str, Any]:
     return {"perm": perm, "kcover": kc, "kcover_blocks": blocks, "lens_assignment": lens, "member_view": mv}
 
 
+POOL_VIEW_N = (5, 9)  # the E arm's N and p6's nested N = 9 (COMPARE_eq §12 A6.3)
+POOL_VIEW_FULL = 3  # per class and n, the first items carry the views in full (diagnostics); every item its digest
+
+
+def pool_view_digest(scheme: str, note: str, members: list[Any]) -> str:
+    """sha256 of the canonical JSON [scheme, note, [[order, blocks, lens_index] per member]] (= test_eq_parity)."""
+    blob = json.dumps([scheme, note, members], sort_keys=True, separators=(",", ":"))
+    return hashlib.sha256(blob.encode()).hexdigest()
+
+
+def gen_pool_views() -> list[Any]:
+    """The round-0 views of every non-dev item of the REAL pools of the p6 classes at N = 5 and 9, through the
+    harness's own round0_views (Runner.round0_members) with DEFAULT_FLAGS' view per class and perm_shift_rule. Per
+    item: the scheme and note (shared by its members) and the digest of [scheme, note, per member [order, blocks,
+    lens_index]]; the first POOL_VIEW_FULL items per class and n also carry `members` in full."""
+    items_dir = ROOT / "equilibrium" / "items"
+    lenses = json.loads((items_dir / "lenses.json").read_text())
+    flags = eh.DEFAULT_FLAGS
+    out = []
+    for cls in flags["cells"]["p6"]["classes"]:
+        for n in POOL_VIEW_N:
+            k = 0
+            for item in eh.load_pool(items_dir, cls):
+                if item.dev:
+                    continue
+                vs = eh.round0_views(item, flags["view"][cls], n, lenses[cls], str(flags["perm_shift_rule"]))
+                assert len({(v.kind, v.note) for v in vs}) == 1
+                members = [[list(v.order), None if v.blocks is None else list(v.blocks), v.lens_index] for v in vs]
+                c = {"item": item.id, "cls": cls, "view": flags["view"][cls], "n": n, "s": len(item.segments),
+                     "pinned": list(item.pinned_segments), "scheme": vs[0].kind, "note": vs[0].note,
+                     "sha256": pool_view_digest(vs[0].kind, vs[0].note, members)}
+                if k < POOL_VIEW_FULL:
+                    c["members"] = members
+                k += 1
+                out.append(c)
+    return out
+
+
 SAMPLE_ANSWERS: list[Any] = [
     None, "", "  ", "Yes", " yes ", "YES\n", "No", 1, 1.0, 0, True, False, 2.5, [], [1, 2], {"b": 1, "a": 2},
     {"label": "SUPPORTED", "value": "", "rationale": "x"}, {"label": "supported", "value": "z", "rationale": "y"},
@@ -566,7 +604,7 @@ def main() -> int:
     rng = random.Random(20261006)
     shas = {
         "seeds": write("seeds", gen_seeds()), "quorum": write("quorum", gen_quorum()),
-        "views": write("views", gen_views()), "keys": write("keys", gen_keys()),
+        "views": write("views", gen_views()), "pool_views": write("pool_views", gen_pool_views()), "keys": write("keys", gen_keys()),
         "numeric": write("numeric", gen_numeric(rng)), "plurality": write("plurality", gen_plurality(rng)),
         "select": write("select", gen_select(rng)), "findings": write("findings", gen_findings(rng)),
         "gate": write("gate", gen_gate(rng)), "facts": write("facts", gen_facts()),

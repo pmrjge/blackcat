@@ -438,6 +438,16 @@ def member_view(item: Item, kind: str, n: int, i: int, member_key: str, lenses: 
                 _decisive_pos(order, item.decisive_segment), note)
 
 
+def round0_views(item: Item, kind: str, n: int, lenses: Sequence[str], rule: str = "floor",
+                 node: str | None = None) -> list[View]:
+    """The n round-0 member views of an E-node (Runner.round0_members; p6 at n = 9): member keys m1..mn (prefixed
+    `<node>|` inside a plan node), lenses ranked by view seed, the class's scheme at this n."""
+    prefix = f"{node}|" if node else ""
+    keys = [f"{prefix}m{i + 1}" for i in range(n)]
+    la = lens_assignment(item.id, keys, max(1, len(lenses)))
+    return [member_view(item, kind, n, i, keys[i], lenses, la[keys[i]] if lenses else None, rule) for i in range(n)]
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # Items (CONTRACT.md)
 # ---------------------------------------------------------------------------------------------------------------------
@@ -3598,13 +3608,8 @@ class Runner:
         """Round 0 of an E-node (or of the p6 cell: n = 9, `cell` "p6"): n members of `agent` in parallel, member i
         with the view of the class's scheme at this n (perm shifts, k-cover, lens by seed), its own fixture copy
         without the segments it does not see, and cap caps[i]."""
-        flags = self.flags
-        lenses = self.cfg.lenses.get(item.cls, [])
-        prefix = f"{node}|" if node else ""
-        keys = [f"{prefix}m{i + 1}" for i in range(n)]
-        la = lens_assignment(item.id, keys, max(1, len(lenses)))
-        views = [member_view(item, view_kind, n, i, keys[i], lenses, la[keys[i]] if lenses else None,
-                             str(flags["perm_shift_rule"])) for i in range(n)]
+        views = round0_views(item, view_kind, n, self.cfg.lenses.get(item.cls, []), str(self.flags["perm_shift_rule"]),
+                             node)
         dep_rel = {d: Path(".eq_deps") / f"{d}.json" for d in (deps or {})}
         extra_deps = ""
         if dep_rel:

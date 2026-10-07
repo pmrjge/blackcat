@@ -102,6 +102,25 @@ def test_member_views() -> None:
             assert g["lens"] == lenses[c["cls"]][w["lens_index"]]
 
 
+def test_pool_views_at_n5_and_n9() -> None:
+    """The real pools' round-0 views (p6 classes, N = 5 and the nested N = 9) as Runner.round0_members builds them."""
+    lenses = json.loads((ITEMS / "lenses.json").read_text())
+    cases = vec("pool_views")
+    assert {c["n"] for c in cases} == {5, 9} and len({c["cls"] for c in cases}) == 5
+    assert sum("members" in c for c in cases) == 3 * 2 * 5
+    for c in cases:
+        got = ec.member_views(c["cls"], c["n"], c["s"], c["item"], c["view"], lenses=lenses[c["cls"]],
+                              pinned=c["pinned"])
+        assert len(got) == c["n"], c["item"]
+        members = [[g["order"], g["blocks"], g["lens_index"]] for g in got]
+        if "members" in c:
+            for g, m, w in zip(got, members, c["members"], strict=True):
+                assert (g["scheme"], g["note"], m) == (c["scheme"], c["note"], w), (c["item"], c["n"], g["member"])
+        assert {(g["scheme"], g["note"]) for g in got} == {(c["scheme"], c["note"])}, (c["item"], c["n"])
+        blob = json.dumps([c["scheme"], c["note"], members], sort_keys=True, separators=(",", ":"))
+        assert hashlib.sha256(blob.encode()).hexdigest() == c["sha256"], (c["item"], c["n"])
+
+
 # --- keys, numeric, plurality, selection ---------------------------------------------------------------------------
 
 
