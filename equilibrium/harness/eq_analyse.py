@@ -386,7 +386,7 @@ class Run:
         for r in self.records:
             by[str(r.get("record"))].append(r)
         unknown = sorted(set(by) - {"run_start", "call", "plan", "reduce", "reconcile", "check", "node", "item_arm",
-                                    "run_end"})
+                                    "run_end", "e_rt"})
         if unknown:
             warnings.append(f"ledger: unknown record types ignored: {unknown}")
         if self.records and not by.get("run_end"):
@@ -430,8 +430,9 @@ class Run:
                 continue
             cand[(r["item"], r["arm"])].append(r)
         if other_labels:
-            self.warnings.append("item_arm records with a label outside p1-p4/q1-q4/p9/q9 not analysed (p5 = S* "
-                                 f"screening cell): {dict(sorted(other_labels.items()))}")
+            self.warnings.append("item_arm records with a label outside p1-p4/q1-q4/p9/q9 not analysed (other "
+                                 "[pq][1-9] labels are cells: p5 = S* screening, p6/p7 = calibration cells): "
+                                 f"{dict(sorted(other_labels.items()))}")
         units: dict[tuple[str, str], ItemArm] = {}
         for (item, arm), rs in sorted(cand.items()):
             if (item, arm) in exclude or (item, "*") in exclude:
@@ -444,6 +445,9 @@ class Run:
                                      "(declared p9/q9 re-run first, else the latest)")
             else:
                 pick = rs[0]
+            if pick.get("bundle_mismatch") is not None:  # E_rt ran another bundle than q's (A6 note (d)): report only
+                self.excluded.append({"item": item, "arm": arm, "reason": "bundle_mismatch"})
+                continue
             units[(item, arm)] = ItemArm(item=item, cls=str(pick.get("cls")), label=str(pick.get("label")), arm=arm,
                                          status=str(pick.get("status")), seq=int(pick.get("seq") or 0),
                                          b_usd=to_decimal(pick.get("B_usd")),
@@ -812,6 +816,8 @@ def q_mediator(run: Run, res: Results) -> None:
     # M11 influence concentration, M13 LOO stability, M14 decisive facts, M18 CPU time
     m11: dict[tuple[str, str], dict[str, list[Any]]] = defaultdict(lambda: defaultdict(list))
     for a in by_rec["attribution"]:
+        if a.get("round") is not None:
+            continue  # per-round jackknife line (A6, §4.1): no shapley/hhi/loo_final (eq_calibrate's)
         key = (a["_cls"], a["_arm"])
         g = m11[key]
         g["n"].append(1)

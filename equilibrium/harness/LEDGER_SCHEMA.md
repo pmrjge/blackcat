@@ -8,7 +8,7 @@ to compute.
 
 Conventions: times are UTC ISO-8601 with microseconds (`2026-10-05T12:00:00.123456Z`); money is USD; `cap_usd` is a
 decimal string with 6 places (exact, floored micro-USD); member numbers are 1-based; `label` is the arm label
-(`p1` S*, `p2` G, `p3` E, `p4` EG; `q1`-`q4` in the confirmation; the dev dry run uses `p` labels); `node` is a plan
+(`p1` S*, `p2` G, `p3` E, `p4` EG; `q1`-`q4` in the confirmation; the dev dry run uses `p` labels; `p5` the unfunded S* screening, `p6` and `p7` the calibration cells of COMPARE_eq §12 A6.3, stage `p` only; `p9`/`q9` declared re-runs); `node` is a plan
 node id (G and EG) or null (S*, E); paths are absolute.
 
 ## Common fields (every record)
@@ -18,7 +18,7 @@ node id (G and EG) or null (S*, E); paths are absolute.
 | `schema_version` | int | 1 |
 | `seq` | int | 1-based line number at write time (strictly increasing) |
 | `ts_utc` | str | write time |
-| `record` | str | one of `run_start`, `call`, `plan`, `reduce`, `reconcile`, `check`, `node`, `item_arm`, `run_end`, `run_abort`, `wall` |
+| `record` | str | one of `run_start`, `call`, `plan`, `reduce`, `reconcile`, `check`, `node`, `item_arm`, `e_rt`, `run_end`, `run_abort`, `wall` |
 | `stage` | str | `p`, `q` or `d` |
 
 ## `run_start` / `run_end`
@@ -31,6 +31,9 @@ node id (G and EG) or null (S*, E); paths are absolute.
 | `stub` | bool | see above |
 | `numpy_version` | str | numpy used for every seeded draw |
 | `argv` | list[str] | the harness command line |
+| `cells` | list[str] | (`run_start`, A6.3) the calibration cells this invocation runs (`run --cells p6,p7`; `[]` = the stage's arm rows only: cell rows are skipped without `--cells`, and with it only the named cells' rows run) |
+| `e_arm` | str | (`run_start`, A6.5) `harness` (default: the E arm is the harness's own N-member E-node) or `runtime` (`run --e-arm runtime`: the E rows run E_rt, see `e_rt` below) |
+| `e_rt_params_sha256` | str or null | (`run_start`, A6.5) sha256 of the `run --params` file (E_rt's expected bundles; required for stage q with `--e-arm runtime`, refused without it; every E class of the schedule must be `candidate` or `validated` with a complete bundle, else `run` refuses, exit 2); null without `--params` |
 | `items_run` | int | (`run_end` only) items started in this invocation |
 | `isolation` | object | (`run_start`) the run's ONE isolation backend, frozen: `backend` (`container` = Apple container, the default since 2026-10-05 / `off`; `sandbox-exec` is a stub that fails closed; ledgers written before 2026-10-05 say `docker`), and for container `images` (class → `name:tag@sha256:<digest>`), `limits` (`nproc`, `memory`, `cpus`), `tmp_size` (the `/tmp` tmpfs), `work_size` (the capped `/work` tmpfs, filled from the read-only `/eqsrc/work` bind), `user` (uid:gid), `network` (`none`), `oracle_isolated_classes`. A ledger whose earlier `run_start` names another isolation is refused |
 | `wall` | object | (`run_start`) the WALL of this run (`../wall/WALL_DESIGN.md`), frozen like `isolation`: `{"enabled": false}` without one (the pre-registered default); else `enabled`, `mechanism` (`dir-v1`), `ctr_path` (`/eq/tunnel`), `policy_sha256`, `broker_sha256`, `client_sha256`, `config_sha256` (all equal to flags.json `wall`, checked before the run starts), `policy_path`, `tunnel_root`, `state_dir`, `run_id` (the WALL run id, 32 hex), `nonce_sha256` (commitment to the per-run nonce; the nonce itself never enters the ledger and is revealed beside the audit log at run end), `probe_receipt_sha256` (the PASSing tunnel-probe receipt the run was admitted with). A ledger whose earlier `run_start` names another `config_sha256` (or `member_exec`) is refused |
@@ -60,7 +63,7 @@ REFUTED fact.
 | `item`, `cls` | str | item id and class (PF CP CR RS ES DS OE) |
 | `label`, `arm` | str | arm label and arm (`S*`, `G`, `E`, `EG`) whose call this is |
 | `charged_to` | list[str] | labels this call's cost and tokens count for. The shared planner call (role `plan`) is `[G label, EG label]` (COMPARE_eq §1: charged to both); every other call has `[label]`. **Item-arm totals = sum over calls whose `charged_to` contains the label** |
-| `role` | str | first-line role: `s` (S*), `plan` (planner), `n<j>` (G/EG node j in topological order), `m<i>/<N>` (member i of an N-member E-node; EG lens planners are `m2/3`, `m3/3`, G's plan is member 1 of the planning node), `r<k>` (reconcile or repair round k, resumed session), `sel` (selection judge), `ver` (single-support verifier) |
+| `role` | str | first-line role: `s` (S*), `plan` (planner), `n<j>` (G/EG node j in topological order), `m<i>/<N>` (member i of an N-member E-node; EG lens planners are `m2/3`, `m3/3`, G's plan is member 1 of the planning node), `r<k>` (reconcile or repair round k: a FORKED session, see `parent_session_id`), `sel` (selection judge), `ver` (single-support verifier, also the RS equivalence call), `rt` (E_rt: the one `claude -p --agent equilibrium` leader call of the runtime arm, A6.5) |
 | `agent` | str | `--agent` type |
 | `member` | int or null | member number inside its E-node (E, EG E-nodes, EG planning node) |
 | `node` | str or null | plan node id (EG E-nodes and G/EG plain nodes) |
@@ -69,8 +72,14 @@ REFUTED fact.
 | `argv` | list[str] | exact argv; the `--json-schema` value is replaced by `<schema sha256 …>`. The prompt is on stdin, not in argv |
 | `prompt_sha256`, `prompt_path` | str | prompt hash and file (first line `<ITEM> <label> <role>`) |
 | `raw_path` | str | the call's stdout (the `--output-format json` envelope); `stderr.txt` beside it |
-| `cwd` | str | the call's working directory: a fresh fixture copy, except `r<k>` calls, which resume in the member's own copy |
-| `resume` | str or null | session id passed to `--resume` |
+| `cwd` | str | the call's working directory: a fresh fixture copy, except `r<k>` calls, which run in the member's own copy (a forked session needs its cwd) and the `rt` call, which runs in `work/E_rt` of the arm directory (a fresh fixture copy the runtime's own subagents work from) |
+| `resume` | str or null | session id passed to `--resume` (with `--fork-session` for `r<k>`: see `parent_session_id`) |
+| `parent_session_id` | str or null | (E2, COMPARE_eq §12 A6.1) the session a reconcile or repair call forked (`--resume <it> --fork-session`; the call's own `session_id` is the new fork): the member's LATEST session, i.e. round 0's for round 1, the member's round-(k-1) fork for round k (A6 implementation note, USER decision (a) of 2026-10-06), so every round-0 session stays pristine for the p7 branches; null for unforked calls |
+| `branch_workdir` | str or null | (forked calls of `workdir_answer_classes`, CP) the branch's saved copy `<cwd>.<branch>` (`live` for the E arm's own repair, else the p7 branch): the call runs in `cwd` (restored to that branch's state under a per-member lock; `<cwd>.r0` keeps the round-0 bytes, which `cwd` holds again afterwards), and its resulting state is saved here; checks and `answer_workdir` use it |
+| `cell`, `branch` | str or null | (A6.3) `p6` / `p7` for calibration-cell calls (own labels), null otherwise; `branch`: the p7 LOO variant (`none`, `rotation`, `random`, `leader`), null otherwise (always null for p6) |
+| `loo_view`, `loo_exclude` | str, int or null | (`r<k>` calls only: reconcile and repair rounds; absent on every other call; RUNTIME_EQUILIBRIUM §4.2) the LOO variant that built this member's view (`none`, `rotation`, `random`, `leader`; the E arm's is flags.json `loo_view`, default `none` = the pre-registered shared summary, byte-identical; a p7 branch's is its own) and the member excluded from it (1-based, never the member itself; null when nothing is excluded: `none`, round 0, N = 1) |
+| `e_arm`, `run8` | str | (`rt` call only) `runtime` and the 8-hex run id `R` of the runtime run (see `e_rt`) |
+| `model_ids`, `model_ids_reason` | list[str], str or null | (D3, A6.2) the sorted keys of the envelope's `modelUsage` (the concrete model ids the call ran on); `[]` with the reason (`no result envelope …`, `no modelUsage in the result envelope`, `modelUsage is not a non-empty object`) when missing, never a guess |
 | `view` | object or null | see *view* below; null for planner nodes, judges, verifiers, resumed calls |
 | `decisive_seen` | bool or null | whether the item's decisive segment is in this call's view (null: no view or no annotation) |
 | `started_utc`, `ended_utc` | str | harness clock around the subprocess |
@@ -107,6 +116,8 @@ brief, deps, kind, weight}` in topological order, or null when invalid).
 
 ## `reduce` (one per reducer decision; `arm`, `label`, `node` as in `call`)
 
+Records of a calibration cell (A6.3: p6 everywhere; p7 `reduce`/`reconcile`; p6 `check`/`equivalence`) additionally carry `cell` (`p6`/`p7`) and `branch` (the p7 LOO variant; null for p6); records of every other arm have neither key. This holds for `reduce`, `reconcile` and `check` below. p6 `reduce` records are round-0 reductions of the 9-member set (`round` 0 where the reducer has one); p7 `reduce`/`reconcile` records are one set per branch, rounds 0..`cells.p7.rounds` (forced: the κ stop and the fixed point are ignored live).
+
 | `reducer` | extra fields |
 |---|---|
 | `plurality`, `median_ln` | `round` (0 = round 0, k after reconcile round k), `answer` (reduced answer; `median_ln` = exp(median ln)), `top` (members in the top cluster; numeric: members within a factor 2 of the median), `n`, `kappa` (top / n), `quorum` (members needed: ⌈τn⌉ under the pre-registered rule), `stop` (quorum met, or no accepted change: fixed point), `tie_seed` |
@@ -126,7 +137,7 @@ whitespace-normalised). Conformity rate = conformity / changed.
 
 ## `check` (public check runs of checkable answers)
 
-`member`, `round` (0 or 1 = after repair), `passed` (exit code 0 of the item's `public_check` argv run in the member's
+`member`, `round` (0 or 1 = after repair; p6: 0, `cell` `p6`), `passed` (exit code 0 of the item's `public_check` argv run in the member's
 copy, minimal environment, with `{"answer": …}` in a file OUTSIDE the copy whose path is `$EQ_ANSWER`; for classes in
 `flags.json` `answer_file`, e.g. PF, also the answer text as that file at the top of the copy),
 `output_tail` (last 500 characters), `isolation` (`container` / `off`) and `image` (the digest-pinned image, null for
@@ -161,6 +172,36 @@ copy, `{added, removed, changed}` file lists against the pristine fixture; logge
 | `reason` | str | partial G/EG: `invalid plan` / `no valid plan` |
 | `wall_requests`, `wall_approved` | int | (WALL runs only) WALL decisions on this item-arm's channels (every authenticated request, denied or approved) and approvals. Requests and their cost count toward the arm that made them (amendment proposal) |
 | `wall_used` | bool | (WALL runs only) `wall_requests > 0`: the analysis flag separating item-arms that used the broker |
+| `cell` | str | (A6.3, p6 and p7 item-arms only; `eq_analyse` ignores these labels) `p6` or `p7` |
+| `n_members` | int | (p6) the round-0 member count (`cells.p6.N` = 9); the arm's `selected_member`/`answer_workdir` (checkable), `kappa0`/`kappa`/`rounds` = 0 (discrete, numeric) or `kappa0`, `t` (finding sets) are as for E, computed on the 9-set |
+| `base_label` | str | (p7) the E arm label whose pristine round-0 sessions were branched (`p3`) |
+| `branches` | object | (p7) per LOO variant (`none`, `rotation`, `random`, `leader`): `{answer, kappa0, kappa, rounds}`; the item-arm's `answer` is `{variant: answer}`. A p7 item-arm is only written when `base_label` has a complete harness E round 0 in this stage's ledger (else the row is skipped on stderr, nothing recorded) |
+| `e_arm` | str | (E_rt item-arms) `runtime` |
+| `run8`, `rt_session_id` | str | (E_rt) the runtime run id `R` = first 8 hex of sha256(`<session id>\|headless`) and the leader session uuid passed as `--session-id`; the store is `<XDG_STATE_HOME>/claude-agent-stack/<session id>/eq/<R>/` |
+| `h5` | str | (E_rt) the constant note that H5's forked `none` branch is not run under E_rt (the runtime's members are the leader's subagents, not forkable harness sessions): reported, not run |
+| `rt_validated`, `rt_status_reason`, `rt_partial` | any | (E_rt, when `result.json` parsed) the runtime's own `validated`, `status_reason` and `partial` verbatim; logged, never scored |
+| `answer_workdir_reason` | str | (E_rt, workdir classes (CP), when `answer_workdir` is null) why the runtime's selected patch was not applied: no selected patch in `result.json`; the patch is not a file inside the leader's project dir; or `git apply failed (exit N): …` |
+| `result_error` | str | (E_rt) exception class name when the store's `result.json` could not be read or parsed (`OSError`, `JSONDecodeError`); the item-arm is then `partial` |
+| `bundle_mismatch` | object | (E_rt with `run --params`, stage q: the calibration's params file whose class bundles E_rt must run, stage p's `candidate` bundles) when `plan.json`'s bundle differs from the class's expected bundle on the keys `member_type`, `member_model_id`, `N`, `rounds`, `view`, `loo_view`, `reducer`, `tau`, `t`, `caps` (`eq_harness.BUNDLE_KEYS`, compared as JSON values), the item-arm records `bundle_mismatch` = `{plan_bundle, expected_bundle}` (both bundles as read), `status` `partial`, `reason` `bundle_mismatch`, no consent file, no `start`, no `rt` call; `eq_analyse` (both routes) leaves the item-arm out of every test and lists it (route 1 `excluded_listed`, reason `bundle_mismatch`). Written after the `plan` step, before `start` |
+| `rt_plan_validated`, `rt_plan_status_reasons`, `rt_plan_params_sha256` | any | (E_rt, once `plan.json` parsed) the plan's `validated`, `status_reasons` and `params_sha256` verbatim (a `candidate` class resolves `validated` false with status reasons naming the candidate and `manual`); logged, never scored |
+
+## `e_rt` (E_rt only: one per `stack-eq` step; A6.5, `eq_harness.py run --e-arm runtime`)
+
+The runtime arm's headless sequence (the harness's `run_e_rt`): `stack-eq plan --run R --headless --session S
+--brief-file F`, then the consent file (0600; `{"token": "Run eq:R", "plan_sha256"}`, sha256 of the store's
+`plan.json`), then `stack-eq start --run R --headless --consent-file P`, then the `rt` call. Environment: `member_env`
+plus `XDG_STATE_HOME` and the `STACK_EQ*` knobs of the harness's terminal; `CLAUDECODE` absent; header `eq-mode:
+manual` in the leader prompt (COMPARE_eq §12 A6 implementation note (d)). A refused step ends the item-arm as `partial`
+with `reason` `stack-eq plan refused`, `no plan.json in the store (<error class>)` or `stack-eq start refused`.
+
+| field | type | meaning |
+|---|---|---|
+| `item`, `label`, `arm` | str | the item-arm (`arm` is `E`) |
+| `step` | str | `plan` or `start` |
+| `argv` | list[str] | the exact stack-eq argv |
+| `rc` | int or null | exit code; null = OSError or timeout (`E_RT_STEP_TIMEOUT_S` = 300) |
+| `output_tail` | str | last 1000 characters of stdout + stderr (or the exception) |
+| `run8` | str | the runtime run id `R` |
 
 ## `wall` (WALL runs only: the broker's audit log, copied into the ledger)
 
@@ -202,13 +243,17 @@ the backend that ran the fact re-runs). Members are anonymised as `m1`..`mN`. Fr
 `{"num", "den", "float"}`; accepted findings as the finding objects. `eq_freeze.sh --collect` copies these files to
 `$EQ/runs/<stage>/inputs/mediator/<item>/<label>/mediator.jsonl`.
 
+The mediator of a p7 branch (A6.3) writes to the p7 label's own file and adds `cell` (`p7`) and `branch` (the LOO
+variant) to EVERY record of that mediator (the base fields); no other mediator has these keys.
+
 | record | fields |
 |---|---|
 | `claim` | one per member per round: `member`, `round` (0, then reconcile round k), `answer_raw`, `answer_norm` (= `cluster_id`: the class answer key, after any RS equivalence merge; numeric: null), `cluster_id`, `confidence` (logged only), `fact_keys` (the cited evidence, as fact keys, in citation order) |
 | `fact` | one per distinct fact per item-arm, written when first checked (round-0 facts right after round 0): `fact_key`, `kind`, `ref`, `detail_norm`, `status` (`verified` / `refuted` / `unverifiable`), `method` (how it was decided, e.g. `substring of lines l-1..l+1`, `re-run twice in fresh copies`, `not allow-listed`, `timeout 60s`, `wall-time budget exhausted`), `output_sha256` (commands), `cited_by` (`[{member, round, cluster}]` at write time; later citations are in `claim.fact_keys`), `offline` |
 | `change` | one per changed answer in a reconcile round: `member`, `round`, `prev_answer`, `from_cluster`, `to_cluster`, `new_fact_keys` (evidence new to that member), `gate` (`evidence` = accepted with a verified new fact; `conformity` = rejected, the previous answer kept) |
 | `result` | one per E-node: `answer` (the R0 end answer; checkable and long-form: the selected member number), `reducers` (discrete, numeric and finding sets: `R0`, `R1`, `R2`, `R3`, `ENS` over the round-0 outputs, plus `R0_final` = the live end answer; R2 is R0 until weights are fitted offline; other families: `R0` only), `kappa` (`{value, label: "agreement, not probability"}`), `provenance` (`[{fact_key, kind, status, members, clusters}]`), `dissent` (per cluster not adopted: `{cluster, size, verified (≤ 2 keys), refuted}`) |
-| `attribution` | one per E-node: `loo_round0`, `loo_final` (member → R0 result without that member; checkable: first passer, long-form: Borda over the STORED judge rankings, no new call), `shapley` (agreement game, member → φ; finding sets: share of final findings recovered), `hhi` (Σ (φ_i/Σφ)², null if Σφ = 0), `decisive_facts` (`{reconcile, R1, R3}`: fact keys; see MEDIATOR §2), `cpu_s` (M18) |
+| `attribution` (per round) | (A6, RUNTIME_EQUILIBRIUM §4.1; discrete, numeric, finding-set, long-form and checkable E-nodes; written after round 0 and after every reconcile or repair round, BEFORE the end-of-node line below) one per round: `round` (int: 0, k), `loo` (`{"m<i>": {answer, selected, same, stable}}`: the round's reducer without member i; `same` = R(S∖i) equals R(S); `stable` = `same`, for checkable S∖i still holds a passer), `lambda` (λ_r = share of members with `stable`), `pivotal` (`["m<i>", …]`: members with not `same`), `seed` (the tie seed `derive(eq\|ties, <seed key>\|loo\|r<round>)`, keyed by the answer, never the member index). The end-of-node `attribution` below has NO `round`: analysis keeps the two apart on that key (`eq_analyse`/`eq_route2` M11-M13 read only lines without `round`; `eq_calibrate` only lines with it) |
+| `attribution` (end of node) | one per E-node: `loo_round0`, `loo_final` (member → R0 result without that member; checkable: first passer, long-form: Borda over the STORED judge rankings, no new call), `shapley` (agreement game, member → φ; finding sets: share of final findings recovered), `hhi` (Σ (φ_i/Σφ)², null if Σφ = 0), `decisive_facts` (`{reconcile, R1, R3}`: fact keys; see MEDIATOR §2), `cpu_s` (M18) |
 
 Fact keys (dedupe): `file_line|<path>|<line>|<sha256 of the whitespace-normalised quote>`, `quote|<path>|<sha256>`,
 `command|<argv JSON>|<fixture id>|<sha256 of the claim>` (also `test|…`), `url|<url>`, `<kind>|<sha256 of ref and
@@ -244,3 +289,37 @@ detail>` otherwise.
   - `"unscored"` (the originally pre-registered behaviour; sensitivity re-scores only): the line above, or the null
     verdict as is, `score` null (the item-arm is unscored).
   Any other value: `score` refuses (exit 2). A flags file without the key (frozen before N24) scores `"unscored"`.
+
+## Member-level grades (`grading_results/members/`; A6.3; written after the freeze, read by `eq_calibrate.py`)
+
+Member answers of p3 (round 0 and the checkable repair round), p6 (9 members) and p7 (per branch) are graded like
+item-arm answers, blinded. Written by the `eq_harness.py` commands named below (tests:
+`tests/test_member_grades.py`); `eq_calibrate.py` (`read_stage`) is the reader and fixes the names it consumes.
+
+- `members/<CLS>.jsonl` (`PF`, `CP`, `RS`; ES needs none: the frozen truth file scores a member answer): one line per
+  graded member answer, `{item, label, member, round, branch, score, …}`. `label` the arm label (`p3`, `p6`, `p7`);
+  `member` the 1-based member number (**0 = a branch's reduced answer**, the H5 comparison: `branch` `none`);
+  `round` 0 (round-0 answer) or the reconcile/repair round; `branch` the p7 variant, null for p3/p6. `score`: 1/0 as in
+  `grading_results/<CLS>.jsonl`; further fields mirror that file: `ts_utc`, `exit` (null: no answer, oracle not run,
+  score 0), `score_num`, `score_inf`, `detail`, and for PF/CP `call_id`, `isolation`, `image`; for RS `rid`,
+  `verdicts_file`. Written by `eq_harness.py score --members` for PF and CP (the member calls of `member_units`: a
+  `call` with an integer `member`, `node` null and role `m<i>/<N>` (round 0) or `r<k>` (round k), one unit per
+  (item, label, member, round, branch), the latest call winning; answer files `grading_keys/<CLS>_member_units/m<k>.*`;
+  CP's directory is the member's `branch_workdir` (a forked round), else its `cwd`, through `check_copy`, never the
+  member's own copy; other classes refused, exit 2) and by `eq_harness.py rs-grade --verdicts` for RS (below).
+- `members/CR_findings.jsonl`: written by `cr-grade` (batch built by `cr-grader-input --with-members`), one
+  line per member finding: `item`, `label`, `member`, `round`, `finding` (the answer element, the object as the member
+  gave it), `bug` (the index of the seeded bug it matches, from the oracle's `detail.per_finding`; null), `verdict`,
+  `n_seeded` (seeded bugs of the item). A duplicate finding takes the grade of the kept index it duplicates (the
+  oracle's dedupe key: file without leading `./`, line, stripped lower-cased claim). Only round-0 members outside EG
+  nodes (`node` null) with an oracle exit 0 get lines; `round` is 0.
+- RS member grading: `eq_harness.py rs-grader-input` runs the RS oracle's `--grader-input` on every RS member answer
+  (`rs_member_units`: the member calls as above plus, per p7 item-arm, each branch's reduced answer as member 0 with
+  `round` = the branch's rounds). Answers the oracle settles mechanically (label, or a REFUTED value, wrong; no answer)
+  score 0 without a grader; the rest, deduplicated by `rid`, form one shuffled batch (seed
+  `eq|grader ^ sha256("<stage>|RS|members")`) in `grading/RS_members/batch.jsonl` (one grader record per line) with
+  its key in `grading_keys/RS_members.key.json` (`rids`: rid -> {item, stem, units, needs_grade,
+  mechanical_detail}). The names differ from the item-arm RS batch (`grader-input`: `grading/RS/`,
+  `grading_keys/RS.key.json`), which they must not overwrite. `rs-grade --verdicts <file>` (a list of {rid, verdict
+  pass|fail}, or {"grades": [...]}; refused, exit 2, with any rid unknown, duplicated, missing or a bad verdict) runs
+  the oracle's `--grade` per graded rid and writes one line per member unit to `members/RS.jsonl`.

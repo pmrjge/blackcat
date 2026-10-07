@@ -117,7 +117,10 @@ def test_reconcile_end_to_end(stub_bin: Path, tmp_path: Path) -> None:
     (mp,) = (run / "raw" / "d" / "RS-DEV1" / "p3").glob("mediator.jsonl")
     m = [json.loads(x) for x in mp.read_text().splitlines()]
     kinds = [r["record"] for r in m]
-    assert kinds.count("claim") == 10 and kinds.count("result") == 1 and kinds.count("attribution") == 1
+    assert kinds.count("claim") == 10 and kinds.count("result") == 1
+    att = [r for r in m if r["record"] == "attribution"]  # spec §4.1: one per round (0, 1) + the end-of-node one
+    assert [r.get("round") for r in att] == [0, 1, None] and att[-1] == [r for r in m if r["record"] in (
+        "result", "attribution")][-1]
     facts = {r["fact_key"]: r for r in m if r["record"] == "fact"}
     assert len(facts) == 3 and sorted(f["status"] for f in facts.values()) == ["refuted", "verified", "verified"]
     ch = {r["member"]: r for r in m if r["record"] == "change"}

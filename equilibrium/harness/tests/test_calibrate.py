@@ -549,11 +549,19 @@ def test_stage_p_writes_a_valid_version_with_every_selection(fxp: Fx):
     jsonschema = pytest.importorskip("jsonschema")
     assert fxp.run("--stage", "p", "--amendment", "A7", "--reason", "pilot calibration") == 0
     p = fxp.params()
-    jsonschema.Draft202012Validator(json.loads(SCHEMA_PATH.read_text())).validate(p)
     assert p["version"] == 1
     rep = fxp.report(1)
-    for c in cal.CLASSES:
-        assert p["classes"][c]["status"] == "not_run"  # p tests nothing
+    required = ("member_type", "member_model_id", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps",
+                "pool")
+    assert required == cal.CANDIDATE_REQUIRED
+    for c in cal.CLASSES:  # p tests nothing: an eligible complete bundle is a `candidate` (USER decision), else not_run
+        e = p["classes"][c]
+        ok = all(e[k] is not None for k in required) and e["N"] >= 3
+        assert e["status"] == ("candidate" if ok else "not_run"), (c, e)
+    assert p["classes"]["RS"]["status"] == "candidate" and p["classes"]["DS"]["status"] == "not_run"
+    schema = json.loads(SCHEMA_PATH.read_text())
+    assert "candidate" in schema["$defs"]["class"]["properties"]["status"]["enum"]
+    jsonschema.Draft202012Validator(schema).validate(p)
     for c in ("DS", "OE"):
         assert all(v is None for k, v in p["classes"][c].items() if k != "status")
     rs = p["classes"]["RS"]
@@ -607,6 +615,7 @@ def test_stage_p_n_star_one_marks_a_class_not_eligible(fx: Fx):
     assert fx.run("--init") == 0
     assert fx.run("--stage", "p", "--amendment", "A7", "--reason", "r", "--no-route2") == 0
     assert fx.params()["classes"]["RS"]["N"] == 1
+    assert fx.params()["classes"]["RS"]["status"] == "not_run"  # N* = 1: no candidate bundle
     assert fx.report(1)["nstar"]["RS"]["eligible"] is False
 
 
@@ -939,6 +948,24 @@ def test_adapter_reads_cell_branch_parent_model_ids_and_attribution(fxp: Fx):
     assert any(c.cell == "p6" and c.member == 9 for c in st.calls)
 
 
+def test_adapter_skips_mediator_records_of_a_branch(fx: Fx):
+    """p7's mediator records carry `branch` (cell_tag): four branches per item-arm, none of them the arm's own LOO
+    attribution or result. read_stage keeps only branch-less, node-less records."""
+    collect = fx.collect
+    fx.collect = lambda stage: None  # type: ignore[method-assign]
+    build_p(fx, p7=False)
+    for v in cal.VARIANTS:  # written after the arm's own lines: without the filter they would win
+        fx.mediator("p", "RS-1", "p7", "attribution", round=0, loo={}, pivotal=[], cell="p7", branch=v,
+                    **{"lambda": 0.1})
+        fx.mediator("p", "RS-1", "p7", "result", answer=B, reducers={"R0": B}, cell="p7", branch=v)
+        fx.mediator("p", "RS-1", "p3", "attribution", round=0, loo={}, pivotal=[], cell="p7", branch=v,
+                    **{"lambda": 0.2})
+    collect("p")
+    st = cal.read_stage(fx.eq, "p", fx.raw, [])
+    assert ("RS-1", "p7") not in st.attribution and ("RS-1", "p7") not in st.results
+    assert st.attribution[("RS-1", "p3")][0]["lambda"] == pytest.approx(0.6)  # the arm's own round-0 line
+
+
 def test_p5_calls_are_refused(fx: Fx):
     build_p(fx)
     shutil.rmtree(fx.eq / "runs/p")
@@ -1088,3 +1115,37 @@ def test_a_q_rerun_resets_classes_outside_its_primary(fx: Fx):
     p = fx.params()
     assert p["version"] == 3 and p["classes"]["RS"]["status"] == "not_run" and p["classes"]["RS"]["effect"] is None
     assert p["classes"]["CP"]["status"] == "not_established"  # no q data for CP: nothing confirmed
+
+
+def test_candidate_needs_every_runtime_bundle_key() -> None:
+    """eq_policy.CANDIDATE_REQUIRED (the runtime's contract, T11b) is a subset of the calibration's: a p bundle with a
+    null member_model_id (no model observed) stays not_run, never a candidate the runtime would refuse."""
+    runtime = ("member_type", "member_model_id", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps")
+    assert set(runtime) <= set(cal.CANDIDATE_REQUIRED)  # eq_policy.CANDIDATE_REQUIRED, pinned literally (eqr-mut-2)
+    e = {k: "x" for k in (*runtime, "pool")} | {"N": 3}
+    assert cal.candidate_ok(e)
+    for k in (*runtime, "pool"):
+        assert not cal.candidate_ok(e | {k: None}), k
+    assert not cal.candidate_ok(e | {"N": 1})
+
+
+def test_schema_candidate_rules():
+    """params.schema.json: `candidate` needs its bundle non-null and version >= 1 (version 0 stays all not_run)."""
+    jsonschema = pytest.importorskip("jsonschema")
+    schema = json.loads(SCHEMA_PATH.read_text())
+    v = jsonschema.Draft202012Validator(schema)
+    v0 = json.loads((SCHEMA_PATH.parent / "params.v0.json").read_text())
+    assert not list(v.iter_errors(v0))
+    bundle = {"member_type": "researcher", "member_model_id": "claude-x-1", "N": 5, "rounds": 1, "view": "kcover",
+              "loo_view": "none", "reducer": "R0", "tau": 0.6, "t": 2,
+              "caps": {"member_tokens": 1000, "member_turns": 10, "run_tokens": 10000}}
+    good = json.loads(json.dumps(v0)) | {"version": 1}
+    good["classes"]["RS"] |= {"status": "candidate", **bundle}
+    errs = [e.message for e in v.iter_errors(good)]
+    assert errs == [], errs
+    for k in ("member_model_id", "caps", "N", "loo_view"):
+        bad = json.loads(json.dumps(good))
+        bad["classes"]["RS"][k] = None
+        assert list(v.iter_errors(bad)), k
+    v0c = json.loads(json.dumps(good)) | {"version": 0}
+    assert list(v.iter_errors(v0c))  # a candidate in version 0 is refused

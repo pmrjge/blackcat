@@ -668,3 +668,57 @@ def test_cli_errors_are_clean(tmp_path: Path) -> None:
     cp = subprocess.run([*cmd, "--ledger", str(tmp_path / "bad"), "--out", str(tmp_path / "o")],
                         capture_output=True, text=True, check=False)
     assert cp.returncode == 2 and "line 2 is not JSON" in cp.stderr and "Traceback" not in cp.stderr
+
+
+# --- A6: per-round attribution lines, e_rt records, cell labels ----------------------------------------------------
+
+
+def test_round_attribution_lines_and_e_rt_records_are_not_m11_nodes(tmp_path: Path) -> None:
+    """The mediator's per-round `attribution` lines (they carry `round`, no shapley/hhi/loo_final) are not M11 nodes
+    (n stays 2, hhi_null 0); an `e_rt` ledger record is a known type; p6/p7 item-arms are named in the label warning."""
+    run = build(tmp_path)
+    p = run / "inputs" / "mediator" / "ES-1" / "p3" / "mediator.jsonl"
+    seq = len(p.read_text().splitlines())
+    rnd = {"schema_version": 1, "seq": seq + 1, "stage": "d", "item": "ES-1", "label": "p3", "arm": "E", "node": None,
+           "record": "attribution", "round": 1, "loo": {}, "lambda": 1.0, "pivotal": [], "seed": 7}
+    p.write_text(p.read_text() + json.dumps(rnd) + "\n")
+    append_ledger(run, {"record": "e_rt", "item": "ES-1", "label": "q3", "arm": "E", "step": "plan", "rc": 0},
+                  item_arm_rec("ES-1", "E", label="p6", cell="p6"), {"record": "run_end"})
+    assert ea.main(["--ledger", str(run), "--out", str(tmp_path / "o")]) == 0
+    assert [val(tmp_path / "o", "M11", "ES", "E", s) for s in ("n", "n_hhi_null")] == [2, 0]
+    ws = json.loads((tmp_path / "o" / "meta.json").read_text())["warnings"]
+    assert not any("unknown record types" in w for w in ws)
+    assert any("p6" in w and "p6/p7" in w for w in ws)
+
+
+def test_bundle_mismatch_e_rt_arm_leaves_route_1(tmp_path: Path) -> None:
+    """Route 1 alone (no duckdb; the guard of the eq_analyse bundle_mismatch mutant): the same E_rt item-arm without
+    `bundle_mismatch` stays a unit, with it the item leaves the comparison and is listed."""
+    run = cross_fixture(tmp_path)
+    for tag, extra in (("ok", {}), ("bm", {"bundle_mismatch": {"plan_bundle": {"N": 3}, "expected_bundle": {"N": 5}}})):
+        set_item_arm(run, "ES-1", "E", status="partial", answer=None, e_arm="runtime", **extra)
+        assert ea.main(["--ledger", str(run), "--out", str(tmp_path / tag)]) == 0
+        n = rows(tmp_path / tag)[("H1", "ES", "E-S*", "n")]
+        listed = json.loads((tmp_path / tag / "meta.json").read_text())["lists"]["excluded_listed"]
+        mark = {"item": "ES-1", "arm": "E", "reason": "bundle_mismatch"}
+        if tag == "ok":
+            assert n == "2" and mark not in listed and ("ES-1", "E") in item_arms(tmp_path / tag)
+        else:
+            assert n == "1" and mark in listed and ("ES-1", "E") not in item_arms(tmp_path / tag)
+
+
+def test_bundle_mismatch_e_rt_arm_leaves_both_routes(tmp_path: Path) -> None:
+    """A6 note (d): an E_rt item-arm whose plan.json bundle was not q's candidate bundle (`bundle_mismatch`, status
+    partial, no answer) is reported only: it is not a unit (no 0 score against S*), it is listed as excluded, and
+    route 2 drops it the same way (n_comparison agrees)."""
+    run = cross_fixture(tmp_path)
+    base1, _ = run_both(tmp_path / "base", run)
+    set_item_arm(run, "ES-1", "E", status="partial", answer=None, e_arm="runtime",
+                 bundle_mismatch={"plan_bundle": {"N": 3}, "expected_bundle": {"N": 5}})
+    r1, r2 = run_both(tmp_path / "bm", run)
+    assert base1[("H1", "ES", "E-S*", "n")] == "2" and r1[("H1", "ES", "E-S*", "n")] == "1"  # ES-1 left
+    assert ("ES-1", "E") not in item_arms(tmp_path / "bm" / "r1")
+    meta = json.loads((tmp_path / "bm" / "r1" / "meta.json").read_text())
+    assert {"item": "ES-1", "arm": "E", "reason": "bundle_mismatch"} in meta["lists"]["excluded_listed"]
+    diffs = n_comparison_diffs(r1, r2)
+    assert not diffs, "routes disagree on n_comparison:\n" + "\n".join(diffs)

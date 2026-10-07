@@ -76,6 +76,7 @@ GROUP BY item, label;
 
 -- item-arm records. Only labels p1-p4, q1-q4 and the declared re-runs p9, q9 are analysed arms (p5 = optional S* screening cell).
 -- Per (item, arm) a re-run label (ending in 9) replaces the failed run, otherwise the latest record wins.
+-- An E_rt item-arm whose chosen record carries bundle_mismatch (A6 note (d)) is reported only: it leaves the analysis.
 CREATE OR REPLACE TABLE ia_base AS
 SELECT item, cls, label, arm, status, B, t0, t1, kappa0, kappa, rounds, seq, wall_used, n_same
 FROM (
@@ -86,11 +87,12 @@ FROM (
          try_cast(rec->>'rounds' AS INTEGER) AS rounds, seq,
          coalesce(try_cast(rec->>'wall_used' AS BOOLEAN), false) AS wall_used,
          count(*) OVER (PARTITION BY rec->>'item', rec->>'arm', rec->>'label') AS n_same,
+         (rec->>'bundle_mismatch') IS NOT NULL AS bundle_mismatch,
          row_number() OVER (PARTITION BY rec->>'item', rec->>'arm'
                             ORDER BY ((rec->>'label') LIKE '%9') DESC, seq DESC, ord DESC) AS rn
   FROM v_led
   WHERE rtype = 'item_arm' AND regexp_matches(coalesce(rec->>'label', ''), '^[pq][1-49]$')
-) WHERE rn = 1 AND item IS NOT NULL AND arm IS NOT NULL;
+) WHERE rn = 1 AND item IS NOT NULL AND arm IS NOT NULL AND NOT bundle_mismatch;
 
 -- latest grading line per (class file, item, label), item-arm answers only (CR also has per-unit lines with node or member).
 -- Order: ts_utc (parsed, else NULL last), then the raw ts_utc string, then the line number. A grading line that is not numeric
@@ -397,7 +399,7 @@ SELECT item, label, node, rec FROM (
 CREATE OR REPLACE TABLE m_attr AS
 SELECT item, label, node, rec FROM (
   SELECT item, label, node, rec, row_number() OVER (PARTITION BY item, label, coalesce(node, '') ORDER BY ts DESC, ord DESC) AS rn
-  FROM m_all WHERE rtype = 'attribution'
+  FROM m_all WHERE rtype = 'attribution' AND (rec->>'round') IS NULL  -- per-round jackknife lines (A6) are not nodes
 ) WHERE rn = 1;
 
 CREATE OR REPLACE TABLE m_change AS

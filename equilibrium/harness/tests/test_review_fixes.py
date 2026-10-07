@@ -54,7 +54,7 @@ def test_tool_lists_compare_as_sets_and_empty_counts() -> None:
     assert eh.check_item_flags(eh.dataclasses.replace(item, allowed_tools=()), flags)
     ds = eh.load_pool(ITEMS, "DS")[0]
     assert ds.allowed_tools == () and eh.check_item_flags(ds, flags) == []
-    assert "--allowedTools" not in eh.build_argv("c", "a", 1, {}, [], flags)
+    assert "--allowedTools" not in eh.build_argv("c", "verifier", 1, {}, [], flags)
 
 
 def test_copy_from_read_only_pool_is_writable(tmp_path: Path) -> None:

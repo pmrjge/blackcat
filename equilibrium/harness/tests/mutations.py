@@ -5,7 +5,8 @@
 """Seeded-mutation run: each mutation is applied to a temp copy of the package and the tests that guard it must fail.
 
 Run from anywhere: uv run --script harness/tests/mutations.py   (exit 0 iff every mutation is killed and the
-unmutated copy passes the same selections).
+unmutated copy passes the same selections). `--only M137,M140` runs the named mutants only (the base run then covers
+their selections only): a light per-mutant proof while the full run waits.
 """
 
 from __future__ import annotations
@@ -73,8 +74,8 @@ MUTATIONS: list[tuple[str, str, str, Any, str, list[str]]] = [
     ("M12", "grader-input blinding", "eq_harness.py",
      '    s = ROLE_TOKEN_RE.sub("[redacted]", s)\n', "",
      ["test_blinding.py"]),
-    ("M13", "no haiku: flags default", "eq_harness.py",
-     '"model": "sonnet",', '"model": "claude-haiku-4-5",',
+    ("M13", "no haiku: flags default (D3 per-agent map, re-anchored 2026-10-06)", "eq_harness.py",
+     '"coder": "sonnet", "data-engineer": "sonnet",', '"coder": "claude-haiku-4-5", "data-engineer": "sonnet",',
      ["test_launch.py::test_no_haiku_anywhere"]),
     ("M14", "no haiku: stub output", "stub_claude",
      '"total_cost_usd": cost, "model": model,', '"total_cost_usd": cost, "model": "claude-haiku-4-5",',
@@ -524,6 +525,82 @@ MUTATIONS: list[tuple[str, str, str, Any, str, list[str]]] = [
     ("M136", "no_verdict_policy default 'zero' (USER 2026-10-05, COMPARE_eq A3)", "eq_harness.py",
      '    "no_verdict_policy": "zero",', '    "no_verdict_policy": "unscored",',
      ["test_no_verdict_policy.py::test_default_policy_is_zero"]),
+    # COMPARE_eq §12 A6 (2026-10-07): member grade files, E_rt bundle_mismatch, underflow, cells, LOO wiring
+    ("M141", "member grades: EG E-node members are never member units", "eq_harness.py",
+     'if r.get("record") != "call" or r.get("cls") != cls or r.get("node") is not None:',
+     'if r.get("record") != "call" or r.get("cls") != cls:',
+     ["test_member_grades.py::test_member_units_selects_member_calls_latest_wins"]),
+    ("M142", "member grades: a forked round is graded on its branch_workdir", "eq_harness.py",
+     '"workdir": r.get("branch_workdir") or r.get("cwd")}', '"workdir": r.get("cwd")}',
+     ["test_member_grades.py::test_score_members_cp_grades_a_check_copy_of_the_member_dir"]),
+    ("M143", "score: CP grades a check copy, never the member's own dir", "eq_harness.py",
+     '                extra = ["--workdir", str(wdc)]\n',
+     '                extra = ["--workdir", rec["answer_workdir"]]\n',
+     ["test_member_grades.py::test_score_members_cp_grades_a_check_copy_of_the_member_dir"]),
+    ("M144", "CR_findings: a duplicate takes its kept index's grade", "eq_harness.py",
+     "p = per.get(i) or per.get(k)", "p = per.get(i)",
+     ["test_member_grades.py::test_cr_finding_rows_take_the_kept_index_grade"]),
+    ("M145", "CR_findings: member findings outside EG nodes only", "eq_harness.py",
+     "if member is not None and node is None and rc == 0:", "if member is not None and rc == 0:",
+     ["test_member_grades.py::test_cr_grade_writes_member_findings"]),
+    ("M146", "rs-grader-input: mechanically settled answers leave the batch", "eq_harness.py",
+     '"needs_grade": det.get("mechanical") is True,', '"needs_grade": True,',
+     ["test_member_grades.py::test_rs_members_end_to_end_with_the_real_oracle"]),
+    ("M147", "rs member units: each p7 branch result as member 0", "eq_harness.py",
+     'if r.get("record") == "item_arm" and r.get("cls") == "RS" and r.get("cell") == "p7" \\',
+     'if r.get("record") == "item_arm" and r.get("cls") == "RS" and r.get("cell") == "p6" \\',
+     ["test_member_grades.py::test_rs_member_units_add_each_p7_branch_as_member_0"]),
+    ("M148", "rs-grade: a missing verdict is refused", "eq_harness.py",
+     '    problems += [f"missing verdict for {r}" for r in sorted(want - set(out))]\n', "",
+     ["test_member_grades.py::test_rs_split_verdicts_validates"]),
+    ("M149", "E_rt: a plan bundle other than --params' is bundle_mismatch", "eq_harness.py",
+     "            if got != exp:  # the runtime resolved another bundle", "            if False:  # the runtime "
+     "resolved another bundle", ["test_e_rt.py::test_bundle_mismatch_stops_before_start"]),
+    ("M150", "E_rt: every bundle key non-null in --params (member_model_id too)", "eq_harness.py",
+     "BUNDLE_REQUIRED = BUNDLE_KEYS  #", "BUNDLE_REQUIRED = BUNDLE_KEYS[2:]  #",
+     ["test_e_rt.py::test_eq_store_dir_and_bundle_helpers"]),
+    ("M151", "E_rt: stage q needs --params", "eq_harness.py",
+     '    elif a.e_arm == "runtime" and a.stage == "q":\n', "    elif False:\n",
+     ["test_e_rt.py::test_run_refuses_bad_params"]),
+    ("M152", "analysis: a bundle_mismatch item-arm leaves route 1", "eq_analyse.py",
+     'if pick.get("bundle_mismatch") is not None:', "if False:",
+     ["test_eq_analyse.py::test_bundle_mismatch_e_rt_arm_leaves_route_1"]),
+    ("M153", "underflow: abs_ln_ratio of an underflowing ratio", "eq_harness.py",
+     "return abs(math.log(r)) if r > 0 else abs(math.log(a) - math.log(b))", "return abs(math.log(r))",
+     ["test_underflow.py::test_harness_numeric_helpers_survive_underflow"]),
+    ("M154", "underflow: mediator numeric clusters", "eq_mediator.py",
+     '"near" if eh.abs_ln_ratio(v, med) <= math.log(2) + 1e-12 else "far")',
+     '"near" if abs(math.log(v / med)) <= math.log(2) + 1e-12 else "far")',
+     ["test_underflow.py::test_mediator_numeric_clusters_survive_underflow"]),
+    ("M155", "cells: cell rows continue the arm rows' seq", "eq_harness.py",
+     "seq = max((r.seq for r in rows), default=0)", "seq = 0",
+     ["test_cells.py::test_cell_rows_are_appended_after_an_unchanged_prefix"]),
+    ("M156", "cells: run without --cells skips the cell rows", "eq_harness.py",
+     "rows = [r for r in all_rows if (r.arm in a.cells if a.cells else r.arm not in CELLS)]",
+     "rows = [r for r in all_rows if (r.arm in a.cells if a.cells else True)]",
+     ["test_cells.py::test_run_without_cells_skips_the_cell_rows"]),
+    ("M157", "p6: 9 members at the N = 5 per-member cap", "eq_harness.py",
+     'c5 = caps_enode(self.b_micro(item), family, int(self.flags["N"]), r_max, self.flags,',
+     "c5 = caps_enode(self.b_micro(item), family, n, r_max, self.flags,",
+     ["test_cells.py::test_p6_nine_members_at_the_n5_cap_tagged"]),
+    ("M158", "forks: round k forks the member's latest session (r2 <- r1)", "eq_harness.py",
+     "                if rr.session_id is not None:\n                    chain[i] = rr.session_id\n",
+     "                if rr.session_id is not None:\n                    pass\n",
+     ["test_cells.py::test_p7_four_branches_two_forced_rounds_forked_from_p3"]),
+    ("M159", "blinding: cell labels p6/p7 are role tokens", "eq_harness.py",
+     'ROLE_TOKEN_RE = re.compile(r"\\b(?:[pq][1-9]|m\\d+/\\d+)\\b")',
+     'ROLE_TOKEN_RE = re.compile(r"\\b(?:[pq][1-5]|m\\d+/\\d+)\\b")',
+     ["test_cells.py::test_role_token_re_redacts_cell_labels"]),
+    ("M160", "LOO views: the shown view leaves the excluded member out", "eq_harness.py",
+     "        return render(e), e\n", "        return render(None), e\n",
+     ["test_wiring.py::test_views_shown_match_the_exclusion"]),
+    ("M161", "LOO views: rotation e_r(i) = (i - 1 + r) mod N + 1", "eq_mediator.py",
+     "        e = (p + r) % n\n", "        e = (p + r + 1) % n\n",
+     ["test_wiring.py::test_reconcile_calls_record_the_variant_and_its_exclusion"]),
+    ("M162", "per-round attribution after every reconcile round", "eq_harness.py",
+     "            self.loo_round(med, rnd, seed_key)\n            if not changed_any and not forced:",
+     "            if not changed_any and not forced:",
+     ["test_wiring.py::test_per_round_attribution_lambda_by_hand"]),
     # COMPARE_eq §12 A4 (ids A4m*: kept apart from the numbered series)
     ("A4m1", "A4: the tool list goes on --tools", "eq_harness.py",
      '    argv += ["--tools", tools_value(allowed_tools)]\n', "",
@@ -563,6 +640,8 @@ def make_copy(root: Path) -> Path:
     if cdir is not None:
         shutil.copytree(cdir, st / "lib" / "eq-container", symlinks=True,
                         ignore=shutil.ignore_patterns("__pycache__", ".state"))
+    if (STAGE / "items").is_dir():  # the real pools, read only (the RS oracle, stage q draws): linked, never mutated
+        (st / "items").symlink_to(STAGE / "items")
     return st / "harness"
 
 
@@ -572,15 +651,26 @@ def pytest(h: Path, sel: list[str]) -> int:
     return subprocess.run(args, cwd=h.parent, capture_output=True, text=True, check=False, env=env).returncode
 
 
-def main() -> int:
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv[1:] if argv is None else argv
+    muts = MUTATIONS
+    if argv[:1] == ["--only"] and len(argv) == 2:
+        want = argv[1].split(",")
+        muts = [m for m in MUTATIONS if m[0] in want]
+        if len(muts) != len(set(want)):
+            print(f"--only: unknown ids {sorted(set(want) - {m[0] for m in muts})}", file=sys.stderr)
+            return 2
+    elif argv:
+        print("usage: mutations.py [--only ID,ID,...]", file=sys.stderr)
+        return 2
     bad = 0
     with tempfile.TemporaryDirectory(prefix="eqmut") as td:
         base = make_copy(Path(td) / "base")
-        sels = sorted({s for m in MUTATIONS for s in m[5]})
+        sels = sorted({s for m in muts for s in m[5]})
         rc = pytest(base, sels)
         print(f"BASE  unmutated copy, {len(sels)} selections: {'PASS' if rc == 0 else f'FAIL (exit {rc})'}")
         bad += rc != 0
-        for mid, what, fname, old, new, sel in MUTATIONS:
+        for mid, what, fname, old, new, sel in muts:
             if fname == TUNNEL_SH and container_dir() is None:
                 print(f"{mid}  SKIPPED  {what}: lib/eq-container not found (set EQ_CONTAINER_DIR)")
                 continue
@@ -602,7 +692,7 @@ def main() -> int:
             bad += rc == 0
             print(f"{mid}  {verdict:8s} (pytest exit {rc})  {what}  [{fname}: {old.strip()[:50]!r} -> "
                   f"{new.strip()[:50]!r}]")
-    print(f"mutations: {len(MUTATIONS)}, problems: {bad}")
+    print(f"mutations: {len(muts)}, problems: {bad}")
     return 1 if bad else 0
 
 

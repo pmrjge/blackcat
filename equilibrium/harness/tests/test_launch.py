@@ -42,12 +42,14 @@ def test_build_argv_exact_flags() -> None:
     schema = {"type": "object"}
     argv = eh.build_argv("/x/claude", "code-reviewer", 280_000, schema, ["Read", "Grep"], eh.DEFAULT_FLAGS)
     assert all(isinstance(a, str) for a in argv)
-    assert argv == ["/x/claude", "-p", "--agent", "code-reviewer", "--model", "sonnet", "--max-budget-usd", "0.280000",
+    assert argv == ["/x/claude", "-p", "--agent", "code-reviewer", "--model", "opus", "--max-budget-usd", "0.280000",
                     "--json-schema", '{"type":"object"}', "--output-format", "json", "--permission-mode",
                     "acceptEdits", "--disallowedTools", "Agent", "WebSearch", "WebFetch", "--strict-mcp-config",
                     "--tools", "Read,Grep,StructuredOutput", "--allowedTools", "Read", "Grep"]  # COMPARE_eq §12 A4
-    r = eh.build_argv("c", "a", 1, schema, ["Read"], eh.DEFAULT_FLAGS, resume="sid-1")
-    assert r[-2:] == ["--resume", "sid-1"]
+    r = eh.build_argv("c", "verifier", 1, schema, ["Read"], eh.DEFAULT_FLAGS, resume="sid-1")
+    assert r[-2:] == ["--resume", "sid-1"] and r[r.index("--model") + 1] == "sonnet"  # D3: the verifier's own model
+    with pytest.raises(ValueError, match="no entry for agent"):  # a type outside the D3 map is refused (fail closed)
+        eh.build_argv("c", "a", 1, schema, ["Read"], eh.DEFAULT_FLAGS)
 
 
 def test_launched_argv_and_heads(full_run: Path) -> None:
@@ -58,7 +60,9 @@ def test_launched_argv_and_heads(full_run: Path) -> None:
         a = e["argv"]
         i = a.index("--disallowedTools")
         assert a[i + 1: i + 4] == ["Agent", "WebSearch", "WebFetch"]
-        for flag, val in (("--output-format", "json"), ("--permission-mode", "acceptEdits"), ("--model", "sonnet")):
+        agent = a[a.index("--agent") + 1]
+        for flag, val in (("--output-format", "json"), ("--permission-mode", "acceptEdits"),
+                          ("--model", FIXT_FLAGS["model"][agent])):  # D3: each agent's own frontmatter model
             assert a[a.index(flag) + 1] == val
         assert "--strict-mcp-config" in a and "--json-schema" in a and "--max-budget-usd" in a and "--agent" in a
         m = eh.HEAD_RE.match(e["head"])

@@ -15,9 +15,11 @@ resampling states its seed, nothing depends on the clock except the `created_utc
 Steps (§7.3): 1 verify the freeze (COMPARE_eq.sha256 lines, every items/<CLS>/pool.sha256, the stage's FROZEN_AT.txt
 and MANIFEST.sha256, the live ledger equal to the frozen copy, A6 in the frozen COMPARE_eq.md) or refuse (exit 2);
 2 (p) N* from the p6 nested sweep, rounds* from p7 (RS, ES) and p3 (PF, CP repair), the LOO-view variant from p7, the
-certainty signal and its <= 3 isotonic bins; 3 (q) H1/H2 with Holm and the ship rule -> status, H4 -> reducer, H5,
-the certainty AUROC CI and bin accuracies re-estimated (signal and cut points kept from p); 4 caps, model ids and the
-USD conversion from member calls, with the transcript route (route 2) agreeing within 1 % on every member call used;
+certainty signal and its <= 3 isotonic bins; an eligible, complete p bundle gets status `candidate` (q's E_rt runs it,
+manual mode only; USER decision 2026-10-06), else not_run; 3 (q) H1/H2 with Holm and the ship rule -> status,
+H4 -> reducer, H5, the certainty AUROC CI and bin accuracies re-estimated (signal and cut points kept from p); 4
+caps, model ids and the USD conversion from member calls, with the transcript route (route 2) agreeing within 1 % on
+every member call used;
 5 write params.v<k>.json, params.json, params.json.sha256, one params.history.jsonl line and report.v<k>.json.
 
 Seeds (COMPARE_eq §8.4 derivation 20261004 ^ int(sha256(tag)[:8], 16), checked at import): eq|nstar 4122099631 (N*),
@@ -425,8 +427,8 @@ def read_stage(eq_root: Path, stage: str, raw_root: Path | None, warnings: list[
     med_root = inp / "mediator"
     for p in sorted(med_root.glob("*/*/mediator.jsonl")) if med_root.is_dir() else []:
         for r in ea.read_jsonl(p, warnings):
-            if r.get("node") is not None:
-                continue
+            if r.get("node") is not None or r.get("branch") is not None:
+                continue  # E-nodes, and p7's forked branches (four per item-arm: never the arm's own LOO or result)
             k = (str(r.get("item")), str(r.get("label")))
             if r.get("record") == "attribution" and isinstance(r.get("round"), int):
                 attribution[k][int(r["round"])] = {"loo": r.get("loo"), "lambda": num(r.get("lambda")),
@@ -511,9 +513,17 @@ def checkable_expected(passed: Sequence[bool], hidden: Sequence[float]) -> float
     return math.fsum(vals) / len(vals) if vals else 0.0
 
 
+def abs_ln_ratio(a: float, b: float) -> float:
+    """|ln(a / b)| for positive finite a, b, exact where the ratio leaves the float range: a / b underflows to 0
+    (1e-300 against 1e300: log would raise) or overflows to inf, so those cases use |ln a - ln b| (A6 implementation
+    note, as eq_harness.abs_ln_ratio, which only needs the underflow case for its threshold tests)."""
+    r = a / b
+    return abs(math.log(r)) if 0 < r < math.inf else abs(math.log(a) - math.log(b))
+
+
 def es_error(eh: ModuleType, values: Sequence[Any], true: float) -> float:
     med = eh.median_ln(list(values))
-    return math.inf if med is None else abs(math.log(med / true))
+    return math.inf if med is None else abs_ln_ratio(med, true)
 
 
 def es_score(e: float) -> float:
@@ -1047,7 +1057,7 @@ class Cal:
             if full is None or r is None:
                 same += full is None and r is None
             else:
-                same += abs(math.log(r / full)) <= LN_1_1 + 1e-12
+                same += abs_ln_ratio(r, full) <= LN_1_1 + 1e-12
         return same / len(vals)
 
     def choose_certainty(self) -> dict[str, Any]:
@@ -1228,7 +1238,7 @@ class Cal:
         if cls == "ES":
             true = self.st.truth.get(item)
             v = self.eh.positive_number(ans)
-            return None if true is None else (math.inf if v is None else abs(math.log(v / true)))
+            return None if true is None else (math.inf if v is None else abs_ln_ratio(v, true))
         if cls == "RS":  # the mediator stores the representative raw answer
             mp = self.rs_mapping((item, label))
             k = self.rs_key(ans, mp)
@@ -1411,8 +1421,23 @@ def calibrate_p(st: Stage, cal: Cal, frozen: dict[str, Any], route2_on: bool,
         e["usd_per_mtok"] = usd.get(mid) if mid else None
         e["certainty"] = (cert.get(cls) or {}).get("certainty")
         e["pool"] = pool_entry(st.eq_root, cls, frozen["pool_sha256"][cls])
+        if candidate_ok(e):
+            e["status"] = "candidate"  # p's selection, untested: E_rt's bundle in q (manual mode only, unvalidated)
     prov = provenance(st, None, frozen, created_utc, ["p"], sorted(models), {"p": r2_summary(r2)})
     return {"schema": SCHEMA, "version": -1, "created_utc": created_utc, "provenance": prov, "classes": classes}, report
+
+
+# eq_policy.CANDIDATE_REQUIRED (the runtime refuses a candidate with any of them null; params.schema.json too),
+# plus pool (the calibration names the pool it selected on)
+CANDIDATE_REQUIRED = ("member_type", "member_model_id", "N", "rounds", "view", "loo_view", "reducer", "tau", "t",
+                      "caps", "pool")
+
+
+def candidate_ok(e: dict[str, Any]) -> bool:
+    """USER decision 2026-10-06 (COMPARE_eq §12 A6 note (e)): after stage p a class whose p-selected bundle is complete
+    and eligible (N* >= 3; N* = 1 is not) gets status `candidate`: the runtime honours it in eq-mode manual only,
+    labelled unvalidated (q's E_rt runs it); auto stays refused. Anything else stays not_run."""
+    return all(e.get(k) is not None for k in CANDIDATE_REQUIRED) and int(e["N"]) >= 3
 
 
 def member_type(st: Stage, cls: str, a_priori: str) -> str:
