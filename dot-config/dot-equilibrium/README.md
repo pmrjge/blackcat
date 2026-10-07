@@ -69,8 +69,8 @@ Lookups from the script's own location (A5): `eq_check.sh`/`eq_freeze.sh` take M
 them, and `eq_harness.py` takes `DEFAULT_M` to be the nearest ancestor holding `.git`. Either way the default
 `EQ_ROOT` (`claude_next_steps/work_carried/equilibrium`) and `EQ_RAW` (`.claude-work/equilibrium/runs`) land in
 git-ignored places of the checkout. The WALL is `$EQ_WALL_DIR`, else `<repo>/lib/eq-wall`, else the staging `wall/`.
-`<repo>` is three levels up from `harness/`, then the git top level of the checkout holding the harness (A9;
-depth first, so a `.git` planted inside the tree never outranks `<repo>/lib`).
+`<repo>` is three levels up from `harness/` (only in this layout and the frozen copy's), then the git top level of
+the checkout holding the harness (A9; depth first, so a `.git` planted inside the tree never outranks `<repo>/lib`).
 
 Isolation backend `container`: Apple `container` 1.5.0 through the repo's [`lib/eq-container`](../../lib/eq-container/)
 (images, `probe.sh`, `lib.sh`, `eqc_json.py`). The harness finds it through `$EQ_CONTAINER_DIR`. Failing that, it

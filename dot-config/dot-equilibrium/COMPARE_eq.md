@@ -703,12 +703,13 @@ n_d = 46. Hence the added "powered effect excluded" reading.
      - `harness/eq_harness.py`: the `DEFAULT_M` fallback without `.git` is `parents[3]` (was `parents[2]`): the
        repository root is now three levels above `harness/`. `wall_dir_candidates()` and `probe_script_candidates()`
        take `<repo>/lib/eq-wall` and `<repo>/lib/eq-container` from the new `repo_lib_dirs()`: three levels up from
-       `harness/`, then the git top level holding the harness (depth first, so a `.git` planted inside the tree, with a
-       `lib/eq-wall` beside it, never outranks the repository's copy: security review, 2026-10-07). Before, both
-       looked two levels up, which after the move misses `lib/` and lets the WALL lookup fall back to the unreviewed
-       staging copy `dot-config/dot-equilibrium/wall`. Both lookups now put the repository's copy before every
-       staging layout (A5 had put the container's staging `../lib/eq-container` first; no staging `lib/` exists in
-       the repository). The broker, client and policy bytes are still checked against `flags.json`
+       `harness/` (only for this layout and the frozen copy's), then the git top level holding the harness (depth
+       first, so a `.git` planted inside the tree, with a `lib/eq-wall` beside it, never outranks the repository's
+       copy, and a copy elsewhere in the checkout takes only the git top level: security reviews, 2026-10-07/08).
+       Before, both looked two levels up, which after the move misses `lib/` and lets the WALL lookup fall back to
+       the unreviewed staging copy `dot-config/dot-equilibrium/wall`. Both lookups now put the repository's copy
+       before every staging layout (A5 had put the container's staging `../lib/eq-container` first; no staging
+       `lib/` exists in the repository). The broker, client and policy bytes are still checked against `flags.json`
        `wall.*_sha256`; no hash changed. Docstrings, one error message and the `isolation-probe --script` help name
        the new lookup.
      - `harness/eq_check.sh` and `harness/eq_freeze.sh`: M's fallback without git is `../../..` (was `../..`). With

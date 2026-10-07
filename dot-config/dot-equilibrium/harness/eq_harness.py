@@ -2201,12 +2201,14 @@ def wall_enabled(flags: Mapping[str, Any]) -> bool:
 
 def repo_lib_dirs(name: str, here: Path | None = None) -> list[Path]:
     """<repo>/lib/<name> of the stack checkout holding the harness (COMPARE_eq.md §12 A9): the repo layout by depth
-    first (<repo>/dot-config/dot-equilibrium/harness and the frozen copy <repo>/claude_next_steps/work_carried/
-    equilibrium: three up), then the git top level (the nearest ancestor of `here`, default HERE, holding .git, a
-    directory or a worktree's file) for a copy at another depth. Depth first: a .git planted below the repo root
-    (dot-config/dot-equilibrium/.git) never outranks <repo>/lib."""
+    first, only for the two layouts three below the repo (<repo>/dot-config/dot-equilibrium/harness and the frozen
+    copy <repo>/claude_next_steps/work_carried/equilibrium), then the git top level (the nearest ancestor of `here`,
+    default HERE, holding .git, a directory or a worktree's file), the only candidate for a copy elsewhere. Depth
+    first: a .git planted below the repo root (dot-config/dot-equilibrium/.git) never outranks <repo>/lib; a copy at
+    another depth (<repo>/.claude-work/<job>/dot-equilibrium/harness) never takes <repo>/.claude-work/lib."""
     h = HERE if here is None else here
-    out = [h.parents[2] / "lib" / name] if len(h.parents) > 2 else []
+    layouts = (Path("dot-config/dot-equilibrium/harness"), Path("claude_next_steps/work_carried/equilibrium"))
+    out = [h.parents[2] / "lib" / name] if len(h.parents) > 2 and h.relative_to(h.parents[2]) in layouts else []
     top = next((p for p in (h, *h.parents) if (p / ".git").exists()), None)
     if top is not None and top / "lib" / name not in out:
         out.append(top / "lib" / name)

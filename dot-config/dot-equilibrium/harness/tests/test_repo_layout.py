@@ -126,11 +126,24 @@ def test_a_planted_git_beside_the_harness_never_outranks_lib(tmp_path: Path, mon
     found = next(d for d in mod.wall_dir_candidates() if (d / "eq_wall.py").is_file())
     assert found / "eq_wall.py" == (wall / "eq_wall.py").resolve()
     assert next(c for c in mod.probe_script_candidates() if c.is_file()) == (container / "probe.sh").resolve()
-    # the frozen copy is three below the root too; a copy at another depth still reaches the git top level
+    # the frozen copy is three below the root too; a copy at another depth takes only the git top level
     (root / EQ_REL / ".git").unlink()
     frozen = root / "claude_next_steps" / "work_carried" / "equilibrium"
     assert eh.repo_lib_dirs("eq-wall", frozen) == [root / "lib" / "eq-wall"]
-    assert eh.repo_lib_dirs("eq-wall", root / "x" / "harness") == [tmp_path / "lib" / "eq-wall", root / "lib" / "eq-wall"]
+    assert eh.repo_lib_dirs("eq-wall", root / "x" / "harness") == [root / "lib" / "eq-wall"]
+
+
+def test_a_copy_at_another_depth_takes_the_git_top_level(tmp_path: Path) -> None:
+    """Security review (2026-10-08): the depth rule applies only to the two layouts three levels below the repo
+    (dot-config/dot-equilibrium/harness, the frozen copy claude_next_steps/work_carried/equilibrium). A copy elsewhere
+    in the checkout (<repo>/.claude-work/<job>/dot-equilibrium/harness) never takes <repo>/.claude-work/lib before
+    the reviewed <repo>/lib."""
+    root = tmp_path / "repo"
+    (root / ".git").mkdir(parents=True)
+    copy = root / ".claude-work" / "job" / "dot-equilibrium" / "harness"
+    assert eh.repo_lib_dirs("eq-container", copy) == [root / "lib" / "eq-container"]
+    assert eh.repo_lib_dirs("eq-wall", copy) == [root / "lib" / "eq-wall"]
+    assert eh.repo_lib_dirs("eq-wall", tmp_path / "plain" / "dot-equilibrium" / "harness") == []
 
 
 def test_in_place_run_inside_the_repo_finds_its_lib(monkeypatch: pytest.MonkeyPatch) -> None:
