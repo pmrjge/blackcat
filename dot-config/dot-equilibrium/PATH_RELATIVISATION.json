@@ -3444,7 +3444,7 @@
     "A8",
     "A9"
    ],
-   "sha256": "60ba75a2b8f7b9075be6b5e4ef9e57d2db5591a5865ba4c6c1dbe58bd46623d1"
+   "sha256": "d660ccea0396249cb2ade3ea6da04d8313e288be51b20e7adbb759f815766f18"
   },
   "dot-config/dot-equilibrium/harness/eq_check.sh": {
    "a5_blob": "a4e329ce2f3dc6fde99e59bed042691476685123",
@@ -3470,6 +3470,13 @@
     "A9"
    ],
    "sha256": "8d12d155318d60e216a4951b700c9dad78e323a4e714b9d66dd48afae7317062"
+  },
+  "dot-config/dot-equilibrium/items/RS/gen/extract_src.py": {
+   "a5_blob": "b569c3d4c9097a7c9c79354c0d5939445e4e115a",
+   "amendments": [
+    "A9"
+   ],
+   "sha256": "40009f660cd8f730d48842308e91b080aca1a6d32ec5b4f8364ec77e7b73d71a"
   }
  },
  "rules": [

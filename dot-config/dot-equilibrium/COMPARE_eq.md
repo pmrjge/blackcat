@@ -728,3 +728,8 @@ n_d = 46. Hence the added "powered effect excluded" reading.
      the A5 rule table. `items/RS/gen/extract_src.py`, which `items/RS/pool.sha256` pins, is unchanged as well: its
      `parents[4]` lookup of the campaign sources now lands in `dot-config/`. It only regenerates the frozen RS pool;
      correct `CAMPAIGN` before any regeneration.
+  5. **Added the same day (USER decision): `items/RS/gen/extract_src.py` fixed.** Its campaign lookup is
+     `parents[5]` (was `parents[4]`), the repository root again. `items/RS/pool.sha256` re-pins that one entry
+     (`gen/extract_src.py`), as A5 did. The pooled outputs (`gen/src/*`, the manifest, keys, corpus and fixtures) are
+     unchanged, and the pool still verifies. Re-pinned with `amend --amendment A9`. This supersedes item 4's sentence on
+     `extract_src.py`.

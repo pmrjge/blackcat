@@ -207,7 +207,7 @@ def test_check_lean_default_project_is_home_relative(tmp_path: Path) -> None:
 
 
 def test_extract_src_reads_the_repo_root_and_writes_relative_sources(tmp_path: Path) -> None:
-    gen = tmp_path / "repo" / "equilibrium" / "items" / "RS" / "gen"
+    gen = tmp_path / "repo" / EQ_REL / "items" / "RS" / "gen"  # A9: the campaign is five levels up again
     gen.mkdir(parents=True)
     shutil.copy(STAGE / "items" / "RS" / "gen" / "extract_src.py", gen / "extract_src.py")
     camp = tmp_path / "repo" / "claude-local-work" / "campaign" / "agents-baseline"
