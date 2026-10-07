@@ -272,7 +272,7 @@ VENV_PACKAGES = {
            "lightgbm", "matplotlib", "seaborn", "torch", "transformers", "datasets", "accelerate", "peft",
            "safetensors", "huggingface_hub", "evaluate", "sentencepiece", "ipykernel", "nbclient", "mlx",
            "mlx-lm", "pillow"),
-    "tools": ("pytest", "numpy", "pandas", "httpx", "mcp", "pillow", "neural-memory"),
+    "tools": ("pytest", "numpy", "pandas", "httpx", "mcp", "pillow", "neural-memory", "jsonschema"),
 }
 # A path no sentence or import qualifies: the venv's core libraries.
 VENV_DEFAULT = {"sci": ("numpy", "scipy"), "ml": ("torch",), "tools": ("pytest",)}
