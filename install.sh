@@ -2413,8 +2413,10 @@ for key in ("config_removed", "config_replaced", "notes"):
 # directly (`<python> .../hooks/agent_guard.py ...`, whatever config dir or interpreter an earlier
 # install rendered), the usage collector, the web caps, the read gate, /stack-doctor's bin/doctor.sh --hook,
 # /stack-tree's bin/stack-tree --hook. Every hook script settings.json ships must match, or each re-run keeps
-# the installed copy as yours and appends the shipped one again (tests/test_install_state.py checks this)
-STACK_HOOK_RE = re.compile(r"/bin/stack-hook\b|agent_guard\.py|stack_usage\.py|web_caps\.py|read_gate\.py|output_shrink\.py|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
+# the installed copy as yours and appends the shipped one again (tests/test_install_state.py checks this).
+# Each script name is a whole path component under a hooks/ or bin/ dir, as every install rendered it: a hook of
+# yours whose command merely contains a name (my_read_gate.py, org_agent_guard.py, --tag web_caps.py) stays yours
+STACK_HOOK_RE = re.compile(r"/bin/stack-hook(?![\w.-])|/hooks/(?:agent_guard|stack_usage|web_caps|read_gate|output_shrink)\.py(?![\w.-])|/bin/doctor\.sh[^ ]{0,2} --hook|/bin/stack-tree[^ ]{0,2} --hook")
 
 
 def canon(x):

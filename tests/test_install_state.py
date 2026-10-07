@@ -401,6 +401,28 @@ def test_every_shipped_hook_script_matches_stack_hook_re():
     assert not missed, "hook commands STACK_HOOK_RE misses: %s" % missed
 
 
+def test_stack_hook_re_leaves_a_hook_of_yours_that_only_contains_a_script_name():
+    """T15 F2: the merge drops every hook entry whose JSON matches STACK_HOOK_RE, so a bare script name
+    claimed (and silently removed) a hook of yours such as ~/my-hooks/my_read_gate.py on each re-run.
+    The entries are matched as install.sh matches them: json.dumps of the hook object."""
+    import re
+    src = open(os.path.join(ROOT, "install.sh"), encoding="utf-8").read()
+    stack_re = re.compile(re.search(r'^STACK_HOOK_RE = re\.compile\(r"([^"]+)"\)$', src, re.M).group(1))
+    yours = ["python3 ~/my-hooks/my_read_gate.py", "/opt/sec/bin/org_agent_guard.py --strict",
+             "python3 /Users/me/hooks/no_output_shrink.py", "/usr/local/bin/audit --tag stack_usage.py",
+             "python3 ~/my-hooks/web_caps.py", '"/u/hooks/agent_guard.py.orig"', "/u/bin/stack-hook-mine x",
+             '/bin/sh "/u/bin/stack-hook.sh" x', "python3 /u/hooks/read_gate_v2.py"]
+    stack = ['/bin/sh "/Users/me/.claude/bin/stack-hook" output_shrink',
+             "/usr/bin/python3 /Users/me/.claude/hooks/agent_guard.py no-push",
+             '/usr/bin/python3 "/Users/me/.claude/hooks/read_gate.py"',
+             '"/usr/bin/python3" "/u/cfg/hooks/web_caps.py"', '"/usr/bin/python3" "/u/.claude/hooks/stack_usage.py" end',
+             '"/usr/bin/python3" "/u/.claude/hooks/output_shrink.py"', '/bin/bash "/u/.claude/bin/doctor.sh" --hook']
+    claimed = [c for c in yours if stack_re.search(json.dumps({"type": "command", "command": c}))]
+    assert not claimed, "hooks of yours STACK_HOOK_RE claims: %s" % claimed
+    missed = [c for c in stack if not stack_re.search(json.dumps({"type": "command", "command": c}))]
+    assert not missed, "stack hooks STACK_HOOK_RE misses: %s" % missed
+
+
 # ---------------------------------------------------------------- S6 W4: learned limits in install.sh
 def _scratch_repo(dst, settings_env=None):
     """The working tree (tracked and untracked files) as a scratch repository on main, as
