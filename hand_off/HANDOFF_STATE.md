@@ -103,7 +103,7 @@ MECHANISMS, s4-l9), `M/claude_next_steps/work_carried/context-diet/`, git commit
 | 8 | L7 B1 + B3, L10 | done: `l7-mech`@`a05d508` via l7-integ (§8) |
 | 9 | Stage 3 quality pass | done: `s3-integ`@`b1a0703` via s3-ff; deferred D1-D5 need the user's approval (§8) |
 | 10 | `RESET_TO_MAIN.sh` | built: `reset-to-main`@`76e1cd4` via rtm-integ (§8); only a dry run is left (item 16) |
-| 11 | Finish `eq-runtime` per `M/hand_off/NEXT_SESSION_PROMPT.md` step 2: harness tests for p6/p7 and the CLI, grade files, E_rt with `bundle_mismatch` and `candidate`, wiring tests; `eq_calibrate` `read_stage` skips records with a branch; merge `eqr-hdocs` into `eqr-harness`, `test_calibrate`, `equilibrium_paths.py amend --amendment A6`; finish the mutation runner on `eqr-mut` (keep only gap tests that kill something); fix the two product bugs (`eq_guard.py:978`, `eq_policy.py` `over_cap`), each with a test; security-auditor + code-reviewer on `main...eq-runtime`, one fix round; merge main into `eq-runtime`; report READY. Private `UV_CACHE_DIR` (the shared one is corrupt) | **ready, not merged:** `eq-runtime-2`@`1876a6b` (base main `8912496`; built from `eq-runtime` `b595c3c` with `eqr-harness-2`@`1d99b44` and `eqr-mut-2`@`6880fc7`): harness p6/p7/CLI/E_rt/wiring tests, both product bugs fixed with tests, the 792-mutant runner, A6 (`64e2c44`), run plan (`3a85b08`); security-auditor PASS, code-reviewer pass-with-fixes, fixed in `9c870d7`; phase B: harness 622 passed 2 skipped, harness mutants 168/168, calibrate mutants 56/56, `tests/eq_mutations.py` 792/792 killed. Its full C10 is pending. Blocked on your merges (§5) and §7 questions 1-2; `audit-fixes` is not merged into it [v: git; r: resume-1007 plan] |
+| 11 | Finish `eq-runtime` per `M/hand_off/NEXT_SESSION_PROMPT.md` step 2: harness tests for p6/p7 and the CLI, grade files, E_rt with `bundle_mismatch` and `candidate`, wiring tests; `eq_calibrate` `read_stage` skips records with a branch; merge `eqr-hdocs` into `eqr-harness`, `test_calibrate`, `equilibrium_paths.py amend --amendment A6`; finish the mutation runner on `eqr-mut` (keep only gap tests that kill something); fix the two product bugs (`eq_guard.py:978`, `eq_policy.py` `over_cap`), each with a test; security-auditor + code-reviewer on `main...eq-runtime`, one fix round; merge main into `eq-runtime`; report READY. Private `UV_CACHE_DIR` (the shared one is corrupt) | **ready, not merged:** `eq-runtime-2`@`1876a6b` (base main `8912496`; built from `eq-runtime` `b595c3c` with `eqr-harness-2`@`1d99b44` and `eqr-mut-2`@`6880fc7`): harness p6/p7/CLI/E_rt/wiring tests, both product bugs fixed with tests, the 792-mutant runner, A6 (`64e2c44`), run plan (`3a85b08`); security-auditor PASS, code-reviewer pass-with-fixes, fixed in `9c870d7`; phase B: harness 622 passed 2 skipped, harness mutants 168/168, calibrate mutants 56/56, `tests/eq_mutations.py` 792/792 killed. Its full C10 is pending. Blocked on your merges (§5); `audit-fixes` is not merged into it [v: git; r: resume-1007 plan]. §7 questions 1-2 answered 2026-10-07 (§6 items 16-17): A7 and A8 are on `eq-runtime-2` after `7c8a8397` |
 | 12 | `eq-runtime` INTEG: `git -C M merge --ff-only eq-runtime`, then full C10 on main | **pending, yours** (§5 step 2, branch `eq-runtime-2`): agents' merges are refused by the auto-mode classifier ("Modify Shared Resources"); then a full C10 on main |
 | 13 | Codex pages into `R/wiki-main-fixes/github-wiki` (nested repo; the user pushes): re-measure counts, run the wiki checker, review | **staged for you** (R is read-only to agents): 21 pages, `wiki.patch` 14 files (12 changed, 2 new), counts re-measured on main `8912496`, `wiki_check` 0 problems, code-reviewer accuracy pass-with-fixes (fixed); `H/.claude-work/resume-1005/resume-1007/T13` with `APPLY.md` (§5 step 3) [r] |
 | 14 | Final handoff update (A4_FOLD.md §3 path; `H/.claude-work/resume-1005/FINAL_REPORT.md`) | **done** on `audit-fixes` (the commit after `962b4b5c`): §4, §5, §7; A4_FOLD.md §3 now points at the tracked `equilibrium/COMPARE_eq.md` |
@@ -285,6 +285,9 @@ Undo: `./install.sh --restore` (the manifest's `eq_runtime` and the staged files
 13. Nobody but the user removes worktrees (INTEG step "remove worktree" becomes "list for the user").
 14. Hand-made worktrees go under `M/.claude-work/worktrees/<name>`; harness `isolation: "worktree"` worktrees stay in `M/.claude/worktrees`.
 15. Orchestrator gets `Bash` (branch `orch-bash`), effective after review, merge and the user's reinstall.
+16. 2026-10-07: H5 leaves the pre-registration (`equilibrium/COMPARE_eq.md` §12 A7; no other hypothesis changes).
+17. 2026-10-07: `eq_check.sh` E7 gets a cell-pass rule now, on `eq-runtime-2` (`COMPARE_eq.md` §12 A8; no hypothesis
+    changes). The run plan's later calibration amendments become A9 (pilot) and A10 (confirmation).
 
 Standing constraints (unchanged, HANDOFF_FULL §1): never push, no forge writes; agents never run `install.sh`; no paid
 runs without consent; no Haiku; security surfaces (agent_guard.py, settings.json, install.sh, hooks, WALL, lib/eq-*,
@@ -296,14 +299,16 @@ sandboxes write only their own worktree, `$TMPDIR` and M; no `claude` login insi
 
 Open for you (job resume-1007, 2026-10-07; details `H/.claude-work/resume-1005/resume-1007/plan.md`, "Session 2"):
 
-1. **H5's forked `none` branch at stage q.** Your decision (a) was: replace it with the correct branch, else ask. No
+1. **Answered 2026-10-07: (a), H5 removed** (§6 item 16; `COMPARE_eq.md` §12 A7 on `eq-runtime-2`). The question was:
+   **H5's forked `none` branch at stage q.** Your decision (a) was: replace it with the correct branch, else ask. No
    correct branch exists: E_rt has no fork code, p7 is the only `none` fork and is refused at q, and reusing stage-p data
    is ruled out by `equilibrium/COMPARE_eq.md` §12 A6 item 7 on `eq-runtime-2` (every q claim is tested on items
    disjoint from p). q is blocked until this is settled
    (`hand_off/EQ_CALIBRATION_RUN_PLAN.md` on `eq-runtime-2`, "Open, blocks q"). Options: (a) remove H5's `none` branch from
    the pre-registration by a new dated §12 amendment (agents never remove it on their own); (b) keep H5 and have a q
    `none` fork built first (new harness and E_rt work, its own review).
-2. **`eq_check.sh` E7 refuses every stage-p cell pass** (`run --stage p --cells p6,p7`): it blocks run plan steps 3, 5
+2. **Answered 2026-10-07: (a), fixed now** (§6 item 17; `COMPARE_eq.md` §12 A8 on `eq-runtime-2`). The question was:
+   **`eq_check.sh` E7 refuses every stage-p cell pass** (`run --stage p --cells p6,p7`): it blocks run plan steps 3, 5
    and 6 (proof: `H/.claude-work/resume-1005/resume-1007/S2a/test_s2a_probe.py`). The fix is scoped: an optional `cells`
    argument passed from `eq_harness.py` (its `eq_check.sh` call, line 4618 on `eq-runtime-2`), the started-calls test counting only
    calls with no cell, `test_shell` cases, a new mutant, path-pin regeneration, and a new dated §12 amendment because the
