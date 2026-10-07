@@ -6333,7 +6333,8 @@ GIT_EXEC_KEY_RE = re.compile(
     r"diff\.external|diff\..+\.(?:command|textconv)|difftool\..+\.cmd|mergetool\..+\.cmd|"
     r"merge\..+\.driver|filter\..+\.(?:clean|smudge|process)|interactive\.difffilter|"
     r"gpg\.program|gpg\..+\.program|credential\.helper|credential\..+\.helper|"
-    r"uploadpack\.packobjectshook|sendemail\..+)\Z", re.I)
+    r"uploadpack\.packobjectshook|sendemail\..+|remote\..+\.uploadpack|core\.gitproxy|"
+    r"core\.alternaterefscommand|trailer\..+\.(?:cmd|command))\Z", re.I)
 # Index blinding (CWE-345): install.sh reviews the checkout with `git status`/`git diff`; these
 # make git skip a file's working-tree content, so an edited file would be installed unseen.
 # update-index options are matched by any prefix (git accepts unique abbreviations); the
@@ -6348,6 +6349,12 @@ GIT_CONFIG_NOSET = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--g
 GIT_CONFIG_VALUE_OPTS = {"-f", "--file", "--blob", "--type", "--default", "--comment", "--value"}
 ENV_EXEC_RE = re.compile(r"(?:GIT_[A-Z0-9_]+|EDITOR|VISUAL|PAGER|SSH_ASKPASS)=(.*)\Z", re.S)
 ASSIGN_RE = re.compile(r"[A-Za-z_]\w*\+?=")
+# git configuration from the environment (read like `git -c`), as in codex_guard.py
+GIT_ENV_CONFIG_RE = re.compile(r"(?:GIT_CONFIG_KEY_\d+|GIT_CONFIG_PARAMETERS)\+?=")
+GIT_CONFIG_KEY_RE = re.compile(r"GIT_CONFIG_KEY_(\d+)\Z")
+# ext:: URLs run a command as the transport (git-remote-ext); git refuses them unless one of these
+# keys (or GIT_ALLOW_PROTOCOL) allows ext, so setting one to anything but never is opaque
+GIT_EXT_ALLOW_KEY_RE = re.compile(r"protocol\.(?:ext\.)?allow\Z", re.I)
 OPAQUE_SUB_RE = re.compile(r"[$`{}*?\[\]\x00]")      # expansions and globs: decided at run time
 EXPANSION_RE = re.compile(r"\$(?:\{[^}]*\}|[A-Za-z_]\w*|[@*#?$!0-9-])")
 PWSH = {"pwsh", "powershell", "pwsh.exe", "powershell.exe"}
@@ -6506,6 +6513,82 @@ PWSH_SWITCHES = [
 
 class _TooComplex(Exception):
     """The command cannot be checked within the guard's limits: it is refused as opaque."""
+
+
+# git options whose value git hands to the shell as a command, per subcommand: (short options,
+# long options); long names match by any unique prefix (git's parse-options). Ported from
+# codex_guard.py GIT_COMMAND_OPTS.
+GIT_COMMAND_OPTS = {
+    "fetch": ("", ("--upload-pack",)), "pull": ("", ("--upload-pack",)),
+    "clone": ("u", ("--upload-pack",)), "ls-remote": ("u", ("--upload-pack", "--exec")),
+    "fetch-pack": ("", ("--upload-pack", "--exec")), "archive": ("", ("--exec",)),
+    "difftool": ("x", ("--extcmd",)),
+    "filter-branch": ("", ("--env-filter", "--tree-filter", "--index-filter", "--parent-filter",
+                           "--msg-filter", "--commit-filter", "--tag-name-filter", "--setup")),
+}
+
+
+def _git_command_values(sub, args):
+    """The command strings `git <sub> args` runs through the shell (upload-pack programs,
+    archive --exec, filter-branch filters, difftool -x/--extcmd), for the push scan."""
+    if sub not in GIT_COMMAND_OPTS:
+        return []
+    shorts, longs = GIT_COMMAND_OPTS[sub]
+    out, k = [], 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a == "--":
+            break
+        name, eq, val = a.partition("=")
+        if a[:2] == "--" and len(name) >= 4 and any(o.startswith(name) for o in longs):
+            if not eq:
+                val, k = (args[k] if k < len(args) else ""), k + 1
+            out.append(val)
+        elif a[:1] == "-" and a[:2] != "--" and len(a) >= 2 and a[1] in shorts:
+            val = a[2:]
+            if not val:
+                val, k = (args[k] if k < len(args) else ""), k + 1
+            out.append(val)
+    return out
+
+
+def _config_parameters(value):
+    """(key, value) pairs of a GIT_CONFIG_PARAMETERS value (`'k'='v' 'k2'='v2'`, or `'k=v'`), None
+    when it does not split."""
+    import shlex
+    try:
+        items = shlex.split(value)
+    except ValueError:
+        return None
+    return [(k, v if eq else "true") for k, eq, v in (x.partition("=") for x in items)]
+
+
+def _env_config(words, restore):
+    """git configuration the environment of this command sets: [(key, value)] from
+    GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n> (value None when no GIT_CONFIG_VALUE_<n> is set) and
+    from GIT_CONFIG_PARAMETERS ([(None, None)] when it does not split)."""
+    assigns = {}
+    for w in words:
+        if ASSIGN_RE.match(w):
+            name, _, val = w.partition("=")
+            assigns.setdefault(name.rstrip("+"), restore(val))
+    out = []
+    for name in sorted(assigns):
+        m = GIT_CONFIG_KEY_RE.match(name)
+        if m:
+            out.append((assigns[name], assigns.get("GIT_CONFIG_VALUE_" + m.group(1))))
+    if "GIT_CONFIG_PARAMETERS" in assigns:
+        pairs = _config_parameters(assigns["GIT_CONFIG_PARAMETERS"])
+        out.extend(pairs if pairs is not None else [(None, None)])
+    return out
+
+
+def _ext_config(key, value):
+    """True when a git config pair enables or names the ext:: transport."""
+    key, value = (key or "").lower(), (value or "").lower()
+    return "ext::" in key or "ext::" in value or bool(
+        GIT_EXT_ALLOW_KEY_RE.match(key) and value != "never")
 
 # Forge CLIs: command tree -> WRITE (refused), READ (stop: fine), a subtree, or a special check.
 # Checked against the gh manual (cli.github.com/manual, Sep 2026), tea's docs/CLI.md (main) and
@@ -7899,6 +7982,7 @@ class _Scan(object):
             ends[k] = k if SEP_RE.match(words[k]) else ends[k + 1]
         covered = stdin_done = stmt_start = 0  # covered, stdin_done: words already re-scanned
         cmd_pos, xargs_seen, head = True, False, None   # head: this simple command's program
+        env_cfg, env_checked = None, False     # git config from the environment (_env_config)
         for i, w in enumerate(words):
             if not i % 512 and time.monotonic() > self.deadline:
                 return self.hit("opaque", "a command too large to check in time")
@@ -7929,10 +8013,20 @@ class _Scan(object):
                 if not found and INDEX_BLIND_ENV_RE.match(w) and INDEX_BLIND_TEXT_RE.search(w):
                     found = self.hit("index", w.split("=", 1)[0] + "=" + "core.sparseCheckout/"
                                      "ignoreStat")       # GIT_CONFIG_KEY_0=core.sparseCheckout
+                if not found and GIT_ENV_CONFIG_RE.match(w) and not env_checked:
+                    env_cfg = _env_config(words, restore) if env_cfg is None else env_cfg
+                    env_checked = True                 # once: it covers every word
+                    found = self.env_config(env_cfg, depth)
+                if not found and w.startswith("GIT_ALLOW_PROTOCOL=") and \
+                        "ext" in restore(w).partition("=")[2].lower().split(":"):
+                    found = self.hit("opaque", "GIT_ALLOW_PROTOCOL=ext (ext:: runs a command as "
+                                               "a transport)")
             elif base in PUSH_PROGRAMS and here_cmd:
                 found = self.hit("push", base)       # not `ls .../git-push`
             elif base == "git":
-                found = self.git(words, i, end, xargs_seen, depth, restore)
+                if env_cfg is None:
+                    env_cfg = _env_config(words, restore)
+                found = self.git(words, i, end, xargs_seen, depth, restore, env_cfg)
             elif w in PUSH_SUBCOMMANDS and i > 0 and _expansion(words[i - 1]) \
                     and self.was_command(words, i - 1):
                 found = self.hit("opaque", "%s %s" % (restore(words[i - 1]), w))
@@ -8104,8 +8198,11 @@ class _Scan(object):
         return _after_pipe(words, i) or first.startswith("<") or \
             first in ("/dev/stdin", "/dev/fd/0", "-")
 
-    def git(self, words, i, end, xargs_seen, depth, restore):
+    def git(self, words, i, end, xargs_seen, depth, restore, env_cfg=()):
         k, aliases, gopts = i + 1, {}, []
+        for key, value in env_cfg:             # GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=push
+            if key and value is not None and key.lower().startswith("alias."):
+                aliases[key[6:].lower()] = value
         while True:                            # global options (and redirections among them)
             k = _skip_redirections(words, k, end)
             if k >= end or not words[k].startswith("-"):
@@ -8129,17 +8226,20 @@ class _Scan(object):
                 if found:
                     return found
             if opt == "-c":                    # git -c alias.p=push p, -c core.editor=...
+                if _ext_config(key, value):
+                    return self.hit("opaque", "git -c %s (ext:: runs a command as a transport)"
+                                    % key[:80])
                 found = self.git_config_value(key, value, depth)
                 if found:
                     return found
                 if key.lower().startswith("alias."):
-                    aliases[key[6:]] = value
+                    aliases[key[6:].lower()] = value       # alias names are case-insensitive
         if k >= end:
             return self.hit("opaque", "xargs git (the subcommand comes from stdin)") \
                 if xargs_seen else None
         sub = words[k]
-        if sub in aliases:                     # -c alias.p='!sh' p -c 'git push': with its args
-            body = aliases[sub]
+        if sub.lower() in aliases:             # -c alias.p='!sh' p -c 'git push': with its args
+            body = aliases[sub.lower()]
             import shlex
             tail = " ".join(shlex.quote(restore(x)) for x in words[k + 1:min(end, k + 257)])
             found = self.scan((body[1:] if body.startswith("!") else "git " + body) + " " + tail,
@@ -8170,6 +8270,16 @@ class _Scan(object):
                 found = found or (self.scan(code, depth + 1) if code else None)
         elif sub == "bisect" and args[:1] == ["run"]:
             found = self.scan(" ".join(args[1:]), depth + 1)
+        for code in _git_command_values(sub, args):
+            found = found or self.scan(code, depth + 1)
+        if not found and any(a.lower().startswith("ext::") or "=ext::" in a.lower()
+                             or (sub in ("config", "remote") and "ext::" in a.lower())
+                             for a in args):        # also --remote=ext::..., --url=ext::...
+            found = self.hit("opaque", "git %s ext::... (a command run as a transport)" % sub)
+        if not found and sub == "config":
+            if any(_ext_config(args[j], args[j + 1]) for j in range(len(args) - 1)
+                   if GIT_EXT_ALLOW_KEY_RE.match(args[j])):
+                found = self.hit("opaque", "git config protocol.*allow (enables ext::)")
         if not found and "protect" in self.want:
             found = self.git_protect(sub, args, gopts)
         if found:
@@ -8186,6 +8296,21 @@ class _Scan(object):
         if key.lower().startswith("alias.") and not value.startswith("!"):
             return self.scan("git " + value, depth + 1)
         return self.scan(value.lstrip("!"), depth + 1)
+
+    def env_config(self, pairs, depth):
+        """git configuration set through the environment (GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n>,
+        GIT_CONFIG_PARAMETERS) is read like `git -c`: an alias or command value is scanned; a key or
+        value the shell decides at run time, an exec key without its value, or an ext:: setting is
+        opaque."""
+        for key, value in pairs:
+            if key is None or _expansion(key) or (value is None and GIT_EXEC_KEY_RE.match(key)) \
+                    or _ext_config(key, value):
+                return self.hit("opaque", "git configuration from the environment (%s)"
+                                % (key or "GIT_CONFIG_PARAMETERS")[:80])
+            found = self.git_config_value(key, value, depth) if value is not None else None
+            if found:
+                return found
+        return None
 
     def git_index_blind(self, sub, args):
         """Index blinding (INDEX_REASON): `git update-index` with an INDEX_BLIND_OPTS option (any

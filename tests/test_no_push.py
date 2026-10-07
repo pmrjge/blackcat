@@ -274,6 +274,72 @@ def test_review_regressions(command, kind):
     assert (found[0] if found else None) == kind, found
 
 
+# T15 F1 (audit 73eec41..main): option values git hands to a shell or a transport, ext:: URLs and
+# configuration from the environment run commands; each is scanned (ported from codex_guard.py).
+GIT_COMMAND_VALUES = [
+    "git fetch --upload-pack='git push origin main;git-upload-pack' .",
+    "git pull --upload-pack='git push origin main;git-upload-pack' .",
+    "git fetch --upload-p 'git push origin main' .",                   # an abbreviated long option
+    "git ls-remote -u 'git push origin main; git-upload-pack' .",
+    "git ls-remote --exec='git push' o",
+    "git clone -u 'git push origin main; git-upload-pack' . /tmp/y",
+    "git clone -u'git push' r d",
+    "git fetch-pack --exec='git push' r",
+    "git archive --remote=. --exec='git push origin main; git-upload-archive' HEAD",
+    "git filter-branch --msg-filter 'git push origin main; cat' -- HEAD",
+    "git filter-branch --tree-filter 'git push origin main' HEAD",
+    "git filter-branch --msg-filter='git push' HEAD",
+    "git difftool -x 'git push origin main' HEAD~1",
+    "git difftool --extcmd='git push origin main' -y HEAD~1",
+    "git difftool -x 'gh pr create --fill' HEAD~1",
+    "git -c protocol.ext.allow=always fetch 'ext::sh -c git% push% origin% main'",
+    "git -c protocol.allow=always clone 'ext::sh -c x' d",
+    "GIT_ALLOW_PROTOCOL=ext git ls-remote 'ext::sh -c git% push'",
+    "GIT_ALLOW_PROTOCOL=file:ext git fetch o",
+    "git fetch 'ext::sh -c git% push'", "git remote add o 'ext::sh -c x'",
+    "git config remote.o.url 'ext::sh -c x'", "git config protocol.ext.allow always",
+    "git archive --remote=ext::sh% -c% x HEAD",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0='!git push origin main' git p",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0='!sh' git p -c 'git push'",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand git fetch o",   # value set elsewhere
+    "GIT_CONFIG_PARAMETERS=\"'alias.p'='!git push origin main'\" git p",
+    "GIT_CONFIG_PARAMETERS=\"'protocol.ext.allow'='always'\" git fetch 'ext::sh -c x'",
+    "git status; GIT_CONFIG_PARAMETERS=\"'alias.p'='!git push'\" git p",
+    "git -c remote.origin.uploadpack='git push origin main;git-upload-pack' fetch origin",
+    "git -c core.gitProxy='git push' fetch git://h/r",
+    "git -c core.alternateRefsCommand='git push' fetch o",
+    "git -c trailer.x.cmd='git push origin main' commit --trailer x=y -m m",
+    "git -c trailer.x.command='git push' interpret-trailers",
+    "git -c alias.P='!sh' p -c 'git push'",                            # alias names fold case
+    "GIT_SSH_COMMAND='git push' git fetch",
+]
+
+
+@pytest.mark.parametrize("command", GIT_COMMAND_VALUES)
+def test_git_command_values_are_scanned(command):
+    assert (G.remote_write_in(command) or (None,))[0] in ("push", "forge", "opaque"), command
+
+
+@pytest.mark.parametrize("command", [
+    "git fetch origin", "git ls-remote origin", "git difftool HEAD~1", "git filter-branch --help",
+    "git clone https://github.com/a/b", "git fetch --upload-pack=git-upload-pack origin",
+    "git difftool -x 'diff -u' HEAD", "git filter-branch --msg-filter cat HEAD",
+    "git -c protocol.ext.allow=never fetch o", "GIT_ALLOW_PROTOCOL=https:ssh git fetch o",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=x git commit -m m",
+    "git -c trailer.x.key=Signed git commit -m m"])
+def test_git_command_values_without_push_pass(command):
+    assert G.remote_write_in(command) is None, command
+
+
+def test_env_config_is_read_once():
+    """Many GIT_CONFIG_KEY_<n> words: the environment is read once, not once per word."""
+    cmd = " ".join("GIT_CONFIG_KEY_%d=user.k%d GIT_CONFIG_VALUE_%d=v" % (n, n, n)
+                   for n in range(3000)) + " git status"
+    start = time.monotonic()
+    assert G.remote_write_in(cmd) is None
+    assert time.monotonic() - start < 2.0
+
+
 def test_deep_nesting_is_refused_not_ignored():
     def nest(levels):
         cmd = "git push"
