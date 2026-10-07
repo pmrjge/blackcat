@@ -3439,9 +3439,10 @@
   "equilibrium/COMPARE_eq.md": {
    "a5_blob": "1a6d00467ae57e904172f68ec353530a930e50c6",
    "amendments": [
-    "A6"
+    "A6",
+    "A7"
    ],
-   "sha256": "45443435e70d17584497a0cea700b52f38b40e82a3c54aabfbec06dc7c7058a4"
+   "sha256": "2d9741d7a89225868d705b26752ab15c2f6fd4727696d49cbf5b4d6354993250"
   },
   "equilibrium/harness/eq_harness.py": {
    "a5_blob": "c667636e7f62e4ea140f4361a1a3ff93a25a3937",

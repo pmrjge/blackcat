@@ -632,3 +632,24 @@ n_d = 46. Hence the added "powered effect excluded" reading.
       only from p7 (RS, ES; stage p). On q, E_rt reports H5's fork as not run (`h5`), and the harness E arm with a
       variant other than `none` runs no forked `none` branch (not built), so `eq_calibrate`'s H5 reports "no graded
       none-branch result". H5 needs that fork (or an amendment) before q.
+- **A7. 2026-10-07, PRE-FREEZE. H5 removed.** Written before `eq_freeze.sh` and before any eq call: no
+  `COMPARE_eq.sha256` sidecar and no `runs/` exist. The USER decided it (2026-10-07), relayed by the coordinator. A0-A6
+  stand except where this item says otherwise.
+  1. **What changes.** The secondary family H5 of A6.5 (the chosen LOO variant vs a forked `none` branch, paired sign
+     test on the items where reconcile or repair ran, Holm over the primary classes) leaves the pre-registration. q
+     neither runs nor reports it. A6.7 now reads "H3 and H4 are separate secondary families". This closes the open
+     item A6.11 (h).
+  2. **Why.** No code can produce H5's `none` branch on stage q:
+     - q's E arm is E_rt (A6.5), and the runtime has no forked-branch mode: its members are the leader's subagents,
+       not harness sessions;
+     - the harness E arm runs no forked `none` branch;
+     - the only `none` branches are p7's (stage p, RS and ES). They need a harness E round 0, which E_rt does not
+       give, and `schedule` and `run` refuse the cells at stage q.
+     Reusing p7's stage-p branches is ruled out by A6.7: every claim is a q test on items disjoint from p.
+  3. **Unchanged.** H1-H4, the primary family and its Holm step, the ship rule and the status rule of A6.5. Every p
+     rule of A6.4: the LOO variant is still chosen on p from p7's four branches, `none` included. Also M19-M22, arms,
+     items, oracles, caps, seeds, §8 and the stop rules. Removing H5 removes no spend that was planned to run: q's E_rt
+     never had a `none` fork to pay for.
+  4. **Code.** `harness/eq_calibrate.py --stage q` no longer computes or reports H5: `report.v<k>.json` has no `h5`
+     key. E_rt's `item_arm` records no longer carry the `h5` note (`harness/LEDGER_SCHEMA.md`). p7's RS member-0 lines
+     (a branch's reduced answer, `grading_results/members/RS.jsonl`) are still graded, but no rule reads them now.
