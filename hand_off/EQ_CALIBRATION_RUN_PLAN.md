@@ -21,7 +21,7 @@ multiplier m = 2, D11 keep the EG arm.
 | 0.2 | Member-level grading: `grading_results/members/<CLS>.jsonl` (PF and CP hidden tests per member copy, RS rubric per distinct answer) and `members/CR_findings.jsonl` (per finding: matched bug or null, verdict, `n_seeded`); the format is read by `eq_calibrate.py` (its docstring) | harness part | a stub stage produces both files |
 | 0.3 | A6 accepted by the USER and in the package (it is in `equilibrium/COMPARE_eq.md` §12) | USER | text read and accepted |
 | 0.4 | c0 collected (`COMPARE_eq.md` §0): `eq_freeze.sh` refuses otherwise | USER | `FROZEN_AT.txt` of c0 exists |
-| 0.5 | Freeze: `bash equilibrium/harness/eq_freeze.sh` | USER | `$EQ/COMPARE_eq.sha256` written |
+| 0.5 | Cell rows into the schedule, then freeze. `uv run --script equilibrium/harness/eq_harness.py schedule --items equilibrium/items --stage p --cells p6,p7 --out equilibrium/harness/schedule.tsv` appends 40 p6 and 20 p7 rows (the tracked 240 arm rows stay a byte prefix); commit it (a coder or the USER; never pushed); then `bash equilibrium/harness/eq_freeze.sh`, which copies and pins `schedule.tsv`: `run` and eq_check E7 read the frozen copy, so cell rows added after the freeze never run | USER | `$EQ/COMPARE_eq.sha256` written; `$EQ/schedule.tsv` holds the p6 and p7 rows |
 | 0.6 | For q only (later): Phase 2 runtime built, reviewed and installed (`./install.sh`, the USER), because E_rt is the runtime | main-coder, reviewers, USER | `stack-eq` and the guard's eq rules live |
 
 Shell set-up for every step (one terminal, no other Claude Code session running, `COMPARE_eq.md` §5):
@@ -42,10 +42,10 @@ checked before every item by E11 (ledger Σ `total_cost_usd` + 4B ≤ ceiling).
 |---|---|---|---|---|
 | 1. A4 probe | the one command in `hand_off/A4_FOLD.md` §1 | 0.25 | 0.25 | the tool list matches A4 (fold it, `A4_FOLD.md` §2) |
 | 2. Smoke 5a: 1 dev item × 4 arms at B = $0.50 | §2 below | ≤ 0.50 (E members 0.07) | 2.00 | flags, caps and overshoot (M10), transcript paths, `runs3.csv`, `claude -p` authenticates; Opus ids in `model_ids` |
-| 3. p6/p7 smoke: 1 RS dev item at B = $0.50 | §2 below | 0.07 member, 0.0125 branch call, 0.025 equivalence | 1.155 | forks of one session run in parallel without interference; every `parent_session_id` points to the right session; `eq_calibrate.py --stage p --dry-run` reads the smoke stage |
+| 3. p6/p7 smoke: 1 RS dev item at B = $0.50 | §2 below; **blocked: eq_check E7 refuses a cell pass (§8 Open)** | 0.07 member, 0.0125 branch call, 0.025 equivalence | 1.155 | forks of one session run in parallel without interference; every `parent_session_id` points to the right session; `eq_calibrate.py --stage p --dry-run` reads the smoke stage |
 | 4. Pilot p1-p4 (60 items × 4 arms) | `uv run --script "$H" run --stage p --spend-ok` | S* 2.00; E member 0.28 (0.32 PF/CP), reconcile 0.10; G/EG planner 0.30, nodes by weight | 480.00 (4B rule; exact cap sum 457.50) | no stage stop (E1-E11); environment failures declared as p9 |
-| 5. p6 nested sweep, PF CP CR ES RS, 40 items | the p6 cell of stage p (`run --stage p --spend-ok`; the cell selector is the harness part's, e.g. `--cell p6` **[confirm with `run --help`]**) | 0.28 member (0.32 PF/CP); 0.10 equivalence; 0.10 verifier | 112.20 | every p6 item has 9 members, checks and verdicts |
-| 6. p7 branches, RS ES, 20 items | the p7 cell of stage p (e.g. `--cell p7` **[confirm]**) | 0.05 per member-round | 40.00 | four branches × 2 rounds per item |
+| 5. p6 nested sweep, PF CP CR ES RS, 40 items | `uv run --script "$H" run --stage p --cells p6,p7 --spend-ok`: one pass over the frozen schedule's cell rows only (in the schedule since 0.5; arm rows skipped), p7 after the item's p3 of step 4; **blocked: eq_check E7 refuses a cell pass (§8 Open)** | 0.28 member (0.32 PF/CP); 0.10 equivalence; 0.10 verifier | 112.20 | every p6 item has 9 members, checks and verdicts |
+| 6. p7 branches, RS ES, 20 items | step 5's pass (`--cells p6,p7` runs both cells' rows) | 0.05 per member-round | 40.00 | four branches × 2 rounds per item |
 | 7. Pilot grading (RS rubric, CR claim match, DS/OE pairwise) | §3 below | 0.50 per grader call | 82.00 (164 calls); ceiling kept at 100 | grader κ ≥ 0.6, else the flag |
 | 8. Calibration grading (member-level RS answers, CR findings) | §3 below | 0.50 | ≤ 5.00 (≤ 10 calls) | every key and finding the rules need is graded (`report.v<k>.json` `skipped` is empty) |
 | **pilot + calibration** | | | **740.61** (exact cap sum 700.11) | **G1: `eq_calibrate.py --stage p` (§4), then the USER's go for q** |
@@ -66,17 +66,30 @@ for a in mathematician python-engineer code-reviewer researcher data-scientist p
   printf 'agent_sha256_%s: %s\n' "$a" "$(shasum -a 256 "$HOME/.claude/agents/$a.md" | cut -d' ' -f1)"
 done >> "$EQ/runs/p/CONFIG.txt"
 
-# smokes (steps 2-3): a scratch copy, B = $0.50, dev items only, data discarded (never analysed)
-S=$(mktemp -d)/eq-smoke && cp -pR "$EQ" "$S" && rm -rf "$S/runs"
-jq '.B_usd |= map_values("0.50")' "$EQ/flags.json" > "$S/flags.smoke.json"
-uv run --script "$H" schedule --items "$EQ/items" --stage d --out "$S/schedule.smoke.tsv"
-uv run --script "$S/eq_harness.py" run --stage p --eq-root "$S" --raw-root "$S/raw" --flags "$S/flags.smoke.json" \
-  --schedule "$S/schedule.smoke.tsv" --only <one dev item, e.g. RS-DEV1> --no-check --spend-ok
-#   [confirm against the harness part: that `run --stage p` takes a dev item from this schedule, and the p6/p7 cell
-#    selector for step 3]
+# smokes (steps 2-3): a smoke package of their own, frozen in a scratch dir (one dev item, B = $0.50, data discarded,
+# never analysed). `run` takes any row of the schedule it reads, dev items too, but `run --stage p` refuses
+# --no-check (stage d needs the stub claude), so eq_check.sh runs before the item: it reads $EQ_ROOT (default: the
+# real package, whose DISPATCH_LOG it would append to) and that package's frozen schedule.tsv (E4: the sidecar
+# verifies; E7: the item is the next one there). RS-DEV1's p6/p7 rows come along for step 3.
+S=$(mktemp -d) && cp -pR equilibrium "$S/stage"                     # this checkout's staged tree
+uv run --script equilibrium/harness/eq_harness.py schedule --items equilibrium/items --stage d --cells p6,p7 \
+  --out "$S/d.tsv"
+awk -F'\t' 'NR == 1 || $3 == "RS-DEV1"' "$S/d.tsv" > "$S/stage/harness/schedule.tsv"   # 4 arm rows + p6, p7
+jq '.B_usd |= map_values("0.50")' equilibrium/harness/flags.json > "$S/stage/harness/flags.json"
+export EQ_M="$PWD" EQ_ROOT="$S/eq"             # eq_freeze.sh and eq_check.sh: this checkout's c0, the smoke package
+EQ_STAGE_DIR="$S/stage" bash equilibrium/harness/eq_freeze.sh
+uv run --script "$S/eq/eq_harness.py" config --stage p --eq-root "$S/eq" --ceiling 5
+#   then the agent_sha256_* loop above, appending to "$S/eq/runs/p/CONFIG.txt"
+uv run --script "$S/eq/eq_harness.py" run --stage p --eq-root "$S/eq" --raw-root "$S/raw" --spend-ok   # step 2
+#   step 3 is the same `run` plus `--cells p6,p7`: eq_check E7 refuses it today (§8 Open)
+unset EQ_M EQ_ROOT                             # before any real step
+# Checked at $0 with the stub claude (2026-10-07): freeze, config and step 2's four arm rows pass eq_check.sh; the
+# --cells pass stops at E7.
 
-# the pilot with its cells (steps 4-6)
+# the pilot (step 4: arm rows only; cell rows are skipped without --cells), then its cells (steps 5-6, one pass over
+# the cell rows only; blocked by E7, §8 Open)
 uv run --script "$H" run --stage p --spend-ok
+uv run --script "$H" run --stage p --cells p6,p7 --spend-ok
 ```
 
 ## 3. Commands: collect and grade (after each stage)
@@ -89,7 +102,12 @@ uv run --script "$H" cr-grader-input --stage p --with-members
 # each batch goes to a fresh verifier session with its frozen brief ($EQ/items/graders/), cap $0.50 per call:
 claude -p --agent verifier --max-budget-usd 0.50 --output-format json < <brief + batch file>   > <verdicts file>
 uv run --script "$H" cr-grade --stage p --verdicts <verdicts file>
-# member-level grades for the calibration (grading_results/members/): the harness part's commands [pending, 0.2]
+# member-level grades for the calibration (grading_results/members/; COMPARE_eq §12 A6 (g)):
+uv run --script "$H" score --stage p --cls PF --members   # members/PF.jsonl, $0 (also CP; ES members: the truth file)
+#   CR: the cr-grader-input --with-members batch above; cr-grade also writes members/CR_findings.jsonl
+uv run --script "$H" rs-grader-input --stage p            # grading/RS_members/batch.jsonl (key RS_members.key.json)
+claude -p --agent verifier --max-budget-usd 0.50 --output-format json < <brief + that batch>   > <RS member verdicts>
+uv run --script "$H" rs-grade --stage p --verdicts <RS member verdicts>   # members/RS.jsonl
 ```
 
 The 20 % regrade (seed `eq|regrade`) is one more fresh verifier call per batch. Route 1 and route 2 then run as
@@ -198,4 +216,8 @@ installer work); the guard and `stack-eq` then route only the classes whose entr
 - **Open, blocks q:** the H5 `none` branch: no code runs it on stage q (the harness's E arm runs no `none` fork, E_rt
   has no forked-branch mode; COMPARE_eq §12 A6 (h)); eq_calibrate reports "no graded none-branch result". Before q,
   a q `none` fork is built or an amendment drops H5.
-- The exact smoke and cell commands (`--cell`, a dev item under stage p, `schedule --stage q`): the harness part's CLI.
+- **Open, blocks steps 3, 5 and 6:** eq_check.sh E7 accepts only the schedule's next unchecked item, or a re-check of
+  the last PASS before any of its calls started. A cell pass (`run --stage p --cells p6,p7`) revisits items whose arm
+  rows already passed and ran, so its first item fails E7 and `run` stops (stub check, 2026-10-07). Running the cells
+  first only moves the refusal to the arm pass, and `--no-check` is stage d's only. eq_check.sh (frozen with the
+  package) needs a rule for cell rows before these steps.
