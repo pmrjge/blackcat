@@ -330,6 +330,8 @@ GIT_COMMAND_VALUES = [
     "git clone --conf=core.sshCommand='git push' ssh://h/r d",
     "git clone -c url.ext::sh.insteadOf=x: -c protocol.ext.allow=always x:y d",
     "git ls-remote --u='git push origin main' .",
+    # a subcommand that reads no transport URL still gets the -c and environment ext:: checks
+    "git -c protocol.ext.allow=always log --grep=x", "GIT_ALLOW_PROTOCOL=ext git commit -m m",
     "GIT_SSH_COMMAND='git push' git fetch",
 ]
 
@@ -351,6 +353,9 @@ GIT_COMMAND_VALUES_SAFE = [
     "git -c help.browser=firefox help -w git", "git -c hook.h.event=pre-commit commit -m m",
     "git clone -c core.autocrlf=false https://github.com/a/b d", "git clone --config user.name=x https://h/r d",
     "git clone -c core.sshCommand='ssh -i k' ssh://h/r d",
+    # S2b review fix 3: ext:: as text in a subcommand that never reads a transport URL from its args
+    "git grep -n 'ext::foo' src", "git commit -m 'ext:: support'", "git log --grep=ext::x",
+    "git show HEAD -- 'ext::x'", "git tag -m 'ext::' v1", "git notes add -m ext::x",
 ]
 
 

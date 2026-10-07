@@ -6416,6 +6416,9 @@ GIT_CONFIG_KEY_RE = re.compile(r"GIT_CONFIG_KEY_(\d+)\Z")
 # ext:: URLs run a command as the transport (git-remote-ext); git refuses them unless one of these
 # keys (or GIT_ALLOW_PROTOCOL) allows ext, so setting one to anything but never is opaque
 GIT_EXT_ALLOW_KEY_RE = re.compile(r"protocol\.(?:ext\.)?allow\Z", re.I)
+# subcommands that never read a transport URL from their arguments: ext:: there is text (a pattern, a
+# message); their -c and environment ext:: settings are still checked
+GIT_NO_URL_SUBS = frozenset({"grep", "log", "show", "shortlog", "commit", "tag", "notes", "blame", "rev-list"})
 OPAQUE_SUB_RE = re.compile(r"[$`{}*?\[\]\x00]")      # expansions and globs: decided at run time
 EXPANSION_RE = re.compile(r"\$(?:\{[^}]*\}|[A-Za-z_]\w*|[@*#?$!0-9-])")
 PWSH = {"pwsh", "powershell", "pwsh.exe", "powershell.exe"}
@@ -8362,9 +8365,10 @@ class _Scan(object):
                                   else self.git_config_value(key, value, depth))
         for code in _git_command_values(sub, args):
             found = found or self.scan(code, depth + 1)
-        if not found and any(a.lower().startswith("ext::") or "=ext::" in a.lower()
-                             or (sub in ("config", "remote") and "ext::" in a.lower())
-                             for a in args):        # also --remote=ext::..., --url=ext::...
+        if not found and sub not in GIT_NO_URL_SUBS and any(
+                a.lower().startswith("ext::") or "=ext::" in a.lower()
+                or (sub in ("config", "remote") and "ext::" in a.lower())
+                for a in args):                     # also --remote=ext::..., --url=ext::...
             found = self.hit("opaque", "git %s ext::... (a command run as a transport)" % sub)
         if not found and sub == "config":
             if any(_ext_config(args[j], args[j + 1]) for j in range(len(args) - 1)
