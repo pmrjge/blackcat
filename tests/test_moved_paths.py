@@ -63,10 +63,8 @@ FROZEN = (
     "dot-config/dot-equilibrium/wall/*",             # the staging copy of lib/eq-wall
     "dot-config/dot-equilibrium/PATH_RELATIVISATION.md",
     "dot-config/dot-equilibrium/harness/R2_RUN.md",
-    # files agents may not edit: lib/eq-wall (never changed), tools/instructor (guard-protected; the user applies
-    # its path updates)
+    # lib/eq-wall: agents never edit it (REVIEW-pinned)
     "lib/eq-wall/*",
-    "tools/instructor/*",
 )
 # Files whose job is the old layout: the A5/A9 record's tool and its tests (old_rel() maps keys back to the
 # pre-move paths; pre-move commits are read at them) and the installer's pre-move fallback tests. Not scanned.
@@ -171,6 +169,11 @@ LINE_EXEMPT = {
     "dot-config/dot-equilibrium/harness/tests/test_shell.py": _lines(r'^\s*eq = w / "equilibrium"$'),
     "dot-config/dot-equilibrium/harness/tests/test_calibrate_mutants.py":
         _lines(r'^\s*root = tmp_path / mid / "equilibrium"$'),
+    # tools/instructor is guard-protected: the user applies its path update (.claude-work/dot-config/check_suite/);
+    # until then these three lines name the old guard path. Once applied, test_exemptions_still_apply asks to drop them.
+    "tools/instructor/bin/check_suite.py": _lines(r'"dot-claude/hooks/agent_guard\.py"'),
+    "tools/instructor/tests/test_instr_check_suite.py": _lines(r'"dot-claude/hooks/agent_guard\.py"'),
+    "tools/instructor/tests/test_instr_ff_merge.py": _lines(r'"dot-claude/hooks/agent_guard\.py"'),
     # the c0 arm's commits (a22c5b4, 7d12c58, the installed 73eec41) hold the pre-move layout
     "hand_off/RUNBOOK_c0.md": _lines(r"\b(?:a22c5b4|7d12c58|73eec41)\b"),
 }
@@ -216,11 +219,13 @@ def dir_ref_hits(old, line):
     shapes = [
         r"(?<![\w.-])" + n + r"(?:/|\\{1,2}(?!`)|" + _Q + r"\)?\s*/|" + _Q + r"\s*\+\s*" + _Q + r"/)",   # equilibrium/x, "equilibrium" / "x"
         r"(?:[\w}$~)]/|(?:" + _Q + r"|\))\s*/\s*" + _Q + r"?|\w\s/\s" + _Q + r"|\\{1,2})" + n + r"(?![\w-]|\.\w)",  # $M/equilibrium, ROOT / 'equilibrium'
-        r"(?:\)|(?<!-)--\s|\bcd\s|\bls\s|\bgit add\s)" + n + r"(?![\w-])",                                      # ':(exclude)equilibrium', cd equilibrium
+        r"(?:\)|(?<!-)--\s|\bcd\s|\bls\s|\bgit add\s|\bls-files\s)" + n + r"(?![\w-])",                        # ':(exclude)equilibrium', cd equilibrium
+        r"(?<=\s)-[A-Za-z]+\s" + n + r"(?![\w.-])",                                                          # cp -pR equilibrium x
     ]
-    if _JOIN_CTX.search(line):                    # os.path.join(root, "x", "equilibrium")
+    if _JOIN_CTX.search(line):                    # os.path.join(root, "x", "equilibrium"), join(ROOT, "equilibrium")
         shapes.append(_Q + n + _Q + r"\s*,\s*" + _Q)
         shapes.append(_Q + r"\s*,\s*" + _Q + n + _Q)
+        shapes.append(r",\s*" + _Q + n + _Q + r"\s*\)")
     return any(re.search(s, line) for s in shapes)
 
 
@@ -340,6 +345,16 @@ def test_old_path_pattern(old, text, hit):
     ("equilibrium", "equilibrium\\harness\\eq_check.sh", True),
     ("equilibrium", "# -------------------------------------------------------- equilibrium: the eq rules", False),
     ("equilibrium", "git diff a b -- equilibrium", True),
+    # review round, 2026-10-07: after a short-option cluster, after ls-files, as a join's last argument
+    ("equilibrium", "cp -pR equilibrium x", True),
+    ("equilibrium", 'S=$(mktemp -d) && cp -pR equilibrium "$S/stage"', True),
+    ("equilibrium", "rsync -a equilibrium x", True),
+    ("codex_config", "git ls-files codex_config", True),
+    ("equilibrium", 'os.path.join(ROOT, "equilibrium")', True),
+    ("codex_config", "Path(ROOT, 'codex_config')", True),
+    ("equilibrium", "claude -p --agent equilibrium --max-budget-usd 0.50", False),
+    ("equilibrium", 'os.path.join(ROOT, "equilibrium.md")', False),
+    ("equilibrium", 'json.dumps({"agent": "equilibrium"})', False),
 ])
 def test_dir_ref_pattern(old, text, hit):
     assert dir_ref_hits(old, text) is hit
@@ -361,7 +376,7 @@ def test_frozen_and_line_exemptions():
     assert _changelog_before_move(log) == {6, 7, 8, 9}
     assert _handoff_section_8(["## 7. x", "a", "## 8. Progress", "b", "c", "## 9. Next", "d"]) == {2, 3, 4}
     assert frozen("dot-config/dot-equilibrium/isolation/RUNBOOK_MINIMAL.md") and frozen("lib/eq-wall/INSTALLER_WALL.md")
-    assert frozen("tools/instructor/bin/check_suite.py")
+    assert not frozen("tools/instructor/bin/check_suite.py")
     assert not frozen("dot-config/dot-equilibrium/COMPARE_eq.md") and not frozen("install.sh")
     assert _section("## 12.")(["## 11. x", "a", "## 12. Amendments", "b", "### A9", "c"]) == {2, 3, 4, 5}
     assert _lines(r"^OLD = ")(["x", "OLD = 1", "NOLD = 2"]) == {1}

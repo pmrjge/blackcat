@@ -72,7 +72,7 @@ done >> "$EQ/runs/p/CONFIG.txt"
 # --no-check (stage d needs the stub claude), so eq_check.sh runs before the item: it reads $EQ_ROOT (default: the
 # real package, whose DISPATCH_LOG it would append to) and that package's frozen schedule.tsv (E4: the sidecar
 # verifies; E7: the item is the next one there). RS-DEV1's p6/p7 rows come along for step 3.
-S=$(mktemp -d) && cp -pR equilibrium "$S/stage"                     # this checkout's staged tree
+S=$(mktemp -d) && cp -pR dot-config/dot-equilibrium "$S/stage"      # this checkout's staged tree
 uv run --script dot-config/dot-equilibrium/harness/eq_harness.py schedule --items dot-config/dot-equilibrium/items --stage d --cells p6,p7 \
   --out "$S/d.tsv"
 awk -F'\t' 'NR == 1 || $3 == "RS-DEV1"' "$S/d.tsv" > "$S/stage/harness/schedule.tsv"   # 4 arm rows + p6, p7
