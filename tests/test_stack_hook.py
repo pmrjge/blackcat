@@ -1,7 +1,7 @@
 """bin/stack-hook (sh launcher) and hooks/stack_hook.py (entry stub with cached bytecode).
 
 Run: uv run --no-project --python 3.13 --with-requirements requirements/tools.txt pytest -q tests/test_stack_hook.py
-Every test works on a copy of dot-claude/hooks and dot-claude/bin/stack-hook under tmp_path, with its
+Every test works on a copy of dot-config/dot-claude/hooks and dot-config/dot-claude/bin/stack-hook under tmp_path, with its
 own XDG_STATE_HOME, HOME and CLAUDE_CONFIG_DIR; nothing in the repository or ~ is written.
 STACK_HOOK_BENCH_N (default 20) sets the rounds of the timing test; `-s` shows its numbers.
 """
@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-HOOKS_SRC = ROOT / "dot-claude" / "hooks"
-LAUNCHER_SRC = ROOT / "dot-claude" / "bin" / "stack-hook"
+HOOKS_SRC = ROOT / "dot-config" / "dot-claude" / "hooks"
+LAUNCHER_SRC = ROOT / "dot-config" / "dot-claude" / "bin" / "stack-hook"
 PY = sys.executable
 TAG = sys.implementation.cache_tag            # cpython-313
 SID = "s-parity0000a1"

@@ -20,7 +20,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SETTINGS = ROOT / "dot-claude" / "settings.json"
+SETTINGS = ROOT / "dot-config" / "dot-claude" / "settings.json"
 JUSTFILE = ROOT / "tools" / "instructor" / "justfile"
 DEVTOOLS = ROOT / "lib" / "devtools.sh"
 PREFIX = "just -f tools/instructor/justfile"

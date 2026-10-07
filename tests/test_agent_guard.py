@@ -1,4 +1,4 @@
-"""Subprocess-driven tests for dot-claude/hooks/agent_guard.py (stdlib hook).
+"""Subprocess-driven tests for dot-config/dot-claude/hooks/agent_guard.py (stdlib hook).
 
 Run: uv run --with pytest pytest -q tests/test_agent_guard.py
 Every test uses a temporary XDG_STATE_HOME; nothing outside the tmp dir is touched.
@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
+GUARD = ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
 REPEATS = 20
 FANOUT = 20
 
@@ -273,7 +273,7 @@ def test_denied_pairs(env, parent, child):
 def test_coder_is_a_leaf(env):
     """coder (decided 2026-10-04): no Agent or SendMessage on its tools line, an empty POLICY row,
     and every spawn it attempts is refused."""
-    text = (ROOT / "dot-claude" / "agents" / "coder.md").read_text()
+    text = (ROOT / "dot-config" / "dot-claude" / "agents" / "coder.md").read_text()
     tools = {t.strip() for t in re.search(r"(?m)^tools:(.*)$", text).group(1).split(",")}
     assert not {"Agent", "SendMessage"} & tools, tools
     assert "May spawn:" not in text
@@ -892,11 +892,11 @@ def test_blackcat_reply_stop_hook_only_logs(env):
 def test_blackcat_reply_hook_is_wired_log_only():
     """blackcat.md wires the Stop hook without --fail-closed (a check that cannot start must not
     hold the turn); settings.json wires no Stop hook (BlackCat's own frontmatter only)."""
-    text = (ROOT / "dot-claude" / "agents" / "blackcat.md").read_text().split("\n---\n", 1)[0]
+    text = (ROOT / "dot-config" / "dot-claude" / "agents" / "blackcat.md").read_text().split("\n---\n", 1)[0]
     stop = text.split("\n  Stop:\n", 1)[1]
     cmd = json.loads('"%s"' % re.search(r'(?m)^\s+command:\s*"(.*)"\s*$', stop).group(1))
     assert cmd == '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" agent_guard blackcat-reply'
-    assert "Stop" not in json.loads((ROOT / "dot-claude" / "settings.json").read_text())["hooks"]
+    assert "Stop" not in json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())["hooks"]
 
 
 def test_blackcat_reads_count_as_steps(env):
@@ -1010,10 +1010,10 @@ def test_the_unconditional_wiring_is_blackcat_md_only():
     """blackcat-guard without --settings (which acts on every main-thread call it sees) is wired
     only in blackcat.md's frontmatter, whose hooks run only while BlackCat is the session's agent
     (sub-agents.md, "Hooks in subagent frontmatter"); settings.json wires only `--settings`."""
-    agents = sorted(p.name for p in (ROOT / "dot-claude" / "agents").glob("*.md")
+    agents = sorted(p.name for p in (ROOT / "dot-config" / "dot-claude" / "agents").glob("*.md")
                     if "blackcat-guard" in p.read_text())
     assert agents == ["blackcat.md"]
-    settings = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    settings = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     cmds = [h["command"] for ev in settings["hooks"].values() for g in ev for h in g["hooks"]
             if "blackcat-guard" in h.get("command", "")]
     assert cmds and all(c.rstrip().endswith("blackcat-guard --settings") for c in cmds), cmds
@@ -1044,12 +1044,12 @@ def test_blackcat_guard_steps_concurrent(env):
 def test_blackcat_hook_command_as_rendered(env, tmp_path):
     """blackcat.md's frontmatter hook runs the guard through the launcher, fail-closed (S2): render
     its command the way install.sh does and run it through a shell."""
-    text = (ROOT / "dot-claude" / "agents" / "blackcat.md").read_text()
+    text = (ROOT / "dot-config" / "dot-claude" / "agents" / "blackcat.md").read_text()
     m = re.search(r'(?m)^\s+command:\s*"(.*)"\s*$', text)
     assert m, "blackcat.md has no hook command"
     cmd = json.loads('"%s"' % m.group(1))
     assert cmd == '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" --fail-closed agent_guard blackcat-guard'
-    cmd = cmd.replace("__CLAUDE_DIR__", str(ROOT / "dot-claude"))
+    cmd = cmd.replace("__CLAUDE_DIR__", str(ROOT / "dot-config" / "dot-claude"))
     e = dict(env, STACK_PYTHON=sys.executable)
     s = sid()
     p = run(rg(s, "WebFetch"), e, cmd=["sh", "-c", cmd])
@@ -1116,7 +1116,7 @@ def test_shipped_spawn_defaults(bare_env):
 def test_orchestrator_fanout_32_from_settings_and_env_lowers_it(bare_env):
     """settings.json's STACK_MAX_FANOUT_BY_TYPE carries orchestrator=32 (32 running children, the
     33rd refused, the knob named); a lower value in the env var still lowers it."""
-    shipped = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["env"]
+    shipped = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())["env"]
     for value, cap in ((shipped["STACK_MAX_FANOUT_BY_TYPE"], 32), ("orchestrator=5", 5)):
         s, extra = sid(), {"STACK_MAX_FANOUT_BY_TYPE": value}
         res = [decision(run(pre_agent(s, "coder", parent="orchestrator", agent_id="O1"),
@@ -1129,7 +1129,7 @@ def test_orchestrator_fanout_32_from_settings_and_env_lowers_it(bare_env):
 def _guard_types():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
-        "agent_guard_types", str(ROOT / "dot-claude" / "hooks" / "agent_guard.py"))
+        "agent_guard_types", str(ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"))
     g = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(g)
     return g
@@ -1147,7 +1147,7 @@ TOP_TIER_PHRASES = {
 def test_ninja_coder_is_the_top_tier_in_prompts(fname):
     """ninja-coder tops the coding chain (2026-10-04): routing and escalation name it last, and
     no plan step or escalation goes past it."""
-    text = re.sub(r"\s+", " ", (ROOT / "dot-claude" / "agents" / fname).read_text())
+    text = re.sub(r"\s+", " ", (ROOT / "dot-config" / "dot-claude" / "agents" / fname).read_text())
     for phrase in TOP_TIER_PHRASES[fname]:
         assert phrase in text, (fname, phrase)
 
@@ -1321,7 +1321,7 @@ def installed(tmp_path):
     (cfg / "hooks").mkdir(parents=True)
     (cfg / "hooks" / "agent_guard.py").write_text(GUARD.read_text())
     (cfg / "hooks" / "stack_io.py").write_text((GUARD.parent / "stack_io.py").read_text())
-    settings = (ROOT / "dot-claude" / "settings.json").read_text()
+    settings = (ROOT / "dot-config" / "dot-claude" / "settings.json").read_text()
     (cfg / "settings.json").write_text(settings.replace("__CLAUDE_DIR__", str(cfg)))
     (cfg / "stack.env").write_text("EXA_API_KEY=x\n")
     (home / ".ssh").mkdir(parents=True)
@@ -1471,7 +1471,7 @@ def test_local_read_guard_project_rules(env, installed):
 
 def test_local_read_guard_hook_wired(env):
     """settings.json routes exactly these tools to the guard."""
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     matchers = [g["matcher"] for g in s["hooks"]["PreToolUse"]]
     rx = next(re.compile("^(?:%s)$" % m) for m in matchers if "ctx_index" in m)
     for tool in ("mcp__context-mode__ctx_index", "mcp__markitdown__convert_to_markdown",
@@ -1897,7 +1897,7 @@ def test_budget_main_thread_starts_a_prompt_the_hook_missed(env, sess):
 def session_start(ev, env, extra=None):
     """SessionStart as Claude Code delivers it: to the settings.json groups whose matcher matches
     the event's source (hooks.md:1120-1122), and to no other. Returns how many runs it made."""
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     n = 0
     for g in s["hooks"]["SessionStart"]:
         m = g.get("matcher") or "*"
@@ -1935,7 +1935,7 @@ def test_budget_catches_up_on_resume_and_forks_start_at_the_end(env, sess):
 
 
 def test_budget_hook_wired_for_every_tool():
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     groups = [g for g in s["hooks"]["PreToolUse"]
               if any(h["command"].endswith('--fail-closed agent_guard budget') for h in g["hooks"])]
     assert len(groups) == 1 and groups[0]["matcher"] == "*"
@@ -2165,7 +2165,7 @@ def test_soft_limits_leave_the_hard_caps_alone(env, sess):
                    extra={"STACK_SOFT_LIMIT_SCALE": "0.001"})
     assert decision(p) == "deny" and reason(p).startswith("Prompt token budget reached")
     assert "Soft token limit" not in p.stdout
-    shipped = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["env"]
+    shipped = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())["env"]
     # the hard budgets are learned limits (stack_limits.py seed: 100M / 666M), not shipped env knobs
     assert "STACK_PROMPT_CTX_BUDGET" not in shipped and "STACK_SESSION_CTX_BUDGET" not in shipped
     assert "STACK_SOFT_LIMIT_SCALE" not in shipped     # a process env value must reach the hooks
@@ -2436,7 +2436,7 @@ def test_mcp_cap_counts_per_agent_and_denies_only_mcp(env, sess):
 
 def agent_turns(atype):
     """maxTurns in the repo's agents/<type>.md."""
-    text = (ROOT / "dot-claude" / "agents" / (atype + ".md")).read_text()
+    text = (ROOT / "dot-config" / "dot-claude" / "agents" / (atype + ".md")).read_text()
     return int(re.search(r"^maxTurns:\s*(\d+)\s*$", text, re.M).group(1))
 
 

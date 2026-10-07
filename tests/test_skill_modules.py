@@ -1,4 +1,4 @@
-"""Skill layout: hubs, modules, references/ and the skillOverrides block in dot-claude/settings.json.
+"""Skill layout: hubs, modules, references/ and the skillOverrides block in dot-config/dot-claude/settings.json.
 
 A hub is a SKILL.md with a `## Modules` section; its modules are the backticked skill names in the
 first column of that section's table. Caps: every SKILL.md <= 500 lines, a hub <= 80, a module <= 150
@@ -15,10 +15,10 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SKILLS = ROOT / "dot-claude" / "skills"
-AGENTS = ROOT / "dot-claude" / "agents"
-SETTINGS = ROOT / "dot-claude" / "settings.json"
-RULES = ROOT / "dot-claude" / "rules"
+SKILLS = ROOT / "dot-config" / "dot-claude" / "skills"
+AGENTS = ROOT / "dot-config" / "dot-claude" / "agents"
+SETTINGS = ROOT / "dot-config" / "dot-claude" / "settings.json"
+RULES = ROOT / "dot-config" / "dot-claude" / "rules"
 
 SKILL_MAX_LINES = 500
 HUB_MAX_LINES = 80
@@ -138,7 +138,7 @@ def test_referenced_reference_files_exist():
 def test_skill_overrides_keys_are_shipped_or_external():
     so, sk = overrides(), shipped()
     unknown = sorted(k for k in so if k not in sk and k not in EXTERNAL)
-    assert not unknown, ("%d skillOverrides keys have no dot-claude/skills/<name>/SKILL.md (not yet "
+    assert not unknown, ("%d skillOverrides keys have no dot-config/dot-claude/skills/<name>/SKILL.md (not yet "
                          "written, renamed, or a typo): %s" % (len(unknown), ", ".join(unknown)))
     shadow = sorted(k for k in EXTERNAL if k in sk)
     assert not shadow, "EXTERNAL names a shipped skill: %s" % shadow

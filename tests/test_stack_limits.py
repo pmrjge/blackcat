@@ -1,4 +1,4 @@
-"""dot-claude/hooks/stack_limits.py (S6 W1): learned limits, proposals and per-session snapshots.
+"""dot-config/dot-claude/hooks/stack_limits.py (S6 W1): learned limits, proposals and per-session snapshots.
 
 Run: uv run --python 3.12 --with pytest pytest -q tests/test_stack_limits.py
 Tests T1-T7, T12-T17, T19 and T20 of the S6 design (section 4), plus the seed's parity with the
@@ -21,11 +21,11 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-HOOKS = ROOT / "dot-claude" / "hooks"
+HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
 LIMITS_PY = HOOKS / "stack_limits.py"
 SEED_JSON = HOOKS / "stack_limits_seed.json"
 GUARD = HOOKS / "agent_guard.py"
-AGENTS_DIR = ROOT / "dot-claude" / "agents"
+AGENTS_DIR = ROOT / "dot-config" / "dot-claude" / "agents"
 PY = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
 
 
@@ -219,7 +219,7 @@ def test_stdlib_only_imports(path):
 
 def test_imports_on_hook_interpreter():
     env = dict(os.environ, PYTHONDONTWRITEBYTECODE="1")
-    p = subprocess.run([PY, "-c", 'import sys; sys.path.insert(0, "dot-claude/hooks"); import stack_limits'],
+    p = subprocess.run([PY, "-c", 'import sys; sys.path.insert(0, "dot-config/dot-claude/hooks"); import stack_limits'],
                        cwd=str(ROOT), env=env, capture_output=True, text=True, timeout=60, check=False)
     assert p.returncode == 0, p.stderr
 
@@ -1420,7 +1420,7 @@ def test_a_session_row_older_than_its_sessions_rows_is_not_learned(st):
 
 
 def test_id_regexes_reject_a_trailing_newline():
-    G = _load("agent_guard_ids", ROOT / "dot-claude" / "hooks" / "agent_guard.py")
+    G = _load("agent_guard_ids", ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py")
     good = [(G.LIMITS_ID_RE, "sess-1.a_b"), (L.ID_RE, "sess-1.a_b"), (L.TYPE_RE, "coder:x"),
             (L.HEX16_RE, "0123456789abcdef"), (L.HEX64_RE, "a" * 64), (L.COMMIT_RE, "abcdef1")]
     for rx, ok in good:

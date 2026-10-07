@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-DOCTOR = ROOT / "dot-claude" / "bin" / "doctor.sh"
+DOCTOR = ROOT / "dot-config" / "dot-claude" / "bin" / "doctor.sh"
 
 
 def test_hook_mode_blocks_with_a_sorted_summary(tmp_path):

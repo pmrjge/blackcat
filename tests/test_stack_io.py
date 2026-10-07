@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-HOOKS = ROOT / "dot-claude" / "hooks"
+HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
 spec = importlib.util.spec_from_file_location("stack_io_t", HOOKS / "stack_io.py")
 io_ = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(io_)

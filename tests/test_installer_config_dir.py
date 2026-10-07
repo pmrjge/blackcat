@@ -136,7 +136,7 @@ def test_parent_of_home_refused(home):
 
 def test_inside_repo_refused_also_through_a_symlink(home, tmp_path):
     with pytest.raises(st.ConfigDirError, match="repo checkout"):
-        resolve(home, flag=os.path.join(ROOT, "dot-claude"))
+        resolve(home, flag=os.path.join(ROOT, "dot-config", "dot-claude"))
     with pytest.raises(st.ConfigDirError, match="repo checkout"):
         resolve(home, flag=ROOT)
     (tmp_path / "sneaky").symlink_to(os.path.join(ROOT, "lib"))
@@ -204,7 +204,7 @@ CASE_INSENSITIVE = os.path.exists(ROOT.swapcase())
 def test_case_variants_refused(home, which):
     os.makedirs(os.path.join(home, "Library", "Keychains"), exist_ok=True)
     t = {"home": home.swapcase(), "ssh": "~/.SSH", "keychains": "~/library/keychains/x",
-         "repo": os.path.join(ROOT, "dot-claude").swapcase()}[which]
+         "repo": os.path.join(ROOT, "dot-config", "dot-claude").swapcase()}[which]
     with pytest.raises(st.ConfigDirError):
         resolve(home, flag=t, yes=True)
 

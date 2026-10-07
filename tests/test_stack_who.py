@@ -11,7 +11,7 @@ import pytest
 import test_stack_tree as tt
 
 ROOT = Path(__file__).resolve().parents[1]
-WHO = Path(os.environ.get("STACK_WHO_UNDER_TEST") or ROOT / "dot-claude" / "bin" / "stack-who")
+WHO = Path(os.environ.get("STACK_WHO_UNDER_TEST") or ROOT / "dot-config" / "dot-claude" / "bin" / "stack-who")
 SID = tt.SID
 SNAP = "/x/limits/snapshots/%s.json" % SID
 
@@ -127,7 +127,7 @@ def test_read_only(fx):
 def test_installed_by_install_sh():
     text = (ROOT / "install.sh").read_text(encoding="utf-8")
     assert '\nstage_script 755 "bin/stack-who"\n' in text and '"bin/stack-who",' in text
-    assert os.access(ROOT / "dot-claude" / "bin" / "stack-who", os.X_OK)
+    assert os.access(ROOT / "dot-config" / "dot-claude" / "bin" / "stack-who", os.X_OK)
 
 
 def test_resumed_after_failure_is_running(fx):

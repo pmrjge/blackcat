@@ -25,8 +25,8 @@ lint = _load("cache_stability_lint")
 guard_harness = _load("guard_harness")
 
 ROOT = HERE.parent
-SETTINGS = ROOT / "dot-claude" / "settings.json"
-HOOKS = ROOT / "dot-claude" / "hooks"
+SETTINGS = ROOT / "dot-config" / "dot-claude" / "settings.json"
+HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
 
 
 # ---------------------------------------------------------------------------- static files
@@ -97,37 +97,37 @@ SKILL = '---\nname: s\ndescription: Use for s.\n---\n\nAs of 2026-10-05 the tool
 
 
 def test_clean_seed_tree_passes(tmp_path):
-    found, n = _tree(tmp_path, {"dot-claude/agents/x.md": AGENT, "dot-claude/skills/s/SKILL.md": SKILL,
-                                "dot-claude/rules/r.md": "# rules\nNo dates.\n"})
+    found, n = _tree(tmp_path, {"dot-config/dot-claude/agents/x.md": AGENT, "dot-config/dot-claude/skills/s/SKILL.md": SKILL,
+                                "dot-config/dot-claude/rules/r.md": "# rules\nNo dates.\n"})
     assert (found, n) == ([], 3)
 
 
 @pytest.mark.parametrize("rel,text,line,kind", [
-    ("dot-claude/agents/x.md", AGENT + "Today is 2026-10-05.\n", 11, "date"),
-    ("dot-claude/agents/x.md", AGENT.replace("Does x.", "Does x (v2.3.4)."), 3, "version"),
-    ("dot-claude/skills/s/SKILL.md", SKILL.replace("Use for s.", "Use for s, as of 2026-10-05."), 3, "date"),
-    ("dot-claude/skills/s/SKILL.md", SKILL.replace("Use for s.", ">-\n  Use for s\n  at 12:00:01."), 5,
+    ("dot-config/dot-claude/agents/x.md", AGENT + "Today is 2026-10-05.\n", 11, "date"),
+    ("dot-config/dot-claude/agents/x.md", AGENT.replace("Does x.", "Does x (v2.3.4)."), 3, "version"),
+    ("dot-config/dot-claude/skills/s/SKILL.md", SKILL.replace("Use for s.", "Use for s, as of 2026-10-05."), 3, "date"),
+    ("dot-config/dot-claude/skills/s/SKILL.md", SKILL.replace("Use for s.", ">-\n  Use for s\n  at 12:00:01."), 5,
      "clock-time"),
-    ("dot-claude/rules/r.md", "# rules\nsession 4e2da3ce-e2f4-4971-aac5-a67f2dcf252e\n", 2, "uuid"),
-    ("dot-claude/rules/r.md", "# rules\nPrices as of Oct 2026.\n", 2, "date"),
-    ("dot-claude/CLAUDE.managed.md", "keep\n" + MODEL_VEC + "\n", 2, "model-id"),
+    ("dot-config/dot-claude/rules/r.md", "# rules\nsession 4e2da3ce-e2f4-4971-aac5-a67f2dcf252e\n", 2, "uuid"),
+    ("dot-config/dot-claude/rules/r.md", "# rules\nPrices as of Oct 2026.\n", 2, "date"),
+    ("dot-config/dot-claude/CLAUDE.managed.md", "keep\n" + MODEL_VEC + "\n", 2, "model-id"),
 ])
 def test_seeded_volatile_text_is_reported_with_its_line(tmp_path, rel, text, line, kind):
-    base = {"dot-claude/agents/x.md": AGENT, "dot-claude/skills/s/SKILL.md": SKILL}
+    base = {"dot-config/dot-claude/agents/x.md": AGENT, "dot-config/dot-claude/skills/s/SKILL.md": SKILL}
     found, _ = _tree(tmp_path, dict(base, **{rel: text}))
     assert [(f["path"], f["line"], f["kind"]) for f in found] == [(rel, line, kind)]
 
 
 def test_cli_lists_path_line_and_fails(tmp_path):
-    _tree(tmp_path, {"dot-claude/rules/r.md": "a\nrun !`git log -1`\n"})
+    _tree(tmp_path, {"dot-config/dot-claude/rules/r.md": "a\nrun !`git log -1`\n"})
     r = subprocess.run([sys.executable, str(HERE / "cache_stability_lint.py"), "--root", str(tmp_path)],
                        capture_output=True, text=True, check=False)
-    assert r.returncode == 1 and r.stdout == "dot-claude/rules/r.md:2: shell-injection: !`git log -1`\n"
+    assert r.returncode == 1 and r.stdout == "dot-config/dot-claude/rules/r.md:2: shell-injection: !`git log -1`\n"
 
 
 def test_allowlist_needs_path_kind_and_text(tmp_path, monkeypatch):
-    files = {"dot-claude/rules/r.md": "pinned 1.2.3\nother 4.5.6\n"}
-    monkeypatch.setitem(lint.ALLOW, ("dot-claude/rules/r.md", "version", "1.2.3"), "test")
+    files = {"dot-config/dot-claude/rules/r.md": "pinned 1.2.3\nother 4.5.6\n"}
+    monkeypatch.setitem(lint.ALLOW, ("dot-config/dot-claude/rules/r.md", "version", "1.2.3"), "test")
     found, _ = _tree(tmp_path, files)
     assert [f["match"] for f in found] == ["4.5.6"]
 

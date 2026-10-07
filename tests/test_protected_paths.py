@@ -20,8 +20,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC_HOOK = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
-SRC_SETTINGS = ROOT / "dot-claude" / "settings.json"
+SRC_HOOK = ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
+SRC_SETTINGS = ROOT / "dot-config" / "dot-claude" / "settings.json"
 
 
 @pytest.fixture
@@ -198,7 +198,7 @@ def test_installer_backups_protected(installed, tmp_path):
                 "mv %s/20260101-000000-abc /tmp/y" % bk, "chmod -R 777 %s" % bk]:
         got = g.protected_write_in(cmd, {"cwd": str(proj)})
         assert got and got[0] == "protect", cmd
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     assert {"Read(/__STACK_BACKUPS__/**)", "Edit(/__STACK_BACKUPS__/**)"} <= set(s["permissions"]["deny"])
     fs = s["sandbox"]["filesystem"]
     assert "__STACK_BACKUPS__" in fs["denyRead"] and "__STACK_BACKUPS__" in fs["denyWrite"]
@@ -695,7 +695,7 @@ def test_f1_f4_end_to_end_through_the_hook(installed, tmp_path):
 
 def test_rules_protected_list_names_manifest_and_backups():
     """rules:58 names every protected entry the guard enforces (PROTECTED_CONFIG + state roots)."""
-    text = (ROOT / "dot-claude" / "rules" / "claude-agent-stack.md").read_text()
+    text = (ROOT / "dot-config" / "dot-claude" / "rules" / "claude-agent-stack.md").read_text()
     line = next(l for l in text.splitlines() if l.startswith("- Never edit the installed stack"))
     import importlib.util
     spec = importlib.util.spec_from_file_location("agent_guard_rules", str(SRC_HOOK))

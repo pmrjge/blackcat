@@ -21,7 +21,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-HOOKS = ROOT / "dot-claude" / "hooks"
+HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
 GUARD = HOOKS / "agent_guard.py"
 PY = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
 HEX16 = re.compile(r"^[0-9a-f]{16}$")
@@ -40,7 +40,7 @@ SEED = json.loads((HOOKS / "stack_limits_seed.json").read_text())["vars"]
 
 
 def frontmatter_turns(atype):
-    text = (ROOT / "dot-claude" / "agents" / (atype + ".md")).read_text()
+    text = (ROOT / "dot-config" / "dot-claude" / "agents" / (atype + ".md")).read_text()
     return int(re.search(r"^maxTurns:\s*(\d+)\s*$", text, re.MULTILINE).group(1))
 
 

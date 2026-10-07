@@ -33,9 +33,9 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SRC_HOOK = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
-SRC_SETTINGS = ROOT / "dot-claude" / "settings.json"
-BLACKCAT_MD = ROOT / "dot-claude" / "agents" / "blackcat.md"
+SRC_HOOK = ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
+SRC_SETTINGS = ROOT / "dot-config" / "dot-claude" / "settings.json"
+BLACKCAT_MD = ROOT / "dot-config" / "dot-claude" / "agents" / "blackcat.md"
 # built-in tools a background subagent keeps (sub-agents.md, "Available tools", second filter);
 # a skill with `context: fork` runs in the background by default
 BACKGROUND_KEEPS = {"Read", "Grep", "Glob", "LSP", "Bash", "PowerShell", "Edit", "Write",
@@ -51,7 +51,7 @@ def blackcat_tools():
 
 
 def agent_tools(name):
-    head = (ROOT / "dot-claude" / "agents" / (name + ".md")).read_text().split("\n---\n", 1)[0]
+    head = (ROOT / "dot-config" / "dot-claude" / "agents" / (name + ".md")).read_text().split("\n---\n", 1)[0]
     return {t.strip() for t in re.search(r"(?m)^tools:\s*(.*)$", head).group(1).split(",")}
 
 
@@ -199,7 +199,7 @@ def test_no_shipped_skill_forks():
     /stack-doctor, outside BlackCat's tools)."""
     pool = blackcat_tools() & BACKGROUND_KEEPS
     assert "Read" in pool and not {"Bash", "Write", "Edit", "WebFetch", "WebSearch"} & pool
-    forked = [str(p.relative_to(ROOT)) for p in (ROOT / "dot-claude").rglob("SKILL.md")
+    forked = [str(p.relative_to(ROOT)) for p in (ROOT / "dot-config" / "dot-claude").rglob("SKILL.md")
               if p.read_text().startswith("---")
               and re.search(r"(?m)^context:\s*fork\b", p.read_text().split("\n---", 1)[0])]
     assert forked == []

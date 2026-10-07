@@ -1,4 +1,4 @@
-"""stack-budget (dot-claude/bin/stack-budget): the read-only budget view.
+"""stack-budget (dot-config/dot-claude/bin/stack-budget): the read-only budget view.
 
 Run: uv run --python 3.12 --with pytest pytest -q tests/test_stack_budget.py
 Every test uses a temp XDG_STATE_HOME and synthetic rows / snapshots; the CLI runs on /usr/bin/python3.
@@ -18,8 +18,8 @@ ROOT = Path(__file__).resolve().parents[1]
 # Model IDs as the API reports them (synthetic transcripts, the matcher's vectors): only on module-level
 # constant lines like these, which tests/lint_agents.py allows (MODEL_ID_LINES)
 HAIKU, SONNET, OPUS = "claude-haiku-4-5-20251001", "claude-sonnet-5-5", "claude-opus-5-5"
-HOOKS = ROOT / "dot-claude" / "hooks"
-CLI = ROOT / "dot-claude" / "bin" / "stack-budget"
+HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
+CLI = ROOT / "dot-config" / "dot-claude" / "bin" / "stack-budget"
 PY = "/usr/bin/python3"
 SID = "33333333-3333-4333-8333-333333333333"
 

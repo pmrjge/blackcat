@@ -187,7 +187,7 @@ def test_relay_needs_the_policy_and_leaves_clean_agents_alone():
 
 
 def test_web_source_fails_closed_past_the_node_cap(tmp_path, monkeypatch):
-    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    sys.path.insert(0, str(ROOT / "dot-config" / "dot-claude" / "hooks"))
     import agent_guard as G
     d = tmp_path / "s"
     (d / "agents").mkdir(parents=True)
@@ -201,7 +201,7 @@ def test_web_source_fails_closed_past_the_node_cap(tmp_path, monkeypatch):
 
 
 # ---------------------------------------------------------------- R3-CACHES, R3-GITENV: session-env
-GUARD = str(ROOT / "dot-claude" / "hooks" / "agent_guard.py")
+GUARD = str(ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py")
 
 
 def session_env(home, env_file, stdin='{"hook_event_name": "SessionStart", "source": "startup"}'):
@@ -225,7 +225,7 @@ def sourced(env_file, *names, **pre):
 
 
 def test_session_env_writes_every_cache_under_the_sandbox_root_once(tmp_path):
-    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    sys.path.insert(0, str(ROOT / "dot-config" / "dot-claude" / "hooks"))
     import agent_guard as G
     home, env_file = tmp_path / "home", tmp_path / "sessionstart-hook-0.sh"
     home.mkdir()
@@ -257,7 +257,7 @@ def test_session_env_adds_pnpm_store_corepack_home_and_java_home(tmp_path, monke
     that already holds pnpm; JAVA_HOME comes from /usr/libexec/java_home, which works only outside
     the sandbox (this SessionStart hook), and a value already set wins. A failing or missing tool
     adds no line and never fails the script."""
-    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    sys.path.insert(0, str(ROOT / "dot-config" / "dot-claude" / "hooks"))
     import agent_guard as G
     home = tmp_path / "home"
     jdk = tmp_path / "Library" / "Java" / "jdk-27.jdk" / "Contents" / "Home"
@@ -285,7 +285,7 @@ def test_session_env_adds_pnpm_store_corepack_home_and_java_home(tmp_path, monke
 
 
 def test_config_lists_every_sandboxed_bash_variable():
-    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    sys.path.insert(0, str(ROOT / "dot-config" / "dot-claude" / "hooks"))
     import agent_guard as G
     text = (ROOT / "CONFIG.md").read_text()
     line = next(x for x in text.splitlines() if "Sandboxed Bash gets its own caches" in x)
@@ -310,7 +310,7 @@ def statusline(sid, state_home):
     import subprocess
     env = dict(os.environ, XDG_STATE_HOME=str(state_home), NO_COLOR="1")
     data = json.dumps({"session_id": sid, "model": {"display_name": "M"}})
-    return subprocess.run([sys.executable, str(ROOT / "dot-claude" / "bin" / "statusline.py")],
+    return subprocess.run([sys.executable, str(ROOT / "dot-config" / "dot-claude" / "bin" / "statusline.py")],
                           input=data, env=env, capture_output=True, text=True, timeout=30).stdout
 
 
@@ -352,13 +352,13 @@ def test_supply_diff_covers_everything_the_install_ships():
     # all of lib/ (a module planted there next to install_state.py shows up as untracked) and the
     # lint script the installer runs (security audit 2026-10-04, CWE-427); nothing is excluded: the
     # README's images sit in assets/ at the root, outside every supply path (neither installed nor run)
-    assert set(paths) == {"dot-claude", "install.sh", "lib", "requirements", "tests/lint_agents.py",
+    assert set(paths) == {"dot-config/dot-claude", "install.sh", "lib", "requirements", "tests/lint_agents.py",
                           "tests/derive_sched_model.py", "tests/derive_thresholds.py"}
     assert re.search(r'^SUPPLY_SHOW="\$SUPPLY_PATHS"', text, re.M)        # the review command shows every path
     assert not [p for p in re.findall(r'"\$(?:HERE|SNAP_ROOT)/([A-Za-z0-9_./-]+)', text)
                 if p == "assets" or p.startswith("assets/")]                        # nothing read from there
     # every repo path install.sh reads ("$HERE/<path>") lies under a supply path
-    shipped = set(re.findall(r'"\$HERE/([A-Za-z0-9_./-]+)', text)) | {"dot-claude"}
+    shipped = set(re.findall(r'"\$HERE/([A-Za-z0-9_./-]+)', text)) | {"dot-config/dot-claude"}
     shipped = {p.rstrip("/") for p in shipped if p.split("/", 1)[0] not in {"tests", ".git"}}
     shipped.discard("lib/stack_diff.py")    # read only by the read-only --diff mode: it builds nothing
     tracked = set(subprocess.run(["git", "-C", str(ROOT), "ls-files"], capture_output=True, text=True,
@@ -385,7 +385,7 @@ def test_a_project_under_a_temp_dir_is_the_projects_not_scratch(tmp_path):
     """Read-only agents: the temp dirs are scratch, but a project checked out there is still the
     project: its tests run like any project's (no scratch content check), its files can't be
     written, and its .claude-work and the rest of the temp dirs stay scratch."""
-    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    sys.path.insert(0, str(ROOT / "dot-config" / "dot-claude" / "hooks"))
     import agent_guard as G
     proj = tmp_path / "checkout"
     (proj / "tests").mkdir(parents=True)
@@ -416,7 +416,7 @@ def test_a_project_under_a_temp_dir_is_the_projects_not_scratch(tmp_path):
 def test_the_project_is_claude_project_dir_when_set(tmp_path, monkeypatch):
     """Review: with CLAUDE_PROJECT_DIR set (as for every hook), only that dir is the project: a
     cwd that moved into another temp subdir stays scratch; the project's files stay protected."""
-    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    sys.path.insert(0, str(ROOT / "dot-config" / "dot-claude" / "hooks"))
     import agent_guard as G
     proj, moved = tmp_path / "checkout", tmp_path / "moved"
     (proj / "src").mkdir(parents=True)
@@ -430,7 +430,7 @@ def test_the_project_is_claude_project_dir_when_set(tmp_path, monkeypatch):
 
 # ---------------------------------------------------------------- T4: sandbox env, domains, self-test
 def test_session_env_redirects_cabal_and_puts_a_julia_depot_first(tmp_path):
-    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    sys.path.insert(0, str(ROOT / "dot-config" / "dot-claude" / "hooks"))
     import agent_guard as G
     home, env_file = tmp_path / "home", tmp_path / "env.sh"
     home.mkdir()
@@ -444,7 +444,7 @@ def test_session_env_redirects_cabal_and_puts_a_julia_depot_first(tmp_path):
 
 
 def test_network_allowlist_gains_the_package_and_docs_hosts_and_stays_strict():
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     net = s["sandbox"]["network"]
     assert net["strictAllowlist"] is True
     assert {"code.claude.com", "repo1.maven.org", "repo.maven.apache.org", "hackage.haskell.org",
@@ -457,7 +457,7 @@ def _self_test_with_probe_error(monkeypatch, err):
     import errno as _errno
     import io
     import tempfile
-    sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+    sys.path.insert(0, str(ROOT / "dot-config" / "dot-claude" / "hooks"))
     import agent_guard as G
     real = tempfile.mkdtemp
 
@@ -483,7 +483,7 @@ def test_self_test_reports_a_sandboxed_state_dir_as_a_warning(monkeypatch, tmp_p
 def test_self_test_probes_xdg_state_home(tmp_path):
     import subprocess
     env = dict(os.environ, XDG_STATE_HOME=str(tmp_path))
-    p = subprocess.run(["/usr/bin/python3", str(ROOT / "dot-claude" / "hooks" / "agent_guard.py"),
+    p = subprocess.run(["/usr/bin/python3", str(ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"),
                         "--self-test"], capture_output=True, text=True, env=env, timeout=120, check=False)
     assert p.returncode == 0 and "WARN" not in p.stdout, p.stdout + p.stderr
     assert (tmp_path / "claude-agent-stack").is_dir()

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-HOOKS = ROOT / "dot-claude" / "hooks"
+HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
 sys.path[:0] = [str(HOOKS), str(ROOT / "tests")]
 
 
@@ -90,7 +90,7 @@ def test_T21_single_swap_stack_sched_reads_only_the_session_snapshot(st, tmp_pat
         w.writeheader()
         w.writerow(row)
     L.propose()
-    R.refresh(str(usage), str(cand), str(HOOKS / "sched_model.json"), str(ROOT / "dot-claude" / "agents"),
+    R.refresh(str(usage), str(cand), str(HOOKS / "sched_model.json"), str(ROOT / "dot-config" / "dot-claude" / "agents"),
               str(HOOKS / "agent_guard.py"), B=20, sid=SID1)
     refreshed = json.loads(cand.read_text())
     assert refreshed["refresh"]["rows"] == 1                    # the refresh read the runs2.csv row

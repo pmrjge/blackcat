@@ -18,7 +18,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
+GUARD = ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
 sys.path.insert(0, str(GUARD.parent))
 import agent_guard as G  # noqa: E402
 
@@ -320,7 +320,7 @@ def test_limit_off_and_bad_input_never_block(env):
 
 
 def test_settings_wire_image_limit_for_read_and_mcp():
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     groups = {(ev, g.get("matcher")) for ev, gs in s["hooks"].items() for g in gs
               if any("image-limit" in h.get("command", "") for h in g["hooks"])}
     assert ("PostToolUse", "Read|mcp__.*") in groups and ("PreToolUse", "mcp__.*") in groups

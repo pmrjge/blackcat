@@ -19,8 +19,8 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tests"))
 import lint_agents  # noqa: E402
 
-AGENTS = ROOT / "dot-claude" / "agents"
-SETTINGS = ROOT / "dot-claude" / "settings.json"
+AGENTS = ROOT / "dot-config" / "dot-claude" / "agents"
+SETTINGS = ROOT / "dot-config" / "dot-claude" / "settings.json"
 BUILDER_TOOLS = "Read, Write, Edit, Bash, ToolSearch, Skill"
 READONLY_TOOLS = "Read, Bash, WebFetch, ToolSearch, Skill"
 
@@ -169,7 +169,7 @@ def test_every_mcp_server_an_agent_names_has_a_decision():
 
 
 # ---------------------------------------------------------------- STACK_MODE_PROBE (diagnostic)
-GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
+GUARD = ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
 
 
 def guard(ev, tmp_path, args=(), probe="1", **extra):

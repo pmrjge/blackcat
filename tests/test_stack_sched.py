@@ -1,4 +1,4 @@
-"""stack_sched.py: the scheduler advisor (dot-claude/hooks/stack_sched.py).
+"""stack_sched.py: the scheduler advisor (dot-config/dot-claude/hooks/stack_sched.py).
 
 Run: uv run --python 3.13 --with pytest pytest -q tests/test_stack_sched.py
 No test touches the stack's state folder; the replay tests on the recorded session read the committed
@@ -16,7 +16,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-SCHED = ROOT / "dot-claude" / "hooks" / "stack_sched.py"
+SCHED = ROOT / "dot-config" / "dot-claude" / "hooks" / "stack_sched.py"
 FIXTURE = ROOT / "tests" / "fixtures" / "sched" / "graph-4e2da3ce.json"
 # session 4e2da3ce's rows of segments.csv and prompts.csv as of the 2026-10-02 20:27 UTC snapshot the graph fixture was
 # built on (the session was still running: window 52 is open), plus its ledger; desc cut to the graph node id ("-" if
@@ -368,10 +368,10 @@ def test_write_conflicts_are_serialised_and_shared_docs_are_not(model):
 
 def test_glob_overlap():
     f = S._glob_overlap
-    assert f("dot-claude/agents/*.md", "dot-claude/agents/coder.md")
-    assert not f("dot-claude/skills/[a-m]*/**", "dot-claude/skills/[n-z]*/**")
-    assert f("dot-claude/skills/x/**", "dot-claude/skills/x/references/a.md")
-    assert f("dot-claude/skills", "dot-claude/skills/x/a.md")
+    assert f("dot-config/dot-claude/agents/*.md", "dot-config/dot-claude/agents/coder.md")
+    assert not f("dot-config/dot-claude/skills/[a-m]*/**", "dot-config/dot-claude/skills/[n-z]*/**")
+    assert f("dot-config/dot-claude/skills/x/**", "dot-config/dot-claude/skills/x/references/a.md")
+    assert f("dot-config/dot-claude/skills", "dot-config/dot-claude/skills/x/a.md")
     assert not f("tests/a.py", "docs/a.py")
 
 
@@ -410,7 +410,7 @@ def test_load_model_defaults_and_b_schema(tmp_path, monkeypatch):
     bad.write_text("{")
     with pytest.raises(S.ModelError):
         S.load_model(bad)
-    committed = ROOT / "dot-claude" / "hooks" / "sched_model.json"
+    committed = ROOT / "dot-config" / "dot-claude" / "hooks" / "sched_model.json"
     if committed.is_file():
         mm = S.load_model(committed)
         assert S.estimate(S.load_graph({"nodes": [{"id": "A", "a": "claude-code-engineer", "s": "M"}]}), mm)["A"].t_w > 0
@@ -882,7 +882,7 @@ def test_clamp_band_and_wrong_side_factors():
 
 
 def test_real_model_file_bands_and_kappa_rules():
-    f = ROOT / "dot-claude" / "hooks" / "sched_model.json"
+    f = ROOT / "dot-config" / "dot-claude" / "hooks" / "sched_model.json"
     if not f.is_file():
         pytest.skip("no sched_model.json")
     m = S.load_model(f)
@@ -1052,7 +1052,7 @@ def test_load_model_keeps_well_formed_s1e_keys(tmp_path):
                              "run_interval": {"groups": []}}))
     m = S.load_model(f)
     assert not {"resume_ctx", "fixer", "run_interval"} & set(m)
-    real = ROOT / "dot-claude" / "hooks" / "sched_model.json"
+    real = ROOT / "dot-config" / "dot-claude" / "hooks" / "sched_model.json"
     raw = json.loads(real.read_text()) if real.is_file() else {}
     for k in ("resume_ctx", "fixer", "run_interval"):
         if raw.get(k):

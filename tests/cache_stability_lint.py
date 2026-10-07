@@ -9,12 +9,12 @@ value there is re-written each time it changes, and every spawn after the change
 
 Scope (decided by the Stage 4 L1 audit: rules and agents carry no dates or ids; skills carry dated
 as-of facts in their bodies, which load on invocation, at the tail of the context):
-  dot-claude/agents/*.md        frontmatter `description` (the agent listing) and the body (the
+  dot-config/dot-claude/agents/*.md        frontmatter `description` (the agent listing) and the body (the
                                 subagent's system prompt); the other frontmatter keys are config
                                 (mcpServers args pin versions on purpose), not prompt text
-  dot-claude/rules/*.md         the whole file (loaded into every thread)
-  dot-claude/CLAUDE*.md         the whole file (CLAUDE.md templates, when the repo ships one)
-  dot-claude/skills/*/SKILL.md  frontmatter `name`, `description`, `when_to_use` (the skill listing
+  dot-config/dot-claude/rules/*.md         the whole file (loaded into every thread)
+  dot-config/dot-claude/CLAUDE*.md         the whole file (CLAUDE.md templates, when the repo ships one)
+  dot-config/dot-claude/skills/*/SKILL.md  frontmatter `name`, `description`, `when_to_use` (the skill listing
                                 in every thread); not the body
 Hook text injected early (SessionStart, SubagentStart) is checked by running the hooks:
 tests/test_cache_stability.py.
@@ -105,7 +105,7 @@ def scoped_lines(path: Path, kind: str) -> list[tuple[int, str]]:
 
 
 def targets(root: Path) -> list[tuple[Path, str]]:
-    d = root / "dot-claude"
+    d = root / "dot-config" / "dot-claude"
     out = [(p, "agent") for p in sorted((d / "agents").glob("*.md"))]
     out += [(p, "whole") for p in sorted((d / "rules").glob("*.md"))]
     out += [(p, "whole") for p in sorted(d.glob("CLAUDE*.md"))]

@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-HOOKS = ROOT / "dot-claude" / "hooks"
+HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
 USAGE_PY = HOOKS / "stack_usage.py"
 PY = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
 SID = "11111111-2222-3333-4444-555555555555"
@@ -43,7 +43,7 @@ V1_REV = "910275c"            # the last commit with the v1 collector (runs.csv,
 
 def load_v1(tmp_path):
     """The v1 collector module, from git history, loaded from a temp file."""
-    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-claude/hooks/stack_usage.py" % V1_REV],
+    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-config/dot-claude/hooks/stack_usage.py" % V1_REV],
                        capture_output=True, text=True)
     if p.returncode != 0:
         pytest.skip("commit %s not available: %s" % (V1_REV, p.stderr.strip()[:80]))
@@ -1383,7 +1383,7 @@ def test_upgrade_hands_off_from_an_older_collector(st, tmp_path, owner, reap):
     v2 collector would write an /override-agent run typed now without `model` (read as unknown, learned
     from). The next start hook stops it (SIGTERM: final scan, exit) and a successor reads the session
     again in schema 3, whose rows win."""
-    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-claude/hooks/stack_usage.py" % V2_REV],
+    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-config/dot-claude/hooks/stack_usage.py" % V2_REV],
                        capture_output=True, text=True)
     if p.returncode != 0:
         pytest.skip("commit %s not available: %s" % (V2_REV, p.stderr.strip()[:80]))
@@ -1415,7 +1415,7 @@ def test_a_handoff_session_row_is_not_learned_as_a_whole_session(st, tmp_path, o
     session row with the ctx of that moment (50k). The session goes on (90k) and the successor idles out:
     its idle exit's final scan replaces that row (90k, spanning every row), which stack_limits learns as
     the session's; the stale v2 row alone (no successor row yet) would be left out (stale_session)."""
-    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-claude/hooks/stack_usage.py" % V2_REV],
+    p = subprocess.run(["git", "-C", str(ROOT), "show", "%s:dot-config/dot-claude/hooks/stack_usage.py" % V2_REV],
                        capture_output=True, text=True)
     if p.returncode != 0:
         pytest.skip("commit %s not available: %s" % (V2_REV, p.stderr.strip()[:80]))

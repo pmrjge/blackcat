@@ -15,7 +15,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-TREE = ROOT / "dot-claude" / "bin" / "stack-tree"
+TREE = ROOT / "dot-config" / "dot-claude" / "bin" / "stack-tree"
 PY = "/usr/bin/python3"
 SID = "11111111-2222-3333-4444-555555555555"
 HOSTILE = "evil\x1b[31mRED\x1b[0m\rFORGED\nnext line\x07‮gnp.exe​|pipe`tick`<script>[x](y)\\"
@@ -392,7 +392,7 @@ def test_hook_output_format_words_and_errors(tmp_path):
 
 
 def test_settings_skill_and_installer_wiring():
-    hooks = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["hooks"]
+    hooks = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())["hooks"]
     (g,) = [g for g in hooks["UserPromptExpansion"] if g["matcher"] == "stack-tree"]
     cmd = g["hooks"][0]["command"]
     assert cmd == '"__PYTHON3__" -B "__CLAUDE_DIR__/bin/stack-tree" --hook' and g["hooks"][0]["timeout"] <= 60
@@ -400,7 +400,7 @@ def test_settings_skill_and_installer_wiring():
     stack_re = re.compile(re.search(r'^STACK_HOOK_RE = re\.compile\(r"([^"]+)"\)$', src, re.M).group(1))
     assert stack_re.search(cmd.replace("__PYTHON3__", "/usr/bin/python3").replace("__CLAUDE_DIR__", "/u/.claude"))
     assert "stack-budget stack-tree; do stage_script 755" in src and '"bin/stack-tree",' in src
-    skill = (ROOT / "dot-claude" / "skills" / "stack-tree" / "SKILL.md").read_text()
+    skill = (ROOT / "dot-config" / "dot-claude" / "skills" / "stack-tree" / "SKILL.md").read_text()
     head = skill.split("\n---", 1)[0]
     assert "\nname: stack-tree\n" in head and "\ndisable-model-invocation: true" in head and "!`" not in skill
     assert os.access(str(TREE), os.X_OK) and TREE.read_text().startswith("#!/usr/bin/python3 -B\n")
@@ -408,7 +408,7 @@ def test_settings_skill_and_installer_wiring():
 
 # ---------------------------------------------------------------- static
 def _guard():
-    spec = importlib.util.spec_from_file_location("agent_guard_tree", ROOT / "dot-claude" / "hooks" / "agent_guard.py")
+    spec = importlib.util.spec_from_file_location("agent_guard_tree", ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py")
     m = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(m)
     return m
@@ -417,7 +417,7 @@ def _guard():
 def test_static_hierarchy_matches_the_agent_files_and_policy(tmp_path):
     f = Fixture(tmp_path)
     rows = json.loads(f.run("--static", "--table", "--json", "--width", "0").stdout)
-    names = sorted(p.stem for p in (ROOT / "dot-claude" / "agents").glob("*.md"))
+    names = sorted(p.stem for p in (ROOT / "dot-config" / "dot-claude" / "agents").glob("*.md"))
     assert sorted(r["agent"] for r in rows) == names
     by = {r["agent"]: r for r in rows}
     policy = _guard().POLICY
@@ -461,8 +461,8 @@ def test_every_mode_is_read_only(tmp_path):
     cfg = tmp_path / "inst"
     (cfg / "bin").mkdir(parents=True)
     shutil.copy(str(TREE), str(cfg / "bin" / "stack-tree"))
-    shutil.copytree(str(ROOT / "dot-claude" / "agents"), str(cfg / "agents"))
-    shutil.copytree(str(ROOT / "dot-claude" / "skills" / "stack-tree"), str(cfg / "skills" / "stack-tree"))
+    shutil.copytree(str(ROOT / "dot-config" / "dot-claude" / "agents"), str(cfg / "agents"))
+    shutil.copytree(str(ROOT / "dot-config" / "dot-claude" / "skills" / "stack-tree"), str(cfg / "skills" / "stack-tree"))
     script = cfg / "bin" / "stack-tree"
     before = snapshot(tmp_path)
     repo_bin = sorted(os.listdir(str(TREE.parent)))

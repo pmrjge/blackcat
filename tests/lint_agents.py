@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
-"""Lint dot-claude/agents/*.md against the spawn policy and frontmatter rules.
+"""Lint dot-config/dot-claude/agents/*.md against the spawn policy and frontmatter rules.
 
 Usage:
     python3 tests/lint_agents.py [--policy-json PATH]
 
-By default the policy is obtained by running (isolated; refused when dot-claude/hooks holds a
+By default the policy is obtained by running (isolated; refused when dot-config/dot-claude/hooks holds a
 .pyc, an extension module or a package dir, which the guard would import):
-    python3 -I -B dot-claude/hooks/agent_guard.py --print-policy
+    python3 -I -B dot-config/dot-claude/hooks/agent_guard.py --print-policy
 which must print JSON: {"policy": {...}, "leaves": [...], "agents": [...], "builtins": ["explore"],
 "blackcat_tools": [...]}.
 
@@ -25,10 +25,10 @@ import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-AGENTS_DIR = REPO_ROOT / "dot-claude" / "agents"
-SKILLS_DIR = REPO_ROOT / "dot-claude" / "skills"
-AGENT_GUARD = REPO_ROOT / "dot-claude" / "hooks" / "agent_guard.py"
-SETTINGS = REPO_ROOT / "dot-claude" / "settings.json"
+AGENTS_DIR = REPO_ROOT / "dot-config" / "dot-claude" / "agents"
+SKILLS_DIR = REPO_ROOT / "dot-config" / "dot-claude" / "skills"
+AGENT_GUARD = REPO_ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
+SETTINGS = REPO_ROOT / "dot-config" / "dot-claude" / "settings.json"
 
 VALID_COLORS = {"red", "blue", "green", "yellow", "purple", "orange", "pink", "cyan"}
 VALID_EFFORTS = {"low", "medium", "high", "xhigh", "max"}
@@ -45,19 +45,19 @@ STACK_MODELS = {"opus", "sonnet"}
 MODEL_ID_RE = re.compile(r"claude-(?:(?:opus|sonnet|haiku|fable)-\d|\d(?:-\d)?-(?:opus|sonnet|haiku))")
 # the second: this regex's test vectors; the effort table records which model IDs take which
 # effort levels (Claude Code's own checks), and its test's vectors
-MODEL_ID_FILES = {"lib/stack.env.example", "tests/test_lint_skills.py", "dot-claude/hooks/agent_effort.json",
+MODEL_ID_FILES = {"lib/stack.env.example", "tests/test_lint_skills.py", "dot-config/dot-claude/hooks/agent_effort.json",
                   "tests/test_override_agent.py", "hand_off/c0_support/COMPARE_c0.md",
                   # the Equilibrium harness's "no haiku" vectors (a model ID it must refuse) and their mutation log
-                  "equilibrium/harness/tests/test_launch.py", "equilibrium/harness/tests/test_skill_tools_argv.py",
-                  "equilibrium/harness/tests/mutations.py", "equilibrium/harness/tests/mutations.out"}
+                  "dot-config/dot-equilibrium/harness/tests/test_launch.py", "dot-config/dot-equilibrium/harness/tests/test_skill_tools_argv.py",
+                  "dot-config/dot-equilibrium/harness/tests/mutations.py", "dot-config/dot-equilibrium/harness/tests/mutations.out"}
 # the Equilibrium RS pool: the models of past graded runs are its recorded facts and answer keys, byte-pinned in
-# equilibrium/items/RS/pool.sha256 (a frozen pool, so it cannot be edited)
-MODEL_ID_DIRS = ("equilibrium/items/RS/",)
+# dot-config/dot-equilibrium/items/RS/pool.sha256 (a frozen pool, so it cannot be edited)
+MODEL_ID_DIRS = ("dot-config/dot-equilibrium/items/RS/",)
 # the usage/limits/budget tests: synthetic transcript model IDs and the model matcher's vectors, and
 # the cache-stability lint's model-ID vector, on
 # module-level constant lines only (NAME[, NAME...] = "...")
 MODEL_ID_CONST = re.compile(r'^[A-Z][A-Z0-9_]*(?:, [A-Z][A-Z0-9_]*)* = "')
-MODEL_ID_LINES = {"dot-claude/bin/doctor.sh": re.compile(r'^MEASURED_MODELS="'),
+MODEL_ID_LINES = {"dot-config/dot-claude/bin/doctor.sh": re.compile(r'^MEASURED_MODELS="'),
                   "tests/test_stack_usage.py": MODEL_ID_CONST, "tests/test_stack_limits.py": MODEL_ID_CONST,
                   "tests/test_stack_budget.py": MODEL_ID_CONST, "tests/test_cache_stability.py": MODEL_ID_CONST}
 VALID_MEMORY = {"user", "project", "local"}
@@ -85,7 +85,7 @@ ITERATIVE_AGENTS = {"orchestrator", "main-coder", "ninja-coder"}
 # `uv run python`, `uvx`, path-qualified interpreters (the hooks' /usr/bin/python3, the stack's
 # uv-built venvs) and ```python fences don't match.
 BARE_PY_RE = re.compile(r"(?:^|[`(;|&$]|--(?=[ \t]))[ \t]*(python3?|pip3?)[ \t]+(?=\S)", re.M)
-# (path relative to dot-claude/, substring of the line) pairs a bare interpreter is right for
+# (path relative to dot-config/dot-claude/, substring of the line) pairs a bare interpreter is right for
 BARE_PY_ALLOW = [
 ]
 
@@ -610,7 +610,7 @@ def check_no_self_spawn(policy_row):
 
 def check_bare_python():
     """Agent and skill text runs Python through uv (rules: Tools); see BARE_PY_RE / BARE_PY_ALLOW."""
-    root = REPO_ROOT / "dot-claude"
+    root = REPO_ROOT / "dot-config" / "dot-claude"
     paths = sorted(AGENTS_DIR.glob("*.md")) + sorted(SKILLS_DIR.rglob("*.md"))
     for p in paths:
         if under_work_dir(p):
@@ -626,7 +626,7 @@ def check_bare_python():
 
 
 # Skills folded into a hub, another skill or a references/ file (git log --diff-filter=D on
-# dot-claude/skills/*/SKILL.md, 2026-10-02). Text that still names one sends an agent to a skill that no
+# dot-config/dot-claude/skills/*/SKILL.md, 2026-10-02). Text that still names one sends an agent to a skill that no
 # longer loads. The one allowed mention is a provenance note: "(was the `x` skill)". Add a name here
 # whenever a skill directory is removed.
 RETIRED_SKILLS = frozenset("""
@@ -675,7 +675,7 @@ def stale_skill_refs(text):
 
 def check_stale_skill_refs():
     """No agent, skill, reference or rules file names a skill that was folded away."""
-    root = REPO_ROOT / "dot-claude"
+    root = REPO_ROOT / "dot-config" / "dot-claude"
     shipped = skill_names()
     for name in sorted(RETIRED_SKILLS & shipped):
         fail(f"RETIRED_SKILLS lists {name!r}, which is shipped under {SKILLS_DIR}")
@@ -713,7 +713,7 @@ def check_plugin_skills():
                  "its skill names (its skills/*/SKILL.md in the marketplace)")
     for p, skills in PLUGIN_SKILLS.items():
         for s in sorted(skills & skill_names()):
-            fail(f"dot-claude/skills/{s}/ duplicates plugin {p}'s skill {s!r}: one copy of each skill")
+            fail(f"dot-config/dot-claude/skills/{s}/ duplicates plugin {p}'s skill {s!r}: one copy of each skill")
 
 
 def main():

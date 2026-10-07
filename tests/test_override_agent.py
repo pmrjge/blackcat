@@ -17,8 +17,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
-SKILLS = ROOT / "dot-claude" / "skills"
+GUARD = ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
+SKILLS = ROOT / "dot-config" / "dot-claude" / "skills"
 PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_", "ANTHROPIC_DEFAULT_")
 
 _spec = importlib.util.spec_from_file_location("agent_guard_override", GUARD)
@@ -145,14 +145,14 @@ def test_valid_sets_match_claude_code():
 
 
 def test_overridable_agents_are_the_stack_agents_with_files():
-    files = {p.stem for p in (ROOT / "dot-claude" / "agents").glob("*.md")}
+    files = {p.stem for p in (ROOT / "dot-config" / "dot-claude" / "agents").glob("*.md")}
     got = set(G.override_agents())
     assert got == (set(G.AGENTS) & files) - {"blackcat"}
     assert "orchestrator" in got and "main-coder" in got
 
 
 # ------------------------------------------------------------------ the effort table
-TABLE = json.loads((ROOT / "dot-claude" / "hooks" / "agent_effort.json").read_text())
+TABLE = json.loads((ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_effort.json").read_text())
 ENV_IDS = dict(re.findall(r"(?m)^ANTHROPIC_DEFAULT_([A-Z]+)_MODEL=(\S+)",
                           (ROOT / "lib" / "stack.env.example").read_text()))
 
@@ -465,7 +465,7 @@ def test_skills_are_user_only_and_wired():
         assert "\ndisable-model-invocation: true" in head
         assert "\nname: %s" % name in head
         assert "!`" not in (SKILLS / name / "SKILL.md").read_text()
-    hooks = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["hooks"]
+    hooks = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())["hooks"]
     entries = {e["matcher"]: e for e in hooks["UserPromptExpansion"]}
     assert set(entries) == {"override-agent", "stack-doctor", "stack-tree"}
     assert entries["override-agent"]["hooks"][0]["command"].endswith('stack-hook" agent_guard override-agent')

@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pandas>=2.2", "numpy>=1.26"]
 # ///
-"""Scheduler cost model (dot-claude/hooks/sched_model.json) derived from Claude Code transcripts.
+"""Scheduler cost model (dot-config/dot-claude/hooks/sched_model.json) derived from Claude Code transcripts.
 
 Step 1b of .claude-work/agents-sched/plan.md, section (b). Read-only over the transcripts
 (~/.claude/projects/*/<session>.jsonl and <session>/subagents/agent-*.jsonl + .meta.json), parsed
@@ -14,7 +14,7 @@ Run:  uv run --script tests/derive_sched_model.py
       uv run --script tests/derive_sched_model.py --root DIR --agents DIR --guard FILE \
             --out FILE --report FILE --until ISO
 
-Writes --out (default dot-claude/hooks/sched_model.json) and --report (default
+Writes --out (default dot-config/dot-claude/hooks/sched_model.json) and --report (default
 .claude-work/agents-sched/model-fit.md). Deterministic for a fixed --until and fixed inputs: two
 runs differ only in `generated`. The default --until pins the snapshot behind
 .claude-work/agents-usage/segments.csv and the SOFT_LIMITS values (2026-10-02 20:28 UTC); a
@@ -60,7 +60,7 @@ with their uncertainty explicit):
   transcripts, no I/O); its docstring lists the segment columns it needs.
 
 stack_hash = sha256 over the canonical JSON {agent: {model, maxTurns, cacheTtl}} of every
-dot-claude/agents/*.md frontmatter (the fields this model reads; install-time placeholder
+dot-config/dot-claude/agents/*.md frontmatter (the fields this model reads; install-time placeholder
 substitution elsewhere in the frontmatter does not change it). A consumer recomputes it from the
 installed agents and treats a mismatch as a stale model.
 """
@@ -656,7 +656,7 @@ def fit(segments, frontmatter, soft_limits, seed=0, *, until=None, B=B_DEFAULT, 
       calibration first_cr, prev_peak, gap_s, cache_creation_input_tokens; prev_peak also feeds
       resume_ctx; first_ctx and ctx_at_first_write (load() derives them) feed fixer.
     frontmatter: {agent type: {"model": alias, "maxTurns": int|None, "cacheTtl": "5m"|"1h"}} for
-      every agent (frontmatter() reads it from dot-claude/agents); types without a tier are refused,
+      every agent (frontmatter() reads it from dot-config/dot-claude/agents); types without a tier are refused,
       except blackcat (the main thread), which is skipped.
     soft_limits: {agent type: tokens or None} (agent_guard.py SOFT_LIMITS).
     seed, B: the bootstrap's seed and replicate count; generated: the `generated` stamp (UTC ISO string;
@@ -947,9 +947,9 @@ def report(J, cr, ev, ev_agent, seg, check):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=os.path.expanduser("~/.claude/projects"))
-    ap.add_argument("--agents", default=os.path.join(REPO, "dot-claude", "agents"))
-    ap.add_argument("--guard", default=os.path.join(REPO, "dot-claude", "hooks", "agent_guard.py"))
-    ap.add_argument("--out", default=os.path.join(REPO, "dot-claude", "hooks", "sched_model.json"))
+    ap.add_argument("--agents", default=os.path.join(REPO, "dot-config", "dot-claude", "agents"))
+    ap.add_argument("--guard", default=os.path.join(REPO, "dot-config", "dot-claude", "hooks", "agent_guard.py"))
+    ap.add_argument("--out", default=os.path.join(REPO, "dot-config", "dot-claude", "hooks", "sched_model.json"))
     ap.add_argument("--report", default=os.path.join(REPO, ".claude-work", "agents-sched", "model-fit.md"))
     ap.add_argument("--segments-csv", default=os.path.join(REPO, ".claude-work", "agents-usage", "segments.csv"))
     ap.add_argument("--until", default=UNTIL_DEFAULT, help="ISO timestamp or 'now'")

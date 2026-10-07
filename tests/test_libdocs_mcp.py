@@ -1,4 +1,4 @@
-"""Tests for dot-claude/mcp/libdocs_mcp.py: SSRF guard on every fetch that is not a fixed API endpoint.
+"""Tests for dot-config/dot-claude/mcp/libdocs_mcp.py: SSRF guard on every fetch that is not a fixed API endpoint.
 
 Run: uv run --with pytest --with httpx --with "mcp>=1.10,<2" pytest -q tests/test_libdocs_mcp.py
 No network: every request goes through an httpx.MockTransport; DNS is a stub. HOME and LIBDOCS_CACHE are temp dirs.
@@ -11,7 +11,7 @@ from pathlib import Path
 import httpx
 import pytest
 
-MODULE = Path(__file__).resolve().parents[1] / "dot-claude" / "mcp" / "libdocs_mcp.py"
+MODULE = Path(__file__).resolve().parents[1] / "dot-config" / "dot-claude" / "mcp" / "libdocs_mcp.py"
 BODY = "# Guide\n" + "some documentation text. " * 20
 
 

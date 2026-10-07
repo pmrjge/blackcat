@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
+GUARD = ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
 sys.path.insert(0, str(GUARD.parent))
 import agent_guard as G  # noqa: E402
 
@@ -348,7 +348,7 @@ def test_git_command_values_are_scanned(command):
     assert (G.remote_write_in(command) or (None,))[0] in ("push", "forge", "opaque"), command
 
 
-# the same option families without a push (codex_config/tests/test_guard_nopush.py reads this list too)
+# the same option families without a push (dot-config/dot-codex_config/tests/test_guard_nopush.py reads this list too)
 GIT_COMMAND_VALUES_SAFE = [
     "git fetch origin", "git ls-remote origin", "git difftool HEAD~1", "git filter-branch --help",
     "git clone https://github.com/a/b", "git fetch --upload-pack=git-upload-pack origin",
@@ -475,7 +475,7 @@ def test_hook_ignores_monitor_websocket():
 
 
 def test_settings_wire_no_push():
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     deny = s["permissions"]["deny"]
     assert {"Bash(git push *)", "Bash(gh pr create *)", "Bash(gh pr merge *)", "Bash(gh release create *)",
             "Bash(tea pulls merge *)", "Bash(fj pr merge *)"} <= set(deny)
@@ -492,7 +492,7 @@ def test_settings_wire_no_push():
 def test_forge_deny_rules_are_all_caught_by_the_hook():
     """Every Bash deny rule the stack ships for a push or a forge write is also a hook denial, so
     the hook is never weaker than the permission rule it backs up."""
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     rules = [r[5:-3] for r in s["permissions"]["deny"] if re.match(r"Bash\((git|gh|tea|fj) .* \*\)\Z", r)]
     assert len(rules) >= 20
     for cmd in rules:
@@ -557,7 +557,7 @@ def test_secrets_reason_never_suggests_reveal():
 
 
 def test_settings_wire_secrets_deny_rules():
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     deny = set(s["permissions"]["deny"])
     assert {"Bash(mcp-headers *--reveal*)", "Bash(with-stack-env *--reveal*)",
             "Bash(bash -x install.sh)", "Bash(sh -x doctor.sh)"} <= deny
@@ -570,7 +570,7 @@ def test_settings_wire_secrets_deny_rules():
 
 def test_rules_file_claims_match_enforcement():
     """The Git section says gh/tea/fj writes are hook-enforced: its examples must be denied."""
-    text = (ROOT / "dot-claude" / "rules" / "claude-agent-stack.md").read_text()
+    text = (ROOT / "dot-config" / "dot-claude" / "rules" / "claude-agent-stack.md").read_text()
     bullet = next(l for l in text.splitlines() if l.startswith("- **Never push.**"))
     assert "Hook-enforced for git, gh, tea and fj" in bullet
     for verb in ("create", "merge", "review", "comment", "close"):
@@ -585,13 +585,13 @@ def test_rules_file_claims_match_enforcement():
 # install.sh reviews the checkout with `git status`/`git diff`; assume-unchanged, skip-worktree,
 # direct index writes and sparse checkout hide an edited file from that review.
 INDEX_BLINDS = [
-    "git update-index --assume-unchanged f", "git update-index --skip-worktree dot-claude/x.py",
+    "git update-index --assume-unchanged f", "git update-index --skip-worktree dot-config/dot-claude/x.py",
     "git update-index --cacheinfo 100644,abc,f", "git update-index --cacheinfo=100644,abc,f",
     "git update-index --index-info", "git update-index --assume-u f", "git update-index --sk f",
     "git update-index --add --assume-unchanged f", "git -C /repo update-index --skip-worktree f",
     "git -c a=b update-index --assume-unchanged f", "/usr/bin/git update-index --index-info",
     "git update-index $FLAG f", "git update-index \"$(echo --skip-worktree)\" f",
-    "git sparse-checkout set dot-claude", "git sparse-checkout init --cone", "git sparse-checkout",
+    "git sparse-checkout set dot-config/dot-claude", "git sparse-checkout init --cone", "git sparse-checkout",
     "git sparse-checkout add x", "git sparse-checkout reapply", "git -C /r sparse-checkout set d",
     "git config core.sparseCheckout true", "git config --bool core.sparsecheckout true",
     "git config set core.sparseCheckoutCone true", "git config --worktree core.sparseCheckout true",

@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+sys.path.insert(0, str(ROOT / "dot-config" / "dot-claude" / "hooks"))
 sys.path.insert(0, str(ROOT / "tests"))
 import agent_guard as G  # noqa: E402
 from guard_harness import Env  # noqa: E402

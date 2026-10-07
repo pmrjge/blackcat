@@ -7,7 +7,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import lint_agents  # noqa: E402
 
-SKILLS = Path(__file__).resolve().parent.parent / "dot-claude" / "skills"
+SKILLS = Path(__file__).resolve().parent.parent / "dot-config" / "dot-claude" / "skills"
 
 
 def test_yaml_plain_hazard_flags_what_yaml_rejects_or_truncates():
@@ -92,15 +92,15 @@ def test_model_ids_only_in_the_allowed_places(tmp_path):
 
 
 def test_model_ids_equilibrium_exemption_is_narrow(tmp_path):
-    """Only the frozen RS pool and the harness's named test-vector files are exempt, not the rest of equilibrium/."""
-    for rel in ("equilibrium/items/RS/oracle/keys.jsonl", "equilibrium/harness/tests/test_launch.py",
-                "equilibrium/items/PF/manifest.jsonl", "equilibrium/harness/eq_harness.py", "equilibrium/items/RSX/a.md",
-                "equilibrium/harness/tests/test_other.py"):
+    """Only the frozen RS pool and the harness's named test-vector files are exempt, not the rest of dot-config/dot-equilibrium/."""
+    for rel in ("dot-config/dot-equilibrium/items/RS/oracle/keys.jsonl", "dot-config/dot-equilibrium/harness/tests/test_launch.py",
+                "dot-config/dot-equilibrium/items/PF/manifest.jsonl", "dot-config/dot-equilibrium/harness/eq_harness.py", "dot-config/dot-equilibrium/items/RSX/a.md",
+                "dot-config/dot-equilibrium/harness/tests/test_other.py"):
         (tmp_path / rel).parent.mkdir(parents=True, exist_ok=True)
         (tmp_path / rel).write_text("model claude-sonnet-5-5\n")
     assert sorted(lint_agents.check_model_ids(tmp_path)) == [
-        "equilibrium/harness/eq_harness.py:1", "equilibrium/harness/tests/test_other.py:1",
-        "equilibrium/items/PF/manifest.jsonl:1", "equilibrium/items/RSX/a.md:1"]
+        "dot-config/dot-equilibrium/harness/eq_harness.py:1", "dot-config/dot-equilibrium/harness/tests/test_other.py:1",
+        "dot-config/dot-equilibrium/items/PF/manifest.jsonl:1", "dot-config/dot-equilibrium/items/RSX/a.md:1"]
 
 
 BAD = "model: claude-opus-5-5\n"           # a specific model ID: the model-ID check's finding
@@ -114,16 +114,16 @@ def _git(root, *args):
 
 
 def _tree(root):
-    for rel in (".claude-work/x/a.md", "dot-claude/skills/s/.claude-work/x/b.md", "dot-claude/agents/bad.md",
+    for rel in (".claude-work/x/a.md", "dot-config/dot-claude/skills/s/.claude-work/x/b.md", "dot-config/dot-claude/agents/bad.md",
                 "notes.claude-work/c.md", ".claude-work-old/d.md"):
         (root / rel).parent.mkdir(parents=True, exist_ok=True)
         (root / rel).write_text(BAD)
-    return ["dot-claude/agents/bad.md:1", ".claude-work-old/d.md:1", "notes.claude-work/c.md:1"]
+    return ["dot-config/dot-claude/agents/bad.md:1", ".claude-work-old/d.md:1", "notes.claude-work/c.md:1"]
 
 
 def test_model_ids_skip_claude_work_at_any_depth_tracked_or_walked(tmp_path):
     """.claude-work/ is agents' scratch: skipped as a path component at any depth, also when force-added
-    to git; the same content under dot-claude/agents/ and look-alike names still fail."""
+    to git; the same content under dot-config/dot-claude/agents/ and look-alike names still fail."""
     want = _tree(tmp_path)
     assert sorted(lint_agents.check_model_ids(tmp_path)) == sorted(want)          # no git: tree walk
     _git(tmp_path, "init", "-q")
@@ -144,19 +144,19 @@ def test_model_ids_skip_claude_work_through_symlinked_and_nested_roots(tmp_path)
     for root in (repo, tmp_path / "link"):
         assert f(root / ".claude-work" / "x" / "a.md", root)
         assert f(repo / ".claude-work" / "x" / "a.md", root)                    # resolved path, link root
-        assert not f(root / "dot-claude" / "agents" / "bad.md", root)
-        assert not f(repo / "dot-claude" / "agents" / "bad.md", root)
+        assert not f(root / "dot-config" / "dot-claude" / "agents" / "bad.md", root)
+        assert not f(repo / "dot-config" / "dot-claude" / "agents" / "bad.md", root)
     assert f(".claude-work/x/a.md", repo) and f("a/b/.claude-work/c", repo)
-    assert not f("dot-claude/agents/bad.md", repo) and not f(".claude-work-old/d.md", repo)
+    assert not f("dot-config/dot-claude/agents/bad.md", repo) and not f(".claude-work-old/d.md", repo)
     rel_root = Path("outer") / ".claude-work" / "wt"                            # a relative root
     assert f(rel_root / ".claude-work" / "a.md", rel_root)
-    assert not f(rel_root / "dot-claude" / "agents" / "bad.md", rel_root)
+    assert not f(rel_root / "dot-config" / "dot-claude" / "agents" / "bad.md", rel_root)
 
 
 def test_text_checks_skip_claude_work_but_not_dot_claude(tmp_path, monkeypatch):
     """check_bare_python and check_stale_skill_refs: a bad file under a skill's .claude-work/ is ignored,
-    the same text in dot-claude/agents/ fails."""
-    dc = tmp_path / "dot-claude"
+    the same text in dot-config/dot-claude/agents/ fails."""
+    dc = tmp_path / "dot-config" / "dot-claude"
     bad = "python3 run.py and `fm-smt-z3`\n"                                       # bare python + retired skill
     for rel in ("skills/s/.claude-work/x/n.md", "agents/bad.md"):
         (dc / rel).parent.mkdir(parents=True, exist_ok=True)

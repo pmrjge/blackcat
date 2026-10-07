@@ -44,9 +44,9 @@ import numpy as np, pandas as pd
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 HERE = os.path.join(REPO, ".claude-work", "agents-usage")   # output folder (--out)
-# q, ceil2 and derive are the stack's shared statistics (dot-claude/hooks/stack_limits.py; installed
+# q, ceil2 and derive are the stack's shared statistics (dot-config/dot-claude/hooks/stack_limits.py; installed
 # beside this file or in the repo's hooks folder)
-sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)), os.path.join(REPO, "dot-claude", "hooks")]
+sys.path[:0] = [os.path.dirname(os.path.abspath(__file__)), os.path.join(REPO, "dot-config", "dot-claude", "hooks")]
 from stack_limits import q, ceil2, derive as _derive  # noqa: E402,F401
 F = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read_input_tokens")
 RESUME_RE = re.compile(r"^(Another Claude session|The coordinator) sent a message while you were working")
@@ -97,7 +97,7 @@ def is_tool_result(c):
 # API calls per model over every transcript read (the models the thresholds are measured on)
 MODELS = {}
 # doctor.sh's record of those models: /stack-doctor warns when an alias resolves elsewhere
-DOCTOR = os.path.join(REPO, "dot-claude", "bin", "doctor.sh")
+DOCTOR = os.path.join(REPO, "dot-config", "dot-claude", "bin", "doctor.sh")
 
 
 def read_records(path):
@@ -296,7 +296,7 @@ def main():
     global HERE, THIS_SESSION
     ap = argparse.ArgumentParser()
     ap.add_argument("--root", default=os.path.expanduser("~/.claude/projects"))
-    ap.add_argument("--agents", default=os.path.join(REPO, "dot-claude", "agents"))
+    ap.add_argument("--agents", default=os.path.join(REPO, "dot-config", "dot-claude", "agents"))
     ap.add_argument("--out", default=HERE)
     ap.add_argument("--session", default=THIS_SESSION)
     a = ap.parse_args()
@@ -645,7 +645,7 @@ def report(seg, run, sess, pw, mt):
     rec = dict(x.split("=", 1) for x in (rec.group(1).split() if rec else []) if "=" in x)
     top = {fam: next((k for _, k in seen if f"-{fam}-" in k), None) for fam in ("opus", "sonnet")}
     stale = {fam: (rec.get(fam), top[fam]) for fam in top if top[fam] and rec.get(fam) != top[fam]}
-    P("`MEASURED_MODELS` in `dot-claude/bin/doctor.sh`: " + (" ".join(f"{k}={v}" for k, v in rec.items()) or "missing")
+    P("`MEASURED_MODELS` in `dot-config/dot-claude/bin/doctor.sh`: " + (" ".join(f"{k}={v}" for k, v in rec.items()) or "missing")
       + (". Matches the most-used model of each family.\n" if not stale else
          ". Update it with the values you adopt from this run: " + ", ".join(
              f"{fam} recorded {a}, most used here {b}" for fam, (a, b) in stale.items()) + ".\n"))

@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-DOT = ROOT / "dot-claude"
+DOT = ROOT / "dot-config" / "dot-claude"
 GUARD = DOT / "hooks" / "agent_guard.py"
 POLICY = DOT / "hooks" / "toolsmith_policy.py"
 EXE = DOT / "bin" / "stack-install"
@@ -297,7 +297,7 @@ def test_every_spelling_of_a_call_is_refused_to_others(command, state):
 
 
 @pytest.mark.parametrize("command", ["git log -- %s" % WRAPPER, "python3 %s help" % WRAPPER,
-                                     "ls dot-claude/bin", "rg -n stack-install README.md", "echo stack-install",
+                                     "ls dot-config/dot-claude/bin", "rg -n stack-install README.md", "echo stack-install",
                                      "cat %s" % WRAPPER, "npm test"])
 def test_others_may_still_name_the_file(command, state):
     assert decision(run_hook(command, "main-coder", XDG_STATE_HOME=str(state))) is None
@@ -361,9 +361,9 @@ def test_run_needs_the_users_approval(state):
 
 def guard_copy(tmp_path, policy_text=None, guard_edit=None):
     """A copy of the hooks next to a bin/ dir, optionally with a changed policy or guard."""
-    hooks = tmp_path / "copy" / "dot-claude" / "hooks"
+    hooks = tmp_path / "copy" / "dot-config" / "dot-claude" / "hooks"
     hooks.mkdir(parents=True)
-    (tmp_path / "copy" / "dot-claude" / "bin").mkdir()
+    (tmp_path / "copy" / "dot-config" / "dot-claude" / "bin").mkdir()
     for f in ("agent_guard.py", "stack_io.py", "toolsmith_policy.py"):
         shutil.copy(DOT / "hooks" / f, hooks / f)
     if policy_text is not None:
@@ -373,7 +373,7 @@ def guard_copy(tmp_path, policy_text=None, guard_edit=None):
         text = (hooks / "agent_guard.py").read_text()
         assert text.count(old) == 1, old
         (hooks / "agent_guard.py").write_text(text.replace(old, new))
-    return hooks / "agent_guard.py", str(tmp_path / "copy" / "dot-claude" / "bin" / "stack-install")
+    return hooks / "agent_guard.py", str(tmp_path / "copy" / "dot-config" / "dot-claude" / "bin" / "stack-install")
 
 
 def test_guard_fails_closed_when_the_rules_cannot_load(tmp_path, state):
@@ -1135,7 +1135,7 @@ def test_seeded_executor_bug_is_caught(tmp_path, monkeypatch, what, old, new, ac
         (real.bin / "installed" / "brew-jq").write_text("1.7.1")
     assert act(real) in (3, 4), "the real executor must refuse: %s" % what
     assert real.installs() == []
-    root = tmp_path / "mut" / "dot-claude"
+    root = tmp_path / "mut" / "dot-config" / "dot-claude"
     (root / "bin").mkdir(parents=True)
     (root / "hooks").mkdir()
     shutil.copy(POLICY, root / "hooks" / "toolsmith_policy.py")

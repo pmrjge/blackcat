@@ -1,11 +1,11 @@
-"""Brief budgets and the early-stop rule (S4 L5): dot-claude/hooks/stack_progress.py and its replay,
+"""Brief budgets and the early-stop rule (S4 L5): dot-config/dot-claude/hooks/stack_progress.py and its replay,
 tests/derive_early_stop.py.
 
 Run: uv run --python 3.12 --with pytest pytest -q -p no:cacheprovider tests/test_stack_progress.py
 Synthetic transcripts only; every state lives under tmp_path (XDG_STATE_HOME); STACK_ variables are
 stripped. The CLI runs on /usr/bin/python3 (the hooks' interpreter).
 
-Mutation seam (how the tests are proven on seeded bugs): L5_DOT names a copy of dot-claude/ with one seeded
+Mutation seam (how the tests are proven on seeded bugs): L5_DOT names a copy of dot-config/dot-claude/ with one seeded
 bug; unset, the real tree is used. Nothing else reads it.
 """
 import importlib.machinery
@@ -26,7 +26,7 @@ import pytest
 sys.dont_write_bytecode = True
 
 ROOT = Path(__file__).resolve().parents[1]
-DOT = Path(os.environ.get("L5_DOT") or ROOT / "dot-claude")
+DOT = Path(os.environ.get("L5_DOT") or ROOT / "dot-config" / "dot-claude")
 HOOKS = DOT / "hooks"
 PY = "/usr/bin/python3" if os.path.exists("/usr/bin/python3") else sys.executable
 RUN = 1790000000.5                      # a registry `started` stamp
@@ -761,7 +761,7 @@ def test_a_broken_module_fails_open(tmp_path):
 def test_the_installer_stages_tracks_and_compiles_the_module():
     text = (ROOT / "install.sh").read_text()
     sd = load(ROOT / "lib" / "stack_diff.py", "l5_stack_diff")
-    assert sd.staged_files(text).get("hooks/stack_progress.py") == "dot-claude/hooks/stack_progress.py"
+    assert sd.staged_files(text).get("hooks/stack_progress.py") == "dot-config/dot-claude/hooks/stack_progress.py"
     assert '"hooks/stack_progress.py"' in re.search(r"(?s)STACK_SCRIPTS = \[(.*?)\]", text).group(1)
     mods = re.search(r'(?m)^\s*for m in ([^;\n]+); do\n\s*if \[ -f "\$C/hooks/\$m\.py" \]', text)
     assert mods and "stack_progress" in mods.group(1).split()

@@ -2,7 +2,7 @@
 # requires-python = ">=3.8"
 # dependencies = []
 # ///
-"""Calibration of the early-stop rule (dot-claude/hooks/stack_progress.py) by replay of frozen transcripts.
+"""Calibration of the early-stop rule (dot-config/dot-claude/hooks/stack_progress.py) by replay of frozen transcripts.
 
 Read-only over Claude Code transcripts (--root: <project>/<session>/subagents/agent-*.jsonl and the
 .meta.json beside each, for the agent type). Every record goes through stack_progress.feed, the parser the
@@ -45,7 +45,7 @@ import time
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
-HOOKS = ROOT / "dot-claude" / "hooks"
+HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
 sys.path.insert(0, str(HOOKS))
 import stack_progress as sp  # noqa: E402
 

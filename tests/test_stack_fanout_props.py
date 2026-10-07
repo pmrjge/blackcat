@@ -22,7 +22,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MOD = Path(os.environ.get("STACK_FANOUT_UNDER_TEST") or ROOT / "dot-claude" / "hooks" / "stack_fanout.py")
+MOD = Path(os.environ.get("STACK_FANOUT_UNDER_TEST") or ROOT / "dot-config" / "dot-claude" / "hooks" / "stack_fanout.py")
 _spec = importlib.util.spec_from_file_location("stack_fanout_props_target", MOD)
 F = importlib.util.module_from_spec(_spec)
 _spec.loader.exec_module(F)

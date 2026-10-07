@@ -1,5 +1,5 @@
 """The knob table's markers follow the installer: ● marks exactly the env keys install.sh owns
-(OWNED_ENV: reset on every install), ○ the other keys dot-claude/settings.json ships (a default that
+(OWNED_ENV: reset on every install), ○ the other keys dot-config/dot-claude/settings.json ships (a default that
 follows upgrades while unchanged; a changed value is kept). The table is CONFIG.md §5, its only copy;
 the README's Knobs sections point there and list no knob table of their own.
 
@@ -22,7 +22,7 @@ def owned_env():
 
 
 def shipped_env():
-    return set(json.loads((ROOT / "dot-claude" / "settings.json").read_text())["env"])
+    return set(json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())["env"])
 
 
 def readme_marks():
@@ -79,14 +79,14 @@ def test_retired_knobs_are_gone_and_listed_as_retired():
     """A retired knob is shipped nowhere (settings.json, OWNED_ENV, the guard's code, stack_limits,
     BlackCat's prompt) and its §5 row says "retired (<date>)", unmarked."""
     rows, marks = knob_rows(), readme_marks()
-    guard = (ROOT / "dot-claude" / "hooks" / "agent_guard.py").read_text()
+    guard = (ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py").read_text()
     for knob, date in RETIRED.items():
         assert knob not in shipped_env() and knob not in owned_env() and knob not in marks
         assert rows[knob][0] == "retired (%s)" % date, rows.get(knob)
         assert not re.search(r'knob_int\("%s"|environ\.get\("%s"' % (knob, knob), guard)
-        assert knob not in (ROOT / "dot-claude" / "hooks" / "stack_limits.py").read_text()
-        assert knob not in (ROOT / "dot-claude" / "agents" / "blackcat.md").read_text()
-    assert "≤ 8 Agent" not in (ROOT / "dot-claude" / "agents" / "blackcat.md").read_text()
+        assert knob not in (ROOT / "dot-config" / "dot-claude" / "hooks" / "stack_limits.py").read_text()
+        assert knob not in (ROOT / "dot-config" / "dot-claude" / "agents" / "blackcat.md").read_text()
+    assert "≤ 8 Agent" not in (ROOT / "dot-config" / "dot-claude" / "agents" / "blackcat.md").read_text()
 
 
 def test_delegate_only_knob_is_documented_as_a_code_default():
@@ -109,16 +109,16 @@ def test_readme_has_no_knob_table():
 
 
 def test_concurrency_value_is_the_shipped_one_everywhere():
-    """CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS has one source, dot-claude/settings.json (128, the user's
+    """CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS has one source, dot-config/dot-claude/settings.json (128, the user's
     value); CONFIG.md §5, the README, /stack-doctor's threshold and the smoke test follow it."""
-    env = json.loads((ROOT / "dot-claude" / "settings.json").read_text())["env"]
+    env = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())["env"]
     n = env["CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS"]
     assert n == "128" and env["CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH"] == "8"
     assert "| `CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS` ● | %s | 20 |" % n in (ROOT / "CONFIG.md").read_text()
     readme = (ROOT / "README.md").read_text()
     assert "); %s subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`" % n in readme
     assert "Depth 8, %s at once," % n in readme
-    doctor = (ROOT / "dot-claude" / "bin" / "doctor.sh").read_text()
+    doctor = (ROOT / "dot-config" / "dot-claude" / "bin" / "doctor.sh").read_text()
     assert doctor.count("conc >= %s else" % n) == 2 and "the stack ships %s (" % n in doctor
     assert not re.search(r"conc >= (?!%s )\d+" % n, doctor)
     assert 'plan-reviewer=8,equilibrium=9", None, None, "%s", "64")' % n in (ROOT / "tests" / "install_smoke.sh").read_text()

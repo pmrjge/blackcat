@@ -2,8 +2,8 @@
 """Latency of the whole PreToolUse budget hook (`agent_guard.py budget`), one process per event as
 Claude Code runs it, for one or more versions of agent_guard.py side by side (stdlib only).
 
-  /usr/bin/python3 tests/bench_guard_latency.py --guard new=dot-claude/hooks/agent_guard.py \
-      --guard old=/path/to/an/older/checkout/dot-claude/hooks/agent_guard.py [--n 25] [--calls 300]
+  /usr/bin/python3 tests/bench_guard_latency.py --guard new=dot-config/dot-claude/hooks/agent_guard.py \
+      --guard old=/path/to/an/older/checkout/dot-config/dot-claude/hooks/agent_guard.py [--n 25] [--calls 300]
 
 Each label gets its own temp XDG_STATE_HOME, CLAUDE_CONFIG_DIR and a synthetic session laid out like
 ~/.claude/projects/<project>/: a main transcript with 50 API calls and a coder subagent with --calls

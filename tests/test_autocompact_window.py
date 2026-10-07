@@ -1,4 +1,4 @@
-"""autoCompactWindow has one source, dot-claude/settings.json (the installer re-asserts it, the smoke
+"""autoCompactWindow has one source, dot-config/dot-claude/settings.json (the installer re-asserts it, the smoke
 test checks the installed value against it); doctor.sh checks the same value.
 
 Run: uv run --with pytest pytest -q tests/test_autocompact_window.py
@@ -8,7 +8,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-SHIPPED = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+SHIPPED = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
 
 
 def test_shipped_window_is_629k():
@@ -27,7 +27,7 @@ def test_default_valued_keys_stay_pinned():
 
 def test_doctor_checks_the_shipped_value():
     m = re.search(r'autoCompactWindow"\) == (\d+) else warn\)\("autoCompactWindow=%s \(stack: (\d+)\)"',
-                  (ROOT / "dot-claude" / "bin" / "doctor.sh").read_text())
+                  (ROOT / "dot-config" / "dot-claude" / "bin" / "doctor.sh").read_text())
     assert m and int(m.group(1)) == int(m.group(2)) == SHIPPED["autoCompactWindow"]
 
 

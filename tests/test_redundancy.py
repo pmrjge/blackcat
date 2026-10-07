@@ -1,7 +1,7 @@
 """tests/redundancy_lint.py: repeated long sentences, dangling skill/section references, dead hooks.
 
 The repo passes against tests/redundancy_allowlist.json (its TODO entries are the baseline found on
-2026-10-04); each check is proven by a mutation on a copy of dot-claude/ (seed a violation, see the
+2026-10-04); each check is proven by a mutation on a copy of dot-config/dot-claude/ (seed a violation, see the
 lint fail; the near-miss next to it stays clean).
 
 Run: uv run --with pytest pytest -q tests/test_redundancy.py
@@ -24,9 +24,9 @@ EMPTY = {"repeats": [], "refs": [], "hooks": []}
 
 @pytest.fixture
 def repo(tmp_path):
-    """A copy of the parts the lint reads: dot-claude/ and install.sh."""
+    """A copy of the parts the lint reads: dot-config/dot-claude/ and install.sh."""
     root = tmp_path / "repo"
-    shutil.copytree(ROOT / "dot-claude", root / "dot-claude",
+    shutil.copytree(ROOT / "dot-config" / "dot-claude", root / "dot-config" / "dot-claude",
                     ignore=shutil.ignore_patterns("__pycache__", ".DS_Store"))
     shutil.copy2(ROOT / "install.sh", root / "install.sh")
     return root
@@ -53,7 +53,7 @@ def test_repo_has_no_finding_outside_the_allowlist():
 
 def test_cli_exit_codes(repo):
     assert lint.main(["--root", str(ROOT)]) == 0
-    append(repo / "dot-claude" / "agents" / "coder.md", "\nAlso see `no-such-skill-xyz`.\n")
+    append(repo / "dot-config" / "dot-claude" / "agents" / "coder.md", "\nAlso see `no-such-skill-xyz`.\n")
     assert lint.main(["--root", str(repo)]) == 1
 
 
@@ -67,7 +67,7 @@ def test_every_allowlist_entry_has_a_reason():
 
 def test_the_lint_actually_sees_references():
     """Guards against a vacuous pass: the regexes find the repo's real see/load and `x`* refs."""
-    text = (ROOT / "dot-claude" / "agents" / "go-engineer.md").read_text()
+    text = (ROOT / "dot-config" / "dot-claude" / "agents" / "go-engineer.md").read_text()
     assert "go-concurrency" in lint.STAR_RE.findall(text)
     assert lint.REF_RE.search("load `review-protocol` and `proof-craft` (refereeing)")
     assert lint.installer_staged_hooks((ROOT / "install.sh").read_text()) >= {
@@ -81,12 +81,12 @@ SENTENCE = ("Mutation proof: this deliberately long sentence is pasted into seve
 
 
 def test_repeat_in_three_files_fails_two_passes(repo):
-    agents = repo / "dot-claude" / "agents"
+    agents = repo / "dot-config" / "dot-claude" / "agents"
     assert len(lint.normalise(SENTENCE)) >= lint.MIN_CHARS
     for name in ("coder.md", "go-engineer.md"):
         append(agents / name, "\n" + SENTENCE + "\n")
     assert new_findings(repo) == []                       # two files: below MIN_FILES
-    append(repo / "dot-claude" / "skills" / "sqlite" / "SKILL.md", "\n- " + SENTENCE.upper() + "\n")
+    append(repo / "dot-config" / "dot-claude" / "skills" / "sqlite" / "SKILL.md", "\n- " + SENTENCE.upper() + "\n")
     new = new_findings(repo)
     assert len(new) == 1 and "repeat in 3 files" in new[0] and "skills/sqlite/SKILL.md" in new[0]
     # the allowlist silences it
@@ -99,7 +99,7 @@ def test_short_or_fenced_repeats_are_ignored(repo):
     short = "A short repeated sentence stays below the length threshold."
     fenced = "```\n" + SENTENCE + "\n```\n"
     for name in ("coder.md", "go-engineer.md", "rust-engineer.md"):
-        append(repo / "dot-claude" / "agents" / name, "\n" + short + "\n" + fenced)
+        append(repo / "dot-config" / "dot-claude" / "agents" / name, "\n" + short + "\n" + fenced)
     assert new_findings(repo) == []
 
 
@@ -111,7 +111,7 @@ def test_allowlisted_template_still_found_without_allowlist(repo):
 # ---------------------------------------------------------------- (b) refs
 
 def test_dangling_see_load_and_module_refs_fail(repo):
-    agent = repo / "dot-claude" / "agents" / "coder.md"
+    agent = repo / "dot-config" / "dot-claude" / "agents" / "coder.md"
     append(agent, "\nFor this, see `postgresql` and `sqlite`; load `review-protocol`.\n")
     assert new_findings(repo) == []                       # all exist
     append(agent, "\nThen load `review-protocol` and `no-such-skill-b`; see `no-such-skill-a`. "
@@ -123,19 +123,19 @@ def test_dangling_see_load_and_module_refs_fail(repo):
 
 
 def test_external_and_plugin_skills_resolve(repo):
-    append(repo / "dot-claude" / "agents" / "coder.md",
+    append(repo / "dot-config" / "dot-claude" / "agents" / "coder.md",
            "\nLoad `anthropic-skills:pdf` or see `skill-creator`.\n")
     assert new_findings(repo) == []
 
 
 def test_removed_skill_makes_its_refs_dangle(repo):
-    shutil.rmtree(repo / "dot-claude" / "skills" / "test-e2e-playwright")
+    shutil.rmtree(repo / "dot-config" / "dot-claude" / "skills" / "test-e2e-playwright")
     new = new_findings(repo)
     assert any("`test-e2e-playwright` (no such skill)" in n and "agents/test-engineer.md" in n for n in new)
 
 
 def test_section_refs(repo):
-    agent = repo / "dot-claude" / "agents" / "coder.md"
+    agent = repo / "dot-config" / "dot-claude" / "agents" / "coder.md"
     append(agent, "\nSee `postgresql` (Migrations without downtime), `redis` § Locks, "
                   "`numerical-methods` §9 and `container-images` § Runtime hardening.\n")
     assert new_findings(repo) == []                       # real headings
@@ -147,7 +147,7 @@ def test_section_refs(repo):
 
 
 def test_section_after_non_skill_is_not_a_ref(repo):
-    append(repo / "dot-claude" / "agents" / "coder.md",
+    append(repo / "dot-config" / "dot-claude" / "agents" / "coder.md",
            "\nThe `--flag` § Options and see `README.md` (top).\n")
     assert new_findings(repo) == []
 
@@ -155,7 +155,7 @@ def test_section_after_non_skill_is_not_a_ref(repo):
 # ---------------------------------------------------------------- (c) hooks
 
 def test_orphan_hook_fails_until_wired_or_staged(repo):
-    hooks = repo / "dot-claude" / "hooks"
+    hooks = repo / "dot-config" / "dot-claude" / "hooks"
     (hooks / "orphan_hook.py").write_text("print('x')\n")
     new = new_findings(repo)
     assert new == ["hook hooks/orphan_hook.py: not wired in settings.json and not staged by install.sh"]
@@ -167,8 +167,8 @@ def test_orphan_hook_fails_until_wired_or_staged(repo):
 
 
 def test_hook_wired_in_settings_passes(repo):
-    (repo / "dot-claude" / "hooks" / "wired_hook.py").write_text("print('x')\n")
-    s = repo / "dot-claude" / "settings.json"
+    (repo / "dot-config" / "dot-claude" / "hooks" / "wired_hook.py").write_text("print('x')\n")
+    s = repo / "dot-config" / "dot-claude" / "settings.json"
     data = json.loads(s.read_text())
     data["hooks"]["SessionEnd"][0]["hooks"].append(
         {"type": "command", "command": "\"__PYTHON3__\" \"__CLAUDE_DIR__/hooks/wired_hook.py\""})
@@ -187,6 +187,6 @@ def test_unstaged_existing_hook_is_found(repo):
 
 def test_removed_skill_listed_in_an_agents_skills_section_dangles(repo):
     """A plain `name` in `## Skills, if needed` counts (the agents' main way to name a skill)."""
-    shutil.rmtree(repo / "dot-claude" / "skills" / "cpu-performance")
+    shutil.rmtree(repo / "dot-config" / "dot-claude" / "skills" / "cpu-performance")
     new = new_findings(repo)
     assert any("ref agents/go-engineer.md: `cpu-performance` (no such skill)" in n for n in new), new

@@ -8,7 +8,7 @@ import subprocess
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-HOOK = ROOT / "dot-claude" / "hooks" / "web_caps.py"
+HOOK = ROOT / "dot-config" / "dot-claude" / "hooks" / "web_caps.py"
 PY = "/usr/bin/python3"   # the hooks' own interpreter, as in settings.json
 
 
@@ -87,7 +87,7 @@ def test_example_documents_every_knob():
 
 
 def test_settings_wire_the_hook():
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     groups = [g for g in s["hooks"]["PreToolUse"] if "stack-hook\\\" web_caps" in json.dumps(g)]
     assert len(groups) == 1
     pat = re.compile(groups[0]["matcher"])

@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
+GUARD = ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
 PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 
 
@@ -181,9 +181,9 @@ def test_subagent_start_context_is_small_and_never_a_skill_body(env):
     agent, and never text from a SKILL.md (hooks.md caps additionalContext at 10,000; a skill body
     or a per-agent skill table would be paid on every spawn)."""
     START_CONTEXT_MAX = 200
-    skill_lines = {ln.strip() for p in (ROOT / "dot-claude" / "skills").glob("*/SKILL.md")
+    skill_lines = {ln.strip() for p in (ROOT / "dot-config" / "dot-claude" / "skills").glob("*/SKILL.md")
                    for ln in p.read_text(encoding="utf-8").splitlines() if len(ln.strip()) > 40}
-    for a in sorted(p.stem for p in (ROOT / "dot-claude" / "agents").glob("*.md")):
+    for a in sorted(p.stem for p in (ROOT / "dot-config" / "dot-claude" / "agents").glob("*.md")):
         out = hook(start(sid(), "x-" + a, a), env)
         ctx = (out or {}).get("additionalContext", "")
         assert len(ctx) <= START_CONTEXT_MAX, (a, len(ctx))

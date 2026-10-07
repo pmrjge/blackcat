@@ -9,7 +9,7 @@ tmp_path (XDG_STATE_HOME, HOME, cwd), STACK_/BLACKCAT_/CLAUDE_ variables are str
 network. Fixtures: tests/fixtures/reports/*.txt (raw final replies) and expected.json (what each parser must
 read from them).
 
-Mutation seam (how the tests are proven on seeded bugs): S4_DOT names a copy of dot-claude/ with one seeded
+Mutation seam (how the tests are proven on seeded bugs): S4_DOT names a copy of dot-config/dot-claude/ with one seeded
 bug (hooks/, bin/); unset, the real tree is used. Nothing else reads it.
 """
 import importlib.machinery
@@ -30,7 +30,7 @@ import pytest
 sys.dont_write_bytecode = True          # no __pycache__ beside the code under test
 
 ROOT = Path(__file__).resolve().parents[1]
-DOT = Path(os.environ.get("S4_DOT") or ROOT / "dot-claude")
+DOT = Path(os.environ.get("S4_DOT") or ROOT / "dot-config" / "dot-claude")
 HOOKS = DOT / "hooks"
 GUARD = HOOKS / "agent_guard.py"
 TREE = DOT / "bin" / "stack-tree"

@@ -12,7 +12,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-DOT = ROOT / "dot-claude"
+DOT = ROOT / "dot-config" / "dot-claude"
 INSTALL = ROOT / "install.sh"
 SETTINGS = DOT / "settings.json"
 MAGG = DOT / "magg" / "config.json"
@@ -444,7 +444,7 @@ def test_plugin_skills_do_not_equal_stack_skills():
     for plugin in ["document-skills"] + _anthropic_plugins():
         for s in PLUGIN_SKILLS.get(plugin, []):
             if s in stack:
-                bad.append("plugin %s ships skill %r and dot-claude/skills/%s/ also does" % (plugin, s, s))
+                bad.append("plugin %s ships skill %r and dot-config/dot-claude/skills/%s/ also does" % (plugin, s, s))
     assert not bad, "\n".join(bad)
 
 

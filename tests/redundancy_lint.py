@@ -2,7 +2,7 @@
 # /// script
 # requires-python = ">=3.9"
 # ///
-"""Redundancy and dangling-reference lint for dot-claude/ (stdlib only).
+"""Redundancy and dangling-reference lint for dot-config/dot-claude/ (stdlib only).
 
 Three checks, each against an allowlist (tests/redundancy_allowlist.json) of justified repeats and
 known violations; the allowlist's TODO entries are the baseline, so the lint passes today and fails
@@ -16,7 +16,7 @@ on new drift:
            plugin's or Claude Code's own: EXTERNAL_SKILLS, `plugin:skill` with skill in it); a section named as
            `see `x` (Heading)`, `` `x` § Heading`` or `` `x` §N`` must be a heading of x's SKILL.md
            or references/*.md (a prefix of the heading text, case-insensitive, "N." numbering ignored)
-  hooks    every file in dot-claude/hooks is wired in dot-claude/settings.json (`hooks/<file>` in a
+  hooks    every file in dot-config/dot-claude/hooks is wired in dot-config/dot-claude/settings.json (`hooks/<file>` in a
            command) or staged by install.sh (`stage_script ... hooks/<file>` or a `for f in ...` list
            that stages "hooks/$f")
 
@@ -67,7 +67,7 @@ PAREN_RE = re.compile(r"(?i)\b(?:see|load)\s+(?:the\s+)?`(" + SKILL_NAME + r")`\
 
 def scanned_files(root: Path):
     """agent and skill markdown (SKILL.md and references), rules: (relative name, text)."""
-    dot = root / "dot-claude"
+    dot = root / "dot-config" / "dot-claude"
     paths = sorted((dot / "agents").glob("*.md")) + sorted((dot / "skills").rglob("*.md")) \
         + sorted((dot / "rules").glob("*.md"))
     for p in paths:
@@ -75,7 +75,7 @@ def scanned_files(root: Path):
 
 
 def skill_names(root: Path):
-    return {p.parent.name for p in (root / "dot-claude" / "skills").glob("*/SKILL.md")}
+    return {p.parent.name for p in (root / "dot-config" / "dot-claude" / "skills").glob("*/SKILL.md")}
 
 
 # ---------------------------------------------------------------- (a) repeats
@@ -151,7 +151,7 @@ def section_ok(heads, cited: str) -> bool:
 def find_bad_refs(root: Path):
     """[(file, ref, why)] for references that don't resolve. ref: 'name' or 'name § Section'."""
     have = skill_names(root)
-    skills_dir = root / "dot-claude" / "skills"
+    skills_dir = root / "dot-config" / "dot-claude" / "skills"
     heads_cache = {}
 
     def known(name):
@@ -194,8 +194,8 @@ def installer_staged_hooks(install_text: str):
 
 
 def find_dead_hooks(root: Path):
-    """[(file, why)] for dot-claude/hooks files neither wired in settings.json nor staged."""
-    dot = root / "dot-claude"
+    """[(file, why)] for dot-config/dot-claude/hooks files neither wired in settings.json nor staged."""
+    dot = root / "dot-config" / "dot-claude"
     settings = (dot / "settings.json").read_text(encoding="utf-8")
     wired = set(re.findall(r"hooks/([A-Za-z0-9_.-]+)", settings))
     install = root / "install.sh"

@@ -1,7 +1,7 @@
 """hooks/output_shrink.py: the PostToolUse output shrink (Stage 4 lever L2).
 
 Run: uv run --no-project --python 3.13 --with pytest pytest -q tests/test_output_shrink.py
-Every test works on a copy of dot-claude/hooks/output_shrink.py and dot-claude/bin/stack-tree under
+Every test works on a copy of dot-config/dot-claude/hooks/output_shrink.py and dot-config/dot-claude/bin/stack-tree under
 tmp_path, with its own HOME, CLAUDE_PROJECT_DIR and CLAUDE_CONFIG_DIR; nothing in the repository or ~
 is written. OUTPUT_SHRINK_ROOT=<checkout> tests another checkout (the mutation check uses it).
 """
@@ -22,8 +22,8 @@ from types import SimpleNamespace
 import pytest
 
 ROOT = Path(os.environ.get("OUTPUT_SHRINK_ROOT") or Path(__file__).resolve().parents[1])
-HOOKS_SRC = ROOT / "dot-claude" / "hooks"
-BIN_SRC = ROOT / "dot-claude" / "bin"
+HOOKS_SRC = ROOT / "dot-config" / "dot-claude" / "hooks"
+BIN_SRC = ROOT / "dot-config" / "dot-claude" / "bin"
 PY = sys.executable
 _N = itertools.count()
 
@@ -623,7 +623,7 @@ def test_other_events_and_tools_ignored(hk, event, tool):
 
 
 def test_settings_registers_posttooluse_bash_read_only():
-    s = json.loads((ROOT / "dot-claude" / "settings.json").read_text())
+    s = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())
     hooks = s["hooks"]
     found = []
     for ev, entries in hooks.items():
@@ -649,7 +649,7 @@ def test_installer_and_doctor_wire_the_hook():
     assert m and re.search(m.group(1), '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" output_shrink')
     # a direct-interpreter entry (the pre-launcher form) is the stack's too: replaced, never kept as yours
     assert re.search(m.group(1), '"/usr/bin/python3" "/u/.claude/hooks/output_shrink.py"')
-    doc = (ROOT / "dot-claude" / "bin" / "doctor.sh").read_text()
+    doc = (ROOT / "dot-config" / "dot-claude" / "bin" / "doctor.sh").read_text()
     fresh = re.search(r'^for m in \(([^)]*)\):\n    src = os\.path\.join\(h, m \+ "\.py"\)', doc, re.MULTILINE)
     assert fresh and '"output_shrink"' in fresh.group(1)
 

@@ -1,5 +1,5 @@
 {
-  "_doc": "Allowlist of tests/redundancy_lint.py. repeats: 'contains' is a lower-case substring of the normalised sentence; refs: 'ref' is the skill name or 'name § Section' as the lint prints it, 'file' relative to dot-claude/ (omit: any file); hooks: 'file' is the name in dot-claude/hooks. Every entry has a reason; 'TODO:' marks the baseline of violations found on 2026-10-04 (fix the source, then delete the entry; --strict lists entries that match nothing).",
+  "_doc": "Allowlist of tests/redundancy_lint.py. repeats: 'contains' is a lower-case substring of the normalised sentence; refs: 'ref' is the skill name or 'name § Section' as the lint prints it, 'file' relative to dot-config/dot-claude/ (omit: any file); hooks: 'file' is the name in dot-config/dot-claude/hooks. Every entry has a reason; 'TODO:' marks the baseline of violations found on 2026-10-04 (fix the source, then delete the entry; --strict lists entries that match nothing).",
   "repeats": [
     {"contains": "two failed attempts at one failure: status: partial with the evidence and your hypothesis",
      "reason": "language-engineer template: the same escalation line in every <lang>-engineer body by design"},

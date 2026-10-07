@@ -14,8 +14,8 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-GUARD = ROOT / "dot-claude" / "hooks" / "agent_guard.py"
-SETTINGS = ROOT / "dot-claude" / "settings.json"
+GUARD = ROOT / "dot-config" / "dot-claude" / "hooks" / "agent_guard.py"
+SETTINGS = ROOT / "dot-config" / "dot-claude" / "settings.json"
 PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 CTX_MAX = 9000
 

@@ -1,7 +1,7 @@
 """Harness for piping hook events into agent_guard.py with an isolated XDG_STATE_HOME
 (used by tests/test_guard_regressions.py).
 
-GUARD env var selects the hook file (default: dot-claude/hooks/agent_guard.py in this repo).
+GUARD env var selects the hook file (default: dot-config/dot-claude/hooks/agent_guard.py in this repo).
 `Env.run(ev, patch=...)` runs the hook through guard_race_main.py, which wraps named functions
 with a sleep so race windows become deterministic.
 """
@@ -14,7 +14,7 @@ import time
 import uuid
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-GUARD = os.environ.get("GUARD", os.path.join(os.path.dirname(HERE), "dot-claude", "hooks",
+GUARD = os.environ.get("GUARD", os.path.join(os.path.dirname(HERE), "dot-config", "dot-claude", "hooks",
                                              "agent_guard.py"))
 KNOB_PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")
 # The mechanics these tests exercise were written against these caps; the shipped defaults are

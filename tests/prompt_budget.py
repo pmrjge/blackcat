@@ -43,7 +43,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DOT = "dot-claude"
+DOT = "dot-config/dot-claude"
+OLD_DOT = "dot-claude"   # revisions before the repository move (the frozen base ad22962 among them)
 RULES = DOT + "/rules/claude-agent-stack.md"
 CLAUDE_MD_BLOCK = DOT + "/CLAUDE.block.md"   # the stack's block in CLAUDE.md (lib/claude_md_block.py)
 DEFAULT_BASE = "ad22962"   # phase-3 baseline (main after phase 2: 56 agents, 248 skills)
@@ -144,6 +145,13 @@ class Tree:
 
     def __init__(self, rev=None):
         self.rev = rev
+        # the stack's config dir inside this tree: DOT, or OLD_DOT for a revision from before the move
+        self.dot = DOT
+        if rev is not None:
+            r = subprocess.run(["git", "-C", str(ROOT), "ls-tree", "--name-only", rev, DOT + "/"],
+                               capture_output=True, text=True)
+            if not r.stdout.strip():
+                self.dot = OLD_DOT
 
     def read(self, rel):
         if self.rev is None:
@@ -230,31 +238,33 @@ def agent_record(name, text):
 
 def measure(tree):
     agents = {}
-    for rel in tree.list(DOT + "/agents"):
-        if rel.endswith(".md") and rel.count("/") == 2:
+    dot = tree.dot
+    depth = dot.count("/")      # slashes in the config dir's own path
+    for rel in tree.list(dot + "/agents"):
+        if rel.endswith(".md") and rel.count("/") == depth + 2:
             text = tree.read(rel)
             if text is not None:
                 name = rel.rsplit("/", 1)[1][:-3]
                 agents[name] = agent_record(name, text)
     try:
-        settings = json.loads(tree.read(DOT + "/settings.json") or "{}")
+        settings = json.loads(tree.read(dot + "/settings.json") or "{}")
     except ValueError:
         settings = {}
     cap = int(settings.get("skillListingMaxDescChars", 1536))
     overrides = settings.get("skillOverrides") if isinstance(settings.get("skillOverrides"), dict) else {}
     skills = 0
-    for rel in tree.list(DOT + "/skills"):
-        parts = rel.split("/")
-        if len(parts) != 4 or parts[3] != "SKILL.md":
+    for rel in tree.list(dot + "/skills"):
+        parts = rel[len(dot) + 1:].split("/")     # skills/<name>/SKILL.md
+        if len(parts) != 3 or parts[2] != "SKILL.md":
             continue
         text = tree.read(rel) or ""
         head = text.split("---", 2)[1] if text.startswith("---") else ""
         invocable = not re.search(r"(?m)^disable-model-invocation:\s*(true|yes|on|1)\s*$", head)
         d = re.search(r"(?m)^description:\s*(.*)$", head)
-        skills += skill_listing_entry(parts[2], len(unquote(d.group(1))) if d else 0,
-                                      overrides.get(parts[2], "on"), cap, invocable)
-    rules = len(tree.read(RULES) or "")
-    block = claude_md_block_chars(tree.read(CLAUDE_MD_BLOCK))
+        skills += skill_listing_entry(parts[1], len(unquote(d.group(1))) if d else 0,
+                                      overrides.get(parts[1], "on"), cap, invocable)
+    rules = len(tree.read(dot + RULES[len(DOT):]) or "")
+    block = claude_md_block_chars(tree.read(dot + CLAUDE_MD_BLOCK[len(DOT):]))
     listing = sum(a["listing"] for n, a in agents.items() if n != "blackcat")
     bc = agents.get("blackcat")
     allow = set((bc or {}).get("allowlist") or [])

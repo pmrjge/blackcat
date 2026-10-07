@@ -9,7 +9,7 @@ import re
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-DOT = ROOT / "dot-claude"
+DOT = ROOT / "dot-config" / "dot-claude"
 SANDBOX_CACHE = "~/.cache/claude-sandbox"           # settings.json sandbox.filesystem.allowWrite
 OUTPUT_DIR = "__HOME__/.cache/claude-sandbox/playwright-mcp"
 

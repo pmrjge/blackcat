@@ -2,7 +2,7 @@
 # requires-python = ">=3.11"
 # dependencies = ["pandas>=2.2", "numpy>=1.26"]
 # ///
-"""Held-out check of the replay's barrier simulation (dot-claude/hooks/stack_sched.py: cluster_waves,
+"""Held-out check of the replay's barrier simulation (dot-config/dot-claude/hooks/stack_sched.py: cluster_waves,
 simulate_window, WAVE_GAP_S): do recorded waves, startup lags and durations reproduce each window's makespan
 on sessions the parameters were not fitted on?
 
@@ -44,7 +44,7 @@ import argparse, glob, importlib.util, json, math, os, random, re, statistics as
 TESTS = os.path.dirname(os.path.abspath(__file__))
 REPO = os.path.dirname(TESTS)
 sys.path.insert(0, TESTS)
-import derive_thresholds as DT  # noqa: E402  (same transcript parser; puts dot-claude/hooks on sys.path)
+import derive_thresholds as DT  # noqa: E402  (same transcript parser; puts dot-config/dot-claude/hooks on sys.path)
 import stack_sched as SS  # noqa: E402
 
 GRID = (5, 10, 15, 20, 30, 45, 60, 90, 120, 180, 300)

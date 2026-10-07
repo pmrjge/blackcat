@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MOD = ROOT / "dot-claude" / "hooks" / "stack_fanout.py"
+MOD = ROOT / "dot-config" / "dot-claude" / "hooks" / "stack_fanout.py"
 spec = importlib.util.spec_from_file_location("stack_fanout", MOD)
 F = importlib.util.module_from_spec(spec)
 sys.modules["stack_fanout"] = F
@@ -424,11 +424,11 @@ def test_a_node_id_with_a_trailing_newline_is_rejected():
 
 # ---------------------------------------------------------------- parity with stack_sched (copied code)
 def _sched():
-    hooks = str(ROOT / "dot-claude" / "hooks")
+    hooks = str(ROOT / "dot-config" / "dot-claude" / "hooks")
     if hooks not in sys.path:
         sys.path.insert(0, hooks)
     sp = importlib.util.spec_from_file_location("stack_sched_parity",
-                                                ROOT / "dot-claude" / "hooks" / "stack_sched.py")
+                                                ROOT / "dot-config" / "dot-claude" / "hooks" / "stack_sched.py")
     mod = importlib.util.module_from_spec(sp)
     sys.modules["stack_sched_parity"] = mod
     sp.loader.exec_module(mod)

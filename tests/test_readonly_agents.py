@@ -18,7 +18,7 @@ sys.path.insert(0, str(HERE))
 from guard_harness import Env  # noqa: E402
 
 ROOT = HERE.parent
-sys.path.insert(0, str(ROOT / "dot-claude" / "hooks"))
+sys.path.insert(0, str(ROOT / "dot-config" / "dot-claude" / "hooks"))
 import agent_guard as G  # noqa: E402
 
 PROJ = str(ROOT)
@@ -783,7 +783,7 @@ def test_both_wirings_count_one_step_per_call():
 def test_memory_instructions_frame_recalls_as_data():
     import importlib.util
     spec = importlib.util.spec_from_file_location(
-        "neural_memory_mcp_under_test", ROOT / "dot-claude" / "mcp" / "neural_memory_mcp.py")
+        "neural_memory_mcp_under_test", ROOT / "dot-config" / "dot-claude" / "mcp" / "neural_memory_mcp.py")
     mod = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(mod)                 # module level only: no server, no data dir
     text = mod.INSTRUCTIONS
@@ -1124,15 +1124,15 @@ def test_tmpdir_unknown_to_the_hook_stays_unexpanded(monkeypatch):
 
 # ---------------------------------------------------------------- read-only list additions (T4-3)
 @pytest.mark.parametrize("command", [
-    "/usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test",
-    "python3 dot-claude/hooks/agent_guard.py --print-policy",
-    "XDG_STATE_HOME=$(mktemp -d) /usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test",
-    "export XDG_STATE_HOME=$(mktemp -d); python3 dot-claude/hooks/agent_guard.py --self-test",
-    "XDG_STATE_HOME=.claude-work/j/st python3 dot-claude/hooks/agent_guard.py --self-test",
-    "uv run dot-claude/hooks/stack_sched.py plan g.json --json",
-    "python3 dot-claude/hooks/stack_sched.py --model m.json plan g.json --mode release",
-    "python3 dot-claude/hooks/stack_sched.py replay --session abc-1 --graph g.json",
-    "python3 dot-claude/hooks/stack_sched.py replay --session abc --graph g --out .claude-work/j/r.md",
+    "/usr/bin/python3 dot-config/dot-claude/hooks/agent_guard.py --self-test",
+    "python3 dot-config/dot-claude/hooks/agent_guard.py --print-policy",
+    "XDG_STATE_HOME=$(mktemp -d) /usr/bin/python3 dot-config/dot-claude/hooks/agent_guard.py --self-test",
+    "export XDG_STATE_HOME=$(mktemp -d); python3 dot-config/dot-claude/hooks/agent_guard.py --self-test",
+    "XDG_STATE_HOME=.claude-work/j/st python3 dot-config/dot-claude/hooks/agent_guard.py --self-test",
+    "uv run dot-config/dot-claude/hooks/stack_sched.py plan g.json --json",
+    "python3 dot-config/dot-claude/hooks/stack_sched.py --model m.json plan g.json --mode release",
+    "python3 dot-config/dot-claude/hooks/stack_sched.py replay --session abc-1 --graph g.json",
+    "python3 dot-config/dot-claude/hooks/stack_sched.py replay --session abc --graph g --out .claude-work/j/r.md",
     "cc -o .claude-work/j/a a.c", "c++ -std=c++20 -O2 -Wall -o .claude-work/j/a a.cpp",
     "clang++ -fsyntax-only -Iinclude a.cpp", "gcc -E a.c", "g++ -E -o .claude-work/j/a.i a.cpp",
     "clang -o/tmp/a a.c", "gcc -c -o .claude-work/j/a.o a.c", "cc -fsyntax-only -",
@@ -1149,18 +1149,18 @@ def test_readonly_list_additions_pass(command):
 
 @pytest.mark.parametrize("command", [
     # hook CLIs: other modes, other scripts, state outside scratch
-    "python3 dot-claude/hooks/agent_guard.py", "python3 dot-claude/hooks/agent_guard.py session-env",
-    "python3 dot-claude/hooks/agent_guard.py --self-test x",
-    "python3 dot-claude/hooks/agent_guard.py --check-budget t.jsonl",
-    "XDG_STATE_HOME=src python3 dot-claude/hooks/agent_guard.py --self-test",
-    "XDG_STATE_HOME=src; python3 dot-claude/hooks/agent_guard.py --self-test",
-    "python3 dot-claude/hooks/read_gate.py --self-test",
-    "python3 dot-claude/hooks/stack_sched.py next g.json s.json",
-    "python3 dot-claude/hooks/stack_sched.py emit-workflow",
-    "python3 dot-claude/hooks/stack_sched.py replay --session abc --graph g --out src/r.md",
-    "python3 dot-claude/hooks/stack_sched.py replay --session abc --graph g --ou src/r.md",
-    "python3 dot-claude/hooks/stack_sched.py replay --session ../../x --graph g",
-    "python3 dot-claude/hooks/stack_sched.py replay --graph g",
+    "python3 dot-config/dot-claude/hooks/agent_guard.py", "python3 dot-config/dot-claude/hooks/agent_guard.py session-env",
+    "python3 dot-config/dot-claude/hooks/agent_guard.py --self-test x",
+    "python3 dot-config/dot-claude/hooks/agent_guard.py --check-budget t.jsonl",
+    "XDG_STATE_HOME=src python3 dot-config/dot-claude/hooks/agent_guard.py --self-test",
+    "XDG_STATE_HOME=src; python3 dot-config/dot-claude/hooks/agent_guard.py --self-test",
+    "python3 dot-config/dot-claude/hooks/read_gate.py --self-test",
+    "python3 dot-config/dot-claude/hooks/stack_sched.py next g.json s.json",
+    "python3 dot-config/dot-claude/hooks/stack_sched.py emit-workflow",
+    "python3 dot-config/dot-claude/hooks/stack_sched.py replay --session abc --graph g --out src/r.md",
+    "python3 dot-config/dot-claude/hooks/stack_sched.py replay --session abc --graph g --ou src/r.md",
+    "python3 dot-config/dot-claude/hooks/stack_sched.py replay --session ../../x --graph g",
+    "python3 dot-config/dot-claude/hooks/stack_sched.py replay --graph g",
     # compilers: output into the project, programs or plugins they'd run, files of their own
     "cc a.c", "cc -c a.c", "cc -o src/a a.c", "gcc -E -o src/a.i a.c", "cc -osrc/a a.c",
     "cc -o .claude-work/j/a -B .claude-work/evil a.c", "clang @.claude-work/j/rsp",

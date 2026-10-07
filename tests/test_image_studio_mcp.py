@@ -1,4 +1,4 @@
-"""Tests for dot-claude/mcp/image_studio_mcp.py: SVG and edits through OpenRouter, raster images through
+"""Tests for dot-config/dot-claude/mcp/image_studio_mcp.py: SVG and edits through OpenRouter, raster images through
 Opper, the model of each tool set in stack.env and checked against the provider's own model catalog;
 inputs under the size limit; each key only to its own provider; files kept safe.
 
@@ -23,7 +23,7 @@ import httpx
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-MODULE = ROOT / "dot-claude" / "mcp" / "image_studio_mcp.py"
+MODULE = ROOT / "dot-config" / "dot-claude" / "mcp" / "image_studio_mcp.py"
 OP, OR = "https://opper.test", "https://openrouter.test/api/v1"
 KEYS = {"opper.test": "op-test-2", "openrouter.test": "sk-or-test-3"}
 SVG = (b'<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" '

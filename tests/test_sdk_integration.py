@@ -1,5 +1,5 @@
 """Agent SDK integration (Q7): the settings hooks with no TTY and SDK-shaped events, the opt-in JSON
-report line (STACK_REPORT_FORMAT), and the optional helper dot-claude/bin/stack_sdk.py (parser,
+report line (STACK_REPORT_FORMAT), and the optional helper dot-config/dot-claude/bin/stack_sdk.py (parser,
 options, run() over a fake query, nothing loads it).
 
 Run: uv run --python 3.13 --with pytest pytest -q tests/test_sdk_integration.py
@@ -19,7 +19,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-DOT = ROOT / "dot-claude"
+DOT = ROOT / "dot-config" / "dot-claude"
 GUARD = DOT / "hooks" / "agent_guard.py"
 HELPER = DOT / "bin" / "stack_sdk.py"
 PREFIXES = ("STACK_", "BLACKCAT_", "SCREEN_", "STRIP_", "CLAUDE_CODE_MAX")

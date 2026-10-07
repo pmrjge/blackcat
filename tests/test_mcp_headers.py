@@ -1,4 +1,4 @@
-"""Tests for dot-claude/bin/mcp-headers (the headersHelper for remote MCP servers).
+"""Tests for dot-config/dot-claude/bin/mcp-headers (the headersHelper for remote MCP servers).
 
 Run: uv run --with pytest pytest -q tests/test_mcp_headers.py
 """
@@ -11,7 +11,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parents[1]
-HELPER = ROOT / "dot-claude" / "bin" / "mcp-headers"
+HELPER = ROOT / "dot-config" / "dot-claude" / "bin" / "mcp-headers"
 KEYS = ("EXA_API_KEY", "JINA_API_KEY", "HF_TOKEN", "WANDB_API_KEY", "HF_HOME", "HF_TOKEN_PATH",
         "STACK_ENV_FILE", "CLAUDE_CODE_MCP_SERVER_NAME")
 
