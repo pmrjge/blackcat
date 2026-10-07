@@ -3447,9 +3447,10 @@
   "equilibrium/harness/eq_harness.py": {
    "a5_blob": "c667636e7f62e4ea140f4361a1a3ff93a25a3937",
    "amendments": [
-    "A6"
+    "A6",
+    "A7"
    ],
-   "sha256": "b639ce12bf876e3f18424424eee223958da5d330902e5388c8243edce1ad310e"
+   "sha256": "f4729cd4306fcd254237e15363e6fbbe84fb071082e4270795f48d6e37362273"
   }
  },
  "rules": [

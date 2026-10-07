@@ -141,7 +141,7 @@ def test_e_rt_happy_path_argv_consent_env_and_answer(stub_bin: Path, tmp_path: P
     steps = [(s["step"], s["rc"], s["output_tail"]) for s in ledger(tmp_path) if s["record"] == "e_rt"]
     assert a["status"] == "ok", (a.get("reason"), a.get("result_error"), steps)
     assert a["answer"] == {"label": "SUPPORTED", "value": "", "why": "w"}
-    assert a["e_arm"] == "runtime" and a["arm"] == "E" and "not run under E_rt" in a["h5"]
+    assert a["e_arm"] == "runtime" and a["arm"] == "E" and "h5" not in a  # COMPARE_eq §12 A7 removed H5
     assert (a["rt_validated"], a["rt_status_reason"], a["rt_partial"]) == (False, "manual", False)
     assert a["rt_plan_status_reasons"] == ["manual"] and "bundle_mismatch" not in a
     d = Path(a["answer_path"]).parent / "e_rt"

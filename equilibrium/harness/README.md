@@ -269,9 +269,9 @@ uv run --script harness/eq_harness.py rs-grade --stage p --verdicts <file>      
   equilibrium --session-id S` (stack-eq and claude run with `CLAUDECODE` unset). `--stack-eq` defaults to
   `<config>/bin/stack-eq`. The answer is the store's `result.json` (`answer_text`, else `answer`; CP: its selected
   patch applied to a fresh fixture copy). Each stack-eq step is an `e_rt` ledger record; refusals end the item-arm
-  `partial`. H5's forked `none` branch is not run under E_rt (reported as `h5`). When `plan.json`'s bundle differs from
-  the class's expected bundle in `--params` (stage p's `candidate` bundles; required for stage q) the item is recorded
-  as `bundle_mismatch` (no consent, no `start`, no call; excluded from both analysis routes). A `candidate` class
+  `partial`. When `plan.json`'s bundle differs from the class's expected bundle in `--params` (stage p's `candidate`
+  bundles; required for stage q) the item is recorded as `bundle_mismatch` (no consent, no `start`, no call; excluded
+  from both analysis routes). A `candidate` class
   (written by `eq_calibrate.py --stage p` for a complete, eligible p bundle, N* >= 3) is honoured by the runtime in
   `eq-mode: manual` only, labelled unvalidated; `auto` stays refused. Fields: `LEDGER_SCHEMA.md` (`e_rt`,
   `item_arm`, `call` `loo_view`/`loo_exclude`, per-round `attribution`, member-level grades).
