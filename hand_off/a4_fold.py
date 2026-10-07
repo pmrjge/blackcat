@@ -9,7 +9,7 @@ Reads the stream-json output of the probe (and its .err), strips credentials, to
 and prints a Markdown block to paste under A4 item 4 plus one verdict per open question (confirmed, refuted,
 consistent, or unknown when the output does not show it). Read-only; writes nothing unless --out is given.
 
-  uv run --script hand_off/a4_fold.py PROBE.json [--err PROBE.err] [--agent-file dot-claude/agents/writer.md]
+  uv run --script hand_off/a4_fold.py PROBE.json [--err PROBE.err] [--agent-file dot-config/dot-claude/agents/writer.md]
         [--tools-flag Read,Skill,StructuredOutput] [--date YYYY-MM-DD] [--out FILE]
 """
 from __future__ import annotations

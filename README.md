@@ -186,7 +186,7 @@ Three kinds of agent, eight levels below the main thread, one policy hook; the d
 
 | Level | Who runs there | Limit (enforced by) |
 |---|---|---|
-| Main thread | BlackCat (`dot-claude/agents/blackcat.md`; `"agent": "blackcat"` in `settings.json`) | 24 tool calls per prompt, its Agent calls among them and all within 120 s of the first, at most 3 Read calls; no Bash, Write or Edit, also with `STACK_POLICY=off`: it only delegates (`BLACKCAT_MAX_STEPS`, `BLACKCAT_DISPATCH_WINDOW_S`, `BLACKCAT_MAX_READS`, `STACK_BLACKCAT_DELEGATE_ONLY` 1); its children always run in the background (`BLACKCAT_BACKGROUND`) |
+| Main thread | BlackCat (`dot-config/dot-claude/agents/blackcat.md`; `"agent": "blackcat"` in `settings.json`) | 24 tool calls per prompt, its Agent calls among them and all within 120 s of the first, at most 3 Read calls; no Bash, Write or Edit, also with `STACK_POLICY=off`: it only delegates (`BLACKCAT_MAX_STEPS`, `BLACKCAT_DISPATCH_WINDOW_S`, `BLACKCAT_MAX_READS`, `STACK_BLACKCAT_DELEGATE_ONLY` 1); its children always run in the background (`BLACKCAT_BACKGROUND`) |
 | L1 to L7 | Any agent whose `POLICY` row allows the spawn | 3 running children per agent by default, more for coordinators (`STACK_MAX_FANOUT`, `STACK_MAX_FANOUT_BY_TYPE`); 128 subagents running at once per session (`CLAUDE_CODE_MAX_CONCURRENT_SUBAGENTS`; Claude Code's default is 20) |
 | L8 | Leaves by position | cannot spawn (`CLAUDE_CODE_MAX_SUBAGENT_SPAWN_DEPTH=8`) |
 
@@ -210,7 +210,7 @@ that parent runs, addressed by agent id (a name is refused); results move as fil
 the orchestrator owns the job's graph. Agents are told to strip credentials, logins and personal data from what they send, write or hand on
 unless the user's request names that use and recipient (a prompt rule; no hook scrubs messages, briefs
 or files). Subagents read the full rules before their first spawn:
-`dot-claude/skills/prompt-and-brief-design/references/delegation.md`.
+`dot-config/dot-claude/skills/prompt-and-brief-design/references/delegation.md`.
 
 ### Agent tiers and routing
 
@@ -270,7 +270,7 @@ listing's size against its budget: [Prompt budget](#prompt-budget).
 Every hook runs `/bin/sh <config>/bin/stack-hook [--fail-closed] <module>`, which starts the module on
 `<config>/bin/stack-python` (uv's managed Python 3.13) with bytecode compiled at install. A PreToolUse
 guard handler that errors, or cannot start, denies the call; recovery is `./install.sh`
-([CONFIG.md §7](CONFIG.md), "Hook interpreter"). Wiring: `dot-claude/settings.json` → `hooks`.
+([CONFIG.md §7](CONFIG.md), "Hook interpreter"). Wiring: `dot-config/dot-claude/settings.json` → `hooks`.
 
 | Script | Events | Does |
 |---|---|---|
@@ -296,7 +296,7 @@ guard handler that errors, or cannot start, denies the call; recovery is `./inst
 | `stack-who [KEYWORD …] [--running\|--finished] [--type T] [--id PREFIX] [--name N] [--json]` | `"__PYTHON3__" -B ~/.claude/bin/stack-who` (the installer's hook interpreter, `~/.claude/bin/stack-python`), agents whose Bash may run it (not the read-only reviewers) | Read-only view of who is running in this shell's session: one line per agent (id, type, name, state, layer, parent, start, task) for the coordinating layers and the user's terminal; not a messaging directory; redacted, at most 30 lines by default; prints "no agent table" instead of failing |
 | `stack_limits.py show`, `history`, `stability`, `hold`, `freeze`, `rollback`, `propose`, … | `~/.claude/hooks/`, your terminal | Inspect or pin the learned limits; changes reach the next session's snapshot |
 | `stack_usage.py status`, `runs`, `refresh`, `propose` | `~/.claude/hooks/`, your terminal | Collector state, per-agent runs, a manual refit, drift report |
-| `stack_sched.py plan`, `next`, `replay` | `uv run --script dot-claude/hooks/stack_sched.py` | Scheduler advisor: waves for a task graph; a report tool that no hook reads |
+| `stack_sched.py plan`, `next`, `replay` | `uv run --script dot-config/dot-claude/hooks/stack_sched.py` | Scheduler advisor: waves for a task graph; a report tool that no hook reads |
 | `agent_guard.py delegations [session] [--json]`, `--print-policy`, `--self-test` | `/usr/bin/python3 ~/.claude/hooks/agent_guard.py` | The delegation ledger; the spawn table; the guard's own checks |
 | `claude-ninja` (a link in `~/.local/bin`); `claude-ultracode <agent>` | `~/.claude/bin/claude-ultracode` | ninja-coder (or any agent) as your main thread at ultracode, starting in Plan (`--permission-mode plan` unless you pass a mode) |
 | `stack_sdk.py "task" --agent … --max-turns … --budget-usd …` | `~/.claude/bin/` | The stack from an Agent SDK app ([Your own Agent SDK app](#your-own-agent-sdk-app)) |
@@ -347,7 +347,7 @@ the first line, not a guarantee ([Security model](#security-model)).
 
 ### Reliability and verification
 
-From the global rules (`dot-claude/rules/claude-agent-stack.md`), summarised in
+From the global rules (`dot-config/dot-claude/rules/claude-agent-stack.md`), summarised in
 [Review protocol and reports](#review-protocol-and-reports):
 
 - **Self-check:** a builder runs tests, linters and type checks on what it changed and re-reads its diff
@@ -484,7 +484,7 @@ and the hook strips a per-call `model`). The alias is the reference; it resolves
 `ANTHROPIC_DEFAULT_<FAMILY>_MODEL`, which `stack.env` sets and the installer copies into
 `settings.json` (CONFIG.md section 2). An agent file's `effort` applies only when the
 agent runs as a subagent; the main thread uses the session's level (`/effort medium` for BlackCat).
-The tables are generated from `dot-claude/agents/*.md` frontmatter. "Does" is shortened from each
+The tables are generated from `dot-config/dot-claude/agents/*.md` frontmatter. "Does" is shortened from each
 agent's `description`. Spawn rows ("May spawn") live in `POLICY` in `agent_guard.py` ([CONFIG.md](CONFIG.md) §4).
 
 <details>
@@ -616,7 +616,7 @@ Details: [CONFIG.md](CONFIG.md) §7, "Equilibrium runtime".
 
 ### Skills: hubs, modules, references
 
-220 skills in `dot-claude/skills/`, in three shapes (counts from `tests/test_skill_modules.py`'s own
+220 skills in `dot-config/dot-claude/skills/`, in three shapes (counts from `tests/test_skill_modules.py`'s own
 parser):
 
 | Shape | Count | What it is | Caps (`tests/test_skill_modules.py`) |
@@ -649,7 +649,7 @@ time, which the clean-finish line uses.
 
 ### Review protocol and reports
 
-From the global rules (`dot-claude/rules/claude-agent-stack.md`, "Self-check and review" and
+From the global rules (`dot-config/dot-claude/rules/claude-agent-stack.md`, "Self-check and review" and
 "Reporting"):
 
 - **Self-check.** A builder checks its own work once before reporting: tests, linters and type checks on
@@ -738,7 +738,7 @@ plain `"schedule"` would hide Claude Code's own cloud-routines `/schedule`. Plug
 
 ### Guard hooks
 
-`dot-claude/hooks/agent_guard.py` is the single policy hook. A PreToolUse handler that errors denies
+`dot-config/dot-claude/hooks/agent_guard.py` is the single policy hook. A PreToolUse handler that errors denies
 the call (fail closed), and so does its PreToolUse entry when the hook cannot start (`--fail-closed`;
 `STACK_POLICY=off` lifts that, never for `no-push`). Every hook command runs through `bin/stack-hook` on
 `bin/stack-python` (Python 3.13).
@@ -1064,10 +1064,10 @@ With `--with-eq-container` (off by default) two steps run between 10 and 11; nei
 the images, eq-container's records and the WALL's state and audit logs alone, and names how to remove
 them ([CONFIG.md](CONFIG.md) §7 "Container isolation and the WALL").
 
-The harness these images isolate is tracked in [`equilibrium/`](equilibrium/README.md). It holds the agent-equilibrium
+The harness these images isolate is tracked in [`dot-config/dot-equilibrium/`](dot-config/dot-equilibrium/README.md). It holds the agent-equilibrium
 experiment: design, pre-registration, the seven item pools with their oracles, and the harness with its tests. It is
 pre-freeze, and nothing in it has made a paid call. Its tests run in their own pytest process from a scratch copy, with
-`EQ_CONTAINER_DIR=<repo>/lib/eq-container` (`equilibrium/README.md`, Tests).
+`EQ_CONTAINER_DIR=<repo>/lib/eq-container` (`dot-config/dot-equilibrium/README.md`, Tests).
 
 Other flags: `--config-dir PATH`, `--no-prompt`, `--restore [DIR] [--force]`, `--write-through-links`,
 `--no-mcp`, `--no-plugins`, `--no-anthropic-plugins`, `--keep-plugin-duplicates`, `--replace-mcp`, `--no-deps`, `--mcp-plan`,
@@ -1081,7 +1081,7 @@ staging, pruning and the manifest.
 `~/.claude/CLAUDE.md` stays yours. The installer owns one block in it, from the line
 `<!-- claude-agent-stack: begin ... -->` to `<!-- claude-agent-stack: end -->`: one line naming the
 stack's global rules (`rules/claude-agent-stack.md`) and the repo that installs them
-(`dot-claude/CLAUDE.block.md`). With no `CLAUDE.md` the run creates one holding only the block;
+(`dot-config/dot-claude/CLAUDE.block.md`). With no `CLAUDE.md` the run creates one holding only the block;
 otherwise the block goes after your text, one blank line between, and later runs rewrite it in place.
 Every byte outside the two marker lines stays as it is: write your own instructions there. An edit
 inside the block is replaced (listed under `replaced:`; the backup keeps your version). A symlinked or
@@ -1145,28 +1145,28 @@ The user commands and typical workflows are under [Usage](#usage).
 ```bash
 bash ~/.claude/bin/doctor.sh                                   # installed health check (= /stack-doctor)
 /usr/bin/python3 ~/.claude/bin/stack-tree --help              # agent tree of the newest session (= /stack-tree)
-~/.claude/bin/stack-python dot-claude/hooks/agent_guard.py --self-test   # the hook on the hooks' own interpreter
+~/.claude/bin/stack-python dot-config/dot-claude/hooks/agent_guard.py --self-test   # the hook on the hooks' own interpreter
 uv run tests/lint_agents.py                                    # frontmatter, POLICY ↔ "May spawn", skills, listing budget, model IDs (skips .claude-work/)
 ~/.claude/venvs/tools/bin/python -m pytest -q tests/                # full suite (the tools venv from install.sh)
 bash tests/install_smoke.sh                                    # hermetic installer runs; run it outside any sandbox
 uv run --script tests/prompt_budget.py --check                 # prompt-budget gates
 ```
 
-`doctor.sh` checks the config dir it sits in, so run the installed copy, not `dot-claude/bin/doctor.sh`
-(that one would check the repo's `dot-claude/`). `install_smoke.sh` uses a fake `claude`, a scratch
+`doctor.sh` checks the config dir it sits in, so run the installed copy, not `dot-config/dot-claude/bin/doctor.sh`
+(that one would check the repo's `dot-config/dot-claude/`). `install_smoke.sh` uses a fake `claude`, a scratch
 config dir and a scratch `XDG_STATE_HOME`, and fingerprints the real `~/.claude` before and after; the
 Claude Code sandbox refuses parts of it, so run it from your own terminal.
 
 The counts in this README come from the files:
 
 ```bash
-ls dot-claude/agents/*.md | wc -l                             # 57 agents
-ls dot-claude/skills/*/SKILL.md | wc -l                       # 220 skills
-ls dot-claude/skills/*/references/*.md | wc -l                # 182 references
-jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-claude/settings.json   # 104 hidden: 89 hub modules + 7 bundled + 8 claude.ai
-jq '[.skillOverrides[] | select(. == "name-only")] | length' dot-claude/settings.json   # 96 listed by name only
-jq '.servers | length' dot-claude/magg/config.json            # 23 catalog servers
-grep -h '^  - [a-z-]*:$' dot-claude/agents/*.md | sort -u | wc -l   # 17 inline servers
+ls dot-config/dot-claude/agents/*.md | wc -l                             # 57 agents
+ls dot-config/dot-claude/skills/*/SKILL.md | wc -l                       # 220 skills
+ls dot-config/dot-claude/skills/*/references/*.md | wc -l                # 182 references
+jq '[.skillOverrides[] | select(. == "user-invocable-only")] | length' dot-config/dot-claude/settings.json   # 104 hidden: 89 hub modules + 7 bundled + 8 claude.ai
+jq '[.skillOverrides[] | select(. == "name-only")] | length' dot-config/dot-claude/settings.json   # 96 listed by name only
+jq '.servers | length' dot-config/dot-claude/magg/config.json            # 23 catalog servers
+grep -h '^  - [a-z-]*:$' dot-config/dot-claude/agents/*.md | sort -u | wc -l   # 17 inline servers
 uv run python -c "import sys; sys.path.insert(0, 'tests'); import test_skill_modules as t; h, m = t.hubs_and_modules(); print(len(h), len(m))"   # 28 hubs, 104 modules
 ```
 
@@ -1204,7 +1204,7 @@ rc, and `claude mcp remove -s user exa` (and `jina`, `wolfram`, `huggingface`, `
 
 ### Codex CLI
 
-`codex_config/` is a separate installer that ports the stack to the OpenAI Codex CLI (profile `codex`, an optional IDE mode and an optional machine-wide tier). It leaves this installer and `~/.claude` untouched, and installing it is your step. What it installs, the user steps, every flag, and what is enforced and what is advisory: [codex_config/README.md](codex_config/README.md); the design: [codex_config/DESIGN.md](codex_config/DESIGN.md).
+`dot-config/dot-codex_config/` ports the stack to the OpenAI Codex CLI (profile `codex`, an optional IDE mode and an optional machine-wide tier). The only entry point is `./install.sh --codex [args]` (for example `./install.sh --codex --codex-home DIR`); it leaves the Claude install and `~/.claude` untouched, and installing it is your step. What it installs, the user steps, every flag, and what is enforced and what is advisory: [dot-config/dot-codex_config/README.md](dot-config/dot-codex_config/README.md); the design: [dot-config/dot-codex_config/DESIGN.md](dot-config/dot-codex_config/DESIGN.md).
 
 ## Usage
 
@@ -1355,7 +1355,7 @@ The magg catalog keys reach mcp-broker's magg through `bin/with-stack-env --only
 
 ### Knobs
 
-Set in `settings.json` → `env`. The table (defaults, ownership marks, why) is [CONFIG.md](CONFIG.md) §5; the remaining code-only defaults are in `dot-claude/hooks/agent_guard.py`'s docstring.
+Set in `settings.json` → `env`. The table (defaults, ownership marks, why) is [CONFIG.md](CONFIG.md) §5; the remaining code-only defaults are in `dot-config/dot-claude/hooks/agent_guard.py`'s docstring.
 
 ### Installer and session environment
 
@@ -1383,7 +1383,7 @@ Set in `settings.json` → `env`. The table (defaults, ownership marks, why) is 
 | Plugin | Marketplace | State | How to enable |
 |---|---|---|---|
 | `pyright-lsp`, `typescript-lsp`, `rust-analyzer-lsp`, `clangd-lsp`, `gopls-lsp`, `swift-lsp`, `jdtls-lsp`, `kotlin-lsp` | `claude-plugins-official` | Enabled by the installer when the server binary is on `PATH` | `./install.sh --with-lsp` installs pyright, typescript-language-server, rust-analyzer (rustup's component, else Homebrew), jdtls (Homebrew, in step 2) and kotlin-lsp (Homebrew cask), and ends by naming why any server is still missing; gopls comes with step 2's Go group, clangd and sourcekit-lsp with Xcode's Command Line Tools |
-| `haskell-lsp`, `julia-lsp`, `lean-lsp`, `metals-lsp` | `agent-stack` (`dot-claude/stack-plugins/`) | Enabled when `haskell-language-server-wrapper`, LanguageServer.jl, `lake` or `metals` exist | `--with-lsp` uses ghcup, julia or cs when present; Lean needs elan |
+| `haskell-lsp`, `julia-lsp`, `lean-lsp`, `metals-lsp` | `agent-stack` (`dot-config/dot-claude/stack-plugins/`) | Enabled when `haskell-language-server-wrapper`, LanguageServer.jl, `lake` or `metals` exist | `--with-lsp` uses ghcup, julia or cs when present; Lean needs elan |
 | `document-skills` | `anthropic-agent-skills` | Installed; disabled where claude.ai already syncs docx/xlsx/pptx/pdf | `--keep-plugin-duplicates` keeps both |
 | `mcp-server-dev`, `session-report`, `skill-creator`, `math-olympiad` (install.sh `ANTHROPIC_PLUGINS`; skills only) | `claude-plugins-official` | Installed by default; one already enabled is left alone, one you disabled stays off, one you uninstalled (`claude plugin uninstall`) stays out; skill-creator is skipped where claude.ai syncs it. The manifest records `plugins_installed` and `plugins_missing` (offline: `/stack-doctor` warns until a later run installs them) | `--no-anthropic-plugins` skips them; `--restore` does not uninstall (`claude plugin uninstall <id> --scope user`) |
 
@@ -1622,7 +1622,7 @@ source of truth.
   (`input, timestamp, agent, status, eflag, result, evidence, files, next`); `status` may be `failed`;
   unset, the prompt does not change (the default `observe` only records).
 - Details, the TypeScript form and what is unverified:
-  `dot-claude/skills/claude-code-extensions/references/agent-sdk.md`. Cost and cold-start probe (real
+  `dot-config/dot-claude/skills/claude-code-extensions/references/agent-sdk.md`. Cost and cold-start probe (real
   API calls): `uv run --script tests/sdk_smoke.py`.
 
 ## Troubleshooting
@@ -1655,13 +1655,23 @@ outside this repository).
 
 ## Contributing and safety
 
-- **Change the repo, not the install.** `dot-claude/` mirrors `~/.claude/`. Edit here, then run
+Repository layout (the installed trees are unchanged):
+
+```
+dot-config/
+  dot-claude/          mirrors ~/.claude (agents, skills, hooks, settings.json, ...)
+  dot-codex_config/    the Codex CLI port (installed through ./install.sh --codex)
+  dot-equilibrium/     the Equilibrium experiment and harness
+install.sh  lib/  tests/  tools/  docs/  hand_off/
+```
+
+- **Change the repo, not the install.** `dot-config/dot-claude/` mirrors `~/.claude/`. Edit here, then run
   `./install.sh` yourself; agents never edit the installed copy, and the guard refuses Bash writes to it.
 - **Keep the gates green** before a commit: `uv run tests/lint_agents.py`,
-  `uv run --script tests/prompt_budget.py --check`, `/usr/bin/python3 dot-claude/hooks/agent_guard.py --self-test`
+  `uv run --script tests/prompt_budget.py --check`, `/usr/bin/python3 dot-config/dot-claude/hooks/agent_guard.py --self-test`
   and the suite (`~/.claude/venvs/tools/bin/python -m pytest -q tests/`; `bash tests/install_smoke.sh`
   from your own terminal), plus the equilibrium harness suite in its own pytest process from a scratch copy
-  ([equilibrium/README.md](equilibrium/README.md), Tests). Details: [Verify](#verify). The collector upgrade tests in
+  ([dot-config/dot-equilibrium/README.md](dot-config/dot-equilibrium/README.md), Tests). Details: [Verify](#verify). The collector upgrade tests in
   `tests/test_stack_usage.py` read older commits: in a clone without them (or an export without `.git`)
   they are skipped with a note. `prompt_budget.py --check` then takes its base from
   `tests/fixtures/prompt_budget_base.json`.

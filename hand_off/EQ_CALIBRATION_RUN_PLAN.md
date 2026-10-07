@@ -1,6 +1,6 @@
 # EQ calibration run plan (Phase 4): for the USER's approval
 
-Drafted 2026-10-06 (branch `eqr-calib`), from `docs/RUNTIME_EQUILIBRIUM.md` §7 and §11 and `equilibrium/COMPARE_eq.md`
+Drafted 2026-10-06 (branch `eqr-calib`), from `docs/RUNTIME_EQUILIBRIUM.md` §7 and §11 and `dot-config/dot-equilibrium/COMPARE_eq.md`
 §12 A6-A8 (A7 and A8: 2026-10-07). **No agent runs any step of this plan.** Every paid step is the USER's, from a
 logged-in terminal, after the consent asked at that time. Agents build and test the code at $0 and analyse the frozen
 data afterwards.
@@ -20,9 +20,9 @@ multiplier m = 2, D11 keep the EG arm.
 |---|---|---|---|
 | 0.1 | Harness changes of A6: E2 forks (`--resume <round-0> --fork-session`, `parent_session_id`, per-branch CP workdirs), `model_ids` per call, per-agent models (D3), the p6 and p7 cells, the `cell`/`branch` fields, mediator `attribution` per round | harness part | stub run and harness tests green |
 | 0.2 | Member-level grading: `grading_results/members/<CLS>.jsonl` (PF and CP hidden tests per member copy, RS rubric per distinct answer) and `members/CR_findings.jsonl` (per finding: matched bug or null, verdict, `n_seeded`); the format is read by `eq_calibrate.py` (its docstring) | harness part | a stub stage produces both files |
-| 0.3 | A6, A7 (H5 removed) and A8 (E7 for a cell pass) accepted by the USER and in the package (they are in `equilibrium/COMPARE_eq.md` §12) | USER | text read and accepted |
+| 0.3 | A6, A7 (H5 removed) and A8 (E7 for a cell pass) accepted by the USER and in the package (they are in `dot-config/dot-equilibrium/COMPARE_eq.md` §12) | USER | text read and accepted |
 | 0.4 | c0 collected (`COMPARE_eq.md` §0): `eq_freeze.sh` refuses otherwise | USER | `FROZEN_AT.txt` of c0 exists |
-| 0.5 | Cell rows into the schedule, then freeze. `uv run --script equilibrium/harness/eq_harness.py schedule --items equilibrium/items --stage p --cells p6,p7 --out equilibrium/harness/schedule.tsv` appends 40 p6 and 20 p7 rows (the tracked 240 arm rows stay a byte prefix); commit it (a coder or the USER; never pushed); then `bash equilibrium/harness/eq_freeze.sh`, which copies and pins `schedule.tsv`: `run` and eq_check E7 read the frozen copy, so cell rows added after the freeze never run | USER | `$EQ/COMPARE_eq.sha256` written; `$EQ/schedule.tsv` holds the p6 and p7 rows |
+| 0.5 | Cell rows into the schedule, then freeze. `uv run --script dot-config/dot-equilibrium/harness/eq_harness.py schedule --items dot-config/dot-equilibrium/items --stage p --cells p6,p7 --out dot-config/dot-equilibrium/harness/schedule.tsv` appends 40 p6 and 20 p7 rows (the tracked 240 arm rows stay a byte prefix); commit it (a coder or the USER; never pushed); then `bash dot-config/dot-equilibrium/harness/eq_freeze.sh`, which copies and pins `schedule.tsv`: `run` and eq_check E7 read the frozen copy, so cell rows added after the freeze never run | USER | `$EQ/COMPARE_eq.sha256` written; `$EQ/schedule.tsv` holds the p6 and p7 rows |
 | 0.6 | For q only (later): Phase 2 runtime built, reviewed and installed (`./install.sh`, the USER), because E_rt is the runtime | main-coder, reviewers, USER | `stack-eq` and the guard's eq rules live |
 
 Shell set-up for every step (one terminal, no other Claude Code session running, `COMPARE_eq.md` §5):
@@ -51,7 +51,7 @@ checked before every item by E11 (ledger Σ `total_cost_usd` + 4B ≤ ceiling).
 | 8. Calibration grading (member-level RS answers, CR findings) | §3 below | 0.50 | ≤ 5.00 (≤ 10 calls) | every key and finding the rules need is graded (`report.v<k>.json` `skipped` is empty) |
 | **pilot + calibration** | | | **740.61** (exact cap sum 700.11) | **G1: `eq_calibrate.py --stage p` (§4), then the USER's go for q** |
 | 9. E_rt smoke: 1 dev item, headless leader | `claude -p --agent equilibrium --max-budget-usd 0.50 …` through the harness's E_rt arm (§5) | 0.50 | 0.50 | hooks fire in headless `--agent` mode; background resumes complete; the consent file is honoured; whether `--max-budget-usd` counts subagents |
-| 10. Confirmation q, per primary class (153 items × 4 arms) | `uv run --script "$H" run --stage q --e-arm runtime --params equilibrium/calibration/params.json --spend-ok` (§5: p's params installed first) | B_k(q) = (N\*/5) × $2 per item-arm | 1,224.00 per class at N\* = 5 (4B rule; exact 1,178.10); see §6 for N\* and rule 3 | stop rules of §10; no interim look |
+| 10. Confirmation q, per primary class (153 items × 4 arms) | `uv run --script "$H" run --stage q --e-arm runtime --params dot-config/dot-equilibrium/calibration/params.json --spend-ok` (§5: p's params installed first) | B_k(q) = (N\*/5) × $2 per item-arm | 1,224.00 per class at N\* = 5 (4B rule; exact 1,178.10); see §6 for N\* and rule 3 | stop rules of §10; no interim look |
 | 11. (removed) | H5 and its `none` branch left the pre-registration (COMPARE_eq §12 A7, 2026-10-07): nothing runs here | — | 0 | — |
 | 12. q grading | §3 below on stage q | 0.50 | ≈ 7.50 per RS or CR class (≈ 15 calls); PF CP ES $0 | κ ≥ 0.6 |
 | **confirmation, 2 classes** | | | **2,448.00** at N\* = 5, B = $2 (+ ≈ 15 grading) | **G2: `eq_calibrate.py --stage q`, then Phase 5** |
@@ -73,12 +73,12 @@ done >> "$EQ/runs/p/CONFIG.txt"
 # real package, whose DISPATCH_LOG it would append to) and that package's frozen schedule.tsv (E4: the sidecar
 # verifies; E7: the item is the next one there). RS-DEV1's p6/p7 rows come along for step 3.
 S=$(mktemp -d) && cp -pR equilibrium "$S/stage"                     # this checkout's staged tree
-uv run --script equilibrium/harness/eq_harness.py schedule --items equilibrium/items --stage d --cells p6,p7 \
+uv run --script dot-config/dot-equilibrium/harness/eq_harness.py schedule --items dot-config/dot-equilibrium/items --stage d --cells p6,p7 \
   --out "$S/d.tsv"
 awk -F'\t' 'NR == 1 || $3 == "RS-DEV1"' "$S/d.tsv" > "$S/stage/harness/schedule.tsv"   # 4 arm rows + p6, p7
-jq '.B_usd |= map_values("0.50")' equilibrium/harness/flags.json > "$S/stage/harness/flags.json"
+jq '.B_usd |= map_values("0.50")' dot-config/dot-equilibrium/harness/flags.json > "$S/stage/harness/flags.json"
 export EQ_M="$PWD" EQ_ROOT="$S/eq"             # eq_freeze.sh and eq_check.sh: this checkout's c0, the smoke package
-EQ_STAGE_DIR="$S/stage" bash equilibrium/harness/eq_freeze.sh
+EQ_STAGE_DIR="$S/stage" bash dot-config/dot-equilibrium/harness/eq_freeze.sh
 uv run --script "$S/eq/eq_harness.py" config --stage p --eq-root "$S/eq" --ceiling 5
 #   then the agent_sha256_* loop above, appending to "$S/eq/runs/p/CONFIG.txt"
 uv run --script "$S/eq/eq_harness.py" run --stage p --eq-root "$S/eq" --raw-root "$S/raw" --spend-ok   # step 2
@@ -119,14 +119,14 @@ pre-registered (`eq_analyse.py`, `eq_route2.py`); totals must agree within 1 %.
 ## 4. Calibrate p (zero spend; G1)
 
 ```sh
-uv run --script equilibrium/harness/eq_calibrate.py --stage p --eq-root "$EQ" \
+uv run --script dot-config/dot-equilibrium/harness/eq_calibrate.py --stage p --eq-root "$EQ" \
   --amendment A9 --reason "pilot calibration: p6 N sweep, p7 rounds and LOO views"
 ```
 
 It refuses (exit 2, nothing written) an unfrozen or altered stage: the sidecar and every `pool.sha256` must verify,
 `FROZEN_AT.txt` must name this sidecar, `MANIFEST.sha256` and `TRANSCRIPTS.sha256` must verify, the live ledger must
 equal its frozen copy, and route 2 (transcripts) must agree within 1 % on every member call used. It writes
-`equilibrium/calibration/params.v1.json`, `params.json`, the sidecar, a history line and `report.v1.json`. A class
+`dot-config/dot-equilibrium/calibration/params.v1.json`, `params.json`, the sidecar, a history line and `report.v1.json`. A class
 whose p bundle is complete and eligible (N\* >= 3) gets status `candidate` (manual only, unvalidated; COMPARE_eq §12
 A6 (e)); every other class stays `not_run`. p tests nothing; the version holds N\*, rounds\*, the LOO variant, the
 certainty signal, caps, model ids and the USD conversion. The data-scientist then writes the pilot amendment (A9, the
@@ -137,15 +137,15 @@ and **the USER decides whether q runs** (go/no-go G1): a class with N\* = 1 is n
 
 ```sh
 # before q: the runtime must resolve p's candidate bundles (else every E_rt item-arm is bundle_mismatch, recorded as done)
-cp equilibrium/calibration/params.json dot-claude/hooks/eq_params.json
+cp dot-config/dot-equilibrium/calibration/params.json dot-config/dot-claude/hooks/eq_params.json
 ~/.claude/venvs/tools/bin/python -m pytest -q tests/test_eq_params_pin.py
-git add dot-claude/hooks/eq_params.json && git commit   # a coder or the USER; never pushed
+git add dot-config/dot-claude/hooks/eq_params.json && git commit   # a coder or the USER; never pushed
 ./install.sh                                            # the USER; doctor: params pin ok, classes candidate
 uv run --script "$H" config --stage q --ceiling <q ceiling from §6>   # then the same agent_sha256_* lines
 uv run --script "$H" schedule --items "$EQ/items" --stage q --primary <K1[,K2]> --n <n> --out <q>/schedule.tsv
-uv run --script "$H" run --stage q --e-arm runtime --params equilibrium/calibration/params.json --spend-ok  # S*, G, E_rt, EG
+uv run --script "$H" run --stage q --e-arm runtime --params dot-config/dot-equilibrium/calibration/params.json --spend-ok  # S*, G, E_rt, EG
 bash "$EQ/eq_freeze.sh" --collect q                                      # then §3 on stage q
-uv run --script equilibrium/harness/eq_calibrate.py --stage q --primary <K1[,K2]> --eq-root "$EQ" \
+uv run --script dot-config/dot-equilibrium/harness/eq_calibrate.py --stage q --primary <K1[,K2]> --eq-root "$EQ" \
   --amendment A10 --reason "confirmation"
 ```
 
@@ -197,9 +197,9 @@ count (the $100 is a buffer).
 ## 7. Phase 5: ship the validated params (zero spend)
 
 ```sh
-cp equilibrium/calibration/params.json dot-claude/hooks/eq_params.json
+cp dot-config/dot-equilibrium/calibration/params.json dot-config/dot-claude/hooks/eq_params.json
 ~/.claude/venvs/tools/bin/python -m pytest -q tests/test_eq_params_pin.py     # byte copy, sidecar, chain, schema
-git add equilibrium/calibration dot-claude/hooks/eq_params.json && git commit   # a coder or the USER; never pushed
+git add dot-config/dot-equilibrium/calibration dot-config/dot-claude/hooks/eq_params.json && git commit   # a coder or the USER; never pushed
 ./install.sh                                                                    # the USER
 ```
 

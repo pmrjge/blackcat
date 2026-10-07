@@ -150,7 +150,7 @@ A2 Preview, writes nothing (needs the clone on `main`, which it is):
 cd "$D" && ./install.sh --dry-run
 ```
 
-Optional, read-only: what differs between the clone's `dot-claude/` and what is installed now:
+Optional, read-only: what differs between the clone's `dot-config/dot-claude/` and what is installed now:
 
 ```sh
 cd "$D" && ./install.sh --diff

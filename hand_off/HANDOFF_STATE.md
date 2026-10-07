@@ -183,7 +183,7 @@ git -C /Users/pmrj/ZDone/claude-agent-stack log --oneline -3
 ```
 
 ```bash
-grep -n '^tools:' /Users/pmrj/ZDone/claude-agent-stack/dot-claude/agents/orchestrator.md
+grep -n '^tools:' /Users/pmrj/ZDone/claude-agent-stack/dot-config/dot-claude/agents/orchestrator.md
 ```
 
 ```bash

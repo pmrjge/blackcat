@@ -8,7 +8,7 @@ spec = importlib.util.spec_from_file_location("a4_fold", HERE.parent / "a4_fold.
 a4 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(a4)
 
-WRITER = HERE.parent.parent / "dot-claude" / "agents" / "writer.md"
+WRITER = HERE.parent.parent / "dot-config" / "dot-claude" / "agents" / "writer.md"
 SID = "123e4567-e89b-12d3-a456-426614174000"
 
 
