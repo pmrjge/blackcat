@@ -2700,7 +2700,7 @@ def e_rt_prompt(item: Item, run8: str, flags: Mapping[str, Any]) -> str:
 
 
 BUNDLE_KEYS = ("member_type", "member_model_id", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps")
-BUNDLE_REQUIRED = ("member_type", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps")
+BUNDLE_REQUIRED = BUNDLE_KEYS  # = eq_policy.CANDIDATE_REQUIRED: a candidate/validated bundle has no null key
 E_RT_PARAM_STATUSES = ("candidate", "validated")  # USER decision 2026-10-06: q's E_rt runs p's `candidate` bundle
 
 

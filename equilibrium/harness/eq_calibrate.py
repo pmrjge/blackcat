@@ -16,9 +16,10 @@ Steps (§7.3): 1 verify the freeze (COMPARE_eq.sha256 lines, every items/<CLS>/p
 and MANIFEST.sha256, the live ledger equal to the frozen copy, A6 in the frozen COMPARE_eq.md) or refuse (exit 2);
 2 (p) N* from the p6 nested sweep, rounds* from p7 (RS, ES) and p3 (PF, CP repair), the LOO-view variant from p7, the
 certainty signal and its <= 3 isotonic bins; an eligible, complete p bundle gets status `candidate` (q's E_rt runs it,
-manual mode only; USER decision 2026-10-06), else not_run; 3 (q) H1/H2 with Holm and the ship rule -> status, H4 -> reducer, H5,
-the certainty AUROC CI and bin accuracies re-estimated (signal and cut points kept from p); 4 caps, model ids and the
-USD conversion from member calls, with the transcript route (route 2) agreeing within 1 % on every member call used;
+manual mode only; USER decision 2026-10-06), else not_run; 3 (q) H1/H2 with Holm and the ship rule -> status,
+H4 -> reducer, H5, the certainty AUROC CI and bin accuracies re-estimated (signal and cut points kept from p); 4
+caps, model ids and the USD conversion from member calls, with the transcript route (route 2) agreeing within 1 % on
+every member call used;
 5 write params.v<k>.json, params.json, params.json.sha256, one params.history.jsonl line and report.v<k>.json.
 
 Seeds (COMPARE_eq §8.4 derivation 20261004 ^ int(sha256(tag)[:8], 16), checked at import): eq|nstar 4122099631 (N*),
@@ -1426,7 +1427,10 @@ def calibrate_p(st: Stage, cal: Cal, frozen: dict[str, Any], route2_on: bool,
     return {"schema": SCHEMA, "version": -1, "created_utc": created_utc, "provenance": prov, "classes": classes}, report
 
 
-CANDIDATE_REQUIRED = ("member_type", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps", "pool")
+# eq_policy.CANDIDATE_REQUIRED (the runtime refuses a candidate with any of them null; params.schema.json too),
+# plus pool (the calibration names the pool it selected on)
+CANDIDATE_REQUIRED = ("member_type", "member_model_id", "N", "rounds", "view", "loo_view", "reducer", "tau", "t",
+                      "caps", "pool")
 
 
 def candidate_ok(e: dict[str, Any]) -> bool:

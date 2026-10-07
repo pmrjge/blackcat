@@ -305,3 +305,6 @@ def test_eq_store_dir_and_bundle_helpers() -> None:
     p = {"classes": {"RS": {**BUNDLE, "status": "candidate"}, "CP": {**BUNDLE, "status": "not_run"}}}
     assert eh.expected_bundle_problems(p, ["RS"]) == []
     assert "CP: status 'not_run'" in eh.expected_bundle_problems(p, ["CP", "RS"])[0]
+    for k in eh.BUNDLE_KEYS:  # every bundle key non-null, member_model_id included (eq_policy.CANDIDATE_REQUIRED)
+        q = {"classes": {"RS": {**BUNDLE, "status": "candidate", k: None}}}
+        assert eh.expected_bundle_problems(q, ["RS"]) == [f"RS: bundle keys {[k]} are null"]

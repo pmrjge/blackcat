@@ -14,10 +14,10 @@ from collections.abc import Iterator
 from pathlib import Path
 from typing import Any
 
-import eq_mediator as em
 import pytest
 
 import eq_harness as eh
+import eq_mediator as em
 from conftest import FIXT_FLAGS, ITEMS, run_harness, stub_env
 
 N = 5
