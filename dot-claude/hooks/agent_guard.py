@@ -11555,17 +11555,20 @@ def wrapper_invoked(command):
         k, wrapper = 0, None
         while k < len(words):
             low = words[k].lower()
+            # a wrapper by its path too (/usr/bin/env); its value options compare as typed: env -C DIR takes a
+            # value, sudo -H and -P do not (folded, they matched -h HOST and -p PROMPT and hid the next word)
+            name = low.rstrip("/").rsplit("/", 1)[-1]
             if wrapper == "env" and low in ("-s", "--split-string") and k + 1 < len(words):
                 if "stack-install" in words[k + 1].lower():
                     return True                 # env -S 'stack-install ...': one string, split by env
                 k += 2
                 continue
-            if wrapper and low in TOOLSMITH_VALUE_OPTS.get(wrapper, ()):
+            if wrapper and words[k] in TOOLSMITH_VALUE_OPTS.get(wrapper, ()):
                 k += 2
                 continue
-            if low in TOOLSMITH_PREFIX_WORDS:
-                wrapper = low
-            if low in TOOLSMITH_PREFIX_WORDS or low[:1] in "-+" or low[:1].isdigit() or \
+            if name in TOOLSMITH_PREFIX_WORDS:
+                wrapper = name
+            if name in TOOLSMITH_PREFIX_WORDS or low[:1] in "-+" or low[:1].isdigit() or \
                     re.match(r"[a-z_][a-z0-9_]*\+?=", low):
                 k += 1
                 continue

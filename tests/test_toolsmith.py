@@ -1027,6 +1027,22 @@ def test_more_spellings_of_a_call_are_refused_to_others(command, state):
     assert out and out["permissionDecision"] == "deny", command
 
 
+@pytest.mark.parametrize("command", [
+    "env -C /tmp %s list" % WRAPPER, "env -P /usr/bin %s list" % WRAPPER, "/usr/bin/env -u X %s list" % WRAPPER,
+    "/usr/bin/timeout -s KILL 30 %s list" % WRAPPER, "/usr/bin/nice -n 5 %s list" % WRAPPER,
+    "/usr/bin/env -C /tmp -P /bin stack-install list", "sudo -H %s list" % WRAPPER, "sudo -P %s list" % WRAPPER])
+def test_upper_case_value_options_and_wrapper_paths_are_refused_to_others(command, state):
+    """T11b Open 3: the wrapper's value options were compared lower-cased, so env -C DIR / -P PATH (and sudo -C, -U)
+    never matched and DIR was read as the command word, while sudo -H / -P (no value) matched -h / -p and hid the
+    executor as their value; a wrapper named by its path was not a wrapper."""
+    out = decision(run_hook(command, "coder", XDG_STATE_HOME=str(state)))
+    assert out and out["permissionDecision"] == "deny", command
+
+
+@pytest.mark.parametrize("command", ["env -C /tmp ls %s" % WRAPPER, "/usr/bin/env -u X git log -- %s" % WRAPPER])
+def test_the_executor_as_an_argument_after_a_wrapper_is_allowed(command, state):
+    assert decision(run_hook(command, "coder", XDG_STATE_HOME=str(state))) is None, command
+
 def test_a_commit_message_naming_the_executor_is_allowed(state):
     """code review MEDIUM: heredoc bodies are data, not commands (a body fed to a shell stays sandboxed)."""
     cmd = "git commit -q -F - <<'EOF'\ntoolsmith: review fixes\n\n- stack-install now refuses taps\nEOF"
