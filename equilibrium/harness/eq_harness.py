@@ -4487,8 +4487,8 @@ def cmd_run(a: argparse.Namespace) -> int:
         print("run: --no-check is allowed only for the dry run (stage d)", file=sys.stderr)
         return 2
     cells = [c for c in (a.cells or "").split(",") if c]
-    if any(c not in CELLS for c in cells) or (cells and a.stage == "q"):
-        print(f"run: --cells takes {CELLS} (stage p or d), got {a.cells!r}", file=sys.stderr)
+    if any(c not in CELLS for c in cells) or len(set(cells)) != len(cells) or (cells and a.stage == "q"):
+        print(f"run: --cells takes distinct values of {CELLS} (stage p or d), got {a.cells!r}", file=sys.stderr)
         return 2
     if a.e_arm == "runtime" and a.stage == "p":
         print("run: --e-arm runtime is the confirmation's E arm (stage q, or the dry run d), not the pilot's",
@@ -4610,8 +4610,9 @@ def _run_items(a: argparse.Namespace, flags: dict[str, Any], sched: list[Schedul
             continue
         if a.max_items is not None and n_items >= a.max_items:
             break
-        if not a.no_check:
-            cp = subprocess.run(["bash", str(check), item_id, a.stage], check=False, shell=False)
+        if not a.no_check:  # a cell pass names its cells: eq_check E7 then reads the ledger (COMPARE_eq §12 A8)
+            cp = subprocess.run(["bash", str(check), item_id, a.stage, *([",".join(a.cells)] if a.cells else [])],
+                                check=False, shell=False)
             if cp.returncode != 0:
                 print(f"run: eq_check.sh FAIL for {item_id}; stopping", file=sys.stderr)
                 return 1

@@ -3456,9 +3456,10 @@
    "a5_blob": "c667636e7f62e4ea140f4361a1a3ff93a25a3937",
    "amendments": [
     "A6",
-    "A7"
+    "A7",
+    "A8"
    ],
-   "sha256": "f4729cd4306fcd254237e15363e6fbbe84fb071082e4270795f48d6e37362273"
+   "sha256": "3081c94a65293e1211f8964a21a30448f4cf83a15b1feb6ed31a031ed4f8c65f"
   }
  },
  "rules": [

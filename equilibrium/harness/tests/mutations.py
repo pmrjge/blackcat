@@ -621,6 +621,12 @@ MUTATIONS: list[tuple[str, str, str, Any, str, list[str]]] = [
     ("M168", "eq_check: <cells> is refused at stage q", "eq_check.sh",
      'if [ -n "$CELLS" ] && [ "$STAGE" = q ]; then', "if false; then",
      ["test_shell.py::test_check_refuses_a_bad_cells_argument"]),
+    ("M169", "run --cells passes its cells to eq_check.sh", "eq_harness.py",
+     'item_id, a.stage, *([",".join(a.cells)] if a.cells else [])]', "item_id, a.stage]",
+     ["test_shell.py::test_cell_pass_runs_through_eq_check_after_the_arm_pass"]),
+    ("M170", "run --cells takes distinct cells", "eq_harness.py",
+     "or len(set(cells)) != len(cells) or (cells and", "or (cells and",
+     ["test_cells.py::test_run_cells_refusals"]),
     # COMPARE_eq §12 A4 (ids A4m*: kept apart from the numbered series)
     ("A4m1", "A4: the tool list goes on --tools", "eq_harness.py",
      '    argv += ["--tools", tools_value(allowed_tools)]\n', "",

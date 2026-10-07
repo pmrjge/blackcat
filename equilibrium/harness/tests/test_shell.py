@@ -13,7 +13,7 @@ from pathlib import Path
 import pytest
 
 import eq_harness as eh
-from conftest import FIXT, HARNESS, ITEMS, STAGE
+from conftest import FIXT, FIXT_FLAGS, HARNESS, ITEMS, STAGE, run_harness, stub_env
 
 SID = "0f8fad5b-d9cb-469f-a165-70867728950e"
 
@@ -384,6 +384,46 @@ def test_freeze_refuses_a_broken_pool(staged: dict[str, Path]) -> None:
     (staged["stage"] / "items" / "RS" / "manifest.jsonl").write_text("tampered\n")
     cp = sh([str(HARNESS / "eq_freeze.sh")], freeze_env(staged))
     assert cp.returncode == 1 and "pool RS does not verify" in cp.stderr and not staged["eq"].exists()
+
+
+def test_cell_pass_runs_through_eq_check_after_the_arm_pass(staged: dict[str, Path]) -> None:
+    """COMPARE_eq §12 A8 end to end at $0 (the run plan's smoke recipe with the stub): a one-dev-item package with its
+    p6/p7 rows frozen by eq_freeze.sh, `config`, the arm pass, then `run --stage p --cells p6,p7`. The harness passes
+    the cells to eq_check.sh, E7 takes the cell rule, and both cell rows run (before A8 the cell pass stopped at E7)."""
+    st, tmp = staged["stage"], staged["tmp"]
+    env = stub_env(staged["bin"], tmp, EQ_M=str(staged["m"]), EQ_HOME=str(staged["home"]))
+    allp = tmp / "sched.all.tsv"
+    assert run_harness(["schedule", "--items", str(ITEMS), "--stage", "d", "--cells", "p6,p7", "--out", str(allp)],
+                       env).returncode == 0
+    lines = allp.read_text().splitlines()
+    (st / "harness" / "schedule.tsv").write_text(
+        "\n".join([lines[0], *[ln for ln in lines[1:] if ln.split("\t")[2] == "RS-DEV1"]]) + "\n")
+    fl = dict(FIXT_FLAGS)
+    fl["B_usd"] = {c: "0.50" for c in fl["B_usd"]}
+    (st / "harness" / "flags.json").write_text(json.dumps(fl))
+    seq = tmp / "smoke-eq"
+    fz = subprocess.run(["bash", str(st / "harness" / "eq_freeze.sh")], capture_output=True, text=True, check=False,
+                        env={**env, "EQ_STAGE_DIR": str(st), "EQ_ROOT": str(seq), "EQ_RAW": str(tmp / "rawc")})
+    assert fz.returncode == 0, fz.stderr
+
+    def h(*args: str) -> subprocess.CompletedProcess[str]:
+        return subprocess.run(["uv", "run", "--script", "--quiet", str(seq / "eq_harness.py"), *args],
+                              env={**env, "EQ_ROOT": str(seq)}, capture_output=True, text=True, check=False)
+
+    assert h("config", "--stage", "p", "--eq-root", str(seq), "--ceiling", "5").returncode == 0
+    base = ["run", "--stage", "p", "--eq-root", str(seq), "--raw-root", str(tmp / "raw"), "--spend-ok"]
+    cp = h(*base)
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    cp = h(*base, "--cells", "p6,p7")
+    assert cp.returncode == 0, cp.stdout + cp.stderr
+    assert "PASS E7 RS-DEV1 is next in the p6,p7 pass" in cp.stdout, cp.stdout
+    recs = eh.read_ledger(seq / "runs" / "p" / "ledger.jsonl")
+    labels = sorted(r["label"] for r in recs if r.get("record") == "item_arm" and r.get("item") == "RS-DEV1")
+    assert labels == ["p1", "p2", "p3", "p4", "p6", "p7"], labels
+    log = (seq / "runs" / "p" / "DISPATCH_LOG.tsv").read_text().splitlines()
+    assert [ln.split("\t")[1:3] for ln in log[1:]] == [["RS-DEV1", "PASS"], ["RS-DEV1", "PASS"]]
+    cp = h(*base, "--cells", "p6,p7")  # nothing left: no check, no call
+    assert cp.returncode == 0 and len((seq / "runs" / "p" / "DISPATCH_LOG.tsv").read_text().splitlines()) == 3
 
 
 def test_fixture_pool_is_untouched() -> None:

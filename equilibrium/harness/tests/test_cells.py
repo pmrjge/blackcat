@@ -247,9 +247,11 @@ def test_p7_is_skipped_without_p3_round0(stub_bin: Path, tmp_path: Path) -> None
 
 def test_run_cells_refusals(cells_run: dict[str, Any]) -> None:
     tmp, env, sched = cells_run["tmp"], cells_run["env"], cells_run["sched"]
-    cp = run_harness(run_args(tmp, sched, "--only", "RS-DEV1", "--cells", "p6,p8"), env)
-    assert cp.returncode == 2 and "--cells takes" in cp.stderr, cp.stderr
     n = len(ledger_of(tmp))
+    for bad in ("p6,p8", "p6,p6"):  # p6,p6 ran before A8 (eq_check.sh now refuses a repeated cell: refuse it here)
+        cp = run_harness(run_args(tmp, sched, "--only", "RS-DEV1", "--cells", bad), env)
+        assert cp.returncode == 2 and "--cells takes" in cp.stderr, (bad, cp.stderr)
+        assert len(ledger_of(tmp)) == n
     cp = run_harness(["run", "--stage", "q", "--eq-root", str(tmp / "eq"), "--raw-root", str(tmp / "raw"), "--items",
                       str(ITEMS), "--flags", str(tmp / "flags.json"), "--schedule", str(sched), "--cells", "p6"], env)
     assert cp.returncode == 2 and "--cells takes" in cp.stderr, cp.stderr

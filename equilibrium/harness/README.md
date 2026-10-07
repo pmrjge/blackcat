@@ -260,8 +260,11 @@ uv run --script harness/eq_harness.py rs-grade --stage p --verdicts <file>      
 - **Forks.** Round k of a member forks its LATEST session (r1 forks round 0, r2 forks r1's fork), so round-0 sessions
   stay pristine for p7 (COMPARE_eq §12 A6 implementation note (a)). The E arm's view variant is flags `loo_view`
   (default `none` = the pre-registered shared summary, byte-identical).
-- **`--cells`** takes `p6`, `p7` (stage p or d), **`--primary`/`--n`** are stage q's only, **`--e-arm runtime`** is
-  refused for stage p (E_rt is the confirmation's E arm).
+- **`--cells`** takes `p6`, `p7` (distinct; stage p or d), **`--primary`/`--n`** are stage q's only, **`--e-arm
+  runtime`** is refused for stage p (E_rt is the confirmation's E arm). A cell pass passes its cells to `eq_check.sh`
+  (`<ITEM> <stage> p6,p7`): E7 then needs every arm row done in the ledger, takes the first item in schedule order
+  with a not-done cell row, and refuses a cell row whose calls started (COMPARE_eq §12 A8). So the cell pass runs
+  after the whole arm pass, and a skipped p7 row (no p3 round 0 yet) holds the pass at its item.
 - **E_rt** (headless leader mode; the runtime's own members, not harness sessions): per item the harness makes the
   session uuid S and run id R, writes the leader prompt (`eq-run: R`, `eq-mode: manual`, the problem), runs
   `stack-eq plan --run R --headless --session S --brief-file F`, writes the consent file (0600, token `Run eq:R` and
