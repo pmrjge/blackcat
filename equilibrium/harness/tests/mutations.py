@@ -213,7 +213,7 @@ MUTATIONS: list[tuple[str, str, str, Any, str, list[str]]] = [
      "            os.killpg(p.pid, signal.SIGKILL)", "            p.kill()",
      ["test_eqsec_proofs.py::test_m5_timeout_kills_process_tree"]),
     ("M53", "M6 member env is an allow-list", "eq_harness.py",
-     "env=member_env(self.flags, self.stub))", "env=None)",
+     "else member_env(self.flags, self.stub))", "else None)",
      ["test_eqsec_proofs.py::test_m6_member_env_has_no_harness_secrets"]),
     ("M54", "M7 bounded digits in refs (no int() blow-up)", "eq_mediator.py",
      'm = re.fullmatch(r"(.+?):(\\d{1,9})(?:-\\d{1,9})?", ref.strip())',
