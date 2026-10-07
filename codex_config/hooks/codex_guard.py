@@ -2192,6 +2192,10 @@ GIT_COMMAND_OPTS = {
                            "--msg-filter", "--commit-filter", "--tag-name-filter", "--setup")),
 }
 
+# every short option of these subcommands that takes a value (git 2.54 `git <sub> -h`): a cluster ends
+# at the first of them
+GIT_CMD_SHORT_VALUE = {"clone": "obucj", "ls-remote": "ou", "difftool": "tx", "archive": "o"}
+
 
 def _git_command_values(sub, args):
     """The command strings `git <sub> args` runs through the shell (upload-pack programs,
@@ -2210,12 +2214,22 @@ def _git_command_values(sub, args):
             if not eq:
                 val, k = (args[k] if k < len(args) else ""), k + 1
             out.append(val)
-        elif a[:1] == "-" and a[:2] != "--" and len(a) >= 2 and a[1] in shorts:
-            val = a[2:]
-            if not val:
-                val, k = (args[k] if k < len(args) else ""), k + 1
-            out.append(val)
+        elif a[:1] == "-" and a[:2] != "--":
+            hit = _short_value(a, GIT_CMD_SHORT_VALUE.get(sub, "") + shorts)
+            if hit is None:
+                continue
+            if not hit[1]:                     # the value is the next word
+                hit, k = (hit[0], args[k] if k < len(args) else ""), k + 1
+            if hit[0] in shorts:
+                out.append(hit[1])
     return out
+
+
+def _short_value(a, letters):
+    """A short-option cluster (-qc..., -lqu'cmd'): (letter, attached value) of its first letter in
+    `letters` (the options that take a value: the cluster ends there), or None."""
+    j = next((j for j in range(1, len(a)) if a[j] in letters), 0)
+    return (a[j], a[j + 1:]) if j else None
 
 
 def _git_file_values(sub, args):
@@ -2298,10 +2312,15 @@ def _clone_config(args):
         if a[:2] == "--" and len(name) >= 3 and "--config".startswith(name):
             if not eq:
                 val, k = (args[k] if k < len(args) else ""), k + 1
-        elif a[:2] == "-c":
-            val = a[2:]
-            if not val:
+        elif a[:1] == "-" and a[:2] != "--":
+            hit = _short_value(a, GIT_CMD_SHORT_VALUE["clone"])
+            if hit is None:
+                continue
+            val = hit[1]
+            if not val:                        # the value is the next word
                 val, k = (args[k] if k < len(args) else ""), k + 1
+            if hit[0] != "c":
+                continue
         else:
             continue
         key, _, value = val.partition("=")
