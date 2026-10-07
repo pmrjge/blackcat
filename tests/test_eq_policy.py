@@ -370,6 +370,10 @@ def candidate_entry(**kw):
     return e
 
 
+# the contract the harness (eq_calibrate, T11a) writes to: these keys non-null in a candidate entry, the rest nullable
+CANDIDATE_BUNDLE = ("member_type", "member_model_id", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps")
+
+
 def test_candidate_entry_validates_with_its_bundle_and_nulls_elsewhere():
     assert "candidate" in P.STATUSES and "candidate" in P.STATUS_REASONS
     assert P.validate_params(params(CP=candidate_entry())) == []
@@ -380,7 +384,7 @@ def test_candidate_entry_validates_with_its_bundle_and_nulls_elsewhere():
             continue
         bad["classes"]["CP"][key] = None
         errs = P.validate_params(bad)
-        if key in P.CANDIDATE_REQUIRED:
+        if key in CANDIDATE_BUNDLE:
             assert any("%s is null in a candidate entry" % key in e for e in errs), key
         else:
             assert errs == [], key
