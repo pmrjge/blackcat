@@ -15,7 +15,9 @@
 set -euo pipefail
 umask 077
 
-# the only entry point is the repository's ./install.sh --codex, which sets STACK_CODEX_VIA_TOP=1
+# the only entry point is the repository's ./install.sh --codex, which sets STACK_CODEX_VIA_TOP=1. A usage guard,
+# not a security boundary: anyone can set the variable, and agent_guard's install rule recognises only the top-level
+# ./install.sh, so a direct run with the variable set is guarded no more than this file was before the move
 if [ "${STACK_CODEX_VIA_TOP:-}" != 1 ]; then
   echo "use ./install.sh --codex [options] from the repository root: dot-config/dot-codex_config/install.sh is not an entry point" >&2
   exit 2
@@ -63,7 +65,9 @@ DRY_RUN=0; DIFF=0; RESTORE=""; FORCE=0; FORCE_CONFIG=0; ASSUME_YES=0; NO_PROMPT=
 CH_SET=0; CH_ARG=""; SKILLS_ROOT=""; PROFILE_NAME=codex
 NO_AGENTS_MD=0; NO_MCP=0; LEGACY_SANDBOX=0; GIT_ALLOW=0; NO_ESCALATION=0; ROLLOUT=0
 IDE=""; NO_ASTRA=0; PRINT_REQ=0; DOCTOR=0
-need_val() { [ "$1" -ge 2 ] || usage_err "$2 needs a value"; }
+# a value never starts with '-' (as the top-level --config-dir): `--codex-home --dry-run --yes` must not install while
+# naming --dry-run (agent_guard's install rule reads that argv as a dry run); ./-name or --opt=VALUE for such a path
+need_val() { [ "$1" -ge 2 ] || usage_err "$2 needs a value"; case "$3" in ""|-*) usage_err "$2 needs a value" ;; esac; }
 while [ $# -gt 0 ]; do
   case "$1" in
     --dry-run) DRY_RUN=1 ;;
@@ -76,11 +80,11 @@ while [ $# -gt 0 ]; do
     --force-config) FORCE_CONFIG=1 ;;
     --yes|-y) ASSUME_YES=1 ;;
     --no-prompt) NO_PROMPT=1 ;;
-    --codex-home) need_val $# --codex-home; CH_SET=1; CH_ARG=$2; shift ;;
+    --codex-home) need_val $# --codex-home "${2-}"; CH_SET=1; CH_ARG=$2; shift ;;
     --codex-home=*) CH_SET=1; CH_ARG=${1#*=} ;;
-    --skills-root) need_val $# --skills-root; SKILLS_ROOT=$2; shift ;;
+    --skills-root) need_val $# --skills-root "${2-}"; SKILLS_ROOT=$2; shift ;;
     --skills-root=*) SKILLS_ROOT=${1#*=} ;;
-    --profile-name) need_val $# --profile-name; PROFILE_NAME=$2; shift ;;
+    --profile-name) need_val $# --profile-name "${2-}"; PROFILE_NAME=$2; shift ;;
     --profile-name=*) PROFILE_NAME=${1#*=} ;;
     --no-agents-md) NO_AGENTS_MD=1 ;;
     --no-mcp) NO_MCP=1 ;;

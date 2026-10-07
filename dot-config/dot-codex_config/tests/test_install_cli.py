@@ -132,6 +132,20 @@ def test_other_profile_names_are_refused_with_the_reason(env):
     assert run(env, "--dry-run", "--profile-name=codex").returncode != 2
 
 
+@pytest.mark.parametrize("opt", ["--codex-home", "--skills-root", "--profile-name"])
+def test_an_option_never_takes_the_next_option_as_its_value(env, opt):
+    """A value never starts with '-' (as the top-level --config-dir): else `./install.sh --codex --codex-home --dry-run
+    --yes` installs (into ./--dry-run) while its argv names --dry-run, which agent_guard's install rule reads as a dry
+    run. A path starting with '-' is written ./-name or --opt=VALUE."""
+    (env["tmp"] / "--dry-run").mkdir()
+    before = codex_home_state(env)
+    r = run(env, opt, "--dry-run", "--yes")
+    assert r.returncode == 2, r.stderr
+    assert f"{opt} needs a value" in r.stderr and "usage: ./install.sh --codex" in r.stderr, r.stderr
+    assert codex_home_state(env) == before and not env["log"].exists()
+    assert run(env, "--codex-home", "").returncode == 2
+
+
 def test_never_passes_allow_dirty(env):
     code = [ln for ln in (CODEX_CONFIG / "install.sh").read_text().splitlines() if not ln.lstrip().startswith("#")]
     assert not [ln for ln in code if "--allow-dirty" in ln]
