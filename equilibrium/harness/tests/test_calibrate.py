@@ -939,6 +939,24 @@ def test_adapter_reads_cell_branch_parent_model_ids_and_attribution(fxp: Fx):
     assert any(c.cell == "p6" and c.member == 9 for c in st.calls)
 
 
+def test_adapter_skips_mediator_records_of_a_branch(fx: Fx):
+    """p7's mediator records carry `branch` (cell_tag): four branches per item-arm, none of them the arm's own LOO
+    attribution or result. read_stage keeps only branch-less, node-less records."""
+    collect = fx.collect
+    fx.collect = lambda stage: None  # type: ignore[method-assign]
+    build_p(fx, p7=False)
+    for v in cal.VARIANTS:  # written after the arm's own lines: without the filter they would win
+        fx.mediator("p", "RS-1", "p7", "attribution", round=0, loo={}, pivotal=[], cell="p7", branch=v,
+                    **{"lambda": 0.1})
+        fx.mediator("p", "RS-1", "p7", "result", answer=B, reducers={"R0": B}, cell="p7", branch=v)
+        fx.mediator("p", "RS-1", "p3", "attribution", round=0, loo={}, pivotal=[], cell="p7", branch=v,
+                    **{"lambda": 0.2})
+    collect("p")
+    st = cal.read_stage(fx.eq, "p", fx.raw, [])
+    assert ("RS-1", "p7") not in st.attribution and ("RS-1", "p7") not in st.results
+    assert st.attribution[("RS-1", "p3")][0]["lambda"] == pytest.approx(0.6)  # the arm's own round-0 line
+
+
 def test_p5_calls_are_refused(fx: Fx):
     build_p(fx)
     shutil.rmtree(fx.eq / "runs/p")

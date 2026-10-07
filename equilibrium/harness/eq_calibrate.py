@@ -425,8 +425,8 @@ def read_stage(eq_root: Path, stage: str, raw_root: Path | None, warnings: list[
     med_root = inp / "mediator"
     for p in sorted(med_root.glob("*/*/mediator.jsonl")) if med_root.is_dir() else []:
         for r in ea.read_jsonl(p, warnings):
-            if r.get("node") is not None:
-                continue
+            if r.get("node") is not None or r.get("branch") is not None:
+                continue  # E-nodes, and p7's forked branches (four per item-arm: never the arm's own LOO or result)
             k = (str(r.get("item")), str(r.get("label")))
             if r.get("record") == "attribution" and isinstance(r.get("round"), int):
                 attribution[k][int(r["round"])] = {"loo": r.get("loo"), "lambda": num(r.get("lambda")),
