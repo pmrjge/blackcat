@@ -295,7 +295,8 @@ GIT_COMMAND_VALUES = [
     "git -c protocol.ext.allow=always fetch 'ext::sh -c git% push% origin% main'",
     "git -c protocol.allow=always clone 'ext::sh -c x' d",
     "GIT_ALLOW_PROTOCOL=ext git ls-remote 'ext::sh -c git% push'",
-    "GIT_ALLOW_PROTOCOL=file:ext git fetch o",
+    "GIT_ALLOW_PROTOCOL=file:ext git fetch o", "GIT_ALLOW_PROTOCOL=ext git fetch o",
+    "git -c url.ext::sh.insteadOf=x: -c protocol.ext.allow=always fetch x:y",
     "git fetch 'ext::sh -c git% push'", "git remote add o 'ext::sh -c x'",
     "git config remote.o.url 'ext::sh -c x'", "git config protocol.ext.allow always",
     "git archive --remote=ext::sh% -c% x HEAD",
@@ -320,13 +321,18 @@ def test_git_command_values_are_scanned(command):
     assert (G.remote_write_in(command) or (None,))[0] in ("push", "forge", "opaque"), command
 
 
-@pytest.mark.parametrize("command", [
+# the same option families without a push (codex_config/tests/test_guard_nopush.py reads this list too)
+GIT_COMMAND_VALUES_SAFE = [
     "git fetch origin", "git ls-remote origin", "git difftool HEAD~1", "git filter-branch --help",
     "git clone https://github.com/a/b", "git fetch --upload-pack=git-upload-pack origin",
     "git difftool -x 'diff -u' HEAD", "git filter-branch --msg-filter cat HEAD",
     "git -c protocol.ext.allow=never fetch o", "GIT_ALLOW_PROTOCOL=https:ssh git fetch o",
     "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=x git commit -m m",
-    "git -c trailer.x.key=Signed git commit -m m"])
+    "git -c trailer.x.key=Signed git commit -m m",
+]
+
+
+@pytest.mark.parametrize("command", GIT_COMMAND_VALUES_SAFE)
 def test_git_command_values_without_push_pass(command):
     assert G.remote_write_in(command) is None, command
 
