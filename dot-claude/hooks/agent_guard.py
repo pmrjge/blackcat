@@ -646,25 +646,43 @@ SPAWNER_WEB_CMD_REASON = ("%s reads no web content (it may spawn browser-operato
 # httpx, Net::HTTP, fetch( ...) anywhere, and a command too long to check. Linear time (no regex
 # backtracking over the command). A false positive (a commit message "fix; curl x") costs one
 # dispatch, as does a shell fed from stdin (`... | sh`, `bash -s`, `sh <<< ...`, refused whatever
-# it runs). Best effort, not seen: a script file; an alias; text assembled at run time (variables,
-# globs, brace expansion, `$'\x63url'`); a redirection or an option's argument before the command
-# word (`>f curl`, `env -u X curl`, `timeout -s KILL 9 curl`, `xargs -I % curl %`); runners not
-# unwrapped (uv run, coproc, script, fd -x). git clone/fetch/pull stay allowed (repository files
-# are read like any local file); the sandbox network allowlist is the hard limit.
+# it runs). Also refused: a bash /dev/tcp or /dev/udp socket anywhere, and inline code (python -c,
+# perl -e, ruby -e, node -e, php -r, osascript -e, ...) that names an HTTP client or socket tool
+# anywhere after it (false positive: `perl -e 'print 1' && rg wget src`). A backslash-newline
+# inside a word (`cu\<newline>rl`) is read both joined and split. Best effort, not seen: a script
+# file; an alias; text assembled at run time (variables, globs, brace expansion, `$'\x63url'`, a
+# shell reading a process substitution: `bash <(echo curl u)`); a redirection or an option's
+# argument before the command word (`>f curl`, `env -u X curl`, `timeout -s KILL 9 curl`,
+# `xargs -I % curl %`); runners not unwrapped (uv run, uvx, coproc, script, fd -x, ssh's remote
+# command). git clone/fetch/pull stay allowed (repository files are read like any local file);
+# the sandbox network allowlist is the hard limit.
 BLACKCAT_WEB_CLIENTS = {"curl", "wget", "xh", "xhs", "http", "https", "httpie", "lynx", "w3m", "links",
-                        "elinks", "aria2c", "ncat", "nc", "netcat", "socat", "telnet"}
+                        "elinks", "aria2c", "ncat", "nc", "netcat", "socat", "telnet", "ztcp"}
 BLACKCAT_CMD_PREFIXES = {"if", "then", "do", "else", "elif", "while", "until", "time", "exec",
                          "command", "builtin", "nohup", "sudo", "xargs", "env", "nice", "timeout",
-                         "gtimeout", "stdbuf", "watch", "caffeinate", "noglob", "eval", "parallel"}
+                         "gtimeout", "stdbuf", "watch", "caffeinate", "noglob", "eval", "parallel",
+                         "arch", "taskpolicy", "doas", "busybox"}
 # Wrappers that run another command later in the segment: for a shell the command after -c (-lc,
 # -ec, ...) decides, for find the one after -exec/-execdir/-ok/-okdir (a later `+ -exec` too); a
 # shell without -c runs a script file, which is not seen, unless it reads its commands from stdin
 # (no script operand, -s, or a <<< here-string): refused, since the piped text is not parsed
-# (false positive: an interactive shell, `bash x.sh <<< input`). A shell after xargs/parallel or
-# inside -exec/-c gets its script operand at run time and is left alone.
-BLACKCAT_SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "mksh", "fish"}
+# (false positive: an interactive shell, `bash x.sh <<< input`), or from /dev/stdin (`bash
+# /dev/stdin`, `source /dev/stdin`). Only the shell's own options count: they end at `--` or the
+# script operand (`bash -s -- -c` reads stdin). `xargs sh -c` with no command string runs what
+# stdin holds. A shell after xargs/parallel or run by find -exec gets its script operand at run
+# time and is left alone; a shell inside -c is not (`... | bash -c sh` reads stdin).
+BLACKCAT_SHELLS = {"bash", "sh", "zsh", "dash", "ksh", "mksh", "fish", "csh", "tcsh", "yash",
+                   "posh", "oksh"}
 BLACKCAT_SHELL_C_RE = re.compile(r"-[abd-z]*c[a-z]*\Z")     # linear: the first c is the split
 BLACKCAT_SHELL_ARG_OPTS = {"-o", "+o", "--rcfile", "--init-file"}
+BLACKCAT_STDIN_SCRIPTS = {"/dev/stdin", "/dev/fd/0", "/proc/self/fd/0"}
+# interpreters run with inline code (-c, -e, -r, --eval ...): the code may start a client
+BLACKCAT_INLINE_INTERP_RE = re.compile(
+    r"(?:python[0-9.]*|pypy3?|perl[0-9.]*|ruby|node|nodejs|deno|bun|php[0-9.]*|osascript|lua[0-9.]*|"
+    r"tclsh[0-9.]*|jshell|julia|rscript)\Z")
+BLACKCAT_INLINE_FLAG_RE = re.compile(r"-[a-z]*[cer]\Z|--(?:eval|command|print)\Z|eval\Z")
+BLACKCAT_INLINE_CLIENT_RE = re.compile(
+    r"\b(?:curl|wget|xh|xhs|httpie|lynx|w3m|elinks|aria2c|ncat|nc|netcat|socat|telnet)\b")
 BLACKCAT_FIND_EXEC = {"-exec", "-execdir", "-ok", "-okdir"}
 BLACKCAT_GH_READS = {"issue", "pr", "api", "gist", "release", "search", "repo", "browse", "run",
                      "discussion", "project", "label", "workflow", "cache", "ruleset", "attestation"}
@@ -672,7 +690,8 @@ BLACKCAT_SEGMENT_SPLIT_RE = re.compile(r"[;&|(){}`!\n]|\$\(")
 BLACKCAT_ASSIGN_RE = re.compile(r"[a-z_]\w*=")
 BLACKCAT_INLINE_HTTP_RE = re.compile(
     r"\b(?:urllib|urlopen|requests\.(?:get|post|put|patch|head|request|session)|httpx|aiohttp|"
-    r"http\.client|net::http|lwp::|open-uri|urlsession|xmlhttprequest)|\bfetch\s*\(")
+    r"http\.client|net::http|lwp::|open-uri|urlsession|xmlhttprequest|curl_(?:init|exec)|socket\.create_connection)|"
+    r"\bfetch\s*\(|\b(?:file_get_contents|fopen|readfile)\s*\(\s*(?:https?|ftp)://|/dev/(?:tcp|udp)/")
 BLACKCAT_WEB_SCAN_MAX = 20000
 # BlackCat does no work itself (fixed guards, env only, never learned):
 # - BLACKCAT_MAX_OWN_STEPS (0): Bash/Write/Edit calls per prompt; 0 refuses each with OWN_DENY_REASON,
@@ -712,37 +731,61 @@ def blackcat_web_command(cmd):
     """True when BlackCat's Bash command would fetch web content, or is too long to check."""
     if len(cmd) > BLACKCAT_WEB_SCAN_MAX:
         return True
+    # a backslash-newline joins a word (cu\<newline>rl) unless the backslash is itself escaped:
+    # read both ways (two linear passes)
+    texts = [cmd] + ([cmd.replace("\\\n", "")] if "\\\n" in cmd else [])
+    return any(_blackcat_web_text(t) for t in texts)
+
+
+def _blackcat_web_text(cmd):
     text = re.sub(r"\$?['\"]|\\", "", cmd).lower().replace("<<<", " <<< ")
+    text = text.replace("--command=", "--command ")         # fish --command='curl u'
     if BLACKCAT_INLINE_HTTP_RE.search(text):
         return True
-    for segment in BLACKCAT_SEGMENT_SPLIT_RE.split(text):
+    inline_checked = False
+    for seg_start, segment in _blackcat_segments(text):
         raw = segment.split()
         words = [w if BLACKCAT_ASSIGN_RE.match(w) else w.rsplit("/", 1)[-1] for w in raw]
-        skip = 0
+        skip, via_find = 0, False
         for i, word in enumerate(words):
             if i < skip:
                 continue
             if word in ("command", "builtin") and words[i + 1:i + 2] in (["-v"], ["-V"]):
                 break                                  # `command -v curl` only looks it up
-            if word in BLACKCAT_SHELLS or word == "find":
-                hit = next((k for k in range(i + 1, len(words))
-                            if (words[k] in BLACKCAT_FIND_EXEC if word == "find"
-                                else BLACKCAT_SHELL_C_RE.match(words[k]))), None)
-                if hit is not None:
-                    skip = hit + 1
-                    continue                           # the wrapped command decides
-                if word == "find":
+            if word == "find":
+                hit = next((k for k in range(i + 1, len(words)) if words[k] in BLACKCAT_FIND_EXEC),
+                           None)
+                if hit is None:
                     break
+                skip, via_find = hit + 1, True
+                continue                               # the command -exec runs decides
+            if word in BLACKCAT_SHELLS:
+                k, hit = i + 1, None                   # the shell's options: up to `--` or a script
+                while k < len(words) and words[k] != "--" and words[k][:1] in ("-", "+"):
+                    if BLACKCAT_SHELL_C_RE.match(words[k]) or words[k] == "--command":
+                        hit = k
+                        break
+                    k += 2 if words[k] in BLACKCAT_SHELL_ARG_OPTS else 1
+                if hit is not None:
+                    if hit == len(words) - 1 and {"xargs", "parallel"} & set(words[:i]):
+                        return True                    # xargs sh -c: stdin becomes the command string
+                    skip, via_find = hit + 1, False
+                    continue                           # the wrapped command decides
                 rest = words[i + 1:]
                 if "<<<" in rest:
                     return True                        # sh <<< 'curl u': commands from a here-string
+                operand = k + 1 if k < len(words) and words[k] == "--" else k
+                if raw[operand:operand + 1] and raw[operand] in BLACKCAT_STDIN_SCRIPTS:
+                    return True                        # bash /dev/stdin
                 script = [w for j, w in enumerate(rest) if w[:1] not in "-+"
                           and (j == 0 or rest[j - 1] not in BLACKCAT_SHELL_ARG_OPTS)]
-                if (skip == 0 and not {"xargs", "parallel"} & set(words[:i])
+                if (not via_find and not {"xargs", "parallel"} & set(words[:i])
                         and (not script
                              or any(w[:1] == "-" and w[1:2] != "-" and "s" in w for w in rest))):
                     return True                        # `... | sh`, `bash -s`: commands from stdin
                 break                                  # bash x.sh: a script file, not seen
+            if word in ("source", ".") and raw[i + 1:i + 2] and raw[i + 1] in BLACKCAT_STDIN_SCRIPTS:
+                return True                            # source /dev/stdin
             if (word in BLACKCAT_CMD_PREFIXES or word[:1] in "-+" or word[:1].isdigit()
                     or BLACKCAT_ASSIGN_RE.match(word)):
                 continue
@@ -750,8 +793,22 @@ def blackcat_web_command(cmd):
                 return True
             if word == "gh" and BLACKCAT_GH_READS & set(words[i + 1:i + 5]):
                 return True
+            if (not inline_checked and BLACKCAT_INLINE_INTERP_RE.match(word)
+                    and any(BLACKCAT_INLINE_FLAG_RE.match(w) for w in words[i + 1:i + 5])):
+                inline_checked = True                  # python3 -c "...run(['curl', u])": once, to the end
+                if BLACKCAT_INLINE_CLIENT_RE.search(text, seg_start):
+                    return True
             break                                      # the segment's command word decides
     return False
+
+
+def _blackcat_segments(text):
+    """(start offset, text) of each segment of `text` between BLACKCAT_SEGMENT_SPLIT_RE matches."""
+    pos = 0
+    for m in BLACKCAT_SEGMENT_SPLIT_RE.finditer(text):
+        yield pos, text[pos:m.start()]
+        pos = m.end()
+    yield pos, text[pos:]
 
 
 # Reviewers, guides and proof-checker are read-only by role but hold Bash: their Bash runs
@@ -6363,8 +6420,9 @@ def blackcat_reply_main(raw):
 # escapes. Deliberately not switched off by STACK_POLICY=off: the rule is absolute. Best effort:
 # an alias or function defined in an earlier command, a script file or download, a variable
 # holding the whole command, or text assembled by string operations stays out of sight.
+# git's global options whose value may be the next word (git 2.54: also the hidden --shallow-file)
 GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env",
-                       "--super-prefix", "--exec-path", "--attr-source"}
+                       "--super-prefix", "--exec-path", "--attr-source", "--shallow-file"}
 PUSH_SUBCOMMANDS = {"push", "send-pack"}
 PUSH_UNDER = {"lfs": {"push"}, "subtree": {"push"}, "svn": {"dcommit", "set-tree"},
               "p4": {"submit"}}                      # git lfs push, git svn dcommit, ...
@@ -6378,7 +6436,12 @@ GIT_EXEC_KEY_RE = re.compile(
     r"diff\.external|diff\..+\.(?:command|textconv)|difftool\..+\.cmd|mergetool\..+\.cmd|"
     r"merge\..+\.driver|filter\..+\.(?:clean|smudge|process)|interactive\.difffilter|"
     r"gpg\.program|gpg\..+\.program|credential\.helper|credential\..+\.helper|"
-    r"uploadpack\.packobjectshook|sendemail\..+)\Z", re.I)
+    r"uploadpack\.packobjectshook|sendemail\..+|remote\..+\.uploadpack|core\.gitproxy|"
+    r"core\.alternaterefscommand|trailer\..+\.(?:cmd|command)|gpg\.ssh\.defaultkeycommand|imap\.tunnel|"
+    r"man\..+\.cmd|browser\..+\.cmd|guitool\..+\.cmd|hook\..+\.command|submodule\..+\.update|"
+    r"instaweb\.httpd)\Z", re.I)
+# not here: help.browser, web.browser (a browser name, run through browser.<tool>.cmd/.path), browser.<tool>.path
+# and man.<tool>.path (one program path that must exist, not a command line)
 # Index blinding (CWE-345): install.sh reviews the checkout with `git status`/`git diff`; these
 # make git skip a file's working-tree content, so an edited file would be installed unseen.
 # update-index options are matched by any prefix (git accepts unique abbreviations); the
@@ -6393,6 +6456,15 @@ GIT_CONFIG_NOSET = {"--get", "--get-all", "--get-regexp", "--get-urlmatch", "--g
 GIT_CONFIG_VALUE_OPTS = {"-f", "--file", "--blob", "--type", "--default", "--comment", "--value"}
 ENV_EXEC_RE = re.compile(r"(?:GIT_[A-Z0-9_]+|EDITOR|VISUAL|PAGER|SSH_ASKPASS)=(.*)\Z", re.S)
 ASSIGN_RE = re.compile(r"[A-Za-z_]\w*\+?=")
+# git configuration from the environment (read like `git -c`), as in codex_guard.py
+GIT_ENV_CONFIG_RE = re.compile(r"(?:GIT_CONFIG_KEY_\d+|GIT_CONFIG_PARAMETERS)\+?=")
+GIT_CONFIG_KEY_RE = re.compile(r"GIT_CONFIG_KEY_(\d+)\Z")
+# ext:: URLs run a command as the transport (git-remote-ext); git refuses them unless one of these
+# keys (or GIT_ALLOW_PROTOCOL) allows ext, so setting one to anything but never is opaque
+GIT_EXT_ALLOW_KEY_RE = re.compile(r"protocol\.(?:ext\.)?allow\Z", re.I)
+# subcommands that never read a transport URL from their arguments: ext:: there is text (a pattern, a
+# message); their -c and environment ext:: settings are still checked
+GIT_NO_URL_SUBS = frozenset({"grep", "log", "show", "shortlog", "commit", "tag", "notes", "blame", "rev-list"})
 OPAQUE_SUB_RE = re.compile(r"[$`{}*?\[\]\x00]")      # expansions and globs: decided at run time
 EXPANSION_RE = re.compile(r"\$(?:\{[^}]*\}|[A-Za-z_]\w*|[@*#?$!0-9-])")
 PWSH = {"pwsh", "powershell", "pwsh.exe", "powershell.exe"}
@@ -6554,6 +6626,125 @@ PWSH_SWITCHES = [
 
 class _TooComplex(Exception):
     """The command cannot be checked within the guard's limits: it is refused as opaque."""
+
+
+# git options whose value git hands to the shell as a command, per subcommand: (short options,
+# long options); long names match by any unique prefix (git's parse-options). Ported from
+# codex_guard.py GIT_COMMAND_OPTS.
+GIT_COMMAND_OPTS = {
+    "fetch": ("", ("--upload-pack",)), "pull": ("", ("--upload-pack",)),
+    "clone": ("u", ("--upload-pack",)), "ls-remote": ("u", ("--upload-pack", "--exec")),
+    "fetch-pack": ("", ("--upload-pack", "--exec")), "archive": ("", ("--exec",)),
+    "difftool": ("x", ("--extcmd",)),
+    "filter-branch": ("", ("--env-filter", "--tree-filter", "--index-filter", "--parent-filter",
+                           "--msg-filter", "--commit-filter", "--tag-name-filter", "--setup")),
+}
+
+# every short option of these subcommands that takes a value (git 2.54 `git <sub> -h`): a cluster ends
+# at the first of them
+GIT_CMD_SHORT_VALUE = {"clone": "obucj", "ls-remote": "ou", "difftool": "tx", "archive": "o"}
+
+
+def _git_command_values(sub, args):
+    """The command strings `git <sub> args` runs through the shell (upload-pack programs,
+    archive --exec, filter-branch filters, difftool -x/--extcmd), for the push scan."""
+    if sub not in GIT_COMMAND_OPTS:
+        return []
+    shorts, longs = GIT_COMMAND_OPTS[sub]
+    out, k = [], 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a == "--":
+            break
+        name, eq, val = a.partition("=")
+        if a[:2] == "--" and len(name) >= 3 and any(o.startswith(name) for o in longs):
+            if not eq:
+                val, k = (args[k] if k < len(args) else ""), k + 1
+            out.append(val)
+        elif a[:1] == "-" and a[:2] != "--":
+            hit = _short_value(a, GIT_CMD_SHORT_VALUE.get(sub, "") + shorts)
+            if hit is None:
+                continue
+            if not hit[1]:                     # the value is the next word
+                hit, k = (hit[0], args[k] if k < len(args) else ""), k + 1
+            if hit[0] in shorts:
+                out.append(hit[1])
+    return out
+
+
+def _short_value(a, letters):
+    """A short-option cluster (-qc..., -lqu'cmd'): (letter, attached value) of its first letter in
+    `letters` (the options that take a value: the cluster ends there), or None."""
+    j = next((j for j in range(1, len(a)) if a[j] in letters), 0)
+    return (a[j], a[j + 1:]) if j else None
+
+
+def _clone_config(args):
+    """(key, value) pairs of `git clone -c/--config KEY=VALUE` (also -cKEY=VALUE and a unique prefix of
+    --config): configuration the new repository already runs with while it fetches."""
+    out, k = [], 0
+    while k < len(args):
+        a = args[k]
+        k += 1
+        if a == "--":
+            break
+        name, eq, val = a.partition("=")
+        if a[:2] == "--" and len(name) >= 3 and "--config".startswith(name):
+            if not eq:
+                val, k = (args[k] if k < len(args) else ""), k + 1
+        elif a[:1] == "-" and a[:2] != "--":
+            hit = _short_value(a, GIT_CMD_SHORT_VALUE["clone"])
+            if hit is None:
+                continue
+            val = hit[1]
+            if not val:                        # the value is the next word
+                val, k = (args[k] if k < len(args) else ""), k + 1
+            if hit[0] != "c":
+                continue
+        else:
+            continue
+        key, _, value = val.partition("=")
+        out.append((key, value))
+    return out
+
+
+def _config_parameters(value):
+    """(key, value) pairs of a GIT_CONFIG_PARAMETERS value (`'k'='v' 'k2'='v2'`, or `'k=v'`), None
+    when it does not split."""
+    import shlex
+    try:
+        items = shlex.split(value)
+    except ValueError:
+        return None
+    return [(k, v if eq else "true") for k, eq, v in (x.partition("=") for x in items)]
+
+
+def _env_config(words, restore):
+    """git configuration the environment of this command sets: [(key, value)] from
+    GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n> (value None when no GIT_CONFIG_VALUE_<n> is set) and
+    from GIT_CONFIG_PARAMETERS ([(None, None)] when it does not split)."""
+    assigns = {}
+    for w in words:
+        if ASSIGN_RE.match(w):
+            name, _, val = w.partition("=")
+            assigns.setdefault(name.rstrip("+"), restore(val))
+    out = []
+    for name in sorted(assigns):
+        m = GIT_CONFIG_KEY_RE.match(name)
+        if m:
+            out.append((assigns[name], assigns.get("GIT_CONFIG_VALUE_" + m.group(1))))
+    if "GIT_CONFIG_PARAMETERS" in assigns:
+        pairs = _config_parameters(assigns["GIT_CONFIG_PARAMETERS"])
+        out.extend(pairs if pairs is not None else [(None, None)])
+    return out
+
+
+def _ext_config(key, value):
+    """True when a git config pair enables or names the ext:: transport."""
+    key, value = (key or "").lower(), (value or "").lower()
+    return "ext::" in key or "ext::" in value or bool(
+        GIT_EXT_ALLOW_KEY_RE.match(key) and value != "never")
 
 # Forge CLIs: command tree -> WRITE (refused), READ (stop: fine), a subtree, or a special check.
 # Checked against the gh manual (cli.github.com/manual, Sep 2026), tea's docs/CLI.md (main) and
@@ -6730,7 +6921,7 @@ INSTALL_FLAGS_OK = {"--help", "-h", "--dry-run", "--print-managed-settings"}
 GH_VALUE_OPTS = {"-h", "--hostname", "-R", "--repo", "-s", "--scopes", "-p", "--git-protocol",
                  "-u", "--user"}
 GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix",
-                  "--config-env", "--attr-source"}
+                  "--config-env", "--attr-source", "--shallow-file"}
 SECURITY_VALUE_CHARS = "aCcDGjlsty"
 CURL_VALUE_SHORT = "HAeoubcwxKmrEYCDdFTXzUPQty"
 CURL_VALUE_LONG = {"header", "user-agent", "referer", "output", "user", "cookie", "cookie-jar",
@@ -7947,6 +8138,7 @@ class _Scan(object):
             ends[k] = k if SEP_RE.match(words[k]) else ends[k + 1]
         covered = stdin_done = stmt_start = 0  # covered, stdin_done: words already re-scanned
         cmd_pos, xargs_seen, head = True, False, None   # head: this simple command's program
+        env_cfg, env_checked = None, False     # git config from the environment (_env_config)
         for i, w in enumerate(words):
             if not i % 512 and time.monotonic() > self.deadline:
                 return self.hit("opaque", "a command too large to check in time")
@@ -7977,10 +8169,20 @@ class _Scan(object):
                 if not found and INDEX_BLIND_ENV_RE.match(w) and INDEX_BLIND_TEXT_RE.search(w):
                     found = self.hit("index", w.split("=", 1)[0] + "=" + "core.sparseCheckout/"
                                      "ignoreStat")       # GIT_CONFIG_KEY_0=core.sparseCheckout
+                if not found and GIT_ENV_CONFIG_RE.match(w) and not env_checked:
+                    env_cfg = _env_config(words, restore) if env_cfg is None else env_cfg
+                    env_checked = True                 # once: it covers every word
+                    found = self.env_config(env_cfg, depth)
+                if not found and w.startswith("GIT_ALLOW_PROTOCOL=") and \
+                        "ext" in restore(w).partition("=")[2].lower().split(":"):
+                    found = self.hit("opaque", "GIT_ALLOW_PROTOCOL=ext (ext:: runs a command as "
+                                               "a transport)")
             elif base in PUSH_PROGRAMS and here_cmd:
                 found = self.hit("push", base)       # not `ls .../git-push`
             elif base == "git":
-                found = self.git(words, i, end, xargs_seen, depth, restore)
+                if env_cfg is None:
+                    env_cfg = _env_config(words, restore)
+                found = self.git(words, i, end, xargs_seen, depth, restore, env_cfg)
             elif w in PUSH_SUBCOMMANDS and i > 0 and _expansion(words[i - 1]) \
                     and self.was_command(words, i - 1):
                 found = self.hit("opaque", "%s %s" % (restore(words[i - 1]), w))
@@ -8152,8 +8354,11 @@ class _Scan(object):
         return _after_pipe(words, i) or first.startswith("<") or \
             first in ("/dev/stdin", "/dev/fd/0", "-")
 
-    def git(self, words, i, end, xargs_seen, depth, restore):
+    def git(self, words, i, end, xargs_seen, depth, restore, env_cfg=()):
         k, aliases, gopts = i + 1, {}, []
+        for key, value in env_cfg:             # GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0=push
+            if key and value is not None and key.lower().startswith("alias."):
+                aliases[key[6:].lower()] = value
         while True:                            # global options (and redirections among them)
             k = _skip_redirections(words, k, end)
             if k >= end or not words[k].startswith("-"):
@@ -8177,17 +8382,20 @@ class _Scan(object):
                 if found:
                     return found
             if opt == "-c":                    # git -c alias.p=push p, -c core.editor=...
+                if _ext_config(key, value):
+                    return self.hit("opaque", "git -c %s (ext:: runs a command as a transport)"
+                                    % key[:80])
                 found = self.git_config_value(key, value, depth)
                 if found:
                     return found
                 if key.lower().startswith("alias."):
-                    aliases[key[6:]] = value
+                    aliases[key[6:].lower()] = value       # alias names are case-insensitive
         if k >= end:
             return self.hit("opaque", "xargs git (the subcommand comes from stdin)") \
                 if xargs_seen else None
         sub = words[k]
-        if sub in aliases:                     # -c alias.p='!sh' p -c 'git push': with its args
-            body = aliases[sub]
+        if sub.lower() in aliases:             # -c alias.p='!sh' p -c 'git push': with its args
+            body = aliases[sub.lower()]
             import shlex
             tail = " ".join(shlex.quote(restore(x)) for x in words[k + 1:min(end, k + 257)])
             found = self.scan((body[1:] if body.startswith("!") else "git " + body) + " " + tail,
@@ -8218,6 +8426,22 @@ class _Scan(object):
                 found = found or (self.scan(code, depth + 1) if code else None)
         elif sub == "bisect" and args[:1] == ["run"]:
             found = self.scan(" ".join(args[1:]), depth + 1)
+        if sub == "clone":                     # clone -c/--config KEY=VALUE: the clone runs with it
+            for key, value in _clone_config(args):
+                found = found or (self.hit("opaque", "git clone -c %s (ext:: runs a command as a "
+                                                     "transport)" % key[:80]) if _ext_config(key, value)
+                                  else self.git_config_value(key, value, depth))
+        for code in _git_command_values(sub, args):
+            found = found or self.scan(code, depth + 1)
+        if not found and sub not in GIT_NO_URL_SUBS and any(
+                a.lower().startswith("ext::") or "=ext::" in a.lower()
+                or (sub in ("config", "remote") and "ext::" in a.lower())
+                for a in args):                     # also --remote=ext::..., --url=ext::...
+            found = self.hit("opaque", "git %s ext::... (a command run as a transport)" % sub)
+        if not found and sub == "config":
+            if any(_ext_config(args[j], args[j + 1]) for j in range(len(args) - 1)
+                   if GIT_EXT_ALLOW_KEY_RE.match(args[j])):
+                found = self.hit("opaque", "git config protocol.*allow (enables ext::)")
         if not found and "protect" in self.want:
             found = self.git_protect(sub, args, gopts)
         if found:
@@ -8234,6 +8458,21 @@ class _Scan(object):
         if key.lower().startswith("alias.") and not value.startswith("!"):
             return self.scan("git " + value, depth + 1)
         return self.scan(value.lstrip("!"), depth + 1)
+
+    def env_config(self, pairs, depth):
+        """git configuration set through the environment (GIT_CONFIG_KEY_<n>/GIT_CONFIG_VALUE_<n>,
+        GIT_CONFIG_PARAMETERS) is read like `git -c`: an alias or command value is scanned; a key or
+        value the shell decides at run time, an exec key without its value, or an ext:: setting is
+        opaque."""
+        for key, value in pairs:
+            if key is None or _expansion(key) or (value is None and GIT_EXEC_KEY_RE.match(key)) \
+                    or _ext_config(key, value):
+                return self.hit("opaque", "git configuration from the environment (%s)"
+                                % (key or "GIT_CONFIG_PARAMETERS")[:80])
+            found = self.git_config_value(key, value, depth) if value is not None else None
+            if found:
+                return found
+        return None
 
     def git_index_blind(self, sub, args):
         """Index blinding (INDEX_REASON): `git update-index` with an INDEX_BLIND_OPTS option (any
@@ -11421,17 +11660,20 @@ def wrapper_invoked(command):
         k, wrapper = 0, None
         while k < len(words):
             low = words[k].lower()
+            # a wrapper by its path too (/usr/bin/env); its value options compare as typed: env -C DIR takes a
+            # value, sudo -H and -P do not (folded, they matched -h HOST and -p PROMPT and hid the next word)
+            name = low.rstrip("/").rsplit("/", 1)[-1]
             if wrapper == "env" and low in ("-s", "--split-string") and k + 1 < len(words):
                 if "stack-install" in words[k + 1].lower():
                     return True                 # env -S 'stack-install ...': one string, split by env
                 k += 2
                 continue
-            if wrapper and low in TOOLSMITH_VALUE_OPTS.get(wrapper, ()):
+            if wrapper and words[k] in TOOLSMITH_VALUE_OPTS.get(wrapper, ()):
                 k += 2
                 continue
-            if low in TOOLSMITH_PREFIX_WORDS:
-                wrapper = low
-            if low in TOOLSMITH_PREFIX_WORDS or low[:1] in "-+" or low[:1].isdigit() or \
+            if name in TOOLSMITH_PREFIX_WORDS:
+                wrapper = name
+            if name in TOOLSMITH_PREFIX_WORDS or low[:1] in "-+" or low[:1].isdigit() or \
                     re.match(r"[a-z_][a-z0-9_]*\+?=", low):
                 k += 1
                 continue

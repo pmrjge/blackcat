@@ -49,6 +49,7 @@ CRED_DENY = [
     "git credential fill", "git credential approve", "git credential reject",
     "git -C /x credential fill", "git -c credential.helper=store credential fill",
     "git -C x -c a=b credential approve", "git --no-pager credential reject",
+    "git --shallow-file x credential fill",
     "git credential-osxkeychain get", "git credential-store get", "git -C /x credential-store get",
     "git -c a=b credential-cache get",
     "git-credential-osxkeychain get", "/usr/libexec/git-core/git-credential-osxkeychain get",

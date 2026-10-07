@@ -3,8 +3,8 @@
 Imported by agent_guard.py: its SubagentStop handler validates a stack subagent's final reply, its
 PreToolUse(Agent) handler measures the brief (STACK_REPORT_FORMAT, see agent_guard.py and CONFIG.md
 "Message protocol"). Everything here is pure text work except file_meta (stat and hash of the paths a
-report names, under the safety rules below) and transcript_last_tool / transcript_handback (a bounded
-tail read; the latter returns the SubagentHandback message that is the report of such a run, S4 L7 B1).
+report names, under the safety rules below) and transcript_handback (a bounded tail read that returns the
+SubagentHandback message that is the report of such a run, S4 L7 B1).
 
 The model-written report (rules "Briefs and hand-backs"; the STATUS prefix and keys every existing parser
 reads):
@@ -73,9 +73,8 @@ TEXT_MAX = 2 << 20            # chars of a report analysed (the rest is counted,
 FILES_MAX = 20                # paths file_meta looks at
 HASH_MAX = 8 << 20            # bytes hashed per file (larger: size and mtime only)
 META_BUDGET_S = 2.0           # seconds the hash thread is waited for, all files together
-TAIL_MAX = 256 << 10          # bytes of a transcript tail transcript_last_tool reads
 # transcript_handback: Claude Code stores a tool input twice per record (message.content, wireToolInputs),
-# JSON-escaped (a newline 2 bytes, a control char 6), so the hand-back record needs a longer tail: a record
+# JSON-escaped (a newline 2 bytes, a control char 6), so the hand-back record needs a long tail: a record
 # past it is not seen (the run is then checked on its reply)
 HANDBACK_TAIL_MAX = 4 << 20
 REASON_MAX = 400
@@ -632,22 +631,3 @@ def transcript_handback(path, cap=HANDBACK_TAIL_MAX):
         return text if isinstance(text, str) else ""
     return None
 
-
-def transcript_last_tool(path, cap=TAIL_MAX):
-    """Name of the last tool_use in a transcript's tail (bounded read; regular files only), or None."""
-    data = _tail(path, cap)
-    if data is None:
-        return None
-    for line in reversed(data.split(b"\n")):
-        if b'"tool_use"' not in line:
-            continue
-        try:
-            rec = json.loads(line.decode("utf-8", "replace"))
-        except (ValueError, RecursionError):
-            continue
-        msg = rec.get("message") if isinstance(rec, dict) else None
-        content = msg.get("content") if isinstance(msg, dict) else None
-        names = [b.get("name") for b in content or [] if isinstance(b, dict) and b.get("type") == "tool_use"]
-        if names and isinstance(names[-1], str):
-            return names[-1][:80]
-    return None

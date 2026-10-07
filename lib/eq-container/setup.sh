@@ -408,6 +408,17 @@ cmd_run() {
   done
   [ -n "$SEL" ] || SEL="profiles core"
   [ "$DRY" = 1 ] || state_dir || exit 10   # a refused state dir gets no record (finish would write through the link)
+  # a deferred profile (TOOLS.toml `deferred`: rust, haskell have no image) makes the driver skip the whole install (exit
+  # 10), whatever steps 1-2 do: stop before anything is offered, downloaded, run with sudo or started
+  case "$SEL" in "profiles "*)
+    rc=0; f=$( . "$here/tools.sh" && tm_load "$here/TOOLS.toml" >/dev/null 2>&1 \
+      && tm_refuse_deferred "$(printf '%s' "${SEL#profiles }" | tr ',' ' ')" 2>&1 >/dev/null ) || rc=$?
+    if [ "$rc" = 10 ]; then
+      f=$(printf '%s' "$f" | tr '\n' ' ' | sed 's/ *$//')
+      note "! $f"
+      stop_at profiles 10 "$f"; finish 10
+    fi ;;
+  esac
   pins_state; cli_state; svc_state; tty_in
 
   # what is there

@@ -103,10 +103,21 @@ def test_same_verdicts_as_agent_guard():
     """Differential: the port and the original agree on every corpus command."""
     ag = load_by_path("agent_guard_oracle", REPO / "dot-claude" / "hooks" / "agent_guard.py")
     cmds = PUSHES + C["OPAQUE"] + C["FORGE_WRITES"] + ALLOWED + C["INDEX_BLINDS"] + \
-        [c for c, _ in C["REVIEW_REGRESSIONS"]]
+        [c for c, _ in C["REVIEW_REGRESSIONS"]] + C["GIT_COMMAND_VALUES"] + C["GIT_COMMAND_VALUES_SAFE"]
     diff = [c for c in cmds if (G.remote_write_in(c) or (None,))[0] !=
             (ag.remote_write_in(c) or (None,))[0]]
     assert diff == []
+
+
+@pytest.mark.parametrize("command", C["GIT_COMMAND_VALUES"])
+def test_git_command_values_are_scanned(command):
+    """T15 F1 parity: option values git runs, ext:: and configuration from the environment (the oracle's list)."""
+    assert (G.remote_write_in(command) or (None,))[0] in ("push", "forge", "opaque"), command
+
+
+@pytest.mark.parametrize("command", C["GIT_COMMAND_VALUES_SAFE"])
+def test_git_command_values_without_push_pass(command):
+    assert G.remote_write_in(command) is None, command
 
 
 # ---------------------------------------------------------------- Codex additions

@@ -28,6 +28,7 @@ PUSHES = [
     "git -C 'dir with space' push",
     "git commit -m \"$(cat <<'EOF'\nmsg\nEOF\n)\" && git push",
     "cat <<EOF > f\nx\nEOF\ngit push",
+    "git --shallow-file x push origin main", "git --shallow-file=x push",   # a global option with a value
 ]
 # A push hidden in a string that another program runs as shell code (the review's gap 1).
 NESTED_PUSHES = [
@@ -272,6 +273,113 @@ REVIEW_REGRESSIONS = [
 def test_review_regressions(command, kind):
     found = G.remote_write_in(command)
     assert (found[0] if found else None) == kind, found
+
+
+# T15 F1 (audit 73eec41..main): option values git hands to a shell or a transport, ext:: URLs and
+# configuration from the environment run commands; each is scanned (ported from codex_guard.py).
+GIT_COMMAND_VALUES = [
+    "git fetch --upload-pack='git push origin main;git-upload-pack' .",
+    "git pull --upload-pack='git push origin main;git-upload-pack' .",
+    "git fetch --upload-p 'git push origin main' .",                   # an abbreviated long option
+    "git ls-remote -u 'git push origin main; git-upload-pack' .",
+    "git ls-remote --exec='git push' o",
+    "git clone -u 'git push origin main; git-upload-pack' . /tmp/y",
+    "git clone -u'git push' r d",
+    "git fetch-pack --exec='git push' r",
+    "git archive --remote=. --exec='git push origin main; git-upload-archive' HEAD",
+    "git filter-branch --msg-filter 'git push origin main; cat' -- HEAD",
+    "git filter-branch --tree-filter 'git push origin main' HEAD",
+    "git filter-branch --msg-filter='git push' HEAD",
+    "git difftool -x 'git push origin main' HEAD~1",
+    "git difftool --extcmd='git push origin main' -y HEAD~1",
+    "git difftool -x 'gh pr create --fill' HEAD~1",
+    "git -c protocol.ext.allow=always fetch 'ext::sh -c git% push% origin% main'",
+    "git -c protocol.allow=always clone 'ext::sh -c x' d",
+    "GIT_ALLOW_PROTOCOL=ext git ls-remote 'ext::sh -c git% push'",
+    "GIT_ALLOW_PROTOCOL=file:ext git fetch o", "GIT_ALLOW_PROTOCOL=ext git fetch o",
+    "git -c url.ext::sh.insteadOf=x: -c protocol.ext.allow=always fetch x:y",
+    "git fetch 'ext::sh -c git% push'", "git remote add o 'ext::sh -c x'",
+    "git config remote.o.url 'ext::sh -c x'", "git config protocol.ext.allow always",
+    "git archive --remote=ext::sh% -c% x HEAD",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0='!git push origin main' git p",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=alias.p GIT_CONFIG_VALUE_0='!sh' git p -c 'git push'",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=core.sshCommand git fetch o",   # value set elsewhere
+    "GIT_CONFIG_PARAMETERS=\"'alias.p'='!git push origin main'\" git p",
+    "GIT_CONFIG_PARAMETERS=\"'protocol.ext.allow'='always'\" git fetch 'ext::sh -c x'",
+    "git status; GIT_CONFIG_PARAMETERS=\"'alias.p'='!git push'\" git p",
+    "git -c remote.origin.uploadpack='git push origin main;git-upload-pack' fetch origin",
+    "git -c core.gitProxy='git push' fetch git://h/r",
+    "git -c core.alternateRefsCommand='git push' fetch o",
+    "git -c trailer.x.cmd='git push origin main' commit --trailer x=y -m m",
+    "git -c trailer.x.command='git push' interpret-trailers",
+    "git -c alias.P='!sh' p -c 'git push'",                            # alias names fold case
+    # S2b review fix 2: more keys whose value git runs (git-config(1): "command", "evaluated in shell")
+    "git -c hook.h.command='git push origin main' -c hook.h.event=pre-commit commit -m m",
+    "git config hook.h.command 'git push origin main'",
+    "git -c gpg.format=ssh -c gpg.ssh.defaultKeyCommand='git push origin main' commit -S -m m",
+    "git -c imap.tunnel='git push origin main' imap-send",
+    "git -c man.viewer=v -c man.v.cmd='git push origin main' help -m git",
+    "git -c browser.b.cmd='git push origin main' web--browse --browser=b u",
+    "git -c guitool.t.cmd='git push origin main' gui",
+    "git -c submodule.s.update='!git push origin main' submodule update s",
+    "git -c instaweb.httpd='git push origin main' instaweb",
+    # S2b review (probe S2f): clone's own -c/--config is config the clone runs with; `--u` is a unique prefix
+    "git clone -c core.sshCommand='git push origin main' ssh://h/r d",
+    "git clone -ccore.sshCommand='git push' ssh://h/r d",
+    "git clone --config=remote.origin.uploadpack='git push origin main' file:///r d",
+    "git clone --config remote.origin.uploadpack='git push' file:///r d",
+    "git clone --conf=core.sshCommand='git push' ssh://h/r d",
+    "git clone -c url.ext::sh.insteadOf=x: -c protocol.ext.allow=always x:y d",
+    "git ls-remote --u='git push origin main' .",
+    # bundled short options (git-clone(1): -o -b -u -c -j take a value)
+    "git clone -qc core.sshCommand='cd /r&&git push origin main;:' ssh://h/r d",
+    "git clone -qccore.sshCommand='git push' ssh://h/r d", "git clone -nvc remote.origin.uploadpack='git push' r d",
+    "git clone -qu 'git push origin main' r d", "git clone -lqu'git push' r d",
+    "git difftool -yx 'git push origin main' HEAD~1",
+    # a subcommand that reads no transport URL still gets the -c and environment ext:: checks
+    "git -c protocol.ext.allow=always log --grep=x", "GIT_ALLOW_PROTOCOL=ext git commit -m m",
+    "git --shallow-file log fetch 'ext::sh -c x'",       # `log` is --shallow-file's value, not the subcommand
+    "GIT_SSH_COMMAND='git push' git fetch",
+]
+
+
+@pytest.mark.parametrize("command", GIT_COMMAND_VALUES)
+def test_git_command_values_are_scanned(command):
+    assert (G.remote_write_in(command) or (None,))[0] in ("push", "forge", "opaque"), command
+
+
+# the same option families without a push (codex_config/tests/test_guard_nopush.py reads this list too)
+GIT_COMMAND_VALUES_SAFE = [
+    "git fetch origin", "git ls-remote origin", "git difftool HEAD~1", "git filter-branch --help",
+    "git clone https://github.com/a/b", "git fetch --upload-pack=git-upload-pack origin",
+    "git difftool -x 'diff -u' HEAD", "git filter-branch --msg-filter cat HEAD",
+    "git -c protocol.ext.allow=never fetch o", "GIT_ALLOW_PROTOCOL=https:ssh git fetch o",
+    "GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=user.name GIT_CONFIG_VALUE_0=x git commit -m m",
+    "git -c trailer.x.key=Signed git commit -m m",
+    "git -c submodule.s.update=rebase submodule update s", "git -c man.viewer=less help -m git",
+    "git -c help.browser=firefox help -w git", "git -c hook.h.event=pre-commit commit -m m",
+    "git clone -c core.autocrlf=false https://github.com/a/b d", "git clone --config user.name=x https://h/r d",
+    "git clone -c core.sshCommand='ssh -i k' ssh://h/r d",
+    "git clone -qo upstream https://h/r d", "git clone -qb main -j 4 https://h/r d", "git clone -ou r d",
+    "git difftool -yt vimdiff HEAD~1",
+    # S2b review fix 3: ext:: as text in a subcommand that never reads a transport URL from its args
+    "git grep -n 'ext::foo' src", "git commit -m 'ext:: support'", "git log --grep=ext::x",
+    "git show HEAD -- 'ext::x'", "git tag -m 'ext::' v1", "git notes add -m ext::x",
+]
+
+
+@pytest.mark.parametrize("command", GIT_COMMAND_VALUES_SAFE)
+def test_git_command_values_without_push_pass(command):
+    assert G.remote_write_in(command) is None, command
+
+
+def test_env_config_is_read_once():
+    """Many GIT_CONFIG_KEY_<n> words: the environment is read once, not once per word."""
+    cmd = " ".join("GIT_CONFIG_KEY_%d=user.k%d GIT_CONFIG_VALUE_%d=v" % (n, n, n)
+                   for n in range(3000)) + " git status"
+    start = time.monotonic()
+    assert G.remote_write_in(cmd) is None
+    assert time.monotonic() - start < 2.0
 
 
 def test_deep_nesting_is_refused_not_ignored():
@@ -609,6 +717,88 @@ def test_web_check_linear():
     G.blackcat_web_command("bash -" + "c" * 19990 + "1")
     assert time.perf_counter() - start < 0.1
     assert G.blackcat_web_command("$'curl' -s https://x") is True
+
+
+# T15 F3 (audit 73eec41..main): a shell after `-c` that reads its commands from stdin is refused
+# like any other; only the command find -exec runs (whose `{}` operand is split off) is exempt.
+@pytest.mark.parametrize("command", ["echo 'curl -s https://x' | bash -c sh",
+                                     "echo curl u | bash -c 'exec sh'", "echo 'curl u' | sh -c 'sh -s'",
+                                     "echo 'curl u' | find . -maxdepth 0 -exec sh -c bash \\;"])
+def test_web_check_sees_stdin_shells_inside_c(command):
+    assert G.blackcat_web_command(command) is True
+
+
+@pytest.mark.parametrize("command", ["bash -c 'sh x.sh'", "sh -c 'git status'",
+                                     "find . -name '*.sh' -exec sudo bash {} \\;",
+                                     "find . -exec sh -c 'bash \"$0\"' {} \\;"])
+def test_web_check_script_runs_inside_c_pass(command):
+    assert G.blackcat_web_command(command) is False
+
+
+# T15 item 7: in-policy forms the T1 check missed (the reviewer's 65-string probe): -c spelled
+# --command, csh/tcsh, options after `--` or a script operand are not the shell's, `xargs sh -c`
+# with no command string runs stdin, a script read from /dev/stdin, `source /dev/stdin`, a line
+# continuation inside a word, /dev/tcp sockets, inline code that runs an HTTP client, PHP's URL
+# reads, and the arch/taskpolicy wrappers.
+WEB_CHECK_CLOSED = [
+    "fish --command 'curl https://x'", "fish --command='curl https://x'",
+    "csh -c 'curl https://x'", "tcsh -c 'curl https://x'", "/bin/tcsh -fc 'curl https://x'",
+    "echo 'curl https://x' | bash -s -- -c", "echo 'curl https://x' | sh -s -- -lc",
+    "bash -s -- -c <<< 'curl https://x'", "sh -s -- -xc < cmds.txt",
+    "echo 'curl https://x' | xargs -0 sh -c", "echo 'curl https://x' | xargs -0 bash -c",
+    "echo 'curl https://x' | bash /dev/stdin", "echo 'curl https://x' | sh -- /dev/fd/0",
+    "echo 'curl https://x' | csh", "echo 'curl https://x' | tcsh",
+    "echo 'curl https://x' | source /dev/stdin", "echo 'curl https://x' | . /dev/stdin",
+    "cu\\\nrl https://x", "w\\\nget -qO- https://x", "echo \\\\\ncurl https://x",
+    "exec 3<>/dev/tcp/example.com/80", "cat < /dev/tcp/example.com/80",
+    "bash -c 'cat </dev/tcp/example.com/80'", "zmodload zsh/net/tcp; ztcp example.com 80",
+    "python3 -c \"import subprocess; subprocess.run(['curl','https://x'])\"",
+    "perl -e 'exec \"curl\", \"https://x\"'", "ruby -e 'system(\"wget\", \"-q\", \"u\")'",
+    "php -r 'echo file_get_contents(\"https://x\");'", "php -r '$c = curl_init(\"u\");'",
+    "arch -arm64 curl https://x", "arch curl https://x", "taskpolicy -b curl https://x",
+    "doas curl https://x", "busybox wget https://x",
+    "python3 -c \"import socket; socket.create_connection(('x', 80))\"",
+]
+
+
+@pytest.mark.parametrize("command", WEB_CHECK_CLOSED)
+def test_web_check_closed_probe_gaps(command):
+    assert G.blackcat_web_command(command) is True, command
+
+
+@pytest.mark.parametrize("command", [
+    "git status", "bash x.sh", "rg -n curl src", "command -v curl", "bash x.sh -c y",
+    "bash -o pipefail -c 'git log'", "python3 -c 'print(1)'", "python3 tools/use_curl.py",
+    "php -r 'echo file_get_contents(\"a.txt\");'", "rg -n wget src && perl -e 'print 1'",
+    "arch -arm64 uv run pytest -q", "echo a \\\n  b", "ls /dev/fd/0", "xargs sh -c 'echo \"$0\"' < f"])
+def test_web_check_closed_probe_controls(command):
+    assert G.blackcat_web_command(command) is False, command
+
+
+def test_web_check_inline_scan_reads_to_the_end():
+    """Inline code is not delimited after unquoting: a client named anywhere after it is refused
+    (the documented false positive, one dispatch)."""
+    assert G.blackcat_web_command("perl -e 'print 1' && rg -n wget src/README") is True
+
+
+# Design limit (documented at BLACKCAT_WEB_CLIENTS): runners not unwrapped stay unseen.
+@pytest.mark.parametrize("command", ["script -q /dev/null curl https://x", "uv run curl https://x",
+                                     "bash <(echo curl https://x)", "ssh h curl https://x"])
+def test_web_check_documented_limits(command):
+    assert G.blackcat_web_command(command) is False
+
+
+@pytest.mark.parametrize("unit", ["bash ", "bash -o x ", "find . -exec ", "xargs ", "sh -c ",
+                                  "python3 -c x; ", "cu\\\n", "-", "--command=", "a=b ", "/dev/stdin ",
+                                  "bash -s -- ", "arch -x "])
+def test_web_check_stays_linear(unit):
+    """Inputs up to the scan window, built from one repeated unit, are checked in linear time
+    (a quadratic word loop over ~4000 words takes seconds)."""
+    cmd = (unit * (G.BLACKCAT_WEB_SCAN_MAX // len(unit)))[:G.BLACKCAT_WEB_SCAN_MAX]
+    start = time.perf_counter()
+    G.blackcat_web_command(cmd)
+    G.BLACKCAT_SHELL_C_RE.match("-" + "a" * G.BLACKCAT_WEB_SCAN_MAX)
+    assert time.perf_counter() - start < 0.25, unit
 
 
 def test_orchestrator_web_check_off_with_policy_off():

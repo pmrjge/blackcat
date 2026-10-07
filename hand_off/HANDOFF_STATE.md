@@ -1,5 +1,10 @@
 # HANDOFF_STATE: claude-agent-stack, session 8ad965da (2026-10-05, written ~16:30, updated ~16:45 after the stop)
 
+**Current state (2026-10-07, job resume-1007):** main is `8912496` (full C10 green, §4 item 0). Items 11 and 15 are done on
+the branches `eq-runtime-2` and `audit-fixes` and wait for your merges (§4, §5 first block); your open questions are at the
+top of §7; the closing report is `H/.claude-work/resume-1005/FINAL_REPORT.md`. The stopped-state paragraph below is the
+2026-10-05 history.
+
 **STOPPED STATE.** At ~16:37 the user ordered every running task stopped except the commit of `hand_off/` to main.
 Stopped: the orchestrator (aeb982e2417df4dd0), R3 (main-coder a5a3114a94bceb867), the L1 INTEG (main-coder
 a7fae00afc61465ac, mid-C10), `orch-bash` (claude-code-engineer a7ed898c01c4f5a2d) and the reset-script writer (main-coder
@@ -87,7 +92,7 @@ MECHANISMS, s4-l9), `M/claude_next_steps/work_carried/context-diet/`, git commit
 
 | # | task | state / owner |
 |---|---|---|
-| 0 | Full C10 on main HEAD (`9852e87` or later). The run on `fd0a2a3` was incomplete (§1) | **pending**; verifier |
+| 0 | Full C10 on main HEAD (`9852e87` or later). The run on `fd0a2a3` was incomplete (§1) | **done** on `8912496` (2026-10-07): pytest failures = the 7 known environment ids only, install_smoke 280 passed 2 failed (the known openpty pair), image_studio 125, instructor 77, eq-wall 100 + 2 skipped, hand_off 40, codex_config 2068 + 1 skipped, equilibrium harness 451 + 1 skipped (`H/.claude-work/c10/c10-main-8912496.summary`) [v] |
 | 1 | `orch-bash` post-merge audit | folded into item 15 (user's choice) |
 | 2 | L1 follow-ups | done: `worktree-agent-afb29c2edb383d1dc`@`2aff512` (§1) |
 | 3 | R3 `container` port | done: `r3-ready`@`84ba493` via r3-merge (§8) |
@@ -98,18 +103,69 @@ MECHANISMS, s4-l9), `M/claude_next_steps/work_carried/context-diet/`, git commit
 | 8 | L7 B1 + B3, L10 | done: `l7-mech`@`a05d508` via l7-integ (§8) |
 | 9 | Stage 3 quality pass | done: `s3-integ`@`b1a0703` via s3-ff; deferred D1-D5 need the user's approval (§8) |
 | 10 | `RESET_TO_MAIN.sh` | built: `reset-to-main`@`76e1cd4` via rtm-integ (§8); only a dry run is left (item 16) |
-| 11 | Finish `eq-runtime` per `M/hand_off/NEXT_SESSION_PROMPT.md` step 2: harness tests for p6/p7 and the CLI, grade files, E_rt with `bundle_mismatch` and `candidate`, wiring tests; `eq_calibrate` `read_stage` skips records with a branch; merge `eqr-hdocs` into `eqr-harness`, `test_calibrate`, `equilibrium_paths.py amend --amendment A6`; finish the mutation runner on `eqr-mut` (keep only gap tests that kill something); fix the two product bugs (`eq_guard.py:978`, `eq_policy.py` `over_cap`), each with a test; security-auditor + code-reviewer on `main...eq-runtime`, one fix round; merge main into `eq-runtime`; report READY. Private `UV_CACHE_DIR` (the shared one is corrupt) | main-coder lead |
-| 12 | `eq-runtime` INTEG: `git -C M merge --ff-only eq-runtime`, then full C10 on main | integrator |
-| 13 | Codex pages into `R/wiki-main-fixes/github-wiki` (nested repo; the user pushes): re-measure counts, run the wiki checker, review | main-coder |
-| 14 | Final handoff update (A4_FOLD.md §3 path; `R/.claude-work/resume-1005/FINAL_REPORT.md`) | main-coder |
-| 15 | Main-only audit `73eec41..main`: security-auditor + code-reviewer, includes the `orch-bash` Bash/git-guard gaps; then full C10; one fix round | security-auditor, code-reviewer |
-| 16 | `RESET_TO_MAIN.sh` dry run only (`--archive` and `--apply` are the user's) | verifier |
-| 17 | Closing report; the reinstall notice goes here only (the user runs `install.sh`) | main-coder |
+| 11 | Finish `eq-runtime` per `M/hand_off/NEXT_SESSION_PROMPT.md` step 2: harness tests for p6/p7 and the CLI, grade files, E_rt with `bundle_mismatch` and `candidate`, wiring tests; `eq_calibrate` `read_stage` skips records with a branch; merge `eqr-hdocs` into `eqr-harness`, `test_calibrate`, `equilibrium_paths.py amend --amendment A6`; finish the mutation runner on `eqr-mut` (keep only gap tests that kill something); fix the two product bugs (`eq_guard.py:978`, `eq_policy.py` `over_cap`), each with a test; security-auditor + code-reviewer on `main...eq-runtime`, one fix round; merge main into `eq-runtime`; report READY. Private `UV_CACHE_DIR` (the shared one is corrupt) | **ready, not merged:** `eq-runtime-2`@`1876a6b` (base main `8912496`; built from `eq-runtime` `b595c3c` with `eqr-harness-2`@`1d99b44` and `eqr-mut-2`@`6880fc7`): harness p6/p7/CLI/E_rt/wiring tests, both product bugs fixed with tests, the 792-mutant runner, A6 (`64e2c44`), run plan (`3a85b08`); security-auditor PASS, code-reviewer pass-with-fixes, fixed in `9c870d7`; phase B: harness 622 passed 2 skipped, harness mutants 168/168, calibrate mutants 56/56, `tests/eq_mutations.py` 792/792 killed. Its full C10 is pending. Blocked on your merges (§5) and §7 questions 1-2; `audit-fixes` is not merged into it [v: git; r: resume-1007 plan] |
+| 12 | `eq-runtime` INTEG: `git -C M merge --ff-only eq-runtime`, then full C10 on main | **pending, yours** (§5 step 2, branch `eq-runtime-2`): agents' merges are refused by the auto-mode classifier ("Modify Shared Resources"); then a full C10 on main |
+| 13 | Codex pages into `R/wiki-main-fixes/github-wiki` (nested repo; the user pushes): re-measure counts, run the wiki checker, review | **staged for you** (R is read-only to agents): 21 pages, `wiki.patch` 14 files (12 changed, 2 new), counts re-measured on main `8912496`, `wiki_check` 0 problems, code-reviewer accuracy pass-with-fixes (fixed); `H/.claude-work/resume-1005/resume-1007/T13` with `APPLY.md` (§5 step 3) [r] |
+| 14 | Final handoff update (A4_FOLD.md §3 path; `H/.claude-work/resume-1005/FINAL_REPORT.md`) | **done** on `audit-fixes` (the commit after `962b4b5c`): §4, §5, §7; A4_FOLD.md §3 now points at the tracked `equilibrium/COMPARE_eq.md` |
+| 15 | Main-only audit `73eec41..main`: security-auditor + code-reviewer, includes the `orch-bash` Bash/git-guard gaps; then full C10; one fix round | **done, not merged:** `audit-fixes`@`962b4b5c` (base `8912496`; fixes `1416bcb`..`a10ef8e4`, §8 row 15): no-push git gaps in both guards (`ext::`, command-running option values, `--shallow-file`, bundled short options, clone `-c`), web check, STACK_HOOK_RE, deferred profile, dead code, option case; three review rounds (security-auditor + code-reviewer), the last round's findings fixed with proofs. C10 on the tip in a detached worktree: every suite as on main (codex_config 2171 + 1 skipped, harness 451 + 1 skipped), pytest 139 failed = the 7 known + 132 attributed to the `.claude-work` path (129 `test_readonly_agents`, 3 `test_agent_guard` lake_env); the same-path check on `8912496` was still running at this write. Waits for your ff (§5 step 1) [v: git; r: C10 logs `H/.claude-work/c10/`] |
+| 16 | `RESET_TO_MAIN.sh` dry run only (`--archive` and `--apply` are the user's) | **done** on main `8912496` (by a coder: the verifier's read-only hook refused the script): rc 0, worktrees, branches, stash and status identical before and after; plan 114 worktrees (108 remove, 5 skip, 1 keep), 147 branches (142 delete), bundles for the unmerged ones; `H/.claude-work/resume-1005/resume-1007/T16/dryrun.txt`. Run it again after the merges [r] |
+| 17 | Closing report; the reinstall notice goes here only (the user runs `install.sh`) | **draft** at `H/.claude-work/resume-1005/FINAL_REPORT.md`; final once the C10 of `eq-runtime-2` is in |
 | 18 | A4 fold into COMPARE_eq A4 item 4, after the user's paid probe (§5) | python-engineer |
 
 Deferred: oracle residuals (HANDOFF_FULL §6.1), §6.10 items, Stage 3 D1-D5.
 
 ## 5. USER STEPS
+
+### Merges and closing steps (job resume-1007, 2026-10-07; in this order)
+
+Every `git merge` an agent tried this job (the ff of main, and a merge inside a `.claude-work` worktree) was refused by
+the auto-mode classifier ("Modify Shared Resources"), so the merges are yours. main is `8912496`; M must be clean.
+Agents can still commit, test and review between your steps.
+
+1. Fast-forward main to the audit fix round (§4 item 15). Its C10 ran on `962b4b5c` (§4); the one commit after it
+   changes `hand_off/` docs only.
+
+```bash
+git -C /Users/pmrj/ZDone/claude-agent-stack merge --ff-only audit-fixes
+```
+
+2. eq-runtime (§4 items 11-12), after you answer §7 questions 1-2 (if E7 is fixed now, the fix lands on `eq-runtime-2`
+   first). Bring the new main into the branch:
+
+```bash
+git -C /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/claude-info-handoff-setup-05c3bb/.claude-work/eq-runtime-2 merge main
+```
+
+   Since `8912496` both branches change `dot-claude/hooks/agent_guard.py`, `install.sh`, `hand_off/HANDOFF_STATE.md`,
+   `tests/test_install_state.py` and `tests/test_toolsmith.py`, so the merge may conflict [unverified: nobody attempted
+   it]. On a conflict run the same command with `merge --abort`, or let a main-coder resolve it; a conflict resolved in
+   `agent_guard.py` or `install.sh` is a security-surface change (security-auditor + code-reviewer before the ff). Then a
+   main-coder runs the targeted tests and commits the item 11 row in §8 on the branch, and a coder runs its full C10.
+   Then:
+
+```bash
+git -C /Users/pmrj/ZDone/claude-agent-stack merge --ff-only eq-runtime-2
+```
+
+   A full C10 on main follows (a coder; template `H/.claude-work/c10/c10-af-962b4b5.sh`).
+
+3. Wiki (§4 item 13): apply the staged pages as `H/.claude-work/resume-1005/resume-1007/T13/APPLY.md` says (check,
+   copy, check, commit in the nested wiki repository under R; pushing is yours).
+
+4. Stop the orphan `disc3.py` from the old `eqr-mut` mutation run (agent sandboxes cannot run `pgrep` or `pkill`):
+
+```bash
+pgrep -fl disc3.py
+```
+
+```bash
+pkill -f disc3.py
+```
+
+5. After the merges, run the `hand_off/RESET_TO_MAIN.sh` dry run again (§4 item 16); `--archive` and `--apply` stay
+   yours. The worktrees and branches this job created are listed in `H/.claude-work/resume-1005/FINAL_REPORT.md`.
+
+### Earlier steps (2026-10-05/06)
 
 Reinstall (ends the install hold; the installed manifest `73eec41` is 172 commits behind main and its orchestrator has no
 `Bash`). Conditions: full C10 passes on main (§4 items 0, 12, 15) and the closing report (§4 item 17) says so. `orch-bash` is
@@ -238,6 +294,26 @@ sandboxes write only their own worktree, `$TMPDIR` and M; no `claude` login insi
 
 ## 7. OPEN questions / unverified
 
+Open for you (job resume-1007, 2026-10-07; details `H/.claude-work/resume-1005/resume-1007/plan.md`, "Session 2"):
+
+1. **H5's forked `none` branch at stage q.** Your decision (a) was: replace it with the correct branch, else ask. No
+   correct branch exists: E_rt has no fork code, p7 is the only `none` fork and is refused at q, and reusing stage-p data
+   is ruled out by `equilibrium/COMPARE_eq.md` §12 A6 item 7 on `eq-runtime-2` (every q claim is tested on items
+   disjoint from p). q is blocked until this is settled
+   (`hand_off/EQ_CALIBRATION_RUN_PLAN.md` on `eq-runtime-2`, "Open, blocks q"). Options: (a) remove H5's `none` branch from
+   the pre-registration by a new dated §12 amendment (agents never remove it on their own); (b) keep H5 and have a q
+   `none` fork built first (new harness and E_rt work, its own review).
+2. **`eq_check.sh` E7 refuses every stage-p cell pass** (`run --stage p --cells p6,p7`): it blocks run plan steps 3, 5
+   and 6 (proof: `H/.claude-work/resume-1005/resume-1007/S2a/test_s2a_probe.py`). The fix is scoped: an optional `cells`
+   argument passed from `eq_harness.py` (its `eq_check.sh` call, line 4618 on `eq-runtime-2`), the started-calls test counting only
+   calls with no cell, `test_shell` cases, a new mutant, path-pin regeneration, and a new dated §12 amendment because the
+   frozen §5 wording of E7 changes (`COMPARE_eq.md` line 135; the run plan reserves A7 and A8 for pilot and
+   confirmation, so the id is yours to set). Options: (a) fix it now on `eq-runtime-2`, before step 2 of §5; (b) merge
+   `eq-runtime-2` as it is and fix it later (steps 3, 5 and 6 stay blocked; nothing paid runs before them).
+3. **The merges** (§5 steps 1-2): (a) you run the commands; (b) you let an agent run them in a session whose
+   permissions allow it.
+4. **`disc3.py`** (§5 step 4): (a) `pkill -f disc3.py`; (b) leave it running (it adds load to every C10).
+
 - `container` flags: VERIFIED by the user's `container run --help` output (relayed to R3). Present: `--rm --read-only
   --cap-drop --init --user --uid --gid -m -c --ulimit --tmpfs <path> --mount ...,readonly -w --name --network`. Absent:
   `--pids-limit`, `--security-opt` (`--ulimit nproc=512` is the substitute). `--network none` is not in the help but works
@@ -282,3 +358,4 @@ Status 2026-10-07 [v: git]: all 16 branch@sha cells below are ancestors of main 
 | eq-runtime (part F: installer, doctor, docs) | `install.sh` stages the 8 `hooks/eq_*` files and `bin/stack-eq`, `stack-eq-check` (modes 644/755), tracks them in the manifest, byte-compiles the 5 modules and writes the manifest key `eq_runtime` = `{params_sha256, validated}` (what `eq_policy.load_params` reads; a different params file means every class `not_run`). `doctor.sh` section "Equilibrium runtime" (files, params pin, validated classes, drift, `excludedCommands`/allow entries, knobs, store modes, W3 level); its toolsmith check accepts `bin/stack-eq *`. Settings merge and retraction proven for the eq entries. `tests/test_install_eq_runtime.py`; README, CONFIG §5/§7/§9. The shipped `eq_params.json` is the `version 0` all-`not_run` placeholder, accepted by `validate_params` and `params.schema.json` (any other v0 is refused; validator in b595c3c, schema rule in eqr-hdocs 7c1702d; RESUME 2 (c)). Open: Guard rules (part D) and every spec §13 check are not live-verified. **The user runs:** `./install.sh --dry-run` then `./install.sh` after the integrator merges eq-runtime into main, then the README live checks 9 (spec §13) and, much later, `hand_off/EQ_CALIBRATION_RUN_PLAN.md` (paid) | eqr-install (see the report) | C10 on main: the integrator |
 | eq-cli-install | `install.sh --with-eq-container` sets up Apple `container` end to end, asking permission (USER decision). Step 10b runs `lib/eq-container/setup.sh`, 3 steps, each skipped when done: (1) the CLI from Apple's signed .pkg (GitHub release hosts only, no automatic redirects, size cap; size, sha256 and signer pinned in `PINS` `CONTAINER_PKG_*`, a self-contained block at the END of PINS; `/usr/bin/sudo /usr/sbin/installer -pkg <file> -target /` in the foreground; version and receipt checked), (2) `container system start --enable-kernel-install`, (3) `eq-container.sh install` (`--yes` only with build consent, else `--no-build`; build.sh unchanged). Consent: typed `all` / `step` (+ `yes`) / `no` on a terminal, or `--install-container`, `--start-container-service`, `--build-container-images`, `--setup-container`; `--no-install-container`; `--yes`/`--no-prompt` are never consent; steps 1-2 refused under CLAUDECODE. Exits: 13 CLI pin placeholder (`CONTAINER_PKG_SIGNER=UNSET` until checklist C18), 2 malformed, 14 package check, 17 download/install, 18 service. `cli.env`/`setup.env`, manifest `eq_container.cli`, doctor (version vs pin, service), `--restore` and uninstall print Apple's removal commands (the CLI is never removed). Merged main 35b2377 (fb8e10b: CONFIG §9 keeps both entries). security-auditor PASS WITH FIXES (MEDIUM CWE-755: a failed upgrade left the service it stopped down; LOW CWE-59: `setup.env` written through a refused symlinked state dir); code-reviewer PASS WITH FIXES (the same MEDIUM; MEDIUM: a driver's own skip relabelled as the step-1 code 13; LOW: C21 text). All fixed in b0c59d9; the 3 new proofs fail on fb8e10b and pass after. Found by the suite: git 2.54's detached auto maintenance packed the scratch repos' ~4,265 loose objects (equilibrium/) while install.sh's `git fsck` read them ("unable to mmap"), failing full installs in tests/; the scratch repos now set `gc.auto 0`/`maintenance.auto false` (76b6952; main's C10 needs it too). Tests: test_eq_setup 90 passed; on e2519d4 test_eq_container 84 and test_install_eq_container 47 passed; suite on 76b6952 from a clean detached worktree: tests/ 5346 passed 2 skipped, 7 failed (the known xcrun_db set: test_limits_guard T10, test_stack_tree ×3, test_stack_usage ×3), tools/instructor/tests 77 passed, lib/eq-wall/tests 100 passed 2 skipped, codex_config/tests 2068 passed 1 skipped, equilibrium harness 451 passed 1 skipped; lint_agents, prompt_budget --check, guard self-test, bash -n, shellcheck (no new findings), ruff E9,F ok. Not run: `tests/install_smoke.sh` (your terminal). Your steps: `hand_off/R3_CONTAINER_CHECKLIST.md` C18-C23 (C18 derives `CONTAINER_PKG_SIGNER`). | eq-cli-install@321f037 (merged; 76b6952 is an older ancestor) + this row (READY; rescue ref eq-cli-install-pre-merge = e2519d4) | C10 on main after the ff-merge (integrator) |
 | eq-container distroless | Every final image is FROM the digest-pinned `gcr.io/distroless/cc-debian13:nonroot` (index e792ab3d, arm64 manifest 2f0295ce; the bytes kept in `lib/eq-container/base/`, base-verify 21 layers) or `scratch` (tc-go): one COPY, no RUN, USER 10001:10001, a `check-<target>` stage built first (failure: 12). Static GNU bash 5.3 + patches 001-020 from the GPG-signed source (`tc/build-bash.sh`, keyring = exactly `7C0135FB…`, VALIDSIG), the perl shim, jq 1.8.2 static, busybox musl, uv musl 0.12.22; no Debian, apt or dpkg; `Dockerfile`, `distro-pins.sh`, `tc/apt-closure.sh` deleted; `base-pins.sh` (cosign identity and issuer) new. `--set full` and `STACK_EQ_CONTAINER_SET=full` refused, rust and haskell deferred (10). PLACEHOLDER until D2: `BASH_SRC_SHA256`, `BASH_PATCHES_SHA256`, `BASH_BIN_SHA256` (core stops at 13). Reviews: security-auditor and code-reviewer pass with fixes, fixed in 99fad19; `untar.py` refuses absolute names (253d3f6). Merged main twice: 321f037 (eq-cli-install) in ac53e32, where PINS keeps the `CONTAINER_PKG_*` block last, 10b refuses `SET=full` before setup.sh asks anything and then runs setup.sh's consent flow (`--yes` is never consent: the driver gets `--yes` only with build consent, else `--no-build`), and eq-container.sh takes the union (`build-due`, `--no-build`, `--set min` only); expectations changed by the merge: the `SET=min` driver argv is `install --set min --no-build --no-prompt`, and the PINS/Dockerfile ARG test leaves out the `CONTAINER_*` block and requires it last; then b99516f in 870b80e (clean). Tests after the merge: pins 402 passed 1 skipped, dockerfiles 120, test_eq_container 192, test_install_eq_container 51, test_eq_setup 90, lib/eq-wall 100 passed 2 skipped (no eq-wall file edited); seeds: install-full-accepted and both eq-container.sh seeds KILLED again (35/35); equilibrium harness from a copy with EQ_CONTAINER_DIR 451 passed 1 skipped (fake CLI byte-identical); codex_config 2068 passed 1 skipped; suite on 870b80e from a clean detached worktree: tests/ 5930 collected in four parts (the 2 h background limit and a load average near 31: the full run was stopped after 2103 results, all files up to test_install_diff and 38 of test_install_eq_container, 2101 passed 2 skipped; then the other 13 of that file 13 passed, the install files up to test_installer_config_dir 172 passed, and the tail from test_instructor_wiring 3634 passed 1 skipped 7 failed): 5920 passed, 3 skipped, 7 failed, the 7 known env failures only (xcrun_db stderr: test_limits_guard T10, test_stack_tree ×3, test_stack_usage ×3; the 5 git-fsck races are gone), instructor 77, bash -n 311 ok, guard self-test ok, lint_agents ok, prompt_budget --check ok; shellcheck no new findings, ruff E9,F clean. Not run: `tests/install_smoke.sh` (your terminal). Unverified without the real CLI and network: your steps are `hand_off/R3_CONTAINER_CHECKLIST.md` D1-D9 (with C18-C23 from eq-cli-install). | eq-distroless@fd0a2a3 (merged; 870b80e is an older ancestor) + this row (READY; rescue refs rescue/eq-distroless-7f4b50b, rescue/eq-distroless-8297a8e) | C10 on main after the ff-merge (integrator) |
+| 15 | audit fix round: git no-push gaps both guards, web check, STACK_HOOK_RE, deferred profile, dead code, option case | audit-fixes@a10ef8e4 | C10 on main: see resume-1007 plan |

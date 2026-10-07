@@ -281,6 +281,20 @@ def test_only_toolsmith_runs_stack_install(guard, stack):
     assert decision(out) == "deny"
 
 
+@pytest.mark.parametrize("command", ["env -C /tmp stack-install status", "env -P /usr/bin stack-install status",
+                                     "/usr/bin/env -u X stack-install status",
+                                     "/usr/bin/timeout -s KILL 30 stack-install status",
+                                     "/usr/bin/nice -n 5 stack-install status", "sudo -H stack-install status",
+                                     "sudo -P stack-install status"])
+def test_upper_case_value_options_and_wrapper_paths_still_reach_stack_install(guard, command):
+    """T11b Open 3 (parity with agent_guard): value options compare case-sensitively, wrappers by basename."""
+    out = guard.pre(bash(command, agent_type="python-engineer"))
+    assert decision(out) == "deny" and "only the toolsmith" in reason(out), command
+
+
+def test_stack_install_as_an_argument_after_a_wrapper_is_not_a_call(guard):
+    assert guard.pre(bash("env -C /tmp ls stack-install", agent_type="python-engineer")) is None
+
 def test_toolsmith_argv_checked_and_ticket_written(guard, stack):
     wrapper = stack.guard["toolsmith_wrapper"]
     out = guard.pre(bash("%s install brew jq --why 'json tool' --for coder" % wrapper,

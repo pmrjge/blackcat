@@ -491,6 +491,30 @@ def test_an_agent_shell_never_runs_steps_1_and_2(env):
     assert ("system", "start", "--enable-kernel-install") not in env.cli_calls() and p.returncode == 10
 
 
+@needs_shasum
+@pytest.mark.parametrize("drv", [("install", "--profiles", "rust"), ("install", "--profiles", "core,haskell"),
+                                 ("install", "--profiles=core,rust")])
+def test_a_deferred_profile_stops_before_the_cli_and_service_steps(env, drv):
+    """T15 F2: the driver refuses a deferred profile (TOOLS.toml `deferred`: no image) with exit 10 and skips the whole
+    install, so steps 1-2 (the sudo package install, the launchd service start) would be done for nothing."""
+    env.svc.write_text("")
+    p = env.run("--setup-container", tty=True, stdin="all\n", drv=drv)
+    assert p.returncode == 10, p.stdout
+    assert env.root_or_net() == [] and env.cli_calls() == [] and env.stub_calls() == [], (env.calls(), p.stdout)
+    assert "is deferred" in p.stdout and "[all/step/no]" not in p.stdout, p.stdout
+    rec = env.kv("setup.env")
+    assert rec["EQ_SETUP_STEP"] == "profiles" and rec["EQ_SETUP_RC"] == "10" and "is deferred" in rec["EQ_SETUP_WHY"]
+    p = env.run("--dry-run", "--setup-container", drv=drv)
+    assert p.returncode == 10 and "is deferred" in p.stdout and "would:" not in p.stdout, p.stdout
+
+
+@needs_shasum
+def test_all_profiles_is_not_refused_as_deferred(env):
+    """`all` leaves the deferred profiles out (tm_expand_profiles): no refusal, the flow goes on."""
+    p = env.run(drv=("install", "--profiles", "all"))
+    assert "is deferred" not in p.stdout and env.stub_calls() == ["install --profiles all --no-build --no-prompt"], p.stdout
+
+
 # ------------------------------------------------------------------------------------------------- dry run, records, usage
 @needs_shasum
 def test_dry_run_changes_nothing(env):
