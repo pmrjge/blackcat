@@ -28,6 +28,7 @@ PUSHES = [
     "git -C 'dir with space' push",
     "git commit -m \"$(cat <<'EOF'\nmsg\nEOF\n)\" && git push",
     "cat <<EOF > f\nx\nEOF\ngit push",
+    "git --shallow-file x push origin main", "git --shallow-file=x push",   # a global option with a value
 ]
 # A push hidden in a string that another program runs as shell code (the review's gap 1).
 NESTED_PUSHES = [
@@ -332,6 +333,7 @@ GIT_COMMAND_VALUES = [
     "git ls-remote --u='git push origin main' .",
     # a subcommand that reads no transport URL still gets the -c and environment ext:: checks
     "git -c protocol.ext.allow=always log --grep=x", "GIT_ALLOW_PROTOCOL=ext git commit -m m",
+    "git --shallow-file log fetch 'ext::sh -c x'",       # `log` is --shallow-file's value, not the subcommand
     "GIT_SSH_COMMAND='git push' git fetch",
 ]
 

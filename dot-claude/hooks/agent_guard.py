@@ -6375,8 +6375,9 @@ def blackcat_reply_main(raw):
 # escapes. Deliberately not switched off by STACK_POLICY=off: the rule is absolute. Best effort:
 # an alias or function defined in an earlier command, a script file or download, a variable
 # holding the whole command, or text assembled by string operations stays out of sight.
+# git's global options whose value may be the next word (git 2.54: also the hidden --shallow-file)
 GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env",
-                       "--super-prefix", "--exec-path", "--attr-source"}
+                       "--super-prefix", "--exec-path", "--attr-source", "--shallow-file"}
 PUSH_SUBCOMMANDS = {"push", "send-pack"}
 PUSH_UNDER = {"lfs": {"push"}, "subtree": {"push"}, "svn": {"dcommit", "set-tree"},
               "p4": {"submit"}}                      # git lfs push, git svn dcommit, ...
@@ -6853,7 +6854,7 @@ INSTALL_FLAGS_OK = {"--help", "-h", "--dry-run", "--print-managed-settings"}
 GH_VALUE_OPTS = {"-h", "--hostname", "-R", "--repo", "-s", "--scopes", "-p", "--git-protocol",
                  "-u", "--user"}
 GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix",
-                  "--config-env", "--attr-source"}
+                  "--config-env", "--attr-source", "--shallow-file"}
 SECURITY_VALUE_CHARS = "aCcDGjlsty"
 CURL_VALUE_SHORT = "HAeoubcwxKmrEYCDdFTXzUPQty"
 CURL_VALUE_LONG = {"header", "user-agent", "referer", "output", "user", "cookie", "cookie-jar",

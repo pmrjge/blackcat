@@ -257,8 +257,9 @@ INTERNAL_REASON = ("Blocked: the stack's guard hit an internal error (%s); the c
 # trees, curl/wget/httpie forge writes, the lexer and _Scan; the protect and install kinds removed,
 # a "codex" and a "gitesc" kind added). tests/test_no_push.py's corpus is the oracle
 # (tests/test_guard_nopush.py); keep both copies in step when one changes.
+# git's global options whose value may be the next word (git 2.54: also the hidden --shallow-file)
 GIT_OPTS_WITH_VALUE = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--config-env",
-                       "--super-prefix", "--exec-path", "--attr-source"}
+                       "--super-prefix", "--exec-path", "--attr-source", "--shallow-file"}
 PUSH_SUBCOMMANDS = {"push", "send-pack"}
 PUSH_UNDER = {"lfs": {"push"}, "subtree": {"push"}, "svn": {"dcommit", "set-tree"},
               "p4": {"submit"}}                      # git lfs push, git svn dcommit, ...
@@ -527,7 +528,7 @@ NET_CLIENTS = {"curl", "wget", "http", "https", "xh", "xhs"}
 GH_VALUE_OPTS = {"-h", "--hostname", "-R", "--repo", "-s", "--scopes", "-p", "--git-protocol",
                  "-u", "--user"}
 GIT_VALUE_OPTS = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix",
-                  "--config-env", "--attr-source"}
+                  "--config-env", "--attr-source", "--shallow-file"}
 SECURITY_VALUE_CHARS = "aCcDGjlsty"
 CURL_VALUE_SHORT = "HAeoubcwxKmrEYCDdFTXzUPQty"
 CURL_VALUE_LONG = {"header", "user-agent", "referer", "output", "user", "cookie", "cookie-jar",
