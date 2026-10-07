@@ -614,3 +614,21 @@ n_d = 46. Hence the added "powered effect excluded" reading.
       manual`** (q runs before any class is validated) and the harness records `bundle_mismatch` (both bundles, no
       call, excluded from q, reported only) when the runtime's resolved bundle (`plan.json`) is not the q cell's
       selected bundle. Ledger fields: `harness/LEDGER_SCHEMA.md`; commands: `harness/README.md`.
+  11. **Implementation note, 2026-10-07 (pre-freeze; no pre-registered number changes).** (e) **USER decision
+      (2026-10-06): the bundle E_rt runs in q is p's selection, as a params class status `candidate`.** After stage p
+      `eq_calibrate.py --stage p` writes `candidate` for a class whose p-selected bundle is complete (`member_type`,
+      `member_model_id`, `N`, `rounds`, `view`, `loo_view`, `reducer`, `tau`, `t`, `caps`, `pool` non-null) and
+      eligible (N\* >= 3), else `not_run`; p still tests nothing. The runtime honours a `candidate` only in `eq-mode:
+      manual`, labelled unvalidated (`validated` false, status reason `candidate`); `eq-mode: auto` stays refused
+      until q validates the class (q's primary classes then become `validated`, `refuted` or `not_established`).
+      `params.schema.json` lists the status (version >= 1 only; version 0 stays all `not_run`). (f) **`bundle_mismatch`
+      as built:** `run --e-arm runtime --params <p's params.json>` (required for stage q) compares `plan.json`'s
+      bundle with the class's `candidate` (or `validated`) entry on exactly the keys of (e) but `pool` (JSON
+      equality); a difference ends the item-arm `partial` before consent and `start`, records both bundles, and both
+      analysis routes leave it out of every test (listed, reason `bundle_mismatch`). (g) **Member-level grade files
+      as built:** `score --members` (PF, CP), `cr-grade` (`members/CR_findings.jsonl`), `rs-grader-input` /
+      `rs-grade --verdicts` (RS; batch `grading/RS_members/`, key `grading_keys/RS_members.key.json`, apart from the
+      item-arm RS batch). (h) **Open, H5 not yet runnable on q:** branch-level member-0 lines (branch `none`) come
+      only from p7 (RS, ES; stage p). On q, E_rt reports H5's fork as not run (`h5`), and the harness E arm with a
+      variant other than `none` runs no forked `none` branch (not built), so `eq_calibrate`'s H5 reports "no graded
+      none-branch result". H5 needs that fork (or an amendment) before q.

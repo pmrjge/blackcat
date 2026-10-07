@@ -243,7 +243,8 @@ uv run --script harness/eq_harness.py schedule --items items --stage q --primary
 uv run --script harness/eq_harness.py run --stage p --spend-ok
 uv run --script harness/eq_harness.py run --stage p --cells p6,p7 --spend-ok     # p7 needs p3's round 0 in the ledger
 # E_rt (stage q, or d with the stub): the E rows run the runtime itself instead of the harness's N members
-uv run --script harness/eq_harness.py run --stage q --e-arm runtime [--stack-eq <path>] --spend-ok
+uv run --script harness/eq_harness.py run --stage q --e-arm runtime --params calibration/params.json \
+    [--stack-eq <path>] --spend-ok          # --params: stage p's params (status candidate): E_rt's expected bundles
 uv run --script harness/eq_harness.py score --stage p --cls PF --members              # members/PF.jsonl (PF, CP)
 uv run --script harness/eq_harness.py cr-grader-input --stage p --with-members       # then cr-grade (CR_findings)
 uv run --script harness/eq_harness.py rs-grader-input --stage p                      # grading/RS_members/batch.jsonl
@@ -269,9 +270,15 @@ uv run --script harness/eq_harness.py rs-grade --stage p --verdicts <file>      
   `<config>/bin/stack-eq`. The answer is the store's `result.json` (`answer_text`, else `answer`; CP: its selected
   patch applied to a fresh fixture copy). Each stack-eq step is an `e_rt` ledger record; refusals end the item-arm
   `partial`. H5's forked `none` branch is not run under E_rt (reported as `h5`). When `plan.json`'s bundle differs from
-  the q cell's selected bundle the item is recorded as `bundle_mismatch` (no call, excluded from q; planned, see
-  LEDGER_SCHEMA). Fields: `LEDGER_SCHEMA.md` (`e_rt`, `item_arm`, `call` `loo_view`/`loo_exclude`, per-round
-  `attribution`, member-level grades).
+  the class's expected bundle in `--params` (stage p's `candidate` bundles; required for stage q) the item is recorded
+  as `bundle_mismatch` (no consent, no `start`, no call; excluded from both analysis routes). A `candidate` class
+  (written by `eq_calibrate.py --stage p` for a complete, eligible p bundle, N* >= 3) is honoured by the runtime in
+  `eq-mode: manual` only, labelled unvalidated; `auto` stays refused. Fields: `LEDGER_SCHEMA.md` (`e_rt`,
+  `item_arm`, `call` `loo_view`/`loo_exclude`, per-round `attribution`, member-level grades).
+- **Member-level grades** (after the freeze; read by `eq_calibrate.py`): `score --members` (PF, CP) and
+  `rs-grade` write `grading_results/members/<CLS>.jsonl`; `cr-grade` after `cr-grader-input --with-members` also
+  writes `members/CR_findings.jsonl`. The RS member batch is `grading/RS_members/batch.jsonl` with its key in
+  `grading_keys/RS_members.key.json` (separate from the item-arm RS batch).
 
 ## Open items (review 2026-10-04; for the user or the pool owners, before the freeze)
 
