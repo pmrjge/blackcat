@@ -291,23 +291,33 @@ detail>` otherwise.
 ## Member-level grades (`grading_results/members/`; A6.3; written after the freeze, read by `eq_calibrate.py`)
 
 Member answers of p3 (round 0 and the checkable repair round), p6 (9 members) and p7 (per branch) are graded like
-item-arm answers, blinded. **Planned: the commands below are being added to `eq_harness.py` (branch eqr-harness) and
-the fields marked "planned" are the harness builder's checkpoint, not yet written by any code; `eq_calibrate.py`
-(`read_stage`) is the reader and fixes the names it consumes.**
+item-arm answers, blinded. Written by the `eq_harness.py` commands named below (tests:
+`tests/test_member_grades.py`); `eq_calibrate.py` (`read_stage`) is the reader and fixes the names it consumes.
 
 - `members/<CLS>.jsonl` (`PF`, `CP`, `RS`; ES needs none: the frozen truth file scores a member answer): one line per
   graded member answer, `{item, label, member, round, branch, score, …}`. `label` the arm label (`p3`, `p6`, `p7`);
   `member` the 1-based member number (**0 = a branch's reduced answer**, the H5 comparison: `branch` `none`);
   `round` 0 (round-0 answer) or the reconcile/repair round; `branch` the p7 variant, null for p3/p6. `score`: 1/0 as in
-  `grading_results/<CLS>.jsonl` (the planned further fields mirror that file: `ts_utc`, `exit`, `score_num`,
-  `score_inf`, `detail`, and for PF/CP `isolation`, `image`). Written by `eq_harness.py score --members` for PF and CP
-  (round-0 and repair members, `node` null; CP's directory is the member's `cwd`, or the p7 member's `branch_workdir`,
-  through `check_copy`, never the member's own copy) and by `eq_harness.py rs-grade --verdicts` for RS (planned).
-- `members/CR_findings.jsonl` (planned): written by `cr-grade` (batch built by `cr-grader-input --with-members`), one
+  `grading_results/<CLS>.jsonl`; further fields mirror that file: `ts_utc`, `exit` (null: no answer, oracle not run,
+  score 0), `score_num`, `score_inf`, `detail`, and for PF/CP `call_id`, `isolation`, `image`; for RS `rid`,
+  `verdicts_file`. Written by `eq_harness.py score --members` for PF and CP (the member calls of `member_units`: a
+  `call` with an integer `member`, `node` null and role `m<i>/<N>` (round 0) or `r<k>` (round k), one unit per
+  (item, label, member, round, branch), the latest call winning; answer files `grading_keys/<CLS>_member_units/m<k>.*`;
+  CP's directory is the member's `branch_workdir` (a forked round), else its `cwd`, through `check_copy`, never the
+  member's own copy; other classes refused, exit 2) and by `eq_harness.py rs-grade --verdicts` for RS (below).
+- `members/CR_findings.jsonl`: written by `cr-grade` (batch built by `cr-grader-input --with-members`), one
   line per member finding: `item`, `label`, `member`, `round`, `finding` (the answer element, the object as the member
   gave it), `bug` (the index of the seeded bug it matches, from the oracle's `detail.per_finding`; null), `verdict`,
-  `n_seeded` (seeded bugs of the item). A duplicate finding takes the grade of the kept index it duplicates.
-- RS member grading (planned): `eq_harness.py rs-grader-input` runs the RS oracle's `--grader-input` on every RS member
-  answer (deduplicated by `rid`), shuffles one blinded batch (seed `eq|grader ^ sha256("<stage>|RS|members")`) into
-  `grading/RS/` with its key in `grading_keys/RS.key.json`; `rs-grade --verdicts <file>` routes the verdicts back, runs
-  the oracle's `--grade` and writes `members/RS.jsonl`.
+  `n_seeded` (seeded bugs of the item). A duplicate finding takes the grade of the kept index it duplicates (the
+  oracle's dedupe key: file without leading `./`, line, stripped lower-cased claim). Only round-0 members outside EG
+  nodes (`node` null) with an oracle exit 0 get lines; `round` is 0.
+- RS member grading: `eq_harness.py rs-grader-input` runs the RS oracle's `--grader-input` on every RS member answer
+  (`rs_member_units`: the member calls as above plus, per p7 item-arm, each branch's reduced answer as member 0 with
+  `round` = the branch's rounds). Answers the oracle settles mechanically (label, or a REFUTED value, wrong; no answer)
+  score 0 without a grader; the rest, deduplicated by `rid`, form one shuffled batch (seed
+  `eq|grader ^ sha256("<stage>|RS|members")`) in `grading/RS_members/batch.jsonl` (one grader record per line) with
+  its key in `grading_keys/RS_members.key.json` (`rids`: rid -> {item, stem, units, needs_grade,
+  mechanical_detail}). The names differ from the item-arm RS batch (`grader-input`: `grading/RS/`,
+  `grading_keys/RS.key.json`), which they must not overwrite. `rs-grade --verdicts <file>` (a list of {rid, verdict
+  pass|fail}, or {"grades": [...]}; refused, exit 2, with any rid unknown, duplicated, missing or a bad verdict) runs
+  the oracle's `--grade` per graded rid and writes one line per member unit to `members/RS.jsonl`.
