@@ -1044,8 +1044,8 @@ def test_a_resumed_run_ending_in_text_is_no_handback(rig, tmp_path):
 
 def test_a_long_handback_is_still_a_handback(rig, tmp_path):
     """Review fix (security-auditor, code-reviewer): Claude Code stores a tool input twice per record
-    (message.content and wireToolInputs), so a ~145k-char message makes a ~290 KiB record, past the 256 KiB
-    tail that transcript_last_tool reads; the hand-back reader's own tail (HANDBACK_TAIL_MAX) still sees it."""
+    (message.content and wireToolInputs), so a ~145k-char message makes a ~290 KiB record, past a 256 KiB
+    tail; the hand-back reader's own tail (HANDBACK_TAIL_MAX) still sees it."""
     msg = "STATUS: done\nRESULT: ok\n" + "- row 0123456789\n" * 8500
     rec = {"type": "assistant", "message": {"id": "m2", "content": [
         {"type": "text", "text": "Reporting."},
@@ -1054,7 +1054,7 @@ def test_a_long_handback_is_still_a_handback(rig, tmp_path):
     t = tmp_path / "agent-hm7.jsonl"
     t.write_text(json.dumps(rec) + "\n" + json.dumps({"type": "user", "message": {"content": [
         {"type": "tool_result", "tool_use_id": "tu2"}]}}) + "\n")
-    assert t.stat().st_size > sr.TAIL_MAX
+    assert t.stat().st_size > 256 << 10
     rig.seed("hm7", "coder")
     r = rig.run(rig.stop("hm7", "coder", "Reporting.", transcript=str(t)))
     assert r.rc == 0 and not blocked(r)
@@ -1094,6 +1094,8 @@ def test_transcript_handback_reads_the_newest_assistant_record_only(tmp_path):
     assert sr.transcript_handback(str(link)) is None                         # O_NOFOLLOW
     fifo = tmp_path / "fifo"
     os.mkfifo(str(fifo))
+    got, done = bounded(lambda: sr.transcript_handback(str(fifo)))          # a FIFO with no writer: no hang
+    assert done and got is None
     fd = os.open(str(fifo), os.O_RDWR | os.O_NONBLOCK)                       # a FIFO holding a hand-back: not read
     try:
         os.write(fd, (json.dumps(rec) + "\n").encode())
@@ -1103,38 +1105,18 @@ def test_transcript_handback_reads_the_newest_assistant_record_only(tmp_path):
         os.close(fd)
 
 
-def test_transcript_last_tool_is_bounded_and_regular_only(tmp_path):
-    p = tmp_path / "t.jsonl"
-    pad = json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Early"}]}})
-    last = json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Last"}]}})
-    p.write_text(pad + "\n" + "x" * 5000 + "\n" + last + "\n" + "tail line\n")
-    assert sr.transcript_last_tool(str(p)) == "Last"
-    assert sr.transcript_last_tool(str(p), cap=40) is None          # the tail is all that is read
-    early = json.dumps({"type": "assistant", "message": {"content": [{"type": "tool_use", "name": "Early"}]}})
-    q = tmp_path / "q.jsonl"
-    q.write_text(early + "\n" + "x" * 5000 + "\n" + last + "\n")
-    assert sr.transcript_last_tool(str(q), cap=len(last) + 1) == "Last"   # only the last `cap` bytes are read
-    assert sr.transcript_last_tool(str(tmp_path / "missing.jsonl")) is None
-    assert sr.transcript_last_tool("relative.jsonl") is None and sr.transcript_last_tool(None) is None
-    fifo = tmp_path / "fifo"
-    os.mkfifo(str(fifo))
-    got, done = bounded(lambda: sr.transcript_last_tool(str(fifo)))
-    assert done and got is None
-    fd = os.open(str(fifo), os.O_RDWR | os.O_NONBLOCK)              # a FIFO that holds a tool_use line: still not read
-    try:
-        os.write(fd, (last + "\n").encode())
-        got, done = bounded(lambda: sr.transcript_last_tool(str(fifo)))
-        assert done and got is None
-    finally:
-        os.close(fd)
-
-
 def test_transcript_tail_never_reads_a_device(monkeypatch):
     """A character device is opened but never read (S_ISREG first): /dev/zero would hand back 256 KiB."""
     reads, real = [], os.read
     monkeypatch.setattr(os, "read", lambda fd, n: reads.append(n) or real(fd, n))
-    assert sr.transcript_handback("/dev/zero") is None and sr.transcript_last_tool("/dev/zero") is None
+    assert sr.transcript_handback("/dev/zero") is None
     assert reads == []
+
+
+def test_no_dead_transcript_reader():
+    """T15 review F4: report_stop reads transcript_handback only (S4 L7 B1); the older last-tool reader and its
+    256 KiB tail had no caller left."""
+    assert not hasattr(sr, "transcript_last_tool") and not hasattr(sr, "TAIL_MAX")
 
 
 # ================================================================ 16. modes off and json
