@@ -1,5 +1,5 @@
 # What git must not track in a checkout of this repository (local work, caches, secrets).
-
+wiki/
 # --- OS and editors ---
 # macOS Finder metadata and AppleDouble files
 .DS_Store
