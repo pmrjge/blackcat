@@ -1722,3 +1722,24 @@ def test_eq_columns_need_a_valid_value_and_an_old_runs3_header_is_merged_not_set
     assert (u / "runs3.csv").read_text().splitlines()[0] == ",".join(U.COLUMNS)
     r = U.read_rows()
     assert r[(SID, "old1", 0)]["api_calls"] == "4" and r[(SID, "new1", 0)]["eq_run"] == "0a1b2c3d"
+
+
+def test_sched_refresh_adds_the_repo_tests_dir_only_in_the_repo_layout(tmp_path):
+    """stack_sched_refresh.py puts <repo>/tests on sys.path (derive_sched_model.py lives there) only when it runs from
+    <repo>/dot-config/dot-claude/hooks. An installed copy (<config>/hooks, derive_sched_model.py beside it) adds
+    nothing outside the config dir: not <config>/../tests (~/tests before the dot-config move) nor
+    <config>/../../tests (/Users/tests after it)."""
+    stub = "import json, os, sys\njson.dump(sys.path, open(os.environ['SYSPATH_OUT'], 'w'))\nraise SystemExit(0)\n"
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "PYTHONHOME")}
+    base = tmp_path.resolve()
+    for hooks, want_tests in ((base / "home" / ".claude" / "hooks", None),
+                              (base / "repo" / "dot-config" / "dot-claude" / "hooks", base / "repo" / "tests")):
+        hooks.mkdir(parents=True)
+        (hooks / "stack_sched_refresh.py").write_bytes((HOOKS / "stack_sched_refresh.py").read_bytes())
+        (hooks / "pandas.py").write_text(stub)          # the first import after the sys.path line
+        out = hooks / "syspath.json"
+        r = subprocess.run([sys.executable, "-B", str(hooks / "stack_sched_refresh.py")], capture_output=True,
+                           text=True, env=dict(env, SYSPATH_OUT=str(out)), cwd=str(hooks))
+        assert r.returncode == 0, r.stderr
+        added = {p for p in json.loads(out.read_text()) if p.startswith(str(base))}
+        assert added == {str(hooks)} | ({str(want_tests)} if want_tests else set()), added

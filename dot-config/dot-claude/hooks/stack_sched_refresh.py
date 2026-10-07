@@ -48,8 +48,11 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 # installed: derive_sched_model.py and derive_thresholds.py beside this file; in the repo: tests/
-# (<repo>/dot-config/dot-claude/hooks -> <repo>/tests)
-sys.path[:0] = [HERE, os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(HERE))), "tests")]
+# (<repo>/dot-config/dot-claude/hooks -> <repo>/tests). Only that layout adds tests/: an installed copy
+# (<config>/hooks) puts nothing outside the config dir on sys.path.
+_REPO = os.path.dirname(os.path.dirname(os.path.dirname(HERE)))
+_IN_REPO = os.path.relpath(HERE, _REPO) == os.path.join("dot-config", "dot-claude", "hooks")
+sys.path[:0] = [HERE] + ([os.path.join(_REPO, "tests")] if _IN_REPO else [])
 
 import pandas as pd  # noqa: E402
 
