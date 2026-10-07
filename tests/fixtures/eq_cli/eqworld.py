@@ -14,8 +14,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
-HOOKS_SRC = Path(os.environ.get("EQ_HOOKS_SRC") or REPO / "dot-claude" / "hooks")
-REAL_HOOKS = REPO / "dot-claude" / "hooks"
+HOOKS_SRC = Path(os.environ.get("EQ_HOOKS_SRC") or REPO / "dot-config" / "dot-claude" / "hooks")
+REAL_HOOKS = REPO / "dot-config" / "dot-claude" / "hooks"
 # the real eq_core (a sibling build): this repo's hooks once merged, or EQ_CORE_SRC (its worktree's hooks dir)
 REAL_CORE = Path(os.environ.get("EQ_CORE_SRC") or REAL_HOOKS)
 CLASSES = ("PF", "CP", "CR", "RS", "ES", "DS", "OE")
@@ -67,7 +67,7 @@ class World:
             (self.hooks / "eq_schemas.json").write_text(json.dumps({c: {"type": "object"} for c in CLASSES}))
         shutil.copy(REAL_HOOKS / "stack_limits_seed.json", self.hooks / "stack_limits_seed.json")
         for f in ("stack-eq", "stack-eq-check"):
-            shutil.copy(REPO / "dot-claude" / "bin" / f, self.bin / f)
+            shutil.copy(REPO / "dot-config" / "dot-claude" / "bin" / f, self.bin / f)
             os.chmod(self.bin / f, 0o755)
         os.symlink(sys.executable, self.bin / "stack-python")
         self.settings = {"sandbox": {"filesystem": {"denyRead": [str(self.cfg) + "/**/stack.env"]}},

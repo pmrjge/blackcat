@@ -3,7 +3,7 @@
 One paid call (consent given, hard cap $0.25), user-run from a normal logged-in terminal (agent sandboxes have no
 `claude` login). Nothing here was run by the author. Source of the probe: `HANDOFF_STATE.md` §5; the only change is
 `P=`: the output goes to `dot-config/dot-equilibrium/runs/probes/` in the repository, which `.gitignore` keeps out of git
-(`/equilibrium/**/runs/`), so the raw output (session ids, paths) is never tracked. Run it with the stack as installed now (it uses `~/.claude/agents/writer.md`),
+(`/dot-config/dot-equilibrium/**/runs/`), so the raw output (session ids, paths) is never tracked. Run it with the stack as installed now (it uses `~/.claude/agents/writer.md`),
 not in the middle of the c0 arm (`RUNBOOK_c0.md`: no `claude` calls besides the arm session between A and C).
 
 ## 1. The probe (corrected `P=`)

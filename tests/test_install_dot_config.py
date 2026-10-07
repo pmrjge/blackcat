@@ -137,11 +137,7 @@ def test_codex_help_is_the_codex_installers_and_the_top_help_names_it(tmp_path):
         x.lstrip("#").strip() for x in top.stdout.splitlines())
 
 
-# The inner script's own refusal is group B2's change (dot-config/dot-codex_config/install.sh); until it
-# lands here this test skips. Integrator: once B2 is in, drop the skipif.
-@pytest.mark.skipif("STACK_CODEX_VIA_TOP" not in open(CODEX_INSTALL, encoding="utf-8").read(),
-                    reason="dot-config/dot-codex_config/install.sh does not check STACK_CODEX_VIA_TOP yet "
-                           "(group B2's change): integrator, remove this skipif after merging B2")
+# The inner script refuses a direct run: ./install.sh --codex is the only entry point.
 def test_codex_installer_run_directly_names_the_entry_point(tmp_path):
     env, home = _env(tmp_path)
     out = _run([BASH, CODEX_INSTALL, "--help"], env)

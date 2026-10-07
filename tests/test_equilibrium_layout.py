@@ -1,4 +1,4 @@
-"""The tracked Equilibrium experiment (dot-config/dot-equilibrium/, README there; equilibrium/ until the repository move,
+"""The tracked Equilibrium experiment (dot-config/dot-equilibrium/, README there; at the repository root until the move,
 COMPARE_eq.md A9): its layout stays whole, its run outputs stay out, and its harness takes lib/ over the staging copies.
 
 The file set is git's view of what is or would be tracked (`ls-files --cached --others --exclude-standard`), so the
@@ -26,7 +26,7 @@ from pathlib import Path
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-EQ = "dot-config/dot-equilibrium"  # equilibrium/ before the repository move (COMPARE_eq.md A9, 2026-10-07)
+EQ = "dot-config/dot-equilibrium"  # at the repository root before the move (COMPARE_eq.md A9, 2026-10-07)
 POOLS = ("PF", "CP", "CR", "RS", "ES", "DS", "OE")
 MIB = 1 << 20
 BIG = {f"{EQ}/items/RS/manifest.jsonl": 3 * MIB}  # the one file over 1 MiB, with its own cap
@@ -62,7 +62,7 @@ def git(*args: str) -> str:
 def files() -> list[str]:
     out = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", EQ)
     found = sorted({p for p in out.split("\0") if p and (ROOT / p).is_file()})
-    assert found, f"{EQ}/ is missing from this checkout (tracked since bd3a182, at equilibrium/ until A9)"
+    assert found, f"{EQ}/ is missing from this checkout (tracked since bd3a182, at the repository root until A9)"
     return found
 
 

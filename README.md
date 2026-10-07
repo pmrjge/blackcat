@@ -1658,10 +1658,9 @@ outside this repository).
 Repository layout (the installed trees are unchanged):
 
 ```
-dot-config/
-  dot-claude/          mirrors ~/.claude (agents, skills, hooks, settings.json, ...)
-  dot-codex_config/    the Codex CLI port (installed through ./install.sh --codex)
-  dot-equilibrium/     the Equilibrium experiment and harness
+dot-config/dot-claude/        mirrors ~/.claude (agents, skills, hooks, settings.json, ...)
+dot-config/dot-codex_config/  the Codex CLI port (installed through ./install.sh --codex)
+dot-config/dot-equilibrium/   the Equilibrium experiment and harness
 install.sh  lib/  tests/  tools/  docs/  hand_off/
 ```
 

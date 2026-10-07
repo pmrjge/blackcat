@@ -12,12 +12,15 @@ suite fails when
 
 2026-10-07 (dot-config): DIR_MOVES covers dot-claude, codex_config and equilibrium, which moved whole under
 dot-config/ (renames only). Every file of the pre-move tree (PRE_MOVE_COMMIT) must exist at its new path, and
-no tracked file may name the old directory in a path shape (dir_ref_hits). FROZEN lists the files and
-sections that keep old strings on purpose (pooled data, recorded outputs, fixtures, pinned c0 files,
-historical records); everything else is checked.
+no tracked file may name the old directory in a path shape (dir_ref_hits). FROZEN lists the files that keep
+old strings on purpose (pooled data, recorded or pinned bytes, fixtures, pinned c0 files, files agents may not
+edit), MOVE_TOOLS the files whose job is the old layout (mapping it, testing the fallbacks for it), and
+LINE_EXEMPT the sections, functions and single lines inside scanned files (dated records, pre-move fallbacks);
+everything else is checked.
 
 Run: uv run --with pytest pytest -q tests/test_moved_paths.py
 """
+import ast
 import fnmatch
 import re
 import subprocess
@@ -51,9 +54,63 @@ FROZEN = (
     "tests/fixtures/reports/*.txt",
     "*.out",                                         # recorded outputs (mutations.out, derive_numbers.out, ...)
     "hand_off/c0_support/*",                         # pinned by PINS.sha256
+    # A5-recorded bytes (PATH_RELATIVISATION.json "files": an edit needs a COMPARE_eq §12 amendment), among them
+    # the stage-text outputs; the A5 record's prose; a dated run record
+    "dot-config/dot-equilibrium/PROPOSAL.md",
+    "dot-config/dot-equilibrium/isolation/INSTALLER_SPEC.md",
+    "dot-config/dot-equilibrium/isolation/RUNBOOK.md",
+    "dot-config/dot-equilibrium/isolation/RUNBOOK_MINIMAL.md",
+    "dot-config/dot-equilibrium/wall/*",             # the staging copy of lib/eq-wall
+    "dot-config/dot-equilibrium/PATH_RELATIVISATION.md",
+    "dot-config/dot-equilibrium/harness/R2_RUN.md",
+    # files agents may not edit: lib/eq-wall (never changed), tools/instructor (guard-protected; the user applies
+    # its path updates)
+    "lib/eq-wall/*",
+    "tools/instructor/*",
 )
-# Line-level exemptions inside otherwise scanned files: historical records that keep the names of their day.
-# rel -> function(lines) -> set of 0-based line indexes exempt.
+# Files whose job is the old layout: the A5/A9 record's tool and its tests (old_rel() maps keys back to the
+# pre-move paths; pre-move commits are read at them) and the installer's pre-move fallback tests. Not scanned.
+MOVE_TOOLS = (
+    "tests/equilibrium_paths.py",
+    "tests/test_equilibrium_paths.py",
+    "tests/test_install_dot_config.py",
+)
+# Line-level exemptions inside otherwise scanned files: historical records that keep the names of their day,
+# and code that reads the old layout on purpose. rel -> function(lines) -> set of 0-based line indexes exempt.
+
+
+def _section(prefix):
+    """The lines of the '## ' section whose heading starts with `prefix`, through the next '## ' heading."""
+    def f(lines):
+        out, on = set(), False
+        for i, line in enumerate(lines):
+            if line.startswith("## "):
+                on = line.startswith(prefix)
+            if on:
+                out.add(i)
+        return out
+    f.section = prefix
+    return f
+
+
+def _lines(*patterns):
+    """The single lines matching one of `patterns` (regexes); test_exemptions_still_apply keeps each live."""
+    rxs = [re.compile(p) for p in patterns]
+
+    def f(lines):
+        return {i for i, line in enumerate(lines) if any(rx.search(line) for rx in rxs)}
+    f.patterns = rxs
+    return f
+
+
+def _defs(*names):
+    """The lines of the named top-level Python functions: tests that rebuild the pre-move layout on purpose."""
+    def f(lines):
+        tree = ast.parse("\n".join(lines))
+        return {i for node in tree.body if isinstance(node, ast.FunctionDef) and node.name in names
+                for i in range(node.lineno - 1, node.end_lineno)}
+    f.names = names
+    return f
 
 
 def _changelog_before_move(lines):
@@ -84,6 +141,38 @@ def _handoff_section_8(lines):
 LINE_EXEMPT = {
     "CONFIG.md": _changelog_before_move,
     "hand_off/HANDOFF_STATE.md": _handoff_section_8,
+    # the dated amendments (append only), each in the names of its day; A9 records the move itself
+    "dot-config/dot-equilibrium/COMPARE_eq.md": _section("## 12."),
+    # the A9 note and a dated record
+    "dot-config/dot-equilibrium/README.md": _lines(r"the A5 record name it `equilibrium/`",
+                                                   r"to `equilibrium/` for the commits before the move",
+                                                   r"EQ-T against `equilibrium/`, caches excluded, 2026-10-06"),
+    # pre-move fallbacks (a manifest commit from before the move holds the old layout)
+    "install.sh": _lines(r"before the dot-config/ move", r"prev_commit:dot-claude\b",
+                         r'prev_paths="\$SUPPLY_PATHS dot-claude"', r'"dot-claude/settings\.json"\):'),
+    "tests/prompt_budget.py": _lines(r'^OLD_DOT = "dot-claude"'),
+    "dot-config/dot-codex_config/lib/source_snapshot.py": _lines(r"^LEGACY_PATHS = "),
+    "dot-config/dot-codex_config/tests/test_source_snapshot.py":
+        _defs("test_changes_since_a_pre_move_commit_covers_the_old_paths"),
+    "dot-config/dot-codex_config/tests/test_installer_e2e.py":
+        _defs("test_supply_review_from_a_pre_move_install_covers_the_old_paths"),
+    # provenance at a commit, in the installed guard (its bytes stay unchanged)
+    "dot-config/dot-codex_config/hooks/codex_guard.py":
+        _lines(r"Ported from dot-claude/hooks/agent_guard\.py at commit"),
+    # frozen prose: flags.json (a freeze input) and its copy DEFAULT_FLAGS; a comment in the sha-pinned mediator
+    "dot-config/dot-equilibrium/harness/flags.json": _lines(r"\(dot-claude/agents/<type>\.md `model:`"),
+    "dot-config/dot-equilibrium/harness/eq_harness.py": _lines(r"\(dot-claude/agents/<type>\.md `model:`"),
+    "dot-config/dot-equilibrium/harness/eq_mediator.py": _lines(r"stdlib port is dot-claude/hooks/eq_core\.py"),
+    # the agents dir as this tree's sibling inside dot-config/ (STAGE.parent): right after the move too
+    "dot-config/dot-equilibrium/harness/tests/test_model_map.py": _lines(r"`\.\./dot-claude/agents`",
+                                                                         r'STAGE\.parent / "dot-claude" / "agents"',
+                                                                         r"no dot-claude/agents beside this copy"),
+    # scratch trees: the frozen package under work_carried (eq_check.sh's $W/equilibrium), a mutant's copy
+    "dot-config/dot-equilibrium/harness/tests/test_shell.py": _lines(r'^\s*eq = w / "equilibrium"$'),
+    "dot-config/dot-equilibrium/harness/tests/test_calibrate_mutants.py":
+        _lines(r'^\s*root = tmp_path / mid / "equilibrium"$'),
+    # the c0 arm's commits (a22c5b4, 7d12c58, the installed 73eec41) hold the pre-move layout
+    "hand_off/RUNBOOK_c0.md": _lines(r"\b(?:a22c5b4|7d12c58|73eec41)\b"),
 }
 
 
@@ -105,9 +194,13 @@ def old_path_re(old):
 # `equilibrium` is also an agent type (subagent_type, settings/flags/limits keys) and `codex_config` an identity
 # ("installer": "codex_config", codex_config_* modules): only a path shape counts, never the bare word.
 _Q = r"""["']"""
-# the new spelling (dot-config/dot-claude, "dot-config" / "dot-claude") and run-output dirs are removed first
+# the new spelling (dot-config/dot-claude, "dot-config" / "dot-claude", a brace list dot-config/{dot-claude,...})
+# and run-output dirs are removed first: .claude-work/equilibrium/runs, the frozen package under
+# claude_next_steps/work_carried (EQ_ROOT's default, `EQ=$W/equilibrium` in the eq scripts and their docs)
 _NEW_DOTCLAUDE = re.compile(r"dot-config" + r"""(?:["']?\)?\s*[/\\]\s*["']?|["']\s*,\s*["'])""" + r"dot-claude")
-_RUNS = re.compile(r"""\.claude-work(?:["']?\)?\s*[/\\]\s*["']?)equilibrium""")
+_NEW_BRACES = re.compile(r"dot-config/\{[\w,.-]*\}")
+_RUNS = re.compile(r"""(?:\.claude-work|work_carried)(?:["']?\)?\s*[/\\]\s*["']?)equilibrium"""
+                   r"""|\bEQ=(?:\$\{EQ_ROOT:-)?\$W/equilibrium""")
 # the equilibrium skill/agent/command inside the Claude tree is the agent type's own file, not the experiment dir
 _AGENT_FILES = re.compile(r"""\b(skills|agents|commands)(?:["']?\)?\s*[/\\]\s*["']?)equilibrium""")
 _JOIN_CTX = re.compile(r"join\(|Path\(|joinpath|PurePath|os\.path")
@@ -115,15 +208,15 @@ _JOIN_CTX = re.compile(r"join\(|Path\(|joinpath|PurePath|os\.path")
 
 def dir_ref_hits(old, line):
     """True when `line` names the old directory `old` (dot-claude, codex_config, equilibrium) as a path."""
-    line = _AGENT_FILES.sub(r"\1/AGENT", _RUNS.sub("RUNS", _NEW_DOTCLAUDE.sub("NEW", line)))
+    line = _AGENT_FILES.sub(r"\1/AGENT", _RUNS.sub("RUNS", _NEW_DOTCLAUDE.sub("NEW", _NEW_BRACES.sub("NEW", line))))
     n = re.escape(old)
     word = r"(?<![\w.-])" + n + r"(?![\w-])"
     if old == "dot-claude":                       # a distinctive name: any bare mention is a reference
         return re.search(word, line) is not None
     shapes = [
-        r"(?<![\w.-])" + n + r"(?:/|\\{1,2}|" + _Q + r"\)?\s*/|" + _Q + r"\s*\+\s*" + _Q + r"/)",   # equilibrium/x, "equilibrium" / "x"
+        r"(?<![\w.-])" + n + r"(?:/|\\{1,2}(?!`)|" + _Q + r"\)?\s*/|" + _Q + r"\s*\+\s*" + _Q + r"/)",   # equilibrium/x, "equilibrium" / "x"
         r"(?:[\w}$~)]/|(?:" + _Q + r"|\))\s*/\s*" + _Q + r"?|\w\s/\s" + _Q + r"|\\{1,2})" + n + r"(?![\w-]|\.\w)",  # $M/equilibrium, ROOT / 'equilibrium'
-        r"(?:\)|--\s|\bcd\s|\bls\s|\bgit add\s)" + n + r"(?![\w-])",                                      # ':(exclude)equilibrium', cd equilibrium
+        r"(?:\)|(?<!-)--\s|\bcd\s|\bls\s|\bgit add\s)" + n + r"(?![\w-])",                                      # ':(exclude)equilibrium', cd equilibrium
     ]
     if _JOIN_CTX.search(line):                    # os.path.join(root, "x", "equilibrium")
         shapes.append(_Q + n + _Q + r"\s*,\s*" + _Q)
@@ -233,6 +326,20 @@ def test_old_path_pattern(old, text, hit):
     ("equilibrium", 'ROOT / ".claude-work" / "equilibrium" / "runs"', False),
     ("equilibrium", "$HOME/.claude/agents/equilibrium.md", False),
     ("dot-claude", "$HOME/.claude/settings.json", False),
+    # the frozen package under work_carried is a run location, not the experiment dir
+    ("equilibrium", "claude_next_steps/work_carried/equilibrium", False),
+    ("equilibrium", 'repo / "claude_next_steps" / "work_carried" / "equilibrium"', False),
+    ("equilibrium", "EQ=${EQ_ROOT:-$W/equilibrium}", False),
+    ("equilibrium", "`M=.`, `W=$M/claude_next_steps/work_carried`, `EQ=$W/equilibrium`,", False),
+    ("equilibrium", "rsync -a $W/equilibrium/ x", True),
+    ("equilibrium", "work_carried and equilibrium/harness", True),
+    # integration sweep, 2026-10-07: false positives fixed narrowly
+    ("dot-claude", "Move to `dot-config/{dot-claude,dot-codex_config,dot-equilibrium}` with", False),
+    ("dot-claude", "cp -r {dot-claude,lib} x", True),
+    ("equilibrium", "(exception: an \\`equilibrium\\` run's members, spawned only by that agent)", False),
+    ("equilibrium", "equilibrium\\harness\\eq_check.sh", True),
+    ("equilibrium", "# -------------------------------------------------------- equilibrium: the eq rules", False),
+    ("equilibrium", "git diff a b -- equilibrium", True),
 ])
 def test_dir_ref_pattern(old, text, hit):
     assert dir_ref_hits(old, text) is hit
@@ -253,6 +360,35 @@ def test_frozen_and_line_exemptions():
            "### 2026-10-05 (older)", "c", "## 10. Tail", "d"]
     assert _changelog_before_move(log) == {6, 7, 8, 9}
     assert _handoff_section_8(["## 7. x", "a", "## 8. Progress", "b", "c", "## 9. Next", "d"]) == {2, 3, 4}
+    assert frozen("dot-config/dot-equilibrium/isolation/RUNBOOK_MINIMAL.md") and frozen("lib/eq-wall/INSTALLER_WALL.md")
+    assert frozen("tools/instructor/bin/check_suite.py")
+    assert not frozen("dot-config/dot-equilibrium/COMPARE_eq.md") and not frozen("install.sh")
+    assert _section("## 12.")(["## 11. x", "a", "## 12. Amendments", "b", "### A9", "c"]) == {2, 3, 4, 5}
+    assert _lines(r"^OLD = ")(["x", "OLD = 1", "NOLD = 2"]) == {1}
+    src = ["def t_new():", "    pass", "", "def t_old():", '    """doc', '    """', "    pass", "x = 1"]
+    assert _defs("t_old")(src) == {3, 4, 5, 6}
+
+
+def test_exemptions_still_apply():
+    """Every exemption names something that exists, and every line exemption still covers an old-path line:
+    a stale entry (the line fixed, the file or function gone) fails here and is removed."""
+    tracked = ls_files()
+    assert all(any(fnmatch.fnmatchcase(rel, g) for rel in tracked) for g in FROZEN), "a FROZEN glob matches no file"
+    assert all(rel in tracked for rel in MOVE_TOOLS), "a MOVE_TOOLS file is not tracked"
+    stale = []
+    for rel, f in LINE_EXEMPT.items():
+        assert rel in tracked, rel
+        lines = (ROOT / rel).read_text(encoding="utf-8").splitlines()
+        hit = {i for i, line in enumerate(lines) if any(dir_ref_hits(old, line) for old in DIR_MOVES)}
+        for rx in getattr(f, "patterns", ()):
+            if not {i for i, line in enumerate(lines) if rx.search(line)} & hit:
+                stale.append("%s: %s" % (rel, rx.pattern))
+        for name in getattr(f, "names", ()):
+            if not _defs(name)(lines) & hit:
+                stale.append("%s: def %s" % (rel, name))
+        if not f(lines) & hit:
+            stale.append("%s: %s" % (rel, getattr(f, "section", f.__name__)))
+    assert not stale, "line exemptions that cover no old-path line:\n" + "\n".join(stale)
 
 
 @pytest.mark.parametrize("old", sorted(DIR_MOVES))
@@ -290,7 +426,7 @@ def scan_dir_refs():
     """['rel:line: old', ...] for every unfrozen tracked text line naming a moved directory by its old path."""
     hits = []
     for rel in ls_files():
-        if rel == SELF or frozen(rel):
+        if rel == SELF or rel in MOVE_TOOLS or frozen(rel):
             continue
         p = ROOT / rel
         if p.is_symlink() or not p.is_file():
