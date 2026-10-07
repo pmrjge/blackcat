@@ -13,7 +13,9 @@ Subcommands
   kappa         compute a reducer + kappa over a JSON list of member answers
   grader-input  write the blinded grader batch for one class from the ledger (RS, DS, OE)
   cr-grader-input / cr-grade   CR: oracle grader records, relabelled per answer; verdicts split back and scored
-  score         mechanical scoring of PF, CP, ES item-arms with the pool oracles (ES "inf" handled)
+  score         mechanical scoring of PF, CP, ES item-arms with the pool oracles (ES "inf" handled); --members:
+                PF/CP member answers into grading_results/members/ (A6.3)
+  rs-grader-input / rs-grade   RS member answers: one blinded batch by rid; verdicts -> members/RS.jsonl (A6.3)
   config        write runs/<stage>/CONFIG.txt (COMPARE_eq §5 step 2; the USER runs it)
 
 Pure parts (views, caps, reducers, kappa, quorum, evidence gate, blinding) are importable and tested in tests/.
@@ -2697,6 +2699,41 @@ def e_rt_prompt(item: Item, run8: str, flags: Mapping[str, Any]) -> str:
     return "\n".join([*lines, "---", problem]) + "\n"
 
 
+BUNDLE_KEYS = ("member_type", "member_model_id", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps")
+BUNDLE_REQUIRED = ("member_type", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps")
+E_RT_PARAM_STATUSES = ("candidate", "validated")  # USER decision 2026-10-06: q's E_rt runs p's `candidate` bundle
+
+
+def bundle_of(obj: Mapping[str, Any]) -> dict[str, Any]:
+    """The run bundle of a params class entry or of the runtime's plan.json (the keys eq_policy.resolve fixes)."""
+    return {k: obj.get(k) for k in BUNDLE_KEYS}
+
+
+def load_expected_params(path: Path) -> tuple[dict[str, Any], str]:
+    """`run --params`: the calibration's params file whose class bundles E_rt must run (stage p's output: status
+    `candidate`, the p-selected bundle; COMPARE_eq §12 A6 note (d)). Returns (params, sha256); ValueError when it is
+    not an eqparams.v1 object with a classes map."""
+    raw = path.read_bytes()
+    obj = json.loads(raw)
+    if not isinstance(obj, dict) or obj.get("schema") != "eqparams.v1" or not isinstance(obj.get("classes"), dict):
+        raise ValueError(f"{path}: not an eqparams.v1 params file")
+    return obj, hashlib.sha256(raw).hexdigest()
+
+
+def expected_bundle_problems(params: Mapping[str, Any], classes: Iterable[str]) -> list[str]:
+    """Classes whose params entry cannot be E_rt's expected bundle: not `candidate`/`validated`, or a required bundle
+    key null."""
+    out = []
+    for c in sorted(set(classes)):
+        e = params["classes"].get(c)
+        if not isinstance(e, dict) or e.get("status") not in E_RT_PARAM_STATUSES:
+            out.append(f"{c}: status {None if not isinstance(e, dict) else e.get('status')!r}, not one of "
+                       f"{E_RT_PARAM_STATUSES}")
+        elif any(e.get(k) is None for k in BUNDLE_REQUIRED):
+            out.append(f"{c}: bundle keys {[k for k in BUNDLE_REQUIRED if e.get(k) is None]} are null")
+    return out
+
+
 def write_private(path: Path, text: str) -> None:
     """A new 0600 file (O_EXCL, O_NOFOLLOW)."""
     fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600)
@@ -2926,6 +2963,7 @@ class Runner:
         self.e_arm = "harness"  # "runtime": the E arm is E_rt (COMPARE_eq §12 A6.5); set by cmd_run
         self.stack_eq = str(default_stack_eq())  # E_rt's stack-eq (cmd_run --stack-eq)
         self.new_session_id: Callable[[], str] = lambda: str(uuid.uuid4())  # E_rt's session uuid S (tests pin it)
+        self.expected_params: dict[str, Any] | None = None  # E_rt: `run --params` (bundle_mismatch check)
 
     def wd_lock(self, wd: Path) -> threading.Lock:
         with self._clock:
@@ -3430,7 +3468,10 @@ class Runner:
         stack-eq and claude run with CLAUDECODE unset (member_env) plus XDG_STATE_HOME and the STACK_EQ* knobs of
         this terminal. The answer is the store's result.json (answer_text, else answer; CP: its selected patch applied
         to a fresh fixture copy, the answer_workdir). H5's forked `none` branch is not available under E_rt (the
-        members are the leader's subagents, not harness sessions): reported, not run."""
+        members are the leader's subagents, not harness sessions): reported, not run. With `run --params` (stage q:
+        the p-selected `candidate` bundles) a plan.json whose bundle (BUNDLE_KEYS) differs from the class's expected
+        bundle ends the item-arm `partial` with `bundle_mismatch` before `start`: no consent, no call, excluded from
+        the q tests (eq_analyse)."""
         started = utc_now()
         sid = self.new_session_id()
         run8 = hashlib.sha256(f"{sid}|headless".encode()).hexdigest()[:8]
@@ -3466,8 +3507,20 @@ class Runner:
         store = eq_store_dir(env, sid, run8)
         try:
             plan_raw = read_regular(store / "plan.json")
+            plan = json.loads(plan_raw)
         except OSError as e:
             return partial(f"no plan.json in the store ({type(e).__name__})")
+        except (json.JSONDecodeError, UnicodeDecodeError) as e:
+            return partial(f"plan.json is not JSON ({type(e).__name__})")
+        if not isinstance(plan, dict):
+            return partial("plan.json is not a JSON object")
+        fields.update(rt_plan_validated=plan.get("validated"), rt_plan_status_reasons=plan.get("status_reasons"),
+                      rt_plan_params_sha256=plan.get("params_sha256"))
+        if self.expected_params is not None:
+            exp, got = bundle_of(self.expected_params["classes"][item.cls]), bundle_of(plan)
+            if got != exp:  # the runtime resolved another bundle than the q cell's: no start, no call, out of q
+                fields["bundle_mismatch"] = {"plan_bundle": got, "expected_bundle": exp}
+                return partial("bundle_mismatch")
         consent = d / "consent.json"
         write_private(consent, json.dumps({"token": f"Run eq:{run8}",
                                            "plan_sha256": hashlib.sha256(plan_raw).hexdigest()}, sort_keys=True))
@@ -4445,6 +4498,25 @@ def cmd_run(a: argparse.Namespace) -> int:
         print("run: --e-arm runtime is the confirmation's E arm (stage q, or the dry run d), not the pilot's",
               file=sys.stderr)
         return 2
+    expected: dict[str, Any] | None = None
+    expected_sha: str | None = None
+    if a.params:
+        if a.e_arm != "runtime":
+            print("run: --params is E_rt's expected bundle (with --e-arm runtime only)", file=sys.stderr)
+            return 2
+        try:
+            expected, expected_sha = load_expected_params(Path(a.params))
+        except (OSError, ValueError) as e:
+            print(f"run: --params: {e}", file=sys.stderr)
+            return 2
+        bad = expected_bundle_problems(expected, {r.cls for r in sched if r.arm == "E"})
+        if bad:
+            print("run: --params has no runnable bundle for:\n" + "\n".join(bad), file=sys.stderr)
+            return 2
+    elif a.e_arm == "runtime" and a.stage == "q":
+        print("run: stage q's E_rt needs --params <stage p's params.json> (the candidate bundles it must run)",
+              file=sys.stderr)
+        return 2
     a.cells = cells
     classes = sorted({r.cls for r in sched})
     items = load_items(items_dir, classes)
@@ -4498,6 +4570,8 @@ def cmd_run(a: argparse.Namespace) -> int:
         runner.wall = wall
         wall_desc = wall.describe()
     runner.e_arm = a.e_arm
+    runner.expected_params = expected
+    a.params_sha256 = expected_sha
     if a.stack_eq:
         runner.stack_eq = a.stack_eq
     rc = 2
@@ -4520,7 +4594,8 @@ def _run_items(a: argparse.Namespace, flags: dict[str, Any], sched: list[Schedul
     ledger.append("run_start", stage=a.stage, harness_sha256=sha256_file(here), claude_bin=claude_bin, stub=stub,
                   flags_sha256=sha256_text(json.dumps(flags, sort_keys=True)), numpy_version=np.__version__,
                   argv=sys.argv, isolation=desc, orphans_removed=iso.sweep(), wall=wall_desc,
-                  member_exec=flags.get("member_exec", "host"), cells=list(a.cells), e_arm=a.e_arm)
+                  member_exec=flags.get("member_exec", "host"), cells=list(a.cells), e_arm=a.e_arm,
+                  e_rt_params_sha256=getattr(a, "params_sha256", None))
     if runner.wall is not None:
         runner.wall.import_audit(ledger, a.stage)  # broker_start
     done = {(r["item"], r["label"]) for r in read_ledger(ledger.path) if r.get("record") == "item_arm"}
@@ -4726,15 +4801,58 @@ def parse_score(x: Any) -> float | None:
     return None
 
 
+MEMBER_ROLE_RE = re.compile(r"m\d+/\d+|r\d+")  # a round-0 member, or its reconcile/repair round r<k>
+MEMBER_GRADE_CLASSES = ("PF", "CP")  # `score --members`; RS members: rs-grader-input / rs-grade; ES: the truth file
+
+
+def member_units(recs: Sequence[Mapping[str, Any]], cls: str) -> list[dict[str, Any]]:
+    """The member answers of class cls graded at member level (A6.3; grading_results/members/): every `call` with a
+    member number, no node (the E arm, p6, p7; never an EG E-node) and a member role (m<i>/<N> in round 0, r<k> in its
+    reconcile or repair round k). One unit per (item, label, member, round, branch), the latest call winning; `workdir`
+    = the call's branch_workdir (a forked CP repair works there, E2), else its cwd. Sorted by key."""
+    out: dict[tuple[Any, ...], dict[str, Any]] = {}
+    for r in recs:
+        if r.get("record") != "call" or r.get("cls") != cls or r.get("node") is not None:
+            continue
+        m = r.get("member")
+        if not isinstance(m, int) or isinstance(m, bool) or not MEMBER_ROLE_RE.fullmatch(str(r.get("role", ""))):
+            continue
+        k = (str(r.get("item")), str(r.get("label")), m, int(r.get("round") or 0), r.get("branch"))
+        out[k] = {"item": k[0], "label": k[1], "member": m, "round": k[3], "branch": k[4],
+                  "call_id": r.get("call_id"), "answer": r.get("answer"),
+                  "workdir": r.get("branch_workdir") or r.get("cwd")}
+    return [out[k] for k in sorted(out, key=lambda k: json.dumps(k))]
+
+
 def cmd_score(a: argparse.Namespace) -> int:
     """Mechanical scoring (COMPARE_eq §9) of PF, CP, ES item-arms with the pool oracles, after the freeze. Answers go to
-    neutral file names (no arm label); CP passes the item-arm's answer_workdir as --workdir."""
+    neutral file names (no arm label); CP passes the item-arm's answer_workdir as --workdir. `--members` (PF, CP;
+    A6.3): every member answer of member_units instead, into grading_results/members/<CLS>.jsonl (CP: the member's
+    directory through check_copy, never the member's own copy)."""
     eq_root = Path(a.eq_root) if a.eq_root else default_eq_root()
     items_dir = Path(a.items) if a.items else eq_root / "items"
     runs = eq_root / "runs" / a.stage
     fp = Path(a.flags) if a.flags else eq_root / "flags.json"
     flags = load_flags(fp if fp.exists() else None)
-    recs = [r for r in read_ledger(runs / "ledger.jsonl") if r.get("record") == "item_arm" and r.get("cls") == a.cls]
+    members = bool(getattr(a, "members", False))
+    if members and a.cls not in MEMBER_GRADE_CLASSES:
+        print(f"score: --members grades {MEMBER_GRADE_CLASSES} (RS: rs-grader-input / rs-grade; ES: the truth file)",
+              file=sys.stderr)
+        return 2
+    ledger_recs = read_ledger(runs / "ledger.jsonl")
+    units: list[dict[str, Any]]
+    if members:
+        units = [{**u, "partial": u["answer"] is None, "answer_workdir": u["workdir"] if a.cls in flags.get(
+                     "workdir_answer_classes", []) else None,
+                  "out": {"item": u["item"], "label": u["label"], "member": u["member"], "round": u["round"],
+                          "branch": u["branch"], "call_id": u["call_id"]}}
+                 for u in member_units(ledger_recs, a.cls)]
+    else:
+        units = [{"item": r["item"], "label": r["label"], "answer": r.get("answer"),
+                  "partial": r.get("status") == "partial" and r.get("answer") is None,
+                  "answer_workdir": r.get("answer_workdir"), "out": {"item": r["item"], "label": r["label"]}}
+                 for r in sorted((r for r in ledger_recs if r.get("record") == "item_arm" and r.get("cls") == a.cls),
+                                 key=lambda x: (x["item"], x["label"]))]
     no_verdict = str(flags.get("no_verdict_policy", "unscored"))
     if no_verdict not in NO_VERDICT_POLICIES:
         print(f"score: flags.json no_verdict_policy {no_verdict!r} is not one of {NO_VERDICT_POLICIES}",
@@ -4756,28 +4874,29 @@ def cmd_score(a: argparse.Namespace) -> int:
             iso.sweep(key)
 
     sweep()
-    work = runs / "grading_keys" / f"{a.cls}_units"
+    work = runs / "grading_keys" / (f"{a.cls}_member_units" if members else f"{a.cls}_units")
     work.mkdir(parents=True, exist_ok=True)
-    res_dir = runs / "grading_results"
+    res_dir = runs / "grading_results" / ("members" if members else "")
     res_dir.mkdir(parents=True, exist_ok=True)
+    stem_prefix = "m" if members else "u"
     n_bad = 0
     with (res_dir / f"{a.cls}.jsonl").open("a", encoding="utf-8") as f:
-        for k, rec in enumerate(sorted(recs, key=lambda x: (x["item"], x["label"]))):
-            if rec.get("status") == "partial" and rec.get("answer") is None:
+        for k, rec in enumerate(units):
+            if rec["partial"]:
                 # COMPARE_eq §2: no answer scores 0 (ES: e = inf); some oracles reject a null answer as malformed
                 inf = a.cls == "ES"
-                f.write(json.dumps({"ts_utc": utc_now(), "item": rec["item"], "label": rec["label"], "exit": None,
+                f.write(json.dumps({"ts_utc": utc_now(), **rec["out"], "exit": None,
                                     "score": "inf" if inf else 0, "score_num": None if inf else 0.0,
                                     "score_inf": inf, "detail": "partial: no answer (COMPARE_eq §2), oracle not run",
                                     **tag}, sort_keys=True) + "\n")
                 continue
-            ap = work / f"u{k:05d}.answer.json"
+            ap = work / f"{stem_prefix}{k:05d}.answer.json"
             ap.write_text(json.dumps({"answer": rec.get("answer"), "evidence": [], "confidence": None}))
             extra: list[str] = []
             if rec.get("answer_workdir"):  # CP: hidden tests on a check copy (pristine + member's versions of
                 # pristine files), never on the member's copy itself (links, FIFOs, planted files)
                 it = pool_items[rec["item"]]
-                wdc = work / f"u{k:05d}.wd"
+                wdc = work / f"{stem_prefix}{k:05d}.wd"
                 if wdc.exists():
                     shutil.rmtree(wdc)
                 check_copy(it, Path(rec["answer_workdir"]), wdc, overlay=True, owned=owned_paths(it, flags))
@@ -4809,7 +4928,7 @@ def cmd_score(a: argparse.Namespace) -> int:
                 return 2
             n_bad += rc != 0
             if scored_zero:
-                f.write(json.dumps({"ts_utc": utc_now(), "item": rec["item"], "label": rec["label"], "exit": rc,
+                f.write(json.dumps({"ts_utc": utc_now(), **rec["out"], "exit": rc,
                                     "score": 0, "score_num": 0.0, "score_inf": False,
                                     "detail": NO_VERDICT_DETAIL if NO_VERDICT_RE.match(out) else NULL_VERDICT_DETAIL,
                                     **tag}, sort_keys=True) + "\n")
@@ -4819,13 +4938,14 @@ def cmd_score(a: argparse.Namespace) -> int:
             except json.JSONDecodeError:
                 res = {}
             sc = parse_score(res.get("score"))
-            f.write(json.dumps({"ts_utc": utc_now(), "item": rec["item"], "label": rec["label"], "exit": rc,
+            f.write(json.dumps({"ts_utc": utc_now(), **rec["out"], "exit": rc,
                                 "score": res.get("score"), "score_num": sc if sc is not None and math.isfinite(sc)
                                 else None, "score_inf": sc is not None and math.isinf(sc),
                                 "detail": res.get("detail") if res or not out.startswith("oracle error:") else out,
                                 **tag}, sort_keys=True) + "\n")
     sweep()
-    print(f"score: {len(recs)} {a.cls} item-arms into {res_dir / (a.cls + '.jsonl')} ({n_bad} oracle failures)")
+    what = "member answers" if members else "item-arms"
+    print(f"score: {len(units)} {a.cls} {what} into {res_dir / (a.cls + '.jsonl')} ({n_bad} oracle failures)")
     return 1 if n_bad else 0
 
 
@@ -4869,24 +4989,189 @@ def cmd_cr_grade(a: argparse.Namespace) -> int:
         return 2
     work = runs / "grading_keys" / "CR_units"
     res_dir = runs / "grading_results"
-    res_dir.mkdir(parents=True, exist_ok=True)
-    n_bad = 0
-    with (res_dir / "CR.jsonl").open("a", encoding="utf-8") as f:
+    (res_dir / "members").mkdir(parents=True, exist_ok=True)
+    n_bad = n_findings = 0
+    with (res_dir / "CR.jsonl").open("a", encoding="utf-8") as f, \
+            (res_dir / "members" / "CR_findings.jsonl").open("a", encoding="utf-8") as ff:
         for unit, stem in sorted(key["units"].items()):
             gp = work / f"{stem}.grade.json"
             gp.write_text(json.dumps(per_unit.get(unit, [])))
-            rc, out = run_oracle(pool, json.loads(unit)[0], work / f"{stem}.answer.json", "--grade", str(gp),
-                                 cls="CR")
+            ap = work / f"{stem}.answer.json"
+            rc, out = run_oracle(pool, json.loads(unit)[0], ap, "--grade", str(gp), cls="CR")
             try:
                 res = last_json(out)
             except json.JSONDecodeError:
                 res = {}
             item, label, node, member = json.loads(unit)
             n_bad += rc != 0
-            f.write(json.dumps({"ts_utc": utc_now(), "verdicts_file": str(a.verdicts), "item": item, "label": label,
+            ts = utc_now()
+            f.write(json.dumps({"ts_utc": ts, "verdicts_file": str(a.verdicts), "item": item, "label": label,
                                 "node": node, "member": member, "exit": rc, "score": res.get("score"),
                                 "detail": res.get("detail")}, sort_keys=True) + "\n")
-    print(f"cr-grade: {len(key['units'])} answers scored into {res_dir / 'CR.jsonl'} ({n_bad} oracle failures)")
+            if member is not None and node is None and rc == 0:
+                answer = json.loads(ap.read_text()).get("answer")
+                for row in cr_finding_rows(answer if isinstance(answer, list) else [], res.get("detail")):
+                    n_findings += 1
+                    ff.write(json.dumps({"ts_utc": ts, "item": item, "label": label, "member": member, "round": 0,
+                                         **row}, sort_keys=True) + "\n")
+    print(f"cr-grade: {len(key['units'])} answers scored into {res_dir / 'CR.jsonl'} ({n_bad} oracle failures); "
+          f"{n_findings} member findings into {res_dir / 'members' / 'CR_findings.jsonl'}")
+    return 1 if n_bad else 0
+
+
+def cr_dedupe_key(f: Mapping[str, Any]) -> tuple[str, Any, str]:
+    """The CR oracle's duplicate key (items/CR/oracle.py dedupe over parse_findings): (file without leading ./ and
+    with / separators, line, stripped claim lower-cased)."""
+    p = str(f.get("file", "")).replace("\\", "/")
+    while p.startswith("./"):
+        p = p[2:]
+    return p, f.get("line"), str(f.get("claim", "")).strip().lower()
+
+
+def cr_finding_rows(answer: Sequence[Any], detail: Any) -> list[dict[str, Any]]:
+    """Per member finding (the answer element as given) its grade from the oracle's `detail.per_finding` ({id, bug,
+    verdict} per kept index): {finding, bug, verdict, n_seeded}. A duplicate takes the grade of the kept index it
+    duplicates; a finding without a graded index (malformed detail) is left out."""
+    if not isinstance(detail, dict) or not isinstance(detail.get("per_finding"), list):
+        return []
+    per = {p.get("id"): p for p in detail["per_finding"] if isinstance(p, dict) and isinstance(p.get("id"), int)}
+    first: dict[tuple[str, Any, str], int] = {}
+    rows = []
+    for i, f in enumerate(answer):
+        if not isinstance(f, dict):
+            continue
+        k = first.setdefault(cr_dedupe_key(f), i)
+        p = per.get(i) or per.get(k)
+        if p is None:
+            continue
+        rows.append({"finding": f, "bug": p.get("bug"), "verdict": p.get("verdict"),
+                     "n_seeded": detail.get("n_seeded")})
+    return rows
+
+
+def rs_member_units(recs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
+    """RS answers graded at member level: member_units (round 0, reconcile rounds, p7 branches) plus, per p7 item-arm,
+    each branch's reduced answer as member 0 (round = the branch's rounds; the H5 comparison reads branch `none`)."""
+    units = member_units(recs, "RS")
+    for r in recs:
+        if r.get("record") == "item_arm" and r.get("cls") == "RS" and r.get("cell") == "p7" \
+                and isinstance(r.get("branches"), dict):
+            for v, b in sorted(r["branches"].items()):
+                b = b if isinstance(b, dict) else {}
+                units.append({"item": str(r["item"]), "label": str(r["label"]), "member": 0,
+                              "round": int(b.get("rounds") or 0), "branch": str(v), "call_id": None,
+                              "answer": b.get("answer"), "workdir": None})
+    return units
+
+
+def rs_unit_key(u: Mapping[str, Any]) -> list[Any]:
+    return [u["item"], u["label"], u["member"], u["round"], u["branch"]]
+
+
+def cmd_rs_grader_input(a: argparse.Namespace) -> int:
+    """RS member grading step 1 (A6.3): the RS oracle's --grader-input on every member answer (rs_member_units). An
+    answer the oracle settles mechanically (label or value wrong: score 0) needs no grader; the rest, deduplicated by
+    the oracle's rid (sha256 of item and answer), form one shuffled batch (seed eq|grader ^ "<stage>|RS|members") in
+    grading/RS_members/batch.jsonl; grading_keys/RS_members.key.json maps each rid to its member units."""
+    eq_root = Path(a.eq_root) if a.eq_root else default_eq_root()
+    pool = (Path(a.items) if a.items else eq_root / "items") / "RS"
+    runs = eq_root / "runs" / a.stage
+    units = rs_member_units(read_ledger(runs / "ledger.jsonl"))
+    work = runs / "grading_keys" / "RS_member_units"
+    work.mkdir(parents=True, exist_ok=True)
+    rids: dict[str, dict[str, Any]] = {}
+    records: dict[str, dict[str, Any]] = {}
+    for k, u in enumerate(units):
+        ap, gp = work / f"a{k:05d}.answer.json", work / f"a{k:05d}.grader_in.json"
+        ap.write_text(json.dumps({"answer": u["answer"], "evidence": [], "confidence": None}))
+        rc, out = run_oracle(pool, u["item"], ap, "--grader-input", str(gp), cls="RS")
+        res = last_json(out)
+        det = res.get("detail") if isinstance(res.get("detail"), dict) else {}
+        rid = det.get("rid")
+        if rc != 0 or not isinstance(rid, str) or not gp.is_file():
+            print(f"rs-grader-input: oracle failed for {rs_unit_key(u)}: {out.strip()[:300]}", file=sys.stderr)
+            return 1
+        e = rids.setdefault(rid, {"item": u["item"], "stem": f"a{k:05d}", "units": [],
+                                  "needs_grade": det.get("mechanical") is True,
+                                  "mechanical_detail": det.get("mechanical_detail")})
+        e["units"].append(rs_unit_key(u))
+        if e["needs_grade"] and rid not in records:
+            records[rid] = json.loads(gp.read_text())
+    order = sorted(records)
+    rng = np.random.default_rng(derive_seed(SEED_GRADER, f"{a.stage}|RS|members"))
+    batch = [records[order[int(i)]] for i in rng.permutation(len(order))]
+    out_dir = runs / "grading" / "RS_members"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    with (out_dir / "batch.jsonl").open("w", encoding="utf-8") as f:
+        for b in batch:
+            f.write(json.dumps(b, sort_keys=True, ensure_ascii=False) + "\n")
+    key = {"stage": a.stage, "class": "RS", "members": True, "rids": rids}
+    (runs / "grading_keys" / "RS_members.key.json").write_text(json.dumps(key, sort_keys=True, indent=1))
+    print(f"wrote {out_dir / 'batch.jsonl'} ({len(batch)} records to grade, {len(rids) - len(batch)} settled "
+          f"mechanically, from {len(units)} member answers); key in grading_keys/")
+    return 0
+
+
+def rs_split_verdicts(verdicts: Any, key: Mapping[str, Any]) -> tuple[dict[str, str], list[str]]:
+    """The grader's [{rid, verdict pass|fail}] (or {"grades": [...]}) -> {rid: verdict} for the batch's rids, and the
+    problems (unknown, duplicate, bad or missing verdicts)."""
+    vs = verdicts.get("grades", verdicts.get("verdicts")) if isinstance(verdicts, dict) else verdicts
+    if not isinstance(vs, list):
+        return {}, ["grader output is not a list"]
+    want = {r for r, e in key["rids"].items() if e.get("needs_grade")}
+    out: dict[str, str] = {}
+    problems: list[str] = []
+    for v in vs:
+        rid = str(v.get("rid", "")) if isinstance(v, dict) else ""
+        if rid not in want:
+            problems.append(f"unknown rid {rid!r}")
+        elif rid in out:
+            problems.append(f"duplicate rid {rid}")
+        elif v.get("verdict") not in ("pass", "fail"):
+            problems.append(f"bad verdict for {rid}")
+        else:
+            out[rid] = str(v["verdict"])
+    problems += [f"missing verdict for {r}" for r in sorted(want - set(out))]
+    return out, problems
+
+
+def cmd_rs_grade(a: argparse.Namespace) -> int:
+    """RS member grading step 2: the verdicts routed back by rid; the oracle's --grade finalises each graded answer;
+    a mechanically settled answer scores 0 without a grader. One line per member unit in
+    grading_results/members/RS.jsonl {item, label, member, round, branch, rid, exit, score, score_num, detail}."""
+    eq_root = Path(a.eq_root) if a.eq_root else default_eq_root()
+    pool = (Path(a.items) if a.items else eq_root / "items") / "RS"
+    runs = eq_root / "runs" / a.stage
+    key = json.loads((runs / "grading_keys" / "RS_members.key.json").read_text())
+    got, problems = rs_split_verdicts(json.loads(Path(a.verdicts).read_text()), key)
+    if problems:
+        print("rs-grade: refusing incomplete or malformed grader output:\n" + "\n".join(problems[:20]), file=sys.stderr)
+        return 2
+    work = runs / "grading_keys" / "RS_member_units"
+    gp = work / "grades.json"
+    gp.write_text(json.dumps([{"rid": r, "verdict": v} for r, v in sorted(got.items())]))
+    res_dir = runs / "grading_results" / "members"
+    res_dir.mkdir(parents=True, exist_ok=True)
+    n_bad = n = 0
+    with (res_dir / "RS.jsonl").open("a", encoding="utf-8") as f:
+        for rid, e in sorted(key["rids"].items()):
+            if e.get("needs_grade"):
+                rc, out = run_oracle(pool, e["item"], work / f"{e['stem']}.answer.json", "--grade", str(gp), cls="RS")
+                res = last_json(out)
+                sc = parse_score(res.get("score")) if rc == 0 else None
+                detail = res.get("detail") if res else out[-300:]
+            else:
+                rc, sc, detail = None, 0.0, {"mechanical": False, "mechanical_detail": e.get("mechanical_detail"),
+                                             "note": "settled mechanically, no grader"}
+            n_bad += rc not in (None, 0)
+            for item, label, member, rnd, branch in e["units"]:
+                n += 1
+                f.write(json.dumps({"ts_utc": utc_now(), "verdicts_file": str(a.verdicts), "item": item,
+                                    "label": label, "member": member, "round": rnd, "branch": branch, "rid": rid,
+                                    "exit": rc, "score": None if sc is None else int(sc), "score_num": sc,
+                                    "score_inf": False, "detail": detail}, sort_keys=True) + "\n")
+    print(f"rs-grade: {n} member answers ({len(key['rids'])} distinct) into {res_dir / 'RS.jsonl'} ({n_bad} oracle "
+          "failures)")
     return 1 if n_bad else 0
 
 
@@ -4987,6 +5272,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     r.add_argument("--e-arm", choices=list(E_ARMS), default="harness",
                    help="runtime: the E rows run E_rt, the runtime equilibrium in headless leader mode (A6.5)")
     r.add_argument("--stack-eq", help="E_rt's stack-eq (default <config>/bin/stack-eq)")
+    r.add_argument("--params", help="E_rt: the params file whose class bundles the runtime must resolve (stage p's "
+                                    "params.json, status candidate); required for stage q; a differing plan.json "
+                                    "bundle is recorded as bundle_mismatch")
     r.set_defaults(fn=cmd_run)
     k = sub.add_parser("kappa")
     k.add_argument("--answers", required=True)
@@ -5005,6 +5293,8 @@ def main(argv: Sequence[str] | None = None) -> int:
     sc.add_argument("--eq-root")
     sc.add_argument("--items")
     sc.add_argument("--flags")
+    sc.add_argument("--members", action="store_true",
+                    help="PF, CP: grade every member answer (round 0 and repair) into grading_results/members/")
     sc.set_defaults(fn=cmd_score)
     cg = sub.add_parser("cr-grader-input")
     cg.add_argument("--stage", choices=["p", "q", "d"], required=True)
@@ -5018,6 +5308,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     cgr.add_argument("--eq-root")
     cgr.add_argument("--items")
     cgr.set_defaults(fn=cmd_cr_grade)
+    rgi = sub.add_parser("rs-grader-input", help="RS member answers -> one blinded grader batch (A6.3)")
+    rgi.add_argument("--stage", choices=["p", "q", "d"], required=True)
+    rgi.add_argument("--eq-root")
+    rgi.add_argument("--items")
+    rgi.set_defaults(fn=cmd_rs_grader_input)
+    rgr = sub.add_parser("rs-grade", help="RS member verdicts -> grading_results/members/RS.jsonl (A6.3)")
+    rgr.add_argument("--stage", choices=["p", "q", "d"], required=True)
+    rgr.add_argument("--verdicts", required=True, help="the grader's JSON output for grading/RS_members/batch.jsonl")
+    rgr.add_argument("--eq-root")
+    rgr.add_argument("--items")
+    rgr.set_defaults(fn=cmd_rs_grade)
     c = sub.add_parser("config")
     c.add_argument("--stage", choices=["p", "q"], required=True)
     c.add_argument("--ceiling", required=True, help="consented spend ceiling in USD")

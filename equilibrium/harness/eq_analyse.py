@@ -445,6 +445,9 @@ class Run:
                                      "(declared p9/q9 re-run first, else the latest)")
             else:
                 pick = rs[0]
+            if pick.get("bundle_mismatch") is not None:  # E_rt ran another bundle than q's (A6 note (d)): report only
+                self.excluded.append({"item": item, "arm": arm, "reason": "bundle_mismatch"})
+                continue
             units[(item, arm)] = ItemArm(item=item, cls=str(pick.get("cls")), label=str(pick.get("label")), arm=arm,
                                          status=str(pick.get("status")), seq=int(pick.get("seq") or 0),
                                          b_usd=to_decimal(pick.get("B_usd")),

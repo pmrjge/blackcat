@@ -689,3 +689,20 @@ def test_round_attribution_lines_and_e_rt_records_are_not_m11_nodes(tmp_path: Pa
     ws = json.loads((tmp_path / "o" / "meta.json").read_text())["warnings"]
     assert not any("unknown record types" in w for w in ws)
     assert any("p6" in w and "p6/p7" in w for w in ws)
+
+
+def test_bundle_mismatch_e_rt_arm_leaves_both_routes(tmp_path: Path) -> None:
+    """A6 note (d): an E_rt item-arm whose plan.json bundle was not q's candidate bundle (`bundle_mismatch`, status
+    partial, no answer) is reported only: it is not a unit (no 0 score against S*), it is listed as excluded, and
+    route 2 drops it the same way (n_comparison agrees)."""
+    run = cross_fixture(tmp_path)
+    base1, _ = run_both(tmp_path / "base", run)
+    set_item_arm(run, "ES-1", "E", status="partial", answer=None, e_arm="runtime",
+                 bundle_mismatch={"plan_bundle": {"N": 3}, "expected_bundle": {"N": 5}})
+    r1, r2 = run_both(tmp_path / "bm", run)
+    assert base1[("H1", "ES", "E-S*", "n")] == "2" and r1[("H1", "ES", "E-S*", "n")] == "1"  # ES-1 left
+    assert ("ES-1", "E") not in item_arms(tmp_path / "bm" / "r1")
+    meta = json.loads((tmp_path / "bm" / "r1" / "meta.json").read_text())
+    assert {"item": "ES-1", "arm": "E", "reason": "bundle_mismatch"} in meta["lists"]["excluded_listed"]
+    diffs = n_comparison_diffs(r1, r2)
+    assert not diffs, "routes disagree on n_comparison:\n" + "\n".join(diffs)

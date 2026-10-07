@@ -549,11 +549,20 @@ def test_stage_p_writes_a_valid_version_with_every_selection(fxp: Fx):
     jsonschema = pytest.importorskip("jsonschema")
     assert fxp.run("--stage", "p", "--amendment", "A7", "--reason", "pilot calibration") == 0
     p = fxp.params()
-    jsonschema.Draft202012Validator(json.loads(SCHEMA_PATH.read_text())).validate(p)
     assert p["version"] == 1
     rep = fxp.report(1)
-    for c in cal.CLASSES:
-        assert p["classes"][c]["status"] == "not_run"  # p tests nothing
+    required = ("member_type", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps", "pool")
+    for c in cal.CLASSES:  # p tests nothing: an eligible complete bundle is a `candidate` (USER decision), else not_run
+        e = p["classes"][c]
+        ok = all(e[k] is not None for k in required) and e["N"] >= 3
+        assert e["status"] == ("candidate" if ok else "not_run"), (c, e)
+    assert p["classes"]["RS"]["status"] == "candidate" and p["classes"]["DS"]["status"] == "not_run"
+    schema = json.loads(SCHEMA_PATH.read_text())
+    enum = schema["$defs"]["class"]["properties"]["status"]["enum"]
+    listed = "candidate" in enum
+    if not listed:  # T11b adds `candidate` to params.schema.json; validate the rest of the shape meanwhile
+        enum.append("candidate")
+    jsonschema.Draft202012Validator(schema).validate(p)
     for c in ("DS", "OE"):
         assert all(v is None for k, v in p["classes"][c].items() if k != "status")
     rs = p["classes"]["RS"]
@@ -577,6 +586,8 @@ def test_stage_p_writes_a_valid_version_with_every_selection(fxp: Fx):
                                                                               .read_bytes()),
                              "prev_sha256": hist[0]["sha256"], "stages": ["p"], "amendment": "A7",
                              "reason": "pilot calibration"}
+    if not listed:
+        pytest.xfail("params.schema.json (T11b's) does not list status `candidate` yet")
 
 
 def test_stage_p_caps_usd_and_models(fxp: Fx):
@@ -607,6 +618,7 @@ def test_stage_p_n_star_one_marks_a_class_not_eligible(fx: Fx):
     assert fx.run("--init") == 0
     assert fx.run("--stage", "p", "--amendment", "A7", "--reason", "r", "--no-route2") == 0
     assert fx.params()["classes"]["RS"]["N"] == 1
+    assert fx.params()["classes"]["RS"]["status"] == "not_run"  # N* = 1: no candidate bundle
     assert fx.report(1)["nstar"]["RS"]["eligible"] is False
 
 

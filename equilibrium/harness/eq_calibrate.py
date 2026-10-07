@@ -15,7 +15,8 @@ resampling states its seed, nothing depends on the clock except the `created_utc
 Steps (§7.3): 1 verify the freeze (COMPARE_eq.sha256 lines, every items/<CLS>/pool.sha256, the stage's FROZEN_AT.txt
 and MANIFEST.sha256, the live ledger equal to the frozen copy, A6 in the frozen COMPARE_eq.md) or refuse (exit 2);
 2 (p) N* from the p6 nested sweep, rounds* from p7 (RS, ES) and p3 (PF, CP repair), the LOO-view variant from p7, the
-certainty signal and its <= 3 isotonic bins; 3 (q) H1/H2 with Holm and the ship rule -> status, H4 -> reducer, H5,
+certainty signal and its <= 3 isotonic bins; an eligible, complete p bundle gets status `candidate` (q's E_rt runs it,
+manual mode only; USER decision 2026-10-06), else not_run; 3 (q) H1/H2 with Holm and the ship rule -> status, H4 -> reducer, H5,
 the certainty AUROC CI and bin accuracies re-estimated (signal and cut points kept from p); 4 caps, model ids and the
 USD conversion from member calls, with the transcript route (route 2) agreeing within 1 % on every member call used;
 5 write params.v<k>.json, params.json, params.json.sha256, one params.history.jsonl line and report.v<k>.json.
@@ -1419,8 +1420,20 @@ def calibrate_p(st: Stage, cal: Cal, frozen: dict[str, Any], route2_on: bool,
         e["usd_per_mtok"] = usd.get(mid) if mid else None
         e["certainty"] = (cert.get(cls) or {}).get("certainty")
         e["pool"] = pool_entry(st.eq_root, cls, frozen["pool_sha256"][cls])
+        if candidate_ok(e):
+            e["status"] = "candidate"  # p's selection, untested: E_rt's bundle in q (manual mode only, unvalidated)
     prov = provenance(st, None, frozen, created_utc, ["p"], sorted(models), {"p": r2_summary(r2)})
     return {"schema": SCHEMA, "version": -1, "created_utc": created_utc, "provenance": prov, "classes": classes}, report
+
+
+CANDIDATE_REQUIRED = ("member_type", "N", "rounds", "view", "loo_view", "reducer", "tau", "t", "caps", "pool")
+
+
+def candidate_ok(e: dict[str, Any]) -> bool:
+    """USER decision 2026-10-06 (COMPARE_eq §12 A6 note (e)): after stage p a class whose p-selected bundle is complete
+    and eligible (N* >= 3; N* = 1 is not) gets status `candidate`: the runtime honours it in eq-mode manual only,
+    labelled unvalidated (q's E_rt runs it); auto stays refused. Anything else stays not_run."""
+    return all(e.get(k) is not None for k in CANDIDATE_REQUIRED) and int(e["N"]) >= 3
 
 
 def member_type(st: Stage, cls: str, a_priori: str) -> str:
