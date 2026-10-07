@@ -1040,7 +1040,9 @@ def test_reestimate_keeps_the_signal_and_the_p_cuts(fxp: Fx):
     assert c.reestimate([], prev)["certainty"] is None
 
 
-def test_h5_sign_test_on_reconciled_items(fx: Fx):
+def test_stage_q_reports_no_h5(fx: Fx):
+    """COMPARE_eq §12 A7 removed H5: graded none-branch lines (member 0) on reconciled q items yield no H5 test and
+    no `h5` key in the q report, and change nothing else in it."""
     build_p(fx)
     build_q(fx, e_right=8, s_right=0, n=14)
     for i in range(9, 15):  # items with a reconcile round: the none branch is right on 1, wrong on 5; E wrong on all
@@ -1052,9 +1054,9 @@ def test_h5_sign_test_on_reconciled_items(fx: Fx):
     assert fx.run("--init") == 0
     assert fx.run("--stage", "p", "--amendment", "A7", "--reason", "r") == 0
     assert fx.run("--stage", "q", "--primary", "RS", "--amendment", "A8", "--reason", "r") == 0
-    h5 = fx.report(2)["h5"]["RS"]
-    assert (h5["wins"], h5["losses"], h5["ties"]) == (0, 1, 5)
-    assert h5["p"] == ea.sign_test_p(0, 1) and h5["p_holm"] == h5["p"]
+    rep = fx.report(2)
+    assert "h5" not in rep and not any("h5" in k.lower() for k in rep)
+    assert set(rep["tests"]["RS"]) >= {"H1", "H2"} and "RS" in rep["h4"]
 
 
 def test_model_id_is_null_when_members_ran_on_two_models(fxp: Fx):

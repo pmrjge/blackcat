@@ -17,9 +17,9 @@ and MANIFEST.sha256, the live ledger equal to the frozen copy, A6 in the frozen 
 2 (p) N* from the p6 nested sweep, rounds* from p7 (RS, ES) and p3 (PF, CP repair), the LOO-view variant from p7, the
 certainty signal and its <= 3 isotonic bins; an eligible, complete p bundle gets status `candidate` (q's E_rt runs it,
 manual mode only; USER decision 2026-10-06), else not_run; 3 (q) H1/H2 with Holm and the ship rule -> status,
-H4 -> reducer, H5, the certainty AUROC CI and bin accuracies re-estimated (signal and cut points kept from p); 4
-caps, model ids and the USD conversion from member calls, with the transcript route (route 2) agreeing within 1 % on
-every member call used;
+H4 -> reducer, the certainty AUROC CI and bin accuracies re-estimated (signal and cut points kept from p; H5 was
+removed by COMPARE_eq §12 A7); 4 caps, model ids and the USD conversion from member calls, with the transcript route
+(route 2) agreeing within 1 % on every member call used;
 5 write params.v<k>.json, params.json, params.json.sha256, one params.history.jsonl line and report.v<k>.json.
 
 Seeds (COMPARE_eq §8.4 derivation 20261004 ^ int(sha256(tag)[:8], 16), checked at import): eq|nstar 4122099631 (N*),
@@ -37,7 +37,7 @@ Ledger fields consumed (LEDGER_SCHEMA.md v1 plus the E2/D3 fields the harness ad
   mediator (inputs/mediator/<item>/<label>/mediator.jsonl): attribution {round, loo, lambda, pivotal}; result reducers
 Grades (runs/<stage>/grading_results/, written after the freeze):
   <CLS>.jsonl item-arm lines (eq_analyse); members/<CLS>.jsonl {item,label,member,round,branch,score} (PF CP RS member
-  answers: 1/0; member 0 = a branch's reduced answer, H5; ES only for that);
+  answers: 1/0; member 0 = a p7 branch's reduced answer, read by no rule since A7 removed H5);
   members/CR_findings.jsonl {item,label,member,round,finding,bug,verdict,n_seeded}; ES truth from the
   frozen items/ES/oracle/truth.jsonl; optional grader_kappa.json.
 Assumption: p6 and p7 calls carry their own labels (not p3's), so (item, label) separates them from p3's records.
@@ -1268,29 +1268,6 @@ class Cal:
             return (len(bugs) - 0.5 * false) / n
         return None
 
-    def h5(self, cls: str, variant: str) -> dict[str, Any] | None:
-        """H5: the chosen variant (the E run's graded answer) vs its forked `none` branch, paired sign test on items
-        where reconcile ran (item_arm rounds > 0 or repaired); the none branch's reduced answer is graded as a
-        branch-level line in members/<CLS>.jsonl: member 0, branch "none"."""
-        if variant == "none":
-            return None
-        pairs = []
-        for (item, arm), u in sorted(self.st.run.units.items()):
-            if u.cls != cls or arm not in ("E", "E_rt") or u.score is None:
-                continue
-            rec = self.st.item_arm.get((item, u.label), {})
-            if not (rec.get("rounds") or rec.get("repaired")):
-                continue
-            g = next((s for (it, _lab, mem, _r, br), s in self.st.member_grades.items()
-                      if it == item and br == "none" and mem == 0), None)
-            if g is not None:
-                pairs.append((u.score, g))
-        if not pairs:
-            return {"note": "no graded none-branch result"}
-        w, ls, t = wtl(cls, pairs)
-        return {"variant": variant, "wins": w, "losses": ls, "ties": t, "p": ea.sign_test_p(w, ls)}
-
-
 def transcript_usage(path: Path, parent: Path | None = None) -> tuple[int, str | None]:
     """Route 2 of the token count: Σ input + cache_creation + cache_read over the transcript's distinct assistant
     message ids (last occurrence; a fork's messages copied from its parent session excluded), and the majority
@@ -1503,9 +1480,8 @@ def calibrate_q(st: Stage, cal: Cal, frozen: dict[str, Any], prev: dict[str, Any
     classes = {c: dict(prev["classes"][c]) for c in CLASSES}
     for c in CLASSES:
         classes[c]["status"] = "not_run"
-    report: dict[str, Any] = {"stage": "q", "primary": primary, "m": m_ship, "tests": per, "h4": {}, "h5": {},
+    report: dict[str, Any] = {"stage": "q", "primary": primary, "m": m_ship, "tests": per, "h4": {},
                               "certainty": {}, "caps": {}, "usd_per_mtok": {}}
-    h5_tests = []
     used_calls: list[Call] = []
     for cls in primary:
         e = classes[cls]
@@ -1524,10 +1500,6 @@ def calibrate_q(st: Stage, cal: Cal, frozen: dict[str, Any], prev: dict[str, Any
         h4 = cal.h4(cls)
         report["h4"][cls] = h4
         e["reducer"] = h4["reducer"]
-        h5 = cal.h5(cls, str(e.get("loo_view")))
-        if h5 and "p" in h5:
-            h5_tests.append((cls, h5))
-        report["h5"][cls] = h5
         pc = (prev["classes"][cls].get("certainty") or None)
         if cls in BINARY and pc:
             r = cal.reestimate(cal.e_signals().get(cls, []), pc)
@@ -1548,10 +1520,6 @@ def calibrate_q(st: Stage, cal: Cal, frozen: dict[str, Any], prev: dict[str, Any
     for c in CLASSES:
         if c not in primary:
             classes[c]["cost_ratio"] = classes[c]["effect"] = None
-    if h5_tests:
-        adj5 = ea.holm([h["p"] for _, h in h5_tests])
-        for (_c, h), p in zip(h5_tests, adj5, strict=True):
-            h["p_holm"] = p
     usd = cal.usd_per_mtok()
     report["usd_per_mtok"] = usd
     for cls in primary:
