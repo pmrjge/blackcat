@@ -1,4 +1,4 @@
-BASE  unmutated copy, 148 selections: PASS
+BASE  unmutated copy, 153 selections: PASS
 M01  KILLED   (pytest exit 1)  Latin-square balance of perm views  [eq_harness.py: 'return (i * s // n) % s' -> 'return ((i // 2) * s // n) % s']
 M02  KILLED   (pytest exit 1)  exact k-cover counts  [eq_harness.py: 'ids = [i, (i + 1) % 4]' -> 'ids = [i, (i + 1) % 3]']
 M03  KILLED   (pytest exit 1)  reducer determinism (plurality representative)  [eq_harness.py: 'min(raws, key=lambda a: json.dumps(a, sort_keys=Tr' -> 'raws[0] if raws else None']
@@ -161,10 +161,18 @@ M159  KILLED   (pytest exit 1)  blinding: cell labels p6/p7 are role tokens  [eq
 M160  KILLED   (pytest exit 1)  LOO views: the shown view leaves the excluded member out  [eq_harness.py: 'return render(e), e' -> 'return render(None), e']
 M161  KILLED   (pytest exit 1)  LOO views: rotation e_r(i) = (i - 1 + r) mod N + 1  [eq_mediator.py: 'e = (p + r) % n' -> 'e = (p + r + 1) % n']
 M162  KILLED   (pytest exit 1)  per-round attribution after every reconcile round  [eq_harness.py: 'self.loo_round(med, rnd, seed_key)\n            if ' -> 'if not changed_any and not forced:']
+M163  KILLED   (pytest exit 1)  eq_check E7: a cell pass reads its progress from the ledger, not the arm rule  [eq_check.sh: 'elif [ -n "$CELLS" ]; then' -> 'elif false; then']
+M164  KILLED   (pytest exit 1)  eq_check E7 cell pass: every arm row is done first  [eq_check.sh: 'elif ($arms_left | length) > 0 then' -> 'elif false then']
+M165  KILLED   (pytest exit 1)  eq_check E7 cell pass: the first item with a not-done cell row is next  [eq_check.sh: 'elif $next != $i then' -> 'elif false then']
+M166  KILLED   (pytest exit 1)  eq_check E7 cell pass: a started cell row is not run again  [eq_check.sh: 'elif any($todo[]; .[2] == $i and $started[.[2] + "' -> 'elif false then "started"']
+M167  KILLED   (pytest exit 1)  eq_check E7 cell pass: done cell rows are not to do  [eq_check.sh: '[$mine[] | select($done[.[2] + "\\t" + .[5]] | not)' -> '[$mine[]] as $todo']
+M168  KILLED   (pytest exit 1)  eq_check: <cells> is refused at stage q  [eq_check.sh: 'if [ -n "$CELLS" ] && [ "$STAGE" = q ]; then' -> 'if false; then']
+M169  KILLED   (pytest exit 1)  run --cells passes its cells to eq_check.sh  [eq_harness.py: 'item_id, a.stage, *([",".join(a.cells)] if a.cells' -> 'item_id, a.stage]']
+M170  KILLED   (pytest exit 1)  run --cells takes distinct cells  [eq_harness.py: 'or len(set(cells)) != len(cells) or (cells and' -> 'or (cells and']
 A4m1  KILLED   (pytest exit 1)  A4: the tool list goes on --tools  [eq_harness.py: 'argv += ["--tools", tools_value(allowed_tools)]' -> '']
 A4m2  KILLED   (pytest exit 1)  A4: Skill appended for every class  [eq_harness.py: 'tools += [t for t in common if t not in tools]' -> '']
 A4m3  KILLED   (pytest exit 4)  A4: one tool list for every arm and role of a class  [eq_harness.py: 'tools, boxed = member_tools(self.flags, item.cls)' -> 'tools, boxed = member_tools(self.flags, item.cls)\n']
 A4m4  KILLED   (pytest exit 1)  A4: StructuredOutput named in --tools (--json-schema)  [eq_harness.py: 'return ",".join(dict.fromkeys([*names, SCHEMA_TOOL' -> 'return ",".join(dict.fromkeys(names))']
 A4m5  KILLED   (pytest exit 1)  A4: MCP tools stay off --tools  [eq_harness.py: 'names = [str(t) for t in tools if not str(t).start' -> 'names = [str(t) for t in tools]']
 A4m6  KILLED   (pytest exit 1)  A4: flags.json carries common_tools Skill  [flags.json: '"common_tools": [\n  "Skill"\n ],' -> '"common_tools": [],']
-mutations: 168, problems: 0
+mutations: 176, problems: 0
