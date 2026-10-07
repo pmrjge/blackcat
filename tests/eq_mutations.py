@@ -16,8 +16,13 @@ passes and every mutant is killed.
   ~/.claude/venvs/tools/bin/python tests/eq_mutations.py --list      id, product file, rule, killing tests
   ~/.claude/venvs/tools/bin/python tests/eq_mutations.py -k spawn    only the mutants whose id or rule contains it
   ~/.claude/venvs/tools/bin/python tests/eq_mutations.py -k member_bash,candidate -j 2   a comma list of filters
+  ~/.claude/venvs/tools/bin/python tests/eq_mutations.py --gaps -j 2   the gap-test kill table (see below)
   options: -j N (parallel pytest runs, default 8), --out PATH (default tests/eq_mutations.out, "-" = stdout only;
-  written only for a full run)
+  written only for a full run), --gaps-json PATH (with --gaps: {gap test: [mutant ids it killed]})
+
+--gaps re-derives which mutants each test of test_eq_gaps.py kills: every (mutant, gap test) pair of a row naming
+that test, plus GAP_KILLS (a gap test proven on a mutant another test is named for), runs ALONE against its mutant.
+It fails if a pair survives or (without -k) a gap test kills nothing.
 
 The "rule" column is the named guard rule of eq_guard.py's table (spawn_gate, leader_tools, leader_bash,
 leader_check, leader_agent, leader_send, leader_reply, member_tools, member_cwd, member_paths, member_bash,
@@ -32,7 +37,9 @@ from __future__ import annotations
 import argparse
 import collections
 import hashlib
+import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -490,8 +497,6 @@ MUTANTS = [
     M('pl_plan_tools', 'plan_refusals', C, '"member_tools": list(P.MEMBER_TOOLS[cls]),', '"member_tools": list(P.MEMBER_TOOLS["PF"]),', [TX + 'test_plan_records_the_resolved_bundle']),
     M('pl_plan_seed', 'plan_refusals', C, 'seed = seed_of("eq|run", r.run)', 'seed = seed_of("eq|run", "x")', [TX + 'test_plan_records_the_resolved_bundle']),
     M('pl_state', 'plan_refusals', C, '    r.set_state("planned", 0)\n    e = b["estimate"]', '    r.set_state("started", 0)\n    e = b["estimate"]', [TC + 'test_plan_writes_store_with_modes']),
-    M('pl_session_runs', 'plan_refusals', C, 'session_runs=_session_runs(r),', 'session_runs=0,', [TX + 'test_header_grammar_refusals']),
-    M('sr_siblings', 'plan_refusals', C, 'if name != r.run and P.RUN_RE.match(name) and r.st.read("/".join(r.parts[:-1] + [name, "plan.json"])):', 'if P.RUN_RE.match(name) and r.st.read("/".join(r.parts[:-1] + [name, "plan.json"])):', [TX + 'test_header_grammar_refusals']),
     M('st_phase', 'headless_start', C, '    if st.get("phase") != "planned":\n        raise Refused(EXIT_REFUSED, "run eq:%s is %s, not planned"', '    if False:\n        raise Refused(EXIT_REFUSED, "run eq:%s is %s, not planned"', [TX + 'test_start_runs_once_and_a_headless_consent_names_the_token']),
     M('st_claudecode', 'headless_start', C, 'if os.environ.get("CLAUDECODE"):\n            raise Refused(EXIT_REFUSED, "start --headless', 'if False:\n            raise Refused(EXIT_REFUSED, "start --headless', [TC + 'test_start_headless_consent_file']),
     M('st_token', 'headless_start', C, 'if not isinstance(cf, dict) or cf.get("token") != P.consent_token(r.run) or \\\n                cf.get("plan_sha256") != sha256_bytes(plan_raw or b""):', 'if not isinstance(cf, dict) or cf.get("plan_sha256") != sha256_bytes(plan_raw or b""):', [TX + 'test_start_runs_once_and_a_headless_consent_names_the_token']),
@@ -502,13 +507,9 @@ MUTANTS = [
     M('st_ask_exit', 'headless_start', C, 'raise Refused(EXIT_ASK, "no consent record for Run eq:%s', 'raise Refused(EXIT_REFUSED, "no consent record for Run eq:%s', [TC + 'test_start_needs_consent_record']),
     M('st_state', 'headless_start', C, '    r.set_state("started", 0)\n    r.append_ledger({"record": "start"', '    r.set_state("planned", 0)\n    r.append_ledger({"record": "start"', [TC + 'test_check_copy_overlay_rules']),
     M('hp_eqrun', 'headless_start', C, 'if h["run"] not in (None, run):\n        raise Refused', 'if False:\n        raise Refused', [TC + 'test_headless_plan']),
-    M('hp_store_exists', 'headless_start', C, '        P.find_run(os.environ, run)\n        raise Refused(EXIT_REFUSED, "run eq:%s already has a store" % run)', '        P.find_run(os.environ, run)\n        pass', [TX + 'test_header_grammar_refusals']),
-    M('hp_mkdir_exists', 'headless_start', C, '        except FileExistsError:\n            raise Refused(EXIT_REFUSED, "run eq:%s already has a store" % run)', '        except FileExistsError:\n            pass', [TX + 'test_header_grammar_refusals']),
-    M('hp_nofollow', 'headless_start', C, 'text = P.read_bytes_nofollow(p["brief_file"], 4 * P.MAX_PROBLEM_CHARS + 65536).decode("utf-8")', 'text = open(p["brief_file"], "rb").read().decode("utf-8")', [TX + 'test_header_grammar_refusals']),
     M('hp_caller', 'headless_start', C, '"tool_use_id": "headless", "caller_type": "headless",', '"tool_use_id": "headless", "caller_type": "main",', [TC + 'test_headless_plan']),
     M('hp_session', 'headless_start', C, '"schema": P.SCHEMA_BRIEF, "run": run, "session": sid, "tool_use_id": "headless"', '"schema": P.SCHEMA_BRIEF, "run": run, "session": "x", "tool_use_id": "headless"', [TC + 'test_headless_plan']),
     M('hp_headless_find', 'headless_start', C, '                store = P.find_run(os.environ, p["run"])\n            except P.PolicyError as exc:\n                raise Refused(EXIT_REFUSED, str(exc))\n            sid = os.path.basename(os.path.dirname(os.path.dirname(store)))', '                store = P.find_run(os.environ, p["run"])\n            except P.PolicyError as exc:\n                raise Refused(EXIT_REFUSED, str(exc))\n            sid = "x"', [TC + 'test_start_headless_consent_file']),
-    M('hp_lock', 'headless_start', C, '    r = Run(sid, run)\n    r.lock()\n    try:\n        return cmd_plan(r, None)', '    r = Run(sid, run)\n    try:\n        return cmd_plan(r, None)', [TX + 'test_header_grammar_refusals']),
     M('pc_kind', 'check_overlay', C, 'if plan["kind"] != "checkable" or not plan.get("check"):\n        raise Refused(EXIT_REFUSED, "run eq:%s has no check', 'if False:\n        raise Refused(EXIT_REFUSED, "run eq:%s has no check', [TX + 'test_prepare_check_preconditions']),
     M('pc_phase', 'check_overlay', C, 'if st.get("phase") not in ("started", "viewed", "checks") or st.get("round") != rnd:\n        raise Refused(EXIT_REFUSED, "prepare-check', 'if False:\n        raise Refused(EXIT_REFUSED, "prepare-check', [TX + 'test_prepare_check_preconditions']),
     M('pc_round', 'check_overlay', C, 'if st.get("phase") not in ("started", "viewed", "checks") or st.get("round") != rnd:\n        raise Refused(EXIT_REFUSED, "prepare-check', 'if st.get("phase") not in ("started", "viewed", "checks"):\n        raise Refused(EXIT_REFUSED, "prepare-check', [TX + 'test_prepare_check_preconditions']),
@@ -522,7 +523,6 @@ MUTANTS = [
     M('pc_mode_cand', 'check_overlay', C, 'keep_mode = (stat.S_IMODE(pmode) & 0o755) | 0o600', 'keep_mode = (stat.S_IMODE(pmode) & 0o777) | 0o600', [TX + 'test_check_copies_modes_owned_list_and_stale_copies']),
     M('pc_rm_checks', 'check_overlay', C, '        proj.rmtree(proj_parts(r.run), "checks")\n        with proj.dir(proj_parts(r.run, "checks"), create=True):', '        with proj.dir(proj_parts(r.run, "checks"), create=True):', [TX + 'test_check_copies_modes_owned_list_and_stale_copies']),
     M('pc_state', 'check_overlay', C, '    r.set_state("checks", rnd)\n    out("eq:%s round %d: %d check copies', '    r.set_state("started", rnd)\n    out("eq:%s round %d: %d check copies', [TC + 'test_check_copy_overlay_rules']),
-    M('pc_pristine_none', 'check_overlay', C, 'if got is None:\n                        continue                      # a link or special file', 'if False:\n                        continue                      # a link or special file', [TX + 'test_settings_denied_rules']),
     M('pc_owned_arg', 'check_overlay', C, 'if "/" not in a and a not in (".", "..") and a in pristine_set:', 'if False:', [TC + 'test_check_copy_overlay_rules']),
     M('pc_owned_inpristine', 'check_overlay', C, 'if "/" not in a and a not in (".", "..") and a in pristine_set:', 'if "/" not in a and a not in (".", ".."):', [TX + 'test_check_copies_modes_owned_list_and_stale_copies']),
     M('pc_owned_slash', 'check_overlay', C, 'if "/" not in a and a not in (".", "..") and a in pristine_set:', 'if a not in (".", "..") and a in pristine_set:', [TX + 'test_check_copies_modes_owned_list_and_stale_copies']),
@@ -857,6 +857,43 @@ MUTANTS = [
     M('tlb_always', 'trailer_label', C, '        if trailer_only:               # a pass kept', '        if True:               # a pass kept', [TC + 'test_result_without_trailer_only_candidates_has_no_label']),
 ]
 
+# (mutant id, test_eq_gaps.py test): a gap test that kills, run alone, a mutant whose row names another test
+GAP_KILLS: list[tuple[str, str]] = [
+    ('cl_check_len', 'test_check_cli_grammar'),
+    ('cl_check_dup', 'test_check_cli_grammar'),
+    ('cl_check_cand', 'test_check_cli_grammar'),
+    ('cl_help_alias', 'test_cli_grammar_accepts'),
+    ('cl_headless_run', 'test_cli_grammar_accepts'),
+    ('git_all', 'test_git_rule_wrapped_read_only_git_still_passes'),
+    ('ph_text', 'test_header_values_and_workdir'),
+    ('ph_workdir', 'test_header_values_and_workdir'),
+    ('ur_workdir', 'test_header_values_and_workdir'),
+    ('kn_int_high', 'test_knobs_list_every_correction'),
+    ('kn_errors', 'test_knobs_list_every_correction'),
+    ('policy_state', 'test_member_path_denied_rules'),
+    ('policy_projects', 'test_member_path_denied_rules'),
+    ('policy_realpath', 'test_member_path_denied_rules'),
+    ('pd_relative', 'test_member_path_denied_rules'),
+    ('pd_norm', 'test_member_path_denied_rules'),
+    ('pd_under_eq', 'test_member_path_denied_rules'),
+    ('pd_forms', 'test_member_path_denied_rules'),
+    ('pd_projects', 'test_member_path_denied_rules'),
+    ('pd_eq_area', 'test_member_path_denied_rules'),
+    ('pd_siblings_wt', 'test_member_path_denied_rules'),
+    ('pd_own', 'test_member_path_denied_rules'),
+    ('pd_own_none', 'test_member_path_denied_rules'),
+    ('pd_recursive', 'test_member_path_denied_rules'),
+    ('pd_both_forms', 'test_member_path_denied_rules'),
+    ('mr_member_dirs', 'test_path_scan_allows_plain_work'),
+    ('pd_own', 'test_path_scan_allows_plain_work'),
+    ('ex_refused_code', 'test_plan_refuses_off_and_unusable_roots'),
+    ('kn_eq_off', 'test_plan_refuses_off_and_unusable_roots'),
+    ('tr_rmtree_link', 'test_tree_rmtree_never_follows_a_link'),
+    ('vp_schema', 'test_validate_params_top_level'),
+    ('sd_atomic_mode', 'test_write_json_atomic_is_private_and_never_follows'),
+    ('sd_atomic_rename', 'test_write_json_atomic_is_private_and_never_follows'),
+]
+
 # Open: candidates no test kills (equivalent to the shipped code, or not reachable from the hooks' inputs);
 # kept out of MUTANTS, listed for the next round:
 # ap_role, ck_copy, ck_nocheck, ck_noplan, ck_oserror, ck_root, ck_signal_rc, ck_tail_keep, ck_timeout_zero,
@@ -871,6 +908,9 @@ MUTANTS = [
 # ss_unmatched, tr_dirmode, tr_nofollow_open, tr_owner, tr_read_dots, tr_read_size, tr_write_excl,
 # tr_write_nofollow, ts_target, ur_cr_tools, ur_kind, ur_member_tools, vp_top, vw_phase2, w_hook_sysexit,
 # w_maybe_except, w_stop_leader, w_stop_member
+# Dropped in T11b2: one discovery run under heavy load recorded a kill that every re-run (alone, and the full
+# gaps+guard+cli+check+policy suites) did not reproduce: hp_lock, hp_mkdir_exists, hp_nofollow, hp_store_exists,
+# pc_pristine_none, pl_session_runs, sr_siblings
 
 
 def digest(root: Path) -> str:
@@ -896,9 +936,22 @@ def pytest(hooks: Path, selections: list[str], failfast: bool) -> tuple[int, str
     return p.returncode, (lines[-1] if lines else "")
 
 
-def run_mutant(scratch: Path, mutant) -> tuple[str, str, str]:
+def gap_tests() -> list[str]:
+    """Every test function of tests/test_eq_gaps.py (each must kill at least one mutant here)."""
+    src = (REPO / "tests" / "test_eq_gaps.py").read_text()
+    return re.findall(r"^def (test_\w+)\(", src, re.M)
+
+
+def gap_pairs(chosen) -> list[tuple[tuple, str]]:
+    """(mutant, gap test) pairs to prove one by one: every row naming a gap test, plus GAP_KILLS."""
+    pairs = [(m, t) for m in chosen for t in m[3] if t.startswith(TX)]
+    by_id = {m[0]: m for m in chosen}
+    return pairs + [(by_id[mid], TX + t) for mid, t in GAP_KILLS if mid in by_id]
+
+
+def run_mutant(scratch: Path, mutant, tag: str = "") -> tuple[str, str, str]:
     mid, rule, edits, tests = mutant
-    hooks = make_copy(scratch / mid)
+    hooks = make_copy(scratch / (mid + tag))
     try:
         counts = [(hooks / f).read_text().count(old) for f, old, _ in edits]
         if counts != [1] * len(edits):
@@ -917,6 +970,9 @@ def main() -> int:
     ap.add_argument("-k", default="", help="only mutants whose id or rule contains one of these (comma list)")
     ap.add_argument("-j", type=int, default=8)
     ap.add_argument("--out", default=str(REPO / "tests" / "eq_mutations.out"))
+    ap.add_argument("--gaps", action="store_true",
+                    help="re-derive the gap-test kill table: each (mutant, test_eq_gaps.py test) pair alone")
+    ap.add_argument("--gaps-json", default="", help="with --gaps: write {gap test: [killed mutant ids]} here")
     args = ap.parse_args()
     keys = [x for x in args.k.split(",") if x] or [""]
     chosen = [m for m in MUTANTS if any(x in m[0] or x in m[1] for x in keys)]
@@ -924,11 +980,19 @@ def main() -> int:
     if len(set(ids)) != len(ids):
         print("duplicate mutant ids:", [i for i, n in collections.Counter(ids).items() if n > 1])
         return 1
+    unknown = [(mid, t) for mid, t in GAP_KILLS if mid not in ids or t not in gap_tests()]
+    if unknown:
+        print("GAP_KILLS rows naming no mutant or no gap test:", unknown)
+        return 1
     if args.list:
         for mid, rule, edits, tests in chosen:
             print("%-26s %-18s %-16s %s" % (mid, rule, ",".join(sorted({e[0] for e in edits})), " ".join(tests)))
         print("%d mutants" % len(chosen))
         return 0
+    if args.gaps:   # one job per pair: the mutant with that single gap test, under its own scratch copy
+        jobs = [((m[0], m[1], m[2], [t]), "@%d" % i) for i, (m, t) in enumerate(gap_pairs(chosen))]
+    else:
+        jobs = [(m, "") for m in chosen]
     lines: list[str] = []
 
     def emit(s: str) -> None:
@@ -939,7 +1003,7 @@ def main() -> int:
     bad = 0
     with tempfile.TemporaryDirectory(prefix="eqmut-") as td:
         scratch = Path(td)
-        sels = sorted({t for m in chosen for t in m[3]})
+        sels = sorted({t for m, _tag in jobs for t in m[3]})
         by_file = collections.defaultdict(list)
         for s in sels:
             by_file[s.split("::")[0]].append(s)
@@ -952,26 +1016,46 @@ def main() -> int:
         bad += not base_ok
         if base_ok:
             with ThreadPoolExecutor(max(1, args.j)) as ex:
-                futs = [ex.submit(run_mutant, scratch, m) for m in chosen]
+                futs = [ex.submit(run_mutant, scratch, m, tag) for m, tag in jobs]
                 outcomes = [f.result() for f in futs]
         else:
             outcomes = []
             emit("the unmutated copy fails its own selections: no mutant is judged")
         per_file: dict[str, list[int]] = collections.defaultdict(lambda: [0, 0])
-        for m, (verdict, mid, last) in zip(chosen, outcomes):
+        kills: dict[str, list[str]] = collections.defaultdict(list)
+        for (m, _tag), (verdict, mid, last) in zip(jobs, outcomes):
             files = sorted({e[0] for e in m[2]})
             for f in files:
                 per_file[f][0] += 1
                 per_file[f][1] += verdict == "KILLED"
             bad += verdict != "KILLED"
-            emit("%-8s %-26s %-18s %s [%s]" % (verdict, mid, m[1], ",".join(files), last))
+            if args.gaps:
+                test = m[3][0].split("::")[1]
+                if verdict == "KILLED":
+                    kills[test].append(mid)
+                emit("%-8s %-26s %s [%s]" % (verdict, mid, test, last))
+            else:
+                emit("%-8s %-26s %-18s %s [%s]" % (verdict, mid, m[1], ",".join(files), last))
     after = digest(HOOKS)
     if before != after:
         emit("PRODUCT FILES CHANGED during the run: the checkout must never be mutated")
         bad += 1
     for f in sorted(per_file):
-        emit("%-16s mutants %3d, killed %3d" % (f, per_file[f][0], per_file[f][1]))
+        emit("%-16s %s %3d, killed %3d" % (f, "pairs" if args.gaps else "mutants", per_file[f][0], per_file[f][1]))
     killed = sum(1 for v, *_ in outcomes if v == "KILLED")
+    if args.gaps:
+        names = gap_tests()
+        for t in names:
+            emit("%-6s %s %s" % ("KILLS" if kills.get(t) else "NONE", t, " ".join(sorted(kills.get(t, [])))))
+        none = [t for t in names if not kills.get(t)]
+        if not args.k:      # the full table: every gap test must kill something
+            bad += len(none)
+        emit("gap tests: %d, with a kill: %d, without: %d; pairs: %d, killed: %d, problems: %d"
+             % (len(names), len(names) - len(none), len(none), len(jobs), killed, bad))
+        if args.gaps_json:
+            Path(args.gaps_json).write_text(json.dumps({t: sorted(kills[t]) for t in names if kills.get(t)},
+                                                       indent=1, sort_keys=True) + "\n")
+        return 1 if bad else 0
     emit("mutants: %d, killed: %d, problems: %d" % (len(chosen), killed, bad))
     if args.out != "-" and not args.k:
         Path(args.out).write_text("\n".join(lines) + "\n")
