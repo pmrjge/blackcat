@@ -33,10 +33,11 @@ FAKE_CONTAINER_KNOBS = ("EQ_FAKE_CONTAINER_DOWN", "EQ_FAKE_CONTAINER_MISSING", "
 
 def container_dir() -> Path | None:
     """The repo's lib/eq-container (probe.sh, lib.sh, probe.d/50-tunnel.sh, eqc_json.py): $EQ_CONTAINER_DIR, else
-    the repo layout beside the harness (STAGE/lib, then STAGE/../lib: the stack repo's equilibrium/). None in a staging
-    copy without it (the tests that need it skip)."""
+    the stack repo's <repo>/lib/eq-container (eq_harness.repo_lib_dirs: the git top level, then STAGE/../..: STAGE is
+    <repo>/dot-config/dot-equilibrium), then the staging layout beside the harness (STAGE/lib). None in a staging copy
+    without it (the tests that need it skip)."""
     for d in ([Path(os.environ["EQ_CONTAINER_DIR"])] if os.environ.get("EQ_CONTAINER_DIR") else []) + \
-            [STAGE / "lib" / "eq-container", STAGE.parent / "lib" / "eq-container"]:
+            [*eh.repo_lib_dirs("eq-container", STAGE / "harness"), STAGE / "lib" / "eq-container"]:
         if (d / "lib.sh").is_file():
             return d
     return None

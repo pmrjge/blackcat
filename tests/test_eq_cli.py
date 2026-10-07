@@ -844,7 +844,7 @@ def test_real_eq_core_end_to_end(tmp_path):
 
 def test_launchers_shell_clean():
     for f in ("stack-eq", "stack-eq-check"):
-        path = REPO / "dot-claude" / "bin" / f
+        path = REPO / "dot-config" / "dot-claude" / "bin" / f
         assert subprocess.run(["/bin/sh", "-n", str(path)]).returncode == 0
         assert os.access(path, os.X_OK)
         text = path.read_text()

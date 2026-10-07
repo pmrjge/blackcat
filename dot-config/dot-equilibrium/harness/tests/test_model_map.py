@@ -1,8 +1,8 @@
 """D3 (COMPARE_eq §12 A6.2): every call runs its agent's own frontmatter model. flags.json `model` pins the map
-{agent type: alias}; this drift test keeps it equal to `dot-claude/agents/<type>.md` `model:` and complete for every
-agent type the harness can launch. The agents directory: $EQ_AGENTS_DIR, else the repository layout beside the
-harness (`../dot-claude/agents`); a staging copy without it skips the frontmatter half (the run that freezes the
-package runs it with EQ_AGENTS_DIR set)."""
+{agent type: alias}; this drift test keeps it equal to `dot-config/dot-claude/agents/<type>.md` `model:` and complete
+for every agent type the harness can launch. The agents directory: $EQ_AGENTS_DIR, else the repository layout beside
+the tree (`../dot-claude/agents`, i.e. `dot-config/dot-claude/agents`); a staging copy without it skips the
+frontmatter half (the run that freezes the package runs it with EQ_AGENTS_DIR set)."""
 
 from __future__ import annotations
 

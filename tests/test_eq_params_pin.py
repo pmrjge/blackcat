@@ -1,8 +1,9 @@
 """The equilibrium runtime's calibration pin (RUNTIME_EQUILIBRIUM.md §7.5-§7.6).
 
-dot-claude/hooks/eq_params.json is a byte copy of equilibrium/calibration/params.json (the latest version written by
-equilibrium/harness/eq_calibrate.py), whose sha256 is the params.json.sha256 sidecar and the last history line; it
-validates against equilibrium/calibration/params.schema.json (eqparams.v1). Until a calibration validates a class,
+dot-config/dot-claude/hooks/eq_params.json is a byte copy of dot-config/dot-equilibrium/calibration/params.json (the
+latest version written by dot-config/dot-equilibrium/harness/eq_calibrate.py), whose sha256 is the params.json.sha256
+sidecar and the last history line; it validates against dot-config/dot-equilibrium/calibration/params.schema.json
+(eqparams.v1). Until a calibration validates a class,
 every class is not_run (nothing is auto-routed).
 
 Run: ~/.claude/venvs/tools/bin/python -m pytest -q tests/test_eq_params_pin.py   (stdlib + pytest + jsonschema)
@@ -20,8 +21,8 @@ import jsonschema
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-CAL = ROOT / "equilibrium" / "calibration"
-HOOK = ROOT / "dot-claude" / "hooks" / "eq_params.json"
+CAL = ROOT / "dot-config" / "dot-equilibrium" / "calibration"
+HOOK = ROOT / "dot-config" / "dot-claude" / "hooks" / "eq_params.json"
 CLASSES = ("PF", "CP", "CR", "RS", "ES", "DS", "OE")
 CLASS_KEYS = {"status", "member_type", "member_model_id", "agent_file_sha256", "N", "rounds", "view", "loo_view",
               "reducer", "tau", "t", "caps", "usd_per_mtok", "cost_ratio", "effect", "certainty", "pool"}
@@ -164,8 +165,8 @@ def test_schema_version_zero_refuses_a_null_status():
 
 
 # ---- the `candidate` contract (T11b/T11a2): one rule set on every side -------------------------------------------
-HOOKS = ROOT / "dot-claude" / "hooks"
-HARNESS = ROOT / "equilibrium" / "harness"
+HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
+HARNESS = ROOT / "dot-config" / "dot-equilibrium" / "harness"
 
 
 def _eq_policy():

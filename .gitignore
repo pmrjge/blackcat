@@ -63,11 +63,11 @@ docs/wiki/
 *.tar.gz
 .claude-work
 
-# --- equilibrium/: the Equilibrium experiment, tracked (equilibrium/README.md) ---
+# --- dot-config/dot-equilibrium/: the Equilibrium experiment, tracked (dot-config/dot-equilibrium/README.md) ---
 # the PF pool's oracle build records are part of the pool (pool.sha256); the blanket build/ rule above would drop them
-!equilibrium/items/PF/oracle/build/
-# run outputs, never tracked: a stage's runs/ wherever EQ_ROOT or EQ_RAW points inside equilibrium/, and the
-# harness's per-node .eq_deps/ work files; the RS pool's fixtures/corpus/runs/ is a tracked fixture
-/equilibrium/**/runs/
-!/equilibrium/items/RS/fixtures/corpus/runs/
-/equilibrium/**/.eq_deps/
+!dot-config/dot-equilibrium/items/PF/oracle/build/
+# run outputs, never tracked: a stage's runs/ wherever EQ_ROOT or EQ_RAW points inside dot-config/dot-equilibrium/,
+# and the harness's per-node .eq_deps/ work files; the RS pool's fixtures/corpus/runs/ is a tracked fixture
+/dot-config/dot-equilibrium/**/runs/
+!/dot-config/dot-equilibrium/items/RS/fixtures/corpus/runs/
+/dot-config/dot-equilibrium/**/.eq_deps/

@@ -76,7 +76,7 @@ MICRO = 1_000_000
 LEDGER_SCHEMA_VERSION = 1
 
 DEFAULT_M = next((p for p in Path(__file__).resolve().parents if (p / ".git").exists()),
-                 Path(__file__).resolve().parents[2])  # the checkout holding this script: the repository root
+                 Path(__file__).resolve().parents[3])  # the checkout holding this script: the repository root
 HERE = Path(__file__).resolve().parent
 
 
@@ -2199,12 +2199,24 @@ def wall_enabled(flags: Mapping[str, Any]) -> bool:
     return bool((flags.get("wall") or {}).get("enabled"))
 
 
+def repo_lib_dirs(name: str, here: Path | None = None) -> list[Path]:
+    """<repo>/lib/<name> of the stack checkout holding the harness (COMPARE_eq.md §12 A9): the git top level (the
+    nearest ancestor of `here`, default HERE, holding .git, a directory or a worktree's file; the frozen copy under
+    claude_next_steps/ too), then the repo layout by depth (<repo>/dot-config/dot-equilibrium/harness: three up)."""
+    h = HERE if here is None else here
+    top = next((p for p in (h, *h.parents) if (p / ".git").exists()), None)
+    out = [] if top is None else [top / "lib" / name]
+    if len(h.parents) > 2 and h.parents[2] / "lib" / name not in out:
+        out.append(h.parents[2] / "lib" / name)
+    return out
+
+
 def wall_dir_candidates() -> list[Path]:
-    """$EQ_WALL_DIR, then the stack repo's reviewed copy (../../lib/eq-wall from equilibrium/harness), then the staging
-    layouts (harness/wall, ../wall) and the staging repo layout (../lib/eq-wall)."""
+    """$EQ_WALL_DIR, then the stack repo's REVIEW-pinned copy <repo>/lib/eq-wall (repo_lib_dirs), then the staging
+    layouts (harness/wall, ../wall: the staging copy dot-config/dot-equilibrium/wall) and the staging repo layout
+    (../lib/eq-wall). The first holding eq_wall.py wins, so the staging copy is never taken while lib/eq-wall exists."""
     dirs = [Path(os.environ["EQ_WALL_DIR"])] if os.environ.get("EQ_WALL_DIR") else []
-    return [*dirs, HERE.parents[1] / "lib" / "eq-wall", HERE / "wall", HERE.parent / "wall",
-            HERE.parent / "lib" / "eq-wall"]
+    return [*dirs, *repo_lib_dirs("eq-wall"), HERE / "wall", HERE.parent / "wall", HERE.parent / "lib" / "eq-wall"]
 
 
 def wall_paths() -> tuple[Path, Path]:
@@ -2248,7 +2260,7 @@ class Wall:
                 raise IsolationError(f"flags.json wall.{k} missing or malformed (eq_harness.py flags --wall-policy)")
         found = next((d for d in wall_dir_candidates() if (d / "eq_wall.py").is_file()), None)
         if found is None:
-            raise IsolationError("eq_wall.py not found ($EQ_WALL_DIR, ../../lib/eq-wall, harness/wall, ../wall, "
+            raise IsolationError("eq_wall.py not found ($EQ_WALL_DIR, <repo>/lib/eq-wall, harness/wall, ../wall, "
                                  "../lib/eq-wall)")
         self.ew = load_wall_module(found / "eq_wall.py", cfg["broker_sha256"])
         self.client_bytes = (found / "eq_wall_client.py").read_bytes()  # checked here, copied into every channel
@@ -4126,12 +4138,11 @@ def cmd_flags(a: argparse.Namespace) -> int:
 
 
 def probe_script_candidates() -> list[Path]:
-    """Where probe.sh lives: $EQ_CONTAINER_DIR, else the repo layout (../lib/eq-container, then ../../lib/eq-container:
-    the stack repo's equilibrium/harness). The staging dir
+    """Where probe.sh lives: $EQ_CONTAINER_DIR, else the stack repo's <repo>/lib/eq-container (repo_lib_dirs), then
+    the staging layout (../lib/eq-container beside the harness). The staging dir
     ../isolation holds the superseded Docker scripts (user decision 2026-10-05) and is never used."""
     dirs = [Path(os.environ["EQ_CONTAINER_DIR"])] if os.environ.get("EQ_CONTAINER_DIR") else []
-    return [d / "probe.sh" for d in (*dirs, HERE.parent / "lib" / "eq-container",
-                                     HERE.parents[1] / "lib" / "eq-container")]
+    return [d / "probe.sh" for d in (*dirs, *repo_lib_dirs("eq-container"), HERE.parent / "lib" / "eq-container")]
 
 
 def size_bytes(s: str) -> int | None:
@@ -5227,7 +5238,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     ip = sub.add_parser("isolation-probe")
     ip.add_argument("--flags")
     ip.add_argument("--script", help="the user-run probe script (default: $EQ_CONTAINER_DIR/probe.sh, else "
-                                     "../lib/eq-container/probe.sh)")
+                                     "<repo>/lib/eq-container/probe.sh)")
     ip.add_argument("--inner", help="the in-container probe (default: probe_inner.sh beside the probe script)")
     ip.add_argument("--tunnel-script", help="the WALL tunnel probe (default: probe.d/50-tunnel.sh beside the "
                                             "probe script)")

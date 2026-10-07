@@ -53,6 +53,12 @@ its A5 bytes (taken from `d28d9ee`, verified against the recorded new digest) an
 requires the current digest, the amendment's name in §12, and runs the A5 proof on the A5 blob, so an amendment can
 change a file without weakening the proof that A5 itself changed only path text. The `files` table below never changes.
 
+**Repository move (A9, 2026-10-07).** The tree moved from `equilibrium/` to `dot-config/dot-equilibrium/` by a pure
+rename. The JSON record's keys (`files` and `later`) are re-keyed to the new repository-relative paths; every digest,
+offset and blob id is unchanged. The commits before the move (`d28d9ee`, `bd3a182`) hold the files at `equilibrium/`,
+so `tests/equilibrium_paths.py` maps a new key back to its old path (`old_rel`) when it reads them from git. The
+paths in the tables here are relative to the tree and did not change.
+
 ## Files (236)
 
 | file | substitutions | old sha256 | new sha256 |

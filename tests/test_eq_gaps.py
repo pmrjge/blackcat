@@ -3,7 +3,8 @@ unpinned by test_eq_guard.py / test_eq_cli.py / test_eq_check.py / test_eq_polic
 runner names for it (tests/eq_mutations.py: ids and tests) and passes on the shipped code.
 
 Two layers. Unit: the guard's pure readers (shell splitting, git rule, path scan, trailers, answers) called
-in-process on eq_guard.py loaded from EQ_HOOKS_SRC (default dot-claude/hooks) through its agent_guard binding.
+in-process on eq_guard.py loaded from EQ_HOOKS_SRC (default dot-config/dot-claude/hooks) through its agent_guard
+binding.
 World: the hook and executor processes in tests/fixtures/eq_cli/eqworld.World, as the other eq suites run them."""
 import hashlib
 import importlib.util

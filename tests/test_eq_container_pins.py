@@ -1102,7 +1102,7 @@ def test_base_verify_wrong_argument_count_fails(tmp_path):
 
 
 # ================================================================================ the perl shim, against the real perl
-CHECK_LEAN = ROOT / "equilibrium" / "items" / "PF" / "check_lean.sh"
+CHECK_LEAN = ROOT / "dot-config" / "dot-equilibrium" / "items" / "PF" / "check_lean.sh"
 SHIM = "minimal/perl-shim"
 PERL = next((p for p in ("/usr/bin/perl", shutil.which("perl")) if p and os.access(p, os.X_OK)), None)
 needs_perl = pytest.mark.skipif(PERL is None, reason="no perl on this machine to compare the shim with")
@@ -1134,7 +1134,7 @@ def test_the_wrapper_text_is_identical_in_all_four_places():
 
 def test_check_lean_is_the_frozen_file():
     """The wrapper reference is the hash-frozen checker: its sha256 is the one items/PF/pool.sha256 lists for it."""
-    pool = (ROOT / "equilibrium" / "items" / "PF" / "pool.sha256").read_text().splitlines()
+    pool = (ROOT / "dot-config" / "dot-equilibrium" / "items" / "PF" / "pool.sha256").read_text().splitlines()
     listed = {ln.split()[1]: ln.split()[0] for ln in pool if ln.strip()}
     assert hashlib.sha256(CHECK_LEAN.read_bytes()).hexdigest() == listed["check_lean.sh"]
 

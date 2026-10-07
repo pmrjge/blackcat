@@ -14,7 +14,7 @@
 # Exit 0 = done; 1 = refused or failed.
 set -euo pipefail
 
-M=${EQ_M:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "$0")/../.." && pwd))}
+M=${EQ_M:-$(git -C "$(dirname "$0")" rev-parse --show-toplevel 2>/dev/null || (cd "$(dirname "$0")/../../.." && pwd))}
 W=$M/claude_next_steps/work_carried
 EQ=${EQ_ROOT:-$W/equilibrium}
 STAGE=${EQ_STAGE_DIR:-$(cd "$(dirname "$0")/.." && pwd)}

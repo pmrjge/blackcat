@@ -2,11 +2,11 @@
 # requires-python = ">=3.11"
 # dependencies = ["pytest"]
 # ///
-"""Seeded-mutation proof for the runtime Equilibrium: the guard's rules (dot-claude/hooks/eq_guard.py and its call
+"""Seeded-mutation proof for the runtime Equilibrium: the guard's rules (dot-config/dot-claude/hooks/eq_guard.py and its call
 sites in agent_guard.py), the executor and check runner (eq_cli.py) and the policy (eq_policy.py).
 docs/RUNTIME_EQUILIBRIUM.md 10.3: "mutants in tests/eq_mutations.py, every one must be killed".
 
-Each mutant is one edit (a few: two) of a product file in a scratch copy of dot-claude/hooks under $TMPDIR (the
+Each mutant is one edit (a few: two) of a product file in a scratch copy of dot-config/dot-claude/hooks under $TMPDIR (the
 checkout is never written); the tests named for it run against that copy (EQ_HOOKS_SRC / EQ_POLICY, as
 tests/fixtures/eq_cli/eqworld.py and tests/test_eq_policy.py read them) and must FAIL. Each anchor must match
 the product file exactly once. The unmutated copy must pass the same selections first. Exit 0 iff the clean copy
@@ -48,7 +48,7 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parent.parent
-HOOKS = REPO / "dot-claude" / "hooks"
+HOOKS = REPO / "dot-config" / "dot-claude" / "hooks"
 G, A, C, Pf = "eq_guard.py", "agent_guard.py", "eq_cli.py", "eq_policy.py"
 TG, TC, TK, TP, TX = ("tests/test_eq_guard.py::", "tests/test_eq_cli.py::", "tests/test_eq_check.py::",
                       "tests/test_eq_policy.py::", "tests/test_eq_gaps.py::")

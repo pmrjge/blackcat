@@ -1,4 +1,4 @@
-"""dot-claude/hooks/eq_core.py: views, reducers, the LOO jackknife and views, briefs, results, data files
+"""dot-config/dot-claude/hooks/eq_core.py: views, reducers, the LOO jackknife and views, briefs, results, data files
 (spec RUNTIME_EQUILIBRIUM §2.4, §4, §5, §10.3). Harness parity lives in tests/test_eq_parity.py.
 
 EQ_CORE_PATH=<copy of eq_core.py, with eq_lenses.json and eq_schemas.json beside it> runs the suite against a mutant.
@@ -22,8 +22,8 @@ from typing import Any
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-HOOKS = ROOT / "dot-claude" / "hooks"
-ITEMS = ROOT / "equilibrium" / "items"
+HOOKS = ROOT / "dot-config" / "dot-claude" / "hooks"
+ITEMS = ROOT / "dot-config" / "dot-equilibrium" / "items"
 CORE = Path(os.environ.get("EQ_CORE_PATH") or HOOKS / "eq_core.py")
 CLASSES = ("PF", "CP", "CR", "RS", "ES", "DS", "OE")
 

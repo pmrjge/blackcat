@@ -1,4 +1,5 @@
-"""The guard's equilibrium rules at hook level (dot-claude/hooks/eq_guard.py through agent_guard.py's call sites):
+"""The guard's equilibrium rules at hook level (dot-config/dot-claude/hooks/eq_guard.py through agent_guard.py's call
+sites):
 docs/RUNTIME_EQUILIBRIUM.md 2.2-2.5, 6.1-6.4, 8.2, 8.3, 10.3 (test_eq_guard list); contracts.md 1-7, 11.
 
 Hermetic: tests/fixtures/eq_cli/eqworld.World(guard=True) installs the hooks under a scratch HOME (<config> =

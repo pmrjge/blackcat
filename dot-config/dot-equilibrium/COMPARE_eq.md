@@ -688,3 +688,43 @@ n_d = 46. Hence the added "powered effect excluded" reading.
      re-check of the last cell PASS line, as in the arm pass. E1-E6 and E8-E12 are unchanged. Code:
      `harness/eq_check.sh`, and `run --cells` in `harness/eq_harness.py`, which passes `<cells>` and refuses a
      repeated cell.
+- **A9. 2026-10-07, PRE-FREEZE. Repository move.** Written before `eq_freeze.sh` and before any eq call: no
+  `COMPARE_eq.sha256` sidecar and no `runs/` exist (checked 2026-10-07: the main checkout has no
+  `claude_next_steps/work_carried/` and no `.claude-work/equilibrium/runs`, and c0 is not collected). The USER decided
+  it (2026-10-07), relayed by the coordinator. A0-A8 stand. No hypothesis, arm, item, pool, oracle, cap, seed, flag,
+  statistic or stop rule changes.
+  1. **What moved.** The tree moved from `equilibrium/` to `dot-config/dot-equilibrium/` by a pure rename (commit
+     `36becfd1`, renames only). `lib/` did not move: `lib/eq-wall` (with its `REVIEW` pins) and `lib/eq-container` are
+     byte-identical. Paths relative to the tree (`harness/…`, `items/…`) are unchanged. Repository paths in A0-A8, in
+     the A5 record and in A5's `stage-text` outputs (`isolation/RUNBOOK*.md`) still read `equilibrium/`: read them as
+     `dot-config/dot-equilibrium/`. They are history and are not rewritten.
+  2. **Byte edits to recorded or frozen-package files**, each re-pinned with `tests/equilibrium_paths.py amend
+     --amendment A9` (the A5 proof still runs on the A5 bytes):
+     - `harness/eq_harness.py`: the `DEFAULT_M` fallback without `.git` is `parents[3]` (was `parents[2]`): the
+       repository root is now three levels above `harness/`. `wall_dir_candidates()` and `probe_script_candidates()`
+       take `<repo>/lib/eq-wall` and `<repo>/lib/eq-container` from the new `repo_lib_dirs()`: the git top level
+       holding the harness, else three levels up from `harness/`. Before, both looked two levels up, which after the
+       move misses `lib/` and lets the WALL lookup fall back to the unreviewed staging copy
+       `dot-config/dot-equilibrium/wall`. Both lookups now put the repository's copy before every staging layout (A5
+       had put the container's staging `../lib/eq-container` first; no staging `lib/` exists in the repository). The
+       broker, client and policy bytes are still checked against `flags.json` `wall.*_sha256`; no hash changed.
+       Docstrings, one error message and the `isolation-probe --script` help name the new lookup.
+     - `harness/eq_check.sh` and `harness/eq_freeze.sh`: M's fallback without git is `../../..` (was `../..`). With
+       git, M is the checkout's top level as before. The fallback also gives M for a frozen copy under
+       `claude_next_steps/work_carried/equilibrium/`.
+     - `COMPARE_eq.md`: this entry.
+  3. **Path text and lookups outside the A5 record.** In the tree: `README.md`, `harness/README.md` (commands run
+     from the tree name `../../lib/eq-wall/policy.default.toml`; the `docs/RUNTIME_EQUILIBRIUM.md` link and the
+     probe.sh lookup), `PATH_RELATIVISATION.md` (a note) and `PATH_RELATIVISATION.json` (the `files` and `later` keys
+     re-keyed to the new repository paths; digests, offsets and blob ids unchanged), `calibration/params.schema.json`
+     (`description` only), `harness/eq_calibrate.py` (usage text, one message, and the `default_paths` fallback
+     without `.git`, `parents[2]`, was `parents[1]`), `harness/tests/conftest.py` and `harness/tests/mutations.py`
+     (`container_dir()` in the same order as the harness), `harness/tests/test_repo_layout.py` (the new layout, and a
+     test that the harness resolves `<repo>/lib/eq-wall/eq_wall.py` and `<repo>/lib/eq-container/probe.sh` while
+     staging copies exist) and three test docstrings. Outside it: `.gitignore` and `tests/equilibrium_paths.py` (`EQ`,
+     and `old_rel()`, which maps a key back to `equilibrium/` for the commits before the move).
+  4. **Unchanged:** `items/**` with all 7 `pool.sha256` (they verify), `flags.json`, `eq_mediator.py`,
+     `schedule.tsv`, `LEDGER_SCHEMA.md`, the derivation scripts and `*.out` files, `harness/tests/mutations.out`, and
+     the A5 rule table. `items/RS/gen/extract_src.py`, which `items/RS/pool.sha256` pins, is unchanged as well: its
+     `parents[4]` lookup of the campaign sources now lands in `dot-config/`. It only regenerates the frozen RS pool;
+     correct `CAMPAIGN` before any regeneration.

@@ -1,4 +1,4 @@
-"""dot-claude/hooks/eq_policy.py: the runtime Equilibrium's shared grammar, params pin, run bundle and
+"""dot-config/dot-claude/hooks/eq_policy.py: the runtime Equilibrium's shared grammar, params pin, run bundle and
 eq-member predicates (docs/RUNTIME_EQUILIBRIUM.md 2.1-2.5, 5, 6.1, 7.5-7.7, 8; contracts.md 3).
 
 Hermetic: pure functions, plus files under tmp_path (params, manifest, symlinks). EQ_POLICY overrides the
@@ -14,7 +14,7 @@ from pathlib import Path
 import pytest
 
 HERE = Path(__file__).resolve().parent
-MOD_PATH = Path(os.environ.get("EQ_POLICY") or HERE.parent / "dot-claude" / "hooks" / "eq_policy.py")
+MOD_PATH = Path(os.environ.get("EQ_POLICY") or HERE.parent / "dot-config" / "dot-claude" / "hooks" / "eq_policy.py")
 
 
 def _load():

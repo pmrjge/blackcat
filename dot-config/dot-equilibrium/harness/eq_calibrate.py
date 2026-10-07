@@ -7,10 +7,11 @@
 Pure over a FROZEN stage (after `eq_freeze.sh --collect <p|q>`) and its grades; zero spend; deterministic (every
 resampling states its seed, nothing depends on the clock except the `created_utc` stamp, which `--created-utc` pins).
 
-  uv run --script equilibrium/harness/eq_calibrate.py --stage p --amendment A<n> --reason TEXT [--eq-root EQ]
-         [--raw-root R] [--out equilibrium/calibration] [--no-route2] [--created-utc T] [--dry-run]
-  uv run --script equilibrium/harness/eq_calibrate.py --stage q --primary PF[,CP] --amendment A<n> --reason TEXT [...]
-  uv run --script equilibrium/harness/eq_calibrate.py --init [--out DIR] [--created-utc T]   # version 0: all not_run
+  (from the repository root; H = dot-config/dot-equilibrium/harness)
+  uv run --script $H/eq_calibrate.py --stage p --amendment A<n> --reason TEXT [--eq-root EQ]
+         [--raw-root R] [--out dot-config/dot-equilibrium/calibration] [--no-route2] [--created-utc T] [--dry-run]
+  uv run --script $H/eq_calibrate.py --stage q --primary PF[,CP] --amendment A<n> --reason TEXT [...]
+  uv run --script $H/eq_calibrate.py --init [--out DIR] [--created-utc T]   # version 0: all not_run
 
 Steps (§7.3): 1 verify the freeze (COMPARE_eq.sha256 lines, every items/<CLS>/pool.sha256, the stage's FROZEN_AT.txt
 and MANIFEST.sha256, the live ledger equal to the frozen copy, A6 in the frozen COMPARE_eq.md) or refuse (exit 2);
@@ -92,7 +93,8 @@ SIGNALS_BY_FAMILY = {"discrete": ("1-kappa0", "1-lambda0", "1-lambda_final", "m1
                      "checkable": ("1-lambda0", "1-lambda_final", "check_fail0")}
 CLASS_KEYS = ("status", "member_type", "member_model_id", "agent_file_sha256", "N", "rounds", "view", "loo_view",
               "reducer", "tau", "t", "caps", "usd_per_mtok", "cost_ratio", "effect", "certainty", "pool")
-# = dot-claude/hooks/eq_policy.py MODEL_ID_RE and params.schema.json member_model_id `pattern` (tests/test_eq_params_pin.py)
+# = dot-config/dot-claude/hooks/eq_policy.py MODEL_ID_RE and params.schema.json member_model_id `pattern`
+# (tests/test_eq_params_pin.py)
 RUNTIME_MODEL_ID_RE = re.compile(r"[a-z0-9][a-z0-9._-]{2,99}\Z")
 PROV_KEYS =("created_utc", "note", "stages", "harness_commit", "sha256", "amendments", "pool_sha256",
              "stage_ledgers", "config_sha256", "claude_code_version", "stack_commit", "model_ids", "grader_kappa",
@@ -1618,7 +1620,8 @@ def write_version(out: Path, params: dict[str, Any], report: dict[str, Any] | No
 
 
 def default_paths() -> tuple[Path, Path, Path]:
-    repo = next((p for p in HERE.parents if (p / ".git").exists()), HERE.parents[1])
+    # the checkout holding this script; else by depth: HERE = <repo>/dot-config/dot-equilibrium/harness
+    repo = next((p for p in HERE.parents if (p / ".git").exists()), HERE.parents[2])
     return (Path(os.environ.get("EQ_ROOT", str(repo / "claude_next_steps/work_carried/equilibrium"))),
             Path(os.environ.get("EQ_RAW", str(repo / ".claude-work/equilibrium/runs"))),
             HERE.parent / "calibration")
@@ -1680,8 +1683,8 @@ def main(argv: Sequence[str] | None = None) -> int:
         st_line = ", ".join(f"{c} {params['classes'][c]['status']}" for c in CLASSES)
         print(f"eq_calibrate: wrote {a.out / f'params.v{k}.json'} (stage {a.stage}: {st_line}); "
               f"{len(warnings)} warning(s), {len(cal.skipped)} skipped unit(s) in report.v{k}.json")
-        print("eq_calibrate: nothing is installed: Phase 5 copies params.json to dot-claude/hooks/eq_params.json by "
-              "a commit, then the USER runs ./install.sh")
+        print("eq_calibrate: nothing is installed: Phase 5 copies params.json to "
+              "dot-config/dot-claude/hooks/eq_params.json by a commit, then the USER runs ./install.sh")
         return 0
     except CalibrationError as e:
         print(f"eq_calibrate: refused: {e}", file=sys.stderr)

@@ -5,7 +5,7 @@
 """Golden vectors for tests/test_eq_parity.py, computed by the experiment harness itself (zero spend: pure functions,
 no model call, no network; `verify` only on a temporary fixture with a scripted executor, so nothing is executed).
 
-Run from the repository root and commit the output (re-run after ANY change to equilibrium/harness/eq_harness.py or
+Run from the repository root and commit the output (re-run after ANY change to dot-config/dot-equilibrium/harness/eq_harness.py or
 eq_mediator.py: MANIFEST.json pins both files' sha256, and test_vectors_pinned_to_the_harness fails until it is re-run):
     uv run --script tests/eq_parity_gen.py            (writes tests/fixtures/eq_parity/*.json and MANIFEST.json)
 Inside the Claude Code sandbox prefix `UV_CACHE_DIR=$TMPDIR/uvcache`. The output is deterministic (fixed seeds): an
@@ -32,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 ROOT = Path(__file__).resolve().parent.parent
-HARNESS = ROOT / "equilibrium" / "harness"
+HARNESS = ROOT / "dot-config" / "dot-equilibrium" / "harness"
 OUT = ROOT / "tests" / "fixtures" / "eq_parity"
 sys.path.insert(0, str(HARNESS))
 
@@ -134,7 +134,7 @@ def gen_views() -> dict[str, Any]:
                 keys = [f"{prefix}m{i}" for i in range(1, n + 1)]
                 lens.append({"item": item, "keys": keys, "nlenses": 5, "out": eh.lens_assignment(item, keys, 5)})
     mv = []
-    lenses = json.loads((ROOT / "equilibrium" / "items" / "lenses.json").read_text())
+    lenses = json.loads((ROOT / "dot-config" / "dot-equilibrium" / "items" / "lenses.json").read_text())
     for cls in ("PF", "CR", "RS"):
         for kind in ("lens", "perm", "kcover"):
             for n in (1, 3, 5, 7, 9):
@@ -169,7 +169,7 @@ def gen_pool_views() -> list[Any]:
     harness's own round0_views (Runner.round0_members) with DEFAULT_FLAGS' view per class and perm_shift_rule. Per
     item: the scheme and note (shared by its members) and the digest of [scheme, note, per member [order, blocks,
     lens_index]]; the first POOL_VIEW_FULL items per class and n also carry `members` in full."""
-    items_dir = ROOT / "equilibrium" / "items"
+    items_dir = ROOT / "dot-config" / "dot-equilibrium" / "items"
     lenses = json.loads((items_dir / "lenses.json").read_text())
     flags = eh.DEFAULT_FLAGS
     out = []

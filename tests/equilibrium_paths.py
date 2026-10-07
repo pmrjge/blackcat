@@ -1,6 +1,11 @@
 #!/usr/bin/env python3
 """Path relativisation of equilibrium/ (COMPARE_eq.md amendment A5, 2026-10-06): the rules, the forward pass, the check.
 
+The tree moved to dot-config/dot-equilibrium/ on 2026-10-07 (COMPARE_eq.md amendment A9, "repository move"; a pure
+rename). EQ and the record's keys name the new place; old_rel() maps a key back to equilibrium/ for the commits made
+before the move (A5_REV, the pre-A5 tree), where `amend` and the tests read A5 and pre-A5 bytes from git. A5's text
+below says equilibrium/: read it as the tree, wherever it lives.
+
 RULES lists (id, old bytes, new bytes) in priority order. The forward pass (`apply`, run once on 2026-10-06 over the
 pre-relativisation tree) replaces, left to right, every occurrence of an old string by its new one (at each position
 the first rule in RULES that matches wins) and records per changed file its old and new sha256 and every substitution
@@ -36,7 +41,8 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
-EQ = "equilibrium"
+EQ = "dot-config/dot-equilibrium"  # since the repository move (A9, 2026-10-07)
+OLD_EQ = "equilibrium"  # the tree's path in every commit before the move, A5_REV included
 RECORD = f"{EQ}/PATH_RELATIVISATION.json"
 SKIP = {f"{EQ}/README.md", RECORD, f"{EQ}/PATH_RELATIVISATION.md"}
 OLD_HOME = b"/Users/pmrj"
@@ -80,6 +86,11 @@ ORDER = [i for i, _, _ in RULES]
 
 def sha(b: bytes) -> str:
     return hashlib.sha256(b).hexdigest()
+
+
+def old_rel(rel: str) -> str:
+    """The repository path `rel` had before the move (A9): EQ/... -> equilibrium/...; any other path unchanged."""
+    return f"{OLD_EQ}/{rel[len(EQ) + 1:]}" if rel.startswith(f"{EQ}/") else rel
 
 
 def forward(data: bytes) -> tuple[bytes, list[list]]:
@@ -186,10 +197,14 @@ def amend(root: Path, amendment: str, rels: list[str], a5_rev: str = A5_REV) -> 
             return 1
         prev = later.get(rel, {})
         blob = prev.get("a5_blob")
-        if not blob:
-            r = subprocess.run(["git", "-C", str(root), "rev-parse", f"{a5_rev}:{rel}"], capture_output=True, text=True)
+        if not blob:  # a5_rev predates the move (A9): the file is at its old path there; else at rel
+            for cand in dict.fromkeys((old_rel(rel), rel)):
+                r = subprocess.run(["git", "-C", str(root), "rev-parse", f"{a5_rev}:{cand}"],
+                                   capture_output=True, text=True)
+                if not r.returncode:
+                    break
             if r.returncode:
-                print(f"amend: {a5_rev}:{rel} not found: {r.stderr.strip()}")
+                print(f"amend: {a5_rev}:{old_rel(rel)} not found: {r.stderr.strip()}")
                 return 1
             blob = r.stdout.strip()
         data = _git_blob(root, blob)

@@ -1,7 +1,7 @@
 """Proofs (security-auditor, adopted 2026-10-04) for the security review of the eq harness (2026-10-04). Each test
 asserts the SAFE behaviour: it fails on
 the reviewed revision and passes once the matching patch is applied.
-Run: EQ_HARNESS=<.../equilibrium/harness> uv run --no-project --with pytest --with numpy==2.5.3 \
+Run: EQ_HARNESS=<.../dot-equilibrium/harness> uv run --no-project --with pytest --with numpy==2.5.3 \
        --with jsonschema==4.26.0 pytest -q test_eqsec_proofs.py
 """
 from __future__ import annotations

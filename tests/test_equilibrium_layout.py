@@ -1,4 +1,5 @@
-"""The tracked Equilibrium experiment (equilibrium/, README there): its layout stays whole and its run outputs stay out.
+"""The tracked Equilibrium experiment (dot-config/dot-equilibrium/, README there; equilibrium/ until the repository move,
+COMPARE_eq.md A9): its layout stays whole, its run outputs stay out, and its harness takes lib/ over the staging copies.
 
 The file set is git's view of what is or would be tracked (`ls-files --cached --others --exclude-standard`), so the
 checks hold before and after a commit and follow .gitignore. The suite fails when
@@ -9,22 +10,26 @@ checks hold before and after a commit and follow .gitignore. The suite fails whe
 - run outputs, logs or caches would be tracked (any runs/ but the RS corpus fixture, *.log, __pycache__,
   .ruff_cache, .pytest_cache, .eq_deps), or a fixture .gitignore would drop (the PF oracle's build/ records, the RS
   corpus runs/ fixture);
-- a script lost its executable bit.
-The harness's own suite (equilibrium/harness/tests, 452 tests) runs as a separate C10 step (CONFIG.md, C10).
+- a script lost its executable bit;
+- the harness, run in place, would take the WALL broker or probe.sh from anywhere but <repo>/lib/eq-wall and
+  <repo>/lib/eq-container (A9: the staging copy dot-config/dot-equilibrium/wall is never taken while lib/ has one).
+The harness's own suite (dot-config/dot-equilibrium/harness/tests) runs as a separate C10 step (CONFIG.md, C10).
 
 Run: uv run --no-project --with pytest pytest -q tests/test_equilibrium_layout.py
 """
 import hashlib
+import importlib.util
 import subprocess
+import sys
 from pathlib import Path
 
 import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
-EQ = "equilibrium"
+EQ = "dot-config/dot-equilibrium"  # equilibrium/ before the repository move (COMPARE_eq.md A9, 2026-10-07)
 POOLS = ("PF", "CP", "CR", "RS", "ES", "DS", "OE")
 MIB = 1 << 20
-BIG = {"equilibrium/items/RS/manifest.jsonl": 3 * MIB}  # the one file over 1 MiB, with its own cap
+BIG = {f"{EQ}/items/RS/manifest.jsonl": 3 * MIB}  # the one file over 1 MiB, with its own cap
 TOP = {
     "README.md", "CONTRACT.md", "COMPARE_eq.md", "ISOLATION.md", "MEDIATOR.md", "PROPOSAL.md",
     "derive_numbers.py", "derive_numbers.out", "mediator_numbers.py", "mediator_numbers.out", "r3_check.py",
@@ -57,7 +62,7 @@ def git(*args: str) -> str:
 def files() -> list[str]:
     out = git("ls-files", "-z", "--cached", "--others", "--exclude-standard", "--", EQ)
     found = sorted({p for p in out.split("\0") if p and (ROOT / p).is_file()})
-    assert found, "equilibrium/ is missing from this checkout (tracked since bd3a182)"
+    assert found, f"{EQ}/ is missing from this checkout (tracked since bd3a182, at equilibrium/ until A9)"
     return found
 
 
@@ -66,7 +71,7 @@ def rel(paths: list[str], prefix: str) -> set[str]:
 
 
 def test_top_level_entries(files: list[str]) -> None:
-    top = {p.split("/")[1] for p in files}
+    top = {p[len(EQ) + 1:].split("/")[0] for p in files}
     assert top == TOP, f"missing {sorted(TOP - top)}, unexpected {sorted(top - TOP)}"
 
 
@@ -123,3 +128,21 @@ def test_scripts_keep_their_executable_bit(files: list[str]) -> None:
     for p in EXECUTABLE:
         assert f"{EQ}/{p}" in have, p
         assert (ROOT / EQ / p).stat().st_mode & 0o111, p
+
+
+def test_harness_in_place_takes_lib_never_the_staging_copy(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A9: eq_harness.py, loaded from this checkout, resolves eq_wall.py to <repo>/lib/eq-wall (REVIEW-pinned) and
+    probe.sh to <repo>/lib/eq-container, not to the staging copy beside it (dot-config/dot-equilibrium/wall)."""
+    monkeypatch.delenv("EQ_WALL_DIR", raising=False)
+    monkeypatch.delenv("EQ_CONTAINER_DIR", raising=False)
+    path = ROOT / EQ / "harness" / "eq_harness.py"
+    spec = importlib.util.spec_from_file_location("eq_harness_layout", path)
+    assert spec is not None and spec.loader is not None
+    eh = importlib.util.module_from_spec(spec)
+    monkeypatch.setitem(sys.modules, "eq_harness_layout", eh)  # dataclasses look their module up
+    spec.loader.exec_module(eh)
+    assert (ROOT / EQ / "wall" / "eq_wall.py").is_file()  # the staging copy exists, so the order matters
+    wall = next(d for d in eh.wall_dir_candidates() if (d / "eq_wall.py").is_file()) / "eq_wall.py"
+    assert wall == ROOT / "lib" / "eq-wall" / "eq_wall.py"
+    assert next(c for c in eh.probe_script_candidates() if c.is_file()) == ROOT / "lib" / "eq-container" / "probe.sh"
+    assert eh.DEFAULT_M == ROOT

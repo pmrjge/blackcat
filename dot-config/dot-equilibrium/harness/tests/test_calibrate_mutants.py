@@ -2,7 +2,7 @@
 
 Kept here (not in tests/mutations.py, whose single shared list other parts edit). Always on: every anchor occurs
 exactly once in eq_calibrate.py. Opt-in (minutes): EQ_CALIBRATE_MUTANTS=1 runs every mutant (EQ_CALIBRATE_MUTANTS_ONLY=
-C53,C54: those only) in a fresh copy of equilibrium/{harness,calibration} with the same interpreter and requires a
+C53,C54: those only) in a fresh copy of dot-equilibrium/{harness,calibration} with the same interpreter and requires a
 non-zero pytest exit.
 """
 

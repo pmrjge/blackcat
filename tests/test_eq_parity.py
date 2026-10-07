@@ -1,8 +1,8 @@
-"""dot-claude/hooks/eq_core.py against the experiment harness (spec RUNTIME_EQUILIBRIUM §3, §10.3).
+"""dot-config/dot-claude/hooks/eq_core.py against the experiment harness (spec RUNTIME_EQUILIBRIUM §3, §10.3).
 
 Golden vectors: tests/fixtures/eq_parity/*.json, generated once by `uv run --script tests/eq_parity_gen.py` from
-equilibrium/harness (zero spend). Exact equality on tie-free vectors; on vectors that went through numpy's RNG
-(`tie: true`) the port's choice must lie in the tied set (the port uses the sha256-v1 keyed order instead).
+dot-config/dot-equilibrium/harness (zero spend). Exact equality on tie-free vectors; on vectors that went through
+numpy's RNG (`tie: true`) the port's choice must lie in the tied set (the port uses the sha256-v1 keyed order instead).
 The schema validator is checked against `jsonschema` (tools venv) on valid, mutated and random member outputs.
 
 EQ_CORE_PATH=<copy of eq_core.py> runs the suite against a mutant (seeded-bug proofs).
@@ -24,14 +24,14 @@ import pytest
 
 ROOT = Path(__file__).resolve().parent.parent
 FIX = ROOT / "tests" / "fixtures" / "eq_parity"
-HARNESS = ROOT / "equilibrium" / "harness"
-ITEMS = ROOT / "equilibrium" / "items"
+HARNESS = ROOT / "dot-config" / "dot-equilibrium" / "harness"
+ITEMS = ROOT / "dot-config" / "dot-equilibrium" / "items"
 CLASSES = ("PF", "CP", "CR", "RS", "ES", "DS", "OE")
 RAISES = "harness raises"
 
 
 def _load() -> Any:
-    path = Path(os.environ.get("EQ_CORE_PATH") or ROOT / "dot-claude" / "hooks" / "eq_core.py")
+    path = Path(os.environ.get("EQ_CORE_PATH") or ROOT / "dot-config" / "dot-claude" / "hooks" / "eq_core.py")
     spec = importlib.util.spec_from_file_location("eq_core_parity", path)
     assert spec is not None and spec.loader is not None
     mod = importlib.util.module_from_spec(spec)

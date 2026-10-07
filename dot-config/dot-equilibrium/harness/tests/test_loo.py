@@ -1,6 +1,7 @@
 """Leave-one-out in every round (RUNTIME_EQUILIBRIUM §4): `summary(exclude=)` (LOO views, §4.2), `loo_exclude`
 (none / rotation / random / leader) and `round_loo` (the reducer-side jackknife, answer-keyed tie seeds, λ per
-family, pivotal members, §4.1). Parity with the runtime port (dot-claude/hooks/eq_core.py) is tests/test_eq_parity.py.
+family, pivotal members, §4.1). Parity with the runtime port (dot-config/dot-claude/hooks/eq_core.py) is
+tests/test_eq_parity.py.
 """
 
 from __future__ import annotations
