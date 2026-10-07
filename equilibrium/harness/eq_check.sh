@@ -80,14 +80,15 @@ for lg in "$W"/*/arms/*/DISPATCH_LOG.tsv; do
 done
 if [ -z "$open_arms" ]; then ok "E6 no open measurement arm"; else bad "E6 open arm(s):$open_arms" E6; fi
 
-# E7 the item is the next one in schedule.tsv, or a re-check of the last PASS whose calls have not started.
+# E7 the item is the next one in schedule.tsv, or a re-check of the last PASS whose calls have not started; the arm
+# pass reads only arm-check PASS lines (empty `cells` column).
 # A cell pass (<cells>, COMPARE_eq §12 A8) is a second walk over the schedule by the same rule, on its own PASS lines
-# (the log's `cells` column; a line counts for each cell it names), with done (item_arm) and started (a call's `cell`)
-# read per row from the ledger. It starts once the arm pass is over: every item has an arm-check PASS line and the
-# last arm-checked item has no arm row left to run (all done, or an arm call started: §10). The item then has a
-# not-done <cells> row, none of whose calls has started (a started row is not run again, §10; it holds only its own
-# item), and is the next one: the first in schedule order with a not-done <cells> row its cell checks have not
-# covered (held items skipped), or the item of the last cell PASS line, a re-check.
+# (a line counts for each cell it names), with done (item_arm) and started (a call's `cell`) read per row from the
+# ledger. It starts once the arm pass is over: every item has an arm-check PASS line and the last arm-checked item has
+# no arm row left to run (all done, or an arm call started: §10). The item then has a not-done <cells> row, none of
+# whose calls has started (a started row is not run again, §10; it holds only its own item), and is the next one: the
+# first in schedule order (held items skipped) none of whose not-done <cells> rows a cell PASS line covers (`run`
+# runs them all), or the item of the last cell PASS line when that line names each of those rows' cells, a re-check.
 if [ ! -f "$SCHED" ]; then bad "E7 $SCHED missing" E7
 elif [ -n "$CELLS" ]; then
   led="$LEDGER"; [ -f "$led" ] || led=/dev/null
@@ -110,19 +111,20 @@ elif [ -n "$CELLS" ]; then
     | [$order[] as $x | select(any($armpass[]; . == $x) | not) | $x] as $unchecked
     | (reduce ($pass[] | select((.[6] // "") != "")) as $p ({};
         reduce ($p[6] | split(",")[]) as $k (.; .["\($p[1])\t\($k)"] = true))) as $checked
-    | ([$pass[] | select((.[6] // "") | split(",") | any(.[]; . as $k | any($C[]; . == $k)))] | last | .[1])
-      as $lastcell
+    | ([$pass[] | select((.[6] // "") | split(",") | any(.[]; . as $k | any($C[]; . == $k)))] | last) as $lastline
+    | ($lastline[1]) as $lastcell
     | [$rows[] | select(mine($C)) | select($done[.[2] + "\t" + .[5]] | not)] as $todo
     | (reduce ($todo[] | select($started[.[2] + "\t" + .[4]])) as $r ({}; .[$r[2]] = true)) as $held
-    | ([$order[] as $x | select(($held[$x] | not) and any($todo[]; .[2] == $x
-        and ($checked[$x + "\t" + .[4]] | not))) | $x] | first) as $next
+    | ([$order[] as $x | select(($held[$x] | not) and any($todo[]; .[2] == $x)
+        and all($todo[] | select(.[2] == $x); ($checked[$x + "\t" + .[4]] | not))) | $x] | first) as $next
     | if any($rows[]; .[2] == $i and mine($C)) | not then "norow"
       elif ($unchecked | length) > 0 then "unchecked \($unchecked | length)"
       elif ($armcall[$lastarm // ""] | not) and any($rows[]; .[2] == $lastarm and .[4] != "p6" and .[4] != "p7"
         and ($done[.[2] + "\t" + .[5]] | not)) then "armlast \($lastarm)"
       elif any($todo[]; .[2] == $i) | not then "done"
       elif $held[$i] then "started"
-      elif $i == $next or $i == $lastcell then "ok"
+      elif $i == $next or ($i == $lastcell and all($todo[] | select(.[2] == $i);
+        .[4] as $a | (($lastline[6] // "") | split(",") | any(.[]; . == $a)))) then "ok"
       else "next \($next // "none (all done)")" end' "$led" 2>/dev/null)" || e7="unreadable"
   case "$e7" in
     ok) ok "E7 $ITEM is next in the $CELLS pass, or its re-check (none of its $CELLS calls started)" ;;
@@ -138,9 +140,10 @@ else
   items="$(awk -F'\t' 'NR>1 && !seen[$3]++ {print $3}' "$SCHED")"
   expected=""
   for it in $items; do
-    if ! awk -F'\t' -v p="$it" '$2==p && $3=="PASS"{f=1} END{exit !f}' "$LOG"; then expected="$it"; break; fi
+    if ! awk -F'\t' -v p="$it" '$2==p && $3=="PASS" && $7==""{f=1} END{exit !f}' "$LOG"; then expected="$it"; break; fi
   done
-  last_pass="$(awk -F'\t' '$3=="PASS"{p=$2} END{print p}' "$LOG")"
+  # arm-check lines only (empty `cells`; a 6-column line is one too): a cell check's PASS is not this rule's (A8)
+  last_pass="$(awk -F'\t' '$3=="PASS" && $7==""{p=$2} END{print p}' "$LOG")"
   started=0
   if [ -f "$LEDGER" ] && jq -e --arg i "$ITEM" 'select(.record=="call" and .item==$i)' "$LEDGER" >/dev/null 2>&1; then started=1; fi
   if ! printf '%s\n' "$items" | grep -qx "$ITEM"; then bad "E7 $ITEM is not in $SCHED" E7

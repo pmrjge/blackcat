@@ -666,7 +666,8 @@ n_d = 46. Hence the added "powered effect excluded" reading.
      stage q, is a usage error (exit 2, nothing logged).
      - Every check appends its PASS or FAIL line to `DISPATCH_LOG.tsv` with a new last column, `cells`: empty for an
        arm check, `<cells>` for a cell check.
-     - Without `<cells>`, E7 is §5's rule, unchanged.
+     - Without `<cells>`, E7 is §5's rule on the arm-check lines only (empty `cells`; a line without the column is
+       one): a cell check's PASS line is never the arm pass's "last PASS".
      - With `<cells>`, the cell pass is a second walk by §5's rule, kept apart from the arm pass by that column. A cell
        PASS line counts for each cell it names. A row is done when the ledger holds its `item_arm` record; a cell row
        has started when a `call` record of that item carries its `cell`. E7 passes iff:
@@ -674,10 +675,12 @@ n_d = 46. Hence the added "powered effect excluded" reading.
        left to run (all done, or an arm call started: a §10 environment failure, which is not run again);
        (b) the item has a not-done `<cells>` row, and none of its not-done `<cells>` rows has started (a started row
        is not run again: §10);
-       (c) the item is next: the first in `schedule.tsv` item order with a not-done `<cells>` row that no cell PASS
-       line of the item covers yet, skipping items that (b) holds; or the item of the last cell PASS line naming one
-       of these cells (a re-check).
-       A ledger or log that E7 cannot read fails E7.
+       (c) the item is next: the first in `schedule.tsv` item order, skipping items that (b) holds, none of whose
+       not-done `<cells>` rows a cell PASS line of the item covers (`run` runs all of them); or it is the item of the
+       last cell PASS line naming one of these cells, and that line names the cell of each of its not-done `<cells>`
+       rows (a re-check).
+       A ledger or log that E7 cannot read fails E7. (Second review round, same day: the arm rule first read cell
+       PASS lines too, and (c) first let a covered row run again and a re-check run a row its line had not named.)
   3. **Effect.** Each p6 and p7 row runs at most once, in schedule order, after the arm pass, as the arm rows do. A
      row that started and never finished holds only its own item: E7 refuses that item and the pass goes on with the
      next. The harness stops at a refused item as in the arm pass, and `run --only` continues past it. A row that was

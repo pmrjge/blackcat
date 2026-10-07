@@ -179,23 +179,26 @@ def test_check_started_item_is_not_rechecked(world: dict[str, Path]) -> None:
     assert failed(run_check(world)) == {"E7"}
 
 
+CELL_ITEMS = ["RS-0001", "ES-0001", "PF-0001", "DS-0001"]
+
+
 def cell_world(world: dict[str, Path], armed: int | None = None,
-               last_idle: bool = False) -> tuple[list[eh.ScheduleRow], list[dict[str, object]]]:
+               idle: str | None = None) -> tuple[list[eh.ScheduleRow], list[dict[str, object]]]:
     """A stage-p schedule with the p6 and p7 rows appended (PF: p6; RS, ES: p6 and p7; DS: none) and its arm pass:
     the first `armed` items (default all) checked in schedule order (each check must PASS), each then given a started
-    arm call and every arm row's item_arm, except that with `last_idle` the last item checked starts nothing.
+    arm call and every arm row's item_arm, except the item `idle`, which is checked and starts nothing.
     Returns the rows and the ledger records (written)."""
-    rows = eh.build_schedule(["RS-0001", "ES-0001", "PF-0001", "DS-0001"], "p")
+    rows = eh.build_schedule(CELL_ITEMS, "p")
     rows += eh.cell_rows(rows, ["p6", "p7"], eh.load_flags(None))
     eh.write_schedule(rows, world["eq"] / "schedule.tsv")
     items = list(dict.fromkeys(r.item for r in rows))
     items = items if armed is None else items[:armed]
     recs: list[dict[str, object]] = []
-    for k, it in enumerate(items):
+    for it in items:
         cp = run_check(world, it)
         assert cp.returncode == 0, cp.stdout
-        if last_idle and k == len(items) - 1:
-            break
+        if it == idle:
+            continue
         recs.append({"record": "call", "item": it, "session_id": SID, "total_cost_usd": 0.01, "cell": None})
         recs += [{"record": "item_arm", "item": it, "label": r.label, "arm": r.arm}
                  for r in rows if r.item == it and r.arm not in eh.CELLS]
@@ -250,9 +253,10 @@ def test_check_cell_pass_follows_the_arm_rule_order(world: dict[str, Path]) -> N
 
 
 def test_check_cell_pass_moves_past_a_held_item(world: dict[str, Path]) -> None:
-    """Reviews of A8 (2026-10-07): a cell row that started and never finished (§10) holds only its own item. Here the
-    item `two` was checked by a p6-only pass and its p6 row never finished; a p6,p7 pass refuses `two` and goes on to
-    the next item; a p7-only pass can still run `two`'s p7 row (not started)."""
+    """Reviews of A8 (2026-10-07): a cell row that started and never finished (§10) holds only its own item, even when
+    no cell PASS line covers it (a lost log line, a call made outside `run`): a p6,p7 pass refuses `two` and goes on
+    to the next item; a p7-only walk can still run `two`'s p7 row (not started). (A row a cell check covered is out
+    of the walk anyway: test_check_cell_pass_never_reruns_a_covered_row.)"""
     rows, recs = cell_world(world)
     led = world["runs"] / "ledger.jsonl"
     order = list(dict.fromkeys(r.item for r in rows if r.arm in eh.CELLS))
@@ -260,14 +264,66 @@ def test_check_cell_pass_moves_past_a_held_item(world: dict[str, Path]) -> None:
     after = order[order.index(two) + 1]
     for it in order[:order.index(two)]:
         recs += [cell_done(it, x) for x in cell_arms(rows, it)]
-    write_ledger(led, recs)
-    assert run_check(world, two, cells="p6").returncode == 0
-    recs.append(cell_call(two, "p6"))
+    recs.append(cell_call(two, "p6"))  # started, never finished, and no cell check line covers it
     write_ledger(led, recs)
     cp = run_check(world, two, cells="p6,p7")
     assert failed(cp) == {"E7"} and "has started" in cp.stdout, cp.stdout
     assert run_check(world, after, cells="p6,p7").returncode == 0  # the held item does not stop the pass
     assert run_check(world, two, cells="p7").returncode == 0  # its own p7 walk: the p7 row has not started
+
+
+def two_cell_items(world: dict[str, Path]) -> tuple[list[eh.ScheduleRow], list[dict[str, object]], str, str]:
+    """cell_world with every cell row done except those of the two p6+p7 items x, y (schedule order)."""
+    rows, recs = cell_world(world)
+    order = list(dict.fromkeys(r.item for r in rows if r.arm in eh.CELLS))
+    x, y = [it for it in order if cell_arms(rows, it) == ["p6", "p7"]]
+    recs += [cell_done(it, c) for it in order if it not in (x, y) for c in cell_arms(rows, it)]
+    write_ledger(world["runs"] / "ledger.jsonl", recs)
+    return rows, recs, x, y
+
+
+def test_check_cell_recheck_covers_only_the_cells_its_line_named(world: dict[str, Path]) -> None:
+    """Re-check of A8 (code-reviewer, 2026-10-07): after a p6-only walk over x then y, a p6,p7 pass must start at x;
+    y's last cell PASS line named p6 only, so it is no re-check for y's p7 row (that would run before x's)."""
+    _rows, recs, x, y = two_cell_items(world)
+    led = world["runs"] / "ledger.jsonl"
+    for it in (x, y):
+        assert run_check(world, it, cells="p6").returncode == 0
+        recs += [cell_call(it, "p6"), cell_done(it, "p6")]
+        write_ledger(led, recs)
+    cp = run_check(world, y, cells="p6,p7")
+    assert failed(cp) == {"E7"} and f"expected {x}, got {y}" in cp.stdout, cp.stdout
+    assert run_check(world, x, cells="p6,p7").returncode == 0
+
+
+def test_check_cell_pass_never_reruns_a_covered_row(world: dict[str, Path]) -> None:
+    """Re-check of A8 (security-auditor, 2026-10-07): `run --cells` runs every not-done row of the item, so an item
+    is next only when no cell PASS line covers any of those rows. x's p6 row was checked and abandoned (never started)
+    in a p6 walk that went on to y: a p6,p7 pass must not run it again; x's p7 row can still run in a p7 walk."""
+    _rows, recs, x, y = two_cell_items(world)
+    led = world["runs"] / "ledger.jsonl"
+    assert run_check(world, x, cells="p6").returncode == 0
+    assert run_check(world, y, cells="p6").returncode == 0
+    recs += [cell_call(y, "p6"), cell_done(y, "p6")]
+    write_ledger(led, recs)
+    assert failed(run_check(world, x, cells="p6,p7")) == {"E7"}
+    assert run_check(world, y, cells="p6,p7").returncode == 0  # y's one row to do (p7) is not covered
+    assert run_check(world, x, cells="p7").returncode == 0  # x's p7 row alone, in a p7 walk
+
+
+def test_check_arm_rule_reads_only_arm_check_lines(world: dict[str, Path]) -> None:
+    """Re-check of A8 (security-auditor, 2026-10-07): a cell check's PASS line is not the arm rule's "last PASS". An
+    item c whose arm rows were checked and abandoned (nothing started; not the last arm item) gets a cell PASS line in
+    a p7 walk; an arm check of c must still fail E7 (its arm rows are not run after the cell pass started)."""
+    items = list(dict.fromkeys(r.item for r in eh.build_schedule(CELL_ITEMS, "p")))
+    c = next(it for it in items[:-1] if it.split("-")[0] in ("RS", "ES"))
+    rows, recs = cell_world(world, idle=c)
+    p7 = [it for it in dict.fromkeys(r.item for r in rows if r.arm == "p7")]
+    recs += [cell_done(it, "p7") for it in p7[:p7.index(c)]]
+    write_ledger(world["runs"] / "ledger.jsonl", recs)
+    assert run_check(world, c, cells="p7").returncode == 0
+    cp = run_check(world, c)
+    assert failed(cp) == {"E7"} and "expected none (all done)" in cp.stdout, cp.stdout
 
 
 def test_check_cell_pass_waits_for_every_arm_check(world: dict[str, Path]) -> None:
@@ -282,9 +338,9 @@ def test_check_cell_pass_waits_for_the_last_arm_item(world: dict[str, Path]) -> 
     """A8: the last arm-checked item must not still be runnable (its arm rows all done, or an arm call started: an
     environment failure, §10, which is not run again). An arm row that started and never finished, anywhere in the
     arm pass, does not block the cell pass (reviews of A8, 2026-10-07)."""
-    rows, recs = cell_world(world, last_idle=True)
+    items = list(dict.fromkeys(r.item for r in eh.build_schedule(CELL_ITEMS, "p")))
+    rows, recs = cell_world(world, idle=items[-1])
     led = world["runs"] / "ledger.jsonl"
-    items = list(dict.fromkeys(r.item for r in rows))
     first = next(r.item for r in rows if r.arm in eh.CELLS)
     cp = run_check(world, first, cells="p6,p7")
     assert failed(cp) == {"E7"} and f"{items[-1]} (last arm-checked) still has arm rows to run" in cp.stdout, cp.stdout
