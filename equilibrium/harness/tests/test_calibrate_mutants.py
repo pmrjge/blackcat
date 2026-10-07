@@ -130,8 +130,6 @@ MUTANTS: list[tuple[str, str, str, str, list[str]]] = [
      [T + "test_stage_q_refuses_validation_without_route2"]),
     ("C46", "H4: Holm over 3", 'adj = ea.holm([tests[a]["p"] for a in ("R1", "R3", "ENS")])',
      'adj = [tests[a]["p"] for a in ("R1", "R3", "ENS")]', [T + "test_stage_q_h4_picks_a_confirmed_alternative"]),
-    ("C47", "H5: the chosen variant is the first-named arm", "pairs.append((u.score, g))", "pairs.append((g, u.score))",
-     [T + "test_h5_sign_test_on_reconciled_items"]),
     ("C48", "RS equivalence merge applied", "return None if k is None else mapping.get(k, k)", "return k",
      [T + "test_rs_equivalence_merge_is_applied"]),
     ("C49", "version number = chain length", '    params["version"] = k\n', '    params["version"] = 1\n',

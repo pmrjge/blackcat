@@ -178,7 +178,6 @@ copy, `{added, removed, changed}` file lists against the pristine fixture; logge
 | `branches` | object | (p7) per LOO variant (`none`, `rotation`, `random`, `leader`): `{answer, kappa0, kappa, rounds}`; the item-arm's `answer` is `{variant: answer}`. A p7 item-arm is only written when `base_label` has a complete harness E round 0 in this stage's ledger (else the row is skipped on stderr, nothing recorded) |
 | `e_arm` | str | (E_rt item-arms) `runtime` |
 | `run8`, `rt_session_id` | str | (E_rt) the runtime run id `R` = first 8 hex of sha256(`<session id>\|headless`) and the leader session uuid passed as `--session-id`; the store is `<XDG_STATE_HOME>/claude-agent-stack/<session id>/eq/<R>/` |
-| `h5` | str | (E_rt) the constant note that H5's forked `none` branch is not run under E_rt (the runtime's members are the leader's subagents, not forkable harness sessions): reported, not run |
 | `rt_validated`, `rt_status_reason`, `rt_partial` | any | (E_rt, when `result.json` parsed) the runtime's own `validated`, `status_reason` and `partial` verbatim; logged, never scored |
 | `answer_workdir_reason` | str | (E_rt, workdir classes (CP), when `answer_workdir` is null) why the runtime's selected patch was not applied: no selected patch in `result.json`; the patch is not a file inside the leader's project dir; or `git apply failed (exit N): …` |
 | `result_error` | str | (E_rt) exception class name when the store's `result.json` could not be read or parsed (`OSError`, `JSONDecodeError`); the item-arm is then `partial` |
@@ -298,7 +297,7 @@ item-arm answers, blinded. Written by the `eq_harness.py` commands named below (
 
 - `members/<CLS>.jsonl` (`PF`, `CP`, `RS`; ES needs none: the frozen truth file scores a member answer): one line per
   graded member answer, `{item, label, member, round, branch, score, …}`. `label` the arm label (`p3`, `p6`, `p7`);
-  `member` the 1-based member number (**0 = a branch's reduced answer**, the H5 comparison: `branch` `none`);
+  `member` the 1-based member number (**0 = a branch's reduced answer**, read by no rule since A7 removed H5);
   `round` 0 (round-0 answer) or the reconcile/repair round; `branch` the p7 variant, null for p3/p6. `score`: 1/0 as in
   `grading_results/<CLS>.jsonl`; further fields mirror that file: `ts_utc`, `exit` (null: no answer, oracle not run,
   score 0), `score_num`, `score_inf`, `detail`, and for PF/CP `call_id`, `isolation`, `image`; for RS `rid`,

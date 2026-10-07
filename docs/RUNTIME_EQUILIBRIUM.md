@@ -444,7 +444,9 @@ Multiplicity: the pilot (p) sets parameters mechanically and tests nothing (`COM
 test on items disjoint from p (draw order, `:87-89`), Holm over the primary family (≤ 2 classes, 4 tests). Selection on p
 and testing on q keeps the forking paths (N, rounds, variant, certainty signal) out of the error rate. New secondary
 family **H5** (chosen LOO variant vs `none`, paired sign test on items where reconcile ran, Holm over the primary
-classes); M19-M22 are descriptive.
+classes); M19-M22 are descriptive. *2026-10-07, USER decision:* H5 is removed from the pre-registration
+(`equilibrium/COMPARE_eq.md` §12 A7): no code runs a forked `none` branch on q (E_rt has no fork mode, and p7's
+`none` branches are stage p's).
 
 ### 7.2 Calibration cells (proposed amendment A6 to `COMPARE_eq.md` §12; author: data-scientist; nothing frozen yet)
 
@@ -483,8 +485,8 @@ classes); M19-M22 are descriptive.
 `uv run --script equilibrium/harness/eq_calibrate.py --stage p|q` (new, pure over the frozen ledger and grades):
 1. verify `COMPARE_eq.sha256` and every `pool.sha256`; refuse an unfrozen stage;
 2. (p) M21 curves → N*; M22 → rounds*; p7 → LOO variant; certainty signal and its bins (p estimates);
-3. (q) H1/H2 with Holm and the ship rule → status; H4 → reducer; H5; the certainty signal's AUROC CI and bin
-   accuracies re-estimated on q (the signal itself is not re-chosen);
+3. (q) H1/H2 with Holm and the ship rule → status; H4 → reducer (H5 removed, A7); the certainty signal's AUROC CI
+   and bin accuracies re-estimated on q (the signal itself is not re-chosen);
 4. caps, model ids and USD conversion from transcripts (route 2 must agree within 1 %, `COMPARE_eq.md:153-155`);
 5. write `equilibrium/calibration/params.v<k>.json`, `params.json` (= latest), its sha256 sidecar and one appended line in
    `params.history.jsonl` `{version, created_utc, sha256, prev_sha256, stages, amendment, reason}`. A rerun or a new pool
@@ -503,7 +505,7 @@ classes); M19-M22 are descriptive.
 | **pilot + calibration ceiling** | | | **≈ 740** |
 | option A instead of B (E_3, E_7, E_9 on the same 40 items: 3 × B per item) | 40 | — | 240 instead of 112.20 |
 | DS/OE added to p6 | 20 | 180 + 360 grader | 62 + ≈ 180 |
-| confirmation q, per primary class (153 items at α = 0.0125, δ = 0.3, π = 0.75, `COMPARE_eq.md:254`; ≤ 2 classes) | 153 | 4 arms | 1,224 per class (**2,448** for two); without EG 918 (1,836); H5 `none` branch +76.50 per reconcile class; × 1.8 if N* = 9 (B_k(q)); × 2 if rule 3 (`COMPARE_eq.md:218-219`) doubles B, more likely with Opus members (D3) |
+| confirmation q, per primary class (153 items at α = 0.0125, δ = 0.3, π = 0.75, `COMPARE_eq.md:254`; ≤ 2 classes) | 153 | 4 arms | 1,224 per class (**2,448** for two); without EG 918 (1,836); × 1.8 if N* = 9 (B_k(q)); × 2 if rule 3 (`COMPARE_eq.md:218-219`) doubles B, more likely with Opus members (D3) |
 
 Every number is a cap sum, not a forecast; real spend is lower when calls stop early. On a subscription plan the USD cap
 is Claude Code's own computation and may be notional (`PROPOSAL.md:117-118`, **[unverified]** for this account). Agents

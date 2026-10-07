@@ -3439,16 +3439,27 @@
   "equilibrium/COMPARE_eq.md": {
    "a5_blob": "1a6d00467ae57e904172f68ec353530a930e50c6",
    "amendments": [
-    "A6"
+    "A6",
+    "A7",
+    "A8"
    ],
-   "sha256": "d11fe64a0f4579292c5e288070fc1d65cbe65279f833cde693d3dc91c8e94ce2"
+   "sha256": "2ddb6b53559cd3366a8582ff7cccfaa9ff41c31258bcfc2c39cb15bab8616755"
+  },
+  "equilibrium/harness/eq_check.sh": {
+   "a5_blob": "a4e329ce2f3dc6fde99e59bed042691476685123",
+   "amendments": [
+    "A8"
+   ],
+   "sha256": "8ee12e6bee2f660d398364ffebcd5d9c15be6f99c2cff13e75b1fcb5b0d11135"
   },
   "equilibrium/harness/eq_harness.py": {
    "a5_blob": "c667636e7f62e4ea140f4361a1a3ff93a25a3937",
    "amendments": [
-    "A6"
+    "A6",
+    "A7",
+    "A8"
    ],
-   "sha256": "b639ce12bf876e3f18424424eee223958da5d330902e5388c8243edce1ad310e"
+   "sha256": "3081c94a65293e1211f8964a21a30448f4cf83a15b1feb6ed31a031ed4f8c65f"
   }
  },
  "rules": [

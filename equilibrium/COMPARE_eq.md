@@ -632,3 +632,59 @@ n_d = 46. Hence the added "powered effect excluded" reading.
       only from p7 (RS, ES; stage p). On q, E_rt reports H5's fork as not run (`h5`), and the harness E arm with a
       variant other than `none` runs no forked `none` branch (not built), so `eq_calibrate`'s H5 reports "no graded
       none-branch result". H5 needs that fork (or an amendment) before q.
+- **A7. 2026-10-07, PRE-FREEZE. H5 removed.** Written before `eq_freeze.sh` and before any eq call: no
+  `COMPARE_eq.sha256` sidecar and no `runs/` exist. The USER decided it (2026-10-07), relayed by the coordinator. A0-A6
+  stand except where this item says otherwise.
+  1. **What changes.** The secondary family H5 of A6.5 (the chosen LOO variant vs a forked `none` branch, paired sign
+     test on the items where reconcile or repair ran, Holm over the primary classes) leaves the pre-registration. q
+     neither runs nor reports it. A6.7 now reads "H3 and H4 are separate secondary families". This closes the open
+     item A6.11 (h).
+  2. **Why.** No code can produce H5's `none` branch on stage q:
+     - q's E arm is E_rt (A6.5), and the runtime has no forked-branch mode: its members are the leader's subagents,
+       not harness sessions;
+     - the harness E arm runs no forked `none` branch;
+     - the only `none` branches are p7's (stage p, RS and ES). They need a harness E round 0, which E_rt does not
+       give, and `schedule` and `run` refuse the cells at stage q.
+     Reusing p7's stage-p branches is ruled out by A6.7: every claim is a q test on items disjoint from p.
+  3. **Unchanged.** H1-H4, the primary family and its Holm step, the ship rule and the status rule of A6.5. Every p
+     rule of A6.4: the LOO variant is still chosen on p from p7's four branches, `none` included. Also M19-M22, arms,
+     items, oracles, caps, seeds, §8 and the stop rules. Removing H5 removes no spend that was planned to run: q's E_rt
+     never had a `none` fork to pay for.
+  4. **Code.** `harness/eq_calibrate.py --stage q` no longer computes or reports H5: `report.v<k>.json` has no `h5`
+     key. E_rt's `item_arm` records no longer carry the `h5` note (`harness/LEDGER_SCHEMA.md`). p7's RS member-0 lines
+     (a branch's reduced answer, `grading_results/members/RS.jsonl`) are still graded, but no rule reads them now.
+- **A8. 2026-10-07, PRE-FREEZE. E7 for a cell pass.** Written before `eq_freeze.sh` and before any eq call: no
+  `COMPARE_eq.sha256` sidecar and no `runs/` exist. The USER decided it (2026-10-07), relayed by the coordinator.
+  A0-A7 stand. No hypothesis, arm, item, oracle, cap, seed, statistic or stop rule changes.
+  1. **Why.** §5 step 3 states E7 for one walk over `schedule.tsv`: "the item is the next one in `schedule.tsv`, or a
+     re-check of the last PASS whose calls have not started". A6.3's cells run as a second walk,
+     `run --stage p --cells p6,p7` after the arm rows. Every item of that walk already has a PASS line and started
+     calls, so E7 refused the first item of every cell pass (stub check, 2026-10-07): no p6 or p7 row could run.
+  2. **Rule.** Revised the same day after review, still before any eq call: the first version held a whole cell pass
+     at any row that had started and never finished, cell or arm. `eq_check.sh <ITEM> <stage> [<cells>]`. `run`
+     passes `<cells>` (`p6`, `p7`, `p6,p7` or `p7,p6`) on a cell pass only. Any other value, and any `<cells>` at
+     stage q, is a usage error (exit 2, nothing logged).
+     - Every check appends its PASS or FAIL line to `DISPATCH_LOG.tsv` with a new last column, `cells`: empty for an
+       arm check, `<cells>` for a cell check.
+     - Without `<cells>`, E7 is §5's rule on the arm-check lines only (empty `cells`; a line without the column is
+       one): a cell check's PASS line is never the arm pass's "last PASS".
+     - With `<cells>`, the cell pass is a second walk by §5's rule, kept apart from the arm pass by that column. A cell
+       PASS line counts for each cell it names. A row is done when the ledger holds its `item_arm` record; a cell row
+       has started when a `call` record of that item carries its `cell`. E7 passes iff:
+       (a) the arm pass is over: every item has an arm-check PASS line, and the last arm-checked item has no arm row
+       left to run (all done, or an arm call started: a §10 environment failure, which is not run again);
+       (b) the item has a not-done `<cells>` row, and none of its not-done `<cells>` rows has started (a started row
+       is not run again: §10);
+       (c) the item is next: the first in `schedule.tsv` item order, skipping items that (b) holds, none of whose
+       not-done `<cells>` rows a cell PASS line of the item covers (`run` runs all of them); or it is the item of the
+       last cell PASS line naming one of these cells, and that line names the cell of each of its not-done `<cells>`
+       rows (a re-check).
+       A ledger or log that E7 cannot read fails E7. (Second review round, same day: the arm rule first read cell
+       PASS lines too, and (c) first let a covered row run again and a re-check run a row its line had not named.)
+  3. **Effect.** Each p6 and p7 row runs at most once, in schedule order, after the arm pass, as the arm rows do. A
+     row that started and never finished holds only its own item: E7 refuses that item and the pass goes on with the
+     next. The harness stops at a refused item as in the arm pass, and `run --only` continues past it. A row that was
+     checked but did not run (a p7 row skipped because its item's p3 round 0 is missing) is checked again only as a
+     re-check of the last cell PASS line, as in the arm pass. E1-E6 and E8-E12 are unchanged. Code:
+     `harness/eq_check.sh`, and `run --cells` in `harness/eq_harness.py`, which passes `<cells>` and refuses a
+     repeated cell.

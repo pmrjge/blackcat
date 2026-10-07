@@ -3467,11 +3467,9 @@ class Runner:
         --headless --consent-file P`; then `claude -p --agent equilibrium --session-id S` with that prompt on stdin.
         stack-eq and claude run with CLAUDECODE unset (member_env) plus XDG_STATE_HOME and the STACK_EQ* knobs of
         this terminal. The answer is the store's result.json (answer_text, else answer; CP: its selected patch applied
-        to a fresh fixture copy, the answer_workdir). H5's forked `none` branch is not available under E_rt (the
-        members are the leader's subagents, not harness sessions): reported, not run. With `run --params` (stage q:
-        the p-selected `candidate` bundles) a plan.json whose bundle (BUNDLE_KEYS) differs from the class's expected
-        bundle ends the item-arm `partial` with `bundle_mismatch` before `start`: no consent, no call, excluded from
-        the q tests (eq_analyse)."""
+        to a fresh fixture copy, the answer_workdir). With `run --params` (stage q: the p-selected `candidate`
+        bundles) a plan.json whose bundle (BUNDLE_KEYS) differs from the class's expected bundle ends the item-arm
+        `partial` with `bundle_mismatch` before `start`: no consent, no call, excluded from the q tests (eq_analyse)."""
         started = utc_now()
         sid = self.new_session_id()
         run8 = hashlib.sha256(f"{sid}|headless".encode()).hexdigest()[:8]
@@ -3483,9 +3481,7 @@ class Runner:
         prompt = e_rt_prompt(item, run8, self.flags)
         brief = d / "brief.txt"
         write_private(brief, prompt)
-        fields: dict[str, Any] = {"e_arm": "runtime", "run8": run8, "rt_session_id": sid,
-                                  "h5": "not run under E_rt (report only: the runtime's members are not forkable "
-                                        "harness sessions)"}
+        fields: dict[str, Any] = {"e_arm": "runtime", "run8": run8, "rt_session_id": sid}
 
         def step(name: str, argv: list[str]) -> bool:
             try:
@@ -4491,8 +4487,8 @@ def cmd_run(a: argparse.Namespace) -> int:
         print("run: --no-check is allowed only for the dry run (stage d)", file=sys.stderr)
         return 2
     cells = [c for c in (a.cells or "").split(",") if c]
-    if any(c not in CELLS for c in cells) or (cells and a.stage == "q"):
-        print(f"run: --cells takes {CELLS} (stage p or d), got {a.cells!r}", file=sys.stderr)
+    if any(c not in CELLS for c in cells) or len(set(cells)) != len(cells) or (cells and a.stage == "q"):
+        print(f"run: --cells takes distinct values of {CELLS} (stage p or d), got {a.cells!r}", file=sys.stderr)
         return 2
     if a.e_arm == "runtime" and a.stage == "p":
         print("run: --e-arm runtime is the confirmation's E arm (stage q, or the dry run d), not the pilot's",
@@ -4614,8 +4610,9 @@ def _run_items(a: argparse.Namespace, flags: dict[str, Any], sched: list[Schedul
             continue
         if a.max_items is not None and n_items >= a.max_items:
             break
-        if not a.no_check:
-            cp = subprocess.run(["bash", str(check), item_id, a.stage], check=False, shell=False)
+        if not a.no_check:  # a cell pass names its cells: eq_check E7 then reads the ledger (COMPARE_eq §12 A8)
+            cp = subprocess.run(["bash", str(check), item_id, a.stage, *([",".join(a.cells)] if a.cells else [])],
+                                check=False, shell=False)
             if cp.returncode != 0:
                 print(f"run: eq_check.sh FAIL for {item_id}; stopping", file=sys.stderr)
                 return 1
@@ -5051,7 +5048,8 @@ def cr_finding_rows(answer: Sequence[Any], detail: Any) -> list[dict[str, Any]]:
 
 def rs_member_units(recs: Sequence[Mapping[str, Any]]) -> list[dict[str, Any]]:
     """RS answers graded at member level: member_units (round 0, reconcile rounds, p7 branches) plus, per p7 item-arm,
-    each branch's reduced answer as member 0 (round = the branch's rounds; the H5 comparison reads branch `none`)."""
+    each branch's reduced answer as member 0 (round = the branch's rounds; no rule reads it since COMPARE_eq §12 A7
+    removed H5)."""
     units = member_units(recs, "RS")
     for r in recs:
         if r.get("record") == "item_arm" and r.get("cls") == "RS" and r.get("cell") == "p7" \
