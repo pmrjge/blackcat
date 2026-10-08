@@ -22,7 +22,9 @@ The command is everything after the first `--` (required; an option value cannot
 the command's; 127 when it is not found, 126 when it cannot be run, 128+N when signal N ended it (SIGINT
 and SIGTERM are passed on to it); 2 for a usage error, before anything runs. Output that is not UTF-8 is
 decoded with replacement characters; a line longer than 1 MiB is logged in 1 MiB pieces; only the
-lines the selection can reach are held in memory.
+lines the selection can reach are held in memory. A log keeps the first 256 MiB (one marker line
+says where it stops; lines= still counts every line); logs of this tool are pruned after 7 days or,
+oldest first, past 1 GiB in the runs directory.
 
 Each run appends one size row (tool "stack-run": characters and lines seen, characters and lines
 printed, rc) to <project>/.claude-work/output-shrink/log.jsonl, which `output_shrink.py --report` reads.
@@ -48,6 +50,9 @@ NAME_MAX = 64
 TAIL_DEFAULT, TAIL_MAX = 20, 1000
 CHUNK = 1 << 16
 LINE_SPLIT = 1 << 20
+LOG_MAX = 256 << 20                 # bytes one log keeps
+RUNS_AGE_S, RUNS_MAX = 7 * 86400, 1 << 30
+RUN_LOG_RE = re.compile(r"^[A-Za-z0-9._-]{1,64}-\d{8}-\d{6}(?:-\d{1,2})?\.log$")   # open_log's names only
 FAILED_START = {FileNotFoundError: 127}      # any other OSError at exec: 126
 
 
@@ -127,6 +132,10 @@ def open_log(m, cwd, name):
         warn("no log directory (%s)" % exc.__class__.__name__)
         return None, None
     try:
+        m.prune(dfd, time.time(), RUN_LOG_RE, RUNS_AGE_S, RUNS_MAX)
+    except OSError:
+        pass                              # pruning is housekeeping: the run goes on
+    try:
         stamp = time.strftime("%Y%m%d-%H%M%S")
         for n in range(100):
             fname = "%s-%s%s.log" % (name, stamp, "-%d" % n if n else "")
@@ -167,14 +176,23 @@ class Sink:
         self.digest = m.StreamDigest() if scrub is not None else collections.deque(maxlen=max(1, tail))
         self.cut = m.cut_line if scrub is not None else short
         self.lines, self.chars, self.matches, self.log_error = 0, 0, [], None
+        self.written = 0
 
     def line(self, s):
         self.lines += 1
         if self.scrub is not None:
             s = self.scrub.line(s)
         if self.log is not None:
+            data = s.encode("utf-8", "replace") + b"\n"
             try:
-                self.log.write(s.encode("utf-8", "replace") + b"\n")
+                if self.written + len(data) > LOG_MAX:
+                    self.log.write(b"... [stack-run: the log stops here, at its %d MiB cap; the run went on]\n"
+                                   % (LOG_MAX >> 20))
+                    self.log_error = "size cap reached"
+                    self.close()
+                else:
+                    self.log.write(data)
+                    self.written += len(data)
             except OSError as exc:
                 self.log_error = exc.__class__.__name__
                 self.close()
@@ -295,7 +313,7 @@ def main(argv):
         sink.close()
     secs = time.monotonic() - t0
     if sink.log_error:
-        warn("writing the log failed (%s): it is incomplete" % sink.log_error)
+        warn("the log is incomplete: %s" % sink.log_error)
     printed = ["%s rc=%d %.1fs lines=%d log=%s" % ("PASS" if rc == 0 else "FAIL", rc, secs, sink.lines,
                                                    path or "-")]
     shown = set()

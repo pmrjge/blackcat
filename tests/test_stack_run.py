@@ -448,3 +448,76 @@ def test_guard_read_only_check_reads_the_wrapped_command(guard, cmd, bad):
     assert bool(got) is bad, got
     if got:
         assert "stack-run" not in got[0]                                # judged on the wrapped command
+
+
+# ---------------------------------------------------------------- review fixes (2026-10-08): S1-S4, R2
+@pytest.mark.parametrize("cmd", ["STACK_HOOKS_DIR=./.claude-work/p stack-run -- git status",
+                                 "env STACK_HOOKS_DIR=./.claude-work/p stack-run -- git status",
+                                 "export STACK_HOOKS_DIR=./.claude-work/p; stack-run -- git status"])
+def test_guard_read_only_refuses_a_hooks_dir_for_stack_run(guard, cmd):
+    """S1: a reviewer could plant .claude-work/p/output_shrink.py and have stack-run import it."""
+    ev = {"cwd": str(guard.proj), "agent_type": "verifier", "tool_name": "Bash", "tool_input": {"command": cmd}}
+    got = guard.g.readonly_violation(cmd, ev)
+    assert got and "STACK_HOOKS_DIR" in got[1], got
+
+
+@pytest.mark.parametrize("cmd", ["ls {cfg}/hooks/agent_guard.py | xargs stack-run -- rm",
+                                 "echo {cfg}/hooks | xargs -n1 stack-run --name x -- rm -rf",
+                                 "echo {cfg} | xargs stack-run -- rm -rf"])
+def test_guard_protected_paths_see_xargs_into_stack_run(guard, cmd):
+    """S2: the operands come from stdin, as for `... | xargs rm`."""
+    got = guard.g.protected_write_in(cmd.format(cfg=guard.cfg), guard.ev)
+    assert got and got[0] == "protect", got
+
+
+@pytest.mark.parametrize("tail", ["", " -- true"])
+def test_guard_web_check_keeps_inline_code_before_stack_run(guard, tail):
+    """S3: inline interpreter code that names a client is still read when stack-run follows it."""
+    assert guard.g.blackcat_web_command("perl -e 'system+q[curl],q[https://example.com]' stack-run" + tail) is True
+    assert guard.g.blackcat_web_command("python3 -B /c/bin/stack-run --" + (tail or " curl u")) is (not tail)
+
+
+def test_a_long_word_line_is_masked_in_bounded_time(sr):
+    """S4: the credential patterns backtrack quadratically on one long word; a 1 MiB line is masked
+    in windows, in linear time."""
+    t0 = time.monotonic()
+    p = sr.run(*py("import sys; sys.stdout.write('pass' * 2 ** 18 + '\\n')"), timeout=90)
+    assert time.monotonic() - t0 < 30
+    status, _, lines, log = head(p)
+    assert (status, lines) == ("PASS", 1) and log.stat().st_size > 2 ** 20
+    code = "print('x' * 3580 + ' token ' + %r + ' ' + 'y' * 9000 + ' aws ' + %r)" % (GHP, AKIA)
+    data = head(sr.run(*py(code)))[3].read_text()
+    assert GHP not in data and AKIA not in data and data.startswith("x" * 3580 + " ***")
+
+
+def test_log_keeps_its_first_log_max_bytes(sr):
+    """R2: a log stops at LOG_MAX (patched to 1 MiB here); lines= and the selection see every line."""
+    f = sr.c / "bin" / "stack-run"
+    f.write_text(f.read_text().replace("LOG_MAX = 256 << 20", "LOG_MAX = 1 << 20"))
+    p = sr.run(*py("import sys\nsys.stdout.write('y\\n' * 2500000)\nprint('error: last')\nsys.exit(1)"))
+    status, _, lines, log = head(p)
+    assert (status, lines) == ("FAIL", 2500001) and (2500001, "error: last") in shown(p)
+    assert 2 ** 20 - 2 <= log.stat().st_size <= 2 ** 20 + 200
+    assert log.read_text().split("\n")[-2].startswith("... [stack-run: the log stops here")
+    assert "size cap reached" in p.err
+
+
+def test_each_run_prunes_old_and_excess_logs_of_its_own(sr):
+    """R2: this tool's logs older than 7 days go, then the oldest past the cap (patched to 5,000
+    bytes); other files stay."""
+    f = sr.c / "bin" / "stack-run"
+    f.write_text(f.read_text().replace("RUNS_AGE_S, RUNS_MAX = 7 * 86400, 1 << 30", "RUNS_AGE_S, RUNS_MAX = 7 * 86400, 5000"))
+    d = runs_dir(sr)
+    d.mkdir(parents=True, mode=0o700)
+    now = time.time()
+    files = {"old-20200101-000000.log": (now - 8 * 86400, 10), "a-20261001-000000.log": (now - 3000, 2000),
+             "b-20261001-000001-3.log": (now - 2000, 2000), "c-20261001-000002.log": (now - 1000, 2000),
+             "mine-20200101-000000.txt": (now - 9 * 86400, 10), "notes.log": (now - 9 * 86400, 10)}
+    for name, (t, size) in files.items():
+        (d / name).write_text("z" * size)
+        os.utime(d / name, (t, t))
+    (d / "link-20200101-000000.log").symlink_to(sr.tmp / "nowhere")
+    log = head(sr.run(*py("print(1)")))[3]
+    left = sorted(x.name for x in d.iterdir())
+    assert left == sorted([".gitignore", "b-20261001-000001-3.log", "c-20261001-000002.log", "mine-20200101-000000.txt",
+                           "notes.log", "link-20200101-000000.log", log.name])

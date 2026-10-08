@@ -50,7 +50,8 @@ Claude config directory): `.claude-work/output-shrink/` (0700, with a `*` .gitig
 family (Bash: a plain lower-case command name and git/uv subcommand; Read: a plain extension; else
 "other"), a hash of the command or path; never output text, commands or paths; 0600; rotated to
 log.1.jsonl at 32 MB)
-and `spill/` (on mode: one 0600 file per cut, at most 4 MB each; files older than 7 days and the
+and `spill/` (one 0600 file for each applied Bash cut, `default` or `on` mode, at most 4 MB each;
+files older than 7 days and the
 oldest past 64 MB in total are pruned, only names this hook writes). Every directory is opened with
 O_NOFOLLOW|O_DIRECTORY relative to its parent, every file with O_NOFOLLOW (spill files O_EXCL): a
 symlink anywhere below the project root disables the hook's writes, and a refused write means no
@@ -94,6 +95,7 @@ SPILL_MAX = 4 << 20
 SPILL_DIR_MAX = 64 << 20
 SPILL_AGE_S = 7 * 86400
 REPEAT_SCAN = 256 << 10     # bytes of the log's tail searched for an earlier cut of the same call
+MASK_WINDOW, MASK_OVERLAP = 4096, 512   # a longer line is masked in windows this long, overlapping by this much
 TOK_PER_CHAR = 0.424        # tool-result tokens per character (MEASURE h4_tools.json fit)
 DIRNAME = "output-shrink"
 SPILL_NAME_RE = re.compile(r"^\d{8}T\d{6}Z-(?:bash|read)-[A-Za-z0-9_-]{1,40}-[0-9a-f]{8}\.txt$")
@@ -374,7 +376,9 @@ PEM_END = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----")
 class Scrubber:
     """The masker, one line at a time (the spill copy here, bin/stack-run's log): bin/stack-tree's
     credential tables, PEM private-key blocks fully. A line in, one line out, so line numbers hold.
-    Raises when the tables cannot load."""
+    A line longer than MASK_WINDOW is matched in overlapping windows (the tables' patterns backtrack
+    quadratically on one long word) and every match is replaced by `***`. Raises when the tables
+    cannot load."""
 
     def __init__(self):
         self.redact_kv, self.rx = tables()
@@ -388,9 +392,28 @@ class Scrubber:
             self.in_pem = not PEM_END.search(s)
             return "***"
         s = self.redact_kv(s)
+        if len(s) > MASK_WINDOW:
+            return self.windowed(s)
         for r, rep in self.rx:
             s = r.sub(rep, s)
         return s
+
+    def windowed(self, s):
+        spans = []
+        for a in range(0, len(s) - MASK_OVERLAP, MASK_WINDOW - MASK_OVERLAP):
+            w = s[a:a + MASK_WINDOW]
+            spans += [(a + m.start(), a + m.end()) for r, _ in self.rx for m in r.finditer(w) if m.end() > m.start()]
+        out, pos = [], 0
+        for b, e in sorted(spans):
+            if e <= pos:
+                continue
+            if b < pos:                      # overlaps the previous span: extend it
+                pos = e
+                continue
+            out.append(s[pos:b] + "***")
+            pos = e
+        out.append(s[pos:])
+        return "".join(out)
 
 
 def scrub(text):
@@ -524,10 +547,13 @@ def earlier_cut(wfd, sid, aid, tool, key):
     return False
 
 
-def prune(sfd, now):
+def prune(sfd, now, name_re=SPILL_NAME_RE, age_s=SPILL_AGE_S, keep=SPILL_DIR_MAX * 3 // 4):
+    """Under sfd, only our own regular files whose name matches name_re: those older than age_s go,
+    then the oldest while the total exceeds keep (bin/stack-run prunes its logs with its own values).
+    Returns the total left."""
     items = []
     for name in os.listdir(sfd):
-        if not SPILL_NAME_RE.match(name):
+        if not name_re.match(name):
             continue
         try:
             st = os.stat(name, dir_fd=sfd, follow_symlinks=False)
@@ -538,7 +564,7 @@ def prune(sfd, now):
     items.sort()
     total = sum(x[1] for x in items)
     for mtime, size, name in items:
-        if now - mtime <= SPILL_AGE_S and total <= SPILL_DIR_MAX * 3 // 4:
+        if now - mtime <= age_s and total <= keep:
             break
         try:
             os.unlink(name, dir_fd=sfd)
@@ -799,7 +825,8 @@ def report(rows, window=20):
         err_kept += r.get("err_kept", 0)
         later = [rows[k] for k in follow.get(i, [])]
         rr = [x for x in later if r.get("spill") and r["spill"] in (x.get("refs") or [])]
-        rp = [x for x in later if x.get("key") == r.get("key") and x.get("tool") == r.get("tool")]
+        rp = [] if r.get("tool") == "stack-run" else [   # a rerun of a build is not a re-read of its log
+            x for x in later if x.get("key") == r.get("key") and x.get("tool") == r.get("tool")]
         if rr:
             n_reread += 1
             reread_chars += sum(x.get("chars", 0) for x in rr)
@@ -808,12 +835,13 @@ def report(rows, window=20):
             reread_chars += sum(x.get("chars", 0) for x in rp)
     # baseline: how often a large call that was NOT cut is repeated anyway
     big = [i for i, r in enumerate(rows) if not r.get("cut") and r.get("chars", 0) > SWEEP_FLOOR
-           and "skip" not in r]
+           and "skip" not in r and r.get("tool") != "stack-run"]
     base_rep = sum(1 for i in big if any(rows[k].get("key") == rows[i].get("key")
                                          and rows[k].get("tool") == rows[i].get("tool") for k in follow.get(i, [])))
     for t in (4000, 8000, 12000, 20000, 30000):
         s = sum(max(0, r.get("chars", 0) - r.get("kept_chars", 0)) for r in rows
-                if "kept_chars" in r and r.get("chars", 0) > t and r.get("skip") in (None, "repeat"))
+                if "kept_chars" in r and r.get("chars", 0) > t and r.get("skip") in (None, "repeat")
+                and r.get("tool") != "stack-run")     # the hook's thresholds; stack-run has none
         out["sweep"][str(t)] = {"cut_chars": s, "share_of_logged_chars": round(s / total_chars, 4) if total_chars else 0}
     out.update(
         logged_chars=total_chars, cut_events=n_cut, cut_chars=cut_chars,
@@ -835,11 +863,11 @@ def print_report(rep):
     for k, t in sorted(rep["by_tool_mode"].items()):
         w("%-22s %7d %13d %13d %13d %13d %6.1f\n" % (k[:22], t["rows"], t["chars"], t["kept"], t["cut"],
                                                      t["would_cut"], t["pct"]))
-    w("logged output %s chars; cut events %d; cut %s chars (~%s tokens) = %.1f%% of logged chars; "
+    w("logged output %s chars; cut decisions (applied + would-cut) %d, %s chars (~%s tokens) = %.1f%% of logged chars; "
       "net of re-reads %s chars\n" % (format(rep["logged_chars"], ","), rep["cut_events"],
                                       format(rep["cut_chars"], ","), format(rep["cut_tokens_est"], ","),
                                       100 * rep["realised_cut_share"], format(rep["net_cut_chars"], ",")))
-    w("re-read rate (spill read later, on mode) %s; repeat rate after a cut %s vs baseline %s (next %d calls "
+    w("re-read rate (spill read later) %s; repeat rate after a cut %s vs baseline %s (next %d calls "
       "of the same agent); error lines kept %s\n" % (rep["reread_rate"], rep["repeat_rate_after_cut"],
                                                      rep["repeat_rate_baseline"], rep["window"],
                                                      rep["error_lines_kept"]))

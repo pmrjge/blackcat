@@ -787,7 +787,8 @@ def _blackcat_web_text(cmd):
             if word in ("source", ".") and raw[i + 1:i + 2] and raw[i + 1] in BLACKCAT_STDIN_SCRIPTS:
                 return True                            # source /dev/stdin
             if word in ARGV_RUNNERS or (BLACKCAT_INLINE_INTERP_RE.match(word)
-                                        and ARGV_RUNNERS & set(words[i + 1:i + 4])):
+                                        and ARGV_RUNNERS & set(words[i + 1:i + 4])
+                                        and not any(BLACKCAT_INLINE_FLAG_RE.match(w) for w in words[i + 1:i + 4])):
                 k = next((j for j in range(i + 1, len(words)) if words[j] == "--"), None)
                 if k is None:
                     break
@@ -8262,6 +8263,11 @@ class _Scan(object):
                 k = next((j for j in range(i + 1, end) if words[j] == "--"), end)
                 argv_done = end
                 found = self.scan_words(words[k + 1:end], depth + 1, restore) if k + 1 < end else None
+                if not found and xargs_seen and "protect" in self.want and k + 1 < end \
+                        and _base(words[k + 1]) in PROTECT_WRITE_CMDS:
+                    for x in words[stmt_start:end]:    # ls ~/.claude/hooks | xargs stack-run -- rm: operands on stdin
+                        found = found or self.protect_hit(restore(x), "xargs %s" % _base(words[k + 1]),
+                                                          contains=True)
             runner = base in SHELLS or lbase in STRING_RUNNERS or base == "alias" \
                 or INTERPRETER_RE.match(base)
             if not found and runner and i >= covered:
@@ -9562,6 +9568,8 @@ RO_EXEC_VAR_RE = re.compile(
     r"PYTHONPATH|PYTHONUSERBASE|PYTHONPYCACHEPREFIX|PYTEST_ADDOPTS|PYTEST_PLUGINS|JULIA_LOAD_PATH|"
     r"JULIA_DEPOT_PATH|JULIA_PROJECT|R_LIBS|R_LIBS_USER|R_LIBS_SITE|R_PROFILE|R_PROFILE_USER|"
     r"R_ENVIRON|R_ENVIRON_USER|LUA_PATH\w*|LUA_CPATH\w*|LUA_INIT\w*|"
+    # where bin/stack-run and bin/stack-budget import the hooks' modules from
+    r"STACK_HOOKS_DIR|"
     # C compilers: where they find the programs they run, edits to their command line, dep files
     r"COMPILER_PATH|GCC_EXEC_PREFIX|CCC_OVERRIDE_OPTIONS|DEPENDENCIES_OUTPUT|SUNPRO_DEPENDENCIES|"
     # TeX (kpathsea reads any texmf.cnf variable, also as NAME_progname, from the environment)

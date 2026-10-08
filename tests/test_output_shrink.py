@@ -879,3 +879,26 @@ def test_stream_digest_holds_a_bounded_number_of_lines(hk):
     assert max(len(s) for part in (d.head, d.tail) for _, s in part) <= hk.mod.LINE_MAX + 20
     pick = d.pick(5)
     assert pick[-1] == (59998, "error: case 59997") and len(pick) == 5     # 1-based line numbers
+
+
+# ---------------------------------------------------------------- review fixes (2026-10-08): R1, S4
+def test_report_does_not_count_stack_run_reruns_as_repeats(hk):
+    """R1: running the same build again is not a re-read of a cut; stack-run has no threshold to sweep."""
+    rows_ = [{"v": 1, "sid": "s", "aid": "", "atype": "", "tool": "stack-run", "mode": "on", "cls": "run", "key": "k",
+              "chars": 50000, "lines": 400, "kept_chars": 120, "kept_lines": 1, "rc": 0, "cut": True, "applied": True,
+              "ts": 1000.0 + i} for i in range(3)]
+    rep = hk.mod.report(rows_)
+    assert rep["net_cut_chars"] == 3 * 49880 and rep["repeat_rate_after_cut"] == 0.0
+    assert rep["sweep"]["4000"]["cut_chars"] == 0
+
+
+def test_scrubber_masks_long_lines_in_overlapping_windows(hk):
+    """S4: past MASK_WINDOW a line is masked window by window (overlapping, so a credential across a
+    window edge is still whole in one of them); every match becomes ***."""
+    w, o = hk.mod.MASK_WINDOW, hk.mod.MASK_OVERLAP
+    edge = w - o // 2 - len(GHP) // 2                                  # straddles the first window's edge
+    s = "x" * edge + " " + GHP + " " + "y" * (3 * w) + " aws " + AKIA
+    out = hk.mod.Scrubber().line(s)
+    assert GHP not in out and AKIA not in out and out.startswith("x" * edge + " ") and "***" in out
+    assert out.endswith("aws ***") and "y" * (3 * w) in out
+    assert hk.mod.Scrubber().line("q" * (w + 1)) == "q" * (w + 1)
