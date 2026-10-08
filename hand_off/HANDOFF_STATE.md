@@ -1,12 +1,36 @@
 # HANDOFF_STATE: claude-agent-stack, session 8ad965da (2026-10-05, written ~16:30, updated ~16:45 after the stop)
 
-**Current state (2026-10-07): main is `be11f4c8`.** Merged and done (the user ran the ff merges): audit-fixes `ad10c9ba`,
-eq-runtime-2 `258d3a35` (including A7: H5 removed, and A8: the E7 cell pass), docs-reorg `f20c7a89`, and the jsonschema fix
-`be11f4c8`. C10 on `be11f4c8` is DONE: the 7 known failed ids only, install_smoke 280 passed / 2 failed (openpty),
-codex_config 2171 + 1 skipped, harness 636 + 2 skipped (with `EQ_AGENTS_DIR`), eq_mutations 39/39, instructor 77, eq-wall
-100 + 2 skipped, hand_off 40, image_studio 125 (`H/.claude-work/c10/c10-main-be11f4c8.summary`). Left: the user's steps
-(§5), the planned programs (§9) and the closing report `H/.claude-work/resume-1005/FINAL_REPORT.md`. The stopped-state
-paragraph below is the 2026-10-05 history; §1-§3 and §8 rows keep their older "as of" dates unless a row says otherwise.
+**Current state (2026-10-08, written 01:35): main is `63ab4f04`** (= `be11f4c8` + the 2026-10-07 hand-off text; read with
+`git -C M log --oneline -8 main` [v]). Merged and done (the user ran the ff merges): audit-fixes, eq-runtime-2 (A7: H5 removed;
+A8: E7 cell pass), docs-reorg, the jsonschema fix, hs-update-1007b. C10 on `be11f4c8` is DONE: the 7 known environment failures
+only, install_smoke 280 passed / 2 failed (openpty) (`H/.claude-work/c10/c10-main-be11f4c8.summary`) [v].
+
+**Pending: branch `dot-config`** (tip `9a8ec3db` at 01:34 [v: `git rev-parse`]; 15 commits ahead of main; not merged [v:
+`merge-base --is-ancestor`]; worktree `H/.claude-work/dc-main`). It moves the repo to `dot-config/{dot-claude,dot-codex_config,
+dot-equilibrium}` with a single installer (`./install.sh`, then `./install.sh --codex`), adds COMPARE_eq A9 ("repository
+move"), re-pins `extract_src` `parents[5]`. Reviews done (security-auditor + code-reviewer), fix round applied (incl. the WALL
+lookup layout rule). Baseline pre/post equal modulo path prose (`H/.claude-work/dot-config/baseline/DIFF.md`; allowed: 15
+Claude files incl. `derive_sched_model.py`, `derive_thresholds.py`, comments in `eq_core`/`eq_isolation`/`eq_policy`, a comment
+in `eq_schemas.json`; the stack-budget and stack_sched_refresh repo-layout checks). Full C10 on `02208781` (a coder; `9a8ec3db`
+is one commit later, the WALL-lookup fix): `H/.claude-work/c10/c10-dc-02208781.summary` says DONE for the non-pytest steps
+[v]; install_smoke 280 / 2 failed (as on main), image_studio 125, instructor 77 (patched copy ok), eq-wall 100 + 2 skipped,
+hand_off 40, codex_config 2184 + 1 skipped, harness 638 + 2 skipped, eq_mutations 39/39, moved_paths 108; **`pool_sha` rc=1:
+`FAIL dot-config/dot-equilibrium/items/graders/` (PF, RS ok) [v: log]; the cause is unverified and the be11f4c8 summary has no
+such step**. The pytest chunks (`c10-dc-02208781.chunks.summary`): aa 2164 passed, ab 1073 passed, ac started 01:30, ad
+pending, so the pytest part **was running** at 01:34 (process list unreadable from the sandbox, [unverified]). The first
+`pytest.*` lines in the main summary (rc=1, 0 s) look like a runner artefact superseded by the chunk run [unverified].
+User steps for it, in order: (1) apply `H/.claude-work/dot-config/check_suite/instructor-dot-config.patch` (3 lines in
+`tools/instructor`, a protected path); (2) merge `dot-config` (`git -C M merge --ff-only dot-config`; check the tip first);
+(3) reinstall per `H/.claude-work/dot-config/REINSTALL.md` (`./install.sh`, then `./install.sh --codex`); (4) a coder runs C10
+on main and adds its HANDOFF_STATE row (§8). Left for the agents until then: the `pool_sha` cause.
+
+Programs (plans saved, §9): SDK optimization, Bayesian tuning, lost-work rescue, side branches awaiting the user (§9).
+Environment notes: the sandbox writes only in M and H; agents cannot merge into main (user-run ff merges); the shared uv cache
+`/tmp/claude-501/uvcache` is corrupt (`uv run --no-cache`); harness runs need `EQ_AGENTS_DIR` and `EQ_CONTAINER_DIR`; about 132
+tests fail on paths when run under `.claude-work`; the 7 known environment ids are in `c10-eqcli-321f037.failed_ids`; the
+verifier's hook refuses harness, stack_progress and install runs (use a coder); BlackCat has a 24-tool-call cap per prompt and
+the orchestrator a soft token limit near 80M, so checkpoint the `plan.md` files. The stopped-state paragraph below is the
+2026-10-05 history; §1-§3 and §8 rows keep their older "as of" dates unless a row says otherwise.
 
 **STOPPED STATE.** At ~16:37 the user ordered every running task stopped except the commit of `hand_off/` to main.
 Stopped: the orchestrator (aeb982e2417df4dd0), R3 (main-coder a5a3114a94bceb867), the L1 INTEG (main-coder
@@ -173,7 +197,7 @@ pkill -f disc3.py
 ### Earlier steps (2026-10-05/06)
 
 Reinstall (ends the install hold; the installed manifest `73eec41` is far behind main `be11f4c8` and its orchestrator has no
-`Bash`). Conditions are met: C10 passed on `be11f4c8` and the closing report (§4 item 17) says so. You reinstall `./install.sh` at the very end, after the other user steps; after the planned dot-config restructure (§9) run `./install.sh --codex` (single installer). The venv sync of `./install.sh` also clears the `jsonschema` venv mismatch. `orch-bash` is
+`Bash`). Conditions are met: C10 passed on `be11f4c8` and the closing report (§4 item 17) says so. You reinstall `./install.sh` at the very end, after the other user steps; after the dot-config merge follow `H/.claude-work/dot-config/REINSTALL.md` (`./install.sh`, then `./install.sh --codex`) (single installer). The venv sync of `./install.sh` also clears the `jsonschema` venv mismatch. `orch-bash` is
 already merged. `eq-runtime` adds settings hooks, so after it merges a **second reinstall** follows. The `tools/instructor`
 deny rule (`Edit(//**/tools/instructor/**)`, also joined to the sandbox denyWrite on macOS) makes sandboxed git writes to a
 `tools/instructor` path fail after a reinstall. Agents never run `install.sh`. Quit every Claude Code session first.
@@ -374,21 +398,29 @@ Status 2026-10-07 [v: git]: all 16 branch@sha cells below are ancestors of main 
 | docs-reorg | Layout: diagram to `assets/diagrams/`, Equilibrium spec to `docs/`, `PREVIOUS_GIT_COMMITS.md` removed; `tests/test_moved_paths.py` exempts only the `docs/wiki/` prefix; merged with main `3081ce59` | docs-reorg@f20c7a89 (merged) | C10 on `be11f4c8` done (moved_paths 31 passed) |
 | fix jsonschema | `VENV_PACKAGES['tools']` in codex translate gains `jsonschema` (`requirements/tools.in` since `b595c3c7`); clears the `test_venv_packages_match_requirements` failure seen on `eq-runtime-2` | main@be11f4c8 | C10 on `be11f4c8` done: codex_config 2171 + 1 skipped |
 
-## 9. NEXT PROGRAMS (planned, not started)
+## 9. NEXT PROGRAMS (plans saved, not started; state 2026-10-08)
 
-State 2026-10-07 on main `be11f4c8`. Nothing below is built; every plan file is under `H` (git-ignored `.claude-work/`).
+Every plan file is under `H` (git-ignored `.claude-work/`). Sequencing: after the dot-config merge and a green C10 on main;
+merge order Bayes 3a -> SDK-2 -> Bayes 3b -> Bayes 3c -> SDK-3 -> Bayes 4 -> SDK-4.
 
-1. **dot-config restructure.** Move to `dot-config/{dot-claude,dot-codex_config,dot-equilibrium}` with a single installer
-   `./install.sh --codex`; add a COMPARE_eq §12 amendment for the repository move; update the shipped prose (README, CONFIG,
-   wiki, hand_off). A security surface (installer): security-auditor + code-reviewer before the merge.
-2. **Bayesian tuning program.** Plan `H/.claude-work/bayes/plan.md`; the user's decisions Q1-Q5 of 2026-10-07 are recorded there.
-3. **SDK optimization.** Plan `H/.claude-work/sdk/plan.md`; decisions Q1-Q4 recorded there. The paid probes are consented, run by
-   the user, at most $13.50 in total.
-4. **Lost-feature rescue.** `H/.claude-work/lost-features/rescue/` with `MANIFEST.md` (patches, untracked files, scratch copies,
-   `SHA256SUMS`).
-5. **Unmerged side branches awaiting the user's decision:** `s4-l7-l10` ("Minimum first"); `worktree-agent-a06763fbda9c482d4`
-   (cache-stable prefix); `worktree-agent-a08001452f6ef3994` (installer skip-existing); `worktree-agent-ae67658dcd0599872`
-   (host-content drop).
+1. **dot-config restructure**: see "Pending" at the top (built, reviewed, waiting on the user's steps).
+2. **SDK optimization.** `H/.claude-work/sdk/plan.md`. Decisions: unattended runs stop at the plan with STATUS blocked; the
+   installed `claude` via `cli_path`; Python only. Consent (USER): paid `sdk_smoke.py` <= $3.00 and `sdk_probes.py` <= $10.50,
+   both run by the user.
+3. **Bayesian tuning.** `H/.claude-work/bayes/plan.md`. Decisions: Q1 the empirical stage keeps deny-type values; Q2 advice only
+   for width; Q3 consent to P1 <= $40 and P2 <= $200, run by the user; Q4 amend the equilibrium before p data; Q5 default keep
+   sched/fanout.
+4. **Lost-work rescue.** `H/.claude-work/lost-features/rescue/` (`MANIFEST.md`; git-ignored: copy it outside the worktree
+   before any worktree removal; `campaign-restored/`; decision quotes in `bayesian-decision.md` (2026-10-03, sessions
+   13998b29/fae82d02) and `sdk-request.md` (2026-10-02, session 4e2da3ce)).
+5. **Unmerged side branches awaiting the user's decision** (patches saved in the rescue folder): `s4-l7-l10` ("Minimum first"
+   + A/B test); `worktree-agent-a06763fbda9c482d4` (cache-stable prefix + an untracked test); `worktree-agent-a08001452f6ef3994`
+   (installer skips existing CLI tools); `worktree-agent-ae67658dcd0599872` (drop Conductor/Nimbalyst/Zed/JetBrains host content).
+6. **Open items.** Broker TOCTOU in `eq_harness` `load_wall_module` vs `Wall.start` (latent, MEDIUM, pre-existing);
+   `STACK_CODEX_VIA_TOP=1` inner-installer bypass of agent_guard (LOW, `~/.codex` unguarded); H5 is removed (A7); the A4 fold
+   waits for the user's paid probe (§5); `RESET_TO_MAIN.sh --archive`/`--apply` are the user's; `disc3.py` orphan (§5 step 4);
+   user cleanups of worktrees (c10/wt-7c8a839, c10/wt-be11f4c8, dc-*, eq-runtime-2, ...: list in
+   `H/.claude-work/resume-1005/FINAL_REPORT.md`).
 
-User steps still open: merge and push the wiki `docs-reorg` branch; remove worktrees (list in `FINAL_REPORT.md` §6; nobody
-else removes them); kill `disc3.py` (§5 step 4); reinstall (§5).
+User steps still open: the dot-config steps (top); merge and push the wiki `docs-reorg` branch; remove worktrees; kill
+`disc3.py` (§5 step 4); the reinstall (§5, now per `dot-config/REINSTALL.md`).
