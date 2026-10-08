@@ -1668,6 +1668,23 @@ def env_override(var):
     return True, (None if n == 0 else n)
 
 
+def fallback_values(seed):
+    """(values, origin) for a session without a usable snapshot (session_limits' fallback, the
+    guard's no-session branch): the seed values, origin "fallback", except a hard.* variable whose
+    env override is a cap below the seed (or the seed leaves it off): that value, origin "env". On
+    this path an env value can only lower a hard cap, never raise it or turn it off (the user,
+    2026-10-08); every other variable keeps its seed whatever the env says."""
+    values = {v: x["seed"] for v, x in seed["vars"].items()}
+    origin = {v: "fallback" for v in seed["vars"]}
+    for v, x in seed["vars"].items():
+        if x["kind"] != "hard" or not v.startswith("hard."):
+            continue
+        present, ov = env_override(v)
+        if present and ov is not None and (x["seed"] is None or ov < x["seed"]):
+            values[v], origin[v] = ov, "env"
+    return values, origin
+
+
 def snapshot_values(seed, live, auto, fallback=False):
     """(values, origin): env override > frozen > live; the seed when auto is off ("seed") or live
     is absent ("seed") or unusable ("fallback")."""
@@ -1804,7 +1821,8 @@ def snapshot_view(doc):
 
 def session_limits(sid, sdir=None):
     """The values every consumer uses for `sid`: the verified snapshot (ensure_snapshot when
-    missing), else the seed with one stderr line per session (O_EXCL marker <sdir>/limits-tamper)."""
+    missing), else the seed (fallback_values: a hard.* env override only lowers it) with one stderr
+    line per session (O_EXCL marker <sdir>/limits-tamper)."""
     doc, state = read_snapshot(sid)
     if state == "missing":
         try:
@@ -1823,8 +1841,9 @@ def session_limits(sid, sdir=None):
         log(f"snapshot of {sid} {state}; seed values")
     except OSError:
         pass
-    return {"state": state, "values": {v: x["seed"] for v, x in s["vars"].items()},
-            "origin": {v: "fallback" for v in s["vars"]}, "snap": None, "regime": None, "scale": soft_scale(),
+    values, origin = fallback_values(s)
+    return {"state": state, "values": values,
+            "origin": origin, "snap": None, "regime": None, "scale": soft_scale(),
             "sched_policy": sched_policy(), "sched_model": None, "live_version": None}
 
 

@@ -228,6 +228,8 @@ def test_T9_live_json_changed_mid_session_changes_nothing(S):
 
 # ---------------------------------------------------------------- T10
 def test_T10_altered_snapshot_gives_seed_values_one_line_one_marker(S):
+    """An altered snapshot gives the seed values: a turns env override at the call is ignored (only a
+    hard.* one below the seed applies, T10b), one stderr line, one marker."""
     S.start("startup", STACK_MAXTURNS_CODER="3")
     doc = S.snapdoc()
     assert doc["values"]["turns.coder"] == 3 and doc["origin"]["turns.coder"] == "env"
@@ -247,6 +249,53 @@ def test_T10_altered_snapshot_gives_seed_values_one_line_one_marker(S):
     S.calls("A1", frontmatter_turns("coder"))
     d, why, _ = out(S.run(S.tool("Read")))
     assert d == "deny" and "seed value" in why and "tamper" in why
+
+
+def test_T10b_without_a_usable_snapshot_env_only_lowers_the_prompt_cap(S):
+    """A tampered snapshot, then a missing one that cannot be written: hard.prompt is the seed (300M)
+    unless STACK_PROMPT_CTX_BUDGET at the call is below it; a value above the seed does not raise it
+    (the user, 2026-10-08: on a fallback an env value only lowers a hard cap)."""
+    S.start("startup")
+    os.chmod(S.snap, 0o644)
+    S.snap.write_text(S.snap.read_text().replace('"hard.prompt":300000000', '"hard.prompt":300000001'))
+    snaps = S.snap.parent
+    try:
+        for state in ("tamper", "missing"):
+            S.prompt("p1")
+            S.main_calls(1200)
+            d, why, _ = out(S.run(S.tool("Read"), STACK_PROMPT_CTX_BUDGET="1000"))
+            assert d == "deny" and why.startswith("Prompt token budget reached"), (state, why)
+            assert "STACK_PROMPT_CTX_BUDGET=1000, below the seed" in why and state in why, why
+            assert out(S.run(S.tool("Read"), STACK_PROMPT_CTX_BUDGET="400000000"))[0] == "allow"  # 1,200 < 300M
+            S.main_calls(300000000)
+            d, why, _ = out(S.run(S.tool("Read"), STACK_PROMPT_CTX_BUDGET="400000000"))
+            assert d == "deny" and "hard.prompt=300000000, seed value" in why and state in why, why
+            S.new()                                        # next: no snapshot, and none can be written
+            os.chmod(snaps, 0o500)
+    finally:
+        os.chmod(snaps, 0o700)
+    assert not S.snap.exists()
+
+
+def test_guard_fallbacks_env_only_lowers_hard_caps(S, monkeypatch):
+    """The guard's own fallbacks follow the same rule: the built-in constants (stack_limits.py
+    unusable) and the seed of an event without a session id."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("agent_guard_fallbacks", GUARD)
+    G = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(G)
+    monkeypatch.setenv("STACK_PROMPT_CTX_BUDGET", "1000")
+    monkeypatch.setenv("STACK_SESSION_CTX_BUDGET", "0")                 # off would raise it: ignored
+    b = G.builtin_limits()
+    assert (b.get("hard.prompt"), b.get("hard.session")) == (1000, 1920000000)
+    lim = G.session_limits({"session_id": None})
+    assert lim.state == "nosession" and (lim.get("hard.prompt"), lim.origin["hard.prompt"]) == (1000, "env")
+    assert lim.get("hard.session") == 1920000000 and "below the seed" in lim.where("hard.prompt")
+    monkeypatch.setenv("STACK_PROMPT_CTX_BUDGET", "400000000")
+    G._LIMITS.clear()
+    assert G.builtin_limits().get("hard.prompt") == 300000000
+    lim = G.session_limits({"session_id": None})
+    assert (lim.get("hard.prompt"), lim.origin["hard.prompt"]) == (300000000, "seed")
 
 
 # ---------------------------------------------------------------- T11

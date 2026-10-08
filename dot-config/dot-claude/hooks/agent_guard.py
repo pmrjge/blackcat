@@ -4722,11 +4722,11 @@ def session_env():
 # None = off. blackcat has no per-agent variable. The hot
 # path reads <state>/limits/snapshots/<sid>.json with a lean, hash-checked reader (no stack_limits
 # import; ~1.5 ms); a missing snapshot is written without applying (stack_limits.session_limits ->
-# ensure_snapshot), an altered one gives the seed values with one stderr line (O_EXCL marker
-# <session>/limits-tamper). If stack_limits.py or its seed cannot be used, the constants of this
-# file are the last-resort fallback (SOFT_LIMITS, SOFT_PROMPT_CTX, SOFT_PROMPT_CTX_BY_TYPE, the
-# budget knobs or 300M/1.92B, frontmatter maxTurns). Fixed guards (fan-out, depth, BlackCat,
-# TTLs, STACK_MAX_MCP_CALLS, images, policy, STACK_SOFT_LIMIT_SCALE) are never learned: env only.
+# ensure_snapshot), an altered one gives the seed values (a hard.* env override only lowers them)
+# with one stderr line (O_EXCL marker <session>/limits-tamper). If stack_limits.py or its seed
+# cannot be used, this file's constants are the last-resort fallback (SOFT_LIMITS, SOFT_PROMPT_CTX,
+# SOFT_PROMPT_CTX_BY_TYPE, 300M/1.92B lowered only by the budget knobs, frontmatter maxTurns). Fixed
+# guards (fan-out, depth, BlackCat, TTLs, MCP cap, images, policy, scale) are env only, never learned.
 # Every firing appends one line to <session>/limit-hits.jsonl and every human prompt boundary one
 # to <session>/prompt-windows.jsonl (numbers and ids only; stack_usage.py reads both).
 LIMITS_SCHEMA = 1
@@ -4840,6 +4840,9 @@ class Limits:
             return "built-in fallback: stack_limits.py unusable"
         o = self.origin.get(var) or "seed"
         env = limits_env_name(var)
+        if o == "env" and env and self.state != "ok":
+            return (f"set by {env}={self.get(var) or 0}, below the seed; this session's limits "
+                    f"snapshot is {self.state}")
         if o == "env" and env:
             return f"set by {env}={self.get(var) or 0} in this session's limits snapshot"
         if self.state != "ok":
@@ -4847,13 +4850,22 @@ class Limits:
         return f"origin {o} in this session's limits snapshot"
 
 
+def fallback_cap(name, default):
+    """A hard cap without a usable limits snapshot: `default`, lowered by the env override `name`
+    when that is a whole number above 0 and below it (stack_limits.fallback_values: on a fallback an
+    env value can only lower a hard cap, never raise it or turn it off; the user, 2026-10-08)."""
+    raw = os.environ.get(name, "").strip()
+    v = int(raw) if re.match(r"^[0-9]{1,13}\Z", raw) else 0
+    return v if 0 < v < default else default
+
+
 def builtin_limits():
     """The last-resort fallback: this file's constants (stack_limits.py or its seed unusable)."""
     values = {"soft.agent." + t: v for t, v in SOFT_LIMITS.items() if t != "blackcat"}
     values["soft.prompt"] = SOFT_PROMPT_CTX
     values.update({"soft.prompt." + t: v for t, v in SOFT_PROMPT_CTX_BY_TYPE.items()})
-    values["hard.prompt"] = knob_int("STACK_PROMPT_CTX_BUDGET", 300000000)
-    values["hard.session"] = knob_int("STACK_SESSION_CTX_BUDGET", 1920000000)
+    values["hard.prompt"] = fallback_cap("STACK_PROMPT_CTX_BUDGET", 300000000)
+    values["hard.session"] = fallback_cap("STACK_SESSION_CTX_BUDGET", 1920000000)
     return Limits(values, {}, None, "builtin")
 
 
@@ -4877,9 +4889,9 @@ def session_limits(ev, d=None):
                     r = mod.session_limits(sid, sdir=d)
                     lim = Limits(r["values"], r["origin"], r["snap"], r["state"])
                 else:
-                    seed = mod.load_seed()
-                    lim = Limits({v: x["seed"] for v, x in seed["vars"].items()},
-                                 {v: "seed" for v in seed["vars"]}, None, "nosession")
+                    vals, org = mod.fallback_values(mod.load_seed())
+                    lim = Limits(vals, {v: "env" if o == "env" else "seed" for v, o in org.items()},
+                                 None, "nosession")
             except Exception as exc:  # noqa: BLE001 - the built-in fallback takes over
                 warn_once(f"limits: session limits unreadable ({type(exc).__name__}: {exc}); "
                           "built-in fallback limits")

@@ -1111,6 +1111,52 @@ def test_tamper_and_session_limits(st, capsys, tmp_path):
     assert L.session_limits("s-late")["state"] == "ok" and L.read_snapshot("s-late")[1] == "ok"
 
 
+def test_fallback_env_only_lowers_hard_caps(st, monkeypatch, capsys, tmp_path):
+    """Without a usable snapshot (tampered, or missing and unwritable) every variable takes its seed;
+    a hard.* env override applies only below the seed (or where the seed leaves the cap off), never
+    to raise it or turn it off; turns keep the seed whatever the env says (the user, 2026-10-08)."""
+    s = L.load_seed()
+    monkeypatch.setenv("STACK_PROMPT_CTX_BUDGET", "1000")
+    monkeypatch.setenv("STACK_SESSION_CTX_BUDGET", "5000000000")       # above the seed: ignored
+    monkeypatch.setenv("STACK_HARDCTX_CODER", "7000000")                # the seed leaves it off
+    monkeypatch.setenv("STACK_MAXTURNS_CODER", "3")                     # not hard.*: ignored
+    vals, org = L.fallback_values(s)
+    assert (vals["hard.prompt"], org["hard.prompt"]) == (1000, "env")
+    assert (vals["hard.session"], org["hard.session"]) == (1920000000, "fallback")
+    assert (vals["hard.agent.coder"], org["hard.agent.coder"]) == (7000000, "env")
+    assert (vals["turns.coder"], org["turns.coder"]) == (s["vars"]["turns.coder"]["seed"], "fallback")
+    for raise_or_off in ("0", "300000000", "400000000"):
+        monkeypatch.setenv("STACK_PROMPT_CTX_BUDGET", raise_or_off)
+        assert L.fallback_values(s)[0]["hard.prompt"] == 300000000, raise_or_off
+    for k in ("STACK_SESSION_CTX_BUDGET", "STACK_HARDCTX_CODER", "STACK_MAXTURNS_CODER"):
+        monkeypatch.delenv(k)
+    # a tampered snapshot
+    monkeypatch.delenv("STACK_PROMPT_CTX_BUDGET")
+    path, _ = L.apply_and_snapshot({"session_id": "s-fb", "source": "startup"}, spawn=False)
+    os.chmod(path, 0o644)
+    Path(path).write_text(Path(path).read_text().replace('"hard.prompt":300000000', '"hard.prompt":300000001'))
+    sdir = str(tmp_path / "sdir")
+    monkeypatch.setenv("STACK_PROMPT_CTX_BUDGET", "1000")
+    r = L.session_limits("s-fb", sdir=sdir)
+    assert r["state"] == "tamper" and (r["values"]["hard.prompt"], r["origin"]["hard.prompt"]) == (1000, "env")
+    monkeypatch.setenv("STACK_PROMPT_CTX_BUDGET", "400000000")
+    r = L.session_limits("s-fb", sdir=sdir)
+    assert r["state"] == "tamper" and (r["values"]["hard.prompt"], r["origin"]["hard.prompt"]) == \
+        (300000000, "fallback")
+    # a missing snapshot that cannot be written
+    snaps = Path(L.snapshots_dir())
+    os.chmod(snaps, 0o500)
+    try:
+        r = L.session_limits("s-ro-1", sdir=sdir)
+        assert r["state"] == "missing" and r["values"]["hard.prompt"] == 300000000
+        monkeypatch.setenv("STACK_PROMPT_CTX_BUDGET", "1000")
+        r = L.session_limits("s-ro-2", sdir=sdir)
+        assert r["state"] == "missing" and r["values"]["hard.prompt"] == 1000
+    finally:
+        os.chmod(snaps, 0o700)
+    assert not (snaps / "s-ro-1.json").exists()
+
+
 def test_rows_reader_v1_v2_and_regime(st):
     v1 = [dict(row("old", "a1", ctx=5e6, ts=T0 - 10), schema_version=1) for _ in range(1)]
     write_csv(st / "usage" / "runs.csv", v1, V1_COLUMNS)
