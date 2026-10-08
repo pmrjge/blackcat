@@ -281,7 +281,9 @@ def _new_seg(a, idx=None):
                 "after": bool(a["prev_tl"]), "gap": None, "prev_peak": None,
                 # tool counts, the segment's written files (sha256 prefixes, dropped with the segment), commits
                 "tc": {}, "fw": {}, "gc": 0, "fctx": 0, "fwc": None, "cfw": None, "lsc": None, "ltxt": False,
-                "lhb": False,             # the last call holds a hand-back (HANDBACK_TOOL)
+                # lhb: the last call's hand-back (HANDBACK_TOOL) block id, else False; dlv/dsc: a hand-back of
+                # this segment was delivered ("success":true) and the STATUS code of the last one delivered
+                "lhb": False, "dlv": False, "dsc": None,
                 # the distinct model ids its calls reported (two are enough to say `mixed`)
                 "models": []}
     a["nseg"] += 1
@@ -356,12 +358,29 @@ def _on_blocks(cur, w, content):
             cur["gc"] += 1
         elif name == HANDBACK_TOOL:
             # the hand-back message is the run's final reply: its STATUS line wins over the call's text
-            w["hb"] = True
+            w["hb"] = bid
             msg = inp.get("message")
             if isinstance(msg, str) and msg.strip():
                 w["txt"] = True
                 mt = STATUS_RE.search(msg)
                 w["sc"] = STATUS_CODE[mt.group(1)] if mt else None
+
+
+def _delivered(hb, content):
+    """Whether a tool-result line holds the result of hand-back `hb` (its block id) and that result reports the
+    report delivered: the JSON text {"success": true, ...}."""
+    for b in content:
+        if not (isinstance(b, dict) and b.get("type") == "tool_result"):
+            continue
+        if isinstance(hb, str) and not hb.startswith("@") and b.get("tool_use_id") != hb:
+            continue
+        try:
+            doc = json.loads(text_of(b.get("content")).strip() or "null")
+        except ValueError:
+            continue
+        if isinstance(doc, dict) and doc.get("success") is True:
+            return True
+    return False
 
 
 def _on_call_line(a, r, m, u, out):
@@ -443,7 +462,7 @@ def _on_call_line(a, r, m, u, out):
     if cur["fwc"] == w["i"] and w["wr"]:
         cur["cfw"] = ctx                    # the first repo-writing call's context
     if cur["lkey"] == key:
-        cur["lsc"], cur["ltxt"], cur["lhb"] = w["sc"], w["txt"], bool(w.get("hb"))
+        cur["lsc"], cur["ltxt"], cur["lhb"] = w["sc"], w["txt"], w.get("hb") or False
         t = epoch(ts)
         if t is not None:
             cur["lts"] = t
@@ -486,6 +505,11 @@ def feed_line(a, line, out):
             return
         if a["cur"] is None:
             _new_seg(a)
+        cur = a["cur"]
+        if cur.get("lhb") and _delivered(cur["lhb"], c):
+            # the caller holds this report: what the run writes after it (a background task's wake-up) reaches
+            # no one, so its STATUS stays the segment's code; a later delivered hand-back replaces it
+            cur["dlv"], cur["dsc"] = True, cur["lsc"]
         a["last_kind"] = "tr"
         a["last_evt"] = None
 
@@ -522,12 +546,14 @@ def feed_main_line(a, line, out):
 
 def _status_code(cur, status, tl, end):
     """0 done, 1 partial or failed, 2 blocked; empty while the segment is open or when it ended on a tool call.
-    The STATUS line of the segment's last call wins; a text-only last call without one is a clean finish
-    (0); a segment cut by the turn limit is at least partial."""
+    The STATUS line of the last delivered hand-back wins, else that of the segment's last call; a text-only
+    last call without one is a clean finish (0); a segment cut by the turn limit is at least partial."""
     if status == "partial":
         return ""
     code = None
-    if end == "end" and cur["ltxt"]:
+    if cur.get("dlv"):
+        code = cur["dsc"] if cur.get("dsc") is not None else 0
+    elif end == "end" and cur["ltxt"]:
         code = cur["lsc"] if cur["lsc"] is not None else 0
     if tl and code != 2:
         code = 1

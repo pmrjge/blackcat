@@ -52,6 +52,7 @@ F = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read
 RESUME_RE = re.compile(r"^(Another Claude session|The coordinator) sent a message while you were working")
 COMPACT_RE = re.compile(r"^This session is being continued from a previous conversation")
 TURN_LIMIT_RE = re.compile(r"turn limit", re.I)
+HANDBACK_TOOL = "SubagentHandback"     # the run's report: an ending on its tool result is no turn-limit cut
 LIVE_S = 600
 SEED = 20261002
 FT_REJECT = 0.10
@@ -119,7 +120,7 @@ def read_records(path):
             c = calls.get(key)
             if c is None:
                 c = calls[key] = {f: 0 for f in F}
-                c.update(ts=r.get("timestamp"), model=m.get("model"), tools=set())
+                c.update(ts=r.get("timestamp"), model=m.get("model"), tools=set(), hb=False)
                 MODELS[m.get("model")] = MODELS.get(m.get("model"), 0) + 1
                 ev.append(("call", c))
             for f in F:
@@ -127,6 +128,7 @@ def read_records(path):
             for b in m.get("content") or []:
                 if isinstance(b, dict) and b.get("type") == "tool_use":
                     c["tools"].add(b.get("id"))
+                    c["hb"] = c["hb"] or b.get("name") == HANDBACK_TOOL
             c["last_ts"] = r.get("timestamp")
         elif t == "user":
             m = r.get("message") or {}
@@ -137,15 +139,21 @@ def read_records(path):
 
 
 def segments_of(ev):
-    segs, cur, last_kind = [], None, None
+    segs, cur, last_kind, last_hb = [], None, None, False
+
+    def end():
+        # a last call that hands back (SubagentHandback) ends the run with its report, tool result or not
+        return "end" if last_kind in ("tool", "tr") and last_hb else last_kind
+
     for kind, e in ev:
         if kind == "user" and not e["tr"]:
             t = e["text"]
-            if cur is None or (RESUME_RE.match(t) and last_kind in ("end", "tr")):
-                if cur is not None and last_kind == "tr" and TURN_LIMIT_RE.search(t):
+            if cur is None or (RESUME_RE.match(t) and end() in ("end", "tr")):
+                if cur is not None and end() == "tr" and TURN_LIMIT_RE.search(t):
                     cur["turn_limit"] = True
                 cur = dict(calls=[], compactions=0, turn_limit=False)
                 segs.append(cur)
+                last_hb = False
             elif COMPACT_RE.match(t):
                 cur["compactions"] += 1
             continue
@@ -157,8 +165,9 @@ def segments_of(ev):
         else:
             cur["calls"].append(e)
             last_kind = "tool" if e["tools"] else "end"
+            last_hb = bool(e.get("hb"))
     if segs:
-        segs[-1]["end"] = last_kind
+        segs[-1]["end"] = end()
     return segs
 
 
