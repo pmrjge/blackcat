@@ -138,6 +138,9 @@ F = ("input_tokens", "output_tokens", "cache_creation_input_tokens", "cache_read
 RESUME_RE = re.compile(r"^(Another Claude session|The coordinator) sent a message while you were working")
 COMPACT_RE = re.compile(r"^This session is being continued from a previous conversation")
 TURN_LIMIT_RE = re.compile(r"turn limit", re.I)
+# the tool call that ends a subagent's run with its report (input `message`); the transcript then ends on its
+# tool result, which is no turn-limit cut (stack_report.py reads the same message)
+HANDBACK_TOOL = "SubagentHandback"
 TEXT_HEAD = 300           # derive_thresholds matches only the first 300 characters of a user message
 LIVE_S = 600
 
@@ -278,11 +281,22 @@ def _new_seg(a, idx=None):
                 "after": bool(a["prev_tl"]), "gap": None, "prev_peak": None,
                 # tool counts, the segment's written files (sha256 prefixes, dropped with the segment), commits
                 "tc": {}, "fw": {}, "gc": 0, "fctx": 0, "fwc": None, "cfw": None, "lsc": None, "ltxt": False,
+                "lhb": False,             # the last call holds a hand-back (HANDBACK_TOOL)
                 # the distinct model ids its calls reported (two are enough to say `mixed`)
                 "models": []}
     a["nseg"] += 1
     if a["prev"]:
         a["cur"]["prev_peak"] = a["prev"]["peak"]
+
+
+def end_kind(a):
+    """How the current segment ends: "end" (a text-only last call, or a last call that hands back: the run's
+    report, whether or not its tool result is written yet), "tool" (a tool call without its result yet),
+    "tr" (a tool result: cut there, the turn-limit ending once the transcript is final), or None."""
+    end = a["last_kind"]
+    if end in ("tool", "tr") and a["cur"] is not None and a["cur"].get("lhb"):
+        return "end"
+    return end
 
 
 def _finish_seg(a, out):
@@ -291,7 +305,7 @@ def _finish_seg(a, out):
     if cur is None:
         return
     if cur["n"]:
-        out.append(seg_row_values(cur, "complete", bool(cur["tl"]), a["last_kind"], a["main"]))
+        out.append(seg_row_values(cur, "complete", bool(cur["tl"]), end_kind(a), a["main"]))
         if not a["main"]:
             a["prev"] = {"peak": cur["peak"], "lts": cur["lts"]}
     a["prev_tl"] = bool(cur["tl"])
@@ -314,7 +328,7 @@ def _on_blocks(cur, w, content):
             if isinstance(txt, str) and txt.strip():
                 w["txt"] = True
                 mt = STATUS_RE.search(txt)
-                if mt:
+                if mt and not w.get("hb"):        # a streamed repeat of the text never overrides the hand-back
                     w["sc"] = STATUS_CODE[mt.group(1)]
             continue
         if b.get("type") != "tool_use":
@@ -340,6 +354,14 @@ def _on_blocks(cur, w, content):
                         cur["fwc"] = w["i"]
         elif name == "Bash" and COMMIT_RE.search(str(inp.get("command", ""))):
             cur["gc"] += 1
+        elif name == HANDBACK_TOOL:
+            # the hand-back message is the run's final reply: its STATUS line wins over the call's text
+            w["hb"] = True
+            msg = inp.get("message")
+            if isinstance(msg, str) and msg.strip():
+                w["txt"] = True
+                mt = STATUS_RE.search(msg)
+                w["sc"] = STATUS_CODE[mt.group(1)] if mt else None
 
 
 def _on_call_line(a, r, m, u, out):
@@ -421,7 +443,7 @@ def _on_call_line(a, r, m, u, out):
     if cur["fwc"] == w["i"] and w["wr"]:
         cur["cfw"] = ctx                    # the first repo-writing call's context
     if cur["lkey"] == key:
-        cur["lsc"], cur["ltxt"] = w["sc"], w["txt"]
+        cur["lsc"], cur["ltxt"], cur["lhb"] = w["sc"], w["txt"], bool(w.get("hb"))
         t = epoch(ts)
         if t is not None:
             cur["lts"] = t
@@ -453,8 +475,8 @@ def feed_line(a, line, out):
         c = m.get("content") if isinstance(m, dict) else None
         if not is_tool_result(c):
             txt = text_of(c)[:TEXT_HEAD]
-            if a["cur"] is None or (RESUME_RE.match(txt) and a["last_kind"] in ("end", "tr")):
-                if a["cur"] is not None and a["last_kind"] == "tr" and TURN_LIMIT_RE.search(txt):
+            if a["cur"] is None or (RESUME_RE.match(txt) and end_kind(a) in ("end", "tr")):
+                if a["cur"] is not None and end_kind(a) == "tr" and TURN_LIMIT_RE.search(txt):
                     a["cur"]["tl"] = True
                 _finish_seg(a, out)
                 _new_seg(a)
@@ -555,7 +577,7 @@ def current_row(a, live):
     cur = a["cur"]
     if cur is None or not cur["n"]:
         return None
-    end = a["last_kind"]
+    end = end_kind(a)
     if a["main"]:                 # the last window is open while the transcript is growing
         return seg_row_values(cur, "partial" if live else "complete", False, end, True)
     status = "partial" if (end in ("tool", "tr") and live) else "complete"
