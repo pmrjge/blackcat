@@ -125,20 +125,8 @@ def _changelog_before_move(lines):
     return out
 
 
-def _handoff_section_8(lines):
-    """hand_off/HANDOFF_STATE.md '## 8.' (the progress rows, a log of what was done under the old names)."""
-    out, on = set(), False
-    for i, line in enumerate(lines):
-        if line.startswith("## "):
-            on = line.startswith("## 8.")
-        if on:
-            out.add(i)
-    return out
-
-
 LINE_EXEMPT = {
     "CONFIG.md": _changelog_before_move,
-    "hand_off/HANDOFF_STATE.md": _handoff_section_8,
     # the dated amendments (append only), each in the names of its day; A9 records the move itself
     "dot-config/dot-equilibrium/COMPARE_eq.md": _section("## 12."),
     # the A9 note and a dated record
@@ -169,11 +157,6 @@ LINE_EXEMPT = {
     "dot-config/dot-equilibrium/harness/tests/test_shell.py": _lines(r'^\s*eq = w / "equilibrium"$'),
     "dot-config/dot-equilibrium/harness/tests/test_calibrate_mutants.py":
         _lines(r'^\s*root = tmp_path / mid / "equilibrium"$'),
-    # tools/instructor is guard-protected: the user applies its path update (.claude-work/dot-config/check_suite/);
-    # until then these three lines name the old guard path. Once applied, test_exemptions_still_apply asks to drop them.
-    "tools/instructor/bin/check_suite.py": _lines(r'"dot-claude/hooks/agent_guard\.py"'),
-    "tools/instructor/tests/test_instr_check_suite.py": _lines(r'"dot-claude/hooks/agent_guard\.py"'),
-    "tools/instructor/tests/test_instr_ff_merge.py": _lines(r'"dot-claude/hooks/agent_guard\.py"'),
     # the c0 arm's commits (a22c5b4, 7d12c58, the installed 73eec41) hold the pre-move layout
     "hand_off/RUNBOOK_c0.md": _lines(r"\b(?:a22c5b4|7d12c58|73eec41)\b"),
 }
@@ -374,7 +357,6 @@ def test_frozen_and_line_exemptions():
     log = ["## 8. Validation", "x", "## 9. Changelog", "intro", "### 2026-10-07 (new)", "a", "### 2026-10-06 (old)", "b",
            "### 2026-10-05 (older)", "c", "## 10. Tail", "d"]
     assert _changelog_before_move(log) == {6, 7, 8, 9}
-    assert _handoff_section_8(["## 7. x", "a", "## 8. Progress", "b", "c", "## 9. Next", "d"]) == {2, 3, 4}
     assert frozen("dot-config/dot-equilibrium/isolation/RUNBOOK_MINIMAL.md") and frozen("lib/eq-wall/INSTALLER_WALL.md")
     assert not frozen("tools/instructor/bin/check_suite.py")
     assert not frozen("dot-config/dot-equilibrium/COMPARE_eq.md") and not frozen("install.sh")
@@ -382,6 +364,14 @@ def test_frozen_and_line_exemptions():
     assert _lines(r"^OLD = ")(["x", "OLD = 1", "NOLD = 2"]) == {1}
     src = ["def t_new():", "    pass", "", "def t_old():", '    """doc', '    """', "    pass", "x = 1"]
     assert _defs("t_old")(src) == {3, 4, 5, 6}
+
+
+def test_instructor_files_no_longer_name_the_old_guard_path():
+    """The instructor patch is on main: its three files carry the new path and need no line exemption."""
+    for rel in ("tools/instructor/bin/check_suite.py", "tools/instructor/tests/test_instr_check_suite.py",
+                "tools/instructor/tests/test_instr_ff_merge.py"):
+        assert rel not in LINE_EXEMPT
+        assert '"dot-claude/hooks/agent_guard.py"' not in (ROOT / rel).read_text(encoding="utf-8"), rel
 
 
 def test_exemptions_still_apply():
