@@ -17,7 +17,7 @@
 ## Tools
 - Cheapest reliable path first: an installed CLI (jq, git, rg, ffmpeg, sips/magick, pandoc, read-only gh) that does the job comes before an MCP call or a spawn.
 - Python runs through uv (`uv run`/`uv add`, `uv run --script` for PEP 723, `uv run --with`, `uvx`); no bare `python`/`python3`/`pip`, no venv made outside uv. Exceptions: the stack's venvs (`__CLAUDE_DIR__/venvs/<name>/bin/python`); a project pinned to poetry, conda or pixi; the hooks' absolute interpreter (`/usr/bin/python3 …/agent_guard.py`).
-- Keep results small: Grep `files_with_matches`/`count` first; big files by `offset`/`limit`; build output, deps, data, media only if needed. No identical repeats (bar a read-gate retry).
+- Keep results small: Grep `files_with_matches`/`count` first; big files by `offset`/`limit`; build output, deps, data, media only if needed; builds/tests: `__CLAUDE_DIR__/bin/stack-run -- cmd`. No identical repeats (bar a read-gate retry).
 - Load a skill only when the step at hand needs it, with the Skill tool by name (a plugin's as `plugin:skill`); Skills lines are lookups. Hub modules (`name`* there) are unlisted: Read `__CLAUDE_DIR__/skills/<name>/SKILL.md` (the Skill tool refuses them). After compaction, re-read a skill only if the task still needs it.
 - Web ladder: WebSearch → WebFetch (one page) → mcp__jina (clean page/PDF, arXiv) → mcp__exa (semantic, code/docs) → spider crawl (researcher only). Stop once answered; searches are capped per session.
 - MCP: only agents whose `tools:` line names a server can call it; any other server: mcp-broker mounts it and runs the calls.

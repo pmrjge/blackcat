@@ -1526,8 +1526,8 @@ stage_script 644 hooks/agent_effort.json
 stage_script 755 hooks/web_caps.py
 # the token gate on reads of build output, dependencies, data, media and binaries (PreToolUse Read|Grep|Glob|Bash)
 stage_script 755 hooks/read_gate.py
-# the output shrink (PostToolUse Bash|Read; shadow mode by default: logs, never changes output): loads
-# bin/stack-tree's credential tables for its spill copies
+# the output shrink (PostToolUse Bash|Read; by default cuts large successful Bash results, logs the rest
+# in shadow): loads bin/stack-tree's credential tables for its spill copies; bin/stack-run imports it
 stage_script 755 hooks/output_shrink.py
 # the hand-back protocol's parser and checks (STACK_REPORT_FORMAT): imported by agent_guard.py, beside it
 stage_script 644 hooks/stack_report.py
@@ -1551,6 +1551,8 @@ for f in derive_sched_model.py derive_thresholds.py; do
 done
 for f in statusline.py doctor.sh with-stack-env mcp-headers magg-private claude-ultracode stack_sdk.py stack-budget stack-tree; do stage_script 755 "bin/$f"; done
 stage_script 755 "bin/stack-who"
+# builds and tests with their output in a log (imports hooks/output_shrink.py for the masker and the lines)
+stage_script 755 "bin/stack-run"
 stage_script 755 "bin/stack-install"
 # the runtime Equilibrium (docs/RUNTIME_EQUILIBRIUM.md): its policy, core, CLI, isolation and guard
 # modules (agent_guard.py loads eq_guard.py like toolsmith_policy.py), the params file (pinned by sha256 in
@@ -2180,7 +2182,7 @@ STACK_SCRIPTS = ["hooks/agent_guard.py", "hooks/stack_hook.py", "bin/stack-hook"
                  "hooks/stack_limits.py", "hooks/stack_limits_seed.json", "hooks/stack_fanout.py", "hooks/stack_fanout_wire.py",
                  "hooks/derive_thresholds.py", "bin/statusline.py", "bin/doctor.sh", "bin/with-stack-env",
                  "bin/mcp-headers", "bin/magg-private", "bin/claude-ultracode", "bin/stack_sdk.py", "bin/stack-budget",
-                 "bin/stack-tree",
+                 "bin/stack-tree", "bin/stack-run",
                  "bin/stack-who", "bin/stack-install", "hooks/toolsmith_policy.py",
                  "hooks/eq_core.py", "hooks/eq_policy.py", "hooks/eq_cli.py", "hooks/eq_isolation.py", "hooks/eq_guard.py",
                  "hooks/eq_params.json", "hooks/eq_lenses.json", "hooks/eq_schemas.json", "bin/stack-eq", "bin/stack-eq-check",

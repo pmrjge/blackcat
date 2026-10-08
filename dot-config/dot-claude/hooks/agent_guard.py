@@ -786,6 +786,13 @@ def _blackcat_web_text(cmd):
                 break                                  # bash x.sh: a script file, not seen
             if word in ("source", ".") and raw[i + 1:i + 2] and raw[i + 1] in BLACKCAT_STDIN_SCRIPTS:
                 return True                            # source /dev/stdin
+            if word in ARGV_RUNNERS or (BLACKCAT_INLINE_INTERP_RE.match(word)
+                                        and ARGV_RUNNERS & set(words[i + 1:i + 4])):
+                k = next((j for j in range(i + 1, len(words)) if words[j] == "--"), None)
+                if k is None:
+                    break
+                skip, via_find = k + 1, False
+                continue                               # stack-run [options] -- CMD: CMD decides
             if (word in BLACKCAT_CMD_PREFIXES or word[:1] in "-+" or word[:1].isdigit()
                     or BLACKCAT_ASSIGN_RE.match(word)):
                 continue
@@ -6485,6 +6492,9 @@ SHELLS = {"sh", "bash", "rbash", "zsh", "dash", "ksh", "ksh93", "mksh", "pdksh",
 # programs that run their (joined) arguments as shell code
 STRING_RUNNERS = {"eval", "ssh", "watch", "su", "runuser", "script", "flock", "tmux", "screen",
                   "parallel", "expect", "iex", "invoke-expression"}
+# programs that run the words after their first `--` as a command (argv, no shell), wherever they
+# stand (after timeout, xargs, an interpreter): bin/stack-run [--name N] [--tail K] [--grep P] -- CMD
+ARGV_RUNNERS = {"stack-run"}
 HEREDOC_RUNNERS = SHELLS | {"eval", "ssh"}           # read a heredoc on stdin as commands
 INTERPRETER_RE = re.compile(r"(?:python|pypy|perl|ruby|node|nodejs|deno|bun|php|lua|luajit|"
                             r"osascript|Rscript|R|julia)[\d.]*(?:\.exe)?\Z")
@@ -8148,7 +8158,7 @@ class _Scan(object):
         ends = [n] * (n + 1)                   # ends[k]: the first separator at or after k
         for k in range(n - 1, -1, -1):
             ends[k] = k if SEP_RE.match(words[k]) else ends[k + 1]
-        covered = stdin_done = stmt_start = 0  # covered, stdin_done: words already re-scanned
+        covered = stdin_done = stmt_start = argv_done = 0  # covered, stdin_done, argv_done: words already re-scanned
         cmd_pos, xargs_seen, head = True, False, None   # head: this simple command's program
         env_cfg, env_checked = None, False     # git config from the environment (_env_config)
         for i, w in enumerate(words):
@@ -8246,6 +8256,12 @@ class _Scan(object):
                         if not x.lower().startswith(("-argumentlist", "-filepath", "-wait",
                                                      "-nonewwindow"))]
                 found = self.scan(" ".join(a.replace(",", " ") for a in args), depth + 1)
+            if not found and base in ARGV_RUNNERS and i >= argv_done:
+                # stack-run ... -- CMD ARG...: CMD is scanned again from its own command position
+                # (this pass reads it as stack-run's arguments)
+                k = next((j for j in range(i + 1, end) if words[j] == "--"), end)
+                argv_done = end
+                found = self.scan_words(words[k + 1:end], depth + 1, restore) if k + 1 < end else None
             runner = base in SHELLS or lbase in STRING_RUNNERS or base == "alias" \
                 or INTERPRETER_RE.match(base)
             if not found and runner and i >= covered:
@@ -9430,7 +9446,10 @@ RO_WRAPPERS = {"time": {"-f", "--format", "-o", "--output"}, "nice": {"-n", "--a
                "timeout": {"-s", "--signal", "-k", "--kill-after"},
                "gtimeout": {"-s", "--signal", "-k", "--kill-after"}, "command": set(),
                "builtin": set(), "noglob": set(), "caffeinate": {"-t", "-w"}, "chronic": set(),
-               "env": {"-u", "--unset"}, "exec": {"-a"}}
+               "env": {"-u", "--unset"}, "exec": {"-a"},
+               "stack-run": {"--name", "--tail", "--grep"}}      # its log goes to .claude-work/runs
+# bin/stack-run by its path: the stack's own copy is a wrapper (any other is read like a script)
+RO_STACK_RUN = os.path.join(os.path.dirname(_HOOKS_DIR), "bin", "stack-run")
 RO_KEYWORDS = {"if", "then", "else", "elif", "do", "while", "until", "!", "{", "}", "fi", "done"}
 RO_VERSION_FLAGS = {"--version", "-V", "--help", "-h", "-help", "--usage"}
 RO_WRITERS = {"mkdir", "touch", "rm", "rmdir", "unlink", "tee", "truncate", "chmod", "ln", "cp",
@@ -10423,6 +10442,8 @@ class _ReadOnly(object):
 
     def by_path(self, head, args, ctx, depth, what):
         a = self.resolve(head)
+        if os.path.realpath(a) == os.path.realpath(RO_STACK_RUN):
+            return self.wrapper("stack-run", args[1:], ctx, depth, what)
         d = os.path.dirname(a)
         user_bins = [os.path.join(self.home, x) for x in (".local/bin", ".cargo/bin", "go/bin")]
         # a trusted entry point by its directory, unless that directory is scratch: a scratch

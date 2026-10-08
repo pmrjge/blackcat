@@ -1,0 +1,317 @@
+#!/usr/bin/python3 -B
+"""stack-run - a build, a test suite or any long command with its output in a log, not in the context.
+
+  stack-run [--name N] [--tail K] [--grep PATTERN] -- CMD [ARG ...]
+
+Runs CMD with its ARGs (no shell; stdin inherited) and streams its stdout and stderr, merged, to
+<cwd>/.claude-work/runs/<name>-<YYYYmmdd-HHMMSS>.log (directory 0700 with a `*` .gitignore, file 0600,
+credentials masked by the output shrink's masker), then prints exactly one line:
+
+  PASS|FAIL rc=<exit status> <seconds>s lines=<output lines> log=<path>
+
+and after it, on FAIL only, up to K decisive lines of the output (the output shrink's selection: error
+lines first, then summaries, tail and head), with --grep up to K lines matching PATTERN (PASS or FAIL),
+each as `L<n>: <line>`, n its line in the log. Read the log only for the part you need (offset/limit, grep).
+
+  --name N        the log's name: characters outside [A-Za-z0-9._-] become `_`, no leading `.` or `-`, at
+                  most 64 characters (default: the command's base name)
+  --tail K        decisive and matching lines to print, 0-1000 (default 20)
+  --grep PATTERN  a Python regular expression searched in each (masked) output line
+
+The command is everything after the first `--` (required; an option value cannot be `--`). Exit status:
+the command's; 127 when it is not found, 126 when it cannot be run, 128+N when signal N ended it (SIGINT
+and SIGTERM are passed on to it); 2 for a usage error, before anything runs. Output that is not UTF-8 is
+decoded with replacement characters; a line longer than 1 MiB is logged in 1 MiB pieces; only the
+lines the selection can reach are held in memory.
+
+Each run appends one size row (tool "stack-run": characters and lines seen, characters and lines
+printed, rc) to <project>/.claude-work/output-shrink/log.jsonl, which `output_shrink.py --report` reads.
+The masker and the selection come from hooks/output_shrink.py (repository: ../hooks; installed:
+<config>/hooks; STACK_HOOKS_DIR overrides). Without it or without bin/stack-tree's credential tables no
+log is written (nothing unmasked reaches the disk): the line says log=- and FAIL shows the last K lines.
+Without a safe log directory (not `/`, $HOME or a Claude config directory, no symlink on the way) the
+line says log=- too. Python 3.9+, stdlib only.
+"""
+import codecs
+import collections
+import os
+import re
+import shlex
+import signal
+import subprocess
+import sys
+import time
+
+sys.dont_write_bytecode = True      # the hooks' modules load from <config>/hooks: no __pycache__ beside them
+HERE = os.path.dirname(os.path.realpath(__file__))
+NAME_MAX = 64
+TAIL_DEFAULT, TAIL_MAX = 20, 1000
+CHUNK = 1 << 16
+LINE_SPLIT = 1 << 20
+FAILED_START = {FileNotFoundError: 127}      # any other OSError at exec: 126
+
+
+class Usage(Exception):
+    pass
+
+
+def hooks_dir():
+    return os.environ.get("STACK_HOOKS_DIR") or os.path.join(os.path.dirname(HERE), "hooks")
+
+
+def load_shrink():
+    """hooks/output_shrink.py as a module, or None (with the reason on stderr)."""
+    import importlib.util
+    try:
+        spec = importlib.util.spec_from_file_location("output_shrink_for_run",
+                                                      os.path.join(hooks_dir(), "output_shrink.py"))
+        m = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(m)
+        return m
+    except Exception as exc:  # noqa: BLE001 - any failure: run without a log, never without the command
+        warn("cannot load hooks/output_shrink.py (%s); no log, FAIL shows the last lines" % type(exc).__name__)
+        return None
+
+
+def warn(msg):
+    sys.stderr.write("stack-run: %s\n" % msg)
+
+
+def sanitize(name):
+    s = re.sub(r"[^A-Za-z0-9._-]", "_", name).lstrip(".-")[:NAME_MAX]
+    return s or "run"
+
+
+def parse(argv):
+    """(name, tail, compiled grep or None, command argv). The command starts after the first `--`."""
+    if "--" not in argv:
+        raise Usage("missing `--` before the command")
+    i = argv.index("--")
+    opts, cmd = argv[:i], argv[i + 1:]
+    if not cmd:
+        raise Usage("no command after `--`")
+    vals, k = {}, 0
+    while k < len(opts):
+        key, eq, val = opts[k].partition("=")
+        if key not in ("--name", "--tail", "--grep"):
+            raise Usage("unknown option %r" % opts[k][:40])
+        if eq:
+            k += 1
+        elif k + 1 < len(opts):
+            val, k = opts[k + 1], k + 2
+        else:
+            raise Usage("%s needs a value" % key)
+        vals[key] = val
+    try:
+        tail = int(vals.get("--tail", TAIL_DEFAULT))
+    except ValueError:
+        tail = -1
+    if not 0 <= tail <= TAIL_MAX:
+        raise Usage("--tail takes 0..%d" % TAIL_MAX)
+    try:
+        grep = re.compile(vals["--grep"]) if "--grep" in vals else None
+    except re.error as exc:
+        raise Usage("bad --grep pattern: %s" % exc)
+    return sanitize(vals.get("--name") or os.path.basename(cmd[0])), tail, grep, cmd
+
+
+def open_log(m, cwd, name):
+    """(binary file, absolute path) of a new 0600 log under <cwd>/.claude-work/runs, or (None, None)."""
+    root = m.safe_root(cwd)
+    if root is None:
+        warn("no log under %s (/, $HOME or a Claude config directory)" % cwd)
+        return None, None
+    try:
+        dfd = m.work_dir(root, "runs")
+    except OSError as exc:
+        warn("no log directory (%s)" % exc.__class__.__name__)
+        return None, None
+    try:
+        stamp = time.strftime("%Y%m%d-%H%M%S")
+        for n in range(100):
+            fname = "%s-%s%s.log" % (name, stamp, "-%d" % n if n else "")
+            try:
+                fd = os.open(fname, os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_NOFOLLOW, 0o600, dir_fd=dfd)
+            except FileExistsError:
+                continue
+            os.fchmod(fd, 0o600)
+            return os.fdopen(fd, "wb", buffering=CHUNK), os.path.join(root, ".claude-work", "runs", fname)
+        warn("no free log name")
+    except OSError as exc:
+        warn("no log file (%s)" % exc.__class__.__name__)
+    finally:
+        os.close(dfd)
+    return None, None
+
+
+def scrubber(m):
+    """The output shrink's masker for this run, or None (no tables: nothing unmasked is written)."""
+    try:
+        return m.Scrubber()
+    except Exception as exc:  # noqa: BLE001
+        warn("credential tables unavailable (%s); no log, FAIL shows the last lines" % type(exc).__name__)
+        return None
+
+
+def short(s, keep=300):
+    """A held line when output_shrink is missing (its cut_line otherwise)."""
+    return s if len(s) <= keep else s[:keep] + "… [+%d chars]" % (len(s) - keep)
+
+
+class Sink:
+    """Every output line: counted, masked, logged, offered to the selection and to --grep. Without
+    the masker the selection is the last lines (no log is open then)."""
+
+    def __init__(self, m, scrub, log, tail, grep):
+        self.scrub, self.log, self.tail, self.grep = scrub, log, tail, grep
+        self.digest = m.StreamDigest() if scrub is not None else collections.deque(maxlen=max(1, tail))
+        self.cut = m.cut_line if scrub is not None else short
+        self.lines, self.chars, self.matches, self.log_error = 0, 0, [], None
+
+    def line(self, s):
+        self.lines += 1
+        if self.scrub is not None:
+            s = self.scrub.line(s)
+        if self.log is not None:
+            try:
+                self.log.write(s.encode("utf-8", "replace") + b"\n")
+            except OSError as exc:
+                self.log_error = exc.__class__.__name__
+                self.close()
+        if isinstance(self.digest, collections.deque):
+            self.digest.append((self.lines, short(s)))
+        else:
+            self.digest.add(s)
+        if self.grep is not None and len(self.matches) < self.tail and self.grep.search(s):
+            self.matches.append((self.lines, self.cut(s)))
+
+    def close(self):
+        if self.log is not None:
+            try:
+                self.log.close()
+            except OSError as exc:
+                self.log_error = self.log_error or exc.__class__.__name__
+            self.log = None
+
+    def decisive(self):
+        if isinstance(self.digest, collections.deque):
+            return list(self.digest)[-self.tail:] if self.tail else []
+        return self.digest.pick(self.tail)
+
+
+def pump(fd, sink):
+    """Read the merged output to EOF: decode (invalid UTF-8 replaced), split into lines."""
+    dec = codecs.getincrementaldecoder("utf-8")(errors="replace")
+    pending = ""
+    while True:
+        chunk = os.read(fd, CHUNK)
+        text = dec.decode(chunk, final=not chunk)
+        sink.chars += len(text)
+        pending += text
+        parts = pending.split("\n")
+        pending = parts.pop()
+        for s in parts:
+            sink.line(s)
+        while len(pending) > LINE_SPLIT:
+            sink.line(pending[:LINE_SPLIT])
+            pending = pending[LINE_SPLIT:]
+        if not chunk:
+            break
+    if pending:
+        sink.line(pending)
+
+
+def run(cmd, sink):
+    """The command's exit status, its output pumped into sink."""
+    try:
+        proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+    except OSError as exc:
+        rc = FAILED_START.get(type(exc), 126)
+        msg = "stack-run: cannot run %s: %s" % (cmd[0], "command not found" if rc == 127 else
+                                                exc.strerror or exc.__class__.__name__)
+        sink.chars += len(msg) + 1
+        sink.line(msg)
+        return rc
+
+    def forward(sig, _frame):
+        if proc.poll() is None:
+            try:
+                proc.send_signal(sig)
+            except OSError:
+                pass
+
+    old = {s: signal.signal(s, forward) for s in (signal.SIGINT, signal.SIGTERM)}
+    try:
+        pump(proc.stdout.fileno(), sink)
+        rc = proc.wait()
+    finally:
+        proc.stdout.close()
+        for s, h in old.items():
+            signal.signal(s, h)
+    return 128 - rc if rc < 0 else rc
+
+
+def record(m, cwd, cmd, sink, rc, secs, printed):
+    """One size row in <project>/.claude-work/output-shrink/log.jsonl; any failure skips it."""
+    try:
+        root = m.project_root({"cwd": cwd})
+        if root is None:
+            return
+        argv = shlex.join(cmd)
+        kept = sum(len(x) + 1 for x in printed)
+        row = {"v": 1, "ts": round(time.time(), 3),
+               "sid": (os.environ.get("CLAUDE_CODE_SESSION_ID") or os.environ.get("CLAUDE_SESSION_ID") or "")[:80],
+               "aid": "", "atype": "", "tool": "stack-run", "mode": "on", "cls": "run",
+               "fam": m.family(argv), "key": m.h16(argv), "chars": sink.chars, "lines": sink.lines,
+               "kept_chars": kept, "kept_lines": len(printed), "rc": rc, "secs": round(secs, 1),
+               "cut": sink.chars > kept, "applied": True}
+        wfd = m.work_dir(root)
+        try:
+            m.append_row(wfd, row)
+        finally:
+            os.close(wfd)
+    except Exception:  # noqa: BLE001 - the measurement never fails a run
+        return
+
+
+def main(argv):
+    if argv[:1] in (["-h"], ["--help"]):
+        sys.stdout.write(__doc__.split("\n\n", 1)[1])
+        return 0
+    try:
+        name, tail, grep, cmd = parse(argv)
+    except Usage as exc:
+        warn("%s\nusage: stack-run [--name N] [--tail K] [--grep PATTERN] -- CMD [ARG ...]" % exc)
+        return 2
+    m = load_shrink()
+    scrub = scrubber(m) if m is not None else None
+    cwd = os.getcwd()
+    log, path = open_log(m, cwd, name) if scrub is not None else (None, None)
+    sink = Sink(m, scrub, log, tail, grep)
+    t0 = time.monotonic()
+    try:
+        rc = run(cmd, sink)
+    finally:
+        sink.close()
+    secs = time.monotonic() - t0
+    if sink.log_error:
+        warn("writing the log failed (%s): it is incomplete" % sink.log_error)
+    printed = ["%s rc=%d %.1fs lines=%d log=%s" % ("PASS" if rc == 0 else "FAIL", rc, secs, sink.lines,
+                                                   path or "-")]
+    shown = set()
+    for no, s in (sink.decisive() if rc != 0 else []) + sink.matches:
+        if no not in shown:
+            shown.add(no)
+            printed.append("L%d: %s" % (no, s.replace("\x00", "\\0")))
+    try:
+        sys.stdout.write("".join(x + "\n" for x in printed))
+        sys.stdout.flush()
+    except OSError:                       # stdout closed: the exit status still says it
+        pass
+    if m is not None:
+        record(m, cwd, cmd, sink, rc, secs, printed)
+    return rc
+
+
+if __name__ == "__main__":
+    sys.exit(main(sys.argv[1:]))
