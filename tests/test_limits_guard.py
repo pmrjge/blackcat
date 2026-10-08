@@ -336,12 +336,26 @@ def test_hard_prompt_and_session_deny_texts_name_the_snapshot(S):
     assert "stack_limits.py show" in why and "STATUS: partial" in why
     assert "stack_limits.py show" in msg and "install.sh" not in msg
     S.new()
-    S.start("startup")                     # live.json (seeded by the first start): 100M / 1.92B
+    S.start("startup")                     # live.json (seeded by the first start): 300M / 1.92B
     assert S.snapdoc()["origin"]["hard.session"] == "live"
     S.prompt("p1")
     S.main_calls(10)
     assert out(S.run(S.tool("Read")))[0] == "allow"
     assert [h["kind"] for h in S.hits()] == []
+
+
+def test_shipped_prompt_cap_is_300m(S):
+    """hard.prompt as shipped (2026-10-08, was 100M): a prompt may use 299,999,999 context tokens;
+    the call after 300,000,000 is refused, naming hard.prompt and its live origin."""
+    S.start("startup")
+    assert S.snapdoc()["values"]["hard.prompt"] == 300000000 and S.snapdoc()["origin"]["hard.prompt"] == "live"
+    S.prompt("p1")
+    S.main_calls(299999999)
+    assert out(S.run(S.tool("Read")))[0] == "allow"
+    S.main_calls(1)
+    d, why, _ = out(S.run(S.tool("Read")))
+    assert d == "deny" and why.startswith("Prompt token budget reached") and "300,000,000" in why
+    assert [h["kind"] for h in S.hits()] == ["soft_prompt", "hard_prompt"]     # the 33M warning came first
 
 
 def test_prompt_windows_one_line_per_human_prompt(S):

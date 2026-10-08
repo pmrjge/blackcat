@@ -2042,7 +2042,7 @@ def test_budget_prompt_left_pending_starts_on_the_main_thread(env, sess):
 
 
 # ---------------------------------------------------------------- soft token limits
-SHIPPED = {"STACK_PROMPT_CTX_BUDGET": "100000000", "STACK_SESSION_CTX_BUDGET": "666000000"}
+SHIPPED = {"STACK_PROMPT_CTX_BUDGET": "300000000", "STACK_SESSION_CTX_BUDGET": "1920000000"}
 
 
 def soft_out(p):
@@ -2134,19 +2134,19 @@ def test_soft_prompt_limit_once_per_human_prompt(env, sess):
 
 
 
-def test_soft_prompt_limit_80m_while_an_orchestrator_runs(env, sess):
-    """A running orchestrator raises the prompt limit from 33,000,000 to 80,000,000 (x 0.001:
-    33,000 -> 80,000); once it stops, 33,000,000 applies again."""
+def test_soft_prompt_limit_140m_while_an_orchestrator_runs(env, sess):
+    """A running orchestrator raises the prompt limit from 33,000,000 to 140,000,000 (x 0.001:
+    33,000 -> 140,000; 80,000,000 until 2026-10-08); once it stops, 33,000,000 applies again."""
     s, main, subs = sess
     extra = dict(SHIPPED, STACK_SOFT_LIMIT_SCALE="0.001")
     run(prompt_ev(s, main, "p1"), env, extra=extra)
     run(lifecycle(s, "SubagentStart", "O1", "orchestrator"), env)
-    append(main, call_line("m1", 79999))
+    append(main, call_line("m1", 139999))
     main_ev = tool_ev(s, main, "Read", agent_id=None, file_path="x")
     assert soft_out(budget_run(main_ev, env, extra=extra)) == ("allow", None)
     append(main, call_line("m2", 1))
     ctx = soft_out(budget_run(main_ev, env, extra=extra))[1]
-    assert "Soft token limit reached for this prompt" in ctx and "soft limit 80,000" in ctx
+    assert "Soft token limit reached for this prompt" in ctx and "soft limit 140,000" in ctx
     run(prompt_ev(s, main, "p2"), env, extra=extra)
     run(lifecycle(s, "SubagentStop", "O1", "orchestrator"), env)
     append(main, call_line("m3", 33000))
@@ -2166,7 +2166,7 @@ def test_soft_limits_leave_the_hard_caps_alone(env, sess):
     assert decision(p) == "deny" and reason(p).startswith("Prompt token budget reached")
     assert "Soft token limit" not in p.stdout
     shipped = json.loads((ROOT / "dot-config" / "dot-claude" / "settings.json").read_text())["env"]
-    # the hard budgets are learned limits (stack_limits.py seed: 100M / 666M), not shipped env knobs
+    # the hard budgets are learned limits (stack_limits.py seed: 300M / 1.92B), not shipped env knobs
     assert "STACK_PROMPT_CTX_BUDGET" not in shipped and "STACK_SESSION_CTX_BUDGET" not in shipped
     assert "STACK_SOFT_LIMIT_SCALE" not in shipped     # a process env value must reach the hooks
     # the main hook's own tools: the warning joins the handler's output

@@ -535,7 +535,8 @@ def test_install_seeds_live_json_once_and_retracts_the_budget_env(tmp_path):
     assert os.path.isfile(live), log[-2000:]
     first = _read(live)
     doc = json.loads(first)
-    assert doc["vars"]["hard.prompt"]["value"] == 100000000 and doc["version"] == 1
+    assert doc["vars"]["hard.prompt"]["value"] == 300000000 and doc["version"] == 1      # 100M until 2026-10-08
+    assert doc["vars"]["soft.prompt.orchestrator"]["value"] == 140000000                 # 80M until 2026-10-08
     for f in ("stack_limits.py", "stack_limits_seed.json", "agent_effort.json"):
         assert os.path.isfile(os.path.join(conf, "hooks", f)), f
     assert os.stat(os.path.join(conf, "hooks", "stack_limits.py")).st_mode & 0o111
@@ -565,7 +566,10 @@ def test_install_seeds_live_json_once_and_retracts_the_budget_env(tmp_path):
 def test_install_reseeds_unlearned_limits_and_keeps_learned_ones(tmp_path):
     """A live.json written by an older stack (hard.session still at its old seed 666M, untouched)
     takes the shipped seed on install; a frozen and a learned value stay. A session started after
-    the install snapshots hard.session = 1.92B with origin live."""
+    the install snapshots hard.session = 1.92B with origin live. The user-set prompt limits of
+    2026-10-08 reach a history learned under the old seed (hard.prompt 119,402,986 supported, the
+    orchestrator pin at 80M): not re-seeded, but the next session runs at their new floors, 300M
+    and 140M."""
     import subprocess
     home = str(tmp_path / "home")
     os.makedirs(home)
@@ -577,9 +581,13 @@ def test_install_reseeds_unlearned_limits_and_keeps_learned_ones(tmp_path):
     doc = json.loads(_read(live))
     V = doc["vars"]
     V["hard.session"]["value"] = 666000000
-    V["hard.prompt"]["frozen"] = 120000000
+    V["soft.prompt"]["frozen"] = 25000000
     V["soft.agent.coder"].update(value=25000000, status="supported", n=7, changed=1.0e9, prev=19000000,
                                  recent=[{"dec": "step", "sign": 1, "rel": 0.3}])
+    V["hard.prompt"].update(value=119402986, prev=100000000, status="supported", n=228, changed=1.0e9,
+                            recent=[{"dec": "dead", "sign": 0, "rel": 0.0}])
+    V["soft.prompt.orchestrator"].update(value=80000000, status="provisional", n=28,
+                                         recent=[{"dec": "dead", "sign": 0, "rel": 0.0}])
     with open(live, "w") as f:
         json.dump(doc, f)
     log = _install(repo, home, conf, "--yes")
@@ -587,7 +595,11 @@ def test_install_reseeds_unlearned_limits_and_keeps_learned_ones(tmp_path):
     V2 = json.loads(_read(live))["vars"]
     assert V2["hard.session"]["value"] == 1920000000 and V2["hard.session"]["frozen"] is None
     assert V2["hard.session"]["status"] == "unset"
-    assert V2["hard.prompt"]["frozen"] == 120000000 and V2["soft.agent.coder"]["value"] == 25000000
+    assert V2["soft.prompt"]["frozen"] == 25000000 and V2["soft.agent.coder"]["value"] == 25000000
+    assert "hard.prompt" not in log.split("reseeded from the new seed:", 1)[1].split("\n", 1)[0]
+    # learned under the old seed, so not re-seeded; read (and written back here) at the new floors
+    assert (V2["hard.prompt"]["value"], V2["soft.prompt.orchestrator"]["value"]) == (300000000, 140000000)
+    assert V2["hard.prompt"]["status"] == "supported"
     hooks = os.path.join(conf, "hooks")
     env = {k: v for k, v in os.environ.items() if not k.startswith(("STACK_", "CLAUDE_", "XDG_"))}
     env.update(HOME=home, CLAUDE_CONFIG_DIR=conf, XDG_STATE_HOME=os.path.join(home, ".local", "state"))
@@ -598,6 +610,9 @@ def test_install_reseeds_unlearned_limits_and_keeps_learned_ones(tmp_path):
                          env=env, check=True, stdout=subprocess.PIPE, text=True).stdout
     row = [x for x in out.splitlines() if x.startswith("hard.session ")][0].split()
     assert row[1:3] == ["1.92B", "1.92B"] and row[-1] == "live", out
+    snap = json.loads(_read(os.path.join(home, ".local", "state", "claude-agent-stack", "limits", "snapshots",
+                                         "s-after.json")))
+    assert (snap["values"]["hard.prompt"], snap["values"]["soft.prompt.orchestrator"]) == (300000000, 140000000)
 
 
 @pytest.mark.skipif(not os.path.isdir(os.path.join(ROOT, ".git")) and not os.path.isfile(

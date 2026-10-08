@@ -7,7 +7,7 @@ that no evidence, file or command can cross):
                                agent's frontmatter maxTurns, which stays the backstop)
   soft.agent.<type>            soft context limit per agent segment (seed: agent_guard SOFT_LIMITS)
   hard.agent.<type>            hard context cap per agent segment (seed: unset = off)
-  soft.prompt, hard.prompt     per human prompt (seed 33M / 100M)
+  soft.prompt, hard.prompt     per human prompt (seed 33M / 300M; hard.prompt user-set: seed = floor)
   soft.prompt.<type>           per human prompt while an agent of that type runs (agent_guard
                                SOFT_PROMPT_CTX_BY_TYPE, user-set: seed = floor, so the learner only
                                raises it; prompt_soft_limit() applies the largest running one)
@@ -145,7 +145,10 @@ OWN_HITS = {"turns": ("hit_turn", "turn_limited"), "soft.agent": ("hit_soft",),
 PAIR_RATIO = {"soft.agent": 0.8, "soft.prompt": 0.67, "soft.session": 0.8}   # soft <= ratio x hard
 # soft.prompt.<type> (agent_guard SOFT_PROMPT_CTX_BY_TYPE): the per-prompt soft limit while an agent
 # of that type runs, user-set; its seed is its floor, so only a user command can lower it. Its sample
-# is the prompt windows (main rows) in which such an agent ran (agent rows' `window`).
+# is the prompt windows (main rows) in which such an agent ran (agent rows' `window`). hard.prompt is
+# user-set too (2026-10-08: seed = floor = ceiling = 300M): a learned value below the floor is read
+# as the floor (validate_live), and soft.prompt.<type> <= ratio x hard.prompt holds for every
+# shipped pin (140M <= 0.67 x 300M), so the invariant never needs to raise it.
 ENV_PREFIX = {"turns": "STACK_MAXTURNS_", "soft.agent": "STACK_SOFTCTX_", "hard.agent": "STACK_HARDCTX_",
               "soft.prompt": "STACK_SOFT_PROMPT_CTX_"}
 ENV_SCOPE = {"soft.prompt": "STACK_SOFT_PROMPT_CTX", "hard.prompt": "STACK_PROMPT_CTX_BUDGET",

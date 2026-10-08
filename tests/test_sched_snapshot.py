@@ -164,7 +164,7 @@ def test_orchestrator_prompt_limit_follows_the_snapshot(st, monkeypatch):
     monkeypatch.setenv("CLAUDE_SESSION_ID", SID1)
     m = S.load_model()
     assert S.prompt_limit(m, ["coder"]) == 40000000
-    assert S.prompt_limit(m, ["coder", "orchestrator"]) == 80000000
+    assert S.prompt_limit(m, ["coder", "orchestrator"]) == 140000000
 
 
 GRAPH = {"nodes": [{"id": "A", "a": "coder", "n": 5}, {"id": "B", "a": "coder", "n": 5, "dep": ["A"], "resume": "A"}]}

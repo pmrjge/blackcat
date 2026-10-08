@@ -4725,7 +4725,7 @@ def session_env():
 # ensure_snapshot), an altered one gives the seed values with one stderr line (O_EXCL marker
 # <session>/limits-tamper). If stack_limits.py or its seed cannot be used, the constants of this
 # file are the last-resort fallback (SOFT_LIMITS, SOFT_PROMPT_CTX, SOFT_PROMPT_CTX_BY_TYPE, the
-# budget knobs or 100M/666M, frontmatter maxTurns). Fixed guards (fan-out, depth, BlackCat,
+# budget knobs or 300M/1.92B, frontmatter maxTurns). Fixed guards (fan-out, depth, BlackCat,
 # TTLs, STACK_MAX_MCP_CALLS, images, policy, STACK_SOFT_LIMIT_SCALE) are never learned: env only.
 # Every firing appends one line to <session>/limit-hits.jsonl and every human prompt boundary one
 # to <session>/prompt-windows.jsonl (numbers and ids only; stack_usage.py reads both).
@@ -4852,7 +4852,7 @@ def builtin_limits():
     values = {"soft.agent." + t: v for t, v in SOFT_LIMITS.items() if t != "blackcat"}
     values["soft.prompt"] = SOFT_PROMPT_CTX
     values.update({"soft.prompt." + t: v for t, v in SOFT_PROMPT_CTX_BY_TYPE.items()})
-    values["hard.prompt"] = knob_int("STACK_PROMPT_CTX_BUDGET", 100000000)
+    values["hard.prompt"] = knob_int("STACK_PROMPT_CTX_BUDGET", 300000000)
     values["hard.session"] = knob_int("STACK_SESSION_CTX_BUDGET", 1920000000)
     return Limits(values, {}, None, "builtin")
 
@@ -5404,9 +5404,9 @@ def budget_reason(kind, span, used, var, cap, lim, ev):
 SOFT_PROMPT_CTX = 33000000
 # The per-prompt soft limit while an agent of one of these types runs (a registry entry not
 # stopped): the largest value applies, never below SOFT_PROMPT_CTX.
-# Set by the user (2026-10-03), not derived: an orchestrator job of up to 10 tasks runs under one
-# human prompt.
-SOFT_PROMPT_CTX_BY_TYPE = {"orchestrator": 80000000}
+# Set by the user, not derived: an orchestrator job of up to 10 tasks runs under one human prompt
+# (2026-10-03: 80M; 2026-10-08: 140M, the sessions kept colliding with the limits).
+SOFT_PROMPT_CTX_BY_TYPE = {"orchestrator": 140000000}
 _SOFT_BUILDER = 19000000     # builder pool: implementers and domain engineers
 _SOFT_ANALYST = 8700000      # analyst pool: planners, reviewers, research
 _SOFT_LOOKUP = 450000        # lookup pool: one-question agents
@@ -12584,7 +12584,7 @@ def limits_self_test(agents_dir=None):
         problems.append(f"limits: fixed knobs not marked fixed: {' '.join(loose)}")
     fb = builtin_limits()
     want = {k: v for k, v in fb.values.items() if not k.startswith("hard.")}
-    want.update({"hard.prompt": 100000000, "hard.session": 1920000000})
+    want.update({"hard.prompt": 300000000, "hard.session": 1920000000})
     off = sorted(k for k, v in want.items() if k not in vs or vs[k]["seed"] != v)
     if off:
         problems.append(f"limits: seed differs from the built-in fallback for {' '.join(off)}")

@@ -189,9 +189,14 @@ def test_seed_parity_with_frontmatter_and_guard():
         for t, val in by_type.items()}
     scope = {k: (v["seed"], v["floor"], v["ceiling"], v["kind"]) for k, v in s["vars"].items() if "." not in k[5:]}
     assert scope == {"soft.prompt": (33000000, 5000000, 100000000, "soft"),
-                     "hard.prompt": (100000000, 50000000, 250000000, "hard"),
+                     "hard.prompt": (300000000, 300000000, 300000000, "hard"),    # user-set 2026-10-08
                      "soft.session": (None, 100000000, 1500000000, "soft"),
                      "hard.session": (1920000000, 300000000, 2500000000, "hard")}
+    assert by_type["orchestrator"] == 140000000                                     # user-set 2026-10-08
+    # every user-set per-type prompt limit fits under hard.prompt's floor, so the soft <= ratio x hard
+    # invariant never has to raise hard.prompt (or hold a pin) for it
+    hp = s["vars"]["hard.prompt"]["floor"]
+    assert all(s["vars"]["soft.prompt." + t]["ceiling"] <= L.PAIR_RATIO["soft.prompt"] * hp for t in by_type)
     tier = ast_assign(ROOT / "tests" / "derive_thresholds.py", "TIER")
     assert s["pools"] == {k: sorted(v.split()) for k, v in tier.items()}
     assert sorted(t for m in s["pools"].values() for t in m) == sorted(a for a in agents if a != "blackcat")
@@ -249,9 +254,9 @@ def test_shared_statistics():
     assert L.lookup({"turns.coder": 99}, "turns", "coder") == 99
     assert L.env_var("soft.prompt.orchestrator") == "STACK_SOFT_PROMPT_CTX_ORCHESTRATOR"
     assert L.split_var("soft.prompt.orchestrator") == ("soft.prompt", "orchestrator")
-    vals = {"soft.prompt": 33000000, "soft.prompt.orchestrator": 80000000}
+    vals = {"soft.prompt": 33000000, "soft.prompt.orchestrator": 140000000}
     assert L.prompt_soft_limit(vals) == 33000000 and L.prompt_soft_limit(vals, ["coder", "scout"]) == 33000000
-    assert L.prompt_soft_limit(vals, ["coder", "orchestrator"]) == 80000000
+    assert L.prompt_soft_limit(vals, ["coder", "orchestrator"]) == 140000000
     assert L.prompt_soft_limit(dict(vals, **{"soft.prompt": None}), ["orchestrator"]) is None   # prompt limit off
 
 
@@ -414,11 +419,28 @@ def test_T2_T3_random_proposals_stay_in_bounds_and_steps_are_bounded():
     assert steps > 500                    # the sample exercised the step rule
 
 
-def test_user_set_prompt_limit_is_never_lowered_by_proposals():
-    rng = random.Random(80000000)
+def _old_prompt_seed():
+    """mini_seed() with the prompt limits of 2026-10-03 (orchestrator pin 80M up to 100M; hard.prompt
+    learnable in [50M, 250M], seed 100M): a pin above 0.67 x hard.prompt's seed, so the invariant's
+    raise and hold paths run (the shipped pins never need them)."""
     seed = mini_seed()
-    v, floor = "soft.prompt.orchestrator", L.load_seed()["vars"]["soft.prompt.orchestrator"]["seed"]
-    assert seed["vars"][v]["floor"] == floor == 80000000
+    V = seed["vars"]
+    V["soft.prompt.orchestrator"] = dict(V["soft.prompt.orchestrator"], seed=80000000, floor=80000000,
+                                         ceiling=100000000)
+    V["hard.prompt"] = dict(V["hard.prompt"], seed=100000000, floor=50000000, ceiling=250000000)
+    return seed
+
+
+@pytest.mark.parametrize("shipped", [True, False], ids=["shipped", "2026-10-03"])
+def test_user_set_prompt_limit_is_never_lowered_by_proposals(shipped):
+    """No evidence lowers a user-set prompt limit: soft.prompt.orchestrator stays >= its floor, and
+    with the shipped seed (2026-10-08) hard.prompt stays at 300M and the orchestrator at 140M."""
+    rng = random.Random(80000000)
+    seed = mini_seed() if shipped else _old_prompt_seed()
+    v = "soft.prompt.orchestrator"
+    floor, hfloor = seed["vars"][v]["floor"], seed["vars"]["hard.prompt"]["floor"]
+    if shipped:
+        assert (floor, hfloor) == (140000000, 300000000) and seed["vars"][v] == L.load_seed()["vars"][v]
     raised = 0
     for it in range(1000):
         live = _rand_live(rng, seed)
@@ -431,19 +453,82 @@ def test_user_set_prompt_limit_is_never_lowered_by_proposals():
         new, recs, _ = L.apply_proposals(seed, live, props(vs), now=T0 + it)
         o, h = new["vars"][v], new["vars"]["hard.prompt"]
         assert o["value"] >= floor and (o["frozen"] is None or o["frozen"] >= floor), it
+        assert h["value"] >= hfloor, it
+        if shipped:
+            assert (o["value"], h["value"]) == (140000000, 300000000), (it, recs)
         if h["status"] == "supported" and L._eff(h) is not None:
             assert L._eff(o) <= 0.67 * L._eff(h) or h["frozen"] is not None, (it, o["value"], h)
             raised += any(r["var"] == "hard.prompt" and r.get("why") == "invariant" for r in recs)
-    assert raised > 10
-    # the seed itself: hard.prompt 100M < 80M / 0.67 is allowed until hard.prompt is supported
-    live = L.live_from_seed(L.load_seed())
-    assert L.enforce_invariants(L.load_seed(), live) == [] and live["vars"]["hard.prompt"]["value"] == 100000000
+    assert raised == 0 if shipped else raised > 10
+
+
+def test_prompt_pins_and_the_pair_invariant():
+    v = "soft.prompt.orchestrator"
+    # the shipped seed: 140M <= 0.67 x 300M, so the pins hold as seeded, supported or not
+    s = L.load_seed()
+    live = L.live_from_seed(s)
+    for status in ("unset", "supported"):
+        live["vars"]["hard.prompt"]["status"] = status
+        assert L.enforce_invariants(s, live) == []
+        assert (live["vars"]["hard.prompt"]["value"], live["vars"][v]["value"]) == (300000000, 140000000)
+    # 2026-10-03: hard.prompt 100M < 80M / 0.67 is allowed until hard.prompt is supported, then raised
+    old = _old_prompt_seed()
+    live = L.live_from_seed(old)
+    assert L.enforce_invariants(old, live) == [] and live["vars"]["hard.prompt"]["value"] == 100000000
     live["vars"]["hard.prompt"]["status"] = "supported"
-    recs = L.enforce_invariants(L.load_seed(), live)
+    recs = L.enforce_invariants(old, live)
     assert live["vars"]["hard.prompt"]["value"] == 119402986 and live["vars"][v]["value"] == 80000000, recs
     live["vars"]["hard.prompt"]["frozen"] = 100000000
-    recs = L.enforce_invariants(L.load_seed(), live)
+    recs = L.enforce_invariants(old, live)
     assert [r["decision"] for r in recs] == ["hold"] and live["vars"][v]["value"] == 80000000
+
+
+def _prompt_rows(sessions=3, windows=10, ctx=6e7, t0=T0):
+    """Main prompt windows (blackcat) with an orchestrator running in windows 2 and 5 of each session."""
+    rows = []
+    for s in range(sessions):
+        for w in range(windows):
+            rows.append(row(f"p{s}", "main", typ="blackcat", seg=w, ctx="", window_ctx=ctx + 1e6 * w, is_main=1,
+                            ts=t0 + 100 * s + w))
+        rows += [row(f"p{s}", f"o{s}{w}", typ="orchestrator", seg=w, window=w, ts=t0 + 100 * s + w) for w in (2, 5)]
+    return rows
+
+
+def test_existing_history_takes_the_raised_prompt_limits(st, capsys):
+    """2026-10-08 (the user: "increase tokens soft limit from 80M to 140M", "hard prompt to 300M"): a
+    live.json learned under the old seed (hard.prompt raised by the invariant to 119,402,986 and
+    supported, the orchestrator pin at 80M with evidence) is not pristine, so `seed` (install.sh)
+    re-seeds neither; the new floors still give the next session 300M and 140M (origin live, `show`
+    agrees), and later evidence far below does not move them back."""
+    s = L.load_seed()
+    lim(st).mkdir(parents=True)
+    old = L.live_from_seed(s)
+    V = old["vars"]
+    dead = [{"dec": "dead", "sign": 0, "rel": 0.0}] * 5
+    V["hard.prompt"].update(value=119402986, prev=100000000, status="supported", n=228, agents=3,
+                            changed=1.79e9, recent=dead)
+    V["soft.prompt.orchestrator"].update(value=80000000, status="provisional", n=28, agents=3, recent=dead)
+    old["version"] = 19
+    lim(st, "live.json").write_text(json.dumps(old))
+    assert L.seed() == "present"                                   # nothing pristine changed
+    L.apply_and_snapshot({"session_id": "s-raised", "source": "startup"}, spawn=False)
+    snap = L.read_snapshot("s-raised")[0]
+    assert (snap["values"]["hard.prompt"], snap["values"]["soft.prompt.orchestrator"]) == (300000000, 140000000)
+    assert snap["origin"]["hard.prompt"] == snap["origin"]["soft.prompt.orchestrator"] == "live"
+    capsys.readouterr()
+    assert run_cli("show", "*prompt*", "--json") == 0
+    rows = json.loads(capsys.readouterr().out)["vars"]
+    assert (rows["hard.prompt"]["live"], rows["hard.prompt"]["snapshot"]) == (300000000, 300000000)
+    assert (rows["soft.prompt.orchestrator"]["live"], rows["soft.prompt.orchestrator"]["snapshot"]) == \
+        (140000000, 140000000)
+    # evidence far below both (60-70M prompt windows, the orchestrator's among them) moves neither
+    _setup_rows(st, _prompt_rows())
+    assert L.propose() is not None
+    L.apply_and_snapshot({"session_id": "s-later", "source": "startup"}, spawn=False)
+    snap = L.read_snapshot("s-later")[0]
+    assert (snap["values"]["hard.prompt"], snap["values"]["soft.prompt.orchestrator"]) == (300000000, 140000000)
+    live = json.loads(lim(st, "live.json").read_text())["vars"]
+    assert live["hard.prompt"]["n"] == 30 and live["soft.prompt"]["value"] > 33000000   # the evidence was used
 
 
 def test_T3_step_function():
@@ -769,7 +854,7 @@ def test_T15b_seed_change_reaches_only_pristine_variables(st, capsys):
     old = L.live_from_seed(s)
     V = old["vars"]
     V["hard.session"]["value"] = 666000000                       # an older stack's seed, untouched
-    V["hard.prompt"].update(value=90000000, frozen=120000000)    # frozen: kept
+    V["soft.prompt"].update(value=20000000, frozen=25000000)     # frozen: kept
     V["soft.agent.coder"].update(value=25000000, status="supported", n=7, agents=3, changed=1.0e9,
                                  prev=19000000, recent=[{"dec": "step", "sign": 1, "rel": 0.3}])
     V["turns.scout"].update(value=10, hold=2)                    # held by the user: kept
@@ -783,7 +868,7 @@ def test_T15b_seed_change_reaches_only_pristine_variables(st, capsys):
     hs = live["vars"]["hard.session"]
     assert hs["value"] == s["vars"]["hard.session"]["seed"] == 1920000000
     assert hs["status"] == "unset" and hs["frozen"] is None and hs["changed"] is None and L.pristine(hs)
-    assert (live["vars"]["hard.prompt"]["value"], live["vars"]["hard.prompt"]["frozen"]) == (90000000, 120000000)
+    assert (live["vars"]["soft.prompt"]["value"], live["vars"]["soft.prompt"]["frozen"]) == (20000000, 25000000)
     assert live["vars"]["soft.agent.coder"]["value"] == 25000000
     assert (live["vars"]["turns.scout"]["value"], live["vars"]["turns.scout"]["hold"]) == (10, 2)
     assert live["vars"]["soft.agent.scout"]["value"] == 2000000
@@ -1151,7 +1236,7 @@ def test_V2b_five_session_u4_loop(st):
     the collector-exit propose -> the next SessionStart. Every move is a bounded step (<= 25 % x d of
     the old value) except a first set or an invariant raise; every value stays in [floor, ceiling];
     nothing moves without new evidence; a session's values never change after its start (U4);
-    soft.prompt.orchestrator never drops below its 80M floor."""
+    soft.prompt.orchestrator never drops below its 140M floor, nor hard.prompt below its 300M."""
     U = _load("stack_usage_for_u4_loop", HOOKS / "stack_usage.py")
     seed = L.load_seed()
     spec = seed["vars"]
@@ -1202,7 +1287,7 @@ def test_V2b_five_session_u4_loop(st):
             assert abs(r["new"] - r["old"]) <= L.STEP_MAX * r["d"] * r["old"] + 1, r
         for v, x in snap["values"].items():
             assert x is None or spec[v]["floor"] <= x <= spec[v]["ceiling"], (v, x)
-        assert snap["values"]["soft.prompt.orchestrator"] >= 80000000
+        assert snap["values"]["soft.prompt.orchestrator"] >= 140000000 and snap["values"]["hard.prompt"] >= 300000000
         return path, snap["values"]
 
     for k in range(5):
