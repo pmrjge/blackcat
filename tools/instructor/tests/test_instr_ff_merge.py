@@ -189,7 +189,7 @@ def test_checkout_update_failure_rolls_back(tmp_path, monkeypatch, capsys):
 
 
 FAKE_C10 = {
-    "dot-claude/hooks/agent_guard.py": "import sys\nsys.exit(0)\n",
+    "dot-config/dot-claude/hooks/agent_guard.py": "import sys\nsys.exit(0)\n",
     "tests/lint_agents.py": "print('lint ok')\n",
     "tests/prompt_budget.py": "print('budget ok')\n",
     "tests/install_smoke.sh": "echo '  PASS  one'\necho '== Summary: 1 passed, 0 failed'\n",

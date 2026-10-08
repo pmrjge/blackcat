@@ -35,7 +35,7 @@ def build_plan(repo: Path, steps: tuple[str, ...]) -> list[tuple[str, list[str],
             for f in sorted(filter(None, out.split("\0"))) if rc == 0 else []:
                 plan.append((step, ["/bin/bash", "-n", "--", "./" + f], repo))
         elif step == "guard-self-test":
-            plan.append((step, [py, "dot-claude/hooks/agent_guard.py", "--self-test"], repo))
+            plan.append((step, [py, "dot-config/dot-claude/hooks/agent_guard.py", "--self-test"], repo))
         elif step == "lint-agents":
             plan.append((step, [py, "tests/lint_agents.py"], repo))
         elif step == "prompt-budget":

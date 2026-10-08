@@ -12,7 +12,7 @@ import check_suite
 from instr_testlib import commit, git, run_script, status
 
 FAKE = {
-    "dot-claude/hooks/agent_guard.py": "import sys\nsys.exit(0)\n",
+    "dot-config/dot-claude/hooks/agent_guard.py": "import sys\nsys.exit(0)\n",
     "tests/lint_agents.py": "print('lint ok')\n",
     "tests/prompt_budget.py": "import sys\nassert sys.argv[1:] == ['--check']\n",
     "tests/install_smoke.sh": "echo '  PASS  one'\necho '== Summary: 1 passed, 0 failed'\n",
