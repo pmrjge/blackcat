@@ -87,12 +87,13 @@ count them twice):
 - a0 ~ N(log c_q, 1.5), c_q = 10 calls (turns), 1M tokens (ctx), 15 s per call (spc), 30k tokens (static_cc);
 - b_fam ~ ZeroSumNormal(0.5) over {opus, sonnet, ...}; g ~ N(0.5, 0.5) on zmt_t = log maxTurns_t − mean;
 - u_pool ~ ZeroSumNormal(0.7) over pools with ≥ 2 member types (one-type pools have none);
-- z_s ~ ZeroSumNormal(1); z_t, z_ts, z_g ~ N(0, 1); rho ~ N(0, 0.5);
+- z_s ~ ZeroSumNormal(1) over sessions; z_g ~ ZeroSumNormal(1) over the window's regimes (identically 0 with one
+  regime: constant by construction); z_t, z_ts ~ N(0, 1); rho ~ N(0, 0.5);
 - group scales: Gamma(2, 2/m) (boundary-avoiding, mean m) on tau_t, tau_s, tau_ts for turns and ctx, on tau_s, tau_ts
   for tool_calls (HalfNormal on its tau_t, v2 attempt 2); HalfNormal(sd) with m = sd·sqrt(2/pi) elsewhere, sd = 0.7
   (tau_t), 0.3 (tau_s), 0.5 (tau_ts);
 - **new:** tau_g ~ Gamma(2, 2/0.3). With one regime in the window z_g is constant by construction (§A.4) and the term
-  drops out. Prediction is for the current regime: its z_g when it has rows, else a new draw z_g ~ N(0, 1).
+  drops out. Prediction is for the current regime: its z_g when it has rows, else a new draw tau_g·N(0, 1), integrated like the new-session effect.
 - scale: log sigma_t (log-normal) or log alpha_t (NB) = pool level N(0, 0.5) or N(0.7, 0.75) + tau_l z_t, tau_l ~
   HalfNormal(0.3).
 
@@ -185,9 +186,13 @@ Validation (`load_bayes(seed, evidence_id)`, all or nothing unless stated):
 3. Every key of `vars` is a seed variable and `is_fixed_guard()` is false for it; any name failing either drops the
    **whole file** (B1-T3). Likewise every type key under `hyper.*.types` and `sched.types` must be a seed type
    (`_types(seed)`) and every `sched.pools` key a seed pool, none a fixed-guard name.
-4. Every number is finite (`math.isfinite`; Python's json accepts `NaN`/`Infinity` tokens, so check explicitly), not
-   a bool, and in [0, CTX_MAX] (ctx) or [0, TURNS_MAX] (turns); `qtab.p` equals the fixed grid; `qtab.x` has 8
-   entries, is non-decreasing and > 0; `pi90[0] ≤ pi90[1]`; `n_cens ≤ n`; counts are non-negative ints.
+4. Every number is finite (`math.isfinite`; Python's json accepts `NaN`/`Infinity` tokens, so check explicitly) and
+   not a bool. `hyper.*.rho` and `hyper.*.types.*.mu` (log scale, signed) lie in [−50, 50]; `hyper.*.tau_t`,
+   `tau_new` and `types.*.scale` in (0, 50]; `hyper.*.p_resume`, `risk.*` and `drift.*.ks_p` in [0, 1]; a block's
+   `shrink` in [−10, 1] or null; `diag` values and counts ≥ 0. Every other number of a block (`T`, `T_raw`, `pi90`,
+   `qtab.x`) lies in [0, CTX_MAX] for ctx variables and [0, TURNS_MAX] for turns variables. `qtab.p` equals
+   `QTAB_P`; `qtab.x` has 8 entries, is non-decreasing and > 0; `pi90[0] ≤ pi90[1]`; `n_cens ≤ n`; counts are
+   non-negative ints.
 5. Per-block acceptance (a failing block is dropped, the file kept): `tier == "nuts"`, `risk == RISK[family]`, the
    block's `model` names a model whose gate passes (rule 6), and the **quantity gate**: `rhat ≤ 1.01`,
    `ess_bulk ≥ 400`, `ess_tail ≥ 400`, `mcse_rel ≤ 0.02` (any of them missing or null fails).
@@ -198,8 +203,9 @@ Validation (`load_bayes(seed, evidence_id)`, all or nothing unless stated):
 7. Drift: blocks of a family with `drift.<family>.breach == true` are dropped (the family falls back to §4).
 Returns `{var: block}` of the accepted blocks, or `None`.
 
-`load_hyper(seed)` (used by `propose()`, stdlib): reads the same file with rules 1, 3, 4 and 6 for the `turns` and
-`ctx` models and `seed_sha == seed["sha"]`; the evidence id may differ (the grid serves evidence newer than the last
+`load_hyper(seed)` (used by `propose()` and by apply, stdlib): reads the same file with rules 1, 3, 4, 6 and 7 (a
+breached family's grid blocks are not built) for the `turns` and `ctx` models, `fit_id` matches `HEX16_RE`, and
+`seed_sha == seed["sha"]`; the evidence id may differ (the grid serves evidence newer than the last
 fit). Returns `(hyper, "fit:<fit_id>")` or `(None, None)`. **There is no moment-hyperparameter path**: with
 `(None, None)` `propose()` writes no grid blocks (T4a BLOCKING 2, B1-T16).
 
@@ -242,7 +248,11 @@ gains `"bayes": <block> | null` (the last block a decision used, live or shadow)
 `"method": "empirical" | "bayes-nuts" | "bayes-grid" | null`. `MIGRATIONS[1] = _migrate_1` adds both as null and sets
 `schema_version` 2; `load_live_locked` already sets the old file aside as `live.v1.json` before writing. `validate_live`
 and `_var_state` carry both (today `validate_live` rebuilds each state from known keys and would drop them).
-`_schema_of`/`read_live`'s "newer" test and `live_from_seed` use `LIVE_SCHEMA`.
+`LIVE_SCHEMA` replaces `SCHEMA` at every live.json site: `live_from_seed` (:1293), `validate_live` (:1308, :1350),
+`_migrate` (:1386), `read_live` (:1410, :1412), `load_live_locked` (:1455, :1456, :1459, :1484), `_bounds_notes`
+(:1524). The seed (:567, :568, :590), proposals (:949, :1009, :1029) and snapshots (:1642, :1726) keep `SCHEMA`.
+`validate_live` keeps a state's `bayes` block only when it passes §2.1 rule 4 (else null), and `method` only when it
+is one of its four values.
 
 ### 2.5 Snapshot `prov` (schema stays 1)
 
@@ -327,7 +337,7 @@ backtest of grid(NUTS hyperparameters) passes B1-T14 for it (T4a BLOCKING 2).
 
 | # | T4a finding | v3 text | code / proof |
 |---|---|---|---|
-| 1 | BLOCKING: a soft value tightens from one own row (sparse 10/21 hits) | A.5 step 2b `hold:sparse`; A.4 support line | `decide_bayes` branch; B1-T15; A.10 backtest |
+| 1 | BLOCKING: a soft value tightens from one own row (sparse 10/21 hits) | A.5 step 5 (T4a's step 2b) `hold:sparse`; A.4 support line | `decide_bayes` branch; B1-T15; A.10 backtest |
 | 2 | BLOCKING: grid tier on stdlib-moment hyperparameters (worst held-out, 21/65) | A.6 tier 2: only hyperparameters of a gated bayes.json with the same `seed_sha`; no moment path; tier off until B1-T14 on grid(NUTS) passes | `load_hyper`; `BAYES_GRID_LIVE`; B1-T16 |
 | 3 | HIGH: fit_report blamed censoring | `docs/bayes/b1v2/fit_report.md` section 1 rewritten (marked EDITED) | A.10 re-derives the numbers |
 | 4 | MEDIUM: `max()` skips NaN R-hat | A.4 NaN-strict gate | `CONSTANT_BY_CONSTRUCTION`; B1-T17 |
@@ -342,9 +352,9 @@ f/g = the seed's floor/ceiling (`stack_limits_seed.json`); the decision is alway
 
 | # | variable | priors | likelihood | gate | decision | fallback |
 |---|---|---|---|---|---|---|
-| L1 | `turns.<type>` ×55 | §1.2, a0 ~ N(log 10, 1.5) | M1 shifted NB2, censored per A.3 | model + quantity gate (A.4); moves only when supported | T = ceil(q_.98); A.5; f = max(5, ceil(seed/4)), g = frontmatter maxTurns | §4 `decide()` (live, Q1); Bayes shadow-only |
-| L2 | `soft.agent.<type>` ×55 | §1.2, a0 ~ N(log 1e6, 1.5) | M2 log-normal, censored per A.3 | as L1; sparse: may rise, never fall (2b) | T = ceil2(q_.90); A.5; f 100k, g 100M | §4 |
-| L3 | `hard.agent.<type>` ×55 | as L2 (same posterior) | M2 | as L1; supported only | T = ceil2(max(q_.99, 2 × T_soft)) (HARD_OVER_SOFT), clamp [2M, 200M], `at_bound`; soft ≤ 0.8 hard kept by `enforce_invariants` | §4 (live, Q1); shadow-only |
+| L1 | `turns.<type>` ×57 | §1.2, a0 ~ N(log 10, 1.5) | M1 shifted NB2, censored per A.3 | model + quantity gate (A.4); moves only when supported | T = ceil(q_.98); A.5; f = max(5, ceil(seed/4)), g = frontmatter maxTurns | §4 `decide()` (live, Q1); Bayes shadow-only |
+| L2 | `soft.agent.<type>` ×57 | §1.2, a0 ~ N(log 1e6, 1.5) | M2 log-normal, censored per A.3 | as L1; sparse: may rise, never fall (A.5 step 5) | T = ceil2(q_.90); A.5; f 100k, g 100M | §4 |
+| L3 | `hard.agent.<type>` ×57 | as L2 (same posterior) | M2 | as L1; supported only | T = ceil2(max(q_.99, 2 × T_soft)) (HARD_OVER_SOFT), clamp [2M, 200M], `at_bound`; soft ≤ 0.8 hard kept by `enforce_invariants` | §4 (live, Q1); shadow-only |
 | L4 | `soft.prompt` | seed-anchored: mu0 = log(seed) − z_(1−r)·sqrt(σ² + sd0²), σ = sd0 = 1 (`bayes_grid.anchor_mu`) | M4 log-normal single level, censored on own `hit_soft`/`hit_hard_prompt` | ≥ 30 windows from ≥ 3 sessions; grid edge mass < 1e-3 | ceil2(q_.90); f 5M, g 100M; soft ≤ 0.67 hard.prompt | hold, method `empirical(hold)` |
 | L5 | `soft.prompt.<type>` (orchestrator 140M pinned) | as L4 on the windows where the type ran | as L4 | as L4 | max(seed, q_.90), clamped: seed = f = g → never moves | hold at 140M |
 | L6 | `hard.prompt` (pinned 300M) | anchored on soft.prompt | as L4 | as L4 | ceil2(q_.99), reported; f = g = 300M → never moves | §4 (Q1) |
@@ -404,13 +414,14 @@ damping level of the state, `supported` from §1.1.
    `frozen`; hold counter → `hold`; no new rows (`n_new > 0 and upto > last` fails) → nothing.
 1. No accepted block (absent, gate failed, other evidence id, `STACK_BAYES=off`) → today's `decide()` body, method
    `empirical`.
-2. No own rows (no proposals entry for the variable, or the block's `n == 0`: status prior) → `hold:prior`.
-   - 2a. Deny-type family (turns, hard.*) and not supported → `hold:unsupported`.
-   - **2b. Soft family, not supported, T < c → `hold:sparse`.**
-3. c unset → x = clamp(T, f, g): soft families with ≥ 1 own row; deny-type only when supported → `set`.
-4. Risk dead band: r/2 ≤ p_hit(c) ≤ 2r, or |T − c| ≤ 0.10 c → `dead` (counts toward `_streak`).
-5. Tightening a deny-type variable: T ← max(T, min(c, hmax_healthy)); T ≥ c → `hold:hmax`.
-6. Step: reversal damping as `decide()` (a sign reversal among the last 3 moves halves d; three same-sign or dead
+2. No own rows (no proposals entry, or the block's `n == 0`) → `hold:prior`.
+3. c unset → soft.agent with ≥ 1 own row, or a deny-type variable that is supported: x = clamp(T, f, g) → `set`;
+   otherwise `hold:unsupported`.
+4. Deny-type family (turns, hard.*), not supported → `hold:unsupported`.
+5. **Soft family, not supported, T < c → `hold:sparse`** (T4a's "step 2b").
+6. Risk dead band: r/2 ≤ p_hit(c) ≤ 2r, or |T − c| ≤ 0.10 c → `dead` (counts toward `_streak`).
+7. Tightening a deny-type variable: T ← max(T, min(c, hmax_healthy)); T ≥ c → `hold:hmax`.
+8. Step: reversal damping as `decide()` (a sign reversal among the last 3 moves halves d; three same-sign or dead
    decisions double it, `_streak`), x = clamp(_round_toward(step(c, T, d), c, unit), f, g), pins by the clamp
    (seed = floor = ceiling), then `enforce_invariants` over all variables (unchanged).
 
@@ -422,8 +433,9 @@ x's → the larger 1 − p.
 
 1. bayes.json with `evidence_id` == proposals' and both gates passing → tier `nuts` (acts only when its family is in
    `BAYES_LIVE` and `STACK_BAYES=on`; else shadow).
-2. else the proposals entry's grid block, only when `bayes_hyper_source = fit:<id>` from a gated bayes.json with the
-   same `seed_sha` and its grid gate passes; soft families only → tier `grid` (acts only when the family is in
+2. else the proposals entry's grid block, only when apply's own `load_hyper(seed)` returns `fit:<fit_id>` equal to the
+   proposals' `bayes_hyper_source`, `drift.<family>.breach` is false and its grid gate passes; soft families only →
+   tier `grid` (acts only when the family is in
    `BAYES_GRID_LIVE`; else shadow). Stdlib-moment hyperparameters never feed a decision.
 3. else §4 `decide()` → `empirical`.
 4. Prompt and session scopes below support → hold, `empirical(hold)`.
@@ -438,8 +450,9 @@ Accepted consequence: without the Bayes venv (WP3c, the user's install step) not
 
 ### A.8 WP3a specification (`dot-config/dot-claude/hooks/stack_limits.py`, new `stack_bayes_grid.py`)
 
-1. `stack_bayes_grid.py` = `docs/bayes/b1v2/bayes_grid.py` unchanged (imports `math` only; Python 3.9). Soft families
-   only.
+1. `stack_bayes_grid.py` = `docs/bayes/b1v2/bayes_grid.py` minus `eb_hyper_lognormal` and that docstring clause
+   (imports `math` only; Python 3.9); B1-T16 adds an AST check that no `eb_hyper_*` is defined in, or referenced from,
+   stack_bayes_grid.py or stack_limits.py. Soft families only.
 2. Constants: `RISK` (§1.1); `BAYES_GATE = {"rhat": 1.01, "ess": 400, "div": 0, "ebfmi": 0.3, "edge": 1e-3,
    "mcse_rel": 0.02}`; `NEAR = 0.5`; `LIVE_SCHEMA = 2` (`SCHEMA = 1` unchanged); `QTAB_P = (0.5, 0.8, 0.9, 0.95,
    0.975, 0.99, 0.995, 0.999)`; `CONSTANT_BY_CONSTRUCTION = frozenset({"z_s", "z_g"})`;
@@ -455,10 +468,12 @@ Accepted consequence: without the Bayes venv (WP3c, the user's install step) not
 6. `load_hyper(seed)` and `load_bayes(seed, evidence_id)` per §2.1; `bayes_grid_block(entry, hyper, var, spec)` →
    a tier-`grid` block (stack_bayes_grid NB / log-normal posterior and predictive, qtab at `QTAB_P`).
    `build_proposals` attaches it when `load_hyper` returned hyperparameters and sets `bayes_hyper_source`,
-   `bayes_seed_sha`.
+   `bayes_seed_sha`. A variable whose type has no `hyper.<model>.types` entry (first seen after the fit) gets no grid
+   block.
 7. `decide_bayes(name, spec, st, block, ent, pool, soft_ref, now)` per A.5 → `(state, record)`; `p_hit(qtab, c)` per
    A.5.
-8. `apply_proposals(seed, live, props, bayes=None, mode=None, sid=None, now=None)`: per variable, choose the block by
+8. `apply_proposals(seed, live, props, sid=None, now=None, *, bayes=None, mode=None)` (`stack_limits.py:1939` calls it
+   positionally): per variable, choose the block by
    A.6; `mode == "on"` and family in `BAYES_LIVE` → the Bayes decision is the live one; otherwise run `decide()` for
    the live state and, when a block exists and mode != off, `decide_bayes` on `_copy_state(st)` and append its record
    as `bayes-shadow` (§2.6). The shadow call never mutates the live state (S1).
@@ -466,28 +481,32 @@ Accepted consequence: without the Bayes venv (WP3c, the user's install step) not
 10. `_write_snapshot` adds `prov` (§2.5). `show`, `status_line`, `stability_lines`, `history`: print method, T [pi90]
     and p_hit(c), and the shadow would-value.
 11. Hard.agent T in a block = max(q_.99, 2 × soft T), clamped to [2M, 200M], `at_bound` set when clamped.
-12. Latency: apply reads two JSON files only; p95 ≤ 300 ms with 170 blocks (B1-T12). No third-party import (B1-T2).
+12. Latency: apply reads two JSON files only; p95 ≤ 300 ms with 176 blocks (B1-T12). No third-party import (B1-T2).
+13. Scope variables (soft.prompt, soft.prompt.<type>, soft.session, hard.prompt, hard.session; M4, L4–L8) get no
+    Bayes block in WP3a. `build_proposals` attaches none; `load_bayes` drops a `vars` block whose name is outside
+    `soft.agent.*`, `hard.agent.*`, `turns.*` (that block only). They run §4 as today (A.6 step 4). M4's producer and
+    tier are specified once WP2 has counted the window and session rows (§H).
 
-### A.9 Tests (`tests/test_stack_bayes.py`; `tests/b1_backtest.py` a uv script)
+### A.9 Tests (WP3a: `tests/test_stack_bayes.py`; B1-T11, WP3b: `tests/test_stack_bayes_fit.py`; B1-T13 and B1-T20, WP4: `tests/test_stack_sched_bayes.py`; B1-T14: `tests/b1_backtest.py`, a uv script)
 
 | id | asserts |
 |---|---|
 | B1-T1 | stack_bayes_grid NB and log-normal quantiles equal scipy's under a sharp prior (sd 1e-6), relative 1e-6 (reference values computed with scipy and embedded; checked live when scipy imports); `p_hit` interpolation: inside the table it inverts qtab, below x_0 it is 0.5, above x_7 it is 0.001 (kills "qtab edge clamp off"). Grid vs NUTS agreement is reported, not gated |
 | B1-T2 | AST scan: stack_bayes_grid.py and stack_limits.py import stdlib only; both compile and import under /usr/bin/python3 (3.9) |
-| B1-T3 | hostile bayes.json: NaN/Infinity tokens, negative, non-monotone qtab, wrong `qtab.p`, wrong evidence_id, wrong seed_sha, another risk table, a fixed-guard name (e.g. `STACK_MAX_FANOUT`, `STACK_BAYES`), an unknown name, > 4 MiB, deep nesting → whole file ignored, method `empirical`, values equal §4's, no exception (kills "fixed-guard name accepted") |
+| B1-T3 | hostile bayes.json: NaN/Infinity tokens, negative, non-monotone qtab, wrong `qtab.p`, wrong evidence_id, wrong seed_sha, another risk table, a fixed-guard name (e.g. `STACK_MAX_FANOUT`, `STACK_BAYES`), an unknown name, > 4 MiB, deep nesting → whole file ignored, method `empirical`, values equal §4's, no exception (kills "fixed-guard name accepted"). Positive control: a bayes.json whose `hyper` comes from `docs/bayes/b1v2/out_v2/hyper_ctx.json` and `hyper_turns.json` (`nuts` blocks, rho < 0) is accepted by `load_hyper` and `load_bayes` |
 | B1-T4 | gate fallback: block rhat 1.02, ess_bulk 300, ess_tail 300, mcse_rel 0.03, model with 1 divergence, ebfmi 0.2, `gate: true` with failing diag → `empirical`, value = §4's |
 | B1-T5 | prior holds: a type with no own rows never moves; turns and hard.* never move unless supported |
 | B1-T6 | censoring: one row per A.3 line → expected flags for turns and ctx separately; the status_code-1 proxy switches off when `hit_*` is measured |
-| B1-T7 | pins: `soft.prompt.orchestrator` never leaves 140M and `hard.prompt` never leaves 300M under 10k random blocks; env override origin `env` and exact; no fixed-guard name in bayes.json / live / proposals / advice |
+| B1-T7 | pins: `soft.prompt.orchestrator` never leaves 140M and `hard.prompt` never leaves 300M under 10k random blocks; env override origin `env` and exact; no fixed-guard name in bayes.json / live / proposals (advice.json: WP7c) |
 | B1-T8 | step bound: with random valid blocks, \|x − c\| ≤ 0.25 d c before the clamp, values in [f, g], invariants hold (kills "step bound removed") |
-| B1-T9 | U4: rewriting bayes.json mid-session changes nothing a running session reads; a new sid applies it once; proposals without `b`/`bayes` keys equal today's |
-| B1-T10 | provenance: snapshot `prov` is hashed and `agent_guard.read_limits_snapshot` returns ok; migration 1 → 2 keeps `live.v1.json` |
+| B1-T9 | U4: rewriting bayes.json mid-session changes nothing a running session reads; a new sid applies it once; proposals without `b`/`bayes` keys equal today's; proposals for the five scope variables (A.8 item 13) carry no `bayes` key |
+| B1-T10 | provenance: snapshot `prov` is hashed and `agent_guard.read_limits_snapshot` returns ok; migration 1 → 2 keeps `live.v1.json`. A schema-1 live.json with a learned (non-seed) value, loaded twice by `load_live_locked`, keeps that value, and no `live.invalid-*` file appears |
 | B1-T11 | determinism of the fitter: same data and seed → identical bayes.json except `generated` for spc, static_cc, tool_calls, ctx_ab; turns/ctx within a tolerance set empirically (v2: not bit-reproducible across processes); the gate never relies on bit reproducibility |
-| B1-T12 | latency: apply_and_snapshot p95 ≤ 300 ms with 170 blocks |
+| B1-T12 | latency: apply_and_snapshot p95 ≤ 300 ms with 176 blocks |
 | B1-T13 | refresh: with a valid sched block `stack_sched_refresh` writes a model `stack_sched.load_model` accepts, method `bayes`; without it, output byte-equal to today's (WP4) |
 | B1-T14 | (verifier, `tests/b1_backtest.py`) rolling origin; per family × stratum (supported / sparse), score T and the deployed value; a censored row above T is a hit, below T unknown, so counts are intervals [lo, hi]; censored rows get a randomized PIT U(F(y), 1); accept when, on T in the supported stratum, the session-clustered P(K ≥ lo) ≥ 0.05 and P(K ≤ hi) ≥ 0.05, coverage90 ∈ [0.8, 0.97], and in the sparse stratum hits(deployed) ≤ hits(current) |
-| B1-T15 | 10k random blocks: a sparse soft type never ends below c (kills "no hold:sparse") |
-| B1-T16 | proposals with `bayes_hyper_source: "stdlib-moments"`, absent, or another seed_sha → no grid block used, method `empirical`; `load_hyper` without a gated bayes.json returns (None, None) and `propose()` writes no grid block (kills "moment hyperparameters accepted") |
+| B1-T15 | 10k random blocks: `decide_bayes`'s state for a sparse soft type has value ≥ c (asserted before `enforce_invariants`) (kills "no hold:sparse") |
+| B1-T16 | proposals with `bayes_hyper_source: "stdlib-moments"`, absent, or another seed_sha → no grid block used, method `empirical`; `load_hyper` without a gated bayes.json returns (None, None) and `propose()` writes no grid block (kills "moment hyperparameters accepted"); bayes.json deleted after propose → grid block unused, method `empirical`; `drift.soft.agent.breach = true` → same; an AST check that no `eb_hyper_*` is defined in, or referenced from, stack_bayes_grid.py or stack_limits.py |
 | B1-T17 | a fake posterior with one constant-per-chain parameter not in `CONSTANT_BY_CONSTRUCTION` (NaN R-hat) → model gate false → `empirical`; the same with `z_s` constant → gate unaffected (kills "NaN-skipping R-hat") |
 | B1-T18 | seed, proposals and snapshot stay `schema_version` 1; live.json is 2; `read_limits_snapshot` accepts `prov` (kills "SCHEMA bumped instead of LIVE_SCHEMA") |
 | B1-T19 | a main-window `hit_soft` (and, separately, `hit_hard_prompt`) censors the agent rows of that window only, for turns and ctx (kills "main-window join dropped") |
@@ -606,15 +625,22 @@ tests against a stub `claude`). Any change of cap or design goes back to the use
 ### D.1 Priors
 logit P(correct | m, k, item i) = a_k + b_k·log m + c_k·rounds + u_i; a_k ~ N(0, 1.5); b_k = b̄ + σ_b z_k, b̄ ~ N(0.3,
 0.3), σ_b ~ HalfNormal(0.3) (partial pooling across classes); c_k ~ N(0, 0.5); u_i ~ N(0, σ_u), σ_u ~ HalfNormal(1).
-For non-binary scores (CR, long-form) the same linear predictor in an ordered logit.
+For non-binary scores the same linear predictor: CR's score rescaled to [0, 1] in the fractional-logit term, ES with
+an identity link and a Gaussian likelihood (§D.2).
 
 ### D.2 Likelihood
-Bernoulli (or ordered) on p6's scores of C(9, m) member subsets per item, m ∈ {1, 3, 5, 7, 9}, and p7's rounds
-branches. Subsets of one item share u_i, so the item, not the subset, is the unit of replication.
+The unit is (item i, m): y_im = A6's score(m) on item i (the exact mean over the C(9, m) subsets, expectation
+tie-breaks), one observation per (item, m), m ∈ {1, 3, 5, 7, 9}. PF, CP, RS: y_im ∈ [0, 1] with a fractional-logit
+(quasi-binomial) term, weight 1 per (item, m). CR: the §2 score rescaled to [0, 1], same term. ES: s_im with a
+Gaussian likelihood on the same linear predictor (identity link, σ_k ~ HalfNormal(0.5)). u_i carries the dependence
+across m. p7: one observation per (item, branch, r) on the stop-rule score.
 
 ### D.3 Gate
-Model gate (A.4); parameter recovery on synthetic ledgers (WP8 tests); ≥ 20 p items per class (an assumption of
-this design; WP8 fixes the number from the p design before the amendment is dated).
+Gate: the A.4 model gate (R-hat ≤ 1.01, bulk and tail ESS ≥ 400, 0 divergences, E-BFMI > 0.3, NaN-strict) and
+WP8's parameter-recovery test at p's fixed design (10 items per class; 5 for CP and CR). The synthetic ledgers
+simulate member-level answers, with a member effect shared by every subset that contains it. The 90 % interval of b_k
+must cover the truth in [0.80, 0.97] of 200 replicates; otherwise the amendment is not dated and Q4 reverts to (b).
+No item-count gate: §3 fixes p's counts.
 
 ### D.4 Decision
 N*_k = argmax over m ∈ {1, 3, 5, 7, 9} of E[score(m) − λ·cost(m)], with cost(m) = m · member cap · (1 + rounds) from the
@@ -638,7 +664,8 @@ before any pilot (p) data exists, re-pinned with `tests/equilibrium_paths.py ame
 > 2. Selection: N*_k = argmax_m E[score(m) − λ cost(m)] over posterior draws, λ fixed before p at the default
 >    profile's value (recorded here as a number when this amendment is dated); N*_k stays 5 unless
 >    P(U(N*) > U(5)) ≥ 0.9; N* = 1 → class not eligible. rounds*: same rule over {0, 1, 2} given N*.
-> 3. Gate: R-hat ≤ 1.01, ESS ≥ 400, 0 divergences; failing → the A6 one-SE rule applies unchanged (it is the
+> 3. Gate: R-hat ≤ 1.01, bulk and tail ESS ≥ 400, 0 divergences, E-BFMI > 0.3, no NaN diagnostic outside effects
+>    constant by construction; failing → the A6 one-SE rule applies unchanged (it is the
 >    fallback, computed and recorded in every case).
 > 4. Unchanged: q's hypotheses, Holm over the primary family, the ship rule, every seed of §8.4, the draw order and
 >    the disjointness of p and q items. p still tests nothing; the selection rule is mechanical and fixed here.
