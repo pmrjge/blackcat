@@ -978,7 +978,7 @@ def test_the_fixture_matches_its_sha256sums():
     SHA256SUMS lists every file of it and each one matches."""
     want = dict(reversed(line.split("  ", 1)) for line in (FIX / "SHA256SUMS").read_text(encoding="utf-8").splitlines())
     have = {p.relative_to(FIX).as_posix(): hashlib.sha256(p.read_bytes()).hexdigest() for p in FIX.rglob("*")
-            if p.is_file() and p.name != "SHA256SUMS" and not p.name.startswith(".")}
+            if p.is_file() and p.name not in ("SHA256SUMS", ".DS_Store")}   # Finder's, never tracked
     assert have == want
 
 
