@@ -1100,3 +1100,81 @@ def test_B1_T14_backtest_script_runs_on_the_fixture(tmp_path):
     assert set(doc["families"]) == {"soft.agent", "hard.agent", "turns"} and len(doc["folds"]) == 3
     sa = doc["families"]["soft.agent"]
     assert sa["supported"]["n"] > 0 and sa["checks"]["folds"] is False and p.returncode == 1
+
+
+# ---------------------------------------------------------------- review fixes (S7)
+def test_B1_T3_adjacent_float_qtab_around_c_never_aborts_the_apply(st):
+    c = SEED["vars"]["soft.agent.coder"]["seed"]
+    lo, hi = math.nextafter(c, 0), math.nextafter(c, math.inf)
+    assert L.p_hit({"p": list(L.QTAB_P), "x": [lo] + [hi] * 7}, c) == pytest.approx(0.5)
+    blocks = coder_blocks()
+    blocks["soft.agent.coder"]["qtab"]["x"] = [lo] + [hi] * 7
+    setup_apply(st, blocks=blocks)
+    lim(st, "live.json").write_text(json.dumps(L.live_from_seed(SEED)))
+    path, notice = start("s-adjacent")
+    assert "error" not in (notice or ""), notice
+    assert "fallback" not in json.loads(Path(path).read_text())["origin"].values()
+    assert any(r.get("method") == "bayes-shadow" for r in hist(st))
+
+
+@pytest.mark.parametrize("mode", ["shadow", "on"])
+def test_a_raising_decide_bayes_leaves_section_4_and_no_fallback(st, monkeypatch, mode):
+    """Any exception inside decide_bayes (shadow, or a family acting live) costs that variable's Bayes
+    decision only: section 4 decides, values equal a run without bayes.json, no seed-fallback snapshot."""
+    def boom(*a, **k):
+        raise RuntimeError("decide_bayes failed")
+    monkeypatch.setattr(L, "decide_bayes", boom)
+    if mode == "on":
+        monkeypatch.setattr(L, "BAYES_LIVE", frozenset({"soft.agent"}))
+    monkeypatch.setenv("STACK_BAYES", mode)
+    eid = setup_apply(st, blocks=coder_blocks())
+    path, notice = start("s-raise-" + mode)
+    snap = json.loads(Path(path).read_text())
+    assert "error" not in (notice or ""), notice
+    assert "fallback" not in snap["origin"].values()
+    assert snap["values"] == _values_without_bayes(st, eid)
+    recs = [r for r in hist(st) if r.get("var") != "*"]
+    assert recs and {r["method"] for r in recs} == {"empirical"}
+    assert "RuntimeError" in lim(st, "limits.log").read_text()
+
+
+def test_grid_module_loads_by_path_only(st, tmp_path, monkeypatch):
+    """stack_bayes_grid is loaded from the hooks folder (HERE) only: with the file absent there, a planted
+    stack_bayes_grid.py on sys.path is never imported, no grid block is built and limits.log says so once."""
+    empty, planted = tmp_path / "hooks-empty", tmp_path / "planted"
+    empty.mkdir()
+    planted.mkdir()
+    marker = tmp_path / "planted-imported"
+    (planted / "stack_bayes_grid.py").write_text(f"open({str(marker)!r}, 'w').close()\n")
+    monkeypatch.syspath_prepend(str(planted))
+    monkeypatch.delitem(sys.modules, "stack_bayes_grid", raising=False)
+    monkeypatch.setattr(L, "HERE", str(empty))
+    monkeypatch.setattr(L, "_GRID", {}, raising=False)
+    p = fixture_props(hyper=(dict(v2_hyper(), breach=[]), "fit:" + FIT))
+    assert not marker.exists()                                    # the planted module never ran
+    assert "stack_bayes_grid" not in sys.modules
+    assert not any("bayes" in e for e in p["vars"].values())
+    log = lim(st, "limits.log").read_text().splitlines()
+    assert len([x for x in log if "stack_bayes_grid" in x]) == 1, log
+
+
+def test_scan_rejects_an_oversized_container_before_walking_it():
+    class Boom(list):
+        def __iter__(self):
+            raise AssertionError("walked an oversized list")
+    with pytest.raises(L._BayesInvalid):
+        L._scan({"schema_version": 1, "code": "stack_bayes/1", "x": Boom([0] * 50001)})
+
+
+def test_deeply_nested_proposals_json_is_unreadable_not_an_exception(st):
+    lim(st, "proposals.json").write_text("[" * 100000 + "]" * 100000)
+    props, why = L.load_proposals(SEED)
+    assert props is None and "RecursionError" in why
+
+
+def test_hard_agent_T_is_the_blocks():
+    spec = SEED["vars"]["hard.agent.coder"]
+    blk = L._valid_block(block("hard.agent.coder", 30000000), "ctx")
+    e = norm_ent(ent([2e7 * (1 + 0.05 * i) for i in range(12)]))
+    _s, rec = L.decide_bayes("hard.agent.coder", spec, L._var_state(40000000), blk, e, None, 25000000, NOW)
+    assert rec["T"] == 30000000

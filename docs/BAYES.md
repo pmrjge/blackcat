@@ -420,7 +420,9 @@ damping level of the state, `supported` from §1.1.
 4. Deny-type family (turns, hard.*), not supported → `hold:unsupported`.
 5. **Soft family, not supported, T < c → `hold:sparse`** (T4a's "step 2b").
 6. Risk dead band: r/2 ≤ p_hit(c) ≤ 2r, or |T − c| ≤ 0.10 c → `dead` (counts toward `_streak`).
-7. Tightening a deny-type variable: T ← max(T, min(c, hmax_healthy)); T ≥ c → `hold:hmax`.
+7. Tightening a deny-type variable: T ← max(T, min(c, hmax)); T ≥ c → `hold:hmax`. hmax is the sample's maximum
+   (`x[-1]`, hit rows included, as in `decide()`): more conservative than a healthy-only maximum, which the
+   proposals do not carry.
 8. Step: reversal damping as `decide()` (a sign reversal among the last 3 moves halves d; three same-sign or dead
    decisions double it, `_streak`), x = clamp(_round_toward(step(c, T, d), c, unit), f, g), pins by the clamp
    (seed = floor = ceiling), then `enforce_invariants` over all variables (unchanged).

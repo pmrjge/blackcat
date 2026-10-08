@@ -1233,7 +1233,7 @@ def load_proposals(seed):
             doc = json.loads(fh.read().decode("utf-8"))
     except FileNotFoundError:
         return None, None
-    except (OSError, ValueError) as exc:
+    except (OSError, ValueError, RecursionError) as exc:   # json's C decoder: RecursionError on deep nesting
         return None, f"unreadable ({type(exc).__name__})"
     return validate_proposals(doc, seed)
 
@@ -1327,6 +1327,8 @@ def _scan(doc):
         nodes += 1
         if d > BAYES_MAX_DEPTH or nodes > BAYES_MAX_NODES:
             _bad("too deep or too large")
+        if isinstance(x, (dict, list)) and nodes + len(stack) + len(x) > BAYES_MAX_NODES:
+            _bad("too deep or too large")                # before walking it
         if isinstance(x, dict):
             for k, v in x.items():
                 if is_fixed_guard(k):
@@ -1657,7 +1659,10 @@ def p_hit(qtab, c):
         return max(ties)
     for k in range(len(X) - 1):
         if X[k] < c < X[k + 1]:
-            t = (math.log(c) - math.log(X[k])) / (math.log(X[k + 1]) - math.log(X[k]))
+            den = math.log(X[k + 1]) - math.log(X[k])
+            if not den > 0:                                  # adjacent floats: no log gap to interpolate over
+                return 1.0 - P[k]
+            t = (math.log(c) - math.log(X[k])) / den
             return math.exp((1 - t) * math.log(1.0 - P[k]) + t * math.log(1.0 - P[k + 1]))
     return P_HIT_ABOVE
 
@@ -1670,16 +1675,46 @@ def hard_agent_T(q99, soft_T):
     return int(x), x != t
 
 
+_GRID = {}
+
+
+def _grid_mod():
+    """stack_bayes_grid.py beside this file, loaded by path once per process (never through sys.path: a
+    module of that name elsewhere is not ours); None when it is missing or fails, logged once."""
+    if "m" not in _GRID:
+        path = os.path.join(HERE, "stack_bayes_grid.py")
+        m = sys.modules.get("stack_bayes_grid")
+        if m is None or os.path.abspath(getattr(m, "__file__", "") or "") != os.path.abspath(path):
+            m = None
+            try:
+                if os.path.isfile(path):
+                    import importlib.util                    # here only: the hooks never pay for it
+                    sp = importlib.util.spec_from_file_location("stack_bayes_grid", path)
+                    mod = importlib.util.module_from_spec(sp)
+                    sp.loader.exec_module(mod)
+                    sys.modules["stack_bayes_grid"] = m = mod
+            except Exception as exc:  # noqa: BLE001 - no grid tier, section 4 and nuts blocks unaffected
+                log(f"stack_bayes_grid unusable ({type(exc).__name__}); no grid blocks")
+                _GRID["m"] = None
+                return None
+            if m is None:
+                log(f"stack_bayes_grid.py missing in {HERE}; no grid blocks")
+        _GRID["m"] = m
+    return _GRID["m"]
+
+
 def bayes_grid_block(entry, hyper, var, spec):
     """A tier-grid block (section 2.1) for a soft.agent variable from its proposals entry's `b` and
     the gated fit's ctx hyperparameters: the exact grid posterior of the type's location
     (stack_bayes_grid, censored rows as lower bounds, resume offsets rho), the new-session predictive
     quantiles at QTAB_P, T = ceil2(q_(1-r)). None when the family is not a grid family, is breached,
     the type has no hyperparameters (first seen after the fit) or there is no data."""
-    import stack_bayes_grid as G
     fam, t = split_var(var)
     h = (hyper or {}).get("ctx")
     if fam not in GRID_FAMILIES or not t or not h or fam in (hyper.get("breach") or ()):
+        return None
+    G = _grid_mod()
+    if G is None:
         return None
     tp, b = h["types"].get(t), entry.get("b")
     if not tp or not b or not b.get("y"):
@@ -1909,8 +1944,8 @@ def decide_bayes(name, spec, st, block, ent, pool=None, soft_ref=None, now=None)
     c = st["value"]
     r = RISK[fam]
     T, at_bound = block["T"], block["at_bound"]
-    if fam == "hard.agent":
-        T, ab = hard_agent_T(T, soft_ref)
+    if fam == "hard.agent":                              # the block's T is already max(q_.99, 2 x soft T): clamp only
+        T, ab = hard_agent_T(T, None)
         at_bound = at_bound or ab
     rec = {"var": name, "old": c, "new": c, "decision": None, "n": 0, "T": T, "pi90": list(block["pi90"]),
            "risk": r, "p_hit_c": None, "fit_id": block.get("fit_id"), "tier": block["tier"],
@@ -2070,18 +2105,28 @@ def apply_proposals(seed, live, props, sid=None, now=None, *, bayes=None, mode=N
             "soft.agent." + t in new["vars"] else None
         cur, ent = new["vars"][v], props["vars"].get(v)
         blk, tier = choose_block(v, bayes, props)
-        if blk is not None and acts_live(fam, tier, mode):
-            st, rec = decide_bayes(v, seed["vars"][v], cur, blk, ent, pool, soft_ref, now)
-            if rec:
-                rec["method"] = "bayes-" + tier
-                st.update(method=rec["method"], bayes=blk)
-        else:
+        live_bayes = blk is not None and acts_live(fam, tier, mode)
+        if live_bayes:
+            try:
+                st, rec = decide_bayes(v, seed["vars"][v], cur, blk, ent, pool, soft_ref, now)
+            except Exception as exc:  # noqa: BLE001 - a bad block costs its Bayes decision, never the apply
+                log(f"bayes {v} skipped, section 4 decides: {type(exc).__name__}")
+                live_bayes, blk = False, None
+            else:
+                if rec:
+                    rec["method"] = "bayes-" + tier
+                    st.update(method=rec["method"], bayes=blk)
+        if not live_bayes:
             st, rec = decide(v, seed["vars"][v], cur, ent, pool, soft_ref, now)
             if rec:
                 rec["method"] = "empirical"
                 st.update(method="empirical", bayes=None)
             if blk is not None:
-                _sst, srec = decide_bayes(v, seed["vars"][v], _copy_state(cur), blk, ent, pool, soft_ref, now)
+                try:
+                    _sst, srec = decide_bayes(v, seed["vars"][v], _copy_state(cur), blk, ent, pool, soft_ref, now)
+                except Exception as exc:  # noqa: BLE001 - the shadow never affects the live decision
+                    log(f"bayes-shadow {v} skipped: {type(exc).__name__}")
+                    srec = None
                 if srec:
                     if rec:                              # the last block a decision used (shadow too)
                         st["bayes"] = blk
