@@ -3,7 +3,7 @@
 # requires-python = ">=3.10"
 # dependencies = ["claude-agent-sdk==0.2.163"]
 # [tool.uv]
-# exclude-newer = "2026-10-04T00:00:00Z"
+# exclude-newer = "2026-10-01T00:00:00Z"
 # ///
 """Agent SDK probes PR1-PR13 (work package SDK-1) against the INSTALLED stack. They make real, billed
 API calls, so the user runs them: never pytest (no test_ prefix), never an agent. Hash-locked by
@@ -24,8 +24,10 @@ as main thread) and a fresh scratch directory per probe as cwd. The probes' perm
 (can_use_tool) allows only what each probe names, never persists a rule, and denies everything else
 that reaches it; what the user's settings already allow never reaches it, so every session also gets
 a settings overlay with sandbox.autoAllowBashIfSandboxed false (sandboxed Bash would otherwise run
-without asking) and disallows WebSearch, WebFetch and the image-studio MCP server (spend outside
-max_budget_usd). A session that ends without a result is counted at its whole cap.
+without asking), strict_mcp_config (no MCP server from the user's or a project's config is loaded),
+and disallows WebSearch, WebFetch, the image-studio server and every mcp__ rule in the permissions.allow
+of <config>/settings.json and settings.local.json (spend outside max_budget_usd). A session that ends
+without a result, or is closed while a child still runs, is counted at its whole cap.
 
 The report (default <main checkout>/.claude-work/sdk/probes/<date>.md) holds per probe the question,
 yes / no / unknown / error / skipped / refused, cost, cap, session ids, transcript paths and measured
@@ -44,6 +46,7 @@ import glob
 import importlib.util
 import itertools
 import json
+import math
 import os
 import re
 import shutil
@@ -64,6 +67,20 @@ FILE_TOOLS = frozenset({"Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "L
 # every session: what user allow rules would otherwise approve without asking the host
 SETTINGS_OVERLAY = json.dumps({"sandbox": {"autoAllowBashIfSandboxed": False}})
 DISALLOWED = ("WebSearch", "WebFetch", "mcp__image-studio")
+
+
+def allowed_mcp(config_dir: str) -> list[str]:
+    """The mcp__ rules in permissions.allow of <config>/settings.json and settings.local.json: decided
+    before can_use_tool, so each is disallowed in the probes' sessions."""
+    out: set[str] = set()
+    for name in ("settings.json", "settings.local.json"):
+        try:
+            with open(os.path.join(config_dir, name), encoding="utf-8") as fh:
+                allow = (json.load(fh).get("permissions") or {}).get("allow") or []
+        except (OSError, ValueError, AttributeError):
+            continue
+        out.update(a for a in allow if isinstance(a, str) and a.startswith("mcp__"))
+    return sorted(out)
 IDENT = re.compile(r"[A-Za-z0-9_.:/@+=-]{0,200}")        # what a string fact may look like
 WITHHELD = "<withheld>"
 
@@ -320,13 +337,15 @@ class Ctx:
     def options(self, agent: str | None = "blackcat", share: float = 1.0, **kw: Any) -> Any:
         """The stack's options (the installed stack_sdk.options) under this probe's cap: at most what
         the probe has left, and at most `share` of its cap."""
-        budget = round(min(self.cap - self.spent, self.cap * share), 4)
+        # rounded down to 1/10000 USD: rounding to nearest could exceed what is left (check() refuses)
+        budget = math.floor(min(self.cap - self.spent, self.cap * share) * 10_000 + 1e-5) / 10_000
         if not budget > 0:
             raise BudgetError("%s: no cap left for another session" % self.probe.pid)
         kw.setdefault("cli_path", self.cfg.cli_path)
         kw.setdefault("max_turns", 8)
         kw.setdefault("settings", SETTINGS_OVERLAY)
-        kw.setdefault("disallowed_tools", list(DISALLOWED))
+        kw.setdefault("strict_mcp_config", True)
+        kw["disallowed_tools"] = [*DISALLOWED, *allowed_mcp(self.cfg.config_dir), *kw.get("disallowed_tools", ())]
         return self.helper.options(agent, budget_usd=budget, cwd=self.scratch, **kw)
 
     def check(self, opts: Any) -> None:
@@ -341,6 +360,13 @@ class Ctx:
         """A session counts at its whole cap until its first result reports the real cost."""
         self.check(opts)
         self.costs[key] = float(opts.max_budget_usd)
+
+    def settle(self, key: int, msgs: list[Any], opts: Any) -> None:
+        """Closed while a child still runs: what it spends after the last result is not reported, so
+        the session counts at its whole cap."""
+        if agents_running(msgs):
+            self.costs[key] = max(self.costs.get(key, 0.0), float(opts.max_budget_usd))
+            self.reported.discard(key)
 
     @property
     def unreported(self) -> int:
@@ -370,6 +396,7 @@ class Ctx:
         try:
             yield s
         finally:
+            self.settle(s.key, s.msgs, opts)
             try:
                 await c.disconnect()
             except Exception:
@@ -382,9 +409,12 @@ class Ctx:
         from claude_agent_sdk import query
         key, out = next(self.keys), []
         self.reserve(key, opts)
-        async for m in query(prompt=prompt, options=opts, transport=self._transport(opts)):
-            self.note(key, m)
-            out.append((time.monotonic(), m))
+        try:
+            async for m in query(prompt=prompt, options=opts, transport=self._transport(opts)):
+                self.note(key, m)
+                out.append((time.monotonic(), m))
+        finally:
+            self.settle(key, [m for _, m in out], opts)
         return out
 
     def kill(self, s: Session) -> bool:
@@ -715,11 +745,12 @@ class Row:
     seconds: float = 0.0
 
 
-async def run_probes(probes: list[Probe], cfg: Config, helper: Any) -> list[Row]:
-    """Each probe in turn under its own cap; stops at a BudgetError or once the total cap is used."""
+async def run_probes(probes: list[Probe], cfg: Config, helper: Any, rows: list[Row] | None = None) -> list[Row]:
+    """Each probe in turn under its own cap; stops at a BudgetError or once the total cap is used.
+    Finished rows go into `rows` as they finish (main reports them even after Ctrl-C)."""
     validate_registry(probes)
     import anyio
-    rows: list[Row] = []
+    rows = [] if rows is None else rows
     total = 0.0
     for p in probes:
         left = TOTAL_CAP_USD - total
@@ -885,18 +916,29 @@ def main(argv: list[str] | None = None) -> int:
             print("%-5s $%.2f  %s" % (p.pid, p.budget_usd, p.question))
         print("total cap $%.2f; pass --run to make the billed calls" % sum(p.budget_usd or 0 for p in probes))
         return 0
+    if (v := versions(None)["sdk"]) != SDK_PIN:
+        ap.error("claude-agent-sdk %s is not the pinned %s: uv run --locked --script %s" % (v, SDK_PIN, __file__))
     if not a.cli:
         ap.error("no `claude` on PATH: pass --cli /path/to/claude (Q3: the installed CLI)")
+    today = datetime.date.today().isoformat()
+    out = os.path.abspath(os.path.expanduser(a.out)) if a.out else default_out(today)
+    try:                                       # before any billed call, not after
+        os.makedirs(os.path.dirname(out), mode=0o700, exist_ok=True)
+        if not os.access(os.path.dirname(out), os.W_OK):
+            raise PermissionError("not writable")
+    except OSError as e:
+        ap.error("cannot write the report to %s: %s" % (out, e.strerror or e))
     config = os.path.expanduser(a.config)
     state = os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"),
                          "claude-agent-stack")
     cfg = Config(config_dir=config, cli_path=a.cli, state_dir=state, bg_ceiling_ms=a.bg_ceiling_ms)
-    rows = asyncio.run(run_probes(probes, cfg, load_helper(config)))
-    today = datetime.date.today().isoformat()
-    path = write_report(a.out or default_out(today), render(rows, dict(versions(a.cli), date=today)))
-    print(path)
-    for r in rows:
-        print("%-5s %-8s $%.4f" % (r.probe.pid, r.answer, r.cost))
+    rows: list[Row] = []
+    try:
+        asyncio.run(run_probes(probes, cfg, load_helper(config), rows))
+    finally:                                   # Ctrl-C or a crash: the finished probes are still reported
+        print(write_report(out, render(rows, dict(versions(a.cli), date=today))))
+        for r in rows:
+            print("%-5s %-8s $%.4f" % (r.probe.pid, r.answer, r.cost))
     return 1 if any(r.answer in ("error", "refused") for r in rows) else 0
 
 

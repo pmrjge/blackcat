@@ -433,8 +433,9 @@ def test_every_probe_answers_yes_in_the_good_world_with_its_own_cap(sdk, tmp_pat
     pr7 = next(o for o in w.opened if probe_of(o) == "PR7")
     assert pr7.can_use_tool is None and not pr7.hooks          # else the SDK holds stdin while the child runs
     assert "Bash(sleep 110)" in pr7.allowed_tools
-    for r in rows:
-        assert r.cost == pytest.approx(0.01 * len(per[r.probe.pid])) and r.cap == caps[r.probe.pid]
+    for r in rows:              # PR7 closes while its child runs: counted at its whole cap
+        want = 1.50 if r.probe.pid == "PR7" else 0.01 * len(per[r.probe.pid])
+        assert r.cost == pytest.approx(want) and r.cap == caps[r.probe.pid], r.probe.pid
         assert r.sessions and r.facts["rate_limit_events"] >= 1
     # the real transport would pass the cap to the CLI
     from claude_agent_sdk._internal.transport.subprocess_cli import SubprocessCLITransport
@@ -539,6 +540,86 @@ def test_host_paths_globs_and_questions(sdk, tmp_path):
     assert not ok("Bash", {"command": "sleep 1 && curl x"}) and ok("Bash", {"command": "sleep 5"})
     deny = asyncio.run(h("AskUserQuestion", {"questions": [{"question": "q", "options": [{"label": "a"}]}]}, None))
     assert deny.behavior == "deny"                    # answered only where the probe allows it (PR2)
+
+
+def test_mcp_tools_the_user_allows_never_reach_a_probe_session(sdk, tmp_path):
+    w = World(tmp_path)
+    (w.config / "settings.json").write_text(json.dumps({"permissions": {"allow": [
+        "mcp__exa", "mcp__neural-memory", "Bash(ls)", "Read"]}}))
+    (w.config / "settings.local.json").write_text(json.dumps({"permissions": {"allow": ["mcp__magg__pw_*"]}}))
+    run(w, [p for p in P.PROBES if p.pid in ("PR3", "PR10")])
+    assert {probe_of(o) for o in w.opened} == {"PR3", "PR10"}
+    for o in w.opened:
+        assert o.strict_mcp_config is True
+        assert {"mcp__exa", "mcp__neural-memory", "mcp__magg__pw_*", "WebSearch"} <= set(o.disallowed_tools)
+        assert "Bash(ls)" not in o.disallowed_tools and "Read" not in o.disallowed_tools
+    assert P.allowed_mcp(str(tmp_path / "missing")) == []
+
+
+def test_a_cap_left_with_many_decimals_is_not_rounded_above_it(sdk, tmp_path):
+    w = World(tmp_path)
+
+    async def after_overshoot(c):
+        c.costs[99] = 0.2512345                     # an earlier session's odd cost
+        async with c.client(c.options()) as s:
+            await s.turn(P.PROMPTS["ok"], 5)
+        return P.Outcome("yes", {})
+    pr11 = next(p for p in P.PROBES if p.pid == "PR11")
+    rows = run(w, [dataclasses.replace(pr11, fn=after_overshoot)])
+    assert rows[0].answer == "yes"
+    assert 0 < w.opened[0].max_budget_usd <= 0.5 - 0.2512345
+
+
+def test_a_session_closed_while_its_child_runs_counts_at_its_whole_cap(sdk, tmp_path):
+    w = World(tmp_path)
+
+    async def leave_child(c):             # the result arrives, the child still runs, the session closes
+        async with c.client(c.options()) as s:
+            await s.turn(P.PROMPTS["bg"], 5)
+        return P.Outcome("yes", {})
+    pr11 = next(p for p in P.PROBES if p.pid == "PR11")
+    rows = run(w, [dataclasses.replace(pr11, fn=leave_child)])
+    assert rows[0].cost == pytest.approx(0.5) and rows[0].facts["sessions_without_result"] == 1
+
+
+@pytest.fixture
+def pinned(monkeypatch):
+    monkeypatch.setattr(P, "versions", lambda cli: {"sdk": P.SDK_PIN, "system_cli": None, "bundled_cli": None})
+    monkeypatch.setattr(P, "load_helper", lambda config: None)
+
+
+def test_the_report_path_is_checked_before_any_billed_call(pinned, monkeypatch, tmp_path):
+    called = []
+
+    async def never(*a, **k):
+        called.append(1)
+    monkeypatch.setattr(P, "run_probes", never)
+    locked = tmp_path / "locked"
+    locked.mkdir(mode=0o500)
+    for out in ("/dev/null/x/r.md", str(locked / "r.md")):
+        with pytest.raises(SystemExit):
+            P.main(["--run", "--cli", "/nonexistent/claude", "--out", out])
+    locked.chmod(0o700)
+    assert called == []
+    # a bare file name lands in the current directory; Ctrl-C still writes what finished
+    monkeypatch.chdir(tmp_path)
+
+    async def one_then_ctrl_c(probes, cfg, helper, rows):
+        rows.append(P.Row(probes[0], "yes", 0.5, cost=0.01, sessions=["sess-1"]))
+        raise KeyboardInterrupt
+    monkeypatch.setattr(P, "run_probes", one_then_ctrl_c)
+    with pytest.raises(KeyboardInterrupt):
+        P.main(["--run", "--cli", "/nonexistent/claude", "--out", "report.md", "--config", str(tmp_path)])
+    text = (tmp_path / "report.md").read_text()
+    assert "| PR1 |" in text and "| yes |" in text and "sess-1" in text
+
+
+def test_an_unpinned_sdk_is_refused_before_any_call(monkeypatch, tmp_path):
+    monkeypatch.setattr(P, "versions", lambda cli: {"sdk": "0.2.164", "system_cli": None, "bundled_cli": None})
+    monkeypatch.setattr(P, "run_probes", None)                 # would raise if called
+    with pytest.raises(SystemExit):
+        P.main(["--run", "--cli", "/nonexistent/claude", "--out", str(tmp_path / "r.md")])
+    assert not (tmp_path / "r.md").exists()
 
 
 async def _spend(c, usd):
