@@ -510,7 +510,8 @@ def test_existing_history_takes_the_raised_prompt_limits(st, capsys):
     V["soft.prompt.orchestrator"].update(value=80000000, status="provisional", n=28, agents=3, recent=dead)
     old["version"] = 19
     lim(st, "live.json").write_text(json.dumps(old))
-    assert L.seed() == "present"                                   # nothing pristine changed
+    assert L.seed() == ("present; read at the seed's bounds: hard.prompt 119M -> 300M, "   # nothing re-seeded
+                        "soft.prompt.orchestrator 80M -> 140M")
     L.apply_and_snapshot({"session_id": "s-raised", "source": "startup"}, spawn=False)
     snap = L.read_snapshot("s-raised")[0]
     assert (snap["values"]["hard.prompt"], snap["values"]["soft.prompt.orchestrator"]) == (300000000, 140000000)
@@ -529,6 +530,26 @@ def test_existing_history_takes_the_raised_prompt_limits(st, capsys):
     assert (snap["values"]["hard.prompt"], snap["values"]["soft.prompt.orchestrator"]) == (300000000, 140000000)
     live = json.loads(lim(st, "live.json").read_text())["vars"]
     assert live["hard.prompt"]["n"] == 30 and live["soft.prompt"]["value"] > 33000000   # the evidence was used
+    assert L.seed() == "present"                                   # written back at the bounds: no note
+
+
+def test_seed_names_a_frozen_value_outside_the_new_bounds(st, monkeypatch):
+    """A value frozen below hard.prompt's new floor (300M) reads as 300M; `seed` (install.sh) says so
+    and names the env override that keeps the old cap, which still works (env is not bounded)."""
+    s = L.load_seed()
+    lim(st).mkdir(parents=True)
+    old = L.live_from_seed(s)
+    old["vars"]["hard.prompt"]["frozen"] = 120000000
+    lim(st, "live.json").write_text(json.dumps(old))
+    assert L.seed() == ("present; read at the seed's bounds: hard.prompt frozen 120M -> 300M "
+                        "(to keep it: STACK_PROMPT_CTX_BUDGET=120000000 in settings.json env)")
+    L.apply_and_snapshot({"session_id": "s-frozen", "source": "startup"}, spawn=False)
+    snap = L.read_snapshot("s-frozen")[0]
+    assert (snap["values"]["hard.prompt"], snap["origin"]["hard.prompt"]) == (300000000, "frozen")
+    monkeypatch.setenv("STACK_PROMPT_CTX_BUDGET", "120000000")
+    L.apply_and_snapshot({"session_id": "s-env", "source": "startup"}, spawn=False)
+    snap = L.read_snapshot("s-env")[0]
+    assert (snap["values"]["hard.prompt"], snap["origin"]["hard.prompt"]) == (120000000, "env")
 
 
 def test_T3_step_function():

@@ -1517,25 +1517,54 @@ def reseed_pristine(seed, live, now=None):
     return recs
 
 
+def _bounds_notes(raw, seed):
+    """The stored values of a current-schema live document that the seed's [floor, ceiling] moves
+    when read (validate_live clamps value and frozen; a seed whose bounds moved past them): one
+    "var X -> Y" each; a frozen one names the env override that keeps it (env is not bounded)."""
+    V = raw.get("vars") if isinstance(raw, dict) and raw.get("schema_version") == SCHEMA else None
+    out = []
+    for v, spec in sorted(seed["vars"].items()) if isinstance(V, dict) else ():
+        st = V.get(v)
+        for key in ("value", "frozen") if isinstance(st, dict) else ():
+            x = st.get(key)
+            if not _isnum(x) or spec["floor"] <= round(x) <= spec["ceiling"]:
+                continue
+            u, y = spec["unit"], int(_clamp(round(x), spec["floor"], spec["ceiling"]))
+            if key == "value":
+                out.append("{} {} -> {}".format(v, fmt(x, u), fmt(y, u)))
+            else:
+                out.append("{} frozen {} -> {} (to keep it: {}={} in settings.json env)".format(
+                    v, fmt(x, u), fmt(y, u), env_var(v), int(round(x))))
+    return out
+
+
 def seed():
     """`stack_limits.py seed` (install.sh): create live.json only if absent, migrate an older
     schema after copying it to live.v<N>.json, and re-seed the pristine variables whose shipped seed
-    changed (reseed_pristine); a learned, frozen or user-set value is never rewritten. Returns the
-    outcome."""
+    changed (reseed_pristine); a learned, frozen or user-set value is never rewritten, but one the
+    seed's new [floor, ceiling] no longer holds is read at that bound, and the outcome names it
+    (_bounds_notes). Returns the outcome."""
     s = load_seed()
     _mkdirs()
     now = time.time()
     with Lock(_p("limits.lock"), wait=CMD_LOCK_WAIT_S) as lk:
         if not lk.ok:
             return "busy"
+        try:
+            with open(_p("live.json"), "rb") as fh:
+                raw = json.loads(fh.read().decode("utf-8"))
+        except (OSError, ValueError, RecursionError):
+            raw = None
         live, note = load_live_locked(s, now)
         if live is None:
             return note
+        bounds = _bounds_notes(raw, s) if note is None else []
+        tail = "; read at the seed's bounds: " + ", ".join(bounds) if bounds else ""
         new = dict(live)
         new["vars"] = {v: _copy_state(x) for v, x in live["vars"].items()}
         recs = reseed_pristine(s, new, now)
         if not recs:
-            return note or "present"
+            return (note or "present") + tail
         new.update(version=live["version"] + 1, updated=iso(now))
         for r in recs:
             r.update(ts=round(now, 3), session=None, live_version=new["version"])
@@ -1543,8 +1572,8 @@ def seed():
         _history_append(recs)
         moved = ", ".join("{} {} -> {}".format(r["var"], fmt(r["old"], s["vars"][r["var"]]["unit"]),
                                                fmt(r["new"], s["vars"][r["var"]]["unit"])) for r in recs)
-        return "{}reseeded from the new seed: {}; live v{}".format(note + "; " if note else "", moved,
-                                                                  new["version"])
+        return "{}reseeded from the new seed: {}; live v{}{}".format(note + "; " if note else "", moved,
+                                                                    new["version"], tail)
 
 
 # ---------------------------------------------------------------- snapshots

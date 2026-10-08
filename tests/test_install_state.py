@@ -596,7 +596,9 @@ def test_install_reseeds_unlearned_limits_and_keeps_learned_ones(tmp_path):
     assert V2["hard.session"]["value"] == 1920000000 and V2["hard.session"]["frozen"] is None
     assert V2["hard.session"]["status"] == "unset"
     assert V2["soft.prompt"]["frozen"] == 25000000 and V2["soft.agent.coder"]["value"] == 25000000
-    assert "hard.prompt" not in log.split("reseeded from the new seed:", 1)[1].split("\n", 1)[0]
+    assert "hard.prompt" not in log.split("reseeded from the new seed:", 1)[1].split("; live v", 1)[0]
+    assert ("read at the seed's bounds: hard.prompt 119M -> 300M, soft.prompt.orchestrator 80M -> 140M"
+            in log), log[-2000:]
     # learned under the old seed, so not re-seeded; read (and written back here) at the new floors
     assert (V2["hard.prompt"]["value"], V2["soft.prompt.orchestrator"]["value"]) == (300000000, 140000000)
     assert V2["hard.prompt"]["status"] == "supported"
