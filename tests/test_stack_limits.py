@@ -207,7 +207,8 @@ def test_seed_parity_with_frontmatter_and_guard():
 
 @pytest.mark.parametrize("path", [LIMITS_PY, LIMITS_PY.with_name("stack_io.py")])
 def test_stdlib_only_imports(path):
-    """stack_limits.py imports the stdlib and stack_io.py beside it (itself stdlib only)."""
+    """stack_limits.py imports the stdlib and stack_io.py and stack_bayes_grid.py beside it (themselves stdlib
+    only; stack_bayes_grid: tests/test_stack_bayes.py B1-T2)."""
     tree = ast.parse(path.read_text(encoding="utf-8"))
     mods = set()
     for node in ast.walk(tree):
@@ -219,7 +220,8 @@ def test_stdlib_only_imports(path):
     std = getattr(sys, "stdlib_module_names", None)
     if std is None:
         pytest.skip("needs Python >= 3.10 for sys.stdlib_module_names")
-    assert mods and mods - {"stack_io"} <= set(std), sorted(mods - set(std) - {"stack_io"})
+    local = {"stack_io", "stack_bayes_grid"}
+    assert mods and mods - local <= set(std), sorted(mods - set(std) - local)
 
 
 def test_imports_on_hook_interpreter():
@@ -849,13 +851,13 @@ def test_T15_older_schema_migrated_newer_left_untouched(st):
     assert L.seed() == "migrated"
     assert lim(st, "live.v0.json").read_bytes() == raw
     live = json.loads(lim(st, "live.json").read_text())
-    assert live["schema_version"] == 1 and live["version"] == 7
+    assert live["schema_version"] == L.LIVE_SCHEMA == 2 and live["version"] == 7       # live.json schema 2 (BAYES 2.4)
     assert live["vars"]["soft.agent.coder"]["value"] == 25000000
     assert live["vars"]["turns.scout"]["value"] == L.load_seed()["vars"]["turns.scout"]["ceiling"]    # clamped
     assert live["vars"]["hard.prompt"]["value"] is None
     assert L.seed() == "present" and lim(st, "live.json").read_text() == json.dumps(live, sort_keys=True,
                                                                                      separators=(",", ":"))
-    newer = json.dumps({"schema_version": 2, "version": 40, "vars": {}}).encode()
+    newer = json.dumps({"schema_version": L.LIVE_SCHEMA + 1, "version": 40, "vars": {}}).encode()
     lim(st, "live.json").write_bytes(newer)
     lim(st, "limits.log").unlink()
     _path, notice = L.apply_and_snapshot({"session_id": "s-new", "source": "startup"}, spawn=False)
