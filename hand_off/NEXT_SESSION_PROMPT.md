@@ -11,11 +11,11 @@ Get the user's reinstall done and verified (C10 on main), then run the planned p
 in the saved merge order. hand_off/HANDOFF_STATE.md is authoritative (sections 1 state, 2 decisions, 5 user steps, 9 programs).
 
 ## Paths
-- M = /Users/pmrj/ZDone/claude-agent-stack (main checkout, repo of record; main was `b0ddf192`: verify; layout dot-config/{dot-claude,dot-codex_config,dot-equilibrium})
+- M = /Users/pmrj/ZDone/claude-agent-stack (main checkout, repo of record; main = `limits-raise` merged by the user: verify; layout dot-config/{dot-claude,dot-codex_config,dot-equilibrium})
 - H = /Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/claude-info-handoff-setup-05c3bb (git-ignored `.claude-work/` holds job files)
-- Branches: `post-merge` (worktree H/.claude-work/post-merge: test_moved_paths fixes + the hand-off rewrite) and `limits-raise` (worktree H/.claude-work/limits-raise: orchestrator soft prompt 80M -> 140M, hard.prompt 100M -> 300M; may be unfinished: read its branch and the coder's report)
+- Merged by the user before this session: `post-merge` (`ff8c3392`) and `limits-raise` (soft prompt orchestrator 80M -> 140M, hard.prompt 100M -> 300M, exact pins; worktree H/.claude-work/limits-raise, do not remove)
 - Reinstall notes: H/.claude-work/dot-config/REINSTALL.md (it says 13 shipped files; 15 is correct)
-- C10 logs: H/.claude-work/c10/ (c10-main-b0ddf192.summary is the latest; c10-eqcli-321f037.failed_ids under resume-770728/.claude-work/c10/ = the 7 known environment failures)
+- C10 logs: H/.claude-work/c10/ (c10-main-b0ddf192.summary is the latest until the C10 on final main; c10-eqcli-321f037.failed_ids under resume-770728/.claude-work/c10/ = the 7 known environment failures)
 - Plans: H/.claude-work/sdk/plan.md, H/.claude-work/bayes/plan.md; rescue: H/.claude-work/lost-features/rescue/MANIFEST.md
 
 ## Read first
@@ -24,18 +24,16 @@ in the saved merge order. hand_off/HANDOFF_STATE.md is authoritative (sections 1
 3. The plan.md of a program only when you start it.
 
 ## First actions
-1. Spawn one verifier (read-only) for a state report: `git -C M log --oneline -8 main`; `git -C M branch --no-merged main`
-   (head); whether `post-merge` and `limits-raise` are ancestors of main (`merge-base --is-ancestor`) and their tips; the
-   installed manifest commit (`~/.claude/.stack-manifest.json`) against main's tip; `grep '^tools:' ~/.claude/agents/orchestrator.md`
-   (Bash present?); the latest C10 summary (DONE/FAILED, the failed ids against the 7 known ones). The verifier's hook refuses
-   harness, stack_progress and install runs: use a coder for those.
-2. The user has NOT reinstalled (manifest still `73eec41` or behind main): ask the user to merge `post-merge`
-   (and `limits-raise` after its review) and reinstall (`./install.sh`, then `./install.sh --codex`, per REINSTALL.md), and wait.
-   Meanwhile a coder may review and finish `limits-raise` (security surface: limits/settings: security-auditor + code-reviewer).
-3. Reinstalled: a coder runs the full C10 on main (HANDOFF_FULL section 1 item 10; harness from a copy with `EQ_AGENTS_DIR` and
-   `EQ_CONTAINER_DIR`; tests run from a `$TMPDIR` clone; expect only the 7 known environment ids and install_smoke 280/2 openpty)
-   and records the result in HANDOFF_STATE on an own branch.
-4. Then the programs in this merge order: Bayes 3a -> SDK-2 -> Bayes 3b -> Bayes 3c -> SDK-3 -> Bayes 4 -> SDK-4, each from
+1. Spawn one verifier (read-only) for a state report: main tip (`git -C M log --oneline -4 main`); the installed manifest commit
+   (`~/.claude/.stack-manifest.json`) against main's tip; `git -C M branch --no-merged main` (head); the latest C10 summary
+   (DONE/FAILED, failed ids against the 7 known ones); `stack_limits.py show '*prompt*'` and the orchestrator `tools:` line
+   (Bash present?). The verifier's hook refuses harness, stack_progress and install runs: use a coder for those.
+2. Manifest commit != main: ask the user for the reinstall (`./install.sh`, then `./install.sh --codex`, from M, per REINSTALL.md) and
+   wait; it is done when the manifest commit equals main. Limits 140M/300M apply only to NEW sessions after it.
+3. A coder runs the full C10 on final main (HANDOFF_FULL section 1 item 10; harness from a copy with `EQ_AGENTS_DIR` and
+   `EQ_CONTAINER_DIR`; tests from a `$TMPDIR` clone; expect only the 7 known environment ids and install_smoke 280/2 openpty); the
+   summary goes to H/.claude-work/c10/ and the result into HANDOFF_STATE on an own branch.
+4. Then the programs per the merge order (SDK / Bayes): Bayes 3a -> SDK-2 -> Bayes 3b -> Bayes 3c -> SDK-3 -> Bayes 4 -> SDK-4, each from
    its plan.md, each through review and a C10 on main.
 5. Paid steps are consented but USER-run: `sdk_smoke.py` <= $3.00, `sdk_probes.py` <= $10.50, Bayes P1 <= $40, P2 <= $200,
    A4 probe <= $0.25. Unattended runs stop at the plan with STATUS blocked; hand the user the exact command and wait.
@@ -49,5 +47,5 @@ in the saved merge order. hand_off/HANDOFF_STATE.md is authoritative (sections 1
 - Own worktree only: builders commit in their own worktree under H/.claude-work; serialize agent_guard.py, settings.json, install.sh, blackcat.md. Do not edit tools/instructor or lib/eq-wall (protected).
 - Security surfaces (agent_guard.py, settings.json, install.sh, hooks, WALL, lib/eq-*, doctor.sh, agent tool lists) get security-auditor + code-reviewer before merge.
 - C10 on main after every merge. Tests under `.claude-work` show about 130 known path failures; compare against the known ids.
-- Limits: 24 tool calls per BlackCat prompt and the orchestrator soft token limit (80M until `limits-raise` is merged and installed): checkpoint plan.md files.
-- Open items to carry (HANDOFF_STATE section 7): broker TOCTOU in `load_wall_module` vs `Wall.start` (MEDIUM, latent); `STACK_CODEX_VIA_TOP=1` bypass (LOW); A4 fold after the user's paid probe; side branches awaiting the user (section 3); model-display question for coder (check project-level `.claude/agents` shadowing).
+- Limits: 24 tool calls per BlackCat prompt and the orchestrator soft token limit (140M since `limits-raise` + reinstall, new session; 80M before): checkpoint plan.md files.
+- Open items to carry (HANDOFF_STATE section 7): broker TOCTOU in `load_wall_module` vs `Wall.start` (MEDIUM, latent); `STACK_CODEX_VIA_TOP=1` bypass (LOW); A4 fold after the user's paid probe; side branches awaiting the user (section 3); model display: setup fine, check project-level `.claude/agents` shadowing in that other session (the reinstall brings in 5 missing agents).

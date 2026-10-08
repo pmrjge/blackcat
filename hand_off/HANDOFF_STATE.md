@@ -1,4 +1,4 @@
-# HANDOFF_STATE: claude-agent-stack, current state as of 2026-10-08 (main `b0ddf192`)
+# HANDOFF_STATE: claude-agent-stack, current state as of 2026-10-08 (main = branch `limits-raise` after the user's ff merge)
 
 One coherent state; it replaces every earlier version of this file (the 2026-10-05 stop, the per-branch "as of" notes and
 the obsolete cells are gone). Supersedes `claude_info/HANDOFF_FULL.md` §0, §6 and §7 where they differ; HANDOFF_FULL stays the
@@ -16,24 +16,31 @@ since A9) · **H** `/Users/pmrj/ZDone/Worktree_for_Claude/claude-agent-stack/cla
 
 ## 1. State
 
-- **main is `b0ddf192`** [v]. Merged on it (the user ran every ff merge): audit-fixes, eq-runtime-2 (A7: H5 removed; A8: E7
-  cell pass), docs-reorg, the jsonschema fix, hs-update-1007b, hs-next, and **dot-config** (A9 repository move: the Claude, Codex and
-  Equilibrium trees now live under `dot-config/`; `./install.sh --codex` is the single Codex installer;
-  `extract_src` `parents[5]` re-pinned; the WALL lookup depth rule; the instructor patch is applied on main).
-- **C10 on `b0ddf192`** (`H/.claude-work/c10/c10-main-b0ddf192.summary`) [r]: all green except (a) two `tests/test_moved_paths.py`
-  items, fixed on branch `post-merge` (stale instructor line exemptions; this file's old header), and (b) the 7 known
-  environment failures (ids in `resume-770728/.claude-work/c10/c10-eqcli-321f037.failed_ids`: test_limits_guard T10,
-  test_stack_tree x3, test_stack_usage x3; xcrun_db stderr) plus 2 `openpty` failures in install_smoke (280 passed / 2 failed).
-  The `pool_sha` FAIL on `items/graders/` seen in the dot-config C10 was a script artefact (a glob), not an integrity failure.
-- **Installed stack is behind**: the manifest commit is `73eec41`; main has `b0ddf192`. The installed orchestrator `tools:`
-  line has no `Bash`; main's has. **USER STEP: reinstall** (section 5). After it, a coder runs a C10 on main.
-- **Branch `post-merge`** (worktree `H/.claude-work/post-merge`): the two test_moved_paths fixes, this rewrite and the refreshed
-  `NEXT_SESSION_PROMPT.md`. Not merged; the user merges (`git -C M merge --ff-only post-merge`, tip checked first).
-- **Branch `limits-raise`** (worktree `H/.claude-work/limits-raise`): raises the orchestrator soft prompt pin 80M -> 140M and
-  `hard.prompt` 100M -> 300M (USER request 2026-10-08, "colliding with limits"). A main-coder was implementing it when this was
-  written: one commit `81803e58` existed, not an ancestor of main [v]; whether it is finished and reviewed is **unknown**:
-  the next session reads that branch and the coder's report before acting. Until it is merged and reinstalled the limits are
-  the old ones.
+- **main**: the user ff-merges branch `limits-raise` right after this commit, then runs the reinstall. Tip of `limits-raise` before this
+  commit: `52c1abcc` [v]; it includes a merge of main `ff8c3392` (post-merge: the moved-paths test fix and this integral rewrite). So
+  main = this commit once merged; verify with `git -C M log --oneline -4 main`. Merged on main earlier (the user ran every ff
+  merge): audit-fixes, eq-runtime-2 (A7: H5 removed; A8: E7 cell pass), docs-reorg, the jsonschema fix, hs-update-1007b,
+  hs-next, and **dot-config** (A9 repository move: the Claude, Codex and Equilibrium trees live under `dot-config/`;
+  `./install.sh --codex` is the single Codex installer; `extract_src` `parents[5]` re-pinned; the WALL lookup depth rule; the
+  instructor patch is applied on main), post-merge (`b2ee53e8` + `ff8c3392`).
+- **`limits-raise`, merged with this branch** (USER request 2026-10-08, "colliding with limits"; the soft limit of 80M had been hit):
+  `soft.prompt.orchestrator` seed/floor/ceiling 80M/80M/100M -> **140M/140M/140M**; `hard.prompt` 100M/50M/250M -> **300M/300M/300M**.
+  Exact pins, no headroom (USER choice). `soft.prompt` 33M and `hard.session` (1.92B seed / 2.5B ceiling) unchanged. F2 (USER: yes): for
+  `hard.*` an env override can only LOWER the cap on every path without a usable snapshot (tampered or unwritable snapshot, event
+  without session id, the guard's built-in constants when `stack_limits.py` is unusable); `turns.*` still ignore env there.
+  Learned values are clamped into the new [floor, ceiling] on read, so no limits reset is needed. Running sessions keep
+  119M/80M until a NEW session starts after the reinstall. Check: `stack_limits.py show '*prompt*'`. Two cosmetic points left
+  unapplied: `Limits.where` wording when the seed is None; `bin/stack-budget` shows raw seeds on a fallback.
+- **C10 on `b0ddf192`** (`H/.claude-work/c10/c10-main-b0ddf192.summary`) [r]: exactly 2 new failures (both `tests/test_moved_paths.py`;
+  fixed by post-merge `b2ee53e8` + `ff8c3392`) and otherwise passed, apart from the 7 known environment failures (ids in
+  `resume-770728/.claude-work/c10/c10-eqcli-321f037.failed_ids`: test_limits_guard T10, test_stack_tree x3, test_stack_usage x3;
+  xcrun_db stderr) plus 2 `openpty` failures in install_smoke (280 passed / 2 failed). The `pool_sha` FAIL on `items/graders/`
+  seen in the dot-config C10 was a script artefact (a glob). **The C10 on the final main (limits-raise merged, reinstalled) is still
+  TO RUN by a coder.**
+- **Installed stack is behind**: the manifest commit was `73eec41` (281 commits behind) on 2026-10-08. The installed orchestrator
+  `tools:` line has no `Bash`; main's has. **USER STEP: `./install.sh`, then `./install.sh --codex`, from M right after the merge**
+  (section 5); done when the manifest commit equals main. The reinstall also brings in 5 agents missing from the installed
+  stack. After it, start a NEW session to get the new limits.
 - Wiki: pushed to `pmrjge/blackcat.wiki` (`e0d2294` on `master`) [r]; the remote head is **unverified** (`ls-remote` blocked in
   the sandbox). A wiki `docs-reorg` branch awaits the user's merge.
 
@@ -41,7 +48,7 @@ Environment notes: the sandbox writes only in M and H; agents cannot merge into 
 `/tmp/claude-501/uvcache` is corrupt (`uv run --no-cache`); harness runs need `EQ_AGENTS_DIR` and `EQ_CONTAINER_DIR`; BSD
 `split` has no `-n l/4`; about 130 tests fail on paths when run under `.claude-work` (run from a `$TMPDIR` clone); the
 verifier's read-only hook refuses harness, stack_progress and install runs (use a coder); BlackCat has a 24-tool-call cap per
-prompt and the orchestrator a soft token limit (see `limits-raise`), so checkpoint the `plan.md` files.
+prompt and the orchestrator a soft token limit (140M after `limits-raise` + reinstall, in a new session), so checkpoint the `plan.md` files.
 
 ## 2. Decisions that stand (USER; do not re-ask)
 
@@ -70,7 +77,7 @@ prompt and the orchestrator a soft token limit (see `limits-raise`), so checkpoi
 14. 2026-10-07: H5 leaves the pre-registration (`dot-config/dot-equilibrium/COMPARE_eq.md` section 12 A7). 2026-10-07: `eq_check.sh`
     E7 gets a cell-pass rule (A8). The run plan had reserved A9 (pilot) and A10 (confirmation) for the calibration amendments; COMPARE_eq
     section 12 A9 is now the repository-move record, so the run plan's ids need re-checking when they are applied [unverified].
-15. 2026-10-08: orchestrator limits raised (`limits-raise`, section 1).
+15. 2026-10-08: orchestrator soft prompt 140M, `hard.prompt` 300M, exact pins; F2 yes (`limits-raise`, section 1).
 
 Standing constraints: never push, no forge writes; agents never run `install.sh`; no paid runs without consent; no Haiku;
 security surfaces (agent_guard.py, settings.json, install.sh, hooks, WALL, lib/eq-*, doctor.sh, agent definitions' tool lists)
@@ -82,7 +89,6 @@ no `claude` login inside them. `lib/eq-wall` and `tools/instructor` are protecte
 
 | item | state |
 |---|---|
-| `post-merge`, `limits-raise` | section 1 |
 | `s4-l7-l10` | "Minimum first" + A/B test; patch in the rescue folder |
 | `worktree-agent-a06763fbda9c482d4` | cache-stable prefix + an untracked test |
 | `worktree-agent-a08001452f6ef3994` | installer skips existing CLI tools |
@@ -96,8 +102,7 @@ Known loss: worktrees T and S (2026-10-05, cause unknown). The rescue folder `H/
 
 | # | task | state |
 |---|---|---|
-| 1 | Reinstall, then a C10 on main | USER step (section 5), then a coder |
-| 2 | `post-merge` and `limits-raise` merges | the user; `limits-raise` needs its review first (it edits limits; security surface: settings/limits) |
+| 1 | Reinstall (`limits-raise` merge first), then a C10 on main | USER step (section 5), done when the manifest commit equals main; then a coder runs the C10 (summary in `H/.claude-work/c10/`) |
 | 3 | Programs (section 9), in the merge order | not started |
 | 10 | `RESET_TO_MAIN.sh` `--archive`/`--apply`, worktree removals | the user (section 3) |
 | 18 | A4 fold into COMPARE_eq A4 item 4 (`hand_off/A4_FOLD.md`) | after the user's paid probe (section 5); python-engineer |
@@ -111,9 +116,9 @@ Deferred: oracle residuals, 6.10 items, Stage 3 D1-D5.
    to that note: it says 13 shipped files; **15 is correct**. The venv sync also clears the `jsonschema` mismatch. The
    `tools/instructor` deny rule makes sandboxed git writes to a `tools/instructor` path fail after the reinstall. Check:
    `grep -n '^tools:' ~/.claude/agents/orchestrator.md` has `Bash`; the manifest commit is main's. Undo:
-   `./install.sh --restore` (backups in `~/.local/state/claude-agent-stack-backups`). After `limits-raise` merges, reinstall
-   again for the new limits. After the reinstall, run `bash ~/.claude/bin/doctor.sh`.
-2. Merge `post-merge` (and `limits-raise` once reviewed); the wiki `docs-reorg` branch (the wiki push is yours).
+   `./install.sh --restore` (backups in `~/.local/state/claude-agent-stack-backups`). The user runs it from M right after merging
+   `limits-raise`; then start a new session for the new limits. After the reinstall, run `bash ~/.claude/bin/doctor.sh`.
+2. Merge `limits-raise` (ff, before the reinstall); the wiki `docs-reorg` branch (the wiki push is yours).
 3. Runtime Equilibrium live checks (nothing live-verified): README "Live checks" 9 (spec section 13) and
    `hand_off/R3_CONTAINER_CHECKLIST.md` C14-C23, D1-D9 (the default `core` set stops at exit 13 until the placeholder pins
    `BASH_SRC_SHA256`, `BASH_PATCHES_SHA256`, `BASH_BIN_SHA256`, `CONTAINER_PKG_SIGNER` are filled). Paid calibration:
@@ -142,8 +147,8 @@ Deferred: oracle residuals, 6.10 items, Stage 3 D1-D5.
 - Equilibrium broker TOCTOU: `load_wall_module` vs `Wall.start` in `eq_harness` (latent, MEDIUM, pre-existing).
 - `STACK_CODEX_VIA_TOP=1` inner-installer bypass of agent_guard (LOW; `~/.codex` unguarded).
 - A4 fold waits for the paid probe; `disc3.py` orphan; `RESET_TO_MAIN.sh` steps are the user's.
-- Model-display question for the coder in another session: setup is fine (every agent has `model: opus|sonnet`); likely
-  display-only; check project-level `.claude/agents` shadowing before changing anything.
+- Model display: setup is fine (every agent has `model: opus|sonnet`). In that other session check project-level `.claude/agents`
+  shadowing; the reinstall brings in the 5 missing agents.
 - Unverified: whether the old stopped agents' stray processes still run; the wiki remote head; EQ-T snapshot completeness
   (no original listing to diff).
 
