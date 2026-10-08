@@ -4,25 +4,34 @@ lines before it enters the context; the full output stays reachable.
 Hook: PostToolUse `Bash|Read`, `/bin/sh <config>/bin/stack-hook output_shrink` (fail-open: any error
 leaves the output unchanged). It never touches `tool_input`, so the command the guard checked is the
 command that ran. Claude Code fires PostToolUse only for results it treats as valid (a Bash exit 0,
-or exit 1 of grep/rg/find/diff/test/git diff/git grep); a failing command goes to PostToolUseFailure,
-which cannot replace output, and keeps Claude Code's own head-and-tail excerpt.
+or exit 1 of grep/rg/find/diff/test/git diff/git grep, which carries `returnCodeInterpretation`); a
+failing command goes to PostToolUseFailure, which cannot replace output, and keeps Claude Code's own
+head-and-tail excerpt. The replacement: `hookSpecificOutput.updatedToolOutput`, the tool's own output
+object with `stdout` (Bash) or `file.content` (Read) replaced; Claude Code checks it against the
+tool's output schema (a mismatch keeps the original) and builds the model's tool result from it.
 
 Mode, STACK_OUTPUT_SHRINK (environment; settings.json `env`):
-  shadow (default; also any unknown value)  decide exactly as `on` would and log the decision; the
-         output is never changed and no spill file is written.
-  on     Bash over its threshold: the full output, credentials masked, goes to a 0600 spill file and
-         Claude gets a header with its path plus the decisive lines (error lines first, then
-         summaries, tail, head, diff/heading structure), in their original order with the omitted
-         line ranges marked. Read over its threshold (no offset/limit given): the result keeps a
-         contiguous head (so Claude Code's line numbers stay true) and `additionalContext` gives
-         the line numbers where definitions and headings start in the hidden part and how to page
-         it (offset/limit; never file text: hook context reaches the model as system text, so a
-         line of an untrusted file must not); the file itself is the full output.
+  default (unset or empty; also the value `default`)  the rollout scope: a successful Bash result
+         of the `bash` class over its threshold is cut as in `on`; every other class (viewing
+         commands, Read) is decided and logged as in `shadow`, never changed.
+  on     every class: Bash over its threshold: the full output, credentials masked, goes to a 0600
+         spill file and Claude gets a header with its path plus the decisive lines (error lines
+         first, then summaries, tail, head, diff/heading structure), in their original order with
+         the omitted line ranges marked. Read over its threshold (no offset/limit given): the result
+         keeps a contiguous head (so Claude Code's line numbers stay true) and `additionalContext`
+         gives the line numbers where definitions and headings start in the hidden part and how to
+         page it (offset/limit; never file text: hook context reaches the model as system text, so
+         a line of an untrusted file must not); the file itself is the full output.
+  shadow (also any other value: a kill switch with a typo still changes nothing)  decide exactly as
+         `on` would and log the decision; the output is never changed and no spill file is written.
   off    nothing runs, nothing is written.
 
-Never shrunk: a Read with offset or limit (the range was chosen), a Read of a prompt file (SKILL.md,
-CLAUDE.md, skills/, rules/, agents/), any Read or Bash that touches the spill directory (a re-read: logged),
-images, background and interrupted commands, a Bash result Claude Code already persisted
+Never shrunk, in every mode: a Read with offset or limit (the range was chosen), a Read of a prompt
+file (SKILL.md, CLAUDE.md, skills/, rules/, agents/), any Read or Bash that touches the spill directory
+(a re-read: logged), images, background (`run_in_background`, `backgroundTaskId`) and interrupted
+commands, a Bash result that is not a plain success (`returnCodeInterpretation`: a non-zero exit
+Claude Code let through; an `is_error`/`isError` flag or a non-zero `exitCode`, should a payload
+carry one), a Bash result Claude Code already persisted
 (`persistedOutputPath`, past its ~30,000-character inline limit: Claude gets a 2,000-character
 preview and the path of Claude Code's own full copy) or returned as `structuredContent`, and a Bash
 command identical to one this agent already had cut in this session (running it again returns the
@@ -49,10 +58,14 @@ shrink. The spill copy is scrubbed line by line with bin/stack-tree's credential
 `_KV`) plus whole PEM private-key blocks; when those tables cannot load nothing is spilled and
 nothing is shrunk.
 
-`output_shrink.py report [DIR_OR_LOG ...] [--json]` reads the logs (default: the current project)
-and prints the realised cut, error-line retention, re-read and repeat rates and a threshold sweep.
-`output_shrink.py --self-test` runs the decision on synthetic events in a temporary project.
+`output_shrink.py report [DIR_OR_LOG ...] [--json]` (also `--report`) reads the logs (default: the
+current project) and prints, per tool and mode, the characters seen, kept, cut and would-cut (bin/stack-run
+appends its own rows, tool "stack-run"), then the realised cut, error-line retention, re-read and repeat
+rates and a threshold sweep. `output_shrink.py --self-test` runs the decision on synthetic events in a
+temporary project. bin/stack-run imports this module for its masker (Scrubber) and its decisive lines
+(StreamDigest over select()).
 """
+import collections
 import hashlib
 import json
 import os
@@ -63,8 +76,10 @@ import stat
 import sys
 import time
 
-MODES = ("off", "shadow", "on")
-DEFAULT_MODE = "shadow"
+MODES = ("off", "shadow", "default", "on")
+DEFAULT_MODE = "default"    # STACK_OUTPUT_SHRINK unset or empty
+UNKNOWN_MODE = "shadow"     # any other value: changes nothing
+LIVE = {"on": frozenset(("bash", "view", "read")), "default": frozenset(("bash",))}   # classes cut per mode
 DEFAULTS = {"bash": 8000, "view": 20000, "read": 20000}
 ENV_KEYS = {"bash": "STACK_OUTPUT_SHRINK_BASH", "view": "STACK_OUTPUT_SHRINK_VIEW",
             "read": "STACK_OUTPUT_SHRINK_READ"}
@@ -114,7 +129,9 @@ _TABLES = []
 # ---------------------------------------------------------------- settings
 def mode():
     m = os.environ.get("STACK_OUTPUT_SHRINK", "").strip().lower()
-    return m if m in MODES else DEFAULT_MODE
+    if not m:
+        return DEFAULT_MODE
+    return m if m in MODES else UNKNOWN_MODE
 
 
 def thresholds():
@@ -183,14 +200,28 @@ def bash_text(resp):
     return out + ("\n" if out and err else "") + err
 
 
+EXIT_KEYS = ("exitCode", "exit_code", "returnCode")
+
+
+def succeeded(ev, resp):
+    """A plain success. Claude Code's Bash result has no exit code: it sets `returnCodeInterpretation`
+    only for a non-zero exit it lets through (grep/rg 1 "No matches found", diff 1 "Files differ", test
+    1 ...); an error flag or a non-zero exit code, should a payload carry one, also counts as failed."""
+    if resp.get("returnCodeInterpretation") or resp.get("is_error") or resp.get("isError") \
+            or ev.get("is_error"):
+        return False
+    return all(resp.get(k) is None or resp.get(k) == 0 for k in EXIT_KEYS)
+
+
 # ---------------------------------------------------------------- digests
 def cut_line(s):
     return s if len(s) <= LINE_MAX else s[:LINE_MAX] + "… [+%d chars]" % (len(s) - LINE_MAX)
 
 
-def select(lines):
+def select(lines, taken=None):
     """Kept line indices and per-class counts for a Bash digest: error lines (the last ones first,
-    then the first ones), summaries (from the end), the tail, the head, structure lines."""
+    then the first ones), summaries (from the end), the tail, the head, structure lines. `taken`, a
+    list, receives the kept indices in the order they were taken (most decisive first)."""
     kept, counts = set(), {}
     n = len(lines)
     err = [i for i, s in enumerate(lines) if ERR_RE.search(s)]
@@ -206,6 +237,8 @@ def select(lines):
                     break               # contiguous classes stop at the first line that does not fit
                 continue
             kept.add(i)
+            if taken is not None:
+                taken.append(i)
             room -= cost
             counts[cls] = counts.get(cls, 0) + 1
 
@@ -271,6 +304,47 @@ def outline(lines, start_idx, first_no):
     return out
 
 
+class StreamDigest:
+    """select() over a stream too long to hold (bin/stack-run): only the lines select() can reach are
+    kept, each cut like a digest line (cut_line), with its line number: the head and the tail as far
+    as their budgets reach (a line costs one character at least), the first and the last error lines,
+    the last summary lines, the first structure lines. A stream of at most head + tail budget lines
+    is kept whole, so its pick is select() on the whole text."""
+
+    def __init__(self):
+        self.n = 0
+        self.head = []
+        self.tail = collections.deque(maxlen=BUDGET["tail"])
+        self.err_first, self.err_last = [], collections.deque(maxlen=BUDGET["err"])
+        self.sums = collections.deque(maxlen=BUDGET["sum"])
+        self.struct = []
+
+    def add(self, line):
+        item = (self.n, cut_line(line))
+        self.n += 1
+        if len(self.head) < BUDGET["head"]:
+            self.head.append(item)
+        self.tail.append(item)
+        if ERR_RE.search(line):
+            (self.err_first if len(self.err_first) < BUDGET["err"] else self.err_last).append(item)
+        if SUM_RE.search(line):
+            self.sums.append(item)
+        if len(self.struct) < BUDGET["struct"] and STRUCT_RE.search(line):
+            self.struct.append(item)
+
+    def pick(self, k):
+        """Up to k (1-based line number, line) pairs, the most decisive by select()'s order, in
+        line order."""
+        held = {}
+        for part in (self.head, self.err_first, self.err_last, self.sums, self.struct, self.tail):
+            held.update(part)
+        nos = sorted(held)
+        lines = [held[no] for no in nos]
+        taken = []
+        select(lines, taken)
+        return [(nos[i] + 1, lines[i]) for i in sorted(taken[:max(0, k)])]
+
+
 # ---------------------------------------------------------------- credential scrub (spill copy)
 def tables():
     """bin/stack-tree's (redact_kv, _REDACT): one source of the credential patterns. Loaded without
@@ -297,25 +371,33 @@ PEM_BEGIN = re.compile(r"-----BEGIN [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----")
 PEM_END = re.compile(r"-----END [A-Z0-9 ]*PRIVATE KEY( BLOCK)?-----")
 
 
+class Scrubber:
+    """The masker, one line at a time (the spill copy here, bin/stack-run's log): bin/stack-tree's
+    credential tables, PEM private-key blocks fully. A line in, one line out, so line numbers hold.
+    Raises when the tables cannot load."""
+
+    def __init__(self):
+        self.redact_kv, self.rx = tables()
+        self.in_pem = False
+
+    def line(self, s):
+        if self.in_pem:
+            self.in_pem = not PEM_END.search(s)
+            return "***"
+        if PEM_BEGIN.search(s):
+            self.in_pem = not PEM_END.search(s)
+            return "***"
+        s = self.redact_kv(s)
+        for r, rep in self.rx:
+            s = r.sub(rep, s)
+        return s
+
+
 def scrub(text):
     """The text with credentials masked line by line (the line count never changes, so the omitted
     ranges in the digest still point at the same lines), PEM private-key blocks fully."""
-    redact_kv, rx = tables()
-    out, in_pem = [], False
-    for s in text.split("\n"):
-        if in_pem:
-            out.append("***")
-            in_pem = not PEM_END.search(s)
-            continue
-        if PEM_BEGIN.search(s):
-            out.append("***")
-            in_pem = not PEM_END.search(s)
-            continue
-        s = redact_kv(s)
-        for r, rep in rx:
-            s = r.sub(rep, s)
-        out.append(s)
-    return "\n".join(out)
+    sc = Scrubber()
+    return "\n".join(sc.line(s) for s in text.split("\n"))
 
 
 # ---------------------------------------------------------------- safe files
@@ -332,7 +414,12 @@ def inside(path, root):
 
 
 def project_root(ev):
-    p = os.environ.get("CLAUDE_PROJECT_DIR") or (ev.get("cwd") if isinstance(ev.get("cwd"), str) else "")
+    return safe_root(os.environ.get("CLAUDE_PROJECT_DIR") or (ev.get("cwd") if isinstance(ev.get("cwd"), str) else ""))
+
+
+def safe_root(p):
+    """p, resolved, when the hook (or bin/stack-run) may write under it: an absolute existing
+    directory, not `/`, $HOME or inside a Claude config directory; else None."""
     if not p or not os.path.isabs(p):
         return None
     p = os.path.realpath(p)
@@ -365,15 +452,15 @@ def open_dir(parent_fd, name, create=True, private=True):
     return fd
 
 
-def work_dir(root):
-    """fd of <root>/.claude-work/output-shrink (with its `*` .gitignore)."""
+def work_dir(root, sub=DIRNAME):
+    """fd of <root>/.claude-work/<sub> (0700, with its `*` .gitignore); sub "runs" is bin/stack-run's."""
     rfd = os.open(root, os.O_RDONLY | os.O_DIRECTORY | os.O_NOFOLLOW)
     try:
         cfd = open_dir(rfd, ".claude-work", private=False)
     finally:
         os.close(rfd)
     try:
-        wfd = open_dir(cfd, DIRNAME)
+        wfd = open_dir(cfd, sub)
     finally:
         os.close(cfd)
     try:
@@ -516,7 +603,7 @@ def decide(ev, md, thr, wfd, root, now):
     resp = ev.get("tool_response")
     sid, aid = str(ev.get("session_id") or "")[:80], str(ev.get("agent_id") or "")[:80]
     row = {"v": 1, "ts": round(now, 3), "sid": sid, "aid": aid, "atype": str(ev.get("agent_type") or "")[:60],
-           "tool": tool, "mode": md, "cut": False}
+           "tool": tool, "mode": md, "cut": False, "applied": False}
     if tool == "Bash":
         cmd = inp.get("command") if isinstance(inp.get("command"), str) else ""
         row["fam"] = family(cmd)
@@ -529,8 +616,11 @@ def decide(ev, md, thr, wfd, root, now):
             row["skip"], row["refs"] = "reread", SPILL_REF_RE.findall(cmd)[:5]
         elif resp.get("persistedOutputPath") or resp.get("structuredContent"):
             row["skip"] = "persisted"    # Claude Code shows its own preview and keeps the full copy
-        elif resp.get("isImage") or resp.get("interrupted") or resp.get("backgroundTaskId"):
+        elif resp.get("isImage") or resp.get("interrupted") or resp.get("backgroundTaskId") \
+                or inp.get("run_in_background"):
             row["skip"] = "special"
+        elif not succeeded(ev, resp):
+            row["skip"] = "failed"       # the decisive lines may be anywhere: Claude gets it whole
         cls = "view" if row["fam"] in VIEW_FAMILIES else "bash"
     elif tool == "Read":
         path = inp.get("file_path") if isinstance(inp.get("file_path"), str) else ""
@@ -576,10 +666,11 @@ def decide(ev, md, thr, wfd, root, now):
         row["skip"] = "repeat"
         return None, row
     row["cut"] = True
-    if md != "on":
-        return None, row
+    if cls not in LIVE.get(md, ()):
+        return None, row                  # shadow, or a class this mode leaves in shadow
     if cls == "read":
         new = dict(resp, file=dict(f, content=head, numLines=k))
+        row["applied"] = True
         return ({"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": new,
                                         "additionalContext": note}}, row)
     try:
@@ -587,7 +678,7 @@ def decide(ev, md, thr, wfd, root, now):
     except Exception as exc:  # noqa: BLE001 - no spill, no shrink: the full output must stay reachable
         row["cut"], row["skip"] = False, "spill-failed:%s" % type(exc).__name__
         return None, row
-    row["spill"] = name
+    row["spill"], row["applied"] = name, True
     new = dict(resp, stdout=digest, stderr="")
     return {"hookSpecificOutput": {"hookEventName": "PostToolUse", "updatedToolOutput": new}}, row
 
@@ -613,7 +704,7 @@ def handle(ev, now=None):
                 append_row(wfd, row)
             except OSError:
                 pass
-        return out if md == "on" else None
+        return out if md in LIVE else None
     finally:
         os.close(wfd)
 
@@ -633,16 +724,49 @@ def load_rows(targets):
                         r = json.loads(line)
                     except ValueError:
                         continue
-                    if isinstance(r, dict) and r.get("v") == 1:
+                    if isinstance(r, dict) and r.get("v") == 1 and all(
+                            isinstance(r.get(k, 0), (int, float)) for k in ("chars", "kept_chars", "ts")):
                         rows.append(r)
     rows.sort(key=lambda r: r.get("ts", 0))
     return rows
 
 
+def num(v):
+    return v if isinstance(v, int) and not isinstance(v, bool) and v >= 0 else 0
+
+
+def applied(r):
+    """The row's output was replaced (rows before 2026-10-08 carry no `applied`: an `on` cut was)."""
+    return bool(r["applied"]) if "applied" in r else (r.get("mode") == "on" and bool(r.get("cut")))
+
+
+def by_tool_mode(rows):
+    """Per tool and mode: rows, characters seen, kept (what Claude got), cut (replaced output) and
+    would-cut (a cut decided but not applied: shadow, or a class the mode leaves in shadow), and the
+    share of cut + would-cut in the characters seen: the before (shadow) and after (default, on)."""
+    out = {}
+    for r in rows:
+        t = out.setdefault("%s/%s" % (r.get("tool"), r.get("mode")),
+                           {"rows": 0, "chars": 0, "kept": 0, "cut": 0, "would_cut": 0, "pct": 0.0})
+        chars = num(r.get("chars"))
+        saved = max(0, chars - num(r.get("kept_chars"))) if r.get("cut") and "kept_chars" in r else 0
+        t["rows"] += 1
+        t["chars"] += chars
+        if applied(r):
+            t["cut"] += saved
+            t["kept"] += chars - saved
+        else:
+            t["would_cut"] += saved
+            t["kept"] += chars
+    for t in out.values():
+        t["pct"] = round(100.0 * (t["cut"] + t["would_cut"]) / t["chars"], 1) if t["chars"] else 0.0
+    return out
+
+
 def report(rows, window=20):
-    """Realised cut, error retention, re-read and repeat rates, threshold sweep."""
+    """Per tool/mode sizes; realised cut, error retention, re-read and repeat rates, threshold sweep."""
     out = {"rows": len(rows), "sessions": len({r.get("sid") for r in rows}),
-           "modes": {}, "by_class": {}, "sweep": {}}
+           "modes": {}, "by_class": {}, "sweep": {}, "by_tool_mode": by_tool_mode(rows)}
     for r in rows:
         out["modes"][r.get("mode")] = out["modes"].get(r.get("mode"), 0) + 1
     total_chars = sum(r.get("chars", 0) for r in rows)
@@ -707,6 +831,10 @@ def report(rows, window=20):
 def print_report(rep):
     w = sys.stdout.write
     w("output-shrink log: %d rows, %d sessions, modes %s\n" % (rep["rows"], rep["sessions"], rep["modes"]))
+    w("%-22s %7s %13s %13s %13s %13s %6s\n" % ("tool/mode", "rows", "chars", "kept", "cut", "would-cut", "%"))
+    for k, t in sorted(rep["by_tool_mode"].items()):
+        w("%-22s %7d %13d %13d %13d %13d %6.1f\n" % (k[:22], t["rows"], t["chars"], t["kept"], t["cut"],
+                                                     t["would_cut"], t["pct"]))
     w("logged output %s chars; cut events %d; cut %s chars (~%s tokens) = %.1f%% of logged chars; "
       "net of re-reads %s chars\n" % (format(rep["logged_chars"], ","), rep["cut_events"],
                                       format(rep["cut_chars"], ","), format(rep["cut_tokens_est"], ","),
@@ -747,6 +875,15 @@ def self_test():
                 data = fh.read()
             assert fake not in data and "line 1999 ok" in data
             assert handle(ev) is None                     # the same call again: unshrunk
+            del os.environ["STACK_OUTPUT_SHRINK"]        # unset: the default rollout
+            ev["session_id"] = "s3"
+            assert handle(ev)["hookSpecificOutput"]["updatedToolOutput"]["stdout"].startswith("[output-shrink:")
+            ev["session_id"], ev["tool_response"]["returnCodeInterpretation"] = "s4", "No matches found"
+            assert handle(ev) is None                     # not a plain success: whole
+            read = {"hook_event_name": "PostToolUse", "tool_name": "Read", "session_id": "s5", "cwd": d,
+                    "tool_input": {"file_path": os.path.join(d, "a.py")},
+                    "tool_response": {"type": "text", "file": {"content": body, "startLine": 1}}}
+            assert handle(read) is None                   # Read stays in shadow by default
     finally:
         os.environ.clear()
         os.environ.update(old)
@@ -757,7 +894,7 @@ def self_test():
 def main(argv):
     if argv[:1] == ["--self-test"]:
         return self_test()
-    if argv[:1] == ["report"]:
+    if argv[:1] in (["report"], ["--report"]):
         args = [a for a in argv[1:] if not a.startswith("--")]
         rep = report(load_rows(args or [os.environ.get("CLAUDE_PROJECT_DIR") or os.getcwd()]))
         if "--json" in argv:

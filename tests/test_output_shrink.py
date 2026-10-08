@@ -141,13 +141,23 @@ def test_shadow_never_changes_output_and_writes_no_spill(hk):
     assert spills(hk) == [] and not (wdir(hk) / "spill").exists()
 
 
-@pytest.mark.parametrize("value", [None, "", "yes", "enforce", "ON?"])
-def test_mode_defaults_to_shadow(hk, value):
-    if value is not None:
-        setmode(hk, value)
+@pytest.mark.parametrize("value", ["yes", "enforce", "ON?", "of", "1", "true"])
+def test_unknown_mode_is_shadow(hk, value):
+    """A value set but not understood (a mistyped kill switch) never changes output."""
+    setmode(hk, value)
     assert hk.mod.mode() == "shadow"
     assert hk.mod.handle(bash_ev(hk, "make", sized(30000))) is None
-    assert rows(hk)[0]["mode"] == "shadow" and spills(hk) == []
+    assert rows(hk)[0]["mode"] == "shadow" and rows(hk)[0]["cut"] is True and spills(hk) == []
+
+
+@pytest.mark.parametrize("value", [None, "", "  ", "default", " Default "])
+def test_unset_mode_is_the_default_rollout(hk, value):
+    if value is not None:
+        setmode(hk, value)
+    assert hk.mod.mode() == "default"
+    assert updated(hk.mod.handle(bash_ev(hk, "make", sized(30000))))["stdout"].startswith("[output-shrink:")
+    r = rows(hk)[0]
+    assert r["mode"] == "default" and r["cut"] is True and r["applied"] is True and len(spills(hk)) == 1
 
 
 def test_off_writes_nothing(hk):
@@ -203,9 +213,10 @@ def test_npm_err_lines_count_as_errors(hk):
 def test_stderr_is_merged_into_the_digest_and_other_fields_kept(hk):
     setmode(hk, "on")
     out = updated(hk.mod.handle(bash_ev(hk, "make", build_log(), stderr="warning: x\nfatal: stderr line",
-                                        returnCodeInterpretation="ok")))
+                                        noOutputExpected=False, gitOperation={"op": "x"})))
     assert "fatal: stderr line" in out["stdout"] and out["stderr"] == ""
-    assert out["interrupted"] is False and out["isImage"] is False and out["returnCodeInterpretation"] == "ok"
+    assert out["interrupted"] is False and out["isImage"] is False and out["noOutputExpected"] is False
+    assert out["gitOperation"] == {"op": "x"}
 
 
 def test_render_marks_omitted_ranges_exactly(hk):
@@ -259,6 +270,86 @@ def test_shadow_logs_the_same_decision_as_on(hk):
     a, b = rows(hk)
     for k in ("cut", "kept", "kept_lines", "kept_chars", "err_total", "err_kept", "cls", "thr", "chars"):
         assert a[k] == b[k], k
+
+
+# ---------------------------------------------------------------- the default rollout (STACK_OUTPUT_SHRINK unset)
+def test_default_cuts_a_successful_bash_result_only_above_8000(hk):
+    assert hk.mod.handle(bash_ev(hk, "make", sized(8000), sid="at")) is None
+    out = updated(hk.mod.handle(bash_ev(hk, "make", build_log(errs=[(5, "error: e")]), sid="over")))
+    assert out["stdout"].startswith("[output-shrink:") and "error: e" in out["stdout"] and out["stderr"] == ""
+    at, over = rows(hk)
+    assert (at["mode"], at["cut"], at["applied"], at["thr"]) == ("default", False, False, 8000)
+    assert (over["cut"], over["applied"]) == (True, True) and over["spill"] == spills(hk)[0].name
+
+
+FAILED_OR_SPECIAL = [
+    pytest.param({"returnCodeInterpretation": "No matches found"}, None, "failed", id="rci-grep"),
+    pytest.param({"returnCodeInterpretation": "Files differ"}, None, "failed", id="rci-diff"),
+    pytest.param({"is_error": True}, None, "failed", id="is_error"),
+    pytest.param({"isError": True}, None, "failed", id="camelError"),
+    pytest.param({"exitCode": 1}, None, "failed", id="exitCode"),
+    pytest.param({"exit_code": 2}, None, "failed", id="exit_code"),
+    pytest.param({"returnCode": 3}, None, "failed", id="returnCode"),
+    pytest.param({}, {"is_error": True}, "failed", id="event-flag"),
+    pytest.param({"interrupted": True}, None, "special", id="interrupted"),
+    pytest.param({"backgroundTaskId": "b7"}, None, "special", id="backgroundTaskId"),
+    pytest.param({}, {"run_in_background": True}, "special", id="run_in_background"),
+    pytest.param({"persistedOutputPath": "/x/tool-results/b.txt"}, None, "persisted", id="persistedOutputPath"),
+    pytest.param({"structuredContent": [{"type": "text", "text": "x"}]}, None, "persisted", id="structuredContent")]
+
+
+@pytest.mark.parametrize("md", [None, "on", "shadow"])
+@pytest.mark.parametrize("resp,extra,skip", FAILED_OR_SPECIAL)
+def test_failed_background_and_persisted_bash_results_stay_whole(hk, md, resp, extra, skip):
+    if md:
+        setmode(hk, md)
+    ev = bash_ev(hk, "make test", build_log(errs=[(2990, "error: last")]), **resp)
+    if extra and "is_error" in extra:
+        ev.update(extra)
+    elif extra:
+        ev["tool_input"].update(extra)
+    before = copy.deepcopy(ev)
+    assert hk.mod.handle(ev) is None and ev == before
+    r = rows(hk)[-1]
+    assert r["skip"] == skip and r["cut"] is False and r["applied"] is False and spills(hk) == []
+
+
+@pytest.mark.parametrize("exit_ok", [{"exitCode": 0}, {"exit_code": 0}, {"returnCode": 0}, {"isError": False},
+                                     {"returnCodeInterpretation": ""}, {"interrupted": False}])
+def test_explicit_success_fields_still_cut(hk, exit_ok):
+    assert hk.mod.handle(bash_ev(hk, "make", build_log(), **exit_ok)) is not None
+    assert rows(hk)[-1]["applied"] is True
+
+
+@pytest.mark.parametrize("cmd", ["cat big.log", "git diff HEAD~3", "sed -n 1,9999p f"])
+def test_default_leaves_viewing_commands_in_shadow(hk, cmd):
+    assert hk.mod.handle(bash_ev(hk, cmd, sized(30000))) is None
+    r = rows(hk)[-1]
+    assert (r["cls"], r["cut"], r["applied"]) == ("view", True, False) and spills(hk) == []
+    setmode(hk, "on")
+    assert hk.mod.handle(bash_ev(hk, cmd, sized(30000), sid="s-on")) is not None   # `on`: cut
+
+
+def test_default_leaves_read_in_shadow(hk):
+    big = "\n".join("def f%d():\n    return %d" % (i, i) for i in range(2000))
+    ev = read_ev(hk, hk.proj / "big.py", big)
+    before = copy.deepcopy(ev)
+    assert hk.mod.handle(ev) is None and ev == before
+    r = rows(hk)[-1]
+    assert (r["tool"], r["cls"], r["cut"], r["applied"]) == ("Read", "read", True, False)
+    setmode(hk, "on")
+    assert hk.mod.handle(read_ev(hk, hk.proj / "big.py", big, sid="s-on")) is not None
+
+
+@pytest.mark.parametrize("value", ["shadow", "off", " OFF ", "Shadow"])
+def test_kill_switches_stop_the_default_cut(hk, value):
+    setmode(hk, value)
+    ev = bash_ev(hk, "make", build_log())
+    assert hk.mod.handle(ev) is None and spills(hk) == []
+    if value.strip().lower() == "off":
+        assert not (hk.proj / ".claude-work").exists()
+    else:
+        assert rows(hk)[-1]["cut"] is True and rows(hk)[-1]["applied"] is False
 
 
 # ---------------------------------------------------------------- Read
@@ -405,8 +496,10 @@ def test_bash_results_claude_code_persisted_untouched(hk, extra):
 
 
 # ---------------------------------------------------------------- spill file: 0600, safe paths
-def test_spill_is_0600_in_0700_dirs_under_the_project(hk):
-    setmode(hk, "on")
+@pytest.mark.parametrize("md", ["on", None])
+def test_spill_is_0600_in_0700_dirs_under_the_project(hk, md):
+    if md:
+        setmode(hk, md)
     text = build_log()
     out = updated(hk.mod.handle(bash_ev(hk, "make", text)))
     [sp] = spills(hk)
@@ -532,8 +625,10 @@ SECRET_LINES = ["export API_KEY=sk-live-Abc123Def456Ghi789", "Authorization: Bea
                 "token " + GHP, "aws " + AKIA, "clone https://bob:hunter2pw@git.example.com/r.git"] + PEM
 
 
-def test_spill_masks_credentials_and_keeps_line_numbers(hk):
-    setmode(hk, "on")
+@pytest.mark.parametrize("md", ["on", None])
+def test_spill_masks_credentials_and_keeps_line_numbers(hk, md):
+    if md:
+        setmode(hk, md)
     lines = build_log().split("\n")
     lines[100:100 + len(SECRET_LINES)] = SECRET_LINES
     text = "\n".join(lines)
@@ -634,7 +729,7 @@ def test_settings_registers_posttooluse_bash_read_only():
     assert found == [("PostToolUse", "Bash|Read", '/bin/sh "__CLAUDE_DIR__/bin/stack-hook" output_shrink', 10)]
     # Phase 0 security review: these two stay pinned (legacy ~/.claude.json fallback; remote flag default)
     assert s["autoCompactEnabled"] is True and s["env"]["MAX_MCP_OUTPUT_TOKENS"] == "25000"
-    assert "STACK_OUTPUT_SHRINK" not in s.get("env", {})          # shipped in shadow mode (the default)
+    assert "STACK_OUTPUT_SHRINK" not in s.get("env", {})          # the mode is the code's default
 
 
 def test_installer_and_doctor_wire_the_hook():
@@ -663,7 +758,7 @@ def stub_tree(tmp):
     return c
 
 
-@pytest.mark.parametrize("md", ["shadow", "on"])
+@pytest.mark.parametrize("md", ["shadow", "on", ""])
 def test_through_the_stack_hook_stub(hk, md):
     c = stub_tree(hk.tmp)
     env = dict(os.environ, STACK_OUTPUT_SHRINK=md)
@@ -677,10 +772,14 @@ def test_through_the_stack_hook_stub(hk, md):
         assert json.loads(p.stdout)["hookSpecificOutput"]["updatedToolOutput"]["stdout"].startswith("[output-shrink:")
 
 
+@pytest.mark.parametrize("md", ["on", ""])
 @pytest.mark.parametrize("stdin", ["", "not json", "[]", ('{"hook_event_name": "PostToolUse", "tool_name": "Bash", '
-                                                            '"tool_response": "a string", "tool_input": {"command": "x"}}')])
-def test_garbage_input_fails_open(hk, stdin):
-    env = dict(os.environ, STACK_OUTPUT_SHRINK="on")
+                                                            '"tool_response": "a string", "tool_input": {"command": "x"}}'),
+                                   ('{"hook_event_name": "PostToolUse", "tool_name": "Bash", "tool_input": "x", '
+                                    '"tool_response": {"stdout": ' + json.dumps("x" * 30000) + ', "stderr": 7}}'),
+                                   '{"hook_event_name": "PostToolUse", "tool_name": "Read", "tool_response": {"file": 3}}'])
+def test_garbage_input_fails_open(hk, stdin, md):
+    env = dict(os.environ, STACK_OUTPUT_SHRINK=md)
     p = subprocess.run([PY, str(hk.c / "hooks" / "output_shrink.py")], input=stdin, capture_output=True, text=True,
                        env=env, timeout=15, check=False)
     assert p.returncode == 0 and p.stdout == ""
@@ -704,3 +803,79 @@ def test_report_reads_the_log(hk):
     p = subprocess.run([PY, str(hk.c / "hooks" / "output_shrink.py"), "report", str(hk.proj), "--json"],
                        capture_output=True, text=True, env=dict(os.environ), timeout=30, check=False)
     assert p.returncode == 0 and json.loads(p.stdout)["cut_events"] == 1
+
+
+def test_report_compares_shadow_with_default_per_tool_and_mode(hk):
+    """D: the same log before (shadow) and after (default) the switch, one table: cut = output
+    replaced, would-cut = decided but not applied; a pre-2026-10-08 `on` row counts as applied."""
+    text = build_log(errs=[(9, "error: q")])
+    setmode(hk, "shadow")
+    hk.mod.handle(bash_ev(hk, "make", text, sid="a"))
+    hk.mod.handle(bash_ev(hk, "ls", "a\n", sid="a"))
+    hk.mp.delenv("STACK_OUTPUT_SHRINK")
+    hk.mod.handle(bash_ev(hk, "make", text, sid="b"))
+    big = "\n".join("def f%d():\n    return %d" % (i, i) for i in range(2000))
+    hk.mod.handle(read_ev(hk, hk.proj / "big.py", big, sid="b"))
+    r = rows(hk)
+    legacy, legacy_shadow = dict(r[0], mode="on", sid="c"), dict(r[0], sid="d")
+    del legacy["applied"], legacy_shadow["applied"]
+    run_row = {"v": 1, "ts": time.time(), "sid": "b", "aid": "", "atype": "", "tool": "stack-run", "mode": "on",
+               "cls": "run", "key": "k", "chars": 50000, "lines": 400, "kept_chars": 120, "kept_lines": 1, "rc": 0,
+               "cut": True, "applied": True}
+    with open(wdir(hk) / "log.jsonl", "a") as fh:
+        fh.write("\n".join(json.dumps(x) for x in (legacy, legacy_shadow, run_row)) + "\n" + "not json\n"
+                 + '{"v": 1, "chars": "x"}\n')
+    t = hk.mod.report(hk.mod.load_rows([str(hk.proj)]))["by_tool_mode"]
+    saved = r[0]["chars"] - r[0]["kept_chars"]
+    seen = 2 * r[0]["chars"] + 2                                      # two `make` rows and the `ls` row
+    assert t["Bash/shadow"] == {"rows": 3, "chars": seen, "kept": seen, "cut": 0, "would_cut": 2 * saved,
+                                "pct": round(100.0 * 2 * saved / seen, 1)}
+    assert t["Bash/default"]["cut"] == saved and t["Bash/default"]["would_cut"] == 0
+    assert t["Bash/default"]["kept"] == r[2]["kept_chars"]
+    assert t["Read/default"]["cut"] == 0 and t["Read/default"]["would_cut"] == r[3]["chars"] - r[3]["kept_chars"] > 0
+    assert t["Bash/on"]["cut"] == saved                               # legacy row: an `on` cut was applied
+    assert t["stack-run/on"] == {"rows": 1, "chars": 50000, "kept": 120, "cut": 49880, "would_cut": 0, "pct": 99.8}
+    p = subprocess.run([PY, str(hk.c / "hooks" / "output_shrink.py"), "--report", str(wdir(hk) / "log.jsonl")],
+                       capture_output=True, text=True, env=dict(os.environ), timeout=30, check=False)
+    assert p.returncode == 0, p.stderr
+    line = next(x for x in p.stdout.splitlines() if x.startswith("stack-run/on"))
+    assert line.split() == ["stack-run/on", "1", "50000", "120", "49880", "0", "99.8"]
+    assert any(x.startswith("Bash/default") for x in p.stdout.splitlines())
+
+
+# ---------------------------------------------------------------- the pieces bin/stack-run imports
+def test_scrubber_streams_the_same_mask_as_scrub(hk):
+    text = "\n".join(["a"] + SECRET_LINES + ["b", PEM[0], "x", PEM[2], "c"])
+    sc = hk.mod.Scrubber()
+    assert "\n".join(sc.line(s) for s in text.split("\n")) == hk.mod.scrub(text)
+    out = hk.mod.scrub(text).split("\n")
+    assert out[-5:] == ["b", "***", "***", "***", "c"] and len(out) == text.count("\n") + 1
+
+
+@pytest.mark.parametrize("unit", ["step %05d ok", "%d"])
+def test_stream_digest_equals_select_on_a_short_stream(hk, unit):
+    """Up to head + tail budget lines (1,300) the stream is held whole: the pick is select()'s, in
+    full (short lines: the tail budget reaches back 400 lines) and cut to k."""
+    lines = [unit % (i % 10 if unit == "%d" else i) for i in range(1200)]
+    lines[7], lines[600], lines[1150], lines[1198] = ("error: a", "Traceback (most recent call last):",
+                                                      "ValueError: z", "=== 1 failed ===")
+    d = hk.mod.StreamDigest()
+    for s in lines:
+        d.add(s)
+    taken = []
+    hk.mod.select(lines, taken)
+    assert d.pick(10 ** 6) == [(i + 1, lines[i]) for i in sorted(taken)]
+    assert d.pick(20) == [(i + 1, lines[i]) for i in sorted(taken[:20])] and d.pick(0) == []
+    assert {s for _, s in d.pick(3)} == {"ValueError: z", "error: a", "=== 1 failed ==="}
+
+
+def test_stream_digest_holds_a_bounded_number_of_lines(hk):
+    d = hk.mod.StreamDigest()
+    for i in range(60000):
+        d.add(("error: case %d" % i) if i % 3 == 0 else ("step %d " % i) + "x" * 400)
+    held = len({no for part in (d.head, d.err_first, d.err_last, d.sums, d.struct, d.tail) for no, _ in part})
+    b = hk.mod.BUDGET
+    assert d.n == 60000 and held <= b["head"] + b["tail"] + 2 * b["err"] + b["sum"] + b["struct"]
+    assert max(len(s) for part in (d.head, d.tail) for _, s in part) <= hk.mod.LINE_MAX + 20
+    pick = d.pick(5)
+    assert pick[-1] == (59998, "error: case 59997") and len(pick) == 5     # 1-based line numbers
