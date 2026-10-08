@@ -21,7 +21,11 @@ total_cost_usd is the CLI's client-side estimate.
 Sessions use the installed `claude` (--cli, default the one on PATH; PR9 also runs the SDK's bundled
 CLI), the stack's own files (<config>/bin/stack_sdk.py options(): user/project/local settings, an agent
 as main thread) and a fresh scratch directory per probe as cwd. The probes' permission host
-(can_use_tool) allows only what each probe names, never persists a rule, and denies everything else.
+(can_use_tool) allows only what each probe names, never persists a rule, and denies everything else
+that reaches it; what the user's settings already allow never reaches it, so every session also gets
+a settings overlay with sandbox.autoAllowBashIfSandboxed false (sandboxed Bash would otherwise run
+without asking) and disallows WebSearch, WebFetch and the image-studio MCP server (spend outside
+max_budget_usd). A session that ends without a result is counted at its whole cap.
 
 The report (default <main checkout>/.claude-work/sdk/probes/<date>.md) holds per probe the question,
 yes / no / unknown / error / skipped / refused, cost, cap, session ids, transcript paths and measured
@@ -57,6 +61,9 @@ SMALL_USD, LARGE_USD, TOTAL_CAP_USD = 0.50, 1.50, 10.50
 LARGE = frozenset({"PR3", "PR5", "PR7", "PR10"})        # the probes that spawn children
 TERMINAL = frozenset({"completed", "failed", "stopped", "killed"})
 FILE_TOOLS = frozenset({"Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "LS", "NotebookEdit"})
+# every session: what user allow rules would otherwise approve without asking the host
+SETTINGS_OVERLAY = json.dumps({"sandbox": {"autoAllowBashIfSandboxed": False}})
+DISALLOWED = ("WebSearch", "WebFetch", "mcp__image-studio")
 IDENT = re.compile(r"[A-Za-z0-9_.:/@+=-]{0,200}")        # what a string fact may look like
 WITHHELD = "<withheld>"
 
@@ -207,9 +214,10 @@ def yn(cond: bool | None) -> str:
 
 # ---------------------------------------------------------------- the probes' host and observer hook
 class Host:
-    """can_use_tool for the probes: answers AskUserQuestion with each question's first option; allows
-    only the tools in `allow` (file tools inside the scratch dir, Bash only `sleep N`); denies the rest.
-    Never returns updated_permissions, so no rule is ever persisted. Records tool names only."""
+    """can_use_tool for the probes: allows only the tools in `allow` (file tools inside the scratch dir,
+    Glob only with a relative pattern, Bash only `sleep N`; AskUserQuestion, when allowed, answered
+    with each question's first option); denies the rest. Never returns updated_permissions, so no rule
+    is ever persisted. Records tool names only."""
 
     def __init__(self, scratch: str, allow: tuple[str, ...] = ()):
         self.scratch, self.allow, self.seen = os.path.realpath(scratch), frozenset(allow), []
@@ -219,6 +227,10 @@ class Host:
             return False
         if tool == "Bash":
             return re.fullmatch(r"sleep \d{1,3}", str(inp.get("command") or "").strip()) is not None
+        if tool == "Glob":
+            pattern = str(inp.get("pattern") or "")
+            if os.path.isabs(pattern) or pattern.startswith("~") or ".." in pattern:
+                return False
         if tool in FILE_TOOLS:
             p = inp.get("file_path") or inp.get("path") or inp.get("notebook_path") or self.scratch
             p = os.path.realpath(os.path.join(self.scratch, str(p)))
@@ -228,7 +240,7 @@ class Host:
     async def __call__(self, tool: str, inp: dict[str, Any], context: Any) -> Any:
         from claude_agent_sdk import PermissionResultAllow, PermissionResultDeny
         self.seen.append(tool)
-        if tool == "AskUserQuestion":
+        if tool == "AskUserQuestion" and tool in self.allow:
             answers = {str(q.get("question", "")): str(((q.get("options") or [{}])[0]).get("label", ""))
                        for q in inp.get("questions") or [] if isinstance(q, dict)}
             return PermissionResultAllow(updated_input=dict(inp, answers=answers))
@@ -298,6 +310,7 @@ class Ctx:
         self.session_ids: list[str] = []
         self.rate_limit_events = 0
         self.keys = itertools.count()             # one cost entry per session
+        self.reported: set[int] = set()           # sessions that have sent a result
         self.scratch = tempfile.mkdtemp(prefix="sdk-probe-%s-" % probe.pid.lower())
 
     @property
@@ -312,6 +325,8 @@ class Ctx:
             raise BudgetError("%s: no cap left for another session" % self.probe.pid)
         kw.setdefault("cli_path", self.cfg.cli_path)
         kw.setdefault("max_turns", 8)
+        kw.setdefault("settings", SETTINGS_OVERLAY)
+        kw.setdefault("disallowed_tools", list(DISALLOWED))
         return self.helper.options(agent, budget_usd=budget, cwd=self.scratch, **kw)
 
     def check(self, opts: Any) -> None:
@@ -322,9 +337,20 @@ class Ctx:
     def _transport(self, opts: Any) -> Any:
         return self.cfg.transport_factory(opts) if self.cfg.transport_factory else None
 
+    def reserve(self, key: int, opts: Any) -> None:
+        """A session counts at its whole cap until its first result reports the real cost."""
+        self.check(opts)
+        self.costs[key] = float(opts.max_budget_usd)
+
+    @property
+    def unreported(self) -> int:
+        return len(set(self.costs) - self.reported)
+
     def note(self, key: int, m: Any) -> None:
-        if is_result(m):            # cumulative per session: keep the largest
-            self.costs[key] = max(self.costs.get(key, 0.0), float(m.total_cost_usd or 0))
+        if is_result(m):            # the first result replaces the reservation; cumulative after that
+            cost = float(m.total_cost_usd or 0)
+            self.costs[key] = max(self.costs.get(key, 0.0), cost) if key in self.reported else cost
+            self.reported.add(key)
         elif kind(m) == "RateLimitEvent":
             self.rate_limit_events += 1
         sid = getattr(m, "session_id", None)
@@ -339,6 +365,7 @@ class Ctx:
         from claude_agent_sdk import ClaudeSDKClient
         c = ClaudeSDKClient(opts, transport=self._transport(opts))
         s = Session(self, c)
+        self.reserve(s.key, opts)
         await c.connect()
         try:
             yield s
@@ -354,6 +381,7 @@ class Ctx:
         self.check(opts)
         from claude_agent_sdk import query
         key, out = next(self.keys), []
+        self.reserve(key, opts)
         async for m in query(prompt=prompt, options=opts, transport=self._transport(opts)):
             self.note(key, m)
             out.append((time.monotonic(), m))
@@ -398,7 +426,7 @@ async def pr1(c: Ctx) -> Outcome:
 async def pr2(c: Ctx) -> Outcome:
     f: dict[str, Any] = {}
     for label, with_hook in (("with_hook", True), ("without_hook", False)):
-        host, log = Host(c.scratch), []
+        host, log = Host(c.scratch, ("AskUserQuestion",)), []
         kw: dict[str, Any] = {"can_use_tool": host, "max_turns": 4, "share": 0.5}
         if with_hook:
             kw["hooks"] = observer(log)
@@ -452,7 +480,9 @@ async def pr5(c: Ctx) -> Outcome:
         if child is not None:
             f["child_started"], sid = True, child.session_id
             await anyio.sleep(2 * c.cfg.settle_s)                  # let it reach its sleep
-            f["leases_before"] = len(c.leases(sid))
+            before = c.leases(sid)
+            f["leases_before"] = len(before)
+            f["stopped_child_had_lease"] = any(child.tool_use_id and child.tool_use_id in p for p in before)
             await s.c.stop_task(child.task_id)
             await s.wait_for(lambda m: task_states(s.msgs).get(child.task_id, {}).get("status") in TERMINAL, 60)
             await anyio.sleep(c.cfg.settle_s)
@@ -462,8 +492,8 @@ async def pr5(c: Ctx) -> Outcome:
                      locks_after=len(glob.glob(os.path.join(c.guard_dir(sid), "**", "*.lock"), recursive=True)))
         await s.c.interrupt()
         await s.wait_for(is_result, 60)
-    if not f["child_started"]:
-        return Outcome("unknown", f)
+    if not f["child_started"] or not f["stopped_child_had_lease"]:
+        return Outcome("unknown", f)                    # nothing to release: no answer
     released = not f["stopped_child_lease_remains"] and f["child_status_after_stop"] in TERMINAL
     return Outcome(yn(released), f)
 
@@ -490,36 +520,46 @@ def guard_snapshot(c: Ctx, sid: str | None) -> dict[str, Any]:
 
 
 async def pr6(c: Ctx) -> Outcome:
-    async with c.client(c.options(max_turns=2, share=0.5)) as s:
+    async with c.client(c.options(max_turns=2, share=0.5, include_partial_messages=True)) as s:
         await s.c.query(PROMPTS["count"])
-        await s.wait_for(lambda m: kind(m) == "AssistantMessage", 120)
-        await s.c.interrupt()
-        r1 = await s.wait_for(is_result, 60)
+        first = await s.wait_for(lambda m: kind(m) in ("StreamEvent", "ResultMessage"), 120)
+        streaming = first is not None and kind(first) == "StreamEvent"
+        r1 = first if first is not None and is_result(first) else None
+        if streaming:                                   # interrupt mid-reply
+            await s.c.interrupt()
+            r1 = await s.wait_for(is_result, 60)
     sid = r1.session_id if r1 is not None else session_of(s.msgs)
     before = guard_snapshot(c, sid)
-    async with c.client(c.options(max_turns=2, resume=sid)) as s2:
+    async with c.client(c.options(max_turns=2, resume=sid, share=0.5)) as s2:
         r2 = result_of(await s2.turn(PROMPTS["ok"], 180))
     after = guard_snapshot(c, sid)
-    f = {"interrupted_terminal_reason": r1 and r1.terminal_reason, "resumed": r2 is not None,
+    interrupted = streaming and r1 is not None and r1.terminal_reason in ("aborted_streaming",
+                                                                                        "aborted_tools")
+    f = {"interrupted": interrupted, "interrupted_terminal_reason": r1 and r1.terminal_reason,
+         "resumed": r2 is not None,
          "resumed_same_session": bool(r2 is not None and r2.session_id == sid),
          **{k + "_after_interrupt": v for k, v in before.items()}, **{k + "_after_resume": v for k, v in after.items()}}
     w0, w1 = before.get("prompt_windows"), after.get("prompt_windows")
-    if r2 is None or w0 is None or w1 is None or after.get("budget_parses") is None:
+    if not interrupted or r2 is None or w0 is None or w1 is None or after.get("budget_parses") is None:
         return Outcome("unknown", f)
     ok = f["resumed_same_session"] and not after["prompt_pending"] and after["budget_parses"] and w1 == w0 + 1
     return Outcome(yn(ok), f)
 
 
 async def pr7(c: Ctx) -> Outcome:
-    host = Host(c.scratch, ("Agent", "Task", "Bash"))
+    # No can_use_tool and no SDK hook: with either, the SDK keeps stdin open while a tracked agent runs
+    # and its own ceiling never ends the run (query.py _end_run_at_ceiling), so "yes" could not happen.
+    # Without them query() closes stdin after the first result and the CLI's ceiling is measured.
+    # Approval by rules; whether the child inherits them is part of what PR7 shows.
     env = {"CLAUDE_CODE_PRINT_BG_WAIT_CEILING_MS": str(c.cfg.bg_ceiling_ms)}
-    o = c.options(permission_mode="default", can_use_tool=host, hooks=observer([]), env=env, max_turns=6)
+    o = c.options(permission_mode="default", allowed_tools=["Agent", "Task", "Bash(sleep 110)"], env=env,
+                  max_turns=6)
     t0 = time.monotonic()
     out = await c.one_shot(PROMPTS["bg"], o)
     t_end, msgs = time.monotonic(), [m for _, m in out]
     t_res = next((t for t, m in out if is_result(m)), None)
     tasks = [t for t in task_states(msgs).values() if t["task_type"] == "local_agent"]
-    f = {"ceiling_ms": c.cfg.bg_ceiling_ms, "results": sum(map(is_result, msgs)), "child_started": bool(tasks),
+    f = {"ceiling_ms": c.cfg.bg_ceiling_ms, "sdk_bidirectional": bool(o.can_use_tool or o.hooks), "results": sum(map(is_result, msgs)), "child_started": bool(tasks),
          "child_status_at_end": tasks[0]["status"] if tasks else None, "end_s": round(t_end - t0, 1),
          "first_result_s": None if t_res is None else round(t_res - t0, 1),
          "wait_after_first_result_s": None if t_res is None else round(t_end - t_res, 1)}
@@ -703,6 +743,7 @@ async def run_probes(probes: list[Probe], cfg: Config, helper: Any) -> list[Row]
         row.cost, row.sessions, row.seconds = ctx.spent, list(ctx.session_ids), round(time.monotonic() - t0, 1)
         row.transcripts = [t for sid in ctx.session_ids for t in ctx.transcripts(sid)]
         row.facts["rate_limit_events"] = ctx.rate_limit_events
+        row.facts["sessions_without_result"] = ctx.unreported      # counted at their whole cap
         total += ctx.spent
         rows.append(row)
         if row.answer == "refused":

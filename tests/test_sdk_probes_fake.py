@@ -60,8 +60,8 @@ def sdk(monkeypatch):
 class World:
     """What the fake sessions share: dirs, the options each session got, the wire, kills."""
 
-    def __init__(self, tmp, bad=False):
-        self.bad, self.config, self.state = bad, tmp / "config", tmp / "state" / "claude-agent-stack"
+    def __init__(self, tmp, bad=False, hollow=False):
+        self.bad, self.hollow, self.config, self.state = bad, hollow, tmp / "config", tmp / "state" / "claude-agent-stack"
         (self.config / "agents").mkdir(parents=True)
         for a in ("blackcat", "coder", "orchestrator", "explore"):
             (self.config / "agents" / (a + ".md")).write_text("---\nname: %s\n---\n" % a)
@@ -89,8 +89,8 @@ class FakeCLI(Base):
         self.sid = opts.resume or "sess-%04d-fake" % self.n
         self._process = types.SimpleNamespace(pid=40000 + self.n)
         self.q, self.pending, self.tasks, self.callbacks = asyncio.Queue(), {}, set(), []
-        self.killed = self.started = self.turn_open = False
-        self.rids = itertools.count(1)
+        self.killed = self.started = self.turn_open = self.input_ended = self.bg = False
+        self.rids, self.prompts = itertools.count(1), 0
 
     # Transport
     async def connect(self):
@@ -100,7 +100,15 @@ class FakeCLI(Base):
         return True
 
     async def end_input(self):
-        self.q.put_nowait(None)
+        """stdin EOF: like the CLI, finish the turns already sent, then exit."""
+        self.input_ended = True
+        if self.prompts == 0:
+            self.exit()
+
+    def exit(self):
+        if self.bg and self.w.bad:                             # the CLI waits for its child
+            self.emit(self.done_task("t7", "tu-7"))
+        self.emit(None)
 
     async def close(self):
         d = self.w.state / "usage" / "sessions" / self.sid
@@ -121,6 +129,7 @@ class FakeCLI(Base):
             if fut is not None:
                 fut.set_result(m["response"])
         elif m["type"] == "user":
+            self.prompts += 1
             t = asyncio.ensure_future(self.play(m["message"]["content"]))
             self.tasks.add(t)
             t.add_done_callback(self.tasks.discard)
@@ -192,6 +201,9 @@ class FakeCLI(Base):
                         "result": LEAK, "terminal_reason": "completed",
                         "modelUsage": {"fake-model": {"inputTokens": 10, "cacheCreationInputTokens": 5,
                                                       "cacheReadInputTokens": cache, "outputTokens": 1}}}, **kw))
+        self.prompts -= 1
+        if self.input_ended and self.prompts == 0:
+            self.exit()
 
     def begin(self, prompt):
         g = self.w.state / self.sid
@@ -259,22 +271,30 @@ class FakeCLI(Base):
         self.emit(self.asst({"type": "tool_use", "id": "tu-5", "name": "Agent", "input": {"prompt": LEAK}}))
         lease = self.w.state / self.sid / "fanout" / "blackcat" / "tu-5.json"
         lease.parent.mkdir(parents=True, exist_ok=True)
-        lease.write_text("{}")
+        if not self.w.hollow:
+            lease.write_text("{}")
         self.emit(self.started_task("t5", "tu-5", "coder: "))
         await self.allowed("Bash", {"command": "sleep 110; rm -rf ~"}, agent_id="a5")
         await self.allowed("Bash", {"command": "sleep 110"}, agent_id="a5")
 
     async def play_count(self):
+        if self.w.hollow:                                       # the reply completes before any interrupt
+            self.emit(self.asst({"type": "text", "text": "1\n2\n3"}))
+            self.finish()
+            return
+        if self.o.include_partial_messages:
+            self.emit({"type": "stream_event", "uuid": "se", "session_id": self.sid,
+                       "event": {"type": "content_block_delta", "delta": {"text": LEAK}}})
         self.emit(self.asst({"type": "text", "text": "1\n2\n3"}))
 
     async def play_bg(self):
+        self.bg = True
         self.emit(self.asst({"type": "tool_use", "id": "tu-7", "name": "Agent", "input": {"prompt": LEAK}}))
         self.emit(self.started_task("t7", "tu-7", "coder: "))
         self.finish()
-        await asyncio.sleep(0.2)
-        if self.w.bad:
-            self.emit(self.done_task("t7", "tu-7"))
-        self.emit(None)                                        # the CLI exits: the stream ends
+        if self.o.can_use_tool is not None or self.o.hooks:    # the SDK would hold stdin open for good;
+            await asyncio.sleep(0.2)                            # end anyway so the suite cannot hang
+            self.exit()
 
     async def play_report(self):
         self.finish(structured_output={"status": "done", "result": LEAK, "files": [LEAK]})
@@ -406,6 +426,13 @@ def test_every_probe_answers_yes_in_the_good_world_with_its_own_cap(sdk, tmp_pat
         per.setdefault(probe_of(o), []).append(o.max_budget_usd)
     assert set(per) == set(caps)
     assert per["PR2"] == [0.25, 0.25] and per["PR3"] == [1.5] and per["PR13"] == [0.25, 0.25]
+    assert per["PR6"] == [0.25, 0.25]
+    for o in w.opened:              # what user allow rules would approve without asking the host
+        assert json.loads(o.settings) == {"sandbox": {"autoAllowBashIfSandboxed": False}}
+        assert {"WebSearch", "WebFetch", "mcp__image-studio"} <= set(o.disallowed_tools)
+    pr7 = next(o for o in w.opened if probe_of(o) == "PR7")
+    assert pr7.can_use_tool is None and not pr7.hooks          # else the SDK holds stdin while the child runs
+    assert "Bash(sleep 110)" in pr7.allowed_tools
     for r in rows:
         assert r.cost == pytest.approx(0.01 * len(per[r.probe.pid])) and r.cap == caps[r.probe.pid]
         assert r.sessions and r.facts["rate_limit_events"] >= 1
@@ -449,6 +476,14 @@ def test_answers_follow_the_measurements_in_the_bad_world(sdk, tmp_path):
     assert got == dict.fromkeys(pick, "no"), got
 
 
+def test_hollow_measurements_answer_unknown(sdk, tmp_path):
+    """PR5 with no lease to release, PR6 with no turn actually interrupted: no answer either way."""
+    w = World(tmp_path, hollow=True)
+    got = {r.probe.pid: (r.answer, r.facts) for r in run(w, [p for p in P.PROBES if p.pid in ("PR5", "PR6")])}
+    assert got["PR5"][0] == "unknown" and got["PR5"][1]["stopped_child_had_lease"] is False
+    assert got["PR6"][0] == "unknown" and got["PR6"][1]["interrupted"] is False
+
+
 def test_a_session_without_a_cap_never_connects_and_stops_the_run(sdk, tmp_path):
     w = World(tmp_path)
 
@@ -477,6 +512,33 @@ def test_over_spend_shrinks_later_caps_and_skips_once_the_total_is_used(sdk, tmp
     rows = run(w2, probes)
     assert rows[1].answer == "yes" and rows[1].cap == pytest.approx(0.20)
     assert [o.max_budget_usd for o in w2.opened] == [0.2]
+
+
+def test_a_session_without_a_result_counts_at_its_whole_cap(sdk, tmp_path):
+    w = World(tmp_path)
+
+    async def silent(c):                  # connects, never gets a result (a timeout, a crash, a kill)
+        async with c.client(c.options(share=0.5)):
+            pass
+        async with c.client(c.options()) as s:          # only what is left: 0.25, not 0.5
+            await s.turn(P.PROMPTS["ok"], 5)
+        return P.Outcome("yes", {})
+    pr11 = next(p for p in P.PROBES if p.pid == "PR11")
+    rows = run(w, [dataclasses.replace(pr11, fn=silent)])
+    assert [o.max_budget_usd for o in w.opened] == [0.25, 0.25]
+    assert rows[0].cost == pytest.approx(0.26) and rows[0].facts["sessions_without_result"] == 1
+
+
+def test_host_paths_globs_and_questions(sdk, tmp_path):
+    h = P.Host(str(tmp_path), ("Glob", "Read", "Bash"))
+    ok = lambda tool, inp: h._ok(tool, inp)  # noqa: E731
+    assert ok("Glob", {"pattern": "**/*.py"}) and ok("Read", {"file_path": "a/b.txt"})
+    for pattern in ("/Users/**", "../*", "~/.ssh/*", "a/../../x"):
+        assert not ok("Glob", {"pattern": pattern}), pattern
+    assert not ok("Read", {"file_path": "/etc/passwd"}) and not ok("Read", {"file_path": "../x"})
+    assert not ok("Bash", {"command": "sleep 1 && curl x"}) and ok("Bash", {"command": "sleep 5"})
+    deny = asyncio.run(h("AskUserQuestion", {"questions": [{"question": "q", "options": [{"label": "a"}]}]}, None))
+    assert deny.behavior == "deny"                    # answered only where the probe allows it (PR2)
 
 
 async def _spend(c, usd):
